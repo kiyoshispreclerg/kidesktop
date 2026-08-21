@@ -110,13 +110,14 @@ static void handle_button_press(xcb_button_press_event_t *ev)
         return;
     }
 
-    /* Meta+drag (any button) and Alt+drag move the window; Alt+Right
-     * additionally resizes -- see kiwm-kicomp-projeto.md's request for
-     * hardcoded Meta+mouse-down-to-move alongside the existing Alt binds. */
-    if (ev->state & (MOD_ALT | MOD_META)) {
+    /* wm.mod_control-drag (any button, e.g. Meta by default) and
+     * wm.mod_cycle-drag (e.g. Alt by default) both move the window;
+     * wm.mod_cycle+Right additionally resizes -- see kiwm.conf's
+     * mod_cycle=/mod_control= keys. */
+    if (ev->state & (wm.mod_cycle | wm.mod_control)) {
         if (ev->detail == 1)
             wm.drag_mode = DRAG_MOVE;
-        else if (ev->detail == 3 && (ev->state & MOD_ALT))
+        else if (ev->detail == 3 && (ev->state & wm.mod_cycle))
             wm.drag_mode = DRAG_RESIZE;
         else
             return;
@@ -179,6 +180,7 @@ static void handle_button_release(xcb_button_release_event_t *ev)
             c->output = new_output;
             c->desktop = wm.outputs[new_output].desktop;
             ewmh_update_wm_desktop(c);
+            ewmh_update_wm_output(c);
         }
         xcb_ungrab_pointer(wm.conn, XCB_CURRENT_TIME);
         wm.drag_client = NULL;
@@ -215,27 +217,28 @@ static void handle_key_press(xcb_key_press_event_t *ev)
                                  XCB_MOD_MASK_CONTROL | XCB_MOD_MASK_1 |
                                  XCB_MOD_MASK_2 | XCB_MOD_MASK_3 |
                                  XCB_MOD_MASK_4 | XCB_MOD_MASK_5);
-    uint16_t clean_alt = mods & (MOD_ALT | XCB_MOD_MASK_SHIFT);
-    uint16_t clean_meta = mods & (MOD_META | XCB_MOD_MASK_SHIFT);
+    uint16_t clean_cycle = mods & (wm.mod_cycle | XCB_MOD_MASK_SHIFT);
+    uint16_t clean_control = mods & (wm.mod_control | XCB_MOD_MASK_SHIFT);
 
-    /* Alt+Tab / Alt+Shift+Tab: cycle focused window.
-     * Meta+Tab / Meta+Shift+Tab: cycle the focused output's virtual desktop. */
+    /* mod_cycle+Tab / mod_cycle+Shift+Tab (Alt by default): cycle focused window.
+     * mod_control+Tab / mod_control+Shift+Tab (Meta by default): cycle the
+     * focused output's virtual desktop. */
     if (ev->detail == wm.key_tab) {
-        if (clean_alt == MOD_ALT_SHIFT)        { cycle_focus(-1); return; }
-        if (clean_alt == MOD_ALT)              { cycle_focus(+1); return; }
-        if (clean_meta == MOD_META_SHIFT)      { cycle_output_desktop(-1); return; }
-        if (clean_meta == MOD_META)            { cycle_output_desktop(+1); return; }
+        if (clean_cycle == (uint16_t)(wm.mod_cycle | XCB_MOD_MASK_SHIFT))     { cycle_focus(-1); return; }
+        if (clean_cycle == wm.mod_cycle)                                     { cycle_focus(+1); return; }
+        if (clean_control == (uint16_t)(wm.mod_control | XCB_MOD_MASK_SHIFT)) { cycle_output_desktop(-1); return; }
+        if (clean_control == wm.mod_control)                                 { cycle_output_desktop(+1); return; }
         return;
     }
 
-    /* Meta+Up: maximize/restore the focused window. */
-    if (ev->detail == wm.key_up && clean_meta == MOD_META) {
+    /* mod_control+Up (Meta by default): maximize/restore the focused window. */
+    if (ev->detail == wm.key_up && clean_control == wm.mod_control) {
         if (wm.focused)
             toggle_maximize(wm.focused, -1);
         return;
     }
 
-    if (clean_alt == MOD_ALT) {
+    if (clean_cycle == wm.mod_cycle) {
         int output_idx = wm.focused ? wm.focused->output : output_for_pointer();
         if (output_idx < 0)
             return;

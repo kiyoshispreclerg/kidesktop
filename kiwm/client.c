@@ -240,8 +240,8 @@ void set_client_desktop(Client *c, int desktop)
 {
     if (desktop < 0)
         desktop = 0;
-    if (desktop >= NUM_WORKSPACES)
-        desktop = NUM_WORKSPACES - 1;
+    if (desktop >= wm.num_desktops)
+        desktop = wm.num_desktops - 1;
     if (desktop == c->desktop)
         return;
 
@@ -395,6 +395,7 @@ void manage(xcb_window_t window)
 
     configure_frame(c);
     ewmh_update_wm_desktop(c);
+    ewmh_update_wm_output(c);
     ewmh_update_wm_state(c);
     ewmh_update_client_list();
     focus_client(c);

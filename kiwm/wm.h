@@ -19,7 +19,12 @@
 #define MIN_CLIENT_H      60
 #define MAX_CLIENTS      256
 #define MAX_OUTPUTS       16
-#define NUM_WORKSPACES     4
+
+/* Upper bound used only to size fixed stack arrays (e.g. _NET_WORKAREA);
+ * the actual per-output desktop count is wm.num_desktops, read from
+ * kiwm.conf's num_desktops= key at startup (see config.c), default 4. */
+#define MAX_DESKTOPS      32
+#define DEFAULT_NUM_DESKTOPS 4
 
 #define MOD_ALT           XCB_MOD_MASK_1
 #define MOD_ALT_SHIFT     (XCB_MOD_MASK_1 | XCB_MOD_MASK_SHIFT)
@@ -43,7 +48,7 @@ typedef struct XisOutput {
     char name[64];
     int x, y, width, height;
     bool primary;
-    int desktop;            /* current virtual desktop for this output, 0..NUM_WORKSPACES-1 */
+    int desktop;            /* current virtual desktop for this output, 0..wm.num_desktops-1 */
 } XisOutput;
 
 struct Client {
@@ -105,6 +110,7 @@ typedef struct {
     xcb_atom_t kiwm_output_desktop;
     xcb_atom_t kiwm_num_output_desktops;
     xcb_atom_t kiwm_set_output_desktop;
+    xcb_atom_t kiwm_wm_output;
 } Atoms;
 
 typedef struct {
@@ -127,6 +133,17 @@ typedef struct {
 
     cairo_surface_t *deco_bg;   /* cached greenxp/bg.png, ARGB32 */
     bool hide_deco_on_maximize;
+    double deco_bg_r, deco_bg_g, deco_bg_b;   /* fallback titlebar background when no PNG loads */
+    double deco_fg_r, deco_fg_g, deco_fg_b;   /* fallback title text color */
+
+    int num_desktops;   /* virtual desktops per output, from kiwm.conf's num_desktops= (default 4) */
+
+    /* Which modifier drives Alt+Tab-style window cycling vs. Meta-style
+     * window control (move/maximize/desktop-cycle) -- configurable via
+     * kiwm.conf's mod_cycle=/mod_control= (values "alt" or "meta"),
+     * defaulting to MOD_ALT/MOD_META respectively (see config.c). */
+    uint16_t mod_cycle;
+    uint16_t mod_control;
 
     DragMode drag_mode;
     Client *drag_client;

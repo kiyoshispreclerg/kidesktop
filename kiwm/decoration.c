@@ -145,9 +145,9 @@ void draw_decoration(Client *c)
         cairo_paint(cr);
         cairo_restore(cr);
     } else {
-        /* No theme PNG (missing file, or no theme configured yet):
-         * plain black background, white text below. */
-        cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
+        /* No theme PNG (missing file, or no theme configured yet): flat
+         * fallback color from kiwm.conf's deco_bg= (default black). */
+        cairo_set_source_rgb(cr, wm.deco_bg_r, wm.deco_bg_g, wm.deco_bg_b);
         cairo_paint(cr);
     }
 
@@ -160,7 +160,7 @@ void draw_decoration(Client *c)
 
     cairo_select_font_face(cr, "sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(cr, 12.5);
-    cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+    cairo_set_source_rgb(cr, wm.deco_fg_r, wm.deco_fg_g, wm.deco_fg_b);
 
     cairo_text_extents_t ext;
     cairo_text_extents(cr, c->title, &ext);

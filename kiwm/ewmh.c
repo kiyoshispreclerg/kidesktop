@@ -86,6 +86,16 @@ void ewmh_update_wm_desktop(Client *c)
                         wm.atoms.net_wm_desktop, XCB_ATOM_CARDINAL, 32, 1, &v);
 }
 
+/* Companion to _NET_WM_DESKTOP (see PROTOCOL.md): _NET_WM_DESKTOP alone is
+ * only unique *within* a client's own output, so a pager needs this too to
+ * reconstruct which (output, desktop) cell a window actually belongs to. */
+void ewmh_update_wm_output(Client *c)
+{
+    uint32_t v = (uint32_t)c->output;
+    xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, c->window,
+                        wm.atoms.kiwm_wm_output, XCB_ATOM_CARDINAL, 32, 1, &v);
+}
+
 void get_title(Client *c)
 {
     memset(c->title, 0, sizeof(c->title));
@@ -139,7 +149,7 @@ void ewmh_init_supported(void)
                         wm.atoms.net_supported, XCB_ATOM_ATOM, 32,
                         sizeof(supported) / sizeof(supported[0]), supported);
 
-    uint32_t numws = NUM_WORKSPACES;
+    uint32_t numws = (uint32_t)wm.num_desktops;
     xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, wm.root,
                         wm.atoms.net_number_of_desktops, XCB_ATOM_CARDINAL, 32, 1, &numws);
     ewmh_set_current_desktop(0);

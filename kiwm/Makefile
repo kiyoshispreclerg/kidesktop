@@ -8,7 +8,7 @@ LDLIBS := $(shell pkg-config --libs $(PKGS)) -lm
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 
-SRCS := main.c atoms.c output.c decoration.c ewmh.c client.c events.c selection.c
+SRCS := main.c config.c atoms.c output.c decoration.c ewmh.c client.c events.c selection.c
 OBJS := $(SRCS:.c=.o)
 HDRS := $(wildcard *.h)
 

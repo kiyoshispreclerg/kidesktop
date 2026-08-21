@@ -12,9 +12,9 @@ kiwm exposes right now; everything else it does is covered by standard ICCCM/EWM
 
 Outputs are numbered `0..N-1` in the order given by `_KIWM_OUTPUTS`. That index -- not the output
 name -- is what every other property/message below uses to refer to an output. Each output has
-its own current virtual desktop, numbered `0..NUM_WORKSPACES-1`; `NUM_WORKSPACES` is currently a
-single constant shared by every output (no per-output desktop *count*, only per-output current
-desktop), exposed as `_KIWM_NUM_OUTPUT_DESKTOPS`.
+its own current virtual desktop, numbered `0..NUM_WORKSPACES-1`; `NUM_WORKSPACES` (configurable via
+kiwm.conf's `num_desktops=`, default `4`) is a single count shared by every output (no per-output
+desktop *count*, only per-output current desktop), exposed as `_KIWM_NUM_OUTPUT_DESKTOPS`.
 
 ## Root window properties
 
@@ -39,8 +39,20 @@ refresh if a same-named output was already known; otherwise it starts at `0`).
 
 ### `_KIWM_NUM_OUTPUT_DESKTOPS` (`CARDINAL`, format 32, single value)
 
-How many virtual desktops each output has (currently `4`, identical for every output). Set once
-at startup; not expected to change at runtime in this prototype.
+How many virtual desktops each output has (kiwm.conf's `num_desktops=`, default `4`, identical
+for every output). Set once at startup; not expected to change at runtime in this prototype.
+
+### `_KIWM_WM_OUTPUT` (`CARDINAL`, format 32, single value, per client window)
+
+Companion to `_NET_WM_DESKTOP`: the index (per `_KIWM_OUTPUTS` order) of the output this window
+currently belongs to. Since `_NET_WM_DESKTOP` alone is only unique *within* an output (see below),
+reading both together is what lets a pager reconstruct the `(output, desktop)` cell a window is
+actually in -- `output = _KIWM_WM_OUTPUT`, `desktop = _NET_WM_DESKTOP`, and the window is visible
+right now iff `_NET_WM_DESKTOP == _KIWM_OUTPUT_DESKTOP[_KIWM_WM_OUTPUT]`.
+
+Set when a window is first managed, and rewritten (with a `PropertyNotify` on the window itself)
+whenever it moves to a different output -- dragging it across an output boundary, or a hotplug
+that reshuffles output geometry out from under it.
 
 ## Client message: `_KIWM_SET_OUTPUT_DESKTOP`
 
@@ -71,23 +83,16 @@ ignored.
   *different* outputs can both report `_NET_WM_DESKTOP = 0` while genuinely being on unrelated
   desktops -- `_NET_WM_DESKTOP` alone cannot tell them apart.
 
-## Known gap: no per-client output property yet
-
-There is currently **no** property exposing which output a given window belongs to. Combined
-with the point above, a pager cannot yet, from this protocol alone, group a window into the
-right (output, desktop) cell -- only "desktop N of *some* output". Until such a property exists
-(a plausible future addition would be a `_KIWM_WM_OUTPUT` `CARDINAL` on each client window,
-alongside `_NET_WM_DESKTOP`), the only workaround is comparing a window's geometry (from
-`_NET_CLIENT_LIST` + `XGetGeometry`) against each output's rectangle -- doable, but fragile
-while a window is mid-drag across an output boundary.
-
 ## How a pager should use this
 
 1. On startup, and again on every root `PropertyNotify` for `_KIWM_OUTPUTS`,
    `_KIWM_OUTPUT_DESKTOP`, or `_KIWM_NUM_OUTPUT_DESKTOPS`, re-read all three.
-2. Render `_KIWM_NUM_OUTPUT_DESKTOPS` desktop buttons per output listed in `_KIWM_OUTPUTS`;
-   highlight the one at `_KIWM_OUTPUT_DESKTOP[output_index]`.
+2. Render `_KIWM_NUM_OUTPUT_DESKTOPS` desktop buttons per output listed in `_KIWM_OUTPUTS`.
+   For each output index `o`, highlight the button at `_KIWM_OUTPUT_DESKTOP[o]`.
 3. On click, send `_KIWM_SET_OUTPUT_DESKTOP` with that output's index and the clicked desktop
    index.
-4. For a per-output tasklist filter, see the gap above -- geometry-vs-output-rect comparison is
-   the only option today.
+4. For a per-output tasklist filter: for each window in `_NET_CLIENT_LIST`, read its
+   `_KIWM_WM_OUTPUT` and `_NET_WM_DESKTOP`; place it under output `_KIWM_WM_OUTPUT`, desktop
+   `_NET_WM_DESKTOP`. It's currently visible iff that desktop equals
+   `_KIWM_OUTPUT_DESKTOP[_KIWM_WM_OUTPUT]`. Also watch `PropertyNotify` on each client window for
+   `_KIWM_WM_OUTPUT`/`_NET_WM_DESKTOP` changes (the window moved output, or desktop).

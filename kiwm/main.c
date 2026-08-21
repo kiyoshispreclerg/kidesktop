@@ -35,6 +35,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "wm.h"
+#include "config.h"
 #include "atoms.h"
 #include "output.h"
 #include "decoration.h"
@@ -51,8 +52,33 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+#include <signal.h>
+#include <unistd.h>
+#include <poll.h>
+#include <fcntl.h>
 
 KiWM wm;
+
+/* Self-pipe for SIGTERM/SIGINT: a plain signal handler can't safely touch
+ * wm.running and have the main loop notice promptly, since that loop
+ * blocks in poll() waiting on the X connection's fd, not on a flag. The
+ * handler only does the one thing safe in async-signal context -- write a
+ * byte -- and poll() wakes up on it like any other fd. Without this,
+ * killing kiwm hits the default SIGTERM disposition (immediate process
+ * death, no cleanup()), which orphans every reparented client window: the
+ * X server destroys kiwm's own frame windows when its connection drops,
+ * and destroying a window recursively destroys its still-reparented
+ * children too. See cleanup()'s doc comment. */
+static int g_sigpipe[2] = { -1, -1 };
+
+static void handle_term_signal(int sig)
+{
+    (void)sig;
+    char b = 1;
+    ssize_t ignored = write(g_sigpipe[1], &b, 1);
+    (void)ignored;
+}
 
 static void die(const char *msg)
 {
@@ -103,6 +129,11 @@ static xcb_keycode_t keysym_to_keycode(xcb_keysym_t keysym)
 
 static void setup_wm(bool replace)
 {
+    /* Needs no X connection -- pure file I/O -- so it can set
+     * num_desktops/mod_cycle/mod_control/deco_* before anything below
+     * that depends on them (key grabs, decoration). */
+    config_load();
+
     int preferred_screen = 0;
     wm.conn = xcb_connect(NULL, &preferred_screen);
     if (xcb_connection_has_error(wm.conn))
@@ -126,7 +157,9 @@ static void setup_wm(bool replace)
         exit(EXIT_FAILURE);
     }
 
-    wm.hide_deco_on_maximize = false;
+    /* kiwm.conf's hide_deco_on_maximize= already set wm.hide_deco_on_maximize
+     * above (config_load()); the env var is just a quick override on top,
+     * for testing without touching the config file. */
     const char *hide_deco_env = getenv("KIWM_HIDE_DECO_ON_MAXIMIZE");
     if (hide_deco_env)
         wm.hide_deco_on_maximize = !(strcmp(hide_deco_env, "0") == 0 || strcmp(hide_deco_env, "no") == 0);
@@ -169,16 +202,16 @@ static void setup_wm(bool replace)
     }
 
     if (wm.key_tab) {
-        xcb_grab_key(wm.conn, 1, wm.root, MOD_ALT, wm.key_tab, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
-        xcb_grab_key(wm.conn, 1, wm.root, MOD_ALT_SHIFT, wm.key_tab, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
-        xcb_grab_key(wm.conn, 1, wm.root, MOD_META, wm.key_tab, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
-        xcb_grab_key(wm.conn, 1, wm.root, MOD_META_SHIFT, wm.key_tab, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+        xcb_grab_key(wm.conn, 1, wm.root, wm.mod_cycle, wm.key_tab, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+        xcb_grab_key(wm.conn, 1, wm.root, (uint16_t)(wm.mod_cycle | XCB_MOD_MASK_SHIFT), wm.key_tab, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+        xcb_grab_key(wm.conn, 1, wm.root, wm.mod_control, wm.key_tab, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+        xcb_grab_key(wm.conn, 1, wm.root, (uint16_t)(wm.mod_control | XCB_MOD_MASK_SHIFT), wm.key_tab, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
     }
-    if (wm.key_1) xcb_grab_key(wm.conn, 1, wm.root, MOD_ALT, wm.key_1, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
-    if (wm.key_2) xcb_grab_key(wm.conn, 1, wm.root, MOD_ALT, wm.key_2, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
-    if (wm.key_3) xcb_grab_key(wm.conn, 1, wm.root, MOD_ALT, wm.key_3, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
-    if (wm.key_4) xcb_grab_key(wm.conn, 1, wm.root, MOD_ALT, wm.key_4, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
-    if (wm.key_up) xcb_grab_key(wm.conn, 1, wm.root, MOD_META, wm.key_up, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+    if (wm.key_1) xcb_grab_key(wm.conn, 1, wm.root, wm.mod_cycle, wm.key_1, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+    if (wm.key_2) xcb_grab_key(wm.conn, 1, wm.root, wm.mod_cycle, wm.key_2, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+    if (wm.key_3) xcb_grab_key(wm.conn, 1, wm.root, wm.mod_cycle, wm.key_3, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+    if (wm.key_4) xcb_grab_key(wm.conn, 1, wm.root, wm.mod_cycle, wm.key_4, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+    if (wm.key_up) xcb_grab_key(wm.conn, 1, wm.root, wm.mod_control, wm.key_up, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
 
     ewmh_init_supported();
     ewmh_init_supporting_wm_check();
@@ -189,9 +222,14 @@ static void setup_wm(bool replace)
     xcb_flush(wm.conn);
 
     fprintf(stderr, "kiwm: started on screen %dx%d (workspaces 1-%d per output)\n",
-            wm.screen->width_in_pixels, wm.screen->height_in_pixels, NUM_WORKSPACES);
+            wm.screen->width_in_pixels, wm.screen->height_in_pixels, wm.num_desktops);
 }
 
+/* Reparents every client back to the root window (at its current on-screen
+ * position) before destroying its frame, so windows survive kiwm exiting --
+ * whether that's a normal shutdown or a caught SIGTERM/SIGINT (see the
+ * self-pipe above). Skipping this and just letting frames get destroyed
+ * out from under their reparented children is exactly the bug this avoids. */
 static void cleanup(void)
 {
     Client *c = wm.clients;
@@ -208,8 +246,22 @@ static void cleanup(void)
     if (wm.deco_bg)
         cairo_surface_destroy(wm.deco_bg);
 
-    if (wm.conn)
+    if (wm.conn) {
+        /* xcb_flush() only guarantees the reparent/unmap/destroy requests
+         * above were *written* to the socket -- not that the X server has
+         * actually *processed* them yet. Disconnecting right after a bare
+         * flush is a real race: if our socket closes before the server
+         * gets around to reading those bytes, the server's own client-
+         * disconnect cleanup runs first and destroys every window kiwm
+         * created (including each frame) while a client is still
+         * reparented inside it -- back to square one. A cheap round-trip
+         * request (XSync()'s xcb equivalent) blocks until the server has
+         * replied, which by X11's per-connection ordering guarantee means
+         * everything queued before it -- our whole reparent loop -- has
+         * already been fully processed. */
+        xcb_get_input_focus_reply(wm.conn, xcb_get_input_focus(wm.conn), NULL);
         xcb_disconnect(wm.conn);
+    }
 }
 
 int main(int argc, char **argv)
@@ -227,14 +279,52 @@ int main(int argc, char **argv)
     memset(&wm, 0, sizeof(wm));
     wm.running = true;
 
+    if (pipe(g_sigpipe) != 0)
+        die("could not create signal self-pipe");
+    /* Non-blocking read end: the drain loop below reads until empty, and
+     * without O_NONBLOCK the read() that finds the pipe empty again
+     * blocks forever instead of returning -1/EAGAIN, hanging the whole
+     * process right there instead of reaching cleanup(). */
+    fcntl(g_sigpipe[0], F_SETFL, O_NONBLOCK);
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = handle_term_signal;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGTERM, &sa, NULL);
+    sigaction(SIGINT, &sa, NULL);
+
     setup_wm(replace);
 
+    int xfd = xcb_get_file_descriptor(wm.conn);
+    struct pollfd fds[2] = {
+        { .fd = xfd, .events = POLLIN, .revents = 0 },
+        { .fd = g_sigpipe[0], .events = POLLIN, .revents = 0 },
+    };
+
     while (wm.running) {
-        xcb_generic_event_t *event = xcb_wait_for_event(wm.conn);
-        if (!event)
+        xcb_generic_event_t *event;
+        while ((event = xcb_poll_for_event(wm.conn)) != NULL) {
+            handle_event(event);
+            free(event);
+            if (!wm.running)
+                break;
+        }
+        if (!wm.running || xcb_connection_has_error(wm.conn))
             break;
-        handle_event(event);
-        free(event);
+
+        int ready = poll(fds, 2, -1);
+        if (ready < 0) {
+            if (errno == EINTR)
+                continue;
+            break;
+        }
+        if (fds[1].revents & POLLIN) {
+            char buf[16];
+            while (read(g_sigpipe[0], buf, sizeof(buf)) > 0)
+                ;
+            fprintf(stderr, "kiwm: received termination signal, shutting down cleanly\n");
+            break;
+        }
     }
 
     cleanup();

@@ -85,7 +85,7 @@ static void ewmh_update_output_props(void)
                         wm.atoms.kiwm_output_desktop, XCB_ATOM_CARDINAL, 32,
                         (uint32_t)wm.output_count, desktops);
 
-    uint32_t numws = NUM_WORKSPACES;
+    uint32_t numws = (uint32_t)wm.num_desktops;
     xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, wm.root,
                         wm.atoms.kiwm_num_output_desktops, XCB_ATOM_CARDINAL, 32,
                         1, &numws);
@@ -107,8 +107,8 @@ static void ewmh_set_workarea(void)
     if (pi >= 0)
         ref = wm.outputs[pi];
 
-    uint32_t area[NUM_WORKSPACES * 4];
-    for (int i = 0; i < NUM_WORKSPACES; i++) {
+    uint32_t area[MAX_DESKTOPS * 4];
+    for (int i = 0; i < wm.num_desktops; i++) {
         area[i * 4 + 0] = (uint32_t)ref.x;
         area[i * 4 + 1] = (uint32_t)ref.y;
         area[i * 4 + 2] = (uint32_t)ref.width;
@@ -116,7 +116,7 @@ static void ewmh_set_workarea(void)
     }
     xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, wm.root,
                         wm.atoms.net_workarea, XCB_ATOM_CARDINAL, 32,
-                        NUM_WORKSPACES * 4, area);
+                        (uint32_t)(wm.num_desktops * 4), area);
 }
 
 void outputs_refresh(void)
@@ -173,8 +173,13 @@ void outputs_refresh(void)
     wm.output_count = n;
 
     /* Reassign clients to whatever output now covers their center point. */
-    for (Client *c = wm.clients; c; c = c->next)
-        c->output = output_index_for_point(c->x + c->width / 2, c->y + c->height / 2);
+    for (Client *c = wm.clients; c; c = c->next) {
+        int new_output = output_index_for_point(c->x + c->width / 2, c->y + c->height / 2);
+        if (new_output != c->output) {
+            c->output = new_output;
+            ewmh_update_wm_output(c);
+        }
+    }
 
     ewmh_update_output_props();
     ewmh_set_workarea();
@@ -192,7 +197,7 @@ void switch_workspace(int output_idx, int desktop)
 {
     if (output_idx < 0 || output_idx >= wm.output_count)
         return;
-    if (desktop < 0 || desktop >= NUM_WORKSPACES)
+    if (desktop < 0 || desktop >= wm.num_desktops)
         return;
     if (wm.outputs[output_idx].desktop == desktop)
         return;
@@ -244,6 +249,6 @@ void cycle_output_desktop(int direction)
         return;
 
     int cur = wm.outputs[output_idx].desktop;
-    int next = (cur + direction + NUM_WORKSPACES) % NUM_WORKSPACES;
+    int next = (cur + direction + wm.num_desktops) % wm.num_desktops;
     switch_workspace(output_idx, next);
 }

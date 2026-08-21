@@ -56,4 +56,5 @@ void ewmh_init_atoms(void)
     wm.atoms.kiwm_output_desktop = intern_atom("_KIWM_OUTPUT_DESKTOP");
     wm.atoms.kiwm_num_output_desktops = intern_atom("_KIWM_NUM_OUTPUT_DESKTOPS");
     wm.atoms.kiwm_set_output_desktop = intern_atom("_KIWM_SET_OUTPUT_DESKTOP");
+    wm.atoms.kiwm_wm_output = intern_atom("_KIWM_WM_OUTPUT");
 }
