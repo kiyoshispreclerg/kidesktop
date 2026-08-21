@@ -246,6 +246,19 @@ static void cleanup(void)
     if (wm.deco_bg)
         cairo_surface_destroy(wm.deco_bg);
 
+    /* Delete our custom per-output desktop properties (PROTOCOL.md) from
+     * the root window before disconnecting -- otherwise they linger on
+     * the X server (root window properties outlive the client that set
+     * them) and any other WM later started on this same display gets
+     * mistaken for kiwm by a client that only checks for _KIWM_OUTPUTS'
+     * presence (e.g. xispanel's pager widget), even though it has no
+     * idea what these atoms mean. */
+    if (wm.conn) {
+        xcb_delete_property(wm.conn, wm.root, wm.atoms.kiwm_outputs);
+        xcb_delete_property(wm.conn, wm.root, wm.atoms.kiwm_output_desktop);
+        xcb_delete_property(wm.conn, wm.root, wm.atoms.kiwm_num_output_desktops);
+    }
+
     if (wm.conn) {
         /* xcb_flush() only guarantees the reparent/unmap/destroy requests
          * above were *written* to the socket -- not that the X server has
