@@ -9,6 +9,7 @@ void set_icccm_wm_state(Client *c, uint32_t state);
 void ewmh_update_wm_state(Client *c);
 void ewmh_update_wm_desktop(Client *c);
 void ewmh_update_wm_output(Client *c);
+void ewmh_update_frame_extents(Client *c);
 void get_title(Client *c);
 
 void ewmh_init_supported(void);

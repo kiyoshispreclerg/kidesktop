@@ -19,6 +19,7 @@
 #define MIN_CLIENT_H      60
 #define MAX_CLIENTS      256
 #define MAX_OUTPUTS       16
+#define MAX_DOCKS         16
 
 /* Upper bound used only to size fixed stack arrays (e.g. _NET_WORKAREA);
  * the actual per-output desktop count is wm.num_desktops, read from
@@ -50,6 +51,15 @@ typedef struct XisOutput {
     bool primary;
     int desktop;            /* current virtual desktop for this output, 0..wm.num_desktops-1 */
 } XisOutput;
+
+/* A non-managed window (dock/panel, e.g. xispanel) that reserves screen
+ * edge space via _NET_WM_STRUT(_PARTIAL). Tracked separately from Client
+ * since dock/desktop/toolbar/menu window types are never framed or added
+ * to wm.clients (see client.c's should_manage_decorated()). */
+typedef struct DockWindow {
+    xcb_window_t window;
+    int left, right, top, bottom;
+} DockWindow;
 
 struct Client {
     xcb_window_t window;    /* application window */
@@ -92,6 +102,9 @@ typedef struct {
     xcb_atom_t net_current_desktop;
     xcb_atom_t net_wm_desktop;
     xcb_atom_t net_workarea;
+    xcb_atom_t net_frame_extents;
+    xcb_atom_t net_wm_strut;
+    xcb_atom_t net_wm_strut_partial;
 
     xcb_atom_t net_wm_state;
     xcb_atom_t net_wm_state_hidden;
@@ -127,6 +140,14 @@ typedef struct {
 
     XisOutput outputs[MAX_OUTPUTS];
     int output_count;
+
+    DockWindow docks[MAX_DOCKS];
+    int dock_count;
+    /* Aggregated (max across all tracked docks) screen-edge reservation,
+     * recomputed by output.c's recompute_struts() whenever a dock's strut
+     * changes or a dock is destroyed. Screen-absolute pixels, same as
+     * _NET_WM_STRUT itself. */
+    int strut_left, strut_right, strut_top, strut_bottom;
 
     Client *clients;
     Client *focused;

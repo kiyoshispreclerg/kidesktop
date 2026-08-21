@@ -11,21 +11,49 @@
 
 #include <stdio.h>
 
+/* Shared by handle_map_request (app remaps an already-managed window via
+ * a fresh MapRequest -- can't happen normally since MapRequest only
+ * fires for children of *root*, but kept for whatever unmanage/remanage
+ * edge case might route back through here) and handle_map_notify (the
+ * common real-world case: an app just calls XMapWindow directly on its
+ * own already-reparented-into-our-frame window to re-show a popup it
+ * kept around and only hid via XUnmapWindow -- e.g. Plasma's kickoff
+ * menu toggling the same window every open/close instead of recreating
+ * it. Root only redirects MapRequest for its own direct children, so
+ * once a window is reparented into our frame, further XMapWindow calls
+ * on it go straight through as a plain MapNotify, no MapRequest -- if we
+ * only ever handled MapRequest, the frame (still unmapped from the
+ * previous hide) would never come back, so the popup would appear to
+ * work exactly once and then silently stop responding to its own toggle
+ * until the app that owns it is restarted). */
+static void remap_existing_client(Client *c)
+{
+    if (wm.outputs[c->output].desktop == c->desktop) {
+        xcb_map_window(wm.conn, c->frame);
+        c->mapped = true;
+    }
+    c->minimized = false;
+    set_icccm_wm_state(c, WM_STATE_NORMAL);
+    ewmh_update_wm_state(c);
+}
+
 static void handle_map_request(xcb_map_request_event_t *ev)
 {
     Client *c = find_client_window(ev->window);
-    if (!c) {
+    if (!c)
         manage(ev->window);
-    } else {
-        if (wm.outputs[c->output].desktop == c->desktop) {
-            xcb_map_window(wm.conn, c->frame);
-            c->mapped = true;
-        }
-        c->minimized = false;
-        set_icccm_wm_state(c, WM_STATE_NORMAL);
-        ewmh_update_wm_state(c);
-    }
+    else
+        remap_existing_client(c);
     xcb_flush(wm.conn);
+}
+
+static void handle_map_notify(xcb_map_notify_event_t *ev)
+{
+    Client *c = find_client_window(ev->window);
+    if (c && ev->window == c->window && !c->mapped) {
+        remap_existing_client(c);
+        xcb_flush(wm.conn);
+    }
 }
 
 static void handle_configure_request(xcb_configure_request_event_t *ev)
@@ -192,8 +220,12 @@ static void handle_button_release(xcb_button_release_event_t *ev)
 static void handle_property_notify(xcb_property_notify_event_t *ev)
 {
     Client *c = find_client_window(ev->window);
-    if (!c)
+    if (!c) {
+        if ((ev->atom == wm.atoms.net_wm_strut || ev->atom == wm.atoms.net_wm_strut_partial) &&
+            dock_refresh_strut(ev->window))
+            xcb_flush(wm.conn);
         return;
+    }
 
     if (ev->atom == wm.atoms.net_wm_name || ev->atom == XCB_ATOM_WM_NAME) {
         get_title(c);
@@ -308,6 +340,9 @@ void handle_event(xcb_generic_event_t *event)
     case XCB_MAP_REQUEST:
         handle_map_request((xcb_map_request_event_t *)event);
         break;
+    case XCB_MAP_NOTIFY:
+        handle_map_notify((xcb_map_notify_event_t *)event);
+        break;
     case XCB_CONFIGURE_REQUEST:
         handle_configure_request((xcb_configure_request_event_t *)event);
         break;
@@ -316,6 +351,8 @@ void handle_event(xcb_generic_event_t *event)
         Client *c = find_client_window(ev->window);
         if (c)
             unmanage(c);
+        else
+            dock_forget(ev->window);
         break;
     }
     case XCB_UNMAP_NOTIFY: {
@@ -331,6 +368,7 @@ void handle_event(xcb_generic_event_t *event)
             if (c->mapped && wm.outputs[c->output].desktop == c->desktop && !c->minimized) {
                 c->mapped = false;
                 xcb_unmap_window(wm.conn, c->frame);
+                xcb_flush(wm.conn);
             }
         }
         break;

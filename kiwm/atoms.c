@@ -36,6 +36,9 @@ void ewmh_init_atoms(void)
     wm.atoms.net_current_desktop = intern_atom("_NET_CURRENT_DESKTOP");
     wm.atoms.net_wm_desktop = intern_atom("_NET_WM_DESKTOP");
     wm.atoms.net_workarea = intern_atom("_NET_WORKAREA");
+    wm.atoms.net_frame_extents = intern_atom("_NET_FRAME_EXTENTS");
+    wm.atoms.net_wm_strut = intern_atom("_NET_WM_STRUT");
+    wm.atoms.net_wm_strut_partial = intern_atom("_NET_WM_STRUT_PARTIAL");
 
     wm.atoms.net_wm_state = intern_atom("_NET_WM_STATE");
     wm.atoms.net_wm_state_hidden = intern_atom("_NET_WM_STATE_HIDDEN");

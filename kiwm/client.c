@@ -175,12 +175,16 @@ void toggle_maximize(Client *c, int want /* -1=toggle 0=unmax 1=max */)
         c->saved_w = c->width;
         c->saved_h = c->height;
 
-        XisOutput *o = &wm.outputs[c->output >= 0 ? c->output : 0];
+        /* Fill the output's usable area (screen minus any dock/panel
+         * struts, see output.c's compute_output_workarea), not the raw
+         * output rect -- a maximized window must never cover a taskbar. */
+        int wx, wy, ww, wh;
+        compute_output_workarea(c->output >= 0 ? c->output : 0, &wx, &wy, &ww, &wh);
         c->maximized = true;
-        c->x = o->x;
-        c->y = o->y;
-        c->width = o->width;
-        c->height = o->height - (wm.hide_deco_on_maximize ? 0 : TITLEBAR_H);
+        c->x = wx;
+        c->y = wy;
+        c->width = ww;
+        c->height = wh - (wm.hide_deco_on_maximize ? 0 : TITLEBAR_H);
     } else {
         c->maximized = false;
         c->x = c->saved_x;
@@ -191,6 +195,7 @@ void toggle_maximize(Client *c, int want /* -1=toggle 0=unmax 1=max */)
 
     configure_frame(c);
     ewmh_update_wm_state(c);
+    ewmh_update_frame_extents(c);
     xcb_flush(wm.conn);
 }
 
@@ -323,7 +328,14 @@ void manage(xcb_window_t window)
     if (!should_manage_decorated(window)) {
         /* Panels, docks, desktops: managed just enough to be mapped and
          * to show up wherever _NET_WM_WINDOW_TYPE says they belong,
-         * never framed or added to the taskbar client list. */
+         * never framed or added to the taskbar client list. Still watch
+         * for _NET_WM_STRUT(_PARTIAL) changes and destruction so a panel
+         * reserving screen edge space (see output.c's dock_track) keeps
+         * maximize/_NET_WORKAREA out of its way even though it's never a
+         * Client. */
+        uint32_t dock_mask = XCB_EVENT_MASK_PROPERTY_CHANGE | XCB_EVENT_MASK_STRUCTURE_NOTIFY;
+        xcb_change_window_attributes(wm.conn, window, XCB_CW_EVENT_MASK, &dock_mask);
+        dock_track(window);
         xcb_map_window(wm.conn, window);
         xcb_flush(wm.conn);
         return;
@@ -397,6 +409,7 @@ void manage(xcb_window_t window)
     ewmh_update_wm_desktop(c);
     ewmh_update_wm_output(c);
     ewmh_update_wm_state(c);
+    ewmh_update_frame_extents(c);
     ewmh_update_client_list();
     focus_client(c);
 }
