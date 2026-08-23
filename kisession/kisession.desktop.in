@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=KiDesktop
+Comment=KiDesktop session
+Exec=@BINDIR@/kisession
+TryExec=@BINDIR@/kisession
+Type=Application
+DesktopNames=KiDesktop
