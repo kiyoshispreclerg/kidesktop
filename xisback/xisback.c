@@ -562,6 +562,23 @@ static Window create_layer_window(Layer *l, int x, int y, int w, int h)
     long desktopVal = (l->desktop < 0) ? 0xFFFFFFFFL : (long)l->desktop;
     XChangeProperty(g_dpy, win, wmDesktop, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&desktopVal, 1);
 
+    /* This window is exactly output-sized, so some compositors' "unredirect
+     * fullscreen windows" optimization (a real thing in compiz, among
+     * others -- skip compositing a window that fills the screen and paint
+     * it straight to the framebuffer instead, for performance) can kick in
+     * and take it out of compositing entirely. Once that happens
+     * _NET_WM_WINDOW_OPACITY has no effect at all -- there's no composited
+     * texture left for the property to blend -- so the crossfade silently
+     * turns into an instant swap. _NET_WM_BYPASS_COMPOSITOR (originally a
+     * KDE convention, also honored by mutter/xfwm/compiz) with value 2
+     * ("prefer NOT to bypass") tells a compositor that does this opt-out
+     * heuristic to leave this window composited anyway; compositors that
+     * don't know the atom just ignore it, so this is a no-op everywhere
+     * else. */
+    Atom wmBypassCompositor = XInternAtom(g_dpy, "_NET_WM_BYPASS_COMPOSITOR", False);
+    long bypassVal = 2;
+    XChangeProperty(g_dpy, win, wmBypassCompositor, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&bypassVal, 1);
+
     /* ICCCM: tells the WM this window never wants keyboard focus, so a
      * click on the wallpaper (needed for ButtonPress, below) doesn't
      * steal focus from whatever the user was actually using. */
@@ -573,6 +590,37 @@ static Window create_layer_window(Layer *l, int x, int y, int w, int h)
     XSelectInput(g_dpy, win, ButtonPressMask);
 
     return win;
+}
+
+/* The fade overlay used to be a plain child window of l->win (to dodge a
+ * BadMatch, see below) but a plain child isn't its own top-level window as
+ * far as a compositor is concerned, so it never gets individually redirected
+ * for compositing -- _NET_WM_WINDOW_OPACITY on it did nothing, the "fade"
+ * was just an instant swap. Composited opacity needs a real top-level
+ * window, so this is create_layer_window() again: another root-level
+ * _NET_WM_WINDOW_TYPE_DESKTOP window, exactly like l->win itself.
+ *
+ * That reopens the original question of how to stack it above l->win
+ * without an explicit XRaiseWindow() (which jumps to the top of the *whole*
+ * screen, above every real window/panel -- the very bug this was fixing).
+ * The tempting fix, XConfigureWindow(..., CWSibling|CWStackMode) with
+ * l->win as the sibling, turned out to BadMatch under composition: some
+ * compositing WMs reparent a window into a frame of their own once they
+ * start redirecting it for compositing, and at that point l->win's real X
+ * parent is that frame, not root -- so it and a freshly created root-level
+ * fade_win are no longer actually siblings, and the server rejects the
+ * "make these two siblings" request outright.
+ *
+ * So: no explicit stacking call at all. A freshly mapped window is placed
+ * above its existing siblings by X's own default behavior, which is all
+ * "above the old wallpaper" needs here (there's nothing else already
+ * sharing this bottom slab at the moment it's created) -- and since it
+ * carries the same _NET_WM_WINDOW_TYPE_DESKTOP hint as l->win, a compliant
+ * WM keeps it grouped with the other desktop-type windows at the bottom of
+ * the whole stack regardless, same as it already does for l->win. */
+static Window create_fade_window(Layer *l, int w, int h)
+{
+    return create_layer_window(l, l->x, l->y, w, h);
 }
 
 /* _NET_WM_WINDOW_OPACITY (the xcompmgr/compton/picom/KWin convention): a
@@ -789,12 +837,11 @@ static void layer_render(Layer *l, int use_fade)
         return;
     }
 
-    l->fade_win = create_layer_window(l, l->x, l->y, l->width, l->height);
+    l->fade_win = create_fade_window(l, l->width, l->height);
     XSetWindowBackgroundPixmap(g_dpy, l->fade_win, next);
     XClearWindow(g_dpy, l->fade_win);
     set_window_opacity(l->fade_win, 0.0);
     XMapWindow(g_dpy, l->fade_win);
-    XRaiseWindow(g_dpy, l->fade_win);
     l->fade_pixmap = next;
     l->fading = 1;
     clock_gettime(CLOCK_MONOTONIC, &l->fade_start);
