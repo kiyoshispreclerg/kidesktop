@@ -92,6 +92,40 @@ static void handle_configure_request(xcb_configure_request_event_t *ev)
     xcb_flush(wm.conn);
 }
 
+/* Shared by both drag-start sites below (titlebar-click-move and
+ * wm.mod_cycle/wm.mod_control-drag): detiles c first (see client.c's
+ * detile_for_drag() -- no-op if already floating) so the whole rest of
+ * the drag builds on a floating baseline from the very first motion
+ * event, then captures wm.drag_start_x/y/w/h and grabs the pointer. mode
+ * == DRAG_RESIZE additionally picks which corner grows from the press
+ * position (nearest corner, kwin/compiz-style) -- the opposite corner
+ * stays fixed for the whole resize (see handle_motion). */
+static void begin_drag(Client *c, DragMode mode, xcb_button_press_event_t *ev)
+{
+    detile_for_drag(c, ev->root_x, ev->root_y);
+
+    wm.drag_mode = mode;
+    wm.drag_client = c;
+    wm.drag_snap_side = SNAP_NONE;
+    wm.drag_start_root_x = ev->root_x;
+    wm.drag_start_root_y = ev->root_y;
+    wm.drag_start_x = c->x;
+    wm.drag_start_y = c->y;
+    wm.drag_start_w = c->width;
+    wm.drag_start_h = c->height;
+
+    if (mode == DRAG_RESIZE) {
+        wm.resize_right = (ev->root_x - c->x) > c->frame_width / 2;
+        wm.resize_bottom = (ev->root_y - c->y) > c->frame_height / 2;
+    }
+
+    xcb_grab_pointer(wm.conn, 0, wm.root,
+                     XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION,
+                     XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
+                     XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
+    xcb_flush(wm.conn);
+}
+
 static void handle_button_press(xcb_button_press_event_t *ev)
 {
     Client *c = find_client_window(ev->event);
@@ -104,8 +138,17 @@ static void handle_button_press(xcb_button_press_event_t *ev)
 
     int rel_x = ev->root_x - c->x;
     int rel_y = ev->root_y - c->y;
+    bool on_titlebar = client_deco_visible(c) && rel_y >= 0 && rel_y < TITLEBAR_H;
 
-    if (client_deco_visible(c) && ev->detail == 1 && rel_y >= 0 && rel_y < TITLEBAR_H) {
+    /* Scroll wheel over the titlebar (detail 4 = up, 5 = down) shades/
+     * unshades -- X has no separate "scroll" event, wheel motion is just
+     * ButtonPress with these detail values. */
+    if (on_titlebar && (ev->detail == 4 || ev->detail == 5)) {
+        toggle_shade(c, ev->detail == 4 ? 1 : 0);
+        return;
+    }
+
+    if (on_titlebar && ev->detail == 1) {
         int w = c->frame_width;
 
         if (rel_x >= w - BUTTON_W) {
@@ -120,49 +163,39 @@ static void handle_button_press(xcb_button_press_event_t *ev)
             minimize_client(c);
             return;
         }
+        if (rel_x >= w - BUTTON_W * 4) {
+            toggle_shade(c, -1);
+            return;
+        }
 
-        wm.drag_mode = DRAG_MOVE;
-        wm.drag_client = c;
-        wm.drag_start_root_x = ev->root_x;
-        wm.drag_start_root_y = ev->root_y;
-        wm.drag_start_x = c->x;
-        wm.drag_start_y = c->y;
-        wm.drag_start_w = c->width;
-        wm.drag_start_h = c->height;
+        /* Plain titlebar area (no button under the click): double-click
+         * toggles maximize, same as most desktops -- X has no double-click
+         * event of its own, so this compares consecutive ButtonPress
+         * timestamps by hand (see wm.h's DOUBLE_CLICK_MS). */
+        bool is_double = (c->frame == wm.last_titlebar_click_frame) &&
+                         (xcb_timestamp_t)(ev->time - wm.last_titlebar_click_time) < DOUBLE_CLICK_MS;
+        wm.last_titlebar_click_frame = c->frame;
+        wm.last_titlebar_click_time = ev->time;
+        if (is_double) {
+            wm.last_titlebar_click_time = 0; /* consume -- don't chain into a triple-click */
+            toggle_maximize(c, -1);
+            return;
+        }
 
-        xcb_grab_pointer(wm.conn, 0, wm.root,
-                         XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION,
-                         XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
-                         XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
-        xcb_flush(wm.conn);
+        begin_drag(c, DRAG_MOVE, ev);
         return;
     }
 
     /* wm.mod_control-drag (any button, e.g. Meta by default) and
-     * wm.mod_cycle-drag (e.g. Alt by default) both move the window;
-     * wm.mod_cycle+Right additionally resizes -- see kiwm.conf's
+     * wm.mod_cycle-drag (e.g. Alt by default) both move the window with
+     * the left button; either one with the right button resizes instead,
+     * from whichever corner is nearest the click -- see kiwm.conf's
      * mod_cycle=/mod_control= keys. */
     if (ev->state & (wm.mod_cycle | wm.mod_control)) {
         if (ev->detail == 1)
-            wm.drag_mode = DRAG_MOVE;
-        else if (ev->detail == 3 && (ev->state & wm.mod_cycle))
-            wm.drag_mode = DRAG_RESIZE;
-        else
-            return;
-
-        wm.drag_client = c;
-        wm.drag_start_root_x = ev->root_x;
-        wm.drag_start_root_y = ev->root_y;
-        wm.drag_start_x = c->x;
-        wm.drag_start_y = c->y;
-        wm.drag_start_w = c->width;
-        wm.drag_start_h = c->height;
-
-        xcb_grab_pointer(wm.conn, 0, wm.root,
-                         XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION,
-                         XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
-                         XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
-        xcb_flush(wm.conn);
+            begin_drag(c, DRAG_MOVE, ev);
+        else if (ev->detail == 3)
+            begin_drag(c, DRAG_RESIZE, ev);
         return;
     }
 
@@ -172,26 +205,168 @@ static void handle_button_press(xcb_button_press_event_t *ev)
     }
 }
 
+/* Windows7/kwin-style edge snap while dragging a window by its titlebar or
+ * via mod_control-drag: the pointer getting within kiwm.conf's
+ * snap_threshold= of an output workarea edge snaps the window there (top =
+ * maximize, left/right = half-width); moving the pointer back out of that
+ * zone before releasing the button restores the exact pre-drag floating
+ * geometry, offset by however far the pointer has moved since -- so the
+ * window keeps following the cursor as if it had never been snapped. Only
+ * engages/disengages on a *change* of which edge (if any) the pointer is
+ * currently within threshold of, so a snapped window doesn't jitter while
+ * the pointer sits still inside the same edge zone. */
+static bool try_edge_snap(Client *c, xcb_motion_notify_event_t *ev, int dx, int dy)
+{
+    if (wm.snap_threshold <= 0)
+        return false;
+
+    int output_idx = output_index_for_point(ev->root_x, ev->root_y);
+    if (output_idx < 0)
+        output_idx = c->output >= 0 ? c->output : 0;
+
+    int wx, wy, ww, wh;
+    compute_output_workarea(output_idx, &wx, &wy, &ww, &wh);
+
+    SnapSide want;
+    if (ev->root_y - wy <= wm.snap_threshold)
+        want = SNAP_TOP;
+    else if (ev->root_x - wx <= wm.snap_threshold)
+        want = SNAP_LEFT;
+    else if (wx + ww - ev->root_x <= wm.snap_threshold)
+        want = SNAP_RIGHT;
+    else
+        want = SNAP_NONE;
+
+    if (want == wm.drag_snap_side)
+        return want != SNAP_NONE; /* already settled into this state (or none); nothing to do */
+
+    wm.drag_snap_side = want;
+    c->output = output_idx;
+
+    if (want != SNAP_NONE) {
+        /* Remember the true pre-drag floating geometry as the maximize
+         * "restore" target too, so a later plain un-maximize (titlebar
+         * button, Meta+Up) after this drag restores to it correctly
+         * instead of to wherever the window happened to be mid-drag. */
+        c->saved_x = wm.drag_start_x;
+        c->saved_y = wm.drag_start_y;
+        c->saved_w = wm.drag_start_w;
+        c->saved_h = wm.drag_start_h;
+    }
+
+    switch (want) {
+    case SNAP_TOP: {
+        unshade_now(c);
+        c->snap_side = SNAP_NONE;
+        c->maximized = true;
+        int bt, th;
+        bool deco = client_deco_visible(c);
+        th = deco ? TITLEBAR_H : 0;
+        bt = deco ? wm.border_thickness : 0;
+        c->x = wx;
+        c->y = wy;
+        c->width = ww - bt * 2;
+        c->height = wh - th - bt;
+        if (c->width < MIN_CLIENT_W) c->width = MIN_CLIENT_W;
+        if (c->height < MIN_CLIENT_H) c->height = MIN_CLIENT_H;
+        break;
+    }
+    case SNAP_LEFT:
+    case SNAP_RIGHT:
+        snap_client_to_side(c, want);
+        break;
+    case SNAP_NONE:
+    default:
+        unsnap_client(c, wm.drag_start_x + dx, wm.drag_start_y + dy,
+                      wm.drag_start_w, wm.drag_start_h);
+        break;
+    }
+
+    configure_frame(c);
+    ewmh_update_wm_state(c);
+    ewmh_update_frame_extents(c);
+    xcb_flush(wm.conn);
+    return true; /* transition (into or out of a snap) already fully handled above */
+}
+
+/* Tracks which titlebar button (if any) the pointer currently sits over,
+ * for btns.png's hover row (see decoration.c's draw_button()) -- a no-op
+ * whenever no button theme is loaded, so plain-fallback decoration
+ * doesn't pay for tracking/repainting it never uses. */
+static void update_button_hover(xcb_motion_notify_event_t *ev)
+{
+    if (!wm.deco_btns)
+        return;
+
+    Client *c = find_client_window(ev->event);
+    int slot = -1;
+    if (c && client_deco_visible(c)) {
+        int rel_x = ev->root_x - c->x;
+        int rel_y = ev->root_y - c->y;
+        int w = c->frame_width;
+        if (rel_y >= 0 && rel_y < TITLEBAR_H) {
+            if (rel_x >= w - BUTTON_W)          slot = BTNSLOT_CLOSE;
+            else if (rel_x >= w - BUTTON_W * 2)  slot = BTNSLOT_MAXIMIZE;
+            else if (rel_x >= w - BUTTON_W * 3)  slot = BTNSLOT_MINIMIZE;
+            else if (rel_x >= w - BUTTON_W * 4)  slot = BTNSLOT_SHADE;
+        }
+    }
+
+    if (c == wm.hover_client && slot == wm.hover_btn)
+        return;
+
+    Client *old = wm.hover_client;
+    wm.hover_client = (slot >= 0) ? c : NULL;
+    wm.hover_btn = slot;
+
+    if (old && old != wm.hover_client)
+        draw_decoration(old);
+    if (wm.hover_client)
+        draw_decoration(wm.hover_client);
+    xcb_flush(wm.conn);
+}
+
 static void handle_motion(xcb_motion_notify_event_t *ev)
 {
-    if (!wm.drag_client || wm.drag_mode == DRAG_NONE)
+    if (!wm.drag_client || wm.drag_mode == DRAG_NONE) {
+        update_button_hover(ev);
         return;
+    }
 
     Client *c = wm.drag_client;
     int dx = ev->root_x - wm.drag_start_root_x;
     int dy = ev->root_y - wm.drag_start_root_y;
 
+    if (wm.drag_mode == DRAG_MOVE && try_edge_snap(c, ev, dx, dy))
+        return; /* settled into a snapped state this motion event; nothing else to do */
+
     if (c->maximized)
         toggle_maximize(c, 0);
+    c->snap_side = SNAP_NONE;
 
     if (wm.drag_mode == DRAG_MOVE) {
         c->x = wm.drag_start_x + dx;
         c->y = wm.drag_start_y + dy;
     } else {
-        c->width = wm.drag_start_w + dx;
-        c->height = wm.drag_start_h + dy;
-        if (c->width < MIN_CLIENT_W) c->width = MIN_CLIENT_W;
-        if (c->height < MIN_CLIENT_H) c->height = MIN_CLIENT_H;
+        /* Resize from whichever corner was nearest the initial click
+         * (wm.resize_right/resize_bottom, decided once in
+         * handle_button_press's begin_drag()) -- the *opposite* corner
+         * stays fixed: recompute x/y from the (possibly MIN_CLIENT_*-
+         * clamped) new size so that fixed corner's absolute position
+         * never drifts, kwin/compiz-style, instead of always anchoring
+         * top-left and growing toward bottom-right regardless of which
+         * corner was actually grabbed. */
+        int new_w = wm.resize_right ? wm.drag_start_w + dx : wm.drag_start_w - dx;
+        int new_h = wm.resize_bottom ? wm.drag_start_h + dy : wm.drag_start_h - dy;
+        if (new_w < MIN_CLIENT_W) new_w = MIN_CLIENT_W;
+        if (new_h < MIN_CLIENT_H) new_h = MIN_CLIENT_H;
+
+        c->width = new_w;
+        c->height = new_h;
+        if (!wm.resize_right)
+            c->x = wm.drag_start_x + (wm.drag_start_w - new_w);
+        if (!wm.resize_bottom)
+            c->y = wm.drag_start_y + (wm.drag_start_h - new_h);
     }
 
     configure_frame(c);
@@ -213,6 +388,7 @@ static void handle_button_release(xcb_button_release_event_t *ev)
         xcb_ungrab_pointer(wm.conn, XCB_CURRENT_TIME);
         wm.drag_client = NULL;
         wm.drag_mode = DRAG_NONE;
+        wm.drag_snap_side = SNAP_NONE;
         xcb_flush(wm.conn);
     }
 }
@@ -236,6 +412,8 @@ static void handle_property_notify(xcb_property_notify_event_t *ev)
 
 static void handle_enter_notify(xcb_enter_notify_event_t *ev)
 {
+    if (!wm.focus_follows_mouse)
+        return;
     Client *c = find_client_window(ev->event);
     if (!c)
         c = find_client_window(ev->child);
@@ -286,6 +464,7 @@ static void handle_net_wm_state(Client *c, uint32_t action, xcb_atom_t a1, xcb_a
     bool is_max = (a1 == wm.atoms.net_wm_state_maximized_vert || a1 == wm.atoms.net_wm_state_maximized_horz ||
                    a2 == wm.atoms.net_wm_state_maximized_vert || a2 == wm.atoms.net_wm_state_maximized_horz);
     bool is_hidden = (a1 == wm.atoms.net_wm_state_hidden || a2 == wm.atoms.net_wm_state_hidden);
+    bool is_shaded = (a1 == wm.atoms.net_wm_state_shaded || a2 == wm.atoms.net_wm_state_shaded);
 
     /* action: 0=remove, 1=add, 2=toggle (_NET_WM_STATE_TOGGLE) */
     if (is_max) {
@@ -298,6 +477,10 @@ static void handle_net_wm_state(Client *c, uint32_t action, xcb_atom_t a1, xcb_a
             minimize_client(c);
         else
             restore_client(c);
+    }
+    if (is_shaded) {
+        int want = (action == 2) ? -1 : (action == 1 ? 1 : 0);
+        toggle_shade(c, want);
     }
 }
 
@@ -372,6 +555,17 @@ void handle_event(xcb_generic_event_t *event)
                 c->ignore_unmap--;
                 break;
             }
+            if (c->shaded) {
+                /* Our own toggle_shade() unmapping the content window on
+                 * purpose (c->shaded is already true by the time this
+                 * event arrives, since toggle_shade sets it before
+                 * unmapping) -- not a real withdrawal, must NOT also
+                 * unmap the frame or mark the client unmapped, or the
+                 * whole window (decoration included) vanishes and stays
+                 * that way until something unrelated (e.g. a taskbar
+                 * minimize+restore) happens to remap the frame again. */
+                break;
+            }
             if (c->mapped && wm.outputs[c->output].desktop == c->desktop && !c->minimized) {
                 c->mapped = false;
                 xcb_unmap_window(wm.conn, c->frame);
@@ -395,6 +589,21 @@ void handle_event(xcb_generic_event_t *event)
     case XCB_ENTER_NOTIFY:
         handle_enter_notify((xcb_enter_notify_event_t *)event);
         break;
+    case XCB_LEAVE_NOTIFY: {
+        /* Motion stops firing once the pointer leaves the frame entirely,
+         * so button hover state (see update_button_hover()) needs its own
+         * clear here or it'd stay stuck highlighted after the pointer
+         * moves away. */
+        xcb_leave_notify_event_t *ev = (xcb_leave_notify_event_t *)event;
+        if (wm.hover_client && ev->event == wm.hover_client->frame) {
+            Client *old = wm.hover_client;
+            wm.hover_client = NULL;
+            wm.hover_btn = -1;
+            draw_decoration(old);
+            xcb_flush(wm.conn);
+        }
+        break;
+    }
     case XCB_KEY_PRESS:
         handle_key_press((xcb_key_press_event_t *)event);
         break;

@@ -55,6 +55,23 @@ static bool should_manage_decorated(xcb_window_t window)
              t == wm.atoms.net_wm_window_type_menu);
 }
 
+/* A passive xcb_grab_button() with a specific (non-ANY) modifier only
+ * matches an *exact* modifier state, extra lock bits included -- with
+ * NumLock or CapsLock active, ev->state also carries XCB_MOD_MASK_2/LOCK,
+ * which would silently mismatch a grab registered for `mod` alone. Grab
+ * all 4 combinations of "with/without each lock" so the resize grab (see
+ * manage()) actually fires regardless of lock key state, same technique
+ * every other X11 WM uses for this. */
+static void grab_button3_with_locks(xcb_window_t window, uint16_t mod)
+{
+    static const uint16_t locks[] = { 0, XCB_MOD_MASK_LOCK, XCB_MOD_MASK_2,
+                                      XCB_MOD_MASK_LOCK | XCB_MOD_MASK_2 };
+    for (size_t i = 0; i < sizeof(locks) / sizeof(locks[0]); i++)
+        xcb_grab_button(wm.conn, 0, window, XCB_EVENT_MASK_BUTTON_PRESS,
+                        XCB_GRAB_MODE_SYNC, XCB_GRAB_MODE_ASYNC,
+                        XCB_NONE, XCB_NONE, XCB_BUTTON_INDEX_3, (uint16_t)(mod | locks[i]));
+}
+
 Client *find_client_window(xcb_window_t window)
 {
     for (Client *c = wm.clients; c; c = c->next)
@@ -63,13 +80,55 @@ Client *find_client_window(xcb_window_t window)
     return NULL;
 }
 
-void configure_frame(Client *c)
+/* How much frame space the titlebar (top) and the flat side/bottom border
+ * (left/right/bottom, kiwm.conf's border_thickness=) currently take up --
+ * both collapse to 0 together via client_deco_visible() (maximized with
+ * hide_deco_on_maximize=1), so a maximized/hidden-deco window's frame is
+ * exactly its content size, no partial state. */
+static void deco_insets(Client *c, int *bt, int *th)
 {
     bool deco = client_deco_visible(c);
-    int th = deco ? TITLEBAR_H : 0;
+    *th = deco ? TITLEBAR_H : 0;
+    *bt = deco ? wm.border_thickness : 0;
+}
 
-    c->frame_width = c->width;
-    c->frame_height = c->height + th;
+/* ICCCM 4.1.5: a real ConfigureNotify only reaches the client when *its
+ * own* geometry relative to its immediate parent (the frame) changes --
+ * moving/resizing the frame itself never generates one for the reparented
+ * child, even though the child's on-screen (root-relative) position just
+ * changed right along with it. Toolkits use ConfigureNotify to learn their
+ * true screen position for placing context menus, tooltips and popups;
+ * without this synthetic event (which real ConfigureNotify already looks
+ * identical to, per spec) they keep using a stale root-relative origin
+ * every time kiwm moves/resizes a window by moving its frame, which is
+ * every move, drag-resize, snap and maximize -- exactly what made menus
+ * and tooltips show up in the wrong place. */
+static void send_synthetic_configure(Client *c, int bt, int th)
+{
+    xcb_configure_notify_event_t ev = { 0 };
+    ev.response_type = XCB_CONFIGURE_NOTIFY;
+    ev.event = c->window;
+    ev.window = c->window;
+    ev.above_sibling = XCB_NONE;
+    ev.x = (int16_t)(c->x + bt);
+    ev.y = (int16_t)(c->y + th);
+    ev.width = (uint16_t)c->width;
+    ev.height = (uint16_t)c->height;
+    ev.border_width = 0;
+    ev.override_redirect = 0;
+    xcb_send_event(wm.conn, 0, c->window, XCB_EVENT_MASK_STRUCTURE_NOTIFY, (const char *)&ev);
+}
+
+void configure_frame(Client *c)
+{
+    int bt, th;
+    deco_insets(c, &bt, &th);
+
+    c->frame_width = c->width + bt * 2;
+    /* Shaded: only the titlebar shows, content stays unmapped (see
+     * toggle_shade()) -- the frame collapses to exactly th tall, no
+     * bottom border either since there's no content edge to border. */
+    c->frame_height = c->shaded ? th : (c->height + th + bt);
 
     uint32_t fv[] = {
         (uint32_t)c->x, (uint32_t)c->y,
@@ -79,12 +138,13 @@ void configure_frame(Client *c)
                          XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
                          XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, fv);
 
-    uint32_t cv[] = { 0, (uint32_t)th, (uint32_t)c->width, (uint32_t)c->height };
+    uint32_t cv[] = { (uint32_t)bt, (uint32_t)th, (uint32_t)c->width, (uint32_t)c->height };
     xcb_configure_window(wm.conn, c->window,
                          XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
                          XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, cv);
 
     draw_decoration(c);
+    send_synthetic_configure(c, bt, th);
 }
 
 void focus_client(Client *c)
@@ -163,6 +223,38 @@ void close_client(Client *c)
     xcb_flush(wm.conn);
 }
 
+/* If c is currently shaded, remap its content and clear the flag -- called
+ * before any tiling transition (maximize, edge-snap) engages, since tiling
+ * assumes the content is actually visible. Exported (client.h) because
+ * events.c's SNAP_TOP handling in try_edge_snap() needs it too. */
+void unshade_now(Client *c)
+{
+    if (!c->shaded)
+        return;
+    c->shaded = false;
+    if (c->mapped)
+        xcb_map_window(wm.conn, c->window);
+}
+
+void toggle_shade(Client *c, int want /* -1=toggle 0=unshade 1=shade */)
+{
+    bool target = (want == -1) ? !c->shaded : (want == 1);
+    if (target == c->shaded)
+        return;
+
+    c->shaded = target;
+    if (c->mapped) {
+        if (target)
+            xcb_unmap_window(wm.conn, c->window);
+        else
+            xcb_map_window(wm.conn, c->window);
+    }
+
+    configure_frame(c);
+    ewmh_update_wm_state(c);
+    xcb_flush(wm.conn);
+}
+
 void toggle_maximize(Client *c, int want /* -1=toggle 0=unmax 1=max */)
 {
     bool target = (want == -1) ? !c->maximized : (want == 1);
@@ -170,10 +262,21 @@ void toggle_maximize(Client *c, int want /* -1=toggle 0=unmax 1=max */)
         return;
 
     if (target) {
-        c->saved_x = c->x;
-        c->saved_y = c->y;
-        c->saved_w = c->width;
-        c->saved_h = c->height;
+        unshade_now(c);
+
+        /* Only capture the "restore" geometry when currently floating --
+         * if the window is already half-snapped (Client::snap_side), that
+         * state's own saved_x/y/w/h already holds the true pre-tiling
+         * geometry from whenever tiling was first entered, and clicking
+         * maximize directly (no drag involved) must not clobber it with
+         * the half-snapped size instead. See PROTOCOL notes in
+         * events.c's try_edge_snap() for the drag-path equivalent. */
+        if (c->snap_side == SNAP_NONE) {
+            c->saved_x = c->x;
+            c->saved_y = c->y;
+            c->saved_w = c->width;
+            c->saved_h = c->height;
+        }
 
         /* Fill the output's usable area (screen minus any dock/panel
          * struts, see output.c's compute_output_workarea), not the raw
@@ -181,10 +284,16 @@ void toggle_maximize(Client *c, int want /* -1=toggle 0=unmax 1=max */)
         int wx, wy, ww, wh;
         compute_output_workarea(c->output >= 0 ? c->output : 0, &wx, &wy, &ww, &wh);
         c->maximized = true;
+        c->snap_side = SNAP_NONE;
+
+        int bt, th;
+        deco_insets(c, &bt, &th);
         c->x = wx;
         c->y = wy;
-        c->width = ww;
-        c->height = wh - (wm.hide_deco_on_maximize ? 0 : TITLEBAR_H);
+        c->width = ww - bt * 2;
+        c->height = wh - th - bt;
+        if (c->width < MIN_CLIENT_W) c->width = MIN_CLIENT_W;
+        if (c->height < MIN_CLIENT_H) c->height = MIN_CLIENT_H;
     } else {
         c->maximized = false;
         c->x = c->saved_x;
@@ -197,6 +306,94 @@ void toggle_maximize(Client *c, int want /* -1=toggle 0=unmax 1=max */)
     ewmh_update_wm_state(c);
     ewmh_update_frame_extents(c);
     xcb_flush(wm.conn);
+}
+
+/* Windows7/kwin-style edge snap: fills exactly the left or right half of
+ * the client's output workarea. A separate concept from toggle_maximize's
+ * full-area fill (which Client::maximized already models and which the
+ * top-edge drag snap in events.c's handle_motion reuses directly) --
+ * tracked via its own Client::snap_side since a half-snapped window is
+ * neither "maximized" nor "floating". Caller (handle_motion) is
+ * responsible for configure_frame()/ewmh updates/flush afterward, since it
+ * always needs to do that anyway for whichever snap state it applies. */
+void snap_client_to_side(Client *c, SnapSide side)
+{
+    unshade_now(c);
+
+    int wx, wy, ww, wh;
+    compute_output_workarea(c->output >= 0 ? c->output : 0, &wx, &wy, &ww, &wh);
+
+    int bt, th;
+    deco_insets(c, &bt, &th);
+
+    int half = ww / 2;
+    c->maximized = false;
+    c->snap_side = side;
+    c->y = wy;
+    c->height = wh - th - bt;
+    c->x = (side == SNAP_LEFT) ? wx : wx + (ww - half);
+    c->width = half - bt * 2;
+    if (c->width < MIN_CLIENT_W) c->width = MIN_CLIENT_W;
+    if (c->height < MIN_CLIENT_H) c->height = MIN_CLIENT_H;
+}
+
+/* Restores explicit floating geometry (typically the pre-drag geometry
+ * the caller tracked itself, offset by however far the pointer has moved
+ * since), clearing whatever snap/maximize state was engaged. Also just
+ * the caller's own responsibility to configure_frame()/flush afterward. */
+void unsnap_client(Client *c, int x, int y, int width, int height)
+{
+    c->maximized = false;
+    c->snap_side = SNAP_NONE;
+    c->x = x;
+    c->y = y;
+    c->width = width;
+    c->height = height;
+}
+
+/* Starting a titlebar/mod drag on a window that's currently maximized or
+ * half-snapped must restore it to its pre-tiling floating size *right
+ * then*, not partway through the drag -- otherwise handle_motion's normal
+ * "c->x = wm.drag_start_x + dx" math keeps using whatever geometry was
+ * current at button-press time (the tiled one), so the window would
+ * appear to move but stay the tiled size, only "restoring" for real once
+ * some other snap-transition code path happened to run. Also repositions
+ * the window so the press point stays under the same relative fraction
+ * of the restored frame it was at within the tiled one (kwin/Windows-
+ * style: grabbing a maximized window's titlebar and dragging keeps the
+ * cursor under roughly the same spot instead of jumping the window's
+ * origin to wherever its old tiled corner was). No-op if c is already
+ * floating. Caller (events.c's handle_button_press) must call this
+ * *before* capturing wm.drag_start_x/y/w/h, so the whole rest of the drag
+ * -- including any further snap-side transitions in try_edge_snap() --
+ * builds on this restored geometry as its baseline. */
+void detile_for_drag(Client *c, int press_root_x, int press_root_y)
+{
+    if (!c->maximized && c->snap_side == SNAP_NONE)
+        return;
+
+    int old_fw = c->frame_width, old_fh = c->frame_height;
+    double frac_x = old_fw > 0 ? (press_root_x - c->x) / (double)old_fw : 0.5;
+    double frac_y = old_fh > 0 ? (press_root_y - c->y) / (double)old_fh : 0.0;
+    if (frac_x < 0.0) frac_x = 0.0; else if (frac_x > 1.0) frac_x = 1.0;
+    if (frac_y < 0.0) frac_y = 0.0; else if (frac_y > 1.0) frac_y = 1.0;
+
+    c->maximized = false;
+    c->snap_side = SNAP_NONE;
+    c->width = c->saved_w;
+    c->height = c->saved_h;
+
+    int bt, th;
+    deco_insets(c, &bt, &th);
+    int new_fw = c->width + bt * 2;
+    int new_fh = c->height + th + bt;
+
+    c->x = press_root_x - (int)(frac_x * new_fw);
+    c->y = press_root_y - (int)(frac_y * new_fh);
+
+    configure_frame(c);
+    ewmh_update_wm_state(c);
+    ewmh_update_frame_extents(c);
 }
 
 void minimize_client(Client *c)
@@ -288,6 +485,11 @@ void unmanage(Client *c)
     if (wm.drag_client == c) {
         wm.drag_client = NULL;
         wm.drag_mode = DRAG_NONE;
+        wm.drag_snap_side = SNAP_NONE;
+    }
+    if (wm.hover_client == c) {
+        wm.hover_client = NULL;
+        wm.hover_btn = -1;
     }
 
     xcb_unmap_window(wm.conn, c->frame);
@@ -402,17 +604,28 @@ void manage(xcb_window_t window)
 
     c->frame = xcb_generate_id(wm.conn);
 
+    /* xcb_create_window's value-list must appear in ascending bit order of
+     * the CW_* flags in the mask, NOT the order they're OR'd together in
+     * source -- CW_BORDER_PIXEL (0x08) sorts before CW_EVENT_MASK (0x800),
+     * so border-pixel goes first. Getting this backwards (as an earlier
+     * version of this code did) silently sends 0 as the *event mask* and
+     * the intended event-mask bits as the border pixel instead: the frame
+     * window then never receives Expose at all, so an unfocused window's
+     * titlebar/border never gets cleared or redrawn once something else
+     * has been drawn over it -- exactly the "keeps whatever was drawn over
+     * it, like a background-None window" symptom this fixes. */
     uint32_t values[] = {
+        0, /* border_pixel: unused, frame's X border_width is 0 */
         XCB_EVENT_MASK_EXPOSURE |
         XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE |
         XCB_EVENT_MASK_POINTER_MOTION |
-        XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_LEAVE_WINDOW,
-        0
+        XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_LEAVE_WINDOW
     };
+    int bt = wm.border_thickness; /* deco is always visible on a freshly-managed window */
     xcb_create_window(wm.conn, wm.screen->root_depth, c->frame, wm.root,
-                      c->x, c->y, c->width, c->height + TITLEBAR_H, 0,
+                      c->x, c->y, c->width + bt * 2, c->height + TITLEBAR_H + bt, 0,
                       XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.screen->root_visual,
-                      XCB_CW_EVENT_MASK | XCB_CW_BORDER_PIXEL, values);
+                      XCB_CW_BORDER_PIXEL | XCB_CW_EVENT_MASK, values);
 
     uint32_t client_mask = XCB_EVENT_MASK_PROPERTY_CHANGE |
                            XCB_EVENT_MASK_STRUCTURE_NOTIFY |
@@ -423,7 +636,23 @@ void manage(xcb_window_t window)
                     XCB_GRAB_MODE_SYNC, XCB_GRAB_MODE_ASYNC,
                     XCB_NONE, XCB_NONE, XCB_BUTTON_INDEX_1, XCB_MOD_MASK_ANY);
 
-    xcb_reparent_window(wm.conn, window, c->frame, 0, TITLEBAR_H);
+    /* mod_cycle/mod_control + right-click resize (events.c's
+     * handle_button_press) only ever worked when the click happened to
+     * land on the frame itself (e.g. the titlebar) -- everywhere else on
+     * a window is its *content* child, which never had button 3 grabbed
+     * at all, so kiwm never even saw the event; it went straight to the
+     * app (typically opening its own context menu) instead. The button-1
+     * grab above already works from anywhere on content because it's an
+     * unconditional (MOD_MASK_ANY) passive grab that the handler then
+     * decides what to do with (move if a mod is held, otherwise
+     * xcb_allow_events() replays it straight through) -- button 3 needs
+     * its own passive grabs, one per modifier, since we only want to
+     * steal right-clicks that actually have one of them held, not every
+     * right-click on the window. */
+    grab_button3_with_locks(window, wm.mod_cycle);
+    grab_button3_with_locks(window, wm.mod_control);
+
+    xcb_reparent_window(wm.conn, window, c->frame, bt, TITLEBAR_H);
 
     xcb_map_window(wm.conn, window);
     xcb_map_window(wm.conn, c->frame);

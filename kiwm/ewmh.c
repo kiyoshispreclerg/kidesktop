@@ -55,7 +55,8 @@ void ewmh_update_wm_state(Client *c)
                 xcb_atom_t a = atoms[i];
                 if (a == wm.atoms.net_wm_state_hidden ||
                     a == wm.atoms.net_wm_state_maximized_vert ||
-                    a == wm.atoms.net_wm_state_maximized_horz)
+                    a == wm.atoms.net_wm_state_maximized_horz ||
+                    a == wm.atoms.net_wm_state_shaded)
                     continue;
                 keep[nkeep++] = a;
             }
@@ -73,6 +74,8 @@ void ewmh_update_wm_state(Client *c)
         out[n++] = wm.atoms.net_wm_state_maximized_vert;
         out[n++] = wm.atoms.net_wm_state_maximized_horz;
     }
+    if (c->shaded)
+        out[n++] = wm.atoms.net_wm_state_shaded;
 
     xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, c->window,
                         wm.atoms.net_wm_state, XCB_ATOM_ATOM, 32, (uint32_t)n, out);
@@ -105,8 +108,10 @@ void ewmh_update_wm_output(Client *c)
  * by exactly the titlebar height whenever kiwm draws one. */
 void ewmh_update_frame_extents(Client *c)
 {
-    uint32_t top = client_deco_visible(c) ? TITLEBAR_H : 0;
-    uint32_t extents[4] = { 0, 0, top, 0 }; /* left, right, top, bottom */
+    bool deco = client_deco_visible(c);
+    uint32_t top = deco ? TITLEBAR_H : 0;
+    uint32_t side = deco ? (uint32_t)wm.border_thickness : 0;
+    uint32_t extents[4] = { side, side, top, side }; /* left, right, top, bottom */
     xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, c->window,
                         wm.atoms.net_frame_extents, XCB_ATOM_CARDINAL, 32, 4, extents);
 }
@@ -155,7 +160,7 @@ void ewmh_init_supported(void)
         wm.atoms.net_wm_strut, wm.atoms.net_wm_strut_partial,
         wm.atoms.net_wm_state, wm.atoms.net_wm_state_hidden,
         wm.atoms.net_wm_state_maximized_vert, wm.atoms.net_wm_state_maximized_horz,
-        wm.atoms.net_wm_state_skip_taskbar,
+        wm.atoms.net_wm_state_skip_taskbar, wm.atoms.net_wm_state_shaded,
         wm.atoms.net_wm_window_type, wm.atoms.net_wm_window_type_normal,
         wm.atoms.net_wm_window_type_dock, wm.atoms.net_wm_window_type_desktop,
         wm.atoms.net_wm_window_type_toolbar, wm.atoms.net_wm_window_type_menu,

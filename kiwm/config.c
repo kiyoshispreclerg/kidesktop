@@ -39,6 +39,11 @@ static void apply_builtin_defaults(void)
     wm.num_desktops = DEFAULT_NUM_DESKTOPS;
     wm.mod_cycle = MOD_ALT;
     wm.mod_control = MOD_META;
+    wm.border_thickness = 0;
+    wm.border_r = 0.0; wm.border_g = 0.0; wm.border_b = 0.0;
+    wm.snap_threshold = 20;
+    wm.focus_follows_mouse = false;
+    snprintf(wm.theme_path, sizeof(wm.theme_path), "greenxp");
 }
 
 /* "#rrggbb" (leading '#' optional) -> 0..1 doubles, Cairo's native range. */
@@ -96,7 +101,29 @@ static void write_default_config(const char *path)
         "\n"
         "# Modifier for window control -- move via mouse-down+drag, maximize\n"
         "# via +Up, per-output desktop switch via +Tab/+Shift+Tab: alt or meta.\n"
-        "mod_control=meta\n");
+        "mod_control=meta\n"
+        "\n"
+        "# Left/right/bottom decoration border thickness in pixels (0 = no\n"
+        "# border, just the titlebar). No theming yet, just a flat color.\n"
+        "border_thickness=0\n"
+        "border_color=#000000\n"
+        "\n"
+        "# How close (in pixels) the pointer must get to an output's usable-\n"
+        "# area edge, while dragging a window by its titlebar or via\n"
+        "# mod_control-drag, to snap it there (top = maximize, left/right =\n"
+        "# half-width, like Windows 7/kwin). 0 disables snapping.\n"
+        "snap_threshold=20\n"
+        "\n"
+        "# Raise+focus a window just by moving the pointer into it, instead\n"
+        "# of requiring a click (0 = click-to-focus, the default; 1 =\n"
+        "# focus-follows-mouse/\"sloppy focus\").\n"
+        "focus_follows_mouse=0\n"
+        "\n"
+        "# Theme folder (bg.png/slice, btns.png/btns.slice, colors -- see\n"
+        "# kiwm/README or the greenxp/ folder itself for the file formats).\n"
+        "# Resolved the same way kiwm looks for its own binary-relative\n"
+        "# files: tried as ../<theme>, ./<theme> and plain <theme>.\n"
+        "theme=greenxp\n");
     fclose(f);
     fprintf(stderr, "kiwm: no config found, wrote defaults to %s\n", path);
 }
@@ -161,6 +188,19 @@ void config_load(void)
             wm.mod_cycle = parse_mod(val, wm.mod_cycle);
         } else if (strcmp(key, "mod_control") == 0) {
             wm.mod_control = parse_mod(val, wm.mod_control);
+        } else if (strcmp(key, "border_thickness") == 0) {
+            int n = atoi(val);
+            wm.border_thickness = n < 0 ? 0 : n;
+        } else if (strcmp(key, "border_color") == 0) {
+            if (!parse_hex_color(val, &wm.border_r, &wm.border_g, &wm.border_b))
+                fprintf(stderr, "kiwm: config: invalid border_color '%s' (expected #rrggbb)\n", val);
+        } else if (strcmp(key, "snap_threshold") == 0) {
+            int n = atoi(val);
+            wm.snap_threshold = n < 0 ? 0 : n;
+        } else if (strcmp(key, "focus_follows_mouse") == 0) {
+            wm.focus_follows_mouse = atoi(val) != 0;
+        } else if (strcmp(key, "theme") == 0) {
+            snprintf(wm.theme_path, sizeof(wm.theme_path), "%s", val);
         } else {
             fprintf(stderr, "kiwm: config: skipping unknown key '%s'\n", key);
         }

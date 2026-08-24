@@ -104,20 +104,40 @@ void ewmh_set_current_desktop(int desktop)
 /* dock/panel struts (_NET_WM_STRUT / _NET_WM_STRUT_PARTIAL)           */
 /* ------------------------------------------------------------------ */
 
-static void recompute_struts(void)
+/* Which output a dock's own on-screen rectangle sits on -- dock/panel
+ * windows are never reparented by kiwm (see client.c's manage()), so a
+ * plain xcb_get_geometry() on one gives root-relative coordinates
+ * directly, no translate_coordinates needed. */
+static void assign_dock_output(DockWindow *d)
 {
-    int l = 0, r = 0, t = 0, b = 0;
+    xcb_get_geometry_reply_t *geo =
+        xcb_get_geometry_reply(wm.conn, xcb_get_geometry(wm.conn, d->window), NULL);
+    if (!geo) {
+        d->output = -1;
+        return;
+    }
+    d->output = output_index_for_point(geo->x + geo->width / 2, geo->y + geo->height / 2);
+    free(geo);
+}
+
+/* Maxes the struts of just the docks attributed to a single output (see
+ * DockWindow::output) -- _NET_WM_STRUT(_PARTIAL)'s l/r/t/b values are
+ * screen-relative by spec with no notion of "which monitor", so applying
+ * one dock's strut to every output that happens to share its absolute
+ * row/column range (a real risk whenever two outputs start at the same x
+ * or y) would wrongly eat into a workarea the dock isn't even on. */
+static void struts_for_output(int output_idx, int *l, int *r, int *t, int *b)
+{
+    *l = *r = *t = *b = 0;
     for (int i = 0; i < wm.dock_count; i++) {
         DockWindow *d = &wm.docks[i];
-        if (d->left > l) l = d->left;
-        if (d->right > r) r = d->right;
-        if (d->top > t) t = d->top;
-        if (d->bottom > b) b = d->bottom;
+        if (d->output != output_idx)
+            continue;
+        if (d->left > *l) *l = d->left;
+        if (d->right > *r) *r = d->right;
+        if (d->top > *t) *t = d->top;
+        if (d->bottom > *b) *b = d->bottom;
     }
-    wm.strut_left = l;
-    wm.strut_right = r;
-    wm.strut_top = t;
-    wm.strut_bottom = b;
 }
 
 /* Reads the first 4 CARDINALs (left, right, top, bottom) out of whichever
@@ -166,7 +186,7 @@ void dock_track(xcb_window_t window)
     d->window = window;
     d->left = d->right = d->top = d->bottom = 0;
     read_strut(window, &d->left, &d->right, &d->top, &d->bottom);
-    recompute_struts();
+    assign_dock_output(d);
     ewmh_set_workarea();
 }
 
@@ -177,7 +197,6 @@ bool dock_refresh_strut(xcb_window_t window)
         return false;
     d->left = d->right = d->top = d->bottom = 0;
     read_strut(window, &d->left, &d->right, &d->top, &d->bottom);
-    recompute_struts();
     ewmh_set_workarea();
     return true;
 }
@@ -188,7 +207,6 @@ bool dock_forget(xcb_window_t window)
         if (wm.docks[i].window != window)
             continue;
         wm.docks[i] = wm.docks[--wm.dock_count];
-        recompute_struts();
         ewmh_set_workarea();
         return true;
     }
@@ -202,13 +220,16 @@ bool dock_forget(xcb_window_t window)
 void compute_output_workarea(int output_idx, int *x, int *y, int *w, int *h)
 {
     XisOutput *o = &wm.outputs[output_idx];
-    int screen_w = wm.screen->width_in_pixels;
-    int screen_h = wm.screen->height_in_pixels;
+    int screen_w = wm.screen_w;
+    int screen_h = wm.screen_h;
 
-    int left_edge = wm.strut_left;
-    int top_edge = wm.strut_top;
-    int right_edge = screen_w - wm.strut_right;
-    int bottom_edge = screen_h - wm.strut_bottom;
+    int sl, sr, st, sb;
+    struts_for_output(output_idx, &sl, &sr, &st, &sb);
+
+    int left_edge = sl;
+    int top_edge = st;
+    int right_edge = screen_w - sr;
+    int bottom_edge = screen_h - sb;
 
     int ux = o->x > left_edge ? o->x : left_edge;
     int uy = o->y > top_edge ? o->y : top_edge;
@@ -224,7 +245,7 @@ void compute_output_workarea(int output_idx, int *x, int *y, int *w, int *h)
 static void ewmh_set_workarea(void)
 {
     int pi = primary_output_index();
-    int x = 0, y = 0, w = wm.screen->width_in_pixels, h = wm.screen->height_in_pixels;
+    int x = 0, y = 0, w = wm.screen_w, h = wm.screen_h;
     if (pi >= 0)
         compute_output_workarea(pi, &x, &y, &w, &h);
 
@@ -242,6 +263,23 @@ static void ewmh_set_workarea(void)
 
 void outputs_refresh(void)
 {
+    /* wm.screen (cached at xcb_connect time) never reflects RandR changes
+     * after startup -- a fresh xcb_get_geometry() on the root window is
+     * the only way to see the *current* virtual screen size, which
+     * compute_output_workarea()/ewmh_set_workarea() need to not clamp a
+     * bigger/newly-added output's workarea down to whatever the screen
+     * size happened to be when kiwm started. */
+    xcb_get_geometry_reply_t *root_geo =
+        xcb_get_geometry_reply(wm.conn, xcb_get_geometry(wm.conn, wm.root), NULL);
+    if (root_geo) {
+        wm.screen_w = root_geo->width;
+        wm.screen_h = root_geo->height;
+        free(root_geo);
+    } else if (wm.screen_w == 0 || wm.screen_h == 0) {
+        wm.screen_w = wm.screen->width_in_pixels;
+        wm.screen_h = wm.screen->height_in_pixels;
+    }
+
     xcb_randr_get_monitors_reply_t *r =
         xcb_randr_get_monitors_reply(wm.conn,
             xcb_randr_get_monitors(wm.conn, wm.root, 1), NULL);
@@ -301,6 +339,12 @@ void outputs_refresh(void)
             ewmh_update_wm_output(c);
         }
     }
+
+    /* Same for tracked docks (see DockWindow::output) -- a screen layout
+     * change could plausibly move which output a panel's fixed rectangle
+     * now falls on. */
+    for (int i = 0; i < wm.dock_count; i++)
+        assign_dock_output(&wm.docks[i]);
 
     ewmh_update_output_props();
     ewmh_set_workarea();

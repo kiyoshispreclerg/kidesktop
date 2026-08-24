@@ -27,6 +27,40 @@
 #define MAX_DESKTOPS      32
 #define DEFAULT_NUM_DESKTOPS 4
 
+/* Titlebar button screen *slots* (left-to-right on-screen position,
+ * fixed regardless of theme) -- used for hit-testing and hover tracking
+ * (events.c) and to pick which one draw_decoration() is drawing
+ * (decoration.c). Distinct from the BTNCOL_* sprite *columns* below,
+ * which are about where an icon lives in btns.png, not where the button
+ * sits on screen. Screen order (right to left): close, maximize,
+ * minimize, shade -- i.e. shade is the leftmost/outermost button. */
+#define BTNSLOT_SHADE     0
+#define BTNSLOT_MINIMIZE  1
+#define BTNSLOT_MAXIMIZE  2
+#define BTNSLOT_CLOSE     3
+#define BTN_SLOT_COUNT    4
+
+/* btns.png sprite sheet column order (see greenxp/btns.slice) -- fixed by
+ * convention, not configurable. Rows (not enumerated here) are always
+ * normal=0/hover=1/clicked=2 top-to-bottom; "clicked" isn't wired to
+ * anything yet (kiwm fires button actions on press, not release, so
+ * there's no separate held-down moment to show it during). shade/
+ * keep_above/keep_all_desktops are reserved for window states kiwm
+ * doesn't implement yet -- never drawn or hit-tested. */
+#define BTNCOL_CLOSE             0
+#define BTNCOL_MAXIMIZE          1
+#define BTNCOL_RESTORE           2
+#define BTNCOL_MINIMIZE          3
+#define BTNCOL_SHADE             4
+#define BTNCOL_KEEP_ABOVE        5
+#define BTNCOL_KEEP_ALL_DESKTOPS 6
+
+/* How close together (ms, comparing xcb_timestamp_t's, which are itself
+ * server milliseconds) two titlebar clicks must land to count as a
+ * double-click (see events.c's handle_button_press). Not configurable --
+ * matches a typical desktop double-click speed closely enough. */
+#define DOUBLE_CLICK_MS   400
+
 #define MOD_ALT           XCB_MOD_MASK_1
 #define MOD_ALT_SHIFT     (XCB_MOD_MASK_1 | XCB_MOD_MASK_SHIFT)
 #define MOD_META          XCB_MOD_MASK_4
@@ -52,6 +86,19 @@ typedef struct XisOutput {
     int desktop;            /* current virtual desktop for this output, 0..wm.num_desktops-1 */
 } XisOutput;
 
+/* Which screen edge (if any) a window is currently snapped to -- see
+ * events.c's handle_motion(). SNAP_TOP behaves like maximize (and is
+ * tracked through Client::maximized, not this enum); the enum only needs
+ * to distinguish the two half-width snaps from "not snapped". */
+typedef enum {
+    SNAP_NONE = 0,
+    SNAP_LEFT,
+    SNAP_RIGHT,
+    SNAP_TOP   /* only ever used transiently as KiWM::drag_snap_side -- a
+                * client actually snapped to the top edge is represented
+                * via Client::maximized instead, not Client::snap_side. */
+} SnapSide;
+
 /* A non-managed window (dock/panel, e.g. xispanel) that reserves screen
  * edge space via _NET_WM_STRUT(_PARTIAL). Tracked separately from Client
  * since dock/desktop/toolbar/menu window types are never framed or added
@@ -59,6 +106,14 @@ typedef struct XisOutput {
 typedef struct DockWindow {
     xcb_window_t window;
     int left, right, top, bottom;
+    /* Which output this dock's own on-screen rectangle sits on (index into
+     * wm.outputs, or -1 if undetermined) -- see output.c's
+     * assign_dock_output(). _NET_WM_STRUT(_PARTIAL)'s l/r/t/b values are
+     * defined relative to the *whole* screen with no notion of "which
+     * monitor", so without this a dock living on one output would still
+     * eat into a different output's workarea whenever both outputs share
+     * the same absolute row/column range (e.g. both start at x=0). */
+    int output;
 } DockWindow;
 
 struct Client {
@@ -72,11 +127,21 @@ struct Client {
     bool mapped;
     bool maximized;
     bool minimized;
+    bool shaded;    /* content window unmapped, only the titlebar shows --
+                     * see client.c's toggle_shade(). Orthogonal to
+                     * maximized/snap_side (tiling always unshades first,
+                     * see client.c's unshade_now()). */
     int ignore_unmap;   /* absorbs the automatic UnmapNotify from reparenting an
                           * already-mapped pre-existing window at startup */
 
     int output;              /* index into wm.outputs */
     int desktop;              /* per-output virtual desktop this client belongs to */
+
+    /* Windows7/kwin-style edge snap (see events.c's handle_motion). SNAP_NONE
+     * unless the window is currently filling exactly one half of its
+     * output's workarea; top-edge snapping reuses `maximized` instead, since
+     * it's the exact same state a titlebar maximize-click produces. */
+    SnapSide snap_side;
 
     char title[256];
 
@@ -111,6 +176,7 @@ typedef struct {
     xcb_atom_t net_wm_state_maximized_vert;
     xcb_atom_t net_wm_state_maximized_horz;
     xcb_atom_t net_wm_state_skip_taskbar;
+    xcb_atom_t net_wm_state_shaded;
 
     xcb_atom_t net_wm_window_type;
     xcb_atom_t net_wm_window_type_normal;
@@ -133,6 +199,16 @@ typedef struct {
     xcb_visualtype_t *visual;
     int randr_event_base;
 
+    /* Live root window size, refreshed by output.c's outputs_refresh()
+     * (via a fresh xcb_get_geometry() on wm.root) every time RandR reports
+     * a screen change. wm.screen->width_in_pixels/height_in_pixels is a
+     * snapshot taken once at connection setup and is NEVER updated by xcb
+     * afterward -- using it directly in workarea/maximize math silently
+     * goes stale the moment a monitor is plugged in, unplugged, or
+     * resized after startup (e.g. a maximize on a since-added bigger
+     * output getting clamped to the *old*, smaller virtual screen size). */
+    int screen_w, screen_h;
+
     Atoms atoms;
     xcb_window_t check_win;
     xcb_window_t sel_win;    /* WM_Sn selection owner window, watched for SelectionClear */
@@ -143,11 +219,6 @@ typedef struct {
 
     DockWindow docks[MAX_DOCKS];
     int dock_count;
-    /* Aggregated (max across all tracked docks) screen-edge reservation,
-     * recomputed by output.c's recompute_struts() whenever a dock's strut
-     * changes or a dock is destroyed. Screen-absolute pixels, same as
-     * _NET_WM_STRUT itself. */
-    int strut_left, strut_right, strut_top, strut_bottom;
 
     /* Most recently mapped _NET_WM_WINDOW_TYPE_DESKTOP window (e.g.
      * xisback's wallpaper/fade windows) -- see client.c's manage(). Each
@@ -164,12 +235,73 @@ typedef struct {
     Client *clients;
     Client *focused;
 
-    cairo_surface_t *deco_bg;   /* cached greenxp/bg.png, ARGB32 */
+    /* Theme folder path (kiwm.conf's theme=, default "greenxp") -- resolved
+     * relative to the same 3 candidate locations the old hardcoded
+     * greenxp/ search used (../<theme>, ./<theme>, plain <theme>), see
+     * decoration.c's find_theme_file(). */
+    char theme_path[256];
+
+    /* Theme (see decoration.c's load_decoration()). Every
+     * piece loads independently and falls back on its own if missing --
+     * there's no all-or-nothing theme requirement. */
+    cairo_surface_t *deco_bg;   /* greenxp/bg.png, ARGB32, or NULL */
+    int bg_slice_l, bg_slice_t, bg_slice_r, bg_slice_b;  /* greenxp/slice, 9-slice insets */
+
+    cairo_surface_t *deco_btns; /* greenxp/btns.png button sprite sheet, ARGB32, or NULL */
+    int btn_cell_w, btn_cell_h; /* greenxp/btns.slice: cell_width=/cell_height= */
+
+    /* greenxp/colors: per-focus titlebar/border colors. have_theme_colors
+     * is set as soon as the file is found at all (even if some keys are
+     * missing -- those individual colors just fall back to the plain
+     * deco_bg_/deco_fg_/border_ fields below instead of a whole-file
+     * fallback). */
+    bool have_theme_colors;
+    double bg_active_r, bg_active_g, bg_active_b;
+    double bg_inactive_r, bg_inactive_g, bg_inactive_b;
+    double fg_active_r, fg_active_g, fg_active_b;
+    double fg_inactive_r, fg_inactive_g, fg_inactive_b;
+    double border_active_r, border_active_g, border_active_b;
+    double border_inactive_r, border_inactive_g, border_inactive_b;
+
+    /* Which client/button-slot the pointer currently hovers, for the
+     * sprite theme's hover row (see decoration.c's draw_button()) --
+     * meaningless without deco_btns loaded, so plain-fallback decoration
+     * never bothers tracking or repainting for this. hover_btn is one of
+     * the BTNSLOT_* constants above, or -1 for none. */
+    Client *hover_client;
+    int hover_btn;
+
     bool hide_deco_on_maximize;
-    double deco_bg_r, deco_bg_g, deco_bg_b;   /* fallback titlebar background when no PNG loads */
+    double deco_bg_r, deco_bg_g, deco_bg_b;   /* fallback titlebar background when no theme */
     double deco_fg_r, deco_fg_g, deco_fg_b;   /* fallback title text color */
 
+    /* Left/right/bottom decoration border: a flat-colored strip (no PNG
+     * theming yet, see decoration.c) of this thickness on the three sides
+     * the titlebar doesn't already cover, from kiwm.conf's
+     * border_thickness=/border_color= (default: 0, i.e. no side/bottom
+     * border, preserving the old titlebar-only look). */
+    int border_thickness;
+    double border_r, border_g, border_b;
+
     int num_desktops;   /* virtual desktops per output, from kiwm.conf's num_desktops= (default 4) */
+
+    /* Whether merely moving the pointer into a window raises+focuses it
+     * (classic "sloppy"/focus-follows-mouse), vs. requiring a click --
+     * kiwm.conf's focus_follows_mouse= (default 0/off: click-to-focus). */
+    bool focus_follows_mouse;
+
+    /* Distance in pixels from an output's workarea edge, while dragging a
+     * window by its titlebar/mod-drag, that engages Windows7/kwin-style
+     * edge snapping (see events.c's handle_motion). kiwm.conf's
+     * snap_threshold= (default 20). 0 disables snapping entirely. */
+    int snap_threshold;
+    /* SNAP_NONE/current snap side engaged by the drag in progress, and the
+     * output it was computed against -- reset at the start of every drag
+     * in handle_button_press. Separate from Client::snap_side because a
+     * window not yet released still has its *pending* snap tracked here,
+     * so handle_motion can tell when the pointer has moved out of the edge
+     * zone again and needs to restore the pre-drag floating geometry. */
+    SnapSide drag_snap_side;
 
     /* Which modifier drives Alt+Tab-style window cycling vs. Meta-style
      * window control (move/maximize/desktop-cycle) -- configurable via
@@ -182,6 +314,17 @@ typedef struct {
     Client *drag_client;
     int drag_start_root_x, drag_start_root_y;
     int drag_start_x, drag_start_y, drag_start_w, drag_start_h;
+    /* Which edges grow during a DRAG_RESIZE, decided once at the press
+     * that started it (events.c's handle_button_press) from whichever
+     * corner was nearest the click, kwin/compiz-style -- the opposite
+     * corner then stays fixed for the whole drag (handle_motion). */
+    bool resize_right, resize_bottom;
+
+    /* Manual double-click detection for the plain (non-button) titlebar
+     * area -- X has no double-click event of its own, just consecutive
+     * ButtonPress'es (see events.c's handle_button_press). */
+    xcb_timestamp_t last_titlebar_click_time;
+    xcb_window_t last_titlebar_click_frame;
 
     xcb_keycode_t key_tab, key_1, key_2, key_3, key_4, key_up;
 

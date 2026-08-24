@@ -11,6 +11,11 @@ void cycle_focus(int direction);
 
 void close_client(Client *c);
 void toggle_maximize(Client *c, int want /* -1=toggle 0=unmax 1=max */);
+void toggle_shade(Client *c, int want /* -1=toggle 0=unshade 1=shade */);
+void unshade_now(Client *c);
+void snap_client_to_side(Client *c, SnapSide side /* SNAP_LEFT or SNAP_RIGHT */);
+void unsnap_client(Client *c, int x, int y, int width, int height);
+void detile_for_drag(Client *c, int press_root_x, int press_root_y);
 void minimize_client(Client *c);
 void restore_client(Client *c);
 void activate_client(Client *c);

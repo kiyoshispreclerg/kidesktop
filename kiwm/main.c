@@ -222,7 +222,7 @@ static void setup_wm(bool replace)
     xcb_flush(wm.conn);
 
     fprintf(stderr, "kiwm: started on screen %dx%d (workspaces 1-%d per output)\n",
-            wm.screen->width_in_pixels, wm.screen->height_in_pixels, wm.num_desktops);
+            wm.screen_w, wm.screen_h, wm.num_desktops);
 }
 
 /* Reparents every client back to the root window (at its current on-screen
