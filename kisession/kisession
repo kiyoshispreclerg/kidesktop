@@ -1,11 +1,24 @@
 #!/bin/sh
 # kisession - KiDesktop session launcher (test build)
 #
-# Components:
-#   xisback  - wallpaper (required)
-#   xispanel - panel/taskbar (required)
-#   xss-lock + i3lock - screen-lock integration (optional)
-#   window manager - configurable, see below
+# Components (session-owned services -- distinct from XDG autostart, which
+# is regular installed apps, not the desktop's own pieces):
+#   xisback  - wallpaper
+#   xispanel - panel/taskbar
+#   xiskeys  - global hotkeys
+#   kiconfd  - theme/cursor/settings daemon
+#   wm       - window manager, configurable, see below
+#   dbus     - session bus activation environment
+#   audio    - pipewire/pulseaudio, only if nothing already started it
+#   xss-lock + i3lock - screen-lock integration (optional, not yet a
+#                        listed service -- see XISDESKTOP_PLAN.md)
+#
+# Which of these actually start comes from $XDG_CONFIG_HOME/kisession.conf
+# (fallback ~/.config/kisession.conf): "SERVICE\t<name>\t<0|1>" lines, one
+# per service above. A service missing from the file defaults to enabled.
+# This is what kiconf's future "session services" tab (separate from its
+# XDG autostart tab) will edit. The file is created with everything
+# enabled if it doesn't exist yet.
 #
 # The session's lifetime is kisession's own lifetime, not the window
 # manager's: `exec`-ing the WM directly used to mean the whole X session
@@ -13,11 +26,10 @@
 # was a crash or a deliberate WM replace (`--replace`). kisession stays the
 # process the display manager tracks and supervises the WM instead.
 #
-# Which WM to run comes from $XDG_CONFIG_HOME/kisession.conf (fallback
-# ~/.config/kisession.conf), a "wm = <command>" line -- this is what
-# kiconf's future WM tab will write when the user picks one from the list
-# of installed WMs, and "Aplicar" there just sends kisession SIGHUP to
-# switch to it live. If the config is missing/unusable, kisession falls
+# Which WM to run comes from the same config file, a "wm = <command>"
+# line -- this is what kiconf's future WM tab will write when the user
+# picks one from the list of installed WMs, and "Aplicar" there just sends
+# kisession SIGHUP to switch to it live. If unset/unusable, kisession falls
 # back to the first available of a built-in candidate list.
 #
 # If the running WM exits, kisession has to tell apart a crash (nothing
@@ -46,6 +58,52 @@ if [ -n "${XDG_CONFIG_HOME:-}" ]; then
 else
 	CONF_PATH="$HOME/.config/kisession.conf"
 fi
+
+write_default_config()
+{
+	mkdir -p "$(dirname "$CONF_PATH")"
+	{
+		echo "# kisession config"
+		echo "#"
+		echo "# wm = <command>          -- which window manager to launch"
+		echo "#                            (kiconf's future WM tab writes this)"
+		echo "#"
+		echo "# SERVICE <name> <0|1>    -- session-owned services to start,"
+		echo "#                            tab-separated; distinct from XDG"
+		echo "#                            autostart (regular installed apps)."
+		echo "#                            A service missing here defaults to"
+		echo "#                            enabled."
+		echo "#"
+		echo "# wm ="
+		echo ""
+		printf 'SERVICE\txisback\t1\n'
+		printf 'SERVICE\txispanel\t1\n'
+		printf 'SERVICE\txiskeys\t1\n'
+		printf 'SERVICE\tkiconfd\t1\n'
+		printf 'SERVICE\twm\t1\n'
+		printf 'SERVICE\tdbus\t1\n'
+		printf 'SERVICE\taudio\t1\n'
+	} > "$CONF_PATH"
+}
+
+if [ ! -f "$CONF_PATH" ]; then
+	echo "kisession: no config at '$CONF_PATH', writing default (all services enabled)" >&2
+	write_default_config
+fi
+
+# True (exit 0) unless the named service has an explicit "SERVICE\t<name>\t0"
+# line in the config -- absence means enabled, same spirit as kiconfd/
+# xiskeys defaulting to something sane when a key isn't set yet.
+service_enabled()
+{
+	name="$1"
+	result=$(awk -F'\t' -v n="$name" '
+		$1 == "SERVICE" && $2 == n { print $3; f=1; exit }
+		END { if (!f) print "" }
+	' "$CONF_PATH" 2>/dev/null)
+	[ "$result" = "0" ] && return 1
+	return 0
+}
 
 wm_available()
 {
@@ -166,23 +224,48 @@ wait_for_pid()
 # Makes DISPLAY/XAUTHORITY/session vars visible to D-Bus/systemd --user
 # activated services. No-op if the display manager already handled it.
 
-if command -v dbus-update-activation-environment >/dev/null 2>&1; then
-	dbus-update-activation-environment --systemd \
-		DISPLAY XAUTHORITY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP \
-		XDG_SESSION_TYPE >/dev/null 2>&1 || true
-fi
-
 export XDG_CURRENT_DESKTOP=KiDesktop
 export XDG_SESSION_DESKTOP=kidesktop
 export XDG_MENU_PREFIX=kidesktop-
 export XDG_SESSION_TYPE=x11
 
+if service_enabled dbus && command -v dbus-update-activation-environment >/dev/null 2>&1; then
+	dbus-update-activation-environment --systemd \
+		DISPLAY XAUTHORITY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP \
+		XDG_SESSION_TYPE >/dev/null 2>&1 || true
+fi
+
 # ------------------------------------------------------------
-# Background / panel (required)
+# Session-owned services
 # ------------------------------------------------------------
 
-start_bg xisback
-start_bg xispanel
+service_enabled xisback && start_bg xisback
+service_enabled xispanel && start_bg xispanel
+service_enabled xiskeys && start_bg xiskeys
+service_enabled kiconfd && start_bg kiconfd
+
+# pipewire/pulseaudio: most distros already start these as a systemd --user
+# service or via socket activation, in which case this is a no-op --
+# spawning a second one would just fight the first for the audio devices.
+# Only start one ourselves if nothing is running yet (e.g. no systemd user
+# session, or a from-scratch minimal install).
+start_audio()
+{
+	if pgrep -x pipewire >/dev/null 2>&1 || pgrep -x pulseaudio >/dev/null 2>&1; then
+		echo "kisession: audio server already running, not starting a second one" >&2
+		return
+	fi
+	if command -v pipewire >/dev/null 2>&1; then
+		start_bg pipewire
+		command -v pipewire-pulse >/dev/null 2>&1 && start_bg pipewire-pulse
+		command -v wireplumber >/dev/null 2>&1 && start_bg wireplumber
+	elif command -v pulseaudio >/dev/null 2>&1; then
+		start_bg pulseaudio --start
+	else
+		echo "kisession: no audio server found (pipewire/pulseaudio); skipping" >&2
+	fi
+}
+service_enabled audio && start_audio
 
 # ------------------------------------------------------------
 # Screen locker
@@ -213,37 +296,50 @@ run_wm_cycle()
 	return 0
 }
 
-while [ "$QUIT" -eq 0 ]; do
-	RELOAD=0
-	run_wm_cycle
-	if [ $? -eq 9 ]; then
-		echo "kisession: no window manager found (looked for: $CANDIDATES, or configured wm)" >&2
-		cleanup
-		exit 1
-	fi
-	[ "$QUIT" -eq 1 ] && break
-	if [ "$RELOAD" -eq 1 ]; then
-		continue
-	fi
-
-	# Our supervised WM exited on its own -- tell a crash apart from an
-	# external `--replace` before deciding to restart the same one.
-	new_pid=$(current_wm_pid)
-	if [ -n "$new_pid" ] && [ "$new_pid" != "$OLD_PID" ]; then
-		echo "kisession: detected external WM replace (pid $new_pid), adopting it" >&2
-		WM_PID=$new_pid
-		wait_for_pid "$new_pid"
-		WM_PID=""
+if service_enabled wm; then
+	while [ "$QUIT" -eq 0 ]; do
+		RELOAD=0
+		run_wm_cycle
+		if [ $? -eq 9 ]; then
+			echo "kisession: no window manager found (looked for: $CANDIDATES, or configured wm)" >&2
+			cleanup
+			exit 1
+		fi
 		[ "$QUIT" -eq 1 ] && break
-		[ "$RELOAD" -eq 1 ] && continue
-		echo "kisession: adopted wm (pid $new_pid) exited, restarting configured wm in 1s" >&2
-		sleep 1
-		continue
-	fi
+		if [ "$RELOAD" -eq 1 ]; then
+			continue
+		fi
 
-	echo "kisession: wm exited, restarting in 1s" >&2
-	sleep 1
-done
+		# Our supervised WM exited on its own -- tell a crash apart from an
+		# external `--replace` before deciding to restart the same one.
+		new_pid=$(current_wm_pid)
+		if [ -n "$new_pid" ] && [ "$new_pid" != "$OLD_PID" ]; then
+			echo "kisession: detected external WM replace (pid $new_pid), adopting it" >&2
+			WM_PID=$new_pid
+			wait_for_pid "$new_pid"
+			WM_PID=""
+			[ "$QUIT" -eq 1 ] && break
+			[ "$RELOAD" -eq 1 ] && continue
+			echo "kisession: adopted wm (pid $new_pid) exited, restarting configured wm in 1s" >&2
+			sleep 1
+			continue
+		fi
+
+		echo "kisession: wm exited, restarting in 1s" >&2
+		sleep 1
+	done
+else
+	# wm service disabled: something else is expected to manage windows
+	# (started manually, or externally) -- kisession still stays up as the
+	# session leader, it just doesn't launch/supervise one itself.
+	echo "kisession: wm service disabled, not launching a window manager" >&2
+	while [ "$QUIT" -eq 0 ]; do
+		RELOAD=0
+		sleep 3600 &
+		SLEEP_PID=$!
+		wait "$SLEEP_PID" 2>/dev/null
+	done
+fi
 
 cleanup
 exit 0
