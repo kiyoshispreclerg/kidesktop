@@ -1,5 +1,5 @@
 CFLAGS ?= -Wall -Wextra -O2
-LIBS := $(shell pkg-config --cflags --libs gtk+-2.0)
+LIBS := $(shell pkg-config --cflags --libs gtk+-2.0) -lm
 
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
