@@ -16,7 +16,16 @@
  *     /usr/share/icons, ~/.themes, ~/.icons) rather than free text, so the
  *     user can only pick something that exists; the Qt style list is a
  *     static fallback (Fusion/Windows/gtk2) since enumerating installed
- *     QStyle plugins would need linking against Qt itself.
+ *     QStyle plugins would need linking against Qt itself. Since
+ *     kiconfd.conf only reflects what kiconfd itself last applied, an
+ *     "Importar da sessao atual" button (import_appearance_cb()) also
+ *     scans the live places kiconfd writes to -- Xcursor.theme/size from
+ *     `xrdb -query`, GTK3/4's settings.ini, ~/.gtkrc-2.0, qt5ct/qt6ct.conf
+ *     -- and fills the widgets from that instead, so the tab isn't stuck
+ *     showing stale/default values the first time kiconfd hasn't run yet
+ *     in a session. Only fills widgets; still needs "Aplicar" to persist.
+ *     The color palette has no such live source (no toolkit exposes "the
+ *     current accent color" generically) so Importar leaves it alone.
  *   Atalhos -- edits xiskeys' BIND lines directly in
  *     $XDG_CONFIG_HOME/xiskeys.conf (fallback ~/.config/xiskeys.conf),
  *     then signals the running xiskeys with SIGHUP to reload.
@@ -63,14 +72,21 @@
  *     GtkDrawingArea + Cairo (gdk_cairo_create() in an "expose-event"
  *     handler) is the GTK2 equivalent of the QGraphicsScene xisconf.py
  *     uses, and "button-press-event"/"motion-notify-event"/
- *     "button-release-event" on the same widget cover dragging. Deliberately
+ *     "button-release-event" on the same widget cover dragging, snapping
+ *     to other outputs' edges within a few canvas pixels (screens_snap()).
+ *     "Saida selecionada" also covers Mirror/DPI/Scale like xisconf.py's
+ *     panel does -- but since plain `xrandr` (no --verbose) never reports
+ *     them, they can't be diffed against real hardware state like every
+ *     other field here: screens_redetect_preserving_extras() carries them
+ *     across Detectar-novamente/Aplicar by output name instead of losing
+ *     them to each fresh detect_outputs() call, so the "baseline" for
+ *     just these three is "what kiconf last set them to". Deliberately
  *     NOT ported: xisconf.py's generic "advanced driver properties"
  *     system (TearFree, underscan, PRIME Sync, etc., parsed from `xrandr
- *     --verbose`) and per-output DPI/--scale -- both need a second,
- *     much richer xrandr call and a dynamic per-property widget system.
- *     Only plain `xrandr` is parsed. No snap-to-edge while dragging
- *     either. Untested against a real multi-output setup as of writing --
- *     next session's job.
+ *     --verbose`'s per-output "supported:"/"range:" sub-lines) -- would
+ *     need a second, much richer xrandr call and a dynamic per-property
+ *     widget system. Untested against a real multi-output setup as of
+ *     writing -- next session's job.
  */
 #include <gtk/gtk.h>
 
@@ -240,6 +256,15 @@ typedef struct {
     char current_mode[16], current_rate[16];
     OutMode modes[MAX_MODES];
     int n_modes;
+    /* Not detectable from plain `xrandr` (only --verbose shows them), so
+     * these three start blank/neutral on every detect_outputs() call and
+     * are restored from the previous in-memory state by
+     * screens_restore_extras() right after -- meaning the "baseline" for
+     * them is really "what kiconf last set them to", not "what the
+     * hardware reports", unlike every other field here. */
+    char mirror_of[NAME_LEN];
+    int dpi;
+    double scale_x, scale_y;
 } ScreenOutput;
 static ScreenOutput g_outputs[MAX_OUTPUTS];
 static ScreenOutput g_outputs_baseline[MAX_OUTPUTS];
@@ -251,6 +276,8 @@ static int g_screens_syncing = 0;
 static GtkWidget *g_screens_canvas;
 static GtkWidget *g_screens_res_combo, *g_screens_rate_combo, *g_screens_rot_combo;
 static GtkWidget *g_screens_enabled_chk, *g_screens_primary_chk;
+static GtkWidget *g_screens_mirror_combo;
+static GtkWidget *g_screens_dpi_spin, *g_screens_scale_spin;
 static GtkWidget *g_screens_status_label;
 
 /* ---- installed-theme scanning ----------------------------------------- */
@@ -776,6 +803,198 @@ static void save_appearance_cb(GtkWidget *widget, gpointer data)
     signal_daemon("kiconfd");
 }
 
+/* ---- Aparencia tab: "Importar da sessao atual" ------------------------
+ * kiconfd.conf (read by load_appearance() above) only reflects what
+ * kiconfd itself last applied -- if kiconfd never ran yet in this session,
+ * or the user set a cursor/theme by hand (lxappearance, qt5ct directly,
+ * a distro default), the tab shows stale/default values instead of
+ * what's actually active. This scans the same live places kiconfd itself
+ * writes to when it *does* run (so "Importar" then "Aplicar" is a no-op),
+ * plus the X resource database as a cursor fallback, and only fills the
+ * widgets -- nothing touches disk until "Aplicar" is clicked. The color
+ * palette has no independent live source (it's a kiconfd-only construct,
+ * no toolkit exposes "the current accent color" generically), so it's
+ * left untouched by this. Monospace font is left alone too: unlike the
+ * general font (GTK3's settings.ini gtk-font-name), there's no single
+ * cross-toolkit place a "monospace font" is recorded system-wide. */
+
+static int read_ini_value(const char *path, const char *section, const char *key, char *out, size_t outsz)
+{
+    out[0] = '\0';
+    GKeyFile *kf = g_key_file_new();
+    if (!g_key_file_load_from_file(kf, path, G_KEY_FILE_NONE, NULL)) {
+        g_key_file_free(kf);
+        return 0;
+    }
+    gchar *v = g_key_file_get_string(kf, section, key, NULL);
+    int ok = 0;
+    if (v && *v) {
+        snprintf(out, outsz, "%s", v);
+        ok = 1;
+    }
+    g_free(v);
+    g_key_file_free(kf);
+    return ok;
+}
+
+/* ~/.gtkrc-2.0 isn't ini-format (no [section]s), just "key = value" lines
+ * that GTK2 itself parses top-to-bottom with later lines winning -- scans
+ * the whole file and keeps the last match, so kiconf's own "# BEGIN/END
+ * KICONF" block (appended at the end) correctly takes priority when
+ * present, same as it does for GTK2 itself. */
+static int read_gtkrc2_value(const char *key, char *out, size_t outsz)
+{
+    out[0] = '\0';
+    const char *home = getenv("HOME");
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/.gtkrc-2.0", home ? home : "");
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        return 0;
+    }
+    char line[512];
+    int found = 0;
+    size_t klen = strlen(key);
+    while (fgets(line, sizeof(line), f)) {
+        char *l = trim(line);
+        if (strncmp(l, key, klen) != 0) {
+            continue;
+        }
+        char *rest = trim(l + klen);
+        if (*rest != '=') {
+            continue;
+        }
+        rest = trim(rest + 1);
+        size_t len = strlen(rest);
+        if (len >= 2 && rest[0] == '"' && rest[len - 1] == '"') {
+            rest[len - 1] = '\0';
+            rest++;
+        }
+        snprintf(out, outsz, "%s", rest);
+        found = 1;
+    }
+    fclose(f);
+    return found;
+}
+
+/* Grabs the value following "propname:" up to end-of-line out of `xrdb
+ * -query`'s output -- same tab-after-colon format Xresources always use. */
+static int read_xrdb_prop(const char *xrdb_out, const char *propname, char *out, size_t outsz)
+{
+    out[0] = '\0';
+    const char *p = strstr(xrdb_out, propname);
+    if (!p) {
+        return 0;
+    }
+    p += strlen(propname);
+    const char *nl = strchr(p, '\n');
+    size_t n = nl ? (size_t)(nl - p) : strlen(p);
+    char tmp[256];
+    if (n >= sizeof(tmp)) {
+        n = sizeof(tmp) - 1;
+    }
+    memcpy(tmp, p, n);
+    tmp[n] = '\0';
+    char *t = trim(tmp);
+    if (!*t) {
+        return 0;
+    }
+    snprintf(out, outsz, "%s", t);
+    return 1;
+}
+
+/* Selects `name` in a text combobox built by make_theme_combo(), appending
+ * it (like make_theme_combo() itself does for the on-disk current value)
+ * if the live value isn't one of the scanned/installed choices. */
+static void combo_select_or_append(GtkWidget *combo, const char *name)
+{
+    if (!name || !*name) {
+        return;
+    }
+    GtkTreeModel *model = gtk_combo_box_get_model(GTK_COMBO_BOX(combo));
+    GtkTreeIter it;
+    int idx = 0, found = -1;
+    if (gtk_tree_model_get_iter_first(model, &it)) {
+        do {
+            gchar *t = NULL;
+            gtk_tree_model_get(model, &it, 0, &t, -1);
+            if (t && !strcmp(t, name)) {
+                found = idx;
+            }
+            g_free(t);
+            idx++;
+        } while (found < 0 && gtk_tree_model_iter_next(model, &it));
+    }
+    if (found < 0) {
+        gtk_combo_box_append_text(GTK_COMBO_BOX(combo), name);
+        found = idx;
+    }
+    gtk_combo_box_set_active(GTK_COMBO_BOX(combo), found);
+}
+
+static void import_appearance_cb(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    (void)data;
+
+    char val[NAME_LEN];
+    char path[PATH_MAX];
+
+    /* Cursor theme/size: the X resource database is what X clients that
+     * don't read GTK/Qt settings actually use, so it's the most "session
+     * truth" source available; GTK3's settings.ini is the fallback. */
+    char xrdb_out[8192];
+    char *xrdb_argv[] = {"xrdb", "-query", NULL};
+    int have_xrdb = run_capture(xrdb_argv, xrdb_out, sizeof(xrdb_out));
+    int got_cursor_theme = 0, got_cursor_size = 0;
+    if (have_xrdb && read_xrdb_prop(xrdb_out, "Xcursor.theme:", val, sizeof(val))) {
+        combo_select_or_append(g_cursor_combo, val);
+        got_cursor_theme = 1;
+    }
+    if (have_xrdb && read_xrdb_prop(xrdb_out, "Xcursor.size:", val, sizeof(val)) && atoi(val) > 0) {
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_cursor_size_spin), atoi(val));
+        got_cursor_size = 1;
+    }
+
+    resolve_path("gtk-3.0/settings.ini", path, sizeof(path));
+    if (read_ini_value(path, "Settings", "gtk-theme-name", val, sizeof(val))) {
+        combo_select_or_append(g_gtk3_combo, val);
+    }
+    if (read_ini_value(path, "Settings", "gtk-icon-theme-name", val, sizeof(val))) {
+        combo_select_or_append(g_icon_combo, val);
+    }
+    if (read_ini_value(path, "Settings", "gtk-font-name", val, sizeof(val))) {
+        gtk_font_button_set_font_name(GTK_FONT_BUTTON(g_font_general_btn), val);
+    }
+    if (!got_cursor_theme && read_ini_value(path, "Settings", "gtk-cursor-theme-name", val, sizeof(val))) {
+        combo_select_or_append(g_cursor_combo, val);
+    }
+    if (!got_cursor_size && read_ini_value(path, "Settings", "gtk-cursor-theme-size", val, sizeof(val)) && atoi(val) > 0) {
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_cursor_size_spin), atoi(val));
+    }
+
+    resolve_path("gtk-4.0/settings.ini", path, sizeof(path));
+    if (read_ini_value(path, "Settings", "gtk-theme-name", val, sizeof(val))) {
+        combo_select_or_append(g_gtk4_combo, val);
+    }
+
+    if (read_gtkrc2_value("gtk-theme-name", val, sizeof(val))) {
+        combo_select_or_append(g_gtk2_combo, val);
+    }
+    if (read_gtkrc2_value("gtk-icon-theme-name", val, sizeof(val))) {
+        combo_select_or_append(g_icon_combo, val);
+    }
+
+    resolve_path("qt5ct/qt5ct.conf", path, sizeof(path));
+    if (!read_ini_value(path, "Appearance", "style", val, sizeof(val))) {
+        resolve_path("qt6ct/qt6ct.conf", path, sizeof(path));
+        read_ini_value(path, "Appearance", "style", val, sizeof(val));
+    }
+    if (val[0]) {
+        combo_select_or_append(g_qt_style_combo, val);
+    }
+}
+
 static GtkWidget *labeled_row(GtkWidget *table, int row, const char *label_text, GtkWidget *widget)
 {
     GtkWidget *label = gtk_label_new(label_text);
@@ -862,9 +1081,12 @@ static GtkWidget *build_appearance_tab(void)
     labeled_row(fonts_table, 1, "Fonte monoespacada:", g_font_mono_btn);
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Fontes", fonts_table), FALSE, FALSE, 0);
 
+    GtkWidget *import_btn = gtk_button_new_with_label("Importar da sessao atual");
+    g_signal_connect(import_btn, "clicked", G_CALLBACK(import_appearance_cb), NULL);
     GtkWidget *apply_btn = gtk_button_new_with_label("Aplicar");
     g_signal_connect(apply_btn, "clicked", G_CALLBACK(save_appearance_cb), NULL);
-    GtkWidget *btnbox = gtk_hbox_new(FALSE, 0);
+    GtkWidget *btnbox = gtk_hbox_new(FALSE, 6);
+    gtk_box_pack_start(GTK_BOX(btnbox), import_btn, FALSE, FALSE, 0);
     gtk_box_pack_end(GTK_BOX(btnbox), apply_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(outer), btnbox, FALSE, FALSE, 0);
 
@@ -2722,17 +2944,19 @@ static GtkWidget *build_wallpaper_tab(void)
 /* ---- Telas tab: xrandr layout, draggable canvas ----------------------- */
 /*
  * Ported subset of xisconf.py's Screens tab: connect/enable/disable,
- * resolution+refresh rate, position (via drag on the canvas), rotation,
- * primary output, diff-against-baseline apply. Deliberately NOT ported --
- * xisconf.py's generic "advanced driver properties" system (TearFree,
- * underscan, scaling mode, PRIME Sync, etc., discovered from `xrandr
- * --verbose`'s per-output "supported:"/"range:" sub-lines) and per-output
- * DPI/--scale: both need parsing --verbose output (a second xrandr call
- * with a much richer, driver-dependent format) and a dynamic per-property
- * widget system, which didn't fit this pass. Only plain `xrandr` (no
- * --verbose) is parsed here. No snap-to-edge while dragging either --
- * outputs can be dropped with gaps or overlaps, same as typing bad
- * coordinates by hand would allow in xisconf.py.
+ * resolution+refresh rate, position (via drag on the canvas, snapping to
+ * other outputs' edges), rotation, primary output, mirror/DPI/scale, all
+ * diffed against a baseline before Aplicar sends only what changed (see
+ * apply_output_diff(), which mirrors xisconf.py's _output_diff_args()
+ * field for field). Deliberately NOT ported -- xisconf.py's generic
+ * "advanced driver properties" system (TearFree, underscan, PRIME Sync,
+ * etc., discovered from `xrandr --verbose`'s per-output "supported:"/
+ * "range:" sub-lines): needs parsing --verbose output (a second xrandr
+ * call with a much richer, driver-dependent format) and a dynamic
+ * per-property widget system, which didn't fit this pass. Only plain
+ * `xrandr` (no --verbose) is parsed here -- which also means mirror/DPI/
+ * scale can't be read back from hardware, only written (see the
+ * ScreenOutput struct's comment and screens_redetect_preserving_extras()).
  */
 
 static int is_xid_token(const char *t)
@@ -2776,6 +3000,8 @@ static void parse_output_header(char *line, ScreenOutput *o)
 {
     memset(o, 0, sizeof(*o));
     snprintf(o->rotation, sizeof(o->rotation), "normal");
+    o->scale_x = 1.0;
+    o->scale_y = 1.0;
     char *tokens[32];
     int n = tokenize_ws(line, tokens, 32);
     if (n < 2) {
@@ -2912,18 +3138,21 @@ static int detect_outputs(ScreenOutput *outs, int max)
     return n;
 }
 
+/* Mirrors xisconf.py's _output_args()/_output_diff_args() field for
+ * field, including the write-only mirror/scale/DPI fields (see
+ * ScreenOutput's comment on why their "baseline" isn't hardware truth). */
 static void apply_output_diff(const ScreenOutput *o, const ScreenOutput *base)
 {
     if (!o->connected) {
         return;
     }
-    char *argv[16];
+    char *argv[24];
     int ac = 0;
     argv[ac++] = "xrandr";
     argv[ac++] = "--output";
     argv[ac++] = (char *)o->name;
 
-    char modebuf[32], ratebuf[16], posbuf[32];
+    char modebuf[32], ratebuf[16], posbuf[32], scalebuf[32], dpibuf[16];
 
     if (o->enabled != base->enabled) {
         if (!o->enabled) {
@@ -2932,22 +3161,40 @@ static void apply_output_diff(const ScreenOutput *o, const ScreenOutput *base)
             run_fire(argv);
             return;
         }
-        if (o->current_mode[0]) {
-            argv[ac++] = "--mode";
-            snprintf(modebuf, sizeof(modebuf), "%s", o->current_mode);
-            argv[ac++] = modebuf;
+        /* Turning an output back on needs a full description -- there's
+         * no sensible "diff" starting from a disabled state. */
+        if (o->mirror_of[0]) {
+            argv[ac++] = "--same-as";
+            argv[ac++] = (char *)o->mirror_of;
+        } else {
+            if (o->current_mode[0]) {
+                argv[ac++] = "--mode";
+                snprintf(modebuf, sizeof(modebuf), "%s", o->current_mode);
+                argv[ac++] = modebuf;
+            }
+            if (o->current_rate[0]) {
+                argv[ac++] = "--rate";
+                snprintf(ratebuf, sizeof(ratebuf), "%s", o->current_rate);
+                argv[ac++] = ratebuf;
+            }
+            snprintf(posbuf, sizeof(posbuf), "%dx%d", o->x, o->y);
+            argv[ac++] = "--pos";
+            argv[ac++] = posbuf;
         }
-        if (o->current_rate[0]) {
-            argv[ac++] = "--rate";
-            snprintf(ratebuf, sizeof(ratebuf), "%s", o->current_rate);
-            argv[ac++] = ratebuf;
-        }
-        snprintf(posbuf, sizeof(posbuf), "%dx%d", o->x, o->y);
-        argv[ac++] = "--pos";
-        argv[ac++] = posbuf;
         argv[ac++] = "--rotate";
         argv[ac++] = (char *)o->rotation;
         argv[ac++] = o->primary ? "--primary" : "--noprimary";
+        double sx = fabs(o->scale_x) > 1e-6 ? o->scale_x : 1.0;
+        double sy = fabs(o->scale_y) > 1e-6 ? o->scale_y : 1.0;
+        snprintf(scalebuf, sizeof(scalebuf), "%.4fx%.4f", sx, sy);
+        argv[ac++] = "--scale";
+        argv[ac++] = scalebuf;
+        if (o->dpi) {
+            argv[ac++] = "--set";
+            argv[ac++] = "DPI";
+            snprintf(dpibuf, sizeof(dpibuf), "%d", o->dpi);
+            argv[ac++] = dpibuf;
+        }
         argv[ac] = NULL;
         run_fire(argv);
         return;
@@ -2957,23 +3204,46 @@ static void apply_output_diff(const ScreenOutput *o, const ScreenOutput *base)
     }
 
     int changed = 0;
-    if (strcmp(o->current_mode, base->current_mode)) {
-        argv[ac++] = "--mode";
-        snprintf(modebuf, sizeof(modebuf), "%s", o->current_mode);
-        argv[ac++] = modebuf;
+    int mirror_changed = strcmp(o->mirror_of, base->mirror_of) != 0;
+    if (mirror_changed) {
+        if (o->mirror_of[0]) {
+            argv[ac++] = "--same-as";
+            argv[ac++] = (char *)o->mirror_of;
+        } else {
+            if (o->current_mode[0]) {
+                argv[ac++] = "--mode";
+                snprintf(modebuf, sizeof(modebuf), "%s", o->current_mode);
+                argv[ac++] = modebuf;
+            }
+            if (o->current_rate[0]) {
+                argv[ac++] = "--rate";
+                snprintf(ratebuf, sizeof(ratebuf), "%s", o->current_rate);
+                argv[ac++] = ratebuf;
+            }
+            snprintf(posbuf, sizeof(posbuf), "%dx%d", o->x, o->y);
+            argv[ac++] = "--pos";
+            argv[ac++] = posbuf;
+        }
         changed = 1;
-    }
-    if (strcmp(o->current_rate, base->current_rate)) {
-        argv[ac++] = "--rate";
-        snprintf(ratebuf, sizeof(ratebuf), "%s", o->current_rate);
-        argv[ac++] = ratebuf;
-        changed = 1;
-    }
-    if (o->x != base->x || o->y != base->y) {
-        snprintf(posbuf, sizeof(posbuf), "%dx%d", o->x, o->y);
-        argv[ac++] = "--pos";
-        argv[ac++] = posbuf;
-        changed = 1;
+    } else if (!o->mirror_of[0]) {
+        if (strcmp(o->current_mode, base->current_mode)) {
+            argv[ac++] = "--mode";
+            snprintf(modebuf, sizeof(modebuf), "%s", o->current_mode);
+            argv[ac++] = modebuf;
+            changed = 1;
+        }
+        if (strcmp(o->current_rate, base->current_rate)) {
+            argv[ac++] = "--rate";
+            snprintf(ratebuf, sizeof(ratebuf), "%s", o->current_rate);
+            argv[ac++] = ratebuf;
+            changed = 1;
+        }
+        if (o->x != base->x || o->y != base->y) {
+            snprintf(posbuf, sizeof(posbuf), "%dx%d", o->x, o->y);
+            argv[ac++] = "--pos";
+            argv[ac++] = posbuf;
+            changed = 1;
+        }
     }
     if (strcmp(o->rotation, base->rotation)) {
         argv[ac++] = "--rotate";
@@ -2982,6 +3252,22 @@ static void apply_output_diff(const ScreenOutput *o, const ScreenOutput *base)
     }
     if (o->primary != base->primary) {
         argv[ac++] = o->primary ? "--primary" : "--noprimary";
+        changed = 1;
+    }
+    if (lround(o->scale_x * 10000) != lround(base->scale_x * 10000) ||
+        lround(o->scale_y * 10000) != lround(base->scale_y * 10000)) {
+        double sx = fabs(o->scale_x) > 1e-6 ? o->scale_x : 1.0;
+        double sy = fabs(o->scale_y) > 1e-6 ? o->scale_y : 1.0;
+        snprintf(scalebuf, sizeof(scalebuf), "%.4fx%.4f", sx, sy);
+        argv[ac++] = "--scale";
+        argv[ac++] = scalebuf;
+        changed = 1;
+    }
+    if (o->dpi != base->dpi && o->dpi) {
+        argv[ac++] = "--set";
+        argv[ac++] = "DPI";
+        snprintf(dpibuf, sizeof(dpibuf), "%d", o->dpi);
+        argv[ac++] = dpibuf;
         changed = 1;
     }
     argv[ac] = NULL;
@@ -3064,6 +3350,65 @@ static int screens_hit_test(double px, double py, int canvas_w, int canvas_h)
     return -1;
 }
 
+/* Snaps `*x`/`*y` (the dragged output's candidate top-left, in xrandr
+ * world units) to align an edge with any other connected+enabled
+ * output's edges, if within SNAP_CANVAS_PX *canvas* pixels at the
+ * current zoom -- converted to world units via `scale` so the snap
+ * distance feels the same regardless of how zoomed out the layout is.
+ * Left/right and top/bottom are snapped independently, each picking
+ * whichever candidate-edge/other-edge pairing is closest. */
+#define SNAP_CANVAS_PX 10
+
+static void screens_snap(int idx, int *x, int *y, int w, int h, double scale)
+{
+    if (scale <= 0) {
+        return;
+    }
+    double thresh = SNAP_CANVAS_PX / scale;
+    double best_dx = 0, best_dx_dist = thresh + 1;
+    double best_dy = 0, best_dy_dist = thresh + 1;
+    int have_dx = 0, have_dy = 0;
+
+    for (int i = 0; i < g_n_outputs; i++) {
+        if (i == idx) {
+            continue;
+        }
+        ScreenOutput *o = &g_outputs[i];
+        if (!o->connected || !o->enabled) {
+            continue;
+        }
+        int ow, oh;
+        output_visual_size(o, &ow, &oh);
+        int ol = o->x, orr = o->x + ow, ot = o->y, ob = o->y + oh;
+        int cl = *x, cr = *x + w, ct = *y, cb = *y + h;
+
+        int xpairs[4][2] = {{cl, ol}, {cl, orr}, {cr, ol}, {cr, orr}};
+        for (int k = 0; k < 4; k++) {
+            double d = fabs((double)(xpairs[k][0] - xpairs[k][1]));
+            if (d <= thresh && d < best_dx_dist) {
+                best_dx_dist = d;
+                best_dx = *x + (xpairs[k][1] - xpairs[k][0]);
+                have_dx = 1;
+            }
+        }
+        int ypairs[4][2] = {{ct, ot}, {ct, ob}, {cb, ot}, {cb, ob}};
+        for (int k = 0; k < 4; k++) {
+            double d = fabs((double)(ypairs[k][0] - ypairs[k][1]));
+            if (d <= thresh && d < best_dy_dist) {
+                best_dy_dist = d;
+                best_dy = *y + (ypairs[k][1] - ypairs[k][0]);
+                have_dy = 1;
+            }
+        }
+    }
+    if (have_dx) {
+        *x = (int)lround(best_dx);
+    }
+    if (have_dy) {
+        *y = (int)lround(best_dy);
+    }
+}
+
 static void sync_screens_form(void);
 
 static gboolean screens_canvas_expose(GtkWidget *widget, GdkEventExpose *event, gpointer data)
@@ -3143,6 +3488,11 @@ static gboolean screens_canvas_motion(GtkWidget *widget, GdkEventMotion *event, 
     ScreenOutput *o = &g_outputs[g_screens_selected];
     o->x = (int)lround(ox + (new_rx - 20) / scale);
     o->y = (int)lround(oy + (new_ry - 20) / scale);
+    if (!o->mirror_of[0]) {
+        int w, h;
+        output_visual_size(o, &w, &h);
+        screens_snap(g_screens_selected, &o->x, &o->y, w, h, scale);
+    }
     gtk_widget_queue_draw(widget);
     return TRUE;
 }
@@ -3216,6 +3566,25 @@ static void sync_screens_form(void)
     gtk_combo_box_set_active(GTK_COMBO_BOX(g_screens_rot_combo), rot_idx);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_screens_enabled_chk), o->enabled);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_screens_primary_chk), o->primary);
+
+    GtkTreeModel *mirmodel = gtk_combo_box_get_model(GTK_COMBO_BOX(g_screens_mirror_combo));
+    gtk_list_store_clear(GTK_LIST_STORE(mirmodel));
+    gtk_combo_box_append_text(GTK_COMBO_BOX(g_screens_mirror_combo), "(nenhum)");
+    int mirror_idx = 0;
+    for (int i = 0, pos = 1; i < g_n_outputs; i++) {
+        if (i == g_screens_selected || !g_outputs[i].connected) {
+            continue;
+        }
+        gtk_combo_box_append_text(GTK_COMBO_BOX(g_screens_mirror_combo), g_outputs[i].name);
+        if (o->mirror_of[0] && !strcmp(g_outputs[i].name, o->mirror_of)) {
+            mirror_idx = pos;
+        }
+        pos++;
+    }
+    gtk_combo_box_set_active(GTK_COMBO_BOX(g_screens_mirror_combo), mirror_idx);
+
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_screens_dpi_spin), o->dpi > 0 ? o->dpi : 96);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_screens_scale_spin), fabs(o->scale_x) > 1e-6 ? o->scale_x : 1.0);
 
     g_screens_syncing = 0;
 }
@@ -3298,6 +3667,85 @@ static void on_screens_primary_toggled(GtkWidget *widget, gpointer data)
     gtk_widget_queue_draw(g_screens_canvas);
 }
 
+static void on_screens_mirror_changed(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    (void)data;
+    if (g_screens_syncing || g_screens_selected < 0) {
+        return;
+    }
+    gchar *sel = gtk_combo_box_get_active_text(GTK_COMBO_BOX(g_screens_mirror_combo));
+    ScreenOutput *o = &g_outputs[g_screens_selected];
+    if (!sel || !strcmp(sel, "(nenhum)")) {
+        o->mirror_of[0] = '\0';
+    } else {
+        snprintf(o->mirror_of, sizeof(o->mirror_of), "%s", sel);
+    }
+    g_free(sel);
+    gtk_widget_queue_draw(g_screens_canvas);
+}
+
+static void on_screens_dpi_changed(GtkWidget *widget, gpointer data)
+{
+    (void)data;
+    if (g_screens_syncing || g_screens_selected < 0) {
+        return;
+    }
+    g_outputs[g_screens_selected].dpi = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(widget));
+}
+
+static void on_screens_scale_changed(GtkWidget *widget, gpointer data)
+{
+    (void)data;
+    if (g_screens_syncing || g_screens_selected < 0) {
+        return;
+    }
+    double v = gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
+    g_outputs[g_screens_selected].scale_x = v;
+    g_outputs[g_screens_selected].scale_y = v;
+}
+
+/* mirror_of/dpi/scale aren't detected from plain `xrandr` (see
+ * ScreenOutput's comment), so a raw detect_outputs() call would silently
+ * wipe them back to blank/1.0 every time -- these snapshot them by output
+ * name before re-detecting and restore them after, so Apply/Detectar
+ * novamente only ever lose what actually vanished (the output itself). */
+typedef struct {
+    char name[NAME_LEN];
+    char mirror_of[NAME_LEN];
+    int dpi;
+    double scale_x, scale_y;
+} ScreensExtra;
+
+static void screens_redetect_preserving_extras(void)
+{
+    static ScreensExtra snap[MAX_OUTPUTS];
+    int n_snap = 0;
+    for (int i = 0; i < g_n_outputs && n_snap < MAX_OUTPUTS; i++) {
+        snprintf(snap[n_snap].name, sizeof(snap[n_snap].name), "%s", g_outputs[i].name);
+        snprintf(snap[n_snap].mirror_of, sizeof(snap[n_snap].mirror_of), "%s", g_outputs[i].mirror_of);
+        snap[n_snap].dpi = g_outputs[i].dpi;
+        snap[n_snap].scale_x = g_outputs[i].scale_x;
+        snap[n_snap].scale_y = g_outputs[i].scale_y;
+        n_snap++;
+    }
+
+    g_n_outputs = detect_outputs(g_outputs, MAX_OUTPUTS);
+
+    for (int i = 0; i < g_n_outputs; i++) {
+        for (int j = 0; j < n_snap; j++) {
+            if (!strcmp(snap[j].name, g_outputs[i].name)) {
+                snprintf(g_outputs[i].mirror_of, sizeof(g_outputs[i].mirror_of), "%s", snap[j].mirror_of);
+                g_outputs[i].dpi = snap[j].dpi;
+                g_outputs[i].scale_x = snap[j].scale_x;
+                g_outputs[i].scale_y = snap[j].scale_y;
+                break;
+            }
+        }
+    }
+    memcpy(g_outputs_baseline, g_outputs, sizeof(g_outputs));
+}
+
 static void on_screens_apply(GtkWidget *widget, gpointer data)
 {
     (void)widget;
@@ -3305,14 +3753,16 @@ static void on_screens_apply(GtkWidget *widget, gpointer data)
     for (int i = 0; i < g_n_outputs; i++) {
         apply_output_diff(&g_outputs[i], &g_outputs_baseline[i]);
     }
-    g_n_outputs = detect_outputs(g_outputs, MAX_OUTPUTS);
-    memcpy(g_outputs_baseline, g_outputs, sizeof(g_outputs));
+    screens_redetect_preserving_extras();
     if (g_screens_selected >= g_n_outputs) {
         g_screens_selected = -1;
     }
     char status[64];
     snprintf(status, sizeof(status), "%d saida(s) detectada(s).", g_n_outputs);
     gtk_label_set_text(GTK_LABEL(g_screens_status_label), status);
+    if (g_screens_selected >= 0) {
+        sync_screens_form();
+    }
     gtk_widget_queue_draw(g_screens_canvas);
 }
 
@@ -3320,14 +3770,16 @@ static void on_screens_refresh(GtkWidget *widget, gpointer data)
 {
     (void)widget;
     (void)data;
-    g_n_outputs = detect_outputs(g_outputs, MAX_OUTPUTS);
-    memcpy(g_outputs_baseline, g_outputs, sizeof(g_outputs));
+    screens_redetect_preserving_extras();
     if (g_screens_selected >= g_n_outputs) {
         g_screens_selected = -1;
     }
     char status[64];
     snprintf(status, sizeof(status), "%d saida(s) detectada(s).", g_n_outputs);
     gtk_label_set_text(GTK_LABEL(g_screens_status_label), status);
+    if (g_screens_selected >= 0) {
+        sync_screens_form();
+    }
     gtk_widget_queue_draw(g_screens_canvas);
 }
 
@@ -3346,9 +3798,10 @@ static GtkWidget *build_telas_tab(void)
     gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
 
     GtkWidget *note = gtk_label_new(
-        "Arraste as caixas pra reposicionar. Sem snap de borda -- confira\n"
-        "sobreposicoes/lacunas antes de Aplicar. Escala/DPI e propriedades\n"
-        "avancadas do driver nao foram portadas (ver comentario no codigo).");
+        "Arraste as caixas pra reposicionar -- encaixa nas bordas de outras\n"
+        "saidas automaticamente. Espelho/DPI/Escala nao sao detectados do\n"
+        "hardware (xrandr sem --verbose nao expoe isso), so escritos ao\n"
+        "Aplicar; propriedades avancadas do driver nao foram portadas.");
     gtk_misc_set_alignment(GTK_MISC(note), 0.0, 0.5);
     gtk_box_pack_start(GTK_BOX(outer), note, FALSE, FALSE, 0);
 
@@ -3370,7 +3823,7 @@ static GtkWidget *build_telas_tab(void)
     g_signal_connect(g_screens_canvas, "button-release-event", G_CALLBACK(screens_canvas_release), NULL);
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Layout (arraste pra mover)", g_screens_canvas), TRUE, TRUE, 0);
 
-    GtkWidget *form_table = gtk_table_new(5, 2, FALSE);
+    GtkWidget *form_table = gtk_table_new(8, 2, FALSE);
     g_screens_res_combo = gtk_combo_box_new_text();
     g_signal_connect(g_screens_res_combo, "changed", G_CALLBACK(on_screens_res_changed), NULL);
     labeled_row(form_table, 0, "Resolucao:", g_screens_res_combo);
@@ -3390,6 +3843,16 @@ static GtkWidget *build_telas_tab(void)
     g_screens_primary_chk = gtk_check_button_new_with_label("Saida primaria");
     g_signal_connect(g_screens_primary_chk, "toggled", G_CALLBACK(on_screens_primary_toggled), NULL);
     gtk_table_attach(GTK_TABLE(form_table), g_screens_primary_chk, 0, 2, 4, 5, GTK_FILL, GTK_FILL, 4, 2);
+    g_screens_mirror_combo = gtk_combo_box_new_text();
+    g_signal_connect(g_screens_mirror_combo, "changed", G_CALLBACK(on_screens_mirror_changed), NULL);
+    labeled_row(form_table, 5, "Espelhar (mirror):", g_screens_mirror_combo);
+    g_screens_dpi_spin = gtk_spin_button_new_with_range(48, 960, 12);
+    g_signal_connect(g_screens_dpi_spin, "value-changed", G_CALLBACK(on_screens_dpi_changed), NULL);
+    labeled_row(form_table, 6, "DPI:", g_screens_dpi_spin);
+    g_screens_scale_spin = gtk_spin_button_new_with_range(0.25, 4.0, 0.05);
+    gtk_spin_button_set_digits(GTK_SPIN_BUTTON(g_screens_scale_spin), 2);
+    g_signal_connect(g_screens_scale_spin, "value-changed", G_CALLBACK(on_screens_scale_changed), NULL);
+    labeled_row(form_table, 7, "Escala:", g_screens_scale_spin);
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Saida selecionada", form_table), FALSE, FALSE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 6);
