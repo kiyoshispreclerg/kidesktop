@@ -336,6 +336,40 @@ void manage(xcb_window_t window)
         uint32_t dock_mask = XCB_EVENT_MASK_PROPERTY_CHANGE | XCB_EVENT_MASK_STRUCTURE_NOTIFY;
         xcb_change_window_attributes(wm.conn, window, XCB_CW_EVENT_MASK, &dock_mask);
         dock_track(window);
+
+        /* _NET_WM_WINDOW_TYPE_DESKTOP (e.g. xisback's wallpaper/fade
+         * windows) must stay clustered at the very bottom of the whole
+         * stack, below every normal window -- X's default "a newly
+         * mapped window goes on top of its siblings" would otherwise put
+         * it above everything, which is exactly the bug this fixes (see
+         * xisback's create_fade_window() comment: it deliberately avoids
+         * restacking itself and just trusts a "compliant WM" to do this).
+         * Chaining each new one directly above the previous one (rather
+         * than flatly below all current siblings) keeps the group's own
+         * creation order intact -- e.g. xisback's fade_win needs to stay
+         * visually above the older wallpaper window it's cross-fading
+         * over, not buried under it.
+         *
+         * Restacking *before* mapping matters: stacking order applies to
+         * unmapped windows too, so doing it first means the window is
+         * already in its correct position the instant it becomes visible.
+         * Map-then-restack (even flushed together) still makes the X
+         * server perform two separate state transitions, and a screen
+         * refresh landing between them is a real one-frame flash at the
+         * wrong (default: topmost) stacking position -- reproduced with
+         * xisback's own slideshow crossfade before this reordering. */
+        if (get_window_type(window) == wm.atoms.net_wm_window_type_desktop) {
+            if (wm.last_desktop_window != XCB_NONE) {
+                uint32_t values[] = { wm.last_desktop_window, XCB_STACK_MODE_ABOVE };
+                xcb_configure_window(wm.conn, window,
+                                     XCB_CONFIG_WINDOW_SIBLING | XCB_CONFIG_WINDOW_STACK_MODE, values);
+            } else {
+                uint32_t values[] = { XCB_STACK_MODE_BELOW };
+                xcb_configure_window(wm.conn, window, XCB_CONFIG_WINDOW_STACK_MODE, values);
+            }
+            wm.last_desktop_window = window;
+        }
+
         xcb_map_window(wm.conn, window);
         xcb_flush(wm.conn);
         return;

@@ -149,6 +149,18 @@ typedef struct {
      * _NET_WM_STRUT itself. */
     int strut_left, strut_right, strut_top, strut_bottom;
 
+    /* Most recently mapped _NET_WM_WINDOW_TYPE_DESKTOP window (e.g.
+     * xisback's wallpaper/fade windows) -- see client.c's manage(). Each
+     * new one is explicitly stacked directly above this one (not just
+     * left at X's default "new window goes on top of everything"
+     * placement), so the whole desktop-type group stays clustered at the
+     * bottom of the stack, below every normal window, in creation order --
+     * matching kiwm-kicomp-projeto.md section 13's stacking model, and
+     * what xisback's create_fade_window() comment already assumes a
+     * "compliant WM" does. XCB_NONE (0) when no desktop-type window has
+     * been mapped yet, or the tracked one was destroyed. */
+    xcb_window_t last_desktop_window;
+
     Client *clients;
     Client *focused;
 

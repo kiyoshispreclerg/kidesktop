@@ -349,10 +349,17 @@ void handle_event(xcb_generic_event_t *event)
     case XCB_DESTROY_NOTIFY: {
         xcb_destroy_notify_event_t *ev = (xcb_destroy_notify_event_t *)event;
         Client *c = find_client_window(ev->window);
-        if (c)
+        if (c) {
             unmanage(c);
-        else
+        } else {
             dock_forget(ev->window);
+            /* Avoid chaining the next _NET_WM_WINDOW_TYPE_DESKTOP window
+             * (see client.c's manage()) above a now-destroyed sibling --
+             * that ConfigureWindow would just fail with BadWindow and
+             * leave the new window unstacked (back to the original bug). */
+            if (wm.last_desktop_window == ev->window)
+                wm.last_desktop_window = XCB_NONE;
+        }
         break;
     }
     case XCB_UNMAP_NOTIFY: {
