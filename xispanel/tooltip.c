@@ -30,6 +30,7 @@
 #include <cairo/cairo-xlib.h>
 
 #include <stdio.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -87,7 +88,21 @@ typedef struct {
      * thumbnail, each a separate visible frame on an unbuffered window
      * surface -- exactly the flicker plasmashell-style live thumbnails
      * don't have). The window surface only ever receives one `cairo_
-     * paint()` of this fully-composed buffer per repaint. */
+     * paint()` of this fully-composed buffer per repaint.
+     *
+     * Deliberately a *server-side pixmap* (back_pix, same depth/visual as
+     * the popup window) rather than a cairo image surface. That single
+     * choice is what keeps live thumbnails cheap: thumb_paint()'s source
+     * is an X pixmap (the composited window contents), so with an image
+     * surface as the destination cairo has no choice but to pull the
+     * whole source window down to client memory with XGetImage, scale it
+     * in pixman on the CPU, and push the result back up with XPutImage --
+     * roughly 8 MB of readback per frame for a 1080p window, per
+     * thumbnail, at the repaint rate. Pixmap-to-pixmap, the exact same
+     * cairo calls become one XRender composite with a scaling transform,
+     * entirely inside the server (on the GPU where the driver does that),
+     * and no window pixel ever crosses the socket. */
+    Pixmap back_pix;
     cairo_surface_t *back;
     cairo_t *back_cr;
     int width, height;
@@ -180,6 +195,9 @@ static void destroy_popup(void)
     }
     if (g_popup->back) {
         cairo_surface_destroy(g_popup->back);
+    }
+    if (g_popup->back_pix != None) {
+        XFreePixmap(g_dpy, g_popup->back_pix); /* only after its cairo surface is gone */
     }
     if (g_popup->cr) {
         cairo_destroy(g_popup->cr);
@@ -432,13 +450,30 @@ static void blit_and_flush(void)
     XFlush(g_dpy);
 }
 
-static void paint_popup(void)
+/* blit_and_flush() restricted to one rectangle -- the partial-repaint
+ * counterpart used by repaint_thumbs_only(). */
+static void blit_rect_and_flush(int x, int y, int w, int h)
 {
-    if (!g_popup || !g_panel) {
-        return;
-    }
+    cairo_t *wcr = g_popup->cr;
+    cairo_save(wcr);
+    cairo_rectangle(wcr, x, y, w, h);
+    cairo_clip(wcr);
+    cairo_set_operator(wcr, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_surface(wcr, g_popup->back, 0, 0);
+    cairo_paint(wcr);
+    cairo_restore(wcr);
+    cairo_surface_flush(g_popup->surface);
+    XFlush(g_dpy);
+}
+
+/* Background + border, i.e. everything under the popup's content. Split
+ * out of paint_popup() so repaint_thumbs_only() can restore just the
+ * strip it's about to redraw a thumbnail into, without also redoing the
+ * text. Honours whatever clip is set on `cr`, so calling it under a clip
+ * costs only the slices that actually intersect. */
+static void draw_popup_background(cairo_t *cr)
+{
     Panel *p = g_panel;
-    cairo_t *cr = g_popup->back_cr;
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
     cairo_paint(cr);
@@ -458,6 +493,95 @@ static void paint_popup(void)
     cairo_rectangle(cr, 0.5, 0.5, g_popup->width - 1, g_popup->height - 1);
     cairo_set_line_width(cr, 1);
     cairo_stroke(cr);
+}
+
+/* Bounding box (popup-local) of every thumbnail cell the current popup
+ * shows -- the only region a live-thumbnail repaint can possibly change.
+ * Returns 0 if this popup has no thumbnails at all. */
+static int thumb_bbox(int *out_x, int *out_y, int *out_w, int *out_h)
+{
+    if (!g_popup) {
+        return 0;
+    }
+    if (g_has_thumb) {
+        *out_x = (int)((g_popup->width - THUMB_W) / 2.0);
+        *out_y = pad_y();
+        *out_w = THUMB_W;
+        *out_h = THUMB_H;
+        return 1;
+    }
+    if (!g_has_group || !g_popup->group_thumbs || g_popup->group_shown_n <= 0) {
+        return 0;
+    }
+    int x0 = INT_MAX, y0 = INT_MAX, x1 = INT_MIN, y1 = INT_MIN;
+    for (int i = 0; i < g_popup->group_shown_n; i++) {
+        int ix = g_popup->group_item_x[i], iy = g_popup->group_item_y[i];
+        if (ix < x0) {
+            x0 = ix;
+        }
+        if (iy < y0) {
+            y0 = iy;
+        }
+        if (ix + GROUP_THUMB_W > x1) {
+            x1 = ix + GROUP_THUMB_W;
+        }
+        if (iy + GROUP_THUMB_H > y1) {
+            y1 = iy + GROUP_THUMB_H;
+        }
+    }
+    *out_x = x0;
+    *out_y = y0;
+    *out_w = x1 - x0;
+    *out_h = y1 - y0;
+    return 1;
+}
+
+/* Redraws *only* the thumbnail cells (plus the background strip behind
+ * them, since a thumbnail is letterboxed inside its cell and doesn't
+ * necessarily cover it), then blits just that rectangle.
+ *
+ * This, not the composited-pixmap handling, is what a live thumbnail
+ * actually costs: driven by XDamage plus the half-refresh backstop, the
+ * repaint runs ~30x a second, and paint_popup() rebuilds the *entire*
+ * popup every time -- 9-slice background, border, and a fresh Pango
+ * layout per title (six of them in a grouped tooltip). Measured, that was
+ * ~35% of a core with zero pixel readback happening: the window contents
+ * were already going straight from pixmap to pixmap inside the server,
+ * while the client burned its time re-laying-out text that hadn't
+ * changed. Nothing outside these cells can change between two thumbnail
+ * frames -- the text refresh has its own path (TOOLTIP_REFRESH_MS, which
+ * calls show_popup()/paint_popup() properly). */
+static void repaint_thumbs_only(void)
+{
+    int bx, by, bw, bh;
+    if (!g_popup || !g_panel || !thumb_bbox(&bx, &by, &bw, &bh)) {
+        return;
+    }
+    cairo_t *cr = g_popup->back_cr;
+    cairo_save(cr);
+    cairo_rectangle(cr, bx, by, bw, bh);
+    cairo_clip(cr);
+    draw_popup_background(cr);
+    if (g_has_group) {
+        for (int i = 0; i < g_popup->group_shown_n; i++) {
+            thumb_paint(cr, g_group_items[i].win, g_popup->group_item_x[i], g_popup->group_item_y[i], GROUP_THUMB_W,
+                         GROUP_THUMB_H);
+        }
+    } else {
+        thumb_paint(cr, g_thumb_win, (g_popup->width - THUMB_W) / 2.0, pad_y(), THUMB_W, THUMB_H);
+    }
+    cairo_restore(cr);
+    blit_rect_and_flush(bx, by, bw, bh);
+}
+
+static void paint_popup(void)
+{
+    if (!g_popup || !g_panel) {
+        return;
+    }
+    Panel *p = g_panel;
+    cairo_t *cr = g_popup->back_cr;
+    draw_popup_background(cr);
 
     if (g_has_group) {
         paint_popup_group();
@@ -859,7 +983,17 @@ static void show_popup(void)
     if (pop->back) {
         cairo_surface_destroy(pop->back);
     }
-    pop->back = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, pop->width, pop->height);
+    if (pop->back_pix != None) {
+        XFreePixmap(g_dpy, pop->back_pix);
+    }
+    /* Server-side, matching the popup window's own depth/visual so the
+     * final blit_and_flush() is a plain same-format composite and the
+     * thumbnail composite into it never leaves the server -- see
+     * TooltipPopup::back_pix's doc comment. g_root is only used to pick
+     * the screen here; the pixmap's depth comes from p->depth, not from
+     * root's. */
+    pop->back_pix = XCreatePixmap(g_dpy, g_root, (unsigned)pop->width, (unsigned)pop->height, (unsigned)p->depth);
+    pop->back = cairo_xlib_surface_create(g_dpy, pop->back_pix, p->visual, pop->width, pop->height);
     pop->back_cr = cairo_create(pop->back);
 
     g_popup = pop;
@@ -1079,7 +1213,11 @@ void tooltip_tick(uint64_t now)
         int dirty = thumb_take_dirty();
         if (dirty || now - g_last_thumb_paint_ms >= thumb_fallback_interval_ms()) {
             g_last_thumb_paint_ms = now;
-            paint_popup();
+            /* Just the thumbnail cells -- see repaint_thumbs_only(). The
+             * rest of the popup can't have changed since the last full
+             * paint_popup(), and rebuilding it here was the actual cost
+             * of a live thumbnail. */
+            repaint_thumbs_only();
         }
     }
 }
