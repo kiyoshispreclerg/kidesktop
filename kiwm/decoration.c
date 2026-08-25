@@ -217,6 +217,94 @@ static void load_colors_theme(void)
     fprintf(stderr, "kiwm: theme colors loaded from '%s'\n", path);
 }
 
+/* _NET_WM_ICON: one CARDINAL array, potentially holding *several*
+ * "width,height,pixels..." icons back to back (pixels are 0xAARRGGBB,
+ * one CARDINAL each, straight, not premultiplied -- same swizzle as
+ * load_png_argb() above needs). Picks whichever available size is
+ * closest to (preferring at least as big as) the titlebar icon slot. */
+void load_client_icon(Client *c)
+{
+    if (c->icon) {
+        cairo_surface_destroy(c->icon);
+        c->icon = NULL;
+    }
+
+    xcb_get_property_reply_t *reply = xcb_get_property_reply(wm.conn,
+        xcb_get_property(wm.conn, 0, c->window, wm.atoms.net_wm_icon, XCB_ATOM_CARDINAL, 0, 65536), NULL);
+    if (!reply)
+        return;
+    if (reply->type != XCB_ATOM_CARDINAL || reply->format != 32) {
+        free(reply);
+        return;
+    }
+
+    uint32_t *data = xcb_get_property_value(reply);
+    long len = xcb_get_property_value_length(reply) / 4;
+    int target = BUTTON_W;
+
+    long best_off = -1;
+    int best_w = 0, best_h = 0;
+    long i = 0;
+    while (i + 2 <= len) {
+        uint32_t w = data[i], h = data[i + 1];
+        if (w == 0 || h == 0 || w > 512 || h > 512)
+            break; /* malformed -- bail rather than read garbage as a size */
+        long need = (long)w * (long)h;
+        if (i + 2 + need > len)
+            break;
+
+        bool better;
+        if (best_off < 0)
+            better = true;
+        else if ((int)w >= target && best_w >= target)
+            better = (int)w < best_w;       /* both big enough: prefer the smaller one */
+        else if ((int)w >= target)
+            better = true;                  /* this one's big enough, current pick isn't */
+        else if (best_w < target)
+            better = (int)w > best_w;       /* neither is big enough: prefer the bigger one */
+        else
+            better = false;
+
+        if (better) {
+            best_off = i + 2;
+            best_w = (int)w;
+            best_h = (int)h;
+        }
+        i += 2 + need;
+    }
+
+    if (best_off < 0) {
+        free(reply);
+        return;
+    }
+
+    cairo_surface_t *surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, best_w, best_h);
+    if (cairo_surface_status(surf) == CAIRO_STATUS_SUCCESS) {
+        unsigned char *dst = cairo_image_surface_get_data(surf);
+        int stride = cairo_image_surface_get_stride(surf);
+        for (int y = 0; y < best_h; y++) {
+            uint32_t *row = (uint32_t *)(void *)(dst + y * stride);
+            for (int x = 0; x < best_w; x++) {
+                uint32_t argb = data[best_off + (long)y * best_w + x];
+                uint8_t a = (uint8_t)((argb >> 24) & 0xff);
+                uint8_t r = (uint8_t)((argb >> 16) & 0xff);
+                uint8_t g = (uint8_t)((argb >> 8) & 0xff);
+                uint8_t b = (uint8_t)(argb & 0xff);
+                r = (uint8_t)((r * a) / 255);
+                g = (uint8_t)((g * a) / 255);
+                b = (uint8_t)((b * a) / 255);
+                row[x] = ((uint32_t)a << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+            }
+        }
+        cairo_surface_mark_dirty(surf);
+        c->icon = surf;
+    } else {
+        cairo_surface_destroy(surf);
+    }
+
+    free(reply);
+}
+
 void load_decoration(void)
 {
     /* Colors default to the plain kiwm.conf fallback fields (already set
@@ -288,15 +376,55 @@ static void draw_9slice(cairo_t *cr, cairo_surface_t *src, int sw, int sh, int l
     draw_slice_region(cr, src, l, t, cw, ch, l, t, dcw, dch);
 }
 
+int compute_deco_layout(int frame_width, DecoSlot *out, int max_out)
+{
+    int n = wm.deco_layout_count;
+    if (n > max_out)
+        n = max_out;
+
+    int fixed_total = 0;
+    int title_idx = -1;
+    for (int i = 0; i < n; i++) {
+        if (wm.deco_layout[i] == DECO_TITLE) {
+            if (title_idx < 0)
+                title_idx = i;
+        } else {
+            fixed_total += BUTTON_W;
+        }
+    }
+    int title_w = frame_width - fixed_total;
+    if (title_w < 0)
+        title_w = 0;
+
+    int x = 0;
+    for (int i = 0; i < n; i++) {
+        out[i].kind = wm.deco_layout[i];
+        out[i].x = x;
+        if (wm.deco_layout[i] == DECO_TITLE) {
+            /* Only the first "title" token (if the config lists more than
+             * one, which is nonsensical but shouldn't crash) gets the
+             * flexible width; any further one just collapses to 0. */
+            out[i].width = (i == title_idx) ? title_w : 0;
+            x += out[i].width;
+        } else {
+            out[i].width = BUTTON_W;
+            x += BUTTON_W;
+        }
+    }
+    return n;
+}
+
 /* `col` is a BTNCOL_* sprite column; `glyph` is the hand-drawn fallback
  * used when no btns.png theme loaded. `hovered` selects btns.png's hover
- * row -- there's no "clicked" row use yet, kiwm fires button actions
- * directly on press with no separate held-down moment to show one during
- * (see wm.h's BTNCOL_* comment). */
-static void draw_button(cairo_t *cr, double x, int col, char glyph, bool hovered)
+ * row; toggle buttons (keep_above/keep_all_desktops) also use that same
+ * row whenever `active`, in lieu of a dedicated "on" row the sprite
+ * doesn't have -- there's no "clicked" row use at all yet, kiwm fires
+ * button actions directly on press with no separate held-down moment to
+ * show one during (see wm.h's BTNCOL_* comment). */
+static void draw_button(cairo_t *cr, double x, int col, char glyph, bool hovered, bool active)
 {
     if (wm.deco_btns) {
-        int row = hovered ? 1 : 0;
+        int row = (hovered || active) ? 1 : 0;
         cairo_save(cr);
         cairo_translate(cr, x, 0);
         cairo_rectangle(cr, 0, 0, BUTTON_W, TITLEBAR_H);
@@ -307,7 +435,7 @@ static void draw_button(cairo_t *cr, double x, int col, char glyph, bool hovered
         return;
     }
 
-    cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, hovered ? 0.45 : 0.30);
+    cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, (hovered || active) ? 0.45 : 0.30);
     cairo_rectangle(cr, x, 0, BUTTON_W, TITLEBAR_H);
     cairo_fill(cr);
 
@@ -339,6 +467,20 @@ static void draw_button(cairo_t *cr, double x, int col, char glyph, bool hovered
         cairo_move_to(cr, cx - 5, cy + 2);
         cairo_line_to(cr, cx, cy - 3);
         cairo_line_to(cr, cx + 5, cy + 2);
+        cairo_stroke(cr);
+    } else if (glyph == 'a') { /* keep_above: pin/arrow pointing up */
+        cairo_move_to(cr, cx, cy - 5);
+        cairo_line_to(cr, cx, cy + 5);
+        cairo_move_to(cr, cx - 4, cy - 1);
+        cairo_line_to(cr, cx, cy - 5);
+        cairo_line_to(cr, cx + 4, cy - 1);
+        cairo_stroke(cr);
+    } else if (glyph == 'd') { /* keep_all_desktops: 2x2 grid */
+        double gap = 1.5, s = 4;
+        cairo_rectangle(cr, cx - gap - s, cy - gap - s, s, s);
+        cairo_rectangle(cr, cx + gap, cy - gap - s, s, s);
+        cairo_rectangle(cr, cx - gap - s, cy + gap, s, s);
+        cairo_rectangle(cr, cx + gap, cy + gap, s, s);
         cairo_stroke(cr);
     }
 }
@@ -398,28 +540,68 @@ void draw_decoration(Client *c)
 
     cairo_select_font_face(cr, "sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(cr, 12.5);
-    if (focused)
-        cairo_set_source_rgb(cr, wm.fg_active_r, wm.fg_active_g, wm.fg_active_b);
-    else
-        cairo_set_source_rgb(cr, wm.fg_inactive_r, wm.fg_inactive_g, wm.fg_inactive_b);
 
-    cairo_text_extents_t ext;
-    cairo_text_extents(cr, c->title, &ext);
-    double title_x = 8.0;
-    double title_y = (TITLEBAR_H - ext.height) / 2.0 - ext.y_bearing;
-    cairo_move_to(cr, title_x, title_y);
-    cairo_show_text(cr, c->title);
+    DecoSlot slots[MAX_DECO_ELEMS];
+    int nslots = compute_deco_layout(w, slots, MAX_DECO_ELEMS);
 
-    bool hover_shade = (wm.hover_client == c && wm.hover_btn == BTNSLOT_SHADE);
-    bool hover_min = (wm.hover_client == c && wm.hover_btn == BTNSLOT_MINIMIZE);
-    bool hover_max = (wm.hover_client == c && wm.hover_btn == BTNSLOT_MAXIMIZE);
-    bool hover_close = (wm.hover_client == c && wm.hover_btn == BTNSLOT_CLOSE);
+    for (int i = 0; i < nslots; i++) {
+        DecoSlot *s = &slots[i];
+        bool hovered = (wm.hover_client == c && wm.hover_btn == i);
 
-    draw_button(cr, w - BUTTON_W * 4, BTNCOL_SHADE, '^', hover_shade);
-    draw_button(cr, w - BUTTON_W * 3, BTNCOL_MINIMIZE, '-', hover_min);
-    draw_button(cr, w - BUTTON_W * 2, c->maximized ? BTNCOL_RESTORE : BTNCOL_MAXIMIZE,
-               c->maximized ? 'r' : '+', hover_max);
-    draw_button(cr, w - BUTTON_W,     BTNCOL_CLOSE, 'x', hover_close);
+        switch (s->kind) {
+        case DECO_TITLE: {
+            /* Buttons drawn earlier in the layout order leave cr's source
+             * set to whatever color they last used -- always re-apply the
+             * title color here rather than once up front, since which
+             * elements come "before" the title in draw order depends on
+             * the configured titlebar_layout=. */
+            if (focused)
+                cairo_set_source_rgb(cr, wm.fg_active_r, wm.fg_active_g, wm.fg_active_b);
+            else
+                cairo_set_source_rgb(cr, wm.fg_inactive_r, wm.fg_inactive_g, wm.fg_inactive_b);
+
+            cairo_text_extents_t ext;
+            cairo_text_extents(cr, c->title, &ext);
+            double title_y = (TITLEBAR_H - ext.height) / 2.0 - ext.y_bearing;
+            cairo_save(cr);
+            cairo_rectangle(cr, s->x, 0, s->width, TITLEBAR_H);
+            cairo_clip(cr);
+            cairo_move_to(cr, s->x + 8.0, title_y);
+            cairo_show_text(cr, c->title);
+            cairo_restore(cr);
+            break;
+        }
+        case DECO_ICON:
+            if (c->icon) {
+                int iw = cairo_image_surface_get_width(c->icon);
+                int ih = cairo_image_surface_get_height(c->icon);
+                double pad = 5.0;
+                double size = TITLEBAR_H - pad * 2;
+                draw_slice_region(cr, c->icon, 0, 0, iw, ih,
+                                  s->x + (BUTTON_W - size) / 2.0, pad, size, size);
+            }
+            break;
+        case DECO_SHADE:
+            draw_button(cr, s->x, BTNCOL_SHADE, '^', hovered, false);
+            break;
+        case DECO_MINIMIZE:
+            draw_button(cr, s->x, BTNCOL_MINIMIZE, '-', hovered, false);
+            break;
+        case DECO_MAXIMIZE:
+            draw_button(cr, s->x, c->maximized ? BTNCOL_RESTORE : BTNCOL_MAXIMIZE,
+                       c->maximized ? 'r' : '+', hovered, false);
+            break;
+        case DECO_CLOSE:
+            draw_button(cr, s->x, BTNCOL_CLOSE, 'x', hovered, false);
+            break;
+        case DECO_KEEP_ABOVE:
+            draw_button(cr, s->x, BTNCOL_KEEP_ABOVE, 'a', hovered, c->keep_above);
+            break;
+        case DECO_KEEP_ALL_DESKTOPS:
+            draw_button(cr, s->x, BTNCOL_KEEP_ALL_DESKTOPS, 'd', hovered, c->sticky);
+            break;
+        }
+    }
 
     cairo_restore(cr);
 

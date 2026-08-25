@@ -28,7 +28,7 @@
  * until the app that owns it is restarted). */
 static void remap_existing_client(Client *c)
 {
-    if (wm.outputs[c->output].desktop == c->desktop) {
+    if (c->sticky || wm.outputs[c->output].desktop == c->desktop) {
         xcb_map_window(wm.conn, c->frame);
         c->mapped = true;
     }
@@ -126,6 +126,22 @@ static void begin_drag(Client *c, DragMode mode, xcb_button_press_event_t *ev)
     xcb_flush(wm.conn);
 }
 
+/* Which configured titlebar element (see wm.h's DecoElemKind/
+ * wm.deco_layout) sits at a given rel_x, if any -- shared by
+ * handle_button_press's hit-testing and update_button_hover(), so they
+ * can never disagree about where a button actually is. Fills `slots` with
+ * the whole computed layout (caller may only care about the one index
+ * returned, but computing the rest is nearly free and callers that do
+ * care can just index it). */
+static int deco_slot_at(Client *c, int rel_x, DecoSlot *slots, int max_slots)
+{
+    int n = compute_deco_layout(c->frame_width, slots, max_slots);
+    for (int i = 0; i < n; i++)
+        if (rel_x >= slots[i].x && rel_x < slots[i].x + slots[i].width)
+            return i;
+    return -1;
+}
+
 static void handle_button_press(xcb_button_press_event_t *ev)
 {
     Client *c = find_client_window(ev->event);
@@ -149,26 +165,25 @@ static void handle_button_press(xcb_button_press_event_t *ev)
     }
 
     if (on_titlebar && ev->detail == 1) {
-        int w = c->frame_width;
-
-        if (rel_x >= w - BUTTON_W) {
-            close_client(c);
-            return;
-        }
-        if (rel_x >= w - BUTTON_W * 2) {
-            toggle_maximize(c, -1);
-            return;
-        }
-        if (rel_x >= w - BUTTON_W * 3) {
-            minimize_client(c);
-            return;
-        }
-        if (rel_x >= w - BUTTON_W * 4) {
-            toggle_shade(c, -1);
-            return;
+        DecoSlot slots[MAX_DECO_ELEMS];
+        int idx = deco_slot_at(c, rel_x, slots, MAX_DECO_ELEMS);
+        if (idx >= 0) {
+            switch (slots[idx].kind) {
+            case DECO_CLOSE:            close_client(c); return;
+            case DECO_MAXIMIZE:         toggle_maximize(c, -1); return;
+            case DECO_MINIMIZE:         minimize_client(c); return;
+            case DECO_SHADE:            toggle_shade(c, -1); return;
+            case DECO_KEEP_ABOVE:       toggle_keep_above(c, -1); return;
+            case DECO_KEEP_ALL_DESKTOPS: toggle_sticky(c, -1); return;
+            case DECO_TITLE:
+            case DECO_ICON:
+            default:
+                break; /* not a button -- falls through to double-click/drag below */
+            }
         }
 
-        /* Plain titlebar area (no button under the click): double-click
+        /* Plain titlebar area (icon/title, or no element under the
+         * click): double-click
          * toggles maximize, same as most desktops -- X has no double-click
          * event of its own, so this compares consecutive ButtonPress
          * timestamps by hand (see wm.h's DOUBLE_CLICK_MS). */
@@ -303,12 +318,11 @@ static void update_button_hover(xcb_motion_notify_event_t *ev)
     if (c && client_deco_visible(c)) {
         int rel_x = ev->root_x - c->x;
         int rel_y = ev->root_y - c->y;
-        int w = c->frame_width;
         if (rel_y >= 0 && rel_y < TITLEBAR_H) {
-            if (rel_x >= w - BUTTON_W)          slot = BTNSLOT_CLOSE;
-            else if (rel_x >= w - BUTTON_W * 2)  slot = BTNSLOT_MAXIMIZE;
-            else if (rel_x >= w - BUTTON_W * 3)  slot = BTNSLOT_MINIMIZE;
-            else if (rel_x >= w - BUTTON_W * 4)  slot = BTNSLOT_SHADE;
+            DecoSlot slots[MAX_DECO_ELEMS];
+            int idx = deco_slot_at(c, rel_x, slots, MAX_DECO_ELEMS);
+            if (idx >= 0 && slots[idx].kind != DECO_TITLE && slots[idx].kind != DECO_ICON)
+                slot = idx;
         }
     }
 
@@ -408,6 +422,11 @@ static void handle_property_notify(xcb_property_notify_event_t *ev)
         draw_decoration(c);
         xcb_flush(wm.conn);
     }
+    if (ev->atom == wm.atoms.net_wm_icon) {
+        load_client_icon(c);
+        draw_decoration(c);
+        xcb_flush(wm.conn);
+    }
 }
 
 static void handle_enter_notify(xcb_enter_notify_event_t *ev)
@@ -417,7 +436,7 @@ static void handle_enter_notify(xcb_enter_notify_event_t *ev)
     Client *c = find_client_window(ev->event);
     if (!c)
         c = find_client_window(ev->child);
-    if (c && c->mapped && !c->minimized && wm.outputs[c->output].desktop == c->desktop)
+    if (c && c->mapped && !c->minimized && (c->sticky || wm.outputs[c->output].desktop == c->desktop))
         focus_client(c);
 }
 
@@ -465,6 +484,8 @@ static void handle_net_wm_state(Client *c, uint32_t action, xcb_atom_t a1, xcb_a
                    a2 == wm.atoms.net_wm_state_maximized_vert || a2 == wm.atoms.net_wm_state_maximized_horz);
     bool is_hidden = (a1 == wm.atoms.net_wm_state_hidden || a2 == wm.atoms.net_wm_state_hidden);
     bool is_shaded = (a1 == wm.atoms.net_wm_state_shaded || a2 == wm.atoms.net_wm_state_shaded);
+    bool is_above = (a1 == wm.atoms.net_wm_state_above || a2 == wm.atoms.net_wm_state_above);
+    bool is_sticky = (a1 == wm.atoms.net_wm_state_sticky || a2 == wm.atoms.net_wm_state_sticky);
 
     /* action: 0=remove, 1=add, 2=toggle (_NET_WM_STATE_TOGGLE) */
     if (is_max) {
@@ -481,6 +502,14 @@ static void handle_net_wm_state(Client *c, uint32_t action, xcb_atom_t a1, xcb_a
     if (is_shaded) {
         int want = (action == 2) ? -1 : (action == 1 ? 1 : 0);
         toggle_shade(c, want);
+    }
+    if (is_above) {
+        int want = (action == 2) ? -1 : (action == 1 ? 1 : 0);
+        toggle_keep_above(c, want);
+    }
+    if (is_sticky) {
+        int want = (action == 2) ? -1 : (action == 1 ? 1 : 0);
+        toggle_sticky(c, want);
     }
 }
 

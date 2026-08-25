@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+static void raise_above_clients(void);
+
 static bool client_supports_protocol(xcb_window_t window, xcb_atom_t proto)
 {
     xcb_get_property_reply_t *reply = xcb_get_property_reply(wm.conn,
@@ -165,6 +167,7 @@ void focus_client(Client *c)
 
     xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE,
                          (uint32_t[]){ XCB_STACK_MODE_ABOVE });
+    raise_above_clients();
 
     draw_decoration(c);
     ewmh_update_client_list();
@@ -183,7 +186,7 @@ void cycle_focus(int direction)
     int current_idx = -1;
 
     for (Client *c = wm.clients; c && n < MAX_CLIENTS; c = c->next) {
-        if (c->output == output_idx && c->desktop == desktop && c->mapped && !c->minimized) {
+        if (c->output == output_idx && (c->sticky || c->desktop == desktop) && c->mapped && !c->minimized) {
             if (c == wm.focused)
                 current_idx = n;
             eligible[n++] = c;
@@ -234,6 +237,62 @@ void unshade_now(Client *c)
     c->shaded = false;
     if (c->mapped)
         xcb_map_window(wm.conn, c->window);
+}
+
+/* Re-stacks every keep_above client above every non-keep_above one --
+ * kiwm has no real multi-layer stacking model, so this is enforced
+ * on-demand instead: called after any operation that raises some other
+ * (non-keep_above) window (see focus_client()), so a keep_above window
+ * always ends up back on top instead of just staying wherever it was
+ * when it was last raised. Cheap and simple beats a real layer system for
+ * the one thing kiwm actually needs it for. */
+static void raise_above_clients(void)
+{
+    for (Client *c = wm.clients; c; c = c->next) {
+        if (c->keep_above && c->mapped)
+            xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE,
+                                 (uint32_t[]){ XCB_STACK_MODE_ABOVE });
+    }
+}
+
+void toggle_keep_above(Client *c, int want /* -1=toggle 0=off 1=on */)
+{
+    bool target = (want == -1) ? !c->keep_above : (want == 1);
+    if (target == c->keep_above)
+        return;
+    c->keep_above = target;
+    if (target) {
+        xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE,
+                             (uint32_t[]){ XCB_STACK_MODE_ABOVE });
+    }
+    ewmh_update_wm_state(c);
+    xcb_flush(wm.conn);
+}
+
+void toggle_sticky(Client *c, int want /* -1=toggle 0=off 1=on */)
+{
+    bool target = (want == -1) ? !c->sticky : (want == 1);
+    if (target == c->sticky)
+        return;
+    c->sticky = target;
+
+    /* Toggling this can change whether the client should currently be
+     * visible at all -- becoming sticky can reveal a window that was
+     * hidden by a desktop mismatch, and un-sticking one can hide a window
+     * that only stayed visible because it used to be sticky. */
+    if (!c->minimized) {
+        bool should_show = target || (c->output >= 0 && wm.outputs[c->output].desktop == c->desktop);
+        if (should_show && !c->mapped) {
+            xcb_map_window(wm.conn, c->frame);
+            c->mapped = true;
+        } else if (!should_show && c->mapped) {
+            xcb_unmap_window(wm.conn, c->frame);
+            c->mapped = false;
+        }
+    }
+
+    ewmh_update_wm_state(c);
+    xcb_flush(wm.conn);
 }
 
 void toggle_shade(Client *c, int want /* -1=toggle 0=unshade 1=shade */)
@@ -420,7 +479,7 @@ void restore_client(Client *c)
         return;
     c->minimized = false;
 
-    if (wm.outputs[c->output].desktop == c->desktop) {
+    if (c->sticky || wm.outputs[c->output].desktop == c->desktop) {
         xcb_map_window(wm.conn, c->frame);
         c->mapped = true;
     }
@@ -432,7 +491,7 @@ void activate_client(Client *c)
 {
     if (c->minimized)
         restore_client(c);
-    if (c->output >= 0 && wm.outputs[c->output].desktop != c->desktop)
+    if (!c->sticky && c->output >= 0 && wm.outputs[c->output].desktop != c->desktop)
         switch_workspace(c->output, c->desktop);
     if (c->mapped)
         focus_client(c);
@@ -447,8 +506,8 @@ void set_client_desktop(Client *c, int desktop)
     if (desktop == c->desktop)
         return;
 
-    bool was_visible = (c->output >= 0 && wm.outputs[c->output].desktop == c->desktop);
-    bool now_visible = (c->output >= 0 && wm.outputs[c->output].desktop == desktop);
+    bool was_visible = c->sticky || (c->output >= 0 && wm.outputs[c->output].desktop == c->desktop);
+    bool now_visible = c->sticky || (c->output >= 0 && wm.outputs[c->output].desktop == desktop);
 
     c->desktop = desktop;
 
@@ -504,6 +563,9 @@ void unmanage(Client *c)
 
     if (fw > 0 && fh > 0)
         xcb_clear_area(wm.conn, 0, wm.root, fx, fy, (uint16_t)fw, (uint16_t)fh);
+
+    if (c->icon)
+        cairo_surface_destroy(c->icon);
 
     remove_client(c);
     ewmh_update_client_list();
@@ -601,6 +663,7 @@ void manage(xcb_window_t window)
     c->desktop = wm.output_count > 0 ? wm.outputs[c->output].desktop : 0;
 
     get_title(c);
+    load_client_icon(c);
 
     c->frame = xcb_generate_id(wm.conn);
 

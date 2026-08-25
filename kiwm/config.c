@@ -44,6 +44,52 @@ static void apply_builtin_defaults(void)
     wm.snap_threshold = 20;
     wm.focus_follows_mouse = false;
     snprintf(wm.theme_path, sizeof(wm.theme_path), "greenxp");
+
+    static const DecoElemKind default_layout[] = {
+        DECO_ICON, DECO_TITLE, DECO_SHADE, DECO_MINIMIZE, DECO_MAXIMIZE, DECO_CLOSE
+    };
+    memcpy(wm.deco_layout, default_layout, sizeof(default_layout));
+    wm.deco_layout_count = sizeof(default_layout) / sizeof(default_layout[0]);
+}
+
+/* "icon,title,shade,minimize,maximize,close,keep_above,keep_all_desktops"
+ * (any subset, any order, kiwm.conf's titlebar_layout=) -> wm.deco_layout.
+ * Unknown tokens are skipped with a warning rather than rejecting the
+ * whole line, same spirit as the rest of this parser -- one bad token
+ * shouldn't cost the reordering of everything else. Leaves the built-in
+ * default in place (already applied by apply_builtin_defaults()) if the
+ * key is missing or every token turns out invalid. */
+static void parse_titlebar_layout(const char *val)
+{
+    DecoElemKind parsed[MAX_DECO_ELEMS];
+    int n = 0;
+    char buf[256];
+    snprintf(buf, sizeof(buf), "%s", val);
+
+    char *save = NULL;
+    for (char *tok = strtok_r(buf, ",", &save); tok && n < MAX_DECO_ELEMS; tok = strtok_r(NULL, ",", &save)) {
+        while (*tok == ' ' || *tok == '\t') tok++;
+        size_t len = strlen(tok);
+        while (len > 0 && (tok[len - 1] == ' ' || tok[len - 1] == '\t')) tok[--len] = '\0';
+
+        if (strcmp(tok, "title") == 0 || strcmp(tok, "name") == 0) parsed[n++] = DECO_TITLE;
+        else if (strcmp(tok, "icon") == 0) parsed[n++] = DECO_ICON;
+        else if (strcmp(tok, "shade") == 0) parsed[n++] = DECO_SHADE;
+        else if (strcmp(tok, "minimize") == 0) parsed[n++] = DECO_MINIMIZE;
+        else if (strcmp(tok, "maximize") == 0) parsed[n++] = DECO_MAXIMIZE;
+        else if (strcmp(tok, "close") == 0) parsed[n++] = DECO_CLOSE;
+        else if (strcmp(tok, "keep_above") == 0) parsed[n++] = DECO_KEEP_ABOVE;
+        else if (strcmp(tok, "keep_all_desktops") == 0) parsed[n++] = DECO_KEEP_ALL_DESKTOPS;
+        else
+            fprintf(stderr, "kiwm: config: skipping unknown titlebar_layout element '%s'\n", tok);
+    }
+
+    if (n == 0) {
+        fprintf(stderr, "kiwm: config: titlebar_layout had no valid elements, keeping default\n");
+        return;
+    }
+    memcpy(wm.deco_layout, parsed, sizeof(DecoElemKind) * (size_t)n);
+    wm.deco_layout_count = n;
 }
 
 /* "#rrggbb" (leading '#' optional) -> 0..1 doubles, Cairo's native range. */
@@ -123,7 +169,15 @@ static void write_default_config(const char *path)
         "# kiwm/README or the greenxp/ folder itself for the file formats).\n"
         "# Resolved the same way kiwm looks for its own binary-relative\n"
         "# files: tried as ../<theme>, ./<theme> and plain <theme>.\n"
-        "theme=greenxp\n");
+        "theme=greenxp\n"
+        "\n"
+        "# Titlebar element order, left to right, comma-separated. Available:\n"
+        "# icon, title, shade, minimize, maximize (also serves as \"restore\"\n"
+        "# once a window is maximized, same slot), close, keep_above,\n"
+        "# keep_all_desktops. \"title\" is the only flexible element -- it\n"
+        "# takes whatever width the fixed-size ones (everything else, one\n"
+        "# BUTTON_W each) don't use, wherever it falls in the order.\n"
+        "titlebar_layout=icon,title,shade,minimize,maximize,close\n");
     fclose(f);
     fprintf(stderr, "kiwm: no config found, wrote defaults to %s\n", path);
 }
@@ -201,6 +255,8 @@ void config_load(void)
             wm.focus_follows_mouse = atoi(val) != 0;
         } else if (strcmp(key, "theme") == 0) {
             snprintf(wm.theme_path, sizeof(wm.theme_path), "%s", val);
+        } else if (strcmp(key, "titlebar_layout") == 0) {
+            parse_titlebar_layout(val);
         } else {
             fprintf(stderr, "kiwm: config: skipping unknown key '%s'\n", key);
         }

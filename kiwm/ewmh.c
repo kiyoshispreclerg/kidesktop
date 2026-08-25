@@ -56,7 +56,9 @@ void ewmh_update_wm_state(Client *c)
                 if (a == wm.atoms.net_wm_state_hidden ||
                     a == wm.atoms.net_wm_state_maximized_vert ||
                     a == wm.atoms.net_wm_state_maximized_horz ||
-                    a == wm.atoms.net_wm_state_shaded)
+                    a == wm.atoms.net_wm_state_shaded ||
+                    a == wm.atoms.net_wm_state_above ||
+                    a == wm.atoms.net_wm_state_sticky)
                     continue;
                 keep[nkeep++] = a;
             }
@@ -76,6 +78,10 @@ void ewmh_update_wm_state(Client *c)
     }
     if (c->shaded)
         out[n++] = wm.atoms.net_wm_state_shaded;
+    if (c->keep_above)
+        out[n++] = wm.atoms.net_wm_state_above;
+    if (c->sticky)
+        out[n++] = wm.atoms.net_wm_state_sticky;
 
     xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, c->window,
                         wm.atoms.net_wm_state, XCB_ATOM_ATOM, 32, (uint32_t)n, out);
@@ -161,6 +167,7 @@ void ewmh_init_supported(void)
         wm.atoms.net_wm_state, wm.atoms.net_wm_state_hidden,
         wm.atoms.net_wm_state_maximized_vert, wm.atoms.net_wm_state_maximized_horz,
         wm.atoms.net_wm_state_skip_taskbar, wm.atoms.net_wm_state_shaded,
+        wm.atoms.net_wm_state_above, wm.atoms.net_wm_state_sticky, wm.atoms.net_wm_icon,
         wm.atoms.net_wm_window_type, wm.atoms.net_wm_window_type_normal,
         wm.atoms.net_wm_window_type_dock, wm.atoms.net_wm_window_type_desktop,
         wm.atoms.net_wm_window_type_toolbar, wm.atoms.net_wm_window_type_menu,

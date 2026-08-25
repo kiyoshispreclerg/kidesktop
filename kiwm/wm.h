@@ -27,26 +27,12 @@
 #define MAX_DESKTOPS      32
 #define DEFAULT_NUM_DESKTOPS 4
 
-/* Titlebar button screen *slots* (left-to-right on-screen position,
- * fixed regardless of theme) -- used for hit-testing and hover tracking
- * (events.c) and to pick which one draw_decoration() is drawing
- * (decoration.c). Distinct from the BTNCOL_* sprite *columns* below,
- * which are about where an icon lives in btns.png, not where the button
- * sits on screen. Screen order (right to left): close, maximize,
- * minimize, shade -- i.e. shade is the leftmost/outermost button. */
-#define BTNSLOT_SHADE     0
-#define BTNSLOT_MINIMIZE  1
-#define BTNSLOT_MAXIMIZE  2
-#define BTNSLOT_CLOSE     3
-#define BTN_SLOT_COUNT    4
-
 /* btns.png sprite sheet column order (see greenxp/btns.slice) -- fixed by
- * convention, not configurable. Rows (not enumerated here) are always
- * normal=0/hover=1/clicked=2 top-to-bottom; "clicked" isn't wired to
- * anything yet (kiwm fires button actions on press, not release, so
- * there's no separate held-down moment to show it during). shade/
- * keep_above/keep_all_desktops are reserved for window states kiwm
- * doesn't implement yet -- never drawn or hit-tested. */
+ * convention, not configurable (unlike the on-screen *order* of buttons,
+ * see DecoElemKind/kiwm.conf's titlebar_layout=). Rows (not enumerated
+ * here) are always normal=0/hover=1/clicked=2 top-to-bottom; "clicked"
+ * isn't wired to anything yet (kiwm fires button actions on press, not
+ * release, so there's no separate held-down moment to show it during). */
 #define BTNCOL_CLOSE             0
 #define BTNCOL_MAXIMIZE          1
 #define BTNCOL_RESTORE           2
@@ -54,6 +40,25 @@
 #define BTNCOL_SHADE             4
 #define BTNCOL_KEEP_ABOVE        5
 #define BTNCOL_KEEP_ALL_DESKTOPS 6
+
+/* One element of the titlebar layout (kiwm.conf's titlebar_layout=,
+ * default "icon,title,shade,minimize,maximize,close") -- see decoration.h's
+ * compute_deco_layout(). DECO_TITLE is the sole flexible element (absorbs
+ * whatever width the fixed-width ones don't use); everything else is a
+ * fixed BUTTON_W-wide slot, in whatever order the config lists them,
+ * left to right. */
+typedef enum {
+    DECO_TITLE = 0,
+    DECO_ICON,
+    DECO_SHADE,
+    DECO_MINIMIZE,
+    DECO_MAXIMIZE,  /* also stands in for "restore" once maximized -- same slot, same position */
+    DECO_CLOSE,
+    DECO_KEEP_ABOVE,
+    DECO_KEEP_ALL_DESKTOPS,
+} DecoElemKind;
+
+#define MAX_DECO_ELEMS 12
 
 /* How close together (ms, comparing xcb_timestamp_t's, which are itself
  * server milliseconds) two titlebar clicks must land to count as a
@@ -131,6 +136,16 @@ struct Client {
                      * see client.c's toggle_shade(). Orthogonal to
                      * maximized/snap_side (tiling always unshades first,
                      * see client.c's unshade_now()). */
+    bool keep_above;  /* stacked above every non-keep_above client, see
+                       * client.c's raise_above_clients(). */
+    bool sticky;      /* visible regardless of its output's current
+                       * desktop -- see client.c's toggle_sticky() and
+                       * every "wm.outputs[c->output].desktop == c->desktop"
+                       * visibility check across client.c/events.c/output.c,
+                       * all of which now also accept c->sticky. */
+
+    cairo_surface_t *icon;  /* _NET_WM_ICON, scaled down once when loaded;
+                             * NULL if the client has none (drawn blank). */
     int ignore_unmap;   /* absorbs the automatic UnmapNotify from reparenting an
                           * already-mapped pre-existing window at startup */
 
@@ -177,6 +192,9 @@ typedef struct {
     xcb_atom_t net_wm_state_maximized_horz;
     xcb_atom_t net_wm_state_skip_taskbar;
     xcb_atom_t net_wm_state_shaded;
+    xcb_atom_t net_wm_state_above;
+    xcb_atom_t net_wm_state_sticky;
+    xcb_atom_t net_wm_icon;
 
     xcb_atom_t net_wm_window_type;
     xcb_atom_t net_wm_window_type_normal;
@@ -263,13 +281,20 @@ typedef struct {
     double border_active_r, border_active_g, border_active_b;
     double border_inactive_r, border_inactive_g, border_inactive_b;
 
-    /* Which client/button-slot the pointer currently hovers, for the
-     * sprite theme's hover row (see decoration.c's draw_button()) --
-     * meaningless without deco_btns loaded, so plain-fallback decoration
-     * never bothers tracking or repainting for this. hover_btn is one of
-     * the BTNSLOT_* constants above, or -1 for none. */
+    /* Which client/element the pointer currently hovers, for the sprite
+     * theme's hover row (see decoration.c's draw_button()) -- meaningless
+     * without deco_btns loaded, so plain-fallback decoration never
+     * bothers tracking or repainting for this. hover_btn is an index into
+     * deco_layout (below), or -1 for none/not-a-button element. */
     Client *hover_client;
     int hover_btn;
+
+    /* Titlebar element order, kiwm.conf's titlebar_layout= -- see
+     * DecoElemKind and decoration.h's compute_deco_layout(). Defaults (see
+     * config.c) to icon, title, shade, minimize, maximize, close, matching
+     * kiwm's original fixed layout except for the newly-added icon slot. */
+    DecoElemKind deco_layout[MAX_DECO_ELEMS];
+    int deco_layout_count;
 
     bool hide_deco_on_maximize;
     double deco_bg_r, deco_bg_g, deco_bg_b;   /* fallback titlebar background when no theme */

@@ -372,8 +372,8 @@ void switch_workspace(int output_idx, int desktop)
 
     Client *to_focus = NULL;
     for (Client *c = wm.clients; c; c = c->next) {
-        if (c->output != output_idx || c->minimized)
-            continue;
+        if (c->output != output_idx || c->minimized || c->sticky)
+            continue; /* sticky clients stay mapped through every desktop switch */
         if (c->desktop == old) {
             if (c->mapped)
                 xcb_unmap_window(wm.conn, c->frame);
