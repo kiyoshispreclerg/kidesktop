@@ -41,6 +41,8 @@
 #include <strings.h>
 #include <unistd.h>
 
+#define XISSERVE_VERSION "0.1.0"
+
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
 #define CAT_PANE_WIDTH 140
@@ -113,8 +115,9 @@ static void usage(const char *argv0)
     fprintf(stderr,
             "usage: %s --anchor-x=<px> --anchor-y=<px> --anchor-w=<px> --anchor-h=<px> "
             "--edge=top|bottom|left|right --output-x=<px> --output-y=<px> --output-w=<px> "
-            "--output-h=<px> --bg=#RRGGBBAA --fg=#RRGGBBAA --font=<family> --font-size=<px>\n",
-            argv0);
+            "--output-h=<px> --bg=#RRGGBBAA --fg=#RRGGBBAA --font=<family> --font-size=<px>\n"
+            "       %s --version\n",
+            argv0, argv0);
 }
 
 static int parse_argv(int argc, char **argv, LaunchArgs *a)
@@ -1392,6 +1395,12 @@ static void build_ui(void)
 {
     g_window = gtk_window_new(GTK_WINDOW_POPUP);
     gtk_widget_set_size_request(g_window, WIN_WIDTH, WIN_HEIGHT);
+    /* GTK_WINDOW_POPUP is override-redirect (no WM decorations, so no
+     * drag-to-resize border of its own), but resizable is otherwise an
+     * independent property -- explicit here so a WM that resizes
+     * windows by some other means regardless of decoration (e.g. kiwm's
+     * own corner-resize) isn't refused by GTK on our end. */
+    gtk_window_set_resizable(GTK_WINDOW(g_window), TRUE);
     gtk_widget_add_events(g_window, GDK_BUTTON_PRESS_MASK);
 
     GdkScreen *screen = gtk_widget_get_screen(g_window);
@@ -1482,6 +1491,16 @@ static void build_ui(void)
 
 int main(int argc, char **argv)
 {
+    /* Checked before gtk_init() -- same reason most CLI tools handle
+     * --version first: it should work even with no display to connect
+     * to, and shouldn't care whether any other flag is well-formed. */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--version") == 0) {
+            printf("xisserve %s\n", XISSERVE_VERSION);
+            return 0;
+        }
+    }
+
     gtk_init(&argc, &argv);
 
     LaunchArgs args;
