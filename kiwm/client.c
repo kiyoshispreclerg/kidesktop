@@ -86,7 +86,7 @@ Client *find_client_window(xcb_window_t window)
  * both collapse to 0 together via client_deco_visible() (maximized with
  * hide_deco_on_maximize=1), so a maximized/hidden-deco window's frame is
  * exactly its content size, no partial state. */
-static void deco_insets(Client *c, int *bt, int *th)
+void deco_insets(Client *c, int *bt, int *th)
 {
     bool deco = client_deco_visible(c);
     *th = deco ? TITLEBAR_H : 0;

@@ -159,6 +159,18 @@ typedef struct DockWindow {
      * eat into a different output's workarea whenever both outputs share
      * the same absolute row/column range (e.g. both start at x=0). */
     int output;
+
+    /* The dock's own on-screen rectangle, cached from the xcb_get_geometry()
+     * assign_dock_output() already does -- used by events.c's magnet_snap()
+     * to snap a dragged window's edge against a panel/taskbar's edge too,
+     * not just other Clients and the screen edge. Like `output` above, only
+     * refreshed when assign_dock_output() re-runs (dock_track() and RandR
+     * screen-change re-assignment); a dock moving/resizing itself after
+     * that with no output change goes unnoticed, same limitation `output`
+     * already has and for the same reason (panels don't, in practice). 0
+     * width/height (assign_dock_output()'s xcb_get_geometry() failing)
+     * means "don't use this as a magnet candidate at all". */
+    int x, y, width, height;
 } DockWindow;
 
 struct Client {

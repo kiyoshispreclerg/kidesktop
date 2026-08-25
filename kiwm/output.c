@@ -114,9 +114,14 @@ static void assign_dock_output(DockWindow *d)
         xcb_get_geometry_reply(wm.conn, xcb_get_geometry(wm.conn, d->window), NULL);
     if (!geo) {
         d->output = -1;
+        d->x = d->y = d->width = d->height = 0;
         return;
     }
     d->output = output_index_for_point(geo->x + geo->width / 2, geo->y + geo->height / 2);
+    d->x = geo->x;
+    d->y = geo->y;
+    d->width = geo->width;
+    d->height = geo->height;
     free(geo);
 }
 

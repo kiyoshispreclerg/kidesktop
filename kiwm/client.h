@@ -5,6 +5,15 @@
 
 Client *find_client_window(xcb_window_t window);
 
+/* How much frame space the titlebar (top) and the flat side/bottom border
+ * currently take up -- both 0 together when the decoration is hidden (see
+ * decoration.c's client_deco_visible()). Exported so events.c's resize-drag
+ * magnet snapping (handle_motion()) can convert the client's content-space
+ * new_w/new_h into the same frame-space coordinates every other magnet
+ * candidate (other clients' c->x/frame_width, docks, screen edges) is
+ * already expressed in. */
+void deco_insets(Client *c, int *bt, int *th);
+
 void configure_frame(Client *c);
 /* Cheap subset of configure_frame() -- geometry + synthetic ConfigureNotify
  * only, no XShape re-clip or decoration repaint. See client.c's comment;
