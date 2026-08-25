@@ -34,6 +34,8 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#define KIWM_VERSION "0.1.0"
+
 #include "wm.h"
 #include "config.h"
 #include "atoms.h"
@@ -284,7 +286,10 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--replace") == 0)
             replace = true;
         else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
-            printf("usage: kiwm [--replace]\n");
+            printf("usage: kiwm [--replace] [--version]\n");
+            return EXIT_SUCCESS;
+        } else if (strcmp(argv[i], "--version") == 0) {
+            printf("kiwm %s\n", KIWM_VERSION);
             return EXIT_SUCCESS;
         }
     }
