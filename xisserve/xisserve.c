@@ -39,10 +39,20 @@
 #include <strings.h>
 #include <unistd.h>
 
-#define WIN_WIDTH 380
+#define WIN_WIDTH 520
 #define WIN_HEIGHT 460
+#define CAT_PANE_WIDTH 140
 
-enum { COL_NAME = 0, COL_EXEC, N_COLS };
+/* Results list (right pane): one markup column doubles as name+subtitle
+ * (small category/plugin label under the name), COL_ENTRY is the
+ * backing ResultEntry* -- used to launch on click/Enter and to resolve
+ * "Adicionar/Remover Favorito" on right-click. */
+enum { VCOL_MARKUP = 0, VCOL_ENTRY, N_VCOLS };
+
+/* Category list (left pane): "favorites" and "all" are synthetic,
+ * xisserve-only categories (see build_category_store()); everything
+ * else is a bucketed freedesktop Categories= key from kCategoryDefs. */
+enum { CCOL_KEY = 0, CCOL_LABEL, N_CCOLS };
 
 typedef struct {
     int anchor_x, anchor_y, anchor_w, anchor_h;
@@ -54,12 +64,33 @@ typedef struct {
     int font_size;
 } LaunchArgs;
 
+/* One result row, real (from_desktop=TRUE, backed by a scanned .desktop
+ * file, persists in g_apps across searches) or plugin-synthetic
+ * (from_desktop=FALSE, lives only in g_plugin_results, rebuilt on every
+ * search -- see plugin_search() and rebuild_results()). */
+typedef struct {
+    char id[160];        /* .desktop basename ("firefox.desktop"); "" for plugin results */
+    char name[256];
+    char exec[1300];
+    char category_key[32];  /* bucket key, e.g. "Development"; "" for plugin results */
+    char subtitle[128];      /* small text shown under the name: category label or plugin name */
+    gboolean is_favorite;
+    gboolean from_desktop;
+} ResultEntry;
+
 static LaunchArgs g_args;
 static GtkWidget *g_window;
 static GtkWidget *g_entry;
+static GtkWidget *g_cat_treeview;
+static GtkWidget *g_cat_scroll;
 static GtkWidget *g_treeview;
-static GtkListStore *g_store;
-static GtkTreeModel *g_filter;
+static GtkListStore *g_cat_store;
+static GtkListStore *g_view_store;
+static GPtrArray *g_apps;           /* ResultEntry*, persistent scanned apps, owned */
+static GPtrArray *g_plugin_results; /* ResultEntry*, rebuilt every search, owned */
+static GHashTable *g_favorites;     /* set of .desktop basenames (key owned, value unused) */
+static char g_selected_category[32] = "favorites";
+static GtkTreePath *g_hovered_cat_path;
 static pid_t g_watch_pid;
 
 /* ---- argv / JSON plumbing -------------------------------------------- */
@@ -298,15 +329,22 @@ static void shell_quote(const char *in, char *out, size_t outsz)
 }
 
 /* Same terminal fallback chain folder.c's run_terminal_at() uses. */
+/* `-e` on xterm/most terminal emulators execs its remaining argv
+ * directly, with no shell splitting -- passing the whole (possibly
+ * multi-word) cmd as a single shell-quoted argv element would try to
+ * execvp a program literally named e.g. "ls -la". Routing it through
+ * `sh -c <quoted-cmd>` instead makes the shell -- not the terminal --
+ * responsible for splitting/interpreting it, which works for both a
+ * bare "htop" and a full "ls -la; echo done". */
 static void build_terminal_exec(const char *cmd, char *out, size_t outsz)
 {
     char q[600];
     shell_quote(cmd, q, sizeof(q));
     snprintf(out, outsz,
-             "(exec xdg-terminal-exec -- %s 2>/dev/null) || "
-             "([ -n \"$TERMINAL\" ] && exec \"$TERMINAL\" -e %s) || "
-             "(exec x-terminal-emulator -e %s 2>/dev/null) || "
-             "(exec xterm -e %s)",
+             "(exec xdg-terminal-exec -- sh -c %s 2>/dev/null) || "
+             "([ -n \"$TERMINAL\" ] && exec \"$TERMINAL\" -e sh -c %s) || "
+             "(exec x-terminal-emulator -e sh -c %s 2>/dev/null) || "
+             "(exec xterm -e sh -c %s)",
              q, q, q, q);
 }
 
@@ -326,7 +364,149 @@ static void strip_exec_field_codes(const char *in, char *out, size_t outsz)
     out[o] = 0;
 }
 
-static void parse_desktop_file(const char *path, GtkListStore *store)
+/* ---- categories ------------------------------------------------------- */
+
+/* Buckets a .desktop file's (possibly multi-valued) Categories= field
+ * into one of freedesktop.org's main categories -- just enough of the
+ * menu-spec list to sort real-world apps into a handful of sidebar
+ * entries, not the full sub-category tree. First match wins; apps with
+ * no recognized category fall into "Other". */
+typedef struct {
+    const char *token; /* as it appears in Categories= */
+    const char *key;   /* bucket key -- also what's stored in ResultEntry::category_key */
+    const char *label; /* sidebar label, pt-BR to match the rest of the UI */
+} CategoryDef;
+
+static const CategoryDef kCategoryDefs[] = {
+    {"AudioVideo", "AudioVideo", "Áudio e Vídeo"},
+    {"Audio", "AudioVideo", "Áudio e Vídeo"},
+    {"Video", "AudioVideo", "Áudio e Vídeo"},
+    {"Development", "Development", "Desenvolvimento"},
+    {"Education", "Education", "Educação"},
+    {"Game", "Game", "Jogos"},
+    {"Graphics", "Graphics", "Gráficos"},
+    {"Network", "Network", "Internet"},
+    {"Office", "Office", "Escritório"},
+    {"Science", "Science", "Ciência"},
+    {"Settings", "Settings", "Configurações"},
+    {"System", "System", "Sistema"},
+    {"Utility", "Utility", "Acessórios"},
+};
+#define N_CATEGORY_DEFS ((int)(sizeof(kCategoryDefs) / sizeof(kCategoryDefs[0])))
+
+static const char *category_label_for_key(const char *key)
+{
+    if (strcmp(key, "favorites") == 0) return "Favoritos";
+    if (strcmp(key, "all") == 0) return "Todos os Programas";
+    for (int i = 0; i < N_CATEGORY_DEFS; i++) {
+        if (strcmp(kCategoryDefs[i].key, key) == 0) return kCategoryDefs[i].label;
+    }
+    return "Outros";
+}
+
+/* Buckets a raw "Cat1;Cat2;;" Categories= value into out_key/out_label
+ * (both caller-owned buffers); falls back to the "Other" bucket if none
+ * of its tokens match kCategoryDefs (includes an empty/missing field). */
+static void bucket_categories(const char *raw, char *out_key, size_t out_key_sz)
+{
+    snprintf(out_key, out_key_sz, "Other");
+    if (!raw || !raw[0]) return;
+    char *copy = g_strdup(raw);
+    char *saveptr = NULL;
+    for (char *tok = strtok_r(copy, ";", &saveptr); tok; tok = strtok_r(NULL, ";", &saveptr)) {
+        for (int i = 0; i < N_CATEGORY_DEFS; i++) {
+            if (strcmp(kCategoryDefs[i].token, tok) == 0) {
+                snprintf(out_key, out_key_sz, "%s", kCategoryDefs[i].key);
+                g_free(copy);
+                return;
+            }
+        }
+    }
+    g_free(copy);
+}
+
+/* ---- favorites ---------------------------------------------------------- */
+
+/* Same flat "$XDG_CONFIG_HOME (or ~/.config)/xisserve-favorites.conf"
+ * naming xisback.c uses for its own config file -- one .desktop basename
+ * per line. */
+static void favorites_path(char *out, size_t outsz)
+{
+    const char *xdg_config = getenv("XDG_CONFIG_HOME");
+    if (xdg_config && *xdg_config) {
+        mkdir(xdg_config, 0700);
+        snprintf(out, outsz, "%s/xisserve-favorites.conf", xdg_config);
+        return;
+    }
+    const char *home = getenv("HOME");
+    char configdir[PATH_MAX];
+    snprintf(configdir, sizeof(configdir), "%s/.config", home ? home : "");
+    mkdir(configdir, 0700);
+    snprintf(out, outsz, "%s/xisserve-favorites.conf", configdir);
+}
+
+static void load_favorites(void)
+{
+    if (g_favorites) g_hash_table_destroy(g_favorites);
+    g_favorites = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+
+    char path[PATH_MAX];
+    favorites_path(path, sizeof(path));
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        size_t l = strlen(line);
+        while (l > 0 && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = 0;
+        if (line[0]) g_hash_table_add(g_favorites, g_strdup(line));
+    }
+    fclose(f);
+}
+
+static void save_favorites(void)
+{
+    char path[PATH_MAX];
+    favorites_path(path, sizeof(path));
+    FILE *f = fopen(path, "w");
+    if (!f) {
+        perror("xisserve: save favorites");
+        return;
+    }
+    GHashTableIter it;
+    gpointer key, value;
+    g_hash_table_iter_init(&it, g_favorites);
+    while (g_hash_table_iter_next(&it, &key, &value)) {
+        (void)value;
+        fprintf(f, "%s\n", (const char *)key);
+    }
+    fclose(f);
+}
+
+/* Toggles id's favorite status both in the persisted set and in its
+ * live ResultEntry (found by scanning g_apps -- small enough, and only
+ * called from a menu click, that a linear scan is fine), then saves. */
+static void toggle_favorite(const char *id)
+{
+    if (!id || !id[0]) return;
+    gboolean now_favorite = !g_hash_table_contains(g_favorites, id);
+    if (now_favorite) {
+        g_hash_table_add(g_favorites, g_strdup(id));
+    } else {
+        g_hash_table_remove(g_favorites, id);
+    }
+    for (guint i = 0; i < g_apps->len; i++) {
+        ResultEntry *e = g_ptr_array_index(g_apps, i);
+        if (strcmp(e->id, id) == 0) {
+            e->is_favorite = now_favorite;
+            break;
+        }
+    }
+    save_favorites();
+}
+
+/* ---- .desktop scanning ---------------------------------------------------- */
+
+static void parse_desktop_file(const char *path, const char *basename, GPtrArray *apps)
 {
     FILE *f = fopen(path, "r");
     if (!f) return;
@@ -334,6 +514,7 @@ static void parse_desktop_file(const char *path, GtkListStore *store)
     char name[256] = "";
     char exec_raw[1024] = "";
     char try_exec[512] = "";
+    char categories_raw[512] = "";
     int is_application = 1;
     int no_display = 0;
     int hidden = 0;
@@ -369,6 +550,7 @@ static void parse_desktop_file(const char *path, GtkListStore *store)
         else if (strcmp(key, "Hidden") == 0) hidden = (strcasecmp(val, "true") == 0);
         else if (strcmp(key, "Terminal") == 0) terminal = (strcasecmp(val, "true") == 0);
         else if (strcmp(key, "TryExec") == 0) snprintf(try_exec, sizeof(try_exec), "%s", val);
+        else if (strcmp(key, "Categories") == 0) snprintf(categories_raw, sizeof(categories_raw), "%s", val);
     }
     fclose(f);
 
@@ -382,19 +564,23 @@ static void parse_desktop_file(const char *path, GtkListStore *store)
     char exec_clean[1024];
     strip_exec_field_codes(exec_raw, exec_clean, sizeof(exec_clean));
 
-    char final_exec[1200];
+    ResultEntry *e = g_new0(ResultEntry, 1);
+    snprintf(e->id, sizeof(e->id), "%s", basename);
+    snprintf(e->name, sizeof(e->name), "%s", name);
     if (terminal) {
-        build_terminal_exec(exec_clean, final_exec, sizeof(final_exec));
+        build_terminal_exec(exec_clean, e->exec, sizeof(e->exec));
     } else {
-        snprintf(final_exec, sizeof(final_exec), "%s", exec_clean);
+        snprintf(e->exec, sizeof(e->exec), "%s", exec_clean);
     }
+    bucket_categories(categories_raw, e->category_key, sizeof(e->category_key));
+    snprintf(e->subtitle, sizeof(e->subtitle), "%s", category_label_for_key(e->category_key));
+    e->is_favorite = g_hash_table_contains(g_favorites, e->id);
+    e->from_desktop = TRUE;
 
-    GtkTreeIter it;
-    gtk_list_store_append(store, &it);
-    gtk_list_store_set(store, &it, COL_NAME, name, COL_EXEC, final_exec, -1);
+    g_ptr_array_add(apps, e);
 }
 
-static void scan_dir_desktop_files(const char *dir, GtkListStore *store, GHashTable *seen)
+static void scan_dir_desktop_files(const char *dir, GPtrArray *apps, GHashTable *seen)
 {
     DIR *d = opendir(dir);
     if (!d) return;
@@ -405,10 +591,56 @@ static void scan_dir_desktop_files(const char *dir, GtkListStore *store, GHashTa
         if (g_hash_table_contains(seen, de->d_name)) continue;
         char path[PATH_MAX];
         snprintf(path, sizeof(path), "%s/%s", dir, de->d_name);
-        parse_desktop_file(path, store);
+        parse_desktop_file(path, de->d_name, apps);
         g_hash_table_add(seen, g_strdup(de->d_name));
     }
     closedir(d);
+}
+
+static gint compare_apps_by_name(gconstpointer a, gconstpointer b)
+{
+    const ResultEntry *ea = *(const ResultEntry **)a;
+    const ResultEntry *eb = *(const ResultEntry **)b;
+    return g_utf8_collate(ea->name, eb->name);
+}
+
+static gint compare_category_keys_by_label(gconstpointer a, gconstpointer b)
+{
+    const char *ka = *(const char **)a;
+    const char *kb = *(const char **)b;
+    return g_utf8_collate(category_label_for_key(ka), category_label_for_key(kb));
+}
+
+/* Rebuilds g_cat_store: "Favoritos" and "Todos os Programas" first
+ * (always present, even with zero favorites yet), then every real
+ * category actually in use among the scanned apps, alphabetized by
+ * label. */
+static void build_category_store(void)
+{
+    gtk_list_store_clear(g_cat_store);
+    GtkTreeIter it;
+    gtk_list_store_append(g_cat_store, &it);
+    gtk_list_store_set(g_cat_store, &it, CCOL_KEY, "favorites", CCOL_LABEL, "Favoritos", -1);
+    gtk_list_store_append(g_cat_store, &it);
+    gtk_list_store_set(g_cat_store, &it, CCOL_KEY, "all", CCOL_LABEL, "Todos os Programas", -1);
+
+    GHashTable *seen_keys = g_hash_table_new(g_str_hash, g_str_equal);
+    GPtrArray *keys = g_ptr_array_new();
+    for (guint i = 0; i < g_apps->len; i++) {
+        ResultEntry *e = g_ptr_array_index(g_apps, i);
+        if (!g_hash_table_contains(seen_keys, e->category_key)) {
+            g_hash_table_add(seen_keys, e->category_key);
+            g_ptr_array_add(keys, e->category_key);
+        }
+    }
+    g_ptr_array_sort(keys, compare_category_keys_by_label);
+    for (guint i = 0; i < keys->len; i++) {
+        const char *key = g_ptr_array_index(keys, i);
+        gtk_list_store_append(g_cat_store, &it);
+        gtk_list_store_set(g_cat_store, &it, CCOL_KEY, key, CCOL_LABEL, category_label_for_key(key), -1);
+    }
+    g_hash_table_destroy(seen_keys);
+    g_ptr_array_free(keys, TRUE);
 }
 
 /* Home dir first (XDG_DATA_HOME takes priority), then each entry of
@@ -416,7 +648,13 @@ static void scan_dir_desktop_files(const char *dir, GtkListStore *store, GHashTa
  * earlier, higher-priority directory's copy of a .desktop file wins. */
 static void rescan_apps(void)
 {
-    gtk_list_store_clear(g_store);
+    if (g_apps) {
+        for (guint i = 0; i < g_apps->len; i++) g_free(g_ptr_array_index(g_apps, i));
+        g_ptr_array_free(g_apps, TRUE);
+    }
+    g_apps = g_ptr_array_new();
+    load_favorites();
+
     GHashTable *seen = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
 
     char home_apps[PATH_MAX];
@@ -427,7 +665,7 @@ static void rescan_apps(void)
         const char *home = getenv("HOME");
         snprintf(home_apps, sizeof(home_apps), "%s/.local/share/applications", home ? home : "");
     }
-    scan_dir_desktop_files(home_apps, g_store, seen);
+    scan_dir_desktop_files(home_apps, g_apps, seen);
 
     const char *xdg_data_dirs = getenv("XDG_DATA_DIRS");
     if (!xdg_data_dirs || !*xdg_data_dirs) xdg_data_dirs = "/usr/local/share:/usr/share";
@@ -436,22 +674,22 @@ static void rescan_apps(void)
     for (char *tok = strtok_r(dirs_copy, ":", &saveptr); tok; tok = strtok_r(NULL, ":", &saveptr)) {
         char dirpath[PATH_MAX];
         snprintf(dirpath, sizeof(dirpath), "%s/applications", tok);
-        scan_dir_desktop_files(dirpath, g_store, seen);
+        scan_dir_desktop_files(dirpath, g_apps, seen);
     }
     g_free(dirs_copy);
     g_hash_table_destroy(seen);
+
+    g_ptr_array_sort(g_apps, compare_apps_by_name);
+    build_category_store();
 }
 
 static void hide_launcher(void); /* defined below, alongside the pointer/keyboard grab it releases */
 
 static void launch_iter(GtkTreeModel *model, GtkTreeIter *iter)
 {
-    gchar *exec = NULL;
-    gtk_tree_model_get(model, iter, COL_EXEC, &exec, -1);
-    if (exec) {
-        run_detached(exec);
-        g_free(exec);
-    }
+    ResultEntry *e = NULL;
+    gtk_tree_model_get(model, iter, VCOL_ENTRY, &e, -1);
+    if (e && e->exec[0]) run_detached(e->exec);
     hide_launcher();
 }
 
@@ -497,12 +735,15 @@ static void apply_theme(void)
     gtk_widget_modify_base(g_entry, GTK_STATE_NORMAL, &bg_color);
     gtk_widget_modify_text(g_treeview, GTK_STATE_NORMAL, &fg_color);
     gtk_widget_modify_base(g_treeview, GTK_STATE_NORMAL, &bg_color);
+    gtk_widget_modify_text(g_cat_treeview, GTK_STATE_NORMAL, &fg_color);
+    gtk_widget_modify_base(g_cat_treeview, GTK_STATE_NORMAL, &bg_color);
 
     PangoFontDescription *desc = pango_font_description_new();
     pango_font_description_set_family(desc, g_args.font[0] ? g_args.font : "sans-serif");
     if (g_args.font_size > 0) pango_font_description_set_absolute_size(desc, g_args.font_size * PANGO_SCALE);
     gtk_widget_modify_font(g_entry, desc);
     gtk_widget_modify_font(g_treeview, desc);
+    gtk_widget_modify_font(g_cat_treeview, desc);
     pango_font_description_free(desc);
 
     gtk_widget_queue_draw(g_window);
@@ -578,10 +819,132 @@ static void hide_launcher(void)
     gtk_widget_hide(g_window);
 }
 
+/* ---- search plugins ------------------------------------------------------- */
+
+/* A plugin gets the current (non-empty) query text and appends whatever
+ * synthetic ResultEntry* it wants to g_plugin_results (ownership passes
+ * to the caller, which owns/frees the whole array -- see
+ * rebuild_results()). New plugins are just another entry in
+ * kSearchPlugins below plus a search() function; nothing else in the
+ * search path needs to change. */
+typedef void (*SearchPluginFn)(const char *query);
+
+/* If query's first word resolves via $PATH, offers "run it in a
+ * terminal" as a result -- the terminal is left open afterwards (`;
+ * exec $SHELL`) so one-off commands don't just flash and vanish. */
+static void plugin_terminal_search(const char *query)
+{
+    char first_word[256] = "";
+    sscanf(query, "%255s", first_word);
+    if (!first_word[0]) return;
+    gchar *found = g_find_program_in_path(first_word);
+    if (!found) return;
+    g_free(found);
+
+    ResultEntry *e = g_new0(ResultEntry, 1);
+    snprintf(e->name, sizeof(e->name), "Executar: %s", query);
+    char with_shell[1024];
+    snprintf(with_shell, sizeof(with_shell), "%s; exec \"${SHELL:-/bin/sh}\"", query);
+    build_terminal_exec(with_shell, e->exec, sizeof(e->exec));
+    snprintf(e->subtitle, sizeof(e->subtitle), "Terminal");
+    e->from_desktop = FALSE;
+    g_ptr_array_add(g_plugin_results, e);
+}
+
+typedef struct {
+    SearchPluginFn search;
+} SearchPlugin;
+
+static const SearchPlugin kSearchPlugins[] = {
+    {plugin_terminal_search},
+};
+#define N_SEARCH_PLUGINS ((int)(sizeof(kSearchPlugins) / sizeof(kSearchPlugins[0])))
+
+/* Builds a "Name\n<small>subtitle</small>" markup string for one
+ * result row. */
+static gchar *result_markup(const ResultEntry *e)
+{
+    gchar *name_esc = g_markup_escape_text(e->name, -1);
+    gchar *sub_esc = g_markup_escape_text(e->subtitle, -1);
+    gchar *markup = g_strdup_printf("%s\n<small>%s</small>", name_esc, sub_esc);
+    g_free(name_esc);
+    g_free(sub_esc);
+    return markup;
+}
+
+static void append_result_row(GtkListStore *store, ResultEntry *e)
+{
+    gchar *markup = result_markup(e);
+    GtkTreeIter it;
+    gtk_list_store_append(store, &it);
+    gtk_list_store_set(store, &it, VCOL_MARKUP, markup, VCOL_ENTRY, e, -1);
+    g_free(markup);
+}
+
+/* The single source of truth for what the right pane shows: search mode
+ * (query non-empty) filters every scanned app by name and runs every
+ * plugin against the query, full width, category pane hidden; category
+ * mode (query empty) lists only g_selected_category's apps, split with
+ * the category pane. Called on every keystroke, every category
+ * selection/hover change, and after a favorite toggle. */
+static void rebuild_results(void)
+{
+    const char *query = gtk_entry_get_text(GTK_ENTRY(g_entry));
+    gboolean searching = query && *query;
+
+    gtk_list_store_clear(g_view_store);
+
+    for (guint i = 0; i < g_plugin_results->len; i++) g_free(g_ptr_array_index(g_plugin_results, i));
+    g_ptr_array_set_size(g_plugin_results, 0);
+
+    if (searching) {
+        gtk_widget_hide(g_cat_scroll);
+        gchar *ql = g_utf8_casefold(query, -1);
+        for (guint i = 0; i < g_apps->len; i++) {
+            ResultEntry *e = g_ptr_array_index(g_apps, i);
+            gchar *nl = g_utf8_casefold(e->name, -1);
+            if (strstr(nl, ql)) append_result_row(g_view_store, e);
+            g_free(nl);
+        }
+        g_free(ql);
+        for (int i = 0; i < N_SEARCH_PLUGINS; i++) kSearchPlugins[i].search(query);
+        for (guint i = 0; i < g_plugin_results->len; i++) {
+            append_result_row(g_view_store, g_ptr_array_index(g_plugin_results, i));
+        }
+    } else {
+        gtk_widget_show(g_cat_scroll);
+        for (guint i = 0; i < g_apps->len; i++) {
+            ResultEntry *e = g_ptr_array_index(g_apps, i);
+            gboolean include;
+            if (strcmp(g_selected_category, "all") == 0) include = TRUE;
+            else if (strcmp(g_selected_category, "favorites") == 0) include = e->is_favorite;
+            else include = strcmp(e->category_key, g_selected_category) == 0;
+            if (include) append_result_row(g_view_store, e);
+        }
+    }
+
+    GtkTreeIter first;
+    if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(g_view_store), &first)) {
+        gtk_tree_selection_select_iter(gtk_tree_view_get_selection(GTK_TREE_VIEW(g_treeview)), &first);
+    }
+}
+
 static void show_launcher(void)
 {
     rescan_apps();
     gtk_entry_set_text(GTK_ENTRY(g_entry), "");
+    snprintf(g_selected_category, sizeof(g_selected_category), "favorites");
+    if (g_hovered_cat_path) {
+        gtk_tree_path_free(g_hovered_cat_path);
+        g_hovered_cat_path = NULL;
+    }
+
+    GtkTreeIter cat_it;
+    if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(g_cat_store), &cat_it)) {
+        gtk_tree_selection_select_iter(gtk_tree_view_get_selection(GTK_TREE_VIEW(g_cat_treeview)), &cat_it);
+    }
+    rebuild_results();
+
     gtk_widget_show_all(g_window);
     gtk_window_present(GTK_WINDOW(g_window));
     gdk_window_raise(g_window->window);
@@ -744,34 +1107,11 @@ static gboolean on_ctl_accept(GIOChannel *source, GIOCondition cond, gpointer da
 
 /* ---- UI callbacks --------------------------------------------------------- */
 
-static gboolean filter_visible_func(GtkTreeModel *model, GtkTreeIter *iter, gpointer data)
-{
-    (void)data;
-    const char *query = gtk_entry_get_text(GTK_ENTRY(g_entry));
-    if (!query || !*query) return TRUE;
-    gchar *name = NULL;
-    gtk_tree_model_get(model, iter, COL_NAME, &name, -1);
-    gboolean visible = FALSE;
-    if (name) {
-        gchar *nl = g_utf8_casefold(name, -1);
-        gchar *ql = g_utf8_casefold(query, -1);
-        visible = strstr(nl, ql) != NULL;
-        g_free(nl);
-        g_free(ql);
-        g_free(name);
-    }
-    return visible;
-}
-
 static void on_entry_changed(GtkEditable *e, gpointer data)
 {
     (void)e;
     (void)data;
-    gtk_tree_model_filter_refilter(GTK_TREE_MODEL_FILTER(g_filter));
-    GtkTreeIter iter;
-    if (gtk_tree_model_get_iter_first(g_filter, &iter)) {
-        gtk_tree_selection_select_iter(gtk_tree_view_get_selection(GTK_TREE_VIEW(g_treeview)), &iter);
-    }
+    rebuild_results();
 }
 
 static void on_entry_activate(GtkEntry *entry, gpointer data)
@@ -820,18 +1160,67 @@ static gboolean on_entry_key_press(GtkWidget *w, GdkEventKey *ev, gpointer data)
     return FALSE;
 }
 
+static void on_favorite_menu_item(GtkWidget *item, gpointer user_data)
+{
+    (void)item;
+    ResultEntry *e = (ResultEntry *)user_data;
+    toggle_favorite(e->id);
+    rebuild_results();
+}
+
+/* GtkMenu's own popup takes the X pointer/keyboard grab while shown,
+ * superseding grab_input()'s explicit gdk_pointer_grab/gdk_keyboard_grab
+ * on g_window (only one active grab can exist at a time) -- reclaim it
+ * once the menu interaction ends (item picked or dismissed) so outside-
+ * click-to-close and keyboard routing keep working afterwards. Also
+ * frees the menu, which gtk_menu_popup() otherwise leaves to us. */
+static void on_context_menu_selection_done(GtkWidget *menu, gpointer data)
+{
+    (void)data;
+    gtk_widget_destroy(menu);
+    if (GTK_WIDGET_VISIBLE(g_window)) grab_input();
+}
+
+/* Right-click on a real (from_desktop) result offers "Adicionar aos
+ * Favoritos"/"Remover dos Favoritos" -- plugin-synthetic results (no
+ * stable id to persist) don't get the menu at all. Left-click launches,
+ * same as before. */
 static gboolean on_tree_button_press(GtkWidget *tv, GdkEventButton *ev, gpointer data)
 {
     (void)data;
-    if (ev->type != GDK_BUTTON_PRESS || ev->button != 1) return FALSE;
+    if (ev->type != GDK_BUTTON_PRESS || (ev->button != 1 && ev->button != 3)) return FALSE;
     GtkTreePath *path = NULL;
-    if (gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(tv), (int)ev->x, (int)ev->y, &path, NULL, NULL, NULL)) {
-        GtkTreeModel *model = gtk_tree_view_get_model(GTK_TREE_VIEW(tv));
-        GtkTreeIter iter;
-        if (gtk_tree_model_get_iter(model, &iter, path)) launch_iter(model, &iter);
-        gtk_tree_path_free(path);
+    if (!gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(tv), (int)ev->x, (int)ev->y, &path, NULL, NULL, NULL)) {
+        return FALSE;
     }
-    return FALSE;
+    GtkTreeModel *model = gtk_tree_view_get_model(GTK_TREE_VIEW(tv));
+    GtkTreeIter iter;
+    if (!gtk_tree_model_get_iter(model, &iter, path)) {
+        gtk_tree_path_free(path);
+        return FALSE;
+    }
+
+    if (ev->button == 1) {
+        launch_iter(model, &iter);
+        gtk_tree_path_free(path);
+        return FALSE;
+    }
+
+    /* button == 3 */
+    gtk_tree_selection_select_iter(gtk_tree_view_get_selection(GTK_TREE_VIEW(tv)), &iter);
+    ResultEntry *e = NULL;
+    gtk_tree_model_get(model, &iter, VCOL_ENTRY, &e, -1);
+    gtk_tree_path_free(path);
+    if (!e || !e->from_desktop) return TRUE;
+
+    GtkWidget *menu = gtk_menu_new();
+    GtkWidget *item = gtk_menu_item_new_with_label(e->is_favorite ? "Remover dos Favoritos" : "Adicionar aos Favoritos");
+    g_signal_connect(item, "activate", G_CALLBACK(on_favorite_menu_item), e);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+    g_signal_connect(menu, "selection-done", G_CALLBACK(on_context_menu_selection_done), NULL);
+    gtk_widget_show_all(menu);
+    gtk_menu_popup(GTK_MENU(menu), NULL, NULL, NULL, NULL, ev->button, ev->time);
+    return TRUE;
 }
 
 /* Fires both for genuine outside clicks (owner_events=TRUE reports those
@@ -863,16 +1252,49 @@ static gboolean on_window_grab_broken(GtkWidget *w, GdkEventGrabBroken *ev, gpoi
     return FALSE;
 }
 
-static gint sort_by_name(GtkTreeModel *model, GtkTreeIter *ia, GtkTreeIter *ib, gpointer data)
+/* Fires on click and on keyboard nav in the category list -- reads
+ * whichever row ended up selected into g_selected_category and rebuilds
+ * the right pane for it. */
+static void on_category_selection_changed(GtkTreeSelection *sel, gpointer data)
 {
     (void)data;
-    gchar *a = NULL, *b = NULL;
-    gtk_tree_model_get(model, ia, COL_NAME, &a, -1);
-    gtk_tree_model_get(model, ib, COL_NAME, &b, -1);
-    gint r = g_ascii_strcasecmp(a ? a : "", b ? b : "");
-    g_free(a);
-    g_free(b);
-    return r;
+    GtkTreeModel *model;
+    GtkTreeIter iter;
+    if (!gtk_tree_selection_get_selected(sel, &model, &iter)) return;
+    gchar *key = NULL;
+    gtk_tree_model_get(model, &iter, CCOL_KEY, &key, -1);
+    if (key) {
+        snprintf(g_selected_category, sizeof(g_selected_category), "%s", key);
+        g_free(key);
+        rebuild_results();
+    }
+}
+
+/* Hovering a category live-previews it (matches krunner/kickoff-style
+ * category panes) -- selecting the row under the pointer piggybacks on
+ * on_category_selection_changed() above rather than rebuilding here
+ * directly. Only acts when the hovered row actually changes, so this
+ * doesn't rebuild on every pixel of mouse movement within one row. */
+static gboolean on_category_motion(GtkWidget *tv, GdkEventMotion *ev, gpointer data)
+{
+    (void)data;
+    GtkTreePath *path = NULL;
+    if (!gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(tv), (int)ev->x, (int)ev->y, &path, NULL, NULL, NULL)) {
+        return FALSE;
+    }
+    if (g_hovered_cat_path && gtk_tree_path_compare(g_hovered_cat_path, path) == 0) {
+        gtk_tree_path_free(path);
+        return FALSE;
+    }
+    if (g_hovered_cat_path) gtk_tree_path_free(g_hovered_cat_path);
+    g_hovered_cat_path = path; /* ownership taken */
+
+    GtkTreeIter iter;
+    GtkTreeModel *model = gtk_tree_view_get_model(GTK_TREE_VIEW(tv));
+    if (gtk_tree_model_get_iter(model, &iter, path)) {
+        gtk_tree_selection_select_iter(gtk_tree_view_get_selection(GTK_TREE_VIEW(tv)), &iter);
+    }
+    return FALSE;
 }
 
 static void build_ui(void)
@@ -900,24 +1322,46 @@ static void build_ui(void)
     g_signal_connect(g_entry, "key-press-event", G_CALLBACK(on_entry_key_press), NULL);
     gtk_box_pack_start(GTK_BOX(vbox), g_entry, FALSE, FALSE, 0);
 
-    g_store = gtk_list_store_new(N_COLS, G_TYPE_STRING, G_TYPE_STRING);
-    gtk_tree_sortable_set_sort_func(GTK_TREE_SORTABLE(g_store), COL_NAME, sort_by_name, NULL, NULL);
-    gtk_tree_sortable_set_sort_column_id(GTK_TREE_SORTABLE(g_store), COL_NAME, GTK_SORT_ASCENDING);
+    GtkWidget *content = gtk_hbox_new(FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(vbox), content, TRUE, TRUE, 0);
 
-    g_filter = gtk_tree_model_filter_new(GTK_TREE_MODEL(g_store), NULL);
-    gtk_tree_model_filter_set_visible_func(GTK_TREE_MODEL_FILTER(g_filter), filter_visible_func, NULL, NULL);
+    /* Left pane: categories. Hidden while searching (rebuild_results()
+     * toggles it) so the results pane can take the full width, matching
+     * how a flat search result list looked before this split. */
+    g_cat_store = gtk_list_store_new(N_CCOLS, G_TYPE_STRING, G_TYPE_STRING);
 
-    g_treeview = gtk_tree_view_new_with_model(g_filter);
+    g_cat_treeview = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_cat_store));
+    gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(g_cat_treeview), FALSE);
+    GtkCellRenderer *cat_rend = gtk_cell_renderer_text_new();
+    GtkTreeViewColumn *cat_col = gtk_tree_view_column_new_with_attributes("Categoria", cat_rend, "text", CCOL_LABEL, NULL);
+    gtk_tree_view_append_column(GTK_TREE_VIEW(g_cat_treeview), cat_col);
+    gtk_widget_add_events(g_cat_treeview, GDK_POINTER_MOTION_MASK);
+    g_signal_connect(g_cat_treeview, "motion-notify-event", G_CALLBACK(on_category_motion), NULL);
+    g_signal_connect(gtk_tree_view_get_selection(GTK_TREE_VIEW(g_cat_treeview)), "changed",
+                      G_CALLBACK(on_category_selection_changed), NULL);
+
+    g_cat_scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(g_cat_scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_widget_set_size_request(g_cat_scroll, CAT_PANE_WIDTH, -1);
+    gtk_container_add(GTK_CONTAINER(g_cat_scroll), g_cat_treeview);
+    gtk_box_pack_start(GTK_BOX(content), g_cat_scroll, FALSE, FALSE, 0);
+
+    /* Right pane: results. One markup column renders "Name" plus a
+     * smaller subtitle line (category, or the plugin name for a
+     * plugin-synthetic row) -- see result_markup(). */
+    g_view_store = gtk_list_store_new(N_VCOLS, G_TYPE_STRING, G_TYPE_POINTER);
+
+    g_treeview = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_view_store));
     gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(g_treeview), FALSE);
     GtkCellRenderer *rend = gtk_cell_renderer_text_new();
-    GtkTreeViewColumn *col = gtk_tree_view_column_new_with_attributes("Name", rend, "text", COL_NAME, NULL);
+    GtkTreeViewColumn *col = gtk_tree_view_column_new_with_attributes("Programa", rend, "markup", VCOL_MARKUP, NULL);
     gtk_tree_view_append_column(GTK_TREE_VIEW(g_treeview), col);
     g_signal_connect(g_treeview, "button-press-event", G_CALLBACK(on_tree_button_press), NULL);
 
     GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_container_add(GTK_CONTAINER(scroll), g_treeview);
-    gtk_box_pack_start(GTK_BOX(vbox), scroll, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(content), scroll, TRUE, TRUE, 0);
 
     GtkWidget *sep = gtk_hseparator_new();
     gtk_box_pack_start(GTK_BOX(vbox), sep, FALSE, FALSE, 0);
@@ -973,6 +1417,7 @@ int main(int argc, char **argv)
     g_watch_pid = resolve_watch_pid();
     g_timeout_add_seconds(2, check_parent_alive, NULL);
 
+    g_plugin_results = g_ptr_array_new();
     g_args = args;
     build_ui();
     apply_theme();
