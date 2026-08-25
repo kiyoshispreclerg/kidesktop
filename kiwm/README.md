@@ -29,8 +29,9 @@ exposes.
 - Window states beyond the basics: shade (`_NET_WM_STATE_SHADED`), keep-above
   (`_NET_WM_STATE_ABOVE`), sticky/keep-on-all-desktops (`_NET_WM_STATE_STICKY`, meaning "visible
   regardless of this window's own output's current desktop" -- see PROTOCOL.md).
-- A small theme system (background image, button sprite sheet, per-focus colors) with a
-  configurable titlebar element order -- see "Theming" below.
+- A small theme system (background image, button sprite sheet, per-focus colors, corner rounding
+  via the XCB SHAPE extension -- no compositor needed) with a configurable titlebar element order
+  -- see "Theming" below.
 - Enough EWMH/ICCCM for a taskbar (xispanel's tasklist widget) to list/activate/close/minimize/
   maximize windows: `_NET_CLIENT_LIST(_STACKING)`, `_NET_ACTIVE_WINDOW`, `_NET_CLOSE_WINDOW`,
   `_NET_WM_STATE`, ICCCM `WM_STATE`, `_NET_WM_DESKTOP`, `_NET_SUPPORTING_WM_CHECK`,
@@ -43,7 +44,7 @@ demand rather than a proper stacking tier), global menu.
 
 ### Dependencies
 
-- libxcb, libxcb-randr
+- libxcb, libxcb-randr, libxcb-shape
 - Cairo with the `cairo-xcb` backend
 - Imlib2
 
@@ -165,6 +166,21 @@ these, all optional and independent -- a theme missing some files just falls bac
   `border_color` kiwm.conf values, which in turn produce the plain look: the same titlebar color
   regardless of focus, just a white/black opacity tint layered on top to hint which window is
   active.
+
+  Two more keys in the same `colors` file control corner rounding (via the XCB SHAPE extension --
+  no compositor needed, so this works even without `kicomp`):
+  ```
+  border_radius=8
+  round_maximized=1
+  ```
+  `border_radius=` is 1, 2, or 4 numbers (pixels): one value rounds all four corners the same;
+  two values are "top corners, bottom corners"; four are `top-left,top-right,bottom-right,
+  bottom-left` (CSS `border-radius` order). Default `0` (no key, or no `colors` file at all) means
+  square corners, unchanged from before this existed. `round_maximized=` (default `1`) squares a
+  maximized window's corners off instead when set to `0`. A window that exactly fills its whole
+  output (also what a future real fullscreen state would look like) is **never** rounded either
+  way, regardless of these settings -- rounding the very corners of the screen itself would just
+  show the desktop background poking through.
 
 ### Mouse and keyboard reference
 

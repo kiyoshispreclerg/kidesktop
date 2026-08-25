@@ -1,6 +1,6 @@
 CFLAGS ?= -Wall -Wextra -O2
 
-PKGS := xcb xcb-randr cairo cairo-xcb imlib2
+PKGS := xcb xcb-randr xcb-shape cairo cairo-xcb imlib2
 
 CPPFLAGS := $(shell pkg-config --cflags $(PKGS))
 LDLIBS := $(shell pkg-config --libs $(PKGS)) -lm

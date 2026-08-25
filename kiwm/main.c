@@ -47,6 +47,7 @@
 #include "selection.h"
 
 #include <xcb/randr.h>
+#include <xcb/shape.h>
 #include <cairo/cairo.h>
 
 #include <X11/keysym.h>
@@ -165,6 +166,21 @@ static void setup_wm(bool replace)
     const char *hide_deco_env = getenv("KIWM_HIDE_DECO_ON_MAXIMIZE");
     if (hide_deco_env)
         wm.hide_deco_on_maximize = !(strcmp(hide_deco_env, "0") == 0 || strcmp(hide_deco_env, "no") == 0);
+
+    /* SHAPE: rounded corners (decoration.c's apply_rounded_shape()) clip
+     * the frame's bounding shape instead of real alpha blending, since
+     * kiwm has no compositor -- needs to be known before load_decoration()
+     * (which just sets wm.radius_tl etc from the theme) actually matters,
+     * i.e. before the first configure_frame() call. */
+    const xcb_query_extension_reply_t *shape_ext = xcb_get_extension_data(wm.conn, &xcb_shape_id);
+    wm.shape_ext_present = shape_ext && shape_ext->present;
+
+    /* Reused by every draw_decoration() call (decoration.c) to blit its
+     * off-screen pixmap onto the actual frame -- created once here rather
+     * than per-draw to skip a create/free round trip on every single
+     * redraw, which during a fast resize drag is a lot of redraws. */
+    wm.deco_gc = xcb_generate_id(wm.conn);
+    xcb_create_gc(wm.conn, wm.deco_gc, wm.root, 0, NULL);
 
     load_decoration();
 
@@ -322,6 +338,31 @@ int main(int argc, char **argv)
     while (wm.running) {
         xcb_generic_event_t *event;
         while ((event = xcb_poll_for_event(wm.conn)) != NULL) {
+            /* Coalesce consecutive MotionNotify events. A fast drag (move
+             * or resize -- resize doubly so now that it also rebuilds the
+             * rounded-corner shape, see decoration.c's
+             * apply_rounded_shape()) can queue motion events faster than
+             * kiwm can fully redraw+reshape for each one; handling every
+             * single one in a backlog makes the window visibly lag well
+             * behind where the pointer actually is by the time it catches
+             * up. Only the *last* motion event in a contiguous run
+             * reflects the pointer's real current position, so drop every
+             * earlier one in that run instead of doing full work for each
+             * -- standard X11 WM technique for this. */
+            while ((event->response_type & ~0x80) == XCB_MOTION_NOTIFY) {
+                xcb_generic_event_t *next = xcb_poll_for_event(wm.conn);
+                if (!next || (next->response_type & ~0x80) != XCB_MOTION_NOTIFY) {
+                    handle_event(event);
+                    free(event);
+                    event = next;
+                    break;
+                }
+                free(event);
+                event = next;
+            }
+            if (!event)
+                break;
+
             handle_event(event);
             free(event);
             if (!wm.running)

@@ -10,7 +10,10 @@
 #include "wm.h"
 
 #include <cairo/cairo-xcb.h>
+#include <xcb/shape.h>
 #include <Imlib2.h>
+
+#include <math.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -212,6 +215,27 @@ static void load_colors_theme(void)
             parse_hex_color(val, &wm.border_active_r, &wm.border_active_g, &wm.border_active_b);
         else if (strcmp(key, "border_inactive") == 0)
             parse_hex_color(val, &wm.border_inactive_r, &wm.border_inactive_g, &wm.border_inactive_b);
+        else if (strcmp(key, "border_radius") == 0) {
+            int a = 0, b = 0, cc = 0, d = 0;
+            int n = sscanf(val, "%d %d %d %d", &a, &b, &cc, &d);
+            if (n == 1) {
+                wm.radius_tl = wm.radius_tr = wm.radius_br = wm.radius_bl = a;
+            } else if (n == 2) {
+                wm.radius_tl = wm.radius_tr = a;
+                wm.radius_bl = wm.radius_br = b;
+            } else if (n == 4) {
+                wm.radius_tl = a; wm.radius_tr = b; wm.radius_br = cc; wm.radius_bl = d;
+            } else {
+                fprintf(stderr, "kiwm: config: invalid border_radius '%s' "
+                                "(expected 1, 2, or 4 numbers)\n", val);
+            }
+            if (wm.radius_tl < 0) wm.radius_tl = 0;
+            if (wm.radius_tr < 0) wm.radius_tr = 0;
+            if (wm.radius_br < 0) wm.radius_br = 0;
+            if (wm.radius_bl < 0) wm.radius_bl = 0;
+        } else if (strcmp(key, "round_maximized") == 0) {
+            wm.round_maximized = atoi(val) != 0;
+        }
     }
     fclose(f);
     fprintf(stderr, "kiwm: theme colors loaded from '%s'\n", path);
@@ -319,6 +343,8 @@ void load_decoration(void)
     wm.border_active_r = wm.border_inactive_r = wm.border_r;
     wm.border_active_g = wm.border_inactive_g = wm.border_g;
     wm.border_active_b = wm.border_inactive_b = wm.border_b;
+    wm.radius_tl = wm.radius_tr = wm.radius_br = wm.radius_bl = 0;
+    wm.round_maximized = true;
     wm.hover_btn = -1;
 
     load_bg_theme();
@@ -374,6 +400,133 @@ static void draw_9slice(cairo_t *cr, cairo_surface_t *src, int sw, int sh, int l
     draw_slice_region(cr, src, 0, t, l, ch, 0, t, l, dch);
     draw_slice_region(cr, src, sw - r, t, r, ch, dw - r, t, r, dch);
     draw_slice_region(cr, src, l, t, cw, ch, l, t, dcw, dch);
+}
+
+/* Sane upper bound on a configured corner radius -- purely to keep the
+ * rectangle list (and the one-row-per-pixel loop building it) from
+ * blowing up if a theme's colors file has a typo like border_radius=5000.
+ * No real titlebar needs a rounder corner than this. */
+#define MAX_CORNER_RADIUS 128
+
+/* How many pixels of a corner's own r x r square, at row `y` (0 = the
+ * very outer edge row, r-1 = the innermost row, closest to the flat
+ * middle), lie *outside* the inscribed quarter-circle -- i.e. how far
+ * from that edge the visible shape starts at this row. 0 once y >= r
+ * (this corner's arc has already ended, no clipping needed here even if
+ * a taller corner on the *other* side of the same row still needs it). */
+static int corner_inset(int r, int y)
+{
+    if (r <= 0 || y >= r)
+        return 0;
+    double dy = r - y;
+    double dx = sqrt((double)r * r - dy * dy);
+    int inset = r - (int)(dx + 0.5);
+    if (inset < 0) inset = 0;
+    if (inset > r) inset = r;
+    return inset;
+}
+
+/* Builds a rounded-rectangle region for a w x h frame with the given
+ * per-corner radii, as a list of xcb_rectangle_t suitable for
+ * xcb_shape_rectangles() -- kiwm has no compositor to alpha-blend real
+ * rounded corners, so this clips the window's bounding shape instead: a
+ * real rounded corner (if slightly stair-stepped at very small radii),
+ * no compositor required. One rectangle per corner-arc row plus one for
+ * the flat middle band; straight rows away from any corner cost nothing
+ * extra. Returns the number of rectangles written (never more than
+ * 2*MAX_CORNER_RADIUS + 1). */
+static int build_rounded_rects(int w, int h, int tl, int tr, int br, int bl,
+                               xcb_rectangle_t *out, int max_out)
+{
+    if (tl > MAX_CORNER_RADIUS) tl = MAX_CORNER_RADIUS;
+    if (tr > MAX_CORNER_RADIUS) tr = MAX_CORNER_RADIUS;
+    if (br > MAX_CORNER_RADIUS) br = MAX_CORNER_RADIUS;
+    if (bl > MAX_CORNER_RADIUS) bl = MAX_CORNER_RADIUS;
+
+    int top_h = tl > tr ? tl : tr;
+    int bot_h = bl > br ? bl : br;
+    /* Radii bigger than the window itself would overlap top/bottom --
+     * clamp both bands down proportionally rather than producing
+     * nonsensical (negative-height) middle band math. */
+    if (top_h + bot_h > h) {
+        int excess = top_h + bot_h - h;
+        int half = excess / 2 + (excess % 2);
+        top_h -= half;
+        bot_h -= half;
+        if (top_h < 0) top_h = 0;
+        if (bot_h < 0) bot_h = 0;
+    }
+
+    int n = 0;
+    for (int y = 0; y < top_h && n < max_out; y++) {
+        int li = corner_inset(tl, y);
+        int ri = corner_inset(tr, y);
+        int x0 = li, x1 = w - ri;
+        if (x1 > x0)
+            out[n++] = (xcb_rectangle_t){ (int16_t)x0, (int16_t)y, (uint16_t)(x1 - x0), 1 };
+    }
+    if (h - top_h - bot_h > 0 && n < max_out)
+        out[n++] = (xcb_rectangle_t){ 0, (int16_t)top_h, (uint16_t)w, (uint16_t)(h - top_h - bot_h) };
+    for (int yy = 0; yy < bot_h && n < max_out; yy++) {
+        int row_from_bottom = bot_h - 1 - yy;
+        int li = corner_inset(bl, row_from_bottom);
+        int ri = corner_inset(br, row_from_bottom);
+        int x0 = li, x1 = w - ri;
+        int y = h - bot_h + yy;
+        if (x1 > x0)
+            out[n++] = (xcb_rectangle_t){ (int16_t)x0, (int16_t)y, (uint16_t)(x1 - x0), 1 };
+    }
+    return n;
+}
+
+/* Clips c->frame's bounding shape (XCB SHAPE extension) to a rounded
+ * rectangle per wm.radius_tl/tr/br/bl (theme's colors file,
+ * border_radius=), or resets it back to the plain rectangle if all four
+ * are 0 -- called from client.c's configure_frame() every time the
+ * frame's size changes, since the shape has to match exactly. A no-op
+ * (not even the reset) when the server has no SHAPE extension at all. */
+/* A window whose frame exactly matches its output's full rectangle --
+ * which is also exactly what a future real fullscreen state would look
+ * like, kiwm has no such state yet -- should obviously never be rounded:
+ * rounding the very corners of the screen itself would just show
+ * whatever's behind (typically the desktop background) poking through
+ * the corners of an otherwise edge-to-edge window. Not configurable, on
+ * purpose, unlike round_maximized. */
+static bool client_fills_output(Client *c)
+{
+    if (c->output < 0 || c->output >= wm.output_count)
+        return false;
+    XisOutput *o = &wm.outputs[c->output];
+    return c->x == o->x && c->y == o->y &&
+           c->frame_width == o->width && c->frame_height == o->height;
+}
+
+void apply_rounded_shape(Client *c)
+{
+    if (!wm.shape_ext_present)
+        return;
+
+    bool square = (wm.radius_tl == 0 && wm.radius_tr == 0 && wm.radius_br == 0 && wm.radius_bl == 0);
+    if (!square && c->maximized && !wm.round_maximized)
+        square = true;
+    if (!square && client_fills_output(c))
+        square = true;
+
+    if (square) {
+        xcb_shape_mask(wm.conn, XCB_SHAPE_SO_SET, XCB_SHAPE_SK_BOUNDING, c->frame, 0, 0, XCB_PIXMAP_NONE);
+        return;
+    }
+
+    int w = c->frame_width, h = c->frame_height;
+    if (w <= 0 || h <= 0)
+        return;
+
+    xcb_rectangle_t rects[2 * MAX_CORNER_RADIUS + 1];
+    int n = build_rounded_rects(w, h, wm.radius_tl, wm.radius_tr, wm.radius_br, wm.radius_bl,
+                               rects, (int)(sizeof(rects) / sizeof(rects[0])));
+
+    xcb_shape_rectangles(wm.conn, XCB_SHAPE_SO_SET, XCB_SHAPE_SK_BOUNDING, XCB_CLIP_ORDERING_Y_SORTED,
+                         c->frame, 0, 0, (uint32_t)n, rects);
 }
 
 int compute_deco_layout(int frame_width, DecoSlot *out, int max_out)
@@ -499,7 +652,17 @@ void draw_decoration(Client *c)
 
     bool focused = (c == wm.focused);
 
-    cairo_surface_t *surface = cairo_xcb_surface_create(wm.conn, c->frame, wm.visual, w, h);
+    /* Render into an off-screen pixmap, not the frame directly: every
+     * paint call below (background, focus tint, title text, each button)
+     * used to land on the actual window the instant it was sent, so a
+     * fast sequence of redraws (dragging/resizing) could show those
+     * layers appearing one at a time -- visible flicker. Blitting the
+     * finished pixmap in one xcb_copy_area() at the end instead makes
+     * the whole update atomic from the X server's point of view. */
+    xcb_pixmap_t pixmap = xcb_generate_id(wm.conn);
+    xcb_create_pixmap(wm.conn, wm.screen->root_depth, pixmap, c->frame, (uint16_t)w, (uint16_t)h);
+
+    cairo_surface_t *surface = cairo_xcb_surface_create(wm.conn, pixmap, wm.visual, w, h);
     cairo_t *cr = cairo_create(surface);
 
     /* Everything below is the titlebar strip only -- clip to it so the
@@ -627,4 +790,7 @@ void draw_decoration(Client *c)
     cairo_destroy(cr);
     cairo_surface_flush(surface);
     cairo_surface_destroy(surface);
+
+    xcb_copy_area(wm.conn, pixmap, c->frame, wm.deco_gc, 0, 0, 0, 0, (uint16_t)w, (uint16_t)h);
+    xcb_free_pixmap(wm.conn, pixmap);
 }

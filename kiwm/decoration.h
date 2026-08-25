@@ -29,4 +29,11 @@ int compute_deco_layout(int frame_width, DecoSlot *out, int max_out);
  * previous surface). */
 void load_client_icon(Client *c);
 
+/* Clips c->frame's bounding shape to a rounded rect per wm.radius_tl/tr/
+ * br/bl (theme's colors file, border_radius=), or resets it to the plain
+ * rectangle if all four are 0. Call whenever the frame's size changes
+ * (see client.c's configure_frame()) -- a no-op if the server has no
+ * XCB SHAPE extension. */
+void apply_rounded_shape(Client *c);
+
 #endif /* KIWM_DECORATION_H */

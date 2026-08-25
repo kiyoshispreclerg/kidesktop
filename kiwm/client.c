@@ -139,6 +139,7 @@ void configure_frame(Client *c)
     xcb_configure_window(wm.conn, c->frame,
                          XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
                          XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, fv);
+    apply_rounded_shape(c);
 
     uint32_t cv[] = { (uint32_t)bt, (uint32_t)th, (uint32_t)c->width, (uint32_t)c->height };
     xcb_configure_window(wm.conn, c->window,

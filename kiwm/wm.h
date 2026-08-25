@@ -216,6 +216,8 @@ typedef struct {
     xcb_window_t root;
     xcb_visualtype_t *visual;
     int randr_event_base;
+    bool shape_ext_present;  /* XCB SHAPE extension, for rounded corners (see radius_tl etc). */
+    xcb_gcontext_t deco_gc;  /* reused across every draw_decoration() call -- see decoration.c. */
 
     /* Live root window size, refreshed by output.c's outputs_refresh()
      * (via a fresh xcb_get_geometry() on wm.root) every time RandR reports
@@ -273,6 +275,25 @@ typedef struct {
      * missing -- those individual colors just fall back to the plain
      * deco_bg_/deco_fg_/border_ fields below instead of a whole-file
      * fallback). */
+    /* Per-corner frame rounding in pixels (theme's colors file,
+     * border_radius= -- 1 number = all 4 corners, 2 = top/bottom, 4 =
+     * top-left/top-right/bottom-right/bottom-left, CSS order). 0
+     * (default, no colors file or no border_radius= key) means square
+     * corners, same as before this existed. Applied via the XCB SHAPE
+     * extension (see decoration.c's apply_rounded_shape()), since kiwm
+     * has no compositor to do real alpha-blended rounding -- it clips
+     * the frame's bounding shape instead, a real (if slightly stair-
+     * stepped at small sizes) rounded corner with no compositor needed. */
+    int radius_tl, radius_tr, radius_br, radius_bl;
+    /* Whether a maximized window still gets those corners rounded (theme's
+     * colors file, round_maximized=, default 1/yes -- purely additive,
+     * matches the behavior before this option existed). A window that
+     * exactly fills its output's full rectangle (frame == output, which
+     * is also what a future real fullscreen state would look like) is
+     * NEVER rounded regardless of this setting -- see decoration.c's
+     * client_fills_output(), not configurable on purpose. */
+    bool round_maximized;
+
     bool have_theme_colors;
     double bg_active_r, bg_active_g, bg_active_b;
     double bg_inactive_r, bg_inactive_g, bg_inactive_b;
