@@ -28,12 +28,16 @@ exposes.
   corner-relative resize, double-click-titlebar-to-maximize, scroll-wheel shade. Move/resize show
   the matching cursor from the user's actual Xcursor theme (via libxcb-cursor, same lookup rules as
   libXcursor), falling back to the plain core font cursor if that can't be set up at all.
-- Window states beyond the basics: shade (`_NET_WM_STATE_SHADED`), keep-above
-  (`_NET_WM_STATE_ABOVE`), sticky/keep-on-all-desktops (`_NET_WM_STATE_STICKY`, meaning "visible
-  regardless of this window's own output's current desktop" -- see PROTOCOL.md), fullscreen
-  (`_NET_WM_STATE_FULLSCREEN` -- covers the whole output including any docks/panels, decoration
-  unconditionally hidden, restores back to whatever floating/maximized/snapped state the window
-  was in beforehand).
+- Window states beyond the basics: shade (`_NET_WM_STATE_SHADED`), keep-above/keep-below
+  (`_NET_WM_STATE_ABOVE`/`_BELOW`), sticky/keep-on-all-desktops (`_NET_WM_STATE_STICKY`, meaning
+  "visible regardless of this window's own output's current desktop" -- see PROTOCOL.md),
+  fullscreen (`_NET_WM_STATE_FULLSCREEN` -- covers the whole output including any docks/panels,
+  decoration unconditionally hidden, restores back to whatever floating/maximized/snapped state
+  the window was in beforehand).
+- A real multi-layer stacking model (`below < normal < fullscreen < above`, a client's layer
+  derived from its state above): `client.c`'s `restack_all()` rebuilds the whole X stacking order
+  from it on every change, preserving each client's relative order within its own layer instead of
+  just re-raising keep-above windows on top of whatever's currently there.
 - ICCCM `WM_NORMAL_HINTS`' minimum size (`PMinSize`) is honored wherever a window's size gets
   clamped (initial map, interactive resize, maximize, edge-snap, `_NET_MOVERESIZE`-style
   configure requests) -- floored to kiwm's own absolute minimum so a client that sets a tiny or no
@@ -47,9 +51,8 @@ exposes.
   `_NET_WORKAREA`, `_NET_FRAME_EXTENTS`, `_NET_WM_ICON`.
 
 Not implemented yet: `kicomp` compositor (no client-side compositing at all), resizing by grabbing
-the window's own edge/corner with no modifier held (only mod+right-click resize exists so far), a
-real multi-layer stacking model (keep-above is enforced by re-raising on demand rather than a
-proper stacking tier), global menu.
+the window's own edge/corner with no modifier held (only mod+right-click resize exists so far),
+window-to-window magnetic snapping and resizing two touching windows together, global menu.
 
 ### Dependencies
 

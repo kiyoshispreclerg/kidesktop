@@ -21,6 +21,17 @@ void toggle_fullscreen(Client *c, int want /* -1=toggle 0=unfullscreen 1=fullscr
 void toggle_shade(Client *c, int want /* -1=toggle 0=unshade 1=shade */);
 void unshade_now(Client *c);
 void toggle_keep_above(Client *c, int want /* -1=toggle 0=off 1=on */);
+void toggle_keep_below(Client *c, int want /* -1=toggle 0=off 1=on */);
+/* Rebuilds the real X stacking order from every managed client's current
+ * WmLayer (see wm.h), preserving each client's relative order within its
+ * own layer from whatever xcb_query_tree() reports right now -- so calling
+ * this doesn't reorder anything except across layer boundaries. Call after
+ * anything that raises/lowers a client (an explicit xcb_configure_window()
+ * STACK_MODE_ABOVE/BELOW to move it to the very top/bottom of the whole
+ * stack *first*, then restack_all(), is how focus_client()/
+ * toggle_keep_above()/toggle_keep_below()/toggle_fullscreen() put a client
+ * at the top/bottom of its own layer specifically -- see client.c). */
+void restack_all(void);
 void toggle_sticky(Client *c, int want /* -1=toggle 0=off 1=on */);
 void snap_client_to_side(Client *c, SnapSide side /* SNAP_LEFT or SNAP_RIGHT */);
 void unsnap_client(Client *c, int x, int y, int width, int height);

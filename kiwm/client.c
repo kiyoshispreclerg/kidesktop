@@ -10,8 +10,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-static void raise_above_clients(void);
-
 static bool client_supports_protocol(xcb_window_t window, xcb_atom_t proto)
 {
     xcb_get_property_reply_t *reply = xcb_get_property_reply(wm.conn,
@@ -206,7 +204,7 @@ void focus_client(Client *c)
 
     xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE,
                          (uint32_t[]){ XCB_STACK_MODE_ABOVE });
-    raise_above_clients();
+    restack_all();
 
     draw_decoration(c);
     ewmh_update_client_list();
@@ -278,19 +276,74 @@ void unshade_now(Client *c)
         xcb_map_window(wm.conn, c->window);
 }
 
-/* Re-stacks every keep_above client above every non-keep_above one --
- * kiwm has no real multi-layer stacking model, so this is enforced
- * on-demand instead: called after any operation that raises some other
- * (non-keep_above) window (see focus_client()), so a keep_above window
- * always ends up back on top instead of just staying wherever it was
- * when it was last raised. Cheap and simple beats a real layer system for
- * the one thing kiwm actually needs it for. */
-static void raise_above_clients(void)
+/* A client's stacking layer, derived from its state -- see wm.h's WmLayer.
+ * fullscreen wins over keep_above/keep_below (a fullscreen video is always
+ * meant to cover an "always on top" panel too), and keep_above/keep_below
+ * are themselves kept mutually exclusive by toggle_keep_above()/
+ * toggle_keep_below() so this never has to arbitrate between them. */
+static WmLayer client_layer(Client *c)
 {
-    for (Client *c = wm.clients; c; c = c->next) {
-        if (c->keep_above && c->mapped)
-            xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE,
-                                 (uint32_t[]){ XCB_STACK_MODE_ABOVE });
+    if (c->fullscreen)
+        return LAYER_FULLSCREEN;
+    if (c->keep_above)
+        return LAYER_ABOVE;
+    if (c->keep_below)
+        return LAYER_BELOW;
+    return LAYER_NORMAL;
+}
+
+/* Rebuilds the real X stacking order to match every client's current
+ * WmLayer, bottom to top (LAYER_BELOW, LAYER_NORMAL, LAYER_FULLSCREEN,
+ * LAYER_ABOVE -- see wm.h), while preserving each client's relative order
+ * *within* its own layer exactly as xcb_query_tree() currently reports it.
+ * That's what lets a caller put one specific client at the top or bottom
+ * of its own layer without disturbing everyone else's relative order: raise
+ * (or lower) that one client to the very top (or bottom) of the whole X
+ * stack first with a plain STACK_MODE_ABOVE/BELOW, *then* call this --
+ * since query_tree now reports it topmost (or bottommost) overall, it's
+ * still topmost (or bottommost) once partitioned into just its own layer's
+ * bucket below. See client.h's comment for the call sites. */
+void restack_all(void)
+{
+    xcb_query_tree_reply_t *tree =
+        xcb_query_tree_reply(wm.conn, xcb_query_tree(wm.conn, wm.root), NULL);
+    if (!tree)
+        return;
+
+    xcb_window_t *kids = xcb_query_tree_children(tree);
+    int nkids = xcb_query_tree_children_length(tree);
+
+    Client *buckets[LAYER_COUNT][MAX_CLIENTS];
+    int bn[LAYER_COUNT] = { 0 };
+
+    /* xcb_query_tree()'s children come back bottom-to-top, so walking them
+     * in order and appending each one to its layer's bucket naturally
+     * preserves that same relative order within the bucket. */
+    for (int i = 0; i < nkids; i++) {
+        Client *c = find_client_window(kids[i]);
+        if (!c || c->frame != kids[i])
+            continue;
+        WmLayer l = client_layer(c);
+        if (bn[l] < MAX_CLIENTS)
+            buckets[l][bn[l]++] = c;
+    }
+    free(tree);
+
+    /* Chain every client's frame to sit directly above the previous one,
+     * walking layers bottom to top -- one xcb_configure_window() per
+     * client (besides the very first, which is left wherever it already
+     * is; nothing needs to be below it). */
+    xcb_window_t prev = XCB_NONE;
+    for (int l = 0; l < LAYER_COUNT; l++) {
+        for (int i = 0; i < bn[l]; i++) {
+            Client *c = buckets[l][i];
+            if (prev != XCB_NONE) {
+                uint32_t values[] = { prev, XCB_STACK_MODE_ABOVE };
+                xcb_configure_window(wm.conn, c->frame,
+                                     XCB_CONFIG_WINDOW_SIBLING | XCB_CONFIG_WINDOW_STACK_MODE, values);
+            }
+            prev = c->frame;
+        }
     }
 }
 
@@ -301,9 +354,27 @@ void toggle_keep_above(Client *c, int want /* -1=toggle 0=off 1=on */)
         return;
     c->keep_above = target;
     if (target) {
+        c->keep_below = false; /* mutually exclusive, see client_layer() */
         xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE,
                              (uint32_t[]){ XCB_STACK_MODE_ABOVE });
     }
+    restack_all();
+    ewmh_update_wm_state(c);
+    xcb_flush(wm.conn);
+}
+
+void toggle_keep_below(Client *c, int want /* -1=toggle 0=off 1=on */)
+{
+    bool target = (want == -1) ? !c->keep_below : (want == 1);
+    if (target == c->keep_below)
+        return;
+    c->keep_below = target;
+    if (target) {
+        c->keep_above = false; /* mutually exclusive, see client_layer() */
+        xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE,
+                             (uint32_t[]){ XCB_STACK_MODE_BELOW });
+    }
+    restack_all();
     ewmh_update_wm_state(c);
     xcb_flush(wm.conn);
 }
@@ -449,6 +520,7 @@ void toggle_fullscreen(Client *c, int want /* -1=toggle 0=unfullscreen 1=fullscr
         configure_frame(c);
         xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE,
                              (uint32_t[]){ XCB_STACK_MODE_ABOVE });
+        restack_all();
         ewmh_update_wm_state(c);
         ewmh_update_frame_extents(c);
         xcb_flush(wm.conn);
@@ -474,10 +546,13 @@ void toggle_fullscreen(Client *c, int want /* -1=toggle 0=unfullscreen 1=fullscr
         c->saved_w = c->width;
         c->saved_h = c->height;
         toggle_maximize(c, 1);
+        restack_all(); /* leaving LAYER_FULLSCREEN changes its layer bucket */
+        xcb_flush(wm.conn);
         return;
     }
 
     configure_frame(c);
+    restack_all(); /* ditto */
     ewmh_update_wm_state(c);
     ewmh_update_frame_extents(c);
     xcb_flush(wm.conn);

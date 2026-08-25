@@ -103,6 +103,26 @@ typedef enum {
     DRAG_RESIZE
 } DragMode;
 
+/* Stacking layer a client belongs to, derived from its state (see client.c's
+ * client_layer()) -- never set directly. Ordered bottom to top; client.c's
+ * restack_all() rebuilds the real X stacking order from this every time
+ * something that could change it happens (focus, keep_above/keep_below/
+ * fullscreen toggling, a window (un)managed), replacing the old ad-hoc
+ * "just re-raise keep_above clients on top of whatever's there" approach --
+ * that never gave keep_below or fullscreen a defined position relative to
+ * each other or to keep_above, and had no way to keep two keep_above
+ * clients in a sane relative order either. No LAYER_DESKTOP/LAYER_DOCK
+ * here: those window types are never framed into a Client at all (see
+ * client.c's should_manage_decorated()), so they don't participate in this
+ * ordering -- see manage()'s own last_desktop_window chaining instead. */
+typedef enum {
+    LAYER_BELOW = 0,
+    LAYER_NORMAL,
+    LAYER_FULLSCREEN,
+    LAYER_ABOVE,
+    LAYER_COUNT
+} WmLayer;
+
 typedef struct XisOutput {
     char name[64];
     int x, y, width, height;
@@ -156,8 +176,9 @@ struct Client {
                      * see client.c's toggle_shade(). Orthogonal to
                      * maximized/snap_side (tiling always unshades first,
                      * see client.c's unshade_now()). */
-    bool keep_above;  /* stacked above every non-keep_above client, see
-                       * client.c's raise_above_clients(). */
+    bool keep_above;  /* _NET_WM_STATE_ABOVE -- see client.c's client_layer()/
+                       * restack_all(). Mutually exclusive with keep_below. */
+    bool keep_below;  /* _NET_WM_STATE_BELOW, ditto. */
     bool sticky;      /* visible regardless of its output's current
                        * desktop -- see client.c's toggle_sticky() and
                        * every "wm.outputs[c->output].desktop == c->desktop"
@@ -233,6 +254,7 @@ typedef struct {
     xcb_atom_t net_wm_state_above;
     xcb_atom_t net_wm_state_sticky;
     xcb_atom_t net_wm_state_fullscreen;
+    xcb_atom_t net_wm_state_below;
     xcb_atom_t net_wm_icon;
 
     xcb_atom_t net_wm_window_type;

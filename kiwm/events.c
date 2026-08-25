@@ -549,6 +549,7 @@ static void handle_net_wm_state(Client *c, uint32_t action, xcb_atom_t a1, xcb_a
     bool is_above = (a1 == wm.atoms.net_wm_state_above || a2 == wm.atoms.net_wm_state_above);
     bool is_sticky = (a1 == wm.atoms.net_wm_state_sticky || a2 == wm.atoms.net_wm_state_sticky);
     bool is_fullscreen = (a1 == wm.atoms.net_wm_state_fullscreen || a2 == wm.atoms.net_wm_state_fullscreen);
+    bool is_below = (a1 == wm.atoms.net_wm_state_below || a2 == wm.atoms.net_wm_state_below);
 
     /* action: 0=remove, 1=add, 2=toggle (_NET_WM_STATE_TOGGLE) */
     if (is_max) {
@@ -577,6 +578,10 @@ static void handle_net_wm_state(Client *c, uint32_t action, xcb_atom_t a1, xcb_a
     if (is_fullscreen) {
         int want = (action == 2) ? -1 : (action == 1 ? 1 : 0);
         toggle_fullscreen(c, want);
+    }
+    if (is_below) {
+        int want = (action == 2) ? -1 : (action == 1 ? 1 : 0);
+        toggle_keep_below(c, want);
     }
 }
 
