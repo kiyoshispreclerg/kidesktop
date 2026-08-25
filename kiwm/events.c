@@ -85,8 +85,8 @@ static void handle_configure_request(xcb_configure_request_event_t *ev)
 
     if (ev->value_mask & XCB_CONFIG_WINDOW_X)      c->x = ev->x;
     if (ev->value_mask & XCB_CONFIG_WINDOW_Y)      c->y = ev->y;
-    if (ev->value_mask & XCB_CONFIG_WINDOW_WIDTH)  c->width = ev->width < MIN_CLIENT_W ? MIN_CLIENT_W : ev->width;
-    if (ev->value_mask & XCB_CONFIG_WINDOW_HEIGHT) c->height = ev->height < MIN_CLIENT_H ? MIN_CLIENT_H : ev->height;
+    if (ev->value_mask & XCB_CONFIG_WINDOW_WIDTH)  c->width = ev->width < c->min_w ? c->min_w : ev->width;
+    if (ev->value_mask & XCB_CONFIG_WINDOW_HEIGHT) c->height = ev->height < c->min_h ? c->min_h : ev->height;
 
     configure_frame(c);
     xcb_flush(wm.conn);
@@ -292,8 +292,8 @@ static bool try_edge_snap(Client *c, xcb_motion_notify_event_t *ev, int dx, int 
         c->y = wy;
         c->width = ww - bt * 2;
         c->height = wh - th - bt;
-        if (c->width < MIN_CLIENT_W) c->width = MIN_CLIENT_W;
-        if (c->height < MIN_CLIENT_H) c->height = MIN_CLIENT_H;
+        if (c->width < c->min_w) c->width = c->min_w;
+        if (c->height < c->min_h) c->height = c->min_h;
         break;
     }
     case SNAP_LEFT:
@@ -375,15 +375,15 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
         /* Resize from whichever corner was nearest the initial click
          * (wm.resize_right/resize_bottom, decided once in
          * handle_button_press's begin_drag()) -- the *opposite* corner
-         * stays fixed: recompute x/y from the (possibly MIN_CLIENT_*-
+         * stays fixed: recompute x/y from the (possibly c->min_w/min_h-
          * clamped) new size so that fixed corner's absolute position
          * never drifts, kwin/compiz-style, instead of always anchoring
          * top-left and growing toward bottom-right regardless of which
          * corner was actually grabbed. */
         int new_w = wm.resize_right ? wm.drag_start_w + dx : wm.drag_start_w - dx;
         int new_h = wm.resize_bottom ? wm.drag_start_h + dy : wm.drag_start_h - dy;
-        if (new_w < MIN_CLIENT_W) new_w = MIN_CLIENT_W;
-        if (new_h < MIN_CLIENT_H) new_h = MIN_CLIENT_H;
+        if (new_w < c->min_w) new_w = c->min_w;
+        if (new_h < c->min_h) new_h = c->min_h;
 
         c->width = new_w;
         c->height = new_h;
@@ -474,6 +474,21 @@ static void handle_property_notify(xcb_property_notify_event_t *ev)
         draw_decoration(c);
         xcb_flush(wm.conn);
     }
+    if (ev->atom == XCB_ATOM_WM_NORMAL_HINTS) {
+        /* Some toolkits only set WM_NORMAL_HINTS after the initial map, so
+         * a min-size hint that wasn't there yet in manage() can show up
+         * later -- re-read it and clamp the current geometry up to match
+         * if it's now too small (e.g. a terminal growing its min size once
+         * a font/PTY dimension becomes known). */
+        get_size_hints(c);
+        bool grew = false;
+        if (c->width < c->min_w)  { c->width = c->min_w;  grew = true; }
+        if (c->height < c->min_h) { c->height = c->min_h; grew = true; }
+        if (grew) {
+            configure_frame(c);
+            xcb_flush(wm.conn);
+        }
+    }
 }
 
 static void handle_enter_notify(xcb_enter_notify_event_t *ev)
@@ -533,6 +548,7 @@ static void handle_net_wm_state(Client *c, uint32_t action, xcb_atom_t a1, xcb_a
     bool is_shaded = (a1 == wm.atoms.net_wm_state_shaded || a2 == wm.atoms.net_wm_state_shaded);
     bool is_above = (a1 == wm.atoms.net_wm_state_above || a2 == wm.atoms.net_wm_state_above);
     bool is_sticky = (a1 == wm.atoms.net_wm_state_sticky || a2 == wm.atoms.net_wm_state_sticky);
+    bool is_fullscreen = (a1 == wm.atoms.net_wm_state_fullscreen || a2 == wm.atoms.net_wm_state_fullscreen);
 
     /* action: 0=remove, 1=add, 2=toggle (_NET_WM_STATE_TOGGLE) */
     if (is_max) {
@@ -557,6 +573,10 @@ static void handle_net_wm_state(Client *c, uint32_t action, xcb_atom_t a1, xcb_a
     if (is_sticky) {
         int want = (action == 2) ? -1 : (action == 1 ? 1 : 0);
         toggle_sticky(c, want);
+    }
+    if (is_fullscreen) {
+        int want = (action == 2) ? -1 : (action == 1 ? 1 : 0);
+        toggle_fullscreen(c, want);
     }
 }
 

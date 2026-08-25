@@ -6,6 +6,8 @@
 #include "output.h"
 #include "decoration.h"
 
+#include <xcb/xcb_icccm.h>
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -58,7 +60,8 @@ void ewmh_update_wm_state(Client *c)
                     a == wm.atoms.net_wm_state_maximized_horz ||
                     a == wm.atoms.net_wm_state_shaded ||
                     a == wm.atoms.net_wm_state_above ||
-                    a == wm.atoms.net_wm_state_sticky)
+                    a == wm.atoms.net_wm_state_sticky ||
+                    a == wm.atoms.net_wm_state_fullscreen)
                     continue;
                 keep[nkeep++] = a;
             }
@@ -82,6 +85,8 @@ void ewmh_update_wm_state(Client *c)
         out[n++] = wm.atoms.net_wm_state_above;
     if (c->sticky)
         out[n++] = wm.atoms.net_wm_state_sticky;
+    if (c->fullscreen)
+        out[n++] = wm.atoms.net_wm_state_fullscreen;
 
     xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, c->window,
                         wm.atoms.net_wm_state, XCB_ATOM_ATOM, 32, (uint32_t)n, out);
@@ -155,6 +160,31 @@ void get_title(Client *c)
         snprintf(c->title, sizeof(c->title), "Untitled");
 }
 
+/* ICCCM WM_NORMAL_HINTS' minimum size (PMinSize), if the client set one --
+ * read once in client.c's manage() and again whenever WM_NORMAL_HINTS
+ * changes (events.c's handle_property_notify()), since some toolkits only
+ * set it after the initial map. Always floored to MIN_CLIENT_W/H: a hint
+ * of 0 (or no hint at all) must not make a window shrinkable to nothing,
+ * and a hint smaller than kiwm's own absolute floor is pointless to honor
+ * literally. */
+void get_size_hints(Client *c)
+{
+    c->min_w = MIN_CLIENT_W;
+    c->min_h = MIN_CLIENT_H;
+
+    xcb_size_hints_t hints;
+    xcb_get_property_cookie_t cookie = xcb_icccm_get_wm_normal_hints(wm.conn, c->window);
+    if (!xcb_icccm_get_wm_normal_hints_reply(wm.conn, cookie, &hints, NULL))
+        return;
+
+    if (hints.flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) {
+        if (hints.min_width > c->min_w)
+            c->min_w = hints.min_width;
+        if (hints.min_height > c->min_h)
+            c->min_h = hints.min_height;
+    }
+}
+
 void ewmh_init_supported(void)
 {
     xcb_atom_t supported[] = {
@@ -167,7 +197,8 @@ void ewmh_init_supported(void)
         wm.atoms.net_wm_state, wm.atoms.net_wm_state_hidden,
         wm.atoms.net_wm_state_maximized_vert, wm.atoms.net_wm_state_maximized_horz,
         wm.atoms.net_wm_state_skip_taskbar, wm.atoms.net_wm_state_shaded,
-        wm.atoms.net_wm_state_above, wm.atoms.net_wm_state_sticky, wm.atoms.net_wm_icon,
+        wm.atoms.net_wm_state_above, wm.atoms.net_wm_state_sticky,
+        wm.atoms.net_wm_state_fullscreen, wm.atoms.net_wm_icon,
         wm.atoms.net_wm_window_type, wm.atoms.net_wm_window_type_normal,
         wm.atoms.net_wm_window_type_dock, wm.atoms.net_wm_window_type_desktop,
         wm.atoms.net_wm_window_type_toolbar, wm.atoms.net_wm_window_type_menu,

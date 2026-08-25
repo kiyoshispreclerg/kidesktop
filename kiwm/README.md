@@ -30,7 +30,14 @@ exposes.
   libXcursor), falling back to the plain core font cursor if that can't be set up at all.
 - Window states beyond the basics: shade (`_NET_WM_STATE_SHADED`), keep-above
   (`_NET_WM_STATE_ABOVE`), sticky/keep-on-all-desktops (`_NET_WM_STATE_STICKY`, meaning "visible
-  regardless of this window's own output's current desktop" -- see PROTOCOL.md).
+  regardless of this window's own output's current desktop" -- see PROTOCOL.md), fullscreen
+  (`_NET_WM_STATE_FULLSCREEN` -- covers the whole output including any docks/panels, decoration
+  unconditionally hidden, restores back to whatever floating/maximized/snapped state the window
+  was in beforehand).
+- ICCCM `WM_NORMAL_HINTS`' minimum size (`PMinSize`) is honored wherever a window's size gets
+  clamped (initial map, interactive resize, maximize, edge-snap, `_NET_MOVERESIZE`-style
+  configure requests) -- floored to kiwm's own absolute minimum so a client that sets a tiny or no
+  hint at all can still never be resized down to something unusably small.
 - A small theme system (background image, button sprite sheet, per-focus colors, corner rounding
   via the XCB SHAPE extension -- no compositor needed) with a configurable titlebar element order
   -- see "Theming" below.
@@ -39,14 +46,14 @@ exposes.
   `_NET_WM_STATE`, ICCCM `WM_STATE`, `_NET_WM_DESKTOP`, `_NET_SUPPORTING_WM_CHECK`,
   `_NET_WORKAREA`, `_NET_FRAME_EXTENTS`, `_NET_WM_ICON`.
 
-Not implemented yet: `kicomp` compositor (no client-side compositing at all), fullscreen state,
-resizing by grabbing the window's own edge/corner with no modifier held (only mod+right-click
-resize exists so far), a real multi-layer stacking model (keep-above is enforced by re-raising on
-demand rather than a proper stacking tier), global menu.
+Not implemented yet: `kicomp` compositor (no client-side compositing at all), resizing by grabbing
+the window's own edge/corner with no modifier held (only mod+right-click resize exists so far), a
+real multi-layer stacking model (keep-above is enforced by re-raising on demand rather than a
+proper stacking tier), global menu.
 
 ### Dependencies
 
-- libxcb, libxcb-randr, libxcb-shape, libxcb-cursor
+- libxcb, libxcb-randr, libxcb-shape, libxcb-cursor, libxcb-icccm
 - Cairo with the `cairo-xcb` backend
 - Imlib2
 - Pango + PangoCairo (titlebar text: per-glyph font fallback across scripts and ellipsizing)

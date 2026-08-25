@@ -163,6 +163,24 @@ struct Client {
                        * every "wm.outputs[c->output].desktop == c->desktop"
                        * visibility check across client.c/events.c/output.c,
                        * all of which now also accept c->sticky. */
+    bool fullscreen;  /* _NET_WM_STATE_FULLSCREEN -- see client.c's
+                       * toggle_fullscreen(). Unlike maximize, fills the
+                       * output's whole rectangle (not just its workarea --
+                       * a fullscreen window covers docks/panels too) and
+                       * unconditionally hides the decoration regardless of
+                       * wm.hide_deco_on_maximize (see decoration.c's
+                       * client_deco_visible()). */
+    int fs_saved_x, fs_saved_y, fs_saved_w, fs_saved_h; /* restore geometry before fullscreen */
+    bool fs_was_maximized;   /* whether to re-maximize (vs. just float) on leaving fullscreen */
+    SnapSide fs_saved_snap_side; /* ditto, for half-snapped windows */
+
+    /* ICCCM WM_NORMAL_HINTS' minimum size (see ewmh.c's get_size_hints()),
+     * floored to MIN_CLIENT_W/H so a client that sets a tiny or no hint at
+     * all can never be resized down to something unusably small. Used
+     * everywhere MIN_CLIENT_W/H used to be a flat constant: client.c's
+     * manage()/toggle_maximize()/snap_client_to_side(), events.c's
+     * handle_configure_request()/handle_motion(). */
+    int min_w, min_h;
 
     cairo_surface_t *icon;  /* _NET_WM_ICON, scaled down once when loaded;
                              * NULL if the client has none (drawn blank). */
@@ -214,6 +232,7 @@ typedef struct {
     xcb_atom_t net_wm_state_shaded;
     xcb_atom_t net_wm_state_above;
     xcb_atom_t net_wm_state_sticky;
+    xcb_atom_t net_wm_state_fullscreen;
     xcb_atom_t net_wm_icon;
 
     xcb_atom_t net_wm_window_type;

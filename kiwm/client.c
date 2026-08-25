@@ -390,14 +390,91 @@ void toggle_maximize(Client *c, int want /* -1=toggle 0=unmax 1=max */)
         c->y = wy;
         c->width = ww - bt * 2;
         c->height = wh - th - bt;
-        if (c->width < MIN_CLIENT_W) c->width = MIN_CLIENT_W;
-        if (c->height < MIN_CLIENT_H) c->height = MIN_CLIENT_H;
+        if (c->width < c->min_w) c->width = c->min_w;
+        if (c->height < c->min_h) c->height = c->min_h;
     } else {
         c->maximized = false;
         c->x = c->saved_x;
         c->y = c->saved_y;
         c->width = c->saved_w;
         c->height = c->saved_h;
+    }
+
+    configure_frame(c);
+    ewmh_update_wm_state(c);
+    ewmh_update_frame_extents(c);
+    xcb_flush(wm.conn);
+}
+
+/* _NET_WM_STATE_FULLSCREEN: unlike toggle_maximize's workarea fill, covers
+ * the output's whole rectangle -- docks/panels included -- with the
+ * decoration unconditionally hidden (see decoration.c's
+ * client_deco_visible()), the way a video player or browser expects.
+ * Remembers whether the window was maximized (or half-snapped) before
+ * going fullscreen so leaving it restores that exact prior state instead
+ * of always dropping to floating -- toggling a maximized window fullscreen
+ * and back should look like nothing happened. */
+void toggle_fullscreen(Client *c, int want /* -1=toggle 0=unfullscreen 1=fullscreen */)
+{
+    bool target = (want == -1) ? !c->fullscreen : (want == 1);
+    if (target == c->fullscreen)
+        return;
+
+    if (target) {
+        unshade_now(c);
+
+        c->fs_saved_x = c->x;
+        c->fs_saved_y = c->y;
+        c->fs_saved_w = c->width;
+        c->fs_saved_h = c->height;
+        c->fs_was_maximized = c->maximized;
+        c->fs_saved_snap_side = c->snap_side;
+
+        c->fullscreen = true;
+        c->maximized = false;
+        c->snap_side = SNAP_NONE;
+
+        int ox = 0, oy = 0, ow = 0, oh = 0;
+        if (c->output >= 0 && c->output < wm.output_count) {
+            ox = wm.outputs[c->output].x;
+            oy = wm.outputs[c->output].y;
+            ow = wm.outputs[c->output].width;
+            oh = wm.outputs[c->output].height;
+        }
+        c->x = ox;
+        c->y = oy;
+        c->width = ow;
+        c->height = oh;
+
+        configure_frame(c);
+        xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE,
+                             (uint32_t[]){ XCB_STACK_MODE_ABOVE });
+        ewmh_update_wm_state(c);
+        ewmh_update_frame_extents(c);
+        xcb_flush(wm.conn);
+        return;
+    }
+
+    c->fullscreen = false;
+    bool restore_maximized = c->fs_was_maximized;
+    c->fs_was_maximized = false;
+
+    c->x = c->fs_saved_x;
+    c->y = c->fs_saved_y;
+    c->width = c->fs_saved_w;
+    c->height = c->fs_saved_h;
+    c->snap_side = c->fs_saved_snap_side;
+
+    if (restore_maximized) {
+        /* toggle_maximize()'s own configure_frame()/ewmh update/flush
+         * covers the rest -- just hand it the pre-fullscreen floating
+         * geometry as its "restore" baseline first. */
+        c->saved_x = c->x;
+        c->saved_y = c->y;
+        c->saved_w = c->width;
+        c->saved_h = c->height;
+        toggle_maximize(c, 1);
+        return;
     }
 
     configure_frame(c);
@@ -431,8 +508,8 @@ void snap_client_to_side(Client *c, SnapSide side)
     c->height = wh - th - bt;
     c->x = (side == SNAP_LEFT) ? wx : wx + (ww - half);
     c->width = half - bt * 2;
-    if (c->width < MIN_CLIENT_W) c->width = MIN_CLIENT_W;
-    if (c->height < MIN_CLIENT_H) c->height = MIN_CLIENT_H;
+    if (c->width < c->min_w) c->width = c->min_w;
+    if (c->height < c->min_h) c->height = c->min_h;
 }
 
 /* Restores explicit floating geometry (typically the pre-drag geometry
@@ -692,8 +769,9 @@ void manage(xcb_window_t window)
     c->window = window;
     c->x = geo->x;
     c->y = geo->y;
-    c->width = geo->width < MIN_CLIENT_W ? MIN_CLIENT_W : geo->width;
-    c->height = geo->height < MIN_CLIENT_H ? MIN_CLIENT_H : geo->height;
+    get_size_hints(c);
+    c->width = geo->width < c->min_w ? c->min_w : geo->width;
+    c->height = geo->height < c->min_h ? c->min_h : geo->height;
     free(geo);
 
     c->output = output_index_for_point(c->x + c->width / 2, c->y + c->height / 2);

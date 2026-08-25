@@ -48,6 +48,7 @@ void ewmh_init_atoms(void)
     wm.atoms.net_wm_state_shaded = intern_atom("_NET_WM_STATE_SHADED");
     wm.atoms.net_wm_state_above = intern_atom("_NET_WM_STATE_ABOVE");
     wm.atoms.net_wm_state_sticky = intern_atom("_NET_WM_STATE_STICKY");
+    wm.atoms.net_wm_state_fullscreen = intern_atom("_NET_WM_STATE_FULLSCREEN");
     wm.atoms.net_wm_icon = intern_atom("_NET_WM_ICON");
 
     wm.atoms.net_wm_window_type = intern_atom("_NET_WM_WINDOW_TYPE");

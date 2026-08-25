@@ -369,6 +369,12 @@ void load_decoration(void)
 
 bool client_deco_visible(Client *c)
 {
+    /* Fullscreen always hides the decoration entirely -- not gated behind
+     * wm.hide_deco_on_maximize the way maximize is, since a titlebar left
+     * showing over a fullscreen video/game/browser would defeat the point
+     * of the state regardless of theme preference. */
+    if (c->fullscreen)
+        return false;
     return !(c->maximized && wm.hide_deco_on_maximize);
 }
 
@@ -501,12 +507,11 @@ static int build_rounded_rects(int w, int h, int tl, int tr, int br, int bl,
  * frame's size changes, since the shape has to match exactly. A no-op
  * (not even the reset) when the server has no SHAPE extension at all. */
 /* A window whose frame exactly matches its output's full rectangle --
- * which is also exactly what a future real fullscreen state would look
- * like, kiwm has no such state yet -- should obviously never be rounded:
- * rounding the very corners of the screen itself would just show
- * whatever's behind (typically the desktop background) poking through
- * the corners of an otherwise edge-to-edge window. Not configurable, on
- * purpose, unlike round_maximized. */
+ * which is also exactly the geometry client.c's toggle_fullscreen() sets --
+ * should obviously never be rounded: rounding the very corners of the
+ * screen itself would just show whatever's behind (typically the desktop
+ * background) poking through the corners of an otherwise edge-to-edge
+ * window. Not configurable, on purpose, unlike round_maximized. */
 static bool client_fills_output(Client *c)
 {
     if (c->output < 0 || c->output >= wm.output_count)

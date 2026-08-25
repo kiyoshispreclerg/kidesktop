@@ -11,6 +11,7 @@ void ewmh_update_wm_desktop(Client *c);
 void ewmh_update_wm_output(Client *c);
 void ewmh_update_frame_extents(Client *c);
 void get_title(Client *c);
+void get_size_hints(Client *c);
 
 void ewmh_init_supported(void);
 void ewmh_init_supporting_wm_check(void);

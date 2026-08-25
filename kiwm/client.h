@@ -17,6 +17,7 @@ void cycle_focus(int direction);
 
 void close_client(Client *c);
 void toggle_maximize(Client *c, int want /* -1=toggle 0=unmax 1=max */);
+void toggle_fullscreen(Client *c, int want /* -1=toggle 0=unfullscreen 1=fullscreen */);
 void toggle_shade(Client *c, int want /* -1=toggle 0=unshade 1=shade */);
 void unshade_now(Client *c);
 void toggle_keep_above(Client *c, int want /* -1=toggle 0=off 1=on */);
