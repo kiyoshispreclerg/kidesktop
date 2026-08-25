@@ -435,6 +435,18 @@ typedef struct {
      * zone again and needs to restore the pre-drag floating geometry. */
     SnapSide drag_snap_side;
 
+    /* How close (in pixels) a dragged window's frame edge must get to
+     * another window's frame edge (any client, decoration included --
+     * frame rects, not content rects) or to its own output's screen edge
+     * before it snaps flush against it -- kiwm.conf's magnet_threshold=
+     * (default 10). 0 disables it. Distinct from snap_threshold/
+     * drag_snap_side above: that's screen-edge *tiling* (maximize/half-
+     * width, a whole different geometry); this is just a few pixels of
+     * position nudging so two windows (or a window and the screen edge)
+     * end up touching with no gap instead of a near-miss. See events.c's
+     * magnet_snap(). */
+    int magnet_threshold;
+
     /* Which modifier drives Alt+Tab-style window cycling vs. Meta-style
      * window control (move/maximize/desktop-cycle) -- configurable via
      * kiwm.conf's mod_cycle=/mod_control= (values "alt" or "meta"),

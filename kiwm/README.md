@@ -24,6 +24,9 @@ exposes.
 - Dock/panel awareness: `_NET_WM_STRUT`/`_NET_WM_STRUT_PARTIAL`, correctly attributed per output
   (a panel on one monitor doesn't eat into a different monitor's usable area), feeding
   `_NET_WORKAREA` and maximize.
+- Magnetic edge snapping while dragging a window: an edge within `magnet_threshold` (default 10px)
+  of another window's edge (decoration included) or the screen edge snaps flush against it,
+  gap-free -- independent per axis, and distinct from the tiling snap below.
 - Windows7/kwin-style edge-drag snapping (drag a titlebar to a screen edge to maximize/half-tile),
   corner-relative resize, double-click-titlebar-to-maximize, scroll-wheel shade. Move/resize show
   the matching cursor from the user's actual Xcursor theme (via libxcb-cursor, same lookup rules as
@@ -52,7 +55,9 @@ exposes.
 
 Not implemented yet: `kicomp` compositor (no client-side compositing at all), resizing by grabbing
 the window's own edge/corner with no modifier held (only mod+right-click resize exists so far),
-window-to-window magnetic snapping and resizing two touching windows together, global menu.
+resizing two touching windows together (magnetic edge snapping while *moving* is done -- see
+`magnet_threshold` above -- but resizing doesn't yet drag along whatever's touching the edge being
+resized), global menu.
 
 ### Dependencies
 
@@ -103,6 +108,7 @@ a warning on stderr, not a hard error. A key you leave out of the file keeps its
 | `border_thickness` | `0` | Left/right/bottom decoration border thickness in pixels. `0` means no border at all -- just the titlebar (the original look). |
 | `border_color` | `#000000` | Fallback border color, used only when no theme `colors` file overrides it (see "Theming"). |
 | `snap_threshold` | `20` | How close (pixels) the pointer must get to an output's *usable* area edge while dragging a window to snap it there -- top edge maximizes, left/right edges fill exactly half the width, Windows7/kwin-style. `0` disables snapping entirely. |
+| `magnet_threshold` | `10` | How close (pixels) a dragged window's *edge* (not the pointer -- the window's own frame, decoration included) must get to another window's edge or to the screen edge before it snaps flush against it, gap-free -- a much smaller, purely cosmetic nudge than `snap_threshold`'s tiling snap above. `0` disables it. |
 | `focus_follows_mouse` | `0` | `1` raises+focuses a window just by moving the pointer into it ("sloppy focus"). `0` (default) requires an actual click. |
 | `theme` | `greenxp` | Theme folder name/path (see "Theming"). Resolved the same way kiwm looks for its own binary-relative files: tried as `../<theme>`, `./<theme>`, and plain `<theme>` (so it works both run from the source tree and installed). |
 | `titlebar_layout` | `icon,title,shade,minimize,maximize,close` | Titlebar element order, left to right, comma-separated. See "Titlebar layout" below. |

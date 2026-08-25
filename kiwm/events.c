@@ -350,6 +350,84 @@ static void update_button_hover(xcb_motion_notify_event_t *ev)
     xcb_flush(wm.conn);
 }
 
+/* Nudges *edge toward cand if they're within wm.magnet_threshold and cand is
+ * the closest candidate seen so far (tracked via best_delta/best_abs,
+ * which the caller seeds to {0, wm.magnet_threshold + 1} so "nothing found"
+ * naturally means "no delta applied"). Shared by both axes in
+ * magnet_snap(). */
+static void magnet_consider(int edge, int cand, int *best_delta, int *best_abs)
+{
+    int d = cand - edge;
+    int ad = d < 0 ? -d : d;
+    if (ad <= wm.magnet_threshold && ad < *best_abs) {
+        *best_abs = ad;
+        *best_delta = d;
+    }
+}
+
+/* Window-to-window and window-to-screen magnetic edge snapping while
+ * dragging a window by its titlebar/mod-drag (kiwm.conf's
+ * magnet_threshold=, default 10px, 0 disables) -- distinct from
+ * try_edge_snap() above: that's a screen-edge *tiling* snap (maximize/
+ * half-width, a whole different geometry engaging Client::maximized/
+ * snap_side); this just nudges x/y a few pixels so the dragged window's
+ * frame ends up touching another window's frame (any client -- this
+ * compares frame rects, so "another window" already accounts for its
+ * decoration, per the request that started this) or its own output's
+ * screen edge exactly, instead of stopping just short or just past it.
+ * Each axis snaps independently to whichever nearby edge is closest;
+ * screen edges are always eligible, but another window's edge only counts
+ * as a candidate when the two windows' spans on the *other* axis actually
+ * overlap -- otherwise sharing a coordinate is coincidence, not two
+ * windows that could plausibly be touching. `fw`/`fh` are the dragged
+ * client's current frame size (unchanged during a move, so the caller's
+ * already-computed c->frame_width/frame_height are exactly right). */
+static void magnet_snap(Client *c, int *x, int *y, int fw, int fh)
+{
+    if (wm.magnet_threshold <= 0 || c->output < 0 || c->output >= wm.output_count)
+        return;
+
+    int my_left = *x, my_right = *x + fw;
+    int my_top = *y, my_bottom = *y + fh;
+
+    int best_dx = 0, best_dx_abs = wm.magnet_threshold + 1;
+    int best_dy = 0, best_dy_abs = wm.magnet_threshold + 1;
+
+    XisOutput *o = &wm.outputs[c->output];
+    magnet_consider(my_left,   o->x,               &best_dx, &best_dx_abs);
+    magnet_consider(my_right,  o->x + o->width,     &best_dx, &best_dx_abs);
+    magnet_consider(my_top,    o->y,               &best_dy, &best_dy_abs);
+    magnet_consider(my_bottom, o->y + o->height,    &best_dy, &best_dy_abs);
+
+    for (Client *o2 = wm.clients; o2; o2 = o2->next) {
+        if (o2 == c || !o2->mapped || o2->minimized || o2->output != c->output)
+            continue;
+        if (!o2->sticky && o2->desktop != c->desktop)
+            continue;
+
+        int rl = o2->x, rr = o2->x + o2->frame_width;
+        int rt = o2->y, rb = o2->y + o2->frame_height;
+
+        if (my_bottom > rt && my_top < rb) {
+            magnet_consider(my_left,  rl, &best_dx, &best_dx_abs);
+            magnet_consider(my_left,  rr, &best_dx, &best_dx_abs);
+            magnet_consider(my_right, rl, &best_dx, &best_dx_abs);
+            magnet_consider(my_right, rr, &best_dx, &best_dx_abs);
+        }
+        if (my_right > rl && my_left < rr) {
+            magnet_consider(my_top,    rt, &best_dy, &best_dy_abs);
+            magnet_consider(my_top,    rb, &best_dy, &best_dy_abs);
+            magnet_consider(my_bottom, rt, &best_dy, &best_dy_abs);
+            magnet_consider(my_bottom, rb, &best_dy, &best_dy_abs);
+        }
+    }
+
+    if (best_dx_abs <= wm.magnet_threshold)
+        *x += best_dx;
+    if (best_dy_abs <= wm.magnet_threshold)
+        *y += best_dy;
+}
+
 static void handle_motion(xcb_motion_notify_event_t *ev)
 {
     if (!wm.drag_client || wm.drag_mode == DRAG_NONE) {
@@ -371,6 +449,7 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
     if (wm.drag_mode == DRAG_MOVE) {
         c->x = wm.drag_start_x + dx;
         c->y = wm.drag_start_y + dy;
+        magnet_snap(c, &c->x, &c->y, c->frame_width, c->frame_height);
     } else {
         /* Resize from whichever corner was nearest the initial click
          * (wm.resize_right/resize_bottom, decided once in
