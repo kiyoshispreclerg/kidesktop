@@ -277,8 +277,22 @@ Widget types implemented so far:
   "Ubuntu 22.04.3 LTS" -- already includes the version, no separate
   concatenation needed), or `text` (literal `fallback_text=<string>`,
   quote it if it needs spaces). Default `fallback` is unset, meaning
-  nothing is drawn in the reserved space. Polls `_NET_ACTIVE_WINDOW`
-  every ~300ms, same tradeoff as `tasklist`'s polling.
+  nothing is drawn in the reserved space. `collapse_buttons=yes` (default
+  `no`) folds every button away except the *last* one `buttons=` lists
+  (close, under the default order) whenever the pointer isn't over the
+  widget at all -- hovering anywhere on it (icon, title, a button) brings
+  the rest back. Every button slot still reserves its space regardless of
+  which are currently drawn, so hovering in/out never reflows anything
+  else in the panel. Right-click anywhere on the widget (icon, title, a
+  button slot, or a slot `collapse_buttons=yes` is currently hiding) opens
+  a context menu with the common actions -- minimize/restore, maximize/
+  restore, toggle sticky (shown on every virtual desktop), close --
+  regardless of what `buttons=` itself lists, same "always reachable, not
+  just whatever's configured as a dedicated button" idea `tasklist`'s own
+  per-task context menu already offers. Double-clicking the icon/title
+  area (not a button slot) toggles maximize, same as double-clicking a
+  real titlebar. Polls `_NET_ACTIVE_WINDOW` every ~300ms, same tradeoff as
+  `tasklist`'s polling.
 - `tray`: one square icon button per active StatusNotifierItem (the
   `org.kde.StatusNotifierItem`/`org.freedesktop.StatusNotifierItem`
   DBus protocol used by every modern tray -- KDE, GNOME's legacy
@@ -492,8 +506,9 @@ them just falls back to the plain `bg`/`fg`/vector-glyph look for whatever
 it's missing, same "degrade gracefully, never a hard error" rule as the
 rest of this program's config. **The folder is shared with
 [kiwm](../kiwm/README.md#theming)** -- same file names, same formats, on
-purpose, so one theme folder (e.g. [`../greenxp`](../greenxp)) themes both
-the panel and kiwm's window decorations/buttons at once.
+purpose, so one theme folder themes both the panel and kiwm's window
+decorations/buttons at once (point kiwm's own `theme=` in `kiwm.conf` and
+xispanel's `theme=` here at the same path).
 
 - **`bg.png`** + **`slice`** -- the panel's background, drawn as a 9-slice
   to fit any panel thickness/length without looking stretched-blurry at
@@ -541,8 +556,16 @@ exactly on the slice boundaries, so the 9 regions are visible at a glance.
 Paint over it (or start fresh at whatever resolution you like) and delete
 the guide lines once you have a real theme -- `slice`'s numbers, not the
 image's actual size, are what xispanel goes by, so the source image can be
-any resolution/aspect ratio. [`../greenxp`](../greenxp) is a complete,
-in-use example covering every file above, including `btns.png`.
+any resolution/aspect ratio.
+
+No theme folder ships as xispanel's *default* -- `theme=` is entirely
+opt-in, pointed at whatever folder you want (this machine's own dev setup
+happens to keep one outside the repo, that's not a bundled default to
+document here). Leaving `theme=` unset, or pointing it at a folder missing
+some/all of these files, is a fully supported, ordinary way to run
+xispanel: it just falls back to `bg=`/`fg=` (or, absent those too, the
+live system color scheme -- see "Colors and font default to the live
+system theme" below) and winctl's vector button glyphs, same as always.
 
 Only the panel background and winctl's buttons are themeable this way for
 now -- the rest of widget/popup chrome (tasklist rows, menu items) still

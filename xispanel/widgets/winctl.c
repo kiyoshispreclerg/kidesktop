@@ -8,6 +8,15 @@
  * is maximized (vs. always) is a config key on the WIDGET line -- same
  * "hand-edit the .conf and RELOAD" mechanism every other widget's options
  * already go through, see PROTOCOL.md.
+ *
+ * Also: right-click anywhere on the widget (icon, title, or a button slot
+ * -- unlike the button slots' own left-click actions, this doesn't care
+ * where exactly) opens a context menu with the common window actions
+ * (minimize/restore, maximize/restore, toggle sticky, close), and
+ * double-clicking the icon/title area toggles maximize -- both mirror
+ * what a real titlebar/taskbar button already offers elsewhere in
+ * KiDesktop, just reachable here too without needing `buttons=` to list
+ * every action as its own always-visible button.
  */
 #include "../xispanel.h"
 
@@ -65,6 +74,14 @@ typedef struct {
     int side_start;  /* 1 = buttons before the icon/title, 0 = after (default) */
     int same_desktop_only; /* 1 = only show controls while the active window is on this panel's desktop */
     int same_output_only;  /* 1 = only show controls while the active window is on this panel's output */
+    /* collapse_buttons=yes: only the *last* configured button (whatever
+     * buttons= ends with -- close, by the default order) draws/hit-tests
+     * while the pointer isn't over the widget at all; every button slot
+     * still reserves its space either way (see winctl_layout()), so
+     * hovering in doesn't reflow anything else in the panel -- the other
+     * buttons just fade in over already-reserved space. See
+     * winctl_button_slot_active(). */
+    int collapse_buttons;
     int fixed_width;     /* width= in raw pixels; 0 if unset or width= was a percentage instead */
     int fixed_width_pct; /* width= as "NN%"; 0 if unset or width= was raw pixels instead. Re-resolved
                            * against the panel's current main-axis length on every measure() call (not
@@ -100,7 +117,20 @@ typedef struct {
     int n_visible_buttons;
     int btn_x[WINCTL_MAX_BUTTONS];
     int btn_w[WINCTL_MAX_BUTTONS];
+    /* btn_x[i]/btn_w[i] describe visual slot i; btn_orig_idx[i] is which
+     * entry of `buttons` (and so which action/icon) that slot draws --
+     * only ever different from the identity mapping when collapse_buttons
+     * folds some entries away (see winctl_layout()). */
+    int btn_orig_idx[WINCTL_MAX_BUTTONS];
+
+    /* Last Button1 timestamp on the icon/title area (not a button slot) --
+     * a second click within WINCTL_DBLCLICK_MS toggles maximize. Reset to
+     * 0 right after firing so a third click doesn't immediately retrigger
+     * as "double" against the second. */
+    uint64_t last_title_click_ms;
 } WinctlPriv;
+
+#define WINCTL_DBLCLICK_MS 400
 
 static void parse_buttons(const char *kvline, char *out, int *out_n)
 {
@@ -202,6 +232,7 @@ static int winctl_init(PanelWidget *w)
     wp->side_start = kv_get(w->config_kv, "side", buf, sizeof(buf)) && strcmp(buf, "start") == 0;
     wp->same_desktop_only = kv_get(w->config_kv, "same_desktop", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
     wp->same_output_only = kv_get(w->config_kv, "same_output", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
+    wp->collapse_buttons = kv_get(w->config_kv, "collapse_buttons", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
 
     char width_buf[16];
     if (kv_get(w->config_kv, "width", width_buf, sizeof(width_buf)) && width_buf[0]) {
@@ -402,19 +433,54 @@ static void winctl_measure(PanelWidget *w, int cross_axis, int *out_len, int *ou
     *out_min_len = len; /* short/fixed enough content that shrinking isn't worth supporting yet */
 }
 
+/* Whether buttons=...'s entry `orig_idx` (of `total` configured buttons)
+ * actually draws/hit-tests this frame -- everything does unless
+ * collapse_buttons=yes has folded it away (see WinctlPriv::
+ * collapse_buttons). The *last* configured entry (close, under the
+ * default order) stays active either way so there's always something
+ * clickable even collapsed. */
+static int winctl_button_should_show(PanelWidget *w, int orig_idx, int total)
+{
+    WinctlPriv *wp = w->priv;
+    if (!wp->collapse_buttons) {
+        return 1;
+    }
+    if (orig_idx == total - 1) {
+        return 1;
+    }
+    return panel_widget_hover_local_x(w, NULL);
+}
+
 /* Recomputes button hit-rects (and how many are actually shown) from the
- * widget's real allotted w->len -- see the WinctlPriv comment. */
+ * widget's real allotted w->len -- see the WinctlPriv comment. Folded-away
+ * buttons (collapse_buttons=yes, pointer not over the widget) aren't just
+ * skipped in place -- they're left out of the packed layout entirely, so
+ * the *visible* buttons (and, in turn, the title -- see winctl_paint()'s
+ * content_end, computed from wp->n_visible_buttons the same as always)
+ * shift to reclaim the space, which is the whole point of collapsing them
+ * rather than just hiding icons over dead reserved space. w->len itself
+ * never changes here -- measure() already reserved room for every
+ * configured button regardless of collapse state, so this reshuffling
+ * never touches any other widget's position in the panel. */
 static void winctl_layout(PanelWidget *w)
 {
     WinctlPriv *wp = w->priv;
     int show_buttons = wp->active_applies && (wp->show_always || wp->maximized);
-    wp->n_visible_buttons = show_buttons ? wp->n_buttons : 0;
+    int total = show_buttons ? wp->n_buttons : 0;
+
+    int n_visible = 0;
+    for (int i = 0; i < total; i++) {
+        if (winctl_button_should_show(w, i, total)) {
+            wp->btn_orig_idx[n_visible++] = i;
+        }
+    }
+    wp->n_visible_buttons = n_visible;
 
     int btn_w = w->thickness;
-    int ox = wp->side_start ? 0 : w->len - wp->n_visible_buttons * btn_w;
-    for (int i = 0; i < wp->n_visible_buttons; i++) {
-        wp->btn_x[i] = ox + i * btn_w;
-        wp->btn_w[i] = btn_w;
+    int ox = wp->side_start ? 0 : w->len - n_visible * btn_w;
+    for (int k = 0; k < n_visible; k++) {
+        wp->btn_x[k] = ox + k * btn_w;
+        wp->btn_w[k] = btn_w;
     }
 }
 
@@ -480,13 +546,14 @@ static void winctl_paint(PanelWidget *w, cairo_t *cr)
 
     cairo_set_line_width(cr, 1.4);
     for (int i = 0; i < wp->n_visible_buttons; i++) {
+        char btn = wp->buttons[wp->btn_orig_idx[i]];
         int hovered = has_hover && hover_local_x >= wp->btn_x[i] && hover_local_x < wp->btn_x[i] + wp->btn_w[i];
 
         /* Themed sprite takes over entirely when a btns.png loaded --
          * falls through to the vector glyphs below only when it didn't
          * (no theme, or this theme just doesn't ship btns.png), same
          * per-file degrade-gracefully rule as bg_image_surface. */
-        int col = p->btns_image_surface ? btn_theme_column(wp->buttons[i], wp->maximized) : -1;
+        int col = p->btns_image_surface ? btn_theme_column(btn, wp->maximized) : -1;
         if (col >= 0) {
             int row = hovered ? 1 : 0;
             draw_slice_region(cr, p->btns_image_surface, col * p->btns_cell_w, row * p->btns_cell_h, p->btns_cell_w,
@@ -500,7 +567,7 @@ static void winctl_paint(PanelWidget *w, cairo_t *cr)
         double cx = ox + wp->btn_x[i] + wp->btn_w[i] / 2.0;
         double cy = oy + w->thickness / 2.0;
         cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.85);
-        switch (wp->buttons[i]) {
+        switch (btn) {
         case 'i':
             cairo_move_to(cr, cx - 5, cy + 5);
             cairo_line_to(cr, cx + 5, cy + 5);
@@ -547,20 +614,82 @@ static int winctl_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t buf
     return 1;
 }
 
+/* winctl's right-click context menu -- indices into the item array
+ * winctl_on_button() builds, also the index winctl_menu_select() switches
+ * on. Same common-window-actions set tasklist.c's own per-task Button3
+ * menu offers, plus the sticky toggle winctl has no dedicated button
+ * for. */
+enum { WINCTL_MENU_MIN_RESTORE, WINCTL_MENU_MAX_RESTORE, WINCTL_MENU_STICKY, WINCTL_MENU_CLOSE };
+
+static void winctl_menu_select(Panel *panel, PanelWidget *w, void *ctx, int index)
+{
+    (void)panel;
+    WinctlPriv *wp = w->priv;
+    Window win = (Window)(uintptr_t)ctx;
+    switch (index) {
+    case WINCTL_MENU_MIN_RESTORE:
+        ewmh_toggle_minimize(win, wp->minimized);
+        break;
+    case WINCTL_MENU_MAX_RESTORE:
+        ewmh_toggle_maximize(win);
+        break;
+    case WINCTL_MENU_STICKY:
+        ewmh_toggle_sticky(win);
+        break;
+    case WINCTL_MENU_CLOSE:
+        ewmh_close(win);
+        break;
+    default:
+        break;
+    }
+    XFlush(g_dpy);
+    w->panel->dirty = 1;
+}
+
 static int winctl_on_button(PanelWidget *w, int button, int local_x, int local_y, int root_x, int root_y)
 {
     (void)local_y;
     (void)root_x;
     (void)root_y;
     WinctlPriv *wp = w->priv;
-    if (!wp->active_applies || button != Button1) {
+    if (!wp->active_applies) {
         return 0;
     }
     winctl_layout(w);
 
+    /* Right-click anywhere on the widget -- icon, title, a button slot, a
+     * collapsed-away button slot, doesn't matter -- opens the same
+     * context menu, unlike the button slots' own left-click actions which
+     * only fire when the click actually lands on that slot. */
+    if (button == Button3) {
+        MenuItem items[4];
+        memset(items, 0, sizeof(items));
+        int n = 0;
+        snprintf(items[n].label, sizeof(items[n].label), "%s", wp->minimized ? "Restaurar" : "Minimizar");
+        items[n].enabled = 1;
+        n++;
+        snprintf(items[n].label, sizeof(items[n].label), "%s", wp->maximized ? "Restaurar tamanho" : "Maximizar");
+        items[n].enabled = 1;
+        n++;
+        snprintf(items[n].label, sizeof(items[n].label), "%s",
+                 ewmh_get_sticky(wp->active_win) ? "Remover de todas as áreas de trabalho"
+                                                  : "Fixar em todas as áreas de trabalho");
+        items[n].enabled = 1;
+        n++;
+        snprintf(items[n].label, sizeof(items[n].label), "Fechar");
+        items[n].enabled = 1;
+        n++;
+        panel_menu_open(w->panel, w, 0, w->len, items, n, (void *)(uintptr_t)wp->active_win, winctl_menu_select);
+        return 1;
+    }
+
+    if (button != Button1) {
+        return 0;
+    }
+
     for (int i = 0; i < wp->n_visible_buttons; i++) {
         if (local_x >= wp->btn_x[i] && local_x < wp->btn_x[i] + wp->btn_w[i]) {
-            switch (wp->buttons[i]) {
+            switch (wp->buttons[wp->btn_orig_idx[i]]) {
             case 'i':
                 ewmh_toggle_minimize(wp->active_win, wp->minimized);
                 break;
@@ -578,7 +707,20 @@ static int winctl_on_button(PanelWidget *w, int button, int local_x, int local_y
             return 1;
         }
     }
-    return 0;
+
+    /* Fell through every button slot -- this click landed on the
+     * icon/title area instead. A second one within WINCTL_DBLCLICK_MS
+     * toggles maximize, same as double-clicking a real titlebar. */
+    uint64_t now = now_ms();
+    if (wp->last_title_click_ms && now - wp->last_title_click_ms < WINCTL_DBLCLICK_MS) {
+        wp->last_title_click_ms = 0;
+        ewmh_toggle_maximize(wp->active_win);
+        XFlush(g_dpy);
+        w->panel->dirty = 1;
+    } else {
+        wp->last_title_click_ms = now;
+    }
+    return 1;
 }
 
 const PanelWidgetOps winctl_ops = {

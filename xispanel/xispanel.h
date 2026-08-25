@@ -497,6 +497,8 @@ void ewmh_activate(Window w);
 void ewmh_close(Window w);
 void ewmh_toggle_maximize(Window w);
 void ewmh_toggle_minimize(Window w, int minimized);
+int ewmh_get_sticky(Window w); /* _NET_WM_STATE_STICKY: shown on every virtual desktop */
+void ewmh_toggle_sticky(Window w);
 void ewmh_move_interactive(Window w, int root_x, int root_y);
 cairo_surface_t *ewmh_get_icon_surface(Window w, int target_size); /* NULL if no icon */
 /* Plain-EWMH global desktop switch (_NET_CURRENT_DESKTOP client message)

@@ -36,6 +36,7 @@ static Atom g_atom_net_wm_state_hidden;
 static Atom g_atom_net_wm_state_maximized_vert;
 static Atom g_atom_net_wm_state_maximized_horz;
 static Atom g_atom_net_wm_state_demands_attention;
+static Atom g_atom_net_wm_state_sticky;
 static Atom g_atom_net_active_window;
 static Atom g_atom_net_close_window;
 static Atom g_atom_net_wm_icon;
@@ -85,6 +86,7 @@ void ewmh_init_atoms(void)
     g_atom_net_wm_state_maximized_vert = XInternAtom(g_dpy, "_NET_WM_STATE_MAXIMIZED_VERT", False);
     g_atom_net_wm_state_maximized_horz = XInternAtom(g_dpy, "_NET_WM_STATE_MAXIMIZED_HORZ", False);
     g_atom_net_wm_state_demands_attention = XInternAtom(g_dpy, "_NET_WM_STATE_DEMANDS_ATTENTION", False);
+    g_atom_net_wm_state_sticky = XInternAtom(g_dpy, "_NET_WM_STATE_STICKY", False);
     g_atom_net_active_window = XInternAtom(g_dpy, "_NET_ACTIVE_WINDOW", False);
     g_atom_net_close_window = XInternAtom(g_dpy, "_NET_CLOSE_WINDOW", False);
     g_atom_net_wm_icon = XInternAtom(g_dpy, "_NET_WM_ICON", False);
@@ -860,6 +862,37 @@ void ewmh_toggle_minimize(Window w, int minimized)
         /* ICCCM WM_CHANGE_STATE(IconicState): minimize request. */
         ewmh_send_client_message(w, g_atom_wm_change_state, IconicState, 0, 0, 0, 0);
     }
+}
+
+/* 1 if `w` carries _NET_WM_STATE_STICKY (shown on every virtual
+ * desktop/workspace) -- used by winctl's context menu to label the toggle
+ * correctly ("Fixar em todas as áreas" vs "Remover de todas as áreas")
+ * rather than guessing. */
+int ewmh_get_sticky(Window w)
+{
+    Atom actual_type;
+    int actual_format;
+    unsigned long n_items, bytes_after;
+    unsigned char *prop = NULL;
+    int sticky = 0;
+    if (XGetWindowProperty(g_dpy, w, g_atom_net_wm_state, 0, 32, False, XA_ATOM, &actual_type, &actual_format,
+                            &n_items, &bytes_after, &prop) == Success &&
+        prop) {
+        Atom *atoms = (Atom *)(void *)prop;
+        for (unsigned long i = 0; i < n_items; i++) {
+            if (atoms[i] == g_atom_net_wm_state_sticky) {
+                sticky = 1;
+                break;
+            }
+        }
+        XFree(prop);
+    }
+    return sticky;
+}
+
+void ewmh_toggle_sticky(Window w)
+{
+    ewmh_set_state(w, g_atom_net_wm_state_sticky, 0, 2);
 }
 
 /* Hands off to the window manager's own interactive move (mouse-driven,
