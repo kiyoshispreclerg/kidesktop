@@ -202,9 +202,11 @@ static void setup_wm(bool replace)
 
     /* Pango title text rendering (pango_text.c) -- glyph fallback across
      * scripts, so titles in languages the default font doesn't cover still
-     * show up instead of leaving blank gaps. Family is fixed for now (no
-     * theme/config knob yet); call once, before the first draw_decoration(). */
-    pango_text_init(NULL);
+     * show up instead of leaving blank gaps. Family comes from the theme's
+     * colors file (font=, load_decoration() above already parsed it into
+     * wm.title_font) or "sans-serif" if empty/no theme. Call once, before
+     * the first draw_decoration(). */
+    pango_text_init(wm.title_font);
 
     /* RandR: outputs are the unit of presentation (section 4) even in a
      * WM without a compositor -- we still need it for per-output desktops. */

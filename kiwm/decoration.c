@@ -235,10 +235,22 @@ static void load_colors_theme(void)
             if (wm.radius_bl < 0) wm.radius_bl = 0;
         } else if (strcmp(key, "round_maximized") == 0) {
             wm.round_maximized = atoi(val) != 0;
+        } else if (strcmp(key, "font") == 0) {
+            snprintf(wm.title_font, sizeof(wm.title_font), "%s", val);
+        } else if (strcmp(key, "font_size") == 0) {
+            double v = atof(val);
+            if (v > 0)
+                wm.title_font_size = v;
+        } else if (strcmp(key, "title_center") == 0) {
+            wm.title_center = atoi(val) != 0;
         }
     }
     fclose(f);
     fprintf(stderr, "kiwm: theme colors loaded from '%s'\n", path);
+
+    /* font= only takes effect once pango_text_init() (re-)builds its
+     * PangoFontDescription from it -- see load_decoration()'s caller in
+     * main.c, which calls that right after load_decoration() returns. */
 }
 
 /* _NET_WM_ICON: one CARDINAL array, potentially holding *several*
@@ -345,6 +357,9 @@ void load_decoration(void)
     wm.border_active_b = wm.border_inactive_b = wm.border_b;
     wm.radius_tl = wm.radius_tr = wm.radius_br = wm.radius_bl = 0;
     wm.round_maximized = false;
+    wm.title_font[0] = '\0';   /* empty -- pango_text_init() falls back to "sans-serif" */
+    wm.title_font_size = 12.5; /* the old hardcoded cairo_set_font_size() value */
+    wm.title_center = false;
     wm.hover_btn = -1;
 
     load_bg_theme();
@@ -726,8 +741,14 @@ void draw_decoration(Client *c)
             /* Pango handles both missing-glyph fallback (any script, not
              * just whatever the toy font API's single face covers) and
              * ellipsizing to the slot's width on its own -- see
-             * pango_text.c's file comment. */
-            pango_show_text_boxed(cr, s->x + 8.0, 0, TITLEBAR_H, s->width - 8.0, 12.5, c->title, NULL);
+             * pango_text.c's file comment. Centered (title_center=) uses
+             * the slot's full width with no left pad, since Pango's own
+             * alignment already balances the space on both sides. */
+            if (wm.title_center)
+                pango_show_text_boxed(cr, s->x, 0, TITLEBAR_H, s->width, wm.title_font_size, c->title, true, NULL);
+            else
+                pango_show_text_boxed(cr, s->x + 8.0, 0, TITLEBAR_H, s->width - 8.0, wm.title_font_size, c->title,
+                                      false, NULL);
             break;
         }
         case DECO_ICON:

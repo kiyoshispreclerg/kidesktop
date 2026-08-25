@@ -317,6 +317,19 @@ typedef struct {
      * client_fills_output(), not configurable on purpose. */
     bool round_maximized;
 
+    /* Title text (theme's colors file, font=/font_size=/title_center=).
+     * font names a Fontconfig family ("sans-serif" default, same as with
+     * no theme at all); font_size is in pixels (12.5 default, the old
+     * hardcoded cairo_set_font_size() value); title_center draws the title
+     * centered within its slot instead of left-aligned with an 8px pad.
+     * The title element is always the greedy one anyway (compute_deco_
+     * layout gives it whatever width is left over), so centering it needs
+     * no separate spacer element -- just where pango_show_text_boxed()
+     * places the text inside that width. */
+    char title_font[128];
+    double title_font_size;
+    bool title_center;
+
     bool have_theme_colors;
     double bg_active_r, bg_active_g, bg_active_b;
     double bg_inactive_r, bg_inactive_g, bg_inactive_b;

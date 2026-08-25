@@ -184,6 +184,21 @@ these, all optional and independent -- a theme missing some files just falls bac
   itself would just
   show the desktop background poking through.
 
+  Three more keys control the title text, rendered via Pango (per-glyph font fallback, so titles
+  in scripts the default font doesn't cover -- CJK, Cyrillic, Arabic, etc. -- still show up instead
+  of leaving blank gaps, plus proper `...` ellipsizing instead of a hard clip):
+  ```
+  font=sans-serif
+  font_size=12.5
+  title_center=0
+  ```
+  `font=` is any Fontconfig family name; `font_size=` is in pixels. Both default to the values
+  above (kiwm's original hardcoded look) if left out or no `colors` file exists. `title_center=`
+  (default `0`) centers the title within its slot instead of left-aligned with an 8px pad -- the
+  title element is always the greedy one in `titlebar_layout=` (it soaks up whatever width isn't
+  used by the other elements), so this is just a text alignment choice, no separate spacer element
+  needed either way.
+
 ### Mouse and keyboard reference
 
 With the defaults (`mod_cycle=alt`, `mod_control=meta`):
