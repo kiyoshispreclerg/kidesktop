@@ -8,9 +8,19 @@ first.** It documents the exact argv contract the `xispanel` widget side
 already implements and ships with -- xisserve's own argument parsing
 must match it, not the other way around.
 
-**Status: skeleton only.** `xisserve.c` currently just opens a blank GTK2
-window to confirm the toolchain works -- no search, no `.desktop`
-parsing, no positioning logic yet.
+## Status
+
+Implemented: argv-driven positioning/theming, flock singleton with a
+control-socket relay for reposition+retheme+toggle on a second
+invocation, quits itself if the xispanel that launched it dies, a
+categories pane (left) + results pane (right) split that collapses to a
+flat full-width search across every app while typing, favorites
+(right-click a result), icons (app icons plus a plugin's own), and a
+footer of confirm-before-running power actions (shutdown/reboot/
+suspend/logout/switch-user/lock), each shown only if its backend is
+actually installed.
+
+Not yet implemented: an icon-grid layout (list-only for now).
 
 ## Why a separate process
 
@@ -20,31 +30,61 @@ popup with icon-grid/list results is GTK-shaped UI work that doesn't fit
 `launcher` widget (`../xispanel/widgets/launcher.c`) stays a simple
 pin-a-shortcut icon; `xisserve` is where full application search lives.
 
-## Planned scope
+## Positioning
 
-- Krunner-style popup: type to search installed applications
-  (`.desktop` parsing across `$XDG_DATA_DIRS` +
-  `~/.local/share/applications`).
-- Eventually, something in the spirit of Ubuntu Unity's HUD -- searching
-  *actions within the currently focused app*, not just launching new
-  ones. The user's existing `krunner_appmenu.py` script (a working
-  KRunner plugin reading a focused Qt/KF5 window's exported menu via
-  `_KDE_NET_WM_APPMENU_SERVICE_NAME`/`_OBJECT_PATH` and matching DBusMenu
-  entries against the query) is the reference for that half --
-  `xispanel`'s own `globalmenu` widget and `dbusmenu.c` already do the
-  DBus side of that lookup in C, so this should reuse it rather than
-  reimplementing.
-- Positioning: `xispanel`'s `xisserve` widget
-  (`../xispanel/widgets/xisserve.c`, already implemented) invokes
-  `xisserve` with its own on-screen anchor coordinates, panel edge/
-  output geometry, and theme (colors/font) as argv flags, not
-  embedding/reparenting -- reparenting would make `xispanel` an
-  XEmbed-style host for a second toolkit, real complexity for something
-  that's a floating popup on top of everything anyway, not literally
-  inside the panel bar. **See `PROTOCOL.md` for the exact flag set and
-  the singleton/toggle behavior xisserve is expected to implement** --
-  the widget side of this contract already ships and won't change just
-  because xisserve's own argument parsing does.
+`xispanel`'s `xisserve` widget (`../xispanel/widgets/xisserve.c`)
+invokes `xisserve` with its own on-screen anchor coordinates, panel
+edge/output geometry, and theme (colors/font) as argv flags, not
+embedding/reparenting -- reparenting would make `xispanel` an
+XEmbed-style host for a second toolkit, real complexity for something
+that's a floating popup on top of everything anyway, not literally
+inside the panel bar. **See `PROTOCOL.md` for the exact flag set and the
+singleton/toggle behavior xisserve implements.**
+
+## Search plugins
+
+Typing in the search box searches every installed app by name *and*
+runs every enabled plugin against the same query -- a plugin is just a
+function (see `xisserve.h`'s `SearchPluginFn`) that gets the query text
+and can append its own results, each with its own icon, subtitle
+("which plugin"), and click/Enter action. Plugin sources live under
+`plugins/`:
+
+- **terminal** (`plugins/terminal.c`) -- if the query's first word
+  resolves via `$PATH`, offers "Executar: `<query>`", running it in the
+  session's terminal (left open afterwards so a one-off command's output
+  doesn't just flash and vanish).
+- **globalmenu** (`plugins/globalmenu.c` + `plugins/dbusmenu.c`) -- finds
+  the active window's exported application menu (same
+  `_KDE_NET_WM_APPMENU_SERVICE_NAME`/`_OBJECT_PATH` mechanism
+  `xispanel`'s own `globalmenu` widget uses) and matches every item's
+  label against the query, across every submenu depth at once --
+  Ubuntu Unity HUD-style ("export" finds Gimp's File > Export As...
+  directly, no need to know which submenu it's under). Activating a
+  result sends that item's own DBusMenu event, same as clicking it for
+  real. Needs `libdbus-1-dev` at build time (falls back to a no-op stub
+  otherwise, see the Makefile's `HAVE_DBUS` block) and a session bus at
+  runtime.
+
+Any plugin can be disabled via `$XDG_CONFIG_HOME/xisserve.conf` (falls
+back to `~/.config/xisserve.conf`), one line per plugin to turn off:
+
+```
+PLUGIN	terminal	no
+```
+
+(fields are tab-separated, matching `xisback.conf`'s own line shape).
+Every plugin not mentioned stays enabled, so a fresh install needs no
+config file at all. Reloaded on every open, so an edit takes effect on
+the next toggle without restarting the daemon.
+
+## Icons
+
+Both app icons (`.desktop` `Icon=`, resolved via `GtkIconTheme` for a
+themed name or loaded directly for an absolute path) and a plugin's own
+per-result icon are resolved through `xisserve_resolve_icon()`
+(`xisserve.h`), cached process-wide by icon spec so repeat lookups
+(every rescan, every keystroke) are cheap.
 
 ## Open question: matching the system theme
 
@@ -58,4 +98,5 @@ make
 ./xisserve
 ```
 
-Needs `gtk+-2.0` (`pkg-config --exists gtk+-2.0`).
+Needs `gtk+-2.0` and `x11` (`pkg-config --exists gtk+-2.0 x11`).
+`libdbus-1-dev` is optional (see "Search plugins" above).

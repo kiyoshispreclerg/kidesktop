@@ -22,6 +22,8 @@
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
 
+#include "xisserve.h"
+
 #include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -43,11 +45,13 @@
 #define WIN_HEIGHT 460
 #define CAT_PANE_WIDTH 140
 
-/* Results list (right pane): one markup column doubles as name+subtitle
- * (small category/plugin label under the name), COL_ENTRY is the
- * backing ResultEntry* -- used to launch on click/Enter and to resolve
- * "Adicionar/Remover Favorito" on right-click. */
-enum { VCOL_MARKUP = 0, VCOL_ENTRY, N_VCOLS };
+/* Results list (right pane): VCOL_ICON+VCOL_MARKUP render one row
+ * (icon, then name+subtitle -- small category/plugin label under the
+ * name), VCOL_ENTRY is the backing ResultEntry* -- used to launch on
+ * click/Enter and to resolve "Adicionar/Remover Favorito" on
+ * right-click. ResultEntry itself is defined in xisserve.h -- plugins
+ * build it directly. */
+enum { VCOL_ICON = 0, VCOL_MARKUP, VCOL_ENTRY, N_VCOLS };
 
 /* Category list (left pane): "favorites" and "all" are synthetic,
  * xisserve-only categories (see build_category_store()); everything
@@ -63,20 +67,6 @@ typedef struct {
     char font[128];
     int font_size;
 } LaunchArgs;
-
-/* One result row, real (from_desktop=TRUE, backed by a scanned .desktop
- * file, persists in g_apps across searches) or plugin-synthetic
- * (from_desktop=FALSE, lives only in g_plugin_results, rebuilt on every
- * search -- see plugin_search() and rebuild_results()). */
-typedef struct {
-    char id[160];        /* .desktop basename ("firefox.desktop"); "" for plugin results */
-    char name[256];
-    char exec[1300];
-    char category_key[32];  /* bucket key, e.g. "Development"; "" for plugin results */
-    char subtitle[128];      /* small text shown under the name: category label or plugin name */
-    gboolean is_favorite;
-    gboolean from_desktop;
-} ResultEntry;
 
 static LaunchArgs g_args;
 static GtkWidget *g_window;
@@ -294,8 +284,9 @@ static int open_listen_socket(const char *sockpath)
 /* ---- app launching ----------------------------------------------------- */
 
 /* Same fork+setsid+execl-via-sh-c pattern xispanel.c's run_detached()
- * uses -- duplicated here since xisserve is a standalone binary. */
-static void run_detached(const char *cmd)
+ * uses -- duplicated here since xisserve is a standalone binary.
+ * Exported (see xisserve.h) so plugins can launch things too. */
+void run_detached(const char *cmd)
 {
     if (!cmd || !cmd[0]) return;
     pid_t pid = fork();
@@ -311,8 +302,9 @@ static void run_detached(const char *cmd)
 }
 
 /* Same single-quote shell-escaping helper folder.c/xisserve widget.c
- * duplicate locally rather than share, per existing repo convention. */
-static void shell_quote(const char *in, char *out, size_t outsz)
+ * duplicate locally rather than share, per existing repo convention.
+ * Exported (see xisserve.h) for plugins that build their own commands. */
+void shell_quote(const char *in, char *out, size_t outsz)
 {
     size_t o = 0;
     if (o + 1 < outsz) out[o++] = '\'';
@@ -335,8 +327,10 @@ static void shell_quote(const char *in, char *out, size_t outsz)
  * execvp a program literally named e.g. "ls -la". Routing it through
  * `sh -c <quoted-cmd>` instead makes the shell -- not the terminal --
  * responsible for splitting/interpreting it, which works for both a
- * bare "htop" and a full "ls -la; echo done". */
-static void build_terminal_exec(const char *cmd, char *out, size_t outsz)
+ * bare "htop" and a full "ls -la; echo done". Exported (see xisserve.h)
+ * for plugins that want to launch something in a terminal too (see
+ * plugins/terminal.c). */
+void build_terminal_exec(const char *cmd, char *out, size_t outsz)
 {
     char q[600];
     shell_quote(cmd, q, sizeof(q));
@@ -362,6 +356,52 @@ static void strip_exec_field_codes(const char *in, char *out, size_t outsz)
         out[o++] = *p;
     }
     out[o] = 0;
+}
+
+/* ---- icons -------------------------------------------------------------- */
+
+static void hex_to_rgba(const char *hex, double *r, double *g, double *b, double *a); /* defined below, theming section */
+
+/* spec -> resolved GdkPixbuf* (or the NULL "nothing resolves this"
+ * result), keyed exactly as passed to xisserve_resolve_icon(). g_hash_
+ * table_lookup_extended() (not a plain lookup()) is what lets a cached
+ * NULL be told apart from "not in the cache yet" without a sentinel. */
+static GHashTable *g_icon_cache;
+
+GdkPixbuf *xisserve_resolve_icon(const char *spec, int size)
+{
+    if (!spec || !spec[0]) return NULL;
+    if (!g_icon_cache) g_icon_cache = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+
+    gpointer cached = NULL;
+    if (g_hash_table_lookup_extended(g_icon_cache, spec, NULL, &cached)) {
+        return cached ? GDK_PIXBUF(g_object_ref(cached)) : NULL;
+    }
+
+    GdkPixbuf *pixbuf = NULL;
+    if (spec[0] == '/') {
+        pixbuf = gdk_pixbuf_new_from_file_at_size(spec, size, size, NULL);
+    } else {
+        pixbuf = gtk_icon_theme_load_icon(gtk_icon_theme_get_default(), spec, size, GTK_ICON_LOOKUP_FORCE_SIZE, NULL);
+    }
+    /* The cache keeps its own reference (or NULL); every caller,
+     * including this first one, gets back a fresh ref it owns. */
+    g_hash_table_insert(g_icon_cache, g_strdup(spec), pixbuf);
+    return pixbuf ? g_object_ref(pixbuf) : NULL;
+}
+
+void xisserve_get_fg_rgba(double *r, double *g, double *b, double *a)
+{
+    hex_to_rgba(g_args.fg, r, g, b, a);
+}
+
+/* The only correct way to free a ResultEntry -- see xisserve.h. */
+void result_entry_free(ResultEntry *e)
+{
+    if (!e) return;
+    if (e->icon) g_object_unref(e->icon);
+    if (e->activate_data && e->activate_data_free) e->activate_data_free(e->activate_data);
+    g_free(e);
 }
 
 /* ---- categories ------------------------------------------------------- */
@@ -504,6 +544,84 @@ static void toggle_favorite(const char *id)
     save_favorites();
 }
 
+/* ---- plugin config -------------------------------------------------------- */
+
+/* SearchPluginFn itself, ResultEntry, and every helper a plugin needs
+ * are declared in xisserve.h -- see plugins/terminal.c and
+ * plugins/globalmenu.c. Adding a new plugin is: write plugins/<name>.c
+ * defining one function matching SearchPluginFn, declare it in
+ * xisserve.h, add one line here (its config name plus its function),
+ * and one line to the Makefile's SRCS. */
+typedef struct {
+    const char *name;
+    SearchPluginFn search;
+} SearchPlugin;
+
+static const SearchPlugin kSearchPlugins[] = {
+    {"terminal", plugin_terminal_search},
+    {"globalmenu", plugin_globalmenu_search},
+};
+#define N_SEARCH_PLUGINS ((int)(sizeof(kSearchPlugins) / sizeof(kSearchPlugins[0])))
+
+static gboolean g_plugin_enabled[N_SEARCH_PLUGINS];
+
+/* Same flat "$XDG_CONFIG_HOME (or ~/.config)/xisserve.conf" naming
+ * xisserve-favorites.conf/xisback.conf use. */
+static void config_path(char *out, size_t outsz)
+{
+    const char *xdg_config = getenv("XDG_CONFIG_HOME");
+    if (xdg_config && *xdg_config) {
+        mkdir(xdg_config, 0700);
+        snprintf(out, outsz, "%s/xisserve.conf", xdg_config);
+        return;
+    }
+    const char *home = getenv("HOME");
+    char configdir[PATH_MAX];
+    snprintf(configdir, sizeof(configdir), "%s/.config", home ? home : "");
+    mkdir(configdir, 0700);
+    snprintf(out, outsz, "%s/xisserve.conf", configdir);
+}
+
+/* Every plugin defaults to enabled -- a fresh install needs no config
+ * file at all to get all of them. Same tab-delimited "KEYWORD\tfield..."
+ * line shape xisback.conf's own LAYER lines use: one line per plugin to
+ * disable, "PLUGIN\t<name>\tno" (kSearchPlugins' own name field is what
+ * <name> matches against). Reloaded on every rescan_apps(), same as
+ * favorites, so editing the file takes effect on the next open without
+ * needing to restart the daemon. */
+static void load_plugin_config(void)
+{
+    for (int i = 0; i < N_SEARCH_PLUGINS; i++) g_plugin_enabled[i] = TRUE;
+
+    char path[PATH_MAX];
+    config_path(path, sizeof(path));
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        size_t l = strlen(line);
+        while (l > 0 && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = 0;
+        char *fields[3];
+        int nf = 0;
+        char *p = line;
+        fields[nf++] = p;
+        while (nf < 3 && (p = strchr(p, '\t'))) {
+            *p = 0;
+            p++;
+            fields[nf++] = p;
+        }
+        if (nf != 3 || strcmp(fields[0], "PLUGIN") != 0) continue;
+        for (int i = 0; i < N_SEARCH_PLUGINS; i++) {
+            if (strcmp(kSearchPlugins[i].name, fields[1]) == 0) {
+                g_plugin_enabled[i] = strcasecmp(fields[2], "no") != 0;
+                break;
+            }
+        }
+    }
+    fclose(f);
+}
+
 /* ---- .desktop scanning ---------------------------------------------------- */
 
 static void parse_desktop_file(const char *path, const char *basename, GPtrArray *apps)
@@ -515,6 +633,7 @@ static void parse_desktop_file(const char *path, const char *basename, GPtrArray
     char exec_raw[1024] = "";
     char try_exec[512] = "";
     char categories_raw[512] = "";
+    char icon_raw[256] = "";
     int is_application = 1;
     int no_display = 0;
     int hidden = 0;
@@ -551,6 +670,7 @@ static void parse_desktop_file(const char *path, const char *basename, GPtrArray
         else if (strcmp(key, "Terminal") == 0) terminal = (strcasecmp(val, "true") == 0);
         else if (strcmp(key, "TryExec") == 0) snprintf(try_exec, sizeof(try_exec), "%s", val);
         else if (strcmp(key, "Categories") == 0) snprintf(categories_raw, sizeof(categories_raw), "%s", val);
+        else if (strcmp(key, "Icon") == 0) snprintf(icon_raw, sizeof(icon_raw), "%s", val);
     }
     fclose(f);
 
@@ -576,6 +696,7 @@ static void parse_desktop_file(const char *path, const char *basename, GPtrArray
     snprintf(e->subtitle, sizeof(e->subtitle), "%s", category_label_for_key(e->category_key));
     e->is_favorite = g_hash_table_contains(g_favorites, e->id);
     e->from_desktop = TRUE;
+    if (icon_raw[0]) e->icon = xisserve_resolve_icon(icon_raw, XISSERVE_ICON_PX);
 
     g_ptr_array_add(apps, e);
 }
@@ -649,11 +770,12 @@ static void build_category_store(void)
 static void rescan_apps(void)
 {
     if (g_apps) {
-        for (guint i = 0; i < g_apps->len; i++) g_free(g_ptr_array_index(g_apps, i));
+        for (guint i = 0; i < g_apps->len; i++) result_entry_free(g_ptr_array_index(g_apps, i));
         g_ptr_array_free(g_apps, TRUE);
     }
     g_apps = g_ptr_array_new();
     load_favorites();
+    load_plugin_config();
 
     GHashTable *seen = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
 
@@ -689,7 +811,10 @@ static void launch_iter(GtkTreeModel *model, GtkTreeIter *iter)
 {
     ResultEntry *e = NULL;
     gtk_tree_model_get(model, iter, VCOL_ENTRY, &e, -1);
-    if (e && e->exec[0]) run_detached(e->exec);
+    if (e) {
+        if (e->activate_fn) e->activate_fn(e);
+        else if (e->exec[0]) run_detached(e->exec);
+    }
     hide_launcher();
 }
 
@@ -821,44 +946,8 @@ static void hide_launcher(void)
 
 /* ---- search plugins ------------------------------------------------------- */
 
-/* A plugin gets the current (non-empty) query text and appends whatever
- * synthetic ResultEntry* it wants to g_plugin_results (ownership passes
- * to the caller, which owns/frees the whole array -- see
- * rebuild_results()). New plugins are just another entry in
- * kSearchPlugins below plus a search() function; nothing else in the
- * search path needs to change. */
-typedef void (*SearchPluginFn)(const char *query);
-
-/* If query's first word resolves via $PATH, offers "run it in a
- * terminal" as a result -- the terminal is left open afterwards (`;
- * exec $SHELL`) so one-off commands don't just flash and vanish. */
-static void plugin_terminal_search(const char *query)
-{
-    char first_word[256] = "";
-    sscanf(query, "%255s", first_word);
-    if (!first_word[0]) return;
-    gchar *found = g_find_program_in_path(first_word);
-    if (!found) return;
-    g_free(found);
-
-    ResultEntry *e = g_new0(ResultEntry, 1);
-    snprintf(e->name, sizeof(e->name), "Executar: %s", query);
-    char with_shell[1024];
-    snprintf(with_shell, sizeof(with_shell), "%s; exec \"${SHELL:-/bin/sh}\"", query);
-    build_terminal_exec(with_shell, e->exec, sizeof(e->exec));
-    snprintf(e->subtitle, sizeof(e->subtitle), "Terminal");
-    e->from_desktop = FALSE;
-    g_ptr_array_add(g_plugin_results, e);
-}
-
-typedef struct {
-    SearchPluginFn search;
-} SearchPlugin;
-
-static const SearchPlugin kSearchPlugins[] = {
-    {plugin_terminal_search},
-};
-#define N_SEARCH_PLUGINS ((int)(sizeof(kSearchPlugins) / sizeof(kSearchPlugins[0])))
+/* kSearchPlugins/g_plugin_enabled/load_plugin_config() live earlier,
+ * right after favorites -- see that section's comment. */
 
 /* Builds a "Name\n<small>subtitle</small>" markup string for one
  * result row. */
@@ -877,7 +966,7 @@ static void append_result_row(GtkListStore *store, ResultEntry *e)
     gchar *markup = result_markup(e);
     GtkTreeIter it;
     gtk_list_store_append(store, &it);
-    gtk_list_store_set(store, &it, VCOL_MARKUP, markup, VCOL_ENTRY, e, -1);
+    gtk_list_store_set(store, &it, VCOL_ICON, e->icon, VCOL_MARKUP, markup, VCOL_ENTRY, e, -1);
     g_free(markup);
 }
 
@@ -894,7 +983,7 @@ static void rebuild_results(void)
 
     gtk_list_store_clear(g_view_store);
 
-    for (guint i = 0; i < g_plugin_results->len; i++) g_free(g_ptr_array_index(g_plugin_results, i));
+    for (guint i = 0; i < g_plugin_results->len; i++) result_entry_free(g_ptr_array_index(g_plugin_results, i));
     g_ptr_array_set_size(g_plugin_results, 0);
 
     if (searching) {
@@ -907,7 +996,9 @@ static void rebuild_results(void)
             g_free(nl);
         }
         g_free(ql);
-        for (int i = 0; i < N_SEARCH_PLUGINS; i++) kSearchPlugins[i].search(query);
+        for (int i = 0; i < N_SEARCH_PLUGINS; i++) {
+            if (g_plugin_enabled[i]) kSearchPlugins[i].search(query, g_plugin_results);
+        }
         for (guint i = 0; i < g_plugin_results->len; i++) {
             append_result_row(g_view_store, g_ptr_array_index(g_plugin_results, i));
         }
@@ -1346,15 +1437,23 @@ static void build_ui(void)
     gtk_container_add(GTK_CONTAINER(g_cat_scroll), g_cat_treeview);
     gtk_box_pack_start(GTK_BOX(content), g_cat_scroll, FALSE, FALSE, 0);
 
-    /* Right pane: results. One markup column renders "Name" plus a
+    /* Right pane: results. One column packs an icon renderer (the app's
+     * own icon, or a plugin's -- see xisserve_resolve_icon()/
+     * ResultEntry::icon) beside a markup renderer for "Name" plus a
      * smaller subtitle line (category, or the plugin name for a
      * plugin-synthetic row) -- see result_markup(). */
-    g_view_store = gtk_list_store_new(N_VCOLS, G_TYPE_STRING, G_TYPE_POINTER);
+    g_view_store = gtk_list_store_new(N_VCOLS, GDK_TYPE_PIXBUF, G_TYPE_STRING, G_TYPE_POINTER);
 
     g_treeview = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_view_store));
     gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(g_treeview), FALSE);
+    GtkTreeViewColumn *col = gtk_tree_view_column_new();
+    GtkCellRenderer *icon_rend = gtk_cell_renderer_pixbuf_new();
+    gtk_tree_view_column_pack_start(col, icon_rend, FALSE);
+    gtk_tree_view_column_add_attribute(col, icon_rend, "pixbuf", VCOL_ICON);
     GtkCellRenderer *rend = gtk_cell_renderer_text_new();
-    GtkTreeViewColumn *col = gtk_tree_view_column_new_with_attributes("Programa", rend, "markup", VCOL_MARKUP, NULL);
+    gtk_tree_view_column_pack_start(col, rend, TRUE);
+    gtk_tree_view_column_add_attribute(col, rend, "markup", VCOL_MARKUP);
+    gtk_tree_view_column_set_title(col, "Programa");
     gtk_tree_view_append_column(GTK_TREE_VIEW(g_treeview), col);
     g_signal_connect(g_treeview, "button-press-event", G_CALLBACK(on_tree_button_press), NULL);
 
