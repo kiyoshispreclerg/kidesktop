@@ -1,6 +1,6 @@
 CFLAGS ?= -Wall -Wextra -O2
 
-PKGS := xcb xcb-randr xcb-shape cairo cairo-xcb imlib2
+PKGS := xcb xcb-randr xcb-shape cairo cairo-xcb imlib2 pango pangocairo
 
 CPPFLAGS := $(shell pkg-config --cflags $(PKGS))
 LDLIBS := $(shell pkg-config --libs $(PKGS)) -lm
@@ -8,7 +8,7 @@ LDLIBS := $(shell pkg-config --libs $(PKGS)) -lm
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 
-SRCS := main.c config.c atoms.c output.c decoration.c ewmh.c client.c events.c selection.c
+SRCS := main.c config.c atoms.c output.c decoration.c pango_text.c ewmh.c client.c events.c selection.c
 OBJS := $(SRCS:.c=.o)
 HDRS := $(wildcard *.h)
 

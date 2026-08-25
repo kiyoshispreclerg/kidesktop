@@ -261,6 +261,66 @@ static void ewmh_set_workarea(void)
                         (uint32_t)(wm.num_desktops * 4), area);
 }
 
+/* This output's current mode's refresh rate in Hz, for pacing move/resize
+ * drag redraws to the actual display instead of an arbitrary fixed rate
+ * (see events.c's handle_motion(), DRAG_REDRAW_INTERVAL_MS's replacement).
+ * `output_id` is one of an RandR monitor's backing xcb_randr_output_t's
+ * (see outputs_refresh() below) -- picks that output's CRTC, then that
+ * CRTC's current mode, then computes refresh = dot_clock / (htotal *
+ * vtotal), adjusted for interlace/doublescan same as every other RandR
+ * refresh-rate reader (xrandr itself included). Falls back to 60.0 if
+ * anything along the way is missing or looks like garbage (variable-
+ * refresh/adaptive-sync panels can report a "current" mode that doesn't
+ * mean much as a single fixed number; a 1..500Hz sanity clamp guards
+ * against reading that as some absurd throttle interval). */
+static double compute_output_refresh_hz(xcb_randr_output_t output_id)
+{
+    double hz = 60.0;
+
+    xcb_randr_get_screen_resources_current_reply_t *res = xcb_randr_get_screen_resources_current_reply(
+        wm.conn, xcb_randr_get_screen_resources_current(wm.conn, wm.root), NULL);
+    if (!res)
+        return hz;
+
+    xcb_randr_get_output_info_reply_t *oinfo = xcb_randr_get_output_info_reply(wm.conn,
+        xcb_randr_get_output_info(wm.conn, output_id, res->config_timestamp), NULL);
+    if (!oinfo || oinfo->crtc == XCB_NONE) {
+        free(oinfo);
+        free(res);
+        return hz;
+    }
+
+    xcb_randr_get_crtc_info_reply_t *cinfo = xcb_randr_get_crtc_info_reply(wm.conn,
+        xcb_randr_get_crtc_info(wm.conn, oinfo->crtc, res->config_timestamp), NULL);
+    free(oinfo);
+    if (!cinfo || cinfo->mode == XCB_NONE) {
+        free(cinfo);
+        free(res);
+        return hz;
+    }
+
+    xcb_randr_mode_info_t *modes = xcb_randr_get_screen_resources_current_modes(res);
+    int nmodes = xcb_randr_get_screen_resources_current_modes_length(res);
+    for (int i = 0; i < nmodes; i++) {
+        if (modes[i].id != cinfo->mode)
+            continue;
+        double vtotal = modes[i].vtotal;
+        if (modes[i].mode_flags & XCB_RANDR_MODE_FLAG_DOUBLE_SCAN)
+            vtotal *= 2;
+        if (modes[i].mode_flags & XCB_RANDR_MODE_FLAG_INTERLACE)
+            vtotal /= 2;
+        if (modes[i].htotal > 0 && vtotal > 0)
+            hz = (double)modes[i].dot_clock / ((double)modes[i].htotal * vtotal);
+        break;
+    }
+
+    free(cinfo);
+    free(res);
+    if (hz < 1.0 || hz > 500.0)
+        hz = 60.0;
+    return hz;
+}
+
 void outputs_refresh(void)
 {
     /* wm.screen (cached at xcb_connect time) never reflects RandR changes
@@ -306,6 +366,13 @@ void outputs_refresh(void)
             o->height = m->height;
             o->primary = m->primary;
             o->desktop = 0;
+            o->refresh_hz = 60.0;
+
+            int noutputs = xcb_randr_monitor_info_outputs_length(m);
+            if (noutputs > 0) {
+                xcb_randr_output_t *backing = xcb_randr_monitor_info_outputs(m);
+                o->refresh_hz = compute_output_refresh_hz(backing[0]);
+            }
 
             for (int i = 0; i < wm.output_count; i++) {
                 if (strcmp(wm.outputs[i].name, o->name) == 0) {
@@ -326,6 +393,7 @@ void outputs_refresh(void)
         fresh[0].height = wm.screen->height_in_pixels;
         fresh[0].primary = true;
         fresh[0].desktop = wm.output_count > 0 ? wm.outputs[0].desktop : 0;
+        fresh[0].refresh_hz = 60.0;
     }
 
     memcpy(wm.outputs, fresh, sizeof(XisOutput) * (size_t)n);

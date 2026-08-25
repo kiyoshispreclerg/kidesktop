@@ -36,4 +36,11 @@ void load_client_icon(Client *c);
  * XCB SHAPE extension. */
 void apply_rounded_shape(Client *c);
 
+/* Pango-backed title text drawing (pango_text.c) -- see that file's
+ * comment. Call pango_text_init() once at startup (main.c's setup_wm()),
+ * before the first draw_decoration(). */
+void pango_text_init(const char *family);
+void pango_show_text_boxed(cairo_t *cr, double x, double top_y, double box_h, double max_width_px, double size_px,
+                            const char *text, double *out_w);
+
 #endif /* KIWM_DECORATION_H */

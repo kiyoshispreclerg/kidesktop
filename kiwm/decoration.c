@@ -344,7 +344,7 @@ void load_decoration(void)
     wm.border_active_g = wm.border_inactive_g = wm.border_g;
     wm.border_active_b = wm.border_inactive_b = wm.border_b;
     wm.radius_tl = wm.radius_tr = wm.radius_br = wm.radius_bl = 0;
-    wm.round_maximized = true;
+    wm.round_maximized = false;
     wm.hover_btn = -1;
 
     load_bg_theme();
@@ -651,6 +651,8 @@ void draw_decoration(Client *c)
         return;
 
     bool focused = (c == wm.focused);
+    bool dbg = wm.debug_resize && wm.drag_mode == DRAG_RESIZE;
+    double t_start = dbg ? monotonic_ms() : 0;
 
     /* Render into an off-screen pixmap, not the frame directly: every
      * paint call below (background, focus tint, title text, each button)
@@ -661,6 +663,7 @@ void draw_decoration(Client *c)
      * the whole update atomic from the X server's point of view. */
     xcb_pixmap_t pixmap = xcb_generate_id(wm.conn);
     xcb_create_pixmap(wm.conn, wm.screen->root_depth, pixmap, c->frame, (uint16_t)w, (uint16_t)h);
+    double t_pixmap = dbg ? monotonic_ms() : 0;
 
     cairo_surface_t *surface = cairo_xcb_surface_create(wm.conn, pixmap, wm.visual, w, h);
     cairo_t *cr = cairo_create(surface);
@@ -701,9 +704,6 @@ void draw_decoration(Client *c)
     }
     cairo_paint(cr);
 
-    cairo_select_font_face(cr, "sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
-    cairo_set_font_size(cr, 12.5);
-
     DecoSlot slots[MAX_DECO_ELEMS];
     int nslots = compute_deco_layout(w, slots, MAX_DECO_ELEMS);
 
@@ -723,15 +723,11 @@ void draw_decoration(Client *c)
             else
                 cairo_set_source_rgb(cr, wm.fg_inactive_r, wm.fg_inactive_g, wm.fg_inactive_b);
 
-            cairo_text_extents_t ext;
-            cairo_text_extents(cr, c->title, &ext);
-            double title_y = (TITLEBAR_H - ext.height) / 2.0 - ext.y_bearing;
-            cairo_save(cr);
-            cairo_rectangle(cr, s->x, 0, s->width, TITLEBAR_H);
-            cairo_clip(cr);
-            cairo_move_to(cr, s->x + 8.0, title_y);
-            cairo_show_text(cr, c->title);
-            cairo_restore(cr);
+            /* Pango handles both missing-glyph fallback (any script, not
+             * just whatever the toy font API's single face covers) and
+             * ellipsizing to the slot's width on its own -- see
+             * pango_text.c's file comment. */
+            pango_show_text_boxed(cr, s->x + 8.0, 0, TITLEBAR_H, s->width - 8.0, 12.5, c->title, NULL);
             break;
         }
         case DECO_ICON:
@@ -787,10 +783,21 @@ void draw_decoration(Client *c)
         cairo_fill(cr);
     }
 
+    double t_paint = dbg ? monotonic_ms() : 0;
+
     cairo_destroy(cr);
     cairo_surface_flush(surface);
     cairo_surface_destroy(surface);
+    double t_flush = dbg ? monotonic_ms() : 0;
 
     xcb_copy_area(wm.conn, pixmap, c->frame, wm.deco_gc, 0, 0, 0, 0, (uint16_t)w, (uint16_t)h);
     xcb_free_pixmap(wm.conn, pixmap);
+
+    if (dbg) {
+        double t_end = monotonic_ms();
+        fprintf(stderr, "kiwm: [resize-debug] draw_decoration: create_pixmap=%.2fms paint=%.2fms "
+                        "cairo_flush=%.2fms copy_area=%.2fms total=%.2fms\n",
+                t_pixmap - t_start, t_paint - t_pixmap, t_flush - t_paint, t_end - t_flush,
+                t_end - t_start);
+    }
 }

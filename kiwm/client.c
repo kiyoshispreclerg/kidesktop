@@ -6,6 +6,7 @@
 #include "decoration.h"
 #include "ewmh.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -123,6 +124,14 @@ static void send_synthetic_configure(Client *c, int bt, int th)
 
 void configure_frame(Client *c)
 {
+    /* Fine-grained breakdown under wm.debug_resize (KIWM_DEBUG_RESIZE=1),
+     * gated to the resize drag specifically (per-motion-event cost during
+     * a plain move is rarely the complaint) -- see main.c's event loop
+     * for the coarser "whole handle_event() took Xms" number this
+     * complements. */
+    bool dbg = wm.debug_resize && wm.drag_mode == DRAG_RESIZE;
+    double t_start = dbg ? monotonic_ms() : 0;
+
     int bt, th;
     deco_insets(c, &bt, &th);
 
@@ -139,15 +148,29 @@ void configure_frame(Client *c)
     xcb_configure_window(wm.conn, c->frame,
                          XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
                          XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, fv);
+    double t_configure = dbg ? monotonic_ms() : 0;
+
     apply_rounded_shape(c);
+    double t_shape = dbg ? monotonic_ms() : 0;
 
     uint32_t cv[] = { (uint32_t)bt, (uint32_t)th, (uint32_t)c->width, (uint32_t)c->height };
     xcb_configure_window(wm.conn, c->window,
                          XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
                          XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, cv);
+    double t_configure2 = dbg ? monotonic_ms() : 0;
 
     draw_decoration(c);
+    double t_deco = dbg ? monotonic_ms() : 0;
+
     send_synthetic_configure(c, bt, th);
+
+    if (dbg) {
+        double t_end = monotonic_ms();
+        fprintf(stderr, "kiwm: [resize-debug] configure_frame: frame_cw=%.2fms shape=%.2fms "
+                        "content_cw=%.2fms draw_decoration=%.2fms synth_cfg=%.2fms total=%.2fms\n",
+                t_configure - t_start, t_shape - t_configure, t_configure2 - t_shape,
+                t_deco - t_configure2, t_end - t_deco, t_end - t_start);
+    }
 }
 
 void focus_client(Client *c)

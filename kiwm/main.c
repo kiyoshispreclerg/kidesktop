@@ -60,6 +60,7 @@
 #include <unistd.h>
 #include <poll.h>
 #include <fcntl.h>
+#include <time.h>
 
 KiWM wm;
 
@@ -74,6 +75,21 @@ KiWM wm;
  * and destroying a window recursively destroys its still-reparented
  * children too. See cleanup()'s doc comment. */
 static int g_sigpipe[2] = { -1, -1 };
+
+/* KIWM_DEBUG_RESIZE=1 (wm.debug_resize, checked once at startup): logs,
+ * per MotionNotify actually processed (i.e. after coalescing -- see the
+ * event loop below), how many consecutive queued MotionNotify events
+ * were dropped in favor of this one, and how long handle_event() itself
+ * took. events.c's handle_motion() further breaks that down into
+ * configure_window/draw_decoration/apply_rounded_shape/flush when this
+ * is on, for chasing exactly *where* resize/move responsiveness goes.
+ * Purely a diagnostic knob, no cost when off. */
+double monotonic_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
+}
 
 static void handle_term_signal(int sig)
 {
@@ -183,6 +199,12 @@ static void setup_wm(bool replace)
     xcb_create_gc(wm.conn, wm.deco_gc, wm.root, 0, NULL);
 
     load_decoration();
+
+    /* Pango title text rendering (pango_text.c) -- glyph fallback across
+     * scripts, so titles in languages the default font doesn't cover still
+     * show up instead of leaving blank gaps. Family is fixed for now (no
+     * theme/config knob yet); call once, before the first draw_decoration(). */
+    pango_text_init(NULL);
 
     /* RandR: outputs are the unit of presentation (section 4) even in a
      * WM without a compositor -- we still need it for per-output desktops. */
@@ -311,6 +333,8 @@ int main(int argc, char **argv)
     }
 
     memset(&wm, 0, sizeof(wm));
+    const char *dbg = getenv("KIWM_DEBUG_RESIZE");
+    wm.debug_resize = dbg && strcmp(dbg, "0") != 0;
     wm.running = true;
 
     if (pipe(g_sigpipe) != 0)
@@ -349,16 +373,24 @@ int main(int argc, char **argv)
              * reflects the pointer's real current position, so drop every
              * earlier one in that run instead of doing full work for each
              * -- standard X11 WM technique for this. */
+            int coalesced = 0;
             while ((event->response_type & ~0x80) == XCB_MOTION_NOTIFY) {
                 xcb_generic_event_t *next = xcb_poll_for_event(wm.conn);
                 if (!next || (next->response_type & ~0x80) != XCB_MOTION_NOTIFY) {
+                    double t0 = wm.debug_resize ? monotonic_ms() : 0;
                     handle_event(event);
+                    if (wm.debug_resize) {
+                        double dt = monotonic_ms() - t0;
+                        fprintf(stderr, "kiwm: [resize-debug] motion: coalesced=%d handle_event=%.2fms\n",
+                                coalesced, dt);
+                    }
                     free(event);
                     event = next;
                     break;
                 }
                 free(event);
                 event = next;
+                coalesced++;
             }
             if (!event)
                 break;

@@ -66,6 +66,25 @@ typedef enum {
  * matches a typical desktop double-click speed closely enough. */
 #define DOUBLE_CLICK_MS   400
 
+/* Fallback cap (ms/frame) for how often a move/resize drag actually
+ * reconfigures+redraws+reshapes the window (events.c's handle_motion()),
+ * used only when the dragged client's output has no determinable refresh
+ * rate (see output.c's compute_output_refresh_hz()) -- normally the
+ * throttle paces to that output's *actual* Hz (1000.0 / refresh_hz)
+ * instead of this fixed number, so a 144Hz panel gets a shorter interval
+ * than a 60Hz one and neither wastes work redrawing faster than the
+ * screen can even show it. Confirmed via KIWM_DEBUG_RESIZE
+ * instrumentation that some input devices/drivers (touchpads with
+ * pointer smoothing especially) report *far* more MotionNotify events
+ * than are ever simultaneously queued -- coalescing (main.c's event
+ * loop) only helps when events genuinely back up, and does nothing when
+ * they arrive one at a time faster than the eye needs but not faster
+ * than kiwm can physically drain them; the fix for that case is a
+ * time-based cap, not a queue-based one. handle_button_release() forces
+ * one final apply unconditionally so the window is never left showing a
+ * stale, throttled size once the drag actually ends. */
+#define DRAG_REDRAW_FALLBACK_MS 16.0
+
 #define MOD_ALT           XCB_MOD_MASK_1
 #define MOD_ALT_SHIFT     (XCB_MOD_MASK_1 | XCB_MOD_MASK_SHIFT)
 #define MOD_META          XCB_MOD_MASK_4
@@ -89,6 +108,7 @@ typedef struct XisOutput {
     int x, y, width, height;
     bool primary;
     int desktop;            /* current virtual desktop for this output, 0..wm.num_desktops-1 */
+    double refresh_hz;      /* current mode's refresh rate, see output.c's compute_output_refresh_hz(); 60.0 if undeterminable */
 } XisOutput;
 
 /* Which screen edge (if any) a window is currently snapped to -- see
@@ -218,6 +238,7 @@ typedef struct {
     int randr_event_base;
     bool shape_ext_present;  /* XCB SHAPE extension, for rounded corners (see radius_tl etc). */
     xcb_gcontext_t deco_gc;  /* reused across every draw_decoration() call -- see decoration.c. */
+    bool debug_resize;       /* KIWM_DEBUG_RESIZE=1 -- see main.c's monotonic_ms(). */
 
     /* Live root window size, refreshed by output.c's outputs_refresh()
      * (via a fresh xcb_get_geometry() on wm.root) every time RandR reports
@@ -286,8 +307,10 @@ typedef struct {
      * stepped at small sizes) rounded corner with no compositor needed. */
     int radius_tl, radius_tr, radius_br, radius_bl;
     /* Whether a maximized window still gets those corners rounded (theme's
-     * colors file, round_maximized=, default 1/yes -- purely additive,
-     * matches the behavior before this option existed). A window that
+     * colors file, round_maximized=, default 0/no -- a maximized window
+     * touching the screen edges with rounded corners looks wrong, so this
+     * defaults to squaring it off, unlike border_radius itself which
+     * defaults to square everywhere until a theme opts in). A window that
      * exactly fills its output's full rectangle (frame == output, which
      * is also what a future real fullscreen state would look like) is
      * NEVER rounded regardless of this setting -- see decoration.c's
@@ -365,6 +388,7 @@ typedef struct {
      * corner was nearest the click, kwin/compiz-style -- the opposite
      * corner then stays fixed for the whole drag (handle_motion). */
     bool resize_right, resize_bottom;
+    double last_drag_apply_ms;  /* see DRAG_REDRAW_FALLBACK_MS / events.c's handle_motion() */
 
     /* Manual double-click detection for the plain (non-button) titlebar
      * area -- X has no double-click event of its own, just consecutive
@@ -378,5 +402,10 @@ typedef struct {
 } KiWM;
 
 extern KiWM wm;
+
+/* CLOCK_MONOTONIC in milliseconds, defined in main.c -- used by
+ * wm.debug_resize instrumentation wherever it needs fine-grained timing
+ * (events.c's handle_motion(), decoration.c's draw_decoration()). */
+double monotonic_ms(void);
 
 #endif /* KIWM_WM_H */

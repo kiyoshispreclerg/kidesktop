@@ -107,6 +107,7 @@ static void begin_drag(Client *c, DragMode mode, xcb_button_press_event_t *ev)
     wm.drag_mode = mode;
     wm.drag_client = c;
     wm.drag_snap_side = SNAP_NONE;
+    wm.last_drag_apply_ms = 0; /* don't let a previous drag's timestamp throttle this new one's first frame */
     wm.drag_start_root_x = ev->root_x;
     wm.drag_start_root_y = ev->root_y;
     wm.drag_start_x = c->x;
@@ -383,6 +384,22 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
             c->y = wm.drag_start_y + (wm.drag_start_h - new_h);
     }
 
+    /* Cap actual reconfigure+redraw+reshape rate to this client's own
+     * output's refresh rate, independent of how often the input device
+     * reports motion -- see DRAG_REDRAW_FALLBACK_MS. c->x/y/width/height
+     * above are already exactly right regardless; skipping the expensive
+     * part here just defers *displaying* it until the next event that's
+     * due, or until handle_button_release()'s unconditional final apply
+     * if the drag ends first. */
+    double interval_ms = DRAG_REDRAW_FALLBACK_MS;
+    if (c->output >= 0 && c->output < wm.output_count && wm.outputs[c->output].refresh_hz > 0)
+        interval_ms = 1000.0 / wm.outputs[c->output].refresh_hz;
+
+    double now = monotonic_ms();
+    if (now - wm.last_drag_apply_ms < interval_ms)
+        return;
+    wm.last_drag_apply_ms = now;
+
     configure_frame(c);
     xcb_flush(wm.conn);
 }
@@ -391,6 +408,11 @@ static void handle_button_release(xcb_button_release_event_t *ev)
 {
     (void)ev;
     if (wm.drag_client) {
+        /* Force one final apply regardless of the redraw throttle above
+         * -- otherwise the window could be left showing a stale size if
+         * the very last motion event of the drag happened to land inside
+         * the throttle window and got skipped. */
+        configure_frame(wm.drag_client);
         Client *c = wm.drag_client;
         int new_output = output_index_for_point(c->x + c->width / 2, c->y + c->height / 2);
         if (new_output >= 0 && new_output != c->output) {
@@ -654,7 +676,19 @@ void handle_event(xcb_generic_event_t *event)
         break;
     }
     case XCB_EXPOSE: {
+        /* A single repaint-worthy change (e.g. one resize step) can be
+         * reported as *several* Expose events, one per exposed
+         * rectangle -- ev->count is how many more are still queued for
+         * this same batch. kiwm always repaints the whole titlebar in
+         * one go regardless of which rectangle triggered it, so there's
+         * nothing to gain from repainting on every fragment; only the
+         * last one in the batch (count == 0) actually needs to redraw.
+         * Skipping this was making draw_decoration() fire many times per
+         * single configure_frame() call during a resize -- confirmed via
+         * KIWM_DEBUG_RESIZE instrumentation. */
         xcb_expose_event_t *ev = (xcb_expose_event_t *)event;
+        if (ev->count != 0)
+            break;
         Client *c = find_client_window(ev->window);
         if (c) {
             draw_decoration(c);

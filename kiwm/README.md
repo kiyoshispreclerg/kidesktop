@@ -47,6 +47,7 @@ demand rather than a proper stacking tier), global menu.
 - libxcb, libxcb-randr, libxcb-shape
 - Cairo with the `cairo-xcb` backend
 - Imlib2
+- Pango + PangoCairo (titlebar text: per-glyph font fallback across scripts and ellipsizing)
 
 ### Building and running
 
@@ -176,10 +177,11 @@ these, all optional and independent -- a theme missing some files just falls bac
   `border_radius=` is 1, 2, or 4 numbers (pixels): one value rounds all four corners the same;
   two values are "top corners, bottom corners"; four are `top-left,top-right,bottom-right,
   bottom-left` (CSS `border-radius` order). Default `0` (no key, or no `colors` file at all) means
-  square corners, unchanged from before this existed. `round_maximized=` (default `1`) squares a
-  maximized window's corners off instead when set to `0`. A window that exactly fills its whole
-  output (also what a future real fullscreen state would look like) is **never** rounded either
-  way, regardless of these settings -- rounding the very corners of the screen itself would just
+  square corners, unchanged from before this existed. `round_maximized=` (default `0`) squares a
+  maximized window's corners off -- set to `1` to keep rounding them too. A window that exactly
+  fills its whole output (also what a future real fullscreen state would look like) is **never**
+  rounded either way, regardless of these settings -- rounding the very corners of the screen
+  itself would just
   show the desktop background poking through.
 
 ### Mouse and keyboard reference
