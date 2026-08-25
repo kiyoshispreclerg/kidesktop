@@ -206,18 +206,32 @@ struct Panel {
      * own font_size=<px>. */
     double font_size_px;
     int spacing;
-    /* Optional 9-slice background theme, replacing the solid bg_* color
-     * entirely when it loads successfully -- see THEME's path= key and
-     * panel_load_bg_image() in xispanel.c. A theme is a folder containing
-     * fixed-named files (bg.png, slice) rather than separately-pointed-to
-     * files, so more files can be added to a theme later (per-widget
-     * textures, etc.) without new config keys. theme_path is the raw
-     * config value (kept so reload can retry); bg_image_surface is NULL
-     * whenever there's no theme or it failed to load, in which case
-     * panel_repaint() just falls back to bg_r/g/b/a as always. */
+    /* Optional bitmap theme, replacing the solid bg_* color and (for
+     * winctl's buttons) the vector button glyphs entirely when it loads
+     * successfully -- see THEME's theme= key and panel_load_bg_image()/
+     * panel_load_btns_image() in xispanel.c. A theme is a folder shared
+     * with kiwm (see kiwm/README.md's "Theming" section -- same file
+     * names on purpose, so one theme folder serves both): fixed-named
+     * files (bg.png, slice, btns.png, btns.slice, colors) rather than
+     * separately-pointed-to files, so more files can be added to a theme
+     * later without new config keys. theme_path is the raw config value
+     * (kept so reload can retry); bg_image_surface/btns_image_surface are
+     * each independently NULL whenever there's no theme or that specific
+     * file failed to load, in which case panel_repaint()/winctl.c fall
+     * back to bg_r/g/b/a and the vector glyphs as always -- a theme
+     * missing one file doesn't take the other down with it. */
     char theme_path[PATH_MAX];
     int bg_slice_l, bg_slice_t, bg_slice_r, bg_slice_b;
     cairo_surface_t *bg_image_surface;
+    /* btns.png + btns.slice: a fixed 7-column x 3-row grid, not a
+     * 9-slice -- see kiwm/wm.h's BTNCOL_* order (close, maximize,
+     * restore, minimize, shade, keep_above, keep_all_desktops; rows
+     * normal/hover/clicked). winctl.c only ever draws the first four
+     * columns and the first two rows today. btns_cell_w/h default to a
+     * reasonable size when btns.slice is missing/incomplete, same
+     * degrade-gracefully spirit as bg_slice_*. */
+    cairo_surface_t *btns_image_surface;
+    int btns_cell_w, btns_cell_h;
 
     /* resolved output geometry */
     int out_x, out_y, out_w, out_h;
@@ -387,6 +401,13 @@ cairo_surface_t *load_png_argb(const char *path);
  * bitmap theme instead of always falling back to a flat color. */
 void panel_draw_9slice(cairo_t *cr, cairo_surface_t *src, int sw, int sh, int l, int t, int r, int b, double dw,
                         double dh);
+/* Blits one source sub-rectangle [sx,sy,sw,sh] of `src` into one
+ * destination rectangle [dx,dy,dw,dh] of `cr`, scaling to fit -- the
+ * building block panel_draw_9slice() itself is made of. Exported so
+ * winctl.c can pull one cell out of a theme's btns.png grid (see Panel's
+ * btns_image_surface doc comment) without duplicating this. */
+void draw_slice_region(cairo_t *cr, cairo_surface_t *src, int sx, int sy, int sw, int sh, double dx, double dy,
+                        double dw, double dh);
 /* Paints `p`'s full content (background + every widget, in logical panel-
  * local coordinates) into `cr` with an extra cairo_scale(scale, scale)
  * pushed first -- the actual drawing code neither knows nor cares about

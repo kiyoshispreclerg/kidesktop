@@ -1133,13 +1133,67 @@ static void panel_load_bg_image(Panel *p)
     load_slice_file(path, &p->bg_slice_l, &p->bg_slice_t, &p->bg_slice_r, &p->bg_slice_b);
 }
 
+/* Sidecar grid measurements for btns.png -- unlike bg.png/slice's 9-slice
+ * insets, this is a plain fixed cell size (no stretching), so it only has
+ * two keys. Defaults match kiwm's fallback (its own titlebar button size)
+ * closely enough to look reasonable before any real theme is applied;
+ * winctl.c scales whatever cell size is loaded to fit its own button slot
+ * anyway (see winctl_paint()), so an exact match isn't required. */
+static void load_btns_slice_file(const char *path, int *cell_w, int *cell_h)
+{
+    *cell_w = 24;
+    *cell_h = 24;
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        return;
+    }
+    char line[128];
+    int v;
+    while (fgets(line, sizeof(line), f)) {
+        if (sscanf(line, "cell_width=%d", &v) == 1) {
+            *cell_w = v;
+        } else if (sscanf(line, "cell_height=%d", &v) == 1) {
+            *cell_h = v;
+        }
+    }
+    fclose(f);
+}
+
+/* Loads (or reloads) p's btns_image_surface + cell size from the same
+ * theme_path bg.png/slice already come from -- btns.png/btns.slice, the
+ * window-control button sprite sheet (see the Panel struct's doc comment
+ * for the fixed column/row grid it follows). Independent of whether
+ * bg.png loaded: a theme missing one file doesn't take the other down.
+ * Called from panel_activate() right after panel_load_bg_image(). */
+static void panel_load_btns_image(Panel *p)
+{
+    if (p->btns_image_surface) {
+        cairo_surface_destroy(p->btns_image_surface);
+        p->btns_image_surface = NULL;
+    }
+    if (!p->theme_path[0]) {
+        return;
+    }
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/btns.png", p->theme_path);
+    p->btns_image_surface = load_png_argb(path);
+    if (!p->btns_image_surface) {
+        /* Not a warning like bg.png's: btns.png is the newer, optional
+         * half of a theme -- plenty of valid themes (e.g. one authored
+         * before winctl.c consumed this) only ship bg.png/slice. */
+        return;
+    }
+    snprintf(path, sizeof(path), "%s/btns.slice", p->theme_path);
+    load_btns_slice_file(path, &p->btns_cell_w, &p->btns_cell_h);
+}
+
 /* Paints one source sub-rectangle [sx,sy,sw,sh] of `src` into one
  * destination rectangle [dx,dy,dw,dh] of `cr`, scaling to fit -- the one
  * building block every corner/edge/center region of a 9-slice draw
  * reduces to (corners just happen to have dw==sw, dh==sh, i.e. no
  * scaling). */
-static void draw_slice_region(cairo_t *cr, cairo_surface_t *src, int sx, int sy, int sw, int sh, double dx, double dy,
-                               double dw, double dh)
+void draw_slice_region(cairo_t *cr, cairo_surface_t *src, int sx, int sy, int sw, int sh, double dx, double dy,
+                        double dw, double dh)
 {
     if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) {
         return;
@@ -1542,6 +1596,10 @@ static void panel_deactivate(Panel *p)
         cairo_surface_destroy(p->bg_image_surface);
         p->bg_image_surface = NULL;
     }
+    if (p->btns_image_surface) {
+        cairo_surface_destroy(p->btns_image_surface);
+        p->btns_image_surface = NULL;
+    }
     if (p->buf_cr) {
         cairo_destroy(p->buf_cr);
         p->buf_cr = NULL;
@@ -1577,6 +1635,7 @@ static void panel_activate(Panel *p)
     panel_resolve_geometry(p);
     panel_pick_visual(p);
     panel_load_bg_image(p);
+    panel_load_btns_image(p);
 
     int start_x = p->x, start_y = p->y;
     p->ah_state = AH_HIDDEN;
@@ -1776,13 +1835,14 @@ static void apply_theme_kv(Panel *p, const char *kvline)
     if (kv_get(kvline, "font_size", buf, sizeof(buf))) {
         p->font_size_px = atof(buf);
     }
-    /* Optional 9-slice background theme: path=<folder> containing bg.png
-     * (the image) and slice (the sidecar measurements file, itself
-     * optional -- missing it just means a plain full-image stretch, not
-     * an error). Actually loaded by panel_load_bg_image(), called from
+    /* Optional bitmap theme: theme=<folder>, shared with kiwm (same file
+     * names, see kiwm/README.md's "Theming" section) -- bg.png+slice (the
+     * 9-slice background) and btns.png+btns.slice (winctl's button
+     * sprites), each independently optional. Actually loaded by
+     * panel_load_bg_image()/panel_load_btns_image(), called from
      * panel_activate() -- not here, since that needs Imlib2/an open X
      * display that may not exist yet while just parsing config text. */
-    kv_get(kvline, "path", p->theme_path, sizeof(p->theme_path));
+    kv_get(kvline, "theme", p->theme_path, sizeof(p->theme_path));
 }
 
 /* Directory containing the config file (same place write_default_config_

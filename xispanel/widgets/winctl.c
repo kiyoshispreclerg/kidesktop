@@ -22,6 +22,33 @@
 
 #define WINCTL_MAX_BUTTONS 3
 
+/* Column indices into a theme's btns.png grid -- fixed order shared with
+ * kiwm (kiwm/wm.h's BTNCOL_*), so one theme folder's btns.png/btns.slice
+ * draws both kiwm's titlebar buttons and this widget's. winctl only ever
+ * uses the first four columns; the rest (shade, keep_above,
+ * keep_all_desktops) are kiwm-only window states this widget has no
+ * button for. */
+enum { BTNCOL_CLOSE = 0, BTNCOL_MAXIMIZE = 1, BTNCOL_RESTORE = 2, BTNCOL_MINIMIZE = 3 };
+
+/* Maps one of winctl's own button letters (see WinctlPriv::buttons) to its
+ * btns.png column -- 'a' (maximize) is BTNCOL_RESTORE once the window is
+ * already maximized, same "restore takes maximize's slot" convention
+ * kiwm's own decoration.c uses. -1 for an unknown letter (shouldn't
+ * happen, parse_buttons() already rejects anything else). */
+static int btn_theme_column(char c, int maximized)
+{
+    switch (c) {
+    case 'x':
+        return BTNCOL_CLOSE;
+    case 'a':
+        return maximized ? BTNCOL_RESTORE : BTNCOL_MAXIMIZE;
+    case 'i':
+        return BTNCOL_MINIMIZE;
+    default:
+        return -1;
+    }
+}
+
 enum winctl_fallback {
     FALLBACK_NONE = 0,
     FALLBACK_CLOCK,
@@ -453,7 +480,21 @@ static void winctl_paint(PanelWidget *w, cairo_t *cr)
 
     cairo_set_line_width(cr, 1.4);
     for (int i = 0; i < wp->n_visible_buttons; i++) {
-        if (has_hover && hover_local_x >= wp->btn_x[i] && hover_local_x < wp->btn_x[i] + wp->btn_w[i]) {
+        int hovered = has_hover && hover_local_x >= wp->btn_x[i] && hover_local_x < wp->btn_x[i] + wp->btn_w[i];
+
+        /* Themed sprite takes over entirely when a btns.png loaded --
+         * falls through to the vector glyphs below only when it didn't
+         * (no theme, or this theme just doesn't ship btns.png), same
+         * per-file degrade-gracefully rule as bg_image_surface. */
+        int col = p->btns_image_surface ? btn_theme_column(wp->buttons[i], wp->maximized) : -1;
+        if (col >= 0) {
+            int row = hovered ? 1 : 0;
+            draw_slice_region(cr, p->btns_image_surface, col * p->btns_cell_w, row * p->btns_cell_h, p->btns_cell_w,
+                               p->btns_cell_h, ox + wp->btn_x[i], oy, wp->btn_w[i], w->thickness);
+            continue;
+        }
+
+        if (hovered) {
             widget_paint_hover_rect(w, cr, wp->btn_x[i], wp->btn_w[i]);
         }
         double cx = ox + wp->btn_x[i] + wp->btn_w[i] / 2.0;
