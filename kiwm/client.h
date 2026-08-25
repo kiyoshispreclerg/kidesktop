@@ -6,6 +6,12 @@
 Client *find_client_window(xcb_window_t window);
 
 void configure_frame(Client *c);
+/* Cheap subset of configure_frame() -- geometry + synthetic ConfigureNotify
+ * only, no XShape re-clip or decoration repaint. See client.c's comment;
+ * used by events.c's handle_motion() on every move/resize motion event,
+ * uncapped, with the full configure_frame() still throttled to the
+ * output's refresh rate for the expensive paint/shape part. */
+void apply_frame_geometry(Client *c);
 void focus_client(Client *c);
 void cycle_focus(int direction);
 

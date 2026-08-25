@@ -122,16 +122,20 @@ static void send_synthetic_configure(Client *c, int bt, int th)
     xcb_send_event(wm.conn, 0, c->window, XCB_EVENT_MASK_STRUCTURE_NOTIFY, (const char *)&ev);
 }
 
-void configure_frame(Client *c)
+/* The cheap part of configure_frame(): move/resize the actual frame and
+ * content windows and tell the client its new position, but skip the two
+ * expensive parts (XShape re-clip, off-screen decoration repaint) --
+ * neither of which needs to happen on every single event for the window to
+ * visibly track the pointer. Used directly, uncapped, on every motion event
+ * of a move or resize drag (events.c's handle_motion()) so the window's own
+ * outline keeps up with the mouse at full input rate the way kwin's
+ * uncomposited opaque move/resize does; the throttled apply_rounded_shape()
+ * + draw_decoration() pair (still gated to the output's refresh rate) just
+ * makes the *painted chrome* -- corners, title, buttons -- catch up
+ * shortly after, which is far less noticeable than the window border itself
+ * lagging the pointer. */
+void apply_frame_geometry(Client *c)
 {
-    /* Fine-grained breakdown under wm.debug_resize (KIWM_DEBUG_RESIZE=1),
-     * gated to the resize drag specifically (per-motion-event cost during
-     * a plain move is rarely the complaint) -- see main.c's event loop
-     * for the coarser "whole handle_event() took Xms" number this
-     * complements. */
-    bool dbg = wm.debug_resize && wm.drag_mode == DRAG_RESIZE;
-    double t_start = dbg ? monotonic_ms() : 0;
-
     int bt, th;
     deco_insets(c, &bt, &th);
 
@@ -148,28 +152,39 @@ void configure_frame(Client *c)
     xcb_configure_window(wm.conn, c->frame,
                          XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
                          XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, fv);
-    double t_configure = dbg ? monotonic_ms() : 0;
-
-    apply_rounded_shape(c);
-    double t_shape = dbg ? monotonic_ms() : 0;
 
     uint32_t cv[] = { (uint32_t)bt, (uint32_t)th, (uint32_t)c->width, (uint32_t)c->height };
     xcb_configure_window(wm.conn, c->window,
                          XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
                          XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, cv);
-    double t_configure2 = dbg ? monotonic_ms() : 0;
+
+    send_synthetic_configure(c, bt, th);
+}
+
+void configure_frame(Client *c)
+{
+    /* Fine-grained breakdown under wm.debug_resize (KIWM_DEBUG_RESIZE=1),
+     * gated to the resize drag specifically (per-motion-event cost during
+     * a plain move is rarely the complaint) -- see main.c's event loop
+     * for the coarser "whole handle_event() took Xms" number this
+     * complements. */
+    bool dbg = wm.debug_resize && wm.drag_mode == DRAG_RESIZE;
+    double t_start = dbg ? monotonic_ms() : 0;
+
+    apply_frame_geometry(c);
+    double t_configure = dbg ? monotonic_ms() : 0;
+
+    apply_rounded_shape(c);
+    double t_shape = dbg ? monotonic_ms() : 0;
 
     draw_decoration(c);
     double t_deco = dbg ? monotonic_ms() : 0;
 
-    send_synthetic_configure(c, bt, th);
-
     if (dbg) {
         double t_end = monotonic_ms();
-        fprintf(stderr, "kiwm: [resize-debug] configure_frame: frame_cw=%.2fms shape=%.2fms "
-                        "content_cw=%.2fms draw_decoration=%.2fms synth_cfg=%.2fms total=%.2fms\n",
-                t_configure - t_start, t_shape - t_configure, t_configure2 - t_shape,
-                t_deco - t_configure2, t_end - t_deco, t_end - t_start);
+        fprintf(stderr, "kiwm: [resize-debug] configure_frame: geometry=%.2fms shape=%.2fms "
+                        "draw_decoration=%.2fms total=%.2fms\n",
+                t_configure - t_start, t_shape - t_configure, t_deco - t_shape, t_end - t_start);
     }
 }
 

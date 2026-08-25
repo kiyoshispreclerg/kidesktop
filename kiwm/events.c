@@ -115,15 +115,24 @@ static void begin_drag(Client *c, DragMode mode, xcb_button_press_event_t *ev)
     wm.drag_start_w = c->width;
     wm.drag_start_h = c->height;
 
+    xcb_cursor_t cursor;
     if (mode == DRAG_RESIZE) {
         wm.resize_right = (ev->root_x - c->x) > c->frame_width / 2;
         wm.resize_bottom = (ev->root_y - c->y) > c->frame_height / 2;
+        /* Corner nearest the click (same one that stays fixed's opposite,
+         * see handle_motion) picks the matching diagonal resize cursor. */
+        if (wm.resize_right)
+            cursor = wm.resize_bottom ? wm.cursor_resize_se : wm.cursor_resize_ne;
+        else
+            cursor = wm.resize_bottom ? wm.cursor_resize_sw : wm.cursor_resize_nw;
+    } else {
+        cursor = wm.cursor_move;
     }
 
     xcb_grab_pointer(wm.conn, 0, wm.root,
                      XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION,
                      XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
-                     XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
+                     XCB_NONE, cursor, XCB_CURRENT_TIME);
     xcb_flush(wm.conn);
 }
 
@@ -384,23 +393,39 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
             c->y = wm.drag_start_y + (wm.drag_start_h - new_h);
     }
 
-    /* Cap actual reconfigure+redraw+reshape rate to this client's own
-     * output's refresh rate, independent of how often the input device
-     * reports motion -- see DRAG_REDRAW_FALLBACK_MS. c->x/y/width/height
-     * above are already exactly right regardless; skipping the expensive
-     * part here just defers *displaying* it until the next event that's
-     * due, or until handle_button_release()'s unconditional final apply
-     * if the drag ends first. */
+    /* The window's own outline (frame + content geometry) tracks the
+     * pointer on every single motion event, uncapped -- this is cheap
+     * (a couple of xcb_configure_window() calls, no drawing), so there's
+     * no reason to let it lag behind input the way the old code did by
+     * throttling this together with the expensive part below. This is
+     * what makes kiwm's move/resize track the mouse as immediately as
+     * kwin's uncomposited opaque move/resize instead of visibly stepping
+     * at the display's refresh rate. */
+    apply_frame_geometry(c);
+
+    /* The *painted* chrome -- rounded-corner XShape re-clip and the
+     * off-screen decoration repaint (title, buttons, border) -- is capped
+     * to this client's own output's refresh rate, independent of how often
+     * the input device reports motion: see DRAG_REDRAW_FALLBACK_MS. There's
+     * no point re-painting faster than the display can show it, and unlike
+     * the geometry above, painting isn't free. Skipping it here just defers
+     * catching the chrome up until the next due event, or until
+     * handle_button_release()'s unconditional final apply if the drag ends
+     * first -- the window itself already has the right size/position by
+     * then regardless. */
     double interval_ms = DRAG_REDRAW_FALLBACK_MS;
     if (c->output >= 0 && c->output < wm.output_count && wm.outputs[c->output].refresh_hz > 0)
         interval_ms = 1000.0 / wm.outputs[c->output].refresh_hz;
 
     double now = monotonic_ms();
-    if (now - wm.last_drag_apply_ms < interval_ms)
+    if (now - wm.last_drag_apply_ms < interval_ms) {
+        xcb_flush(wm.conn);
         return;
+    }
     wm.last_drag_apply_ms = now;
 
-    configure_frame(c);
+    apply_rounded_shape(c);
+    draw_decoration(c);
     xcb_flush(wm.conn);
 }
 

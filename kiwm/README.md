@@ -25,7 +25,9 @@ exposes.
   (a panel on one monitor doesn't eat into a different monitor's usable area), feeding
   `_NET_WORKAREA` and maximize.
 - Windows7/kwin-style edge-drag snapping (drag a titlebar to a screen edge to maximize/half-tile),
-  corner-relative resize, double-click-titlebar-to-maximize, scroll-wheel shade.
+  corner-relative resize, double-click-titlebar-to-maximize, scroll-wheel shade. Move/resize show
+  the matching cursor from the user's actual Xcursor theme (via libxcb-cursor, same lookup rules as
+  libXcursor), falling back to the plain core font cursor if that can't be set up at all.
 - Window states beyond the basics: shade (`_NET_WM_STATE_SHADED`), keep-above
   (`_NET_WM_STATE_ABOVE`), sticky/keep-on-all-desktops (`_NET_WM_STATE_STICKY`, meaning "visible
   regardless of this window's own output's current desktop" -- see PROTOCOL.md).
@@ -44,7 +46,7 @@ demand rather than a proper stacking tier), global menu.
 
 ### Dependencies
 
-- libxcb, libxcb-randr, libxcb-shape
+- libxcb, libxcb-randr, libxcb-shape, libxcb-cursor
 - Cairo with the `cairo-xcb` backend
 - Imlib2
 - Pango + PangoCairo (titlebar text: per-glyph font fallback across scripts and ellipsizing)

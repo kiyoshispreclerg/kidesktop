@@ -48,6 +48,7 @@
 
 #include <xcb/randr.h>
 #include <xcb/shape.h>
+#include <xcb/xcb_cursor.h>
 #include <cairo/cairo.h>
 
 #include <X11/keysym.h>
@@ -146,6 +147,46 @@ static xcb_keycode_t keysym_to_keycode(xcb_keysym_t keysym)
     return 0;
 }
 
+/* One glyph from the core X "cursor" font -> a usable xcb_cursor_t. Glyph
+ * indices come in source/mask pairs (the font's even glyph is the visible
+ * shape, the odd one right after it is its mask) -- see X11/cursorfont.h,
+ * which just names these same numbers as XC_* constants for Xlib callers.
+ * Used only as a last-resort fallback when the user's actual Xcursor theme
+ * (load_theme_cursor() below) has no matching cursor at all and doesn't
+ * already fall back to this itself. */
+static xcb_cursor_t make_glyph_cursor(uint16_t glyph)
+{
+    xcb_cursor_t cursor = xcb_generate_id(wm.conn);
+    xcb_create_glyph_cursor(wm.conn, cursor, wm.cursor_font, wm.cursor_font,
+                            glyph, glyph + 1,
+                            0, 0, 0,
+                            0xffff, 0xffff, 0xffff);
+    return cursor;
+}
+
+/* Loads whichever of `names` the user's *actual* cursor theme (XCURSOR_
+ * THEME / Xcursor.theme X resource, read by xcb_cursor_context_new() the
+ * same way libXcursor would) has a cursor for, so move/resize actually
+ * match the rest of the desktop's pointer look instead of the plain core
+ * font cursor. Tries each name in order since cursor themes disagree on
+ * which of the (mostly-standard) names they ship -- e.g. some only have
+ * "top_left_corner" and not "nw-resize", or vice versa. xcb_cursor_load_
+ * cursor() already falls back to the core font's cursor by itself when a
+ * name isn't found in the theme at all, so `fallback_glyph` only matters
+ * if `ctx` itself is NULL (theme lookup couldn't even be set up). */
+static xcb_cursor_t load_theme_cursor(xcb_cursor_context_t *ctx, const char *const *names, int n,
+                                      uint16_t fallback_glyph)
+{
+    if (ctx) {
+        for (int i = 0; i < n; i++) {
+            xcb_cursor_t cur = xcb_cursor_load_cursor(ctx, names[i]);
+            if (cur != XCB_NONE)
+                return cur;
+        }
+    }
+    return make_glyph_cursor(fallback_glyph);
+}
+
 static void setup_wm(bool replace)
 {
     /* Needs no X connection -- pure file I/O -- so it can set
@@ -197,6 +238,35 @@ static void setup_wm(bool replace)
      * redraw, which during a fast resize drag is a lot of redraws. */
     wm.deco_gc = xcb_generate_id(wm.conn);
     xcb_create_gc(wm.conn, wm.deco_gc, wm.root, 0, NULL);
+
+    /* Move/resize drag cursors, swapped in via begin_drag()'s
+     * xcb_grab_pointer() call. Loaded from the user's actual Xcursor theme
+     * when possible (load_theme_cursor(), libxcb-cursor -- same theme
+     * lookup rules as libXcursor: XCURSOR_THEME env, Xcursor.theme X
+     * resource), falling back to the plain core "cursor" font glyphs (see
+     * X11/cursorfont.h's XC_* numbering) only if that lookup itself can't
+     * be set up at all. */
+    wm.cursor_font = xcb_generate_id(wm.conn);
+    xcb_open_font(wm.conn, wm.cursor_font, (uint16_t)strlen("cursor"), "cursor");
+
+    xcb_cursor_context_t *cursor_ctx = NULL;
+    if (xcb_cursor_context_new(wm.conn, wm.screen, &cursor_ctx) < 0)
+        cursor_ctx = NULL;
+
+    wm.cursor_move = load_theme_cursor(cursor_ctx, (const char *[]){ "move", "fleur" }, 2, 52);
+    wm.cursor_resize_nw = load_theme_cursor(cursor_ctx,
+        (const char *[]){ "nw-resize", "top_left_corner" }, 2, 134);
+    wm.cursor_resize_ne = load_theme_cursor(cursor_ctx,
+        (const char *[]){ "ne-resize", "top_right_corner" }, 2, 136);
+    wm.cursor_resize_sw = load_theme_cursor(cursor_ctx,
+        (const char *[]){ "sw-resize", "bottom_left_corner" }, 2, 12);
+    wm.cursor_resize_se = load_theme_cursor(cursor_ctx,
+        (const char *[]){ "se-resize", "bottom_right_corner" }, 2, 14);
+
+    /* Cursor IDs created via the context stay valid after freeing it --
+     * only the lookup machinery itself is torn down here (per xcb_cursor.h). */
+    if (cursor_ctx)
+        xcb_cursor_context_free(cursor_ctx);
 
     load_decoration();
 

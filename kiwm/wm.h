@@ -240,6 +240,15 @@ typedef struct {
     xcb_gcontext_t deco_gc;  /* reused across every draw_decoration() call -- see decoration.c. */
     bool debug_resize;       /* KIWM_DEBUG_RESIZE=1 -- see main.c's monotonic_ms(). */
 
+    /* Cursor-font glyphs (core X "cursor" font, no Xcursor lib needed),
+     * loaded once in main.c's setup_wm() and swapped in for the duration
+     * of a drag via xcb_grab_pointer()'s cursor argument (events.c's
+     * begin_drag()) -- ungrabbing at drag end reverts to whatever cursor
+     * would normally show, no explicit restore needed. */
+    xcb_font_t cursor_font;
+    xcb_cursor_t cursor_move;
+    xcb_cursor_t cursor_resize_nw, cursor_resize_ne, cursor_resize_sw, cursor_resize_se;
+
     /* Live root window size, refreshed by output.c's outputs_refresh()
      * (via a fresh xcb_get_geometry() on wm.root) every time RandR reports
      * a screen change. wm.screen->width_in_pixels/height_in_pixels is a
