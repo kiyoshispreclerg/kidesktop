@@ -92,17 +92,120 @@ static void handle_configure_request(xcb_configure_request_event_t *ev)
     xcb_flush(wm.conn);
 }
 
+/* Populates wm.resize_neighbors_x/y and wm.resize_edge_x/y_start for a
+ * DRAG_RESIZE about to start on `c`, once wm.resize_right/resize_bottom
+ * are already decided (see begin_drag(), which calls this right after) --
+ * see wm.h's ResizeNeighbor for the overall idea. Scans every other
+ * mapped, visible client on c's own output (same-output only, unlike
+ * magnet_snap_move()'s cross-output candidates -- resizing a neighbor only
+ * makes sense against a window that could plausibly share the same
+ * screen) whose frame edge sits within RESIZE_NEIGHBOR_EPSILON_PX of the
+ * specific edge about to be dragged, gated by the same perpendicular-
+ * overlap test magnet_snap_move()/_resize() use. wm.resize_right/
+ * resize_bottom already say which *of our own* edges is moving, so which
+ * of the *neighbor's* edges could plausibly be the touching one follows
+ * directly -- a neighbor a resize_right drag could touch sits to our
+ * right, so only its left edge is tested (never its right edge, which
+ * would mean it's overlapping us, not adjacent to us). */
+static void detect_resize_neighbors(Client *c)
+{
+    wm.resize_neighbors_x_count = 0;
+    wm.resize_neighbors_y_count = 0;
+
+    int moving_x = wm.resize_right  ? (c->x + c->frame_width)  : c->x;
+    int moving_y = wm.resize_bottom ? (c->y + c->frame_height) : c->y;
+    wm.resize_edge_x_start = moving_x;
+    wm.resize_edge_y_start = moving_y;
+
+    for (Client *o2 = wm.clients; o2; o2 = o2->next) {
+        if (o2 == c || !o2->mapped || o2->minimized || o2->shaded || o2->output != c->output)
+            continue;
+        if (!o2->sticky && wm.outputs[o2->output].desktop != o2->desktop)
+            continue;
+
+        int rl = o2->x, rr = o2->x + o2->frame_width;
+        int rt = o2->y, rb = o2->y + o2->frame_height;
+
+        bool y_overlap = (c->y + c->frame_height > rt) && (c->y < rb);
+        if (y_overlap && wm.resize_neighbors_x_count < MAX_RESIZE_NEIGHBORS) {
+            int edge = wm.resize_right ? rl : rr;
+            int d = edge - moving_x;
+            if ((d < 0 ? -d : d) <= RESIZE_NEIGHBOR_EPSILON_PX) {
+                ResizeNeighbor *n = &wm.resize_neighbors_x[wm.resize_neighbors_x_count++];
+                n->client = o2;
+                n->orig_x = o2->x; n->orig_y = o2->y;
+                n->orig_w = o2->width; n->orig_h = o2->height;
+            }
+        }
+
+        bool x_overlap = (c->x + c->frame_width > rl) && (c->x < rr);
+        if (x_overlap && wm.resize_neighbors_y_count < MAX_RESIZE_NEIGHBORS) {
+            int edge = wm.resize_bottom ? rt : rb;
+            int d = edge - moving_y;
+            if ((d < 0 ? -d : d) <= RESIZE_NEIGHBOR_EPSILON_PX) {
+                ResizeNeighbor *n = &wm.resize_neighbors_y[wm.resize_neighbors_y_count++];
+                n->client = o2;
+                n->orig_x = o2->x; n->orig_y = o2->y;
+                n->orig_w = o2->width; n->orig_h = o2->height;
+            }
+        }
+    }
+}
+
+/* Whether a DRAG_RESIZE about to start on `c` should preserve its half-snap
+ * state instead of detiling back to its pre-snap floating size (see wm.h's
+ * KiWM::drag_preserve_snap) -- true only when link_resize_neighbors is on,
+ * c is currently half-snapped (Client::snap_side LEFT/RIGHT -- SNAP_TOP/
+ * maximized never qualifies, there's no "other half" to preserve against),
+ * the click landed on c's *shared* edge (the one touching its counterpart
+ * -- e.g. a SNAP_LEFT window's right edge), and there's actually a same-
+ * output neighbor half-snapped to the complementary side still touching
+ * that edge. Must be checked *before* client.c's detile_for_drag() runs --
+ * once it does, c->snap_side is already cleared and there's nothing left
+ * to check. */
+static bool should_preserve_snap_resize(Client *c, xcb_button_press_event_t *ev)
+{
+    if (!wm.link_resize_neighbors || (c->snap_side != SNAP_LEFT && c->snap_side != SNAP_RIGHT))
+        return false;
+
+    bool resize_right = (ev->root_x - c->x) > c->frame_width / 2;
+    bool shared_edge = (c->snap_side == SNAP_LEFT && resize_right) ||
+                       (c->snap_side == SNAP_RIGHT && !resize_right);
+    if (!shared_edge)
+        return false;
+
+    SnapSide want_side = (c->snap_side == SNAP_LEFT) ? SNAP_RIGHT : SNAP_LEFT;
+    int edge = resize_right ? (c->x + c->frame_width) : c->x;
+
+    for (Client *o2 = wm.clients; o2; o2 = o2->next) {
+        if (o2 == c || !o2->mapped || o2->minimized || o2->output != c->output)
+            continue;
+        if (o2->snap_side != want_side)
+            continue;
+        if (!o2->sticky && wm.outputs[o2->output].desktop != o2->desktop)
+            continue;
+        int other_edge = resize_right ? o2->x : (o2->x + o2->frame_width);
+        int d = other_edge - edge;
+        if ((d < 0 ? -d : d) <= RESIZE_NEIGHBOR_EPSILON_PX)
+            return true;
+    }
+    return false;
+}
+
 /* Shared by both drag-start sites below (titlebar-click-move and
  * wm.mod_cycle/wm.mod_control-drag): detiles c first (see client.c's
- * detile_for_drag() -- no-op if already floating) so the whole rest of
- * the drag builds on a floating baseline from the very first motion
- * event, then captures wm.drag_start_x/y/w/h and grabs the pointer. mode
- * == DRAG_RESIZE additionally picks which corner grows from the press
+ * detile_for_drag() -- no-op if already floating, and skipped entirely
+ * when should_preserve_snap_resize() says so) so the whole rest of the
+ * drag builds on a floating baseline from the very first motion event,
+ * then captures wm.drag_start_x/y/w/h and grabs the pointer. mode ==
+ * DRAG_RESIZE additionally picks which corner grows from the press
  * position (nearest corner, kwin/compiz-style) -- the opposite corner
  * stays fixed for the whole resize (see handle_motion). */
 static void begin_drag(Client *c, DragMode mode, xcb_button_press_event_t *ev)
 {
-    detile_for_drag(c, ev->root_x, ev->root_y);
+    wm.drag_preserve_snap = (mode == DRAG_RESIZE) && should_preserve_snap_resize(c, ev);
+    if (!wm.drag_preserve_snap)
+        detile_for_drag(c, ev->root_x, ev->root_y);
 
     wm.drag_mode = mode;
     wm.drag_client = c;
@@ -125,8 +228,16 @@ static void begin_drag(Client *c, DragMode mode, xcb_button_press_event_t *ev)
             cursor = wm.resize_bottom ? wm.cursor_resize_se : wm.cursor_resize_ne;
         else
             cursor = wm.resize_bottom ? wm.cursor_resize_sw : wm.cursor_resize_nw;
+        if (wm.link_resize_neighbors)
+            detect_resize_neighbors(c);
+        else {
+            wm.resize_neighbors_x_count = 0;
+            wm.resize_neighbors_y_count = 0;
+        }
     } else {
         cursor = wm.cursor_move;
+        wm.resize_neighbors_x_count = 0;
+        wm.resize_neighbors_y_count = 0;
     }
 
     xcb_grab_pointer(wm.conn, 0, wm.root,
@@ -546,6 +657,80 @@ static void magnet_snap_resize(Client *c, int *new_w, int *new_h, int bt, int th
         *new_h += wm.resize_bottom ? best_dy : -best_dy;
 }
 
+/* Recomputes every registered resize-neighbor's geometry (wm.resize_
+ * neighbors_x/y) from the total displacement of the dragged client's own
+ * moving edge since detect_resize_neighbors() captured it -- see wm.h's
+ * ResizeNeighbor comment. Only touches each neighbor Client's own x/y/
+ * width/height fields; the caller still has to push that to the X server
+ * per neighbor the same way it does for the dragged client itself
+ * (apply_frame_geometry(), then the throttled apply_rounded_shape()/
+ * draw_decoration() pair). `bt`/`th` are the *dragged* client's own insets
+ * (the caller already has them, from deco_insets(), for
+ * magnet_snap_resize()) -- each neighbor's own insets are looked up
+ * individually since a neighbor's decoration state needn't match the
+ * dragged client's. */
+static void update_resize_neighbors(Client *c, int bt, int th)
+{
+    if (wm.resize_neighbors_x_count > 0) {
+        int cur_x = wm.resize_right ? (c->x + c->width + bt * 2) : c->x;
+        int delta = cur_x - wm.resize_edge_x_start;
+
+        for (int i = 0; i < wm.resize_neighbors_x_count; i++) {
+            ResizeNeighbor *n = &wm.resize_neighbors_x[i];
+            Client *nc = n->client;
+            int nbt, nth;
+            deco_insets(nc, &nbt, &nth);
+
+            int new_w;
+            if (wm.resize_right) {
+                /* Neighbor's left edge (the touching one) follows our
+                 * moving right edge; its right edge is the anchor and
+                 * never moves. */
+                int anchor_right = n->orig_x + n->orig_w + nbt * 2;
+                int new_left = n->orig_x + delta;
+                new_w = (anchor_right - new_left) - nbt * 2;
+                if (new_w < nc->min_w) new_w = nc->min_w;
+                nc->x = anchor_right - (new_w + nbt * 2);
+            } else {
+                int anchor_left = n->orig_x;
+                int new_right = n->orig_x + n->orig_w + nbt * 2 + delta;
+                new_w = (new_right - anchor_left) - nbt * 2;
+                if (new_w < nc->min_w) new_w = nc->min_w;
+                nc->x = anchor_left;
+            }
+            nc->width = new_w;
+        }
+    }
+
+    if (wm.resize_neighbors_y_count > 0) {
+        int cur_y = wm.resize_bottom ? (c->y + c->height + th + bt) : c->y;
+        int delta = cur_y - wm.resize_edge_y_start;
+
+        for (int i = 0; i < wm.resize_neighbors_y_count; i++) {
+            ResizeNeighbor *n = &wm.resize_neighbors_y[i];
+            Client *nc = n->client;
+            int nbt, nth;
+            deco_insets(nc, &nbt, &nth);
+
+            int new_h;
+            if (wm.resize_bottom) {
+                int anchor_bottom = n->orig_y + n->orig_h + nth + nbt;
+                int new_top = n->orig_y + delta;
+                new_h = (anchor_bottom - new_top) - nth - nbt;
+                if (new_h < nc->min_h) new_h = nc->min_h;
+                nc->y = anchor_bottom - (new_h + nth + nbt);
+            } else {
+                int anchor_top = n->orig_y;
+                int new_bottom = n->orig_y + n->orig_h + nth + nbt + delta;
+                new_h = (new_bottom - anchor_top) - nth - nbt;
+                if (new_h < nc->min_h) new_h = nc->min_h;
+                nc->y = anchor_top;
+            }
+            nc->height = new_h;
+        }
+    }
+}
+
 static void handle_motion(xcb_motion_notify_event_t *ev)
 {
     if (!wm.drag_client || wm.drag_mode == DRAG_NONE) {
@@ -562,7 +747,14 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
 
     if (c->maximized)
         toggle_maximize(c, 0);
-    c->snap_side = SNAP_NONE;
+    /* A resize preserving a half-snap's state (wm.drag_preserve_snap, see
+     * begin_drag()'s should_preserve_snap_resize()) must keep
+     * Client::snap_side set for the whole drag -- clearing it here (like
+     * every other drag does) is exactly the detile this feature exists to
+     * skip. Only ever true for DRAG_RESIZE; a plain drag still clears it
+     * every event same as before. */
+    if (!wm.drag_preserve_snap)
+        c->snap_side = SNAP_NONE;
 
     if (wm.drag_mode == DRAG_MOVE) {
         c->x = wm.drag_start_x + dx;
@@ -593,6 +785,8 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
             c->x = wm.drag_start_x + (wm.drag_start_w - new_w);
         if (!wm.resize_bottom)
             c->y = wm.drag_start_y + (wm.drag_start_h - new_h);
+
+        update_resize_neighbors(c, bt, th);
     }
 
     /* The window's own outline (frame + content geometry) tracks the
@@ -604,6 +798,10 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
      * kwin's uncomposited opaque move/resize instead of visibly stepping
      * at the display's refresh rate. */
     apply_frame_geometry(c);
+    for (int i = 0; i < wm.resize_neighbors_x_count; i++)
+        apply_frame_geometry(wm.resize_neighbors_x[i].client);
+    for (int i = 0; i < wm.resize_neighbors_y_count; i++)
+        apply_frame_geometry(wm.resize_neighbors_y[i].client);
 
     /* The *painted* chrome -- rounded-corner XShape re-clip and the
      * off-screen decoration repaint (title, buttons, border) -- is capped
@@ -628,6 +826,14 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
 
     apply_rounded_shape(c);
     draw_decoration(c);
+    for (int i = 0; i < wm.resize_neighbors_x_count; i++) {
+        apply_rounded_shape(wm.resize_neighbors_x[i].client);
+        draw_decoration(wm.resize_neighbors_x[i].client);
+    }
+    for (int i = 0; i < wm.resize_neighbors_y_count; i++) {
+        apply_rounded_shape(wm.resize_neighbors_y[i].client);
+        draw_decoration(wm.resize_neighbors_y[i].client);
+    }
     xcb_flush(wm.conn);
 }
 
@@ -638,8 +844,16 @@ static void handle_button_release(xcb_button_release_event_t *ev)
         /* Force one final apply regardless of the redraw throttle above
          * -- otherwise the window could be left showing a stale size if
          * the very last motion event of the drag happened to land inside
-         * the throttle window and got skipped. */
+         * the throttle window and got skipped. Same for every resize
+         * neighbor that got dragged along (see update_resize_neighbors()). */
         configure_frame(wm.drag_client);
+        for (int i = 0; i < wm.resize_neighbors_x_count; i++)
+            configure_frame(wm.resize_neighbors_x[i].client);
+        for (int i = 0; i < wm.resize_neighbors_y_count; i++)
+            configure_frame(wm.resize_neighbors_y[i].client);
+        wm.resize_neighbors_x_count = 0;
+        wm.resize_neighbors_y_count = 0;
+
         Client *c = wm.drag_client;
         int new_output = output_index_for_point(c->x + c->width / 2, c->y + c->height / 2);
         if (new_output >= 0 && new_output != c->output) {

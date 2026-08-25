@@ -173,6 +173,29 @@ typedef struct DockWindow {
     int x, y, width, height;
 } DockWindow;
 
+/* One window found touching a resize drag's moving edge, captured at the
+ * exact moment the drag started -- see wm.h's KiWM::resize_neighbors_x/y
+ * and events.c's begin_drag()/handle_motion(). Resized oppositely in
+ * lockstep so it stays touching: shrinking the dragged window along that
+ * edge grows the neighbor by the same amount (its far edge stays
+ * anchored), and vice versa. orig_x/y/w/h is the neighbor's own geometry
+ * at the moment it was detected, so every motion event recomputes its new
+ * geometry from the *total* displacement since drag start (not
+ * incrementally from the previous event) -- the same anti-drift approach
+ * KiWM::drag_start_x/y/w/h already uses for the dragged window itself. */
+#define MAX_RESIZE_NEIGHBORS 8
+/* How close (pixels) a gap between two frame edges still counts as
+ * "touching" for resize-neighbor detection -- deliberately tiny and fixed
+ * (not kiwm.conf's magnet_threshold=, which is about visually pulling
+ * distant edges together; this is about recognizing two edges that are
+ * *already* essentially flush, e.g. from a previous magnet snap or a
+ * tiling/snap operation). */
+#define RESIZE_NEIGHBOR_EPSILON_PX 1
+typedef struct {
+    Client *client;
+    int orig_x, orig_y, orig_w, orig_h;
+} ResizeNeighbor;
+
 struct Client {
     xcb_window_t window;    /* application window */
     xcb_window_t frame;     /* decorated frame */
@@ -456,7 +479,7 @@ typedef struct {
      * width, a whole different geometry); this is just a few pixels of
      * position nudging so two windows (or a window and the screen edge)
      * end up touching with no gap instead of a near-miss. See events.c's
-     * magnet_snap(). */
+     * magnet_snap_move()/magnet_snap_resize(). */
     int magnet_threshold;
 
     /* Which modifier drives Alt+Tab-style window cycling vs. Meta-style
@@ -476,6 +499,48 @@ typedef struct {
      * corner then stays fixed for the whole drag (handle_motion). */
     bool resize_right, resize_bottom;
     double last_drag_apply_ms;  /* see DRAG_REDRAW_FALLBACK_MS / events.c's handle_motion() */
+
+    /* Set for the whole drag by events.c's begin_drag() when a DRAG_RESIZE
+     * starts on the shared edge of two half-snapped windows (Client::
+     * snap_side LEFT/RIGHT) that are still touching, with
+     * link_resize_neighbors= on -- resizing them should just resize both
+     * in place, still half-snapped, not detile back to whatever floating
+     * size they had before being snapped (the normal behavior every other
+     * resize/move on a snapped window still gets, via detile_for_drag()).
+     * Only ever true for DRAG_RESIZE; a DRAG_MOVE always detiles a snapped
+     * window regardless of this setting. */
+    bool drag_preserve_snap;
+
+    /* Whether a resize drags along whatever's touching the edge being
+     * resized (see ResizeNeighbor above) -- kiwm.conf's
+     * link_resize_neighbors= (default 0/off). Off by default since it's a
+     * surprising-until-you-expect-it behavior change to plain resizing;
+     * events.c's begin_drag() skips detect_resize_neighbors() entirely
+     * when this is false, so the feature has zero cost (not even the
+     * detection scan) unless explicitly opted into. */
+    bool link_resize_neighbors;
+
+    /* Neighbors touching the moving *vertical* edge (left or right,
+     * whichever wm.resize_right picks) and the moving *horizontal* edge
+     * (top/bottom, wm.resize_bottom) respectively -- independent lists
+     * since a corner resize drags both at once, and a window could
+     * plausibly be a neighbor on one axis only, the other axis only, or
+     * (cornered against the dragged window) both. Capped at
+     * MAX_RESIZE_NEIGHBORS; a resize touching more windows than that along
+     * one edge just leaves the extras alone -- same "don't chase full
+     * conformance" spirit as everywhere else in kiwm. Reset to count 0 in
+     * handle_button_release(); entries removed individually (compacted
+     * down) by client.c's unmanage() if one of them gets destroyed
+     * mid-drag. */
+    ResizeNeighbor resize_neighbors_x[MAX_RESIZE_NEIGHBORS];
+    int resize_neighbors_x_count;
+    ResizeNeighbor resize_neighbors_y[MAX_RESIZE_NEIGHBORS];
+    int resize_neighbors_y_count;
+    /* The moving edge's own absolute (frame-space) coordinate at the exact
+     * moment the drag started -- every motion event's neighbor update
+     * compares *this* against the moving edge's current position to get
+     * the total displacement to replay onto each neighbor. */
+    int resize_edge_x_start, resize_edge_y_start;
 
     /* Manual double-click detection for the plain (non-button) titlebar
      * area -- X has no double-click event of its own, just consecutive

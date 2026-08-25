@@ -43,6 +43,7 @@ static void apply_builtin_defaults(void)
     wm.border_r = 0.0; wm.border_g = 0.0; wm.border_b = 0.0;
     wm.snap_threshold = 20;
     wm.magnet_threshold = 10;
+    wm.link_resize_neighbors = false;
     wm.focus_follows_mouse = false;
     snprintf(wm.theme_path, sizeof(wm.theme_path), "greenxp");
 
@@ -167,6 +168,13 @@ static void write_default_config(const char *path)
         "# tiling snap like snap_threshold above. 0 disables it.\n"
         "magnet_threshold=10\n"
         "\n"
+        "# While resizing a window, also resize whatever's touching the edge\n"
+        "# being dragged (within 1px), oppositely, so both stay touching --\n"
+        "# shrinking one grows its neighbor and vice versa. Same-output only.\n"
+        "# Off by default: a resize behaves exactly like before unless you\n"
+        "# turn this on.\n"
+        "link_resize_neighbors=0\n"
+        "\n"
         "# Raise+focus a window just by moving the pointer into it, instead\n"
         "# of requiring a click (0 = click-to-focus, the default; 1 =\n"
         "# focus-follows-mouse/\"sloppy focus\").\n"
@@ -261,6 +269,8 @@ void config_load(void)
         } else if (strcmp(key, "magnet_threshold") == 0) {
             int n = atoi(val);
             wm.magnet_threshold = n < 0 ? 0 : n;
+        } else if (strcmp(key, "link_resize_neighbors") == 0) {
+            wm.link_resize_neighbors = atoi(val) != 0;
         } else if (strcmp(key, "focus_follows_mouse") == 0) {
             wm.focus_follows_mouse = atoi(val) != 0;
         } else if (strcmp(key, "theme") == 0) {

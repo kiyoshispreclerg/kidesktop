@@ -30,6 +30,13 @@ exposes.
   against it, gap-free -- independent per axis, and distinct from the tiling snap below. Other
   Clients count as candidates regardless of which output they're on (so two windows on
   neighboring monitors can still snap to each other).
+- Optional (`link_resize_neighbors=`, default off): while resizing, whatever's touching the edge
+  being dragged (within 1px, same output) gets resized right along with it, oppositely, so both
+  stay touching -- shrink one and its neighbor grows by the same amount, and vice versa. Resizing
+  the shared edge of two windows half-snapped (see the tiling snap below) to opposite sides of the
+  screen resizes both in place, still half-snapped, instead of detiling back to their pre-snap
+  floating size the way every other resize/move on a snapped window still does -- *moving* a
+  half-snapped window (or resizing an edge that isn't the shared one) detiles it as always.
 - Windows7/kwin-style edge-drag snapping (drag a titlebar to a screen edge to maximize/half-tile),
   corner-relative resize, double-click-titlebar-to-maximize, scroll-wheel shade. Move/resize show
   the matching cursor from the user's actual Xcursor theme (via libxcb-cursor, same lookup rules as
@@ -58,9 +65,7 @@ exposes.
 
 Not implemented yet: `kicomp` compositor (no client-side compositing at all), resizing by grabbing
 the window's own edge/corner with no modifier held (only mod+right-click resize exists so far),
-resizing two touching windows together (magnetic edge snapping -- see `magnet_threshold` above --
-covers moving *and* resizing a window so its own edge lines up with a neighbor's, but resizing
-doesn't yet drag the neighbor's edge along with it), global menu.
+global menu.
 
 ### Dependencies
 
@@ -112,6 +117,7 @@ a warning on stderr, not a hard error. A key you leave out of the file keeps its
 | `border_color` | `#000000` | Fallback border color, used only when no theme `colors` file overrides it (see "Theming"). |
 | `snap_threshold` | `20` | How close (pixels) the pointer must get to an output's *usable* area edge while dragging a window to snap it there -- top edge maximizes, left/right edges fill exactly half the width, Windows7/kwin-style. `0` disables snapping entirely. |
 | `magnet_threshold` | `10` | How close (pixels) a window's *edge* (not the pointer -- the frame, decoration included), while being moved or resized, must get to another window's edge, a same-output dock/panel/taskbar's edge, or the screen edge before it snaps flush against it, gap-free -- a much smaller, purely cosmetic nudge than `snap_threshold`'s tiling snap above. `0` disables it. |
+| `link_resize_neighbors` | `0` | `1` makes resizing also resize whatever's touching (within 1px) the edge being dragged, oppositely, so both stay touching -- same output only. `0` (default) leaves resizing exactly as before. |
 | `focus_follows_mouse` | `0` | `1` raises+focuses a window just by moving the pointer into it ("sloppy focus"). `0` (default) requires an actual click. |
 | `theme` | `greenxp` | Theme folder name/path (see "Theming"). Resolved the same way kiwm looks for its own binary-relative files: tried as `../<theme>`, `./<theme>`, and plain `<theme>` (so it works both run from the source tree and installed). |
 | `titlebar_layout` | `icon,title,shade,minimize,maximize,close` | Titlebar element order, left to right, comma-separated. See "Titlebar layout" below. |

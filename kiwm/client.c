@@ -736,6 +736,27 @@ void unmanage(Client *c)
         wm.drag_client = NULL;
         wm.drag_mode = DRAG_NONE;
         wm.drag_snap_side = SNAP_NONE;
+        wm.resize_neighbors_x_count = 0;
+        wm.resize_neighbors_y_count = 0;
+    } else {
+        /* c isn't the client actually being dragged, but a resize in
+         * progress might still be dragging it along as a resize-neighbor
+         * (see wm.h's ResizeNeighbor) -- remove it from whichever list
+         * references it (swap-with-last, order doesn't matter here) so
+         * the rest of the drag doesn't touch this about-to-be-freed
+         * Client again. */
+        for (int i = 0; i < wm.resize_neighbors_x_count; i++) {
+            if (wm.resize_neighbors_x[i].client == c) {
+                wm.resize_neighbors_x[i] = wm.resize_neighbors_x[--wm.resize_neighbors_x_count];
+                break;
+            }
+        }
+        for (int i = 0; i < wm.resize_neighbors_y_count; i++) {
+            if (wm.resize_neighbors_y[i].client == c) {
+                wm.resize_neighbors_y[i] = wm.resize_neighbors_y[--wm.resize_neighbors_y_count];
+                break;
+            }
+        }
     }
     if (wm.hover_client == c) {
         wm.hover_client = NULL;
