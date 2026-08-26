@@ -298,6 +298,24 @@ typedef struct {
     xcb_atom_t net_wm_window_type_desktop;
     xcb_atom_t net_wm_window_type_toolbar;
     xcb_atom_t net_wm_window_type_menu;
+    /* Transient popup/tooltip-ish types -- like dock/desktop/toolbar/menu
+     * above, client.c's should_manage_decorated() excludes these from
+     * framing entirely (mapped as-is, geometry never touched, no
+     * titlebar): the app already knows exactly where it wants these and
+     * kiwm reparenting/repositioning them would only get in the way (this
+     * is also what was silently misplacing a second output's panel
+     * tooltips onto the first output before this existed -- an
+     * unrecognized window type fell through to full client management
+     * instead of the untouched passthrough these need). Common on a KDE
+     * Plasma session's own popups (application launcher, applet popups,
+     * panel tooltips) once Plasma is talking to a WM that isn't KWin. */
+    xcb_atom_t net_wm_window_type_popup_menu;
+    xcb_atom_t net_wm_window_type_dropdown_menu;
+    xcb_atom_t net_wm_window_type_tooltip;
+    xcb_atom_t net_wm_window_type_notification;
+    xcb_atom_t net_wm_window_type_combo;
+    xcb_atom_t net_wm_window_type_dnd;
+    xcb_atom_t net_wm_window_type_splash;
 
     xcb_atom_t kiwm_outputs;
     xcb_atom_t kiwm_output_desktop;

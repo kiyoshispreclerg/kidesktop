@@ -58,6 +58,13 @@ void ewmh_init_atoms(void)
     wm.atoms.net_wm_window_type_desktop = intern_atom("_NET_WM_WINDOW_TYPE_DESKTOP");
     wm.atoms.net_wm_window_type_toolbar = intern_atom("_NET_WM_WINDOW_TYPE_TOOLBAR");
     wm.atoms.net_wm_window_type_menu = intern_atom("_NET_WM_WINDOW_TYPE_MENU");
+    wm.atoms.net_wm_window_type_popup_menu = intern_atom("_NET_WM_WINDOW_TYPE_POPUP_MENU");
+    wm.atoms.net_wm_window_type_dropdown_menu = intern_atom("_NET_WM_WINDOW_TYPE_DROPDOWN_MENU");
+    wm.atoms.net_wm_window_type_tooltip = intern_atom("_NET_WM_WINDOW_TYPE_TOOLTIP");
+    wm.atoms.net_wm_window_type_notification = intern_atom("_NET_WM_WINDOW_TYPE_NOTIFICATION");
+    wm.atoms.net_wm_window_type_combo = intern_atom("_NET_WM_WINDOW_TYPE_COMBO");
+    wm.atoms.net_wm_window_type_dnd = intern_atom("_NET_WM_WINDOW_TYPE_DND");
+    wm.atoms.net_wm_window_type_splash = intern_atom("_NET_WM_WINDOW_TYPE_SPLASH");
 
     /* Custom, per kiwm-kicomp-projeto.md section 6: independent virtual
      * desktops per output, since EWMH itself has no such concept. */

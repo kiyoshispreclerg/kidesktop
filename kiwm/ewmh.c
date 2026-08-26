@@ -206,6 +206,10 @@ void ewmh_init_supported(void)
         wm.atoms.net_wm_window_type, wm.atoms.net_wm_window_type_normal,
         wm.atoms.net_wm_window_type_dock, wm.atoms.net_wm_window_type_desktop,
         wm.atoms.net_wm_window_type_toolbar, wm.atoms.net_wm_window_type_menu,
+        wm.atoms.net_wm_window_type_popup_menu, wm.atoms.net_wm_window_type_dropdown_menu,
+        wm.atoms.net_wm_window_type_tooltip, wm.atoms.net_wm_window_type_notification,
+        wm.atoms.net_wm_window_type_combo, wm.atoms.net_wm_window_type_dnd,
+        wm.atoms.net_wm_window_type_splash,
         wm.atoms.net_wm_name,
     };
     xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, wm.root,

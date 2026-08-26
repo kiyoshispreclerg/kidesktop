@@ -46,15 +46,52 @@ static xcb_atom_t get_window_type(xcb_window_t window)
     return type;
 }
 
+/* Whether any of a window's *listed* _NET_WM_WINDOW_TYPE atoms (there can
+ * be more than one, in priority order -- e.g. a specific type followed by
+ * NORMAL as a generic fallback for WMs that don't recognize the first
+ * one) names one kiwm never frames/decorates (see wm.h's Atoms doc
+ * comment on net_wm_window_type_popup_menu and friends). Checking every
+ * entry, not just get_window_type()'s first one, matters here: a window
+ * whose primary type kiwm doesn't recognize at all would otherwise fall
+ * through to "must be NORMAL, frame it" even when a later entry in the
+ * same list says otherwise -- exactly what was giving KDE Plasma's own
+ * popups (application launcher, applet popups, panel tooltips) a
+ * titlebar they were never supposed to have, once Plasma is talking to a
+ * WM that isn't KWin (which has private, kiwm-invisible handling for its
+ * own popups regardless of what's actually in this property). */
+static bool window_type_excluded_from_decoration(xcb_window_t window)
+{
+    xcb_get_property_reply_t *reply = xcb_get_property_reply(wm.conn,
+        xcb_get_property(wm.conn, 0, window, wm.atoms.net_wm_window_type, XCB_ATOM_ATOM, 0, 32), NULL);
+    if (!reply)
+        return false; /* no type at all -- ICCCM default is effectively NORMAL */
+
+    bool excluded = false;
+    if (reply->type == XCB_ATOM_ATOM && reply->format == 32) {
+        xcb_atom_t *atoms = xcb_get_property_value(reply);
+        int n = xcb_get_property_value_length(reply) / (int)sizeof(xcb_atom_t);
+        for (int i = 0; i < n && !excluded; i++) {
+            xcb_atom_t t = atoms[i];
+            excluded = (t == wm.atoms.net_wm_window_type_dock ||
+                        t == wm.atoms.net_wm_window_type_desktop ||
+                        t == wm.atoms.net_wm_window_type_toolbar ||
+                        t == wm.atoms.net_wm_window_type_menu ||
+                        t == wm.atoms.net_wm_window_type_popup_menu ||
+                        t == wm.atoms.net_wm_window_type_dropdown_menu ||
+                        t == wm.atoms.net_wm_window_type_tooltip ||
+                        t == wm.atoms.net_wm_window_type_notification ||
+                        t == wm.atoms.net_wm_window_type_combo ||
+                        t == wm.atoms.net_wm_window_type_dnd ||
+                        t == wm.atoms.net_wm_window_type_splash);
+        }
+    }
+    free(reply);
+    return excluded;
+}
+
 static bool should_manage_decorated(xcb_window_t window)
 {
-    xcb_atom_t t = get_window_type(window);
-    if (t == XCB_ATOM_NONE)
-        return true;
-    return !(t == wm.atoms.net_wm_window_type_dock ||
-             t == wm.atoms.net_wm_window_type_desktop ||
-             t == wm.atoms.net_wm_window_type_toolbar ||
-             t == wm.atoms.net_wm_window_type_menu);
+    return !window_type_excluded_from_decoration(window);
 }
 
 /* A passive xcb_grab_button() with a specific (non-ANY) modifier only

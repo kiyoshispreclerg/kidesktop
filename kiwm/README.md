@@ -21,11 +21,29 @@ exposes.
 - Already-open windows are picked up at startup, not just windows mapped afterward.
 - `--replace`: proper ICCCM manager-selection handoff, and kiwm itself can later be `--replace`d
   cleanly by something else.
+- Frames also select `SubstructureRedirect` (not just root): a client repositioning *itself* well
+  after being mapped (many toolkits do this once, to restore a remembered window position/size,
+  unaware it's reparented at all -- ICCCM requires that transparency) gets redirected back through
+  kiwm like any other geometry request, instead of applying directly against its real parent (the
+  frame) with no translation at all -- which is what used to shove a reopened window's *content* off
+  inside its own frame by roughly however far the window used to be from `(0,0)`, cut off in a
+  corner: the app's intended *absolute screen* position was landing as a raw frame-relative offset.
 - Graceful shutdown on SIGTERM/SIGINT: every managed window is reparented back to root before
   kiwm exits, so windows survive a kill instead of vanishing with it.
 - Dock/panel awareness: `_NET_WM_STRUT`/`_NET_WM_STRUT_PARTIAL`, correctly attributed per output
   (a panel on one monitor doesn't eat into a different monitor's usable area), feeding
   `_NET_WORKAREA` and maximize.
+- Window-type-aware framing: besides `_NET_WM_WINDOW_TYPE_DOCK`/`_DESKTOP`/`_TOOLBAR`/`_MENU`,
+  `_POPUP_MENU`/`_DROPDOWN_MENU`/`_TOOLTIP`/`_NOTIFICATION`/`_COMBO`/`_DND`/`_SPLASH` are also never
+  framed/decorated or repositioned -- mapped exactly as the app placed them, geometry untouched.
+  Checked across *every* type a window lists (not just the first), so a specific type followed by
+  `_NORMAL` as a generic fallback still gets recognized. Matters most for a desktop environment's
+  own popups (a KDE Plasma session's application launcher, applet popups, panel tooltips) once
+  they're talking to a WM that isn't their own (KWin's private handling for these doesn't apply) --
+  an unrecognized type used to fall through to full framing, which is what was giving them a
+  titlebar they were never supposed to have, and (for tooltips especially) is what let kiwm's normal
+  per-output client positioning logic get involved in placing them at all, versus just leaving them
+  exactly where the app put them.
 - Magnetic edge snapping while moving *or* resizing a window: an edge within `magnet_threshold`
   (default 10px) of another window's edge (decoration included), a dock/panel/taskbar's edge on
   the *same output* (one on a different monitor is ignored), or the screen edge snaps flush
