@@ -84,8 +84,30 @@ static void handle_configure_request(xcb_configure_request_event_t *ev)
         return;
     }
 
-    if (ev->value_mask & XCB_CONFIG_WINDOW_X)      c->x = ev->x;
-    if (ev->value_mask & XCB_CONFIG_WINDOW_Y)      c->y = ev->y;
+    /* `c` is only ever found here for an *already-reparented* window (see
+     * client.c's manage(): the frame's own SubstructureRedirect is what
+     * makes this fire at all, and that's only selected on a frame that
+     * already has the client reparented into it -- there's no window where
+     * find_client_window() could match a still-child-of-root window). So
+     * ev->x/ev->y are parent-relative to the *frame*, but the app that
+     * issued this ConfigureWindow on its own (reparented, from its own
+     * point of view still-a-root-child per ICCCM's transparency
+     * requirement) window meant them as its own absolute *screen* position
+     * -- i.e. where it wants its *content*, not the frame, to end up.
+     * Converting that back to c->x/c->y (which this whole codebase treats
+     * as the frame's own top-left) needs subtracting the same insets
+     * deco_insets() everywhere else adds going the other way. Getting this
+     * backwards (assigning ev->x/y to c->x/c->y directly, as if they were
+     * already frame-relative) is exactly the "content displaced by
+     * whatever the window's old position used to be, cut off in a corner"
+     * bug this fixes -- width/height need no such translation, since
+     * those the app really is requesting for its own content, unaffected
+     * by insets. */
+    int bt, th;
+    deco_insets(c, &bt, &th);
+
+    if (ev->value_mask & XCB_CONFIG_WINDOW_X)      c->x = ev->x - bt;
+    if (ev->value_mask & XCB_CONFIG_WINDOW_Y)      c->y = ev->y - th;
     if (ev->value_mask & XCB_CONFIG_WINDOW_WIDTH)  c->width = ev->width < c->min_w ? c->min_w : ev->width;
     if (ev->value_mask & XCB_CONFIG_WINDOW_HEIGHT) c->height = ev->height < c->min_h ? c->min_h : ev->height;
 

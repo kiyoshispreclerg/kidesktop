@@ -901,7 +901,24 @@ void manage(xcb_window_t window)
         XCB_EVENT_MASK_EXPOSURE |
         XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE |
         XCB_EVENT_MASK_POINTER_MOTION |
-        XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_LEAVE_WINDOW
+        XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_LEAVE_WINDOW |
+        /* SubstructureRedirect on the frame too, not just root: once a
+         * client's top-level window is reparented into the frame, it's no
+         * longer a direct child of root, so root's own SubstructureRedirect
+         * no longer covers it -- any ConfigureWindow the app later issues
+         * on *itself* (many toolkits do this to restore a remembered
+         * position/size well after being mapped, unaware it's reparented at
+         * all, per ICCCM's transparency requirement) would otherwise apply
+         * directly against its real parent (the frame) with no redirect at
+         * all: the app's intended *absolute screen* x/y lands as a raw
+         * frame-relative offset instead, shoving the content way off inside
+         * the frame -- exactly the "content displaced by however far the
+         * window used to be from (0,0), cut off in a corner" bug this
+         * fixes. With this selected, that request instead comes back to us
+         * as a ConfigureRequest (handle_configure_request(), which now
+         * knows to treat it as the *content's* intended position, not the
+         * frame's, since that's what the app actually meant). */
+        XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT
     };
     int bt = wm.border_thickness; /* deco is always visible on a freshly-managed window */
     xcb_create_window(wm.conn, wm.screen->root_depth, c->frame, wm.root,
