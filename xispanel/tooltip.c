@@ -997,19 +997,28 @@ static void show_popup(void)
     pop->back_cr = cairo_create(pop->back);
 
     g_popup = pop;
-    paint_popup();
-    g_shown = 1;
-    g_last_refresh_ms = now_ms();
-    g_last_thumb_paint_ms = g_last_refresh_ms;
 
     /* Live-thumbnail tracking: re-sync the XDamage watch set to whatever
-     * window(s) this paint actually shows a thumbnail of, so later
+     * window(s) this paint is about to show a thumbnail of, so later
      * content changes repaint just this popup instead of it staying a
      * one-shot snapshot from the moment it opened -- see thumb_watch()/
      * thumb_take_dirty() in thumb.c and the dirty-flag check in
      * tooltip_tick(). Unwatch-then-rewatch on every show_popup() call
      * (not every repaint) keeps this cheap: it only runs when the tracked
-     * item/text actually changed, not on every damage-triggered repaint. */
+     * item/text actually changed, not on every damage-triggered repaint.
+     *
+     * Deliberately done *before* the paint_popup() call below rather than
+     * after: thumb_watch() resolves the composited window and caches its
+     * pixmap (ThumbWatch::pix) as part of setting up the watch, so
+     * calling it first means this first paint_popup() finds that cache
+     * already warm and takes thumb_paint()'s fast path like every repaint
+     * after it, instead of redoing that resolve itself as a one-off. It
+     * also means the one-time fallback self-redirect a compositor-less
+     * setup needs (see thumb.c's file comment) happens exactly once, in
+     * the one place (thumb_watch()) that remembers to undo it again on
+     * thumb_unwatch_all() -- doing it here first, paint_popup()'s own
+     * thumb_paint() call would hit that fallback itself instead, with no
+     * ThumbWatch slot yet to record it in. */
     thumb_unwatch_all();
     if (g_has_thumb) {
         thumb_watch(g_thumb_win);
@@ -1018,6 +1027,11 @@ static void show_popup(void)
             thumb_watch(g_group_items[i].win);
         }
     }
+
+    paint_popup();
+    g_shown = 1;
+    g_last_refresh_ms = now_ms();
+    g_last_thumb_paint_ms = g_last_refresh_ms;
 }
 
 /* Re-queries get_tooltip() for the current hover target and updates

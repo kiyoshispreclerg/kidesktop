@@ -1,24 +1,38 @@
 /*
  * thumb.c - live window thumbnails for tasklist's tooltip (show_thumbs=
- * yes), via the XComposite + XDamage extensions. Gated on both an active
- * compositor (checked by looking for an owner of the _NET_WM_CM_S<screen>
- * selection -- the same convention every compositing WM/EWMH client uses
- * to detect one) and, per the Makefile, whether libXcomposite/libXdamage
- * were available at build time at all -- see thumb_stub.c for the
- * build-time fallback.
+ * yes), via the XComposite + XDamage extensions. Gated only on, per the
+ * Makefile, whether libXcomposite/libXdamage were available at build time
+ * at all -- see thumb_stub.c for the build-time fallback. No longer also
+ * gated on an active compositor: earlier versions checked for an owner of
+ * the _NET_WM_CM_S<screen> selection (the usual EWMH convention for
+ * detecting one) on the theory that only a compositor keeps every
+ * top-level window redirected to an offscreen pixmap. That's true of
+ * *automatic* redirection generally, but nothing about it requires the
+ * redirecting client to *be* a compositor -- any client, including this
+ * one, can call XCompositeRedirectWindow(win, CompositeRedirectAutomatic)
+ * on a window itself, and Automatic mode is specifically the one where
+ * the X server keeps compositing the window back to the screen exactly
+ * as if it were never redirected, so doing this has no visible effect
+ * and needs no present/copy-back logic of its own. try_name_window_
+ * pixmap() does exactly that as a fallback when NameWindowPixmap first
+ * BadMatches -- i.e. when nothing has redirected the window yet, which
+ * without a compositor is simply *every* window, not a reason to give up.
+ * Confirmed working live on kiwm with no compositor running at all, at
+ * the same low cost as with one -- see ThumbWatch::self_redirected for
+ * how the redirect this adds gets released again.
  *
- * Once a compositor is running, every top-level window is automatically
- * redirected to an offscreen pixmap (that's what "compositing" means),
- * so unlike an explicit-compositor implementation, this never needs to
- * call XCompositeRedirectWindow itself -- XCompositeNameWindowPixmap()
- * on a *redirected* window just works. That pixmap, and the cairo
- * surface wrapping it, are then held for as long as the window is
- * watched (see ThumbWatch::pix) rather than re-named per frame: a
- * composite pixmap updates in place as the window redraws, so the only
- * thing per-frame re-naming ever bought was papering over the classic
- * stale-composite-pixmap pitfall (the pixmap ID silently stops updating
- * across unmap/map or resize) at the cost of a round-trip and two
- * allocations on every single repaint. Those specific transitions are
+ * With a compositor running, every top-level window is already
+ * automatically redirected to an offscreen pixmap (that's what
+ * "compositing" means), so the very first XCompositeNameWindowPixmap()
+ * attempt just succeeds and the self-redirect fallback above never even
+ * runs -- this path costs nothing extra in that case. Either way, that
+ * pixmap, and the cairo surface wrapping it, are then held for as long as
+ * the window is watched (see ThumbWatch::pix) rather than re-named per
+ * frame: a composite pixmap updates in place as the window redraws, so
+ * the only thing per-frame re-naming ever bought was papering over the
+ * classic stale-composite-pixmap pitfall (the pixmap ID silently stops
+ * updating across unmap/map or resize) at the cost of a round-trip and
+ * two allocations on every single repaint. Those specific transitions are
  * caught directly instead, via StructureNotify on the target window --
  * see note_structure_event(). *When* it's painted is driven by XDamage,
  * not a blind timer: thumb_watch()/thumb_handle_event()/thumb_take_
@@ -66,7 +80,8 @@ static int g_damage_error_base = 0;
 
 static volatile sig_atomic_t g_thumb_had_error;
 
-static Window resolve_composited_window(Window win, XWindowAttributes *out_wa, Pixmap *out_pix);
+static Window resolve_composited_window(Window win, XWindowAttributes *out_wa, Pixmap *out_pix,
+                                         int *out_self_redirected);
 
 static int thumb_error_handler(Display *dpy, XErrorEvent *ev)
 {
@@ -76,6 +91,12 @@ static int thumb_error_handler(Display *dpy, XErrorEvent *ev)
     return 0;
 }
 
+/* No longer gated on an active compositor (no more `_NET_WM_CM_S<screen>`
+ * selection check) -- see the file comment's "Without a compositor"
+ * paragraph for why that gate was never actually load-bearing. Only what
+ * genuinely has to be true unconditionally remains: the extension exists
+ * on this server, and (per the Makefile) xispanel was built with
+ * libXcomposite at all. */
 int thumb_available(void)
 {
     if (!g_composite_checked) {
@@ -83,14 +104,7 @@ int thumb_available(void)
         int event_base, error_base;
         g_composite_ext_present = XCompositeQueryExtension(g_dpy, &event_base, &error_base);
     }
-    if (!g_composite_ext_present) {
-        return 0;
-    }
-
-    char prop_name[32];
-    snprintf(prop_name, sizeof(prop_name), "_NET_WM_CM_S%d", g_screen);
-    Atom cm_atom = XInternAtom(g_dpy, prop_name, False);
-    return XGetSelectionOwner(g_dpy, cm_atom) != None;
+    return g_composite_ext_present;
 }
 
 static int damage_available(void)
@@ -154,6 +168,16 @@ typedef struct {
      * all() then takes it back off again, so a window we're no longer
      * watching stops feeding this process events. */
     int added_structure;
+
+    /* Set when resolve_composited_window() had to redirect `target`
+     * itself (see try_name_window_pixmap()'s doc comment) -- there being
+     * no compositor to have already done it, most commonly. thumb_
+     * unwatch_all() then calls XCompositeUnredirectWindow() to give the
+     * reference back, mirroring added_structure just above. Automatic
+     * mode means leaving it redirected would have no visible effect
+     * either way (the server keeps compositing the window back exactly
+     * as if unredirected) -- this is tidiness, not a correctness fix. */
+    int self_redirected;
 } ThumbWatch;
 static ThumbWatch g_watches[THUMB_MAX_WATCHES];
 static int g_n_watches = 0;
@@ -204,7 +228,8 @@ void thumb_watch(Window win)
      * just never fires, which is much harder to notice than a crash. */
     XWindowAttributes wa;
     Pixmap pix = None;
-    Window target = resolve_composited_window(win, &wa, &pix);
+    int self_redirected = 0;
+    Window target = resolve_composited_window(win, &wa, &pix, &self_redirected);
     if (target == None) {
         XSetErrorHandler(prev);
         return;
@@ -232,6 +257,7 @@ void thumb_watch(Window win)
     w->h = wa.height;
     w->visual = wa.visual;
     w->mapped = 1; /* resolve_composited_window() only succeeds on an IsViewable window */
+    w->self_redirected = self_redirected;
 
     /* Invalidation signal for the cached pixmap above. Mostly redundant
      * -- ewmh_watch_init() already holds SubstructureNotifyMask on the
@@ -265,6 +291,11 @@ void thumb_unwatch_all(void)
         g_thumb_had_error = 0;
         watch_drop_pixmap(&g_watches[i]);
         XDamageDestroy(g_dpy, g_watches[i].damage); /* BadDamage if the window already closed -- ignored, same as everywhere else */
+        if (g_watches[i].self_redirected) {
+            g_thumb_had_error = 0;
+            XCompositeUnredirectWindow(g_dpy, g_watches[i].target, CompositeRedirectAutomatic);
+            /* BadValue/BadMatch if the window already closed -- ignored, same tradeoff as XDamageDestroy above. */
+        }
         if (g_watches[i].added_structure) {
             /* Re-read rather than restoring the mask thumb_watch() saw:
              * ewmh_watch_windows() may legitimately have added
@@ -369,11 +400,26 @@ int thumb_take_dirty(void)
 }
 
 /* Tries to get a live composited pixmap for exactly `win`. Returns None
- * (leaving *out_wa untouched) on any failure -- BadMatch is common here
- * on a reparenting WM, where the *client* window itself was never
- * individually redirected, only its WM-added frame around it (see
- * thumb_paint()'s fallback below). */
-static Pixmap try_name_window_pixmap(Window win, XWindowAttributes *out_wa)
+ * (leaving *out_wa / *out_self_redirected untouched) on any failure --
+ * BadMatch is common here on a reparenting WM, where the *client* window
+ * itself was never individually redirected, only its WM-added frame
+ * around it (see thumb_paint()'s fallback below).
+ *
+ * `XCompositeNameWindowPixmap` only ever works on a window that's
+ * actually redirected to offscreen storage. With a compositor running,
+ * that's already true for every top-level window -- redirecting is what
+ * "compositing" means -- so the first attempt below just succeeds and
+ * this never touches the extension's write side at all. Without one,
+ * nothing has redirected `win` yet, so the first attempt BadMatches; the
+ * fallback redirects it *ourselves* (`CompositeRedirectAutomatic`, not
+ * `Manual` -- Automatic is the mode where the X server keeps compositing
+ * the window back to the screen exactly as if it were never redirected,
+ * so self-redirecting here has no visible effect on the window and needs
+ * no separate present/copy-back logic on our side) and retries once. Sets
+ * *out_self_redirected on that path so the caller can drop the
+ * redirection again once it's done with the window -- see
+ * ThumbWatch::self_redirected. */
+static Pixmap try_name_window_pixmap(Window win, XWindowAttributes *out_wa, int *out_self_redirected)
 {
     if (!XGetWindowAttributes(g_dpy, win, out_wa) || g_thumb_had_error || out_wa->map_state != IsViewable ||
         out_wa->width <= 0 || out_wa->height <= 0) {
@@ -381,8 +427,26 @@ static Pixmap try_name_window_pixmap(Window win, XWindowAttributes *out_wa)
     }
     Pixmap pix = XCompositeNameWindowPixmap(g_dpy, win);
     XSync(g_dpy, False);
+    if (!g_thumb_had_error && pix != None) {
+        return pix;
+    }
+
+    g_thumb_had_error = 0;
+    XCompositeRedirectWindow(g_dpy, win, CompositeRedirectAutomatic);
+    /* BadAccess here just means *this client* already redirected `win`
+     * (a previous call on this same window, e.g. a still-open tooltip
+     * that lost and re-gained the pixmap after a resize) -- harmless,
+     * proceed to the retry either way. Any other error (BadWindow: win
+     * closed mid-call) means the retry below fails too and we report
+     * None, same as ever. */
+    g_thumb_had_error = 0;
+    pix = XCompositeNameWindowPixmap(g_dpy, win);
+    XSync(g_dpy, False);
     if (g_thumb_had_error || pix == None) {
         return None;
+    }
+    if (out_self_redirected) {
+        *out_self_redirected = 1;
     }
     return pix;
 }
@@ -397,10 +461,14 @@ static Pixmap try_name_window_pixmap(Window win, XWindowAttributes *out_wa)
  * and thumb_watch() do this themselves) -- every X call here can fail on
  * an ordinary "window closed mid-query" race, not just the redirect
  * mismatch this is nominally for. */
-static Window resolve_composited_window(Window win, XWindowAttributes *out_wa, Pixmap *out_pix)
+static Window resolve_composited_window(Window win, XWindowAttributes *out_wa, Pixmap *out_pix,
+                                         int *out_self_redirected)
 {
+    if (out_self_redirected) {
+        *out_self_redirected = 0;
+    }
     g_thumb_had_error = 0;
-    Pixmap pix = try_name_window_pixmap(win, out_wa);
+    Pixmap pix = try_name_window_pixmap(win, out_wa, out_self_redirected);
     if (pix != None) {
         *out_pix = pix;
         return win;
@@ -423,7 +491,7 @@ static Window resolve_composited_window(Window win, XWindowAttributes *out_wa, P
         if (parent == None || parent == root_ret) {
             break;
         }
-        pix = try_name_window_pixmap(parent, out_wa);
+        pix = try_name_window_pixmap(parent, out_wa, out_self_redirected);
         if (pix != None) {
             *out_pix = pix;
             return parent;
@@ -559,12 +627,21 @@ int thumb_paint(cairo_t *cr, Window win, double x, double y, double max_w, doubl
     }
 
     if (pix == None) {
-        /* No cache entry (win isn't currently watched -- e.g. the very
-         * first frame, painted before show_popup() calls thumb_watch()),
-         * or the fast path above didn't even get a pixmap ID back --
-         * fall back to the full resolve, a one-off cost in that case. */
+        /* win isn't currently watched at all -- e.g. a grouped tooltip
+         * past THUMB_MAX_WATCHES, or a caller that paints without ever
+         * calling thumb_watch() -- fall back to the full resolve, a
+         * one-off cost in that case. (show_popup() now calls thumb_
+         * watch() before its first paint_popup(), so the common case
+         * always hits the fast path above instead of here -- see its
+         * call-order comment in tooltip.c.) Any redirect try_name_
+         * window_pixmap() has to add here to succeed is deliberately not
+         * tracked for later XCompositeUnredirectWindow -- there's no
+         * ThumbWatch slot for this window to remember it in, and per the
+         * XComposite spec the server drops it on its own once either the
+         * window or this process goes away, so it's a one-off, bounded
+         * cost rather than a real leak. */
         g_thumb_had_error = 0;
-        if (resolve_composited_window(win, &wa, &pix) == None) {
+        if (resolve_composited_window(win, &wa, &pix, NULL) == None) {
             XSetErrorHandler(prev);
             return 0;
         }

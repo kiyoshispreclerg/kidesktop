@@ -54,8 +54,9 @@ and finally Fontconfig's own `sans-serif` default if neither file exists
   title). `tasklist`'s is also clickable: click it to activate the
   window, or its corner close icon to close it. `tasklist`'s
   `show_thumbs=yes` adds a live window thumbnail (XComposite -- no
-  dependency at all if `libxcomposite-dev` isn't installed, no
-  thumbnail if no compositor is running).
+  dependency at all if `libxcomposite-dev` isn't installed; works with or
+  without a compositor running, self-redirecting the window when nothing
+  else has already).
 - Basic theming: background/foreground color with alpha (real per-pixel
   transparency when a compositor provides an ARGB visual), spacing. A
   panel's background can also be a 9-slice PNG instead of a solid color

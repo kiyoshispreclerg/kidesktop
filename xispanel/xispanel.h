@@ -108,17 +108,21 @@ typedef struct {
      * thumb.c's thumb_paint(). The tooltip's existing click-to-activate
      * mechanism (*out_closable/tooltip_activate from get_tooltip() above)
      * already covers clicking the thumbnail itself, no separate handling
-     * needed. Never called if window thumbnails are unavailable (no
-     * compositor running, or xispanel was built without libXcomposite --
-     * see thumb.c/thumb_stub.c) since thumb_paint() itself just always
-     * reports "nothing painted" then. */
+     * needed. Never called if window thumbnails are unavailable (xispanel
+     * was built without libXcomposite, or the server lacks the extension
+     * -- see thumb.c/thumb_stub.c) since thumb_paint() itself just always
+     * reports "nothing painted" then. No longer conditioned on an active
+     * compositor -- thumb.c self-redirects a window when nothing else has
+     * (see its file comment), so this works the same with or without
+     * one. */
     int (*get_tooltip_thumb)(PanelWidget *w, int local_x, Window *out_win);
     /* Optional, called right after a successful get_tooltip(): for a
      * *grouped* item representing more than one window (tasklist's
      * group=yes), fill up to max_items entries of *out_items and set
      * *out_n, return 1. tooltip.c then renders a multi-window layout
      * instead of the normal single-item text/thumb/mpris one -- a row of
-     * thumbnails if a compositor is available (thumb_available()),
+     * thumbnails if thumb_available() reports support at all (see its
+     * doc comment -- no longer conditioned on an active compositor),
      * otherwise a stacked list of titles -- each entry individually
      * clickable to activate that window, with its own close icon. Return
      * 0 (e.g. the hovered item isn't actually grouped) to fall back to
@@ -1049,7 +1053,8 @@ void pulse_toggle_sink_mute(const char *sink);
  * separate shared library) -- so this is a normal build-time-optional
  * dependency instead: if libXcomposite wasn't found via pkg-config,
  * thumb_stub.c is linked and thumb_available() always reports false. */
-int thumb_available(void); /* 1 if libXcomposite was built in AND a compositor is currently running */
+int thumb_available(void); /* 1 if libXcomposite/libXdamage were built in and the server has the extension --
+                             * no longer requires an active compositor, see thumb.c's file comment */
 /* Draws win's live contents scaled to fit within [x,y,max_w,max_h]
  * (preserving aspect ratio, never upscaled past the window's real size,
  * centered in any leftover space), returns 1 if it painted anything. */
