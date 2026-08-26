@@ -423,12 +423,6 @@ static void draw_9slice(cairo_t *cr, cairo_surface_t *src, int sw, int sh, int l
     draw_slice_region(cr, src, l, t, cw, ch, l, t, dcw, dch);
 }
 
-/* Sane upper bound on a configured corner radius -- purely to keep the
- * rectangle list (and the one-row-per-pixel loop building it) from
- * blowing up if a theme's colors file has a typo like border_radius=5000.
- * No real titlebar needs a rounder corner than this. */
-#define MAX_CORNER_RADIUS 128
-
 /* How many pixels of a corner's own r x r square, at row `y` (0 = the
  * very outer edge row, r-1 = the innermost row, closest to the flat
  * middle), lie *outside* the inscribed quarter-circle -- i.e. how far
@@ -456,8 +450,8 @@ static int corner_inset(int r, int y)
  * the flat middle band; straight rows away from any corner cost nothing
  * extra. Returns the number of rectangles written (never more than
  * 2*MAX_CORNER_RADIUS + 1). */
-static int build_rounded_rects(int w, int h, int tl, int tr, int br, int bl,
-                               xcb_rectangle_t *out, int max_out)
+int build_rounded_rects(int w, int h, int tl, int tr, int br, int bl,
+                        xcb_rectangle_t *out, int max_out)
 {
     if (tl > MAX_CORNER_RADIUS) tl = MAX_CORNER_RADIUS;
     if (tr > MAX_CORNER_RADIUS) tr = MAX_CORNER_RADIUS;

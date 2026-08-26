@@ -45,6 +45,8 @@ static void apply_builtin_defaults(void)
     wm.magnet_threshold = 10;
     wm.link_resize_neighbors = false;
     wm.focus_follows_mouse = false;
+    wm.osd_enabled = true;
+    wm.osd_live_preview = false;
     snprintf(wm.theme_path, sizeof(wm.theme_path), "greenxp");
 
     static const DecoElemKind default_layout[] = {
@@ -180,6 +182,23 @@ static void write_default_config(const char *path)
         "# focus-follows-mouse/\"sloppy focus\").\n"
         "focus_follows_mouse=0\n"
         "\n"
+        "# Show a themed on-screen overlay while holding mod_cycle+Tab (window\n"
+        "# list) or mod_control+Tab (per-output desktop grid), only switching\n"
+        "# once the modifier is released -- like a real Alt+Tab -- instead of\n"
+        "# switching immediately on every Tab press. Escape cancels without\n"
+        "# switching. 1 = on (default), 0 = the original immediate-switch\n"
+        "# behavior, no overlay at all.\n"
+        "osd_enabled=1\n"
+        "\n"
+        "# While an overlay above is open, apply each Tab step live (raise/\n"
+        "# focus the highlighted window immediately, or switch to the\n"
+        "# highlighted desktop immediately) instead of only once on release --\n"
+        "# 0 (default) leaves everything untouched until you decide (Escape\n"
+        "# reverts to nothing having changed); 1 previews live and Escape\n"
+        "# reverts back to whatever was active before the hold started.\n"
+        "# Ignored when osd_enabled=0.\n"
+        "osd_live_preview=0\n"
+        "\n"
         "# Theme folder (bg.png/slice, btns.png/btns.slice, colors -- see\n"
         "# kiwm/README or the greenxp/ folder itself for the file formats).\n"
         "# Resolved the same way kiwm looks for its own binary-relative\n"
@@ -273,6 +292,10 @@ void config_load(void)
             wm.link_resize_neighbors = atoi(val) != 0;
         } else if (strcmp(key, "focus_follows_mouse") == 0) {
             wm.focus_follows_mouse = atoi(val) != 0;
+        } else if (strcmp(key, "osd_enabled") == 0) {
+            wm.osd_enabled = atoi(val) != 0;
+        } else if (strcmp(key, "osd_live_preview") == 0) {
+            wm.osd_live_preview = atoi(val) != 0;
         } else if (strcmp(key, "theme") == 0) {
             snprintf(wm.theme_path, sizeof(wm.theme_path), "%s", val);
         } else if (strcmp(key, "titlebar_layout") == 0) {

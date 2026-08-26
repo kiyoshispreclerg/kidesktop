@@ -5,6 +5,7 @@
 #include "output.h"
 #include "decoration.h"
 #include "ewmh.h"
+#include "osd.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -762,6 +763,11 @@ void unmanage(Client *c)
         wm.hover_client = NULL;
         wm.hover_btn = -1;
     }
+
+    /* A window closing mid-Alt+Tab-hold (osd.c's window-switcher OSD) must
+     * not be left in its list -- it could otherwise get focused (dangling
+     * pointer) or drawn (use-after-free) on the next repaint/commit. */
+    osd_client_destroyed(c);
 
     xcb_unmap_window(wm.conn, c->frame);
 

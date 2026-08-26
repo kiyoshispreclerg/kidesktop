@@ -6,6 +6,7 @@
 #include "output.h"
 #include "decoration.h"
 #include "ewmh.h"
+#include "osd.h"
 
 #include <xcb/randr.h>
 
@@ -927,14 +928,25 @@ static void handle_key_press(xcb_key_press_event_t *ev)
     uint16_t clean_cycle = mods & (wm.mod_cycle | XCB_MOD_MASK_SHIFT);
     uint16_t clean_control = mods & (wm.mod_control | XCB_MOD_MASK_SHIFT);
 
+    /* Escape while either OSD (osd.c) is open cancels it without switching --
+     * only meaningful during the active xcb_grab_keyboard() osd.c holds, but
+     * osd_cancel() is a no-op otherwise so this is safe unconditionally. */
+    if (ev->detail == wm.key_escape && osd_active()) {
+        osd_cancel();
+        return;
+    }
+
     /* mod_cycle+Tab / mod_cycle+Shift+Tab (Alt by default): cycle focused window.
      * mod_control+Tab / mod_control+Shift+Tab (Meta by default): cycle the
-     * focused output's virtual desktop. */
+     * focused output's virtual desktop. Both go through osd.c, which shows a
+     * themed overlay and only actually switches once the modifier is
+     * released (wm.osd_enabled=0 reverts to switching immediately, as
+     * before). */
     if (ev->detail == wm.key_tab) {
-        if (clean_cycle == (uint16_t)(wm.mod_cycle | XCB_MOD_MASK_SHIFT))     { cycle_focus(-1); return; }
-        if (clean_cycle == wm.mod_cycle)                                     { cycle_focus(+1); return; }
-        if (clean_control == (uint16_t)(wm.mod_control | XCB_MOD_MASK_SHIFT)) { cycle_output_desktop(-1); return; }
-        if (clean_control == wm.mod_control)                                 { cycle_output_desktop(+1); return; }
+        if (clean_cycle == (uint16_t)(wm.mod_cycle | XCB_MOD_MASK_SHIFT))     { osd_windows_step(-1); return; }
+        if (clean_cycle == wm.mod_cycle)                                     { osd_windows_step(+1); return; }
+        if (clean_control == (uint16_t)(wm.mod_control | XCB_MOD_MASK_SHIFT)) { osd_desktops_step(-1); return; }
+        if (clean_control == wm.mod_control)                                 { osd_desktops_step(+1); return; }
         return;
     }
 
@@ -1123,6 +1135,14 @@ void handle_event(xcb_generic_event_t *event)
     }
     case XCB_KEY_PRESS:
         handle_key_press((xcb_key_press_event_t *)event);
+        break;
+    case XCB_KEY_RELEASE:
+        /* Only ever meaningful while osd.c holds its active
+         * xcb_grab_keyboard() (see osd_windows_step()/osd_desktops_step()) --
+         * a no-op otherwise, but delivered unconditionally since that's the
+         * only way a bare modifier-key release (not tied to any specific
+         * xcb_grab_key()) ever reaches kiwm at all. */
+        osd_handle_key_release((xcb_key_release_event_t *)event);
         break;
     case XCB_CLIENT_MESSAGE:
         handle_client_message((xcb_client_message_event_t *)event);

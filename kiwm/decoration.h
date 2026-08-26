@@ -3,6 +3,14 @@
 
 #include "wm.h"
 
+/* Sane upper bound on a configured corner radius -- purely to keep the
+ * rectangle list build_rounded_rects() below builds (and the
+ * one-row-per-pixel loop building it) from blowing up if a theme's colors
+ * file has a typo like border_radius=5000. No real titlebar needs a
+ * rounder corner than this; also sizes osd.c's own rects buffer since it
+ * reuses build_rounded_rects() for the OSD window's chrome. */
+#define MAX_CORNER_RADIUS 128
+
 void load_decoration(void);
 bool client_deco_visible(Client *c);
 void draw_decoration(Client *c);
@@ -35,6 +43,17 @@ void load_client_icon(Client *c);
  * (see client.c's configure_frame()) -- a no-op if the server has no
  * XCB SHAPE extension. */
 void apply_rounded_shape(Client *c);
+
+/* Builds a rounded-rectangle region for a w x h box with the given
+ * per-corner radii, as a list of xcb_rectangle_t suitable for
+ * xcb_shape_rectangles() -- the shared building block behind
+ * apply_rounded_shape() above, also reused as-is by osd.c to shape its own
+ * override-redirect OSD window the same way (no compositor needed there
+ * either). One rectangle per corner-arc row plus one for the flat middle
+ * band. Returns the number of rectangles written (never more than
+ * 2*MAX_CORNER_RADIUS + 1, the size out[] must have room for). */
+int build_rounded_rects(int w, int h, int tl, int tr, int br, int bl,
+                        xcb_rectangle_t *out, int max_out);
 
 /* Pango-backed title text drawing (pango_text.c) -- see that file's
  * comment. Call pango_text_init() once at startup (main.c's setup_wm()),

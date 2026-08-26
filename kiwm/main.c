@@ -287,12 +287,13 @@ static void setup_wm(bool replace)
     }
     outputs_refresh();
 
-    wm.key_tab = keysym_to_keycode(XK_Tab);
-    wm.key_1   = keysym_to_keycode(XK_1);
-    wm.key_2   = keysym_to_keycode(XK_2);
-    wm.key_3   = keysym_to_keycode(XK_3);
-    wm.key_4   = keysym_to_keycode(XK_4);
-    wm.key_up  = keysym_to_keycode(XK_Up);
+    wm.key_tab    = keysym_to_keycode(XK_Tab);
+    wm.key_1      = keysym_to_keycode(XK_1);
+    wm.key_2      = keysym_to_keycode(XK_2);
+    wm.key_3      = keysym_to_keycode(XK_3);
+    wm.key_4      = keysym_to_keycode(XK_4);
+    wm.key_up     = keysym_to_keycode(XK_Up);
+    wm.key_escape = keysym_to_keycode(XK_Escape);
 
     /* SubstructureRedirectMask is the actual WM ownership lock; only one
      * client can select it on the root window at a time. */

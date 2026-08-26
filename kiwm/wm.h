@@ -548,7 +548,25 @@ typedef struct {
     xcb_timestamp_t last_titlebar_click_time;
     xcb_window_t last_titlebar_click_frame;
 
-    xcb_keycode_t key_tab, key_1, key_2, key_3, key_4, key_up;
+    xcb_keycode_t key_tab, key_1, key_2, key_3, key_4, key_up, key_escape;
+
+    /* Whether Alt+Tab/Meta+Tab show a themed on-screen overlay while held
+     * (window list / desktop grid, see osd.c) instead of switching
+     * immediately on every Tab press -- kiwm.conf's osd_enabled= (default
+     * 1/on). Off reverts Tab-cycling to the original immediate-switch
+     * behavior (osd.c's osd_windows_step()/osd_desktops_step() just call
+     * cycle_focus()/cycle_output_desktop() directly, no grab, no window). */
+    bool osd_enabled;
+
+    /* Whether osd.c's overlays apply each Tab step live (raising/focusing
+     * the highlighted window, or switching to the highlighted desktop) as
+     * you step through them, reverting back to whatever was active before
+     * if the hold is cancelled with Escape -- vs. only applying once on
+     * release, leaving everything untouched until then (the default,
+     * matching a plain "browse, then decide" Alt+Tab). kiwm.conf's
+     * osd_live_preview= (default 0/off). Meaningless (never read) when
+     * osd_enabled is off. */
+    bool osd_live_preview;
 
     bool running;
 } KiWM;

@@ -14,6 +14,8 @@ exposes.
 
 - map/unmap/move/resize/maximize/minimize/close, click-to-focus (or optional
   focus-follows-mouse), Alt-Tab-style window cycling.
+- Themed on-screen overlays (`osd_enabled=`, default on) for both window cycling and desktop
+  switching -- see "On-screen overlays (OSD)" below.
 - Virtual desktops tracked **independently per output** (not one global workspace number) --
   see [PROTOCOL.md](PROTOCOL.md).
 - Already-open windows are picked up at startup, not just windows mapped afterward.
@@ -119,6 +121,8 @@ a warning on stderr, not a hard error. A key you leave out of the file keeps its
 | `magnet_threshold` | `10` | How close (pixels) a window's *edge* (not the pointer -- the frame, decoration included), while being moved or resized, must get to another window's edge, a same-output dock/panel/taskbar's edge, or the screen edge before it snaps flush against it, gap-free -- a much smaller, purely cosmetic nudge than `snap_threshold`'s tiling snap above. `0` disables it. |
 | `link_resize_neighbors` | `0` | `1` makes resizing also resize whatever's touching (within 1px) the edge being dragged, oppositely, so both stay touching -- same output only. `0` (default) leaves resizing exactly as before. |
 | `focus_follows_mouse` | `0` | `1` raises+focuses a window just by moving the pointer into it ("sloppy focus"). `0` (default) requires an actual click. |
+| `osd_enabled` | `1` | `1` (default) shows a themed overlay while holding Alt+Tab/Meta+Tab, only switching on release -- see "On-screen overlays (OSD)" below. `0` reverts to switching immediately on every Tab press, no overlay. |
+| `osd_live_preview` | `0` | `1` applies every Tab step live (raise/focus, or switch desktop) instead of only on release -- Escape then reverts to whatever was active before the hold started. `0` (default) leaves everything untouched until release. Ignored when `osd_enabled=0`. |
 | `theme` | `greenxp` | Theme folder name/path (see "Theming"). Resolved the same way kiwm looks for its own binary-relative files: tried as `../<theme>`, `./<theme>`, and plain `<theme>` (so it works both run from the source tree and installed). |
 | `titlebar_layout` | `icon,title,shade,minimize,maximize,close` | Titlebar element order, left to right, comma-separated. See "Titlebar layout" below. |
 
@@ -239,11 +243,55 @@ With the defaults (`mod_cycle=alt`, `mod_control=meta`):
   not just its titlebar.
 - **Alt+right-drag** or **Meta+right-drag**: resize, from whichever corner of the window is
   nearest wherever you clicked -- the opposite corner stays fixed.
-- **Alt+Tab** / **Alt+Shift+Tab**: cycle focus forward/backward among mapped windows on the
-  current output's current desktop (plus any sticky ones).
-- **Meta+Tab** / **Meta+Shift+Tab**: cycle the focused output's current desktop.
+- **Alt+Tab** / **Alt+Shift+Tab**: hold Alt, tap Tab/Shift+Tab to step forward/backward through
+  mapped windows on the current output's current desktop (plus any sticky ones) -- releasing Alt
+  commits whichever is highlighted (see "On-screen overlays (OSD)" below; `osd_enabled=0` switches
+  immediately on every tap instead, with no overlay).
+- **Meta+Tab** / **Meta+Shift+Tab**: same idea, for the focused output's current desktop.
+- **Escape**: while either overlay is open, cancel without switching.
 - **Meta+Up**: maximize/restore the focused window.
-- **Alt+1**/**2**/**3**/**4**: jump the focused output straight to that desktop.
+- **Alt+1**/**2**/**3**/**4**: jump the focused output straight to that desktop (immediate, no
+  overlay -- a direct-select shortcut, not a cycle).
+
+### On-screen overlays (OSD)
+
+With `osd_enabled=1` (the default), holding `mod_cycle`/`mod_control` (Alt/Meta by default) and
+tapping Tab opens a themed overlay -- same background/border colors and corner radius as the
+window decoration (see "Theming" above), drawn with the XCB SHAPE extension, no compositor needed
+-- centered on the output that has the currently focused window (or whichever output the pointer
+is on, if nothing's focused):
+
+- **Alt+Tab**: a simple vertical list of eligible windows (icon + title), the pending selection
+  highlighted. Each further Tab/Shift+Tab while Alt stays held moves the highlight.
+- **Meta+Tab**: a pager-style grid of the current output's desktops (squares proportional to the
+  output's real resolution, like xispanel's pager widget), the pending selection highlighted.
+- By default (`osd_live_preview=0`), nothing actually changes until the modifier is released --
+  browse freely, decide, then let go. With `osd_live_preview=1`, every step already applies live
+  (raises+focuses the highlighted window, or switches to the highlighted desktop) as you move
+  through it, same as most desktops' Alt+Tab -- **Escape** then reverts back to whatever was
+  actually focused/current *before* the hold started, not just "cancels" a no-op.
+- A window that closes while the Alt+Tab list is open (e.g. a crash) is quietly dropped from the
+  list in place, selection re-clamped -- it's never focusable, and if it was the only entry left
+  the overlay just closes. If it was also the window `osd_live_preview`'s Escape-revert was going
+  to restore, that revert is dropped too (there's nothing left to revert to).
+
+Internally, kiwm actively grabs the keyboard (`xcb_grab_keyboard()`) for as long as an overlay is
+open -- the only reliable way to see the modifier key's own release regardless of which client (if
+any) has input focus; a plain `xcb_grab_key()` binding (what every other kiwm shortcut uses) can't
+by itself. Committing is decided by *live keyboard state*, not by matching the released key against
+a specific hardcoded keycode: every KeyRelease while an overlay is open re-queries whether
+`mod_cycle`/`mod_control`'s bit is still set at all (`xcb_query_pointer()`'s modifier mask) and only
+commits once it's actually gone. Matching one fixed keycode (e.g. just `Alt_L`) instead would miss a
+layout where the modifier lives on a different/second physical key, or misfire on a modifier key's
+own X autorepeat -- either way leaving the keyboard grab stuck engaged (every keystroke system-wide
+silently swallowed by an OSD nobody can see) until something else forced it shut, which is exactly
+the "100% CPU, no window will open" wedge that shipped in this feature's first cut. The window list
+is built behind a small `TabBoxOps` vtable (`osd.h`/`osd.c`) -- kwin calls the same idea a "tabbox"
+-- so a different presentation (a thumbnail grid, cover-flow, ...) can be swapped in later by
+writing a new `TabBoxOps` and pointing one variable at it, with no changes to the hold/release
+mechanics or eligibility rules. Only one implementation exists today: `simple_list_tabbox_ops`, the
+plain list above. The desktop grid isn't behind such a vtable -- it's a single fixed presentation,
+not asked to be swappable.
 
 ### Source layout
 
@@ -261,6 +309,7 @@ One `.c`/`.h` pair per concern, all sharing `wm.h` (shared types + `extern KiWM 
   sticky transitions.
 - `events.c` -- X event dispatch, delegating actual state changes to the modules above.
 - `selection.c` -- `--replace` (ICCCM manager-selection handoff).
+- `osd.c` -- Alt+Tab/Meta+Tab on-screen overlays (see "On-screen overlays (OSD)" above).
 
 `kiwm-gpt.c` is an earlier, single-file GPT-authored attempt (single global workspace, no RandR,
 no theming) kept only as historical reference -- not built by the Makefile, not maintained.
