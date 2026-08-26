@@ -47,6 +47,7 @@ static void apply_builtin_defaults(void)
     wm.focus_follows_mouse = false;
     wm.osd_enabled = true;
     wm.osd_live_preview = false;
+    wm.osd_output_follows_pointer = false;
     snprintf(wm.theme_path, sizeof(wm.theme_path), "greenxp");
 
     static const DecoElemKind default_layout[] = {
@@ -199,6 +200,15 @@ static void write_default_config(const char *path)
         "# Ignored when osd_enabled=0.\n"
         "osd_live_preview=0\n"
         "\n"
+        "# Which output an overlay opens on (and lists/cycles the windows or\n"
+        "# desktops of) -- 0 (default) uses the currently focused window's\n"
+        "# output (falling back to the pointer's output only if nothing is\n"
+        "# focused, same as before this existed); 1 always uses whichever\n"
+        "# output the pointer is on right when the hold starts. Not the same\n"
+        "# as focus_follows_mouse= -- this only picks which screen Alt+Tab/\n"
+        "# Meta+Tab themselves act on, never what receives keyboard input.\n"
+        "osd_output_follows_pointer=0\n"
+        "\n"
         "# Theme folder (bg.png/slice, btns.png/btns.slice, colors -- see\n"
         "# kiwm/README or the greenxp/ folder itself for the file formats).\n"
         "# Resolved the same way kiwm looks for its own binary-relative\n"
@@ -296,6 +306,8 @@ void config_load(void)
             wm.osd_enabled = atoi(val) != 0;
         } else if (strcmp(key, "osd_live_preview") == 0) {
             wm.osd_live_preview = atoi(val) != 0;
+        } else if (strcmp(key, "osd_output_follows_pointer") == 0) {
+            wm.osd_output_follows_pointer = atoi(val) != 0;
         } else if (strcmp(key, "theme") == 0) {
             snprintf(wm.theme_path, sizeof(wm.theme_path), "%s", val);
         } else if (strcmp(key, "titlebar_layout") == 0) {

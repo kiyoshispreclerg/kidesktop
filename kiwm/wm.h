@@ -106,19 +106,25 @@ typedef enum {
 /* Stacking layer a client belongs to, derived from its state (see client.c's
  * client_layer()) -- never set directly. Ordered bottom to top; client.c's
  * restack_all() rebuilds the real X stacking order from this every time
- * something that could change it happens (focus, keep_above/keep_below/
- * fullscreen toggling, a window (un)managed), replacing the old ad-hoc
- * "just re-raise keep_above clients on top of whatever's there" approach --
- * that never gave keep_below or fullscreen a defined position relative to
- * each other or to keep_above, and had no way to keep two keep_above
- * clients in a sane relative order either. No LAYER_DESKTOP/LAYER_DOCK
- * here: those window types are never framed into a Client at all (see
- * client.c's should_manage_decorated()), so they don't participate in this
- * ordering -- see manage()'s own last_desktop_window chaining instead. */
+ * something that could change it happens (focus, keep_above/keep_below
+ * toggling, a window (un)managed), replacing the old ad-hoc "just re-raise
+ * keep_above clients on top of whatever's there" approach -- that never
+ * gave keep_below a defined position relative to keep_above, and had no
+ * way to keep two keep_above clients in a sane relative order either.
+ * Fullscreen has no layer of its own on purpose: it shares LAYER_NORMAL
+ * with every plain window, so a fullscreen window is only ever "on top"
+ * because it's focused (the usual raise-within-your-own-layer that
+ * happens on focus, restack_all()'s whole reason to preserve per-layer
+ * relative order) -- Alt+Tab-ing to a different normal window raises
+ * *that* one above it like any other focus change, instead of a
+ * fullscreen window being unconditionally pinned above every plain window
+ * regardless of focus. No LAYER_DESKTOP/LAYER_DOCK here: those window
+ * types are never framed into a Client at all (see client.c's
+ * should_manage_decorated()), so they don't participate in this ordering
+ * -- see manage()'s own last_desktop_window chaining instead. */
 typedef enum {
     LAYER_BELOW = 0,
     LAYER_NORMAL,
-    LAYER_FULLSCREEN,
     LAYER_ABOVE,
     LAYER_COUNT
 } WmLayer;
@@ -585,6 +591,19 @@ typedef struct {
      * osd_live_preview= (default 0/off). Meaningless (never read) when
      * osd_enabled is off. */
     bool osd_live_preview;
+
+    /* Which output an overlay opens on (and lists/cycles windows or
+     * desktops of) -- kiwm.conf's osd_output_follows_pointer= (default
+     * 0/off: the output of the currently focused window, falling back to
+     * the pointer's output only when nothing is focused -- unchanged from
+     * before this existed). 1 always uses whichever output the pointer is
+     * on at the moment the hold starts, polled once via output_for_pointer()
+     * (osd.c's osd_pick_output()) -- deliberately *not* the same thing as
+     * focus_follows_mouse=: this only decides which screen Alt+Tab/Meta+Tab
+     * itself act on, never what receives actual keyboard input. Fixed for
+     * the whole hold once picked, same as everything else about which
+     * output an open overlay belongs to. */
+    bool osd_output_follows_pointer;
 
     bool running;
 } KiWM;

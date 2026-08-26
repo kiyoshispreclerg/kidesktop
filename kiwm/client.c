@@ -315,14 +315,14 @@ void unshade_now(Client *c)
 }
 
 /* A client's stacking layer, derived from its state -- see wm.h's WmLayer.
- * fullscreen wins over keep_above/keep_below (a fullscreen video is always
- * meant to cover an "always on top" panel too), and keep_above/keep_below
- * are themselves kept mutually exclusive by toggle_keep_above()/
- * toggle_keep_below() so this never has to arbitrate between them. */
+ * fullscreen is deliberately *not* checked here -- see WmLayer's doc
+ * comment for why -- so a fullscreen client falls through to whichever of
+ * keep_above/keep_below/LAYER_NORMAL its other state says, same as if it
+ * weren't fullscreen at all. keep_above/keep_below are themselves kept
+ * mutually exclusive by toggle_keep_above()/toggle_keep_below() so this
+ * never has to arbitrate between them. */
 static WmLayer client_layer(Client *c)
 {
-    if (c->fullscreen)
-        return LAYER_FULLSCREEN;
     if (c->keep_above)
         return LAYER_ABOVE;
     if (c->keep_below)
@@ -331,8 +331,8 @@ static WmLayer client_layer(Client *c)
 }
 
 /* Rebuilds the real X stacking order to match every client's current
- * WmLayer, bottom to top (LAYER_BELOW, LAYER_NORMAL, LAYER_FULLSCREEN,
- * LAYER_ABOVE -- see wm.h), while preserving each client's relative order
+ * WmLayer, bottom to top (LAYER_BELOW, LAYER_NORMAL, LAYER_ABOVE -- see
+ * wm.h), while preserving each client's relative order
  * *within* its own layer exactly as xcb_query_tree() currently reports it.
  * That's what lets a caller put one specific client at the top or bottom
  * of its own layer without disturbing everyone else's relative order: raise
@@ -584,7 +584,7 @@ void toggle_fullscreen(Client *c, int want /* -1=toggle 0=unfullscreen 1=fullscr
         c->saved_w = c->width;
         c->saved_h = c->height;
         toggle_maximize(c, 1);
-        restack_all(); /* leaving LAYER_FULLSCREEN changes its layer bucket */
+        restack_all(); /* re-affirms its position in LAYER_NORMAL -- harmless no-op if nothing else changed */
         xcb_flush(wm.conn);
         return;
     }

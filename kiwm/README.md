@@ -67,10 +67,13 @@ exposes.
   fullscreen (`_NET_WM_STATE_FULLSCREEN` -- covers the whole output including any docks/panels,
   decoration unconditionally hidden, restores back to whatever floating/maximized/snapped state
   the window was in beforehand).
-- A real multi-layer stacking model (`below < normal < fullscreen < above`, a client's layer
-  derived from its state above): `client.c`'s `restack_all()` rebuilds the whole X stacking order
-  from it on every change, preserving each client's relative order within its own layer instead of
-  just re-raising keep-above windows on top of whatever's currently there.
+- A real multi-layer stacking model (`below < normal < above`, a client's layer derived from its
+  state above -- fullscreen has no layer of its own, it shares `normal` with every plain window, so
+  it's only ever on top *because it's focused*: Alt+Tab-ing away raises the newly-focused window
+  above it like any other focus change, instead of a fullscreen window being unconditionally pinned
+  above every plain window regardless of focus): `client.c`'s `restack_all()` rebuilds the whole X
+  stacking order from it on every change, preserving each client's relative order within its own
+  layer instead of just re-raising keep-above windows on top of whatever's currently there.
 - ICCCM `WM_NORMAL_HINTS`' minimum size (`PMinSize`) is honored wherever a window's size gets
   clamped (initial map, interactive resize, maximize, edge-snap, `_NET_MOVERESIZE`-style
   configure requests) -- floored to kiwm's own absolute minimum so a client that sets a tiny or no
@@ -141,6 +144,7 @@ a warning on stderr, not a hard error. A key you leave out of the file keeps its
 | `focus_follows_mouse` | `0` | `1` raises+focuses a window just by moving the pointer into it ("sloppy focus"). `0` (default) requires an actual click. |
 | `osd_enabled` | `1` | `1` (default) shows a themed overlay while holding Alt+Tab/Meta+Tab, only switching on release -- see "On-screen overlays (OSD)" below. `0` reverts to switching immediately on every Tab press, no overlay. |
 | `osd_live_preview` | `0` | `1` applies every Tab step live (raise/focus, or switch desktop) instead of only on release -- Escape then reverts to whatever was active before the hold started. `0` (default) leaves everything untouched until release. Ignored when `osd_enabled=0`. |
+| `osd_output_follows_pointer` | `0` | `1` opens an overlay on whichever output the pointer is on (polled once when the hold starts), instead of the currently focused window's output (`0`, default; falls back to the pointer's output only when nothing is focused). Not the same as `focus_follows_mouse=` -- only decides which screen Alt+Tab/Meta+Tab themselves act on. |
 | `theme` | `greenxp` | Theme folder name/path (see "Theming"). Resolved the same way kiwm looks for its own binary-relative files: tried as `../<theme>`, `./<theme>`, and plain `<theme>` (so it works both run from the source tree and installed). |
 | `titlebar_layout` | `icon,title,shade,minimize,maximize,close` | Titlebar element order, left to right, comma-separated. See "Titlebar layout" below. |
 
@@ -277,7 +281,13 @@ With `osd_enabled=1` (the default), holding `mod_cycle`/`mod_control` (Alt/Meta 
 tapping Tab opens a themed overlay -- same background/border colors and corner radius as the
 window decoration (see "Theming" above), drawn with the XCB SHAPE extension, no compositor needed
 -- centered on the output that has the currently focused window (or whichever output the pointer
-is on, if nothing's focused):
+is on, if nothing's focused), or always the pointer's output with `osd_output_follows_pointer=1`
+(polled once when the hold starts, then fixed for that hold -- deliberately not the same thing as
+`focus_follows_mouse=`, since this never changes what receives keyboard input, only which screen
+Alt+Tab/Meta+Tab themselves act on and list -- kept as a separate setting from any future
+compositor effect on the same two actions, e.g. `kicomp` eventually animating the switch itself,
+since "which screen this affects" stays a meaningful question independent of whether there's an
+overlay/animation to show at all):
 
 - **Alt+Tab**: a simple vertical list of eligible windows (icon + title), the pending selection
   highlighted. Each further Tab/Shift+Tab while Alt stays held moves the highlight.
