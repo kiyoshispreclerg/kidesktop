@@ -18,7 +18,23 @@ exposes.
   switching -- see "On-screen overlays (OSD)" below.
 - Virtual desktops tracked **independently per output** (not one global workspace number) --
   see [PROTOCOL.md](PROTOCOL.md).
-- Already-open windows are picked up at startup, not just windows mapped afterward.
+- Already-open windows are picked up at startup, not just windows mapped afterward -- *with the
+  state they were already in*: `_NET_WM_STATE` is read off each window as it's adopted, so a window
+  the previous WM left maximized, fullscreen, shaded, above/below, sticky or minimized comes up that
+  way under kiwm too, instead of "floating, but coincidentally the exact size of a maximized window"
+  (which made unmaximizing appear to do nothing). Reading that property at manage time is also what
+  EWMH says a WM must do for an app that asks for an initial state *before* mapping -- a client
+  message can only reach an already-managed window, so setting the property is the only way to ask
+  -- which is how e.g. VirtualBox's VM window requests to come up fullscreen. There's no way to
+  recover the *pre*-maximize floating geometry across a WM switch (EWMH has no property for it; the
+  old WM held it in memory and took it along), so a restore falls back to a centered two thirds of
+  the workarea.
+- Clients that ask for no decoration are honored: `_MOTIF_WM_HINTS` with `decorations=0` (what Qt's
+  `FramelessWindowHint`, GTK's `gtk_window_set_decorated(false)` and SDL borderless windows all
+  actually put on the wire) and KDE's `_KDE_NET_WM_WINDOW_TYPE_OVERRIDE` (kwin's "noBorder", set by
+  VirtualBox's VM window among others). Still fully managed -- framed, focusable, in the taskbar,
+  tiles and maximizes normally -- the frame just has no titlebar or border, so it ends up exactly
+  the size of the content instead of stacking kiwm's chrome on top of the app's own.
 - `--replace`: proper ICCCM manager-selection handoff, and kiwm itself can later be `--replace`d
   cleanly by something else.
 - Frames also select `SubstructureRedirect` (not just root): a client repositioning *itself* well
@@ -34,7 +50,9 @@ exposes.
   (a panel on one monitor doesn't eat into a different monitor's usable area), feeding
   `_NET_WORKAREA` and maximize.
 - Window-type-aware framing: besides `_NET_WM_WINDOW_TYPE_DOCK`/`_DESKTOP`/`_TOOLBAR`/`_MENU`,
-  `_POPUP_MENU`/`_DROPDOWN_MENU`/`_TOOLTIP`/`_NOTIFICATION`/`_COMBO`/`_DND`/`_SPLASH` are also never
+  `_POPUP_MENU`/`_DROPDOWN_MENU`/`_TOOLTIP`/`_NOTIFICATION`/`_COMBO`/`_DND`/`_SPLASH` and KDE's own
+  non-standard `_KDE_NET_WM_WINDOW_TYPE_APPLET_POPUP` (which Plasma sets *instead of* a standard
+  type on every applet popup -- the notification popup, clipboard, volume, battery...) are also never
   framed/decorated or repositioned -- mapped exactly as the app placed them, geometry untouched.
   Checked across *every* type a window lists (not just the first), so a specific type followed by
   `_NORMAL` as a generic fallback still gets recognized. Matters most for a desktop environment's
@@ -134,8 +152,8 @@ a warning on stderr, not a hard error. A key you leave out of the file keeps its
 | `deco_fg` | `#ffffff` | Fallback title text color, same "only when no theme" scope as `deco_bg`. |
 | `hide_deco_on_maximize` | `0` | `1` hides the whole decoration (titlebar + side/bottom border) while a window is maximized, to reclaim every pixel. `0` keeps it. |
 | `num_desktops` | `4` | Virtual desktops per output (every output has the same *count*, but its own independent *current* desktop -- see PROTOCOL.md). Clamped to 1..32. |
-| `mod_cycle` | `alt` | Modifier (`alt` or `meta`) for Tab/Shift+Tab window cycling, and for left-drag-to-move / right-drag-to-resize from anywhere on a window (not just its titlebar). |
-| `mod_control` | `meta` | Modifier (`alt` or `meta`) for window control: drag-to-move/resize (same as `mod_cycle` but a separate binding), Tab/Shift+Tab to cycle the focused output's desktop, Up to maximize/restore. |
+| `mod_cycle` | `alt` | Modifier (`alt` or `meta`) for left-drag-to-move / right-drag-to-resize from anywhere on a window (not just its titlebar). Also what `ModCycle` resolves to in the `key_*` shortcuts below, which is how the window-switching defaults follow it. |
+| `mod_control` | `meta` | Modifier (`alt` or `meta`) for window control: drag-to-move/resize (same as `mod_cycle` but a separate binding). Also what `ModControl` resolves to in the `key_*` shortcuts, which is how the desktop-switch/maximize/minimize/tile defaults follow it. |
 | `border_thickness` | `0` | Left/right/bottom decoration border thickness in pixels. `0` means no border at all -- just the titlebar (the original look). |
 | `border_color` | `#000000` | Fallback border color, used only when no theme `colors` file overrides it (see "Theming"). |
 | `snap_threshold` | `20` | How close (pixels) the pointer must get to an output's *usable* area edge while dragging a window to snap it there -- top edge maximizes, left/right edges fill exactly half the width, Windows7/kwin-style. `0` disables snapping entirely. |
@@ -147,6 +165,7 @@ a warning on stderr, not a hard error. A key you leave out of the file keeps its
 | `osd_output_follows_pointer` | `0` | `1` opens an overlay on whichever output the pointer is on (polled once when the hold starts), instead of the currently focused window's output (`0`, default; falls back to the pointer's output only when nothing is focused). Not the same as `focus_follows_mouse=` -- only decides which screen Alt+Tab/Meta+Tab themselves act on. |
 | `theme` | `greenxp` | Theme folder name/path (see "Theming"). Resolved the same way kiwm looks for its own binary-relative files: tried as `../<theme>`, `./<theme>`, and plain `<theme>` (so it works both run from the source tree and installed). |
 | `titlebar_layout` | `icon,title,shade,minimize,maximize,close` | Titlebar element order, left to right, comma-separated. See "Titlebar layout" below. |
+| `key_*` | see below | Global keyboard shortcuts, one key per action (`key_minimize=Meta+Down`, ...). See "Keyboard shortcuts" below for the full list, the syntax, and how to unbind one. |
 
 Two more things affect decoration/theming but aren't `kiwm.conf` keys:
 
@@ -254,7 +273,9 @@ these, all optional and independent -- a theme missing some files just falls bac
 
 ### Mouse and keyboard reference
 
-With the defaults (`mod_cycle=alt`, `mod_control=meta`):
+Every keyboard shortcut below is rebindable -- see "Keyboard shortcuts". The mouse gestures aren't
+separately bindable; they follow `mod_cycle=`/`mod_control=` directly. With the defaults
+(`mod_cycle=alt`, `mod_control=meta`):
 
 - **Click** a window (titlebar or content): focus + raise.
 - **Click-drag** a titlebar: move. Drag to a screen edge to snap (see `snap_threshold=` above).
@@ -272,8 +293,52 @@ With the defaults (`mod_cycle=alt`, `mod_control=meta`):
 - **Meta+Tab** / **Meta+Shift+Tab**: same idea, for the focused output's current desktop.
 - **Escape**: while either overlay is open, cancel without switching.
 - **Meta+Up**: maximize/restore the focused window.
+- **Meta+Down**: minimize the focused window.
+- **Meta+Left** / **Meta+Right**: tile the focused window to the left/right half of its output's
+  usable area -- the same geometry a drag to that screen edge produces, without the drag. Pressing
+  it again for the side the window is *already* tiled to restores it, so one key both tiles and
+  untiles.
 - **Alt+1**/**2**/**3**/**4**: jump the focused output straight to that desktop (immediate, no
   overlay -- a direct-select shortcut, not a cycle).
+
+### Keyboard shortcuts
+
+All of kiwm's global keyboard shortcuts live in `kiwm.conf` as `key_*` keys, and a freshly
+generated config lists every one this build has, with its default:
+
+```
+key_window_next=ModCycle+Tab
+key_window_prev=ModCycle+Shift+Tab
+key_desktop_next=ModControl+Tab
+key_desktop_prev=ModControl+Shift+Tab
+key_maximize=ModControl+Up
+key_minimize=ModControl+Down
+key_tile_left=ModControl+Left
+key_tile_right=ModControl+Right
+key_fullscreen=
+key_shade=
+key_keep_above=
+key_sticky=
+key_close=
+key_desktop_1=
+key_desktop_2=            # ...through key_desktop_8, unbound by default
+```
+
+- Syntax is `Mod+Mod+Key`, case-insensitive: `Meta+Down`, `alt+shift+Tab`, `Ctrl+Alt+F1`.
+- Modifiers: `Alt`, `Meta` (= `Super`/`Win`), `Ctrl`, `Shift`, plus `ModCycle`/`ModControl`, which
+  resolve to whatever `mod_cycle=`/`mod_control=` are set to. The defaults use the symbolic pair on
+  purpose, so setting `mod_cycle=meta` moves every default cycling shortcut along with it -- exactly
+  as it behaved when these were hardcoded.
+- Keys are named like their X keysyms (`Tab`, `Up`, `Down`, `Left`, `Right`, `Escape`, `Return`,
+  `space`, `Home`, `End`, `PageUp`, `PageDown`, `Delete`, `F1`-`F12`), a single printable character
+  (`a`, `7`, `/`), or a raw `0x<hex>` keysym for anything else.
+- An **empty value** leaves that action unbound (and ungrabbed) -- that's what the actions with no
+  default above are. A line that's present but empty wins over the built-in default, so a shortcut
+  can be turned off, not just moved.
+- Every shortcut is grabbed with and without NumLock/CapsLock, so none of them silently stop
+  working with either lock key on.
+- **Escape** isn't in the table: it's the fixed cancel key for whatever hold is in progress (the
+  overlays below), never grabbed and not rebindable.
 
 ### On-screen overlays (OSD)
 
@@ -336,6 +401,9 @@ One `.c`/`.h` pair per concern, all sharing `wm.h` (shared types + `extern KiWM 
 - `client.c` -- manage/unmanage, focus/stacking, move/resize/maximize/minimize/shade/keep-above/
   sticky transitions.
 - `events.c` -- X event dispatch, delegating actual state changes to the modules above.
+- `keybind.c` -- configurable global keyboard shortcuts: one table holding every action, its
+  `kiwm.conf` key, its default binding and its generated documentation, plus the spec parser, the
+  root-window grabs and the dispatch (see "Keyboard shortcuts" above).
 - `selection.c` -- `--replace` (ICCCM manager-selection handoff).
 - `osd.c` -- Alt+Tab/Meta+Tab on-screen overlays (see "On-screen overlays (OSD)" above).
 

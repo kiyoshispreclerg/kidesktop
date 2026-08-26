@@ -66,6 +66,12 @@ void ewmh_init_atoms(void)
     wm.atoms.net_wm_window_type_dnd = intern_atom("_NET_WM_WINDOW_TYPE_DND");
     wm.atoms.net_wm_window_type_splash = intern_atom("_NET_WM_WINDOW_TYPE_SPLASH");
 
+    /* KDE-specific window types Plasma uses on its own popups, and the
+     * Motif hint every toolkit still speaks for "don't decorate me". */
+    wm.atoms.kde_net_wm_window_type_applet_popup = intern_atom("_KDE_NET_WM_WINDOW_TYPE_APPLET_POPUP");
+    wm.atoms.kde_net_wm_window_type_override = intern_atom("_KDE_NET_WM_WINDOW_TYPE_OVERRIDE");
+    wm.atoms.motif_wm_hints = intern_atom("_MOTIF_WM_HINTS");
+
     /* Custom, per kiwm-kicomp-projeto.md section 6: independent virtual
      * desktops per output, since EWMH itself has no such concept. */
     wm.atoms.kiwm_outputs = intern_atom("_KIWM_OUTPUTS");

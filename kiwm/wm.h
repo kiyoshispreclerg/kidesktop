@@ -232,6 +232,15 @@ struct Client {
                        * unconditionally hides the decoration regardless of
                        * wm.hide_deco_on_maximize (see decoration.c's
                        * client_deco_visible()). */
+    /* The client asked for no decoration at all -- either _MOTIF_WM_HINTS
+     * with decorations=0 (what Qt/GTK/SDL frameless windows set) or KDE's
+     * _KDE_NET_WM_WINDOW_TYPE_OVERRIDE. Still a fully managed client
+     * (framed, focusable, in the taskbar, movable, tiles and maximizes
+     * normally); its frame just has no titlebar or border, so the frame
+     * ends up exactly the size of the content. Read once in manage() --
+     * apps set this before mapping and effectively never change it. */
+    bool undecorated;
+
     int fs_saved_x, fs_saved_y, fs_saved_w, fs_saved_h; /* restore geometry before fullscreen */
     bool fs_was_maximized;   /* whether to re-maximize (vs. just float) on leaving fullscreen */
     SnapSide fs_saved_snap_side; /* ditto, for half-snapped windows */
@@ -322,6 +331,27 @@ typedef struct {
     xcb_atom_t net_wm_window_type_combo;
     xcb_atom_t net_wm_window_type_dnd;
     xcb_atom_t net_wm_window_type_splash;
+
+    /* KDE's own window type for a Plasma applet's popup (the notification
+     * popup, the clipboard/battery/volume applets, ...). Not part of EWMH,
+     * and Plasma sets it *instead of* -- not alongside -- a standard type,
+     * so without recognizing it by name those popups fall through to full
+     * client management and get a titlebar drawn around them, which is
+     * exactly what they must never have. Excluded from framing along with
+     * the standard popup types above. */
+    xcb_atom_t kde_net_wm_window_type_applet_popup;
+    /* KDE's "manage me normally but draw no decoration" type (kwin calls
+     * it noBorder) -- unlike the popup types this one is a real, framed,
+     * focusable, taskbar-listed client, it just supplies its own chrome.
+     * VirtualBox's VM window sets it, as do Plasma's own dock windows.
+     * Feeds Client::undecorated, not the exclusion list. */
+    xcb_atom_t kde_net_wm_window_type_override;
+    /* _MOTIF_WM_HINTS: prehistoric, never standardized, and still the way
+     * every toolkit (Qt's FramelessWindowHint, GTK's gtk_window_set_
+     * decorated(false), SDL, ...) actually asks for an undecorated window.
+     * Only its `decorations` field is read -- see client.c's
+     * window_wants_no_decoration(). */
+    xcb_atom_t motif_wm_hints;
 
     xcb_atom_t kiwm_outputs;
     xcb_atom_t kiwm_output_desktop;
@@ -572,7 +602,11 @@ typedef struct {
     xcb_timestamp_t last_titlebar_click_time;
     xcb_window_t last_titlebar_click_frame;
 
-    xcb_keycode_t key_tab, key_1, key_2, key_3, key_4, key_up, key_escape;
+    /* The one keycode kiwm resolves by hand (main.c's setup_wm()): the
+     * fixed cancel key for a modal hold in progress (osd.c's overlays),
+     * never grabbed and never configurable. Every actual shortcut lives in
+     * keybind.c's table instead (kiwm.conf's key_*). */
+    xcb_keycode_t key_escape;
 
     /* Whether Alt+Tab/Meta+Tab show a themed on-screen overlay while held
      * (window list / desktop grid, see osd.c) instead of switching

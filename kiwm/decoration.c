@@ -375,6 +375,13 @@ bool client_deco_visible(Client *c)
      * of the state regardless of theme preference. */
     if (c->fullscreen)
         return false;
+    /* The client asked for no decoration at all (_MOTIF_WM_HINTS
+     * decorations=0 / _KDE_NET_WM_WINDOW_TYPE_OVERRIDE, see wm.h's
+     * Client::undecorated) -- honored unconditionally, same as fullscreen:
+     * an app that draws its own window chrome ends up with two stacked
+     * titlebars otherwise. */
+    if (c->undecorated)
+        return false;
     return !(c->maximized && wm.hide_deco_on_maximize);
 }
 

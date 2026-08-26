@@ -4,6 +4,7 @@
  * to describe, just a handful of scalar settings. */
 #include "config.h"
 #include "wm.h"
+#include "keybind.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -221,7 +222,11 @@ static void write_default_config(const char *path)
         "# keep_all_desktops. \"title\" is the only flexible element -- it\n"
         "# takes whatever width the fixed-size ones (everything else, one\n"
         "# BUTTON_W each) don't use, wherever it falls in the order.\n"
-        "titlebar_layout=icon,title,shade,minimize,maximize,close\n");
+        "titlebar_layout=icon,title,shade,minimize,maximize,close\n"
+        "\n");
+    /* Generated from keybind.c's own table, so the shipped file always
+     * lists exactly the shortcuts this build actually has. */
+    keybind_write_default_config(f);
     fclose(f);
     fprintf(stderr, "kiwm: no config found, wrote defaults to %s\n", path);
 }
@@ -312,6 +317,10 @@ void config_load(void)
             snprintf(wm.theme_path, sizeof(wm.theme_path), "%s", val);
         } else if (strcmp(key, "titlebar_layout") == 0) {
             parse_titlebar_layout(val);
+        } else if (keybind_config_set(key, val)) {
+            /* key_* shortcut: recorded by keybind.c, resolved to an actual
+             * keycode later in keybind_init() (needs the X connection,
+             * which doesn't exist yet at config_load() time). */
         } else {
             fprintf(stderr, "kiwm: config: skipping unknown key '%s'\n", key);
         }

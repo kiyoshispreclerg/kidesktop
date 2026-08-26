@@ -7,6 +7,9 @@
 int primary_output_index(void);
 int output_index_for_point(int x, int y);
 int output_for_pointer(void);
+/* Which output the switcher overlays / direct desktop jumps act on -- see
+ * output.c, and kiwm.conf's osd_output_follows_pointer=. */
+int output_for_effects(void);
 
 void outputs_refresh(void);
 

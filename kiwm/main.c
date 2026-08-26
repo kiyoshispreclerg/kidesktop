@@ -17,10 +17,13 @@
  *   - Cairo + Imlib2 decoration, hardcoded to greenxp/bg.png (like
  *     xispanel's theme background loader), cached at startup; plain
  *     black/white fallback when no theme PNG is found.
- *   - Hardcoded keybindings: Alt+Tab/Alt+Shift+Tab cycle focus,
- *     Meta+Tab/Meta+Shift+Tab cycle the focused output's virtual desktop,
- *     Meta+Up maximizes/restores, Meta+drag (or Alt+drag) moves, Alt+drag
- *     with the right button resizes.
+ *   - Configurable global keybindings (kiwm.conf's key_*, see keybind.c):
+ *     Alt+Tab/Alt+Shift+Tab cycle focus, Meta+Tab/Meta+Shift+Tab cycle the
+ *     focused output's virtual desktop, Meta+Up maximizes/restores,
+ *     Meta+Down minimizes, Meta+Left/Right tile to half the screen, by
+ *     default. Mouse gestures still follow mod_cycle=/mod_control=
+ *     directly: Meta+drag (or Alt+drag) moves, Alt+drag with the right
+ *     button resizes.
  *   - Enough EWMH/ICCCM for a taskbar (xispanel's tasklist widget) to
  *     list/activate/close/minimize/maximize windows.
  *
@@ -29,7 +32,9 @@
  * (RandR outputs + per-output virtual desktops), decoration.c (Cairo/
  * Imlib2 frame painting), ewmh.c (EWMH property bookkeeping on clients),
  * client.c (manage/unmanage, focus, move/resize/maximize/minimize),
- * events.c (X event dispatch), selection.c (--replace).
+ * events.c (X event dispatch), keybind.c (configurable global keyboard
+ * shortcuts), osd.c (window/desktop switcher overlays), selection.c
+ * (--replace).
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -44,6 +49,7 @@
 #include "ewmh.h"
 #include "client.h"
 #include "events.h"
+#include "keybind.h"
 #include "selection.h"
 
 #include <xcb/randr.h>
@@ -287,12 +293,11 @@ static void setup_wm(bool replace)
     }
     outputs_refresh();
 
-    wm.key_tab    = keysym_to_keycode(XK_Tab);
-    wm.key_1      = keysym_to_keycode(XK_1);
-    wm.key_2      = keysym_to_keycode(XK_2);
-    wm.key_3      = keysym_to_keycode(XK_3);
-    wm.key_4      = keysym_to_keycode(XK_4);
-    wm.key_up     = keysym_to_keycode(XK_Up);
+    /* The only keycode kiwm still resolves by hand: Escape isn't a
+     * configurable shortcut but the fixed "cancel" key for whatever modal
+     * hold is in progress (osd.c's overlays), and it's never grabbed --
+     * it's only ever read during the active keyboard grab such a hold
+     * already has. Everything else lives in keybind.c's table. */
     wm.key_escape = keysym_to_keycode(XK_Escape);
 
     /* SubstructureRedirectMask is the actual WM ownership lock; only one
@@ -314,17 +319,9 @@ static void setup_wm(bool replace)
             "happen after acquiring the manager selection)");
     }
 
-    if (wm.key_tab) {
-        xcb_grab_key(wm.conn, 1, wm.root, wm.mod_cycle, wm.key_tab, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
-        xcb_grab_key(wm.conn, 1, wm.root, (uint16_t)(wm.mod_cycle | XCB_MOD_MASK_SHIFT), wm.key_tab, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
-        xcb_grab_key(wm.conn, 1, wm.root, wm.mod_control, wm.key_tab, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
-        xcb_grab_key(wm.conn, 1, wm.root, (uint16_t)(wm.mod_control | XCB_MOD_MASK_SHIFT), wm.key_tab, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
-    }
-    if (wm.key_1) xcb_grab_key(wm.conn, 1, wm.root, wm.mod_cycle, wm.key_1, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
-    if (wm.key_2) xcb_grab_key(wm.conn, 1, wm.root, wm.mod_cycle, wm.key_2, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
-    if (wm.key_3) xcb_grab_key(wm.conn, 1, wm.root, wm.mod_cycle, wm.key_3, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
-    if (wm.key_4) xcb_grab_key(wm.conn, 1, wm.root, wm.mod_cycle, wm.key_4, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
-    if (wm.key_up) xcb_grab_key(wm.conn, 1, wm.root, wm.mod_control, wm.key_up, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+    /* Every global keyboard shortcut (kiwm.conf's key_*), resolved and
+     * grabbed from keybind.c's one table. */
+    keybind_init();
 
     ewmh_init_supported();
     ewmh_init_supporting_wm_check();

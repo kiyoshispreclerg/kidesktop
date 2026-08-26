@@ -43,6 +43,11 @@ void toggle_keep_below(Client *c, int want /* -1=toggle 0=off 1=on */);
 void restack_all(void);
 void toggle_sticky(Client *c, int want /* -1=toggle 0=off 1=on */);
 void snap_client_to_side(Client *c, SnapSide side /* SNAP_LEFT or SNAP_RIGHT */);
+/* Keyboard half-screen tiling: snaps c to `side`, or restores it if it's
+ * already tiled there -- captures/restores the floating geometry and
+ * applies everything itself, unlike snap_client_to_side() above. See
+ * client.c, and kiwm.conf's key_tile_left=/key_tile_right=. */
+void toggle_snap_side(Client *c, SnapSide side /* SNAP_LEFT or SNAP_RIGHT */);
 void unsnap_client(Client *c, int x, int y, int width, int height);
 void detile_for_drag(Client *c, int press_root_x, int press_root_y);
 void minimize_client(Client *c);

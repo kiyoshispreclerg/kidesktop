@@ -43,6 +43,26 @@ int output_for_pointer(void)
     return idx;
 }
 
+/* Which output a screen-wide *effect* acts on: the window switcher and
+ * desktop switcher overlays (osd.c), a direct desktop jump
+ * (keybind.c's KB_DESKTOP_GOTO), and later the same two effects under
+ * kicomp. wm.osd_output_follows_pointer=0 (default) keeps kiwm's original
+ * behavior -- the currently focused window's output, falling back to the
+ * pointer's output only when nothing is focused at all; =1 always uses the
+ * pointer's output regardless of what's focused. Deliberately *not* the
+ * same thing as focus_follows_mouse= (see wm.h): this only decides which
+ * screen these effects act on, never what receives keyboard input.
+ *
+ * Polled fresh on each call, so a hold-style effect (osd.c) must call it
+ * once when the hold starts and keep that answer for the whole hold rather
+ * than re-asking mid-hold and migrating between screens. */
+int output_for_effects(void)
+{
+    if (wm.osd_output_follows_pointer)
+        return output_for_pointer();
+    return wm.focused ? wm.focused->output : output_for_pointer();
+}
+
 static void get_atom_name_into(xcb_atom_t atom, char *out, size_t out_sz)
 {
     out[0] = '\0';

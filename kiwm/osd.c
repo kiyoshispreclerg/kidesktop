@@ -70,20 +70,12 @@ static int original_desktop = 0;
 
 /* Which output a *newly opening* overlay belongs to -- polled once right
  * when the hold starts (osd_windows_step()/osd_desktops_step() only ever
- * call this from their "not already open" branch) and then fixed for the
- * whole hold via osd_output, same as everything else about an open
- * overlay. wm.osd_output_follows_pointer=0 (default) keeps kiwm's
- * original behavior: the currently focused window's output, falling back
- * to the pointer's output only when nothing is focused at all. =1 always
- * uses the pointer's output instead, regardless of what's focused --
- * deliberately not the same thing as focus_follows_mouse= (see wm.h), this
- * only decides which screen the overlay itself opens on/acts on. */
-static int osd_pick_output(void)
-{
-    if (wm.osd_output_follows_pointer)
-        return output_for_pointer();
-    return wm.focused ? wm.focused->output : output_for_pointer();
-}
+ * call output_for_effects() from their "not already open" branch) and then
+ * fixed for the whole hold via osd_output, same as everything else about
+ * an open overlay. The policy itself (focused window's output vs. the
+ * pointer's, kiwm.conf's osd_output_follows_pointer=) lives in output.c,
+ * shared with the non-overlay effects that must agree with it -- see
+ * output_for_effects(). */
 
 /* ---- window-switcher TabBoxOps: simple vertical list ---- */
 
@@ -341,7 +333,7 @@ void osd_windows_step(int direction)
     if (kind == OSD_DESKTOPS)
         return; /* the other OSD is open -- shouldn't happen, different mod */
 
-    int output_idx = osd_pick_output();
+    int output_idx = output_for_effects();
     if (output_idx < 0)
         return;
     int desktop = wm.outputs[output_idx].desktop;
@@ -376,7 +368,7 @@ void osd_desktops_step(int direction)
     if (kind == OSD_WINDOWS)
         return;
 
-    int output_idx = osd_pick_output();
+    int output_idx = output_for_effects();
     if (output_idx < 0 || wm.output_count == 0)
         return;
 

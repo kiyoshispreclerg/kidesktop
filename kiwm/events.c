@@ -6,6 +6,7 @@
 #include "output.h"
 #include "decoration.h"
 #include "ewmh.h"
+#include "keybind.h"
 #include "osd.h"
 
 #include <xcb/randr.h>
@@ -943,51 +944,22 @@ static void handle_enter_notify(xcb_enter_notify_event_t *ev)
 
 static void handle_key_press(xcb_key_press_event_t *ev)
 {
-    uint16_t mods = ev->state & (XCB_MOD_MASK_SHIFT | XCB_MOD_MASK_LOCK |
-                                 XCB_MOD_MASK_CONTROL | XCB_MOD_MASK_1 |
-                                 XCB_MOD_MASK_2 | XCB_MOD_MASK_3 |
-                                 XCB_MOD_MASK_4 | XCB_MOD_MASK_5);
-    uint16_t clean_cycle = mods & (wm.mod_cycle | XCB_MOD_MASK_SHIFT);
-    uint16_t clean_control = mods & (wm.mod_control | XCB_MOD_MASK_SHIFT);
-
     /* Escape while either OSD (osd.c) is open cancels it without switching --
      * only meaningful during the active xcb_grab_keyboard() osd.c holds, but
-     * osd_cancel() is a no-op otherwise so this is safe unconditionally. */
+     * osd_cancel() is a no-op otherwise so this is safe unconditionally.
+     * Checked before the shortcut table so a hold can always be escaped
+     * even if Escape happens to be bound to something as well. */
     if (ev->detail == wm.key_escape && osd_active()) {
         osd_cancel();
         return;
     }
 
-    /* mod_cycle+Tab / mod_cycle+Shift+Tab (Alt by default): cycle focused window.
-     * mod_control+Tab / mod_control+Shift+Tab (Meta by default): cycle the
-     * focused output's virtual desktop. Both go through osd.c, which shows a
-     * themed overlay and only actually switches once the modifier is
-     * released (wm.osd_enabled=0 reverts to switching immediately, as
-     * before). */
-    if (ev->detail == wm.key_tab) {
-        if (clean_cycle == (uint16_t)(wm.mod_cycle | XCB_MOD_MASK_SHIFT))     { osd_windows_step(-1); return; }
-        if (clean_cycle == wm.mod_cycle)                                     { osd_windows_step(+1); return; }
-        if (clean_control == (uint16_t)(wm.mod_control | XCB_MOD_MASK_SHIFT)) { osd_desktops_step(-1); return; }
-        if (clean_control == wm.mod_control)                                 { osd_desktops_step(+1); return; }
-        return;
-    }
-
-    /* mod_control+Up (Meta by default): maximize/restore the focused window. */
-    if (ev->detail == wm.key_up && clean_control == wm.mod_control) {
-        if (wm.focused)
-            toggle_maximize(wm.focused, -1);
-        return;
-    }
-
-    if (clean_cycle == wm.mod_cycle) {
-        int output_idx = wm.focused ? wm.focused->output : output_for_pointer();
-        if (output_idx < 0)
-            return;
-        if (ev->detail == wm.key_1) { switch_workspace(output_idx, 0); return; }
-        if (ev->detail == wm.key_2) { switch_workspace(output_idx, 1); return; }
-        if (ev->detail == wm.key_3) { switch_workspace(output_idx, 2); return; }
-        if (ev->detail == wm.key_4) { switch_workspace(output_idx, 3); return; }
-    }
+    /* Everything else: kiwm.conf's key_* shortcuts (keybind.c), which is
+     * also the only thing that grabbed any key on the root window in the
+     * first place -- window/desktop switching, maximize, minimize,
+     * half-screen tiling, direct desktop jumps, and whatever else the
+     * user has bound. */
+    keybind_handle_key_press(ev);
 }
 
 static void handle_net_wm_state(Client *c, uint32_t action, xcb_atom_t a1, xcb_atom_t a2)

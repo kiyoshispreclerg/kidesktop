@@ -82,7 +82,8 @@ static bool window_type_excluded_from_decoration(xcb_window_t window)
                         t == wm.atoms.net_wm_window_type_notification ||
                         t == wm.atoms.net_wm_window_type_combo ||
                         t == wm.atoms.net_wm_window_type_dnd ||
-                        t == wm.atoms.net_wm_window_type_splash);
+                        t == wm.atoms.net_wm_window_type_splash ||
+                        t == wm.atoms.kde_net_wm_window_type_applet_popup);
         }
     }
     free(reply);
@@ -92,6 +93,58 @@ static bool window_type_excluded_from_decoration(xcb_window_t window)
 static bool should_manage_decorated(xcb_window_t window)
 {
     return !window_type_excluded_from_decoration(window);
+}
+
+/* Whether a window that *is* managed normally nonetheless wants kiwm to
+ * draw no titlebar/border around it (Client::undecorated, see wm.h). Two
+ * independent ways to say it, both honored:
+ *
+ *   - _MOTIF_WM_HINTS with the decorations field flagged as present and
+ *     set to 0. Never standardized, predates EWMH by a decade, and is
+ *     still what Qt's Qt::FramelessWindowHint, GTK's
+ *     gtk_window_set_decorated(false) and SDL's borderless windows all
+ *     actually put on the wire -- so a WM that ignores it draws a titlebar
+ *     on top of windows that already drew their own.
+ *   - _KDE_NET_WM_WINDOW_TYPE_OVERRIDE anywhere in _NET_WM_WINDOW_TYPE,
+ *     KDE's equivalent (kwin's "noBorder"). VirtualBox's VM window sets
+ *     exactly this.
+ *
+ * The Motif struct is { flags, functions, decorations, input_mode,
+ * status } as 5 32-bit values; flags bit 1 (MWM_HINTS_DECORATIONS) says
+ * the decorations field is meaningful at all, and a *nonzero* decorations
+ * value means "decorate me" (possibly with a specific subset kiwm doesn't
+ * model), so only an explicit 0 counts as a refusal. */
+static bool window_wants_no_decoration(xcb_window_t window)
+{
+    xcb_get_property_reply_t *reply = xcb_get_property_reply(wm.conn,
+        xcb_get_property(wm.conn, 0, window, wm.atoms.motif_wm_hints,
+                         XCB_GET_PROPERTY_TYPE_ANY, 0, 5), NULL);
+    if (reply) {
+        bool undecorated = false;
+        if (reply->format == 32 && xcb_get_property_value_length(reply) >= 3 * (int)sizeof(uint32_t)) {
+            uint32_t *hints = xcb_get_property_value(reply);
+            const uint32_t MWM_HINTS_DECORATIONS = 1u << 1;
+            undecorated = (hints[0] & MWM_HINTS_DECORATIONS) && hints[2] == 0;
+        }
+        free(reply);
+        if (undecorated)
+            return true;
+    }
+
+    reply = xcb_get_property_reply(wm.conn,
+        xcb_get_property(wm.conn, 0, window, wm.atoms.net_wm_window_type, XCB_ATOM_ATOM, 0, 32), NULL);
+    if (!reply)
+        return false;
+
+    bool override_type = false;
+    if (reply->type == XCB_ATOM_ATOM && reply->format == 32) {
+        xcb_atom_t *atoms = xcb_get_property_value(reply);
+        int n = xcb_get_property_value_length(reply) / (int)sizeof(xcb_atom_t);
+        for (int i = 0; i < n && !override_type; i++)
+            override_type = (atoms[i] == wm.atoms.kde_net_wm_window_type_override);
+    }
+    free(reply);
+    return override_type;
 }
 
 /* A passive xcb_grab_button() with a specific (non-ANY) modifier only
@@ -576,13 +629,22 @@ void toggle_fullscreen(Client *c, int want /* -1=toggle 0=unfullscreen 1=fullscr
     c->snap_side = c->fs_saved_snap_side;
 
     if (restore_maximized) {
-        /* toggle_maximize()'s own configure_frame()/ewmh update/flush
-         * covers the rest -- just hand it the pre-fullscreen floating
-         * geometry as its "restore" baseline first. */
-        c->saved_x = c->x;
-        c->saved_y = c->y;
-        c->saved_w = c->width;
-        c->saved_h = c->height;
+        /* saved_x/y/w/h still holds the floating geometry from before the
+         * window was *maximized*, which is what a later unmaximize has to
+         * restore -- so hand that back as the current geometry before
+         * re-maximizing. What fs_saved_* restored just above is the
+         * maximized geometry itself (that's what the window looked like at
+         * the moment fullscreen was entered); letting toggle_maximize()
+         * capture *that* as the restore geometry -- which is what happened
+         * before, whether it captured it itself or was handed it here --
+         * made fullscreen-and-back silently forget the real floating size,
+         * leaving a later unmaximize restoring to a maximized-sized
+         * window. toggle_maximize()'s own configure_frame()/ewmh update/
+         * flush covers the rest. */
+        c->x = c->saved_x;
+        c->y = c->saved_y;
+        c->width = c->saved_w;
+        c->height = c->saved_h;
         toggle_maximize(c, 1);
         restack_all(); /* re-affirms its position in LAYER_NORMAL -- harmless no-op if nothing else changed */
         xcb_flush(wm.conn);
@@ -623,6 +685,44 @@ void snap_client_to_side(Client *c, SnapSide side)
     c->width = half - bt * 2;
     if (c->width < c->min_w) c->width = c->min_w;
     if (c->height < c->min_h) c->height = c->min_h;
+}
+
+/* Keyboard half-screen tiling (kiwm.conf's key_tile_left=/key_tile_right=,
+ * Meta+Left/Meta+Right by default) -- the same geometry the drag-to-edge
+ * snap produces, just without the drag, plus the two things a keyboard
+ * shortcut needs that the drag path handles elsewhere:
+ *
+ *   - capturing the restore geometry itself, since there's no button-press
+ *     moment for detile_for_drag() to have done it. Only captured when
+ *     coming from a genuinely floating window: a maximized or already-
+ *     half-snapped one already has the true pre-tiling geometry in
+ *     saved_x/y/w/h and must not have it clobbered with the tiled size
+ *     (same rule toggle_maximize() follows, for the same reason).
+ *   - toggling: pressing the shortcut for the side a window is *already*
+ *     tiled to restores it instead of re-tiling it to where it already is,
+ *     so one key both tiles and untiles.
+ *
+ * Unlike snap_client_to_side()/unsnap_client() (which leave the redraw to
+ * their drag-path caller, which was going to do it anyway), this applies
+ * everything itself -- there's no drag still in flight to defer to. */
+void toggle_snap_side(Client *c, SnapSide side)
+{
+    if (c->snap_side == side) {
+        unsnap_client(c, c->saved_x, c->saved_y, c->saved_w, c->saved_h);
+    } else {
+        if (c->snap_side == SNAP_NONE && !c->maximized) {
+            c->saved_x = c->x;
+            c->saved_y = c->y;
+            c->saved_w = c->width;
+            c->saved_h = c->height;
+        }
+        snap_client_to_side(c, side);
+    }
+
+    configure_frame(c);
+    ewmh_update_wm_state(c);
+    ewmh_update_frame_extents(c);
+    xcb_flush(wm.conn);
 }
 
 /* Restores explicit floating geometry (typically the pre-drag geometry
@@ -828,6 +928,118 @@ void unmanage(Client *c)
     xcb_flush(wm.conn);
 }
 
+/* A plausible floating geometry for a window kiwm only ever sees already
+ * maximized/fullscreen -- the "restore" size it'll get the first time it's
+ * unmaximized. There's nothing to recover the *real* pre-maximize geometry
+ * from: EWMH has no property for it, so the WM that maximized the window
+ * held it in its own memory and took it along when it exited. Two thirds
+ * of the output's workarea, centered, is the same shape most toolkits pick
+ * for a fresh window and is at least obviously a restore rather than a
+ * window that appears not to have restored at all. */
+static void seed_restore_geometry(Client *c)
+{
+    int wx, wy, ww, wh;
+    compute_output_workarea(c->output >= 0 ? c->output : 0, &wx, &wy, &ww, &wh);
+
+    c->saved_w = ww * 2 / 3;
+    c->saved_h = wh * 2 / 3;
+    if (c->saved_w < c->min_w) c->saved_w = c->min_w;
+    if (c->saved_h < c->min_h) c->saved_h = c->min_h;
+    c->saved_x = wx + (ww - c->saved_w) / 2;
+    c->saved_y = wy + (wh - c->saved_h) / 2;
+}
+
+/* Applies whatever _NET_WM_STATE the window already carries at the moment
+ * kiwm starts managing it. Two quite different situations need this, and
+ * both were broken without it:
+ *
+ *   - Adoption across a WM switch (kiwm --replace, or kiwm starting on a
+ *     session that already has windows): the previous WM left each window
+ *     maximized/fullscreen/shaded/above/sticky *and* recorded that in
+ *     _NET_WM_STATE, which is precisely what the property is for. Ignoring
+ *     it left every window "floating, but coincidentally the exact size of
+ *     a maximized window" -- so unmaximizing did nothing, the maximize
+ *     button showed the wrong glyph, and a fullscreen window came back
+ *     windowed-but-screen-sized.
+ *   - An app requesting an initial state *before* mapping, which EWMH says
+ *     is done by setting _NET_WM_STATE on the window itself (a client
+ *     message only works once the window is already managed, so there's no
+ *     other way to ask). This is how VirtualBox's VM window asks to come
+ *     up fullscreen, and why it never did under kiwm.
+ *
+ * Returns true if the window should come up minimized, which manage() acts
+ * on instead of focusing it. Maximize is only honored when *both* axes are
+ * listed: kiwm has no vertical/horizontal-only maximize state to map a
+ * single-axis request onto, and treating a vertical-only maximize (which
+ * some apps do use on their own) as a full one would resize windows nobody
+ * asked to resize. */
+static bool adopt_initial_wm_state(Client *c)
+{
+    xcb_get_property_reply_t *reply = xcb_get_property_reply(wm.conn,
+        xcb_get_property(wm.conn, 0, c->window, wm.atoms.net_wm_state, XCB_ATOM_ATOM, 0, 32), NULL);
+    if (!reply)
+        return false;
+
+    bool max_v = false, max_h = false, fullscreen = false, shaded = false;
+    bool above = false, below = false, sticky = false, hidden = false;
+
+    if (reply->type == XCB_ATOM_ATOM && reply->format == 32) {
+        xcb_atom_t *atoms = xcb_get_property_value(reply);
+        int n = xcb_get_property_value_length(reply) / (int)sizeof(xcb_atom_t);
+        for (int i = 0; i < n; i++) {
+            xcb_atom_t a = atoms[i];
+            if      (a == wm.atoms.net_wm_state_maximized_vert) max_v = true;
+            else if (a == wm.atoms.net_wm_state_maximized_horz) max_h = true;
+            else if (a == wm.atoms.net_wm_state_fullscreen)     fullscreen = true;
+            else if (a == wm.atoms.net_wm_state_shaded)         shaded = true;
+            else if (a == wm.atoms.net_wm_state_above)          above = true;
+            else if (a == wm.atoms.net_wm_state_below)          below = true;
+            else if (a == wm.atoms.net_wm_state_sticky)         sticky = true;
+            else if (a == wm.atoms.net_wm_state_hidden)         hidden = true;
+        }
+    }
+    free(reply);
+
+    if (!(max_v && max_h) && !fullscreen && !shaded && !above && !below && !sticky && !hidden)
+        return false;
+
+    /* Maximize first, then fullscreen, so toggle_fullscreen() records
+     * fs_was_maximized and leaving fullscreen lands back on a maximized
+     * window rather than a floating one -- exactly the nesting a live
+     * toggle would have produced. */
+    if (max_v && max_h)
+        toggle_maximize(c, 1);
+    if (fullscreen)
+        toggle_fullscreen(c, 1);
+
+    /* Both toggles above dutifully captured "the geometry this window had
+     * before" as its restore geometry -- but here that geometry *is* the
+     * tiled one the previous WM left behind, so restoring would visibly do
+     * nothing. Overwrite it with a plausible floating one instead, after
+     * the fact, rather than seeding it first (the toggles would just
+     * overwrite it right back). */
+    seed_restore_geometry(c);
+    if (fullscreen && !(max_v && max_h)) {
+        /* Fullscreen with nothing to fall back to: leaving it restores
+         * fs_saved_* directly, so that's the copy that needs seeding. */
+        c->fs_saved_x = c->saved_x;
+        c->fs_saved_y = c->saved_y;
+        c->fs_saved_w = c->saved_w;
+        c->fs_saved_h = c->saved_h;
+    }
+
+    if (shaded)
+        toggle_shade(c, 1);
+    if (above)
+        toggle_keep_above(c, 1);
+    else if (below)
+        toggle_keep_below(c, 1);
+    if (sticky)
+        toggle_sticky(c, 1);
+
+    return hidden;
+}
+
 void manage(xcb_window_t window)
 {
     if (find_client_window(window))
@@ -920,6 +1132,9 @@ void manage(xcb_window_t window)
 
     get_title(c);
     load_client_icon(c);
+    /* Before the frame is sized/created: an undecorated client's frame is
+     * exactly its content size, with no titlebar row to reparent below. */
+    c->undecorated = window_wants_no_decoration(window);
 
     c->frame = xcb_generate_id(wm.conn);
 
@@ -957,9 +1172,15 @@ void manage(xcb_window_t window)
          * frame's, since that's what the app actually meant). */
         XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT
     };
-    int bt = wm.border_thickness; /* deco is always visible on a freshly-managed window */
+    /* No maximize/fullscreen state has been adopted yet at this point, so
+     * this is just "the configured border/titlebar, unless the client
+     * asked for none at all" (Client::undecorated above) -- adopting a
+     * state that hides the decoration re-runs configure_frame() and
+     * resizes the frame accordingly anyway. */
+    int bt, th;
+    deco_insets(c, &bt, &th);
     xcb_create_window(wm.conn, wm.screen->root_depth, c->frame, wm.root,
-                      c->x, c->y, c->width + bt * 2, c->height + TITLEBAR_H + bt, 0,
+                      c->x, c->y, c->width + bt * 2, c->height + th + bt, 0,
                       XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.screen->root_visual,
                       XCB_CW_BORDER_PIXEL | XCB_CW_EVENT_MASK, values);
 
@@ -988,7 +1209,7 @@ void manage(xcb_window_t window)
     grab_button3_with_locks(window, wm.mod_cycle);
     grab_button3_with_locks(window, wm.mod_control);
 
-    xcb_reparent_window(wm.conn, window, c->frame, bt, TITLEBAR_H);
+    xcb_reparent_window(wm.conn, window, c->frame, bt, th);
 
     xcb_map_window(wm.conn, window);
     xcb_map_window(wm.conn, c->frame);
@@ -1004,13 +1225,22 @@ void manage(xcb_window_t window)
     c->next = wm.clients;
     wm.clients = c;
 
+    /* Before the first ewmh_update_wm_state() below, which rewrites
+     * _NET_WM_STATE from the Client's own (still all-false) fields and
+     * would otherwise erase the very states being read here. */
+    bool start_minimized = adopt_initial_wm_state(c);
+
     configure_frame(c);
     ewmh_update_wm_desktop(c);
     ewmh_update_wm_output(c);
     ewmh_update_wm_state(c);
     ewmh_update_frame_extents(c);
     ewmh_update_client_list();
-    focus_client(c);
+
+    if (start_minimized)
+        minimize_client(c);
+    else
+        focus_client(c);
 }
 
 /* Called once at startup so windows already open before kiwm starts (or
