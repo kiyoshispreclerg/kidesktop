@@ -207,6 +207,84 @@ static bool window_wants_no_decoration(xcb_window_t window)
     return override_type;
 }
 
+/* _MOTIF_WM_HINTS' `functions` field -> Client::allow_*. Same prehistoric
+ * struct window_wants_no_decoration() reads for `decorations`, one field
+ * over: { flags, functions, decorations, input_mode, status }, with flags
+ * bit 0 (MWM_HINTS_FUNCTIONS) saying `functions` is meaningful at all.
+ *
+ * The one trap is MWM_FUNC_ALL: when that bit is set, the remaining bits
+ * are the functions to *remove*, not the ones to allow. Reading it the
+ * naive way inverts the whole thing -- a window saying "everything except
+ * resize" would come out as "nothing but resize". */
+static void apply_motif_functions(Client *c)
+{
+    xcb_get_property_reply_t *reply = xcb_get_property_reply(wm.conn,
+        xcb_get_property(wm.conn, 0, c->window, wm.atoms.motif_wm_hints,
+                         XCB_GET_PROPERTY_TYPE_ANY, 0, 5), NULL);
+    if (!reply)
+        return;
+
+    if (reply->format == 32 && xcb_get_property_value_length(reply) >= 2 * (int)sizeof(uint32_t)) {
+        uint32_t *hints = xcb_get_property_value(reply);
+        const uint32_t MWM_HINTS_FUNCTIONS = 1u << 0;
+        const uint32_t MWM_FUNC_ALL        = 1u << 0;
+        const uint32_t MWM_FUNC_RESIZE     = 1u << 1;
+        const uint32_t MWM_FUNC_MOVE       = 1u << 2;
+        const uint32_t MWM_FUNC_MINIMIZE   = 1u << 3;
+        const uint32_t MWM_FUNC_MAXIMIZE   = 1u << 4;
+        const uint32_t MWM_FUNC_CLOSE      = 1u << 5;
+
+        if (hints[0] & MWM_HINTS_FUNCTIONS) {
+            uint32_t f = hints[1];
+            bool listed_are_excluded = (f & MWM_FUNC_ALL) != 0;
+            bool move     = (f & MWM_FUNC_MOVE) != 0;
+            bool resize   = (f & MWM_FUNC_RESIZE) != 0;
+            bool minimize = (f & MWM_FUNC_MINIMIZE) != 0;
+            bool maximize = (f & MWM_FUNC_MAXIMIZE) != 0;
+            bool close    = (f & MWM_FUNC_CLOSE) != 0;
+            if (listed_are_excluded) {
+                move = !move; resize = !resize; minimize = !minimize;
+                maximize = !maximize; close = !close;
+            }
+            c->allow_move     = c->allow_move     && move;
+            c->allow_resize   = c->allow_resize   && resize;
+            c->allow_minimize = c->allow_minimize && minimize;
+            c->allow_maximize = c->allow_maximize && maximize;
+            c->allow_close    = c->allow_close    && close;
+        }
+    }
+    free(reply);
+}
+
+/* Recomputes what this client permits (Client::allow_*) from its current
+ * hints, and republishes _NET_WM_ALLOWED_ACTIONS. Everything starts
+ * allowed and only gets taken away, so a client that declares nothing
+ * behaves exactly as it always did.
+ *
+ * Two independent sources, both of which real apps use: ICCCM
+ * WM_NORMAL_HINTS (min size == max size means unresizable, which also
+ * rules out maximizing and tiling -- there'd be nothing to resize *to*),
+ * and _MOTIF_WM_HINTS' functions field, still the only way a toolkit can
+ * say "this dialog has no maximize button". Call after get_size_hints(),
+ * and again whenever WM_NORMAL_HINTS changes. */
+void update_client_actions(Client *c)
+{
+    c->allow_move = true;
+    c->allow_resize = true;
+    c->allow_minimize = true;
+    c->allow_maximize = true;
+    c->allow_close = true;
+
+    if (c->hints_fixed_size) {
+        c->allow_resize = false;
+        c->allow_maximize = false;
+    }
+
+    apply_motif_functions(c);
+
+    ewmh_update_allowed_actions(c);
+}
+
 /* Whether `state` is listed in the window's _NET_WM_STATE right now. */
 static bool window_has_state(xcb_window_t window, xcb_atom_t state)
 {
@@ -544,6 +622,14 @@ static void send_delete(Client *c)
 
 void close_client(Client *c)
 {
+    /* A window that declares no close function (Motif's MWM_FUNC_CLOSE) is
+     * saying it must be dismissed through its own UI -- an installer's
+     * progress dialog, say. kiwm hides the close button for it, and
+     * refuses here too so a taskbar or a shortcut can't do what the
+     * titlebar won't. */
+    if (!c->allow_close)
+        return;
+
     if (client_supports_protocol(c->window, wm.atoms.wm_delete_window))
         send_delete(c);
     else
@@ -933,6 +1019,14 @@ void toggle_maximize(Client *c, int want /* -1=toggle 0=unmax 1=max */)
     bool target = (want == -1) ? !c->maximized : (want == 1);
     if (target == c->maximized)
         return;
+    /* Refused for a window that says it can't be maximized (see
+     * update_client_actions()) -- the titlebar button for it isn't even
+     * drawn, but the same operation is reachable from a taskbar, a
+     * shortcut and a _NET_WM_STATE client message, and all of them have to
+     * agree. Un-maximizing is always allowed: whatever put the window in
+     * that state, it has to be possible to get out of it. */
+    if (target && !c->allow_maximize)
+        return;
 
     if (target) {
         unshade_now(c);
@@ -1068,6 +1162,11 @@ void toggle_fullscreen(Client *c, int want /* -1=toggle 0=unfullscreen 1=fullscr
  * always needs to do that anyway for whichever snap state it applies. */
 void snap_client_to_side(Client *c, SnapSide side)
 {
+    /* Half-screen tiling is a resize, so an unresizable window can't do it
+     * any more than it can maximize. */
+    if (!c->allow_resize)
+        return;
+
     unshade_now(c);
 
     int wx, wy, ww, wh;
@@ -1186,6 +1285,9 @@ void detile_for_drag(Client *c, int press_root_x, int press_root_y)
 
 void minimize_client(Client *c)
 {
+    if (!c->allow_minimize)
+        return;
+
     if (c->minimized)
         return;
 
@@ -1561,6 +1663,7 @@ void manage(xcb_window_t window, bool map_requested)
     c->x = geo->x;
     c->y = geo->y;
     get_size_hints(c);
+    update_client_actions(c);
     c->width = geo->width < c->min_w ? c->min_w : geo->width;
     c->height = geo->height < c->min_h ? c->min_h : geo->height;
     free(geo);
@@ -1622,6 +1725,35 @@ void manage(xcb_window_t window, bool map_requested)
      * resizes the frame accordingly anyway. */
     int bt, th;
     deco_insets(c, &bt, &th);
+
+    /* ICCCM 4.1.2.3: where the frame goes depends on the client's
+     * win_gravity. c->x/c->y is the *frame's* origin everywhere in kiwm,
+     * and geo->x/y (already copied into it above) is where the client's
+     * own window currently is -- so for StaticGravity, which is what every
+     * Qt/GTK window asks for, the frame has to move up and left by the
+     * decoration insets to leave the content exactly where it is. Ignoring
+     * this is invisible when a window is first mapped (nothing has been
+     * drawn yet) but walks every window a titlebar's height down the
+     * screen on each WM handoff, since adoption re-frames a window that's
+     * already on screen. Every other gravity falls back to NorthWest, the
+     * ICCCM default: the frame goes where the client asked and the content
+     * lands below the titlebar. */
+    if (c->gravity == XCB_GRAVITY_STATIC) {
+        c->x -= bt;
+        c->y -= th;
+
+        /* ...but never far enough up that the titlebar lands off-screen
+         * and the window can't be dragged again. Only relevant when there
+         * *is* a titlebar; an undecorated client has no insets to subtract
+         * in the first place. */
+        if (th > 0) {
+            int wx, wy, ww, wh;
+            compute_output_workarea(c->output >= 0 ? c->output : 0, &wx, &wy, &ww, &wh);
+            (void)wx; (void)ww; (void)wh;
+            if (c->y < wy)
+                c->y = wy;
+        }
+    }
     xcb_create_window(wm.conn, wm.screen->root_depth, c->frame, wm.root,
                       c->x, c->y, c->width + bt * 2, c->height + th + bt, 0,
                       XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.screen->root_visual,

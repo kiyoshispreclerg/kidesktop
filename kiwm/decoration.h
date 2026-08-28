@@ -22,13 +22,16 @@ typedef struct {
     int x, width;
 } DecoSlot;
 
-/* Fills `out` (up to max_out) with each configured titlebar element's
- * on-screen [x, x+width) span for a frame of the given width, in
- * wm.deco_layout order -- the single shared layout math events.c's
- * hit-testing/hover and decoration.c's drawing both build on, so they can
- * never disagree about where an element actually is. Returns the number
- * of slots filled. */
-int compute_deco_layout(int frame_width, DecoSlot *out, int max_out);
+/* Fills `out` (up to max_out) with each titlebar element's on-screen
+ * [x, x+width) span for a frame of the given width, in wm.deco_layout
+ * order -- the single shared layout math events.c's hit-testing/hover and
+ * decoration.c's drawing both build on, so they can never disagree about
+ * where an element actually is. Elements invoking an action `c` doesn't
+ * permit (see wm.h's Client::allow_*) are left out entirely, so the
+ * returned count can be smaller than wm.deco_layout_count and the title
+ * absorbs the freed width. `c` may be NULL for a client-independent
+ * layout. Returns the number of slots filled. */
+int compute_deco_layout(const Client *c, int frame_width, DecoSlot *out, int max_out);
 
 /* Loads (or reloads) c->icon from _NET_WM_ICON, picking whichever of the
  * property's multiple embedded sizes is closest to the titlebar icon

@@ -182,6 +182,25 @@ exposes.
   where a panel sits relative to normal, keep-above and fullscreen windows is exactly the kind of
   question only the WM can answer, and before this it simply sat wherever X had left it -- which
   meant permanently on top of everything.
+- ICCCM `win_gravity` decides where the frame goes. `StaticGravity` -- which is what essentially
+  every Qt/GTK window asks for -- means "my *content* goes where I asked, put your titlebar above
+  it", so the frame is placed a decoration's worth up and left; anything else falls back to the
+  ICCCM default (`NorthWest`: the frame goes where the client asked and the content lands below the
+  titlebar). Ignoring this is invisible on a freshly mapped window but walks every window a
+  titlebar's height down the screen on each WM handoff, since adoption re-frames windows that are
+  already on screen -- measured at +54px per switch on a KWin session. The same rule applies to a
+  later `ConfigureRequest` from the client. A static-gravity frame is never pushed above its
+  output's usable area, so the titlebar can't end up off-screen and undraggable.
+- Actions a window says it doesn't support are hidden *and* refused. Two hint sources, both used by
+  real apps: ICCCM `WM_NORMAL_HINTS` with min size == max size (the standard "don't resize me",
+  which also rules out maximizing and tiling), and `_MOTIF_WM_HINTS`' `functions` field, still the
+  only way a toolkit can say "this dialog has no maximize button" -- including its `MWM_FUNC_ALL`
+  trap, where the listed bits are the ones to *remove*. A disallowed action's titlebar button isn't
+  drawn at all (the title absorbs the width), and the operation is refused however it's invoked --
+  shortcut, taskbar, `_NET_WM_STATE` message or drag -- so nothing can do what the titlebar won't.
+  The same set is published as `_NET_WM_ALLOWED_ACTIONS` so taskbars and window menus grey out the
+  matching entries. Everything starts allowed and is only ever taken away, so a client that
+  declares nothing behaves exactly as before.
 - ICCCM `WM_NORMAL_HINTS`' minimum size (`PMinSize`) is honored wherever a window's size gets
   clamped (initial map, interactive resize, maximize, edge-snap, `_NET_MOVERESIZE`-style
   configure requests) -- floored to kiwm's own absolute minimum so a client that sets a tiny or no
@@ -267,7 +286,10 @@ Two more things affect decoration/theming but aren't `kiwm.conf` keys:
 
 ### Titlebar layout
 
-`titlebar_layout=` is a comma-separated list of any of these, in any order, any subset:
+`titlebar_layout=` is a comma-separated list of any of these, in any order, any subset. It's the
+layout kiwm *offers*; a given window may show fewer buttons than it lists, since an element whose
+action that window doesn't permit (see "Status" above -- `WM_NORMAL_HINTS` / `_MOTIF_WM_HINTS`) is
+left out entirely and the title takes the freed width:
 
 - `title` (or `name`) -- the window title. The **only flexible element**: it absorbs whatever
   width the fixed-size ones don't use, wherever it falls in the order. Listing it more than once

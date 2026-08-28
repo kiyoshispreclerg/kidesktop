@@ -55,6 +55,17 @@ void ewmh_init_atoms(void)
     wm.atoms.net_wm_state_below = intern_atom("_NET_WM_STATE_BELOW");
     wm.atoms.net_wm_icon = intern_atom("_NET_WM_ICON");
 
+    wm.atoms.net_wm_allowed_actions = intern_atom("_NET_WM_ALLOWED_ACTIONS");
+    wm.atoms.net_wm_action_move = intern_atom("_NET_WM_ACTION_MOVE");
+    wm.atoms.net_wm_action_resize = intern_atom("_NET_WM_ACTION_RESIZE");
+    wm.atoms.net_wm_action_minimize = intern_atom("_NET_WM_ACTION_MINIMIZE");
+    wm.atoms.net_wm_action_shade = intern_atom("_NET_WM_ACTION_SHADE");
+    wm.atoms.net_wm_action_maximize_horz = intern_atom("_NET_WM_ACTION_MAXIMIZE_HORZ");
+    wm.atoms.net_wm_action_maximize_vert = intern_atom("_NET_WM_ACTION_MAXIMIZE_VERT");
+    wm.atoms.net_wm_action_fullscreen = intern_atom("_NET_WM_ACTION_FULLSCREEN");
+    wm.atoms.net_wm_action_change_desktop = intern_atom("_NET_WM_ACTION_CHANGE_DESKTOP");
+    wm.atoms.net_wm_action_close = intern_atom("_NET_WM_ACTION_CLOSE");
+
     wm.atoms.net_wm_window_type = intern_atom("_NET_WM_WINDOW_TYPE");
     wm.atoms.net_wm_window_type_normal = intern_atom("_NET_WM_WINDOW_TYPE_NORMAL");
     wm.atoms.net_wm_window_type_dock = intern_atom("_NET_WM_WINDOW_TYPE_DOCK");

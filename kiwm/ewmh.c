@@ -174,6 +174,9 @@ void get_size_hints(Client *c)
 {
     c->min_w = MIN_CLIENT_W;
     c->min_h = MIN_CLIENT_H;
+    /* ICCCM's default when the client sets no PWinGravity flag. */
+    c->gravity = XCB_GRAVITY_NORTH_WEST;
+    c->hints_fixed_size = false;
 
     xcb_size_hints_t hints;
     xcb_get_property_cookie_t cookie = xcb_icccm_get_wm_normal_hints(wm.conn, c->window);
@@ -186,6 +189,43 @@ void get_size_hints(Client *c)
         if (hints.min_height > c->min_h)
             c->min_h = hints.min_height;
     }
+
+    if (hints.flags & XCB_ICCCM_SIZE_HINT_P_WIN_GRAVITY)
+        c->gravity = (uint8_t)hints.win_gravity;
+
+    /* "min size == max size" is how ICCCM spells "don't resize me" -- the
+     * standard signal behind a fixed-size dialog, and the reason such a
+     * window must not get a maximize button either (see client.c's
+     * update_client_actions()). */
+    if ((hints.flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) &&
+        (hints.flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE) &&
+        hints.min_width == hints.max_width && hints.min_height == hints.max_height)
+        c->hints_fixed_size = true;
+}
+
+/* _NET_WM_ALLOWED_ACTIONS, mirroring Client::allow_* (see client.c's
+ * update_client_actions()) so a taskbar's window menu greys out exactly
+ * the entries kiwm's own titlebar hides. The three kiwm never restricts --
+ * shade, fullscreen and moving between desktops -- are always listed. */
+void ewmh_update_allowed_actions(Client *c)
+{
+    xcb_atom_t actions[10];
+    int n = 0;
+
+    if (c->allow_move)     actions[n++] = wm.atoms.net_wm_action_move;
+    if (c->allow_resize)   actions[n++] = wm.atoms.net_wm_action_resize;
+    if (c->allow_minimize) actions[n++] = wm.atoms.net_wm_action_minimize;
+    if (c->allow_maximize) {
+        actions[n++] = wm.atoms.net_wm_action_maximize_horz;
+        actions[n++] = wm.atoms.net_wm_action_maximize_vert;
+    }
+    if (c->allow_close)    actions[n++] = wm.atoms.net_wm_action_close;
+    actions[n++] = wm.atoms.net_wm_action_shade;
+    actions[n++] = wm.atoms.net_wm_action_fullscreen;
+    actions[n++] = wm.atoms.net_wm_action_change_desktop;
+
+    xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, c->window,
+                        wm.atoms.net_wm_allowed_actions, XCB_ATOM_ATOM, 32, (uint32_t)n, actions);
 }
 
 void ewmh_init_supported(void)
@@ -205,6 +245,12 @@ void ewmh_init_supported(void)
         wm.atoms.net_wm_state_above, wm.atoms.net_wm_state_sticky,
         wm.atoms.net_wm_state_fullscreen, wm.atoms.net_wm_state_below,
         wm.atoms.net_wm_icon,
+        wm.atoms.net_wm_allowed_actions,
+        wm.atoms.net_wm_action_move, wm.atoms.net_wm_action_resize,
+        wm.atoms.net_wm_action_minimize, wm.atoms.net_wm_action_shade,
+        wm.atoms.net_wm_action_maximize_horz, wm.atoms.net_wm_action_maximize_vert,
+        wm.atoms.net_wm_action_fullscreen, wm.atoms.net_wm_action_change_desktop,
+        wm.atoms.net_wm_action_close,
         wm.atoms.net_wm_window_type, wm.atoms.net_wm_window_type_normal,
         wm.atoms.net_wm_window_type_dock, wm.atoms.net_wm_window_type_desktop,
         wm.atoms.net_wm_window_type_toolbar, wm.atoms.net_wm_window_type_menu,

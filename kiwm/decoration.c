@@ -550,16 +550,37 @@ void apply_rounded_shape(Client *c)
                          c->frame, 0, 0, (uint32_t)n, rects);
 }
 
-int compute_deco_layout(int frame_width, DecoSlot *out, int max_out)
+/* Whether this client permits the action a given titlebar element invokes
+ * (see wm.h's Client::allow_*). An element for something the window
+ * doesn't allow isn't drawn at all -- a fixed-size dialog showing a
+ * maximize button that does nothing when clicked is worse than showing no
+ * button, and it's what every other WM does with these hints. The elements
+ * not listed here (title, icon, shade, keep-above, keep-all-desktops) are
+ * always available: kiwm never restricts them. */
+static bool deco_elem_allowed(const Client *c, DecoElemKind kind)
 {
-    int n = wm.deco_layout_count;
-    if (n > max_out)
-        n = max_out;
+    if (!c)
+        return true;
+    switch (kind) {
+    case DECO_MINIMIZE: return c->allow_minimize;
+    case DECO_MAXIMIZE: return c->allow_maximize;
+    case DECO_CLOSE:    return c->allow_close;
+    default:            return true;
+    }
+}
+
+int compute_deco_layout(const Client *c, int frame_width, DecoSlot *out, int max_out)
+{
+    DecoElemKind kinds[MAX_DECO_ELEMS];
+    int n = 0;
+    for (int i = 0; i < wm.deco_layout_count && n < max_out; i++)
+        if (deco_elem_allowed(c, wm.deco_layout[i]))
+            kinds[n++] = wm.deco_layout[i];
 
     int fixed_total = 0;
     int title_idx = -1;
     for (int i = 0; i < n; i++) {
-        if (wm.deco_layout[i] == DECO_TITLE) {
+        if (kinds[i] == DECO_TITLE) {
             if (title_idx < 0)
                 title_idx = i;
         } else {
@@ -572,9 +593,9 @@ int compute_deco_layout(int frame_width, DecoSlot *out, int max_out)
 
     int x = 0;
     for (int i = 0; i < n; i++) {
-        out[i].kind = wm.deco_layout[i];
+        out[i].kind = kinds[i];
         out[i].x = x;
-        if (wm.deco_layout[i] == DECO_TITLE) {
+        if (kinds[i] == DECO_TITLE) {
             /* Only the first "title" token (if the config lists more than
              * one, which is nonsensical but shouldn't crash) gets the
              * flexible width; any further one just collapses to 0. */
@@ -726,7 +747,7 @@ void draw_decoration(Client *c)
     cairo_paint(cr);
 
     DecoSlot slots[MAX_DECO_ELEMS];
-    int nslots = compute_deco_layout(w, slots, MAX_DECO_ELEMS);
+    int nslots = compute_deco_layout(c, w, slots, MAX_DECO_ELEMS);
 
     for (int i = 0; i < nslots; i++) {
         DecoSlot *s = &slots[i];

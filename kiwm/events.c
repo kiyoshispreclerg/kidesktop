@@ -120,8 +120,18 @@ static void handle_configure_request(xcb_configure_request_event_t *ev)
     int bt, th;
     deco_insets(c, &bt, &th);
 
-    if (ev->value_mask & XCB_CONFIG_WINDOW_X)      c->x = ev->x - bt;
-    if (ev->value_mask & XCB_CONFIG_WINDOW_Y)      c->y = ev->y - th;
+    /* Same ICCCM gravity rule manage() applies when it first frames a
+     * window (see client.c): with StaticGravity -- what every Qt/GTK
+     * window asks for, and the case that made this matter -- the position
+     * names where the *content* should end up, so the frame goes above and
+     * left of it by the decoration insets. Under NorthWest (the default
+     * for anything that doesn't ask) the position names the frame itself,
+     * and no translation applies. */
+    int gx = (c->gravity == XCB_GRAVITY_STATIC) ? bt : 0;
+    int gy = (c->gravity == XCB_GRAVITY_STATIC) ? th : 0;
+
+    if (ev->value_mask & XCB_CONFIG_WINDOW_X)      c->x = ev->x - gx;
+    if (ev->value_mask & XCB_CONFIG_WINDOW_Y)      c->y = ev->y - gy;
     if (ev->value_mask & XCB_CONFIG_WINDOW_WIDTH)  c->width = ev->width < c->min_w ? c->min_w : ev->width;
     if (ev->value_mask & XCB_CONFIG_WINDOW_HEIGHT) c->height = ev->height < c->min_h ? c->min_h : ev->height;
 
@@ -261,6 +271,15 @@ static bool should_preserve_snap_resize(Client *c, xcb_button_press_event_t *ev)
  * stays fixed for the whole resize (see handle_motion). */
 static void begin_drag(Client *c, DragMode mode, xcb_button_press_event_t *ev)
 {
+    /* A window that declares it can't be moved or resized (Motif's
+     * functions field, or a fixed min==max size -- see client.c's
+     * update_client_actions()) doesn't get dragged either, whether the
+     * drag started on its titlebar or via a modifier from anywhere on it. */
+    if (mode == DRAG_MOVE && !c->allow_move)
+        return;
+    if (mode == DRAG_RESIZE && !c->allow_resize)
+        return;
+
     wm.drag_preserve_snap = (mode == DRAG_RESIZE) && should_preserve_snap_resize(c, ev);
     if (!wm.drag_preserve_snap)
         detile_for_drag(c, ev->root_x, ev->root_y);
@@ -314,7 +333,7 @@ static void begin_drag(Client *c, DragMode mode, xcb_button_press_event_t *ev)
  * care can just index it). */
 static int deco_slot_at(Client *c, int rel_x, DecoSlot *slots, int max_slots)
 {
-    int n = compute_deco_layout(c->frame_width, slots, max_slots);
+    int n = compute_deco_layout(c, c->frame_width, slots, max_slots);
     for (int i = 0; i < n; i++)
         if (rel_x >= slots[i].x && rel_x < slots[i].x + slots[i].width)
             return i;
@@ -957,6 +976,11 @@ static void handle_property_notify(xcb_property_notify_event_t *ev)
          * if it's now too small (e.g. a terminal growing its min size once
          * a font/PTY dimension becomes known). */
         get_size_hints(c);
+        /* Same hints decide which titlebar buttons exist at all -- a
+         * toolkit that fixes its window size after mapping has just
+         * withdrawn the maximize button. */
+        update_client_actions(c);
+        draw_decoration(c);
         bool grew = false;
         if (c->width < c->min_w)  { c->width = c->min_w;  grew = true; }
         if (c->height < c->min_h) { c->height = c->min_h; grew = true; }

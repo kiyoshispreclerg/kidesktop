@@ -62,6 +62,11 @@ void set_client_desktop(Client *c, int desktop);
  * alone. See client.c. */
 void refit_tiled_clients(void);
 
+/* Recomputes Client::allow_* from the client's current WM_NORMAL_HINTS /
+ * _MOTIF_WM_HINTS and republishes _NET_WM_ALLOWED_ACTIONS -- see
+ * client.c. Call after get_size_hints(). */
+void update_client_actions(Client *c);
+
 /* Re-reads WM_TRANSIENT_FOR (which not every toolkit sets before mapping)
  * and restacks if it changed -- see client.c. */
 void client_refresh_transient_for(Client *c);

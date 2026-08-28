@@ -289,6 +289,33 @@ struct Client {
      * noise. Read once in manage(); apps set it before mapping. */
     bool skip_taskbar;
 
+    /* ICCCM WM_NORMAL_HINTS' win_gravity: how the client wants to be
+     * positioned once the WM wraps decoration around it. Only two answers
+     * matter in practice and kiwm implements exactly those: StaticGravity
+     * ("my *content* goes where I asked, put your titlebar above it") and
+     * everything else, which defaults to NorthWest ("put my *frame* where I
+     * asked; the content lands below the titlebar"). Getting this wrong is
+     * invisible on a freshly mapped window but very visible on adoption:
+     * every Qt/GTK window asks for Static, so every WM switch used to walk
+     * them all a titlebar's height down the screen. */
+    uint8_t gravity;
+
+    /* What this client permits being done to it, from WM_NORMAL_HINTS (a
+     * window whose min size equals its max size can't be resized, so it
+     * can't be maximized or tiled either) and _MOTIF_WM_HINTS' `functions`
+     * field, which is how toolkits express "this dialog has no maximize
+     * button". kiwm both *obeys* these (the corresponding operation is
+     * refused, however it's invoked) and *shows* them: a disallowed action's
+     * titlebar button isn't drawn at all, and the whole set is republished
+     * as _NET_WM_ALLOWED_ACTIONS so taskbars and pagers grey out the same
+     * entries. See client.c's update_client_actions(). */
+    bool allow_move, allow_resize, allow_minimize, allow_maximize, allow_close;
+    /* WM_NORMAL_HINTS says min size == max size, i.e. the client declared
+     * itself unresizable -- one of the two inputs to allow_* above, kept
+     * separately because it's re-read on its own (a toolkit can fix its
+     * size long after mapping). */
+    bool hints_fixed_size;
+
     int fs_saved_x, fs_saved_y, fs_saved_w, fs_saved_h; /* restore geometry before fullscreen */
     bool fs_was_maximized;   /* whether to re-maximize (vs. just float) on leaving fullscreen */
     SnapSide fs_saved_snap_side; /* ditto, for half-snapped windows */
@@ -383,6 +410,22 @@ typedef struct {
     xcb_atom_t net_wm_state_fullscreen;
     xcb_atom_t net_wm_state_below;
     xcb_atom_t net_wm_icon;
+
+    /* _NET_WM_ALLOWED_ACTIONS and its members -- published per client from
+     * Client::allow_* (see client.c's update_client_actions()), so a
+     * taskbar's window menu offers the same operations kiwm's own titlebar
+     * does. Purely output: kiwm derives what's allowed from the client's
+     * ICCCM/Motif hints, never from this property. */
+    xcb_atom_t net_wm_allowed_actions;
+    xcb_atom_t net_wm_action_move;
+    xcb_atom_t net_wm_action_resize;
+    xcb_atom_t net_wm_action_minimize;
+    xcb_atom_t net_wm_action_shade;
+    xcb_atom_t net_wm_action_maximize_horz;
+    xcb_atom_t net_wm_action_maximize_vert;
+    xcb_atom_t net_wm_action_fullscreen;
+    xcb_atom_t net_wm_action_change_desktop;
+    xcb_atom_t net_wm_action_close;
 
     xcb_atom_t net_wm_window_type;
     xcb_atom_t net_wm_window_type_normal;
