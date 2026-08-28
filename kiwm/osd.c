@@ -85,8 +85,12 @@ static void list_build(TabBoxState *state, int output_idx, int desktop)
     state->selected = 0;
     /* Same eligibility rule client.c's cycle_focus() uses. */
     for (Client *c = wm.clients; c && state->count < MAX_CLIENTS; c = c->next) {
+        /* skip_taskbar is the client saying it isn't a window the user
+         * switches to (VirtualBox's mini-toolbar, splash-ish helpers) --
+         * listing it here would offer a switch target that does nothing
+         * useful. */
         if (c->output == output_idx && (c->sticky || c->desktop == desktop) &&
-            c->mapped && !c->minimized) {
+            c->mapped && !c->minimized && !c->skip_taskbar) {
             if (c == wm.focused)
                 state->selected = state->count;
             state->items[state->count++] = c;
@@ -242,6 +246,7 @@ static void draw_chrome_and_content(int content_w, int content_h, void (*paint_c
         xcb_map_window(wm.conn, osd_win);
         osd_mapped = true;
     }
+    osd_raise_above_all();
 
     xcb_pixmap_t pixmap = xcb_generate_id(wm.conn);
     xcb_create_pixmap(wm.conn, wm.screen->root_depth, pixmap, osd_win, (uint16_t)win_w, (uint16_t)win_h);
@@ -318,6 +323,41 @@ static void close_osd(void)
 }
 
 /* ---- public API ---- */
+
+bool osd_owns_window(xcb_window_t window)
+{
+    return osd_win != XCB_NONE && window == osd_win && osd_mapped;
+}
+
+void osd_raise_above_all(void)
+{
+    if (osd_win == XCB_NONE || !osd_mapped)
+        return;
+    /* Mapping a window doesn't restack it, so opening the overlay needs
+     * this one explicit raise; from then on it holds its place through
+     * LAYER_OSD like everything else restack_all() orders (see wm.h --
+     * it's an override-redirect window, not a Client, so restack_all()
+     * recognizes it via osd_owns_window() rather than a Client lookup). */
+    xcb_configure_window(wm.conn, osd_win, XCB_CONFIG_WINDOW_STACK_MODE,
+                         (uint32_t[]){ XCB_STACK_MODE_ABOVE });
+}
+
+void osd_handle_expose(xcb_window_t window)
+{
+    if (!osd_owns_window(window))
+        return;
+    /* The overlay paints itself once into the window and then relies on
+     * the X server keeping those pixels -- which it doesn't, for any
+     * region that gets covered and uncovered again. Without repainting on
+     * Expose the overlay is left blank or holding whatever was underneath
+     * it, which is what "the OSD gets corrupted" looks like when a
+     * fullscreen window drops out of the layer above it. */
+    if (kind == OSD_WINDOWS)
+        repaint_windows();
+    else if (kind == OSD_DESKTOPS)
+        repaint_desktops();
+    xcb_flush(wm.conn);
+}
 
 bool osd_active(void)
 {

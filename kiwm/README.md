@@ -48,7 +48,85 @@ exposes.
   kiwm exits, so windows survive a kill instead of vanishing with it.
 - Dock/panel awareness: `_NET_WM_STRUT`/`_NET_WM_STRUT_PARTIAL`, correctly attributed per output
   (a panel on one monitor doesn't eat into a different monitor's usable area), feeding
-  `_NET_WORKAREA` and maximize.
+  `_NET_WORKAREA` and maximize. The usable area is *re-applied* whenever it changes: every
+  maximized, half-tiled or fullscreen window is resized to the new one, so a panel starting,
+  quitting, moving or changing its strut doesn't leave maximized windows sized for the old layout.
+  That's also what makes adoption at startup come out right -- windows are framed in
+  `XQueryTree()` order, and a panel is just another window in that list, so a window adopted
+  maximized before the panel it shares a screen with had computed its size against a workarea with
+  no panel in it yet (covering the taskbar); one refit pass once every dock is known fixes it.
+- Multi-monitor EWMH that doesn't lie about the second screen. `_NET_WORKAREA` has room for exactly
+  one rectangle for the whole desktop, and publishing the *primary output's* usable area there (what
+  kiwm did, and what KWin does) is an actively harmful lie: a client that dutifully constrains its
+  own popups to that rectangle drags every popup belonging to a window on any other output onto the
+  primary one -- measured on a two-monitor session, a panel tooltip for the second screen landing at
+  `x=0`. kiwm now publishes the bounding box of every output's usable area (identical to before on a
+  single monitor), which at least *contains* every real work area; the exact per-output usable area
+  is still what maximize uses and is still exposed losslessly through the `_KIWM_*` protocol.
+  `_NET_DESKTOP_GEOMETRY`/`_NET_DESKTOP_VIEWPORT` are published too (they weren't at all, so clients
+  read whatever the previous WM left behind, or nothing on a fresh session), and
+  `_NET_WM_FULL_PLACEMENT` is advertised -- per EWMH that tells clients to stop constraining their
+  own popups to a screen, which is exactly what kiwm wants for the windows it never moves.
+- Windows uncovered by a fullscreen window that loses focus are asked to repaint. Dropping out of
+  the active-fullscreen layer uncovers whatever was under it, but X only sends `Expose` for regions
+  it considers newly visible -- a panel that was fully covered and is now merely *above* the same
+  window gets nothing, and is left displaying the pixels the fullscreen window painted over it (a
+  game's picture stuck on the panels). `ClearArea` with `exposures` asks for those events
+  explicitly. The switcher overlay also repaints on `Expose` now, for the same reason.
+- Non-rectangular (shaped) client windows: a client's own SHAPE (bounding *and* input) is forwarded
+  onto the frame kiwm reparents it into -- which the X server is what actually clips against once
+  the client is a child of that frame, so without it the frame stays a solid rectangle covering,
+  and swallowing every click over, whatever the client carved away. `xeyes` is the textbook case;
+  the one that matters in practice is VirtualBox's fullscreen mini-toolbar, a screen-sized window
+  whose shape is just the little bar at the top, floating over the VM window. `ShapeNotify` is
+  tracked too, so a shape set or changed after mapping is picked up, not just the one present at
+  manage time. When a client is shaped, kiwm's own corner rounding steps aside (the client is
+  already saying exactly what silhouette it wants) but the decoration's rectangles are unioned back
+  in, so a shaped window still gets a whole titlebar.
+- Windows that belong together stay together, through two independent relationships, because real
+  applications use both:
+    - ICCCM `WM_TRANSIENT_FOR` -- a transient takes its parent's layer and is ordered above it.
+    - The ICCCM **window group** (`WM_HINTS`' `window_group`, falling back to `WM_CLIENT_LEADER`) --
+      for windows with no transient relationship at all. Whichever member of a group has focus
+      lifts the whole group into the active-fullscreen layer if any member is fullscreen, and a
+      member marked `_NET_WM_STATE_SKIP_TASKBAR` (the client's own "I'm not a window you switch
+      to") is kept above the group's ordinary windows. VirtualBox's fullscreen mini-toolbar needs
+      exactly this and nothing less: same group as the VM window, skip-taskbar, *no*
+      `WM_TRANSIENT_FOR`, and it never restacks itself -- so a WM that only understands transients
+      loses it behind the VM the moment the VM is clicked.
+  Skip-taskbar windows are also left out of the window switcher, where an entry that isn't a
+  window you can meaningfully switch to is just noise.
+- ICCCM `WM_TRANSIENT_FOR` is honored as a stacking relationship: a transient window takes its
+  parent's *layer* (not its own) and is then ordered above it within that layer, so a window and
+  its dialogs/toolbars always travel together and focusing the parent can't bury its own dialog.
+  Sharing the layer is the part that matters: a fullscreen, focused parent moves to a layer of its
+  own (see below), and a transient left behind in `normal` could never be ordered back above it.
+  The property is re-read on `PropertyNotify`, not just at manage time -- toolkits don't all set it
+  before mapping, which was the whole difference between VirtualBox's mini-toolbar working when
+  kiwm adopted an already-running VM and not working when the VM started under a running kiwm.
+  The motivating case throughout: that toolbar is only ever "on top" because a WM keeps transients
+  there, VirtualBox never restacks it itself.
+- Stacking requests from clients (`XRaiseWindow`/`XLowerWindow`, i.e. a `ConfigureRequest` carrying
+  a stack mode) are applied to the frame and then run through the layer model, instead of being
+  silently dropped as they used to be. The requested *sibling* is deliberately ignored: it names
+  the client's would-be siblings, which under a reparenting WM aren't the frame's.
+- Adopted windows keep their map state. A `MapRequest` means "show me", but a window kiwm merely
+  *finds* at startup is left exactly as it is -- an unmapped one is unmapped on purpose (a
+  minimized window, or a hidden-away popup an app keeps around between uses: krunner, Plasma applet
+  popups, VirtualBox's auto-hidden mini-toolbar). Two things are needed for that to actually hold:
+  ICCCM `WM_STATE` (not the live map state) is what says "minimized", since a WM that hides a
+  window by unmapping its *frame* leaves the client window itself mapped and the outgoing WM's
+  reparent-back-to-root makes it genuinely viewable again moments before kiwm looks; and the
+  automatic re-map the X server performs at the end of every reparent has to be swallowed, or the
+  ordinary "the app is showing this window" path maps the frame right back. Without those, a WM
+  switch sprayed the screen with every hidden window an app owned, at whatever stale position it
+  was last left at.
+- Unframed-but-interactive popups get the keyboard. The popup/menu window types kiwm doesn't frame
+  are still not override-redirect -- they're ordinary top-levels whose app expects the WM to focus
+  them -- so a Plasma launcher that opened, drew and took clicks would silently swallow every
+  keystroke typed into its search field. Applet popups, popup/dropdown menus and combos are focused
+  when mapped and hand the keyboard back when they go away; tooltips, notifications, splashes, drag
+  icons and docks deliberately never take focus.
 - Window-type-aware framing: besides `_NET_WM_WINDOW_TYPE_DOCK`/`_DESKTOP`/`_TOOLBAR`/`_MENU`,
   `_POPUP_MENU`/`_DROPDOWN_MENU`/`_TOOLTIP`/`_NOTIFICATION`/`_COMBO`/`_DND`/`_SPLASH` and KDE's own
   non-standard `_KDE_NET_WM_WINDOW_TYPE_APPLET_POPUP` (which Plasma sets *instead of* a standard
@@ -85,13 +163,25 @@ exposes.
   fullscreen (`_NET_WM_STATE_FULLSCREEN` -- covers the whole output including any docks/panels,
   decoration unconditionally hidden, restores back to whatever floating/maximized/snapped state
   the window was in beforehand).
-- A real multi-layer stacking model (`below < normal < above`, a client's layer derived from its
-  state above -- fullscreen has no layer of its own, it shares `normal` with every plain window, so
-  it's only ever on top *because it's focused*: Alt+Tab-ing away raises the newly-focused window
-  above it like any other focus change, instead of a fullscreen window being unconditionally pinned
-  above every plain window regardless of focus): `client.c`'s `restack_all()` rebuilds the whole X
-  stacking order from it on every change, preserving each client's relative order within its own
-  layer instead of just re-raising keep-above windows on top of whatever's currently there.
+- A real multi-layer stacking model -- `below < normal < dock < above < active-fullscreen < osd` --
+  which `client.c`'s `restack_all()` rebuilds the whole X stacking order from on every change,
+  preserving each window's relative order within its own layer instead of just re-raising
+  keep-above windows on top of whatever's currently there. The first four follow EWMH's suggested
+  order; the last two are the interesting ones:
+    - **active-fullscreen**: a fullscreen window goes above everything, docks included, but only
+      while it (or one of its transients) is focused -- kwin's "active layer", and what
+      mutter/metacity do too. That's what lets a fullscreen video or VM cover the panel while
+      you're using it, and lets Alt+Tab bring any other window, or the panel, straight back over
+      it. The two alternatives are both wrong in practice: pinning fullscreen on top forever, or
+      leaving it in `normal` where the panel floats over a fullscreen VM.
+    - **osd**: kiwm's own surfaces (the switcher overlays today, whatever `kicomp` draws later).
+      Nothing a client can ask for reaches this layer, which is the point -- it's the one layer
+      guaranteed to sit above even an active fullscreen window, so kiwm's own UI can never end up
+      behind the window it's offering to switch away from.
+  Dock/panel windows are never Clients, but `restack_all()` still places them (`LAYER_DOCK`):
+  where a panel sits relative to normal, keep-above and fullscreen windows is exactly the kind of
+  question only the WM can answer, and before this it simply sat wherever X had left it -- which
+  meant permanently on top of everything.
 - ICCCM `WM_NORMAL_HINTS`' minimum size (`PMinSize`) is honored wherever a window's size gets
   clamped (initial map, interactive resize, maximize, edge-snap, `_NET_MOVERESIZE`-style
   configure requests) -- floored to kiwm's own absolute minimum so a client that sets a tiny or no
@@ -319,7 +409,7 @@ key_fullscreen=
 key_shade=
 key_keep_above=
 key_sticky=
-key_close=
+key_close=Alt+F4
 key_desktop_1=
 key_desktop_2=            # ...through key_desktop_8, unbound by default
 ```
@@ -401,6 +491,8 @@ One `.c`/`.h` pair per concern, all sharing `wm.h` (shared types + `extern KiWM 
 - `client.c` -- manage/unmanage, focus/stacking, move/resize/maximize/minimize/shade/keep-above/
   sticky transitions.
 - `events.c` -- X event dispatch, delegating actual state changes to the modules above.
+- `shape.c` -- forwarding a client's own non-rectangular SHAPE onto its frame (bounding + input),
+  and deciding between that and decoration.c's rounded corners.
 - `keybind.c` -- configurable global keyboard shortcuts: one table holding every action, its
   `kiwm.conf` key, its default binding and its generated documentation, plus the spec parser, the
   root-window grabs and the dispatch (see "Keyboard shortcuts" above).

@@ -55,7 +55,27 @@ void restore_client(Client *c);
 void activate_client(Client *c);
 void set_client_desktop(Client *c, int desktop);
 
-void manage(xcb_window_t window);
+/* Re-derives the geometry of every maximized/half-tiled/fullscreen client
+ * from the current outputs and workarea -- call after anything that can
+ * change either (a dock appearing/disappearing/changing its strut, an
+ * output change, the initial adoption pass). Leaves floating windows
+ * alone. See client.c. */
+void refit_tiled_clients(void);
+
+/* Re-reads WM_TRANSIENT_FOR (which not every toolkit sets before mapping)
+ * and restacks if it changed -- see client.c. */
+void client_refresh_transient_for(Client *c);
+
+/* An unframed popup that kiwm gave the keyboard to has gone away -- hands
+ * focus back to the focused client. No-op for any other window. See
+ * client.c and wm.h's KiWM::focused_popup. */
+void popup_focus_released(xcb_window_t window);
+
+/* Frames and takes over `window`. `map_requested` is true only when a
+ * MapRequest brought us here (the client is asking to be shown); false
+ * when adopting an already-existing window at startup, whose current map
+ * state is then left exactly as it is. See client.c. */
+void manage(xcb_window_t window, bool map_requested);
 void manage_existing_windows(void);
 void unmanage(Client *c);
 

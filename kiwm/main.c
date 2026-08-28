@@ -51,6 +51,7 @@
 #include "events.h"
 #include "keybind.h"
 #include "selection.h"
+#include "shape.h"
 
 #include <xcb/randr.h>
 #include <xcb/shape.h>
@@ -230,13 +231,13 @@ static void setup_wm(bool replace)
     if (hide_deco_env)
         wm.hide_deco_on_maximize = !(strcmp(hide_deco_env, "0") == 0 || strcmp(hide_deco_env, "no") == 0);
 
-    /* SHAPE: rounded corners (decoration.c's apply_rounded_shape()) clip
-     * the frame's bounding shape instead of real alpha blending, since
-     * kiwm has no compositor -- needs to be known before load_decoration()
-     * (which just sets wm.radius_tl etc from the theme) actually matters,
-     * i.e. before the first configure_frame() call. */
-    const xcb_query_extension_reply_t *shape_ext = xcb_get_extension_data(wm.conn, &xcb_shape_id);
-    wm.shape_ext_present = shape_ext && shape_ext->present;
+    /* SHAPE, used for two independent things (see shape.c): rounded
+     * corners (decoration.c's apply_rounded_shape()) clip the frame's
+     * bounding shape instead of real alpha blending, since kiwm has no
+     * compositor; and a client's *own* non-rectangular shape has to be
+     * forwarded onto the frame kiwm wraps it in. Must run before the first
+     * configure_frame() call either way. */
+    shape_init();
 
     /* Reused by every draw_decoration() call (decoration.c) to blit its
      * off-screen pixmap onto the actual frame -- created once here rather

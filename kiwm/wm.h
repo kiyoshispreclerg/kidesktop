@@ -111,21 +111,39 @@ typedef enum {
  * keep_above clients on top of whatever's there" approach -- that never
  * gave keep_below a defined position relative to keep_above, and had no
  * way to keep two keep_above clients in a sane relative order either.
- * Fullscreen has no layer of its own on purpose: it shares LAYER_NORMAL
- * with every plain window, so a fullscreen window is only ever "on top"
- * because it's focused (the usual raise-within-your-own-layer that
- * happens on focus, restack_all()'s whole reason to preserve per-layer
- * relative order) -- Alt+Tab-ing to a different normal window raises
- * *that* one above it like any other focus change, instead of a
- * fullscreen window being unconditionally pinned above every plain window
- * regardless of focus. No LAYER_DESKTOP/LAYER_DOCK here: those window
- * types are never framed into a Client at all (see client.c's
- * should_manage_decorated()), so they don't participate in this ordering
- * -- see manage()'s own last_desktop_window chaining instead. */
+ * The order follows EWMH's suggested stacking (below < normal < dock <
+ * above), with one refinement every mainstream WM makes: a fullscreen
+ * window goes above *everything*, docks included, but only while it's the
+ * focused one (LAYER_ACTIVE_FULLSCREEN -- kwin calls this its "active
+ * layer", mutter/metacity do the same). That's what lets a fullscreen
+ * video or VM cover the panel while you're using it, and lets Alt+Tab
+ * bring any other window -- or the panel -- back over it the instant it
+ * stops being focused, instead of a fullscreen window being unconditionally
+ * pinned on top forever (kiwm's original behavior) or the panel floating
+ * over a fullscreen VM (what came after it).
+ *
+ * LAYER_DOCK isn't a client layer: dock/panel windows are never framed
+ * into a Client at all (see client.c's should_manage_decorated()), but
+ * restack_all() *does* place them, since where a panel sits relative to
+ * normal, keep-above and active-fullscreen windows is exactly the kind of
+ * question only the WM can answer. Desktop-type windows are still outside
+ * this ordering entirely -- see manage()'s own last_desktop_window
+ * chaining, which keeps them clustered at the very bottom.
+ *
+ * LAYER_OSD, at the very top, is the WM's *own* surfaces: the switcher
+ * overlays today (osd.c), whatever kicomp puts on screen later. Nothing a
+ * client can ask for ever reaches it, which is the point -- it's the one
+ * layer guaranteed to be above even an active fullscreen window, so kiwm's
+ * own UI can never end up drawing behind the window it's offering to
+ * switch away from, and no client repaint (or missing one) can leave stale
+ * pixels over it. */
 typedef enum {
     LAYER_BELOW = 0,
     LAYER_NORMAL,
+    LAYER_DOCK,
     LAYER_ABOVE,
+    LAYER_ACTIVE_FULLSCREEN,
+    LAYER_OSD,
     LAYER_COUNT
 } WmLayer;
 
@@ -241,6 +259,36 @@ struct Client {
      * apps set this before mapping and effectively never change it. */
     bool undecorated;
 
+    /* ICCCM WM_TRANSIENT_FOR: the window this one is a transient of (a
+     * dialog's main window, or -- the case that made kiwm need this --
+     * VirtualBox's fullscreen mini-toolbar, which is transient for the VM
+     * window it floats over). XCB_NONE for a plain top-level. Purely a
+     * stacking input: client.c's restack_all() keeps a transient above its
+     * parent within their shared layer, so focusing the parent can't bury
+     * its own dialog/toolbar behind it. Read once in manage(). */
+    xcb_window_t transient_for;
+
+    /* ICCCM window group (WM_HINTS' window_group, falling back to
+     * WM_CLIENT_LEADER): the "these top-levels are one application unit"
+     * relationship, for the windows that need to travel together but
+     * aren't in a transient-for relationship at all. VirtualBox's
+     * fullscreen mini-toolbar is exactly that -- same group leader as the
+     * VM window, no WM_TRANSIENT_FOR whatsoever -- so a WM that only knows
+     * about transients leaves it behind the VM the moment the VM takes
+     * focus and claims the layer above everything. XCB_NONE if the client
+     * declares no group. Only ever consulted for stacking; kiwm has no
+     * other notion of application grouping. */
+    xcb_window_t group_leader;
+
+    /* _NET_WM_STATE_SKIP_TASKBAR: the client saying "I'm not a window the
+     * user switches to". kiwm reads it for two things -- keeping such a
+     * window above the rest of its own group (it's auxiliary chrome
+     * floating over a real window, e.g. VirtualBox's mini-toolbar, and the
+     * app never restacks it itself), and leaving it out of the window
+     * switcher, where an entry you can't meaningfully "switch to" is just
+     * noise. Read once in manage(); apps set it before mapping. */
+    bool skip_taskbar;
+
     int fs_saved_x, fs_saved_y, fs_saved_w, fs_saved_h; /* restore geometry before fullscreen */
     bool fs_was_maximized;   /* whether to re-maximize (vs. just float) on leaving fullscreen */
     SnapSide fs_saved_snap_side; /* ditto, for half-snapped windows */
@@ -257,6 +305,16 @@ struct Client {
                              * NULL if the client has none (drawn blank). */
     int ignore_unmap;   /* absorbs the automatic UnmapNotify from reparenting an
                           * already-mapped pre-existing window at startup */
+    /* Absorbs the automatic MapNotify from that same reparent. Reparenting
+     * a mapped window makes the server unmap it, move it, and then map it
+     * again -- and that last map arrives as an ordinary MapNotify, which
+     * events.c reasonably reads as "the app is showing this window" and
+     * answers by mapping the frame. For a window kiwm is adopting while
+     * it's meant to stay hidden (a minimized window, an app's stashed-away
+     * popup) that silently undoes the decision not to show it, which is
+     * how a WM switch ended up revealing every hidden window on screen.
+     * Only ever nonzero for that one adoption case. */
+    int ignore_map;
 
     int output;              /* index into wm.outputs */
     int desktop;              /* per-output virtual desktop this client belongs to */
@@ -291,6 +349,25 @@ typedef struct {
     xcb_atom_t net_current_desktop;
     xcb_atom_t net_wm_desktop;
     xcb_atom_t net_workarea;
+    /* Virtual-screen size and origin. kiwm has no large-desktop/viewport
+     * scrolling, so the viewport is always 0,0 and the geometry is just the
+     * root window's size -- but publishing both matters anyway: toolkits
+     * read them to know how big "the desktop" is, and a WM that leaves them
+     * unset (kiwm did) leaves whatever the previous WM wrote, or nothing at
+     * all on a fresh session. */
+    xcb_atom_t net_desktop_geometry;
+    xcb_atom_t net_desktop_viewport;
+    /* Advertised in _NET_SUPPORTED to tell clients that window placement is
+     * the WM's job -- which per EWMH means they should stop constraining
+     * their own popups/menus to a screen. That self-clamping is the
+     * suspected cause of a Plasma panel popup on a second monitor landing
+     * in the *first* monitor's corner: _NET_WORKAREA has room for only one
+     * rectangle for the whole (multi-monitor) desktop, so a client applying
+     * it to a window on any other output pulls it onto the primary one.
+     * kiwm honors requested positions verbatim for exactly these windows
+     * (they're never framed or moved, see should_manage_decorated()), which
+     * is what this hint promises. */
+    xcb_atom_t net_wm_full_placement;
     xcb_atom_t net_frame_extents;
     xcb_atom_t net_wm_strut;
     xcb_atom_t net_wm_strut_partial;
@@ -352,6 +429,10 @@ typedef struct {
      * Only its `decorations` field is read -- see client.c's
      * window_wants_no_decoration(). */
     xcb_atom_t motif_wm_hints;
+    /* ICCCM's session-management "these windows are one app" pointer, read
+     * only as a fallback for WM_HINTS' window_group -- see client.c's
+     * window_group_leader() and Client::group_leader. */
+    xcb_atom_t wm_client_leader;
 
     xcb_atom_t kiwm_outputs;
     xcb_atom_t kiwm_output_desktop;
@@ -366,7 +447,9 @@ typedef struct {
     xcb_window_t root;
     xcb_visualtype_t *visual;
     int randr_event_base;
-    bool shape_ext_present;  /* XCB SHAPE extension, for rounded corners (see radius_tl etc). */
+    bool shape_ext_present;  /* XCB SHAPE extension: rounded corners (see radius_tl etc) and
+                              * forwarding a client's own shape onto its frame (shape.c). */
+    int shape_event_base;    /* SHAPE's runtime event number -- see shape.c's shape_init(). */
     xcb_gcontext_t deco_gc;  /* reused across every draw_decoration() call -- see decoration.c. */
     bool debug_resize;       /* KIWM_DEBUG_RESIZE=1 -- see main.c's monotonic_ms(). */
 
@@ -414,6 +497,18 @@ typedef struct {
 
     Client *clients;
     Client *focused;
+
+    /* An unframed popup (a Plasma applet popup/menu -- see client.c's
+     * should_manage_decorated()) that kiwm handed the keyboard to. These
+     * windows are never Clients, so nothing else here tracks them, but
+     * they're not override-redirect either: they're ordinary top-levels
+     * the app expects the WM to focus, and one that never gets focus can
+     * be clicked but never typed into (a Plasma launcher whose search
+     * field silently swallows every keystroke). Remembered only so the
+     * keyboard can be handed back to wm.focused when the popup goes away
+     * -- otherwise focus stays on a destroyed window and the whole
+     * session goes deaf. XCB_NONE when no such popup holds focus. */
+    xcb_window_t focused_popup;
 
     /* Theme folder path (kiwm.conf's theme=, default "greenxp") -- resolved
      * relative to the same 3 candidate locations the old hardcoded

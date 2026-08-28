@@ -36,6 +36,9 @@ void ewmh_init_atoms(void)
     wm.atoms.net_current_desktop = intern_atom("_NET_CURRENT_DESKTOP");
     wm.atoms.net_wm_desktop = intern_atom("_NET_WM_DESKTOP");
     wm.atoms.net_workarea = intern_atom("_NET_WORKAREA");
+    wm.atoms.net_desktop_geometry = intern_atom("_NET_DESKTOP_GEOMETRY");
+    wm.atoms.net_desktop_viewport = intern_atom("_NET_DESKTOP_VIEWPORT");
+    wm.atoms.net_wm_full_placement = intern_atom("_NET_WM_FULL_PLACEMENT");
     wm.atoms.net_frame_extents = intern_atom("_NET_FRAME_EXTENTS");
     wm.atoms.net_wm_strut = intern_atom("_NET_WM_STRUT");
     wm.atoms.net_wm_strut_partial = intern_atom("_NET_WM_STRUT_PARTIAL");
@@ -71,6 +74,7 @@ void ewmh_init_atoms(void)
     wm.atoms.kde_net_wm_window_type_applet_popup = intern_atom("_KDE_NET_WM_WINDOW_TYPE_APPLET_POPUP");
     wm.atoms.kde_net_wm_window_type_override = intern_atom("_KDE_NET_WM_WINDOW_TYPE_OVERRIDE");
     wm.atoms.motif_wm_hints = intern_atom("_MOTIF_WM_HINTS");
+    wm.atoms.wm_client_leader = intern_atom("WM_CLIENT_LEADER");
 
     /* Custom, per kiwm-kicomp-projeto.md section 6: independent virtual
      * desktops per output, since EWMH itself has no such concept. */

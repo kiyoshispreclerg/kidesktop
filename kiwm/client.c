@@ -6,6 +6,9 @@
 #include "decoration.h"
 #include "ewmh.h"
 #include "osd.h"
+#include "shape.h"
+
+#include <xcb/xcb_icccm.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,23 +30,6 @@ static bool client_supports_protocol(xcb_window_t window, xcb_atom_t proto)
     }
     free(reply);
     return found;
-}
-
-static xcb_atom_t get_window_type(xcb_window_t window)
-{
-    xcb_get_property_reply_t *reply = xcb_get_property_reply(wm.conn,
-        xcb_get_property(wm.conn, 0, window, wm.atoms.net_wm_window_type, XCB_ATOM_ATOM, 0, 32), NULL);
-    if (!reply)
-        return XCB_ATOM_NONE;
-
-    xcb_atom_t type = XCB_ATOM_NONE;
-    if (reply->type == XCB_ATOM_ATOM && reply->format == 32 &&
-        xcb_get_property_value_length(reply) > 0) {
-        xcb_atom_t *atoms = xcb_get_property_value(reply);
-        type = atoms[0];
-    }
-    free(reply);
-    return type;
 }
 
 /* Whether any of a window's *listed* _NET_WM_WINDOW_TYPE atoms (there can
@@ -90,9 +76,83 @@ static bool window_type_excluded_from_decoration(xcb_window_t window)
     return excluded;
 }
 
+/* Whether `type` appears anywhere in the window's _NET_WM_WINDOW_TYPE
+ * list. Same "check every entry, not just the first" rule
+ * window_type_excluded_from_decoration() above explains -- a window whose
+ * primary type is one kiwm doesn't recognize still has to be seen for the
+ * types it lists after it. */
+static bool window_has_type(xcb_window_t window, xcb_atom_t type)
+{
+    xcb_get_property_reply_t *reply = xcb_get_property_reply(wm.conn,
+        xcb_get_property(wm.conn, 0, window, wm.atoms.net_wm_window_type, XCB_ATOM_ATOM, 0, 32), NULL);
+    if (!reply)
+        return false;
+
+    bool found = false;
+    if (reply->type == XCB_ATOM_ATOM && reply->format == 32) {
+        xcb_atom_t *atoms = xcb_get_property_value(reply);
+        int n = xcb_get_property_value_length(reply) / (int)sizeof(xcb_atom_t);
+        for (int i = 0; i < n && !found; i++)
+            found = (atoms[i] == type);
+    }
+    free(reply);
+    return found;
+}
+
 static bool should_manage_decorated(xcb_window_t window)
 {
     return !window_type_excluded_from_decoration(window);
+}
+
+/* Hands the keyboard to an unframed popup kiwm just mapped, if it's the
+ * kind that needs one.
+ *
+ * These windows are excluded from framing (see
+ * window_type_excluded_from_decoration()) but they are *not*
+ * override-redirect: they're ordinary top-levels whose app expects the WM
+ * to focus them, exactly as it would a dialog. Skipping that leaves a
+ * Plasma application launcher that opens, draws and takes clicks but
+ * silently swallows every keystroke typed into its search field, because
+ * the keyboard is still pointed at whatever was focused before.
+ *
+ * Only the interactive kinds qualify. A tooltip, notification, splash or
+ * drag icon must never take the keyboard away from the window the user is
+ * actually working in -- that's the opposite bug, and a far more annoying
+ * one. Docks are excluded for the same reason: a panel takes clicks
+ * without ever wanting the keyboard. */
+static void focus_unframed_popup(xcb_window_t window)
+{
+    bool focusable = window_has_type(window, wm.atoms.kde_net_wm_window_type_applet_popup) ||
+                     window_has_type(window, wm.atoms.net_wm_window_type_popup_menu) ||
+                     window_has_type(window, wm.atoms.net_wm_window_type_dropdown_menu) ||
+                     window_has_type(window, wm.atoms.net_wm_window_type_combo) ||
+                     window_has_type(window, wm.atoms.net_wm_window_type_menu);
+    if (!focusable)
+        return;
+
+    xcb_set_input_focus(wm.conn, XCB_INPUT_FOCUS_POINTER_ROOT, window, XCB_CURRENT_TIME);
+    wm.focused_popup = window;
+}
+
+/* The other half of focus_unframed_popup(): a popup that held the keyboard
+ * has gone away (unmapped or destroyed), so hand focus back to the client
+ * that had it. Without this the X input focus stays pointed at a window
+ * that no longer exists and the session goes deaf until something else
+ * happens to focus a window. Called from events.c for every unmap/destroy
+ * of a non-Client window; a no-op unless that window is the one tracked. */
+void popup_focus_released(xcb_window_t window)
+{
+    if (window != wm.focused_popup)
+        return;
+    wm.focused_popup = XCB_NONE;
+
+    if (wm.focused)
+        xcb_set_input_focus(wm.conn, XCB_INPUT_FOCUS_POINTER_ROOT,
+                            wm.focused->window, XCB_CURRENT_TIME);
+    else
+        xcb_set_input_focus(wm.conn, XCB_INPUT_FOCUS_POINTER_ROOT,
+                            wm.root, XCB_CURRENT_TIME);
+    xcb_flush(wm.conn);
 }
 
 /* Whether a window that *is* managed normally nonetheless wants kiwm to
@@ -145,6 +205,106 @@ static bool window_wants_no_decoration(xcb_window_t window)
     }
     free(reply);
     return override_type;
+}
+
+/* Whether `state` is listed in the window's _NET_WM_STATE right now. */
+static bool window_has_state(xcb_window_t window, xcb_atom_t state)
+{
+    xcb_get_property_reply_t *reply = xcb_get_property_reply(wm.conn,
+        xcb_get_property(wm.conn, 0, window, wm.atoms.net_wm_state, XCB_ATOM_ATOM, 0, 32), NULL);
+    if (!reply)
+        return false;
+
+    bool found = false;
+    if (reply->type == XCB_ATOM_ATOM && reply->format == 32) {
+        xcb_atom_t *atoms = xcb_get_property_value(reply);
+        int n = xcb_get_property_value_length(reply) / (int)sizeof(xcb_atom_t);
+        for (int i = 0; i < n && !found; i++)
+            found = (atoms[i] == state);
+    }
+    free(reply);
+    return found;
+}
+
+/* ICCCM window group: WM_HINTS' window_group field, falling back to
+ * WM_CLIENT_LEADER for clients that set only that one. See wm.h's
+ * Client::group_leader. */
+static xcb_window_t window_group_leader(xcb_window_t window)
+{
+    xcb_icccm_wm_hints_t hints;
+    if (xcb_icccm_get_wm_hints_reply(wm.conn, xcb_icccm_get_wm_hints(wm.conn, window), &hints, NULL) &&
+        (hints.flags & XCB_ICCCM_WM_HINT_WINDOW_GROUP) && hints.window_group != XCB_NONE)
+        return hints.window_group;
+
+    xcb_get_property_reply_t *reply = xcb_get_property_reply(wm.conn,
+        xcb_get_property(wm.conn, 0, window, wm.atoms.wm_client_leader, XCB_ATOM_WINDOW, 0, 1), NULL);
+    if (!reply)
+        return XCB_NONE;
+
+    xcb_window_t leader = XCB_NONE;
+    if (reply->type == XCB_ATOM_WINDOW && reply->format == 32 &&
+        xcb_get_property_value_length(reply) >= (int)sizeof(xcb_window_t))
+        leader = *(xcb_window_t *)xcb_get_property_value(reply);
+    free(reply);
+    return leader;
+}
+
+/* ICCCM WM_TRANSIENT_FOR (a predefined atom, no interning needed) -- the
+ * window `window` is a transient of, or XCB_NONE. See wm.h's
+ * Client::transient_for for what kiwm does with it. */
+static xcb_window_t window_transient_for(xcb_window_t window)
+{
+    xcb_get_property_reply_t *reply = xcb_get_property_reply(wm.conn,
+        xcb_get_property(wm.conn, 0, window, XCB_ATOM_WM_TRANSIENT_FOR, XCB_ATOM_WINDOW, 0, 1), NULL);
+    if (!reply)
+        return XCB_NONE;
+
+    xcb_window_t parent = XCB_NONE;
+    if (reply->type == XCB_ATOM_WINDOW && reply->format == 32 &&
+        xcb_get_property_value_length(reply) >= (int)sizeof(xcb_window_t))
+        parent = *(xcb_window_t *)xcb_get_property_value(reply);
+    free(reply);
+
+    /* Some toolkits point a transient at the root window to mean "transient
+     * for the whole group" -- meaningless as a stacking relationship, and
+     * root isn't a Client anyway. */
+    return parent == wm.root ? XCB_NONE : parent;
+}
+
+/* ICCCM WM_STATE == IconicState: the window is minimized, and stays that
+ * way across a WM handoff (both kiwm and every other WM set it). */
+static bool window_is_iconic(xcb_window_t window)
+{
+    xcb_get_property_reply_t *reply = xcb_get_property_reply(wm.conn,
+        xcb_get_property(wm.conn, 0, window, wm.atoms.wm_state, wm.atoms.wm_state, 0, 2), NULL);
+    if (!reply)
+        return false;
+
+    bool iconic = false;
+    if (reply->type == wm.atoms.wm_state && reply->format == 32 &&
+        xcb_get_property_value_length(reply) >= (int)sizeof(uint32_t))
+        iconic = (*(uint32_t *)xcb_get_property_value(reply) == WM_STATE_ICONIC);
+    free(reply);
+    return iconic;
+}
+
+/* Re-reads WM_TRANSIENT_FOR and restacks if it actually changed. Toolkits
+ * don't all set the property before the window is mapped -- Qt in
+ * particular can attach a transient parent after the fact -- and manage()
+ * reading it once would then see nothing, leaving the window with no
+ * stacking relationship at all. That's the whole difference between
+ * VirtualBox's mini-toolbar working when kiwm adopts an already-running VM
+ * (property long since set) and not working when the VM starts under a
+ * running kiwm (property set moments after the map). Called from events.c
+ * on every WM_TRANSIENT_FOR PropertyNotify. */
+void client_refresh_transient_for(Client *c)
+{
+    xcb_window_t parent = window_transient_for(c->window);
+    if (parent == c->transient_for)
+        return;
+    c->transient_for = parent;
+    restack_all();
+    xcb_flush(wm.conn);
 }
 
 /* A passive xcb_grab_button() with a specific (non-ANY) modifier only
@@ -263,7 +423,7 @@ void configure_frame(Client *c)
     apply_frame_geometry(c);
     double t_configure = dbg ? monotonic_ms() : 0;
 
-    apply_rounded_shape(c);
+    shape_update_frame(c);
     double t_shape = dbg ? monotonic_ms() : 0;
 
     draw_decoration(c);
@@ -274,6 +434,36 @@ void configure_frame(Client *c)
         fprintf(stderr, "kiwm: [resize-debug] configure_frame: geometry=%.2fms shape=%.2fms "
                         "draw_decoration=%.2fms total=%.2fms\n",
                 t_configure - t_start, t_shape - t_configure, t_deco - t_shape, t_end - t_start);
+    }
+}
+
+/* Asks the X server to re-expose everything that sits inside `rect` and is
+ * now on top of it, so those windows repaint.
+ *
+ * A window dropping down the stacking order uncovers whatever was beneath
+ * it, and X normally sends those windows an Expose for the uncovered part
+ * -- but only for regions it knows became visible. A window that was fully
+ * covered by a fullscreen window and is *still* fully covered by it in
+ * screen terms (a panel, say, that just moved above it in the stack) gets
+ * no such notification, and is left showing the pixels the fullscreen
+ * window painted over it: the "the game's picture stays on the panels
+ * after it loses focus" symptom. ClearArea with exposures=1 asks for those
+ * Expose events explicitly. It only ever *clears* to the window's own
+ * background (None for practically every toolkit window, so nothing is
+ * painted at all) -- the point is purely the Expose it generates. */
+static void expose_windows_over(int rx, int ry, int rw, int rh)
+{
+    for (int i = 0; i < wm.dock_count; i++)
+        xcb_clear_area(wm.conn, 1, wm.docks[i].window, 0, 0, 0, 0);
+
+    for (Client *o = wm.clients; o; o = o->next) {
+        if (!o->mapped || o->minimized)
+            continue;
+        if (o->x >= rx + rw || o->x + o->frame_width <= rx ||
+            o->y >= ry + rh || o->y + o->frame_height <= ry)
+            continue;
+        xcb_clear_area(wm.conn, 1, o->frame, 0, 0, 0, 0);
+        xcb_clear_area(wm.conn, 1, o->window, 0, 0, 0, 0);
     }
 }
 
@@ -296,6 +486,13 @@ void focus_client(Client *c)
     xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE,
                          (uint32_t[]){ XCB_STACK_MODE_ABOVE });
     restack_all();
+
+    /* A fullscreen window that just lost focus also just left
+     * LAYER_ACTIVE_FULLSCREEN (see client_layer()), so everything it was
+     * covering -- panels above all -- is now on top of it and has to
+     * repaint over the pixels it left behind. */
+    if (old && old != c && old->fullscreen)
+        expose_windows_over(old->x, old->y, old->frame_width, old->frame_height);
 
     draw_decoration(c);
     ewmh_update_client_list();
@@ -367,18 +564,68 @@ void unshade_now(Client *c)
         xcb_map_window(wm.conn, c->window);
 }
 
+/* The top of a client's WM_TRANSIENT_FOR chain -- itself for a plain
+ * top-level. A transient's layer is its *parent's* layer (see
+ * client_layer() below), so this is what actually gets asked about state. */
+static Client *transient_root(Client *c)
+{
+    for (int guard = 0; guard < MAX_CLIENTS && c->transient_for; guard++) {
+        Client *p = find_client_window(c->transient_for);
+        if (!p || p == c)
+            break;
+        c = p;
+    }
+    return c;
+}
+
 /* A client's stacking layer, derived from its state -- see wm.h's WmLayer.
- * fullscreen is deliberately *not* checked here -- see WmLayer's doc
- * comment for why -- so a fullscreen client falls through to whichever of
- * keep_above/keep_below/LAYER_NORMAL its other state says, same as if it
- * weren't fullscreen at all. keep_above/keep_below are themselves kept
- * mutually exclusive by toggle_keep_above()/toggle_keep_below() so this
- * never has to arbitrate between them. */
+ *
+ * Everything is answered about the *transient root*, not the client
+ * itself, so a window and its dialogs/toolbars always land in the same
+ * layer and lift_transients() can then order them within it. Splitting
+ * them across layers is what made VirtualBox's mini-toolbar sink behind
+ * the VM window: the VM going fullscreen+focused moved it to a layer the
+ * toolbar (a transient, plain-normal on its own) couldn't be lifted into,
+ * so no amount of within-layer ordering could keep the two together.
+ *
+ * A fullscreen root claims LAYER_ACTIVE_FULLSCREEN (above docks and
+ * everything else) only while it or one of its transients holds focus --
+ * see WmLayer. keep_above/keep_below are kept mutually exclusive by
+ * toggle_keep_above()/toggle_keep_below(), so this never has to arbitrate
+ * between them. */
+/* Whether two clients are the same "application unit" for stacking: one is
+ * a transient of the other (directly or up the chain), or they declare the
+ * same ICCCM window group. */
+static bool same_window_unit(Client *a, Client *b)
+{
+    if (!a || !b)
+        return false;
+    if (a == b || transient_root(a) == transient_root(b))
+        return true;
+    return a->group_leader != XCB_NONE && a->group_leader == b->group_leader;
+}
+
 static WmLayer client_layer(Client *c)
 {
-    if (c->keep_above)
+    Client *root = transient_root(c);
+
+    /* The active-fullscreen layer is claimed by the whole unit, not just
+     * the one window: whichever member has focus lifts every window that
+     * belongs with it, as long as some member is actually fullscreen.
+     * Without that, VirtualBox's mini-toolbar (same group, no transient
+     * relation, itself marked fullscreen) sinks below the panels the
+     * instant the VM window it floats over takes focus -- and focusing the
+     * toolbar would drop the VM out from under it in the same way. */
+    if (wm.focused && same_window_unit(c, wm.focused)) {
+        for (Client *o = wm.clients; o; o = o->next)
+            if (o->fullscreen && same_window_unit(o, c))
+                return LAYER_ACTIVE_FULLSCREEN;
+    }
+    if (root->fullscreen && wm.focused && transient_root(wm.focused) == root)
+        return LAYER_ACTIVE_FULLSCREEN;
+    if (root->keep_above)
         return LAYER_ABOVE;
-    if (c->keep_below)
+    if (root->keep_below)
         return LAYER_BELOW;
     return LAYER_NORMAL;
 }
@@ -394,6 +641,86 @@ static WmLayer client_layer(Client *c)
  * since query_tree now reports it topmost (or bottommost) overall, it's
  * still topmost (or bottommost) once partitioned into just its own layer's
  * bucket below. See client.h's comment for the call sites. */
+/* One window taking part in the stacking order: a managed client (placed
+ * via its frame, `client` set) or a tracked dock/panel (`client` NULL --
+ * a dock is never a Client, but still has to be ordered against them). */
+typedef struct {
+    xcb_window_t window;
+    Client *client;
+} StackEntry;
+
+/* Reorders one layer's bottom-to-top list so every transient window sits
+ * above the window it's transient for (ICCCM WM_TRANSIENT_FOR, see wm.h's
+ * Client::transient_for). Without this, focusing the parent raises it to
+ * the top of the layer and buries its own dialog -- or, the case that
+ * prompted it, VirtualBox's mini-toolbar, which is a transient of the VM
+ * window it floats above and would vanish behind it the moment the VM got
+ * focus (the toolbar is only ever "on top" because a WM keeps transients
+ * there; VirtualBox never restacks it itself).
+ *
+ * Repeatedly moves the lowest offending transient to just above its
+ * parent, which also settles chains (a transient of a transient) since
+ * each move only ever pushes a window upward. Capped at one move per
+ * client so a pathological WM_TRANSIENT_FOR cycle can't spin here. */
+static void lift_transients(StackEntry *b, int n)
+{
+    for (int guard = 0; guard < n; guard++) {
+        bool moved = false;
+        for (int i = 0; i < n && !moved; i++) {
+            if (!b[i].client || !b[i].client->transient_for)
+                continue;
+            for (int p = i + 1; p < n; p++) {
+                if (!b[p].client || b[p].client->window != b[i].client->transient_for)
+                    continue;
+                StackEntry t = b[i];
+                for (int k = i; k < p; k++)
+                    b[k] = b[k + 1];
+                b[p] = t;
+                moved = true;
+                break;
+            }
+        }
+        if (!moved)
+            return;
+    }
+}
+
+/* Second ordering pass, for windows that belong together but declare no
+ * transient relationship: within a layer, an auxiliary window (one marked
+ * _NET_WM_STATE_SKIP_TASKBAR -- the client's own "I'm not a window you
+ * switch to") is kept above the ordinary windows of its group.
+ *
+ * VirtualBox's fullscreen mini-toolbar is the case this exists for: same
+ * ICCCM group as the VM window, skip-taskbar, no WM_TRANSIENT_FOR at all,
+ * and floating over a window that gets raised every time it's focused. The
+ * app expects the WM to keep its chrome on top and never restacks it
+ * itself, so without this it disappears under the VM the moment you click
+ * into the VM. */
+static void lift_group_aux(StackEntry *b, int n)
+{
+    for (int guard = 0; guard < n; guard++) {
+        bool moved = false;
+        for (int i = 0; i < n && !moved; i++) {
+            Client *aux = b[i].client;
+            if (!aux || !aux->skip_taskbar || aux->group_leader == XCB_NONE)
+                continue;
+            for (int p = n - 1; p > i; p--) {
+                Client *other = b[p].client;
+                if (!other || other->skip_taskbar || other->group_leader != aux->group_leader)
+                    continue;
+                StackEntry t = b[i];
+                for (int k = i; k < p; k++)
+                    b[k] = b[k + 1];
+                b[p] = t;
+                moved = true;
+                break;
+            }
+        }
+        if (!moved)
+            return;
+    }
+}
+
 void restack_all(void)
 {
     xcb_query_tree_reply_t *tree =
@@ -404,36 +731,53 @@ void restack_all(void)
     xcb_window_t *kids = xcb_query_tree_children(tree);
     int nkids = xcb_query_tree_children_length(tree);
 
-    Client *buckets[LAYER_COUNT][MAX_CLIENTS];
+    StackEntry buckets[LAYER_COUNT][MAX_CLIENTS + MAX_DOCKS];
     int bn[LAYER_COUNT] = { 0 };
+    const int bmax = MAX_CLIENTS + MAX_DOCKS;
 
     /* xcb_query_tree()'s children come back bottom-to-top, so walking them
      * in order and appending each one to its layer's bucket naturally
-     * preserves that same relative order within the bucket. */
+     * preserves that same relative order within the bucket. Two kinds of
+     * window take part: a managed client (via its frame) and a tracked
+     * dock/panel, which is never a Client but still has to be placed
+     * relative to them -- see wm.h's LAYER_DOCK. */
     for (int i = 0; i < nkids; i++) {
         Client *c = find_client_window(kids[i]);
-        if (!c || c->frame != kids[i])
+        WmLayer l;
+
+        if (c && c->frame == kids[i]) {
+            l = client_layer(c);
+        } else if (!c && dock_is_tracked(kids[i])) {
+            l = LAYER_DOCK;
+        } else if (!c && osd_owns_window(kids[i])) {
+            l = LAYER_OSD;
+        } else {
             continue;
-        WmLayer l = client_layer(c);
-        if (bn[l] < MAX_CLIENTS)
-            buckets[l][bn[l]++] = c;
+        }
+
+        if (bn[l] < bmax)
+            buckets[l][bn[l]++] = (StackEntry){ .window = kids[i], .client = c };
     }
     free(tree);
 
-    /* Chain every client's frame to sit directly above the previous one,
-     * walking layers bottom to top -- one xcb_configure_window() per
-     * client (besides the very first, which is left wherever it already
-     * is; nothing needs to be below it). */
+    for (int l = 0; l < LAYER_COUNT; l++) {
+        lift_transients(buckets[l], bn[l]);
+        lift_group_aux(buckets[l], bn[l]);
+    }
+
+    /* Chain every window to sit directly above the previous one, walking
+     * layers bottom to top -- one xcb_configure_window() each (besides the
+     * very first, which is left wherever it already is; nothing needs to
+     * be below it). */
     xcb_window_t prev = XCB_NONE;
     for (int l = 0; l < LAYER_COUNT; l++) {
         for (int i = 0; i < bn[l]; i++) {
-            Client *c = buckets[l][i];
             if (prev != XCB_NONE) {
                 uint32_t values[] = { prev, XCB_STACK_MODE_ABOVE };
-                xcb_configure_window(wm.conn, c->frame,
+                xcb_configure_window(wm.conn, buckets[l][i].window,
                                      XCB_CONFIG_WINDOW_SIBLING | XCB_CONFIG_WINDOW_STACK_MODE, values);
             }
-            prev = c->frame;
+            prev = buckets[l][i].window;
         }
     }
 }
@@ -515,6 +859,75 @@ void toggle_shade(Client *c, int want /* -1=toggle 0=unshade 1=shade */)
     xcb_flush(wm.conn);
 }
 
+/* The geometry a maximized client should have *right now*: the output's
+ * usable area (screen minus any dock/panel struts, see output.c's
+ * compute_output_workarea()), not the raw output rect -- a maximized
+ * window must never cover a taskbar. Split out from toggle_maximize()
+ * because the answer changes over a window's lifetime, whenever a panel
+ * appears, disappears, moves output or changes its strut -- see
+ * refit_tiled_clients(). Sets geometry only; the caller owns c->maximized
+ * and the redraw. */
+static void apply_maximized_geometry(Client *c)
+{
+    int wx, wy, ww, wh;
+    compute_output_workarea(c->output >= 0 ? c->output : 0, &wx, &wy, &ww, &wh);
+
+    int bt, th;
+    deco_insets(c, &bt, &th);
+    c->x = wx;
+    c->y = wy;
+    c->width = ww - bt * 2;
+    c->height = wh - th - bt;
+    if (c->width < c->min_w) c->width = c->min_w;
+    if (c->height < c->min_h) c->height = c->min_h;
+}
+
+/* Re-derives the geometry of every client whose size isn't its own choice
+ * -- maximized, half-tiled or fullscreen -- from the *current* outputs and
+ * workarea. Two things need this:
+ *
+ *   - Startup/adoption: manage_existing_windows() frames windows in
+ *     xcb_query_tree() order, and a panel is just another window in that
+ *     list, so a maximized window adopted *before* the panel it shares a
+ *     screen with computed its size against a workarea that didn't have
+ *     that panel's strut in it yet -- coming up covering the taskbar. This
+ *     runs once at the end, when every dock is known.
+ *   - Any later workarea change (a panel appearing, quitting, moving,
+ *     resizing, or changing its strut) -- output.c's ewmh_set_workarea()
+ *     calls this for the same reason, so a maximized window follows a
+ *     panel that shows up long after it did.
+ *
+ * Floating windows are deliberately untouched: their geometry is the
+ * user's, not kiwm's to recompute. */
+void refit_tiled_clients(void)
+{
+    bool any = false;
+
+    for (Client *c = wm.clients; c; c = c->next) {
+        if (c->fullscreen) {
+            if (c->output >= 0 && c->output < wm.output_count) {
+                c->x = wm.outputs[c->output].x;
+                c->y = wm.outputs[c->output].y;
+                c->width = wm.outputs[c->output].width;
+                c->height = wm.outputs[c->output].height;
+            }
+        } else if (c->maximized) {
+            apply_maximized_geometry(c);
+        } else if (c->snap_side != SNAP_NONE) {
+            snap_client_to_side(c, c->snap_side);
+        } else {
+            continue;
+        }
+
+        configure_frame(c);
+        ewmh_update_frame_extents(c);
+        any = true;
+    }
+
+    if (any)
+        xcb_flush(wm.conn);
+}
+
 void toggle_maximize(Client *c, int want /* -1=toggle 0=unmax 1=max */)
 {
     bool target = (want == -1) ? !c->maximized : (want == 1);
@@ -538,22 +951,9 @@ void toggle_maximize(Client *c, int want /* -1=toggle 0=unmax 1=max */)
             c->saved_h = c->height;
         }
 
-        /* Fill the output's usable area (screen minus any dock/panel
-         * struts, see output.c's compute_output_workarea), not the raw
-         * output rect -- a maximized window must never cover a taskbar. */
-        int wx, wy, ww, wh;
-        compute_output_workarea(c->output >= 0 ? c->output : 0, &wx, &wy, &ww, &wh);
         c->maximized = true;
         c->snap_side = SNAP_NONE;
-
-        int bt, th;
-        deco_insets(c, &bt, &th);
-        c->x = wx;
-        c->y = wy;
-        c->width = ww - bt * 2;
-        c->height = wh - th - bt;
-        if (c->width < c->min_w) c->width = c->min_w;
-        if (c->height < c->min_h) c->height = c->min_h;
+        apply_maximized_geometry(c);
     } else {
         c->maximized = false;
         c->x = c->saved_x;
@@ -1040,7 +1440,22 @@ static bool adopt_initial_wm_state(Client *c)
     return hidden;
 }
 
-void manage(xcb_window_t window)
+/* `map_requested` distinguishes the two ways a window gets here, and it
+ * matters for exactly one thing: whether kiwm may map it.
+ *
+ *   - true: a MapRequest -- the client is asking to be shown right now,
+ *     and mapping it is the whole point.
+ *   - false: adoption at startup (manage_existing_windows()), where the
+ *     window's *current* map state is the truth and kiwm's job is to take
+ *     it over as it is. An adopted window that is unmapped is unmapped on
+ *     purpose: it's a hidden-away popup an app keeps around between uses
+ *     (krunner, every Plasma applet popup, VirtualBox's auto-hidden
+ *     mini-toolbar), or a minimized window. Mapping it unconditionally --
+ *     as this used to -- makes a WM switch spray the screen with windows
+ *     nobody asked to see, at whatever stale position they were last left
+ *     at, which is exactly the "Plasma windows showing up invisible and in
+ *     the wrong places after kiwm --replace" symptom. */
+void manage(xcb_window_t window, bool map_requested)
 {
     if (find_client_window(window))
         return;
@@ -1056,6 +1471,18 @@ void manage(xcb_window_t window)
     bool was_viewable = attr->map_state == XCB_MAP_STATE_VIEWABLE;
     free(attr);
 
+    /* See the doc comment above: a MapRequest is a request to be shown; an
+     * adopted window keeps whatever state it already had. "Already
+     * visible" can't be read off the map state alone, though: a WM that
+     * hides a minimized window by unmapping its *frame* (kiwm included)
+     * leaves the client window itself mapped, and the previous WM's own
+     * shutdown -- reparenting every client back to root -- then makes it
+     * genuinely viewable again moments before kiwm looks. ICCCM's
+     * WM_STATE is the property that survives that intact and actually says
+     * what the window is supposed to be: Iconic means minimized, whoever
+     * put it there. */
+    bool show = map_requested || (was_viewable && !window_is_iconic(window));
+
     if (!should_manage_decorated(window)) {
         /* Panels, docks, desktops: managed just enough to be mapped and
          * to show up wherever _NET_WM_WINDOW_TYPE says they belong,
@@ -1066,7 +1493,17 @@ void manage(xcb_window_t window)
          * Client. */
         uint32_t dock_mask = XCB_EVENT_MASK_PROPERTY_CHANGE | XCB_EVENT_MASK_STRUCTURE_NOTIFY;
         xcb_change_window_attributes(wm.conn, window, XCB_CW_EVENT_MASK, &dock_mask);
-        dock_track(window);
+
+        /* Only actual dock/panel windows join the dock list. It used to
+         * take every unframed window, which was harmless while that meant
+         * "panels and the desktop" but stopped being so once popups,
+         * menus, tooltips and notifications joined the unframed set: a
+         * Plasma session churns through those constantly, and each one
+         * permanently consumed one of the MAX_DOCKS slots until the real
+         * panels couldn't be tracked at all. Struts are a dock concept
+         * anyway; a tooltip has none. */
+        if (window_has_type(window, wm.atoms.net_wm_window_type_dock))
+            dock_track(window);
 
         /* _NET_WM_WINDOW_TYPE_DESKTOP (e.g. xisback's wallpaper/fade
          * windows) must stay clustered at the very bottom of the whole
@@ -1089,7 +1526,7 @@ void manage(xcb_window_t window)
          * refresh landing between them is a real one-frame flash at the
          * wrong (default: topmost) stacking position -- reproduced with
          * xisback's own slideshow crossfade before this reordering. */
-        if (get_window_type(window) == wm.atoms.net_wm_window_type_desktop) {
+        if (window_has_type(window, wm.atoms.net_wm_window_type_desktop)) {
             if (wm.last_desktop_window != XCB_NONE) {
                 uint32_t values[] = { wm.last_desktop_window, XCB_STACK_MODE_ABOVE };
                 xcb_configure_window(wm.conn, window,
@@ -1101,7 +1538,10 @@ void manage(xcb_window_t window)
             wm.last_desktop_window = window;
         }
 
-        xcb_map_window(wm.conn, window);
+        if (show) {
+            xcb_map_window(wm.conn, window);
+            focus_unframed_popup(window);
+        }
         xcb_flush(wm.conn);
         return;
     }
@@ -1135,6 +1575,9 @@ void manage(xcb_window_t window)
     /* Before the frame is sized/created: an undecorated client's frame is
      * exactly its content size, with no titlebar row to reparent below. */
     c->undecorated = window_wants_no_decoration(window);
+    c->transient_for = window_transient_for(window);
+    c->group_leader = window_group_leader(window);
+    c->skip_taskbar = window_has_state(window, wm.atoms.net_wm_state_skip_taskbar);
 
     c->frame = xcb_generate_id(wm.conn);
 
@@ -1209,17 +1652,34 @@ void manage(xcb_window_t window)
     grab_button3_with_locks(window, wm.mod_cycle);
     grab_button3_with_locks(window, wm.mod_control);
 
+    /* ShapeNotify, so a client that carves up (or later changes) its own
+     * silhouette has that forwarded onto the frame -- see shape.c. */
+    shape_track_client(c);
+
     xcb_reparent_window(wm.conn, window, c->frame, bt, th);
 
-    xcb_map_window(wm.conn, window);
-    xcb_map_window(wm.conn, c->frame);
+    if (show) {
+        xcb_map_window(wm.conn, window);
+        xcb_map_window(wm.conn, c->frame);
+    }
 
-    c->mapped = true;
+    c->mapped = show;
+    /* Adopted while hidden: ICCCM-wise that's an iconified window as far as
+     * anything else (taskbars, the switcher, restore paths) is concerned --
+     * ewmh_update_wm_state() below turns this into WM_STATE=Iconic and
+     * _NET_WM_STATE_HIDDEN, and events.c's remap path clears it the moment
+     * the app maps the window itself. */
+    c->minimized = !show;
     /* Reparenting an already-mapped window generates its one automatic
      * unmap as *two* UnmapNotify events: one via StructureNotify on the
      * window itself, one via SubstructureNotify on root (the window's
      * parent at that instant) -- both must be swallowed, not just one. */
     c->ignore_unmap = was_viewable ? 2 : 0;
+    /* ...and the automatic re-map that follows it, but only when we're
+     * deliberately keeping this window hidden -- otherwise the frame gets
+     * mapped by the remap path and the window we just decided not to show
+     * appears anyway. See Client::ignore_map. */
+    c->ignore_map = (was_viewable && !show) ? 1 : 0;
     set_icccm_wm_state(c, WM_STATE_NORMAL);
 
     c->next = wm.clients;
@@ -1237,9 +1697,9 @@ void manage(xcb_window_t window)
     ewmh_update_frame_extents(c);
     ewmh_update_client_list();
 
-    if (start_minimized)
+    if (start_minimized && c->mapped)
         minimize_client(c);
-    else
+    else if (c->mapped)
         focus_client(c);
 }
 
@@ -1283,9 +1743,17 @@ void manage_existing_windows(void)
         }
 
         if (viewable || has_wm_state)
-            manage(w);
+            manage(w, false);
     }
 
     free(tree);
+
+    /* Only now is every dock/panel in this session known, so only now can
+     * a workarea-derived size be right -- a window adopted maximized
+     * earlier in the loop sized itself against whatever struts had been
+     * seen by then, which for anything framed before the panel meant none
+     * at all (covering the taskbar). See refit_tiled_clients(). */
+    refit_tiled_clients();
+
     xcb_flush(wm.conn);
 }

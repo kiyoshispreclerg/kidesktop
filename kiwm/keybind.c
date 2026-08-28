@@ -66,7 +66,7 @@ static Keybind binds[] = {
     BIND("key_shade",        KB_SHADE,        0, "",                     "roll the focused window up into its titlebar / unroll"),
     BIND("key_keep_above",   KB_KEEP_ABOVE,   0, "",                     "toggle always-on-top on the focused window"),
     BIND("key_sticky",       KB_STICKY,       0, "",                     "toggle showing the focused window on every desktop"),
-    BIND("key_close",        KB_CLOSE,        0, "",                     "close the focused window"),
+    BIND("key_close",        KB_CLOSE,        0, "Alt+F4",               "close the focused window"),
     BIND("key_desktop_1",    KB_DESKTOP_GOTO, 0, "",                     "switch the active output to desktop 1 (unbound by default)"),
     BIND("key_desktop_2",    KB_DESKTOP_GOTO, 1, "",                     "...desktop 2"),
     BIND("key_desktop_3",    KB_DESKTOP_GOTO, 2, "",                     "...desktop 3"),

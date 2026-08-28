@@ -43,6 +43,7 @@ int output_for_pointer(void)
     return idx;
 }
 
+
 /* Which output a screen-wide *effect* acts on: the window switcher and
  * desktop switcher overlays (osd.c), a direct desktop jump
  * (keybind.c's KB_DESKTOP_GOTO), and later the same two effects under
@@ -203,6 +204,11 @@ static DockWindow *dock_find(xcb_window_t window)
     return NULL;
 }
 
+bool dock_is_tracked(xcb_window_t window)
+{
+    return dock_find(window) != NULL;
+}
+
 void dock_track(xcb_window_t window)
 {
     if (dock_find(window) || wm.dock_count >= MAX_DOCKS)
@@ -267,12 +273,49 @@ void compute_output_workarea(int output_idx, int *x, int *y, int *w, int *h)
     *h = ory > uy ? ory - uy : 0;
 }
 
+/* _NET_WORKAREA, plus _NET_DESKTOP_GEOMETRY/_NET_DESKTOP_VIEWPORT.
+ *
+ * EWMH has room for exactly one work-area rectangle per desktop covering
+ * the whole (possibly multi-monitor) screen -- a limitation of the spec,
+ * and one every multi-head WM has to pick a lie for. kiwm used to publish
+ * the *primary output's* usable area (which is what KWin does too), and
+ * that turns out to be an actively harmful lie: a client that dutifully
+ * constrains one of its own popups to this rectangle drags every popup
+ * belonging to a window on any *other* output onto the primary one -- the
+ * "panel popups from the small screen appear in the big screen's corner"
+ * symptom exactly.
+ *
+ * So publish the bounding box of every output's usable area instead. On a
+ * single monitor that's identical to before; on several it at least
+ * *contains* every real work area, so a client clamping to it leaves
+ * windows where they are instead of yanking them to another monitor. The
+ * exact usable area per output is still what maximize actually uses
+ * (compute_output_workarea()), and is still exposed losslessly through the
+ * _KIWM_* protocol (PROTOCOL.md), which has no one-rectangle problem. */
 static void ewmh_set_workarea(void)
 {
-    int pi = primary_output_index();
-    int x = 0, y = 0, w = wm.screen_w, h = wm.screen_h;
-    if (pi >= 0)
-        compute_output_workarea(pi, &x, &y, &w, &h);
+    int x = 0, y = 0, right = wm.screen_w, bottom = wm.screen_h;
+    bool first = true;
+
+    for (int i = 0; i < wm.output_count; i++) {
+        int ox, oy, ow, oh;
+        compute_output_workarea(i, &ox, &oy, &ow, &oh);
+        if (ow <= 0 || oh <= 0)
+            continue;
+        if (first) {
+            x = ox; y = oy; right = ox + ow; bottom = oy + oh;
+            first = false;
+        } else {
+            if (ox < x) x = ox;
+            if (oy < y) y = oy;
+            if (ox + ow > right) right = ox + ow;
+            if (oy + oh > bottom) bottom = oy + oh;
+        }
+    }
+
+    int w = right - x, h = bottom - y;
+    if (w <= 0) { x = 0; w = wm.screen_w; }
+    if (h <= 0) { y = 0; h = wm.screen_h; }
 
     uint32_t area[MAX_DESKTOPS * 4];
     for (int i = 0; i < wm.num_desktops; i++) {
@@ -284,6 +327,30 @@ static void ewmh_set_workarea(void)
     xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, wm.root,
                         wm.atoms.net_workarea, XCB_ATOM_CARDINAL, 32,
                         (uint32_t)(wm.num_desktops * 4), area);
+
+    /* The usable area just changed, so every window whose size kiwm (not
+     * the user) decided has to be recomputed against it -- a maximized
+     * window has to give a newly-arrived panel its space back, and get it
+     * back when that panel goes away. See client.c. */
+    refit_tiled_clients();
+}
+
+/* The virtual screen's size and origin. kiwm has no viewport scrolling, so
+ * the viewport is always 0,0 and the geometry is just the root window's
+ * current size -- but leaving them unset, as kiwm did, means clients read
+ * whatever the *previous* WM wrote, or nothing at all on a fresh session.
+ * Refreshed alongside the outputs, since a RandR change is exactly when
+ * the root window's size changes. */
+void ewmh_set_desktop_geometry(void)
+{
+    uint32_t geom[] = { (uint32_t)wm.screen_w, (uint32_t)wm.screen_h };
+    xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, wm.root,
+                        wm.atoms.net_desktop_geometry, XCB_ATOM_CARDINAL, 32, 2, geom);
+
+    uint32_t viewport[MAX_DESKTOPS * 2] = { 0 };
+    xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, wm.root,
+                        wm.atoms.net_desktop_viewport, XCB_ATOM_CARDINAL, 32,
+                        (uint32_t)(wm.num_desktops * 2), viewport);
 }
 
 /* This output's current mode's refresh rate in Hz, for pacing move/resize
@@ -440,6 +507,7 @@ void outputs_refresh(void)
         assign_dock_output(&wm.docks[i]);
 
     ewmh_update_output_props();
+    ewmh_set_desktop_geometry();
     ewmh_set_workarea();
     xcb_flush(wm.conn);
 

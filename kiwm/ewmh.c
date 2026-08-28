@@ -196,6 +196,8 @@ void ewmh_init_supported(void)
         wm.atoms.net_active_window, wm.atoms.net_close_window,
         wm.atoms.net_number_of_desktops, wm.atoms.net_current_desktop,
         wm.atoms.net_wm_desktop, wm.atoms.net_workarea, wm.atoms.net_frame_extents,
+        wm.atoms.net_desktop_geometry, wm.atoms.net_desktop_viewport,
+        wm.atoms.net_wm_full_placement,
         wm.atoms.net_wm_strut, wm.atoms.net_wm_strut_partial,
         wm.atoms.net_wm_state, wm.atoms.net_wm_state_hidden,
         wm.atoms.net_wm_state_maximized_vert, wm.atoms.net_wm_state_maximized_horz,
@@ -210,6 +212,12 @@ void ewmh_init_supported(void)
         wm.atoms.net_wm_window_type_tooltip, wm.atoms.net_wm_window_type_notification,
         wm.atoms.net_wm_window_type_combo, wm.atoms.net_wm_window_type_dnd,
         wm.atoms.net_wm_window_type_splash,
+        /* Types kiwm doesn't special-case but does handle correctly as
+         * ordinary windows, plus the two KDE ones it now acts on
+         * (see client.c) -- advertised so clients don't assume a WM that
+         * lists none of them will mishandle them. */
+        wm.atoms.kde_net_wm_window_type_applet_popup,
+        wm.atoms.kde_net_wm_window_type_override,
         wm.atoms.net_wm_name,
     };
     xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, wm.root,

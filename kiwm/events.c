@@ -8,6 +8,7 @@
 #include "ewmh.h"
 #include "keybind.h"
 #include "osd.h"
+#include "shape.h"
 
 #include <xcb/randr.h>
 
@@ -37,13 +38,19 @@ static void remap_existing_client(Client *c)
     c->minimized = false;
     set_icccm_wm_state(c, WM_STATE_NORMAL);
     ewmh_update_wm_state(c);
+    /* Mapping a frame doesn't restack it, so a window coming back after
+     * being hidden reappears at whatever stacking position it was left in
+     * -- which for a transient that was hidden while its parent got raised
+     * (VirtualBox's auto-hiding mini-toolbar, exactly) means underneath the
+     * very window it's supposed to float over. */
+    restack_all();
 }
 
 static void handle_map_request(xcb_map_request_event_t *ev)
 {
     Client *c = find_client_window(ev->window);
     if (!c)
-        manage(ev->window);
+        manage(ev->window, true);
     else
         remap_existing_client(c);
     xcb_flush(wm.conn);
@@ -52,6 +59,12 @@ static void handle_map_request(xcb_map_request_event_t *ev)
 static void handle_map_notify(xcb_map_notify_event_t *ev)
 {
     Client *c = find_client_window(ev->window);
+    if (c && ev->window == c->window && c->ignore_map > 0) {
+        /* The server's own re-map at the end of a reparent, not the app
+         * asking to be shown -- see wm.h's Client::ignore_map. */
+        c->ignore_map--;
+        return;
+    }
     if (c && ev->window == c->window && !c->mapped) {
         remap_existing_client(c);
         xcb_flush(wm.conn);
@@ -113,6 +126,27 @@ static void handle_configure_request(xcb_configure_request_event_t *ev)
     if (ev->value_mask & XCB_CONFIG_WINDOW_HEIGHT) c->height = ev->height < c->min_h ? c->min_h : ev->height;
 
     configure_frame(c);
+
+    /* A plain XRaiseWindow/XLowerWindow arrives here too, and used to be
+     * dropped on the floor -- an app asking to be raised (VirtualBox's
+     * mini-toolbar does exactly that when it slides back into view) simply
+     * never was. Applied to the *frame*, since that's what actually sits in
+     * the root's stacking order, and then handed to restack_all() so the
+     * request still lands within whatever layer the client belongs to
+     * rather than jumping the whole stack. The requested sibling is
+     * deliberately ignored: it's expressed in terms of the client's
+     * would-be siblings, which under a reparenting WM aren't the frame's. */
+    if (ev->value_mask & XCB_CONFIG_WINDOW_STACK_MODE) {
+        uint32_t mode = ev->stack_mode;
+        if (mode == XCB_STACK_MODE_ABOVE || mode == XCB_STACK_MODE_TOP_IF ||
+            mode == XCB_STACK_MODE_BELOW || mode == XCB_STACK_MODE_BOTTOM_IF) {
+            uint32_t v = (mode == XCB_STACK_MODE_ABOVE || mode == XCB_STACK_MODE_TOP_IF)
+                             ? XCB_STACK_MODE_ABOVE : XCB_STACK_MODE_BELOW;
+            xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE, &v);
+            restack_all();
+        }
+    }
+
     xcb_flush(wm.conn);
 }
 
@@ -848,14 +882,14 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
     }
     wm.last_drag_apply_ms = now;
 
-    apply_rounded_shape(c);
+    shape_update_frame(c);
     draw_decoration(c);
     for (int i = 0; i < wm.resize_neighbors_x_count; i++) {
-        apply_rounded_shape(wm.resize_neighbors_x[i].client);
+        shape_update_frame(wm.resize_neighbors_x[i].client);
         draw_decoration(wm.resize_neighbors_x[i].client);
     }
     for (int i = 0; i < wm.resize_neighbors_y_count; i++) {
-        apply_rounded_shape(wm.resize_neighbors_y[i].client);
+        shape_update_frame(wm.resize_neighbors_y[i].client);
         draw_decoration(wm.resize_neighbors_y[i].client);
     }
     xcb_flush(wm.conn);
@@ -914,6 +948,8 @@ static void handle_property_notify(xcb_property_notify_event_t *ev)
         draw_decoration(c);
         xcb_flush(wm.conn);
     }
+    if (ev->atom == XCB_ATOM_WM_TRANSIENT_FOR)
+        client_refresh_transient_for(c);
     if (ev->atom == XCB_ATOM_WM_NORMAL_HINTS) {
         /* Some toolkits only set WM_NORMAL_HINTS after the initial map, so
          * a min-size hint that wasn't there yet in manage() can show up
@@ -1042,6 +1078,14 @@ void handle_event(xcb_generic_event_t *event)
         return;
     }
 
+    /* SHAPE's ShapeNotify: a client changed its own non-rectangular shape,
+     * so the frame's has to follow (see shape.c). Like RandR's above, its
+     * event number is assigned at runtime and can't be a case label. */
+    if (shape_is_notify_event(type)) {
+        shape_handle_notify(event);
+        return;
+    }
+
     switch (type) {
     case XCB_MAP_REQUEST:
         handle_map_request((xcb_map_request_event_t *)event);
@@ -1058,6 +1102,7 @@ void handle_event(xcb_generic_event_t *event)
         if (c) {
             unmanage(c);
         } else {
+            popup_focus_released(ev->window);
             dock_forget(ev->window);
             /* Avoid chaining the next _NET_WM_WINDOW_TYPE_DESKTOP window
              * (see client.c's manage()) above a now-destroyed sibling --
@@ -1071,6 +1116,8 @@ void handle_event(xcb_generic_event_t *event)
     case XCB_UNMAP_NOTIFY: {
         xcb_unmap_notify_event_t *ev = (xcb_unmap_notify_event_t *)event;
         Client *c = find_client_window(ev->window);
+        if (!c)
+            popup_focus_released(ev->window);
         if (c && ev->window == c->window) {
             if (c->ignore_unmap > 0) {
                 /* Spurious auto-unmap from reparenting an already-mapped
@@ -1169,6 +1216,7 @@ void handle_event(xcb_generic_event_t *event)
         xcb_expose_event_t *ev = (xcb_expose_event_t *)event;
         if (ev->count != 0)
             break;
+        osd_handle_expose(ev->window);
         Client *c = find_client_window(ev->window);
         if (c) {
             draw_decoration(c);

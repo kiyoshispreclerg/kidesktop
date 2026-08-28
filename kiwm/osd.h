@@ -64,6 +64,21 @@ void osd_desktops_step(int direction);
  * OSD is open. */
 void osd_cancel(void);
 
+/* Whether `window` is the overlay's own window, currently up. The overlay
+ * is override-redirect and never a Client, so this is how client.c's
+ * restack_all() recognizes it while walking the root's children and puts
+ * it in LAYER_OSD (see wm.h) -- the top layer, above even an active
+ * fullscreen window. */
+bool osd_owns_window(xcb_window_t window);
+
+/* One explicit raise when the overlay is first mapped (mapping alone
+ * doesn't restack). No-op when no overlay is up. */
+void osd_raise_above_all(void);
+
+/* Repaints the overlay after an Expose on its window -- a no-op for any
+ * other window, or when no overlay is open. */
+void osd_handle_expose(xcb_window_t window);
+
 /* Whether either OSD is currently open (keyboard actively grabbed) --
  * events.c checks this to route Escape here instead of wherever it'd
  * normally go. */
