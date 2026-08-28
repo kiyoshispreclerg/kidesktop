@@ -3871,8 +3871,19 @@ static GtkWidget *build_telas_tab(void)
     return outer;
 }
 
+#define KICONF_VERSION "0.1.0"
+
 int main(int argc, char **argv)
 {
+    /* Checked before gtk_init() so `kiconf --version` works even without
+     * a display (X connection), same as most CLI-invokable GTK tools. */
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--version") || !strcmp(argv[i], "-V")) {
+            printf("kiconf %s\n", KICONF_VERSION);
+            return 0;
+        }
+    }
+
     gtk_init(&argc, &argv);
 
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -3881,6 +3892,11 @@ int main(int argc, char **argv)
     g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
     GtkWidget *notebook = gtk_notebook_new();
+    /* Stacked on the left instead of GTK's top-tab default -- with 8 tabs
+     * the top row was starting to wrap/crowd at the window's default
+     * width; a left column scales to more tabs without eating vertical
+     * space from the (often taller) tab content below it. */
+    gtk_notebook_set_tab_pos(GTK_NOTEBOOK(notebook), GTK_POS_LEFT);
     gtk_notebook_append_page(GTK_NOTEBOOK(notebook), build_appearance_tab(), gtk_label_new("Aparencia"));
     gtk_notebook_append_page(GTK_NOTEBOOK(notebook), build_shortcuts_tab(), gtk_label_new("Atalhos"));
     gtk_notebook_append_page(GTK_NOTEBOOK(notebook), build_telas_tab(), gtk_label_new("Telas"));
