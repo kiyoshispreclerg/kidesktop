@@ -70,8 +70,19 @@ exposes.
   frame) with no translation at all -- which is what used to shove a reopened window's *content* off
   inside its own frame by roughly however far the window used to be from `(0,0)`, cut off in a
   corner: the app's intended *absolute screen* position was landing as a raw frame-relative offset.
-- Graceful shutdown on SIGTERM/SIGINT: every managed window is reparented back to root before
-  kiwm exits, so windows survive a kill instead of vanishing with it.
+- Graceful shutdown on SIGTERM/SIGINT/SIGHUP: every managed window is reparented back to root
+  before kiwm exits, so windows survive a kill instead of vanishing with it. SIGHUP matters because
+  kiwm is normally started from a terminal, and closing that terminal hangs up its process group --
+  left at the default disposition that's an immediate death with no cleanup at all.
+- ...and windows survive kiwm **not** exiting gracefully, too, which is what the X **save-set** is
+  for: every client window is added to it when kiwm reparents the window into its frame. Destroying
+  a window destroys its children, and the server destroys every window a client created when that
+  client's connection drops -- so a kiwm that dies without unwinding its frames (a crash, a
+  `SIGKILL`, an X error) took every window reparented inside them along: the whole session's apps
+  quit at once, everything in the taskbar gone, only the never-framed panels and desktop left
+  standing. The save-set makes the server reparent those windows back to the root and remap them at
+  close-down instead. One request per window, and the orderly `cleanup()` path drops each window
+  from the save-set as it hands it back itself.
 - Dock/panel awareness: `_NET_WM_STRUT`/`_NET_WM_STRUT_PARTIAL`, correctly attributed per output
   (a panel on one monitor doesn't eat into a different monitor's usable area), feeding
   `_NET_WORKAREA` and maximize. The usable area is *re-applied* whenever it changes: every

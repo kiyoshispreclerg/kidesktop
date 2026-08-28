@@ -1518,6 +1518,11 @@ void unmanage(Client *c)
     xcb_delete_property(wm.conn, c->window, wm.atoms.net_wm_state);
     xcb_delete_property(wm.conn, c->window, wm.atoms.net_wm_desktop);
 
+    /* Out of the save-set on the way out: the window is going back to the
+     * root under its own steam here, so there's nothing left for the
+     * server to rescue at close-down (see manage()). */
+    xcb_change_save_set(wm.conn, XCB_SET_MODE_DELETE, c->window);
+
     xcb_void_cookie_t reparent_cookie =
         xcb_reparent_window_checked(wm.conn, c->window, wm.root, c->x, c->y);
     xcb_generic_error_t *err = xcb_request_check(wm.conn, reparent_cookie);
@@ -1896,6 +1901,21 @@ void manage(xcb_window_t window, bool map_requested)
     /* ShapeNotify, so a client that carves up (or later changes) its own
      * silhouette has that forwarded onto the frame -- see shape.c. */
     shape_track_client(c);
+
+    /* The X save-set: the server's own insurance for exactly the disaster
+     * a reparenting WM can cause by dying. Destroying a window destroys
+     * its children too, and the server destroys every window a client
+     * created when that client's connection drops -- so a kiwm that goes
+     * away without unwinding its frames (a crash, a SIGKILL, the terminal
+     * that launched it closing, an X error) takes every window reparented
+     * inside those frames with it: the whole session's apps quit at once,
+     * everything in the taskbar gone, only the never-framed panels and
+     * desktop left standing. Putting each client window in the save-set
+     * makes the server reparent it back to the root and remap it at
+     * close-down instead. cleanup()'s orderly unwind covers the normal
+     * exit; this covers every other way kiwm can stop existing, and costs
+     * one request per window. */
+    xcb_change_save_set(wm.conn, XCB_SET_MODE_INSERT, window);
 
     xcb_reparent_window(wm.conn, window, c->frame, bt, th);
 

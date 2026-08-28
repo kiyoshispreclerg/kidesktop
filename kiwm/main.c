@@ -348,7 +348,19 @@ static void cleanup(void)
     while (c) {
         Client *next = c->next;
         xcb_unmap_window(wm.conn, c->frame);
+        /* Nothing for the server's save-set to rescue once we've handed
+         * the window back to the root ourselves -- see client.c's
+         * manage(), which is what put it there. */
+        xcb_change_save_set(wm.conn, XCB_SET_MODE_DELETE, c->window);
         xcb_reparent_window(wm.conn, c->window, wm.root, c->x, c->y);
+        /* A window kiwm was keeping hidden (minimized, on another desktop,
+         * shaded) must not stay invisible with no WM around to bring it
+         * back: kiwm hides those by unmapping the *frame*, so the client
+         * window itself is still mapped and the reparent above already
+         * makes it viewable again -- except for a shaded one, whose
+         * content window kiwm really did unmap. */
+        if (c->shaded)
+            xcb_map_window(wm.conn, c->window);
         xcb_destroy_window(wm.conn, c->frame);
         free(c);
         c = next;
@@ -422,6 +434,12 @@ int main(int argc, char **argv)
     sigemptyset(&sa.sa_mask);
     sigaction(SIGTERM, &sa, NULL);
     sigaction(SIGINT, &sa, NULL);
+    /* SIGHUP too: kiwm is normally started from a terminal, and closing
+     * that terminal hangs up its whole process group. Left at the default
+     * disposition that's an immediate death with no cleanup() -- the exact
+     * case the save-set now catches (see client.c's manage()), but this
+     * turns it back into an orderly shutdown instead of a rescue. */
+    sigaction(SIGHUP, &sa, NULL);
 
     setup_wm(replace);
 
