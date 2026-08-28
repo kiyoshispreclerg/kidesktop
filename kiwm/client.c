@@ -543,6 +543,71 @@ static void expose_windows_over(int rx, int ry, int rw, int rh)
         xcb_clear_area(wm.conn, 1, o->frame, 0, 0, 0, 0);
         xcb_clear_area(wm.conn, 1, o->window, 0, 0, 0, 0);
     }
+    xcb_flush(wm.conn);
+}
+
+/* One round of expose_windows_over() isn't enough for what a *fullscreen*
+ * window leaves behind, because of how the X server presents one without a
+ * compositor: a window that covers a whole output and is topmost and
+ * unobscured gets page-flipped straight to the scanout (DRI3/Present), so
+ * while it's up the server's own screen pixmap is stale -- everything
+ * other clients draw during that time goes into a buffer nobody is looking
+ * at. When the window stops qualifying (kiwm drops it out of
+ * LAYER_ACTIVE_FULLSCREEN the moment it loses focus, see client_layer()),
+ * the server "unflips" by copying that last flipped frame -- the video
+ * frame -- into the screen pixmap, and *then* starts scanning the screen
+ * pixmap out again. Anything repainted between the restack and that copy
+ * is wiped by it, which is exactly when the immediate expose round lands:
+ * the panel/other windows dutifully repaint, and then get overwritten with
+ * the video's pixels, leaving them looking corrupted until something else
+ * happens to make them repaint on their own (this is the "às vezes" in the
+ * bug report -- it depends on whether a flip was actually in effect).
+ *
+ * So the exposes are also re-sent a couple of times over the next half
+ * second, after the unflip has certainly settled. Verified live: an
+ * xrefresh over the same region right away leaves the window corrupted,
+ * the same xrefresh a second later restores it. */
+static struct {
+    bool active;
+    int rx, ry, rw, rh;
+    double due[2];   /* monotonic_ms() deadlines, ascending */
+    int next;        /* index into due[] of the next round to fire */
+} pending_expose;
+
+static void queue_expose_windows_over(int rx, int ry, int rw, int rh)
+{
+    expose_windows_over(rx, ry, rw, rh);
+
+    double now = monotonic_ms();
+    pending_expose.active = true;
+    pending_expose.rx = rx;
+    pending_expose.ry = ry;
+    pending_expose.rw = rw;
+    pending_expose.rh = rh;
+    pending_expose.due[0] = now + 150.0;
+    pending_expose.due[1] = now + 500.0;
+    pending_expose.next = 0;
+}
+
+int client_pending_expose_timeout_ms(void)
+{
+    if (!pending_expose.active)
+        return -1;
+    double left = pending_expose.due[pending_expose.next] - monotonic_ms();
+    return left <= 0 ? 0 : (int)(left + 0.5);
+}
+
+void client_run_pending_expose(void)
+{
+    if (!pending_expose.active)
+        return;
+    if (monotonic_ms() < pending_expose.due[pending_expose.next])
+        return;
+
+    expose_windows_over(pending_expose.rx, pending_expose.ry,
+                        pending_expose.rw, pending_expose.rh);
+    if (++pending_expose.next >= (int)(sizeof(pending_expose.due) / sizeof(pending_expose.due[0])))
+        pending_expose.active = false;
 }
 
 void focus_client(Client *c)
@@ -570,7 +635,7 @@ void focus_client(Client *c)
      * covering -- panels above all -- is now on top of it and has to
      * repaint over the pixels it left behind. */
     if (old && old != c && old->fullscreen)
-        expose_windows_over(old->x, old->y, old->frame_width, old->frame_height);
+        queue_expose_windows_over(old->x, old->y, old->frame_width, old->frame_height);
 
     draw_decoration(c);
     ewmh_update_client_list();

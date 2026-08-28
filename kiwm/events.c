@@ -1169,6 +1169,10 @@ void handle_event(xcb_generic_event_t *event)
         break;
     }
     case XCB_BUTTON_PRESS:
+        /* A click while a switcher overlay is up ends the hold first (and
+         * gets replayed from there) -- see osd_handle_button_press(). */
+        if (osd_handle_button_press((xcb_button_press_event_t *)event))
+            break;
         handle_button_press((xcb_button_press_event_t *)event);
         break;
     case XCB_BUTTON_RELEASE:

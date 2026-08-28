@@ -316,10 +316,84 @@ static void close_osd(void)
         osd_mapped = false;
     }
     xcb_ungrab_keyboard(wm.conn, XCB_CURRENT_TIME);
+    xcb_ungrab_pointer(wm.conn, XCB_CURRENT_TIME);
     kind = OSD_NONE;
     osd_output = -1;
     original_focused = NULL;
     xcb_flush(wm.conn);
+}
+
+/* Applies whatever the overlay is currently offering (focus the selected
+ * window / switch to the selected desktop) and closes it -- what releasing
+ * the driving modifier does, shared with every other way a hold can end
+ * (osd_poll_release(), osd_handle_button_press()). */
+static void commit_and_close(void)
+{
+    if (kind == OSD_WINDOWS) {
+        if (tb_state.count > 0 && tb_state.selected >= 0 && tb_state.selected < tb_state.count)
+            focus_client(tb_state.items[tb_state.selected]);
+    } else if (kind == OSD_DESKTOPS) {
+        if (osd_output >= 0)
+            switch_workspace(osd_output, desk_selected);
+    }
+    close_osd();
+}
+
+/* Grabs keyboard *and* pointer for the duration of a hold.
+ *
+ * The keyboard grab is what makes a bare modifier release reach
+ * osd_handle_key_release() at all (see the file comment). The pointer grab
+ * is a safety net for the case where that release never arrives: a client
+ * that grabs the input devices itself while the OSD is up -- VirtualBox
+ * capturing input for its guest is the one that actually does this -- can
+ * swallow the modifier's release, leaving the overlay stuck on screen with
+ * kiwm still holding the keyboard. Any mouse button then ends the hold
+ * (osd_handle_button_press()), and the click itself is replayed to whoever
+ * would normally have received it -- which is why the pointer is grabbed
+ * in SYNC mode: only a synchronous grab can hand the event back with
+ * xcb_allow_events(XCB_ALLOW_REPLAY_POINTER).
+ *
+ * Neither grab is checked for success: both can legitimately fail when
+ * another client already holds an active grab, and the overlay must still
+ * open and still be escapable. The periodic osd_poll_release() (main.c's
+ * event loop) is the backstop that closes it even if *no* input event ever
+ * reaches kiwm again. */
+static void grab_for_hold(void)
+{
+    xcb_grab_keyboard_reply_t *kb = xcb_grab_keyboard_reply(wm.conn,
+        xcb_grab_keyboard(wm.conn, 0, wm.root, XCB_CURRENT_TIME,
+                          XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC), NULL);
+    xcb_grab_pointer_reply_t *ptr = xcb_grab_pointer_reply(wm.conn,
+        xcb_grab_pointer(wm.conn, 0, wm.root, XCB_EVENT_MASK_BUTTON_PRESS,
+                         XCB_GRAB_MODE_SYNC, XCB_GRAB_MODE_ASYNC,
+                         XCB_NONE, XCB_NONE, XCB_CURRENT_TIME), NULL);
+
+    /* Both replies are read (rather than firing the requests off blind)
+     * only so a failure can be said out loud: a grab that didn't happen is
+     * exactly the situation the polling backstop exists for, and knowing
+     * which one failed is the difference between "the overlay closed a
+     * fraction of a second late" and a mystery. Failure is not fatal --
+     * the overlay opens either way. */
+    if (kb && kb->status != XCB_GRAB_STATUS_SUCCESS)
+        fprintf(stderr, "kiwm: osd: keyboard grab failed (status %u) -- "
+                        "falling back to polling for the modifier release\n", kb->status);
+    if (ptr && ptr->status != XCB_GRAB_STATUS_SUCCESS)
+        fprintf(stderr, "kiwm: osd: pointer grab failed (status %u) -- "
+                        "a click won't close the overlay\n", ptr->status);
+    else
+        /* An *active* grab in SYNC mode freezes the pointer from the
+         * moment it's taken -- no pointer event of any kind is generated
+         * again, not even to the grabbing client, until it says otherwise.
+         * (That's unlike a passive xcb_grab_button(), where the press that
+         * activates the grab is delivered first and the freeze starts
+         * after it.) So kiwm has to explicitly let event processing
+         * continue: SyncPointer runs it normally until the next button
+         * press, and freezes again right there -- which is precisely the
+         * state osd_handle_button_press() needs, since only an event the
+         * freeze is still holding can be replayed. */
+        xcb_allow_events(wm.conn, XCB_ALLOW_SYNC_POINTER, XCB_CURRENT_TIME);
+    free(kb);
+    free(ptr);
 }
 
 /* ---- public API ---- */
@@ -390,7 +464,7 @@ void osd_windows_step(int direction)
          * a passive xcb_grab_key() alone only ever fires for the exact
          * key+modifier combo it was registered for (Tab here), never for
          * a bare release of the modifier key by itself. */
-        xcb_grab_keyboard(wm.conn, 0, wm.root, XCB_CURRENT_TIME, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+        grab_for_hold();
     }
 
     tb_state.selected = (tb_state.selected + direction + tb_state.count) % tb_state.count;
@@ -421,7 +495,7 @@ void osd_desktops_step(int direction)
         desk_aspect = wm.outputs[output_idx].height > 0
                           ? (double)wm.outputs[output_idx].width / wm.outputs[output_idx].height
                           : 1.0;
-        xcb_grab_keyboard(wm.conn, 0, wm.root, XCB_CURRENT_TIME, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+        grab_for_hold();
     }
 
     if (desk_n > 0)
@@ -477,6 +551,11 @@ static bool modifier_still_held(uint16_t mod)
 void osd_handle_key_release(xcb_key_release_event_t *ev)
 {
     (void)ev;
+    osd_poll_release();
+}
+
+void osd_poll_release(void)
+{
     if (kind == OSD_NONE)
         return;
 
@@ -484,14 +563,24 @@ void osd_handle_key_release(xcb_key_release_event_t *ev)
     if (modifier_still_held(mod))
         return;
 
-    if (kind == OSD_WINDOWS) {
-        if (tb_state.count > 0 && tb_state.selected >= 0 && tb_state.selected < tb_state.count)
-            focus_client(tb_state.items[tb_state.selected]);
-    } else {
-        if (osd_output >= 0)
-            switch_workspace(osd_output, desk_selected);
-    }
-    close_osd();
+    commit_and_close();
+}
+
+bool osd_handle_button_press(xcb_button_press_event_t *ev)
+{
+    (void)ev;
+    if (kind == OSD_NONE)
+        return false;
+
+    /* Any click ends the hold, exactly as if the modifier had been let go
+     * (see grab_for_hold()). The click is then replayed so it still does
+     * whatever it was going to do -- raise/focus a window, press a button
+     * in a client -- which needs the replay *before* the grab is dropped,
+     * hence doing it here rather than letting close_osd()'s plain
+     * xcb_ungrab_pointer() discard the frozen event. */
+    xcb_allow_events(wm.conn, XCB_ALLOW_REPLAY_POINTER, XCB_CURRENT_TIME);
+    commit_and_close();
+    return true;
 }
 
 void osd_client_destroyed(Client *c)

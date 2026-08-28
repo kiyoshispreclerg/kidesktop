@@ -50,6 +50,7 @@
 #include "client.h"
 #include "events.h"
 #include "keybind.h"
+#include "osd.h"
 #include "selection.h"
 #include "shape.h"
 
@@ -474,11 +475,32 @@ int main(int argc, char **argv)
         if (!wm.running || xcb_connection_has_error(wm.conn))
             break;
 
-        int ready = poll(fds, 2, -1);
+        /* Blocking wait, except while a switcher overlay is open: then the
+         * loop also has to wake up on its own every so often to notice the
+         * driving modifier being released when the release event itself
+         * never arrives (a client grabbing the input devices for itself can
+         * eat it -- see osd_poll_release()). 100ms is well under what reads
+         * as a delay when letting go of Alt, and costs one cheap
+         * xcb_query_pointer() round trip per tick, only for as long as the
+         * overlay is actually up. */
+        int timeout = osd_active() ? 100 : -1;
+        /* ...and the same for the delayed repaint rounds a fullscreen
+         * window needs after it loses focus (client.c's pending_expose). */
+        client_run_pending_expose();
+        int expose_in = client_pending_expose_timeout_ms();
+        if (expose_in >= 0 && (timeout < 0 || expose_in < timeout))
+            timeout = expose_in;
+
+        int ready = poll(fds, 2, timeout);
         if (ready < 0) {
             if (errno == EINTR)
                 continue;
             break;
+        }
+        if (ready == 0) {
+            osd_poll_release();
+            client_run_pending_expose();
+            continue;
         }
         if (fds[1].revents & POLLIN) {
             char buf[16];

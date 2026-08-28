@@ -90,6 +90,28 @@ bool osd_active(void);
  * is detected (see wm.h's key_alt_l/r/key_super_l/r doc comment). */
 void osd_handle_key_release(xcb_key_release_event_t *ev);
 
+/* Same check osd_handle_key_release() does -- "is the driving modifier
+ * still down? if not, commit and close" -- but driven by main.c's event
+ * loop on a timer instead of by an event, and a no-op when no OSD is open.
+ *
+ * The keyboard grab osd.c takes for a hold is not a guarantee that the
+ * modifier's release will ever be delivered to kiwm: a client that grabs
+ * the devices for itself while the overlay is up (VirtualBox capturing
+ * input for its guest is the real-world case) can swallow it, and then no
+ * further event of any kind arrives to notice it with -- the overlay just
+ * stays on screen forever, keyboard still grabbed. Polling the live
+ * modifier state is what makes that unwedge by itself; the click handling
+ * in osd_handle_button_press() is the same safety net for input kiwm does
+ * still receive. */
+void osd_poll_release(void);
+
+/* A mouse button was pressed while an overlay is open: ends the hold as if
+ * the modifier had been released (committing the current selection) and
+ * replays the click to whoever would normally have gotten it. Returns
+ * whether it consumed the event -- false (and does nothing) when no
+ * overlay is open, which is the normal case. */
+bool osd_handle_button_press(xcb_button_press_event_t *ev);
+
 /* client.c's unmanage() calls this for every destroyed client so a window
  * that closes mid-hold (e.g. crashes) can't be committed to or drawn --
  * removes it from the open tabbox's list in place (selection re-clamped),

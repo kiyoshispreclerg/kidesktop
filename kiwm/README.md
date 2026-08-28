@@ -73,6 +73,17 @@ exposes.
   window gets nothing, and is left displaying the pixels the fullscreen window painted over it (a
   game's picture stuck on the panels). `ClearArea` with `exposures` asks for those events
   explicitly. The switcher overlay also repaints on `Expose` now, for the same reason.
+- ...and asked *again* 150ms and 500ms later, because one round isn't enough. Without a compositor
+  the X server page-flips a window that covers a whole output and is topmost and unobscured
+  straight to the scanout (DRI3/Present): while that's in effect the server's own screen pixmap is
+  stale, so everything other clients draw goes into a buffer nobody is looking at. When the window
+  stops qualifying -- which is the instant kiwm drops it out of the active-fullscreen layer -- the
+  server "unflips" by copying that last flipped frame, the video frame, into the screen pixmap, and
+  *that* is what wipes the repaint the immediate `ClearArea` round just triggered. Hence the later
+  rounds, once the unflip has certainly settled. Verified live against the actual symptom (SMPlayer
+  fullscreen on one output, click a window on the other): an `xrefresh` over the same region right
+  away leaves the panel corrupted, the same `xrefresh` a second later restores it; before the fix
+  4 of 5 focus switches left the panel holding video pixels, after it 5 of 5 were clean.
 - Non-rectangular (shaped) client windows: a client's own SHAPE (bounding *and* input) is forwarded
   onto the frame kiwm reparents it into -- which the X server is what actually clips against once
   the client is a child of that frame, so without it the frame stays a solid rectangle covering,
@@ -475,6 +486,9 @@ overlay/animation to show at all):
   (raises+focuses the highlighted window, or switches to the highlighted desktop) as you move
   through it, same as most desktops' Alt+Tab -- **Escape** then reverts back to whatever was
   actually focused/current *before* the hold started, not just "cancels" a no-op.
+- **Any mouse click** ends the hold too, exactly as if the modifier had been let go (the current
+  selection is committed), and the click itself still does whatever it was going to do -- it's
+  replayed to whoever would normally have received it.
 - A window that closes while the Alt+Tab list is open (e.g. a crash) is quietly dropped from the
   list in place, selection re-clamped -- it's never focusable, and if it was the only entry left
   the overlay just closes. If it was also the window `osd_live_preview`'s Escape-revert was going
@@ -490,7 +504,24 @@ commits once it's actually gone. Matching one fixed keycode (e.g. just `Alt_L`) 
 layout where the modifier lives on a different/second physical key, or misfire on a modifier key's
 own X autorepeat -- either way leaving the keyboard grab stuck engaged (every keystroke system-wide
 silently swallowed by an OSD nobody can see) until something else forced it shut, which is exactly
-the "100% CPU, no window will open" wedge that shipped in this feature's first cut. The window list
+the "100% CPU, no window will open" wedge that shipped in this feature's first cut.
+
+The keyboard grab is not a *guarantee* that the release will ever arrive, though: a client that
+grabs the input devices for itself while an overlay is up -- VirtualBox capturing input for its
+guest is the real-world case, and Alt+Tab with `osd_live_preview=1` walks right into it, since the
+preview hands the VM focus mid-hold -- swallows it, and then no further event of any kind arrives
+to notice it with. The overlay would just sit there forever, keyboard still grabbed. So there are
+two backstops. While an overlay is open the event loop also wakes up every 100ms and re-checks the
+live modifier state itself (`osd_poll_release()`), which closes it within a tenth of a second even
+if kiwm never receives another input event at all; and the pointer is grabbed alongside the
+keyboard so a click can end the hold as well (in `GrabModeSync`, since only an event the freeze is
+still holding can be replayed to its real target afterwards -- and an active sync grab freezes the
+pointer from the moment it's taken, so kiwm has to issue an explicit `AllowEvents`/`SyncPointer`
+right after grabbing or the click never gets reported to it either). Neither grab is treated as
+required: both are allowed to fail (another client may already hold one), the overlay opens
+regardless, and the failure is logged.
+
+The window list
 is built behind a small `TabBoxOps` vtable (`osd.h`/`osd.c`) -- kwin calls the same idea a "tabbox"
 -- so a different presentation (a thumbnail grid, cover-flow, ...) can be swapped in later by
 writing a new `TabBoxOps` and pointing one variable at it, with no changes to the hold/release

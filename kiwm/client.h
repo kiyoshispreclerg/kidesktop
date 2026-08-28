@@ -62,6 +62,17 @@ void set_client_desktop(Client *c, int desktop);
  * alone. See client.c. */
 void refit_tiled_clients(void);
 
+/* Repainting what a fullscreen window leaves behind when it loses focus
+ * takes more than one round of exposes, and the later rounds are on a
+ * timer -- see client.c's pending_expose (and why, which is the X server
+ * page-flipping a fullscreen window straight to the scanout when there's
+ * no compositor). main.c's event loop drives them: it caps its poll()
+ * timeout with client_pending_expose_timeout_ms() (-1 = nothing pending,
+ * block as usual) and calls client_run_pending_expose() every time round,
+ * which is a cheap no-op until a round is actually due. */
+int client_pending_expose_timeout_ms(void);
+void client_run_pending_expose(void);
+
 /* Recomputes Client::allow_* from the client's current WM_NORMAL_HINTS /
  * _MOTIF_WM_HINTS and republishes _NET_WM_ALLOWED_ACTIONS -- see
  * client.c. Call after get_size_hints(). */
