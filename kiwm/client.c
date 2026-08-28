@@ -610,6 +610,33 @@ void client_run_pending_expose(void)
         pending_expose.active = false;
 }
 
+/* ICCCM's WM_TAKE_FOCUS: for a client that lists it in WM_PROTOCOLS,
+ * SetInputFocus alone is only half of handing over the keyboard -- the
+ * client also has to be told, so it can route the focus internally (to the
+ * right sub-window, and, for a toolkit, so it updates its own idea of
+ * which window is active at all). Every Qt/KDE window asks for this;
+ * krunner is where skipping it actually shows, opening with its input
+ * field dead even though X focus is already on it. The message must carry
+ * a real timestamp, never CurrentTime, which is what wm.last_event_time
+ * exists for. */
+static void send_take_focus(Client *c)
+{
+    if (!c->takes_focus || wm.atoms.wm_protocols == XCB_ATOM_NONE ||
+        wm.atoms.wm_take_focus == XCB_ATOM_NONE)
+        return;
+
+    xcb_client_message_event_t ev = {
+        .response_type = XCB_CLIENT_MESSAGE,
+        .format = 32,
+        .window = c->window,
+        .type = wm.atoms.wm_protocols
+    };
+    ev.data.data32[0] = wm.atoms.wm_take_focus;
+    ev.data.data32[1] = wm.last_event_time;
+
+    xcb_send_event(wm.conn, 0, c->window, XCB_EVENT_MASK_NO_EVENT, (const char *)&ev);
+}
+
 void focus_client(Client *c)
 {
     if (!c)
@@ -621,6 +648,7 @@ void focus_client(Client *c)
         wm.focused = c;
         xcb_set_input_focus(wm.conn, XCB_INPUT_FOCUS_POINTER_ROOT,
                             c->window, XCB_CURRENT_TIME);
+        send_take_focus(c);
         if (old)
             draw_decoration(old);
         ewmh_update_active_window();
@@ -1475,6 +1503,21 @@ void unmanage(Client *c)
 
     xcb_unmap_window(wm.conn, c->frame);
 
+    /* The window stops being managed here, so the properties that say a WM
+     * *is* managing it have to go with it: ICCCM says WM_STATE is removed
+     * (or set to Withdrawn) when a window is withdrawn, and EWMH says the
+     * same for _NET_WM_STATE/_NET_WM_DESKTOP. Leaving them behind is not
+     * cosmetic -- manage_existing_windows() deliberately adopts an
+     * unmapped window that still carries WM_STATE (that's how a window
+     * minimized under the previous WM survives a --replace), so a stale
+     * WM_STATE would resurrect every window the app had withdrawn as a
+     * hidden client the next time kiwm starts. Unchecked on purpose: this
+     * path also runs from DestroyNotify, where the window is already gone
+     * and the resulting BadWindow is exactly what's expected. */
+    xcb_delete_property(wm.conn, c->window, wm.atoms.wm_state);
+    xcb_delete_property(wm.conn, c->window, wm.atoms.net_wm_state);
+    xcb_delete_property(wm.conn, c->window, wm.atoms.net_wm_desktop);
+
     xcb_void_cookie_t reparent_cookie =
         xcb_reparent_window_checked(wm.conn, c->window, wm.root, c->x, c->y);
     xcb_generic_error_t *err = xcb_request_check(wm.conn, reparent_cookie);
@@ -1746,6 +1789,7 @@ void manage(xcb_window_t window, bool map_requested)
     c->transient_for = window_transient_for(window);
     c->group_leader = window_group_leader(window);
     c->skip_taskbar = window_has_state(window, wm.atoms.net_wm_state_skip_taskbar);
+    c->takes_focus = client_supports_protocol(window, wm.atoms.wm_take_focus);
 
     c->frame = xcb_generate_id(wm.conn);
 

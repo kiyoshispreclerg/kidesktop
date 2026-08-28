@@ -259,6 +259,15 @@ struct Client {
      * apps set this before mapping and effectively never change it. */
     bool undecorated;
 
+    /* The client listed WM_TAKE_FOCUS in WM_PROTOCOLS: besides the plain
+     * SetInputFocus, it wants to be *told* when the WM gives it the
+     * keyboard, so it can route the focus internally (Qt/KDE apps all do
+     * this -- and krunner in particular only lights up its input field
+     * once it gets the message; a bare SetInputFocus leaves it visibly
+     * unfocused). See client.c's focus_client(). Read once in manage() --
+     * WM_PROTOCOLS is set before mapping. */
+    bool takes_focus;
+
     /* ICCCM WM_TRANSIENT_FOR: the window this one is a transient of (a
      * dialog's main window, or -- the case that made kiwm need this --
      * VirtualBox's fullscreen mini-toolbar, which is transient for the VM
@@ -360,6 +369,7 @@ struct Client {
 typedef struct {
     xcb_atom_t wm_protocols;
     xcb_atom_t wm_delete_window;
+    xcb_atom_t wm_take_focus;   /* see Client::takes_focus */
     xcb_atom_t wm_state;
     xcb_atom_t wm_change_state;
     xcb_atom_t net_wm_name;
@@ -739,6 +749,14 @@ typedef struct {
      * ButtonPress'es (see events.c's handle_button_press). */
     xcb_timestamp_t last_titlebar_click_time;
     xcb_window_t last_titlebar_click_frame;
+
+    /* The newest server timestamp kiwm has seen on any event that carries
+     * one (events.c's handle_event() records it). ICCCM requires a real
+     * timestamp -- never CurrentTime -- in the WM_TAKE_FOCUS message a WM
+     * sends when it hands a client the keyboard (see Client::takes_focus),
+     * and a WM has no clock of its own: the only timestamps it can quote
+     * are the ones the server handed it. */
+    xcb_timestamp_t last_event_time;
 
     /* The one keycode kiwm resolves by hand (main.c's setup_wm()): the
      * fixed cancel key for a modal hold in progress (osd.c's overlays),

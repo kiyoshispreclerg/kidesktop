@@ -21,6 +21,7 @@ void ewmh_init_atoms(void)
 {
     wm.atoms.wm_protocols = intern_atom("WM_PROTOCOLS");
     wm.atoms.wm_delete_window = intern_atom("WM_DELETE_WINDOW");
+    wm.atoms.wm_take_focus = intern_atom("WM_TAKE_FOCUS");
     wm.atoms.wm_state = intern_atom("WM_STATE");
     wm.atoms.wm_change_state = intern_atom("WM_CHANGE_STATE");
     wm.atoms.net_wm_name = intern_atom("_NET_WM_NAME");

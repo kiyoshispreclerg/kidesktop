@@ -29,6 +29,32 @@ exposes.
   recover the *pre*-maximize floating geometry across a WM switch (EWMH has no property for it; the
   old WM held it in memory and took it along), so a restore falls back to a centered two thirds of
   the workarea.
+- A window a client hides and shows again comes back *with its contents*, and on top. Qt's `hide()`
+  unmaps the client's own window, and the `MapRequest` that shows it again is denied until the WM
+  maps that window -- the whole point of the frame's `SubstructureRedirect`. Mapping only the frame
+  (which is all kiwm did) brings back a decorated hole showing whatever is behind it: OpenSnitch's
+  prompt after the first "OK", krunner after its first invocation. Moving, resizing or maximizing
+  doesn't help, since there's nothing there to repaint -- only shade+unshade, which unmaps and
+  remaps the content window on purpose, did. The frame is also raised, so a window an app just
+  chose to show again doesn't come back behind whatever has been focused since it last hid.
+- A client unmapping its own window is treated as ICCCM says it must be: a **withdrawal**. The
+  window stops being managed entirely (frame destroyed, `WM_STATE`/`_NET_WM_STATE`/`_NET_WM_DESKTOP`
+  removed with it, per ICCCM and EWMH), instead of kiwm keeping a hidden Client around forever --
+  which is what left every OpenSnitch prompt ever answered sitting in the taskbar, since the window
+  stayed in `_NET_CLIENT_LIST`. Dropping the stale `WM_STATE` matters for more than tidiness:
+  startup adoption deliberately picks up an unmapped window that still carries one (that's how a
+  window minimized under the previous WM survives a `--replace`), so leaving it behind would
+  resurrect every withdrawn window as a hidden client on the next start. Showing the window again
+  then takes the ordinary `MapRequest` path as a brand-new window, which is also what makes it come
+  back focused. kiwm's own ways of hiding a window are unaffected: minimizing and switching desktops
+  unmap the *frame*, leaving the client window mapped (just not viewable), and generate no
+  `UnmapNotify` for it at all.
+- `WM_TAKE_FOCUS` is sent to clients that list it in `WM_PROTOCOLS`. `SetInputFocus` alone is only
+  half of handing over the keyboard for such a client: it also has to be *told*, so it can route the
+  focus internally and update its own idea of which window is active. Every Qt/KDE window asks for
+  this; krunner is where skipping it shows, opening with a dead input field even though X focus is
+  already on it. ICCCM requires a real timestamp in that message (never `CurrentTime`), so kiwm
+  keeps the newest one the server has handed it on any event that carries one.
 - Clients that ask for no decoration are honored: `_MOTIF_WM_HINTS` with `decorations=0` (what Qt's
   `FramelessWindowHint`, GTK's `gtk_window_set_decorated(false)` and SDL borderless windows all
   actually put on the wire) and KDE's `_KDE_NET_WM_WINDOW_TYPE_OVERRIDE` (kwin's "noBorder", set by

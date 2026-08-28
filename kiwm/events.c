@@ -31,6 +31,24 @@
  * until the app that owns it is restarted). */
 static void remap_existing_client(Client *c)
 {
+    /* The content window itself, not just the frame. A client that hides
+     * by unmapping its own window (Qt's hide() -- OpenSnitch's prompt
+     * dialog, krunner, anything that keeps a window around between
+     * showings) leaves it unmapped, and a MapRequest for it is *denied*
+     * until the WM maps it: that's the whole point of the frame's
+     * SubstructureRedirect. Mapping only the frame brings back a window
+     * whose inside is empty -- kiwm's own decoration around a hole showing
+     * whatever is behind it -- and no amount of moving/resizing/maximizing
+     * fixes it, because there is nothing there to repaint; only something
+     * that happens to map the content window again (shade+unshade, which
+     * unmaps and remaps it on purpose) does. Redundant but harmless in the
+     * other case that gets here, an unminimize, where the content window
+     * was never unmapped in the first place -- kiwm minimizes by hiding
+     * the frame. Skipped while shaded, where the content window is
+     * deliberately unmapped and toggle_shade() owns remapping it. */
+    if (!c->shaded)
+        xcb_map_window(wm.conn, c->window);
+
     if (c->sticky || wm.outputs[c->output].desktop == c->desktop) {
         xcb_map_window(wm.conn, c->frame);
         c->mapped = true;
@@ -42,7 +60,15 @@ static void remap_existing_client(Client *c)
      * being hidden reappears at whatever stacking position it was left in
      * -- which for a transient that was hidden while its parent got raised
      * (VirtualBox's auto-hiding mini-toolbar, exactly) means underneath the
-     * very window it's supposed to float over. */
+     * very window it's supposed to float over. An app showing a window
+     * again means it to be seen, so it goes to the top of the whole stack
+     * first and restack_all() then pulls it back down into its own layer
+     * -- the same "raise, then re-sort" pair focus_client() uses, and what
+     * keeps krunner from coming back *behind* whatever was focused since
+     * it last hid itself. */
+    if (c->mapped)
+        xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE,
+                             (uint32_t[]){ XCB_STACK_MODE_ABOVE });
     restack_all();
 }
 
@@ -1093,9 +1119,34 @@ static void handle_client_message(xcb_client_message_event_t *ev)
     }
 }
 
+/* The newest server timestamp kiwm has been handed -- see wm.h's
+ * KiWM::last_event_time. Only these event types carry one, and only the
+ * ones kiwm actually selects for can turn up here. */
+static void note_event_time(uint8_t type, xcb_generic_event_t *event)
+{
+    xcb_timestamp_t t;
+
+    switch (type) {
+    case XCB_KEY_PRESS:
+    case XCB_KEY_RELEASE:      t = ((xcb_key_press_event_t *)event)->time; break;
+    case XCB_BUTTON_PRESS:
+    case XCB_BUTTON_RELEASE:   t = ((xcb_button_press_event_t *)event)->time; break;
+    case XCB_MOTION_NOTIFY:    t = ((xcb_motion_notify_event_t *)event)->time; break;
+    case XCB_ENTER_NOTIFY:
+    case XCB_LEAVE_NOTIFY:     t = ((xcb_enter_notify_event_t *)event)->time; break;
+    case XCB_PROPERTY_NOTIFY:  t = ((xcb_property_notify_event_t *)event)->time; break;
+    default:                   return;
+    }
+
+    if (t != XCB_CURRENT_TIME)
+        wm.last_event_time = t;
+}
+
 void handle_event(xcb_generic_event_t *event)
 {
     uint8_t type = event->response_type & ~0x80;
+
+    note_event_time(type, event);
 
     if (wm.randr_event_base && type == wm.randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY) {
         outputs_refresh();
@@ -1160,11 +1211,20 @@ void handle_event(xcb_generic_event_t *event)
                  * minimize+restore) happens to remap the frame again. */
                 break;
             }
-            if (c->mapped && wm.outputs[c->output].desktop == c->desktop && !c->minimized) {
-                c->mapped = false;
-                xcb_unmap_window(wm.conn, c->frame);
-                xcb_flush(wm.conn);
-            }
+            /* Anything else is the client unmapping its own window, which
+             * ICCCM defines as *withdrawing* it -- the window stops being
+             * managed, full stop. kiwm used to just hide the frame and
+             * keep the Client around, which left the window listed in
+             * _NET_WM_CLIENT_LIST: every OpenSnitch prompt ever answered
+             * stayed in the taskbar forever. (kiwm's own ways of hiding a
+             * window never reach here: minimizing and switching desktops
+             * unmap the *frame*, which leaves the client window mapped --
+             * just not viewable -- and generates no UnmapNotify for it,
+             * and shading is handled above.) Showing the window again then
+             * goes through the normal MapRequest path as a brand-new
+             * window, which is also what makes it come back focused. */
+            unmanage(c);
+            xcb_flush(wm.conn);
         }
         break;
     }
