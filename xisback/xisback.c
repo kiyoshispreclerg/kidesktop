@@ -74,7 +74,7 @@ int xis_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int 
 int xis_fd(void);
 int xis_poll_change(void);
 
-#define XISBACK_VERSION "0.4.0"
+#define XISBACK_VERSION "0.4.1"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -541,7 +541,12 @@ static void layer_geometry(Layer *l, int *x, int *y, int *w, int *h)
     }
 }
 
-static Window create_layer_window(Layer *l, int x, int y, int w, int h)
+/* focusable: whether this window advertises itself as willing to take the
+ * keyboard focus (ICCCM InputHint). The layer's own window does -- a left
+ * click on the wallpaper focuses it (see ButtonPress handling in main()) --
+ * while the throwaway fade overlay never does, so mapping it in front for
+ * the duration of a crossfade can't pull focus off anything. */
+static Window create_layer_window(Layer *l, int x, int y, int w, int h, int focusable)
 {
     Window win = XCreateSimpleWindow(g_dpy, g_root, x, y, (unsigned)w, (unsigned)h, 0, 0, BlackPixel(g_dpy, g_screen));
 
@@ -579,12 +584,16 @@ static Window create_layer_window(Layer *l, int x, int y, int w, int h)
     long bypassVal = 2;
     XChangeProperty(g_dpy, win, wmBypassCompositor, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&bypassVal, 1);
 
-    /* ICCCM: tells the WM this window never wants keyboard focus, so a
-     * click on the wallpaper (needed for ButtonPress, below) doesn't
-     * steal focus from whatever the user was actually using. */
+    /* ICCCM InputHint: True means the WM may hand this window the keyboard
+     * focus, False means it never should. We don't rely on the WM's own
+     * click-to-focus policy either way (that would focus the wallpaper on
+     * any button, and we only want Button1 to) -- the ButtonPress handler
+     * calls XSetInputFocus() itself; the hint just keeps a compliant WM
+     * from refusing/reverting that focus on the layer window, and keeps it
+     * from ever focusing the fade overlay. */
     XWMHints hints;
     hints.flags = InputHint;
-    hints.input = False;
+    hints.input = focusable ? True : False;
     XSetWMHints(g_dpy, win, &hints);
 
     XSelectInput(g_dpy, win, ButtonPressMask);
@@ -620,7 +629,7 @@ static Window create_layer_window(Layer *l, int x, int y, int w, int h)
  * the whole stack regardless, same as it already does for l->win. */
 static Window create_fade_window(Layer *l, int w, int h)
 {
-    return create_layer_window(l, l->x, l->y, w, h);
+    return create_layer_window(l, l->x, l->y, w, h, 0);
 }
 
 /* _NET_WM_WINDOW_OPACITY (the xcompmgr/compton/picom/KWin convention): a
@@ -644,7 +653,7 @@ static void layer_ensure_window(Layer *l)
     layer_geometry(l, &x, &y, &w, &h);
 
     if (l->win == None) {
-        l->win = create_layer_window(l, x, y, w, h);
+        l->win = create_layer_window(l, x, y, w, h, 1);
         XMapWindow(g_dpy, l->win);
         XLowerWindow(g_dpy, l->win);
         l->x = x;
@@ -772,34 +781,38 @@ static Pixmap render_pixmap(int w, int h, const char *path, enum mode mode)
     return pmap;
 }
 
-/* Drops an in-flight crossfade by promoting fade_win/fade_pixmap into
- * win/cur_pixmap and destroying whatever they replace -- used both when a
- * fade completes naturally and when it needs to be cut short (a new switch
- * arrives, or the layer is being resized/destroyed). */
+/* Ends an in-flight crossfade: the faded-in image becomes the layer
+ * window's own background and the throwaway overlay goes away -- used both
+ * when a fade completes naturally and when it needs to be cut short (a new
+ * switch arrives, or the layer is being resized/destroyed).
+ *
+ * Note the direction: the *overlay* is destroyed and l->win survives, not
+ * the other way around. Promoting fade_win into l->win (what this used to
+ * do) meant every image switch destroyed the window that had been on screen
+ * -- and if the user had clicked the wallpaper, that was the focused
+ * window, so the focus fell back to some other client the moment the fade
+ * ended. Repainting the window that already exists keeps the layer's window
+ * identity stable across a switch, so whatever had the focus (the wallpaper
+ * included) still has it afterwards. */
 static void layer_finish_fade(Layer *l)
 {
     if (!l->fading) {
         return;
     }
-    if (l->win != None) {
-        XDestroyWindow(g_dpy, l->win);
+    /* Paint the new image into the window underneath *before* dropping the
+     * overlay: at this instant both show the same pixels, so the destroy
+     * below reveals identical content and there's no flash. */
+    if (l->win != None && l->fade_pixmap != None) {
+        XSetWindowBackgroundPixmap(g_dpy, l->win, l->fade_pixmap);
+        XClearWindow(g_dpy, l->win);
+    }
+    if (l->fade_win != None) {
+        XDestroyWindow(g_dpy, l->fade_win);
     }
     if (l->cur_pixmap != None) {
         XFreePixmap(g_dpy, l->cur_pixmap);
     }
-    l->win = l->fade_win;
     l->cur_pixmap = l->fade_pixmap;
-    /* layer_fade_tick() only ever sets opacity for progress < 1.0 (the
-     * "still fading" case) -- the tick that notices progress >= 1.0 comes
-     * straight here without a final "set it to fully opaque" step, and
-     * this function is also reached mid-fade (a new switch or a resize
-     * cutting the animation short) where the window may be sitting at any
-     * partial opacity. Either way, force it to fully opaque now: leaving
-     * it at ~97-99% forever is invisible to some compositors' blending but
-     * not others (e.g. a per-output pipeline may not special-case
-     * "opaque enough" and end up not fully repainting under it, showing
-     * stale pixels from whatever was on screen before). */
-    set_window_opacity(l->win, 1.0);
     l->fade_win = None;
     l->fade_pixmap = None;
     l->fading = 0;
@@ -1674,6 +1687,18 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                     if (idx >= 0 && (ev.xbutton.button == Button1 || ev.xbutton.button == Button2 || ev.xbutton.button == Button3)) {
                         Layer *l = &g_layers[idx];
                         int button = (int)ev.xbutton.button;
+
+                        /* Only a left click takes the keyboard focus; the
+                         * middle/right menus (and their actions) leave it
+                         * wherever it was. We do this ourselves rather than
+                         * leaving it to the WM's click-to-focus, which has
+                         * no notion of "this button but not that one".
+                         * The press may have landed on the fade overlay
+                         * mid-switch -- focus l->win regardless, it's the
+                         * window that outlives the transition. */
+                        if (button == Button1 && l->win != None) {
+                            XSetInputFocus(g_dpy, l->win, RevertToPointerRoot, ev.xbutton.time);
+                        }
 
                         if (!g_action_double[0]) {
                             /* Nobody bound a double-click action, so there's
