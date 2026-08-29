@@ -2,10 +2,19 @@
  * volume widget - single icon reflecting the default PulseAudio/PipeWire
  * sink's volume/mute state (see pulse.c for the pactl-shelling backend).
  * Scroll up/down adjusts the default sink's volume directly on the icon
- * (no need to open a mixer just to nudge the level); left-click toggles
- * mute; right-click runs a configurable external mixer (cmd_edit=,
- * default `pavucontrol`) for finer control -- same "shell out to a real
- * program instead of reimplementing one" idea as launcher's cmd=.
+ * (no need to open a mixer just to nudge the level); left-click opens
+ * xisserve's audio page (the device list plus whatever is currently
+ * playing/recording) anchored to this icon; middle-click toggles mute;
+ * right-click runs a configurable external mixer (cmd_edit=, default
+ * `pavucontrol`) for finer control -- same "shell out to a real program
+ * instead of reimplementing one" idea as launcher's cmd=.
+ *
+ * Left = popup, middle = mute is plasmashell's own convention for its
+ * volume tray icon, kept deliberately: the mute toggle stays one click
+ * away, and the button that opens a panel is the same one everywhere
+ * else in this panel. xisserve's audio page is not written yet (see
+ * xisserve/PROTOCOL.md's --audio) -- until it is, that click opens
+ * whatever xisserve currently shows for an unknown mode flag.
  *
  * The hover tooltip is intentionally simple for now: read-only text
  * showing the default output's and input's level/mute state. Per-device
@@ -26,6 +35,7 @@
 typedef struct {
     int step; /* percent adjusted per scroll notch, default 5 */
     char cmd_edit[256];
+    char cmd[192]; /* xisserve binary opened on left click */
 
     int have_sink;
     int sink_pct;
@@ -44,6 +54,9 @@ static int volume_init(PanelWidget *w)
     }
     if (!kv_get(w->config_kv, "cmd_edit", vp->cmd_edit, sizeof(vp->cmd_edit))) {
         snprintf(vp->cmd_edit, sizeof(vp->cmd_edit), "pavucontrol");
+    }
+    if (!kv_get(w->config_kv, "cmd", vp->cmd, sizeof(vp->cmd)) || !vp->cmd[0]) {
+        snprintf(vp->cmd, sizeof(vp->cmd), "xisserve");
     }
     w->next_tick_ms = now_ms();
     return 0;
@@ -164,6 +177,9 @@ static int volume_on_button(PanelWidget *w, int button, int local_x, int local_y
     VolumePriv *vp = w->priv;
     switch (button) {
     case Button1:
+        xisserve_spawn_for_widget(w, vp->cmd, "--audio");
+        return 1;
+    case Button2:
         pulse_toggle_sink_mute("@DEFAULT_SINK@");
         break;
     case Button3:

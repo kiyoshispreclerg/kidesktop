@@ -4,13 +4,20 @@
  * never stores anything of its own, just queries notifd_count()/
  * notifd_get()/notifd_unread_count() on demand.
  *
- * Click opens the history as a normal panel_menu_open() popup (reused,
- * not a bespoke layout) -- same widget-agnostic menu mechanism tasklist's
- * right-click context menu uses. Opening the history also marks every
+ * Left-click opens xisserve's notification-history page anchored to this
+ * icon (see xisserve/PROTOCOL.md's --notifications); right-click opens
+ * the same history inline as a normal panel_menu_open() popup -- the
+ * widget-agnostic menu mechanism tasklist's context menu uses. The
+ * inline list stays because it's the fallback that always works: it
+ * needs no second process, and it's the only view available while
+ * xisserve's own page doesn't exist yet. Either one marks every
  * currently-held notification read (clearing the badge), the same
  * "viewing the list dismisses the count" convention most desktop
  * notification centers use -- there's no per-item read/unread affordance
  * in the menu itself.
+ *
+ * cmd= (default "xisserve") picks the binary opened on left click, same
+ * option name the xisserve and clock widgets use.
  *
  * corner= (bottom-right (default), bottom-left, bottom-center, top-right,
  * top-left, top-center, center-left, center-right) and timeout=<ms>
@@ -40,6 +47,7 @@
 
 typedef struct {
     unsigned int last_shown_count; /* just to know when to re-dirty, see on_tick */
+    char cmd[192];                 /* xisserve binary opened on left click */
 } NotifPriv;
 
 static ToastCorner parse_corner(const char *s)
@@ -103,7 +111,11 @@ static void compute_output_rect(Panel *p, int *out_x, int *out_y, int *out_w, in
 
 static int notif_init(PanelWidget *w)
 {
+    NotifPriv *np = w->priv;
     char buf[32];
+    if (!kv_get(w->config_kv, "cmd", np->cmd, sizeof(np->cmd)) || !np->cmd[0]) {
+        snprintf(np->cmd, sizeof(np->cmd), "xisserve");
+    }
     if (kv_get(w->config_kv, "corner", buf, sizeof(buf))) {
         toast_set_corner(parse_corner(buf));
     }
@@ -270,7 +282,21 @@ static int notif_on_button(PanelWidget *w, int button, int local_x, int local_y,
     (void)local_y;
     (void)root_x;
     (void)root_y;
-    if (button != Button1) {
+    NotifPriv *np = w->priv;
+    if (button == Button1) {
+        /* Opening the history counts as reading it, exactly like the
+         * inline list below -- the badge clears either way. */
+        for (int i = notifd_count() - 1; i >= 0; i--) {
+            const NotifEntry *e = notifd_get(i);
+            if (e) {
+                notifd_mark_read(e->id);
+            }
+        }
+        xisserve_spawn_for_widget(w, np->cmd, "--notifications");
+        w->panel->dirty = 1;
+        return 1;
+    }
+    if (button != Button3) {
         return 0;
     }
 

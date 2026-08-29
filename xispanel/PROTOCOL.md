@@ -420,14 +420,34 @@ Widget types implemented so far:
   "Volume control" below) -- no libpulse linked, and no dependency at
   all (build or runtime) if `pactl` isn't installed. Scroll up/down on
   the icon adjusts the default sink's volume by `step=<pct>` (default
-  `5`) per notch; left-click toggles mute; right-click runs
-  `cmd_edit=<command>` (default `pavucontrol`) for a full mixer. Hovering
+  `5`) per notch; left-click opens `xisserve --audio` (the device list
+  plus what's playing/recording) anchored to the icon, with `cmd=`
+  choosing the binary as in the `xisserve` widget; middle-click toggles
+  mute; right-click runs `cmd_edit=<command>` (default `pavucontrol`)
+  for a full mixer. Left = page, middle = mute follows plasmashell's own
+  volume-icon convention. The `--audio` page doesn't exist on the
+  xisserve side yet. Hovering
   shows a read-only tooltip with the default output's and input's
   level/mute state (`Saída: NN%` / `Entrada: NN%`) -- individually
   adjustable per-device scrollbars in the tooltip are a known gap against
   the original ask, not yet implemented; `cmd_edit`'s external mixer
   covers that need for now.
 
+- `notif`: bell icon with an unread-count badge over the built-in
+  notification server (`notifd.c`'s ring buffer). Left-click opens
+  `xisserve --notifications` (the history page) anchored to the icon,
+  `cmd=` choosing the binary; right-click opens the same history inline
+  as a panel menu, which needs no second process and is the only view
+  that works until the xisserve page exists. Either one marks everything
+  currently held as read, clearing the badge. `corner=` (default
+  `bottom-right`; also `bottom-left`, `bottom-center`, `top-right`,
+  `top-left`, `top-center`, `center-left`, `center-right`) and
+  `timeout=<ms>` (default `5000`) configure the *toast* popups rather
+  than this widget: there's a single global toast stack no matter how
+  many `notif` widgets exist, so the last one to load wins for both, and
+  `timeout=` only applies to senders that didn't request their own
+  expire timeout. The toasts are confined to this widget's own panel's
+  output and painted in that panel's `bg`/`fg`.
 - `globalmenu`: renders the active window's exported application menu
   (File/Edit/View/...), when it has one -- see "Global menu (appmenu)"
   below for the underlying mechanism. `mode=open|closed` (default
