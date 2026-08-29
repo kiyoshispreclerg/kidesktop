@@ -29,6 +29,7 @@
 #include "decoration.h"
 #include "client.h"
 #include "output.h"
+#include "outline.h"
 
 #include <cairo/cairo-xcb.h>
 #include <xcb/shape.h>
@@ -316,6 +317,7 @@ static void repaint_desktops(void)
 
 static void close_osd(void)
 {
+    outline_hide();
     if (osd_win != XCB_NONE && osd_mapped) {
         xcb_unmap_window(wm.conn, osd_win);
         osd_mapped = false;
@@ -488,8 +490,18 @@ void osd_windows_step(int direction)
     }
 
     tb_state.selected = (tb_state.selected + direction + tb_state.count) % tb_state.count;
-    if (wm.osd_live_preview)
+    if (wm.osd_live_preview) {
         focus_client(tb_state.items[tb_state.selected]);
+    } else {
+        /* Without live preview nothing is raised or focused until the
+         * hold ends, so the list alone doesn't say *where* the
+         * highlighted window is -- especially when it's buried or on
+         * another part of a big desktop. The outline says it (xfwm does
+         * the same), and sits in its own layer just below this overlay so
+         * the two never cover each other. */
+        Client *sel = tb_state.items[tb_state.selected];
+        outline_show(sel->x, sel->y, sel->frame_width, sel->frame_height);
+    }
     repaint_windows();
 }
 

@@ -7,6 +7,7 @@
 #include "ewmh.h"
 #include "osd.h"
 #include "menu.h"
+#include "outline.h"
 #include "shape.h"
 
 #include <xcb/xcb_icccm.h>
@@ -931,6 +932,8 @@ void restack_all(void)
             l = LAYER_DOCK;
         } else if (!c && (osd_owns_window(kids[i]) || window_menu_owns_window(kids[i]))) {
             l = LAYER_OSD;
+        } else if (!c && outline_owns_window(kids[i])) {
+            l = LAYER_OUTLINE;
         } else {
             continue;
         }
@@ -1472,6 +1475,9 @@ void unmanage(Client *c)
         wm.drag_snap_side = SNAP_NONE;
         wm.resize_neighbors_x_count = 0;
         wm.resize_neighbors_y_count = 0;
+        /* The drag is over whether the button was released or not, so a
+         * snap preview drawn for it has nothing left to preview. */
+        outline_hide();
     } else {
         /* c isn't the client actually being dragged, but a resize in
          * progress might still be dragging it along as a resize-neighbor

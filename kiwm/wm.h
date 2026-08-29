@@ -21,6 +21,11 @@
 #define MAX_OUTPUTS       16
 #define MAX_DOCKS         16
 
+/* Upper bound on kiwm.conf's outline_width= (outline.c's wireframe band).
+ * Not a technical limit, just the point past which the "outline" stops
+ * being one and starts being a slab covering the window it's pointing at. */
+#define MAX_OUTLINE_WIDTH 64
+
 /* Upper bound used only to size fixed stack arrays (e.g. _NET_WORKAREA);
  * the actual per-output desktop count is wm.num_desktops, read from
  * kiwm.conf's num_desktops= key at startup (see config.c), default 4. */
@@ -130,7 +135,13 @@ typedef enum {
  * this ordering entirely -- see manage()'s own last_desktop_window
  * chaining, which keeps them clustered at the very bottom.
  *
- * LAYER_OSD, at the very top, is the WM's *own* surfaces: the switcher
+ * LAYER_OUTLINE and LAYER_OSD, at the top, are the WM's *own* surfaces --
+ * nothing a client can ask for ever reaches either, which is the point.
+ * The outline (outline.c's wireframe preview) goes above every client,
+ * including an active fullscreen one, but stays below the overlay that's
+ * usually driving it, so the two never fight over which is on top.
+ *
+ * LAYER_OSD, at the very top, is the WM's own surfaces: the switcher
  * overlays today (osd.c), whatever kicomp puts on screen later. Nothing a
  * client can ask for ever reaches it, which is the point -- it's the one
  * layer guaranteed to be above even an active fullscreen window, so kiwm's
@@ -143,6 +154,7 @@ typedef enum {
     LAYER_DOCK,
     LAYER_ABOVE,
     LAYER_ACTIVE_FULLSCREEN,
+    LAYER_OUTLINE,
     LAYER_OSD,
     LAYER_COUNT
 } WmLayer;
@@ -664,6 +676,23 @@ typedef struct {
      * edge snapping (see events.c's handle_motion). kiwm.conf's
      * snap_threshold= (default 20). 0 disables snapping entirely. */
     int snap_threshold;
+
+    /* Whether an edge snap resizes the window *during* the drag
+     * (kiwm.conf's live_snap_resize=, default 0/off) or only shows where
+     * it's going to land -- outline.c's wireframe rectangle -- and applies
+     * the real geometry when the button is released. Off by default
+     * because the live version means a window that jumps to half the
+     * screen and back as the pointer crosses the edge zone, repeatedly,
+     * while the user is still deciding; the outline is what xfwm and
+     * kwin's own "electric borders" show instead. */
+    bool live_snap_resize;
+
+    /* How thick the outline's band is, in pixels (kiwm.conf's
+     * outline_width=, default 16) -- outline.c's wireframe preview, used
+     * by the switcher and by snap previews. Straddles the outlined
+     * window's edge, half of it outside and half in (an odd value puts the
+     * extra pixel inside). */
+    int outline_width;
     /* SNAP_NONE/current snap side engaged by the drag in progress, and the
      * output it was computed against -- reset at the start of every drag
      * in handle_button_press. Separate from Client::snap_side because a

@@ -43,6 +43,8 @@ static void apply_builtin_defaults(void)
     wm.border_thickness = 0;
     wm.border_r = 0.0; wm.border_g = 0.0; wm.border_b = 0.0;
     wm.snap_threshold = 20;
+    wm.live_snap_resize = false;
+    wm.outline_width = 16;
     wm.magnet_threshold = 10;
     wm.link_resize_neighbors = false;
     wm.focus_follows_mouse = false;
@@ -165,6 +167,17 @@ static void write_default_config(const char *path)
         "# mod_control-drag, to snap it there (top = maximize, left/right =\n"
         "# half-width, like Windows 7/kwin). 0 disables snapping.\n"
         "snap_threshold=20\n"
+        "\n"
+        "# Whether an edge snap resizes the window while you drag it (1), or\n"
+        "# just outlines where it will land and applies that size when you\n"
+        "# release the button (0, the default).\n"
+        "live_snap_resize=0\n"
+        "\n"
+        "# Thickness, in pixels, of the outline drawn around a window kiwm is\n"
+        "# pointing at without moving it yet -- the snap preview above, and\n"
+        "# the switcher with osd_live_preview=0. Straddles the window's edge,\n"
+        "# half outside and half in.\n"
+        "outline_width=16\n"
         "\n"
         "# How close (in pixels) a dragged window's edge must get to another\n"
         "# window's edge (decoration included) or to the screen edge before it\n"
@@ -300,6 +313,13 @@ void config_load(void)
         } else if (strcmp(key, "snap_threshold") == 0) {
             int n = atoi(val);
             wm.snap_threshold = n < 0 ? 0 : n;
+        } else if (strcmp(key, "live_snap_resize") == 0) {
+            wm.live_snap_resize = atoi(val) != 0;
+        } else if (strcmp(key, "outline_width") == 0) {
+            int n = atoi(val);
+            if (n < 1) n = 1;
+            if (n > MAX_OUTLINE_WIDTH) n = MAX_OUTLINE_WIDTH;
+            wm.outline_width = n;
         } else if (strcmp(key, "magnet_threshold") == 0) {
             int n = atoi(val);
             wm.magnet_threshold = n < 0 ? 0 : n;

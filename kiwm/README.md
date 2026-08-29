@@ -314,6 +314,8 @@ a warning on stderr, not a hard error. A key you leave out of the file keeps its
 | `border_thickness` | `0` | Left/right/bottom decoration border thickness in pixels. `0` means no border at all -- just the titlebar (the original look). |
 | `border_color` | `#000000` | Fallback border color, used only when no theme `colors` file overrides it (see "Theming"). |
 | `snap_threshold` | `20` | How close (pixels) the pointer must get to an output's *usable* area edge while dragging a window to snap it there -- top edge maximizes, left/right edges fill exactly half the width, Windows7/kwin-style. `0` disables snapping entirely. |
+| `live_snap_resize` | `0` | Whether an edge snap (`snap_threshold` above) resizes the window *while* you drag it (`1`, kiwm's original behavior), or only draws an outline where it will land and applies that geometry when you release the button (`0`, the default). The live version means a window that jumps to half the screen and back as the pointer crosses in and out of the edge zone while you're still deciding; the outline is what xfwm shows instead. |
+| `outline_width` | `16` | Thickness (pixels) of the outline kiwm draws around a window it's pointing at without moving it yet -- the snap preview above, and the switcher with `osd_live_preview=0`. The band straddles the window's edge, half outside and half in, so `16` is 8px either side. Clamped to 1..64. |
 | `magnet_threshold` | `10` | How close (pixels) a window's *edge* (not the pointer -- the frame, decoration included), while being moved or resized, must get to another window's edge, a same-output dock/panel/taskbar's edge, or the screen edge before it snaps flush against it, gap-free -- a much smaller, purely cosmetic nudge than `snap_threshold`'s tiling snap above. `0` disables it. |
 | `link_resize_neighbors` | `0` | `1` makes resizing also resize whatever's touching (within 1px) the edge being dragged, oppositely, so both stay touching -- same output only. `0` (default) leaves resizing exactly as before. |
 | `focus_follows_mouse` | `0` | `1` raises+focuses a window just by moving the pointer into it ("sloppy focus"). `0` (default) requires an actual click. |
@@ -438,7 +440,9 @@ separately bindable; they follow `mod_cycle=`/`mod_control=` directly. With the 
 (`mod_cycle=alt`, `mod_control=meta`):
 
 - **Click** a window (titlebar or content): focus + raise.
-- **Click-drag** a titlebar: move. Drag to a screen edge to snap (see `snap_threshold=` above).
+- **Click-drag** a titlebar: move. Drag to a screen edge to snap (see `snap_threshold=` above) --
+  which by default outlines where the window will land and only resizes it on release, see
+  `live_snap_resize=`.
 - **Double-click** a titlebar (not on a button): maximize/restore.
 - **Scroll** a titlebar: shade/unshade.
 - **Right-click** the decoration (titlebar or border), or **click the window icon**: the window
@@ -449,8 +453,9 @@ separately bindable; they follow `mod_cycle=`/`mod_control=` directly. With the 
 - **Alt+right-drag** or **Meta+right-drag**: resize, from whichever corner of the window is
   nearest wherever you clicked -- the opposite corner stays fixed.
 - **Alt+Tab** / **Alt+Shift+Tab**: hold Alt, tap Tab/Shift+Tab to step forward/backward through
-  mapped windows on the current output's current desktop (plus any sticky ones) -- releasing Alt
-  commits whichever is highlighted (see "On-screen overlays (OSD)" below; `osd_enabled=0` switches
+  mapped windows on the current output's current desktop (plus any sticky ones), each highlighted
+  one outlined where it sits (see "The outline" below) -- releasing Alt commits whichever is
+  highlighted (see "On-screen overlays (OSD)" below; `osd_enabled=0` switches
   immediately on every tap instead, with no overlay).
 - **Meta+Tab** / **Meta+Shift+Tab**: same idea, for the focused output's current desktop. Switching
   desktops **while dragging a window** carries that window along to the new desktop, the way kwin
@@ -572,6 +577,26 @@ mechanics or eligibility rules. Only one implementation exists today: `simple_li
 plain list above. The desktop grid isn't behind such a vtable -- it's a single fixed presentation,
 not asked to be swappable.
 
+### The outline
+
+Two things draw a hollow rectangle around a window instead of touching the window itself -- the
+classic wireframe preview, in the focused decoration's own color (flat, no theme image), a band
+straddling the window's edges -- `outline_width=` pixels thick, half outside and half in (8px
+either side by default):
+
+- **Alt+Tab with `osd_live_preview=0`** (the default): nothing is raised or focused until the
+  modifier is released, so the switcher list alone doesn't say *where* the highlighted window
+  actually is. The outline does, the way xfwm's does.
+- **Dragging a window to a screen edge with `live_snap_resize=0`** (the default): the window keeps
+  following the pointer, and the outline shows the size and position it will take when the button
+  is released.
+
+It's one override-redirect window, XCB SHAPE-clipped down to just the band so the middle stays a
+real hole with the window underneath showing through, and with an empty *input* shape so it can
+never intercept a click -- including during the drag it's previewing. It has its own stacking layer
+(`outline` in the list above) directly below `osd`: above every client, including an active
+fullscreen one, but under the switcher overlay that's usually driving it.
+
 ### Window context menu
 
 Right-clicking a window's decoration (titlebar or border, without a modifier -- with one that's the
@@ -618,6 +643,8 @@ One `.c`/`.h` pair per concern, all sharing `wm.h` (shared types + `extern KiWM 
 - `osd.c` -- Alt+Tab/Meta+Tab on-screen overlays (see "On-screen overlays (OSD)" above).
 - `menu.c` -- the window context menu, one table of actions plus the popup/submenu machinery (see
   "Window context menu" above).
+- `outline.c` -- the wireframe rectangle drawn around a window kiwm is pointing at without moving
+  it yet (see "The outline" above).
 
 `kiwm-gpt.c` is an earlier, single-file GPT-authored attempt (single global workspace, no RandR,
 no theming) kept only as historical reference -- not built by the Makefile, not maintained.

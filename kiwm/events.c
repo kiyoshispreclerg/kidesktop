@@ -9,6 +9,7 @@
 #include "keybind.h"
 #include "osd.h"
 #include "menu.h"
+#include "outline.h"
 #include "shape.h"
 
 #include <xcb/randr.h>
@@ -461,16 +462,107 @@ static void handle_button_press(xcb_button_press_event_t *ev)
     }
 }
 
+/* Where a window would end up if it snapped to `side` on the output whose
+ * workarea is (wx, wy, ww, wh) -- as a *frame* rect, which is what the
+ * outline wants. Deliberately the plain geometry, without the min-size
+ * clamps apply_drag_snap() applies: this is a preview of the intent, and a
+ * window whose minimum size doesn't fit half a screen is rare enough that
+ * a few pixels of difference between the outline and the final size is a
+ * better trade than duplicating the clamping in two places. */
+static void snap_target_rect(Client *c, SnapSide side, int wx, int wy, int ww, int wh,
+                             int *out_x, int *out_y, int *out_w, int *out_h)
+{
+    (void)c;
+    *out_y = wy;
+    *out_h = wh;
+
+    switch (side) {
+    case SNAP_LEFT:
+        *out_x = wx;
+        *out_w = ww / 2;
+        break;
+    case SNAP_RIGHT:
+        *out_x = wx + (ww - ww / 2);
+        *out_w = ww / 2;
+        break;
+    case SNAP_TOP:
+    default:
+        *out_x = wx;
+        *out_w = ww;
+        break;
+    }
+}
+
+/* Actually puts the window into (or back out of) a drag snap. Split out of
+ * try_edge_snap() because it has two callers now: that function, when
+ * live_snap_resize=1 applies snaps as the pointer crosses the edge zone,
+ * and handle_button_release(), when the default preview mode applies the
+ * snap the outline has been showing all along. */
+static void apply_drag_snap(Client *c, SnapSide side, int wx, int wy, int ww, int wh, int dx, int dy)
+{
+    if (side != SNAP_NONE) {
+        /* Remember the true pre-drag floating geometry as the maximize
+         * "restore" target too, so a later plain un-maximize (titlebar
+         * button, Meta+Up) after this drag restores to it correctly
+         * instead of to wherever the window happened to be mid-drag. */
+        c->saved_x = wm.drag_start_x;
+        c->saved_y = wm.drag_start_y;
+        c->saved_w = wm.drag_start_w;
+        c->saved_h = wm.drag_start_h;
+    }
+
+    switch (side) {
+    case SNAP_TOP: {
+        unshade_now(c);
+        c->snap_side = SNAP_NONE;
+        c->maximized = true;
+        int bt, th;
+        bool deco = client_deco_visible(c);
+        th = deco ? TITLEBAR_H : 0;
+        bt = deco ? wm.border_thickness : 0;
+        c->x = wx;
+        c->y = wy;
+        c->width = ww - bt * 2;
+        c->height = wh - th - bt;
+        if (c->width < c->min_w) c->width = c->min_w;
+        if (c->height < c->min_h) c->height = c->min_h;
+        break;
+    }
+    case SNAP_LEFT:
+    case SNAP_RIGHT:
+        snap_client_to_side(c, side);
+        break;
+    case SNAP_NONE:
+    default:
+        unsnap_client(c, wm.drag_start_x + dx, wm.drag_start_y + dy,
+                      wm.drag_start_w, wm.drag_start_h);
+        break;
+    }
+
+    configure_frame(c);
+    ewmh_update_wm_state(c);
+    ewmh_update_frame_extents(c);
+    xcb_flush(wm.conn);
+}
+
 /* Windows7/kwin-style edge snap while dragging a window by its titlebar or
  * via mod_control-drag: the pointer getting within kiwm.conf's
  * snap_threshold= of an output workarea edge snaps the window there (top =
  * maximize, left/right = half-width); moving the pointer back out of that
- * zone before releasing the button restores the exact pre-drag floating
- * geometry, offset by however far the pointer has moved since -- so the
- * window keeps following the cursor as if it had never been snapped. Only
- * engages/disengages on a *change* of which edge (if any) the pointer is
- * currently within threshold of, so a snapped window doesn't jitter while
- * the pointer sits still inside the same edge zone. */
+ * zone before releasing the button cancels it again. Only engages/
+ * disengages on a *change* of which edge (if any) the pointer is currently
+ * within threshold of, so nothing jitters while the pointer sits still
+ * inside the same edge zone.
+ *
+ * What "engages" means depends on kiwm.conf's live_snap_resize=. Off (the
+ * default), it draws the destination as an outline and leaves the window
+ * alone until the button is released. On, it resizes the window then and
+ * there -- kiwm's original behavior -- and moving back out restores the
+ * exact pre-drag geometry offset by however far the pointer has moved
+ * since, so the window keeps following the cursor as if it had never been
+ * snapped. Returns whether it fully handled this motion event (which only
+ * the live path ever does; the preview path still wants the window moved
+ * normally underneath the outline). */
 static bool try_edge_snap(Client *c, xcb_motion_notify_event_t *ev, int dx, int dy)
 {
     if (wm.snap_threshold <= 0)
@@ -494,55 +586,24 @@ static bool try_edge_snap(Client *c, xcb_motion_notify_event_t *ev, int dx, int 
         want = SNAP_NONE;
 
     if (want == wm.drag_snap_side)
-        return want != SNAP_NONE; /* already settled into this state (or none); nothing to do */
+        return wm.live_snap_resize && want != SNAP_NONE; /* already settled into this state (or none) */
 
     wm.drag_snap_side = want;
     c->output = output_idx;
 
-    if (want != SNAP_NONE) {
-        /* Remember the true pre-drag floating geometry as the maximize
-         * "restore" target too, so a later plain un-maximize (titlebar
-         * button, Meta+Up) after this drag restores to it correctly
-         * instead of to wherever the window happened to be mid-drag. */
-        c->saved_x = wm.drag_start_x;
-        c->saved_y = wm.drag_start_y;
-        c->saved_w = wm.drag_start_w;
-        c->saved_h = wm.drag_start_h;
+    if (!wm.live_snap_resize) {
+        if (want == SNAP_NONE) {
+            outline_hide();
+        } else {
+            int x, y, w, h;
+            snap_target_rect(c, want, wx, wy, ww, wh, &x, &y, &w, &h);
+            outline_show(x, y, w, h);
+        }
+        return false; /* nothing applied -- the caller still moves the window */
     }
 
-    switch (want) {
-    case SNAP_TOP: {
-        unshade_now(c);
-        c->snap_side = SNAP_NONE;
-        c->maximized = true;
-        int bt, th;
-        bool deco = client_deco_visible(c);
-        th = deco ? TITLEBAR_H : 0;
-        bt = deco ? wm.border_thickness : 0;
-        c->x = wx;
-        c->y = wy;
-        c->width = ww - bt * 2;
-        c->height = wh - th - bt;
-        if (c->width < c->min_w) c->width = c->min_w;
-        if (c->height < c->min_h) c->height = c->min_h;
-        break;
-    }
-    case SNAP_LEFT:
-    case SNAP_RIGHT:
-        snap_client_to_side(c, want);
-        break;
-    case SNAP_NONE:
-    default:
-        unsnap_client(c, wm.drag_start_x + dx, wm.drag_start_y + dy,
-                      wm.drag_start_w, wm.drag_start_h);
-        break;
-    }
-
-    configure_frame(c);
-    ewmh_update_wm_state(c);
-    ewmh_update_frame_extents(c);
-    xcb_flush(wm.conn);
-    return true; /* transition (into or out of a snap) already fully handled above */
+    apply_drag_snap(c, want, wx, wy, ww, wh, dx, dy);
+    return true;
 }
 
 /* Tracks which titlebar button (if any) the pointer currently sits over,
@@ -975,6 +1036,19 @@ static void handle_button_release(xcb_button_release_event_t *ev)
         wm.resize_neighbors_y_count = 0;
 
         Client *c = wm.drag_client;
+
+        /* The default (live_snap_resize=0) preview path: the window has
+         * been following the pointer all along with only an outline
+         * showing where it was headed, so the snap itself happens now,
+         * once, on release -- see try_edge_snap(). */
+        if (!wm.live_snap_resize && wm.drag_mode == DRAG_MOVE && wm.drag_snap_side != SNAP_NONE) {
+            int output_idx = c->output >= 0 ? c->output : 0;
+            int wx, wy, ww, wh;
+            compute_output_workarea(output_idx, &wx, &wy, &ww, &wh);
+            apply_drag_snap(c, wm.drag_snap_side, wx, wy, ww, wh, 0, 0);
+        }
+        outline_hide();
+
         int new_output = output_index_for_point(c->x + c->width / 2, c->y + c->height / 2);
         if (new_output >= 0 && new_output != c->output) {
             c->output = new_output;
@@ -1334,6 +1408,7 @@ void handle_event(xcb_generic_event_t *event)
             break;
         osd_handle_expose(ev->window);
         window_menu_handle_expose(ev->window);
+        outline_handle_expose(ev->window);
         Client *c = find_client_window(ev->window);
         if (c) {
             draw_decoration(c);
