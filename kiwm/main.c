@@ -270,6 +270,16 @@ static void setup_wm(bool replace)
         (const char *[]){ "sw-resize", "bottom_left_corner" }, 2, 12);
     wm.cursor_resize_se = load_theme_cursor(cursor_ctx,
         (const char *[]){ "se-resize", "bottom_right_corner" }, 2, 14);
+    /* ...and the four single-axis ones, for edge grips (kiwm.conf's
+     * resize_grip=, see events.c's handle_button_press()). */
+    wm.cursor_resize_n = load_theme_cursor(cursor_ctx,
+        (const char *[]){ "n-resize", "top_side", "sb_v_double_arrow" }, 3, 138);
+    wm.cursor_resize_s = load_theme_cursor(cursor_ctx,
+        (const char *[]){ "s-resize", "bottom_side", "sb_v_double_arrow" }, 3, 16);
+    wm.cursor_resize_e = load_theme_cursor(cursor_ctx,
+        (const char *[]){ "e-resize", "right_side", "sb_h_double_arrow" }, 3, 96);
+    wm.cursor_resize_w = load_theme_cursor(cursor_ctx,
+        (const char *[]){ "w-resize", "left_side", "sb_h_double_arrow" }, 3, 70);
 
     /* Cursor IDs created via the context stay valid after freeing it --
      * only the lookup machinery itself is torn down here (per xcb_cursor.h). */

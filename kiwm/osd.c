@@ -95,8 +95,14 @@ static void list_build(TabBoxState *state, int output_idx, int desktop)
          * switches to (VirtualBox's mini-toolbar, splash-ish helpers) --
          * listing it here would offer a switch target that does nothing
          * useful. */
+        /* Minimized windows are listed too -- switching to one is the
+         * most ordinary reason to reach for Alt+Tab, and leaving them out
+         * makes the list disagree with the taskbar about what exists.
+         * Committing to one restores it (activate_client()). What stays
+         * out is a window that isn't on this output/desktop at all, and
+         * one the client itself says isn't a switch target. */
         if (c->output == output_idx && (c->sticky || c->desktop == desktop) &&
-            c->mapped && !c->minimized && !c->skip_taskbar) {
+            (c->mapped || c->minimized) && !c->skip_taskbar) {
             if (c == wm.focused)
                 state->selected = state->count;
             state->items[state->count++] = c;
@@ -146,7 +152,9 @@ static void list_paint(cairo_t *cr, const TabBoxState *state, int w, int h)
             }
         }
 
-        cairo_set_source_rgba(cr, fg_r, fg_g, fg_b, 1.0);
+        /* Minimized entries are dimmed, the same "this one isn't on
+         * screen right now" cue a taskbar gives them. */
+        cairo_set_source_rgba(cr, fg_r, fg_g, fg_b, c->minimized ? 0.55 : 1.0);
         pango_show_text_boxed(cr, text_x, y, OSD_ROW_H, w - text_x - 6, wm.title_font_size + 1,
                               c->title[0] ? c->title : "(untitled)", false, NULL);
     }
@@ -341,7 +349,7 @@ static void commit_and_close(void)
 {
     if (kind == OSD_WINDOWS) {
         if (tb_state.count > 0 && tb_state.selected >= 0 && tb_state.selected < tb_state.count)
-            focus_client(tb_state.items[tb_state.selected]);
+            activate_client(tb_state.items[tb_state.selected]);
     } else if (kind == OSD_DESKTOPS) {
         if (osd_output >= 0)
             switch_workspace(osd_output, desk_selected);
@@ -491,7 +499,10 @@ void osd_windows_step(int direction)
 
     tb_state.selected = (tb_state.selected + direction + tb_state.count) % tb_state.count;
     if (wm.osd_live_preview) {
-        focus_client(tb_state.items[tb_state.selected]);
+        /* activate_client(), not focus_client(): the list includes
+         * minimized windows, and one of those has to be restored before
+         * there's anything to focus. */
+        activate_client(tb_state.items[tb_state.selected]);
     } else {
         /* Without live preview nothing is raised or focused until the
          * hold ends, so the list alone doesn't say *where* the
@@ -500,7 +511,10 @@ void osd_windows_step(int direction)
          * the same), and sits in its own layer just below this overlay so
          * the two never cover each other. */
         Client *sel = tb_state.items[tb_state.selected];
-        outline_show(sel->x, sel->y, sel->frame_width, sel->frame_height);
+        if (sel->minimized)
+            outline_hide(); /* nothing on screen to outline */
+        else
+            outline_show(sel->x, sel->y, sel->frame_width, sel->frame_height);
     }
     repaint_windows();
 }
@@ -547,7 +561,7 @@ void osd_cancel(void)
     if (wm.osd_live_preview) {
         if (kind == OSD_WINDOWS) {
             if (original_focused)
-                focus_client(original_focused);
+                activate_client(original_focused);
         } else {
             switch_workspace(osd_output, original_desktop);
         }

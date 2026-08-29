@@ -15,7 +15,8 @@ exposes.
 - map/unmap/move/resize/maximize/minimize/close, click-to-focus (or optional
   focus-follows-mouse), Alt-Tab-style window cycling.
 - Themed on-screen overlays (`osd_enabled=`, default on) for both window cycling and desktop
-  switching -- see "On-screen overlays (OSD)" below.
+  switching -- see "On-screen overlays (OSD)" below. The window list includes minimized windows
+  (dimmed, as a taskbar shows them), and committing to one restores it.
 - Virtual desktops tracked **independently per output** (not one global workspace number) --
   see [PROTOCOL.md](PROTOCOL.md).
 - Already-open windows are picked up at startup, not just windows mapped afterward -- *with the
@@ -332,6 +333,8 @@ a warning on stderr, not a hard error. A key you leave out of the file keeps its
 | `snap_threshold` | `20` | How close (pixels) the pointer must get to an output's *usable* area edge while dragging a window to snap it there -- top edge maximizes, left/right edges fill exactly half the width, Windows7/kwin-style. `0` disables snapping entirely. |
 | `live_snap_resize` | `0` | Whether an edge snap (`snap_threshold` above) resizes the window *while* you drag it (`1`, kiwm's original behavior), or only draws an outline where it will land and applies that geometry when you release the button (`0`, the default). The live version means a window that jumps to half the screen and back as the pointer crosses in and out of the edge zone while you're still deciding; the outline is what xfwm shows instead. |
 | `outline_width` | `16` | Thickness (pixels) of the outline kiwm draws around a window it's pointing at without moving it yet -- the snap preview above, and the switcher with `osd_live_preview=0`. The band straddles the window's edge, half outside and half in, so `16` is 8px either side. Clamped to 1..64. |
+| `resize_grip` | `12` | Width (pixels) of the invisible resize grip along a window's edges: a plain click within this far of an edge resizes -- from the corner when two edges are in range, along one axis otherwise -- instead of going to the application, and hovering it shows the matching resize cursor. Works with or without a visible border. Note that every pixel of it is a pixel the application doesn't get, so a wide grip can shadow a scrollbar sitting right at the window's edge; lower it if that gets in the way. `0` disables it (resizing then needs the modifier drag). |
+| `live_resize` | `1` | Whether resizing changes the window as the pointer moves (`1`, the default), or only outlines the size it's heading for and applies it when the button is released (`0`). Covers every resize the same way: the grip, a modifier-drag, or an application's own `_NET_WM_MOVERESIZE` request. |
 | `magnet_threshold` | `10` | How close (pixels) a window's *edge* (not the pointer -- the frame, decoration included), while being moved or resized, must get to another window's edge, a same-output dock/panel/taskbar's edge, or the screen edge before it snaps flush against it, gap-free -- a much smaller, purely cosmetic nudge than `snap_threshold`'s tiling snap above. `0` disables it. |
 | `link_resize_neighbors` | `0` | `1` makes resizing also resize whatever's touching (within 1px) the edge being dragged, oppositely, so both stay touching -- same output only. `0` (default) leaves resizing exactly as before. |
 | `focus_follows_mouse` | `0` | `1` raises+focuses a window just by moving the pointer into it ("sloppy focus"). `0` (default) requires an actual click. |
@@ -464,6 +467,8 @@ separately bindable; they follow `mod_cycle=`/`mod_control=` directly. With the 
 - **Right-click** the decoration (titlebar or border), or **click the window icon**: the window
   context menu -- see "Window context menu" below.
 - Titlebar buttons: whatever `titlebar_layout=` configures, left to right.
+- **Click-drag a window's edge or corner**: resize, no modifier needed, decoration or not -- see
+  `resize_grip=` above. A corner resizes both axes; an edge only its own.
 - **Alt+drag** (left button), or **Meta+drag** (any button): move a window from anywhere on it,
   not just its titlebar. Dragging a maximized or tiled window (either way) only restores it once
   the pointer has moved a titlebar's height -- see "Status" above.
@@ -606,13 +611,19 @@ either side by default):
 - **Alt+Tab with `osd_live_preview=0`** (the default): nothing is raised or focused until the
   modifier is released, so the switcher list alone doesn't say *where* the highlighted window
   actually is. The outline does, the way xfwm's does.
+- **Resizing with `live_resize=0`**: the window stays as it is for the whole drag and the outline
+  shows the size it's heading for, applied once on release.
 - **Dragging a window to a screen edge with `live_snap_resize=0`** (the default): the window keeps
   following the pointer, and the outline shows the size and position it will take when the button
   is released.
 
 It's one override-redirect window, XCB SHAPE-clipped down to just the band so the middle stays a
 real hole with the window underneath showing through, and with an empty *input* shape so it can
-never intercept a click -- including during the drag it's previewing. It has its own stacking layer
+never intercept a click -- including during the drag it's previewing. It is painted by *being* its
+color rather than by drawing into it (the window's background pixel is the decoration color), so
+the server fills whatever a resize exposes as part of the same operation that resizes it -- drawing
+the color in afterwards showed as a visible flash of the old contents at the new size on every step
+of a drag. It has its own stacking layer
 (`outline` in the list above) directly below `osd`: above every client, including an active
 fullscreen one, but under the switcher overlay that's usually driving it.
 

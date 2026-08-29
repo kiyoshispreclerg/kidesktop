@@ -45,6 +45,8 @@ static void apply_builtin_defaults(void)
     wm.snap_threshold = 20;
     wm.live_snap_resize = false;
     wm.outline_width = 16;
+    wm.resize_grip = 12;
+    wm.live_resize = true;
     wm.magnet_threshold = 10;
     wm.link_resize_neighbors = false;
     wm.focus_follows_mouse = false;
@@ -178,6 +180,19 @@ static void write_default_config(const char *path)
         "# the switcher with osd_live_preview=0. Straddles the window's edge,\n"
         "# half outside and half in.\n"
         "outline_width=16\n"
+        "\n"
+        "# Width, in pixels, of the invisible resize grip along a window's\n"
+        "# edges: a plain click within this far of an edge resizes instead of\n"
+        "# going to the application -- from the corner when two edges are in\n"
+        "# range, along one axis otherwise. Works with or without a visible\n"
+        "# border. 0 disables it (resizing then needs the modifier drag).\n"
+        "resize_grip=12\n"
+        "\n"
+        "# Whether resizing changes the window as you drag (1, the default),\n"
+        "# or just outlines the size it is heading for and resizes for real\n"
+        "# when you release the button (0). Applies to every resize: the grip\n"
+        "# above, a modifier-drag, or the application asking for one.\n"
+        "live_resize=1\n"
         "\n"
         "# How close (in pixels) a dragged window's edge must get to another\n"
         "# window's edge (decoration included) or to the screen edge before it\n"
@@ -320,6 +335,13 @@ void config_load(void)
             if (n < 1) n = 1;
             if (n > MAX_OUTLINE_WIDTH) n = MAX_OUTLINE_WIDTH;
             wm.outline_width = n;
+        } else if (strcmp(key, "resize_grip") == 0) {
+            int n = atoi(val);
+            if (n < 0) n = 0;
+            if (n > MAX_RESIZE_GRIP) n = MAX_RESIZE_GRIP;
+            wm.resize_grip = n;
+        } else if (strcmp(key, "live_resize") == 0) {
+            wm.live_resize = atoi(val) != 0;
         } else if (strcmp(key, "magnet_threshold") == 0) {
             int n = atoi(val);
             wm.magnet_threshold = n < 0 ? 0 : n;

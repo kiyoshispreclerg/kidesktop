@@ -1476,8 +1476,17 @@ void unmanage(Client *c)
         wm.resize_neighbors_x_count = 0;
         wm.resize_neighbors_y_count = 0;
         /* The drag is over whether the button was released or not, so a
-         * snap preview drawn for it has nothing left to preview. */
+         * snap or resize preview drawn for it has nothing left to
+         * preview -- and nothing left to apply it to. */
+        wm.resize_preview_active = false;
         outline_hide();
+        if (wm.grip_hover_active) {
+            /* ...and the grip's hover-cursor grab was taken over this
+             * window's edge (see events.c's update_resize_grip_cursor()). */
+            xcb_ungrab_pointer(wm.conn, XCB_CURRENT_TIME);
+            wm.grip_hover_active = false;
+            wm.grip_hover_zone = -1;
+        }
     } else {
         /* c isn't the client actually being dragged, but a resize in
          * progress might still be dragging it along as a resize-neighbor
@@ -1882,9 +1891,16 @@ void manage(xcb_window_t window, bool map_requested)
                       XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.screen->root_visual,
                       XCB_CW_BORDER_PIXEL | XCB_CW_EVENT_MASK, values);
 
+    /* POINTER_MOTION on the *client's* window, which a WM normally has no
+     * reason to want: it's what lets events.c notice the pointer entering
+     * the invisible resize grip along the window's edges and show a resize
+     * cursor there, on a window whose decoration (if any) doesn't extend
+     * that far. Core pointer selections aren't exclusive, so the app keeps
+     * getting its own motion events exactly as before. */
     uint32_t client_mask = XCB_EVENT_MASK_PROPERTY_CHANGE |
                            XCB_EVENT_MASK_STRUCTURE_NOTIFY |
-                           XCB_EVENT_MASK_FOCUS_CHANGE;
+                           XCB_EVENT_MASK_FOCUS_CHANGE |
+                           XCB_EVENT_MASK_POINTER_MOTION;
     xcb_change_window_attributes(wm.conn, window, XCB_CW_EVENT_MASK, &client_mask);
 
     xcb_grab_button(wm.conn, 0, window, XCB_EVENT_MASK_BUTTON_PRESS,

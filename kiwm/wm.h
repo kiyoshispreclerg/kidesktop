@@ -26,6 +26,10 @@
  * being one and starts being a slab covering the window it's pointing at. */
 #define MAX_OUTLINE_WIDTH 64
 
+/* Upper bound on kiwm.conf's resize_grip= -- past this the grip is eating
+ * a serious amount of the application's own window. */
+#define MAX_RESIZE_GRIP 32
+
 /* How far (pixels, either axis) the pointer must travel from where a
  * move-drag started before a maximized or half-tiled window actually
  * leaves that state and starts following the cursor -- see events.c's
@@ -541,6 +545,9 @@ typedef struct {
     xcb_font_t cursor_font;
     xcb_cursor_t cursor_move;
     xcb_cursor_t cursor_resize_nw, cursor_resize_ne, cursor_resize_sw, cursor_resize_se;
+    /* Single-axis resize cursors, for a drag started on an *edge* grip
+     * rather than a corner (see KiWM::resize_axis_x/resize_axis_y). */
+    xcb_cursor_t cursor_resize_n, cursor_resize_s, cursor_resize_e, cursor_resize_w;
 
     /* Live root window size, refreshed by output.c's outputs_refresh()
      * (via a fresh xcb_get_geometry() on wm.root) every time RandR reports
@@ -708,6 +715,45 @@ typedef struct {
      * window's edge, half of it outside and half in (an odd value puts the
      * extra pixel inside). */
     int outline_width;
+
+    /* How wide the invisible resize grip along a window's edges is, in
+     * pixels (kiwm.conf's resize_grip=, default 12; 0 disables it). A plain
+     * left-click landing within this far of a frame edge starts a
+     * resize -- from that corner if it's within the grip of two edges at
+     * once, otherwise along that one axis -- instead of going to the
+     * client. It works regardless of decoration: kiwm already takes every
+     * button press on a client window through a synchronous grab and
+     * replays the ones it doesn't want (see events.c's
+     * handle_button_press()), so the grip needs no visible border to live
+     * in, which is the whole point for windows that have none. Keep it
+     * small: every pixel of it is a pixel the application doesn't get. */
+    int resize_grip;
+
+    /* Which grip zone the pointer is currently hovering, if any, and the
+     * pointer grab held while it is -- purely to show a resize cursor
+     * there, since the grip is invisible and otherwise undiscoverable.
+     * The grab is taken with owner_events set, so the application still
+     * gets its own pointer events; only the cursor image changes. See
+     * events.c's update_resize_grip_cursor(). */
+    bool grip_hover_active;
+    int grip_hover_zone;   /* GripZone, -1 when none */
+
+    /* Whether a resize changes the window as the pointer moves
+     * (kiwm.conf's live_resize=, default 1/on) or only draws an outline of
+     * the size it's heading for, applying it once the button is released.
+     * Covers every resize the same way -- the edge/corner grip, a
+     * modifier-drag, a client's own _NET_WM_MOVERESIZE request -- since
+     * they're one gesture as far as the user is concerned. The outline is
+     * the same one the switcher and snap previews use (outline.c). */
+    bool live_resize;
+
+    /* Where the deferred (live_resize=0) resize has got to: the frame rect
+     * the outline is currently showing, applied to the client by
+     * handle_button_release(). Only meaningful while
+     * resize_preview_active. */
+    bool resize_preview_active;
+    int resize_preview_x, resize_preview_y;     /* frame position */
+    int resize_preview_w, resize_preview_h;     /* *content* size, what Client::width/height hold */
     /* SNAP_NONE/current snap side engaged by the drag in progress, and the
      * output it was computed against -- reset at the start of every drag
      * in handle_button_press. Separate from Client::snap_side because a
@@ -744,6 +790,12 @@ typedef struct {
      * corner was nearest the click, kwin/compiz-style -- the opposite
      * corner then stays fixed for the whole drag (handle_motion). */
     bool resize_right, resize_bottom;
+    /* Which axes a resize actually changes. Both true for a corner drag
+     * (kiwm's only kind until edge grips existed); a drag started on a
+     * left/right edge leaves the height alone and vice versa, which is
+     * what makes an edge grip feel like one instead of a corner in
+     * disguise. See events.c's handle_motion(). */
+    bool resize_axis_x, resize_axis_y;
     double last_drag_apply_ms;  /* see DRAG_REDRAW_FALLBACK_MS / events.c's handle_motion() */
 
     /* Set for the whole drag by events.c's begin_drag() when a DRAG_RESIZE

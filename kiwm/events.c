@@ -288,6 +288,96 @@ static bool should_preserve_snap_resize(Client *c, xcb_button_press_event_t *ev)
     return false;
 }
 
+/* Which resize grip (if any) a root-relative point falls in, for a given
+ * client. Shared by the click that starts a resize (handle_button_press())
+ * and the hover that shows its cursor (update_resize_grip_cursor()), so
+ * the two can never disagree about where the grips are.
+ *
+ * `*right`/`*bottom` come back as 1/0 for an edge that's in range on that
+ * axis and -1 for one that isn't (the same convention begin_drag_at()
+ * takes), and `*axis_x`/`*axis_y` say which dimensions that grip resizes.
+ * Returns false when the point is nowhere near an edge. */
+static bool resize_grip_at(Client *c, int root_x, int root_y,
+                           int *right, int *bottom, bool *axis_x, bool *axis_y)
+{
+    if (wm.resize_grip <= 0 || !c->allow_resize || c->shaded)
+        return false;
+
+    int rel_x = root_x - c->x;
+    int rel_y = root_y - c->y;
+    if (rel_x < 0 || rel_y < 0 || rel_x >= c->frame_width || rel_y >= c->frame_height)
+        return false;
+
+    int g = wm.resize_grip;
+    bool left = rel_x < g;
+    bool r = rel_x >= c->frame_width - g;
+    /* The titlebar owns the top edge wherever there is one -- dragging it
+     * is how a window moves, and a resize grip there would fight that. */
+    bool top = !client_deco_visible(c) && rel_y < g;
+    bool b = rel_y >= c->frame_height - g;
+
+    if (!left && !r && !top && !b)
+        return false;
+
+    *right = r ? 1 : (left ? 0 : -1);
+    *bottom = b ? 1 : (top ? 0 : -1);
+    *axis_x = left || r;
+    *axis_y = top || b;
+    return true;
+}
+
+/* Shows a resize cursor while the pointer sits in one of those grips.
+ *
+ * The grip is invisible and can be on a window with no decoration at all,
+ * so without this there's nothing telling the user it's there. kiwm can't
+ * simply set a cursor on the area -- the area belongs to the *client's*
+ * window, whose cursor is the application's business -- so it takes a
+ * pointer grab with the cursor it wants while the pointer is in the zone,
+ * and drops it the moment it leaves. owner_events is set, so the
+ * application still receives every pointer event exactly as before; the
+ * grab is there for its cursor and nothing else. */
+static void update_resize_grip_cursor(Client *c, int root_x, int root_y)
+{
+    int right, bottom;
+    bool axis_x, axis_y;
+    bool in_grip = c && resize_grip_at(c, root_x, root_y, &right, &bottom, &axis_x, &axis_y);
+
+    if (!in_grip) {
+        if (wm.grip_hover_active) {
+            xcb_ungrab_pointer(wm.conn, XCB_CURRENT_TIME);
+            wm.grip_hover_active = false;
+            wm.grip_hover_zone = -1;
+            xcb_flush(wm.conn);
+        }
+        return;
+    }
+
+    /* Zone identity, just to avoid re-grabbing on every motion event
+     * within the same grip: the two corner flags are enough. */
+    int zone = (right + 1) * 3 + (bottom + 1);
+    if (wm.grip_hover_active && wm.grip_hover_zone == zone)
+        return;
+
+    xcb_cursor_t cursor;
+    if (!axis_x)
+        cursor = (bottom == 1) ? wm.cursor_resize_s : wm.cursor_resize_n;
+    else if (!axis_y)
+        cursor = (right == 1) ? wm.cursor_resize_e : wm.cursor_resize_w;
+    else if (right == 1)
+        cursor = (bottom == 1) ? wm.cursor_resize_se : wm.cursor_resize_ne;
+    else
+        cursor = (bottom == 1) ? wm.cursor_resize_sw : wm.cursor_resize_nw;
+
+    xcb_grab_pointer(wm.conn, 1 /* owner_events: the app keeps its events */, wm.root,
+                     XCB_EVENT_MASK_POINTER_MOTION | XCB_EVENT_MASK_BUTTON_PRESS |
+                     XCB_EVENT_MASK_BUTTON_RELEASE,
+                     XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
+                     XCB_NONE, cursor, XCB_CURRENT_TIME);
+    wm.grip_hover_active = true;
+    wm.grip_hover_zone = zone;
+    xcb_flush(wm.conn);
+}
+
 /* Starts a move or resize drag at a given root position, whatever asked
  * for it: a titlebar click, a mod_cycle/mod_control-drag from anywhere on
  * the window (both via begin_drag() below), or the client itself asking
@@ -305,11 +395,15 @@ static bool should_preserve_snap_resize(Client *c, xcb_button_press_event_t *ev)
  * For a resize, `corner_right`/`corner_bottom` name which corner grows;
  * the opposite one stays fixed for the whole drag (see handle_motion).
  * Pass -1 for either to pick it from the press position, nearest-corner,
- * kwin/compiz-style -- which is what a plain drag does, and what an
- * *edge* (rather than corner) _NET_WM_MOVERESIZE direction falls back to
- * on that axis, kiwm having only corner resizes to offer. */
+ * kwin/compiz-style -- which is what a plain drag does.
+ *
+ * `axis_x`/`axis_y` say which dimensions the resize may change at all:
+ * both, for a corner drag, or just one for an edge grip (kiwm.conf's
+ * resize_grip=) or an edge _NET_WM_MOVERESIZE direction, so dragging a
+ * window's side doesn't also change its height. Ignored for a move. */
 static void begin_drag_at(Client *c, DragMode mode, int root_x, int root_y,
-                          bool preserve_snap, int corner_right, int corner_bottom)
+                          bool preserve_snap, int corner_right, int corner_bottom,
+                          bool axis_x, bool axis_y)
 {
     /* A window that declares it can't be moved or resized (Motif's
      * functions field, or a fixed min==max size -- see client.c's
@@ -320,6 +414,13 @@ static void begin_drag_at(Client *c, DragMode mode, int root_x, int root_y,
         return;
     if (mode == DRAG_RESIZE && !c->allow_resize)
         return;
+
+    /* The grip's hover-cursor grab (update_resize_grip_cursor()) is
+     * replaced by this drag's own grab, and the drag's release ungrabs
+     * outright -- so the hover state has to be forgotten here, or the next
+     * pass over a grip would think it still holds a grab it doesn't. */
+    wm.grip_hover_active = false;
+    wm.grip_hover_zone = -1;
 
     wm.drag_preserve_snap = preserve_snap;
     wm.drag_detile_pending = false;
@@ -347,7 +448,13 @@ static void begin_drag_at(Client *c, DragMode mode, int root_x, int root_y,
                                               : ((root_x - c->x) > c->frame_width / 2);
         wm.resize_bottom = (corner_bottom >= 0) ? (corner_bottom != 0)
                                                 : ((root_y - c->y) > c->frame_height / 2);
-        if (wm.resize_right)
+        wm.resize_axis_x = axis_x;
+        wm.resize_axis_y = axis_y;
+        if (!axis_x)
+            cursor = wm.resize_bottom ? wm.cursor_resize_s : wm.cursor_resize_n;
+        else if (!axis_y)
+            cursor = wm.resize_right ? wm.cursor_resize_e : wm.cursor_resize_w;
+        else if (wm.resize_right)
             cursor = wm.resize_bottom ? wm.cursor_resize_se : wm.cursor_resize_ne;
         else
             cursor = wm.resize_bottom ? wm.cursor_resize_sw : wm.cursor_resize_nw;
@@ -375,7 +482,7 @@ static void begin_drag_at(Client *c, DragMode mode, int root_x, int root_y,
 static void begin_drag(Client *c, DragMode mode, xcb_button_press_event_t *ev)
 {
     begin_drag_at(c, mode, ev->root_x, ev->root_y,
-                  (mode == DRAG_RESIZE) && should_preserve_snap_resize(c, ev), -1, -1);
+                  (mode == DRAG_RESIZE) && should_preserve_snap_resize(c, ev), -1, -1, true, true);
 }
 
 /* Which configured titlebar element (see wm.h's DecoElemKind/
@@ -467,6 +574,29 @@ static void handle_button_press(xcb_button_press_event_t *ev)
 
         begin_drag(c, DRAG_MOVE, ev);
         return;
+    }
+
+    /* Plain (no modifier) click within kiwm.conf's resize_grip= of a
+     * frame edge: resize from there. This is the ordinary "grab the
+     * window's corner" resize, and it works with or without a visible
+     * border -- kiwm takes every button press on a client window through a
+     * synchronous grab and replays the ones it doesn't want (the tail of
+     * this function), so the grip doesn't need a decoration to live in.
+     * That's the whole point for windows that have none.
+     *
+     * Within the grip of two edges at once it's a corner drag; of one,
+     * that axis only, so dragging a side doesn't also change the height.
+     * The top edge is left out whenever the titlebar is there to own it
+     * (the titlebar branch above has already returned by then anyway), and
+     * a shaded window has nothing but titlebar, so it's left out too. */
+    if (ev->detail == 1 && !(ev->state & (wm.mod_cycle | wm.mod_control))) {
+        int right, bottom;
+        bool axis_x, axis_y;
+        if (resize_grip_at(c, ev->root_x, ev->root_y, &right, &bottom, &axis_x, &axis_y)) {
+            begin_drag_at(c, DRAG_RESIZE, ev->root_x, ev->root_y, false,
+                          right, bottom, axis_x, axis_y);
+            return;
+        }
     }
 
     /* wm.mod_control-drag (any button, e.g. Meta by default) and
@@ -942,6 +1072,14 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
 {
     if (!wm.drag_client || wm.drag_mode == DRAG_NONE) {
         update_button_hover(ev);
+        /* ev->event is the client window kiwm now also selects motion on
+         * (client.c's manage()), the frame, or the root window while the
+         * grip's own cursor grab is up -- in which case ev->child names
+         * the frame under the pointer. */
+        Client *hover = find_client_window(ev->event);
+        if (!hover)
+            hover = find_client_window(ev->child);
+        update_resize_grip_cursor(hover, ev->root_x, ev->root_y);
         return;
     }
 
@@ -1000,8 +1138,13 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
          * never drifts, kwin/compiz-style, instead of always anchoring
          * top-left and growing toward bottom-right regardless of which
          * corner was actually grabbed. */
-        int new_w = wm.resize_right ? wm.drag_start_w + dx : wm.drag_start_w - dx;
-        int new_h = wm.resize_bottom ? wm.drag_start_h + dy : wm.drag_start_h - dy;
+        /* An edge grip only moves the edge it grabbed: the other axis
+         * keeps the size the drag started with (see
+         * KiWM::resize_axis_x/resize_axis_y). */
+        int new_w = !wm.resize_axis_x ? wm.drag_start_w
+                  : (wm.resize_right ? wm.drag_start_w + dx : wm.drag_start_w - dx);
+        int new_h = !wm.resize_axis_y ? wm.drag_start_h
+                  : (wm.resize_bottom ? wm.drag_start_h + dy : wm.drag_start_h - dy);
 
         int bt, th;
         deco_insets(c, &bt, &th);
@@ -1010,12 +1153,31 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
         if (new_w < c->min_w) new_w = c->min_w;
         if (new_h < c->min_h) new_h = c->min_h;
 
+        int new_x = c->x, new_y = c->y;
+        if (wm.resize_axis_x && !wm.resize_right)
+            new_x = wm.drag_start_x + (wm.drag_start_w - new_w);
+        if (wm.resize_axis_y && !wm.resize_bottom)
+            new_y = wm.drag_start_y + (wm.drag_start_h - new_h);
+
+        /* With live_resize=0 the window itself is left alone for the whole
+         * drag and only an outline of where it's heading is drawn; the
+         * real geometry lands once, on release (handle_button_release()).
+         * Linked resize neighbors are skipped in that mode: they exist to
+         * stay glued to an edge that is, for now, only being previewed. */
+        if (!wm.live_resize) {
+            wm.resize_preview_active = true;
+            wm.resize_preview_x = new_x;
+            wm.resize_preview_y = new_y;
+            wm.resize_preview_w = new_w;
+            wm.resize_preview_h = new_h;
+            outline_show(new_x, new_y, new_w + bt * 2, new_h + th + bt);
+            return;
+        }
+
         c->width = new_w;
         c->height = new_h;
-        if (!wm.resize_right)
-            c->x = wm.drag_start_x + (wm.drag_start_w - new_w);
-        if (!wm.resize_bottom)
-            c->y = wm.drag_start_y + (wm.drag_start_h - new_h);
+        c->x = new_x;
+        c->y = new_y;
 
         update_resize_neighbors(c, bt, th);
     }
@@ -1072,6 +1234,16 @@ static void handle_button_release(xcb_button_release_event_t *ev)
 {
     (void)ev;
     if (wm.drag_client) {
+        /* The deferred (live_resize=0) resize lands here, once, from
+         * wherever the outline had got to -- see handle_motion(). */
+        if (wm.resize_preview_active) {
+            wm.drag_client->x = wm.resize_preview_x;
+            wm.drag_client->y = wm.resize_preview_y;
+            wm.drag_client->width = wm.resize_preview_w;
+            wm.drag_client->height = wm.resize_preview_h;
+            wm.resize_preview_active = false;
+        }
+
         /* Force one final apply regardless of the redraw throttle above
          * -- otherwise the window could be left showing a stale size if
          * the very last motion event of the drag happened to land inside
@@ -1269,6 +1441,7 @@ static void handle_moveresize(Client *c, int root_x, int root_y, uint32_t direct
             wm.drag_mode = DRAG_NONE;
             wm.drag_snap_side = SNAP_NONE;
             wm.drag_detile_pending = false;
+            wm.resize_preview_active = false;
             outline_hide();
             xcb_flush(wm.conn);
         }
@@ -1276,24 +1449,25 @@ static void handle_moveresize(Client *c, int root_x, int root_y, uint32_t direct
     }
 
     if (direction == MR_MOVE || direction == MR_MOVE_KEYBOARD) {
-        begin_drag_at(c, DRAG_MOVE, root_x, root_y, false, -1, -1);
+        begin_drag_at(c, DRAG_MOVE, root_x, root_y, false, -1, -1, true, true);
         return;
     }
 
     int right = -1, bottom = -1;   /* -1 = derive from the pointer position */
+    bool axis_x = true, axis_y = true;
     switch (direction) {
     case MR_SIZE_TOPLEFT:     right = 0; bottom = 0; break;
-    case MR_SIZE_TOP:                    bottom = 0; break;
+    case MR_SIZE_TOP:                    bottom = 0; axis_x = false; break;
     case MR_SIZE_TOPRIGHT:    right = 1; bottom = 0; break;
-    case MR_SIZE_RIGHT:       right = 1;             break;
+    case MR_SIZE_RIGHT:       right = 1;             axis_y = false; break;
     case MR_SIZE_BOTTOMRIGHT: right = 1; bottom = 1; break;
-    case MR_SIZE_BOTTOM:                 bottom = 1; break;
+    case MR_SIZE_BOTTOM:                 bottom = 1; axis_x = false; break;
     case MR_SIZE_BOTTOMLEFT:  right = 0; bottom = 1; break;
-    case MR_SIZE_LEFT:        right = 0;             break;
+    case MR_SIZE_LEFT:        right = 0;             axis_y = false; break;
     case MR_SIZE_KEYBOARD:    break;
     default:                  return;
     }
-    begin_drag_at(c, DRAG_RESIZE, root_x, root_y, false, right, bottom);
+    begin_drag_at(c, DRAG_RESIZE, root_x, root_y, false, right, bottom, axis_x, axis_y);
 }
 
 static void handle_client_message(xcb_client_message_event_t *ev)
