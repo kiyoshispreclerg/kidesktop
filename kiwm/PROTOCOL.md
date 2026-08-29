@@ -54,6 +54,19 @@ Set when a window is first managed, and rewritten (with a `PropertyNotify` on th
 whenever it moves to a different output -- dragging it across an output boundary, or a hotplug
 that reshuffles output geometry out from under it.
 
+### `_KIWM_MINIMIZED_GEOMETRY` (`CARDINAL[4]`, format 32, per client window)
+
+Where a minimized window's **frame** was when it went away: `x`, `y`, `width`, `height`, in root
+coordinates, decoration included. Present only while the window is minimized -- set as it is
+minimized, deleted as it is restored, since a visible window's real geometry already says the same
+thing.
+
+kiwm itself never needs it (minimizing only unmaps the frame, so it still has the geometry in
+memory, which is what the Alt+Tab switcher's outline draws and what restoring puts back). It's
+published for everything *outside* kiwm that has to know where a window it can no longer see used
+to be: a compositor animating a minimize or a restore from and to the right place, a taskbar doing
+the same with its own effects.
+
 ## Client message: `_KIWM_SET_OUTPUT_DESKTOP`
 
 Send to the **root window** (not to any client window) via `XSendEvent`/`xcb_send_event` with

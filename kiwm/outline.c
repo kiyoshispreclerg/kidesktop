@@ -1,23 +1,31 @@
 /* outline.c - the wireframe rectangle kiwm draws around a window it's
  * pointing at without touching it yet (see outline.h for who uses it).
  *
- * One override-redirect window the size of the outlined rectangle grown by
- * the band's outer half, XCB SHAPE-clipped down to just the band itself so
- * the middle stays a real hole -- the window underneath keeps showing
- * through, with no compositor involved and no clicks intercepted (the
- * input shape is emptied outright, so the outline can never swallow a
- * pointer event even while a drag is in flight under it).
+ * One override-redirect window, XCB SHAPE-clipped down to just the band so
+ * everything else -- the hole in the middle included -- stays untouched:
+ * the windows underneath keep showing through, with no compositor involved
+ * and no clicks intercepted (the input shape is emptied outright, so the
+ * outline can never swallow a pointer event even while a drag is in flight
+ * under it).
  *
  * It is painted by *being* its color, not by drawing into it: the window's
  * background pixel is the focused decoration's own background color, so
- * the X server fills every pixel of it -- including whatever a resize just
- * exposed -- as part of the same operation that resizes it. An earlier
- * version drew the color in afterwards (off-screen pixmap, one
- * xcb_copy_area(), the pattern decoration.c and osd.c use) and that showed
- * exactly as reported: on each step of a drag the window resized first,
- * flashing its old contents at the new size, and only then got its color.
- * Nothing here needs the theme's background image or any real drawing, so
- * a background pixel is both simpler and atomic.
+ * the X server fills every pixel of it as part of mapping/exposing it.
+ * An earlier version drew the color in afterwards (off-screen pixmap, one
+ * xcb_copy_area(), the pattern decoration.c and osd.c use), which showed
+ * on every step of a drag as the window resizing first, flashing its old
+ * contents at the new size, and only then getting its color.
+ *
+ * The window itself never moves or resizes, either. It is created once at
+ * the full size of the X screen and stays there; where the outline
+ * *appears* is entirely a matter of its bounding shape, so every update is
+ * a single ShapeRectangles request that the server applies in one go.
+ * Moving/resizing the window instead meant two requests per step -- reshape
+ * and reconfigure -- with a visible intermediate state between them no
+ * matter which order they were sent in: the band briefly drawn for the new
+ * size at the old position, or at the new position with the old size.
+ * Nothing is drawn outside the band regardless, and the input shape is
+ * empty, so a screen-sized window costs nothing here.
  */
 #include "outline.h"
 #include "client.h"
@@ -38,6 +46,7 @@ static xcb_window_t win = XCB_NONE;
 static bool visible = false;
 static uint32_t current_pixel = 0;
 static bool have_pixel = false;
+static int win_w = 0, win_h = 0;   /* the screen size the window was made for */
 
 /* A 0..1 channel value into its slot in the visual's pixel layout. The
  * root visual is TrueColor on anything kiwm runs on, so the masks are
@@ -69,25 +78,28 @@ static uint32_t outline_pixel(void)
            channel_to_pixel(b, wm.visual->blue_mask);
 }
 
-/* The band as up to four rectangles (top, bottom, left, right) in window
- * coordinates -- or one solid rectangle when the outlined window is too
- * small for the band to leave a hole at all. Returns how many were
- * written; `out` needs room for 4. */
-static int band_rects(int w, int h, xcb_rectangle_t *out)
+/* The band as up to four rectangles (top, bottom, left, right) in *screen*
+ * coordinates, around the rect (ox, oy, ow, oh) -- or one solid rectangle
+ * when the outlined window is too small for the band to leave a hole at
+ * all. The window is screen-sized and never moves, so these absolute
+ * coordinates are also window coordinates. Returns how many were written;
+ * `out` needs room for 4. */
+static int band_rects(int ox, int oy, int ow, int oh, xcb_rectangle_t *out)
 {
     int band = band_total();
-    int inner_w = w - 2 * band;
-    int inner_h = h - 2 * band;
+    int inner_w = ow - 2 * band;
+    int inner_h = oh - 2 * band;
 
     if (inner_w <= 0 || inner_h <= 0) {
-        out[0] = (xcb_rectangle_t){ 0, 0, (uint16_t)w, (uint16_t)h };
+        out[0] = (xcb_rectangle_t){ (int16_t)ox, (int16_t)oy, (uint16_t)ow, (uint16_t)oh };
         return 1;
     }
 
-    out[0] = (xcb_rectangle_t){ 0, 0, (uint16_t)w, (uint16_t)band };
-    out[1] = (xcb_rectangle_t){ 0, (int16_t)(h - band), (uint16_t)w, (uint16_t)band };
-    out[2] = (xcb_rectangle_t){ 0, (int16_t)band, (uint16_t)band, (uint16_t)inner_h };
-    out[3] = (xcb_rectangle_t){ (int16_t)(w - band), (int16_t)band, (uint16_t)band, (uint16_t)inner_h };
+    out[0] = (xcb_rectangle_t){ (int16_t)ox, (int16_t)oy, (uint16_t)ow, (uint16_t)band };
+    out[1] = (xcb_rectangle_t){ (int16_t)ox, (int16_t)(oy + oh - band), (uint16_t)ow, (uint16_t)band };
+    out[2] = (xcb_rectangle_t){ (int16_t)ox, (int16_t)(oy + band), (uint16_t)band, (uint16_t)inner_h };
+    out[3] = (xcb_rectangle_t){ (int16_t)(ox + ow - band), (int16_t)(oy + band),
+                                (uint16_t)band, (uint16_t)inner_h };
     return 4;
 }
 
@@ -107,41 +119,47 @@ void outline_show(int x, int y, int w, int h)
         win = xcb_generate_id(wm.conn);
         uint32_t values[] = { pixel, 1, XCB_EVENT_MASK_EXPOSURE };
         xcb_create_window(wm.conn, wm.screen->root_depth, win, wm.root,
-                          (int16_t)ox, (int16_t)oy, (uint16_t)ow, (uint16_t)oh, 0,
+                          0, 0, (uint16_t)wm.screen_w, (uint16_t)wm.screen_h, 0,
                           XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.screen->root_visual,
                           XCB_CW_BACK_PIXEL | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK, values);
+        win_w = wm.screen_w;
+        win_h = wm.screen_h;
         current_pixel = pixel;
         have_pixel = true;
         /* Empty input shape, permanently: whatever this is drawn over --
          * a window being dragged, the switcher's own hold -- must keep
-         * receiving every pointer event as if the outline weren't there. */
+         * receiving every pointer event as if the outline weren't there.
+         * Doubly important now that the window spans the whole screen. */
         xcb_shape_rectangles(wm.conn, XCB_SHAPE_SO_SET, XCB_SHAPE_SK_INPUT, XCB_CLIP_ORDERING_UNSORTED,
                              win, 0, 0, 0, NULL);
-    } else if (!have_pixel || pixel != current_pixel) {
-        /* Only when the theme's color actually changed under us. */
-        xcb_change_window_attributes(wm.conn, win, XCB_CW_BACK_PIXEL, &pixel);
-        xcb_clear_area(wm.conn, 0, win, 0, 0, 0, 0);
-        current_pixel = pixel;
-        have_pixel = true;
+    } else {
+        if (win_w != wm.screen_w || win_h != wm.screen_h) {
+            /* The screen itself changed size (RandR) -- rare, and the only
+             * thing that ever reconfigures this window. */
+            uint32_t geo[] = { (uint32_t)wm.screen_w, (uint32_t)wm.screen_h };
+            xcb_configure_window(wm.conn, win,
+                                 XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, geo);
+            win_w = wm.screen_w;
+            win_h = wm.screen_h;
+        }
+        if (!have_pixel || pixel != current_pixel) {
+            /* Only when the theme's color actually changed under us. */
+            xcb_change_window_attributes(wm.conn, win, XCB_CW_BACK_PIXEL, &pixel);
+            xcb_clear_area(wm.conn, 0, win, 0, 0, 0, 0);
+            current_pixel = pixel;
+            have_pixel = true;
+        }
     }
 
-    /* Shape first, geometry second, one flush for both: the band for the
-     * new size is in place before the window ever appears at that size, so
-     * a resize can't briefly show a full rectangle where the hole should
-     * be. */
+    /* The whole update: one request, wherever the outline has to be now. */
     xcb_rectangle_t rects[4];
-    int n = band_rects(ow, oh, rects);
+    int n = band_rects(ox, oy, ow, oh, rects);
     /* UNSORTED, not Y_SORTED: the bottom band is written before the two
      * side ones, so the list genuinely isn't in ascending-y order, and
      * promising the server an ordering that doesn't hold is how this ends
      * up as a solid filled rectangle instead of a hollow frame. */
     xcb_shape_rectangles(wm.conn, XCB_SHAPE_SO_SET, XCB_SHAPE_SK_BOUNDING, XCB_CLIP_ORDERING_UNSORTED,
                          win, 0, 0, (uint32_t)n, rects);
-
-    uint32_t geo[] = { (uint32_t)ox, (uint32_t)oy, (uint32_t)ow, (uint32_t)oh };
-    xcb_configure_window(wm.conn, win,
-                         XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
-                         XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, geo);
 
     if (!visible) {
         xcb_map_window(wm.conn, win);

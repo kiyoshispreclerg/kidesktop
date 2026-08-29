@@ -510,11 +510,13 @@ void osd_windows_step(int direction)
          * another part of a big desktop. The outline says it (xfwm does
          * the same), and sits in its own layer just below this overlay so
          * the two never cover each other. */
+        /* Minimized entries are outlined too, at the geometry they had
+         * when they went away -- kiwm never loses it (minimizing just
+         * unmaps the frame), and it's exactly where the window will come
+         * back if this is the one committed to. See client.c's
+         * minimize_client(). */
         Client *sel = tb_state.items[tb_state.selected];
-        if (sel->minimized)
-            outline_hide(); /* nothing on screen to outline */
-        else
-            outline_show(sel->x, sel->y, sel->frame_width, sel->frame_height);
+        outline_show(sel->x, sel->y, sel->frame_width, sel->frame_height);
     }
     repaint_windows();
 }

@@ -1388,6 +1388,20 @@ void minimize_client(Client *c)
     if (c->minimized)
         return;
 
+    /* Where the window *was*. kiwm keeps that in the Client itself for
+     * free -- minimizing only unmaps the frame, so c->x/y and the frame
+     * size stay exactly as they were, which is what the switcher's outline
+     * draws (osd.c) and what restoring puts back. Publishing it as well
+     * hands the same answer to anything outside kiwm that needs to know
+     * where a window it can no longer see used to be: kicomp, to animate a
+     * minimize/restore from and to the right place, a taskbar wanting to
+     * do the same. Removed again on restore, since it then says nothing
+     * the window's real geometry doesn't. See PROTOCOL.md. */
+    uint32_t geo[] = { (uint32_t)c->x, (uint32_t)c->y,
+                       (uint32_t)c->frame_width, (uint32_t)c->frame_height };
+    xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, c->window,
+                        wm.atoms.kiwm_minimized_geometry, XCB_ATOM_CARDINAL, 32, 4, geo);
+
     c->minimized = true;
     if (c->mapped) {
         xcb_unmap_window(wm.conn, c->frame);
@@ -1406,6 +1420,7 @@ void restore_client(Client *c)
     if (!c->minimized)
         return;
     c->minimized = false;
+    xcb_delete_property(wm.conn, c->window, wm.atoms.kiwm_minimized_geometry);
 
     if (c->sticky || wm.outputs[c->output].desktop == c->desktop) {
         xcb_map_window(wm.conn, c->frame);

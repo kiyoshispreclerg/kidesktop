@@ -16,7 +16,11 @@ exposes.
   focus-follows-mouse), Alt-Tab-style window cycling.
 - Themed on-screen overlays (`osd_enabled=`, default on) for both window cycling and desktop
   switching -- see "On-screen overlays (OSD)" below. The window list includes minimized windows
-  (dimmed, as a taskbar shows them), and committing to one restores it.
+  (dimmed, as a taskbar shows them), and committing to one restores it. A minimized window is still
+  outlined where it was when it went away -- kiwm never loses that geometry, since minimizing only
+  unmaps the frame -- and that same rectangle is published as `_KIWM_MINIMIZED_GEOMETRY` (see
+  [PROTOCOL.md](PROTOCOL.md)) for anything outside kiwm that wants it, a compositor animating the
+  minimize/restore above all.
 - Virtual desktops tracked **independently per output** (not one global workspace number) --
   see [PROTOCOL.md](PROTOCOL.md).
 - Already-open windows are picked up at startup, not just windows mapped afterward -- *with the

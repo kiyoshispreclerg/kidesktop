@@ -523,6 +523,10 @@ typedef struct {
     xcb_atom_t kiwm_num_output_desktops;
     xcb_atom_t kiwm_set_output_desktop;
     xcb_atom_t kiwm_wm_output;
+    /* _KIWM_MINIMIZED_GEOMETRY: where a minimized window's frame was when
+     * it went away, kept on the window for as long as it stays minimized
+     * -- see PROTOCOL.md and client.c's minimize_client(). */
+    xcb_atom_t kiwm_minimized_geometry;
 } Atoms;
 
 typedef struct {
