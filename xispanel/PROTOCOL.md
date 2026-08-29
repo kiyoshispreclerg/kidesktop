@@ -201,8 +201,19 @@ Widget types implemented so far:
   transposed there, acceptable for what's only an animation-endpoint
   hint). Left-click
   activates a window (or minimizes it if it's already the active one,
-  clicking again restores it); right-click opens a context menu
-  (Minimizar/Maximizar/Mover/Fechar, plus Fixar/Desafixar). "Fixar" is
+  clicking again restores it); middle-click launches another instance of
+  that program, whether or not it's pinned (the same action as the
+  context menu's "Abrir nova instância"). It resolves what to run in this
+  order: the pinned entry's `Exec`; the `.desktop` entry matching the
+  window's `WM_CLASS`; the same lookup on just the class's first word (a
+  class like `VirtualBox Manager` matches no file whole, but
+  `VirtualBox` finds `virtualbox.desktop`); the window's own executable
+  via `_NET_WM_PID` + `/proc/<pid>/exe`; and finally the class name
+  lowercased as a command, if `$PATH` has an executable by that name.
+  Nothing happens if none of those turns up something to run.
+  Right-click opens a context menu
+  (Minimizar/Maximizar/Mover/Fechar, plus Fixar/Desafixar and Abrir nova
+  instância). "Fixar" is
   currently a visual-only toggle for the running session -- a pinned
   entry does not yet survive its window closing and relaunch on click,
   since that needs `.desktop`-file lookup by `WM_CLASS`, which is

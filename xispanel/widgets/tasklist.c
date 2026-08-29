@@ -24,10 +24,12 @@
 
 #include <X11/Xlib.h>
 
+#include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define MAX_TASKS 64
 #define TASKLIST_BTN_GAP 3
@@ -191,6 +193,134 @@ static int tasklist_find(TasklistPriv *tp, Window win)
         }
     }
     return -1;
+}
+
+/* 1 if `name` is a plain command name (no spaces, no shell
+ * metacharacters) that $PATH actually resolves to an executable -- the
+ * guard on tasklist_launch_class()'s last-resort "just run the class
+ * name" attempt, so it can never run something the user doesn't already
+ * have installed, nor hand the shell anything needing quoting. */
+static int command_exists(const char *name)
+{
+    if (!name || !name[0]) {
+        return 0;
+    }
+    for (const char *p = name; *p; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (!(isalnum(c) || c == '-' || c == '_' || c == '.' || c == '+')) {
+            return 0;
+        }
+    }
+    const char *path = getenv("PATH");
+    if (!path || !path[0]) {
+        return 0;
+    }
+    char pathbuf[4096];
+    snprintf(pathbuf, sizeof(pathbuf), "%s", path);
+    char *save = NULL;
+    for (char *dir = strtok_r(pathbuf, ":", &save); dir; dir = strtok_r(NULL, ":", &save)) {
+        char full[PATH_MAX];
+        snprintf(full, sizeof(full), "%s/%s", dir, name);
+        if (access(full, X_OK) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Launches another instance of whatever app owns `wm_class`, for the
+ * middle-click (and "Abrir nova instância") gesture -- the same thing
+ * plasmashell's task manager does with a middle click. Tries, in order:
+ *
+ *   1. an already-pinned entry's exec, resolved once at pin time;
+ *   2. the .desktop entry matching that WM_CLASS -- what makes this work
+ *      on a *non*-pinned, merely-running app, which is the whole point;
+ *   3. the same lookup on just the class's first word. A class of several
+ *      words ("VirtualBox Manager", "Google Chrome") matches no .desktop
+ *      file as a whole, since nothing in one carries the suffix -- but
+ *      the first word is the entry/binary name (virtualbox.desktop,
+ *      `Exec=VirtualBox`), which desktop_entry_find_by_wm_class()'s own
+ *      basename/Exec fallback then matches case-insensitively;
+ *   4. the running window's own executable, via _NET_WM_PID and
+ *      /proc/<pid>/exe -- covers an app with no .desktop file at all
+ *      whose class doesn't resemble its binary name either;
+ *   5. the class (or its first word), lowercased, as a command, if $PATH
+ *      has an executable by that name -- many apps set WM_CLASS to
+ *      exactly their binary name and ship no .desktop file.
+ *
+ * Returns 1 if a command was actually launched. `win` may be None when
+ * there's no running window to ask (a pinned placeholder), which just
+ * skips step 4. */
+static int tasklist_launch_class(TasklistPriv *tp, const char *wm_class, Window win)
+{
+    if (!wm_class || !wm_class[0]) {
+        return 0;
+    }
+    for (int i = 0; i < tp->n_pinned; i++) {
+        if (strcmp(tp->pinned[i].wm_class, wm_class) == 0 && tp->pinned[i].exec[0]) {
+            run_detached(tp->pinned[i].exec);
+            return 1;
+        }
+    }
+
+    char first_word[128];
+    snprintf(first_word, sizeof(first_word), "%s", wm_class);
+    char *sp = strpbrk(first_word, " \t");
+    if (sp) {
+        *sp = 0;
+    }
+
+    char exec[512];
+    if (desktop_entry_find_by_wm_class(wm_class, NULL, 0, exec, sizeof(exec), NULL, 0) && exec[0]) {
+        run_detached(exec);
+        return 1;
+    }
+    if (sp && first_word[0] && desktop_entry_find_by_wm_class(first_word, NULL, 0, exec, sizeof(exec), NULL, 0) &&
+        exec[0]) {
+        run_detached(exec);
+        return 1;
+    }
+
+    if (win != None) {
+        unsigned long pid = ewmh_get_pid(win);
+        if (pid) {
+            char link[64], target[PATH_MAX];
+            snprintf(link, sizeof(link), "/proc/%lu/exe", pid);
+            ssize_t n = readlink(link, target, sizeof(target) - 1);
+            if (n > 0) {
+                target[n] = 0;
+                /* A replaced/deleted binary readlinks to "<path> (deleted)",
+                 * and a path with a quote in it can't go through the
+                 * single-quoting run_detached() needs -- neither is worth
+                 * launching. */
+                if (!strstr(target, " (deleted)") && !strchr(target, '\'') && access(target, X_OK) == 0) {
+                    char quoted[PATH_MAX + 8];
+                    snprintf(quoted, sizeof(quoted), "'%s'", target);
+                    run_detached(quoted);
+                    return 1;
+                }
+            }
+        }
+    }
+
+    for (int pass = 0; pass < 2; pass++) {
+        const char *src = pass == 0 ? wm_class : first_word;
+        char cmd[128];
+        size_t len = strlen(src);
+        if (len > 0 && len < sizeof(cmd)) {
+            for (size_t i = 0; i <= len; i++) {
+                cmd[i] = (char)tolower((unsigned char)src[i]);
+            }
+            if (command_exists(cmd)) {
+                run_detached(cmd);
+                return 1;
+            }
+        }
+        if (!sp) {
+            break; /* single-word class: the second pass would be identical */
+        }
+    }
+    return 0;
 }
 
 /* Resolves and stores a newly-pinned app's name/exec/icon via
@@ -1106,7 +1236,8 @@ static void tasklist_paint(PanelWidget *w, cairo_t *cr)
 #define TASKLIST_PLACEHOLDER_CTX_TAG (1ULL << 32)
 
 /* Context menu item order for a real window: 0=minimize/restore,
- * 1=maximize/restore, 2=move, 3=close, [separator], 5=pin/unpin. ctx is
+ * 1=maximize/restore, 2=move, 3=close, [separator], 5=pin/unpin,
+ * 6=open another instance. ctx is
  * the clicked window's XID, packed directly into the void* (Window fits
  * in a pointer-sized integer on every platform this targets -- no heap
  * allocation needed for something this small and short-lived). For a
@@ -1163,6 +1294,11 @@ static void tasklist_menu_select(Panel *panel, PanelWidget *w, void *ctx, int in
     }
     case 3:
         ewmh_close(win);
+        break;
+    case 6: /* Abrir nova instância -- same action as a middle click */
+        if (idx >= 0) {
+            tasklist_launch_class(tp, tp->tasks[idx].wm_class, tp->tasks[idx].win);
+        }
         break;
     case 5:
         if (idx >= 0) {
@@ -1241,6 +1377,13 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
      * not by a separate click target here. */
     TaskEntry *e = &tp->tasks[idx];
 
+    /* Middle-click always means "launch another instance of this
+     * program", whether the button is a running window or a pinned
+     * placeholder -- see tasklist_launch_class(). */
+    if (button == Button2) {
+        return tasklist_launch_class(tp, e->wm_class, e->is_placeholder ? None : e->win);
+    }
+
     if (e->is_placeholder) {
         /* A pinned app with no window currently open -- click launches it
          * instead of any of the real-window actions below (nothing to
@@ -1301,7 +1444,7 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
     }
 
     if (button == Button3) {
-        MenuItem items[6];
+        MenuItem items[7];
         memset(items, 0, sizeof(items));
         int n = 0;
         snprintf(items[n].label, sizeof(items[n].label), "%s", e->minimized ? "Restaurar" : "Minimizar");
@@ -1325,6 +1468,10 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
         items[n].is_separator = 1;
         n++;
         snprintf(items[n].label, sizeof(items[n].label), "%s", e->pinned ? "Desafixar" : "Fixar");
+        items[n].enabled = 1;
+        items[n].is_separator = 0;
+        n++;
+        snprintf(items[n].label, sizeof(items[n].label), "Abrir nova instância");
         items[n].enabled = 1;
         items[n].is_separator = 0;
         n++;
