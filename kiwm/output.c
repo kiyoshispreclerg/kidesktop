@@ -529,7 +529,31 @@ void switch_workspace(int output_idx, int desktop)
         return;
 
     int old = wm.outputs[output_idx].desktop;
+
+    /* A window being dragged comes along to the new desktop -- switch
+     * desktops with the mouse button still held and the window travels
+     * with the pointer instead of being left behind (and yanked out from
+     * under the drag), the same "carry the grabbed window across" kwin and
+     * compiz have. Any way of switching does it, since they're all the
+     * same gesture from the user's side: the cycle shortcut, the switcher
+     * OSD's live preview or its commit on release, a direct
+     * key_desktop_N jump, or a pager click. Reassigning the desktop
+     * *before* the map/unmap loop below is what keeps it continuously
+     * visible: the loop then sees a window that already belongs to the
+     * desktop being switched to, so it's never unmapped mid-drag. Sticky
+     * windows are already on every desktop and have nothing to carry. */
+    Client *carry = NULL;
+    if (wm.drag_mode == DRAG_MOVE && wm.drag_client &&
+        wm.drag_client->output == output_idx && !wm.drag_client->sticky &&
+        wm.drag_client->desktop == old)
+        carry = wm.drag_client;
+
     wm.outputs[output_idx].desktop = desktop;
+
+    if (carry) {
+        carry->desktop = desktop;
+        ewmh_update_wm_desktop(carry);
+    }
 
     Client *to_focus = NULL;
     for (Client *c = wm.clients; c; c = c->next) {

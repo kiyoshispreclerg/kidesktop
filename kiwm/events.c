@@ -8,6 +8,7 @@
 #include "ewmh.h"
 #include "keybind.h"
 #include "osd.h"
+#include "menu.h"
 #include "shape.h"
 
 #include <xcb/randr.h>
@@ -388,10 +389,26 @@ static void handle_button_press(xcb_button_press_event_t *ev)
         return;
     }
 
+    /* Right-click anywhere on the decoration opens the window menu
+     * (menu.c) -- unless a modifier is held, which is the resize gesture
+     * below. Not just the titlebar: the border counts too, same as every
+     * other WM. */
+    if (client_deco_visible(c) && ev->detail == 3 &&
+        !(ev->state & (wm.mod_cycle | wm.mod_control)) && ev->event == c->frame) {
+        window_menu_open(c, ev->root_x, ev->root_y);
+        return;
+    }
+
     if (on_titlebar && ev->detail == 1) {
         DecoSlot slots[MAX_DECO_ELEMS];
         int idx = deco_slot_at(c, rel_x, slots, MAX_DECO_ELEMS);
         if (idx >= 0) {
+            /* The window icon is the menu's other, older home: clicking it
+             * opens the same menu, anchored just under the titlebar. */
+            if (slots[idx].kind == DECO_ICON) {
+                window_menu_open(c, c->x + slots[idx].x, c->y + TITLEBAR_H);
+                return;
+            }
             switch (slots[idx].kind) {
             case DECO_CLOSE:            close_client(c); return;
             case DECO_MAXIMIZE:         toggle_maximize(c, -1); return;
@@ -1030,6 +1047,11 @@ static void handle_enter_notify(xcb_enter_notify_event_t *ev)
 
 static void handle_key_press(xcb_key_press_event_t *ev)
 {
+    /* An open window menu (menu.c) has the keyboard: arrows/Enter/Escape
+     * drive it, and nothing else fires while it's up. */
+    if (window_menu_handle_key_press(ev))
+        return;
+
     /* Escape while either OSD (osd.c) is open cancels it without switching --
      * only meaningful during the active xcb_grab_keyboard() osd.c holds, but
      * osd_cancel() is a no-op otherwise so this is safe unconditionally.
@@ -1233,12 +1255,18 @@ void handle_event(xcb_generic_event_t *event)
          * gets replayed from there) -- see osd_handle_button_press(). */
         if (osd_handle_button_press((xcb_button_press_event_t *)event))
             break;
+        /* An open window menu owns the pointer entirely: it either picks a
+         * row or dismisses itself (menu.c). */
+        if (window_menu_handle_button_press((xcb_button_press_event_t *)event))
+            break;
         handle_button_press((xcb_button_press_event_t *)event);
         break;
     case XCB_BUTTON_RELEASE:
         handle_button_release((xcb_button_release_event_t *)event);
         break;
     case XCB_MOTION_NOTIFY:
+        if (window_menu_handle_motion((xcb_motion_notify_event_t *)event))
+            break;
         handle_motion((xcb_motion_notify_event_t *)event);
         break;
     case XCB_PROPERTY_NOTIFY:
@@ -1305,6 +1333,7 @@ void handle_event(xcb_generic_event_t *event)
         if (ev->count != 0)
             break;
         osd_handle_expose(ev->window);
+        window_menu_handle_expose(ev->window);
         Client *c = find_client_window(ev->window);
         if (c) {
             draw_decoration(c);

@@ -441,6 +441,8 @@ separately bindable; they follow `mod_cycle=`/`mod_control=` directly. With the 
 - **Click-drag** a titlebar: move. Drag to a screen edge to snap (see `snap_threshold=` above).
 - **Double-click** a titlebar (not on a button): maximize/restore.
 - **Scroll** a titlebar: shade/unshade.
+- **Right-click** the decoration (titlebar or border), or **click the window icon**: the window
+  context menu -- see "Window context menu" below.
 - Titlebar buttons: whatever `titlebar_layout=` configures, left to right.
 - **Alt+drag** (left button), or **Meta+drag** (any button): move a window from anywhere on it,
   not just its titlebar.
@@ -450,7 +452,11 @@ separately bindable; they follow `mod_cycle=`/`mod_control=` directly. With the 
   mapped windows on the current output's current desktop (plus any sticky ones) -- releasing Alt
   commits whichever is highlighted (see "On-screen overlays (OSD)" below; `osd_enabled=0` switches
   immediately on every tap instead, with no overlay).
-- **Meta+Tab** / **Meta+Shift+Tab**: same idea, for the focused output's current desktop.
+- **Meta+Tab** / **Meta+Shift+Tab**: same idea, for the focused output's current desktop. Switching
+  desktops **while dragging a window** carries that window along to the new desktop, the way kwin
+  and compiz do -- keep the mouse button held, tap Meta+Tab, and the window travels with the
+  pointer instead of being left behind. Any way of switching does it, since they're the same
+  gesture from the user's side: the cycle shortcut, a direct **Alt+N** jump, or a pager click.
 - **Escape**: while either overlay is open, cancel without switching.
 - **Meta+Up**: maximize/restore the focused window.
 - **Meta+Down**: minimize the focused window.
@@ -566,6 +572,28 @@ mechanics or eligibility rules. Only one implementation exists today: `simple_li
 plain list above. The desktop grid isn't behind such a vtable -- it's a single fixed presentation,
 not asked to be swappable.
 
+### Window context menu
+
+Right-clicking a window's decoration (titlebar or border, without a modifier -- with one that's the
+resize gesture) or left-clicking its icon opens the window menu: minimize, maximize/restore, shade/
+unshade, move to desktop (a submenu of the output's desktops, the window's own checked), all
+desktops, keep above, close. Entries the window doesn't allow are dimmed and unselectable, from the
+same `_MOTIF_WM_HINTS`/`WM_NORMAL_HINTS`-derived permissions the titlebar buttons already follow
+(see "Status" above), so a dialog that can't be maximized doesn't offer it here either.
+
+It's drawn by kiwm itself in the decoration's own colors and corner radius, XCB SHAPE-clipped like
+everything else here, with the row styling (hover wash, separator, dimming, submenu arrow) matching
+xispanel's menus so the two programs' menus read as the same widget. Navigation works by mouse or
+keyboard: arrows move, Right/Left open and close a submenu, Enter/Space pick, Escape backs out one
+level (and closes at the top). A click outside dismisses it.
+
+**Adding an action** is deliberately cheap: one row in `entries[]` at the top of `menu.c` -- its
+label, an optional second label for when it's "on" (Maximize/Restore), an optional predicate for
+whether the window allows it, an optional predicate for its current state (drawn as a check mark) --
+plus one case in that file's `run_action()`. Nothing else needs to know it exists. Submenus are a
+stack of popup windows, one per level, so a second level is a new submenu kind and its builder, not
+a rework.
+
 ### Source layout
 
 One `.c`/`.h` pair per concern, all sharing `wm.h` (shared types + `extern KiWM wm`):
@@ -588,6 +616,8 @@ One `.c`/`.h` pair per concern, all sharing `wm.h` (shared types + `extern KiWM 
   root-window grabs and the dispatch (see "Keyboard shortcuts" above).
 - `selection.c` -- `--replace` (ICCCM manager-selection handoff).
 - `osd.c` -- Alt+Tab/Meta+Tab on-screen overlays (see "On-screen overlays (OSD)" above).
+- `menu.c` -- the window context menu, one table of actions plus the popup/submenu machinery (see
+  "Window context menu" above).
 
 `kiwm-gpt.c` is an earlier, single-file GPT-authored attempt (single global workspace, no RandR,
 no theming) kept only as historical reference -- not built by the Makefile, not maintained.

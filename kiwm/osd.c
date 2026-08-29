@@ -51,6 +51,11 @@ static int osd_output = -1;
 static xcb_window_t osd_win = XCB_NONE;
 static bool osd_mapped = false;
 
+/* Whether this hold took the pointer grab (see grab_for_hold()) -- it
+ * doesn't when a move/resize drag is already holding one of its own, and
+ * closing must then leave that drag's grab alone. */
+static bool pointer_grabbed = false;
+
 /* Window-switcher state -- see TabBoxOps in osd.h. */
 static TabBoxState tb_state;
 static const TabBoxOps *active_tabbox_ops = &simple_list_tabbox_ops;
@@ -316,7 +321,10 @@ static void close_osd(void)
         osd_mapped = false;
     }
     xcb_ungrab_keyboard(wm.conn, XCB_CURRENT_TIME);
-    xcb_ungrab_pointer(wm.conn, XCB_CURRENT_TIME);
+    if (pointer_grabbed) {
+        xcb_ungrab_pointer(wm.conn, XCB_CURRENT_TIME);
+        pointer_grabbed = false;
+    }
     kind = OSD_NONE;
     osd_output = -1;
     original_focused = NULL;
@@ -363,10 +371,22 @@ static void grab_for_hold(void)
     xcb_grab_keyboard_reply_t *kb = xcb_grab_keyboard_reply(wm.conn,
         xcb_grab_keyboard(wm.conn, 0, wm.root, XCB_CURRENT_TIME,
                           XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC), NULL);
-    xcb_grab_pointer_reply_t *ptr = xcb_grab_pointer_reply(wm.conn,
-        xcb_grab_pointer(wm.conn, 0, wm.root, XCB_EVENT_MASK_BUTTON_PRESS,
-                         XCB_GRAB_MODE_SYNC, XCB_GRAB_MODE_ASYNC,
-                         XCB_NONE, XCB_NONE, XCB_CURRENT_TIME), NULL);
+    /* ...but never on top of a move/resize drag's own pointer grab
+     * (events.c's begin_drag()). Taking a second grab would replace it --
+     * same client, so the server allows it -- and closing the overlay
+     * would then ungrab entirely, leaving the drag with no grab at all
+     * halfway through. This is not a corner case: switching desktops with
+     * a window in hand, so it travels along (output.c's switch_workspace),
+     * is exactly that gesture. The drag's grab already delivers every
+     * button event to kiwm anyway, so nothing is lost by leaving it be. */
+    xcb_grab_pointer_reply_t *ptr = NULL;
+    if (wm.drag_mode == DRAG_NONE) {
+        ptr = xcb_grab_pointer_reply(wm.conn,
+            xcb_grab_pointer(wm.conn, 0, wm.root, XCB_EVENT_MASK_BUTTON_PRESS,
+                             XCB_GRAB_MODE_SYNC, XCB_GRAB_MODE_ASYNC,
+                             XCB_NONE, XCB_NONE, XCB_CURRENT_TIME), NULL);
+        pointer_grabbed = (ptr && ptr->status == XCB_GRAB_STATUS_SUCCESS);
+    }
 
     /* Both replies are read (rather than firing the requests off blind)
      * only so a failure can be said out loud: a grab that didn't happen is
@@ -569,8 +589,8 @@ void osd_poll_release(void)
 bool osd_handle_button_press(xcb_button_press_event_t *ev)
 {
     (void)ev;
-    if (kind == OSD_NONE)
-        return false;
+    if (kind == OSD_NONE || !pointer_grabbed)
+        return false; /* a drag owns the pointer -- see grab_for_hold() */
 
     /* Any click ends the hold, exactly as if the modifier had been let go
      * (see grab_for_hold()). The click is then replayed so it still does

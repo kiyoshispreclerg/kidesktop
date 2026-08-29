@@ -55,4 +55,10 @@ bool keybind_handle_key_press(xcb_key_press_event_t *ev);
  * exactly the bindings this build actually has. */
 void keybind_write_default_config(FILE *f);
 
+/* keysym -> keycode against the server's current keyboard mapping, 0 when
+ * the keysym isn't on the keyboard at all. Lives here because this is
+ * where the mapping scan already was; menu.c uses it for the few
+ * navigation keys its popups answer to. */
+xcb_keycode_t keycode_for_keysym(xcb_keysym_t keysym);
+
 #endif /* KIWM_KEYBIND_H */

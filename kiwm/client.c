@@ -6,6 +6,7 @@
 #include "decoration.h"
 #include "ewmh.h"
 #include "osd.h"
+#include "menu.h"
 #include "shape.h"
 
 #include <xcb/xcb_icccm.h>
@@ -928,7 +929,7 @@ void restack_all(void)
             l = client_layer(c);
         } else if (!c && dock_is_tracked(kids[i])) {
             l = LAYER_DOCK;
-        } else if (!c && osd_owns_window(kids[i])) {
+        } else if (!c && (osd_owns_window(kids[i]) || window_menu_owns_window(kids[i]))) {
             l = LAYER_OSD;
         } else {
             continue;
@@ -1500,6 +1501,8 @@ void unmanage(Client *c)
      * not be left in its list -- it could otherwise get focused (dangling
      * pointer) or drawn (use-after-free) on the next repaint/commit. */
     osd_client_destroyed(c);
+    /* ...and neither can an open window menu keep pointing at it. */
+    window_menu_client_destroyed(c);
 
     xcb_unmap_window(wm.conn, c->frame);
 

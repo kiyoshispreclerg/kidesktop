@@ -118,9 +118,10 @@ static xcb_keysym_t keysym_from_name(const char *name)
 }
 
 /* keysym -> keycode, same full-mapping scan main.c's own keysym_to_keycode()
- * does (kept private to each module rather than shared: this one runs once
- * per configured binding at startup and nowhere else). */
-static xcb_keycode_t keycode_for_keysym(xcb_keysym_t keysym)
+ * does. Shared (see keybind.h) rather than private now that menu.c also
+ * needs a handful of keycodes resolved; still only ever called a fixed
+ * number of times, at startup or when a menu is first opened. */
+xcb_keycode_t keycode_for_keysym(xcb_keysym_t keysym)
 {
     const xcb_setup_t *setup = xcb_get_setup(wm.conn);
     xcb_keycode_t min_kc = setup->min_keycode;
