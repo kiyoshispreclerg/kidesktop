@@ -157,7 +157,17 @@ Widget types implemented so far:
   every greedy spacer on the panel. A greedy spacer before a fixed-size
   widget right-aligns everything after it.
 - `clock`: `format=<strftime format>` (default `%H:%M`). Updates once a
-  second. `tz=<IANA zone, e.g. America/Sao_Paulo>` (default: empty, meaning
+  second. The format may span more than one line -- write either
+  strftime's own `%n` or a literal `\n` (the config file is line-based,
+  so a value can't contain a real newline); each line is centered in its
+  own horizontal band of the widget, at a text size shrunk to fit them
+  all. `format="%H:%M\n%a. %d %b"` gives the usual time-over-date clock
+  ("14:30" / "Sáb. 29 ago"), where `%a`/`%b` are the locale's abbreviated
+  weekday/month (`%A`/`%B` for the full names). Up to 4 lines.
+  `capitalize=yes|no` (default `yes`) uppercases each line's first
+  letter, since strftime's locale names come out lowercase in pt_BR and
+  most other locales ("sáb. 29 ago" -> "Sáb. 29 ago"); a line starting
+  with a digit is unaffected either way. `tz=<IANA zone, e.g. America/Sao_Paulo>` (default: empty, meaning
   the system's own configured zone) overrides just this widget's displayed
   time -- e.g. a second panel/output showing a different zone. There's no
   portable `localtime_r()`-in-an-arbitrary-zone call, so this uses the
