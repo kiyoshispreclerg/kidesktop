@@ -1098,6 +1098,14 @@ extern const PanelWidgetOps volume_ops;
 extern const PanelWidgetOps globalmenu_ops;
 extern const PanelWidgetOps folder_ops;
 extern const PanelWidgetOps xisserve_ops;
+/* Launches xisserve anchored to `w`'s own on-screen rectangle, carrying
+ * the owning panel's edge/output geometry and theme -- the xisserve
+ * widget's click action, exported so any widget can open xisserve as if
+ * it popped out of itself (clock.c's calendar). `cmd_name` is the binary
+ * to run (NULL/"" = "xisserve"), `extra_args` is appended verbatim after
+ * the standard flags (NULL for none) to pick which mode it opens in.
+ * Defined in widgets/xisserve.c; see xisserve/PROTOCOL.md for the flags. */
+void xisserve_spawn_for_widget(PanelWidget *w, const char *cmd_name, const char *extra_args);
 extern const PanelWidgetOps notif_ops;
 extern const PanelWidgetOps pager_ops;
 

@@ -167,7 +167,15 @@ Widget types implemented so far:
   `capitalize=yes|no` (default `yes`) uppercases each line's first
   letter, since strftime's locale names come out lowercase in pt_BR and
   most other locales ("sáb. 29 ago" -> "Sáb. 29 ago"); a line starting
-  with a digit is unaffected either way. `tz=<IANA zone, e.g. America/Sao_Paulo>` (default: empty, meaning
+  with a digit is unaffected either way. `font_size=<px>` overrides the
+  panel's text size for this widget alone -- without it, a multi-line
+  clock shrinks its text to fit the panel thickness, while an explicit
+  size is used exactly as given (and will overflow a panel too thin for
+  it, rather than being silently ignored). Clicking the clock launches
+  `xisserve` (or `cmd=<binary>`) with `--calendar`, plus the same anchor
+  rectangle/edge/output/theme flags the `xisserve` widget passes, so the
+  calendar can open as if it popped out of the clock -- the calendar mode
+  itself is still to be implemented on the xisserve side. `tz=<IANA zone, e.g. America/Sao_Paulo>` (default: empty, meaning
   the system's own configured zone) overrides just this widget's displayed
   time -- e.g. a second panel/output showing a different zone. There's no
   portable `localtime_r()`-in-an-arbitrary-zone call, so this uses the

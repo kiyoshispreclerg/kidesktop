@@ -197,9 +197,13 @@ static void shell_quote(const char *in, char *out, size_t outsz)
     out[o < outsz ? o : outsz - 1] = 0;
 }
 
-static void xisserve_launch(PanelWidget *w)
+/* The whole launch contract in one place, so another widget can open
+ * xisserve anchored to *itself* without duplicating any of it -- clock.c
+ * does exactly that for its calendar popup (see xispanel.h's declaration).
+ * `extra_args` (NULL for none) is appended verbatim after the standard
+ * flags, for whatever mode the caller wants xisserve to open in. */
+void xisserve_spawn_for_widget(PanelWidget *w, const char *cmd_name, const char *extra_args)
 {
-    XisservePriv *xp = w->priv;
     Panel *p = w->panel;
 
     int ax, ay, aw, ah;
@@ -211,19 +215,25 @@ static void xisserve_launch(PanelWidget *w)
 
     double font_size = p->font_size_px > 0 ? p->font_size_px : p->thickness * 0.4;
 
-    char cmd_q[sizeof(xp->cmd) + 8];
-    shell_quote(xp->cmd, cmd_q, sizeof(cmd_q));
+    char cmd_q[200];
+    shell_quote(cmd_name && cmd_name[0] ? cmd_name : "xisserve", cmd_q, sizeof(cmd_q));
     char font_q[sizeof(g_font_family) + 8];
     shell_quote(g_font_family[0] ? g_font_family : "sans-serif", font_q, sizeof(font_q));
 
-    char cmd[768];
+    char cmd[900];
     snprintf(cmd, sizeof(cmd),
              "%s --anchor-x=%d --anchor-y=%d --anchor-w=%d --anchor-h=%d --edge=%s "
              "--output-x=%d --output-y=%d --output-w=%d --output-h=%d "
-             "--bg=%s --fg=%s --font=%s --font-size=%d",
+             "--bg=%s --fg=%s --font=%s --font-size=%d%s%s",
              cmd_q, ax, ay, aw, ah, edge_name(p->edge), p->out_x, p->out_y, p->out_w, p->out_h, bg_hex, fg_hex,
-             font_q, (int)(font_size + 0.5));
+             font_q, (int)(font_size + 0.5), extra_args ? " " : "", extra_args ? extra_args : "");
     run_detached(cmd);
+}
+
+static void xisserve_launch(PanelWidget *w)
+{
+    XisservePriv *xp = w->priv;
+    xisserve_spawn_for_widget(w, xp->cmd, NULL);
 }
 
 static int xisserve_on_button(PanelWidget *w, int button, int local_x, int local_y, int root_x, int root_y)

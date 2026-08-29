@@ -20,6 +20,14 @@
  * label; this makes it "Sáb. 29 ago" without needing a locale-specific
  * format string. Lines starting with a digit (any plain %H:%M) are
  * unaffected either way.
+ *
+ * `font_size=<px>` overrides the panel's own text size for this widget
+ * only (a clock is often wanted bigger or smaller than the rest of the
+ * panel, especially stacked over a date line).
+ *
+ * Clicking opens xisserve anchored to this widget, with `--calendar` --
+ * see clock_on_button(). `cmd=` picks the binary, same as the xisserve
+ * widget's own option.
  */
 #include "../xispanel.h"
 
@@ -39,6 +47,8 @@ typedef struct {
     char tooltip_tz[CLOCK_MAX_TOOLTIP_TZ][64];
     int n_tooltip_tz;
     int capitalize;
+    double font_size; /* 0 = follow the panel's own text size */
+    char cmd[192];    /* xisserve binary launched on click */
 } ClockPriv;
 
 /* Rewrites "\n" (backslash + n) in place into a real newline -- the config
@@ -104,11 +114,18 @@ static int clock_split_lines(const char *text, char *copy, size_t copysz, const 
     return n;
 }
 
-/* Text size for one line: the panel's normal size, shrunk when there's
- * more than one line so the whole stack still fits the widget's
- * thickness. */
-static double clock_line_size(const Panel *p, int thickness, int n_lines)
+/* Text size for one line. Without font_size= it's the panel's own text
+ * size, shrunk when there's more than one line so the whole stack still
+ * fits the widget's thickness. An explicit font_size= is used exactly as
+ * given -- the point of asking for a specific size is to get it, so it
+ * isn't second-guessed by the multi-line fit (a size too big for the
+ * lines it has to stack will visibly overflow, which is the honest
+ * feedback that the panel needs to be thicker). */
+static double clock_line_size(const ClockPriv *cp, const Panel *p, int thickness, int n_lines)
 {
+    if (cp->font_size > 0) {
+        return cp->font_size;
+    }
     double size = panel_text_size(p);
     if (n_lines > 1) {
         double fit = (double)thickness / n_lines * 0.78;
@@ -160,6 +177,13 @@ static int clock_init(PanelWidget *w)
     kv_get(w->config_kv, "tz", cp->tz, sizeof(cp->tz));
     char capbuf[8];
     cp->capitalize = !(kv_get(w->config_kv, "capitalize", capbuf, sizeof(capbuf)) && !strcmp(capbuf, "no"));
+    char sizebuf[16];
+    if (kv_get(w->config_kv, "font_size", sizebuf, sizeof(sizebuf))) {
+        cp->font_size = atof(sizebuf);
+    }
+    if (!kv_get(w->config_kv, "cmd", cp->cmd, sizeof(cp->cmd)) || !cp->cmd[0]) {
+        snprintf(cp->cmd, sizeof(cp->cmd), "xisserve");
+    }
 
     char list[512];
     cp->n_tooltip_tz = 0;
@@ -204,7 +228,7 @@ static void clock_measure(PanelWidget *w, int cross_axis, int *out_len, int *out
     char copy[sizeof(cp->text)];
     const char *lines[CLOCK_MAX_LINES];
     int n_lines = clock_split_lines(sample, copy, sizeof(copy), lines);
-    double size = clock_line_size(p, cross_axis, n_lines);
+    double size = clock_line_size(cp, p, cross_axis, n_lines);
 
     double widest = 0;
     for (int i = 0; i < n_lines; i++) {
@@ -272,7 +296,7 @@ static void clock_paint(PanelWidget *w, cairo_t *cr)
     char copy[sizeof(cp->text)];
     const char *lines[CLOCK_MAX_LINES];
     int n_lines = clock_split_lines(cp->text, copy, sizeof(copy), lines);
-    double size = clock_line_size(p, height, n_lines);
+    double size = clock_line_size(cp, p, height, n_lines);
     double band = (double)height / n_lines;
 
     for (int i = 0; i < n_lines; i++) {
@@ -282,6 +306,25 @@ static void clock_paint(PanelWidget *w, cairo_t *cr)
     }
 }
 
+/* Click opens xisserve anchored to this widget, the same way the xisserve
+ * widget's own button does -- with --calendar so it can show a navigable
+ * calendar there instead of the launcher (that mode is xisserve-side work
+ * still to be written; the flag and the anchor geometry are what xispanel
+ * owes it, and they're here now). */
+static int clock_on_button(PanelWidget *w, int button, int local_x, int local_y, int root_x, int root_y)
+{
+    (void)local_x;
+    (void)local_y;
+    (void)root_x;
+    (void)root_y;
+    ClockPriv *cp = w->priv;
+    if (button != Button1) {
+        return 0;
+    }
+    xisserve_spawn_for_widget(w, cp->cmd, "--calendar");
+    return 1;
+}
+
 const PanelWidgetOps clock_ops = {
     .type_name = "clock",
     .priv_size = sizeof(ClockPriv),
@@ -289,7 +332,7 @@ const PanelWidgetOps clock_ops = {
     .destroy = NULL,
     .measure = clock_measure,
     .paint = clock_paint,
-    .on_button = NULL,
+    .on_button = clock_on_button,
     .on_tick = clock_on_tick,
     .get_tooltip = clock_get_tooltip,
 };
