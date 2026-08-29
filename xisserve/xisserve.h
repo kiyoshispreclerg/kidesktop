@@ -91,5 +91,45 @@ GdkPixbuf *xisserve_resolve_icon(const char *spec, int size);
  * fallback icon (e.g. globalmenu's hamburger) to stay legible against
  * whatever theme is active instead of a fixed color. */
 void xisserve_get_fg_rgba(double *r, double *g, double *b, double *a);
+void xisserve_get_bg_rgba(double *r, double *g, double *b, double *a);
+
+/* One integer setting from xisserve.conf, whose lines are all
+ * "<SECTION>\t<key>\t<value>" (the same tab-delimited shape the PLUGIN
+ * lines already use, and that xisback.conf uses for its own). Returns
+ * `fallback` when the file, the line, or a parseable number is missing,
+ * so every caller has a working default and no config file is ever
+ * required. Reloaded on each open, so an edit takes effect on the next
+ * toggle without restarting the daemon. */
+int xisserve_config_get_int(const char *section, const char *key, int fallback);
+
+/* ---- pages -------------------------------------------------------------
+ *
+ * A "page" is a whole-window alternative to the default launcher view,
+ * selected by its own mode flag on the command line (PROTOCOL.md's
+ * "--calendar", "--audio", ...). xisserve.c owns one root widget per
+ * page, packed into the same box as the launcher's own widgets and
+ * shown/hidden by apply_view_mode(); a page never touches the window,
+ * the grab, positioning, or the singleton/toggle machinery.
+ *
+ * Adding a page is: write pages/<name>.c exposing the three functions
+ * below, declare them here, add one row to xisserve.c's kPages table,
+ * and one line to the Makefile's SRCS. The flag name, window sizing,
+ * and everything else comes from that table row.
+ */
+typedef struct {
+    const char *flag;      /* long-option name, e.g. "audio" -- also the JSON/control-socket value */
+    int min_width;         /* forced minimum window size while this page is up... */
+    int min_height;        /* ...or 0/0 to shrink the window to the page's own natural size */
+    GtkWidget *(*build)(void); /* called once at startup; returns the page's root widget */
+    void (*on_show)(void);     /* each time the page becomes visible (refresh live data here) */
+    void (*on_hide)(void);     /* each time it stops being visible (stop timers here); may be NULL */
+} XisservePage;
+
+GtkWidget *page_calendar_build(void);
+void page_calendar_on_show(void);
+
+GtkWidget *page_audio_build(void);
+void page_audio_on_show(void);
+void page_audio_on_hide(void);
 
 #endif

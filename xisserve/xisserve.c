@@ -42,7 +42,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.2"
+#define XISSERVE_VERSION "0.1.3"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -61,6 +61,24 @@ enum { VCOL_ICON = 0, VCOL_MARKUP, VCOL_ENTRY, N_VCOLS };
  * else is a bucketed freedesktop Categories= key from kCategoryDefs. */
 enum { CCOL_KEY = 0, CCOL_LABEL, N_CCOLS };
 
+/* LaunchArgs::page when no mode flag was passed -- the default search/
+ * list view, which isn't a page in kPages (it's the launcher's own
+ * widgets, not a swappable root). */
+#define PAGE_LAUNCHER (-1)
+
+/* Every page PROTOCOL.md's mode flags can select. Adding one is one row
+ * here plus its own pages/<name>.c -- see xisserve.h's "pages" section.
+ * The calendar keeps 0/0 (shrink to the widget's natural size, which is
+ * what keeps a small popup small); the audio mixer asks for real room,
+ * since its rows only make sense at a usable slider width. */
+static const XisservePage kPages[] = {
+    {"calendar", 0, 0, page_calendar_build, page_calendar_on_show, NULL},
+    {"audio", 380, 480, page_audio_build, page_audio_on_show, page_audio_on_hide},
+};
+#define N_PAGES ((int)(sizeof(kPages) / sizeof(kPages[0])))
+
+static GtkWidget *g_page_roots[N_PAGES];
+
 typedef struct {
     int anchor_x, anchor_y, anchor_w, anchor_h;
     char edge[8];
@@ -69,7 +87,7 @@ typedef struct {
     char fg[10];
     char font[128];
     int font_size;
-    gboolean calendar_mode; /* --calendar -- see PROTOCOL.md */
+    int page; /* index into kPages, or PAGE_LAUNCHER for the default view -- see PROTOCOL.md's mode flags */
 } LaunchArgs;
 
 static LaunchArgs g_args;
@@ -78,10 +96,9 @@ static GtkWidget *g_entry;
 static GtkWidget *g_cat_treeview;
 static GtkWidget *g_cat_scroll;
 static GtkWidget *g_treeview;
-static GtkWidget *g_content_box;  /* cat_scroll + results scroll, hidden in calendar mode */
+static GtkWidget *g_content_box;  /* cat_scroll + results scroll; launcher view only */
 static GtkWidget *g_footer_sep;
-static GtkWidget *g_footer;       /* power-action buttons, hidden in calendar mode */
-static GtkWidget *g_calendar;     /* shown only in calendar mode */
+static GtkWidget *g_footer;       /* power-action buttons; launcher view only */
 static GtkListStore *g_cat_store;
 static GtkListStore *g_view_store;
 static GPtrArray *g_apps;           /* ResultEntry*, persistent scanned apps, owned */
@@ -96,10 +113,13 @@ static pid_t g_watch_pid;
 enum {
     OPT_ANCHOR_X = 1000, OPT_ANCHOR_Y, OPT_ANCHOR_W, OPT_ANCHOR_H,
     OPT_EDGE, OPT_OUTPUT_X, OPT_OUTPUT_Y, OPT_OUTPUT_W, OPT_OUTPUT_H,
-    OPT_BG, OPT_FG, OPT_FONT, OPT_FONT_SIZE, OPT_CALENDAR,
+    OPT_BG, OPT_FG, OPT_FONT, OPT_FONT_SIZE,
+    /* Page mode flags occupy OPT_PAGE_BASE + <index into kPages>, so
+     * kPages stays the single place a page's flag name is written. */
+    OPT_PAGE_BASE = 2000,
 };
 
-static const struct option kLongOpts[] = {
+static const struct option kFixedOpts[] = {
     {"anchor-x", required_argument, 0, OPT_ANCHOR_X},
     {"anchor-y", required_argument, 0, OPT_ANCHOR_Y},
     {"anchor-w", required_argument, 0, OPT_ANCHOR_W},
@@ -113,18 +133,20 @@ static const struct option kLongOpts[] = {
     {"fg", required_argument, 0, OPT_FG},
     {"font", required_argument, 0, OPT_FONT},
     {"font-size", required_argument, 0, OPT_FONT_SIZE},
-    {"calendar", no_argument, 0, OPT_CALENDAR},
-    {0, 0, 0, 0},
 };
+#define N_FIXED_OPTS ((int)(sizeof(kFixedOpts) / sizeof(kFixedOpts[0])))
 
 static void usage(const char *argv0)
 {
     fprintf(stderr,
             "usage: %s --anchor-x=<px> --anchor-y=<px> --anchor-w=<px> --anchor-h=<px> "
             "--edge=top|bottom|left|right --output-x=<px> --output-y=<px> --output-w=<px> "
-            "--output-h=<px> --bg=#RRGGBBAA --fg=#RRGGBBAA --font=<family> --font-size=<px> [--calendar]\n"
-            "       %s --version\n",
-            argv0, argv0);
+            "--output-h=<px> --bg=#RRGGBBAA --fg=#RRGGBBAA --font=<family> --font-size=<px>",
+            argv0);
+    for (int i = 0; i < N_PAGES; i++) {
+        fprintf(stderr, " [--%s]", kPages[i].flag);
+    }
+    fprintf(stderr, "\n       %s --version\n", argv0);
 }
 
 static int parse_argv(int argc, char **argv, LaunchArgs *a)
@@ -137,10 +159,37 @@ static int parse_argv(int argc, char **argv, LaunchArgs *a)
     a->font_size = 12;
     a->output_w = 1920;
     a->output_h = 1080;
+    a->page = PAGE_LAUNCHER;
+
+    /* kFixedOpts plus one no_argument entry per page, plus getopt's
+     * terminator -- assembled here rather than written out statically so
+     * a new kPages row needs no second edit. */
+    struct option opts[N_FIXED_OPTS + N_PAGES + 1];
+    memcpy(opts, kFixedOpts, sizeof(kFixedOpts));
+    for (int i = 0; i < N_PAGES; i++) {
+        struct option *o = &opts[N_FIXED_OPTS + i];
+        o->name = kPages[i].flag;
+        o->has_arg = no_argument;
+        o->flag = NULL;
+        o->val = OPT_PAGE_BASE + i;
+    }
+    memset(&opts[N_FIXED_OPTS + N_PAGES], 0, sizeof(struct option));
 
     int c;
     optind = 1;
-    while ((c = getopt_long(argc, argv, "", kLongOpts, NULL)) != -1) {
+    /* PROTOCOL.md: "An xisserve that doesn't know a flag must ignore it
+     * and open normally rather than fail to start -- the widget side
+     * ships before the page does, every time." So an unrecognized
+     * option is skipped rather than fatal, and opterr=0 keeps getopt
+     * from printing its own complaint about it. This is live today:
+     * xispanel's notif widget already passes --notifications, which has
+     * no page here yet. */
+    opterr = 0;
+    while ((c = getopt_long(argc, argv, "", opts, NULL)) != -1) {
+        if (c >= OPT_PAGE_BASE && c < OPT_PAGE_BASE + N_PAGES) {
+            a->page = c - OPT_PAGE_BASE;
+            continue;
+        }
         switch (c) {
         case OPT_ANCHOR_X: a->anchor_x = atoi(optarg); break;
         case OPT_ANCHOR_Y: a->anchor_y = atoi(optarg); break;
@@ -155,8 +204,7 @@ static int parse_argv(int argc, char **argv, LaunchArgs *a)
         case OPT_FG: snprintf(a->fg, sizeof(a->fg), "%s", optarg); break;
         case OPT_FONT: snprintf(a->font, sizeof(a->font), "%s", optarg); break;
         case OPT_FONT_SIZE: a->font_size = atoi(optarg); break;
-        case OPT_CALENDAR: a->calendar_mode = TRUE; break;
-        default: return -1;
+        default: break; /* unknown flag -- ignored on purpose, see above */
         }
     }
     return 0;
@@ -228,9 +276,18 @@ static int parse_json_args(const char *msg, LaunchArgs *a)
     ok &= json_get_str(msg, "fg", a->fg, sizeof(a->fg));
     json_get_str(msg, "font", a->font, sizeof(a->font));
     json_get_int(msg, "font_size", &a->font_size);
-    int calendar = 0;
-    json_get_int(msg, "calendar", &calendar);
-    a->calendar_mode = calendar != 0;
+    /* Carried by flag name rather than kPages index: the wire format
+     * stays readable in a socket dump, and an unknown name degrades to
+     * the launcher view the same way an unknown argv flag does. */
+    char page[32] = "";
+    json_get_str(msg, "page", page, sizeof(page));
+    a->page = PAGE_LAUNCHER;
+    for (int i = 0; i < N_PAGES; i++) {
+        if (strcmp(kPages[i].flag, page) == 0) {
+            a->page = i;
+            break;
+        }
+    }
     return ok;
 }
 
@@ -259,9 +316,10 @@ static int send_to_running(const char *sockpath, const LaunchArgs *a)
     int n = snprintf(msg, sizeof(msg),
                       "{\"anchor_x\":%d,\"anchor_y\":%d,\"anchor_w\":%d,\"anchor_h\":%d,\"edge\":\"%s\","
                       "\"output_x\":%d,\"output_y\":%d,\"output_w\":%d,\"output_h\":%d,"
-                      "\"bg\":\"%s\",\"fg\":\"%s\",\"font\":\"%s\",\"font_size\":%d,\"calendar\":%d}\n",
+                      "\"bg\":\"%s\",\"fg\":\"%s\",\"font\":\"%s\",\"font_size\":%d,\"page\":\"%s\"}\n",
                       a->anchor_x, a->anchor_y, a->anchor_w, a->anchor_h, a->edge, a->output_x, a->output_y,
-                      a->output_w, a->output_h, a->bg, a->fg, font_esc, a->font_size, a->calendar_mode ? 1 : 0);
+                      a->output_w, a->output_h, a->bg, a->fg, font_esc, a->font_size,
+                      a->page >= 0 ? kPages[a->page].flag : "");
     if (n > 0) {
         ssize_t written = write(fd, msg, (size_t)n);
         (void)written;
@@ -407,6 +465,11 @@ GdkPixbuf *xisserve_resolve_icon(const char *spec, int size)
 void xisserve_get_fg_rgba(double *r, double *g, double *b, double *a)
 {
     hex_to_rgba(g_args.fg, r, g, b, a);
+}
+
+void xisserve_get_bg_rgba(double *r, double *g, double *b, double *a)
+{
+    hex_to_rgba(g_args.bg, r, g, b, a);
 }
 
 /* The only correct way to free a ResultEntry -- see xisserve.h. */
@@ -596,44 +659,69 @@ static void config_path(char *out, size_t outsz)
     snprintf(out, outsz, "%s/xisserve.conf", configdir);
 }
 
-/* Every plugin defaults to enabled -- a fresh install needs no config
- * file at all to get all of them. Same tab-delimited "KEYWORD\tfield..."
- * line shape xisback.conf's own LAYER lines use: one line per plugin to
- * disable, "PLUGIN\t<name>\tno" (kSearchPlugins' own name field is what
- * <name> matches against). Reloaded on every rescan_apps(), same as
- * favorites, so editing the file takes effect on the next open without
- * needing to restart the daemon. */
-static void load_plugin_config(void)
+/* Every line of xisserve.conf is "<SECTION>\t<key>\t<value>" -- the same
+ * tab-delimited "KEYWORD\tfield..." shape xisback.conf's LAYER lines
+ * use. They're all read into one store keyed "SECTION\tkey", which both
+ * the plugin toggles ("PLUGIN\t<name>\tno") and any page's own settings
+ * ("AUDIO\tscroll_step\t5") read back out of, rather than each adding
+ * its own pass over the file. Reloaded on every rescan_apps(), same as
+ * favorites, so an edit takes effect on the next open without
+ * restarting the daemon. */
+static GHashTable *g_config; /* "SECTION\tkey" -> value, both owned */
+
+/* Same flat "$XDG_CONFIG_HOME (or ~/.config)/xisserve.conf" naming
+ * xisserve-favorites.conf/xisback.conf use. */
+static void load_config(void)
 {
-    for (int i = 0; i < N_SEARCH_PLUGINS; i++) g_plugin_enabled[i] = TRUE;
+    if (g_config) g_hash_table_destroy(g_config);
+    g_config = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
 
     char path[PATH_MAX];
     config_path(path, sizeof(path));
     FILE *f = fopen(path, "r");
-    if (!f) return;
-
-    char line[256];
-    while (fgets(line, sizeof(line), f)) {
-        size_t l = strlen(line);
-        while (l > 0 && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = 0;
-        char *fields[3];
-        int nf = 0;
-        char *p = line;
-        fields[nf++] = p;
-        while (nf < 3 && (p = strchr(p, '\t'))) {
-            *p = 0;
-            p++;
+    if (f) {
+        char line[256];
+        while (fgets(line, sizeof(line), f)) {
+            size_t l = strlen(line);
+            while (l > 0 && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = 0;
+            if (line[0] == '#' || !line[0]) continue;
+            char *fields[3];
+            int nf = 0;
+            char *p = line;
             fields[nf++] = p;
-        }
-        if (nf != 3 || strcmp(fields[0], "PLUGIN") != 0) continue;
-        for (int i = 0; i < N_SEARCH_PLUGINS; i++) {
-            if (strcmp(kSearchPlugins[i].name, fields[1]) == 0) {
-                g_plugin_enabled[i] = strcasecmp(fields[2], "no") != 0;
-                break;
+            while (nf < 3 && (p = strchr(p, '\t'))) {
+                *p = 0;
+                p++;
+                fields[nf++] = p;
             }
+            if (nf != 3) continue;
+            g_hash_table_insert(g_config, g_strdup_printf("%s\t%s", fields[0], fields[1]), g_strdup(fields[2]));
         }
+        fclose(f);
     }
-    fclose(f);
+
+    /* Every plugin defaults to enabled -- a fresh install needs no
+     * config file at all to get all of them; only an explicit "no"
+     * turns one off. */
+    for (int i = 0; i < N_SEARCH_PLUGINS; i++) {
+        char key[128];
+        snprintf(key, sizeof(key), "PLUGIN\t%s", kSearchPlugins[i].name);
+        const char *val = g_hash_table_lookup(g_config, key);
+        g_plugin_enabled[i] = !val || strcasecmp(val, "no") != 0;
+    }
+}
+
+int xisserve_config_get_int(const char *section, const char *key, int fallback)
+{
+    if (!g_config) return fallback;
+    char full[128];
+    snprintf(full, sizeof(full), "%s\t%s", section, key);
+    const char *val = g_hash_table_lookup(g_config, full);
+    if (!val || !val[0]) return fallback;
+    char *end = NULL;
+    long n = strtol(val, &end, 10);
+    if (end == val) return fallback; /* not a number at all -- keep the default */
+    return (int)n;
 }
 
 /* ---- .desktop scanning ---------------------------------------------------- */
@@ -789,7 +877,10 @@ static void rescan_apps(void)
     }
     g_apps = g_ptr_array_new();
     load_favorites();
-    load_plugin_config();
+    /* load_config() is *not* called here -- show_launcher() does it for
+     * every view, not just this one. rescan_apps() only runs for the
+     * launcher, so config-reading pages (the audio mixer's scroll step)
+     * would otherwise never see a config file at all. */
 
     GHashTable *seen = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
 
@@ -876,8 +967,6 @@ static void apply_theme(void)
     gtk_widget_modify_base(g_treeview, GTK_STATE_NORMAL, &bg_color);
     gtk_widget_modify_text(g_cat_treeview, GTK_STATE_NORMAL, &fg_color);
     gtk_widget_modify_base(g_cat_treeview, GTK_STATE_NORMAL, &bg_color);
-    gtk_widget_modify_bg(g_calendar, GTK_STATE_NORMAL, &bg_color);
-    gtk_widget_modify_text(g_calendar, GTK_STATE_NORMAL, &fg_color);
 
     PangoFontDescription *desc = pango_font_description_new();
     pango_font_description_set_family(desc, g_args.font[0] ? g_args.font : "sans-serif");
@@ -885,7 +974,19 @@ static void apply_theme(void)
     gtk_widget_modify_font(g_entry, desc);
     gtk_widget_modify_font(g_treeview, desc);
     gtk_widget_modify_font(g_cat_treeview, desc);
-    gtk_widget_modify_font(g_calendar, desc);
+
+    /* Each page's root gets the same treatment. Only the root is
+     * touched: GTK propagates a modified font/bg down to children that
+     * haven't overridden it, and a page that wants finer control (the
+     * audio mixer colors its own labels, since its rows are rebuilt
+     * long after this runs) does that itself via
+     * xisserve_get_fg_rgba(). */
+    for (int i = 0; i < N_PAGES; i++) {
+        if (!g_page_roots[i]) continue;
+        gtk_widget_modify_bg(g_page_roots[i], GTK_STATE_NORMAL, &bg_color);
+        gtk_widget_modify_text(g_page_roots[i], GTK_STATE_NORMAL, &fg_color);
+        gtk_widget_modify_font(g_page_roots[i], desc);
+    }
     pango_font_description_free(desc);
 
     gtk_widget_queue_draw(g_window);
@@ -966,15 +1067,21 @@ static void ungrab_input(void)
     gdk_keyboard_ungrab(t);
 }
 
+static void leave_current_page(void); /* defined below, next to the page-visibility bookkeeping it owns */
+
 static void hide_launcher(void)
 {
+    /* A hidden popup is "left" as far as its page is concerned -- the
+     * audio mixer's `pactl` poll in particular has no business running
+     * against a window nobody can see. */
+    leave_current_page();
     ungrab_input();
     gtk_widget_hide(g_window);
 }
 
 /* ---- search plugins ------------------------------------------------------- */
 
-/* kSearchPlugins/g_plugin_enabled/load_plugin_config() live earlier,
+/* kSearchPlugins/g_plugin_enabled/load_config() live earlier,
  * right after favorites -- see that section's comment. */
 
 /* Builds a "Name\n<small>subtitle</small>" markup string for one
@@ -1048,43 +1155,51 @@ static void rebuild_results(void)
     }
 }
 
-/* Switches between the two mutually-exclusive widget groups build_ui()
- * packed into the same vbox -- entry+content+footer (launcher mode) or
- * g_calendar alone (--calendar mode, see PROTOCOL.md). Launcher mode
- * keeps its own fixed WIN_WIDTH/WIN_HEIGHT floor (the split-pane layout
- * is designed around it); calendar mode is left with no forced minimum
- * at all, so the window ends up exactly GtkCalendar's own natural size
- * for whatever font/locale is active -- reposition_window() (called
- * right after this, in show_launcher()) queries that real size rather
- * than guessing it, which is what actually keeps the popup fully inside
- * its output. Must run *after* gtk_widget_show_all(g_window) in
- * show_launcher(): show_all() sets every child visible unconditionally,
- * so the hide() calls here have to come later to actually stick. Jumps
- * the calendar to today (current month, today selected/highlighted)
- * every time, matching the app list always resetting to the Favoritos
- * category on open. */
+/* Shows exactly one of the mutually-exclusive widget groups build_ui()
+ * packed into the same vbox: the launcher's entry+content+footer, or a
+ * single page's root (see kPages / PROTOCOL.md's mode flags). The
+ * launcher keeps its own fixed WIN_WIDTH/WIN_HEIGHT floor (the
+ * split-pane layout is designed around it); a page gets whatever floor
+ * its kPages row asks for, or none at all (0/0 -- the calendar), in
+ * which case the window ends up exactly that widget's natural size for
+ * the active font/locale. reposition_window() (called right after this,
+ * in show_launcher()) then queries the real resulting size rather than
+ * guessing it, which is what actually keeps the popup fully inside its
+ * output.
+ *
+ * Must run *after* gtk_widget_show_all(g_window) in show_launcher():
+ * show_all() sets every child visible unconditionally, so these hide()
+ * calls have to come later to stick. */
 static void apply_view_mode(void)
 {
-    if (g_args.calendar_mode) {
-        gtk_widget_set_size_request(g_window, -1, -1);
-        gtk_widget_hide(g_entry);
-        gtk_widget_hide(g_content_box);
-        gtk_widget_hide(g_footer_sep);
-        gtk_widget_hide(g_footer);
-        gtk_widget_show(g_calendar);
+    gboolean launcher = g_args.page == PAGE_LAUNCHER;
 
-        time_t now = time(NULL);
-        struct tm tmv;
-        localtime_r(&now, &tmv);
-        gtk_calendar_select_month(GTK_CALENDAR(g_calendar), (guint)tmv.tm_mon, (guint)(tmv.tm_year + 1900));
-        gtk_calendar_select_day(GTK_CALENDAR(g_calendar), (guint)tmv.tm_mday);
-    } else {
+    for (int i = 0; i < N_PAGES; i++) {
+        if (!g_page_roots[i]) continue;
+        gboolean active = !launcher && i == g_args.page;
+        if (active) {
+            gtk_widget_show(g_page_roots[i]);
+        } else {
+            gtk_widget_hide(g_page_roots[i]);
+        }
+    }
+
+    if (launcher) {
         gtk_widget_set_size_request(g_window, WIN_WIDTH, WIN_HEIGHT);
-        gtk_widget_hide(g_calendar);
+    } else {
+        const XisservePage *p = &kPages[g_args.page];
+        gtk_widget_set_size_request(g_window, p->min_width ? p->min_width : -1, p->min_height ? p->min_height : -1);
+    }
+    if (launcher) {
         gtk_widget_show(g_entry);
         gtk_widget_show(g_content_box);
         gtk_widget_show(g_footer_sep);
         gtk_widget_show(g_footer);
+    } else {
+        gtk_widget_hide(g_entry);
+        gtk_widget_hide(g_content_box);
+        gtk_widget_hide(g_footer_sep);
+        gtk_widget_hide(g_footer);
     }
 
     /* set_size_request() alone only changes what GTK's layout engine
@@ -1099,6 +1214,22 @@ static void apply_view_mode(void)
     gtk_window_resize(GTK_WINDOW(g_window), req.width, req.height);
 }
 
+/* Which page's on_hide() still owes a call -- a page is "left" both by
+ * hiding the window and by a later invocation switching to a different
+ * page, and only the page itself knows what that should stop (the audio
+ * mixer's poll timer, say). Tracked separately from g_args.page because
+ * g_args is overwritten by the new invocation's argv before the outgoing
+ * page has been told anything. */
+static int g_shown_page = PAGE_LAUNCHER;
+
+static void leave_current_page(void)
+{
+    if (g_shown_page >= 0 && kPages[g_shown_page].on_hide) {
+        kPages[g_shown_page].on_hide();
+    }
+    g_shown_page = PAGE_LAUNCHER;
+}
+
 static void show_launcher(void)
 {
     if (g_hovered_cat_path) {
@@ -1106,7 +1237,10 @@ static void show_launcher(void)
         g_hovered_cat_path = NULL;
     }
 
-    if (!g_args.calendar_mode) {
+    leave_current_page();
+    load_config(); /* before either branch -- pages read settings too, see rescan_apps() */
+
+    if (g_args.page == PAGE_LAUNCHER) {
         rescan_apps();
         gtk_entry_set_text(GTK_ENTRY(g_entry), "");
         snprintf(g_selected_category, sizeof(g_selected_category), "favorites");
@@ -1116,6 +1250,11 @@ static void show_launcher(void)
             gtk_tree_selection_select_iter(gtk_tree_view_get_selection(GTK_TREE_VIEW(g_cat_treeview)), &cat_it);
         }
         rebuild_results();
+    } else {
+        /* Before apply_view_mode(): a page's on_show() is what fills it
+         * with current data, and the window is sized from the result. */
+        if (kPages[g_args.page].on_show) kPages[g_args.page].on_show();
+        g_shown_page = g_args.page;
     }
 
     gtk_widget_show_all(g_window);
@@ -1125,7 +1264,7 @@ static void show_launcher(void)
     gdk_window_raise(g_window->window);
     gdk_window_focus(g_window->window, GDK_CURRENT_TIME);
     grab_input();
-    gtk_widget_grab_focus(g_args.calendar_mode ? g_calendar : g_entry);
+    gtk_widget_grab_focus(g_args.page == PAGE_LAUNCHER ? g_entry : g_page_roots[g_args.page]);
 }
 
 static void toggle_visibility(void)
@@ -1588,27 +1727,38 @@ static void build_ui(void)
     }
     gtk_box_pack_start(GTK_BOX(vbox), g_footer, FALSE, FALSE, 0);
 
-    /* --calendar mode (see PROTOCOL.md): a plain GtkCalendar, packed
-     * into the same vbox as everything above but normally hidden --
-     * apply_view_mode() swaps which of the two groups is visible. Month/
-     * year navigation (the header's prev/next-month arrows and a
-     * directly editable year) and highlighting whichever day is
-     * "today" are both built into GtkCalendar with zero extra code, as
-     * long as the currently *displayed* month is left as the real
-     * current one (apply_view_mode() re-selects it every open) -- GTK
-     * only bolds today's date when it's actually on screen. */
-    g_calendar = gtk_calendar_new();
-    gtk_box_pack_start(GTK_BOX(vbox), g_calendar, TRUE, TRUE, 0);
+    /* Every page's root goes into the same vbox as the launcher's own
+     * widgets, all of them normally hidden -- apply_view_mode() shows
+     * exactly one group. Built once, up front, rather than lazily on
+     * first use: a page's build() is cheap (no data is fetched there --
+     * that's on_show()'s job) and this keeps apply_theme() able to
+     * assume every root already exists. */
+    for (int i = 0; i < N_PAGES; i++) {
+        g_page_roots[i] = kPages[i].build();
+        gtk_box_pack_start(GTK_BOX(vbox), g_page_roots[i], TRUE, TRUE, 0);
+    }
 }
 
 int main(int argc, char **argv)
 {
     /* Checked before gtk_init() -- same reason most CLI tools handle
-     * --version first: it should work even with no display to connect
-     * to, and shouldn't care whether any other flag is well-formed. */
+     * these first: they should work even with no display to connect to,
+     * and shouldn't care whether any other flag is well-formed.
+     *
+     * --help is handled here rather than left to parse_argv()'s
+     * ignore-unknown-flags rule (see its comment): that rule exists so a
+     * mode flag from a newer xispanel doesn't stop the popup opening,
+     * but applying it to --help would mean "xisserve --help" silently
+     * opening the launcher instead of printing anything, which is
+     * useless at a terminal. No widget ever passes --help, so carving it
+     * out costs the contract nothing. */
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--version") == 0) {
             printf("xisserve %s\n", XISSERVE_VERSION);
+            return 0;
+        }
+        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            usage(argv[0]);
             return 0;
         }
     }

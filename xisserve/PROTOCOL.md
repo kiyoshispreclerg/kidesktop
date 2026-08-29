@@ -52,8 +52,13 @@ is enough; nothing needs `--flag=value` split-on-`=` beyond what
   (e.g. `Comic Relief`), never pre-quoted -- your argv parser gets it
   as one whole string already, no shell-unescaping needed on your end.
 
-A mode flag may follow the ones above, selecting what xisserve opens
-instead of its default launcher view. Only one exists so far:
+A mode flag may follow the ones above, selecting which page/tab xisserve
+opens instead of its default launcher view. An xisserve that doesn't know
+a flag must ignore it and open normally rather than fail to start -- the
+widget side ships before the page does, every time. (This is enforced in
+`parse_argv()` via `opterr = 0` plus an ignore-by-default switch, and is
+live right now: `--notifications` below is already being sent by a
+shipped widget with no page implemented for it.)
 
 - `--calendar`: passed by xispanel's `clock` widget when its clock is
   clicked, anchored to the clock's own rectangle. Opens a navigable
@@ -68,6 +73,35 @@ instead of its default launcher view. Only one exists so far:
   between calendar and launcher mode on an already-open xisserve still
   just closes it on that click, same as any other toggle; the new mode
   takes effect on the *next* open.
+
+- `--audio`: passed by xispanel's `volume` widget on left click,
+  anchored to the volume icon. Shows the streams currently playing or
+  recording (each with its own level and mute -- the per-application
+  mixer view plasmashell's volume applet has) plus the output and input
+  devices, each with level, mute, which one is default, and whether it's
+  active. xispanel's own volume widget deliberately covers none of that:
+  it only touches `@DEFAULT_SINK@` (scroll = level, middle click =
+  mute), and its `cmd_edit=` still shells out to a full mixer on right
+  click.
+
+  State comes from `pactl`, not a linked libpulse/libpipewire -- so one
+  code path covers PulseAudio and PipeWire, with no build-time
+  dependency and nothing to ifdef (see `pages/pulse.h`). With no sound
+  server answering, the page renders an explanatory placeholder rather
+  than failing: xisserve still starts and every other view keeps
+  working. ALSA-only systems land there too, and are told why -- bare
+  ALSA has no per-application streams at all, that concept being
+  precisely what a sound server introduces.
+- `--notifications`: passed by xispanel's `notif` widget on left click,
+  anchored to the bell icon. Should show the notification history --
+  xispanel's notifd.c ring buffer is in xispanel's process, not
+  xisserve's, so this page needs to read the history from somewhere:
+  either xispanel grows a control-socket query for it, or xisserve reads
+  the same history xisnotif is planned to keep (see
+  `../XISDESKTOP_PLAN.md`). Deciding that is part of implementing this
+  flag. **Not implemented yet** -- meanwhile the widget's right click
+  still opens the same history inline as a panel menu, which needs no
+  second process at all.
 
 ## Singleton / toggle behavior (xisserve's own responsibility)
 

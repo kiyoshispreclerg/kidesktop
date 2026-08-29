@@ -78,6 +78,56 @@ Every plugin not mentioned stays enabled, so a fresh install needs no
 config file at all. Reloaded on every open, so an edit takes effect on
 the next toggle without restarting the daemon.
 
+## Pages
+
+Besides the launcher view, xisserve opens a specific page when given
+that page's mode flag (see `PROTOCOL.md` for who passes what). Sources
+live under `pages/`, one file per page, plugged in through a single
+table in `xisserve.c`:
+
+- **`--calendar`** (`pages/calendar.c`) -- month view, current month,
+  today highlighted, prev/next month and direct year entry. Opened by
+  xispanel's `clock` widget.
+- **`--audio`** (`pages/audio.c` + `pages/pulse.c`) -- a mixer: the
+  streams currently playing/recording with per-application level and
+  mute, plus output and input devices with level, mute, default, and
+  active. Opened by xispanel's `volume` widget.
+
+### Audio: no libpulse/libpipewire dependency
+
+`pages/pulse.c` shells out to `pactl` rather than linking a sound
+server's client library -- the same call `xispanel/pulse.c` already
+made. `pactl` ships with `pulseaudio-utils` and is also provided by
+`pipewire-pulse`, so one code path covers both; there is nothing to
+detect at build time and nothing to `ifdef`. libpulse is built around a
+persistent async connection with its own callback mainloop rather than
+one-shot calls, so linking it would mean folding part of that mainloop
+into GTK's for no gain here.
+
+With `pactl` missing, or present with no server answering, the page
+shows an explanatory placeholder and everything else keeps working.
+
+**ALSA-only systems** land on that placeholder, and are told why. It
+isn't an oversight: without a sound server there are no per-application
+streams to mix at all (that concept is exactly what a sound server
+adds), and ALSA's "default device" is a config-file matter rather than
+something switchable at runtime -- so the mixer, the default switching,
+and the enable/disable controls all have nothing to act on. A limited
+`amixer`-based fallback (card list + master/capture level and mute)
+would be possible, but it would cover only the parts this page is least
+about, for a niche that keeps shrinking as distributions default to
+PipeWire.
+
+Per-page settings live in the same `xisserve.conf`, under the page's own
+section:
+
+```
+AUDIO	scroll_step	5
+```
+
+`scroll_step` is how many percent one scroll notch (and one arrow-key
+press) moves a volume slider. Default 5.
+
 ## Icons
 
 Both app icons (`.desktop` `Icon=`, resolved via `GtkIconTheme` for a

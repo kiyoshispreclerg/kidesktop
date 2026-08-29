@@ -28,9 +28,18 @@ DBUS_CPPFLAGS :=
 $(info xisserve: dbus-1 not found via pkg-config -- building without the globalmenu search plugin's application-menu support)
 endif
 
-SRCS := xisserve.c plugins/terminal.c plugins/globalmenu.c $(DBUS_SRC)
+# pages/pulse.c (the --audio page's backend) has no build-time dependency
+# of its own: it shells out to `pactl` rather than linking libpulse or
+# libpipewire, so there is nothing to detect here and nothing to ifdef.
+# `pactl` ships with pulseaudio-utils and is also provided by
+# pipewire-pulse, so one code path covers both; if it's missing at
+# runtime -- or present with no sound server answering -- the page shows
+# an explanatory placeholder instead of failing. Same "shell out, don't
+# reimplement" call xispanel/pulse.c already made, for the same reason.
+SRCS := xisserve.c plugins/terminal.c plugins/globalmenu.c $(DBUS_SRC) \
+        pages/calendar.c pages/audio.c pages/pulse.c
 OBJS := $(SRCS:.c=.o)
-HDRS := xisserve.h plugins/dbusmenu.h
+HDRS := xisserve.h plugins/dbusmenu.h pages/pulse.h
 
 xisserve: $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(PKG_LIBS)
