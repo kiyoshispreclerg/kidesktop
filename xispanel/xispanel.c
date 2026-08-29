@@ -2622,10 +2622,28 @@ static int run_as_daemon(const char *sockpath)
                     if (p) {
                         panel_autohide_enter(p);
                     }
+                    /* Also (re)establish the hover state from the crossing
+                     * event's own coordinates, instead of waiting for the
+                     * next MotionNotify: after the implicit grab of a
+                     * click ends, X delivers an EnterNotify(NotifyUngrab)
+                     * and *no* motion event if the pointer hasn't moved,
+                     * so anything drawn only while hovered (winctl's
+                     * collapse_buttons=) would otherwise stay hidden until
+                     * the pointer was jiggled. */
+                    if (p && !is_sensor) {
+                        int horiz = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM);
+                        panel_update_hover(p, horiz ? ev.xcrossing.x : ev.xcrossing.y,
+                                           horiz ? ev.xcrossing.y : ev.xcrossing.x);
+                    }
                 } else if (ev.type == LeaveNotify) {
                     int is_sensor = 0;
                     Panel *p = find_panel_by_window(ev.xcrossing.window, &is_sensor);
-                    if (p && !is_sensor) {
+                    /* NotifyGrab/NotifyUngrab crossings are the pointer
+                     * grab a click implicitly takes and releases, not the
+                     * pointer actually leaving the panel -- treating them
+                     * as a real leave dropped the hover state on every
+                     * click. */
+                    if (p && !is_sensor && ev.xcrossing.mode == NotifyNormal) {
                         panel_autohide_leave(p);
                         tooltip_notice_leave(p);
                         panel_clear_hover(p);
