@@ -348,6 +348,10 @@ void pango_show_text_boxed_bold(cairo_t *cr, double x, double top_y, double box_
 uint64_t now_ms(void);
 int kv_get(const char *kvline, const char *key, char *out, size_t outsz);
 int kv_get_int(const char *kvline, const char *key, int defval);
+/* "#RRGGBB" or "#RRGGBBAA" -> 0..1 components. Leaves *r/g/b/a untouched
+ * (pre-seed them with the default) and returns 0 if `hex` is empty or
+ * malformed; 1 when all four were written. */
+int parse_hex_color(const char *hex, double *r, double *g, double *b, double *a);
 /* Real window-space rectangle for a widget, accounting for panel
  * orientation (horizontal panels lay widgets out along x, vertical panels
  * along y). */
@@ -1108,5 +1112,6 @@ extern const PanelWidgetOps xisserve_ops;
 void xisserve_spawn_for_widget(PanelWidget *w, const char *cmd_name, const char *extra_args);
 extern const PanelWidgetOps notif_ops;
 extern const PanelWidgetOps pager_ops;
+extern const PanelWidgetOps monitor_ops;
 
 #endif

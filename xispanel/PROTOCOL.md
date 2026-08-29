@@ -285,6 +285,49 @@ Widget types implemented so far:
   to where they really are on that output -- outlines only, not live
   contents (that's what `tasklist`'s `show_thumbs=` is for). Minimized
   windows aren't drawn; sticky ones appear on every desktop.
+- `monitor`: one system reading, as a number or a bar. One instance shows
+  exactly one thing -- put several `monitor` lines side by side to build a
+  row of readings, each with its own metric, style, width, color and
+  interval. Every source is a plain read of a small `/proc` or `/sys`
+  file: no sampling thread, no external process, no libraries. The two
+  multi-value files (`/proc/stat`, `/proc/meminfo`) are parsed once per
+  refresh into a snapshot shared by every `monitor` widget on every
+  panel, so ten CPU-core widgets read `/proc/stat` once, not ten times;
+  sensor paths under `/sys/class/hwmon` and `/sys/class/drm` are resolved
+  once at startup, not scanned per tick; and a tick only repaints when
+  the drawn text (or the bar's filled length, in whole pixels) actually
+  changed. Measured idle cost with eight of them at `interval=1000`:
+  about 0.1% of one core.
+  - `metric=cpu|ram|swap|gpu|vram|cpu_temp|gpu_temp` (default `cpu`).
+  - `index=<n>`: which core (`cpu`), which card (`gpu`/`vram`/
+    `gpu_temp`), or which `temp<n>_input` of the hwmon chip
+    (`cpu_temp`/`gpu_temp`). Unset means the whole-machine total for
+    `cpu`, and the average across the chip's inputs (or the first card
+    that exposes the reading) for the rest.
+  - `style=text|bar|both` (default `text`),
+    `orientation=vertical|horizontal` for the bar (default `vertical`,
+    filling upward).
+  - `width=<px>`: length along the panel. Default: enough for the widest
+    reading ("100%"/"100°C") for `text`/`both`, `8` for a vertical bar,
+    3x the panel thickness for a horizontal one. Text widgets are
+    measured off that full-width sample rather than the live value, so
+    the panel doesn't shift every time a reading crosses 9 -> 10 -> 100.
+  - `interval=<ms>` (default `1000`, floor `100`).
+  - `color=`, `track_color=`, `high_color=` (`#RRGGBB` or `#RRGGBBAA`):
+    bar fill, bar background, and the color used once the reading reaches
+    `high=<value>` (percent for the `%` metrics, degrees for the
+    temperatures). Without `high=`, nothing switches color. A bar for a
+    temperature is scaled to `high=` when set, otherwise to 100°C.
+  - `label=<text>`: short prefix drawn before the value ("CPU 42%").
+  - `font_size=<px>`: text size for this widget alone.
+  - `hwmon=<chip name>`: override the hwmon chip for the temperature
+    metrics; by default the first of `k10temp`/`zenpower`/`coretemp`/
+    `cpu_thermal`/`acpitz` (CPU) or `amdgpu`/`radeon`/`i915`/`nouveau`
+    (GPU) that's present is used.
+  - NVIDIA GPUs are not covered by `gpu`/`vram`/`gpu_temp`: they expose
+    no sysfs interface of this shape, only NVML or an `nvidia-smi` process
+    per tick, which is exactly what this widget is designed to avoid.
+    A metric with no usable source draws `n/d` instead of failing.
 - `winctl`: active-window icon + title, plus configurable window-control
   buttons -- similar to KDE's "Active Window Control" plasmoid. Options:
   `buttons=<comma-list>` (any of `min`, `max`, `close`, in the order given

@@ -293,20 +293,18 @@ static void join_fields(char **fields, int start, int nf, char *out, size_t outs
     }
 }
 
-/* "#RRGGBB" or "#RRGGBBAA" -> 0..1 components. Leaves *r/g/b/a untouched
- * (caller should pre-seed with a default) if hex is empty or malformed. */
-static void parse_hex_color(const char *hex, double *r, double *g, double *b, double *a)
+int parse_hex_color(const char *hex, double *r, double *g, double *b, double *a)
 {
     if (!hex || hex[0] != '#') {
-        return;
+        return 0;
     }
     size_t len = strlen(hex);
     if (len != 7 && len != 9) {
-        return;
+        return 0;
     }
     unsigned int ri, gi, bi, ai = 255;
     if (sscanf(hex + 1, "%2x%2x%2x", &ri, &gi, &bi) != 3) {
-        return;
+        return 0;
     }
     if (len == 9) {
         sscanf(hex + 7, "%2x", &ai);
@@ -315,6 +313,7 @@ static void parse_hex_color(const char *hex, double *r, double *g, double *b, do
     *g = gi / 255.0;
     *b = bi / 255.0;
     *a = ai / 255.0;
+    return 1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -334,6 +333,7 @@ static const PanelWidgetOps *g_widget_registry[] = {
     &xisserve_ops,
     &notif_ops,
     &pager_ops,
+    &monitor_ops,
     NULL,
 };
 
