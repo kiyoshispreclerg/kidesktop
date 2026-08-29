@@ -259,12 +259,12 @@ static void detect_resize_neighbors(Client *c)
  * that edge. Must be checked *before* client.c's detile_for_drag() runs --
  * once it does, c->snap_side is already cleared and there's nothing left
  * to check. */
-static bool should_preserve_snap_resize(Client *c, xcb_button_press_event_t *ev)
+static bool should_preserve_snap_resize(Client *c, int root_x)
 {
     if (!wm.link_resize_neighbors || (c->snap_side != SNAP_LEFT && c->snap_side != SNAP_RIGHT))
         return false;
 
-    bool resize_right = (ev->root_x - c->x) > c->frame_width / 2;
+    bool resize_right = (root_x - c->x) > c->frame_width / 2;
     bool shared_edge = (c->snap_side == SNAP_LEFT && resize_right) ||
                        (c->snap_side == SNAP_RIGHT && !resize_right);
     if (!shared_edge)
@@ -300,7 +300,15 @@ static bool should_preserve_snap_resize(Client *c, xcb_button_press_event_t *ev)
 static bool resize_grip_at(Client *c, int root_x, int root_y,
                            int *right, int *bottom, bool *axis_x, bool *axis_y)
 {
-    if (wm.resize_grip <= 0 || !c->allow_resize || c->shaded)
+    /* Not on a maximized window: it fills its output by definition, so
+     * there's nothing to drag its edges towards, and every click near one
+     * of them would be stolen from the application for a resize that
+     * shouldn't happen. Half-tiled windows do keep their grips -- dragging
+     * the shared edge of two of them is exactly what
+     * link_resize_neighbors= is for, and it should not need a modifier. A
+     * shaded window is nothing but titlebar, so it has no edges to grip
+     * either. */
+    if (wm.resize_grip <= 0 || !c->allow_resize || c->shaded || c->maximized)
         return false;
 
     int rel_x = root_x - c->x;
@@ -482,7 +490,8 @@ static void begin_drag_at(Client *c, DragMode mode, int root_x, int root_y,
 static void begin_drag(Client *c, DragMode mode, xcb_button_press_event_t *ev)
 {
     begin_drag_at(c, mode, ev->root_x, ev->root_y,
-                  (mode == DRAG_RESIZE) && should_preserve_snap_resize(c, ev), -1, -1, true, true);
+                  (mode == DRAG_RESIZE) && should_preserve_snap_resize(c, ev->root_x),
+                  -1, -1, true, true);
 }
 
 /* Which configured titlebar element (see wm.h's DecoElemKind/
@@ -593,7 +602,14 @@ static void handle_button_press(xcb_button_press_event_t *ev)
         int right, bottom;
         bool axis_x, axis_y;
         if (resize_grip_at(c, ev->root_x, ev->root_y, &right, &bottom, &axis_x, &axis_y)) {
-            begin_drag_at(c, DRAG_RESIZE, ev->root_x, ev->root_y, false,
+            /* Same rule a modifier-drag resize follows: grabbing the
+             * shared edge of two half-tiled windows resizes both in place
+             * (link_resize_neighbors=) instead of detiling this one back
+             * to whatever floating geometry it had before it was snapped.
+             * Missing that here is what made grip-resizing a tiled pair
+             * throw both windows back to their old sizes. */
+            begin_drag_at(c, DRAG_RESIZE, ev->root_x, ev->root_y,
+                          should_preserve_snap_resize(c, ev->root_x),
                           right, bottom, axis_x, axis_y);
             return;
         }
@@ -1006,10 +1022,27 @@ static void magnet_snap_resize(Client *c, int *new_w, int *new_h, int bt, int th
  * magnet_snap_resize()) -- each neighbor's own insets are looked up
  * individually since a neighbor's decoration state needn't match the
  * dragged client's. */
-static void update_resize_neighbors(Client *c, int bt, int th)
+/* Where every linked resize neighbor (kiwm.conf's link_resize_neighbors=,
+ * see detect_resize_neighbors()) ends up for a given geometry of the
+ * window being resized: each one keeps its far edge anchored and follows
+ * the moving edge with its near one, so the two stay touching.
+ *
+ * Takes the driving window's geometry as parameters rather than reading
+ * c->x/y/width/height, and either applies the result (`apply`) or reports
+ * it (`out`/`out_n`, frame rects) -- because with live_resize=0 the same
+ * answer is needed twice: to draw the neighbors' outlines during the drag,
+ * from a geometry the window doesn't have yet, and to apply them for real
+ * on release. One function so the preview can't drift from what actually
+ * happens. `out` needs room for 2 * MAX_RESIZE_NEIGHBORS. */
+static void resolve_resize_neighbors(Client *c, int cx, int cy, int cw, int ch,
+                                     int bt, int th, bool apply,
+                                     OutlineRect *out, int *out_n)
 {
+    (void)c;
+    int n_out = 0;
+
     if (wm.resize_neighbors_x_count > 0) {
-        int cur_x = wm.resize_right ? (c->x + c->width + bt * 2) : c->x;
+        int cur_x = wm.resize_right ? (cx + cw + bt * 2) : cx;
         int delta = cur_x - wm.resize_edge_x_start;
 
         for (int i = 0; i < wm.resize_neighbors_x_count; i++) {
@@ -1018,7 +1051,7 @@ static void update_resize_neighbors(Client *c, int bt, int th)
             int nbt, nth;
             deco_insets(nc, &nbt, &nth);
 
-            int new_w;
+            int new_w, new_x;
             if (wm.resize_right) {
                 /* Neighbor's left edge (the touching one) follows our
                  * moving right edge; its right edge is the anchor and
@@ -1027,20 +1060,27 @@ static void update_resize_neighbors(Client *c, int bt, int th)
                 int new_left = n->orig_x + delta;
                 new_w = (anchor_right - new_left) - nbt * 2;
                 if (new_w < nc->min_w) new_w = nc->min_w;
-                nc->x = anchor_right - (new_w + nbt * 2);
+                new_x = anchor_right - (new_w + nbt * 2);
             } else {
                 int anchor_left = n->orig_x;
                 int new_right = n->orig_x + n->orig_w + nbt * 2 + delta;
                 new_w = (new_right - anchor_left) - nbt * 2;
                 if (new_w < nc->min_w) new_w = nc->min_w;
-                nc->x = anchor_left;
+                new_x = anchor_left;
             }
-            nc->width = new_w;
+
+            if (apply) {
+                nc->x = new_x;
+                nc->width = new_w;
+            } else if (out) {
+                out[n_out++] = (OutlineRect){ new_x, nc->y,
+                                              new_w + nbt * 2, nc->height + nth + nbt };
+            }
         }
     }
 
     if (wm.resize_neighbors_y_count > 0) {
-        int cur_y = wm.resize_bottom ? (c->y + c->height + th + bt) : c->y;
+        int cur_y = wm.resize_bottom ? (cy + ch + th + bt) : cy;
         int delta = cur_y - wm.resize_edge_y_start;
 
         for (int i = 0; i < wm.resize_neighbors_y_count; i++) {
@@ -1049,23 +1089,38 @@ static void update_resize_neighbors(Client *c, int bt, int th)
             int nbt, nth;
             deco_insets(nc, &nbt, &nth);
 
-            int new_h;
+            int new_h, new_y;
             if (wm.resize_bottom) {
                 int anchor_bottom = n->orig_y + n->orig_h + nth + nbt;
                 int new_top = n->orig_y + delta;
                 new_h = (anchor_bottom - new_top) - nth - nbt;
                 if (new_h < nc->min_h) new_h = nc->min_h;
-                nc->y = anchor_bottom - (new_h + nth + nbt);
+                new_y = anchor_bottom - (new_h + nth + nbt);
             } else {
                 int anchor_top = n->orig_y;
                 int new_bottom = n->orig_y + n->orig_h + nth + nbt + delta;
                 new_h = (new_bottom - anchor_top) - nth - nbt;
                 if (new_h < nc->min_h) new_h = nc->min_h;
-                nc->y = anchor_top;
+                new_y = anchor_top;
             }
-            nc->height = new_h;
+
+            if (apply) {
+                nc->y = new_y;
+                nc->height = new_h;
+            } else if (out) {
+                out[n_out++] = (OutlineRect){ nc->x, new_y,
+                                              nc->width + nbt * 2, new_h + nth + nbt };
+            }
         }
     }
+
+    if (out_n)
+        *out_n = n_out;
+}
+
+static void update_resize_neighbors(Client *c, int bt, int th)
+{
+    resolve_resize_neighbors(c, c->x, c->y, c->width, c->height, bt, th, true, NULL, NULL);
 }
 
 static void handle_motion(xcb_motion_notify_event_t *ev)
@@ -1162,15 +1217,22 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
         /* With live_resize=0 the window itself is left alone for the whole
          * drag and only an outline of where it's heading is drawn; the
          * real geometry lands once, on release (handle_button_release()).
-         * Linked resize neighbors are skipped in that mode: they exist to
-         * stay glued to an edge that is, for now, only being previewed. */
+         * Linked resize neighbors are previewed right along with it --
+         * they're part of what releasing the button will do, so leaving
+         * them out would make the preview a lie. */
         if (!wm.live_resize) {
             wm.resize_preview_active = true;
             wm.resize_preview_x = new_x;
             wm.resize_preview_y = new_y;
             wm.resize_preview_w = new_w;
             wm.resize_preview_h = new_h;
-            outline_show(new_x, new_y, new_w + bt * 2, new_h + th + bt);
+
+            OutlineRect rects[1 + 2 * MAX_RESIZE_NEIGHBORS];
+            rects[0] = (OutlineRect){ new_x, new_y, new_w + bt * 2, new_h + th + bt };
+            int n = 0;
+            resolve_resize_neighbors(c, new_x, new_y, new_w, new_h, bt, th, false,
+                                     &rects[1], &n);
+            outline_show_rects(rects, n + 1);
             return;
         }
 
@@ -1237,10 +1299,19 @@ static void handle_button_release(xcb_button_release_event_t *ev)
         /* The deferred (live_resize=0) resize lands here, once, from
          * wherever the outline had got to -- see handle_motion(). */
         if (wm.resize_preview_active) {
-            wm.drag_client->x = wm.resize_preview_x;
-            wm.drag_client->y = wm.resize_preview_y;
-            wm.drag_client->width = wm.resize_preview_w;
-            wm.drag_client->height = wm.resize_preview_h;
+            Client *rc = wm.drag_client;
+            rc->x = wm.resize_preview_x;
+            rc->y = wm.resize_preview_y;
+            rc->width = wm.resize_preview_w;
+            rc->height = wm.resize_preview_h;
+            /* ...and every neighbor the preview had been dragging along
+             * with it, applied from the same geometry it was drawn from
+             * (see resolve_resize_neighbors()). The configure_frame() pass
+             * right below is what puts them on screen. */
+            int bt, th;
+            deco_insets(rc, &bt, &th);
+            resolve_resize_neighbors(rc, rc->x, rc->y, rc->width, rc->height, bt, th,
+                                     true, NULL, NULL);
             wm.resize_preview_active = false;
         }
 

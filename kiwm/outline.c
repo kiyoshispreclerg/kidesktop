@@ -42,6 +42,10 @@
 static int band_outer(void) { return wm.outline_width / 2; }
 static int band_total(void) { return wm.outline_width; }
 
+/* How many rectangles one call can outline: the window being resized plus
+ * every neighbor a linked resize can drag along on either axis. */
+#define OUTLINE_MAX_RECTS (1 + 2 * MAX_RESIZE_NEIGHBORS)
+
 static xcb_window_t win = XCB_NONE;
 static bool visible = false;
 static uint32_t current_pixel = 0;
@@ -105,13 +109,16 @@ static int band_rects(int ox, int oy, int ow, int oh, xcb_rectangle_t *out)
 
 void outline_show(int x, int y, int w, int h)
 {
-    int outer = band_outer();
-    int ox = x - outer;
-    int oy = y - outer;
-    int ow = w + 2 * outer;
-    int oh = h + 2 * outer;
-    if (ow <= 0 || oh <= 0)
+    OutlineRect one = { x, y, w, h };
+    outline_show_rects(&one, 1);
+}
+
+void outline_show_rects(const OutlineRect *in, int count)
+{
+    if (!in || count <= 0)
         return;
+    if (count > OUTLINE_MAX_RECTS)
+        count = OUTLINE_MAX_RECTS;
 
     uint32_t pixel = outline_pixel();
 
@@ -151,9 +158,22 @@ void outline_show(int x, int y, int w, int h)
         }
     }
 
-    /* The whole update: one request, wherever the outline has to be now. */
-    xcb_rectangle_t rects[4];
-    int n = band_rects(ox, oy, ow, oh, rects);
+    /* The whole update: one request, wherever the outlines have to be
+     * now, however many of them there are. */
+    xcb_rectangle_t rects[OUTLINE_MAX_RECTS * 4];
+    int n = 0;
+    int outer = band_outer();
+    for (int i = 0; i < count; i++) {
+        int ox = in[i].x - outer;
+        int oy = in[i].y - outer;
+        int ow = in[i].w + 2 * outer;
+        int oh = in[i].h + 2 * outer;
+        if (ow <= 0 || oh <= 0)
+            continue;
+        n += band_rects(ox, oy, ow, oh, &rects[n]);
+    }
+    if (n == 0)
+        return;
     /* UNSORTED, not Y_SORTED: the bottom band is written before the two
      * side ones, so the list genuinely isn't in ascending-y order, and
      * promising the server an ordering that doesn't hold is how this ends
