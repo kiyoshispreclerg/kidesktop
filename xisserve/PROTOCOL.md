@@ -9,9 +9,10 @@ xisserve's own argument parsing changes shape.
 
 ## How xispanel invokes xisserve
 
-On every click of the `xisserve` widget, xispanel runs (via `sh -c`,
-detached, `cmd=` config key overrides the binary name/path, default
-`xisserve` resolved through `$PATH`):
+On every click of the `xisserve` widget -- and of any other widget that
+opens xisserve anchored to itself, see `--calendar` below -- xispanel runs
+(via `sh -c`, detached, `cmd=` config key overrides the binary name/path,
+default `xisserve` resolved through `$PATH`):
 
 ```
 xisserve --anchor-x=<px> --anchor-y=<px> --anchor-w=<px> --anchor-h=<px> \
@@ -45,12 +46,21 @@ is enough; nothing needs `--flag=value` split-on-`=` beyond what
   so the popup doesn't look like a foreign app dropped on top of the
   panel. Exactly matching plasmashell/kickoff's chrome isn't the goal --
   just not clashing.
-- `--font`/`--font-size`: the system UI font xispanel itself detected
-  (see `xispanel.c`'s `detect_system_font_family()` -- reads
-  `~/.config/kdeglobals` then `~/.config/gtk-3.0/settings.ini`) and the
-  panel's resolved text size in pixels. `--font` is a bare family name
+- `--font`/`--font-size`: the UI font from xispanel's own config
+  (`THEME`'s `font=`, or Fontconfig's default when unset) and the panel's
+  resolved text size in pixels. `--font` is a bare family name
   (e.g. `Comic Relief`), never pre-quoted -- your argv parser gets it
   as one whole string already, no shell-unescaping needed on your end.
+
+A mode flag may follow the ones above, selecting what xisserve opens
+instead of its default launcher view. Only one exists so far:
+
+- `--calendar`: passed by xispanel's `clock` widget when its clock is
+  clicked, anchored to the clock's own rectangle. It should open a
+  navigable calendar (month view, previous/next month) rather than the
+  launcher. **Not implemented yet** on the xisserve side -- xispanel
+  already sends the flag and the anchor geometry; an xisserve that
+  doesn't know the flag should ignore it rather than fail to start.
 
 ## Singleton / toggle behavior (xisserve's own responsibility)
 
