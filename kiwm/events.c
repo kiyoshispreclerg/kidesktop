@@ -288,36 +288,54 @@ static bool should_preserve_snap_resize(Client *c, xcb_button_press_event_t *ev)
     return false;
 }
 
-/* Shared by both drag-start sites below (titlebar-click-move and
- * wm.mod_cycle/wm.mod_control-drag): detiles c first (see client.c's
- * detile_for_drag() -- no-op if already floating, and skipped entirely
- * when should_preserve_snap_resize() says so) so the whole rest of the
- * drag builds on a floating baseline from the very first motion event,
- * then captures wm.drag_start_x/y/w/h and grabs the pointer. mode ==
- * DRAG_RESIZE additionally picks which corner grows from the press
- * position (nearest corner, kwin/compiz-style) -- the opposite corner
- * stays fixed for the whole resize (see handle_motion). */
-static void begin_drag(Client *c, DragMode mode, xcb_button_press_event_t *ev)
+/* Starts a move or resize drag at a given root position, whatever asked
+ * for it: a titlebar click, a mod_cycle/mod_control-drag from anywhere on
+ * the window (both via begin_drag() below), or the client itself asking
+ * through _NET_WM_MOVERESIZE (handle_moveresize()). Captures
+ * wm.drag_start_x/y/w/h and grabs the pointer.
+ *
+ * `preserve_snap` is should_preserve_snap_resize()'s answer, only ever
+ * true for a resize on the shared edge of two half-snapped windows.
+ * Otherwise a maximized/tiled window is detiled first (client.c's
+ * detile_for_drag(), a no-op when already floating) so the rest of the
+ * drag builds on a floating baseline -- except for a *move*, which defers
+ * that until the pointer has actually gone somewhere (see
+ * KiWM::drag_detile_pending).
+ *
+ * For a resize, `corner_right`/`corner_bottom` name which corner grows;
+ * the opposite one stays fixed for the whole drag (see handle_motion).
+ * Pass -1 for either to pick it from the press position, nearest-corner,
+ * kwin/compiz-style -- which is what a plain drag does, and what an
+ * *edge* (rather than corner) _NET_WM_MOVERESIZE direction falls back to
+ * on that axis, kiwm having only corner resizes to offer. */
+static void begin_drag_at(Client *c, DragMode mode, int root_x, int root_y,
+                          bool preserve_snap, int corner_right, int corner_bottom)
 {
     /* A window that declares it can't be moved or resized (Motif's
      * functions field, or a fixed min==max size -- see client.c's
      * update_client_actions()) doesn't get dragged either, whether the
-     * drag started on its titlebar or via a modifier from anywhere on it. */
+     * drag started on its titlebar, via a modifier from anywhere on it, or
+     * from the client's own request. */
     if (mode == DRAG_MOVE && !c->allow_move)
         return;
     if (mode == DRAG_RESIZE && !c->allow_resize)
         return;
 
-    wm.drag_preserve_snap = (mode == DRAG_RESIZE) && should_preserve_snap_resize(c, ev);
-    if (!wm.drag_preserve_snap)
-        detile_for_drag(c, ev->root_x, ev->root_y);
+    wm.drag_preserve_snap = preserve_snap;
+    wm.drag_detile_pending = false;
+    if (!wm.drag_preserve_snap) {
+        if (mode == DRAG_MOVE && (c->maximized || c->snap_side != SNAP_NONE))
+            wm.drag_detile_pending = true;
+        else
+            detile_for_drag(c, root_x, root_y);
+    }
 
     wm.drag_mode = mode;
     wm.drag_client = c;
     wm.drag_snap_side = SNAP_NONE;
     wm.last_drag_apply_ms = 0; /* don't let a previous drag's timestamp throttle this new one's first frame */
-    wm.drag_start_root_x = ev->root_x;
-    wm.drag_start_root_y = ev->root_y;
+    wm.drag_start_root_x = root_x;
+    wm.drag_start_root_y = root_y;
     wm.drag_start_x = c->x;
     wm.drag_start_y = c->y;
     wm.drag_start_w = c->width;
@@ -325,10 +343,10 @@ static void begin_drag(Client *c, DragMode mode, xcb_button_press_event_t *ev)
 
     xcb_cursor_t cursor;
     if (mode == DRAG_RESIZE) {
-        wm.resize_right = (ev->root_x - c->x) > c->frame_width / 2;
-        wm.resize_bottom = (ev->root_y - c->y) > c->frame_height / 2;
-        /* Corner nearest the click (same one that stays fixed's opposite,
-         * see handle_motion) picks the matching diagonal resize cursor. */
+        wm.resize_right = (corner_right >= 0) ? (corner_right != 0)
+                                              : ((root_x - c->x) > c->frame_width / 2);
+        wm.resize_bottom = (corner_bottom >= 0) ? (corner_bottom != 0)
+                                                : ((root_y - c->y) > c->frame_height / 2);
         if (wm.resize_right)
             cursor = wm.resize_bottom ? wm.cursor_resize_se : wm.cursor_resize_ne;
         else
@@ -350,6 +368,14 @@ static void begin_drag(Client *c, DragMode mode, xcb_button_press_event_t *ev)
                      XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
                      XCB_NONE, cursor, XCB_CURRENT_TIME);
     xcb_flush(wm.conn);
+}
+
+/* The two pointer-driven drag-start sites (titlebar-click-move and
+ * mod_cycle/mod_control-drag). */
+static void begin_drag(Client *c, DragMode mode, xcb_button_press_event_t *ev)
+{
+    begin_drag_at(c, mode, ev->root_x, ev->root_y,
+                  (mode == DRAG_RESIZE) && should_preserve_snap_resize(c, ev), -1, -1);
 }
 
 /* Which configured titlebar element (see wm.h's DecoElemKind/
@@ -923,6 +949,30 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
     int dx = ev->root_x - wm.drag_start_root_x;
     int dy = ev->root_y - wm.drag_start_root_y;
 
+    /* A move-drag on a maximized/tiled window hasn't detiled it yet: the
+     * window stays exactly where it is until the pointer has travelled far
+     * enough to mean it (see KiWM::drag_detile_pending), so clicking a
+     * maximized titlebar -- or nudging it a couple of pixels while
+     * mod-dragging -- doesn't restore the window out from under the click.
+     * Once it does, the window is detiled under the cursor and the drag
+     * re-anchors there, as if it had started at this point. */
+    if (wm.drag_detile_pending) {
+        if ((dx < 0 ? -dx : dx) < DRAG_DETILE_THRESHOLD &&
+            (dy < 0 ? -dy : dy) < DRAG_DETILE_THRESHOLD)
+            return;
+
+        detile_for_drag(c, ev->root_x, ev->root_y);
+        wm.drag_detile_pending = false;
+        wm.drag_start_root_x = ev->root_x;
+        wm.drag_start_root_y = ev->root_y;
+        wm.drag_start_x = c->x;
+        wm.drag_start_y = c->y;
+        wm.drag_start_w = c->width;
+        wm.drag_start_h = c->height;
+        xcb_flush(wm.conn);
+        return;
+    }
+
     if (wm.drag_mode == DRAG_MOVE && try_edge_snap(c, ev, dx, dy))
         return; /* settled into a snapped state this motion event; nothing else to do */
 
@@ -1060,6 +1110,7 @@ static void handle_button_release(xcb_button_release_event_t *ev)
         wm.drag_client = NULL;
         wm.drag_mode = DRAG_NONE;
         wm.drag_snap_side = SNAP_NONE;
+        wm.drag_detile_pending = false;
         xcb_flush(wm.conn);
     }
 }
@@ -1189,6 +1240,62 @@ static void handle_net_wm_state(Client *c, uint32_t action, xcb_atom_t a1, xcb_a
     }
 }
 
+/* _NET_WM_MOVERESIZE (EWMH): the *client* asking the WM to take over a
+ * move or resize it has decided the user started -- which is how a window
+ * gets dragged by empty space inside it, with no titlebar involved.
+ * Qt's Breeze/Oxygen styles send this from blank areas of toolbars and
+ * dialogs, GTK headerbar apps from the headerbar, and undecorated windows
+ * that draw their own chrome (Steam's client) from wherever they consider
+ * draggable. Without it those drags simply do nothing under kiwm, since
+ * the app is deliberately not moving its own window -- it's waiting for
+ * the WM to.
+ *
+ * kiwm resizes from a corner only, so the four *edge* directions fall back
+ * to the nearest-corner rule a plain drag uses on the axis they don't
+ * name. The keyboard variants are treated as their pointer equivalents:
+ * kiwm has no keyboard move/resize mode of its own to hand them to. */
+static void handle_moveresize(Client *c, int root_x, int root_y, uint32_t direction)
+{
+    enum {
+        MR_SIZE_TOPLEFT = 0, MR_SIZE_TOP, MR_SIZE_TOPRIGHT, MR_SIZE_RIGHT,
+        MR_SIZE_BOTTOMRIGHT, MR_SIZE_BOTTOM, MR_SIZE_BOTTOMLEFT, MR_SIZE_LEFT,
+        MR_MOVE, MR_SIZE_KEYBOARD, MR_MOVE_KEYBOARD, MR_CANCEL,
+    };
+
+    if (direction == MR_CANCEL) {
+        if (wm.drag_client == c) {
+            xcb_ungrab_pointer(wm.conn, XCB_CURRENT_TIME);
+            wm.drag_client = NULL;
+            wm.drag_mode = DRAG_NONE;
+            wm.drag_snap_side = SNAP_NONE;
+            wm.drag_detile_pending = false;
+            outline_hide();
+            xcb_flush(wm.conn);
+        }
+        return;
+    }
+
+    if (direction == MR_MOVE || direction == MR_MOVE_KEYBOARD) {
+        begin_drag_at(c, DRAG_MOVE, root_x, root_y, false, -1, -1);
+        return;
+    }
+
+    int right = -1, bottom = -1;   /* -1 = derive from the pointer position */
+    switch (direction) {
+    case MR_SIZE_TOPLEFT:     right = 0; bottom = 0; break;
+    case MR_SIZE_TOP:                    bottom = 0; break;
+    case MR_SIZE_TOPRIGHT:    right = 1; bottom = 0; break;
+    case MR_SIZE_RIGHT:       right = 1;             break;
+    case MR_SIZE_BOTTOMRIGHT: right = 1; bottom = 1; break;
+    case MR_SIZE_BOTTOM:                 bottom = 1; break;
+    case MR_SIZE_BOTTOMLEFT:  right = 0; bottom = 1; break;
+    case MR_SIZE_LEFT:        right = 0;             break;
+    case MR_SIZE_KEYBOARD:    break;
+    default:                  return;
+    }
+    begin_drag_at(c, DRAG_RESIZE, root_x, root_y, false, right, bottom);
+}
+
 static void handle_client_message(xcb_client_message_event_t *ev)
 {
     if (ev->type == wm.atoms.kiwm_set_output_desktop) {
@@ -1212,6 +1319,9 @@ static void handle_client_message(xcb_client_message_event_t *ev)
                             (xcb_atom_t)ev->data.data32[1], (xcb_atom_t)ev->data.data32[2]);
     } else if (ev->type == wm.atoms.net_wm_desktop) {
         set_client_desktop(c, (int)ev->data.data32[0]);
+    } else if (ev->type == wm.atoms.net_wm_moveresize) {
+        handle_moveresize(c, (int)ev->data.data32[0], (int)ev->data.data32[1],
+                          ev->data.data32[2]);
     }
 }
 

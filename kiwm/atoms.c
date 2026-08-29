@@ -57,6 +57,7 @@ void ewmh_init_atoms(void)
     wm.atoms.net_wm_icon = intern_atom("_NET_WM_ICON");
 
     wm.atoms.net_wm_allowed_actions = intern_atom("_NET_WM_ALLOWED_ACTIONS");
+    wm.atoms.net_wm_moveresize = intern_atom("_NET_WM_MOVERESIZE");
     wm.atoms.net_wm_action_move = intern_atom("_NET_WM_ACTION_MOVE");
     wm.atoms.net_wm_action_resize = intern_atom("_NET_WM_ACTION_RESIZE");
     wm.atoms.net_wm_action_minimize = intern_atom("_NET_WM_ACTION_MINIMIZE");

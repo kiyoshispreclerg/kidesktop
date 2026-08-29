@@ -26,6 +26,16 @@
  * being one and starts being a slab covering the window it's pointing at. */
 #define MAX_OUTLINE_WIDTH 64
 
+/* How far (pixels, either axis) the pointer must travel from where a
+ * move-drag started before a maximized or half-tiled window actually
+ * leaves that state and starts following the cursor -- see events.c's
+ * handle_motion() and KiWM::drag_detile_pending. Clicking a maximized
+ * window's titlebar (or mod-dragging it) shouldn't restore it on contact:
+ * the click is usually aimed at a button, or at nothing. The titlebar's
+ * own height is the threshold simply because it's the one "how big is a
+ * deliberate drag" number kiwm already has. */
+#define DRAG_DETILE_THRESHOLD TITLEBAR_H
+
 /* Upper bound used only to size fixed stack arrays (e.g. _NET_WORKAREA);
  * the actual per-output desktop count is wm.num_desktops, read from
  * kiwm.conf's num_desktops= key at startup (see config.c), default 4. */
@@ -439,6 +449,11 @@ typedef struct {
      * does. Purely output: kiwm derives what's allowed from the client's
      * ICCCM/Motif hints, never from this property. */
     xcb_atom_t net_wm_allowed_actions;
+    /* _NET_WM_MOVERESIZE: a client asking kiwm to take over a move/resize
+     * *it* decided the user started -- how a window gets dragged by empty
+     * space inside it (Qt's Breeze/Oxygen toolbars, GTK headerbars,
+     * Steam's own chrome). See events.c's handle_moveresize(). */
+    xcb_atom_t net_wm_moveresize;
     xcb_atom_t net_wm_action_move;
     xcb_atom_t net_wm_action_resize;
     xcb_atom_t net_wm_action_minimize;
@@ -741,6 +756,16 @@ typedef struct {
      * Only ever true for DRAG_RESIZE; a DRAG_MOVE always detiles a snapped
      * window regardless of this setting. */
     bool drag_preserve_snap;
+
+    /* A DRAG_MOVE started on a maximized/half-tiled window, and that state
+     * hasn't been given up yet: the window stays where it is until the
+     * pointer has travelled DRAG_DETILE_THRESHOLD from the press point,
+     * at which point handle_motion() detiles it under the cursor and
+     * re-anchors the drag there. Clicking a maximized window's titlebar
+     * (to press a button, or just to focus it) or mod-dragging it by a few
+     * pixels used to restore it immediately, which made every such click a
+     * gamble. */
+    bool drag_detile_pending;
 
     /* Whether a resize drags along whatever's touching the edge being
      * resized (see ResizeNeighbor above) -- kiwm.conf's

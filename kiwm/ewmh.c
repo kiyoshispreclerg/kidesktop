@@ -250,7 +250,7 @@ void ewmh_init_supported(void)
         wm.atoms.net_wm_action_minimize, wm.atoms.net_wm_action_shade,
         wm.atoms.net_wm_action_maximize_horz, wm.atoms.net_wm_action_maximize_vert,
         wm.atoms.net_wm_action_fullscreen, wm.atoms.net_wm_action_change_desktop,
-        wm.atoms.net_wm_action_close,
+        wm.atoms.net_wm_action_close, wm.atoms.net_wm_moveresize,
         wm.atoms.net_wm_window_type, wm.atoms.net_wm_window_type_normal,
         wm.atoms.net_wm_window_type_dock, wm.atoms.net_wm_window_type_desktop,
         wm.atoms.net_wm_window_type_toolbar, wm.atoms.net_wm_window_type_menu,

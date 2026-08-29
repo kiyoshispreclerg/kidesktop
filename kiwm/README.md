@@ -55,6 +55,22 @@ exposes.
   this; krunner is where skipping it shows, opening with a dead input field even though X focus is
   already on it. ICCCM requires a real timestamp in that message (never `CurrentTime`), so kiwm
   keeps the newest one the server has handed it on any event that carries one.
+- `_NET_WM_MOVERESIZE`: a client can ask kiwm to take over a move or resize *it* decided the user
+  started, which is how a window gets dragged by empty space inside it, with no titlebar involved.
+  Qt's Breeze/Oxygen styles send it from blank areas of toolbars and dialogs, GTK headerbar apps
+  from the headerbar, and windows that draw their own chrome instead of taking a decoration (the
+  Steam client) from wherever they consider draggable. Without it those drags do nothing at all,
+  since the app is deliberately *not* moving its own window -- it's waiting for the WM to. kiwm
+  resizes from a corner only, so the four edge directions fall back to the nearest-corner rule a
+  plain drag uses on the axis they don't name, and the keyboard variants are treated as their
+  pointer equivalents.
+- A maximized or half-tiled window doesn't leave that state the moment it's clicked. Dragging one
+  by the titlebar (or with a modifier from anywhere on it) used to restore it on contact, which made
+  every click on a maximized titlebar a gamble -- the click is usually aimed at a button, or at
+  nothing. Now the window stays put until the pointer has actually travelled a titlebar's height
+  from where it was pressed, and only then detiles, under the cursor, with the drag re-anchored
+  there as if it had started at that point. A *resize* still detiles immediately: it's unambiguous
+  about wanting a different size.
 - Clients that ask for no decoration are honored: `_MOTIF_WM_HINTS` with `decorations=0` (what Qt's
   `FramelessWindowHint`, GTK's `gtk_window_set_decorated(false)` and SDL borderless windows all
   actually put on the wire) and KDE's `_KDE_NET_WM_WINDOW_TYPE_OVERRIDE` (kwin's "noBorder", set by
@@ -449,7 +465,10 @@ separately bindable; they follow `mod_cycle=`/`mod_control=` directly. With the 
   context menu -- see "Window context menu" below.
 - Titlebar buttons: whatever `titlebar_layout=` configures, left to right.
 - **Alt+drag** (left button), or **Meta+drag** (any button): move a window from anywhere on it,
-  not just its titlebar.
+  not just its titlebar. Dragging a maximized or tiled window (either way) only restores it once
+  the pointer has moved a titlebar's height -- see "Status" above.
+- **Drag empty space inside a window**: works for apps that ask kiwm to do it via
+  `_NET_WM_MOVERESIZE` -- Qt Breeze/Oxygen toolbars, GTK headerbars, Steam's own chrome.
 - **Alt+right-drag** or **Meta+right-drag**: resize, from whichever corner of the window is
   nearest wherever you clicked -- the opposite corner stays fixed.
 - **Alt+Tab** / **Alt+Shift+Tab**: hold Alt, tap Tab/Shift+Tab to step forward/backward through
