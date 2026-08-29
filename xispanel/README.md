@@ -9,12 +9,12 @@ Pango/GLib) for vector rendering and text via FreeType/Fontconfig, and
 Imlib2 for image decoding -- the same dependency spirit as
 [XisBack](../xisback) and [XisGuard](../xisguard).
 
-Text uses whatever font family the desktop itself is configured with --
-`~/.config/kdeglobals`'s `[General] font=` on Plasma, falling back to
-`~/.config/gtk-3.0/settings.ini`'s `gtk-font-name=` on GTK-based desktops,
-and finally Fontconfig's own `sans-serif` default if neither file exists
--- read directly (no Qt/GTK linked) once at startup. See
-[PROTOCOL.md](PROTOCOL.md)'s "Design notes" section.
+Everything about how it looks comes from `xispanel.conf` and nothing else
+-- font family, text size, colors and icon theme are `THEME` line keys
+(`font=`, `font_size=`, `bg=`/`fg=`, `icon_theme=`), not values sniffed out
+of some other desktop's configuration. Unset keys fall back to built-in
+defaults (Fontconfig's `sans-serif`, dark panel colors). See
+[PROTOCOL.md](PROTOCOL.md)'s `THEME` section.
 
 ### Status
 

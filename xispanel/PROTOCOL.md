@@ -61,11 +61,10 @@ panels, which looks exactly like it isn't working) -- one panel at the
 bottom edge of the RandR primary output (or `*`, the whole virtual
 screen, if no primary is set -- equivalent on a single-monitor session
 anyway), with `launcher`+`tasklist` on the left and `tray`+`clock` pushed
-to the right by a `spacer` in between. Deliberately no `THEME` line and
-no font in that generated file: colors/font aren't copied in at
-generation time (which would just go stale the next time the system
-theme changes) -- see "Colors and font default to the live system theme"
-below.
+to the right by a `spacer` in between. Deliberately no `THEME` line in
+that generated file: without one, the built-in defaults (dark colors,
+fontconfig's default font) apply -- see "This file is the only source of
+truth" below.
 
 Three record types, one per line, fields separated by any run of spaces
 and/or tabs (mix freely, including within the same line -- there's no
@@ -239,6 +238,24 @@ Widget types implemented so far:
   every member even after wrapping, the grid caps out with a trailing
   "+N mais" cell rather than silently dropping members with no
   indication more exist.
+- `pager`: a grid of desktop squares, current desktop highlighted, click
+  to switch. Reads kiwm's per-output desktops (`_KIWM_OUTPUTS`) when kiwm
+  is running, otherwise plain
+  `_NET_NUMBER_OF_DESKTOPS`/`_NET_CURRENT_DESKTOP`; grid shape comes from
+  `_NET_DESKTOP_LAYOUT` (single row if unset), and each square's aspect
+  ratio from the real pixel resolution it represents. Scrolling anywhere
+  over the widget switches to the previous/next desktop of the group
+  under the pointer, wrapping at both ends -- through the same call a
+  click makes, so kiwm shows its usual desktop-switch OSD for it.
+  Hovering a square shows a tooltip listing that desktop's open windows.
+  `same_output_only=yes|no` (default `yes`, kiwm mode only): show only
+  this panel's own output's desktops, instead of every output's side by
+  side (a panel on `output=*` shows all of them regardless).
+  `show_windows=yes|no` (default `no`): draw each desktop's windows as
+  small outlines inside its square, positioned and sized proportionally
+  to where they really are on that output -- outlines only, not live
+  contents (that's what `tasklist`'s `show_thumbs=` is for). Minimized
+  windows aren't drawn; sticky ones appear on every desktop.
 - `winctl`: active-window icon + title, plus configurable window-control
   buttons -- similar to KDE's "Active Window Control" plasmoid. Options:
   `buttons=<comma-list>` (any of `min`, `max`, `close`, in the order given
@@ -468,6 +485,24 @@ THEME	top	bg=#202020cc	fg=#eeeeee	spacing=6
   for the context menu and hover tooltip popups (see below) -- there's
   one color scheme per panel, not a separate one for its popups.
 - `spacing`: pixels of gap between adjacent widgets (default `4`).
+- `font`: UI font family name, e.g. `font="Noto Sans"`. Resolved through
+  Fontconfig, so any name Fontconfig knows (including its generic aliases)
+  works; unset means Fontconfig's own `sans-serif` default.
+- `font_size`: text size in **pixels** for labels, tooltips and menus.
+  Unset means each widget keeps its own size (usually proportional to
+  panel thickness). Note this is px, not the points KDE/GTK config uses --
+  multiply points by `96/72` for the equivalent.
+- `icon_theme`: icon theme name, e.g. `icon_theme=breeze`. Searched in
+  `/usr/share/icons/<name>`, `~/.local/share/icons/<name>` and
+  `~/.icons/<name>` ahead of the built-in breeze/Adwaita/hicolor fallback
+  roots. Unset means only those fallbacks are searched.
+- `h_color`: `#RRGGBBAA` for the hover highlight; unset uses `fg` at a
+  low alpha.
+
+`font` and `icon_theme` are process-global (one font face, one icon
+search path for the whole daemon), even though they're written on a
+per-panel `THEME` line like the rest of the appearance keys: the first
+`THEME` line that sets each one wins, and both are read once at startup.
 - `theme`: path to a *folder* of bitmap theme files, replacing the solid
   `bg` color (and winctl's vector button glyphs) with themed art -- see
   "Bitmap themes" below. `bg`/`fg` are never overridden by this: they stay
@@ -477,26 +512,22 @@ THEME	top	bg=#202020cc	fg=#eeeeee	spacing=6
   ordinary text/fallback icons draw with regardless of whether a theme
   loaded.
 
-### Colors and font default to the live system theme
+### This file is the only source of truth
 
-A panel with no `THEME` line at all, or one that doesn't set `bg=`/`fg=`,
-doesn't fall straight to a hardcoded gray -- `alloc_panel()` first tries
-reading the *current* KDE/Plasma color scheme
-(`~/.config/kdeglobals`'s `[Colors:Window]` `BackgroundNormal=R,G,B` /
-`ForegroundNormal=R,G,B`, each channel 0-255) and only falls back to the
-hardcoded default for whichever of bg/fg it didn't find there. Font
-detection (`~/.config/kdeglobals`'s `[General]` `font=`, falling back to
-`~/.config/gtk-3.0/settings.ini`'s `gtk-font-name=`) already worked this
-way from an earlier session. Both are read fresh every time a panel's
-defaults are computed (config load or `RELOAD`), not cached/copied into
-`xispanel.conf` -- so a later system theme change just takes effect on
-the next `RELOAD` rather than requiring `xispanel.conf` to be
-regenerated or hand-edited to match. An explicit `bg=`/`fg=` in a
-`THEME` line always overrides this regardless of what the system theme
-says. GTK has no equivalent simple flat-file color key the way it does
-for fonts (GTK themes are CSS, not `key=value`), so this only actually
-finds anything on a KDE/Plasma-configured system today -- a known gap,
-not worth a CSS parser for.
+xispanel reads no other program's configuration. It does not look at
+`~/.config/kdeglobals`, `~/.config/gtk-3.0/settings.ini`, Xresources or
+anything else to guess a font, color scheme or icon theme -- everything it
+draws with comes from a `THEME` line here, or from the built-in defaults
+when a key (or the whole line) is absent: dark gray background, near-white
+foreground, Fontconfig's `sans-serif`, and the breeze/Adwaita/hicolor icon
+roots.
+
+That means a fresh config on a system with an existing KDE/GTK desktop
+setup will *not* match it until the `THEME` keys are filled in. Doing that
+match -- reading the user's existing font/colors/icon theme/cursor once, at
+first login, and writing them into each daemon's own config -- is
+`kiconfd`'s job, not something every daemon in the session re-implements
+and re-reads forever.
 
 ## Bitmap themes
 
@@ -564,8 +595,8 @@ happens to keep one outside the repo, that's not a bundled default to
 document here). Leaving `theme=` unset, or pointing it at a folder missing
 some/all of these files, is a fully supported, ordinary way to run
 xispanel: it just falls back to `bg=`/`fg=` (or, absent those too, the
-live system color scheme -- see "Colors and font default to the live
-system theme" below) and winctl's vector button glyphs, same as always.
+built-in defaults -- see "This file is the only source of truth" above)
+and winctl's vector button glyphs, same as always.
 
 Only the panel background and winctl's buttons are themeable this way for
 now -- the rest of widget/popup chrome (tasklist rows, menu items) still
@@ -1070,22 +1101,16 @@ own file" structure:
 
 ## Design notes
 
-- Text uses whatever font family the desktop is actually configured
-  with, not Fontconfig's `sans-serif` generic alias (a distro-wide
-  default, often not what the user picked in System Settings).
-  `detect_system_font_family()` in `xispanel.c` reads, in order:
-  `~/.config/kdeglobals`'s `[General] font=Family,size,...` (Plasma),
-  then `~/.config/gtk-3.0/settings.ini`'s `gtk-font-name=Family size`
-  (GTK-based desktops), falling back to Fontconfig's own default if
-  neither file exists or has the key. Plain text-file parsing, no Qt/GTK
-  linked -- same "read the config file directly" approach as everything
-  else in this tool. Only the family is taken from either source; the
-  point size in `kdeglobals`/`gtk-font-name` is ignored on purpose --
-  panel text is sized off panel thickness (`p->thickness * 0.45`, see
-  `panel_repaint()`), not a fixed point size, so it always fits whatever
-  `thickness=` the panel is configured with. Read once at startup, not
-  re-read on `RELOAD` -- font changes are rare enough that restarting
-  xispanel is an acceptable way to pick up a new one for now.
+- The font family comes from `THEME`'s `font=` and nothing else --
+  `config_scan_globals()` in `xispanel.c` pre-scans `xispanel.conf` for it
+  (and for `icon_theme=`) before any panel exists, since the FreeType face
+  has to be resolved before widgets can measure their text. Unset means
+  Fontconfig's `sans-serif`. Read once at startup, not re-read on
+  `RELOAD` -- font changes are rare enough that restarting xispanel is an
+  acceptable way to pick up a new one for now. Without `font_size=`, panel
+  text is sized off panel thickness (`p->thickness * 0.45`, see
+  `panel_repaint()`) rather than a fixed point size, so it always fits
+  whatever `thickness=` the panel is configured with.
 - `overlay`/`autohide` panel windows are `override-redirect`: xispanel
   manages their own position/stacking rather than asking a window manager
   to, which is what makes the autohide slide animation reliable. `dock`

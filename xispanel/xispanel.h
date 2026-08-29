@@ -205,9 +205,7 @@ struct Panel {
      * existing size (usually thickness-proportional for in-panel widget
      * text, or a fixed constant for tooltip/menu popups). >0 = pixel font
      * size to use for task/window/clock labels and this panel's tooltip
-     * and context-menu text; defaults to the live system font size (see
-     * detect_system_font_size_px()) and can be overridden by THEME's
-     * own font_size=<px>. */
+     * and context-menu text; set only by THEME's own font_size=<px>. */
     double font_size_px;
     int spacing;
     /* Optional bitmap theme, replacing the solid bg_* color and (for
@@ -315,13 +313,20 @@ extern Display *g_dpy;
 extern Window g_root;
 extern int g_screen;
 extern cairo_font_face_t *g_font_face;
-/* System UI font family name, as detected once at startup (see
- * detect_system_font_family() in xispanel.c) -- "" if detection failed
- * and fontconfig's generic default is in use instead. Exposed as a plain
- * string (not just the cairo_font_face_t above) for widgets that need to
- * hand the font name to an external process, e.g. xisserve's widget
- * passing it through so the launcher popup can match. */
+/* UI font family name, read once at startup from THEME's font= key in
+ * xispanel.conf (see config_scan_globals() in xispanel.c) -- "" if the
+ * config doesn't set one and fontconfig's generic default is in use
+ * instead. Exposed as a plain string (not just the cairo_font_face_t
+ * above) for widgets that need to hand the font name to an external
+ * process, e.g. xisserve's widget passing it through so the launcher
+ * popup can match. */
 extern char g_font_family[128];
+/* Icon theme name, from THEME's icon_theme= key, read the same way and
+ * at the same time -- "" means resolve_icon_theme_name() (ewmh.c) only
+ * searches its hardcoded breeze/Adwaita/hicolor roots. Like the font,
+ * this is deliberately *not* sniffed out of kdeglobals/gtk settings:
+ * xispanel.conf is xispanel's only source of truth. */
+extern char g_icon_theme[128];
 
 /* ---- Pango-backed text drawing (pango_text.c, exploratory) ----
  *
@@ -392,6 +397,9 @@ double panel_text_size(const Panel *p);
  * proportional-square mode) -- 0 if that output isn't currently
  * connected. */
 int panel_lookup_output_size(const char *name, int *out_w, int *out_h);
+/* Same plus the output's root-coordinate origin -- pager.c's
+ * show_windows= mode maps window positions into an output's miniature. */
+int panel_lookup_output_rect(const char *name, int *out_x, int *out_y, int *out_w, int *out_h);
 /* Decodes any format Imlib2 understands (PNG, SVG if librsvg's loader is
  * present at runtime, etc.) into a premultiplied-alpha ARGB32 Cairo
  * surface, or NULL on any failure (missing file, decode error, larger
@@ -491,6 +499,9 @@ void ewmh_watch_windows(void);
 int ewmh_property_event_is_relevant(const XPropertyEvent *ev, int *out_client_list_changed);
 int ewmh_skip_taskbar(Window w); /* 1 if a taskbar should never list this window */
 int ewmh_window_in_rect(Window w, int rx, int ry, int rw, int rh); /* 1 if w's center is inside the rect */
+/* Position/size in root coordinates (pager.c's show_windows= outlines) --
+ * 0 if the window isn't currently viewable or the query failed. */
+int ewmh_get_window_rect(Window w, int *out_x, int *out_y, int *out_w, int *out_h);
 int ewmh_window_has_input_focus(Window w); /* 1 if w (or a descendant) holds real X input focus */
 /* Sets _NET_WM_ICON_GEOMETRY(x,y,w,h) in root coordinates -- tells the WM/
  * compositor where this window's taskbar button is, so minimize/unminimize

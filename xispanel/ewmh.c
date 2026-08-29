@@ -447,6 +447,24 @@ int ewmh_window_in_rect(Window w, int rx, int ry, int rw, int rh)
     return cx >= rx && cx < rx + rw && cy >= ry && cy < ry + rh;
 }
 
+int ewmh_get_window_rect(Window w, int *out_x, int *out_y, int *out_w, int *out_h)
+{
+    XWindowAttributes wa;
+    if (!XGetWindowAttributes(g_dpy, w, &wa) || wa.map_state != IsViewable) {
+        return 0;
+    }
+    Window child;
+    int abs_x, abs_y;
+    if (!XTranslateCoordinates(g_dpy, w, g_root, 0, 0, &abs_x, &abs_y, &child)) {
+        return 0;
+    }
+    *out_x = abs_x;
+    *out_y = abs_y;
+    *out_w = wa.width;
+    *out_h = wa.height;
+    return 1;
+}
+
 Window ewmh_get_active_window(void)
 {
     Atom actual_type;
@@ -1254,66 +1272,6 @@ void trim_to_width(cairo_t *cr, char *text, size_t bufsz, double max_width)
  * to the fallback icon exactly like an absent pixmap already does. Also
  * handles the (seen in the wild) case of a caller passing an absolute
  * path as `name` directly. */
-/* Reads the desktop's configured icon theme name the same live-off-config
- * way xispanel.c's detect_system_font_family()/detect_system_colors()
- * read font/color -- KDE's ~/.config/kdeglobals ([Icons] Theme=) checked
- * first, then GTK3's ~/.config/gtk-3.0/settings.ini
- * (gtk-icon-theme-name=). Without this, resolve_icon_theme_name() below
- * only ever finds icons on the handful of hardcoded theme names it
- * happens to list -- a user on Papirus/Yaru/Numix/elementary/... would
- * never get a resolved icon at all. Leaves `out` empty (caller just
- * skips the extra search root) if neither config file has the key. */
-static void detect_icon_theme(char *out, size_t outsz)
-{
-    out[0] = 0;
-    const char *home = getenv("HOME");
-    if (!home) {
-        return;
-    }
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/.config/kdeglobals", home);
-    FILE *f = fopen(path, "r");
-    if (f) {
-        char line[256];
-        int in_icons = 0;
-        while (fgets(line, sizeof(line), f)) {
-            size_t len = strlen(line);
-            while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
-                line[--len] = 0;
-            }
-            if (line[0] == '[') {
-                in_icons = strcmp(line, "[Icons]") == 0;
-                continue;
-            }
-            if (in_icons && !strncmp(line, "Theme=", 6)) {
-                snprintf(out, outsz, "%s", line + 6);
-                break;
-            }
-        }
-        fclose(f);
-        if (out[0]) {
-            return;
-        }
-    }
-    snprintf(path, sizeof(path), "%s/.config/gtk-3.0/settings.ini", home);
-    f = fopen(path, "r");
-    if (!f) {
-        return;
-    }
-    char line[256];
-    while (fgets(line, sizeof(line), f)) {
-        size_t len = strlen(line);
-        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
-            line[--len] = 0;
-        }
-        if (!strncmp(line, "gtk-icon-theme-name=", 20)) {
-            snprintf(out, outsz, "%s", line + 20);
-            break;
-        }
-    }
-    fclose(f);
-}
-
 cairo_surface_t *resolve_icon_theme_name(const char *name, int target_size)
 {
     if (!name || !name[0]) {
@@ -1323,15 +1281,15 @@ cairo_surface_t *resolve_icon_theme_name(const char *name, int target_size)
         return shrink_icon_surface(load_png_argb(name), target_size);
     }
 
-    /* The user's actual icon theme (if detected) is searched first, ahead
-     * of the hardcoded breeze/Adwaita/hicolor fallback list -- built at
-     * runtime instead of a compile-time array since the theme name/home
-     * dir aren't known until now. Deliberately capped/deduped rather than
-     * walking a theme's full index.theme Inherits= chain -- see this
-     * function's original doc comment on why full spec compliance is out
-     * of scope. */
-    char theme[128];
-    detect_icon_theme(theme, sizeof(theme));
+    /* The configured icon theme (THEME's icon_theme= in xispanel.conf,
+     * see config_scan_globals() -- no other desktop's config is read) is
+     * searched first, ahead of the hardcoded breeze/Adwaita/hicolor
+     * fallback list; built at runtime instead of a compile-time array
+     * since the theme name/home dir aren't known until now. Deliberately
+     * capped/deduped rather than walking a theme's full index.theme
+     * Inherits= chain -- see this function's original doc comment on why
+     * full spec compliance is out of scope. */
+    const char *theme = g_icon_theme;
     const char *home = getenv("HOME");
 
 #define ICON_BASE_MAX 48

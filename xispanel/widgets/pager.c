@@ -42,21 +42,55 @@
  * resolution in kiwm mode (panel_lookup_output_size()), or the whole
  * screen's in plain EWMH mode (DisplayWidth/DisplayHeight), rather than a
  * fixed square.
+ *
+ * `show_windows` (default no): draw each desktop's open windows as small
+ * outlines inside its own square, positioned/sized proportionally to
+ * where they really are on that output -- the miniature-desktop look
+ * every full pager has. Only outlines (no contents): a real preview
+ * would mean one XComposite pixmap per window per repaint, which is what
+ * tasklist's hover thumbnails are for.
+ *
+ * Scrolling anywhere over the widget switches desktop on the group under
+ * the pointer (wrapping at both ends), the same gesture plasmashell's
+ * pager uses. It goes through the same ewmh_kiwm_set_output_desktop()/
+ * ewmh_set_current_desktop() call a click does, so under kiwm the switch
+ * is a normal one and kiwm shows its own desktop OSD for it.
+ *
+ * Hovering a square shows a tooltip listing the windows on that desktop.
  */
 #include "../xispanel.h"
 
 #include <X11/Xlib.h>
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define PAGER_MAX_OUTPUTS 16
 #define PAGER_MAX_DESKTOPS 32
 #define PAGER_GROUP_GAP 10
 #define PAGER_POLL_MS 500
+/* Cap on the windows tracked for the outlines/tooltip -- a pathological
+ * session with more than this just shows the first ones found, rather
+ * than growing an unbounded per-repaint scan. */
+#define PAGER_MAX_WINDOWS 96
+/* Windows are re-scanned at most this often (each scan is one
+ * XGetWindowAttributes+XTranslateCoordinates round trip per client), so
+ * a pointer sweeping across the widget doesn't re-query the whole client
+ * list on every MotionNotify. */
+#define PAGER_WIN_SCAN_MS 400
+
+typedef struct {
+    Window win;
+    int desktop;    /* -1 = sticky: belongs to every desktop */
+    int group;      /* index into the displayed groups, -1 = on none of them */
+    int x, y, w, h; /* root coordinates */
+    char title[128];
+} PagerWindow;
 
 typedef struct {
     int same_output_only;
+    int show_windows;
 
     /* Refreshed every on_tick() -- see the file comment. */
     int is_kiwm;
@@ -65,6 +99,20 @@ typedef struct {
     int kiwm_output_idx[PAGER_MAX_OUTPUTS]; /* real _KIWM_OUTPUTS index per displayed group, kiwm mode only */
     int active_desktop[PAGER_MAX_OUTPUTS];  /* highlighted desktop within each group */
     double aspect[PAGER_MAX_OUTPUTS];       /* real width/height of the group's output (or whole screen) */
+    /* Root-coordinate rect of what each group represents (one output in
+     * kiwm mode, the whole screen otherwise) -- the source rect windows
+     * are mapped from when drawing outlines. */
+    int group_rect[PAGER_MAX_OUTPUTS][4];
+
+    /* Window cache for show_windows/the tooltip, refreshed at most every
+     * PAGER_WIN_SCAN_MS by pager_collect_windows(). Heap-allocated rather
+     * than inline so PagerPriv stays small enough for pager_refresh()'s
+     * by-value snapshot; wins_sig is a cheap hash of everything drawn
+     * from it, so that snapshot doesn't have to cover the array. */
+    PagerWindow *wins;
+    int n_wins;
+    unsigned long wins_sig;
+    uint64_t wins_scanned_ms;
 
     /* Grid shape from _NET_DESKTOP_LAYOUT (or the single-row fallback),
      * same across every group -- see the file comment. */
@@ -86,8 +134,17 @@ static int pager_init(PanelWidget *w)
     PagerPriv *pp = w->priv;
     char buf[16];
     pp->same_output_only = !(kv_get(w->config_kv, "same_output_only", buf, sizeof(buf)) && !strcmp(buf, "no"));
+    pp->show_windows = kv_get(w->config_kv, "show_windows", buf, sizeof(buf)) && !strcmp(buf, "yes");
+    pp->wins = calloc(PAGER_MAX_WINDOWS, sizeof(PagerWindow));
     w->next_tick_ms = now_ms();
     return 0;
+}
+
+static void pager_destroy(PanelWidget *w)
+{
+    PagerPriv *pp = w->priv;
+    free(pp->wins);
+    pp->wins = NULL;
 }
 
 /* Derives the actual grid shape from _NET_DESKTOP_LAYOUT's raw values
@@ -169,10 +226,19 @@ static int pager_refresh(PanelWidget *w)
             }
         }
         for (int g = 0; g < pp->n_groups; g++) {
-            int ow, oh;
-            pp->aspect[g] = panel_lookup_output_size(names[pp->kiwm_output_idx[g]], &ow, &oh) && oh > 0
-                                ? (double)ow / oh
-                                : 1.0;
+            int orx, ory, ow, oh;
+            if (panel_lookup_output_rect(names[pp->kiwm_output_idx[g]], &orx, &ory, &ow, &oh) && oh > 0) {
+                pp->aspect[g] = (double)ow / oh;
+                pp->group_rect[g][0] = orx;
+                pp->group_rect[g][1] = ory;
+                pp->group_rect[g][2] = ow;
+                pp->group_rect[g][3] = oh;
+            } else {
+                pp->aspect[g] = 1.0;
+                pp->group_rect[g][0] = pp->group_rect[g][1] = 0;
+                pp->group_rect[g][2] = DisplayWidth(g_dpy, g_screen);
+                pp->group_rect[g][3] = DisplayHeight(g_dpy, g_screen);
+            }
         }
     } else {
         int n = ewmh_get_number_of_desktops();
@@ -183,6 +249,9 @@ static int pager_refresh(PanelWidget *w)
         int sw = DisplayWidth(g_dpy, g_screen);
         int sh = DisplayHeight(g_dpy, g_screen);
         pp->aspect[0] = sh > 0 ? (double)sw / sh : 1.0;
+        pp->group_rect[0][0] = pp->group_rect[0][1] = 0;
+        pp->group_rect[0][2] = sw;
+        pp->group_rect[0][3] = sh;
     }
     if (pp->n_desktops > PAGER_MAX_DESKTOPS) {
         pp->n_desktops = PAGER_MAX_DESKTOPS;
@@ -202,10 +271,102 @@ static int pager_refresh(PanelWidget *w)
            memcmp(old.aspect, pp->aspect, sizeof(old.aspect)) != 0;
 }
 
+/* Which displayed group (if any) a window belongs to: kiwm publishes the
+ * owning output per window (_KIWM_WM_OUTPUT), and for anything that
+ * doesn't have it set -- and for plain EWMH, where there is only ever the
+ * one group covering the whole screen -- it falls back to "whichever
+ * group's rect the window's center sits in". */
+static int pager_group_of_window(PagerPriv *pp, Window win, int wx, int wy, int ww, int wh)
+{
+    if (pp->is_kiwm) {
+        int oidx = ewmh_kiwm_get_wm_output(win);
+        if (oidx >= 0) {
+            for (int g = 0; g < pp->n_groups; g++) {
+                if (pp->kiwm_output_idx[g] == oidx) {
+                    return g;
+                }
+            }
+            return -1; /* on an output this pager isn't showing */
+        }
+    }
+    int cx = wx + ww / 2, cy = wy + wh / 2;
+    for (int g = 0; g < pp->n_groups; g++) {
+        const int *r = pp->group_rect[g];
+        if (cx >= r[0] && cx < r[0] + r[2] && cy >= r[1] && cy < r[1] + r[3]) {
+            return g;
+        }
+    }
+    return -1;
+}
+
+/* Refills pp->wins from _NET_CLIENT_LIST, rate-limited to one scan per
+ * PAGER_WIN_SCAN_MS (see that constant). Only windows a taskbar would
+ * list, and only ones currently viewable -- ewmh_get_window_rect() fails
+ * for minimized/unmapped ones, which is exactly right here: a minimized
+ * window isn't occupying space on its desktop to draw. Returns 1 if
+ * anything that affects what's drawn changed. */
+static int pager_collect_windows(PanelWidget *w, uint64_t now)
+{
+    PagerPriv *pp = w->priv;
+    if (!pp->wins || (pp->wins_scanned_ms && now - pp->wins_scanned_ms < PAGER_WIN_SCAN_MS)) {
+        return 0;
+    }
+    pp->wins_scanned_ms = now;
+
+    unsigned long sig = 1469598103934665603UL; /* FNV-1a offset basis */
+    int n_wins = 0;
+    Window *list = NULL;
+    int n = 0;
+    if (ewmh_get_client_list(&list, &n)) {
+        for (int i = 0; i < n && n_wins < PAGER_MAX_WINDOWS; i++) {
+            if (ewmh_skip_taskbar(list[i])) {
+                continue;
+            }
+            int wx, wy, ww, wh;
+            if (!ewmh_get_window_rect(list[i], &wx, &wy, &ww, &wh)) {
+                continue;
+            }
+            int group = pager_group_of_window(pp, list[i], wx, wy, ww, wh);
+            if (group < 0) {
+                continue;
+            }
+            PagerWindow *e = &pp->wins[n_wins++];
+            e->win = list[i];
+            e->group = group;
+            e->desktop = ewmh_get_desktop(list[i]);
+            e->x = wx;
+            e->y = wy;
+            e->w = ww;
+            e->h = wh;
+            ewmh_get_title(list[i], e->title, sizeof(e->title));
+
+            unsigned long fields[] = {(unsigned long)e->win, (unsigned long)(e->group + 1),
+                                      (unsigned long)(e->desktop + 2), (unsigned long)e->x, (unsigned long)e->y,
+                                      (unsigned long)e->w,             (unsigned long)e->h};
+            for (size_t k = 0; k < sizeof(fields) / sizeof(fields[0]); k++) {
+                sig = (sig ^ fields[k]) * 1099511628211UL;
+            }
+        }
+        XFree(list);
+    }
+    int changed = (n_wins != pp->n_wins) || sig != pp->wins_sig;
+    pp->n_wins = n_wins;
+    pp->wins_sig = sig;
+    return changed;
+}
+
 static int pager_on_tick(PanelWidget *w, uint64_t now)
 {
+    PagerPriv *pp = w->priv;
     w->next_tick_ms = now + PAGER_POLL_MS;
-    return pager_refresh(w);
+    int changed = pager_refresh(w);
+    /* Only the outlines need the window list kept live between hovers --
+     * without show_windows= the tooltip scans on demand instead, so an
+     * idle panel doesn't walk the client list at all. */
+    if (pp->show_windows && pager_collect_windows(w, now)) {
+        changed = 1;
+    }
+    return changed;
 }
 
 /* Shared by measure/paint/on_button -- fills pp->row_h/btn_w[]/group_x[]
@@ -231,12 +392,108 @@ static int pager_compute_geometry(PagerPriv *pp, int thickness)
     return pp->n_groups > 0 ? x - PAGER_GROUP_GAP : 0;
 }
 
+/* The group a main-axis position falls in, counting the gap after a group
+ * as still belonging to it; -1 only when there are no groups at all. Used
+ * by the scroll gesture, which is about the group rather than one cell,
+ * so it deliberately never misses between squares. */
+static int pager_group_at(PagerPriv *pp, int local_x)
+{
+    for (int g = 0; g < pp->n_groups; g++) {
+        if (local_x < pp->group_x[g] + pp->cols * pp->btn_w[g] + PAGER_GROUP_GAP) {
+            return g;
+        }
+    }
+    return pp->n_groups > 0 ? pp->n_groups - 1 : -1;
+}
+
+/* Exact cell hit-test: fills out_g/out_desktop (and the cell's own
+ * main-axis span, for anchoring a tooltip to it) for the square at
+ * (local_x, local_y), or returns 0 for a miss -- a gap between groups, a
+ * grid cell with no matching desktop, or outside the widget. */
+static int pager_cell_at(PagerPriv *pp, int local_x, int local_y, int *out_g, int *out_desktop, int *out_x,
+                          int *out_w)
+{
+    if (pp->row_h <= 0) {
+        return 0;
+    }
+    for (int g = 0; g < pp->n_groups; g++) {
+        int group_end = pp->group_x[g] + pp->cols * pp->btn_w[g];
+        if (local_x < pp->group_x[g] || local_x >= group_end) {
+            continue;
+        }
+        int c = (local_x - pp->group_x[g]) / pp->btn_w[g];
+        int r = local_y / pp->row_h;
+        if (c < 0 || c >= pp->cols || r < 0 || r >= pp->rows) {
+            return 0;
+        }
+        int d = pager_rc_to_desktop(r, c, pp->cols, pp->rows, pp->orientation, pp->starting_corner);
+        if (d < 0 || d >= pp->n_desktops) {
+            return 0;
+        }
+        *out_g = g;
+        *out_desktop = d;
+        *out_x = pp->group_x[g] + c * pp->btn_w[g];
+        *out_w = pp->btn_w[g];
+        return 1;
+    }
+    return 0;
+}
+
 static void pager_measure(PanelWidget *w, int cross_axis, int *out_len, int *out_min_len)
 {
     PagerPriv *pp = w->priv;
     int len = pager_compute_geometry(pp, cross_axis);
     *out_len = len;
     *out_min_len = len;
+}
+
+/* The miniature-desktop outlines of show_windows=yes: every window of
+ * group `g` that lives on desktop `d` (sticky windows, desktop == -1, are
+ * on all of them), mapped from the group's real output rect into the
+ * cell's inner area. Clipped to the cell rather than scaled to fit, since
+ * a window may legitimately hang off the edge of its output. */
+static void pager_paint_windows(PanelWidget *w, cairo_t *cr, int g, int d, double bx, double by, double bw, double bh)
+{
+    PagerPriv *pp = w->priv;
+    Panel *p = w->panel;
+    const int *r = pp->group_rect[g];
+    if (r[2] <= 0 || r[3] <= 0 || bw <= 4 || bh <= 4) {
+        return;
+    }
+    double x0 = bx + 2, y0 = by + 2, x1 = bx + bw - 2, y1 = by + bh - 2;
+    double sx = (x1 - x0) / r[2], sy = (y1 - y0) / r[3];
+
+    for (int i = 0; i < pp->n_wins; i++) {
+        const PagerWindow *e = &pp->wins[i];
+        if (e->group != g || (e->desktop >= 0 && e->desktop != d)) {
+            continue;
+        }
+        double wx = x0 + (e->x - r[0]) * sx;
+        double wy = y0 + (e->y - r[1]) * sy;
+        double wr = wx + e->w * sx, wb = wy + e->h * sy;
+        if (wx < x0) {
+            wx = x0;
+        }
+        if (wy < y0) {
+            wy = y0;
+        }
+        if (wr > x1) {
+            wr = x1;
+        }
+        if (wb > y1) {
+            wb = y1;
+        }
+        if (wr - wx < 2 || wb - wy < 2) {
+            continue; /* scaled away to nothing (or entirely off this output) */
+        }
+        cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.14);
+        cairo_rectangle(cr, wx, wy, wr - wx, wb - wy);
+        cairo_fill(cr);
+        cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.5);
+        cairo_rectangle(cr, wx + 0.5, wy + 0.5, wr - wx - 1, wb - wy - 1);
+        cairo_set_line_width(cr, 1);
+        cairo_stroke(cr);
+    }
 }
 
 static void pager_paint(PanelWidget *w, cairo_t *cr)
@@ -278,6 +535,10 @@ static void pager_paint(PanelWidget *w, cairo_t *cr)
                 cairo_set_line_width(cr, 1);
                 cairo_stroke(cr);
 
+                if (pp->show_windows) {
+                    pager_paint_windows(w, cr, g, d, bx, by, pp->btn_w[g], pp->row_h);
+                }
+
                 char label[8];
                 snprintf(label, sizeof(label), "%d", d + 1);
                 double tw;
@@ -303,7 +564,7 @@ static int pager_on_button(PanelWidget *w, int button, int local_x, int local_y,
     (void)root_x;
     (void)root_y;
     PagerPriv *pp = w->priv;
-    if (button != Button1 || pp->n_groups <= 0) {
+    if (pp->n_groups <= 0) {
         return 0;
     }
     pager_compute_geometry(pp, w->thickness);
@@ -311,37 +572,104 @@ static int pager_on_button(PanelWidget *w, int button, int local_x, int local_y,
         return 0;
     }
 
-    for (int g = 0; g < pp->n_groups; g++) {
-        int group_end = pp->group_x[g] + pp->cols * pp->btn_w[g];
-        if (local_x < pp->group_x[g] || local_x >= group_end) {
-            continue;
+    /* Scroll switches desktop on whichever group the pointer is over --
+     * anywhere in it, including the gaps between squares, since the
+     * gesture is about the group, not a particular cell. Wraps at both
+     * ends. Goes through the same switch call a click does, so under kiwm
+     * this shows kiwm's own desktop-switch OSD. */
+    if (button == Button4 || button == Button5) {
+        int g = pager_group_at(pp, local_x);
+        if (g < 0) {
+            g = 0;
         }
-        int c = (local_x - pp->group_x[g]) / pp->btn_w[g];
-        int r = local_y / pp->row_h;
-        if (c < 0 || c >= pp->cols || r < 0 || r >= pp->rows) {
-            return 0;
+        int n = pp->n_desktops;
+        if (n <= 1) {
+            return 1;
         }
-        int d = pager_rc_to_desktop(r, c, pp->cols, pp->rows, pp->orientation, pp->starting_corner);
-        if (d < 0 || d >= pp->n_desktops) {
-            return 0; /* clicked an empty grid cell */
-        }
+        int d = pp->active_desktop[g] + (button == Button4 ? -1 : 1);
+        d = (d % n + n) % n;
         if (pp->is_kiwm) {
             ewmh_kiwm_set_output_desktop(pp->kiwm_output_idx[g], d);
         } else {
             ewmh_set_current_desktop(d);
         }
+        pp->active_desktop[g] = d; /* optimistic -- the next tick re-reads the truth */
         XFlush(g_dpy);
+        w->panel->dirty = 1;
         return 1;
     }
-    return 0;
+
+    if (button != Button1) {
+        return 0;
+    }
+
+    int g, d, cell_x, cell_w;
+    if (!pager_cell_at(pp, local_x, local_y, &g, &d, &cell_x, &cell_w)) {
+        return 0;
+    }
+    if (pp->is_kiwm) {
+        ewmh_kiwm_set_output_desktop(pp->kiwm_output_idx[g], d);
+    } else {
+        ewmh_set_current_desktop(d);
+    }
+    XFlush(g_dpy);
+    return 1;
+}
+
+/* Lists the hovered desktop's windows. The window cache is shared with
+ * show_windows= -- scanned here on demand when that option is off (the
+ * rate limit inside pager_collect_windows() keeps a pointer sweeping
+ * across the squares from re-walking the client list every motion
+ * event). */
+static int pager_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t bufsz, int *anchor_x, int *anchor_w,
+                              int *out_closable, void **out_ctx)
+{
+    (void)out_closable;
+    (void)out_ctx;
+    PagerPriv *pp = w->priv;
+    if (pp->n_groups <= 0) {
+        return 0;
+    }
+    pager_compute_geometry(pp, w->thickness);
+
+    int local_y = 0;
+    if (pp->rows > 1 && !panel_widget_hover_local_y(w, &local_y)) {
+        return 0; /* multi-row grid: no way to tell which row without the pointer's y */
+    }
+    int g, d, cell_x, cell_w;
+    if (!pager_cell_at(pp, local_x, local_y, &g, &d, &cell_x, &cell_w)) {
+        return 0;
+    }
+    *anchor_x = cell_x;
+    *anchor_w = cell_w;
+
+    pager_collect_windows(w, now_ms());
+
+    size_t used = 0;
+    used += (size_t)snprintf(buf, bufsz, "Área de trabalho %d", d + 1);
+    int n_listed = 0;
+    for (int i = 0; i < pp->n_wins && used + 1 < bufsz; i++) {
+        const PagerWindow *e = &pp->wins[i];
+        if (e->group != g || (e->desktop >= 0 && e->desktop != d)) {
+            continue;
+        }
+        used += (size_t)snprintf(buf + used, bufsz - used, "\n%s", e->title[0] ? e->title : "(sem título)");
+        n_listed++;
+    }
+    if (!n_listed) {
+        snprintf(buf + used, bufsz - used, "\n(vazia)");
+    }
+    return 1;
 }
 
 const PanelWidgetOps pager_ops = {
     .type_name = "pager",
     .priv_size = sizeof(PagerPriv),
     .init = pager_init,
+    .destroy = pager_destroy,
     .measure = pager_measure,
     .paint = pager_paint,
     .on_button = pager_on_button,
+    .get_tooltip = pager_get_tooltip,
     .on_tick = pager_on_tick,
 };

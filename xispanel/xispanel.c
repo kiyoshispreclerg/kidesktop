@@ -105,7 +105,8 @@ Display *g_dpy;
 Window g_root;
 int g_screen;
 cairo_font_face_t *g_font_face;
-char g_font_family[128]; /* filled once at startup, see detect_system_font_family() in main() */
+char g_font_family[128]; /* filled once at startup, see config_scan_globals() */
+char g_icon_theme[128];  /* same -- THEME's icon_theme=, read by ewmh.c's resolve_icon_theme_name() */
 
 static int g_rr_event_base;
 static volatile sig_atomic_t g_quit = 0;
@@ -350,230 +351,48 @@ static const PanelWidgetOps *find_widget_ops(const char *type_name)
 /* font setup                                                           */
 /* ------------------------------------------------------------------ */
 
-/* Reads whichever desktop's own "default UI font" setting is present, so
- * xispanel's text matches the rest of the session instead of whatever
- * fontconfig's generic "sans-serif" alias happens to resolve to (often a
- * different font than what the user picked in System Settings, since
- * that alias is a distro-wide default, not a per-user one). No Qt/GTK
- * linked -- just the same two plain config files those toolkits
- * themselves read, checked in order:
+/* xispanel.conf is the only source of truth for how the panel looks --
+ * nothing is read out of any other desktop's configuration (kdeglobals,
+ * gtk-3.0/settings.ini, ...) any more. Font family and icon theme are
+ * process-global (one FT face, one icon search root for every panel),
+ * but they are still written on a THEME line, since that is where every
+ * other appearance key already lives; the first THEME line that sets
+ * each key wins. Read here by a plain pre-scan of the config file rather
+ * than in apply_theme_kv(), because init_font()/pango_text_init() have
+ * to run before any panel exists to be themed.
  *
- *   - KDE/Plasma: ~/.config/kdeglobals, [General] font=Family,size,...
- *   - GTK3:       ~/.config/gtk-3.0/settings.ini, [Settings]
- *                 gtk-font-name=Family size
- *
- * Falls back to fontconfig's "sans-serif" default (via init_font()'s own
- * fallback) if neither file exists or has the key -- most likely a
- * minimal/non-desktop X session, where there's nothing more specific to
- * honor anyway. */
-static void detect_system_font_family(char *out, size_t outsz)
+ * Unset font= keeps fontconfig's generic "sans-serif" (init_font()'s own
+ * fallback); unset icon_theme= leaves resolve_icon_theme_name() on its
+ * hardcoded breeze/Adwaita/hicolor roots. Colors work the same way one
+ * level down: no bg=/fg= means alloc_panel()'s built-in dark defaults. */
+static void config_scan_globals(void)
 {
-    out[0] = 0;
-    const char *home = getenv("HOME");
-    if (!home) {
+    g_font_family[0] = 0;
+    g_icon_theme[0] = 0;
+    FILE *f = fopen(g_configpath, "r");
+    if (!f) {
         return;
     }
-    char path[PATH_MAX];
-    char line[512];
-
-    snprintf(path, sizeof(path), "%s/.config/kdeglobals", home);
-    FILE *f = fopen(path, "r");
-    if (f) {
-        int in_general = 0;
-        while (fgets(line, sizeof(line), f)) {
-            size_t len = strlen(line);
-            while (len && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
-                line[--len] = 0;
-            }
-            if (line[0] == '[') {
-                in_general = (strcmp(line, "[General]") == 0);
-                continue;
-            }
-            if (in_general && strncmp(line, "font=", 5) == 0) {
-                const char *val = line + 5;
-                const char *comma = strchr(val, ',');
-                size_t flen = comma ? (size_t)(comma - val) : strlen(val);
-                if (flen >= outsz) {
-                    flen = outsz - 1;
-                }
-                memcpy(out, val, flen);
-                out[flen] = 0;
-                break;
-            }
-        }
-        fclose(f);
-        if (out[0]) {
-            return;
-        }
-    }
-
-    snprintf(path, sizeof(path), "%s/.config/gtk-3.0/settings.ini", home);
-    f = fopen(path, "r");
-    if (f) {
-        while (fgets(line, sizeof(line), f)) {
-            size_t len = strlen(line);
-            while (len && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
-                line[--len] = 0;
-            }
-            if (strncmp(line, "gtk-font-name=", 14) == 0) {
-                char buf[256];
-                snprintf(buf, sizeof(buf), "%s", line + 14);
-                /* gtk-font-name is "Family [Style] size" -- drop the
-                 * trailing numeric size token, Fontconfig only needs the
-                 * family here (panel text is sized off panel thickness,
-                 * not a fixed point size -- see the callers of
-                 * init_font()). */
-                char *sp = strrchr(buf, ' ');
-                if (sp && isdigit((unsigned char)sp[1])) {
-                    *sp = 0;
-                }
-                snprintf(out, outsz, "%s", buf);
-                break;
-            }
-        }
-        fclose(f);
-    }
-}
-
-/* Companion to detect_system_font_family() -- same two sources, same
- * live-read-every-time philosophy (see detect_system_colors()'s doc
- * comment), but for the *point size* instead of the family name:
- *   - KDE/Plasma: kdeglobals's "font=Family,POINTSIZE,weight,..." --
- *     the second comma-separated field.
- *   - GTK3: gtk-3.0/settings.ini's "gtk-font-name=Family [Style] SIZE" --
- *     the same trailing numeric token detect_system_font_family() already
- *     strips off (there for Fontconfig's family-only lookup) is the
- *     point size here.
- * Returns 0 (not a valid pixel size) if neither file has a parseable
- * size -- callers keep whatever size they'd otherwise use (thickness-
- * proportional for in-panel widget text, fixed constants for tooltip/
- * menu popups). Converts pt to px at a flat 96 DPI (`* 96.0/72.0`) --
- * no attempt at real per-monitor DPI, consistent with the rest of
- * xispanel treating all size units as plain pixels. */
-static double detect_system_font_size_px(void)
-{
-    const char *home = getenv("HOME");
-    if (!home) {
-        return 0;
-    }
-    char path[PATH_MAX];
-    char line[512];
-
-    snprintf(path, sizeof(path), "%s/.config/kdeglobals", home);
-    FILE *f = fopen(path, "r");
-    if (f) {
-        int in_general = 0;
-        while (fgets(line, sizeof(line), f)) {
-            size_t len = strlen(line);
-            while (len && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
-                line[--len] = 0;
-            }
-            if (line[0] == '[') {
-                in_general = (strcmp(line, "[General]") == 0);
-                continue;
-            }
-            if (in_general && strncmp(line, "font=", 5) == 0) {
-                const char *comma = strchr(line + 5, ',');
-                fclose(f);
-                if (comma && isdigit((unsigned char)comma[1])) {
-                    return atoi(comma + 1) * 96.0 / 72.0;
-                }
-                return 0;
-            }
-        }
-        fclose(f);
-    }
-
-    snprintf(path, sizeof(path), "%s/.config/gtk-3.0/settings.ini", home);
-    f = fopen(path, "r");
-    if (f) {
-        while (fgets(line, sizeof(line), f)) {
-            size_t len = strlen(line);
-            while (len && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
-                line[--len] = 0;
-            }
-            if (strncmp(line, "gtk-font-name=", 14) == 0) {
-                char *sp = strrchr(line + 14, ' ');
-                fclose(f);
-                if (sp && isdigit((unsigned char)sp[1])) {
-                    return atoi(sp + 1) * 96.0 / 72.0;
-                }
-                return 0;
-            }
-        }
-        fclose(f);
-    }
-    return 0;
-}
-
-/* Reads a "R,G,B" (each 0-255) KDE color-scheme value into 0.0-1.0 doubles.
- * Returns 0 (leaving *r/*g/*b untouched) if `val` isn't exactly that shape
- * -- callers treat that as "key present but unparseable", same as "key
- * absent" (fall through to the next source). */
-static int parse_kde_rgb(const char *val, double *r, double *g, double *b)
-{
-    int ri, gi, bi;
-    if (sscanf(val, "%d,%d,%d", &ri, &gi, &bi) != 3) {
-        return 0;
-    }
-    *r = ri / 255.0;
-    *g = gi / 255.0;
-    *b = bi / 255.0;
-    return 1;
-}
-
-/* Live counterpart to detect_system_font_family(): reads the desktop's
- * *actual current* panel-background/foreground colors, for whenever a
- * THEME line doesn't set bg=/fg= itself (explicit config always wins --
- * see apply_theme_kv(), called after this). Deliberately not cached/copied
- * into xispanel.conf at config-generation time (see
- * write_default_config_if_missing()'s doc comment) -- reads the files
- * fresh every time a panel's colors need a default, so a later system
- * theme change or RELOAD picks it up automatically.
- *
- *   - KDE/Plasma: ~/.config/kdeglobals, [Colors:Window]
- *                 BackgroundNormal=R,G,B / ForegroundNormal=R,G,B
- *   - GTK3: no equivalent simple key -- GTK themes are CSS, not a flat
- *     key=value color list, so there's no cheap file to read here the way
- *     gtk-font-name works for fonts. Left as a known gap rather than
- *     something worth a CSS parser for.
- *
- * Returns 1 if at least one of bg/fg was found and written, 0 if nothing
- * was (caller keeps its own hardcoded default in that case). */
-static int detect_system_colors(double *bg_r, double *bg_g, double *bg_b, double *fg_r, double *fg_g, double *fg_b)
-{
-    const char *home = getenv("HOME");
-    if (!home) {
-        return 0;
-    }
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/.config/kdeglobals", home);
-    FILE *f = fopen(path, "r");
-    if (!f) {
-        return 0;
-    }
-    int in_window = 0, found = 0;
-    char line[512];
+    char line[1024];
     while (fgets(line, sizeof(line), f)) {
         size_t len = strlen(line);
         while (len && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
             line[--len] = 0;
         }
-        if (line[0] == '[') {
-            in_window = (strcmp(line, "[Colors:Window]") == 0);
+        if (strncmp(line, "THEME", 5) != 0) {
             continue;
         }
-        if (!in_window) {
-            continue;
+        if (!g_font_family[0]) {
+            kv_get(line, "font", g_font_family, sizeof(g_font_family));
         }
-        if (!strncmp(line, "BackgroundNormal=", 17) && parse_kde_rgb(line + 17, bg_r, bg_g, bg_b)) {
-            found = 1;
-        } else if (!strncmp(line, "ForegroundNormal=", 17) && parse_kde_rgb(line + 17, fg_r, fg_g, fg_b)) {
-            found = 1;
+        if (!g_icon_theme[0]) {
+            kv_get(line, "icon_theme", g_icon_theme, sizeof(g_icon_theme));
+        }
+        if (g_font_family[0] && g_icon_theme[0]) {
+            break;
         }
     }
     fclose(f);
-    return found;
 }
 
 static int init_font(const char *family_hint)
@@ -686,6 +505,15 @@ int panel_lookup_output_size(const char *name, int *out_w, int *out_h)
     return 1;
 }
 
+/* Same, but also reporting the output's origin in root coordinates --
+ * pager.c's window-outline mode needs it to map a window's root-relative
+ * position into the miniature of the output it lives on. */
+int panel_lookup_output_rect(const char *name, int *out_x, int *out_y, int *out_w, int *out_h)
+{
+    double hz;
+    return resolve_output_geometry(name, out_x, out_y, out_w, out_h, &hz);
+}
+
 /* Name of the RandR-designated primary output (xrandr --output X --primary),
  * or 0 if none is set/RandR is unavailable -- used only when writing a
  * first-run default config (see write_default_config_if_missing()), so a
@@ -721,12 +549,12 @@ static int get_primary_output_name(char *out, size_t outsz)
  * virtual screen, if RandR has no primary set -- equivalent on a
  * single-monitor session anyway), with launcher+tasklist on the left and
  * tray+clock pushed to the right edge by a spacer in between.
- * Deliberately no THEME line and no font here: colors/font are meant to
- * be read live from the user's Qt/GTK config whenever they're *not*
- * explicitly set in xispanel.conf (see detect_system_colors() and
- * detect_system_font_family()) rather than baked into a copy at
- * generation time, which would just go stale the next time the user
- * changes their system theme. */
+ * Deliberately no THEME line here: without one, alloc_panel()'s built-in
+ * dark colors and fontconfig's default font are used. xispanel reads no
+ * other desktop's configuration to fill those in -- xispanel.conf is the
+ * only source of truth (a first-run session-import pass, seeding this
+ * file from whatever KDE/GTK config the user already has, belongs to
+ * kiconfd, not here). */
 static void write_default_config_if_missing(void)
 {
     if (access(g_configpath, F_OK) == 0) {
@@ -1696,17 +1524,14 @@ static Panel *alloc_panel(const char *name, const char *output)
             p->bg_a = 0.85;
             p->fg_r = p->fg_g = p->fg_b = 0.93;
             p->fg_a = 1.0;
-            /* Live system-theme colors, if any -- overwrites just the
-             * channels detect_system_colors() actually found (bg and/or
-             * fg independently), leaving the hardcoded fallback above for
-             * whichever it didn't. A THEME line's own bg=/fg= (applied
-             * later, from load_config()) always wins over either. */
-            detect_system_colors(&p->bg_r, &p->bg_g, &p->bg_b, &p->fg_r, &p->fg_g, &p->fg_b);
-            /* Same THEME-overrides-detected-overrides-hardcoded layering
-             * as colors above -- 0 here means "undetected", every user of
-             * font_size_px already treats that as "fall back to my own
-             * existing size" (see the field's doc comment in xispanel.h). */
-            p->font_size_px = detect_system_font_size_px();
+            /* The colors above are the whole fallback: a THEME line's
+             * bg=/fg= (applied later, from load_config()) overrides them,
+             * and nothing else is consulted -- xispanel.conf is the only
+             * source of truth, no other desktop's config is read. */
+            /* 0 = "not configured"; every user of font_size_px treats that
+             * as "fall back to my own existing size" (see the field's doc
+             * comment in xispanel.h). THEME's font_size= sets it. */
+            p->font_size_px = 0;
             p->spacing = 4;
             p->density_num = 1;
             p->density_den = 1;
@@ -2561,14 +2386,6 @@ static int run_as_daemon(const char *sockpath)
     imlib_context_set_anti_alias(1);
     imlib_context_set_dither(1);
 
-    detect_system_font_family(g_font_family, sizeof(g_font_family));
-    if (init_font(g_font_family) != 0) {
-        fprintf(stderr, "xispanel: could not resolve a default font via fontconfig\n");
-    } else if (g_font_family[0]) {
-        fprintf(stderr, "xispanel: using system font '%s'\n", g_font_family);
-    }
-    pango_text_init(g_font_family);
-
     ewmh_init_atoms();
     density_init();     /* X-DENSITY (see TESTS/X-DENSITY.md) -- must come after g_screen/g_root are set above */
     inputscale_init();  /* X-INPUT-SCALE (see inputscale.c) -- same ordering requirement */
@@ -2612,6 +2429,18 @@ static int run_as_daemon(const char *sockpath)
     fcntl(ConnectionNumber(g_dpy), F_SETFD, FD_CLOEXEC);
 
     write_default_config_if_missing();
+    /* Font/icon theme come out of the config file itself, so this has to
+     * follow write_default_config_if_missing() (there may not have been a
+     * file to scan before it) and precede reload_all_panels() (widgets
+     * measure their text at creation time). */
+    config_scan_globals();
+    if (init_font(g_font_family) != 0) {
+        fprintf(stderr, "xispanel: could not resolve a default font via fontconfig\n");
+    } else if (g_font_family[0]) {
+        fprintf(stderr, "xispanel: using configured font '%s'\n", g_font_family);
+    }
+    pango_text_init(g_font_family);
+
     reload_all_panels();
     /* Watch the root + every client window for the properties the polling
      * widgets (tasklist/winctl/globalmenu) care about, so they re-poll the
