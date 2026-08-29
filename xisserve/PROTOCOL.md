@@ -56,11 +56,18 @@ A mode flag may follow the ones above, selecting what xisserve opens
 instead of its default launcher view. Only one exists so far:
 
 - `--calendar`: passed by xispanel's `clock` widget when its clock is
-  clicked, anchored to the clock's own rectangle. It should open a
-  navigable calendar (month view, previous/next month) rather than the
-  launcher. **Not implemented yet** on the xisserve side -- xispanel
-  already sends the flag and the anchor geometry; an xisserve that
-  doesn't know the flag should ignore it rather than fail to start.
+  clicked, anchored to the clock's own rectangle. Opens a navigable
+  GtkCalendar (month view, current month, today highlighted, prev/next
+  month and direct year entry built into the widget itself) instead of
+  the launcher's search/list view. Implemented as its own window size
+  (no forced minimum -- the popup shrinks to the calendar's own natural
+  size) and its own reposition pass, so it still clamps fully inside
+  `--output-*` on outputs much smaller than the launcher's own fixed
+  size. A second invocation toggles/repositions/retheme exactly like the
+  launcher view (see "Singleton / toggle behavior" below) -- switching
+  between calendar and launcher mode on an already-open xisserve still
+  just closes it on that click, same as any other toggle; the new mode
+  takes effect on the *next* open.
 
 ## Singleton / toggle behavior (xisserve's own responsibility)
 

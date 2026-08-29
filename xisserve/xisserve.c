@@ -39,9 +39,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.0"
+#define XISSERVE_VERSION "0.1.2"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -68,6 +69,7 @@ typedef struct {
     char fg[10];
     char font[128];
     int font_size;
+    gboolean calendar_mode; /* --calendar -- see PROTOCOL.md */
 } LaunchArgs;
 
 static LaunchArgs g_args;
@@ -76,6 +78,10 @@ static GtkWidget *g_entry;
 static GtkWidget *g_cat_treeview;
 static GtkWidget *g_cat_scroll;
 static GtkWidget *g_treeview;
+static GtkWidget *g_content_box;  /* cat_scroll + results scroll, hidden in calendar mode */
+static GtkWidget *g_footer_sep;
+static GtkWidget *g_footer;       /* power-action buttons, hidden in calendar mode */
+static GtkWidget *g_calendar;     /* shown only in calendar mode */
 static GtkListStore *g_cat_store;
 static GtkListStore *g_view_store;
 static GPtrArray *g_apps;           /* ResultEntry*, persistent scanned apps, owned */
@@ -90,7 +96,7 @@ static pid_t g_watch_pid;
 enum {
     OPT_ANCHOR_X = 1000, OPT_ANCHOR_Y, OPT_ANCHOR_W, OPT_ANCHOR_H,
     OPT_EDGE, OPT_OUTPUT_X, OPT_OUTPUT_Y, OPT_OUTPUT_W, OPT_OUTPUT_H,
-    OPT_BG, OPT_FG, OPT_FONT, OPT_FONT_SIZE,
+    OPT_BG, OPT_FG, OPT_FONT, OPT_FONT_SIZE, OPT_CALENDAR,
 };
 
 static const struct option kLongOpts[] = {
@@ -107,6 +113,7 @@ static const struct option kLongOpts[] = {
     {"fg", required_argument, 0, OPT_FG},
     {"font", required_argument, 0, OPT_FONT},
     {"font-size", required_argument, 0, OPT_FONT_SIZE},
+    {"calendar", no_argument, 0, OPT_CALENDAR},
     {0, 0, 0, 0},
 };
 
@@ -115,7 +122,7 @@ static void usage(const char *argv0)
     fprintf(stderr,
             "usage: %s --anchor-x=<px> --anchor-y=<px> --anchor-w=<px> --anchor-h=<px> "
             "--edge=top|bottom|left|right --output-x=<px> --output-y=<px> --output-w=<px> "
-            "--output-h=<px> --bg=#RRGGBBAA --fg=#RRGGBBAA --font=<family> --font-size=<px>\n"
+            "--output-h=<px> --bg=#RRGGBBAA --fg=#RRGGBBAA --font=<family> --font-size=<px> [--calendar]\n"
             "       %s --version\n",
             argv0, argv0);
 }
@@ -148,6 +155,7 @@ static int parse_argv(int argc, char **argv, LaunchArgs *a)
         case OPT_FG: snprintf(a->fg, sizeof(a->fg), "%s", optarg); break;
         case OPT_FONT: snprintf(a->font, sizeof(a->font), "%s", optarg); break;
         case OPT_FONT_SIZE: a->font_size = atoi(optarg); break;
+        case OPT_CALENDAR: a->calendar_mode = TRUE; break;
         default: return -1;
         }
     }
@@ -220,6 +228,9 @@ static int parse_json_args(const char *msg, LaunchArgs *a)
     ok &= json_get_str(msg, "fg", a->fg, sizeof(a->fg));
     json_get_str(msg, "font", a->font, sizeof(a->font));
     json_get_int(msg, "font_size", &a->font_size);
+    int calendar = 0;
+    json_get_int(msg, "calendar", &calendar);
+    a->calendar_mode = calendar != 0;
     return ok;
 }
 
@@ -248,9 +259,9 @@ static int send_to_running(const char *sockpath, const LaunchArgs *a)
     int n = snprintf(msg, sizeof(msg),
                       "{\"anchor_x\":%d,\"anchor_y\":%d,\"anchor_w\":%d,\"anchor_h\":%d,\"edge\":\"%s\","
                       "\"output_x\":%d,\"output_y\":%d,\"output_w\":%d,\"output_h\":%d,"
-                      "\"bg\":\"%s\",\"fg\":\"%s\",\"font\":\"%s\",\"font_size\":%d}\n",
+                      "\"bg\":\"%s\",\"fg\":\"%s\",\"font\":\"%s\",\"font_size\":%d,\"calendar\":%d}\n",
                       a->anchor_x, a->anchor_y, a->anchor_w, a->anchor_h, a->edge, a->output_x, a->output_y,
-                      a->output_w, a->output_h, a->bg, a->fg, font_esc, a->font_size);
+                      a->output_w, a->output_h, a->bg, a->fg, font_esc, a->font_size, a->calendar_mode ? 1 : 0);
     if (n > 0) {
         ssize_t written = write(fd, msg, (size_t)n);
         (void)written;
@@ -865,6 +876,8 @@ static void apply_theme(void)
     gtk_widget_modify_base(g_treeview, GTK_STATE_NORMAL, &bg_color);
     gtk_widget_modify_text(g_cat_treeview, GTK_STATE_NORMAL, &fg_color);
     gtk_widget_modify_base(g_cat_treeview, GTK_STATE_NORMAL, &bg_color);
+    gtk_widget_modify_bg(g_calendar, GTK_STATE_NORMAL, &bg_color);
+    gtk_widget_modify_text(g_calendar, GTK_STATE_NORMAL, &fg_color);
 
     PangoFontDescription *desc = pango_font_description_new();
     pango_font_description_set_family(desc, g_args.font[0] ? g_args.font : "sans-serif");
@@ -872,18 +885,30 @@ static void apply_theme(void)
     gtk_widget_modify_font(g_entry, desc);
     gtk_widget_modify_font(g_treeview, desc);
     gtk_widget_modify_font(g_cat_treeview, desc);
+    gtk_widget_modify_font(g_calendar, desc);
     pango_font_description_free(desc);
 
     gtk_widget_queue_draw(g_window);
 }
 
 /* Glues the popup to the panel's outer edge aligned with the anchor
- * rect, then clamps it inside the output rect -- the same convention
- * PROTOCOL.md documents and menu.c's panel_menu_open_tree_lazy() already
- * applies for xispanel's own popups. */
+ * rect, then clamps it inside the *output* rect (the RandR CRTC
+ * xispanel's own panel lives on, per PROTOCOL.md's --output-* flags --
+ * never the X screen as a whole, which on a multi-monitor setup spans
+ * every output combined and would let the window drift onto a different
+ * monitor than the one it was anchored on). Must run after
+ * apply_view_mode() has settled which widget group is visible:
+ * gtk_widget_size_request() below asks "what size do you actually need
+ * right now", which for --calendar mode (no forced minimum, see
+ * apply_view_mode()) depends entirely on GtkCalendar's own natural size
+ * for the current font/locale -- a hardcoded guess here previously sent
+ * part of the calendar off-screen whenever the real requisition came out
+ * larger than the guess. */
 static void reposition_window(void)
 {
-    int ww = WIN_WIDTH, wh = WIN_HEIGHT;
+    GtkRequisition req;
+    gtk_widget_size_request(g_window, &req);
+    int ww = req.width, wh = req.height;
     int x, y;
     if (strcmp(g_args.edge, "top") == 0) {
         x = g_args.anchor_x;
@@ -1023,28 +1048,84 @@ static void rebuild_results(void)
     }
 }
 
+/* Switches between the two mutually-exclusive widget groups build_ui()
+ * packed into the same vbox -- entry+content+footer (launcher mode) or
+ * g_calendar alone (--calendar mode, see PROTOCOL.md). Launcher mode
+ * keeps its own fixed WIN_WIDTH/WIN_HEIGHT floor (the split-pane layout
+ * is designed around it); calendar mode is left with no forced minimum
+ * at all, so the window ends up exactly GtkCalendar's own natural size
+ * for whatever font/locale is active -- reposition_window() (called
+ * right after this, in show_launcher()) queries that real size rather
+ * than guessing it, which is what actually keeps the popup fully inside
+ * its output. Must run *after* gtk_widget_show_all(g_window) in
+ * show_launcher(): show_all() sets every child visible unconditionally,
+ * so the hide() calls here have to come later to actually stick. Jumps
+ * the calendar to today (current month, today selected/highlighted)
+ * every time, matching the app list always resetting to the Favoritos
+ * category on open. */
+static void apply_view_mode(void)
+{
+    if (g_args.calendar_mode) {
+        gtk_widget_set_size_request(g_window, -1, -1);
+        gtk_widget_hide(g_entry);
+        gtk_widget_hide(g_content_box);
+        gtk_widget_hide(g_footer_sep);
+        gtk_widget_hide(g_footer);
+        gtk_widget_show(g_calendar);
+
+        time_t now = time(NULL);
+        struct tm tmv;
+        localtime_r(&now, &tmv);
+        gtk_calendar_select_month(GTK_CALENDAR(g_calendar), (guint)tmv.tm_mon, (guint)(tmv.tm_year + 1900));
+        gtk_calendar_select_day(GTK_CALENDAR(g_calendar), (guint)tmv.tm_mday);
+    } else {
+        gtk_widget_set_size_request(g_window, WIN_WIDTH, WIN_HEIGHT);
+        gtk_widget_hide(g_calendar);
+        gtk_widget_show(g_entry);
+        gtk_widget_show(g_content_box);
+        gtk_widget_show(g_footer_sep);
+        gtk_widget_show(g_footer);
+    }
+
+    /* set_size_request() alone only changes what GTK's layout engine
+     * will *ask for* on the next negotiation -- it doesn't shrink an
+     * already-mapped, already-allocated toplevel back down by itself
+     * (nothing re-triggers that negotiation just because a minimum was
+     * lowered). gtk_window_resize() forces the actual window to the
+     * size we now know is right, which for GTK_WINDOW_POPUP (override-
+     * redirect, no WM to negotiate with) takes effect immediately. */
+    GtkRequisition req;
+    gtk_widget_size_request(g_window, &req);
+    gtk_window_resize(GTK_WINDOW(g_window), req.width, req.height);
+}
+
 static void show_launcher(void)
 {
-    rescan_apps();
-    gtk_entry_set_text(GTK_ENTRY(g_entry), "");
-    snprintf(g_selected_category, sizeof(g_selected_category), "favorites");
     if (g_hovered_cat_path) {
         gtk_tree_path_free(g_hovered_cat_path);
         g_hovered_cat_path = NULL;
     }
 
-    GtkTreeIter cat_it;
-    if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(g_cat_store), &cat_it)) {
-        gtk_tree_selection_select_iter(gtk_tree_view_get_selection(GTK_TREE_VIEW(g_cat_treeview)), &cat_it);
+    if (!g_args.calendar_mode) {
+        rescan_apps();
+        gtk_entry_set_text(GTK_ENTRY(g_entry), "");
+        snprintf(g_selected_category, sizeof(g_selected_category), "favorites");
+
+        GtkTreeIter cat_it;
+        if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(g_cat_store), &cat_it)) {
+            gtk_tree_selection_select_iter(gtk_tree_view_get_selection(GTK_TREE_VIEW(g_cat_treeview)), &cat_it);
+        }
+        rebuild_results();
     }
-    rebuild_results();
 
     gtk_widget_show_all(g_window);
+    apply_view_mode();
+    reposition_window(); /* after apply_view_mode() -- needs its real, now-settled size */
     gtk_window_present(GTK_WINDOW(g_window));
     gdk_window_raise(g_window->window);
     gdk_window_focus(g_window->window, GDK_CURRENT_TIME);
     grab_input();
-    gtk_widget_grab_focus(g_entry);
+    gtk_widget_grab_focus(g_args.calendar_mode ? g_calendar : g_entry);
 }
 
 static void toggle_visibility(void)
@@ -1193,7 +1274,12 @@ static gboolean on_ctl_accept(GIOChannel *source, GIOCondition cond, gpointer da
     if (parse_json_args(buf, &newargs)) {
         g_args = newargs;
         apply_theme();
-        reposition_window();
+        /* reposition_window() is no longer called standalone here -- it
+         * needs the current view mode's real widget sizing settled
+         * first (apply_view_mode(), inside show_launcher()) to clamp
+         * correctly, and repositioning a window that's about to be
+         * hidden anyway (the other toggle_visibility() branch) would be
+         * wasted work besides. */
         toggle_visibility();
     }
     return TRUE;
@@ -1262,6 +1348,11 @@ static void on_favorite_menu_item(GtkWidget *item, gpointer user_data)
     rebuild_results();
 }
 
+/* Set for the duration of our own right-click context menu -- see
+ * on_window_grab_broken()'s comment for why this needs to be
+ * distinguishable from a *foreign* grab theft. */
+static gboolean g_context_menu_active = FALSE;
+
 /* GtkMenu's own popup takes the X pointer/keyboard grab while shown,
  * superseding grab_input()'s explicit gdk_pointer_grab/gdk_keyboard_grab
  * on g_window (only one active grab can exist at a time) -- reclaim it
@@ -1272,6 +1363,7 @@ static void on_context_menu_selection_done(GtkWidget *menu, gpointer data)
 {
     (void)data;
     gtk_widget_destroy(menu);
+    g_context_menu_active = FALSE;
     if (GTK_WIDGET_VISIBLE(g_window)) grab_input();
 }
 
@@ -1313,6 +1405,7 @@ static gboolean on_tree_button_press(GtkWidget *tv, GdkEventButton *ev, gpointer
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
     g_signal_connect(menu, "selection-done", G_CALLBACK(on_context_menu_selection_done), NULL);
     gtk_widget_show_all(menu);
+    g_context_menu_active = TRUE;
     gtk_menu_popup(GTK_MENU(menu), NULL, NULL, NULL, NULL, ev->button, ev->time);
     return TRUE;
 }
@@ -1336,12 +1429,19 @@ static gboolean on_window_button_press(GtkWidget *w, GdkEventButton *ev, gpointe
 /* The WM or another client can steal an active grab out from under us
  * (e.g. a different app opening its own grabbing popup); when that
  * happens we're no longer guaranteed input focus or outside-click
- * detection, so just close rather than linger in a half-working state. */
+ * detection, so just close rather than linger in a half-working state.
+ * BUT our own right-click context menu breaks our grab exactly the same
+ * way (GtkMenu's popup takes its own grab while shown) -- that case is
+ * expected and already handled by on_context_menu_selection_done()
+ * reclaiming the grab once the menu closes, so it must NOT hide us here
+ * too, or the main window vanishes the instant the context menu opens,
+ * leaving only the little menu on screen with nothing behind it. */
 static gboolean on_window_grab_broken(GtkWidget *w, GdkEventGrabBroken *ev, gpointer data)
 {
     (void)w;
     (void)ev;
     (void)data;
+    if (g_context_menu_active) return FALSE;
     gtk_widget_hide(g_window);
     return FALSE;
 }
@@ -1422,8 +1522,8 @@ static void build_ui(void)
     g_signal_connect(g_entry, "key-press-event", G_CALLBACK(on_entry_key_press), NULL);
     gtk_box_pack_start(GTK_BOX(vbox), g_entry, FALSE, FALSE, 0);
 
-    GtkWidget *content = gtk_hbox_new(FALSE, 4);
-    gtk_box_pack_start(GTK_BOX(vbox), content, TRUE, TRUE, 0);
+    g_content_box = gtk_hbox_new(FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(vbox), g_content_box, TRUE, TRUE, 0);
 
     /* Left pane: categories. Hidden while searching (rebuild_results()
      * toggles it) so the results pane can take the full width, matching
@@ -1444,7 +1544,7 @@ static void build_ui(void)
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(g_cat_scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_widget_set_size_request(g_cat_scroll, CAT_PANE_WIDTH, -1);
     gtk_container_add(GTK_CONTAINER(g_cat_scroll), g_cat_treeview);
-    gtk_box_pack_start(GTK_BOX(content), g_cat_scroll, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(g_content_box), g_cat_scroll, FALSE, FALSE, 0);
 
     /* Right pane: results. One column packs an icon renderer (the app's
      * own icon, or a plugin's -- see xisserve_resolve_icon()/
@@ -1469,12 +1569,12 @@ static void build_ui(void)
     GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_container_add(GTK_CONTAINER(scroll), g_treeview);
-    gtk_box_pack_start(GTK_BOX(content), scroll, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(g_content_box), scroll, TRUE, TRUE, 0);
 
-    GtkWidget *sep = gtk_hseparator_new();
-    gtk_box_pack_start(GTK_BOX(vbox), sep, FALSE, FALSE, 0);
+    g_footer_sep = gtk_hseparator_new();
+    gtk_box_pack_start(GTK_BOX(vbox), g_footer_sep, FALSE, FALSE, 0);
 
-    GtkWidget *footer = gtk_hbox_new(TRUE, 2);
+    g_footer = gtk_hbox_new(TRUE, 2);
     for (int i = 0; i < N_POWER_ACTIONS; i++) {
         const PowerAction *action = &kPowerActions[i];
         if (action->probe_bin) {
@@ -1484,9 +1584,21 @@ static void build_ui(void)
         }
         GtkWidget *btn = gtk_button_new_with_label(action->label);
         g_signal_connect(btn, "clicked", G_CALLBACK(on_power_button_clicked), (gpointer)action);
-        gtk_box_pack_start(GTK_BOX(footer), btn, TRUE, TRUE, 0);
+        gtk_box_pack_start(GTK_BOX(g_footer), btn, TRUE, TRUE, 0);
     }
-    gtk_box_pack_start(GTK_BOX(vbox), footer, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(vbox), g_footer, FALSE, FALSE, 0);
+
+    /* --calendar mode (see PROTOCOL.md): a plain GtkCalendar, packed
+     * into the same vbox as everything above but normally hidden --
+     * apply_view_mode() swaps which of the two groups is visible. Month/
+     * year navigation (the header's prev/next-month arrows and a
+     * directly editable year) and highlighting whichever day is
+     * "today" are both built into GtkCalendar with zero extra code, as
+     * long as the currently *displayed* month is left as the real
+     * current one (apply_view_mode() re-selects it every open) -- GTK
+     * only bolds today's date when it's actually on screen. */
+    g_calendar = gtk_calendar_new();
+    gtk_box_pack_start(GTK_BOX(vbox), g_calendar, TRUE, TRUE, 0);
 }
 
 int main(int argc, char **argv)
@@ -1539,7 +1651,9 @@ int main(int argc, char **argv)
     g_args = args;
     build_ui();
     apply_theme();
-    reposition_window();
+    /* Positioning happens inside show_launcher() (reposition_window(),
+     * after apply_view_mode() settles the real size for whichever mode
+     * this invocation asked for) rather than here. */
 
     int listenfd = open_listen_socket(sockpath);
     if (listenfd < 0) {
