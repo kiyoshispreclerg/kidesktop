@@ -1526,6 +1526,12 @@ void unmanage(Client *c)
         wm.hover_client = NULL;
         wm.hover_btn = -1;
     }
+    if (wm.pressed_client == c) {
+        /* An armed titlebar button on a window that's going away can't
+         * fire on release any more (events.c's handle_button_release()). */
+        wm.pressed_client = NULL;
+        wm.pressed_btn = -1;
+    }
 
     /* A window closing mid-Alt+Tab-hold (osd.c's window-switcher OSD) must
      * not be left in its list -- it could otherwise get focused (dangling

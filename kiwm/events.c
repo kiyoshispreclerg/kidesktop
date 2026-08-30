@@ -510,6 +510,36 @@ static int deco_slot_at(Client *c, int rel_x, DecoSlot *slots, int max_slots)
     return -1;
 }
 
+/* Titlebar elements that behave like buttons -- everything except the
+ * title text and the icon, which have their own click behavior. */
+static bool deco_kind_is_button(DecoElemKind kind)
+{
+    switch (kind) {
+    case DECO_CLOSE:
+    case DECO_MAXIMIZE:
+    case DECO_MINIMIZE:
+    case DECO_SHADE:
+    case DECO_KEEP_ABOVE:
+    case DECO_KEEP_ALL_DESKTOPS:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static void run_deco_button(Client *c, DecoElemKind kind)
+{
+    switch (kind) {
+    case DECO_CLOSE:             close_client(c); break;
+    case DECO_MAXIMIZE:          toggle_maximize(c, -1); break;
+    case DECO_MINIMIZE:          minimize_client(c); break;
+    case DECO_SHADE:             toggle_shade(c, -1); break;
+    case DECO_KEEP_ABOVE:        toggle_keep_above(c, -1); break;
+    case DECO_KEEP_ALL_DESKTOPS: toggle_sticky(c, -1); break;
+    default:                     break;
+    }
+}
+
 static void handle_button_press(xcb_button_press_event_t *ev)
 {
     Client *c = find_client_window(ev->event);
@@ -547,22 +577,26 @@ static void handle_button_press(xcb_button_press_event_t *ev)
         int idx = deco_slot_at(c, rel_x, slots, MAX_DECO_ELEMS);
         if (idx >= 0) {
             /* The window icon is the menu's other, older home: clicking it
-             * opens the same menu, anchored just under the titlebar. */
+             * opens the same menu, anchored just under the titlebar. A
+             * menu opens on press on purpose -- it's the one titlebar
+             * element you can press and drag straight into. */
             if (slots[idx].kind == DECO_ICON) {
                 window_menu_open(c, c->x + slots[idx].x, c->y + TITLEBAR_H);
                 return;
             }
-            switch (slots[idx].kind) {
-            case DECO_CLOSE:            close_client(c); return;
-            case DECO_MAXIMIZE:         toggle_maximize(c, -1); return;
-            case DECO_MINIMIZE:         minimize_client(c); return;
-            case DECO_SHADE:            toggle_shade(c, -1); return;
-            case DECO_KEEP_ABOVE:       toggle_keep_above(c, -1); return;
-            case DECO_KEEP_ALL_DESKTOPS: toggle_sticky(c, -1); return;
-            case DECO_TITLE:
-            case DECO_ICON:
-            default:
-                break; /* not a button -- falls through to double-click/drag below */
+            if (deco_kind_is_button(slots[idx].kind)) {
+                /* Pressing only *arms* the button: the action fires on
+                 * release, and only if the release lands on the same
+                 * button (handle_button_release()), so a click that
+                 * landed on the wrong one can be taken back by dragging
+                 * off it -- the way buttons behave everywhere else. It's
+                 * also what makes a held-down state worth drawing at all;
+                 * see btns.png's third row (wm.h's BTNCOL_* comment). */
+                wm.pressed_client = c;
+                wm.pressed_btn = idx;
+                draw_decoration(c);
+                xcb_flush(wm.conn);
+                return;
             }
         }
 
@@ -1294,7 +1328,31 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
 
 static void handle_button_release(xcb_button_release_event_t *ev)
 {
-    (void)ev;
+    /* An armed titlebar button (see handle_button_press()) fires here, and
+     * only if this release is still over the same button -- releasing
+     * anywhere else cancels it and does nothing at all. */
+    if (wm.pressed_client) {
+        Client *c = wm.pressed_client;
+        int armed = wm.pressed_btn;
+        wm.pressed_client = NULL;
+        wm.pressed_btn = -1;
+
+        int rel_x = ev->root_x - c->x;
+        int rel_y = ev->root_y - c->y;
+        DecoSlot slots[MAX_DECO_ELEMS];
+        int idx = deco_slot_at(c, rel_x, slots, MAX_DECO_ELEMS);
+        bool on_titlebar = client_deco_visible(c) && rel_y >= 0 && rel_y < TITLEBAR_H;
+
+        /* Repaint out of the held-down look *before* running anything:
+         * the action can destroy the frame this would be drawing on. */
+        draw_decoration(c);
+
+        if (on_titlebar && idx >= 0 && idx == armed)
+            run_deco_button(c, slots[idx].kind);
+        xcb_flush(wm.conn);
+        return;
+    }
+
     if (wm.drag_client) {
         /* The deferred (live_resize=0) resize lands here, once, from
          * wherever the outline had got to -- see handle_motion(). */

@@ -49,9 +49,10 @@
 /* btns.png sprite sheet column order (see greenxp/btns.slice) -- fixed by
  * convention, not configurable (unlike the on-screen *order* of buttons,
  * see DecoElemKind/kiwm.conf's titlebar_layout=). Rows (not enumerated
- * here) are always normal=0/hover=1/clicked=2 top-to-bottom; "clicked"
- * isn't wired to anything yet (kiwm fires button actions on press, not
- * release, so there's no separate held-down moment to show it during). */
+ * here) are always normal=0/hover=1/clicked=2 top-to-bottom -- "clicked"
+ * is drawn while a button is held down, between the press that arms it
+ * and the release that fires it (see KiWM::pressed_client). A sheet with
+ * fewer rows just reuses its last one. */
 #define BTNCOL_CLOSE             0
 #define BTNCOL_MAXIMIZE          1
 #define BTNCOL_RESTORE           2
@@ -670,6 +671,18 @@ typedef struct {
      * deco_layout (below), or -1 for none/not-a-button element. */
     Client *hover_client;
     int hover_btn;
+
+    /* Which titlebar button is currently held down, if any. Button
+     * actions fire on *release*, over the same button the press landed
+     * on -- pressing arms the button and releasing elsewhere cancels it,
+     * which is how every other toolkit's buttons behave and the only way
+     * a misplaced click can be taken back. It's also what btns.png's
+     * third row (the "clicked" look) has always been for; nothing drew it
+     * while actions fired on press, since there was no held-down moment
+     * to show. Same encoding as hover_btn: an index into deco_layout, or
+     * -1 for none. */
+    Client *pressed_client;
+    int pressed_btn;
 
     /* Titlebar element order, kiwm.conf's titlebar_layout= -- see
      * DecoElemKind and decoration.h's compute_deco_layout(). Defaults (see

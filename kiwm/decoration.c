@@ -610,16 +610,31 @@ int compute_deco_layout(const Client *c, int frame_width, DecoSlot *out, int max
 }
 
 /* `col` is a BTNCOL_* sprite column; `glyph` is the hand-drawn fallback
- * used when no btns.png theme loaded. `hovered` selects btns.png's hover
+ * used when no btns.png theme loaded. `pressed` selects btns.png's third
+ * ("clicked") row, `hovered` its second; see the row order in wm.h's
+ * BTNCOL_* comment. `hovered` selects btns.png's hover
  * row; toggle buttons (keep_above/keep_all_desktops) also use that same
  * row whenever `active`, in lieu of a dedicated "on" row the sprite
  * doesn't have -- there's no "clicked" row use at all yet, kiwm fires
  * button actions directly on press with no separate held-down moment to
  * show one during (see wm.h's BTNCOL_* comment). */
-static void draw_button(cairo_t *cr, double x, int col, char glyph, bool hovered, bool active)
+static void draw_button(cairo_t *cr, double x, int col, char glyph, bool hovered, bool active,
+                        bool pressed)
 {
     if (wm.deco_btns) {
-        int row = (hovered || active) ? 1 : 0;
+        /* Rows are normal=0, hover=1, clicked=2 top to bottom, but a
+         * sheet is allowed to ship fewer than three -- fall back to the
+         * last one it has rather than sampling past its bottom edge. */
+        int rows = 1;
+        if (wm.btn_cell_h > 0) {
+            int sheet_h = cairo_image_surface_get_height(wm.deco_btns);
+            rows = sheet_h / wm.btn_cell_h;
+            if (rows < 1)
+                rows = 1;
+        }
+        int row = pressed ? 2 : ((hovered || active) ? 1 : 0);
+        if (row >= rows)
+            row = rows - 1;
         cairo_save(cr);
         cairo_translate(cr, x, 0);
         cairo_rectangle(cr, 0, 0, BUTTON_W, TITLEBAR_H);
@@ -630,7 +645,7 @@ static void draw_button(cairo_t *cr, double x, int col, char glyph, bool hovered
         return;
     }
 
-    cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, (hovered || active) ? 0.45 : 0.30);
+    cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, pressed ? 0.60 : ((hovered || active) ? 0.45 : 0.30));
     cairo_rectangle(cr, x, 0, BUTTON_W, TITLEBAR_H);
     cairo_fill(cr);
 
@@ -752,6 +767,14 @@ void draw_decoration(Client *c)
     for (int i = 0; i < nslots; i++) {
         DecoSlot *s = &slots[i];
         bool hovered = (wm.hover_client == c && wm.hover_btn == i);
+        /* Held down *and* the pointer still on it: dragging off an armed
+         * button un-presses it (and moving back re-presses), the same way
+         * every toolkit's buttons behave -- and the same rule that decides
+         * whether releasing there actually fires the action (see events.c's
+         * handle_button_release()). The hover_client check keeps this
+         * working when there's no sprite theme to track hover for. */
+        bool pressed = (wm.pressed_client == c && wm.pressed_btn == i) &&
+                       (wm.hover_client != c || wm.hover_btn == i);
 
         switch (s->kind) {
         case DECO_TITLE: {
@@ -789,23 +812,23 @@ void draw_decoration(Client *c)
             }
             break;
         case DECO_SHADE:
-            draw_button(cr, s->x, BTNCOL_SHADE, '^', hovered, false);
+            draw_button(cr, s->x, BTNCOL_SHADE, '^', hovered, false, pressed);
             break;
         case DECO_MINIMIZE:
-            draw_button(cr, s->x, BTNCOL_MINIMIZE, '-', hovered, false);
+            draw_button(cr, s->x, BTNCOL_MINIMIZE, '-', hovered, false, pressed);
             break;
         case DECO_MAXIMIZE:
             draw_button(cr, s->x, c->maximized ? BTNCOL_RESTORE : BTNCOL_MAXIMIZE,
-                       c->maximized ? 'r' : '+', hovered, false);
+                       c->maximized ? 'r' : '+', hovered, false, pressed);
             break;
         case DECO_CLOSE:
-            draw_button(cr, s->x, BTNCOL_CLOSE, 'x', hovered, false);
+            draw_button(cr, s->x, BTNCOL_CLOSE, 'x', hovered, false, pressed);
             break;
         case DECO_KEEP_ABOVE:
-            draw_button(cr, s->x, BTNCOL_KEEP_ABOVE, 'a', hovered, c->keep_above);
+            draw_button(cr, s->x, BTNCOL_KEEP_ABOVE, 'a', hovered, c->keep_above, pressed);
             break;
         case DECO_KEEP_ALL_DESKTOPS:
-            draw_button(cr, s->x, BTNCOL_KEEP_ALL_DESKTOPS, 'd', hovered, c->sticky);
+            draw_button(cr, s->x, BTNCOL_KEEP_ALL_DESKTOPS, 'd', hovered, c->sticky, pressed);
             break;
         }
     }
