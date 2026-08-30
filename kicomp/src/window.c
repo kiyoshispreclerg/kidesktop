@@ -10,6 +10,8 @@
 #include "output.h"
 #include "renderer.h"
 
+#include <xcb/shape.h>
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -101,6 +103,33 @@ void window_update_opacity(CompWindow *w)
     }
 }
 
+/* _KIWM_LAYER, kiwm's marking on its own overlay windows ("osd",
+ * "outline"). Read once when the window is adopted: kiwm sets it at
+ * creation and never changes it. */
+static void read_wm_layer(CompWindow *w)
+{
+    w->wm_layer[0] = '\0';
+    if (comp.atoms.kiwm_layer == XCB_NONE)
+        return;
+
+    xcb_get_property_reply_t *r = xcb_get_property_reply(comp.conn,
+        xcb_get_property(comp.conn, 0, w->id, comp.atoms.kiwm_layer,
+                         XCB_ATOM_STRING, 0, sizeof(w->wm_layer) / 4), NULL);
+    if (!r)
+        return;
+
+    int len = xcb_get_property_value_length(r);
+    if (r->type == XCB_ATOM_STRING && len > 0) {
+        if ((size_t)len >= sizeof(w->wm_layer))
+            len = (int)sizeof(w->wm_layer) - 1;
+        memcpy(w->wm_layer, xcb_get_property_value(r), (size_t)len);
+        w->wm_layer[len] = '\0';
+        comp_log("window 0x%x is kiwm's \"%s\" layer%s", w->id, w->wm_layer,
+                 comp.skip_wm_layers ? " (skipped)" : "");
+    }
+    free(r);
+}
+
 static void damage_create(CompWindow *w)
 {
     if (!comp.caps.damage || w->damage != XCB_NONE || w->input_only)
@@ -176,7 +205,14 @@ void window_add(xcb_window_t id, xcb_window_t above)
     uint32_t mask = XCB_EVENT_MASK_PROPERTY_CHANGE;
     xcb_change_window_attributes(comp.conn, id, XCB_CW_EVENT_MASK, &mask);
 
+    /* ShapeNotify, so the cached bounding region can be dropped when the
+     * window's silhouette changes. kiwm reshapes a frame on every resize
+     * (rounded corners), so this is not a rare event. */
+    if (comp.caps.shape)
+        xcb_shape_select_input(comp.conn, id, 1);
+
     window_update_opacity(w);
+    read_wm_layer(w);
 
     if (w->mapped) {
         damage_create(w);

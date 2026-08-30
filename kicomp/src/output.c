@@ -132,7 +132,7 @@ void outputs_refresh(void)
     CompOutput fresh[MAX_OUTPUTS];
     int n = 0;
 
-    if (comp.caps.randr) {
+    if (comp.caps.randr && !comp.single_drawable) {
         xcb_randr_get_monitors_reply_t *r =
             xcb_randr_get_monitors_reply(comp.conn,
                 xcb_randr_get_monitors(comp.conn, comp.root, 1), NULL);
@@ -168,14 +168,17 @@ void outputs_refresh(void)
         }
     }
 
-    /* No RandR, or a server that reports no monitors: the root window is
-     * the only output there is. Section 45 -- nothing here may require an
-     * extension to be present. */
+    /* No RandR, a server that reports no monitors, or --single-drawable:
+     * the root window is the only output there is. Section 45 -- nothing
+     * here may require an extension to be present -- and, for the legacy
+     * mode, the one supported way to opt out of per-output presentation:
+     * everything downstream (scene, renderer, presenter, dirty state) is
+     * unchanged, it just has a single, screen-sized output to work on. */
     if (n == 0) {
         CompOutput *o = &fresh[0];
         memset(o, 0, sizeof(*o));
         o->id = 0;
-        snprintf(o->name, sizeof(o->name), "root");
+        snprintf(o->name, sizeof(o->name), comp.single_drawable ? "screen" : "root");
         o->rect.x = 0;
         o->rect.y = 0;
         o->rect.w = comp.root_w;
@@ -187,6 +190,7 @@ void outputs_refresh(void)
     memcpy(comp.outputs, fresh, sizeof(CompOutput) * (size_t)n);
     comp.output_count = n;
 
+    int drawables = 0;
     for (int i = 0; i < comp.output_count; i++) {
         CompOutput *o = &comp.outputs[i];
         if (!renderer->init(o)) {
@@ -196,9 +200,21 @@ void outputs_refresh(void)
         if (presenter && presenter->init && !presenter->init(o))
             fprintf(stderr, "kicomp: no presenter for output %s\n", o->name);
         o->dirty = true;
-        comp_log("output %d %s %dx%d+%d+%d @ %.2f Hz",
-                 o->id, o->name, o->rect.w, o->rect.h, o->rect.x, o->rect.y,
-                 o->refresh_hz);
+        drawables++;
+    }
+
+    /* Said out loud, not behind -v: how many drawables there are and why
+     * is the single most useful thing to know about a running compositor
+     * -- it's the difference between the per-output pipeline and the
+     * legacy one, and it's what changes on every hotplug. */
+    comp_info("%d drawable%s (%s)", drawables, drawables == 1 ? "" : "s",
+              comp.single_drawable ? "legacy single-screen mode"
+                                   : "one per output");
+    for (int i = 0; i < comp.output_count; i++) {
+        CompOutput *o = &comp.outputs[i];
+        comp_info("  [%d] %-12s %dx%d+%d+%d @ %.2f Hz%s",
+                  o->id, o->name, o->rect.w, o->rect.h, o->rect.x, o->rect.y,
+                  o->refresh_hz, o->target ? "" : "  (no target!)");
     }
 }
 

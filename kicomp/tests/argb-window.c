@@ -1,20 +1,28 @@
 /*
- * kicomp test client: one 32-bit (ARGB) override-redirect window filled
- * with a half-transparent colour.
+ * kicomp test client: one 32-bit (ARGB) window filled with a
+ * half-transparent colour.
  *
  * This is the acceptance test for the first kicomp milestone. Without a
  * compositor the window's alpha channel means nothing and the square is
  * drawn opaque (or garbage); with kicomp running it blends over whatever
- * is behind it. Override-redirect on purpose: it stays out of kiwm's
- * hands, so what you see is the compositor's blending and nothing else.
+ * is behind it.
+ *
+ * By default the window is an ordinary managed one, so kiwm frames and
+ * decorates it -- which is the harder half of the test: the frame has to
+ * be created in the client's own depth for the alpha to survive into it
+ * (see kiwm's client.c). --override makes it override-redirect instead,
+ * bypassing the WM entirely, which isolates the compositor's blending
+ * from anything the WM does.
  *
  *   cc -o argb-window argb-window.c -lxcb -lxcb-render
- *   ./argb-window            # 300x300 at +200+200, 50% red
+ *   ./argb-window                          # 300x300 at +200+200, 50% red
  *   ./argb-window 400 400 600 200 0.35 0x30a0ff
+ *   ./argb-window --override
  */
 #include <xcb/xcb.h>
 #include <xcb/render.h>
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,12 +30,27 @@
 
 int main(int argc, char **argv)
 {
-    int w = argc > 1 ? atoi(argv[1]) : 300;
-    int h = argc > 2 ? atoi(argv[2]) : 300;
-    int x = argc > 3 ? atoi(argv[3]) : 200;
-    int y = argc > 4 ? atoi(argv[4]) : 200;
-    double alpha = argc > 5 ? atof(argv[5]) : 0.5;
-    unsigned long rgb = argc > 6 ? strtoul(argv[6], NULL, 0) : 0xff3030;
+    bool override = false;
+    int pos[6] = { 300, 300, 200, 200, 0, 0 };  /* w h x y (alpha/rgb read separately) */
+    double alpha = 0.5;
+    unsigned long rgb = 0xff3030;
+    int npos = 0;
+
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--override")) {
+            override = true;
+        } else if (npos < 4) {
+            pos[npos++] = atoi(argv[i]);
+        } else if (npos == 4) {
+            alpha = atof(argv[i]);
+            npos++;
+        } else {
+            rgb = strtoul(argv[i], NULL, 0);
+            npos++;
+        }
+    }
+
+    int w = pos[0], h = pos[1], x = pos[2], y = pos[3];
 
     int screen_num;
     xcb_connection_t *c = xcb_connect(NULL, &screen_num);
@@ -67,12 +90,14 @@ int main(int argc, char **argv)
     xcb_create_colormap(c, XCB_COLORMAP_ALLOC_NONE, cmap, screen->root, visual);
 
     xcb_window_t win = xcb_generate_id(c);
-    uint32_t values[] = { 0, 0, 1, XCB_EVENT_MASK_EXPOSURE, cmap };
+    uint32_t values[] = { 0, 0, override ? 1 : 0, XCB_EVENT_MASK_EXPOSURE, cmap };
     xcb_create_window(c, 32, win, screen->root, x, y, w, h, 0,
                       XCB_WINDOW_CLASS_INPUT_OUTPUT, visual,
                       XCB_CW_BACK_PIXEL | XCB_CW_BORDER_PIXEL |
                       XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK |
                       XCB_CW_COLORMAP, values);
+    xcb_change_property(c, XCB_PROP_MODE_REPLACE, win, XCB_ATOM_WM_NAME,
+                        XCB_ATOM_STRING, 8, 11, "argb-window");
     xcb_map_window(c, win);
 
     /* Picture format for that visual, so the fill lands with real alpha. */

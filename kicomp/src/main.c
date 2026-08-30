@@ -65,6 +65,16 @@ void comp_log(const char *fmt, ...)
     va_end(ap);
 }
 
+void comp_info(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    fputs("kicomp: ", stderr);
+    vfprintf(stderr, fmt, ap);
+    fputc('\n', stderr);
+    va_end(ap);
+}
+
 static void on_signal(int sig)
 {
     (void)sig;
@@ -95,6 +105,7 @@ static void atoms_init(void)
     comp.atoms.net_wm_window_opacity  = intern("_NET_WM_WINDOW_OPACITY");
     comp.atoms.xrootpmap_id           = intern("_XROOTPMAP_ID");
     comp.atoms.esetroot_pmap_id       = intern("ESETROOT_PMAP_ID");
+    comp.atoms.kiwm_layer             = intern("_KIWM_LAYER");
 }
 
 /* ------------------------------------------------------------------ */
@@ -168,6 +179,12 @@ static bool caps_detect(void)
             comp.randr_event = ext->first_event;
             free(v);
         }
+    }
+
+    ext = xcb_get_extension_data(comp.conn, &xcb_shape_id);
+    if (ext && ext->present) {
+        comp.caps.shape = true;
+        comp.shape_event = ext->first_event;
     }
 
     /* Present and per-CRTC FLIP are probed in Fase 7/8; declared false
@@ -359,6 +376,22 @@ static void handle_event(xcb_generic_event_t *ev)
         return;
     }
 
+    /* ShapeNotify: the window's silhouette changed (kiwm reshaping a
+     * frame it just resized, or a client changing its own shape). The
+     * cached region has to go with it -- see renderer-xrender.c's
+     * window_shape(). Extension event numbers are runtime-assigned, hence
+     * the if-chain rather than case labels. */
+    if (comp.caps.shape && type == comp.shape_event + XCB_SHAPE_NOTIFY) {
+        xcb_shape_notify_event_t *e = (xcb_shape_notify_event_t *)ev;
+        CompWindow *w = window_find(e->affected_window);
+        if (w) {
+            renderer_window_invalidate(w);
+            CompRect r = window_rect(w);
+            output_damage_rect(&r);
+        }
+        return;
+    }
+
     if (comp.caps.randr && type == comp.randr_event + XCB_RANDR_SCREEN_CHANGE_NOTIFY) {
         comp_log("RandR screen change");
         outputs_refresh();
@@ -482,7 +515,15 @@ static void shutdown_compositor(void)
 static void usage(void)
 {
     printf("kicomp " KICOMP_VERSION " - compositor for kiwm\n"
-           "usage: kicomp [--replace] [-v|--verbose] [--version] [--help]\n"
+           "usage: kicomp [--replace] [--single-drawable] [--skip-wm-layers]\n"
+           "              [-v|--verbose] [--version] [--help]\n"
+           "\n"
+           "  --replace          take over from a running compositor\n"
+           "  --single-drawable  legacy mode: one drawable for the whole\n"
+           "                     screen instead of one per output\n"
+           "  --skip-wm-layers   don't composite kiwm's own overlay windows\n"
+           "                     (_KIWM_LAYER: the switcher OSD, the\n"
+           "                     move/resize wireframe)\n"
            "\n"
            "kicomp is optional: kiwm is fully usable without it, and\n"
            "killing kicomp returns the session to the uncomposited path.\n");
@@ -495,6 +536,10 @@ int main(int argc, char **argv)
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--replace")) {
             replace = true;
+        } else if (!strcmp(argv[i], "--single-drawable")) {
+            comp.single_drawable = true;
+        } else if (!strcmp(argv[i], "--skip-wm-layers")) {
+            comp.skip_wm_layers = true;
         } else if (!strcmp(argv[i], "-v") || !strcmp(argv[i], "--verbose")) {
             comp.verbose = true;
         } else if (!strcmp(argv[i], "--version")) {
@@ -578,8 +623,21 @@ int main(int argc, char **argv)
 
     renderer = renderer_xrender();
     presenter = presenter_copy();
-    comp_log("renderer=%s presenter=%s", renderer->name, presenter->name);
 
+    comp_info("kicomp " KICOMP_VERSION " on %s screen %d (%dx%d)",
+              getenv("DISPLAY") ? getenv("DISPLAY") : "?", comp.screen_num,
+              comp.root_w, comp.root_h);
+    comp_info("renderer=%s presenter=%s", renderer->name, presenter->name);
+    comp_info("capabilities: composite=%d overlay=%d damage=%d xfixes=%d "
+              "render=%d randr=%d present=%d flip-per-crtc=%d",
+              comp.caps.composite, comp.caps.overlay, comp.caps.damage,
+              comp.caps.xfixes, comp.caps.render, comp.caps.randr,
+              comp.caps.present, comp.caps.flip_per_crtc);
+    if (comp.skip_wm_layers)
+        comp_info("skipping kiwm's own layers (_KIWM_LAYER)");
+
+    /* Prints the drawable count/geometry itself, here and on every later
+     * output change. */
     outputs_refresh();
     windows_scan();
     output_damage_all();

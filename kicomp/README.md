@@ -14,8 +14,41 @@ Nada além disso. Sem efeitos, sem animação, sem OpenGL.
 
 ```sh
 make
-./kicomp -v          # --replace para substituir outro compositor
+./kicomp
 ```
+
+Opções:
+
+| opção | efeito |
+|---|---|
+| `--replace` | assume o lugar de outro compositor em execução |
+| `--single-drawable` | modo legado: **um** drawable para a tela inteira em vez de um por output |
+| `--skip-wm-layers` | não compõe as camadas próprias do kiwm (`_KIWM_LAYER`: OSD do alt-tab, contorno de move/resize) |
+| `-v`, `--verbose` | log detalhado (eventos, janelas, camadas) |
+
+Ele sempre imprime no terminal, sem `-v`, o essencial: backend de render e
+de apresentação, capabilities detectadas, e quantos drawables existem e
+por quê — atualizado a cada mudança de output:
+
+```
+kicomp: kicomp 0.1.0 on :0 screen 0 (3840x1080)
+kicomp: renderer=xrender presenter=copy
+kicomp: capabilities: composite=1 overlay=1 damage=1 xfixes=1 render=1 randr=1 present=0 flip-per-crtc=0
+kicomp: 2 drawables (one per output)
+kicomp:   [0] DP-1         1920x1080+0+0 @ 143.98 Hz
+kicomp:   [1] HDMI-1       1920x1080+1920+0 @ 60.00 Hz
+```
+
+com `--single-drawable`:
+
+```
+kicomp: 1 drawable (legacy single-screen mode)
+kicomp:   [0] screen       3840x1080+0+0 @ 60.00 Hz
+```
+
+O modo legado é o único lugar onde a regra "um drawable por output" é
+desligada de propósito — cena, renderer, presenter e dirty state não
+mudam, só passam a ter um output só, do tamanho da tela.
 
 `kicomp` é opcional em todos os sentidos: `kiwm` não sabe que ele existe,
 não precisa de nenhuma alteração para ser composto, e matar o `kicomp`
@@ -34,6 +67,8 @@ devolve a sessão ao caminho não-composto (seção 31 do documento).
 | 15/16 — presenter abstrato | `CompPresenter` vtable, backend `copy` (overlay window) |
 | 33 — espelho visual | estado vindo só de eventos X; o WM continua sendo a autoridade |
 | 38 — leveza | dorme em `poll()`, sem timers, sem polling, sem repintar por precaução |
+| — | shape das janelas aplicada como clip (cantos arredondados, clientes com shape própria) |
+| — | alpha real: visual de 32 bits do cliente **e** do frame do kiwm, mais `_NET_WM_WINDOW_OPACITY` |
 
 ## O que **não** está implementado (e onde entra)
 
@@ -56,26 +91,33 @@ devolve a sessão ao caminho não-composto (seção 31 do documento).
 - **X-Density por output** (seção 56) — o compositor ainda não escala a
   cena por densidade.
 
-## Limitação conhecida: transparência de janelas decoradas
+## Shape e as camadas do kiwm
 
-`kiwm` cria o frame com a profundidade/visual do root (`client.c`,
-`xcb_create_window(..., wm.screen->root_depth, ..., wm.screen->root_visual, ...)`).
-Um cliente ARGB reparentado para dentro de um frame de 24 bits perde o
-alpha ao desenhar no pixmap do frame — o `kicomp` recebe o frame já
-achatado e não tem como recuperar o canal.
+**Shape.** Composto, o servidor não recorta mais nada: `NameWindowPixmap`
+entrega o retângulo inteiro da janela, então quem tem de aplicar a shape é
+o compositor. O `kicomp` lê a região `BOUNDING` da janela
+(`XFixesCreateRegionFromWindow`), guarda em cache e usa como clip do
+target a cada janela desenhada, invalidando em `ShapeNotify`/resize. É o
+que mantém os cantos arredondados do kiwm redondos e uma janela com shape
+própria (VirtualBox e afins) com a silhueta certa.
 
-Ou seja, hoje a transparência real aparece em:
+Isso **não** duplica trabalho com o kiwm: o kiwm *calcula* a shape (cantos
+arredondados, propagação da shape do cliente para o frame) e continua
+tendo de fazê-lo — é o que funciona sem compositor, e a *input* shape
+(cliques) é sempre do servidor, composto ou não. O kicomp só *lê* a região
+já pronta, uma vez por mudança, e reusa em todo frame.
 
-- janelas override-redirect (menus, tooltips, popups do `xispanel`);
-- janelas não gerenciadas/não reparentadas;
-- qualquer janela via `_NET_WM_WINDOW_OPACITY` (que é aplicado pelo
-  compositor sobre o frame inteiro, e portanto funciona sempre).
+**Camadas do kiwm.** O kiwm marca suas duas janelas de overlay com
+`_KIWM_LAYER` (`"osd"`, `"outline"` — ver `kiwm/PROTOCOL.md`). Com
+`--skip-wm-layers` o kicomp simplesmente não as coloca na cena, para
+quando ele mesmo for desenhar essas transições como efeito. O kiwm não
+sabe de nada disso e não muda de comportamento: quem decide o que mostrar
+é o compositor.
 
-Para aplicações ARGB decoradas funcionarem, `kiwm` precisa criar o frame
-com o visual/depth do cliente quando ele for de 32 bits (colormap próprio
-+ `CWBorderPixel`), e `decoration.c` precisa pintar no visual do frame em
-vez de `wm.visual`. É uma mudança do lado do WM, fora do escopo deste
-protótipo.
+(Não dá para "não redirecionar" só essas janelas: `RedirectSubwindows` no
+root vale para todos os filhos, e `UnredirectWindow` só desfaz um redirect
+*por janela* feito pelo mesmo cliente. Deixá-las fora da cena é o
+equivalente prático.)
 
 ## Teste
 
@@ -95,10 +137,17 @@ Verificado num Xephyr 1024x768 com `kiwm` + `xterm` + `xclock`:
 - cena idêntica à não-composta (decoração, stacking, posições);
 - `xprop -id <frame> -f _NET_WM_WINDOW_OPACITY 32c -set _NET_WM_WINDOW_OPACITY 2147483647`
   deixa a janela 50% translúcida;
-- `tests/argb-window` mistura corretamente sobre o fundo e sobre a janela
-  translúcida abaixo dele;
+- `tests/argb-window` **decorado pelo kiwm** mistura corretamente com o
+  xterm branco atrás dele — é o teste do frame ARGB do lado do WM;
+- `--override` mistura igual, sem passar pelo WM;
+- cantos arredondados do kiwm e do próprio OSD preservados;
 - `xrandr --setmonitor` dividindo a tela em dois monitores: dois targets
   independentes, janela atravessando a fronteira sem emenda;
+- `--single-drawable` volta para um único target do tamanho da tela;
+- `--skip-wm-layers` faz o OSD do alt-tab e o contorno sumirem da cena
+  (continuam existindo e funcionando no kiwm);
+- sem compositor, a mesma janela ARGB decorada aparece opaca e intacta —
+  nenhuma regressão no caminho não-composto;
 - matar o `kicomp` devolve a tela ao servidor sem resíduo.
 
 ## Estrutura

@@ -95,6 +95,10 @@ static xcb_render_pictformat_t format_a8(void)
 
 void renderer_window_invalidate(CompWindow *w)
 {
+    if (w->shape) {
+        xcb_xfixes_destroy_region(comp.conn, w->shape);
+        w->shape = 0;
+    }
     if (w->picture) {
         xcb_render_free_picture(comp.conn, w->picture);
         w->picture = 0;
@@ -149,6 +153,31 @@ static bool window_bind(CompWindow *w)
     w->pixmap = pm;
     w->picture = pict;
     return true;
+}
+
+/* The window's bounding shape, cached until the window is resized or
+ * reshaped (see CompWindow::shape). Window-relative, so a move doesn't
+ * invalidate it -- the destination origin is passed at clip time instead.
+ * XCB_NONE means "no clipping", which is also the honest answer for a
+ * window that just went away between the event and this request. */
+static xcb_xfixes_region_t window_shape(CompWindow *w)
+{
+    if (w->shape)
+        return w->shape;
+    if (!comp.caps.xfixes)
+        return XCB_NONE;
+
+    xcb_xfixes_region_t reg = xcb_generate_id(comp.conn);
+    xcb_generic_error_t *err = xcb_request_check(comp.conn,
+        xcb_xfixes_create_region_from_window_checked(comp.conn, reg, w->id,
+                                                     XCB_SHAPE_SK_BOUNDING));
+    if (err) {
+        free(err);
+        return XCB_NONE;
+    }
+
+    w->shape = reg;
+    return reg;
 }
 
 /* 1x1 repeating A8 picture holding the window's constant opacity. */
@@ -300,6 +329,12 @@ static void xr_begin(CompOutput *o)
     if (!o->target)
         return;
 
+    /* The background covers the whole output: drop whatever clip the last
+     * frame's final window left behind. */
+    if (comp.caps.xfixes)
+        xcb_xfixes_set_picture_clip_region(comp.conn, o->target,
+                                           XCB_XFIXES_REGION_NONE, 0, 0);
+
     xcb_render_picture_t bg = background_picture();
     if (bg) {
         /* Source coordinates are root-relative so a tiled wallpaper lines
@@ -331,6 +366,22 @@ static void xr_draw_scene(CompOutput *o, CompScene *s)
 
         xcb_render_picture_t mask = window_alpha(w);
 
+        /* Clip the target to this window's shape before drawing it. The
+         * region is window-relative, so the window's origin in target
+         * coordinates goes in as the clip origin -- note that's the
+         * window origin, not the pixmap's: the bounding shape is measured
+         * from the former and reaches into the border area with negative
+         * coordinates when there is one. This is what keeps kiwm's
+         * rounded corners round, and a shaped client (a client's own
+         * SHAPE, forwarded onto the frame by kiwm) shaped. */
+        if (comp.caps.xfixes) {
+            xcb_xfixes_region_t shape = window_shape(w);
+            xcb_xfixes_set_picture_clip_region(comp.conn, o->target,
+                                               shape ? shape : XCB_XFIXES_REGION_NONE,
+                                               (int16_t)(w->x - o->rect.x),
+                                               (int16_t)(w->y - o->rect.y));
+        }
+
         /* Source offset: where inside the window's own pixmap the visible
          * portion starts. Destination offset: the same point relative to
          * this output's origin. That pair is the whole of "a window can
@@ -354,7 +405,11 @@ static void xr_draw_scene(CompOutput *o, CompScene *s)
 
 static void xr_end(CompOutput *o)
 {
-    (void)o;   /* presentation is the presenter's job (section 15) */
+    /* The presenter composites the whole target onto the overlay next, so
+     * the last window's clip must not still be in force. */
+    if (o->target && comp.caps.xfixes)
+        xcb_xfixes_set_picture_clip_region(comp.conn, o->target,
+                                           XCB_XFIXES_REGION_NONE, 0, 0);
 }
 
 void renderer_shutdown(void)
