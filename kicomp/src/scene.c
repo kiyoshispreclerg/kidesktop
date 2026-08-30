@@ -1,0 +1,38 @@
+/* Per-output scene assembly (section 21).
+ *
+ * The rule this file exists to enforce: a window is never "on" an output,
+ * it *intersects* one (section 26). A window straddling two monitors
+ * produces one node in each output's scene, each with its own visible
+ * rectangle -- and later its own transform and animation state.
+ */
+#include "scene.h"
+#include "window.h"
+
+void scene_build(CompScene *s, CompOutput *o)
+{
+    s->output = o;
+    s->count = 0;
+
+    for (CompWindow *w = comp.stack; w; w = w->next) {
+        if (!w->mapped || w->input_only)
+            continue;
+        if (w->opacity <= 0.0)
+            continue;
+
+        CompRect geom = window_rect(w);
+        CompRect vis;
+        if (!rect_intersect(&geom, &o->rect, &vis))
+            continue;
+
+        if (s->count >= MAX_SCENE_NODES)
+            break;
+
+        CompSceneNode *n = &s->nodes[s->count];
+        n->win = w;
+        n->geometry = geom;
+        n->visible_rect = vis;
+        n->opacity = (float)w->opacity;
+        n->z = s->count;
+        s->count++;
+    }
+}
