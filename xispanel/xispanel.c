@@ -2472,6 +2472,16 @@ static int run_as_daemon(const char *sockpath)
                 maxfd = xisfd;
             }
         }
+        /* Re-read each iteration, unlike the fds above: the tray's bus
+         * connection is established lazily inside the first sni_poll(),
+         * so this is -1 for the first few passes and valid afterwards. */
+        int snifd = disable_sni ? -1 : sni_fd();
+        if (snifd >= 0) {
+            FD_SET(snifd, &rfds);
+            if (snifd > maxfd) {
+                maxfd = snifd;
+            }
+        }
 
         uint64_t now = now_ms();
         long timeout_ms = -1;
@@ -2711,6 +2721,9 @@ static int run_as_daemon(const char *sockpath)
          * repaint of a tray-less panel is cheaper than tracking which
          * panel owns the tray). notifd's badge latency is covered by the
          * notif widget's own on_tick polling unread count. */
+        if (snifd >= 0 && r > 0 && FD_ISSET(snifd, &rfds)) {
+            sni_wake();
+        }
         int tray_changed = disable_sni ? 0 : sni_poll(now);
         if (!disable_notifd) {
             notifd_poll(now);

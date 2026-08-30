@@ -139,9 +139,12 @@ static void (*p_dbus_bus_add_match)(DBusConnection *, const char *, DBusError *)
 static DBusMessage *(*p_dbus_message_new_method_call)(const char *, const char *, const char *, const char *);
 static DBusMessage *(*p_dbus_message_new_method_return)(DBusMessage *);
 static DBusMessage *(*p_dbus_message_new_error)(DBusMessage *, const char *, const char *);
+static DBusMessage *(*p_dbus_message_new_signal)(const char *, const char *, const char *);
 static void (*p_dbus_message_unref)(DBusMessage *);
 static DBusMessage *(*p_dbus_connection_send_with_reply_and_block)(DBusConnection *, DBusMessage *, int, DBusError *);
 static dbus_bool_t (*p_dbus_connection_send)(DBusConnection *, DBusMessage *, dbus_uint32_t *);
+static void (*p_dbus_connection_flush)(DBusConnection *);
+static dbus_bool_t (*p_dbus_connection_get_unix_fd)(DBusConnection *, int *);
 static dbus_bool_t (*p_dbus_connection_read_write)(DBusConnection *, int);
 static DBusMessage *(*p_dbus_connection_pop_message)(DBusConnection *);
 static dbus_bool_t (*p_dbus_message_iter_init)(DBusMessage *, DBusMessageIter *);
@@ -181,9 +184,12 @@ static int sni_load_symbols(void)
     LOAD_SYM(dbus_message_new_method_call);
     LOAD_SYM(dbus_message_new_method_return);
     LOAD_SYM(dbus_message_new_error);
+    LOAD_SYM(dbus_message_new_signal);
     LOAD_SYM(dbus_message_unref);
     LOAD_SYM(dbus_connection_send_with_reply_and_block);
     LOAD_SYM(dbus_connection_send);
+    LOAD_SYM(dbus_connection_flush);
+    LOAD_SYM(dbus_connection_get_unix_fd);
     LOAD_SYM(dbus_connection_read_write);
     LOAD_SYM(dbus_connection_pop_message);
     LOAD_SYM(dbus_message_iter_init);
@@ -202,6 +208,40 @@ static int sni_load_symbols(void)
     LOAD_SYM(dbus_message_get_sender);
     LOAD_SYM(dbus_message_get_no_reply);
     return 1;
+}
+
+/* Emits one of the watcher's own signals, under *both* watcher interface
+ * names (a client subscribes to whichever one its library picked, and
+ * xispanel answers to both -- see the header comment). Only meaningful
+ * when we are the watcher; a no-op otherwise.
+ *
+ * These signals are not decoration: a client that finds
+ * IsStatusNotifierHostRegistered false at startup waits for
+ * StatusNotifierHostRegistered before it will register an item at all,
+ * and any *second* host on the bus builds its item list from
+ * StatusNotifierItemRegistered. */
+static void sni_emit_watcher_signal(const char *member, const char *arg)
+{
+    if (!g_is_watcher || !g_conn) {
+        return;
+    }
+    for (int i = 0; i < SNI_N_WATCHER_NAMES; i++) {
+        DBusMessage *sig = p_dbus_message_new_signal(SNI_WATCHER_PATH, SNI_WATCHER_NAMES[i], member);
+        if (!sig) {
+            continue;
+        }
+        if (arg) {
+            DBusMessageIter it;
+            p_dbus_message_iter_init_append(sig, &it);
+            p_dbus_message_iter_append_basic(&it, DBUS_TYPE_STRING, &arg);
+        }
+        p_dbus_connection_send(g_conn, sig, NULL);
+        p_dbus_message_unref(sig);
+    }
+    /* Same reasoning as the method-reply flush in sni_handle_incoming():
+     * a client blocked waiting on StatusNotifierHostRegistered must not
+     * wait out a poll interval for a signal we already produced. */
+    p_dbus_connection_flush(g_conn);
 }
 
 static int sni_ensure_connected(void)
@@ -295,6 +335,22 @@ static int sni_ensure_connected(void)
     p_dbus_bus_add_match(g_conn, "type='signal',interface='" SNI_ITEM_IFACE "'", &merr);
     p_dbus_error_free(&merr);
 
+    /* An app that just exited never gets to unregister its own tray item:
+     * the only thing that notices is the bus itself, dropping the dead
+     * connection's name. Without this rule the icon lingers until the
+     * SNI_LIVENESS_SWEEP_MS safety net gets round to probing it -- a full
+     * minute of a stale icon sitting in the tray. arg2='' narrows the
+     * subscription to name *losses* only (arg2 is NameOwnerChanged's
+     * new_owner), so this costs one message per app exit, not a feed of
+     * every name change on the bus. */
+    DBusError nerr;
+    p_dbus_error_init(&nerr);
+    p_dbus_bus_add_match(g_conn,
+                          "type='signal',sender='org.freedesktop.DBus',"
+                          "interface='org.freedesktop.DBus',member='NameOwnerChanged',arg2=''",
+                          &nerr);
+    p_dbus_error_free(&nerr);
+
     /* Watcher membership is event-driven too.  The initial
      * RegisteredStatusNotifierItems snapshot is fetched exactly once by
      * sni_poll(); afterwards these signals keep g_items[] synchronized. */
@@ -315,7 +371,85 @@ static int sni_ensure_connected(void)
     p_dbus_error_free(&err3);
     g_host_registered = (hret == 1 || hret == 4 /* ALREADY_OWNER */);
 
+    /* Announce the host now that both names are settled. Items that were
+     * already waiting on this signal (started before the panel did) pick
+     * it up and register themselves instead of staying invisible. */
+    sni_emit_watcher_signal("StatusNotifierHostRegistered", NULL);
+
     return 1;
+}
+
+/* ---- watcher-side properties -------------------------------------
+ *
+ * org.kde.StatusNotifierWatcher exposes three properties, and their types
+ * matter: RegisteredStatusNotifierItems is "as", ProtocolVersion is "i",
+ * IsStatusNotifierHostRegistered is "b". Answering every Get with a
+ * boolean (and every GetAll with an empty reply) is not a harmless
+ * shortcut -- a GDBus/GIO proxy issues Properties.GetAll the moment it is
+ * created and fails outright if the reply isn't an "a{sv}", so the client
+ * never gets as far as calling RegisterStatusNotifierItem and simply
+ * shows no tray icon.
+ */
+
+/* busname+path joined into the single string the watcher protocol passes
+ * an item around as. The explicit precisions bound each field at its own
+ * size: without them the compiler assumes a missing NUL could run to the
+ * end of g_items[] and warns about a truncation that can't happen. */
+static void sni_item_id(const SniItem *it, char *out, size_t outsz)
+{
+    snprintf(out, outsz, "%.*s%.*s", (int)sizeof(it->busname) - 1, it->busname,
+             (int)sizeof(it->path) - 1, it->path);
+}
+
+/* Appends `prop`'s value to `dst` as a correctly-typed variant. Returns 0
+ * (having appended nothing) if `prop` isn't one of the watcher's. */
+static int sni_append_prop_variant(DBusMessageIter *dst, const char *prop)
+{
+    DBusMessageIter var;
+
+    if (strcmp(prop, "RegisteredStatusNotifierItems") == 0) {
+        DBusMessageIter arr;
+        p_dbus_message_iter_open_container(dst, DBUS_TYPE_VARIANT, "as", &var);
+        p_dbus_message_iter_open_container(&var, DBUS_TYPE_ARRAY, "s", &arr);
+        for (int i = 0; i < g_n_items; i++) {
+            char full[sizeof(g_items[0].busname) + sizeof(g_items[0].path)];
+            sni_item_id(&g_items[i], full, sizeof(full));
+            const char *p = full;
+            p_dbus_message_iter_append_basic(&arr, DBUS_TYPE_STRING, &p);
+        }
+        p_dbus_message_iter_close_container(&var, &arr);
+        p_dbus_message_iter_close_container(dst, &var);
+        return 1;
+    }
+    if (strcmp(prop, "IsStatusNotifierHostRegistered") == 0) {
+        /* Always true: this code only ever runs when xispanel is the
+         * watcher, and xispanel's own tray widget is a host by
+         * construction, whether or not the cosmetic
+         * StatusNotifierHost-<pid> name was actually acquired. */
+        dbus_bool_t v = TRUE;
+        p_dbus_message_iter_open_container(dst, DBUS_TYPE_VARIANT, "b", &var);
+        p_dbus_message_iter_append_basic(&var, DBUS_TYPE_BOOLEAN, &v);
+        p_dbus_message_iter_close_container(dst, &var);
+        return 1;
+    }
+    if (strcmp(prop, "ProtocolVersion") == 0) {
+        dbus_int32_t v = 0;
+        p_dbus_message_iter_open_container(dst, DBUS_TYPE_VARIANT, "i", &var);
+        p_dbus_message_iter_append_basic(&var, DBUS_TYPE_INT32, &v);
+        p_dbus_message_iter_close_container(dst, &var);
+        return 1;
+    }
+    return 0;
+}
+
+/* One "{sv}" entry for GetAll's dict. */
+static void sni_append_prop_dict(DBusMessageIter *arr, const char *prop)
+{
+    DBusMessageIter entry;
+    p_dbus_message_iter_open_container(arr, DBUS_TYPE_DICT_ENTRY, NULL, &entry);
+    p_dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &prop);
+    sni_append_prop_variant(&entry, prop);
+    p_dbus_message_iter_close_container(arr, &entry);
 }
 
 static DBusMessage *sni_call2s(const char *dest, const char *path, const char *iface, const char *method,
@@ -609,6 +743,33 @@ static void sni_unregister_item_arg(const char *arg)
     }
 }
 
+/* Drops every item hosted by `bus` (an app can own more than one). Called
+ * when the bus reports that name lost its owner -- i.e. the process is
+ * gone, so probing it would only time out. Returns how many went away. */
+static int sni_drop_items_for_bus(const char *bus)
+{
+    int dropped = 0;
+    for (int i = 0; i < g_n_items;) {
+        if (strcmp(g_items[i].busname, bus) != 0) {
+            i++;
+            continue;
+        }
+        char full[sizeof(g_items[0].busname) + sizeof(g_items[0].path)];
+        sni_item_id(&g_items[i], full, sizeof(full));
+        if (g_items[i].icon) {
+            cairo_surface_destroy(g_items[i].icon);
+        }
+        memmove(&g_items[i], &g_items[i + 1], (size_t)(g_n_items - i - 1) * sizeof(g_items[0]));
+        g_n_items--;
+        dropped++;
+        fprintf(stderr, "xispanel: sni: tray item vanished with its process: %s\n", full);
+        /* No-op unless we're the watcher; when we are, we're the only one
+         * who saw this, so any second host depends on us to say so. */
+        sni_emit_watcher_signal("StatusNotifierItemUnregistered", full);
+    }
+    return dropped;
+}
+
 static int sni_signal_string_arg(DBusMessage *msg, char *buf, size_t bufsz)
 {
     DBusMessageIter it;
@@ -631,6 +792,28 @@ static void sni_handle_incoming(void)
         if (mtype == DBUS_MESSAGE_TYPE_SIGNAL) {
             const char *siface = p_dbus_message_get_interface(msg);
             const char *smember = p_dbus_message_get_member(msg);
+
+            if (siface && smember && strcmp(siface, "org.freedesktop.DBus") == 0 &&
+                strcmp(smember, "NameOwnerChanged") == 0) {
+                /* (name, old_owner, new_owner); the match rule already
+                 * pinned new_owner to "", so an owner is being lost. Items
+                 * are keyed by whichever name registered them -- unique
+                 * (":1.42") or well-known -- and NameOwnerChanged fires
+                 * for both, so one comparison covers either. */
+                DBusMessageIter it;
+                const char *name = NULL;
+                if (p_dbus_message_iter_init(msg, &it) &&
+                    p_dbus_message_iter_get_arg_type(&it) == DBUS_TYPE_STRING) {
+                    p_dbus_message_iter_get_basic(&it, &name);
+                }
+                if (name && name[0]) {
+                    /* No explicit repaint flag: sni_take_sig_change()
+                     * hashes the item count, so a drop shows up there. */
+                    sni_drop_items_for_bus(name);
+                }
+                p_dbus_message_unref(msg);
+                continue;
+            }
 
             if (siface && strcmp(siface, SNI_ITEM_IFACE) == 0) {
                 /* Item signals are the normal fast path: no timer-driven
@@ -699,38 +882,112 @@ static void sni_handle_incoming(void)
              * anyway -- we just use whatever sender gave us. Fall back to
              * the message sender's own unique name if the argument is
              * empty (seen from at least one real client). */
-            sni_register_item(arg && arg[0] ? arg : (sender ? sender : ""));
+            const char *registered = arg && arg[0] ? arg : (sender ? sender : "");
+            sni_register_item(registered);
             reply = p_dbus_message_new_method_return(msg);
+            /* Only from here, where *we* are the watcher -- sni_register_item()
+             * is also reached while replaying another watcher's signals,
+             * and echoing those back would be a loop. */
+            sni_emit_watcher_signal("StatusNotifierItemRegistered", registered);
+        } else if (iface_is_watcher && member && strcmp(member, "RegisterStatusNotifierHost") == 0) {
+            /* Another host announcing itself (a second panel, or an
+             * XEmbed->SNI bridge). No host list is kept -- xispanel's own
+             * tray is the host that draws -- but the call has to succeed
+             * and the signal has to go out, because that signal is what
+             * items waiting on IsStatusNotifierHostRegistered listen for. */
+            reply = p_dbus_message_new_method_return(msg);
+            sni_emit_watcher_signal("StatusNotifierHostRegistered", NULL);
         } else if (iface && member && strcmp(iface, "org.freedesktop.DBus.Properties") == 0 &&
                    (strcmp(member, "Get") == 0 || strcmp(member, "GetAll") == 0)) {
-            /* Minimal stub: reply with an empty result rather than an
-             * error, since a handful of items do query the watcher's
-             * IsStatusNotifierHostRegistered/ProtocolVersion before
-             * registering. Real values aren't worth the complexity here
-             * -- xispanel is always ready to host by the time it's
-             * running. */
-            reply = p_dbus_message_new_method_return(msg);
             if (strcmp(member, "Get") == 0) {
-                DBusMessageIter it, variant;
-                p_dbus_message_iter_init_append(reply, &it);
-                p_dbus_message_iter_open_container(&it, DBUS_TYPE_VARIANT, "b", &variant);
-                dbus_bool_t v = TRUE;
-                p_dbus_message_iter_append_basic(&variant, DBUS_TYPE_BOOLEAN, &v);
-                p_dbus_message_iter_close_container(&it, &variant);
+                /* args: (interface_name, property_name) -- the interface
+                 * is ignored, this object only carries the one. */
+                DBusMessageIter it;
+                const char *prop = NULL;
+                if (p_dbus_message_iter_init(msg, &it) &&
+                    p_dbus_message_iter_get_arg_type(&it) == DBUS_TYPE_STRING &&
+                    p_dbus_message_iter_next(&it) &&
+                    p_dbus_message_iter_get_arg_type(&it) == DBUS_TYPE_STRING) {
+                    p_dbus_message_iter_get_basic(&it, &prop);
+                }
+                if (!prop) {
+                    reply = p_dbus_message_new_error(msg, "org.freedesktop.DBus.Error.InvalidArgs",
+                                                      "expected interface and property names");
+                } else {
+                    reply = p_dbus_message_new_method_return(msg);
+                    DBusMessageIter out;
+                    p_dbus_message_iter_init_append(reply, &out);
+                    if (!sni_append_prop_variant(&out, prop)) {
+                        p_dbus_message_unref(reply);
+                        reply = p_dbus_message_new_error(msg, "org.freedesktop.DBus.Error.UnknownProperty", prop);
+                    }
+                }
+            } else {
+                reply = p_dbus_message_new_method_return(msg);
+                DBusMessageIter out, arr;
+                p_dbus_message_iter_init_append(reply, &out);
+                p_dbus_message_iter_open_container(&out, DBUS_TYPE_ARRAY, "{sv}", &arr);
+                sni_append_prop_dict(&arr, "RegisteredStatusNotifierItems");
+                sni_append_prop_dict(&arr, "IsStatusNotifierHostRegistered");
+                sni_append_prop_dict(&arr, "ProtocolVersion");
+                p_dbus_message_iter_close_container(&out, &arr);
             }
         } else if (iface && member && strcmp(iface, "org.freedesktop.DBus.Introspectable") == 0 &&
                    strcmp(member, "Introspect") == 0) {
+            /* Real XML, under both watcher names: bindings that build a
+             * proxy from introspection (python-dbus, some Go/Rust
+             * crates) find no methods at all on an empty <node/> and give
+             * up before registering anything. */
+            char xml[2048];
+            int n = snprintf(xml, sizeof(xml), "<node>\n");
+            for (int i = 0; i < SNI_N_WATCHER_NAMES && n < (int)sizeof(xml); i++) {
+                n += snprintf(xml + n, sizeof(xml) - (size_t)n,
+                              "  <interface name=\"%s\">\n"
+                              "    <method name=\"RegisterStatusNotifierItem\">\n"
+                              "      <arg name=\"service\" type=\"s\" direction=\"in\"/>\n"
+                              "    </method>\n"
+                              "    <method name=\"RegisterStatusNotifierHost\">\n"
+                              "      <arg name=\"service\" type=\"s\" direction=\"in\"/>\n"
+                              "    </method>\n"
+                              "    <property name=\"RegisteredStatusNotifierItems\" type=\"as\" access=\"read\"/>\n"
+                              "    <property name=\"IsStatusNotifierHostRegistered\" type=\"b\" access=\"read\"/>\n"
+                              "    <property name=\"ProtocolVersion\" type=\"i\" access=\"read\"/>\n"
+                              "    <signal name=\"StatusNotifierItemRegistered\">\n"
+                              "      <arg name=\"service\" type=\"s\"/>\n"
+                              "    </signal>\n"
+                              "    <signal name=\"StatusNotifierItemUnregistered\">\n"
+                              "      <arg name=\"service\" type=\"s\"/>\n"
+                              "    </signal>\n"
+                              "    <signal name=\"StatusNotifierHostRegistered\"/>\n"
+                              "  </interface>\n",
+                              SNI_WATCHER_NAMES[i]);
+            }
+            if (n < (int)sizeof(xml)) {
+                snprintf(xml + n, sizeof(xml) - (size_t)n, "</node>\n");
+            }
             reply = p_dbus_message_new_method_return(msg);
             DBusMessageIter it;
-            const char *xml = "<node/>";
+            const char *xmlp = xml;
             p_dbus_message_iter_init_append(reply, &it);
-            p_dbus_message_iter_append_basic(&it, DBUS_TYPE_STRING, &xml);
+            p_dbus_message_iter_append_basic(&it, DBUS_TYPE_STRING, &xmlp);
         } else if (!p_dbus_message_get_no_reply(msg)) {
             reply = p_dbus_message_new_error(msg, "org.freedesktop.DBus.Error.UnknownMethod", "not implemented");
         }
 
         if (reply) {
             p_dbus_connection_send(g_conn, reply, NULL);
+            /* Flush, don't just queue. dbus_connection_send() only appends
+             * to the outgoing queue, which is next written out by the
+             * read_write() at the top of the *next* sni_poll() -- 150ms
+             * later. Meanwhile the rest of this same poll issues blocking
+             * Properties.Get calls against the very client that is still
+             * sitting in its own synchronous wait for the reply queued
+             * just above. Neither side can move and both calls burn their
+             * full SNI_CALL_TIMEOUT_MS, once per property, which a
+             * launching app pays as visible startup lag. Flushing here is
+             * a few microseconds on a local socket and removes the stall
+             * entirely. */
+            p_dbus_connection_flush(g_conn);
             p_dbus_message_unref(reply);
         }
         p_dbus_message_unref(msg);
@@ -777,6 +1034,38 @@ static int sni_take_sig_change(void)
     }
     g_last_display_sig = sig;
     return 1;
+}
+
+/* The session bus socket, for the main loop's select() set, or -1 while
+ * the connection doesn't exist yet (it's established lazily on the first
+ * sni_poll()) or when libdbus won't hand it over. Re-read every loop
+ * iteration rather than cached once: the first iterations legitimately
+ * return -1.
+ *
+ * Without this fd in the set, sni_poll() only ran when something *else*
+ * woke the loop -- a widget tick, an X event -- so an app calling
+ * RegisterStatusNotifierItem sat in its synchronous wait for up to a
+ * full wake interval (1s on a panel whose only ticking widget is the
+ * tray itself). That is startup lag paid by the launching app, not by
+ * the panel, which is why it showed up as "the app is slow to open"
+ * rather than as a slow panel. */
+int sni_fd(void)
+{
+    if (!g_conn || !p_dbus_connection_get_unix_fd) {
+        return -1;
+    }
+    int fd = -1;
+    if (!p_dbus_connection_get_unix_fd(g_conn, &fd)) {
+        return -1;
+    }
+    return fd;
+}
+
+/* Cancels the SNI_POLL_MS throttle so the next sni_poll() actually drains
+ * the queue. Called when select() reports the bus fd readable. */
+void sni_wake(void)
+{
+    g_next_poll_ms = 0;
 }
 
 int sni_poll(uint64_t now)
@@ -920,6 +1209,14 @@ int sni_poll(uint64_t now)
             }
             if (it->icon) {
                 cairo_surface_destroy(it->icon);
+            }
+            /* Tell any second host the item is gone before dropping it --
+             * when we're the watcher, we're the only one who noticed.
+             * No-op when some other process holds the watcher role. */
+            {
+                char full[sizeof(it->busname) + sizeof(it->path)];
+                sni_item_id(it, full, sizeof(full));
+                sni_emit_watcher_signal("StatusNotifierItemUnregistered", full);
             }
             memmove(it, it + 1, (size_t)(g_n_items - i - 1) * sizeof(*it));
             g_n_items--;

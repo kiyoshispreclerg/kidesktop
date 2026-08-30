@@ -874,6 +874,12 @@ void mpris_previous(const char *busname);
  * appearance changed (so a panel with a tray widget needs repainting),
  * 0 otherwise -- lets the loop avoid a repaint when nothing changed. */
 int sni_poll(uint64_t now);
+/* Session bus fd for the main loop's select() set (-1 until the lazy
+ * connection exists), and the "it's readable, drop the poll throttle"
+ * companion. Together they make a tray registration land within a
+ * select() wake instead of within a widget-tick interval. */
+int sni_fd(void);
+void sni_wake(void);
 /* Pixel size tray icons are actually drawn at -- IconPixmap/icon-theme
  * lookups are shrunk to this size right after resolving (see
  * shrink_icon_surface()) instead of keeping whatever resolution the
