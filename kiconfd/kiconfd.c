@@ -78,7 +78,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.1"
+#define KICONFD_VERSION "0.2.2"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -652,13 +652,36 @@ static void apply_xsettings(void)
 
 static void apply_cursor_theme(void)
 {
-    Cursor cur = XcursorLibraryLoadCursor(g_dpy, g_cursor_theme);
-    if (cur == None) {
-        fprintf(stderr, "kiconfd: could not load cursor theme '%s', leaving root cursor as-is\n", g_cursor_theme);
-    } else {
-        XDefineCursor(g_dpy, g_root, cur);
-        XFreeCursor(g_dpy, cur);
+    /* XcursorLibraryLoadCursor()'s argument is a *cursor* name
+     * ("left_ptr", "watch", "xterm"), never a theme name. Passing the
+     * theme meant asking for a glyph called e.g. "Adwaita", which no
+     * theme has: the load always failed and the root window was left
+     * with no cursor at all. X renders that as an *invisible* pointer
+     * over the root and over every window that inherits from it -- which
+     * is xisback and xispanel, neither of which sets a cursor of its own
+     * (deliberately: inheriting is what makes them follow this one live,
+     * including on a later reload). The theme is selected with
+     * XcursorSetTheme() instead, and only then is a real cursor loaded
+     * out of it. */
+    XcursorSetTheme(g_dpy, g_cursor_theme);
+    if (g_cursor_size > 0) {
+        XcursorSetDefaultSize(g_dpy, g_cursor_size);
     }
+
+    /* "left_ptr" is the X11 name for the plain arrow and "default" the
+     * freedesktop one; themes normally ship both as aliases of each
+     * other, but not all of them do. */
+    static const char *const arrow_names[] = {"left_ptr", "default", "arrow", NULL};
+    Cursor cur = None;
+    for (int i = 0; arrow_names[i] && cur == None; i++) {
+        cur = XcursorLibraryLoadCursor(g_dpy, arrow_names[i]);
+    }
+    if (cur == None) {
+        fprintf(stderr, "kiconfd: no arrow cursor in theme '%s', leaving the root cursor as-is\n", g_cursor_theme);
+        return;
+    }
+    XDefineCursor(g_dpy, g_root, cur);
+    XFreeCursor(g_dpy, cur);
 }
 
 /* ------------------------------------------------------------------ */
@@ -917,8 +940,12 @@ static void load_config(void)
 
 static void apply_all(void)
 {
-    apply_cursor_theme();
+    /* Resources first: Xcursor.theme/size is what every *other* client
+     * reads when it loads its own cursors, and kiwm reads it once at its
+     * own startup. Publishing it before the visible change keeps the two
+     * consistent for anything looking during the apply. */
     apply_resource_manager();
+    apply_cursor_theme();
     apply_xsettings();
     apply_gtk2();
     apply_gtk_modern("3.0", g_gtk3_theme);
