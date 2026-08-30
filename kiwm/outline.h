@@ -11,7 +11,7 @@
  * Two things use it, both cases where kiwm needs to point at a window
  * without moving or resizing anything yet:
  *
- *   - the window switcher with osd_live_preview=0 (osd.c), which doesn't
+ *   - the window switcher with osd_live_preview_windows=0 (osd.c), which doesn't
  *     raise or focus anything until the modifier is released, so the
  *     outline is the only thing saying *where* the highlighted window
  *     actually is;

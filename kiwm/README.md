@@ -20,6 +20,14 @@ exposes.
   maximized in a single direction is adopted that way too. "Maximized" with no qualifier means both
   axes; the single-axis ones are on the maximize button's right and middle click (see "Mouse and
   keyboard reference").
+- Every color kiwm reads -- the theme's `colors` file and `kiwm.conf`'s own `deco_bg=`/`deco_fg=`/
+  `border_color=` -- takes `#rrggbb` **or** `#rrggbbaa`. The alpha is real on an ARGB frame (a client
+  with a 32-bit visual gets a 32-bit frame, whose pixmap starts fully transparent), which is what
+  makes a translucent titlebar possible once a compositor is running; without one the X server
+  ignores it, as it always has, and a root-depth frame has no alpha channel to ignore. The title
+  text is always drawn fully opaque whatever alpha `fg_active`/`fg_inactive` carry -- that alpha is
+  about how translucent the titlebar is, and the window's name has to stay readable over whatever
+  shows through it.
 - Themed on-screen overlays (`osd_enabled=`, default on) for both window cycling and desktop
   switching -- see "On-screen overlays (OSD)" below. The window list includes minimized windows
   (dimmed, as a taskbar shows them), and committing to one restores it. A minimized window is still
@@ -342,7 +350,7 @@ a warning on stderr, not a hard error. A key you leave out of the file keeps its
 | `border_color` | `#000000` | Fallback border color, used only when no theme `colors` file overrides it (see "Theming"). |
 | `snap_threshold` | `20` | How close (pixels) the pointer must get to an output's *usable* area edge while dragging a window to snap it there -- top edge maximizes, left/right edges fill exactly half the width, Windows7/kwin-style. `0` disables snapping entirely. |
 | `live_snap_resize` | `0` | Whether an edge snap (`snap_threshold` above) resizes the window *while* you drag it (`1`, kiwm's original behavior), or only draws an outline where it will land and applies that geometry when you release the button (`0`, the default). The live version means a window that jumps to half the screen and back as the pointer crosses in and out of the edge zone while you're still deciding; the outline is what xfwm shows instead. |
-| `outline_width` | `16` | Thickness (pixels) of the outline kiwm draws around a window it's pointing at without moving it yet -- the snap preview above, and the switcher with `osd_live_preview=0`. The band straddles the window's edge, half outside and half in, so `16` is 8px either side. Clamped to 1..64. |
+| `outline_width` | `16` | Thickness (pixels) of the outline kiwm draws around a window it's pointing at without moving it yet -- the snap preview above, and the switcher with `osd_live_preview_windows=0`. The band straddles the window's edge, half outside and half in, so `16` is 8px either side. Clamped to 1..64. |
 | `resize_grip` | `12` | Width (pixels) of the invisible resize grip along a window's edges: a plain click within this far of an edge resizes -- from the corner when two edges are in range, along one axis otherwise -- instead of going to the application, and hovering it shows the matching resize cursor. Works with or without a visible border. Not offered on a maximized window (it fills its output; there is nothing to drag its edges towards), but half-tiled windows keep it, so the shared edge of a tiled pair can be dragged without a modifier. Note that every pixel of it is a pixel the application doesn't get, so a wide grip can shadow a scrollbar sitting right at the window's edge; lower it if that gets in the way. `0` disables it (resizing then needs the modifier drag). |
 | `live_resize` | `1` | Whether resizing changes the window as the pointer moves (`1`, the default), or only outlines the size it's heading for and applies it when the button is released (`0`). Covers every resize the same way: the grip, a modifier-drag, or an application's own `_NET_WM_MOVERESIZE` request. |
 | `osd_order` | `list` | Order the window switcher lists windows in. `list` is kiwm's own client order (stable, so a window keeps its place in the list as you switch around). `mru` is most-recently-used first, which puts the focused window at the top and makes a single Tab flip to the one before it. X has no focus history to read -- EWMH stops at `_NET_CLIENT_LIST_STACKING`, which is *stacking* order and only resembles use order while click-to-focus raises everything -- so kiwm records it itself, per focus change. |
@@ -350,7 +358,8 @@ a warning on stderr, not a hard error. A key you leave out of the file keeps its
 | `link_resize_neighbors` | `0` | `1` makes resizing also resize whatever's touching (within 1px) the edge being dragged, oppositely, so both stay touching -- same output only. `0` (default) leaves resizing exactly as before. |
 | `focus_follows_mouse` | `0` | `1` raises+focuses a window just by moving the pointer into it ("sloppy focus"). `0` (default) requires an actual click. |
 | `osd_enabled` | `1` | `1` (default) shows a themed overlay while holding Alt+Tab/Meta+Tab, only switching on release -- see "On-screen overlays (OSD)" below. `0` reverts to switching immediately on every Tab press, no overlay. |
-| `osd_live_preview` | `0` | `1` applies every Tab step live (raise/focus, or switch desktop) instead of only on release -- Escape then reverts to whatever was active before the hold started. `0` (default) leaves everything untouched until release. Ignored when `osd_enabled=0`. |
+| `osd_live_preview_windows` | `0` | `1` applies every Alt+Tab step live (raise + focus the highlighted window) instead of only on release -- Escape then reverts to whatever was focused before the hold started. `0` (default) leaves everything untouched until release. Ignored when `osd_enabled=0`. |
+| `osd_live_preview_desktops` | `0` | The same for the desktop switcher (Meta+Tab): `1` switches to the highlighted desktop on every step. Separate from the windows one because previewing a *window* raises and focuses it, which is far more disruptive than previewing a desktop. The old `osd_live_preview=` still works and sets both. |
 | `osd_output_follows_pointer` | `0` | `1` opens an overlay on whichever output the pointer is on (polled once when the hold starts), instead of the currently focused window's output (`0`, default; falls back to the pointer's output only when nothing is focused). Not the same as `focus_follows_mouse=` -- only decides which screen Alt+Tab/Meta+Tab themselves act on. |
 | `theme` | `greenxp` | Theme folder name/path (see "Theming"). Resolved the same way kiwm looks for its own binary-relative files: tried as `../<theme>`, `./<theme>`, and plain `<theme>` (so it works both run from the source tree and installed). |
 | `titlebar_layout` | `icon,title,shade,minimize,maximize,close` | Titlebar element order, left to right, comma-separated. See "Titlebar layout" below. |
@@ -573,8 +582,8 @@ overlay/animation to show at all):
 - The list is in kiwm's own client order by default; `osd_order=mru` makes it most-recently-used
   first instead, so one Tab flips between the last two windows. Either way the hold starts on the
   focused window, so the first Tab step lands on the next entry.
-- By default (`osd_live_preview=0`), nothing actually changes until the modifier is released --
-  browse freely, decide, then let go. With `osd_live_preview=1`, every step already applies live
+- By default (`osd_live_preview_windows=0`), nothing actually changes until the modifier is released --
+  browse freely, decide, then let go. With `osd_live_preview_windows=1`, every step already applies live
   (raises+focuses the highlighted window, or switches to the highlighted desktop) as you move
   through it, same as most desktops' Alt+Tab -- **Escape** then reverts back to whatever was
   actually focused/current *before* the hold started, not just "cancels" a no-op.
@@ -583,7 +592,7 @@ overlay/animation to show at all):
   replayed to whoever would normally have received it.
 - A window that closes while the Alt+Tab list is open (e.g. a crash) is quietly dropped from the
   list in place, selection re-clamped -- it's never focusable, and if it was the only entry left
-  the overlay just closes. If it was also the window `osd_live_preview`'s Escape-revert was going
+  the overlay just closes. If it was also the window `osd_live_preview_windows`'s Escape-revert was going
   to restore, that revert is dropped too (there's nothing left to revert to).
 
 Internally, kiwm actively grabs the keyboard (`xcb_grab_keyboard()`) for as long as an overlay is
@@ -600,7 +609,7 @@ the "100% CPU, no window will open" wedge that shipped in this feature's first c
 
 The keyboard grab is not a *guarantee* that the release will ever arrive, though: a client that
 grabs the input devices for itself while an overlay is up -- VirtualBox capturing input for its
-guest is the real-world case, and Alt+Tab with `osd_live_preview=1` walks right into it, since the
+guest is the real-world case, and Alt+Tab with `osd_live_preview_windows=1` walks right into it, since the
 preview hands the VM focus mid-hold -- swallows it, and then no further event of any kind arrives
 to notice it with. The overlay would just sit there forever, keyboard still grabbed. So there are
 two backstops. While an overlay is open the event loop also wakes up every 100ms and re-checks the
@@ -628,7 +637,7 @@ classic wireframe preview, in the focused decoration's own color (flat, no theme
 straddling the window's edges -- `outline_width=` pixels thick, half outside and half in (8px
 either side by default):
 
-- **Alt+Tab with `osd_live_preview=0`** (the default): nothing is raised or focused until the
+- **Alt+Tab with `osd_live_preview_windows=0`** (the default): nothing is raised or focused until the
   modifier is released, so the switcher list alone doesn't say *where* the highlighted window
   actually is. The outline does, the way xfwm's does.
 - **Resizing with `live_resize=0`**: the window stays as it is for the whole drag and the outline

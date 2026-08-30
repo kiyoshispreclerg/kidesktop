@@ -34,14 +34,14 @@ static void config_path(char *out, size_t outsz)
 
 static void apply_builtin_defaults(void)
 {
-    wm.deco_bg_r = 0.0; wm.deco_bg_g = 0.0; wm.deco_bg_b = 0.0;
-    wm.deco_fg_r = 1.0; wm.deco_fg_g = 1.0; wm.deco_fg_b = 1.0;
+    wm.deco_bg_r = 0.0; wm.deco_bg_g = 0.0; wm.deco_bg_b = 0.0; wm.deco_bg_a = 1.0;
+    wm.deco_fg_r = 1.0; wm.deco_fg_g = 1.0; wm.deco_fg_b = 1.0; wm.deco_fg_a = 1.0;
     wm.hide_deco_on_maximize = false;
     wm.num_desktops = DEFAULT_NUM_DESKTOPS;
     wm.mod_cycle = MOD_ALT;
     wm.mod_control = MOD_META;
     wm.border_thickness = 0;
-    wm.border_r = 0.0; wm.border_g = 0.0; wm.border_b = 0.0;
+    wm.border_r = 0.0; wm.border_g = 0.0; wm.border_b = 0.0; wm.border_a = 1.0;
     wm.snap_threshold = 20;
     wm.live_snap_resize = false;
     wm.outline_width = 16;
@@ -51,7 +51,8 @@ static void apply_builtin_defaults(void)
     wm.link_resize_neighbors = false;
     wm.focus_follows_mouse = false;
     wm.osd_enabled = true;
-    wm.osd_live_preview = false;
+    wm.osd_live_preview_windows = false;
+    wm.osd_live_preview_desktops = false;
     wm.osd_output_follows_pointer = false;
     wm.osd_mru_order = false;
     snprintf(wm.theme_path, sizeof(wm.theme_path), "greenxp");
@@ -103,17 +104,28 @@ static void parse_titlebar_layout(const char *val)
     wm.deco_layout_count = n;
 }
 
-/* "#rrggbb" (leading '#' optional) -> 0..1 doubles, Cairo's native range. */
-static bool parse_hex_color(const char *s, double *r, double *g, double *b)
+/* "#rrggbb" or "#rrggbbaa" (leading '#' optional) -> 0..1 doubles,
+ * Cairo's native range. */
+static bool parse_hex_color(const char *s, double *r, double *g, double *b, double *a)
 {
     if (s[0] == '#')
         s++;
-    unsigned int ri, gi, bi;
-    if (sscanf(s, "%2x%2x%2x", &ri, &gi, &bi) != 3)
+
+    /* #rrggbb or #rrggbbaa -- the alpha is optional and defaults to fully
+     * opaque, so every color written before it existed keeps meaning
+     * exactly what it did. */
+    unsigned int ri, gi, bi, ai = 255;
+    int n = sscanf(s, "%2x%2x%2x%2x", &ri, &gi, &bi, &ai);
+    if (n < 3)
         return false;
+    if (n == 3)
+        ai = 255;
+
     *r = ri / 255.0;
     *g = gi / 255.0;
     *b = bi / 255.0;
+    if (a)
+        *a = ai / 255.0;
     return true;
 }
 
@@ -144,6 +156,8 @@ static void write_default_config(const char *path)
         "\n"
         "# Fallback decoration colors, used only when the theme PNG\n"
         "# (greenxp/bg.png by default, or $KIWM_DECO_BG) can't be loaded.\n"
+        "# Every color here takes #rrggbb or #rrggbbaa; the alpha is real on\n"
+        "# an ARGB window, i.e. once a compositor is running.\n"
         "deco_bg=#000000\n"
         "deco_fg=#ffffff\n"
         "\n"
@@ -178,7 +192,7 @@ static void write_default_config(const char *path)
         "\n"
         "# Thickness, in pixels, of the outline drawn around a window kiwm is\n"
         "# pointing at without moving it yet -- the snap preview above, and\n"
-        "# the switcher with osd_live_preview=0. Straddles the window's edge,\n"
+        "# the switcher with osd_live_preview_windows=0. Straddles the edge,\n"
         "# half outside and half in.\n"
         "outline_width=16\n"
         "\n"
@@ -221,14 +235,16 @@ static void write_default_config(const char *path)
         "# behavior, no overlay at all.\n"
         "osd_enabled=1\n"
         "\n"
-        "# While an overlay above is open, apply each Tab step live (raise/\n"
-        "# focus the highlighted window immediately, or switch to the\n"
-        "# highlighted desktop immediately) instead of only once on release --\n"
-        "# 0 (default) leaves everything untouched until you decide (Escape\n"
-        "# reverts to nothing having changed); 1 previews live and Escape\n"
-        "# reverts back to whatever was active before the hold started.\n"
-        "# Ignored when osd_enabled=0.\n"
-        "osd_live_preview=0\n"
+        "# Whether an overlay applies each step live (raise+focus the\n"
+        "# highlighted window, or switch to the highlighted desktop) instead\n"
+        "# of only once on release. 0 (default) leaves everything untouched\n"
+        "# until you decide, and Escape reverts to nothing having changed;\n"
+        "# 1 previews live, and Escape goes back to whatever was active when\n"
+        "# the hold started. Separate for the two switchers -- previewing a\n"
+        "# window raises and focuses it, which is a lot more disruptive than\n"
+        "# previewing a desktop. Ignored when osd_enabled=0.\n"
+        "osd_live_preview_windows=0\n"
+        "osd_live_preview_desktops=0\n"
         "\n"
         "# Which output an overlay opens on (and lists/cycles the windows or\n"
         "# desktops of) -- 0 (default) uses the currently focused window's\n"
@@ -309,11 +325,11 @@ void config_load(void)
             val++;
 
         if (strcmp(key, "deco_bg") == 0) {
-            if (!parse_hex_color(val, &wm.deco_bg_r, &wm.deco_bg_g, &wm.deco_bg_b))
-                fprintf(stderr, "kiwm: config: invalid deco_bg '%s' (expected #rrggbb)\n", val);
+            if (!parse_hex_color(val, &wm.deco_bg_r, &wm.deco_bg_g, &wm.deco_bg_b, &wm.deco_bg_a))
+                fprintf(stderr, "kiwm: config: invalid deco_bg '%s' (expected #rrggbb or #rrggbbaa)\n", val);
         } else if (strcmp(key, "deco_fg") == 0) {
-            if (!parse_hex_color(val, &wm.deco_fg_r, &wm.deco_fg_g, &wm.deco_fg_b))
-                fprintf(stderr, "kiwm: config: invalid deco_fg '%s' (expected #rrggbb)\n", val);
+            if (!parse_hex_color(val, &wm.deco_fg_r, &wm.deco_fg_g, &wm.deco_fg_b, &wm.deco_fg_a))
+                fprintf(stderr, "kiwm: config: invalid deco_fg '%s' (expected #rrggbb or #rrggbbaa)\n", val);
         } else if (strcmp(key, "hide_deco_on_maximize") == 0) {
             wm.hide_deco_on_maximize = atoi(val) != 0;
         } else if (strcmp(key, "num_desktops") == 0) {
@@ -329,8 +345,8 @@ void config_load(void)
             int n = atoi(val);
             wm.border_thickness = n < 0 ? 0 : n;
         } else if (strcmp(key, "border_color") == 0) {
-            if (!parse_hex_color(val, &wm.border_r, &wm.border_g, &wm.border_b))
-                fprintf(stderr, "kiwm: config: invalid border_color '%s' (expected #rrggbb)\n", val);
+            if (!parse_hex_color(val, &wm.border_r, &wm.border_g, &wm.border_b, &wm.border_a))
+                fprintf(stderr, "kiwm: config: invalid border_color '%s' (expected #rrggbb or #rrggbbaa)\n", val);
         } else if (strcmp(key, "snap_threshold") == 0) {
             int n = atoi(val);
             wm.snap_threshold = n < 0 ? 0 : n;
@@ -358,7 +374,12 @@ void config_load(void)
         } else if (strcmp(key, "osd_enabled") == 0) {
             wm.osd_enabled = atoi(val) != 0;
         } else if (strcmp(key, "osd_live_preview") == 0) {
-            wm.osd_live_preview = atoi(val) != 0;
+            /* Pre-split spelling: sets both. */
+            wm.osd_live_preview_windows = wm.osd_live_preview_desktops = atoi(val) != 0;
+        } else if (strcmp(key, "osd_live_preview_windows") == 0) {
+            wm.osd_live_preview_windows = atoi(val) != 0;
+        } else if (strcmp(key, "osd_live_preview_desktops") == 0) {
+            wm.osd_live_preview_desktops = atoi(val) != 0;
         } else if (strcmp(key, "osd_order") == 0) {
             if (strcasecmp(val, "mru") == 0)
                 wm.osd_mru_order = true;

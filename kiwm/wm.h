@@ -713,13 +713,28 @@ typedef struct {
     double title_font_size;
     bool title_center;
 
+    /* Theme colors, each with an alpha channel: every color kiwm reads --
+     * here from the theme's `colors` file, and kiwm.conf's own deco_bg=/
+     * deco_fg=/border_color= below -- takes either #rrggbb (opaque) or
+     * #rrggbbaa. The alpha is real on an ARGB frame (see Client::
+     * frame_depth: a client with a 32-bit visual gets a 32-bit frame, and
+     * decoration.c starts that pixmap fully transparent), which is what
+     * makes a translucent titlebar possible once a compositor is running.
+     * Without one the X server ignores the alpha, as it always has, and a
+     * root-depth frame has no alpha channel to ignore in the first place.
+     *
+     * The title text is the one exception: it is always drawn fully
+     * opaque, whatever alpha fg_active=/fg_inactive= carry (see
+     * decoration.c's DECO_TITLE case). An alpha on those is about how
+     * translucent the *titlebar* is, and the window's name has to stay
+     * readable over whatever ends up showing through it. */
     bool have_theme_colors;
-    double bg_active_r, bg_active_g, bg_active_b;
-    double bg_inactive_r, bg_inactive_g, bg_inactive_b;
-    double fg_active_r, fg_active_g, fg_active_b;
-    double fg_inactive_r, fg_inactive_g, fg_inactive_b;
-    double border_active_r, border_active_g, border_active_b;
-    double border_inactive_r, border_inactive_g, border_inactive_b;
+    double bg_active_r, bg_active_g, bg_active_b, bg_active_a;
+    double bg_inactive_r, bg_inactive_g, bg_inactive_b, bg_inactive_a;
+    double fg_active_r, fg_active_g, fg_active_b, fg_active_a;
+    double fg_inactive_r, fg_inactive_g, fg_inactive_b, fg_inactive_a;
+    double border_active_r, border_active_g, border_active_b, border_active_a;
+    double border_inactive_r, border_inactive_g, border_inactive_b, border_inactive_a;
 
     /* Which client/element the pointer currently hovers, for the sprite
      * theme's hover row (see decoration.c's draw_button()) -- meaningless
@@ -754,8 +769,8 @@ typedef struct {
     int deco_layout_count;
 
     bool hide_deco_on_maximize;
-    double deco_bg_r, deco_bg_g, deco_bg_b;   /* fallback titlebar background when no theme */
-    double deco_fg_r, deco_fg_g, deco_fg_b;   /* fallback title text color */
+    double deco_bg_r, deco_bg_g, deco_bg_b, deco_bg_a;   /* fallback titlebar background when no theme */
+    double deco_fg_r, deco_fg_g, deco_fg_b, deco_fg_a;   /* fallback title text color */
 
     /* Left/right/bottom decoration border: a flat-colored strip (no PNG
      * theming yet, see decoration.c) of this thickness on the three sides
@@ -763,7 +778,7 @@ typedef struct {
      * border_thickness=/border_color= (default: 0, i.e. no side/bottom
      * border, preserving the old titlebar-only look). */
     int border_thickness;
-    double border_r, border_g, border_b;
+    double border_r, border_g, border_b, border_a;
 
     int num_desktops;   /* virtual desktops per output, from kiwm.conf's num_desktops= (default 4) */
 
@@ -957,15 +972,18 @@ typedef struct {
      * cycle_focus()/cycle_output_desktop() directly, no grab, no window). */
     bool osd_enabled;
 
-    /* Whether osd.c's overlays apply each Tab step live (raising/focusing
-     * the highlighted window, or switching to the highlighted desktop) as
-     * you step through them, reverting back to whatever was active before
-     * if the hold is cancelled with Escape -- vs. only applying once on
-     * release, leaving everything untouched until then (the default,
-     * matching a plain "browse, then decide" Alt+Tab). kiwm.conf's
-     * osd_live_preview= (default 0/off). Meaningless (never read) when
-     * osd_enabled is off. */
-    bool osd_live_preview;
+    /* Whether an overlay applies each Tab step live (raising/focusing the
+     * highlighted window, or switching to the highlighted desktop) instead
+     * of only on release -- kiwm.conf's osd_live_preview_windows= and
+     * osd_live_preview_desktops=, both default 0/off. Two settings rather
+     * than one because they are not the same trade: previewing a *window*
+     * raises and focuses it, which is disruptive enough to want off while
+     * still wanting a live desktop switch, or the other way round.
+     * (osd_live_preview= is still read, setting both, for configs written
+     * before the split.) Meaningless -- never read -- when osd_enabled is
+     * off. */
+    bool osd_live_preview_windows;
+    bool osd_live_preview_desktops;
 
     /* Which output an overlay opens on (and lists/cycles windows or
      * desktops of) -- kiwm.conf's osd_output_follows_pointer= (default

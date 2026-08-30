@@ -67,8 +67,8 @@ static int desk_selected = 0;
 static double desk_aspect = 1.0;
 
 /* What was actually focused/current *before* this hold started -- restored
- * by osd_cancel() (Escape), and also what wm.osd_live_preview's every-step
- * apply needs to revert to if the client it last previewed gets destroyed
+ * by osd_cancel() (Escape), and also what osd_live_preview_windows='s
+ * every-step apply needs to revert to if the client it last previewed gets destroyed
  * mid-hold (see osd_client_destroyed()). original_desktop is only
  * meaningful while kind == OSD_DESKTOPS. */
 static Client *original_focused = NULL;
@@ -531,7 +531,7 @@ void osd_windows_step(int direction)
     }
 
     tb_state.selected = (tb_state.selected + direction + tb_state.count) % tb_state.count;
-    if (wm.osd_live_preview) {
+    if (wm.osd_live_preview_windows) {
         /* activate_client(), not focus_client(): the list includes
          * minimized windows, and one of those has to be restored before
          * there's anything to focus. */
@@ -581,7 +581,7 @@ void osd_desktops_step(int direction)
 
     if (desk_n > 0)
         desk_selected = (desk_selected + direction + desk_n) % desk_n;
-    if (wm.osd_live_preview)
+    if (wm.osd_live_preview_desktops)
         switch_workspace(osd_output, desk_selected);
     repaint_desktops();
 }
@@ -590,16 +590,14 @@ void osd_cancel(void)
 {
     if (kind == OSD_NONE)
         return;
-    /* Only meaningful when osd_live_preview already applied intermediate
-     * steps live -- otherwise nothing was ever actually switched/focused
-     * yet, so there's nothing to revert. */
-    if (wm.osd_live_preview) {
-        if (kind == OSD_WINDOWS) {
-            if (original_focused)
-                activate_client(original_focused);
-        } else {
-            switch_workspace(osd_output, original_desktop);
-        }
+    /* Only meaningful when this overlay's live preview already applied
+     * intermediate steps -- otherwise nothing was ever actually
+     * switched/focused yet, so there's nothing to revert. */
+    if (kind == OSD_WINDOWS) {
+        if (wm.osd_live_preview_windows && original_focused)
+            activate_client(original_focused);
+    } else if (wm.osd_live_preview_desktops) {
+        switch_workspace(osd_output, original_desktop);
     }
     close_osd();
 }

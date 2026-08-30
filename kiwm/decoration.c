@@ -91,18 +91,28 @@ static bool find_theme_file(const char *name, char *out, size_t outsz)
     return false;
 }
 
-/* "#rrggbb" (leading '#' optional) -> 0..1 doubles. Same format as
- * kiwm.conf's deco_bg=/deco_fg=/border_color=. */
-static bool parse_hex_color(const char *s, double *r, double *g, double *b)
+/* "#rrggbb" or "#rrggbbaa" (leading '#' optional) -> 0..1 doubles. Same
+ * format as kiwm.conf's deco_bg=/deco_fg=/border_color=. */
+static bool parse_hex_color(const char *s, double *r, double *g, double *b, double *a)
 {
     if (s[0] == '#')
         s++;
-    unsigned int ri, gi, bi;
-    if (sscanf(s, "%2x%2x%2x", &ri, &gi, &bi) != 3)
+
+    /* #rrggbb or #rrggbbaa -- the alpha is optional and defaults to fully
+     * opaque, so every color written before it existed keeps meaning
+     * exactly what it did. */
+    unsigned int ri, gi, bi, ai = 255;
+    int n = sscanf(s, "%2x%2x%2x%2x", &ri, &gi, &bi, &ai);
+    if (n < 3)
         return false;
+    if (n == 3)
+        ai = 255;
+
     *r = ri / 255.0;
     *g = gi / 255.0;
     *b = bi / 255.0;
+    if (a)
+        *a = ai / 255.0;
     return true;
 }
 
@@ -192,6 +202,13 @@ static void load_colors_theme(void)
         return;
 
     wm.have_theme_colors = true;
+    /* Opaque unless the file says otherwise: a colors file written before
+     * alpha existed, or one that only gives some of its colors an alpha
+     * channel, keeps meaning exactly what it did. */
+    wm.bg_active_a = wm.bg_inactive_a = 1.0;
+    wm.fg_active_a = wm.fg_inactive_a = 1.0;
+    wm.border_active_a = wm.border_inactive_a = 1.0;
+
     char line[128];
     while (fgets(line, sizeof(line), f)) {
         char *nl = strpbrk(line, "\r\n");
@@ -204,17 +221,17 @@ static void load_colors_theme(void)
         const char *val = eq + 1;
 
         if (strcmp(key, "bg_active") == 0)
-            parse_hex_color(val, &wm.bg_active_r, &wm.bg_active_g, &wm.bg_active_b);
+            parse_hex_color(val, &wm.bg_active_r, &wm.bg_active_g, &wm.bg_active_b, &wm.bg_active_a);
         else if (strcmp(key, "bg_inactive") == 0)
-            parse_hex_color(val, &wm.bg_inactive_r, &wm.bg_inactive_g, &wm.bg_inactive_b);
+            parse_hex_color(val, &wm.bg_inactive_r, &wm.bg_inactive_g, &wm.bg_inactive_b, &wm.bg_inactive_a);
         else if (strcmp(key, "fg_active") == 0)
-            parse_hex_color(val, &wm.fg_active_r, &wm.fg_active_g, &wm.fg_active_b);
+            parse_hex_color(val, &wm.fg_active_r, &wm.fg_active_g, &wm.fg_active_b, &wm.fg_active_a);
         else if (strcmp(key, "fg_inactive") == 0)
-            parse_hex_color(val, &wm.fg_inactive_r, &wm.fg_inactive_g, &wm.fg_inactive_b);
+            parse_hex_color(val, &wm.fg_inactive_r, &wm.fg_inactive_g, &wm.fg_inactive_b, &wm.fg_inactive_a);
         else if (strcmp(key, "border_active") == 0)
-            parse_hex_color(val, &wm.border_active_r, &wm.border_active_g, &wm.border_active_b);
+            parse_hex_color(val, &wm.border_active_r, &wm.border_active_g, &wm.border_active_b, &wm.border_active_a);
         else if (strcmp(key, "border_inactive") == 0)
-            parse_hex_color(val, &wm.border_inactive_r, &wm.border_inactive_g, &wm.border_inactive_b);
+            parse_hex_color(val, &wm.border_inactive_r, &wm.border_inactive_g, &wm.border_inactive_b, &wm.border_inactive_a);
         else if (strcmp(key, "border_radius") == 0) {
             int a = 0, b = 0, cc = 0, d = 0;
             int n = sscanf(val, "%d %d %d %d", &a, &b, &cc, &d);
@@ -759,7 +776,7 @@ void draw_decoration(Client *c)
     } else {
         /* No theme PNG (missing file, or no theme configured yet): flat
          * fallback color from kiwm.conf's deco_bg= (default black). */
-        cairo_set_source_rgb(cr, wm.deco_bg_r, wm.deco_bg_g, wm.deco_bg_b);
+        cairo_set_source_rgba(cr, wm.deco_bg_r, wm.deco_bg_g, wm.deco_bg_b, wm.deco_bg_a);
         cairo_paint(cr);
     }
 
@@ -768,10 +785,15 @@ void draw_decoration(Client *c)
      * tint (so a from-scratch install with no theme at all still shows
      * *some* focus/unfocus difference). */
     if (wm.have_theme_colors) {
+        /* The color's own alpha multiplies the tint's: #rrggbb (opaque)
+         * tints exactly as before, and a color given an alpha channel
+         * tints proportionally less. */
         if (focused)
-            cairo_set_source_rgba(cr, wm.bg_active_r, wm.bg_active_g, wm.bg_active_b, 0.55);
+            cairo_set_source_rgba(cr, wm.bg_active_r, wm.bg_active_g, wm.bg_active_b,
+                                  0.55 * wm.bg_active_a);
         else
-            cairo_set_source_rgba(cr, wm.bg_inactive_r, wm.bg_inactive_g, wm.bg_inactive_b, 0.55);
+            cairo_set_source_rgba(cr, wm.bg_inactive_r, wm.bg_inactive_g, wm.bg_inactive_b,
+                                  0.55 * wm.bg_inactive_a);
     } else {
         if (focused)
             cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 0.10);
@@ -801,7 +823,12 @@ void draw_decoration(Client *c)
              * set to whatever color they last used -- always re-apply the
              * title color here rather than once up front, since which
              * elements come "before" the title in draw order depends on
-             * the configured titlebar_layout=. */
+             * the configured titlebar_layout=.
+             *
+             * Always fully opaque, whatever alpha fg_active=/fg_inactive=
+             * carry: an alpha channel on those is about the titlebar's own
+             * translucency, and the window's name has to stay readable
+             * over whatever shows through it. */
             if (focused)
                 cairo_set_source_rgb(cr, wm.fg_active_r, wm.fg_active_g, wm.fg_active_b);
             else
@@ -864,11 +891,13 @@ void draw_decoration(Client *c)
     if (bt > 0 && h > TITLEBAR_H) {
         if (wm.have_theme_colors) {
             if (focused)
-                cairo_set_source_rgb(cr, wm.border_active_r, wm.border_active_g, wm.border_active_b);
+                cairo_set_source_rgba(cr, wm.border_active_r, wm.border_active_g, wm.border_active_b,
+                                      wm.border_active_a);
             else
-                cairo_set_source_rgb(cr, wm.border_inactive_r, wm.border_inactive_g, wm.border_inactive_b);
+                cairo_set_source_rgba(cr, wm.border_inactive_r, wm.border_inactive_g,
+                                      wm.border_inactive_b, wm.border_inactive_a);
         } else {
-            cairo_set_source_rgb(cr, wm.border_r, wm.border_g, wm.border_b);
+            cairo_set_source_rgba(cr, wm.border_r, wm.border_g, wm.border_b, wm.border_a);
         }
         cairo_rectangle(cr, 0, TITLEBAR_H, bt, h - TITLEBAR_H);          /* left */
         cairo_rectangle(cr, w - bt, TITLEBAR_H, bt, h - TITLEBAR_H);    /* right */
