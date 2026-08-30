@@ -3,6 +3,7 @@
 #
 # Components (session-owned services -- distinct from XDG autostart, which
 # is regular installed apps, not the desktop's own pieces):
+#   xisguard - XNOTIFY permission daemon
 #   xisback  - wallpaper
 #   xispanel - panel/taskbar
 #   xiskeys  - global hotkeys
@@ -10,8 +11,20 @@
 #   wm       - window manager, configurable, see below
 #   dbus     - session bus activation environment
 #   audio    - pipewire/pulseaudio, only if nothing already started it
+#   autostart - XDG autostart entries, started last, see below
 #   xss-lock + i3lock - screen-lock integration (optional, not yet a
 #                        listed service -- see XISDESKTOP_PLAN.md)
+#
+# xisguard is launched once and not supervised: if the running X server has
+# no XNOTIFY extension it exits on its own straight away, and restarting it
+# would just repeat that. Same for every other service here -- only the WM
+# is supervised (see below).
+#
+# XDG autostart (~/.config/autostart + $XDG_CONFIG_DIRS/autostart) runs
+# *after* the session's own services are up and answering, not merely
+# spawned: an app with a tray icon that starts before xispanel owns the
+# StatusNotifierWatcher bus name gets no tray icon at all for the rest of
+# its run. See wait_for_base()/service_ready() below.
 #
 # Which of these actually start comes from $XDG_CONFIG_HOME/kisession.conf
 # (fallback ~/.config/kisession.conf): "SERVICE\t<name>\t<0|1>" lines, one
@@ -76,6 +89,7 @@ write_default_config()
 		echo "#"
 		echo "# wm ="
 		echo ""
+		printf 'SERVICE\txisguard\t1\n'
 		printf 'SERVICE\txisback\t1\n'
 		printf 'SERVICE\txispanel\t1\n'
 		printf 'SERVICE\txiskeys\t1\n'
@@ -83,6 +97,7 @@ write_default_config()
 		printf 'SERVICE\twm\t1\n'
 		printf 'SERVICE\tdbus\t1\n'
 		printf 'SERVICE\taudio\t1\n'
+		printf 'SERVICE\tautostart\t1\n'
 	} > "$CONF_PATH"
 }
 
@@ -223,11 +238,37 @@ wait_for_pid()
 #
 # Makes DISPLAY/XAUTHORITY/session vars visible to D-Bus/systemd --user
 # activated services. No-op if the display manager already handled it.
+#
+# A session bus is not optional for KiDesktop: xispanel's system tray is
+# StatusNotifierItem-only (a DBus protocol), so no bus means no tray at
+# all, and no notifications or MPRIS either. On a systemd/elogind machine
+# the user manager socket-activates dbus-daemon on $XDG_RUNTIME_DIR/bus
+# and the display manager passes DBUS_SESSION_BUS_ADDRESS down to us, so
+# there's nothing to do. Bare startx/xinit on a machine without a user
+# manager has neither, and *that* is the case where the tray silently
+# comes up empty -- so start our own bus by re-exec'ing under
+# dbus-run-session, which then owns the whole session's lifetime.
 
 export XDG_CURRENT_DESKTOP=KiDesktop
 export XDG_SESSION_DESKTOP=kidesktop
 export XDG_MENU_PREFIX=kidesktop-
 export XDG_SESSION_TYPE=x11
+
+if service_enabled dbus && [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] &&
+   [ -z "${KISESSION_DBUS_REEXEC:-}" ]; then
+	if [ -S "${XDG_RUNTIME_DIR:-/nonexistent}/bus" ]; then
+		DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+		export DBUS_SESSION_BUS_ADDRESS
+		echo "kisession: using the user manager's session bus at $XDG_RUNTIME_DIR/bus" >&2
+	elif command -v dbus-run-session >/dev/null 2>&1; then
+		echo "kisession: no session bus found, restarting under dbus-run-session" >&2
+		KISESSION_DBUS_REEXEC=1
+		export KISESSION_DBUS_REEXEC
+		exec dbus-run-session -- "$0" "$@"
+	else
+		echo "kisession: no session bus and no dbus-run-session; tray/notifications will not work" >&2
+	fi
+fi
 
 if service_enabled dbus && command -v dbus-update-activation-environment >/dev/null 2>&1; then
 	dbus-update-activation-environment --systemd \
@@ -238,6 +279,11 @@ fi
 # ------------------------------------------------------------
 # Session-owned services
 # ------------------------------------------------------------
+
+# First, so the permission daemon is already arbitrating XNOTIFY by the
+# time anything else touches the display. Exits by itself (and stays
+# exited -- nothing here restarts it) if the server has no XNOTIFY.
+service_enabled xisguard && start_bg xisguard
 
 service_enabled xisback && start_bg xisback
 service_enabled xispanel && start_bg xispanel
@@ -278,6 +324,223 @@ else
 fi
 
 # ------------------------------------------------------------
+# XDG autostart (only once the session's own services are up)
+# ------------------------------------------------------------
+
+# Services autostart waits on, and how long (seconds) it waits in total
+# before giving up and launching the entries anyway -- a service that is
+# disabled, missing or wedged must not cost the user their autostart apps.
+BASE_SERVICES="dbus xisback xispanel kiconfd audio wm"
+BASE_TIMEOUT=15
+
+# "Up and answering", not "we called start_bg on it". Each probe checks the
+# thing a *client* of that service would look for, since that's what an
+# autostart app racing us would find; falls through to "assume ready" for
+# anything without a meaningful probe.
+service_ready()
+{
+	rundir="${XDG_RUNTIME_DIR:-/tmp}"
+	case "$1" in
+	dbus)
+		[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]
+		;;
+	kiconfd)
+		# kiconfd writes Xcursor.theme into RESOURCE_MANAGER as part of
+		# its first apply, so this means "settings are live", not just
+		# "the process exists".
+		if command -v xrdb >/dev/null 2>&1; then
+			xrdb -query 2>/dev/null | grep -q '^Xcursor.theme'
+		else
+			pgrep -x kiconfd >/dev/null 2>&1
+		fi
+		;;
+	xispanel)
+		[ -S "$rundir/xispanel-ctl.sock" ] || return 1
+		# The control socket comes up before the tray backend has claimed
+		# the StatusNotifierWatcher bus name, and that name is the one
+		# thing an autostart app with a tray icon looks for when *it*
+		# starts -- miss it and the app falls back to the XEmbed tray
+		# (which nothing on this display owns) and shows no icon at all
+		# for the rest of its run. So wait for the name, not the socket.
+		if command -v dbus-send >/dev/null 2>&1; then
+			dbus-send --session --print-reply --dest=org.freedesktop.DBus \
+				/org/freedesktop/DBus org.freedesktop.DBus.GetNameOwner \
+				string:org.kde.StatusNotifierWatcher >/dev/null 2>&1
+		fi
+		;;
+	xisback)
+		[ -S "$rundir/xisback.sock" ]
+		;;
+	audio)
+		pgrep -x pipewire >/dev/null 2>&1 || pgrep -x pulseaudio >/dev/null 2>&1
+		;;
+	wm)
+		# Autostart apps map windows immediately; having a WM already
+		# managing the display keeps them from coming up undecorated.
+		current_wm_pid >/dev/null 2>&1
+		;;
+	*)
+		return 0
+		;;
+	esac
+}
+
+wait_for_base()
+{
+	waited=0
+	for svc in $BASE_SERVICES; do
+		service_enabled "$svc" || continue
+		while ! service_ready "$svc"; do
+			[ "$QUIT" -eq 1 ] && return 1
+			if [ "$waited" -ge "$BASE_TIMEOUT" ]; then
+				echo "kisession: base service '$svc' still not ready after ${BASE_TIMEOUT}s, continuing anyway" >&2
+				return 0
+			fi
+			sleep 1
+			waited=$((waited + 1))
+		done
+	done
+	return 0
+}
+
+# Reads one key from a .desktop file's [Desktop Entry] group only (other
+# groups, e.g. "Desktop Action ...", must not answer for it). Unlocalized
+# key exactly: a "Name[pt_BR]" never satisfies a query for "Name".
+desktop_get()
+{
+	awk -F= -v key="$2" '
+		/^[[:space:]]*\[/ { in_entry = ($0 ~ /^[[:space:]]*\[Desktop Entry\][[:space:]]*$/); next }
+		!in_entry { next }
+		{
+			k = $1
+			sub(/[[:space:]]+$/, "", k)
+			if (k == key) {
+				sub(/^[^=]*=[[:space:]]*/, "")
+				print
+				exit
+			}
+		}
+	' "$1" 2>/dev/null
+}
+
+# True if `list` (a ";"-separated desktop-name list from OnlyShowIn/
+# NotShowIn) mentions KiDesktop.
+list_has_kidesktop()
+{
+	case ";$1;" in
+		*';KiDesktop;'*) return 0 ;;
+	esac
+	return 1
+}
+
+# Should this entry run in a KiDesktop session? Implements the subset of
+# the Desktop Entry spec that actually gates autostart: Type, Hidden,
+# OnlyShowIn/NotShowIn, TryExec, plus X-GNOME-Autostart-enabled (not in the
+# spec, but honoured by every session out there and by the GNOME control
+# panel users may well have toggled entries with).
+autostart_entry_wanted()
+{
+	f="$1"
+
+	type=$(desktop_get "$f" Type)
+	if [ -n "$type" ] && [ "$type" != "Application" ]; then
+		return 1
+	fi
+	[ "$(desktop_get "$f" Hidden)" = "true" ] && return 1
+	[ "$(desktop_get "$f" X-GNOME-Autostart-enabled)" = "false" ] && return 1
+
+	only=$(desktop_get "$f" OnlyShowIn)
+	if [ -n "$only" ] && ! list_has_kidesktop "$only"; then
+		return 1
+	fi
+	not=$(desktop_get "$f" NotShowIn)
+	if [ -n "$not" ] && list_has_kidesktop "$not"; then
+		return 1
+	fi
+
+	tryexec=$(desktop_get "$f" TryExec)
+	if [ -n "$tryexec" ]; then
+		case "$tryexec" in
+			/*) [ -x "$tryexec" ] || return 1 ;;
+			*) command -v "$tryexec" >/dev/null 2>&1 || return 1 ;;
+		esac
+	fi
+	return 0
+}
+
+# Strips the Exec field codes (%f %F %u %U %d %D %n %N %i %c %k %v %m),
+# none of which mean anything for an autostart entry -- there's no file or
+# URL to hand it -- and unescapes "%%".
+autostart_exec_line()
+{
+	desktop_get "$1" Exec | sed -e 's/%[fFuUdDnNickvm]//g' -e 's/%%/%/g'
+}
+
+# ~/.config/autostart wins over the same basename in $XDG_CONFIG_DIRS, per
+# spec: that's how a user disables (Hidden=true) a system-wide entry.
+autostart_dirs()
+{
+	if [ -n "${XDG_CONFIG_HOME:-}" ]; then
+		echo "$XDG_CONFIG_HOME/autostart"
+	else
+		echo "$HOME/.config/autostart"
+	fi
+	IFS=:
+	for d in ${XDG_CONFIG_DIRS:-/etc/xdg}; do
+		[ -n "$d" ] && echo "$d/autostart"
+	done
+	unset IFS
+}
+
+AUTOSTART_DONE=0
+
+run_autostart()
+{
+	[ "$AUTOSTART_DONE" -eq 1 ] && return 0
+	AUTOSTART_DONE=1
+
+	echo "kisession: waiting for base services before XDG autostart" >&2
+	wait_for_base || return 0
+	[ "$QUIT" -eq 1 ] && return 0
+
+	# Split autostart_dirs()'s output on newlines only (a $HOME or an
+	# $XDG_CONFIG_DIRS entry may contain spaces). `set --` inside a
+	# function touches only the function's own positional parameters.
+	old_ifs=$IFS
+	IFS='
+'
+	set -- $(autostart_dirs)
+	IFS=$old_ifs
+
+	seen=""
+	for dir in "$@"; do
+		[ -d "$dir" ] || continue
+		for f in "$dir"/*.desktop; do
+			[ -f "$f" ] || continue
+			base=${f##*/}
+			case " $seen " in
+				*" $base "*) continue ;;
+			esac
+			seen="$seen $base"
+
+			autostart_entry_wanted "$f" || continue
+			cmd=$(autostart_exec_line "$f")
+			if [ -z "$cmd" ]; then
+				echo "kisession: autostart: '$base' has no Exec, skipping" >&2
+				continue
+			fi
+			echo "kisession: autostart: $base: $cmd"
+			# sh -c, not a hand-rolled tokenizer: Exec quoting is close
+			# enough to shell quoting for the entries that exist in
+			# practice, and this keeps the launcher a few lines instead
+			# of a parser.
+			sh -c "$cmd" &
+			BG_PIDS="$BG_PIDS $!"
+		done
+	done
+}
+
+# ------------------------------------------------------------
 # Window manager (supervised: restarted on crash, adopted on replace)
 # ------------------------------------------------------------
 
@@ -291,6 +554,11 @@ run_wm_cycle()
 	"$wm_cmd" &
 	WM_PID=$!
 	OLD_PID=$WM_PID
+	# First cycle only (run_autostart() is a no-op afterwards): the WM is
+	# launched but not yet waited on, so autostart's readiness gate can
+	# see it come up. A later crash-restart of the WM must not relaunch
+	# everyone's autostart apps a second time.
+	service_enabled autostart && run_autostart
 	wait "$WM_PID" 2>/dev/null
 	WM_PID=""
 	return 0
@@ -333,6 +601,7 @@ else
 	# (started manually, or externally) -- kisession still stays up as the
 	# session leader, it just doesn't launch/supervise one itself.
 	echo "kisession: wm service disabled, not launching a window manager" >&2
+	service_enabled autostart && run_autostart
 	while [ "$QUIT" -eq 0 ]; do
 		RELOAD=0
 		sleep 3600 &
