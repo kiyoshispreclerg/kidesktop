@@ -71,7 +71,11 @@ void pulse_entries_free(GPtrArray *entries);
 void pulse_set_volume(const PulseEntry *e, int pct);
 void pulse_set_mute(const PulseEntry *e, gboolean muted);
 
-/* Devices only; no-ops on streams. */
+/* Devices only; no-ops on streams. Besides setting the default, this
+ * moves every stream currently playing/recording onto the device --
+ * setting the default alone only affects *future* streams, which makes
+ * picking a new output appear to do nothing while the audio you can
+ * hear keeps coming from the old one. */
 void pulse_set_default(const PulseEntry *e);
 void pulse_set_suspended(const PulseEntry *e, gboolean suspended);
 

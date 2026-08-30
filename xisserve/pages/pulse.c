@@ -331,6 +331,55 @@ void pulse_set_mute(const PulseEntry *e, gboolean muted)
     pactl_run_fire(args);
 }
 
+/* Moves every existing stream of the matching kind onto `target`.
+ *
+ * `pactl list short <listing>` is one line per stream, tab-separated,
+ * with the index first -- all this needs. (The verbose listing would do
+ * too, but the short form is exactly one field deep.) */
+static void move_all_streams(const char *listing, const char *mover, const char *target)
+{
+    char args[64];
+    snprintf(args, sizeof(args), "list short %s", listing);
+    FILE *f = pactl_run(args);
+    if (!f) {
+        return;
+    }
+    /* Indices are collected before any move, not moved as they're read:
+     * moving a stream can change what a still-open listing reports, and
+     * the pipe would be read while pactl is being run again underneath
+     * it. */
+    int indices[256];
+    int n = 0;
+    char line[512];
+    while (n < (int)(sizeof(indices) / sizeof(indices[0])) && fgets(line, sizeof(line), f)) {
+        char *end = NULL;
+        long idx = strtol(line, &end, 10);
+        if (end != line && idx >= 0) {
+            indices[n++] = (int)idx;
+        }
+    }
+    pclose(f);
+
+    for (int i = 0; i < n; i++) {
+        char move[512];
+        snprintf(move, sizeof(move), "%s %d %s", mover, indices[i], target);
+        pactl_run_fire(move);
+    }
+}
+
+/* Setting the default device only decides where *future* streams land --
+ * PulseAudio/PipeWire deliberately leave already-playing streams on
+ * whatever device they were routed to (verified: after
+ * set-default-sink, an existing sink-input keeps its old sink). On its
+ * own that makes "make this the default output" look like it did
+ * nothing, since the audio you can actually hear keeps coming out of
+ * the old device.
+ *
+ * So this does what the desktop mixers do (and what the user means by
+ * picking a default): set the default *and* move everything currently
+ * playing/recording over to it. The move also updates
+ * module-stream-restore's per-application memory, so those apps keep
+ * using the new device next time rather than snapping back. */
 void pulse_set_default(const PulseEntry *e)
 {
     if (!pulse_available() || (e->kind != PULSE_SINK && e->kind != PULSE_SOURCE)) {
@@ -339,6 +388,12 @@ void pulse_set_default(const PulseEntry *e)
     char args[512];
     snprintf(args, sizeof(args), "set-default-%s %s", setter_object(e->kind), e->name);
     pactl_run_fire(args);
+
+    if (e->kind == PULSE_SINK) {
+        move_all_streams("sink-inputs", "move-sink-input", e->name);
+    } else {
+        move_all_streams("source-outputs", "move-source-output", e->name);
+    }
 }
 
 /* "Disable" for a device means suspending it, not tearing down its card
