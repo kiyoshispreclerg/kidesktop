@@ -52,6 +52,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <glob.h>
 #include <limits.h>
 #include <poll.h>
 #include <signal.h>
@@ -64,7 +65,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KISESSION_VERSION "0.1.0"
+#define KISESSION_VERSION "0.1.1"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -112,6 +113,13 @@ typedef struct {
     const char *const *argv;
     int default_enabled;
     const char *comment; /* written into the generated default config */
+    /* Milliseconds the *initial* startup sequence waits for this service
+     * to become ready before starting the next one. 0 = don't wait. Only
+     * kiconfd uses it: the WM and the panel read the cursor theme and the
+     * X resources it publishes once, at their own startup, so starting
+     * them in the same pass is a race they can lose. Restarts later on
+     * never wait. */
+    int gate_ms;
 } SvcDef;
 
 static const char *const ARGV_XISGUARD[] = {"xisguard", NULL};
@@ -125,17 +133,17 @@ static const char *const ARGV_LOCKER[] = {"xss-lock", "--", "i3lock", NULL};
  * daemon is already arbitrating before anything else touches the display;
  * kiconfd before the visible pieces so they come up already themed. */
 static const SvcDef SERVICES[] = {
-    {"dbus", SVC_ENV, NULL, 1, "session bus + activation environment"},
-    {"xisguard", SVC_ONESHOT, ARGV_XISGUARD, 1, "XNOTIFY permissions (exits by itself without the extension)"},
-    {"kiconfd", SVC_SUPERVISED, ARGV_KICONFD, 1, "theme/cursor/settings daemon"},
-    {"xisback", SVC_SUPERVISED, ARGV_XISBACK, 1, "wallpaper"},
-    {"xispanel", SVC_SUPERVISED, ARGV_XISPANEL, 1, "panel/taskbar"},
-    {"xiskeys", SVC_SUPERVISED, ARGV_XISKEYS, 1, "global hotkeys"},
-    {"audio", SVC_ONESHOT, NULL, 1, "pipewire/pulseaudio, only if nothing already started one"},
-    {"locker", SVC_SUPERVISED, ARGV_LOCKER, 1, "xss-lock + i3lock screen locking"},
-    {"polkit", SVC_SUPERVISED, NULL, 0, "polkit authentication agent (off: nothing here needs one yet)"},
-    {"wm", SVC_WM, NULL, 1, "window manager, see 'wm =' above"},
-    {"autostart", SVC_AUTOSTART, NULL, 1, "XDG autostart entries, started after the services above"},
+    {"dbus", SVC_ENV, NULL, 1, "session bus + activation environment", 0},
+    {"xisguard", SVC_ONESHOT, ARGV_XISGUARD, 1, "XNOTIFY permissions (exits by itself without the extension)", 0},
+    {"kiconfd", SVC_SUPERVISED, ARGV_KICONFD, 1, "theme/cursor/settings daemon", 2000},
+    {"xisback", SVC_SUPERVISED, ARGV_XISBACK, 1, "wallpaper", 0},
+    {"xispanel", SVC_SUPERVISED, ARGV_XISPANEL, 1, "panel/taskbar", 0},
+    {"xiskeys", SVC_SUPERVISED, ARGV_XISKEYS, 1, "global hotkeys", 0},
+    {"audio", SVC_ONESHOT, NULL, 1, "pipewire/pulseaudio, only if nothing already started one", 0},
+    {"locker", SVC_SUPERVISED, ARGV_LOCKER, 1, "xss-lock + i3lock screen locking", 0},
+    {"polkit", SVC_SUPERVISED, NULL, 0, "polkit authentication agent (off: nothing here needs one yet)", 0},
+    {"wm", SVC_WM, NULL, 1, "window manager, see 'wm =' above", 0},
+    {"autostart", SVC_AUTOSTART, NULL, 1, "XDG autostart entries, started after the services above", 0},
 };
 #define N_SERVICES ((int)(sizeof(SERVICES) / sizeof(SERVICES[0])))
 
@@ -1328,12 +1336,81 @@ static void reload_config(void)
 /* startup / shutdown                                                  */
 /* ------------------------------------------------------------------ */
 
+/* True if any Qt platform-theme plugin with this name is installed, for
+ * either Qt version. The plugin directory is multiarch- and
+ * distro-dependent, so this globs rather than hardcoding a path. */
+static int qt_platformtheme_available(const char *name)
+{
+    static const char *const patterns[] = {
+        "/usr/lib/*/qt5/plugins/platformthemes/lib%s.so",
+        "/usr/lib/*/qt6/plugins/platformthemes/lib%s.so",
+        "/usr/lib/qt5/plugins/platformthemes/lib%s.so",
+        "/usr/lib/qt6/plugins/platformthemes/lib%s.so",
+        NULL,
+    };
+    for (int i = 0; patterns[i]; i++) {
+        char pat[PATH_MAX];
+        snprintf(pat, sizeof(pat), patterns[i], name);
+        glob_t g;
+        memset(&g, 0, sizeof(g));
+        int hit = (glob(pat, 0, NULL, &g) == 0 && g.gl_pathc > 0);
+        globfree(&g);
+        if (hit) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Qt reads its appearance from whatever QT_QPA_PLATFORMTHEME names, and
+ * nothing else sets it -- so without this everything kiconfd writes for Qt
+ * is inert, which is exactly what "the session doesn't start with my
+ * appearance" looks like on the Qt half of the desktop.
+ *
+ * "gtk3" (libqgtk3, shipped with Qt itself) is preferred over qt5ct/qt6ct
+ * because it puts both toolkits on one source of truth: it follows the
+ * GTK3 settings, which kiconfd both writes to settings.ini *and*
+ * broadcasts over XSETTINGS, so Qt apps restyle live on "Aplicar" like
+ * GTK ones instead of only at their next launch. qt5ct/qt6ct are the
+ * fallback for systems without that plugin, and there the version-specific
+ * name means only that Qt major version is covered -- one environment
+ * variable can't name both.
+ *
+ * Never overrides a value the user set themselves in their profile. */
+static void setup_qt_platformtheme(void)
+{
+    const char *existing = getenv("QT_QPA_PLATFORMTHEME");
+    if (existing && *existing) {
+        fprintf(stderr, "kisession: QT_QPA_PLATFORMTHEME already set to '%s', leaving it\n", existing);
+        return;
+    }
+
+    char found[PATH_MAX];
+    const char *choice = NULL;
+    if (qt_platformtheme_available("qgtk3")) {
+        choice = "gtk3";
+    } else if (qt_platformtheme_available("qt6ct") || find_in_path("qt6ct", found, sizeof(found))) {
+        choice = "qt6ct";
+    } else if (qt_platformtheme_available("qt5ct") || find_in_path("qt5ct", found, sizeof(found))) {
+        choice = "qt5ct";
+    }
+
+    if (!choice) {
+        fprintf(stderr, "kisession: no Qt platform theme plugin found (gtk3/qt5ct/qt6ct); "
+                        "Qt apps will keep their default appearance\n");
+        return;
+    }
+    setenv("QT_QPA_PLATFORMTHEME", choice, 1);
+    fprintf(stderr, "kisession: QT_QPA_PLATFORMTHEME=%s\n", choice);
+}
+
 static void setup_environment(char **argv)
 {
     setenv("XDG_CURRENT_DESKTOP", "KiDesktop", 1);
     setenv("XDG_SESSION_DESKTOP", "kidesktop", 1);
     setenv("XDG_MENU_PREFIX", "kidesktop-", 1);
     setenv("XDG_SESSION_TYPE", "x11", 1);
+    setup_qt_platformtheme();
 
     if (!svc_enabled("dbus")) {
         return;
@@ -1380,7 +1457,8 @@ static void setup_environment(char **argv)
 
     static const char *const upd[] = {
         "dbus-update-activation-environment", "--systemd", "DISPLAY", "XAUTHORITY",
-        "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", NULL,
+        "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE",
+        "QT_QPA_PLATFORMTHEME", NULL,
     };
     char found[PATH_MAX];
     if (find_in_path(upd[0], found, sizeof(found))) {
@@ -1515,6 +1593,17 @@ int main(int argc, char **argv)
             break;
         }
         start_service(i);
+        /* Hold the sequence until this one is actually usable, when the
+         * services after it read something it publishes exactly once at
+         * their own startup (see SvcDef.gate_ms). */
+        for (int waited = 0; SERVICES[i].gate_ms > 0 && g_state[i].enabled && waited < SERVICES[i].gate_ms;
+             waited += 50) {
+            if (service_ready(SERVICES[i].name)) {
+                break;
+            }
+            struct timespec ts = {0, 50L * 1000L * 1000L};
+            nanosleep(&ts, NULL);
+        }
     }
     g_services_started_at = time(NULL);
 
