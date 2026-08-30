@@ -29,6 +29,12 @@
  * back, same as cursor_theme/cursor_size always did.
  *
  * What gets touched per toolkit:
+ *   XSETTINGS (_XSETTINGS_S<screen>) -- theme/icon theme/font/cursor. The
+ *     only channel that reaches apps that are *already running*: every
+ *     file backend below is read once at app startup, so without this,
+ *     "Aplicar" would only affect programs launched afterwards. See
+ *     apply_xsettings(). Colors are the exception -- XSETTINGS has no key
+ *     for a palette, so those still need an app restart.
  *   Xresources (RESOURCE_MANAGER) -- Xcursor.theme/size, Xft.font. The
  *     one thing every X11 app can fall back to regardless of toolkit.
  *   GTK2   -- ~/.gtkrc-2.0, inside a "# BEGIN/END KICONF" marked block
@@ -41,9 +47,11 @@
  *   Qt5/6  -- ~/.config/qt{5,6}ct/qt{5,6}ct.conf (style/icon_theme/fonts/
  *     color_scheme_path upserted under [Appearance]/[Fonts]) plus a fully
  *     kiconfd-owned qt{5,6}ct/colors/kiconf.conf QPalette color scheme.
- *     Requires qt5ct/qt6ct installed and QT_QPA_PLATFORMTHEME set for Qt
- *     apps to actually read it -- not kiconfd's job to enforce that env
- *     var, that's a kisession/profile concern.
+ *     Only read when qt5ct/qt6ct is installed *and* QT_QPA_PLATFORMTHEME
+ *     names it; setting that variable is kisession's job (see
+ *     setup_qt_platformtheme() there), and it prefers the "gtk3" plugin
+ *     when available, in which case Qt apps follow the GTK3 settings and
+ *     the XSETTINGS broadcast above instead of these files.
  *   wx (wxWidgets) -- no separate file: wxGTK (the default on Linux) is a
  *     GTK wrapper and already follows the GTK settings above. Nothing to
  *     do here.
@@ -70,7 +78,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.0"
+#define KICONFD_VERSION "0.2.1"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -78,6 +86,12 @@
 
 static Display *g_dpy;
 static Window g_root;
+
+/* XSETTINGS manager state, see the block above apply_xsettings(). */
+static Window g_xs_win = None;
+static Atom g_xs_selection = None;
+static Atom g_xs_prop = None;
+static unsigned long g_xs_serial = 0;
 static char g_configpath[PATH_MAX];
 static volatile sig_atomic_t g_quit = 0;
 static volatile sig_atomic_t g_reload = 0;
@@ -432,6 +446,210 @@ static void apply_resource_manager(void)
                      (unsigned char *)out, (int)strlen(out));
 }
 
+/* ------------------------------------------------------------------ */
+/* XSETTINGS (_XSETTINGS_S<screen>)                                     */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The one channel that reaches apps that are *already running*. Every
+ * other backend in this file writes a config file, which a toolkit reads
+ * once at startup -- so without this, "Aplicar" in kiconf only affects
+ * programs launched afterwards, and the user's open windows keep the old
+ * theme until they restart them. GTK2 and GTK3 both watch the XSETTINGS
+ * manager and restyle live; Qt does too when built with the platform
+ * theme that reads it.
+ *
+ * The protocol: own the _XSETTINGS_S<screen> selection with a window,
+ * publish the settings as one _XSETTINGS_SETTINGS property on it, and
+ * announce the ownership with a MANAGER client message so clients that
+ * were already up notice. Clients then watch that property for changes,
+ * which is why the serial has to move on every apply.
+ *
+ * The wire format is a byte-order flag, a serial, a count, then per
+ * setting: type, 16-bit name length, the name padded to 4 bytes, that
+ * setting's own serial, and the value. Everything below is serialized
+ * little-endian and the header declares LSB-first -- legal per spec (the
+ * flag exists precisely so the manager may pick), and it avoids having to
+ * detect the host's byte order.
+ *
+ * Not everything in kiconfd.conf can travel this way: XSETTINGS has no
+ * key for a color palette, so the bg/fg/accent colors stay in the GTK CSS
+ * and Qt palette files, and only take effect for newly started apps.
+ */
+
+#define XS_TYPE_INT 0
+#define XS_TYPE_STRING 1
+
+static unsigned char g_xs_buf[8192];
+static size_t g_xs_len;
+static size_t g_xs_count_off;
+static unsigned long g_xs_count;
+
+static void xs_u8(unsigned v)
+{
+    if (g_xs_len < sizeof(g_xs_buf)) {
+        g_xs_buf[g_xs_len++] = (unsigned char)(v & 0xff);
+    }
+}
+
+static void xs_u16(unsigned v)
+{
+    xs_u8(v);
+    xs_u8(v >> 8);
+}
+
+static void xs_u32(unsigned long v)
+{
+    xs_u16((unsigned)(v & 0xffff));
+    xs_u16((unsigned)((v >> 16) & 0xffff));
+}
+
+static void xs_bytes(const char *s, size_t n)
+{
+    for (size_t i = 0; i < n; i++) {
+        xs_u8((unsigned char)s[i]);
+    }
+}
+
+/* Every variable-length field is padded to a 4-byte boundary. */
+static void xs_pad(void)
+{
+    while (g_xs_len & 3) {
+        xs_u8(0);
+    }
+}
+
+static void xs_begin(void)
+{
+    g_xs_len = 0;
+    g_xs_count = 0;
+    xs_u8(0); /* byte order: LSB first */
+    xs_u8(0);
+    xs_u8(0);
+    xs_u8(0); /* padding */
+    xs_u32(g_xs_serial);
+    g_xs_count_off = g_xs_len;
+    xs_u32(0); /* n_settings, patched by xs_end() */
+}
+
+static void xs_header(int type, const char *name)
+{
+    size_t n = strlen(name);
+    xs_u8((unsigned)type);
+    xs_u8(0); /* padding */
+    xs_u16((unsigned)n);
+    xs_bytes(name, n);
+    xs_pad();
+    /* Per-setting "last changed" serial. kiconfd rewrites everything on
+     * every apply rather than tracking which individual keys moved, so
+     * they all carry the current serial -- clients re-read the lot. */
+    xs_u32(g_xs_serial);
+    g_xs_count++;
+}
+
+static void xs_string(const char *name, const char *val)
+{
+    xs_header(XS_TYPE_STRING, name);
+    size_t n = strlen(val);
+    xs_u32(n);
+    xs_bytes(val, n);
+    xs_pad();
+}
+
+static void xs_int(const char *name, long val)
+{
+    xs_header(XS_TYPE_INT, name);
+    xs_u32((unsigned long)val);
+}
+
+static void xs_end(void)
+{
+    g_xs_buf[g_xs_count_off + 0] = (unsigned char)(g_xs_count & 0xff);
+    g_xs_buf[g_xs_count_off + 1] = (unsigned char)((g_xs_count >> 8) & 0xff);
+    g_xs_buf[g_xs_count_off + 2] = (unsigned char)((g_xs_count >> 16) & 0xff);
+    g_xs_buf[g_xs_count_off + 3] = (unsigned char)((g_xs_count >> 24) & 0xff);
+}
+
+/* Claims the manager selection and announces it. Returns 1 if kiconfd is
+ * the XSETTINGS manager afterwards. */
+static int init_xsettings(void)
+{
+    char selname[64];
+    snprintf(selname, sizeof(selname), "_XSETTINGS_S%d", DefaultScreen(g_dpy));
+    g_xs_selection = XInternAtom(g_dpy, selname, False);
+    g_xs_prop = XInternAtom(g_dpy, "_XSETTINGS_SETTINGS", False);
+
+    Window existing = XGetSelectionOwner(g_dpy, g_xs_selection);
+    if (existing != None) {
+        /* Another settings daemon (xfsettingsd, gsd-xsettings, ...) is
+         * already the manager. Taking the selection from it would just
+         * start a fight over every GTK app's theme, so leave it alone --
+         * the file backends above still work, they just won't update
+         * running apps. */
+        fprintf(stderr, "kiconfd: another XSETTINGS manager already owns %s; "
+                        "not claiming it (running apps won't update live)\n",
+                selname);
+        return 0;
+    }
+
+    g_xs_win = XCreateSimpleWindow(g_dpy, g_root, -100, -100, 1, 1, 0, 0, 0);
+    XSetSelectionOwner(g_dpy, g_xs_selection, g_xs_win, CurrentTime);
+    if (XGetSelectionOwner(g_dpy, g_xs_selection) != g_xs_win) {
+        fprintf(stderr, "kiconfd: could not become the XSETTINGS manager\n");
+        XDestroyWindow(g_dpy, g_xs_win);
+        g_xs_win = None;
+        return 0;
+    }
+
+    /* Clients started before us are watching the root for this, and it's
+     * how they learn to go look for the settings property at all. */
+    XClientMessageEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.type = ClientMessage;
+    ev.window = g_root;
+    ev.message_type = XInternAtom(g_dpy, "MANAGER", False);
+    ev.format = 32;
+    ev.data.l[0] = CurrentTime;
+    ev.data.l[1] = (long)g_xs_selection;
+    ev.data.l[2] = (long)g_xs_win;
+    XSendEvent(g_dpy, g_root, False, StructureNotifyMask, (XEvent *)&ev);
+
+    fprintf(stderr, "kiconfd: XSETTINGS manager for %s\n", selname);
+    return 1;
+}
+
+static void apply_xsettings(void)
+{
+    if (g_xs_win == None) {
+        return;
+    }
+
+    /* Clients compare serials to decide what to re-read, so this must
+     * move on every apply or a reload would be silently ignored. */
+    g_xs_serial++;
+
+    xs_begin();
+    /* XSETTINGS carries a single theme name, and GTK2 honours it over
+     * ~/.gtkrc-2.0. So gtk3_theme is what goes on the wire and GTK2 apps
+     * follow it too; gtk2_theme only still matters for apps that start
+     * with no XSETTINGS manager around. */
+    xs_string("Net/ThemeName", g_gtk3_theme);
+    xs_string("Net/IconThemeName", g_icon_theme);
+    xs_string("Gtk/FontName", g_font_general);
+    xs_string("Gtk/CursorThemeName", g_cursor_theme);
+    xs_int("Gtk/CursorThemeSize", g_cursor_size);
+    xs_end();
+
+    XChangeProperty(g_dpy, g_xs_win, g_xs_prop, g_xs_prop, 8, PropModeReplace, g_xs_buf, (int)g_xs_len);
+
+    if (strcmp(g_gtk2_theme, g_gtk3_theme) != 0) {
+        fprintf(stderr,
+                "kiconfd: note: gtk2_theme ('%s') differs from gtk3_theme ('%s'), but XSETTINGS "
+                "carries only one theme name -- running GTK2 apps will follow '%s'\n",
+                g_gtk2_theme, g_gtk3_theme, g_gtk3_theme);
+    }
+}
+
 static void apply_cursor_theme(void)
 {
     Cursor cur = XcursorLibraryLoadCursor(g_dpy, g_cursor_theme);
@@ -701,6 +919,7 @@ static void apply_all(void)
 {
     apply_cursor_theme();
     apply_resource_manager();
+    apply_xsettings();
     apply_gtk2();
     apply_gtk_modern("3.0", g_gtk3_theme);
     apply_gtk_modern("4.0", g_gtk4_theme);
@@ -798,6 +1017,10 @@ int main(int argc, char **argv)
         return 1;
     }
     g_root = DefaultRootWindow(g_dpy);
+
+    /* Claimed before the first apply_all() below, so the very first
+     * publish already goes out over XSETTINGS too. */
+    init_xsettings();
 
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
