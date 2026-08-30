@@ -26,6 +26,21 @@ void cycle_focus(int direction);
 
 void close_client(Client *c);
 void toggle_maximize(Client *c, int want /* -1=toggle 0=unmax 1=max */);
+/* The single-axis maximizations EWMH has always had as separate states
+ * (_NET_WM_STATE_MAXIMIZED_HORZ / _VERT): fill the output's usable width
+ * or height, leaving the other axis exactly where the user put it. Bound
+ * to the maximize button's right and middle click (events.c), the same
+ * places kwin puts them. Going from either of these to a full maximize
+ * and back restores the geometry from before *any* of it -- see
+ * client.c's set_maximized(). */
+void toggle_maximize_horz(Client *c, int want /* -1=toggle 0=off 1=on */);
+void toggle_maximize_vert(Client *c, int want /* -1=toggle 0=off 1=on */);
+/* Sets both axes at once -- what the three toggles above are written in
+ * terms of, and what a _NET_WM_STATE client message naming one or both of
+ * the maximize atoms resolves to (events.c). Captures the floating
+ * geometry when the window first leaves it and hands back exactly the
+ * axes being given up. */
+void client_set_maximized(Client *c, bool horz, bool vert);
 void toggle_fullscreen(Client *c, int want /* -1=toggle 0=unfullscreen 1=fullscreen */);
 void toggle_shade(Client *c, int want /* -1=toggle 0=unshade 1=shade */);
 void unshade_now(Client *c);

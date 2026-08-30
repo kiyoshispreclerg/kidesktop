@@ -119,7 +119,7 @@ static void handle_configure_request(xcb_configure_request_event_t *ev)
         return;
     }
 
-    if (c->maximized) {
+    if (client_maximized(c)) {
         /* Ignore geometry requests while maximized; just re-affirm current state. */
         configure_frame(c);
         xcb_flush(wm.conn);
@@ -308,7 +308,7 @@ static bool resize_grip_at(Client *c, int root_x, int root_y,
      * link_resize_neighbors= is for, and it should not need a modifier. A
      * shaded window is nothing but titlebar, so it has no edges to grip
      * either. */
-    if (wm.resize_grip <= 0 || !c->allow_resize || c->shaded || c->maximized)
+    if (wm.resize_grip <= 0 || !c->allow_resize || c->shaded || client_maximized(c))
         return false;
 
     int rel_x = root_x - c->x;
@@ -433,7 +433,7 @@ static void begin_drag_at(Client *c, DragMode mode, int root_x, int root_y,
     wm.drag_preserve_snap = preserve_snap;
     wm.drag_detile_pending = false;
     if (!wm.drag_preserve_snap) {
-        if (mode == DRAG_MOVE && (c->maximized || c->snap_side != SNAP_NONE))
+        if (mode == DRAG_MOVE && (c->max_horz || c->max_vert || c->snap_side != SNAP_NONE))
             wm.drag_detile_pending = true;
         else
             detile_for_drag(c, root_x, root_y);
@@ -527,11 +527,29 @@ static bool deco_kind_is_button(DecoElemKind kind)
     }
 }
 
-static void run_deco_button(Client *c, DecoElemKind kind)
+/* `button` is the mouse button that armed this press. Only the maximize
+ * button distinguishes them, the way kwin's does: left maximizes both
+ * directions (and from a single-axis state takes the window the rest of
+ * the way, so the *next* left click restores it to the geometry from
+ * before any of it), right maximizes horizontally only, middle
+ * vertically only. Every other button ignores anything but the left. */
+static void run_deco_button(Client *c, DecoElemKind kind, uint8_t button)
 {
+    if (kind == DECO_MAXIMIZE) {
+        switch (button) {
+        case XCB_BUTTON_INDEX_1: toggle_maximize(c, -1); break;
+        case XCB_BUTTON_INDEX_3: toggle_maximize_horz(c, -1); break;
+        case XCB_BUTTON_INDEX_2: toggle_maximize_vert(c, -1); break;
+        default: break;
+        }
+        return;
+    }
+
+    if (button != XCB_BUTTON_INDEX_1)
+        return;
+
     switch (kind) {
     case DECO_CLOSE:             close_client(c); break;
-    case DECO_MAXIMIZE:          toggle_maximize(c, -1); break;
     case DECO_MINIMIZE:          minimize_client(c); break;
     case DECO_SHADE:             toggle_shade(c, -1); break;
     case DECO_KEEP_ABOVE:        toggle_keep_above(c, -1); break;
@@ -562,12 +580,39 @@ static void handle_button_press(xcb_button_press_event_t *ev)
         return;
     }
 
-    /* Right-click anywhere on the decoration opens the window menu
+    /* A titlebar *button* takes left, right and middle clicks -- the
+     * maximize button does something different with each (see
+     * run_deco_button()) -- so this is checked before the right-click
+     * window menu below, which owns every other part of the decoration.
+     * Modifier-drags still win: those are the move/resize gestures. */
+    bool plain_click = !(ev->state & (wm.mod_cycle | wm.mod_control));
+    if (on_titlebar && plain_click &&
+        (ev->detail == XCB_BUTTON_INDEX_1 || ev->detail == XCB_BUTTON_INDEX_2 ||
+         ev->detail == XCB_BUTTON_INDEX_3)) {
+        DecoSlot slots[MAX_DECO_ELEMS];
+        int idx = deco_slot_at(c, rel_x, slots, MAX_DECO_ELEMS);
+        if (idx >= 0 && deco_kind_is_button(slots[idx].kind)) {
+            /* Pressing only *arms* the button: the action fires on
+             * release, and only if the release lands on the same button
+             * (handle_button_release()), so a click that landed on the
+             * wrong one can be taken back by dragging off it -- the way
+             * buttons behave everywhere else. It's also what makes a
+             * held-down state worth drawing at all; see btns.png's third
+             * row (wm.h's BTNCOL_* comment). */
+            wm.pressed_client = c;
+            wm.pressed_btn = idx;
+            wm.pressed_button = ev->detail;
+            draw_decoration(c);
+            xcb_flush(wm.conn);
+            return;
+        }
+    }
+
+    /* Right-click anywhere else on the decoration opens the window menu
      * (menu.c) -- unless a modifier is held, which is the resize gesture
      * below. Not just the titlebar: the border counts too, same as every
      * other WM. */
-    if (client_deco_visible(c) && ev->detail == 3 &&
-        !(ev->state & (wm.mod_cycle | wm.mod_control)) && ev->event == c->frame) {
+    if (client_deco_visible(c) && ev->detail == 3 && plain_click && ev->event == c->frame) {
         window_menu_open(c, ev->root_x, ev->root_y);
         return;
     }
@@ -575,29 +620,13 @@ static void handle_button_press(xcb_button_press_event_t *ev)
     if (on_titlebar && ev->detail == 1) {
         DecoSlot slots[MAX_DECO_ELEMS];
         int idx = deco_slot_at(c, rel_x, slots, MAX_DECO_ELEMS);
-        if (idx >= 0) {
-            /* The window icon is the menu's other, older home: clicking it
-             * opens the same menu, anchored just under the titlebar. A
-             * menu opens on press on purpose -- it's the one titlebar
-             * element you can press and drag straight into. */
-            if (slots[idx].kind == DECO_ICON) {
-                window_menu_open(c, c->x + slots[idx].x, c->y + TITLEBAR_H);
-                return;
-            }
-            if (deco_kind_is_button(slots[idx].kind)) {
-                /* Pressing only *arms* the button: the action fires on
-                 * release, and only if the release lands on the same
-                 * button (handle_button_release()), so a click that
-                 * landed on the wrong one can be taken back by dragging
-                 * off it -- the way buttons behave everywhere else. It's
-                 * also what makes a held-down state worth drawing at all;
-                 * see btns.png's third row (wm.h's BTNCOL_* comment). */
-                wm.pressed_client = c;
-                wm.pressed_btn = idx;
-                draw_decoration(c);
-                xcb_flush(wm.conn);
-                return;
-            }
+        /* The window icon is the menu's other, older home: clicking it
+         * opens the same menu, anchored just under the titlebar. A menu
+         * opens on press on purpose -- it's the one titlebar element you
+         * can press and drag straight into. */
+        if (idx >= 0 && slots[idx].kind == DECO_ICON) {
+            window_menu_open(c, c->x + slots[idx].x, c->y + TITLEBAR_H);
+            return;
         }
 
         /* Plain titlebar area (icon/title, or no element under the
@@ -721,7 +750,8 @@ static void apply_drag_snap(Client *c, SnapSide side, int wx, int wy, int ww, in
     case SNAP_TOP: {
         unshade_now(c);
         c->snap_side = SNAP_NONE;
-        c->maximized = true;
+        c->max_horz = true;
+        c->max_vert = true;
         int bt, th;
         bool deco = client_deco_visible(c);
         th = deco ? TITLEBAR_H : 0;
@@ -1203,7 +1233,7 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
     if (wm.drag_mode == DRAG_MOVE && try_edge_snap(c, ev, dx, dy))
         return; /* settled into a snapped state this motion event; nothing else to do */
 
-    if (c->maximized)
+    if (c->max_horz || c->max_vert)
         toggle_maximize(c, 0);
     /* A resize preserving a half-snap's state (wm.drag_preserve_snap, see
      * begin_drag()'s should_preserve_snap_resize()) must keep
@@ -1334,8 +1364,19 @@ static void handle_button_release(xcb_button_release_event_t *ev)
     if (wm.pressed_client) {
         Client *c = wm.pressed_client;
         int armed = wm.pressed_btn;
+        uint8_t armed_button = wm.pressed_button;
         wm.pressed_client = NULL;
         wm.pressed_btn = -1;
+        wm.pressed_button = 0;
+
+        /* Only the button that armed it can fire it: with three different
+         * actions on the maximize button, a release from some *other*
+         * button held at the same time must not stand in for it. */
+        if (ev->detail != armed_button) {
+            draw_decoration(c);
+            xcb_flush(wm.conn);
+            return;
+        }
 
         int rel_x = ev->root_x - c->x;
         int rel_y = ev->root_y - c->y;
@@ -1348,7 +1389,7 @@ static void handle_button_release(xcb_button_release_event_t *ev)
         draw_decoration(c);
 
         if (on_titlebar && idx >= 0 && idx == armed)
-            run_deco_button(c, slots[idx].kind);
+            run_deco_button(c, slots[idx].kind, armed_button);
         xcb_flush(wm.conn);
         return;
     }
@@ -1498,8 +1539,10 @@ static void handle_key_press(xcb_key_press_event_t *ev)
 
 static void handle_net_wm_state(Client *c, uint32_t action, xcb_atom_t a1, xcb_atom_t a2)
 {
-    bool is_max = (a1 == wm.atoms.net_wm_state_maximized_vert || a1 == wm.atoms.net_wm_state_maximized_horz ||
-                   a2 == wm.atoms.net_wm_state_maximized_vert || a2 == wm.atoms.net_wm_state_maximized_horz);
+    bool is_max_v = (a1 == wm.atoms.net_wm_state_maximized_vert ||
+                     a2 == wm.atoms.net_wm_state_maximized_vert);
+    bool is_max_h = (a1 == wm.atoms.net_wm_state_maximized_horz ||
+                     a2 == wm.atoms.net_wm_state_maximized_horz);
     bool is_hidden = (a1 == wm.atoms.net_wm_state_hidden || a2 == wm.atoms.net_wm_state_hidden);
     bool is_shaded = (a1 == wm.atoms.net_wm_state_shaded || a2 == wm.atoms.net_wm_state_shaded);
     bool is_above = (a1 == wm.atoms.net_wm_state_above || a2 == wm.atoms.net_wm_state_above);
@@ -1508,9 +1551,17 @@ static void handle_net_wm_state(Client *c, uint32_t action, xcb_atom_t a1, xcb_a
     bool is_below = (a1 == wm.atoms.net_wm_state_below || a2 == wm.atoms.net_wm_state_below);
 
     /* action: 0=remove, 1=add, 2=toggle (_NET_WM_STATE_TOGGLE) */
-    if (is_max) {
-        int want = (action == 2) ? -1 : (action == 1 ? 1 : 0);
-        toggle_maximize(c, want);
+    if (is_max_v || is_max_h) {
+        /* Each axis named in the message moves on its own, and one that
+         * isn't named is left exactly as it is -- a client asking only for
+         * _NET_WM_STATE_MAXIMIZED_HORZ means only that. Both named at once
+         * (the usual "maximize this window" message) works out as the
+         * ordinary full maximize. */
+        bool want_h = c->max_horz;
+        bool want_v = c->max_vert;
+        if (is_max_h) want_h = (action == 2) ? !c->max_horz : (action == 1);
+        if (is_max_v) want_v = (action == 2) ? !c->max_vert : (action == 1);
+        client_set_maximized(c, want_h, want_v);
     }
     if (is_hidden) {
         bool want_hidden = (action == 2) ? !c->minimized : (action == 1);

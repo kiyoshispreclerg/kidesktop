@@ -382,7 +382,7 @@ bool client_deco_visible(Client *c)
      * titlebars otherwise. */
     if (c->undecorated)
         return false;
-    return !(c->maximized && wm.hide_deco_on_maximize);
+    return !(client_maximized(c) && wm.hide_deco_on_maximize);
 }
 
 /* Paints one source sub-rectangle [sx,sy,sw,sh] of `src` into one
@@ -528,7 +528,7 @@ void apply_rounded_shape(Client *c)
         return;
 
     bool square = (wm.radius_tl == 0 && wm.radius_tr == 0 && wm.radius_br == 0 && wm.radius_bl == 0);
-    if (!square && c->maximized && !wm.round_maximized)
+    if (!square && client_maximized(c) && !wm.round_maximized)
         square = true;
     if (!square && client_fills_output(c))
         square = true;
@@ -818,8 +818,11 @@ void draw_decoration(Client *c)
             draw_button(cr, s->x, BTNCOL_MINIMIZE, '-', hovered, false, pressed);
             break;
         case DECO_MAXIMIZE:
-            draw_button(cr, s->x, c->maximized ? BTNCOL_RESTORE : BTNCOL_MAXIMIZE,
-                       c->maximized ? 'r' : '+', hovered, false, pressed);
+            /* The "restore" look stands for any maximization, including a
+             * single-axis one: in all of them a plain click is about
+             * giving the state up rather than taking more of it. */
+            draw_button(cr, s->x, (c->max_horz || c->max_vert) ? BTNCOL_RESTORE : BTNCOL_MAXIMIZE,
+                       (c->max_horz || c->max_vert) ? 'r' : '+', hovered, false, pressed);
             break;
         case DECO_CLOSE:
             draw_button(cr, s->x, BTNCOL_CLOSE, 'x', hovered, false, pressed);

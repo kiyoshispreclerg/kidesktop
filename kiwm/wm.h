@@ -256,7 +256,16 @@ struct Client {
     int frame_width, frame_height;
 
     bool mapped;
-    bool maximized;
+    /* Maximization, tracked per axis: EWMH has always had
+     * _NET_WM_STATE_MAXIMIZED_VERT and _HORZ as two independent states,
+     * and both single-axis ones are real things a user asks for (kwin
+     * binds them to the maximize button's right and middle click, which
+     * is where kiwm's own come from -- see events.c's run_deco_button()).
+     * "Maximized" with no qualifier means both, which is what
+     * client_maximized() below asks; nothing outside the maximize code
+     * should test the two flags directly. */
+    bool max_horz;
+    bool max_vert;
     bool minimized;
     bool shaded;    /* content window unmapped, only the titlebar shows --
                      * see client.c's toggle_shade(). Orthogonal to
@@ -353,7 +362,8 @@ struct Client {
     bool hints_fixed_size;
 
     int fs_saved_x, fs_saved_y, fs_saved_w, fs_saved_h; /* restore geometry before fullscreen */
-    bool fs_was_maximized;   /* whether to re-maximize (vs. just float) on leaving fullscreen */
+    bool fs_was_max_horz;    /* which maximization to restore (vs. just float) on leaving fullscreen */
+    bool fs_was_max_vert;
     SnapSide fs_saved_snap_side; /* ditto, for half-snapped windows */
 
     /* ICCCM WM_NORMAL_HINTS' minimum size (see ewmh.c's get_size_hints()),
@@ -392,6 +402,15 @@ struct Client {
 
     Client *next;
 };
+
+/* "Maximized", unqualified: both axes at once. Everything that just wants
+ * to know whether a window is filling its output asks this rather than
+ * looking at Client::max_horz/max_vert, which only the maximize code
+ * itself has any business telling apart. */
+static inline bool client_maximized(const Client *c)
+{
+    return c->max_horz && c->max_vert;
+}
 
 typedef struct {
     xcb_atom_t wm_protocols;
@@ -684,6 +703,11 @@ typedef struct {
      * -1 for none. */
     Client *pressed_client;
     int pressed_btn;
+    /* Which mouse button armed it: the maximize button does something
+     * different for each (full / horizontal / vertical -- see events.c's
+     * run_deco_button()), so the release has to fire the action the
+     * *press* was for, not whichever button happens to come up. */
+    uint8_t pressed_button;
 
     /* Titlebar element order, kiwm.conf's titlebar_layout= -- see
      * DecoElemKind and decoration.h's compute_deco_layout(). Defaults (see

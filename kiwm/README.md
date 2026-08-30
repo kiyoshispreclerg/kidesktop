@@ -14,6 +14,12 @@ exposes.
 
 - map/unmap/move/resize/maximize/minimize/close, click-to-focus (or optional
   focus-follows-mouse), Alt-Tab-style window cycling.
+- Maximization is tracked **per axis**, as EWMH has always defined it: `_NET_WM_STATE_MAXIMIZED_VERT`
+  and `_NET_WM_STATE_MAXIMIZED_HORZ` are two independent states, published independently, and a
+  client message naming only one of them moves only that axis. A window the previous WM left
+  maximized in a single direction is adopted that way too. "Maximized" with no qualifier means both
+  axes; the single-axis ones are on the maximize button's right and middle click (see "Mouse and
+  keyboard reference").
 - Themed on-screen overlays (`osd_enabled=`, default on) for both window cycling and desktop
   switching -- see "On-screen overlays (OSD)" below. The window list includes minimized windows
   (dimmed, as a taskbar shows them), and committing to one restores it. A minimized window is still
@@ -470,7 +476,13 @@ separately bindable; they follow `mod_cycle=`/`mod_control=` directly. With the 
 - **Scroll** a titlebar: shade/unshade.
 - **Right-click** the decoration (titlebar or border), or **click the window icon**: the window
   context menu -- see "Window context menu" below.
-- Titlebar buttons: whatever `titlebar_layout=` configures, left to right.
+- Titlebar buttons: whatever `titlebar_layout=` configures, left to right. They act on **release**,
+  and only when the release lands on the same button the press did -- dragging off a button before
+  letting go cancels it, and the button is drawn held down (`btns.png`'s third row) in between.
+- **Maximize button**: left click maximizes both directions; **right click** maximizes horizontally
+  only, **middle click** vertically only, the way kwin's does. From either single-axis state a left
+  click takes the window the rest of the way, and the click after that restores it to the geometry
+  it had before any of it.
 - **Click-drag a window's edge or corner**: resize, no modifier needed, decoration or not -- see
   `resize_grip=` above. A corner resizes both axes; an edge only its own.
 - **Alt+drag** (left button), or **Meta+drag** (any button): move a window from anywhere on it,

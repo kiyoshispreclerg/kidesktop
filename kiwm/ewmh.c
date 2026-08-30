@@ -77,10 +77,12 @@ void ewmh_update_wm_state(Client *c)
         out[n++] = keep[i];
     if (c->minimized)
         out[n++] = wm.atoms.net_wm_state_hidden;
-    if (c->maximized) {
+    /* Two independent states, published independently -- a window
+     * maximized in one direction only says exactly that. */
+    if (c->max_vert)
         out[n++] = wm.atoms.net_wm_state_maximized_vert;
+    if (c->max_horz)
         out[n++] = wm.atoms.net_wm_state_maximized_horz;
-    }
     if (c->shaded)
         out[n++] = wm.atoms.net_wm_state_shaded;
     if (c->keep_above)

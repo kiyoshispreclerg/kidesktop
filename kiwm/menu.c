@@ -91,7 +91,7 @@ static bool can_maximize(const Client *c)  { return c->allow_maximize; }
 static bool can_close(const Client *c)     { return c->allow_close; }
 static bool can_pick_desktop(const Client *c) { return !c->sticky && wm.num_desktops > 1; }
 
-static bool is_maximized(const Client *c)  { return c->maximized; }
+static bool is_maximized(const Client *c)  { return client_maximized(c); }
 static bool is_shaded(const Client *c)     { return c->shaded; }
 static bool is_sticky(const Client *c)     { return c->sticky; }
 static bool is_kept_above(const Client *c) { return c->keep_above; }

@@ -1048,7 +1048,8 @@ void toggle_shade(Client *c, int want /* -1=toggle 0=unshade 1=shade */)
  * window must never cover a taskbar. Split out from toggle_maximize()
  * because the answer changes over a window's lifetime, whenever a panel
  * appears, disappears, moves output or changes its strut -- see
- * refit_tiled_clients(). Sets geometry only; the caller owns c->maximized
+ * refit_tiled_clients(). Sets geometry only; the caller owns the axis
+ * flags
  * and the redraw. */
 static void apply_maximized_geometry(Client *c)
 {
@@ -1057,12 +1058,19 @@ static void apply_maximized_geometry(Client *c)
 
     int bt, th;
     deco_insets(c, &bt, &th);
-    c->x = wx;
-    c->y = wy;
-    c->width = ww - bt * 2;
-    c->height = wh - th - bt;
-    if (c->width < c->min_w) c->width = c->min_w;
-    if (c->height < c->min_h) c->height = c->min_h;
+
+    /* Per axis: a horizontally-maximized window keeps whatever height and
+     * y it had, and vice versa. Both together is the ordinary maximize. */
+    if (c->max_horz) {
+        c->x = wx;
+        c->width = ww - bt * 2;
+        if (c->width < c->min_w) c->width = c->min_w;
+    }
+    if (c->max_vert) {
+        c->y = wy;
+        c->height = wh - th - bt;
+        if (c->height < c->min_h) c->height = c->min_h;
+    }
 }
 
 /* Re-derives the geometry of every client whose size isn't its own choice
@@ -1094,7 +1102,7 @@ void refit_tiled_clients(void)
                 c->width = wm.outputs[c->output].width;
                 c->height = wm.outputs[c->output].height;
             }
-        } else if (c->maximized) {
+        } else if (c->max_horz || c->max_vert) {
             apply_maximized_geometry(c);
         } else if (c->snap_side != SNAP_NONE) {
             snap_client_to_side(c, c->snap_side);
@@ -1111,21 +1119,36 @@ void refit_tiled_clients(void)
         xcb_flush(wm.conn);
 }
 
-void toggle_maximize(Client *c, int want /* -1=toggle 0=unmax 1=max */)
+/* The one place maximization state changes (see client.h): sets the two axis flags to
+ * `horz`/`vert` and makes the geometry match, capturing (or handing back)
+ * the floating geometry as the window enters or leaves maximization.
+ *
+ * "Enters" means going from neither axis to either one, which is what
+ * makes the single-axis states compose the way they should: maximizing
+ * horizontally and then fully keeps the *original* floating geometry as
+ * the restore target, rather than replacing it with the
+ * horizontally-maximized one halfway through. Only the axes being given
+ * up are restored, so unmaximizing one axis of a fully maximized window
+ * leaves the other where it is. */
+void client_set_maximized(Client *c, bool horz, bool vert)
 {
-    bool target = (want == -1) ? !c->maximized : (want == 1);
-    if (target == c->maximized)
+    bool was_any = c->max_horz || c->max_vert;
+    bool want_any = horz || vert;
+
+    if (horz == c->max_horz && vert == c->max_vert)
         return;
+
     /* Refused for a window that says it can't be maximized (see
      * update_client_actions()) -- the titlebar button for it isn't even
      * drawn, but the same operation is reachable from a taskbar, a
-     * shortcut and a _NET_WM_STATE client message, and all of them have to
-     * agree. Un-maximizing is always allowed: whatever put the window in
-     * that state, it has to be possible to get out of it. */
-    if (target && !c->allow_maximize)
+     * shortcut, the window menu and a _NET_WM_STATE client message, and
+     * all of them have to agree. Un-maximizing is always allowed:
+     * whatever put the window in that state, it has to be possible to get
+     * out of it. */
+    if (want_any && !was_any && !c->allow_maximize)
         return;
 
-    if (target) {
+    if (want_any && !was_any) {
         unshade_now(c);
 
         /* Only capture the "restore" geometry when currently floating --
@@ -1133,30 +1156,60 @@ void toggle_maximize(Client *c, int want /* -1=toggle 0=unmax 1=max */)
          * state's own saved_x/y/w/h already holds the true pre-tiling
          * geometry from whenever tiling was first entered, and clicking
          * maximize directly (no drag involved) must not clobber it with
-         * the half-snapped size instead. See PROTOCOL notes in
-         * events.c's try_edge_snap() for the drag-path equivalent. */
+         * the half-snapped size instead. See the drag-path equivalent in
+         * events.c's try_edge_snap(). */
         if (c->snap_side == SNAP_NONE) {
             c->saved_x = c->x;
             c->saved_y = c->y;
             c->saved_w = c->width;
             c->saved_h = c->height;
         }
-
-        c->maximized = true;
         c->snap_side = SNAP_NONE;
-        apply_maximized_geometry(c);
-    } else {
-        c->maximized = false;
+    }
+
+    /* Give back the axes being dropped before applying the ones being
+     * taken, so a window that swaps one axis for the other lands on the
+     * floating geometry for the axis it just gave up. */
+    if (c->max_horz && !horz) {
         c->x = c->saved_x;
-        c->y = c->saved_y;
         c->width = c->saved_w;
+    }
+    if (c->max_vert && !vert) {
+        c->y = c->saved_y;
         c->height = c->saved_h;
     }
+
+    c->max_horz = horz;
+    c->max_vert = vert;
+    apply_maximized_geometry(c);
 
     configure_frame(c);
     ewmh_update_wm_state(c);
     ewmh_update_frame_extents(c);
     xcb_flush(wm.conn);
+}
+
+void toggle_maximize(Client *c, int want /* -1=toggle 0=unmax 1=max */)
+{
+    /* Plain "maximize": both axes. From a single-axis state this takes
+     * the window the rest of the way (kwin does the same) rather than
+     * restoring it -- restoring is then the *next* press, and it goes
+     * back to the geometry from before any of it, since that's what
+     * saved_x/y/w/h has held all along. */
+    bool target = (want == -1) ? !client_maximized(c) : (want == 1);
+    client_set_maximized(c, target, target);
+}
+
+void toggle_maximize_horz(Client *c, int want)
+{
+    bool target = (want == -1) ? !c->max_horz : (want == 1);
+    client_set_maximized(c, target, c->max_vert);
+}
+
+void toggle_maximize_vert(Client *c, int want)
+{
+    bool target = (want == -1) ? !c->max_vert : (want == 1);
+    client_set_maximized(c, c->max_horz, target);
 }
 
 /* _NET_WM_STATE_FULLSCREEN: unlike toggle_maximize's workarea fill, covers
@@ -1180,11 +1233,13 @@ void toggle_fullscreen(Client *c, int want /* -1=toggle 0=unfullscreen 1=fullscr
         c->fs_saved_y = c->y;
         c->fs_saved_w = c->width;
         c->fs_saved_h = c->height;
-        c->fs_was_maximized = c->maximized;
+        c->fs_was_max_horz = c->max_horz;
+        c->fs_was_max_vert = c->max_vert;
         c->fs_saved_snap_side = c->snap_side;
 
         c->fullscreen = true;
-        c->maximized = false;
+        c->max_horz = false;
+        c->max_vert = false;
         c->snap_side = SNAP_NONE;
 
         int ox = 0, oy = 0, ow = 0, oh = 0;
@@ -1210,8 +1265,10 @@ void toggle_fullscreen(Client *c, int want /* -1=toggle 0=unfullscreen 1=fullscr
     }
 
     c->fullscreen = false;
-    bool restore_maximized = c->fs_was_maximized;
-    c->fs_was_maximized = false;
+    bool restore_horz = c->fs_was_max_horz;
+    bool restore_vert = c->fs_was_max_vert;
+    c->fs_was_max_horz = false;
+    c->fs_was_max_vert = false;
 
     c->x = c->fs_saved_x;
     c->y = c->fs_saved_y;
@@ -1219,7 +1276,7 @@ void toggle_fullscreen(Client *c, int want /* -1=toggle 0=unfullscreen 1=fullscr
     c->height = c->fs_saved_h;
     c->snap_side = c->fs_saved_snap_side;
 
-    if (restore_maximized) {
+    if (restore_horz || restore_vert) {
         /* saved_x/y/w/h still holds the floating geometry from before the
          * window was *maximized*, which is what a later unmaximize has to
          * restore -- so hand that back as the current geometry before
@@ -1236,7 +1293,7 @@ void toggle_fullscreen(Client *c, int want /* -1=toggle 0=unfullscreen 1=fullscr
         c->y = c->saved_y;
         c->width = c->saved_w;
         c->height = c->saved_h;
-        toggle_maximize(c, 1);
+        client_set_maximized(c, restore_horz, restore_vert);
         restack_all(); /* re-affirms its position in LAYER_NORMAL -- harmless no-op if nothing else changed */
         xcb_flush(wm.conn);
         return;
@@ -1273,7 +1330,8 @@ void snap_client_to_side(Client *c, SnapSide side)
     deco_insets(c, &bt, &th);
 
     int half = ww / 2;
-    c->maximized = false;
+    c->max_horz = false;
+    c->max_vert = false;
     c->snap_side = side;
     c->y = wy;
     c->height = wh - th - bt;
@@ -1306,7 +1364,7 @@ void toggle_snap_side(Client *c, SnapSide side)
     if (c->snap_side == side) {
         unsnap_client(c, c->saved_x, c->saved_y, c->saved_w, c->saved_h);
     } else {
-        if (c->snap_side == SNAP_NONE && !c->maximized) {
+        if (c->snap_side == SNAP_NONE && !c->max_horz && !c->max_vert) {
             c->saved_x = c->x;
             c->saved_y = c->y;
             c->saved_w = c->width;
@@ -1327,7 +1385,8 @@ void toggle_snap_side(Client *c, SnapSide side)
  * the caller's own responsibility to configure_frame()/flush afterward. */
 void unsnap_client(Client *c, int x, int y, int width, int height)
 {
-    c->maximized = false;
+    c->max_horz = false;
+    c->max_vert = false;
     c->snap_side = SNAP_NONE;
     c->x = x;
     c->y = y;
@@ -1353,7 +1412,7 @@ void unsnap_client(Client *c, int x, int y, int width, int height)
  * builds on this restored geometry as its baseline. */
 void detile_for_drag(Client *c, int press_root_x, int press_root_y)
 {
-    if (!c->maximized && c->snap_side == SNAP_NONE)
+    if (!c->max_horz && !c->max_vert && c->snap_side == SNAP_NONE)
         return;
 
     int old_fw = c->frame_width, old_fh = c->frame_height;
@@ -1362,7 +1421,8 @@ void detile_for_drag(Client *c, int press_root_x, int press_root_y)
     if (frac_x < 0.0) frac_x = 0.0; else if (frac_x > 1.0) frac_x = 1.0;
     if (frac_y < 0.0) frac_y = 0.0; else if (frac_y > 1.0) frac_y = 1.0;
 
-    c->maximized = false;
+    c->max_horz = false;
+    c->max_vert = false;
     c->snap_side = SNAP_NONE;
     c->width = c->saved_w;
     c->height = c->saved_h;
@@ -1654,15 +1714,17 @@ static bool adopt_initial_wm_state(Client *c)
     }
     free(reply);
 
-    if (!(max_v && max_h) && !fullscreen && !shaded && !above && !below && !sticky && !hidden)
+    if (!max_v && !max_h && !fullscreen && !shaded && !above && !below && !sticky && !hidden)
         return false;
 
     /* Maximize first, then fullscreen, so toggle_fullscreen() records
-     * fs_was_maximized and leaving fullscreen lands back on a maximized
-     * window rather than a floating one -- exactly the nesting a live
-     * toggle would have produced. */
-    if (max_v && max_h)
-        toggle_maximize(c, 1);
+     * which axes were maximized and leaving fullscreen lands back on the
+     * same state rather than a floating window -- exactly the nesting a
+     * live toggle would have produced. Each axis is adopted on its own:
+     * EWMH has always had them as two states, and a window the previous
+     * WM left maximized in only one direction should come up that way. */
+    if (max_h || max_v)
+        client_set_maximized(c, max_h, max_v);
     if (fullscreen)
         toggle_fullscreen(c, 1);
 
@@ -1673,7 +1735,7 @@ static bool adopt_initial_wm_state(Client *c)
      * the fact, rather than seeding it first (the toggles would just
      * overwrite it right back). */
     seed_restore_geometry(c);
-    if (fullscreen && !(max_v && max_h)) {
+    if (fullscreen && !max_h && !max_v) {
         /* Fullscreen with nothing to fall back to: leaving it restores
          * fs_saved_* directly, so that's the copy that needs seeding. */
         c->fs_saved_x = c->saved_x;
