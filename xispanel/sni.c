@@ -76,6 +76,23 @@
  * SNI_ICON_REFRESH_MS safety net. */
 #define SNI_ICON_DEBOUNCE_MS 1000
 #define SNI_CALL_TIMEOUT_MS 200
+/* Ceiling on how long one sni_poll() may spend inside blocking calls
+ * before deferring the rest to the next poll. Every property fetch is
+ * synchronous and runs on the panel's main loop, so without a cap a few
+ * wedged items multiply SNI_CALL_TIMEOUT_MS into a visibly frozen panel:
+ * the panel stops redrawing, stops answering clicks, and looks as hung as
+ * the app that caused it. The work isn't lost, just spread across polls. */
+#define SNI_POLL_BUDGET_MS 100
+/* An item that fails a call is left alone for a while instead of being
+ * retried every poll -- otherwise one permanently hung app costs a full
+ * timeout on every single poll, forever. Doubles per consecutive failure
+ * and resets on the first successful reply, so a briefly busy app
+ * recovers on its own while a truly dead one settles at one probe every
+ * SNI_QUARANTINE_MAX_MS. Its icon stays on the panel meanwhile, drawn
+ * from the last data we got -- vanishing on the first timeout would be
+ * worse. */
+#define SNI_QUARANTINE_BASE_MS 1000
+#define SNI_QUARANTINE_MAX_MS 30000
 #define SNI_MAX_ITEMS 24
 #define SNI_WATCHER_PATH "/StatusNotifierWatcher"
 #define SNI_ITEM_IFACE "org.kde.StatusNotifierItem"
@@ -101,6 +118,9 @@ typedef struct {
     uint64_t next_icon_poll_ms;
     uint64_t last_icon_fetch_ms; /* 0 = never fetched yet */
     int title_dirty;             /* fetch Title/IconName on the next dispatch */
+    /* Wedged-item backoff, see SNI_QUARANTINE_BASE_MS. 0/0 = healthy. */
+    uint64_t quarantine_until_ms;
+    int fail_count;
 } SniItem;
 
 static SniItem g_items[SNI_MAX_ITEMS];
@@ -472,6 +492,51 @@ static DBusMessage *sni_call2s(const char *dest, const char *path, const char *i
         return NULL;
     }
     return reply;
+}
+
+/* Properties.Get on one item, plus the bookkeeping that keeps a wedged
+ * app from taking the panel down with it: quarantined items are skipped
+ * outright (returning NULL without blocking), a timeout extends the
+ * quarantine, and any successful reply clears it. Every routine property
+ * fetch goes through here -- the click-driven paths (Activate, menu) do
+ * not, since there the user is waiting on that specific item anyway. */
+static DBusMessage *sni_get_item_prop(SniItem *it, const char *prop, uint64_t now)
+{
+    if (now < it->quarantine_until_ms) {
+        return NULL;
+    }
+
+    DBusMessage *reply = sni_call2s(it->busname, it->path,
+                                     "org.freedesktop.DBus.Properties", "Get",
+                                     SNI_ITEM_IFACE, prop);
+    if (reply) {
+        if (it->fail_count) {
+            fprintf(stderr, "xispanel: sni: item responsive again: %s%s\n", it->busname, it->path);
+        }
+        it->fail_count = 0;
+        it->quarantine_until_ms = 0;
+        return reply;
+    }
+
+    uint64_t backoff = (uint64_t)SNI_QUARANTINE_BASE_MS << (it->fail_count < 5 ? it->fail_count : 5);
+    if (backoff > SNI_QUARANTINE_MAX_MS) {
+        backoff = SNI_QUARANTINE_MAX_MS;
+    }
+    if (it->fail_count == 0) {
+        fprintf(stderr, "xispanel: sni: item not answering, backing off: %s%s\n", it->busname, it->path);
+    }
+    if (it->fail_count < 100) {
+        it->fail_count++;
+    }
+    it->quarantine_until_ms = now + backoff;
+    return NULL;
+}
+
+/* True once this poll has spent its blocking-call budget; the caller then
+ * stops issuing calls and lets the next poll pick up where it left off. */
+static int sni_over_budget(uint64_t poll_start)
+{
+    return now_ms() - poll_start >= SNI_POLL_BUDGET_MS;
 }
 
 /* Fire-and-forget call taking two int32 args -- Activate(x,y)/ContextMenu(x,y)/
@@ -1124,26 +1189,28 @@ int sni_poll(uint64_t now)
      * deadline forward.  There is deliberately no Properties.Get on every
      * tick anymore. */
     int changed = 0;
+    uint64_t poll_start = now_ms();
     for (int i = 0; i < g_n_items; i++) {
         SniItem *it = &g_items[i];
 
+        /* Whatever is left rolls over to the next poll -- an item's dirty
+         * flags and icon deadline are what schedule the work, and neither
+         * is cleared until its fetch actually happens. */
+        if (sni_over_budget(poll_start)) {
+            break;
+        }
+
         if (it->title_dirty) {
             char title[128] = "";
-            DBusMessage *treply =
-                sni_call2s(it->busname, it->path,
-                           "org.freedesktop.DBus.Properties", "Get",
-                           SNI_ITEM_IFACE, "Title");
+            DBusMessage *treply = sni_get_item_prop(it, "Title", now);
             if (!treply) {
-                continue; /* liveness is handled by the slow sweep below */
+                continue; /* quarantined or timed out; retried later */
             }
             extract_get_string(treply, title, sizeof(title));
             p_dbus_message_unref(treply);
 
             if (!title[0]) {
-                DBusMessage *nreply =
-                    sni_call2s(it->busname, it->path,
-                               "org.freedesktop.DBus.Properties", "Get",
-                               SNI_ITEM_IFACE, "IconName");
+                DBusMessage *nreply = sni_get_item_prop(it, "IconName", now);
                 if (nreply) {
                     extract_get_string(nreply, title, sizeof(title));
                     p_dbus_message_unref(nreply);
@@ -1160,20 +1227,14 @@ int sni_poll(uint64_t now)
             it->next_icon_poll_ms = now + SNI_ICON_REFRESH_MS;
             it->last_icon_fetch_ms = now;
 
-            DBusMessage *ireply =
-                sni_call2s(it->busname, it->path,
-                           "org.freedesktop.DBus.Properties", "Get",
-                           SNI_ITEM_IFACE, "IconPixmap");
+            DBusMessage *ireply = sni_get_item_prop(it, "IconPixmap", now);
             cairo_surface_t *icon = NULL;
             if (ireply) {
                 icon = shrink_icon_surface(extract_get_icon_pixmap(ireply), g_icon_target_size);
                 p_dbus_message_unref(ireply);
             }
             if (!icon) {
-                DBusMessage *nreply =
-                    sni_call2s(it->busname, it->path,
-                               "org.freedesktop.DBus.Properties", "Get",
-                               SNI_ITEM_IFACE, "IconName");
+                DBusMessage *nreply = sni_get_item_prop(it, "IconName", now);
                 if (nreply) {
                     char iconname[128] = "";
                     extract_get_string(nreply, iconname, sizeof(iconname));
@@ -1192,18 +1253,32 @@ int sni_poll(uint64_t now)
     }
 
     /* Very slow safety net for clients/watchers that fail to emit the normal
-     * registration/unregistration signals.  This is intentionally rare and
-     * is not part of the normal update path. */
+     * registration/unregistration signals. This is intentionally rare and
+     * is not part of the normal update path.
+     *
+     * The question asked here is "does this name still have an owner",
+     * put to the bus daemon -- not "does this app answer", put to the app.
+     * Those differ exactly in the case that matters: an app that is hung
+     * but alive still owns its name, and must keep its icon rather than be
+     * swept away for being slow. Asking the bus also means the sweep can
+     * never block on a wedged client, whereas the old Title probe spent a
+     * full SNI_CALL_TIMEOUT_MS per hung item, on the main loop. Genuine
+     * exits are caught immediately by NameOwnerChanged anyway (see
+     * sni_ensure_connected()); this only covers a name that went away
+     * without us seeing the signal. */
     if (now >= g_next_liveness_ms) {
         g_next_liveness_ms = now + SNI_LIVENESS_SWEEP_MS;
-        for (int i = 0; i < g_n_items; ) {
+        for (int i = 0; i < g_n_items;) {
             SniItem *it = &g_items[i];
-            DBusMessage *reply =
-                sni_call2s(it->busname, it->path,
-                           "org.freedesktop.DBus.Properties", "Get",
-                           SNI_ITEM_IFACE, "Title");
-            if (reply) {
-                p_dbus_message_unref(reply);
+            DBusError lerr;
+            p_dbus_error_init(&lerr);
+            dbus_bool_t owned = p_dbus_bus_name_has_owner(g_conn, it->busname, &lerr);
+            int query_failed = p_dbus_error_is_set(&lerr);
+            p_dbus_error_free(&lerr);
+            if (owned || query_failed) {
+                /* Keep it if it's owned, and also if the bus itself
+                 * couldn't answer -- never drop an icon on a failed
+                 * question. */
                 i++;
                 continue;
             }
