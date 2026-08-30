@@ -103,9 +103,35 @@ static void list_build(TabBoxState *state, int output_idx, int desktop)
          * one the client itself says isn't a switch target. */
         if (c->output == output_idx && (c->sticky || c->desktop == desktop) &&
             (c->mapped || c->minimized) && !c->skip_taskbar) {
-            if (c == wm.focused)
-                state->selected = state->count;
             state->items[state->count++] = c;
+        }
+    }
+
+    /* Most-recently-used order (kiwm.conf's osd_order=mru): X has no focus
+     * history to read -- EWMH stops at _NET_CLIENT_LIST_STACKING, which is
+     * stacking order and only resembles use order while click-to-focus
+     * raises everything -- so this sorts on kiwm's own record of it (see
+     * Client::last_focus_serial). Insertion sort: the list is one output's
+     * worth of windows, and it's built once per hold. */
+    if (wm.osd_mru_order) {
+        for (int i = 1; i < state->count; i++) {
+            Client *item = state->items[i];
+            int j = i - 1;
+            while (j >= 0 && state->items[j]->last_focus_serial < item->last_focus_serial) {
+                state->items[j + 1] = state->items[j];
+                j--;
+            }
+            state->items[j + 1] = item;
+        }
+    }
+
+    /* The hold starts on whatever is focused, so the first Tab step lands
+     * on the next entry -- which in MRU order is the previously used
+     * window, the flip-between-two behavior every desktop has. */
+    for (int i = 0; i < state->count; i++) {
+        if (state->items[i] == wm.focused) {
+            state->selected = i;
+            break;
         }
     }
 }

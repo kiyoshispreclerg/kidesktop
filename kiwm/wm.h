@@ -266,6 +266,16 @@ struct Client {
      * should test the two flags directly. */
     bool max_horz;
     bool max_vert;
+
+    /* When this window last had the focus, as a tick of KiWM::focus_serial
+     * -- kiwm's own focus history, since X has none to read. EWMH stops at
+     * _NET_CLIENT_LIST_STACKING (stacking order, not use order), and
+     * stacking only *looks* like use order while click-to-focus raises
+     * everything it focuses: keep-above/below layers, focus-follows-mouse
+     * without raising, and anything restacked by a client itself all break
+     * the resemblance. So every WM that offers a most-recently-used
+     * Alt+Tab keeps this list itself, and so does kiwm (osd_order=mru). */
+    uint64_t last_focus_serial;
     bool minimized;
     bool shaded;    /* content window unmapped, only the titlebar shows --
                      * see client.c's toggle_shade(). Orthogonal to
@@ -942,6 +952,18 @@ typedef struct {
      * the whole hold once picked, same as everything else about which
      * output an open overlay belongs to. */
     bool osd_output_follows_pointer;
+
+    /* Whether the window switcher lists windows most-recently-used first
+     * (kiwm.conf's osd_order=mru) instead of in kiwm's own client order
+     * (osd_order=list, the default). With MRU the focused window is
+     * always first, so a single Tab lands on the one before it -- the
+     * "flip between the last two windows" behavior most desktops have. */
+    bool osd_mru_order;
+
+    /* Ticks once per focus change, stamped onto Client::last_focus_serial.
+     * A counter rather than a timestamp because all that's ever asked of
+     * it is "which of these two was focused later". */
+    uint64_t focus_serial;
 
     bool running;
 } KiWM;

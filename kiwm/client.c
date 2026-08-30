@@ -648,6 +648,9 @@ void focus_client(Client *c)
 
     if (old != c) {
         wm.focused = c;
+        /* kiwm's focus history, for the switcher's most-recently-used
+         * order (osd.c) -- see Client::last_focus_serial. */
+        c->last_focus_serial = ++wm.focus_serial;
         xcb_set_input_focus(wm.conn, XCB_INPUT_FOCUS_POINTER_ROOT,
                             c->window, XCB_CURRENT_TIME);
         send_take_focus(c);

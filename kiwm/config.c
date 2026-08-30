@@ -53,6 +53,7 @@ static void apply_builtin_defaults(void)
     wm.osd_enabled = true;
     wm.osd_live_preview = false;
     wm.osd_output_follows_pointer = false;
+    wm.osd_mru_order = false;
     snprintf(wm.theme_path, sizeof(wm.theme_path), "greenxp");
 
     static const DecoElemKind default_layout[] = {
@@ -238,6 +239,11 @@ static void write_default_config(const char *path)
         "# Meta+Tab themselves act on, never what receives keyboard input.\n"
         "osd_output_follows_pointer=0\n"
         "\n"
+        "# Order the window switcher lists windows in: 'list' (the default,\n"
+        "# kiwm's own client order) or 'mru' (most recently used first, so a\n"
+        "# single Tab flips to the previous window).\n"
+        "osd_order=list\n"
+        "\n"
         "# Theme folder (bg.png/slice, btns.png/btns.slice, colors -- see\n"
         "# kiwm/README or the greenxp/ folder itself for the file formats).\n"
         "# Resolved the same way kiwm looks for its own binary-relative\n"
@@ -353,6 +359,13 @@ void config_load(void)
             wm.osd_enabled = atoi(val) != 0;
         } else if (strcmp(key, "osd_live_preview") == 0) {
             wm.osd_live_preview = atoi(val) != 0;
+        } else if (strcmp(key, "osd_order") == 0) {
+            if (strcasecmp(val, "mru") == 0)
+                wm.osd_mru_order = true;
+            else if (strcasecmp(val, "list") == 0)
+                wm.osd_mru_order = false;
+            else
+                fprintf(stderr, "kiwm: config: unknown osd_order '%s' (expected list or mru)\n", val);
         } else if (strcmp(key, "osd_output_follows_pointer") == 0) {
             wm.osd_output_follows_pointer = atoi(val) != 0;
         } else if (strcmp(key, "theme") == 0) {
