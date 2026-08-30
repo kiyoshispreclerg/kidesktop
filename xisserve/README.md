@@ -93,6 +93,35 @@ table in `xisserve.c`:
   mute, plus output and input devices with level, mute, default, and
   active. Opened by xispanel's `volume` widget.
 
+  Making a device the default also **moves everything currently playing
+  or recording onto it**. Setting the default alone only decides where
+  *future* streams go -- PulseAudio and PipeWire deliberately leave
+  running streams where they are -- so without the move, picking a new
+  output appears to do nothing while the audio you can actually hear
+  keeps coming out of the old device.
+
+## Keeping the window open ("Fixar")
+
+Every view shares one header strip, and the toggle in it is the whole
+mechanism -- there is no per-page copy. Unpressed (**Fixar**, the
+default) xisserve behaves as a popup: it holds an input grab and the
+first click anywhere else dismisses it. Pressed, it drops the grab,
+stops auto-dismissing, and stays put while other applications are used
+normally; the button then reads **Fechar**, and pressing it again closes
+the window outright rather than returning to popup mode. Every close
+resets the toggle, so each open starts as a plain popup again.
+
+Staying on top is done with standard EWMH rather than by re-raising over
+everyone: while pinned the window is handed to the window manager as a
+real `_NET_WM_WINDOW_TYPE_DOCK` (plus `_NET_WM_STATE_ABOVE` and
+skip-taskbar/skip-pager), which is the same mechanism that keeps
+xispanel's panel -- and plasmashell's panel and kickoff under kwin --
+above ordinary windows. That handover is why the window is
+override-redirect only when *not* pinned: a WM cannot layer a window it
+does not manage, and kiwm for one skips override-redirect windows
+outright (`client.c`'s `manage()`), so an unmanaged pinned window gets
+covered as soon as anything else is restacked.
+
 ### Audio: no libpulse/libpipewire dependency
 
 `pages/pulse.c` shells out to `pactl` rather than linking a sound

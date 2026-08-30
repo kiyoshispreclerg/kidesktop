@@ -42,7 +42,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.3"
+#define XISSERVE_VERSION "0.1.4"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -99,6 +99,17 @@ static GtkWidget *g_treeview;
 static GtkWidget *g_content_box;  /* cat_scroll + results scroll; launcher view only */
 static GtkWidget *g_footer_sep;
 static GtkWidget *g_footer;       /* power-action buttons; launcher view only */
+/* Header strip, packed above everything and never hidden by
+ * apply_view_mode() -- it's the one row shared by every view, so the pin
+ * toggle in it needs no per-page duplicate. */
+static GtkWidget *g_header;
+static GtkWidget *g_pin_btn;
+/* "Pinned": stay open until explicitly closed instead of vanishing on
+ * the first click elsewhere -- see on_pin_toggled(). g_pin_managed
+ * tracks whether the window is currently handed to the WM as a dock
+ * (set_pin_window_mode()), which decides who owns its stacking. */
+static gboolean g_pinned;
+static gboolean g_pin_managed;
 static GtkListStore *g_cat_store;
 static GtkListStore *g_view_store;
 static GPtrArray *g_apps;           /* ResultEntry*, persistent scanned apps, owned */
@@ -1067,6 +1078,157 @@ static void ungrab_input(void)
     gdk_keyboard_ungrab(t);
 }
 
+/* Puts the pin back to its default (off, labelled "Fixar"). Clears
+ * g_pinned *before* touching the button, because un-setting an active
+ * toggle emits "toggled", and on_pin_toggled() keys its close-the-window
+ * branch off g_pinned still being set -- clearing it first is what stops
+ * a close from recursing back into another close. */
+static void set_pin_window_mode(gboolean as_dock); /* defined below, with the EWMH reasoning */
+
+static void reset_pin(void)
+{
+    g_pinned = FALSE;
+    if (!g_pin_btn) {
+        return;
+    }
+    gtk_button_set_label(GTK_BUTTON(g_pin_btn), "Fixar");
+    gtk_widget_set_tooltip_text(g_pin_btn, "Manter aberto ao clicar fora");
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_pin_btn), FALSE);
+}
+
+/* The pin control, shared by every view (see g_header).
+ *
+ * Unpressed ("Fixar", the default) is the popup behavior everything else
+ * here is built around: an input grab, and the first click anywhere else
+ * dismisses the window. Pressing it drops that grab and suppresses every
+ * auto-dismiss path, so the window stays put and other applications can
+ * be clicked and typed into normally -- a small always-on-top panel
+ * rather than a popup.
+ *
+ * While pressed it reads "Fechar" and un-pressing it closes the window
+ * outright rather than returning to popup mode. That's the useful
+ * meaning of the second click: a pinned window is one the user is done
+ * with only when they want it gone, and "revert to dismiss-on-next-
+ * outside-click" would otherwise leave it hanging around waiting for a
+ * stray click to notice. The pin resets to off on every close (see
+ * reset_pin(), called from hide_launcher()), so each open starts in the
+ * default popup mode.
+ *
+ * The window stays override-redirect either way rather than being
+ * rebuilt as a WM-managed toplevel when pinned. Handing it to the WM
+ * mid-session would mean unmapping and remapping it, then re-fighting
+ * the placement policy that GTK_WINDOW_POPUP was chosen to avoid in the
+ * first place (see the file header and reposition_window()), and would
+ * put decorations and taskbar/pager entries in play. The cost is that
+ * "always on top" has to be maintained by hand -- an unmanaged window
+ * has no _NET_WM_STATE_ABOVE for the WM to honor -- which is what
+ * on_window_visibility() below does. */
+static void on_pin_toggled(GtkToggleButton *btn, gpointer data)
+{
+    (void)data;
+    if (gtk_toggle_button_get_active(btn)) {
+        g_pinned = TRUE;
+        gtk_button_set_label(GTK_BUTTON(btn), "Fechar");
+        gtk_widget_set_tooltip_text(GTK_WIDGET(btn), "Fechar o xisserve");
+        if (GTK_WIDGET_VISIBLE(g_window)) {
+            /* Grab first: set_pin_window_mode() unmaps and remaps, and
+             * dropping a grab held on a window being unmapped is not
+             * something to leave to chance. */
+            ungrab_input();
+            set_pin_window_mode(TRUE);
+        }
+        return;
+    }
+    /* Un-pressed. Either the user clicked "Fechar" (g_pinned still set
+     * -- close), or reset_pin() is putting the button back after the
+     * window closed some other way (g_pinned already cleared -- nothing
+     * left to do). */
+    if (g_pinned) {
+        hide_launcher();
+    }
+}
+
+/* Fallback for keeping a pinned window on top when it could *not* be
+ * handed to the WM as a dock (see set_pin_window_mode()): an unmanaged
+ * window sits in the normal stacking order, so anything raised later
+ * covers it, and re-raising whenever it becomes obscured is the standard
+ * workaround. Deliberately not used once the window is a managed dock --
+ * there the WM owns the stacking, and raising ourselves on top of it
+ * would just start a fight with whatever it puts in the same layer
+ * (xispanel's own panel, for one). Not a loop: the raise leaves it
+ * unobscured, and this only acts on the obscured states. */
+static gboolean on_window_visibility(GtkWidget *w, GdkEventVisibility *ev, gpointer data)
+{
+    (void)w;
+    (void)data;
+    if (g_pinned && !g_pin_managed && ev->state != GDK_VISIBILITY_UNOBSCURED) {
+        gdk_window_raise(g_window->window);
+    }
+    return FALSE;
+}
+
+/* Switches the toplevel between the two window kinds this popup needs.
+ *
+ * Unpinned it is override-redirect: invisible to the WM, positioned
+ * exactly where reposition_window() puts it with no placement policy to
+ * fight (which is why GTK_WINDOW_POPUP was chosen -- see the file
+ * header). That is right for a popup that lives for one interaction
+ * under an input grab, but it is exactly wrong for a pinned window: a
+ * WM cannot layer what it does not manage. kiwm skips override-redirect
+ * windows outright (client.c's manage(): `if (attr->override_redirect)
+ * return;`), so a pinned window never reaches LAYER_DOCK and gets
+ * covered as soon as the WM restacks anything else -- the "sometimes it
+ * isn't on top" this fixes.
+ *
+ * Pinned, therefore, the window is handed to the WM as a real
+ * _NET_WM_WINDOW_TYPE_DOCK: the same type xispanel's panel uses, so it
+ * lands in the same always-on-top layer, by the WM's own rules rather
+ * than by us re-raising over everyone.
+ *
+ * Nothing here is kiwm-specific. _NET_WM_WINDOW_TYPE_DOCK is plain
+ * EWMH, and an always-on-top dock layer is what every compliant WM
+ * implements -- it's the same mechanism that keeps plasmashell's panel
+ * and kickoff above ordinary windows under kwin. Two more standard
+ * hints go alongside it so the result degrades sensibly on WMs that
+ * layer docks less strictly: _NET_WM_STATE_ABOVE (the explicit
+ * "keep above" request, via gtk_window_set_keep_above) and
+ * skip-taskbar/skip-pager, which docks are conventionally given anyway
+ * and which a pinned popup wants regardless. A WM honoring any one of
+ * the three keeps the window up front; on_window_visibility() above
+ * still covers the case where the handover didn't take at all.
+ *
+ * The unmap/remap is required, not incidental: a WM only ever considers
+ * a window at MapRequest, and override-redirect windows never send one.
+ * Toggling the attribute on a mapped window would leave the WM none the
+ * wiser. The hints are all set while unmapped, so they're already on the
+ * window when the WM first looks at it. */
+static void set_pin_window_mode(gboolean as_dock)
+{
+    GdkWindow *gw = g_window->window;
+    if (!gw) {
+        return;
+    }
+    gboolean visible = GTK_WIDGET_VISIBLE(g_window);
+    if (visible) {
+        gtk_widget_hide(g_window);
+    }
+    gdk_window_set_override_redirect(gw, !as_dock);
+    gdk_window_set_type_hint(gw, as_dock ? GDK_WINDOW_TYPE_HINT_DOCK : GDK_WINDOW_TYPE_HINT_NORMAL);
+    gtk_window_set_keep_above(GTK_WINDOW(g_window), as_dock);
+    gtk_window_set_skip_taskbar_hint(GTK_WINDOW(g_window), as_dock);
+    gtk_window_set_skip_pager_hint(GTK_WINDOW(g_window), as_dock);
+    g_pin_managed = as_dock;
+    if (visible) {
+        gtk_widget_show(g_window);
+        /* The remap is a fresh placement as far as the WM is concerned,
+         * so the position has to be reasserted rather than assumed to
+         * have survived it. */
+        reposition_window();
+        gdk_window_raise(gw);
+        gdk_window_focus(gw, GDK_CURRENT_TIME);
+    }
+}
+
 static void leave_current_page(void); /* defined below, next to the page-visibility bookkeeping it owns */
 
 static void hide_launcher(void)
@@ -1077,6 +1239,16 @@ static void hide_launcher(void)
     leave_current_page();
     ungrab_input();
     gtk_widget_hide(g_window);
+    /* Every close returns the pin to its default, whichever way the
+     * close happened -- the "Fechar" button, Escape, a click outside, or
+     * the panel button. So the next open is always a plain popup with
+     * the button reading "Fixar" again, and (via set_pin_window_mode())
+     * an override-redirect window again rather than a dock the WM is
+     * still tracking. */
+    if (g_pin_managed) {
+        set_pin_window_mode(FALSE);
+    }
+    reset_pin();
 }
 
 /* ---- search plugins ------------------------------------------------------- */
@@ -1263,7 +1435,12 @@ static void show_launcher(void)
     gtk_window_present(GTK_WINDOW(g_window));
     gdk_window_raise(g_window->window);
     gdk_window_focus(g_window->window, GDK_CURRENT_TIME);
-    grab_input();
+    /* Normally always true: hide_launcher() resets the pin, so an open
+     * starts unpinned and grabbing. Guarded anyway rather than calling
+     * grab_input() unconditionally, so that a future path which shows an
+     * already-pinned window can't silently re-grab it and undo the
+     * pinning behind the toggle's back. */
+    if (!g_pinned) grab_input();
     gtk_widget_grab_focus(g_args.page == PAGE_LAUNCHER ? g_entry : g_page_roots[g_args.page]);
 }
 
@@ -1558,9 +1735,26 @@ static gboolean on_window_button_press(GtkWidget *w, GdkEventButton *ev, gpointe
 {
     (void)data;
     if (ev->type != GDK_BUTTON_PRESS) return FALSE;
-    if (ev->x < 0 || ev->y < 0 || ev->x >= w->allocation.width || ev->y >= w->allocation.height) {
+    gboolean outside =
+        ev->x < 0 || ev->y < 0 || ev->x >= w->allocation.width || ev->y >= w->allocation.height;
+    if (outside) {
+        /* Pinned: clicking elsewhere is meant to go to that other
+         * window, not dismiss this one. (With no grab active this
+         * handler barely sees outside clicks anyway, but a click can
+         * still land here in the window between unpinning and the grab
+         * being re-established.) */
+        if (g_pinned) return FALSE;
         hide_launcher();
         return TRUE;
+    }
+    /* Clicked inside while pinned: take the keyboard back. Nothing else
+     * will hand it over -- an override-redirect window is invisible to
+     * the WM's click-to-focus, and while pinned there's no keyboard grab
+     * routing keys here either, so without this the search entry and
+     * every other control would be unusable after focusing another
+     * application. */
+    if (g_pinned) {
+        gdk_window_focus(g_window->window, ev->time);
     }
     return FALSE;
 }
@@ -1581,6 +1775,10 @@ static gboolean on_window_grab_broken(GtkWidget *w, GdkEventGrabBroken *ev, gpoi
     (void)ev;
     (void)data;
     if (g_context_menu_active) return FALSE;
+    /* Pinned windows hold no grab by design, so losing one is not the
+     * "we've been left in a half-working state" signal it otherwise is
+     * -- it's just the expected consequence of pinning. */
+    if (g_pinned) return FALSE;
     gtk_widget_hide(g_window);
     return FALSE;
 }
@@ -1640,7 +1838,7 @@ static void build_ui(void)
      * windows by some other means regardless of decoration (e.g. kiwm's
      * own corner-resize) isn't refused by GTK on our end. */
     gtk_window_set_resizable(GTK_WINDOW(g_window), TRUE);
-    gtk_widget_add_events(g_window, GDK_BUTTON_PRESS_MASK);
+    gtk_widget_add_events(g_window, GDK_BUTTON_PRESS_MASK | GDK_VISIBILITY_NOTIFY_MASK);
 
     GdkScreen *screen = gtk_widget_get_screen(g_window);
     GdkColormap *cmap = gdk_screen_get_rgba_colormap(screen);
@@ -1650,10 +1848,23 @@ static void build_ui(void)
     g_signal_connect(g_window, "expose-event", G_CALLBACK(on_window_expose), NULL);
     g_signal_connect(g_window, "button-press-event", G_CALLBACK(on_window_button_press), NULL);
     g_signal_connect(g_window, "grab-broken-event", G_CALLBACK(on_window_grab_broken), NULL);
+    g_signal_connect(g_window, "visibility-notify-event", G_CALLBACK(on_window_visibility), NULL);
 
     GtkWidget *vbox = gtk_vbox_new(FALSE, 4);
     gtk_container_set_border_width(GTK_CONTAINER(vbox), 6);
     gtk_container_add(GTK_CONTAINER(g_window), vbox);
+
+    /* Shared header: packed first and never touched by
+     * apply_view_mode(), so it's the one strip common to the launcher
+     * and to every page -- which is what lets the pin be a single
+     * toggle rather than one copy per view. Right-aligned so it stays
+     * out of the way of whatever each view puts below it. */
+    g_header = gtk_hbox_new(FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(vbox), g_header, FALSE, FALSE, 0);
+    g_pin_btn = gtk_toggle_button_new_with_label("Fixar");
+    gtk_widget_set_tooltip_text(g_pin_btn, "Manter aberto ao clicar fora");
+    g_signal_connect(g_pin_btn, "toggled", G_CALLBACK(on_pin_toggled), NULL);
+    gtk_box_pack_end(GTK_BOX(g_header), g_pin_btn, FALSE, FALSE, 0);
 
     g_entry = gtk_entry_new();
     g_signal_connect(g_entry, "changed", G_CALLBACK(on_entry_changed), NULL);
