@@ -400,6 +400,7 @@ typedef struct {
     xcb_atom_t wm_state;
     xcb_atom_t wm_change_state;
     xcb_atom_t net_wm_name;
+    xcb_atom_t net_wm_pid;
     xcb_atom_t utf8_string;
     xcb_atom_t manager;
 

@@ -25,6 +25,7 @@ void ewmh_init_atoms(void)
     wm.atoms.wm_state = intern_atom("WM_STATE");
     wm.atoms.wm_change_state = intern_atom("WM_CHANGE_STATE");
     wm.atoms.net_wm_name = intern_atom("_NET_WM_NAME");
+    wm.atoms.net_wm_pid = intern_atom("_NET_WM_PID");
     wm.atoms.utf8_string = intern_atom("UTF8_STRING");
 
     wm.atoms.net_supported = intern_atom("_NET_SUPPORTED");

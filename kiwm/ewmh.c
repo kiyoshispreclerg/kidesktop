@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <unistd.h>
 
 void ewmh_update_client_list(void)
 {
@@ -290,4 +291,14 @@ void ewmh_init_supporting_wm_check(void)
 
     xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, wm.check_win,
                         wm.atoms.net_wm_name, wm.atoms.utf8_string, 8, 4, "kiwm");
+
+    /* EWMH only says the check window MAY carry _NET_WM_PID, but in
+     * practice session managers rely on it: it is the one way to tell
+     * "the WM I started crashed" apart from "somebody ran
+     * `other-wm --replace` and took over", since the replacement isn't a
+     * child of the session and can't be waited on. Without it kisession
+     * has to fall back to tracking the WM by mere presence. */
+    uint32_t pid = (uint32_t)getpid();
+    xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, wm.check_win,
+                        wm.atoms.net_wm_pid, XCB_ATOM_CARDINAL, 32, 1, &pid);
 }
