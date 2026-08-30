@@ -98,4 +98,5 @@ void ewmh_init_atoms(void)
     wm.atoms.kiwm_set_output_desktop = intern_atom("_KIWM_SET_OUTPUT_DESKTOP");
     wm.atoms.kiwm_wm_output = intern_atom("_KIWM_WM_OUTPUT");
     wm.atoms.kiwm_minimized_geometry = intern_atom("_KIWM_MINIMIZED_GEOMETRY");
+    wm.atoms.kiwm_layer = intern_atom("_KIWM_LAYER");
 }

@@ -67,6 +67,25 @@ published for everything *outside* kiwm that has to know where a window it can n
 to be: a compositor animating a minimize or a restore from and to the right place, a taskbar doing
 the same with its own effects.
 
+### `_KIWM_LAYER` (`STRING`, format 8, on kiwm's own overlay windows)
+
+Marks the override-redirect windows kiwm draws for itself, so a compositor can tell them apart
+from application windows:
+
+| value | window |
+|---|---|
+| `osd` | the window/desktop switcher overlay (osd.c) |
+| `outline` | the move/resize/snap wireframe (outline.c) |
+
+Set once when the window is created and never changed. Purely informational: kiwm draws and shows
+both exactly the same whether anything reads this or not -- with no compositor running they *are*
+the effect, and they must keep working on their own (project doc section 31).
+
+It exists so the compositor can decide not to composite them and draw its own version instead --
+a real switcher effect on the composited scene rather than a flat window on top of it. That is
+kicomp's `--skip-wm-layers`. The decision belongs entirely to the compositor: kiwm is never told
+about it, has no setting for it, and changes no behavior because of it.
+
 ## Client message: `_KIWM_SET_OUTPUT_DESKTOP`
 
 Send to the **root window** (not to any client window) via `XSendEvent`/`xcb_send_event` with

@@ -1883,6 +1883,22 @@ void manage(xcb_window_t window, bool map_requested)
     update_client_actions(c);
     c->width = geo->width < c->min_w ? c->min_w : geo->width;
     c->height = geo->height < c->min_h ? c->min_h : geo->height;
+
+    /* An ARGB client gets an ARGB frame. Reparenting a depth-32 window
+     * into a depth-24 frame is legal and looks fine uncomposited, but the
+     * client then draws into the *frame's* backing pixmap, which has no
+     * alpha channel -- so the transparency is gone before a compositor
+     * ever sees it, and no compositor can recover it. Matching the depth
+     * costs nothing on a plain X server (a 32-bit window with no
+     * compositor is simply displayed as opaque, as it always was) and is
+     * the whole difference for a composited one. */
+    if (geo->depth == 32 && wm.argb_visual) {
+        c->frame_depth = 32;
+        c->frame_visual = wm.argb_visual;
+    } else {
+        c->frame_depth = wm.screen->root_depth;
+        c->frame_visual = wm.visual;
+    }
     free(geo);
 
     c->output = output_index_for_point(c->x + c->width / 2, c->y + c->height / 2);
@@ -1972,10 +1988,25 @@ void manage(xcb_window_t window, bool map_requested)
                 c->y = wy;
         }
     }
-    xcb_create_window(wm.conn, wm.screen->root_depth, c->frame, wm.root,
-                      c->x, c->y, c->width + bt * 2, c->height + th + bt, 0,
-                      XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.screen->root_visual,
-                      XCB_CW_BORDER_PIXEL | XCB_CW_EVENT_MASK, values);
+    /* An ARGB frame (c->frame_depth == 32, see above) doesn't share its
+     * parent's depth, so it needs a colormap of its own on top of the
+     * border pixel -- and CW_COLORMAP (0x2000) sorts *after* CW_EVENT_MASK
+     * (0x800) in the value list, same ascending-bit-order rule as the
+     * comment above. Root-depth frames keep exactly the request they
+     * always had. */
+    if (c->frame_depth == 32) {
+        uint32_t argb_values[] = { values[0], values[1], wm.argb_colormap };
+        xcb_create_window(wm.conn, 32, c->frame, wm.root,
+                          c->x, c->y, c->width + bt * 2, c->height + th + bt, 0,
+                          XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.argb_visual->visual_id,
+                          XCB_CW_BORDER_PIXEL | XCB_CW_EVENT_MASK | XCB_CW_COLORMAP,
+                          argb_values);
+    } else {
+        xcb_create_window(wm.conn, wm.screen->root_depth, c->frame, wm.root,
+                          c->x, c->y, c->width + bt * 2, c->height + th + bt, 0,
+                          XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.screen->root_visual,
+                          XCB_CW_BORDER_PIXEL | XCB_CW_EVENT_MASK, values);
+    }
 
     /* POINTER_MOTION on the *client's* window, which a WM normally has no
      * reason to want: it's what lets events.c notice the pointer entering

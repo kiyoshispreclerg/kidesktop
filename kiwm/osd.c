@@ -242,6 +242,13 @@ static void ensure_osd_window(void)
                       -10, -10, 10, 10, 0,
                       XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.screen->root_visual,
                       XCB_CW_BACK_PIXEL | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK, values);
+
+    /* Tell a compositor what this window is, so it can choose to skip it
+     * and draw its own switcher instead (see wm.h's Atoms::kiwm_layer).
+     * kiwm keeps drawing it either way -- who *shows* it is the
+     * compositor's decision, not the WM's. */
+    xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, osd_win, wm.atoms.kiwm_layer,
+                        XCB_ATOM_STRING, 8, 3, "osd");
 }
 
 /* Sizes/positions/reshapes/repaints osd_win for `content_w`x`content_h`

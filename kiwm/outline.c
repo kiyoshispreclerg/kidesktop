@@ -133,6 +133,12 @@ void outline_show_rects(const OutlineRect *in, int count)
         win_h = wm.screen_h;
         current_pixel = pixel;
         have_pixel = true;
+        /* Same marking osd.c applies to the switcher overlay: a
+         * compositor can recognize this as kiwm's own wireframe layer and
+         * substitute its own preview effect for it (wm.h's
+         * Atoms::kiwm_layer). Nothing about the outline changes here. */
+        xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, win, wm.atoms.kiwm_layer,
+                            XCB_ATOM_STRING, 8, 7, "outline");
         /* Empty input shape, permanently: whatever this is drawn over --
          * a window being dragged, the switcher's own hold -- must keep
          * receiving every pointer event as if the outline weren't there.

@@ -129,6 +129,28 @@ static xcb_visualtype_t *find_root_visual(xcb_screen_t *screen)
     return NULL;
 }
 
+/* The screen's 32-bit TrueColor visual, if it has one. Its existence is
+ * what lets an ARGB client keep its alpha channel through kiwm's frame
+ * (see wm.h's argb_visual and client.c's manage()); a screen without one
+ * just gets root-depth frames everywhere, exactly as before. */
+static xcb_visualtype_t *find_argb_visual(xcb_screen_t *screen)
+{
+    xcb_depth_iterator_t depth_iter = xcb_screen_allowed_depths_iterator(screen);
+
+    for (; depth_iter.rem; xcb_depth_next(&depth_iter)) {
+        if (depth_iter.data->depth != 32)
+            continue;
+
+        xcb_visualtype_iterator_t visual_iter =
+            xcb_depth_visuals_iterator(depth_iter.data);
+
+        for (; visual_iter.rem; xcb_visualtype_next(&visual_iter))
+            if (visual_iter.data->_class == XCB_VISUAL_CLASS_TRUE_COLOR)
+                return visual_iter.data;
+    }
+    return NULL;
+}
+
 static xcb_keycode_t keysym_to_keycode(xcb_keysym_t keysym)
 {
     const xcb_setup_t *setup = xcb_get_setup(wm.conn);
@@ -218,6 +240,18 @@ static void setup_wm(bool replace)
     if (!wm.visual)
         die("could not find root visual");
 
+    /* Optional: only ARGB clients use it, and only when the screen has a
+     * 32-bit visual at all. A window whose depth differs from its parent's
+     * needs its own colormap (and an explicit border pixel) or the server
+     * answers BadMatch -- so the colormap is made here once and shared by
+     * every ARGB frame rather than per client. */
+    wm.argb_visual = find_argb_visual(wm.screen);
+    if (wm.argb_visual) {
+        wm.argb_colormap = xcb_generate_id(wm.conn);
+        xcb_create_colormap(wm.conn, XCB_COLORMAP_ALLOC_NONE, wm.argb_colormap,
+                            wm.root, wm.argb_visual->visual_id);
+    }
+
     ewmh_init_atoms();
 
     if (!acquire_wm_selection(preferred_screen, replace)) {
@@ -246,6 +280,20 @@ static void setup_wm(bool replace)
      * redraw, which during a fast resize drag is a lot of redraws. */
     wm.deco_gc = xcb_generate_id(wm.conn);
     xcb_create_gc(wm.conn, wm.deco_gc, wm.root, 0, NULL);
+
+    /* ...and the same thing for depth-32 frames (see wm.h's argb_visual):
+     * both a GC and a CopyArea are bound to one depth, so an ARGB frame
+     * can't be blitted with the root-depth GC above. Created from a
+     * throwaway depth-32 pixmap purely because a GC needs *a* drawable of
+     * the right depth to be born on; the pixmap is freed immediately and
+     * the GC outlives it, which is explicitly allowed. */
+    if (wm.argb_visual) {
+        xcb_pixmap_t seed = xcb_generate_id(wm.conn);
+        xcb_create_pixmap(wm.conn, 32, seed, wm.root, 1, 1);
+        wm.deco_gc_argb = xcb_generate_id(wm.conn);
+        xcb_create_gc(wm.conn, wm.deco_gc_argb, seed, 0, NULL);
+        xcb_free_pixmap(wm.conn, seed);
+    }
 
     /* Move/resize drag cursors, swapped in via begin_drag()'s
      * xcb_grab_pointer() call. Loaded from the user's actual Xcursor theme

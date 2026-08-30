@@ -251,6 +251,14 @@ struct Client {
     xcb_window_t window;    /* application window */
     xcb_window_t frame;     /* decorated frame */
 
+    /* The frame's own depth/visual, which is the *client's* when the
+     * client is ARGB (depth 32) and the screen has a 32-bit visual, and
+     * the root's otherwise. Both are needed on every repaint: a pixmap,
+     * a GC and a CopyArea are each bound to one depth, and Cairo needs
+     * the matching visual -- see decoration.c's draw_decoration(). */
+    uint8_t frame_depth;
+    xcb_visualtype_t *frame_visual;
+
     int x, y, width, height;                 /* content geometry, global coords */
     int saved_x, saved_y, saved_w, saved_h;   /* restore geometry before maximize */
     int frame_width, frame_height;
@@ -558,6 +566,14 @@ typedef struct {
      * it went away, kept on the window for as long as it stays minimized
      * -- see PROTOCOL.md and client.c's minimize_client(). */
     xcb_atom_t kiwm_minimized_geometry;
+    /* _KIWM_LAYER: marks kiwm's own override-redirect overlay windows --
+     * "osd" (the window/desktop switcher) and "outline" (the move/resize
+     * wireframe) -- so a compositor can tell them apart from application
+     * windows and decide for itself whether to show them or draw its own
+     * version instead (kicomp's --skip-wm-layers). Purely informational:
+     * kiwm's behavior is identical whether anything reads it or not.
+     * See PROTOCOL.md. */
+    xcb_atom_t kiwm_layer;
 } Atoms;
 
 typedef struct {
@@ -565,6 +581,17 @@ typedef struct {
     xcb_screen_t *screen;
     xcb_window_t root;
     xcb_visualtype_t *visual;
+
+    /* The screen's 32-bit TrueColor visual and a colormap for it, when it
+     * has one (NULL/XCB_NONE otherwise, and then nothing below changes).
+     * An ARGB client gets its frame in *its own* depth: a depth-24 frame
+     * flattens the client's alpha channel the moment the client draws
+     * into the frame's backing pixmap, and a compositor reading that
+     * pixmap can never get it back. See client.c's manage(). */
+    xcb_visualtype_t *argb_visual;
+    xcb_colormap_t argb_colormap;
+    xcb_gcontext_t deco_gc_argb;   /* deco_gc's depth-32 twin (a GC is bound to a depth) */
+
     int randr_event_base;
     bool shape_ext_present;  /* XCB SHAPE extension: rounded corners (see radius_tl etc) and
                               * forwarding a client's own shape onto its frame (shape.c). */

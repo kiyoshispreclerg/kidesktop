@@ -699,7 +699,9 @@ void draw_decoration(Client *c)
 {
     if (!client_deco_visible(c))
         return;
-    if (!wm.visual)
+    /* Set in manage() -- the root visual for a normal client, the screen's
+     * 32-bit one for an ARGB client (see wm.h's Client::frame_visual). */
+    if (!c->frame_visual)
         return;
 
     int w = c->frame_width;
@@ -719,11 +721,28 @@ void draw_decoration(Client *c)
      * finished pixmap in one xcb_copy_area() at the end instead makes
      * the whole update atomic from the X server's point of view. */
     xcb_pixmap_t pixmap = xcb_generate_id(wm.conn);
-    xcb_create_pixmap(wm.conn, wm.screen->root_depth, pixmap, c->frame, (uint16_t)w, (uint16_t)h);
+    xcb_create_pixmap(wm.conn, c->frame_depth, pixmap, c->frame, (uint16_t)w, (uint16_t)h);
     double t_pixmap = dbg ? monotonic_ms() : 0;
 
-    cairo_surface_t *surface = cairo_xcb_surface_create(wm.conn, pixmap, wm.visual, w, h);
+    cairo_surface_t *surface = cairo_xcb_surface_create(wm.conn, pixmap, c->frame_visual, w, h);
     cairo_t *cr = cairo_create(surface);
+
+    /* A depth-32 pixmap starts as undefined *including* its alpha channel,
+     * and everything painted below is composited OVER what's there -- so
+     * on an ARGB frame the garbage would show through anywhere the theme
+     * doesn't paint fully opaque. Start from honest transparency instead:
+     * with a compositor the untouched parts (a themed titlebar's own
+     * translucency, the area behind the client) are then genuinely
+     * transparent, and without one the server just ignores the alpha as
+     * it always has. Not done for root-depth frames: they have no alpha
+     * channel and this would only be an extra full-surface paint. */
+    if (c->frame_depth == 32) {
+        cairo_save(cr);
+        cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+        cairo_set_source_rgba(cr, 0, 0, 0, 0);
+        cairo_paint(cr);
+        cairo_restore(cr);
+    }
 
     /* Everything below is the titlebar strip only -- clip to it so the
      * theme image/tint doesn't stretch down over the side/bottom border
@@ -864,7 +883,11 @@ void draw_decoration(Client *c)
     cairo_surface_destroy(surface);
     double t_flush = dbg ? monotonic_ms() : 0;
 
-    xcb_copy_area(wm.conn, pixmap, c->frame, wm.deco_gc, 0, 0, 0, 0, (uint16_t)w, (uint16_t)h);
+    /* CopyArea requires source and destination to share a depth, and the
+     * GC is bound to one too -- so an ARGB frame is blitted with the
+     * depth-32 GC main.c made for exactly this (wm.deco_gc_argb). */
+    xcb_gcontext_t gc = (c->frame_depth == 32 && wm.deco_gc_argb) ? wm.deco_gc_argb : wm.deco_gc;
+    xcb_copy_area(wm.conn, pixmap, c->frame, gc, 0, 0, 0, 0, (uint16_t)w, (uint16_t)h);
     xcb_free_pixmap(wm.conn, pixmap);
 
     if (dbg) {
