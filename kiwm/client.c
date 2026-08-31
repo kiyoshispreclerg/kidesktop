@@ -1033,6 +1033,11 @@ void toggle_shade(Client *c, int want /* -1=toggle 0=unshade 1=shade */)
         return;
 
     c->shaded = target;
+
+    /* State first, then the geometry that carries it out -- see the note
+     * above ewmh_update_wm_state()'s other callers in this file. */
+    ewmh_update_wm_state(c);
+
     if (c->mapped) {
         if (target)
             xcb_unmap_window(wm.conn, c->window);
@@ -1041,7 +1046,6 @@ void toggle_shade(Client *c, int want /* -1=toggle 0=unshade 1=shade */)
     }
 
     configure_frame(c);
-    ewmh_update_wm_state(c);
     xcb_flush(wm.conn);
 }
 
@@ -1196,8 +1200,18 @@ void client_set_maximized(Client *c, bool horz, bool vert)
     c->max_vert = vert;
     apply_maximized_geometry(c);
 
-    configure_frame(c);
+/* The state a window is in is published *before* the geometry (or the
+ * map/unmap) that carries it out, in every path below. It reads
+ * backwards, and it matters: a compositor watching from outside sees the
+ * ConfigureNotify and has to know what it means -- a shade, a maximize, a
+ * fullscreen, or just a resize -- and the only evidence is _NET_WM_STATE.
+ * Announced afterwards, that evidence arrives after the event it
+ * explains, and by then the wrong animation is already running (kicomp's
+ * geometry effect sliding a window that was being rolled up). Announcing
+ * first costs nothing here and makes the order say what happened. */
     ewmh_update_wm_state(c);
+
+    configure_frame(c);
     ewmh_update_frame_extents(c);
     xcb_flush(wm.conn);
 }
@@ -1312,9 +1326,11 @@ void toggle_fullscreen(Client *c, int want /* -1=toggle 0=unfullscreen 1=fullscr
         return;
     }
 
+    /* State before geometry, as everywhere else here. */
+    ewmh_update_wm_state(c);
+
     configure_frame(c);
     restack_all(); /* ditto */
-    ewmh_update_wm_state(c);
     ewmh_update_frame_extents(c);
     xcb_flush(wm.conn);
 }
@@ -1476,6 +1492,12 @@ void minimize_client(Client *c)
                         wm.atoms.kiwm_minimized_geometry, XCB_ATOM_CARDINAL, 32, 4, geo);
 
     c->minimized = true;
+
+    /* Before the unmap, so anything watching learns this disappearance is
+     * a minimize rather than a close -- same reason as everywhere else in
+     * this file. */
+    ewmh_update_wm_state(c);
+
     if (c->mapped) {
         xcb_unmap_window(wm.conn, c->frame);
         c->mapped = false;
@@ -1483,7 +1505,6 @@ void minimize_client(Client *c)
     if (wm.focused == c)
         wm.focused = NULL;
 
-    ewmh_update_wm_state(c);
     ewmh_update_active_window();
     xcb_flush(wm.conn);
 }
