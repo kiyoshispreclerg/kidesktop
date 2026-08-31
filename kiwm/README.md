@@ -360,6 +360,7 @@ a warning on stderr, not a hard error. A key you leave out of the file keeps its
 | `osd_enabled` | `1` | `1` (default) shows a themed overlay while holding Alt+Tab/Meta+Tab, only switching on release -- see "On-screen overlays (OSD)" below. `0` reverts to switching immediately on every Tab press, no overlay. |
 | `osd_live_preview_windows` | `0` | `1` applies every Alt+Tab step live (raise + focus the highlighted window) instead of only on release -- Escape then reverts to whatever was focused before the hold started. `0` (default) leaves everything untouched until release. Ignored when `osd_enabled=0`. |
 | `osd_live_preview_desktops` | `0` | The same for the desktop switcher (Meta+Tab): `1` switches to the highlighted desktop on every step. Separate from the windows one because previewing a *window* raises and focuses it, which is far more disruptive than previewing a desktop. The old `osd_live_preview=` still works and sets both. |
+| `osd_desktop_windows` | `1` | `1` (default) draws the windows of each desktop inside its square in the Meta+Tab desktop switcher, at their real geometry scaled down -- the same picture xispanel's pager draws with `show_windows=yes`, except kiwm already owns every window's geometry, so it costs nothing but the drawing. The squares are drawn taller when this is on, since a scaled-down window in a 64px-high square is a couple of pixels of nothing. `0` gives plain numbered squares. |
 | `osd_output_follows_pointer` | `0` | `1` opens an overlay on whichever output the pointer is on (polled once when the hold starts), instead of the currently focused window's output (`0`, default; falls back to the pointer's output only when nothing is focused). Not the same as `focus_follows_mouse=` -- only decides which screen Alt+Tab/Meta+Tab themselves act on. |
 | `theme` | `greenxp` | Theme folder name/path (see "Theming"). Resolved the same way kiwm looks for its own binary-relative files: tried as `../<theme>`, `./<theme>`, and plain `<theme>` (so it works both run from the source tree and installed). |
 | `titlebar_layout` | `icon,title,shade,minimize,maximize,close` | Titlebar element order, left to right, comma-separated. See "Titlebar layout" below. |
@@ -584,6 +585,10 @@ overlay/animation to show at all):
   highlighted. Each further Tab/Shift+Tab while Alt stays held moves the highlight.
 - **Meta+Tab**: a pager-style grid of the current output's desktops (squares proportional to the
   output's real resolution, like xispanel's pager widget), the pending selection highlighted.
+  With `osd_desktop_windows=1` (the default) each square also carries the windows that live on
+  that desktop, drawn as little rectangles at their real geometry scaled into the square -- the
+  focused one filled a shade brighter. kiwm decided all that geometry itself, so nothing has to be
+  asked for over the wire the way an outside pager would have to.
 - The list is in kiwm's own client order by default; `osd_order=mru` makes it most-recently-used
   first instead, so one Tab flips between the last two windows. Either way the hold starts on the
   focused window, so the first Tab step lands on the next entry.

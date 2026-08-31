@@ -23,7 +23,8 @@
  * and a one-line change to active_tabbox_ops, nothing else. The desktop
  * switcher has no such vtable -- it's a single fixed pager-style grid
  * (xispanel's pager widget, same idea: squares proportional to the real
- * output resolution, current one highlighted), not asked to be swappable.
+ * output resolution, current one highlighted, optionally with each
+ * desktop's windows drawn inside its square), not asked to be swappable.
  */
 #include "osd.h"
 #include "decoration.h"
@@ -42,6 +43,10 @@
 #define OSD_ICON_SIZE     22
 #define OSD_LIST_W        340
 #define OSD_DESK_ROW_H    64
+/* Taller squares when they also carry the windows living on each desktop
+ * (kiwm.conf's osd_desktop_windows=) -- at 64px high a scaled-down window
+ * is a couple of pixels of nothing. */
+#define OSD_DESK_ROW_H_WINDOWS 108
 #define OSD_DESK_GAP       8
 
 typedef enum { OSD_NONE, OSD_WINDOWS, OSD_DESKTOPS } OsdKind;
@@ -195,6 +200,62 @@ const TabBoxOps simple_list_tabbox_ops = {
 
 /* ---- desktop-switcher: fixed pager-style grid ---- */
 
+/* Draws the windows of `desktop` inside one desktop square, each at its
+ * real geometry scaled down from the overlay's output into the square --
+ * kiwm.conf's osd_desktop_windows=, the same picture xispanel's pager
+ * widget draws with show_windows=yes. What's listed is what would actually
+ * be on screen after switching there: this output's windows, on that
+ * desktop or sticky, not minimized, and not something the client itself
+ * says isn't a real window (skip_taskbar, same rule the window switcher's
+ * list_build() uses).
+ *
+ * Unlike the pager, no window geometry has to be asked for over the wire:
+ * kiwm is the one that decided all of it, so this is a walk over
+ * wm.clients and nothing more. Frame geometry (x/y + frame_width/height),
+ * not content geometry, so a square shows the windows at the size they
+ * visibly occupy, decoration included. */
+static void paint_desktop_windows(cairo_t *cr, int desktop, double cx, double cy, double cw, double ch,
+                                  double fg_r, double fg_g, double fg_b)
+{
+    if (osd_output < 0 || osd_output >= wm.output_count)
+        return;
+    const XisOutput *o = &wm.outputs[osd_output];
+    if (o->width <= 0 || o->height <= 0)
+        return;
+
+    double sx = cw / o->width;
+    double sy = ch / o->height;
+
+    for (Client *c = wm.clients; c; c = c->next) {
+        if (c->output != osd_output || !c->mapped || c->minimized || c->skip_taskbar)
+            continue;
+        if (!c->sticky && c->desktop != desktop)
+            continue;
+
+        double x0 = cx + (c->x - o->x) * sx;
+        double y0 = cy + (c->y - o->y) * sy;
+        double x1 = x0 + c->frame_width * sx;
+        double y1 = y0 + c->frame_height * sy;
+
+        /* Clip to the square: a window can legitimately hang off its
+         * output's edge, and the squares sit right next to each other. */
+        if (x0 < cx) x0 = cx;
+        if (y0 < cy) y0 = cy;
+        if (x1 > cx + cw) x1 = cx + cw;
+        if (y1 > cy + ch) y1 = cy + ch;
+        if (x1 - x0 < 2 || y1 - y0 < 2)
+            continue; /* scaled away to nothing, or entirely off this output */
+
+        cairo_set_source_rgba(cr, fg_r, fg_g, fg_b, c == wm.focused ? 0.32 : 0.16);
+        cairo_rectangle(cr, x0, y0, x1 - x0, y1 - y0);
+        cairo_fill(cr);
+        cairo_set_source_rgba(cr, fg_r, fg_g, fg_b, 0.55);
+        cairo_set_line_width(cr, 1);
+        cairo_rectangle(cr, x0 + 0.5, y0 + 0.5, x1 - x0 - 1, y1 - y0 - 1);
+        cairo_stroke(cr);
+    }
+}
+
 static void paint_desktop_grid(cairo_t *cr, int w, int h)
 {
     (void)w;
@@ -221,6 +282,9 @@ static void paint_desktop_grid(cairo_t *cr, int w, int h)
         cairo_set_line_width(cr, 1.5);
         cairo_rectangle(cr, x + 1, 1, bw - 2, row_h - 2);
         cairo_stroke(cr);
+
+        if (wm.osd_desktop_windows)
+            paint_desktop_windows(cr, i, x + 2, 2, bw - 4, row_h - 4, fg_r, fg_g, fg_b);
 
         char label[16];
         snprintf(label, sizeof(label), "%d", i + 1);
@@ -349,11 +413,12 @@ static void repaint_windows(void)
 
 static void repaint_desktops(void)
 {
-    int bw = (int)(OSD_DESK_ROW_H * desk_aspect + 0.5);
+    int row_h = wm.osd_desktop_windows ? OSD_DESK_ROW_H_WINDOWS : OSD_DESK_ROW_H;
+    int bw = (int)(row_h * desk_aspect + 0.5);
     if (bw < 1)
         bw = 1;
     int cw = desk_n > 0 ? desk_n * bw + (desk_n - 1) * OSD_DESK_GAP : bw;
-    draw_chrome_and_content(cw, OSD_DESK_ROW_H, paint_desktops_wrapper);
+    draw_chrome_and_content(cw, row_h, paint_desktops_wrapper);
 }
 
 static void close_osd(void)

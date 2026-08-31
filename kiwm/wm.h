@@ -1014,6 +1014,14 @@ typedef struct {
      * "flip between the last two windows" behavior most desktops have. */
     bool osd_mru_order;
 
+    /* Whether each square of the desktop switcher's grid also shows the
+     * windows living on that desktop, drawn as little rectangles at their
+     * real geometry scaled into the square -- kiwm.conf's
+     * osd_desktop_windows= (default 1/on), the same thing xispanel's pager
+     * widget does with show_windows=yes. kiwm already knows every window's
+     * geometry first-hand, so this costs nothing but the drawing. */
+    bool osd_desktop_windows;
+
     /* Ticks once per focus change, stamped onto Client::last_focus_serial.
      * A counter rather than a timestamp because all that's ever asked of
      * it is "which of these two was focused later". */

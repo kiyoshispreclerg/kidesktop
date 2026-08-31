@@ -55,6 +55,7 @@ static void apply_builtin_defaults(void)
     wm.osd_live_preview_desktops = false;
     wm.osd_output_follows_pointer = false;
     wm.osd_mru_order = false;
+    wm.osd_desktop_windows = true;
     snprintf(wm.theme_path, sizeof(wm.theme_path), "greenxp");
 
     static const DecoElemKind default_layout[] = {
@@ -260,6 +261,12 @@ static void write_default_config(const char *path)
         "# single Tab flips to the previous window).\n"
         "osd_order=list\n"
         "\n"
+        "# Draw the windows of each desktop inside its square in the desktop\n"
+        "# switcher, as little rectangles at their real (scaled down)\n"
+        "# geometry -- the same picture xispanel's pager widget draws with\n"
+        "# show_windows=yes. 1 = on (default), 0 = plain numbered squares.\n"
+        "osd_desktop_windows=1\n"
+        "\n"
         "# Theme folder (bg.png/slice, btns.png/btns.slice, colors -- see\n"
         "# kiwm/README or the greenxp/ folder itself for the file formats).\n"
         "# Resolved the same way kiwm looks for its own binary-relative\n"
@@ -387,6 +394,8 @@ void config_load(void)
                 wm.osd_mru_order = false;
             else
                 fprintf(stderr, "kiwm: config: unknown osd_order '%s' (expected list or mru)\n", val);
+        } else if (strcmp(key, "osd_desktop_windows") == 0) {
+            wm.osd_desktop_windows = atoi(val) != 0;
         } else if (strcmp(key, "osd_output_follows_pointer") == 0) {
             wm.osd_output_follows_pointer = atoi(val) != 0;
         } else if (strcmp(key, "theme") == 0) {
