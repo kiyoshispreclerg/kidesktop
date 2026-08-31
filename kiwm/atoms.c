@@ -40,6 +40,7 @@ void ewmh_init_atoms(void)
     wm.atoms.net_workarea = intern_atom("_NET_WORKAREA");
     wm.atoms.net_desktop_geometry = intern_atom("_NET_DESKTOP_GEOMETRY");
     wm.atoms.net_desktop_viewport = intern_atom("_NET_DESKTOP_VIEWPORT");
+    wm.atoms.net_desktop_layout = intern_atom("_NET_DESKTOP_LAYOUT");
     wm.atoms.net_wm_full_placement = intern_atom("_NET_WM_FULL_PLACEMENT");
     wm.atoms.net_frame_extents = intern_atom("_NET_FRAME_EXTENTS");
     wm.atoms.net_wm_strut = intern_atom("_NET_WM_STRUT");

@@ -344,6 +344,7 @@ a warning on stderr, not a hard error. A key you leave out of the file keeps its
 | `deco_fg` | `#ffffff` | Fallback title text color, same "only when no theme" scope as `deco_bg`. |
 | `hide_deco_on_maximize` | `0` | `1` hides the whole decoration (titlebar + side/bottom border) while a window is maximized, to reclaim every pixel. `0` keeps it. |
 | `num_desktops` | `4` | Virtual desktops per output (every output has the same *count*, but its own independent *current* desktop -- see PROTOCOL.md). Clamped to 1..32. |
+| `desktop_columns` / `desktop_rows` | `0` / `1` | The shape those desktops are arranged in, numbered row-major from the top-left. Either may be `0`, meaning "as many as `num_desktops` needs" (EWMH's own semantics for `_NET_DESKTOP_LAYOUT`), so `desktop_rows=2` alone gives a 2-row grid of whatever the count is. The default -- 0 columns, 1 row -- is the single row kiwm always had. This shape is what the Meta+Tab switcher draws, and kiwm publishes it as `_NET_DESKTOP_LAYOUT`, so a pager (xispanel's reads exactly that property) shows the same grid without being configured separately. |
 | `mod_cycle` | `alt` | Modifier (`alt` or `meta`) for left-drag-to-move / right-drag-to-resize from anywhere on a window (not just its titlebar). Also what `ModCycle` resolves to in the `key_*` shortcuts below, which is how the window-switching defaults follow it. |
 | `mod_control` | `meta` | Modifier (`alt` or `meta`) for window control: drag-to-move/resize (same as `mod_cycle` but a separate binding). Also what `ModControl` resolves to in the `key_*` shortcuts, which is how the desktop-switch/maximize/minimize/tile defaults follow it. |
 | `border_thickness` | `0` | Left/right/bottom decoration border thickness in pixels. `0` means no border at all -- just the titlebar (the original look). |
@@ -584,7 +585,10 @@ overlay/animation to show at all):
 - **Alt+Tab**: a simple vertical list of eligible windows (icon + title), the pending selection
   highlighted. Each further Tab/Shift+Tab while Alt stays held moves the highlight.
 - **Meta+Tab**: a pager-style grid of the current output's desktops (squares proportional to the
-  output's real resolution, like xispanel's pager widget), the pending selection highlighted.
+  output's real resolution, like xispanel's pager widget), the pending selection highlighted. The
+  grid is laid out in `desktop_columns` x `desktop_rows` -- the same shape kiwm publishes as
+  `_NET_DESKTOP_LAYOUT`, so the overlay and any pager on screen agree -- with the cells of a short
+  last row simply left empty.
   With `osd_desktop_windows=1` (the default) each square also carries the windows that live on
   that desktop, drawn as little rectangles at their real geometry scaled into the square -- the
   focused one filled a shade brighter. kiwm decided all that geometry itself, so nothing has to be

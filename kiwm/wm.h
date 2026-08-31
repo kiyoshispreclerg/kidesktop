@@ -459,6 +459,14 @@ typedef struct {
      * all on a fresh session. */
     xcb_atom_t net_desktop_geometry;
     xcb_atom_t net_desktop_viewport;
+    /* The shape (columns x rows) the desktops are arranged in -- see
+     * KiWM::desktop_columns. Per EWMH this is a *pager's* property to set,
+     * not the WM's, but kiwm is where the shape is configured
+     * (kiwm.conf's desktop_columns=/desktop_rows=, which its own Meta+Tab
+     * grid and its up/down desktop shortcuts navigate by), so kiwm
+     * publishes it and any pager -- xispanel's reads exactly this -- draws
+     * the same grid without being configured separately. */
+    xcb_atom_t net_desktop_layout;
     /* Advertised in _NET_SUPPORTED to tell clients that window placement is
      * the WM's job -- which per EWMH means they should stop constraining
      * their own popups/menus to a screen. That self-clamping is the
@@ -781,6 +789,21 @@ typedef struct {
     double border_r, border_g, border_b, border_a;
 
     int num_desktops;   /* virtual desktops per output, from kiwm.conf's num_desktops= (default 4) */
+
+    /* The shape those desktops are arranged in, from kiwm.conf's
+     * desktop_columns=/desktop_rows= -- what the Meta+Tab desktop grid
+     * draws, what the horizontal/vertical desktop shortcuts move through
+     * (see keybind.c's KB_DESKTOP_* actions), and what kiwm publishes as
+     * _NET_DESKTOP_LAYOUT so an outside pager draws the same picture.
+     * Either may be 0, meaning "as many as the desktop count needs" --
+     * EWMH's own semantics for the property, kept here rather than
+     * resolved at parse time so num_desktops changing can't leave a stale
+     * shape behind. Defaults are columns=0, rows=1: one row of everything,
+     * exactly the arrangement kiwm had before this was configurable.
+     * desktop_grid() in output.c is the one place that turns this pair
+     * into a real cols x rows; nothing else should do that arithmetic. */
+    int desktop_columns;
+    int desktop_rows;
 
     /* Whether merely moving the pointer into a window raises+focuses it
      * (classic "sloppy"/focus-follows-mouse), vs. requiring a click --

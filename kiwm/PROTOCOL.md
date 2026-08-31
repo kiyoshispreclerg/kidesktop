@@ -110,6 +110,12 @@ ignored.
 - `_NET_CURRENT_DESKTOP` / `_NET_NUMBER_OF_DESKTOPS` on root mirror the **primary output only**,
   purely so a pager/taskbar that has no idea this extension exists still shows *something*
   sane. Don't use them to drive a per-output pager -- read `_KIWM_OUTPUT_DESKTOP` instead.
+- `_NET_DESKTOP_LAYOUT` on root is the `columns x rows` shape the desktops are arranged in
+  (`_NET_WM_ORIENTATION_HORZ` from `_NET_WM_TOPLEFT`, i.e. row-major from the top-left), from
+  `kiwm.conf`'s `desktop_columns=`/`desktop_rows=`. EWMH makes this a *pager's* property to set,
+  but kiwm is where the shape is configured -- its own Meta+Tab grid and its horizontal/vertical
+  desktop shortcuts navigate by it -- so kiwm publishes it and a pager can just read it. It
+  describes the shape of **one output's** desktops, like every count here.
 - Each managed client's `_NET_WM_DESKTOP` is that client's desktop index **within its own
   output** (`0..NUM_WORKSPACES-1`), not a globally unique desktop number. Two windows on
   *different* outputs can both report `_NET_WM_DESKTOP = 0` while genuinely being on unrelated

@@ -240,6 +240,7 @@ void ewmh_init_supported(void)
         wm.atoms.net_number_of_desktops, wm.atoms.net_current_desktop,
         wm.atoms.net_wm_desktop, wm.atoms.net_workarea, wm.atoms.net_frame_extents,
         wm.atoms.net_desktop_geometry, wm.atoms.net_desktop_viewport,
+        wm.atoms.net_desktop_layout,
         wm.atoms.net_wm_full_placement,
         wm.atoms.net_wm_strut, wm.atoms.net_wm_strut_partial,
         wm.atoms.net_wm_state, wm.atoms.net_wm_state_hidden,
@@ -276,6 +277,7 @@ void ewmh_init_supported(void)
     uint32_t numws = (uint32_t)wm.num_desktops;
     xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, wm.root,
                         wm.atoms.net_number_of_desktops, XCB_ATOM_CARDINAL, 32, 1, &numws);
+    ewmh_set_desktop_layout();
     ewmh_set_current_desktop(0);
 }
 

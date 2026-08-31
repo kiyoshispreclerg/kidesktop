@@ -38,6 +38,8 @@ static void apply_builtin_defaults(void)
     wm.deco_fg_r = 1.0; wm.deco_fg_g = 1.0; wm.deco_fg_b = 1.0; wm.deco_fg_a = 1.0;
     wm.hide_deco_on_maximize = false;
     wm.num_desktops = DEFAULT_NUM_DESKTOPS;
+    wm.desktop_columns = 0;
+    wm.desktop_rows = 1;
     wm.mod_cycle = MOD_ALT;
     wm.mod_control = MOD_META;
     wm.border_thickness = 0;
@@ -167,6 +169,17 @@ static void write_default_config(const char *path)
         "\n"
         "# Virtual desktops per output.\n"
         "num_desktops=4\n"
+        "\n"
+        "# The shape those desktops are arranged in: what the Meta+Tab\n"
+        "# desktop switcher draws, what the horizontal/vertical desktop\n"
+        "# shortcuts move through, and what kiwm publishes as\n"
+        "# _NET_DESKTOP_LAYOUT so a pager (xispanel's, say) draws the same\n"
+        "# grid without being configured separately. Numbering is row-major\n"
+        "# from the top-left. Either may be 0, meaning \"as many as\n"
+        "# num_desktops needs\"; the default (0 columns, 1 row) is the\n"
+        "# single row of desktops kiwm has always had.\n"
+        "desktop_columns=0\n"
+        "desktop_rows=1\n"
         "\n"
         "# Modifier for Tab / Shift+Tab window switching: alt or meta.\n"
         "mod_cycle=alt\n"
@@ -344,6 +357,16 @@ void config_load(void)
             if (n < 1) n = 1;
             if (n > MAX_DESKTOPS) n = MAX_DESKTOPS;
             wm.num_desktops = n;
+        } else if (strcmp(key, "desktop_columns") == 0) {
+            int n = atoi(val);
+            if (n < 0) n = 0;
+            if (n > MAX_DESKTOPS) n = MAX_DESKTOPS;
+            wm.desktop_columns = n;
+        } else if (strcmp(key, "desktop_rows") == 0) {
+            int n = atoi(val);
+            if (n < 0) n = 0;
+            if (n > MAX_DESKTOPS) n = MAX_DESKTOPS;
+            wm.desktop_rows = n;
         } else if (strcmp(key, "mod_cycle") == 0) {
             wm.mod_cycle = parse_mod(val, wm.mod_cycle);
         } else if (strcmp(key, "mod_control") == 0) {

@@ -18,9 +18,44 @@ void outputs_refresh(void);
  * screen change. */
 void ewmh_set_desktop_geometry(void);
 
+/* Publishes _NET_DESKTOP_LAYOUT (the columns x rows shape kiwm.conf's
+ * desktop_columns=/desktop_rows= ask for) so an outside pager -- xispanel's
+ * reads exactly this property -- lays its squares out the same way kiwm's
+ * own Meta+Tab grid does. Called at startup, next to the other one-shot
+ * desktop properties. */
+void ewmh_set_desktop_layout(void);
+
+/* The desktop grid: the single place kiwm.conf's desktop_columns=/
+ * desktop_rows= (either of which may be 0, "as many as needed") plus
+ * wm.num_desktops turn into a real cols x rows, and the row/column
+ * arithmetic that goes with it. Row-major from the top-left, matching what
+ * ewmh_set_desktop_layout() publishes.
+ *
+ * desktop_at_cell() returns -1 for a cell the desktop count doesn't reach
+ * (the last row of a 3x2 grid holding 5 desktops) -- callers should skip
+ * those rather than treat it as desktop -1. */
+void desktop_grid(int *out_cols, int *out_rows);
+int desktop_at_cell(int row, int col);
+void desktop_cell(int desktop, int *out_row, int *out_col);
+
+/* Which direction a desktop switch moves in: through the desktops in
+ * plain index order (kiwm's original Tab cycling, and what it still does
+ * by default), or one column / one row at a time through the grid above.
+ * Each is offered in both directions via desktop_step()'s +1/-1. */
+typedef enum {
+    DESKTOP_AXIS_LINEAR = 0,
+    DESKTOP_AXIS_HORZ,
+    DESKTOP_AXIS_VERT
+} DesktopAxis;
+
+/* The desktop `direction` (+1/-1) steps to along `axis`, wrapping around
+ * (the row, the column, or the whole list) and skipping empty grid cells.
+ * Returns `from` unchanged if there is nowhere else to go. */
+int desktop_step(int from, int direction, DesktopAxis axis);
+
 void ewmh_set_current_desktop(int desktop);
 void switch_workspace(int output_idx, int desktop);
-void cycle_output_desktop(int direction);
+void cycle_output_desktop(int direction, DesktopAxis axis);
 
 /* Dock/panel struts (_NET_WM_STRUT/_NET_WM_STRUT_PARTIAL) -- see
  * DockWindow in wm.h. dock_refresh_strut()/dock_forget() return false if

@@ -66,10 +66,14 @@ static bool pointer_grabbed = false;
 static TabBoxState tb_state;
 static const TabBoxOps *active_tabbox_ops = &simple_list_tabbox_ops;
 
-/* Desktop-switcher state. */
+/* Desktop-switcher state. The grid shape is snapshotted when the hold
+ * starts, like everything else about an open overlay, so a config reload
+ * mid-hold can't resize the overlay under the user's fingers. */
 static int desk_n = 0;
 static int desk_selected = 0;
 static double desk_aspect = 1.0;
+static int desk_grid_cols = 1;
+static int desk_grid_rows = 1;
 
 /* What was actually focused/current *before* this hold started -- restored
  * by osd_cancel() (Escape), and also what osd_live_preview_windows='s
@@ -256,13 +260,23 @@ static void paint_desktop_windows(cairo_t *cr, int desktop, double cx, double cy
     }
 }
 
+/* Square size for the desktop grid, from the overlay's output aspect ratio
+ * -- shared by the measure (repaint_desktops()) and the paint below so the
+ * two can't disagree about how big the grid is. */
+static void desktop_square_size(int *out_w, int *out_h)
+{
+    int h = wm.osd_desktop_windows ? OSD_DESK_ROW_H_WINDOWS : OSD_DESK_ROW_H;
+    int w = (int)(h * desk_aspect + 0.5);
+    *out_w = w < 1 ? 1 : w;
+    *out_h = h;
+}
+
 static void paint_desktop_grid(cairo_t *cr, int w, int h)
 {
     (void)w;
-    int row_h = h;
-    int bw = (int)(row_h * desk_aspect + 0.5);
-    if (bw < 1)
-        bw = 1;
+    (void)h;
+    int bw, bh;
+    desktop_square_size(&bw, &bh);
 
     double fg_r, fg_g, fg_b;
     if (wm.have_theme_colors) {
@@ -271,25 +285,35 @@ static void paint_desktop_grid(cairo_t *cr, int w, int h)
         fg_r = wm.deco_fg_r; fg_g = wm.deco_fg_g; fg_b = wm.deco_fg_b;
     }
 
-    for (int i = 0; i < desk_n; i++) {
-        double x = i * (bw + OSD_DESK_GAP);
-        if (i == desk_selected) {
-            cairo_set_source_rgba(cr, fg_r, fg_g, fg_b, 0.25);
-            cairo_rectangle(cr, x, 0, bw, row_h);
-            cairo_fill(cr);
+    /* Walks cells, not desktops, so a grid whose last row is short (5
+     * desktops in a 3x2) simply leaves those cells empty instead of
+     * shifting everything after them -- same as xispanel's pager. */
+    for (int r = 0; r < desk_grid_rows; r++) {
+        for (int c = 0; c < desk_grid_cols; c++) {
+            int d = desktop_at_cell(r, c);
+            if (d < 0 || d >= desk_n)
+                continue;
+
+            double x = c * (bw + OSD_DESK_GAP);
+            double y = r * (bh + OSD_DESK_GAP);
+            if (d == desk_selected) {
+                cairo_set_source_rgba(cr, fg_r, fg_g, fg_b, 0.25);
+                cairo_rectangle(cr, x, y, bw, bh);
+                cairo_fill(cr);
+            }
+            cairo_set_source_rgba(cr, fg_r, fg_g, fg_b, 0.6);
+            cairo_set_line_width(cr, 1.5);
+            cairo_rectangle(cr, x + 1, y + 1, bw - 2, bh - 2);
+            cairo_stroke(cr);
+
+            if (wm.osd_desktop_windows)
+                paint_desktop_windows(cr, d, x + 2, y + 2, bw - 4, bh - 4, fg_r, fg_g, fg_b);
+
+            char label[16];
+            snprintf(label, sizeof(label), "%d", d + 1);
+            cairo_set_source_rgba(cr, fg_r, fg_g, fg_b, 1.0);
+            pango_show_text_boxed(cr, x, y, bh, bw, wm.title_font_size + 2, label, true, NULL);
         }
-        cairo_set_source_rgba(cr, fg_r, fg_g, fg_b, 0.6);
-        cairo_set_line_width(cr, 1.5);
-        cairo_rectangle(cr, x + 1, 1, bw - 2, row_h - 2);
-        cairo_stroke(cr);
-
-        if (wm.osd_desktop_windows)
-            paint_desktop_windows(cr, i, x + 2, 2, bw - 4, row_h - 4, fg_r, fg_g, fg_b);
-
-        char label[16];
-        snprintf(label, sizeof(label), "%d", i + 1);
-        cairo_set_source_rgba(cr, fg_r, fg_g, fg_b, 1.0);
-        pango_show_text_boxed(cr, x, 0, row_h, bw, wm.title_font_size + 2, label, true, NULL);
     }
 }
 
@@ -413,12 +437,11 @@ static void repaint_windows(void)
 
 static void repaint_desktops(void)
 {
-    int row_h = wm.osd_desktop_windows ? OSD_DESK_ROW_H_WINDOWS : OSD_DESK_ROW_H;
-    int bw = (int)(row_h * desk_aspect + 0.5);
-    if (bw < 1)
-        bw = 1;
-    int cw = desk_n > 0 ? desk_n * bw + (desk_n - 1) * OSD_DESK_GAP : bw;
-    draw_chrome_and_content(cw, row_h, paint_desktops_wrapper);
+    int bw, bh;
+    desktop_square_size(&bw, &bh);
+    int cw = desk_grid_cols * bw + (desk_grid_cols - 1) * OSD_DESK_GAP;
+    int ch = desk_grid_rows * bh + (desk_grid_rows - 1) * OSD_DESK_GAP;
+    draw_chrome_and_content(cw, ch, paint_desktops_wrapper);
 }
 
 static void close_osd(void)
@@ -622,7 +645,7 @@ void osd_windows_step(int direction)
 void osd_desktops_step(int direction)
 {
     if (!wm.osd_enabled) {
-        cycle_output_desktop(direction);
+        cycle_output_desktop(direction, DESKTOP_AXIS_LINEAR);
         return;
     }
     if (kind == OSD_WINDOWS)
@@ -636,6 +659,7 @@ void osd_desktops_step(int direction)
         kind = OSD_DESKTOPS;
         osd_output = output_idx;
         desk_n = wm.num_desktops;
+        desktop_grid(&desk_grid_cols, &desk_grid_rows);
         original_desktop = wm.outputs[output_idx].desktop;
         desk_selected = original_desktop;
         desk_aspect = wm.outputs[output_idx].height > 0

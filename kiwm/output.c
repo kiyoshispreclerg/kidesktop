@@ -599,16 +599,101 @@ void switch_workspace(int output_idx, int desktop)
             wm.outputs[output_idx].name, desktop + 1);
 }
 
+/* ------------------------------------------------------------------ */
+/* the desktop grid (kiwm.conf's desktop_columns=/desktop_rows=)        */
+/* ------------------------------------------------------------------ */
+
+void desktop_grid(int *out_cols, int *out_rows)
+{
+    int cols = wm.desktop_columns, rows = wm.desktop_rows;
+
+    /* EWMH's own rule for _NET_DESKTOP_LAYOUT: one of the two may be 0,
+     * meaning "as many as this desktop count needs"; both 0 (or neither
+     * configured) falls back to a single row, which is the arrangement
+     * kiwm had before any of this was configurable. */
+    if (cols <= 0 && rows <= 0) {
+        cols = wm.num_desktops;
+        rows = 1;
+    } else if (cols <= 0) {
+        cols = (wm.num_desktops + rows - 1) / rows;
+    } else if (rows <= 0) {
+        rows = (wm.num_desktops + cols - 1) / cols;
+    }
+
+    *out_cols = cols < 1 ? 1 : cols;
+    *out_rows = rows < 1 ? 1 : rows;
+}
+
+int desktop_at_cell(int row, int col)
+{
+    int cols, rows;
+    desktop_grid(&cols, &rows);
+    if (row < 0 || row >= rows || col < 0 || col >= cols)
+        return -1;
+    int d = row * cols + col;
+    return d < wm.num_desktops ? d : -1;
+}
+
+void desktop_cell(int desktop, int *out_row, int *out_col)
+{
+    int cols, rows;
+    desktop_grid(&cols, &rows);
+    (void)rows;
+    if (desktop < 0)
+        desktop = 0;
+    *out_row = desktop / cols;
+    *out_col = desktop % cols;
+}
+
+int desktop_step(int from, int direction, DesktopAxis axis)
+{
+    if (wm.num_desktops < 1)
+        return from;
+    if (axis == DESKTOP_AXIS_LINEAR)
+        return (from + direction + wm.num_desktops) % wm.num_desktops;
+
+    int cols, rows;
+    desktop_grid(&cols, &rows);
+    int r, c;
+    desktop_cell(from, &r, &c);
+
+    /* Walks the row (or column) one cell at a time rather than jumping
+     * straight to the neighbor, so a grid whose last row is short -- 5
+     * desktops in a 3x2 -- steps over the empty cells instead of getting
+     * stuck on one. At most one full lap, then give up and stay put. */
+    int span = (axis == DESKTOP_AXIS_HORZ) ? cols : rows;
+    for (int i = 0; i < span; i++) {
+        if (axis == DESKTOP_AXIS_HORZ)
+            c = (c + direction + cols) % cols;
+        else
+            r = (r + direction + rows) % rows;
+        int d = desktop_at_cell(r, c);
+        if (d >= 0)
+            return d;
+    }
+    return from;
+}
+
+void ewmh_set_desktop_layout(void)
+{
+    int cols, rows;
+    desktop_grid(&cols, &rows);
+    /* _NET_WM_ORIENTATION_HORZ (row-major) from _NET_WM_TOPLEFT -- the
+     * only arrangement kiwm's own grid and shortcuts describe, so it
+     * publishes exactly that rather than an option nothing here reads. */
+    uint32_t layout[] = { 0, (uint32_t)cols, (uint32_t)rows, 0 };
+    xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, wm.root,
+                        wm.atoms.net_desktop_layout, XCB_ATOM_CARDINAL, 32, 4, layout);
+}
+
 /* Cycles the virtual desktop of the "focused output" -- the output that
  * has the currently active window, falling back to whatever output the
  * pointer is on when nothing is focused. */
-void cycle_output_desktop(int direction)
+void cycle_output_desktop(int direction, DesktopAxis axis)
 {
     int output_idx = wm.focused ? wm.focused->output : output_for_pointer();
     if (output_idx < 0 || wm.output_count == 0)
         return;
 
-    int cur = wm.outputs[output_idx].desktop;
-    int next = (cur + direction + wm.num_desktops) % wm.num_desktops;
-    switch_workspace(output_idx, next);
+    switch_workspace(output_idx, desktop_step(wm.outputs[output_idx].desktop, direction, axis));
 }
