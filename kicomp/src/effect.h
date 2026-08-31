@@ -30,6 +30,8 @@
 #include "scene.h"
 
 typedef struct CompEffect CompEffect;
+typedef struct CompEffectInstance CompEffectInstance;
+typedef struct CompEffectModule CompEffectModule;
 
 typedef struct CompEffectOps {
     const char *name;
@@ -52,6 +54,12 @@ typedef struct CompEffectOps {
 struct CompEffect {
     const CompEffectOps *ops;
     CompEffect *next;
+
+    /* The instance that started it, and therefore the settings it runs
+     * with -- two instances of one module animate the same window with
+     * different numbers precisely because each running effect remembers
+     * which one it came from. */
+    const CompEffectInstance *instance;
 
     double start_time;   /* ms, monotonic */
     double duration;     /* ms */
@@ -112,54 +120,85 @@ uint32_t comp_event_mask_parse(const char *list);
 #define COMP_EVENT_BIT(kind) (1u << (kind))
 #define COMP_EVENTS_ALL      0xffffffffu
 
-/* What kicomp.conf's [effect:<name>] section can say about one effect.
- * `duration` is a multiple of the global animation unit, never a time:
- * "this one should feel twice as long as the desktop's normal
- * animation", not "320 ms". */
-typedef struct CompEffectConfig {
+/* Window type names as they appear in kicomp.conf ("normal", "tooltip",
+ * "popup-menu", ...) and the mask an effect is filtered by. */
+const char *comp_window_type_name(CompWindowType type);
+uint32_t comp_window_type_mask_parse(const char *list);
+
+#define COMP_WINDOW_BIT(type) (1u << (type))
+#define COMP_WINDOWS_ALL      0xffffffffu
+
+/* One *instance* of an effect: a module plus the settings it runs with.
+ *
+ * Every module has a base instance, configured by [effect:<module>], and
+ * may have any number of named ones, [effect:<module>:<instance>], each
+ * of which starts as a copy of the base and overrides only what it says.
+ * That is what makes "scale-out on close, and a slower, deeper scale-out
+ * on minimize" two lines of config rather than a second effect.
+ *
+ * The three universal settings are here; whatever else the module
+ * understands lives in `config`, a block the module describes
+ * (config_size/config_defaults) and parses (config_key), one per
+ * instance -- which is precisely why two instances can differ. */
+struct CompEffectInstance {
+    const CompEffectModule *module;
+    CompEffectInstance *next;
+
+    char name[64];        /* "scale-out" or "scale-out:minimize" */
+
     bool enabled;
-    double duration;
-    uint32_t events;    /* which CompEventKinds this effect answers to */
-} CompEffectConfig;
+    double duration;      /* multiple of the global animation unit */
+    uint32_t events;      /* CompEventKind mask */
+    uint32_t windows;     /* CompWindowType mask */
 
-/* Settings for one module by name, or NULL if no such effect exists (how
- * config.c reports a typo in a section header). */
-CompEffectConfig *effect_config(const char *name);
+    void *config;         /* module-private, module->config_size bytes */
+};
 
-/* What an effect asks at the moment it starts. effect_duration() is
- * already in milliseconds: the module's configured multiple of the
- * user's global animation_duration. */
-bool effect_is_enabled(const char *name);
-double effect_duration(const char *name);
+/* This instance's duration in milliseconds: its multiple of the user's
+ * global animation_duration. What an effect asks when it starts. */
+double effect_instance_duration(const CompEffectInstance *inst);
 
-/* Hands one [effect:<name>] key to that module's own parser. False when
- * the effect or the key is unknown. */
-bool effect_config_key(const char *name, const char *key, const char *value);
+/* The base instance of a module by name (NULL if there is no such
+ * effect), and a named instance of it, created on first mention as a copy
+ * of the base. Both are how config.c turns a section header into
+ * something to write into. */
+CompEffectInstance *effect_base_instance(const char *module);
+CompEffectInstance *effect_named_instance(const char *module, const char *instance);
+
+/* Hands one key to an instance's own module parser. False when the key is
+ * one the module doesn't know. */
+bool effect_instance_config_key(CompEffectInstance *inst, const char *key,
+                                const char *value);
 
 /* A module is the part that watches the desktop and decides to start an
  * effect. Every callback is optional. */
-typedef struct CompEffectModule {
+struct CompEffectModule {
     const char *name;
 
-    /* Defaults for this effect, overridable per [effect:<name>] section.
-     * default_duration is a multiple of the global unit, default_events a
-     * mask of COMP_EVENT_BIT(...). */
+    /* Defaults, overridable per section. default_duration is a multiple
+     * of the global unit; the two masks are COMP_EVENT_BIT(...) and
+     * COMP_WINDOW_BIT(...) respectively. */
     bool default_enabled;
     double default_duration;
     uint32_t default_events;
+    uint32_t default_windows;
 
-    /* Something happened to a window. The core only calls this for events
-     * in the effect's configured mask, so a module never has to check
-     * which event it got unless it treats several of them differently. */
-    void (*window_event)(CompWindow *w, const CompEvent *ev);
+    /* Something happened to a window. The core calls this only for events
+     * in this instance's event mask, on a window in its type mask, so a
+     * module never checks either -- `self` is the instance that matched,
+     * and its `config` holds the settings to run with. */
+    void (*window_event)(CompWindow *w, const CompEvent *ev,
+                         const CompEffectInstance *self);
 
-    /* Keys from this effect's [effect:<name>] section beyond the two
-     * universal ones (enabled, duration). Returns false for a key the
-     * module doesn't know, so a typo in the config gets reported instead
-     * of silently doing nothing. Optional: an effect with no settings of
-     * its own leaves it NULL. */
-    bool (*config_key)(const char *key, const char *value);
-} CompEffectModule;
+    /* The module's own settings: how big the block is, how to fill it
+     * with defaults, and how to parse one key into it. All three NULL for
+     * an effect with no settings beyond the universal ones. config_key
+     * returns false for a key it doesn't know, so a typo gets reported
+     * instead of silently doing nothing. */
+    size_t config_size;
+    void (*config_defaults)(void *config);
+    bool (*config_key)(void *config, const char *key, const char *value);
+};
 
 /* Effects are off until effects_init() runs (kicomp --effects). */
 void effects_init(void);

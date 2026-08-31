@@ -132,7 +132,8 @@ static const CompEffectOps geometry_ops = {
     .destroy  = geometry_destroy,
 };
 
-static void on_event(CompWindow *w, const CompEvent *event)
+static void on_event(CompWindow *w, const CompEvent *event,
+                     const CompEffectInstance *self)
 {
     const CompRect *from = &event->from;
     const CompRect *to = &event->to;
@@ -184,13 +185,13 @@ static void on_event(CompWindow *w, const CompEvent *event)
     d->current = origin;
 
     e->ops = &geometry_ops;
+    e->instance = self;
     e->window = w;
     e->start_time = comp_now_ms();
-    /* The user's global animation unit, times this effect's own
-     * multiplier -- never a number of milliseconds spelled out here
-     * (kicomp.conf's animation_duration= and [effect:geometry]
-     * duration=). */
-    e->duration = effect_duration("geometry");
+    /* This instance's own multiple of the user's global animation unit --
+     * never a number of milliseconds spelled out here (kicomp.conf's
+     * animation_duration=, and the instance's duration=). */
+    e->duration = effect_instance_duration(self);
     e->data = d;
 
     active = e;
@@ -210,6 +211,13 @@ const CompEffectModule effect_geometry = {
     /* Every kind of jump the WM can make a window take -- but not shade,
      * which has an effect of its own that must not have this sliding
      * underneath it (kicomp.conf: events=). */
+    /* Ordinary windows; a menu or a panel being moved by the WM is not
+     * something to animate. */
+    .default_windows  = COMP_WINDOW_BIT(COMP_WINDOW_UNKNOWN) |
+                        COMP_WINDOW_BIT(COMP_WINDOW_NORMAL) |
+                        COMP_WINDOW_BIT(COMP_WINDOW_DIALOG) |
+                        COMP_WINDOW_BIT(COMP_WINDOW_UTILITY) |
+                        COMP_WINDOW_BIT(COMP_WINDOW_TOOLBAR),
     .default_events   = COMP_EVENT_BIT(COMP_EVENT_MAXIMIZE) |
                         COMP_EVENT_BIT(COMP_EVENT_UNMAXIMIZE) |
                         COMP_EVENT_BIT(COMP_EVENT_FULLSCREEN) |

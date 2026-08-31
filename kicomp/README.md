@@ -86,31 +86,66 @@ skip_wm_layers     = 0     # 1 = não compõe o OSD/contorno do kiwm
 # ---- efeitos ----
 [effect:geometry]
 enabled  = 1
-duration = 1.0   # múltiplo de animation_duration, não milissegundos
+duration = 1.0                  # múltiplo de animation_duration, não ms
+events   = maximize,unmaximize,move
+windows  = normal,dialog
 
 [effect:fade-in]
 enabled  = 1
 duration = 1.0
-windows  = 1     # janelas comuns
-menus    = 1     # menus, popups, tooltips, notificações
-docks    = 1     # paineis
+events   = open,restore,desktop-enter
+windows  = all
 
 [effect:fade-out]
 enabled  = 1
 duration = 1.0
-events   = close     # close,minimize,desktop-leave... (ver Eventos)
+events   = close
+windows  = all
 
 [effect:scale-in]
-enabled  = 0
+enabled  = 1
 duration = 1.0
-from     = 0.8      # tamanho inicial, fração do final
-origin   = window   # window | pointer | output
+events   = open
+windows  = windows,menus
+from     = 0.8                  # tamanho inicial, fração do final
+origin   = window               # window | pointer | output
 
 [effect:scale-out]
-enabled  = 0
+enabled  = 1
 duration = 1.0
-to       = 1.15     # fração do tamanho real; > 1 incha antes de sumir
+events   = close
+to       = 1.15                 # > 1 incha antes de sumir
 origin   = window
+
+# uma segunda instância do mesmo efeito, com outros números: herda tudo
+# de [effect:scale-out] e sobrescreve só o que declara
+[effect:scale-out:minimize]
+events   = minimize
+duration = 2.0
+to       = 0.2
+origin   = pointer
+```
+
+### Instâncias
+
+`[effect:<nome>]` configura a instância **base** de um efeito.
+`[effect:<nome>:<instância>]` cria outra do mesmo efeito, que **começa
+como cópia da base** e sobrescreve apenas as chaves que declarar — é
+assim que "scale-out ao fechar, e um scale-out mais lento e mais fundo ao
+minimizar" viram duas seções em vez de dois efeitos.
+
+- a instância especializada **não** repete nada: o que ela não diz é o
+  que a base tem;
+- a ordem das seções no arquivo não importa — o kicomp lê o arquivo em
+  duas passadas, as bases primeiro e as instâncias depois;
+- para usar só as especializadas, `enabled = 0` na base;
+- cada instância tem sua própria cópia das chaves do módulo (`to`,
+  `origin`, ...), então elas realmente podem diferir;
+- o log de inicialização lista todas, já resolvidas:
+
+```
+kicomp:   scale-out              on   200 ms  on: close     for: normal,dialog,...
+kicomp:   scale-out:minimize     on   400 ms  on: minimize  for: normal,dialog,...
 ```
 
 Comentário na mesma linha (`origin = pointer  # ...`) e espaço à direita
@@ -124,8 +159,9 @@ desacelera o desktop inteiro de forma coerente, em vez de deixar um
 punhado de animações reguladas independentemente. `animation_duration=0`
 mantém os efeitos ligados mas termina todos imediatamente.
 
-Cada `[effect:<nome>]` aceita sempre `enabled`, `duration` e `events`, e
-além dessas as chaves que o próprio efeito entender — cada módulo parseia as
+Toda seção de efeito aceita as quatro chaves universais — `enabled`,
+`duration`, `events` (quais eventos), `windows` (quais tipos de janela) —
+e além dessas as que o próprio efeito entender; cada módulo parseia as
 suas (`config_key` em `effect.h`), e uma chave que ele não conhece vira
 aviso no terminal em vez de sumir em silêncio.
 
@@ -155,6 +191,49 @@ events = close,minimize             # some ao fechar E ao minimizar
 módulo, então um efeito nunca recebe um evento que o usuário não pediu —
 é por isso que "enrolar no shade sem o geometry deslizando junto" é uma
 linha de config, e não um caso especial dentro de um efeito.
+
+## Tipos de janela
+
+Do mesmo jeito, `windows=` diz a **quais janelas** um efeito se aplica.
+Um tipo por valor de `_NET_WM_WINDOW_TYPE`, mais `unknown` para as
+janelas que não declaram tipo nenhum (a maioria dos apps antigos):
+
+| valor | `_NET_WM_WINDOW_TYPE_…` |
+|---|---|
+| `unknown` | *(nenhum tipo declarado)* |
+| `normal` | `NORMAL` |
+| `dialog` | `DIALOG` |
+| `utility` | `UTILITY` |
+| `toolbar` | `TOOLBAR` |
+| `splash` | `SPLASH` |
+| `menu` | `MENU` |
+| `dropdown-menu` | `DROPDOWN_MENU` |
+| `popup-menu` | `POPUP_MENU` |
+| `combo` | `COMBO` |
+| `tooltip` | `TOOLTIP` |
+| `notification` | `NOTIFICATION` |
+| `dnd` | `DND` |
+| `dock` | `DOCK` |
+| `desktop` | `DESKTOP` |
+
+E quatro atalhos de grupo:
+
+| grupo | equivale a |
+|---|---|
+| `all` | tudo |
+| `none` | nada |
+| `windows` | `unknown,normal,dialog,utility,toolbar,splash` |
+| `menus` | `menu,dropdown-menu,popup-menu,combo` |
+| `popups` | `menus` + `tooltip,notification,dnd` |
+
+```ini
+[effect:fade-in]
+windows = normal,dialog,tooltip,popup-menu
+```
+
+As camadas próprias do kiwm (`_KIWM_LAYER`: OSD do alt-tab, contorno) e
+janelas `InputOnly` nunca recebem efeito — isso é regra do core, não
+configuração.
 
 **Como o core sabe.** Um unmap do X pode ser fechar, minimizar ou sair de
 um desktop; um resize pode ser maximizar, enrolar, virar fullscreen ou só
@@ -202,12 +281,16 @@ Adicionar um efeito = um arquivo em `src/effects/`, sua declaração em
 `effect.h` e uma linha na tabela de `effect.c`. Nada mais no compositor
 muda (seção 42).
 
+Um módulo declara também o tamanho e os defaults do seu bloco de config
+(`config_size`/`config_defaults`/`config_key`); o core aloca **um bloco
+por instância** e passa a instância que casou (`self`) para o callback de
+evento — que é o mecanismo inteiro por trás das múltiplas instâncias.
+
 ### `fade-in` (seção 24.1)
 
-Janela que aparece sobe do transparente. Chaves próprias: `windows`,
-`menus`, `docks` — quais tipos de janela recebem o efeito
-(`_NET_WM_WINDOW_TYPE`, lido da janela cliente dentro do frame). Ligado
-por padrão.
+Janela que aparece sobe do transparente. Sem chaves próprias: só as
+universais (`enabled`, `duration`, `events`, `windows`). Ligado por
+padrão, em `open,restore,desktop-enter`, para tudo menos o desktop.
 
 A opacidade é *multiplicada*, não atribuída: um terminal meio
 transparente por `_NET_WM_WINDOW_OPACITY` não vira opaco só porque estava
@@ -222,7 +305,6 @@ geometria real; configurável é de onde ela cresce:
 |---|---|
 | `from` | tamanho inicial como fração do final (0.05–4.0, default 0.8; acima de 1 encolhe até o lugar) |
 | `origin` | `window` (centro dela, default), `pointer` (onde está o mouse), `output` (centro do monitor) |
-| `windows`, `menus`, `docks` | quais tipos recebem |
 
 O ponto de origem é lido uma vez, quando o efeito começa — um `pointer`
 que acompanhasse o mouse arrastaria a animação de lado. Desligado por
@@ -330,6 +412,7 @@ vblank; quando o presenter souber reportar MSC de verdade, só o
 | 20/40 — animação por tempo | progresso vem do relógio monotônico; duração é múltiplo de uma unidade global |
 | 24.1/24.2/24.3/24.4 — efeitos | fade in/out, scale in/out (origem configurável) e geometry change |
 | — | eventos semânticos (open/close/minimize/maximize/shade/focus/...), configuráveis por efeito |
+| — | filtro por tipo de janela (`windows=`) e múltiplas instâncias do mesmo efeito, cada uma com seus parâmetros |
 | — | janela retida além do próprio fim (`window_retain`), que é o que permite animar o fechamento |
 
 ## O que **não** está implementado (e onde entra)

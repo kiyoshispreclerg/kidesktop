@@ -84,16 +84,30 @@ typedef enum {
     COMP_STATE_MINIMIZED  = 1 << 3,   /* _NET_WM_STATE_HIDDEN or WM_STATE=Iconic */
 } CompWindowState;
 
-/* Coarse window classes, from _NET_WM_WINDOW_TYPE. Deliberately coarse:
- * effects care about "is this a menu-ish popup" and not about the
- * difference between a dropdown and a combo box. */
+/* Window types, straight from _NET_WM_WINDOW_TYPE and one per EWMH
+ * value, so an effect can be pointed at exactly what its author (or the
+ * user) means -- "tooltips but not menus" is a real preference, and a
+ * coarser classification would have to guess for them.
+ *
+ * Keep in sync with window_type_names[] in effect.c. */
 typedef enum {
-    COMP_WINDOW_UNKNOWN = 0,
-    COMP_WINDOW_NORMAL,    /* normal, dialog, utility, toolbar, splash */
-    COMP_WINDOW_MENU,      /* menu, popup, dropdown, combo, tooltip, notification, dnd */
-    COMP_WINDOW_DOCK,      /* panels */
-    COMP_WINDOW_DESKTOP,   /* the wallpaper layer */
-} CompWindowKind;
+    COMP_WINDOW_UNKNOWN = 0,   /* no type set: an ordinary window, said quietly */
+    COMP_WINDOW_NORMAL,
+    COMP_WINDOW_DIALOG,
+    COMP_WINDOW_UTILITY,
+    COMP_WINDOW_TOOLBAR,
+    COMP_WINDOW_SPLASH,
+    COMP_WINDOW_MENU,
+    COMP_WINDOW_DROPDOWN_MENU,
+    COMP_WINDOW_POPUP_MENU,
+    COMP_WINDOW_COMBO,
+    COMP_WINDOW_TOOLTIP,
+    COMP_WINDOW_NOTIFICATION,
+    COMP_WINDOW_DND,
+    COMP_WINDOW_DOCK,
+    COMP_WINDOW_DESKTOP,
+    COMP_WINDOW_TYPE_COUNT
+} CompWindowType;
 
 /* The compositor's mirror of one top-level (a direct child of root -- with
  * kiwm that means the frame window, whose backing pixmap already contains
@@ -129,7 +143,7 @@ typedef struct CompWindow {
      * the EWMH properties; an override-redirect menu is its own client.
      * Effects need this to be told apart -- "fade menus but not docks" is
      * a normal thing to want. */
-    CompWindowKind kind;
+    CompWindowType type;
     xcb_window_t client;       /* XCB_NONE until resolved */
 
     /* When this window was last reconfigured, and how many configures
@@ -223,6 +237,11 @@ typedef struct KiComp {
         /* _NET_WM_WINDOW_TYPE and the handful of values that decide a
          * CompWindowKind. */
         xcb_atom_t net_wm_window_type;
+        xcb_atom_t type_normal;
+        xcb_atom_t type_dialog;
+        xcb_atom_t type_utility;
+        xcb_atom_t type_toolbar;
+        xcb_atom_t type_splash;
         xcb_atom_t type_dock;
         xcb_atom_t type_desktop;
         xcb_atom_t type_menu;

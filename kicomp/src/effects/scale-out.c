@@ -1,35 +1,39 @@
 /*
  * Scale out (section 24.3): the closing half of scale-in, and its exact
- * mirror -- the window starts at its real size and shrinks toward the
- * configured origin, where scale-in grew out of it.
+ * mirror -- the window starts at its real size and goes to the configured
+ * one, around the same origin scale-in would have grown out of.
  *
  * Like fade-out, it draws a window that is already gone, held by
- * window_retain() until the animation ends (see window.h and
- * effects/fade-out.c).
+ * window_retain() until the animation ends (see window.h).
+ *
+ * The destination is always the window's real geometry; what is
+ * configurable is the size it ends at and the point it shrinks into:
+ *
+ *   origin = window    the window's own centre (default)
+ *   origin = pointer   where the mouse is, so a menu appears to come out
+ *                      of the click that opened it
+ *   origin = output    the centre of the monitor the window is on
  *
  * kicomp.conf:
  *
  *   [effect:scale-out]
  *   enabled  = 0
  *   duration = 1.0     # multiple of the global animation unit
- *   to       = 0.8     # final size as a fraction of the real one; above
- *                      # 1 swells instead of shrinking (0.05 .. 4.0)
+ *   events   = close
+ *   windows  = windows,menus
+ *   to     = 0.8     # final size, as a fraction of the real one
  *   origin   = window  # window | pointer | output
- *   windows  = 1
- *   menus    = 1
- *   docks    = 0
  *
- * Pairing it with fade-out is the usual "zoom + fade on close" of section
- * 24.3: the two are separate effects and compose without either knowing
- * about the other -- one writes the node's transform, the other its
- * opacity.
+ * Several instances may exist, each with its own numbers -- see the
+ * README: [effect:scale-out:minimize] with a different origin and size is
+ * a section, not a second effect.
  */
 #include "../effect.h"
 #include "../animation.h"
 #include "../output.h"
 #include "../window.h"
-#include "../renderer.h"
 #include "../transform.h"
+#include "../renderer.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -40,35 +44,59 @@ typedef enum {
     ORIGIN_OUTPUT,
 } ScaleOrigin;
 
-static struct {
-    bool windows;
-    bool menus;
-    bool docks;
-    float to;
+/* One of these per instance (effect.h's CompEffectModule::config_size),
+ * which is what lets two [effect:scale-out:*] sections animate the same
+ * window with different numbers. */
+typedef struct {
+    float size;            /* final size, as a fraction of the real one */
     ScaleOrigin origin;
-} cfg = { true, true, false, 0.8f, ORIGIN_WINDOW };
+} ScaleConfig;
 
 typedef struct {
-    float ox, oy;
-    CompRect geometry;   /* the window's rect, frozen: it has no live one any more */
-    CompRect covered;
+    const ScaleConfig *cfg;
+    float ox, oy;          /* the fixed point, root coordinates */
+    CompRect geometry;     /* the window's rect, frozen at the start */
+    CompRect covered;      /* what the last frame drew, for damage */
 } ScaleData;
 
-static bool kind_enabled(CompWindowKind kind)
+static void config_defaults(void *config)
 {
-    switch (kind) {
-    case COMP_WINDOW_MENU:    return cfg.menus;
-    case COMP_WINDOW_DOCK:    return cfg.docks;
-    case COMP_WINDOW_DESKTOP: return false;
-    default:                  return cfg.windows;
-    }
+    ScaleConfig *c = config;
+    c->size = 0.8f;
+    c->origin = ORIGIN_WINDOW;
 }
 
-static void origin_for(CompWindow *w, float *ox, float *oy)
+static bool config_key(void *config, const char *key, const char *value)
+{
+    ScaleConfig *c = config;
+
+    if (strcmp(key, "to") == 0) {
+        float f = (float)atof(value);
+        /* Above 1 is a real answer, not a mistake: a window that swells slightly as it dissolves is a common close. The floor
+         * is not 0 -- a window scaled to nothing has no pixels left to
+         * sample and those frames turn to smear. */
+        if (f < 0.05f) f = 0.05f;
+        if (f > 4.0f) f = 4.0f;
+        c->size = f;
+    } else if (strcmp(key, "origin") == 0) {
+        if (strcmp(value, "pointer") == 0)     c->origin = ORIGIN_POINTER;
+        else if (strcmp(value, "output") == 0) c->origin = ORIGIN_OUTPUT;
+        else if (strcmp(value, "window") == 0) c->origin = ORIGIN_WINDOW;
+        else return false;
+    } else {
+        return false;
+    }
+    return true;
+}
+
+/* The point the window grows out of (or shrinks into). Queried once, when
+ * the effect starts: the pointer keeps moving, and an origin that moved
+ * with it would drag the animation sideways. */
+static void origin_for(CompWindow *w, const ScaleConfig *cfg, float *ox, float *oy)
 {
     CompRect r = window_rect(w);
 
-    if (cfg.origin == ORIGIN_POINTER) {
+    if (cfg->origin == ORIGIN_POINTER) {
         xcb_query_pointer_reply_t *p = xcb_query_pointer_reply(comp.conn,
             xcb_query_pointer(comp.conn, comp.root), NULL);
         if (p) {
@@ -77,7 +105,9 @@ static void origin_for(CompWindow *w, float *ox, float *oy)
             free(p);
             return;
         }
-    } else if (cfg.origin == ORIGIN_OUTPUT) {
+        /* No pointer on this screen: the window's own centre is the
+         * honest fallback, not (0,0). */
+    } else if (cfg->origin == ORIGIN_OUTPUT) {
         CompRect centre = { r.x + r.w / 2, r.y + r.h / 2, 1, 1 };
         for (int i = 0; i < comp.output_count; i++) {
             CompRect hit;
@@ -96,7 +126,7 @@ static void origin_for(CompWindow *w, float *ox, float *oy)
 static void scale_transform(CompEffect *e, float p, CompTransform *t)
 {
     ScaleData *d = e->data;
-    float s = comp_lerp(1.0f, cfg.to, p);   /* the inverse of scale-in */
+    float s = comp_lerp(1.0f, d->cfg->size, p);
 
     comp_transform_identity(t);
     comp_transform_translate(t, -d->ox, -d->oy);
@@ -129,6 +159,9 @@ static void scale_apply(CompEffect *e, CompScene *s, CompOutput *o)
 
         scale_transform(e, p, &n->transform);
 
+        /* The area actually covered right now, clipped to this output --
+         * the node's own geometry is where the window is, which is not
+         * where it is being drawn. */
         CompRect bbox;
         comp_transform_bbox(&n->transform, &n->geometry, &bbox);
         if (!rect_intersect(&bbox, &o->rect, &n->visible_rect))
@@ -157,18 +190,17 @@ static const CompEffectOps scale_ops = {
     .destroy  = scale_destroy,
 };
 
-static void on_event(CompWindow *w, const CompEvent *event)
+static void on_event(CompWindow *w, const CompEvent *event,
+                     const CompEffectInstance *self)
 {
     (void)event;
 
-    if (w->input_only || w->wm_layer[0])
-        return;
-    if (!kind_enabled(w->kind))
-        return;
+    /* Nothing was ever drawn for it: there are no pixels to scale, and
+     * naming a pixmap now would fail -- the window is already gone. */
     if (!renderer_window_has_content(w))
         return;
 
-    double duration = effect_duration("scale-out");
+    double duration = effect_instance_duration(self);
     if (duration <= 0.0)
         return;
 
@@ -180,11 +212,13 @@ static void on_event(CompWindow *w, const CompEvent *event)
         return;
     }
 
-    origin_for(w, &d->ox, &d->oy);
+    d->cfg = self->config;
+    origin_for(w, d->cfg, &d->ox, &d->oy);
     d->geometry = window_rect(w);
     d->covered = d->geometry;
 
     e->ops = &scale_ops;
+    e->instance = self;
     e->window = w;
     e->start_time = comp_now_ms();
     e->duration = duration;
@@ -195,39 +229,15 @@ static void on_event(CompWindow *w, const CompEvent *event)
     output_damage_rect(&d->covered);
 }
 
-static bool on_config_key(const char *key, const char *value)
-{
-    if (strcmp(key, "windows") == 0) {
-        cfg.windows = atoi(value) != 0;
-    } else if (strcmp(key, "menus") == 0) {
-        cfg.menus = atoi(value) != 0;
-    } else if (strcmp(key, "docks") == 0) {
-        cfg.docks = atoi(value) != 0;
-    } else if (strcmp(key, "to") == 0) {
-        float f = (float)atof(value);
-        /* Above 1 is a real answer, not a mistake: a window that swells
-         * slightly as it dissolves is a common and good-looking close.
-         * The floor is not 0 -- a window scaled to nothing has no pixels
-         * left to sample and the last frames turn to smear. */
-        if (f < 0.05f) f = 0.05f;
-        if (f > 4.0f) f = 4.0f;
-        cfg.to = f;
-    } else if (strcmp(key, "origin") == 0) {
-        if (strcmp(value, "pointer") == 0)     cfg.origin = ORIGIN_POINTER;
-        else if (strcmp(value, "output") == 0) cfg.origin = ORIGIN_OUTPUT;
-        else if (strcmp(value, "window") == 0) cfg.origin = ORIGIN_WINDOW;
-        else return false;
-    } else {
-        return false;
-    }
-    return true;
-}
-
 const CompEffectModule effect_scale_out = {
     .name             = "scale-out",
     .default_enabled  = false,
     .default_duration = 1.0,
     .default_events   = COMP_EVENT_BIT(COMP_EVENT_CLOSE),
+    .default_windows  = COMP_WINDOWS_ALL & ~(COMP_WINDOW_BIT(COMP_WINDOW_DESKTOP) |
+                                             COMP_WINDOW_BIT(COMP_WINDOW_DOCK)),
+    .config_size      = sizeof(ScaleConfig),
+    .config_defaults  = config_defaults,
+    .config_key       = config_key,
     .window_event     = on_event,
-    .config_key       = on_config_key,
 };

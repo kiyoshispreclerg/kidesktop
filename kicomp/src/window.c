@@ -216,9 +216,28 @@ static xcb_window_t resolve_client(CompWindow *w)
  * (see comp.h). Read once the client is known; a window that never says
  * what it is stays UNKNOWN, which effects treat as "normal" or skip
  * depending on what they're for. */
+static CompWindowType type_for_atom(xcb_atom_t t)
+{
+    if (t == comp.atoms.type_normal)        return COMP_WINDOW_NORMAL;
+    if (t == comp.atoms.type_dialog)        return COMP_WINDOW_DIALOG;
+    if (t == comp.atoms.type_utility)       return COMP_WINDOW_UTILITY;
+    if (t == comp.atoms.type_toolbar)       return COMP_WINDOW_TOOLBAR;
+    if (t == comp.atoms.type_splash)        return COMP_WINDOW_SPLASH;
+    if (t == comp.atoms.type_menu)          return COMP_WINDOW_MENU;
+    if (t == comp.atoms.type_dropdown_menu) return COMP_WINDOW_DROPDOWN_MENU;
+    if (t == comp.atoms.type_popup_menu)    return COMP_WINDOW_POPUP_MENU;
+    if (t == comp.atoms.type_combo)         return COMP_WINDOW_COMBO;
+    if (t == comp.atoms.type_tooltip)       return COMP_WINDOW_TOOLTIP;
+    if (t == comp.atoms.type_notification)  return COMP_WINDOW_NOTIFICATION;
+    if (t == comp.atoms.type_dnd)           return COMP_WINDOW_DND;
+    if (t == comp.atoms.type_dock)          return COMP_WINDOW_DOCK;
+    if (t == comp.atoms.type_desktop)       return COMP_WINDOW_DESKTOP;
+    return COMP_WINDOW_UNKNOWN;
+}
+
 static void read_window_kind(CompWindow *w)
 {
-    w->kind = COMP_WINDOW_UNKNOWN;
+    w->type = COMP_WINDOW_UNKNOWN;
 
     xcb_window_t client = resolve_client(w);
     if (client == XCB_NONE || comp.atoms.net_wm_window_type == XCB_NONE)
@@ -235,20 +254,16 @@ static void read_window_kind(CompWindow *w)
         int n = xcb_get_property_value_length(r) / 4;
 
         /* First recognized value wins, per EWMH: the list is in the
-         * client's order of preference. */
-        for (int i = 0; i < n && w->kind == COMP_WINDOW_UNKNOWN; i++) {
-            xcb_atom_t t = types[i];
-            if (t == comp.atoms.type_dock)
-                w->kind = COMP_WINDOW_DOCK;
-            else if (t == comp.atoms.type_desktop)
-                w->kind = COMP_WINDOW_DESKTOP;
-            else if (t == comp.atoms.type_menu || t == comp.atoms.type_popup_menu ||
-                     t == comp.atoms.type_dropdown_menu || t == comp.atoms.type_combo ||
-                     t == comp.atoms.type_tooltip || t == comp.atoms.type_notification ||
-                     t == comp.atoms.type_dnd)
-                w->kind = COMP_WINDOW_MENU;
-            else
-                w->kind = COMP_WINDOW_NORMAL;   /* normal/dialog/utility/... */
+         * client's order of preference. A type nobody here knows leaves
+         * the window UNKNOWN rather than pretending it is normal --
+         * "unknown" is a type an effect can be pointed at like any
+         * other. */
+        for (int i = 0; i < n; i++) {
+            CompWindowType t = type_for_atom(types[i]);
+            if (t != COMP_WINDOW_UNKNOWN) {
+                w->type = t;
+                break;
+            }
         }
     }
     free(r);
@@ -275,8 +290,8 @@ void window_client_reparented(xcb_window_t frame_id, xcb_window_t client)
 
     read_window_kind(w);
     w->state = w->state_before = read_window_state(w);
-    comp_log("window 0x%x framed client 0x%x (kind %d, state 0x%x)",
-             w->id, client, (int)w->kind, w->state);
+    comp_log("window 0x%x framed client 0x%x (%s, state 0x%x)",
+             w->id, client, comp_window_type_name(w->type), w->state);
 }
 
 /* ------------------------------------------------------------------ */
@@ -733,7 +748,7 @@ void window_map(xcb_window_t id)
     window_update_opacity(w);
     /* A frame created empty has its client by now -- kiwm reparents
      * before mapping, but the CreateNotify reached us first. */
-    if (w->kind == COMP_WINDOW_UNKNOWN)
+    if (w->type == COMP_WINDOW_UNKNOWN)
         read_window_kind(w);
 
     /* What kind of appearance this is (opening, restoring, arriving with

@@ -21,12 +21,7 @@ static const CompEffectModule *const modules[] = {
 
 #define MODULE_COUNT ((int)(sizeof(modules) / sizeof(modules[0])))
 
-/* One config slot per module, in the same order. Filled with each
- * module's own defaults on the first lookup, then overridden by
- * kicomp.conf's [effect:<name>] sections. */
-static CompEffectConfig configs[MODULE_COUNT];
-static bool configs_ready;
-
+/* The effects running right now, and whether effects are on at all. */
 static CompEffect *running;
 static bool enabled;
 
@@ -49,10 +44,56 @@ const char *comp_event_name(CompEventKind kind)
     return event_names[kind];
 }
 
-uint32_t comp_event_mask_parse(const char *list)
+/* Window type names, in CompWindowType's order. */
+static const char *const window_type_names[COMP_WINDOW_TYPE_COUNT] = {
+    "unknown", "normal", "dialog", "utility", "toolbar", "splash",
+    "menu", "dropdown-menu", "popup-menu", "combo",
+    "tooltip", "notification", "dnd",
+    "dock", "desktop",
+};
+
+/* Group aliases, so the common cases don't have to be spelled out one
+ * type at a time. */
+static const struct {
+    const char *name;
+    uint32_t mask;
+} window_type_groups[] = {
+    { "windows", COMP_WINDOW_BIT(COMP_WINDOW_UNKNOWN) |
+                 COMP_WINDOW_BIT(COMP_WINDOW_NORMAL) |
+                 COMP_WINDOW_BIT(COMP_WINDOW_DIALOG) |
+                 COMP_WINDOW_BIT(COMP_WINDOW_UTILITY) |
+                 COMP_WINDOW_BIT(COMP_WINDOW_TOOLBAR) |
+                 COMP_WINDOW_BIT(COMP_WINDOW_SPLASH) },
+    { "menus",   COMP_WINDOW_BIT(COMP_WINDOW_MENU) |
+                 COMP_WINDOW_BIT(COMP_WINDOW_DROPDOWN_MENU) |
+                 COMP_WINDOW_BIT(COMP_WINDOW_POPUP_MENU) |
+                 COMP_WINDOW_BIT(COMP_WINDOW_COMBO) },
+    { "popups",  COMP_WINDOW_BIT(COMP_WINDOW_MENU) |
+                 COMP_WINDOW_BIT(COMP_WINDOW_DROPDOWN_MENU) |
+                 COMP_WINDOW_BIT(COMP_WINDOW_POPUP_MENU) |
+                 COMP_WINDOW_BIT(COMP_WINDOW_COMBO) |
+                 COMP_WINDOW_BIT(COMP_WINDOW_TOOLTIP) |
+                 COMP_WINDOW_BIT(COMP_WINDOW_NOTIFICATION) |
+                 COMP_WINDOW_BIT(COMP_WINDOW_DND) },
+};
+
+#define WINDOW_GROUP_COUNT ((int)(sizeof(window_type_groups) / sizeof(window_type_groups[0])))
+
+const char *comp_window_type_name(CompWindowType type)
+{
+    if (type < 0 || type >= COMP_WINDOW_TYPE_COUNT)
+        return "?";
+    return window_type_names[type];
+}
+
+/* Shared by the two mask parsers: walks a comma/space separated list and
+ * hands each name to `lookup`, which returns the bits for it or 0 for a
+ * name it doesn't know. */
+static uint32_t mask_parse(const char *list, const char *what,
+                           uint32_t (*lookup)(const char *name, size_t len))
 {
     if (strcmp(list, "all") == 0)
-        return COMP_EVENTS_ALL;
+        return 0xffffffffu;
     if (strcmp(list, "none") == 0)
         return 0;
 
@@ -69,100 +110,222 @@ uint32_t comp_event_mask_parse(const char *list)
         if (len == 0)
             continue;
 
-        bool found = false;
-        for (int i = 0; i < COMP_EVENT_COUNT; i++) {
-            if (strlen(event_names[i]) == len && strncmp(start, event_names[i], len) == 0) {
-                mask |= COMP_EVENT_BIT(i);
-                found = true;
-                break;
-            }
-        }
-        if (!found)
-            fprintf(stderr, "kicomp: config: unknown event '%.*s'\n", (int)len, start);
+        uint32_t bits = lookup(start, len);
+        if (bits)
+            mask |= bits;
+        else
+            fprintf(stderr, "kicomp: config: unknown %s '%.*s'\n",
+                    what, (int)len, start);
     }
 
     return mask;
 }
 
-/* The mask as a printable list, for the startup log. */
-static void event_mask_string(uint32_t mask, char *out, size_t outsz)
+static uint32_t window_type_lookup(const char *name, size_t len)
+{
+    for (int i = 0; i < COMP_WINDOW_TYPE_COUNT; i++)
+        if (strlen(window_type_names[i]) == len &&
+            strncmp(name, window_type_names[i], len) == 0)
+            return COMP_WINDOW_BIT(i);
+
+    for (int i = 0; i < WINDOW_GROUP_COUNT; i++)
+        if (strlen(window_type_groups[i].name) == len &&
+            strncmp(name, window_type_groups[i].name, len) == 0)
+            return window_type_groups[i].mask;
+
+    return 0;
+}
+
+static uint32_t event_lookup(const char *name, size_t len)
+{
+    for (int i = 0; i < COMP_EVENT_COUNT; i++)
+        if (strlen(event_names[i]) == len && strncmp(name, event_names[i], len) == 0)
+            return COMP_EVENT_BIT(i);
+    return 0;
+}
+
+uint32_t comp_window_type_mask_parse(const char *list)
+{
+    return mask_parse(list, "window type", window_type_lookup);
+}
+
+uint32_t comp_event_mask_parse(const char *list)
+{
+    return mask_parse(list, "event", event_lookup);
+}
+
+/* A mask as a printable list, for the startup log. */
+static void mask_string(uint32_t mask, int count, const char *const *names,
+                        char *out, size_t outsz)
 {
     out[0] = '\0';
-    if (mask == 0) {
+
+    int set = 0;
+    for (int i = 0; i < count; i++)
+        if (mask & (1u << i))
+            set++;
+
+    if (set == 0) {
         snprintf(out, outsz, "none");
+        return;
+    }
+    if (set == count) {
+        snprintf(out, outsz, "all");
         return;
     }
 
     size_t off = 0;
-    for (int i = 0; i < COMP_EVENT_COUNT; i++) {
-        if (!(mask & COMP_EVENT_BIT(i)))
+    for (int i = 0; i < count; i++) {
+        if (!(mask & (1u << i)))
             continue;
-        int n = snprintf(out + off, outsz - off, "%s%s", off ? "," : "", event_names[i]);
+        int n = snprintf(out + off, outsz - off, "%s%s", off ? "," : "", names[i]);
         if (n < 0 || (size_t)n >= outsz - off)
             break;
         off += (size_t)n;
     }
 }
 
-static void configs_init(void)
+/* ------------------------------------------------------------------ */
+/* instances                                                           */
+/* ------------------------------------------------------------------ */
+
+/* Base instances (one per module) plus whatever named ones the config
+ * asked for, in creation order. Dispatch walks this list. */
+static CompEffectInstance *instances;
+static bool instances_ready;
+
+static void instance_free_all(void)
 {
-    if (configs_ready)
-        return;
-    for (int i = 0; i < MODULE_COUNT; i++) {
-        configs[i].enabled = modules[i]->default_enabled;
-        configs[i].duration = modules[i]->default_duration;
-        configs[i].events = modules[i]->default_events;
+    CompEffectInstance *i = instances;
+    while (i) {
+        CompEffectInstance *next = i->next;
+        free(i->config);
+        free(i);
+        i = next;
     }
-    configs_ready = true;
+    instances = NULL;
+    instances_ready = false;
 }
 
-CompEffectConfig *effect_config(const char *name)
+static void instance_append(CompEffectInstance *inst)
 {
-    configs_init();
+    CompEffectInstance **pp = &instances;
+    while (*pp)
+        pp = &(*pp)->next;
+    *pp = inst;
+}
+
+static CompEffectInstance *instance_new(const CompEffectModule *m, const char *name)
+{
+    CompEffectInstance *inst = calloc(1, sizeof(*inst));
+    if (!inst)
+        return NULL;
+
+    inst->module = m;
+    snprintf(inst->name, sizeof(inst->name), "%s", name);
+    inst->enabled = m->default_enabled;
+    inst->duration = m->default_duration;
+    inst->events = m->default_events;
+    inst->windows = m->default_windows;
+
+    if (m->config_size) {
+        inst->config = calloc(1, m->config_size);
+        if (!inst->config) {
+            free(inst);
+            return NULL;
+        }
+        if (m->config_defaults)
+            m->config_defaults(inst->config);
+    }
+
+    instance_append(inst);
+    return inst;
+}
+
+static void instances_init(void)
+{
+    if (instances_ready)
+        return;
+    instances_ready = true;
     for (int i = 0; i < MODULE_COUNT; i++)
-        if (strcmp(modules[i]->name, name) == 0)
-            return &configs[i];
+        instance_new(modules[i], modules[i]->name);
+}
+
+CompEffectInstance *effect_base_instance(const char *module)
+{
+    instances_init();
+    for (CompEffectInstance *i = instances; i; i = i->next)
+        if (strcmp(i->name, module) == 0)
+            return i;
     return NULL;
 }
 
-bool effect_is_enabled(const char *name)
+CompEffectInstance *effect_named_instance(const char *module, const char *instance)
 {
-    if (!enabled)
-        return false;
-    const CompEffectConfig *c = effect_config(name);
-    return c && c->enabled;
-}
+    instances_init();
 
-double effect_duration(const char *name)
-{
-    const CompEffectConfig *c = effect_config(name);
-    return comp_anim_duration(c ? c->duration : 1.0);
-}
+    CompEffectInstance *base = effect_base_instance(module);
+    if (!base)
+        return NULL;
 
-bool effect_config_key(const char *name, const char *key, const char *value)
-{
-    for (int i = 0; i < MODULE_COUNT; i++) {
-        if (strcmp(modules[i]->name, name) != 0)
-            continue;
-        if (!modules[i]->config_key)
-            return false;
-        return modules[i]->config_key(key, value);
+    char full[64];
+    snprintf(full, sizeof(full), "%s:%s", module, instance);
+
+    for (CompEffectInstance *i = instances; i; i = i->next)
+        if (strcmp(i->name, full) == 0)
+            return i;
+
+    /* Born as a copy of the base, so a specialized instance states only
+     * what differs -- everything it stays silent about is whatever the
+     * base ended up with. */
+    CompEffectInstance *inst = calloc(1, sizeof(*inst));
+    if (!inst)
+        return NULL;
+
+    *inst = *base;
+    inst->next = NULL;
+    snprintf(inst->name, sizeof(inst->name), "%s", full);
+
+    if (base->module->config_size && base->config) {
+        inst->config = malloc(base->module->config_size);
+        if (!inst->config) {
+            free(inst);
+            return NULL;
+        }
+        memcpy(inst->config, base->config, base->module->config_size);
     }
-    return false;
+
+    instance_append(inst);
+    return inst;
+}
+
+bool effect_instance_config_key(CompEffectInstance *inst, const char *key,
+                                const char *value)
+{
+    if (!inst->module->config_key)
+        return false;
+    return inst->module->config_key(inst->config, key, value);
+}
+
+double effect_instance_duration(const CompEffectInstance *inst)
+{
+    return comp_anim_duration(inst->duration);
 }
 
 void effects_init(void)
 {
-    configs_init();
+    instances_init();
     enabled = true;
 
     comp_info("effects on, animation unit %.0f ms", comp.anim_duration_ms);
-    for (int i = 0; i < MODULE_COUNT; i++) {
-        char events[256];
-        event_mask_string(configs[i].events, events, sizeof(events));
-        comp_info("  %-10s %s, %4.0f ms  on: %s", modules[i]->name,
-                  configs[i].enabled ? "on " : "off",
-                  comp_anim_duration(configs[i].duration), events);
+    for (CompEffectInstance *i = instances; i; i = i->next) {
+        char events[512], windows[512];
+        mask_string(i->events, COMP_EVENT_COUNT, event_names, events, sizeof(events));
+        mask_string(i->windows, COMP_WINDOW_TYPE_COUNT, window_type_names,
+                    windows, sizeof(windows));
+        comp_info("  %-22s %s %4.0f ms  on: %s  for: %s", i->name,
+                  i->enabled ? "on " : "off",
+                  effect_instance_duration(i), events, windows);
     }
 }
 
@@ -175,7 +338,11 @@ void effects_add(CompEffect *e)
 {
     e->next = running;
     running = e;
-    comp_log("effect %s started (%.0f ms)", e->ops->name, e->duration);
+    /* The instance's name, not the module's: with several instances of
+     * one effect running at different settings, "scale-out" alone would
+     * not say which one this is. */
+    comp_log("effect %s started (%.0f ms)",
+             e->instance ? e->instance->name : e->ops->name, e->duration);
 }
 
 bool effects_active(void)
@@ -220,19 +387,29 @@ void effects_window_event(CompWindow *w, const CompEvent *ev)
     if (!enabled)
         return;
 
-    configs_init();
-    comp_log("window 0x%x: %s", w->id, comp_event_name(ev->kind));
+    instances_init();
+    comp_log("window 0x%x (%s): %s", w->id, comp_window_type_name(w->type),
+             comp_event_name(ev->kind));
 
-    for (int i = 0; i < MODULE_COUNT; i++) {
-        if (!modules[i]->window_event || !configs[i].enabled)
+    /* The WM's own overlays are never animated by an effect: they are the
+     * WM's business, and whether they are composited at all is already a
+     * separate decision (--skip-wm-layers). */
+    if (w->wm_layer[0] || w->input_only)
+        return;
+
+    for (CompEffectInstance *i = instances; i; i = i->next) {
+        if (!i->enabled || !i->module->window_event)
             continue;
-        /* The mask is the filter: an effect is never handed an event the
-         * user didn't ask it to answer to, which is what makes "roll up
-         * on shade but don't slide on it" a config line rather than a
-         * rule inside an effect. */
-        if (!(configs[i].events & COMP_EVENT_BIT(ev->kind)))
+        /* The two masks are the filter: an effect is never handed an
+         * event the user didn't ask it to answer to, nor a kind of window
+         * they didn't point it at. That is what makes "roll up on shade
+         * but don't slide on it", or "fade tooltips but not panels",
+         * config lines rather than rules inside an effect. */
+        if (!(i->events & COMP_EVENT_BIT(ev->kind)))
             continue;
-        modules[i]->window_event(w, ev);
+        if (!(i->windows & COMP_WINDOW_BIT(w->type)))
+            continue;
+        i->module->window_event(w, ev, i);
     }
 }
 
@@ -254,6 +431,10 @@ void effects_window_gone(CompWindow *w)
 
 void effects_shutdown(void)
 {
+    /* Effects first, instances after: a running effect points at the
+     * instance it came from (and at its config block), so tearing the
+     * instances down first would leave the destroy ops reading freed
+     * memory. */
     CompEffect *e = running;
     while (e) {
         CompEffect *next = e->next;
@@ -263,4 +444,6 @@ void effects_shutdown(void)
         e = next;
     }
     running = NULL;
+
+    instance_free_all();
 }

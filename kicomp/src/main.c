@@ -136,6 +136,11 @@ static void atoms_init(void)
     comp.atoms.kiwm_layer             = intern("_KIWM_LAYER");
 
     comp.atoms.net_wm_window_type     = intern("_NET_WM_WINDOW_TYPE");
+    comp.atoms.type_normal            = intern("_NET_WM_WINDOW_TYPE_NORMAL");
+    comp.atoms.type_dialog            = intern("_NET_WM_WINDOW_TYPE_DIALOG");
+    comp.atoms.type_utility           = intern("_NET_WM_WINDOW_TYPE_UTILITY");
+    comp.atoms.type_toolbar           = intern("_NET_WM_WINDOW_TYPE_TOOLBAR");
+    comp.atoms.type_splash            = intern("_NET_WM_WINDOW_TYPE_SPLASH");
     comp.atoms.type_dock              = intern("_NET_WM_WINDOW_TYPE_DOCK");
     comp.atoms.type_desktop           = intern("_NET_WM_WINDOW_TYPE_DESKTOP");
     comp.atoms.type_menu              = intern("_NET_WM_WINDOW_TYPE_MENU");

@@ -44,23 +44,19 @@ static void apply_builtin_defaults(void)
     snprintf(comp.presenter_name, sizeof(comp.presenter_name), "auto");
 }
 
-void config_load(void)
+/* One pass over the file. `instances_pass` selects which sections are
+ * acted on: the first pass takes the globals and the base [effect:<name>]
+ * sections, the second the specialized [effect:<name>:<instance>] ones.
+ *
+ * Two passes, because an instance inherits from its base and the file
+ * shouldn't have to be written in any particular order for that to work:
+ * whichever way round the sections appear, the base is complete before
+ * the instances copy it. */
+static void config_pass(FILE *f, bool instances_pass)
 {
-    apply_builtin_defaults();
-
-    char path[512];
-    config_path(path, sizeof(path));
-
-    FILE *f = fopen(path, "r");
-    if (!f)
-        return;   /* no config is a perfectly good configuration */
-
-    /* The section currently in force: NULL for the global part at the
-     * top of the file, or one effect's settings after an
-     * [effect:<name>] header. */
-    CompEffectConfig *section = NULL;
-    char section_name[32] = "";
+    CompEffectInstance *section = NULL;
     bool section_unknown = false;
+    bool section_skipped = false;
 
     char line[512];
     while (fgets(line, sizeof(line), f)) {
@@ -77,7 +73,8 @@ void config_load(void)
         if (*p == '[') {
             char *close = strchr(p, ']');
             if (!close) {
-                fprintf(stderr, "kicomp: config: unterminated section: '%s'\n", line);
+                if (!instances_pass)
+                    fprintf(stderr, "kicomp: config: unterminated section: '%s'\n", line);
                 continue;
             }
             *close = '\0';
@@ -85,20 +82,34 @@ void config_load(void)
 
             section = NULL;
             section_unknown = false;
-            section_name[0] = '\0';
+            section_skipped = false;
 
-            if (strncmp(name, "effect:", 7) == 0) {
-                snprintf(section_name, sizeof(section_name), "%s", name + 7);
-                section = effect_config(section_name);
-                if (!section) {
-                    /* Naming an effect that doesn't exist is worth saying
-                     * out loud -- silently ignoring it is how a typo
-                     * becomes "the config doesn't work". */
-                    fprintf(stderr, "kicomp: config: no such effect: '%s'\n", section_name);
-                    section_unknown = true;
-                }
-            } else {
-                fprintf(stderr, "kicomp: config: unknown section: '[%s]'\n", name);
+            if (strncmp(name, "effect:", 7) != 0) {
+                if (!instances_pass)
+                    fprintf(stderr, "kicomp: config: unknown section: '[%s]'\n", name);
+                section_unknown = true;
+                continue;
+            }
+
+            char *module = name + 7;
+            char *instance = strchr(module, ':');
+            if (instance)
+                *instance++ = '\0';
+
+            /* Each pass ignores the other's sections -- and says nothing
+             * about them, or every message would be printed twice. */
+            if ((instance != NULL) != instances_pass) {
+                section_skipped = true;
+                continue;
+            }
+
+            section = instance ? effect_named_instance(module, instance)
+                               : effect_base_instance(module);
+            if (!section) {
+                /* Naming an effect that doesn't exist is worth saying out
+                 * loud -- silently ignoring it is how a typo becomes "the
+                 * config doesn't work". */
+                fprintf(stderr, "kicomp: config: no such effect: '%s'\n", module);
                 section_unknown = true;
             }
             continue;
@@ -106,7 +117,8 @@ void config_load(void)
 
         char *eq = strchr(p, '=');
         if (!eq) {
-            fprintf(stderr, "kicomp: config: skipping malformed line: '%s'\n", line);
+            if (!instances_pass)
+                fprintf(stderr, "kicomp: config: skipping malformed line: '%s'\n", line);
             continue;
         }
         *eq = '\0';
@@ -137,29 +149,36 @@ void config_load(void)
         while (vlen > 0 && (val[vlen - 1] == ' ' || val[vlen - 1] == '\t'))
             val[--vlen] = '\0';
 
-        if (section_unknown)
+        if (section_unknown || section_skipped)
             continue;
 
         if (section) {
-            /* Inside [effect:<name>]. Three keys are universal -- whether
-             * it runs, how long it takes relative to the global unit, and
-             * which events it answers to -- and past those, whatever the
-             * module itself understands. */
+            /* Inside an effect section. Four keys are universal -- whether
+             * it runs, how long it takes relative to the global unit,
+             * which events it answers to and which window types it applies
+             * to -- and past those, whatever the module itself
+             * understands. */
             if (strcmp(key, "enabled") == 0) {
                 section->enabled = atoi(val) != 0;
             } else if (strcmp(key, "events") == 0) {
                 section->events = comp_event_mask_parse(val);
+            } else if (strcmp(key, "windows") == 0) {
+                section->windows = comp_window_type_mask_parse(val);
             } else if (strcmp(key, "duration") == 0) {
-                double f = atof(val);
-                if (f < 0.0) f = 0.0;
-                if (f > 10.0) f = 10.0;
-                section->duration = f;
-            } else if (!effect_config_key(section_name, key, val)) {
+                double d = atof(val);
+                if (d < 0.0) d = 0.0;
+                if (d > 10.0) d = 10.0;
+                section->duration = d;
+            } else if (!effect_instance_config_key(section, key, val)) {
                 fprintf(stderr, "kicomp: config: unknown key '%s' in [effect:%s]\n",
-                        key, section_name);
+                        key, section->name);
             }
             continue;
         }
+
+        /* Global keys, first pass only. */
+        if (instances_pass)
+            continue;
 
         if (strcmp(key, "animation_duration") == 0) {
             double ms = atof(val);
@@ -183,6 +202,22 @@ void config_load(void)
             fprintf(stderr, "kicomp: config: unknown key '%s'\n", key);
         }
     }
+}
+
+void config_load(void)
+{
+    apply_builtin_defaults();
+
+    char path[512];
+    config_path(path, sizeof(path));
+
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return;   /* no config is a perfectly good configuration */
+
+    config_pass(f, false);   /* globals and base effect sections */
+    rewind(f);
+    config_pass(f, true);    /* the specialized instances, which copy them */
 
     fclose(f);
 }
