@@ -2035,7 +2035,7 @@ void manage(xcb_window_t window, bool map_requested)
                     XCB_GRAB_MODE_SYNC, XCB_GRAB_MODE_ASYNC,
                     XCB_NONE, XCB_NONE, XCB_BUTTON_INDEX_1, XCB_MOD_MASK_ANY);
 
-    /* mod_cycle/mod_control + right-click resize (events.c's
+    /* mod_key + right-click resize (events.c's
      * handle_button_press) only ever worked when the click happened to
      * land on the frame itself (e.g. the titlebar) -- everywhere else on
      * a window is its *content* child, which never had button 3 grabbed
@@ -2048,8 +2048,7 @@ void manage(xcb_window_t window, bool map_requested)
      * its own passive grabs, one per modifier, since we only want to
      * steal right-clicks that actually have one of them held, not every
      * right-click on the window. */
-    grab_button3_with_locks(window, wm.mod_cycle);
-    grab_button3_with_locks(window, wm.mod_control);
+    grab_button3_with_locks(window, wm.mod_key);
 
     /* ShapeNotify, so a client that carves up (or later changes) its own
      * silhouette has that forwarded onto the frame -- see shape.c. */

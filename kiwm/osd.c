@@ -60,12 +60,12 @@ static bool osd_mapped = false;
 /* The modifier whose release commits and closes the open overlay: the
  * modifier mask of the very shortcut that opened it (Shift dropped -- a
  * "previous" binding is the same hold as its "next" one), rather than
- * kiwm.conf's mod_cycle=/mod_control= assumed. Those two are still the
- * fallback for a binding that names no modifier at all, and are what the
- * default bindings resolve to anyway; but the desktop switcher now has six
- * shortcuts that can each be bound to whatever the user likes, and a hold
- * has to watch the modifier actually driving it, not the one kiwm would
- * have guessed. Set when a hold opens, fixed for its duration like
+ * kiwm.conf's mod_key= assumed. That one is still the fallback for a
+ * binding that names no modifier at all; but every switcher shortcut can
+ * be bound to whatever the user likes (the window switcher's default is a
+ * literal Alt+Tab, which mod_key= has nothing to do with), and a hold has
+ * to watch the modifier actually driving it, not the one kiwm would have
+ * guessed. Set when a hold opens, fixed for its duration like
  * everything else about an open overlay. */
 static uint16_t hold_mod = 0;
 
@@ -602,8 +602,8 @@ bool osd_active(void)
 }
 
 /* See hold_mod's comment: the binding's own modifiers, minus Shift, with
- * kiwm.conf's mod_cycle=/mod_control= as the fallback for a shortcut that
- * names no modifier of its own. */
+ * kiwm.conf's mod_key= as the fallback for a shortcut that names no
+ * modifier of its own. */
 static uint16_t hold_mod_for(uint16_t mods, uint16_t fallback)
 {
     uint16_t m = mods & (uint16_t)~XCB_MOD_MASK_SHIFT;
@@ -616,8 +616,13 @@ void osd_windows_step(int direction, uint16_t mods)
         cycle_focus(direction);
         return;
     }
+    /* The other overlay is open: with a single mod_key (and freely
+     * bindable shortcuts) the two switchers can perfectly well share a
+     * hold's modifier, so this is reachable -- pressing the window
+     * switcher's key during a desktop hold. Commit what that hold was
+     * offering and start this one, rather than swallowing the key. */
     if (kind == OSD_DESKTOPS)
-        return; /* the other OSD is open -- shouldn't happen, different mod */
+        commit_and_close();
 
     int output_idx = output_for_effects();
     if (output_idx < 0)
@@ -631,8 +636,8 @@ void osd_windows_step(int direction, uint16_t mods)
         kind = OSD_WINDOWS;
         osd_output = output_idx;
         original_focused = wm.focused;
-        hold_mod = hold_mod_for(mods, wm.mod_cycle);
-        /* Active grab so osd_handle_key_release() sees mod_cycle's own
+        hold_mod = hold_mod_for(mods, wm.mod_key);
+        /* Active grab so osd_handle_key_release() sees the modifier's own
          * release regardless of which client (if any) has input focus --
          * a passive xcb_grab_key() alone only ever fires for the exact
          * key+modifier combo it was registered for (Tab here), never for
@@ -671,7 +676,7 @@ void osd_desktops_step(int direction, DesktopAxis axis, uint16_t mods)
         return;
     }
     if (kind == OSD_WINDOWS)
-        return;
+        commit_and_close();   /* see osd_windows_step() */
 
     int output_idx = output_for_effects();
     if (output_idx < 0 || wm.output_count == 0)
@@ -680,7 +685,7 @@ void osd_desktops_step(int direction, DesktopAxis axis, uint16_t mods)
     if (kind != OSD_DESKTOPS) {
         kind = OSD_DESKTOPS;
         osd_output = output_idx;
-        hold_mod = hold_mod_for(mods, wm.mod_control);
+        hold_mod = hold_mod_for(mods, wm.mod_key);
         desk_n = wm.num_desktops;
         desktop_grid(&desk_grid_cols, &desk_grid_rows);
         original_desktop = wm.outputs[output_idx].desktop;

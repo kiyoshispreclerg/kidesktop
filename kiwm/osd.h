@@ -61,7 +61,7 @@ extern const TabBoxOps simple_list_tabbox_ops;
  * release commits the selection. Shift is ignored in it (a "previous"
  * binding is the same hold as its "next" one, just shifted -- letting go
  * of Shift alone must not commit), and 0 -- nothing but a bare key -- falls
- * back to the kiwm.conf mod_cycle=/mod_control= default the shortcut would
+ * back to the kiwm.conf mod_key= default the shortcut would
  * have used before it was rebindable. */
 void osd_windows_step(int direction, uint16_t mods);
 

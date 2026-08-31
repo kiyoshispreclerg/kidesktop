@@ -40,8 +40,7 @@ static void apply_builtin_defaults(void)
     wm.num_desktops = DEFAULT_NUM_DESKTOPS;
     wm.desktop_columns = 0;
     wm.desktop_rows = 1;
-    wm.mod_cycle = MOD_ALT;
-    wm.mod_control = MOD_META;
+    wm.mod_key = MOD_META;
     wm.border_thickness = 0;
     wm.border_r = 0.0; wm.border_g = 0.0; wm.border_b = 0.0; wm.border_a = 1.0;
     wm.snap_threshold = 20;
@@ -181,12 +180,12 @@ static void write_default_config(const char *path)
         "desktop_columns=0\n"
         "desktop_rows=1\n"
         "\n"
-        "# Modifier for Tab / Shift+Tab window switching: alt or meta.\n"
-        "mod_cycle=alt\n"
-        "\n"
-        "# Modifier for window control -- move via mouse-down+drag, maximize\n"
-        "# via +Up, per-output desktop switch via +Tab/+Shift+Tab: alt or meta.\n"
-        "mod_control=meta\n"
+        "# The one modifier kiwm claims for its mouse gestures: hold it and\n"
+        "# drag anywhere on a window to move it, right-drag to resize it.\n"
+        "# Also what \"ModKey\" means in the key_* shortcuts further down, which\n"
+        "# is how the window-control defaults follow this setting. alt or meta;\n"
+        "# meta by default, so alt stays free for applications.\n"
+        "mod_key=meta\n"
         "\n"
         "# Left/right/bottom decoration border thickness in pixels (0 = no\n"
         "# border, just the titlebar). No theming yet, just a flat color.\n"
@@ -195,7 +194,7 @@ static void write_default_config(const char *path)
         "\n"
         "# How close (in pixels) the pointer must get to an output's usable-\n"
         "# area edge, while dragging a window by its titlebar or via\n"
-        "# mod_control-drag, to snap it there (top = maximize, left/right =\n"
+        "# mod_key-drag, to snap it there (top = maximize, left/right =\n"
         "# half-width, like Windows 7/kwin). 0 disables snapping.\n"
         "snap_threshold=20\n"
         "\n"
@@ -241,8 +240,9 @@ static void write_default_config(const char *path)
         "# focus-follows-mouse/\"sloppy focus\").\n"
         "focus_follows_mouse=0\n"
         "\n"
-        "# Show a themed on-screen overlay while holding mod_cycle+Tab (window\n"
-        "# list) or mod_control+Tab (per-output desktop grid), only switching\n"
+        "# Show a themed on-screen overlay while holding key_window_next's\n"
+        "# shortcut (window list) or key_desktop_next's (per-output desktop\n"
+        "# grid) -- Alt+Tab and ModKey+Tab by default -- only switching\n"
         "# once the modifier is released -- like a real Alt+Tab -- instead of\n"
         "# switching immediately on every Tab press. Escape cancels without\n"
         "# switching. 1 = on (default), 0 = the original immediate-switch\n"
@@ -367,10 +367,17 @@ void config_load(void)
             if (n < 0) n = 0;
             if (n > MAX_DESKTOPS) n = MAX_DESKTOPS;
             wm.desktop_rows = n;
-        } else if (strcmp(key, "mod_cycle") == 0) {
-            wm.mod_cycle = parse_mod(val, wm.mod_cycle);
-        } else if (strcmp(key, "mod_control") == 0) {
-            wm.mod_control = parse_mod(val, wm.mod_control);
+        } else if (strcmp(key, "mod_key") == 0) {
+            wm.mod_key = parse_mod(val, wm.mod_key);
+        } else if (strcmp(key, "mod_cycle") == 0 || strcmp(key, "mod_control") == 0) {
+            /* Pre-merge spelling: kiwm had two gesture modifiers that were
+             * only ever tested together, and one config file could set
+             * both. Whichever line comes last wins, which is the best a
+             * two-into-one migration can do -- so say what happened rather
+             * than silently keeping half of it. */
+            fprintf(stderr, "kiwm: config: %s= is obsolete, use mod_key= (taking '%s' as mod_key)\n",
+                    key, val);
+            wm.mod_key = parse_mod(val, wm.mod_key);
         } else if (strcmp(key, "border_thickness") == 0) {
             int n = atoi(val);
             wm.border_thickness = n < 0 ? 0 : n;

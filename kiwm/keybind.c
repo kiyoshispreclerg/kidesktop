@@ -9,16 +9,24 @@
  *
  * Spec syntax is "Mod+Mod+Key", case-insensitive, e.g. "Meta+Down",
  * "Alt+Shift+Tab", "Ctrl+Alt+F1". An empty value leaves the action
- * unbound (and ungrabbed). Besides the literal modifier names, two
- * symbolic ones resolve to whatever kiwm.conf's mod_cycle=/mod_control=
- * are set to: "ModCycle" and "ModControl" -- that's what the built-in
- * defaults use, so flipping mod_cycle=meta moves every default cycling
- * shortcut along with it, exactly as it did when these were hardcoded.
+ * unbound (and ungrabbed). Besides the literal modifier names there is
+ * one symbolic modifier, "ModKey", resolving to whatever kiwm.conf's
+ * mod_key= is set to -- the window-control defaults use it, so a
+ * mod_key=alt moves them all along with it. The window switcher's own
+ * defaults name Alt literally instead: it is a plain rebindable shortcut
+ * like any other, and deliberately does not drag kiwm's mouse-gesture
+ * modifier onto Tab.
+ *
+ * Two bindings resolving to the same modifiers+key would silently shadow
+ * each other (the first row wins in keybind_handle_key_press()), so
+ * keybind_init() reports the collision and leaves the later one unbound.
  */
 #include "keybind.h"
 #include "client.h"
 #include "output.h"
 #include "osd.h"
+#include "menu.h"
+#include "decoration.h"
 
 #include <X11/keysym.h>
 
@@ -54,23 +62,27 @@ typedef struct {
     { .conf_key = (key), .action = (act), .arg = (argument), .def_spec = (def), .doc = (description) }
 
 static Keybind binds[] = {
-    BIND("key_window_next",  KB_WINDOW_NEXT,  0, "ModCycle+Tab",         "next window (window switcher)"),
-    BIND("key_window_prev",  KB_WINDOW_PREV,  0, "ModCycle+Shift+Tab",   "previous window"),
-    BIND("key_desktop_next", KB_DESKTOP_NEXT, 0, "ModControl+Tab",       "next virtual desktop on the active output (index order)"),
-    BIND("key_desktop_prev", KB_DESKTOP_PREV, 0, "ModControl+Shift+Tab", "previous virtual desktop (index order)"),
+    BIND("key_window_next",  KB_WINDOW_NEXT,  0, "Alt+Tab",              "next window (window switcher)"),
+    BIND("key_window_prev",  KB_WINDOW_PREV,  0, "Alt+Shift+Tab",        "previous window"),
+    BIND("key_desktop_next", KB_DESKTOP_NEXT, 0, "ModKey+Tab",           "next virtual desktop on the active output (index order)"),
+    BIND("key_desktop_prev", KB_DESKTOP_PREV, 0, "ModKey+Shift+Tab",     "previous virtual desktop (index order)"),
     BIND("key_desktop_next_horizontal", KB_DESKTOP_NEXT_HORZ, 0, "", "one desktop right in the desktop_columns x desktop_rows grid (unbound by default)"),
     BIND("key_desktop_prev_horizontal", KB_DESKTOP_PREV_HORZ, 0, "", "...one desktop left"),
     BIND("key_desktop_next_vertical",   KB_DESKTOP_NEXT_VERT, 0, "", "...one desktop down"),
     BIND("key_desktop_prev_vertical",   KB_DESKTOP_PREV_VERT, 0, "", "...one desktop up"),
-    BIND("key_maximize",     KB_MAXIMIZE,     0, "ModControl+Up",        "maximize / restore the focused window"),
-    BIND("key_minimize",     KB_MINIMIZE,     0, "ModControl+Down",      "minimize the focused window"),
-    BIND("key_tile_left",    KB_TILE_LEFT,    0, "ModControl+Left",      "tile the focused window to the left half (again = restore)"),
-    BIND("key_tile_right",   KB_TILE_RIGHT,   0, "ModControl+Right",     "tile the focused window to the right half (again = restore)"),
+    BIND("key_maximize",     KB_MAXIMIZE,     0, "ModKey+Up",            "maximize / restore the focused window"),
+    BIND("key_maximize_horizontal", KB_MAXIMIZE_HORZ, 0, "",             "maximize / restore the focused window's width only"),
+    BIND("key_maximize_vertical",   KB_MAXIMIZE_VERT, 0, "",             "...its height only"),
+    BIND("key_minimize",     KB_MINIMIZE,     0, "ModKey+Down",          "minimize the focused window"),
+    BIND("key_tile_left",    KB_TILE_LEFT,    0, "ModKey+Left",          "tile the focused window to the left half (again = restore)"),
+    BIND("key_tile_right",   KB_TILE_RIGHT,   0, "ModKey+Right",         "tile the focused window to the right half (again = restore)"),
     BIND("key_fullscreen",   KB_FULLSCREEN,   0, "",                     "toggle fullscreen on the focused window"),
     BIND("key_shade",        KB_SHADE,        0, "",                     "roll the focused window up into its titlebar / unroll"),
     BIND("key_keep_above",   KB_KEEP_ABOVE,   0, "",                     "toggle always-on-top on the focused window"),
+    BIND("key_keep_below",   KB_KEEP_BELOW,   0, "",                     "toggle always-below on the focused window"),
     BIND("key_sticky",       KB_STICKY,       0, "",                     "toggle showing the focused window on every desktop"),
     BIND("key_close",        KB_CLOSE,        0, "Alt+F4",               "close the focused window"),
+    BIND("key_window_menu",  KB_WINDOW_MENU,  0, "",                     "open the focused window's menu, under its titlebar"),
     BIND("key_desktop_1",    KB_DESKTOP_GOTO, 0, "",                     "switch the active output to desktop 1 (unbound by default)"),
     BIND("key_desktop_2",    KB_DESKTOP_GOTO, 1, "",                     "...desktop 2"),
     BIND("key_desktop_3",    KB_DESKTOP_GOTO, 2, "",                     "...desktop 3"),
@@ -79,6 +91,16 @@ static Keybind binds[] = {
     BIND("key_desktop_6",    KB_DESKTOP_GOTO, 5, "",                     "...desktop 6"),
     BIND("key_desktop_7",    KB_DESKTOP_GOTO, 6, "",                     "...desktop 7"),
     BIND("key_desktop_8",    KB_DESKTOP_GOTO, 7, "",                     "...desktop 8"),
+    BIND("key_move_to_desktop_next", KB_MOVE_TO_DESKTOP_NEXT, 0, "",     "send the focused window one desktop forward, without following it"),
+    BIND("key_move_to_desktop_prev", KB_MOVE_TO_DESKTOP_PREV, 0, "",     "...one desktop back"),
+    BIND("key_move_to_desktop_1", KB_MOVE_TO_DESKTOP, 0, "",             "send the focused window to desktop 1 (unbound by default)"),
+    BIND("key_move_to_desktop_2", KB_MOVE_TO_DESKTOP, 1, "",             "...desktop 2"),
+    BIND("key_move_to_desktop_3", KB_MOVE_TO_DESKTOP, 2, "",             "...desktop 3"),
+    BIND("key_move_to_desktop_4", KB_MOVE_TO_DESKTOP, 3, "",             "...desktop 4"),
+    BIND("key_move_to_desktop_5", KB_MOVE_TO_DESKTOP, 4, "",             "...desktop 5"),
+    BIND("key_move_to_desktop_6", KB_MOVE_TO_DESKTOP, 5, "",             "...desktop 6"),
+    BIND("key_move_to_desktop_7", KB_MOVE_TO_DESKTOP, 6, "",             "...desktop 7"),
+    BIND("key_move_to_desktop_8", KB_MOVE_TO_DESKTOP, 7, "",             "...desktop 8"),
 };
 
 static const int bind_count = (int)(sizeof(binds) / sizeof(binds[0]));
@@ -158,9 +180,13 @@ static bool parse_mod_token(const char *tok, uint16_t *out)
         strcasecmp(tok, "win") == 0 || strcasecmp(tok, "mod4") == 0)          { *out = XCB_MOD_MASK_4; return true; }
     if (strcasecmp(tok, "ctrl") == 0 || strcasecmp(tok, "control") == 0)      { *out = XCB_MOD_MASK_CONTROL; return true; }
     if (strcasecmp(tok, "shift") == 0)                                        { *out = XCB_MOD_MASK_SHIFT; return true; }
-    /* Symbolic: follows kiwm.conf's mod_cycle=/mod_control=. */
-    if (strcasecmp(tok, "modcycle") == 0 || strcasecmp(tok, "mod_cycle") == 0)     { *out = wm.mod_cycle; return true; }
-    if (strcasecmp(tok, "modcontrol") == 0 || strcasecmp(tok, "mod_control") == 0) { *out = wm.mod_control; return true; }
+    /* Symbolic: follows kiwm.conf's mod_key=. ModCycle/ModControl are the
+     * pre-merge spellings of the two modifiers mod_key= replaced, kept
+     * working (both meaning mod_key) so an older kiwm.conf's key_* lines
+     * don't all turn into "unknown modifier" warnings at once. */
+    if (strcasecmp(tok, "modkey") == 0 || strcasecmp(tok, "mod_key") == 0 ||
+        strcasecmp(tok, "modcycle") == 0 || strcasecmp(tok, "mod_cycle") == 0 ||
+        strcasecmp(tok, "modcontrol") == 0 || strcasecmp(tok, "mod_control") == 0) { *out = wm.mod_key; return true; }
     return false;
 }
 
@@ -272,6 +298,27 @@ void keybind_init(void)
             kb->keycode = 0;
             continue;
         }
+
+        /* Two actions on the same modifiers+key: keybind_handle_key_press()
+         * runs the first row it finds and the later one would simply never
+         * fire, so say so instead of leaving a shortcut mysteriously dead.
+         * Easy to hit now that mod_key= is a single modifier -- an older
+         * config's ModCycle+Tab and ModControl+Tab now resolve to the very
+         * same combination. */
+        bool dup = false;
+        for (int j = 0; j < i; j++) {
+            if (binds[j].keycode == kb->keycode && binds[j].mods == kb->mods) {
+                fprintf(stderr, "kiwm: config: %s=%s is the same shortcut as %s -- leaving %s unbound\n",
+                        kb->conf_key, spec, binds[j].conf_key, kb->conf_key);
+                dup = true;
+                break;
+            }
+        }
+        if (dup) {
+            kb->keycode = 0;
+            continue;
+        }
+
         grab_with_locks(kb->mods, kb->keycode);
     }
 }
@@ -313,16 +360,41 @@ static void run_action(KeyAction action, int arg, uint16_t mods)
         return;
 
     switch (action) {
-    case KB_MAXIMIZE:   toggle_maximize(c, -1); break;
-    case KB_MINIMIZE:   minimize_client(c); break;
-    case KB_TILE_LEFT:  toggle_snap_side(c, SNAP_LEFT); break;
-    case KB_TILE_RIGHT: toggle_snap_side(c, SNAP_RIGHT); break;
-    case KB_FULLSCREEN: toggle_fullscreen(c, -1); break;
-    case KB_SHADE:      toggle_shade(c, -1); break;
-    case KB_KEEP_ABOVE: toggle_keep_above(c, -1); break;
-    case KB_STICKY:     toggle_sticky(c, -1); break;
-    case KB_CLOSE:      close_client(c); break;
-    default:            break;
+    case KB_MAXIMIZE:      toggle_maximize(c, -1); break;
+    case KB_MAXIMIZE_HORZ: toggle_maximize_horz(c, -1); break;
+    case KB_MAXIMIZE_VERT: toggle_maximize_vert(c, -1); break;
+    case KB_MINIMIZE:      minimize_client(c); break;
+    case KB_TILE_LEFT:     toggle_snap_side(c, SNAP_LEFT); break;
+    case KB_TILE_RIGHT:    toggle_snap_side(c, SNAP_RIGHT); break;
+    case KB_FULLSCREEN:    toggle_fullscreen(c, -1); break;
+    case KB_SHADE:         toggle_shade(c, -1); break;
+    case KB_KEEP_ABOVE:    toggle_keep_above(c, -1); break;
+    case KB_KEEP_BELOW:    toggle_keep_below(c, -1); break;
+    case KB_STICKY:        toggle_sticky(c, -1); break;
+    case KB_CLOSE:         close_client(c); break;
+
+    /* Where the titlebar's own icon-click opens it (events.c), so the
+     * menu shows up in the same place however it was asked for. */
+    case KB_WINDOW_MENU:
+        window_menu_open(c, c->x, c->y + (client_deco_visible(c) ? TITLEBAR_H : 0));
+        break;
+
+    case KB_MOVE_TO_DESKTOP:
+        if (arg < wm.num_desktops)
+            set_client_desktop(c, arg);
+        break;
+    /* Stepping from the *window's* desktop, not its output's current one:
+     * with a focused window on a desktop you are not looking at (a sticky
+     * one aside) "one desktop forward" can only sensibly mean forward
+     * from where the window is. */
+    case KB_MOVE_TO_DESKTOP_NEXT:
+        set_client_desktop(c, desktop_step(c->desktop, +1, DESKTOP_AXIS_LINEAR));
+        break;
+    case KB_MOVE_TO_DESKTOP_PREV:
+        set_client_desktop(c, desktop_step(c->desktop, -1, DESKTOP_AXIS_LINEAR));
+        break;
+
+    default:               break;
     }
 }
 
@@ -349,16 +421,16 @@ void keybind_write_default_config(FILE *f)
         "# Global keyboard shortcuts. Syntax: Mod+Mod+Key (case-insensitive),\n"
         "# e.g. Meta+Down, Alt+Shift+Tab, Ctrl+Alt+F1. An empty value leaves\n"
         "# the action unbound. Modifiers: Alt, Meta (= Super/Win), Ctrl,\n"
-        "# Shift, plus ModCycle/ModControl, which follow mod_cycle= and\n"
-        "# mod_control= above -- that's what the defaults below use, so\n"
-        "# changing mod_cycle= moves them all along with it. Keys are named\n"
-        "# like their X keysyms (Tab, Up, Down, Left, Right, Escape, Return,\n"
-        "# space, Home, End, PageUp, PageDown, Delete, F1-F12), a single\n"
-        "# printable character (a, 7, /), or a raw 0x<hex> keysym.\n"
+        "# Shift, plus ModKey, which follows mod_key= above -- that's what\n"
+        "# the window-control defaults below use, so changing mod_key= moves\n"
+        "# them all along with it. Keys are named like their X keysyms (Tab,\n"
+        "# Up, Down, Left, Right, Escape, Return, space, Home, End, PageUp,\n"
+        "# PageDown, Delete, F1-F12), a single printable character (a, 7, /),\n"
+        "# or a raw 0x<hex> keysym. Binding two actions to the same\n"
+        "# combination leaves the second one unbound, with a warning.\n"
         "#\n"
-        "# The mouse shortcuts (mod_cycle/mod_control + drag to move, +\n"
-        "# right-drag to resize) aren't here -- they follow mod_cycle=/\n"
-        "# mod_control= directly.\n");
+        "# The mouse shortcuts (mod_key + drag to move, + right-drag to\n"
+        "# resize) aren't here -- they follow mod_key= directly.\n");
 
     for (int i = 0; i < bind_count; i++) {
         fprintf(f, "\n# %s\n%s=%s\n", binds[i].doc, binds[i].conf_key, binds[i].def_spec);

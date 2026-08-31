@@ -12,9 +12,9 @@
  * here plus a case in run_action(), not another grab site.
  *
  * Deliberately *only* pure-keyboard globals: the mouse+modifier bindings
- * (mod_cycle/mod_control + drag to move/resize) stay where they are, in
- * events.c's button handling, since those are about which modifier is held
- * during a pointer gesture rather than a discrete key press to dispatch. */
+ * (mod_key + drag to move/resize) stay where they are, in events.c's
+ * button handling, since those are about which modifier is held during a
+ * pointer gesture rather than a discrete key press to dispatch. */
 
 typedef enum {
     KB_WINDOW_NEXT = 0,   /* window switcher, forwards (osd.c) */
@@ -33,15 +33,27 @@ typedef enum {
     KB_DESKTOP_NEXT_VERT,
     KB_DESKTOP_PREV_VERT,
     KB_MAXIMIZE,          /* toggle maximize/restore of the focused window */
+    KB_MAXIMIZE_HORZ,     /* ...one axis only, leaving the other as it is */
+    KB_MAXIMIZE_VERT,
     KB_MINIMIZE,
     KB_TILE_LEFT,         /* half-screen tiling, toggles back off if already there */
     KB_TILE_RIGHT,
     KB_FULLSCREEN,
     KB_SHADE,
     KB_KEEP_ABOVE,
+    KB_KEEP_BELOW,
     KB_STICKY,
     KB_CLOSE,
+    KB_WINDOW_MENU,       /* open the focused window's menu (menu.c) under its titlebar */
     KB_DESKTOP_GOTO,      /* switch the active output to desktop `arg` (0-based) */
+    /* Send the focused window to another desktop of its own output,
+     * without following it there -- pair one with a key_desktop_* binding
+     * to do both. KB_MOVE_TO_DESKTOP takes a 0-based desktop in `arg`;
+     * the step pair walks from wherever the window currently is, in the
+     * same grid order output.c's desktop_step() uses. */
+    KB_MOVE_TO_DESKTOP,
+    KB_MOVE_TO_DESKTOP_NEXT,
+    KB_MOVE_TO_DESKTOP_PREV,
 } KeyAction;
 
 /* Parses one kiwm.conf line if it's a key_* binding, returning false (and
@@ -52,9 +64,10 @@ typedef enum {
 bool keybind_config_set(const char *key, const char *val);
 
 /* Resolves every binding's spec to modifiers+keycode and installs the
- * passive root grabs. Call once from setup_wm(), after config_load() (for
- * mod_cycle/mod_control, which the default specs refer to symbolically)
- * and after the root event mask is selected. */
+ * passive root grabs, warning about (and dropping) any binding that
+ * duplicates an earlier one. Call once from setup_wm(), after
+ * config_load() (for mod_key, which the default specs refer to
+ * symbolically) and after the root event mask is selected. */
 void keybind_init(void);
 
 /* Runs whatever action this key press is bound to; returns false if it

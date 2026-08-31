@@ -21,9 +21,9 @@
  *     Alt+Tab/Alt+Shift+Tab cycle focus, Meta+Tab/Meta+Shift+Tab cycle the
  *     focused output's virtual desktop, Meta+Up maximizes/restores,
  *     Meta+Down minimizes, Meta+Left/Right tile to half the screen, by
- *     default. Mouse gestures still follow mod_cycle=/mod_control=
- *     directly: Meta+drag (or Alt+drag) moves, Alt+drag with the right
- *     button resizes.
+ *     default. Mouse gestures follow kiwm.conf's mod_key= directly (Meta
+ *     by default): mod+drag anywhere on a window moves it, mod+right-drag
+ *     resizes it.
  *   - Enough EWMH/ICCCM for a taskbar (xispanel's tasklist widget) to
  *     list/activate/close/minimize/maximize windows.
  *
@@ -39,7 +39,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KIWM_VERSION "0.3.7"
+#define KIWM_VERSION "0.3.8"
 
 #include "wm.h"
 #include "config.h"
@@ -220,7 +220,7 @@ static xcb_cursor_t load_theme_cursor(xcb_cursor_context_t *ctx, const char *con
 static void setup_wm(bool replace)
 {
     /* Needs no X connection -- pure file I/O -- so it can set
-     * num_desktops/mod_cycle/mod_control/deco_* before anything below
+     * num_desktops/mod_key/deco_* before anything below
      * that depends on them (key grabs, decoration). */
     config_load();
 

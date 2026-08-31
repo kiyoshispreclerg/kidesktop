@@ -394,7 +394,7 @@ static void update_resize_grip_cursor(Client *c, int root_x, int root_y)
 }
 
 /* Starts a move or resize drag at a given root position, whatever asked
- * for it: a titlebar click, a mod_cycle/mod_control-drag from anywhere on
+ * for it: a titlebar click, a mod_key-drag from anywhere on
  * the window (both via begin_drag() below), or the client itself asking
  * through _NET_WM_MOVERESIZE (handle_moveresize()). Captures
  * wm.drag_start_x/y/w/h and grabs the pointer.
@@ -535,7 +535,7 @@ static void begin_drag_at(Client *c, DragMode mode, int root_x, int root_y,
 }
 
 /* The two pointer-driven drag-start sites (titlebar-click-move and
- * mod_cycle/mod_control-drag). */
+ * mod_key-drag). */
 static void begin_drag(Client *c, DragMode mode, xcb_button_press_event_t *ev)
 {
     begin_drag_at(c, mode, ev->root_x, ev->root_y,
@@ -634,7 +634,7 @@ static void handle_button_press(xcb_button_press_event_t *ev)
      * run_deco_button()) -- so this is checked before the right-click
      * window menu below, which owns every other part of the decoration.
      * Modifier-drags still win: those are the move/resize gestures. */
-    bool plain_click = !(ev->state & (wm.mod_cycle | wm.mod_control));
+    bool plain_click = !(ev->state & wm.mod_key);
     if (on_titlebar && plain_click &&
         (ev->detail == XCB_BUTTON_INDEX_1 || ev->detail == XCB_BUTTON_INDEX_2 ||
          ev->detail == XCB_BUTTON_INDEX_3)) {
@@ -710,7 +710,7 @@ static void handle_button_press(xcb_button_press_event_t *ev)
      * The top edge is left out whenever the titlebar is there to own it
      * (the titlebar branch above has already returned by then anyway), and
      * a shaded window has nothing but titlebar, so it's left out too. */
-    if (ev->detail == 1 && !(ev->state & (wm.mod_cycle | wm.mod_control))) {
+    if (ev->detail == 1 && !(ev->state & wm.mod_key)) {
         int right, bottom;
         bool axis_x, axis_y;
         if (resize_grip_at(c, ev->root_x, ev->root_y, &right, &bottom, &axis_x, &axis_y)) {
@@ -727,12 +727,10 @@ static void handle_button_press(xcb_button_press_event_t *ev)
         }
     }
 
-    /* wm.mod_control-drag (any button, e.g. Meta by default) and
-     * wm.mod_cycle-drag (e.g. Alt by default) both move the window with
-     * the left button; either one with the right button resizes instead,
-     * from whichever corner is nearest the click -- see kiwm.conf's
-     * mod_cycle=/mod_control= keys. */
-    if (ev->state & (wm.mod_cycle | wm.mod_control)) {
+    /* wm.mod_key-drag (Meta by default) moves the window with the left
+     * button and resizes it with the right one, from whichever corner is
+     * nearest the click -- see kiwm.conf's mod_key= key. */
+    if (ev->state & wm.mod_key) {
         if (ev->detail == 1)
             begin_drag(c, DRAG_MOVE, ev);
         else if (ev->detail == 3)
@@ -831,7 +829,7 @@ static void apply_drag_snap(Client *c, SnapSide side, int wx, int wy, int ww, in
 }
 
 /* Windows7/kwin-style edge snap while dragging a window by its titlebar or
- * via mod_control-drag: the pointer getting within kiwm.conf's
+ * via mod_key-drag: the pointer getting within kiwm.conf's
  * snap_threshold= of an output workarea edge snaps the window there (top =
  * maximize, left/right = half-width); moving the pointer back out of that
  * zone before releasing the button cancels it again. Only engages/

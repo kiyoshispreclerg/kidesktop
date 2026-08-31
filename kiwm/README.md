@@ -345,8 +345,7 @@ a warning on stderr, not a hard error. A key you leave out of the file keeps its
 | `hide_deco_on_maximize` | `0` | `1` hides the whole decoration (titlebar + side/bottom border) while a window is maximized, to reclaim every pixel. `0` keeps it. |
 | `num_desktops` | `4` | Virtual desktops per output (every output has the same *count*, but its own independent *current* desktop -- see PROTOCOL.md). Clamped to 1..32. |
 | `desktop_columns` / `desktop_rows` | `0` / `1` | The shape those desktops are arranged in, numbered row-major from the top-left. Either may be `0`, meaning "as many as `num_desktops` needs" (EWMH's own semantics for `_NET_DESKTOP_LAYOUT`), so `desktop_rows=2` alone gives a 2-row grid of whatever the count is. The default -- 0 columns, 1 row -- is the single row kiwm always had. This shape is what the Meta+Tab switcher draws, and kiwm publishes it as `_NET_DESKTOP_LAYOUT`, so a pager (xispanel's reads exactly that property) shows the same grid without being configured separately. |
-| `mod_cycle` | `alt` | Modifier (`alt` or `meta`) for left-drag-to-move / right-drag-to-resize from anywhere on a window (not just its titlebar). Also what `ModCycle` resolves to in the `key_*` shortcuts below, which is how the window-switching defaults follow it. |
-| `mod_control` | `meta` | Modifier (`alt` or `meta`) for window control: drag-to-move/resize (same as `mod_cycle` but a separate binding). Also what `ModControl` resolves to in the `key_*` shortcuts, which is how the desktop-switch/maximize/minimize/tile defaults follow it. |
+| `mod_key` | `meta` | The one modifier (`alt` or `meta`) kiwm claims for its mouse gestures: hold it and left-drag anywhere on a window (not just its titlebar) to move it, right-drag to resize it. Also what `ModKey` resolves to in the `key_*` shortcuts below, which is how the desktop-switch/maximize/minimize/tile defaults follow it. Replaces the old `mod_cycle=`/`mod_control=` pair, which were only ever tested together at every gesture site -- the second one bought nothing but a second modifier applications could no longer use. Both old names are still accepted (with a warning) and set `mod_key`; `ModCycle`/`ModControl` in a `key_*` spec likewise still resolve to it. The window switcher is no longer tied to this at all -- it's a plain `key_window_next=Alt+Tab` binding, so a default kiwm leaves Alt entirely to applications. |
 | `border_thickness` | `0` | Left/right/bottom decoration border thickness in pixels. `0` means no border at all -- just the titlebar (the original look). |
 | `border_color` | `#000000` | Fallback border color, used only when no theme `colors` file overrides it (see "Theming"). |
 | `snap_threshold` | `20` | How close (pixels) the pointer must get to an output's *usable* area edge while dragging a window to snap it there -- top edge maximizes, left/right edges fill exactly half the width, Windows7/kwin-style. `0` disables snapping entirely. |
@@ -477,8 +476,7 @@ these, all optional and independent -- a theme missing some files just falls bac
 ### Mouse and keyboard reference
 
 Every keyboard shortcut below is rebindable -- see "Keyboard shortcuts". The mouse gestures aren't
-separately bindable; they follow `mod_cycle=`/`mod_control=` directly. With the defaults
-(`mod_cycle=alt`, `mod_control=meta`):
+separately bindable; they follow `mod_key=` directly. With the default (`mod_key=meta`):
 
 - **Click** a window (titlebar or content): focus + raise.
 - **Click-drag** a titlebar: move. Drag to a screen edge to snap (see `snap_threshold=` above) --
@@ -502,13 +500,13 @@ separately bindable; they follow `mod_cycle=`/`mod_control=` directly. With the 
   *output*, still fullscreen, which is otherwise impossible without leaving fullscreen first (kwin
   behaves the same). Nothing follows the pointer: the outline shows which output would take it, and
   releasing re-applies fullscreen there. Resizing one is refused outright.
-- **Alt+drag** (left button), or **Meta+drag** (any button): move a window from anywhere on it,
-  not just its titlebar. Dragging a maximized or tiled window (either way) only restores it once
-  the pointer has moved a titlebar's height -- see "Status" above.
+- **Meta+drag** (left button): move a window from anywhere on it, not just its titlebar. Dragging
+  a maximized or tiled window only restores it once the pointer has moved a titlebar's height --
+  see "Status" above.
 - **Drag empty space inside a window**: works for apps that ask kiwm to do it via
   `_NET_WM_MOVERESIZE` -- Qt Breeze/Oxygen toolbars, GTK headerbars, Steam's own chrome.
-- **Alt+right-drag** or **Meta+right-drag**: resize, from whichever corner of the window is
-  nearest wherever you clicked -- the opposite corner stays fixed.
+- **Meta+right-drag**: resize, from whichever corner of the window is nearest wherever you
+  clicked -- the opposite corner stays fixed.
 - **Alt+Tab** / **Alt+Shift+Tab**: hold Alt, tap Tab/Shift+Tab to step forward/backward through
   mapped windows on the current output's current desktop (plus any sticky ones), each highlighted
   one outlined where it sits (see "The outline" below) -- releasing Alt commits whichever is
@@ -518,7 +516,7 @@ separately bindable; they follow `mod_cycle=`/`mod_control=` directly. With the 
   desktops **while dragging a window** carries that window along to the new desktop, the way kwin
   and compiz do -- keep the mouse button held, tap Meta+Tab, and the window travels with the
   pointer instead of being left behind. Any way of switching does it, since they're the same
-  gesture from the user's side: the cycle shortcut, a direct **Alt+N** jump, or a pager click.
+  gesture from the user's side: the cycle shortcut, a direct `key_desktop_N` jump, or a pager click.
 - **Escape**: while either overlay is open, cancel without switching.
 - **Meta+Up**: maximize/restore the focused window.
 - **Meta+Down**: minimize the focused window.
@@ -526,8 +524,9 @@ separately bindable; they follow `mod_cycle=`/`mod_control=` directly. With the 
   usable area -- the same geometry a drag to that screen edge produces, without the drag. Pressing
   it again for the side the window is *already* tiled to restores it, so one key both tiles and
   untiles.
-- **Alt+1**/**2**/**3**/**4**: jump the focused output straight to that desktop (immediate, no
-  overlay -- a direct-select shortcut, not a cycle).
+- **`key_desktop_1`..`key_desktop_8`**: jump the focused output straight to that desktop
+  (immediate, no overlay -- a direct-select shortcut, not a cycle). Unbound by default.
+- **`key_move_to_desktop_*`**: send the focused window to another desktop without following it.
 
 ### Keyboard shortcuts
 
@@ -535,32 +534,51 @@ All of kiwm's global keyboard shortcuts live in `kiwm.conf` as `key_*` keys, and
 generated config lists every one this build has, with its default:
 
 ```
-key_window_next=ModCycle+Tab
-key_window_prev=ModCycle+Shift+Tab
-key_desktop_next=ModControl+Tab
-key_desktop_prev=ModControl+Shift+Tab
+key_window_next=Alt+Tab
+key_window_prev=Alt+Shift+Tab
+key_desktop_next=ModKey+Tab
+key_desktop_prev=ModKey+Shift+Tab
 key_desktop_next_horizontal=
 key_desktop_prev_horizontal=
 key_desktop_next_vertical=
 key_desktop_prev_vertical=
-key_maximize=ModControl+Up
-key_minimize=ModControl+Down
-key_tile_left=ModControl+Left
-key_tile_right=ModControl+Right
+key_maximize=ModKey+Up
+key_maximize_horizontal=
+key_maximize_vertical=
+key_minimize=ModKey+Down
+key_tile_left=ModKey+Left
+key_tile_right=ModKey+Right
 key_fullscreen=
 key_shade=
 key_keep_above=
+key_keep_below=
 key_sticky=
 key_close=Alt+F4
+key_window_menu=
 key_desktop_1=
-key_desktop_2=            # ...through key_desktop_8, unbound by default
+key_desktop_2=                 # ...through key_desktop_8, unbound by default
+key_move_to_desktop_next=
+key_move_to_desktop_prev=
+key_move_to_desktop_1=
+key_move_to_desktop_2=         # ...through key_move_to_desktop_8, unbound by default
 ```
 
 - Syntax is `Mod+Mod+Key`, case-insensitive: `Meta+Down`, `alt+shift+Tab`, `Ctrl+Alt+F1`.
-- Modifiers: `Alt`, `Meta` (= `Super`/`Win`), `Ctrl`, `Shift`, plus `ModCycle`/`ModControl`, which
-  resolve to whatever `mod_cycle=`/`mod_control=` are set to. The defaults use the symbolic pair on
-  purpose, so setting `mod_cycle=meta` moves every default cycling shortcut along with it -- exactly
-  as it behaved when these were hardcoded.
+- Modifiers: `Alt`, `Meta` (= `Super`/`Win`), `Ctrl`, `Shift`, plus `ModKey`, which resolves to
+  whatever `mod_key=` is set to. The window-control defaults use the symbolic form on purpose, so
+  setting `mod_key=alt` moves them all along with it. `ModCycle`/`ModControl` are the pre-merge
+  spellings and still parse, both meaning `ModKey`, so an older config's `key_*` lines don't turn
+  into "unknown modifier" warnings all at once.
+- The window switcher's defaults name **Alt literally**, not `ModKey`: switching windows is a plain
+  shortcut like any other, and pulling the mouse-gesture modifier onto Tab is exactly what used to
+  cost you a second modifier. With the shipped defaults, `Alt+Tab`/`Alt+Shift+Tab` and `Alt+F4` are
+  all kiwm takes from Alt, and none of them involve `mod_key`.
+- **Two bindings resolving to the same modifiers+key** would silently shadow each other (dispatch
+  runs the first one in the table), so kiwm warns and leaves the later one unbound. Worth knowing
+  when migrating an old config: `ModCycle+Tab` and `ModControl+Tab` now mean the same combination.
+- `key_move_to_desktop_*` sends the focused window to another desktop of its own output *without*
+  following it there -- pair one with a `key_desktop_*` binding to do both. The `next`/`prev` pair
+  steps from wherever the window currently is, not from the output's current desktop.
 - Keys are named like their X keysyms (`Tab`, `Up`, `Down`, `Left`, `Right`, `Escape`, `Return`,
   `space`, `Home`, `End`, `PageUp`, `PageDown`, `Delete`, `F1`-`F12`), a single printable character
   (`a`, `7`, `/`), or a raw `0x<hex>` keysym for anything else.
@@ -577,15 +595,15 @@ key_desktop_2=            # ...through key_desktop_8, unbound by default
   ask for. They're unbound by default, so a config that never mentions them keeps the plain
   Meta+Tab / Meta+Shift+Tab pair kiwm always had.
 - A switcher hold is ended by releasing **the modifier its own binding names** (Shift excluded --
-  a `prev` binding is the same hold as its `next` one), not by a fixed `mod_cycle`/`mod_control`.
+  a `prev` binding is the same hold as its `next` one), not by a fixed `mod_key`.
   So `key_desktop_next_vertical=Ctrl+Alt+Down` holds on Ctrl+Alt and commits when those come up.
 - **Escape** isn't in the table: it's the fixed cancel key for whatever hold is in progress (the
   overlays below), never grabbed and not rebindable.
 
 ### On-screen overlays (OSD)
 
-With `osd_enabled=1` (the default), holding `mod_cycle`/`mod_control` (Alt/Meta by default) and
-tapping Tab opens a themed overlay -- same background/border colors and corner radius as the
+With `osd_enabled=1` (the default), holding a switcher shortcut's modifier (Alt for windows, Meta
+for desktops by default) and tapping Tab opens a themed overlay -- same background/border colors and corner radius as the
 window decoration (see "Theming" above), drawn with the XCB SHAPE extension, no compositor needed
 -- centered on the output that has the currently focused window (or whichever output the pointer
 is on, if nothing's focused), or always the pointer's output with `osd_output_follows_pointer=1`
@@ -628,7 +646,7 @@ open -- the only reliable way to see the modifier key's own release regardless o
 any) has input focus; a plain `xcb_grab_key()` binding (what every other kiwm shortcut uses) can't
 by itself. Committing is decided by *live keyboard state*, not by matching the released key against
 a specific hardcoded keycode: every KeyRelease while an overlay is open re-queries whether
-`mod_cycle`/`mod_control`'s bit is still set at all (`xcb_query_pointer()`'s modifier mask) and only
+the driving modifier's bit is still set at all (`xcb_query_pointer()`'s modifier mask) and only
 commits once it's actually gone. Matching one fixed keycode (e.g. just `Alt_L`) instead would miss a
 layout where the modifier lives on a different/second physical key, or misfire on a modifier key's
 own X autorepeat -- either way leaving the keyboard grab stuck engaged (every keystroke system-wide

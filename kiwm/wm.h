@@ -891,12 +891,18 @@ typedef struct {
      * magnet_snap_move()/magnet_snap_resize(). */
     int magnet_threshold;
 
-    /* Which modifier drives Alt+Tab-style window cycling vs. Meta-style
-     * window control (move/maximize/desktop-cycle) -- configurable via
-     * kiwm.conf's mod_cycle=/mod_control= (values "alt" or "meta"),
-     * defaulting to MOD_ALT/MOD_META respectively (see config.c). */
-    uint16_t mod_cycle;
-    uint16_t mod_control;
+    /* The one modifier kiwm claims for its mouse gestures (mod+drag to
+     * move, mod+right-drag to resize, from anywhere on a window) and for
+     * whatever key_* bindings name it symbolically as "ModKey" --
+     * kiwm.conf's mod_key= (values "alt" or "meta"), MOD_META by default.
+     *
+     * Deliberately a single modifier, not the mod_cycle/mod_control pair
+     * kiwm used to have: the two were only ever OR'd together at every
+     * gesture site (events.c), so a second one bought nothing but a second
+     * modifier the rest of the desktop could no longer use. The window
+     * switcher, which used to be the reason mod_cycle existed, is now just
+     * another rebindable key_* (Alt+Tab by default, a literal Alt). */
+    uint16_t mod_key;
 
     DragMode drag_mode;
     Client *drag_client;
