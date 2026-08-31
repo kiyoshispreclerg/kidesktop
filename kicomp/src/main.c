@@ -19,9 +19,14 @@
  *     milestone is "exactly the same desktop, plus working transparency".
  *   - Idle costs nothing: the process sleeps in poll() and repaints only
  *     the outputs damage actually touched.
+ *   - Effects behind their own vtable (sections 23/42), geometry change
+ *     as the first one, and a per-output frame clock to drive them
+ *     (section 19). Durations are time, never frames, and every one of
+ *     them is a multiple of a single number in kicomp.conf (section 20).
  *
- * Explicitly NOT here yet: effects, per-output frame clocks/pacing
- * (Fase 7), the XiS FLIP presenter (Fase 8), region-based repaint,
+ * Explicitly NOT here yet: MSC/UST-locked pacing and the XiS FLIP
+ * presenter (the rest of Fase 7/8), a GL renderer (Fase 6, and with it
+ * the effects that need one -- wobbly, blur), region-based repaint,
  * unredirect of a fullscreen output, and any kiwm<->kicomp IPC
  * (section 32) -- this version learns everything from plain X events, so
  * kiwm needs no changes at all to be composited, and killing kicomp
@@ -30,7 +35,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.1.1"
+#define KICOMP_VERSION "0.2.0"
 
 #include "comp.h"
 #include "output.h"
@@ -38,6 +43,10 @@
 #include "scene.h"
 #include "renderer.h"
 #include "presenter.h"
+#include "effect.h"
+#include "animation.h"
+#include "scheduler.h"
+#include "config.h"
 
 #include <xcb/randr.h>
 #include <xcb/shape.h>
@@ -327,7 +336,7 @@ static bool overlay_acquire(void)
  * (section 41). */
 static CompScene scene;
 
-static void paint_dirty_outputs(void)
+static void paint_dirty_outputs(double now)
 {
     bool painted = false;
 
@@ -336,7 +345,16 @@ static void paint_dirty_outputs(void)
         if (!o->dirty || !o->target)
             continue;
 
+        /* Its own clock decides, not the event that dirtied it: a burst
+         * of damage becomes one frame, and an output stays at its own
+         * refresh rate while another animates at a different one
+         * (section 19). An output whose slot already passed paints right
+         * away, so nothing waits for a deadline that isn't there. */
+        if (!scheduler_may_paint(o, now))
+            continue;
+
         scene_build(&scene, o);
+        effects_apply(&scene, o);
         comp_log("paint %s: %d node%s", o->name, scene.count,
                  scene.count == 1 ? "" : "s");
 
@@ -494,6 +512,7 @@ static void handle_event(xcb_generic_event_t *ev)
 
 static void shutdown_compositor(void)
 {
+    effects_shutdown();
     windows_teardown();
     outputs_teardown();
     presenter_shutdown();
@@ -518,6 +537,7 @@ static void usage(void)
 {
     printf("kicomp " KICOMP_VERSION " - compositor for kiwm\n"
            "usage: kicomp [--replace] [--single-drawable] [--skip-wm-layers]\n"
+           "              [--effects|--no-effects] [--anim-ms=N] [--renderer=NAME]\n"
            "              [-v|--verbose] [--version] [--help]\n"
            "\n"
            "  --replace          take over from a running compositor\n"
@@ -526,6 +546,12 @@ static void usage(void)
            "  --skip-wm-layers   don't composite kiwm's own overlay windows\n"
            "                     (_KIWM_LAYER: the switcher OSD, the\n"
            "                     move/resize wireframe)\n"
+           "  --effects, --no-effects\n"
+           "                     turn animations on/off (kicomp.conf: effects=)\n"
+           "  --anim-ms=N        global animation unit in ms; every effect's\n"
+           "                     duration is a multiple of it\n"
+           "                     (kicomp.conf: animation_duration=)\n"
+           "  --renderer=NAME    auto|xrender (kicomp.conf: renderer=)\n"
            "\n"
            "kicomp is optional: kiwm is fully usable without it, and\n"
            "killing kicomp returns the session to the uncomposited path.\n");
@@ -535,6 +561,10 @@ int main(int argc, char **argv)
 {
     bool replace = false;
 
+    /* The file first, the command line second: an option always wins
+     * over kicomp.conf. */
+    config_load();
+
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--replace")) {
             replace = true;
@@ -542,6 +572,14 @@ int main(int argc, char **argv)
             comp.single_drawable = true;
         } else if (!strcmp(argv[i], "--skip-wm-layers")) {
             comp.skip_wm_layers = true;
+        } else if (!strcmp(argv[i], "--no-effects")) {
+            comp.effects = false;
+        } else if (!strcmp(argv[i], "--effects")) {
+            comp.effects = true;
+        } else if (!strncmp(argv[i], "--anim-ms=", 10)) {
+            comp.anim_duration_ms = atof(argv[i] + 10);
+        } else if (!strncmp(argv[i], "--renderer=", 11)) {
+            snprintf(comp.renderer_name, sizeof(comp.renderer_name), "%s", argv[i] + 11);
         } else if (!strcmp(argv[i], "-v") || !strcmp(argv[i], "--verbose")) {
             comp.verbose = true;
         } else if (!strcmp(argv[i], "--version")) {
@@ -623,6 +661,17 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    /* One renderer and one presenter exist so far, so "auto" and
+     * "xrender"/"copy" all land in the same place -- but the choice is
+     * made here, by name, so that adding renderer-gl.c or the XiS FLIP
+     * presenter is a line in this function and nothing else. */
+    if (strcmp(comp.renderer_name, "auto") && strcmp(comp.renderer_name, "xrender"))
+        fprintf(stderr, "kicomp: no renderer named '%s'; using xrender\n",
+                comp.renderer_name);
+    if (strcmp(comp.presenter_name, "auto") && strcmp(comp.presenter_name, "copy"))
+        fprintf(stderr, "kicomp: no presenter named '%s'; using copy\n",
+                comp.presenter_name);
+
     renderer = renderer_xrender();
     presenter = presenter_copy();
 
@@ -637,6 +686,10 @@ int main(int argc, char **argv)
               comp.caps.present, comp.caps.flip_per_crtc);
     if (comp.skip_wm_layers)
         comp_info("skipping kiwm's own layers (_KIWM_LAYER)");
+    if (comp.effects)
+        effects_init();
+    else
+        comp_info("effects off");
 
     /* Prints the drawable count/geometry itself, here and on every later
      * output change. */
@@ -668,18 +721,30 @@ int main(int argc, char **argv)
             break;
         }
 
-        paint_dirty_outputs();
+        double now = comp_now_ms();
+
+        /* Animations advance on the wall clock, never on a frame count
+         * (section 20). update() is also where an effect posts the damage
+         * for what it is about to change, so it runs before the paint. */
+        if (effects_active()) {
+            effects_update(now);
+            scheduler_tick(now);
+        }
+
+        paint_dirty_outputs(now);
         xcb_flush(comp.conn);
 
         if (!comp.running)
             break;
 
-        /* Idle: block here. No timers, no polling, no rendering when
-         * nothing changed (section 38). Fase 7 replaces this with the
-         * per-output frame clocks, which is where a timeout appears --
-         * and only while an animation is actually running. */
+        /* Idle costs nothing: with nothing animating and nothing waiting
+         * for its slot, this blocks until X has something to say
+         * (section 38). While an animation runs, the timeout is the next
+         * output's frame deadline -- each output on its own clock, none
+         * waiting for another (section 19/49). */
+        int timeout = scheduler_timeout(comp_now_ms());
         struct pollfd p = { fd, POLLIN, 0 };
-        if (poll(&p, 1, -1) < 0) {
+        if (poll(&p, 1, timeout) < 0) {
             if (errno == EINTR)
                 continue;
             break;

@@ -8,8 +8,10 @@ LDLIBS := $(shell pkg-config --libs $(PKGS)) -lm
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 
-SRCS := src/main.c src/output.c src/window.c src/scene.c \
-        src/renderer-xrender.c src/presenter-copy.c
+SRCS := src/main.c src/config.c src/output.c src/window.c src/scene.c \
+        src/transform.c src/animation.c src/scheduler.c src/effect.c \
+        src/renderer-xrender.c src/presenter-copy.c \
+        src/effects/geometry.c
 OBJS := $(SRCS:.c=.o)
 HDRS := $(wildcard src/*.h)
 

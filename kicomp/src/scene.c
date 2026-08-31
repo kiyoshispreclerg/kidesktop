@@ -7,6 +7,7 @@
  */
 #include "scene.h"
 #include "window.h"
+#include "effect.h"
 
 void scene_build(CompScene *s, CompOutput *o)
 {
@@ -27,8 +28,16 @@ void scene_build(CompScene *s, CompOutput *o)
 
         CompRect geom = window_rect(w);
         CompRect vis;
-        if (!rect_intersect(&geom, &o->rect, &vis))
-            continue;
+        if (!rect_intersect(&geom, &o->rect, &vis)) {
+            /* Off this output -- unless something is animating, in which
+             * case an effect may still be drawing it here (a window
+             * sliding in from the neighbouring monitor). Keep the node
+             * with an empty visible rect and let the effect fill it in;
+             * the renderer skips nodes nothing claimed. */
+            if (!effects_active())
+                continue;
+            vis = (CompRect){ 0, 0, 0, 0 };
+        }
 
         if (s->count >= MAX_SCENE_NODES)
             break;
@@ -37,6 +46,7 @@ void scene_build(CompScene *s, CompOutput *o)
         n->win = w;
         n->geometry = geom;
         n->visible_rect = vis;
+        comp_transform_identity(&n->transform);
         n->opacity = (float)w->opacity;
         n->z = s->count;
         s->count++;

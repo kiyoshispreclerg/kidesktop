@@ -12,12 +12,21 @@
 #define KICOMP_SCENE_H
 
 #include "comp.h"
+#include "transform.h"
 
 typedef struct CompSceneNode {
     CompWindow *win;
 
     CompRect geometry;      /* whole window, root coordinates */
-    CompRect visible_rect;  /* geometry ∩ output, root coordinates */
+    CompRect visible_rect;  /* what to draw, root coordinates -- geometry ∩
+                             * output for an untransformed node, and
+                             * whatever area the effect actually covers
+                             * once a transform is in play */
+
+    /* Root-to-root, applied to `geometry` (transform.h). Identity for
+     * every node the effects didn't touch, which is the fast path in the
+     * renderer. */
+    CompTransform transform;
 
     float opacity;
     int z;                  /* 0 = bottom-most */

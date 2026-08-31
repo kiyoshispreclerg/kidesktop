@@ -357,6 +357,42 @@ static void xr_begin(CompOutput *o)
                                c, 1, &r);
 }
 
+/* XRender's picture transform maps *destination* coordinates back to
+ * source ones, so what goes in is the inverse of the node's transform,
+ * with the window's own origin subtracted -- the composite below then
+ * hands it destination points in root coordinates and gets pixmap points
+ * out. Fixed point 16.16, and the third row is always the affine one
+ * (see comp_transform_invert_affine). */
+static void picture_transform_set(CompWindow *w, const CompTransform *m)
+{
+    xcb_render_transform_t t = {
+        .matrix11 = (xcb_render_fixed_t)(m->m[0][0] * 65536.0f),
+        .matrix12 = (xcb_render_fixed_t)(m->m[0][1] * 65536.0f),
+        .matrix13 = (xcb_render_fixed_t)(m->m[0][3] * 65536.0f),
+        .matrix21 = (xcb_render_fixed_t)(m->m[1][0] * 65536.0f),
+        .matrix22 = (xcb_render_fixed_t)(m->m[1][1] * 65536.0f),
+        .matrix23 = (xcb_render_fixed_t)(m->m[1][3] * 65536.0f),
+        .matrix31 = 0,
+        .matrix32 = 0,
+        .matrix33 = 65536,
+    };
+    xcb_render_set_picture_transform(comp.conn, w->picture, t);
+    /* Bilinear while scaled: nearest-neighbour turns a resize animation
+     * into a shimmering staircase. */
+    xcb_render_set_picture_filter(comp.conn, w->picture, 8, "bilinear", 0, NULL);
+}
+
+static void picture_transform_reset(CompWindow *w)
+{
+    static const xcb_render_transform_t identity = {
+        65536, 0, 0,
+        0, 65536, 0,
+        0, 0, 65536,
+    };
+    xcb_render_set_picture_transform(comp.conn, w->picture, identity);
+    xcb_render_set_picture_filter(comp.conn, w->picture, 7, "nearest", 0, NULL);
+}
+
 static void xr_draw_scene(CompOutput *o, CompScene *s)
 {
     if (!o->target)
@@ -365,6 +401,12 @@ static void xr_draw_scene(CompOutput *o, CompScene *s)
     for (int i = 0; i < s->count; i++) {
         CompSceneNode *n = &s->nodes[i];
         CompWindow *w = n->win;
+
+        /* Nothing to draw here: either the window doesn't reach this
+         * output, or an effect kept the node around without claiming any
+         * area on it. */
+        if (n->visible_rect.w <= 0 || n->visible_rect.h <= 0)
+            continue;
 
         if (!window_bind(w)) {
             /* The window has no usable contents this frame, so it's
@@ -377,6 +419,14 @@ static void xr_draw_scene(CompOutput *o, CompScene *s)
 
         xcb_render_picture_t mask = window_alpha(w);
 
+        /* A node an effect is transforming (section 22): XRender wants
+         * the inverse mapping, and a matrix that isn't invertible as an
+         * affine one is beyond this backend -- draw it straight rather
+         * than draw nonsense. */
+        CompTransform inverse;
+        bool transformed = !comp_transform_is_identity(&n->transform) &&
+                           comp_transform_invert_affine(&n->transform, &inverse);
+
         /* Clip the target to this window's shape before drawing it. The
          * region is window-relative, so the window's origin in target
          * coordinates goes in as the clip origin -- note that's the
@@ -384,9 +434,16 @@ static void xr_draw_scene(CompOutput *o, CompScene *s)
          * from the former and reaches into the border area with negative
          * coordinates when there is one. This is what keeps kiwm's
          * rounded corners round, and a shaped client (a client's own
-         * SHAPE, forwarded onto the frame by kiwm) shaped. */
+         * SHAPE, forwarded onto the frame by kiwm) shaped.
+         *
+         * Not while transformed: the region is in untransformed window
+         * coordinates and XFixes can't scale it, so clipping with it
+         * would carve the wrong hole. A window animating for a sixth of
+         * a second with square corners is the better trade -- and the
+         * GL renderer, which can transform the mask itself, is where
+         * this stops being a trade at all. */
         if (comp.caps.xfixes) {
-            xcb_xfixes_region_t shape = window_shape(w);
+            xcb_xfixes_region_t shape = transformed ? XCB_NONE : window_shape(w);
             xcb_xfixes_set_picture_clip_region(comp.conn, o->target,
                                                shape ? shape : XCB_XFIXES_REGION_NONE,
                                                (int16_t)(w->x - o->rect.x),
@@ -402,6 +459,18 @@ static void xr_draw_scene(CompOutput *o, CompScene *s)
         int16_t dx = (int16_t)(n->visible_rect.x - o->rect.x);
         int16_t dy = (int16_t)(n->visible_rect.y - o->rect.y);
 
+        if (transformed) {
+            /* With a picture transform in force the source coordinates
+             * handed to Composite are the ones the matrix consumes, so
+             * they're root coordinates here, and the matrix does the
+             * "minus the window's origin" part itself. */
+            CompTransform m = inverse;
+            comp_transform_translate(&m, (float)-n->geometry.x, (float)-n->geometry.y);
+            picture_transform_set(w, &m);
+            sx = (int16_t)n->visible_rect.x;
+            sy = (int16_t)n->visible_rect.y;
+        }
+
         /* OVER, always: for a depth-24 window the source has no alpha
          * channel, XRender reads it as opaque, and the result is
          * identical to a plain copy. For a depth-32 window this is
@@ -411,6 +480,11 @@ static void xr_draw_scene(CompOutput *o, CompScene *s)
                              sx, sy, sx, sy, dx, dy,
                              (uint16_t)n->visible_rect.w,
                              (uint16_t)n->visible_rect.h);
+
+        /* The picture outlives the frame, so the transform must not: the
+         * next paint may well be an ordinary one. */
+        if (transformed)
+            picture_transform_reset(w);
     }
 }
 

@@ -59,6 +59,11 @@ typedef struct CompOutput {
 
     bool dirty;          /* section 39: never repaint an output "just in case" */
 
+    /* This output's own frame clock (scheduler.c): when it may next be
+     * painted, in monotonic ms. Zero means "immediately", which is what
+     * a freshly created output wants. */
+    double next_frame_ms;
+
     /* Render target for this output, owned by the renderer backend and
      * read by the presenter. A GL renderer would keep its FBO/context in
      * render_data and expose an equivalent handle here. */
@@ -93,6 +98,13 @@ typedef struct CompWindow {
      * Whether they get composited at all is kicomp's call
      * (--skip-wm-layers) -- kiwm draws them regardless. */
     char wm_layer[16];
+
+    /* When this window was last reconfigured, and how many configures
+     * arrived back to back -- how window.c tells a drag (a stream) from
+     * a maximize (one jump), which is the difference between an effect
+     * that helps and one that lags behind the pointer. */
+    double last_configure_ms;
+    int fast_configures;
 
     xcb_damage_damage_t damage;
 
@@ -155,6 +167,21 @@ typedef struct KiComp {
      * out of the scene, for when the compositor draws its own switcher/
      * preview effects instead of showing the WM's. */
     bool skip_wm_layers;
+
+    /* Effects, and the single number they are all written in terms of
+     * (kicomp.conf: effects=, animation_duration=). No effect states a
+     * duration in milliseconds of its own -- each asks for a multiple of
+     * this one (animation.h's comp_anim_duration), so this one key
+     * retimes the whole desktop coherently instead of leaving a
+     * collection of independently-tuned animations. */
+    bool effects;
+    double anim_duration_ms;
+
+    /* Backend choice from kicomp.conf (renderer=, presenter=). "auto"
+     * lets capability detection decide, which is the answer for anyone
+     * not deliberately comparing one backend against another. */
+    char renderer_name[16];
+    char presenter_name[16];
 } KiComp;
 
 extern KiComp comp;

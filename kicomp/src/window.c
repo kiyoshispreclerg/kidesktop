@@ -9,6 +9,8 @@
 #include "window.h"
 #include "output.h"
 #include "renderer.h"
+#include "effect.h"
+#include "animation.h"
 
 #include <xcb/shape.h>
 
@@ -253,6 +255,7 @@ void window_remove(xcb_window_t id)
         output_damage_rect(&r);
     }
 
+    effects_window_gone(w);
     damage_destroy(w);
     renderer_window_free(w);
     unlink_window(w);
@@ -271,6 +274,7 @@ void window_map(xcb_window_t id)
     renderer_window_invalidate(w);
     damage_create(w);
     window_update_opacity(w);
+    effects_window_mapped(w);
 
     CompRect r = window_rect(w);
     output_damage_rect(&r);
@@ -283,12 +287,21 @@ void window_unmap(xcb_window_t id)
         return;
 
     w->mapped = false;
+    effects_window_unmapped(w);
+    effects_window_gone(w);   /* nothing may animate a window that isn't there */
     damage_destroy(w);
     renderer_window_invalidate(w);
 
     CompRect r = window_rect(w);
     output_damage_rect(&r);
 }
+
+/* Two configures closer together than this are treated as part of one
+ * interactive stream (a move/resize drag), which effects must stay out
+ * of. Roughly "slower than a human can produce by dragging": a drag
+ * generates them as fast as motion events arrive, a maximize generates
+ * one (sometimes an immediate pair, hence the count below). */
+#define INTERACTIVE_GAP_MS 120.0
 
 void window_configure(xcb_window_t id, int x, int y, int w_, int h_, int border,
                       xcb_window_t above)
@@ -302,6 +315,7 @@ void window_configure(xcb_window_t id, int x, int y, int w_, int h_, int border,
     }
 
     CompRect old = window_rect(w);
+    bool moved = (x != w->x || y != w->y);
     bool resized = (w_ != w->w || h_ != w->h || border != w->border);
 
     w->x = x;
@@ -322,6 +336,22 @@ void window_configure(xcb_window_t id, int x, int y, int w_, int h_, int border,
         CompRect now = window_rect(w);
         output_damage_rect(&old);
         output_damage_rect(&now);
+
+        if (moved || resized) {
+            /* Is this one jump, or one step of a drag? Without the
+             * WM-to-compositor IPC of section 32 the timing is the only
+             * evidence there is -- and a single fast pair still counts as
+             * a jump, because a WM commonly reconfigures twice in a row
+             * when adopting a new state. */
+            double t = comp_now_ms();
+            if (t - w->last_configure_ms < INTERACTIVE_GAP_MS)
+                w->fast_configures++;
+            else
+                w->fast_configures = 0;
+            w->last_configure_ms = t;
+
+            effects_window_configured(w, &old, &now, w->fast_configures >= 2);
+        }
     }
 }
 
