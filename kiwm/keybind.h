@@ -19,8 +19,19 @@
 typedef enum {
     KB_WINDOW_NEXT = 0,   /* window switcher, forwards (osd.c) */
     KB_WINDOW_PREV,
-    KB_DESKTOP_NEXT,      /* per-output desktop switcher, forwards (osd.c) */
+    /* Per-output desktop switcher (osd.c). The plain pair walks the
+     * desktops in index order, the way kiwm always has; the four axis ones
+     * move a column / a row at a time through the grid kiwm.conf's
+     * desktop_columns=/desktop_rows= describe, and are unbound by default
+     * so nothing changes for a config that never asked for them. All six
+     * open the same overlay, so a hold can start on one and keep stepping
+     * with any of the others. */
+    KB_DESKTOP_NEXT,
     KB_DESKTOP_PREV,
+    KB_DESKTOP_NEXT_HORZ,
+    KB_DESKTOP_PREV_HORZ,
+    KB_DESKTOP_NEXT_VERT,
+    KB_DESKTOP_PREV_VERT,
     KB_MAXIMIZE,          /* toggle maximize/restore of the focused window */
     KB_MINIMIZE,
     KB_TILE_LEFT,         /* half-screen tiling, toggles back off if already there */

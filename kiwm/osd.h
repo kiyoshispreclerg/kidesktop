@@ -2,6 +2,7 @@
 #define KIWM_OSD_H
 
 #include "wm.h"
+#include "output.h"   /* DesktopAxis -- which way osd_desktops_step() moves */
 
 /* On-screen overlays for Alt+Tab-style window switching and Meta+Tab-style
  * per-output desktop switching -- see osd.c's file comment for the overall
@@ -47,17 +48,30 @@ typedef struct {
 
 extern const TabBoxOps simple_list_tabbox_ops;
 
-/* Called from events.c's handle_key_press() for every mod_cycle+Tab /
- * mod_cycle+Shift+Tab press (direction +1/-1) -- opens the window-switcher
- * OSD on the first call of a hold (grabbing the keyboard so the modifier's
- * own release is guaranteed to reach osd_handle_key_release() regardless
- * of input focus), or just steps the selection if one is already open.
- * A no-op if wm.osd_enabled is off (falls back to the plain immediate
- * cycle_focus() kiwm always had). */
-void osd_windows_step(int direction);
+/* Called from keybind.c's run_action() for every window-switcher shortcut
+ * (direction +1/-1) -- opens the window-switcher OSD on the first call of
+ * a hold (grabbing the keyboard so the modifier's own release is
+ * guaranteed to reach osd_handle_key_release() regardless of input focus),
+ * or just steps the selection if one is already open. A no-op if
+ * wm.osd_enabled is off (falls back to the plain immediate cycle_focus()
+ * kiwm always had).
+ *
+ * `mods` is the pressed binding's own modifier mask: whichever modifier it
+ * names is the one this hold is driven by, and therefore the one whose
+ * release commits the selection. Shift is ignored in it (a "previous"
+ * binding is the same hold as its "next" one, just shifted -- letting go
+ * of Shift alone must not commit), and 0 -- nothing but a bare key -- falls
+ * back to the kiwm.conf mod_cycle=/mod_control= default the shortcut would
+ * have used before it was rebindable. */
+void osd_windows_step(int direction, uint16_t mods);
 
-/* Same idea for mod_control+Tab / mod_control+Shift+Tab (desktop switch). */
-void osd_desktops_step(int direction);
+/* Same idea for the desktop switcher. `axis` picks what a step means:
+ * DESKTOP_AXIS_LINEAR walks the desktops in index order (what
+ * key_desktop_next/prev do, unchanged), the other two move one column or
+ * one row through the desktop_columns x desktop_rows grid. All of them
+ * drive the same overlay, so an open hold can be stepped by any mix of
+ * them. */
+void osd_desktops_step(int direction, DesktopAxis axis, uint16_t mods);
 
 /* Escape while either OSD is open: close it without committing (focus/
  * desktop stay exactly as they were before the hold started). No-op if no

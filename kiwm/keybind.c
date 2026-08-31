@@ -56,8 +56,12 @@ typedef struct {
 static Keybind binds[] = {
     BIND("key_window_next",  KB_WINDOW_NEXT,  0, "ModCycle+Tab",         "next window (window switcher)"),
     BIND("key_window_prev",  KB_WINDOW_PREV,  0, "ModCycle+Shift+Tab",   "previous window"),
-    BIND("key_desktop_next", KB_DESKTOP_NEXT, 0, "ModControl+Tab",       "next virtual desktop on the active output"),
-    BIND("key_desktop_prev", KB_DESKTOP_PREV, 0, "ModControl+Shift+Tab", "previous virtual desktop"),
+    BIND("key_desktop_next", KB_DESKTOP_NEXT, 0, "ModControl+Tab",       "next virtual desktop on the active output (index order)"),
+    BIND("key_desktop_prev", KB_DESKTOP_PREV, 0, "ModControl+Shift+Tab", "previous virtual desktop (index order)"),
+    BIND("key_desktop_next_horizontal", KB_DESKTOP_NEXT_HORZ, 0, "", "one desktop right in the desktop_columns x desktop_rows grid (unbound by default)"),
+    BIND("key_desktop_prev_horizontal", KB_DESKTOP_PREV_HORZ, 0, "", "...one desktop left"),
+    BIND("key_desktop_next_vertical",   KB_DESKTOP_NEXT_VERT, 0, "", "...one desktop down"),
+    BIND("key_desktop_prev_vertical",   KB_DESKTOP_PREV_VERT, 0, "", "...one desktop up"),
     BIND("key_maximize",     KB_MAXIMIZE,     0, "ModControl+Up",        "maximize / restore the focused window"),
     BIND("key_minimize",     KB_MINIMIZE,     0, "ModControl+Down",      "minimize the focused window"),
     BIND("key_tile_left",    KB_TILE_LEFT,    0, "ModControl+Left",      "tile the focused window to the left half (again = restore)"),
@@ -274,15 +278,22 @@ void keybind_init(void)
 
 /* ---- dispatch ---- */
 
-static void run_action(KeyAction action, int arg)
+/* `mods` is the binding's own modifier mask -- the switcher overlays need
+ * it to know which modifier this hold is being driven by, since that's the
+ * one whose release commits (see osd.c). */
+static void run_action(KeyAction action, int arg, uint16_t mods)
 {
     Client *c = wm.focused;
 
     switch (action) {
-    case KB_WINDOW_NEXT:  osd_windows_step(+1); return;
-    case KB_WINDOW_PREV:  osd_windows_step(-1); return;
-    case KB_DESKTOP_NEXT: osd_desktops_step(+1); return;
-    case KB_DESKTOP_PREV: osd_desktops_step(-1); return;
+    case KB_WINDOW_NEXT:  osd_windows_step(+1, mods); return;
+    case KB_WINDOW_PREV:  osd_windows_step(-1, mods); return;
+    case KB_DESKTOP_NEXT: osd_desktops_step(+1, DESKTOP_AXIS_LINEAR, mods); return;
+    case KB_DESKTOP_PREV: osd_desktops_step(-1, DESKTOP_AXIS_LINEAR, mods); return;
+    case KB_DESKTOP_NEXT_HORZ: osd_desktops_step(+1, DESKTOP_AXIS_HORZ, mods); return;
+    case KB_DESKTOP_PREV_HORZ: osd_desktops_step(-1, DESKTOP_AXIS_HORZ, mods); return;
+    case KB_DESKTOP_NEXT_VERT: osd_desktops_step(+1, DESKTOP_AXIS_VERT, mods); return;
+    case KB_DESKTOP_PREV_VERT: osd_desktops_step(-1, DESKTOP_AXIS_VERT, mods); return;
 
     case KB_DESKTOP_GOTO: {
         /* Same "which screen does this act on" rule the switchers use
@@ -325,7 +336,7 @@ bool keybind_handle_key_press(xcb_key_press_event_t *ev)
 
     for (int i = 0; i < bind_count; i++) {
         if (binds[i].keycode && binds[i].keycode == ev->detail && binds[i].mods == mods) {
-            run_action(binds[i].action, binds[i].arg);
+            run_action(binds[i].action, binds[i].arg, binds[i].mods);
             return true;
         }
     }

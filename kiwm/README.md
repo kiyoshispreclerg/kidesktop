@@ -539,6 +539,10 @@ key_window_next=ModCycle+Tab
 key_window_prev=ModCycle+Shift+Tab
 key_desktop_next=ModControl+Tab
 key_desktop_prev=ModControl+Shift+Tab
+key_desktop_next_horizontal=
+key_desktop_prev_horizontal=
+key_desktop_next_vertical=
+key_desktop_prev_vertical=
 key_maximize=ModControl+Up
 key_minimize=ModControl+Down
 key_tile_left=ModControl+Left
@@ -565,6 +569,16 @@ key_desktop_2=            # ...through key_desktop_8, unbound by default
   can be turned off, not just moved.
 - Every shortcut is grabbed with and without NumLock/CapsLock, so none of them silently stop
   working with either lock key on.
+- The four `key_desktop_*_horizontal`/`_vertical` shortcuts move one column or one row at a time
+  through the `desktop_columns` x `desktop_rows` grid, instead of walking the desktops in index
+  order the way `key_desktop_next`/`prev` do. All six open the same overlay and can be mixed
+  within one hold, and all six are independent: binding only `key_desktop_next_vertical` and
+  leaving its `prev` empty gives exactly one direction, which is a perfectly reasonable thing to
+  ask for. They're unbound by default, so a config that never mentions them keeps the plain
+  Meta+Tab / Meta+Shift+Tab pair kiwm always had.
+- A switcher hold is ended by releasing **the modifier its own binding names** (Shift excluded --
+  a `prev` binding is the same hold as its `next` one), not by a fixed `mod_cycle`/`mod_control`.
+  So `key_desktop_next_vertical=Ctrl+Alt+Down` holds on Ctrl+Alt and commits when those come up.
 - **Escape** isn't in the table: it's the fixed cancel key for whatever hold is in progress (the
   overlays below), never grabbed and not rebindable.
 

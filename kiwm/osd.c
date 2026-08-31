@@ -57,6 +57,18 @@ static int osd_output = -1;
 static xcb_window_t osd_win = XCB_NONE;
 static bool osd_mapped = false;
 
+/* The modifier whose release commits and closes the open overlay: the
+ * modifier mask of the very shortcut that opened it (Shift dropped -- a
+ * "previous" binding is the same hold as its "next" one), rather than
+ * kiwm.conf's mod_cycle=/mod_control= assumed. Those two are still the
+ * fallback for a binding that names no modifier at all, and are what the
+ * default bindings resolve to anyway; but the desktop switcher now has six
+ * shortcuts that can each be bound to whatever the user likes, and a hold
+ * has to watch the modifier actually driving it, not the one kiwm would
+ * have guessed. Set when a hold opens, fixed for its duration like
+ * everything else about an open overlay. */
+static uint16_t hold_mod = 0;
+
 /* Whether this hold took the pointer grab (see grab_for_hold()) -- it
  * doesn't when a move/resize drag is already holding one of its own, and
  * closing must then leave that drag's grab alone. */
@@ -589,7 +601,16 @@ bool osd_active(void)
     return kind != OSD_NONE;
 }
 
-void osd_windows_step(int direction)
+/* See hold_mod's comment: the binding's own modifiers, minus Shift, with
+ * kiwm.conf's mod_cycle=/mod_control= as the fallback for a shortcut that
+ * names no modifier of its own. */
+static uint16_t hold_mod_for(uint16_t mods, uint16_t fallback)
+{
+    uint16_t m = mods & (uint16_t)~XCB_MOD_MASK_SHIFT;
+    return m ? m : fallback;
+}
+
+void osd_windows_step(int direction, uint16_t mods)
 {
     if (!wm.osd_enabled) {
         cycle_focus(direction);
@@ -610,6 +631,7 @@ void osd_windows_step(int direction)
         kind = OSD_WINDOWS;
         osd_output = output_idx;
         original_focused = wm.focused;
+        hold_mod = hold_mod_for(mods, wm.mod_cycle);
         /* Active grab so osd_handle_key_release() sees mod_cycle's own
          * release regardless of which client (if any) has input focus --
          * a passive xcb_grab_key() alone only ever fires for the exact
@@ -642,10 +664,10 @@ void osd_windows_step(int direction)
     repaint_windows();
 }
 
-void osd_desktops_step(int direction)
+void osd_desktops_step(int direction, DesktopAxis axis, uint16_t mods)
 {
     if (!wm.osd_enabled) {
-        cycle_output_desktop(direction, DESKTOP_AXIS_LINEAR);
+        cycle_output_desktop(direction, axis);
         return;
     }
     if (kind == OSD_WINDOWS)
@@ -658,6 +680,7 @@ void osd_desktops_step(int direction)
     if (kind != OSD_DESKTOPS) {
         kind = OSD_DESKTOPS;
         osd_output = output_idx;
+        hold_mod = hold_mod_for(mods, wm.mod_control);
         desk_n = wm.num_desktops;
         desktop_grid(&desk_grid_cols, &desk_grid_rows);
         original_desktop = wm.outputs[output_idx].desktop;
@@ -669,7 +692,7 @@ void osd_desktops_step(int direction)
     }
 
     if (desk_n > 0)
-        desk_selected = (desk_selected + direction + desk_n) % desk_n;
+        desk_selected = desktop_step(desk_selected, direction, axis);
     if (wm.osd_live_preview_desktops)
         switch_workspace(osd_output, desk_selected);
     repaint_desktops();
@@ -727,8 +750,7 @@ void osd_poll_release(void)
     if (kind == OSD_NONE)
         return;
 
-    uint16_t mod = (kind == OSD_WINDOWS) ? wm.mod_cycle : wm.mod_control;
-    if (modifier_still_held(mod))
+    if (modifier_still_held(hold_mod))
         return;
 
     commit_and_close();
