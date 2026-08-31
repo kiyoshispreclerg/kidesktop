@@ -35,6 +35,10 @@ extern const CompRenderer *renderer;
  *   background_invalidate  the root background changed (_XROOTPMAP_ID).
  */
 void renderer_window_invalidate(CompWindow *w);
+/* Only the cached shape region -- for a ShapeNotify, where the window's
+ * contents are untouched and dropping the bound pixmap with them would be
+ * pure waste (kiwm reshapes a frame on every resize). */
+void renderer_window_shape_invalidate(CompWindow *w);
 void renderer_window_free(CompWindow *w);
 void renderer_background_invalidate(void);
 

@@ -93,12 +93,17 @@ static xcb_render_pictformat_t format_a8(void)
 /* per-window resources                                                */
 /* ------------------------------------------------------------------ */
 
+void renderer_window_shape_invalidate(CompWindow *w)
+{
+    if (!w->shape)
+        return;
+    xcb_xfixes_destroy_region(comp.conn, w->shape);
+    w->shape = 0;
+}
+
 void renderer_window_invalidate(CompWindow *w)
 {
-    if (w->shape) {
-        xcb_xfixes_destroy_region(comp.conn, w->shape);
-        w->shape = 0;
-    }
+    renderer_window_shape_invalidate(w);
     if (w->picture) {
         xcb_render_free_picture(comp.conn, w->picture);
         w->picture = 0;
@@ -361,8 +366,14 @@ static void xr_draw_scene(CompOutput *o, CompScene *s)
         CompSceneNode *n = &s->nodes[i];
         CompWindow *w = n->win;
 
-        if (!window_bind(w))
+        if (!window_bind(w)) {
+            /* The window has no usable contents this frame, so it's
+             * simply missing from the output -- worth saying, because
+             * that is exactly what a one-frame "the window vanished"
+             * glitch looks like from the outside. */
+            comp_log("window 0x%x has no pixmap this frame", w->id);
             continue;
+        }
 
         xcb_render_picture_t mask = window_alpha(w);
 

@@ -51,8 +51,19 @@ static void unlink_window(CompWindow *w)
     }
 }
 
-/* Links `w` directly above `above` (XCB_NONE = bottom of the stack).
- * The list runs bottom-most first, matching QueryTree's order. */
+/* Puts `w` at the very top of the stack. */
+static void link_top(CompWindow *w)
+{
+    CompWindow **pp = &comp.stack;
+    while (*pp)
+        pp = &(*pp)->next;
+    *pp = w;
+    w->next = NULL;
+}
+
+/* Links `w` directly above `above`, with ConfigureNotify's above_sibling
+ * semantics: XCB_NONE means the *bottom* of the stack, not the top. The
+ * list runs bottom-most first, matching QueryTree's order. */
 static void link_above(CompWindow *w, xcb_window_t above)
 {
     if (above == XCB_NONE) {
@@ -63,15 +74,12 @@ static void link_above(CompWindow *w, xcb_window_t above)
 
     CompWindow *prev = window_find(above);
     if (!prev) {
-        /* Sibling we don't track (our own overlay, or a window that went
-         * away between the event and now): top of the stack is the safe
-         * guess -- X sends CreateNotify with above=NONE far more often
-         * than it names a stranger. */
-        CompWindow **pp = &comp.stack;
-        while (*pp)
-            pp = &(*pp)->next;
-        *pp = w;
-        w->next = NULL;
+        /* Sibling we don't track (our own overlay window, or one that
+         * went away between the event and now): the top is the safe
+         * guess -- it's where X puts anything whose position we can't
+         * reconstruct, and being one window too high is far less visible
+         * than being buried under the desktop. */
+        link_top(w);
         return;
     }
 
@@ -149,7 +157,7 @@ static void damage_destroy(CompWindow *w)
     w->damage = XCB_NONE;
 }
 
-void window_add(xcb_window_t id, xcb_window_t above)
+static void window_add_at(xcb_window_t id, xcb_window_t above, bool on_top)
 {
     if (id == XCB_NONE || id == comp.overlay || id == comp.cm_window)
         return;
@@ -197,7 +205,10 @@ void window_add(xcb_window_t id, xcb_window_t above)
     free(attr);
     free(geo);
 
-    link_above(w, above);
+    if (on_top)
+        link_top(w);
+    else
+        link_above(w, above);
 
     /* PropertyChange so _NET_WM_WINDOW_OPACITY changes reach us. Event
      * masks are per-client, so this never disturbs the WM's or the app's
@@ -219,6 +230,16 @@ void window_add(xcb_window_t id, xcb_window_t above)
         CompRect r = window_rect(w);
         output_damage_rect(&r);
     }
+}
+
+void window_add(xcb_window_t id, xcb_window_t above)
+{
+    window_add_at(id, above, false);
+}
+
+void window_add_top(xcb_window_t id)
+{
+    window_add_at(id, XCB_NONE, true);
 }
 
 void window_remove(xcb_window_t id)

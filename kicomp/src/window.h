@@ -12,9 +12,19 @@
 
 CompWindow *window_find(xcb_window_t id);
 
-/* Adds a top-level we didn't know about. `above` is the sibling it sits
- * directly on top of (XCB_NONE = bottom of the stack). */
+/* Adds a top-level we didn't know about, with ConfigureNotify's
+ * above_sibling semantics: `above` is the sibling it sits directly on top
+ * of, and XCB_NONE means the *bottom* of the stack. */
 void window_add(xcb_window_t id, xcb_window_t above);
+
+/* Adds one at the top of the stack, which is where X itself puts a window
+ * it has just created or just reparented -- and CreateNotify carries no
+ * sibling to go by at all. Adding those at the bottom instead is
+ * invisible for anything the WM restacks a moment later (every managed
+ * window), and fatal for anything it doesn't: an override-redirect menu
+ * or tooltip ends up under every other window, including the desktop,
+ * i.e. it simply never appears. */
+void window_add_top(xcb_window_t id);
 void window_remove(xcb_window_t id);
 
 void window_map(xcb_window_t id);

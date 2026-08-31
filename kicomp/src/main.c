@@ -30,7 +30,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.1.0"
+#define KICOMP_VERSION "0.1.1"
 
 #include "comp.h"
 #include "output.h"
@@ -337,6 +337,8 @@ static void paint_dirty_outputs(void)
             continue;
 
         scene_build(&scene, o);
+        comp_log("paint %s: %d node%s", o->name, scene.count,
+                 scene.count == 1 ? "" : "s");
 
         renderer->begin(o);
         renderer->draw_scene(o, &scene);
@@ -385,7 +387,7 @@ static void handle_event(xcb_generic_event_t *ev)
         xcb_shape_notify_event_t *e = (xcb_shape_notify_event_t *)ev;
         CompWindow *w = window_find(e->affected_window);
         if (w) {
-            renderer_window_invalidate(w);
+            renderer_window_shape_invalidate(w);
             CompRect r = window_rect(w);
             output_damage_rect(&r);
         }
@@ -404,7 +406,7 @@ static void handle_event(xcb_generic_event_t *ev)
     case XCB_CREATE_NOTIFY: {
         xcb_create_notify_event_t *e = (xcb_create_notify_event_t *)ev;
         if (e->parent == comp.root)
-            window_add(e->window, XCB_NONE);   /* new windows land on top */
+            window_add_top(e->window);   /* where X just put it */
         break;
     }
     case XCB_DESTROY_NOTIFY: {
@@ -428,7 +430,7 @@ static void handle_event(xcb_generic_event_t *ev)
          * part of the frame's) and the frame appears as one instead. */
         xcb_reparent_notify_event_t *e = (xcb_reparent_notify_event_t *)ev;
         if (e->parent == comp.root)
-            window_add(e->window, XCB_NONE);
+            window_add_top(e->window);   /* reparenting stacks it on top */
         else
             window_remove(e->window);
         break;
