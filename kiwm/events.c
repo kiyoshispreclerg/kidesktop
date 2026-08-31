@@ -15,6 +15,7 @@
 #include <xcb/randr.h>
 
 #include <stdio.h>
+#include <stdlib.h>
 
 /* Shared by handle_map_request (app remaps an already-managed window via
  * a fresh MapRequest -- can't happen normally since MapRequest only
@@ -300,15 +301,21 @@ static bool should_preserve_snap_resize(Client *c, int root_x)
 static bool resize_grip_at(Client *c, int root_x, int root_y,
                            int *right, int *bottom, bool *axis_x, bool *axis_y)
 {
-    /* Not on a maximized window: it fills its output by definition, so
-     * there's nothing to drag its edges towards, and every click near one
-     * of them would be stolen from the application for a resize that
-     * shouldn't happen. Half-tiled windows do keep their grips -- dragging
-     * the shared edge of two of them is exactly what
+    /* Not on a maximized or fullscreen window: both fill their output by
+     * definition, so there's nothing to drag their edges towards, and
+     * every click near one of them would be stolen from the application
+     * for a resize that shouldn't happen. Fullscreen matters more than it
+     * looks: a fullscreen window is often the one taking every click
+     * (VirtualBox's VM), and its screen-sized transient toolbar is
+     * fullscreen too -- shaped down to a bar at the top, but with edges
+     * spanning the whole output, so grips on it would sit in the middle of
+     * whatever is really there. Half-tiled windows do keep their grips --
+     * dragging the shared edge of two of them is exactly what
      * link_resize_neighbors= is for, and it should not need a modifier. A
      * shaded window is nothing but titlebar, so it has no edges to grip
      * either. */
-    if (wm.resize_grip <= 0 || !c->allow_resize || c->shaded || client_maximized(c))
+    if (wm.resize_grip <= 0 || !c->allow_resize || c->shaded ||
+        client_maximized(c) || c->fullscreen)
         return false;
 
     int rel_x = root_x - c->x;
@@ -413,6 +420,18 @@ static void begin_drag_at(Client *c, DragMode mode, int root_x, int root_y,
                           bool preserve_snap, int corner_right, int corner_bottom,
                           bool axis_x, bool axis_y)
 {
+    /* A fullscreen window is never *resized*: its geometry is its
+     * output's, kiwm owns it for as long as the state lasts, and any size
+     * dragged onto it would just be re-applied away on the next refit.
+     * Moving it is a different question -- carrying it to another output,
+     * still fullscreen, is the only way to get it off a screen without
+     * leaving fullscreen first, and kwin allows exactly that. So a move
+     * becomes an output move (see KiWM::drag_fullscreen_move): nothing
+     * follows the pointer, the outline shows which output would take it,
+     * and the release re-applies fullscreen there. */
+    if (c->fullscreen && mode != DRAG_MOVE)
+        return;
+
     /* A window that declares it can't be moved or resized (Motif's
      * functions field, or a fixed min==max size -- see client.c's
      * update_client_actions()) doesn't get dragged either, whether the
@@ -430,7 +449,11 @@ static void begin_drag_at(Client *c, DragMode mode, int root_x, int root_y,
     wm.grip_hover_active = false;
     wm.grip_hover_zone = -1;
 
-    wm.drag_preserve_snap = preserve_snap;
+    wm.drag_fullscreen_move = c->fullscreen;
+    /* Nothing to detile for a fullscreen move: fullscreen isn't a tiling
+     * state, and detile_for_drag() would hand the window its pre-maximize
+     * geometry in the middle of a drag that isn't changing its size. */
+    wm.drag_preserve_snap = preserve_snap || wm.drag_fullscreen_move;
     wm.drag_detile_pending = false;
     if (!wm.drag_preserve_snap) {
         if (mode == DRAG_MOVE && (c->max_horz || c->max_vert || c->snap_side != SNAP_NONE))
@@ -478,10 +501,36 @@ static void begin_drag_at(Client *c, DragMode mode, int root_x, int root_y,
         wm.resize_neighbors_y_count = 0;
     }
 
-    xcb_grab_pointer(wm.conn, 0, wm.root,
-                     XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION,
-                     XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
-                     XCB_NONE, cursor, XCB_CURRENT_TIME);
+    /* The grab has to actually succeed, and it can genuinely fail: a
+     * client that grabs the pointer for itself -- VirtualBox capturing
+     * input for its guest is the one that does -- owns it until it lets
+     * go, and a drag started without a grab would never see its own
+     * ButtonRelease. That left wm.drag_client set forever, with every
+     * later pointer motion treated as part of a drag that can't end,
+     * which is exactly what "kiwm froze" looked like. So the state is
+     * unwound and the drag simply doesn't start. */
+    xcb_grab_pointer_reply_t *grab = xcb_grab_pointer_reply(wm.conn,
+        xcb_grab_pointer(wm.conn, 0, wm.root,
+                         XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION,
+                         XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
+                         XCB_NONE, cursor, XCB_CURRENT_TIME), NULL);
+    bool grabbed = grab && grab->status == XCB_GRAB_STATUS_SUCCESS;
+    free(grab);
+
+    if (!grabbed) {
+        fprintf(stderr, "kiwm: pointer grab refused -- not starting a drag "
+                        "(another client is holding the pointer)\n");
+        wm.drag_client = NULL;
+        wm.drag_mode = DRAG_NONE;
+        wm.drag_snap_side = SNAP_NONE;
+        wm.drag_detile_pending = false;
+        wm.drag_fullscreen_move = false;
+        wm.resize_preview_active = false;
+        wm.resize_neighbors_x_count = 0;
+        wm.resize_neighbors_y_count = 0;
+        return;
+    }
+
     xcb_flush(wm.conn);
 }
 
@@ -1206,6 +1255,17 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
     int dx = ev->root_x - wm.drag_start_root_x;
     int dy = ev->root_y - wm.drag_start_root_y;
 
+    /* A fullscreen window doesn't follow the pointer at all -- only the
+     * outline of whichever output would take it does, and the release
+     * applies it (see KiWM::drag_fullscreen_move). */
+    if (wm.drag_fullscreen_move) {
+        int idx = output_index_for_point(ev->root_x, ev->root_y);
+        if (idx >= 0 && idx < wm.output_count)
+            outline_show(wm.outputs[idx].x, wm.outputs[idx].y,
+                         wm.outputs[idx].width, wm.outputs[idx].height);
+        return;
+    }
+
     /* A move-drag on a maximized/tiled window hasn't detiled it yet: the
      * window stays exactly where it is until the pointer has travelled far
      * enough to mean it (see KiWM::drag_detile_pending), so clicking a
@@ -1356,6 +1416,110 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
     xcb_flush(wm.conn);
 }
 
+/* The end of a move/resize drag, whatever ends it: the ButtonRelease
+ * itself, or the event loop noticing the button is no longer held when
+ * that release never arrived (events_poll_stale_drag()). Takes the
+ * pointer position rather than an event, since the poll has no event. */
+static void finish_drag(int root_x, int root_y)
+{
+    if (!wm.drag_client)
+        return;
+    {
+        /* The deferred (live_resize=0) resize lands here, once, from
+         * wherever the outline had got to -- see handle_motion(). */
+        if (wm.resize_preview_active) {
+            Client *rc = wm.drag_client;
+            rc->x = wm.resize_preview_x;
+            rc->y = wm.resize_preview_y;
+            rc->width = wm.resize_preview_w;
+            rc->height = wm.resize_preview_h;
+            /* ...and every neighbor the preview had been dragging along
+             * with it, applied from the same geometry it was drawn from
+             * (see resolve_resize_neighbors()). The configure_frame() pass
+             * right below is what puts them on screen. */
+            int bt, th;
+            deco_insets(rc, &bt, &th);
+            resolve_resize_neighbors(rc, rc->x, rc->y, rc->width, rc->height, bt, th,
+                                     true, NULL, NULL);
+            wm.resize_preview_active = false;
+        }
+
+        /* Force one final apply regardless of the redraw throttle above
+         * -- otherwise the window could be left showing a stale size if
+         * the very last motion event of the drag happened to land inside
+         * the throttle window and got skipped. Same for every resize
+         * neighbor that got dragged along (see update_resize_neighbors()). */
+        configure_frame(wm.drag_client);
+        for (int i = 0; i < wm.resize_neighbors_x_count; i++)
+            configure_frame(wm.resize_neighbors_x[i].client);
+        for (int i = 0; i < wm.resize_neighbors_y_count; i++)
+            configure_frame(wm.resize_neighbors_y[i].client);
+        wm.resize_neighbors_x_count = 0;
+        wm.resize_neighbors_y_count = 0;
+
+        Client *c = wm.drag_client;
+
+        /* A fullscreen window carried to another output: re-apply
+         * fullscreen there, and shift the geometry it would restore to by
+         * the same amount, so leaving fullscreen later lands on the screen
+         * it was moved to rather than back on the old one. */
+        if (wm.drag_fullscreen_move) {
+            int idx = output_index_for_point(root_x, root_y);
+            if (idx >= 0 && idx < wm.output_count && idx != c->output) {
+                int dx_out = wm.outputs[idx].x - wm.outputs[c->output].x;
+                int dy_out = wm.outputs[idx].y - wm.outputs[c->output].y;
+                c->fs_saved_x += dx_out;
+                c->fs_saved_y += dy_out;
+                c->saved_x += dx_out;
+                c->saved_y += dy_out;
+
+                c->output = idx;
+                c->desktop = wm.outputs[idx].desktop;
+                client_apply_fullscreen_geometry(c);
+                ewmh_update_wm_desktop(c);
+                ewmh_update_wm_output(c);
+                configure_frame(c);
+                restack_all();
+            }
+            outline_hide();
+            xcb_ungrab_pointer(wm.conn, XCB_CURRENT_TIME);
+            wm.drag_client = NULL;
+            wm.drag_mode = DRAG_NONE;
+            wm.drag_snap_side = SNAP_NONE;
+            wm.drag_fullscreen_move = false;
+            xcb_flush(wm.conn);
+            return;
+        }
+
+        /* The default (live_snap_resize=0) preview path: the window has
+         * been following the pointer all along with only an outline
+         * showing where it was headed, so the snap itself happens now,
+         * once, on release -- see try_edge_snap(). */
+        if (!wm.live_snap_resize && wm.drag_mode == DRAG_MOVE && wm.drag_snap_side != SNAP_NONE) {
+            int output_idx = c->output >= 0 ? c->output : 0;
+            int wx, wy, ww, wh;
+            compute_output_workarea(output_idx, &wx, &wy, &ww, &wh);
+            apply_drag_snap(c, wm.drag_snap_side, wx, wy, ww, wh, 0, 0);
+        }
+        outline_hide();
+
+        int new_output = output_index_for_point(c->x + c->width / 2, c->y + c->height / 2);
+        if (new_output >= 0 && new_output != c->output) {
+            c->output = new_output;
+            c->desktop = wm.outputs[new_output].desktop;
+            ewmh_update_wm_desktop(c);
+            ewmh_update_wm_output(c);
+        }
+        xcb_ungrab_pointer(wm.conn, XCB_CURRENT_TIME);
+        wm.drag_client = NULL;
+        wm.drag_mode = DRAG_NONE;
+        wm.drag_snap_side = SNAP_NONE;
+        wm.drag_detile_pending = false;
+        wm.drag_fullscreen_move = false;
+        xcb_flush(wm.conn);
+    }
+}
+
 static void handle_button_release(xcb_button_release_event_t *ev)
 {
     /* An armed titlebar button (see handle_button_press()) fires here, and
@@ -1394,68 +1558,9 @@ static void handle_button_release(xcb_button_release_event_t *ev)
         return;
     }
 
-    if (wm.drag_client) {
-        /* The deferred (live_resize=0) resize lands here, once, from
-         * wherever the outline had got to -- see handle_motion(). */
-        if (wm.resize_preview_active) {
-            Client *rc = wm.drag_client;
-            rc->x = wm.resize_preview_x;
-            rc->y = wm.resize_preview_y;
-            rc->width = wm.resize_preview_w;
-            rc->height = wm.resize_preview_h;
-            /* ...and every neighbor the preview had been dragging along
-             * with it, applied from the same geometry it was drawn from
-             * (see resolve_resize_neighbors()). The configure_frame() pass
-             * right below is what puts them on screen. */
-            int bt, th;
-            deco_insets(rc, &bt, &th);
-            resolve_resize_neighbors(rc, rc->x, rc->y, rc->width, rc->height, bt, th,
-                                     true, NULL, NULL);
-            wm.resize_preview_active = false;
-        }
-
-        /* Force one final apply regardless of the redraw throttle above
-         * -- otherwise the window could be left showing a stale size if
-         * the very last motion event of the drag happened to land inside
-         * the throttle window and got skipped. Same for every resize
-         * neighbor that got dragged along (see update_resize_neighbors()). */
-        configure_frame(wm.drag_client);
-        for (int i = 0; i < wm.resize_neighbors_x_count; i++)
-            configure_frame(wm.resize_neighbors_x[i].client);
-        for (int i = 0; i < wm.resize_neighbors_y_count; i++)
-            configure_frame(wm.resize_neighbors_y[i].client);
-        wm.resize_neighbors_x_count = 0;
-        wm.resize_neighbors_y_count = 0;
-
-        Client *c = wm.drag_client;
-
-        /* The default (live_snap_resize=0) preview path: the window has
-         * been following the pointer all along with only an outline
-         * showing where it was headed, so the snap itself happens now,
-         * once, on release -- see try_edge_snap(). */
-        if (!wm.live_snap_resize && wm.drag_mode == DRAG_MOVE && wm.drag_snap_side != SNAP_NONE) {
-            int output_idx = c->output >= 0 ? c->output : 0;
-            int wx, wy, ww, wh;
-            compute_output_workarea(output_idx, &wx, &wy, &ww, &wh);
-            apply_drag_snap(c, wm.drag_snap_side, wx, wy, ww, wh, 0, 0);
-        }
-        outline_hide();
-
-        int new_output = output_index_for_point(c->x + c->width / 2, c->y + c->height / 2);
-        if (new_output >= 0 && new_output != c->output) {
-            c->output = new_output;
-            c->desktop = wm.outputs[new_output].desktop;
-            ewmh_update_wm_desktop(c);
-            ewmh_update_wm_output(c);
-        }
-        xcb_ungrab_pointer(wm.conn, XCB_CURRENT_TIME);
-        wm.drag_client = NULL;
-        wm.drag_mode = DRAG_NONE;
-        wm.drag_snap_side = SNAP_NONE;
-        wm.drag_detile_pending = false;
-        xcb_flush(wm.conn);
-    }
+    finish_drag(ev->root_x, ev->root_y);
 }
+
 
 static void handle_property_notify(xcb_property_notify_event_t *ev)
 {
@@ -1677,6 +1782,44 @@ static void handle_client_message(xcb_client_message_event_t *ev)
         handle_moveresize(c, (int)ev->data.data32[0], (int)ev->data.data32[1],
                           ev->data.data32[2]);
     }
+}
+
+/* A drag whose ButtonRelease never arrived. begin_drag_at() refuses to
+ * start a drag without a pointer grab, which is the main way this used to
+ * happen, but a grab can also be *broken* afterwards -- another client
+ * grabbing the devices, the server resetting them -- and then the release
+ * goes somewhere else and the drag would never end. main.c's event loop
+ * calls this on a timer while a drag is in flight: if no mouse button is
+ * held any more, the drag is over, wherever the pointer happens to be.
+ * The same check clears a titlebar button left armed by a press whose
+ * release went missing. */
+void events_poll_stale_drag(void)
+{
+    if (!wm.drag_client && !wm.pressed_client)
+        return;
+
+    xcb_query_pointer_reply_t *qp =
+        xcb_query_pointer_reply(wm.conn, xcb_query_pointer(wm.conn, wm.root), NULL);
+    if (!qp)
+        return;
+
+    bool any_button = (qp->mask & (XCB_BUTTON_MASK_1 | XCB_BUTTON_MASK_2 | XCB_BUTTON_MASK_3 |
+                                   XCB_BUTTON_MASK_4 | XCB_BUTTON_MASK_5)) != 0;
+    int root_x = qp->root_x, root_y = qp->root_y;
+    free(qp);
+
+    if (any_button)
+        return;
+
+    if (wm.pressed_client) {
+        Client *c = wm.pressed_client;
+        wm.pressed_client = NULL;
+        wm.pressed_btn = -1;
+        wm.pressed_button = 0;
+        draw_decoration(c);
+        xcb_flush(wm.conn);
+    }
+    finish_drag(root_x, root_y);
 }
 
 /* The newest server timestamp kiwm has been handed -- see wm.h's

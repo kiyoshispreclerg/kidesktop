@@ -565,7 +565,17 @@ void switch_workspace(int output_idx, int desktop)
         } else if (c->desktop == desktop) {
             if (c->mapped) {
                 xcb_map_window(wm.conn, c->frame);
-                if (!to_focus)
+                /* Whichever of the desktop's windows was focused most
+                 * recently -- which, since that's the last thing that
+                 * happened before leaving this desktop, is the window the
+                 * user left focused here. Taking the first match in
+                 * wm.clients order instead (what this used to do) meant
+                 * arriving on a desktop with some arbitrary window
+                 * focused, unrelated to what was in use there. kiwm
+                 * already keeps the focus history the switcher's
+                 * osd_order=mru needs (Client::last_focus_serial), and
+                 * this is the same question asked of it. */
+                if (!to_focus || c->last_focus_serial > to_focus->last_focus_serial)
                     to_focus = c;
             }
         }

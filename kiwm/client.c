@@ -1076,6 +1076,21 @@ static void apply_maximized_geometry(Client *c)
     }
 }
 
+/* A fullscreen window's geometry is its output's, whole -- not the
+ * workarea, since fullscreen covers docks too. Shared by everything that
+ * has to (re-)apply it: adoption, a workarea/output change
+ * (refit_tiled_clients() below), and dragging a fullscreen window to a
+ * different output (events.c). */
+void client_apply_fullscreen_geometry(Client *c)
+{
+    if (c->output < 0 || c->output >= wm.output_count)
+        return;
+    c->x = wm.outputs[c->output].x;
+    c->y = wm.outputs[c->output].y;
+    c->width = wm.outputs[c->output].width;
+    c->height = wm.outputs[c->output].height;
+}
+
 /* Re-derives the geometry of every client whose size isn't its own choice
  * -- maximized, half-tiled or fullscreen -- from the *current* outputs and
  * workarea. Two things need this:
@@ -1099,12 +1114,7 @@ void refit_tiled_clients(void)
 
     for (Client *c = wm.clients; c; c = c->next) {
         if (c->fullscreen) {
-            if (c->output >= 0 && c->output < wm.output_count) {
-                c->x = wm.outputs[c->output].x;
-                c->y = wm.outputs[c->output].y;
-                c->width = wm.outputs[c->output].width;
-                c->height = wm.outputs[c->output].height;
-            }
+            client_apply_fullscreen_geometry(c);
         } else if (c->max_horz || c->max_vert) {
             apply_maximized_geometry(c);
         } else if (c->snap_side != SNAP_NONE) {
@@ -1551,6 +1561,7 @@ void unmanage(Client *c)
         wm.drag_client = NULL;
         wm.drag_mode = DRAG_NONE;
         wm.drag_snap_side = SNAP_NONE;
+        wm.drag_fullscreen_move = false;
         wm.resize_neighbors_x_count = 0;
         wm.resize_neighbors_y_count = 0;
         /* The drag is over whether the button was released or not, so a

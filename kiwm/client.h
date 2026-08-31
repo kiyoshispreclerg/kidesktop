@@ -77,6 +77,11 @@ void set_client_desktop(Client *c, int desktop);
  * alone. See client.c. */
 void refit_tiled_clients(void);
 
+/* Sets `c`'s geometry to its output's full rectangle -- what being
+ * fullscreen means (the whole output, docks included, unlike maximize's
+ * workarea). See client.c. */
+void client_apply_fullscreen_geometry(Client *c);
+
 /* Repainting what a fullscreen window leaves behind when it loses focus
  * takes more than one round of exposes, and the later rounds are on a
  * timer -- see client.c's pending_expose (and why, which is the X server

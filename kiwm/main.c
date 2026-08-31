@@ -39,7 +39,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KIWM_VERSION "0.3.5"
+#define KIWM_VERSION "0.3.6"
 
 #include "wm.h"
 #include "config.h"
@@ -559,7 +559,10 @@ int main(int argc, char **argv)
          * as a delay when letting go of Alt, and costs one cheap
          * xcb_query_pointer() round trip per tick, only for as long as the
          * overlay is actually up. */
-        int timeout = osd_active() ? 100 : -1;
+        /* ...and the same 100ms tick while a drag (or an armed titlebar
+         * button) is in flight, to notice a release that never arrived --
+         * see events_poll_stale_drag(). */
+        int timeout = (osd_active() || wm.drag_client || wm.pressed_client) ? 100 : -1;
         /* ...and the same for the delayed repaint rounds a fullscreen
          * window needs after it loses focus (client.c's pending_expose). */
         client_run_pending_expose();
@@ -575,6 +578,7 @@ int main(int argc, char **argv)
         }
         if (ready == 0) {
             osd_poll_release();
+            events_poll_stale_drag();
             client_run_pending_expose();
             continue;
         }

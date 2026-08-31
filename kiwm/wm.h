@@ -913,6 +913,15 @@ typedef struct {
      * gamble. */
     bool drag_detile_pending;
 
+    /* This DRAG_MOVE is a fullscreen window being carried to another
+     * output. A fullscreen window has no geometry of its own to drag --
+     * it *is* its output -- so nothing follows the pointer: the outline
+     * shows which output would take it, and the release re-applies
+     * fullscreen there (events.c). kwin does the same, and it's the only
+     * way to get a fullscreen window off a screen without leaving
+     * fullscreen first. */
+    bool drag_fullscreen_move;
+
     /* Whether a resize drags along whatever's touching the edge being
      * resized (see ResizeNeighbor above) -- kiwm.conf's
      * link_resize_neighbors= (default 0/off). Off by default since it's a

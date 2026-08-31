@@ -494,7 +494,12 @@ separately bindable; they follow `mod_cycle=`/`mod_control=` directly. With the 
   click takes the window the rest of the way, and the click after that restores it to the geometry
   it had before any of it.
 - **Click-drag a window's edge or corner**: resize, no modifier needed, decoration or not -- see
-  `resize_grip=` above. A corner resizes both axes; an edge only its own.
+  `resize_grip=` above. A corner resizes both axes; an edge only its own. Not offered on maximized
+  or fullscreen windows, which fill their output by definition.
+- **Dragging a fullscreen window** doesn't move it around its screen -- it carries it to another
+  *output*, still fullscreen, which is otherwise impossible without leaving fullscreen first (kwin
+  behaves the same). Nothing follows the pointer: the outline shows which output would take it, and
+  releasing re-applies fullscreen there. Resizing one is refused outright.
 - **Alt+drag** (left button), or **Meta+drag** (any button): move a window from anywhere on it,
   not just its titlebar. Dragging a maximized or tiled window (either way) only restores it once
   the pointer has moved a titlebar's height -- see "Status" above.
