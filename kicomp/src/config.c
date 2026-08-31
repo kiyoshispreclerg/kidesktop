@@ -119,21 +119,42 @@ void config_load(void)
         while (*val == ' ' || *val == '\t')
             val++;
 
+        /* A trailing comment ends the value: "origin = pointer  # or
+         * window" means pointer. Only after whitespace, so a '#' that is
+         * part of a value (a colour, say) survives. */
+        for (char *c = val; *c; c++) {
+            if (*c == '#' && c > val && (c[-1] == ' ' || c[-1] == '\t')) {
+                *c = '\0';
+                break;
+            }
+        }
+
+        /* ...and so does trailing whitespace. Numeric values survived it
+         * by luck (atoi stops at the space); a value compared as a
+         * string, like origin=, did not -- which is exactly how
+         * "origin = pointer   # ..." silently stayed on the default. */
+        size_t vlen = strlen(val);
+        while (vlen > 0 && (val[vlen - 1] == ' ' || val[vlen - 1] == '\t'))
+            val[--vlen] = '\0';
+
         if (section_unknown)
             continue;
 
         if (section) {
-            /* Inside [effect:<name>]. Two keys, the same two for every
-             * effect there will ever be: whether it runs, and how long it
-             * takes relative to the global unit. */
+            /* Inside [effect:<name>]. Three keys are universal -- whether
+             * it runs, how long it takes relative to the global unit, and
+             * which events it answers to -- and past those, whatever the
+             * module itself understands. */
             if (strcmp(key, "enabled") == 0) {
                 section->enabled = atoi(val) != 0;
+            } else if (strcmp(key, "events") == 0) {
+                section->events = comp_event_mask_parse(val);
             } else if (strcmp(key, "duration") == 0) {
                 double f = atof(val);
                 if (f < 0.0) f = 0.0;
                 if (f > 10.0) f = 10.0;
                 section->duration = f;
-            } else {
+            } else if (!effect_config_key(section_name, key, val)) {
                 fprintf(stderr, "kicomp: config: unknown key '%s' in [effect:%s]\n",
                         key, section_name);
             }

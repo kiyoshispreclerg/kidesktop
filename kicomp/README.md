@@ -7,7 +7,7 @@ composição, com transparência real (alpha de janelas de 32 bits e
 `_NET_WM_WINDOW_OPACITY`) como única diferença. Hoje já tem também:
 
 - shape aplicada na composição (cantos arredondados, clientes com shape);
-- interface de efeitos com o primeiro deles, *geometry change*;
+- interface de efeitos: *geometry change*, *fade in/out*, *scale in/out*;
 - relógio de frames por output para as animações;
 - configuração em `kicomp.conf`.
 
@@ -47,6 +47,10 @@ kicomp:   [0] DP-1         1920x1080+0+0 @ 143.98 Hz
 kicomp:   [1] HDMI-1       1920x1080+1920+0 @ 60.00 Hz
 kicomp: effects on, animation unit 160 ms
 kicomp:   geometry   on , 160 ms
+kicomp:   fade-in    on , 160 ms
+kicomp:   fade-out   on , 160 ms
+kicomp:   scale-in   off, 160 ms
+kicomp:   scale-out  off, 160 ms
 ```
 
 com `--single-drawable`:
@@ -79,11 +83,38 @@ presenter          = auto  # auto | copy
 single_drawable    = 0     # 1 = modo legado, um drawable pra tela toda
 skip_wm_layers     = 0     # 1 = não compõe o OSD/contorno do kiwm
 
-# ---- um efeito ----
+# ---- efeitos ----
 [effect:geometry]
 enabled  = 1
 duration = 1.0   # múltiplo de animation_duration, não milissegundos
+
+[effect:fade-in]
+enabled  = 1
+duration = 1.0
+windows  = 1     # janelas comuns
+menus    = 1     # menus, popups, tooltips, notificações
+docks    = 1     # paineis
+
+[effect:fade-out]
+enabled  = 1
+duration = 1.0
+events   = close     # close,minimize,desktop-leave... (ver Eventos)
+
+[effect:scale-in]
+enabled  = 0
+duration = 1.0
+from     = 0.8      # tamanho inicial, fração do final
+origin   = window   # window | pointer | output
+
+[effect:scale-out]
+enabled  = 0
+duration = 1.0
+to       = 1.15     # fração do tamanho real; > 1 incha antes de sumir
+origin   = window
 ```
+
+Comentário na mesma linha (`origin = pointer  # ...`) e espaço à direita
+do valor são aceitos — só precisa de um espaço antes do `#`.
 
 **A unidade de animação.** Nenhum efeito tem tempo próprio em
 milissegundos: cada um pede um *múltiplo* de `animation_duration` — `0.5`
@@ -93,16 +124,65 @@ desacelera o desktop inteiro de forma coerente, em vez de deixar um
 punhado de animações reguladas independentemente. `animation_duration=0`
 mantém os efeitos ligados mas termina todos imediatamente.
 
-Cada `[effect:<nome>]` aceita as mesmas duas chaves — `enabled` e
-`duration` — e serão sempre essas duas, para qualquer efeito futuro.
+Cada `[effect:<nome>]` aceita sempre `enabled`, `duration` e `events`, e
+além dessas as chaves que o próprio efeito entender — cada módulo parseia as
+suas (`config_key` em `effect.h`), e uma chave que ele não conhece vira
+aviso no terminal em vez de sumir em silêncio.
+
+## Eventos
+
+O core não entrega ao efeito transições do X (mapeou, desmapeou,
+reconfigurou) e sim **o que aconteceu com a janela**, no vocabulário do
+desktop:
+
+```
+open   close   minimize   restore   maximize   unmaximize
+shade  unshade fullscreen unfullscreen  focus  unfocus  move
+desktop-leave  desktop-enter
+```
+
+Cada efeito declara em quais deles responde, e isso é configuração:
+
+```ini
+[effect:geometry]
+events = maximize,unmaximize,move   # sem shade: quem enrola é o shade
+
+[effect:fade-out]
+events = close,minimize             # some ao fechar E ao minimizar
+```
+
+`all` e `none` valem como lista inteira. O core filtra antes de chamar o
+módulo, então um efeito nunca recebe um evento que o usuário não pediu —
+é por isso que "enrolar no shade sem o geometry deslizando junto" é uma
+linha de config, e não um caso especial dentro de um efeito.
+
+**Como o core sabe.** Um unmap do X pode ser fechar, minimizar ou sair de
+um desktop; um resize pode ser maximizar, enrolar, virar fullscreen ou só
+redimensionar. A diferença está em propriedades (`_NET_WM_STATE`,
+`WM_STATE` na janela cliente, `_NET_CURRENT_DESKTOP`/`_KIWM_OUTPUT_DESKTOP`
+no root). Por isso a classificação é feita um instante depois: o loop
+drena a fila inteira, e só então `windows_flush_events()` decide o que
+aconteceu, com o lote todo em mãos.
+
+E metade disso é responsabilidade do WM: o kiwm publica o estado **antes**
+da geometria que o realiza (ver `kiwm/client.c`). Lê ao contrário, mas é
+o que faz a ordem dos eventos dizer o que aconteceu — anunciado depois, o
+`_NET_WM_STATE` chega depois do ConfigureNotify que ele explica, e a essa
+altura a animação errada já começou (foi exatamente esse o bug do
+geometry deslizando ao enrolar). Para WMs que não fazem isso, o kicomp
+ainda dá um round-trip antes de classificar, que é o melhor esforço
+possível de fora.
+
+É também a heurística que a IPC da seção 32 vai substituir: o WM sabe de
+primeira mão o que fez.
 
 ## Efeitos
 
 A interface está em `src/effect.h` e é deliberadamente pequena: o core
 conhece um efeito rodando (`CompEffect`/`CompEffectOps`: `update`,
 `apply`, `finished`, `destroy`) e um módulo que decide quando começar um
-(`CompEffectModule`, com callbacks de configure/map/unmap). Ele nunca
-sabe *o que* o efeito é.
+(`CompEffectModule`, com um callback de evento). Ele nunca sabe *o que* o
+efeito é.
 
 Duas regras que um efeito precisa respeitar:
 
@@ -122,6 +202,54 @@ Adicionar um efeito = um arquivo em `src/effects/`, sua declaração em
 `effect.h` e uma linha na tabela de `effect.c`. Nada mais no compositor
 muda (seção 42).
 
+### `fade-in` (seção 24.1)
+
+Janela que aparece sobe do transparente. Chaves próprias: `windows`,
+`menus`, `docks` — quais tipos de janela recebem o efeito
+(`_NET_WM_WINDOW_TYPE`, lido da janela cliente dentro do frame). Ligado
+por padrão.
+
+A opacidade é *multiplicada*, não atribuída: um terminal meio
+transparente por `_NET_WM_WINDOW_OPACITY` não vira opaco só porque estava
+abrindo.
+
+### `scale-in` (seção 24.2)
+
+Janela que aparece cresce até o tamanho final. O destino é sempre a
+geometria real; configurável é de onde ela cresce:
+
+| chave | valores |
+|---|---|
+| `from` | tamanho inicial como fração do final (0.05–4.0, default 0.8; acima de 1 encolhe até o lugar) |
+| `origin` | `window` (centro dela, default), `pointer` (onde está o mouse), `output` (centro do monitor) |
+| `windows`, `menus`, `docks` | quais tipos recebem |
+
+O ponto de origem é lido uma vez, quando o efeito começa — um `pointer`
+que acompanhasse o mouse arrastaria a animação de lado. Desligado por
+padrão: empilhado com o `fade-in` é questão de gosto, então quem quiser
+escolhe.
+
+### `fade-out` (seção 24.1) e `scale-out` (seção 24.3)
+
+Os mesmos invertidos, no fechamento. O `scale-out` inverte também o
+sentido: começa no tamanho real e vai até `to`, em direção à mesma
+`origin` de onde o `scale-in` cresceria. `to` acima de 1 faz a janela
+inchar um pouco antes de sumir, em vez de encolher. Os dois se compõem sem saber um
+do outro — um escreve `transform`, o outro `opacity` —, que é o "zoom +
+fade ao fechar" da seção 24.3.
+
+São os primeiros efeitos que sobrevivem ao próprio assunto: quando eles
+começam, o X já desmapeou a janela e o aplicativo pode já ter morrido. O
+que continua sendo desenhado é o pixmap que o compositor nomeou enquanto
+a janela existia, mantido vivo por `window_retain()` (ver `window.h`) até
+a animação acabar. O `release` fica no `destroy` do efeito, então um
+efeito cancelado — a janela voltou, o compositor está encerrando — libera
+igual a um que terminou.
+
+Por padrão respondem só a `close`. Quem quiser que minimizar também
+dissolva põe `events = close,minimize` — e quando o efeito de `minimize`
+existir, basta tirar dessa lista.
+
 ### `geometry` (seção 24.4)
 
 O primeiro. Uma janela que pula para outro tamanho/lugar — maximizar,
@@ -140,6 +268,31 @@ cena: a região está em coordenadas não transformadas e o XFixes não sabe
 escalá-la, então cantos arredondados ficam quadrados por ~um sexto de
 segundo. O renderer GL, que transforma a máscara junto, é onde isso
 deixa de ser uma troca.
+
+### O que falta, e o que cada um precisa
+
+Os efeitos abaixo cabem todos no XRender — nenhum deles precisa de GL —
+mas dois pedaços de infraestrutura ainda não existem:
+
+**(a) janela que sobrevive ao próprio fim** — **feito**, junto com o
+`fade-out`/`scale-out`: `window_retain()`/`window_release()`, e uma
+entrada que vira *zombie* quando o X destrói a janela mas algum efeito
+ainda a desenha (o pixmap é nosso até liberarmos).
+
+**(b) recorte de origem no nó da cena.** Um `CompRect` dizendo "desenhe
+só esta parte do pixmap", sem escala. É o que o shade precisa para
+enrolar sem distorcer.
+
+| efeito | precisa | como |
+|---|---|---|
+| `minimize`/`restore` | — | escala entre a geometria da janela e `_NET_WM_ICON_GEOMETRY` (a caixinha que a taskbar publica na janela cliente) |
+| `shade`/`unshade` | (b) | crop animado da altura, sem escala nem distorção; detectado por `_NET_WM_STATE_SHADED` no cliente |
+| `desktop-wall` | (a) | + agrupar janelas por `_NET_WM_DESKTOP` e ler `_KIWM_OUTPUT_DESKTOP` para saber a troca por output; translação da cena inteira, com `docks` opcional (default: acompanham) |
+
+O `desktop-wall` é o único que mexe em mais de uma janela por vez — a
+interface já suporta isso (um efeito não é obrigado a ter `window`), mas
+ele precisa que as janelas do desktop que está saindo continuem
+existindo, que é de novo o item (a).
 
 ## Pacing
 
@@ -175,7 +328,9 @@ vblank; quando o presenter souber reportar MSC de verdade, só o
 | 23/42 — efeitos como módulos | vtable própria; um efeito novo = um arquivo + uma linha |
 | 19 — scheduler por output | relógio de frames por output, na taxa de cada um |
 | 20/40 — animação por tempo | progresso vem do relógio monotônico; duração é múltiplo de uma unidade global |
-| 24.4 — geometry change | primeiro efeito |
+| 24.1/24.2/24.3/24.4 — efeitos | fade in/out, scale in/out (origem configurável) e geometry change |
+| — | eventos semânticos (open/close/minimize/maximize/shade/focus/...), configuráveis por efeito |
+| — | janela retida além do próprio fim (`window_retain`), que é o que permite animar o fechamento |
 
 ## O que **não** está implementado (e onde entra)
 
@@ -271,7 +426,8 @@ src/
   animation.c/.h      relógio monotônico, easing, unidade global de duração
   scheduler.c/.h      relógio de frames por output
   effect.c/.h         core de efeitos: efeitos rodando + tabela de módulos
-  effects/geometry.c  geometry change
+  effects/            um arquivo por efeito: geometry, fade-in, fade-out,
+                      scale-in, scale-out
   renderer.h          vtable do renderer
   renderer-xrender.c  backend XRender
   presenter.h         vtable do presenter

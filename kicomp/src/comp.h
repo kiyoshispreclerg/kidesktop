@@ -73,6 +73,28 @@ typedef struct CompOutput {
     void *present_data;
 } CompOutput;
 
+/* EWMH/ICCCM states kicomp tracks, so that a bare X transition can be
+ * told apart from what it *means*: an unmap is a close, a minimize or a
+ * desktop leaving; a resize is a maximize, a shade, a fullscreen or just
+ * a resize. Effects are configured in those terms, never in X's. */
+typedef enum {
+    COMP_STATE_MAXIMIZED  = 1 << 0,
+    COMP_STATE_SHADED     = 1 << 1,
+    COMP_STATE_FULLSCREEN = 1 << 2,
+    COMP_STATE_MINIMIZED  = 1 << 3,   /* _NET_WM_STATE_HIDDEN or WM_STATE=Iconic */
+} CompWindowState;
+
+/* Coarse window classes, from _NET_WM_WINDOW_TYPE. Deliberately coarse:
+ * effects care about "is this a menu-ish popup" and not about the
+ * difference between a dropdown and a combo box. */
+typedef enum {
+    COMP_WINDOW_UNKNOWN = 0,
+    COMP_WINDOW_NORMAL,    /* normal, dialog, utility, toolbar, splash */
+    COMP_WINDOW_MENU,      /* menu, popup, dropdown, combo, tooltip, notification, dnd */
+    COMP_WINDOW_DOCK,      /* panels */
+    COMP_WINDOW_DESKTOP,   /* the wallpaper layer */
+} CompWindowKind;
+
 /* The compositor's mirror of one top-level (a direct child of root -- with
  * kiwm that means the frame window, whose backing pixmap already contains
  * the reparented client and the Cairo decoration). */
@@ -86,6 +108,9 @@ typedef struct CompWindow {
 
     bool mapped;
     bool input_only;           /* InputOnly windows have no contents to draw */
+    bool override_redirect;    /* not managed by the WM: menus, tooltips, docks
+                                * that place themselves -- and never framed, so
+                                * such a window is its own client */
 
     uint8_t depth;
     xcb_visualid_t visual;
@@ -99,12 +124,54 @@ typedef struct CompWindow {
      * (--skip-wm-layers) -- kiwm draws them regardless. */
     char wm_layer[16];
 
+    /* What kind of thing this is, and the client window inside the frame
+     * that says so. A WM-framed window is a frame whose child carries all
+     * the EWMH properties; an override-redirect menu is its own client.
+     * Effects need this to be told apart -- "fade menus but not docks" is
+     * a normal thing to want. */
+    CompWindowKind kind;
+    xcb_window_t client;       /* XCB_NONE until resolved */
+
     /* When this window was last reconfigured, and how many configures
      * arrived back to back -- how window.c tells a drag (a stream) from
      * a maximize (one jump), which is the difference between an effect
      * that helps and one that lags behind the pointer. */
     double last_configure_ms;
     int fast_configures;
+
+    /* An effect can ask for a window to stay in the scene after X has
+     * taken it away -- closing, minimizing and leaving a desktop are all
+     * "the window is gone before the animation is". The contents pixmap
+     * we named stays valid for as long as we hold it, unmapped or
+     * destroyed, so there is something real left to draw.
+     *
+     * retain_count > 0: at least one effect is still drawing it.
+     * zombie: the X window itself is gone; only our pixmap remains, and
+     * the mirror entry disappears when the last effect lets go. */
+    int retain_count;
+    bool zombie;
+
+    /* EWMH state (CompWindowState), and what it was before the batch of
+     * events being processed -- the difference is what says "this resize
+     * was a maximize". */
+    uint32_t state;
+    uint32_t state_before;
+
+    bool focused;
+    bool has_been_mapped;      /* distinguishes opening from coming back */
+
+    /* Deferred until the event queue is drained: at unmap time we don't
+     * yet know whether the window was closed, minimized or left behind on
+     * another desktop, and at configure time the state property saying
+     * "maximized" may still be in flight. Classifying a beat later, with
+     * the whole batch in hand, is what makes the semantic events honest.
+     * See window.c's windows_flush_events(). */
+    bool pending_appear;
+    bool pending_disappear;
+    bool pending_geometry;
+    bool pending_state;
+    bool pending_interactive;
+    CompRect pending_from;
 
     xcb_damage_damage_t damage;
 
@@ -113,6 +180,7 @@ typedef struct CompWindow {
     xcb_pixmap_t pixmap;
     xcb_render_picture_t picture;
     xcb_render_picture_t alpha;
+    float alpha_value;         /* what `alpha` currently holds */
 
     /* The window's SHAPE bounding region, in window-relative coordinates.
      * Without it a shaped window comes out square: the server clips a
@@ -151,10 +219,44 @@ typedef struct KiComp {
         xcb_atom_t xrootpmap_id;
         xcb_atom_t esetroot_pmap_id;
         xcb_atom_t kiwm_layer;
+
+        /* _NET_WM_WINDOW_TYPE and the handful of values that decide a
+         * CompWindowKind. */
+        xcb_atom_t net_wm_window_type;
+        xcb_atom_t type_dock;
+        xcb_atom_t type_desktop;
+        xcb_atom_t type_menu;
+        xcb_atom_t type_dropdown_menu;
+        xcb_atom_t type_popup_menu;
+        xcb_atom_t type_combo;
+        xcb_atom_t type_tooltip;
+        xcb_atom_t type_notification;
+        xcb_atom_t type_dnd;
+
+        /* State, so an unmap or a resize can be classified (see
+         * CompWindowState). */
+        xcb_atom_t wm_state;               /* ICCCM WM_STATE: Normal vs Iconic */
+        xcb_atom_t net_wm_state;
+        xcb_atom_t state_maximized_horz;
+        xcb_atom_t state_maximized_vert;
+        xcb_atom_t state_shaded;
+        xcb_atom_t state_fullscreen;
+        xcb_atom_t state_hidden;
+        xcb_atom_t net_active_window;
+        xcb_atom_t net_current_desktop;
+        xcb_atom_t kiwm_output_desktop;
     } atoms;
 
     bool running;
     bool verbose;
+
+    /* When a desktop switch was last seen on the root window. A window
+     * disappearing right after one left with the desktop rather than
+     * being closed -- the only evidence available without the IPC of
+     * section 32. */
+    double desktop_changed_ms;
+
+    xcb_window_t active_window;   /* _NET_ACTIVE_WINDOW, for focus events */
 
     /* --single-drawable: one drawable for the whole screen instead of one
      * per output. The per-output pipeline is the real one (section 18);

@@ -123,6 +123,11 @@ void renderer_window_free(CompWindow *w)
     renderer_window_invalidate(w);
 }
 
+bool renderer_window_has_content(const CompWindow *w)
+{
+    return w->picture != 0;
+}
+
 /* Binds the window's current contents. Checked, because the window can be
  * unmapped or destroyed between the event that made us want it and this
  * request -- an async BadMatch/BadWindow here would be reported as a
@@ -185,13 +190,32 @@ static xcb_xfixes_region_t window_shape(CompWindow *w)
     return reg;
 }
 
-/* 1x1 repeating A8 picture holding the window's constant opacity. */
-static xcb_render_picture_t window_alpha(CompWindow *w)
+/* 1x1 repeating A8 picture holding one constant alpha value, used as the
+ * mask for the whole window. The value is the *node's* opacity, not the
+ * window's: _NET_WM_WINDOW_OPACITY sets a baseline, and a fade effect
+ * scales it per frame. The picture is created once and refilled when the
+ * value changes -- one request per frame during a fade, instead of
+ * building and tearing down a picture sixty times a second. */
+static xcb_render_picture_t window_alpha(CompWindow *w, float opacity)
 {
-    if (w->opacity >= 1.0)
+    if (opacity >= 1.0f)
         return XCB_NONE;
-    if (w->alpha)
+    if (opacity < 0.0f)
+        opacity = 0.0f;
+
+    if (w->alpha) {
+        if (w->alpha_value != opacity) {
+            xcb_render_color_t c = {
+                .red = 0, .green = 0, .blue = 0,
+                .alpha = (uint16_t)(opacity * 0xffff)
+            };
+            xcb_rectangle_t r = { 0, 0, 1, 1 };
+            xcb_render_fill_rectangles(comp.conn, XCB_RENDER_PICT_OP_SRC,
+                                       w->alpha, c, 1, &r);
+            w->alpha_value = opacity;
+        }
         return w->alpha;
+    }
 
     xcb_render_pictformat_t fmt = format_a8();
     if (!fmt)
@@ -207,13 +231,14 @@ static xcb_render_picture_t window_alpha(CompWindow *w)
 
     xcb_render_color_t c = {
         .red = 0, .green = 0, .blue = 0,
-        .alpha = (uint16_t)(w->opacity * 0xffff)
+        .alpha = (uint16_t)(opacity * 0xffff)
     };
     xcb_rectangle_t r = { 0, 0, 1, 1 };
     xcb_render_fill_rectangles(comp.conn, XCB_RENDER_PICT_OP_SRC, pict, c, 1, &r);
 
     xcb_free_pixmap(comp.conn, pm);   /* the picture keeps it alive */
     w->alpha = pict;
+    w->alpha_value = opacity;
     return pict;
 }
 
@@ -417,7 +442,7 @@ static void xr_draw_scene(CompOutput *o, CompScene *s)
             continue;
         }
 
-        xcb_render_picture_t mask = window_alpha(w);
+        xcb_render_picture_t mask = window_alpha(w, n->opacity);
 
         /* A node an effect is transforming (section 22): XRender wants
          * the inverse mapping, and a matrix that isn't invertible as an

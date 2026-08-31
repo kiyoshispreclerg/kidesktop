@@ -15,7 +15,11 @@ void scene_build(CompScene *s, CompOutput *o)
     s->count = 0;
 
     for (CompWindow *w = comp.stack; w; w = w->next) {
-        if (!w->mapped || w->input_only)
+        /* An unmapped window is still drawn while an effect holds it --
+         * that is the whole point of the retain (window.h): a fade-out
+         * has to keep painting something X has already taken away. */
+        if ((!w->mapped && w->retain_count == 0 && !w->pending_disappear) ||
+            w->input_only)
             continue;
         if (w->opacity <= 0.0)
             continue;

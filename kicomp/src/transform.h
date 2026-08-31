@@ -36,6 +36,13 @@ void comp_transform_scale(CompTransform *t, float sx, float sy);
 
 void comp_transform_point(const CompTransform *t, float x, float y, float *ox, float *oy);
 
+/* Axis-aligned bounding box of a transformed rectangle -- what an effect
+ * needs to say "this is the area I now cover" (a scene node's
+ * visible_rect, and the damage that goes with it). */
+struct CompRect;
+void comp_transform_bbox(const CompTransform *t, const struct CompRect *in,
+                         struct CompRect *out);
+
 /* Inverse of the affine 2D part (the only part XRender can express as a
  * picture transform, and enough for translate/scale/rotate/shear).
  * Returns false for a singular or non-affine matrix, in which case the

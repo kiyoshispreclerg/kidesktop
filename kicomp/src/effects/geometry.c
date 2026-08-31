@@ -14,6 +14,10 @@
  * moved the window and everything -- input, focus, EWMH -- is at the new
  * place from the first instant. Only the picture is behind.
  *
+ * Which events it answers to is configuration, not code: by default
+ * every jump the WM makes a window take *except* shade, which has its own
+ * effect and must not have this sliding underneath it.
+ *
  * What it deliberately does NOT animate: an interactive drag. A
  * move/resize drag arrives as a stream of configures, and animating those
  * would put the window visibly behind the pointer. Without an IPC to ask
@@ -128,18 +132,18 @@ static const CompEffectOps geometry_ops = {
     .destroy  = geometry_destroy,
 };
 
-static void on_configured(CompWindow *w, const CompRect *from, const CompRect *to,
-                          bool interactive)
+static void on_event(CompWindow *w, const CompEvent *event)
 {
-    if (!effect_is_enabled("geometry"))
-        return;
+    const CompRect *from = &event->from;
+    const CompRect *to = &event->to;
+
     if (!w->mapped || w->input_only)
         return;
 
     /* A drag: the window has to stay under the pointer. If one was
      * already animating this window when the drag started, it is now
      * lying about where the window is -- drop it. */
-    if (interactive) {
+    if (event->interactive) {
         if (active && active_window == w)
             active->duration = 0.0;   /* retired on the next update */
         return;
@@ -198,10 +202,18 @@ static void on_configured(CompWindow *w, const CompRect *from, const CompRect *t
 }
 
 const CompEffectModule effect_geometry = {
-    .name              = "geometry",
-    .default_enabled   = true,
+    .name             = "geometry",
+    .default_enabled  = true,
     /* One unit: a plain, unremarkable transition. Something meant to feel
      * instant would ask for 0.5, a big desktop-wide one for 2.0. */
-    .default_duration  = 1.0,
-    .window_configured = on_configured,
+    .default_duration = 1.0,
+    /* Every kind of jump the WM can make a window take -- but not shade,
+     * which has an effect of its own that must not have this sliding
+     * underneath it (kicomp.conf: events=). */
+    .default_events   = COMP_EVENT_BIT(COMP_EVENT_MAXIMIZE) |
+                        COMP_EVENT_BIT(COMP_EVENT_UNMAXIMIZE) |
+                        COMP_EVENT_BIT(COMP_EVENT_FULLSCREEN) |
+                        COMP_EVENT_BIT(COMP_EVENT_UNFULLSCREEN) |
+                        COMP_EVENT_BIT(COMP_EVENT_MOVE),
+    .window_event     = on_event,
 };

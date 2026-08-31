@@ -40,6 +40,12 @@ void renderer_window_invalidate(CompWindow *w);
  * pure waste (kiwm reshapes a frame on every resize). */
 void renderer_window_shape_invalidate(CompWindow *w);
 void renderer_window_free(CompWindow *w);
+
+/* Whether the window has drawable contents bound right now. An effect
+ * that means to outlive the window must check this before retaining it:
+ * a window that was never painted has no pixmap to keep, and naming one
+ * after it is unmapped simply fails. */
+bool renderer_window_has_content(const CompWindow *w);
 void renderer_background_invalidate(void);
 
 /* Picture format of the root visual. An XRender detail, but the COPY

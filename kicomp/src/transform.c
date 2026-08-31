@@ -1,5 +1,6 @@
 /* 4x4 transforms -- see transform.h. */
 #include "transform.h"
+#include "comp.h"
 
 #include <math.h>
 #include <string.h>
@@ -88,4 +89,31 @@ bool comp_transform_invert_affine(const CompTransform *t, CompTransform *out)
     out->m[0][3] = (b * ty - d * tx) / det;
     out->m[1][3] = (c * tx - a * ty) / det;
     return true;
+}
+
+void comp_transform_bbox(const CompTransform *t, const struct CompRect *in,
+                         struct CompRect *out)
+{
+    /* All four corners, because a rotation or a shear turns any one of
+     * them into the extreme in either axis. */
+    float xs[4], ys[4];
+    comp_transform_point(t, (float)in->x,            (float)in->y,            &xs[0], &ys[0]);
+    comp_transform_point(t, (float)(in->x + in->w),  (float)in->y,            &xs[1], &ys[1]);
+    comp_transform_point(t, (float)in->x,            (float)(in->y + in->h),  &xs[2], &ys[2]);
+    comp_transform_point(t, (float)(in->x + in->w),  (float)(in->y + in->h),  &xs[3], &ys[3]);
+
+    float minx = xs[0], maxx = xs[0], miny = ys[0], maxy = ys[0];
+    for (int i = 1; i < 4; i++) {
+        if (xs[i] < minx) minx = xs[i];
+        if (xs[i] > maxx) maxx = xs[i];
+        if (ys[i] < miny) miny = ys[i];
+        if (ys[i] > maxy) maxy = ys[i];
+    }
+
+    out->x = (int)floorf(minx);
+    out->y = (int)floorf(miny);
+    out->w = (int)ceilf(maxx) - out->x;
+    out->h = (int)ceilf(maxy) - out->y;
+    if (out->w < 0) out->w = 0;
+    if (out->h < 0) out->h = 0;
 }

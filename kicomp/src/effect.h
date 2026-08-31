@@ -64,6 +64,54 @@ struct CompEffect {
     void *data;
 };
 
+/* What happened to a window, in the desktop's vocabulary rather than in
+ * X's. This is what effects are configured against: an effect says which
+ * of these it answers to (kicomp.conf's events=), and the core only calls
+ * it for those -- so "roll up on shade, but don't slide on it" is a
+ * config line, not a special case in an effect.
+ *
+ * Keep in sync with event_names[] in effect.c. */
+typedef enum {
+    COMP_EVENT_OPEN = 0,
+    COMP_EVENT_CLOSE,
+    COMP_EVENT_MINIMIZE,
+    COMP_EVENT_RESTORE,          /* un-minimize */
+    COMP_EVENT_MAXIMIZE,
+    COMP_EVENT_UNMAXIMIZE,
+    COMP_EVENT_SHADE,
+    COMP_EVENT_UNSHADE,
+    COMP_EVENT_FULLSCREEN,
+    COMP_EVENT_UNFULLSCREEN,
+    COMP_EVENT_FOCUS,
+    COMP_EVENT_UNFOCUS,
+    COMP_EVENT_MOVE,             /* a geometry change that is none of the above */
+    COMP_EVENT_DESKTOP_LEAVE,    /* hidden because its desktop was left */
+    COMP_EVENT_DESKTOP_ENTER,
+    COMP_EVENT_COUNT
+} CompEventKind;
+
+typedef struct CompEvent {
+    CompEventKind kind;
+
+    /* Geometry events only: frame rects in root coordinates, and whether
+     * this is one step of a drag rather than a single jump. */
+    CompRect from;
+    CompRect to;
+    bool interactive;
+} CompEvent;
+
+/* Event names as they appear in kicomp.conf ("open", "unmaximize",
+ * "desktop-leave", ...). */
+const char *comp_event_name(CompEventKind kind);
+
+/* Parses a comma-separated list of those names into a mask. "all" and
+ * "none" are accepted as the whole list. Unknown names are reported and
+ * skipped, so one typo doesn't quietly disable an effect. */
+uint32_t comp_event_mask_parse(const char *list);
+
+#define COMP_EVENT_BIT(kind) (1u << (kind))
+#define COMP_EVENTS_ALL      0xffffffffu
+
 /* What kicomp.conf's [effect:<name>] section can say about one effect.
  * `duration` is a multiple of the global animation unit, never a time:
  * "this one should feel twice as long as the desktop's normal
@@ -71,6 +119,7 @@ struct CompEffect {
 typedef struct CompEffectConfig {
     bool enabled;
     double duration;
+    uint32_t events;    /* which CompEventKinds this effect answers to */
 } CompEffectConfig;
 
 /* Settings for one module by name, or NULL if no such effect exists (how
@@ -83,25 +132,33 @@ CompEffectConfig *effect_config(const char *name);
 bool effect_is_enabled(const char *name);
 double effect_duration(const char *name);
 
+/* Hands one [effect:<name>] key to that module's own parser. False when
+ * the effect or the key is unknown. */
+bool effect_config_key(const char *name, const char *key, const char *value);
+
 /* A module is the part that watches the desktop and decides to start an
  * effect. Every callback is optional. */
 typedef struct CompEffectModule {
     const char *name;
 
     /* Defaults for this effect, overridable per [effect:<name>] section.
-     * default_duration is a multiple of the global unit. */
+     * default_duration is a multiple of the global unit, default_events a
+     * mask of COMP_EVENT_BIT(...). */
     bool default_enabled;
     double default_duration;
+    uint32_t default_events;
 
-    /* A window's geometry changed. `from`/`to` are frame rects in root
-     * coordinates, `interactive` is true when this configure is part of a
-     * stream of them (a drag), which is exactly when an animation must
-     * stay out of the way. */
-    void (*window_configured)(CompWindow *w, const CompRect *from,
-                              const CompRect *to, bool interactive);
+    /* Something happened to a window. The core only calls this for events
+     * in the effect's configured mask, so a module never has to check
+     * which event it got unless it treats several of them differently. */
+    void (*window_event)(CompWindow *w, const CompEvent *ev);
 
-    void (*window_mapped)(CompWindow *w);
-    void (*window_unmapped)(CompWindow *w);
+    /* Keys from this effect's [effect:<name>] section beyond the two
+     * universal ones (enabled, duration). Returns false for a key the
+     * module doesn't know, so a typo in the config gets reported instead
+     * of silently doing nothing. Optional: an effect with no settings of
+     * its own leaves it NULL. */
+    bool (*config_key)(const char *key, const char *value);
 } CompEffectModule;
 
 /* Effects are off until effects_init() runs (kicomp --effects). */
@@ -121,11 +178,10 @@ void effects_update(double now);
 /* Apply every running effect to one output's freshly built scene. */
 void effects_apply(CompScene *s, CompOutput *o);
 
-/* Notifications from the core (window.c). No-ops when effects are off. */
-void effects_window_configured(CompWindow *w, const CompRect *from,
-                               const CompRect *to, bool interactive);
-void effects_window_mapped(CompWindow *w);
-void effects_window_unmapped(CompWindow *w);
+/* The single notification from the core (window.c). Dispatched only to
+ * the effects whose configured mask contains this event; a no-op when
+ * effects are off. */
+void effects_window_event(CompWindow *w, const CompEvent *ev);
 
 /* The window is going away: drop anything animating it, right now. */
 void effects_window_gone(CompWindow *w);
@@ -134,5 +190,9 @@ void effects_shutdown(void);
 
 /* ---- effects/ modules ---- */
 extern const CompEffectModule effect_geometry;
+extern const CompEffectModule effect_fade_in;
+extern const CompEffectModule effect_fade_out;
+extern const CompEffectModule effect_scale_in;
+extern const CompEffectModule effect_scale_out;
 
 #endif /* KICOMP_EFFECT_H */

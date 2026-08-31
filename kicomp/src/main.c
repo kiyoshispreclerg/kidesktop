@@ -35,7 +35,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.0"
+#define KICOMP_VERSION "0.2.1"
 
 #include "comp.h"
 #include "output.h"
@@ -84,6 +84,25 @@ void comp_info(const char *fmt, ...)
     va_end(ap);
 }
 
+/* _NET_ACTIVE_WINDOW, the focused window as the WM publishes it. */
+static xcb_window_t read_active_window(void)
+{
+    if (comp.atoms.net_active_window == XCB_NONE)
+        return XCB_NONE;
+
+    xcb_get_property_reply_t *r = xcb_get_property_reply(comp.conn,
+        xcb_get_property(comp.conn, 0, comp.root, comp.atoms.net_active_window,
+                         XCB_ATOM_WINDOW, 0, 1), NULL);
+    if (!r)
+        return XCB_NONE;
+
+    xcb_window_t win = XCB_NONE;
+    if (r->type == XCB_ATOM_WINDOW && xcb_get_property_value_length(r) >= 4)
+        win = *(xcb_window_t *)xcb_get_property_value(r);
+    free(r);
+    return win;
+}
+
 static void on_signal(int sig)
 {
     (void)sig;
@@ -115,6 +134,28 @@ static void atoms_init(void)
     comp.atoms.xrootpmap_id           = intern("_XROOTPMAP_ID");
     comp.atoms.esetroot_pmap_id       = intern("ESETROOT_PMAP_ID");
     comp.atoms.kiwm_layer             = intern("_KIWM_LAYER");
+
+    comp.atoms.net_wm_window_type     = intern("_NET_WM_WINDOW_TYPE");
+    comp.atoms.type_dock              = intern("_NET_WM_WINDOW_TYPE_DOCK");
+    comp.atoms.type_desktop           = intern("_NET_WM_WINDOW_TYPE_DESKTOP");
+    comp.atoms.type_menu              = intern("_NET_WM_WINDOW_TYPE_MENU");
+    comp.atoms.type_dropdown_menu     = intern("_NET_WM_WINDOW_TYPE_DROPDOWN_MENU");
+    comp.atoms.type_popup_menu        = intern("_NET_WM_WINDOW_TYPE_POPUP_MENU");
+    comp.atoms.type_combo             = intern("_NET_WM_WINDOW_TYPE_COMBO");
+    comp.atoms.type_tooltip           = intern("_NET_WM_WINDOW_TYPE_TOOLTIP");
+    comp.atoms.type_notification      = intern("_NET_WM_WINDOW_TYPE_NOTIFICATION");
+    comp.atoms.type_dnd               = intern("_NET_WM_WINDOW_TYPE_DND");
+
+    comp.atoms.wm_state               = intern("WM_STATE");
+    comp.atoms.net_wm_state           = intern("_NET_WM_STATE");
+    comp.atoms.state_maximized_horz   = intern("_NET_WM_STATE_MAXIMIZED_HORZ");
+    comp.atoms.state_maximized_vert   = intern("_NET_WM_STATE_MAXIMIZED_VERT");
+    comp.atoms.state_shaded           = intern("_NET_WM_STATE_SHADED");
+    comp.atoms.state_fullscreen       = intern("_NET_WM_STATE_FULLSCREEN");
+    comp.atoms.state_hidden           = intern("_NET_WM_STATE_HIDDEN");
+    comp.atoms.net_active_window      = intern("_NET_ACTIVE_WINDOW");
+    comp.atoms.net_current_desktop    = intern("_NET_CURRENT_DESKTOP");
+    comp.atoms.kiwm_output_desktop    = intern("_KIWM_OUTPUT_DESKTOP");
 }
 
 /* ------------------------------------------------------------------ */
@@ -447,10 +488,14 @@ static void handle_event(xcb_generic_event_t *ev)
          * stops being a top-level (we drop it, its pixels now arrive as
          * part of the frame's) and the frame appears as one instead. */
         xcb_reparent_notify_event_t *e = (xcb_reparent_notify_event_t *)ev;
-        if (e->parent == comp.root)
+        if (e->parent == comp.root) {
             window_add_top(e->window);   /* reparenting stacks it on top */
-        else
+        } else {
             window_remove(e->window);
+            /* Into one of our frames: that window is the frame's client,
+             * and the frame's properties are really its properties. */
+            window_client_reparented(e->parent, e->window);
+        }
         break;
     }
     case XCB_CONFIGURE_NOTIFY: {
@@ -478,15 +523,38 @@ static void handle_event(xcb_generic_event_t *ev)
     }
     case XCB_PROPERTY_NOTIFY: {
         xcb_property_notify_event_t *e = (xcb_property_notify_event_t *)ev;
-        if (e->window == comp.root &&
-            (e->atom == comp.atoms.xrootpmap_id ||
-             e->atom == comp.atoms.esetroot_pmap_id)) {
-            renderer_background_invalidate();
-            output_damage_all();
-        } else if (e->atom == comp.atoms.net_wm_window_opacity) {
+
+        if (e->window == comp.root) {
+            if (e->atom == comp.atoms.xrootpmap_id ||
+                e->atom == comp.atoms.esetroot_pmap_id) {
+                renderer_background_invalidate();
+                output_damage_all();
+            } else if (e->atom == comp.atoms.net_active_window) {
+                window_focus_changed(read_active_window());
+            } else if (e->atom == comp.atoms.net_current_desktop ||
+                       e->atom == comp.atoms.kiwm_output_desktop) {
+                /* Windows that vanish or appear right after this left or
+                 * arrived with a desktop rather than being closed or
+                 * opened -- see window.c's windows_flush_events(). */
+                comp.desktop_changed_ms = comp_now_ms();
+            }
+            break;
+        }
+
+        if (e->atom == comp.atoms.net_wm_window_opacity) {
             CompWindow *w = window_find(e->window);
             if (w)
                 window_update_opacity(w);
+        } else if (e->atom == comp.atoms.net_wm_state ||
+                   e->atom == comp.atoms.wm_state) {
+            /* These live on the client window inside the frame, which is
+             * not the window the compositor tracks -- hence the lookup by
+             * client. */
+            CompWindow *w = window_find_by_client(e->window);
+            if (!w)
+                w = window_find(e->window);
+            if (w)
+                window_state_changed(w);
         }
         break;
     }
@@ -695,6 +763,7 @@ int main(int argc, char **argv)
      * output change. */
     outputs_refresh();
     windows_scan();
+    window_focus_changed(read_active_window());
     output_damage_all();
 
     struct sigaction sa;
@@ -716,10 +785,37 @@ int main(int argc, char **argv)
             free(ev);
         }
 
+        /* Something is waiting to be classified, and the evidence may be
+         * one event behind: a shade arrives as a ConfigureNotify plus the
+         * _NET_WM_STATE that explains it, and if the property is read
+         * before it lands the resize is classified as a plain move and
+         * the wrong effect runs.
+         *
+         * A round trip pulls in everything the server has already
+         * generated, which covers the case where both were sent and only
+         * one had been read. It is not a guarantee -- the WM's request may
+         * still be sitting unprocessed -- so the real fix lives in the WM,
+         * which publishes state *before* the geometry that carries it out
+         * (see kiwm's client.c). This is the best-effort half, for window
+         * managers that don't. */
+        if (windows_have_pending()) {
+            free(xcb_get_input_focus_reply(comp.conn,
+                                           xcb_get_input_focus(comp.conn), NULL));
+            while ((ev = xcb_poll_for_event(comp.conn))) {
+                handle_event(ev);
+                free(ev);
+            }
+        }
+
         if (xcb_connection_has_error(comp.conn)) {
             comp_log("X connection lost");
             break;
         }
+
+        /* The batch is complete: now it can be said what actually
+         * happened to each window (window.c), and the effects get told in
+         * those terms rather than in X's. */
+        windows_flush_events();
 
         double now = comp_now_ms();
 

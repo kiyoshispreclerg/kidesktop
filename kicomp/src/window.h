@@ -34,9 +34,55 @@ void window_configure(xcb_window_t id, int x, int y, int w, int h, int border,
 void window_restack(xcb_window_t id, xcb_window_t above);
 void window_update_opacity(CompWindow *w);
 
+/* Re-reads _NET_WM_WINDOW_TYPE (comp.h's CompWindowKind). Windows are
+ * classified when adopted and again when mapped, since a frame is often
+ * created before the client is reparented into it. */
+void window_refresh_kind(CompWindow *w);
+
+/* Keeps a window in the scene past its own disappearance, for an effect
+ * that is still drawing it (fade out, scale out, and later minimize and
+ * the desktop wall). Every retain must be matched by a release -- an
+ * effect does that in its destroy op, so a cancelled effect frees the
+ * window just as a finished one does. Releasing the last reference on a
+ * window X has already destroyed is what finally drops it from the
+ * mirror. */
+void window_retain(CompWindow *w);
+void window_release(CompWindow *w);
+
 /* The window's on-screen rectangle including its X border, which is what
  * NameWindowPixmap covers. */
 CompRect window_rect(const CompWindow *w);
+
+/* Whether any window is waiting to be classified. The main loop uses it
+ * to decide whether a round trip to the server is worth making before the
+ * flush -- see windows_flush_events(). */
+bool windows_have_pending(void);
+
+/* Turns the batch of X events just drained into the desktop's own
+ * vocabulary -- opened, closed, minimized, maximized, shaded... -- and
+ * hands those to the effects. Called once per iteration of the main loop,
+ * after the event queue is empty and before anything is painted: X's
+ * order is not the desktop's, and one beat's delay is what makes "this
+ * unmap was a minimize" -- or "this resize was a shade" -- knowable at
+ * all. */
+void windows_flush_events(void);
+
+/* A property that carries window state changed (_NET_WM_STATE, WM_STATE
+ * on the client window). */
+void window_state_changed(CompWindow *w);
+
+/* _NET_ACTIVE_WINDOW changed on the root: emits focus/unfocus. */
+void window_focus_changed(xcb_window_t active);
+
+/* The WM has reparented `client` into a frame we track: that client is
+ * where the EWMH properties live, so this is what stops the frame from
+ * being anonymous (and what makes a shade distinguishable from a
+ * resize). */
+void window_client_reparented(xcb_window_t frame_id, xcb_window_t client);
+
+/* The mirror entry whose client window is `client`, for property events
+ * that arrive on the client rather than on the frame. */
+CompWindow *window_find_by_client(xcb_window_t client);
 
 /* Initial adoption of everything already mapped when kicomp starts, so
  * running it mid-session composites the existing desktop instead of a
