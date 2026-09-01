@@ -1,43 +1,43 @@
 # kicomp
 
-Compositor opcional do `kiwm`, seguindo `kiwm/kiwm-kicomp-projeto.md`.
+kiwm's optional compositor, following `kiwm/kiwm-kicomp-projeto.md`.
 
-Começou como o protótipo da Fase 5 — a mesma cena que você veria sem
-composição, com transparência real (alpha de janelas de 32 bits e
-`_NET_WM_WINDOW_OPACITY`) como única diferença. Hoje já tem também:
+It started as the Fase 5 prototype — exactly the scene you would see with
+no compositing, with real transparency (32-bit windows' alpha and
+`_NET_WM_WINDOW_OPACITY`) as the only difference. It now also has:
 
-- shape aplicada na composição (cantos arredondados, clientes com shape);
-- sombras configuráveis, diferentes entre janela ativa e inativa;
-- interface de efeitos: *geometry change*, *fade in/out*, *scale in/out*;
-- relógio de frames por output para as animações;
-- configuração em `kicomp.conf`.
+- window shapes applied while compositing (rounded corners, shaped clients);
+- configurable shadows, different for focused and unfocused windows;
+- an effect interface: *geometry change*, *fade in/out*, *scale in/out*;
+- a per-output frame clock driving the animations;
+- configuration in `kicomp.conf`.
 
-Sem OpenGL ainda — o renderer é XRender, que dá conta de translação,
-escala e alpha. Wobbly e blur é que vão pedir GL.
+No OpenGL yet — the renderer is XRender, which handles translation, scale
+and alpha. Wobbly and blur are what will ask for GL.
 
 ```sh
 make
 ./kicomp
 ```
 
-Opções:
+Options:
 
-| opção | efeito |
+| option | effect |
 |---|---|
-| `--replace` | assume o lugar de outro compositor em execução |
-| `--single-drawable` | modo legado: **um** drawable para a tela inteira em vez de um por output |
-| `--skip-wm-layers` | não compõe as camadas próprias do kiwm (`_KIWM_LAYER`: OSD do alt-tab, contorno de move/resize) |
-| `--effects`, `--no-effects` | liga/desliga as animações |
-| `--anim-ms=N` | unidade global de animação, em ms |
-| `--renderer=NOME` | `auto` \| `xrender` |
-| `-v`, `--verbose` | log detalhado (eventos, janelas, camadas, frames) |
+| `--replace` | take over from a running compositor |
+| `--single-drawable` | legacy mode: **one** drawable for the whole screen instead of one per output |
+| `--skip-wm-layers` | don't composite kiwm's own layers (`_KIWM_LAYER`: the alt-tab OSD, the move/resize wireframe) |
+| `--effects`, `--no-effects` | turn animations on/off |
+| `--anim-ms=N` | global animation unit, in ms |
+| `--renderer=NAME` | `auto` \| `xrender` |
+| `-v`, `--verbose` | detailed log (events, windows, layers, frames) |
 
-Toda opção tem uma chave equivalente no `kicomp.conf` (abaixo); a linha
-de comando sempre vence sobre o arquivo.
+Every option has an equivalent key in `kicomp.conf` (below); the command
+line always wins over the file.
 
-Ele sempre imprime no terminal, sem `-v`, o essencial: backend de render e
-de apresentação, capabilities detectadas, e quantos drawables existem e
-por quê — atualizado a cada mudança de output:
+Without `-v` it still prints the essentials: the render and presentation
+backends, the detected capabilities, and how many drawables there are and
+why — reprinted on every output change:
 
 ```
 kicomp: kicomp 0.2.1 on :0 screen 0 (3840x1080)
@@ -55,55 +55,55 @@ kicomp:   scale-in     off  160 ms out     on: open,restore,desktop-enter  for: 
 kicomp:   scale-out    off  160 ms out     on: close  for: ...
 ```
 
-com `--single-drawable`:
+with `--single-drawable`:
 
 ```
 kicomp: 1 drawable (legacy single-screen mode)
 kicomp:   [0] screen       3840x1080+0+0 @ 60.00 Hz
 ```
 
-O modo legado é o único lugar onde a regra "um drawable por output" é
-desligada de propósito — cena, renderer, presenter e dirty state não
-mudam, só passam a ter um output só, do tamanho da tela.
+Legacy mode is the one place where the "one drawable per output" rule is
+deliberately switched off — scene, renderer, presenter and dirty state
+don't change, they simply get a single screen-sized output.
 
-`kicomp` é opcional em todos os sentidos: `kiwm` não sabe que ele existe,
-não precisa de nenhuma alteração para ser composto, e matar o `kicomp`
-devolve a sessão ao caminho não-composto (seção 31 do documento).
+`kicomp` is optional in every sense: `kiwm` doesn't know it exists, needs
+no changes to be composited, and killing `kicomp` returns the session to
+the uncomposited path (section 31 of the design document).
 
-## Configuração
+## Configuration
 
-`$XDG_CONFIG_HOME/kicomp.conf`, ou `~/.config/kicomp.conf`. O arquivo é
-opcional — toda chave tem um default que funciona. Mesmo formato do
-`kiwm.conf` (`chave = valor`, `#` comenta), mais seções para os efeitos:
+`$XDG_CONFIG_HOME/kicomp.conf`, or `~/.config/kicomp.conf`. The file is
+optional — every key has a working default. Same format as `kiwm.conf`
+(`key = value`, `#` comments), plus sections for shadows and effects:
 
 ```ini
 # ---- global ----
-effects            = 1     # animações ligadas
-animation_duration = 160   # a unidade de animação, em ms
+effects            = 1     # animations on
+animation_duration = 160   # the animation unit, in ms
 renderer           = auto  # auto | xrender
 presenter          = auto  # auto | copy
-single_drawable    = 0     # 1 = modo legado, um drawable pra tela toda
-skip_wm_layers     = 0     # 1 = não compõe o OSD/contorno do kiwm
+single_drawable    = 0     # 1 = legacy mode, one drawable for the screen
+skip_wm_layers     = 0     # 1 = don't composite kiwm's OSD/wireframe
 
-# ---- sombras ----
+# ---- shadows ----
 [shadow]
 enabled  = 1
-windows  = windows,menus     # tipos que recebem sombra
-radius   = 14                # raio do blur, em pixels
+windows  = windows,menus     # which window types get one
+radius   = 14                # blur radius, in pixels
 opacity  = 0.45
 offset_x = 0
 offset_y = 6
 color    = #000000
-# os mesmos cinco para janelas sem foco; o que não aparecer aqui
-# repete o valor da janela ativa
+# the same five for unfocused windows; each one left out here repeats
+# the focused value
 radius_inactive  = 10
 opacity_inactive = 0.25
 offset_y_inactive = 3
 
-# ---- efeitos ----
+# ---- effects ----
 [effect:geometry]
 enabled  = 1
-duration = 1.0                  # múltiplo de animation_duration, não ms
+duration = 1.0                  # multiple of animation_duration, not ms
 events   = maximize,unmaximize,move
 windows  = normal,dialog
 
@@ -124,18 +124,18 @@ enabled  = 1
 duration = 1.0
 events   = open
 windows  = windows,menus
-from     = 0.8                  # tamanho inicial, fração do final
+from     = 0.8                  # starting size, fraction of the final one
 origin   = window               # window | pointer | output
 
 [effect:scale-out]
 enabled  = 1
 duration = 1.0
 events   = close
-to       = 1.15                 # > 1 incha antes de sumir
+to       = 1.15                 # > 1 swells before vanishing
 origin   = window
 
-# uma segunda instância do mesmo efeito, com outros números: herda tudo
-# de [effect:scale-out] e sobrescreve só o que declara
+# a second instance of the same effect, with different numbers: inherits
+# everything from [effect:scale-out] and overrides only what it declares
 [effect:scale-out:minimize]
 events   = minimize
 duration = 2.0
@@ -143,51 +143,51 @@ to       = 0.2
 origin   = pointer
 ```
 
-### Instâncias
+### Instances
 
-`[effect:<nome>]` configura a instância **base** de um efeito.
-`[effect:<nome>:<instância>]` cria outra do mesmo efeito, que **começa
-como cópia da base** e sobrescreve apenas as chaves que declarar — é
-assim que "scale-out ao fechar, e um scale-out mais lento e mais fundo ao
-minimizar" viram duas seções em vez de dois efeitos.
+`[effect:<name>]` configures an effect's **base** instance.
+`[effect:<name>:<instance>]` creates another one of the same effect, which
+**starts as a copy of the base** and overrides only the keys it states —
+that is how "scale-out on close, and a slower, deeper scale-out on
+minimize" becomes two sections instead of two effects.
 
-- a instância especializada **não** repete nada: o que ela não diz é o
-  que a base tem;
-- a ordem das seções no arquivo não importa — o kicomp lê o arquivo em
-  duas passadas, as bases primeiro e as instâncias depois;
-- para usar só as especializadas, `enabled = 0` na base;
-- cada instância tem sua própria cópia das chaves do módulo (`to`,
-  `origin`, ...), então elas realmente podem diferir;
-- o log de inicialização lista todas, já resolvidas:
+- a specialized instance repeats **nothing**: whatever it doesn't say is
+  whatever the base has;
+- section order in the file doesn't matter — kicomp reads the file in two
+  passes, bases first and instances after;
+- to use only the specialized ones, put `enabled = 0` in the base;
+- each instance has its own copy of the module's keys (`to`, `origin`,
+  ...), so they really can differ;
+- the startup log lists them all, already resolved:
 
 ```
 kicomp:   scale-out              on   200 ms  on: close     for: normal,dialog,...
 kicomp:   scale-out:minimize     on   400 ms  on: minimize  for: normal,dialog,...
 ```
 
-Comentário na mesma linha (`origin = pointer  # ...`) e espaço à direita
-do valor são aceitos — só precisa de um espaço antes do `#`.
+Trailing comments (`origin = pointer  # ...`) and trailing whitespace are
+accepted — the `#` just needs a space before it.
 
-**A unidade de animação.** Nenhum efeito tem tempo próprio em
-milissegundos: cada um pede um *múltiplo* de `animation_duration` — `0.5`
-para algo que deve parecer instantâneo, `1.0` para uma transição comum,
-`2.0` para uma transição grande. Assim uma única chave acelera ou
-desacelera o desktop inteiro de forma coerente, em vez de deixar um
-punhado de animações reguladas independentemente. `animation_duration=0`
-mantém os efeitos ligados mas termina todos imediatamente.
+**The animation unit.** No effect has a time of its own in milliseconds:
+each asks for a *multiple* of `animation_duration` — `0.5` for something
+that should feel instant, `1.0` for an ordinary transition, `2.0` for a
+big one. One key then speeds the whole desktop up or down coherently,
+instead of leaving a pile of independently tuned animations.
+`animation_duration = 0` keeps the effects on but finishes all of them
+immediately.
 
-Toda seção de efeito aceita as cinco chaves universais — `enabled`,
-`duration`, `events` (quais eventos), `windows` (quais tipos de janela) e
-`easing` (como o movimento é distribuído) — e além dessas as que o
-próprio efeito entender; cada módulo parseia as
-suas (`config_key` em `effect.h`), e uma chave que ele não conhece vira
-aviso no terminal em vez de sumir em silêncio.
+Every effect section takes the five universal keys — `enabled`,
+`duration`, `events` (which events), `windows` (which window types) and
+`easing` (how the movement is weighted) — and past those whatever the
+effect itself understands; each module parses its own (`config_key` in
+`effect.h`), and a key it doesn't know becomes a warning on the terminal
+rather than silence.
 
-## Eventos
+## Events
 
-O core não entrega ao efeito transições do X (mapeou, desmapeou,
-reconfigurou) e sim **o que aconteceu com a janela**, no vocabulário do
-desktop:
+The core doesn't hand effects X transitions (mapped, unmapped,
+reconfigured) but **what happened to the window**, in the desktop's own
+vocabulary:
 
 ```
 open   close   minimize   restore   maximize   unmaximize
@@ -195,113 +195,115 @@ shade  unshade fullscreen unfullscreen  focus  unfocus  move
 desktop-leave  desktop-enter
 ```
 
-Cada efeito declara em quais deles responde, e isso é configuração:
+Each effect declares which of them it answers to, and that is
+configuration:
 
 ```ini
 [effect:geometry]
-events = maximize,unmaximize,move   # sem shade: quem enrola é o shade
+events = maximize,unmaximize,move   # no shade: rolling up is shade's job
 
 [effect:fade-out]
-events = close,minimize             # some ao fechar E ao minimizar
+events = close,minimize             # dissolve on close AND on minimize
 ```
 
-`all` e `none` valem como lista inteira. O core filtra antes de chamar o
-módulo, então um efeito nunca recebe um evento que o usuário não pediu —
-é por isso que "enrolar no shade sem o geometry deslizando junto" é uma
-linha de config, e não um caso especial dentro de um efeito.
+`all` and `none` work as the whole list. The core filters before calling
+the module, so an effect is never handed an event the user didn't ask for
+— which is what makes "roll up on shade without geometry sliding
+underneath it" a config line rather than a special case inside an effect.
 
 ## Easing
 
-`easing=` diz como um movimento entre dois pontos é distribuído no tempo
-— e vale para qualquer efeito, porque quem aplica a curva é o core:
+`easing=` says how a movement between two points is spread over time —
+and it works for any effect, because the core is what applies the curve:
 
-| valor | como é |
+| value | shape |
 |---|---|
-| `linear` | parelho do início ao fim |
-| `in` | devagar no começo, mais rápido ao chegar — peso na origem |
-| `out` | rápido no começo, freando ao chegar — peso no destino (**padrão**) |
-| `in-out` | devagar nas duas pontas, rápido no meio |
-| `spring` | passa um pouco do destino e volta, como um objeto com massa |
+| `linear` | even from start to finish |
+| `in` | slow at the start, fastest as it arrives — weight at the origin |
+| `out` | fast at the start, easing into the destination — weight at the destination (**default**) |
+| `in-out` | slow at both ends, quick through the middle |
+| `spring` | overshoots slightly and settles back, like an object with mass |
 
-Os nomes do CSS (`ease-in`, `ease-out`, `ease-in-out`) também são
-aceitos. O `spring` é o que dá a sensação "slick": um leve overshoot de
-poucos por cento, amortecido bem antes do fim, e preso nas duas pontas —
-a animação ainda começa exatamente onde começou e para exatamente onde
-deve.
+The CSS names (`ease-in`, `ease-out`, `ease-in-out`) are accepted too.
+`spring` is what reads as "slick": a few percent of overshoot, damped
+well before the end, and pinned at both ends — the animation still starts
+exactly where it started and lands exactly where it belongs.
 
 ```ini
 [effect:geometry]
 easing = spring
 
 [effect:fade-in]
-easing = linear     # fade com curva não engana ninguém
+easing = linear     # a curve on a fade fools nobody
 ```
 
-## Sombras
+## Shadows
 
-Sombra não é efeito — nada nela anima —, então tem seção própria,
-`[shadow]`, e quem desenha é o renderer, embaixo de cada janela.
+A shadow isn't an effect — nothing about one animates — so it has a
+section of its own, `[shadow]`, and the renderer draws it under each
+window.
 
-| chave | o que faz |
+| key | what it does |
 |---|---|
-| `enabled` | liga (desligada por padrão: sombra é gosto) |
-| `windows` | tipos que recebem sombra (mesma lista da seção acima) |
-| `radius` | raio do blur, em pixels (1–64) |
+| `enabled` | turns them on (off by default: a shadow is a taste) |
+| `windows` | which types get one (same list as the section below) |
+| `radius` | blur radius, in pixels (1–64) |
 | `opacity` | 0–1 |
-| `offset_x`, `offset_y` | deslocamento |
+| `offset_x`, `offset_y` | offset |
 | `color` | `#rrggbb` |
-| `*_inactive` | os mesmos cinco para janelas sem foco |
+| `*_inactive` | the same five for unfocused windows |
 
-Cada `*_inactive` que você não escrever repete o valor da janela ativa —
-então "a mesma sombra, só mais fraca quando sem foco" é uma linha:
+Each `*_inactive` you don't write repeats the focused value — so "the
+same shadow, just fainter when unfocused" is one line:
 `opacity_inactive = 0.25`.
 
-**Custo.** Baixo, e independente do tamanho da janela — que é a objeção
-usual a sombras no XRender. O blur de um retângulo é separável, e o blur
-da *borda* é o mesmo perfil em toda a extensão dela: a sombra é quatro
-tiles de canto, quatro tiras de 1 px repetidas pelos lados e um miolo
-sólido. Os tiles dependem só do raio, então são construídos uma vez e
-reusados por todas as janelas; por frame, uma sombra custa nove
-composites de uma cor sólida através de uma máscara. Nada é recalculado
-quando a janela move ou redimensiona. (A versão cara disso — um bitmap
-borrado do tamanho da janela, refeito a cada passo de um arrasto — é
-outra implementação, não esta.)
+**Cost.** Low, and independent of window size — which is the usual
+objection to shadows on XRender. A Gaussian blur of a rectangle is
+separable, and the blur of an *edge* is the same profile all along it: a
+shadow is four corner tiles, four one-pixel strips repeated along the
+sides, and a solid middle. The tiles depend only on the radius, so they
+are built once and reused by every window; per frame a shadow costs nine
+composites of a solid colour through a mask. Nothing is recomputed when a
+window moves or resizes. (The expensive version of this — a blurred
+bitmap the size of the window, rebuilt on every step of a drag — is a
+different implementation, not this one.)
 
-**O recorte é pela shape, não pelo retângulo.** A área da própria janela
-sai da sombra — uma janela opaca cobriria a sombra de qualquer jeito, mas
-numa translúcida ela apareceria *através* da janela, que é o que sempre
-fica errado. Cortar o retângulo deixaria um buraquinho de sombra faltando
-em cada canto arredondado (a área dentro do retângulo mas fora da
-janela); cortar a silhueta real deixa a sombra entrar no canto. Custa
-três requisições assíncronas a mais que o retângulo e nenhum round-trip:
-a região é a mesma que já está em cache para recortar a janela, só
-precisa ser movida para as coordenadas do target.
+**The cut-out follows the shape, not the rectangle.** The window's own
+area is taken out of the shadow — an opaque window would cover it anyway,
+but on a translucent one the shadow would show *through* the window,
+which always looks wrong. Cutting the rectangle would leave a little
+notch of missing shadow at each rounded corner (the area inside the
+rectangle but outside the window); cutting the real silhouette lets the
+shadow reach into the corner. It costs three asynchronous requests more
+than the rectangle and no round trip: the region is the one already
+cached for clipping the window, and only has to be moved into the
+target's coordinates.
 
-**Quem tem shape, projeta ao redor da shape.** A sombra circunda o que se
-*vê* da janela, não o retângulo dela. Para quase toda janela dá no mesmo;
-para as poucas em que não dá, é a diferença inteira — a mini-toolbar do
-VirtualBox é uma janela do tamanho da tela com uma barrinha recortada
-dentro, e sombrear o retângulo dela joga uma sombra de tela cheia atrás
-do desktop.
+**A shaped window casts around its shape.** The shadow surrounds what can
+actually be *seen* of the window, not its rectangle. For almost every
+window the two are the same; for the few where they aren't, the
+difference is the whole story — VirtualBox's mini-toolbar is a
+screen-sized window with a small bar shaped out of it, and shadowing its
+rectangle drops a full-screen shadow behind the desktop.
 
-**Maximizada ou fullscreen não projeta sombra.** Uma janela que preenche
-a tela não tem em que projetar: as bordas dela são as bordas da tela. No
-melhor caso a sombra é invisível, no pior é uma faixa escura na lateral
-do monitor vizinho.
+**Maximized or fullscreen windows cast none.** A window filling its
+screen has nothing to cast onto: its edges are the screen's edges. At
+best the shadow is invisible, at worst it is a dark band down the side of
+the next monitor.
 
-Uma limitação que fica: a sombra não é desenhada enquanto a janela está
-sendo transformada por um efeito — uma sombra parada enquanto a janela
-desliza é pior que sombra nenhuma.
+One limitation that remains: no shadow is drawn while a window is being
+transformed by an effect — a shadow sitting still while the window slides
+away is worse than no shadow at all.
 
-## Tipos de janela
+## Window types
 
-Do mesmo jeito, `windows=` diz a **quais janelas** um efeito se aplica.
-Um tipo por valor de `_NET_WM_WINDOW_TYPE`, mais `unknown` para as
-janelas que não declaram tipo nenhum (a maioria dos apps antigos):
+In the same way, `windows=` says **which windows** an effect applies to.
+One type per `_NET_WM_WINDOW_TYPE` value, plus `unknown` for windows that
+declare no type at all (most older applications):
 
-| valor | `_NET_WM_WINDOW_TYPE_…` |
+| value | `_NET_WM_WINDOW_TYPE_…` |
 |---|---|
-| `unknown` | *(nenhum tipo declarado)* |
+| `unknown` | *(no type declared)* |
 | `normal` | `NORMAL` |
 | `dialog` | `DIALOG` |
 | `utility` | `UTILITY` |
@@ -317,12 +319,12 @@ janelas que não declaram tipo nenhum (a maioria dos apps antigos):
 | `dock` | `DOCK` |
 | `desktop` | `DESKTOP` |
 
-E quatro atalhos de grupo:
+And five group shorthands:
 
-| grupo | equivale a |
+| group | equals |
 |---|---|
-| `all` | tudo |
-| `none` | nada |
+| `all` | everything |
+| `none` | nothing |
 | `windows` | `unknown,normal,dialog,utility,toolbar,splash` |
 | `menus` | `menu,dropdown-menu,popup-menu,combo` |
 | `popups` | `menus` + `tooltip,notification,dnd` |
@@ -332,293 +334,295 @@ E quatro atalhos de grupo:
 windows = normal,dialog,tooltip,popup-menu
 ```
 
-As camadas próprias do kiwm (`_KIWM_LAYER`: OSD do alt-tab, contorno) e
-janelas `InputOnly` nunca recebem efeito — isso é regra do core, não
-configuração.
+kiwm's own layers (`_KIWM_LAYER`: the alt-tab OSD, the wireframe) and
+`InputOnly` windows never get an effect — that is a core rule, not
+configuration.
 
-**Como o core sabe.** Um unmap do X pode ser fechar, minimizar ou sair de
-um desktop; um resize pode ser maximizar, enrolar, virar fullscreen ou só
-redimensionar. A diferença está em propriedades (`_NET_WM_STATE`,
-`WM_STATE` na janela cliente, `_NET_CURRENT_DESKTOP`/`_KIWM_OUTPUT_DESKTOP`
-no root). Por isso a classificação é feita um instante depois: o loop
-drena a fila inteira, e só então `windows_flush_events()` decide o que
-aconteceu, com o lote todo em mãos.
+**How the core knows.** An X unmap can be a close, a minimize or leaving
+a desktop; a resize can be a maximize, a shade, going fullscreen or just
+a resize. The difference lives in properties (`_NET_WM_STATE`, `WM_STATE`
+on the client window, `_NET_CURRENT_DESKTOP`/`_KIWM_OUTPUT_DESKTOP` on
+the root). So classification happens a beat later: the loop drains the
+whole queue, and only then does `windows_flush_events()` decide what
+happened, with the entire batch in hand.
 
-E metade disso é responsabilidade do WM: o kiwm publica o estado **antes**
-da geometria que o realiza (ver `kiwm/client.c`). Lê ao contrário, mas é
-o que faz a ordem dos eventos dizer o que aconteceu — anunciado depois, o
-`_NET_WM_STATE` chega depois do ConfigureNotify que ele explica, e a essa
-altura a animação errada já começou (foi exatamente esse o bug do
-geometry deslizando ao enrolar). Para WMs que não fazem isso, o kicomp
-ainda dá um round-trip antes de classificar, que é o melhor esforço
-possível de fora.
+Half of that is the WM's responsibility: kiwm publishes state **before**
+the geometry that carries it out (see `kiwm/client.c`). It reads
+backwards, but it is what makes the order of events say what happened —
+announced afterwards, `_NET_WM_STATE` arrives after the ConfigureNotify
+it explains, and by then the wrong animation is already running (that was
+exactly the bug of geometry sliding a window that was being rolled up).
+For window managers that don't do this, kicomp still makes a round trip
+before classifying, which is the best that can be done from outside.
 
-É também a heurística que a IPC da seção 32 vai substituir: o WM sabe de
-primeira mão o que fez.
+It is also the heuristic that section 32's IPC will replace: the WM knows
+first-hand what it did.
 
-## Efeitos
+## Effects
 
-A interface está em `src/effect.h` e é deliberadamente pequena: o core
-conhece um efeito rodando (`CompEffect`/`CompEffectOps`: `update`,
-`apply`, `finished`, `destroy`) e um módulo que decide quando começar um
-(`CompEffectModule`, com um callback de evento). Ele nunca sabe *o que* o
-efeito é.
+The interface is in `src/effect.h` and is deliberately small: the core
+knows a running effect (`CompEffect`/`CompEffectOps`: `update`, `apply`,
+`finished`, `destroy`) and a module that decides when to start one
+(`CompEffectModule`, with one event callback). It never knows *what* the
+effect is.
 
-Duas regras que um efeito precisa respeitar:
+Two rules an effect has to respect:
 
-- **tempo, não frames** — `update()` recebe um instante monotônico e a
-  duração vem da unidade global; o mesmo efeito leva o mesmo tempo num
-  monitor de 60 Hz e num de 144 Hz;
-- **por output** — `apply()` roda uma vez por output sendo pintado, com a
-  cena daquele output, então o mesmo efeito pode estar no meio do
-  caminho num monitor e terminado no outro.
+- **time, not frames** — `update()` gets a monotonic instant and the
+  duration comes from the global unit; the same effect takes the same
+  time on a 60 Hz monitor and on a 144 Hz one;
+- **per output** — `apply()` runs once per output being painted, with
+  that output's scene, so the same effect can be mid-flight on one
+  monitor and finished on the other.
 
-E uma que ele nunca pode quebrar: **não toca no estado lógico do WM**
-(seção 27). Um efeito altera `transform` e `opacity` de nós da cena, e
-nada além disso — a janela realmente está onde o WM diz que está; ela só
-parece ainda não ter chegado.
+And one it can never break: **it doesn't touch the WM's logical state**
+(section 27). An effect changes a scene node's `transform` and `opacity`,
+and nothing else — the window really is where the WM says it is; it
+merely looks like it hasn't arrived yet.
 
-Adicionar um efeito = um arquivo em `src/effects/`, sua declaração em
-`effect.h` e uma linha na tabela de `effect.c`. Nada mais no compositor
-muda (seção 42).
+Adding an effect = one file in `src/effects/`, its declaration in
+`effect.h`, and one line in `effect.c`'s table. Nothing else in the
+compositor changes (section 42).
 
-Um módulo declara também o tamanho e os defaults do seu bloco de config
-(`config_size`/`config_defaults`/`config_key`); o core aloca **um bloco
-por instância** e passa a instância que casou (`self`) para o callback de
-evento — que é o mecanismo inteiro por trás das múltiplas instâncias.
+A module also declares the size and defaults of its config block
+(`config_size`/`config_defaults`/`config_key`); the core allocates **one
+block per instance** and passes the instance that matched (`self`) to the
+event callback — which is the entire mechanism behind multiple instances.
 
-### `fade-in` (seção 24.1)
+### `fade-in` (section 24.1)
 
-Janela que aparece sobe do transparente. Sem chaves próprias: só as
-universais (`enabled`, `duration`, `events`, `windows`). Ligado por
-padrão, em `open,restore,desktop-enter`, para tudo menos o desktop.
+A window that has just appeared comes up from transparent. No keys of its
+own: just the universal ones. On by default, for
+`open,restore,desktop-enter`, on everything but the desktop.
 
-A opacidade é *multiplicada*, não atribuída: um terminal meio
-transparente por `_NET_WM_WINDOW_OPACITY` não vira opaco só porque estava
-abrindo.
+Opacity is *multiplied*, not assigned: a terminal already half
+transparent through `_NET_WM_WINDOW_OPACITY` doesn't become opaque just
+because it was opening.
 
-### `scale-in` (seção 24.2)
+### `scale-in` (section 24.2)
 
-Janela que aparece cresce até o tamanho final. O destino é sempre a
-geometria real; configurável é de onde ela cresce:
+A window that has just appeared grows into place. The destination is
+always its real geometry; what is configurable is where it grows from:
 
-| chave | valores |
+| key | values |
 |---|---|
-| `from` | tamanho inicial como fração do final (0.05–4.0, default 0.8; acima de 1 encolhe até o lugar) |
-| `origin` | `window` (centro dela, default), `pointer` (onde está o mouse), `output` (centro do monitor) |
+| `from` | starting size as a fraction of the final one (0.05–4.0, default 0.8; above 1 shrinks into place instead) |
+| `origin` | `window` (its own centre, default), `pointer` (where the mouse is), `output` (the monitor's centre) |
 
-O ponto de origem é lido uma vez, quando o efeito começa — um `pointer`
-que acompanhasse o mouse arrastaria a animação de lado. Desligado por
-padrão: empilhado com o `fade-in` é questão de gosto, então quem quiser
-escolhe.
+The origin is read once, when the effect starts — a `pointer` origin that
+followed the mouse would drag the animation sideways. Off by default:
+stacked on top of `fade-in` it is a matter of taste, so it is left to be
+chosen.
 
-### `fade-out` (seção 24.1) e `scale-out` (seção 24.3)
+### `fade-out` (section 24.1) and `scale-out` (section 24.3)
 
-Os mesmos invertidos, no fechamento. O `scale-out` inverte também o
-sentido: começa no tamanho real e vai até `to`, em direção à mesma
-`origin` de onde o `scale-in` cresceria. `to` acima de 1 faz a janela
-inchar um pouco antes de sumir, em vez de encolher. Os dois se compõem sem saber um
-do outro — um escreve `transform`, o outro `opacity` —, que é o "zoom +
-fade ao fechar" da seção 24.3.
+The same two reversed, on closing. `scale-out` also reverses the
+direction: it starts at the real size and goes to `to`, toward the same
+`origin` `scale-in` would have grown out of. A `to` above 1 makes the
+window swell slightly before vanishing instead of shrinking. The two
+compose without knowing about each other — one writes `transform`, the
+other `opacity` — which is section 24.3's "zoom + fade on close".
 
-São os primeiros efeitos que sobrevivem ao próprio assunto: quando eles
-começam, o X já desmapeou a janela e o aplicativo pode já ter morrido. O
-que continua sendo desenhado é o pixmap que o compositor nomeou enquanto
-a janela existia, mantido vivo por `window_retain()` (ver `window.h`) até
-a animação acabar. O `release` fica no `destroy` do efeito, então um
-efeito cancelado — a janela voltou, o compositor está encerrando — libera
-igual a um que terminou.
+They are the first effects that outlive their own subject: by the time
+they start, X has already unmapped the window and the application may
+already be gone. What keeps being drawn is the pixmap the compositor
+named while the window still existed, held alive by `window_retain()`
+(see `window.h`) until the animation ends. The `release` lives in the
+effect's `destroy`, so a cancelled effect — the window came back, the
+compositor is shutting down — frees it exactly as a finished one does.
 
-Por padrão respondem só a `close`. Quem quiser que minimizar também
-dissolva põe `events = close,minimize` — e quando o efeito de `minimize`
-existir, basta tirar dessa lista.
+By default they answer only to `close`. To have minimizing dissolve too,
+`events = close,minimize` — and when the `minimize` effect exists, take
+it back out of that list.
 
-### `geometry` (seção 24.4)
+### `geometry` (section 24.4)
 
-O primeiro. Uma janela que pula para outro tamanho/lugar — maximizar,
-restaurar, meia tela, snap — desliza e escala até lá em vez de
-teleportar.
+The first one. A window that jumps to another size or place — maximize,
+restore, half-tile, snap — slides and scales there instead of
+teleporting.
 
-Ele **não** anima arrastos: um move/resize com o mouse chega como um
-fluxo de configures, e animar isso deixaria a janela visivelmente atrás
-do ponteiro. Sem a IPC da seção 32 (o WM é quem sabe que há um drag em
-curso), o próprio fluxo é o sinal — `window.c` mede o intervalo entre
-configures e marca a sequência como interativa. É a heurística que a IPC
-vai substituir.
+It does **not** animate drags: a move/resize with the mouse arrives as a
+stream of configures, and animating those would leave the window visibly
+behind the pointer. Without section 32's IPC (the WM is what knows a drag
+is in progress), the stream itself is the signal — `window.c` times the
+gap between configures and marks the sequence as interactive. That is the
+heuristic the IPC will replace.
 
-Enquanto uma janela está sendo transformada, o recorte de shape sai de
-cena: a região está em coordenadas não transformadas e o XFixes não sabe
-escalá-la, então cantos arredondados ficam quadrados por ~um sexto de
-segundo. O renderer GL, que transforma a máscara junto, é onde isso
-deixa de ser uma troca.
+While a window is being transformed the shape clip steps aside: the
+region is in untransformed coordinates and XFixes can't scale it, so
+rounded corners go square for about a sixth of a second. The GL renderer,
+which can transform the mask along with the picture, is where that stops
+being a trade.
 
-### O que falta, e o que cada um precisa
+### What's missing, and what each one needs
 
-Os efeitos abaixo cabem todos no XRender — nenhum deles precisa de GL —
-mas dois pedaços de infraestrutura ainda não existem:
+The effects below all fit XRender — none of them needs GL — but one piece
+of infrastructure is still absent:
 
-**(a) janela que sobrevive ao próprio fim** — **feito**, junto com o
-`fade-out`/`scale-out`: `window_retain()`/`window_release()`, e uma
-entrada que vira *zombie* quando o X destrói a janela mas algum efeito
-ainda a desenha (o pixmap é nosso até liberarmos).
+**(a) a window that outlives its own end** — **done**, along with
+`fade-out`/`scale-out`: `window_retain()`/`window_release()`, and an
+entry that becomes a *zombie* when X destroys the window while an effect
+is still drawing it (the pixmap is ours until we let go).
 
-**(b) recorte de origem no nó da cena.** Um `CompRect` dizendo "desenhe
-só esta parte do pixmap", sem escala. É o que o shade precisa para
-enrolar sem distorcer.
+**(b) a source crop on the scene node.** A `CompRect` saying "draw only
+this part of the pixmap", with no scaling. It is what shade needs to roll
+up without distorting.
 
-| efeito | precisa | como |
+| effect | needs | how |
 |---|---|---|
-| `minimize`/`restore` | — | escala entre a geometria da janela e `_NET_WM_ICON_GEOMETRY` (a caixinha que a taskbar publica na janela cliente) |
-| `shade`/`unshade` | (b) | crop animado da altura, sem escala nem distorção; detectado por `_NET_WM_STATE_SHADED` no cliente |
-| `desktop-wall` | (a) | + agrupar janelas por `_NET_WM_DESKTOP` e ler `_KIWM_OUTPUT_DESKTOP` para saber a troca por output; translação da cena inteira, com `docks` opcional (default: acompanham) |
+| `minimize`/`restore` | — | scale between the window's geometry and `_NET_WM_ICON_GEOMETRY` (the little box the taskbar publishes on the client window) |
+| `shade`/`unshade` | (b) | animated crop of the height, with no scaling and no distortion; detected through `_NET_WM_STATE_SHADED` on the client |
+| `desktop-wall` | (a) | + grouping windows by `_NET_WM_DESKTOP` and reading `_KIWM_OUTPUT_DESKTOP` to know about the per-output switch; translation of the whole scene, with `docks` optional (default: they come along) |
 
-O `desktop-wall` é o único que mexe em mais de uma janela por vez — a
-interface já suporta isso (um efeito não é obrigado a ter `window`), mas
-ele precisa que as janelas do desktop que está saindo continuem
-existindo, que é de novo o item (a).
+`desktop-wall` is the only one that moves more than one window at a time
+— the interface already supports that (an effect is not required to have
+a `window`) — but it needs the windows of the desktop being left to keep
+existing, which is item (a) again.
 
 ## Pacing
 
-Cada output tem seu próprio relógio de frames (`src/scheduler.c`),
-rodando na taxa de atualização *dele*: um monitor de 144 Hz nunca espera
-o de 60 Hz, e o estado da animação vem do relógio monotônico
-compartilhado enquanto cada output apenas o amostra no seu ritmo.
+Each output has its own frame clock (`src/scheduler.c`), running at *its*
+refresh rate: a 144 Hz monitor never waits for a 60 Hz one, and the
+animation state comes from the shared monotonic clock while each output
+merely samples it at its own rhythm.
 
-Ele faz duas coisas: junta rajadas de damage num frame só, e mantém as
-animações no ritmo de cada tela. Um output cujo prazo já passou pinta na
-hora, então um evento isolado nunca fica esperando. Ainda **não** há
-MSC/UST — o período vem da taxa relatada pelo RandR, não de feedback de
-apresentação —, então ele ritma e coalesce, mas ainda não trava no
-vblank; quando o presenter souber reportar MSC de verdade, só o
-`scheduler_tick()` muda.
+It does two things: it collapses bursts of damage into one frame, and it
+keeps animations at each screen's rate. An output whose deadline has
+already passed paints immediately, so an isolated event never waits.
+There is still **no** MSC/UST — the period comes from RandR's reported
+rate, not from presentation feedback — so it paces and coalesces but
+doesn't yet lock to vblank; when the presenter can report a real MSC,
+only `scheduler_tick()` changes.
 
-## O que já está implementado
+## What is implemented
 
-| Seção do doc | Estado |
+| Section of the doc | State |
 |---|---|
-| 17/30/45 — capability detection | Composite/Damage/XFixes/Render/RandR detectados em runtime; nada assume XiS |
-| 4/18 — output como unidade de apresentação | um pixmap + picture por output, dimensionado ao output, nunca uma superfície global |
-| 39 — dirty por output | só o output que o damage tocou é repintado |
-| 26 — janela atravessando outputs | recorte `janela ∩ output` por output, um nó de cena em cada |
-| 21 — scene graph | `CompScene`/`CompSceneNode` intermediários; efeitos nunca verão X windows |
-| 28 — renderer abstrato | `CompRenderer` vtable, backend `xrender` |
-| 15/16 — presenter abstrato | `CompPresenter` vtable, backend `copy` (overlay window) |
-| 33 — espelho visual | estado vindo só de eventos X; o WM continua sendo a autoridade |
-| 38 — leveza | dorme em `poll()`, sem timers, sem polling, sem repintar por precaução |
-| — | shape das janelas aplicada como clip (cantos arredondados, clientes com shape própria) |
-| — | alpha real: visual de 32 bits do cliente **e** do frame do kiwm, mais `_NET_WM_WINDOW_OPACITY` |
-| 22 — transform | matriz 4x4 no nó da cena; o backend XRender consome a parte afim 2D |
-| 23/42 — efeitos como módulos | vtable própria; um efeito novo = um arquivo + uma linha |
-| 19 — scheduler por output | relógio de frames por output, na taxa de cada um |
-| 20/40 — animação por tempo | progresso vem do relógio monotônico; duração é múltiplo de uma unidade global |
-| 24.1/24.2/24.3/24.4 — efeitos | fade in/out, scale in/out (origem configurável) e geometry change |
-| — | eventos semânticos (open/close/minimize/maximize/shade/focus/...), configuráveis por efeito |
-| — | filtro por tipo de janela (`windows=`) e múltiplas instâncias do mesmo efeito, cada uma com seus parâmetros |
-| — | easing por efeito, incluindo spring |
-| — | sombras (nine-patch, custo independente do tamanho da janela), com valores próprios para janela ativa e inativa |
-| — | janela retida além do próprio fim (`window_retain`), que é o que permite animar o fechamento |
+| 17/30/45 — capability detection | Composite/Damage/XFixes/Render/RandR detected at runtime; nothing assumes XiS |
+| 4/18 — output as the unit of presentation | one pixmap + picture per output, sized to it, never one global surface |
+| 39 — per-output dirty state | only the output damage actually touched is repainted |
+| 26 — window crossing outputs | `window ∩ output` clipped per output, one scene node in each |
+| 21 — scene graph | intermediate `CompScene`/`CompSceneNode`; effects never see X windows |
+| 28 — renderer abstraction | `CompRenderer` vtable, `xrender` backend |
+| 15/16 — presenter abstraction | `CompPresenter` vtable, `copy` backend (overlay window) |
+| 33 — visual mirror | state comes only from X events; the WM stays the authority |
+| 38 — lightness | sleeps in `poll()`, no timers, no polling, no repainting just in case |
+| — | window shapes applied as a clip (rounded corners, clients with their own shape) |
+| — | real alpha: the client's *and* kiwm's frame in a 32-bit visual, plus `_NET_WM_WINDOW_OPACITY` |
+| 22 — transform | 4x4 matrix on the scene node; the XRender backend consumes the affine 2D part |
+| 23/42 — effects as modules | their own vtable; a new effect = one file + one line |
+| 19 — per-output scheduler | a frame clock per output, at each one's rate |
+| 20/40 — time-based animation | progress comes from the monotonic clock; duration is a multiple of a global unit |
+| 24.1/24.2/24.3/24.4 — effects | fade in/out, scale in/out (configurable origin) and geometry change |
+| — | semantic events (open/close/minimize/maximize/shade/focus/...), configurable per effect |
+| — | window-type filter (`windows=`) and several instances of one effect, each with its own parameters |
+| — | per-effect easing, spring included |
+| — | shadows (nine-patch, cost independent of window size), with their own values for focused and unfocused windows |
+| — | windows retained past their own end (`window_retain`), which is what makes animating a close possible |
 
-## O que **não** está implementado (e onde entra)
+## What is **not** implemented (and where it goes)
 
-- **Mais efeitos** (seções 24.1-24.7) — fade, zoom, wobbly, desktop wall,
-  cubo. Os dois primeiros cabem no XRender; wobbly (mesh) e blur pedem o
-  renderer GL.
-- **MSC/UST** (resto da Fase 7, seções 19/49) — o relógio por output já
-  existe, mas o período vem do RandR, não de feedback de apresentação.
-- **Presenter FLIP do XiS** (Fase 8) — `CompPresentMode` e
-  `CompPresenter::get_msc` já existem para isso; `caps.flip_per_crtc`
-  está declarado como `false` de propósito, para que nenhum caminho de
-  código possa acreditar nele antes da hora.
-- **Repaint por região** — o damage hoje decide *quais outputs* repintar,
-  não *que parte* deles. É otimização, não mudança de interface.
-- **Unredirect de output único** (janela fullscreen) — a decisão é por
-  output e cabe no laço de paint, mas ainda não está lá.
-- **IPC `kiwm` ⟷ `kicomp`** (seção 32) — deliberadamente ausente na
-  primeira versão. Quando existir, ela substitui apenas a *fonte* das
-  atualizações; o espelho em `window.c` continua igual.
-- **X-Density por output** (seção 56) — o compositor ainda não escala a
-  cena por densidade.
+- **More effects** (sections 24.1-24.7) — shade, minimize, desktop wall,
+  wobbly, cube. The first three fit XRender; wobbly (mesh) and blur ask
+  for the GL renderer.
+- **MSC/UST** (the rest of Fase 7, sections 19/49) — the per-output clock
+  exists, but its period comes from RandR, not from presentation
+  feedback.
+- **The XiS FLIP presenter** (Fase 8) — `CompPresentMode` and
+  `CompPresenter::get_msc` already exist for it; `caps.flip_per_crtc` is
+  declared `false` on purpose, so no code path can believe in it early.
+- **Region-based repaint** — damage today decides *which outputs* to
+  repaint, not *which part* of them. An optimization, not an interface
+  change.
+- **Unredirecting a single output** (a fullscreen window) — the decision
+  is per output and fits in the paint loop, but isn't there yet.
+- **`kiwm` ⟷ `kicomp` IPC** (section 32) — deliberately absent in the
+  first version. When it exists it replaces only the *source* of the
+  updates; the mirror in `window.c` stays as it is.
+- **Per-output X-Density** (section 56) — the compositor doesn't scale
+  the scene by density yet.
 
-## Shape e as camadas do kiwm
+## Shape and kiwm's layers
 
-**Shape.** Composto, o servidor não recorta mais nada: `NameWindowPixmap`
-entrega o retângulo inteiro da janela, então quem tem de aplicar a shape é
-o compositor. O `kicomp` lê a região `BOUNDING` da janela
-(`XFixesCreateRegionFromWindow`), guarda em cache e usa como clip do
-target a cada janela desenhada, invalidando em `ShapeNotify`/resize. É o
-que mantém os cantos arredondados do kiwm redondos e uma janela com shape
-própria (VirtualBox e afins) com a silhueta certa.
+**Shape.** Composited, the server clips nothing: `NameWindowPixmap` hands
+over the window's whole rectangle, so applying the shape is the
+compositor's job. `kicomp` reads the window's `BOUNDING` region
+(`XFixesCreateRegionFromWindow`), caches it, and uses it as the target's
+clip while that window is drawn, invalidating on `ShapeNotify`/resize. It
+is what keeps kiwm's rounded corners round and a window with a shape of
+its own (VirtualBox and the like) in the right silhouette.
 
-Isso **não** duplica trabalho com o kiwm: o kiwm *calcula* a shape (cantos
-arredondados, propagação da shape do cliente para o frame) e continua
-tendo de fazê-lo — é o que funciona sem compositor, e a *input* shape
-(cliques) é sempre do servidor, composto ou não. O kicomp só *lê* a região
-já pronta, uma vez por mudança, e reusa em todo frame.
+This does **not** duplicate work with kiwm: kiwm *computes* the shape
+(rounded corners, forwarding the client's shape onto the frame) and has
+to keep doing it — that is what works with no compositor, and the *input*
+shape (clicks) is the server's business either way. kicomp only *reads*
+the finished region, once per change, and reuses it every frame.
 
-**Camadas do kiwm.** O kiwm marca suas duas janelas de overlay com
-`_KIWM_LAYER` (`"osd"`, `"outline"` — ver `kiwm/PROTOCOL.md`). Com
-`--skip-wm-layers` o kicomp simplesmente não as coloca na cena, para
-quando ele mesmo for desenhar essas transições como efeito. O kiwm não
-sabe de nada disso e não muda de comportamento: quem decide o que mostrar
-é o compositor.
+**kiwm's layers.** kiwm marks its two overlay windows with `_KIWM_LAYER`
+(`"osd"`, `"outline"` — see `kiwm/PROTOCOL.md`). With `--skip-wm-layers`
+kicomp simply leaves them out of the scene, for when it draws those
+transitions as effects itself. kiwm knows nothing about that and doesn't
+change behaviour: what to show is the compositor's decision.
 
-(Não dá para "não redirecionar" só essas janelas: `RedirectSubwindows` no
-root vale para todos os filhos, e `UnredirectWindow` só desfaz um redirect
-*por janela* feito pelo mesmo cliente. Deixá-las fora da cena é o
-equivalente prático.)
+(There is no way to "not redirect" just those windows: `RedirectSubwindows`
+on the root covers every child, and `UnredirectWindow` only undoes a
+*per-window* redirect by the same client. Keeping them out of the scene
+is the practical equivalent.)
 
-## Teste
+## Testing
 
-`tests/argb-window.c` é o cliente de aceitação: uma janela
-override-redirect de 32 bits preenchida com uma cor meio transparente.
+`tests/argb-window.c` is the acceptance client: a 32-bit window filled
+with a half-transparent colour.
 
 ```sh
 cc -o tests/argb-window tests/argb-window.c -lxcb -lxcb-render
 ./tests/argb-window 300 300 380 260 0.5 0x30a0ff
 ```
 
-Sem compositor o quadrado é opaco; com `kicomp` ele mistura com o que
-está atrás.
+With no compositor the square is opaque; with `kicomp` it blends with
+whatever is behind it.
 
-Verificado num Xephyr 1024x768 com `kiwm` + `xterm` + `xclock`:
+Verified on a 1024x768 Xephyr with `kiwm` + `xterm` + `xclock`:
 
-- cena idêntica à não-composta (decoração, stacking, posições);
+- the scene is identical to the uncomposited one (decoration, stacking,
+  positions);
 - `xprop -id <frame> -f _NET_WM_WINDOW_OPACITY 32c -set _NET_WM_WINDOW_OPACITY 2147483647`
-  deixa a janela 50% translúcida;
-- `tests/argb-window` **decorado pelo kiwm** mistura corretamente com o
-  xterm branco atrás dele — é o teste do frame ARGB do lado do WM;
-- `--override` mistura igual, sem passar pelo WM;
-- cantos arredondados do kiwm e do próprio OSD preservados;
-- `xrandr --setmonitor` dividindo a tela em dois monitores: dois targets
-  independentes, janela atravessando a fronteira sem emenda;
-- `--single-drawable` volta para um único target do tamanho da tela;
-- `--skip-wm-layers` faz o OSD do alt-tab e o contorno sumirem da cena
-  (continuam existindo e funcionando no kiwm);
-- sem compositor, a mesma janela ARGB decorada aparece opaca e intacta —
-  nenhuma regressão no caminho não-composto;
-- matar o `kicomp` devolve a tela ao servidor sem resíduo.
+  makes the window 50% translucent;
+- `tests/argb-window` **decorated by kiwm** blends correctly with the
+  white xterm behind it — that is the test for the ARGB frame on the WM
+  side;
+- `--override` blends the same way, without going through the WM;
+- kiwm's rounded corners and the OSD's own are preserved;
+- `xrandr --setmonitor` splitting the screen into two monitors: two
+  independent targets, a window crossing the boundary seamlessly;
+- `--single-drawable` goes back to a single screen-sized target;
+- `--skip-wm-layers` makes the alt-tab OSD and the wireframe disappear
+  from the scene (they still exist and work in kiwm);
+- with no compositor, the same decorated ARGB window is opaque and
+  intact — no regression on the uncomposited path;
+- killing `kicomp` hands the screen back to the server with no residue.
 
-## Estrutura
+## Layout
 
 ```
 src/
-  comp.h              tipos e estado global (KiComp, CompOutput, CompWindow)
-  main.c              caps, seleção _NET_WM_CM_Sn, overlay, event loop, paint
+  comp.h              types and global state (KiComp, CompOutput, CompWindow)
+  main.c              caps, _NET_WM_CM_Sn selection, overlay, event loop, paint
   config.c/.h         kicomp.conf
-  output.c/.h         outputs RandR, targets e dirty state por output
-  window.c/.h         espelho da pilha de janelas (só eventos X)
-  scene.c/.h          montagem da cena por output (recorte janela ∩ output)
-  transform.c/.h      matriz 4x4 e a inversa afim que o XRender consome
-  animation.c/.h      relógio monotônico, easing, unidade global de duração
-  scheduler.c/.h      relógio de frames por output
-  effect.c/.h         core de efeitos: efeitos rodando + tabela de módulos
-  shadow.c/.h         configuração e estilo das sombras
-  effects/            um arquivo por efeito: geometry, fade-in, fade-out,
+  output.c/.h         RandR outputs, per-output targets and dirty state
+  window.c/.h         mirror of the window stack (X events only)
+  scene.c/.h          per-output scene assembly (window ∩ output clipping)
+  transform.c/.h      4x4 matrix and the affine inverse XRender consumes
+  animation.c/.h      monotonic clock, easing, the global duration unit
+  scheduler.c/.h      per-output frame clock
+  effect.c/.h         effect core: running effects + the module table
+  shadow.c/.h         shadow configuration and per-window style
+  effects/            one file per effect: geometry, fade-in, fade-out,
                       scale-in, scale-out
-  renderer.h          vtable do renderer
-  renderer-xrender.c  backend XRender
-  presenter.h         vtable do presenter
-  presenter-copy.c    backend COPY (overlay window)
+  renderer.h          renderer vtable
+  renderer-xrender.c  XRender backend
+  presenter.h         presenter vtable
+  presenter-copy.c    COPY backend (overlay window)
 tests/
-  argb-window.c       cliente de teste ARGB
+  argb-window.c       ARGB test client
 ```
