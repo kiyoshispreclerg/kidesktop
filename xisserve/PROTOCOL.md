@@ -103,6 +103,43 @@ shipped widget with no page implemented for it.)
   still opens the same history inline as a panel menu, which needs no
   second process at all.
 
+## `--menu`: an application menu popup for a window manager
+
+`--menu` is the one mode that is **not** part of the xispanel contract
+above and **not** subject to the singleton behavior below. It exists for
+a window manager that wants an application-menu button in its decoration
+without becoming a DBus client itself -- kiwm's `appmenu` titlebar
+element does exactly that, running `kiwm.conf`'s `appmenu_command=` on
+each click:
+
+```
+xisserve --menu <window> <x> <y>
+xisserve --menu --window=<id> --menu-x=<px> --menu-y=<px>
+```
+
+Both spellings are accepted (and can be mixed; a flag wins over the
+positional in its slot). `<window>` is an X window id, decimal or
+`0x`-prefixed -- `0`, or no window at all, means whatever
+`_NET_ACTIVE_WINDOW` points at, since a decoration click doesn't
+necessarily make that window active first. `<x>`/`<y>` are root
+coordinates for the menu's top-left corner; GTK still keeps the menu on
+screen if that would run it off an edge.
+
+xisserve reads `_KDE_NET_WM_APPMENU_SERVICE_NAME`/`_OBJECT_PATH` off the
+window (the same pair the `globalmenu` search plugin reads off the active
+one), fetches the whole tree with one DBusMenu `GetLayout(0, -1)`, pops
+it as a real cascading GTK menu, and exits when the menu is dismissed or
+an item is chosen -- an activation goes back to the application as a
+DBusMenu `Event`, exactly as choosing it in the app's own menu bar would.
+The process lives for as long as the menu is on screen and no longer.
+
+It deliberately takes **no** singleton lock and opens no control socket:
+a menu popup is per-click and transient, and relaying it into a running
+launcher would leave that instance's window fighting for the position and
+the input grab. Exit status is non-zero (with a message on stderr) when
+the window exports no menu or the menu comes back empty -- kiwm hides the
+button for such windows anyway, so this is the belt to that suspenders.
+
 ## Singleton / toggle behavior (xisserve's own responsibility)
 
 xispanel does **not** track whether xisserve is already running, hold a

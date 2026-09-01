@@ -36,7 +36,7 @@ endif
 # runtime -- or present with no sound server answering -- the page shows
 # an explanatory placeholder instead of failing. Same "shell out, don't
 # reimplement" call xispanel/pulse.c already made, for the same reason.
-SRCS := xisserve.c plugins/terminal.c plugins/globalmenu.c $(DBUS_SRC) \
+SRCS := xisserve.c appmenu.c plugins/terminal.c plugins/globalmenu.c $(DBUS_SRC) \
         pages/calendar.c pages/audio.c pages/pulse.c
 OBJS := $(SRCS:.c=.o)
 HDRS := xisserve.h plugins/dbusmenu.h pages/pulse.h

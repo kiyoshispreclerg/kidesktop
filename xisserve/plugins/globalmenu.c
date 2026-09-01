@@ -164,23 +164,37 @@ static void menu_item_activate(ResultEntry *self)
     if (ctx) dbusmenu_send_event(ctx->busname, ctx->objpath, ctx->id);
 }
 
+/* The DBusMenu busname+path a window exports, or FALSE when it exports
+ * none. `window` of 0 means "whatever _NET_ACTIVE_WINDOW currently
+ * points at", which is what the search plugin below wants; appmenu.c
+ * passes the window kiwm's titlebar button was clicked on instead, since
+ * clicking a decoration doesn't necessarily make that window active
+ * first. Lives here because this file already owns the atoms and the
+ * property reader. */
+gboolean xisserve_window_appmenu(unsigned long window, char *busname, size_t bn_sz,
+                                 char *objpath, size_t op_sz)
+{
+    busname[0] = objpath[0] = 0;
+
+    GdkDisplay *gdk_dpy = gdk_display_get_default();
+    if (!gdk_dpy) return FALSE;
+    Display *dpy = GDK_DISPLAY_XDISPLAY(gdk_dpy);
+    ensure_atoms(dpy);
+
+    Window w = window ? (Window)window : get_active_window(dpy, GDK_ROOT_WINDOW());
+    if (w == None) return FALSE;
+
+    read_string_prop(dpy, w, g_atom_service, busname, bn_sz);
+    read_string_prop(dpy, w, g_atom_path, objpath, op_sz);
+    return busname[0] && objpath[0];
+}
+
 void plugin_globalmenu_search(const char *query, GPtrArray *results)
 {
     if (!query || !*query) return;
 
-    GdkDisplay *gdk_dpy = gdk_display_get_default();
-    if (!gdk_dpy) return;
-    Display *dpy = GDK_DISPLAY_XDISPLAY(gdk_dpy);
-    Window root = GDK_ROOT_WINDOW();
-    ensure_atoms(dpy);
-
-    Window active = get_active_window(dpy, root);
-    if (active == None) return;
-
     char busname[128] = "", objpath[128] = "";
-    read_string_prop(dpy, active, g_atom_service, busname, sizeof(busname));
-    read_string_prop(dpy, active, g_atom_path, objpath, sizeof(objpath));
-    if (!busname[0] || !objpath[0]) return;
+    if (!xisserve_window_appmenu(0, busname, sizeof(busname), objpath, sizeof(objpath))) return;
 
     /* static: DBUSMENU_MAX_ITEMS DbusMenuItems (128-byte label each) is
      * a little large for a comfortable stack frame called on every

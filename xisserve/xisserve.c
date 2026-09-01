@@ -88,6 +88,15 @@ typedef struct {
     char font[128];
     int font_size;
     int page; /* index into kPages, or PAGE_LAUNCHER for the default view -- see PROTOCOL.md's mode flags */
+
+    /* --menu: not a page and not the launcher at all, but a one-shot
+     * application-menu popup for one window (see appmenu.c). Handled in
+     * main() before the singleton lock, since it neither is nor should
+     * disturb the running launcher instance. `menu_window` of 0 means
+     * the active window. */
+    int menu_mode;
+    unsigned long menu_window;
+    int menu_x, menu_y;
 } LaunchArgs;
 
 static LaunchArgs g_args;
@@ -125,6 +134,7 @@ enum {
     OPT_ANCHOR_X = 1000, OPT_ANCHOR_Y, OPT_ANCHOR_W, OPT_ANCHOR_H,
     OPT_EDGE, OPT_OUTPUT_X, OPT_OUTPUT_Y, OPT_OUTPUT_W, OPT_OUTPUT_H,
     OPT_BG, OPT_FG, OPT_FONT, OPT_FONT_SIZE,
+    OPT_MENU, OPT_MENU_WINDOW, OPT_MENU_X, OPT_MENU_Y,
     /* Page mode flags occupy OPT_PAGE_BASE + <index into kPages>, so
      * kPages stays the single place a page's flag name is written. */
     OPT_PAGE_BASE = 2000,
@@ -144,6 +154,14 @@ static const struct option kFixedOpts[] = {
     {"fg", required_argument, 0, OPT_FG},
     {"font", required_argument, 0, OPT_FONT},
     {"font-size", required_argument, 0, OPT_FONT_SIZE},
+    /* --menu takes its window/x/y either as these flags or as three
+     * positional arguments after it, so a caller can write the short
+     * form a WM's own config is comfortable with -- kiwm's documented
+     * example is `xisserve --menu %w %x %y`. */
+    {"menu", no_argument, 0, OPT_MENU},
+    {"window", required_argument, 0, OPT_MENU_WINDOW},
+    {"menu-x", required_argument, 0, OPT_MENU_X},
+    {"menu-y", required_argument, 0, OPT_MENU_Y},
 };
 #define N_FIXED_OPTS ((int)(sizeof(kFixedOpts) / sizeof(kFixedOpts[0])))
 
@@ -157,7 +175,9 @@ static void usage(const char *argv0)
     for (int i = 0; i < N_PAGES; i++) {
         fprintf(stderr, " [--%s]", kPages[i].flag);
     }
-    fprintf(stderr, "\n       %s --version\n", argv0);
+    fprintf(stderr, "\n       %s --menu [<window> <x> <y>] "
+                    "[--window=<id>] [--menu-x=<px>] [--menu-y=<px>]\n", argv0);
+    fprintf(stderr, "       %s --version\n", argv0);
 }
 
 static int parse_argv(int argc, char **argv, LaunchArgs *a)
@@ -215,7 +235,27 @@ static int parse_argv(int argc, char **argv, LaunchArgs *a)
         case OPT_FG: snprintf(a->fg, sizeof(a->fg), "%s", optarg); break;
         case OPT_FONT: snprintf(a->font, sizeof(a->font), "%s", optarg); break;
         case OPT_FONT_SIZE: a->font_size = atoi(optarg); break;
+        case OPT_MENU: a->menu_mode = 1; break;
+        /* strtoul base 0: a window id is as likely to be written the way
+         * xprop prints it (0x3800004) as the decimal kiwm substitutes. */
+        case OPT_MENU_WINDOW: a->menu_window = strtoul(optarg, NULL, 0); break;
+        case OPT_MENU_X: a->menu_x = atoi(optarg); break;
+        case OPT_MENU_Y: a->menu_y = atoi(optarg); break;
         default: break; /* unknown flag -- ignored on purpose, see above */
+        }
+    }
+
+    /* Positional form: `--menu <window> <x> <y>`. Only read in menu mode,
+     * and only for the values no flag already gave, so the two spellings
+     * can be mixed without either overriding the other by accident. */
+    if (a->menu_mode) {
+        int pos = 0;
+        for (int i = optind; i < argc && pos < 3; i++) {
+            const char *v = argv[i];
+            if (pos == 0 && !a->menu_window) a->menu_window = strtoul(v, NULL, 0);
+            else if (pos == 1 && !a->menu_x)  a->menu_x = atoi(v);
+            else if (pos == 2 && !a->menu_y)  a->menu_y = atoi(v);
+            pos++;
         }
     }
     return 0;
@@ -1981,6 +2021,13 @@ int main(int argc, char **argv)
         usage(argv[0]);
         return 1;
     }
+
+    /* --menu is a one-shot popup for another process's window (see
+     * appmenu.c), so it stops here: no singleton lock, no control
+     * socket, no launcher window -- and no disturbing a launcher that
+     * happens to be running. */
+    if (args.menu_mode)
+        return appmenu_run(args.menu_window, args.menu_x, args.menu_y);
 
     const char *rundir = getenv("XDG_RUNTIME_DIR");
     if (!rundir || !*rundir) rundir = "/tmp";

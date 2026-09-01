@@ -59,6 +59,28 @@ void result_entry_free(ResultEntry *e);
 typedef void (*SearchPluginFn)(const char *query, GPtrArray *results);
 
 void plugin_terminal_search(const char *query, GPtrArray *results);
+
+/* The com.canonical.dbusmenu busname+object path a window exports
+ * (_KDE_NET_WM_APPMENU_SERVICE_NAME/_OBJECT_PATH, what every Qt/KF5 app
+ * sets), or FALSE when it exports none. `window` of 0 means the current
+ * _NET_ACTIVE_WINDOW. Implemented in plugins/globalmenu.c, which already
+ * owns those atoms; used by the search plugin there and by appmenu.c's
+ * --menu mode. */
+gboolean xisserve_window_appmenu(unsigned long window, char *busname, size_t bn_sz,
+                                 char *objpath, size_t op_sz);
+
+/* --menu mode: pops up `window`'s exported application menu as a real
+ * cascading GTK menu at root coordinates (x, y) and runs its own
+ * gtk_main() until the menu is dismissed or an item is activated (which
+ * is sent back to the app as a DBusMenu Event). `window` of 0 falls back
+ * to the active window. Returns the process exit code.
+ *
+ * Deliberately outside the launcher's singleton/control-socket
+ * machinery: this is a one-shot popup, launched per click by whatever
+ * drew the button (kiwm's appmenu titlebar element, via kiwm.conf's
+ * appmenu_command=), and it must not disturb a running launcher's own
+ * window. */
+int appmenu_run(unsigned long window, int x, int y);
 void plugin_globalmenu_search(const char *query, GPtrArray *results);
 
 /* Same fork+setsid+execl-via-sh-c "don't wait" pattern xispanel.c's own

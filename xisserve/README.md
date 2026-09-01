@@ -100,6 +100,28 @@ table in `xisserve.c`:
   output appears to do nothing while the audio you can actually hear
   keeps coming out of the old device.
 
+## `--menu`: the decoration's application menu
+
+`appmenu.c` is a mode rather than a page: no launcher window, no
+singleton lock, no control socket. `xisserve --menu <window> <x> <y>`
+pops that window's exported application menu (File/Edit/View...) as a
+real cascading GTK menu at those root coordinates, sends a DBusMenu
+`Event` for whatever is chosen, and exits when the menu goes away.
+
+It exists so a window manager can put an application-menu button in its
+decoration without becoming a DBus client: [kiwm](../kiwm)'s `appmenu`
+titlebar element draws the button, checks only that the window carries
+the `_KDE_NET_WM_APPMENU_*` properties, and runs `appmenu_command=`
+(`xisserve --menu %w %x %y`) on a click. Bus round-trips in a
+compositing WM's own process are exactly what that avoids -- see
+`PROTOCOL.md` for the full contract.
+
+The whole tree comes back in one `GetLayout(0, -1)`, the same call the
+`globalmenu` search plugin makes, so submenus are populated before they
+open. An application that only fills a submenu on `AboutToShow` would
+show it empty; nothing tested does, and neither this nor xispanel's own
+cascading menus send that call yet.
+
 ## Keeping the window open ("Fixar")
 
 Every view shares one header strip, and the toggle in it is the whole
