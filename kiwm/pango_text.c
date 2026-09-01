@@ -72,3 +72,66 @@ void pango_show_text_boxed(cairo_t *cr, double x, double top_y, double box_h, do
     pango_cairo_show_layout(cr, layout);
     g_object_unref(layout);
 }
+
+/* The titlebar's own text: the same layout, plus whatever the theme's
+ * colors file asked for on top of the plain face -- weight/style
+ * (font_weight=/font_style=), a hard drop shadow (title_shadow=,
+ * title_shadow_offset=) and/or an outline around the glyphs
+ * (title_outline=, title_outline_width=). All of it is off by default, in
+ * which case this is exactly pango_show_text_boxed() with the fill color
+ * applied here instead of by the caller.
+ *
+ * Weight and style are set on the shared PangoFontDescription and put back
+ * afterwards, so the switcher and menu text (which draw through
+ * pango_show_text_boxed() above) keep the theme's plain face rather than
+ * inheriting a bold/italic title.
+ *
+ * Draw order is shadow, outline, fill: the shadow is a whole second copy
+ * of the text offset behind everything, the outline is one stroke of the
+ * glyph path (pango_cairo_layout_path(), so it costs a path build and a
+ * stroke, not a per-glyph redraw) straddling the letter's edge, and the
+ * fill goes over both. */
+void pango_show_title_text(cairo_t *cr, double x, double top_y, double box_h, double max_width_px,
+                           double size_px, const char *text, bool center,
+                           double fr, double fg, double fb)
+{
+    PangoWeight prev_weight = pango_font_description_get_weight(g_desc);
+    PangoStyle prev_style = pango_font_description_get_style(g_desc);
+    pango_font_description_set_weight(g_desc, (PangoWeight)wm.title_weight);
+    pango_font_description_set_style(g_desc, (PangoStyle)wm.title_style);
+
+    PangoLayout *layout = build_layout(cr, text, size_px, max_width_px, center);
+    int lw, lh;
+    (void)lw;
+    pango_layout_get_pixel_size(layout, &lw, &lh);
+    double y = top_y + (box_h - lh) / 2.0;
+
+    if (wm.title_shadow) {
+        cairo_set_source_rgba(cr, wm.title_shadow_r, wm.title_shadow_g, wm.title_shadow_b,
+                              wm.title_shadow_a);
+        cairo_move_to(cr, x + wm.title_shadow_dx, y + wm.title_shadow_dy);
+        pango_cairo_show_layout(cr, layout);
+    }
+
+    if (wm.title_outline && wm.title_outline_width > 0.0) {
+        cairo_set_source_rgba(cr, wm.title_outline_r, wm.title_outline_g, wm.title_outline_b,
+                              wm.title_outline_a);
+        cairo_set_line_width(cr, wm.title_outline_width);
+        /* Round joins/caps: a miter join on a glyph's sharp corners (the
+         * apex of an A, the ends of a serif) spikes out well past the
+         * stroke width at titlebar sizes. */
+        cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+        cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+        cairo_move_to(cr, x, y);
+        pango_cairo_layout_path(cr, layout);
+        cairo_stroke(cr);
+    }
+
+    cairo_set_source_rgb(cr, fr, fg, fb);
+    cairo_move_to(cr, x, y);
+    pango_cairo_show_layout(cr, layout);
+    g_object_unref(layout);
+
+    pango_font_description_set_weight(g_desc, prev_weight);
+    pango_font_description_set_style(g_desc, prev_style);
+}

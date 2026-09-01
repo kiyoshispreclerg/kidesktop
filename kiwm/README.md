@@ -459,13 +459,19 @@ these, all optional and independent -- a theme missing some files just falls bac
   itself would just
   show the desktop background poking through.
 
-  Three more keys control the title text, rendered via Pango (per-glyph font fallback, so titles
-  in scripts the default font doesn't cover -- CJK, Cyrillic, Arabic, etc. -- still show up instead
-  of leaving blank gaps, plus proper `...` ellipsizing instead of a hard clip):
+  The rest of the file describes the title text, rendered via Pango (per-glyph font fallback, so
+  titles in scripts the default font doesn't cover -- CJK, Cyrillic, Arabic, etc. -- still show up
+  instead of leaving blank gaps, plus proper `...` ellipsizing instead of a hard clip):
   ```
   font=sans-serif
   font_size=12.5
   title_center=0
+  font_weight=normal
+  font_style=normal
+  title_shadow=none
+  title_shadow_offset=1 1
+  title_outline=none
+  title_outline_width=1
   ```
   `font=` is any Fontconfig family name; `font_size=` is in pixels. Both default to the values
   above (kiwm's original hardcoded look) if left out or no `colors` file exists. `title_center=`
@@ -473,6 +479,24 @@ these, all optional and independent -- a theme missing some files just falls bac
   title element is always the greedy one in `titlebar_layout=` (it soaks up whatever width isn't
   used by the other elements), so this is just a text alignment choice, no separate spacer element
   needed either way.
+
+  `font_weight=` takes a name (`thin`, `ultralight`, `light`, `semilight`, `book`, `normal`,
+  `medium`, `semibold`, `bold`, `ultrabold`, `heavy`/`black`) or a raw Pango weight number
+  (`100`-`1000`); `font_style=` takes `normal`, `italic` or `oblique`. Both are applied to the
+  shared font description **only while the title is drawn** and put back afterwards, so a bold
+  title doesn't also bold the switcher and window-menu text.
+
+  `title_shadow=` and `title_outline=` are off until given a color (`#rrggbb`/`#rrggbbaa`, or
+  `none` to switch one back off), and the color is the switch -- there's no separate enable key.
+  The shadow is the same text drawn again underneath, offset by `title_shadow_offset=` (`dx dy`,
+  or a single number for both axes; negatives cast it up and/or to the left). Deliberately a hard
+  drop shadow, not a blurred one: a blur would mean a second surface per title draw, and at
+  titlebar sizes this is what reads as a shadow anyway. The outline strokes the glyph outlines --
+  Pango hands the whole glyph run to cairo as a path, so it's one stroke, not a per-glyph redraw
+  -- at `title_outline_width=` pixels (default `1`, capped at `8`), straddling each letter's edge
+  so a 1px outline doesn't swallow thin strokes. Both effects keep their alpha, unlike
+  `fg_active`/`fg_inactive` (whose alpha is about the titlebar's translucency, so the name stays
+  readable); drawing order is shadow, then outline, then the fill on top.
 
 ### Mouse and keyboard reference
 

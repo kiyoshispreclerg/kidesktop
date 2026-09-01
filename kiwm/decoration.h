@@ -65,4 +65,14 @@ void pango_text_init(const char *family);
 void pango_show_text_boxed(cairo_t *cr, double x, double top_y, double box_h, double max_width_px, double size_px,
                             const char *text, bool center, double *out_w);
 
+/* The same, for the titlebar's title element: also applies the theme's
+ * font_weight=/font_style= and draws its title_shadow=/title_outline=
+ * (see wm.h's title_* fields), and takes the fill color itself rather than
+ * inheriting whatever cairo's source happens to be, since it has two other
+ * colors of its own to set first. With every effect left at its default
+ * this is pango_show_text_boxed() with an explicit color. */
+void pango_show_title_text(cairo_t *cr, double x, double top_y, double box_h, double max_width_px,
+                           double size_px, const char *text, bool center,
+                           double fr, double fg, double fb);
+
 #endif /* KIWM_DECORATION_H */

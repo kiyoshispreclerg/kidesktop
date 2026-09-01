@@ -721,6 +721,36 @@ typedef struct {
     double title_font_size;
     bool title_center;
 
+    /* How that text is *styled*, all from the same colors file and all off
+     * by default, so a theme written before any of this looks exactly as
+     * it did. font_weight= is a Pango weight (a name like "bold", or a
+     * raw 100..1000 number) and font_style= is normal/italic/oblique --
+     * both applied to the shared PangoFontDescription only while the title
+     * itself is drawn, so the menu and switcher text keep the theme's
+     * plain face. See pango_text.c's pango_show_title_text(). */
+    int title_weight;    /* PangoWeight number, 400 = normal */
+    int title_style;     /* PangoStyle number, 0 = normal */
+
+    /* title_shadow= (a color; unset = no shadow) drawn as the same text
+     * again underneath, offset by title_shadow_offset= "dx dy" pixels
+     * (default 1 1, negatives fine). Cheap on purpose -- a real blur would
+     * mean a second surface per title draw, and a hard drop shadow is what
+     * a titlebar this size actually reads as anyway. */
+    bool title_shadow;
+    double title_shadow_r, title_shadow_g, title_shadow_b, title_shadow_a;
+    double title_shadow_dx, title_shadow_dy;
+
+    /* title_outline= (a color; unset = no outline) stroked around the
+     * glyphs at title_outline_width= pixels (default 1). Pango hands the
+     * glyph run to cairo as a path (pango_cairo_layout_path()), so this is
+     * one extra stroke of that path, not a per-glyph redraw: cheap enough
+     * to leave on. The stroke straddles the glyph edge, half of it inside
+     * the letter, which is what keeps a 1px outline from swallowing thin
+     * strokes at titlebar sizes. */
+    bool title_outline;
+    double title_outline_r, title_outline_g, title_outline_b, title_outline_a;
+    double title_outline_width;
+
     /* Theme colors, each with an alpha channel: every color kiwm reads --
      * here from the theme's `colors` file, and kiwm.conf's own deco_bg=/
      * deco_fg=/border_color= below -- takes either #rrggbb (opaque) or

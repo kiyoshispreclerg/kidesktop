@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 static cairo_surface_t *load_png_argb(const char *path)
 {
@@ -192,6 +193,74 @@ static void load_btn_theme(void)
             path, wm.btn_cell_w, wm.btn_cell_h);
 }
 
+/* "bold", "semibold", "light", ... or a raw Pango weight number
+ * (100..1000) -> PangoWeight. Named after the CSS/Pango names a theme
+ * author would reach for; anything unrecognized keeps normal, with a
+ * warning, like every other bad value in this file. */
+static int parse_font_weight(const char *val)
+{
+    static const struct { const char *name; int weight; } weights[] = {
+        { "thin", 100 },       { "ultralight", 200 }, { "light", 300 },
+        { "semilight", 350 },  { "book", 380 },       { "normal", 400 },
+        { "regular", 400 },    { "medium", 500 },     { "semibold", 600 },
+        { "bold", 700 },       { "ultrabold", 800 },  { "heavy", 900 },
+        { "black", 900 },
+    };
+    for (size_t i = 0; i < sizeof(weights) / sizeof(weights[0]); i++)
+        if (strcasecmp(val, weights[i].name) == 0)
+            return weights[i].weight;
+
+    int n = atoi(val);
+    if (n >= 100 && n <= 1000)
+        return n;
+
+    fprintf(stderr, "kiwm: theme: unknown font_weight '%s' (expected e.g. normal, bold, "
+                    "or 100-1000), keeping normal\n", val);
+    return 400;
+}
+
+/* normal / italic / oblique -> PangoStyle (0/2/1 -- the enum's own order,
+ * spelled out here so this file doesn't have to include Pango just for
+ * three integers; pango_text.c casts them back). */
+static int parse_font_style(const char *val)
+{
+    if (strcasecmp(val, "normal") == 0)  return 0;
+    if (strcasecmp(val, "oblique") == 0) return 1;
+    if (strcasecmp(val, "italic") == 0)  return 2;
+    fprintf(stderr, "kiwm: theme: unknown font_style '%s' (expected normal, italic or oblique), "
+                    "keeping normal\n", val);
+    return 0;
+}
+
+/* A color that also acts as its effect's on/off switch: "none" (or an
+ * empty value) turns the effect off, a parseable color turns it on. That
+ * way a theme disables a shadow by clearing the line rather than needing a
+ * separate title_shadow_enabled= key next to it. */
+static bool parse_effect_color(const char *val, double *r, double *g, double *b, double *a)
+{
+    if (!val[0] || strcasecmp(val, "none") == 0 || strcasecmp(val, "off") == 0)
+        return false;
+    if (!parse_hex_color(val, r, g, b, a)) {
+        fprintf(stderr, "kiwm: theme: invalid color '%s' (expected #rrggbb, #rrggbbaa or none)\n", val);
+        return false;
+    }
+    return true;
+}
+
+/* "dx dy", or a single number used for both axes. Negatives are fine --
+ * that's a shadow cast up and/or to the left. */
+static void parse_offset(const char *val, double *dx, double *dy)
+{
+    double x = 0, y = 0;
+    int n = sscanf(val, "%lf %lf", &x, &y);
+    if (n < 1) {
+        fprintf(stderr, "kiwm: theme: invalid offset '%s' (expected \"dx dy\")\n", val);
+        return;
+    }
+    *dx = x;
+    *dy = (n == 2) ? y : x;
+}
+
 static void load_colors_theme(void)
 {
     char path[512];
@@ -260,6 +329,25 @@ static void load_colors_theme(void)
                 wm.title_font_size = v;
         } else if (strcmp(key, "title_center") == 0) {
             wm.title_center = atoi(val) != 0;
+        } else if (strcmp(key, "font_weight") == 0) {
+            wm.title_weight = parse_font_weight(val);
+        } else if (strcmp(key, "font_style") == 0) {
+            wm.title_style = parse_font_style(val);
+        } else if (strcmp(key, "title_shadow") == 0) {
+            wm.title_shadow = parse_effect_color(val, &wm.title_shadow_r, &wm.title_shadow_g,
+                                                 &wm.title_shadow_b, &wm.title_shadow_a);
+        } else if (strcmp(key, "title_shadow_offset") == 0) {
+            parse_offset(val, &wm.title_shadow_dx, &wm.title_shadow_dy);
+        } else if (strcmp(key, "title_outline") == 0) {
+            wm.title_outline = parse_effect_color(val, &wm.title_outline_r, &wm.title_outline_g,
+                                                  &wm.title_outline_b, &wm.title_outline_a);
+        } else if (strcmp(key, "title_outline_width") == 0) {
+            double v = atof(val);
+            if (v < 0) v = 0;
+            /* Past a few pixels the stroke stops being an outline and
+             * starts being a blob with a letter somewhere inside it. */
+            if (v > 8.0) v = 8.0;
+            wm.title_outline_width = v;
         }
     }
     fclose(f);
@@ -377,6 +465,12 @@ void load_decoration(void)
     wm.title_font[0] = '\0';   /* empty -- pango_text_init() falls back to "sans-serif" */
     wm.title_font_size = 12.5; /* the old hardcoded cairo_set_font_size() value */
     wm.title_center = false;
+    wm.title_weight = 400;     /* PANGO_WEIGHT_NORMAL */
+    wm.title_style = 0;        /* PANGO_STYLE_NORMAL */
+    wm.title_shadow = false;
+    wm.title_shadow_dx = wm.title_shadow_dy = 1.0;
+    wm.title_outline = false;
+    wm.title_outline_width = 1.0;
     wm.hover_btn = -1;
 
     load_bg_theme();
@@ -820,19 +914,23 @@ void draw_decoration(Client *c)
         switch (s->kind) {
         case DECO_TITLE: {
             /* Buttons drawn earlier in the layout order leave cr's source
-             * set to whatever color they last used -- always re-apply the
-             * title color here rather than once up front, since which
-             * elements come "before" the title in draw order depends on
-             * the configured titlebar_layout=.
+             * set to whatever color they last used, and the title's own
+             * shadow/outline set two more of their own -- so the fill
+             * color is handed to pango_show_title_text() rather than left
+             * on cr, and applied there last of the three.
              *
              * Always fully opaque, whatever alpha fg_active=/fg_inactive=
              * carry: an alpha channel on those is about the titlebar's own
              * translucency, and the window's name has to stay readable
-             * over whatever shows through it. */
-            if (focused)
-                cairo_set_source_rgb(cr, wm.fg_active_r, wm.fg_active_g, wm.fg_active_b);
-            else
-                cairo_set_source_rgb(cr, wm.fg_inactive_r, wm.fg_inactive_g, wm.fg_inactive_b);
+             * over whatever shows through it. (The shadow and outline
+             * colors do keep their alpha -- being able to lay a 50%-black
+             * shadow over the titlebar is the point of having one.) */
+            double tr, tg, tb;
+            if (focused) {
+                tr = wm.fg_active_r; tg = wm.fg_active_g; tb = wm.fg_active_b;
+            } else {
+                tr = wm.fg_inactive_r; tg = wm.fg_inactive_g; tb = wm.fg_inactive_b;
+            }
 
             /* Pango handles both missing-glyph fallback (any script, not
              * just whatever the toy font API's single face covers) and
@@ -841,10 +939,11 @@ void draw_decoration(Client *c)
              * the slot's full width with no left pad, since Pango's own
              * alignment already balances the space on both sides. */
             if (wm.title_center)
-                pango_show_text_boxed(cr, s->x, 0, TITLEBAR_H, s->width, wm.title_font_size, c->title, true, NULL);
+                pango_show_title_text(cr, s->x, 0, TITLEBAR_H, s->width, wm.title_font_size,
+                                      c->title, true, tr, tg, tb);
             else
-                pango_show_text_boxed(cr, s->x + 8.0, 0, TITLEBAR_H, s->width - 8.0, wm.title_font_size, c->title,
-                                      false, NULL);
+                pango_show_title_text(cr, s->x + 8.0, 0, TITLEBAR_H, s->width - 8.0, wm.title_font_size,
+                                      c->title, false, tr, tg, tb);
             break;
         }
         case DECO_ICON:
