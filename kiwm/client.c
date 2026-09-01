@@ -2130,18 +2130,30 @@ void manage(xcb_window_t window, bool map_requested)
     c->width = geo->width < c->min_w ? c->min_w : geo->width;
     c->height = geo->height < c->min_h ? c->min_h : geo->height;
 
-    /* An ARGB client gets an ARGB frame. Reparenting a depth-32 window
-     * into a depth-24 frame is legal and looks fine uncomposited, but the
-     * client then draws into the *frame's* backing pixmap, which has no
-     * alpha channel -- so the transparency is gone before a compositor
-     * ever sees it, and no compositor can recover it. Matching the depth
-     * costs nothing on a plain X server (a 32-bit window with no
-     * compositor is simply displayed as opaque, as it always was) and is
-     * the whole difference for a composited one. */
-    if (geo->depth == 32 && wm.argb_visual) {
+    /* Every frame is an ARGB frame, whatever the client's own depth is.
+     *
+     * For an ARGB client it is the only way its alpha survives: it draws
+     * into the *frame's* backing pixmap, and a depth-24 pixmap has no
+     * alpha channel to draw it into -- the transparency would be gone
+     * before a compositor ever saw it, unrecoverable.
+     *
+     * For an ordinary depth-24 client it is what makes kiwm's *own*
+     * decoration able to be translucent. The client's pixels are opaque
+     * either way (it fills its own region), but the titlebar and borders
+     * are drawn by kiwm, and they can only have real alpha if the surface
+     * they land on has an alpha channel. Deciding this from the client's
+     * depth -- as this did at first -- made a themed titlebar translucent
+     * over Konsole and opaque over Kate, which is a property of the
+     * theme, not of the application.
+     *
+     * Costs nothing on a plain X server: with no compositor a 32-bit
+     * window is simply displayed as opaque, exactly as before. */
+    if (wm.argb_visual) {
         c->frame_depth = 32;
         c->frame_visual = wm.argb_visual;
     } else {
+        /* A screen with no 32-bit visual at all: root depth everywhere,
+         * and no transparency to be had from anything. */
         c->frame_depth = wm.screen->root_depth;
         c->frame_visual = wm.visual;
     }
