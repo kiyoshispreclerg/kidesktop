@@ -7,6 +7,7 @@ composição, com transparência real (alpha de janelas de 32 bits e
 `_NET_WM_WINDOW_OPACITY`) como única diferença. Hoje já tem também:
 
 - shape aplicada na composição (cantos arredondados, clientes com shape);
+- sombras configuráveis, diferentes entre janela ativa e inativa;
 - interface de efeitos: *geometry change*, *fade in/out*, *scale in/out*;
 - relógio de frames por output para as animações;
 - configuração em `kicomp.conf`.
@@ -39,18 +40,19 @@ de apresentação, capabilities detectadas, e quantos drawables existem e
 por quê — atualizado a cada mudança de output:
 
 ```
-kicomp: kicomp 0.2.0 on :0 screen 0 (3840x1080)
+kicomp: kicomp 0.2.1 on :0 screen 0 (3840x1080)
 kicomp: renderer=xrender presenter=copy
 kicomp: capabilities: composite=1 overlay=1 damage=1 xfixes=1 render=1 randr=1 present=0 flip-per-crtc=0
 kicomp: 2 drawables (one per output)
 kicomp:   [0] DP-1         1920x1080+0+0 @ 143.98 Hz
 kicomp:   [1] HDMI-1       1920x1080+1920+0 @ 60.00 Hz
+kicomp: shadows: radius 14/10, opacity 0.45/0.25, offset +0+6/+0+3 (focused/unfocused)
 kicomp: effects on, animation unit 160 ms
-kicomp:   geometry   on , 160 ms
-kicomp:   fade-in    on , 160 ms
-kicomp:   fade-out   on , 160 ms
-kicomp:   scale-in   off, 160 ms
-kicomp:   scale-out  off, 160 ms
+kicomp:   geometry     on   160 ms out     on: maximize,unmaximize,fullscreen,unfullscreen,move  for: unknown,normal,dialog,utility,toolbar
+kicomp:   fade-in      on   160 ms out     on: open,restore,desktop-enter  for: all
+kicomp:   fade-out     on   160 ms out     on: close  for: ...
+kicomp:   scale-in     off  160 ms out     on: open,restore,desktop-enter  for: ...
+kicomp:   scale-out    off  160 ms out     on: close  for: ...
 ```
 
 com `--single-drawable`:
@@ -82,6 +84,21 @@ renderer           = auto  # auto | xrender
 presenter          = auto  # auto | copy
 single_drawable    = 0     # 1 = modo legado, um drawable pra tela toda
 skip_wm_layers     = 0     # 1 = não compõe o OSD/contorno do kiwm
+
+# ---- sombras ----
+[shadow]
+enabled  = 1
+windows  = windows,menus     # tipos que recebem sombra
+radius   = 14                # raio do blur, em pixels
+opacity  = 0.45
+offset_x = 0
+offset_y = 6
+color    = #000000
+# os mesmos cinco para janelas sem foco; o que não aparecer aqui
+# repete o valor da janela ativa
+radius_inactive  = 10
+opacity_inactive = 0.25
+offset_y_inactive = 3
 
 # ---- efeitos ----
 [effect:geometry]
@@ -159,9 +176,10 @@ desacelera o desktop inteiro de forma coerente, em vez de deixar um
 punhado de animações reguladas independentemente. `animation_duration=0`
 mantém os efeitos ligados mas termina todos imediatamente.
 
-Toda seção de efeito aceita as quatro chaves universais — `enabled`,
-`duration`, `events` (quais eventos), `windows` (quais tipos de janela) —
-e além dessas as que o próprio efeito entender; cada módulo parseia as
+Toda seção de efeito aceita as cinco chaves universais — `enabled`,
+`duration`, `events` (quais eventos), `windows` (quais tipos de janela) e
+`easing` (como o movimento é distribuído) — e além dessas as que o
+próprio efeito entender; cada módulo parseia as
 suas (`config_key` em `effect.h`), e uma chave que ele não conhece vira
 aviso no terminal em vez de sumir em silêncio.
 
@@ -191,6 +209,89 @@ events = close,minimize             # some ao fechar E ao minimizar
 módulo, então um efeito nunca recebe um evento que o usuário não pediu —
 é por isso que "enrolar no shade sem o geometry deslizando junto" é uma
 linha de config, e não um caso especial dentro de um efeito.
+
+## Easing
+
+`easing=` diz como um movimento entre dois pontos é distribuído no tempo
+— e vale para qualquer efeito, porque quem aplica a curva é o core:
+
+| valor | como é |
+|---|---|
+| `linear` | parelho do início ao fim |
+| `in` | devagar no começo, mais rápido ao chegar — peso na origem |
+| `out` | rápido no começo, freando ao chegar — peso no destino (**padrão**) |
+| `in-out` | devagar nas duas pontas, rápido no meio |
+| `spring` | passa um pouco do destino e volta, como um objeto com massa |
+
+Os nomes do CSS (`ease-in`, `ease-out`, `ease-in-out`) também são
+aceitos. O `spring` é o que dá a sensação "slick": um leve overshoot de
+poucos por cento, amortecido bem antes do fim, e preso nas duas pontas —
+a animação ainda começa exatamente onde começou e para exatamente onde
+deve.
+
+```ini
+[effect:geometry]
+easing = spring
+
+[effect:fade-in]
+easing = linear     # fade com curva não engana ninguém
+```
+
+## Sombras
+
+Sombra não é efeito — nada nela anima —, então tem seção própria,
+`[shadow]`, e quem desenha é o renderer, embaixo de cada janela.
+
+| chave | o que faz |
+|---|---|
+| `enabled` | liga (desligada por padrão: sombra é gosto) |
+| `windows` | tipos que recebem sombra (mesma lista da seção acima) |
+| `radius` | raio do blur, em pixels (1–64) |
+| `opacity` | 0–1 |
+| `offset_x`, `offset_y` | deslocamento |
+| `color` | `#rrggbb` |
+| `*_inactive` | os mesmos cinco para janelas sem foco |
+
+Cada `*_inactive` que você não escrever repete o valor da janela ativa —
+então "a mesma sombra, só mais fraca quando sem foco" é uma linha:
+`opacity_inactive = 0.25`.
+
+**Custo.** Baixo, e independente do tamanho da janela — que é a objeção
+usual a sombras no XRender. O blur de um retângulo é separável, e o blur
+da *borda* é o mesmo perfil em toda a extensão dela: a sombra é quatro
+tiles de canto, quatro tiras de 1 px repetidas pelos lados e um miolo
+sólido. Os tiles dependem só do raio, então são construídos uma vez e
+reusados por todas as janelas; por frame, uma sombra custa nove
+composites de uma cor sólida através de uma máscara. Nada é recalculado
+quando a janela move ou redimensiona. (A versão cara disso — um bitmap
+borrado do tamanho da janela, refeito a cada passo de um arrasto — é
+outra implementação, não esta.)
+
+**O recorte é pela shape, não pelo retângulo.** A área da própria janela
+sai da sombra — uma janela opaca cobriria a sombra de qualquer jeito, mas
+numa translúcida ela apareceria *através* da janela, que é o que sempre
+fica errado. Cortar o retângulo deixaria um buraquinho de sombra faltando
+em cada canto arredondado (a área dentro do retângulo mas fora da
+janela); cortar a silhueta real deixa a sombra entrar no canto. Custa
+três requisições assíncronas a mais que o retângulo e nenhum round-trip:
+a região é a mesma que já está em cache para recortar a janela, só
+precisa ser movida para as coordenadas do target.
+
+**Quem tem shape, projeta ao redor da shape.** A sombra circunda o que se
+*vê* da janela, não o retângulo dela. Para quase toda janela dá no mesmo;
+para as poucas em que não dá, é a diferença inteira — a mini-toolbar do
+VirtualBox é uma janela do tamanho da tela com uma barrinha recortada
+dentro, e sombrear o retângulo dela joga uma sombra de tela cheia atrás
+do desktop.
+
+**Maximizada ou fullscreen não projeta sombra.** Uma janela que preenche
+a tela não tem em que projetar: as bordas dela são as bordas da tela. No
+melhor caso a sombra é invisível, no pior é uma faixa escura na lateral
+do monitor vizinho.
+
+Uma limitação que fica: a sombra não é desenhada enquanto a janela está
+sendo transformada por um efeito — uma sombra parada enquanto a janela
+desliza é pior que sombra nenhuma.
 
 ## Tipos de janela
 
@@ -413,6 +514,8 @@ vblank; quando o presenter souber reportar MSC de verdade, só o
 | 24.1/24.2/24.3/24.4 — efeitos | fade in/out, scale in/out (origem configurável) e geometry change |
 | — | eventos semânticos (open/close/minimize/maximize/shade/focus/...), configuráveis por efeito |
 | — | filtro por tipo de janela (`windows=`) e múltiplas instâncias do mesmo efeito, cada uma com seus parâmetros |
+| — | easing por efeito, incluindo spring |
+| — | sombras (nine-patch, custo independente do tamanho da janela), com valores próprios para janela ativa e inativa |
 | — | janela retida além do próprio fim (`window_retain`), que é o que permite animar o fechamento |
 
 ## O que **não** está implementado (e onde entra)
@@ -509,6 +612,7 @@ src/
   animation.c/.h      relógio monotônico, easing, unidade global de duração
   scheduler.c/.h      relógio de frames por output
   effect.c/.h         core de efeitos: efeitos rodando + tabela de módulos
+  shadow.c/.h         configuração e estilo das sombras
   effects/            um arquivo por efeito: geometry, fade-in, fade-out,
                       scale-in, scale-out
   renderer.h          vtable do renderer

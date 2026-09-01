@@ -35,7 +35,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.1"
+#define KICOMP_VERSION "0.2.2"
 
 #include "comp.h"
 #include "output.h"
@@ -47,6 +47,7 @@
 #include "animation.h"
 #include "scheduler.h"
 #include "config.h"
+#include "shadow.h"
 
 #include <xcb/randr.h>
 #include <xcb/shape.h>
@@ -759,6 +760,13 @@ int main(int argc, char **argv)
               comp.caps.present, comp.caps.flip_per_crtc);
     if (comp.skip_wm_layers)
         comp_info("skipping kiwm's own layers (_KIWM_LAYER)");
+    if (comp_shadow.enabled)
+        comp_info("shadows: radius %d/%d, opacity %.2f/%.2f, offset %+d%+d/%+d%+d "
+                  "(focused/unfocused)",
+                  comp_shadow.active.radius, comp_shadow.inactive.radius,
+                  comp_shadow.active.opacity, comp_shadow.inactive.opacity,
+                  comp_shadow.active.offset_x, comp_shadow.active.offset_y,
+                  comp_shadow.inactive.offset_x, comp_shadow.inactive.offset_y);
     if (comp.effects)
         effects_init();
     else

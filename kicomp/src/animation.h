@@ -29,10 +29,43 @@ double comp_anim_duration(double factor);
 /* Clamped 0..1 progress of an animation started at `start` (ms). */
 float comp_progress(double now, double start, double duration);
 
+/* How an animation is weighted between its two ends. The names are the
+ * ones kicomp.conf uses (easing=), and the shapes are the usual four
+ * plus a spring:
+ *
+ *   linear   even the whole way -- a straight interpolation
+ *   in       slow at the start, fastest as it arrives (weight at the
+ *            origin: it accelerates away from where it came from)
+ *   out      fastest at the start, easing into the destination (weight
+ *            at the destination -- the default, and what most desktops
+ *            use, because arriving gently is what reads as "settled")
+ *   in-out   slow at both ends, quick through the middle
+ *   spring   overshoots slightly and settles back, the way a real object
+ *            with mass would
+ *
+ * Keep in sync with easing_names[] in animation.c. */
+typedef enum {
+    COMP_EASE_LINEAR = 0,
+    COMP_EASE_IN,
+    COMP_EASE_OUT,
+    COMP_EASE_IN_OUT,
+    COMP_EASE_SPRING,
+    COMP_EASE_COUNT
+} CompEasing;
+
+const char *comp_easing_name(CompEasing e);
+/* The easing by name, or -1 for one that doesn't exist (how config.c
+ * reports a typo). */
+int comp_easing_parse(const char *name);
+
+/* Applies a curve to linear progress. */
+float comp_ease(CompEasing curve, float p);
+
 float comp_ease_linear(float p);
 float comp_ease_in(float p);
 float comp_ease_out(float p);
 float comp_ease_in_out(float p);
+float comp_ease_spring(float p);
 
 /* Straight-line interpolation, the only mixing an effect should need to
  * do by hand. */

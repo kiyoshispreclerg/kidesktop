@@ -141,7 +141,7 @@ static void scale_update(CompEffect *e, double now)
     CompRect previous = d->covered;
 
     CompTransform t;
-    scale_transform(e, comp_ease_out(comp_progress(now, e->start_time, e->duration)), &t);
+    scale_transform(e, effect_ease(e, comp_progress(now, e->start_time, e->duration)), &t);
     comp_transform_bbox(&t, &d->geometry, &d->covered);
 
     output_damage_rect(&previous);
@@ -150,7 +150,7 @@ static void scale_update(CompEffect *e, double now)
 
 static void scale_apply(CompEffect *e, CompScene *s, CompOutput *o)
 {
-    float p = comp_ease_out(comp_progress(comp_now_ms(), e->start_time, e->duration));
+    float p = effect_ease(e, comp_progress(comp_now_ms(), e->start_time, e->duration));
 
     for (int i = 0; i < s->count; i++) {
         CompSceneNode *n = &s->nodes[i];
@@ -233,6 +233,9 @@ const CompEffectModule effect_scale_out = {
     .name             = "scale-out",
     .default_enabled  = false,
     .default_duration = 1.0,
+    /* Weight at the destination: it arrives gently, which is what reads
+     * as settling into place. kicomp.conf's easing= overrides it. */
+    .default_easing   = COMP_EASE_OUT,
     .default_events   = COMP_EVENT_BIT(COMP_EVENT_CLOSE),
     .default_windows  = COMP_WINDOWS_ALL & ~(COMP_WINDOW_BIT(COMP_WINDOW_DESKTOP) |
                                              COMP_WINDOW_BIT(COMP_WINDOW_DOCK)),

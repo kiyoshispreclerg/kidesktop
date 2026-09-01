@@ -66,7 +66,7 @@ static void geometry_update(CompEffect *e, double now)
     GeometryData *d = e->data;
 
     CompRect previous = d->current;
-    float p = comp_ease_out(comp_progress(now, e->start_time, e->duration));
+    float p = effect_ease(e, comp_progress(now, e->start_time, e->duration));
     d->current = lerp_rect(&d->from, &d->to, p);
 
     /* Both the rectangle being vacated and the one being entered have to
@@ -208,6 +208,9 @@ const CompEffectModule effect_geometry = {
     /* One unit: a plain, unremarkable transition. Something meant to feel
      * instant would ask for 0.5, a big desktop-wide one for 2.0. */
     .default_duration = 1.0,
+    /* Weight at the destination: it arrives gently, which is what reads
+     * as settling into place. kicomp.conf's easing= overrides it. */
+    .default_easing   = COMP_EASE_OUT,
     /* Every kind of jump the WM can make a window take -- but not shade,
      * which has an effect of its own that must not have this sliding
      * underneath it (kicomp.conf: events=). */

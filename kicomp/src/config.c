@@ -5,6 +5,7 @@
 #include "config.h"
 #include "comp.h"
 #include "effect.h"
+#include "shadow.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,6 +35,7 @@ static void apply_builtin_defaults(void)
      * anywhere hardcodes milliseconds. */
     comp.anim_duration_ms = 160.0;
     comp.effects = true;
+    shadow_config_defaults();
     comp.single_drawable = false;
     comp.skip_wm_layers = false;
 
@@ -55,6 +57,7 @@ static void apply_builtin_defaults(void)
 static void config_pass(FILE *f, bool instances_pass)
 {
     CompEffectInstance *section = NULL;
+    bool shadow_section = false;
     bool section_unknown = false;
     bool section_skipped = false;
 
@@ -81,8 +84,17 @@ static void config_pass(FILE *f, bool instances_pass)
             char *name = p + 1;
 
             section = NULL;
+            shadow_section = false;
             section_unknown = false;
             section_skipped = false;
+
+            if (strcmp(name, "shadow") == 0) {
+                /* Not an effect: shadows don't animate, so they are a
+                 * section of their own (shadow.h). */
+                shadow_section = !instances_pass;
+                section_skipped = instances_pass;
+                continue;
+            }
 
             if (strncmp(name, "effect:", 7) != 0) {
                 if (!instances_pass)
@@ -152,18 +164,30 @@ static void config_pass(FILE *f, bool instances_pass)
         if (section_unknown || section_skipped)
             continue;
 
+        if (shadow_section) {
+            if (!shadow_config_key(key, val))
+                fprintf(stderr, "kicomp: config: unknown key '%s' in [shadow]\n", key);
+            continue;
+        }
+
         if (section) {
-            /* Inside an effect section. Four keys are universal -- whether
+            /* Inside an effect section. Five keys are universal -- whether
              * it runs, how long it takes relative to the global unit,
-             * which events it answers to and which window types it applies
-             * to -- and past those, whatever the module itself
-             * understands. */
+             * which events it answers to, which window types it applies
+             * to and how the movement is weighted (easing) -- and past
+             * those, whatever the module itself understands. */
             if (strcmp(key, "enabled") == 0) {
                 section->enabled = atoi(val) != 0;
             } else if (strcmp(key, "events") == 0) {
                 section->events = comp_event_mask_parse(val);
             } else if (strcmp(key, "windows") == 0) {
                 section->windows = comp_window_type_mask_parse(val);
+            } else if (strcmp(key, "easing") == 0) {
+                int curve = comp_easing_parse(val);
+                if (curve < 0)
+                    fprintf(stderr, "kicomp: config: unknown easing '%s'\n", val);
+                else
+                    section->easing = (CompEasing)curve;
             } else if (strcmp(key, "duration") == 0) {
                 double d = atof(val);
                 if (d < 0.0) d = 0.0;
@@ -215,9 +239,13 @@ void config_load(void)
     if (!f)
         return;   /* no config is a perfectly good configuration */
 
-    config_pass(f, false);   /* globals and base effect sections */
+    config_pass(f, false);   /* globals, [shadow], base effect sections */
     rewind(f);
     config_pass(f, true);    /* the specialized instances, which copy them */
 
     fclose(f);
+
+    /* Whatever [shadow] didn't say about unfocused windows follows what
+     * it said about focused ones. */
+    shadow_config_finish();
 }

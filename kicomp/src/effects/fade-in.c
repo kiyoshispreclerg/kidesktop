@@ -40,7 +40,7 @@ static void fade_apply(CompEffect *e, CompScene *s, CompOutput *o)
 {
     (void)o;
 
-    float p = comp_ease_out(comp_progress(comp_now_ms(), e->start_time, e->duration));
+    float p = effect_ease(e, comp_progress(comp_now_ms(), e->start_time, e->duration));
 
     for (int i = 0; i < s->count; i++) {
         if (s->nodes[i].win != e->window)
@@ -95,6 +95,9 @@ const CompEffectModule effect_fade_in = {
     .name             = "fade-in",
     .default_enabled  = true,
     .default_duration = 1.0,
+    /* Weight at the destination: it arrives gently, which is what reads
+     * as settling into place. kicomp.conf's easing= overrides it. */
+    .default_easing   = COMP_EASE_OUT,
     .default_events   = COMP_EVENT_BIT(COMP_EVENT_OPEN) |
                         COMP_EVENT_BIT(COMP_EVENT_RESTORE) |
                         COMP_EVENT_BIT(COMP_EVENT_DESKTOP_ENTER),

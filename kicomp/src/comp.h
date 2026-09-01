@@ -202,6 +202,15 @@ typedef struct CompWindow {
      * over the full rectangle and the clipping has to be redone here --
      * which is exactly what kiwm's rounded corners are. */
     xcb_xfixes_region_t shape;
+
+    /* The shape's own extents, in window coordinates, and whether the
+     * window is shaped at all. A shaped window's *rectangle* can be far
+     * bigger than the window you can see -- VirtualBox's mini-toolbar is
+     * a full-screen window with a small bar carved out of it -- so
+     * anything that reasons about where a window visually is (the shadow)
+     * has to ask the shape, not the geometry. */
+    bool shaped;
+    CompRect shape_extents;
 } CompWindow;
 
 typedef struct KiComp {

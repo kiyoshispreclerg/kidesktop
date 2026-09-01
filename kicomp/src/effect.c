@@ -227,6 +227,7 @@ static CompEffectInstance *instance_new(const CompEffectModule *m, const char *n
     inst->duration = m->default_duration;
     inst->events = m->default_events;
     inst->windows = m->default_windows;
+    inst->easing = m->default_easing;
 
     if (m->config_size) {
         inst->config = calloc(1, m->config_size);
@@ -312,6 +313,11 @@ double effect_instance_duration(const CompEffectInstance *inst)
     return comp_anim_duration(inst->duration);
 }
 
+float effect_ease(const CompEffect *e, float p)
+{
+    return comp_ease(e->instance ? e->instance->easing : COMP_EASE_OUT, p);
+}
+
 void effects_init(void)
 {
     instances_init();
@@ -323,9 +329,10 @@ void effects_init(void)
         mask_string(i->events, COMP_EVENT_COUNT, event_names, events, sizeof(events));
         mask_string(i->windows, COMP_WINDOW_TYPE_COUNT, window_type_names,
                     windows, sizeof(windows));
-        comp_info("  %-22s %s %4.0f ms  on: %s  for: %s", i->name,
+        comp_info("  %-22s %s %4.0f ms %-7s on: %s  for: %s", i->name,
                   i->enabled ? "on " : "off",
-                  effect_instance_duration(i), events, windows);
+                  effect_instance_duration(i), comp_easing_name(i->easing),
+                  events, windows);
     }
 }
 

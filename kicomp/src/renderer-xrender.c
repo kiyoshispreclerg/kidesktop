@@ -16,6 +16,9 @@
  */
 #include "renderer.h"
 #include "output.h"
+#include "shadow.h"
+
+#include <math.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -95,6 +98,7 @@ static xcb_render_pictformat_t format_a8(void)
 
 void renderer_window_shape_invalidate(CompWindow *w)
 {
+    w->shaped = false;
     if (!w->shape)
         return;
     xcb_xfixes_destroy_region(comp.conn, w->shape);
@@ -184,6 +188,21 @@ static xcb_xfixes_region_t window_shape(CompWindow *w)
     if (err) {
         free(err);
         return XCB_NONE;
+    }
+
+    /* While a round trip is being paid for anyway: where that shape
+     * actually is. An unshaped window reports its whole rectangle, which
+     * is the same answer its geometry would have given. */
+    w->shaped = false;
+    xcb_shape_query_extents_reply_t *ext = xcb_shape_query_extents_reply(comp.conn,
+        xcb_shape_query_extents(comp.conn, w->id), NULL);
+    if (ext) {
+        w->shaped = ext->bounding_shaped;
+        w->shape_extents.x = ext->bounding_shape_extents_x;
+        w->shape_extents.y = ext->bounding_shape_extents_y;
+        w->shape_extents.w = ext->bounding_shape_extents_width;
+        w->shape_extents.h = ext->bounding_shape_extents_height;
+        free(ext);
     }
 
     w->shape = reg;
@@ -354,6 +373,374 @@ static void xr_destroy(CompOutput *o)
     }
 }
 
+
+/* ------------------------------------------------------------------ */
+/* shadows (shadow.h)                                                  */
+/* ------------------------------------------------------------------ */
+
+/* Everything a shadow of one radius is made of. The blur of a rectangle
+ * is separable, so the whole thing reduces to one 1-D edge profile:
+ * corners are the profile times itself, edges are the profile repeated
+ * along the side, and the middle is solid. Built once per radius. */
+typedef struct {
+    int radius;
+    bool valid;
+    /* corner[0..3] = top-left, top-right, bottom-left, bottom-right */
+    xcb_render_picture_t corner[4];
+    /* edge[0..3] = top, bottom, left, right (1px wide/tall, repeating) */
+    xcb_render_picture_t edge[4];
+} ShadowTiles;
+
+/* Two sets is enough in practice: focused and unfocused radii. */
+static ShadowTiles shadow_tiles[2];
+
+/* Solid colour to shade through the masks, one cached at a time. */
+static xcb_render_picture_t shadow_color_pict;
+static float shadow_color_key[4] = { -1, -1, -1, -1 };
+
+static void shadow_tiles_free(ShadowTiles *t)
+{
+    for (int i = 0; i < 4; i++) {
+        if (t->corner[i]) xcb_render_free_picture(comp.conn, t->corner[i]);
+        if (t->edge[i])   xcb_render_free_picture(comp.conn, t->edge[i]);
+    }
+    memset(t, 0, sizeof(*t));
+}
+
+/* An A8 picture from raw alpha, `repeat` for the strips that tile along
+ * an edge. X wants each scanline padded to four bytes. */
+static xcb_render_picture_t alpha_picture(const uint8_t *alpha, int w, int h, bool repeat)
+{
+    xcb_render_pictformat_t fmt = format_a8();
+    if (!fmt || w <= 0 || h <= 0)
+        return XCB_NONE;
+
+    int stride = (w + 3) & ~3;
+    uint8_t *padded = calloc((size_t)stride * (size_t)h, 1);
+    if (!padded)
+        return XCB_NONE;
+    for (int y = 0; y < h; y++)
+        memcpy(padded + (size_t)y * stride, alpha + (size_t)y * w, (size_t)w);
+
+    xcb_pixmap_t pm = xcb_generate_id(comp.conn);
+    xcb_create_pixmap(comp.conn, 8, pm, comp.root, (uint16_t)w, (uint16_t)h);
+
+    xcb_gcontext_t gc = xcb_generate_id(comp.conn);
+    xcb_create_gc(comp.conn, gc, pm, 0, NULL);
+    xcb_put_image(comp.conn, XCB_IMAGE_FORMAT_Z_PIXMAP, pm, gc,
+                  (uint16_t)w, (uint16_t)h, 0, 0, 0, 8,
+                  (uint32_t)(stride * h), padded);
+    xcb_free_gc(comp.conn, gc);
+    free(padded);
+
+    xcb_render_picture_t pict = xcb_generate_id(comp.conn);
+    uint32_t rep = XCB_RENDER_REPEAT_NORMAL;
+    xcb_render_create_picture(comp.conn, pict, pm, fmt,
+                              repeat ? XCB_RENDER_CP_REPEAT : 0,
+                              repeat ? &rep : NULL);
+    xcb_free_pixmap(comp.conn, pm);
+    return pict;
+}
+
+/* The 1-D profile: how a blurred edge fades from nothing to solid across
+ * 2*radius pixels. A Gaussian kernel's running sum, which is what a
+ * half-plane looks like once blurred. */
+static void shadow_profile(int radius, uint8_t *out /* 2*radius */)
+{
+    int n = radius * 2;
+    double sigma = radius / 2.0;
+    if (sigma < 0.5)
+        sigma = 0.5;
+
+    double *k = calloc((size_t)(n + 1), sizeof(double));
+    if (!k) {
+        for (int i = 0; i < n; i++)
+            out[i] = (uint8_t)(255 * (i + 1) / n);
+        return;
+    }
+
+    double sum = 0.0;
+    for (int i = 0; i <= n; i++) {
+        double x = i - radius;
+        k[i] = exp(-(x * x) / (2.0 * sigma * sigma));
+        sum += k[i];
+    }
+
+    double acc = 0.0;
+    for (int i = 0; i < n; i++) {
+        acc += k[i] / sum;
+        double v = acc;
+        if (v < 0.0) v = 0.0;
+        if (v > 1.0) v = 1.0;
+        out[i] = (uint8_t)(v * 255.0 + 0.5);
+    }
+    free(k);
+}
+
+static ShadowTiles *shadow_tiles_for(int radius)
+{
+    for (int i = 0; i < 2; i++)
+        if (shadow_tiles[i].valid && shadow_tiles[i].radius == radius)
+            return &shadow_tiles[i];
+
+    /* Take the free slot, or evict the second one -- with at most two
+     * radii in play (focused, unfocused) this never thrashes. */
+    ShadowTiles *t = shadow_tiles[0].valid ? &shadow_tiles[1] : &shadow_tiles[0];
+    shadow_tiles_free(t);
+
+    int n = radius * 2;
+    uint8_t *profile = malloc((size_t)n);
+    uint8_t *buf = malloc((size_t)n * (size_t)n);
+    if (!profile || !buf) {
+        free(profile);
+        free(buf);
+        return NULL;
+    }
+    shadow_profile(radius, profile);
+
+    /* Corners: the profile in both axes at once. */
+    for (int corner = 0; corner < 4; corner++) {
+        bool flip_x = (corner == 1 || corner == 3);
+        bool flip_y = (corner == 2 || corner == 3);
+        for (int y = 0; y < n; y++) {
+            for (int x = 0; x < n; x++) {
+                uint8_t px = profile[flip_x ? n - 1 - x : x];
+                uint8_t py = profile[flip_y ? n - 1 - y : y];
+                buf[y * n + x] = (uint8_t)((px * py + 127) / 255);
+            }
+        }
+        t->corner[corner] = alpha_picture(buf, n, n, false);
+    }
+
+    /* Edges: one pixel across the side, the profile along the blur,
+     * repeating down (or across) the side. The blur of a straight edge is
+     * the same everywhere along it, so one pixel of it is the whole
+     * description -- and RepeatNormal turns that into as long an edge as
+     * any window needs, at no cost per window. */
+    for (int y = 0; y < n; y++)
+        buf[y] = profile[y];
+    t->edge[0] = alpha_picture(buf, 1, n, true);          /* top */
+    for (int y = 0; y < n; y++)
+        buf[y] = profile[n - 1 - y];
+    t->edge[1] = alpha_picture(buf, 1, n, true);          /* bottom */
+    for (int x = 0; x < n; x++)
+        buf[x] = profile[x];
+    t->edge[2] = alpha_picture(buf, n, 1, true);          /* left */
+    for (int x = 0; x < n; x++)
+        buf[x] = profile[n - 1 - x];
+    t->edge[3] = alpha_picture(buf, n, 1, true);          /* right */
+
+    free(profile);
+    free(buf);
+
+    t->radius = radius;
+    t->valid = true;
+    comp_log("shadow tiles built for radius %d", radius);
+    return t;
+}
+
+static xcb_render_picture_t shadow_color(const CompShadowStyle *st)
+{
+    if (shadow_color_pict &&
+        shadow_color_key[0] == st->r && shadow_color_key[1] == st->g &&
+        shadow_color_key[2] == st->b && shadow_color_key[3] == st->opacity)
+        return shadow_color_pict;
+
+    if (shadow_color_pict) {
+        xcb_render_free_picture(comp.conn, shadow_color_pict);
+        shadow_color_pict = 0;
+    }
+
+    /* Premultiplied, like every colour XRender takes. */
+    xcb_render_color_t c = {
+        .red   = (uint16_t)(st->r * st->opacity * 0xffff),
+        .green = (uint16_t)(st->g * st->opacity * 0xffff),
+        .blue  = (uint16_t)(st->b * st->opacity * 0xffff),
+        .alpha = (uint16_t)(st->opacity * 0xffff),
+    };
+
+    /* A solid fill picture is infinite in extent and needs no pixmap --
+     * RENDER 0.10 and up, which is everything this compositor already
+     * requires. */
+    xcb_render_picture_t pict = xcb_generate_id(comp.conn);
+    xcb_render_create_solid_fill(comp.conn, pict, c);
+
+    shadow_color_pict = pict;
+    shadow_color_key[0] = st->r;
+    shadow_color_key[1] = st->g;
+    shadow_color_key[2] = st->b;
+    shadow_color_key[3] = st->opacity;
+    return pict;
+}
+
+/* One masked rectangle of shadow. `mask_x/y` say which part of the mask
+ * to start from -- which matters when a piece is drawn narrower than its
+ * tile, as the corners are on a window smaller than twice the blur. */
+static void shadow_piece(CompOutput *o, xcb_render_picture_t color,
+                         xcb_render_picture_t mask, int mask_x, int mask_y,
+                         int x, int y, int w, int h)
+{
+    if (w <= 0 || h <= 0 || !mask)
+        return;
+    xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER, color, mask, o->target,
+                         0, 0, (int16_t)mask_x, (int16_t)mask_y,
+                         (int16_t)(x - o->rect.x), (int16_t)(y - o->rect.y),
+                         (uint16_t)w, (uint16_t)h);
+}
+
+/* Draws `w`'s shadow into `o`'s target, under the window itself.
+ *
+ * The window's own rectangle is clipped out: an opaque window would cover
+ * its shadow anyway, but a translucent one would have it show through,
+ * and a shadow visible *through* the window it belongs to is the thing
+ * that always looks wrong. */
+static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom)
+{
+    CompShadowStyle st;
+    if (!shadow_for_window(win, &st))
+        return;
+
+    /* Asking for the shape here also fills in its extents, which the
+     * rectangle below needs. */
+    xcb_xfixes_region_t shape = window_shape(win);
+
+    /* A shaped window casts its shadow around what can actually be seen
+     * of it, not around its rectangle. For almost every window the two
+     * are the same; for the few where they aren't, the difference is the
+     * whole story -- VirtualBox's mini-toolbar is a screen-wide window
+     * with a small bar shaped out of it, and shadowing its rectangle
+     * drops a full-screen shadow behind the desktop. */
+    CompRect base = *geom;
+    if (win->shaped && win->shape_extents.w > 0 && win->shape_extents.h > 0) {
+        base.x = win->x + win->shape_extents.x;
+        base.y = win->y + win->shape_extents.y;
+        base.w = win->shape_extents.w;
+        base.h = win->shape_extents.h;
+    }
+
+    ShadowTiles *t = shadow_tiles_for(st.radius);
+    if (!t)
+        return;
+
+    xcb_render_picture_t color = shadow_color(&st);
+    if (!color)
+        return;
+
+    int r = st.radius;
+    /* The shadow's own rectangle: the window's, offset, grown by the
+     * blur on every side. */
+    CompRect s = {
+        base.x + st.offset_x - r,
+        base.y + st.offset_y - r,
+        base.w + r * 2,
+        base.h + r * 2,
+    };
+
+    CompRect visible;
+    if (!rect_intersect(&s, &o->rect, &visible))
+        return;
+
+    if (comp.caps.xfixes) {
+        xcb_rectangle_t whole = {
+            (int16_t)(s.x - o->rect.x), (int16_t)(s.y - o->rect.y),
+            (uint16_t)s.w, (uint16_t)s.h
+        };
+        xcb_xfixes_region_t region = xcb_generate_id(comp.conn);
+        xcb_xfixes_region_t cut = xcb_generate_id(comp.conn);
+        xcb_xfixes_create_region(comp.conn, region, 1, &whole);
+
+        /* What to cut out of the shadow: the window's *shape*, not its
+         * rectangle. With a rectangle, a window with rounded corners keeps
+         * a little notch of missing shadow at each corner -- the area
+         * inside the rectangle but outside the window, which the clip
+         * removed and nothing draws over. Cutting the real silhouette
+         * instead lets the shadow reach into the corners.
+         *
+         * It costs three asynchronous requests more than the rectangle
+         * (copy, translate, subtract) and no round trip: the region itself
+         * is the one already cached for clipping the window (window_shape),
+         * in window coordinates, so it only has to be moved into the
+         * target's. */
+        if (shape) {
+            xcb_xfixes_create_region(comp.conn, cut, 0, NULL);
+            xcb_xfixes_copy_region(comp.conn, shape, cut);
+            xcb_xfixes_translate_region(comp.conn, cut,
+                                        (int16_t)(win->x - o->rect.x),
+                                        (int16_t)(win->y - o->rect.y));
+        } else {
+            xcb_rectangle_t hole = {
+                (int16_t)(base.x - o->rect.x), (int16_t)(base.y - o->rect.y),
+                (uint16_t)base.w, (uint16_t)base.h
+            };
+            xcb_xfixes_create_region(comp.conn, cut, 1, &hole);
+        }
+
+        /* (source1, source2, destination): the shadow's rectangle minus
+         * the window itself. */
+        xcb_xfixes_subtract_region(comp.conn, region, cut, region);
+        xcb_xfixes_set_picture_clip_region(comp.conn, o->target, region, 0, 0);
+        xcb_xfixes_destroy_region(comp.conn, cut);
+        xcb_xfixes_destroy_region(comp.conn, region);
+    }
+
+    int n = r * 2;
+
+    /* Corner size, halved when the shadow is narrower or shorter than two
+     * corners: without this the pieces overlap in the middle and the
+     * overlap is composited twice, which shows as a darker patch on any
+     * window smaller than twice the blur radius -- a tooltip, a menu.
+     * A clipped corner is drawn from the matching part of its tile, hence
+     * the mask offsets. */
+    int cw = n, ch = n;
+    if (cw * 2 > s.w) cw = s.w / 2;
+    if (ch * 2 > s.h) ch = s.h / 2;
+
+    int inner_w = s.w - cw * 2;
+    int inner_h = s.h - ch * 2;
+
+    /* Four corners, four edges, one middle -- the whole shadow, at any
+     * window size, from tiles that only ever depended on the radius. */
+    shadow_piece(o, color, t->corner[0], 0, 0,
+                 s.x, s.y, cw, ch);
+    shadow_piece(o, color, t->corner[1], n - cw, 0,
+                 s.x + s.w - cw, s.y, cw, ch);
+    shadow_piece(o, color, t->corner[2], 0, n - ch,
+                 s.x, s.y + s.h - ch, cw, ch);
+    shadow_piece(o, color, t->corner[3], n - cw, n - ch,
+                 s.x + s.w - cw, s.y + s.h - ch, cw, ch);
+
+    shadow_piece(o, color, t->edge[0], 0, 0,
+                 s.x + cw, s.y, inner_w, ch);
+    shadow_piece(o, color, t->edge[1], 0, n - ch,
+                 s.x + cw, s.y + s.h - ch, inner_w, ch);
+    shadow_piece(o, color, t->edge[2], 0, 0,
+                 s.x, s.y + ch, cw, inner_h);
+    shadow_piece(o, color, t->edge[3], n - cw, 0,
+                 s.x + s.w - cw, s.y + ch, cw, inner_h);
+
+    if (inner_w > 0 && inner_h > 0)
+        xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER, color, XCB_NONE,
+                             o->target, 0, 0, 0, 0,
+                             (int16_t)(s.x + cw - o->rect.x),
+                             (int16_t)(s.y + ch - o->rect.y),
+                             (uint16_t)inner_w, (uint16_t)inner_h);
+
+    if (comp.caps.xfixes)
+        xcb_xfixes_set_picture_clip_region(comp.conn, o->target,
+                                           XCB_XFIXES_REGION_NONE, 0, 0);
+}
+
+static void shadow_shutdown(void)
+{
+    for (int i = 0; i < 2; i++)
+        shadow_tiles_free(&shadow_tiles[i]);
+    if (shadow_color_pict) {
+        xcb_render_free_picture(comp.conn, shadow_color_pict);
+        shadow_color_pict = 0;
+    }
+    shadow_color_key[0] = -1;
+}
+
 static void xr_begin(CompOutput *o)
 {
     if (!o->target)
@@ -442,6 +829,13 @@ static void xr_draw_scene(CompOutput *o, CompScene *s)
             continue;
         }
 
+        /* Under the window, before it: a shadow is behind what casts it.
+         * Skipped while transformed -- an animating window's shadow would
+         * have to be transformed with it, and a shadow that stays behind
+         * while the window slides away is worse than none. */
+        if (comp_transform_is_identity(&n->transform))
+            draw_shadow(o, w, &n->geometry);
+
         xcb_render_picture_t mask = window_alpha(w, n->opacity);
 
         /* A node an effect is transforming (section 22): XRender wants
@@ -524,6 +918,7 @@ static void xr_end(CompOutput *o)
 
 void renderer_shutdown(void)
 {
+    shadow_shutdown();
     renderer_background_invalidate();
     if (formats) {
         free(formats);

@@ -28,6 +28,7 @@
 
 #include "comp.h"
 #include "scene.h"
+#include "animation.h"
 
 typedef struct CompEffect CompEffect;
 typedef struct CompEffectInstance CompEffectInstance;
@@ -150,6 +151,7 @@ struct CompEffectInstance {
     double duration;      /* multiple of the global animation unit */
     uint32_t events;      /* CompEventKind mask */
     uint32_t windows;     /* CompWindowType mask */
+    CompEasing easing;    /* how the movement is weighted between its ends */
 
     void *config;         /* module-private, module->config_size bytes */
 };
@@ -157,6 +159,12 @@ struct CompEffectInstance {
 /* This instance's duration in milliseconds: its multiple of the user's
  * global animation_duration. What an effect asks when it starts. */
 double effect_instance_duration(const CompEffectInstance *inst);
+
+/* Linear progress through this instance's curve. Every effect that moves
+ * something between two points goes through here rather than picking a
+ * curve of its own, so easing= in the config actually means something --
+ * and so that two instances of one effect can be weighted differently. */
+float effect_ease(const CompEffect *e, float p);
 
 /* The base instance of a module by name (NULL if there is no such
  * effect), and a named instance of it, created on first mention as a copy
@@ -182,6 +190,7 @@ struct CompEffectModule {
     double default_duration;
     uint32_t default_events;
     uint32_t default_windows;
+    CompEasing default_easing;
 
     /* Something happened to a window. The core calls this only for events
      * in this instance's event mask, on a window in its type mask, so a
