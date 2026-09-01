@@ -148,6 +148,23 @@ events   = minimize,restore
 windows  = windows
 fade     = 1                    # fade along the way as well as shrink
 
+[effect:desktop-wall]
+enabled  = 1
+duration = 1.5                  # the whole screen moves: longer than one window
+easing   = in-out               # a pan is weighted at neither end
+events   = desktop-leave,desktop-enter
+windows  = all
+distance = 1.0                  # how far, as a fraction of the output's size
+fade     = 0                    # dim on the way out/in as well as slide
+
+[effect:smooth-move]
+enabled  = 0                    # off by default: deliberate lag is a taste
+duration = 0.35                 # the filter's time constant, not a length
+events   = move
+windows  = windows
+max_lag  = 48                   # px the picture may fall behind the pointer
+resize   = 0                    # smooth resize drags too
+
 # a second instance of the same effect, with different numbers: inherits
 # everything from [effect:scale-out] and overrides only what it declares
 [effect:scale-out:minimize]
@@ -509,6 +526,94 @@ rounded corners go square for about a sixth of a second. The GL renderer,
 which can transform the mask along with the picture, is where that stops
 being a trade.
 
+### `desktop-wall`
+
+Switching desktops slides the windows of the one being left off one side
+of the output while the ones being entered slide in from the other, as
+though the desktops were panels of a single long wall and the output were
+a window onto it.
+
+This is the first effect that moves more than one window at a time, and
+it needed nothing new from the interface: the WM unmaps every window of
+the outgoing desktop and maps every window of the incoming one, so what
+arrives is one `desktop-leave` per window on the way out and one
+`desktop-enter` per window on the way in. Each gets its own effect, all
+of them with the same duration and the same easing, and the result reads
+as one motion because it *is* one motion, described a window at a time.
+
+| key | what it does |
+|---|---|
+| `distance` | how far a window travels, as a fraction of the output's size (0–4, default 1.0). At `1.0` a window ends exactly one screen away, so the two desktops never overlap; less and they slide over each other; more and they pull apart with a gap of background between them |
+| `fade` | dim towards the edges as well as slide (default off) |
+
+**Which way it slides** comes from the WM, not from a guess. `desktop.c`
+reads the current desktop *per output* (`_KIWM_OUTPUT_DESKTOP` with
+`_KIWM_OUTPUTS`, see `kiwm/PROTOCOL.md`; plain `_NET_CURRENT_DESKTOP`
+under any other WM) and the grid they sit in (`_NET_DESKTOP_LAYOUT`), and
+reports the step from the old cell to the new one. Going right, the wall
+pans right: the outgoing windows leave to the left and the incoming ones
+arrive from the right. Going up, the same thing vertically. With no
+direction to be had — the switch was on another output, or the WM
+publishes nothing to go by — the effect does not run at all rather than
+invent one.
+
+One switch moves exactly one screen, whichever desktop you jump to: the
+desktop three cells over is still "to the right", and sliding three
+screen widths in one animation would be a tour of the desktops nobody
+asked for.
+
+The windows on the way out have already been unmapped by the WM, so the
+wall holds them with `window_retain()` exactly as `fade-out` does. Two
+things worth knowing about the timing:
+
+- The WM must publish the new desktop **before** the unmaps that carry it
+  out, or a compositor sees the windows vanish and classifies them as
+  *closed* — the closing animation on a desktop switch. kiwm does
+  (`output.c`), the same way it publishes `_NET_WM_STATE` before the
+  geometry that carries a shade out. kicomp also re-reads the desktop
+  properties before classifying, as the best-effort half for WMs that
+  don't.
+- If `fade-out`/`scale-out` are also answering to `desktop-leave` (they
+  are not by default), they will animate the same departure as the wall.
+
+### `smooth-move`
+
+A window being dragged is drawn a little behind where the pointer has
+actually put it and catches up continuously, so a stream of configures
+arriving in uneven steps — which is what a drag always is — reads as one
+smooth glide instead of a series of small jumps.
+
+This is the case `geometry` deliberately refuses, turned into a feature,
+with two differences that matter:
+
+- **The lag is a filter, not an animation.** There is no "from" and "to"
+  to travel between: there is an offset between where the window looks
+  like it is and where it really is, and that offset decays towards zero
+  the whole time. Every configure adds to it, the decay eats it, and the
+  picture is always converging on the truth instead of replaying a path
+  towards a destination that has already changed.
+- **The offset is capped.** Smoothing is worth a few pixels of lag and no
+  more: past that the titlebar visibly separates from the pointer holding
+  it, which reads as the compositor being slow rather than the window
+  being smooth. `max_lag` is that ceiling, and the window never falls
+  further behind however fast the drag is.
+
+| key | what it does |
+|---|---|
+| `duration` | the filter's time constant τ, as the usual multiple of the global unit (default 0.35): how long the picture takes to close about two thirds of the gap. Short is a de-jitter, long is a visible glide |
+| `max_lag` | how far the picture may fall behind, in pixels (0–400, default 48) |
+| `resize` | smooth resize drags as well as moves (default off — the frame would be drawn at a size the client hasn't painted yet) |
+
+The decay is exponential and computed from elapsed time, never from a
+frame count: averaging the last N frames' positions, the obvious way to
+write this, quietly assumes the frames are evenly spaced, and kicomp's
+are not (a frame happens when something is dirty). `offset *= exp(-dt/τ)`
+is what that average converges to once you stop assuming it, and it costs
+one multiply.
+
+Off by default: it is the one effect that touches something the user is
+actively holding.
+
 ### What's missing, and what each one needs
 
 The effects still to come all fit XRender — none of them needs GL.
@@ -530,13 +635,8 @@ What's left:
 
 | effect | how |
 |---|---|
-| `desktop-wall` | group windows by `_NET_WM_DESKTOP`, read `_KIWM_OUTPUT_DESKTOP` for the per-output switch, translate the whole scene; `docks` optional (default: they come along) |
+| `cube` | the wall's rotation instead of its translation: needs a perspective transform the XRender backend can't express (its transform is affine), so this one waits for GL |
 | `wobbly`, `blur` | need the GL renderer: a mesh per window, and shaders |
-
-`desktop-wall` is the first one that moves more than one window at a time
-— the interface already supports that (an effect is not required to have
-a `window`) — and it needs the windows of the desktop being left to keep
-existing, which the retain already provides.
 
 ## Pacing
 
@@ -572,7 +672,8 @@ only `scheduler_tick()` changes.
 | 23/42 — effects as modules | their own vtable; a new effect = one file + one line |
 | 19 — per-output scheduler | a frame clock per output, at each one's rate |
 | 20/40 — time-based animation | progress comes from the monotonic clock; duration is a multiple of a global unit |
-| 24.1/24.2/24.3/24.4 — effects | fade in/out, scale in/out (configurable origin), geometry change, shade/unshade, minimize/restore |
+| 24.1/24.2/24.3/24.4 — effects | fade in/out, scale in/out (configurable origin), geometry change, shade/unshade, minimize/restore, desktop wall, smooth move |
+| — | per-output current desktop read from the WM (`_KIWM_OUTPUT_DESKTOP`/`_NET_CURRENT_DESKTOP` + `_NET_DESKTOP_LAYOUT`), which is what gives the wall its direction and tells a departing window from a closing one |
 | — | semantic events (open/close/minimize/maximize/shade/focus/...), configurable per effect |
 | — | window-type filter (`windows=`) and several instances of one effect, each with its own parameters |
 | — | per-effect easing, spring included |
@@ -582,8 +683,9 @@ only `scheduler_tick()` changes.
 
 ## What is **not** implemented (and where it goes)
 
-- **More effects** (sections 24.5-24.7) — desktop wall, wobbly, cube.
-  The wall fits XRender; wobbly (mesh) and blur ask for the GL renderer.
+- **More effects** (sections 24.5-24.7) — wobbly, blur, cube. All three
+  ask for the GL renderer: a mesh per window, shaders, and a transform
+  that isn't affine.
 - **MSC/UST** (the rest of Fase 7, sections 19/49) — the per-output clock
   exists, but its period comes from RandR, not from presentation
   feedback.
@@ -676,8 +778,11 @@ src/
   scheduler.c/.h      per-output frame clock
   effect.c/.h         effect core: running effects + the module table
   shadow.c/.h         shadow configuration and per-window style
+  desktop.c/.h        which desktop each output shows, and which way it
+                      just moved (the wall's direction)
   effects/            one file per effect: geometry, fade-in, fade-out,
-                      scale-in, scale-out, shade, minimize
+                      scale-in, scale-out, shade, minimize, desktop-wall,
+                      smooth-move
   renderer.h          renderer vtable
   renderer-xrender.c  XRender backend
   presenter.h         presenter vtable

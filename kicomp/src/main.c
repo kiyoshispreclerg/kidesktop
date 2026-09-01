@@ -48,6 +48,7 @@
 #include "scheduler.h"
 #include "config.h"
 #include "shadow.h"
+#include "desktop.h"
 
 #include <xcb/randr.h>
 #include <xcb/shape.h>
@@ -162,6 +163,8 @@ static void atoms_init(void)
     comp.atoms.net_wm_icon_geometry   = intern("_NET_WM_ICON_GEOMETRY");
     comp.atoms.net_active_window      = intern("_NET_ACTIVE_WINDOW");
     comp.atoms.net_current_desktop    = intern("_NET_CURRENT_DESKTOP");
+    comp.atoms.net_desktop_layout     = intern("_NET_DESKTOP_LAYOUT");
+    comp.atoms.kiwm_outputs           = intern("_KIWM_OUTPUTS");
     comp.atoms.kiwm_output_desktop    = intern("_KIWM_OUTPUT_DESKTOP");
 }
 
@@ -539,11 +542,16 @@ static void handle_event(xcb_generic_event_t *ev)
             } else if (e->atom == comp.atoms.net_active_window) {
                 window_focus_changed(read_active_window());
             } else if (e->atom == comp.atoms.net_current_desktop ||
-                       e->atom == comp.atoms.kiwm_output_desktop) {
+                       e->atom == comp.atoms.kiwm_output_desktop ||
+                       e->atom == comp.atoms.kiwm_outputs ||
+                       e->atom == comp.atoms.net_desktop_layout) {
                 /* Windows that vanish or appear right after this left or
                  * arrived with a desktop rather than being closed or
-                 * opened -- see window.c's windows_flush_events(). */
+                 * opened -- see window.c's windows_flush_events(). And
+                 * which desktop each output moved to, and in which
+                 * direction, which is what the wall slides along. */
                 comp.desktop_changed_ms = comp_now_ms();
+                desktop_refresh();
             }
             break;
         }
@@ -588,6 +596,7 @@ static void handle_event(xcb_generic_event_t *ev)
 static void shutdown_compositor(void)
 {
     effects_shutdown();
+    desktop_shutdown();
     windows_teardown();
     outputs_teardown();
     presenter_shutdown();
@@ -777,6 +786,9 @@ int main(int argc, char **argv)
      * output change. */
     outputs_refresh();
     windows_scan();
+    /* Read once now so the *first* desktop switch has an old value to be
+     * a change from; without it the wall would sit out the first one. */
+    desktop_refresh();
     window_focus_changed(read_active_window());
     output_damage_all();
 
@@ -819,6 +831,14 @@ int main(int argc, char **argv)
                 handle_event(ev);
                 free(ev);
             }
+            /* And the same question asked of the desktop properties, by
+             * reading them rather than by waiting for their PropertyNotify:
+             * kiwm unmaps the outgoing windows *before* publishing the new
+             * desktop (its output.c), so the unmaps can be classified a
+             * beat before the property event that explains them -- which
+             * is a desktop switch coming out as a window being closed, and
+             * the wrong effect running on it. */
+            desktop_refresh();
         }
 
         if (xcb_connection_has_error(comp.conn)) {

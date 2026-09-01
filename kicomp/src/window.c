@@ -11,6 +11,7 @@
 #include "renderer.h"
 #include "effect.h"
 #include "animation.h"
+#include "desktop.h"
 
 #include <xcb/shape.h>
 
@@ -22,6 +23,21 @@
  * WM does both in one go, so this only has to cover the gap between the
  * root property and the maps/unmaps that follow it. */
 #define DESKTOP_SWITCH_WINDOW_MS 250.0
+
+/* Did this window vanish (or arrive) because its own output changed
+ * desktop? The output matters: with a desktop per output (kiwm's model), a
+ * switch on one monitor says nothing about a window closing on another,
+ * and crediting it there would animate a closing window as a departing
+ * one. desktop.h answers per output where the WM publishes enough to; the
+ * screen-wide stopwatch is the fallback for one that doesn't. */
+static bool left_with_a_desktop(CompWindow *w)
+{
+    CompRect r = window_rect(w);
+    int dx, dy;
+    if (desktop_switch_for_rect(&r, &dx, &dy))
+        return true;
+    return comp_now_ms() - comp.desktop_changed_ms < DESKTOP_SWITCH_WINDOW_MS;
+}
 
 /* True only while windows_scan() adopts what was already on screen at
  * startup: those windows did not just appear, and must not be animated
@@ -461,7 +477,7 @@ void windows_flush_events(void)
                 kind = COMP_EVENT_CLOSE;
             else if (now & COMP_STATE_MINIMIZED)
                 kind = COMP_EVENT_MINIMIZE;
-            else if (comp_now_ms() - comp.desktop_changed_ms < DESKTOP_SWITCH_WINDOW_MS)
+            else if (left_with_a_desktop(w))
                 kind = COMP_EVENT_DESKTOP_LEAVE;
             else
                 kind = COMP_EVENT_CLOSE;
@@ -487,8 +503,7 @@ void windows_flush_events(void)
             CompEventKind kind;
             if ((before & COMP_STATE_MINIMIZED) && !(now & COMP_STATE_MINIMIZED))
                 kind = COMP_EVENT_RESTORE;
-            else if (w->has_been_mapped &&
-                     comp_now_ms() - comp.desktop_changed_ms < DESKTOP_SWITCH_WINDOW_MS)
+            else if (w->has_been_mapped && left_with_a_desktop(w))
                 kind = COMP_EVENT_DESKTOP_ENTER;
             else if (w->has_been_mapped)
                 kind = COMP_EVENT_RESTORE;

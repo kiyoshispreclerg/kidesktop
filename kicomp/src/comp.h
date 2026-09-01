@@ -285,7 +285,9 @@ typedef struct KiComp {
         xcb_atom_t net_wm_icon_geometry;   /* where the taskbar keeps this window */
         xcb_atom_t net_active_window;
         xcb_atom_t net_current_desktop;
-        xcb_atom_t kiwm_output_desktop;
+        xcb_atom_t net_desktop_layout;     /* the grid the desktops sit in */
+        xcb_atom_t kiwm_outputs;           /* output names, in index order */
+        xcb_atom_t kiwm_output_desktop;    /* one current desktop per output */
     } atoms;
 
     bool running;

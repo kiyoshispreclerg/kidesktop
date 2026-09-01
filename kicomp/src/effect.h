@@ -244,5 +244,7 @@ extern const CompEffectModule effect_scale_in;
 extern const CompEffectModule effect_scale_out;
 extern const CompEffectModule effect_shade;
 extern const CompEffectModule effect_minimize;
+extern const CompEffectModule effect_desktop_wall;
+extern const CompEffectModule effect_smooth_move;
 
 #endif /* KICOMP_EFFECT_H */
