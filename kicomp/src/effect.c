@@ -17,6 +17,8 @@ static const CompEffectModule *const modules[] = {
     &effect_fade_out,
     &effect_scale_in,
     &effect_scale_out,
+    &effect_shade,
+    &effect_minimize,
 };
 
 #define MODULE_COUNT ((int)(sizeof(modules) / sizeof(modules[0])))

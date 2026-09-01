@@ -28,6 +28,12 @@ typedef struct CompSceneNode {
      * renderer. */
     CompTransform transform;
 
+    /* Draw the window's stashed contents (renderer.h) rather than its
+     * live ones, with `geometry` describing those instead. What lets
+     * shade roll up a window whose real pixmap is already just a
+     * titlebar. */
+    bool use_stash;
+
     float opacity;
     int z;                  /* 0 = bottom-most */
 } CompSceneNode;

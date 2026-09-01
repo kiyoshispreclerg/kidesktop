@@ -41,6 +41,28 @@ void renderer_window_invalidate(CompWindow *w);
 void renderer_window_shape_invalidate(CompWindow *w);
 void renderer_window_free(CompWindow *w);
 
+/* The stash: the window's previous contents, kept instead of thrown away
+ * when a resize replaces them (see comp.h's prev_pixmap).
+ *
+ *   stash        move the current contents aside; `was` is the rectangle
+ *                they covered, which the caller has to pass because the
+ *                window's own fields already describe the new size by
+ *                the time this is called; whatever was stashed before
+ *                and nobody held is freed
+ *   has_stash    is there something to draw
+ *   stash_rect   the rectangle those contents covered
+ *   hold/release an effect claiming them for as long as it draws them
+ *   drop_unheld  free a stash nothing claimed -- called once the batch of
+ *                events has been classified, so a plain resize doesn't
+ *                leave a pixmap lying around
+ */
+void renderer_window_stash(CompWindow *w, const CompRect *was);
+bool renderer_window_has_stash(const CompWindow *w);
+CompRect renderer_window_stash_rect(const CompWindow *w);
+void renderer_stash_hold(CompWindow *w);
+void renderer_stash_release(CompWindow *w);
+void renderer_stash_drop_unheld(CompWindow *w);
+
 /* Whether the window has drawable contents bound right now. An effect
  * that means to outlive the window must check this before retaining it:
  * a window that was never painted has no pixmap to keep, and naming one

@@ -16,6 +16,7 @@
  */
 #include "renderer.h"
 #include "output.h"
+#include "window.h"
 #include "shadow.h"
 
 #include <math.h>
@@ -96,6 +97,8 @@ static xcb_render_pictformat_t format_a8(void)
 /* per-window resources                                                */
 /* ------------------------------------------------------------------ */
 
+static void stash_free(CompWindow *w);
+
 void renderer_window_shape_invalidate(CompWindow *w)
 {
     w->shaped = false;
@@ -125,11 +128,88 @@ void renderer_window_invalidate(CompWindow *w)
 void renderer_window_free(CompWindow *w)
 {
     renderer_window_invalidate(w);
+    stash_free(w);
 }
 
 bool renderer_window_has_content(const CompWindow *w)
 {
     return w->picture != 0;
+}
+
+/* ---- the stash: contents a resize replaced (renderer.h) ---- */
+
+static void stash_free(CompWindow *w)
+{
+    if (w->prev_picture) {
+        xcb_render_free_picture(comp.conn, w->prev_picture);
+        w->prev_picture = 0;
+    }
+    if (w->prev_pixmap) {
+        xcb_free_pixmap(comp.conn, w->prev_pixmap);
+        w->prev_pixmap = 0;
+    }
+    w->prev_holds = 0;
+}
+
+void renderer_window_stash(CompWindow *w, const CompRect *was)
+{
+    if (!w->picture) {
+        /* Nothing bound to stash. Whatever was there is still the most
+         * recent thing this window ever looked like, so leave it. */
+        return;
+    }
+
+    /* One stash at a time: a second resize while an effect is drawing the
+     * first would leave two, and the effect wants the newest anyway. */
+    stash_free(w);
+
+    w->prev_pixmap = w->pixmap;
+    w->prev_picture = w->picture;
+    /* The rectangle those pixels covered -- the *old* one. The window's
+     * own geometry has already been updated to the new size by the time
+     * this runs, which is exactly the trap: stashing window_rect(w) here
+     * records the size the contents are not. */
+    w->prev_rect = *was;
+    w->prev_holds = 0;
+
+    w->pixmap = 0;
+    w->picture = 0;
+
+    /* The alpha mask and shape belong to the size that just changed. */
+    if (w->alpha) {
+        xcb_render_free_picture(comp.conn, w->alpha);
+        w->alpha = 0;
+    }
+    renderer_window_shape_invalidate(w);
+}
+
+bool renderer_window_has_stash(const CompWindow *w)
+{
+    return w->prev_picture != 0;
+}
+
+CompRect renderer_window_stash_rect(const CompWindow *w)
+{
+    return w->prev_rect;
+}
+
+void renderer_stash_hold(CompWindow *w)
+{
+    w->prev_holds++;
+}
+
+void renderer_stash_release(CompWindow *w)
+{
+    if (w->prev_holds > 0)
+        w->prev_holds--;
+    if (w->prev_holds == 0)
+        stash_free(w);
+}
+
+void renderer_stash_drop_unheld(CompWindow *w)
+{
+    if (w->prev_holds == 0)
+        stash_free(w);
 }
 
 /* Binds the window's current contents. Checked, because the window can be
@@ -775,7 +855,7 @@ static void xr_begin(CompOutput *o)
  * hands it destination points in root coordinates and gets pixmap points
  * out. Fixed point 16.16, and the third row is always the affine one
  * (see comp_transform_invert_affine). */
-static void picture_transform_set(CompWindow *w, const CompTransform *m)
+static void picture_transform_set(xcb_render_picture_t pict, const CompTransform *m)
 {
     xcb_render_transform_t t = {
         .matrix11 = (xcb_render_fixed_t)(m->m[0][0] * 65536.0f),
@@ -788,21 +868,21 @@ static void picture_transform_set(CompWindow *w, const CompTransform *m)
         .matrix32 = 0,
         .matrix33 = 65536,
     };
-    xcb_render_set_picture_transform(comp.conn, w->picture, t);
+    xcb_render_set_picture_transform(comp.conn, pict, t);
     /* Bilinear while scaled: nearest-neighbour turns a resize animation
      * into a shimmering staircase. */
-    xcb_render_set_picture_filter(comp.conn, w->picture, 8, "bilinear", 0, NULL);
+    xcb_render_set_picture_filter(comp.conn, pict, 8, "bilinear", 0, NULL);
 }
 
-static void picture_transform_reset(CompWindow *w)
+static void picture_transform_reset(xcb_render_picture_t pict)
 {
     static const xcb_render_transform_t identity = {
         65536, 0, 0,
         0, 65536, 0,
         0, 0, 65536,
     };
-    xcb_render_set_picture_transform(comp.conn, w->picture, identity);
-    xcb_render_set_picture_filter(comp.conn, w->picture, 7, "nearest", 0, NULL);
+    xcb_render_set_picture_transform(comp.conn, pict, identity);
+    xcb_render_set_picture_filter(comp.conn, pict, 7, "nearest", 0, NULL);
 }
 
 static void xr_draw_scene(CompOutput *o, CompScene *s)
@@ -820,7 +900,12 @@ static void xr_draw_scene(CompOutput *o, CompScene *s)
         if (n->visible_rect.w <= 0 || n->visible_rect.h <= 0)
             continue;
 
-        if (!window_bind(w)) {
+        /* An effect drawing what the window looked like before its last
+         * resize (shade). The node's geometry describes those contents,
+         * not the window's current ones. */
+        bool from_stash = n->use_stash && w->prev_picture;
+
+        if (!from_stash && !window_bind(w)) {
             /* The window has no usable contents this frame, so it's
              * simply missing from the output -- worth saying, because
              * that is exactly what a one-frame "the window vanished"
@@ -836,6 +921,7 @@ static void xr_draw_scene(CompOutput *o, CompScene *s)
         if (comp_transform_is_identity(&n->transform))
             draw_shadow(o, w, &n->geometry);
 
+        xcb_render_picture_t source = from_stash ? w->prev_picture : w->picture;
         xcb_render_picture_t mask = window_alpha(w, n->opacity);
 
         /* A node an effect is transforming (section 22): XRender wants
@@ -862,7 +948,11 @@ static void xr_draw_scene(CompOutput *o, CompScene *s)
          * GL renderer, which can transform the mask itself, is where
          * this stops being a trade at all. */
         if (comp.caps.xfixes) {
-            xcb_xfixes_region_t shape = transformed ? XCB_NONE : window_shape(w);
+            /* No shape while drawing the stash either: the cached region
+             * describes the window's *current* silhouette, which is not
+             * the one those pixels had. */
+            xcb_xfixes_region_t shape = (transformed || from_stash) ? XCB_NONE
+                                                                   : window_shape(w);
             xcb_xfixes_set_picture_clip_region(comp.conn, o->target,
                                                shape ? shape : XCB_XFIXES_REGION_NONE,
                                                (int16_t)(w->x - o->rect.x),
@@ -885,7 +975,7 @@ static void xr_draw_scene(CompOutput *o, CompScene *s)
              * "minus the window's origin" part itself. */
             CompTransform m = inverse;
             comp_transform_translate(&m, (float)-n->geometry.x, (float)-n->geometry.y);
-            picture_transform_set(w, &m);
+            picture_transform_set(source, &m);
             sx = (int16_t)n->visible_rect.x;
             sy = (int16_t)n->visible_rect.y;
         }
@@ -895,7 +985,7 @@ static void xr_draw_scene(CompOutput *o, CompScene *s)
          * identical to a plain copy. For a depth-32 window this is
          * precisely the blending an uncomposited server can't do. */
         xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER,
-                             w->picture, mask, o->target,
+                             source, mask, o->target,
                              sx, sy, sx, sy, dx, dy,
                              (uint16_t)n->visible_rect.w,
                              (uint16_t)n->visible_rect.h);
@@ -903,7 +993,7 @@ static void xr_draw_scene(CompOutput *o, CompScene *s)
         /* The picture outlives the frame, so the transform must not: the
          * next paint may well be an ordinary one. */
         if (transformed)
-            picture_transform_reset(w);
+            picture_transform_reset(source);
     }
 }
 

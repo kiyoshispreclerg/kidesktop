@@ -8,7 +8,8 @@ no compositing, with real transparency (32-bit windows' alpha and
 
 - window shapes applied while compositing (rounded corners, shaped clients);
 - configurable shadows, different for focused and unfocused windows;
-- an effect interface: *geometry change*, *fade in/out*, *scale in/out*;
+- an effect interface: *geometry change*, *fade in/out*, *scale in/out*,
+  *shade/unshade*, *minimize/restore*;
 - a per-output frame clock driving the animations;
 - configuration in `kicomp.conf`.
 
@@ -133,6 +134,19 @@ duration = 1.0
 events   = close
 to       = 1.15                 # > 1 swells before vanishing
 origin   = window
+
+[effect:shade]
+enabled  = 1
+duration = 1.0
+events   = shade,unshade
+windows  = windows
+
+[effect:minimize]
+enabled  = 1
+duration = 1.0
+events   = minimize,restore
+windows  = windows
+fade     = 1                    # fade along the way as well as shrink
 
 # a second instance of the same effect, with different numbers: inherits
 # everything from [effect:scale-out] and overrides only what it declares
@@ -435,6 +449,47 @@ By default they answer only to `close`. To have minimizing dissolve too,
 `events = close,minimize` — and when the `minimize` effect exists, take
 it back out of that list.
 
+### `shade` / `unshade`
+
+The window rolls up behind its own titlebar, and unrolls back out of it.
+No scaling and no distortion: the content is *cropped*, never squashed —
+the visible height shrinks to the titlebar (or grows back) while the
+pixels that stay visible keep their size, which is what makes it read as
+a blind rolling up rather than a window being squeezed.
+
+The two directions need different pixels, which is worth stating:
+
+- **shade** — by the time the compositor is told what happened, the WM
+  has already collapsed the frame to its titlebar and unmapped the
+  client: the content that has to roll up is gone from the live pixmap.
+  It is drawn from the **stash** instead — the contents the resize
+  replaced, set aside rather than freed (`renderer_window_stash()`), held
+  for as long as the effect runs.
+- **unshade** — the frame is full-size again and the client is mapped, so
+  the live contents are the right ones; only the crop grows.
+
+Keep `shade` out of `[effect:geometry]`'s events (it is out by default),
+or the window will slide and scale underneath this at the same time.
+
+### `minimize` / `restore`
+
+The window scales between where it lives and the little box the taskbar
+reserved for it, so it is visibly going *somewhere* rather than just
+disappearing. Where it goes comes from `_NET_WM_ICON_GEOMETRY`, which a
+taskbar publishes on each client window it lists (xispanel's tasklist
+does). With no taskbar saying anything, the window collapses toward the
+bottom edge of its own output — a guess, but a better one than the centre
+of the screen.
+
+| key | what it does |
+|---|---|
+| `fade` | fade out along the way as well as shrink (default on) — never all the way to nothing before the end, or the last third of the motion is invisible |
+
+Minimizing draws a window X has already unmapped, so it keeps it alive
+with `window_retain()` exactly as `fade-out` does. If `fade-out` is also
+answering to `minimize`, turn one of the two off — otherwise both will
+animate the same disappearance.
+
 ### `geometry` (section 24.4)
 
 The first one. A window that jumps to another size or place — maximize,
@@ -456,28 +511,32 @@ being a trade.
 
 ### What's missing, and what each one needs
 
-The effects below all fit XRender — none of them needs GL — but one piece
-of infrastructure is still absent:
+The effects still to come all fit XRender — none of them needs GL.
 
-**(a) a window that outlives its own end** — **done**, along with
-`fade-out`/`scale-out`: `window_retain()`/`window_release()`, and an
-entry that becomes a *zombie* when X destroys the window while an effect
-is still drawing it (the pixmap is ours until we let go).
+Two pieces of infrastructure they were waiting on now exist:
 
-**(b) a source crop on the scene node.** A `CompRect` saying "draw only
-this part of the pixmap", with no scaling. It is what shade needs to roll
-up without distorting.
+- **a window that outlives its own end** — `window_retain()` /
+  `window_release()`, and an entry that becomes a *zombie* when X
+  destroys the window while an effect is still drawing it (the pixmap is
+  ours until we let go). What `fade-out`, `scale-out` and `minimize` are
+  built on.
+- **the stash** — the contents a resize replaced, kept instead of freed
+  (`renderer_window_stash()`), so an effect can draw what the window
+  looked like a moment ago. What `shade` is built on, since the frame has
+  already collapsed to its titlebar by the time anyone knows it was a
+  shade.
 
-| effect | needs | how |
-|---|---|---|
-| `minimize`/`restore` | — | scale between the window's geometry and `_NET_WM_ICON_GEOMETRY` (the little box the taskbar publishes on the client window) |
-| `shade`/`unshade` | (b) | animated crop of the height, with no scaling and no distortion; detected through `_NET_WM_STATE_SHADED` on the client |
-| `desktop-wall` | (a) | + grouping windows by `_NET_WM_DESKTOP` and reading `_KIWM_OUTPUT_DESKTOP` to know about the per-output switch; translation of the whole scene, with `docks` optional (default: they come along) |
+What's left:
 
-`desktop-wall` is the only one that moves more than one window at a time
+| effect | how |
+|---|---|
+| `desktop-wall` | group windows by `_NET_WM_DESKTOP`, read `_KIWM_OUTPUT_DESKTOP` for the per-output switch, translate the whole scene; `docks` optional (default: they come along) |
+| `wobbly`, `blur` | need the GL renderer: a mesh per window, and shaders |
+
+`desktop-wall` is the first one that moves more than one window at a time
 — the interface already supports that (an effect is not required to have
-a `window`) — but it needs the windows of the desktop being left to keep
-existing, which is item (a) again.
+a `window`) — and it needs the windows of the desktop being left to keep
+existing, which the retain already provides.
 
 ## Pacing
 
@@ -513,18 +572,18 @@ only `scheduler_tick()` changes.
 | 23/42 — effects as modules | their own vtable; a new effect = one file + one line |
 | 19 — per-output scheduler | a frame clock per output, at each one's rate |
 | 20/40 — time-based animation | progress comes from the monotonic clock; duration is a multiple of a global unit |
-| 24.1/24.2/24.3/24.4 — effects | fade in/out, scale in/out (configurable origin) and geometry change |
+| 24.1/24.2/24.3/24.4 — effects | fade in/out, scale in/out (configurable origin), geometry change, shade/unshade, minimize/restore |
 | — | semantic events (open/close/minimize/maximize/shade/focus/...), configurable per effect |
 | — | window-type filter (`windows=`) and several instances of one effect, each with its own parameters |
 | — | per-effect easing, spring included |
 | — | shadows (nine-patch, cost independent of window size), with their own values for focused and unfocused windows |
 | — | windows retained past their own end (`window_retain`), which is what makes animating a close possible |
+| — | the stash: contents a resize replaced, kept for an effect that still needs them (what shade rolls up) |
 
 ## What is **not** implemented (and where it goes)
 
-- **More effects** (sections 24.1-24.7) — shade, minimize, desktop wall,
-  wobbly, cube. The first three fit XRender; wobbly (mesh) and blur ask
-  for the GL renderer.
+- **More effects** (sections 24.5-24.7) — desktop wall, wobbly, cube.
+  The wall fits XRender; wobbly (mesh) and blur ask for the GL renderer.
 - **MSC/UST** (the rest of Fase 7, sections 19/49) — the per-output clock
   exists, but its period comes from RandR, not from presentation
   feedback.
@@ -618,7 +677,7 @@ src/
   effect.c/.h         effect core: running effects + the module table
   shadow.c/.h         shadow configuration and per-window style
   effects/            one file per effect: geometry, fade-in, fade-out,
-                      scale-in, scale-out
+                      scale-in, scale-out, shade, minimize
   renderer.h          renderer vtable
   renderer-xrender.c  XRender backend
   presenter.h         presenter vtable

@@ -242,5 +242,7 @@ extern const CompEffectModule effect_fade_in;
 extern const CompEffectModule effect_fade_out;
 extern const CompEffectModule effect_scale_in;
 extern const CompEffectModule effect_scale_out;
+extern const CompEffectModule effect_shade;
+extern const CompEffectModule effect_minimize;
 
 #endif /* KICOMP_EFFECT_H */

@@ -196,6 +196,18 @@ typedef struct CompWindow {
     xcb_render_picture_t alpha;
     float alpha_value;         /* what `alpha` currently holds */
 
+    /* The contents the window had *before* the resize that just replaced
+     * them. A window being rolled up has already collapsed to its
+     * titlebar by the time the compositor is told it was a shade, and the
+     * pixels that have to roll up are gone from the live pixmap -- but
+     * not from this one, because a named pixmap stays ours until we free
+     * it. Held by whichever effect is drawing it, freed as soon as
+     * nothing is (renderer.h's stash calls). */
+    xcb_pixmap_t prev_pixmap;
+    xcb_render_picture_t prev_picture;
+    CompRect prev_rect;
+    int prev_holds;
+
     /* The window's SHAPE bounding region, in window-relative coordinates.
      * Without it a shaped window comes out square: the server clips a
      * window to its shape when *it* paints, but NameWindowPixmap hands
@@ -270,6 +282,7 @@ typedef struct KiComp {
         xcb_atom_t state_shaded;
         xcb_atom_t state_fullscreen;
         xcb_atom_t state_hidden;
+        xcb_atom_t net_wm_icon_geometry;   /* where the taskbar keeps this window */
         xcb_atom_t net_active_window;
         xcb_atom_t net_current_desktop;
         xcb_atom_t kiwm_output_desktop;

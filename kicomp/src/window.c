@@ -522,6 +522,9 @@ void windows_flush_events(void)
             }
         }
 
+        /* Nothing claimed the contents the last resize replaced. */
+        renderer_stash_drop_unheld(w);
+
         w->state_before = now;
         w = next;
     }
@@ -813,8 +816,12 @@ void window_configure(xcb_window_t id, int x, int y, int w_, int h_, int border,
 
     if (resized) {
         /* A resize gives the window a brand new backing pixmap; the one
-         * we hold is the old size. */
-        renderer_window_invalidate(w);
+         * we hold is the old size -- but it is also the only record of
+         * what the window looked like a moment ago, which an effect may
+         * still need (shade rolls up a window whose real pixmap has
+         * already collapsed to a titlebar). Set aside rather than freed;
+         * the flush drops it if no effect claims it. */
+        renderer_window_stash(w, &old);
     }
 
     window_restack(id, above);

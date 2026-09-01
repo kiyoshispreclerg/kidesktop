@@ -35,7 +35,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.2"
+#define KICOMP_VERSION "0.2.3"
 
 #include "comp.h"
 #include "output.h"
@@ -159,6 +159,7 @@ static void atoms_init(void)
     comp.atoms.state_shaded           = intern("_NET_WM_STATE_SHADED");
     comp.atoms.state_fullscreen       = intern("_NET_WM_STATE_FULLSCREEN");
     comp.atoms.state_hidden           = intern("_NET_WM_STATE_HIDDEN");
+    comp.atoms.net_wm_icon_geometry   = intern("_NET_WM_ICON_GEOMETRY");
     comp.atoms.net_active_window      = intern("_NET_ACTIVE_WINDOW");
     comp.atoms.net_current_desktop    = intern("_NET_CURRENT_DESKTOP");
     comp.atoms.kiwm_output_desktop    = intern("_KIWM_OUTPUT_DESKTOP");
