@@ -156,6 +156,7 @@ events   = desktop-leave,desktop-enter
 windows  = all
 distance = 1.0                  # how far, as a fraction of the output's size
 fade     = 0                    # dim on the way out/in as well as slide
+crossing = fade                 # the part on another output: fade | hide
 
 [effect:smooth-move]
 enabled  = 0                    # off by default: deliberate lag is a taste
@@ -545,6 +546,22 @@ as one motion because it *is* one motion, described a window at a time.
 |---|---|
 | `distance` | how far a window travels, as a fraction of the output's size (0–4, default 1.0). At `1.0` a window ends exactly one screen away, so the two desktops never overlap; less and they slide over each other; more and they pull apart with a gap of background between them |
 | `fade` | dim towards the edges as well as slide (default off) |
+| `crossing` | what happens to the part of a window that reaches onto another output: `fade` (dissolves in place, in step with the slide — default) or `hide` (goes at once) |
+
+**One output pans, not the screen.** The wall moves only the output whose
+desktop changed. With two monitors side by side that is not a detail: a
+window sliding out of the left monitor would otherwise slide *into* the
+right one, showing one desktop's transition on another desktop that isn't
+going anywhere. Since each output has its own scene and its own drawable
+(section 18), confining it is one comparison — the effect simply declines
+to touch a scene that isn't its output's.
+
+That leaves the windows straddling the boundary. Their far piece is on an
+output that is staying put, so it can't slide (same reason) and it can't
+stay (its window is leaving), which is what `crossing=` decides. `fade` is
+the default and is also the cheaper of the two motions: a dissolve
+repaints one fixed rectangle per frame, while a slide repaints the union
+of where the window was and where it went, every frame.
 
 **Which way it slides** comes from the WM, not from a guess. `desktop.c`
 reads the current desktop *per output* (`_KIWM_OUTPUT_DESKTOP` with

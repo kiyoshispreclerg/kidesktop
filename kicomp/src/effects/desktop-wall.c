@@ -36,11 +36,24 @@
  *   windows  = all
  *   distance = 1.0     # how far, as a fraction of the output's size
  *   fade     = 0       # dim towards the edges as well as slide
+ *   crossing = fade    # what happens to the part on another output
  *
  * `distance = 1.0` is the wall proper: a window ends exactly one screen
  * away, so the two desktops never overlap. Less than that and the desktops
  * slide over each other (a shorter, softer motion); more and they pull
  * apart with a gap of background between them.
+ *
+ * The wall pans exactly one output: the one whose desktop changed. With
+ * two monitors side by side that is not a detail -- a window sliding out
+ * of the left monitor would otherwise slide *into* the right one, showing
+ * one desktop's transition on another desktop that isn't going anywhere.
+ *
+ * That leaves the windows straddling the boundary, whose far piece is on
+ * an output that is staying put. It can't slide (same reason) and it
+ * can't stay (its window is leaving), so `crossing=` decides:
+ *
+ *   fade  it dissolves where it is, in step with the slide (default)
+ *   hide  it goes at once
  */
 #include "../effect.h"
 #include "../animation.h"
@@ -50,17 +63,33 @@
 #include "../renderer.h"
 #include "../transform.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* What to do with the part of a window that reaches onto an output which
+ * is *not* switching desktop (see crossing= below). */
+typedef enum {
+    CROSSING_FADE = 0,
+    CROSSING_HIDE,
+} WallCrossing;
 
 typedef struct {
     bool fade;
     float distance;
+    WallCrossing crossing;
 } WallConfig;
 
 typedef struct {
     const WallConfig *cfg;
     bool leaving;         /* desktop-leave, as opposed to desktop-enter */
+
+    /* The output whose desktop changed -- the only one the wall pans.
+     * Everything else on screen belongs to a desktop that is not moving,
+     * and sliding a window across it would be showing one output's
+     * transition on another one's picture. */
+    int output_id;
+    CompRect output_rect;
 
     /* How far the viewport travels, in pixels, and which way: one output
      * in the direction of the switch. A leaving window ends up at minus
@@ -76,6 +105,7 @@ static void config_defaults(void *config)
     WallConfig *c = config;
     c->fade = false;
     c->distance = 1.0f;
+    c->crossing = CROSSING_FADE;
 }
 
 static bool config_key(void *config, const char *key, const char *value)
@@ -91,6 +121,16 @@ static bool config_key(void *config, const char *key, const char *value)
         if (d < 0.0f) d = 0.0f;
         if (d > 4.0f) d = 4.0f;
         c->distance = d;
+        return true;
+    }
+    if (strcmp(key, "crossing") == 0) {
+        if (strcmp(value, "fade") == 0)
+            c->crossing = CROSSING_FADE;
+        else if (strcmp(value, "hide") == 0)
+            c->crossing = CROSSING_HIDE;
+        else
+            fprintf(stderr, "kicomp: config: unknown crossing '%s' "
+                            "(fade | hide)\n", value);
         return true;
     }
     return false;
@@ -137,8 +177,23 @@ static void wall_update(CompEffect *e, double now)
     CompRect previous = d->covered;
     d->covered = rect_for(e, effect_ease(e, comp_progress(now, e->start_time, e->duration)));
 
-    output_damage_rect(&previous);
-    output_damage_rect(&d->covered);
+    /* Only ever the output that is switching: the pan is drawn there and
+     * nowhere else, so damaging where the animated rectangle *would* have
+     * reached would be waking a neighbouring output up every frame to
+     * repaint something it is not being shown. */
+    CompRect hit;
+    if (rect_intersect(&previous, &d->output_rect, &hit))
+        output_damage_rect(&hit);
+    if (rect_intersect(&d->covered, &d->output_rect, &hit))
+        output_damage_rect(&hit);
+
+    /* The piece crossing onto another output is dissolving in place, and
+     * a fade is a change with no motion: nothing else would mark that
+     * output dirty, and the fade would freeze on its first frame. */
+    if (d->cfg->crossing == CROSSING_FADE) {
+        CompRect real = window_rect(e->window);
+        output_damage_rect(&real);
+    }
 }
 
 static void wall_apply(CompEffect *e, CompScene *s, CompOutput *o)
@@ -152,6 +207,27 @@ static void wall_apply(CompEffect *e, CompScene *s, CompOutput *o)
         CompSceneNode *n = &s->nodes[i];
         if (n->win != e->window)
             continue;
+
+        if (o->id != d->output_id) {
+            /* This output is not the one switching desktop, and what is on
+             * screen here belongs to a desktop that is staying put. The
+             * node only exists at all because the window reaches across
+             * the boundary -- its geometry overlaps two outputs -- and
+             * that piece must not be dragged along: sliding it would show
+             * one monitor's desktop change happening on another monitor's
+             * picture.
+             *
+             * So the piece stays exactly where it is and dissolves (or
+             * simply goes, with crossing=hide). No transform, no motion:
+             * the node keeps the rectangle scene.c already clipped to this
+             * output, which is precisely the part that crosses. */
+            if (d->cfg->crossing == CROSSING_HIDE) {
+                n->visible_rect = (CompRect){ 0, 0, 0, 0 };
+                return;
+            }
+            n->opacity *= d->leaving ? (1.0f - p) : p;
+            return;
+        }
 
         /* A pure translation: nothing about a wall scales or distorts, the
          * whole desktop simply moves sideways. */
@@ -234,6 +310,8 @@ static void on_event(CompWindow *w, const CompEvent *event,
 
     d->cfg = self->config;
     d->leaving = leaving;
+    d->output_id = o->id;
+    d->output_rect = o->rect;
 
     /* One output in the direction of travel; rect_for() applies it with
      * the sign each half of the switch needs. */
