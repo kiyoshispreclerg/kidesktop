@@ -9,6 +9,8 @@
 #include "window.h"
 #include "effect.h"
 
+#include <string.h>
+
 void scene_build(CompScene *s, CompOutput *o)
 {
     s->output = o;
@@ -56,4 +58,26 @@ void scene_build(CompScene *s, CompOutput *o)
         n->z = s->count;
         s->count++;
     }
+}
+
+void scene_move_node(CompScene *s, int from, int to)
+{
+    if (from == to || from < 0 || to < 0 || from >= s->count || to >= s->count)
+        return;
+
+    CompSceneNode moved = s->nodes[from];
+
+    if (to < from)
+        memmove(&s->nodes[to + 1], &s->nodes[to],
+                sizeof(CompSceneNode) * (size_t)(from - to));
+    else
+        memmove(&s->nodes[from], &s->nodes[from + 1],
+                sizeof(CompSceneNode) * (size_t)(to - from));
+
+    s->nodes[to] = moved;
+
+    /* z is the node's own record of its depth; the array order is what
+     * the renderer draws by. Keep the two saying the same thing. */
+    for (int i = 0; i < s->count; i++)
+        s->nodes[i].z = i;
 }

@@ -53,6 +53,14 @@ void window_release(CompWindow *w);
  * NameWindowPixmap covers. */
 CompRect window_rect(const CompWindow *w);
 
+/* Was `a` drawn on top of `b` *before* the batch of events being
+ * classified? The current stacking can't answer this: a raise and the
+ * focus that comes with it arrive together, so by classification time the
+ * raise has happened and everything is already below the newly focused
+ * window. This compares the snapshot taken at the end of the previous
+ * batch (comp.h's z_before) -- what was covering what a moment ago. */
+bool window_was_above(const CompWindow *a, const CompWindow *b);
+
 /* Whether any window is waiting to be classified. The main loop uses it
  * to decide whether a round trip to the server is worth making before the
  * flush -- see windows_flush_events(). */

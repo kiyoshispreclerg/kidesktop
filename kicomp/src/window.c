@@ -403,12 +403,18 @@ void window_focus_changed(xcb_window_t active)
             continue;
         bool now_focused = (w->id == active || (w->client != XCB_NONE && w->client == active));
         bool was_focused = (w->id == previous || (w->client != XCB_NONE && w->client == previous));
+        /* The flag itself changes now -- the shadow and anything else
+         * that draws differently for a focused window must not wait a
+         * beat -- but the *event* is deferred to the flush, where the
+         * restack that came with it has also been seen. */
         if (now_focused && !w->focused) {
             w->focused = true;
-            emit(w, COMP_EVENT_FOCUS);
+            w->pending_focus = true;
+            w->pending_unfocus = false;
         } else if (was_focused && w->focused && !now_focused) {
             w->focused = false;
-            emit(w, COMP_EVENT_UNFOCUS);
+            w->pending_unfocus = true;
+            w->pending_focus = false;
         }
     }
 }
@@ -449,9 +455,25 @@ bool windows_have_pending(void)
 {
     for (CompWindow *w = comp.stack; w; w = w->next)
         if (w->pending_appear || w->pending_disappear ||
-            w->pending_geometry || w->pending_state)
+            w->pending_geometry || w->pending_state ||
+            w->pending_focus || w->pending_unfocus)
             return true;
     return false;
+}
+
+/* Snapshots the current stacking into z_before, so the *next* batch can
+ * ask what was on top of what before it happened (comp.h). Taken at the
+ * end of the flush, once this batch's restacks have been applied. */
+static void stack_snapshot(void)
+{
+    int z = 0;
+    for (CompWindow *w = comp.stack; w; w = w->next)
+        w->z_before = z++;
+}
+
+bool window_was_above(const CompWindow *a, const CompWindow *b)
+{
+    return a->z_before > b->z_before;
 }
 
 void windows_flush_events(void)
@@ -461,13 +483,24 @@ void windows_flush_events(void)
         CompWindow *next = w->next;
 
         if (!w->pending_appear && !w->pending_disappear &&
-            !w->pending_geometry && !w->pending_state) {
+            !w->pending_geometry && !w->pending_state &&
+            !w->pending_focus && !w->pending_unfocus) {
             w = next;
             continue;
         }
 
+        /* Re-read the state only for the events whose meaning depends on
+         * it. A focus change is not one of them, and it is the most
+         * frequent thing that happens on a desktop -- paying a round trip
+         * per click to learn a window is still not maximized would be a
+         * poor trade. */
+        bool needs_state = w->pending_appear || w->pending_disappear ||
+                           w->pending_geometry || w->pending_state;
+
         uint32_t before = w->state_before;
-        uint32_t now = w->state = read_window_state(w);
+        uint32_t now = w->state;
+        if (needs_state)
+            now = w->state = read_window_state(w);
 
         if (w->pending_disappear) {
             w->pending_disappear = false;
@@ -537,12 +570,30 @@ void windows_flush_events(void)
             }
         }
 
+        /* Last, so an effect answering to focus sees the window where the
+         * WM has just put it. What was *covering* it a moment ago is a
+         * different question, and the stacking here can no longer answer
+         * it -- the raise already happened -- which is what z_before is
+         * for (comp.h, window_was_above). */
+        if (w->pending_unfocus) {
+            w->pending_unfocus = false;
+            emit(w, COMP_EVENT_UNFOCUS);
+        }
+        if (w->pending_focus) {
+            w->pending_focus = false;
+            emit(w, COMP_EVENT_FOCUS);
+        }
+
         /* Nothing claimed the contents the last resize replaced. */
         renderer_stash_drop_unheld(w);
 
         w->state_before = now;
         w = next;
     }
+
+    /* This batch is over: what the stacking looks like now is what the
+     * next one will have to compare against. */
+    stack_snapshot();
 }
 
 static void damage_create(CompWindow *w)

@@ -49,4 +49,17 @@ typedef struct CompScene {
  * incremental updates are a later optimization (section 47.7). */
 void scene_build(CompScene *s, CompOutput *o);
 
+/* Moves a node within the scene, shifting the ones in between to fill the
+ * gap. Drawing order only: the WM's stacking is untouched and the window
+ * is still where the WM put it, exactly as a transform doesn't move a
+ * window (section 27) -- this is the same lie told about z instead of
+ * about x and y.
+ *
+ * What it exists for: a raise that should appear to happen *after*
+ * something else. The WM raises and focuses in one gesture, so by the
+ * time an effect runs the window is already on top; drawing it at its old
+ * depth for a moment is the only way to show the sequence the user
+ * actually caused. */
+void scene_move_node(CompScene *s, int from, int to);
+
 #endif /* KICOMP_SCENE_H */

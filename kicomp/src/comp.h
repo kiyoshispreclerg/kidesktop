@@ -192,6 +192,16 @@ typedef struct CompWindow {
     bool focused;
     bool has_been_mapped;      /* distinguishes opening from coming back */
 
+    /* Where this window sat in the stack at the end of the *previous*
+     * batch of events -- 0 at the bottom, upwards. Not the current order,
+     * which is in the list itself: this is the order from before whatever
+     * just happened, and the difference is the only way to answer "was
+     * this window covering that one a moment ago?". A raise and the focus
+     * that comes with it arrive together, so by the time anything is
+     * classified the raise has already happened and the current stacking
+     * can no longer tell you what was on top of what. */
+    int z_before;
+
     /* Deferred until the event queue is drained: at unmap time we don't
      * yet know whether the window was closed, minimized or left behind on
      * another desktop, and at configure time the state property saying
@@ -200,6 +210,13 @@ typedef struct CompWindow {
      * See window.c's windows_flush_events(). */
     bool pending_appear;
     bool pending_disappear;
+    /* Focus is deferred for a reason of its own: the WM publishes
+     * _NET_ACTIVE_WINDOW and restacks the window as one gesture, in
+     * either order, so an effect that wants to know what the newly
+     * focused window is *in front of* has to be told once both have
+     * arrived. */
+    bool pending_focus;
+    bool pending_unfocus;
     bool pending_geometry;
     bool pending_state;
     bool pending_interactive;

@@ -21,6 +21,7 @@ static const CompEffectModule *const modules[] = {
     &effect_minimize,
     &effect_desktop_wall,
     &effect_smooth_move,
+    &effect_dodge,
 };
 
 #define MODULE_COUNT ((int)(sizeof(modules) / sizeof(modules[0])))

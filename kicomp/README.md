@@ -158,6 +158,17 @@ distance = 1.0                  # how far, as a fraction of the output's size
 fade     = 0                    # dim on the way out/in as well as slide
 crossing = fade                 # the part on another output: fade | hide
 
+[effect:dodge]
+enabled      = 0              # off by default: it moves windows you didn't touch
+duration     = 1.5
+events       = focus
+windows      = windows        # which windows may dodge, not which cause it
+easing       = in-out         # shapes each half of the swing
+strength     = 1.0            # fraction of the distance that would clear the overlap
+clearance    = 8              # px of gap left between them once aside
+max_distance = 0              # px ceiling; 0 = whatever clearing it takes
+raise_at     = 0.5            # when the focused window is allowed forward
+
 [effect:smooth-move]
 enabled  = 0                    # off by default: deliberate lag is a taste
 duration = 0.35                 # the filter's time constant, not a length
@@ -593,6 +604,42 @@ things worth knowing about the timing:
 - If `fade-out`/`scale-out` are also answering to `desktop-leave` (they
   are not by default), they will animate the same departure as the wall.
 
+### `dodge`
+
+When a window is raised and takes focus, the windows that were covering
+it step aside — each towards whichever edge is nearest — and settle back
+where they were, so the raise reads as things making room rather than as
+one rectangle appearing on top of another between two frames.
+
+| key | what it does |
+|---|---|
+| `strength` | how much of the distance that would fully clear the overlap is actually travelled (0–1, default 1.0 — all of it: a window that only half clears the one it was covering has not made room, it has twitched) |
+| `clearance` | pixels of gap left between the two windows once aside (default 8) — stopping exactly at the edge reads as one window stuck to the other rather than as having got out of the way |
+| `max_distance` | ceiling in pixels, `0` (the default) for no ceiling — whatever clearing it takes |
+| `raise_at` | when the focused window is allowed to come forward, as a fraction of the duration (default 0.5 — the moment the others are fully aside). `0` lets it come forward at once, which is what the WM did |
+
+Direction is the cheapest honest answer: of the four ways out of the
+overlap, the one needing the least movement. A window overlapping a little
+on the left slides left; one overlapping at the bottom drops down. The
+motion is out and back within one duration — a window that stepped aside
+and *stayed* aside would be lying about where it is for as long as it kept
+it up.
+
+Two things make it unusual. It is the only effect that animates windows
+other than the one the event was about: the event arrives for the window
+that gained focus, and what gets animated is everything that was
+*covering* it, one effect each — which is not the same as everything
+below it now: the WM raises and focuses in one gesture, so by the time
+anything is classified everything overlapping is below, including windows
+that were always behind and never covered anything. The stacking from
+before the batch is kept for exactly this question. The interface already allowed
+that — an effect names the window it animates, which needn't be the one it
+was told about. And `windows=` here filters *which windows may dodge*, not
+which may cause a dodge.
+
+Off by default: it moves windows the user did not touch, which is a strong
+opinion for a compositor to have without being asked.
+
 ### `smooth-move`
 
 A window being dragged is drawn a little behind where the pointer has
@@ -746,7 +793,7 @@ only `scheduler_tick()` changes.
 | 23/42 — effects as modules | their own vtable; a new effect = one file + one line |
 | 19 — per-output scheduler | a frame clock per output, at each one's rate |
 | 20/40 — time-based animation | progress comes from the monotonic clock; duration is a multiple of a global unit |
-| 24.1/24.2/24.3/24.4 — effects | fade in/out, scale in/out (configurable origin), geometry change, shade/unshade, minimize/restore, desktop wall, smooth move |
+| 24.1/24.2/24.3/24.4 — effects | fade in/out, scale in/out (configurable origin), geometry change, shade/unshade, minimize/restore, desktop wall, smooth move, dodge |
 | — | per-output current desktop read from the WM (`_KIWM_OUTPUT_DESKTOP`/`_NET_CURRENT_DESKTOP` + `_NET_DESKTOP_LAYOUT`), which is what gives the wall its direction and tells a departing window from a closing one |
 | — | semantic events (open/close/minimize/maximize/shade/focus/...), configurable per effect |
 | — | window-type filter (`windows=`) and several instances of one effect, each with its own parameters |
@@ -855,7 +902,7 @@ src/
   damage.c/.h         X Damage in, per-output regions out (batched)
   effects/            one file per effect: geometry, fade-in, fade-out,
                       scale-in, scale-out, shade, minimize, desktop-wall,
-                      smooth-move
+                      smooth-move, dodge
   renderer.h          renderer vtable
   renderer-xrender.c  XRender backend
   presenter.h         presenter vtable
