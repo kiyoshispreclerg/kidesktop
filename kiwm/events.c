@@ -324,11 +324,21 @@ static bool resize_grip_at(Client *c, int root_x, int root_y,
         return false;
 
     int g = wm.resize_grip;
-    bool left = rel_x < g;
-    bool r = rel_x >= c->frame_width - g;
-    /* The titlebar owns the top edge wherever there is one -- dragging it
-     * is how a window moves, and a resize grip there would fight that. */
-    bool top = !client_deco_visible(c) && rel_y < g;
+    bool deco = client_deco_visible(c);
+
+    /* With a decoration there is no top border to grip: the titlebar is
+     * the frame's first row. So the top grip is a thin strip taken off the
+     * titlebar's own top edge (kiwm.conf's resize_grip_top=, small on
+     * purpose -- the rest of those rows belong to the buttons), and the
+     * whole titlebar *below* that strip is grip-free: dragging it is how a
+     * window moves, and its ends are where the buttons are. Without a
+     * decoration the top edge is like any other and uses resize_grip=. */
+    int gt = deco ? wm.resize_grip_top : g;
+    bool top = gt > 0 && rel_y < gt;
+    bool in_titlebar_body = deco && !top && rel_y < TITLEBAR_H;
+
+    bool left = !in_titlebar_body && rel_x < g;
+    bool r = !in_titlebar_body && rel_x >= c->frame_width - g;
     bool b = rel_y >= c->frame_height - g;
 
     if (!left && !r && !top && !b)
@@ -629,6 +639,41 @@ static void handle_button_press(xcb_button_press_event_t *ev)
         return;
     }
 
+    /* Plain (no modifier) click within kiwm.conf's resize_grip= of a frame
+     * edge: resize from there. This is the ordinary "grab the window's
+     * corner" resize, and it works with or without a visible border --
+     * kiwm takes every button press on a client window through a
+     * synchronous grab and replays the ones it doesn't want (the tail of
+     * this function), so the grip doesn't need a decoration to live in.
+     * That's the whole point for windows that have none.
+     *
+     * Within the grip of two edges at once it's a corner drag; of one,
+     * that axis only, so dragging a side doesn't also change the height.
+     *
+     * Checked *before* the titlebar handling below, because on a decorated
+     * window the top grip is a strip of the titlebar's own top edge (see
+     * resize_grip_at()): the strip has to win over the button under it and
+     * over titlebar-drag-to-move, or there would be no way to reach the
+     * top edge at all. Everything else about the titlebar is untouched --
+     * resize_grip_at() keeps its whole body, buttons and ends included,
+     * grip-free. */
+    if (ev->detail == 1 && !(ev->state & wm.mod_key)) {
+        int right, bottom;
+        bool axis_x, axis_y;
+        if (resize_grip_at(c, ev->root_x, ev->root_y, &right, &bottom, &axis_x, &axis_y)) {
+            /* Same rule a modifier-drag resize follows: grabbing the
+             * shared edge of two half-tiled windows resizes both in place
+             * (link_resize_neighbors=) instead of detiling this one back
+             * to whatever floating geometry it had before it was snapped.
+             * Missing that here is what made grip-resizing a tiled pair
+             * throw both windows back to their old sizes. */
+            begin_drag_at(c, DRAG_RESIZE, ev->root_x, ev->root_y,
+                          should_preserve_snap_resize(c, ev->root_x),
+                          right, bottom, axis_x, axis_y);
+            return;
+        }
+    }
+
     /* A titlebar *button* takes left, right and middle clicks -- the
      * maximize button does something different with each (see
      * run_deco_button()) -- so this is checked before the right-click
@@ -695,36 +740,6 @@ static void handle_button_press(xcb_button_press_event_t *ev)
 
         begin_drag(c, DRAG_MOVE, ev);
         return;
-    }
-
-    /* Plain (no modifier) click within kiwm.conf's resize_grip= of a
-     * frame edge: resize from there. This is the ordinary "grab the
-     * window's corner" resize, and it works with or without a visible
-     * border -- kiwm takes every button press on a client window through a
-     * synchronous grab and replays the ones it doesn't want (the tail of
-     * this function), so the grip doesn't need a decoration to live in.
-     * That's the whole point for windows that have none.
-     *
-     * Within the grip of two edges at once it's a corner drag; of one,
-     * that axis only, so dragging a side doesn't also change the height.
-     * The top edge is left out whenever the titlebar is there to own it
-     * (the titlebar branch above has already returned by then anyway), and
-     * a shaded window has nothing but titlebar, so it's left out too. */
-    if (ev->detail == 1 && !(ev->state & wm.mod_key)) {
-        int right, bottom;
-        bool axis_x, axis_y;
-        if (resize_grip_at(c, ev->root_x, ev->root_y, &right, &bottom, &axis_x, &axis_y)) {
-            /* Same rule a modifier-drag resize follows: grabbing the
-             * shared edge of two half-tiled windows resizes both in place
-             * (link_resize_neighbors=) instead of detiling this one back
-             * to whatever floating geometry it had before it was snapped.
-             * Missing that here is what made grip-resizing a tiled pair
-             * throw both windows back to their old sizes. */
-            begin_drag_at(c, DRAG_RESIZE, ev->root_x, ev->root_y,
-                          should_preserve_snap_resize(c, ev->root_x),
-                          right, bottom, axis_x, axis_y);
-            return;
-        }
     }
 
     /* wm.mod_key-drag (Meta by default) moves the window with the left

@@ -47,6 +47,7 @@ static void apply_builtin_defaults(void)
     wm.live_snap_resize = false;
     wm.outline_width = 16;
     wm.resize_grip = 12;
+    wm.resize_grip_top = 4;
     wm.live_resize = true;
     wm.magnet_threshold = 10;
     wm.link_resize_neighbors = false;
@@ -210,11 +211,20 @@ static void write_default_config(const char *path)
         "outline_width=16\n"
         "\n"
         "# Width, in pixels, of the invisible resize grip along a window's\n"
-        "# edges: a plain click within this far of an edge resizes instead of\n"
-        "# going to the application -- from the corner when two edges are in\n"
-        "# range, along one axis otherwise. Works with or without a visible\n"
-        "# border. 0 disables it (resizing then needs the modifier drag).\n"
+        "# left, right and bottom edges: a plain click within this far of an\n"
+        "# edge resizes instead of going to the application -- from the corner\n"
+        "# when two edges are in range, along one axis otherwise. Works with\n"
+        "# or without a visible border. 0 disables it (resizing then needs the\n"
+        "# modifier drag).\n"
         "resize_grip=12\n"
+        "\n"
+        "# The same for the top edge of a *decorated* window, which has no top\n"
+        "# border to grip: the strip is taken off the titlebar's own top rows,\n"
+        "# and winning over the buttons underneath is the point, so keep it\n"
+        "# small (capped at half the titlebar either way). 0 disables the top\n"
+        "# grip. Undecorated windows ignore this and use resize_grip= on all\n"
+        "# four edges.\n"
+        "resize_grip_top=4\n"
         "\n"
         "# Whether resizing changes the window as you drag (1, the default),\n"
         "# or just outlines the size it is heading for and resizes for real\n"
@@ -399,6 +409,13 @@ void config_load(void)
             if (n < 0) n = 0;
             if (n > MAX_RESIZE_GRIP) n = MAX_RESIZE_GRIP;
             wm.resize_grip = n;
+        } else if (strcmp(key, "resize_grip_top") == 0) {
+            int n = atoi(val);
+            if (n < 0) n = 0;
+            /* Never more than half the titlebar: past that the buttons
+             * have no clickable half left. */
+            if (n > TITLEBAR_H / 2) n = TITLEBAR_H / 2;
+            wm.resize_grip_top = n;
         } else if (strcmp(key, "live_resize") == 0) {
             wm.live_resize = atoi(val) != 0;
         } else if (strcmp(key, "magnet_threshold") == 0) {

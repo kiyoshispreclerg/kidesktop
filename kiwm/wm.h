@@ -846,6 +846,17 @@ typedef struct {
      * small: every pixel of it is a pixel the application doesn't get. */
     int resize_grip;
 
+    /* The same thing for the *top* edge of a decorated window (kiwm.conf's
+     * resize_grip_top=, default 4; 0 disables it), where the grip has to
+     * come out of the titlebar because kiwm's frame has no top border: the
+     * titlebar starts at the frame's first row. Deliberately its own,
+     * much smaller setting rather than resize_grip= -- those pixels are
+     * shared with the titlebar buttons, and a 12px strip out of a 26px
+     * titlebar would eat half of every one of them. An undecorated window
+     * has no such conflict and keeps using the full resize_grip= on all
+     * four edges. See events.c's resize_grip_at(). */
+    int resize_grip_top;
+
     /* Which grip zone the pointer is currently hovering, if any, and the
      * pointer grab held while it is -- purely to show a resize cursor
      * there, since the grip is invisible and otherwise undiscoverable.
