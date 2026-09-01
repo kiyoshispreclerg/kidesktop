@@ -1,9 +1,11 @@
 /*
  * kiwm - XiS Window Manager
  *
- * First real prototype, per kiwm-kicomp-projeto.md.
+ * Built along kiwm-kicomp-projeto.md's phased plan; what it does today
+ * covers Fase 1 and most of Fase 2/3/4, and is what the desktop is
+ * actually run on.
  *
- * Scope of this prototype (Fase 1 + slices of Fase 2/3/4):
+ * Scope:
  *   - XCB connection, root ownership, --replace (ICCCM manager selection).
  *   - RandR outputs (xcb_randr_get_monitors), hotplug-aware.
  *   - Virtual desktops tracked independently per output (not a single
@@ -39,7 +41,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KIWM_VERSION "0.3.9"
+#define KIWM_VERSION "0.4.0"
 
 #include "wm.h"
 #include "config.h"

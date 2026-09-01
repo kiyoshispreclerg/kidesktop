@@ -10,7 +10,7 @@ exposes.
 
 ### Status
 
-**Early, but past first-prototype.** What works right now:
+Complete enough to be the window manager this desktop is run on day to day. What works:
 
 - map/unmap/move/resize/maximize/minimize/close, click-to-focus (or optional
   focus-follows-mouse), Alt-Tab-style window cycling.
@@ -295,10 +295,17 @@ exposes.
   maximize windows: `_NET_CLIENT_LIST(_STACKING)`, `_NET_ACTIVE_WINDOW`, `_NET_CLOSE_WINDOW`,
   `_NET_WM_STATE`, ICCCM `WM_STATE`, `_NET_WM_DESKTOP`, `_NET_SUPPORTING_WM_CHECK`,
   `_NET_WORKAREA`, `_NET_FRAME_EXTENTS`, `_NET_WM_ICON`.
+- Optional focus-stealing prevention (`focus_stealing_prevention=`, `none` by default so nothing
+  changes until asked for) with kwin's five levels, gating the only two paths a client can take
+  focus through on its own -- mapping a window and `_NET_ACTIVE_WINDOW` -- and turning a refused
+  request into `_NET_WM_STATE_DEMANDS_ATTENTION` rather than a window that quietly never appears.
+  See "Focus stealing prevention" below.
 
-Not implemented yet: `kicomp` compositor (no client-side compositing at all), resizing by grabbing
-the window's own edge/corner with no modifier held (only mod+right-click resize exists so far),
-global menu.
+What's left is extras rather than missing window management: a global menu in the decoration,
+gradients, per-button hover outlines in the decoration's accent color (the way Klassy does them),
+fake transparency in the style of KDE 3's Crystal, and an end-to-end self-test program. Compositing
+is out of scope here by design -- it belongs to [kicomp](../kicomp), a separate process kiwm never
+requires.
 
 ### Dependencies
 

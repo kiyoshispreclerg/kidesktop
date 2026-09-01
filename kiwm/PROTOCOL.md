@@ -40,7 +40,7 @@ refresh if a same-named output was already known; otherwise it starts at `0`).
 ### `_KIWM_NUM_OUTPUT_DESKTOPS` (`CARDINAL`, format 32, single value)
 
 How many virtual desktops each output has (kiwm.conf's `num_desktops=`, default `4`, identical
-for every output). Set once at startup; not expected to change at runtime in this prototype.
+for every output). Set once at startup; not expected to change at runtime.
 
 ### `_KIWM_WM_OUTPUT` (`CARDINAL`, format 32, single value, per client window)
 
