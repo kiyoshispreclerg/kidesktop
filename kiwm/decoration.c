@@ -261,6 +261,34 @@ static void parse_offset(const char *val, double *dx, double *dy)
     *dy = (n == 2) ? y : x;
 }
 
+/* "close_button_tint" / "maximize_button_tint" / ... -> the matching
+ * DecoElemKind slot in wm.btn_tint_*. Returns false when `key` isn't one
+ * of these at all, so the caller's key chain just carries on. The names
+ * are the titlebar_layout= element names plus "_button_tint", so a theme
+ * writes the same word it already uses to place the button. */
+static bool parse_button_tint(const char *key, const char *val)
+{
+    static const struct { const char *name; DecoElemKind kind; } tints[] = {
+        { "close_button_tint",             DECO_CLOSE },
+        { "maximize_button_tint",          DECO_MAXIMIZE },
+        { "minimize_button_tint",          DECO_MINIMIZE },
+        { "shade_button_tint",             DECO_SHADE },
+        { "keep_above_button_tint",        DECO_KEEP_ABOVE },
+        { "keep_all_desktops_button_tint", DECO_KEEP_ALL_DESKTOPS },
+    };
+    for (size_t i = 0; i < sizeof(tints) / sizeof(tints[0]); i++) {
+        if (strcmp(key, tints[i].name) != 0)
+            continue;
+        int k = (int)tints[i].kind;
+        /* Same "the color is the switch" rule the title effects use:
+         * clearing the line (or "none") turns this button's tint off. */
+        wm.btn_tint_set[k] = parse_effect_color(val, &wm.btn_tint_r[k], &wm.btn_tint_g[k],
+                                                &wm.btn_tint_b[k], &wm.btn_tint_a[k]);
+        return true;
+    }
+    return false;
+}
+
 static void load_colors_theme(void)
 {
     char path[512];
@@ -341,6 +369,24 @@ static void load_colors_theme(void)
         } else if (strcmp(key, "title_outline") == 0) {
             wm.title_outline = parse_effect_color(val, &wm.title_outline_r, &wm.title_outline_g,
                                                   &wm.title_outline_b, &wm.title_outline_a);
+        } else if (strcmp(key, "button_tinting") == 0) {
+            if (strcasecmp(val, "none") == 0)         wm.btn_tinting = BTN_TINT_NONE;
+            else if (strcasecmp(val, "over") == 0)    wm.btn_tinting = BTN_TINT_OVER;
+            else if (strcasecmp(val, "replace") == 0) wm.btn_tinting = BTN_TINT_REPLACE;
+            else
+                fprintf(stderr, "kiwm: theme: unknown button_tinting '%s' (expected none, over "
+                                "or replace), keeping current value\n", val);
+        } else if (strcmp(key, "button_tint_scope") == 0) {
+            if (strcasecmp(val, "button") == 0)          wm.btn_tint_scope = BTN_SCOPE_BUTTON;
+            else if (strcasecmp(val, "decoration") == 0) wm.btn_tint_scope = BTN_SCOPE_DECORATION;
+            else if (strcasecmp(val, "both") == 0)       wm.btn_tint_scope = BTN_SCOPE_BOTH;
+            else
+                fprintf(stderr, "kiwm: theme: unknown button_tint_scope '%s' (expected button, "
+                                "decoration or both), keeping current value\n", val);
+        } else if (parse_button_tint(key, val)) {
+            /* <button>_button_tint= for each DecoElemKind -- handled by
+             * name inside the helper, since there is one key per button
+             * and they differ only in which slot they land in. */
         } else if (strcmp(key, "title_outline_width") == 0) {
             double v = atof(val);
             if (v < 0) v = 0;
@@ -471,6 +517,10 @@ void load_decoration(void)
     wm.title_shadow_dx = wm.title_shadow_dy = 1.0;
     wm.title_outline = false;
     wm.title_outline_width = 1.0;
+    for (int i = 0; i < DECO_KIND_COUNT; i++)
+        wm.btn_tint_set[i] = false;
+    wm.btn_tinting = BTN_TINT_OVER;
+    wm.btn_tint_scope = BTN_SCOPE_BUTTON;
     wm.hover_btn = -1;
 
     load_bg_theme();
@@ -515,6 +565,36 @@ static void draw_slice_region(cairo_t *cr, cairo_surface_t *src, int sx, int sy,
     cairo_rectangle(cr, 0, 0, sw, sh);
     cairo_clip(cr);
     cairo_paint(cr);
+    cairo_restore(cr);
+}
+
+/* draw_slice_region()'s twin, painting the *current source* through that
+ * region's alpha instead of the region's own pixels -- i.e. the sprite as
+ * a stencil. That's what makes a button tint follow the button's actual
+ * shape (a round Klassy-ish button stays round, and the transparent
+ * corners of the cell stay transparent) rather than washing a rectangle
+ * of color across the cell. */
+static void mask_slice_region(cairo_t *cr, cairo_surface_t *src, int sx, int sy, int sw, int sh,
+                              double dx, double dy, double dw, double dh)
+{
+    if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0)
+        return;
+    cairo_save(cr);
+    cairo_translate(cr, dx, dy);
+    cairo_scale(cr, dw / (double)sw, dh / (double)sh);
+
+    cairo_pattern_t *p = cairo_pattern_create_for_surface(src);
+    cairo_matrix_t m;
+    /* Pattern space is source space: this is the same placement
+     * cairo_set_source_surface(src, -sx, -sy) would give. */
+    cairo_matrix_init_translate(&m, sx, sy);
+    cairo_pattern_set_matrix(p, &m);
+    cairo_pattern_set_filter(p, CAIRO_FILTER_BILINEAR);
+
+    cairo_rectangle(cr, 0, 0, sw, sh);
+    cairo_clip(cr);
+    cairo_mask(cr, p);
+    cairo_pattern_destroy(p);
     cairo_restore(cr);
 }
 
@@ -729,9 +809,18 @@ int compute_deco_layout(const Client *c, int frame_width, DecoSlot *out, int max
  * doesn't have -- there's no "clicked" row use at all yet, kiwm fires
  * button actions directly on press with no separate held-down moment to
  * show one during (see wm.h's BTNCOL_* comment). */
-static void draw_button(cairo_t *cr, double x, int col, char glyph, bool hovered, bool active,
-                        bool pressed)
+static void draw_button(cairo_t *cr, double x, DecoElemKind kind, int col, char glyph,
+                        bool hovered, bool active, bool pressed)
 {
+    /* The theme's per-button hover tint (see wm.h's btn_tint_*): applied
+     * only while the pointer is on this button -- `active` is a toggle
+     * being on, not a pointer state, so it keeps the theme's own look. */
+    int k = (int)kind;
+    bool tint = wm.btn_tinting != BTN_TINT_NONE && wm.btn_tint_scope != BTN_SCOPE_DECORATION &&
+                (hovered || pressed) &&
+                k >= 0 && k < DECO_KIND_COUNT && wm.btn_tint_set[k];
+    bool tint_only = tint && wm.btn_tinting == BTN_TINT_REPLACE;
+
     if (wm.deco_btns) {
         /* Rows are normal=0, hover=1, clicked=2 top to bottom, but a
          * sheet is allowed to ship fewer than three -- fall back to the
@@ -750,15 +839,32 @@ static void draw_button(cairo_t *cr, double x, int col, char glyph, bool hovered
         cairo_translate(cr, x, 0);
         cairo_rectangle(cr, 0, 0, BUTTON_W, TITLEBAR_H);
         cairo_clip(cr);
-        draw_slice_region(cr, wm.deco_btns, col * wm.btn_cell_w, row * wm.btn_cell_h,
-                          wm.btn_cell_w, wm.btn_cell_h, 0, 0, BUTTON_W, TITLEBAR_H);
+        if (!tint_only)
+            draw_slice_region(cr, wm.deco_btns, col * wm.btn_cell_w, row * wm.btn_cell_h,
+                              wm.btn_cell_w, wm.btn_cell_h, 0, 0, BUTTON_W, TITLEBAR_H);
+        if (tint) {
+            cairo_set_source_rgba(cr, wm.btn_tint_r[k], wm.btn_tint_g[k],
+                                  wm.btn_tint_b[k], wm.btn_tint_a[k]);
+            mask_slice_region(cr, wm.deco_btns, col * wm.btn_cell_w, row * wm.btn_cell_h,
+                              wm.btn_cell_w, wm.btn_cell_h, 0, 0, BUTTON_W, TITLEBAR_H);
+        }
         cairo_restore(cr);
         return;
     }
 
-    cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, pressed ? 0.60 : ((hovered || active) ? 0.45 : 0.30));
-    cairo_rectangle(cr, x, 0, BUTTON_W, TITLEBAR_H);
-    cairo_fill(cr);
+    /* No sprite sheet: the button is a flat block, so the tint is just
+     * that block's color -- over the plain one, or instead of it. */
+    if (!tint_only) {
+        cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, pressed ? 0.60 : ((hovered || active) ? 0.45 : 0.30));
+        cairo_rectangle(cr, x, 0, BUTTON_W, TITLEBAR_H);
+        cairo_fill(cr);
+    }
+    if (tint) {
+        cairo_set_source_rgba(cr, wm.btn_tint_r[k], wm.btn_tint_g[k],
+                              wm.btn_tint_b[k], wm.btn_tint_a[k]);
+        cairo_rectangle(cr, x, 0, BUTTON_W, TITLEBAR_H);
+        cairo_fill(cr);
+    }
 
     cairo_set_source_rgba(cr, 0.92, 0.92, 0.95, 1.0);
     cairo_set_line_width(cr, 1.5);
@@ -804,6 +910,33 @@ static void draw_button(cairo_t *cr, double x, int col, char glyph, bool hovered
         cairo_rectangle(cr, cx + gap, cy + gap, s, s);
         cairo_stroke(cr);
     }
+}
+
+/* The tint of whichever button of `c` the pointer is currently on, when
+ * the theme asked for it to reach past that button (button_tint_scope=).
+ * Returns false when nothing applies -- no pointer on this client, no
+ * button under it, or that button has no tint of its own.
+ *
+ * This is what turns the whole frame red while the pointer sits on Close:
+ * the color is the *button's*, the surface it lands on is the
+ * decoration's. */
+static bool decoration_hover_tint(Client *c, const DecoSlot *slots, int nslots,
+                                  double *r, double *g, double *b, double *a)
+{
+    if (wm.btn_tinting == BTN_TINT_NONE || wm.btn_tint_scope == BTN_SCOPE_BUTTON)
+        return false;
+    if (wm.hover_client != c || wm.hover_btn < 0 || wm.hover_btn >= nslots)
+        return false;
+
+    int k = (int)slots[wm.hover_btn].kind;
+    if (k < 0 || k >= DECO_KIND_COUNT || !wm.btn_tint_set[k])
+        return false;
+
+    *r = wm.btn_tint_r[k];
+    *g = wm.btn_tint_g[k];
+    *b = wm.btn_tint_b[k];
+    *a = wm.btn_tint_a[k];
+    return true;
 }
 
 void draw_decoration(Client *c)
@@ -855,6 +988,15 @@ void draw_decoration(Client *c)
         cairo_restore(cr);
     }
 
+    /* Needed before the background is painted, not just to place the
+     * elements: which button the pointer is on decides whether the whole
+     * decoration takes that button's tint (button_tint_scope=). */
+    DecoSlot slots[MAX_DECO_ELEMS];
+    int nslots = compute_deco_layout(c, w, slots, MAX_DECO_ELEMS);
+    double dtr = 0, dtg = 0, dtb = 0, dta = 0;
+    bool deco_tint = decoration_hover_tint(c, slots, nslots, &dtr, &dtg, &dtb, &dta);
+    bool deco_tint_replace = deco_tint && wm.btn_tinting == BTN_TINT_REPLACE;
+
     /* Everything below is the titlebar strip only -- clip to it so the
      * theme image/tint doesn't stretch down over the side/bottom border
      * area drawn separately afterward. */
@@ -862,7 +1004,14 @@ void draw_decoration(Client *c)
     cairo_rectangle(cr, 0, 0, w, TITLEBAR_H);
     cairo_clip(cr);
 
-    if (wm.deco_bg) {
+    if (deco_tint_replace) {
+        /* replace: the tint *is* the titlebar for as long as the pointer
+         * is on that button -- no theme image, no focus tint under it.
+         * The title and the buttons are still drawn on top afterwards, so
+         * this recolors the frame rather than blanking it. */
+        cairo_set_source_rgba(cr, dtr, dtg, dtb, dta);
+        cairo_paint(cr);
+    } else if (wm.deco_bg) {
         int iw = cairo_image_surface_get_width(wm.deco_bg);
         int ih = cairo_image_surface_get_height(wm.deco_bg);
         draw_9slice(cr, wm.deco_bg, iw, ih, wm.bg_slice_l, wm.bg_slice_t, wm.bg_slice_r, wm.bg_slice_b,
@@ -878,7 +1027,10 @@ void draw_decoration(Client *c)
      * greenxp/colors when loaded, else the old plain white/black opacity
      * tint (so a from-scratch install with no theme at all still shows
      * *some* focus/unfocus difference). */
-    if (wm.have_theme_colors) {
+    if (deco_tint_replace) {
+        /* Already the tint's own color -- the focus tint would only mud
+         * it back towards the theme. */
+    } else if (wm.have_theme_colors) {
         /* The color's own alpha multiplies the tint's: #rrggbb (opaque)
          * tints exactly as before, and a color given an alpha channel
          * tints proportionally less. */
@@ -894,10 +1046,16 @@ void draw_decoration(Client *c)
         else
             cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.35);
     }
-    cairo_paint(cr);
+    if (!deco_tint_replace)
+        cairo_paint(cr);
 
-    DecoSlot slots[MAX_DECO_ELEMS];
-    int nslots = compute_deco_layout(c, w, slots, MAX_DECO_ELEMS);
+    /* over: the theme is still there underneath, washed in the hovered
+     * button's color. Painted before the title and the buttons so both
+     * stay legible on top of it. */
+    if (deco_tint && !deco_tint_replace) {
+        cairo_set_source_rgba(cr, dtr, dtg, dtb, dta);
+        cairo_paint(cr);
+    }
 
     for (int i = 0; i < nslots; i++) {
         DecoSlot *s = &slots[i];
@@ -957,26 +1115,27 @@ void draw_decoration(Client *c)
             }
             break;
         case DECO_SHADE:
-            draw_button(cr, s->x, BTNCOL_SHADE, '^', hovered, false, pressed);
+            draw_button(cr, s->x, DECO_SHADE, BTNCOL_SHADE, '^', hovered, false, pressed);
             break;
         case DECO_MINIMIZE:
-            draw_button(cr, s->x, BTNCOL_MINIMIZE, '-', hovered, false, pressed);
+            draw_button(cr, s->x, DECO_MINIMIZE, BTNCOL_MINIMIZE, '-', hovered, false, pressed);
             break;
         case DECO_MAXIMIZE:
             /* The "restore" look stands for any maximization, including a
              * single-axis one: in all of them a plain click is about
              * giving the state up rather than taking more of it. */
-            draw_button(cr, s->x, (c->max_horz || c->max_vert) ? BTNCOL_RESTORE : BTNCOL_MAXIMIZE,
+            draw_button(cr, s->x, DECO_MAXIMIZE,
+                       (c->max_horz || c->max_vert) ? BTNCOL_RESTORE : BTNCOL_MAXIMIZE,
                        (c->max_horz || c->max_vert) ? 'r' : '+', hovered, false, pressed);
             break;
         case DECO_CLOSE:
-            draw_button(cr, s->x, BTNCOL_CLOSE, 'x', hovered, false, pressed);
+            draw_button(cr, s->x, DECO_CLOSE, BTNCOL_CLOSE, 'x', hovered, false, pressed);
             break;
         case DECO_KEEP_ABOVE:
-            draw_button(cr, s->x, BTNCOL_KEEP_ABOVE, 'a', hovered, c->keep_above, pressed);
+            draw_button(cr, s->x, DECO_KEEP_ABOVE, BTNCOL_KEEP_ABOVE, 'a', hovered, c->keep_above, pressed);
             break;
         case DECO_KEEP_ALL_DESKTOPS:
-            draw_button(cr, s->x, BTNCOL_KEEP_ALL_DESKTOPS, 'd', hovered, c->sticky, pressed);
+            draw_button(cr, s->x, DECO_KEEP_ALL_DESKTOPS, BTNCOL_KEEP_ALL_DESKTOPS, 'd', hovered, c->sticky, pressed);
             break;
         }
     }
@@ -998,10 +1157,21 @@ void draw_decoration(Client *c)
         } else {
             cairo_set_source_rgba(cr, wm.border_r, wm.border_g, wm.border_b, wm.border_a);
         }
+        if (deco_tint_replace)
+            cairo_set_source_rgba(cr, dtr, dtg, dtb, dta);
         cairo_rectangle(cr, 0, TITLEBAR_H, bt, h - TITLEBAR_H);          /* left */
         cairo_rectangle(cr, w - bt, TITLEBAR_H, bt, h - TITLEBAR_H);    /* right */
         cairo_rectangle(cr, 0, h - bt, w, bt);                          /* bottom */
         cairo_fill(cr);
+
+        /* The border is part of the decoration, so it washes with it. */
+        if (deco_tint && !deco_tint_replace) {
+            cairo_set_source_rgba(cr, dtr, dtg, dtb, dta);
+            cairo_rectangle(cr, 0, TITLEBAR_H, bt, h - TITLEBAR_H);
+            cairo_rectangle(cr, w - bt, TITLEBAR_H, bt, h - TITLEBAR_H);
+            cairo_rectangle(cr, 0, h - bt, w, bt);
+            cairo_fill(cr);
+        }
     }
 
     double t_paint = dbg ? monotonic_ms() : 0;

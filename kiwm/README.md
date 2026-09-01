@@ -494,6 +494,37 @@ these, all optional and independent -- a theme missing some files just falls bac
   shared font description **only while the title is drawn** and put back afterwards, so a bold
   title doesn't also bold the switcher and window-menu text.
 
+  One more group tints the titlebar *buttons* on hover, the way Klassy colors its:
+  ```
+  button_tinting=over
+  button_tint_scope=button
+  close_button_tint=#dd2222aa
+  maximize_button_tint=none
+  minimize_button_tint=none
+  shade_button_tint=none
+  keep_above_button_tint=none
+  keep_all_desktops_button_tint=none
+  ```
+  One key per button, named after the same word `titlebar_layout=` uses to place it, each off
+  until given a color (`none` switches one back off). The tint applies **only while the pointer is
+  on that button** -- a toggle button being *on* is not a pointer state and keeps the theme's
+  normal active look. `button_tinting=` decides what the color does: `over` (default) composites it
+  over the button as drawn, so a translucent tint still lets the sprite's own shading read through
+  (that's what the alpha is for); `replace` paints the button's own shape flat in that color
+  instead, for a sheet whose artwork fights the tint; `none` ignores every tint without having to
+  delete them. Either way the tint is masked by the button sprite's alpha, so it follows the
+  button's actual shape -- a round button stays round, and the cell's transparent corners stay
+  transparent -- rather than washing a rectangle of color across the slot.
+
+  `button_tint_scope=` says how far the tint reaches. `button` (default) is the button itself;
+  `decoration` puts the hovered button's color over the whole titlebar **and its borders**
+  instead, so pointing at Close turns the entire frame red for as long as the pointer is there,
+  and moving to Minimize turns it that button's color; `both` does the two at once. With
+  `decoration`/`both` the wash is painted before the title and the buttons, so those are still
+  drawn on top and stay legible -- the frame recolors rather than blanks -- and `replace` there
+  means the tint stands in for the theme background and focus tint entirely, rather than being
+  laid over them.
+
   `title_shadow=` and `title_outline=` are off until given a color (`#rrggbb`/`#rrggbbaa`, or
   `none` to switch one back off), and the color is the switch -- there's no separate enable key.
   The shadow is the same text drawn again underneath, offset by `title_shadow_offset=` (`dx dy`,

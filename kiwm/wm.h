@@ -80,6 +80,28 @@ typedef enum {
 
 #define MAX_DECO_ELEMS 12
 
+/* How many DecoElemKind values there are -- sizes the per-button tint
+ * table below (wm.btn_tint), which is indexed by kind. */
+#define DECO_KIND_COUNT (DECO_KEEP_ALL_DESKTOPS + 1)
+
+/* What a per-button tint color does to the button under the pointer
+ * (theme colors file's button_tinting=). */
+typedef enum {
+    BTN_TINT_NONE = 0,  /* ignore the tint colors entirely */
+    BTN_TINT_OVER,      /* composite the tint over the button as drawn (default) */
+    BTN_TINT_REPLACE,   /* paint the button's own shape in the tint color instead */
+} ButtonTinting;
+
+/* ...and how far it reaches (button_tint_scope=): just the button itself,
+ * or the whole decoration -- the titlebar and its borders washing in the
+ * hovered button's color, so pointing at Close turns the frame red for as
+ * long as the pointer is there. */
+typedef enum {
+    BTN_SCOPE_BUTTON = 0,   /* the button under the pointer only (default) */
+    BTN_SCOPE_DECORATION,   /* the titlebar background + borders instead */
+    BTN_SCOPE_BOTH,         /* both at once */
+} ButtonTintScope;
+
 /* How close together (ms, comparing xcb_timestamp_t's, which are itself
  * server milliseconds) two titlebar clicks must land to count as a
  * double-click (see events.c's handle_button_press). Not configurable --
@@ -793,6 +815,26 @@ typedef struct {
     bool title_outline;
     double title_outline_r, title_outline_g, title_outline_b, title_outline_a;
     double title_outline_width;
+
+    /* Per-button hover tint (theme colors file's <button>_button_tint=,
+     * e.g. close_button_tint=#cc2222aa), indexed by DecoElemKind, and
+     * what to do with it (button_tinting=). Klassy's colored hover
+     * buttons are the idea: the pointer landing on a button washes it in
+     * that button's own color rather than everything sharing one hover
+     * look. Off until a theme sets a color, and applied only while the
+     * pointer is actually on the button (a toggle button being *on* is
+     * not a pointer state, so it keeps the theme's normal "active" look).
+     *
+     * BTN_TINT_OVER composites the color over the button as drawn, so the
+     * sprite's own shading still reads through a translucent tint --
+     * which is what the alpha is for. BTN_TINT_REPLACE paints the
+     * button's shape flat in that color instead, for a sheet whose
+     * artwork fights the tint. */
+    bool btn_tint_set[DECO_KIND_COUNT];
+    double btn_tint_r[DECO_KIND_COUNT], btn_tint_g[DECO_KIND_COUNT];
+    double btn_tint_b[DECO_KIND_COUNT], btn_tint_a[DECO_KIND_COUNT];
+    int btn_tinting;     /* ButtonTinting */
+    int btn_tint_scope;  /* ButtonTintScope */
 
     /* Theme colors, each with an alpha channel: every color kiwm reads --
      * here from the theme's `colors` file, and kiwm.conf's own deco_bg=/
