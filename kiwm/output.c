@@ -491,14 +491,12 @@ void outputs_refresh(void)
     memcpy(wm.outputs, fresh, sizeof(XisOutput) * (size_t)n);
     wm.output_count = n;
 
-    /* Reassign clients to whatever output now covers their center point. */
-    for (Client *c = wm.clients; c; c = c->next) {
-        int new_output = output_index_for_point(c->x + c->width / 2, c->y + c->height / 2);
-        if (new_output != c->output) {
-            c->output = new_output;
-            ewmh_update_wm_output(c);
-        }
-    }
+    /* Reassign clients to whatever output now covers their center point --
+     * desktop included, since a desktop number belongs to an output and a
+     * client keeping the old one across this would be left on a desktop
+     * the new output may not be showing (see client_reassign_output()). */
+    for (Client *c = wm.clients; c; c = c->next)
+        client_reassign_output(c, output_index_for_point(c->x + c->width / 2, c->y + c->height / 2));
 
     /* Same for tracked docks (see DockWindow::output) -- a screen layout
      * change could plausibly move which output a panel's fixed rectangle

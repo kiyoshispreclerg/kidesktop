@@ -887,7 +887,11 @@ static bool try_edge_snap(Client *c, xcb_motion_notify_event_t *ev, int dx, int 
         return wm.live_snap_resize && want != SNAP_NONE; /* already settled into this state (or none) */
 
     wm.drag_snap_side = want;
-    c->output = output_idx;
+    /* Snapping against another screen's edge moves the window to that
+     * screen for good -- including which of its desktops the window now
+     * belongs to, which is exactly what dragging it there means (see
+     * client_reassign_output()). */
+    client_reassign_output(c, output_idx);
 
     if (!wm.live_snap_resize) {
         if (want == SNAP_NONE) {
@@ -1486,11 +1490,8 @@ static void finish_drag(int root_x, int root_y)
                 c->saved_x += dx_out;
                 c->saved_y += dy_out;
 
-                c->output = idx;
-                c->desktop = wm.outputs[idx].desktop;
+                client_reassign_output(c, idx);
                 client_apply_fullscreen_geometry(c);
-                ewmh_update_wm_desktop(c);
-                ewmh_update_wm_output(c);
                 configure_frame(c);
                 restack_all();
             }
@@ -1516,13 +1517,7 @@ static void finish_drag(int root_x, int root_y)
         }
         outline_hide();
 
-        int new_output = output_index_for_point(c->x + c->width / 2, c->y + c->height / 2);
-        if (new_output >= 0 && new_output != c->output) {
-            c->output = new_output;
-            c->desktop = wm.outputs[new_output].desktop;
-            ewmh_update_wm_desktop(c);
-            ewmh_update_wm_output(c);
-        }
+        client_reassign_output(c, output_index_for_point(c->x + c->width / 2, c->y + c->height / 2));
         xcb_ungrab_pointer(wm.conn, XCB_CURRENT_TIME);
         wm.drag_client = NULL;
         wm.drag_mode = DRAG_NONE;

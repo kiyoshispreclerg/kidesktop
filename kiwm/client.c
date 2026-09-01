@@ -1674,6 +1674,55 @@ void activate_client_requested(Client *c, bool user_driven)
         deny_focus_request(c);
 }
 
+/* Moves a client's *bookkeeping* to another output: which output it
+ * belongs to and, with it, which of that output's desktops it is on.
+ *
+ * The second half is the whole point. A desktop number only means
+ * something relative to an output (see PROTOCOL.md): desktop 0 of DP-3
+ * and desktop 0 of HDMI-2 are different desktops. So carrying a window to
+ * another screen while keeping its old desktop *number* can silently put
+ * it on a desktop that screen isn't showing -- the window stays visible
+ * where it was dropped, but kiwm now believes it belongs somewhere else,
+ * and the next desktop switch (or any other visibility pass) unmaps it.
+ * That is how a window ends up invisible with no way to get it back
+ * except switching the other screen to the desktop it was stranded on.
+ *
+ * Re-basing to the destination output's *current* desktop is what a user
+ * dragging a window to another screen means by it, and it's what the
+ * drag-release path always did; the other three sites that reassigned
+ * c->output (an edge snap mid-drag, a fullscreen window carried across,
+ * a monitor layout change) didn't, which is the bug. Sticky windows keep
+ * their desktop number -- they're on all of them anyway.
+ *
+ * Frame visibility is synced too, so this is safe for a client that was
+ * hidden on its old output: it becomes visible if it now belongs to a
+ * shown desktop, and hidden if it doesn't. */
+void client_reassign_output(Client *c, int output_idx)
+{
+    if (output_idx < 0 || output_idx >= wm.output_count || output_idx == c->output)
+        return;
+
+    c->output = output_idx;
+    if (!c->sticky)
+        c->desktop = wm.outputs[output_idx].desktop;
+
+    /* Frame visibility follows the same rule switch_workspace() applies,
+     * and the same way: c->mapped is the client's own "I want to be on
+     * screen" (cleared only by minimizing/withdrawing), while the frame's
+     * actual mapped state also depends on whether its desktop is the one
+     * being shown -- so this maps/unmaps without touching c->mapped. Both
+     * requests are no-ops when the frame is already in that state. */
+    if (c->mapped && !c->minimized) {
+        if (c->sticky || wm.outputs[c->output].desktop == c->desktop)
+            xcb_map_window(wm.conn, c->frame);
+        else
+            xcb_unmap_window(wm.conn, c->frame);
+    }
+
+    ewmh_update_wm_desktop(c);
+    ewmh_update_wm_output(c);
+}
+
 void set_client_desktop(Client *c, int desktop)
 {
     if (desktop < 0)

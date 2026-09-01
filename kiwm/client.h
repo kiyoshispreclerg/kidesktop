@@ -91,6 +91,15 @@ bool focus_request_allowed(Client *c, bool user_driven);
  * _NET_WM_STATE_DEMANDS_ATTENTION so a taskbar can highlight the window,
  * and leaves it otherwise untouched. */
 void deny_focus_request(Client *c);
+/* Moves a client to another output, re-basing which desktop it is on to
+ * that output's current one (desktop numbers are per-output, see
+ * PROTOCOL.md -- keeping the old number across a move can strand a window
+ * on a desktop the destination screen isn't showing) and syncing its
+ * frame's mapped state to match. Sticky clients keep their desktop
+ * number. A no-op for an out-of-range index or the output it is already
+ * on. */
+void client_reassign_output(Client *c, int output_idx);
+
 void set_client_desktop(Client *c, int desktop);
 
 /* Re-derives the geometry of every maximized/half-tiled/fullscreen client
