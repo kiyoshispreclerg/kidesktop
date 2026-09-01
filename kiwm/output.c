@@ -553,6 +553,20 @@ void switch_workspace(int output_idx, int desktop)
         ewmh_update_wm_desktop(carry);
     }
 
+    /* Published *before* the maps and unmaps that carry it out, for the
+     * same reason _NET_WM_STATE is published before the geometry that
+     * carries a shade or a maximize out (client.c): anything watching from
+     * outside sees the unmaps first, and has to be able to tell "this
+     * window went away with its desktop" from "this window was closed".
+     * With the property written afterwards that answer arrives one request
+     * too late -- a compositor classifies the departure as a close and
+     * runs a closing animation on a desktop switch. Requests are processed
+     * in order, so writing it here makes the property change reach the
+     * server before the first UnmapNotify it explains. */
+    ewmh_update_output_props();
+    if (output_idx == primary_output_index())
+        ewmh_set_current_desktop(desktop);
+
     Client *to_focus = NULL;
     for (Client *c = wm.clients; c; c = c->next) {
         if (c->output != output_idx || c->minimized || c->sticky)
@@ -586,10 +600,6 @@ void switch_workspace(int output_idx, int desktop)
             wm.focused = NULL;
         ewmh_update_active_window();
     }
-
-    ewmh_update_output_props();
-    if (output_idx == primary_output_index())
-        ewmh_set_current_desktop(desktop);
 
     xcb_flush(wm.conn);
 
