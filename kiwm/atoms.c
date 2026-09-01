@@ -56,6 +56,9 @@ void ewmh_init_atoms(void)
     wm.atoms.net_wm_state_sticky = intern_atom("_NET_WM_STATE_STICKY");
     wm.atoms.net_wm_state_fullscreen = intern_atom("_NET_WM_STATE_FULLSCREEN");
     wm.atoms.net_wm_state_below = intern_atom("_NET_WM_STATE_BELOW");
+    wm.atoms.net_wm_state_demands_attention = intern_atom("_NET_WM_STATE_DEMANDS_ATTENTION");
+    wm.atoms.net_wm_user_time = intern_atom("_NET_WM_USER_TIME");
+    wm.atoms.net_wm_user_time_window = intern_atom("_NET_WM_USER_TIME_WINDOW");
     wm.atoms.net_wm_icon = intern_atom("_NET_WM_ICON");
 
     wm.atoms.net_wm_allowed_actions = intern_atom("_NET_WM_ALLOWED_ACTIONS");

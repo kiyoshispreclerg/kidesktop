@@ -52,6 +52,7 @@ static void apply_builtin_defaults(void)
     wm.magnet_threshold = 10;
     wm.link_resize_neighbors = false;
     wm.focus_follows_mouse = false;
+    wm.focus_stealing_prevention = FSP_NONE;
     wm.osd_enabled = true;
     wm.osd_live_preview_windows = false;
     wm.osd_live_preview_desktops = false;
@@ -139,6 +140,21 @@ static uint16_t parse_mod(const char *s, uint16_t fallback)
     if (strcasecmp(s, "meta") == 0 || strcasecmp(s, "super") == 0)
         return MOD_META;
     fprintf(stderr, "kiwm: config: unknown modifier '%s' (expected alt or meta), keeping current value\n", s);
+    return fallback;
+}
+
+/* none/low/normal/high/extreme -> FocusStealingPrevention. Named after
+ * kwin's own five levels, since that is the vocabulary anyone configuring
+ * this already has. */
+static int parse_focus_prevention(const char *s, int fallback)
+{
+    if (strcasecmp(s, "none") == 0)    return FSP_NONE;
+    if (strcasecmp(s, "low") == 0)     return FSP_LOW;
+    if (strcasecmp(s, "normal") == 0)  return FSP_NORMAL;
+    if (strcasecmp(s, "high") == 0)    return FSP_HIGH;
+    if (strcasecmp(s, "extreme") == 0) return FSP_EXTREME;
+    fprintf(stderr, "kiwm: config: unknown focus_stealing_prevention '%s' (expected none, low, "
+                    "normal, high or extreme), keeping current value\n", s);
     return fallback;
 }
 
@@ -244,6 +260,21 @@ static void write_default_config(const char *path)
         "# Off by default: a resize behaves exactly like before unless you\n"
         "# turn this on.\n"
         "link_resize_neighbors=0\n"
+        "\n"
+        "# How much kiwm trusts a window that asks for focus without the user\n"
+        "# having asked for it -- a window mapping itself into focus, or an\n"
+        "# application sending _NET_ACTIVE_WINDOW for one of its own windows.\n"
+        "# Anything you do yourself (clicking a window, the switcher, the\n"
+        "# window menu, a taskbar activating a window) is never affected.\n"
+        "#   none    - focus whatever asks (the default, kiwm's behavior so far)\n"
+        "#   low     - honor only a window's explicit \"don't focus me\"\n"
+        "#   normal  - also refuse a window you interacted with less recently\n"
+        "#             than the focused one\n"
+        "#   high    - also refuse any application other than the one you are in\n"
+        "#   extreme - no application ever takes focus on its own\n"
+        "# A refused window still appears; it just doesn't take the keyboard,\n"
+        "# and is flagged as demanding attention so a taskbar highlights it.\n"
+        "focus_stealing_prevention=none\n"
         "\n"
         "# Raise+focus a window just by moving the pointer into it, instead\n"
         "# of requiring a click (0 = click-to-focus, the default; 1 =\n"
@@ -425,6 +456,8 @@ void config_load(void)
             wm.link_resize_neighbors = atoi(val) != 0;
         } else if (strcmp(key, "focus_follows_mouse") == 0) {
             wm.focus_follows_mouse = atoi(val) != 0;
+        } else if (strcmp(key, "focus_stealing_prevention") == 0) {
+            wm.focus_stealing_prevention = parse_focus_prevention(val, wm.focus_stealing_prevention);
         } else if (strcmp(key, "osd_enabled") == 0) {
             wm.osd_enabled = atoi(val) != 0;
         } else if (strcmp(key, "osd_live_preview") == 0) {

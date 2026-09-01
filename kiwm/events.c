@@ -1667,6 +1667,8 @@ static void handle_net_wm_state(Client *c, uint32_t action, xcb_atom_t a1, xcb_a
     bool is_sticky = (a1 == wm.atoms.net_wm_state_sticky || a2 == wm.atoms.net_wm_state_sticky);
     bool is_fullscreen = (a1 == wm.atoms.net_wm_state_fullscreen || a2 == wm.atoms.net_wm_state_fullscreen);
     bool is_below = (a1 == wm.atoms.net_wm_state_below || a2 == wm.atoms.net_wm_state_below);
+    bool is_demands = (a1 == wm.atoms.net_wm_state_demands_attention ||
+                       a2 == wm.atoms.net_wm_state_demands_attention);
 
     /* action: 0=remove, 1=add, 2=toggle (_NET_WM_STATE_TOGGLE) */
     if (is_max_v || is_max_h) {
@@ -1680,6 +1682,17 @@ static void handle_net_wm_state(Client *c, uint32_t action, xcb_atom_t a1, xcb_a
         if (is_max_h) want_h = (action == 2) ? !c->max_horz : (action == 1);
         if (is_max_v) want_v = (action == 2) ? !c->max_vert : (action == 1);
         client_set_maximized(c, want_h, want_v);
+    }
+    if (is_demands) {
+        /* A client can raise this itself (a chat window with a new
+         * message) and clear it again; kiwm also sets it when it refuses
+         * a focus request, and clears it when the window is really
+         * focused. Same state either way, so one path handles both. */
+        bool want = (action == 2) ? !c->demands_attention : (action == 1);
+        if (want != c->demands_attention) {
+            c->demands_attention = want;
+            ewmh_update_wm_state(c);
+        }
     }
     if (is_hidden) {
         bool want_hidden = (action == 2) ? !c->minimized : (action == 1);
@@ -1780,7 +1793,10 @@ static void handle_client_message(xcb_client_message_event_t *ev)
         return;
 
     if (ev->type == wm.atoms.net_active_window) {
-        activate_client(c);
+        /* data32[0] is EWMH's source indication: 2 means a pager or
+         * taskbar acting on something the user clicked, anything else is
+         * the application asking on its own behalf. */
+        activate_client_requested(c, ev->data.data32[0] == 2);
     } else if (ev->type == wm.atoms.net_close_window) {
         close_client(c);
     } else if (ev->type == wm.atoms.wm_change_state) {

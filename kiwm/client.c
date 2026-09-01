@@ -639,12 +639,136 @@ static void send_take_focus(Client *c)
     xcb_send_event(wm.conn, 0, c->window, XCB_EVENT_MASK_NO_EVENT, (const char *)&ev);
 }
 
+/* _NET_WM_USER_TIME for a window: the server timestamp of the last user
+ * interaction with it, which is the whole basis of focus-stealing
+ * prevention -- a window whose last interaction predates the focused
+ * window's is asking for focus on its own behalf, not the user's.
+ *
+ * Read live rather than cached: a focus decision happens when a window
+ * maps or when an application sends _NET_ACTIVE_WINDOW, both rare, and
+ * reading on the spot means kiwm doesn't have to track PropertyNotify on
+ * the property *or* on the separate _NET_WM_USER_TIME_WINDOW some
+ * toolkits point it at (which would need its own event mask selected on
+ * a window kiwm otherwise never touches).
+ *
+ * *found is false when the window carries no such property at all, which
+ * is a different thing from a time of 0: 0 is EWMH's explicit "do not
+ * focus me when I map". */
+static xcb_timestamp_t client_user_time(Client *c, bool *found)
+{
+    *found = false;
+    if (wm.atoms.net_wm_user_time == XCB_ATOM_NONE)
+        return 0;
+
+    /* The property may live on a window of the client's choosing. */
+    xcb_window_t src = c->window;
+    xcb_get_property_reply_t *w = xcb_get_property_reply(wm.conn,
+        xcb_get_property(wm.conn, 0, c->window, wm.atoms.net_wm_user_time_window,
+                         XCB_ATOM_WINDOW, 0, 1), NULL);
+    if (w) {
+        if (w->type == XCB_ATOM_WINDOW && w->format == 32 &&
+            xcb_get_property_value_length(w) >= (int)sizeof(xcb_window_t))
+            src = *(xcb_window_t *)xcb_get_property_value(w);
+        free(w);
+    }
+
+    xcb_get_property_reply_t *t = xcb_get_property_reply(wm.conn,
+        xcb_get_property(wm.conn, 0, src, wm.atoms.net_wm_user_time,
+                         XCB_ATOM_CARDINAL, 0, 1), NULL);
+    xcb_timestamp_t out = 0;
+    if (t) {
+        if (t->type == XCB_ATOM_CARDINAL && t->format == 32 &&
+            xcb_get_property_value_length(t) >= 4) {
+            out = *(uint32_t *)xcb_get_property_value(t);
+            *found = true;
+        }
+        free(t);
+    }
+    return out;
+}
+
+/* Whether `a` and `b` belong to the same application, as far as anything
+ * X hands a WM can tell: the same ICCCM group leader, or one being a
+ * transient of the other (a dialog and the window it belongs to). */
+static bool same_application(Client *a, Client *b)
+{
+    if (!a || !b)
+        return false;
+    if (a == b)
+        return true;
+    if (a->group_leader != XCB_NONE && a->group_leader == b->group_leader)
+        return true;
+    return a->transient_for == b->window || b->transient_for == a->window;
+}
+
+bool focus_request_allowed(Client *c, bool user_driven)
+{
+    /* The user asking is never "stealing", and neither is the very first
+     * window on an empty desktop -- there is nothing to steal from. */
+    if (user_driven || wm.focus_stealing_prevention == FSP_NONE || !wm.focused || wm.focused == c)
+        return true;
+
+    bool found;
+    xcb_timestamp_t ut = client_user_time(c, &found);
+
+    /* EWMH's explicit opt-out, honored at every level that is on at all:
+     * a window that maps with _NET_WM_USER_TIME 0 is telling the WM it
+     * does not want focus (a mail client starting into the tray, a
+     * session-restored window). */
+    if (found && ut == 0)
+        return false;
+
+    if (wm.focus_stealing_prevention == FSP_LOW)
+        return true;
+
+    if (wm.focus_stealing_prevention == FSP_EXTREME)
+        return false;
+
+    if (wm.focus_stealing_prevention == FSP_HIGH)
+        return same_application(c, wm.focused);
+
+    /* FSP_NORMAL: the window may have focus if the user has interacted
+     * with it at least as recently as with the focused window. A window
+     * carrying no user time at all gets the benefit of the doubt here --
+     * plenty of small/old apps never set the property, and refusing all
+     * of them at the *default-ish* level would be its own kind of
+     * annoying. Timestamps are compared as signed differences so the
+     * server's 32-bit millisecond clock wrapping (every ~49 days of
+     * uptime) doesn't invert the comparison. */
+    if (!found)
+        return true;
+    bool active_found;
+    xcb_timestamp_t active_ut = client_user_time(wm.focused, &active_found);
+    if (!active_found)
+        return true;
+    return (int32_t)(ut - active_ut) >= 0;
+}
+
+/* A refused request, turned into something the user can act on: EWMH's
+ * _NET_WM_STATE_DEMANDS_ATTENTION, which is what makes a taskbar
+ * highlight the entry (xispanel's tasklist reads it). The window stays
+ * exactly where it is -- mapped, unfocused, unraised. */
+void deny_focus_request(Client *c)
+{
+    if (c->demands_attention)
+        return;
+    c->demands_attention = true;
+    ewmh_update_wm_state(c);
+    xcb_flush(wm.conn);
+}
+
 void focus_client(Client *c)
 {
     if (!c)
         return;
 
     Client *old = wm.focused;
+
+    /* Whatever it was asking for attention about, it has it now. */
+    if (c->demands_attention) {
+        c->demands_attention = false;
+        ewmh_update_wm_state(c);
+    }
 
     if (old != c) {
         wm.focused = c;
@@ -1534,6 +1658,22 @@ void activate_client(Client *c)
         focus_client(c);
 }
 
+/* An application asking for one of its windows to be activated
+ * (_NET_ACTIVE_WINDOW). `user_driven` is EWMH's source indication: a
+ * taskbar/pager sends 2, meaning the user clicked something, and that is
+ * always honored; an application sending 1 (or 0, which is every older
+ * client) is asking on its own behalf and goes through
+ * focus_request_allowed(). Refused, the window is left exactly as it is
+ * -- not unminimized, not pulled onto the current desktop -- and only
+ * marked as demanding attention. */
+void activate_client_requested(Client *c, bool user_driven)
+{
+    if (focus_request_allowed(c, user_driven))
+        activate_client(c);
+    else
+        deny_focus_request(c);
+}
+
 void set_client_desktop(Client *c, int desktop)
 {
     if (desktop < 0)
@@ -2131,10 +2271,22 @@ void manage(xcb_window_t window, bool map_requested)
     ewmh_update_frame_extents(c);
     ewmh_update_client_list();
 
-    if (start_minimized && c->mapped)
+    if (start_minimized && c->mapped) {
         minimize_client(c);
-    else if (c->mapped)
-        focus_client(c);
+    } else if (c->mapped) {
+        /* A window mapping itself into focus is the commonest kind of
+         * focus stealing there is, so it goes through the same policy an
+         * _NET_ACTIVE_WINDOW request does (kiwm.conf's
+         * focus_stealing_prevention=, off by default). Refused, it still
+         * appears and is still stacked normally -- it just doesn't take
+         * the keyboard, and says so via _NET_WM_STATE_DEMANDS_ATTENTION. */
+        if (focus_request_allowed(c, false)) {
+            focus_client(c);
+        } else {
+            deny_focus_request(c);
+            restack_all();
+        }
+    }
 }
 
 /* Called once at startup so windows already open before kiwm starts (or

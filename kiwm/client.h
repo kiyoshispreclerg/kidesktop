@@ -68,6 +68,29 @@ void detile_for_drag(Client *c, int press_root_x, int press_root_y);
 void minimize_client(Client *c);
 void restore_client(Client *c);
 void activate_client(Client *c);
+
+/* The same, for an activation kiwm was *asked* for rather than one it
+ * decided on: an _NET_ACTIVE_WINDOW client message. `user_driven` is that
+ * message's source indication (EWMH's 2 = a pager/taskbar acting on a
+ * user's click, always honored; 1 or 0 = the application itself, which
+ * kiwm.conf's focus_stealing_prevention= may refuse). A refused request
+ * only marks the window as demanding attention. */
+void activate_client_requested(Client *c, bool user_driven);
+
+/* Whether a window that asks for focus on its own behalf may have it,
+ * under kiwm.conf's focus_stealing_prevention= (FSP_NONE by default,
+ * which is always yes -- kiwm's original behavior). `user_driven` short-
+ * circuits it to true: anything the user directly did is never stealing.
+ * Only the two paths a *client* can trigger consult this -- a window
+ * mapping itself into focus and an _NET_ACTIVE_WINDOW message; clicking,
+ * the switcher, the window menu and the keyboard shortcuts all focus
+ * through focus_client() as they always have. */
+bool focus_request_allowed(Client *c, bool user_driven);
+
+/* Refuses that request the way EWMH says to: sets
+ * _NET_WM_STATE_DEMANDS_ATTENTION so a taskbar can highlight the window,
+ * and leaves it otherwise untouched. */
+void deny_focus_request(Client *c);
 void set_client_desktop(Client *c, int desktop);
 
 /* Re-derives the geometry of every maximized/half-tiled/fullscreen client

@@ -358,6 +358,7 @@ a warning on stderr, not a hard error. A key you leave out of the file keeps its
 | `magnet_threshold` | `10` | How close (pixels) a window's *edge* (not the pointer -- the frame, decoration included), while being moved or resized, must get to another window's edge, a same-output dock/panel/taskbar's edge, or the screen edge before it snaps flush against it, gap-free -- a much smaller, purely cosmetic nudge than `snap_threshold`'s tiling snap above. `0` disables it. |
 | `link_resize_neighbors` | `0` | `1` makes resizing also resize whatever's touching (within 1px) the edge being dragged, oppositely, so both stay touching -- same output only. `0` (default) leaves resizing exactly as before. |
 | `focus_follows_mouse` | `0` | `1` raises+focuses a window just by moving the pointer into it ("sloppy focus"). `0` (default) requires an actual click. |
+| `focus_stealing_prevention` | `none` | How much kiwm trusts a window that asks for focus **without the user having asked for it**: a window mapping itself into focus, or an application sending `_NET_ACTIVE_WINDOW` for one of its own windows. `none` (default) focuses whatever asks, which is what kiwm always did. `low` honors only a window's own explicit "don't focus me" (`_NET_WM_USER_TIME` of 0 -- a mail client starting into the tray, a session-restored window). `normal` also refuses a window whose last user interaction is older than the focused window's. `high` also refuses any application other than the one you are currently in (same ICCCM group leader, or a transient of the focused window). `extreme` never lets an application take focus on its own. See "Focus stealing prevention" below. |
 | `osd_enabled` | `1` | `1` (default) shows a themed overlay while holding Alt+Tab/Meta+Tab, only switching on release -- see "On-screen overlays (OSD)" below. `0` reverts to switching immediately on every Tab press, no overlay. |
 | `osd_live_preview_windows` | `0` | `1` applies every Alt+Tab step live (raise + focus the highlighted window) instead of only on release -- Escape then reverts to whatever was focused before the hold started. `0` (default) leaves everything untouched until release. Ignored when `osd_enabled=0`. |
 | `osd_live_preview_desktops` | `0` | The same for the desktop switcher (Meta+Tab): `1` switches to the highlighted desktop on every step. Separate from the windows one because previewing a *window* raises and focuses it, which is far more disruptive than previewing a desktop. The old `osd_live_preview=` still works and sets both. |
@@ -554,6 +555,38 @@ separately bindable; they follow `mod_key=` directly. With the default (`mod_key
 - **`key_desktop_1`..`key_desktop_8`**: jump the focused output straight to that desktop
   (immediate, no overlay -- a direct-select shortcut, not a cycle). Unbound by default.
 - **`key_move_to_desktop_*`**: send the focused window to another desktop without following it.
+
+### Focus stealing prevention
+
+`focus_stealing_prevention=` (default `none`) decides what happens when a window wants the keyboard
+and *you* didn't ask for it. Two things a client can do reach this: mapping a window (a new window
+normally takes focus) and sending `_NET_ACTIVE_WINDOW` for one of its own windows. Everything you
+do yourself -- clicking a window, the switcher, the window menu, the `key_*` shortcuts, or a
+taskbar/pager activating a window (EWMH marks those messages as source `2`) -- is never subject to
+any of it, at any level.
+
+The levels follow kwin's, since that's the vocabulary anyone configuring this already has:
+
+| level | refuses |
+|---|---|
+| `none` | nothing -- kiwm's behavior so far, and still the default |
+| `low` | a window whose `_NET_WM_USER_TIME` is `0`, EWMH's explicit "do not focus me on map" |
+| `normal` | ...also a window whose last user interaction is older than the focused window's |
+| `high` | ...also any application other than the one you are in (same ICCCM group leader, or a transient of the focused window) |
+| `extreme` | ...everything: no application ever takes focus on its own |
+
+A window whose request is refused is **not** hidden or held back: it maps, it is stacked normally,
+it just doesn't take the keyboard, and kiwm sets `_NET_WM_STATE_DEMANDS_ATTENTION` on it so a
+taskbar highlights the entry (xispanel's tasklist reads that state). Focusing it, however you do
+that, clears the flag. A client can also set and clear the state itself -- a chat window with a new
+message -- through the ordinary `_NET_WM_STATE` message, and kiwm now advertises the state in
+`_NET_SUPPORTED` either way.
+
+`_NET_WM_USER_TIME` is read straight off the window at decision time (following
+`_NET_WM_USER_TIME_WINDOW` when the client points it elsewhere, as Qt and GTK do) rather than
+cached: focus decisions are rare, and reading on the spot avoids tracking `PropertyNotify` on a
+window kiwm otherwise never touches. A window carrying no user time at all is given the benefit of
+the doubt at `normal` (plenty of small apps never set it) and refused at `high`/`extreme`.
 
 ### Keyboard shortcuts
 

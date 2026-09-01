@@ -123,6 +123,27 @@ typedef enum {
     DRAG_RESIZE
 } DragMode;
 
+/* kiwm.conf's focus_stealing_prevention=: how much kiwm trusts a window
+ * that asks for focus without the user having asked for it -- a window
+ * mapping itself into focus, or an application sending
+ * _NET_ACTIVE_WINDOW for one of its own windows. Anything the user
+ * *directly* does (clicking a window, the switcher, the window menu, a
+ * taskbar/pager activating a window, which EWMH marks as source 2) is
+ * never subject to any of this: those are the user's own decisions.
+ *
+ * Modelled on kwin's five levels, and defaulting to FSP_NONE -- kiwm has
+ * always focused whatever asked, and this changes nothing until it is
+ * turned on. */
+typedef enum {
+    FSP_NONE = 0,   /* focus whatever asks, kiwm's original behavior */
+    FSP_LOW,        /* honor only the explicit "don't focus me" (_NET_WM_USER_TIME 0) */
+    FSP_NORMAL,     /* ...and refuse a window whose last user interaction is older
+                     * than the focused window's */
+    FSP_HIGH,       /* ...and let only the application the user is already in
+                     * activate its own windows */
+    FSP_EXTREME,    /* no application ever takes focus on its own */
+} FocusStealingPrevention;
+
 /* Stacking layer a client belongs to, derived from its state (see client.c's
  * client_layer()) -- never set directly. Ordered bottom to top; client.c's
  * restack_all() rebuilds the real X stacking order from this every time
@@ -322,6 +343,14 @@ struct Client {
      * WM_PROTOCOLS is set before mapping. */
     bool takes_focus;
 
+    /* _NET_WM_STATE_DEMANDS_ATTENTION: this window asked for focus and
+     * kiwm refused (see client.c's focus_request_allowed()), so it is
+     * asking the user instead -- a taskbar highlights it, and kiwm's own
+     * decoration is untouched. Cleared the moment it really is focused,
+     * however that happens. A client can also set and clear the state
+     * itself through the usual _NET_WM_STATE message. */
+    bool demands_attention;
+
     /* ICCCM WM_TRANSIENT_FOR: the window this one is a transient of (a
      * dialog's main window, or -- the case that made kiwm need this --
      * VirtualBox's fullscreen mini-toolbar, which is transient for the VM
@@ -492,6 +521,20 @@ typedef struct {
     xcb_atom_t net_wm_state_sticky;
     xcb_atom_t net_wm_state_fullscreen;
     xcb_atom_t net_wm_state_below;
+    /* Set by kiwm on a window whose own request for focus was refused
+     * (kiwm.conf's focus_stealing_prevention=), which is how a taskbar
+     * gets told to highlight it instead. Cleared the moment it is focused
+     * for real. */
+    xcb_atom_t net_wm_state_demands_attention;
+    /* _NET_WM_USER_TIME: the timestamp of the last user interaction with a
+     * window, which is what makes focus-stealing prevention possible at
+     * all -- a window whose interaction is older than the focused
+     * window's is asking for focus on its own behalf, not the user's. 0 is
+     * EWMH's explicit "do not focus me on map". _NET_WM_USER_TIME_WINDOW
+     * points at a separate window carrying the property, which is how
+     * toolkits avoid churning properties on the top-level itself. */
+    xcb_atom_t net_wm_user_time;
+    xcb_atom_t net_wm_user_time_window;
     xcb_atom_t net_wm_icon;
 
     /* _NET_WM_ALLOWED_ACTIONS and its members -- published per client from
@@ -839,6 +882,12 @@ typedef struct {
      * (classic "sloppy"/focus-follows-mouse), vs. requiring a click --
      * kiwm.conf's focus_follows_mouse= (default 0/off: click-to-focus). */
     bool focus_follows_mouse;
+
+    /* How much a window asking for focus on its own behalf is trusted --
+     * kiwm.conf's focus_stealing_prevention=, FSP_NONE by default (see
+     * FocusStealingPrevention above and client.c's
+     * focus_request_allowed()). */
+    int focus_stealing_prevention;
 
     /* Distance in pixels from an output's workarea edge, while dragging a
      * window by its titlebar/mod-drag, that engages Windows7/kwin-style
