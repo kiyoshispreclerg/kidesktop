@@ -23,7 +23,10 @@ typedef struct CompPresenter {
     bool (*init)(CompOutput *o);
     void (*destroy)(CompOutput *o);
 
-    bool (*present)(CompOutput *o, CompPresentMode mode);
+    /* `damage` is the part of the output that was actually repainted
+     * (region.h): a COPY presenter only has to copy that much, and a FLIP
+     * one, which hands over a whole buffer, can ignore it. */
+    bool (*present)(CompOutput *o, CompPresentMode mode, const CompRegion *damage);
 
     /* Media stream counter, when the backend can report one. Returns 0
      * when unknown -- the per-output frame clock (Fase 7) will use it. */

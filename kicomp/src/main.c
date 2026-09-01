@@ -49,6 +49,8 @@
 #include "config.h"
 #include "shadow.h"
 #include "desktop.h"
+#include "region.h"
+#include "damage.h"
 
 #include <xcb/randr.h>
 #include <xcb/shape.h>
@@ -404,18 +406,25 @@ static void paint_dirty_outputs(double now)
         if (!scheduler_may_paint(o, now))
             continue;
 
+        /* What of it to repaint (section 39). Passed to the renderer and
+         * the presenter rather than read by them off the output, so the
+         * frame works from one region that cannot change under it. */
+        CompRegion region;
+        output_paint_region(o, &region);
+
         scene_build(&scene, o);
         effects_apply(&scene, o);
-        comp_log("paint %s: %d node%s", o->name, scene.count,
-                 scene.count == 1 ? "" : "s");
+        comp_log("paint %s: %d node%s, %s", o->name, scene.count,
+                 scene.count == 1 ? "" : "s",
+                 region_is_full(&region) ? "whole output" : "damaged parts");
 
-        renderer->begin(o);
-        renderer->draw_scene(o, &scene);
+        renderer->begin(o, &region);
+        renderer->draw_scene(o, &scene, &region);
         renderer->end(o);
 
-        presenter->present(o, COMP_PRESENT_COPY);
+        presenter->present(o, COMP_PRESENT_COPY, &region);
 
-        o->dirty = false;
+        output_painted(o);
         painted = true;
     }
 
@@ -435,14 +444,11 @@ static void handle_event(xcb_generic_event_t *ev)
         xcb_damage_notify_event_t *e = (xcb_damage_notify_event_t *)ev;
         CompWindow *w = window_find(e->drawable);
         if (w) {
-            /* Acknowledge the region so the server will report the next
-             * one; this prototype repaints the whole output anyway, so
-             * the region itself is discarded (region-based repaint is a
-             * later optimization, not an interface change). */
-            xcb_damage_subtract(comp.conn, w->damage,
-                                XCB_XFIXES_REGION_NONE, XCB_XFIXES_REGION_NONE);
-            CompRect r = window_rect(w);
-            output_damage_rect(&r);
+            /* Only noted, not answered: the region is collected once per
+             * frame, for every window at once (damage.h). A window
+             * damaging itself five hundred times between two frames costs
+             * exactly what one damaging itself once costs. */
+            damage_window_reported(w);
         }
         return;
     }
@@ -850,6 +856,11 @@ int main(int argc, char **argv)
          * happened to each window (window.c), and the effects get told in
          * those terms rather than in X's. */
         windows_flush_events();
+
+        /* Everything that damaged itself since the last frame, collected
+         * in one batch (damage.h): one round trip for the whole frame,
+         * and only when something actually damaged itself. */
+        damage_collect();
 
         double now = comp_now_ms();
 

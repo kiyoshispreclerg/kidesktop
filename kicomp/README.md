@@ -655,6 +655,62 @@ What's left:
 | `cube` | the wall's rotation instead of its translation: needs a perspective transform the XRender backend can't express (its transform is affine), so this one waits for GL |
 | `wobbly`, `blur` | need the GL renderer: a mesh per window, and shaders |
 
+## Damage
+
+Two questions, and they have different answers: *which outputs* to repaint
+(the `dirty` flag) and *which part* of each (the damage region).
+
+The region is kept client-side, as a handful of rectangles per output
+(`src/region.c`) — deliberately **not** an XFixes region. A region living
+on the server is the natural thing for XRender, which can clip a Picture
+with it and never needs a round trip, and exactly the wrong thing for
+every other backend, which would have to read it back once per frame.
+What both need is the answer, not the representation, so the core keeps
+rectangles in plain memory and each renderer turns them into whatever its
+API wants: an XFixes region here, scissor boxes in a GL backend. Effects
+and events post into it through the same `output_damage_rect()` they
+already used.
+
+What it buys, measured on a nested 1000×700 session with shadows on and a
+client damaging a small area continuously, over 10 seconds of that:
+
+| | X server CPU | kicomp CPU |
+|---|---|---|
+| whole-output repaint | 670 ms | 20 ms |
+| region repaint | 120 ms | 30 ms |
+
+The server is where compositing actually happens, which is why that is
+the column that matters; kicomp's own share goes slightly *up*, paying
+for the region requests and one round trip per frame.
+
+Three things make it correct rather than merely faster:
+
+- **Collection is batched and lazy.** A `DamageNotify` is only noted;
+  nothing is asked of the server until the frame is about to be painted,
+  when every waiting window is subtracted and fetched in one go
+  (`src/damage.c`). A window damaging itself five hundred times between
+  two frames costs what one damaging itself once costs, and a frame costs
+  one round trip no matter how many windows changed.
+- **The shadow margin.** A shadow is drawn *outside* its window, so the
+  area a window's change dirties is bigger than the window.
+  `output_damage_rect()` grows every rectangle by the widest shadow reach,
+  once, so no caller has to know shadows exist — without it a moved window
+  leaves its old shadow behind.
+- **Clips compose, they don't replace.** XFixes gives a Picture one clip
+  region, so setting a window's shape as the clip would throw the damage
+  clip away and repaint that window whole. The backend intersects the two
+  (a copy, a translate and an intersect — no round trip), and the same for
+  the shadow's own outline.
+
+And one rule that keeps a bug from becoming an invisible one: an output
+marked dirty with an *empty* region is repainted whole. Any path that says
+"repaint this" without saying where gets a correct frame, never a frame
+that quietly paints nothing.
+
+Verified by taking the screen after a series of moves, raises, resizes, a
+desktop switch and a window closing, then restarting the compositor for a
+freshly composited frame of the same screen: zero differing pixels.
+
 ## Pacing
 
 Each output has its own frame clock (`src/scheduler.c`), running at *its*
@@ -677,6 +733,7 @@ only `scheduler_tick()` changes.
 | 17/30/45 — capability detection | Composite/Damage/XFixes/Render/RandR detected at runtime; nothing assumes XiS |
 | 4/18 — output as the unit of presentation | one pixmap + picture per output, sized to it, never one global surface |
 | 39 — per-output dirty state | only the output damage actually touched is repainted |
+| 39 — region repaint | and only the *part* of it that changed: the damage region is tracked per output, clips the background, the windows and their shadows, skips windows nothing touched, and bounds what the presenter copies |
 | 26 — window crossing outputs | `window ∩ output` clipped per output, one scene node in each |
 | 21 — scene graph | intermediate `CompScene`/`CompSceneNode`; effects never see X windows |
 | 28 — renderer abstraction | `CompRenderer` vtable, `xrender` backend |
@@ -709,9 +766,6 @@ only `scheduler_tick()` changes.
 - **The XiS FLIP presenter** (Fase 8) — `CompPresentMode` and
   `CompPresenter::get_msc` already exist for it; `caps.flip_per_crtc` is
   declared `false` on purpose, so no code path can believe in it early.
-- **Region-based repaint** — damage today decides *which outputs* to
-  repaint, not *which part* of them. An optimization, not an interface
-  change.
 - **Unredirecting a single output** (a fullscreen window) — the decision
   is per output and fits in the paint loop, but isn't there yet.
 - **`kiwm` ⟷ `kicomp` IPC** (section 32) — deliberately absent in the
@@ -797,6 +851,8 @@ src/
   shadow.c/.h         shadow configuration and per-window style
   desktop.c/.h        which desktop each output shows, and which way it
                       just moved (the wall's direction)
+  region.c/.h         the damage region: rectangles, client-side
+  damage.c/.h         X Damage in, per-output regions out (batched)
   effects/            one file per effect: geometry, fade-in, fade-out,
                       scale-in, scale-out, shade, minimize, desktop-wall,
                       smooth-move

@@ -16,8 +16,21 @@ typedef struct CompRenderer {
     bool (*init)(CompOutput *o);      /* create this output's target */
     void (*destroy)(CompOutput *o);
 
-    void (*begin)(CompOutput *o);     /* clear/paint the background */
-    void (*draw_scene)(CompOutput *o, CompScene *s);
+    /* `damage` is what changed since this output was last painted, in
+     * root coordinates (region.h). A backend is free to ignore it and
+     * repaint the whole output -- the result is identical, only slower --
+     * but is expected to honour it: restrict the background fill to it,
+     * skip windows it doesn't touch, and clip whatever it draws.
+     *
+     * The region is what the *core* tracked, and it stays backend-neutral
+     * on purpose. XRender turns it into an XFixes region and clips the
+     * target Picture; a GL backend would scissor with it. One caveat for
+     * that backend: with a swapchain the buffer being drawn into is not
+     * the one presented last frame, so it must widen this region by its
+     * own buffer age -- the core cannot know how many frames back a given
+     * buffer is. */
+    void (*begin)(CompOutput *o, const CompRegion *damage);
+    void (*draw_scene)(CompOutput *o, CompScene *s, const CompRegion *damage);
     void (*end)(CompOutput *o);
 } CompRenderer;
 

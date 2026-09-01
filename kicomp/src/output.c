@@ -1,8 +1,10 @@
 /* RandR outputs, each with its own render target and its own dirty state.
  * See kiwm-kicomp-projeto.md sections 4, 18 and 39. */
 #include "output.h"
+#include "region.h"
 #include "renderer.h"
 #include "presenter.h"
+#include "shadow.h"
 
 #include <xcb/randr.h>
 
@@ -220,16 +222,59 @@ void outputs_refresh(void)
 
 void output_damage_rect(const CompRect *r)
 {
-    CompRect ignored;
+    /* A window's shadow is painted *outside* the window, so the area a
+     * window's change dirties is bigger than the window: damaging its
+     * rectangle alone would leave a band of stale shadow behind it every
+     * time it moves. Grown here, once, rather than at each of the thirty
+     * call sites -- none of which has any business knowing shadows
+     * exist. */
+    int margin = shadow_margin();
+
+    CompRect grown = *r;
+    if (margin > 0) {
+        grown.x -= margin;
+        grown.y -= margin;
+        grown.w += margin * 2;
+        grown.h += margin * 2;
+    }
+
     for (int i = 0; i < comp.output_count; i++) {
         CompOutput *o = &comp.outputs[i];
-        if (rect_intersect(r, &o->rect, &ignored))
-            o->dirty = true;
+
+        /* Clipped to the output: a region in root coordinates that ran
+         * past the output's edge would make every renderer clamp it
+         * again, and the part outside is not this output's to paint. */
+        CompRect hit;
+        if (!rect_intersect(&grown, &o->rect, &hit))
+            continue;
+
+        o->dirty = true;
+        region_add(&o->damage, &hit);
     }
 }
 
 void output_damage_all(void)
 {
-    for (int i = 0; i < comp.output_count; i++)
+    for (int i = 0; i < comp.output_count; i++) {
         comp.outputs[i].dirty = true;
+        region_set_full(&comp.outputs[i].damage);
+    }
+}
+
+void output_paint_region(CompOutput *o, CompRegion *out)
+{
+    *out = o->damage;
+
+    /* Dirty with nothing said about where: repaint the whole output. Any
+     * path that marks an output dirty without posting a rectangle --
+     * today the frame clock, tomorrow whatever else -- gets the old
+     * behaviour rather than a frame that quietly paints nothing. */
+    if (region_is_empty(out))
+        region_set_full(out);
+}
+
+void output_painted(CompOutput *o)
+{
+    o->dirty = false;
+    region_clear(&o->damage);
 }

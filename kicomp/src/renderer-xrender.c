@@ -18,6 +18,7 @@
 #include "output.h"
 #include "window.h"
 #include "shadow.h"
+#include "region.h"
 
 #include <math.h>
 
@@ -668,6 +669,11 @@ static void shadow_piece(CompOutput *o, xcb_render_picture_t color,
                          (uint16_t)w, (uint16_t)h);
 }
 
+/* Clips the target to a region intersected with this frame's damage --
+ * defined with the rest of the frame's clip handling, below. */
+static void clip_to_frame(CompOutput *o, xcb_xfixes_region_t extra,
+                          int16_t ox, int16_t oy);
+
 /* Draws `w`'s shadow into `o`'s target, under the window itself.
  *
  * The window's own rectangle is clipped out: an opaque window would cover
@@ -756,9 +762,10 @@ static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom)
         }
 
         /* (source1, source2, destination): the shadow's rectangle minus
-         * the window itself. */
+         * the window itself, and then minus whatever this frame is not
+         * repainting. */
         xcb_xfixes_subtract_region(comp.conn, region, cut, region);
-        xcb_xfixes_set_picture_clip_region(comp.conn, o->target, region, 0, 0);
+        clip_to_frame(o, region, 0, 0);
         xcb_xfixes_destroy_region(comp.conn, cut);
         xcb_xfixes_destroy_region(comp.conn, region);
     }
@@ -806,8 +813,7 @@ static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom)
                              (uint16_t)inner_w, (uint16_t)inner_h);
 
     if (comp.caps.xfixes)
-        xcb_xfixes_set_picture_clip_region(comp.conn, o->target,
-                                           XCB_XFIXES_REGION_NONE, 0, 0);
+        clip_to_frame(o, XCB_NONE, 0, 0);
 }
 
 static void shadow_shutdown(void)
@@ -821,16 +827,109 @@ static void shadow_shutdown(void)
     shadow_color_key[0] = -1;
 }
 
-static void xr_begin(CompOutput *o)
+/* ------------------------------------------------------------------ */
+/* the frame's damage clip                                             */
+/* ------------------------------------------------------------------ */
+
+/* The part of the output being repainted this frame, as an XFixes region
+ * in *target* coordinates, and whether it is simply everything. Built
+ * once per frame in xr_begin and destroyed in xr_end: every draw in
+ * between is clipped to it, which is what makes a partial repaint partial
+ * rather than merely well-intentioned.
+ *
+ * This is the backend's translation of the core's client-side region
+ * (region.h). The core never learns that XFixes exists; a GL backend
+ * would turn the same rectangles into scissor boxes. */
+static xcb_xfixes_region_t frame_clip;
+static bool frame_clip_full;
+
+static void frame_clip_build(CompOutput *o, const CompRegion *damage)
+{
+    frame_clip = XCB_NONE;
+    frame_clip_full = true;
+
+    if (!comp.caps.xfixes || region_is_full(damage) || damage->count <= 0)
+        return;
+
+    xcb_rectangle_t rects[COMP_REGION_MAX];
+    int n = 0;
+
+    for (int i = 0; i < damage->count && n < COMP_REGION_MAX; i++) {
+        const CompRect *d = &damage->rects[i];
+        if (d->w <= 0 || d->h <= 0)
+            continue;
+        /* Into the target's coordinates: the pixmap starts at the
+         * output's origin, the region arrived in root coordinates. */
+        rects[n].x = (int16_t)(d->x - o->rect.x);
+        rects[n].y = (int16_t)(d->y - o->rect.y);
+        rects[n].width = (uint16_t)d->w;
+        rects[n].height = (uint16_t)d->h;
+        n++;
+    }
+
+    if (n == 0)
+        return;
+
+    frame_clip = xcb_generate_id(comp.conn);
+    xcb_xfixes_create_region(comp.conn, frame_clip, (uint32_t)n, rects);
+    frame_clip_full = false;
+}
+
+static void frame_clip_destroy(void)
+{
+    if (frame_clip != XCB_NONE)
+        xcb_xfixes_destroy_region(comp.conn, frame_clip);
+    frame_clip = XCB_NONE;
+    frame_clip_full = true;
+}
+
+/* Sets the target's clip to `extra` (a region in some other coordinate
+ * system, offset by ox/oy -- a window's shape, a shadow's outline)
+ * *intersected with* this frame's damage.
+ *
+ * The intersection is the point: XFixes has one clip region per picture,
+ * so a backend that sets a window's shape as the clip has just thrown the
+ * damage clip away and would repaint that whole window. Combining them
+ * costs a copy, a translate and an intersect -- three asynchronous
+ * requests, no round trip, the same shape of work draw_shadow already
+ * does. Pass XCB_NONE for `extra` to clip to the damage alone. */
+static void clip_to_frame(CompOutput *o, xcb_xfixes_region_t extra,
+                          int16_t ox, int16_t oy)
+{
+    if (!comp.caps.xfixes)
+        return;
+
+    if (extra == XCB_NONE) {
+        xcb_xfixes_set_picture_clip_region(comp.conn, o->target,
+            frame_clip_full ? XCB_XFIXES_REGION_NONE : frame_clip, 0, 0);
+        return;
+    }
+
+    if (frame_clip_full) {
+        xcb_xfixes_set_picture_clip_region(comp.conn, o->target, extra, ox, oy);
+        return;
+    }
+
+    xcb_xfixes_region_t both = xcb_generate_id(comp.conn);
+    xcb_xfixes_create_region(comp.conn, both, 0, NULL);
+    xcb_xfixes_copy_region(comp.conn, extra, both);
+    xcb_xfixes_translate_region(comp.conn, both, ox, oy);
+    xcb_xfixes_intersect_region(comp.conn, both, frame_clip, both);
+    xcb_xfixes_set_picture_clip_region(comp.conn, o->target, both, 0, 0);
+    xcb_xfixes_destroy_region(comp.conn, both);
+}
+
+static void xr_begin(CompOutput *o, const CompRegion *damage)
 {
     if (!o->target)
         return;
 
-    /* The background covers the whole output: drop whatever clip the last
-     * frame's final window left behind. */
-    if (comp.caps.xfixes)
-        xcb_xfixes_set_picture_clip_region(comp.conn, o->target,
-                                           XCB_XFIXES_REGION_NONE, 0, 0);
+    frame_clip_build(o, damage);
+
+    /* The background is painted through the damage clip, so an untouched
+     * part of the output keeps last frame's pixels -- which is the whole
+     * of "partial repaint" for a target that persists between frames. */
+    clip_to_frame(o, XCB_NONE, 0, 0);
 
     xcb_render_picture_t bg = background_picture();
     if (bg) {
@@ -885,7 +984,7 @@ static void picture_transform_reset(xcb_render_picture_t pict)
     xcb_render_set_picture_filter(comp.conn, pict, 7, "nearest", 0, NULL);
 }
 
-static void xr_draw_scene(CompOutput *o, CompScene *s)
+static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
 {
     if (!o->target)
         return;
@@ -898,6 +997,22 @@ static void xr_draw_scene(CompOutput *o, CompScene *s)
          * output, or an effect kept the node around without claiming any
          * area on it. */
         if (n->visible_rect.w <= 0 || n->visible_rect.h <= 0)
+            continue;
+
+        /* Nothing changed anywhere near it. The clip would have thrown
+         * every pixel away regardless; asking first also skips binding
+         * its pixmap and drawing its shadow, which is where the saving
+         * actually is on a screen full of idle windows.
+         *
+         * The area asked about includes the shadow's reach, since that is
+         * drawn outside the window -- output_damage_rect() grew the
+         * damage by the same margin at the other end. */
+        int margin = shadow_margin();
+        CompRect touched = {
+            n->visible_rect.x - margin, n->visible_rect.y - margin,
+            n->visible_rect.w + margin * 2, n->visible_rect.h + margin * 2
+        };
+        if (!region_hits(damage, &touched))
             continue;
 
         /* An effect drawing what the window looked like before its last
@@ -950,13 +1065,16 @@ static void xr_draw_scene(CompOutput *o, CompScene *s)
         if (comp.caps.xfixes) {
             /* No shape while drawing the stash either: the cached region
              * describes the window's *current* silhouette, which is not
-             * the one those pixels had. */
+             * the one those pixels had.
+             *
+             * Intersected with the frame's damage, never replacing it:
+             * one clip region per picture means setting the shape alone
+             * would repaint this window whole. */
             xcb_xfixes_region_t shape = (transformed || from_stash) ? XCB_NONE
                                                                    : window_shape(w);
-            xcb_xfixes_set_picture_clip_region(comp.conn, o->target,
-                                               shape ? shape : XCB_XFIXES_REGION_NONE,
-                                               (int16_t)(w->x - o->rect.x),
-                                               (int16_t)(w->y - o->rect.y));
+            clip_to_frame(o, shape ? shape : XCB_NONE,
+                          (int16_t)(w->x - o->rect.x),
+                          (int16_t)(w->y - o->rect.y));
         }
 
         /* Source offset: where inside the window's own pixmap the visible
@@ -999,11 +1117,13 @@ static void xr_draw_scene(CompOutput *o, CompScene *s)
 
 static void xr_end(CompOutput *o)
 {
-    /* The presenter composites the whole target onto the overlay next, so
-     * the last window's clip must not still be in force. */
+    /* The presenter reads the target next, and the frame's regions end
+     * here: neither the last window's clip nor the damage clip may still
+     * be in force. */
     if (o->target && comp.caps.xfixes)
         xcb_xfixes_set_picture_clip_region(comp.conn, o->target,
                                            XCB_XFIXES_REGION_NONE, 0, 0);
+    frame_clip_destroy();
 }
 
 void renderer_shutdown(void)

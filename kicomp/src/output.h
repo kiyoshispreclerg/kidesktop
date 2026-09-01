@@ -16,11 +16,24 @@ void outputs_refresh(void);
 
 void outputs_teardown(void);
 
-/* Marks every output the rectangle touches as dirty (root coordinates).
- * Outputs the rectangle doesn't reach stay clean and are not repainted --
- * section 39. */
+/* Marks every output the rectangle touches as dirty (root coordinates)
+ * and records *which part* of it changed. Outputs the rectangle doesn't
+ * reach stay clean and are not repainted -- section 39.
+ *
+ * The rectangle is grown by the shadow margin on the way in: a window's
+ * shadow is drawn outside the window, so the area its change dirties is
+ * bigger than the window itself. Callers never have to know that. */
 void output_damage_rect(const CompRect *r);
 
 void output_damage_all(void);
+
+/* What to repaint on this output, for the renderer and the presenter. A
+ * dirty output that nobody said anything specific about comes back as a
+ * full region -- being told to paint and not being told where means
+ * paint everything, never paint nothing. */
+void output_paint_region(CompOutput *o, CompRegion *out);
+
+/* Clean again: called once the frame has been presented. */
+void output_painted(CompOutput *o);
 
 #endif /* KICOMP_OUTPUT_H */

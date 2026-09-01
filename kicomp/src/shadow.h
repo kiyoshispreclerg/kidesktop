@@ -76,4 +76,11 @@ void shadow_config_finish(void);
  * now (focused windows and unfocused ones may differ in every value). */
 bool shadow_for_window(const CompWindow *w, CompShadowStyle *out);
 
+/* How far outside a window its shadow can reach, in pixels: the widest
+ * radius plus the longest offset, over both styles. What damage tracking
+ * has to add around a changed window so the band of shadow beside it is
+ * repainted too -- otherwise a moved window leaves its old shadow behind
+ * on a partial repaint. Zero when shadows are off. */
+int shadow_margin(void);
+
 #endif /* KICOMP_SHADOW_H */

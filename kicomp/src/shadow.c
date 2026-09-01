@@ -149,3 +149,26 @@ bool shadow_for_window(const CompWindow *w, CompShadowStyle *out)
     *out = w->focused ? comp_shadow.active : comp_shadow.inactive;
     return out->opacity > 0.0f && out->radius > 0;
 }
+
+int shadow_margin(void)
+{
+    if (!comp_shadow.enabled)
+        return 0;
+
+    const CompShadowStyle *styles[2] = { &comp_shadow.active, &comp_shadow.inactive };
+    int margin = 0;
+
+    for (int i = 0; i < 2; i++) {
+        const CompShadowStyle *s = styles[i];
+        if (s->opacity <= 0.0f || s->radius <= 0)
+            continue;
+
+        int ox = s->offset_x < 0 ? -s->offset_x : s->offset_x;
+        int oy = s->offset_y < 0 ? -s->offset_y : s->offset_y;
+        int reach = s->radius + (ox > oy ? ox : oy);
+        if (reach > margin)
+            margin = reach;
+    }
+
+    return margin;
+}

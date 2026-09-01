@@ -12,6 +12,7 @@
  */
 #include "presenter.h"
 #include "renderer.h"
+#include "region.h"
 
 #include <stdlib.h>
 
@@ -74,12 +75,32 @@ static void copy_destroy(CompOutput *o)
      * presenter_shutdown(), not with an individual output. */
 }
 
-static bool copy_present(CompOutput *o, CompPresentMode mode)
+static bool copy_present(CompOutput *o, CompPresentMode mode,
+                         const CompRegion *damage)
 {
     if (mode != COMP_PRESENT_COPY)
         return false;
     if (!o->target || !overlay_ensure())
         return false;
+
+    /* Only what was repainted. The overlay keeps its pixels between
+     * frames just as the target does, so copying the untouched parts
+     * again would be copying a rectangle onto its own contents -- the
+     * most expensive way there is to change nothing. */
+    if (damage && !region_is_full(damage) && damage->count > 0) {
+        for (int i = 0; i < damage->count; i++) {
+            const CompRect *d = &damage->rects[i];
+            if (d->w <= 0 || d->h <= 0)
+                continue;
+            xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_SRC,
+                                 o->target, XCB_NONE, overlay_picture,
+                                 (int16_t)(d->x - o->rect.x),
+                                 (int16_t)(d->y - o->rect.y), 0, 0,
+                                 (int16_t)d->x, (int16_t)d->y,
+                                 (uint16_t)d->w, (uint16_t)d->h);
+        }
+        return true;
+    }
 
     xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_SRC,
                          o->target, XCB_NONE, overlay_picture,

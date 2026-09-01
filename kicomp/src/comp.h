@@ -28,6 +28,17 @@ typedef struct CompRect {
     int x, y, w, h;
 } CompRect;
 
+/* What changed, as a handful of rectangles. The type lives here because
+ * an output carries one; everything you can *do* with it is in region.h.
+ * Deliberately client-side rather than an XFixes region -- see that
+ * header for why. */
+#define COMP_REGION_MAX 16
+typedef struct CompRegion {
+    CompRect rects[COMP_REGION_MAX];
+    int count;
+    bool full;     /* "everything": output_damage_all(), or an overflow */
+} CompRegion;
+
 /* Intersection in root coordinates. Returns false (and leaves *out
  * untouched) when the two rectangles don't overlap at all -- that's the
  * "is this window visible on this output" test of section 26. */
@@ -58,6 +69,13 @@ typedef struct CompOutput {
     double refresh_hz;   /* per-output, never a session-wide constant (section 46) */
 
     bool dirty;          /* section 39: never repaint an output "just in case" */
+
+    /* *What* changed on it, in root coordinates, since it was last
+     * painted. `dirty` says whether to paint at all; this says how much
+     * of it to paint. A dirty output whose region is empty is repainted
+     * whole -- so any path that marks an output dirty without saying
+     * where errs towards a correct frame rather than a missing one. */
+    CompRegion damage;
 
     /* This output's own frame clock (scheduler.c): when it may next be
      * painted, in monotonic ms. Zero means "immediately", which is what
@@ -188,6 +206,13 @@ typedef struct CompWindow {
     CompRect pending_from;
 
     xcb_damage_damage_t damage;
+
+    /* The server has damage waiting for this window, not yet collected.
+     * Nothing is asked of the server when the event arrives: the Damage
+     * object accumulates on its own, and one subtract per frame both
+     * fetches everything since the last one and re-arms the reporting.
+     * See damage.c. */
+    bool damage_pending;
 
     /* XRender backend state (renderer-xrender.c). A second renderer would
      * add its own fields here or hang them off a void *render_data. */
