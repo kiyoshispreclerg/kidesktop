@@ -756,6 +756,11 @@ static bool deco_elem_allowed(const Client *c, DecoElemKind kind)
     case DECO_MINIMIZE: return c->allow_minimize;
     case DECO_MAXIMIZE: return c->allow_maximize;
     case DECO_CLOSE:    return c->allow_close;
+    /* Only where there is a menu to show *and* something configured to
+     * show it with -- otherwise the slot would be a dead button on every
+     * window that exports no menu (anything not Qt/KF5, most of the time)
+     * and on a session with no appmenu_command= at all. */
+    case DECO_APPMENU:  return wm.appmenu_command[0] && c->has_appmenu;
     default:            return true;
     }
 }
@@ -835,6 +840,15 @@ static void draw_button(cairo_t *cr, double x, DecoElemKind kind, int col, char 
         int row = pressed ? 2 : ((hovered || active) ? 1 : 0);
         if (row >= rows)
             row = rows - 1;
+
+        /* A sheet drawn before this column existed (every theme, for the
+         * appmenu button) simply doesn't have it -- sampling past its
+         * right edge would draw whatever is at the sheet's edge, so fall
+         * through to the hand-drawn glyph below instead. */
+        int cols = wm.btn_cell_w > 0 ? cairo_image_surface_get_width(wm.deco_btns) / wm.btn_cell_w : 0;
+        if (col >= cols)
+            goto fallback_glyph;
+
         cairo_save(cr);
         cairo_translate(cr, x, 0);
         cairo_rectangle(cr, 0, 0, BUTTON_W, TITLEBAR_H);
@@ -852,8 +866,10 @@ static void draw_button(cairo_t *cr, double x, DecoElemKind kind, int col, char 
         return;
     }
 
-    /* No sprite sheet: the button is a flat block, so the tint is just
-     * that block's color -- over the plain one, or instead of it. */
+fallback_glyph:
+    /* No sprite sheet (or none covering this button): the button is a flat
+     * block, so the tint is just that block's color -- over the plain one,
+     * or instead of it. */
     if (!tint_only) {
         cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, pressed ? 0.60 : ((hovered || active) ? 0.45 : 0.30));
         cairo_rectangle(cr, x, 0, BUTTON_W, TITLEBAR_H);
@@ -872,7 +888,15 @@ static void draw_button(cairo_t *cr, double x, DecoElemKind kind, int col, char 
     double cx = x + BUTTON_W / 2.0;
     double cy = TITLEBAR_H / 2.0;
 
-    if (glyph == '-') {
+    if (glyph == 'm') {
+        /* Hamburger: the appmenu button's fallback, for the themes (all of
+         * them so far) whose sprite sheet has no column for it. */
+        for (int i = -1; i <= 1; i++) {
+            cairo_move_to(cr, cx - 5, cy + i * 4);
+            cairo_line_to(cr, cx + 5, cy + i * 4);
+        }
+        cairo_stroke(cr);
+    } else if (glyph == '-') {
         cairo_move_to(cr, cx - 5, cy);
         cairo_line_to(cr, cx + 5, cy);
         cairo_stroke(cr);
@@ -1136,6 +1160,9 @@ void draw_decoration(Client *c)
             break;
         case DECO_KEEP_ALL_DESKTOPS:
             draw_button(cr, s->x, DECO_KEEP_ALL_DESKTOPS, BTNCOL_KEEP_ALL_DESKTOPS, 'd', hovered, c->sticky, pressed);
+            break;
+        case DECO_APPMENU:
+            draw_button(cr, s->x, DECO_APPMENU, BTNCOL_APPMENU, 'm', hovered, false, pressed);
             break;
         }
     }

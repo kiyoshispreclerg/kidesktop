@@ -16,6 +16,31 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Whether the window exports an application menu -- i.e. carries the
+ * _KDE_NET_WM_APPMENU_* pair Qt/KF5 apps set (xispanel's globalmenu
+ * widget reads the same thing). Only their presence matters here: kiwm
+ * shows or hides the appmenu titlebar button by it and hands the actual
+ * menu to kiwm.conf's appmenu_command=, never speaking DBus itself. */
+void client_refresh_appmenu(Client *c)
+{
+    bool found = false;
+    const xcb_atom_t props[] = {
+        wm.atoms.kde_net_wm_appmenu_service_name,
+        wm.atoms.kde_net_wm_appmenu_object_path,
+    };
+    for (size_t i = 0; i < sizeof(props) / sizeof(props[0]) && !found; i++) {
+        if (props[i] == XCB_ATOM_NONE)
+            continue;
+        xcb_get_property_reply_t *r = xcb_get_property_reply(wm.conn,
+            xcb_get_property(wm.conn, 0, c->window, props[i], XCB_GET_PROPERTY_TYPE_ANY, 0, 1), NULL);
+        if (r) {
+            found = xcb_get_property_value_length(r) > 0;
+            free(r);
+        }
+    }
+    c->has_appmenu = found;
+}
+
 static bool client_supports_protocol(xcb_window_t window, xcb_atom_t proto)
 {
     xcb_get_property_reply_t *reply = xcb_get_property_reply(wm.conn,
@@ -2136,6 +2161,7 @@ void manage(xcb_window_t window, bool map_requested)
     c->group_leader = window_group_leader(window);
     c->skip_taskbar = window_has_state(window, wm.atoms.net_wm_state_skip_taskbar);
     c->takes_focus = client_supports_protocol(window, wm.atoms.wm_take_focus);
+    client_refresh_appmenu(c);
 
     c->frame = xcb_generate_id(wm.conn);
 

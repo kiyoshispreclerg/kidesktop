@@ -15,6 +15,8 @@
 #include <xcb/randr.h>
 
 #include <stdio.h>
+#include <unistd.h>
+#include <sys/wait.h>
 #include <stdlib.h>
 
 /* Shared by handle_map_request (app remaps an already-managed window via
@@ -580,6 +582,7 @@ static bool deco_kind_is_button(DecoElemKind kind)
     case DECO_SHADE:
     case DECO_KEEP_ABOVE:
     case DECO_KEEP_ALL_DESKTOPS:
+    case DECO_APPMENU:
         return true;
     default:
         return false;
@@ -592,7 +595,61 @@ static bool deco_kind_is_button(DecoElemKind kind)
  * the way, so the *next* left click restores it to the geometry from
  * before any of it), right maximizes horizontally only, middle
  * vertically only. Every other button ignores anything but the left. */
-static void run_deco_button(Client *c, DecoElemKind kind, uint8_t button)
+/* kiwm.conf's appmenu_command= with %w/%x/%y filled in, run detached.
+ *
+ * The double fork is what keeps kiwm from collecting zombies without
+ * installing a SIGCHLD handler: the intermediate child exits immediately
+ * (and is reaped right here), leaving the actual command reparented to
+ * init. setsid() then keeps it out of kiwm's process group, so a menu
+ * helper doesn't die with the terminal kiwm was started from. */
+static void run_appmenu_command(Client *c, int root_x, int root_y)
+{
+    if (!wm.appmenu_command[0])
+        return;
+
+    char cmd[1024];
+    size_t o = 0;
+    for (const char *p = wm.appmenu_command; *p && o + 1 < sizeof(cmd); p++) {
+        if (p[0] != '%' || !p[1]) {
+            cmd[o++] = *p;
+            continue;
+        }
+        char sub[32];
+        switch (p[1]) {
+        case 'w': snprintf(sub, sizeof(sub), "%u", (unsigned)c->window); break;
+        case 'x': snprintf(sub, sizeof(sub), "%d", root_x); break;
+        case 'y': snprintf(sub, sizeof(sub), "%d", root_y); break;
+        case '%': snprintf(sub, sizeof(sub), "%%"); break;
+        default:  sub[0] = '\0'; break;
+        }
+        if (sub[0] == '\0' && p[1] != '%') {
+            /* Not a placeholder kiwm knows -- pass it through untouched
+             * rather than eating it, so a command can contain a literal
+             * percent without needing to double it. */
+            cmd[o++] = *p;
+            continue;
+        }
+        o += (size_t)snprintf(cmd + o, sizeof(cmd) - o, "%s", sub);
+        p++;
+        if (o >= sizeof(cmd))
+            break;
+    }
+    cmd[o < sizeof(cmd) ? o : sizeof(cmd) - 1] = '\0';
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        if (fork() == 0) {
+            setsid();
+            execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
+            _exit(127);
+        }
+        _exit(0);
+    } else if (pid > 0) {
+        waitpid(pid, NULL, 0);
+    }
+}
+
+static void run_deco_button(Client *c, DecoElemKind kind, uint8_t button, int slot_x)
 {
     if (kind == DECO_MAXIMIZE) {
         switch (button) {
@@ -609,6 +666,10 @@ static void run_deco_button(Client *c, DecoElemKind kind, uint8_t button)
 
     switch (kind) {
     case DECO_CLOSE:             close_client(c); break;
+    /* Anchored under the button, the same place the window menu opens
+     * from the icon -- the helper gets root coordinates and decides
+     * nothing else about placement. */
+    case DECO_APPMENU:           run_appmenu_command(c, c->x + slot_x, c->y + TITLEBAR_H); break;
     case DECO_MINIMIZE:          minimize_client(c); break;
     case DECO_SHADE:             toggle_shade(c, -1); break;
     case DECO_KEEP_ABOVE:        toggle_keep_above(c, -1); break;
@@ -1561,7 +1622,7 @@ static void handle_button_release(xcb_button_release_event_t *ev)
         draw_decoration(c);
 
         if (on_titlebar && idx >= 0 && idx == armed)
-            run_deco_button(c, slots[idx].kind, armed_button);
+            run_deco_button(c, slots[idx].kind, armed_button, slots[idx].x);
         xcb_flush(wm.conn);
         return;
     }
@@ -1592,6 +1653,17 @@ static void handle_property_notify(xcb_property_notify_event_t *ev)
     }
     if (ev->atom == XCB_ATOM_WM_TRANSIENT_FOR)
         client_refresh_transient_for(c);
+    /* Qt/KF5 apps set these a moment *after* mapping, so the appmenu
+     * button appears once the menu really exists rather than never. */
+    if (ev->atom == wm.atoms.kde_net_wm_appmenu_service_name ||
+        ev->atom == wm.atoms.kde_net_wm_appmenu_object_path) {
+        bool had = c->has_appmenu;
+        client_refresh_appmenu(c);
+        if (had != c->has_appmenu) {
+            draw_decoration(c);
+            xcb_flush(wm.conn);
+        }
+    }
     if (ev->atom == XCB_ATOM_WM_NORMAL_HINTS) {
         /* Some toolkits only set WM_NORMAL_HINTS after the initial map, so
          * a min-size hint that wasn't there yet in manage() can show up

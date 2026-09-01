@@ -373,6 +373,7 @@ a warning on stderr, not a hard error. A key you leave out of the file keeps its
 | `osd_output_follows_pointer` | `0` | `1` opens an overlay on whichever output the pointer is on (polled once when the hold starts), instead of the currently focused window's output (`0`, default; falls back to the pointer's output only when nothing is focused). Not the same as `focus_follows_mouse=` -- only decides which screen Alt+Tab/Meta+Tab themselves act on. |
 | `theme` | `greenxp` | Theme folder name/path (see "Theming"). Resolved the same way kiwm looks for its own binary-relative files: tried as `../<theme>`, `./<theme>`, and plain `<theme>` (so it works both run from the source tree and installed). |
 | `titlebar_layout` | `icon,title,shade,minimize,maximize,close` | Titlebar element order, left to right, comma-separated. See "Titlebar layout" below. |
+| `appmenu_command` | *(empty)* | What the `appmenu` titlebar element runs when clicked, e.g. `xisserve --menu %w %x %y`. `%w` becomes the window id (decimal), `%x`/`%y` the root coordinates just under the button; `%%` is a literal percent, and anything else is passed through untouched. Run detached (double fork + `setsid()`, so no zombies and no dying with the terminal kiwm was started from). Empty (the default) means no appmenu button at all, however `titlebar_layout=` is written. kiwm deliberately has **no DBus of its own**: a `com.canonical.dbusmenu` client inside the WM would put bus round-trips in the one process that must never block, duplicating what the panel (or xisserve) already implements -- so kiwm draws the button and hands off the menu. |
 | `key_*` | see below | Global keyboard shortcuts, one key per action (`key_minimize=Meta+Down`, ...). See "Keyboard shortcuts" below for the full list, the syntax, and how to unbind one. |
 
 Two more things affect decoration/theming but aren't `kiwm.conf` keys:
@@ -404,6 +405,16 @@ left out entirely and the title takes the freed width:
   "Status" above for what "sticky" means in kiwm's per-output desktop model). Shown highlighted
   (theme's hover row, or a darker fallback tint) while active, since there's no dedicated
   "pressed/on" row.
+
+- `appmenu` -- the application's own exported menu (File/Edit/View...), as a button. kiwm never
+  speaks DBus for it: clicking runs `appmenu_command=` (below) with `%w`/`%x`/`%y` substituted, and
+  whatever that is -- `xisserve --menu`, xispanel, a script -- draws the menu. The element is
+  hidden unless a command is configured **and** the window actually exports a menu (it carries
+  `_KDE_NET_WM_APPMENU_SERVICE_NAME`/`_OBJECT_PATH`, which every Qt/KF5 app sets and xispanel's
+  globalmenu widget reads the same way), so it never leaves a dead button on windows with no menu.
+  Since those properties are usually set a moment *after* the window maps, kiwm watches for them
+  and the button appears when the menu really exists. Themes have no sprite column for it yet, so
+  it falls back to a hand-drawn hamburger.
 
 Every element except `title` occupies a fixed-width slot the same size as a button
 (`BUTTON_W`, 24px). Hit-testing and hover both read the exact same computed layout drawing does,

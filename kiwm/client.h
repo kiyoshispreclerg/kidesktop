@@ -67,6 +67,14 @@ void unsnap_client(Client *c, int x, int y, int width, int height);
 void detile_for_drag(Client *c, int press_root_x, int press_root_y);
 void minimize_client(Client *c);
 void restore_client(Client *c);
+/* Re-reads whether the window exports an application menu
+ * (_KDE_NET_WM_APPMENU_SERVICE_NAME/_OBJECT_PATH), which is what decides
+ * whether the appmenu titlebar element is shown for it. Called at manage
+ * time and whenever either property changes -- apps typically set them
+ * just after mapping, so the button appears a moment later rather than
+ * never. */
+void client_refresh_appmenu(Client *c);
+
 void activate_client(Client *c);
 
 /* The same, for an activation kiwm was *asked* for rather than one it

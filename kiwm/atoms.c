@@ -59,6 +59,8 @@ void ewmh_init_atoms(void)
     wm.atoms.net_wm_state_demands_attention = intern_atom("_NET_WM_STATE_DEMANDS_ATTENTION");
     wm.atoms.net_wm_user_time = intern_atom("_NET_WM_USER_TIME");
     wm.atoms.net_wm_user_time_window = intern_atom("_NET_WM_USER_TIME_WINDOW");
+    wm.atoms.kde_net_wm_appmenu_service_name = intern_atom("_KDE_NET_WM_APPMENU_SERVICE_NAME");
+    wm.atoms.kde_net_wm_appmenu_object_path = intern_atom("_KDE_NET_WM_APPMENU_OBJECT_PATH");
     wm.atoms.net_wm_icon = intern_atom("_NET_WM_ICON");
 
     wm.atoms.net_wm_allowed_actions = intern_atom("_NET_WM_ALLOWED_ACTIONS");

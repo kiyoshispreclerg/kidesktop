@@ -60,6 +60,10 @@
 #define BTNCOL_SHADE             4
 #define BTNCOL_KEEP_ABOVE        5
 #define BTNCOL_KEEP_ALL_DESKTOPS 6
+/* Past the six columns every existing sheet ships: a theme that doesn't
+ * draw an appmenu button simply has no eighth column, and draw_button()
+ * falls back to its own hand-drawn glyph for it (see decoration.c). */
+#define BTNCOL_APPMENU           7
 
 /* One element of the titlebar layout (kiwm.conf's titlebar_layout=,
  * default "icon,title,shade,minimize,maximize,close") -- see decoration.h's
@@ -76,13 +80,21 @@ typedef enum {
     DECO_CLOSE,
     DECO_KEEP_ABOVE,
     DECO_KEEP_ALL_DESKTOPS,
+    /* The application's exported menu (File/Edit/...), as a button that
+     * hands the job to whatever already speaks DBusMenu -- kiwm.conf's
+     * appmenu_command=. kiwm deliberately has no DBus of its own: a
+     * com.canonical.dbusmenu client inside the WM would mean round-trips
+     * in the one process that must never block, duplicating what the
+     * panel (or xisserve) already implements. Shown only on windows that
+     * actually export a menu, and only when a command is configured. */
+    DECO_APPMENU,
 } DecoElemKind;
 
 #define MAX_DECO_ELEMS 12
 
 /* How many DecoElemKind values there are -- sizes the per-button tint
  * table below (wm.btn_tint), which is indexed by kind. */
-#define DECO_KIND_COUNT (DECO_KEEP_ALL_DESKTOPS + 1)
+#define DECO_KIND_COUNT (DECO_APPMENU + 1)
 
 /* What a per-button tint color does to the button under the pointer
  * (theme colors file's button_tinting=). */
@@ -365,6 +377,15 @@ struct Client {
      * WM_PROTOCOLS is set before mapping. */
     bool takes_focus;
 
+    /* The window exports an application menu: it carries
+     * _KDE_NET_WM_APPMENU_SERVICE_NAME/_OBJECT_PATH, the pair every
+     * Qt/KF5 app sets and that xispanel's globalmenu widget already reads.
+     * kiwm only checks that they are *there* -- it never talks to the bus
+     * itself -- so that the appmenu titlebar button appears on windows
+     * that have a menu to show and nowhere else. Re-read when either
+     * property changes; apps set them shortly after mapping. */
+    bool has_appmenu;
+
     /* _NET_WM_STATE_DEMANDS_ATTENTION: this window asked for focus and
      * kiwm refused (see client.c's focus_request_allowed()), so it is
      * asking the user instead -- a taskbar highlights it, and kiwm's own
@@ -557,6 +578,12 @@ typedef struct {
      * toolkits avoid churning properties on the top-level itself. */
     xcb_atom_t net_wm_user_time;
     xcb_atom_t net_wm_user_time_window;
+    /* Set by Qt/KF5 apps on their own top-level to point at their exported
+     * menu. kiwm never reads their *values* -- only whether they exist,
+     * which is what decides if the appmenu button is shown (see
+     * Client::has_appmenu). */
+    xcb_atom_t kde_net_wm_appmenu_service_name;
+    xcb_atom_t kde_net_wm_appmenu_object_path;
     xcb_atom_t net_wm_icon;
 
     /* _NET_WM_ALLOWED_ACTIONS and its members -- published per client from
@@ -923,6 +950,13 @@ typedef struct {
     /* Whether merely moving the pointer into a window raises+focuses it
      * (classic "sloppy"/focus-follows-mouse), vs. requiring a click --
      * kiwm.conf's focus_follows_mouse= (default 0/off: click-to-focus). */
+    /* kiwm.conf's appmenu_command=: what the appmenu titlebar button runs,
+     * with %w replaced by the window id (decimal), %x/%y by the root
+     * coordinates just under the button. Empty (the default) means no
+     * appmenu button at all, however titlebar_layout= is written. See
+     * events.c's run_deco_button(). */
+    char appmenu_command[512];
+
     bool focus_follows_mouse;
 
     /* How much a window asking for focus on its own behalf is trusted --

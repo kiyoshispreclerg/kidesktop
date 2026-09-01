@@ -53,6 +53,7 @@ static void apply_builtin_defaults(void)
     wm.link_resize_neighbors = false;
     wm.focus_follows_mouse = false;
     wm.focus_stealing_prevention = FSP_NONE;
+    wm.appmenu_command[0] = '\0';
     wm.osd_enabled = true;
     wm.osd_live_preview_windows = false;
     wm.osd_live_preview_desktops = false;
@@ -96,6 +97,7 @@ static void parse_titlebar_layout(const char *val)
         else if (strcmp(tok, "close") == 0) parsed[n++] = DECO_CLOSE;
         else if (strcmp(tok, "keep_above") == 0) parsed[n++] = DECO_KEEP_ABOVE;
         else if (strcmp(tok, "keep_all_desktops") == 0) parsed[n++] = DECO_KEEP_ALL_DESKTOPS;
+        else if (strcmp(tok, "appmenu") == 0) parsed[n++] = DECO_APPMENU;
         else
             fprintf(stderr, "kiwm: config: skipping unknown titlebar_layout element '%s'\n", tok);
     }
@@ -276,6 +278,16 @@ static void write_default_config(const char *path)
         "# and is flagged as demanding attention so a taskbar highlights it.\n"
         "focus_stealing_prevention=none\n"
         "\n"
+        "# What the titlebar's appmenu button runs (the appmenu element of\n"
+        "# titlebar_layout=). kiwm has no DBus of its own on purpose -- it\n"
+        "# hands the exported menu to something that already speaks\n"
+        "# DBusMenu, passing %%w (the window id, decimal) and %%x/%%y (root\n"
+        "# coordinates just under the button). Empty (the default) means no\n"
+        "# appmenu button at all, however titlebar_layout= is written; the\n"
+        "# button is also hidden on windows that export no menu.\n"
+        "#   appmenu_command=xisserve --menu %%w %%x %%y\n"
+        "appmenu_command=\n"
+        "\n"
         "# Raise+focus a window just by moving the pointer into it, instead\n"
         "# of requiring a click (0 = click-to-focus, the default; 1 =\n"
         "# focus-follows-mouse/\"sloppy focus\").\n"
@@ -330,9 +342,11 @@ static void write_default_config(const char *path)
         "# Titlebar element order, left to right, comma-separated. Available:\n"
         "# icon, title, shade, minimize, maximize (also serves as \"restore\"\n"
         "# once a window is maximized, same slot), close, keep_above,\n"
-        "# keep_all_desktops. \"title\" is the only flexible element -- it\n"
-        "# takes whatever width the fixed-size ones (everything else, one\n"
-        "# BUTTON_W each) don't use, wherever it falls in the order.\n"
+        "# keep_all_desktops, appmenu (the application's exported menu --\n"
+        "# needs appmenu_command=, and only shown on windows that\n"
+        "# export one). \"title\" is the only flexible element -- it takes\n"
+        "# whatever width the fixed-size ones (everything else, one BUTTON_W\n"
+        "# each) don't use, wherever it falls in the order.\n"
         "titlebar_layout=icon,title,shade,minimize,maximize,close\n"
         "\n");
     /* Generated from keybind.c's own table, so the shipped file always
@@ -456,6 +470,8 @@ void config_load(void)
             wm.link_resize_neighbors = atoi(val) != 0;
         } else if (strcmp(key, "focus_follows_mouse") == 0) {
             wm.focus_follows_mouse = atoi(val) != 0;
+        } else if (strcmp(key, "appmenu_command") == 0) {
+            snprintf(wm.appmenu_command, sizeof(wm.appmenu_command), "%s", val);
         } else if (strcmp(key, "focus_stealing_prevention") == 0) {
             wm.focus_stealing_prevention = parse_focus_prevention(val, wm.focus_stealing_prevention);
         } else if (strcmp(key, "osd_enabled") == 0) {
