@@ -86,14 +86,14 @@ effects            = 1     # animations on
 animation_duration = 160   # the animation unit, in ms
 renderer           = auto  # auto | xrender | glx
 presenter          = auto  # auto | present | copy
+single_drawable    = 0     # 1 = legacy mode, one drawable for the screen
+skip_wm_layers     = 0     # 1 = don't composite kiwm's OSD/wireframe
 
 # ---- per-output scaling (HiDPI) ----
 # One section per output, by RandR name; [output:*] is the default for the
 # ones without a section of their own.
 [output:DP-1]
 scale = auto               # auto (the DPI property) | a number like 2.0
-single_drawable    = 0     # 1 = legacy mode, one drawable for the screen
-skip_wm_layers     = 0     # 1 = don't composite kiwm's OSD/wireframe
 
 # ---- shadows ----
 [shadow]
