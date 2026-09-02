@@ -471,6 +471,83 @@ static void apply_confined_areas(XisOutput *outs, int count)
     free(r);
 }
 
+
+/* When an output's usable area changes -- a compositor confining it for
+ * HiDPI scaling, a mode set, a monitor moving in the layout -- the windows
+ * that were placed inside the old one have to be brought into the new one.
+ * Otherwise the ones past its new edge are simply unreachable: not
+ * clipped, not clamped, just outside the part of the screen that is
+ * desktop, with no way to click them back.
+ *
+ * Only *floating* windows are moved here, and only moved: a maximized,
+ * fullscreen or half-snapped window is defined by its output rather than
+ * placed on it, and re-fitting those is the maximize/snap code's own job.
+ * Nothing is ever resized -- a window that was 900 px wide stays 900 px
+ * wide, because the user chose that size and a smaller desktop is not a
+ * request to change it.
+ *
+ * The window's *centre* is what scales, not its top-left corner. With no
+ * resize those two are different questions: keeping the top-left
+ * proportional leaves a window that sat near the right edge hanging off
+ * the new one by most of its width, while keeping the centre proportional
+ * puts it visually where it was and leaves the clamp below to catch the
+ * rest. And the clamp is the part that actually answers "can I still
+ * click it": inside the area if it fits, top-left aligned if it is bigger
+ * than the area at all. */
+static void reposition_floating(int output_idx, const XisOutput *old_box,
+                                const XisOutput *new_box)
+{
+    if (old_box->width <= 0 || old_box->height <= 0)
+        return;
+    if (old_box->x == new_box->x && old_box->y == new_box->y &&
+        old_box->width == new_box->width && old_box->height == new_box->height)
+        return;
+
+    for (Client *c = wm.clients; c; c = c->next) {
+        if (c->output != output_idx)
+            continue;
+        if (client_maximized(c) || c->max_horz || c->max_vert ||
+            c->fullscreen || c->snap_side != SNAP_NONE)
+            continue;
+
+        int fw = c->frame_width > 0 ? c->frame_width : c->width;
+        int fh = c->frame_height > 0 ? c->frame_height : c->height;
+
+        /* Where its centre sat in the old area, as a fraction, put back
+         * into the new one. */
+        double rx = (double)(c->x + fw / 2 - old_box->x) / (double)old_box->width;
+        double ry = (double)(c->y + fh / 2 - old_box->y) / (double)old_box->height;
+
+        int x = new_box->x + (int)(rx * new_box->width) - fw / 2;
+        int y = new_box->y + (int)(ry * new_box->height) - fh / 2;
+
+        /* On screen, whatever the arithmetic said. */
+        if (fw <= new_box->width) {
+            if (x < new_box->x)
+                x = new_box->x;
+            if (x + fw > new_box->x + new_box->width)
+                x = new_box->x + new_box->width - fw;
+        } else {
+            x = new_box->x;
+        }
+        if (fh <= new_box->height) {
+            if (y < new_box->y)
+                y = new_box->y;
+            if (y + fh > new_box->y + new_box->height)
+                y = new_box->y + new_box->height - fh;
+        } else {
+            y = new_box->y;
+        }
+
+        if (x == c->x && y == c->y)
+            continue;
+
+        c->x = x;
+        c->y = y;
+        apply_frame_geometry(c);
+    }
+}
+
 void outputs_refresh(void)
 {
     /* wm.screen (cached at xcb_connect time) never reflects RandR changes
@@ -550,8 +627,29 @@ void outputs_refresh(void)
      * sees the usable box rather than the scanout box. */
     apply_confined_areas(fresh, n);
 
+    /* Kept before the list is replaced: bringing windows into a changed
+     * area needs the area they were placed in (reposition_floating). */
+    XisOutput previous[MAX_OUTPUTS];
+    int previous_count = wm.output_count;
+    memcpy(previous, wm.outputs, sizeof(XisOutput) * (size_t)previous_count);
+
     memcpy(wm.outputs, fresh, sizeof(XisOutput) * (size_t)n);
     wm.output_count = n;
+
+    /* Before the reassignment below, which decides a client's output from
+     * where its centre *is*: a window left outside the shrunken area would
+     * be handed to whichever output happens to contain that point, or to
+     * the primary one, before anything had a chance to bring it back. Its
+     * c->output is still the old index here, and the outputs are matched
+     * by name so this survives a hotplug reordering them. */
+    for (int i = 0; i < previous_count; i++) {
+        for (int j = 0; j < n; j++) {
+            if (strcmp(previous[i].name, wm.outputs[j].name) != 0)
+                continue;
+            reposition_floating(i, &previous[i], &wm.outputs[j]);
+            break;
+        }
+    }
 
     /* Reassign clients to whatever output now covers their center point --
      * desktop included, since a desktop number belongs to an output and a
