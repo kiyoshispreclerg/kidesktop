@@ -478,21 +478,25 @@ static void draw_popup_background(cairo_t *cr)
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
     cairo_paint(cr);
     cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
-    if (p->bg_image_surface) {
-        /* Follow the owning panel's bitmap theme, same 9-slice used for
-         * the panel's own background, instead of always a flat color. */
-        int sw = cairo_image_surface_get_width(p->bg_image_surface);
-        int sh = cairo_image_surface_get_height(p->bg_image_surface);
-        panel_draw_9slice(cr, p->bg_image_surface, sw, sh, p->bg_slice_l, p->bg_slice_t, p->bg_slice_r,
-                           p->bg_slice_b, g_popup->width, g_popup->height);
-    } else {
-        cairo_set_source_rgba(cr, p->bg_r, p->bg_g, p->bg_b, p->bg_a);
-        cairo_paint(cr);
+    /* Frame preference: the theme's own popup frame (menu.png) first,
+     * then the panel background's 9-slice, then the flat bg color -- a
+     * tooltip is a popup, so a theme that draws popups differently from
+     * the bar itself should win here. */
+    if (!panel_draw_skin(&p->menu_skin, cr, SKIN_NORMAL, 0, 0, g_popup->width, g_popup->height)) {
+        if (p->bg_image_surface) {
+            int sw = cairo_image_surface_get_width(p->bg_image_surface);
+            int sh = cairo_image_surface_get_height(p->bg_image_surface);
+            panel_draw_9slice(cr, p->bg_image_surface, sw, sh, p->bg_slice_l, p->bg_slice_t, p->bg_slice_r,
+                               p->bg_slice_b, g_popup->width, g_popup->height);
+        } else {
+            cairo_set_source_rgba(cr, p->bg_r, p->bg_g, p->bg_b, p->bg_a);
+            cairo_paint(cr);
+        }
+        cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.15);
+        cairo_rectangle(cr, 0.5, 0.5, g_popup->width - 1, g_popup->height - 1);
+        cairo_set_line_width(cr, 1);
+        cairo_stroke(cr);
     }
-    cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.15);
-    cairo_rectangle(cr, 0.5, 0.5, g_popup->width - 1, g_popup->height - 1);
-    cairo_set_line_width(cr, 1);
-    cairo_stroke(cr);
 }
 
 /* Bounding box (popup-local) of every thumbnail cell the current popup

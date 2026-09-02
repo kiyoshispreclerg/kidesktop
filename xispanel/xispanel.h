@@ -26,6 +26,21 @@ enum autohide_state { AH_HIDDEN, AH_SHOWING, AH_SHOWN, AH_HIDING };
 typedef struct PanelWidget PanelWidget;
 typedef struct Panel Panel;
 
+/* A theme's bitmap skin: one PNG whose rows are each a 9-slice frame of
+ * `cell_w` x `cell_h`, all sharing the same l/t/r/b insets, plus how many
+ * rows it actually has. See Panel's own doc comment for which file means
+ * which states. `surface` NULL = not themed. */
+typedef struct {
+    cairo_surface_t *surface;
+    int cell_w, cell_h, rows;
+    int l, t, r, b;
+} PanelSkin;
+
+/* How many (name, size) theme icons one panel keeps decoded at once --
+ * the widget set has nowhere near this many distinct glyphs, so it never
+ * actually evicts in practice. */
+#define PANEL_ICON_CACHE_MAX 24
+
 /* One entry of a grouped-item tooltip -- see PanelWidgetOps.get_tooltip_group. */
 #define TOOLTIP_GROUP_MAX_ITEMS 24
 typedef struct {
@@ -234,19 +249,44 @@ struct Panel {
      * degrade-gracefully spirit as bg_slice_*. */
     cairo_surface_t *btns_image_surface;
     int btns_cell_w, btns_cell_h;
-    /* tasks.png + tasks.slice: the tasklist's per-task button skin -- a
-     * vertical strip of 9-slice frames, one row per state, in the fixed
-     * order of the TASK_BTN_* enum below (normal, hover, active,
-     * attention). Each row is `tasks_cell_h` tall and `tasks_cell_w`
-     * wide, and is itself 9-sliced with the *same* l/t/r/b insets, so one
-     * theme covers every button width. tasks_rows is how many rows the
-     * image actually has -- a theme shipping fewer states falls back to
-     * the nearest one it does have (see panel_draw_task_button()). NULL
-     * whenever there's no theme or the file is absent: the tasklist then
-     * draws its translucent fg-colored rects exactly as before. */
-    cairo_surface_t *tasks_image_surface;
-    int tasks_cell_w, tasks_cell_h, tasks_rows;
-    int tasks_slice_l, tasks_slice_t, tasks_slice_r, tasks_slice_b;
+    /* Bitmap "skins": a sprite sheet whose rows are each a full 9-slice
+     * frame of the same size, one row per state. Every skin file in a
+     * theme uses this one format and this one loader (panel_load_skin()),
+     * differing only in which states its rows mean:
+     *   tasks.png    normal / hover / active / attention (tasklist)
+     *   button.png   normal / hover / active (generic widget hover)
+     *   menu.png     frame (row 0 only: menus, tooltips, toasts)
+     *   menuitem.png normal / hover / disabled
+     *   pager.png    normal / hover / current desktop
+     *   bar.png      track / fill (monitor widget's bar)
+     * Each is optional and independent; `surface` NULL means that skin
+     * isn't themed and the Cairo color drawing it replaces stays in
+     * charge, so a colors-only theme (or no theme at all) looks exactly
+     * as it did before any of these existed. */
+    PanelSkin tasks_skin;
+    PanelSkin button_skin;
+    PanelSkin menu_skin;
+    PanelSkin menuitem_skin;
+    PanelSkin pager_skin;
+    PanelSkin bar_skin;
+
+    /* Theme `colors` file (shared with kiwm, which reads more keys from
+     * it): supplies this panel's bg/fg/font size when the THEME line
+     * itself doesn't, and border_radius= for the panel's own rounded
+     * corners. cfg_has_* records which keys the THEME line set
+     * explicitly, since those always win over the file. */
+    int cfg_has_bg, cfg_has_fg, cfg_has_font_size;
+    int border_radius;
+    int shaped; /* 1 once a rounded-corner shape mask has been applied */
+
+    /* Theme icons/ folder: PNGs replacing widgets' vector glyphs, keyed
+     * by name+size and resolved on first use (see panel_theme_icon()). */
+    struct {
+        char name[32];
+        int size;
+        cairo_surface_t *surf; /* NULL = looked up and not found */
+    } icon_cache[PANEL_ICON_CACHE_MAX];
+    int n_icon_cache;
 
     /* resolved output geometry */
     int out_x, out_y, out_w, out_h;
@@ -445,21 +485,33 @@ void draw_slice_region(cairo_t *cr, cairo_surface_t *src, int sx, int sy, int sw
 void panel_draw_9slice_at(cairo_t *cr, cairo_surface_t *src, int sx, int sy, int sw, int sh, int l, int t, int r,
                            int b, double dw, double dh);
 
-/* Row order inside a theme's tasks.png (see Panel::tasks_image_surface).
- * Fixed, not configurable: it's about where a frame lives in the image
- * file. A theme may ship fewer rows -- panel_draw_task_button() falls
- * back to the nearest earlier state it has. */
+/* Row order inside a theme's skin files. Fixed, not configurable: it's
+ * about where a frame lives in the image file. A skin may ship fewer rows
+ * -- panel_draw_skin() falls back to the last row present, so a one-row
+ * file just draws that frame for every state. */
 enum {
-    TASK_BTN_NORMAL = 0,
-    TASK_BTN_HOVER = 1,
-    TASK_BTN_ACTIVE = 2,    /* the focused window's button */
-    TASK_BTN_ATTENTION = 3, /* _NET_WM_STATE_DEMANDS_ATTENTION */
+    SKIN_NORMAL = 0,
+    SKIN_HOVER = 1,
+    SKIN_ACTIVE = 2,    /* focused task / current desktop / pressed */
+    SKIN_ATTENTION = 3, /* _NET_WM_STATE_DEMANDS_ATTENTION (tasks.png only) */
 };
-/* Draws one tasks.png state frame stretched over [x,y,w,h]. Returns 0
- * (drawing nothing) when this panel has no tasks.png loaded, which is the
- * signal for the caller to paint its own color-based look instead --
- * bitmap task buttons are purely additive, never a prerequisite. */
-int panel_draw_task_button(Panel *p, cairo_t *cr, int state, double x, double y, double w, double h);
+/* menuitem.png's third row means "disabled" rather than "active", and
+ * bar.png's two rows are track and fill -- same mechanism, clearer names
+ * at the call sites. */
+#define SKIN_DISABLED SKIN_ACTIVE
+#define SKIN_BAR_TRACK SKIN_NORMAL
+#define SKIN_BAR_FILL SKIN_HOVER
+
+/* Draws one row of `skin` stretched over [x,y,w,h]. Returns 0 (drawing
+ * nothing) when that skin isn't loaded, which is the signal for the
+ * caller to paint its own color-based look instead -- every skin is
+ * purely additive, never a prerequisite. */
+int panel_draw_skin(const PanelSkin *skin, cairo_t *cr, int state, double x, double y, double w, double h);
+/* A PNG from the theme's icons/ folder by bare name ("bell", "volume-
+ * high", ...), decoded once per (name, size) and cached on the panel.
+ * NULL when there's no theme, no such file, or it failed to decode -- the
+ * caller then draws its own Cairo glyph exactly as before. */
+cairo_surface_t *panel_theme_icon(Panel *p, const char *name, int size);
 /* Paints `p`'s full content (background + every widget, in logical panel-
  * local coordinates) into `cr` with an extra cairo_scale(scale, scale)
  * pushed first -- the actual drawing code neither knows nor cares about
@@ -1084,6 +1136,9 @@ void toast_set_colors(double bg_r, double bg_g, double bg_b, double bg_a, double
  * bitmap theme -- toasts fall back to the flat color from
  * toast_set_colors(). */
 void toast_set_bg_image(cairo_surface_t *surface, int slice_l, int slice_t, int slice_r, int slice_b);
+/* Same borrowing rules, for a theme's menu.png popup frame -- preferred
+ * over the panel background image when the theme ships one. */
+void toast_set_skin(const PanelSkin *skin);
 /* Mirrors a panel's tooltip_toast_padding_extra onto the toast popups --
  * same on_tick re-sync pattern as toast_set_colors() above. */
 void toast_set_padding_extra(int extra);

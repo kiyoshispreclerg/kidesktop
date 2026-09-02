@@ -1130,17 +1130,17 @@ static void tasklist_paint(PanelWidget *w, cairo_t *cr)
         /* A theme with tasks.png draws a real button per state instead
          * (see panel_draw_task_button()); one state per button, highest
          * priority wins, rather than the color path's layering. */
-        int state = TASK_BTN_NORMAL;
+        int state = SKIN_NORMAL;
         if (is_active) {
-            state = TASK_BTN_ACTIVE;
+            state = SKIN_ACTIVE;
         }
         if (real_hover) {
-            state = TASK_BTN_HOVER;
+            state = SKIN_HOVER;
         }
         if (urgent_blink_on) {
-            state = TASK_BTN_ATTENTION;
+            state = SKIN_ATTENTION;
         }
-        if (!panel_draw_task_button(p, cr, state, bx, oy, bw, w->thickness)) {
+        if (!panel_draw_skin(&p->tasks_skin, cr, state, bx, oy, bw, w->thickness)) {
             if (real_hover || urgent_blink_on) {
                 widget_paint_hover_rect(w, cr, tp->vis_x[vi], bw);
             }
@@ -1223,19 +1223,41 @@ static void tasklist_paint(PanelWidget *w, cairo_t *cr)
         int can_down = tp->vis_idx[tp->n_visible - 1] < tp->n_display - 1;
         double cx = ax + TASKLIST_ARROW_W / 2.0;
 
-        cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, can_up ? 0.85 : 0.25);
-        cairo_move_to(cr, cx - 4, oy + half - 3);
-        cairo_line_to(cr, cx + 4, oy + half - 3);
-        cairo_line_to(cr, cx, oy + 2);
-        cairo_close_path(cr);
-        cairo_fill(cr);
+        /* icons/scroll-up.png / scroll-down.png replace the vector
+         * triangles when the theme ships them; a themed arrow is drawn at
+         * half opacity when its direction is exhausted, matching the
+         * dimmed vector one. */
+        int arrow_px = half - 4 > 6 ? half - 4 : 6;
+        cairo_surface_t *up_icon = panel_theme_icon(p, "scroll-up", arrow_px);
+        cairo_surface_t *down_icon = panel_theme_icon(p, "scroll-down", arrow_px);
 
-        cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, can_down ? 0.85 : 0.25);
-        cairo_move_to(cr, cx - 4, oy + half + 3);
-        cairo_line_to(cr, cx + 4, oy + half + 3);
-        cairo_line_to(cr, cx, oy + w->thickness - 2);
-        cairo_close_path(cr);
-        cairo_fill(cr);
+        if (up_icon) {
+            cairo_push_group(cr);
+            draw_icon_scaled(cr, up_icon, cx - arrow_px / 2.0, oy + (half - arrow_px) / 2.0, arrow_px);
+            cairo_pop_group_to_source(cr);
+            cairo_paint_with_alpha(cr, can_up ? 1.0 : 0.35);
+        } else {
+            cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, can_up ? 0.85 : 0.25);
+            cairo_move_to(cr, cx - 4, oy + half - 3);
+            cairo_line_to(cr, cx + 4, oy + half - 3);
+            cairo_line_to(cr, cx, oy + 2);
+            cairo_close_path(cr);
+            cairo_fill(cr);
+        }
+
+        if (down_icon) {
+            cairo_push_group(cr);
+            draw_icon_scaled(cr, down_icon, cx - arrow_px / 2.0, oy + half + (half - arrow_px) / 2.0, arrow_px);
+            cairo_pop_group_to_source(cr);
+            cairo_paint_with_alpha(cr, can_down ? 1.0 : 0.35);
+        } else {
+            cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, can_down ? 0.85 : 0.25);
+            cairo_move_to(cr, cx - 4, oy + half + 3);
+            cairo_line_to(cr, cx + 4, oy + half + 3);
+            cairo_line_to(cr, cx, oy + w->thickness - 2);
+            cairo_close_path(cr);
+            cairo_fill(cr);
+        }
     }
 }
 

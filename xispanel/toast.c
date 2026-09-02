@@ -85,6 +85,10 @@ static double g_fg_r = 1.0, g_fg_g = 1.0, g_fg_b = 1.0, g_fg_a = 1.0;
  * toast_set_bg_image()'s doc comment); NULL means "no bitmap theme, use
  * the flat g_bg_* color above". */
 static cairo_surface_t *g_bg_image = NULL;
+/* Borrowed exactly like g_bg_image (owned by the Panel, re-synced from
+ * notif.c's on_tick): the theme's popup frame, preferred over the panel
+ * background image when a theme ships one. NULL = none. */
+static const PanelSkin *g_skin = NULL;
 static int g_bg_slice_l = 0, g_bg_slice_t = 0, g_bg_slice_r = 0, g_bg_slice_b = 0;
 
 /* Mirrors the owning panel's tooltip_toast_padding_extra (see that field's
@@ -203,7 +207,9 @@ static void paint_toast(Toast *t)
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
     cairo_paint(cr);
     cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
-    if (g_bg_image) {
+    if (g_skin && panel_draw_skin(g_skin, cr, SKIN_NORMAL, 0, 0, TOAST_W, TOAST_H)) {
+        /* themed popup frame -- see g_skin */
+    } else if (g_bg_image) {
         int sw = cairo_image_surface_get_width(g_bg_image);
         int sh = cairo_image_surface_get_height(g_bg_image);
         panel_draw_9slice(cr, g_bg_image, sw, sh, g_bg_slice_l, g_bg_slice_t, g_bg_slice_r, g_bg_slice_b, TOAST_W,
@@ -406,6 +412,25 @@ void toast_set_colors(double bg_r, double bg_g, double bg_b, double bg_a, double
  * this file -- so a panel-image RELOAD is picked up automatically the
  * next time notif_on_tick() re-syncs, without toast.c needing to know
  * anything happened. NULL falls back to the flat g_bg_* color. */
+/* Companion to toast_set_bg_image() for a theme's menu.png popup frame,
+ * borrowed under the same rules (owned by the Panel, re-synced from
+ * notif.c's on_tick, never freed here). A skin with no surface loaded is
+ * the same as none at all -- paint_toast() just falls through to the
+ * background image or the flat color. */
+void toast_set_skin(const PanelSkin *skin)
+{
+    if (g_skin == skin) {
+        return;
+    }
+    g_skin = skin;
+    for (int i = 0; i < g_n; i++) {
+        paint_toast(&g_toasts[i]);
+    }
+    if (g_n > 0) {
+        XFlush(g_dpy);
+    }
+}
+
 void toast_set_bg_image(cairo_surface_t *surface, int slice_l, int slice_t, int slice_r, int slice_b)
 {
     if (g_bg_image == surface && g_bg_slice_l == slice_l && g_bg_slice_t == slice_t && g_bg_slice_r == slice_r &&

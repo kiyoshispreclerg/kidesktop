@@ -675,23 +675,34 @@ static void monitor_paint(PanelWidget *w, cairo_t *cr)
     }
 
     if (mp->style != STYLE_TEXT) {
-        if (mp->has_track) {
-            cairo_set_source_rgba(cr, mp->trk_r, mp->trk_g, mp->trk_b, mp->trk_a);
-        } else {
-            cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.18);
-        }
-        cairo_rectangle(cr, bar_x, bar_y, bar_w, bar_h);
-        cairo_fill(cr);
-
         double f = monitor_fill_fraction(mp);
-        cairo_set_source_rgba(cr, fr, fg, fb, fa);
-        if (mp->vertical) {
-            double fh = bar_h * f;
-            cairo_rectangle(cr, bar_x, bar_y + bar_h - fh, bar_w, fh); /* grows upward */
-        } else {
-            cairo_rectangle(cr, bar_x, bar_y, bar_w * f, bar_h);
+        /* A theme's bar.png supplies the track (row 0) and the fill
+         * (row 1) as 9-slices; color= / track_color= keep working for
+         * every theme that doesn't ship one. A themed track ignores
+         * high_color= on purpose -- the bitmap is the look. */
+        int themed = panel_draw_skin(&p->bar_skin, cr, SKIN_BAR_TRACK, bar_x, bar_y, bar_w, bar_h);
+        if (!themed) {
+            if (mp->has_track) {
+                cairo_set_source_rgba(cr, mp->trk_r, mp->trk_g, mp->trk_b, mp->trk_a);
+            } else {
+                cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.18);
+            }
+            cairo_rectangle(cr, bar_x, bar_y, bar_w, bar_h);
+            cairo_fill(cr);
         }
-        cairo_fill(cr);
+
+        double fx = bar_x, fy = bar_y, fw = bar_w, fh = bar_h;
+        if (mp->vertical) {
+            fh = bar_h * f;
+            fy = bar_y + bar_h - fh; /* grows upward */
+        } else {
+            fw = bar_w * f;
+        }
+        if (!themed || !panel_draw_skin(&p->bar_skin, cr, SKIN_BAR_FILL, fx, fy, fw, fh)) {
+            cairo_set_source_rgba(cr, fr, fg, fb, fa);
+            cairo_rectangle(cr, fx, fy, fw, fh);
+            cairo_fill(cr);
+        }
     }
 
     if (mp->style != STYLE_BAR) {

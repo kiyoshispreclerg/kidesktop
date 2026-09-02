@@ -241,6 +241,10 @@ static void paint_frame(PanelMenu *m, MenuFrame *f)
     cairo_set_source_rgba(cr, p->bg_r, p->bg_g, p->bg_b, p->bg_a);
     cairo_paint(cr);
     cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+    /* A theme's menu.png frames the popup over that base fill (kept
+     * underneath so a frame with transparent edges still has the panel's
+     * own bg behind it, and so an unthemed menu looks exactly as before). */
+    panel_draw_skin(&p->menu_skin, cr, SKIN_NORMAL, 0, 0, f->width, f->visible_rows * m->item_h);
 
     for (int row = 0; row < f->visible_rows; row++) {
         int y = row * m->item_h;
@@ -249,9 +253,11 @@ static void paint_frame(PanelMenu *m, MenuFrame *f)
         if (pos == MENU_ROW_PREV || pos == MENU_ROW_NEXT) {
             int active = (pos == MENU_ROW_PREV) ? (f->page > 0) : (f->page < f->page_count - 1);
             if (row == f->hover_row && active) {
-                cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.12);
-                cairo_rectangle(cr, 0, y, f->width, m->item_h);
-                cairo_fill(cr);
+                if (!panel_draw_skin(&p->menuitem_skin, cr, SKIN_HOVER, 0, y, f->width, m->item_h)) {
+                    cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.12);
+                    cairo_rectangle(cr, 0, y, f->width, m->item_h);
+                    cairo_fill(cr);
+                }
             }
             double cx = f->width / 2.0;
             double half = m->item_h / 2.0;
@@ -283,10 +289,17 @@ static void paint_frame(PanelMenu *m, MenuFrame *f)
             cairo_stroke(cr);
             continue;
         }
-        if (row == f->hover_row && it->enabled) {
-            cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.12);
-            cairo_rectangle(cr, 0, y, f->width, m->item_h);
-            cairo_fill(cr);
+        /* menuitem.png, when the theme has one: normal for every row,
+         * hover for the pointed one, disabled for a greyed item. Without
+         * it, only the hovered row gets its translucent wash, exactly as
+         * before. */
+        int item_state = it->enabled ? (row == f->hover_row ? SKIN_HOVER : SKIN_NORMAL) : SKIN_DISABLED;
+        if (!panel_draw_skin(&p->menuitem_skin, cr, item_state, 0, y, f->width, m->item_h)) {
+            if (row == f->hover_row && it->enabled) {
+                cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.12);
+                cairo_rectangle(cr, 0, y, f->width, m->item_h);
+                cairo_fill(cr);
+            }
         }
         int text_x = 10;
         if (f->has_icon) {

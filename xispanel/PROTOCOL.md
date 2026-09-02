@@ -668,25 +668,64 @@ xispanel's `theme=` here at the same path).
   exactly like kiwm's own titlebar. Rows, top to bottom: normal, hover,
   clicked -- `winctl` only draws the first two (no separate press-and-hold
   visual yet, same as kiwm).
-- **`tasks.png`** + **`tasks.slice`** -- the `tasklist`'s per-task button
-  skin: a vertical strip of 9-slice frames, one row per state, in this
-  fixed order: **normal, hover, active** (the focused window's button),
-  **attention** (a window setting `_NET_WM_STATE_DEMANDS_ATTENTION`,
-  which the tasklist blinks at 2fps as before). A theme may ship fewer
-  rows -- a missing state falls back to the last row present, so a
-  one-row file just gives every button the same frame. `tasks.slice`
-  carries both the 9-slice insets (`left`/`top`/`right`/`bottom`, applied
-  to every row alike) and `cell_width=`/`cell_height=`; the defaults are
-  the image's own full width and height, so a single-state theme needs
-  only the insets. The row count comes from the image height divided by
-  `cell_height`. Absent `tasks.png` = the tasklist keeps its current
-  color-based look exactly: nothing drawn for an ordinary button, a
-  translucent `fg` wash for hover/attention, another for the active
-  window -- so `bg=`/`fg=` remain a complete way to style it, and the
-  bitmap buttons are purely additive. This file is xispanel-only; kiwm
-  ignores it.
-- **`colors`** -- read by kiwm, not (yet) by xispanel; a theme can still
-  ship it, `winctl`/the panel background just don't consume it today.
+- **Skin files** -- `tasks.png`, `button.png`, `menu.png`, `menuitem.png`,
+  `pager.png`, `bar.png`, each with a matching `.slice` sidecar. They all
+  share one format: a **vertical strip of 9-slice frames**, one row per
+  state, every row `cell_width` x `cell_height` and 9-sliced with the
+  *same* `left`/`top`/`right`/`bottom` insets, so one small image covers
+  any button size. The sidecar carries all six keys; `cell_width`/
+  `cell_height` default to the image's own full width/height, so a
+  single-state skin needs only the insets, and the row count is the image
+  height divided by `cell_height`. A skin with fewer rows than a caller
+  asks for falls back to the last row it has. Each file is independent
+  and optional -- **without it, that element draws exactly as it did
+  before any of this existed** (translucent `fg` washes, vector glyphs),
+  so a colors-only theme, or no theme at all, is a complete and supported
+  way to run xispanel.
+  - `tasks.png` -- the `tasklist`'s per-task buttons. Rows: normal,
+    hover, active (the focused window), attention
+    (`_NET_WM_STATE_DEMANDS_ATTENTION`, still blinked at 2fps).
+  - `button.png` -- the generic hover feedback every icon widget shares
+    (launcher, folder, clock, volume, notif, xisserve, tray). Rows:
+    normal, hover, active; only the hover row is drawn today, since
+    those widgets have no persistent pressed state.
+  - `menu.png` -- the frame behind context menus, tooltips and toasts.
+    Row 0 only. Drawn over the panel's `bg` fill, so a frame with
+    transparent edges still has something behind it. Without this file,
+    popups keep using the panel's own `bg.png`/`bg` as before.
+  - `menuitem.png` -- one menu row. Rows: normal, hover, disabled.
+  - `pager.png` -- one `pager` desktop cell. Rows: normal, hover,
+    current desktop. Replaces the cell's wash and thin outline; the
+    desktop number and the `show_windows=` outlines still draw on top.
+  - `bar.png` -- the `monitor` widget's bar. Rows: track, fill. The
+    widget's own `color=`/`track_color=`/`high_color=` apply only when
+    this file is absent.
+- **`icons/`** -- a folder of PNGs replacing widgets' built-in vector
+  glyphs, one file per name: `volume-muted`, `volume-low`,
+  `volume-medium`, `volume-high` (the speaker, picked by level/mute
+  state), `bell` and `bell-unread` (the `notif` icon), `scroll-up` and
+  `scroll-down` (the tasklist's overflow arrows). Any name the theme
+  doesn't ship falls back to the Cairo drawing for that one glyph alone,
+  so a partial icon set is fine. Each (name, size) is decoded once and
+  cached on the panel -- including misses, so an unthemed name costs one
+  failed open at first paint and nothing afterwards.
+- **`colors`** -- the same plain `key=value` file kiwm reads for its
+  titlebars; xispanel takes the four keys that mean something for a
+  panel, and ignores the rest (title shadows, per-button tints, ... are
+  kiwm's business):
+  - `bg_active` / `fg_active` -> the panel's background/foreground,
+  - `font_size` -> the panel's text size,
+  - `font` -> the UI font family (process-global, so the *first* panel's
+    theme wins),
+  - `border_radius` -> rounded panel corners, applied with the SHAPE
+    extension (no compositor needed, same as kiwm's frames). kiwm's 1/2/4
+    number forms all parse; only the first number is used, since a panel
+    is one bar against a screen edge.
+
+  All of these are **defaults, not overrides**: an explicit `bg=`, `fg=`,
+  `font=` or `font_size=` on the `THEME` line always wins. Without a
+  `colors` file (or without those keys), nothing changes -- the built-in
+  dark colors and Fontconfig's default font apply as before.
 
 [`themes/template/bg.png`](themes/template/bg.png) +
 [`themes/template/slice`](themes/template/slice) are a starting point for
@@ -707,14 +746,16 @@ xispanel: it just falls back to `bg=`/`fg=` (or, absent those too, the
 built-in defaults -- see "This file is the only source of truth" above)
 and winctl's vector button glyphs, same as always.
 
-Only the panel background, winctl's buttons and the tasklist's buttons are
-themeable this way for now -- the rest of the widget/popup chrome (menu
-items, tooltips, the pager's cells, the other icon widgets' hover
-feedback) still draws with Cairo using the panel's `fg`/`bg` colors, not
-bitmap art. A theme's `colors` file is read by kiwm only; xispanel takes
-its colors and font from the `THEME` line.
-Extending bitmap theming to those is a possible follow-up, not implemented
-yet.
+Still not themeable as bitmaps: the `winctl`/`globalmenu` text, the
+tasklist's own labels and badges, the `tray` icons (those come from the
+applications themselves), and the notification toasts' contents. Those
+draw with Cairo from the panel's `fg`/`bg` as always.
+
+Every skin and icon is looked up once when a panel activates (and again
+on `RELOAD`), never per frame: a theme that ships none of these files
+costs one failed `open()` per name at startup and a NULL check per draw
+afterwards, which is why a colors-only theme performs exactly like no
+theme at all.
 
 ## Context menus
 

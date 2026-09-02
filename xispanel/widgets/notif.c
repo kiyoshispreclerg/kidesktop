@@ -159,6 +159,7 @@ static int notif_on_tick(PanelWidget *w, uint64_t now)
     toast_set_output_rect(ox, oy, ow, oh);
     toast_set_colors(p->bg_r, p->bg_g, p->bg_b, p->bg_a, p->fg_r, p->fg_g, p->fg_b, p->fg_a);
     toast_set_bg_image(p->bg_image_surface, p->bg_slice_l, p->bg_slice_t, p->bg_slice_r, p->bg_slice_b);
+    toast_set_skin(&p->menu_skin);
     toast_set_padding_extra(p->tooltip_toast_padding_extra);
 
     /* The one thing this widget draws that changes on its own (a new
@@ -251,7 +252,20 @@ static void notif_paint(PanelWidget *w, cairo_t *cr)
     int icon_px = icon_size_for(w->thickness, 0);
     double icon_y = oy + (w->thickness - icon_px) / 2.0;
     Panel *p = w->panel;
-    draw_bell(cr, ox, icon_y, icon_px, p->fg_r, p->fg_g, p->fg_b);
+    /* icons/bell.png from the theme, if it has one -- icons/bell-unread
+     * .png swaps in while something is unread, for themes that prefer a
+     * different glyph over (or in addition to) the count badge below.
+     * Missing either name just draws the vector bell as always. */
+    int unread_now = notifd_unread_count();
+    cairo_surface_t *themed = unread_now > 0 ? panel_theme_icon(p, "bell-unread", icon_px) : NULL;
+    if (!themed) {
+        themed = panel_theme_icon(p, "bell", icon_px);
+    }
+    if (themed) {
+        draw_icon_scaled(cr, themed, ox, icon_y, icon_px);
+    } else {
+        draw_bell(cr, ox, icon_y, icon_px, p->fg_r, p->fg_g, p->fg_b);
+    }
 
     int unread = notifd_unread_count();
     if (unread > 0) {

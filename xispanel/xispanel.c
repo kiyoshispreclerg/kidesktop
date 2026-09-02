@@ -65,6 +65,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/extensions/Xrandr.h>
+#include <X11/extensions/shape.h>
 
 #include <cairo/cairo-ft.h>
 #include <cairo/cairo-xlib.h>
@@ -90,7 +91,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.4"
+#define XISPANEL_VERSION "0.6.5"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 #define IPC_MAX_LEN 4096
@@ -245,6 +246,13 @@ int panel_widget_hover_local_y(const PanelWidget *w, int *out_local_y)
 void widget_paint_hover_cell(PanelWidget *w, cairo_t *cr, int x, int y, int width, int height)
 {
     Panel *p = w->panel;
+    /* A theme's button.png replaces the translucent wash entirely -- this
+     * is the one place every widget's generic hover feedback goes
+     * through, so skinning it here covers launcher/folder/clock/volume/
+     * notif/xisserve/tray at once. */
+    if (panel_draw_skin(&p->button_skin, cr, SKIN_HOVER, x, y, width, height)) {
+        return;
+    }
     if (p->has_h_color) {
         cairo_set_source_rgba(cr, p->h_r, p->h_g, p->h_b, p->h_a);
     } else {
@@ -369,6 +377,8 @@ static void config_scan_globals(void)
 {
     g_font_family[0] = 0;
     g_icon_theme[0] = 0;
+    char theme_dir[PATH_MAX];
+    theme_dir[0] = 0;
     FILE *f = fopen(g_configpath, "r");
     if (!f) {
         return;
@@ -388,11 +398,42 @@ static void config_scan_globals(void)
         if (!g_icon_theme[0]) {
             kv_get(line, "icon_theme", g_icon_theme, sizeof(g_icon_theme));
         }
+        if (!theme_dir[0]) {
+            kv_get(line, "theme", theme_dir, sizeof(theme_dir));
+        }
         if (g_font_family[0] && g_icon_theme[0]) {
             break;
         }
     }
     fclose(f);
+
+    /* Last resort for the font: the theme folder's own `colors` file,
+     * whose font=/font_size= keys kiwm already reads for its titlebars --
+     * so pointing both programs at one theme gives the whole desktop one
+     * font without repeating it in either config. An explicit THEME
+     * font= still wins, since it was read above. */
+    if (!g_font_family[0] && theme_dir[0]) {
+        char path[PATH_MAX];
+        snprintf(path, sizeof(path), "%s/colors", theme_dir);
+        FILE *cf = fopen(path, "r");
+        if (cf) {
+            while (fgets(line, sizeof(line), cf)) {
+                if (line[0] == '#') {
+                    continue;
+                }
+                if (!strncmp(line, "font=", 5)) {
+                    snprintf(g_font_family, sizeof(g_font_family), "%s", line + 5);
+                    size_t l = strlen(g_font_family);
+                    while (l && (g_font_family[l - 1] == '\n' || g_font_family[l - 1] == '\r' ||
+                                 g_font_family[l - 1] == ' ')) {
+                        g_font_family[--l] = 0;
+                    }
+                    break;
+                }
+            }
+            fclose(cf);
+        }
+    }
 }
 
 static int init_font(const char *family_hint)
@@ -907,7 +948,7 @@ cairo_surface_t *load_icon_argb(const char *path, int target_size)
  * missing keys just default that inset to 0 -- a 0-everywhere slice
  * degrades to a plain full-image stretch, not an error, so a theme author
  * can start simple. */
-static void load_slice_file(const char *path, int *l, int *t, int *r, int *b)
+static void load_slice_file_quiet(const char *path, int *l, int *t, int *r, int *b)
 {
     *l = *t = *r = *b = 0;
     if (!path[0]) {
@@ -915,7 +956,6 @@ static void load_slice_file(const char *path, int *l, int *t, int *r, int *b)
     }
     FILE *f = fopen(path, "r");
     if (!f) {
-        fprintf(stderr, "xispanel: could not open theme slice file '%s', using 0-inset (full stretch)\n", path);
         return;
     }
     char line[128];
@@ -932,6 +972,17 @@ static void load_slice_file(const char *path, int *l, int *t, int *r, int *b)
         }
     }
     fclose(f);
+}
+
+/* Same, but warning when the file is missing -- bg.png's own sidecar is
+ * the one case where its absence is more likely a mistake than a choice
+ * (a stretched panel background rarely looks intentional). */
+static void load_slice_file(const char *path, int *l, int *t, int *r, int *b)
+{
+    if (path[0] && access(path, R_OK) != 0) {
+        fprintf(stderr, "xispanel: could not open theme slice file '%s', using 0-inset (full stretch)\n", path);
+    }
+    load_slice_file_quiet(path, l, t, r, b);
 }
 
 /* Loads (or reloads) p's bg_image_surface + slice insets from its
@@ -999,11 +1050,6 @@ static void panel_load_btns_image(Panel *p)
         cairo_surface_destroy(p->btns_image_surface);
         p->btns_image_surface = NULL;
     }
-    if (p->tasks_image_surface) {
-        cairo_surface_destroy(p->tasks_image_surface);
-        p->tasks_image_surface = NULL;
-        p->tasks_rows = 0;
-    }
     if (!p->theme_path[0]) {
         return;
     }
@@ -1020,66 +1066,231 @@ static void panel_load_btns_image(Panel *p)
     load_btns_slice_file(path, &p->btns_cell_w, &p->btns_cell_h);
 }
 
-/* Loads (or reloads) p's tasks.png + tasks.slice: the tasklist's per-task
- * button skin, a vertical strip of 9-slice frames (one row per state, see
- * the TASK_BTN_* enum). tasks.slice carries both the 9-slice insets (the
- * same left/top/right/bottom keys bg.png's sidecar uses -- they apply to
- * every row) and the cell size; cell_width defaults to the image's full
- * width and cell_height to its full height, i.e. a single-row theme needs
- * no sidecar at all beyond the insets. Row count comes from the image
- * height, capped at the four states that exist. Absent file = no warning
- * and no change: the tasklist just keeps drawing its color-based look. */
-static void panel_load_tasks_image(Panel *p)
+/* Loads one bitmap skin (<theme>/<name>.png + <name>.slice) into `skin`.
+ * The sidecar carries the 9-slice insets (the same left/top/right/bottom
+ * keys bg.png's does -- they apply to every row alike) plus
+ * cell_width=/cell_height=, whose defaults are the image's own full width
+ * and height, so a single-row skin needs only the insets. The row count
+ * is the image height divided by cell_height, capped at the four states
+ * the SKIN_* enum defines. A missing file is silent and leaves the skin
+ * unloaded: every skin is optional, and its absence just means the
+ * caller's own Cairo drawing stays in charge. */
+static void panel_load_skin(Panel *p, const char *name, PanelSkin *skin)
 {
-    if (p->tasks_image_surface) {
-        cairo_surface_destroy(p->tasks_image_surface);
-        p->tasks_image_surface = NULL;
+    if (skin->surface) {
+        cairo_surface_destroy(skin->surface);
     }
-    p->tasks_rows = 0;
+    memset(skin, 0, sizeof(*skin));
     if (!p->theme_path[0]) {
         return;
     }
     char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/tasks.png", p->theme_path);
-    p->tasks_image_surface = load_png_argb(path);
-    if (!p->tasks_image_surface) {
+    snprintf(path, sizeof(path), "%s/%s.png", p->theme_path, name);
+    skin->surface = load_png_argb(path);
+    if (!skin->surface) {
         return;
     }
-    int img_w = cairo_image_surface_get_width(p->tasks_image_surface);
-    int img_h = cairo_image_surface_get_height(p->tasks_image_surface);
+    int img_w = cairo_image_surface_get_width(skin->surface);
+    int img_h = cairo_image_surface_get_height(skin->surface);
 
-    snprintf(path, sizeof(path), "%s/tasks.slice", p->theme_path);
-    load_slice_file(path, &p->tasks_slice_l, &p->tasks_slice_t, &p->tasks_slice_r, &p->tasks_slice_b);
-    p->tasks_cell_w = img_w;
-    p->tasks_cell_h = img_h;
+    snprintf(path, sizeof(path), "%s/%s.slice", p->theme_path, name);
+    load_slice_file_quiet(path, &skin->l, &skin->t, &skin->r, &skin->b);
+    skin->cell_w = img_w;
+    skin->cell_h = img_h;
     FILE *f = fopen(path, "r");
     if (f) {
         char line[128];
         int v;
         while (fgets(line, sizeof(line), f)) {
             if (sscanf(line, "cell_width=%d", &v) == 1 && v > 0) {
-                p->tasks_cell_w = v;
+                skin->cell_w = v;
             } else if (sscanf(line, "cell_height=%d", &v) == 1 && v > 0) {
-                p->tasks_cell_h = v;
+                skin->cell_h = v;
             }
         }
         fclose(f);
     }
-    if (p->tasks_cell_w > img_w) {
-        p->tasks_cell_w = img_w;
+    if (skin->cell_w > img_w) {
+        skin->cell_w = img_w;
     }
-    if (p->tasks_cell_h > img_h) {
-        p->tasks_cell_h = img_h;
+    if (skin->cell_h > img_h) {
+        skin->cell_h = img_h;
     }
-    p->tasks_rows = p->tasks_cell_h > 0 ? img_h / p->tasks_cell_h : 0;
-    if (p->tasks_rows > TASK_BTN_ATTENTION + 1) {
-        p->tasks_rows = TASK_BTN_ATTENTION + 1;
+    skin->rows = skin->cell_h > 0 ? img_h / skin->cell_h : 0;
+    if (skin->rows > SKIN_ATTENTION + 1) {
+        skin->rows = SKIN_ATTENTION + 1;
     }
-    if (p->tasks_rows < 1) {
-        cairo_surface_destroy(p->tasks_image_surface);
-        p->tasks_image_surface = NULL;
-        fprintf(stderr, "xispanel: panel '%s': theme's tasks.png has no usable rows, ignoring it\n", p->name);
+    if (skin->rows < 1) {
+        cairo_surface_destroy(skin->surface);
+        memset(skin, 0, sizeof(*skin));
+        fprintf(stderr, "xispanel: panel '%s': theme's %s.png has no usable rows, ignoring it\n", p->name, name);
     }
+}
+
+static void panel_free_skin(PanelSkin *skin)
+{
+    if (skin->surface) {
+        cairo_surface_destroy(skin->surface);
+    }
+    memset(skin, 0, sizeof(*skin));
+}
+
+/* Loads every skin file a theme may ship. Each is independent: one
+ * missing (or broken) file never affects the others. */
+static void panel_load_skins(Panel *p)
+{
+    panel_load_skin(p, "tasks", &p->tasks_skin);
+    panel_load_skin(p, "button", &p->button_skin);
+    panel_load_skin(p, "menu", &p->menu_skin);
+    panel_load_skin(p, "menuitem", &p->menuitem_skin);
+    panel_load_skin(p, "pager", &p->pager_skin);
+    panel_load_skin(p, "bar", &p->bar_skin);
+}
+
+/* Reads the theme folder's `colors` file -- the same one kiwm reads for
+ * its titlebar (see kiwm/README.md's "Theming"). xispanel takes only the
+ * handful of keys that mean something for a panel:
+ *
+ *   bg_active / fg_active  -> this panel's bg/fg, but ONLY when the THEME
+ *                             line didn't set bg=/fg= itself (an explicit
+ *                             config value always wins over the theme
+ *                             folder, same layering bg.png already has
+ *                             against bg=).
+ *   font_size              -> same rule, against THEME's font_size=.
+ *   border_radius          -> rounded panel corners, via the SHAPE
+ *                             extension (no compositor needed), the same
+ *                             1/2/4-number form kiwm accepts.
+ *
+ * `font=` is deliberately not read here: the font face is process-global
+ * and resolved before any panel exists, so config_scan_globals() reads it
+ * from the theme instead (see there). Every other key in the file is
+ * kiwm's business and ignored, not an error -- one folder, two programs,
+ * each taking what applies to it. */
+static void panel_load_theme_colors(Panel *p)
+{
+    p->border_radius = 0;
+    if (!p->theme_path[0]) {
+        return;
+    }
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/colors", p->theme_path);
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        return;
+    }
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        size_t len = strlen(line);
+        while (len && (line[len - 1] == '\n' || line[len - 1] == '\r' || line[len - 1] == ' ')) {
+            line[--len] = 0;
+        }
+        if (line[0] == '#' || !line[0]) {
+            continue;
+        }
+        char value[64];
+        if (!p->cfg_has_bg && sscanf(line, "bg_active=%63s", value) == 1) {
+            parse_hex_color(value, &p->bg_r, &p->bg_g, &p->bg_b, &p->bg_a);
+        } else if (!p->cfg_has_fg && sscanf(line, "fg_active=%63s", value) == 1) {
+            parse_hex_color(value, &p->fg_r, &p->fg_g, &p->fg_b, &p->fg_a);
+        } else if (!p->cfg_has_font_size && sscanf(line, "font_size=%63s", value) == 1) {
+            double v = atof(value);
+            if (v > 0) {
+                p->font_size_px = v;
+            }
+        } else if (!strncmp(line, "border_radius=", 14)) {
+            /* kiwm takes 1, 2 or 4 numbers (CSS corner order); a panel is
+             * one flat rectangle against a screen edge, so only the first
+             * is used -- rounding its four corners differently would need
+             * a per-corner shape mask for no visible gain on a bar. */
+            int v = atoi(line + 14);
+            p->border_radius = v > 0 ? v : 0;
+        }
+    }
+    fclose(f);
+}
+
+/* Applies (or clears) the panel window's rounded-corner shape mask, from
+ * the theme's border_radius=. Uses the SHAPE extension directly on a
+ * 1-bit pixmap -- no compositor involved, so this works on a bare X
+ * server exactly like kiwm's own rounded frames. A radius of 0 (the
+ * default, and any theme without the key) resets the window to its plain
+ * rectangle, so nothing changes for an unthemed panel. */
+static void panel_apply_shape(Panel *p)
+{
+    if (!p->win) {
+        return;
+    }
+    int r = p->border_radius;
+    if (r <= 0) {
+        if (p->shaped) {
+            XShapeCombineMask(g_dpy, p->win, ShapeBounding, 0, 0, None, ShapeSet);
+            p->shaped = 0;
+        }
+        return;
+    }
+    int max_r = (p->w < p->h ? p->w : p->h) / 2;
+    if (r > max_r) {
+        r = max_r;
+    }
+    Pixmap mask = XCreatePixmap(g_dpy, p->win, p->w, p->h, 1);
+    cairo_surface_t *ms = cairo_xlib_surface_create_for_bitmap(g_dpy, mask, DefaultScreenOfDisplay(g_dpy), p->w, p->h);
+    cairo_t *mcr = cairo_create(ms);
+    cairo_set_operator(mcr, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_rgba(mcr, 0, 0, 0, 0); /* transparent = clipped away */
+    cairo_paint(mcr);
+    cairo_set_source_rgba(mcr, 1, 1, 1, 1);
+    double rr = r;
+    cairo_new_path(mcr);
+    cairo_arc(mcr, rr, rr, rr, M_PI, 1.5 * M_PI);
+    cairo_arc(mcr, p->w - rr, rr, rr, 1.5 * M_PI, 2 * M_PI);
+    cairo_arc(mcr, p->w - rr, p->h - rr, rr, 0, 0.5 * M_PI);
+    cairo_arc(mcr, rr, p->h - rr, rr, 0.5 * M_PI, M_PI);
+    cairo_close_path(mcr);
+    cairo_fill(mcr);
+    cairo_destroy(mcr);
+    cairo_surface_destroy(ms);
+
+    XShapeCombineMask(g_dpy, p->win, ShapeBounding, 0, 0, mask, ShapeSet);
+    XFreePixmap(g_dpy, mask);
+    p->shaped = 1;
+}
+
+/* Drops every decoded theme icon (see panel_theme_icon()) -- called when
+ * a panel is torn down or its theme reloaded. */
+static void panel_free_theme_icons(Panel *p)
+{
+    for (int i = 0; i < p->n_icon_cache; i++) {
+        if (p->icon_cache[i].surf) {
+            cairo_surface_destroy(p->icon_cache[i].surf);
+        }
+    }
+    p->n_icon_cache = 0;
+    memset(p->icon_cache, 0, sizeof(p->icon_cache));
+}
+
+cairo_surface_t *panel_theme_icon(Panel *p, const char *name, int size)
+{
+    if (!p->theme_path[0] || !name || !name[0] || size <= 0) {
+        return NULL;
+    }
+    for (int i = 0; i < p->n_icon_cache; i++) {
+        if (p->icon_cache[i].size == size && strcmp(p->icon_cache[i].name, name) == 0) {
+            return p->icon_cache[i].surf; /* NULL here means "already looked up, not there" */
+        }
+    }
+    if (p->n_icon_cache >= PANEL_ICON_CACHE_MAX) {
+        return NULL;
+    }
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/icons/%s.png", p->theme_path, name);
+    cairo_surface_t *surf = load_icon_argb(path, icon_fetch_size_for(size));
+    /* Negative results are cached too -- a themeless icon name would
+     * otherwise re-stat the same missing file on every single repaint. */
+    snprintf(p->icon_cache[p->n_icon_cache].name, sizeof(p->icon_cache[0].name), "%s", name);
+    p->icon_cache[p->n_icon_cache].size = size;
+    p->icon_cache[p->n_icon_cache].surf = surf;
+    p->n_icon_cache++;
+    return surf;
 }
 
 /* Paints one source sub-rectangle [sx,sy,sw,sh] of `src` into one
@@ -1152,25 +1363,21 @@ void panel_draw_9slice_at(cairo_t *cr, cairo_surface_t *src, int sx, int sy, int
     draw_slice_region(cr, src, sx + l, sy + t, cw, ch, l, t, dcw, dch);
 }
 
-/* Draws one row of p's tasks.png over [x,y,w,h] -- see the TASK_BTN_*
- * enum. A state the theme doesn't ship (fewer rows than 4) walks back to
- * the nearest earlier one, so a one-row theme still draws that row for
- * every state rather than nothing. */
-int panel_draw_task_button(Panel *p, cairo_t *cr, int state, double x, double y, double w, double h)
+int panel_draw_skin(const PanelSkin *skin, cairo_t *cr, int state, double x, double y, double w, double h)
 {
-    if (!p->tasks_image_surface || p->tasks_rows <= 0 || p->tasks_cell_h <= 0 || p->tasks_cell_w <= 0) {
+    if (!skin->surface || skin->rows <= 0 || skin->cell_w <= 0 || skin->cell_h <= 0 || w <= 0 || h <= 0) {
         return 0;
     }
     if (state < 0) {
         state = 0;
     }
-    if (state >= p->tasks_rows) {
-        state = p->tasks_rows - 1;
+    if (state >= skin->rows) {
+        state = skin->rows - 1;
     }
     cairo_save(cr);
     cairo_translate(cr, x, y);
-    panel_draw_9slice_at(cr, p->tasks_image_surface, 0, state * p->tasks_cell_h, p->tasks_cell_w, p->tasks_cell_h,
-                          p->tasks_slice_l, p->tasks_slice_t, p->tasks_slice_r, p->tasks_slice_b, w, h);
+    panel_draw_9slice_at(cr, skin->surface, 0, state * skin->cell_h, skin->cell_w, skin->cell_h, skin->l, skin->t,
+                          skin->r, skin->b, w, h);
     cairo_restore(cr);
     return 1;
 }
@@ -1524,6 +1731,13 @@ static void panel_deactivate(Panel *p)
         cairo_surface_destroy(p->btns_image_surface);
         p->btns_image_surface = NULL;
     }
+    panel_free_skin(&p->tasks_skin);
+    panel_free_skin(&p->button_skin);
+    panel_free_skin(&p->menu_skin);
+    panel_free_skin(&p->menuitem_skin);
+    panel_free_skin(&p->pager_skin);
+    panel_free_skin(&p->bar_skin);
+    panel_free_theme_icons(p);
     if (p->buf_cr) {
         cairo_destroy(p->buf_cr);
         p->buf_cr = NULL;
@@ -1560,7 +1774,8 @@ static void panel_activate(Panel *p)
     panel_pick_visual(p);
     panel_load_bg_image(p);
     panel_load_btns_image(p);
-    panel_load_tasks_image(p);
+    panel_load_skins(p);
+    panel_load_theme_colors(p);
 
     int start_x = p->x, start_y = p->y;
     p->ah_state = AH_HIDDEN;
@@ -1572,6 +1787,7 @@ static void panel_activate(Panel *p)
 
     p->win = panel_create_window(p, start_x, start_y, p->w, p->h);
     panel_apply_strut(p);
+    panel_apply_shape(p); /* theme's border_radius=, no-op without one */
     panel_create_surface(p);
 
     for (int i = 0; i < p->n_widgets; i++) {
@@ -1743,11 +1959,14 @@ static void apply_panel_kv(Panel *p, const char *kvline)
 static void apply_theme_kv(Panel *p, const char *kvline)
 {
     char buf[32];
+    /* cfg_has_* is what makes the theme folder's `colors` file a
+     * *default* rather than an override: panel_load_theme_colors() only
+     * fills in what the THEME line left unsaid. */
     if (kv_get(kvline, "bg", buf, sizeof(buf))) {
-        parse_hex_color(buf, &p->bg_r, &p->bg_g, &p->bg_b, &p->bg_a);
+        p->cfg_has_bg = parse_hex_color(buf, &p->bg_r, &p->bg_g, &p->bg_b, &p->bg_a);
     }
     if (kv_get(kvline, "fg", buf, sizeof(buf))) {
-        parse_hex_color(buf, &p->fg_r, &p->fg_g, &p->fg_b, &p->fg_a);
+        p->cfg_has_fg = parse_hex_color(buf, &p->fg_r, &p->fg_g, &p->fg_b, &p->fg_a);
     }
     if (kv_get(kvline, "h_color", buf, sizeof(buf))) {
         parse_hex_color(buf, &p->h_r, &p->h_g, &p->h_b, &p->h_a);
@@ -1756,6 +1975,7 @@ static void apply_theme_kv(Panel *p, const char *kvline)
     p->spacing = kv_get_int(kvline, "spacing", p->spacing);
     if (kv_get(kvline, "font_size", buf, sizeof(buf))) {
         p->font_size_px = atof(buf);
+        p->cfg_has_font_size = p->font_size_px > 0;
     }
     /* Optional bitmap theme: theme=<folder>, shared with kiwm (same file
      * names, see kiwm/README.md's "Theming" section) -- bg.png+slice (the

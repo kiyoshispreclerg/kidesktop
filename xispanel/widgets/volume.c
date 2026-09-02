@@ -139,6 +139,19 @@ static void volume_paint(PanelWidget *w, cairo_t *cr)
     double cy = oy + w->thickness / 2.0;
     int pct = vp->have_sink ? vp->sink_pct : 0;
     int muted = !vp->have_sink || vp->sink_muted;
+
+    /* A theme's icons/ folder can replace the vector speaker:
+     * volume-muted / volume-low / volume-medium / volume-high, picked by
+     * the same state the glyph is drawn from. Any name it doesn't ship
+     * falls straight back to draw_speaker(), so a partial icon set (or
+     * none at all) is fine. */
+    const char *icon_name = muted ? "volume-muted" : (pct < 34 ? "volume-low" : (pct < 67 ? "volume-medium" : "volume-high"));
+    int icon_px = w->thickness > 6 ? w->thickness - 6 : 16;
+    cairo_surface_t *themed = panel_theme_icon(p, icon_name, icon_px);
+    if (themed) {
+        draw_icon_scaled(cr, themed, ox + (w->thickness - icon_px) / 2, oy + (w->thickness - icon_px) / 2, icon_px);
+        return;
+    }
     draw_speaker(cr, cx, cy, w->thickness * 0.8, pct, muted, p->fg_r, p->fg_g, p->fg_b);
 }
 

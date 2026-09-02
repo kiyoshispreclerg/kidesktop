@@ -521,19 +521,27 @@ static void pager_paint(PanelWidget *w, cairo_t *cr)
                 int local_x = pp->group_x[g] + c * pp->btn_w[g];
                 int local_y = r * pp->row_h;
 
-                if (has_hover && hover_local_x >= local_x && hover_local_x < local_x + pp->btn_w[g] &&
-                    hover_local_y >= local_y && hover_local_y < local_y + pp->row_h) {
-                    widget_paint_hover_cell(w, cr, local_x, local_y, pp->btn_w[g], pp->row_h);
+                int cell_hover = has_hover && hover_local_x >= local_x && hover_local_x < local_x + pp->btn_w[g] &&
+                                 hover_local_y >= local_y && hover_local_y < local_y + pp->row_h;
+                int is_current = d == pp->active_desktop[g];
+                /* A theme's pager.png draws the whole cell (normal /
+                 * hover / current), replacing the wash + thin outline
+                 * below; without one, nothing about this changes. */
+                int skin_state = is_current ? SKIN_ACTIVE : (cell_hover ? SKIN_HOVER : SKIN_NORMAL);
+                if (!panel_draw_skin(&p->pager_skin, cr, skin_state, bx, by, pp->btn_w[g], pp->row_h)) {
+                    if (cell_hover) {
+                        widget_paint_hover_cell(w, cr, local_x, local_y, pp->btn_w[g], pp->row_h);
+                    }
+                    if (is_current) {
+                        cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.18);
+                        cairo_rectangle(cr, bx, by, pp->btn_w[g], pp->row_h);
+                        cairo_fill(cr);
+                    }
+                    cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.4);
+                    cairo_rectangle(cr, bx + 1.5, by + 1.5, pp->btn_w[g] - 3, pp->row_h - 3);
+                    cairo_set_line_width(cr, 1);
+                    cairo_stroke(cr);
                 }
-                if (d == pp->active_desktop[g]) {
-                    cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.18);
-                    cairo_rectangle(cr, bx, by, pp->btn_w[g], pp->row_h);
-                    cairo_fill(cr);
-                }
-                cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.4);
-                cairo_rectangle(cr, bx + 1.5, by + 1.5, pp->btn_w[g] - 3, pp->row_h - 3);
-                cairo_set_line_width(cr, 1);
-                cairo_stroke(cr);
 
                 if (pp->show_windows) {
                     pager_paint_windows(w, cr, g, d, bx, by, pp->btn_w[g], pp->row_h);
@@ -543,7 +551,7 @@ static void pager_paint(PanelWidget *w, cairo_t *cr)
                 snprintf(label, sizeof(label), "%d", d + 1);
                 double tw;
                 pango_text_extents_ellipsized(cr, label, panel_text_size(p), 0, &tw, NULL);
-                cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, d == pp->active_desktop[g] ? 0.95 : 0.6);
+                cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, is_current ? 0.95 : 0.6);
                 pango_show_text_boxed(cr, bx + (pp->btn_w[g] - tw) / 2.0, by, pp->row_h, pp->btn_w[g],
                                        panel_text_size(p), label, NULL);
             }
