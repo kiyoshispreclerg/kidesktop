@@ -234,6 +234,19 @@ struct Panel {
      * degrade-gracefully spirit as bg_slice_*. */
     cairo_surface_t *btns_image_surface;
     int btns_cell_w, btns_cell_h;
+    /* tasks.png + tasks.slice: the tasklist's per-task button skin -- a
+     * vertical strip of 9-slice frames, one row per state, in the fixed
+     * order of the TASK_BTN_* enum below (normal, hover, active,
+     * attention). Each row is `tasks_cell_h` tall and `tasks_cell_w`
+     * wide, and is itself 9-sliced with the *same* l/t/r/b insets, so one
+     * theme covers every button width. tasks_rows is how many rows the
+     * image actually has -- a theme shipping fewer states falls back to
+     * the nearest one it does have (see panel_draw_task_button()). NULL
+     * whenever there's no theme or the file is absent: the tasklist then
+     * draws its translucent fg-colored rects exactly as before. */
+    cairo_surface_t *tasks_image_surface;
+    int tasks_cell_w, tasks_cell_h, tasks_rows;
+    int tasks_slice_l, tasks_slice_t, tasks_slice_r, tasks_slice_b;
 
     /* resolved output geometry */
     int out_x, out_y, out_w, out_h;
@@ -424,6 +437,29 @@ void panel_draw_9slice(cairo_t *cr, cairo_surface_t *src, int sw, int sh, int l,
  * btns_image_surface doc comment) without duplicating this. */
 void draw_slice_region(cairo_t *cr, cairo_surface_t *src, int sx, int sy, int sw, int sh, double dx, double dy,
                         double dw, double dh);
+/* panel_draw_9slice() on a sub-rectangle of `src` starting at (sx, sy)
+ * instead of the whole image -- for a sprite sheet whose rows are each
+ * their own 9-slice frame (a theme's tasks.png). Draws into cr's current
+ * (0,0)-(dw,dh) rect, same as panel_draw_9slice(), which is just this
+ * with sx = sy = 0. */
+void panel_draw_9slice_at(cairo_t *cr, cairo_surface_t *src, int sx, int sy, int sw, int sh, int l, int t, int r,
+                           int b, double dw, double dh);
+
+/* Row order inside a theme's tasks.png (see Panel::tasks_image_surface).
+ * Fixed, not configurable: it's about where a frame lives in the image
+ * file. A theme may ship fewer rows -- panel_draw_task_button() falls
+ * back to the nearest earlier state it has. */
+enum {
+    TASK_BTN_NORMAL = 0,
+    TASK_BTN_HOVER = 1,
+    TASK_BTN_ACTIVE = 2,    /* the focused window's button */
+    TASK_BTN_ATTENTION = 3, /* _NET_WM_STATE_DEMANDS_ATTENTION */
+};
+/* Draws one tasks.png state frame stretched over [x,y,w,h]. Returns 0
+ * (drawing nothing) when this panel has no tasks.png loaded, which is the
+ * signal for the caller to paint its own color-based look instead --
+ * bitmap task buttons are purely additive, never a prerequisite. */
+int panel_draw_task_button(Panel *p, cairo_t *cr, int state, double x, double y, double w, double h);
 /* Paints `p`'s full content (background + every widget, in logical panel-
  * local coordinates) into `cr` with an extra cairo_scale(scale, scale)
  * pushed first -- the actual drawing code neither knows nor cares about

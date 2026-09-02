@@ -90,7 +90,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.3"
+#define XISPANEL_VERSION "0.6.4"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 #define IPC_MAX_LEN 4096
@@ -999,6 +999,11 @@ static void panel_load_btns_image(Panel *p)
         cairo_surface_destroy(p->btns_image_surface);
         p->btns_image_surface = NULL;
     }
+    if (p->tasks_image_surface) {
+        cairo_surface_destroy(p->tasks_image_surface);
+        p->tasks_image_surface = NULL;
+        p->tasks_rows = 0;
+    }
     if (!p->theme_path[0]) {
         return;
     }
@@ -1013,6 +1018,68 @@ static void panel_load_btns_image(Panel *p)
     }
     snprintf(path, sizeof(path), "%s/btns.slice", p->theme_path);
     load_btns_slice_file(path, &p->btns_cell_w, &p->btns_cell_h);
+}
+
+/* Loads (or reloads) p's tasks.png + tasks.slice: the tasklist's per-task
+ * button skin, a vertical strip of 9-slice frames (one row per state, see
+ * the TASK_BTN_* enum). tasks.slice carries both the 9-slice insets (the
+ * same left/top/right/bottom keys bg.png's sidecar uses -- they apply to
+ * every row) and the cell size; cell_width defaults to the image's full
+ * width and cell_height to its full height, i.e. a single-row theme needs
+ * no sidecar at all beyond the insets. Row count comes from the image
+ * height, capped at the four states that exist. Absent file = no warning
+ * and no change: the tasklist just keeps drawing its color-based look. */
+static void panel_load_tasks_image(Panel *p)
+{
+    if (p->tasks_image_surface) {
+        cairo_surface_destroy(p->tasks_image_surface);
+        p->tasks_image_surface = NULL;
+    }
+    p->tasks_rows = 0;
+    if (!p->theme_path[0]) {
+        return;
+    }
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/tasks.png", p->theme_path);
+    p->tasks_image_surface = load_png_argb(path);
+    if (!p->tasks_image_surface) {
+        return;
+    }
+    int img_w = cairo_image_surface_get_width(p->tasks_image_surface);
+    int img_h = cairo_image_surface_get_height(p->tasks_image_surface);
+
+    snprintf(path, sizeof(path), "%s/tasks.slice", p->theme_path);
+    load_slice_file(path, &p->tasks_slice_l, &p->tasks_slice_t, &p->tasks_slice_r, &p->tasks_slice_b);
+    p->tasks_cell_w = img_w;
+    p->tasks_cell_h = img_h;
+    FILE *f = fopen(path, "r");
+    if (f) {
+        char line[128];
+        int v;
+        while (fgets(line, sizeof(line), f)) {
+            if (sscanf(line, "cell_width=%d", &v) == 1 && v > 0) {
+                p->tasks_cell_w = v;
+            } else if (sscanf(line, "cell_height=%d", &v) == 1 && v > 0) {
+                p->tasks_cell_h = v;
+            }
+        }
+        fclose(f);
+    }
+    if (p->tasks_cell_w > img_w) {
+        p->tasks_cell_w = img_w;
+    }
+    if (p->tasks_cell_h > img_h) {
+        p->tasks_cell_h = img_h;
+    }
+    p->tasks_rows = p->tasks_cell_h > 0 ? img_h / p->tasks_cell_h : 0;
+    if (p->tasks_rows > TASK_BTN_ATTENTION + 1) {
+        p->tasks_rows = TASK_BTN_ATTENTION + 1;
+    }
+    if (p->tasks_rows < 1) {
+        cairo_surface_destroy(p->tasks_image_surface);
+        p->tasks_image_surface = NULL;
+        fprintf(stderr, "xispanel: panel '%s': theme's tasks.png has no usable rows, ignoring it\n", p->name);
+    }
 }
 
 /* Paints one source sub-rectangle [sx,sy,sw,sh] of `src` into one
@@ -1048,6 +1115,12 @@ void draw_slice_region(cairo_t *cr, cairo_surface_t *src, int sx, int sy, int sw
 void panel_draw_9slice(cairo_t *cr, cairo_surface_t *src, int sw, int sh, int l, int t, int r, int b, double dw,
                         double dh)
 {
+    panel_draw_9slice_at(cr, src, 0, 0, sw, sh, l, t, r, b, dw, dh);
+}
+
+void panel_draw_9slice_at(cairo_t *cr, cairo_surface_t *src, int sx, int sy, int sw, int sh, int l, int t, int r,
+                           int b, double dw, double dh)
+{
     if (l + r > sw) {
         l = r = 0;
     }
@@ -1066,17 +1139,40 @@ void panel_draw_9slice(cairo_t *cr, cairo_surface_t *src, int sw, int sh, int l,
     }
 
     /* corners: unscaled */
-    draw_slice_region(cr, src, 0, 0, l, t, 0, 0, l, t);
-    draw_slice_region(cr, src, sw - r, 0, r, t, dw - r, 0, r, t);
-    draw_slice_region(cr, src, 0, sh - b, l, b, 0, dh - b, l, b);
-    draw_slice_region(cr, src, sw - r, sh - b, r, b, dw - r, dh - b, r, b);
+    draw_slice_region(cr, src, sx, sy, l, t, 0, 0, l, t);
+    draw_slice_region(cr, src, sx + sw - r, sy, r, t, dw - r, 0, r, t);
+    draw_slice_region(cr, src, sx, sy + sh - b, l, b, 0, dh - b, l, b);
+    draw_slice_region(cr, src, sx + sw - r, sy + sh - b, r, b, dw - r, dh - b, r, b);
     /* edges: stretched along one axis */
-    draw_slice_region(cr, src, l, 0, cw, t, l, 0, dcw, t);
-    draw_slice_region(cr, src, l, sh - b, cw, b, l, dh - b, dcw, b);
-    draw_slice_region(cr, src, 0, t, l, ch, 0, t, l, dch);
-    draw_slice_region(cr, src, sw - r, t, r, ch, dw - r, t, r, dch);
+    draw_slice_region(cr, src, sx + l, sy, cw, t, l, 0, dcw, t);
+    draw_slice_region(cr, src, sx + l, sy + sh - b, cw, b, l, dh - b, dcw, b);
+    draw_slice_region(cr, src, sx, sy + t, l, ch, 0, t, l, dch);
+    draw_slice_region(cr, src, sx + sw - r, sy + t, r, ch, dw - r, t, r, dch);
     /* center: stretched on both axes */
-    draw_slice_region(cr, src, l, t, cw, ch, l, t, dcw, dch);
+    draw_slice_region(cr, src, sx + l, sy + t, cw, ch, l, t, dcw, dch);
+}
+
+/* Draws one row of p's tasks.png over [x,y,w,h] -- see the TASK_BTN_*
+ * enum. A state the theme doesn't ship (fewer rows than 4) walks back to
+ * the nearest earlier one, so a one-row theme still draws that row for
+ * every state rather than nothing. */
+int panel_draw_task_button(Panel *p, cairo_t *cr, int state, double x, double y, double w, double h)
+{
+    if (!p->tasks_image_surface || p->tasks_rows <= 0 || p->tasks_cell_h <= 0 || p->tasks_cell_w <= 0) {
+        return 0;
+    }
+    if (state < 0) {
+        state = 0;
+    }
+    if (state >= p->tasks_rows) {
+        state = p->tasks_rows - 1;
+    }
+    cairo_save(cr);
+    cairo_translate(cr, x, y);
+    panel_draw_9slice_at(cr, p->tasks_image_surface, 0, state * p->tasks_cell_h, p->tasks_cell_w, p->tasks_cell_h,
+                          p->tasks_slice_l, p->tasks_slice_t, p->tasks_slice_r, p->tasks_slice_b, w, h);
+    cairo_restore(cr);
+    return 1;
 }
 
 static void panel_create_surface(Panel *p)
@@ -1464,6 +1560,7 @@ static void panel_activate(Panel *p)
     panel_pick_visual(p);
     panel_load_bg_image(p);
     panel_load_btns_image(p);
+    panel_load_tasks_image(p);
 
     int start_x = p->x, start_y = p->y;
     p->ah_state = AH_HIDDEN;

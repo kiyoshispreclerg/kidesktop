@@ -1120,19 +1120,35 @@ static void tasklist_paint(PanelWidget *w, cairo_t *cr)
          * position -- see ewmh_get_urgent()/TASKLIST_URGENT_BLINK_PERIOD_MS. */
         int real_hover = has_hover && hover_local_x >= tp->vis_x[vi] && hover_local_x < tp->vis_x[vi] + bw;
         int urgent_blink_on = e->urgent && (now_ms() / TASKLIST_URGENT_BLINK_PERIOD_MS) % 2 == 0;
-        if (real_hover || urgent_blink_on) {
-            widget_paint_hover_rect(w, cr, tp->vis_x[vi], bw);
-        }
-
         /* active != None guards against every placeholder (pinned-but-
          * not-running app, win == None) matching at once whenever nothing
          * actually has focus -- e.g. right after switching to an empty
          * desktop -- which would otherwise paint this same highlight on
          * every one of them simultaneously. */
-        if (active != None && e->win == active) {
-            cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.18);
-            cairo_rectangle(cr, bx, oy, bw, w->thickness);
-            cairo_fill(cr);
+        int is_active = active != None && e->win == active;
+
+        /* A theme with tasks.png draws a real button per state instead
+         * (see panel_draw_task_button()); one state per button, highest
+         * priority wins, rather than the color path's layering. */
+        int state = TASK_BTN_NORMAL;
+        if (is_active) {
+            state = TASK_BTN_ACTIVE;
+        }
+        if (real_hover) {
+            state = TASK_BTN_HOVER;
+        }
+        if (urgent_blink_on) {
+            state = TASK_BTN_ATTENTION;
+        }
+        if (!panel_draw_task_button(p, cr, state, bx, oy, bw, w->thickness)) {
+            if (real_hover || urgent_blink_on) {
+                widget_paint_hover_rect(w, cr, tp->vis_x[vi], bw);
+            }
+            if (is_active) {
+                cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.18);
+                cairo_rectangle(cr, bx, oy, bw, w->thickness);
+                cairo_fill(cr);
+            }
         }
 
         /* Icon's left margin: centered within the square button in

@@ -668,6 +668,23 @@ xispanel's `theme=` here at the same path).
   exactly like kiwm's own titlebar. Rows, top to bottom: normal, hover,
   clicked -- `winctl` only draws the first two (no separate press-and-hold
   visual yet, same as kiwm).
+- **`tasks.png`** + **`tasks.slice`** -- the `tasklist`'s per-task button
+  skin: a vertical strip of 9-slice frames, one row per state, in this
+  fixed order: **normal, hover, active** (the focused window's button),
+  **attention** (a window setting `_NET_WM_STATE_DEMANDS_ATTENTION`,
+  which the tasklist blinks at 2fps as before). A theme may ship fewer
+  rows -- a missing state falls back to the last row present, so a
+  one-row file just gives every button the same frame. `tasks.slice`
+  carries both the 9-slice insets (`left`/`top`/`right`/`bottom`, applied
+  to every row alike) and `cell_width=`/`cell_height=`; the defaults are
+  the image's own full width and height, so a single-state theme needs
+  only the insets. The row count comes from the image height divided by
+  `cell_height`. Absent `tasks.png` = the tasklist keeps its current
+  color-based look exactly: nothing drawn for an ordinary button, a
+  translucent `fg` wash for hover/attention, another for the active
+  window -- so `bg=`/`fg=` remain a complete way to style it, and the
+  bitmap buttons are purely additive. This file is xispanel-only; kiwm
+  ignores it.
 - **`colors`** -- read by kiwm, not (yet) by xispanel; a theme can still
   ship it, `winctl`/the panel background just don't consume it today.
 
@@ -690,9 +707,12 @@ xispanel: it just falls back to `bg=`/`fg=` (or, absent those too, the
 built-in defaults -- see "This file is the only source of truth" above)
 and winctl's vector button glyphs, same as always.
 
-Only the panel background and winctl's buttons are themeable this way for
-now -- the rest of widget/popup chrome (tasklist rows, menu items) still
-draws with Cairo using the panel's `fg`/`bg` colors, not bitmap art.
+Only the panel background, winctl's buttons and the tasklist's buttons are
+themeable this way for now -- the rest of the widget/popup chrome (menu
+items, tooltips, the pager's cells, the other icon widgets' hover
+feedback) still draws with Cairo using the panel's `fg`/`bg` colors, not
+bitmap art. A theme's `colors` file is read by kiwm only; xispanel takes
+its colors and font from the `THEME` line.
 Extending bitmap theming to those is a possible follow-up, not implemented
 yet.
 
