@@ -157,7 +157,7 @@ void inputscale_apply(void)
     xcb_flush(comp.conn);
 }
 
-void inputscale_shutdown(void)
+void inputscale_release_all(void)
 {
     if (!comp.caps.input_scale)
         return;
@@ -166,5 +166,16 @@ void inputscale_shutdown(void)
         if (comp.outputs[i].crtc != XCB_NONE)
             reset_confine(&comp.outputs[i]);
 
-    xcb_flush(comp.conn);
+    /* Synchronously: the caller is about to ask RandR for the geometry
+     * these confinements were changing the answer to, and a request still
+     * sitting in the output buffer would not have changed it back yet. A
+     * round trip on anything is enough to make the server have processed
+     * them. */
+    free(xcb_get_input_focus_reply(comp.conn,
+                                   xcb_get_input_focus(comp.conn), NULL));
+}
+
+void inputscale_shutdown(void)
+{
+    inputscale_release_all();
 }

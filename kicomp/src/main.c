@@ -889,6 +889,11 @@ int main(int argc, char **argv)
         presenter = comp.caps.present ? presenter_present() : presenter_copy();
     }
 
+    /* Before the capability line, because it is one of the capabilities
+     * that line reports -- and because whether outputs may be scaled at
+     * all depends on the answer (inputscale.h). */
+    inputscale_init();
+
     comp_info("kicomp " KICOMP_VERSION " on %s screen %d (%dx%d)",
               getenv("DISPLAY") ? getenv("DISPLAY") : "?", comp.screen_num,
               comp.root_w, comp.root_h);
@@ -897,7 +902,7 @@ int main(int argc, char **argv)
               "render=%d randr=%d present=%d input-scale=%d flip-per-crtc=%d",
               comp.caps.composite, comp.caps.overlay, comp.caps.damage,
               comp.caps.xfixes, comp.caps.render, comp.caps.randr,
-              comp.caps.present, comp.caps.flip_per_crtc);
+              comp.caps.present, comp.caps.input_scale, comp.caps.flip_per_crtc);
     if (comp.skip_wm_layers)
         comp_info("skipping kiwm's own layers (_KIWM_LAYER)");
     if (comp_shadow.enabled)
@@ -914,7 +919,6 @@ int main(int argc, char **argv)
 
     /* Before the outputs are built: whether an output may be scaled at
      * all depends on this extension being there (inputscale.h). */
-    inputscale_init();
     density_init();
 
     /* Prints the drawable count/geometry itself, here and on every later

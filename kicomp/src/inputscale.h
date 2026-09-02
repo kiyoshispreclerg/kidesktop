@@ -40,6 +40,20 @@ void inputscale_init(void);
  * outputs_refresh(), so a hotplug or a mode change re-asserts it. */
 void inputscale_apply(void);
 
+/* Releases every confinement, without forgetting the scales -- what
+ * outputs_refresh() calls *before* re-reading RandR.
+ *
+ * The reason is a feature of the server, not of this file: while a CRTC is
+ * confined, the fork answers XRRGetCrtcInfo and XRRGetMonitors with the
+ * confined box instead of the true scanout box, deliberately, so that
+ * every ordinary client (the WM included) lays out inside the logical
+ * desktop without knowing this extension exists. Which means a compositor
+ * that re-read RandR while its own confinement was active would see its
+ * logical box as the *physical* one and divide it by the scale again --
+ * shrinking the desktop a little more on every hotplug, DPI change or
+ * mode set. Letting go first is what makes the two features compose. */
+void inputscale_release_all(void);
+
 /* Releases every confinement this compositor set. Closing the connection
  * would do it too -- the server drops a confinement with the client that
  * set it -- but shutting down cleanly says so explicitly. */

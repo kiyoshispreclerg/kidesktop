@@ -205,6 +205,15 @@ void outputs_teardown(void)
 
 void outputs_refresh(void)
 {
+    /* Before anything is read: while a CRTC is confined, the server
+     * reports the *confined* box as that output's geometry -- on purpose,
+     * so the WM and every toolkit lay out inside the logical desktop
+     * without knowing X-INPUT-SCALE exists (see inputscale.h). Reading
+     * RandR with our own confinement still in force would therefore
+     * mistake the logical box for the physical one and scale it down
+     * again. */
+    inputscale_release_all();
+
     xcb_get_geometry_reply_t *root_geo =
         xcb_get_geometry_reply(comp.conn, xcb_get_geometry(comp.conn, comp.root), NULL);
     if (root_geo) {
