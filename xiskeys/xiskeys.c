@@ -62,7 +62,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define XISKEYS_VERSION "0.2.0"
+#define XISKEYS_VERSION "0.2.1"
 #define MAX_BINDINGS 128
 #define LINE_MAX_LEN 768
 #define CMD_MAX_LEN 512
@@ -396,6 +396,14 @@ static void write_default_config(const char *path)
     fprintf(f, "#BIND\tswitch-user\tMeta+Shift+U\tdm-tool switch-to-greeter\n");
     fprintf(f, "\n# --- displays --------------------------------------------------------------\n");
     fprintf(f, "BIND\tdisplays\tMeta+P\tkiconf\n");
+    fprintf(f, "\n# --- compositing ----------------------------------------------------------\n");
+    fprintf(f, "# kicomp is optional and this is the switch for it: off if a compositor is\n");
+    fprintf(f, "# running, on if none is -- the toggle every desktop has on this key. It\n");
+    fprintf(f, "# asks whoever owns _NET_WM_CM_Sn to stand down, so it works on whatever\n");
+    fprintf(f, "# compositor is up, and nothing breaks with it off: kiwm is fully usable\n");
+    fprintf(f, "# uncomposited. A dead key if kicomp isn't installed, which is the one\n");
+    fprintf(f, "# case where you'd want to delete this line.\n");
+    fprintf(f, "BIND\tcompositing-toggle\tAlt+Shift+F12\tkicomp --toggle\n");
     fprintf(f, "\n# --- your own launchers/commands, add as many as you want -----------------\n");
     fprintf(f, "#BIND\tterminal\tMeta+Return\txterm\n");
     fprintf(f, "#BIND\tbrowser\tMeta+B\tfirefox\n");
