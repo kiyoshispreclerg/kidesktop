@@ -507,7 +507,21 @@ void window_focus_changed(xcb_window_t active)
             w->focused = false;
             w->pending_unfocus = true;
             w->pending_focus = false;
+        } else {
+            continue;
         }
+
+        /* Focus changes how this window is *drawn*: a shadow has its own
+         * radius, opacity and offset per focus state, and they can differ
+         * by a lot. Nothing else marks that area dirty -- the flag simply
+         * flips -- so without this the old shadow stays until something
+         * else happens to repaint those pixels. In practice a decorating
+         * WM hides it by repainting its titlebar on focus, which damages
+         * the window anyway; an undecorated window has nothing to hide
+         * behind. output_damage_rect() grows the rectangle by the shadow's
+         * reach on its own. */
+        CompRect r = window_rect(w);
+        output_damage_rect(&r);
     }
 }
 
