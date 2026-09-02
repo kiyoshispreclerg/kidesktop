@@ -541,11 +541,20 @@ is in progress), the stream itself is the signal — `window.c` times the
 gap between configures and marks the sequence as interactive. That is the
 heuristic the IPC will replace.
 
-While a window is being transformed the shape clip steps aside: the
-region is in untransformed coordinates and XFixes can't scale it, so
-rounded corners go square for about a sixth of a second. The GL renderer,
-which can transform the mask along with the picture, is where that stops
-being a trade.
+While a window is being *scaled* the shape clip steps aside: the region is
+in untransformed coordinates and XFixes can't scale one, so rounded
+corners go square for about a sixth of a second. A window being **moved**
+keeps its shape — XFixes can translate a region, and the clip origin is
+simply where the window is being drawn — which covers dodge, the desktop
+wall, smooth-move and the tail of most geometry changes.
+
+That distinction is not only about corners. A window whose rectangle is
+far bigger than its silhouette (VirtualBox's detached mini-toolbar is a
+screen-sized window with a small bar shaped out of it) is drawn as its
+whole rectangle without the clip, which shows whatever its pixmap happens
+to hold — a screen-sized ghost of the frame it had when it was last
+fullscreen. The GL renderer, which can transform a mask along with the
+picture, is where the scaled case stops being a trade too.
 
 ### `desktop-wall`
 
@@ -622,6 +631,7 @@ one rectangle appearing on top of another between two frames.
 
 | key | what it does |
 |---|---|
+| *(shaped windows)* | overlap is judged from a window's **visible extents**, not its rectangle: a screen-sized window with a small bar shaped out of it would otherwise appear to be covering the whole monitor and shove everything aside |
 | `strength` | how much of the distance that would fully clear the overlap is actually travelled (0–1, default 1.0 — all of it: a window that only half clears the one it was covering has not made room, it has twitched) |
 | `clearance` | pixels of gap left between the two windows once aside (default 8) — stopping exactly at the edge reads as one window stuck to the other rather than as having got out of the way |
 | `max_distance` | ceiling in pixels, `0` (the default) for no ceiling — whatever clearing it takes |

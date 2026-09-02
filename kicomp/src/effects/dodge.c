@@ -382,6 +382,25 @@ static bool escape_vector(const CompRect *w, const CompRect *focused,
 }
 
 
+/* What of a window is actually on screen. For almost everything that is
+ * its rectangle; for a shaped window it can be a great deal smaller --
+ * VirtualBox's detached mini-toolbar is a screen-sized window with a small
+ * bar carved out of it. Deciding "was this covering that" from the
+ * rectangle would have such a window shoving everything on the monitor
+ * aside on account of pixels it does not draw. */
+static CompRect visible_rect_of(const CompWindow *w)
+{
+    CompRect r = window_rect(w);
+
+    if (w->shaped && w->shape_extents.w > 0 && w->shape_extents.h > 0) {
+        r.x = w->x + w->shape_extents.x;
+        r.y = w->y + w->shape_extents.y;
+        r.w = w->shape_extents.w;
+        r.h = w->shape_extents.h;
+    }
+    return r;
+}
+
 /* True when this window actually got an effect: the caller counts them,
  * because holding the raise back is only honest if something is
  * getting out of the way. */
@@ -391,7 +410,7 @@ static bool start_for(CompWindow *w, const CompRect *focus_rect,
     const DodgeConfig *cfg = self->config;
 
     int dx, dy;
-    CompRect here = window_rect(w);
+    CompRect here = visible_rect_of(w);
     if (!escape_vector(&here, focus_rect, &dx, &dy))
         return false;
 
@@ -457,7 +476,7 @@ static void on_event(CompWindow *w, const CompEvent *event,
     if (duration <= 0.0)
         return;
 
-    CompRect focus_rect = window_rect(w);
+    CompRect focus_rect = visible_rect_of(w);
 
     /* Only what was *covering* it: overlapping, and drawn on top of it
      * before the raise. Asking the current stacking instead ("everything

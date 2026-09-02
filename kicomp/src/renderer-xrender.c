@@ -1390,11 +1390,27 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
              * Intersected with the frame's damage, never replacing it:
              * one clip region per picture means setting the shape alone
              * would repaint this window whole. */
-            xcb_xfixes_region_t shape = (transformed || from_stash) ? XCB_NONE
-                                                                   : window_shape(w);
+            /* A transform that is only a move keeps its shape: XFixes
+             * can translate a region, and the clip origin is where the
+             * window is being *drawn* rather than where it is. That is
+             * most of what the effects do -- dodge, the wall, smooth-move
+             * -- and without it a shaped window animates as its whole
+             * rectangle. Which is not a cosmetic loss: a window whose
+             * rectangle covers the screen with a small bar shaped out of
+             * it (VirtualBox's mini-toolbar) is drawn as a screen-sized
+             * ghost of whatever its pixmap happens to hold.
+             *
+             * A scaled or rotated one still has to go without, since the
+             * region cannot follow it. */
+            float tdx = 0.0f, tdy = 0.0f;
+            bool move_only = !transformed ||
+                             comp_transform_is_translation(&n->transform, &tdx, &tdy);
+
+            xcb_xfixes_region_t shape = (from_stash || !move_only) ? XCB_NONE
+                                                                  : window_shape(w);
             clip_to_frame(o, shape ? shape : XCB_NONE,
-                          (int16_t)(w->x - o->rect.x),
-                          (int16_t)(w->y - o->rect.y));
+                          (int16_t)(w->x + (int)tdx - o->rect.x),
+                          (int16_t)(w->y + (int)tdy - o->rect.y));
         }
 
         /* Source offset: where inside the window's own pixmap the visible

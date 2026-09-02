@@ -117,3 +117,24 @@ void comp_transform_bbox(const CompTransform *t, const struct CompRect *in,
     if (out->w < 0) out->w = 0;
     if (out->h < 0) out->h = 0;
 }
+
+bool comp_transform_is_translation(const CompTransform *t, float *dx, float *dy)
+{
+    /* The linear part has to be the identity: no scale, no rotation, no
+     * shear. Compared with a small tolerance because these matrices are
+     * built by multiplying floats, and a scale of 1.0000001 is a
+     * translation as far as anything on screen is concerned. */
+    const float eps = 1e-4f;
+
+    if (fabsf(t->m[0][0] - 1.0f) > eps || fabsf(t->m[1][1] - 1.0f) > eps ||
+        fabsf(t->m[0][1]) > eps || fabsf(t->m[1][0]) > eps)
+        return false;
+    if (fabsf(t->m[2][2] - 1.0f) > eps || fabsf(t->m[3][3] - 1.0f) > eps)
+        return false;
+
+    if (dx)
+        *dx = t->m[0][3];
+    if (dy)
+        *dy = t->m[1][3];
+    return true;
+}

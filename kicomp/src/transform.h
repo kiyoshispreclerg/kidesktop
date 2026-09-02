@@ -27,6 +27,17 @@ typedef struct CompTransform {
 void comp_transform_identity(CompTransform *t);
 bool comp_transform_is_identity(const CompTransform *t);
 
+/* Is this transform nothing but a move? Fills dx/dy when it is.
+ *
+ * Worth asking separately because a translation is the one transform that
+ * a *region* survives: XFixes can translate a region but cannot scale one,
+ * so a window being slid across the screen can keep its shape clip --
+ * rounded corners, a shaped window's real silhouette -- while a window
+ * being scaled cannot. Most of what the effects do is exactly this: dodge,
+ * the desktop wall, smooth-move and the tail of a geometry change are all
+ * pure moves. */
+bool comp_transform_is_translation(const CompTransform *t, float *dx, float *dy);
+
 /* out = a * b (apply b first, then a). Aliasing-safe. */
 void comp_transform_multiply(CompTransform *out, const CompTransform *a, const CompTransform *b);
 
