@@ -7,6 +7,7 @@
 #include "shadow.h"
 #include "config.h"
 #include "inputscale.h"
+#include "density.h"
 
 #include <xcb/randr.h>
 
@@ -307,6 +308,9 @@ void outputs_refresh(void)
      * -- it's the difference between the per-output pipeline and the
      * legacy one, and it's what changes on every hotplug. */
     inputscale_apply();
+
+    /* Every window may now be on a differently scaled output. */
+    density_update_all();
 
     comp_info("%d drawable%s (%s)", drawables, drawables == 1 ? "" : "s",
               comp.single_drawable ? "legacy single-screen mode"

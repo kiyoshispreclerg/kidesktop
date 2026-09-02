@@ -35,7 +35,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.4"
+#define KICOMP_VERSION "0.2.5"
 
 #include "comp.h"
 #include "output.h"
@@ -52,6 +52,7 @@
 #include "region.h"
 #include "damage.h"
 #include "inputscale.h"
+#include "density.h"
 
 #include <xcb/randr.h>
 #include <xcb/shape.h>
@@ -168,6 +169,14 @@ static void atoms_init(void)
     comp.atoms.net_active_window      = intern("_NET_ACTIVE_WINDOW");
     comp.atoms.net_current_desktop    = intern("_NET_CURRENT_DESKTOP");
     comp.atoms.net_desktop_layout     = intern("_NET_DESKTOP_LAYOUT");
+    char density_mgr[40];
+    snprintf(density_mgr, sizeof(density_mgr), "_X_DENSITY_MANAGER_S%d",
+             comp.screen_num);
+    comp.atoms.density_manager        = intern(density_mgr);
+    comp.atoms.density_requested      = intern("_X_DENSITY_REQUESTED");
+    comp.atoms.density_scale          = intern("_X_DENSITY_SCALE");
+    comp.atoms.density_pixmap         = intern("_X_DENSITY_PIXMAP");
+
     comp.atoms.kiwm_outputs           = intern("_KIWM_OUTPUTS");
     comp.atoms.kiwm_output_desktop    = intern("_KIWM_OUTPUT_DESKTOP");
 }
@@ -597,6 +606,15 @@ static void handle_event(xcb_generic_event_t *ev)
             CompWindow *w = window_find(e->window);
             if (w)
                 window_update_opacity(w);
+        } else if (e->atom == comp.atoms.density_scale ||
+                   e->atom == comp.atoms.density_pixmap) {
+            /* The client answering a density request -- or saying it drew
+             * a new frame into the same pixmap (density.h). */
+            CompWindow *w = window_find_by_client(e->window);
+            if (!w)
+                w = window_find(e->window);
+            if (w)
+                density_property_changed(w);
         } else if (e->atom == comp.atoms.net_wm_state ||
                    e->atom == comp.atoms.wm_state) {
             /* These live on the client window inside the frame, which is
@@ -633,6 +651,7 @@ static void handle_event(xcb_generic_event_t *ev)
 static void shutdown_compositor(void)
 {
     effects_shutdown();
+    density_shutdown();
     inputscale_shutdown();
     desktop_shutdown();
     windows_teardown();
@@ -843,11 +862,16 @@ int main(int argc, char **argv)
     /* Before the outputs are built: whether an output may be scaled at
      * all depends on this extension being there (inputscale.h). */
     inputscale_init();
+    density_init();
 
     /* Prints the drawable count/geometry itself, here and on every later
      * output change. */
     outputs_refresh();
     windows_scan();
+    /* The windows that were already on screen never "appear", so this is
+     * where they get asked for the density their output wants -- the
+     * appear/move paths in window.c cover every later one. */
+    density_update_all();
     /* Read once now so the *first* desktop switch has an old value to be
      * a change from; without it the wall would sit out the first one. */
     desktop_refresh();

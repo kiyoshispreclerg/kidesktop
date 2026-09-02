@@ -283,6 +283,25 @@ typedef struct CompWindow {
     CompRect prev_rect;
     int prev_holds;
 
+    /* X-DENSITY (density.h): the client redrawing its own contents at a
+     * multiple of its logical size, into a pixmap of its own. The window
+     * keeps its geometry; only these pixels are denser.
+     *
+     *   density_requested  we asked (and must un-ask when we stop)
+     *   density_num/den    what the client says it is *actually* drawing
+     *                      at -- believed over what we asked for
+     *   density_pixmap     the auxiliary pixmap it published
+     *   density_picture    the renderer's cached Picture for it
+     *   client_rect        where the client sits inside its frame, since
+     *                      that pixmap holds the client's content without
+     *                      the decoration around it
+     */
+    bool density_requested;
+    uint32_t density_num, density_den;
+    xcb_pixmap_t density_pixmap;
+    xcb_render_picture_t density_picture;
+    CompRect client_rect;
+
     /* The window's SHAPE bounding region, in window-relative coordinates.
      * Without it a shaped window comes out square: the server clips a
      * window to its shape when *it* paints, but NameWindowPixmap hands
@@ -362,6 +381,12 @@ typedef struct KiComp {
         xcb_atom_t net_active_window;
         xcb_atom_t net_current_desktop;
         xcb_atom_t net_desktop_layout;     /* the grid the desktops sit in */
+        /* X-DENSITY (density.h) */
+        xcb_atom_t density_manager;
+        xcb_atom_t density_requested;
+        xcb_atom_t density_scale;
+        xcb_atom_t density_pixmap;
+
         xcb_atom_t kiwm_outputs;           /* output names, in index order */
         xcb_atom_t kiwm_output_desktop;    /* one current desktop per output */
     } atoms;

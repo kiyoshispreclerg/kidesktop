@@ -12,6 +12,7 @@
 #include "effect.h"
 #include "animation.h"
 #include "desktop.h"
+#include "density.h"
 
 #include <xcb/shape.h>
 
@@ -532,6 +533,10 @@ void windows_flush_events(void)
 
         if (w->pending_appear) {
             w->pending_appear = false;
+            /* Newly on screen: ask its output for the density it wants
+             * (density.h). Harmless and free at scale 1, where the answer
+             * is "nothing to ask for". */
+            density_update_window(w);
 
             CompEventKind kind;
             if ((before & COMP_STATE_MINIMIZED) && !(now & COMP_STATE_MINIMIZED))
@@ -555,6 +560,9 @@ void windows_flush_events(void)
             CompEventKind kind;
             if (!state_delta_event(before, now, &kind))
                 kind = COMP_EVENT_MOVE;
+
+            /* It may have crossed onto a differently scaled monitor. */
+            density_update_window(w);
 
             emit_geometry(w, kind, &w->pending_from, &to, w->pending_interactive);
         } else if (w->pending_state) {

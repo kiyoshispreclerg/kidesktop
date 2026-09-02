@@ -754,6 +754,53 @@ on a scaled output the cached shape region is fetched and rebuilt at the
 right size (once per shape change, never per frame). At scale 1 not a
 single extra request is sent.
 
+### X-DENSITY: the sharp half
+
+Scaling alone magnifies what the client drew at logical size, which is
+exactly as sharp as it sounds. X-DENSITY is how it stops being blurry:
+kicomp asks a window to redraw its contents at the output's scale into an
+auxiliary pixmap of its own, and samples that instead
+(`TESTS/X-DENSITY.md`). The window's geometry never changes — same size in
+the WM's layout, same decoration, same focus, same everything. Only the
+pixels are denser.
+
+Three ordinary properties, no extension needed:
+
+| | | |
+|---|---|---|
+| `_X_DENSITY_REQUESTED` | kicomp → client | `[num, den]`; deleted means 1/1 |
+| `_X_DENSITY_SCALE` | client → kicomp | what it is *actually* drawing at — believed over what was asked |
+| `_X_DENSITY_PIXMAP` | client → kicomp | the auxiliary pixmap, logical size × density |
+
+plus the `_X_DENSITY_MANAGER_S<screen>` selection, owned exactly like
+`_NET_WM_CM_S<screen>`: a well-behaved client only picks a density other
+than 1 while somebody holds it, so killing the compositor leaves every
+window drawing itself normally instead of frozen at a density nothing is
+sampling. kicomp deletes its requests on the way out as well.
+
+A pixmap raises no Damage of its own, so "I drew a new frame" is the
+client rewriting `_X_DENSITY_PIXMAP` with the same XID — every property
+change here is therefore also a repaint.
+
+The dense contents are composited *over* the window after it is drawn,
+covering the client's rectangle inside the frame: the first pass paints
+the frame (decoration, plus a magnified copy of the client area), the
+second replaces that middle part with pixels the client really drew at
+that size. When the density matches the output scale the second composite
+is a 1:1 copy, which is the whole point of rendering into a physical-sized
+target.
+
+Verified against the protocol's own reference client
+(`TESTS/x-density-client-v2`): it detects the manager selection, gets
+`2/1`, redraws 400×300 → 800×600 into its pixmap, and the grid it draws
+comes out one pixel wide on screen instead of two soft ones. Killing
+kicomp puts it back to 1/1 and leaves no property behind.
+
+**The decoration is still magnified**, not dense: those pixels belong to
+kiwm, which draws them into the frame at logical size. Making them sharp
+means kiwm implementing the *client* side of this protocol for its own
+frames — see the note at the end of `kiwm/PROTOCOL.md`'s neighbourhood.
+
 ## Damage
 
 Two questions, and they have different answers: *which outputs* to repaint
@@ -861,6 +908,7 @@ timestamps now arriving. Deriving it from those is a change to
 | 17/30/45 — capability detection | Composite/Damage/XFixes/Render/RandR detected at runtime; nothing assumes XiS |
 | 4/18 — output as the unit of presentation | one pixmap + picture per output, sized to it, never one global surface |
 | 39 — per-output dirty state | only the output damage actually touched is repainted |
+| 56 — X-DENSITY | the density requested per window on a scaled output, the client's auxiliary pixmap sampled in place of its magnified contents |
 | 56 — per-output scaling | logical vs physical box per output, DPI-derived, drawn magnified into a physical target; gated on X-INPUT-SCALE, whose per-CRTC confinement keeps the pointer inside the logical desktop |
 | 39 — region repaint | and only the *part* of it that changed: the damage region is tracked per output, clips the background, the windows and their shadows, skips windows nothing touched, and bounds what the presenter copies |
 | 26 — window crossing outputs | `window ∩ output` clipped per output, one scene node in each |
@@ -901,11 +949,10 @@ timestamps now arriving. Deriving it from those is a change to
 - **`kiwm` ⟷ `kicomp` IPC** (section 32) — deliberately absent in the
   first version. When it exists it replaces only the *source* of the
   updates; the mirror in `window.c` stays as it is.
-- **X-DENSITY** (section 56's other half) — the compositor scales outputs,
-  but doesn't yet ask clients to redraw their contents at that density
-  (`_X_DENSITY_REQUESTED` and the auxiliary pixmap, `TESTS/X-DENSITY.md`).
-  Until it does, a scaled output magnifies what the client drew at logical
-  size, which is exactly as sharp as it sounds.
+- **Dense decorations** — clients redraw sharply on a scaled output
+  (X-DENSITY, above) but kiwm's decoration does not: it is drawn into the
+  frame at logical size and magnified with everything else. kiwm would
+  have to implement the client side of X-DENSITY for its frames.
 
 ## Shape and kiwm's layers
 
@@ -986,6 +1033,8 @@ src/
                       just moved (the wall's direction)
   inputscale.c/.h     X-INPUT-SCALE: the pointer confined to the logical
                       desktop of a scaled output
+  density.c/.h        X-DENSITY: asking clients to redraw densely, and
+                      sampling the pixmap they publish
   region.c/.h         the damage region: rectangles, client-side
   damage.c/.h         X Damage in, per-output regions out (batched)
   effects/            one file per effect: geometry, fade-in, fade-out,

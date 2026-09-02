@@ -19,6 +19,7 @@
 #include "window.h"
 #include "shadow.h"
 #include "region.h"
+#include "density.h"
 
 #include <math.h>
 
@@ -73,6 +74,33 @@ static xcb_render_pictformat_t format_for_visual(xcb_visualid_t visual)
 xcb_render_pictformat_t comp_root_pictformat(void)
 {
     return format_for_visual(comp.screen->root_visual);
+}
+
+/* Depth -> picture format, for a drawable that has no visual of its own:
+ * a Pixmap. The standard format for the depth is what every client that
+ * draws into one will have used. */
+static xcb_render_pictformat_t format_for_depth(uint8_t depth)
+{
+    formats_load();
+    if (!formats)
+        return 0;
+
+    xcb_render_pictforminfo_iterator_t fi =
+        xcb_render_query_pict_formats_formats_iterator(formats);
+    for (; fi.rem; xcb_render_pictforminfo_next(&fi)) {
+        xcb_render_pictforminfo_t *f = fi.data;
+        if (f->type != XCB_RENDER_PICT_TYPE_DIRECT || f->depth != depth)
+            continue;
+        /* 32-bit wants the alpha channel; 24-bit must not pretend to have
+         * one. Both are the first DIRECT format of their depth with the
+         * matching alpha mask. */
+        if (depth == 32 && f->direct.alpha_mask == 0)
+            continue;
+        if (depth != 32 && f->direct.alpha_mask != 0)
+            continue;
+        return f->id;
+    }
+    return 0;
 }
 
 /* The standard A8 format, used for the constant-alpha mask that backs
@@ -255,6 +283,74 @@ static bool window_bind(CompWindow *w)
  * invalidate it -- the destination origin is passed at clip time instead.
  * XCB_NONE means "no clipping", which is also the honest answer for a
  * window that just went away between the event and this request. */
+/* ------------------------------------------------------------------ */
+/* X-DENSITY: the client's own denser contents                         */
+/* ------------------------------------------------------------------ */
+
+void renderer_window_density_invalidate(CompWindow *w)
+{
+    if (w->density_picture) {
+        xcb_render_free_picture(comp.conn, w->density_picture);
+        w->density_picture = 0;
+    }
+}
+
+/* A Picture for the window's density pixmap, and the client's rectangle
+ * inside the frame -- that pixmap holds the client's content alone, with
+ * no decoration around it, so where the decoration ends has to be known
+ * to put it back in the right place.
+ *
+ * Both are cached until the client publishes a different pixmap or the
+ * window is resized; the round trip is paid once per density change, not
+ * per frame. */
+static xcb_render_picture_t window_density_picture(CompWindow *w)
+{
+    if (w->density_picture)
+        return w->density_picture;
+    if (w->density_pixmap == 0 || w->client == XCB_NONE)
+        return 0;
+
+    xcb_get_geometry_cookie_t gc = xcb_get_geometry(comp.conn, w->client);
+    xcb_get_geometry_cookie_t pc = xcb_get_geometry(comp.conn, w->density_pixmap);
+
+    xcb_get_geometry_reply_t *cg = xcb_get_geometry_reply(comp.conn, gc, NULL);
+    xcb_get_geometry_reply_t *pg = xcb_get_geometry_reply(comp.conn, pc, NULL);
+
+    if (!cg || !pg) {
+        /* The client died, or published a pixmap it had already freed.
+         * Not an error worth shouting about -- the window simply draws
+         * from its own contents this frame. */
+        free(cg);
+        free(pg);
+        w->density_pixmap = 0;
+        return 0;
+    }
+
+    /* The client's geometry is relative to the frame, which is the
+     * drawable the window's own pixmap covers, so this is already the
+     * offset the dense contents have to be drawn at. */
+    w->client_rect.x = cg->x + cg->border_width;
+    w->client_rect.y = cg->y + cg->border_width;
+    w->client_rect.w = cg->width;
+    w->client_rect.h = cg->height;
+
+    uint8_t depth = pg->depth;
+    free(cg);
+    free(pg);
+
+    xcb_render_pictformat_t fmt = format_for_depth(depth);
+    if (!fmt)
+        return 0;
+
+    xcb_render_picture_t pict = xcb_generate_id(comp.conn);
+    uint32_t mask = XCB_RENDER_CP_SUBWINDOW_MODE;
+    uint32_t value = XCB_SUBWINDOW_MODE_INCLUDE_INFERIORS;
+    xcb_render_create_picture(comp.conn, pict, w->density_pixmap, fmt, mask, &value);
+
+    w->density_picture = pict;
+    return pict;
+}
+
 /* ------------------------------------------------------------------ */
 /* logical -> physical                                                 */
 /* ------------------------------------------------------------------ */
@@ -1300,6 +1396,62 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
          * next paint may well be an ordinary one. */
         if (needs_matrix)
             picture_transform_reset(source);
+
+        /* And, over the client area, the client's own denser contents if
+         * it published any (density.h). What was just drawn is the frame:
+         * the decoration around the edges plus a magnified copy of the
+         * client area; this replaces that middle part with pixels the
+         * client actually drew at this size. It is a second composite
+         * rather than a merge because the two sources are genuinely two
+         * drawables -- the frame's pixmap and the client's pixmap -- and
+         * only the second one is dense.
+         *
+         * Skipped while an effect is transforming the node: the offsets
+         * below assume the window is where it says it is, and a window
+         * mid-animation is worth exactly as much sharpness as it has
+         * milliseconds left. */
+        float density;
+        if (!transformed && !from_stash && density_active(w, &density)) {
+            xcb_render_picture_t dense = window_density_picture(w);
+            if (dense) {
+                /* Where the client's content lands, in logical root
+                 * coordinates, then in target pixels. */
+                CompRect client = {
+                    n->geometry.x + w->client_rect.x,
+                    n->geometry.y + w->client_rect.y,
+                    w->client_rect.w, w->client_rect.h
+                };
+
+                CompRect visible;
+                if (rect_intersect(&client, &n->visible_rect, &visible)) {
+                    /* target -> logical root -> the client's own origin ->
+                     * the dense pixmap, which is that content times the
+                     * density. When the density matches the output scale
+                     * this whole chain is the identity and the pixels go
+                     * across one for one, which is the entire point. */
+                    CompTransform m;
+                    comp_transform_identity(&m);
+                    if (o->scale != 1.0f) {
+                        comp_transform_scale(&m, 1.0f / o->scale, 1.0f / o->scale);
+                        comp_transform_translate(&m, (float)o->rect.x, (float)o->rect.y);
+                    }
+                    comp_transform_translate(&m, (float)-client.x, (float)-client.y);
+                    comp_transform_scale(&m, density, density);
+                    picture_transform_set(dense, &m);
+
+                    int16_t cdx = (int16_t)to_target_x(o, visible.x);
+                    int16_t cdy = (int16_t)to_target_y(o, visible.y);
+
+                    xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER,
+                                         dense, mask, o->target,
+                                         cdx, cdy, cdx, cdy, cdx, cdy,
+                                         (uint16_t)to_target_len(o, visible.w),
+                                         (uint16_t)to_target_len(o, visible.h));
+
+                    picture_transform_reset(dense);
+                }
+            }
+        }
     }
 }
 
