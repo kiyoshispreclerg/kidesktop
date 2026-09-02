@@ -575,8 +575,20 @@ void switch_workspace(int output_idx, int desktop)
             if (c->mapped)
                 xcb_unmap_window(wm.conn, c->frame);
         } else if (c->desktop == desktop) {
-            if (c->mapped) {
+            /* Not `if (c->mapped)`: that flag means "should be on screen",
+             * and toggle_sticky() clears it for a window whose desktop is
+             * not the current one -- which is correct there and fatal
+             * here, because it then gates the *only* path that would ever
+             * map the window again. A window that had sticky toggled off
+             * while its desktop was elsewhere could never come back:
+             * still managed, still focusable, still listed, never drawn.
+             *
+             * What decides whether a window belongs on screen when its
+             * desktop arrives is whether it is minimized, which is
+             * already the loop's own precondition above. */
+            {
                 xcb_map_window(wm.conn, c->frame);
+                c->mapped = true;
                 /* Whichever of the desktop's windows was focused most
                  * recently -- which, since that's the last thing that
                  * happened before leaving this desktop, is the window the
