@@ -1285,10 +1285,9 @@ static void draw_dense(CompOutput *o, const CompSceneNode *n, CompWindow *w,
      * across one for one, which is the entire point of it. */
     CompTransform m;
     comp_transform_identity(&m);
-    if (o->scale != 1.0f) {
+    if (o->scale != 1.0f)
         comp_transform_scale(&m, 1.0f / o->scale, 1.0f / o->scale);
-        comp_transform_translate(&m, (float)o->rect.x, (float)o->rect.y);
-    }
+    comp_transform_translate(&m, (float)o->rect.x, (float)o->rect.y);
     comp_transform_translate(&m, (float)-area->x, (float)-area->y);
     comp_transform_scale(&m, density, density);
     picture_transform_set(dense, &m);
@@ -1425,10 +1424,17 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
             CompTransform m;
             comp_transform_identity(&m);
 
-            if (o->scale != 1.0f) {
+            /* Target pixels -> logical root, which is two steps and only
+             * the first of them depends on the scale: divide by it, then
+             * add the output's origin back. The translate is *not* part
+             * of the scaling -- an output at +1920+180 needs it whether
+             * or not it is scaled, and leaving it out is a window
+             * sampled 1920 pixels away from itself, i.e. nothing at all
+             * on every monitor except the one at 0,0. */
+            if (o->scale != 1.0f)
                 comp_transform_scale(&m, 1.0f / o->scale, 1.0f / o->scale);
-                comp_transform_translate(&m, (float)o->rect.x, (float)o->rect.y);
-            }
+            comp_transform_translate(&m, (float)o->rect.x, (float)o->rect.y);
+
             if (transformed) {
                 /* Applied *after* the target-to-root part: out = a * b
                  * means b first (transform.h). */
