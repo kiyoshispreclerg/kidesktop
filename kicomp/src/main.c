@@ -166,6 +166,9 @@ static void atoms_init(void)
     comp.atoms.state_shaded           = intern("_NET_WM_STATE_SHADED");
     comp.atoms.state_fullscreen       = intern("_NET_WM_STATE_FULLSCREEN");
     comp.atoms.state_hidden           = intern("_NET_WM_STATE_HIDDEN");
+    comp.atoms.state_above            = intern("_NET_WM_STATE_ABOVE");
+    comp.atoms.wm_client_leader       = intern("WM_CLIENT_LEADER");
+    comp.atoms.net_wm_pid             = intern("_NET_WM_PID");
     comp.atoms.net_wm_icon_geometry   = intern("_NET_WM_ICON_GEOMETRY");
     comp.atoms.net_active_window      = intern("_NET_ACTIVE_WINDOW");
     comp.atoms.net_current_desktop    = intern("_NET_CURRENT_DESKTOP");
@@ -177,6 +180,13 @@ static void atoms_init(void)
     comp.atoms.density_requested      = intern("_X_DENSITY_REQUESTED");
     comp.atoms.density_scale          = intern("_X_DENSITY_SCALE");
     comp.atoms.density_pixmap         = intern("_X_DENSITY_PIXMAP");
+
+    /* Not a standard atom: the XLibre fork's per-output DPI property,
+     * literally called "DPI" (TESTS/DPI-PER-OUTPUT.md). Interned
+     * unconditionally here so the event handler can compare against it;
+     * output.c still asks the server with only_if_exists before reading
+     * any output's value. */
+    comp.atoms.randr_dpi              = intern("DPI");
 
     comp.atoms.kiwm_outputs           = intern("_KIWM_OUTPUTS");
     comp.atoms.kiwm_output_desktop    = intern("_KIWM_OUTPUT_DESKTOP");
@@ -514,6 +524,23 @@ static void handle_event(xcb_generic_event_t *ev)
         return;
     }
 
+    if (comp.caps.randr && type == comp.randr_event + XCB_RANDR_NOTIFY) {
+        xcb_randr_notify_event_t *e = (xcb_randr_notify_event_t *)ev;
+        if (e->subCode == XCB_RANDR_NOTIFY_OUTPUT_PROPERTY &&
+            e->u.op.atom == comp.atoms.randr_dpi) {
+            /* The DPI of some output changed. Which one hardly matters:
+             * rebuilding the outputs re-reads all of them, re-applies the
+             * cursor confinement and re-asks every window for the density
+             * its (possibly new) scale wants -- the same three things
+             * that happen on a hotplug, for the same reason. */
+            comp_log("RandR: DPI changed");
+            outputs_refresh();
+            renderer_background_invalidate();
+            output_damage_all();
+        }
+        return;
+    }
+
     if (comp.caps.randr && type == comp.randr_event + XCB_RANDR_SCREEN_CHANGE_NOTIFY) {
         comp_log("RandR screen change");
         outputs_refresh();
@@ -790,8 +817,14 @@ int main(int argc, char **argv)
     }
 
     if (comp.caps.randr)
+        /* OUTPUT_PROPERTY as well as SCREEN_CHANGE: the per-output "DPI"
+         * property is what decides an output's scale (output.c), and it
+         * can be changed at any moment with `xrandr --set DPI`. Without
+         * this the compositor would keep magnifying by yesterday's
+         * factor until something else happened to rebuild the outputs. */
         xcb_randr_select_input(comp.conn, comp.root,
-                               XCB_RANDR_NOTIFY_MASK_SCREEN_CHANGE);
+                               XCB_RANDR_NOTIFY_MASK_SCREEN_CHANGE |
+                               XCB_RANDR_NOTIFY_MASK_OUTPUT_PROPERTY);
 
     err = xcb_request_check(comp.conn,
         xcb_composite_redirect_subwindows_checked(comp.conn, comp.root,

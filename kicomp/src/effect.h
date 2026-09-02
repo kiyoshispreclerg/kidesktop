@@ -107,6 +107,12 @@ typedef struct CompEvent {
     CompRect from;
     CompRect to;
     bool interactive;
+
+    /* This window opened or came back in the same batch of events. Mostly
+     * of interest to whatever answers `focus`: a window that has just
+     * appeared takes focus as a matter of course, and it had no previous
+     * position on screen for anything to have been covering. */
+    bool with_appear;
 } CompEvent;
 
 /* Event names as they appear in kicomp.conf ("open", "unmaximize",

@@ -291,6 +291,75 @@ void window_refresh_kind(CompWindow *w)
     read_window_kind(w);
 }
 
+/* WM_CLIENT_LEADER, WM_TRANSIENT_FOR and _NET_WM_PID: who this window
+ * belongs with (comp.h). Read once, when the client is known -- none of
+ * the three changes over a window's life in any application that isn't
+ * misbehaving, and an effect asking per frame would be three round trips
+ * per window per frame. */
+static void read_window_group(CompWindow *w)
+{
+    w->leader = XCB_NONE;
+    w->transient_for = XCB_NONE;
+    w->pid = 0;
+
+    if (w->client == XCB_NONE)
+        return;
+
+    xcb_get_property_cookie_t lc = xcb_get_property(comp.conn, 0, w->client,
+        comp.atoms.wm_client_leader, XCB_ATOM_WINDOW, 0, 1);
+    xcb_get_property_cookie_t tc = xcb_get_property(comp.conn, 0, w->client,
+        XCB_ATOM_WM_TRANSIENT_FOR, XCB_ATOM_WINDOW, 0, 1);
+    xcb_get_property_cookie_t pc = xcb_get_property(comp.conn, 0, w->client,
+        comp.atoms.net_wm_pid, XCB_ATOM_CARDINAL, 0, 1);
+
+    xcb_get_property_reply_t *r = xcb_get_property_reply(comp.conn, lc, NULL);
+    if (r) {
+        if (r->type == XCB_ATOM_WINDOW && xcb_get_property_value_length(r) >= 4)
+            w->leader = *(xcb_window_t *)xcb_get_property_value(r);
+        free(r);
+    }
+    r = xcb_get_property_reply(comp.conn, tc, NULL);
+    if (r) {
+        if (r->type == XCB_ATOM_WINDOW && xcb_get_property_value_length(r) >= 4)
+            w->transient_for = *(xcb_window_t *)xcb_get_property_value(r);
+        free(r);
+    }
+    r = xcb_get_property_reply(comp.conn, pc, NULL);
+    if (r) {
+        if (r->type == XCB_ATOM_CARDINAL && xcb_get_property_value_length(r) >= 4)
+            w->pid = *(uint32_t *)xcb_get_property_value(r);
+        free(r);
+    }
+}
+
+bool windows_same_group(const CompWindow *a, const CompWindow *b)
+{
+    if (a == b)
+        return true;
+
+    /* One is the other's dialog. Compared against both the frame and the
+     * client, since WM_TRANSIENT_FOR names the client window and the
+     * compositor tracks frames. */
+    if (a->transient_for != XCB_NONE &&
+        (a->transient_for == b->client || a->transient_for == b->id))
+        return true;
+    if (b->transient_for != XCB_NONE &&
+        (b->transient_for == a->client || b->transient_for == a->id))
+        return true;
+
+    /* The ICCCM group hint, when the application sets one. */
+    if (a->leader != XCB_NONE && a->leader == b->leader)
+        return true;
+
+    /* And the fallback that catches the ones that don't -- VirtualBox's
+     * detached mini-toolbar is its machine window's sibling by nothing
+     * but the process it came from. */
+    if (a->pid != 0 && a->pid == b->pid)
+        return true;
+
+    return false;
+}
+
 void window_client_reparented(xcb_window_t frame_id, xcb_window_t client)
 {
     CompWindow *w = window_find(frame_id);
@@ -301,6 +370,7 @@ void window_client_reparented(xcb_window_t frame_id, xcb_window_t client)
      * is where _NET_WM_WINDOW_TYPE and _NET_WM_STATE live, so this is the
      * moment the frame stops being anonymous. */
     w->client = client;
+    read_window_group(w);
 
     uint32_t mask = XCB_EVENT_MASK_PROPERTY_CHANGE;
     xcb_change_window_attributes(comp.conn, client, XCB_CW_EVENT_MASK, &mask);
@@ -341,6 +411,8 @@ static uint32_t read_window_state(CompWindow *w)
                     state |= COMP_STATE_SHADED;
                 else if (v[i] == comp.atoms.state_fullscreen)
                     state |= COMP_STATE_FULLSCREEN;
+                else if (v[i] == comp.atoms.state_above)
+                    state |= COMP_STATE_ABOVE;
                 else if (v[i] == comp.atoms.state_hidden)
                     state |= COMP_STATE_MINIMIZED;
             }
@@ -369,6 +441,14 @@ static uint32_t read_window_state(CompWindow *w)
 static void emit(CompWindow *w, CompEventKind kind)
 {
     CompEvent ev = { .kind = kind };
+    effects_window_event(w, &ev);
+}
+
+/* Same, for the events an appearance in the same batch changes the
+ * meaning of -- focus, today (effect.h's with_appear). */
+static void emit_with_appear(CompWindow *w, CompEventKind kind, bool appeared)
+{
+    CompEvent ev = { .kind = kind, .with_appear = appeared };
     effects_window_event(w, &ev);
 }
 
@@ -531,6 +611,8 @@ void windows_flush_events(void)
             }
         }
 
+        bool appeared = w->pending_appear;
+
         if (w->pending_appear) {
             w->pending_appear = false;
             /* Newly on screen: ask its output for the density it wants
@@ -589,7 +671,7 @@ void windows_flush_events(void)
         }
         if (w->pending_focus) {
             w->pending_focus = false;
-            emit(w, COMP_EVENT_FOCUS);
+            emit_with_appear(w, COMP_EVENT_FOCUS, appeared);
         }
 
         /* Nothing claimed the contents the last resize replaced. */

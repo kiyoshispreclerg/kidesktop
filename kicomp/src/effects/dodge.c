@@ -29,6 +29,17 @@
  * window that only half clears the one it was covering has not made room,
  * it has twitched.
  *
+ * Three kinds of window are left alone, all for the same reason -- they
+ * are not in anyone's way:
+ *
+ *   - anything always-on-top (_NET_WM_STATE_ABOVE): it is in front on
+ *     purpose and stays there;
+ *   - the focused window's own siblings (window.h's windows_same_group):
+ *     an application's windows are one thing on screen;
+ *   - and every window, when the focus came with the window *appearing*
+ *     (effect.h's with_appear): nothing was covering a window that wasn't
+ *     there a moment ago.
+ *
  * kicomp.conf:
  *
  *   [effect:dodge]
@@ -431,9 +442,15 @@ static bool start_for(CompWindow *w, const CompRect *focus_rect,
 static void on_event(CompWindow *w, const CompEvent *event,
                      const CompEffectInstance *self)
 {
-    (void)event;
-
     if (!w->mapped || w->input_only)
+        return;
+
+    /* A window that has just opened or come back takes focus as a matter
+     * of course, and it had no previous position for anything to have
+     * been covering -- nothing "made room" for it, it simply arrived. The
+     * windows it now overlaps were not in its way a moment ago, because a
+     * moment ago it wasn't there. */
+    if (event->with_appear)
         return;
 
     double duration = effect_instance_duration(self);
@@ -466,6 +483,22 @@ static void on_event(CompWindow *w, const CompEvent *event,
             continue;
         if (!(self->windows & COMP_WINDOW_BIT(other->type)))
             continue;
+
+        /* Always-on-top windows don't dodge: they are in front by the
+         * user's own instruction and will still be in front when this is
+         * over, so moving them aside would be a window getting out of the
+         * way of something it is not in the way of. */
+        if (other->state & COMP_STATE_ABOVE)
+            continue;
+
+        /* Nor does an application dodge itself. A machine window and its
+         * detached mini-toolbar, a main window and its palette, a dialog
+         * and its parent -- those are one thing on screen, and shoving
+         * one aside to reveal another is not making room, it is taking a
+         * program apart (window.h's windows_same_group). */
+        if (windows_same_group(other, w))
+            continue;
+
         if (!window_was_above(other, w))
             continue;
 

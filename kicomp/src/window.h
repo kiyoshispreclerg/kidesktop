@@ -53,6 +53,14 @@ void window_release(CompWindow *w);
  * NameWindowPixmap covers. */
 CompRect window_rect(const CompWindow *w);
 
+/* Do these two windows belong to the same application? Answered from
+ * WM_TRANSIENT_FOR, WM_CLIENT_LEADER and _NET_WM_PID, in that order of
+ * confidence. What it is for: an effect that moves windows out of each
+ * other's way has no business making an application's own windows dodge
+ * one another -- VirtualBox's machine window and its detached mini-toolbar
+ * are one thing on screen, whatever X thinks. */
+bool windows_same_group(const CompWindow *a, const CompWindow *b);
+
 /* Was `a` drawn on top of `b` *before* the batch of events being
  * classified? The current stacking can't answer this: a raise and the
  * focus that comes with it arrive together, so by classification time the

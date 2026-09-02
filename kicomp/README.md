@@ -646,6 +646,25 @@ that — an effect names the window it animates, which needn't be the one it
 was told about. And `windows=` here filters *which windows may dodge*, not
 which may cause a dodge.
 
+Three kinds of window are left alone, all for the same reason — they are
+not in anyone's way:
+
+- **always-on-top** windows (`_NET_WM_STATE_ABOVE`): they are in front by
+  the user's own instruction and will still be in front afterwards, so
+  moving one aside would be getting out of the way of something it is not
+  in the way of;
+- **the focused window's own siblings**: an application is often several
+  windows — a main window and its dialogs, VirtualBox's machine window and
+  its detached mini-toolbar — and those are one thing on screen. Grouping
+  is read from `WM_TRANSIENT_FOR`, `WM_CLIENT_LEADER` and `_NET_WM_PID`, in
+  that order of confidence, once per window;
+- **every window, when the focus came with the window appearing**: a window
+  that just opened or was restored takes focus as a matter of course, and
+  nothing was covering it a moment ago because a moment ago it wasn't
+  there. The core marks that case on the event itself
+  (`CompEvent::with_appear`) rather than leaving the effect to guess from
+  timing.
+
 Off by default: it moves windows the user did not touch, which is a strong
 opinion for a compositor to have without being asked.
 
@@ -730,6 +749,19 @@ and so on (`TESTS/DPI-PER-OUTPUT.md`). A number in the config overrides it
 per output. Below 1 is refused: this only ever *shrinks* the logical
 desktop — growing it is `xrandr --scale`'s job, and RandR already confines
 the cursor correctly for that case.
+
+**The DPI is followed live.** kicomp subscribes to RandR's output-property
+notifications, so `xrandr --output DP-1 --set DPI 192` retimes everything
+at once: the outputs are rebuilt, the cursor confinement is re-applied to
+the new logical box, and every window is re-asked for the density that
+scale wants. No restart, and no polling.
+
+**Confinement is released even on a crash**, and not by anything kicomp
+does: the extension makes a confinement owned by the client that set it,
+so closing the connection — cleanly or otherwise — drops it. Verified by
+setting one from a throwaway client and letting it exit: the next client
+reads `active=0`. The explicit release on shutdown is for the tidy case
+and for outputs that stop being scaled while kicomp keeps running.
 
 **It requires X-INPUT-SCALE, and without it kicomp scales nothing** —
 whatever the config or the DPI property say. The reason is the pointer:

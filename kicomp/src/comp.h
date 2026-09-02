@@ -133,6 +133,7 @@ typedef enum {
     COMP_STATE_SHADED     = 1 << 1,
     COMP_STATE_FULLSCREEN = 1 << 2,
     COMP_STATE_MINIMIZED  = 1 << 3,   /* _NET_WM_STATE_HIDDEN or WM_STATE=Iconic */
+    COMP_STATE_ABOVE      = 1 << 4,   /* _NET_WM_STATE_ABOVE: always on top */
 } CompWindowState;
 
 /* Window types, straight from _NET_WM_WINDOW_TYPE and one per EWMH
@@ -196,6 +197,21 @@ typedef struct CompWindow {
      * a normal thing to want. */
     CompWindowType type;
     xcb_window_t client;       /* XCB_NONE until resolved */
+
+    /* Who this window belongs with. An application is often several
+     * windows -- a main window, its dialogs, a tool palette, VirtualBox's
+     * detached mini-toolbar -- and an effect that moves windows out of
+     * each other's way has no business making one of them dodge another.
+     * Read once, when the client is resolved:
+     *
+     *   leader  WM_CLIENT_LEADER, the ICCCM group hint
+     *   pid     _NET_WM_PID, the fallback for the many windows that
+     *           publish no leader at all
+     *   transient_for  a dialog's parent
+     */
+    xcb_window_t leader;
+    xcb_window_t transient_for;
+    uint32_t pid;
 
     /* When this window was last reconfigured, and how many configures
      * arrived back to back -- how window.c tells a drag (a stream) from
@@ -389,6 +405,9 @@ typedef struct KiComp {
         xcb_atom_t state_shaded;
         xcb_atom_t state_fullscreen;
         xcb_atom_t state_hidden;
+        xcb_atom_t state_above;
+        xcb_atom_t wm_client_leader;
+        xcb_atom_t net_wm_pid;
         xcb_atom_t net_wm_icon_geometry;   /* where the taskbar keeps this window */
         xcb_atom_t net_active_window;
         xcb_atom_t net_current_desktop;
@@ -399,6 +418,7 @@ typedef struct KiComp {
         xcb_atom_t density_scale;
         xcb_atom_t density_pixmap;
 
+        xcb_atom_t randr_dpi;              /* the fork's per-output "DPI" */
         xcb_atom_t kiwm_outputs;           /* output names, in index order */
         xcb_atom_t kiwm_output_desktop;    /* one current desktop per output */
     } atoms;
