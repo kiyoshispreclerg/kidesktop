@@ -79,12 +79,36 @@ void density_init(void)
     comp_log("owning _X_DENSITY_MANAGER_S%d", comp.screen_num);
 }
 
+/* Writes (or withdraws) the request on one window. Returns whether it is
+ * now requested. */
+static bool request_on(xcb_window_t target, uint32_t num, uint32_t den,
+                       bool currently_requested)
+{
+    if (target == XCB_NONE)
+        return false;
+
+    if (num == den) {
+        /* Deleted rather than written as 1/1: the protocol's own way of
+         * saying "back to normal", and it leaves nothing behind on a
+         * window that outlives this compositor. */
+        if (currently_requested)
+            xcb_delete_property(comp.conn, target, comp.atoms.density_requested);
+        return false;
+    }
+
+    uint32_t value[2] = { num, den };
+    xcb_change_property(comp.conn, XCB_PROP_MODE_REPLACE, target,
+                        comp.atoms.density_requested, XCB_ATOM_CARDINAL, 32,
+                        2, value);
+    return true;
+}
+
 void density_update_window(CompWindow *w)
 {
-    if (manager_window == XCB_NONE || w->client == XCB_NONE)
+    if (manager_window == XCB_NONE)
         return;
-    /* The compositor's own layers and input-only windows have no client
-     * to ask, and the desktop window is a wallpaper. */
+    /* The compositor's own layers and input-only windows have nothing to
+     * redraw, and the desktop window is a wallpaper. */
     if (w->input_only || w->wm_layer[0] || w->type == COMP_WINDOW_DESKTOP)
         return;
 
@@ -93,24 +117,20 @@ void density_update_window(CompWindow *w)
     uint32_t num, den;
     as_fraction(density, &num, &den);
 
-    if (num == den) {
-        /* Deleted rather than written as 1/1: the protocol's own way of
-         * saying "back to normal", and it leaves nothing behind on a
-         * window that outlives this compositor. */
-        if (w->density_requested) {
-            xcb_delete_property(comp.conn, w->client, comp.atoms.density_requested);
-            w->density_requested = false;
-        }
-        return;
+    /* Two requests, because there are two sets of pixels: the app's
+     * contents, and the decoration the WM drew around them. A window that
+     * isn't framed (an override-redirect menu is its own client) gets one,
+     * since both would be the same window. */
+    bool was = w->density_requested;
+    w->density_requested = request_on(w->client, num, den, w->density_requested);
+
+    if (w->client != w->id) {
+        w->deco_density_requested =
+            request_on(w->id, num, den, w->deco_density_requested);
     }
 
-    uint32_t value[2] = { num, den };
-    xcb_change_property(comp.conn, XCB_PROP_MODE_REPLACE, w->client,
-                        comp.atoms.density_requested, XCB_ATOM_CARDINAL, 32,
-                        2, value);
-    w->density_requested = true;
-
-    comp_log("window 0x%x: asked for density %u/%u", w->id, num, den);
+    if (w->density_requested != was || (w->density_requested && num != den))
+        comp_log("window 0x%x: asked for density %u/%u", w->id, num, den);
 }
 
 void density_update_all(void)
@@ -142,16 +162,20 @@ static bool read_cardinals(xcb_window_t win, xcb_atom_t atom,
     return ok;
 }
 
-void density_property_changed(CompWindow *w)
+void density_property_changed(CompWindow *w, xcb_window_t on)
 {
-    if (w->client == XCB_NONE)
+    /* The frame answers for the decoration, the client for its contents.
+     * A window that is its own client has only the one answer. */
+    bool is_frame = (on == w->id && w->client != w->id);
+
+    if (on == XCB_NONE)
         return;
 
     uint32_t scale[2] = { 1, 1 };
     uint32_t pixmap = 0;
 
-    bool has_scale = read_cardinals(w->client, comp.atoms.density_scale, scale, 2);
-    bool has_pixmap = read_cardinals(w->client, comp.atoms.density_pixmap, &pixmap, 1);
+    bool has_scale = read_cardinals(on, comp.atoms.density_scale, scale, 2);
+    bool has_pixmap = read_cardinals(on, comp.atoms.density_pixmap, &pixmap, 1);
 
     /* Believe the client, not the request: it may have rounded, or hit a
      * size limit, or refused entirely. */
@@ -161,22 +185,25 @@ void density_property_changed(CompWindow *w)
     if (!has_pixmap)
         pixmap = 0;
 
-    bool changed = (w->density_num != scale[0] || w->density_den != scale[1] ||
-                    w->density_pixmap != pixmap);
+    uint32_t *num = is_frame ? &w->deco_density_num : &w->density_num;
+    uint32_t *den = is_frame ? &w->deco_density_den : &w->density_den;
+    xcb_pixmap_t *pix = is_frame ? &w->deco_density_pixmap : &w->density_pixmap;
 
-    w->density_num = scale[0];
-    w->density_den = scale[1];
+    bool changed = (*num != scale[0] || *den != scale[1] || *pix != pixmap);
 
-    if (w->density_pixmap != pixmap) {
+    *num = scale[0];
+    *den = scale[1];
+
+    if (*pix != pixmap) {
         /* The picture cached for the old pixmap describes a drawable that
          * may not even exist any more. */
-        renderer_window_density_invalidate(w);
-        w->density_pixmap = pixmap;
+        renderer_window_density_invalidate(w, is_frame);
+        *pix = pixmap;
     }
 
     if (changed)
-        comp_log("window 0x%x: density %u/%u pixmap 0x%x", w->id,
-                 scale[0], scale[1], pixmap);
+        comp_log("window 0x%x: %s density %u/%u pixmap 0x%x", w->id,
+                 is_frame ? "decoration" : "content", scale[0], scale[1], pixmap);
 
     /* Every property change is also "the contents changed": a pixmap
      * raises no Damage of its own, so the client rewriting the same XID is
@@ -191,21 +218,36 @@ void density_forget(CompWindow *w)
         xcb_delete_property(comp.conn, w->client, comp.atoms.density_requested);
         w->density_requested = false;
     }
-    renderer_window_density_invalidate(w);
-    w->density_pixmap = 0;
+    if (w->deco_density_requested) {
+        xcb_delete_property(comp.conn, w->id, comp.atoms.density_requested);
+        w->deco_density_requested = false;
+    }
+
+    renderer_window_density_invalidate(w, false);
+    renderer_window_density_invalidate(w, true);
+    w->density_pixmap = w->deco_density_pixmap = 0;
     w->density_num = w->density_den = 1;
+    w->deco_density_num = w->deco_density_den = 1;
+}
+
+static bool active(uint32_t num, uint32_t den, xcb_pixmap_t pixmap, float *factor)
+{
+    if (pixmap == 0 || den == 0 || num == den)
+        return false;
+    if (factor)
+        *factor = (float)num / (float)den;
+    return true;
 }
 
 bool density_active(const CompWindow *w, float *factor)
 {
-    if (w->density_pixmap == 0 || w->density_den == 0)
-        return false;
-    if (w->density_num == w->density_den)
-        return false;
+    return active(w->density_num, w->density_den, w->density_pixmap, factor);
+}
 
-    if (factor)
-        *factor = (float)w->density_num / (float)w->density_den;
-    return true;
+bool deco_density_active(const CompWindow *w, float *factor)
+{
+    return active(w->deco_density_num, w->deco_density_den,
+                  w->deco_density_pixmap, factor);
 }
 
 void density_shutdown(void)
@@ -216,9 +258,12 @@ void density_shutdown(void)
     /* Let go of the selection *and* of every request: a client that
      * outlives this compositor must not be left redrawing itself densely
      * for a pixmap nobody is sampling. */
-    for (CompWindow *w = comp.stack; w; w = w->next)
+    for (CompWindow *w = comp.stack; w; w = w->next) {
         if (w->density_requested && w->client != XCB_NONE)
             xcb_delete_property(comp.conn, w->client, comp.atoms.density_requested);
+        if (w->deco_density_requested)
+            xcb_delete_property(comp.conn, w->id, comp.atoms.density_requested);
+    }
 
     xcb_set_selection_owner(comp.conn, XCB_NONE, comp.atoms.density_manager,
                             XCB_CURRENT_TIME);

@@ -302,6 +302,18 @@ typedef struct CompWindow {
     xcb_render_picture_t density_picture;
     CompRect client_rect;
 
+    /* And the same again for the *frame*, which is a client of the
+     * protocol too: the decoration's pixels are the WM's, drawn at
+     * logical size into the frame, so the only way to have a sharp
+     * titlebar on a scaled output is to ask the WM for one (kiwm's
+     * density.c answers). Its pixmap covers the whole frame with the
+     * client's area left transparent, so it composites straight over the
+     * window and the client's own contents show through. */
+    bool deco_density_requested;
+    uint32_t deco_density_num, deco_density_den;
+    xcb_pixmap_t deco_density_pixmap;
+    xcb_render_picture_t deco_density_picture;
+
     /* The window's SHAPE bounding region, in window-relative coordinates.
      * Without it a shaped window comes out square: the server clips a
      * window to its shape when *it* paints, but NameWindowPixmap hands

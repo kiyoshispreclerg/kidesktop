@@ -724,6 +724,9 @@ void window_add_top(xcb_window_t id)
 /* Releases everything and drops the entry from the mirror. */
 static void window_destroy(CompWindow *w)
 {
+    /* Drops the density pictures and, for a window that is merely going
+     * away rather than dying, the requests we wrote on it (density.h). */
+    density_forget(w);
     damage_destroy(w);
     renderer_window_free(w);
     unlink_window(w);

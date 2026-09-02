@@ -287,11 +287,13 @@ static bool window_bind(CompWindow *w)
 /* X-DENSITY: the client's own denser contents                         */
 /* ------------------------------------------------------------------ */
 
-void renderer_window_density_invalidate(CompWindow *w)
+void renderer_window_density_invalidate(CompWindow *w, bool decoration)
 {
-    if (w->density_picture) {
-        xcb_render_free_picture(comp.conn, w->density_picture);
-        w->density_picture = 0;
+    xcb_render_picture_t *pict = decoration ? &w->deco_density_picture
+                                            : &w->density_picture;
+    if (*pict) {
+        xcb_render_free_picture(comp.conn, *pict);
+        *pict = 0;
     }
 }
 
@@ -303,36 +305,50 @@ void renderer_window_density_invalidate(CompWindow *w)
  * Both are cached until the client publishes a different pixmap or the
  * window is resized; the round trip is paid once per density change, not
  * per frame. */
-static xcb_render_picture_t window_density_picture(CompWindow *w)
+static xcb_render_picture_t density_picture(CompWindow *w, bool decoration)
 {
-    if (w->density_picture)
-        return w->density_picture;
-    if (w->density_pixmap == 0 || w->client == XCB_NONE)
+    xcb_render_picture_t *cached = decoration ? &w->deco_density_picture
+                                              : &w->density_picture;
+    xcb_pixmap_t *pixmap = decoration ? &w->deco_density_pixmap
+                                      : &w->density_pixmap;
+
+    if (*cached)
+        return *cached;
+    if (*pixmap == 0)
+        return 0;
+    if (!decoration && w->client == XCB_NONE)
         return 0;
 
-    xcb_get_geometry_cookie_t gc = xcb_get_geometry(comp.conn, w->client);
-    xcb_get_geometry_cookie_t pc = xcb_get_geometry(comp.conn, w->density_pixmap);
+    /* The client's geometry comes along for the contents: that pixmap
+     * holds the client's own drawing with no decoration around it, so
+     * where the decoration ends has to be known to put it back in the
+     * right place. The decoration's pixmap covers the whole frame and
+     * needs no such offset. */
+    xcb_get_geometry_cookie_t cc = { 0 };
+    if (!decoration)
+        cc = xcb_get_geometry(comp.conn, w->client);
+    xcb_get_geometry_cookie_t pc = xcb_get_geometry(comp.conn, *pixmap);
 
-    xcb_get_geometry_reply_t *cg = xcb_get_geometry_reply(comp.conn, gc, NULL);
+    xcb_get_geometry_reply_t *cg = decoration ? NULL
+                                  : xcb_get_geometry_reply(comp.conn, cc, NULL);
     xcb_get_geometry_reply_t *pg = xcb_get_geometry_reply(comp.conn, pc, NULL);
 
-    if (!cg || !pg) {
-        /* The client died, or published a pixmap it had already freed.
-         * Not an error worth shouting about -- the window simply draws
-         * from its own contents this frame. */
+    if (!pg || (!decoration && !cg)) {
+        /* The publisher died, or named a pixmap it had already freed. Not
+         * an error worth shouting about -- the window simply draws from
+         * its own contents this frame. */
         free(cg);
         free(pg);
-        w->density_pixmap = 0;
+        *pixmap = 0;
         return 0;
     }
 
-    /* The client's geometry is relative to the frame, which is the
-     * drawable the window's own pixmap covers, so this is already the
-     * offset the dense contents have to be drawn at. */
-    w->client_rect.x = cg->x + cg->border_width;
-    w->client_rect.y = cg->y + cg->border_width;
-    w->client_rect.w = cg->width;
-    w->client_rect.h = cg->height;
+    if (cg) {
+        w->client_rect.x = cg->x + cg->border_width;
+        w->client_rect.y = cg->y + cg->border_width;
+        w->client_rect.w = cg->width;
+        w->client_rect.h = cg->height;
+    }
 
     uint8_t depth = pg->depth;
     free(cg);
@@ -343,11 +359,9 @@ static xcb_render_picture_t window_density_picture(CompWindow *w)
         return 0;
 
     xcb_render_picture_t pict = xcb_generate_id(comp.conn);
-    uint32_t mask = XCB_RENDER_CP_SUBWINDOW_MODE;
-    uint32_t value = XCB_SUBWINDOW_MODE_INCLUDE_INFERIORS;
-    xcb_render_create_picture(comp.conn, pict, w->density_pixmap, fmt, mask, &value);
+    xcb_render_create_picture(comp.conn, pict, *pixmap, fmt, 0, NULL);
 
-    w->density_picture = pict;
+    *cached = pict;
     return pict;
 }
 
@@ -1245,6 +1259,54 @@ static void picture_transform_reset(xcb_render_picture_t pict)
     xcb_render_set_picture_filter(comp.conn, pict, 7, "nearest", 0, NULL);
 }
 
+/* One layer of X-DENSITY pixels, composited over the window that has
+ * already been drawn: `area` is the logical rectangle those pixels cover
+ * (the whole frame for the decoration, the client's rectangle inside it
+ * for the contents), and `density` is how many of them there are per
+ * logical pixel.
+ *
+ * OVER, not SRC: the decoration's pixmap is transparent everywhere the WM
+ * didn't paint, which is exactly the hole the client's own contents show
+ * through.
+ */
+static void draw_dense(CompOutput *o, const CompSceneNode *n, CompWindow *w,
+                       xcb_render_picture_t mask, const CompRect *area,
+                       float density, bool decoration)
+{
+    xcb_render_picture_t dense = density_picture(w, decoration);
+    if (!dense)
+        return;
+
+    CompRect visible;
+    if (!rect_intersect(area, &n->visible_rect, &visible))
+        return;
+
+    /* target -> logical root -> this layer's own origin -> its pixmap,
+     * which is that area times the density. When the density matches the
+     * output scale the whole chain is the identity and the pixels go
+     * across one for one, which is the entire point of it. */
+    CompTransform m;
+    comp_transform_identity(&m);
+    if (o->scale != 1.0f) {
+        comp_transform_scale(&m, 1.0f / o->scale, 1.0f / o->scale);
+        comp_transform_translate(&m, (float)o->rect.x, (float)o->rect.y);
+    }
+    comp_transform_translate(&m, (float)-area->x, (float)-area->y);
+    comp_transform_scale(&m, density, density);
+    picture_transform_set(dense, &m);
+
+    int16_t dx = (int16_t)to_target_x(o, visible.x);
+    int16_t dy = (int16_t)to_target_y(o, visible.y);
+
+    xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER,
+                         dense, mask, o->target,
+                         dx, dy, dx, dy, dx, dy,
+                         (uint16_t)to_target_len(o, visible.w),
+                         (uint16_t)to_target_len(o, visible.h));
+
+    picture_transform_reset(dense);
+}
+
 static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
 {
     if (!o->target)
@@ -1410,46 +1472,22 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
          * below assume the window is where it says it is, and a window
          * mid-animation is worth exactly as much sharpness as it has
          * milliseconds left. */
-        float density;
-        if (!transformed && !from_stash && density_active(w, &density)) {
-            xcb_render_picture_t dense = window_density_picture(w);
-            if (dense) {
-                /* Where the client's content lands, in logical root
-                 * coordinates, then in target pixels. */
+        if (!transformed && !from_stash) {
+            /* The decoration first, then the contents inside it -- the
+             * same order they sit in, and the same order they were drawn
+             * in at logical size. Each is a separate drawable published by
+             * a separate program (the WM's frame, the app's window), and
+             * only what each one published is dense. */
+            float density;
+            if (deco_density_active(w, &density))
+                draw_dense(o, n, w, mask, &n->geometry, density, true);
+            if (density_active(w, &density)) {
                 CompRect client = {
                     n->geometry.x + w->client_rect.x,
                     n->geometry.y + w->client_rect.y,
                     w->client_rect.w, w->client_rect.h
                 };
-
-                CompRect visible;
-                if (rect_intersect(&client, &n->visible_rect, &visible)) {
-                    /* target -> logical root -> the client's own origin ->
-                     * the dense pixmap, which is that content times the
-                     * density. When the density matches the output scale
-                     * this whole chain is the identity and the pixels go
-                     * across one for one, which is the entire point. */
-                    CompTransform m;
-                    comp_transform_identity(&m);
-                    if (o->scale != 1.0f) {
-                        comp_transform_scale(&m, 1.0f / o->scale, 1.0f / o->scale);
-                        comp_transform_translate(&m, (float)o->rect.x, (float)o->rect.y);
-                    }
-                    comp_transform_translate(&m, (float)-client.x, (float)-client.y);
-                    comp_transform_scale(&m, density, density);
-                    picture_transform_set(dense, &m);
-
-                    int16_t cdx = (int16_t)to_target_x(o, visible.x);
-                    int16_t cdy = (int16_t)to_target_y(o, visible.y);
-
-                    xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER,
-                                         dense, mask, o->target,
-                                         cdx, cdy, cdx, cdy, cdx, cdy,
-                                         (uint16_t)to_target_len(o, visible.w),
-                                         (uint16_t)to_target_len(o, visible.h));
-
-                    picture_transform_reset(dense);
-                }
+                draw_dense(o, n, w, mask, &client, density, false);
             }
         }
     }

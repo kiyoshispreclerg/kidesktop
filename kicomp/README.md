@@ -796,10 +796,14 @@ Verified against the protocol's own reference client
 comes out one pixel wide on screen instead of two soft ones. Killing
 kicomp puts it back to 1/1 and leaves no property behind.
 
-**The decoration is still magnified**, not dense: those pixels belong to
-kiwm, which draws them into the frame at logical size. Making them sharp
-means kiwm implementing the *client* side of this protocol for its own
-frames — see the note at the end of `kiwm/PROTOCOL.md`'s neighbourhood.
+**The decoration is dense too**, because kiwm answers the same protocol
+for its frames (`kiwm/PROTOCOL.md`). kicomp writes the request on *both*
+windows — the client for its contents, the frame for the decoration around
+them — and draws two layers over the window: the frame's pixmap, which is
+transparent everywhere kiwm didn't paint, and then the client's inside it.
+Two drawables published by two programs, each dense on its own account.
+Measured on the titlebar of the reference client at 2x: 2.5x the edge
+energy of the magnified version.
 
 ## Damage
 
@@ -949,10 +953,6 @@ timestamps now arriving. Deriving it from those is a change to
 - **`kiwm` ⟷ `kicomp` IPC** (section 32) — deliberately absent in the
   first version. When it exists it replaces only the *source* of the
   updates; the mirror in `window.c` stays as it is.
-- **Dense decorations** — clients redraw sharply on a scaled output
-  (X-DENSITY, above) but kiwm's decoration does not: it is drawn into the
-  frame at logical size and magnified with everything else. kiwm would
-  have to implement the client side of X-DENSITY for its frames.
 
 ## Shape and kiwm's layers
 

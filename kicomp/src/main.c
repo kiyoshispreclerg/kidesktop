@@ -35,7 +35,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.5"
+#define KICOMP_VERSION "0.2.6"
 
 #include "comp.h"
 #include "output.h"
@@ -614,7 +614,7 @@ static void handle_event(xcb_generic_event_t *ev)
             if (!w)
                 w = window_find(e->window);
             if (w)
-                density_property_changed(w);
+                density_property_changed(w, e->window);
         } else if (e->atom == comp.atoms.net_wm_state ||
                    e->atom == comp.atoms.wm_state) {
             /* These live on the client window inside the frame, which is

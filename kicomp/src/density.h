@@ -47,16 +47,19 @@ void density_init(void);
 void density_update_window(CompWindow *w);
 void density_update_all(void);
 
-/* _X_DENSITY_SCALE or _X_DENSITY_PIXMAP changed on this window's client:
- * re-read both and repaint it. */
-void density_property_changed(CompWindow *w);
+/* _X_DENSITY_SCALE or _X_DENSITY_PIXMAP changed. `on` says on which
+ * window: the client (the app's contents) or the frame (the WM's
+ * decoration) -- two independent answers to two independent requests. */
+void density_property_changed(CompWindow *w, xcb_window_t on);
 
 /* The window is going away, or its density is no longer wanted. */
 void density_forget(CompWindow *w);
 
 /* Whether this window currently has denser contents than its logical
- * size, and what the factor is. */
+ * size, and what the factor is -- asked separately for the client's
+ * contents and for the frame's decoration. */
 bool density_active(const CompWindow *w, float *factor);
+bool deco_density_active(const CompWindow *w, float *factor);
 
 void density_shutdown(void);
 

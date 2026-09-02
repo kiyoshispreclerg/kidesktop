@@ -83,9 +83,10 @@ void renderer_stash_drop_unheld(CompWindow *w);
 bool renderer_window_has_content(const CompWindow *w);
 void renderer_background_invalidate(void);
 
-/* The cached Picture for a window's X-DENSITY pixmap is stale (the client
- * published a different XID, or stopped). */
-void renderer_window_density_invalidate(CompWindow *w);
+/* The cached Picture for a window's X-DENSITY pixmap is stale (a
+ * different XID was published, or it stopped). `decoration` picks which
+ * of the two: the frame's decoration, or the client's contents. */
+void renderer_window_density_invalidate(CompWindow *w, bool decoration);
 
 /* The pixmap behind an output's render target, for a presenter that
  * hands the server a pixmap rather than reading a Picture (Present).
