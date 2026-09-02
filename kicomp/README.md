@@ -84,6 +84,12 @@ effects            = 1     # animations on
 animation_duration = 160   # the animation unit, in ms
 renderer           = auto  # auto | xrender
 presenter          = auto  # auto | present | copy
+
+# ---- per-output scaling (HiDPI) ----
+# One section per output, by RandR name; [output:*] is the default for the
+# ones without a section of their own.
+[output:DP-1]
+scale = auto               # auto (the DPI property) | a number like 2.0
 single_drawable    = 0     # 1 = legacy mode, one drawable for the screen
 skip_wm_layers     = 0     # 1 = don't composite kiwm's OSD/wireframe
 
@@ -703,6 +709,51 @@ What's left:
 | `cube` | the wall's rotation instead of its translation: needs a perspective transform the XRender backend can't express (its transform is affine), so this one waits for GL |
 | `wobbly`, `blur` | need the GL renderer: a mesh per window, and shaders |
 
+## Per-output scaling (HiDPI)
+
+An output can be *scaled*: the compositor draws a logical desktop smaller
+than the monitor's scanout and magnifies it into the panel's real pixels.
+Two rectangles per output, and the difference between them is the whole
+feature (`comp.h`):
+
+| | |
+|---|---|
+| `rect` | the **logical** box: where windows live, in root coordinates. The scene, the effects, the damage and the WM work in these and nothing else |
+| `physical` | what the CRTC actually scans out |
+| `scale` | `physical / logical`; `1.0` is every output that isn't scaled, and then the two rectangles are the same |
+
+`scale = auto` (the default) reads the per-output RandR property the
+XLibre fork publishes, literally called `DPI`, where **96 = 1x, 192 = 2x**
+and so on (`TESTS/DPI-PER-OUTPUT.md`). A number in the config overrides it
+per output. Below 1 is refused: this only ever *shrinks* the logical
+desktop — growing it is `xrandr --scale`'s job, and RandR already confines
+the cursor correctly for that case.
+
+**It requires X-INPUT-SCALE, and without it kicomp scales nothing** —
+whatever the config or the DPI property say. The reason is the pointer:
+on a scaled output the pixels outside the logical box exist only as the
+magnified image, and a cursor that can wander into them is in a part of
+the screen no desktop is being drawn into. Confinement can't be done from
+outside the server (cursor motion runs through the input pipeline on every
+event; a client warping the pointer afterwards would be visibly late),
+which is exactly what that extension exists for — one rectangle per CRTC,
+no coordinate remapping. Capability decides, never a guess about which
+server this is: `input-scale=0` in the startup line means nothing will be
+scaled on this machine.
+
+The renderer draws the logical scene **into a physical-sized target**,
+magnifying it there rather than magnifying a finished logical frame
+afterwards. That distinction is the point: it leaves room for a client
+that redrew its own contents densely (X-DENSITY) to land sharp, instead of
+being resampled down into a smaller intermediate and blown back up. Shadow
+blur radii are scaled with everything else, so a 12 px shadow is 24 real
+pixels of gradient on a 2x output rather than a stretched 12.
+
+Window shapes need one extra step there: XFixes has no scale operator, so
+on a scaled output the cached shape region is fetched and rebuilt at the
+right size (once per shape change, never per frame). At scale 1 not a
+single extra request is sent.
+
 ## Damage
 
 Two questions, and they have different answers: *which outputs* to repaint
@@ -810,6 +861,7 @@ timestamps now arriving. Deriving it from those is a change to
 | 17/30/45 — capability detection | Composite/Damage/XFixes/Render/RandR detected at runtime; nothing assumes XiS |
 | 4/18 — output as the unit of presentation | one pixmap + picture per output, sized to it, never one global surface |
 | 39 — per-output dirty state | only the output damage actually touched is repainted |
+| 56 — per-output scaling | logical vs physical box per output, DPI-derived, drawn magnified into a physical target; gated on X-INPUT-SCALE, whose per-CRTC confinement keeps the pointer inside the logical desktop |
 | 39 — region repaint | and only the *part* of it that changed: the damage region is tracked per output, clips the background, the windows and their shadows, skips windows nothing touched, and bounds what the presenter copies |
 | 26 — window crossing outputs | `window ∩ output` clipped per output, one scene node in each |
 | 21 — scene graph | intermediate `CompScene`/`CompSceneNode`; effects never see X windows |
@@ -849,8 +901,11 @@ timestamps now arriving. Deriving it from those is a change to
 - **`kiwm` ⟷ `kicomp` IPC** (section 32) — deliberately absent in the
   first version. When it exists it replaces only the *source* of the
   updates; the mirror in `window.c` stays as it is.
-- **Per-output X-Density** (section 56) — the compositor doesn't scale
-  the scene by density yet.
+- **X-DENSITY** (section 56's other half) — the compositor scales outputs,
+  but doesn't yet ask clients to redraw their contents at that density
+  (`_X_DENSITY_REQUESTED` and the auxiliary pixmap, `TESTS/X-DENSITY.md`).
+  Until it does, a scaled output magnifies what the client drew at logical
+  size, which is exactly as sharp as it sounds.
 
 ## Shape and kiwm's layers
 
@@ -929,6 +984,8 @@ src/
   shadow.c/.h         shadow configuration and per-window style
   desktop.c/.h        which desktop each output shows, and which way it
                       just moved (the wall's direction)
+  inputscale.c/.h     X-INPUT-SCALE: the pointer confined to the logical
+                      desktop of a scaled output
   region.c/.h         the damage region: rectangles, client-side
   damage.c/.h         X Damage in, per-output regions out (batched)
   effects/            one file per effect: geometry, fade-in, fade-out,

@@ -45,6 +45,13 @@ typedef struct CompPresenter {
     uint64_t (*get_msc)(CompOutput *o);
 } CompPresenter;
 
+/* A damaged rectangle, in logical root coordinates, as the physical
+ * rectangle of scanout it corresponds to. The identity when the output
+ * isn't scaled. Shared by both presenters because both copy from a
+ * physical-sized target while damage is tracked logically. */
+bool present_physical_rect(const CompOutput *o, const CompRect *logical,
+                           CompRect *out);
+
 const CompPresenter *presenter_copy(void);
 const CompPresenter *presenter_present(void);
 

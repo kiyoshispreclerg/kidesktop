@@ -11,6 +11,49 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Per-output settings, kept as a small list rather than merged into
+ * CompOutput: outputs come and go with hotplugs, and the configuration
+ * for a monitor has to survive it being unplugged and plugged back in. */
+#define MAX_OUTPUT_RULES 16
+
+static struct {
+    char name[32];      /* RandR output name, or "*" for the default */
+    float scale;
+} output_rules[MAX_OUTPUT_RULES];
+static int output_rule_count;
+
+float config_output_scale(const char *name)
+{
+    float fallback = -1.0f;
+
+    for (int i = 0; i < output_rule_count; i++) {
+        if (strcmp(output_rules[i].name, "*") == 0) {
+            fallback = output_rules[i].scale;
+            continue;
+        }
+        if (strcmp(output_rules[i].name, name) == 0)
+            return output_rules[i].scale;
+    }
+    return fallback;
+}
+
+static void output_rule_set(const char *name, float scale)
+{
+    for (int i = 0; i < output_rule_count; i++) {
+        if (strcmp(output_rules[i].name, name) == 0) {
+            output_rules[i].scale = scale;
+            return;
+        }
+    }
+    if (output_rule_count >= MAX_OUTPUT_RULES)
+        return;
+
+    snprintf(output_rules[output_rule_count].name,
+             sizeof(output_rules[output_rule_count].name), "%s", name);
+    output_rules[output_rule_count].scale = scale;
+    output_rule_count++;
+}
+
 static void config_path(char *out, size_t outsz)
 {
     const char *xdg_config = getenv("XDG_CONFIG_HOME");
@@ -27,6 +70,8 @@ static void config_path(char *out, size_t outsz)
 
 static void apply_builtin_defaults(void)
 {
+    output_rule_count = 0;
+
     /* The one number every effect is written in terms of (see
      * animation.h's comp_anim_duration): one "unit" of animation. Effects
      * ask for a multiple of it -- half for something that should feel
@@ -57,6 +102,7 @@ static void apply_builtin_defaults(void)
 static void config_pass(FILE *f, bool instances_pass)
 {
     CompEffectInstance *section = NULL;
+    char output_section[32] = { 0 };
     bool shadow_section = false;
     bool section_unknown = false;
     bool section_skipped = false;
@@ -84,9 +130,26 @@ static void config_pass(FILE *f, bool instances_pass)
             char *name = p + 1;
 
             section = NULL;
+            output_section[0] = '\0';
             shadow_section = false;
             section_unknown = false;
             section_skipped = false;
+
+            if (strncmp(name, "output:", 7) == 0) {
+                /* Per-output settings ([output:DP-1], [output:*]). Not an
+                 * effect and not shadows: what a *monitor* is, rather than
+                 * what the compositor does with it. */
+                if (instances_pass) {
+                    section_skipped = true;
+                } else {
+                    snprintf(output_section, sizeof(output_section), "%s", name + 7);
+                    if (!output_section[0]) {
+                        fprintf(stderr, "kicomp: config: [output:] with no name\n");
+                        section_unknown = true;
+                    }
+                }
+                continue;
+            }
 
             if (strcmp(name, "shadow") == 0) {
                 /* Not an effect: shadows don't animate, so they are a
@@ -163,6 +226,32 @@ static void config_pass(FILE *f, bool instances_pass)
 
         if (section_unknown || section_skipped)
             continue;
+
+        if (output_section[0]) {
+            if (strcmp(key, "scale") == 0) {
+                /* `auto` is the same as saying nothing: let the server's
+                 * own DPI property decide (TESTS/DPI-PER-OUTPUT.md). */
+                if (strcmp(val, "auto") == 0) {
+                    output_rule_set(output_section, -1.0f);
+                } else {
+                    float f = (float)atof(val);
+                    if (f < 1.0f) {
+                        fprintf(stderr, "kicomp: config: [output:%s] scale %.2f "
+                                        "is below 1 -- this only ever shrinks the "
+                                        "logical desktop; use xrandr --scale to "
+                                        "grow it\n", output_section, f);
+                        f = 1.0f;
+                    }
+                    if (f > 4.0f)
+                        f = 4.0f;
+                    output_rule_set(output_section, f);
+                }
+            } else {
+                fprintf(stderr, "kicomp: config: unknown key '%s' in [output:%s]\n",
+                        key, output_section);
+            }
+            continue;
+        }
 
         if (shadow_section) {
             if (!shadow_config_key(key, val))

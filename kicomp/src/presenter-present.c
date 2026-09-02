@@ -67,7 +67,7 @@ typedef struct {
 
 static bool present_init(CompOutput *o)
 {
-    if (comp.overlay == XCB_NONE || o->rect.w <= 0 || o->rect.h <= 0)
+    if (comp.overlay == XCB_NONE || o->physical.w <= 0 || o->physical.h <= 0)
         return false;
 
     PresentOutput *po = calloc(1, sizeof(*po));
@@ -82,9 +82,12 @@ static bool present_init(CompOutput *o)
     uint32_t mask = XCB_CW_BACK_PIXMAP | XCB_CW_EVENT_MASK;
     uint32_t values[] = { XCB_BACK_PIXMAP_NONE, 0 };
 
+    /* Covering the *scanout*, not the logical desktop: this window is
+     * where real pixels land, and on a scaled output there are more of
+     * them than the logical box has. */
     xcb_create_window(comp.conn, XCB_COPY_FROM_PARENT, po->window, comp.overlay,
-                      (int16_t)o->rect.x, (int16_t)o->rect.y,
-                      (uint16_t)o->rect.w, (uint16_t)o->rect.h, 0,
+                      (int16_t)o->physical.x, (int16_t)o->physical.y,
+                      (uint16_t)o->physical.w, (uint16_t)o->physical.h, 0,
                       XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT,
                       mask, values);
 
@@ -139,13 +142,13 @@ static xcb_xfixes_region_t update_region(CompOutput *o, const CompRegion *damage
     int n = 0;
 
     for (int i = 0; i < damage->count && n < COMP_REGION_MAX; i++) {
-        const CompRect *d = &damage->rects[i];
-        if (d->w <= 0 || d->h <= 0)
+        CompRect d;
+        if (!present_physical_rect(o, &damage->rects[i], &d))
             continue;
-        rects[n].x = (int16_t)(d->x - o->rect.x);
-        rects[n].y = (int16_t)(d->y - o->rect.y);
-        rects[n].width = (uint16_t)d->w;
-        rects[n].height = (uint16_t)d->h;
+        rects[n].x = (int16_t)(d.x - o->physical.x);
+        rects[n].y = (int16_t)(d.y - o->physical.y);
+        rects[n].width = (uint16_t)d.w;
+        rects[n].height = (uint16_t)d.h;
         n++;
     }
 

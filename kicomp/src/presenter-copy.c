@@ -87,17 +87,21 @@ static bool copy_present(CompOutput *o, CompPresentMode mode,
      * frames just as the target does, so copying the untouched parts
      * again would be copying a rectangle onto its own contents -- the
      * most expensive way there is to change nothing. */
+    /* The target is already in physical pixels (the renderer magnified
+     * the logical scene into it), so this stays a straight copy however
+     * the output is scaled -- only the rectangles have to be converted
+     * from the logical coordinates damage is tracked in. */
     if (damage && !region_is_full(damage) && damage->count > 0) {
         for (int i = 0; i < damage->count; i++) {
-            const CompRect *d = &damage->rects[i];
-            if (d->w <= 0 || d->h <= 0)
+            CompRect d;
+            if (!present_physical_rect(o, &damage->rects[i], &d))
                 continue;
             xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_SRC,
                                  o->target, XCB_NONE, overlay_picture,
-                                 (int16_t)(d->x - o->rect.x),
-                                 (int16_t)(d->y - o->rect.y), 0, 0,
-                                 (int16_t)d->x, (int16_t)d->y,
-                                 (uint16_t)d->w, (uint16_t)d->h);
+                                 (int16_t)(d.x - o->physical.x),
+                                 (int16_t)(d.y - o->physical.y), 0, 0,
+                                 (int16_t)d.x, (int16_t)d.y,
+                                 (uint16_t)d.w, (uint16_t)d.h);
         }
         return true;
     }
@@ -105,8 +109,8 @@ static bool copy_present(CompOutput *o, CompPresentMode mode,
     xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_SRC,
                          o->target, XCB_NONE, overlay_picture,
                          0, 0, 0, 0,
-                         (int16_t)o->rect.x, (int16_t)o->rect.y,
-                         (uint16_t)o->rect.w, (uint16_t)o->rect.h);
+                         (int16_t)o->physical.x, (int16_t)o->physical.y,
+                         (uint16_t)o->physical.w, (uint16_t)o->physical.h);
     return true;
 }
 
@@ -132,4 +136,41 @@ static const CompPresenter copy_presenter = {
 const CompPresenter *presenter_copy(void)
 {
     return &copy_presenter;
+}
+
+bool present_physical_rect(const CompOutput *o, const CompRect *logical,
+                           CompRect *out)
+{
+    if (logical->w <= 0 || logical->h <= 0)
+        return false;
+
+    if (o->scale == 1.0f) {
+        *out = *logical;
+        return true;
+    }
+
+    /* Rounded outwards: half a physical pixel of damage still has to be
+     * copied, and a rectangle that came back a pixel short would leave a
+     * seam of last frame's content along the edge of everything that
+     * moves. */
+    int x0 = o->physical.x + (int)((float)(logical->x - o->rect.x) * o->scale);
+    int y0 = o->physical.y + (int)((float)(logical->y - o->rect.y) * o->scale);
+    int x1 = o->physical.x +
+             (int)((float)(logical->x + logical->w - o->rect.x) * o->scale + 0.999f);
+    int y1 = o->physical.y +
+             (int)((float)(logical->y + logical->h - o->rect.y) * o->scale + 0.999f);
+
+    if (x0 < o->physical.x) x0 = o->physical.x;
+    if (y0 < o->physical.y) y0 = o->physical.y;
+    if (x1 > o->physical.x + o->physical.w) x1 = o->physical.x + o->physical.w;
+    if (y1 > o->physical.y + o->physical.h) y1 = o->physical.y + o->physical.h;
+
+    if (x1 <= x0 || y1 <= y0)
+        return false;
+
+    out->x = x0;
+    out->y = y0;
+    out->w = x1 - x0;
+    out->h = y1 - y0;
+    return true;
 }

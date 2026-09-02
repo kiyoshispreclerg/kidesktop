@@ -5,6 +5,8 @@
 #include "renderer.h"
 #include "presenter.h"
 #include "shadow.h"
+#include "config.h"
+#include "inputscale.h"
 
 #include <xcb/randr.h>
 
@@ -110,6 +112,85 @@ static double compute_output_refresh_hz(xcb_randr_output_t output_id,
     return hz;
 }
 
+/* The XLibre fork publishes a per-output RandR property literally called
+ * "DPI", where 96 means 1x -- see TESTS/DPI-PER-OUTPUT.md. It is a
+ * convention of this environment rather than part of any standard, so it
+ * is asked for with only_if_exists: a server that doesn't have it simply
+ * answers nothing and every output stays at scale 1. */
+static float read_output_dpi_scale(xcb_randr_output_t output_id)
+{
+    if (output_id == XCB_NONE)
+        return 0.0f;
+
+    xcb_intern_atom_reply_t *a = xcb_intern_atom_reply(comp.conn,
+        xcb_intern_atom(comp.conn, 1, 3, "DPI"), NULL);
+    if (!a)
+        return 0.0f;
+
+    xcb_atom_t dpi_atom = a->atom;
+    free(a);
+    if (dpi_atom == XCB_NONE)
+        return 0.0f;
+
+    xcb_randr_get_output_property_reply_t *r =
+        xcb_randr_get_output_property_reply(comp.conn,
+            xcb_randr_get_output_property(comp.conn, output_id, dpi_atom,
+                                          XCB_ATOM_ANY, 0, 1, 0, 0), NULL);
+    if (!r)
+        return 0.0f;
+
+    float scale = 0.0f;
+    if (r->format == 32 && xcb_randr_get_output_property_data_length(r) >= 4) {
+        int32_t dpi = *(int32_t *)xcb_randr_get_output_property_data(r);
+        if (dpi > 0)
+            scale = (float)dpi / 96.0f;
+    }
+    free(r);
+    return scale;
+}
+
+/* The scale this output ends up at: what the config says, or what the
+ * server's DPI property implies, or 1. Clamped to something a compositor
+ * can honestly draw -- a scale below 1 would mean *growing* the desktop
+ * past the panel, which is RandR's own --scale to do, not this. */
+static float resolve_output_scale(const char *name, xcb_randr_output_t output_id)
+{
+    /* No X-INPUT-SCALE, no scaling -- whatever the config or the DPI
+     * property say. A scaled output whose pointer isn't confined has a
+     * margin of scanout the cursor can enter and nothing draws into, which
+     * is worse than not scaling at all. The capability decides (section
+     * 17/30); see inputscale.h. */
+    if (!comp.caps.input_scale)
+        return 1.0f;
+
+    float scale = config_output_scale(name);   /* < 0: not configured */
+
+    if (scale < 0.0f)
+        scale = read_output_dpi_scale(output_id);
+
+    if (scale < 1.0f)
+        scale = 1.0f;
+    if (scale > 4.0f)
+        scale = 4.0f;
+    return scale;
+}
+
+/* The logical box: the top-left part of the scanout the compositor
+ * actually draws a desktop into. Shrink-only, which is the same rule
+ * X-INPUT-SCALE enforces on the confinement that mirrors it. */
+static CompRect logical_box(const CompRect *physical, float scale)
+{
+    if (scale <= 1.0f)
+        return *physical;
+
+    CompRect r = *physical;
+    r.w = (int)((float)physical->w / scale + 0.5f);
+    r.h = (int)((float)physical->h / scale + 0.5f);
+    if (r.w < 1) r.w = 1;
+    if (r.h < 1) r.h = 1;
+    return r;
+}
+
 void outputs_teardown(void)
 {
     for (int i = 0; i < comp.output_count; i++) {
@@ -161,17 +242,22 @@ void outputs_refresh(void)
                 if (!o->name[0])
                     snprintf(o->name, sizeof(o->name), "output-%d", n);
 
-                o->rect.x = m->x;
-                o->rect.y = m->y;
-                o->rect.w = m->width;
-                o->rect.h = m->height;
+                o->physical.x = m->x;
+                o->physical.y = m->y;
+                o->physical.w = m->width;
+                o->physical.h = m->height;
                 o->refresh_hz = 60.0;
 
+                xcb_randr_output_t backing_output = XCB_NONE;
                 int noutputs = xcb_randr_monitor_info_outputs_length(m);
                 if (noutputs > 0) {
                     xcb_randr_output_t *backing = xcb_randr_monitor_info_outputs(m);
+                    backing_output = backing[0];
                     o->refresh_hz = compute_output_refresh_hz(backing[0], &o->crtc);
                 }
+
+                o->scale = resolve_output_scale(o->name, backing_output);
+                o->rect = logical_box(&o->physical, o->scale);
 
                 n++;
             }
@@ -190,11 +276,13 @@ void outputs_refresh(void)
         memset(o, 0, sizeof(*o));
         o->id = 0;
         snprintf(o->name, sizeof(o->name), comp.single_drawable ? "screen" : "root");
-        o->rect.x = 0;
-        o->rect.y = 0;
-        o->rect.w = comp.root_w;
-        o->rect.h = comp.root_h;
+        o->physical.x = 0;
+        o->physical.y = 0;
+        o->physical.w = comp.root_w;
+        o->physical.h = comp.root_h;
         o->refresh_hz = 60.0;
+        o->scale = resolve_output_scale(o->name, XCB_NONE);
+        o->rect = logical_box(&o->physical, o->scale);
         n = 1;
     }
 
@@ -218,14 +306,23 @@ void outputs_refresh(void)
      * is the single most useful thing to know about a running compositor
      * -- it's the difference between the per-output pipeline and the
      * legacy one, and it's what changes on every hotplug. */
+    inputscale_apply();
+
     comp_info("%d drawable%s (%s)", drawables, drawables == 1 ? "" : "s",
               comp.single_drawable ? "legacy single-screen mode"
                                    : "one per output");
     for (int i = 0; i < comp.output_count; i++) {
         CompOutput *o = &comp.outputs[i];
-        comp_info("  [%d] %-12s %dx%d+%d+%d @ %.2f Hz%s",
-                  o->id, o->name, o->rect.w, o->rect.h, o->rect.x, o->rect.y,
-                  o->refresh_hz, o->target ? "" : "  (no target!)");
+        if (o->scale > 1.0f)
+            comp_info("  [%d] %-12s %dx%d+%d+%d @ %.2f Hz  scale %.2fx "
+                      "(logical %dx%d)%s",
+                      o->id, o->name, o->physical.w, o->physical.h,
+                      o->physical.x, o->physical.y, o->refresh_hz, o->scale,
+                      o->rect.w, o->rect.h, o->target ? "" : "  (no target!)");
+        else
+            comp_info("  [%d] %-12s %dx%d+%d+%d @ %.2f Hz%s",
+                      o->id, o->name, o->rect.w, o->rect.h, o->rect.x, o->rect.y,
+                      o->refresh_hz, o->target ? "" : "  (no target!)");
     }
 }
 

@@ -55,7 +55,12 @@ typedef struct CompCaps {
     bool render;
     bool randr;
     bool shape;          /* SHAPE: non-rectangular windows, rounded corners */
-    bool present;        /* Present extension -- not used yet (Fase 7) */
+    bool present;        /* Present extension: vblank-timed presentation */
+    /* X-INPUT-SCALE: per-CRTC cursor confinement (inputscale.h). This is
+     * what per-output scaling depends on -- without it kicomp scales
+     * nothing, because the pointer could then reach scanout the
+     * compositor isn't drawing a desktop into. */
+    bool input_scale;
     bool flip_per_crtc;  /* XiS per-CRTC FLIP -- not probed yet (Fase 8) */
 } CompCaps;
 
@@ -66,7 +71,28 @@ typedef struct CompOutput {
     int id;
     char name[32];
 
-    CompRect rect;       /* root coordinates */
+    /* Two rectangles, and the difference between them is this project's
+     * whole HiDPI story (section 56).
+     *
+     *   rect      the *logical* box: where windows live, in root
+     *             coordinates. Everything above the renderer -- the
+     *             scene, the effects, damage, the WM itself -- works in
+     *             these coordinates and nothing else.
+     *   physical  the CRTC's actual scanout box. Bigger than the logical
+     *             one by `scale` when this output is being scaled.
+     *
+     * At scale 1.0 they are the same rectangle, which is the whole of
+     * what every output was before scaling existed.
+     *
+     * The compositor draws the logical scene into a physical-sized
+     * target, magnifying it. That is what makes a 4K monitor show a
+     * 1920-wide desktop *sharply* -- with X-DENSITY (density.h) the
+     * clients redraw their own contents at the same factor, so what gets
+     * magnified is only the windows that didn't. */
+    CompRect rect;       /* logical, root coordinates */
+    CompRect physical;   /* what the CRTC actually scans out */
+    float scale;         /* physical / logical; 1.0 = not scaled */
+
     double refresh_hz;   /* per-output, never a session-wide constant (section 46) */
 
     /* The RandR CRTC scanning this output out, when there is one. What

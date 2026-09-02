@@ -255,6 +255,95 @@ static bool window_bind(CompWindow *w)
  * invalidate it -- the destination origin is passed at clip time instead.
  * XCB_NONE means "no clipping", which is also the honest answer for a
  * window that just went away between the event and this request. */
+/* ------------------------------------------------------------------ */
+/* logical -> physical                                                 */
+/* ------------------------------------------------------------------ */
+
+/* Everything above the renderer works in the output's *logical*
+ * coordinates (comp.h): the scene, the effects, the damage, the WM. The
+ * target pixmap is the size of the output's *physical* scanout. These
+ * three turn one into the other, and they are the only place in this file
+ * that knows an output can be scaled -- at scale 1 they are a subtraction
+ * and an identity, which is exactly what the code did before scaling
+ * existed. */
+static int to_target_x(const CompOutput *o, int x)
+{
+    return (int)((float)(x - o->rect.x) * o->scale + 0.5f);
+}
+
+static int to_target_y(const CompOutput *o, int y)
+{
+    return (int)((float)(y - o->rect.y) * o->scale + 0.5f);
+}
+
+static int to_target_len(const CompOutput *o, int v)
+{
+    int r = (int)((float)v * o->scale + 0.5f);
+    return r > 0 ? r : (v > 0 ? 1 : 0);
+}
+
+/* A rectangle in logical root coordinates, as target pixels. */
+static xcb_rectangle_t to_target_rect(const CompOutput *o, const CompRect *r)
+{
+    xcb_rectangle_t out = {
+        (int16_t)to_target_x(o, r->x),
+        (int16_t)to_target_y(o, r->y),
+        (uint16_t)to_target_len(o, r->w),
+        (uint16_t)to_target_len(o, r->h),
+    };
+    return out;
+}
+
+/* A server-side region, multiplied by this output's scale. XFixes has no
+ * scale operator, so the rectangles are fetched, multiplied here and a new
+ * region built from them -- one round trip, and only when the shape (or
+ * the scale) actually changed, never per frame.
+ *
+ * Returns XCB_NONE when there is nothing to scale, which the callers read
+ * as "use the region as it is". */
+static xcb_xfixes_region_t region_scaled(const CompOutput *o,
+                                         xcb_xfixes_region_t region,
+                                         int offset_x, int offset_y)
+{
+    if (region == XCB_NONE || !comp.caps.xfixes)
+        return XCB_NONE;
+
+    xcb_xfixes_fetch_region_reply_t *r = xcb_xfixes_fetch_region_reply(comp.conn,
+        xcb_xfixes_fetch_region(comp.conn, region), NULL);
+    if (!r)
+        return XCB_NONE;
+
+    int count = xcb_xfixes_fetch_region_rectangles_length(r);
+    xcb_rectangle_t *rects = xcb_xfixes_fetch_region_rectangles(r);
+    if (count <= 0) {
+        free(r);
+        return XCB_NONE;
+    }
+
+    xcb_rectangle_t *scaled = malloc(sizeof(*scaled) * (size_t)count);
+    if (!scaled) {
+        free(r);
+        return XCB_NONE;
+    }
+
+    for (int i = 0; i < count; i++) {
+        /* The region arrives in its own space (window-relative for a
+         * shape); the offset puts it in logical root coordinates first. */
+        CompRect rc = {
+            rects[i].x + offset_x, rects[i].y + offset_y,
+            rects[i].width, rects[i].height
+        };
+        scaled[i] = to_target_rect(o, &rc);
+    }
+
+    xcb_xfixes_region_t out = xcb_generate_id(comp.conn);
+    xcb_xfixes_create_region(comp.conn, out, (uint32_t)count, scaled);
+
+    free(scaled);
+    free(r);
+    return out;
+}
+
 static xcb_xfixes_region_t window_shape(CompWindow *w)
 {
     if (w->shape)
@@ -420,10 +509,16 @@ static bool xr_init(CompOutput *o)
         return false;
 
     /* One drawable per output, sized to that output -- never one big
-     * surface spanning every monitor (section 18). */
+     * surface spanning every monitor (section 18).
+     *
+     * Sized to the *physical* scanout, not to the logical desktop: a
+     * scaled output draws its logical scene magnified into real pixels, so
+     * that a client which redrew itself densely (X-DENSITY) lands sharp
+     * instead of being resampled through a smaller intermediate. At scale
+     * 1 the two are the same rectangle. */
     xo->pixmap = xcb_generate_id(comp.conn);
     xcb_create_pixmap(comp.conn, comp.screen->root_depth, xo->pixmap, comp.root,
-                      (uint16_t)o->rect.w, (uint16_t)o->rect.h);
+                      (uint16_t)o->physical.w, (uint16_t)o->physical.h);
 
     xcb_render_pictformat_t fmt = format_for_visual(comp.screen->root_visual);
     if (!fmt) {
@@ -663,9 +758,12 @@ static void shadow_piece(CompOutput *o, xcb_render_picture_t color,
 {
     if (w <= 0 || h <= 0 || !mask)
         return;
+    /* x/y/w/h arrive in target pixels already: draw_shadow does the
+     * logical-to-physical conversion once, up front, because the tiles it
+     * picks depend on the *physical* blur radius. */
     xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER, color, mask, o->target,
                          0, 0, (int16_t)mask_x, (int16_t)mask_y,
-                         (int16_t)(x - o->rect.x), (int16_t)(y - o->rect.y),
+                         (int16_t)x, (int16_t)y,
                          (uint16_t)w, (uint16_t)h);
 }
 
@@ -704,7 +802,16 @@ static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom)
         base.h = win->shape_extents.h;
     }
 
-    ShadowTiles *t = shadow_tiles_for(st.radius);
+    /* The blur is a number of *physical* pixels: a 14 px shadow on a 2x
+     * output is 28 real pixels of gradient, not a 14 px gradient stretched
+     * to 28. The tile cache is keyed by radius, so a scaled output simply
+     * builds its own set once. */
+    int r = (o->scale != 1.0f) ? (int)((float)st.radius * o->scale + 0.5f)
+                               : st.radius;
+    if (r < 1)
+        r = 1;
+
+    ShadowTiles *t = shadow_tiles_for(r);
     if (!t)
         return;
 
@@ -712,23 +819,26 @@ static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom)
     if (!color)
         return;
 
-    int r = st.radius;
+    /* Everything below is in target pixels. */
+    CompRect visible;
+    if (!rect_intersect(geom, &o->rect, &visible))
+        visible = *geom;   /* off this output: the clip below drops it */
+
+    int off_x = (int)((float)st.offset_x * o->scale + 0.5f);
+    int off_y = (int)((float)st.offset_y * o->scale + 0.5f);
+
     /* The shadow's own rectangle: the window's, offset, grown by the
      * blur on every side. */
     CompRect s = {
-        base.x + st.offset_x - r,
-        base.y + st.offset_y - r,
-        base.w + r * 2,
-        base.h + r * 2,
+        to_target_x(o, base.x) + off_x - r,
+        to_target_y(o, base.y) + off_y - r,
+        to_target_len(o, base.w) + r * 2,
+        to_target_len(o, base.h) + r * 2,
     };
-
-    CompRect visible;
-    if (!rect_intersect(&s, &o->rect, &visible))
-        return;
 
     if (comp.caps.xfixes) {
         xcb_rectangle_t whole = {
-            (int16_t)(s.x - o->rect.x), (int16_t)(s.y - o->rect.y),
+            (int16_t)s.x, (int16_t)s.y,
             (uint16_t)s.w, (uint16_t)s.h
         };
         xcb_xfixes_region_t region = xcb_generate_id(comp.conn);
@@ -747,16 +857,26 @@ static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom)
          * is the one already cached for clipping the window (window_shape),
          * in window coordinates, so it only has to be moved into the
          * target's. */
+        xcb_xfixes_region_t scaled_shape = XCB_NONE;
+        if (shape && o->scale != 1.0f) {
+            /* Same reason as in clip_to_frame: the cached region is in
+             * logical window coordinates and XFixes cannot scale it. */
+            scaled_shape = region_scaled(o, shape, win->x, win->y);
+            shape = scaled_shape;
+        }
+
         if (shape) {
             xcb_xfixes_create_region(comp.conn, cut, 0, NULL);
             xcb_xfixes_copy_region(comp.conn, shape, cut);
-            xcb_xfixes_translate_region(comp.conn, cut,
-                                        (int16_t)(win->x - o->rect.x),
-                                        (int16_t)(win->y - o->rect.y));
+            if (scaled_shape == XCB_NONE)
+                xcb_xfixes_translate_region(comp.conn, cut,
+                                            (int16_t)to_target_x(o, win->x),
+                                            (int16_t)to_target_y(o, win->y));
         } else {
             xcb_rectangle_t hole = {
-                (int16_t)(base.x - o->rect.x), (int16_t)(base.y - o->rect.y),
-                (uint16_t)base.w, (uint16_t)base.h
+                (int16_t)to_target_x(o, base.x), (int16_t)to_target_y(o, base.y),
+                (uint16_t)to_target_len(o, base.w),
+                (uint16_t)to_target_len(o, base.h)
             };
             xcb_xfixes_create_region(comp.conn, cut, 1, &hole);
         }
@@ -768,6 +888,8 @@ static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom)
         clip_to_frame(o, region, 0, 0);
         xcb_xfixes_destroy_region(comp.conn, cut);
         xcb_xfixes_destroy_region(comp.conn, region);
+        if (scaled_shape != XCB_NONE)
+            xcb_xfixes_destroy_region(comp.conn, scaled_shape);
     }
 
     int n = r * 2;
@@ -827,6 +949,10 @@ static void shadow_shutdown(void)
     shadow_color_key[0] = -1;
 }
 
+/* Defined with the drawing code below; the background needs them too. */
+static void picture_transform_set(xcb_render_picture_t pict, const CompTransform *m);
+static void picture_transform_reset(xcb_render_picture_t pict);
+
 /* ------------------------------------------------------------------ */
 /* the frame's damage clip                                             */
 /* ------------------------------------------------------------------ */
@@ -859,11 +985,9 @@ static void frame_clip_build(CompOutput *o, const CompRegion *damage)
         if (d->w <= 0 || d->h <= 0)
             continue;
         /* Into the target's coordinates: the pixmap starts at the
-         * output's origin, the region arrived in root coordinates. */
-        rects[n].x = (int16_t)(d->x - o->rect.x);
-        rects[n].y = (int16_t)(d->y - o->rect.y);
-        rects[n].width = (uint16_t)d->w;
-        rects[n].height = (uint16_t)d->h;
+         * output's origin and is in physical pixels, the region arrived
+         * in logical root ones. */
+        rects[n] = to_target_rect(o, d);
         n++;
     }
 
@@ -905,8 +1029,29 @@ static void clip_to_frame(CompOutput *o, xcb_xfixes_region_t extra,
         return;
     }
 
+    /* A scaled output's target is in physical pixels while `extra` -- a
+     * window's shape, a shadow's outline -- is in logical ones. XFixes
+     * cannot scale a region, so it is rebuilt at the right size, and only
+     * here: at scale 1 (every output today, and most of them always) not
+     * a single extra request is sent. */
+    xcb_xfixes_region_t owned = XCB_NONE;
+    if (o->scale != 1.0f) {
+        owned = region_scaled(o, extra, ox + o->rect.x, oy + o->rect.y);
+        if (owned == XCB_NONE) {
+            /* Nothing to clip with: better a square corner for one frame
+             * than a window clipped to the wrong silhouette. */
+            xcb_xfixes_set_picture_clip_region(comp.conn, o->target,
+                frame_clip_full ? XCB_XFIXES_REGION_NONE : frame_clip, 0, 0);
+            return;
+        }
+        extra = owned;
+        ox = oy = 0;
+    }
+
     if (frame_clip_full) {
         xcb_xfixes_set_picture_clip_region(comp.conn, o->target, extra, ox, oy);
+        if (owned != XCB_NONE)
+            xcb_xfixes_destroy_region(comp.conn, owned);
         return;
     }
 
@@ -917,6 +1062,9 @@ static void clip_to_frame(CompOutput *o, xcb_xfixes_region_t extra,
     xcb_xfixes_intersect_region(comp.conn, both, frame_clip, both);
     xcb_xfixes_set_picture_clip_region(comp.conn, o->target, both, 0, 0);
     xcb_xfixes_destroy_region(comp.conn, both);
+
+    if (owned != XCB_NONE)
+        xcb_xfixes_destroy_region(comp.conn, owned);
 }
 
 static void xr_begin(CompOutput *o, const CompRegion *damage)
@@ -934,16 +1082,33 @@ static void xr_begin(CompOutput *o, const CompRegion *damage)
     xcb_render_picture_t bg = background_picture();
     if (bg) {
         /* Source coordinates are root-relative so a tiled wallpaper lines
-         * up across outputs exactly as it does uncomposited. */
+         * up across outputs exactly as it does uncomposited. On a scaled
+         * output the wallpaper is magnified with everything else, through
+         * a transform that maps target pixels back to root ones -- the
+         * same mapping every window goes through below. */
+        if (o->scale != 1.0f) {
+            CompTransform m;
+            comp_transform_identity(&m);
+            comp_transform_scale(&m, 1.0f / o->scale, 1.0f / o->scale);
+            comp_transform_translate(&m, (float)o->rect.x, (float)o->rect.y);
+            picture_transform_set(bg, &m);
+
+            xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_SRC, bg, XCB_NONE,
+                                 o->target, 0, 0, 0, 0, 0, 0,
+                                 (uint16_t)o->physical.w, (uint16_t)o->physical.h);
+            picture_transform_reset(bg);
+            return;
+        }
+
         xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_SRC, bg, XCB_NONE,
                              o->target,
                              (int16_t)o->rect.x, (int16_t)o->rect.y, 0, 0, 0, 0,
-                             (uint16_t)o->rect.w, (uint16_t)o->rect.h);
+                             (uint16_t)o->physical.w, (uint16_t)o->physical.h);
         return;
     }
 
     xcb_render_color_t c = { 0x1c1c, 0x1c1c, 0x1c1c, 0xffff };
-    xcb_rectangle_t r = { 0, 0, (uint16_t)o->rect.w, (uint16_t)o->rect.h };
+    xcb_rectangle_t r = { 0, 0, (uint16_t)o->physical.w, (uint16_t)o->physical.h };
     xcb_render_fill_rectangles(comp.conn, XCB_RENDER_PICT_OP_SRC, o->target,
                                c, 1, &r);
 }
@@ -1078,24 +1243,49 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
         }
 
         /* Source offset: where inside the window's own pixmap the visible
-         * portion starts. Destination offset: the same point relative to
-         * this output's origin. That pair is the whole of "a window can
-         * cross outputs" for a non-transformed scene. */
+         * portion starts. Destination offset: the same point in target
+         * pixels. That pair is the whole of "a window can cross outputs"
+         * for a node nothing is transforming on an unscaled output. */
         int16_t sx = (int16_t)(n->visible_rect.x - n->geometry.x);
         int16_t sy = (int16_t)(n->visible_rect.y - n->geometry.y);
-        int16_t dx = (int16_t)(n->visible_rect.x - o->rect.x);
-        int16_t dy = (int16_t)(n->visible_rect.y - o->rect.y);
+        int16_t dx = (int16_t)to_target_x(o, n->visible_rect.x);
+        int16_t dy = (int16_t)to_target_y(o, n->visible_rect.y);
+        uint16_t dw = (uint16_t)to_target_len(o, n->visible_rect.w);
+        uint16_t dh = (uint16_t)to_target_len(o, n->visible_rect.h);
 
-        if (transformed) {
-            /* With a picture transform in force the source coordinates
-             * handed to Composite are the ones the matrix consumes, so
-             * they're root coordinates here, and the matrix does the
-             * "minus the window's origin" part itself. */
-            CompTransform m = inverse;
+        /* A transform is needed whenever destination pixels and source
+         * pixels don't step together: because an effect is transforming
+         * the node, or because this output is scaled and one target pixel
+         * is a fraction of a logical one -- or both, in which case the two
+         * compose into a single matrix.
+         *
+         * XRender's matrix maps the coordinates handed to Composite into
+         * the source picture, so it is built in the direction the sampling
+         * goes: target pixels -> logical root -> (the effect's inverse) ->
+         * the window's own pixmap. */
+        bool needs_matrix = transformed || o->scale != 1.0f;
+
+        if (needs_matrix) {
+            CompTransform m;
+            comp_transform_identity(&m);
+
+            if (o->scale != 1.0f) {
+                comp_transform_scale(&m, 1.0f / o->scale, 1.0f / o->scale);
+                comp_transform_translate(&m, (float)o->rect.x, (float)o->rect.y);
+            }
+            if (transformed) {
+                /* Applied *after* the target-to-root part: out = a * b
+                 * means b first (transform.h). */
+                comp_transform_multiply(&m, &inverse, &m);
+            }
+
             comp_transform_translate(&m, (float)-n->geometry.x, (float)-n->geometry.y);
             picture_transform_set(source, &m);
-            sx = (int16_t)n->visible_rect.x;
-            sy = (int16_t)n->visible_rect.y;
+
+            /* The matrix consumes target coordinates now, so that is what
+             * goes in as the source point. */
+            sx = dx;
+            sy = dy;
         }
 
         /* OVER, always: for a depth-24 window the source has no alpha
@@ -1104,13 +1294,11 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
          * precisely the blending an uncomposited server can't do. */
         xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER,
                              source, mask, o->target,
-                             sx, sy, sx, sy, dx, dy,
-                             (uint16_t)n->visible_rect.w,
-                             (uint16_t)n->visible_rect.h);
+                             sx, sy, sx, sy, dx, dy, dw, dh);
 
         /* The picture outlives the frame, so the transform must not: the
          * next paint may well be an ordinary one. */
-        if (transformed)
+        if (needs_matrix)
             picture_transform_reset(source);
     }
 }

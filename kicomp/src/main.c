@@ -51,6 +51,7 @@
 #include "desktop.h"
 #include "region.h"
 #include "damage.h"
+#include "inputscale.h"
 
 #include <xcb/randr.h>
 #include <xcb/shape.h>
@@ -632,6 +633,7 @@ static void handle_event(xcb_generic_event_t *ev)
 static void shutdown_compositor(void)
 {
     effects_shutdown();
+    inputscale_shutdown();
     desktop_shutdown();
     windows_teardown();
     outputs_teardown();
@@ -820,7 +822,7 @@ int main(int argc, char **argv)
               comp.root_w, comp.root_h);
     comp_info("renderer=%s presenter=%s", renderer->name, presenter->name);
     comp_info("capabilities: composite=%d overlay=%d damage=%d xfixes=%d "
-              "render=%d randr=%d present=%d flip-per-crtc=%d",
+              "render=%d randr=%d present=%d input-scale=%d flip-per-crtc=%d",
               comp.caps.composite, comp.caps.overlay, comp.caps.damage,
               comp.caps.xfixes, comp.caps.render, comp.caps.randr,
               comp.caps.present, comp.caps.flip_per_crtc);
@@ -837,6 +839,10 @@ int main(int argc, char **argv)
         effects_init();
     else
         comp_info("effects off");
+
+    /* Before the outputs are built: whether an output may be scaled at
+     * all depends on this extension being there (inputscale.h). */
+    inputscale_init();
 
     /* Prints the drawable count/geometry itself, here and on every later
      * output change. */
