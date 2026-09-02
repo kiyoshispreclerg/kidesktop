@@ -31,6 +31,7 @@ Options:
 | `--effects`, `--no-effects` | turn animations on/off |
 | `--anim-ms=N` | global animation unit, in ms |
 | `--renderer=NAME` | `auto` \| `xrender` |
+| `--presenter=NAME` | `auto` \| `present` \| `copy` |
 | `-v`, `--verbose` | detailed log (events, windows, layers, frames) |
 
 Every option has an equivalent key in `kicomp.conf` (below); the command
@@ -82,7 +83,7 @@ optional — every key has a working default. Same format as `kiwm.conf`
 effects            = 1     # animations on
 animation_duration = 160   # the animation unit, in ms
 renderer           = auto  # auto | xrender
-presenter          = auto  # auto | copy
+presenter          = auto  # auto | present | copy
 single_drawable    = 0     # 1 = legacy mode, one drawable for the screen
 skip_wm_layers     = 0     # 1 = don't composite kiwm's OSD/wireframe
 
@@ -758,20 +759,49 @@ Verified by taking the screen after a series of moves, raises, resizes, a
 desktop switch and a window closing, then restarting the compositor for a
 freshly composited frame of the same screen: zero differing pixels.
 
-## Pacing
+## Pacing and presentation
 
 Each output has its own frame clock (`src/scheduler.c`), running at *its*
 refresh rate: a 144 Hz monitor never waits for a 60 Hz one, and the
 animation state comes from the shared monotonic clock while each output
-merely samples it at its own rhythm.
+merely samples it at its own rhythm. It collapses bursts of damage into
+one frame, and an output whose deadline has already passed paints
+immediately, so an isolated event never waits.
 
-It does two things: it collapses bursts of damage into one frame, and it
-keeps animations at each screen's rate. An output whose deadline has
-already passed paints immediately, so an isolated event never waits.
-There is still **no** MSC/UST — the period comes from RandR's reported
-rate, not from presentation feedback — so it paces and coalesces but
-doesn't yet lock to vblank; when the presenter can report a real MSC,
-only `scheduler_tick()` changes.
+**The presenter** is how a finished output reaches the screen, and there
+are two:
+
+| | how | what it gives |
+|---|---|---|
+| `copy` | composites the output's target onto the Composite overlay | works on every server |
+| `present` | `PresentPixmap` into a CRTC-covering child window of the overlay | the copy happens **at vblank**, and the server reports back *when* the frame landed (MSC + UST) |
+
+`auto` takes `present` when the server has the extension. Each output gets
+its own child window covering exactly it, and its frame is presented with
+that output's `target_crtc` — so a frame for the 144 Hz monitor is timed
+against *that* monitor's vblank, not against whichever CRTC the server
+would pick for a screen-spanning window. One window per CRTC is also the
+shape a per-CRTC page flip needs later (Fase 8): a window covering exactly
+one CRTC can have its buffer scanned out directly.
+
+Frames do not flip yet, and the presenter is not why: an XRender pixmap is
+not a scanout buffer, so the server copies it (`mode copy` in the `-v`
+log) at the right moment instead of handing it to the display engine.
+Flipping is what a GL/GBM renderer unlocks, with this presenter already in
+place.
+
+**Throttling.** An output with a frame still in flight is not painted
+again — a second frame queued behind the first doesn't appear any sooner,
+it just puts one more frame of latency between what the user did and what
+they see. The output stays dirty and is painted the moment the completion
+arrives, which makes the loop vblank-driven rather than timer-driven while
+anything is animating. Measured on a nested session: MSC increments by
+exactly 1 between consecutive frames of an animation.
+
+What is still missing from Fase 7 is the other half: the frame clock's
+*period* still comes from RandR's reported rate rather than from the UST
+timestamps now arriving. Deriving it from those is a change to
+`scheduler.c` alone.
 
 ## What is implemented
 
@@ -784,7 +814,7 @@ only `scheduler_tick()` changes.
 | 26 — window crossing outputs | `window ∩ output` clipped per output, one scene node in each |
 | 21 — scene graph | intermediate `CompScene`/`CompSceneNode`; effects never see X windows |
 | 28 — renderer abstraction | `CompRenderer` vtable, `xrender` backend |
-| 15/16 — presenter abstraction | `CompPresenter` vtable, `copy` backend (overlay window) |
+| 15/16 — presenter abstraction | `CompPresenter` vtable, with `copy` (overlay window) and `present` (PresentPixmap per CRTC, vblank-timed, MSC/UST reported) |
 | 33 — visual mirror | state comes only from X events; the WM stays the authority |
 | 38 — lightness | sleeps in `poll()`, no timers, no polling, no repainting just in case |
 | — | window shapes applied as a clip (rounded corners, clients with their own shape) |
@@ -807,9 +837,10 @@ only `scheduler_tick()` changes.
 - **More effects** (sections 24.5-24.7) — wobbly, blur, cube. All three
   ask for the GL renderer: a mesh per window, shaders, and a transform
   that isn't affine.
-- **MSC/UST** (the rest of Fase 7, sections 19/49) — the per-output clock
-  exists, but its period comes from RandR, not from presentation
-  feedback.
+- **MSC/UST-derived period** (the rest of Fase 7, sections 19/49) — the
+  Present presenter reports MSC and UST per completed frame and the loop
+  is throttled by them, but the frame clock's period still comes from
+  RandR's reported rate rather than from measured UST intervals.
 - **The XiS FLIP presenter** (Fase 8) — `CompPresentMode` and
   `CompPresenter::get_msc` already exist for it; `caps.flip_per_crtc` is
   declared `false` on purpose, so no code path can believe in it early.
@@ -907,6 +938,7 @@ src/
   renderer-xrender.c  XRender backend
   presenter.h         presenter vtable
   presenter-copy.c    COPY backend (overlay window)
+  presenter-present.c PRESENT backend (per-CRTC, vblank-timed)
 tests/
   argb-window.c       ARGB test client
 ```

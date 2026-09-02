@@ -17,6 +17,7 @@
 #include <xcb/damage.h>
 #include <xcb/xfixes.h>
 #include <xcb/render.h>
+#include <xcb/randr.h>
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -67,6 +68,12 @@ typedef struct CompOutput {
 
     CompRect rect;       /* root coordinates */
     double refresh_hz;   /* per-output, never a session-wide constant (section 46) */
+
+    /* The RandR CRTC scanning this output out, when there is one. What
+     * Present needs to be told so a frame is timed against *this*
+     * monitor's vblank rather than against whichever one the server would
+     * have picked -- and, later, what a per-CRTC flip is aimed at. */
+    xcb_randr_crtc_t crtc;
 
     bool dirty;          /* section 39: never repaint an output "just in case" */
 
@@ -282,6 +289,7 @@ typedef struct KiComp {
 
     uint8_t damage_event;
     uint8_t xfixes_event;
+    uint8_t present_opcode;    /* Present events arrive as XGE generic events */
     uint8_t randr_event;
     uint8_t shape_event;
 

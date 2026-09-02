@@ -54,6 +54,7 @@
 
 #include <xcb/randr.h>
 #include <xcb/shape.h>
+#include <xcb/present.h>
 
 #include <errno.h>
 #include <poll.h>
@@ -249,9 +250,25 @@ static bool caps_detect(void)
         comp.shape_event = ext->first_event;
     }
 
-    /* Present and per-CRTC FLIP are probed in Fase 7/8; declared false
-     * here so no code path can accidentally believe in them. */
-    comp.caps.present = false;
+    ext = xcb_get_extension_data(comp.conn, &xcb_present_id);
+    if (ext && ext->present) {
+        /* 1.0 is all this uses: PresentPixmap with a target CRTC, and
+         * CompleteNotify to hear when the frame actually landed. */
+        xcb_present_query_version_reply_t *v =
+            xcb_present_query_version_reply(comp.conn,
+                xcb_present_query_version(comp.conn, 1, 2), NULL);
+        if (v) {
+            comp.caps.present = true;
+            comp.present_opcode = ext->major_opcode;
+            comp_log("Present %u.%u", v->major_version, v->minor_version);
+            free(v);
+        }
+    }
+
+    /* Per-CRTC FLIP is Fase 8: declared false so no code path can
+     * accidentally believe in it. Present being here does not mean frames
+     * are flipping -- an XRender pixmap is not a scanout buffer, so the
+     * server will copy it at vblank, which is already the point. */
     comp.caps.flip_per_crtc = false;
 
     if (!comp.caps.composite || !comp.caps.overlay) {
@@ -398,6 +415,14 @@ static void paint_dirty_outputs(double now)
         if (!o->dirty || !o->target)
             continue;
 
+        /* A frame is still in flight for this output (Present): painting
+         * another one now would queue latency behind it rather than show
+         * anything sooner. It stays dirty and is painted the moment the
+         * completion arrives, which is what makes the loop vblank-paced
+         * rather than timer-paced. */
+        if (presenter && presenter->busy && presenter->busy(o))
+            continue;
+
         /* Its own clock decides, not the event that dirtied it: a burst
          * of damage becomes one frame, and an output stays at its own
          * refresh rate while another animates at a different one
@@ -439,6 +464,11 @@ static void paint_dirty_outputs(double now)
 static void handle_event(xcb_generic_event_t *ev)
 {
     uint8_t type = ev->response_type & 0x7f;
+
+    /* The presenter gets first refusal: Present's completions arrive as
+     * XGE generic events, and nothing else here knows what those are. */
+    if (presenter && presenter->handle_event && presenter->handle_event(ev))
+        return;
 
     if (comp.caps.damage && type == comp.damage_event + XCB_DAMAGE_NOTIFY) {
         xcb_damage_notify_event_t *e = (xcb_damage_notify_event_t *)ev;
@@ -627,7 +657,8 @@ static void usage(void)
 {
     printf("kicomp " KICOMP_VERSION " - compositor for kiwm\n"
            "usage: kicomp [--replace] [--single-drawable] [--skip-wm-layers]\n"
-           "              [--effects|--no-effects] [--anim-ms=N] [--renderer=NAME]\n"
+           "              [--effects|--no-effects] [--anim-ms=N]\n"
+           "              [--renderer=NAME] [--presenter=NAME]\n"
            "              [-v|--verbose] [--version] [--help]\n"
            "\n"
            "  --replace          take over from a running compositor\n"
@@ -642,6 +673,7 @@ static void usage(void)
            "                     duration is a multiple of it\n"
            "                     (kicomp.conf: animation_duration=)\n"
            "  --renderer=NAME    auto|xrender (kicomp.conf: renderer=)\n"
+           "  --presenter=NAME   auto|present|copy (kicomp.conf: presenter=)\n"
            "\n"
            "kicomp is optional: kiwm is fully usable without it, and\n"
            "killing kicomp returns the session to the uncomposited path.\n");
@@ -668,6 +700,8 @@ int main(int argc, char **argv)
             comp.effects = true;
         } else if (!strncmp(argv[i], "--anim-ms=", 10)) {
             comp.anim_duration_ms = atof(argv[i] + 10);
+        } else if (!strncmp(argv[i], "--presenter=", 12)) {
+            snprintf(comp.presenter_name, sizeof(comp.presenter_name), "%s", argv[i] + 12);
         } else if (!strncmp(argv[i], "--renderer=", 11)) {
             snprintf(comp.renderer_name, sizeof(comp.renderer_name), "%s", argv[i] + 11);
         } else if (!strcmp(argv[i], "-v") || !strcmp(argv[i], "--verbose")) {
@@ -751,19 +785,35 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    /* One renderer and one presenter exist so far, so "auto" and
-     * "xrender"/"copy" all land in the same place -- but the choice is
-     * made here, by name, so that adding renderer-gl.c or the XiS FLIP
-     * presenter is a line in this function and nothing else. */
+    /* One renderer so far, so "auto" and "xrender" land in the same place
+     * -- but the choice is made here, by name, so that adding
+     * renderer-gl.c is a line in this function and nothing else. */
     if (strcmp(comp.renderer_name, "auto") && strcmp(comp.renderer_name, "xrender"))
         fprintf(stderr, "kicomp: no renderer named '%s'; using xrender\n",
                 comp.renderer_name);
-    if (strcmp(comp.presenter_name, "auto") && strcmp(comp.presenter_name, "copy"))
-        fprintf(stderr, "kicomp: no presenter named '%s'; using copy\n",
-                comp.presenter_name);
-
     renderer = renderer_xrender();
-    presenter = presenter_copy();
+
+    /* Presenter: capability decides, name overrides. `auto` takes Present
+     * when the server has it -- a frame that lands at vblank instead of
+     * whenever the copy happens to reach the scanout is strictly better,
+     * and it is the only one of the two that can say when the frame
+     * actually appeared. `copy` is the fallback and the way to compare
+     * the two. */
+    if (strcmp(comp.presenter_name, "present") == 0) {
+        if (comp.caps.present) {
+            presenter = presenter_present();
+        } else {
+            fprintf(stderr, "kicomp: no Present extension; using copy\n");
+            presenter = presenter_copy();
+        }
+    } else if (strcmp(comp.presenter_name, "copy") == 0) {
+        presenter = presenter_copy();
+    } else {
+        if (strcmp(comp.presenter_name, "auto"))
+            fprintf(stderr, "kicomp: no presenter named '%s'; using auto\n",
+                    comp.presenter_name);
+        presenter = comp.caps.present ? presenter_present() : presenter_copy();
+    }
 
     comp_info("kicomp " KICOMP_VERSION " on %s screen %d (%dx%d)",
               getenv("DISPLAY") ? getenv("DISPLAY") : "?", comp.screen_num,

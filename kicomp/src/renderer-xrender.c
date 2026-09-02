@@ -1126,6 +1126,12 @@ static void xr_end(CompOutput *o)
     frame_clip_destroy();
 }
 
+xcb_pixmap_t renderer_output_pixmap(const CompOutput *o)
+{
+    const XrOutput *xo = o->render_data;
+    return xo ? xo->pixmap : XCB_NONE;
+}
+
 void renderer_shutdown(void)
 {
     shadow_shutdown();

@@ -83,6 +83,12 @@ void renderer_stash_drop_unheld(CompWindow *w);
 bool renderer_window_has_content(const CompWindow *w);
 void renderer_background_invalidate(void);
 
+/* The pixmap behind an output's render target, for a presenter that
+ * hands the server a pixmap rather than reading a Picture (Present).
+ * XCB_NONE when the backend has no such thing -- a GL backend would
+ * answer that, and would come with a presenter that doesn't ask. */
+xcb_pixmap_t renderer_output_pixmap(const CompOutput *o);
+
 /* Picture format of the root visual. An XRender detail, but the COPY
  * presenter needs the same answer and there should be exactly one place
  * that knows how to compute it. */

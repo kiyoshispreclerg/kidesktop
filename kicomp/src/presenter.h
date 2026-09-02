@@ -28,12 +28,25 @@ typedef struct CompPresenter {
      * one, which hands over a whole buffer, can ignore it. */
     bool (*present)(CompOutput *o, CompPresentMode mode, const CompRegion *damage);
 
+    /* Is a frame still in flight for this output? An output that has one
+     * is not painted again until it lands: a second frame queued behind
+     * the first doesn't appear any sooner, it just puts one more frame of
+     * latency between what the user did and what they see. Optional -- a
+     * presenter that copies synchronously is never busy. */
+    bool (*busy)(CompOutput *o);
+
+    /* First refusal on an X event, for a backend whose completions arrive
+     * as events (Present's are XGE generic events). True means "mine,
+     * handled". Optional. */
+    bool (*handle_event)(xcb_generic_event_t *ev);
+
     /* Media stream counter, when the backend can report one. Returns 0
      * when unknown -- the per-output frame clock (Fase 7) will use it. */
     uint64_t (*get_msc)(CompOutput *o);
 } CompPresenter;
 
 const CompPresenter *presenter_copy(void);
+const CompPresenter *presenter_present(void);
 
 extern const CompPresenter *presenter;
 

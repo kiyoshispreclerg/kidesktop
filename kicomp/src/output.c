@@ -51,10 +51,16 @@ static void get_atom_name_into(xcb_atom_t atom, char *out, size_t out_sz)
  * current mode, refresh = dot_clock / (htotal * vtotal). Kept here rather
  * than shared because kicomp must not link against the WM (section 14) --
  * and because the compositor is the side that actually needs it, for
- * per-output pacing (Fase 7). */
-static double compute_output_refresh_hz(xcb_randr_output_t output_id)
+ * per-output pacing (Fase 7).
+ *
+ * Also reports the CRTC itself, which the Present presenter needs: a
+ * frame is timed against the vblank of the monitor it is for. */
+static double compute_output_refresh_hz(xcb_randr_output_t output_id,
+                                        xcb_randr_crtc_t *crtc_out)
 {
     double hz = 60.0;
+    if (crtc_out)
+        *crtc_out = XCB_NONE;
 
     xcb_randr_get_screen_resources_current_reply_t *res =
         xcb_randr_get_screen_resources_current_reply(comp.conn,
@@ -69,6 +75,9 @@ static double compute_output_refresh_hz(xcb_randr_output_t output_id)
         free(res);
         return hz;
     }
+
+    if (crtc_out)
+        *crtc_out = oinfo->crtc;
 
     xcb_randr_get_crtc_info_reply_t *cinfo = xcb_randr_get_crtc_info_reply(comp.conn,
         xcb_randr_get_crtc_info(comp.conn, oinfo->crtc, res->config_timestamp), NULL);
@@ -161,7 +170,7 @@ void outputs_refresh(void)
                 int noutputs = xcb_randr_monitor_info_outputs_length(m);
                 if (noutputs > 0) {
                     xcb_randr_output_t *backing = xcb_randr_monitor_info_outputs(m);
-                    o->refresh_hz = compute_output_refresh_hz(backing[0]);
+                    o->refresh_hz = compute_output_refresh_hz(backing[0], &o->crtc);
                 }
 
                 n++;
