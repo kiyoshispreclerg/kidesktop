@@ -750,6 +750,32 @@ per output. Below 1 is refused: this only ever *shrinks* the logical
 desktop — growing it is `xrandr --scale`'s job, and RandR already confines
 the cursor correctly for that case.
 
+**The logical box is published**, as `_XIS_CONFINED_AREA` on the root
+window: `CARDINAL[4*N]`, groups of x, y, width, height in root
+coordinates, one per confined output, deleted when nothing is confined.
+
+Confining the pointer is only half of what a scaled output needs. The
+other half is that everything laying windows out has to treat the logical
+box as the whole of that monitor — otherwise a maximized window fills the
+scanout while only its top-left corner is drawn, which is exactly the
+symptom. kicomp cannot fix that itself: window geometry belongs to the WM
+(section 27/33), and the compositor's job ends at saying where the desktop
+actually is.
+
+Rectangles in root coordinates, deliberately — the same reasoning
+X-INPUT-SCALE's own protocol gives for taking a rectangle rather than a
+matrix. A consumer needs no agreement with kicomp about output names or
+indices: it intersects its own idea of each monitor with these. kiwm reads
+it in `outputs_refresh()` and shrinks the output to it, after which
+maximize, snapping, placement, the switcher and its own `_NET_WORKAREA`
+all follow, because they already work from its output list.
+
+Not `_NET_WORKAREA` directly, for two independent reasons: it is the WM's
+property to publish (kiwm already does, from its outputs and the panel
+struts — two writers would flap), and EWMH defines it as one box per
+*desktop* for the whole screen, which cannot say "this monitor is smaller
+and that one is not".
+
 **The DPI is followed live.** kicomp subscribes to RandR's output-property
 notifications, so `xrandr --output DP-1 --set DPI 192` retimes everything
 at once: the outputs are rebuilt, the cursor confinement is re-applied to

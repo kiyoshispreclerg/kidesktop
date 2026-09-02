@@ -419,6 +419,7 @@ typedef struct KiComp {
         xcb_atom_t density_pixmap;
 
         xcb_atom_t randr_dpi;              /* the fork's per-output "DPI" */
+        xcb_atom_t xis_confined_area;      /* published: the logical boxes */
         xcb_atom_t kiwm_outputs;           /* output names, in index order */
         xcb_atom_t kiwm_output_desktop;    /* one current desktop per output */
     } atoms;

@@ -187,6 +187,7 @@ static void atoms_init(void)
      * output.c still asks the server with only_if_exists before reading
      * any output's value. */
     comp.atoms.randr_dpi              = intern("DPI");
+    comp.atoms.xis_confined_area      = intern("_XIS_CONFINED_AREA");
 
     comp.atoms.kiwm_outputs           = intern("_KIWM_OUTPUTS");
     comp.atoms.kiwm_output_desktop    = intern("_KIWM_OUTPUT_DESKTOP");

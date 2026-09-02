@@ -134,6 +134,39 @@ static void reset_confine(const CompOutput *o)
     xis_send(&req, sizeof(req), 1);
 }
 
+/* The confined areas as a root property, for everything that has to lay
+ * windows out inside them (see inputscale.h). */
+static void publish_confined_area(void)
+{
+    if (comp.atoms.xis_confined_area == XCB_NONE)
+        return;
+
+    uint32_t rects[MAX_OUTPUTS * 4];
+    int n = 0;
+
+    for (int i = 0; i < comp.output_count && n < MAX_OUTPUTS * 4; i++) {
+        const CompOutput *o = &comp.outputs[i];
+        if (o->scale <= 1.0f)
+            continue;
+        rects[n++] = (uint32_t)o->rect.x;
+        rects[n++] = (uint32_t)o->rect.y;
+        rects[n++] = (uint32_t)o->rect.w;
+        rects[n++] = (uint32_t)o->rect.h;
+    }
+
+    if (n == 0) {
+        /* Deleted rather than written empty: absent means "no output is
+         * confined", which is the state of almost every machine, and a
+         * consumer that finds nothing has nothing to think about. */
+        xcb_delete_property(comp.conn, comp.root, comp.atoms.xis_confined_area);
+        return;
+    }
+
+    xcb_change_property(comp.conn, XCB_PROP_MODE_REPLACE, comp.root,
+                        comp.atoms.xis_confined_area, XCB_ATOM_CARDINAL, 32,
+                        (uint32_t)n, rects);
+}
+
 void inputscale_apply(void)
 {
     if (!comp.caps.input_scale)
@@ -154,6 +187,7 @@ void inputscale_apply(void)
             reset_confine(o);
     }
 
+    publish_confined_area();
     xcb_flush(comp.conn);
 }
 
@@ -178,4 +212,11 @@ void inputscale_release_all(void)
 void inputscale_shutdown(void)
 {
     inputscale_release_all();
+
+    /* And the property with them: a WM that outlives this compositor must
+     * not keep laying windows out inside a logical box nobody is
+     * magnifying any more. */
+    if (comp.atoms.xis_confined_area != XCB_NONE)
+        xcb_delete_property(comp.conn, comp.root, comp.atoms.xis_confined_area);
+    xcb_flush(comp.conn);
 }

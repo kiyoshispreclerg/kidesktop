@@ -37,7 +37,29 @@ void inputscale_init(void);
 
 /* Confines each scaled output's CRTC to its logical box, and releases the
  * confinement on every output that isn't scaled. Called after each
- * outputs_refresh(), so a hotplug or a mode change re-asserts it. */
+ * outputs_refresh(), so a hotplug or a mode change re-asserts it.
+ *
+ * Also publishes `_XIS_CONFINED_AREA` on the root window: CARDINAL[4*N],
+ * groups of x, y, width, height in root coordinates, one per confined
+ * output, and deleted entirely when nothing is confined.
+ *
+ * That property exists because confining the pointer is only half of what
+ * a scaled output needs. The other half is that everything laying windows
+ * out -- the WM first of all -- has to treat the logical box as the whole
+ * of that monitor, or a maximized window fills the scanout while only its
+ * top-left corner is drawn. The compositor cannot do that itself: window
+ * geometry belongs to the WM (section 27/33), and the compositor's job
+ * ends at saying where the desktop actually is.
+ *
+ * Rectangles in root coordinates, deliberately: the same reasoning
+ * X-INPUT-SCALE's own protocol gives for taking a rectangle rather than a
+ * matrix. A consumer needs no agreement with kicomp about output names or
+ * indices -- it intersects its own idea of each monitor with these.
+ *
+ * Not `_NET_WORKAREA`: that one is the WM's to publish, and EWMH defines
+ * it as one box per *desktop* for the whole screen, which cannot say "this
+ * monitor is smaller and that one is not". kiwm keeps writing it, from its
+ * own outputs, which is where this ends up anyway. */
 void inputscale_apply(void);
 
 /* Releases every confinement, without forgetting the scales -- what
