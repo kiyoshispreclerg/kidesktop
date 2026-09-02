@@ -1188,8 +1188,16 @@ void paint_deco(Client *c, cairo_t *cr, int w, int h, bool focused, bool argb)
 
 void draw_decoration(Client *c)
 {
-    if (!client_deco_visible(c))
+    if (!client_deco_visible(c)) {
+        /* Nothing to draw -- and nothing to *keep published* either. The
+         * dense copy of the decoration is a pixmap of its own, so unlike
+         * the frame it is not replaced by anything when this window is
+         * maximized: left alone it stays on screen, at its old size, over
+         * a window that is supposed to have no decoration at all
+         * (density.h). */
+        deco_density_hide(c);
         return;
+    }
     /* Set in manage() -- the root visual for a normal client, the screen's
      * 32-bit one for an ARGB client (see wm.h's Client::frame_visual). */
     if (!c->frame_visual)

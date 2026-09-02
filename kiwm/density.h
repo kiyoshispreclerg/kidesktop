@@ -20,6 +20,18 @@ void deco_density_request_changed(Client *c);
  * own). A no-op at density 1. */
 void deco_density_publish(Client *c, int w, int h, bool focused);
 
+/* The decoration is not being drawn at all right now -- maximized with
+ * hide_deco_on_maximize, fullscreen, a client that asked for no chrome.
+ * Withdraws the published pixmap without forgetting the density that was
+ * asked for, so the decoration comes back dense when it comes back at all.
+ *
+ * Necessary because the pixmap is a *separate drawable*: unlike the frame,
+ * whose contents the server replaces when it is resized, a pixmap nobody
+ * withdraws stays exactly as it was and the compositor keeps compositing
+ * it -- which shows up as the old decoration, at the old size, painted
+ * over a maximized window that is supposed to have none. */
+void deco_density_hide(Client *c);
+
 /* Density no longer wanted, or the client is going away. */
 void deco_density_forget(Client *c);
 

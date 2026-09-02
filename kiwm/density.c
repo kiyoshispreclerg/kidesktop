@@ -67,6 +67,20 @@ static void free_pixmap(Client *c)
     c->deco_density_w = c->deco_density_h = 0;
 }
 
+void deco_density_hide(Client *c)
+{
+    if (c->deco_density_pixmap == XCB_NONE)
+        return;
+
+    free_pixmap(c);
+
+    /* The *request* stays: this window is still on a scaled output and
+     * still wants a dense decoration the moment it has one to draw. Only
+     * what was published goes. */
+    xcb_delete_property(wm.conn, c->frame, wm.atoms.x_density_pixmap);
+    xcb_delete_property(wm.conn, c->frame, wm.atoms.x_density_scale);
+}
+
 void deco_density_forget(Client *c)
 {
     if (c->deco_density_num == 1 && c->deco_density_den == 1 &&
