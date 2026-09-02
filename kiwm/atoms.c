@@ -103,6 +103,8 @@ void ewmh_init_atoms(void)
     wm.atoms.kiwm_num_output_desktops = intern_atom("_KIWM_NUM_OUTPUT_DESKTOPS");
     wm.atoms.kiwm_set_output_desktop = intern_atom("_KIWM_SET_OUTPUT_DESKTOP");
 
+    wm.atoms.xis_confined_area   = intern_atom("_XIS_CONFINED_AREA");
+
     wm.atoms.x_density_requested = intern_atom("_X_DENSITY_REQUESTED");
     wm.atoms.x_density_scale     = intern_atom("_X_DENSITY_SCALE");
     wm.atoms.x_density_pixmap    = intern_atom("_X_DENSITY_PIXMAP");

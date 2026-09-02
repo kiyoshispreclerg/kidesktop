@@ -682,6 +682,10 @@ typedef struct {
      * See PROTOCOL.md. */
     xcb_atom_t kiwm_layer;
 
+    /* Published by a compositor doing per-output HiDPI scaling: the parts
+     * of the screen that are actually usable desktop (output.c). */
+    xcb_atom_t xis_confined_area;
+
     /* X-DENSITY, for kiwm's own decorations (density.h) */
     xcb_atom_t x_density_requested;
     xcb_atom_t x_density_scale;

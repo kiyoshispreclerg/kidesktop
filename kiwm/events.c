@@ -1634,6 +1634,17 @@ static void handle_button_release(xcb_button_release_event_t *ev)
 
 static void handle_property_notify(xcb_property_notify_event_t *ev)
 {
+    /* On the root: a compositor saying which part of each monitor is
+     * really desktop (output.c's apply_confined_areas). Re-reading the
+     * outputs is all it takes -- everything that lays windows out works
+     * from wm.outputs[]. */
+    if (ev->window == wm.root && ev->atom == wm.atoms.xis_confined_area) {
+        fprintf(stderr, "kiwm: _XIS_CONFINED_AREA changed\n");
+        outputs_refresh();
+        xcb_flush(wm.conn);
+        return;
+    }
+
     /* On a *frame*, not on a client window: a compositor asking this
      * window's decoration to be redrawn densely (density.h). Checked
      * first because frames and clients are different windows and this is

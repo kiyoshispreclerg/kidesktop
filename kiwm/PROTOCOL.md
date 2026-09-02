@@ -86,6 +86,31 @@ a real switcher effect on the composited scene rather than a flat window on top 
 kicomp's `--skip-wm-layers`. The decision belongs entirely to the compositor: kiwm is never told
 about it, has no setting for it, and changes no behavior because of it.
 
+## `_XIS_CONFINED_AREA`: kiwm as a consumer
+
+Not a kiwm property -- kiwm **reads** this one. A compositor doing
+per-output HiDPI scaling publishes it on the root window: `CARDINAL[4*N]`,
+groups of `x`, `y`, `width`, `height` in root coordinates, one per output
+whose pointer it has confined (kicomp's `inputscale.c`), and deleted when
+nothing is confined.
+
+It names the part of each affected monitor that is really desktop.
+Everything outside it on that monitor is scanout the compositor magnifies
+the logical desktop into: there is nothing there for a window to be placed
+in, and the pointer cannot even reach it.
+
+kiwm shrinks the output to that rectangle in `outputs_refresh()`, matching
+by geometry (a rectangle inside an output is that output's) rather than by
+name or index, so no agreement with the compositor about naming is needed.
+Nothing else in kiwm knows about HiDPI, scaling or densities: maximize,
+snapping, placement, the switcher and `_NET_WORKAREA` all work from
+`wm.outputs[]` and follow from that one clamp. A `PropertyNotify` on the
+root re-reads it, so a compositor starting, stopping or changing an
+output's scale is picked up live.
+
+With no such compositor -- and on every server without X-INPUT-SCALE --
+the property is simply absent and nothing changes.
+
 ## X-DENSITY on frames: kiwm as a client
 
 Not a kiwm protocol -- it is the compositor-to-client density protocol

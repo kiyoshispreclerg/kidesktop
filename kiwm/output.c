@@ -413,6 +413,64 @@ static double compute_output_refresh_hz(xcb_randr_output_t output_id)
     return hz;
 }
 
+/* `_XIS_CONFINED_AREA`, published by a compositor that is scaling an
+ * output: CARDINAL[4*N], groups of x, y, width, height in root
+ * coordinates, naming the part of each affected monitor that is really
+ * desktop. Everything outside it on that monitor is scanout the
+ * compositor magnifies the logical desktop into -- there is nothing there
+ * for a window to be placed in, and the pointer can't even go there.
+ *
+ * So kiwm shrinks the output to it. Nothing else in kiwm has to know
+ * about HiDPI, scaling or densities: maximize, snapping, placement,
+ * _NET_WORKAREA and the switcher all work from wm.outputs[] and follow
+ * automatically.
+ *
+ * Matched by geometry rather than by name or index: a rectangle inside an
+ * output is that output's, which needs no agreement with the compositor
+ * about what anything is called. Absent property -- the normal case, and
+ * every machine without the extension -- changes nothing. */
+static void apply_confined_areas(XisOutput *outs, int count)
+{
+    if (wm.atoms.xis_confined_area == XCB_NONE)
+        return;
+
+    xcb_get_property_reply_t *r = xcb_get_property_reply(wm.conn,
+        xcb_get_property(wm.conn, 0, wm.root, wm.atoms.xis_confined_area,
+                         XCB_ATOM_CARDINAL, 0, MAX_OUTPUTS * 4), NULL);
+    if (!r)
+        return;
+
+    int n = xcb_get_property_value_length(r) / 4;
+    uint32_t *v = xcb_get_property_value(r);
+
+    for (int i = 0; i + 3 < n; i += 4) {
+        int cx = (int)v[i], cy = (int)v[i + 1];
+        int cw = (int)v[i + 2], ch = (int)v[i + 3];
+        if (cw <= 0 || ch <= 0)
+            continue;
+
+        for (int o = 0; o < count; o++) {
+            XisOutput *out = &outs[o];
+            /* The confined box lies within this output's box. */
+            if (cx < out->x || cy < out->y ||
+                cx + cw > out->x + out->width ||
+                cy + ch > out->y + out->height)
+                continue;
+
+            fprintf(stderr, "kiwm: output '%s' confined to %dx%d+%d+%d "
+                            "(scanout %dx%d)\n",
+                    out->name, cw, ch, cx, cy, out->width, out->height);
+            out->x = cx;
+            out->y = cy;
+            out->width = cw;
+            out->height = ch;
+            break;
+        }
+    }
+
+    free(r);
+}
+
 void outputs_refresh(void)
 {
     /* wm.screen (cached at xcb_connect time) never reflects RandR changes
@@ -487,6 +545,10 @@ void outputs_refresh(void)
         fresh[0].desktop = wm.output_count > 0 ? wm.outputs[0].desktop : 0;
         fresh[0].refresh_hz = 60.0;
     }
+
+    /* Before the list is committed, so every consumer of wm.outputs[]
+     * sees the usable box rather than the scanout box. */
+    apply_confined_areas(fresh, n);
 
     memcpy(wm.outputs, fresh, sizeof(XisOutput) * (size_t)n);
     wm.output_count = n;
