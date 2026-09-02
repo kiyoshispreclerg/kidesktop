@@ -86,6 +86,35 @@ a real switcher effect on the composited scene rather than a flat window on top 
 kicomp's `--skip-wm-layers`. The decision belongs entirely to the compositor: kiwm is never told
 about it, has no setting for it, and changes no behavior because of it.
 
+## X-DENSITY on frames: kiwm as a client
+
+Not a kiwm protocol -- it is the compositor-to-client density protocol
+(`TESTS/X-DENSITY.md` in this tree), and kiwm speaks the **client** side of
+it for its own frames.
+
+A compositor doing per-monitor HiDPI scaling draws a logical desktop
+magnified into a monitor's real pixels, and everything drawn at logical
+size comes out soft. The decoration's pixels are kiwm's: it draws a 26 px
+titlebar into the frame, and no compositor can invent detail that isn't
+there. So the compositor writes `_X_DENSITY_REQUESTED` **on the frame
+window**, and kiwm:
+
+1. re-renders the same decoration through Cairo with `cairo_scale()`
+   applied, so the text is re-shaped by Pango at the larger size instead of
+   being magnified;
+2. into an **ARGB pixmap cleared to transparent** -- kiwm paints the
+   titlebar strip and the borders and nothing else, so the client's area
+   stays a hole and the app's own contents (dense or not) show through;
+3. publishes `_X_DENSITY_SCALE` and `_X_DENSITY_PIXMAP` on the frame,
+   contents first and announcement after;
+4. rewrites `_X_DENSITY_PIXMAP` with the same XID on every later repaint,
+   since a Pixmap raises no Damage of its own and that PropertyNotify is
+   the only "there is a new frame here" signal a compositor gets.
+
+With nothing asking, none of this exists: no pixmap, no properties, no
+cost. kiwm's own drawing and the uncomposited path are untouched, per the
+project doc's section 31.
+
 ## Client message: `_KIWM_SET_OUTPUT_DESKTOP`
 
 Send to the **root window** (not to any client window) via `XSendEvent`/`xcb_send_event` with

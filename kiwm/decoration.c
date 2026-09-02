@@ -7,6 +7,7 @@
  * flat kiwm.conf-configured look, there's no all-or-nothing theme
  * requirement. */
 #include "decoration.h"
+#include "density.h"
 #include "wm.h"
 
 #include <cairo/cairo-xcb.h>
@@ -963,38 +964,20 @@ static bool decoration_hover_tint(Client *c, const DecoSlot *slots, int nslots,
     return true;
 }
 
-void draw_decoration(Client *c)
+/* Everything the decoration *is*, painted into whatever Cairo context it
+ * is handed at whatever size that context implies.
+ *
+ * Split out of draw_decoration() so it can be run twice: once at the
+ * frame's real size, for the frame itself, and once into a
+ * density-scaled pixmap for a compositor doing per-monitor HiDPI scaling
+ * (density.c). The second call gets a context with cairo_scale() already
+ * applied, so the text is re-shaped and the shapes re-rasterized at the
+ * bigger size instead of being magnified afterwards -- which is the whole
+ * difference between a sharp titlebar and a blurry one.
+ *
+ * `argb` is whether the surface has a real alpha channel to clear. */
+void paint_deco(Client *c, cairo_t *cr, int w, int h, bool focused, bool argb)
 {
-    if (!client_deco_visible(c))
-        return;
-    /* Set in manage() -- the root visual for a normal client, the screen's
-     * 32-bit one for an ARGB client (see wm.h's Client::frame_visual). */
-    if (!c->frame_visual)
-        return;
-
-    int w = c->frame_width;
-    int h = c->frame_height;
-    if (w <= 0 || h <= 0)
-        return;
-
-    bool focused = (c == wm.focused);
-    bool dbg = wm.debug_resize && wm.drag_mode == DRAG_RESIZE;
-    double t_start = dbg ? monotonic_ms() : 0;
-
-    /* Render into an off-screen pixmap, not the frame directly: every
-     * paint call below (background, focus tint, title text, each button)
-     * used to land on the actual window the instant it was sent, so a
-     * fast sequence of redraws (dragging/resizing) could show those
-     * layers appearing one at a time -- visible flicker. Blitting the
-     * finished pixmap in one xcb_copy_area() at the end instead makes
-     * the whole update atomic from the X server's point of view. */
-    xcb_pixmap_t pixmap = xcb_generate_id(wm.conn);
-    xcb_create_pixmap(wm.conn, c->frame_depth, pixmap, c->frame, (uint16_t)w, (uint16_t)h);
-    double t_pixmap = dbg ? monotonic_ms() : 0;
-
-    cairo_surface_t *surface = cairo_xcb_surface_create(wm.conn, pixmap, c->frame_visual, w, h);
-    cairo_t *cr = cairo_create(surface);
-
     /* A depth-32 pixmap starts as undefined *including* its alpha channel,
      * and everything painted below is composited OVER what's there -- so
      * on an ARGB frame the garbage would show through anywhere the theme
@@ -1004,7 +987,7 @@ void draw_decoration(Client *c)
      * transparent, and without one the server just ignores the alpha as
      * it always has. Not done for root-depth frames: they have no alpha
      * channel and this would only be an extra full-surface paint. */
-    if (c->frame_depth == 32) {
+    if (argb) {
         cairo_save(cr);
         cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
         cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -1201,6 +1184,42 @@ void draw_decoration(Client *c)
         }
     }
 
+}
+
+void draw_decoration(Client *c)
+{
+    if (!client_deco_visible(c))
+        return;
+    /* Set in manage() -- the root visual for a normal client, the screen's
+     * 32-bit one for an ARGB client (see wm.h's Client::frame_visual). */
+    if (!c->frame_visual)
+        return;
+
+    int w = c->frame_width;
+    int h = c->frame_height;
+    if (w <= 0 || h <= 0)
+        return;
+
+    bool focused = (c == wm.focused);
+    bool dbg = wm.debug_resize && wm.drag_mode == DRAG_RESIZE;
+    double t_start = dbg ? monotonic_ms() : 0;
+
+    /* Render into an off-screen pixmap, not the frame directly: every
+     * paint call below (background, focus tint, title text, each button)
+     * used to land on the actual window the instant it was sent, so a
+     * fast sequence of redraws (dragging/resizing) could show those
+     * layers appearing one at a time -- visible flicker. Blitting the
+     * finished pixmap in one xcb_copy_area() at the end instead makes
+     * the whole update atomic from the X server's point of view. */
+    xcb_pixmap_t pixmap = xcb_generate_id(wm.conn);
+    xcb_create_pixmap(wm.conn, c->frame_depth, pixmap, c->frame, (uint16_t)w, (uint16_t)h);
+    double t_pixmap = dbg ? monotonic_ms() : 0;
+
+    cairo_surface_t *surface = cairo_xcb_surface_create(wm.conn, pixmap, c->frame_visual, w, h);
+    cairo_t *cr = cairo_create(surface);
+
+    paint_deco(c, cr, w, h, focused, c->frame_depth == 32);
+
     double t_paint = dbg ? monotonic_ms() : 0;
 
     cairo_destroy(cr);
@@ -1214,6 +1233,11 @@ void draw_decoration(Client *c)
     xcb_gcontext_t gc = (c->frame_depth == 32 && wm.deco_gc_argb) ? wm.deco_gc_argb : wm.deco_gc;
     xcb_copy_area(wm.conn, pixmap, c->frame, gc, 0, 0, 0, 0, (uint16_t)w, (uint16_t)h);
     xcb_free_pixmap(wm.conn, pixmap);
+
+    /* And the same decoration again, at whatever density a compositor
+     * asked for (density.h). A no-op -- not even a branch's worth of work
+     * -- unless one did. */
+    deco_density_publish(c, w, h, focused);
 
     if (dbg) {
         double t_end = monotonic_ms();

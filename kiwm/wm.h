@@ -314,6 +314,13 @@ struct Client {
     uint8_t frame_depth;
     xcb_visualtype_t *frame_visual;
 
+    /* X-DENSITY (density.h): a compositor scaling this window's monitor
+     * asked for the decoration at a higher density, and this is the pixmap
+     * kiwm redraws it into. 1/1 and None unless something asked. */
+    uint32_t deco_density_num, deco_density_den;
+    xcb_pixmap_t deco_density_pixmap;
+    int deco_density_w, deco_density_h;
+
     int x, y, width, height;                 /* content geometry, global coords */
     int saved_x, saved_y, saved_w, saved_h;   /* restore geometry before maximize */
     int frame_width, frame_height;
@@ -674,6 +681,11 @@ typedef struct {
      * kiwm's behavior is identical whether anything reads it or not.
      * See PROTOCOL.md. */
     xcb_atom_t kiwm_layer;
+
+    /* X-DENSITY, for kiwm's own decorations (density.h) */
+    xcb_atom_t x_density_requested;
+    xcb_atom_t x_density_scale;
+    xcb_atom_t x_density_pixmap;
 } Atoms;
 
 typedef struct {

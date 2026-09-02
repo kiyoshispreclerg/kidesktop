@@ -5,6 +5,7 @@
 #include "client.h"
 #include "output.h"
 #include "decoration.h"
+#include "density.h"
 #include "ewmh.h"
 #include "keybind.h"
 #include "osd.h"
@@ -1633,6 +1634,18 @@ static void handle_button_release(xcb_button_release_event_t *ev)
 
 static void handle_property_notify(xcb_property_notify_event_t *ev)
 {
+    /* On a *frame*, not on a client window: a compositor asking this
+     * window's decoration to be redrawn densely (density.h). Checked
+     * first because frames and clients are different windows and this is
+     * the only property kiwm listens for on its own. */
+    if (ev->atom == wm.atoms.x_density_requested) {
+        Client *fc = find_client_window(ev->window);
+        if (fc && fc->frame == ev->window) {
+            deco_density_request_changed(fc);
+            return;
+        }
+    }
+
     Client *c = find_client_window(ev->window);
     if (!c) {
         if ((ev->atom == wm.atoms.net_wm_strut || ev->atom == wm.atoms.net_wm_strut_partial) &&

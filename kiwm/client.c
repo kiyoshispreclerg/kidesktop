@@ -4,6 +4,7 @@
 #include "wm.h"
 #include "output.h"
 #include "decoration.h"
+#include "density.h"
 #include "ewmh.h"
 #include "osd.h"
 #include "menu.h"
@@ -1788,6 +1789,10 @@ static void remove_client(Client *client)
 
 void unmanage(Client *c)
 {
+    /* Frees the density pixmap and stops publishing for a frame that is
+     * about to stop existing (density.h). */
+    deco_density_forget(c);
+
     int fx = c->x, fy = c->y, fw = c->frame_width, fh = c->frame_height;
 
     if (wm.focused == c)
@@ -2190,6 +2195,10 @@ void manage(xcb_window_t window, bool map_requested)
     uint32_t values[] = {
         0, /* border_pixel: unused, frame's X border_width is 0 */
         XCB_EVENT_MASK_EXPOSURE |
+        /* PropertyChange for the frame's own properties: a compositor
+         * writes _X_DENSITY_REQUESTED here to ask for a dense
+         * decoration (density.h). */
+        XCB_EVENT_MASK_PROPERTY_CHANGE |
         XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE |
         XCB_EVENT_MASK_POINTER_MOTION |
         XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_LEAVE_WINDOW |

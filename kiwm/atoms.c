@@ -102,6 +102,10 @@ void ewmh_init_atoms(void)
     wm.atoms.kiwm_output_desktop = intern_atom("_KIWM_OUTPUT_DESKTOP");
     wm.atoms.kiwm_num_output_desktops = intern_atom("_KIWM_NUM_OUTPUT_DESKTOPS");
     wm.atoms.kiwm_set_output_desktop = intern_atom("_KIWM_SET_OUTPUT_DESKTOP");
+
+    wm.atoms.x_density_requested = intern_atom("_X_DENSITY_REQUESTED");
+    wm.atoms.x_density_scale     = intern_atom("_X_DENSITY_SCALE");
+    wm.atoms.x_density_pixmap    = intern_atom("_X_DENSITY_PIXMAP");
     wm.atoms.kiwm_wm_output = intern_atom("_KIWM_WM_OUTPUT");
     wm.atoms.kiwm_minimized_geometry = intern_atom("_KIWM_MINIMIZED_GEOMETRY");
     wm.atoms.kiwm_layer = intern_atom("_KIWM_LAYER");

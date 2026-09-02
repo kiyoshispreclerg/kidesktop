@@ -15,6 +15,12 @@ void load_decoration(void);
 bool client_deco_visible(Client *c);
 void draw_decoration(Client *c);
 
+/* The decoration's painting on its own, into any Cairo context at any
+ * scale -- what lets density.c render it a second time, densely, without
+ * a second copy of the drawing code. `argb` says whether the surface has
+ * an alpha channel to clear first. */
+void paint_deco(Client *c, cairo_t *cr, int w, int h, bool focused, bool argb);
+
 /* Resolved position/width of one titlebar element (see wm.h's
  * DecoElemKind/wm.deco_layout). */
 typedef struct {
