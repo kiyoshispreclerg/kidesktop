@@ -34,6 +34,18 @@
  * XRender backend does: shadows, shape clipping (rounded corners), the
  * X-DENSITY layers and the shade stash. Each is a follow-up; `renderer =
  * glx` is opt-in until they are there, and `auto` still picks xrender.
+ *
+ * One thing it deliberately does *not* do that looks like an optimization
+ * and is really a correctness rule: partial repaint. A double-buffered
+ * drawable hands back a buffer that holds a frame from two swaps ago, not
+ * the last one, so drawing only the damaged part leaves the rest showing
+ * an old frame -- or, on a driver that hands over a fresh allocation,
+ * whatever was in that memory. That is what "parts flashing black, then
+ * red, with pieces of windows out of place" is. Honouring damage here
+ * needs GLX_EXT_buffer_age, which says how old the buffer is so the
+ * region can be widened by the frames in between; until that exists, this
+ * backend repaints the whole output every frame, which is slower and
+ * always right.
  */
 #include "renderer.h"
 #include "region.h"
@@ -57,10 +69,16 @@ static GLXContext context;
 static GLXFBConfig window_config;      /* for the per-output drawables */
 static GLXFBConfig tfp_config_rgb;     /* depth 24 windows, as textures */
 static GLXFBConfig tfp_config_rgba;    /* depth 32 windows */
+/* Whether each of those two hands the pixmap over upside down. Not a
+ * detail to guess at: GLX_Y_INVERTED_EXT is per config, it differs
+ * between drivers, and getting it wrong draws every window mirrored
+ * vertically -- which looks exactly like "pieces of windows out of
+ * place". */
+static bool tfp_inverted_rgb, tfp_inverted_rgba;
 static bool have_tfp;
 
 static GLuint program;
-static GLint u_projection, u_transform, u_opacity, u_texture;
+static GLint u_projection, u_transform, u_opacity, u_texture, u_y_flip;
 static GLuint quad_vbo;
 
 /* Per-output GL state, hung off CompOutput::render_data. */
@@ -82,6 +100,8 @@ typedef struct GlxWindow {
     GLuint texture;
     int width, height;
     bool argb;
+    bool bound;             /* the image is currently bound to the texture */
+    bool y_inverted;        /* this config hands the pixmap upside down */
 } GlxWindow;
 
 static GlxWindow *windows;
@@ -100,9 +120,11 @@ static const char *vertex_source =
     "attribute vec2 position;\n"
     "uniform mat4 projection;\n"
     "uniform mat4 transform;\n"
+    "uniform float y_flip;\n"
     "varying vec2 texcoord;\n"
     "void main() {\n"
-    "    texcoord = position;\n"
+    "    texcoord = vec2(position.x,\n"
+    "                    mix(position.y, 1.0 - position.y, y_flip));\n"
     "    gl_Position = projection * transform * vec4(position, 0.0, 1.0);\n"
     "}\n";
 
@@ -163,6 +185,7 @@ static bool program_build(void)
     u_transform = glGetUniformLocation(program, "transform");
     u_opacity = glGetUniformLocation(program, "opacity");
     u_texture = glGetUniformLocation(program, "texture0");
+    u_y_flip = glGetUniformLocation(program, "y_flip");
 
     /* One unit quad, reused for every window: the transform is what makes
      * it the right size in the right place, which is the same thing the
@@ -233,10 +256,16 @@ static bool choose_configs(void)
                     argb ? "RGBA" : "RGB");
             return false;
         }
-        if (argb)
+        int inverted = 0;
+        glXGetFBConfigAttrib(dpy, configs[0], GLX_Y_INVERTED_EXT, &inverted);
+
+        if (argb) {
             tfp_config_rgba = configs[0];
-        else
+            tfp_inverted_rgba = inverted != 0;
+        } else {
             tfp_config_rgb = configs[0];
+            tfp_inverted_rgb = inverted != 0;
+        }
         XFree(configs);
     }
 
@@ -272,8 +301,10 @@ static bool glx_start(void)
         return false;
     }
 
-    comp_info("glx %d.%d, %s", major, minor,
-              glXIsDirect(dpy, context) ? "direct" : "indirect (software path)");
+    comp_info("glx %d.%d, %s, texture-from-pixmap y-inverted=%d/%d (rgb/rgba)",
+              major, minor,
+              glXIsDirect(dpy, context) ? "direct" : "indirect (software path)",
+              tfp_inverted_rgb, tfp_inverted_rgba);
     return true;
 }
 
@@ -399,14 +430,24 @@ static GlxWindow *glx_window_get(CompWindow *w)
     return g;
 }
 
+/* Releases the image without touching the pixmap: what has to happen
+ * before every rebind. Binding an already-bound image is undefined by the
+ * extension, and "undefined" on a real driver is stale or torn contents. */
+static void glx_window_release(GlxWindow *g)
+{
+    if (!g->bound || !g->glx_pixmap)
+        return;
+
+    glBindTexture(GL_TEXTURE_2D, g->texture);
+    glXReleaseTexImageEXT(dpy, g->glx_pixmap, GLX_FRONT_LEFT_EXT);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    g->bound = false;
+}
+
 static void glx_window_unbind(GlxWindow *g)
 {
     if (g->glx_pixmap) {
-        if (g->texture) {
-            glBindTexture(GL_TEXTURE_2D, g->texture);
-            glXReleaseTexImageEXT(dpy, g->glx_pixmap, GLX_FRONT_LEFT_EXT);
-            glBindTexture(GL_TEXTURE_2D, 0);
-        }
+        glx_window_release(g);
         glXDestroyPixmap(dpy, g->glx_pixmap);
         g->glx_pixmap = 0;
     }
@@ -454,6 +495,7 @@ static bool glx_window_bind(CompWindow *w, GlxWindow *g)
             glx_window_unbind(g);
             return false;
         }
+        g->y_inverted = w->argb ? tfp_inverted_rgba : tfp_inverted_rgb;
 
         if (!g->texture) {
             glGenTextures(1, &g->texture);
@@ -466,8 +508,13 @@ static bool glx_window_bind(CompWindow *w, GlxWindow *g)
         }
     }
 
+    /* Released first, then bound again: that pair is how the contents of
+     * a window that has drawn since the last frame actually reach the
+     * texture on most drivers. */
+    glx_window_release(g);
     glBindTexture(GL_TEXTURE_2D, g->texture);
     glXBindTexImageEXT(dpy, g->glx_pixmap, GLX_FRONT_LEFT_EXT, NULL);
+    g->bound = true;
     return true;
 }
 
@@ -560,29 +607,14 @@ static void glx_begin(CompOutput *o, const CompRegion *damage)
 
     glViewport(0, 0, o->physical.w, o->physical.h);
 
-    /* The damage as scissor boxes: GL clips to one rectangle, so a region
-     * of several is drawn several times rather than once. That is still
-     * the right trade when the alternative is repainting the whole
-     * output -- and a region that overflowed into its bounding box (see
-     * region.h) has already collapsed to one.
-     *
-     * Only the *bounding* box here, in this first version: per-rectangle
-     * scissoring means redrawing the scene once per rectangle, which is a
-     * loop this backend can grow when there is something to measure. */
+    /* The damage is deliberately ignored, and the whole output is redrawn
+     * every frame (see this file's header). Scissoring to it would leave
+     * the rest of the *back* buffer showing a frame from two swaps ago,
+     * or uninitialised memory -- which is what the flashing and the
+     * misplaced pieces were. GLX_EXT_buffer_age is what makes honouring
+     * it correct, and until then this is the honest trade. */
+    (void)damage;
     glDisable(GL_SCISSOR_TEST);
-    if (!region_is_full(damage) && damage->count > 0) {
-        CompRect b = region_bounds(damage);
-        CompRect hit;
-        if (rect_intersect(&b, &o->rect, &hit)) {
-            int x = (int)((float)(hit.x - o->rect.x) * o->scale);
-            int y = (int)((float)(hit.y - o->rect.y) * o->scale);
-            int w = (int)((float)hit.w * o->scale + 0.5f);
-            int h = (int)((float)hit.h * o->scale + 0.5f);
-            /* GL's origin is the bottom-left of the drawable. */
-            glScissor(x, o->physical.h - (y + h), w, h);
-            glEnable(GL_SCISSOR_TEST);
-        }
-    }
 
     glClearColor(0.109f, 0.109f, 0.109f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -593,6 +625,11 @@ static void glx_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage
     GlxOutput *go = o->render_data;
     if (!go || !program)
         return;
+
+    /* Every node, every frame: the whole buffer is being rebuilt (see
+     * glx_begin), so skipping the ones damage didn't touch would leave
+     * holes rather than save work. */
+    (void)damage;
 
     float projection[16];
     projection_for(o, projection);
@@ -615,8 +652,6 @@ static void glx_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage
 
         if (n->visible_rect.w <= 0 || n->visible_rect.h <= 0)
             continue;
-        if (!region_hits(damage, &n->visible_rect))
-            continue;
 
         GlxWindow *g = glx_window_get(w);
         if (!g || !glx_window_bind(w, g))
@@ -626,6 +661,14 @@ static void glx_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage
         node_matrix(n, m);
         glUniformMatrix4fv(u_transform, 1, GL_FALSE, m);
         glUniform1f(u_opacity, n->opacity);
+        /* GLX_Y_INVERTED_EXT *true* means the pixmap's first texture row
+         * is its top one, which is already what the texture coordinates
+         * here assume (they run downwards, like X's own y). It is the
+         * *false* case -- GL's usual bottom-first convention -- that has
+         * to be mirrored. Getting this backwards draws every window
+         * upside down, which is worth stating plainly because the two
+         * mistakes look identical until you try the other driver. */
+        glUniform1f(u_y_flip, g->y_inverted ? 0.0f : 1.0f);
 
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
