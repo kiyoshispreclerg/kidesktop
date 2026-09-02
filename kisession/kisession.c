@@ -65,7 +65,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KISESSION_VERSION "0.1.1"
+#define KISESSION_VERSION "0.1.2"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -127,6 +127,7 @@ static const char *const ARGV_KICONFD[] = {"kiconfd", NULL};
 static const char *const ARGV_XISBACK[] = {"xisback", NULL};
 static const char *const ARGV_XISPANEL[] = {"xispanel", NULL};
 static const char *const ARGV_XISKEYS[] = {"xiskeys", NULL};
+static const char *const ARGV_KICOMP[] = {"kicomp", NULL};
 static const char *const ARGV_LOCKER[] = {"xss-lock", "--", "i3lock", NULL};
 
 /* Start order is table order. xisguard first so the XNOTIFY permission
@@ -143,6 +144,18 @@ static const SvcDef SERVICES[] = {
     {"locker", SVC_SUPERVISED, ARGV_LOCKER, 1, "xss-lock + i3lock screen locking", 0},
     {"polkit", SVC_SUPERVISED, NULL, 0, "polkit authentication agent (off: nothing here needs one yet)", 0},
     {"wm", SVC_WM, NULL, 1, "window manager, see 'wm =' above", 0},
+    /* After the WM, because a compositor coming up into a session that
+     * already has frames is the ordinary case it handles anyway, and a
+     * WM that fails to start shouldn't leave a compositor redirecting an
+     * unmanaged screen.
+     *
+     * Oneshot and not supervised, deliberately: compositing is a thing
+     * the user switches off (xiskeys binds `kicomp --toggle` to
+     * Alt+Shift+F12), and a supervised service would bring it straight
+     * back and make that key do nothing. Skipped without complaint when
+     * kicomp isn't installed -- it is optional, and kiwm is fully usable
+     * uncomposited. */
+    {"kicomp", SVC_ONESHOT, ARGV_KICOMP, 1, "compositor (optional; not restarted, so the toggle key can turn it off)", 0},
     {"autostart", SVC_AUTOSTART, NULL, 1, "XDG autostart entries, started after the services above", 0},
 };
 #define N_SERVICES ((int)(sizeof(SERVICES) / sizeof(SERVICES[0])))
@@ -608,6 +621,16 @@ static void start_service(int idx)
         if (strcmp(def->name, "audio") == 0) {
             start_audio(idx);
         } else if (def->argv) {
+            /* Installed? Asked here rather than left to the exec in the
+             * child, so "not installed" reads as one line instead of a
+             * failed spawn -- these are optional pieces (kicomp), and a
+             * session without one is a supported session. */
+            char found[PATH_MAX];
+            if (!find_in_path(def->argv[0], found, sizeof(found))) {
+                fprintf(stderr, "kisession: %s not available (%s missing); skipping\n", def->name, def->argv[0]);
+                st->enabled = 0;
+                return;
+            }
             fprintf(stderr, "kisession: starting %s\n", def->argv[0]);
             svc_record_pid(idx, spawn_const(def->argv));
         }
