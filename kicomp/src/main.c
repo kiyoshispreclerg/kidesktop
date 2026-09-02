@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.11"
+#define KICOMP_VERSION "0.2.12"
 
 #include "comp.h"
 #include "output.h"
@@ -66,6 +66,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 KiComp comp;
@@ -142,6 +143,9 @@ static void atoms_init(void)
     comp.atoms.xrootpmap_id           = intern("_XROOTPMAP_ID");
     comp.atoms.esetroot_pmap_id       = intern("ESETROOT_PMAP_ID");
     comp.atoms.kiwm_layer             = intern("_KIWM_LAYER");
+    /* "Shut down cleanly" -- sent by `kicomp --toggle` to whichever
+     * instance already owns the selection. */
+    comp.atoms.kicomp_quit            = intern("_KICOMP_QUIT");
 
     comp.atoms.net_wm_window_type     = intern("_NET_WM_WINDOW_TYPE");
     comp.atoms.type_normal            = intern("_NET_WM_WINDOW_TYPE_NORMAL");
@@ -316,6 +320,80 @@ static bool caps_detect(void)
 /* ------------------------------------------------------------------ */
 /* _NET_WM_CM_Sn ownership                                             */
 /* ------------------------------------------------------------------ */
+
+static xcb_window_t selection_owner(void)
+{
+    if (comp.atoms.net_wm_cm == XCB_NONE)
+        return XCB_NONE;
+
+    xcb_get_selection_owner_reply_t *own = xcb_get_selection_owner_reply(comp.conn,
+        xcb_get_selection_owner(comp.conn, comp.atoms.net_wm_cm), NULL);
+    xcb_window_t w = own ? own->owner : XCB_NONE;
+    free(own);
+    return w;
+}
+
+/* --toggle: one command bound to one key that turns compositing off if it
+ * is on, and on if it is off -- the compositing toggle every desktop has.
+ *
+ * "Is it on?" is not asked of a process name or a pid file but of the
+ * session itself: whoever owns _NET_WM_CM_Sn is the compositor, which is
+ * the same question every other client asks and the same answer another
+ * compositor would give. So this turns off *a* compositor, not
+ * specifically one of ours, which is what a user pressing the key means.
+ *
+ * Returns true when something was turned off and this process is done.
+ */
+static bool toggle_off(void)
+{
+    xcb_window_t owner = selection_owner();
+    if (owner == XCB_NONE)
+        return false;      /* nothing running: the caller starts up */
+
+    /* Asked, not imposed: a ClientMessage with an empty event mask goes
+     * to the client that created the window, and the running instance
+     * answers it by leaving its loop -- so it unredirects, releases the
+     * overlay, drops any cursor confinement it applied and repaints
+     * nothing half-done. */
+    xcb_client_message_event_t msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.response_type = XCB_CLIENT_MESSAGE;
+    msg.format = 32;
+    msg.window = owner;
+    msg.type = comp.atoms.kicomp_quit;
+    xcb_send_event(comp.conn, 0, owner, 0, (const char *)&msg);
+    xcb_flush(comp.conn);
+
+    /* Gone when the selection is: that is the one fact everything else in
+     * the session keys off. */
+    int waited = 0;
+    bool killed = false;
+    while (waited < 3000) {
+        struct timespec ts = { 0, 50 * 1000 * 1000 };
+        nanosleep(&ts, NULL);
+        waited += 50;
+
+        if (selection_owner() != owner)
+            return true;
+
+        /* An instance too old to know the message, or one wedged: take
+         * the connection out from under it. The server then reverts
+         * everything that client did -- the redirection, the overlay, the
+         * confinement -- which is exactly the uncomposited session, just
+         * without the tidy exit. */
+        if (waited >= 1000 && !killed) {
+            fprintf(stderr, "kicomp: the running compositor did not answer, "
+                            "closing its connection\n");
+            xcb_kill_client(comp.conn, owner);
+            xcb_flush(comp.conn);
+            killed = true;
+        }
+    }
+
+    fprintf(stderr, "kicomp: a compositor still owns _NET_WM_CM_S%d\n",
+            comp.screen_num);
+    return true;   /* done either way: never two compositors at once */
+}
 
 static bool acquire_selection(bool replace)
 {
@@ -661,6 +739,18 @@ static void handle_event(xcb_generic_event_t *ev)
         }
         break;
     }
+    case XCB_CLIENT_MESSAGE: {
+        xcb_client_message_event_t *e = (xcb_client_message_event_t *)ev;
+        /* `kicomp --toggle` asking us to stand down. Leaving the loop
+         * rather than exiting here: the shutdown path below is what puts
+         * the session back the way it was. */
+        if (e->type == comp.atoms.kicomp_quit && comp.atoms.kicomp_quit != XCB_NONE) {
+            comp_info("asked to quit; compositing off");
+            comp.running = false;
+        }
+        break;
+    }
+
     case XCB_EXPOSE:
         /* Something drew over the overlay (or it was just mapped): the
          * only correct answer is to present again. */
@@ -710,12 +800,15 @@ static void shutdown_compositor(void)
 static void usage(void)
 {
     printf("kicomp " KICOMP_VERSION " - compositor for kiwm\n"
-           "usage: kicomp [--replace] [--single-drawable] [--skip-wm-layers]\n"
+           "usage: kicomp [--replace] [--toggle] [--single-drawable]\n"
+           "              [--skip-wm-layers]\n"
            "              [--effects|--no-effects] [--anim-ms=N]\n"
            "              [--renderer=NAME] [--presenter=NAME]\n"
            "              [-v|--verbose] [--version] [--help]\n"
            "\n"
            "  --replace          take over from a running compositor\n"
+           "  --toggle           turn compositing off if a compositor is\n"
+           "                     running, on if none is -- one key binding\n"
            "  --single-drawable  legacy mode: one drawable for the whole\n"
            "                     screen instead of one per output\n"
            "  --skip-wm-layers   don't composite kiwm's own overlay windows\n"
@@ -736,6 +829,7 @@ static void usage(void)
 int main(int argc, char **argv)
 {
     bool replace = false;
+    bool toggle = false;
 
     /* The file first, the command line second: an option always wins
      * over kicomp.conf. */
@@ -744,6 +838,8 @@ int main(int argc, char **argv)
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--replace")) {
             replace = true;
+        } else if (!strcmp(argv[i], "--toggle")) {
+            toggle = true;
         } else if (!strcmp(argv[i], "--single-drawable")) {
             comp.single_drawable = true;
         } else if (!strcmp(argv[i], "--skip-wm-layers")) {
@@ -789,6 +885,14 @@ int main(int argc, char **argv)
     comp.root_h = comp.screen->height_in_pixels;
 
     atoms_init();
+
+    /* Before any capability is checked or anything is claimed: if this is
+     * the "off" half of the toggle there is nothing to set up. */
+    if (toggle && toggle_off()) {
+        xcb_flush(comp.conn);
+        xcb_disconnect(comp.conn);
+        return 0;
+    }
 
     if (!caps_detect()) {
         xcb_disconnect(comp.conn);

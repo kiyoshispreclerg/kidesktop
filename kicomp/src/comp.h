@@ -377,6 +377,7 @@ typedef struct KiComp {
         xcb_atom_t xrootpmap_id;
         xcb_atom_t esetroot_pmap_id;
         xcb_atom_t kiwm_layer;
+        xcb_atom_t kicomp_quit;
 
         /* _NET_WM_WINDOW_TYPE and the handful of values that decide a
          * CompWindowKind. */

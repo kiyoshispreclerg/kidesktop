@@ -28,6 +28,7 @@ Options:
 | option | effect |
 |---|---|
 | `--replace` | take over from a running compositor |
+| `--toggle` | turn compositing **off** if a compositor is running, **on** if none is |
 | `--single-drawable` | legacy mode: **one** drawable for the whole screen instead of one per output |
 | `--skip-wm-layers` | don't composite kiwm's own layers (`_KIWM_LAYER`: the alt-tab OSD, the move/resize wireframe) |
 | `--effects`, `--no-effects` | turn animations on/off |
@@ -37,7 +38,23 @@ Options:
 | `-v`, `--verbose` | detailed log (events, windows, layers, frames) |
 
 Every option has an equivalent key in `kicomp.conf` (below); the command
-line always wins over the file.
+line always wins over the file — except `--toggle`, which is not a
+setting but an action.
+
+`--toggle` is meant to be one key binding, the way every desktop has one:
+it asks whoever owns `_NET_WM_CM_Sn` to shut down (a `_KICOMP_QUIT`
+client message, answered by leaving the loop, so the redirection, the
+overlay and any cursor confinement are given back properly), and starts
+normally when nobody owns it. An instance that doesn't answer within a
+second has its connection closed instead, which the server unwinds into
+the same uncomposited session. In kiwm's config:
+
+In `~/.config/xiskeys.conf` (tab-separated), which is where a global
+action like this belongs:
+
+```
+BIND	compositing-toggle	Alt+Shift+F12	kicomp --toggle
+```
 
 Without `-v` it still prints the essentials: the render and presentation
 backends, the detected capabilities, and how many drawables there are and
