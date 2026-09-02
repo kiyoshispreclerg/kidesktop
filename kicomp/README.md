@@ -13,8 +13,10 @@ no compositing, with real transparency (32-bit windows' alpha and
 - a per-output frame clock driving the animations;
 - configuration in `kicomp.conf`.
 
-No OpenGL yet — the renderer is XRender, which handles translation, scale
-and alpha. Wobbly and blur are what will ask for GL.
+Two renderers now: **XRender**, which is complete and what `auto` picks,
+and a **GLX** one that is new and does not do everything the older one
+does yet (see below). Wobbly, blur and the cube are what the GL one is
+for — they cannot be expressed in XRender at all.
 
 ```sh
 make
@@ -30,7 +32,7 @@ Options:
 | `--skip-wm-layers` | don't composite kiwm's own layers (`_KIWM_LAYER`: the alt-tab OSD, the move/resize wireframe) |
 | `--effects`, `--no-effects` | turn animations on/off |
 | `--anim-ms=N` | global animation unit, in ms |
-| `--renderer=NAME` | `auto` \| `xrender` |
+| `--renderer=NAME` | `auto` \| `xrender` \| `glx` |
 | `--presenter=NAME` | `auto` \| `present` \| `copy` |
 | `-v`, `--verbose` | detailed log (events, windows, layers, frames) |
 
@@ -82,7 +84,7 @@ optional — every key has a working default. Same format as `kiwm.conf`
 # ---- global ----
 effects            = 1     # animations on
 animation_duration = 160   # the animation unit, in ms
-renderer           = auto  # auto | xrender
+renderer           = auto  # auto | xrender | glx
 presenter          = auto  # auto | present | copy
 
 # ---- per-output scaling (HiDPI) ----
@@ -805,6 +807,59 @@ Two drawables published by two programs, each dense on its own account.
 Measured on the titlebar of the reference client at 2x: 2.5x the edge
 energy of the magnified version.
 
+## The GLX renderer
+
+`renderer = glx` draws the same scene with the GPU. Not for speed —
+XRender composites a desktop perfectly well — but for **what can be
+expressed**: XRender's picture transform is affine and its clip is a set
+of rectangles, which is why a window being animated loses its rounded
+corners today, and why wobbly, blur and the cube are not merely slow there
+but impossible. A shader has none of those limits.
+
+It follows the same architecture as everything else: **one drawable per
+output**. Each output gets its own GLX window, a child of the Composite
+overlay covering exactly that output's scanout, and its own swap — so
+outputs still never wait for each other and the per-output frame clock
+still drives them independently. `presenter-glx.c` is the other half:
+with GL, presenting *is* the buffer swap, so renderer and presenter come
+as a pair (`presenter=` is ignored when the GLX renderer is chosen).
+
+Windows arrive as textures through `GLX_EXT_texture_from_pixmap` — the
+pixmap the compositor already names for each window, bound directly as a
+texture with no copy and no readback. That extension is checked for at
+startup rather than assumed; without it this backend declines to start.
+
+GLX needs an Xlib `Display` and kicomp is an XCB program, so the backend
+opens a second, independent connection used for nothing but GLX. Mixing
+the two event queues is a known way to end up with an unexplainable spin;
+X resources are server-side and their ids are global, so the windows and
+pixmaps the XCB connection owns are perfectly usable from it.
+
+**The effects did not change.** Not one line of `effects/` was touched for
+this backend to exist: a scene node is a rectangle, a 4×4 transform and an
+opacity (`scene.h`), and those map onto a shader as directly as they map
+onto XRender. That was the point of the abstraction, and this is the first
+evidence that it holds.
+
+### What it doesn't do yet
+
+`auto` stays on XRender until these are there, and each is a follow-up in
+this one file rather than a change anywhere else:
+
+| | |
+|---|---|
+| shadows | the nine-patch is XRender pictures today; in GL it is a generated texture drawn as nine quads |
+| shape clipping | rounded corners — the plan is to draw the window's visible region as one quad per shape rectangle, which is exact and needs no stencil |
+| X-DENSITY layers | the dense decoration and contents are drawn by the XRender path only |
+| the shade stash | so `shade` has nothing to roll up under this renderer |
+| damage | the scissor is the damage region's *bounding box*, not each rectangle, and `GLX_EXT_buffer_age` isn't consulted yet — with a swapchain the buffer being drawn into is not the one presented last frame |
+| MSC/UST | `GLX_OML_sync_control` would give the same numbers the Present presenter reports |
+
+Verified on a nested session (llvmpipe, GLX 1.4 direct): the desktop
+composites correctly, damage updates reach the textures, windows open with
+`fade-in` and `scale-in` running unmodified, and 122 frames of moving and
+typing left the process's RSS unchanged with no X errors.
+
 ## Damage
 
 Two questions, and they have different answers: *which outputs* to repaint
@@ -939,8 +994,8 @@ timestamps now arriving. Deriving it from those is a change to
 ## What is **not** implemented (and where it goes)
 
 - **More effects** (sections 24.5-24.7) — wobbly, blur, cube. All three
-  ask for the GL renderer: a mesh per window, shaders, and a transform
-  that isn't affine.
+  ask for the GL renderer, which now exists but is not yet at parity with
+  XRender (see above); they come after it is.
 - **MSC/UST-derived period** (the rest of Fase 7, sections 19/49) — the
   Present presenter reports MSC and UST per completed frame and the loop
   is throttled by them, but the frame clock's period still comes from
@@ -1041,10 +1096,13 @@ src/
                       scale-in, scale-out, shade, minimize, desktop-wall,
                       smooth-move, dodge
   renderer.h          renderer vtable
+  renderer.c          the core's side of it: one wrapper per backend hook
   renderer-xrender.c  XRender backend
+  renderer-glx.c      GLX backend (GL_EXT_texture_from_pixmap, shaders)
   presenter.h         presenter vtable
   presenter-copy.c    COPY backend (overlay window)
   presenter-present.c PRESENT backend (per-CRTC, vblank-timed)
+  presenter-glx.c     the GLX renderer's buffer swap
 tests/
   argb-window.c       ARGB test client
 ```

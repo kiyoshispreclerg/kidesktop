@@ -54,6 +54,7 @@ bool present_physical_rect(const CompOutput *o, const CompRect *logical,
 
 const CompPresenter *presenter_copy(void);
 const CompPresenter *presenter_present(void);
+const CompPresenter *presenter_glx(void);
 
 extern const CompPresenter *presenter;
 

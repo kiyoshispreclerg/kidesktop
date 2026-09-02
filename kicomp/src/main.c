@@ -24,9 +24,10 @@
  *     (section 19). Durations are time, never frames, and every one of
  *     them is a multiple of a single number in kicomp.conf (section 20).
  *
- * Explicitly NOT here yet: MSC/UST-locked pacing and the XiS FLIP
- * presenter (the rest of Fase 7/8), a GL renderer (Fase 6, and with it
- * the effects that need one -- wobbly, blur), region-based repaint,
+ * Explicitly NOT here yet: UST-derived pacing and the XiS FLIP presenter
+ * (the rest of Fase 7/8), parity for the GL renderer (Fase 6 -- it draws
+ * the desktop, but shadows, shape clipping and the density layers are
+ * still XRender-only, and the effects that want GL come after that),
  * unredirect of a fullscreen output, and any kiwm<->kicomp IPC
  * (section 32) -- this version learns everything from plain X events, so
  * kiwm needs no changes at all to be composited, and killing kicomp
@@ -422,7 +423,11 @@ static void paint_dirty_outputs(double now)
 
     for (int i = 0; i < comp.output_count; i++) {
         CompOutput *o = &comp.outputs[i];
-        if (!o->dirty || !o->target)
+        /* render_data, not target: the latter is the XRender backend's
+         * Picture, and a GL backend has no such thing. What every backend
+         * does have is its own per-output state, and having it is exactly
+         * what "this output can be painted" means. */
+        if (!o->dirty || !o->render_data)
             continue;
 
         /* A frame is still in flight for this output (Present): painting
@@ -809,10 +814,16 @@ int main(int argc, char **argv)
     /* One renderer so far, so "auto" and "xrender" land in the same place
      * -- but the choice is made here, by name, so that adding
      * renderer-gl.c is a line in this function and nothing else. */
-    if (strcmp(comp.renderer_name, "auto") && strcmp(comp.renderer_name, "xrender"))
+    bool want_glx = (strcmp(comp.renderer_name, "glx") == 0);
+    if (!want_glx && strcmp(comp.renderer_name, "auto") &&
+        strcmp(comp.renderer_name, "xrender"))
         fprintf(stderr, "kicomp: no renderer named '%s'; using xrender\n",
                 comp.renderer_name);
-    renderer = renderer_xrender();
+
+    /* `auto` stays on XRender: the GL backend is the newer one and does
+     * not do everything the older one does yet (shadows, shape clipping,
+     * the density layers), so it is asked for by name until it does. */
+    renderer = want_glx ? renderer_glx() : renderer_xrender();
 
     /* Presenter: capability decides, name overrides. `auto` takes Present
      * when the server has it -- a frame that lands at vblank instead of
@@ -820,7 +831,16 @@ int main(int argc, char **argv)
      * and it is the only one of the two that can say when the frame
      * actually appeared. `copy` is the fallback and the way to compare
      * the two. */
-    if (strcmp(comp.presenter_name, "present") == 0) {
+    if (want_glx) {
+        /* With GL the frame *is* the drawable's back buffer, so the swap
+         * is the presentation -- an X presenter has no pixmap of ours to
+         * copy. The two come as a pair (presenter-glx.c). */
+        if (strcmp(comp.presenter_name, "auto") &&
+            strcmp(comp.presenter_name, "glx"))
+            fprintf(stderr, "kicomp: the glx renderer presents its own frames; "
+                            "ignoring presenter=%s\n", comp.presenter_name);
+        presenter = presenter_glx();
+    } else if (strcmp(comp.presenter_name, "present") == 0) {
         if (comp.caps.present) {
             presenter = presenter_present();
         } else {

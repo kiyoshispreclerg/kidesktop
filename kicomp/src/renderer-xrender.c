@@ -27,8 +27,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-const CompRenderer *renderer;
-
 typedef struct {
     xcb_pixmap_t pixmap;
 } XrOutput;
@@ -128,7 +126,7 @@ static xcb_render_pictformat_t format_a8(void)
 
 static void stash_free(CompWindow *w);
 
-void renderer_window_shape_invalidate(CompWindow *w)
+static void xr_window_shape_invalidate(CompWindow *w)
 {
     w->shaped = false;
     if (!w->shape)
@@ -137,9 +135,9 @@ void renderer_window_shape_invalidate(CompWindow *w)
     w->shape = 0;
 }
 
-void renderer_window_invalidate(CompWindow *w)
+static void xr_window_invalidate(CompWindow *w)
 {
-    renderer_window_shape_invalidate(w);
+    xr_window_shape_invalidate(w);
     if (w->picture) {
         xcb_render_free_picture(comp.conn, w->picture);
         w->picture = 0;
@@ -154,13 +152,13 @@ void renderer_window_invalidate(CompWindow *w)
     }
 }
 
-void renderer_window_free(CompWindow *w)
+static void xr_window_free(CompWindow *w)
 {
-    renderer_window_invalidate(w);
+    xr_window_invalidate(w);
     stash_free(w);
 }
 
-bool renderer_window_has_content(const CompWindow *w)
+static bool xr_window_has_content(const CompWindow *w)
 {
     return w->picture != 0;
 }
@@ -180,7 +178,7 @@ static void stash_free(CompWindow *w)
     w->prev_holds = 0;
 }
 
-void renderer_window_stash(CompWindow *w, const CompRect *was)
+static void xr_window_stash(CompWindow *w, const CompRect *was)
 {
     if (!w->picture) {
         /* Nothing bound to stash. Whatever was there is still the most
@@ -209,25 +207,25 @@ void renderer_window_stash(CompWindow *w, const CompRect *was)
         xcb_render_free_picture(comp.conn, w->alpha);
         w->alpha = 0;
     }
-    renderer_window_shape_invalidate(w);
+    xr_window_shape_invalidate(w);
 }
 
-bool renderer_window_has_stash(const CompWindow *w)
+static bool xr_window_has_stash(const CompWindow *w)
 {
     return w->prev_picture != 0;
 }
 
-CompRect renderer_window_stash_rect(const CompWindow *w)
+static CompRect xr_window_stash_rect(const CompWindow *w)
 {
     return w->prev_rect;
 }
 
-void renderer_stash_hold(CompWindow *w)
+static void xr_stash_hold(CompWindow *w)
 {
     w->prev_holds++;
 }
 
-void renderer_stash_release(CompWindow *w)
+static void xr_stash_release(CompWindow *w)
 {
     if (w->prev_holds > 0)
         w->prev_holds--;
@@ -235,7 +233,7 @@ void renderer_stash_release(CompWindow *w)
         stash_free(w);
 }
 
-void renderer_stash_drop_unheld(CompWindow *w)
+static void xr_stash_drop_unheld(CompWindow *w)
 {
     if (w->prev_holds == 0)
         stash_free(w);
@@ -287,7 +285,7 @@ static bool window_bind(CompWindow *w)
 /* X-DENSITY: the client's own denser contents                         */
 /* ------------------------------------------------------------------ */
 
-void renderer_window_density_invalidate(CompWindow *w, bool decoration)
+static void xr_window_density_invalidate(CompWindow *w, bool decoration)
 {
     xcb_render_picture_t *pict = decoration ? &w->deco_density_picture
                                             : &w->density_picture;
@@ -545,7 +543,7 @@ static xcb_render_picture_t window_alpha(CompWindow *w, float opacity)
 /* background                                                          */
 /* ------------------------------------------------------------------ */
 
-void renderer_background_invalidate(void)
+static void xr_background_invalidate(void)
 {
     if (bg_picture) {
         xcb_render_free_picture(comp.conn, bg_picture);
@@ -1504,16 +1502,16 @@ static void xr_end(CompOutput *o)
     frame_clip_destroy();
 }
 
-xcb_pixmap_t renderer_output_pixmap(const CompOutput *o)
+static xcb_pixmap_t xr_output_pixmap(const CompOutput *o)
 {
     const XrOutput *xo = o->render_data;
     return xo ? xo->pixmap : XCB_NONE;
 }
 
-void renderer_shutdown(void)
+static void xr_shutdown(void)
 {
     shadow_shutdown();
-    renderer_background_invalidate();
+    xr_background_invalidate();
     if (formats) {
         free(formats);
         formats = NULL;
@@ -1527,6 +1525,23 @@ static const CompRenderer xrender_renderer = {
     .begin      = xr_begin,
     .draw_scene = xr_draw_scene,
     .end        = xr_end,
+
+    .window_invalidate         = xr_window_invalidate,
+    .window_shape_invalidate   = xr_window_shape_invalidate,
+    .window_free               = xr_window_free,
+    .window_has_content        = xr_window_has_content,
+    .window_density_invalidate = xr_window_density_invalidate,
+
+    .window_stash              = xr_window_stash,
+    .window_has_stash          = xr_window_has_stash,
+    .window_stash_rect         = xr_window_stash_rect,
+    .stash_hold                = xr_stash_hold,
+    .stash_release             = xr_stash_release,
+    .stash_drop_unheld         = xr_stash_drop_unheld,
+
+    .background_invalidate     = xr_background_invalidate,
+    .output_pixmap             = xr_output_pixmap,
+    .shutdown                  = xr_shutdown,
 };
 
 const CompRenderer *renderer_xrender(void)

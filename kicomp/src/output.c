@@ -322,11 +322,12 @@ void outputs_refresh(void)
                       "(logical %dx%d)%s",
                       o->id, o->name, o->physical.w, o->physical.h,
                       o->physical.x, o->physical.y, o->refresh_hz, o->scale,
-                      o->rect.w, o->rect.h, o->target ? "" : "  (no target!)");
+                      o->rect.w, o->rect.h,
+                      o->render_data ? "" : "  (no target!)");
         else
             comp_info("  [%d] %-12s %dx%d+%d+%d @ %.2f Hz%s",
                       o->id, o->name, o->rect.w, o->rect.h, o->rect.x, o->rect.y,
-                      o->refresh_hz, o->target ? "" : "  (no target!)");
+                      o->refresh_hz, o->render_data ? "" : "  (no target!)");
     }
 }
 

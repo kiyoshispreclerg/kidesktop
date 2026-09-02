@@ -32,9 +32,36 @@ typedef struct CompRenderer {
     void (*begin)(CompOutput *o, const CompRegion *damage);
     void (*draw_scene)(CompOutput *o, CompScene *s, const CompRegion *damage);
     void (*end)(CompOutput *o);
+
+    /* Everything below is what the *core* asks of a backend without
+     * knowing which one it is -- the free functions further down this
+     * header dispatch through here. They were plain globals while there
+     * was one backend; with two, "the backend's answer" has to be a
+     * question the vtable can answer, not a symbol the linker picks.
+     *
+     * Every one of them is optional: a backend that has no such concept
+     * (a stash, a density layer, a pixmap an X presenter could copy)
+     * leaves it NULL and the wrapper does the harmless thing. */
+    void (*window_invalidate)(CompWindow *w);
+    void (*window_shape_invalidate)(CompWindow *w);
+    void (*window_free)(CompWindow *w);
+    bool (*window_has_content)(const CompWindow *w);
+    void (*window_density_invalidate)(CompWindow *w, bool decoration);
+
+    void (*window_stash)(CompWindow *w, const CompRect *was);
+    bool (*window_has_stash)(const CompWindow *w);
+    CompRect (*window_stash_rect)(const CompWindow *w);
+    void (*stash_hold)(CompWindow *w);
+    void (*stash_release)(CompWindow *w);
+    void (*stash_drop_unheld)(CompWindow *w);
+
+    void (*background_invalidate)(void);
+    xcb_pixmap_t (*output_pixmap)(const CompOutput *o);
+    void (*shutdown)(void);
 } CompRenderer;
 
 const CompRenderer *renderer_xrender(void);
+const CompRenderer *renderer_glx(void);
 
 /* Chosen once at startup, in main.c. */
 extern const CompRenderer *renderer;
