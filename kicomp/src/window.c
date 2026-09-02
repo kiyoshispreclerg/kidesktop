@@ -47,6 +47,7 @@ static bool adopting_existing;
 
 static void window_destroy(CompWindow *w);
 static uint32_t read_window_state(CompWindow *w);
+static void read_window_group(CompWindow *w);
 
 CompRect window_rect(const CompWindow *w)
 {
@@ -202,8 +203,18 @@ static xcb_window_t resolve_client(CompWindow *w)
     if (n > 0) {
         xcb_window_t *children = xcb_query_tree_children(tree);
         w->client = children[0];
+        /* Whoever the client turns out to be, this is the moment its
+         * identity can be read -- and every path that resolves a client
+         * has to do it, not just the reparent. A window adopted at
+         * startup (windows_scan) never gets reparented while kicomp is
+         * watching, so reading it only there left every window that
+         * predates the compositor with no group at all: which is why
+         * VirtualBox's mini-toolbar dodged the machine window it belongs
+         * to, on a session where the compositor was started last. */
+        read_window_group(w);
     } else if (w->override_redirect) {
         w->client = w->id;   /* never framed: it speaks for itself */
+        read_window_group(w);
     } else {
         /* A frame whose client hasn't been reparented into it yet -- which
          * is the normal state of affairs at CreateNotify time, since the
