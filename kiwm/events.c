@@ -857,8 +857,29 @@ static void snap_target_rect(Client *c, SnapSide side, int wx, int wy, int ww, i
  * live_snap_resize=1 applies snaps as the pointer crosses the edge zone,
  * and handle_button_release(), when the default preview mode applies the
  * snap the outline has been showing all along. */
+/* The snap a client will actually accept. A window that says it cannot be
+ * resized cannot be tiled to half a screen and cannot be maximized -- and
+ * a drag to the top edge *is* a maximize, the same state under a different
+ * gesture, so it has to answer to the same permission that the titlebar
+ * button and Meta+Up already answer to (client.c's toggle_maximize and
+ * snap_client_to_side both check it; this path used to set max_horz and
+ * max_vert by hand and check nothing).
+ *
+ * Asked here rather than only where the snap is applied so that the
+ * preview outline never offers a snap that release would refuse. */
+static SnapSide snap_side_allowed(const Client *c, SnapSide side)
+{
+    if (side == SNAP_TOP && !c->allow_maximize)
+        return SNAP_NONE;
+    if ((side == SNAP_LEFT || side == SNAP_RIGHT) && !c->allow_resize)
+        return SNAP_NONE;
+    return side;
+}
+
 static void apply_drag_snap(Client *c, SnapSide side, int wx, int wy, int ww, int wh, int dx, int dy)
 {
+    side = snap_side_allowed(c, side);
+
     if (side != SNAP_NONE) {
         /* Remember the true pre-drag floating geometry as the maximize
          * "restore" target too, so a later plain un-maximize (titlebar
@@ -944,6 +965,8 @@ static bool try_edge_snap(Client *c, xcb_motion_notify_event_t *ev, int dx, int 
         want = SNAP_RIGHT;
     else
         want = SNAP_NONE;
+
+    want = snap_side_allowed(c, want);
 
     if (want == wm.drag_snap_side)
         return wm.live_snap_resize && want != SNAP_NONE; /* already settled into this state (or none) */
