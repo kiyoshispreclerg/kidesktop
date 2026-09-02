@@ -231,7 +231,23 @@ typedef enum {
 
 typedef struct XisOutput {
     char name[64];
+    /* The *usable* box: where windows go. Normally the whole monitor, and
+     * smaller than it when a compositor is scaling this output and has
+     * confined it (output.c's apply_confined_areas). */
     int x, y, width, height;
+
+    /* And the monitor's whole scanout box, which is what still *belongs*
+     * to this output even where no desktop is drawn. The two are the same
+     * rectangle unless something confined this output.
+     *
+     * Keeping both matters because "where may a window go" and "which
+     * monitor is this point on" are different questions. Answering the
+     * second one with the usable box makes everything in the discarded
+     * region homeless -- a panel there gets attributed to the primary
+     * output and its strut eats into *that* monitor's workarea, which is
+     * how confining the small screen made the big one shorter. */
+    int scan_x, scan_y, scan_width, scan_height;
+
     bool primary;
     int desktop;            /* current virtual desktop for this output, 0..wm.num_desktops-1 */
     double refresh_hz;      /* current mode's refresh rate, see output.c's compute_output_refresh_hz(); 60.0 if undeterminable */

@@ -21,12 +21,17 @@ int primary_output_index(void)
     return wm.output_count > 0 ? 0 : -1;
 }
 
+/* Which monitor a point is on -- asked of the *scanout* box, not the
+ * usable one (wm.h). A confined output still owns the pixels outside its
+ * usable area: a panel or a window sitting there belongs to that monitor,
+ * and answering "none of them, have the primary" is how one screen's
+ * scaling ends up shrinking another screen's workarea. */
 int output_index_for_point(int x, int y)
 {
     for (int i = 0; i < wm.output_count; i++) {
         XisOutput *o = &wm.outputs[i];
-        if (x >= o->x && x < o->x + o->width &&
-            y >= o->y && y < o->y + o->height)
+        if (x >= o->scan_x && x < o->scan_x + o->scan_width &&
+            y >= o->scan_y && y < o->scan_y + o->scan_height)
             return i;
     }
     return primary_output_index();
@@ -460,6 +465,10 @@ static void apply_confined_areas(XisOutput *outs, int count)
             fprintf(stderr, "kiwm: output '%s' confined to %dx%d+%d+%d "
                             "(scanout %dx%d)\n",
                     out->name, cw, ch, cx, cy, out->width, out->height);
+            /* Only the usable box. The scanout box stays what the monitor
+             * really is, so everything outside the confined area still
+             * belongs to this output rather than falling through to the
+             * primary one (wm.h, output_index_for_point). */
             out->x = cx;
             out->y = cy;
             out->width = cw;
@@ -495,13 +504,29 @@ static void apply_confined_areas(XisOutput *outs, int count)
  * click it": inside the area if it fits, top-left aligned if it is bigger
  * than the area at all. */
 static void reposition_floating(int output_idx, const XisOutput *old_box,
-                                const XisOutput *new_box)
+                                int new_idx)
 {
+    const XisOutput *new_box = &wm.outputs[new_idx];
+
     if (old_box->width <= 0 || old_box->height <= 0)
         return;
     if (old_box->x == new_box->x && old_box->y == new_box->y &&
         old_box->width == new_box->width && old_box->height == new_box->height)
         return;
+
+    /* Into the *workarea*, not the bare output: a titlebar under a panel
+     * is as unreachable as one off the screen, and the whole point of
+     * this is that the user can still grab the window. Docks have already
+     * been re-attributed by the time this runs, so these struts are the
+     * new ones. */
+    int wx, wy, ww, wh;
+    compute_output_workarea(new_idx, &wx, &wy, &ww, &wh);
+    if (ww <= 0 || wh <= 0) {
+        wx = new_box->x;
+        wy = new_box->y;
+        ww = new_box->width;
+        wh = new_box->height;
+    }
 
     for (Client *c = wm.clients; c; c = c->next) {
         if (c->output != output_idx)
@@ -518,25 +543,27 @@ static void reposition_floating(int output_idx, const XisOutput *old_box,
         double rx = (double)(c->x + fw / 2 - old_box->x) / (double)old_box->width;
         double ry = (double)(c->y + fh / 2 - old_box->y) / (double)old_box->height;
 
-        int x = new_box->x + (int)(rx * new_box->width) - fw / 2;
-        int y = new_box->y + (int)(ry * new_box->height) - fh / 2;
+        int x = wx + (int)(rx * ww) - fw / 2;
+        int y = wy + (int)(ry * wh) - fh / 2;
 
-        /* On screen, whatever the arithmetic said. */
-        if (fw <= new_box->width) {
-            if (x < new_box->x)
-                x = new_box->x;
-            if (x + fw > new_box->x + new_box->width)
-                x = new_box->x + new_box->width - fw;
+        /* Reachable, whatever the arithmetic said: inside the workarea if
+         * it fits, and otherwise with its top-left corner -- which is its
+         * titlebar -- at the workarea's own corner. */
+        if (fw <= ww) {
+            if (x < wx)
+                x = wx;
+            if (x + fw > wx + ww)
+                x = wx + ww - fw;
         } else {
-            x = new_box->x;
+            x = wx;
         }
-        if (fh <= new_box->height) {
-            if (y < new_box->y)
-                y = new_box->y;
-            if (y + fh > new_box->y + new_box->height)
-                y = new_box->y + new_box->height - fh;
+        if (fh <= wh) {
+            if (y < wy)
+                y = wy;
+            if (y + fh > wy + wh)
+                y = wy + wh - fh;
         } else {
-            y = new_box->y;
+            y = wy;
         }
 
         if (x == c->x && y == c->y)
@@ -591,6 +618,12 @@ void outputs_refresh(void)
             o->y = m->y;
             o->width = m->width;
             o->height = m->height;
+            /* Both boxes start out the same; apply_confined_areas() below
+             * is the only thing that ever makes them differ. */
+            o->scan_x = m->x;
+            o->scan_y = m->y;
+            o->scan_width = m->width;
+            o->scan_height = m->height;
             o->primary = m->primary;
             o->desktop = 0;
             o->refresh_hz = 60.0;
@@ -642,11 +675,17 @@ void outputs_refresh(void)
      * the primary one, before anything had a chance to bring it back. Its
      * c->output is still the old index here, and the outputs are matched
      * by name so this survives a hotplug reordering them. */
+    /* Docks first: which output a panel belongs to decides the struts,
+     * and the struts decide the workarea the windows are about to be
+     * moved into. */
+    for (int i = 0; i < wm.dock_count; i++)
+        assign_dock_output(&wm.docks[i]);
+
     for (int i = 0; i < previous_count; i++) {
         for (int j = 0; j < n; j++) {
             if (strcmp(previous[i].name, wm.outputs[j].name) != 0)
                 continue;
-            reposition_floating(i, &previous[i], &wm.outputs[j]);
+            reposition_floating(i, &previous[i], j);
             break;
         }
     }
@@ -657,12 +696,6 @@ void outputs_refresh(void)
      * the new output may not be showing (see client_reassign_output()). */
     for (Client *c = wm.clients; c; c = c->next)
         client_reassign_output(c, output_index_for_point(c->x + c->width / 2, c->y + c->height / 2));
-
-    /* Same for tracked docks (see DockWindow::output) -- a screen layout
-     * change could plausibly move which output a panel's fixed rectangle
-     * now falls on. */
-    for (int i = 0; i < wm.dock_count; i++)
-        assign_dock_output(&wm.docks[i]);
 
     ewmh_update_output_props();
     ewmh_set_desktop_geometry();
