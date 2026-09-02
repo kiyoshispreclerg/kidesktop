@@ -904,10 +904,34 @@ static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom)
      * drops a full-screen shadow behind the desktop. */
     CompRect base = *geom;
     if (win->shaped && win->shape_extents.w > 0 && win->shape_extents.h > 0) {
-        base.x = win->x + win->shape_extents.x;
-        base.y = win->y + win->shape_extents.y;
-        base.w = win->shape_extents.w;
-        base.h = win->shape_extents.h;
+        CompRect ext = { win->x + win->shape_extents.x,
+                         win->y + win->shape_extents.y,
+                         win->shape_extents.w,
+                         win->shape_extents.h };
+
+        /* Never *bigger* than the window, though, and that clamp is not
+         * pedantry: a shape belongs to the size the window had when it
+         * was set, and during a resize the two disagree for a frame. The
+         * WM configures the frame and reshapes it as two requests; a fast
+         * drag has us painting in between, with the geometry already the
+         * new size and the server's shape still the old one.
+         *
+         * A shadow drawn from that stale, larger extent reaches outside
+         * the window rectangle -- and every rectangle any of the thirty
+         * damage call sites posts is a *window* rectangle grown by
+         * shadow_margin(). So the next frame repaints the window's own
+         * surroundings and leaves the oversized ring stranded, one band
+         * per step of the drag, on the right and below because a shape's
+         * origin stays at 0,0 while only its width and height lag.
+         *
+         * Clamping keeps what this is actually for -- an extent *smaller*
+         * than the rectangle, VirtualBox's screen-wide mini-toolbar with
+         * a small bar carved out of it -- and drops the case that can
+         * only be a lie. A stale shape then costs one frame of a slightly
+         * too-square shadow instead of a trail that stays until something
+         * else happens to repaint that ground. */
+        if (!rect_intersect(&ext, geom, &base))
+            base = *geom;
     }
 
     /* The blur is a number of *physical* pixels: a 14 px shadow on a 2x
