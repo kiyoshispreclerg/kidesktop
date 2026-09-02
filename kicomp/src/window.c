@@ -449,6 +449,32 @@ static uint32_t read_window_state(CompWindow *w)
     return state;
 }
 
+/* Has the window manager taken this window on? ICCCM's WM_STATE is set
+ * when a WM adopts a window and stays there while the window is put away
+ * -- iconified, or sitting on a desktop that isn't being shown. Its
+ * *presence* is the question here, not its value: it is what separates
+ * "unmapped because the WM stowed it" from "created but never mapped
+ * yet", which are otherwise the same thing seen from outside.
+ *
+ * Only asked when adopting a window that predates us, so the round trip
+ * is paid once per window at startup. */
+static bool window_is_managed(CompWindow *w)
+{
+    xcb_window_t client = resolve_client(w);
+    if (client == XCB_NONE)
+        return false;
+
+    xcb_get_property_reply_t *r = xcb_get_property_reply(comp.conn,
+        xcb_get_property(comp.conn, 0, client, comp.atoms.wm_state,
+                         comp.atoms.wm_state, 0, 2), NULL);
+    if (!r)
+        return false;
+
+    bool managed = xcb_get_property_value_length(r) >= 4;
+    free(r);
+    return managed;
+}
+
 static void emit(CompWindow *w, CompEventKind kind)
 {
     CompEvent ev = { .kind = kind };
@@ -808,6 +834,21 @@ static void window_add_at(xcb_window_t id, xcb_window_t above, bool on_top)
      * window it considers mapped, which is exactly how an opening window
      * ended up with no open event and no animation at all. */
     w->has_been_mapped = adopting_existing && w->mapped;
+
+    /* And a window that predates us and is *not* mapped has usually been
+     * mapped all the same -- it is on a desktop that isn't showing, or
+     * minimized -- we simply weren't here to watch it happen. Left as
+     * "never mapped", its first appearance is read as the window opening:
+     * start the compositor with a fullscreen window parked on another
+     * desktop, switch to that desktop, and it plays the open animation
+     * and sits out the desktop-wall slide it should have arrived with.
+     *
+     * WM_STATE is what tells the two apart. A window the WM has taken on
+     * has it; one a client created and has not mapped yet does not, and
+     * that one really is about to open. */
+    if (adopting_existing && !w->mapped && window_is_managed(w))
+        w->has_been_mapped = true;
+
     if (w->mapped && !adopting_existing)
         w->pending_appear = true;
 
