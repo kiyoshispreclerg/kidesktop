@@ -320,7 +320,16 @@ static int winctl_on_tick(PanelWidget *w, uint64_t now)
     snprintf(o_title, sizeof(o_title), "%s", wp->title);
     cairo_surface_t *o_icon = wp->icon;
 
-    Window active = ewmh_get_active_window();
+    /* The active window *for this panel's output*, not whatever
+     * _NET_ACTIVE_WINDOW says globally -- which under kiwm can be a window
+     * on the other monitor, or on a desktop this output isn't showing.
+     * The same call hands back that output's index and the desktop it is
+     * currently on, which is what the same_desktop filter below needs:
+     * tasklist has been doing exactly this (see its on_tick). */
+    int kiwm_output_idx = -1;
+    int current_desktop = -1;
+    Window active = ewmh_resolve_active_for_output(w->panel->output,
+                                                   &kiwm_output_idx, &current_desktop);
     if (active != wp->active_win) {
         if (wp->icon) {
             cairo_surface_destroy(wp->icon);
@@ -336,9 +345,27 @@ static int winctl_on_tick(PanelWidget *w, uint64_t now)
      * likewise never show controls for one. */
     int applies = active != None && !ewmh_skip_taskbar(active);
     if (applies && wp->same_desktop_only) {
-        int current_desktop = ewmh_get_current_desktop();
+        /* Under kiwm, `current_desktop` is *this output's* desktop and the
+         * window's own must be read in the same terms -- a desktop number
+         * belongs to an output there (kiwm/PROTOCOL.md), so comparing a
+         * window's _NET_WM_DESKTOP against the global _NET_CURRENT_DESKTOP
+         * compares two different numbering systems. It happens to agree on
+         * the primary output and disagrees on every other one: with the
+         * two monitors showing different desktops, every window on the
+         * second panel failed this test and winctl showed nothing at all.
+         *
+         * Off kiwm, kiwm_output_idx is -1 and the global property is the
+         * only answer there is, which is the right one there. */
+        if (kiwm_output_idx < 0) {
+            current_desktop = ewmh_get_current_desktop();
+        }
+
         int win_desktop = ewmh_get_desktop(active);
-        if (current_desktop >= 0 && win_desktop >= 0 && win_desktop != current_desktop) {
+        int wrong_output = kiwm_output_idx >= 0 &&
+                            ewmh_kiwm_get_wm_output(active) != kiwm_output_idx;
+
+        if (wrong_output ||
+            (current_desktop >= 0 && win_desktop >= 0 && win_desktop != current_desktop)) {
             applies = 0;
         }
     }
