@@ -213,8 +213,9 @@ enabled   = 1
 hotkey    = Meta+E            # the same key comes back out
 duration  = 1.5
 easing    = out
-margin    = 40                # around the grid of desktops
-padding   = 12                # between the desktop cells
+margin    = 24                # around the grid of desktops
+padding   = 24                # between the cells: the same gap by
+                              # default, so the spacing reads as one
 dim       = 0.82              # the desktops that aren't selected
 arrange   = stack             # stack | grid: windows where they are on
                               # their desktop, or tidied into a little
@@ -866,6 +867,19 @@ that is published *per desktop* (xisback keeps a layer per output and
 desktop) needs none of this: it has a desktop of its own, so each cell
 shows its own picture by itself.
 
+**Scenery is clipped to the screen the grid is on**, and windows are not.
+A cell *is* this output, scaled, so clipping a panel or a wallpaper to the
+cell is exactly "the part of it that is on this screen" — which is what a
+panel spanning two monitors, or Plasma's other-monitor desktop window,
+has to be reduced to. The clip travels with the animation (whole screen
+at the start, the cell at the end); fixed at either end it is wrong at the
+other. A window that hangs over the boundary is still a whole window and
+is shown whole: it is a thing you are picking, not scenery.
+
+**The desktop you walk into is drawn over the others** on the way out.
+They all end up filling the same screen, so whichever is drawn last is the
+one that arrives in front, and that has to be the one you chose.
+
 **The desktop you were on stays selected** until the pointer actually
 moves. An expo that opens with a different desktop highlighted, because
 the grid happened to appear under the pointer, answers a question nobody
@@ -875,7 +889,7 @@ asked.
 |---|---|
 | `hotkey` | one or more combinations (default `Meta+E`); the same key closes it |
 | `duration`, `easing` | as everywhere else |
-| `margin`, `padding` | around the grid and between cells (40 / 12) |
+| `margin`, `padding` | around the grid and between its cells — the same gap by default (24 / 24), so the spacing reads as one; either can be set on its own |
 | `dim` | the desktops that are not selected (default 0.82) |
 | `arrange` | `stack` (default) — windows where they really are — or `grid`, tidied into a little grid inside each cell |
 

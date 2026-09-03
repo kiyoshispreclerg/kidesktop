@@ -194,6 +194,24 @@ static void read_wm_layer(CompWindow *w)
  * on any frame it may have built around it. Reading it raw rather than
  * through window state, because this is what decides which window the
  * state is read from in the first place. */
+/* Does this window say what kind of window it is? _NET_WM_WINDOW_TYPE is
+ * a client's own statement about itself, and a WM's frame never carries
+ * one. */
+static bool window_declares_type(xcb_window_t win)
+{
+    if (win == XCB_NONE || comp.atoms.net_wm_window_type == XCB_NONE)
+        return false;
+
+    xcb_get_property_reply_t *r = xcb_get_property_reply(comp.conn,
+        xcb_get_property(comp.conn, 0, win, comp.atoms.net_wm_window_type,
+                         XCB_ATOM_ATOM, 0, 1), NULL);
+    if (!r)
+        return false;
+    bool declared = xcb_get_property_value_length(r) >= 4;
+    free(r);
+    return declared;
+}
+
 static bool wm_state_present(xcb_window_t win)
 {
     if (win == XCB_NONE || comp.atoms.wm_state == XCB_NONE)
@@ -229,6 +247,24 @@ static xcb_window_t resolve_client(CompWindow *w)
      * animated everywhere else. WM_STATE is the property that settles it,
      * and it is on the client by definition. */
     if (wm_state_present(w->id)) {
+        w->client = w->id;
+        read_window_group(w);
+        return w->client;
+    }
+
+    /* Or a window that describes *itself* -- it declares a window type,
+     * or it escaped the WM entirely. A frame describes nothing: it is a
+     * container the WM built, and every property that says what a window
+     * is lives on the client inside it. So a top-level carrying
+     * _NET_WM_WINDOW_TYPE is the client, whatever it has underneath.
+     *
+     * Which matters because "has children" is not evidence of being a
+     * frame. Plasma's desktop window is a plain top-level with one 1x1
+     * child parked at (-1,-1) -- Qt's NET_WM user-time window -- and
+     * reading its type off that child gave "unknown" for the desktop
+     * itself: expo then had nothing to shrink into its cells and left the
+     * wallpaper lying full-size behind the grid. */
+    if (w->override_redirect || window_declares_type(w->id)) {
         w->client = w->id;
         read_window_group(w);
         return w->client;

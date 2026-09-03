@@ -29,8 +29,9 @@
  *   hotkey   = Meta+E           # the same key comes back out
  *   duration = 1.5
  *   easing   = out
- *   margin   = 40               # around the grid
- *   padding  = 12               # between desktop cells
+ *   margin   = 24               # around the grid of desktops
+ *   padding  = 24               # between the cells -- the same gap by
+ *                               # default, so it reads as one spacing
  *   dim      = 0.82             # the desktops that aren't under the pointer
  *   arrange  = stack            # stack | grid -- windows as they are, or
  *                               # tidied into a little grid of their own
@@ -129,6 +130,29 @@ static CompRect lerp_rect(const CompRect *a, const CompRect *b, float p)
     r.y = (int)(comp_lerp((float)a->y, (float)b->y, p) + 0.5f);
     r.w = (int)(comp_lerp((float)a->w, (float)b->w, p) + 0.5f);
     r.h = (int)(comp_lerp((float)a->h, (float)b->h, p) + 0.5f);
+    if (r.w < 1) r.w = 1;
+    if (r.h < 1) r.h = 1;
+    return r;
+}
+
+/* Where scenery may be drawn, at this point in the animation: the whole
+ * screen while it is still at home, its own cell once it has arrived, and
+ * the rectangle in between while it travels.
+ *
+ * Fixed at the cell it would cut the wallpaper off from the first frame,
+ * long before it has shrunk to fit; fixed at the screen it would let a
+ * panel wider than this monitor spill into the neighbouring cell once it
+ * has. Interpolating is the only one of the three that is right at both
+ * ends -- and at the start there is nothing to clip anyway, since a
+ * window's part on another output is drawn by that output's own scene. */
+static CompRect clip_bound(const CompRect *screen, const CompRect *cell,
+                           float spread)
+{
+    CompRect r;
+    r.x = (int)(comp_lerp((float)screen->x, (float)cell->x, spread) + 0.5f);
+    r.y = (int)(comp_lerp((float)screen->y, (float)cell->y, spread) + 0.5f);
+    r.w = (int)(comp_lerp((float)screen->w, (float)cell->w, spread) + 0.5f);
+    r.h = (int)(comp_lerp((float)screen->h, (float)cell->h, spread) + 0.5f);
     if (r.w < 1) r.w = 1;
     if (r.h < 1) r.h = 1;
     return r;
@@ -493,8 +517,18 @@ static void ex_apply(CompEffect *e, CompScene *s, CompOutput *o)
             n->opacity *= comp_lerp(1.0f, dim, spread);
         }
 
+        /* A cell *is* this output, scaled -- so clipping scenery to the
+         * cell is exactly "the part of it that is on this screen", which
+         * is what a panel spanning two monitors, or a wallpaper window
+         * larger than one, has to be reduced to. Windows are not clipped
+         * that way: one hanging over the edge is still a whole window
+         * and is shown whole. */
+        CompRect bound = o->rect;
+        if (it->scenery && it->desktop >= 0 && it->desktop < d->desktops)
+            bound = clip_bound(&o->rect, &d->cell[it->desktop], spread);
+
         CompRect vis;
-        if (rect_intersect(cur, &o->rect, &vis))
+        if (rect_intersect(cur, &bound, &vis))
             n->visible_rect = vis;
         else
             n->visible_rect = (CompRect){ 0, 0, 0, 0 };
@@ -518,11 +552,7 @@ static void ex_apply(CompEffect *e, CompScene *s, CompOutput *o)
      * output and desktop) never reaches this code: it has a desktop of
      * its own, so it is an ordinary item in an ordinary cell, and each
      * cell shows its own picture. */
-    bool any_sticky = false;
-    for (int i = 0; i < d->count && !any_sticky; i++)
-        any_sticky = d->items[i].sticky;
-
-    if (any_sticky) {
+    {
         static CompSceneNode rebuilt[MAX_SCENE_NODES];
         int n = 0;
 
@@ -531,7 +561,30 @@ static void ex_apply(CompEffect *e, CompScene *s, CompOutput *o)
             if (!item_for(d, s->nodes[i].win))
                 rebuilt[n++] = s->nodes[i];
 
-        for (int c = 0; c < d->desktops && c < MAX_DESKTOPS; c++) {
+        /* Cell order, with one cell moved to the end: the desktop you are
+         * going into is drawn over the others.
+         *
+         * On the way out this is what makes the effect read as walking
+         * into that desktop rather than as four desktops growing into
+         * each other -- they all end up filling the same screen, so
+         * whichever is drawn last is the one that arrives in front, and
+         * that has to be the one you chose. While the grid is up it is
+         * the one under the pointer, which never overlaps anything
+         * anyway. */
+        int top_cell = d->closing
+            ? (d->enter_desktop >= 0 ? d->enter_desktop : d->current_desktop)
+            : d->selected;
+
+        int order[MAX_DESKTOPS];
+        int cells = 0;
+        for (int c = 0; c < d->desktops && c < MAX_DESKTOPS; c++)
+            if (c != top_cell)
+                order[cells++] = c;
+        if (top_cell >= 0 && top_cell < d->desktops && top_cell < MAX_DESKTOPS)
+            order[cells++] = top_cell;
+
+        for (int oi = 0; oi < cells; oi++) {
+            int c = order[oi];
             /* Three passes over the original order, so the stacking
              * inside a cell is the stacking the WM gave those windows.
              * pass 0: the scenery that goes underneath; 1: the windows;
@@ -579,8 +632,12 @@ static void ex_apply(CompEffect *e, CompScene *s, CompOutput *o)
                             node.opacity *= comp_lerp(1.0f, dim, spread);
                         }
 
+                        /* Clipped to its cell, for the same reason: the
+                         * cell is this screen and a panel wider than the
+                         * screen must not spill into the next cell. */
+                        CompRect bound = clip_bound(&o->rect, &d->cell[c], spread);
                         CompRect vis;
-                        if (!rect_intersect(&cur, &o->rect, &vis))
+                        if (!rect_intersect(&cur, &bound, &vis))
                             vis = (CompRect){ 0, 0, 0, 0 };
                         node.visible_rect = vis;
                     }
@@ -764,6 +821,18 @@ static void ex_toggle(void *data)
         if (r.w <= 0 || r.h <= 0)
             continue;
 
+        /* Scenery belongs to the screen it is on, and this grid is one
+         * screen's. The other monitor's wallpaper and its panels are not
+         * part of these desktops -- drawing them in these cells is the
+         * other monitor's desktop appearing inside this one's. A window,
+         * by contrast, is shown whole even where it hangs over the
+         * boundary: it is a thing you are picking, not scenery. */
+        if (scenery) {
+            CompRect hit;
+            if (!rect_intersect(&r, &o->rect, &hit))
+                continue;
+        }
+
         ExItem *it = &d->items[d->count++];
         it->win = w;
         it->desktop = sticky ? d->current_desktop : desk;
@@ -838,8 +907,12 @@ static void ex_defaults(void *config)
 {
     ExConfig *c = config;
     snprintf(c->hotkey, sizeof(c->hotkey), "%s", "Meta+E");
-    c->margin = 40;
-    c->padding = 12;
+    /* The same gap all round: between two cells and between a cell and
+     * the edge of the screen. Different numbers there read as a mistake
+     * rather than as a decision -- the grid looks off-centre even when
+     * it is centred. Either can still be set on its own. */
+    c->margin = 24;
+    c->padding = 24;
     c->dim = 0.82f;
     c->arrange = ARRANGE_STACK;
 }
