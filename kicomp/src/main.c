@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.14"
+#define KICOMP_VERSION "0.2.15"
 
 #include "comp.h"
 #include "output.h"
@@ -54,6 +54,7 @@
 #include "damage.h"
 #include "inputscale.h"
 #include "density.h"
+#include "input.h"
 
 #include <xcb/randr.h>
 #include <xcb/shape.h>
@@ -569,6 +570,12 @@ static void handle_event(xcb_generic_event_t *ev)
 {
     uint8_t type = ev->response_type & 0x7f;
 
+    /* Keyboard and pointer first, and only when something asked for them
+     * (input.h): a hotkey firing, or every event there is while an effect
+     * that is a *mode* holds the grab. */
+    if (input_handle_event(ev))
+        return;
+
     /* The presenter gets first refusal: Present's completions arrive as
      * XGE generic events, and nothing else here knows what those are. */
     if (presenter && presenter->handle_event && presenter->handle_event(ev))
@@ -773,6 +780,7 @@ static void handle_event(xcb_generic_event_t *ev)
 
 static void shutdown_compositor(void)
 {
+    input_shutdown();
     effects_shutdown();
     density_shutdown();
     inputscale_shutdown();
@@ -1017,10 +1025,14 @@ int main(int argc, char **argv)
                   comp_shadow.active.opacity, comp_shadow.inactive.opacity,
                   comp_shadow.active.offset_x, comp_shadow.active.offset_y,
                   comp_shadow.inactive.offset_x, comp_shadow.inactive.offset_y);
-    if (comp.effects)
+    if (comp.effects) {
+        /* Before the effects, so a module can arm a hotkey of its own as
+         * it is created (effect.h's init). */
+        input_init();
         effects_init();
-    else
+    } else {
         comp_info("effects off");
+    }
 
     /* Before the outputs are built: whether an output may be scaled at
      * all depends on this extension being there (inputscale.h). */

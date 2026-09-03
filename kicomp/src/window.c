@@ -189,10 +189,50 @@ static void read_wm_layer(CompWindow *w)
  * child inside the frame. kiwm reparents exactly one client into each
  * frame, so "the first child" is the whole search -- and a frame with no
  * children yet simply isn't resolved until it has one. */
+/* Does this window carry ICCCM's WM_STATE? The property a window manager
+ * puts on the window it manages -- which is to say, on the *client*, not
+ * on any frame it may have built around it. Reading it raw rather than
+ * through window state, because this is what decides which window the
+ * state is read from in the first place. */
+static bool wm_state_present(xcb_window_t win)
+{
+    if (win == XCB_NONE || comp.atoms.wm_state == XCB_NONE)
+        return false;
+
+    xcb_get_property_reply_t *r = xcb_get_property_reply(comp.conn,
+        xcb_get_property(comp.conn, 0, win, comp.atoms.wm_state,
+                         comp.atoms.wm_state, 0, 2), NULL);
+    if (!r)
+        return false;
+    bool present = xcb_get_property_value_length(r) >= 4;
+    free(r);
+    return present;
+}
+
 static xcb_window_t resolve_client(CompWindow *w)
 {
     if (w->client != XCB_NONE)
         return w->client;
+
+    /* A top-level window the WM manages *without* reparenting speaks for
+     * itself, children or no children. Panels and desktop windows are
+     * exactly that under kiwm -- there is nothing to decorate, so there
+     * is no frame -- and they are also the windows most likely to have
+     * children of their own, because they are Qt or GTK surfaces with
+     * real subwindows inside.
+     *
+     * Taking the first child as "the client" without asking, which is
+     * what this used to do, reads every property off a subwindow that
+     * has none: Plasma's panel came back as type UNKNOWN instead of DOCK,
+     * and its desktop window likewise, so both were treated as ordinary
+     * windows -- laid out in show-windows' grid, and dodged, shadowed and
+     * animated everywhere else. WM_STATE is the property that settles it,
+     * and it is on the client by definition. */
+    if (wm_state_present(w->id)) {
+        w->client = w->id;
+        read_window_group(w);
+        return w->client;
+    }
 
     xcb_query_tree_reply_t *tree =
         xcb_query_tree_reply(comp.conn, xcb_query_tree(comp.conn, w->id), NULL);
@@ -202,7 +242,17 @@ static xcb_window_t resolve_client(CompWindow *w)
     int n = xcb_query_tree_children_length(tree);
     if (n > 0) {
         xcb_window_t *children = xcb_query_tree_children(tree);
+
+        /* The framed case: the client is the child the WM marked, and
+         * only the first child when none of them is marked (a frame
+         * whose client has not been given its WM_STATE yet). */
         w->client = children[0];
+        for (int i = 0; i < n; i++) {
+            if (wm_state_present(children[i])) {
+                w->client = children[i];
+                break;
+            }
+        }
         /* Whoever the client turns out to be, this is the moment its
          * identity can be read -- and every path that resolves a client
          * has to do it, not just the reparent. A window adopted at
@@ -461,18 +511,7 @@ static uint32_t read_window_state(CompWindow *w)
 static bool window_is_managed(CompWindow *w)
 {
     xcb_window_t client = resolve_client(w);
-    if (client == XCB_NONE)
-        return false;
-
-    xcb_get_property_reply_t *r = xcb_get_property_reply(comp.conn,
-        xcb_get_property(comp.conn, 0, client, comp.atoms.wm_state,
-                         comp.atoms.wm_state, 0, 2), NULL);
-    if (!r)
-        return false;
-
-    bool managed = xcb_get_property_value_length(r) >= 4;
-    free(r);
-    return managed;
+    return client != XCB_NONE && wm_state_present(client);
 }
 
 static void emit(CompWindow *w, CompEventKind kind)

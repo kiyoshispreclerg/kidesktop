@@ -198,6 +198,13 @@ struct CompEffectModule {
     uint32_t default_windows;
     CompEasing default_easing;
 
+    /* Called once, after the config has been read and this instance
+     * exists. For a module that needs to arm a trigger of its own -- a
+     * hotkey, today -- rather than waiting for the WM to do something.
+     * NULL for every effect that only answers to events, which is all of
+     * them but one. */
+    void (*init)(const CompEffectInstance *self);
+
     /* Something happened to a window. The core calls this only for events
      * in this instance's event mask, on a window in its type mask, so a
      * module never checks either -- `self` is the instance that matched,
@@ -253,5 +260,6 @@ extern const CompEffectModule effect_minimize;
 extern const CompEffectModule effect_desktop_wall;
 extern const CompEffectModule effect_smooth_move;
 extern const CompEffectModule effect_dodge;
+extern const CompEffectModule effect_show_windows;
 
 #endif /* KICOMP_EFFECT_H */

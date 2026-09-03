@@ -22,6 +22,7 @@ static const CompEffectModule *const modules[] = {
     &effect_desktop_wall,
     &effect_smooth_move,
     &effect_dodge,
+    &effect_show_windows,
 };
 
 #define MODULE_COUNT ((int)(sizeof(modules) / sizeof(modules[0])))
@@ -327,6 +328,12 @@ void effects_init(void)
 {
     instances_init();
     enabled = true;
+
+    /* A module that arms something of its own gets its chance now, with
+     * its settings already parsed. */
+    for (CompEffectInstance *i = instances; i; i = i->next)
+        if (i->enabled && i->module->init)
+            i->module->init(i);
 
     comp_info("effects on, animation unit %.0f ms", comp.anim_duration_ms);
     for (CompEffectInstance *i = instances; i; i = i->next) {
