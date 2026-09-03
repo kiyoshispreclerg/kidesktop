@@ -83,6 +83,9 @@ static void apply_builtin_defaults(void)
     shadow_config_defaults();
     comp.single_drawable = false;
     comp.skip_wm_layers = false;
+    /* On: it is what makes the expo grid able to show a desktop that
+     * isn't on screen, and it costs one pixmap per hidden window. */
+    comp.keep_stowed = true;
 
     /* "auto" means "whatever capability detection picks", which is what
      * anyone who hasn't got a reason to care should leave it as. Naming
@@ -307,6 +310,8 @@ static void config_pass(FILE *f, bool instances_pass)
             comp.single_drawable = atoi(val) != 0;
         } else if (strcmp(key, "skip_wm_layers") == 0) {
             comp.skip_wm_layers = atoi(val) != 0;
+        } else if (strcmp(key, "keep_hidden_contents") == 0) {
+            comp.keep_stowed = atoi(val) != 0;
         } else if (strcmp(key, "renderer") == 0) {
             snprintf(comp.renderer_name, sizeof(comp.renderer_name), "%s", val);
         } else if (strcmp(key, "presenter") == 0) {

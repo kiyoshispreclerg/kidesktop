@@ -18,7 +18,8 @@ SRCS := src/main.c src/config.c src/output.c src/renderer.c src/window.c src/sce
         src/effects/shade.c src/effects/minimize.c \
         src/effects/desktop-wall.c src/effects/smooth-move.c \
         src/effects/dodge.c \
-        src/effects/show-windows.c
+        src/effects/show-windows.c \
+        src/effects/expo.c
 OBJS := $(SRCS:.c=.o)
 HDRS := $(wildcard src/*.h)
 

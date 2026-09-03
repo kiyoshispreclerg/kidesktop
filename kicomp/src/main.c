@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.16"
+#define KICOMP_VERSION "0.2.17"
 
 #include "comp.h"
 #include "output.h"
@@ -144,6 +144,11 @@ static void atoms_init(void)
     comp.atoms.xrootpmap_id           = intern("_XROOTPMAP_ID");
     comp.atoms.esetroot_pmap_id       = intern("ESETROOT_PMAP_ID");
     comp.atoms.kiwm_layer             = intern("_KIWM_LAYER");
+    comp.atoms.kiwm_num_desktops      = intern("_KIWM_NUM_OUTPUT_DESKTOPS");
+    comp.atoms.kiwm_set_output_desktop = intern("_KIWM_SET_OUTPUT_DESKTOP");
+    comp.atoms.kiwm_wm_output         = intern("_KIWM_WM_OUTPUT");
+    comp.atoms.net_wm_desktop         = intern("_NET_WM_DESKTOP");
+    comp.atoms.net_number_of_desktops = intern("_NET_NUMBER_OF_DESKTOPS");
     /* "Shut down cleanly" -- sent by `kicomp --toggle` to whichever
      * instance already owns the selection. */
     comp.atoms.kicomp_quit            = intern("_KICOMP_QUIT");

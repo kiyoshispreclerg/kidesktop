@@ -688,6 +688,24 @@ void windows_flush_events(void)
 
             emit(w, kind);
 
+            /* Put away rather than gone: keep the last picture of it, so
+             * an effect that shows what is *not* on screen -- the expo
+             * grid laying out every desktop, and eventually the
+             * minimized half of show-windows -- has something to draw.
+             * X frees an unmapped window's contents, so the pixmap we
+             * already hold is the only copy there will ever be, and it
+             * has to be claimed here, before the flush lets it go.
+             *
+             * The window stays out of the scene until an effect asks for
+             * it (comp.show_stowed), so nothing about the screen
+             * changes; what it costs is one pixmap per hidden window,
+             * which is why it is a setting. */
+            if (comp.keep_stowed && !w->zombie && !w->stowed &&
+                (kind == COMP_EVENT_DESKTOP_LEAVE || kind == COMP_EVENT_MINIMIZE)) {
+                w->stowed = true;
+                window_retain(w);
+            }
+
             /* Nobody kept it: let the contents go, and the entry with
              * them if the window itself is already gone. */
             if (w->retain_count == 0) {
@@ -1001,6 +1019,13 @@ void window_map(xcb_window_t id)
         return;
 
     w->mapped = true;
+
+    /* Back on screen: the kept picture is now the stale one, and the
+     * window will name a fresh pixmap below. */
+    if (w->stowed) {
+        w->stowed = false;
+        window_release(w);
+    }
 
     /* It came back (a restore, a desktop switched to). Whatever was
      * animating its exit is now a lie -- drop it, which also releases the

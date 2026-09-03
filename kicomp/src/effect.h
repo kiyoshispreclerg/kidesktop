@@ -261,5 +261,6 @@ extern const CompEffectModule effect_desktop_wall;
 extern const CompEffectModule effect_smooth_move;
 extern const CompEffectModule effect_dodge;
 extern const CompEffectModule effect_show_windows;
+extern const CompEffectModule effect_expo;
 
 #endif /* KICOMP_EFFECT_H */

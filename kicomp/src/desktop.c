@@ -259,6 +259,132 @@ bool desktop_switch_for_rect(const CompRect *r, int *dx, int *dy)
     return true;
 }
 
+/* ------------------------------------------------------------------ */
+/* what an effect that lays the desktops out needs (desktop.h)         */
+/* ------------------------------------------------------------------ */
+
+int desktop_count(void)
+{
+    int n = 0;
+    uint32_t *v = read_cardinals(comp.atoms.kiwm_num_desktops, &n);
+    int count = (v && n >= 1) ? (int)v[0] : 0;
+    free(v);
+    if (count > 0)
+        return count;
+
+    v = read_cardinals(comp.atoms.net_number_of_desktops, &n);
+    count = (v && n >= 1) ? (int)v[0] : 0;
+    free(v);
+    return count;
+}
+
+void desktop_grid(int *columns, int *rows)
+{
+    int count = desktop_count();
+    if (count < 1)
+        count = 1;
+
+    int cols = layout_columns > 1 ? layout_columns : count;
+    if (cols > count)
+        cols = count;
+    if (cols < 1)
+        cols = 1;
+
+    if (columns)
+        *columns = cols;
+    if (rows)
+        *rows = (count + cols - 1) / cols;
+}
+
+int desktop_output_index(const CompOutput *o)
+{
+    if (!o || global_only)
+        return -1;
+
+    char names[MAX_OUTPUTS][32];
+    int n = read_output_names(names);
+    for (int i = 0; i < n; i++)
+        if (strcmp(names[i], o->name) == 0)
+            return i;
+    return -1;
+}
+
+int desktop_current_for_output(const CompOutput *o)
+{
+    Track *t = track_find(global_only ? "" : (o ? o->name : ""));
+    return t ? t->desktop : -1;
+}
+
+bool desktop_of_window(const CompWindow *w, int *desktop, int *output_index)
+{
+    if (!w)
+        return false;
+
+    xcb_window_t client = w->client != XCB_NONE ? w->client : w->id;
+
+    int desk = -1, out = -1;
+    xcb_get_property_reply_t *r = xcb_get_property_reply(comp.conn,
+        xcb_get_property(comp.conn, 0, client, comp.atoms.net_wm_desktop,
+                         XCB_ATOM_CARDINAL, 0, 1), NULL);
+    if (r) {
+        if (xcb_get_property_value_length(r) >= 4) {
+            uint32_t v = *(uint32_t *)xcb_get_property_value(r);
+            desk = (v == 0xffffffffu) ? COMP_DESKTOP_ALL : (int)v;
+        }
+        free(r);
+    }
+
+    /* Under kiwm a desktop number is only unique within an output, so the
+     * pair is the answer and half of it is a wrong one
+     * (kiwm/PROTOCOL.md). */
+    r = xcb_get_property_reply(comp.conn,
+        xcb_get_property(comp.conn, 0, client, comp.atoms.kiwm_wm_output,
+                         XCB_ATOM_CARDINAL, 0, 1), NULL);
+    if (r) {
+        if (xcb_get_property_value_length(r) >= 4)
+            out = (int)*(uint32_t *)xcb_get_property_value(r);
+        free(r);
+    }
+
+    if (desktop)
+        *desktop = desk;
+    if (output_index)
+        *output_index = out;
+    return desk >= 0 || desk == COMP_DESKTOP_ALL;
+}
+
+bool desktop_request_switch(const CompOutput *o, int desktop)
+{
+    if (desktop < 0)
+        return false;
+
+    xcb_client_message_event_t msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.response_type = XCB_CLIENT_MESSAGE;
+    msg.format = 32;
+    msg.window = comp.root;
+
+    int out = desktop_output_index(o);
+    if (out >= 0 && comp.atoms.kiwm_set_output_desktop != XCB_NONE) {
+        msg.type = comp.atoms.kiwm_set_output_desktop;
+        msg.data.data32[0] = (uint32_t)out;
+        msg.data.data32[1] = (uint32_t)desktop;
+    } else if (comp.atoms.net_current_desktop != XCB_NONE) {
+        msg.type = comp.atoms.net_current_desktop;
+        msg.data.data32[0] = (uint32_t)desktop;
+        msg.data.data32[1] = XCB_CURRENT_TIME;
+    } else {
+        return false;
+    }
+
+    xcb_send_event(comp.conn, 0, comp.root,
+                   XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY |
+                   XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT,
+                   (const char *)&msg);
+    xcb_flush(comp.conn);
+    return true;
+}
+
 void desktop_shutdown(void)
 {
     track_count = 0;

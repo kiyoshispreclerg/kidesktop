@@ -10,8 +10,8 @@ no compositing, with real transparency (32-bit windows' alpha and
 - configurable shadows, different for focused and unfocused windows;
 - an effect interface: *geometry change*, *fade in/out*, *scale in/out*,
   *shade/unshade*, *minimize/restore*, *desktop wall*, *dodge*,
-  *smooth move*, and *show windows* — every window at once, in a grid to
-  pick one from;
+  *smooth move*, *show windows* — every window at once, in a grid to pick
+  one from — and *expo*, every desktop at once;
 - a per-output frame clock driving the animations;
 - configuration in `kicomp.conf`.
 
@@ -107,6 +107,9 @@ renderer           = auto  # auto | xrender | glx
 presenter          = auto  # auto | present | copy
 single_drawable    = 0     # 1 = legacy mode, one drawable for the screen
 skip_wm_layers     = 0     # 1 = don't composite kiwm's OSD/wireframe
+keep_hidden_contents = 1   # keep the last picture of a window the WM put
+                           # away (minimized, another desktop), so effects
+                           # like expo can draw it. One pixmap each
 
 # ---- per-output scaling (HiDPI) ----
 # One section per output, by RandR name; [output:*] is the default for the
@@ -204,6 +207,18 @@ events   = move
 windows  = windows
 max_lag  = 48                   # px the picture may fall behind the pointer
 resize   = 0                    # smooth resize drags too
+
+[effect:expo]
+enabled   = 1
+hotkey    = Meta+E            # the same key comes back out
+duration  = 1.5
+easing    = out
+margin    = 40                # around the grid of desktops
+padding   = 12                # between the desktop cells
+dim       = 0.82              # the desktops that aren't selected
+arrange   = stack             # stack | grid: windows where they are on
+                              # their desktop, or tidied into a little
+                              # grid inside each cell
 
 [effect:show-windows]
 enabled   = 1
@@ -819,6 +834,72 @@ Not there yet: **the filter box is not drawn** — kicomp has no font
 stack, so what you have typed shows only in what the grid does — and
 **minimized windows and windows on other desktops are missing**, because
 the WM unmaps them and drawing one needs its last contents kept.
+
+### `expo`
+
+Every virtual desktop at once, laid out the way the pager lays them out,
+to walk into one — `Meta+E`, and the same key comes back out.
+
+Where `show-windows` arranges the windows of the desktop you are on, this
+one leaves the windows where they are and shrinks whole **desktops**:
+each cell is that desktop's screen at a fraction of its size, with its
+windows in their own places, in their own stacking order, with its panels
+and its wallpaper. Click a cell to go there — and the window you clicked
+on comes with you, focused, drawn in front from the first frame of the
+way out rather than waiting for the WM's raise to arrive after the grid
+is already gone.
+
+**The layout is not the effect's to invent.** Columns and rows come from
+`_NET_DESKTOP_LAYOUT` and the desktop count — exactly what the pager in
+the panel draws from — so the two always agree about where desktop 3 is.
+Entering one is a request like everything else here:
+`_KIWM_SET_OUTPUT_DESKTOP` where kiwm's per-output desktops exist,
+`_NET_CURRENT_DESKTOP` otherwise.
+
+**A cell is the whole desktop**, which means one window can be drawn
+several times: a panel is on every desktop, so it appears in every cell.
+The scene is a list of things to draw rather than a list of windows, so
+that is a copy of the node with a different transform — and the order is
+rebuilt rather than appended to, because within a cell the wallpaper
+belongs under that cell's windows and the panels over them. A wallpaper
+that is published *per desktop* (xisback keeps a layer per output and
+desktop) needs none of this: it has a desktop of its own, so each cell
+shows its own picture by itself.
+
+**The desktop you were on stays selected** until the pointer actually
+moves. An expo that opens with a different desktop highlighted, because
+the grid happened to appear under the pointer, answers a question nobody
+asked.
+
+| key | what it does |
+|---|---|
+| `hotkey` | one or more combinations (default `Meta+E`); the same key closes it |
+| `duration`, `easing` | as everywhere else |
+| `margin`, `padding` | around the grid and between cells (40 / 12) |
+| `dim` | the desktops that are not selected (default 0.82) |
+| `arrange` | `stack` (default) — windows where they really are — or `grid`, tidied into a little grid inside each cell |
+
+### Keeping the picture of a window that isn't there
+
+An expo showing every desktop has to draw windows the WM has unmapped,
+and X frees an unmapped window's contents. So `keep_hidden_contents = 1`
+(in the main section of `kicomp.conf`, on by default) claims the pixmap
+kicomp already holds at the moment a window is put away — minimized, or
+left behind by a desktop switch — instead of letting it go.
+
+What you see is that window as it was when it went, which is what every
+expo in every desktop shows.
+
+It costs one pixmap per hidden window, which is why it is a setting. A
+kept window stays **out of the scene** until an effect asks for it
+(`comp.show_stowed`), so nothing about the screen changes from having it
+— with one exception the mechanism has to respect: a window an effect is
+still animating is not "merely kept", and stays in the scene, or the
+minimize animation would have nothing to shrink.
+
+The same store is what a cover-switch or flip alt-tab will draw from, and
+what `show-windows` needs before it can put minimized windows in its
+grid.
 
 ### What's missing, and what each one needs
 

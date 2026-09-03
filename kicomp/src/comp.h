@@ -232,6 +232,11 @@ typedef struct CompWindow {
     int retain_count;
     bool zombie;
 
+    /* Unmapped, but its last contents are being kept (comp.keep_stowed):
+     * it is on another desktop or minimized, and an effect may want to
+     * draw it. Holds one retain of its own, released when it comes back. */
+    bool stowed;
+
     /* EWMH state (CompWindowState), and what it was before the batch of
      * events being processed -- the difference is what says "this resize
      * was a maximize". */
@@ -412,6 +417,7 @@ typedef struct KiComp {
         xcb_atom_t net_wm_icon_geometry;   /* where the taskbar keeps this window */
         xcb_atom_t net_active_window;
         xcb_atom_t net_current_desktop;
+        xcb_atom_t net_number_of_desktops;
         xcb_atom_t net_desktop_layout;     /* the grid the desktops sit in */
         /* X-DENSITY (density.h) */
         xcb_atom_t density_manager;
@@ -423,6 +429,10 @@ typedef struct KiComp {
         xcb_atom_t xis_confined_area;      /* published: the logical boxes */
         xcb_atom_t kiwm_outputs;           /* output names, in index order */
         xcb_atom_t kiwm_output_desktop;    /* one current desktop per output */
+        xcb_atom_t kiwm_num_desktops;      /* how many each output has */
+        xcb_atom_t kiwm_set_output_desktop;/* the message that switches one */
+        xcb_atom_t kiwm_wm_output;         /* which output a window is on */
+        xcb_atom_t net_wm_desktop;         /* which desktop a window is on */
     } atoms;
 
     bool running;
@@ -447,6 +457,18 @@ typedef struct KiComp {
      * out of the scene, for when the compositor draws its own switcher/
      * preview effects instead of showing the WM's. */
     bool skip_wm_layers;
+
+    /* Keep the last picture of a window the WM has put away -- minimized,
+     * or on a desktop that isn't showing. X frees an unmapped window's
+     * contents, so this costs one pixmap per hidden window and is the
+     * only way an effect can draw one at all (the expo grid, a taskbar
+     * preview, show-windows' minimized half).
+     *
+     * Kept windows are left out of the scene until an effect asks for
+     * them (scene.h's comp.show_stowed), so nothing changes on screen
+     * from having them. */
+    bool keep_stowed;
+    bool show_stowed;
 
     /* Effects, and the single number they are all written in terms of
      * (kicomp.conf: effects=, animation_duration=). No effect states a

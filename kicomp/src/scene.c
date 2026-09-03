@@ -23,6 +23,25 @@ void scene_build(CompScene *s, CompOutput *o)
         if ((!w->mapped && w->retain_count == 0 && !w->pending_disappear) ||
             w->input_only)
             continue;
+
+        /* A window whose picture is merely being *kept* (comp.h's
+         * keep_stowed: minimized, or on a desktop that isn't showing) is
+         * not on screen and must not be drawn as though it were. It
+         * joins the scene only while an effect is showing what isn't
+         * there -- the expo grid -- and leaves it again the moment that
+         * effect is done.
+         *
+         * "Merely" is the whole condition, and retain_count is what says
+         * so: stowing takes exactly one retain of its own, so anything
+         * above that is an effect still animating the window -- the
+         * minimize shrinking it towards its taskbar button, a fade-out
+         * seeing it off. Those have to keep being drawn, and leaving
+         * this test at "is it stowed" is what stopped the minimize
+         * animation from appearing at all: the window was marked the
+         * instant it went, and the effect was left with nothing on
+         * screen to animate. */
+        if (w->stowed && !comp.show_stowed && w->retain_count <= 1)
+            continue;
         if (w->opacity <= 0.0)
             continue;
         /* kiwm's own overlay layers (switcher, wireframe), left out when
