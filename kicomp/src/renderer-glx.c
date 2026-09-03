@@ -51,6 +51,8 @@
 #include "region.h"
 #include "output.h"
 #include "window.h"
+#include "shadow.h"
+#include "transform.h"
 
 #include <epoxy/gl.h>
 #include <epoxy/glx.h>
@@ -67,19 +69,48 @@ static Display *dpy;
 
 static GLXContext context;
 static GLXFBConfig window_config;      /* for the per-output drawables */
-static GLXFBConfig tfp_config_rgb;     /* depth 24 windows, as textures */
-static GLXFBConfig tfp_config_rgba;    /* depth 32 windows */
-/* Whether each of those two hands the pixmap over upside down. Not a
- * detail to guess at: GLX_Y_INVERTED_EXT is per config, it differs
- * between drivers, and getting it wrong draws every window mirrored
- * vertically -- which looks exactly like "pieces of windows out of
- * place". */
-static bool tfp_inverted_rgb, tfp_inverted_rgba;
 static bool have_tfp;
+
+/* A texture-from-pixmap config, chosen for one particular *visual*.
+ *
+ * Not one config for "24-bit" and one for "32-bit", which is what this
+ * used to do: an fbconfig says how the driver reads the bits of a pixmap,
+ * and several configs of the same depth disagree about which byte is
+ * which. Binding an ARGB pixmap through a config that happens to order
+ * its components differently samples the window with its channels
+ * rotated -- kiwm's own layers, which are the ARGB windows in the
+ * session, came out red on a green theme with the text smeared, because
+ * the alpha byte was being read as red.
+ *
+ * Matching the config to the pixmap's visual removes the guess: same
+ * visual, same layout, by construction. */
+typedef struct TfpConfig {
+    struct TfpConfig *next;
+    xcb_visualid_t visual;
+    GLXFBConfig config;
+    bool rgba;          /* bind with RGBA rather than RGB */
+    /* Whether this config hands the pixmap over upside down. Per config,
+     * it differs between drivers, and getting it wrong draws every window
+     * mirrored vertically -- which looks exactly like "pieces of windows
+     * out of place". */
+    bool y_inverted;
+    bool usable;
+} TfpConfig;
+
+static TfpConfig *tfp_configs;
 
 static GLuint program;
 static GLint u_projection, u_transform, u_opacity, u_texture, u_y_flip;
 static GLuint quad_vbo;
+
+/* The shadow program, and the profile texture it reads (see shadow.h:
+ * one dimension, 2*radius alpha texels, the same numbers XRender builds
+ * its tiles from). */
+static GLuint shadow_program;
+static GLint su_projection, su_transform, su_color, su_size, su_span,
+             su_hole, su_profile;
+static GLuint shadow_texture;
+static int shadow_texture_radius;
 
 /* Per-output GL state, hung off CompOutput::render_data. */
 typedef struct {
@@ -102,6 +133,16 @@ typedef struct GlxWindow {
     bool argb;
     bool bound;             /* the image is currently bound to the texture */
     bool y_inverted;        /* this config hands the pixmap upside down */
+
+    /* The window's silhouette, in window-local pixels, as the scissor
+     * rectangles the quad is drawn through. XRender hands its region to
+     * the server and forgets about it; GL has no such thing, so the
+     * rectangles are fetched once and kept until the shape changes --
+     * kiwm reshapes a frame on every resize step, so fetching them per
+     * frame would be a round trip in the middle of the paint. */
+    xcb_rectangle_t *shape_rects;
+    int shape_count;
+    bool shape_known;
 } GlxWindow;
 
 static GlxWindow *windows;
@@ -136,6 +177,54 @@ static const char *fragment_source =
     "void main() {\n"
     "    vec4 c = texture2D(texture0, texcoord);\n"
     "    gl_FragColor = c * opacity;\n"
+    "}\n";
+
+/* A shadow is a blurred rectangle, and the blur of a rectangle is
+ * separable: the alpha at any point is the horizontal profile times the
+ * vertical one. So instead of XRender's nine composited tiles this is one
+ * quad and two texture lookups per fragment -- the same shape, expressed
+ * the way the hardware here is happy to draw it.
+ *
+ * `span` is 2*radius, the width of the fade. For a rectangle narrower
+ * than two fades the two ends overlap, and P(d) + P(size-d) - 1 is what
+ * the convolution actually gives there -- the naive min() of the two
+ * would leave a shadow that is too dark down the middle of a thin window.
+ *
+ * `hole` is the window's own rectangle in the same local pixels: the
+ * shadow is not drawn behind it, because a translucent window would
+ * otherwise have its own shadow showing through it. */
+static const char *shadow_vertex_source =
+    "#version 120\n"
+    "attribute vec2 position;\n"
+    "uniform mat4 projection;\n"
+    "uniform mat4 transform;\n"
+    "uniform vec2 size;\n"
+    "varying vec2 local;\n"
+    "void main() {\n"
+    "    local = position * size;\n"
+    "    gl_Position = projection * transform * vec4(position, 0.0, 1.0);\n"
+    "}\n";
+
+static const char *shadow_fragment_source =
+    "#version 120\n"
+    "uniform sampler2D profile;\n"
+    "uniform vec4 color;\n"
+    "uniform vec2 size;\n"
+    "uniform float span;\n"
+    "uniform vec4 hole;\n"
+    "varying vec2 local;\n"
+    "float edge(float d) {\n"
+    "    return texture2D(profile, vec2(clamp(d / span, 0.0, 1.0), 0.5)).a;\n"
+    "}\n"
+    "float band(float p, float len) {\n"
+    "    return clamp(edge(p) + edge(len - p) - 1.0, 0.0, 1.0);\n"
+    "}\n"
+    "void main() {\n"
+    "    if (local.x >= hole.x && local.x < hole.x + hole.z &&\n"
+    "        local.y >= hole.y && local.y < hole.y + hole.w)\n"
+    "        discard;\n"
+    "    float a = band(local.x, size.x) * band(local.y, size.y);\n"
+    "    gl_FragColor = vec4(color.rgb * color.a * a, color.a * a);\n"
     "}\n";
 
 static GLuint compile(GLenum type, const char *source, const char *what)
@@ -195,6 +284,69 @@ static bool program_build(void)
     glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
 
+    /* The shadow program is optional in the sense that failing to build
+     * it costs shadows, not the session: everything else still draws. */
+    vs = compile(GL_VERTEX_SHADER, shadow_vertex_source, "shadow vertex");
+    fs = compile(GL_FRAGMENT_SHADER, shadow_fragment_source, "shadow fragment");
+    if (vs && fs) {
+        shadow_program = glCreateProgram();
+        glAttachShader(shadow_program, vs);
+        glAttachShader(shadow_program, fs);
+        glBindAttribLocation(shadow_program, 0, "position");
+        glLinkProgram(shadow_program);
+        glDeleteShader(vs);
+        glDeleteShader(fs);
+
+        ok = 0;
+        glGetProgramiv(shadow_program, GL_LINK_STATUS, &ok);
+        if (!ok) {
+            char log[512];
+            glGetProgramInfoLog(shadow_program, sizeof(log), NULL, log);
+            fprintf(stderr, "kicomp: glx: shadow link: %s\n", log);
+            glDeleteProgram(shadow_program);
+            shadow_program = 0;
+        } else {
+            su_projection = glGetUniformLocation(shadow_program, "projection");
+            su_transform = glGetUniformLocation(shadow_program, "transform");
+            su_color = glGetUniformLocation(shadow_program, "color");
+            su_size = glGetUniformLocation(shadow_program, "size");
+            su_span = glGetUniformLocation(shadow_program, "span");
+            su_hole = glGetUniformLocation(shadow_program, "hole");
+            su_profile = glGetUniformLocation(shadow_program, "profile");
+        }
+    }
+
+    return true;
+}
+
+/* The blur profile as a 1-D texture, rebuilt when a different radius is
+ * asked for. Two radii alternate in practice (focused and unfocused), and
+ * a 2*radius byte upload is cheap enough that keeping one is enough. */
+static bool shadow_profile_texture(int radius)
+{
+    if (shadow_texture && shadow_texture_radius == radius)
+        return true;
+
+    int n = radius * 2;
+    uint8_t *profile = malloc((size_t)n);
+    if (!profile)
+        return false;
+    shadow_profile(radius, profile);
+
+    if (!shadow_texture)
+        glGenTextures(1, &shadow_texture);
+    glBindTexture(GL_TEXTURE_2D, shadow_texture);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, n, 1, 0, GL_ALPHA,
+                 GL_UNSIGNED_BYTE, profile);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    free(profile);
+    shadow_texture_radius = radius;
     return true;
 }
 
@@ -226,8 +378,10 @@ static bool choose_configs(void)
     window_config = configs[0];
     XFree(configs);
 
-    /* And the two texture-from-pixmap configs: one for ordinary windows,
-     * one for the 32-bit ones whose alpha is real. */
+    /* Texture-from-pixmap has to be there; without it this backend has
+     * no way to sample a window at all. The configs themselves are chosen
+     * per visual, lazily, when the first window with that visual is
+     * bound (tfp_config_for). */
     const char *ext = glXQueryExtensionsString(dpy, screen);
     have_tfp = ext && strstr(ext, "GLX_EXT_texture_from_pixmap");
     if (!have_tfp) {
@@ -236,40 +390,87 @@ static bool choose_configs(void)
         return false;
     }
 
-    for (int argb = 0; argb < 2; argb++) {
-        int attrs[] = {
-            GLX_RENDER_TYPE, GLX_RGBA_BIT,
-            GLX_DRAWABLE_TYPE, GLX_PIXMAP_BIT,
-            GLX_BIND_TO_TEXTURE_TARGETS_EXT, GLX_TEXTURE_2D_BIT_EXT,
-            argb ? GLX_BIND_TO_TEXTURE_RGBA_EXT : GLX_BIND_TO_TEXTURE_RGB_EXT, True,
-            GLX_BUFFER_SIZE, argb ? 32 : 24,
-            GLX_ALPHA_SIZE, argb ? 8 : 0,
-            GLX_DOUBLEBUFFER, False,
-            GLX_Y_INVERTED_EXT, GLX_DONT_CARE,
-            None
-        };
+    return true;
+}
 
-        count = 0;
-        configs = glXChooseFBConfig(dpy, screen, attrs, &count);
-        if (!configs || count == 0) {
-            fprintf(stderr, "kicomp: glx: no %s texture-from-pixmap config\n",
-                    argb ? "RGBA" : "RGB");
-            return false;
-        }
+/* The texture-from-pixmap config for one visual, found once and kept.
+ *
+ * Every fbconfig the server offers is walked, and the one whose own
+ * visual *is* this visual wins: that is what guarantees the driver reads
+ * the pixmap's bytes the way the X server wrote them. Falling back to
+ * "any config of the right depth" is what the first version of this file
+ * did, and on this machine it picked one that reads the channels in a
+ * different order -- the session's ARGB windows, which are kiwm's OSD,
+ * its outline rectangles and its decoration menu, came out red on a green
+ * theme with the text smeared.
+ *
+ * A visual with no config of its own is not an error: the entry is kept
+ * with usable = false so the walk is not repeated for every frame of
+ * every window that has it, and that window simply isn't drawn by this
+ * backend. */
+static TfpConfig *tfp_config_for(const CompWindow *w)
+{
+    for (TfpConfig *c = tfp_configs; c; c = c->next)
+        if (c->visual == w->visual)
+            return c;
+
+    TfpConfig *c = calloc(1, sizeof(*c));
+    if (!c)
+        return NULL;
+    c->visual = w->visual;
+    c->rgba = w->argb;
+    c->next = tfp_configs;
+    tfp_configs = c;
+
+    int screen = DefaultScreen(dpy);
+    int count = 0;
+    GLXFBConfig *all = glXGetFBConfigs(dpy, screen, &count);
+    if (!all)
+        return c;
+
+    for (int i = 0; i < count; i++) {
+        int visual_id = 0, drawable = 0, targets = 0, rgb = 0, rgba = 0;
+        glXGetFBConfigAttrib(dpy, all[i], GLX_VISUAL_ID, &visual_id);
+        if ((xcb_visualid_t)visual_id != w->visual)
+            continue;
+
+        glXGetFBConfigAttrib(dpy, all[i], GLX_DRAWABLE_TYPE, &drawable);
+        if (!(drawable & GLX_PIXMAP_BIT))
+            continue;
+        glXGetFBConfigAttrib(dpy, all[i], GLX_BIND_TO_TEXTURE_TARGETS_EXT, &targets);
+        if (!(targets & GLX_TEXTURE_2D_BIT_EXT))
+            continue;
+
+        glXGetFBConfigAttrib(dpy, all[i], GLX_BIND_TO_TEXTURE_RGB_EXT, &rgb);
+        glXGetFBConfigAttrib(dpy, all[i], GLX_BIND_TO_TEXTURE_RGBA_EXT, &rgba);
+
+        /* An ARGB window wants its alpha; anything else is happy with
+         * RGB, and asking for RGBA on a visual that has no alpha bits
+         * gets undefined values in that channel rather than an error. */
+        if (w->argb && rgba)
+            c->rgba = true;
+        else if (rgb)
+            c->rgba = false;
+        else if (rgba)
+            c->rgba = true;
+        else
+            continue;
+
         int inverted = 0;
-        glXGetFBConfigAttrib(dpy, configs[0], GLX_Y_INVERTED_EXT, &inverted);
+        glXGetFBConfigAttrib(dpy, all[i], GLX_Y_INVERTED_EXT, &inverted);
 
-        if (argb) {
-            tfp_config_rgba = configs[0];
-            tfp_inverted_rgba = inverted != 0;
-        } else {
-            tfp_config_rgb = configs[0];
-            tfp_inverted_rgb = inverted != 0;
-        }
-        XFree(configs);
+        c->config = all[i];
+        c->y_inverted = inverted != 0;
+        c->usable = true;
+        break;
     }
 
-    return true;
+    XFree(all);
+
+    if (!c->usable)
+        fprintf(stderr, "kicomp: glx: no texture-from-pixmap config for visual 0x%x\n",
+                (unsigned)w->visual);
+    return c;
 }
 
 /* Opened once, on the first output. Everything here is per-screen rather
@@ -301,10 +502,9 @@ static bool glx_start(void)
         return false;
     }
 
-    comp_info("glx %d.%d, %s, texture-from-pixmap y-inverted=%d/%d (rgb/rgba)",
+    comp_info("glx %d.%d, %s, texture-from-pixmap per visual",
               major, minor,
-              glXIsDirect(dpy, context) ? "direct" : "indirect (software path)",
-              tfp_inverted_rgb, tfp_inverted_rgba);
+              glXIsDirect(dpy, context) ? "direct" : "indirect (software path)");
     return true;
 }
 
@@ -483,19 +683,24 @@ static bool glx_window_bind(CompWindow *w, GlxWindow *g)
         g->height = r.h;
         g->argb = w->argb;
 
+        TfpConfig *cfg = tfp_config_for(w);
+        if (!cfg || !cfg->usable) {
+            glx_window_unbind(g);
+            return false;
+        }
+
         const int attrs[] = {
             GLX_TEXTURE_TARGET_EXT, GLX_TEXTURE_2D_EXT,
-            GLX_TEXTURE_FORMAT_EXT, w->argb ? GLX_TEXTURE_FORMAT_RGBA_EXT
-                                            : GLX_TEXTURE_FORMAT_RGB_EXT,
+            GLX_TEXTURE_FORMAT_EXT, cfg->rgba ? GLX_TEXTURE_FORMAT_RGBA_EXT
+                                              : GLX_TEXTURE_FORMAT_RGB_EXT,
             None
         };
-        g->glx_pixmap = glXCreatePixmap(dpy,
-            w->argb ? tfp_config_rgba : tfp_config_rgb, g->pixmap, attrs);
+        g->glx_pixmap = glXCreatePixmap(dpy, cfg->config, g->pixmap, attrs);
         if (!g->glx_pixmap) {
             glx_window_unbind(g);
             return false;
         }
-        g->y_inverted = w->argb ? tfp_inverted_rgba : tfp_inverted_rgb;
+        g->y_inverted = cfg->y_inverted;
 
         if (!g->texture) {
             glGenTextures(1, &g->texture);
@@ -518,11 +723,28 @@ static bool glx_window_bind(CompWindow *w, GlxWindow *g)
     return true;
 }
 
+static void glx_shape_forget(GlxWindow *g)
+{
+    free(g->shape_rects);
+    g->shape_rects = NULL;
+    g->shape_count = 0;
+    g->shape_known = false;
+}
+
 static void glx_window_invalidate(CompWindow *w)
 {
     GlxWindow *g = glx_window_find(w->id);
-    if (g)
+    if (g) {
         glx_window_unbind(g);
+        glx_shape_forget(g);
+    }
+}
+
+static void glx_window_shape_invalidate(CompWindow *w)
+{
+    GlxWindow *g = glx_window_find(w->id);
+    if (g)
+        glx_shape_forget(g);
 }
 
 static void glx_window_free(CompWindow *w)
@@ -538,6 +760,7 @@ static void glx_window_free(CompWindow *w)
         glx_window_unbind(g);
         if (g->texture)
             glDeleteTextures(1, &g->texture);
+        free(g->shape_rects);
         free(g);
         return;
     }
@@ -567,16 +790,20 @@ static void projection_for(const CompOutput *o, float m[16])
     m[15] = 1.0f;
 }
 
-/* A scene node's placement as a matrix: the unit quad scaled to the
- * window's rectangle, then whatever the effects did to it. */
-static void node_matrix(const CompSceneNode *n, float m[16])
+/* The unit quad placed on a rectangle in root coordinates, then put
+ * through a node's transform. Two callers: the window itself, and its
+ * shadow -- which is a different rectangle carried by the same transform,
+ * so that a window being slid or scaled by an effect takes its shadow
+ * with it. */
+static void rect_matrix(const CompRect *rect, const CompTransform *transform,
+                        float m[16])
 {
-    /* quad (0..1) -> the window's logical rectangle */
+    /* quad (0..1) -> the rectangle */
     float place[16] = {
-        (float)n->geometry.w, 0, 0, 0,
-        0, (float)n->geometry.h, 0, 0,
+        (float)rect->w, 0, 0, 0,
+        0, (float)rect->h, 0, 0,
         0, 0, 1, 0,
-        (float)n->geometry.x, (float)n->geometry.y, 0, 1
+        (float)rect->x, (float)rect->y, 0, 1
     };
 
     /* The node's own transform (transform.h) is row-major 4x4 in root
@@ -584,7 +811,7 @@ static void node_matrix(const CompSceneNode *n, float m[16])
     float t[16];
     for (int r = 0; r < 4; r++)
         for (int c = 0; c < 4; c++)
-            t[c * 4 + r] = n->transform.m[r][c];
+            t[c * 4 + r] = transform->m[r][c];
 
     /* m = t * place */
     for (int c = 0; c < 4; c++) {
@@ -594,6 +821,238 @@ static void node_matrix(const CompSceneNode *n, float m[16])
                 sum += t[k * 4 + r] * place[c * 4 + k];
             m[c * 4 + r] = sum;
         }
+    }
+}
+
+static void node_matrix(const CompSceneNode *n, float m[16])
+{
+    rect_matrix(&n->geometry, &n->transform, m);
+}
+
+/* The window's bounding shape, in window-local pixels. An unshaped
+ * window answers with its whole rectangle, which is exactly the answer
+ * that needs no clipping at all -- so shape_count == 0 means "draw it
+ * whole" and costs nothing per frame. */
+static void shape_fetch(CompWindow *w, GlxWindow *g);
+
+static void shape_fetch(CompWindow *w, GlxWindow *g)
+{
+    if (g->shape_known)
+        return;
+    g->shape_known = true;
+
+    free(g->shape_rects);
+    g->shape_rects = NULL;
+    g->shape_count = 0;
+
+    if (!comp.caps.shape)
+        return;
+
+    /* Whether the window is shaped at all, and where that shape is, has
+     * to be asked here rather than read off the window: CompWindow::shaped
+     * and ::shape_extents are filled in by whichever backend looks, and
+     * the XRender one is not running. Trusting a flag nobody set is why
+     * the first version of this drew every frame with square corners
+     * while insisting it was clipping them.
+     *
+     * The extents are worth the same round trip: the shadow is cast
+     * around them (draw_shadow), and a window whose rectangle is far
+     * bigger than what it draws -- VirtualBox's mini-toolbar -- would
+     * otherwise get a shadow the size of the screen. */
+    xcb_shape_query_extents_reply_t *ext = xcb_shape_query_extents_reply(comp.conn,
+        xcb_shape_query_extents(comp.conn, w->id), NULL);
+    if (ext) {
+        w->shaped = ext->bounding_shaped;
+        w->shape_extents.x = ext->bounding_shape_extents_x;
+        w->shape_extents.y = ext->bounding_shape_extents_y;
+        w->shape_extents.w = ext->bounding_shape_extents_width;
+        w->shape_extents.h = ext->bounding_shape_extents_height;
+        free(ext);
+    }
+    if (!w->shaped)
+        return;
+
+    xcb_shape_get_rectangles_reply_t *r = xcb_shape_get_rectangles_reply(comp.conn,
+        xcb_shape_get_rectangles(comp.conn, w->id, XCB_SHAPE_SK_BOUNDING), NULL);
+    if (!r)
+        return;
+
+    int n = xcb_shape_get_rectangles_rectangles_length(r);
+    if (n > 0) {
+        g->shape_rects = malloc(sizeof(xcb_rectangle_t) * (size_t)n);
+        if (g->shape_rects) {
+            memcpy(g->shape_rects, xcb_shape_get_rectangles_rectangles(r),
+                   sizeof(xcb_rectangle_t) * (size_t)n);
+            g->shape_count = n;
+        }
+    }
+    free(r);
+}
+
+/* One shape rectangle as a GL scissor box. The scissor is in physical
+ * pixels counted from the *bottom* of the drawable, which is neither the
+ * unit the rest of this file works in nor the direction X counts in. */
+static void scissor_for(const CompOutput *o, int x, int y, int w, int h)
+{
+    float scale = o->scale > 0.0f ? o->scale : 1.0f;
+
+    int px = (int)((float)(x - o->rect.x) * scale);
+    int py = (int)((float)(y - o->rect.y) * scale);
+    int pw = (int)((float)w * scale + 0.5f);
+    int ph = (int)((float)h * scale + 0.5f);
+
+    glScissor(px, o->physical.h - (py + ph), pw, ph);
+}
+
+/* The shadow box minus the window's silhouette, as scissor rectangles.
+ *
+ * The shader can punch one rectangle out of the shadow, and a rectangle
+ * is the wrong shape: it leaves a notch of missing shadow at each rounded
+ * corner -- inside the rectangle, outside the window, so neither the
+ * window nor its shadow is drawn there and the desktop shows through.
+ * Cutting the real silhouette is what lets the shadow reach into the
+ * corner, which is what the XRender backend does with an XFixes
+ * subtraction it gets for three asynchronous requests. Here the shape is
+ * already in hand as rectangles, so the complement is arithmetic.
+ *
+ * X hands shape rectangles back Y-banded: sorted by y, bands of equal
+ * height, no overlaps. So one walk emits the gaps -- the rows between
+ * bands, and within a band the spans the shape does not cover.
+ *
+ * Returns the number written, or -1 to say "too many, use the rectangle"
+ * -- a pathologically shaped window is not worth hundreds of draws for a
+ * shadow nobody is looking at that closely. */
+#define SHADOW_CUT_MAX 64
+
+static int shadow_cut_rects(const CompRect *box, const CompWindow *w,
+                            const GlxWindow *g, int dx, int dy, CompRect *out)
+{
+    int n = 0;
+    int box_r = box->x + box->w;
+    int box_b = box->y + box->h;
+    int y = box->y;
+
+    /* Emits one rectangle, clipped to the box and dropped if empty. */
+    #define EMIT(ex, ey, ew, eh) do {                                     \
+        CompRect r_ = { (ex), (ey), (ew), (eh) };                         \
+        CompRect hit_;                                                    \
+        if (rect_intersect(&r_, box, &hit_)) {                            \
+            if (n >= SHADOW_CUT_MAX) return -1;                           \
+            out[n++] = hit_;                                              \
+        }                                                                 \
+    } while (0)
+
+    for (int i = 0; i < g->shape_count; ) {
+        int band_y = w->y + dy + g->shape_rects[i].y;
+        int band_h = g->shape_rects[i].height;
+
+        /* Everything above this band is shadow. */
+        if (band_y > y)
+            EMIT(box->x, y, box->w, band_y - y);
+
+        /* And within it, whatever the shape's spans leave over. */
+        int x = box->x;
+        while (i < g->shape_count &&
+               w->y + dy + g->shape_rects[i].y == band_y &&
+               g->shape_rects[i].height == band_h) {
+            int sx = w->x + dx + g->shape_rects[i].x;
+            if (sx > x)
+                EMIT(x, band_y, sx - x, band_h);
+            int end = sx + g->shape_rects[i].width;
+            if (end > x)
+                x = end;
+            i++;
+        }
+        if (x < box_r)
+            EMIT(x, band_y, box_r - x, band_h);
+
+        y = band_y + band_h;
+    }
+
+    if (y < box_b)
+        EMIT(box->x, y, box->w, box_b - y);
+
+    #undef EMIT
+    return n;
+}
+
+/* The shadow: one quad, the profile texture, and the window's own
+ * silhouette left out of it (see the shader above). The rectangle it is
+ * cast around is what can be *seen* of the window -- its shape extents
+ * where it has them, never larger than the window itself, the same clamp
+ * the XRender backend needs and for the same reason (a shape belongs to
+ * the size the window had when it was set). */
+static void draw_shadow(const CompOutput *o, const CompSceneNode *n,
+                        CompWindow *w, const GlxWindow *g,
+                        const float projection[16])
+{
+    CompShadowStyle st;
+    if (!shadow_program || !shadow_for_window(w, &st))
+        return;
+    if (st.opacity <= 0.0f || st.radius <= 0)
+        return;
+
+    CompRect base = n->geometry;
+    if (w->shaped && w->shape_extents.w > 0 && w->shape_extents.h > 0) {
+        CompRect ext = { w->x + w->shape_extents.x, w->y + w->shape_extents.y,
+                         w->shape_extents.w, w->shape_extents.h };
+        CompRect clamped;
+        if (rect_intersect(&ext, &n->geometry, &clamped))
+            base = clamped;
+    }
+
+    int r = st.radius;
+    if (!shadow_profile_texture(r))
+        return;
+
+    CompRect box = { base.x + st.offset_x - r, base.y + st.offset_y - r,
+                     base.w + r * 2, base.h + r * 2 };
+
+    float m[16];
+    rect_matrix(&box, &n->transform, m);
+
+    glUseProgram(shadow_program);
+    glUniformMatrix4fv(su_projection, 1, GL_FALSE, projection);
+    glUniformMatrix4fv(su_transform, 1, GL_FALSE, m);
+    glUniform4f(su_color, st.r, st.g, st.b, st.opacity * n->opacity);
+    glUniform2f(su_size, (float)box.w, (float)box.h);
+    glUniform1f(su_span, (float)(r * 2));
+    glUniform1i(su_profile, 0);
+    glBindTexture(GL_TEXTURE_2D, shadow_texture);
+
+    /* The silhouette, where the window has one and is where it says it
+     * is -- a scissor box lives in screen pixels, so it can follow a
+     * move but not a scale (the same limit the clipping of the window
+     * itself has). Anything else falls back to the rectangle, which is
+     * only visibly wrong on a rounded corner, and a window mid-scale
+     * doesn't have its corners where they will end up anyway. */
+    CompRect cut[SHADOW_CUT_MAX];
+    int cuts = -1;
+    float tdx = 0.0f, tdy = 0.0f;
+    bool move_only = comp_transform_is_identity(&n->transform) ||
+                     comp_transform_is_translation(&n->transform, &tdx, &tdy);
+
+    if (g && g->shape_count > 0 && move_only) {
+        /* Where the shadow is being *drawn*, which during a move is not
+         * where the window is: the quad's matrix carries the transform,
+         * so the scissor boxes have to be carried the same distance. */
+        CompRect moved = { box.x + (int)tdx, box.y + (int)tdy, box.w, box.h };
+        cuts = shadow_cut_rects(&moved, w, g, (int)tdx, (int)tdy, cut);
+    }
+
+    if (cuts >= 0) {
+        /* No hole in the shader: the scissor boxes *are* the hole. */
+        glUniform4f(su_hole, 0.0f, 0.0f, 0.0f, 0.0f);
+        glEnable(GL_SCISSOR_TEST);
+        for (int i = 0; i < cuts; i++) {
+            scissor_for(o, cut[i].x, cut[i].y, cut[i].w, cut[i].h);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        }
+        glDisable(GL_SCISSOR_TEST);
+    } else {
+        glUniform4f(su_hole, (float)(base.x - box.x), (float)(base.y - box.y),
+                    (float)base.w, (float)base.h);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
 }
 
@@ -654,7 +1113,21 @@ static void glx_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage
             continue;
 
         GlxWindow *g = glx_window_get(w);
-        if (!g || !glx_window_bind(w, g))
+        if (!g)
+            continue;
+
+        /* The shape first: the shadow is cast around the window's
+         * silhouette, and both of them are about to want it. */
+        shape_fetch(w, g);
+
+        /* Under the window, and before its texture is bound: the shadow
+         * program has its own idea of what is in texture unit 0. */
+        draw_shadow(o, n, w, g, projection);
+        glUseProgram(program);
+        glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
+        glUniform1i(u_texture, 0);
+
+        if (!glx_window_bind(w, g))
             continue;
 
         float m[16];
@@ -670,7 +1143,33 @@ static void glx_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage
          * mistakes look identical until you try the other driver. */
         glUniform1f(u_y_flip, g->y_inverted ? 0.0f : 1.0f);
 
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        /* A shaped window is drawn through its silhouette, one scissor
+         * box per rectangle: rounded corners are the everyday case here,
+         * since kiwm rounds every frame it draws, and without this the
+         * corners come back square with whatever the pixmap holds
+         * outside them.
+         *
+         * Only while the window is where it says it is, or is being
+         * moved: a scissor box is in screen pixels, so it can follow a
+         * translation but not a scale or a rotation. A window mid-scale
+         * is drawn whole for those frames, which is what the XRender
+         * backend does with the same reasoning. */
+        float tdx = 0.0f, tdy = 0.0f;
+        bool move_only = comp_transform_is_identity(&n->transform) ||
+                         comp_transform_is_translation(&n->transform, &tdx, &tdy);
+
+        if (g->shape_count > 0 && move_only) {
+            glEnable(GL_SCISSOR_TEST);
+            for (int k = 0; k < g->shape_count; k++) {
+                const xcb_rectangle_t *sr = &g->shape_rects[k];
+                scissor_for(o, w->x + (int)tdx + sr->x, w->y + (int)tdy + sr->y,
+                            sr->width, sr->height);
+                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            }
+            glDisable(GL_SCISSOR_TEST);
+        } else {
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        }
     }
 
     glDisableVertexAttribArray(0);
@@ -727,9 +1226,25 @@ static void glx_shutdown(void)
         glx_window_unbind(g);
         if (g->texture)
             glDeleteTextures(1, &g->texture);
+        free(g->shape_rects);
         free(g);
     }
 
+    while (tfp_configs) {
+        TfpConfig *c = tfp_configs;
+        tfp_configs = c->next;
+        free(c);
+    }
+
+    if (shadow_texture) {
+        glDeleteTextures(1, &shadow_texture);
+        shadow_texture = 0;
+        shadow_texture_radius = 0;
+    }
+    if (shadow_program) {
+        glDeleteProgram(shadow_program);
+        shadow_program = 0;
+    }
     if (program) {
         glDeleteProgram(program);
         program = 0;
@@ -758,6 +1273,7 @@ static const CompRenderer glx_renderer = {
     .end        = glx_end,
 
     .window_invalidate  = glx_window_invalidate,
+    .window_shape_invalidate = glx_window_shape_invalidate,
     .window_free        = glx_window_free,
     .window_has_content = glx_window_has_content,
     .shutdown           = glx_shutdown,

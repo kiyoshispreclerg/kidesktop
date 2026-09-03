@@ -76,6 +76,18 @@ void shadow_config_finish(void);
  * now (focused windows and unfocused ones may differ in every value). */
 bool shadow_for_window(const CompWindow *w, CompShadowStyle *out);
 
+/* The 1-D edge profile a blurred rectangle has: how the shadow fades from
+ * nothing to solid across 2*radius pixels, as 2*radius alpha bytes.
+ *
+ * Lives here rather than in a renderer because it is the *shape* of a
+ * shadow, which no backend gets to have an opinion about -- XRender
+ * builds its nine tiles out of it, GL uploads it as a one-dimensional
+ * texture and multiplies two lookups per fragment. Two backends drawing
+ * shadows that don't match would be a worse bug than either drawing none.
+ *
+ * `out` must have room for 2*radius bytes. */
+void shadow_profile(int radius, uint8_t *out);
+
 /* How far outside a window its shadow can reach, in pixels: the widest
  * radius plus the longest offset, over both styles. What damage tracking
  * has to add around a changed window so the band of shadow beside it is

@@ -726,40 +726,6 @@ static xcb_render_picture_t alpha_picture(const uint8_t *alpha, int w, int h, bo
     return pict;
 }
 
-/* The 1-D profile: how a blurred edge fades from nothing to solid across
- * 2*radius pixels. A Gaussian kernel's running sum, which is what a
- * half-plane looks like once blurred. */
-static void shadow_profile(int radius, uint8_t *out /* 2*radius */)
-{
-    int n = radius * 2;
-    double sigma = radius / 2.0;
-    if (sigma < 0.5)
-        sigma = 0.5;
-
-    double *k = calloc((size_t)(n + 1), sizeof(double));
-    if (!k) {
-        for (int i = 0; i < n; i++)
-            out[i] = (uint8_t)(255 * (i + 1) / n);
-        return;
-    }
-
-    double sum = 0.0;
-    for (int i = 0; i <= n; i++) {
-        double x = i - radius;
-        k[i] = exp(-(x * x) / (2.0 * sigma * sigma));
-        sum += k[i];
-    }
-
-    double acc = 0.0;
-    for (int i = 0; i < n; i++) {
-        acc += k[i] / sum;
-        double v = acc;
-        if (v < 0.0) v = 0.0;
-        if (v > 1.0) v = 1.0;
-        out[i] = (uint8_t)(v * 255.0 + 0.5);
-    }
-    free(k);
-}
 
 static ShadowTiles *shadow_tiles_for(int radius)
 {
