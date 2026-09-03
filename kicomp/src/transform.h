@@ -18,6 +18,8 @@
 #ifndef KICOMP_TRANSFORM_H
 #define KICOMP_TRANSFORM_H
 
+#include "comp.h"   /* CompRect */
+
 #include <stdbool.h>
 
 typedef struct CompTransform {
@@ -37,6 +39,19 @@ bool comp_transform_is_identity(const CompTransform *t);
  * the desktop wall, smooth-move and the tail of a geometry change are all
  * pure moves. */
 bool comp_transform_is_translation(const CompTransform *t, float *dx, float *dy);
+
+/* Where a rectangle lands once the transform is applied to it.
+ *
+ * Only meaningful for the affine transforms the effects here build --
+ * moves and scales -- which is why it maps two corners rather than four.
+ * What it is for: a window being scaled loses its shape clip, because
+ * neither XFixes nor a scissor box can scale a region, and a window whose
+ * rectangle is far larger than what it draws then appears as its whole
+ * rectangle full of whatever its pixmap happens to hold. Its *extents*
+ * can be carried across, and that is the difference between VirtualBox's
+ * mini-toolbar shrinking into an expo cell as a small bar and as a
+ * screen-sized ghost. */
+CompRect comp_transform_rect(const CompTransform *t, const CompRect *r);
 
 /* out = a * b (apply b first, then a). Aliasing-safe. */
 void comp_transform_multiply(CompTransform *out, const CompTransform *a, const CompTransform *b);

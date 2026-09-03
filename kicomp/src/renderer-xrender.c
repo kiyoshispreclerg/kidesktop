@@ -1350,6 +1350,10 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
             continue;
         }
 
+        /* Freed after the draw below; declared here because the clip it
+         * carries has to outlive the block that builds it. */
+        xcb_xfixes_region_t owned_extents = XCB_NONE;
+
         /* Under the window, before it: a shadow is behind what casts it.
          * Skipped while transformed -- an animating window's shadow would
          * have to be transformed with it, and a shadow that stays behind
@@ -1409,9 +1413,41 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
 
             xcb_xfixes_region_t shape = (from_stash || !move_only) ? XCB_NONE
                                                                   : window_shape(w);
-            clip_to_frame(o, shape ? shape : XCB_NONE,
-                          (int16_t)(w->x + (int)tdx - o->rect.x),
-                          (int16_t)(w->y + (int)tdy - o->rect.y));
+
+            /* A window being *scaled* cannot keep its silhouette -- XFixes
+             * has no way to scale a region -- but it can keep its
+             * extents, and for the window this matters to those are not
+             * the same rectangle at all. VirtualBox's mini-toolbar is a
+             * screen-sized window with a small bar shaped out of it, so
+             * drawing its whole rectangle while an effect shrinks it puts
+             * a screen-sized ghost of stale contents in the middle of the
+             * expo grid. The extents carried through the same transform
+             * are exactly that bar. */
+            if (!shape && !from_stash && transformed && w->shaped &&
+                w->shape_extents.w > 0 && w->shape_extents.h > 0) {
+                window_shape(w);          /* refreshes the extents */
+                CompRect ext = { w->x + w->shape_extents.x,
+                                 w->y + w->shape_extents.y,
+                                 w->shape_extents.w, w->shape_extents.h };
+                CompRect moved = comp_transform_rect(&n->transform, &ext);
+
+                if (moved.w > 0 && moved.h > 0) {
+                    xcb_rectangle_t r = {
+                        (int16_t)(moved.x - o->rect.x),
+                        (int16_t)(moved.y - o->rect.y),
+                        (uint16_t)moved.w, (uint16_t)moved.h
+                    };
+                    owned_extents = xcb_generate_id(comp.conn);
+                    xcb_xfixes_create_region(comp.conn, owned_extents, 1, &r);
+                }
+            }
+
+            if (owned_extents != XCB_NONE)
+                clip_to_frame(o, owned_extents, 0, 0);
+            else
+                clip_to_frame(o, shape ? shape : XCB_NONE,
+                              (int16_t)(w->x + (int)tdx - o->rect.x),
+                              (int16_t)(w->y + (int)tdy - o->rect.y));
         }
 
         /* Source offset: where inside the window's own pixmap the visible
@@ -1510,6 +1546,11 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
                 };
                 draw_dense(o, n, w, mask, &client, density, false);
             }
+        }
+
+        if (owned_extents != XCB_NONE) {
+            xcb_xfixes_destroy_region(comp.conn, owned_extents);
+            owned_extents = XCB_NONE;
         }
     }
 }

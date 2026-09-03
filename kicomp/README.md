@@ -1109,6 +1109,39 @@ opacity (`scene.h`), and those map onto a shader as directly as they map
 onto XRender. That was the point of the abstraction, and this is the first
 evidence that it holds.
 
+### Partial repaint
+
+The GL backend redraws only what changed, the same as the XRender one --
+but knowing what "changed" means for a *back buffer* takes an extension.
+
+`GLX_EXT_buffer_age` answers the one question that makes it safe: how
+many swaps ago this buffer was last shown. Age 1 is the frame before
+last; age *n* means the union of the last *n* frames' damage is exactly
+what has happened since. Age 0 means the driver is not saying -- a fresh
+drawable, a resized one, a driver that discards -- and the honest answer
+to that is to redraw everything, which is also what happens with no
+extension at all. Getting this wrong doesn't look like a small mistake:
+it is the black-and-red flashing and the misplaced pieces of window this
+backend had before the region was honoured at all.
+
+So each output keeps the last four frames' **damage** (not what those
+frames drew -- a frame that redrew more than changed would otherwise
+poison every frame after it, forcing a full repaint that records
+"everything" again, for ever). Everything is then drawn scissored, one
+damage rectangle at a time, with a full repaint simply being one
+rectangle the size of the output -- one code path, and the one that runs
+every frame is the one that gets tested.
+
+Both the client and the server have to advertise the extension: the age
+comes from the client's own buffer bookkeeping, but `glXQueryDrawable` is
+answered by the server, and one that doesn't know the attribute (Xephyr,
+for one) has nothing useful to say about it. The startup line says which
+you got:
+
+```
+kicomp: glx 1.4, direct, texture-from-pixmap per visual, partial repaint (buffer age)
+```
+
 ### What it doesn't do yet
 
 `auto` stays on XRender until these are there, and each is a follow-up in
@@ -1116,11 +1149,8 @@ this one file rather than a change anywhere else:
 
 | | |
 |---|---|
-| shadows | the nine-patch is XRender pictures today; in GL it is a generated texture drawn as nine quads |
-| shape clipping | rounded corners — the plan is to draw the window's visible region as one quad per shape rectangle, which is exact and needs no stencil |
 | X-DENSITY layers | the dense decoration and contents are drawn by the XRender path only |
 | the shade stash | so `shade` has nothing to roll up under this renderer |
-| damage | the scissor is the damage region's *bounding box*, not each rectangle, and `GLX_EXT_buffer_age` isn't consulted yet — with a swapchain the buffer being drawn into is not the one presented last frame |
 | MSC/UST | `GLX_OML_sync_control` would give the same numbers the Present presenter reports |
 
 Verified on a nested session (llvmpipe, GLX 1.4 direct): the desktop

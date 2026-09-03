@@ -112,10 +112,47 @@ static GLint su_projection, su_transform, su_color, su_size, su_span,
 static GLuint shadow_texture;
 static int shadow_texture_radius;
 
+/* GLX_EXT_buffer_age, without which there is no way to know what the back
+ * buffer already holds and every frame has to be redrawn whole. */
+static bool have_buffer_age;
+
+/* The rectangle currently being repainted, in root coordinates.
+ * Everything drawn is scissored to it (and to whatever else it is
+ * already clipped by), so one pass over the scene per rectangle covers
+ * exactly the damage and nothing else. */
+static CompRect repaint_rect;
+
 /* Per-output GL state, hung off CompOutput::render_data. */
+/* How many past frames' damage to remember. A back buffer this old or
+ * older cannot be trusted at all, so anything beyond this is a full
+ * repaint -- and drivers in practice hand back ages of 1..3. */
+#define AGE_HISTORY 4
+
 typedef struct {
     Window window;          /* CRTC-covering child of the overlay */
     GLXWindow drawable;
+
+    /* What was repainted in each of the last few frames, newest first.
+     * A back buffer that is `age` swaps old already holds everything
+     * except what has changed since -- so repainting the union of the
+     * last `age` frames' damage brings it up to date, and repainting the
+     * whole screen every frame to be safe is what this replaces. */
+    CompRegion history[AGE_HISTORY];
+    int history_len;
+
+    /* This frame's answer, kept from begin() to end(): the renderer draws
+     * and clears through it, and everything is scissored to one of its
+     * rectangles at a time. */
+    CompRegion repaint;
+
+    /* And this frame's *damage*, which is what goes into the history --
+     * not the repaint. The two differ whenever a frame redraws more than
+     * changed, and the history has to mean "what changed then", because
+     * that is what a buffer from before it is missing. Recording the
+     * repaint instead makes a full frame poison every frame after it: it
+     * lands in the history as "everything", which forces the next frame
+     * full, which records "everything" again, for ever. */
+    CompRegion frame_damage;
 } GlxOutput;
 
 /* Per-window GL state. The renderer keeps it in the window's existing
@@ -384,6 +421,18 @@ static bool choose_configs(void)
      * bound (tfp_config_for). */
     const char *ext = glXQueryExtensionsString(dpy, screen);
     have_tfp = ext && strstr(ext, "GLX_EXT_texture_from_pixmap");
+    /* Asked through epoxy rather than by searching the server's
+     * extension string: buffer age is a *client* extension, so it never
+     * appears there, and checking the wrong string is a silent "no"
+     * -- every frame a full repaint, with nothing to say why. */
+    /* Both sides have to have it: the age comes from the client's
+     * buffer bookkeeping, but glXQueryDrawable is answered by the
+     * server, and a server that doesn't know the attribute (Xephyr, for
+     * one) has nothing useful to say about it. */
+    const char *client_ext = glXGetClientString(dpy, GLX_EXTENSIONS);
+    have_buffer_age = epoxy_has_glx_extension(dpy, screen, "GLX_EXT_buffer_age") &&
+                      client_ext && strstr(client_ext, "GLX_EXT_buffer_age");
+
     if (!have_tfp) {
         fprintf(stderr, "kicomp: glx: no GLX_EXT_texture_from_pixmap; "
                         "this backend cannot sample windows without it\n");
@@ -502,9 +551,11 @@ static bool glx_start(void)
         return false;
     }
 
-    comp_info("glx %d.%d, %s, texture-from-pixmap per visual",
+    comp_info("glx %d.%d, %s, texture-from-pixmap per visual, %s",
               major, minor,
-              glXIsDirect(dpy, context) ? "direct" : "indirect (software path)");
+              glXIsDirect(dpy, context) ? "direct" : "indirect (software path)",
+              have_buffer_age ? "partial repaint (buffer age)"
+                              : "full repaint every frame (no buffer age)");
     return true;
 }
 
@@ -904,6 +955,10 @@ static void scissor_for(const CompOutput *o, int x, int y, int w, int h)
     glScissor(px, o->physical.h - (py + ph), pw, ph);
 }
 
+/* Defined below, once the repaint rectangle exists: the same thing as
+ * scissor_for(), intersected with what this frame is allowed to touch. */
+static bool scissor_to(const CompOutput *o, const CompRect *r);
+
 /* The shadow box minus the window's silhouette, as scissor rectangles.
  *
  * The shader can punch one rectangle out of the shadow, and a rectangle
@@ -1043,17 +1098,93 @@ static void draw_shadow(const CompOutput *o, const CompSceneNode *n,
     if (cuts >= 0) {
         /* No hole in the shader: the scissor boxes *are* the hole. */
         glUniform4f(su_hole, 0.0f, 0.0f, 0.0f, 0.0f);
-        glEnable(GL_SCISSOR_TEST);
-        for (int i = 0; i < cuts; i++) {
-            scissor_for(o, cut[i].x, cut[i].y, cut[i].w, cut[i].h);
-            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        }
-        glDisable(GL_SCISSOR_TEST);
+        for (int i = 0; i < cuts; i++)
+            if (scissor_to(o, &cut[i]))
+                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     } else {
         glUniform4f(su_hole, (float)(base.x - box.x), (float)(base.y - box.y),
                     (float)base.w, (float)base.h);
+        scissor_for(o, repaint_rect.x, repaint_rect.y,
+                    repaint_rect.w, repaint_rect.h);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
+}
+
+/* Everything this frame is drawn through the scissor, so a rectangle
+ * that is empty after being clipped is a rectangle nobody has to draw.
+ * `r` is in root coordinates; the scissor is in physical pixels counted
+ * from the bottom of the drawable. */
+static bool scissor_to(const CompOutput *o, const CompRect *r)
+{
+    CompRect hit;
+    if (!rect_intersect(r, &repaint_rect, &hit))
+        return false;
+    if (!rect_intersect(&hit, &o->rect, &hit))
+        return false;
+
+    scissor_for(o, hit.x, hit.y, hit.w, hit.h);
+    return true;
+}
+
+/* What the back buffer is missing, and therefore what this frame has to
+ * draw.
+ *
+ * GLX_EXT_buffer_age answers the one question that makes partial
+ * repainting safe: how many swaps ago this buffer was last shown. Age 1
+ * is the frame before last; age n means the union of the last n frames'
+ * damage is exactly what has changed since it was current. Age 0 means
+ * the driver is not saying -- a resized drawable, a fresh one, a driver
+ * that discards -- and the honest answer to that is to redraw
+ * everything, which is also what happens without the extension at all.
+ *
+ * Getting this wrong doesn't look like a small mistake: it is the black
+ * and red flashing and the misplaced pieces of window that the first
+ * version of this file had, because the parts nobody repainted were
+ * showing a frame from two swaps ago or memory nobody had written. */
+static void repaint_region_for(CompOutput *o, GlxOutput *go,
+                               const CompRegion *damage)
+{
+    (void)o;
+
+    if (region_is_full(damage) || !have_buffer_age) {
+        region_set_full(&go->repaint);
+        return;
+    }
+
+    unsigned age = 0;
+    glXQueryDrawable(dpy, go->drawable, GLX_BACK_BUFFER_AGE_EXT, &age);
+
+    if (age == 0 || (int)age > go->history_len) {
+        region_set_full(&go->repaint);
+        return;
+    }
+
+    go->repaint = *damage;
+    for (unsigned i = 0; i < age && (int)i < go->history_len; i++) {
+        const CompRegion *past = &go->history[i];
+        if (region_is_full(past)) {
+            region_set_full(&go->repaint);
+            return;
+        }
+        for (int k = 0; k < past->count; k++)
+            region_add(&go->repaint, &past->rects[k]);
+    }
+}
+
+/* The damage as the history wants it: a rectangle list, with "everything"
+ * spelled as the output's own rectangle rather than as the flag. As a
+ * flag it would say "this frame is dirty" for ever after; as a rectangle
+ * it says "all of it changed then", which ages out of the window like
+ * any other entry. */
+static void frame_damage_of(const CompOutput *o, const CompRegion *damage,
+                            CompRegion *out)
+{
+    if (region_is_full(damage)) {
+        region_clear(out);
+        region_add(out, &o->rect);
+        return;
+    }
+    *out = *damage;
 }
 
 static void glx_begin(CompOutput *o, const CompRegion *damage)
@@ -1066,45 +1197,34 @@ static void glx_begin(CompOutput *o, const CompRegion *damage)
 
     glViewport(0, 0, o->physical.w, o->physical.h);
 
-    /* The damage is deliberately ignored, and the whole output is redrawn
-     * every frame (see this file's header). Scissoring to it would leave
-     * the rest of the *back* buffer showing a frame from two swaps ago,
-     * or uninitialised memory -- which is what the flashing and the
-     * misplaced pieces were. GLX_EXT_buffer_age is what makes honouring
-     * it correct, and until then this is the honest trade. */
-    (void)damage;
-    glDisable(GL_SCISSOR_TEST);
+    repaint_region_for(o, go, damage);
+    frame_damage_of(o, damage, &go->frame_damage);
 
     glClearColor(0.109f, 0.109f, 0.109f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
+
+    if (region_is_full(&go->repaint)) {
+        glDisable(GL_SCISSOR_TEST);
+        glClear(GL_COLOR_BUFFER_BIT);
+        return;
+    }
+
+    /* Only the ground that is about to be redrawn. Clearing the whole
+     * buffer here would throw away precisely the pixels the buffer age
+     * just told us are still good. */
+    glEnable(GL_SCISSOR_TEST);
+    for (int i = 0; i < go->repaint.count; i++) {
+        const CompRect *r = &go->repaint.rects[i];
+        scissor_for(o, r->x, r->y, r->w, r->h);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
+    glDisable(GL_SCISSOR_TEST);
 }
 
-static void glx_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
+/* One pass over the scene, everything clipped to `repaint_rect`. Called
+ * once per damaged rectangle, so a frame where two small things changed
+ * costs two small passes instead of one screen-sized one. */
+static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
 {
-    GlxOutput *go = o->render_data;
-    if (!go || !program)
-        return;
-
-    /* Every node, every frame: the whole buffer is being rebuilt (see
-     * glx_begin), so skipping the ones damage didn't touch would leave
-     * holes rather than save work. */
-    (void)damage;
-
-    float projection[16];
-    projection_for(o, projection);
-
-    glUseProgram(program);
-    glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
-    glUniform1i(u_texture, 0);
-
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-    glActiveTexture(GL_TEXTURE0);
-
-    glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
-
     for (int i = 0; i < s->count; i++) {
         CompSceneNode *n = &s->nodes[i];
         CompWindow *w = n->win;
@@ -1114,6 +1234,21 @@ static void glx_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage
 
         GlxWindow *g = glx_window_get(w);
         if (!g)
+            continue;
+
+        /* Nothing of this window is in the rectangle being repainted --
+         * grown by the shadow's reach, since a window paints outside
+         * itself. This test is where the saving actually comes from: the
+         * scissor would clip it anyway, but binding a pixmap and issuing
+         * draws for a window nobody can see is the work worth not doing. */
+        CompRect touch = n->visible_rect;
+        int reach = shadow_margin();
+        touch.x -= reach;
+        touch.y -= reach;
+        touch.w += reach * 2;
+        touch.h += reach * 2;
+        CompRect ignored;
+        if (!rect_intersect(&touch, &repaint_rect, &ignored))
             continue;
 
         /* The shape first: the shadow is cast around the window's
@@ -1159,19 +1294,83 @@ static void glx_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage
                          comp_transform_is_translation(&n->transform, &tdx, &tdy);
 
         if (g->shape_count > 0 && move_only) {
-            glEnable(GL_SCISSOR_TEST);
             for (int k = 0; k < g->shape_count; k++) {
                 const xcb_rectangle_t *sr = &g->shape_rects[k];
-                scissor_for(o, w->x + (int)tdx + sr->x, w->y + (int)tdy + sr->y,
-                            sr->width, sr->height);
+                CompRect piece = { w->x + (int)tdx + sr->x,
+                                   w->y + (int)tdy + sr->y,
+                                   sr->width, sr->height };
+                if (!scissor_to(o, &piece))
+                    continue;
                 glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
             }
-            glDisable(GL_SCISSOR_TEST);
+        } else if (!move_only && w->shaped &&
+                   w->shape_extents.w > 0 && w->shape_extents.h > 0) {
+            /* Being scaled, so the silhouette cannot come along -- a
+             * scissor box lives in screen pixels. Its *extents* can,
+             * carried through the same transform, and for the window this
+             * matters to they are nothing like its rectangle:
+             * VirtualBox's mini-toolbar is a screen-sized window with a
+             * small bar shaped out of it, and drawing the rectangle while
+             * an effect shrinks it puts a screen-sized ghost of stale
+             * contents in the middle of the grid. */
+            CompRect ext = { w->x + w->shape_extents.x,
+                             w->y + w->shape_extents.y,
+                             w->shape_extents.w, w->shape_extents.h };
+            CompRect moved = comp_transform_rect(&n->transform, &ext);
+            if (scissor_to(o, &moved))
+                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         } else {
+            /* Unshaped: the damage rectangle is the whole clip. */
+            scissor_for(o, repaint_rect.x, repaint_rect.y,
+                        repaint_rect.w, repaint_rect.h);
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         }
     }
+}
 
+static void glx_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
+{
+    GlxOutput *go = o->render_data;
+    if (!go || !program)
+        return;
+
+    /* The region begin() worked out from the buffer age, not the raw
+     * damage: what this buffer is missing is the damage of every frame
+     * since it was last shown. */
+    (void)damage;
+
+    float projection[16];
+    projection_for(o, projection);
+
+    glUseProgram(program);
+    glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
+    glUniform1i(u_texture, 0);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glActiveTexture(GL_TEXTURE0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+
+    /* Everything is drawn scissored, whether the frame is partial or
+     * not: a full repaint is simply one rectangle the size of the
+     * output, so there is one code path rather than two, and the one
+     * that runs every frame is the one that has been tested. */
+    glEnable(GL_SCISSOR_TEST);
+
+    if (region_is_full(&go->repaint)) {
+        repaint_rect = o->rect;
+        draw_pass(o, s, projection);
+    } else {
+        for (int i = 0; i < go->repaint.count; i++) {
+            repaint_rect = go->repaint.rects[i];
+            draw_pass(o, s, projection);
+        }
+    }
+
+    glDisable(GL_SCISSOR_TEST);
     glDisableVertexAttribArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -1181,9 +1380,22 @@ static void glx_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage
 
 static void glx_end(CompOutput *o)
 {
-    (void)o;
+    GlxOutput *go = o->render_data;
+
     glDisable(GL_SCISSOR_TEST);
     glFlush();
+
+    if (!go)
+        return;
+
+    /* Remembered for the frames that will inherit this buffer: in a few
+     * swaps' time it comes back as the back buffer, and what it is
+     * missing then is everything drawn since -- starting with this. */
+    for (int i = AGE_HISTORY - 1; i > 0; i--)
+        go->history[i] = go->history[i - 1];
+    go->history[0] = go->frame_damage;
+    if (go->history_len < AGE_HISTORY)
+        go->history_len++;
 }
 
 /* What presenter-glx.c calls: with GL, presenting is the swap, and the

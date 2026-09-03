@@ -138,3 +138,26 @@ bool comp_transform_is_translation(const CompTransform *t, float *dx, float *dy)
         *dy = t->m[1][3];
     return true;
 }
+
+CompRect comp_transform_rect(const CompTransform *t, const CompRect *r)
+{
+    float x0 = (float)r->x, y0 = (float)r->y;
+    float x1 = (float)(r->x + r->w), y1 = (float)(r->y + r->h);
+
+    float ax = t->m[0][0] * x0 + t->m[0][1] * y0 + t->m[0][3];
+    float ay = t->m[1][0] * x0 + t->m[1][1] * y0 + t->m[1][3];
+    float bx = t->m[0][0] * x1 + t->m[0][1] * y1 + t->m[0][3];
+    float by = t->m[1][0] * x1 + t->m[1][1] * y1 + t->m[1][3];
+
+    if (bx < ax) { float tmp = ax; ax = bx; bx = tmp; }
+    if (by < ay) { float tmp = ay; ay = by; by = tmp; }
+
+    CompRect out;
+    out.x = (int)floorf(ax);
+    out.y = (int)floorf(ay);
+    out.w = (int)ceilf(bx) - out.x;
+    out.h = (int)ceilf(by) - out.y;
+    if (out.w < 0) out.w = 0;
+    if (out.h < 0) out.h = 0;
+    return out;
+}
