@@ -22,7 +22,7 @@
  *   hotkey   = Meta+A, Meta+W    # one action, as many keys as you like
  *   duration = 1.5              # multiples of animation_duration
  *   easing   = out
- *   dim      = 0.55             # unselected windows, while the grid is up
+ *   dim      = 0.78             # opacity of the unselected windows (1 = none)
  *   margin   = 48               # gap around the grid, in pixels
  *   padding  = 16               # gap between cells
  *   other_outputs = 0           # windows from the other monitors too
@@ -205,6 +205,92 @@ static CompOutput *output_of(const CompRect *r)
     return NULL;
 }
 
+/* _NET_CLIENT_LIST: the WM's own answer to "which windows are windows".
+ * Read once when the grid opens.
+ *
+ * This is the list a taskbar works from, and using the same one is the
+ * point: a window nobody would expect to find in the taskbar -- a panel,
+ * the desktop, an override-redirect popup, anything the WM never took on
+ * -- is not something to pick out of a grid either. Reading the property
+ * beats inferring it from window types, because it is the WM stating a
+ * fact rather than us deducing one from what a client happened to
+ * declare. */
+static xcb_window_t *client_list;
+static int client_list_len;
+
+static void client_list_read(void)
+{
+    static xcb_atom_t net_client_list;
+    if (!net_client_list)
+        net_client_list = atom("_NET_CLIENT_LIST");
+
+    free(client_list);
+    client_list = NULL;
+    client_list_len = 0;
+    if (net_client_list == XCB_NONE)
+        return;
+
+    xcb_get_property_reply_t *r = xcb_get_property_reply(comp.conn,
+        xcb_get_property(comp.conn, 0, comp.root, net_client_list,
+                         XCB_ATOM_WINDOW, 0, 4096), NULL);
+    if (!r)
+        return;
+
+    int n = xcb_get_property_value_length(r) / 4;
+    if (n > 0) {
+        client_list = malloc(sizeof(xcb_window_t) * (size_t)n);
+        if (client_list) {
+            memcpy(client_list, xcb_get_property_value(r),
+                   sizeof(xcb_window_t) * (size_t)n);
+            client_list_len = n;
+        }
+    }
+    free(r);
+}
+
+static bool in_client_list(const CompWindow *w)
+{
+    /* No list at all means no WM is publishing one; fall back to letting
+     * the type mask decide rather than showing an empty grid. */
+    if (client_list_len == 0)
+        return true;
+
+    xcb_window_t client = w->client != XCB_NONE ? w->client : w->id;
+    for (int i = 0; i < client_list_len; i++)
+        if (client_list[i] == client || client_list[i] == w->id)
+            return true;
+    return false;
+}
+
+/* And the other half of what a taskbar checks: a window that asked not to
+ * be listed. An app that sets _NET_WM_STATE_SKIP_TASKBAR is saying it is
+ * not one of its own windows to switch between. */
+static bool skips_taskbar(const CompWindow *w)
+{
+    static xcb_atom_t net_state, skip;
+    if (!net_state) {
+        net_state = atom("_NET_WM_STATE");
+        skip = atom("_NET_WM_STATE_SKIP_TASKBAR");
+    }
+    if (net_state == XCB_NONE || skip == XCB_NONE)
+        return false;
+
+    xcb_window_t client = w->client != XCB_NONE ? w->client : w->id;
+    xcb_get_property_reply_t *r = xcb_get_property_reply(comp.conn,
+        xcb_get_property(comp.conn, 0, client, net_state, XCB_ATOM_ATOM, 0, 32),
+        NULL);
+    if (!r)
+        return false;
+
+    bool found = false;
+    xcb_atom_t *atoms = xcb_get_property_value(r);
+    int n = xcb_get_property_value_length(r) / 4;
+    for (int i = 0; i < n && !found; i++)
+        found = atoms[i] == skip;
+    free(r);
+    return found;
+}
+
 static bool eligible(const CompWindow *w, const SwConfig *cfg,
                      const CompEffectInstance *self, int output_id)
 {
@@ -213,6 +299,8 @@ static bool eligible(const CompWindow *w, const SwConfig *cfg,
     if (!(self->windows & COMP_WINDOW_BIT(w->type)))
         return false;
     if (w->wm_layer[0])   /* kiwm's own OSD and outlines are not windows */
+        return false;
+    if (!in_client_list(w) || skips_taskbar(w))
         return false;
 
     /* Minimized windows, and windows on a desktop that isn't showing,
@@ -614,10 +702,37 @@ static void sw_update(CompEffect *e, double now)
      * still picture, and repainting it sixty times a second for nothing
      * is exactly the CPU cost this compositor is careful about. */
     if (moving) {
+        /* The grid's own screen, all of it -- every cell is in play.
+         *
+         * And then each window's real rectangle and its current one,
+         * which is what repaints the *other* monitors: the strip of a
+         * window hanging over the boundary is fading there, and with
+         * other_outputs on a window is travelling across it. This is the
+         * half the desktop-wall effect already gets right and the reason
+         * its crossing fade looks clean -- a piece nobody damages is a
+         * piece nobody repaints, so the fade only advances when
+         * something else happens to dirty that ground.
+         *
+         * Rectangles rather than "every output", so a second monitor
+         * with nothing happening on it is not repainted sixty times a
+         * second for someone else's animation. */
         for (int k = 0; k < comp.output_count; k++)
             if (comp.outputs[k].id == d->output_id)
                 output_damage_rect(&comp.outputs[k].rect);
+
+        for (int i = 0; i < d->count; i++) {
+            output_damage_rect(&d->items[i].home);
+            output_damage_rect(&d->items[i].current);
+        }
     }
+}
+
+static SwItem *item_for(SwData *d, const CompWindow *win)
+{
+    for (int k = 0; k < d->count; k++)
+        if (d->items[k].win == win)
+            return &d->items[k];
+    return NULL;
 }
 
 static void sw_apply(CompEffect *e, CompScene *s, CompOutput *o)
@@ -625,21 +740,34 @@ static void sw_apply(CompEffect *e, CompScene *s, CompOutput *o)
     SwData *d = e->data;
     const SwConfig *cfg = e->instance->config;
 
-    if (o->id != d->output_id)
-        return;
-
     float p = leg_progress(d, e, comp_now_ms());
     float spread = d->closing ? 1.0f - p : p;   /* how "open" the grid is */
+
+    /* The other monitors. A window whose place is on the grid's screen
+     * can still hang over the edge onto a neighbour, and that strip has
+     * nowhere to go: the grid is one screen's worth of layout. So it
+     * fades out where it is and comes back when the grid closes, rather
+     * than being left behind as a sliver of a window that is visibly
+     * somewhere else now.
+     *
+     * Unless the grid was told to gather every screen's windows, in
+     * which case there is no leftover to explain -- the window really is
+     * travelling to the other monitor, and it should be seen doing it,
+     * so it gets the same treatment here as anywhere else and the
+     * transform carries it across the boundary. */
+    if (o->id != d->output_id && !cfg->other_outputs) {
+        for (int i = 0; i < s->count; i++) {
+            SwItem *it = item_for(d, s->nodes[i].win);
+            if (it)
+                s->nodes[i].opacity *= comp_lerp(1.0f, 0.0f, spread);
+        }
+        return;
+    }
 
     for (int i = 0; i < s->count; i++) {
         CompSceneNode *n = &s->nodes[i];
 
-        SwItem *it = NULL;
-        for (int k = 0; k < d->count; k++)
-            if (d->items[k].win == n->win) {
-                it = &d->items[k];
-                break;
-            }
+        SwItem *it = item_for(d, n->win);
         if (!it)
             continue;
 
@@ -673,6 +801,29 @@ static void sw_apply(CompEffect *e, CompScene *s, CompOutput *o)
         else
             n->visible_rect = (CompRect){ 0, 0, 0, 0 };
     }
+
+    /* On the way out, the window that was chosen travels home in front.
+     *
+     * The WM will raise it -- that is what _NET_ACTIVE_WINDOW asks for --
+     * but not until the grid is gone and the message has made the round
+     * trip, so without this the window you picked spends its whole
+     * journey sliding *behind* the ones you didn't. Reordering the scene
+     * changes the order this one frame is drawn in and nothing else: the
+     * stacking the WM keeps is untouched, which is the rule every effect
+     * here works under. */
+    if (o->id == d->output_id && d->closing && d->activate_on_close &&
+        d->selected >= 0) {
+        CompWindow *pick = d->items[d->selected].win;
+        for (int i = 0; i < s->count; i++) {
+            if (s->nodes[i].win != pick)
+                continue;
+            CompSceneNode node = s->nodes[i];
+            memmove(&s->nodes[i], &s->nodes[i + 1],
+                    sizeof(CompSceneNode) * (size_t)(s->count - i - 1));
+            s->nodes[s->count - 1] = node;
+            break;
+        }
+    }
 }
 
 static bool sw_finished(const CompEffect *e, double now)
@@ -694,6 +845,9 @@ static void sw_destroy(CompEffect *e)
         active = NULL;
         input_release();
     }
+    free(client_list);
+    client_list = NULL;
+    client_list_len = 0;
     free(e->data);
     e->data = NULL;
 }
@@ -743,6 +897,8 @@ static void sw_toggle(void *data)
 
     d->output_id = o->id;
     d->selected = -1;
+
+    client_list_read();
 
     for (CompWindow *w = comp.stack; w && d->count < MAX_ITEMS; w = w->next) {
         if (!eligible(w, cfg, self, d->output_id))
@@ -850,7 +1006,7 @@ static void sw_defaults(void *config)
 {
     SwConfig *c = config;
     snprintf(c->hotkey, sizeof(c->hotkey), "%s", "Meta+A, Meta+W");
-    c->dim = 0.55f;
+    c->dim = 0.78f;
     c->margin = 48;
     c->padding = 16;
     c->other_outputs = false;

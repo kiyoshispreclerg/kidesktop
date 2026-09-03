@@ -9,7 +9,9 @@ no compositing, with real transparency (32-bit windows' alpha and
 - window shapes applied while compositing (rounded corners, shaped clients);
 - configurable shadows, different for focused and unfocused windows;
 - an effect interface: *geometry change*, *fade in/out*, *scale in/out*,
-  *shade/unshade*, *minimize/restore*;
+  *shade/unshade*, *minimize/restore*, *desktop wall*, *dodge*,
+  *smooth move*, and *show windows* — every window at once, in a grid to
+  pick one from;
 - a per-output frame clock driving the animations;
 - configuration in `kicomp.conf`.
 
@@ -202,6 +204,20 @@ events   = move
 windows  = windows
 max_lag  = 48                   # px the picture may fall behind the pointer
 resize   = 0                    # smooth resize drags too
+
+[effect:show-windows]
+enabled   = 1
+hotkey    = Meta+A, Meta+W    # one action, as many keys as you like;
+                              # the same key closes the grid again
+duration  = 1.5
+easing    = out
+windows   = windows           # on top of the taskbar's own view of things
+dim       = 0.78              # the ones that aren't selected (1 = no dimming)
+margin    = 48                # gap around the grid, in px
+padding   = 16                # gap between its cells
+other_outputs      = 0        # gather the other monitors' windows too
+hide_docks         = 1        # panels fade out while the grid is up
+filter_debounce_ms = 100      # typing has to pause this long to rearrange
 
 # a second instance of the same effect, with different numbers: inherits
 # everything from [effect:scale-out] and overrides only what it declares
@@ -733,6 +749,77 @@ one multiply.
 Off by default: it is the one effect that touches something the user is
 actively holding.
 
+### `show-windows`
+
+Every window on the active screen at once, laid out in a grid to pick one
+from — bound to `Meta+A` (and `Meta+W`) by default.
+
+It is the first effect that is a **mode**: it takes the keyboard and the
+pointer for as long as it is up, and hands them back when you choose. The
+windows shrink from where they really are into their cells, arrows and
+the pointer move the selection, typing filters by title, Return takes you
+to the window and Escape puts everything back.
+
+**No window is moved.** The grid is scene transforms and opacity, so
+every window stays exactly where the WM put it for the whole time — which
+is why cancelling costs nothing, and why the effect works identically on
+both renderers without either of them knowing it exists.
+
+| key | what it does |
+|---|---|
+| `hotkey` | one or more combinations, comma separated (default `Meta+A, Meta+W`). The same key closes the grid |
+| `duration` | the usual multiple of the global unit (default 1.5) — longer, because every window on the screen is moving at once and this is an effect you are meant to watch |
+| `dim` | opacity of the windows that are not selected while the grid is up (default 0.78; 1 is no dimming) |
+| `margin`, `padding` | gap around the grid and between its cells, in pixels (48 / 16) |
+| `other_outputs` | gather the other monitors' windows into this grid too (default off) |
+| `hide_docks` | panels fade out while the grid is up (default on) |
+| `filter_debounce_ms` | how long typing has to pause before the grid rearranges (default 100) |
+
+**Which windows are in it** is asked the way a taskbar asks:
+`_NET_CLIENT_LIST` plus `_NET_WM_STATE_SKIP_TASKBAR`, the same pair
+xispanel's tasklist works from. That is the WM stating which windows it
+manages, rather than us deducing it from what each client declared about
+itself — and it settles panels, desktop windows, override-redirect popups
+and anything that asked not to be listed, all at once and for the reason
+they are not in the taskbar either. The `windows` type mask applies on
+top of it.
+
+**Filtering fades**, rather than shuffling: a window that stops matching
+dissolves where it stands and comes back when it matches again. Sliding
+it home would read as "that one got away" rather than "that one doesn't
+match", and home is behind the grid anyway.
+
+**The piece that hangs onto another monitor** fades there — the grid is
+one screen's worth of layout and that strip has nowhere to go — unless
+`other_outputs` is on, in which case the window really is travelling and
+is seen crossing. Same shape as the wall's crossing fade, including the
+part that makes it work: the crossing rectangle is damaged every frame.
+
+**Dodge stays out of its way.** A window picked from a grid where
+everything was laid side by side has not barged in on anything, so the
+focus it takes on the way out does not make its neighbours scatter
+(`input_mode_ended_ms()`). And the window you picked travels home *in
+front*: the WM will raise it, but not before the message has made its
+round trip and the grid is gone, so the scene is reordered for those
+frames — drawing order only, never the WM's stacking.
+
+**Input** lives in `src/input.h`, outside the effect: a hotkey grabbed on
+the root for as long as kicomp runs, and a grab of the whole keyboard and
+pointer held only while a mode is up. There is exactly one such grab, and
+taking a second is refused rather than queued — a grab that is never
+released leaves a session nobody can type into.
+
+The hotkey is kicomp's own rather than an xiskeys binding, on the rule
+the desktop already follows: a stateless action that shells out belongs
+to xiskeys, a stateful one belongs to the daemon holding the state. This
+one has to toggle, and has to take the keyboard away from the
+applications underneath.
+
+Not there yet: **the filter box is not drawn** — kicomp has no font
+stack, so what you have typed shows only in what the grid does — and
+**minimized windows and windows on other desktops are missing**, because
+the WM unmaps them and drawing one needs its last contents kept.
+
 ### What's missing, and what each one needs
 
 The effects still to come all fit XRender — none of them needs GL.
@@ -754,6 +841,7 @@ What's left:
 
 | effect | how |
 |---|---|
+| `present-windows` grid chrome | the filter box and a selection outline `show-windows` should draw: needs a way to put text and rectangles on screen, which is a font stack decision (pango+cairo, freetype+XRender glyphs, or the X core font) |
 | `cube` | the wall's rotation instead of its translation: needs a perspective transform the XRender backend can't express (its transform is affine), so this one waits for GL |
 | `wobbly`, `blur` | need the GL renderer: a mesh per window, and shaders |
 

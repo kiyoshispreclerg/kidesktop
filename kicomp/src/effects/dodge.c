@@ -60,6 +60,7 @@
  * `easing=` shapes each of the two journeys between them (see swing()).
  */
 #include "../effect.h"
+#include "../input.h"
 #include "../animation.h"
 #include "../output.h"
 #include "../window.h"
@@ -458,6 +459,12 @@ static bool start_for(CompWindow *w, const CompRect *focus_rect,
     return true;
 }
 
+/* How long after a mode hands the keyboard back its choice still counts
+ * as the user's own. Generous on purpose: the pick travels from here to
+ * the WM and back as _NET_ACTIVE_WINDOW, and the grid is still animating
+ * home while it does. */
+#define AFTER_A_PICK_MS 800.0
+
 static void on_event(CompWindow *w, const CompEvent *event,
                      const CompEffectInstance *self)
 {
@@ -470,6 +477,16 @@ static void on_event(CompWindow *w, const CompEvent *event,
      * windows it now overlaps were not in its way a moment ago, because a
      * moment ago it wasn't there. */
     if (event->with_appear)
+        return;
+
+    /* Nor for a window the user has just *picked* -- out of
+     * show-windows' grid, where every window on the screen was laid out
+     * side by side and they chose one. Nothing barged in: they looked at
+     * the lot and pointed. Dodging then would answer their own decision
+     * by rearranging the desktop underneath it, and the windows would
+     * arrive home only to shuffle again. */
+    if (comp_now_ms() - input_mode_ended_ms() < AFTER_A_PICK_MS ||
+        input_grabbed())
         return;
 
     double duration = effect_instance_duration(self);

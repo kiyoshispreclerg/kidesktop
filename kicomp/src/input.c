@@ -1,5 +1,6 @@
 /* See input.h. */
 #include "input.h"
+#include "animation.h"
 
 #include <xcb/xcb_keysyms.h>
 #include <X11/Xlib.h>          /* XStringToKeysym: a pure string lookup */
@@ -25,6 +26,7 @@ static int hotkey_count;
 
 static const CompInputHandler *grab_handler;
 static void *grab_data;
+static double grab_ended_ms;
 
 /* The modifier bits a hotkey should ignore. Caps Lock and Num Lock are
  * *states*, not modifiers anyone means when they write "Meta+W", so the
@@ -202,6 +204,7 @@ void input_release(void)
 {
     if (!grab_handler)
         return;
+    grab_ended_ms = comp_now_ms();
     grab_handler = NULL;
     grab_data = NULL;
     xcb_ungrab_keyboard(comp.conn, XCB_CURRENT_TIME);
@@ -212,6 +215,11 @@ void input_release(void)
 bool input_grabbed(void)
 {
     return grab_handler != NULL;
+}
+
+double input_mode_ended_ms(void)
+{
+    return grab_ended_ms;
 }
 
 bool input_pointer_position(int *root_x, int *root_y)
@@ -277,14 +285,12 @@ bool input_handle_event(xcb_generic_event_t *ev)
                                          (e->state & XCB_MOD_MASK_SHIFT) ? 1 : 0)
             : 0;
 
-        if (grab_handler) {
-            char text[8];
-            keysym_text(sym, e->state, text, sizeof(text));
-            if (grab_handler->key)
-                grab_handler->key(grab_data, sym, text, e->state);
-            return true;
-        }
-
+        /* Hotkeys are matched first, grab or no grab: the key that opens
+         * a mode is the key that closes it. While the mode holds the
+         * keyboard the server delivers the key here rather than to the
+         * root grab, so without this the combination would be typed into
+         * whatever the mode does with text -- pressing Meta+A again would
+         * put an "a" in the filter box and leave the grid up. */
         uint16_t state = e->state & (uint16_t)~(XCB_MOD_MASK_LOCK | XCB_MOD_MASK_2);
         for (int i = 0; i < hotkey_count; i++) {
             if (hotkeys[i].keycode == e->detail &&
@@ -292,6 +298,14 @@ bool input_handle_event(xcb_generic_event_t *ev)
                 hotkeys[i].fn(hotkeys[i].data);
                 return true;
             }
+        }
+
+        if (grab_handler) {
+            char text[8];
+            keysym_text(sym, e->state, text, sizeof(text));
+            if (grab_handler->key)
+                grab_handler->key(grab_data, sym, text, e->state);
+            return true;
         }
         return false;
     }

@@ -852,10 +852,21 @@ static void clip_to_frame(CompOutput *o, xcb_xfixes_region_t extra,
  * its shadow anyway, but a translucent one would have it show through,
  * and a shadow visible *through* the window it belongs to is the thing
  * that always looks wrong. */
-static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom)
+static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom,
+                        float opacity)
 {
     CompShadowStyle st;
     if (!shadow_for_window(win, &st))
+        return;
+
+    /* The node's opacity, not just the style's: a window an effect is
+     * fading has to take its shadow with it. Left out, a window
+     * dissolving on a monitor it is leaving -- show-windows fading the
+     * strip that hangs over the boundary, a fade-out that outlives its
+     * window -- goes transparent and leaves a solid dark rectangle
+     * sitting on the desktop where it used to be. */
+    st.opacity *= opacity;
+    if (st.opacity <= 0.0f)
         return;
 
     /* Asking for the shape here also fills in its extents, which the
@@ -1344,7 +1355,7 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
          * have to be transformed with it, and a shadow that stays behind
          * while the window slides away is worse than none. */
         if (comp_transform_is_identity(&n->transform))
-            draw_shadow(o, w, &n->geometry);
+            draw_shadow(o, w, &n->geometry, n->opacity);
 
         xcb_render_picture_t source = from_stash ? w->prev_picture : w->picture;
         xcb_render_picture_t mask = window_alpha(w, n->opacity);

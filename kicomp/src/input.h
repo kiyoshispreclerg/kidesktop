@@ -64,6 +64,16 @@ bool input_grab(const CompInputHandler *handler, void *data);
 void input_release(void);
 bool input_grabbed(void);
 
+/* When the last grab was handed back, as a monotonic timestamp (0 if
+ * there has never been one).
+ *
+ * For the effects that need to know that a window's focus was *chosen*
+ * rather than taken: a window the user just picked out of show-windows'
+ * grid has not barged in on anything, and an effect answering to focus by
+ * shoving its neighbours aside (dodge) would be answering to the user's
+ * own decision. */
+double input_mode_ended_ms(void);
+
 /* Called by the event loop before anything else looks at the event.
  * True when it was consumed -- a hotkey firing, or anything at all while
  * a grab is held. */
