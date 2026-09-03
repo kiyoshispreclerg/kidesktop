@@ -182,6 +182,7 @@ bool input_grab(const CompInputHandler *handler, void *data)
     xcb_grab_pointer_reply_t *pt = xcb_grab_pointer_reply(comp.conn,
         xcb_grab_pointer(comp.conn, 0, comp.root,
                          XCB_EVENT_MASK_BUTTON_PRESS |
+                         XCB_EVENT_MASK_BUTTON_RELEASE |
                          XCB_EVENT_MASK_POINTER_MOTION,
                          XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
                          XCB_NONE, XCB_NONE, XCB_CURRENT_TIME), NULL);
@@ -325,11 +326,15 @@ bool input_handle_event(xcb_generic_event_t *ev)
     case XCB_BUTTON_PRESS: {
         xcb_button_press_event_t *e = (xcb_button_press_event_t *)ev;
         if (grab_handler->button)
-            grab_handler->button(grab_data, e->root_x, e->root_y, e->detail);
+            grab_handler->button(grab_data, e->root_x, e->root_y, e->detail, true);
         return true;
     }
-    case XCB_BUTTON_RELEASE:
+    case XCB_BUTTON_RELEASE: {
+        xcb_button_release_event_t *e = (xcb_button_release_event_t *)ev;
+        if (grab_handler->button)
+            grab_handler->button(grab_data, e->root_x, e->root_y, e->detail, false);
         return true;
+    }
     default:
         break;
     }

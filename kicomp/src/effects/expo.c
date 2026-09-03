@@ -403,10 +403,19 @@ static void on_motion(void *data, int root_x, int root_y)
         output_damage_rect(&o->rect);
 }
 
-static void on_button(void *data, int root_x, int root_y, uint8_t button)
+static void on_button(void *data, int root_x, int root_y, uint8_t button,
+                      bool pressed)
 {
     CompEffect *e = data;
     ExData *d = e->data;
+
+    /* Pressing only points at a desktop; letting go is what walks into
+     * it. So a press on the wrong cell can be slid off and released
+     * elsewhere, as a button anywhere else would allow. */
+    if (pressed) {
+        on_motion(data, root_x, root_y);
+        return;
+    }
 
     if (button != 1) {
         close_mode(e, -1, NULL);

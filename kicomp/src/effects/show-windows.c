@@ -617,10 +617,20 @@ static void on_motion(void *data, int root_x, int root_y)
     }
 }
 
-static void on_button(void *data, int root_x, int root_y, uint8_t button)
+static void on_button(void *data, int root_x, int root_y, uint8_t button,
+                      bool pressed)
 {
     CompEffect *e = data;
     SwData *d = e->data;
+
+    /* The press only moves the selection under the pointer; letting go is
+     * what chooses. Someone who presses on the wrong window can slide off
+     * it and release somewhere else, which is how every button on every
+     * desktop behaves. */
+    if (pressed) {
+        on_motion(data, root_x, root_y);
+        return;
+    }
 
     if (button != 1) {
         close_mode(e, false);

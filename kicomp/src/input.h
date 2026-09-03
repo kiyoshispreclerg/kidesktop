@@ -40,9 +40,16 @@ typedef struct CompInputHandler {
     bool (*key)(void *data, xcb_keysym_t keysym, const char *text,
                 uint16_t modifiers);
 
-    /* The pointer moved to, or was pressed at, a root coordinate. */
+    /* The pointer moved to, or a button changed state at, a root
+     * coordinate. `pressed` false is the release.
+     *
+     * Both halves are delivered because a mode acts on the *release*: a
+     * press is a user still deciding -- they can slide off what they
+     * pressed on and let go somewhere else, the way every button on
+     * every desktop works -- and only letting go commits it. */
     void (*motion)(void *data, int root_x, int root_y);
-    void (*button)(void *data, int root_x, int root_y, uint8_t button);
+    void (*button)(void *data, int root_x, int root_y, uint8_t button,
+                   bool pressed);
 } CompInputHandler;
 
 /* Opens the keysym tables. Safe to call when there is nothing to bind. */
