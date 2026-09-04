@@ -601,7 +601,9 @@ void window_focus_changed(xcb_window_t active)
          * beat -- but the *event* is deferred to the flush, where the
          * restack that came with it has also been seen. */
         if (now_focused && !w->focused) {
+            static uint64_t serial;
             w->focused = true;
+            w->focus_serial = ++serial;
             w->pending_focus = true;
             w->pending_unfocus = false;
         } else if (was_focused && w->focused && !now_focused) {

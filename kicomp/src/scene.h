@@ -38,11 +38,40 @@ typedef struct CompSceneNode {
     int z;                  /* 0 = bottom-most */
 } CompSceneNode;
 
+/* A label an effect wants drawn over the scene: the filter box
+ * show-windows types into, the name under each window in its grid.
+ *
+ * Deliberately not a node. A node is a *window* -- something the WM owns,
+ * that the compositor is only redrawing -- and chrome is the opposite: it
+ * exists only inside the effect, for as long as the effect does. Keeping
+ * them apart means nothing in window.c, damage.c or the stacking code
+ * ever has to know that text is a thing that can be on screen.
+ *
+ * The image is rendered once and kept by the effect (text.h); the scene
+ * carries only where to put it. Always drawn over every window, in the
+ * order the effect adds them, and never scaled -- text scaled by a
+ * fraction is text nobody can read. */
+#define MAX_SCENE_CHROME 96
+
+typedef struct CompSceneChrome {
+    struct CompTextImage *image;
+    CompRect rect;          /* root coordinates; the image's own size */
+    float opacity;
+} CompSceneChrome;
+
 typedef struct CompScene {
     CompOutput *output;
     CompSceneNode nodes[MAX_SCENE_NODES];
     int count;
+
+    CompSceneChrome chrome[MAX_SCENE_CHROME];
+    int chrome_count;
 } CompScene;
+
+/* Adds one, ignoring the request when the scene is full or the image
+ * never rendered -- a label is worth nothing to fail a frame over. */
+void scene_add_chrome(CompScene *s, struct CompTextImage *image,
+                      const CompRect *rect, float opacity);
 
 /* Rebuilds `s` from the current window stack, keeping only what is
  * visible on `o`. Cheap enough to redo per frame at this stage;

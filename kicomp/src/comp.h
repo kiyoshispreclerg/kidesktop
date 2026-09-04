@@ -246,6 +246,15 @@ typedef struct CompWindow {
     bool focused;
     bool has_been_mapped;      /* distinguishes opening from coming back */
 
+    /* When this window was last focused, as a counter rather than a
+     * clock: "which was used more recently" is the only question asked
+     * of it. X keeps no focus history -- EWMH stops at
+     * _NET_CLIENT_LIST_STACKING, which is stacking order and only
+     * resembles use order while click-to-focus raises everything -- so
+     * this is the compositor's own record, kept the same way kiwm keeps
+     * its own for the alt-tab OSD. */
+    uint64_t focus_serial;
+
     /* Where this window sat in the stack at the end of the *previous*
      * batch of events -- 0 at the bottom, upwards. Not the current order,
      * which is in the list itself: this is the order from before whatever

@@ -15,6 +15,7 @@ void scene_build(CompScene *s, CompOutput *o)
 {
     s->output = o;
     s->count = 0;
+    s->chrome_count = 0;
 
     for (CompWindow *w = comp.stack; w; w = w->next) {
         /* An unmapped window is still drawn while an effect holds it --
@@ -99,4 +100,18 @@ void scene_move_node(CompScene *s, int from, int to)
      * the renderer draws by. Keep the two saying the same thing. */
     for (int i = 0; i < s->count; i++)
         s->nodes[i].z = i;
+}
+
+void scene_add_chrome(CompScene *s, struct CompTextImage *image,
+                      const CompRect *rect, float opacity)
+{
+    if (!s || !image || !rect || s->chrome_count >= MAX_SCENE_CHROME)
+        return;
+    if (rect->w <= 0 || rect->h <= 0 || opacity <= 0.0f)
+        return;
+
+    CompSceneChrome *c = &s->chrome[s->chrome_count++];
+    c->image = image;
+    c->rect = *rect;
+    c->opacity = opacity;
 }

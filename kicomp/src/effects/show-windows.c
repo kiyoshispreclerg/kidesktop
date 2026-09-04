@@ -22,11 +22,16 @@
  *   hotkey   = Meta+A, Meta+W    # one action, as many keys as you like
  *   duration = 1.5              # multiples of animation_duration
  *   easing   = out
+ *   order    = stack            # stack | alpha | mru -- the order of the
+ *                               # cells: as stacked, by title, or most
+ *                               # recently used first
  *   dim      = 0.78             # opacity of the unselected windows (1 = none)
  *   margin   = 48               # gap around the grid, in pixels
  *   padding  = 16               # gap between cells
  *   other_outputs = 0           # windows from the other monitors too
  *   hide_docks    = 1           # panels fade out while the grid is up
+ *   labels        = 1           # window names under the thumbnails, and
+ *                               # the filter box at the top of the screen
  *   filter_debounce_ms = 100
  *
  * Typing filters the grid by window title; Escape clears the filter, and
@@ -39,6 +44,8 @@
 #include "../input.h"
 #include "../window.h"
 #include "../transform.h"
+#include "../text.h"
+#include "../scene.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -70,6 +77,11 @@ typedef struct {
      * than as the grid blinking. */
     float alpha_from, alpha_to, alpha;
 
+    /* The name, drawn under the thumbnail. Rendered when the grid opens
+     * and kept until it closes -- a title that doesn't change costs a
+     * composite per frame, not a text layout. */
+    struct CompTextImage *label;
+
     /* A panel or a taskbar: never in the grid, and optionally not on
      * screen either while the grid is up. It is not something to pick,
      * and leaving it lying over the top of the layout is the one part of
@@ -99,15 +111,29 @@ typedef struct {
     char filter[MAX_FILTER];
     bool filter_dirty;
     double filter_at;
+
+    /* What the filter box currently reads. Re-rendered on each
+     * keystroke, which is the one label that has to keep up with
+     * typing. */
+    struct CompTextImage *filter_image;
+    char filter_shown[MAX_FILTER];
 } SwData;
+
+typedef enum {
+    ORDER_STACK,   /* as they are stacked: the order the WM has them in */
+    ORDER_ALPHA,   /* by title */
+    ORDER_MRU,     /* most recently used first */
+} SwOrder;
 
 typedef struct {
     char hotkey[64];
+    SwOrder order;
     float dim;
     int margin;
     int padding;
     bool other_outputs;
     bool hide_docks;
+    bool labels;
     double debounce_ms;
 } SwConfig;
 
@@ -317,6 +343,38 @@ static bool eligible(const CompWindow *w, const SwConfig *cfg,
             return false;
     }
     return true;
+}
+
+/* The order the cells are filled in. Insertion sort on purpose: this is
+ * one screen's worth of windows, sorted once when the grid opens.
+ *
+ * `stack` is the order the WM has them in, which is what the grid used to
+ * be and is still the default -- it is the only order in which a window
+ * you can see keeps the place your eye already knows. `alpha` is by
+ * title. `mru` is most recently used first, the order the alt-tab OSD
+ * offers, read from the compositor's own focus record (comp.h's
+ * focus_serial) because X keeps no focus history to read. */
+static void sort_items(SwData *d, SwOrder order)
+{
+    if (order == ORDER_STACK)
+        return;
+
+    for (int i = 1; i < d->count; i++) {
+        SwItem item = d->items[i];
+        int j = i - 1;
+        while (j >= 0) {
+            bool after;
+            if (order == ORDER_ALPHA)
+                after = strcasecmp(d->items[j].title, item.title) > 0;
+            else
+                after = d->items[j].win->focus_serial < item.win->focus_serial;
+            if (!after)
+                break;
+            d->items[j + 1] = d->items[j];
+            j--;
+        }
+        d->items[j + 1] = item;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -676,10 +734,37 @@ static CompRect lerp_rect(const CompRect *a, const CompRect *b, float p)
     return r;
 }
 
+/* The text of the filter box: what has been typed, or an invitation when
+ * nothing has. Re-rendered only when the string actually changed --
+ * every keystroke, which is a layout per keystroke and no more. */
+static void filter_image_update(SwData *d, const SwConfig *cfg)
+{
+    if (!cfg->labels)
+        return;
+    if (d->filter_image && !strcmp(d->filter_shown, d->filter))
+        return;
+
+    /* It changed, so the screen has to: typing is the one thing here
+     * that alters the picture without anything moving, and the frame
+     * clock only wakes for damage. */
+    for (int k = 0; k < comp.output_count; k++)
+        if (comp.outputs[k].id == d->output_id)
+            output_damage_rect(&comp.outputs[k].rect);
+
+    text_free(d->filter_image);
+    snprintf(d->filter_shown, sizeof(d->filter_shown), "%s", d->filter);
+
+    char shown[MAX_FILTER + 32];
+    snprintf(shown, sizeof(shown), "%s", d->filter[0] ? d->filter : "type to filter");
+    d->filter_image = text_render(shown, text_theme_style(), 0);
+}
+
 static void sw_update(CompEffect *e, double now)
 {
     SwData *d = e->data;
     const SwConfig *cfg = e->instance->config;
+
+    filter_image_update(d, cfg);
 
     /* The debounce: the filter is applied once typing pauses, not once
      * per keystroke, so a grid does not reshuffle under the fingers. */
@@ -812,6 +897,46 @@ static void sw_apply(CompEffect *e, CompScene *s, CompOutput *o)
             n->visible_rect = (CompRect){ 0, 0, 0, 0 };
     }
 
+    /* The labels, once the grid is actually a grid: the name under each
+     * thumbnail, and the filter box at the top of the screen.
+     *
+     * Faded in with the grid rather than appearing at once, and left out
+     * entirely while a window is not in a cell -- a name under a window
+     * that is on its way home belongs to nothing. */
+    if (cfg->labels && spread > 0.02f) {
+        for (int i = 0; i < d->count; i++) {
+            SwItem *it = &d->items[i];
+            if (!it->label || it->cell < 0 || it->is_dock)
+                continue;
+
+            int lw = text_width(it->label), lh = text_height(it->label);
+            CompRect at = {
+                it->current.x + (it->current.w - lw) / 2,
+                it->current.y + it->current.h - lh / 2,
+                lw, lh
+            };
+            float a = spread * it->alpha;
+            /* The chosen one at full strength, the rest as dim as their
+             * windows: the label is part of the window, not a separate
+             * thing to read. */
+            bool chosen = (d->selected >= 0 && &d->items[d->selected] == it);
+            if (!chosen)
+                a *= comp_lerp(1.0f, cfg->dim, spread);
+            scene_add_chrome(s, it->label, &at, a);
+        }
+
+        if (d->filter_image) {
+            int lw = text_width(d->filter_image), lh = text_height(d->filter_image);
+            CompRect at = {
+                o->rect.x + (o->rect.w - lw) / 2,
+                o->rect.y + cfg->margin / 2,
+                lw, lh
+            };
+            scene_add_chrome(s, d->filter_image, &at,
+                             spread * (d->filter[0] ? 1.0f : 0.6f));
+        }
+    }
+
     /* On the way out, the window that was chosen travels home in front.
      *
      * The WM will raise it -- that is what _NET_ACTIVE_WINDOW asks for --
@@ -850,6 +975,11 @@ static void sw_destroy(CompEffect *e)
 
     if (d && d->activate_on_close)
         activate_selected(d);
+
+    for (int i = 0; d && i < d->count; i++)
+        text_free(d->items[i].label);
+    if (d)
+        text_free(d->filter_image);
 
     if (e == active) {
         active = NULL;
@@ -924,6 +1054,8 @@ static void sw_toggle(void *data)
         it->cell = -1;
         it->alpha = it->alpha_from = it->alpha_to = 1.0f;
         read_title(w, it->title, sizeof(it->title));
+        if (cfg->labels)
+            it->label = text_render(it->title, text_theme_style(), 320);
     }
 
     /* And the panels, if they are to get out of the way. They are items
@@ -959,6 +1091,8 @@ static void sw_toggle(void *data)
         free(d);
         return;
     }
+
+    sort_items(d, cfg->order);
 
     e->ops = &sw_ops;
     e->instance = self;
@@ -1019,8 +1153,10 @@ static void sw_defaults(void *config)
     c->dim = 0.78f;
     c->margin = 48;
     c->padding = 16;
+    c->order = ORDER_STACK;
     c->other_outputs = false;
     c->hide_docks = true;
+    c->labels = true;
     c->debounce_ms = 100.0;
 }
 
@@ -1030,6 +1166,17 @@ static bool sw_config_key(void *config, const char *key, const char *value)
 
     if (!strcmp(key, "hotkey")) {
         snprintf(c->hotkey, sizeof(c->hotkey), "%s", value);
+        return true;
+    }
+    if (!strcmp(key, "order")) {
+        if (!strcmp(value, "stack"))
+            c->order = ORDER_STACK;
+        else if (!strcmp(value, "alpha") || !strcmp(value, "alphabetical"))
+            c->order = ORDER_ALPHA;
+        else if (!strcmp(value, "mru") || !strcmp(value, "recent"))
+            c->order = ORDER_MRU;
+        else
+            fprintf(stderr, "kicomp: config: unknown order '%s'\n", value);
         return true;
     }
     if (!strcmp(key, "dim")) {
@@ -1050,6 +1197,10 @@ static bool sw_config_key(void *config, const char *key, const char *value)
     }
     if (!strcmp(key, "hide_docks")) {
         c->hide_docks = atoi(value) != 0;
+        return true;
+    }
+    if (!strcmp(key, "labels")) {
+        c->labels = atoi(value) != 0;
         return true;
     }
     if (!strcmp(key, "filter_debounce_ms")) {

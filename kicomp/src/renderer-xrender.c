@@ -18,6 +18,7 @@
 #include "output.h"
 #include "window.h"
 #include "shadow.h"
+#include "text.h"
 #include "region.h"
 #include "density.h"
 
@@ -1305,6 +1306,8 @@ static void draw_dense(CompOutput *o, const CompSceneNode *n, CompWindow *w,
     picture_transform_reset(dense);
 }
 
+static void draw_chrome(CompOutput *o, const CompScene *s);
+
 static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
 {
     if (!o->target)
@@ -1551,6 +1554,91 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
         if (owned_extents != XCB_NONE) {
             xcb_xfixes_destroy_region(comp.conn, owned_extents);
             owned_extents = XCB_NONE;
+        }
+    }
+
+    draw_chrome(o, s);
+}
+
+/* The chrome, over everything: an effect's own labels (scene.h). Drawn
+ * unscaled and unclipped by any window's silhouette -- it is not a window
+ * -- but still inside the frame's damage clip, so a frame that repainted
+ * a corner does not have a label appear in the middle of it. */
+static void draw_chrome(CompOutput *o, const CompScene *s)
+{
+    if (s->chrome_count == 0 || !o->target)
+        return;
+
+    clip_to_frame(o, XCB_NONE, 0, 0);
+
+    for (int i = 0; i < s->chrome_count; i++) {
+        const CompSceneChrome *c = &s->chrome[i];
+        xcb_render_picture_t pic = text_picture(c->image);
+        if (pic == XCB_NONE)
+            continue;
+
+        CompRect vis;
+        if (!rect_intersect(&c->rect, &o->rect, &vis))
+            continue;
+
+        xcb_render_picture_t mask = XCB_NONE;
+        if (c->opacity < 1.0f) {
+            /* The same constant-alpha trick the windows use, on a
+             * throwaway picture: chrome fades in and out with the mode
+             * that owns it. */
+            static xcb_render_picture_t fade;
+            static float fade_value = -1.0f;
+            if (fade == XCB_NONE || fade_value != c->opacity) {
+                if (fade != XCB_NONE)
+                    xcb_render_free_picture(comp.conn, fade);
+                xcb_pixmap_t pm = xcb_generate_id(comp.conn);
+                xcb_create_pixmap(comp.conn, 8, pm, comp.root, 1, 1);
+                uint32_t vals[] = { 1 };
+                fade = xcb_generate_id(comp.conn);
+                xcb_render_create_picture(comp.conn, fade, pm, format_a8(),
+                                          XCB_RENDER_CP_REPEAT, vals);
+                xcb_free_pixmap(comp.conn, pm);
+                xcb_render_color_t col = {
+                    0, 0, 0, (uint16_t)(c->opacity * 0xffff)
+                };
+                xcb_rectangle_t r = { 0, 0, 1, 1 };
+                xcb_render_fill_rectangles(comp.conn, XCB_RENDER_PICT_OP_SRC,
+                                           fade, col, 1, &r);
+                fade_value = c->opacity;
+            }
+            mask = fade;
+        }
+
+        int16_t sx = (int16_t)(vis.x - c->rect.x);
+        int16_t sy = (int16_t)(vis.y - c->rect.y);
+
+        if (o->scale != 1.0f) {
+            /* A scaled output draws its labels at physical size: the text
+             * was rasterised in logical pixels, and stretching it is
+             * exactly the blur the whole density mechanism exists to
+             * avoid -- but a label half the size it should be is worse
+             * than a slightly soft one, so it is scaled rather than left
+             * tiny. */
+            xcb_render_set_picture_filter(comp.conn, pic, 4, "good", 0, NULL);
+            float inv = 1.0f / o->scale;
+            xcb_render_transform_t t = {
+                (int32_t)(inv * 65536.0f), 0, 0,
+                0, (int32_t)(inv * 65536.0f), 0,
+                0, 0, 65536
+            };
+            xcb_render_set_picture_transform(comp.conn, pic, t);
+        }
+
+        xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER, pic, mask,
+                             o->target, sx, sy, 0, 0,
+                             (int16_t)to_target_x(o, vis.x),
+                             (int16_t)to_target_y(o, vis.y),
+                             (uint16_t)to_target_len(o, vis.w),
+                             (uint16_t)to_target_len(o, vis.h));
+
+        if (o->scale != 1.0f) {
+            xcb_render_transform_t id = { 65536,0,0, 0,65536,0, 0,0,65536 };
+            xcb_render_set_picture_transform(comp.conn, pic, id);
         }
     }
 }

@@ -52,6 +52,7 @@
 #include "output.h"
 #include "window.h"
 #include "shadow.h"
+#include "text.h"
 #include "transform.h"
 
 #include <epoxy/gl.h>
@@ -1328,6 +1329,63 @@ static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
     }
 }
 
+/* An effect's labels (scene.h), over everything and never scaled. The
+ * image is uploaded once and remembered in the image itself, because a
+ * label outlives the frame that first drew it -- a filter box redrawn
+ * every frame would be a Pango layout every frame. */
+static void draw_chrome(CompOutput *o, const CompScene *s,
+                        const float projection[16])
+{
+    if (s->chrome_count == 0)
+        return;
+
+    glUseProgram(program);
+    glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
+    glUniform1i(u_texture, 0);
+    /* The pixels came from Cairo, which lays out a row top-first, the
+     * same way the texture coordinates here run. */
+    glUniform1f(u_y_flip, 0.0f);
+
+    for (int i = 0; i < s->chrome_count; i++) {
+        const CompSceneChrome *c = &s->chrome[i];
+        const unsigned char *pixels = text_pixels(c->image);
+        unsigned int *tex = text_gl_texture(c->image);
+        if (!pixels || !tex)
+            continue;
+
+        if (*tex == 0) {
+            glGenTextures(1, tex);
+            glBindTexture(GL_TEXTURE_2D, *tex);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+            /* Cairo's ARGB32 is native-endian premultiplied, which on a
+             * little-endian machine is B,G,R,A in memory -- hence BGRA
+             * rather than RGBA, and the same premultiplied blend the
+             * windows use. */
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
+                         text_width(c->image), text_height(c->image), 0,
+                         GL_BGRA, GL_UNSIGNED_BYTE, pixels);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        } else {
+            glBindTexture(GL_TEXTURE_2D, *tex);
+        }
+
+        CompTransform identity;
+        comp_transform_identity(&identity);
+        float m[16];
+        rect_matrix(&c->rect, &identity, m);
+
+        glUniformMatrix4fv(u_transform, 1, GL_FALSE, m);
+        glUniform1f(u_opacity, c->opacity);
+
+        scissor_for(o, repaint_rect.x, repaint_rect.y,
+                    repaint_rect.w, repaint_rect.h);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
+}
+
 static void glx_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
 {
     GlxOutput *go = o->render_data;
@@ -1367,6 +1425,19 @@ static void glx_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage
         for (int i = 0; i < go->repaint.count; i++) {
             repaint_rect = go->repaint.rects[i];
             draw_pass(o, s, projection);
+        }
+    }
+
+    /* Chrome last, over every window, and inside the same scissor: a
+     * label in a part of the screen this frame is not repainting would
+     * be a label drawn onto a buffer nobody is showing. */
+    if (region_is_full(&go->repaint)) {
+        repaint_rect = o->rect;
+        draw_chrome(o, s, projection);
+    } else {
+        for (int i = 0; i < go->repaint.count; i++) {
+            repaint_rect = go->repaint.rects[i];
+            draw_chrome(o, s, projection);
         }
     }
 

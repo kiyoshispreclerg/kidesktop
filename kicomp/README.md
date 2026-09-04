@@ -231,6 +231,8 @@ windows   = windows           # on top of the taskbar's own view of things
 dim       = 0.78              # the ones that aren't selected (1 = no dimming)
 margin    = 48                # gap around the grid, in px
 padding   = 16                # gap between its cells
+order              = stack    # stack | alpha | mru
+labels             = 1        # names under the thumbnails, filter box on top
 other_outputs      = 0        # gather the other monitors' windows too
 hide_docks         = 1        # panels fade out while the grid is up
 filter_debounce_ms = 100      # typing has to pause this long to rearrange
@@ -784,6 +786,8 @@ both renderers without either of them knowing it exists.
 | key | what it does |
 |---|---|
 | `hotkey` | one or more combinations, comma separated (default `Meta+A, Meta+W`). The same key closes the grid |
+| `order` | `stack` (default) — as the WM has them stacked — `alpha` by title, or `mru`, most recently used first |
+| `labels` | window names under the thumbnails and the filter box at the top (default on) |
 | `duration` | the usual multiple of the global unit (default 1.5) — longer, because every window on the screen is moving at once and this is an effect you are meant to watch |
 | `dim` | opacity of the windows that are not selected while the grid is up (default 0.78; 1 is no dimming) |
 | `margin`, `padding` | gap around the grid and between its cells, in pixels (48 / 16) |
@@ -831,10 +835,27 @@ to xiskeys, a stateful one belongs to the daemon holding the state. This
 one has to toggle, and has to take the keyboard away from the
 applications underneath.
 
-Not there yet: **the filter box is not drawn** — kicomp has no font
-stack, so what you have typed shows only in what the grid does — and
-**minimized windows and windows on other desktops are missing**, because
-the WM unmaps them and drawing one needs its last contents kept.
+**The names are drawn in the decoration's own style.** A desktop with one
+titlebar font should not grow a second one because the compositor
+arrived, so `src/text.c` reads `kiwm.conf` for the theme path and its
+colours, then that theme's own `colors` file — font, size, weight, slant,
+the title shadow and outline — the same read-only, best-effort way
+xiskeys reads other daemons' configs. Anything missing falls back to
+something plain, and the startup log says what it settled on:
+
+```
+kicomp: text style: Comic Relief 12.5px weight 700, shadow
+```
+
+Each label is laid out once when the grid opens and composited from then
+on; the filter box is the one that is re-laid on each keystroke, which is
+a layout per keystroke and no more.
+
+Not there yet: **minimized windows and windows on other desktops are
+missing** from the grid. The store that would fix it exists —
+`keep_hidden_contents`, which the expo grid already draws from — so this
+is now a matter of letting them into the layout rather than of having
+nothing to draw.
 
 ### `expo`
 
