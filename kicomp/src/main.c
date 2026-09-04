@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.21"
+#define KICOMP_VERSION "0.2.22"
 
 #include "comp.h"
 #include "output.h"
@@ -58,6 +58,7 @@
 
 #include <xcb/randr.h>
 #include <xcb/shape.h>
+#include <xcb/xkb.h>
 #include <xcb/present.h>
 
 #include <errno.h>
@@ -280,6 +281,29 @@ static bool caps_detect(void)
     if (ext && ext->present) {
         comp.caps.shape = true;
         comp.shape_event = ext->first_event;
+    }
+
+    /* XKB, only for BellNotify: a window ringing the bell is the one
+     * thing an effect can answer that no other extension reports. Asked
+     * for by version, because the extension refuses to speak at all
+     * until a client says which one it understands. */
+    ext = xcb_get_extension_data(comp.conn, &xcb_xkb_id);
+    if (ext && ext->present) {
+        xcb_xkb_use_extension_reply_t *use = xcb_xkb_use_extension_reply(comp.conn,
+            xcb_xkb_use_extension(comp.conn, XCB_XKB_MAJOR_VERSION,
+                                  XCB_XKB_MINOR_VERSION), NULL);
+        if (use && use->supported) {
+            comp.caps.xkb = true;
+            comp.xkb_event = ext->first_event;
+
+            /* Every bell, whoever rings it. The map has to be asked for
+             * per event type, and this asks for exactly one. */
+            xcb_xkb_select_events(comp.conn, XCB_XKB_ID_USE_CORE_KBD,
+                                  XCB_XKB_EVENT_TYPE_BELL_NOTIFY, 0,
+                                  XCB_XKB_EVENT_TYPE_BELL_NOTIFY,
+                                  0, 0, NULL);
+        }
+        free(use);
     }
 
     ext = xcb_get_extension_data(comp.conn, &xcb_present_id);
@@ -595,6 +619,19 @@ static void handle_event(xcb_generic_event_t *ev)
              * damaging itself five hundred times between two frames costs
              * exactly what one damaging itself once costs. */
             damage_window_reported(w);
+        }
+        return;
+    }
+
+    /* The bell. XKB reports which window it was rung *at* when the client
+     * used XkbBell with one; a plain XBell() from a terminal names none,
+     * and then the window that has focus is the one that rang -- that is
+     * where the keystroke went. */
+    if (comp.caps.xkb && type == comp.xkb_event) {
+        xcb_xkb_bell_notify_event_t *e = (xcb_xkb_bell_notify_event_t *)ev;
+        if (e->xkbType == XCB_XKB_BELL_NOTIFY) {
+            xcb_window_t at = e->window != XCB_NONE ? e->window : comp.active_window;
+            window_bell(at);
         }
         return;
     }

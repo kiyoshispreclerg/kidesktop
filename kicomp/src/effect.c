@@ -24,6 +24,7 @@ static const CompEffectModule *const modules[] = {
     &effect_dodge,
     &effect_show_windows,
     &effect_expo,
+    &effect_visual_bell,
 };
 
 #define MODULE_COUNT ((int)(sizeof(modules) / sizeof(modules[0])))
@@ -42,6 +43,7 @@ static const char *const event_names[COMP_EVENT_COUNT] = {
     "focus", "unfocus",
     "move",
     "desktop-leave", "desktop-enter",
+    "bell",
 };
 
 const char *comp_event_name(CompEventKind kind)

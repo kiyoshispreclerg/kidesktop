@@ -96,6 +96,7 @@ typedef enum {
     COMP_EVENT_MOVE,             /* a geometry change that is none of the above */
     COMP_EVENT_DESKTOP_LEAVE,    /* hidden because its desktop was left */
     COMP_EVENT_DESKTOP_ENTER,
+    COMP_EVENT_BELL,             /* the window rang the terminal bell */
     COMP_EVENT_COUNT
 } CompEventKind;
 
@@ -262,5 +263,6 @@ extern const CompEffectModule effect_smooth_move;
 extern const CompEffectModule effect_dodge;
 extern const CompEffectModule effect_show_windows;
 extern const CompEffectModule effect_expo;
+extern const CompEffectModule effect_visual_bell;
 
 #endif /* KICOMP_EFFECT_H */

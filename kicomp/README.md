@@ -221,6 +221,15 @@ arrange   = stack             # stack | grid: windows where they are on
                               # their desktop, or tidied into a little
                               # grid inside each cell
 
+[effect:visual-bell]
+enabled  = 1
+duration = 0.9
+events   = bell
+amount   = 0.035              # peak scale: 3.5% bigger
+pulses   = 1                  # 2 makes it a double-take
+origin   = window             # window | pointer
+
+
 [effect:show-windows]
 enabled   = 1
 hotkey    = Meta+A, Meta+W    # one action, as many keys as you like;
@@ -935,6 +944,31 @@ minimize animation would have nothing to shrink.
 The same store is what a cover-switch or flip alt-tab will draw from, and
 what `show-windows` needs before it can put minimized windows in its
 grid.
+
+### `visual-bell`
+
+A terminal with an empty input line answers a backspace by ringing the
+bell. Most desktops turn that into a sound nobody wants, or into nothing.
+This turns it into the smallest gesture the window itself can make: one
+short pulse, a few percent of scale, and out.
+
+| key | what it does |
+|---|---|
+| `amount` | peak scale (default 0.035 — 3.5% bigger) |
+| `pulses` | 1 by default; 2 makes it a double-take |
+| `origin` | `window` (default) or `pointer`, so it leans towards the hand that caused it |
+
+**Which window rang is not in core X.** The core Bell request has no
+sender and no target, so a visual bell has to ask XKB, and `BellNotify`
+is the only reason this compositor touches that extension at all. A
+client that named no window — a plain `XBell()`, which is what a terminal
+does — is answered by whatever has focus, because that is where the
+keystroke went.
+
+The scale is a sine over the whole run rather than an eased ramp, so it
+begins and ends at exactly 1.0: a bell that finishes a fraction of a
+percent large would leave the window subtly the wrong size until
+something else redrew it.
 
 ### What's missing, and what each one needs
 

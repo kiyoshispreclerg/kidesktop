@@ -55,6 +55,11 @@ typedef struct CompCaps {
     bool render;
     bool randr;
     bool shape;          /* SHAPE: non-rectangular windows, rounded corners */
+    bool xkb;            /* XKB, for the one thing here that needs it: the
+                          * bell. Which window rang is not in core X at
+                          * all -- the core protocol's bell is a sound
+                          * with no sender -- so a visual bell has to ask
+                          * XKB for BellNotify. */
     bool present;        /* Present extension: vblank-timed presentation */
     /* X-INPUT-SCALE: per-CRTC cursor confinement (inputscale.h). This is
      * what per-output scaling depends on -- without it kicomp scales
@@ -379,6 +384,7 @@ typedef struct KiComp {
     uint8_t present_opcode;    /* Present events arrive as XGE generic events */
     uint8_t randr_event;
     uint8_t shape_event;
+    uint8_t xkb_event;
 
     CompOutput outputs[MAX_OUTPUTS];
     int output_count;

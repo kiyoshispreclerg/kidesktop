@@ -685,6 +685,21 @@ bool window_was_above(const CompWindow *a, const CompWindow *b)
     return a->z_before > b->z_before;
 }
 
+void window_bell(xcb_window_t which)
+{
+    if (which == XCB_NONE)
+        return;
+
+    for (CompWindow *w = comp.stack; w; w = w->next) {
+        if (w->zombie || !w->mapped)
+            continue;
+        if (w->id != which && w->client != which)
+            continue;
+        emit(w, COMP_EVENT_BELL);
+        return;
+    }
+}
+
 void windows_flush_events(void)
 {
     CompWindow *w = comp.stack;

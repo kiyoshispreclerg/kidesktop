@@ -1,6 +1,6 @@
 CFLAGS ?= -Wall -Wextra -O2
 
-PKGS := epoxy pangocairo x11 x11-xcb xcb xcb-keysyms xcb-composite xcb-damage xcb-xfixes xcb-render xcb-randr xcb-shape xcb-present
+PKGS := epoxy pangocairo x11 x11-xcb xcb xcb-keysyms xcb-composite xcb-damage xcb-xfixes xcb-render xcb-randr xcb-shape xcb-present xcb-xkb
 
 CPPFLAGS := $(shell pkg-config --cflags $(PKGS))
 LDLIBS := $(shell pkg-config --libs $(PKGS)) -lm
@@ -19,7 +19,8 @@ SRCS := src/main.c src/config.c src/output.c src/renderer.c src/window.c src/sce
         src/effects/desktop-wall.c src/effects/smooth-move.c \
         src/effects/dodge.c \
         src/effects/show-windows.c \
-        src/effects/expo.c
+        src/effects/expo.c \
+        src/effects/visual-bell.c
 OBJS := $(SRCS:.c=.o)
 HDRS := $(wildcard src/*.h)
 

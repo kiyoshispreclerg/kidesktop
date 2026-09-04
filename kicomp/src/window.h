@@ -90,6 +90,12 @@ void window_state_changed(CompWindow *w);
 /* _NET_ACTIVE_WINDOW changed on the root: emits focus/unfocus. */
 void window_focus_changed(xcb_window_t active);
 
+/* A window rang the bell (main.c, XKB). Reported straight through rather
+ * than deferred like the rest: nothing about the window changed, so there
+ * is nothing for a flush to resolve, and a bell answered a frame late is
+ * a bell answered late. */
+void window_bell(xcb_window_t which);
+
 /* The WM has reparented `client` into a frame we track: that client is
  * where the EWMH properties live, so this is what stops the frame from
  * being anonymous (and what makes a shade distinguishable from a
