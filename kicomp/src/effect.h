@@ -265,5 +265,6 @@ extern const CompEffectModule effect_show_windows;
 extern const CompEffectModule effect_expo;
 extern const CompEffectModule effect_visual_bell;
 extern const CompEffectModule effect_zoom;
+extern const CompEffectModule effect_stats;
 
 #endif /* KICOMP_EFFECT_H */

@@ -21,7 +21,8 @@ SRCS := src/main.c src/config.c src/output.c src/renderer.c src/window.c src/sce
         src/effects/show-windows.c \
         src/effects/expo.c \
         src/effects/visual-bell.c \
-        src/effects/zoom.c
+        src/effects/zoom.c \
+        src/effects/stats.c
 OBJS := $(SRCS:.c=.o)
 HDRS := $(wildcard src/*.h)
 

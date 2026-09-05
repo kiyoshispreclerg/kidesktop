@@ -221,6 +221,13 @@ arrange   = stack             # stack | grid: windows where they are on
                               # their desktop, or tidied into a little
                               # grid inside each cell
 
+[effect:stats]
+enabled = 0                   # an instrument, not a decoration
+hotkey  = Meta+F12
+size    = 260                 # the panel's width in px; the font follows
+corner  = top-right           # top-left | top-right | bottom-left | bottom-right
+margin  = 16
+
 [effect:zoom]
 enabled  = 1
 zoom_in  = Meta+WheelUp       # any key or button, and a list of them
@@ -952,6 +959,37 @@ minimize animation would have nothing to shrink.
 The same store is what a cover-switch or flip alt-tab will draw from, and
 what `show-windows` needs before it can put minimized windows in its
 grid.
+
+### `stats`
+
+A small panel of numbers about the compositor itself, one per output, on
+`Meta+F12`. Off by default: it is an instrument, not a decoration.
+
+It shows the output's name and size (and its scale, when it has one), the
+render and presentation backends that actually came up, and the frames
+that output painted in the last second against the rate it is being paced
+to. Which backend you got and whether a screen is repainting when nothing
+is happening are questions you otherwise guess at from the outside — a
+compositor that repaints constantly and one that repaints when something
+changes look identical until you can see the number.
+
+| key | what it does |
+|---|---|
+| `hotkey` | default `Meta+F12`; the same key takes it away |
+| `size` | the panel's width in px (default 260) — the font size follows from it, because "make it bigger" means the whole thing |
+| `corner` | `top-left`, `top-right` (default), `bottom-left`, `bottom-right` |
+| `margin` | gap from the screen's edges |
+
+**Per output**, and deliberately: an output has its own frame clock and
+answers to its own damage, so "the frame rate" is not a session-wide
+fact. Two monitors showing different numbers is the normal case.
+
+The colours and the face are the decoration's, the same ones the window
+names in `show-windows` use.
+
+It also caught a real bug the first time it was switched on: it read 60
+fps on an idle screen, which is how the blanket per-frame dirtying in
+`scheduler_tick` was found.
 
 ### `zoom`
 

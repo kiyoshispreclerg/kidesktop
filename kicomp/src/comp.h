@@ -140,6 +140,16 @@ typedef struct CompOutput {
      * that asked for it. */
     CompTransform view;
 
+    /* Frames actually painted on this output in the last second, and the
+     * bookkeeping behind it. Not a debugging leftover: an output has a
+     * frame clock of its own and answers to its own damage, so "how many
+     * frames is *this* monitor doing" is a question with a different
+     * answer per output, and the only honest way to show it is to count
+     * them where they happen (output_painted). */
+    int fps;
+    int frames_counted;
+    double fps_since;
+
     /* This output's own frame clock (scheduler.c): when it may next be
      * painted, in monotonic ms. Zero means "immediately", which is what
      * a freshly created output wants. */

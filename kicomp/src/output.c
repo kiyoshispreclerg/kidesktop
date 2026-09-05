@@ -1,6 +1,7 @@
 /* RandR outputs, each with its own render target and its own dirty state.
  * See kiwm-kicomp-projeto.md sections 4, 18 and 39. */
 #include "output.h"
+#include "animation.h"
 #include "region.h"
 #include "renderer.h"
 #include "presenter.h"
@@ -397,4 +398,20 @@ void output_painted(CompOutput *o)
 {
     o->dirty = false;
     region_clear(&o->damage);
+
+    /* One frame, counted where it happened. The window is a plain second
+     * rather than a rolling average: the number is meant to be read by a
+     * person watching it, and an average that never settles is harder to
+     * read than one that steps once a second. */
+    double now = comp_now_ms();
+    if (o->fps_since <= 0.0)
+        o->fps_since = now;
+
+    o->frames_counted++;
+    if (now - o->fps_since >= 1000.0) {
+        o->fps = (int)((double)o->frames_counted * 1000.0 /
+                       (now - o->fps_since) + 0.5);
+        o->frames_counted = 0;
+        o->fps_since = now;
+    }
 }
