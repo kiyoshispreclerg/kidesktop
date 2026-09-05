@@ -86,6 +86,7 @@ static void apply_builtin_defaults(void)
     /* On: it is what makes the expo grid able to show a desktop that
      * isn't on screen, and it costs one pixmap per hidden window. */
     comp.keep_stowed = true;
+    comp.show_stowed_output = COMP_NO_OUTPUT;
 
     /* "auto" means "whatever capability detection picks", which is what
      * anyone who hasn't got a reason to care should leave it as. Naming

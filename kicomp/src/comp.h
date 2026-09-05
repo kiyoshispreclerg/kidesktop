@@ -82,6 +82,9 @@ typedef struct CompCaps {
     bool flip_per_crtc;  /* XiS per-CRTC FLIP -- not probed yet (Fase 8) */
 } CompCaps;
 
+/* No output at all, where an output id is expected. */
+#define COMP_NO_OUTPUT (-1)
+
 /* One output = one scene, one drawable, one clock, one presentation
  * (section 18). This prototype already keeps the per-output target and
  * dirty flag; the per-output clock/pacing is Fase 7. */
@@ -563,10 +566,18 @@ typedef struct KiComp {
      * preview, show-windows' minimized half).
      *
      * Kept windows are left out of the scene until an effect asks for
-     * them (scene.h's comp.show_stowed), so nothing changes on screen
-     * from having them. */
+     * them (scene.h's comp.show_stowed_output), so nothing changes on
+     * screen from having them. */
     bool keep_stowed;
-    bool show_stowed;
+
+    /* Which output is being shown them, by id -- COMP_NO_OUTPUT for
+     * none. An output rather than a flag because the effect that asks is
+     * one screen's: expo lays out the desktops of the monitor it was
+     * opened on, and the other monitor is still showing an ordinary
+     * desktop somebody is using. Drawn there, the windows put away on
+     * *its* desktops -- every one of its wallpapers, one per desktop --
+     * pile up over the one that belongs on screen. */
+    int show_stowed_output;
 
     /* Effects, and the single number they are all written in terms of
      * (kicomp.conf: effects=, animation_duration=). No effect states a

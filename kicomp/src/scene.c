@@ -54,7 +54,8 @@ void scene_build(CompScene *s, CompOutput *o)
          * animation from appearing at all: the window was marked the
          * instant it went, and the effect was left with nothing on
          * screen to animate. */
-        if (w->stowed && !comp.show_stowed && w->retain_count <= 1)
+        if (w->stowed && comp.show_stowed_output != o->id &&
+            w->retain_count <= 1)
             continue;
         if (w->opacity <= 0.0)
             continue;

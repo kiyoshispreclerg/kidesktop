@@ -723,7 +723,7 @@ static void ex_destroy(CompEffect *e)
 
     if (e == active) {
         active = NULL;
-        comp.show_stowed = false;
+        comp.show_stowed_output = COMP_NO_OUTPUT;
         input_release();
     }
     free(e->data);
@@ -873,9 +873,12 @@ static void ex_toggle(void *data)
     }
 
     active = e;
-    /* From here the scene includes the windows whose picture is merely
-     * being kept -- the other desktops (scene.c). */
-    comp.show_stowed = true;
+    /* From here this output's scene includes the windows whose picture
+     * is merely being kept -- its other desktops (scene.c). Only this
+     * one's: the monitor next to it is showing a desktop somebody is
+     * still using, and its own put-away windows have no business being
+     * drawn over it. */
+    comp.show_stowed_output = o->id;
     effects_add(e);
 
     /* And it stays on the desktop that was showing. Not on whatever the

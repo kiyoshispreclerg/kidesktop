@@ -880,7 +880,7 @@ void windows_flush_events(void)
              * has to be claimed here, before the flush lets it go.
              *
              * The window stays out of the scene until an effect asks for
-             * it (comp.show_stowed), so nothing about the screen
+             * it (comp.show_stowed_output), so nothing about the screen
              * changes; what it costs is one pixmap per hidden window,
              * which is why it is a setting. */
             if (comp.keep_stowed && !w->zombie && !w->stowed &&
