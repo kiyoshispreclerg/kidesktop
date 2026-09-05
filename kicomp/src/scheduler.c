@@ -29,18 +29,29 @@ bool scheduler_may_paint(CompOutput *o, double now)
 
 void scheduler_tick(double now)
 {
-    if (!effects_active())
-        return;
+    (void)now;
 
-    /* An animation changes what the scene looks like without anything
-     * damaging a window, so the frames have to come from here. Only
-     * outputs whose deadline arrived: a 60 Hz output does not get woken
-     * at 144 Hz because it shares a screen with one. */
-    for (int i = 0; i < comp.output_count; i++) {
-        CompOutput *o = &comp.outputs[i];
-        if (now >= o->next_frame_ms)
-            o->dirty = true;
-    }
+    /* Nothing to do, and that is the point.
+     *
+     * This used to mark every output dirty on every frame for as long as
+     * any effect was running, on the reasoning that an animation changes
+     * the picture without damaging a window. Every effect in effects/
+     * does damage what it changes, in its own update(), because it is
+     * the only thing that knows what area that is -- so the blanket
+     * marking was never what made animations work. What it did instead
+     * was repaint every screen, whole, at the refresh rate, for as long
+     * as an effect existed.
+     *
+     * Which is harmless for something that lasts 180 ms and expensive
+     * for something that does not: the zoom lens stays until it is wound
+     * back out, the stats panel until the key is pressed again, and both
+     * held the whole desktop at a full repaint per frame while showing a
+     * picture that was not changing. The stats panel is what caught it:
+     * it read 60 fps on an idle screen.
+     *
+     * What still comes from the effects being active is the *waking*
+     * (scheduler_timeout below): the loop keeps a frame cadence so every
+     * update() runs on time. Only the dirtying is gone. */
 }
 
 int scheduler_timeout(double now)
