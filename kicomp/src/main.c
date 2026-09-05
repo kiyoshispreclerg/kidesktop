@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.36"
+#define KICOMP_VERSION "0.2.37"
 
 #include "comp.h"
 #include "output.h"
@@ -147,6 +147,7 @@ static void atoms_init(void)
     comp.atoms.kiwm_layer             = intern("_KIWM_LAYER");
     comp.atoms.kiwm_num_desktops      = intern("_KIWM_NUM_OUTPUT_DESKTOPS");
     comp.atoms.kiwm_set_output_desktop = intern("_KIWM_SET_OUTPUT_DESKTOP");
+    comp.atoms.kiwm_prime_desktop_layers = intern("_KIWM_PRIME_DESKTOP_LAYERS");
     comp.atoms.kiwm_wm_output         = intern("_KIWM_WM_OUTPUT");
     comp.atoms.net_wm_desktop         = intern("_NET_WM_DESKTOP");
     comp.atoms.net_number_of_desktops = intern("_NET_NUMBER_OF_DESKTOPS");
@@ -1103,6 +1104,13 @@ int main(int argc, char **argv)
     desktop_refresh();
     window_focus_changed(read_active_window());
     output_damage_all();
+
+    /* And ask the WM for a look at the wallpapers it is hiding, now
+     * rather than when something wants to draw one: the answer is a
+     * window on screen for a moment, and by the time anyone opens an
+     * expo grid the pictures are already taken (desktop.h). */
+    if (comp.keep_stowed)
+        desktop_request_prime();
 
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));

@@ -532,6 +532,8 @@ typedef struct KiComp {
         xcb_atom_t kiwm_output_desktop;    /* one current desktop per output */
         xcb_atom_t kiwm_num_desktops;      /* how many each output has */
         xcb_atom_t kiwm_set_output_desktop;/* the message that switches one */
+        xcb_atom_t kiwm_prime_desktop_layers;/* ...and the one that asks for a
+                                              * look at the hidden wallpapers */
         xcb_atom_t kiwm_wm_output;         /* which output a window is on */
         xcb_atom_t net_wm_desktop;         /* which desktop a window is on */
     } atoms;

@@ -882,6 +882,11 @@ static void ex_toggle(void *data)
     }
 
     active = e;
+    /* And ask for a fresh look at the wallpapers being hidden, for the
+     * next time: the pictures this grid is drawing were taken when the
+     * compositor started, and a slideshow has moved on since
+     * (desktop.h). */
+    desktop_request_prime();
     /* From here this output's scene includes the windows whose picture
      * is merely being kept -- its other desktops (scene.c). Only this
      * one's: the monitor next to it is showing a desktop somebody is

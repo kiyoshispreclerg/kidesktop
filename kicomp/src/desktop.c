@@ -385,6 +385,26 @@ bool desktop_request_switch(const CompOutput *o, int desktop)
     return true;
 }
 
+bool desktop_request_prime(void)
+{
+    if (comp.atoms.kiwm_prime_desktop_layers == XCB_NONE)
+        return false;
+
+    xcb_client_message_event_t msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.response_type = XCB_CLIENT_MESSAGE;
+    msg.format = 32;
+    msg.window = comp.root;
+    msg.type = comp.atoms.kiwm_prime_desktop_layers;
+
+    xcb_send_event(comp.conn, 0, comp.root,
+                   XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY |
+                   XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT,
+                   (const char *)&msg);
+    xcb_flush(comp.conn);
+    return true;
+}
+
 void desktop_shutdown(void)
 {
     track_count = 0;

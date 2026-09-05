@@ -76,6 +76,18 @@ int  desktop_output_index(const CompOutput *o);
 bool desktop_of_window(const CompWindow *w, int *desktop, int *output_index);
 bool desktop_request_switch(const CompOutput *o, int desktop);
 
+/* Asks the WM to put every wallpaper it is hiding on screen for a
+ * moment, underneath the one you can see, so that there is a picture of
+ * it at all (kiwm/PROTOCOL.md's _KIWM_PRIME_DESKTOP_LAYERS).
+ *
+ * X frees an unmapped window's contents: a desktop the user has never
+ * visited has never been mapped, so the expo grid would open with the
+ * current desktop in one cell and nothing in the others. Only the WM can
+ * put a window on screen, so the compositor asks -- and, as with every
+ * other request here, what comes back is windows mapping and unmapping
+ * like any other. False where the WM doesn't answer to this. */
+bool desktop_request_prime(void);
+
 void desktop_shutdown(void);
 
 #endif /* KICOMP_DESKTOP_H */
