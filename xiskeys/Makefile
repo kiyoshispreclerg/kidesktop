@@ -6,6 +6,8 @@ LIBS := -lX11
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 
+all: xiskeys
+
 xiskeys: xiskeys.c
 	$(CC) $(CFLAGS) -o $@ $< $(LIBS)
 
@@ -18,4 +20,4 @@ uninstall:
 clean:
 	rm -f xiskeys
 
-.PHONY: install uninstall clean
+.PHONY: all install uninstall clean

@@ -4,6 +4,8 @@ LIBS := $(shell pkg-config --cflags --libs gtk+-2.0)
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 
+all: xisnotif
+
 xisnotif: xisnotif.c
 	$(CC) $(CFLAGS) -o $@ $< $(LIBS)
 
@@ -16,4 +18,4 @@ uninstall:
 clean:
 	rm -f xisnotif
 
-.PHONY: clean install uninstall
+.PHONY: all clean install uninstall

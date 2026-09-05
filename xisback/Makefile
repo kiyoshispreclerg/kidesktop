@@ -26,6 +26,8 @@ INPUTSCALE_LDLIBS :=
 $(info xisback: xcb/xcb-randr/x11-xcb not found via pkg-config -- building without X-INPUT-SCALE support)
 endif
 
+all: xisback
+
 xisback: xisback.c $(INPUTSCALE_SRC)
 	$(CC) $(CFLAGS) $(INPUTSCALE_CPPFLAGS) -o $@ xisback.c $(INPUTSCALE_SRC) $(LIBS) $(INPUTSCALE_LDLIBS)
 
@@ -38,4 +40,4 @@ uninstall:
 clean:
 	rm -f xisback
 
-.PHONY: clean install uninstall
+.PHONY: all clean install uninstall

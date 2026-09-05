@@ -119,6 +119,8 @@ BINDIR := $(PREFIX)/bin
 SRCS := xispanel.c ewmh.c menu.c tooltip.c toast.c hotkey.c $(MODTAP_SRCS) pulse.c pango_text.c $(DBUS_SRCS) $(THUMB_SRCS) $(DENSITY_SRCS) $(INPUTSCALE_SRCS) widgets/spacer.c widgets/clock.c widgets/tasklist.c widgets/winctl.c widgets/tray.c widgets/launcher.c widgets/volume.c widgets/globalmenu.c widgets/folder.c widgets/xisserve.c widgets/notif.c widgets/pager.c widgets/monitor.c
 OBJS := $(SRCS:.c=.o)
 
+all: xispanel
+
 xispanel: $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDLIBS)
 
@@ -134,4 +136,4 @@ uninstall:
 clean:
 	rm -f xispanel $(OBJS)
 
-.PHONY: clean install uninstall
+.PHONY: all clean install uninstall

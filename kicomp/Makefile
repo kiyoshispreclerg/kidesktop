@@ -26,6 +26,8 @@ SRCS := src/main.c src/config.c src/output.c src/renderer.c src/window.c src/sce
 OBJS := $(SRCS:.c=.o)
 HDRS := $(wildcard src/*.h)
 
+all: kicomp
+
 kicomp: $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDLIBS)
 
@@ -41,4 +43,4 @@ uninstall:
 clean:
 	rm -f kicomp $(OBJS)
 
-.PHONY: clean install uninstall
+.PHONY: all clean install uninstall

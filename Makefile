@@ -2,10 +2,10 @@
 COMPONENTS = kisession kiwm kicomp xispanel xisserve xisnotif xisback \
              kiconf kiconfd xiskeys xisguard
 
-all install clean:
+all install uninstall clean:
 	@for c in $(COMPONENTS); do \
 		echo "==> $$c: $@"; \
 		$(MAKE) -C $$c $@ || exit 1; \
 	done
 
-.PHONY: all install clean $(COMPONENTS)
+.PHONY: all install uninstall clean $(COMPONENTS)

@@ -6,6 +6,8 @@ LIBS := $(shell pkg-config --cflags --libs x11 xcursor)
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 
+all: kiconfd
+
 kiconfd: kiconfd.c
 	$(CC) $(CFLAGS) -o $@ $< $(LIBS)
 
@@ -18,4 +20,4 @@ uninstall:
 clean:
 	rm -f kiconfd
 
-.PHONY: install uninstall clean
+.PHONY: all install uninstall clean

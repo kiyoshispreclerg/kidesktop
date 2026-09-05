@@ -12,6 +12,8 @@ SRCS := main.c config.c atoms.c output.c decoration.c density.c pango_text.c ewm
 OBJS := $(SRCS:.c=.o)
 HDRS := $(wildcard *.h)
 
+all: kiwm
+
 kiwm: $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDLIBS)
 
@@ -27,4 +29,4 @@ uninstall:
 clean:
 	rm -f kiwm $(OBJS)
 
-.PHONY: clean install uninstall
+.PHONY: all clean install uninstall

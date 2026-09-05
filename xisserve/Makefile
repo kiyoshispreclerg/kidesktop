@@ -41,6 +41,8 @@ SRCS := xisserve.c appmenu.c plugins/terminal.c plugins/globalmenu.c $(DBUS_SRC)
 OBJS := $(SRCS:.c=.o)
 HDRS := xisserve.h plugins/dbusmenu.h pages/pulse.h
 
+all: xisserve
+
 xisserve: $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(PKG_LIBS)
 
@@ -56,4 +58,4 @@ uninstall:
 clean:
 	rm -f xisserve $(OBJS)
 
-.PHONY: clean install uninstall
+.PHONY: all clean install uninstall

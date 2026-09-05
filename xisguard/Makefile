@@ -14,7 +14,10 @@ xisguard: xisguard.c
 install: xisguard
 	install -D -m 755 xisguard $(DESTDIR)$(BINDIR)/xisguard
 
+uninstall:
+	rm -f $(DESTDIR)$(BINDIR)/xisguard
+
 clean:
 	rm -f xisguard
 
-.PHONY: all install clean
+.PHONY: all install uninstall clean
