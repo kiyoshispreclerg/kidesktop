@@ -759,6 +759,32 @@ static void filter_image_update(SwData *d, const SwConfig *cfg)
     d->filter_image = text_render(shown, text_theme_style(), 0);
 }
 
+/* Where a window's own redrawing lands while the grid is up (effect.h):
+ * in its cell, at the size the cell draws it. The same answer expo
+ * gives, for the same reason -- a window that keeps changing is showing
+ * a thumbnail of the moment the grid opened otherwise. */
+static bool sw_damage_map(const CompEffect *e, const CompWindow *w,
+                          const CompRect *in, CompRect *out)
+{
+    const SwData *d = e->data;
+    const SwItem *it = NULL;
+
+    for (int i = 0; i < d->count; i++)
+        if (d->items[i].win == w)
+            it = &d->items[i];
+    if (!it || it->home.w <= 0 || it->home.h <= 0)
+        return false;
+
+    float sx = (float)it->current.w / (float)it->home.w;
+    float sy = (float)it->current.h / (float)it->home.h;
+
+    out->x = it->current.x + (int)((float)(in->x - it->home.x) * sx) - 1;
+    out->y = it->current.y + (int)((float)(in->y - it->home.y) * sy) - 1;
+    out->w = (int)((float)in->w * sx + 0.5f) + 2;
+    out->h = (int)((float)in->h * sy + 0.5f) + 2;
+    return out->w > 0 && out->h > 0;
+}
+
 static void sw_update(CompEffect *e, double now)
 {
     SwData *d = e->data;
@@ -993,11 +1019,12 @@ static void sw_destroy(CompEffect *e)
 }
 
 static const CompEffectOps sw_ops = {
-    .name     = "show-windows",
-    .update   = sw_update,
-    .apply    = sw_apply,
-    .finished = sw_finished,
-    .destroy  = sw_destroy,
+    .name       = "show-windows",
+    .update     = sw_update,
+    .apply      = sw_apply,
+    .finished   = sw_finished,
+    .destroy    = sw_destroy,
+    .damage_map = sw_damage_map,
 };
 
 /* ------------------------------------------------------------------ */
