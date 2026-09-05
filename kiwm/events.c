@@ -1668,6 +1668,13 @@ static void handle_property_notify(xcb_property_notify_event_t *ev)
         return;
     }
 
+    /* A wallpaper layer saying which desktop it is for. It is not a
+     * client and never will be, but which desktop it belongs to is still
+     * kiwm's to act on (output.h's desktop_layer_refresh). */
+    if (ev->atom == wm.atoms.net_wm_desktop &&
+        desktop_layer_refresh(ev->window))
+        return;
+
     /* On a *frame*, not on a client window: a compositor asking this
      * window's decoration to be redrawn densely (density.h). Checked
      * first because frames and clients are different windows and this is
@@ -2025,6 +2032,7 @@ void handle_event(xcb_generic_event_t *event)
         } else {
             popup_focus_released(ev->window);
             dock_forget(ev->window);
+            desktop_layer_forget(ev->window);
             /* Avoid chaining the next _NET_WM_WINDOW_TYPE_DESKTOP window
              * (see client.c's manage()) above a now-destroyed sibling --
              * that ConfigureWindow would just fail with BadWindow and

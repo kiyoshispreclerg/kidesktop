@@ -68,6 +68,22 @@ void dock_track(xcb_window_t window);
 bool dock_is_tracked(xcb_window_t window);
 bool dock_refresh_strut(xcb_window_t window);
 bool dock_forget(xcb_window_t window);
+
+/* Wallpaper layers (wm.h's DesktopLayer). Tracked when one is mapped,
+ * forgotten when it goes away, and shown or hidden by the desktop each
+ * one says it belongs to -- which is the half xisback leaves to the WM
+ * and kiwm was not doing, so every desktop's wallpaper stayed mapped and
+ * whichever was on top was the one you saw everywhere. */
+void desktop_layer_track(xcb_window_t window);
+bool desktop_layer_forget(xcb_window_t window);
+/* Its _NET_WM_DESKTOP changed. */
+bool desktop_layer_refresh(xcb_window_t window);
+/* The topmost layer currently on screen -- what a new one (a crossfade
+ * window) has to be stacked above to be seen at all. */
+xcb_window_t desktop_layer_topmost_mapped(void);
+
+/* Map or unmap this output's layers for the desktop it is now showing. */
+void desktop_layers_apply(int output_idx);
 void compute_output_workarea(int output_idx, int *x, int *y, int *w, int *h);
 
 #endif /* KIWM_OUTPUT_H */

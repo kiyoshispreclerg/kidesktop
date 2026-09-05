@@ -226,6 +226,127 @@ void dock_track(xcb_window_t window)
     ewmh_set_workarea();
 }
 
+/* ------------------------------------------------------------------ */
+/* wallpaper layers                                                     */
+/* ------------------------------------------------------------------ */
+
+static DesktopLayer *layer_find(xcb_window_t window)
+{
+    for (int i = 0; i < wm.desktop_layer_count; i++)
+        if (wm.desktop_layers[i].window == window)
+            return &wm.desktop_layers[i];
+    return NULL;
+}
+
+/* Which desktop a layer says it is for, and which monitor it is on. The
+ * desktop comes from _NET_WM_DESKTOP, 0xFFFFFFFF meaning every one; the
+ * output from where the window actually is, since a layer published for
+ * a named output is sized and placed to that monitor's rectangle. */
+static void layer_read(DesktopLayer *l)
+{
+    l->desktop = -1;
+    l->output = -1;
+
+    xcb_get_property_reply_t *r = xcb_get_property_reply(wm.conn,
+        xcb_get_property(wm.conn, 0, l->window, wm.atoms.net_wm_desktop,
+                         XCB_ATOM_CARDINAL, 0, 1), NULL);
+    if (r) {
+        if (xcb_get_property_value_length(r) >= 4) {
+            uint32_t v = *(uint32_t *)xcb_get_property_value(r);
+            l->desktop = (v == 0xffffffffu) ? -1 : (int)v;
+        }
+        free(r);
+    }
+
+    xcb_get_geometry_reply_t *g = xcb_get_geometry_reply(wm.conn,
+        xcb_get_geometry(wm.conn, l->window), NULL);
+    if (g) {
+        l->output = output_index_for_point(g->x + g->width / 2,
+                                           g->y + g->height / 2);
+        free(g);
+    }
+}
+
+/* Show or hide one layer according to the desktop its output is on. A
+ * sticky layer (or one on no output we know) is left alone: it belongs
+ * everywhere, or we have nothing to decide with. */
+static void layer_apply(const DesktopLayer *l)
+{
+    if (l->desktop < 0 || l->output < 0 || l->output >= wm.output_count)
+        return;
+
+    if (wm.outputs[l->output].desktop == l->desktop)
+        xcb_map_window(wm.conn, l->window);
+    else
+        xcb_unmap_window(wm.conn, l->window);
+}
+
+void desktop_layer_track(xcb_window_t window)
+{
+    if (layer_find(window) || wm.desktop_layer_count >= MAX_DESKTOP_LAYERS)
+        return;
+
+    DesktopLayer *l = &wm.desktop_layers[wm.desktop_layer_count++];
+    l->window = window;
+    layer_read(l);
+    layer_apply(l);
+}
+
+bool desktop_layer_forget(xcb_window_t window)
+{
+    for (int i = 0; i < wm.desktop_layer_count; i++) {
+        if (wm.desktop_layers[i].window != window)
+            continue;
+        wm.desktop_layers[i] = wm.desktop_layers[--wm.desktop_layer_count];
+        return true;
+    }
+    return false;
+}
+
+bool desktop_layer_refresh(xcb_window_t window)
+{
+    DesktopLayer *l = layer_find(window);
+    if (!l)
+        return false;
+
+    layer_read(l);
+    layer_apply(l);
+    return true;
+}
+
+/* The topmost wallpaper layer that is actually on screen, for a new one
+ * to be stacked above.
+ *
+ * "Above the last one created" is not the same thing, and the difference
+ * is a fade nobody can see: with one layer per desktop, most of them are
+ * hidden at any moment, and a crossfade window stacked above a hidden
+ * layer lands *below* the visible wallpaper it is supposed to be fading
+ * over. The list is in creation order, so the last mapped entry is the
+ * top of the group. */
+xcb_window_t desktop_layer_topmost_mapped(void)
+{
+    xcb_window_t top = XCB_NONE;
+
+    for (int i = 0; i < wm.desktop_layer_count; i++) {
+        xcb_get_window_attributes_reply_t *a = xcb_get_window_attributes_reply(
+            wm.conn, xcb_get_window_attributes(wm.conn,
+                                               wm.desktop_layers[i].window), NULL);
+        if (!a)
+            continue;
+        if (a->map_state == XCB_MAP_STATE_VIEWABLE)
+            top = wm.desktop_layers[i].window;
+        free(a);
+    }
+    return top;
+}
+
+void desktop_layers_apply(int output_idx)
+{
+    for (int i = 0; i < wm.desktop_layer_count; i++)
+        if (wm.desktop_layers[i].output == output_idx)
+            layer_apply(&wm.desktop_layers[i]);
+}
+
 bool dock_refresh_strut(xcb_window_t window)
 {
     DockWindow *d = dock_find(window);
@@ -759,6 +880,11 @@ void switch_workspace(int output_idx, int desktop)
     ewmh_update_output_props();
     if (output_idx == primary_output_index())
         ewmh_set_current_desktop(desktop);
+
+    /* The wallpaper belongs to the desktop as much as the windows do
+     * (wm.h's DesktopLayer). Before the clients, so the ground is already
+     * the new desktop's by the time its windows arrive on it. */
+    desktop_layers_apply(output_idx);
 
     Client *to_focus = NULL;
     for (Client *c = wm.clients; c; c = c->next) {

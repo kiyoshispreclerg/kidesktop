@@ -2112,6 +2112,15 @@ void manage(xcb_window_t window, bool map_requested)
             xcb_map_window(wm.conn, window);
             focus_unframed_popup(window);
         }
+
+        /* After the map, not before it: this decides whether the window
+         * belongs on screen at all, and the unconditional map above would
+         * simply undo it. xisback tags each wallpaper layer with
+         * _NET_WM_DESKTOP and leaves the showing and hiding to the window
+         * manager (output.h's desktop_layer_track). */
+        if (window_has_type(window, wm.atoms.net_wm_window_type_desktop))
+            desktop_layer_track(window);
+
         xcb_flush(wm.conn);
         return;
     }

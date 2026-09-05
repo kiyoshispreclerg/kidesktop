@@ -20,6 +20,10 @@
 #define MAX_CLIENTS      256
 #define MAX_OUTPUTS       16
 #define MAX_DOCKS         16
+/* Wallpaper layers (xisback publishes one per output and desktop) -- a
+ * handful per monitor at most, plus the crossfade window each one grows
+ * while it changes picture. */
+#define MAX_DESKTOP_LAYERS 32
 
 /* Upper bound on kiwm.conf's outline_width= (outline.c's wireframe band).
  * Not a technical limit, just the point past which the "outline" stops
@@ -270,6 +274,24 @@ typedef enum {
  * edge space via _NET_WM_STRUT(_PARTIAL). Tracked separately from Client
  * since dock/desktop/toolbar/menu window types are never framed or added
  * to wm.clients (see client.c's should_manage_decorated()). */
+/* A _NET_WM_WINDOW_TYPE_DESKTOP window: xisback's wallpaper layers, and
+ * the crossfade windows it puts over them.
+ *
+ * kiwm does not frame these and never has -- there is nothing to
+ * decorate -- but not framing them is not the same as having no opinion
+ * about them. They carry _NET_WM_DESKTOP like any other window, and the
+ * program that publishes them says so plainly: it tags each layer with
+ * the desktop it belongs to and leaves the showing and hiding to the
+ * window manager, because that is whose job it is.
+ *
+ * Without that, every desktop's wallpaper is mapped at once and whichever
+ * happens to be on top is the one you see -- on every desktop. */
+typedef struct DesktopLayer {
+    xcb_window_t window;
+    int desktop;        /* -1 = sticky, on every desktop */
+    int output;         /* index into wm.outputs, or -1 */
+} DesktopLayer;
+
 typedef struct DockWindow {
     xcb_window_t window;
     int left, right, top, bottom;
@@ -763,6 +785,9 @@ typedef struct {
 
     DockWindow docks[MAX_DOCKS];
     int dock_count;
+
+    DesktopLayer desktop_layers[MAX_DESKTOP_LAYERS];
+    int desktop_layer_count;
 
     /* Most recently mapped _NET_WM_WINDOW_TYPE_DESKTOP window (e.g.
      * xisback's wallpaper/fade windows) -- see client.c's manage(). Each
