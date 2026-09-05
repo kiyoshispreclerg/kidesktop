@@ -357,6 +357,25 @@ typedef struct CompWindow {
     xcb_render_picture_t density_picture;
     CompRect client_rect;
 
+    /* What of this window is *certainly* opaque, relative to its own
+     * origin. Empty (w == 0) when nothing is: an ARGB client, a window
+     * with _NET_WM_WINDOW_OPACITY, one we have not looked at yet.
+     *
+     * It exists so the compositor can skip what nobody can see. Drawing
+     * a window that something opaque completely covers costs exactly as
+     * much as drawing a visible one, and on a desktop where windows
+     * overlap that is most of the work -- which is why every compositor
+     * that cares about power does this, and why a window behind another
+     * one visibly costs less on the desktops that do.
+     *
+     * The *client's* rectangle rather than the window's, because a frame
+     * is usually not opaque at all: kiwm's are ARGB with rounded corners
+     * and a translucent titlebar, while the application inside is a
+     * plain 24-bit window. The corners are outside the client's
+     * rectangle, so nothing that shows through them is ever culled. */
+    CompRect opaque;
+    bool opaque_known;
+
     /* And the same again for the *frame*, which is a client of the
      * protocol too: the decoration's pixels are the WM's, drawn at
      * logical size into the frame, so the only way to have a sharp

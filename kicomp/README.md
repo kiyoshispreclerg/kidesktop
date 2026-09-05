@@ -1278,6 +1278,34 @@ composites correctly, damage updates reach the textures, windows open with
 `fade-in` and `scale-in` running unmodified, and 122 frames of moving and
 typing left the process's RSS unchanged with no X errors.
 
+## Occlusion
+
+A window that something opaque completely covers is not drawn. Nothing
+else about the compositor changes -- the renderers never learn that a
+window was left out -- because the scene simply does not contain it
+(`scene.c`, after the nodes are built, walking from the top down).
+
+**What "opaque" means here is deliberately narrow**, because getting it
+wrong makes a window disappear while getting it wrong the other way
+merely costs what today already costs. A window contributes a covering
+rectangle only when it is fully opaque, untransformed, and has an area
+kicomp is *sure* about — and that area is the **client's** rectangle, not
+the window's: a frame is usually not opaque at all. kiwm's are ARGB with
+rounded corners and a translucent titlebar, while the application inside
+is a plain 24-bit window, so the client is what covers things and the
+corners — which are outside it — never hide anything.
+
+Where the client is comes from the frame's own `SubstructureNotify`:
+hearing the client's configures as events is the difference between
+knowing where it is and asking the server once per frame of a resize
+drag.
+
+Culling is checked against **one** covering rectangle at a time rather
+than the union of several: a window hidden by two overlapping ones stays
+drawn. That is a real case left on the table on purpose — the union of
+rectangles is where this kind of code goes wrong, and the case worth
+having is one big window over the others.
+
 ## Damage
 
 Two questions, and they have different answers: *which outputs* to repaint

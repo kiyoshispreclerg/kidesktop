@@ -96,6 +96,15 @@ void window_focus_changed(xcb_window_t active);
  * a bell answered late. */
 void window_bell(xcb_window_t which);
 
+/* The client inside `frame` was reconfigured: what that window covers has
+ * to be worked out again (comp.h's opaque). */
+void window_client_reconfigured(xcb_window_t frame);
+
+/* Where this window is certainly opaque, in root coordinates; empty when
+ * nothing about it is certain. What the scene uses to leave out windows
+ * nobody can see (scene.c). */
+CompRect window_opaque_rect(CompWindow *w);
+
 /* The WM has reparented `client` into a frame we track: that client is
  * where the EWMH properties live, so this is what stops the frame from
  * being anonymous (and what makes a shade distinguishable from a

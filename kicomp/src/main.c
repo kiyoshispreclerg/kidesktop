@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.26"
+#define KICOMP_VERSION "0.2.27"
 
 #include "comp.h"
 #include "output.h"
@@ -723,6 +723,12 @@ static void handle_event(xcb_generic_event_t *ev)
         } else if (e->event == comp.root) {
             window_configure(e->window, e->x, e->y, e->width, e->height,
                              e->border_width, e->above_sibling);
+        } else {
+            /* A window inside one of ours -- the client in its frame.
+             * Nothing about the frame changed, but where the client sits
+             * in it did, and that is what decides how much of the frame
+             * is opaque (window.h). */
+            window_client_reconfigured(e->event);
         }
         break;
     }

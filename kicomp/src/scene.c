@@ -6,10 +6,26 @@
  * rectangle -- and later its own transform and animation state.
  */
 #include "scene.h"
+#include "shadow.h"
+#include "window.h"
 #include "window.h"
 #include "effect.h"
 
 #include <string.h>
+
+/* How many covering rectangles are carried while culling. Small on
+ * purpose: the case worth catching is one big opaque window over the
+ * others, and every extra rectangle is another containment test per
+ * window per frame. */
+#define MAX_COVERS 4
+
+/* Is `inner` entirely inside `outer`? */
+static bool rect_contains(const CompRect *outer, const CompRect *inner)
+{
+    return inner->x >= outer->x && inner->y >= outer->y &&
+           inner->x + inner->w <= outer->x + outer->w &&
+           inner->y + inner->h <= outer->y + outer->h;
+}
 
 void scene_build(CompScene *s, CompOutput *o)
 {
@@ -81,6 +97,61 @@ void scene_build(CompScene *s, CompOutput *o)
         n->opacity = (float)w->opacity;
         n->z = s->count;
         s->count++;
+    }
+
+    /* And now leave out what nobody can see.
+     *
+     * Walking from the top down, each window that is certainly opaque
+     * covers the ones below it; any of those whose whole visible
+     * rectangle -- grown by the shadow's reach, since a window paints
+     * outside itself -- falls inside one of those covers is not drawn at
+     * all. That is the difference between a compositor that costs the
+     * same whatever is on screen and one that costs what is visible, and
+     * it is why a window behind another one gets cheaper on desktops
+     * that do it.
+     *
+     * Deliberately conservative in three ways: only against a *single*
+     * covering rectangle rather than the union of several (a window
+     * hidden by two overlapping ones stays drawn), only for untransformed
+     * fully opaque nodes, and only using the part of a window we are sure
+     * about (window.h's opaque -- the client inside a frame, never the
+     * frame itself, which under kiwm is translucent). A window wrongly
+     * culled disappears; a window wrongly kept merely costs what it
+     * costs today. */
+    int reach = shadow_margin();
+    CompRect cover[MAX_COVERS];
+    int covers = 0;
+
+    for (int i = s->count - 1; i >= 0; i--) {
+        CompSceneNode *n = &s->nodes[i];
+
+        CompRect probe = n->visible_rect;
+        probe.x -= reach;
+        probe.y -= reach;
+        probe.w += reach * 2;
+        probe.h += reach * 2;
+
+        bool hidden = false;
+        for (int c = 0; c < covers && !hidden; c++)
+            hidden = rect_contains(&cover[c], &probe);
+
+        if (hidden) {
+            /* Out of the list entirely: the renderers never learn that a
+             * window was left out, which is what keeps this in one
+             * place. */
+            memmove(&s->nodes[i], &s->nodes[i + 1],
+                    sizeof(CompSceneNode) * (size_t)(s->count - i - 1));
+            s->count--;
+            continue;
+        }
+
+        if (covers < MAX_COVERS && n->opacity >= 1.0f &&
+            comp_transform_is_identity(&n->transform)) {
+            CompRect op = window_opaque_rect(n->win);
+            CompRect vis;
+            if (op.w > 0 && op.h > 0 && rect_intersect(&op, &o->rect, &vis))
+                cover[covers++] = vis;
+        }
     }
 }
 

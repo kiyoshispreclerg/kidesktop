@@ -550,6 +550,78 @@ static bool window_is_managed(CompWindow *w)
     return client != XCB_NONE && wm_state_present(client);
 }
 
+/* What this window certainly covers, in its own coordinates.
+ *
+ * A window that is its own client (override-redirect, or one no WM
+ * framed) is opaque exactly when it has no alpha channel. A framed one
+ * is opaque where its *client* is, if that client has none -- the frame
+ * around it may well be translucent, and under kiwm it is.
+ *
+ * Anything uncertain is left empty rather than guessed at: a wrong
+ * "opaque" is a window that vanishes behind another one, which is a far
+ * worse bug than a missed optimisation. */
+static void read_opaque(CompWindow *w)
+{
+    w->opaque_known = true;
+    w->opaque = (CompRect){ 0, 0, 0, 0 };
+
+    if (w->input_only || w->zombie)
+        return;
+
+    xcb_window_t client = resolve_client(w);
+    if (client == XCB_NONE)
+        return;
+
+    if (client == w->id) {
+        if (!w->argb)
+            w->opaque = (CompRect){ 0, 0, w->w + w->border * 2,
+                                          w->h + w->border * 2 };
+        return;
+    }
+
+    xcb_get_geometry_reply_t *g = xcb_get_geometry_reply(comp.conn,
+        xcb_get_geometry(comp.conn, client), NULL);
+    if (!g)
+        return;
+
+    if (g->depth != 32) {
+        /* Relative to the frame's own origin, which is where window_rect
+         * starts -- the border the frame draws is part of that. */
+        w->opaque = (CompRect){
+            g->x + w->border, g->y + w->border,
+            g->width + g->border_width * 2,
+            g->height + g->border_width * 2
+        };
+    }
+    free(g);
+}
+
+/* The client moved or resized inside its frame (main.c, SubstructureNotify
+ * on the frame): whatever we knew about what it covers is now the wrong
+ * rectangle. Re-read lazily, at the next paint that asks. */
+void window_client_reconfigured(xcb_window_t frame)
+{
+    CompWindow *w = window_find(frame);
+    if (w)
+        w->opaque_known = false;
+}
+
+/* Where this window is certainly opaque, in root coordinates. An empty
+ * rectangle means "nothing is known to be", which every caller has to
+ * treat as "assume it covers nothing". */
+CompRect window_opaque_rect(CompWindow *w)
+{
+    if (!w->opaque_known)
+        read_opaque(w);
+
+    if (w->opaque.w <= 0 || w->opaque.h <= 0)
+        return (CompRect){ 0, 0, 0, 0 };
+
+    CompRect r = window_rect(w);
+    return (CompRect){ r.x + w->opaque.x, r.y + w->opaque.y,
+                       w->opaque.w, w->opaque.h };
+}
+
 static void emit(CompWindow *w, CompEventKind kind)
 {
     CompEvent ev = { .kind = kind };
@@ -923,7 +995,13 @@ static void window_add_at(xcb_window_t id, xcb_window_t above, bool on_top)
     /* PropertyChange so _NET_WM_WINDOW_OPACITY changes reach us. Event
      * masks are per-client, so this never disturbs the WM's or the app's
      * own selections on the same window. */
-    uint32_t mask = XCB_EVENT_MASK_PROPERTY_CHANGE;
+    /* PropertyChange for the opacity, SubstructureNotify for the client
+     * inside a frame: where that client is and how big it is decides
+     * what this window certainly covers (comp.h's opaque), and hearing
+     * it as an event is the difference between knowing it and asking the
+     * server for it once per frame of a resize drag. */
+    uint32_t mask = XCB_EVENT_MASK_PROPERTY_CHANGE |
+                    XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY;
     xcb_change_window_attributes(comp.conn, id, XCB_CW_EVENT_MASK, &mask);
 
     /* ShapeNotify, so the cached bounding region can be dropped when the
@@ -1155,6 +1233,9 @@ void window_configure(xcb_window_t id, int x, int y, int w_, int h_, int border,
     w->w = w_;
     w->h = h_;
     w->border = border;
+
+    if (resized)
+        w->opaque_known = false;
 
     if (resized) {
         /* A resize gives the window a brand new backing pixmap; the one
