@@ -33,6 +33,7 @@
  *   padding  = 24               # between the cells -- the same gap by
  *                               # default, so it reads as one spacing
  *   dim      = 0.82             # the desktops that aren't under the pointer
+ *   background = #000000        # the ground they are laid out on
  *   arrange  = stack            # stack | grid -- windows as they are, or
  *                               # tidied into a little grid of their own
  */
@@ -106,6 +107,7 @@ typedef struct {
     int padding;
     float dim;
     Arrange arrange;
+    float bg[3];       /* the ground the desktops are laid out on */
 } ExConfig;
 
 static const CompEffectOps ex_ops;
@@ -487,6 +489,15 @@ static void ex_apply(CompEffect *e, CompScene *s, CompOutput *o)
 
     float p = leg_progress(d, e, comp_now_ms());
     float spread = d->closing ? 1.0f - p : p;
+
+    if (o->id == d->output_id) {
+        /* The ground first, under everything: the desktops are laid out
+         * *somewhere*, not floating over the one you were just using.
+         * It fades in and out with the layout, so the way in and the way
+         * out are the same gesture reversed (scene.h). */
+        scene_set_backdrop(s, &o->rect, cfg->bg[0], cfg->bg[1], cfg->bg[2],
+                           spread);
+    }
 
     if (o->id != d->output_id) {
         /* Another monitor: its own desktops are not what this grid is
@@ -941,6 +952,10 @@ static void ex_defaults(void *config)
     c->padding = 24;
     c->dim = 0.82f;
     c->arrange = ARRANGE_STACK;
+    /* Black, and black on purpose: the point of the ground is that the
+     * desktop you came from is *gone* while you choose, and any colour
+     * with something in it reads as another desktop. */
+    c->bg[0] = c->bg[1] = c->bg[2] = 0.0f;
 }
 
 static bool ex_config_key(void *config, const char *key, const char *value)
@@ -961,6 +976,18 @@ static bool ex_config_key(void *config, const char *key, const char *value)
     }
     if (!strcmp(key, "dim")) {
         c->dim = (float)atof(value);
+        return true;
+    }
+    if (!strcmp(key, "background")) {
+        unsigned int r = 0, g = 0, b = 0;
+        if (sscanf(value, " #%2x%2x%2x", &r, &g, &b) == 3 ||
+            sscanf(value, " %2x%2x%2x", &r, &g, &b) == 3) {
+            c->bg[0] = (float)r / 255.0f;
+            c->bg[1] = (float)g / 255.0f;
+            c->bg[2] = (float)b / 255.0f;
+        } else {
+            fprintf(stderr, "kicomp: config: expo: not a colour: '%s'\n", value);
+        }
         return true;
     }
     if (!strcmp(key, "arrange")) {

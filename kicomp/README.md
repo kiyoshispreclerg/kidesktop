@@ -220,6 +220,7 @@ dim       = 0.82              # the desktops that aren't selected
 arrange   = stack             # stack | grid: windows where they are on
                               # their desktop, or tidied into a little
                               # grid inside each cell
+background = #000000          # the ground the desktops are laid out on
 
 [effect:stats]
 enabled = 0                   # an instrument, not a decoration

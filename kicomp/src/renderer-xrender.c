@@ -1417,11 +1417,15 @@ static void draw_dense(CompOutput *o, const CompSceneNode *n, CompWindow *w,
 }
 
 static void draw_chrome(CompOutput *o, const CompScene *s);
+static void draw_backdrop(CompOutput *o, const CompScene *s,
+                          const CompRegion *damage);
 
 static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
 {
     if (!o->target)
         return;
+
+    draw_backdrop(o, s, damage);
 
     for (int i = 0; i < s->count; i++) {
         CompSceneNode *n = &s->nodes[i];
@@ -1667,6 +1671,39 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
     }
 
     draw_chrome(o, s);
+}
+
+/* An effect's own ground, under every window (scene.h). One filled
+ * rectangle, blended: a ground fading in is what makes a mode read as
+ * arriving rather than as appearing, and OVER with a premultiplied
+ * colour is exactly that fade.
+ *
+ * Inside the frame's damage clip like everything else, and skipped
+ * entirely when this frame is not repainting any part of it. */
+static void draw_backdrop(CompOutput *o, const CompScene *s,
+                          const CompRegion *damage)
+{
+    const CompSceneBackdrop *b = &s->backdrop;
+    if (b->rect.w <= 0 || b->rect.h <= 0)
+        return;
+    if (!region_hits(damage, &b->rect))
+        return;
+
+    clip_to_frame(o, XCB_NONE, 0, 0);
+
+    /* XRender wants the colour already multiplied by its own alpha --
+     * the same premultiplied form every window's pixmap is in. */
+    float a = b->opacity;
+    xcb_render_color_t c = {
+        (uint16_t)(b->r * a * 65535.0f + 0.5f),
+        (uint16_t)(b->g * a * 65535.0f + 0.5f),
+        (uint16_t)(b->b * a * 65535.0f + 0.5f),
+        (uint16_t)(a * 65535.0f + 0.5f),
+    };
+
+    xcb_rectangle_t r = to_target_rect(o, &b->rect);
+    xcb_render_fill_rectangles(comp.conn, XCB_RENDER_PICT_OP_OVER, o->target,
+                               c, 1, &r);
 }
 
 /* The chrome, over everything: an effect's own labels (scene.h). Drawn

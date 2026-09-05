@@ -59,6 +59,26 @@ typedef struct CompSceneChrome {
     float opacity;
 } CompSceneChrome;
 
+/* An effect's own ground: a rectangle of colour under every window it is
+ * drawing.
+ *
+ * For the modes that *replace* the desktop rather than rearrange it. The
+ * expo grid is four little desktops with the real one still lying behind
+ * them, which reads as a mess; on its own ground it reads as a place you
+ * have gone to. And a ground is a layer, not a colour: it is where
+ * anything belonging to the mode rather than to a window goes -- the
+ * names of the desktops, the button to add one -- as those arrive.
+ *
+ * Like chrome (above), deliberately not a node: no window owns it, and
+ * nothing outside the effect that asked for it needs to know it exists.
+ * An empty rectangle means no ground at all, which is every frame of
+ * every other effect. */
+typedef struct CompSceneBackdrop {
+    CompRect rect;          /* root coordinates; empty for none */
+    float r, g, b;          /* straight, 0..1 -- not premultiplied */
+    float opacity;
+} CompSceneBackdrop;
+
 typedef struct CompScene {
     CompOutput *output;
     CompSceneNode nodes[MAX_SCENE_NODES];
@@ -66,12 +86,19 @@ typedef struct CompScene {
 
     CompSceneChrome chrome[MAX_SCENE_CHROME];
     int chrome_count;
+
+    CompSceneBackdrop backdrop;
 } CompScene;
 
 /* Adds one, ignoring the request when the scene is full or the image
  * never rendered -- a label is worth nothing to fail a frame over. */
 void scene_add_chrome(CompScene *s, struct CompTextImage *image,
                       const CompRect *rect, float opacity);
+
+/* Sets the ground for this frame. Cleared again by the next
+ * scene_build(), like everything else an effect puts here. */
+void scene_set_backdrop(CompScene *s, const CompRect *rect,
+                        float r, float g, float b, float opacity);
 
 /* Rebuilds `s` from the current window stack, keeping only what is
  * visible on `o`. Cheap enough to redo per frame at this stage;

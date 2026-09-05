@@ -29,6 +29,7 @@ void scene_build(CompScene *s, CompOutput *o)
      * it in apply(), which runs before anything is drawn. */
     comp_transform_identity(&o->view);
     s->chrome_count = 0;
+    s->backdrop.rect = (CompRect){ 0, 0, 0, 0 };
 
     for (CompWindow *w = comp.stack; w; w = w->next) {
         /* An unmapped window is still drawn while an effect holds it --
@@ -130,6 +131,21 @@ void scene_add_chrome(CompScene *s, struct CompTextImage *image,
     c->image = image;
     c->rect = *rect;
     c->opacity = opacity;
+}
+
+void scene_set_backdrop(CompScene *s, const CompRect *rect,
+                        float r, float g, float b, float opacity)
+{
+    if (opacity <= 0.0f || rect->w <= 0 || rect->h <= 0) {
+        s->backdrop.rect = (CompRect){ 0, 0, 0, 0 };
+        return;
+    }
+
+    s->backdrop.rect = *rect;
+    s->backdrop.r = r;
+    s->backdrop.g = g;
+    s->backdrop.b = b;
+    s->backdrop.opacity = opacity > 1.0f ? 1.0f : opacity;
 }
 
 /* Leaves out what nobody can see.

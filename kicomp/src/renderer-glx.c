@@ -1253,8 +1253,65 @@ static void glx_begin(CompOutput *o, const CompRegion *damage)
 /* One pass over the scene, everything clipped to `repaint_rect`. Called
  * once per damaged rectangle, so a frame where two small things changed
  * costs two small passes instead of one screen-sized one. */
+/* An effect's own ground, under every window (scene.h): one quad in a
+ * flat colour, through the same shader everything else goes through. A
+ * 1x1 texture rather than a shader of its own -- the fragment program
+ * here is a texel times an opacity, and a texel is exactly what a colour
+ * is. */
+static void draw_backdrop(CompOutput *o, const CompScene *s,
+                          const float projection[16])
+{
+    const CompSceneBackdrop *b = &s->backdrop;
+    if (b->rect.w <= 0 || b->rect.h <= 0)
+        return;
+
+    CompRect ignored;
+    if (!rect_intersect(&b->rect, &repaint_rect, &ignored))
+        return;
+
+    static GLuint tex;
+    if (!tex) {
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    } else {
+        glBindTexture(GL_TEXTURE_2D, tex);
+    }
+
+    unsigned char px[4] = {
+        (unsigned char)(b->r * 255.0f + 0.5f),
+        (unsigned char)(b->g * 255.0f + 0.5f),
+        (unsigned char)(b->b * 255.0f + 0.5f),
+        255,
+    };
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, px);
+
+    CompTransform identity;
+    comp_transform_identity(&identity);
+    float m[16];
+    rect_matrix(&b->rect, &identity, m);
+
+    glUseProgram(program);
+    glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
+    glUniform1i(u_texture, 0);
+    glUniform1f(u_y_flip, 0.0f);
+    glUniformMatrix4fv(u_transform, 1, GL_FALSE, m);
+    glUniform1f(u_opacity, b->opacity);
+
+    scissor_for(o, repaint_rect.x, repaint_rect.y,
+                repaint_rect.w, repaint_rect.h);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
 static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
 {
+    draw_backdrop(o, s, projection);
+
     for (int i = 0; i < s->count; i++) {
         CompSceneNode *n = &s->nodes[i];
         CompWindow *w = n->win;
