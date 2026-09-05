@@ -1300,6 +1300,19 @@ hearing the client's configures as events is the difference between
 knowing where it is and asking the server once per frame of a resize
 drag.
 
+**And a covered window's damage is dropped**, which is the half that
+actually saves power. A window nobody can see still reports damage, and
+answering that damage repaints the area — the same cost as if it were
+visible. The damage still has to be *taken* from the server, which stops
+reporting until it is, but nothing is posted: whatever is drawn over that
+window has not changed, and the moment something uncovers it, that
+movement damages the area itself.
+
+Measured nested with a window repainting itself completely at 30 fps:
+visible, kicomp paints 182 frames in six seconds; covered by an opaque
+window, it paints **none**, and the X server's own work drops from 31
+ticks to 5.
+
 Culling is checked against **one** covering rectangle at a time rather
 than the union of several: a window hidden by two overlapping ones stays
 drawn. That is a real case left on the table on purpose — the union of

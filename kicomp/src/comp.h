@@ -376,6 +376,17 @@ typedef struct CompWindow {
     CompRect opaque;
     bool opaque_known;
 
+    /* Nothing of this window reached the screen last time it was
+     * considered: something opaque covers all of it, on the one output
+     * it is on (scene.c).
+     *
+     * Which is worth knowing beyond skipping the draw: a window nobody
+     * can see still reports damage, and answering that damage is a
+     * repaint of the area -- the same cost as if it were visible. A
+     * video playing behind a maximized window should cost a compositor
+     * nothing, and this is the flag that makes it cost nothing. */
+    bool occluded;
+
     /* And the same again for the *frame*, which is a client of the
      * protocol too: the decoration's pixels are the WM's, drawn at
      * logical size into the frame, so the only way to have a sharp

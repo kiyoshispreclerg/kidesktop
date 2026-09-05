@@ -43,6 +43,20 @@ void damage_collect(void)
         if (w->damage == XCB_NONE)
             continue;
 
+        if (w->occluded) {
+            /* Covered by something opaque (scene.c). The damage still has
+             * to be *taken* -- the server stops reporting until it is --
+             * but there is nothing to repaint: whatever is drawn over
+             * this window is unchanged, and the moment something uncovers
+             * it, that movement damages the area itself.
+             *
+             * This is where a video behind a maximized window stops
+             * costing anything. */
+            xcb_damage_subtract(comp.conn, w->damage, XCB_XFIXES_REGION_NONE,
+                                XCB_XFIXES_REGION_NONE);
+            continue;
+        }
+
         if (n >= MAX_COLLECT) {
             /* Out of slots: correct, just coarser. */
             CompRect r = window_rect(w);

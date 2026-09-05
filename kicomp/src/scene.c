@@ -136,6 +136,15 @@ void scene_build(CompScene *s, CompOutput *o)
             hidden = rect_contains(&cover[c], &probe);
 
         if (hidden) {
+            /* Remembered on the window, not just dropped from the list:
+             * damage.c uses it to stop answering damage nobody can see
+             * (comp.h). Only when the window is wholly on this output,
+             * since another one may still be showing it and this build
+             * knows nothing about that. */
+            CompRect whole = window_rect(n->win);
+            if (rect_contains(&o->rect, &whole))
+                n->win->occluded = true;
+
             /* Out of the list entirely: the renderers never learn that a
              * window was left out, which is what keeps this in one
              * place. */
@@ -144,6 +153,8 @@ void scene_build(CompScene *s, CompOutput *o)
             s->count--;
             continue;
         }
+
+        n->win->occluded = false;
 
         if (covers < MAX_COVERS && n->opacity >= 1.0f &&
             comp_transform_is_identity(&n->transform)) {
