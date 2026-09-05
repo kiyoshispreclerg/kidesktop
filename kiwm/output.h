@@ -84,6 +84,28 @@ xcb_window_t desktop_layer_topmost_mapped(void);
 
 /* Map or unmap this output's layers for the desktop it is now showing. */
 void desktop_layers_apply(int output_idx);
+
+/* Holds every hidden wallpaper up for a moment, on screen but directly
+ * under the one that belongs there, and hides it again.
+ *
+ * For a compositor: X frees an unmapped window's contents, so the only
+ * picture there will ever be of a wallpaper is one taken while it was
+ * mapped. A desktop nobody has visited yet has never been mapped, which
+ * is why an expo grid opens with three empty cells and a real one. This
+ * is the WM doing the one part only it can do -- putting a window on
+ * screen -- somewhere it cannot be seen, since the wallpaper of the
+ * desktop you are on covers that monitor completely.
+ *
+ * Asked for with _KIWM_PRIME_DESKTOP_LAYERS (PROTOCOL.md). Nothing here
+ * knows or cares whether anyone is composited: without a compositor the
+ * whole thing is a window mapped under an opaque one for half a second,
+ * which is nothing at all.
+ *
+ * The two below are the delayed half, driven from the main loop the same
+ * way client.c's pending expose rounds are. */
+void desktop_layers_prime(void);
+int  desktop_layers_prime_timeout_ms(void);
+void desktop_layers_run_prime(void);
 void compute_output_workarea(int output_idx, int *x, int *y, int *w, int *h);
 
 #endif /* KIWM_OUTPUT_H */

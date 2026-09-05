@@ -159,6 +159,25 @@ that output happens to be the primary one, `_NET_CURRENT_DESKTOP` changing too, 
 Out-of-range indices (unknown output, or `desktop >= _KIWM_NUM_OUTPUT_DESKTOPS`) are silently
 ignored.
 
+## Client message: `_KIWM_PRIME_DESKTOP_LAYERS`
+
+Send to the **root window** the same way, `format = 32`, all five data words zero.
+
+kiwm maps every wallpaper layer that is currently hidden (one whose `_NET_WM_DESKTOP` is not the
+desktop its monitor is showing) directly **below** the layer that is on screen for that monitor,
+and unmaps it again about 700 ms later. Nothing becomes visible: the wallpaper of the desktop you
+are on is opaque and covers that monitor, so the layers held up behind it cannot be seen.
+
+It exists for compositors. X frees an unmapped window's contents, so the only picture there will
+ever be of a wallpaper is one taken while it was mapped, and a desktop the user has never visited
+has never been mapped -- which is why a compositor's expo grid would otherwise open with the
+current desktop's wallpaper and empty cells for the rest. Sending this once at startup (and again
+after a new layer appears) gives every hidden layer a moment on screen to be photographed.
+
+A layer on a monitor with nothing on screen to hide behind -- no wallpaper set for the desktop
+being shown -- is left alone rather than flashed. Layers on every desktop (sticky) are already
+mapped and are not touched. No reply is sent.
+
 ## Interaction with standard EWMH
 
 - `_NET_CURRENT_DESKTOP` / `_NET_NUMBER_OF_DESKTOPS` on root mirror the **primary output only**,

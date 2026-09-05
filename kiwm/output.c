@@ -270,15 +270,34 @@ static void layer_read(DesktopLayer *l)
 /* Show or hide one layer according to the desktop its output is on. A
  * sticky layer (or one on no output we know) is left alone: it belongs
  * everywhere, or we have nothing to decide with. */
-static void layer_apply(const DesktopLayer *l)
+static void layer_apply(DesktopLayer *l)
 {
     if (l->desktop < 0 || l->output < 0 || l->output >= wm.output_count)
         return;
+
+    /* Whatever it was doing, it is now being shown or hidden for real. */
+    l->prime_until = 0.0;
 
     if (wm.outputs[l->output].desktop == l->desktop)
         xcb_map_window(wm.conn, l->window);
     else
         xcb_unmap_window(wm.conn, l->window);
+}
+
+/* The layer that *is* on screen for an output: the one a hidden layer of
+ * the same monitor can hide behind. */
+static xcb_window_t layer_on_screen_for(int output_idx)
+{
+    for (int i = 0; i < wm.desktop_layer_count; i++) {
+        DesktopLayer *l = &wm.desktop_layers[i];
+        if (l->output != output_idx || l->desktop < 0)
+            continue;
+        if (output_idx >= 0 && output_idx < wm.output_count &&
+            wm.outputs[output_idx].desktop == l->desktop &&
+            l->prime_until == 0.0)
+            return l->window;
+    }
+    return XCB_NONE;
 }
 
 void desktop_layer_track(xcb_window_t window)
@@ -345,6 +364,81 @@ void desktop_layers_apply(int output_idx)
     for (int i = 0; i < wm.desktop_layer_count; i++)
         if (wm.desktop_layers[i].output == output_idx)
             layer_apply(&wm.desktop_layers[i]);
+}
+
+/* Long enough for the layer's own client to have drawn it and for a
+ * compositor to have named its pixmap, short enough that nobody is left
+ * with an extra window mapped if either never happens. */
+#define DESKTOP_LAYER_PRIME_MS 700.0
+
+void desktop_layers_prime(void)
+{
+    bool any = false;
+
+    for (int i = 0; i < wm.desktop_layer_count; i++) {
+        DesktopLayer *l = &wm.desktop_layers[i];
+
+        if (l->desktop < 0 || l->output < 0 || l->output >= wm.output_count)
+            continue;                       /* sticky: already on screen */
+        if (wm.outputs[l->output].desktop == l->desktop)
+            continue;                       /* this one *is* the wallpaper */
+        if (l->prime_until != 0.0)
+            continue;                       /* already up */
+
+        /* Only under cover. With nothing of this monitor's on screen to
+         * hide behind -- no wallpaper set for the desktop being shown --
+         * holding this one up would be showing the wrong wallpaper, and
+         * the empty cell in someone's expo is the lesser fault. */
+        xcb_window_t cover = layer_on_screen_for(l->output);
+        if (cover == XCB_NONE)
+            continue;
+
+        xcb_map_window(wm.conn, l->window);
+
+        uint32_t values[] = { cover, XCB_STACK_MODE_BELOW };
+        xcb_configure_window(wm.conn, l->window,
+                             XCB_CONFIG_WINDOW_SIBLING | XCB_CONFIG_WINDOW_STACK_MODE,
+                             values);
+
+        l->prime_until = monotonic_ms() + DESKTOP_LAYER_PRIME_MS;
+        any = true;
+    }
+
+    if (any)
+        xcb_flush(wm.conn);
+}
+
+int desktop_layers_prime_timeout_ms(void)
+{
+    double soonest = 0.0;
+
+    for (int i = 0; i < wm.desktop_layer_count; i++) {
+        double t = wm.desktop_layers[i].prime_until;
+        if (t != 0.0 && (soonest == 0.0 || t < soonest))
+            soonest = t;
+    }
+    if (soonest == 0.0)
+        return -1;
+
+    double left = soonest - monotonic_ms();
+    return left <= 0.0 ? 0 : (int)(left + 0.5);
+}
+
+void desktop_layers_run_prime(void)
+{
+    double now = monotonic_ms();
+    bool any = false;
+
+    for (int i = 0; i < wm.desktop_layer_count; i++) {
+        DesktopLayer *l = &wm.desktop_layers[i];
+        if (l->prime_until == 0.0 || now < l->prime_until)
+            continue;
+        layer_apply(l);         /* which is to say: back where it belongs */
+        any = true;
+    }
+
+    if (any)
+        xcb_flush(wm.conn);
 }
 
 bool dock_refresh_strut(xcb_window_t window)

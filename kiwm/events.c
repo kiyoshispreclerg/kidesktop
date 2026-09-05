@@ -1909,6 +1909,11 @@ static void handle_client_message(xcb_client_message_event_t *ev)
         return;
     }
 
+    if (ev->type == wm.atoms.kiwm_prime_desktop_layers) {
+        desktop_layers_prime();
+        return;
+    }
+
     Client *c = find_client_window(ev->window);
     if (!c)
         return;

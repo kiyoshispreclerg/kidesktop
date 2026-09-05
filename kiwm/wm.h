@@ -290,6 +290,11 @@ typedef struct DesktopLayer {
     xcb_window_t window;
     int desktop;        /* -1 = sticky, on every desktop */
     int output;         /* index into wm.outputs, or -1 */
+
+    /* While being *primed*: on screen but under the wallpaper you can
+     * see, until this moment passes (output.h's desktop_layers_prime).
+     * 0 when it is simply shown or hidden like any other. */
+    double prime_until;
 } DesktopLayer;
 
 typedef struct DockWindow {
@@ -706,6 +711,7 @@ typedef struct {
     xcb_atom_t kiwm_output_desktop;
     xcb_atom_t kiwm_num_output_desktops;
     xcb_atom_t kiwm_set_output_desktop;
+    xcb_atom_t kiwm_prime_desktop_layers;
     xcb_atom_t kiwm_wm_output;
     /* _KIWM_MINIMIZED_GEOMETRY: where a minimized window's frame was when
      * it went away, kept on the window for as long as it stays minimized
