@@ -13,12 +13,6 @@
 
 #include <string.h>
 
-/* How many covering rectangles are carried while culling. Small on
- * purpose: the case worth catching is one big opaque window over the
- * others, and every extra rectangle is another containment test per
- * window per frame. */
-#define MAX_COVERS 4
-
 /* Is `inner` entirely inside `outer`? */
 static bool rect_contains(const CompRect *outer, const CompRect *inner)
 {
@@ -155,6 +149,17 @@ void scene_build(CompScene *s, CompOutput *o)
         }
 
         n->win->occluded = false;
+
+        /* What covers it, for the damage that has not happened yet
+         * (comp.h). Only when the window is wholly on this output, for
+         * the same reason `occluded` is: another monitor may be showing
+         * a part this build knows nothing about. */
+        n->win->cover_count = 0;
+        CompRect self = window_rect(n->win);
+        if (rect_contains(&o->rect, &self)) {
+            for (int c = 0; c < covers; c++)
+                n->win->cover[n->win->cover_count++] = cover[c];
+        }
 
         if (covers < MAX_COVERS && n->opacity >= 1.0f &&
             comp_transform_is_identity(&n->transform)) {

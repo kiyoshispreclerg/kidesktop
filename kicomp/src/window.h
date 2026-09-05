@@ -98,7 +98,8 @@ void window_bell(xcb_window_t which);
 
 /* The client inside `frame` was reconfigured: what that window covers has
  * to be worked out again (comp.h's opaque). */
-void window_client_reconfigured(xcb_window_t frame);
+void window_client_reconfigured(xcb_window_t frame, xcb_window_t child,
+                                int x, int y, int width, int height, int border);
 
 /* Where this window is certainly opaque, in root coordinates; empty when
  * nothing about it is certain. What the scene uses to leave out windows

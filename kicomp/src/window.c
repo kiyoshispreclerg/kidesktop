@@ -579,11 +579,17 @@ static void read_opaque(CompWindow *w)
         return;
     }
 
+    /* One round trip, ever. The rectangle changes whenever the client is
+     * reconfigured and arrives in that event; the *depth* is fixed for
+     * the life of the window, so it is the only thing worth asking the
+     * server about -- and asking once is the difference between this
+     * being free and being a round trip per frame of a resize drag. */
     xcb_get_geometry_reply_t *g = xcb_get_geometry_reply(comp.conn,
         xcb_get_geometry(comp.conn, client), NULL);
     if (!g)
         return;
 
+    w->client_depth = g->depth;
     if (g->depth != 32) {
         /* Relative to the frame's own origin, which is where window_rect
          * starts -- the border the frame draws is part of that. */
@@ -596,14 +602,37 @@ static void read_opaque(CompWindow *w)
     free(g);
 }
 
-/* The client moved or resized inside its frame (main.c, SubstructureNotify
- * on the frame): whatever we knew about what it covers is now the wrong
- * rectangle. Re-read lazily, at the next paint that asks. */
-void window_client_reconfigured(xcb_window_t frame)
+/* A window inside one of ours was reconfigured (main.c). The event
+ * carries the new rectangle, so if it is the client we care about there
+ * is nothing to ask anyone: the opaque area is that rectangle, and this
+ * costs a comparison. */
+void window_client_reconfigured(xcb_window_t frame, xcb_window_t child,
+                                int x, int y, int width, int height, int border)
 {
     CompWindow *w = window_find(frame);
-    if (w)
-        w->opaque_known = false;
+    if (!w)
+        return;
+
+    /* Not the client: a toolkit's own subwindow, and none of our
+     * business. */
+    if (w->client != XCB_NONE && w->client != child)
+        return;
+    if (w->client == XCB_NONE) {
+        w->opaque_known = false;   /* not resolved yet; work it out later */
+        return;
+    }
+
+    if (w->client_depth == 0) {
+        w->opaque_known = false;   /* depth still unknown: read it once */
+        return;
+    }
+
+    w->opaque_known = true;
+    if (w->client_depth == 32)
+        w->opaque = (CompRect){ 0, 0, 0, 0 };
+    else
+        w->opaque = (CompRect){ x + w->border, y + w->border,
+                                width + border * 2, height + border * 2 };
 }
 
 /* Where this window is certainly opaque, in root coordinates. An empty
@@ -995,13 +1024,7 @@ static void window_add_at(xcb_window_t id, xcb_window_t above, bool on_top)
     /* PropertyChange so _NET_WM_WINDOW_OPACITY changes reach us. Event
      * masks are per-client, so this never disturbs the WM's or the app's
      * own selections on the same window. */
-    /* PropertyChange for the opacity, SubstructureNotify for the client
-     * inside a frame: where that client is and how big it is decides
-     * what this window certainly covers (comp.h's opaque), and hearing
-     * it as an event is the difference between knowing it and asking the
-     * server for it once per frame of a resize drag. */
-    uint32_t mask = XCB_EVENT_MASK_PROPERTY_CHANGE |
-                    XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY;
+    uint32_t mask = XCB_EVENT_MASK_PROPERTY_CHANGE;
     xcb_change_window_attributes(comp.conn, id, XCB_CW_EVENT_MASK, &mask);
 
     /* ShapeNotify, so the cached bounding region can be dropped when the

@@ -25,6 +25,14 @@ void damage_window_reported(CompWindow *w)
     w->damage_pending = true;
 }
 
+/* Is `inner` entirely within `outer`? */
+static bool rect_inside(const CompRect *inner, const CompRect *outer)
+{
+    return inner->x >= outer->x && inner->y >= outer->y &&
+           inner->x + inner->w <= outer->x + outer->w &&
+           inner->y + inner->h <= outer->y + outer->h;
+}
+
 void damage_collect(void)
 {
     if (!comp.caps.damage || !comp.caps.xfixes)
@@ -119,6 +127,16 @@ void damage_collect(void)
                 rects[j].width,
                 rects[j].height,
             };
+            /* A piece of a window that something opaque is drawn over:
+             * repainting it would compose the same pixels again
+             * (comp.h's cover). This is what a video behind a text
+             * editor costs, and it should be nothing. */
+            bool unseen = false;
+            for (int c = 0; c < w->cover_count && !unseen; c++)
+                unseen = rect_inside(&d, &w->cover[c]);
+            if (unseen)
+                continue;
+
             output_damage_rect(&d);
         }
 

@@ -55,6 +55,11 @@ typedef struct CompTransform {
     float m[4][4];
 } CompTransform;
 
+/* How many covering rectangles a window remembers. Small on purpose: the
+ * case worth catching is one opaque window over another, and each one is
+ * another containment test per damaged rectangle. */
+#define MAX_COVERS 4
+
 typedef struct CompCaps {
     bool composite;      /* Composite extension present */
     bool overlay;        /* Composite >= 0.3, i.e. the overlay window exists */
@@ -375,6 +380,7 @@ typedef struct CompWindow {
      * rectangle, so nothing that shows through them is ever culled. */
     CompRect opaque;
     bool opaque_known;
+    uint8_t client_depth;      /* 0 = not asked yet; fixed for its life */
 
     /* Nothing of this window reached the screen last time it was
      * considered: something opaque covers all of it, on the one output
@@ -386,6 +392,23 @@ typedef struct CompWindow {
      * video playing behind a maximized window should cost a compositor
      * nothing, and this is the flag that makes it cost nothing. */
     bool occluded;
+
+    /* And the finer answer: the opaque rectangles that sit *above* this
+     * window, from the last scene it was in.
+     *
+     * All-or-nothing occlusion is not enough on a real desktop. Two
+     * maximized windows are the case: the one on top cannot cover the
+     * one below completely, because its titlebar is translucent and what
+     * is behind it genuinely shows through -- so the window below is
+     * drawn, correctly, and everything it does costs full price,
+     * including a video repainting a thousand times a minute behind an
+     * opaque text editor.
+     *
+     * What is covered is the *client area*, and that is where the video
+     * is. So damage is answered per rectangle: a damaged piece that
+     * falls inside one of these is a piece nobody can see. */
+    CompRect cover[MAX_COVERS];
+    int cover_count;
 
     /* And the same again for the *frame*, which is a client of the
      * protocol too: the decoration's pixels are the WM's, drawn at
