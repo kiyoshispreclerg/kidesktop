@@ -799,6 +799,15 @@ static void ex_toggle(void *data)
         if (!w->mapped && !w->stowed)
             continue;
 
+        /* A minimized window is not on its desktop, and a cell is that
+         * desktop as it would look. Its picture is kept (comp.h's
+         * keep_stowed) because the minimize animation needs something to
+         * shrink away, and for the effects that are *about* what is put
+         * away -- but drawing it back onto the desktop it was taken off
+         * shows a desktop nobody has. */
+        if (w->state & COMP_STATE_MINIMIZED)
+            continue;
+
         /* Scenery is in regardless of the type mask: the mask says which
          * windows the user is choosing between, and nobody is choosing
          * the wallpaper. */
