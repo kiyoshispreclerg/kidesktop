@@ -25,6 +25,7 @@ static const CompEffectModule *const modules[] = {
     &effect_show_windows,
     &effect_expo,
     &effect_visual_bell,
+    &effect_zoom,
 };
 
 #define MODULE_COUNT ((int)(sizeof(modules) / sizeof(modules[0])))

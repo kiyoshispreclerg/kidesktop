@@ -221,6 +221,14 @@ arrange   = stack             # stack | grid: windows where they are on
                               # their desktop, or tidied into a little
                               # grid inside each cell
 
+[effect:zoom]
+enabled  = 1
+zoom_in  = Meta+WheelUp       # any key or button, and a list of them
+zoom_out = Meta+WheelDown
+step     = 0.25               # each notch magnifies by this much
+max      = 8.0                # how far in it goes
+duration = 0.6
+
 [effect:visual-bell]
 enabled  = 1
 duration = 0.9
@@ -944,6 +952,39 @@ minimize animation would have nothing to shrink.
 The same store is what a cover-switch or flip alt-tab will draw from, and
 what `show-windows` needs before it can put minimized windows in its
 grid.
+
+### `zoom`
+
+One screen magnified, under `Meta` and the wheel. Not a mode: nothing is
+grabbed, no key is held, and the desktop underneath keeps working exactly
+as it did — windows take focus, menus open, text is typed. The screen is
+simply being looked at through a lens, and the lens stays until it is
+wound back out.
+
+| key | what it does |
+|---|---|
+| `zoom_in`, `zoom_out` | the bindings (default `Meta+WheelUp` / `Meta+WheelDown`). Each takes a list, and either may name a key instead — `input.h`'s grammar, where the last token can be `WheelUp`, `Button8`, `KP_Add`… |
+| `step` | how much one notch magnifies (default 0.25) |
+| `max` | how far in it will go (default 8.0) |
+| `duration`, `easing` | short by default: a notch should land before the next one arrives, or the screen swims |
+
+**Per output, and contained in it.** The lens never shows anything beyond
+that monitor's own rectangle, and the other monitors are not touched at
+all — a window straddling two of them is magnified on this one and left
+alone on the other, which is what "contained in one screen" has to mean
+when the thing being magnified is a screen rather than a window.
+
+**The wallpaper is magnified with everything else**, which is what the
+output's lens (`comp.h`) exists for: the background is painted before the
+scene exists, so it cannot be done by transforming nodes.
+
+What is animated is the **view rectangle** — the part of the output that
+fills it — rather than a magnification and a centre. Same thing said
+differently, and in this form "stay inside the screen" is one clamp
+rather than three: the rectangle is kept within the output's own, so the
+edge of the desktop can never be pulled into the middle of the screen.
+The point under the pointer is the one that does not move, which is what
+makes wheel zoom feel like it is pointing at something.
 
 ### `visual-bell`
 

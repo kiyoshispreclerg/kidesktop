@@ -264,5 +264,6 @@ extern const CompEffectModule effect_dodge;
 extern const CompEffectModule effect_show_windows;
 extern const CompEffectModule effect_expo;
 extern const CompEffectModule effect_visual_bell;
+extern const CompEffectModule effect_zoom;
 
 #endif /* KICOMP_EFFECT_H */
