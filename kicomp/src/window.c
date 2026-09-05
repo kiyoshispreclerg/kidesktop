@@ -34,6 +34,33 @@
 static bool left_with_a_desktop(CompWindow *w)
 {
     CompRect r = window_rect(w);
+
+    /* A window that says which desktop it is on answers this by itself,
+     * and answers it whenever it is asked: it went away while its output
+     * was showing a different desktop, so it went away *with* a desktop.
+     * The clock below only ever approximated that -- it is right for the
+     * ordinary case, where the window disappears in the same breath as
+     * the switch, and wrong for a window the WM puts away at any other
+     * moment (kiwm/PROTOCOL.md's prime, which maps a hidden wallpaper
+     * just long enough to be photographed and then hides it again). */
+    int desk = -1, out_index = -1;
+    if (desktop_of_window(w, &desk, &out_index) && desk >= 0) {
+        for (int i = 0; i < comp.output_count; i++) {
+            CompOutput *o = &comp.outputs[i];
+            CompRect hit;
+            if (out_index >= 0) {
+                if (desktop_output_index(o) != out_index)
+                    continue;
+            } else if (!rect_intersect(&r, &o->rect, &hit)) {
+                continue;
+            }
+
+            int current = desktop_current_for_output(o);
+            if (current >= 0 && current != desk)
+                return true;
+        }
+    }
+
     int dx, dy;
     if (desktop_switch_for_rect(&r, &dx, &dy))
         return true;
@@ -1180,6 +1207,17 @@ void window_remove(xcb_window_t id)
         w->pending_disappear = true;
         comp_log("window 0x%x destroyed, kept until the effects are done", w->id);
         return;
+    }
+
+    /* A window that is merely *stowed* is being kept for a desktop it
+     * might come back to, and it is not coming back: the picture is of
+     * something that no longer exists. Letting the stow's own retain go
+     * here is what keeps a window closed while another desktop was
+     * showing from leaving its pixmap behind for the rest of the
+     * session. */
+    if (w->stowed) {
+        w->stowed = false;
+        window_release(w);
     }
 
     if (w->retain_count > 0) {
