@@ -965,6 +965,7 @@ wound back out.
 |---|---|
 | `zoom_in`, `zoom_out` | the bindings (default `Meta+WheelUp` / `Meta+WheelDown`). Each takes a list, and either may name a key instead — `input.h`'s grammar, where the last token can be `WheelUp`, `Button8`, `KP_Add`… |
 | `step` | how much one notch magnifies (default 0.25) |
+| `follow` | `pointer` (default), `proportional`, `centred` or `off` — how the lens tracks the pointer |
 | `max` | how far in it will go (default 8.0) |
 | `duration`, `easing` | short by default: a notch should land before the next one arrives, or the screen swims |
 
@@ -974,9 +975,21 @@ all — a window straddling two of them is magnified on this one and left
 alone on the other, which is what "contained in one screen" has to mean
 when the thing being magnified is a screen rather than a window.
 
-**The wallpaper is magnified with everything else**, which is what the
-output's lens (`comp.h`) exists for: the background is painted before the
-scene exists, so it cannot be done by transforming nodes.
+**The lens belongs to the output, not to the windows.** Both backends
+apply it where they already turn a root coordinate into a pixel — XRender
+in `to_target_*`, GL in the projection and the scissor — so a magnified
+window keeps its shadow, its rounded corners, its dense layers and its
+wallpaper, because every one of those is drawn through that same mapping.
+Composing the lens into each node's transform instead looks equivalent
+and is not: a node carrying a scale is one whose silhouette neither
+backend can clip to and whose shadow XRender skips, so that version came
+out with square corners and no shadows at all.
+
+The shadow is **resampled** rather than rebuilt: the blur tiles stay at
+their own radius and are stretched by the lens, with the bilinear filter
+the rest of the magnification uses. A magnified blur is what a magnified
+screen should show — and the tile cache is keyed by radius, so rebuilding
+would regenerate the whole gradient on every frame of a moving lens.
 
 What is animated is the **view rectangle** — the part of the output that
 fills it — rather than a magnification and a centre. Same thing said
@@ -985,6 +998,17 @@ rather than three: the rectangle is kept within the output's own, so the
 edge of the desktop can never be pulled into the middle of the screen.
 The point under the pointer is the one that does not move, which is what
 makes wheel zoom feel like it is pointing at something.
+
+**`follow = pointer` is the default for a reason that is not taste.** X
+does not magnify input — the fork's own X-INPUT-SCALE confines the
+pointer to a rectangle and deliberately does no coordinate remapping — so
+a click lands where the pointer really is, not where the picture puts it.
+Anchoring the lens on the pointer solves `lens(p) = p`: whatever is under
+the cursor stays under the cursor, so what you can see is what you would
+hit. Measured: the pixel under the pointer is identical with the lens on
+and off, and a window can be dragged by the titlebar you can see. Under
+any other anchoring the desktop becomes a picture of itself, correct to
+look at and impossible to aim at.
 
 ### `visual-bell`
 

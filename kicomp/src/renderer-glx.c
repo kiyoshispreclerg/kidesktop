@@ -826,6 +826,18 @@ static void glx_window_free(CompWindow *w)
  * the output's origin folded into one matrix, so the rest of the drawing
  * works in the same coordinates everything above the renderer uses.
  * Column-major, as GL wants it. */
+/* The output's lens (comp.h's view) as a magnification and an origin.
+ * Always a scale about a point, which is all a zoom asks for. */
+static float lens_of(const CompOutput *o, float *ox, float *oy)
+{
+    float k = o->view.m[0][0];
+    if (k <= 0.0f)
+        k = 1.0f;
+    *ox = o->view.m[0][3];
+    *oy = o->view.m[1][3];
+    return k;
+}
+
 static void projection_for(const CompOutput *o, float m[16])
 {
     float w = (float)o->rect.w;
@@ -833,12 +845,19 @@ static void projection_for(const CompOutput *o, float m[16])
     if (w <= 0.0f) w = 1.0f;
     if (h <= 0.0f) h = 1.0f;
 
+    /* The lens folds in here, once, and everything drawn through this
+     * projection follows it: the windows, their shadows, the mesh and
+     * the slices. A vertex arrives in root coordinates and is magnified
+     * on its way to the screen, which is what a lens is. */
+    float ox, oy;
+    float k = lens_of(o, &ox, &oy);
+
     memset(m, 0, sizeof(float) * 16);
-    m[0] = 2.0f / w;
-    m[5] = -2.0f / h;          /* y grows downwards in X, upwards in GL */
+    m[0] = 2.0f * k / w;
+    m[5] = -2.0f * k / h;      /* y grows downwards in X, upwards in GL */
     m[10] = 1.0f;
-    m[12] = -1.0f - 2.0f * (float)o->rect.x / w;
-    m[13] = 1.0f + 2.0f * (float)o->rect.y / h;
+    m[12] = -1.0f + 2.0f * (ox - (float)o->rect.x) / w;
+    m[13] = 1.0f - 2.0f * (oy - (float)o->rect.y) / h;
     m[15] = 1.0f;
 }
 
@@ -948,10 +967,20 @@ static void scissor_for(const CompOutput *o, int x, int y, int w, int h)
 {
     float scale = o->scale > 0.0f ? o->scale : 1.0f;
 
-    int px = (int)((float)(x - o->rect.x) * scale);
-    int py = (int)((float)(y - o->rect.y) * scale);
-    int pw = (int)((float)w * scale + 0.5f);
-    int ph = (int)((float)h * scale + 0.5f);
+    /* Through the lens as well: a scissor box is where something is on
+     * screen, and under a lens that is not where it is in root
+     * coordinates -- which is exactly what clipped a magnified window's
+     * rounded corners to the place the window would have been. */
+    float ox, oy;
+    float k = lens_of(o, &ox, &oy);
+
+    float lx = (float)x * k + ox;
+    float ly = (float)y * k + oy;
+
+    int px = (int)((lx - (float)o->rect.x) * scale);
+    int py = (int)((ly - (float)o->rect.y) * scale);
+    int pw = (int)((float)w * k * scale + 0.5f);
+    int ph = (int)((float)h * k * scale + 0.5f);
 
     glScissor(px, o->physical.h - (py + ph), pw, ph);
 }

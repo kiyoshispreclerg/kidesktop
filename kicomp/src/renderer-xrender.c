@@ -375,20 +375,70 @@ static xcb_render_picture_t density_picture(CompWindow *w, bool decoration)
  * that knows an output can be scaled -- at scale 1 they are a subtraction
  * and an identity, which is exactly what the code did before scaling
  * existed. */
+/* The output's lens as a plain magnification and origin (comp.h's view).
+ * It is always a scale about a point -- that is all zoom asks for -- so
+ * reading it back as one is exact rather than an approximation, and it
+ * lets the whole backend keep speaking in "root coordinates to target
+ * pixels" instead of growing a second, parallel notion of where things
+ * are.
+ *
+ * Which is the point: fold the lens in *here*, and shadows, shape clips,
+ * the density layers and the damage rectangles all follow it without
+ * knowing it exists, because every one of them is written in terms of
+ * these three functions. */
+static float lens_of(const CompOutput *o, float *ox, float *oy)
+{
+    float k = o->view.m[0][0];
+    if (k <= 0.0f)
+        k = 1.0f;
+    *ox = o->view.m[0][3];
+    *oy = o->view.m[1][3];
+    return k;
+}
+
 static int to_target_x(const CompOutput *o, int x)
 {
-    return (int)((float)(x - o->rect.x) * o->scale + 0.5f);
+    float ox, oy;
+    float k = lens_of(o, &ox, &oy);
+    float lensed = (float)x * k + ox;
+    return (int)((lensed - (float)o->rect.x) * o->scale + 0.5f);
 }
 
 static int to_target_y(const CompOutput *o, int y)
 {
-    return (int)((float)(y - o->rect.y) * o->scale + 0.5f);
+    float ox, oy;
+    float k = lens_of(o, &ox, &oy);
+    float lensed = (float)y * k + oy;
+    return (int)((lensed - (float)o->rect.y) * o->scale + 0.5f);
 }
 
 static int to_target_len(const CompOutput *o, int v)
 {
-    int r = (int)((float)v * o->scale + 0.5f);
+    float ox, oy;
+    float k = lens_of(o, &ox, &oy);
+    int r = (int)((float)v * k * o->scale + 0.5f);
     return r > 0 ? r : (v > 0 ? 1 : 0);
+}
+
+/* Target pixels back to logical root coordinates: undo the physical
+ * scale, put the output's origin back, then undo the lens. Built here
+ * because three different draws need exactly this chain -- the windows,
+ * the dense layers and the wallpaper -- and a lens missing from any one
+ * of them is that piece drawn at the wrong magnification. */
+static void target_to_root(const CompOutput *o, CompTransform *m)
+{
+    float ox, oy;
+    float k = lens_of(o, &ox, &oy);
+
+    comp_transform_identity(m);
+    if (o->scale != 1.0f)
+        comp_transform_scale(m, 1.0f / o->scale, 1.0f / o->scale);
+    comp_transform_translate(m, (float)o->rect.x, (float)o->rect.y);
+
+    if (k != 1.0f || ox != 0.0f || oy != 0.0f) {
+        comp_transform_translate(m, -ox, -oy);
+        comp_transform_scale(m, 1.0f / k, 1.0f / k);
+    }
 }
 
 /* A rectangle in logical root coordinates, as target pixels. */
@@ -827,19 +877,48 @@ static xcb_render_picture_t shadow_color(const CompShadowStyle *st)
 /* One masked rectangle of shadow. `mask_x/y` say which part of the mask
  * to start from -- which matters when a piece is drawn narrower than its
  * tile, as the corners are on a window smaller than twice the blur. */
+/* Declared here because the shadow needs them and they are defined with
+ * the drawing code further down. */
+static void picture_transform_set(xcb_render_picture_t pict, const CompTransform *m);
+static void picture_transform_reset(xcb_render_picture_t pict);
+
 static void shadow_piece(CompOutput *o, xcb_render_picture_t color,
                          xcb_render_picture_t mask, int mask_x, int mask_y,
-                         int x, int y, int w, int h)
+                         int x, int y, int w, int h, float mag)
 {
     if (w <= 0 || h <= 0 || !mask)
         return;
+
     /* x/y/w/h arrive in target pixels already: draw_shadow does the
      * logical-to-physical conversion once, up front, because the tiles it
-     * picks depend on the *physical* blur radius. */
+     * picks depend on the *physical* blur radius.
+     *
+     * `mag` is the lens, and the tile is *resampled* through it rather
+     * than rebuilt at a magnified radius. A zoom magnifies the picture
+     * of the desktop, and a shadow is part of that picture: stretching
+     * the blur is what the screen would look like held closer, and it
+     * costs one transform instead of regenerating the whole gradient
+     * every time the magnification changes -- which, while a lens is
+     * moving, is every frame. */
+    if (mag != 1.0f) {
+        CompTransform t;
+        comp_transform_identity(&t);
+        comp_transform_scale(&t, 1.0f / mag, 1.0f / mag);
+        picture_transform_set(mask, &t);
+
+        /* The offsets are added before the transform, so they are in the
+         * magnified space too. */
+        mask_x = (int)((float)mask_x * mag + 0.5f);
+        mask_y = (int)((float)mask_y * mag + 0.5f);
+    }
+
     xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER, color, mask, o->target,
                          0, 0, (int16_t)mask_x, (int16_t)mask_y,
                          (int16_t)x, (int16_t)y,
                          (uint16_t)w, (uint16_t)h);
+
+    if (mag != 1.0f)
+        picture_transform_reset(mask);
 }
 
 /* Clips the target to a region intersected with this frame's damage --
@@ -916,10 +995,25 @@ static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom,
      * output is 28 real pixels of gradient, not a 14 px gradient stretched
      * to 28. The tile cache is keyed by radius, so a scaled output simply
      * builds its own set once. */
+    float lox, loy;
+    float lens = lens_of(o, &lox, &loy);
+
+    /* The tiles are built for the *unlensed* radius and stretched by the
+     * lens when they are drawn (shadow_piece). Two reasons, and the
+     * second is the important one: a magnified blur is what a magnified
+     * screen should show, and the tile cache is keyed by radius -- so a
+     * lens that moves would otherwise ask for a different radius every
+     * frame and rebuild the entire gradient at each one. */
     int r = (o->scale != 1.0f) ? (int)((float)st.radius * o->scale + 0.5f)
                                : st.radius;
     if (r < 1)
         r = 1;
+
+    /* What the blur measures on screen once the lens has been through
+     * it. Everything below is laid out in these. */
+    int rd = (int)((float)r * lens + 0.5f);
+    if (rd < 1)
+        rd = 1;
 
     ShadowTiles *t = shadow_tiles_for(r);
     if (!t)
@@ -934,16 +1028,16 @@ static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom,
     if (!rect_intersect(geom, &o->rect, &visible))
         visible = *geom;   /* off this output: the clip below drops it */
 
-    int off_x = (int)((float)st.offset_x * o->scale + 0.5f);
-    int off_y = (int)((float)st.offset_y * o->scale + 0.5f);
+    int off_x = (int)((float)st.offset_x * o->scale * lens + 0.5f);
+    int off_y = (int)((float)st.offset_y * o->scale * lens + 0.5f);
 
     /* The shadow's own rectangle: the window's, offset, grown by the
      * blur on every side. */
     CompRect s = {
-        to_target_x(o, base.x) + off_x - r,
-        to_target_y(o, base.y) + off_y - r,
-        to_target_len(o, base.w) + r * 2,
-        to_target_len(o, base.h) + r * 2,
+        to_target_x(o, base.x) + off_x - rd,
+        to_target_y(o, base.y) + off_y - rd,
+        to_target_len(o, base.w) + rd * 2,
+        to_target_len(o, base.h) + rd * 2,
     };
 
     if (comp.caps.xfixes) {
@@ -968,7 +1062,7 @@ static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom,
          * in window coordinates, so it only has to be moved into the
          * target's. */
         xcb_xfixes_region_t scaled_shape = XCB_NONE;
-        if (shape && o->scale != 1.0f) {
+        if (shape && (o->scale != 1.0f || lens != 1.0f)) {
             /* Same reason as in clip_to_frame: the cached region is in
              * logical window coordinates and XFixes cannot scale it. */
             scaled_shape = region_scaled(o, shape, win->x, win->y);
@@ -1002,7 +1096,8 @@ static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom,
             xcb_xfixes_destroy_region(comp.conn, scaled_shape);
     }
 
-    int n = r * 2;
+    int n = r * 2;          /* the fade, in tile pixels */
+    int nd = rd * 2;        /* the same fade, on screen */
 
     /* Corner size, halved when the shadow is narrower or shorter than two
      * corners: without this the pieces overlap in the middle and the
@@ -1010,32 +1105,43 @@ static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom,
      * window smaller than twice the blur radius -- a tooltip, a menu.
      * A clipped corner is drawn from the matching part of its tile, hence
      * the mask offsets. */
-    int cw = n, ch = n;
+    int cw = nd, ch = nd;
     if (cw * 2 > s.w) cw = s.w / 2;
     if (ch * 2 > s.h) ch = s.h / 2;
 
     int inner_w = s.w - cw * 2;
     int inner_h = s.h - ch * 2;
 
+    /* The same two measurements in *tile* pixels, because that is the
+     * space the mask offsets are in: shadow_piece magnifies them by the
+     * lens on its way to the server. Without this the offsets would be
+     * screen distances applied to a tile that was never that big, which
+     * is a corner sampled from past the end of its own gradient -- a
+     * flat dark band instead of a fade. */
+    int cwt = (int)((float)cw / lens + 0.5f);
+    int cht = (int)((float)ch / lens + 0.5f);
+    if (cwt > n) cwt = n;
+    if (cht > n) cht = n;
+
     /* Four corners, four edges, one middle -- the whole shadow, at any
      * window size, from tiles that only ever depended on the radius. */
     shadow_piece(o, color, t->corner[0], 0, 0,
-                 s.x, s.y, cw, ch);
-    shadow_piece(o, color, t->corner[1], n - cw, 0,
-                 s.x + s.w - cw, s.y, cw, ch);
-    shadow_piece(o, color, t->corner[2], 0, n - ch,
-                 s.x, s.y + s.h - ch, cw, ch);
-    shadow_piece(o, color, t->corner[3], n - cw, n - ch,
-                 s.x + s.w - cw, s.y + s.h - ch, cw, ch);
+                 s.x, s.y, cw, ch, lens);
+    shadow_piece(o, color, t->corner[1], n - cwt, 0,
+                 s.x + s.w - cw, s.y, cw, ch, lens);
+    shadow_piece(o, color, t->corner[2], 0, n - cht,
+                 s.x, s.y + s.h - ch, cw, ch, lens);
+    shadow_piece(o, color, t->corner[3], n - cwt, n - cht,
+                 s.x + s.w - cw, s.y + s.h - ch, cw, ch, lens);
 
     shadow_piece(o, color, t->edge[0], 0, 0,
-                 s.x + cw, s.y, inner_w, ch);
-    shadow_piece(o, color, t->edge[1], 0, n - ch,
-                 s.x + cw, s.y + s.h - ch, inner_w, ch);
+                 s.x + cw, s.y, inner_w, ch, lens);
+    shadow_piece(o, color, t->edge[1], 0, n - cht,
+                 s.x + cw, s.y + s.h - ch, inner_w, ch, lens);
     shadow_piece(o, color, t->edge[2], 0, 0,
-                 s.x, s.y + ch, cw, inner_h);
-    shadow_piece(o, color, t->edge[3], n - cw, 0,
-                 s.x + s.w - cw, s.y + ch, cw, inner_h);
+                 s.x, s.y + ch, cw, inner_h, lens);
+    shadow_piece(o, color, t->edge[3], n - cwt, 0,
+                 s.x + s.w - cw, s.y + ch, cw, inner_h, lens);
 
     if (inner_w > 0 && inner_h > 0)
         xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER, color, XCB_NONE,
@@ -1144,8 +1250,11 @@ static void clip_to_frame(CompOutput *o, xcb_xfixes_region_t extra,
      * cannot scale a region, so it is rebuilt at the right size, and only
      * here: at scale 1 (every output today, and most of them always) not
      * a single extra request is sent. */
+    float lox, loy;
+    bool lensed = lens_of(o, &lox, &loy) != 1.0f || lox != 0.0f || loy != 0.0f;
+
     xcb_xfixes_region_t owned = XCB_NONE;
-    if (o->scale != 1.0f) {
+    if (o->scale != 1.0f || lensed) {
         owned = region_scaled(o, extra, ox + o->rect.x, oy + o->rect.y);
         if (owned == XCB_NONE) {
             /* Nothing to clip with: better a square corner for one frame
@@ -1199,24 +1308,12 @@ static void xr_begin(CompOutput *o, const CompRegion *damage)
         bool lensed = !comp_transform_is_identity(&o->view);
 
         if (o->scale != 1.0f || lensed) {
+            /* The wallpaper is part of what is being magnified: a zoom
+             * that leaves the desktop behind the windows at its own size
+             * is a zoom of the windows only. Same chain as everything
+             * else, because it is the same question. */
             CompTransform m;
-            comp_transform_identity(&m);
-            if (o->scale != 1.0f)
-                comp_transform_scale(&m, 1.0f / o->scale, 1.0f / o->scale);
-            comp_transform_translate(&m, (float)o->rect.x, (float)o->rect.y);
-
-            /* And back through the lens, if this output is being looked
-             * at through one (comp.h's view): the wallpaper is part of
-             * what is being magnified, and a zoom that leaves it at its
-             * own size is a zoom of the windows only. Inverted because
-             * XRender samples backwards -- this matrix takes target
-             * pixels to the root coordinates they came from. */
-            if (lensed) {
-                CompTransform inv;
-                if (comp_transform_invert_affine(&o->view, &inv))
-                    comp_transform_multiply(&m, &inv, &m);
-            }
-
+            target_to_root(o, &m);
             picture_transform_set(bg, &m);
 
             xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_SRC, bg, XCB_NONE,
@@ -1302,10 +1399,7 @@ static void draw_dense(CompOutput *o, const CompSceneNode *n, CompWindow *w,
      * output scale the whole chain is the identity and the pixels go
      * across one for one, which is the entire point of it. */
     CompTransform m;
-    comp_transform_identity(&m);
-    if (o->scale != 1.0f)
-        comp_transform_scale(&m, 1.0f / o->scale, 1.0f / o->scale);
-    comp_transform_translate(&m, (float)o->rect.x, (float)o->rect.y);
+    target_to_root(o, &m);
     comp_transform_translate(&m, (float)-area->x, (float)-area->y);
     comp_transform_scale(&m, density, density);
     picture_transform_set(dense, &m);
@@ -1490,22 +1584,21 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
          * the source picture, so it is built in the direction the sampling
          * goes: target pixels -> logical root -> (the effect's inverse) ->
          * the window's own pixmap. */
-        bool needs_matrix = transformed || o->scale != 1.0f;
+        /* A lens counts too: the destination rectangle is magnified by
+         * to_target_*, and without a matrix to sample through, XRender
+         * would simply read that many more source pixels -- a window
+         * cropped rather than a window enlarged. */
+        float nlox, nloy;
+        bool node_lensed = lens_of(o, &nlox, &nloy) != 1.0f ||
+                           nlox != 0.0f || nloy != 0.0f;
+        bool needs_matrix = transformed || o->scale != 1.0f || node_lensed;
 
         if (needs_matrix) {
+            /* Target pixels -> logical root: the physical scale, the
+             * output's origin and the lens, all of which this output
+             * puts between a root coordinate and a pixel. */
             CompTransform m;
-            comp_transform_identity(&m);
-
-            /* Target pixels -> logical root, which is two steps and only
-             * the first of them depends on the scale: divide by it, then
-             * add the output's origin back. The translate is *not* part
-             * of the scaling -- an output at +1920+180 needs it whether
-             * or not it is scaled, and leaving it out is a window
-             * sampled 1920 pixels away from itself, i.e. nothing at all
-             * on every monitor except the one at 0,0. */
-            if (o->scale != 1.0f)
-                comp_transform_scale(&m, 1.0f / o->scale, 1.0f / o->scale);
-            comp_transform_translate(&m, (float)o->rect.x, (float)o->rect.y);
+            target_to_root(o, &m);
 
             if (transformed) {
                 /* Applied *after* the target-to-root part: out = a * b

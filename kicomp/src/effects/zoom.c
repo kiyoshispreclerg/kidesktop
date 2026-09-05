@@ -30,6 +30,11 @@
  *   zoom_out = Meta+WheelDown
  *   step     = 0.25             # each notch magnifies by this much
  *   max      = 8.0              # how far in it will go
+ *   follow   = pointer          # pointer | proportional | centred | off
+ *                               # how the lens tracks the pointer; the
+ *                               # default keeps what is under the cursor
+ *                               # under the cursor, which is what makes
+ *                               # windows still clickable while zoomed
  *   duration = 0.6              # multiples of animation_duration
  */
 #include "../effect.h"
@@ -54,13 +59,42 @@ typedef struct {
     double leg_start;
     double leg_ms;
     bool closing;        /* on its way back to no zoom at all */
+
+    /* Where the pointer was when the lens was last moved for it, and
+     * when it was last asked. Asked rather than listened for: motion
+     * events go to whatever window the pointer is over, and a compositor
+     * that selected them on the root would hear nothing at all while the
+     * pointer is over an application. One round trip per poll, and only
+     * while a lens is up. */
+    int last_px, last_py;
+    double last_poll;
 } ZoomData;
+
+typedef enum {
+    /* The lens is anchored *on the pointer*: whatever is under the
+     * cursor stays under the cursor, magnified in place.
+     *
+     * This is the default, and the reason is not aesthetics. X does not
+     * magnify input -- the fork's own X-INPUT-SCALE confines the pointer
+     * to a rectangle and deliberately does no coordinate remapping -- so
+     * a click lands where the pointer really is, not where the picture
+     * puts it. Under any other anchoring, the window you can see under
+     * the cursor is not the window you would hit: the desktop becomes a
+     * picture of itself. Anchored here, the two agree everywhere except
+     * where the view runs into the edge of the screen and has to stop. */
+    FOLLOW_POINTER,
+    FOLLOW_PROPORTIONAL,  /* where the pointer is across the screen is
+                           * where the lens is across the desktop */
+    FOLLOW_CENTRED,       /* the pointer's target is kept in the middle */
+    FOLLOW_OFF,           /* the lens stays where the wheel left it */
+} ZoomFollow;
 
 typedef struct {
     char in_key[64];
     char out_key[64];
     float step;
     float max;
+    ZoomFollow follow;
 } ZoomConfig;
 
 static const CompEffectOps zoom_ops;
@@ -146,9 +180,85 @@ static float leg_progress(const ZoomData *d, const CompEffect *e, double now)
     return effect_ease(e, comp_progress(now, d->leg_start, d->leg_ms));
 }
 
+/* How often the pointer is asked about while zoomed. Fast enough that
+ * panning does not feel sampled, slow enough that it is not a round trip
+ * per pass of a loop that runs whenever anything at all happens. */
+#define FOLLOW_POLL_MS 12.0
+
+/* The lens follows the pointer. Proportional by default: where the
+ * pointer sits across the screen is where the lens sits across the
+ * desktop, so pushing into a corner shows that corner and the whole
+ * desktop is reachable without the view ever leaving the screen. The
+ * alternative people expect is centred, which keeps the pointer in the
+ * middle and moves the world under it. */
+static void follow_pointer(CompEffect *e, ZoomData *d, double now)
+{
+    const ZoomConfig *cfg = e->instance->config;
+
+    if (cfg->follow == FOLLOW_OFF || d->closing)
+        return;
+    if (now - d->last_poll < FOLLOW_POLL_MS)
+        return;
+    d->last_poll = now;
+
+    int px = 0, py = 0;
+    if (!input_pointer_position(&px, &py))
+        return;
+    if (px == d->last_px && py == d->last_py)
+        return;
+    d->last_px = px;
+    d->last_py = py;
+
+    CompOutput *o = output_by_id(d->output_id);
+    if (!o)
+        return;
+    /* The pointer left this screen: the lens belongs to this one, so it
+     * simply stays where it was. */
+    if (px < o->rect.x || px >= o->rect.x + o->rect.w ||
+        py < o->rect.y || py >= o->rect.y + o->rect.h)
+        return;
+
+    CompRect view = d->to;
+    if (view.w >= o->rect.w && view.h >= o->rect.h)
+        return;                       /* not magnified: nothing to pan */
+
+    if (cfg->follow == FOLLOW_POINTER) {
+        /* Solve lens(p) = p: the pointer's own position is the one the
+         * lens leaves alone, so the pixels under it are the pixels that
+         * would be clicked. */
+        float k = (float)o->rect.w / (float)(view.w > 0 ? view.w : 1);
+        view.x = px - (int)(((float)(px - o->rect.x)) / k + 0.5f);
+        view.y = py - (int)(((float)(py - o->rect.y)) / k + 0.5f);
+    } else if (cfg->follow == FOLLOW_CENTRED) {
+        view.x = px - view.w / 2;
+        view.y = py - view.h / 2;
+    } else {
+        float fx = (float)(px - o->rect.x) / (float)(o->rect.w > 1 ? o->rect.w - 1 : 1);
+        float fy = (float)(py - o->rect.y) / (float)(o->rect.h > 1 ? o->rect.h - 1 : 1);
+        view.x = o->rect.x + (int)(fx * (float)(o->rect.w - view.w) + 0.5f);
+        view.y = o->rect.y + (int)(fy * (float)(o->rect.h - view.h) + 0.5f);
+    }
+
+    view = clamp_view(&view, &o->rect);
+    if (view.x == d->to.x && view.y == d->to.y)
+        return;
+
+    /* A short leg rather than a jump: the same easing the wheel gets,
+     * but brief, so panning is smooth without feeling like it is being
+     * dragged along behind the hand. */
+    d->from = d->current;
+    d->to = view;
+    d->leg_start = now;
+    d->leg_ms = effect_instance_duration(e->instance) * 0.35;
+    if (d->leg_ms < 1.0)
+        d->leg_ms = 1.0;
+}
+
 static void zoom_update(CompEffect *e, double now)
 {
     ZoomData *d = e->data;
+
+    follow_pointer(e, d, now);
 
     float p = leg_progress(d, e, now);
     CompRect was = d->current;
@@ -180,24 +290,18 @@ static void zoom_apply(CompEffect *e, CompScene *s, CompOutput *o)
      * the scene exists -- hence the output carrying it (comp.h). */
     o->view = lens;
 
-    for (int i = 0; i < s->count; i++) {
-        CompSceneNode *n = &s->nodes[i];
-
-        /* Composed rather than assigned: another effect may already be
-         * moving this window, and being magnified does not stop it. */
-        comp_transform_multiply(&n->transform, &lens, &n->transform);
-
-        /* What of it is on this screen, after the lens. Everything is
-         * clipped to the output because the zoom is contained in it --
-         * a window magnified past the edge does not appear on the
-         * neighbour. */
-        CompRect at = comp_transform_rect(&n->transform, &n->geometry);
-        CompRect vis;
-        if (rect_intersect(&at, &o->rect, &vis))
-            n->visible_rect = vis;
-        else
-            n->visible_rect = (CompRect){ 0, 0, 0, 0 };
-    }
+    /* And that is the whole of it: the nodes are not touched.
+     *
+     * The lens belongs to the *output*, so both backends apply it where
+     * they already turn root coordinates into pixels -- which means a
+     * magnified window keeps its shadow, its rounded corners and its
+     * dense layers, because every one of those is drawn through the same
+     * mapping. Composing the lens into each node's transform instead
+     * looked equivalent and was not: a node carrying a scale is a node
+     * whose silhouette neither backend can clip to and whose shadow
+     * XRender skips, so a zoomed desktop came out with square corners
+     * and no shadows at all. */
+    (void)s;
 }
 
 static bool zoom_finished(const CompEffect *e, double now)
@@ -352,6 +456,7 @@ static void zoom_defaults(void *config)
     snprintf(c->out_key, sizeof(c->out_key), "%s", "Meta+WheelDown");
     c->step = 0.25f;
     c->max = 8.0f;
+    c->follow = FOLLOW_POINTER;
 }
 
 static bool zoom_config_key(void *config, const char *key, const char *value)
@@ -370,6 +475,19 @@ static bool zoom_config_key(void *config, const char *key, const char *value)
         c->step = (float)atof(value);
         if (c->step < 0.02f) c->step = 0.02f;
         if (c->step > 4.0f) c->step = 4.0f;
+        return true;
+    }
+    if (!strcmp(key, "follow")) {
+        if (!strcmp(value, "pointer"))
+            c->follow = FOLLOW_POINTER;
+        else if (!strcmp(value, "proportional"))
+            c->follow = FOLLOW_PROPORTIONAL;
+        else if (!strcmp(value, "centred") || !strcmp(value, "centered"))
+            c->follow = FOLLOW_CENTRED;
+        else if (!strcmp(value, "off") || !strcmp(value, "0"))
+            c->follow = FOLLOW_OFF;
+        else
+            fprintf(stderr, "kicomp: config: unknown follow '%s'\n", value);
         return true;
     }
     if (!strcmp(key, "max")) {
