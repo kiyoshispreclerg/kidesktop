@@ -2443,7 +2443,16 @@ void manage_existing_windows(void)
             free(st);
         }
 
-        if (viewable || has_wm_state)
+        /* A wallpaper layer is adopted whether or not it is on screen.
+         * One per desktop means most of them are unmapped at any moment
+         * (output.h's desktop_layer_track), and a window manager
+         * starting after them -- a --replace, a crash, a session
+         * restarted around a running xisback -- would otherwise never
+         * learn they exist: never tracked, never mapped again, and the
+         * only way back was to restart the program that owns them. */
+        bool is_desktop = window_has_type(w, wm.atoms.net_wm_window_type_desktop);
+
+        if (viewable || has_wm_state || is_desktop)
             manage(w, false);
     }
 
