@@ -8,7 +8,6 @@
 #include "scene.h"
 #include "shadow.h"
 #include "window.h"
-#include "window.h"
 #include "effect.h"
 
 #include <string.h>
@@ -93,9 +92,58 @@ void scene_build(CompScene *s, CompOutput *o)
         s->count++;
     }
 
-    /* And now leave out what nobody can see.
-     *
-     * Walking from the top down, each window that is certainly opaque
+}
+
+
+void scene_move_node(CompScene *s, int from, int to)
+{
+    if (from == to || from < 0 || to < 0 || from >= s->count || to >= s->count)
+        return;
+
+    CompSceneNode moved = s->nodes[from];
+
+    if (to < from)
+        memmove(&s->nodes[to + 1], &s->nodes[to],
+                sizeof(CompSceneNode) * (size_t)(from - to));
+    else
+        memmove(&s->nodes[from], &s->nodes[from + 1],
+                sizeof(CompSceneNode) * (size_t)(to - from));
+
+    s->nodes[to] = moved;
+
+    /* z is the node's own record of its depth; the array order is what
+     * the renderer draws by. Keep the two saying the same thing. */
+    for (int i = 0; i < s->count; i++)
+        s->nodes[i].z = i;
+}
+
+void scene_add_chrome(CompScene *s, struct CompTextImage *image,
+                      const CompRect *rect, float opacity)
+{
+    if (!s || !image || !rect || s->chrome_count >= MAX_SCENE_CHROME)
+        return;
+    if (rect->w <= 0 || rect->h <= 0 || opacity <= 0.0f)
+        return;
+
+    CompSceneChrome *c = &s->chrome[s->chrome_count++];
+    c->image = image;
+    c->rect = *rect;
+    c->opacity = opacity;
+}
+
+/* Leaves out what nobody can see.
+ *
+ * Called *after* the effects have had their say (main.c), and that
+ * ordering is the whole of its correctness: an effect moves both what a
+ * window covers and what covers it, so occlusion worked out from where
+ * windows merely *are* answers a different question than the one being
+ * drawn. Working it out too early is what made the desktop wall's
+ * windows appear only once they had stopped sliding -- at rest they
+ * overlap, so the ones underneath were culled for the entire animation
+ * that was carrying them apart. */
+void scene_cull_occluded(CompScene *s, CompOutput *o)
+{
+    /* Walking from the top down, each window that is certainly opaque
      * covers the ones below it; any of those whose whole visible
      * rectangle -- grown by the shadow's reach, since a window paints
      * outside itself -- falls inside one of those covers is not drawn at
@@ -136,7 +184,8 @@ void scene_build(CompScene *s, CompOutput *o)
              * since another one may still be showing it and this build
              * knows nothing about that. */
             CompRect whole = window_rect(n->win);
-            if (rect_contains(&o->rect, &whole))
+            if (rect_contains(&o->rect, &whole) &&
+                comp_transform_is_identity(&n->transform))
                 n->win->occluded = true;
 
             /* Out of the list entirely: the renderers never learn that a
@@ -149,14 +198,26 @@ void scene_build(CompScene *s, CompOutput *o)
         }
 
         n->win->occluded = false;
+        n->win->cover_count = 0;
 
         /* What covers it, for the damage that has not happened yet
-         * (comp.h). Only when the window is wholly on this output, for
-         * the same reason `occluded` is: another monitor may be showing
-         * a part this build knows nothing about. */
-        n->win->cover_count = 0;
+         * (comp.h). Two conditions, and the second is the one that was
+         * missing:
+         *
+         * The window has to be wholly on this output, for the same
+         * reason `occluded` needs it -- another monitor may be showing a
+         * part this build knows nothing about.
+         *
+         * And nothing may be *transforming* it. Damage arrives in root
+         * coordinates, where the window really is; an effect draws it
+         * somewhere else entirely. Comparing the two is comparing a
+         * change to a window with a rectangle covering where that window
+         * is not, and dropping damage on that basis is a window that
+         * stops repainting for the length of an animation -- which is
+         * exactly what a desktop's windows sliding in do. */
         CompRect self = window_rect(n->win);
-        if (rect_contains(&o->rect, &self)) {
+        if (rect_contains(&o->rect, &self) &&
+            comp_transform_is_identity(&n->transform)) {
             for (int c = 0; c < covers; c++)
                 n->win->cover[n->win->cover_count++] = cover[c];
         }
@@ -169,40 +230,4 @@ void scene_build(CompScene *s, CompOutput *o)
                 cover[covers++] = vis;
         }
     }
-}
-
-void scene_move_node(CompScene *s, int from, int to)
-{
-    if (from == to || from < 0 || to < 0 || from >= s->count || to >= s->count)
-        return;
-
-    CompSceneNode moved = s->nodes[from];
-
-    if (to < from)
-        memmove(&s->nodes[to + 1], &s->nodes[to],
-                sizeof(CompSceneNode) * (size_t)(from - to));
-    else
-        memmove(&s->nodes[from], &s->nodes[from + 1],
-                sizeof(CompSceneNode) * (size_t)(to - from));
-
-    s->nodes[to] = moved;
-
-    /* z is the node's own record of its depth; the array order is what
-     * the renderer draws by. Keep the two saying the same thing. */
-    for (int i = 0; i < s->count; i++)
-        s->nodes[i].z = i;
-}
-
-void scene_add_chrome(CompScene *s, struct CompTextImage *image,
-                      const CompRect *rect, float opacity)
-{
-    if (!s || !image || !rect || s->chrome_count >= MAX_SCENE_CHROME)
-        return;
-    if (rect->w <= 0 || rect->h <= 0 || opacity <= 0.0f)
-        return;
-
-    CompSceneChrome *c = &s->chrome[s->chrome_count++];
-    c->image = image;
-    c->rect = *rect;
-    c->opacity = opacity;
 }

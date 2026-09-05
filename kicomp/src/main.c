@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.31"
+#define KICOMP_VERSION "0.2.32"
 
 #include "comp.h"
 #include "output.h"
@@ -573,6 +573,9 @@ static void paint_dirty_outputs(double now)
 
         scene_build(&scene, o);
         effects_apply(&scene, o);
+        /* After the effects, never before: what covers what is exactly
+         * what they change (scene.h). */
+        scene_cull_occluded(&scene, o);
         comp_log("paint %s: %d node%s, %s", o->name, scene.count,
                  scene.count == 1 ? "" : "s",
                  region_is_full(&region) ? "whole output" : "damaged parts");

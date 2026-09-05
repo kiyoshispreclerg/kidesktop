@@ -78,6 +78,14 @@ void scene_add_chrome(CompScene *s, struct CompTextImage *image,
  * incremental updates are a later optimization (section 47.7). */
 void scene_build(CompScene *s, CompOutput *o);
 
+/* Drops the nodes that something opaque completely covers, and records
+ * on each surviving window what covers it (comp.h's cover/occluded).
+ *
+ * Separate from scene_build, and called after the effects have run: they
+ * move what covers what, and occlusion decided before that is occlusion
+ * of a scene nobody is drawing. */
+void scene_cull_occluded(CompScene *s, CompOutput *o);
+
 /* Moves a node within the scene, shifting the ones in between to fill the
  * gap. Drawing order only: the WM's stacking is untouched and the window
  * is still where the WM put it, exactly as a transform doesn't move a
