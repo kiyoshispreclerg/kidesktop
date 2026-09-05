@@ -461,6 +461,36 @@ static ExItem *item_for(ExData *d, const CompWindow *win)
     return NULL;
 }
 
+/* Where a window's own redrawing lands while the grid is up (effect.h):
+ * in its cell, at the size the cell draws it. Without this a video keeps
+ * playing in a thumbnail that never changes -- the pixels it damages are
+ * the ones where the window really is, which during an expo is nowhere
+ * anybody is looking. */
+static bool ex_damage_map(const CompEffect *e, const CompWindow *w,
+                          const CompRect *in, CompRect *out)
+{
+    const ExData *d = e->data;
+    const ExItem *it = NULL;
+
+    for (int i = 0; i < d->count; i++)
+        if (d->items[i].win == w)
+            it = &d->items[i];
+    if (!it || it->home.w <= 0 || it->home.h <= 0)
+        return false;
+
+    float sx = (float)it->current.w / (float)it->home.w;
+    float sy = (float)it->current.h / (float)it->home.h;
+
+    /* One pixel of slack all round: the cell is a fraction of the size
+     * the damage was measured at, and a rectangle that lands half a
+     * pixel short leaves a seam that never repaints. */
+    out->x = it->current.x + (int)((float)(in->x - it->home.x) * sx) - 1;
+    out->y = it->current.y + (int)((float)(in->y - it->home.y) * sy) - 1;
+    out->w = (int)((float)in->w * sx + 0.5f) + 2;
+    out->h = (int)((float)in->h * sy + 0.5f) + 2;
+    return out->w > 0 && out->h > 0;
+}
+
 static void ex_update(CompEffect *e, double now)
 {
     ExData *d = e->data;
@@ -742,11 +772,12 @@ static void ex_destroy(CompEffect *e)
 }
 
 static const CompEffectOps ex_ops = {
-    .name     = "expo",
-    .update   = ex_update,
-    .apply    = ex_apply,
-    .finished = ex_finished,
-    .destroy  = ex_destroy,
+    .name       = "expo",
+    .update     = ex_update,
+    .apply      = ex_apply,
+    .finished   = ex_finished,
+    .destroy    = ex_destroy,
+    .damage_map = ex_damage_map,
 };
 
 /* ------------------------------------------------------------------ */

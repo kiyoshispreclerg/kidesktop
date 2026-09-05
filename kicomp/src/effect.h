@@ -47,6 +47,24 @@ typedef struct CompEffectOps {
 
     bool (*finished)(const CompEffect *e, double now);
 
+    /* Where this window's own damage lands, while this effect is drawing
+     * it somewhere other than where it is.
+     *
+     * A window redraws itself in its own coordinates -- a video frame, a
+     * blinking cursor -- and the compositor repaints that part of the
+     * screen. Under an effect that has moved and shrunk it, that part of
+     * the screen is not where the window is being *shown*: the thumbnail
+     * in an expo cell keeps the frame it was opened with while the real
+     * window plays on somewhere nobody is looking. So the effect, which
+     * is the only thing that knows where it put the window, maps the
+     * rectangle.
+     *
+     * `in` and `out` are root coordinates. False for a window this
+     * effect isn't moving, which is the answer for almost every window
+     * of almost every frame. */
+    bool (*damage_map)(const CompEffect *e, const CompWindow *w,
+                       const CompRect *in, CompRect *out);
+
     /* Free whatever `data` holds. The CompEffect itself is freed by the
      * core. */
     void (*destroy)(CompEffect *e);
@@ -246,6 +264,13 @@ void effects_apply(CompScene *s, CompOutput *o);
 void effects_window_event(CompWindow *w, const CompEvent *ev);
 
 /* The window is going away: drop anything animating it, right now. */
+/* Asks every running effect where this window's damage belongs (see
+ * damage_map above), and damages that too. The damage where the window
+ * really is stays: the effects on the *other* monitors may well still be
+ * drawing it there, and repainting a rectangle nothing changed in is
+ * cheap next to working out which. */
+void effects_damage_window(const CompWindow *w, const CompRect *r);
+
 void effects_window_gone(CompWindow *w);
 
 void effects_shutdown(void);

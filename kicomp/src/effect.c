@@ -3,6 +3,7 @@
  * can carry fade/zoom/geometry/wobbly without knowing any of them. */
 #include "effect.h"
 #include "animation.h"
+#include "output.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -434,6 +435,18 @@ void effects_window_event(CompWindow *w, const CompEvent *ev)
         if (!(i->windows & COMP_WINDOW_BIT(w->type)))
             continue;
         i->module->window_event(w, ev, i);
+    }
+}
+
+void effects_damage_window(const CompWindow *w, const CompRect *r)
+{
+    for (CompEffect *e = running; e; e = e->next) {
+        if (!e->ops->damage_map)
+            continue;
+
+        CompRect mapped;
+        if (e->ops->damage_map(e, w, r, &mapped))
+            output_damage_rect(&mapped);
     }
 }
 

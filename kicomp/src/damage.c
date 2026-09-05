@@ -2,6 +2,7 @@
 #include "damage.h"
 #include "output.h"
 #include "window.h"
+#include "effect.h"
 
 #include <stdlib.h>
 
@@ -60,6 +61,12 @@ void damage_collect(void)
              *
              * This is where a video behind a maximized window stops
              * costing anything. */
+            /* ...except where an effect is drawing this window somewhere
+             * of its own: covered here is not covered there. Its whole
+             * rectangle, since the pieces were never fetched. */
+            CompRect whole = window_rect(w);
+            effects_damage_window(w, &whole);
+
             xcb_damage_subtract(comp.conn, w->damage, XCB_XFIXES_REGION_NONE,
                                 XCB_XFIXES_REGION_NONE);
             continue;
@@ -69,6 +76,7 @@ void damage_collect(void)
             /* Out of slots: correct, just coarser. */
             CompRect r = window_rect(w);
             output_damage_rect(&r);
+            effects_damage_window(w, &r);
             continue;
         }
 
@@ -100,6 +108,7 @@ void damage_collect(void)
              * server refused: repaint where it was and move on. */
             CompRect whole = window_rect(w);
             output_damage_rect(&whole);
+            effects_damage_window(w, &whole);
             continue;
         }
 
@@ -113,6 +122,7 @@ void damage_collect(void)
             if (count > 0) {
                 CompRect whole = window_rect(w);
                 output_damage_rect(&whole);
+                effects_damage_window(w, &whole);
             }
             free(r);
             continue;
@@ -134,6 +144,12 @@ void damage_collect(void)
             bool unseen = false;
             for (int c = 0; c < w->cover_count && !unseen; c++)
                 unseen = rect_inside(&d, &w->cover[c]);
+
+            /* ...unless an effect is drawing this window somewhere else,
+             * where nothing is covering it: what is hidden here is not
+             * hidden there (effect.h's damage_map). */
+            effects_damage_window(w, &d);
+
             if (unseen)
                 continue;
 

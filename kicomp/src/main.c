@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.38"
+#define KICOMP_VERSION "0.2.39"
 
 #include "comp.h"
 #include "output.h"
