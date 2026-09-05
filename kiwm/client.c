@@ -2097,8 +2097,18 @@ void manage(xcb_window_t window, bool map_requested)
          * wrong (default: topmost) stacking position -- reproduced with
          * xisback's own slideshow crossfade before this reordering. */
         if (window_has_type(window, wm.atoms.net_wm_window_type_desktop)) {
-            if (wm.last_desktop_window != XCB_NONE) {
-                uint32_t values[] = { wm.last_desktop_window, XCB_STACK_MODE_ABOVE };
+            /* Above the topmost layer that is actually *visible*, not
+             * merely the last one created: with one wallpaper per
+             * desktop most of them are hidden at any moment, and a
+             * crossfade window stacked above a hidden layer ends up
+             * below the wallpaper it is fading over -- which looks
+             * exactly like the fade not happening at all. */
+            xcb_window_t below = desktop_layer_topmost_mapped();
+            if (below == XCB_NONE)
+                below = wm.last_desktop_window;
+
+            if (below != XCB_NONE) {
+                uint32_t values[] = { below, XCB_STACK_MODE_ABOVE };
                 xcb_configure_window(wm.conn, window,
                                      XCB_CONFIG_WINDOW_SIBLING | XCB_CONFIG_WINDOW_STACK_MODE, values);
             } else {
