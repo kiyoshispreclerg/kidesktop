@@ -14,7 +14,8 @@
 #define MAX_HOTKEYS 8
 
 typedef struct {
-    xcb_keycode_t keycode;
+    xcb_keycode_t keycode;   /* 0 when this binding is a mouse button */
+    uint8_t button;          /* 0 when it is a key */
     uint16_t modifiers;
     void (*fn)(void *data);
     void *data;
@@ -54,9 +55,13 @@ void input_shutdown(void)
     input_release();
 
     for (int i = 0; i < hotkey_count; i++)
-        for (int m = 0; m < N_IGNORED; m++)
-            xcb_ungrab_key(comp.conn, hotkeys[i].keycode, comp.root,
-                           (uint16_t)(hotkeys[i].modifiers | ignored_masks[m]));
+        for (int m = 0; m < N_IGNORED; m++) {
+            uint16_t mods = (uint16_t)(hotkeys[i].modifiers | ignored_masks[m]);
+            if (hotkeys[i].button)
+                xcb_ungrab_button(comp.conn, hotkeys[i].button, comp.root, mods);
+            else
+                xcb_ungrab_key(comp.conn, hotkeys[i].keycode, comp.root, mods);
+        }
     hotkey_count = 0;
 
     if (symbols) {
@@ -68,9 +73,11 @@ void input_shutdown(void)
 /* "Meta+Shift+W" -> a modifier mask and a keysym. The names are the ones
  * xiskeys.conf and xispanel.conf already use, so a user who has written
  * one hotkey has written them all. */
-static bool parse_spec(const char *spec, uint16_t *mods_out, xcb_keysym_t *sym_out)
+static bool parse_spec(const char *spec, uint16_t *mods_out, xcb_keysym_t *sym_out,
+                       uint8_t *button_out)
 {
     uint16_t mods = 0;
+    *button_out = 0;
     char buf[128];
     snprintf(buf, sizeof(buf), "%s", spec);
 
@@ -94,6 +101,22 @@ static bool parse_spec(const char *spec, uint16_t *mods_out, xcb_keysym_t *sym_o
 
     if (!last)
         return false;
+
+    /* A mouse button rather than a key. The wheel names are the ones a
+     * user thinks in; X has only buttons 4-7 for them. */
+    static const struct { const char *name; uint8_t button; } buttons[] = {
+        {"Button1",1},{"Button2",2},{"Button3",3},{"Button4",4},{"Button5",5},
+        {"Button6",6},{"Button7",7},{"Button8",8},{"Button9",9},
+        {"WheelUp",4},{"WheelDown",5},{"WheelLeft",6},{"WheelRight",7},
+    };
+    for (size_t i = 0; i < sizeof(buttons)/sizeof(buttons[0]); i++) {
+        if (strcasecmp(last, buttons[i].name) == 0) {
+            *mods_out = mods;
+            *button_out = buttons[i].button;
+            *sym_out = 0;
+            return true;
+        }
+    }
 
     KeySym sym = XStringToKeysym(last);
     /* A bare letter is written as its capital in the keysym tables. */
@@ -120,9 +143,45 @@ bool input_bind_hotkey(const char *spec, void (*fn)(void *data), void *data)
 
     uint16_t mods = 0;
     xcb_keysym_t sym = 0;
-    if (!parse_spec(spec, &mods, &sym)) {
+    uint8_t button = 0;
+    if (!parse_spec(spec, &mods, &sym, &button)) {
         fprintf(stderr, "kicomp: hotkey '%s': don't understand it\n", spec);
         return false;
+    }
+
+    if (button) {
+        /* A button, grabbed passively on the root: the modifier is what
+         * makes it ours, and without it the press goes to whatever is
+         * under the pointer exactly as before. Asynchronous on both
+         * devices, so nothing is frozen waiting for us to decide. */
+        bool ok = true;
+        for (int m = 0; m < N_IGNORED; m++) {
+            xcb_generic_error_t *err = xcb_request_check(comp.conn,
+                xcb_grab_button_checked(comp.conn, 0, comp.root,
+                                        XCB_EVENT_MASK_BUTTON_PRESS,
+                                        XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
+                                        XCB_NONE, XCB_NONE, button,
+                                        (uint16_t)(mods | ignored_masks[m])));
+            if (err) {
+                free(err);
+                ok = false;
+            }
+        }
+        if (!ok) {
+            fprintf(stderr, "kicomp: hotkey '%s': already taken by another program\n",
+                    spec);
+            return false;
+        }
+
+        hotkeys[hotkey_count].keycode = 0;
+        hotkeys[hotkey_count].button = button;
+        hotkeys[hotkey_count].modifiers = mods;
+        hotkeys[hotkey_count].fn = fn;
+        hotkeys[hotkey_count].data = data;
+        hotkey_count++;
+
+        comp_info("hotkey %s", spec);
+        return true;
     }
 
     xcb_keycode_t *codes = xcb_key_symbols_get_keycode(symbols, sym);
@@ -294,7 +353,7 @@ bool input_handle_event(xcb_generic_event_t *ev)
          * put an "a" in the filter box and leave the grid up. */
         uint16_t state = e->state & (uint16_t)~(XCB_MOD_MASK_LOCK | XCB_MOD_MASK_2);
         for (int i = 0; i < hotkey_count; i++) {
-            if (hotkeys[i].keycode == e->detail &&
+            if (hotkeys[i].keycode && hotkeys[i].keycode == e->detail &&
                 hotkeys[i].modifiers == state) {
                 hotkeys[i].fn(hotkeys[i].data);
                 return true;
@@ -307,6 +366,20 @@ bool input_handle_event(xcb_generic_event_t *ev)
             if (grab_handler->key)
                 grab_handler->key(grab_data, sym, text, e->state);
             return true;
+        }
+        return false;
+    }
+
+    if (type == XCB_BUTTON_PRESS && !grab_handler) {
+        xcb_button_press_event_t *e = (xcb_button_press_event_t *)ev;
+        uint16_t state = e->state & (uint16_t)~(XCB_MOD_MASK_LOCK | XCB_MOD_MASK_2);
+
+        for (int i = 0; i < hotkey_count; i++) {
+            if (hotkeys[i].button == e->detail &&
+                hotkeys[i].modifiers == state) {
+                hotkeys[i].fn(hotkeys[i].data);
+                return true;
+            }
         }
         return false;
     }

@@ -57,7 +57,14 @@ bool input_init(void);
 void input_shutdown(void);
 
 /* Binds a hotkey spec -- "Meta+W", "Ctrl+Alt+Tab", the same grammar
- * xiskeys and xispanel use -- to a callback. False for a spec that cannot
+ * xiskeys and xispanel use -- to a callback.
+ *
+ * The last token may also name a mouse button: "Button1".."Button9", or
+ * "WheelUp"/"WheelDown"/"WheelLeft"/"WheelRight" for the scroll ones,
+ * which X reports as buttons 4-7. "Meta+WheelUp" is then grabbed on the
+ * root the same way a key is, and fires the same callback -- a binding
+ * is a binding, and whether the user reached it with a finger or a wheel
+ * is not something the thing being bound should have to know. False for a spec that cannot
  * be parsed or a key the server won't give us (another client already
  * grabbed it), with the reason logged: a hotkey that silently does
  * nothing is worse than one that says why. */
