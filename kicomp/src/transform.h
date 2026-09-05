@@ -22,10 +22,6 @@
 
 #include <stdbool.h>
 
-typedef struct CompTransform {
-    float m[4][4];
-} CompTransform;
-
 void comp_transform_identity(CompTransform *t);
 bool comp_transform_is_identity(const CompTransform *t);
 

@@ -1196,11 +1196,27 @@ static void xr_begin(CompOutput *o, const CompRegion *damage)
          * output the wallpaper is magnified with everything else, through
          * a transform that maps target pixels back to root ones -- the
          * same mapping every window goes through below. */
-        if (o->scale != 1.0f) {
+        bool lensed = !comp_transform_is_identity(&o->view);
+
+        if (o->scale != 1.0f || lensed) {
             CompTransform m;
             comp_transform_identity(&m);
-            comp_transform_scale(&m, 1.0f / o->scale, 1.0f / o->scale);
+            if (o->scale != 1.0f)
+                comp_transform_scale(&m, 1.0f / o->scale, 1.0f / o->scale);
             comp_transform_translate(&m, (float)o->rect.x, (float)o->rect.y);
+
+            /* And back through the lens, if this output is being looked
+             * at through one (comp.h's view): the wallpaper is part of
+             * what is being magnified, and a zoom that leaves it at its
+             * own size is a zoom of the windows only. Inverted because
+             * XRender samples backwards -- this matrix takes target
+             * pixels to the root coordinates they came from. */
+            if (lensed) {
+                CompTransform inv;
+                if (comp_transform_invert_affine(&o->view, &inv))
+                    comp_transform_multiply(&m, &inv, &m);
+            }
+
             picture_transform_set(bg, &m);
 
             xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_SRC, bg, XCB_NONE,

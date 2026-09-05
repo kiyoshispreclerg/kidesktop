@@ -47,6 +47,14 @@ bool rect_intersect(const CompRect *a, const CompRect *b, CompRect *out);
 
 /* Runtime capability detection (section 17/30). Never branch on "is this
  * XiS" -- branch on whether the specific capability answered. */
+/* A 4x4 transform, defined here rather than in transform.h because an
+ * output carries one (its lens, below) and transform.h is written in
+ * terms of the types declared here -- the operations on it are still
+ * that file's, and this is only where the shape of it lives. */
+typedef struct CompTransform {
+    float m[4][4];
+} CompTransform;
+
 typedef struct CompCaps {
     bool composite;      /* Composite extension present */
     bool overlay;        /* Composite >= 0.3, i.e. the overlay window exists */
@@ -114,6 +122,18 @@ typedef struct CompOutput {
      * whole -- so any path that marks an output dirty without saying
      * where errs towards a correct frame rather than a missing one. */
     CompRegion damage;
+
+    /* The lens this output is being looked at through, in root
+     * coordinates: identity for every output that isn't zoomed, which is
+     * every output almost all of the time.
+     *
+     * It lives on the output rather than on the scene because the one
+     * thing that has to honour it is drawn before the scene exists --
+     * the wallpaper, painted in the renderer's begin(). Effects set it
+     * in apply(), which runs first (main.c's paint loop), and scene.c
+     * resets it every frame so a stale lens cannot outlive the effect
+     * that asked for it. */
+    CompTransform view;
 
     /* This output's own frame clock (scheduler.c): when it may next be
      * painted, in monotonic ms. Zero means "immediately", which is what

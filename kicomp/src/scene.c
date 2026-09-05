@@ -15,6 +15,10 @@ void scene_build(CompScene *s, CompOutput *o)
 {
     s->output = o;
     s->count = 0;
+
+    /* The lens starts clean every frame; an effect that wants one sets
+     * it in apply(), which runs before anything is drawn. */
+    comp_transform_identity(&o->view);
     s->chrome_count = 0;
 
     for (CompWindow *w = comp.stack; w; w = w->next) {
