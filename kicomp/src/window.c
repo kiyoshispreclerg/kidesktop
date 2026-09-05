@@ -560,6 +560,22 @@ static bool window_is_managed(CompWindow *w)
  * Anything uncertain is left empty rather than guessed at: a wrong
  * "opaque" is a window that vanishes behind another one, which is a far
  * worse bug than a missed optimisation. */
+/* Does this window have a bounding shape of its own? */
+static bool shape_present(xcb_window_t win)
+{
+    if (!comp.caps.shape || win == XCB_NONE)
+        return false;
+
+    xcb_shape_query_extents_reply_t *r = xcb_shape_query_extents_reply(comp.conn,
+        xcb_shape_query_extents(comp.conn, win), NULL);
+    if (!r)
+        return false;
+
+    bool shaped = r->bounding_shaped;
+    free(r);
+    return shaped;
+}
+
 static void read_opaque(CompWindow *w)
 {
     w->opaque_known = true;
@@ -570,6 +586,19 @@ static void read_opaque(CompWindow *w)
 
     xcb_window_t client = resolve_client(w);
     if (client == XCB_NONE)
+        return;
+
+    /* Shaped is not opaque, whatever the depth says. A window with no
+     * alpha channel still paints only inside its silhouette, and the
+     * rest of its rectangle shows what is behind it -- kiwm's move
+     * outline is exactly that: a full-screen, 24-bit window cut down to
+     * a wireframe, which by depth alone reads as "covers everything" and
+     * by that reading hid every window on the desktop while it was up.
+     *
+     * Asked once, with the depth, and cached with it: a window's shape
+     * can change, but a window that grows one has bigger changes going
+     * on (a resize, a reshape) and both invalidate this. */
+    if (shape_present(client))
         return;
 
     if (client == w->id) {
