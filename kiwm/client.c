@@ -690,11 +690,22 @@ void client_hold(xcb_window_t window, int ms)
 
         hold_input_shape(c, true);
 
-        /* At the very bottom, under every window that is really on this
-         * desktop: with a compositor nothing of it reaches the screen
-         * anyway, and without one it is at least behind everything. */
-        uint32_t below[] = { XCB_STACK_MODE_BELOW };
-        xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE, below);
+        /* Under every window that is really on this desktop, but *above*
+         * the wallpaper: "the very bottom" would be below the desktop
+         * layers, and the bottom of the stack is theirs (output.h). A
+         * window left under the wallpaper is a window nobody can see
+         * again -- not while it is held, and not when its desktop comes
+         * back either, because nothing restacks it afterwards. */
+        xcb_window_t above = desktop_layer_topmost_mapped();
+        if (above != XCB_NONE) {
+            uint32_t values[] = { above, XCB_STACK_MODE_ABOVE };
+            xcb_configure_window(wm.conn, c->frame,
+                                 XCB_CONFIG_WINDOW_SIBLING | XCB_CONFIG_WINDOW_STACK_MODE,
+                                 values);
+        } else {
+            uint32_t below[] = { XCB_STACK_MODE_BELOW };
+            xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE, below);
+        }
 
         xcb_map_window(wm.conn, c->frame);
 
