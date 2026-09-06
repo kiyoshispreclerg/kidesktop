@@ -189,8 +189,8 @@ data32[2..4] = 0 (unused)
 ```
 
 kiwm maps that window's **frame** again for that long, then unmaps it. While it is held the frame
-has an empty input shape (it cannot be clicked) and sits at the bottom of the stacking order, and
-it carries `_KIWM_HELD` (CARDINAL 1) -- set before the map, deleted after the unmap, so a reader
+has an empty input shape (it cannot be clicked) and keeps its place in the stacking order -- the
+window is not moved, so there is nothing to put back -- and it carries `_KIWM_HELD` (CARDINAL 1) -- set before the map, deleted after the unmap, so a reader
 following the event stream can tell this map from a window genuinely arriving.
 
 Nothing else about the window changes: not its `mapped` state as kiwm accounts for it, not

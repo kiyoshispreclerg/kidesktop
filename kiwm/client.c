@@ -690,23 +690,22 @@ void client_hold(xcb_window_t window, int ms)
 
         hold_input_shape(c, true);
 
-        /* Under every window that is really on this desktop, but *above*
-         * the wallpaper: "the very bottom" would be below the desktop
-         * layers, and the bottom of the stack is theirs (output.h). A
-         * window left under the wallpaper is a window nobody can see
-         * again -- not while it is held, and not when its desktop comes
-         * back either, because nothing restacks it afterwards. */
-        xcb_window_t above = desktop_layer_topmost_mapped();
-        if (above != XCB_NONE) {
-            uint32_t values[] = { above, XCB_STACK_MODE_ABOVE };
-            xcb_configure_window(wm.conn, c->frame,
-                                 XCB_CONFIG_WINDOW_SIBLING | XCB_CONFIG_WINDOW_STACK_MODE,
-                                 values);
-        } else {
-            uint32_t below[] = { XCB_STACK_MODE_BELOW };
-            xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE, below);
-        }
-
+        /* And it is left exactly where it is in the stack.
+         *
+         * Twice now the tidying was the bug. Lowering it to the bottom
+         * put it under the wallpaper -- the bottom belongs to the
+         * desktop layers -- and lowering it to just above "the topmost
+         * layer that is mapped" is no better with one wallpaper per
+         * monitor, since that answer is a single window and the layer
+         * covering *this* monitor may be a different one. Either way the
+         * window ends up behind a wallpaper, invisible in the very grid
+         * that asked to see it, and invisible again when its desktop
+         * comes back, because nothing restacks it afterwards.
+         *
+         * There is nothing to tidy anyway: whoever asks for this is
+         * drawing the screen themselves for the second or two it lasts,
+         * and a window that keeps its place is a window nobody has to
+         * put back. */
         xcb_map_window(wm.conn, c->frame);
 
         /* And ask for it to be *drawn*. X threw the contents away when
