@@ -421,11 +421,16 @@ const CompEffectModule effect_desktop_wall = {
     .default_easing   = COMP_EASE_IN_OUT,
     .default_events   = COMP_EVENT_BIT(COMP_EVENT_DESKTOP_LEAVE) |
                         COMP_EVENT_BIT(COMP_EVENT_DESKTOP_ENTER),
-    /* Everything that travels with the desktop. Panels and the desktop
-     * window itself don't -- they stay put across a switch, so they never
-     * produce these events in the first place, and leaving them in the
-     * mask costs nothing while covering a WM that does move them. */
-    .default_windows  = COMP_WINDOWS_ALL & ~COMP_WINDOW_BIT(COMP_WINDOW_DESKTOP),
+    /* Everything that travels with the desktop -- including the desktop
+     * window itself, which under a WM that publishes a wallpaper per
+     * desktop (kiwm/xisback) is exactly the kind of thing that travels:
+     * one layer leaves with its desktop and the next arrives with the
+     * one you are going to. A wallpaper that is on *every* desktop never
+     * produces these events at all, so it is not touched by being in the
+     * mask -- and it is the bottom of the stack, so with parallax it is
+     * the ground the rest of the desktop moves over. Panels are in for
+     * the same reason and stay put for the same one. */
+    .default_windows  = COMP_WINDOWS_ALL,
     .config_size      = sizeof(WallConfig),
     .config_defaults  = config_defaults,
     .config_key       = config_key,
