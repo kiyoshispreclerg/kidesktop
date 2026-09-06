@@ -69,6 +69,7 @@
 
 #include <signal.h>
 #include <stdio.h>
+#include <string.h>
 
 static int g_composite_checked = 0;
 static int g_composite_ext_present = 0;
@@ -105,6 +106,135 @@ int thumb_available(void)
         g_composite_ext_present = XCompositeQueryExtension(g_dpy, &event_base, &error_base);
     }
     return g_composite_ext_present;
+}
+
+/* ------------------------------------------------------------------ */
+/* windows that are on another desktop                                  */
+/* ------------------------------------------------------------------ */
+
+/* A window the window manager has put away with its desktop is not on
+ * screen, and X keeps no contents for a window that is not on screen:
+ * there is nothing to name a pixmap from, which is why a tasklist
+ * tooltip for a window on another desktop has always come up blank.
+ *
+ * kiwm can put one back on screen for a moment, on request, precisely so
+ * that someone can take its picture -- _KIWM_HOLD_WINDOW, see
+ * kiwm/PROTOCOL.md. The window is not moved, not restacked, not told
+ * anything, and the window manager itself puts it away again when the
+ * time asked for runs out, so nothing here has to (or can) leave the
+ * session in a state it wouldn't be in otherwise.
+ *
+ * Only ever asked for while a compositor is running, and that is the one
+ * gate that matters. A compositor knows what a held window is (it is
+ * marked _KIWM_HELD) and deliberately doesn't draw it: the window comes
+ * back to life offscreen, feeds this thumbnail, and disappears again
+ * with nothing having appeared on screen. Without a compositor there is
+ * no such distinction -- X would simply draw it wherever it sits -- and
+ * a tooltip that flashes a window from another desktop over the one you
+ * are using is worse than a tooltip with no picture in it. */
+#define HOLD_MS        1200
+#define HOLD_RENEW_MS  400
+#define HOLD_MAX_TRACK 8
+
+/* Is anyone compositing this screen? The EWMH convention: the owner of
+ * _NET_WM_CM_S<screen>. Re-asked at most once a second, since it can
+ * change at any time -- kicomp is a toggle on a hotkey. */
+static int compositor_active(void)
+{
+    static uint64_t checked_at;
+    static int active;
+    static Atom cm_atom;
+
+    uint64_t now = now_ms();
+    if (checked_at != 0 && now - checked_at < 1000) {
+        return active;
+    }
+    checked_at = now;
+
+    if (cm_atom == None) {
+        char name[32];
+        snprintf(name, sizeof(name), "_NET_WM_CM_S%d", DefaultScreen(g_dpy));
+        cm_atom = XInternAtom(g_dpy, name, False);
+    }
+    active = XGetSelectionOwner(g_dpy, cm_atom) != None;
+    return active;
+}
+
+/* Asks for `win` to be held up, at most once every HOLD_RENEW_MS per
+ * window: the request is a duration rather than a lock, so asking again
+ * before the last one expires simply extends it, and a tooltip that
+ * stays open keeps the window alive by repainting. When the tooltip
+ * closes the asking stops and the window goes back on its own. */
+static struct { Window win; uint64_t at; } g_asked[HOLD_MAX_TRACK];
+
+static void ask_hold(Window win)
+{
+    static Atom hold_atom;
+
+    if (win == None || !compositor_active()) {
+        return;
+    }
+
+    uint64_t now = now_ms();
+    int slot = -1, oldest = 0;
+    for (int i = 0; i < HOLD_MAX_TRACK; i++) {
+        if (g_asked[i].win == win) {
+            if (now - g_asked[i].at < HOLD_RENEW_MS) {
+                return;
+            }
+            slot = i;
+            break;
+        }
+        if (g_asked[i].win == None) {
+            slot = i;
+            break;
+        }
+        if (g_asked[i].at < g_asked[oldest].at) {
+            oldest = i;
+        }
+    }
+    if (slot < 0) {
+        slot = oldest;
+    }
+    g_asked[slot].win = win;
+    g_asked[slot].at = now;
+
+    if (hold_atom == None) {
+        hold_atom = XInternAtom(g_dpy, "_KIWM_HOLD_WINDOW", False);
+    }
+
+    XEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.xclient.type = ClientMessage;
+    ev.xclient.window = DefaultRootWindow(g_dpy);
+    ev.xclient.message_type = hold_atom;
+    ev.xclient.format = 32;
+    ev.xclient.data.l[0] = (long)win;
+    ev.xclient.data.l[1] = HOLD_MS;
+    XSendEvent(g_dpy, DefaultRootWindow(g_dpy), False,
+               SubstructureNotifyMask | SubstructureRedirectMask, &ev);
+    XFlush(g_dpy);
+    /* No reply, and none wanted: the window mapping is the answer, and it
+     * arrives as the MapNotify note_structure_event() already watches
+     * for. A window manager that doesn't answer to this leaves the
+     * tooltip exactly as it was before -- blank. */
+}
+
+/* Keeps up a window we are already holding. Called from the painting
+ * path, which is what makes the picture live: the request expires by
+ * itself, so a tooltip that stays open holds the window by repainting,
+ * and one that closes stops repainting and lets it go. A window that was
+ * on screen by itself has no entry here and is never asked about --
+ * nobody's window should start being held because someone looked at
+ * it. */
+static void renew_hold(Window win)
+{
+    for (int i = 0; i < HOLD_MAX_TRACK; i++) {
+        if (g_asked[i].win == win) {
+            ask_hold(win);
+            return;
+        }
+    }
 }
 
 static int damage_available(void)
@@ -231,6 +361,11 @@ void thumb_watch(Window win)
     int self_redirected = 0;
     Window target = resolve_composited_window(win, &wa, &pix, &self_redirected);
     if (target == None) {
+        /* Most often: the window is on a desktop that isn't showing, so
+         * there is nothing to name a pixmap from. Ask for it to be put
+         * up (see ask_hold) and let the next repaint try again -- by
+         * then it is on screen and this resolves normally. */
+        ask_hold(win);
         XSetErrorHandler(prev);
         return;
     }
@@ -592,7 +727,13 @@ int thumb_paint(cairo_t *cr, Window win, double x, double y, double max_w, doubl
         if (!w->mapped || w->w <= 0 || w->h <= 0) {
             /* Minimized/unmapped since the tooltip opened -- there is no
              * live content to show. Same graceful "leave the reserved
-             * space blank" outcome the callers already handle. */
+             * space blank" outcome the callers already handle.
+             *
+             * Unless it is merely away with its desktop, which is what
+             * the hold is for: asking here is also what *renews* it, so
+             * a tooltip that stays open keeps the window up simply by
+             * repainting, and one that closes stops asking. */
+            ask_hold(w->win);
             XSetErrorHandler(prev);
             return 0;
         }
@@ -622,6 +763,7 @@ int thumb_paint(cairo_t *cr, Window win, double x, double y, double max_w, doubl
             }
         }
         paint_scaled(cr, w->surf, w->w, w->h, x, y, max_w, max_h);
+        renew_hold(w->win);
         XSetErrorHandler(prev);
         return 1;
     }
@@ -642,6 +784,7 @@ int thumb_paint(cairo_t *cr, Window win, double x, double y, double max_w, doubl
          * cost rather than a real leak. */
         g_thumb_had_error = 0;
         if (resolve_composited_window(win, &wa, &pix, NULL) == None) {
+            ask_hold(win);
             XSetErrorHandler(prev);
             return 0;
         }
@@ -660,5 +803,15 @@ int thumb_paint(cairo_t *cr, Window win, double x, double y, double max_w, doubl
     cairo_surface_destroy(surf);
     XFreePixmap(g_dpy, pix);
     XSetErrorHandler(prev);
+
+    /* It draws now, so start watching it properly. The usual reason a
+     * window reaches the slow path twice in a row is that it wasn't on
+     * screen when show_popup() tried to watch it -- a window on another
+     * desktop, now held up for its picture -- and without this the
+     * tooltip would keep re-resolving it from scratch on every frame
+     * instead of following its damage. Idempotent and capped, so a
+     * grouped tooltip past THUMB_MAX_WATCHES simply stays on this
+     * path. */
+    thumb_watch(win);
     return 1;
 }

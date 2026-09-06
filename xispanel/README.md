@@ -56,7 +56,15 @@ defaults (Fontconfig's `sans-serif`, dark panel colors). See
   `show_thumbs=yes` adds a live window thumbnail (XComposite -- no
   dependency at all if `libxcomposite-dev` isn't installed; works with or
   without a compositor running, self-redirecting the window when nothing
-  else has already).
+  else has already). A window on another desktop has no contents to show
+  -- X keeps none for a window that is off screen -- so with a compositor
+  running the tooltip asks kiwm to hold it up while it is open
+  (`_KIWM_HOLD_WINDOW`, see kiwm/PROTOCOL.md): the window is put back on
+  screen where the compositor knows not to draw it, feeds the thumbnail,
+  and is put away again by the window manager itself. Only with a
+  compositor: without one there is no such thing as an invisible map, and
+  a tooltip that flashes another desktop's window over the one you are
+  using is worse than one with no picture in it.
 - Basic theming: background/foreground color with alpha (real per-pixel
   transparency when a compositor provides an ARGB visual), spacing. A
   panel's background can also be a 9-slice PNG instead of a solid color
