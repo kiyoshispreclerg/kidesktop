@@ -43,6 +43,7 @@
 #include <xcb/present.h>
 #include <xcb/shape.h>
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -272,6 +273,23 @@ static uint64_t present_msc(CompOutput *o)
     return po ? po->msc : 0;
 }
 
+/* What the server actually told us the last frame did, not what was
+ * asked for: target_msc 0 only ever asks for "the next vblank", and the
+ * mode a CompleteNotify reports back is the honest answer to whether
+ * that landed as a flip or fell back to a copy. Nothing to report before
+ * the first completion arrives. */
+static void present_sync_info(CompOutput *o, char *buf, size_t n)
+{
+    PresentOutput *po = o->present_data;
+    if (!po || (po->msc == 0 && po->mode == 0 && !po->pending)) {
+        snprintf(buf, n, "vblank via Present (msc pending)");
+        return;
+    }
+
+    snprintf(buf, n, "vblank msc %llu (%s)",
+             (unsigned long long)po->msc, mode_name(po->mode));
+}
+
 static const CompPresenter present_presenter = {
     .name         = "present",
     .init         = present_init,
@@ -280,6 +298,7 @@ static const CompPresenter present_presenter = {
     .busy         = present_busy,
     .handle_event = present_handle_event,
     .get_msc      = present_msc,
+    .sync_info    = present_sync_info,
 };
 
 const CompPresenter *presenter_present(void)

@@ -14,6 +14,7 @@
 #include "renderer.h"
 #include "region.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 
 const CompPresenter *presenter;
@@ -120,17 +121,29 @@ static uint64_t copy_msc(CompOutput *o)
     return 0;   /* no MSC without Present -- Fase 7 */
 }
 
+/* Nothing here ever asks the server when the next vblank is: the copy
+ * lands the moment scheduler.c's software clock says the output's next
+ * frame is due, and that clock is paced from the RandR mode's advertised
+ * refresh rate, not from anything the monitor actually did. Which is
+ * exactly what makes this presenter portable -- every X server can do
+ * it -- and exactly why it can tear. */
+static void copy_sync_info(CompOutput *o, char *buf, size_t n)
+{
+    snprintf(buf, n, "sw clock, randr %.0f Hz (no vblank)", o->refresh_hz);
+}
+
 void presenter_shutdown(void)
 {
     overlay_release();
 }
 
 static const CompPresenter copy_presenter = {
-    .name    = "copy",
-    .init    = copy_init,
-    .destroy = copy_destroy,
-    .present = copy_present,
-    .get_msc = copy_msc,
+    .name      = "copy",
+    .init      = copy_init,
+    .destroy   = copy_destroy,
+    .present   = copy_present,
+    .get_msc   = copy_msc,
+    .sync_info = copy_sync_info,
 };
 
 const CompPresenter *presenter_copy(void)

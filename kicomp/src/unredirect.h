@@ -57,6 +57,12 @@ void unredirect_update(void);
 /* Is this output currently the window's rather than kicomp's? */
 bool unredirect_holds(const CompOutput *o);
 
+/* Which window it was handed to, or NULL if it wasn't. For anything that
+ * wants to say so -- the stats effect above all, where an output that
+ * isn't being presented at all is a fact its own frame-sync line would
+ * otherwise misreport as "stuck". */
+CompWindow *unredirect_holder(const CompOutput *o);
+
 /* Gives every output back, redirecting whatever was handed over and
  * restoring the overlay. Called on shutdown, and by anything that needs
  * the compositor to be in charge of the whole screen again. */

@@ -42,6 +42,7 @@
 #include "../text.h"
 #include "../renderer.h"
 #include "../presenter.h"
+#include "../unredirect.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -78,6 +79,27 @@ typedef struct {
 static const CompEffectOps stats_ops;
 static CompEffect *active;
 
+/* How this output's frames are actually landing: which of msc/oml/vblank/
+ * sw/randr is doing the pacing, not just which presenter is loaded --
+ * "present" says nothing about whether the last frame flipped, copied or
+ * never got a completion at all, and "copy" is worth calling out as the
+ * one presenter with no server-side sync whatsoever. */
+static void sync_text(const CompOutput *o, char *out, size_t outsz)
+{
+    CompWindow *holder = unredirect_holder(o);
+    if (holder) {
+        snprintf(out, outsz, "handed to 0x%x (app flips directly)", holder->id);
+        return;
+    }
+
+    if (presenter && presenter->sync_info) {
+        presenter->sync_info((CompOutput *)o, out, outsz);
+        return;
+    }
+
+    snprintf(out, outsz, "sw clock, randr %.0f Hz (unmeasured)", o->refresh_hz);
+}
+
 /* Everything worth saying about one output, as the text to draw. */
 static void panel_text(const CompOutput *o, char *out, size_t outsz)
 {
@@ -88,12 +110,17 @@ static void panel_text(const CompOutput *o, char *out, size_t outsz)
     if (o->scale != 1.0f)
         snprintf(scale, sizeof(scale), "  scale %.2gx", (double)o->scale);
 
+    char sync[128];
+    sync_text(o, sync, sizeof(sync));
+
     snprintf(out, outsz,
              "%s  %dx%d%s\n"
              "%s + %s\n"
+             "%s\n"
              "%d fps  of %.0f target",
              o->name, o->rect.w, o->rect.h, scale,
              rname, pname,
+             sync,
              o->fps, o->refresh_hz);
 }
 

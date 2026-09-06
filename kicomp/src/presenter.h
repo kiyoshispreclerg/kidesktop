@@ -43,6 +43,14 @@ typedef struct CompPresenter {
     /* Media stream counter, when the backend can report one. Returns 0
      * when unknown -- the per-output frame clock (Fase 7) will use it. */
     uint64_t (*get_msc)(CompOutput *o);
+
+    /* One line of human prose on *how* this output's frames are being
+     * paced and landed -- the stats effect's answer to "is this actually
+     * synced to the monitor, or just to a software timer guessing at the
+     * RandR mode". Optional: a presenter that has nothing more specific
+     * to say than its own name leaves this NULL and the caller falls
+     * back to that. */
+    void (*sync_info)(CompOutput *o, char *buf, size_t n);
 } CompPresenter;
 
 /* A damaged rectangle, in logical root coordinates, as the physical

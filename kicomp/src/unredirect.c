@@ -40,6 +40,12 @@ bool unredirect_holds(const CompOutput *o)
     return o && held_for(o->id) != NULL;
 }
 
+CompWindow *unredirect_holder(const CompOutput *o)
+{
+    Handover *h = o ? held_for(o->id) : NULL;
+    return h ? h->win : NULL;
+}
+
 /* ------------------------------------------------------------------ */
 /* the overlay's shape                                                  */
 /* ------------------------------------------------------------------ */

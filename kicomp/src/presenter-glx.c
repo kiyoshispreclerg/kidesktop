@@ -15,6 +15,8 @@
 #include "presenter.h"
 #include "renderer.h"
 
+#include <stdio.h>
+
 /* From renderer-glx.c: swapping is the renderer's drawable, not ours. */
 void renderer_glx_swap(CompOutput *o);
 bool renderer_glx_ready(void);
@@ -55,12 +57,24 @@ static uint64_t glx_present_msc(CompOutput *o)
     return 0;   /* GLX_OML_sync_control is the follow-up */
 }
 
+/* glXSwapBuffers does honour the driver's swap interval -- normally 1,
+ * so the swap really does block for the next vblank on most setups --
+ * but nothing here asks GLX_OML_sync_control for the frame count that
+ * would prove it, so this can only say what is *believed* true, not
+ * what was *measured*. */
+static void glx_sync_info(CompOutput *o, char *buf, size_t n)
+{
+    (void)o;
+    snprintf(buf, n, "vblank via GLX swap (driver interval, unmeasured)");
+}
+
 static const CompPresenter glx_presenter = {
-    .name    = "glx",
-    .init    = glx_present_init,
-    .destroy = glx_present_destroy,
-    .present = glx_present,
-    .get_msc = glx_present_msc,
+    .name      = "glx",
+    .init      = glx_present_init,
+    .destroy   = glx_present_destroy,
+    .present   = glx_present,
+    .get_msc   = glx_present_msc,
+    .sync_info = glx_sync_info,
 };
 
 const CompPresenter *presenter_glx(void)
