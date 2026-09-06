@@ -275,6 +275,18 @@ typedef struct CompWindow {
     int retain_count;
     bool zombie;
 
+    /* On screen only because someone asked the WM for a live picture of
+     * it: it belongs to a desktop nobody is showing, and the frame was
+     * mapped again for a moment and marked _KIWM_HELD
+     * (kiwm/PROTOCOL.md).
+     *
+     * What it changes here is what the map and the unmap *mean*. A
+     * window arriving because its desktop arrived is an event the
+     * desktop had -- something to animate. A window held up to be
+     * photographed is not: nothing happened, and an effect answering to
+     * it would be animating the compositor's own request. */
+    bool held;
+
     /* Unmapped, but its last contents are being kept (comp.keep_stowed):
      * it is on another desktop or minimized, and an effect may want to
      * draw it. Holds one retain of its own, released when it comes back. */
@@ -534,6 +546,8 @@ typedef struct KiComp {
         xcb_atom_t kiwm_set_output_desktop;/* the message that switches one */
         xcb_atom_t kiwm_prime_desktop_layers;/* ...and the one that asks for a
                                               * look at the hidden wallpapers */
+        xcb_atom_t kiwm_hold_window;     /* ...and for a live look at one window */
+        xcb_atom_t kiwm_held;            /* which the WM marks while it lasts */
         xcb_atom_t kiwm_wm_output;         /* which output a window is on */
         xcb_atom_t net_wm_desktop;         /* which desktop a window is on */
     } atoms;

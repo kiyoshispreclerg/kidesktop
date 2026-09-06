@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.40"
+#define KICOMP_VERSION "0.2.41"
 
 #include "comp.h"
 #include "output.h"
@@ -148,6 +148,8 @@ static void atoms_init(void)
     comp.atoms.kiwm_num_desktops      = intern("_KIWM_NUM_OUTPUT_DESKTOPS");
     comp.atoms.kiwm_set_output_desktop = intern("_KIWM_SET_OUTPUT_DESKTOP");
     comp.atoms.kiwm_prime_desktop_layers = intern("_KIWM_PRIME_DESKTOP_LAYERS");
+    comp.atoms.kiwm_hold_window = intern("_KIWM_HOLD_WINDOW");
+    comp.atoms.kiwm_held = intern("_KIWM_HELD");
     comp.atoms.kiwm_wm_output         = intern("_KIWM_WM_OUTPUT");
     comp.atoms.net_wm_desktop         = intern("_NET_WM_DESKTOP");
     comp.atoms.net_number_of_desktops = intern("_NET_NUMBER_OF_DESKTOPS");
@@ -773,7 +775,14 @@ static void handle_event(xcb_generic_event_t *ev)
             break;
         }
 
-        if (e->atom == comp.atoms.net_wm_window_opacity) {
+        if (e->atom == comp.atoms.kiwm_held) {
+            /* The WM saying this window is (or is no longer) on screen
+             * only to be looked at -- window.h. It lives on the frame,
+             * which is the window tracked here. */
+            CompWindow *w = window_find(e->window);
+            if (w)
+                window_held_changed(w, e->state != XCB_PROPERTY_DELETE);
+        } else if (e->atom == comp.atoms.net_wm_window_opacity) {
             CompWindow *w = window_find(e->window);
             if (w)
                 window_update_opacity(w);

@@ -740,6 +740,11 @@ void window_state_changed(CompWindow *w)
     w->pending_state = true;
 }
 
+void window_held_changed(CompWindow *w, bool held)
+{
+    w->held = held;
+}
+
 void window_focus_changed(xcb_window_t active)
 {
     if (comp.active_window == active)
@@ -886,6 +891,21 @@ void windows_flush_events(void)
         if (w->pending_disappear) {
             w->pending_disappear = false;
 
+            /* It was only up to be photographed (comp.h's held): it is
+             * going back where it already was, so nothing happened to
+             * the desktop and there is nothing to animate. Its picture
+             * is still worth keeping, which is the whole reason it was
+             * held. */
+            if (w->held && !w->zombie) {
+                if (comp.keep_stowed && !w->stowed) {
+                    w->stowed = true;
+                    window_retain(w);
+                }
+                w->state_before = now;
+                w = next;
+                continue;
+            }
+
             CompEventKind kind;
             if (w->zombie)
                 kind = COMP_EVENT_CLOSE;
@@ -930,6 +950,26 @@ void windows_flush_events(void)
         }
 
         bool appeared = w->pending_appear;
+
+        if (w->held && w->pending_appear) {
+            /* The other half: a window mapped for its picture has not
+             * arrived anywhere. It keeps `has_been_mapped` as it was --
+             * this map says nothing about whether the window has ever
+             * been on screen for real. */
+            w->pending_appear = false;
+            density_update_window(w);
+
+            /* Wherever an effect is drawing it, though, has to be
+             * repainted whole: what it was showing until now is the
+             * picture this window had when it was put away, and the
+             * live one is a different picture. The application's own
+             * repaint after being mapped may or may not have reached us
+             * as damage -- it happens in the same breath as the map --
+             * and half a window is worse than the old one. */
+            CompRect r = window_rect(w);
+            output_damage_rect(&r);
+            effects_damage_window(w, &r);
+        }
 
         if (w->pending_appear) {
             w->pending_appear = false;

@@ -87,6 +87,12 @@ void windows_flush_events(void);
  * on the client window). */
 void window_state_changed(CompWindow *w);
 
+/* The WM marked (or unmarked) this window as being held on screen for
+ * its picture only -- kiwm/PROTOCOL.md's _KIWM_HELD, comp.h's held. Set
+ * before the map it explains and cleared after the unmap, so the window
+ * carries it for the whole of both. */
+void window_held_changed(CompWindow *w, bool held);
+
 /* _NET_ACTIVE_WINDOW changed on the root: emits focus/unfocus. */
 void window_focus_changed(xcb_window_t active);
 
