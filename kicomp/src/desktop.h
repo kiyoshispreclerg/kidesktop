@@ -88,6 +88,20 @@ bool desktop_request_switch(const CompOutput *o, int desktop);
  * like any other. False where the WM doesn't answer to this. */
 bool desktop_request_prime(void);
 
+/* Asks the WM to put one window that belongs to a desktop nobody is
+ * showing back on screen for `ms`, so that there is a *live* picture of
+ * it rather than the one it was left with (kiwm/PROTOCOL.md's
+ * _KIWM_HOLD_WINDOW).
+ *
+ * Nothing reaches the application and nothing about the window's state
+ * changes; the WM marks it _KIWM_HELD for as long as it lasts, which is
+ * how window.c knows the map is not an arrival. There is no way to hand
+ * it back early on purpose: the WM is the one that undoes it, so a
+ * compositor that dies mid-picture cannot leave the session wrong. An
+ * effect that wants to keep it asks again. False where the WM doesn't
+ * answer to this. */
+bool desktop_request_hold(const CompWindow *w, int ms);
+
 void desktop_shutdown(void);
 
 #endif /* KICOMP_DESKTOP_H */

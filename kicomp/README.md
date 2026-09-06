@@ -221,6 +221,12 @@ arrange   = stack             # stack | grid: windows where they are on
                               # their desktop, or tidied into a little
                               # grid inside each cell
 background = #000000          # the ground the desktops are laid out on
+live_windows = desktop        # desktop | active_only | active | all: which
+                              # of the other desktops' windows keep drawing
+                              # while the grid is up. Anything but `desktop`
+                              # asks the WM to hold them on screen
+                              # (kiwm/PROTOCOL.md), which costs exactly what
+                              # leaving them drawing would have cost
 
 [effect:stats]
 enabled = 0                   # an instrument, not a decoration

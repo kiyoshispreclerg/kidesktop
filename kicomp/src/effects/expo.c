@@ -34,6 +34,9 @@
  *                               # default, so it reads as one spacing
  *   dim      = 0.82             # the desktops that aren't under the pointer
  *   background = #000000        # the ground they are laid out on
+ *   live_windows = desktop      # desktop | active_only | active | all --
+ *                               # which of the other desktops' windows are
+ *                               # kept drawing while the grid is up
  *   arrange  = stack            # stack | grid -- windows as they are, or
  *                               # tidied into a little grid of their own
  */
@@ -58,6 +61,28 @@ typedef enum {
     ARRANGE_STACK,   /* windows where they really are on their desktop */
     ARRANGE_GRID,    /* tidied into a grid inside their cell */
 } Arrange;
+
+/* Which windows keep *moving* while the grid is up.
+ *
+ * A window on a desktop nobody is showing is not on screen, and X keeps
+ * nothing of a window that is not on screen: what a cell draws is the
+ * picture it had when that desktop was left. The WM can put one back on
+ * screen for a moment so there is a live picture instead
+ * (kiwm/PROTOCOL.md's _KIWM_HOLD_WINDOW) -- and the cost of that is the
+ * application drawing again, which is exactly the cost of not having
+ * left it drawing in the first place. So it is asked for by name.
+ *
+ * The desktop you are on is not part of the question: its windows are on
+ * screen and therefore live whatever is set here. */
+typedef enum {
+    LIVE_DESKTOP,      /* only the desktop you are on -- nothing is held */
+    LIVE_ACTIVE_ONLY,  /* ...and the last-used window of each other desktop */
+    LIVE_ACTIVE,       /* the same set: a separate name because what it says
+                        * is "this desktop *and* the others' active ones",
+                        * which is what someone writing it means, even
+                        * though the first half needs no asking */
+    LIVE_ALL,          /* every window of every desktop */
+} LiveWindows;
 
 typedef struct {
     CompWindow *win;
@@ -99,6 +124,11 @@ typedef struct {
 
     double leg_start;
     double leg_ms;
+
+    /* When the windows of the other desktops were last asked to stay on
+     * screen. The ask expires by itself, so this is what makes it a
+     * renewal rather than a promise (LiveWindows). */
+    double held_at;
 } ExData;
 
 typedef struct {
@@ -108,6 +138,7 @@ typedef struct {
     float dim;
     Arrange arrange;
     float bg[3];       /* the ground the desktops are laid out on */
+    LiveWindows live;
 } ExConfig;
 
 static const CompEffectOps ex_ops;
@@ -461,6 +492,61 @@ static ExItem *item_for(ExData *d, const CompWindow *win)
     return NULL;
 }
 
+/* How long each ask is good for, and how often it is renewed. The gap
+ * between them is the slack: if this compositor dies with the grid open,
+ * every window it was holding goes back where it belongs within the
+ * first number, without anything of ours running. */
+#define HOLD_MS       1500
+#define HOLD_RENEW_MS 500
+
+/* The window used most recently on a desktop -- kicomp's own focus
+ * record (comp.h's focus_serial), since X keeps no such history. */
+static const ExItem *last_used_on(const ExData *d, int desktop)
+{
+    const ExItem *best = NULL;
+
+    for (int i = 0; i < d->count; i++) {
+        const ExItem *it = &d->items[i];
+        if (it->desktop != desktop || it->scenery || it->sticky)
+            continue;
+        if (!best || it->win->focus_serial > best->win->focus_serial)
+            best = it;
+    }
+    return best;
+}
+
+/* Asks the WM to keep the other desktops' windows on screen a little
+ * longer, so their cells show what those windows are doing rather than
+ * what they were doing when the desktop was left.
+ *
+ * Only while the grid is *up*: not while it is opening or closing, when
+ * every cell is moving and nobody is reading them anyway, and when the
+ * windows are about to be put back regardless. */
+static void hold_live_windows(CompEffect *e, double now)
+{
+    ExData *d = e->data;
+    const ExConfig *cfg = e->instance->config;
+
+    if (cfg->live == LIVE_DESKTOP)
+        return;
+    if (d->held_at != 0.0 && now - d->held_at < HOLD_RENEW_MS)
+        return;
+    d->held_at = now;
+
+    for (int i = 0; i < d->count; i++) {
+        const ExItem *it = &d->items[i];
+
+        if (it->scenery || it->sticky)
+            continue;
+        if (it->desktop == d->current_desktop)
+            continue;                   /* on screen already: live for free */
+        if (cfg->live != LIVE_ALL && it != last_used_on(d, it->desktop))
+            continue;
+
+        desktop_request_hold(it->win, HOLD_MS);
+    }
+}
+
 /* Where a window's own redrawing lands while the grid is up (effect.h):
  * in its cell, at the size the cell draws it. Without this a video keeps
  * playing in a thumbnail that never changes -- the pixels it damages are
@@ -509,6 +595,10 @@ static void ex_update(CompEffect *e, double now)
             output_damage_rect(&o->rect);
         for (int i = 0; i < d->count; i++)
             output_damage_rect(&d->items[i].home);
+    } else if (!d->closing) {
+        /* Standing still, which is the only part of this where anyone is
+         * actually looking at the other desktops. */
+        hold_live_windows(e, now);
     }
 }
 
@@ -987,6 +1077,10 @@ static void ex_defaults(void *config)
      * desktop you came from is *gone* while you choose, and any colour
      * with something in it reads as another desktop. */
     c->bg[0] = c->bg[1] = c->bg[2] = 0.0f;
+    /* Nothing held: the other desktops show their last picture, and the
+     * windows on them go on costing nothing, which is the whole point of
+     * the WM having put them away. */
+    c->live = LIVE_DESKTOP;
 }
 
 static bool ex_config_key(void *config, const char *key, const char *value)
@@ -1019,6 +1113,15 @@ static bool ex_config_key(void *config, const char *key, const char *value)
         } else {
             fprintf(stderr, "kicomp: config: expo: not a colour: '%s'\n", value);
         }
+        return true;
+    }
+    if (!strcmp(key, "live_windows")) {
+        if (!strcmp(value, "desktop"))          c->live = LIVE_DESKTOP;
+        else if (!strcmp(value, "active_only")) c->live = LIVE_ACTIVE_ONLY;
+        else if (!strcmp(value, "active"))      c->live = LIVE_ACTIVE;
+        else if (!strcmp(value, "all"))         c->live = LIVE_ALL;
+        else
+            fprintf(stderr, "kicomp: config: unknown live_windows '%s'\n", value);
         return true;
     }
     if (!strcmp(key, "arrange")) {
