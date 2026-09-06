@@ -103,6 +103,8 @@ void ewmh_init_atoms(void)
     wm.atoms.kiwm_num_output_desktops = intern_atom("_KIWM_NUM_OUTPUT_DESKTOPS");
     wm.atoms.kiwm_set_output_desktop = intern_atom("_KIWM_SET_OUTPUT_DESKTOP");
     wm.atoms.kiwm_prime_desktop_layers = intern_atom("_KIWM_PRIME_DESKTOP_LAYERS");
+    wm.atoms.kiwm_hold_window = intern_atom("_KIWM_HOLD_WINDOW");
+    wm.atoms.kiwm_held = intern_atom("_KIWM_HELD");
 
     wm.atoms.xis_confined_area   = intern_atom("_XIS_CONFINED_AREA");
 

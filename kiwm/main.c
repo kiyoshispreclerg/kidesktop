@@ -41,7 +41,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KIWM_VERSION "0.4.14"
+#define KIWM_VERSION "0.4.15"
 
 #include "wm.h"
 #include "config.h"
@@ -579,6 +579,13 @@ int main(int argc, char **argv)
         if (prime_in >= 0 && (timeout < 0 || prime_in < timeout))
             timeout = prime_in;
 
+        /* ...and while a window from another desktop is being held up to
+         * be photographed (client.h's client_hold). */
+        client_run_holds();
+        int hold_in = client_hold_timeout_ms();
+        if (hold_in >= 0 && (timeout < 0 || hold_in < timeout))
+            timeout = hold_in;
+
         int ready = poll(fds, 2, timeout);
         if (ready < 0) {
             if (errno == EINTR)
@@ -590,6 +597,7 @@ int main(int argc, char **argv)
             events_poll_stale_drag();
             client_run_pending_expose();
             desktop_layers_run_prime();
+            client_run_holds();
             continue;
         }
         if (fds[1].revents & POLLIN) {

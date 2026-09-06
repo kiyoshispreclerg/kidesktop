@@ -178,6 +178,41 @@ A layer on a monitor with nothing on screen to hide behind -- no wallpaper set f
 being shown -- is left alone rather than flashed. Layers on every desktop (sticky) are already
 mapped and are not touched. No reply is sent.
 
+## Client message: `_KIWM_HOLD_WINDOW`
+
+Send to the **root window**, `format = 32`:
+
+```
+data32[0] = client window   (as listed in _NET_CLIENT_LIST, or its frame)
+data32[1] = milliseconds    (clamped to 2000)
+data32[2..4] = 0 (unused)
+```
+
+kiwm maps that window's **frame** again for that long, then unmaps it. While it is held the frame
+has an empty input shape (it cannot be clicked) and sits at the bottom of the stacking order, and
+it carries `_KIWM_HELD` (CARDINAL 1) -- set before the map, deleted after the unmap, so a reader
+following the event stream can tell this map from a window genuinely arriving.
+
+Nothing else about the window changes: not its `mapped` state as kiwm accounts for it, not
+`WM_STATE`, not `_NET_WM_DESKTOP`, and nothing at all reaches the application -- kiwm never
+unmapped the application's own window when the desktop was left, only the frame around it, so the
+frame is the only thing that moves here.
+
+It exists because X keeps no contents for a window that is not on screen. A window on a desktop
+nobody is showing has only the picture it had when it was left, which is why a compositor's expo
+grid shows the other desktops frozen. Mapping the frame for a moment gives a live one -- and the
+same is true for anything else that wants a real thumbnail of a window that isn't on screen, a
+panel's task list included: the request is not the compositor's private business.
+
+There is deliberately no "release" request. Asking again before the time is up extends it, which
+is how something that lasts (a grid that stays open) holds on, and the window manager is the one
+that puts the window back -- so whoever asked can crash mid-picture and the session still ends up
+where it should, within the prize it asked for. A desktop switch puts every held window back
+first, before deciding what belongs on screen.
+
+Refused, silently, for a window that is not merely away with its desktop: minimized (the user put
+it away), shaded (whose client window really is unmapped), sticky, or already visible.
+
 ## Interaction with standard EWMH
 
 - `_NET_CURRENT_DESKTOP` / `_NET_NUMBER_OF_DESKTOPS` on root mirror the **primary output only**,

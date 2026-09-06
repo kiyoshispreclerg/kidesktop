@@ -11,6 +11,8 @@
 #include "outline.h"
 #include "shape.h"
 
+#include <xcb/shape.h>
+
 #include <xcb/xcb_icccm.h>
 
 #include <stdio.h>
@@ -623,6 +625,137 @@ int client_pending_expose_timeout_ms(void)
         return -1;
     double left = pending_expose.due[pending_expose.next] - monotonic_ms();
     return left <= 0 ? 0 : (int)(left + 0.5);
+}
+
+/* ------------------------------------------------------------------ */
+/* holding a hidden window up to be photographed (client.h)            */
+/* ------------------------------------------------------------------ */
+
+/* As long as anyone could reasonably want, and short enough that a
+ * requester which dies mid-picture is not noticed. Whoever wants longer
+ * asks again. */
+#define HOLD_MAX_MS 2000
+
+static void hold_input_shape(Client *c, bool none)
+{
+    if (!wm.shape_ext_present)
+        return;
+
+    if (none) {
+        /* No input rectangles at all: the frame is on screen but cannot
+         * be clicked, which is what keeps a window that is only being
+         * looked at from taking a click meant for the desktop under it. */
+        xcb_shape_rectangles(wm.conn, XCB_SHAPE_SO_SET, XCB_SHAPE_SK_INPUT,
+                             XCB_CLIP_ORDERING_UNSORTED, c->frame, 0, 0, 0, NULL);
+    } else {
+        /* And back to "the whole window", which is what no input shape
+         * at all means. */
+        xcb_shape_mask(wm.conn, XCB_SHAPE_SO_SET, XCB_SHAPE_SK_INPUT,
+                       c->frame, 0, 0, XCB_PIXMAP_NONE);
+    }
+}
+
+void client_hold(xcb_window_t window, int ms)
+{
+    Client *c = find_client_window(window);
+    if (!c)
+        return;
+
+    /* Only a window that is away with its desktop. Everything else is
+     * either already on screen or put away for a reason of its own, and
+     * neither is this request's business.
+     *
+     * Which desktop its output is showing is the whole test: `mapped` is
+     * not the frame's map state but the client's own "belongs on screen"
+     * (see switch_workspace, which unmaps the frame and leaves the flag
+     * alone), so a window away with its desktop still has it set. */
+    if (c->minimized || c->shaded || c->sticky)
+        return;
+    if (c->output < 0 || c->output >= wm.output_count)
+        return;
+    if (wm.outputs[c->output].desktop == c->desktop)
+        return;
+
+    if (ms <= 0)
+        return;
+    if (ms > HOLD_MAX_MS)
+        ms = HOLD_MAX_MS;
+
+    if (c->hold_until == 0.0) {
+        /* Marked before it is mapped, so that a compositor reading the
+         * events in order knows what the map is before it sees it. */
+        uint32_t one = 1;
+        xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, c->frame,
+                            wm.atoms.kiwm_held, XCB_ATOM_CARDINAL, 32, 1, &one);
+
+        hold_input_shape(c, true);
+
+        /* At the very bottom, under every window that is really on this
+         * desktop: with a compositor nothing of it reaches the screen
+         * anyway, and without one it is at least behind everything. */
+        uint32_t below[] = { XCB_STACK_MODE_BELOW };
+        xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE, below);
+
+        xcb_map_window(wm.conn, c->frame);
+
+        /* And ask for it to be *drawn*. X threw the contents away when
+         * the frame was unmapped, but the application was never told
+         * anything went missing -- as far as it knows its window is
+         * intact -- so it repaints only what it happens to change next,
+         * which for a terminal is one line at a time over a window that
+         * is otherwise empty. Exposing it is the standard way of saying
+         * "you have lost your contents, draw them again". */
+        draw_decoration(c);
+        xcb_clear_area(wm.conn, 1, c->window, 0, 0, 0, 0);
+    }
+
+    c->hold_until = monotonic_ms() + ms;
+    xcb_flush(wm.conn);
+}
+
+void client_release_hold(Client *c)
+{
+    if (c->hold_until == 0.0)
+        return;
+
+    c->hold_until = 0.0;
+
+    /* Back where it was: unmapped, its own input shape, and no mark. The
+     * mark is deleted *after* the unmap, so the same reader that saw the
+     * map explained still has the explanation when the window goes. */
+    xcb_unmap_window(wm.conn, c->frame);
+    hold_input_shape(c, false);
+    xcb_delete_property(wm.conn, c->frame, wm.atoms.kiwm_held);
+}
+
+int client_hold_timeout_ms(void)
+{
+    double soonest = 0.0;
+
+    for (Client *c = wm.clients; c; c = c->next)
+        if (c->hold_until != 0.0 && (soonest == 0.0 || c->hold_until < soonest))
+            soonest = c->hold_until;
+    if (soonest == 0.0)
+        return -1;
+
+    double left = soonest - monotonic_ms();
+    return left <= 0.0 ? 0 : (int)(left + 0.5);
+}
+
+void client_run_holds(void)
+{
+    double now = monotonic_ms();
+    bool any = false;
+
+    for (Client *c = wm.clients; c; c = c->next) {
+        if (c->hold_until == 0.0 || now < c->hold_until)
+            continue;
+        client_release_hold(c);
+        any = true;
+    }
+
+    if (any)
+        xcb_flush(wm.conn);
 }
 
 void client_run_pending_expose(void)

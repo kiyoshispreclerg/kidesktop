@@ -1914,6 +1914,11 @@ static void handle_client_message(xcb_client_message_event_t *ev)
         return;
     }
 
+    if (ev->type == wm.atoms.kiwm_hold_window) {
+        client_hold((xcb_window_t)ev->data.data32[0], (int)ev->data.data32[1]);
+        return;
+    }
+
     Client *c = find_client_window(ev->window);
     if (!c)
         return;

@@ -936,6 +936,15 @@ void switch_workspace(int output_idx, int desktop)
 
     int old = wm.outputs[output_idx].desktop;
 
+    /* Anything being held up for its picture (client.h's client_hold) is
+     * put back first: this function is about to decide what belongs on
+     * screen, and a window that is on screen for someone else's reasons
+     * would either be left mapped on a desktop it does not belong to or
+     * be counted as one that was already there. */
+    for (Client *c = wm.clients; c; c = c->next)
+        if (c->hold_until != 0.0)
+            client_release_hold(c);
+
     /* A window being dragged comes along to the new desktop -- switch
      * desktops with the mouse button still held and the window travels
      * with the pointer instead of being left behind (and yanked out from

@@ -133,6 +133,41 @@ void client_apply_fullscreen_geometry(Client *c);
 int client_pending_expose_timeout_ms(void);
 void client_run_pending_expose(void);
 
+/* Holds one hidden window on screen for a moment, so that whoever asked
+ * can have a live picture of it (PROTOCOL.md's _KIWM_HOLD_WINDOW).
+ *
+ * X keeps nothing of a window that is not on screen, and a window on a
+ * desktop nobody is showing is not on screen: its last picture is all
+ * anyone has, which is why an expo grid shows other desktops frozen at
+ * the moment they were left. Mapping the frame again gives the picture
+ * back, and only the frame -- the application's own window never
+ * changed state when the desktop was left (see switch_workspace) and
+ * does not change now, so nothing about this reaches the application.
+ *
+ * While held, the frame takes no input (an empty input shape) and sits
+ * at the very bottom of the stack, which is how kwin's own "keep hidden
+ * windows mapped for previews" avoids them interfering. It is also
+ * marked with _KIWM_HELD, so a compositor can tell this map from a
+ * window actually arriving and not animate it.
+ *
+ * The prize is that the *window manager* owns the undoing: whoever asked
+ * can crash mid-picture and the window still goes back where it was,
+ * within `ms`. Asking again before then simply extends it, which is how
+ * a mode that lasts holds on -- there is no "release" request, on
+ * purpose.
+ *
+ * Refused for anything that isn't merely away with its desktop:
+ * minimized (the user put it away), shaded (whose *client* window really
+ * is unmapped), sticky and already-visible windows have nothing to
+ * hold. */
+void client_hold(xcb_window_t window, int ms);
+int  client_hold_timeout_ms(void);
+void client_run_holds(void);
+
+/* Puts a held window back now, whatever its prize said. For the paths
+ * that are about to decide this window's visibility themselves. */
+void client_release_hold(Client *c);
+
 /* Recomputes Client::allow_* from the client's current WM_NORMAL_HINTS /
  * _MOTIF_WM_HINTS and republishes _NET_WM_ALLOWED_ACTIONS -- see
  * client.c. Call after get_size_hints(). */

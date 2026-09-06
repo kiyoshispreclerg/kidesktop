@@ -369,6 +369,19 @@ struct Client {
     int frame_width, frame_height;
 
     bool mapped;
+
+    /* Held up to be looked at: on screen, but only because a compositor
+     * asked for a live picture of a window that belongs to a desktop
+     * nobody is showing (PROTOCOL.md's _KIWM_HOLD_WINDOW). The moment
+     * this passes it goes back where it was. 0 when it is simply shown
+     * or hidden like any other window.
+     *
+     * Nothing else about the window changes while it is held -- not
+     * `mapped`, not WM_STATE, not _NET_WM_DESKTOP -- because nothing
+     * else about it *has* changed: the application is not being shown to
+     * anyone, it is being photographed. */
+    double hold_until;
+
     /* Maximization, tracked per axis: EWMH has always had
      * _NET_WM_STATE_MAXIMIZED_VERT and _HORZ as two independent states,
      * and both single-axis ones are real things a user asks for (kwin
@@ -712,6 +725,8 @@ typedef struct {
     xcb_atom_t kiwm_num_output_desktops;
     xcb_atom_t kiwm_set_output_desktop;
     xcb_atom_t kiwm_prime_desktop_layers;
+    xcb_atom_t kiwm_hold_window;
+    xcb_atom_t kiwm_held;
     xcb_atom_t kiwm_wm_output;
     /* _KIWM_MINIMIZED_GEOMETRY: where a minimized window's frame was when
      * it went away, kept on the window for as long as it stays minimized
