@@ -1,6 +1,6 @@
 # KiDesktop - build every component
 COMPONENTS = kisession kiwm kicomp xispanel xisserve xisnotif xisback \
-             kiconf kiconfd xiskeys xisguard
+             kiconf kiconfd xiskeys xismenu xisguard
 
 all install uninstall clean:
 	@for c in $(COMPONENTS); do \

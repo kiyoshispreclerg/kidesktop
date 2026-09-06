@@ -93,6 +93,15 @@ one central config file and applies it to every toolkit the desktop cares
 about -- Xcursor, GTK2/3/4, Qt, icon themes, fonts, colors -- and reloads on
 SIGHUP without restarting.
 
+**[xismenu](xismenu/)** -- application menu registrar, so global menus work at
+all. Qt/KF5 apps only export their menubar over DBus when
+`com.canonical.AppMenu.Registrar` exists on the session bus (under Plasma that
+name belongs to a kded plugin), and this owns it, then writes the
+`_KDE_NET_WM_APPMENU_*` properties every consumer here already reads --
+`kiwm`'s appmenu titlebar button, `xisserve --menu`, and `xispanel`'s global
+menu widget. It never speaks DBusMenu itself, which is what keeps the window
+manager out of the bus entirely.
+
 **[xiskeys](xiskeys/)** -- global hotkey daemon. Owns root-window key grabs for
 stateless actions only: run a command, media keys, brightness, screenshot,
 lock, power. Hotkeys that need another daemon's live state stay in that daemon.

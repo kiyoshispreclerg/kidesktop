@@ -65,7 +65,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KISESSION_VERSION "0.1.2"
+#define KISESSION_VERSION "0.1.3"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -124,6 +124,7 @@ typedef struct {
 
 static const char *const ARGV_XISGUARD[] = {"xisguard", NULL};
 static const char *const ARGV_KICONFD[] = {"kiconfd", NULL};
+static const char *const ARGV_XISMENU[] = {"xismenu", NULL};
 static const char *const ARGV_XISBACK[] = {"xisback", NULL};
 static const char *const ARGV_XISPANEL[] = {"xispanel", NULL};
 static const char *const ARGV_XISKEYS[] = {"xiskeys", NULL};
@@ -137,6 +138,12 @@ static const SvcDef SERVICES[] = {
     {"dbus", SVC_ENV, NULL, 1, "session bus + activation environment", 0},
     {"xisguard", SVC_ONESHOT, ARGV_XISGUARD, 1, "XNOTIFY permissions (exits by itself without the extension)", 0},
     {"kiconfd", SVC_SUPERVISED, ARGV_KICONFD, 1, "theme/cursor/settings daemon", 2000},
+    /* Before the panel, and well before autostart, because it has to be
+     * on the bus *first*: a Qt/KF5 application only builds its menu
+     * exporter if the registrar already exists when the application
+     * starts, so anything launched before xismenu never exports at all,
+     * not even later. */
+    {"xismenu", SVC_SUPERVISED, ARGV_XISMENU, 1, "application menu registrar (global menu)", 0},
     {"xisback", SVC_SUPERVISED, ARGV_XISBACK, 1, "wallpaper", 0},
     {"xispanel", SVC_SUPERVISED, ARGV_XISPANEL, 1, "panel/taskbar", 0},
     {"xiskeys", SVC_SUPERVISED, ARGV_XISKEYS, 1, "global hotkeys", 0},
