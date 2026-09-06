@@ -156,6 +156,13 @@ Complete enough to be the window manager this desktop is run on day to day. What
   fullscreen on one output, click a window on the other): an `xrefresh` over the same region right
   away leaves the panel corrupted, the same `xrefresh` a second later restores it; before the fix
   4 of 5 focus switches left the panel holding video pixels, after it 5 of 5 were clean.
+  `force_unflip=` in kiwm.conf picks whether those two extra rounds are sent: `auto` (the default)
+  sends them only when nothing else is repairing the screen -- no compositor owns
+  `_NET_WM_CM_S<n>`, and the server has `Present`, i.e. it can page-flip at all -- `always` sends
+  them unconditionally, `never` sends only the immediate round and trusts the server's single
+  unflip. (Whether the server flips each *CRTC* separately, the driver option that makes this bite
+  with a fullscreen window on one output of several, is not something a client can query, so
+  "the server can flip" is as far as the probe goes.)
 - Non-rectangular (shaped) client windows: a client's own SHAPE (bounding *and* input) is forwarded
   onto the frame kiwm reparents it into -- which the X server is what actually clips against once
   the client is a child of that frame, so without it the frame stays a solid rectangle covering,
@@ -366,6 +373,7 @@ a warning on stderr, not a hard error. A key you leave out of the file keeps its
 | `link_resize_neighbors` | `0` | `1` makes resizing also resize whatever's touching (within 1px) the edge being dragged, oppositely, so both stay touching -- same output only. `0` (default) leaves resizing exactly as before. |
 | `focus_follows_mouse` | `0` | `1` raises+focuses a window just by moving the pointer into it ("sloppy focus"). `0` (default) requires an actual click. |
 | `focus_stealing_prevention` | `none` | How much kiwm trusts a window that asks for focus **without the user having asked for it**: a window mapping itself into focus, or an application sending `_NET_ACTIVE_WINDOW` for one of its own windows. `none` (default) focuses whatever asks, which is what kiwm always did. `low` honors only a window's own explicit "don't focus me" (`_NET_WM_USER_TIME` of 0 -- a mail client starting into the tray, a session-restored window). `normal` also refuses a window whose last user interaction is older than the focused window's. `high` also refuses any application other than the one you are currently in (same ICCCM group leader, or a transient of the focused window). `extreme` never lets an application take focus on its own. See "Focus stealing prevention" below. |
+| `force_unflip` | `auto` | Whether the delayed repaint rounds after a fullscreen window loses focus are sent -- the 150ms and 500ms re-exposes that survive the X server's unflip copying the last page-flipped frame over everything (see the bullet above). `auto` sends them only when no compositor owns `_NET_WM_CM_S<n>` and the server has the `Present` extension, which is the case that needs them; `always` sends them whatever else is running (kiwm's behavior since the fix); `never` sends only the immediate `ClearArea` round. The extra rounds cost two `ClearArea` sweeps over the uncovered windows, and only on a fullscreen window losing focus. |
 | `osd_enabled` | `1` | `1` (default) shows a themed overlay while holding Alt+Tab/Meta+Tab, only switching on release -- see "On-screen overlays (OSD)" below. `0` reverts to switching immediately on every Tab press, no overlay. |
 | `osd_live_preview_windows` | `0` | `1` applies every Alt+Tab step live (raise + focus the highlighted window) instead of only on release -- Escape then reverts to whatever was focused before the hold started. `0` (default) leaves everything untouched until release. Ignored when `osd_enabled=0`. |
 | `osd_live_preview_desktops` | `0` | The same for the desktop switcher (Meta+Tab): `1` switches to the highlighted desktop on every step. Separate from the windows one because previewing a *window* raises and focuses it, which is far more disruptive than previewing a desktop. The old `osd_live_preview=` still works and sets both. |

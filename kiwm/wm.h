@@ -182,6 +182,18 @@ typedef enum {
     FSP_EXTREME,    /* no application ever takes focus on its own */
 } FocusStealingPrevention;
 
+/* kiwm.conf's force_unflip=: whether the delayed repaint rounds that
+ * follow a fullscreen window losing focus are sent at all. See client.c's
+ * queue_expose_windows_over() for what they are for -- the server copying
+ * the last page-flipped frame into the screen pixmap *after* the restack,
+ * wiping the repaint the immediate round asked for. */
+typedef enum {
+    FORCE_UNFLIP_NEVER = 0, /* the immediate ClearArea round only, and trust the server */
+    FORCE_UNFLIP_ALWAYS,    /* always re-send it 150ms and 500ms later as well */
+    FORCE_UNFLIP_AUTO,      /* ...but only when nothing else is repairing the screen:
+                             * no compositor, and a server that page-flips at all */
+} ForceUnflip;
+
 /* Stacking layer a client belongs to, derived from its state (see client.c's
  * client_layer()) -- never set directly. Ordered bottom to top; client.c's
  * restack_all() rebuilds the real X stacking order from this every time
@@ -754,6 +766,8 @@ typedef struct {
 typedef struct {
     xcb_connection_t *conn;
     xcb_screen_t *screen;
+    int screen_nbr;         /* index of `screen` in the setup's root list -- what WM_Sn,
+                             * _NET_WM_CM_Sn and friends are numbered by */
     xcb_window_t root;
     xcb_visualtype_t *visual;
 
@@ -1042,6 +1056,11 @@ typedef struct {
      * FocusStealingPrevention above and client.c's
      * focus_request_allowed()). */
     int focus_stealing_prevention;
+
+    /* Whether the delayed repaint rounds after a fullscreen unflip are
+     * sent -- kiwm.conf's force_unflip=, FORCE_UNFLIP_AUTO by default
+     * (see ForceUnflip above and client.c's force_unflip_wanted()). */
+    int force_unflip;
 
     /* Distance in pixels from an output's workarea edge, while dragging a
      * window by its titlebar/mod-drag, that engages Windows7/kwin-style

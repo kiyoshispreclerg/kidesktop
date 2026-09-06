@@ -10,6 +10,7 @@
 #include "menu.h"
 #include "outline.h"
 #include "shape.h"
+#include "atoms.h"
 
 #include <xcb/shape.h>
 
@@ -596,7 +597,11 @@ static void expose_windows_over(int rx, int ry, int rw, int rh)
  * So the exposes are also re-sent a couple of times over the next half
  * second, after the unflip has certainly settled. Verified live: an
  * xrefresh over the same region right away leaves the window corrupted,
- * the same xrefresh a second later restores it. */
+ * the same xrefresh a second later restores it.
+ *
+ * Three rounds in all, then: the immediate one, +150ms and +500ms. Which
+ * of them actually happen is kiwm.conf's force_unflip= -- see
+ * force_unflip_wanted() below. */
 static struct {
     bool active;
     int rx, ry, rw, rh;
@@ -604,9 +609,71 @@ static struct {
     int next;        /* index into due[] of the next round to fire */
 } pending_expose;
 
+/* Whether the server is one that page-flips at all, which is the whole
+ * premise of the delayed rounds: no Present, no flip, no unflip, nothing
+ * to repair. Which *outputs* it flips separately (the modeset driver's
+ * PerCRTCFlip, the case that actually bites here, since it flips a window
+ * covering one output of several) is a driver option no client can ask
+ * about -- Present's own capabilities are about async/fence/UST -- so
+ * "the server can flip" is as close as a runtime probe gets.
+ *
+ * Asked once: an extension does not appear or disappear under a running
+ * connection. */
+static bool server_page_flips(void)
+{
+    static int cached = -1;
+    if (cached >= 0)
+        return cached != 0;
+
+    xcb_query_extension_reply_t *r = xcb_query_extension_reply(wm.conn,
+        xcb_query_extension(wm.conn, 7, "Present"), NULL);
+    cached = (r && r->present) ? 1 : 0;
+    free(r);
+    return cached != 0;
+}
+
+/* A compositor redirects every window offscreen and paints the screen
+ * itself, so no client window is ever the topmost unobscured thing the
+ * server could flip, and nothing here is needed. Asked fresh each time
+ * (one round trip, only on a fullscreen window losing focus) rather than
+ * cached, because a compositor is started and stopped at will -- kicomp
+ * is a separate program, not part of the session's fixed furniture. */
+static bool compositor_running(void)
+{
+    char selname[32];
+    snprintf(selname, sizeof(selname), "_NET_WM_CM_S%d", wm.screen_nbr);
+    xcb_atom_t cm = intern_atom(selname);
+    if (cm == XCB_ATOM_NONE)
+        return false;
+
+    xcb_get_selection_owner_reply_t *r = xcb_get_selection_owner_reply(
+        wm.conn, xcb_get_selection_owner(wm.conn, cm), NULL);
+    bool owned = r && r->owner != XCB_NONE;
+    free(r);
+    return owned;
+}
+
+/* kiwm.conf's force_unflip=. */
+static bool force_unflip_wanted(void)
+{
+    switch (wm.force_unflip) {
+    case FORCE_UNFLIP_NEVER:
+        return false;
+    case FORCE_UNFLIP_ALWAYS:
+        return true;
+    default:
+        return !compositor_running() && server_page_flips();
+    }
+}
+
 static void queue_expose_windows_over(int rx, int ry, int rw, int rh)
 {
     expose_windows_over(rx, ry, rw, rh);
+
+    if (!force_unflip_wanted()) {
+        pending_expose.active = false;
+        return;
+    }
 
     double now = monotonic_ms();
     pending_expose.active = true;

@@ -53,6 +53,7 @@ static void apply_builtin_defaults(void)
     wm.link_resize_neighbors = false;
     wm.focus_follows_mouse = false;
     wm.focus_stealing_prevention = FSP_NONE;
+    wm.force_unflip = FORCE_UNFLIP_AUTO;
     wm.appmenu_command[0] = '\0';
     wm.osd_enabled = true;
     wm.osd_live_preview_windows = false;
@@ -157,6 +158,17 @@ static int parse_focus_prevention(const char *s, int fallback)
     if (strcasecmp(s, "extreme") == 0) return FSP_EXTREME;
     fprintf(stderr, "kiwm: config: unknown focus_stealing_prevention '%s' (expected none, low, "
                     "normal, high or extreme), keeping current value\n", s);
+    return fallback;
+}
+
+/* never/always/auto -> ForceUnflip. */
+static int parse_force_unflip(const char *s, int fallback)
+{
+    if (strcasecmp(s, "never") == 0)  return FORCE_UNFLIP_NEVER;
+    if (strcasecmp(s, "always") == 0) return FORCE_UNFLIP_ALWAYS;
+    if (strcasecmp(s, "auto") == 0)   return FORCE_UNFLIP_AUTO;
+    fprintf(stderr, "kiwm: config: unknown force_unflip '%s' (expected never, always or auto), "
+                    "keeping current value\n", s);
     return fallback;
 }
 
@@ -277,6 +289,22 @@ static void write_default_config(const char *path)
         "# A refused window still appears; it just doesn't take the keyboard,\n"
         "# and is flagged as demanding attention so a taskbar highlights it.\n"
         "focus_stealing_prevention=none\n"
+        "\n"
+        "# Repainting what a fullscreen window leaves behind when it loses\n"
+        "# focus. Without a compositor the X server page-flips a topmost,\n"
+        "# unobscured window that covers a whole output straight to the\n"
+        "# scanout, and \"unflips\" by copying that last video frame into the\n"
+        "# screen pixmap -- which lands *after* the restack and wipes the\n"
+        "# repaint kiwm just asked the uncovered windows for, leaving the\n"
+        "# panel showing the game's or the video's pixels. kiwm therefore\n"
+        "# re-sends the exposes 150ms and 500ms later, once the unflip has\n"
+        "# certainly settled.\n"
+        "#   auto   = do that only when nothing else is repairing the screen:\n"
+        "#            no compositor is running and the server has Present\n"
+        "#            (i.e. it can page-flip at all). The default.\n"
+        "#   always = always send the two extra rounds.\n"
+        "#   never  = immediate round only; trust the server's single unflip.\n"
+        "force_unflip=auto\n"
         "\n"
         "# What the titlebar's appmenu button runs (the appmenu element of\n"
         "# titlebar_layout=). kiwm has no DBus of its own on purpose -- it\n"
@@ -474,6 +502,8 @@ void config_load(void)
             snprintf(wm.appmenu_command, sizeof(wm.appmenu_command), "%s", val);
         } else if (strcmp(key, "focus_stealing_prevention") == 0) {
             wm.focus_stealing_prevention = parse_focus_prevention(val, wm.focus_stealing_prevention);
+        } else if (strcmp(key, "force_unflip") == 0) {
+            wm.force_unflip = parse_force_unflip(val, wm.force_unflip);
         } else if (strcmp(key, "osd_enabled") == 0) {
             wm.osd_enabled = atoi(val) != 0;
         } else if (strcmp(key, "osd_live_preview") == 0) {

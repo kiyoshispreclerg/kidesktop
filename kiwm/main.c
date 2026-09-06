@@ -41,7 +41,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KIWM_VERSION "0.4.17"
+#define KIWM_VERSION "0.4.18"
 
 #include "wm.h"
 #include "config.h"
@@ -237,6 +237,7 @@ static void setup_wm(bool replace)
         xcb_screen_next(&it);
 
     wm.screen = it.data;
+    wm.screen_nbr = preferred_screen;
     wm.root = wm.screen->root;
     wm.visual = find_root_visual(wm.screen);
     if (!wm.visual)
