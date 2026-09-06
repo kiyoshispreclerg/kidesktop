@@ -36,10 +36,11 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.45"
+#define KICOMP_VERSION "0.2.46"
 
 #include "comp.h"
 #include "output.h"
+#include "unredirect.h"
 #include "window.h"
 #include "scene.h"
 #include "renderer.h"
@@ -552,6 +553,14 @@ static void paint_dirty_outputs(double now)
         if (!o->dirty || !o->render_data)
             continue;
 
+        /* Not ours to paint: one window is filling it and drawing itself
+         * (unredirect.h). Left clean rather than skipped-but-dirty, so
+         * nothing here waits on a frame that will never be asked for. */
+        if (unredirect_holds(o)) {
+            o->dirty = false;
+            continue;
+        }
+
         /* A frame is still in flight for this output (Present): painting
          * another one now would queue latency behind it rather than show
          * anything sooner. It stays dirty and is painted the moment the
@@ -842,6 +851,11 @@ static void handle_event(xcb_generic_event_t *ev)
 
 static void shutdown_compositor(void)
 {
+    /* Before anything else goes: a window left unredirected against a
+     * compositor that no longer exists is a window the next one will not
+     * be compositing either. */
+    unredirect_release_all();
+
     input_shutdown();
     effects_shutdown();
     density_shutdown();
@@ -1194,6 +1208,11 @@ int main(int argc, char **argv)
             effects_update(now);
             scheduler_tick(now);
         }
+
+        /* Before the paint, and after the events that decide it: an
+         * output handed over in this frame must not also be painted in
+         * it, and one taken back must be. */
+        unredirect_update();
 
         paint_dirty_outputs(now);
         xcb_flush(comp.conn);

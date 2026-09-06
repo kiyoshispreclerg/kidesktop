@@ -584,6 +584,14 @@ typedef struct KiComp {
      * Kept windows are left out of the scene until an effect asks for
      * them (scene.h's comp.show_stowed_output), so nothing changes on
      * screen from having them. */
+    /* Step out of the way when one window fills an output and nothing
+     * else is visible on it: unredirect that window and stop compositing
+     * that output, so the server can scan the window's own buffer out
+     * (unredirect.h). Per output, which is what this fork's per-CRTC
+     * flip makes worth doing -- a game on one monitor no longer pays for
+     * the desktop on the other. */
+    bool unredirect;
+
     bool keep_stowed;
 
     /* Which output is being shown them, by id -- COMP_NO_OUTPUT for

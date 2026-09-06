@@ -110,6 +110,14 @@ skip_wm_layers     = 0     # 1 = don't composite kiwm's OSD/wireframe
 keep_hidden_contents = 1   # keep the last picture of a window the WM put
                            # away (minimized, another desktop), so effects
                            # like expo can draw it. One pixmap each
+unredirect_fullscreen = 1  # stand aside when one window fills an output and
+                           # nothing else is visible on it: that window is
+                           # unredirected, that output stops being composited
+                           # and the server can scan the window's own buffer
+                           # out (FLIP instead of COPY). Per output, so a game
+                           # on one monitor flips while the other keeps its
+                           # effects. Given back the instant anything has to
+                           # be drawn over it
 
 # ---- per-output scaling (HiDPI) ----
 # One section per output, by RandR name; [output:*] is the default for the

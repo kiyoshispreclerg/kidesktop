@@ -85,6 +85,11 @@ static void apply_builtin_defaults(void)
     comp.skip_wm_layers = false;
     /* On: it is what makes the expo grid able to show a desktop that
      * isn't on screen, and it costs one pixmap per hidden window. */
+    /* On: the whole point of a per-CRTC flip is that it happens without
+     * anyone asking. It gives the output back the moment there is
+     * anything to draw over it (unredirect.h). */
+    comp.unredirect = true;
+
     comp.keep_stowed = true;
     comp.show_stowed_output = COMP_NO_OUTPUT;
 
@@ -311,6 +316,8 @@ static void config_pass(FILE *f, bool instances_pass)
             comp.single_drawable = atoi(val) != 0;
         } else if (strcmp(key, "skip_wm_layers") == 0) {
             comp.skip_wm_layers = atoi(val) != 0;
+        } else if (strcmp(key, "unredirect_fullscreen") == 0) {
+            comp.unredirect = atoi(val) != 0;
         } else if (strcmp(key, "keep_hidden_contents") == 0) {
             comp.keep_stowed = atoi(val) != 0;
         } else if (strcmp(key, "renderer") == 0) {
