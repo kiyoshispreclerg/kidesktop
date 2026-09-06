@@ -37,6 +37,7 @@
  *   distance = 1.0     # how far, as a fraction of the output's size
  *   fade     = 0       # dim towards the edges as well as slide
  *   crossing = fade    # what happens to the part on another output
+ *   parallax_delay = 100   # ms each window waits behind the one below it
  *
  * `distance = 1.0` is the wall proper: a window ends exactly one screen
  * away, so the two desktops never overlap. Less than that and the desktops
@@ -54,6 +55,16 @@
  *
  *   fade  it dissolves where it is, in step with the slide (default)
  *   hide  it goes at once
+ *
+ * `parallax_delay` is what turns one motion into depth. Every window of
+ * the switch still travels the same distance in the same time, but each
+ * one starts a little after the one below it in the stack -- so the
+ * bottom of the desktop leads and the top follows, the way the near and
+ * far halves of a landscape move at different rates past a train window.
+ * The window at the bottom starts at zero, which with `windows=all` is
+ * the wallpaper: the ground moves first and everything standing on it
+ * comes after. Set it to 0 for the flat wall, where the whole desktop is
+ * one rigid panel.
  */
 #include "../effect.h"
 #include "../animation.h"
@@ -78,6 +89,7 @@ typedef struct {
     bool fade;
     float distance;
     WallCrossing crossing;
+    double parallax_ms;
 } WallConfig;
 
 typedef struct {
@@ -106,6 +118,10 @@ static void config_defaults(void *config)
     c->fade = false;
     c->distance = 1.0f;
     c->crossing = CROSSING_FADE;
+    /* Enough to be read as depth rather than as lag. Two or three
+     * windows apart it is a stagger; a dozen and the last one is still
+     * a beat behind, not a second. */
+    c->parallax_ms = 100.0;
 }
 
 static bool config_key(void *config, const char *key, const char *value)
@@ -123,6 +139,13 @@ static bool config_key(void *config, const char *key, const char *value)
         c->distance = d;
         return true;
     }
+    if (strcmp(key, "parallax_delay") == 0) {
+        double ms = atof(value);
+        if (ms < 0.0) ms = 0.0;
+        if (ms > 2000.0) ms = 2000.0;
+        c->parallax_ms = ms;
+        return true;
+    }
     if (strcmp(key, "crossing") == 0) {
         if (strcmp(value, "fade") == 0)
             c->crossing = CROSSING_FADE;
@@ -134,6 +157,53 @@ static bool config_key(void *config, const char *key, const char *value)
         return true;
     }
     return false;
+}
+
+/* How many windows of this switch have already been given an effect on
+ * this output, counting the way they are stacked: the events arrive one
+ * per window, bottom of the stack first (window.c walks comp.stack that
+ * way), so this is simply how many came before -- 0 for the bottom-most
+ * window, which is the one that leads.
+ *
+ * Reset by the switch itself changing (comp.desktop_changed_ms), which
+ * is the only thing that separates one wall from the next; counted per
+ * output, since two monitors can switch at the same moment and neither
+ * one's cascade is the other's. Leaving and entering windows are counted
+ * apart: they are two desktops moving together, each with its own bottom
+ * to start from.
+ *
+ * Past MAX_OUTPUTS the answer is 0, which is the flat wall -- the
+ * behaviour before any of this existed. */
+#define WALL_MAX_OUTPUTS 8
+
+static int rank_in_switch(const CompOutput *o, bool leaving)
+{
+    static double batch_at = -1.0;
+    static struct { int id; int leaving_n; int entering_n; } batch[WALL_MAX_OUTPUTS];
+    static int batch_count;
+
+    if (comp.desktop_changed_ms != batch_at) {
+        batch_at = comp.desktop_changed_ms;
+        batch_count = 0;
+    }
+
+    int slot = -1;
+    for (int i = 0; i < batch_count; i++) {
+        if (batch[i].id == o->id) {
+            slot = i;
+            break;
+        }
+    }
+    if (slot < 0) {
+        if (batch_count >= WALL_MAX_OUTPUTS)
+            return 0;
+        slot = batch_count++;
+        batch[slot].id = o->id;
+        batch[slot].leaving_n = 0;
+        batch[slot].entering_n = 0;
+    }
+
+    return leaving ? batch[slot].leaving_n++ : batch[slot].entering_n++;
 }
 
 /* The output this window sits on, or NULL if it sits on none (which is
@@ -321,7 +391,13 @@ static void on_event(CompWindow *w, const CompEvent *event,
     e->ops = &wall_ops;
     e->instance = self;
     e->window = w;
-    e->start_time = comp_now_ms();
+    /* Later than now, for every window but the bottom one: the effect
+     * exists from this moment, and simply stands still at its first
+     * frame until its turn comes (comp_progress reads a start that has
+     * not arrived as zero). A leaving window waits where it is; an
+     * entering one waits off the side it is coming from. */
+    e->start_time = comp_now_ms() +
+                    (double)rank_in_switch(o, leaving) * d->cfg->parallax_ms;
     e->duration = duration;
     e->data = d;
 

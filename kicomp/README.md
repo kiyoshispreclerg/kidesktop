@@ -187,6 +187,11 @@ events   = desktop-leave,desktop-enter
 windows  = all
 distance = 1.0                  # how far, as a fraction of the output's size
 fade     = 0                    # dim on the way out/in as well as slide
+parallax_delay = 100            # ms each window waits behind the one below it
+                                # in the stack: the bottom of the desktop
+                                # leads and the top follows, which with
+                                # windows=all means the wallpaper moves first.
+                                # 0 is the flat wall, one rigid panel
 crossing = fade                 # the part on another output: fade | hide
 
 [effect:dodge]
