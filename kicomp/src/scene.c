@@ -58,6 +58,16 @@ void scene_build(CompScene *s, CompOutput *o)
         if (w->stowed && comp.show_stowed_output != o->id &&
             w->retain_count <= 1)
             continue;
+
+        /* And a window that is on screen *only* to be photographed
+         * (comp.h's held) is the same case seen from the other side: X
+         * has it mapped, but it belongs to a desktop nobody is showing
+         * and it is up for the sake of whoever asked. Drawn outside that
+         * -- in the second or so a hold outlives the grid that wanted it
+         * -- it is a window from another desktop appearing on this one
+         * and disappearing again. */
+        if (w->held && comp.show_stowed_output != o->id)
+            continue;
         if (w->opacity <= 0.0)
             continue;
         /* kiwm's own overlay layers (switcher, wireframe), left out when
