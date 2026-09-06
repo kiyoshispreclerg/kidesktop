@@ -1329,7 +1329,7 @@ static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
          * scissor would clip it anyway, but binding a pixmap and issuing
          * draws for a window nobody can see is the work worth not doing. */
         CompRect touch = n->visible_rect;
-        int reach = shadow_margin();
+        int reach = shadow_margin_for_window(w);
         touch.x -= reach;
         touch.y -= reach;
         touch.w += reach * 2;

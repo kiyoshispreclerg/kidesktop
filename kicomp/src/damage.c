@@ -75,7 +75,7 @@ void damage_collect(void)
         if (n >= MAX_COLLECT) {
             /* Out of slots: correct, just coarser. */
             CompRect r = window_rect(w);
-            output_damage_rect(&r);
+            output_damage_window_rect(w, &r);
             effects_damage_window(w, &r);
             continue;
         }
@@ -107,7 +107,7 @@ void damage_collect(void)
             /* The window died between the event and the reply, or the
              * server refused: repaint where it was and move on. */
             CompRect whole = window_rect(w);
-            output_damage_rect(&whole);
+            output_damage_window_rect(w, &whole);
             effects_damage_window(w, &whole);
             continue;
         }
@@ -121,7 +121,7 @@ void damage_collect(void)
              * own rectangle covers both cases. */
             if (count > 0) {
                 CompRect whole = window_rect(w);
-                output_damage_rect(&whole);
+                output_damage_window_rect(w, &whole);
                 effects_damage_window(w, &whole);
             }
             free(r);
@@ -153,7 +153,7 @@ void damage_collect(void)
             if (unseen)
                 continue;
 
-            output_damage_rect(&d);
+            output_damage_window_rect(w, &d);
         }
 
         free(r);

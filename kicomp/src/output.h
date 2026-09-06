@@ -25,6 +25,16 @@ void outputs_teardown(void);
  * bigger than the window itself. Callers never have to know that. */
 void output_damage_rect(const CompRect *r);
 
+/* Same, but grown by *this window's* shadow reach rather than the worst
+ * case over both styles -- zero for a window shadow_for_window() would
+ * refuse a shadow to (a maximized or fullscreen window above all: its
+ * edges are the screen's, and growing its damage rectangle at all just
+ * spills it across whatever output happens to sit past that edge). Use
+ * this whenever the rectangle being damaged really is one window's, and
+ * output_damage_rect() for anything else (a whole output, an effect's
+ * own on-screen item). */
+void output_damage_window_rect(const CompWindow *w, const CompRect *r);
+
 void output_damage_all(void);
 
 /* What to repaint on this output, for the renderer and the presenter. A

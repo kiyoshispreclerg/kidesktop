@@ -95,4 +95,14 @@ void shadow_profile(int radius, uint8_t *out);
  * on a partial repaint. Zero when shadows are off. */
 int shadow_margin(void);
 
+/* The same reach, but for one particular window rather than the worst
+ * case over both styles: zero for a window that shadow_for_window()
+ * would refuse a shadow to -- a maximized or fullscreen window chief
+ * among them, whose edges are the screen's edges and which has nothing
+ * to grow a damage rectangle for. Callers with a specific window in hand
+ * should prefer this: shadow_margin() alone would still pad a fullscreen
+ * window's damage by the general margin and spill it onto whatever
+ * output happens to sit past that edge. */
+int shadow_margin_for_window(const CompWindow *w);
+
 #endif /* KICOMP_SHADOW_H */

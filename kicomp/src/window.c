@@ -179,7 +179,7 @@ void window_update_opacity(CompWindow *w)
     if (w->opacity != prev) {
         renderer_window_invalidate(w);   /* drops the cached alpha picture */
         CompRect r2 = window_rect(w);
-        output_damage_rect(&r2);
+        output_damage_window_rect(w, &r2);
     }
 }
 
@@ -783,10 +783,10 @@ void window_focus_changed(xcb_window_t active)
          * else happens to repaint those pixels. In practice a decorating
          * WM hides it by repainting its titlebar on focus, which damages
          * the window anyway; an undecorated window has nothing to hide
-         * behind. output_damage_rect() grows the rectangle by the shadow's
-         * reach on its own. */
+         * behind. output_damage_window_rect() grows the rectangle by this
+         * window's shadow reach on its own. */
         CompRect r = window_rect(w);
-        output_damage_rect(&r);
+        output_damage_window_rect(w, &r);
     }
 }
 
@@ -967,7 +967,7 @@ void windows_flush_events(void)
              * as damage -- it happens in the same breath as the map --
              * and half a window is worse than the old one. */
             CompRect r = window_rect(w);
-            output_damage_rect(&r);
+            output_damage_window_rect(w, &r);
             effects_damage_window(w, &r);
         }
 
@@ -1162,7 +1162,7 @@ static void window_add_at(xcb_window_t id, xcb_window_t above, bool on_top)
     if (w->mapped) {
         damage_create(w);
         CompRect r = window_rect(w);
-        output_damage_rect(&r);
+        output_damage_window_rect(w, &r);
     }
 }
 
@@ -1201,7 +1201,7 @@ void window_release(CompWindow *w)
         return;
 
     CompRect r = window_rect(w);
-    output_damage_rect(&r);
+    output_damage_window_rect(w, &r);
 
     if (w->zombie) {
         /* Nothing left to be: the X window is gone and the last effect
@@ -1224,7 +1224,7 @@ void window_remove(xcb_window_t id)
 
     if (w->mapped) {
         CompRect r = window_rect(w);
-        output_damage_rect(&r);
+        output_damage_window_rect(w, &r);
     }
 
     damage_destroy(w);
@@ -1312,7 +1312,7 @@ void window_map(xcb_window_t id)
     w->pending_appear = true;
 
     CompRect r = window_rect(w);
-    output_damage_rect(&r);
+    output_damage_window_rect(w, &r);
 }
 
 void window_unmap(xcb_window_t id)
@@ -1333,7 +1333,7 @@ void window_unmap(xcb_window_t id)
     w->pending_disappear = true;
 
     CompRect r = window_rect(w);
-    output_damage_rect(&r);
+    output_damage_window_rect(w, &r);
 }
 
 /* Two configures closer together than this are treated as part of one
@@ -1381,8 +1381,8 @@ void window_configure(xcb_window_t id, int x, int y, int w_, int h_, int border,
 
     if (w->mapped) {
         CompRect now = window_rect(w);
-        output_damage_rect(&old);
-        output_damage_rect(&now);
+        output_damage_window_rect(w, &old);
+        output_damage_window_rect(w, &now);
 
         if (moved || resized) {
             /* Is this one jump, or one step of a drag? Without the
@@ -1435,7 +1435,7 @@ void window_restack(xcb_window_t id, xcb_window_t above)
 
     if (w->mapped) {
         CompRect r = window_rect(w);
-        output_damage_rect(&r);
+        output_damage_window_rect(w, &r);
     }
 }
 

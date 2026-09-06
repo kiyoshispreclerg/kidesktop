@@ -1443,9 +1443,9 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
          * actually is on a screen full of idle windows.
          *
          * The area asked about includes the shadow's reach, since that is
-         * drawn outside the window -- output_damage_rect() grew the
-         * damage by the same margin at the other end. */
-        int margin = shadow_margin();
+         * drawn outside the window -- output_damage_window_rect() grew
+         * the damage by this same window's margin at the other end. */
+        int margin = shadow_margin_for_window(n->win);
         CompRect touched = {
             n->visible_rect.x - margin, n->visible_rect.y - margin,
             n->visible_rect.w + margin * 2, n->visible_rect.h + margin * 2

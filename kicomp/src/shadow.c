@@ -152,27 +152,35 @@ bool shadow_for_window(const CompWindow *w, CompShadowStyle *out)
     return out->opacity > 0.0f && out->radius > 0;
 }
 
+/* Shared by shadow_margin() and shadow_margin_for_window(): how far one
+ * style reaches past the window's edge. */
+static int style_reach(const CompShadowStyle *s)
+{
+    if (s->opacity <= 0.0f || s->radius <= 0)
+        return 0;
+
+    int ox = s->offset_x < 0 ? -s->offset_x : s->offset_x;
+    int oy = s->offset_y < 0 ? -s->offset_y : s->offset_y;
+    return s->radius + (ox > oy ? ox : oy);
+}
+
 int shadow_margin(void)
 {
     if (!comp_shadow.enabled)
         return 0;
 
-    const CompShadowStyle *styles[2] = { &comp_shadow.active, &comp_shadow.inactive };
-    int margin = 0;
+    int a = style_reach(&comp_shadow.active);
+    int i = style_reach(&comp_shadow.inactive);
+    return a > i ? a : i;
+}
 
-    for (int i = 0; i < 2; i++) {
-        const CompShadowStyle *s = styles[i];
-        if (s->opacity <= 0.0f || s->radius <= 0)
-            continue;
+int shadow_margin_for_window(const CompWindow *w)
+{
+    CompShadowStyle style;
+    if (!shadow_for_window(w, &style))
+        return 0;
 
-        int ox = s->offset_x < 0 ? -s->offset_x : s->offset_x;
-        int oy = s->offset_y < 0 ? -s->offset_y : s->offset_y;
-        int reach = s->radius + (ox > oy ? ox : oy);
-        if (reach > margin)
-            margin = reach;
-    }
-
-    return margin;
+    return style_reach(&style);
 }
 
 /* The 1-D profile: how a blurred edge fades from nothing to solid across

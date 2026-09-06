@@ -341,16 +341,8 @@ void outputs_refresh(void)
     }
 }
 
-void output_damage_rect(const CompRect *r)
+static void damage_rect_grown(const CompRect *r, int margin)
 {
-    /* A window's shadow is painted *outside* the window, so the area a
-     * window's change dirties is bigger than the window: damaging its
-     * rectangle alone would leave a band of stale shadow behind it every
-     * time it moves. Grown here, once, rather than at each of the thirty
-     * call sites -- none of which has any business knowing shadows
-     * exist. */
-    int margin = shadow_margin();
-
     CompRect grown = *r;
     if (margin > 0) {
         grown.x -= margin;
@@ -372,6 +364,29 @@ void output_damage_rect(const CompRect *r)
         o->dirty = true;
         region_add(&o->damage, &hit);
     }
+}
+
+void output_damage_rect(const CompRect *r)
+{
+    /* A window's shadow is painted *outside* the window, so the area a
+     * window's change dirties is bigger than the window: damaging its
+     * rectangle alone would leave a band of stale shadow behind it every
+     * time it moves. Grown here, once, rather than at each of the thirty
+     * call sites -- none of which has any business knowing shadows
+     * exist.
+     *
+     * The worst case over both styles, because this entry point has no
+     * particular window to ask: an output-wide rectangle, or one that is
+     * already the whole of an effect item, is not going to be pushed
+     * outside its output by a shadow's reach the way a single window's
+     * exact edge can be -- see output_damage_window_rect() for that
+     * case. */
+    damage_rect_grown(r, shadow_margin());
+}
+
+void output_damage_window_rect(const CompWindow *w, const CompRect *r)
+{
+    damage_rect_grown(r, shadow_margin_for_window(w));
 }
 
 void output_damage_all(void)
