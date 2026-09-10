@@ -54,8 +54,11 @@ typedef struct {
 
 typedef struct {
     const ScaleConfig *cfg;
-    float ox, oy;          /* the fixed point, root coordinates */
-    CompRect geometry;     /* the window's rect, frozen at the start */
+    /* Whether the point below is a point in space, queried once (pointer,
+     * output), or has to be re-read from the window every frame -- see
+     * origin_now(). */
+    bool origin_fixed;
+    float ox, oy;          /* that point, when it is fixed; root coordinates */
     CompRect covered;      /* what the last frame drew, for damage */
 } ScaleData;
 
@@ -89,9 +92,23 @@ static bool config_key(void *config, const char *key, const char *value)
     return true;
 }
 
-/* The point the window grows out of (or shrinks into). Queried once, when
- * the effect starts: the pointer keeps moving, and an origin that moved
- * with it would drag the animation sideways. */
+/* The point the window shrinks into (or grows out of), for this frame.
+ *
+ * origin = pointer and origin = output name a point in *space*, so each
+ * is queried once when the effect starts: the pointer keeps moving, and an
+ * origin that moved with it would drag the animation sideways.
+ *
+ * origin = window names the window's own centre, which is not a point in
+ * space -- it is wherever the window currently is, so it has to be read
+ * again every frame. Freezing it was a real bug rather than a purity
+ * argument. A toolkit popup is routinely mapped somewhere that is not
+ * where it will be shown and moved into place a beat later (Firefox's tab
+ * previews are mapped below the bottom of the screen), so `open` fires
+ * while the window is still parked off-screen, and the centre frozen
+ * there is nowhere near the window by the time anyone sees it. Scaling
+ * about a point that far away does not merely resize the window, it
+ * *translates* it: the popup came sliding in from beyond the bottom edge,
+ * which is not an animation anybody configured. */
 static void origin_for(CompWindow *w, const ScaleConfig *cfg, float *ox, float *oy)
 {
     CompRect r = window_rect(w);
@@ -106,7 +123,9 @@ static void origin_for(CompWindow *w, const ScaleConfig *cfg, float *ox, float *
             return;
         }
         /* No pointer on this screen: the window's own centre is the
-         * honest fallback, not (0,0). */
+         * honest fallback, not (0,0). Frozen here like any other fixed
+         * origin -- it stands in for a point that could not be read, not
+         * for origin = window, which never reaches this function. */
     } else if (cfg->origin == ORIGIN_OUTPUT) {
         CompRect centre = { r.x + r.w / 2, r.y + r.h / 2, 1, 1 };
         for (int i = 0; i < comp.output_count; i++) {
@@ -123,15 +142,35 @@ static void origin_for(CompWindow *w, const ScaleConfig *cfg, float *ox, float *
     *oy = r.y + r.h / 2.0f;
 }
 
+/* The origin to use right now: the frozen point for pointer/output, and
+ * the window's live centre for origin = window. */
+static void origin_now(CompEffect *e, float *ox, float *oy)
+{
+    ScaleData *d = e->data;
+
+    if (d->origin_fixed) {
+        *ox = d->ox;
+        *oy = d->oy;
+        return;
+    }
+
+    CompRect r = window_rect(e->window);
+    *ox = r.x + r.w / 2.0f;
+    *oy = r.y + r.h / 2.0f;
+}
+
 static void scale_transform(CompEffect *e, float p, CompTransform *t)
 {
     ScaleData *d = e->data;
     float s = comp_lerp(1.0f, d->cfg->size, p);
 
+    float ox, oy;
+    origin_now(e, &ox, &oy);
+
     comp_transform_identity(t);
-    comp_transform_translate(t, -d->ox, -d->oy);
+    comp_transform_translate(t, -ox, -oy);
     comp_transform_scale(t, s, s);
-    comp_transform_translate(t, d->ox, d->oy);
+    comp_transform_translate(t, ox, oy);
 }
 
 static void scale_update(CompEffect *e, double now)
@@ -142,7 +181,11 @@ static void scale_update(CompEffect *e, double now)
 
     CompTransform t;
     scale_transform(e, effect_ease(e, comp_progress(now, e->start_time, e->duration)), &t);
-    comp_transform_bbox(&t, &d->geometry, &d->covered);
+    /* The window's rect as it is now, not as it was when the effect
+     * started: a window that moved mid-animation is drawn at its new
+     * place, and damaging the old one leaves the new one unrepainted. */
+    CompRect geometry = window_rect(e->window);
+    comp_transform_bbox(&t, &geometry, &d->covered);
 
     output_damage_rect(&previous);
     output_damage_rect(&d->covered);
@@ -213,9 +256,12 @@ static void on_event(CompWindow *w, const CompEvent *event,
     }
 
     d->cfg = self->config;
-    origin_for(w, d->cfg, &d->ox, &d->oy);
-    d->geometry = window_rect(w);
-    d->covered = d->geometry;
+    /* Only pointer and output name a point in space worth freezing;
+     * origin = window is re-read every frame by origin_now(). */
+    d->origin_fixed = d->cfg->origin != ORIGIN_WINDOW;
+    if (d->origin_fixed)
+        origin_for(w, d->cfg, &d->ox, &d->oy);
+    d->covered = window_rect(w);
 
     e->ops = &scale_ops;
     e->instance = self;
