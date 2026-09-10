@@ -27,6 +27,7 @@
  * desktop's windows drawn inside its square), not asked to be swappable.
  */
 #include "osd.h"
+#include "selection.h"
 #include "decoration.h"
 #include "client.h"
 #include "output.h"
@@ -337,11 +338,38 @@ static void ensure_osd_window(void)
         return;
 
     osd_win = xcb_generate_id(wm.conn);
-    uint32_t values[] = { wm.screen->black_pixel, 1, XCB_EVENT_MASK_EXPOSURE };
-    xcb_create_window(wm.conn, wm.screen->root_depth, osd_win, wm.root,
-                      -10, -10, 10, 10, 0,
-                      XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.screen->root_visual,
-                      XCB_CW_BACK_PIXEL | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK, values);
+
+    /* A depth-32 window wherever the screen has such a visual, for the
+     * same reason every frame is one (client.c's manage()): it is the only
+     * surface the theme's alpha can survive on, and it costs nothing
+     * without a compositor, where the server simply ignores the alpha
+     * channel. Whether that alpha is *used* is decided per paint, in
+     * draw_chrome_and_content() -- an alpha the server is going to throw
+     * away must not be sent, or the colour arrives premultiplied and the
+     * overlay renders darker than the theme asked for. */
+    if (wm.argb_visual) {
+        /* Value lists go in ascending bit order of the CW_* flags, not the
+         * order they are written: BACK_PIXEL (0x02), BORDER_PIXEL (0x08),
+         * OVERRIDE_REDIRECT (0x200), EVENT_MASK (0x800), COLORMAP
+         * (0x2000). BORDER_PIXEL is not optional here -- a window whose
+         * depth differs from its parent's is a BadMatch without it -- and
+         * a transparent back pixel rather than black is what keeps a
+         * black rectangle from flashing in the instant between the map
+         * and the first blit. */
+        uint32_t values[] = { 0, 0, 1, XCB_EVENT_MASK_EXPOSURE, wm.argb_colormap };
+        xcb_create_window(wm.conn, 32, osd_win, wm.root,
+                          -10, -10, 10, 10, 0,
+                          XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.argb_visual->visual_id,
+                          XCB_CW_BACK_PIXEL | XCB_CW_BORDER_PIXEL |
+                          XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK |
+                          XCB_CW_COLORMAP, values);
+    } else {
+        uint32_t values[] = { wm.screen->black_pixel, 1, XCB_EVENT_MASK_EXPOSURE };
+        xcb_create_window(wm.conn, wm.screen->root_depth, osd_win, wm.root,
+                          -10, -10, 10, 10, 0,
+                          XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.screen->root_visual,
+                          XCB_CW_BACK_PIXEL | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK, values);
+    }
 
     /* Tell a compositor what this window is, so it can choose to skip it
      * and draw its own switcher instead (see wm.h's Atoms::kiwm_layer).
@@ -395,24 +423,59 @@ static void draw_chrome_and_content(int content_w, int content_h, void (*paint_c
     }
     osd_raise_above_all();
 
+    bool argb = wm.argb_visual != NULL;
+
     xcb_pixmap_t pixmap = xcb_generate_id(wm.conn);
-    xcb_create_pixmap(wm.conn, wm.screen->root_depth, pixmap, osd_win, (uint16_t)win_w, (uint16_t)win_h);
-    cairo_surface_t *surface = cairo_xcb_surface_create(wm.conn, pixmap, wm.visual, win_w, win_h);
+    xcb_create_pixmap(wm.conn, argb ? 32 : wm.screen->root_depth, pixmap, osd_win,
+                      (uint16_t)win_w, (uint16_t)win_h);
+    cairo_surface_t *surface = cairo_xcb_surface_create(
+        wm.conn, pixmap, argb ? wm.argb_visual : wm.visual, win_w, win_h);
     cairo_t *cr = cairo_create(surface);
 
-    double bg_r, bg_g, bg_b, border_r, border_g, border_b;
+    double bg_r, bg_g, bg_b, bg_a, border_r, border_g, border_b, border_a;
     if (wm.have_theme_colors) {
         bg_r = wm.bg_active_r; bg_g = wm.bg_active_g; bg_b = wm.bg_active_b;
+        bg_a = wm.bg_active_a;
         border_r = wm.border_active_r; border_g = wm.border_active_g; border_b = wm.border_active_b;
+        border_a = wm.border_active_a;
     } else {
         bg_r = wm.deco_bg_r; bg_g = wm.deco_bg_g; bg_b = wm.deco_bg_b;
+        bg_a = wm.deco_bg_a;
         border_r = wm.deco_fg_r; border_g = wm.deco_fg_g; border_b = wm.deco_fg_b;
+        border_a = wm.deco_fg_a;
     }
 
-    cairo_set_source_rgb(cr, bg_r, bg_g, bg_b);
-    cairo_paint(cr);
+    /* The theme's alpha, but only where something will actually blend it.
+     *
+     * The titlebar has always been drawn with these colours' alpha, so an
+     * overlay drawn without it was the odd one out -- the switcher came up
+     * flat opaque over a themed desktop. What kept it that way is that
+     * sending the alpha anyway is worse than dropping it: X ignores the
+     * alpha channel of a window nobody is compositing and shows the
+     * *premultiplied* colour, so greenxp's #008800bb would arrive as a
+     * visibly darker green rather than as the green the theme names. Not
+     * transparency that fails to appear -- a different colour.
+     *
+     * So the alpha is used when a compositor owns _NET_WM_CM_Sn
+     * (selection.h) and flattened to opaque when nothing does, which is
+     * exactly the look this had before. Asked per overlay, so starting or
+     * stopping a compositor needs no restart and no event kiwm does not
+     * already get. */
+    if (!compositor_running())
+        bg_a = border_a = 1.0;
 
-    cairo_set_source_rgb(cr, border_r, border_g, border_b);
+    /* SOURCE, not the default OVER: a depth-32 pixmap starts undefined
+     * *including* its alpha, so compositing a translucent colour over it
+     * would blend the theme with whatever garbage was in that memory.
+     * Writing the colour outright is both correct and one paint cheaper
+     * than clearing first. */
+    cairo_save(cr);
+    cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_rgba(cr, bg_r, bg_g, bg_b, bg_a);
+    cairo_paint(cr);
+    cairo_restore(cr);
+
+    cairo_set_source_rgba(cr, border_r, border_g, border_b, border_a);
     cairo_set_line_width(cr, 1.5);
     cairo_rectangle(cr, 0.75, 0.75, win_w - 1.5, win_h - 1.5);
     cairo_stroke(cr);
@@ -425,7 +488,11 @@ static void draw_chrome_and_content(int content_w, int content_h, void (*paint_c
     cairo_destroy(cr);
     cairo_surface_destroy(surface);
 
-    xcb_copy_area(wm.conn, pixmap, osd_win, wm.deco_gc, 0, 0, 0, 0, (uint16_t)win_w, (uint16_t)win_h);
+    /* CopyArea needs source, destination and GC to share a depth, so an
+     * ARGB overlay is blitted with the depth-32 GC main.c made for the
+     * decoration's own ARGB frames. */
+    xcb_gcontext_t gc = (argb && wm.deco_gc_argb) ? wm.deco_gc_argb : wm.deco_gc;
+    xcb_copy_area(wm.conn, pixmap, osd_win, gc, 0, 0, 0, 0, (uint16_t)win_w, (uint16_t)win_h);
     xcb_free_pixmap(wm.conn, pixmap);
     xcb_flush(wm.conn);
 }

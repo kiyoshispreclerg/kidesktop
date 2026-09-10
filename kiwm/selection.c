@@ -14,6 +14,11 @@ bool acquire_wm_selection(int screen_nbr, bool replace)
     wm.sn_atom = intern_atom(selname);
     wm.atoms.manager = intern_atom("MANAGER");
 
+    /* Interned here because this is the one place that knows the screen
+     * number. Asking who owns it is compositor_running() below. */
+    snprintf(selname, sizeof(selname), "_NET_WM_CM_S%d", screen_nbr);
+    wm.cm_atom = intern_atom(selname);
+
     xcb_get_selection_owner_reply_t *owner_reply = xcb_get_selection_owner_reply(
         wm.conn, xcb_get_selection_owner(wm.conn, wm.sn_atom), NULL);
     xcb_window_t old_owner = owner_reply ? owner_reply->owner : XCB_NONE;
@@ -90,4 +95,34 @@ bool acquire_wm_selection(int screen_nbr, bool replace)
     xcb_flush(wm.conn);
 
     return true;
+}
+
+/* Is a compositor running right now?
+ *
+ * The convention every compositor follows (kicomp included): it owns the
+ * _NET_WM_CM_Sn manager selection for as long as it is compositing, and
+ * releases it when it stops. Asked fresh rather than cached, because a
+ * compositor can come and go at any moment and there is no event kiwm
+ * selects for that would say so -- and the one caller (osd.c) asks once
+ * per overlay it draws, which is far too rarely for a round trip to
+ * matter.
+ *
+ * kiwm must never *depend* on the answer -- nothing here stops working
+ * without a compositor (density.h says the same about its own feature).
+ * It is asked only where the honest drawing differs: an alpha the server
+ * will throw away has to be flattened rather than sent.
+ */
+bool compositor_running(void)
+{
+    if (wm.cm_atom == XCB_ATOM_NONE)
+        return false;
+
+    xcb_get_selection_owner_reply_t *r = xcb_get_selection_owner_reply(
+        wm.conn, xcb_get_selection_owner(wm.conn, wm.cm_atom), NULL);
+    if (!r)
+        return false;
+
+    bool running = r->owner != XCB_NONE;
+    free(r);
+    return running;
 }

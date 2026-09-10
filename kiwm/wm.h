@@ -843,6 +843,10 @@ typedef struct {
     xcb_window_t check_win;
     xcb_window_t sel_win;    /* WM_Sn selection owner window, watched for SelectionClear */
     xcb_atom_t sn_atom;
+    /* _NET_WM_CM_Sn: whoever owns this is compositing the screen. Interned
+     * in selection.c, which is where the screen number is known; read by
+     * compositor_running(). */
+    xcb_atom_t cm_atom;
 
     XisOutput outputs[MAX_OUTPUTS];
     int output_count;
