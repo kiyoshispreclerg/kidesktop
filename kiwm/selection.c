@@ -97,32 +97,54 @@ bool acquire_wm_selection(int screen_nbr, bool replace)
     return true;
 }
 
-/* Is a compositor running right now?
+/* How stale the cached answer below may get. A compositor starting or
+ * stopping is noticed within this long, which is far below anything a
+ * person would call a delay, and it is the difference between one round
+ * trip every quarter second and one per repaint -- the decoration is
+ * redrawn at the display's refresh rate for the whole length of a
+ * move/resize drag, so a query per repaint is not an option. */
+#define COMPOSITOR_CACHE_MS 250.0
+
+/* Is a compositor running?
  *
  * The convention every compositor follows (kicomp included): it owns the
  * _NET_WM_CM_Sn manager selection for as long as it is compositing, and
- * releases it when it stops. Asked fresh rather than cached, because a
- * compositor can come and go at any moment and there is no event kiwm
- * selects for that would say so -- and the one caller (osd.c) asks once
- * per overlay it draws, which is far too rarely for a round trip to
- * matter.
+ * releases it when it stops. So the answer is who owns that selection.
  *
- * kiwm must never *depend* on the answer -- nothing here stops working
- * without a compositor (density.h says the same about its own feature).
- * It is asked only where the honest drawing differs: an alpha the server
- * will throw away has to be flattened rather than sent.
+ * Cached for COMPOSITOR_CACHE_MS rather than watched, deliberately. Being
+ * *told* would mean selecting StructureNotify on the owner window to catch
+ * it going away and handling the MANAGER client message to catch a new one
+ * arriving -- two more moving parts, for a fact that is only ever used to
+ * choose between two shades of the same colour. Re-asking occasionally is
+ * the proportionate mechanism, and it cannot get stuck: there is no state
+ * to go out of sync, only an answer that may be a quarter second old.
+ *
+ * kiwm must never *depend* on the answer -- nothing stops working without
+ * a compositor (density.h says the same about its own feature). It is
+ * asked only where the honest drawing differs: an alpha the server is
+ * going to throw away has to be flattened rather than sent, because X
+ * displays the premultiplied colour of a window nobody composites and the
+ * theme's colour would arrive darker than the theme names it.
  */
 bool compositor_running(void)
 {
+    static bool cached;
+    static double asked_at = -1.0;
+
     if (wm.cm_atom == XCB_ATOM_NONE)
         return false;
+
+    double now = monotonic_ms();
+    if (asked_at >= 0.0 && now - asked_at < COMPOSITOR_CACHE_MS)
+        return cached;
 
     xcb_get_selection_owner_reply_t *r = xcb_get_selection_owner_reply(
         wm.conn, xcb_get_selection_owner(wm.conn, wm.cm_atom), NULL);
     if (!r)
-        return false;
+        return cached;      /* keep the last answer rather than inventing one */
 
-    bool running = r->owner != XCB_NONE;
+    cached = r->owner != XCB_NONE;
+    asked_at = now;
     free(r);
-    return running;
+    return cached;
 }

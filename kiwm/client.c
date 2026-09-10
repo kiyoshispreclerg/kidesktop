@@ -10,6 +10,7 @@
 #include "menu.h"
 #include "outline.h"
 #include "shape.h"
+#include "selection.h"
 #include "grip.h"
 #include "atoms.h"
 
@@ -639,28 +640,14 @@ static bool server_page_flips(void)
     return cached != 0;
 }
 
-/* A compositor redirects every window offscreen and paints the screen
+/* kiwm.conf's force_unflip=.
+ *
+ * A compositor redirects every window offscreen and paints the screen
  * itself, so no client window is ever the topmost unobscured thing the
- * server could flip, and nothing here is needed. Asked fresh each time
- * (one round trip, only on a fullscreen window losing focus) rather than
- * cached, because a compositor is started and stopped at will -- kicomp
- * is a separate program, not part of the session's fixed furniture. */
-static bool compositor_running(void)
-{
-    char selname[32];
-    snprintf(selname, sizeof(selname), "_NET_WM_CM_S%d", wm.screen_nbr);
-    xcb_atom_t cm = intern_atom(selname);
-    if (cm == XCB_ATOM_NONE)
-        return false;
-
-    xcb_get_selection_owner_reply_t *r = xcb_get_selection_owner_reply(
-        wm.conn, xcb_get_selection_owner(wm.conn, cm), NULL);
-    bool owned = r && r->owner != XCB_NONE;
-    free(r);
-    return owned;
-}
-
-/* kiwm.conf's force_unflip=. */
+ * server could flip, and none of this repair is needed -- hence the
+ * compositor question, which selection.h answers for the whole of kiwm
+ * (this file used to ask it privately, re-interning the selection atom on
+ * every call). */
 static bool force_unflip_wanted(void)
 {
     switch (wm.force_unflip) {
