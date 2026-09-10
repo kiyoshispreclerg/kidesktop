@@ -7,6 +7,7 @@
  * flat kiwm.conf-configured look, there's no all-or-nothing theme
  * requirement. */
 #include "decoration.h"
+#include "selection.h"
 #include "density.h"
 #include "wm.h"
 
@@ -1227,6 +1228,43 @@ void draw_decoration(Client *c)
     cairo_t *cr = cairo_create(surface);
 
     paint_deco(c, cr, w, h, focused, c->frame_depth == 32);
+
+    /* With nothing compositing, make what was just drawn opaque.
+     *
+     * The theme's colours carry alpha (greenxp's titlebar is #008800bb)
+     * and paint_deco() honours it, which is right in front of a
+     * compositor and wrong without one: X ignores the alpha channel of a
+     * window nobody is compositing and displays the *premultiplied*
+     * colour, so that green arrived as (0,100,0) instead of the (0,136,0)
+     * the theme names. A titlebar quietly darker than its own theme,
+     * rather than a transparent one.
+     *
+     * DEST_OVER puts this underneath everything already drawn instead of
+     * over it, so the layering paint_deco() built -- theme image, focus
+     * tint, button tint, title and its shadow -- is untouched and only the
+     * transparency it left behind is filled in. A titlebar the theme tints
+     * uniformly therefore comes out at exactly the theme's colour: 0.73 of
+     * the green over 0.27 of the same green is that green.
+     *
+     * Not inside paint_deco(), because density.c calls that too -- and
+     * the dense copy it publishes exists solely for a compositor to
+     * sample, so it must keep every bit of its alpha. */
+    if (!compositor_running()) {
+        double br, bgc, bb;
+        if (wm.have_theme_colors) {
+            br  = focused ? wm.bg_active_r : wm.bg_inactive_r;
+            bgc = focused ? wm.bg_active_g : wm.bg_inactive_g;
+            bb  = focused ? wm.bg_active_b : wm.bg_inactive_b;
+        } else {
+            br = wm.deco_bg_r; bgc = wm.deco_bg_g; bb = wm.deco_bg_b;
+        }
+
+        cairo_save(cr);
+        cairo_set_operator(cr, CAIRO_OPERATOR_DEST_OVER);
+        cairo_set_source_rgb(cr, br, bgc, bb);
+        cairo_paint(cr);
+        cairo_restore(cr);
+    }
 
     double t_paint = dbg ? monotonic_ms() : 0;
 
