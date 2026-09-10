@@ -505,19 +505,67 @@ void apply_frame_geometry(Client *c)
      * bottom border either since there's no content edge to border. */
     c->frame_height = c->shaded ? th : (c->height + th + bt);
 
-    uint32_t fv[] = {
-        (uint32_t)c->x, (uint32_t)c->y,
-        (uint32_t)c->frame_width, (uint32_t)c->frame_height
-    };
-    xcb_configure_window(wm.conn, c->frame,
-                         XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
-                         XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, fv);
+    /* Both windows are configured only when their own geometry actually
+     * changed, and they are asked separately because they do not change
+     * together.
+     *
+     * The frame's is x/y/w/h in root coordinates: a move changes it, a
+     * resize changes it, and this is the request that has to go out for
+     * the window to follow the pointer at all.
+     *
+     * The content window's is x/y/w/h *inside the frame*, and that is
+     * bt/th/width/height -- the insets are constant for a given
+     * decoration state, so a plain move does not change a single one of
+     * the four. Sending it anyway, as this used to on every motion event
+     * of a move, hands the client a ConfigureNotify saying nothing
+     * changed; Qt and GTK both re-run layout on that. Skipping it halves
+     * the requests a move step costs and the client stops being woken for
+     * news it already has.
+     *
+     * A cache rather than a "skip this in DRAG_MOVE" flag because it is
+     * the honest test: whatever the reason the geometry is the same --
+     * a move, a repeated motion event with the pointer barely moving, a
+     * client asking to be resized to the size it already is -- the
+     * request is equally pointless, and whenever something does change
+     * (the decoration is toggled mid-drag and the insets move) it goes
+     * out without anyone having to have thought of that case. */
+    if (!c->geom_sent ||
+        c->sent_frame_x != c->x || c->sent_frame_y != c->y ||
+        c->sent_frame_w != c->frame_width || c->sent_frame_h != c->frame_height) {
+        uint32_t fv[] = {
+            (uint32_t)c->x, (uint32_t)c->y,
+            (uint32_t)c->frame_width, (uint32_t)c->frame_height
+        };
+        xcb_configure_window(wm.conn, c->frame,
+                             XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
+                             XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, fv);
+        c->sent_frame_x = c->x;
+        c->sent_frame_y = c->y;
+        c->sent_frame_w = c->frame_width;
+        c->sent_frame_h = c->frame_height;
+    }
 
-    uint32_t cv[] = { (uint32_t)bt, (uint32_t)th, (uint32_t)c->width, (uint32_t)c->height };
-    xcb_configure_window(wm.conn, c->window,
-                         XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
-                         XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, cv);
+    if (!c->geom_sent ||
+        c->sent_client_x != bt || c->sent_client_y != th ||
+        c->sent_client_w != c->width || c->sent_client_h != c->height) {
+        uint32_t cv[] = { (uint32_t)bt, (uint32_t)th, (uint32_t)c->width, (uint32_t)c->height };
+        xcb_configure_window(wm.conn, c->window,
+                             XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
+                             XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, cv);
+        c->sent_client_x = bt;
+        c->sent_client_y = th;
+        c->sent_client_w = c->width;
+        c->sent_client_h = c->height;
+    }
 
+    c->geom_sent = true;
+
+    /* Never skipped, whatever the two above did. This one carries the
+     * client's *root-relative* position, which a move changes even though
+     * nothing about the client's geometry within the frame did -- and it
+     * is the only thing that tells a client its request was denied when
+     * handle_configure_request() re-affirms the geometry of a maximized
+     * window (ICCCM 4.1.5). It is a SendEvent: it costs no drawing. */
     send_synthetic_configure(c, bt, th);
 
     /* The invisible resize ring lives outside this frame, so it has to

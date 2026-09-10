@@ -380,6 +380,17 @@ struct Client {
     int saved_x, saved_y, saved_w, saved_h;   /* restore geometry before maximize */
     int frame_width, frame_height;
 
+    /* What was last actually *sent* to the server for these two windows,
+     * as opposed to what the model above says they should be. A
+     * ConfigureWindow carrying the geometry a window already has is not
+     * free -- the client is told about it and toolkits relay out on the
+     * news -- so apply_frame_geometry() compares against these and sends
+     * nothing when nothing moved. False until the first send, which is
+     * why a calloc'd client always gets one (client.c). */
+    bool geom_sent;
+    int sent_frame_x, sent_frame_y, sent_frame_w, sent_frame_h;
+    int sent_client_x, sent_client_y, sent_client_w, sent_client_h;
+
     bool mapped;
 
     /* Held up to be looked at: on screen, but only because a compositor
