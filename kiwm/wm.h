@@ -526,6 +526,25 @@ struct Client {
      * size long after mapping). */
     bool hints_fixed_size;
 
+    /* The invisible resize ring outside this window's frame: one InputOnly
+     * parent, which is what the stacking order carries, and its eight
+     * InputOnly children, one per edge and corner, each holding its own
+     * resize cursor. XCB_NONE throughout when kiwm.conf's resize_grip= is
+     * 0. The array is indexed by grip.h's GripEdge -- kept as a literal 8
+     * here because grip.h includes this file, not the other way round.
+     * See grip.h. */
+    xcb_window_t grip_ring;
+    xcb_window_t grips[8];
+    /* Whether the ring is currently on screen, and whether the *frame* is
+     * -- which is not the same question as Client::mapped. That flag means
+     * "should be on screen", and the desktop-switch, output-reassign and
+     * set_client_desktop() paths deliberately map and unmap the frame
+     * without touching it. So the ring follows the frame's own
+     * MapNotify/UnmapNotify instead of any of those call sites: one hook
+     * that no future map/unmap path can forget to call. See grip.h. */
+    bool grip_mapped;
+    bool grip_frame_mapped;
+
     /* Did the client actually ask to be *somewhere*? ICCCM 4.1.2.3: with
      * neither USPosition nor PPosition set in WM_NORMAL_HINTS, the window's
      * current x/y mean nothing and choosing the position is the window
@@ -1095,38 +1114,23 @@ typedef struct {
      * extra pixel inside). */
     int outline_width;
 
-    /* How wide the invisible resize grip along a window's edges is, in
-     * pixels (kiwm.conf's resize_grip=, default 12; 0 disables it). A plain
-     * left-click landing within this far of a frame edge starts a
-     * resize -- from that corner if it's within the grip of two edges at
-     * once, otherwise along that one axis -- instead of going to the
-     * client. It works regardless of decoration: kiwm already takes every
-     * button press on a client window through a synchronous grab and
-     * replays the ones it doesn't want (see events.c's
-     * handle_button_press()), so the grip needs no visible border to live
-     * in, which is the whole point for windows that have none. Keep it
-     * small: every pixel of it is a pixel the application doesn't get. */
+    /* How thick the invisible resize ring around a window is, in pixels
+     * (kiwm.conf's resize_grip=, default 12; 0 disables it). A plain
+     * left-click in it starts a resize -- from a corner where two edges
+     * meet, along one axis on an edge -- instead of going to whatever is
+     * under it.
+     *
+     * The ring is entirely *outside* the frame (grip.h), which is what
+     * makes this setting safe to raise: it costs the application nothing.
+     * It used to be a strip inside the frame instead, so every pixel of it
+     * was a pixel the application didn't get -- a 12px grip shadowed a
+     * scrollbar sitting at the window's edge -- and the top edge had to be
+     * carved out of the titlebar's own rows, sharing them with the
+     * buttons, which is what the separate (now removed) resize_grip_top=
+     * existed to keep small. Outside the frame there is no such conflict
+     * and all four edges are the same thickness. */
     int resize_grip;
 
-    /* The same thing for the *top* edge of a decorated window (kiwm.conf's
-     * resize_grip_top=, default 4; 0 disables it), where the grip has to
-     * come out of the titlebar because kiwm's frame has no top border: the
-     * titlebar starts at the frame's first row. Deliberately its own,
-     * much smaller setting rather than resize_grip= -- those pixels are
-     * shared with the titlebar buttons, and a 12px strip out of a 26px
-     * titlebar would eat half of every one of them. An undecorated window
-     * has no such conflict and keeps using the full resize_grip= on all
-     * four edges. See events.c's resize_grip_at(). */
-    int resize_grip_top;
-
-    /* Which grip zone the pointer is currently hovering, if any, and the
-     * pointer grab held while it is -- purely to show a resize cursor
-     * there, since the grip is invisible and otherwise undiscoverable.
-     * The grab is taken with owner_events set, so the application still
-     * gets its own pointer events; only the cursor image changes. See
-     * events.c's update_resize_grip_cursor(). */
-    bool grip_hover_active;
-    int grip_hover_zone;   /* GripZone, -1 when none */
 
     /* Whether a resize changes the window as the pointer moves
      * (kiwm.conf's live_resize=, default 1/on) or only draws an outline of

@@ -12,6 +12,7 @@
 #include "menu.h"
 #include "outline.h"
 #include "shape.h"
+#include "grip.h"
 
 #include <xcb/randr.h>
 
@@ -90,6 +91,14 @@ static void handle_map_request(xcb_map_request_event_t *ev)
 static void handle_map_notify(xcb_map_notify_event_t *ev)
 {
     Client *c = find_client_window(ev->window);
+
+    /* The *frame* appearing, from whichever of the many paths mapped it
+     * (minimize/restore, a desktop switch, an output reassignment). The
+     * invisible resize ring follows it -- see grip.h for why this is the
+     * hook rather than each of those call sites. */
+    if (c && ev->window == c->frame)
+        grip_frame_mapped(c, true);
+
     if (c && ev->window == c->window && c->ignore_map > 0) {
         /* The server's own re-map at the end of a reparent, not the app
          * asking to be shown -- see wm.h's Client::ignore_map. */
@@ -303,120 +312,6 @@ static bool should_preserve_snap_resize(Client *c, int root_x)
     return false;
 }
 
-/* Which resize grip (if any) a root-relative point falls in, for a given
- * client. Shared by the click that starts a resize (handle_button_press())
- * and the hover that shows its cursor (update_resize_grip_cursor()), so
- * the two can never disagree about where the grips are.
- *
- * `*right`/`*bottom` come back as 1/0 for an edge that's in range on that
- * axis and -1 for one that isn't (the same convention begin_drag_at()
- * takes), and `*axis_x`/`*axis_y` say which dimensions that grip resizes.
- * Returns false when the point is nowhere near an edge. */
-static bool resize_grip_at(Client *c, int root_x, int root_y,
-                           int *right, int *bottom, bool *axis_x, bool *axis_y)
-{
-    /* Not on a maximized or fullscreen window: both fill their output by
-     * definition, so there's nothing to drag their edges towards, and
-     * every click near one of them would be stolen from the application
-     * for a resize that shouldn't happen. Fullscreen matters more than it
-     * looks: a fullscreen window is often the one taking every click
-     * (VirtualBox's VM), and its screen-sized transient toolbar is
-     * fullscreen too -- shaped down to a bar at the top, but with edges
-     * spanning the whole output, so grips on it would sit in the middle of
-     * whatever is really there. Half-tiled windows do keep their grips --
-     * dragging the shared edge of two of them is exactly what
-     * link_resize_neighbors= is for, and it should not need a modifier. A
-     * shaded window is nothing but titlebar, so it has no edges to grip
-     * either. */
-    if (wm.resize_grip <= 0 || !c->allow_resize || c->shaded ||
-        client_maximized(c) || c->fullscreen)
-        return false;
-
-    int rel_x = root_x - c->x;
-    int rel_y = root_y - c->y;
-    if (rel_x < 0 || rel_y < 0 || rel_x >= c->frame_width || rel_y >= c->frame_height)
-        return false;
-
-    int g = wm.resize_grip;
-    bool deco = client_deco_visible(c);
-
-    /* With a decoration there is no top border to grip: the titlebar is
-     * the frame's first row. So the top grip is a thin strip taken off the
-     * titlebar's own top edge (kiwm.conf's resize_grip_top=, small on
-     * purpose -- the rest of those rows belong to the buttons), and the
-     * whole titlebar *below* that strip is grip-free: dragging it is how a
-     * window moves, and its ends are where the buttons are. Without a
-     * decoration the top edge is like any other and uses resize_grip=. */
-    int gt = deco ? wm.resize_grip_top : g;
-    bool top = gt > 0 && rel_y < gt;
-    bool in_titlebar_body = deco && !top && rel_y < TITLEBAR_H;
-
-    bool left = !in_titlebar_body && rel_x < g;
-    bool r = !in_titlebar_body && rel_x >= c->frame_width - g;
-    bool b = rel_y >= c->frame_height - g;
-
-    if (!left && !r && !top && !b)
-        return false;
-
-    *right = r ? 1 : (left ? 0 : -1);
-    *bottom = b ? 1 : (top ? 0 : -1);
-    *axis_x = left || r;
-    *axis_y = top || b;
-    return true;
-}
-
-/* Shows a resize cursor while the pointer sits in one of those grips.
- *
- * The grip is invisible and can be on a window with no decoration at all,
- * so without this there's nothing telling the user it's there. kiwm can't
- * simply set a cursor on the area -- the area belongs to the *client's*
- * window, whose cursor is the application's business -- so it takes a
- * pointer grab with the cursor it wants while the pointer is in the zone,
- * and drops it the moment it leaves. owner_events is set, so the
- * application still receives every pointer event exactly as before; the
- * grab is there for its cursor and nothing else. */
-static void update_resize_grip_cursor(Client *c, int root_x, int root_y)
-{
-    int right, bottom;
-    bool axis_x, axis_y;
-    bool in_grip = c && resize_grip_at(c, root_x, root_y, &right, &bottom, &axis_x, &axis_y);
-
-    if (!in_grip) {
-        if (wm.grip_hover_active) {
-            xcb_ungrab_pointer(wm.conn, XCB_CURRENT_TIME);
-            wm.grip_hover_active = false;
-            wm.grip_hover_zone = -1;
-            xcb_flush(wm.conn);
-        }
-        return;
-    }
-
-    /* Zone identity, just to avoid re-grabbing on every motion event
-     * within the same grip: the two corner flags are enough. */
-    int zone = (right + 1) * 3 + (bottom + 1);
-    if (wm.grip_hover_active && wm.grip_hover_zone == zone)
-        return;
-
-    xcb_cursor_t cursor;
-    if (!axis_x)
-        cursor = (bottom == 1) ? wm.cursor_resize_s : wm.cursor_resize_n;
-    else if (!axis_y)
-        cursor = (right == 1) ? wm.cursor_resize_e : wm.cursor_resize_w;
-    else if (right == 1)
-        cursor = (bottom == 1) ? wm.cursor_resize_se : wm.cursor_resize_ne;
-    else
-        cursor = (bottom == 1) ? wm.cursor_resize_sw : wm.cursor_resize_nw;
-
-    xcb_grab_pointer(wm.conn, 1 /* owner_events: the app keeps its events */, wm.root,
-                     XCB_EVENT_MASK_POINTER_MOTION | XCB_EVENT_MASK_BUTTON_PRESS |
-                     XCB_EVENT_MASK_BUTTON_RELEASE,
-                     XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC,
-                     XCB_NONE, cursor, XCB_CURRENT_TIME);
-    wm.grip_hover_active = true;
-    wm.grip_hover_zone = zone;
-    xcb_flush(wm.conn);
-}
-
 /* Starts a move or resize drag at a given root position, whatever asked
  * for it: a titlebar click, a mod_key-drag from anywhere on
  * the window (both via begin_drag() below), or the client itself asking
@@ -465,13 +360,6 @@ static void begin_drag_at(Client *c, DragMode mode, int root_x, int root_y,
         return;
     if (mode == DRAG_RESIZE && !c->allow_resize)
         return;
-
-    /* The grip's hover-cursor grab (update_resize_grip_cursor()) is
-     * replaced by this drag's own grab, and the drag's release ungrabs
-     * outright -- so the hover state has to be forgotten here, or the next
-     * pass over a grip would think it still holds a grab it doesn't. */
-    wm.grip_hover_active = false;
-    wm.grip_hover_zone = -1;
 
     wm.drag_fullscreen_move = c->fullscreen;
     /* Nothing to detile for a fullscreen move: fullscreen isn't a tiling
@@ -692,6 +580,38 @@ static void run_deco_button(Client *c, DecoElemKind kind, uint8_t button, int sl
 
 static void handle_button_press(xcb_button_press_event_t *ev)
 {
+    /* A press on one of the invisible ring windows outside a frame
+     * (grip.h): resize from that edge, no modifier needed. Checked before
+     * anything else because a grip window is not a client window and every
+     * lookup below would miss it.
+     *
+     * The edge decides which corner grows and which axes may change at
+     * all, so dragging a window's side doesn't also change its height --
+     * the ring's shape carries what resize_grip_at()'s arithmetic used to
+     * work out from the pointer position. */
+    {
+        Client *gc;
+        GripEdge edge;
+        if (ev->detail == XCB_BUTTON_INDEX_1 &&
+            grip_lookup(ev->event, &gc, &edge)) {
+            focus_client(gc);
+
+            int right, bottom;
+            bool axis_x, axis_y;
+            grip_drag_params(edge, &right, &bottom, &axis_x, &axis_y);
+
+            /* Same rule a modifier-drag resize follows: grabbing the
+             * shared edge of two half-tiled windows resizes both in place
+             * (link_resize_neighbors=) instead of detiling this one back
+             * to whatever floating geometry it had before it was snapped.
+             */
+            begin_drag_at(gc, DRAG_RESIZE, ev->root_x, ev->root_y,
+                          should_preserve_snap_resize(gc, ev->root_x),
+                          right, bottom, axis_x, axis_y);
+            return;
+        }
+    }
+
     Client *c = find_client_window(ev->event);
     if (!c)
         c = find_client_window(ev->child);
@@ -710,41 +630,6 @@ static void handle_button_press(xcb_button_press_event_t *ev)
     if (on_titlebar && (ev->detail == 4 || ev->detail == 5)) {
         toggle_shade(c, ev->detail == 4 ? 1 : 0);
         return;
-    }
-
-    /* Plain (no modifier) click within kiwm.conf's resize_grip= of a frame
-     * edge: resize from there. This is the ordinary "grab the window's
-     * corner" resize, and it works with or without a visible border --
-     * kiwm takes every button press on a client window through a
-     * synchronous grab and replays the ones it doesn't want (the tail of
-     * this function), so the grip doesn't need a decoration to live in.
-     * That's the whole point for windows that have none.
-     *
-     * Within the grip of two edges at once it's a corner drag; of one,
-     * that axis only, so dragging a side doesn't also change the height.
-     *
-     * Checked *before* the titlebar handling below, because on a decorated
-     * window the top grip is a strip of the titlebar's own top edge (see
-     * resize_grip_at()): the strip has to win over the button under it and
-     * over titlebar-drag-to-move, or there would be no way to reach the
-     * top edge at all. Everything else about the titlebar is untouched --
-     * resize_grip_at() keeps its whole body, buttons and ends included,
-     * grip-free. */
-    if (ev->detail == 1 && !(ev->state & wm.mod_key)) {
-        int right, bottom;
-        bool axis_x, axis_y;
-        if (resize_grip_at(c, ev->root_x, ev->root_y, &right, &bottom, &axis_x, &axis_y)) {
-            /* Same rule a modifier-drag resize follows: grabbing the
-             * shared edge of two half-tiled windows resizes both in place
-             * (link_resize_neighbors=) instead of detiling this one back
-             * to whatever floating geometry it had before it was snapped.
-             * Missing that here is what made grip-resizing a tiled pair
-             * throw both windows back to their old sizes. */
-            begin_drag_at(c, DRAG_RESIZE, ev->root_x, ev->root_y,
-                          should_preserve_snap_resize(c, ev->root_x),
-                          right, bottom, axis_x, axis_y);
-            return;
-        }
     }
 
     /* A titlebar *button* takes left, right and middle clicks -- the
@@ -1353,14 +1238,9 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
 {
     if (!wm.drag_client || wm.drag_mode == DRAG_NONE) {
         update_button_hover(ev);
-        /* ev->event is the client window kiwm now also selects motion on
-         * (client.c's manage()), the frame, or the root window while the
-         * grip's own cursor grab is up -- in which case ev->child names
-         * the frame under the pointer. */
-        Client *hover = find_client_window(ev->event);
-        if (!hover)
-            hover = find_client_window(ev->child);
-        update_resize_grip_cursor(hover, ev->root_x, ev->root_y);
+        /* Nothing else to do: the resize cursor is now a plain attribute
+         * of the grip window under the pointer (grip.h), so hovering an
+         * edge needs no work here at all. */
         return;
     }
 
@@ -1537,6 +1417,10 @@ static void finish_drag(int root_x, int root_y)
 {
     if (!wm.drag_client)
         return;
+    /* Whatever else this does below, the ring has been left behind at the
+     * geometry the drag started from -- grip_sync() refuses to run for the
+     * client being dragged (grip.h). Caught up at the end of the function,
+     * once wm.drag_client is clear. */
     {
         /* The deferred (live_resize=0) resize lands here, once, from
          * wherever the outline had got to -- see handle_motion(). */
@@ -1597,6 +1481,7 @@ static void finish_drag(int root_x, int root_y)
             wm.drag_mode = DRAG_NONE;
             wm.drag_snap_side = SNAP_NONE;
             wm.drag_fullscreen_move = false;
+            grip_sync(c);
             xcb_flush(wm.conn);
             return;
         }
@@ -1620,6 +1505,10 @@ static void finish_drag(int root_x, int root_y)
         wm.drag_snap_side = SNAP_NONE;
         wm.drag_detile_pending = false;
         wm.drag_fullscreen_move = false;
+        /* wm.drag_client is clear, so this is the call that actually
+         * moves the ring -- and the neighbours a linked resize dragged
+         * along were never skipped, so only this one is owed. */
+        grip_sync(c);
         xcb_flush(wm.conn);
     }
 }
@@ -2068,6 +1957,11 @@ void handle_event(xcb_generic_event_t *event)
         Client *c = find_client_window(ev->window);
         if (!c)
             popup_focus_released(ev->window);
+        /* The frame going away takes its resize ring with it, whatever
+         * unmapped it -- the counterpart of handle_map_notify()'s call,
+         * and for the same reason (grip.h). */
+        if (c && ev->window == c->frame)
+            grip_frame_mapped(c, false);
         if (c && ev->window == c->window) {
             if (c->ignore_unmap > 0) {
                 /* Spurious auto-unmap from reparenting an already-mapped

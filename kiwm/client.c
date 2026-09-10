@@ -10,6 +10,7 @@
 #include "menu.h"
 #include "outline.h"
 #include "shape.h"
+#include "grip.h"
 #include "atoms.h"
 
 #include <xcb/shape.h>
@@ -517,6 +518,12 @@ void apply_frame_geometry(Client *c)
                          XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, cv);
 
     send_synthetic_configure(c, bt, th);
+
+    /* The invisible resize ring lives outside this frame, so it has to
+     * follow it (grip.h). A no-op mid-drag, where the ring is unreachable
+     * anyway and this function runs on every motion event -- finish_drag()
+     * catches it up once at the end. */
+    grip_sync(c);
 }
 
 void configure_frame(Client *c)
@@ -1326,6 +1333,11 @@ static void restack_all_core(Client *promote, bool to_top)
             l = LAYER_OSD;
         } else if (!c && outline_owns_window(kids[i])) {
             l = LAYER_OUTLINE;
+        } else if (!c && grip_owns_window(kids[i])) {
+            /* A resize ring is placed relative to its own frame, not
+             * sorted into a layer -- the chaining loop below emits it
+             * directly under the frame it belongs to (grip.h). */
+            continue;
         } else {
             continue;
         }
@@ -1354,6 +1366,24 @@ static void restack_all_core(Client *promote, bool to_top)
     xcb_window_t prev = XCB_NONE;
     for (int l = 0; l < LAYER_COUNT; l++) {
         for (int i = 0; i < bn[l]; i++) {
+            /* A client's invisible resize ring goes immediately under its
+             * frame, so a click in the margin between two adjacent windows
+             * reaches whichever of them is actually on top (grip.h).
+             * Chained here rather than left where it was created, because
+             * everything else in the stack moves around it. */
+            xcb_window_t ring = buckets[l][i].client
+                                    ? grip_ring_window(buckets[l][i].client)
+                                    : XCB_NONE;
+
+            if (ring != XCB_NONE) {
+                if (prev != XCB_NONE) {
+                    uint32_t values[] = { prev, XCB_STACK_MODE_ABOVE };
+                    xcb_configure_window(wm.conn, ring,
+                                         XCB_CONFIG_WINDOW_SIBLING | XCB_CONFIG_WINDOW_STACK_MODE, values);
+                }
+                prev = ring;
+            }
+
             if (prev != XCB_NONE) {
                 uint32_t values[] = { prev, XCB_STACK_MODE_ABOVE };
                 xcb_configure_window(wm.conn, buckets[l][i].window,
@@ -2068,13 +2098,6 @@ void unmanage(Client *c)
          * preview -- and nothing left to apply it to. */
         wm.resize_preview_active = false;
         outline_hide();
-        if (wm.grip_hover_active) {
-            /* ...and the grip's hover-cursor grab was taken over this
-             * window's edge (see events.c's update_resize_grip_cursor()). */
-            xcb_ungrab_pointer(wm.conn, XCB_CURRENT_TIME);
-            wm.grip_hover_active = false;
-            wm.grip_hover_zone = -1;
-        }
     } else {
         /* c isn't the client actually being dragged, but a resize in
          * progress might still be dragging it along as a resize-neighbor
@@ -2141,6 +2164,7 @@ void unmanage(Client *c)
     if (err)
         free(err);
 
+    grip_destroy(c);
     xcb_destroy_window(wm.conn, c->frame);
 
     if (fw > 0 && fh > 0)
@@ -2620,11 +2644,14 @@ void manage(xcb_window_t window, bool map_requested)
     }
 
     /* POINTER_MOTION on the *client's* window, which a WM normally has no
-     * reason to want: it's what lets events.c notice the pointer entering
-     * the invisible resize grip along the window's edges and show a resize
-     * cursor there, on a window whose decoration (if any) doesn't extend
-     * that far. Core pointer selections aren't exclusive, so the app keeps
-     * getting its own motion events exactly as before. */
+     * reason to want. It was originally how events.c noticed the pointer
+     * entering the invisible resize grip inside the window's edges; the
+     * grip is a ring of its own windows outside the frame now (grip.h) and
+     * needs nothing here. What still does is update_button_hover(): moving
+     * off a titlebar button *downwards*, into the content, has to clear
+     * that button's highlight, and this is the event that says so. Core
+     * pointer selections aren't exclusive, so the app keeps getting its own
+     * motion events exactly as before. */
     uint32_t client_mask = XCB_EVENT_MASK_PROPERTY_CHANGE |
                            XCB_EVENT_MASK_STRUCTURE_NOTIFY |
                            XCB_EVENT_MASK_FOCUS_CHANGE |
@@ -2704,6 +2731,12 @@ void manage(xcb_window_t window, bool map_requested)
     bool start_minimized = adopt_initial_wm_state(c);
 
     configure_frame(c);
+    /* After configure_frame(), which is what first gives the frame a
+     * width and height for the ring to be sized against, and after
+     * adopt_initial_wm_state() above, so a window coming up already
+     * maximized or fullscreen gets its ring created unmapped rather than
+     * flashed across the screen it fills. */
+    grip_create(c);
     ewmh_update_wm_desktop(c);
     ewmh_update_wm_output(c);
     ewmh_update_wm_state(c);
