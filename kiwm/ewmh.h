@@ -12,6 +12,9 @@ void ewmh_update_wm_output(Client *c);
 void ewmh_update_frame_extents(Client *c);
 void get_title(Client *c);
 void get_size_hints(Client *c);
+/* Whether WM_NORMAL_HINTS carries USPosition or PPosition -- see ewmh.c.
+ * For windows that never become a Client (manage()'s unframed path). */
+bool window_hints_have_position(xcb_window_t window);
 /* Publishes _NET_WM_ALLOWED_ACTIONS from Client::allow_* -- see ewmh.c.
  * Called whenever those change (manage(), WM_NORMAL_HINTS changes). */
 void ewmh_update_allowed_actions(Client *c);

@@ -2217,11 +2217,28 @@ static void seed_restore_geometry(Client *c)
  * taller than the screen would otherwise be centered with its titlebar
  * above the top edge, and a window whose titlebar is off-screen cannot be
  * dragged back. */
+/* The top-left corner that centres a w x h box on an output's workarea.
+ * The workarea rather than the whole monitor, so a centred window is not
+ * partly behind a panel; clamped so the box never starts above or left of
+ * it, since something bigger than the screen would otherwise be centred
+ * with its top edge off it -- and for a window that means a titlebar
+ * nobody can grab. */
+static void centre_on_workarea(int output, int w, int h, int *out_x, int *out_y)
+{
+    if (output < 0 || output >= wm.output_count)
+        output = 0;
+
+    int wx, wy, ww, wh;
+    compute_output_workarea(output, &wx, &wy, &ww, &wh);
+
+    *out_x = wx + (ww - w) / 2;
+    *out_y = wy + (wh - h) / 2;
+    if (*out_x < wx) *out_x = wx;
+    if (*out_y < wy) *out_y = wy;
+}
+
 static void place_client_centered(Client *c, int bt, int th)
 {
-    int fw = c->width + bt * 2;
-    int fh = c->height + th + bt;
-
     int output = -1;
     if (c->transient_for != XCB_NONE) {
         Client *parent = find_client_window(c->transient_for);
@@ -2230,16 +2247,8 @@ static void place_client_centered(Client *c, int bt, int th)
     }
     if (output < 0 || output >= wm.output_count)
         output = output_for_pointer();
-    if (output < 0 || output >= wm.output_count)
-        output = 0;
 
-    int wx, wy, ww, wh;
-    compute_output_workarea(output, &wx, &wy, &ww, &wh);
-
-    c->x = wx + (ww - fw) / 2;
-    c->y = wy + (wh - fh) / 2;
-    if (c->x < wx) c->x = wx;
-    if (c->y < wy) c->y = wy;
+    centre_on_workarea(output, c->width + bt * 2, c->height + th + bt, &c->x, &c->y);
 }
 
 /* Applies whatever _NET_WM_STATE the window already carries at the moment
@@ -2441,6 +2450,40 @@ void manage(xcb_window_t window, bool map_requested)
                 xcb_configure_window(wm.conn, window, XCB_CONFIG_WINDOW_STACK_MODE, values);
             }
             wm.last_desktop_window = window;
+        }
+
+        /* A splash screen belongs in the middle of the screen, and it is
+         * the one unframed window that is *not* placing itself: it sets no
+         * position hint at all (LibreOffice's carries USSize, PMinSize,
+         * PMaxSize and PWinGravity and nothing about where to be), so
+         * ICCCM leaves the position to the window manager -- and with
+         * nobody choosing one it came up in the corner at 0,0. Splash
+         * windows are excluded from framing, which is right, so the
+         * placement manage() does for a Client never reached them.
+         *
+         * Splash and only splash, deliberately -- not "any unframed window
+         * with no position hint". A menu, dropdown, tooltip or
+         * notification is placed by whoever owns it, with a plain
+         * ConfigureWindow that sets no hint either, so the hint's absence
+         * says nothing at all about those. Centring on it would drag every
+         * context menu to the middle of the screen.
+         *
+         * Before the map, so it is never seen in the corner first. Only
+         * for a MapRequest: an adopted splash is already on screen, and
+         * moving windows around on a --replace is its own bug. */
+        if (map_requested &&
+            window_has_type(window, wm.atoms.net_wm_window_type_splash) &&
+            !window_hints_have_position(window)) {
+            xcb_get_geometry_reply_t *sg = xcb_get_geometry_reply(
+                wm.conn, xcb_get_geometry(wm.conn, window), NULL);
+            if (sg) {
+                int sx, sy;
+                centre_on_workarea(output_for_pointer(), sg->width, sg->height, &sx, &sy);
+                uint32_t v[] = { (uint32_t)sx, (uint32_t)sy };
+                xcb_configure_window(wm.conn, window,
+                                     XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y, v);
+                free(sg);
+            }
         }
 
         if (show) {

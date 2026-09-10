@@ -219,6 +219,21 @@ void get_size_hints(Client *c)
         c->hints_fixed_size = true;
 }
 
+/* Does this window's WM_NORMAL_HINTS ask to be at a particular place?
+ * The same question get_size_hints() answers into
+ * Client::hints_has_position, asked of a window that has no Client --
+ * which is what the unframed half of manage() has to work with. */
+bool window_hints_have_position(xcb_window_t window)
+{
+    xcb_size_hints_t hints;
+    xcb_get_property_cookie_t cookie = xcb_icccm_get_wm_normal_hints(wm.conn, window);
+    if (!xcb_icccm_get_wm_normal_hints_reply(wm.conn, cookie, &hints, NULL))
+        return false;
+
+    return (hints.flags & (XCB_ICCCM_SIZE_HINT_US_POSITION |
+                           XCB_ICCCM_SIZE_HINT_P_POSITION)) != 0;
+}
+
 /* _NET_WM_ALLOWED_ACTIONS, mirroring Client::allow_* (see client.c's
  * update_client_actions()) so a taskbar's window menu greys out exactly
  * the entries kiwm's own titlebar hides. The three kiwm never restricts --
