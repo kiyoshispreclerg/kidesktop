@@ -49,13 +49,27 @@ void toggle_keep_below(Client *c, int want /* -1=toggle 0=off 1=on */);
 /* Rebuilds the real X stacking order from every managed client's current
  * WmLayer (see wm.h), preserving each client's relative order within its
  * own layer from whatever xcb_query_tree() reports right now -- so calling
- * this doesn't reorder anything except across layer boundaries. Call after
- * anything that raises/lowers a client (an explicit xcb_configure_window()
- * STACK_MODE_ABOVE/BELOW to move it to the very top/bottom of the whole
- * stack *first*, then restack_all(), is how focus_client()/
- * toggle_keep_above()/toggle_keep_below()/toggle_fullscreen() put a client
- * at the top/bottom of its own layer specifically -- see client.c). */
+ * this doesn't reorder anything except across layer boundaries. */
 void restack_all(void);
+/* The same, with one client first moved to the top (or the bottom) of its
+ * own layer -- which is what focus_client(), toggle_keep_above/below() and
+ * toggle_fullscreen() actually want.
+ *
+ * This used to be done by sending that client an xcb_configure_window()
+ * STACK_MODE_ABOVE to put it at the top of the *whole* stack and letting
+ * restack_all() pull it back down into its layer. The result was right and
+ * the intermediate state was visible: restack_all() opens with an
+ * xcb_query_tree() round trip, which flushes that raise, so the server got
+ * a frame's worth of time to display the stack with the client above
+ * everything -- including the windows its own layer rules keep on top of
+ * it. That is the VirtualBox mini-toolbar disappearing under the VM window
+ * for one frame on every single click.
+ *
+ * Reordering the bucket in memory instead means the whole reorder leaves
+ * as one batch of ConfigureWindow requests with no round trip in the
+ * middle, so there is no intermediate stack for the server to present. */
+void restack_all_raising(Client *c);
+void restack_all_lowering(Client *c);
 void toggle_sticky(Client *c, int want /* -1=toggle 0=off 1=on */);
 void snap_client_to_side(Client *c, SnapSide side /* SNAP_LEFT or SNAP_RIGHT */);
 /* Keyboard half-screen tiling: snaps c to `side`, or restores it if it's

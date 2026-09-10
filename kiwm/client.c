@@ -1019,9 +1019,7 @@ void focus_client(Client *c)
         ewmh_update_active_window();
     }
 
-    xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE,
-                         (uint32_t[]){ XCB_STACK_MODE_ABOVE });
-    restack_all();
+    restack_all_raising(c);
 
     /* A fullscreen window that just lost focus also just left
      * LAYER_ACTIVE_FULLSCREEN (see client_layer()), so everything it was
@@ -1265,7 +1263,38 @@ static void lift_group_aux(StackEntry *b, int n)
     }
 }
 
-void restack_all(void)
+/* Moves `promote`'s entry within its own bucket to the top (or the
+ * bottom) of it, leaving every other entry's relative order alone. This
+ * is the in-memory half of restack_all_raising/lowering(): see client.h
+ * for why it must not be a STACK_MODE_ABOVE sent to the server first. */
+static void bucket_promote(StackEntry *b, int n, Client *promote, bool to_top)
+{
+    int at = -1;
+    for (int i = 0; i < n; i++) {
+        if (b[i].client == promote) {
+            at = i;
+            break;
+        }
+    }
+    if (at < 0)
+        return;
+
+    StackEntry moved = b[at];
+
+    /* Buckets are bottom-to-top, so the top of a layer is the end of its
+     * array. */
+    if (to_top) {
+        for (int i = at; i < n - 1; i++)
+            b[i] = b[i + 1];
+        b[n - 1] = moved;
+    } else {
+        for (int i = at; i > 0; i--)
+            b[i] = b[i - 1];
+        b[0] = moved;
+    }
+}
+
+static void restack_all_core(Client *promote, bool to_top)
 {
     xcb_query_tree_reply_t *tree =
         xcb_query_tree_reply(wm.conn, xcb_query_tree(wm.conn, wm.root), NULL);
@@ -1307,6 +1336,13 @@ void restack_all(void)
     free(tree);
 
     for (int l = 0; l < LAYER_COUNT; l++) {
+        /* Before the layer's own ordering rules, not after: a client
+         * being raised goes to the top of its layer, and then
+         * lift_transients()/lift_group_aux() get to pull its transients
+         * and its group's chrome back above it. Doing it the other way
+         * round is what put the mini-toolbar below the VM window. */
+        if (promote)
+            bucket_promote(buckets[l], bn[l], promote, to_top);
         lift_transients(buckets[l], bn[l]);
         lift_group_aux(buckets[l], bn[l]);
     }
@@ -1328,6 +1364,21 @@ void restack_all(void)
     }
 }
 
+void restack_all(void)
+{
+    restack_all_core(NULL, true);
+}
+
+void restack_all_raising(Client *c)
+{
+    restack_all_core(c, true);
+}
+
+void restack_all_lowering(Client *c)
+{
+    restack_all_core(c, false);
+}
+
 void toggle_keep_above(Client *c, int want /* -1=toggle 0=off 1=on */)
 {
     bool target = (want == -1) ? !c->keep_above : (want == 1);
@@ -1336,10 +1387,10 @@ void toggle_keep_above(Client *c, int want /* -1=toggle 0=off 1=on */)
     c->keep_above = target;
     if (target) {
         c->keep_below = false; /* mutually exclusive, see client_layer() */
-        xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE,
-                             (uint32_t[]){ XCB_STACK_MODE_ABOVE });
+        restack_all_raising(c);
+    } else {
+        restack_all();
     }
-    restack_all();
     ewmh_update_wm_state(c);
     xcb_flush(wm.conn);
 }
@@ -1352,10 +1403,10 @@ void toggle_keep_below(Client *c, int want /* -1=toggle 0=off 1=on */)
     c->keep_below = target;
     if (target) {
         c->keep_above = false; /* mutually exclusive, see client_layer() */
-        xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE,
-                             (uint32_t[]){ XCB_STACK_MODE_BELOW });
+        restack_all_lowering(c);
+    } else {
+        restack_all();
     }
-    restack_all();
     ewmh_update_wm_state(c);
     xcb_flush(wm.conn);
 }
@@ -1642,9 +1693,7 @@ void toggle_fullscreen(Client *c, int want /* -1=toggle 0=unfullscreen 1=fullscr
         c->height = oh;
 
         configure_frame(c);
-        xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE,
-                             (uint32_t[]){ XCB_STACK_MODE_ABOVE });
-        restack_all();
+        restack_all_raising(c);
         ewmh_update_wm_state(c);
         ewmh_update_frame_extents(c);
         xcb_flush(wm.conn);

@@ -67,15 +67,14 @@ static void remap_existing_client(Client *c)
      * -- which for a transient that was hidden while its parent got raised
      * (VirtualBox's auto-hiding mini-toolbar, exactly) means underneath the
      * very window it's supposed to float over. An app showing a window
-     * again means it to be seen, so it goes to the top of the whole stack
-     * first and restack_all() then pulls it back down into its own layer
-     * -- the same "raise, then re-sort" pair focus_client() uses, and what
-     * keeps krunner from coming back *behind* whatever was focused since
-     * it last hid itself. */
+     * again means it to be seen, so it goes to the top of its own layer --
+     * the same restack_all_raising() focus_client() uses, and what keeps
+     * krunner from coming back *behind* whatever was focused since it last
+     * hid itself. */
     if (c->mapped)
-        xcb_configure_window(wm.conn, c->frame, XCB_CONFIG_WINDOW_STACK_MODE,
-                             (uint32_t[]){ XCB_STACK_MODE_ABOVE });
-    restack_all();
+        restack_all_raising(c);
+    else
+        restack_all();
 }
 
 static void handle_map_request(xcb_map_request_event_t *ev)
