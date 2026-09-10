@@ -398,6 +398,20 @@ struct Client {
      * shape is recomputed. */
     bool client_shaped;
 
+    /* Everything the frame's shape is computed from (shape.c). The shape
+     * encodes a *size* and a set of corners -- never a position -- so a
+     * move leaves every one of these alone and the recomputation is
+     * skipped. Held as a whole so that a field added to the shape's
+     * inputs later cannot be forgotten here: it stops compiling until it
+     * is filled in below. */
+    struct KiWMShapeSig {
+        int x, y, frame_w, frame_h;   /* x/y only because fills_output() reads them */
+        int output;
+        int bt, th;
+        int r_tl, r_tr, r_br, r_bl;
+        bool client_shaped, shaded, maximized, round_maximized;
+    } shape_sig;
+    bool shape_sig_valid;
 
     bool mapped;
 

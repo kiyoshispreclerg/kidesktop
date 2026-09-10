@@ -6,6 +6,7 @@
 #include <xcb/shape.h>
 
 #include <stdlib.h>
+#include <string.h>
 
 void shape_init(void)
 {
@@ -51,6 +52,12 @@ void shape_handle_notify(xcb_generic_event_t *event)
     if (ev->shape_kind == XCB_SHAPE_SK_BOUNDING)
         c->client_shaped = ev->shaped;
 
+    /* The client may have swapped one non-rectangular mask for another of
+     * the same size -- nothing the signature below records would differ,
+     * and the frame would keep the old silhouette. This event is the one
+     * thing that knows better, so it forces the recomputation. */
+    c->shape_sig_valid = false;
+
     shape_update_frame(c);
     xcb_flush(wm.conn);
 }
@@ -69,6 +76,42 @@ void shape_update_frame(Client *c)
      * answer arrives on its own the moment it stops being true. */
     bool client_shaped = c->client_shaped;
 
+    /* The shape is a function of the frame's size, its corners and
+     * whether the client carves one of its own -- and of nothing else. In
+     * particular it is not a function of where the window *is*, so a move
+     * drag was re-sending a byte-identical shape at the refresh rate for
+     * as long as it lasted. Recomputed when one of its inputs actually
+     * moves, and skipped otherwise. */
+    int sig_bt, sig_th;
+    deco_insets(c, &sig_bt, &sig_th);
+
+    /* Zeroed whole before any field is set: this is compared with
+     * memcmp(), and whatever padding the struct carries has to be a known
+     * value on both sides or two identical signatures can compare
+     * different and the skip silently never happens. */
+    struct KiWMShapeSig sig;
+    memset(&sig, 0, sizeof(sig));
+    sig.x = c->x;
+    sig.y = c->y;
+    sig.frame_w = c->frame_width;
+    sig.frame_h = c->frame_height;
+    sig.output = c->output;
+    sig.bt = sig_bt;
+    sig.th = sig_th;
+    sig.r_tl = wm.radius_tl;
+    sig.r_tr = wm.radius_tr;
+    sig.r_br = wm.radius_br;
+    sig.r_bl = wm.radius_bl;
+    sig.client_shaped = client_shaped;
+    sig.shaded = c->shaded;
+    sig.maximized = client_maximized(c);
+    sig.round_maximized = wm.round_maximized;
+
+    if (c->shape_sig_valid && memcmp(&sig, &c->shape_sig, sizeof(sig)) == 0)
+        return;
+
+    c->shape_sig = sig;
+    c->shape_sig_valid = true;
 
     /* A shaded client's content window is unmapped and the frame is
      * nothing but decoration, so its shape is kiwm's business alone --
