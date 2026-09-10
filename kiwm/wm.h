@@ -526,6 +526,16 @@ struct Client {
      * size long after mapping). */
     bool hints_fixed_size;
 
+    /* Did the client actually ask to be *somewhere*? ICCCM 4.1.2.3: with
+     * neither USPosition nor PPosition set in WM_NORMAL_HINTS, the window's
+     * current x/y mean nothing and choosing the position is the window
+     * manager's job. kiwm used to take geo->x/y at face value regardless,
+     * which is why every toolkit that maps its windows at the origin and
+     * waits to be placed -- LibreOffice's splash the clearest case -- came
+     * up jammed into the top-left corner of the screen. See ewmh.c's
+     * get_size_hints() and client.c's place_client_centered(). */
+    bool hints_has_position;
+
     int fs_saved_x, fs_saved_y, fs_saved_w, fs_saved_h; /* restore geometry before fullscreen */
     bool fs_was_max_horz;    /* which maximization to restore (vs. just float) on leaving fullscreen */
     bool fs_was_max_vert;

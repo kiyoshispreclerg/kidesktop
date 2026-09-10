@@ -183,11 +183,21 @@ void get_size_hints(Client *c)
     /* ICCCM's default when the client sets no PWinGravity flag. */
     c->gravity = XCB_GRAVITY_NORTH_WEST;
     c->hints_fixed_size = false;
+    /* No hints at all is the same answer as hints without a position flag:
+     * the client is not asking for one. */
+    c->hints_has_position = false;
 
     xcb_size_hints_t hints;
     xcb_get_property_cookie_t cookie = xcb_icccm_get_wm_normal_hints(wm.conn, c->window);
     if (!xcb_icccm_get_wm_normal_hints_reply(wm.conn, cookie, &hints, NULL))
         return;
+
+    /* USPosition is the user having asked for this position (a -geometry
+     * argument), PPosition the program having asked for it. ICCCM treats
+     * both as binding on the WM and their absence as "you choose" -- kiwm
+     * only distinguishes "asked" from "didn't". */
+    if (hints.flags & (XCB_ICCCM_SIZE_HINT_US_POSITION | XCB_ICCCM_SIZE_HINT_P_POSITION))
+        c->hints_has_position = true;
 
     if (hints.flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) {
         if (hints.min_width > c->min_w)

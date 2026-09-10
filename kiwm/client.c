@@ -2176,6 +2176,48 @@ static void seed_restore_geometry(Client *c)
     c->saved_y = wy + (wh - c->saved_h) / 2;
 }
 
+/* Where a window that never asked to be anywhere goes: the middle of an
+ * output's workarea (see wm.h's Client::hints_has_position).
+ *
+ * `bt`/`th` are the decoration insets, because what gets centered is the
+ * *frame* -- centering the content instead leaves a decorated window
+ * sitting a titlebar's height too low, which is exactly the kind of
+ * almost-right that is worse than obviously wrong.
+ *
+ * Which output: a transient goes to its parent's, since a dialog belongs
+ * to the window it came from and following the pointer could throw it onto
+ * a different screen than the window it is asking about. Everything else
+ * goes to the pointer's, which is where the user is looking.
+ *
+ * Clamped to the workarea rather than allowed to go negative: a window
+ * taller than the screen would otherwise be centered with its titlebar
+ * above the top edge, and a window whose titlebar is off-screen cannot be
+ * dragged back. */
+static void place_client_centered(Client *c, int bt, int th)
+{
+    int fw = c->width + bt * 2;
+    int fh = c->height + th + bt;
+
+    int output = -1;
+    if (c->transient_for != XCB_NONE) {
+        Client *parent = find_client_window(c->transient_for);
+        if (parent)
+            output = parent->output;
+    }
+    if (output < 0 || output >= wm.output_count)
+        output = output_for_pointer();
+    if (output < 0 || output >= wm.output_count)
+        output = 0;
+
+    int wx, wy, ww, wh;
+    compute_output_workarea(output, &wx, &wy, &ww, &wh);
+
+    c->x = wx + (ww - fw) / 2;
+    c->y = wy + (wh - fh) / 2;
+    if (c->x < wx) c->x = wx;
+    if (c->y < wy) c->y = wy;
+}
+
 /* Applies whatever _NET_WM_STATE the window already carries at the moment
  * kiwm starts managing it. Two quite different situations need this, and
  * both were broken without it:
@@ -2534,6 +2576,29 @@ void manage(xcb_window_t window, bool map_requested)
                 c->y = wy;
         }
     }
+
+    /* ...and all of that only matters if the client asked for a position
+     * in the first place. If it didn't, ICCCM says the position is kiwm's
+     * to pick, and whatever x/y the window happens to carry -- the origin,
+     * for most toolkits -- is not a request to honour. Placed after the
+     * gravity adjustment above so it has the last word: there is no
+     * content position to preserve for a window that was never placed.
+     *
+     * A window adopted from a previous WM is exempt: it is already on
+     * screen somewhere the user put it, and re-centering every window on
+     * a --replace would be its own bug. `map_requested` is manage()'s
+     * argument for "this is a fresh MapRequest". */
+    if (map_requested && !c->hints_has_position) {
+        place_client_centered(c, bt, th);
+
+        /* c->output/c->desktop were derived from the position the client
+         * came with, which is the one just discarded. */
+        c->output = output_index_for_point(c->x + c->width / 2, c->y + c->height / 2);
+        if (c->output < 0)
+            c->output = 0;
+        c->desktop = wm.output_count > 0 ? wm.outputs[c->output].desktop : 0;
+    }
+
     /* An ARGB frame (c->frame_depth == 32, see above) doesn't share its
      * parent's depth, so it needs a colormap of its own on top of the
      * border pixel -- and CW_COLORMAP (0x2000) sorts *after* CW_EVENT_MASK
