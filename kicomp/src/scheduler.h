@@ -35,9 +35,20 @@ bool scheduler_may_paint(CompOutput *o, double now);
  * damaged them -- this marks the ones whose deadline has arrived. */
 void scheduler_tick(double now);
 
-/* poll() timeout in ms until the earliest output that still owes a frame
- * (dirty and waiting, or animating), or -1 when nothing is pending and
- * the compositor can sleep indefinitely. */
+/* Whether this output is one the next paint would actually paint: dirty,
+ * with backend state, not handed to a window drawing itself, and not
+ * already waiting on a frame in flight.
+ *
+ * Shared by the paint and by scheduler_timeout() on purpose. The two used
+ * to decide it separately, disagree, and between them spin the main loop
+ * at tens of thousands of iterations a second for the whole length of any
+ * animation -- see scheduler.c. */
+bool scheduler_wants_frame(CompOutput *o);
+
+/* poll() timeout in ms until the earliest output that still owes a frame,
+ * or the next animation frame when an effect is running with nothing
+ * dirty; -1 when nothing is pending and the compositor can sleep until an
+ * X event. */
 int scheduler_timeout(double now);
 
 #endif /* KICOMP_SCHEDULER_H */

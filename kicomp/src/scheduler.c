@@ -1,6 +1,8 @@
 /* Per-output frame clocks -- see scheduler.h. */
 #include "scheduler.h"
 #include "effect.h"
+#include "presenter.h"
+#include "unredirect.h"
 
 static double period_ms(const CompOutput *o)
 {
@@ -54,17 +56,47 @@ void scheduler_tick(double now)
      * update() runs on time. Only the dirtying is gone. */
 }
 
+bool scheduler_wants_frame(CompOutput *o)
+{
+    if (!o->dirty || !o->render_data)
+        return false;
+
+    /* Not ours to paint: a window is filling this output and drawing
+     * itself (unredirect.h). */
+    if (unredirect_holds(o))
+        return false;
+
+    /* Blocked behind a frame in flight. Nothing to *wait* for either: the
+     * Present completion arrives as an X event, and the loop is already
+     * sleeping on that fd. */
+    if (presenter && presenter->busy && presenter->busy(o))
+        return false;
+
+    return true;
+}
+
 int scheduler_timeout(double now)
 {
     double earliest = -1.0;
-    bool animating = effects_active();
 
     for (int i = 0; i < comp.output_count; i++) {
         CompOutput *o = &comp.outputs[i];
 
-        /* Nothing owed: neither an animation nor a repaint waiting for
-         * this output's next slot. */
-        if (!animating && !o->dirty)
+        /* Exactly the outputs the paint would paint, asked with exactly
+         * the same question (scheduler_wants_frame).
+         *
+         * Asking a *different* question here is what made this loop spin.
+         * It used to count "an effect is running" as reason enough for an
+         * output to owe a frame, while the paint itself skips any output
+         * that is not dirty -- and since next_frame_ms only advances when
+         * a frame is actually painted, an output that is clean, or held
+         * behind a frame in flight, keeps a deadline somewhere in the
+         * past forever. So this returned 0, poll() did not sleep, the
+         * paint painted nothing, and round it went: measured at ~95,000
+         * iterations per second for as long as any animation lasted, each
+         * one running every effect's update() and posting its damage
+         * again. */
+        if (!scheduler_wants_frame(o))
             continue;
 
         double due = o->next_frame_ms;
@@ -72,6 +104,28 @@ int scheduler_timeout(double now)
             return 0;                /* already owed -- don't sleep at all */
         if (earliest < 0.0 || due < earliest)
             earliest = due;
+    }
+
+    /* An animation is running with nothing dirty this instant. Something
+     * is still owed -- the next update(), which is where each effect
+     * damages what it is about to change -- so this must not sleep until
+     * the next X event, or the animation stalls mid-way.
+     *
+     * A deadline already in the past is read as "no deadline standing"
+     * rather than "a frame is late": that output has not painted in a
+     * while, so its clock says nothing about when its next frame is due.
+     * Answering `now + one period` is what turns this from a zero timeout
+     * into an actual sleep. A dirty output whose slot has genuinely passed
+     * is unaffected -- it returned 0 above and scheduler_may_paint() lets
+     * it paint at once. */
+    if (earliest < 0.0 && effects_active()) {
+        for (int i = 0; i < comp.output_count; i++) {
+            CompOutput *o = &comp.outputs[i];
+            double due = o->next_frame_ms > now ? o->next_frame_ms
+                                                : now + period_ms(o);
+            if (earliest < 0.0 || due < earliest)
+                earliest = due;
+        }
     }
 
     if (earliest < 0.0)

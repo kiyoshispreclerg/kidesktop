@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.49"
+#define KICOMP_VERSION "0.2.50"
 
 #include "comp.h"
 #include "output.h"
@@ -546,27 +546,32 @@ static void paint_dirty_outputs(double now)
 
     for (int i = 0; i < comp.output_count; i++) {
         CompOutput *o = &comp.outputs[i];
-        /* render_data, not target: the latter is the XRender backend's
-         * Picture, and a GL backend has no such thing. What every backend
-         * does have is its own per-output state, and having it is exactly
-         * what "this output can be painted" means. */
-        if (!o->dirty || !o->render_data)
-            continue;
 
-        /* Not ours to paint: one window is filling it and drawing itself
-         * (unredirect.h). Left clean rather than skipped-but-dirty, so
-         * nothing here waits on a frame that will never be asked for. */
-        if (unredirect_holds(o)) {
+        /* An output handed to a window drawing itself is left *clean*
+         * rather than skipped-but-dirty, so nothing waits on a frame that
+         * will never be asked for (unredirect.h). Done before the
+         * predicate below, because it is a state change and not a
+         * question. */
+        if (o->dirty && unredirect_holds(o)) {
             o->dirty = false;
             continue;
         }
 
-        /* A frame is still in flight for this output (Present): painting
-         * another one now would queue latency behind it rather than show
-         * anything sooner. It stays dirty and is painted the moment the
-         * completion arrives, which is what makes the loop vblank-paced
-         * rather than timer-paced. */
-        if (presenter && presenter->busy && presenter->busy(o))
+        /* Dirty, with backend state of its own, and not already waiting
+         * on a frame in flight -- scheduler.h. The same question
+         * scheduler_timeout() asks, from the same function, because the
+         * two answering it separately is what once spun this loop at tens
+         * of thousands of iterations a second.
+         *
+         * ("Backend state of its own" is render_data, not target: the
+         * latter is the XRender backend's Picture and a GL backend has no
+         * such thing. Having per-output state is exactly what "this
+         * output can be painted" means.)
+         *
+         * An output blocked on a frame in flight stays dirty and is
+         * painted the moment the completion arrives, which is what makes
+         * the loop vblank-paced rather than timer-paced. */
+        if (!scheduler_wants_frame(o))
             continue;
 
         /* Its own clock decides, not the event that dirtied it: a burst
