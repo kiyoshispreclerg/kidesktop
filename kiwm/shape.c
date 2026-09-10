@@ -19,6 +19,15 @@ void shape_track_client(Client *c)
     if (!wm.shape_ext_present)
         return;
     xcb_shape_select_input(wm.conn, c->window, 1);
+
+    /* The one time it is worth asking: adopting a window that was already
+     * on screen before kiwm managed it, whose shape (if any) was set
+     * before there was anyone selecting for the event that announces it.
+     * Every change after this arrives as a ShapeNotify. */
+    xcb_shape_query_extents_reply_t *ext = xcb_shape_query_extents_reply(
+        wm.conn, xcb_shape_query_extents(wm.conn, c->window), NULL);
+    c->client_shaped = ext && ext->bounding_shaped;
+    free(ext);
 }
 
 bool shape_is_notify_event(uint8_t response_type)
@@ -36,6 +45,12 @@ void shape_handle_notify(xcb_generic_event_t *event)
     Client *c = find_client_window(ev->affected_window);
     if (!c || ev->affected_window != c->window)
         return;
+
+    /* This event *is* the answer shape_update_frame() used to stop and ask
+     * the server for. Recorded before the call below, which now reads it. */
+    if (ev->shape_kind == XCB_SHAPE_SK_BOUNDING)
+        c->client_shaped = ev->shaped;
+
     shape_update_frame(c);
     xcb_flush(wm.conn);
 }
@@ -45,10 +60,15 @@ void shape_update_frame(Client *c)
     if (!wm.shape_ext_present)
         return;
 
-    xcb_shape_query_extents_reply_t *ext = xcb_shape_query_extents_reply(
-        wm.conn, xcb_shape_query_extents(wm.conn, c->window), NULL);
-    bool client_shaped = ext && ext->bounding_shaped;
-    free(ext);
+    /* Read, not asked. This used to be a ShapeQueryExtents *round trip*,
+     * and it ran on every due frame of every drag, for the dragged client
+     * and for each resize neighbour -- kiwm stopping dead mid-drag to
+     * wait for the server to answer a question whose answer had not
+     * changed since the window was mapped. kiwm already selects for
+     * ShapeNotify on every client (shape_track_client above), so the
+     * answer arrives on its own the moment it stops being true. */
+    bool client_shaped = c->client_shaped;
+
 
     /* A shaded client's content window is unmapped and the frame is
      * nothing but decoration, so its shape is kiwm's business alone --

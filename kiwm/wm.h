@@ -391,6 +391,14 @@ struct Client {
     int sent_frame_x, sent_frame_y, sent_frame_w, sent_frame_h;
     int sent_client_x, sent_client_y, sent_client_w, sent_client_h;
 
+    /* Whether this client carves its own bounding shape (shape.c). Asked
+     * of the server exactly once, when the window is adopted, and kept
+     * current from there by the ShapeNotify events kiwm already selects
+     * for -- rather than re-asked, synchronously, every time the frame's
+     * shape is recomputed. */
+    bool client_shaped;
+
+
     bool mapped;
 
     /* Held up to be looked at: on screen, but only because a compositor
