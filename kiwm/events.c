@@ -222,6 +222,18 @@ static void detect_resize_neighbors(Client *c)
             continue;
         if (!o2->sticky && wm.outputs[o2->output].desktop != o2->desktop)
             continue;
+        /* Not a window whose geometry belongs to kiwm rather than to the
+         * user. A fullscreen or maximized window has its edges exactly on
+         * its output's, so *every* window snapped against a screen edge
+         * finds one within the epsilon and drags it along -- which is how
+         * opening a dialog beside a fullscreen VM and resizing the dialog
+         * ended up resizing the VM. And there would be no point even if it
+         * looked right: the next refit re-applies the output's geometry
+         * over whatever the drag left. resize_grip_at() already refuses to
+         * give these windows grips of their *own*, for the same reason;
+         * this is the other half of that rule. */
+        if (o2->fullscreen || client_maximized(o2))
+            continue;
 
         int rl = o2->x, rr = o2->x + o2->frame_width;
         int rt = o2->y, rb = o2->y + o2->frame_height;
