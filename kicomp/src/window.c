@@ -983,9 +983,32 @@ void windows_flush_events(void)
                 kind = COMP_EVENT_RESTORE;
             else if (w->has_been_mapped && left_with_a_desktop(w))
                 kind = COMP_EVENT_DESKTOP_ENTER;
-            else if (w->has_been_mapped)
-                kind = COMP_EVENT_RESTORE;
             else
+                /* Anything else appearing is *opening*, whether or not it
+                 * has been on screen before.
+                 *
+                 * "Has been mapped once" used to be reason enough to call
+                 * this a restore, which conflated two unrelated things:
+                 * coming back from being minimized -- which the state test
+                 * above is what actually knows about -- and an application
+                 * hiding one of its own windows and showing it again.
+                 * Plasma's launcher, krunner and every applet popup work
+                 * the second way: the window is kept alive and mapped and
+                 * unmapped, so it opened exactly once and every appearance
+                 * after that claimed to be a restore.
+                 *
+                 * Which handed each of them the minimize effect, running
+                 * backwards. That effect travels between the window and
+                 * the box a taskbar reserved for it, and with no taskbar
+                 * saying anything it aims at the bottom edge of the output
+                 * (effects/minimize.c) -- so the launcher came flying up
+                 * from the bottom of the screen every time it was opened,
+                 * while the fade and scale that answer `open` never ran at
+                 * all.
+                 *
+                 * It also makes the two halves of this agree. A window its
+                 * owner unmaps without minimizing it is a CLOSE above; the
+                 * same window mapped again is the OPEN that matches it. */
                 kind = COMP_EVENT_OPEN;
 
             w->has_been_mapped = true;
