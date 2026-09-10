@@ -21,20 +21,70 @@ int primary_output_index(void)
     return wm.output_count > 0 ? 0 : -1;
 }
 
+/* How far a point is from an output's scanout box, squared -- 0 when the
+ * point is inside it. Squared because nothing here needs the real
+ * distance, only which of two is smaller, and a square root would just
+ * add a way to be wrong about it. */
+static long output_distance2(const XisOutput *o, int x, int y)
+{
+    long dx = 0, dy = 0;
+
+    if (x < o->scan_x)
+        dx = o->scan_x - x;
+    else if (x >= o->scan_x + o->scan_width)
+        dx = x - (o->scan_x + o->scan_width - 1);
+
+    if (y < o->scan_y)
+        dy = o->scan_y - y;
+    else if (y >= o->scan_y + o->scan_height)
+        dy = y - (o->scan_y + o->scan_height - 1);
+
+    return dx * dx + dy * dy;
+}
+
 /* Which monitor a point is on -- asked of the *scanout* box, not the
  * usable one (wm.h). A confined output still owns the pixels outside its
  * usable area: a panel or a window sitting there belongs to that monitor,
  * and answering "none of them, have the primary" is how one screen's
- * scaling ends up shrinking another screen's workarea. */
+ * scaling ends up shrinking another screen's workarea.
+ *
+ * And a point on no output at all gets the *nearest* one, not the primary
+ * either. A monitor layout is rarely a solid rectangle -- two screens of
+ * different heights side by side, or any stagger at all, leaves dead space
+ * that belongs to no output -- and a point in it is not a point about the
+ * primary monitor. Since clients are assigned an output by the centre of
+ * their frame (manage(), finish_drag() and outputs_refresh()), a window hanging
+ * off the outer edge of the smaller screen has its centre out there, and
+ * "have the primary" moved it to the *other* monitor: it showed up in the
+ * wrong screen's switcher, and, because it was published that way in
+ * _KIWM_WM_OUTPUT, in the wrong screen's panel too. The nearest output is
+ * the screen the window is actually falling off, which is the one the user
+ * is looking at it on -- and it is what kwin answers, which is why Plasma
+ * got this case right where kiwm did not. */
 int output_index_for_point(int x, int y)
 {
+    int best = -1;
+    long best_d2 = 0;
+
     for (int i = 0; i < wm.output_count; i++) {
         XisOutput *o = &wm.outputs[i];
-        if (x >= o->scan_x && x < o->scan_x + o->scan_width &&
-            y >= o->scan_y && y < o->scan_y + o->scan_height)
-            return i;
+        long d2 = output_distance2(o, x, y);
+
+        if (d2 == 0)
+            return i;              /* inside: nothing can be nearer */
+
+        /* Strictly nearer, so an exact tie keeps the lower index -- which
+         * is stable across calls, where "whichever was tested last" is
+         * not. */
+        if (best < 0 || d2 < best_d2) {
+            best = i;
+            best_d2 = d2;
+        }
     }
-    return primary_output_index();
+
+    /* Only with no outputs at all, where primary_output_index() is the one
+     * that knows the answer is -1. */
+    return best >= 0 ? best : primary_output_index();
 }
 
 int output_for_pointer(void)
