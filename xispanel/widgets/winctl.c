@@ -370,7 +370,8 @@ static int winctl_on_tick(PanelWidget *w, uint64_t now)
         }
     }
     if (applies && wp->same_output_only &&
-        !ewmh_window_in_rect(active, w->panel->out_x, w->panel->out_y, w->panel->out_w, w->panel->out_h)) {
+        !ewmh_window_on_output(active, kiwm_output_idx, w->panel->out_x, w->panel->out_y,
+                               w->panel->out_w, w->panel->out_h)) {
         applies = 0;
     }
     wp->active_applies = applies;

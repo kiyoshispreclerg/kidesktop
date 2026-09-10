@@ -97,7 +97,7 @@ typedef struct {
 typedef struct {
     int compact; /* 0 = wide (icon+label), 1 = compact (icon only) */
     int same_desktop_only; /* 1 = only list tasks on the current _NET_CURRENT_DESKTOP */
-    int same_output_only; /* 1 = only list tasks whose center is on this panel's own output */
+    int same_output_only; /* 1 = only list tasks kiwm places on this panel's own output (ewmh_window_on_output()) */
     int minimized_only; /* 1 = only list minimized tasks */
     int icon_padding; /* px of empty space around the icon on every side; 0 (default) = icon fills the
                         * whole button height. See icon_size_for(). */
@@ -585,8 +585,8 @@ static int tasklist_on_tick(PanelWidget *w, uint64_t now)
                 continue;
             }
         }
-        if (tp->same_output_only && !ewmh_window_in_rect(win, w->panel->out_x, w->panel->out_y, w->panel->out_w,
-                                                           w->panel->out_h)) {
+        if (tp->same_output_only && !ewmh_window_on_output(win, kiwm_output_idx, w->panel->out_x, w->panel->out_y,
+                                                            w->panel->out_w, w->panel->out_h)) {
             continue;
         }
         if (tp->minimized_only && !minimized) {

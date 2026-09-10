@@ -447,6 +447,33 @@ int ewmh_window_in_rect(Window w, int rx, int ry, int rw, int rh)
     return cx >= rx && cx < rx + rw && cy >= ry && cy < ry + rh;
 }
 
+/* 1 if `w` belongs to the output a panel is bound to -- the one question
+ * every same_output filter in the panel is actually asking.
+ *
+ * Under kiwm (kiwm_output_idx >= 0) the answer comes from kiwm, via
+ * _KIWM_WM_OUTPUT, because kiwm is the only one that gets the awkward case
+ * right. Two monitors of different heights side by side leave dead space
+ * belonging to no output, and a window hanging off a screen's edge has its
+ * centre out there -- so ewmh_window_in_rect() below puts it inside *no*
+ * panel's rectangle and the window vanishes from every tasklist at once.
+ * kiwm resolves such a point to the nearest output (kiwm/output.c's
+ * output_index_for_point()) and publishes that, so asking it gives the
+ * whole session one answer instead of each widget deriving its own.
+ *
+ * The centre-in-rect test stays for whatever kiwm has not answered for:
+ * another window manager entirely, or a window kiwm has not yet
+ * labelled. */
+int ewmh_window_on_output(Window w, int kiwm_output_idx, int rx, int ry, int rw, int rh)
+{
+    if (kiwm_output_idx >= 0) {
+        int out = ewmh_kiwm_get_wm_output(w);
+        if (out >= 0) {
+            return out == kiwm_output_idx;
+        }
+    }
+    return ewmh_window_in_rect(w, rx, ry, rw, rh);
+}
+
 int ewmh_get_window_rect(Window w, int *out_x, int *out_y, int *out_w, int *out_h)
 {
     XWindowAttributes wa;

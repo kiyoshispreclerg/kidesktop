@@ -187,7 +187,7 @@ static void globalmenu_destroy(PanelWidget *w)
  * see the GlobalmenuPriv fields' doc comment. `active == None` always
  * fails (nothing to show a menu for). Mirrors tasklist.c's own same_
  * desktop/same_output filtering (ewmh_get_current_desktop()/ewmh_window_
- * in_rect()), plus a globalmenu-specific focused_only check: _NET_ACTIVE_
+ * on_output()), plus a globalmenu-specific focused_only check: _NET_ACTIVE_
  * WINDOW can lag behind real X focus (e.g. some WMs leave it pointing at
  * the last client after focus moves to the root window/desktop), so
  * focused_only cross-checks against XGetInputFocus() via ewmh_window_
@@ -205,9 +205,17 @@ static int globalmenu_passes_filters(PanelWidget *w, Window active)
             return 0;
         }
     }
-    if (gp->same_output_only &&
-        !ewmh_window_in_rect(active, w->panel->out_x, w->panel->out_y, w->panel->out_w, w->panel->out_h)) {
-        return 0;
+    if (gp->same_output_only) {
+        /* Resolved here rather than kept around: this widget tests one
+         * window (the active one) per pass, so the lookup is not in a loop
+         * the way tasklist.c's is. -1 off kiwm, which is what
+         * ewmh_window_on_output() takes to mean "use the rect test". */
+        int kiwm_output_idx = -1;
+        ewmh_kiwm_current_desktop_for_output(w->panel->output, &kiwm_output_idx);
+        if (!ewmh_window_on_output(active, kiwm_output_idx, w->panel->out_x, w->panel->out_y,
+                                   w->panel->out_w, w->panel->out_h)) {
+            return 0;
+        }
     }
     if (gp->focused_only && !ewmh_window_has_input_focus(active)) {
         return 0;

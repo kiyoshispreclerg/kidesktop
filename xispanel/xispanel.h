@@ -591,6 +591,11 @@ void ewmh_watch_windows(void);
 int ewmh_property_event_is_relevant(const XPropertyEvent *ev, int *out_client_list_changed);
 int ewmh_skip_taskbar(Window w); /* 1 if a taskbar should never list this window */
 int ewmh_window_in_rect(Window w, int rx, int ry, int rw, int rh); /* 1 if w's center is inside the rect */
+/* 1 if w belongs to the output a panel is bound to: kiwm's _KIWM_WM_OUTPUT
+ * when kiwm_output_idx >= 0 and kiwm has labelled the window, else the
+ * center-in-rect test above. Every same_output filter should use this --
+ * see ewmh.c for the dead-space case that makes the difference. */
+int ewmh_window_on_output(Window w, int kiwm_output_idx, int rx, int ry, int rw, int rh);
 /* Position/size in root coordinates (pager.c's show_windows= outlines) --
  * 0 if the window isn't currently viewable or the query failed. */
 int ewmh_get_window_rect(Window w, int *out_x, int *out_y, int *out_w, int *out_h);
