@@ -534,6 +534,7 @@ typedef struct KiComp {
         xcb_atom_t net_desktop_layout;     /* the grid the desktops sit in */
         /* X-DENSITY (density.h) */
         xcb_atom_t density_manager;
+        xcb_atom_t manager;               /* ICCCM 2.8: "I now own selection X" */
         xcb_atom_t density_requested;
         xcb_atom_t density_scale;
         xcb_atom_t density_pixmap;

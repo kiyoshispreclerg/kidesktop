@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.51"
+#define KICOMP_VERSION "0.2.52"
 
 #include "comp.h"
 #include "output.h"
@@ -142,6 +142,7 @@ static void atoms_init(void)
     snprintf(cm, sizeof(cm), "_NET_WM_CM_S%d", comp.screen_num);
 
     comp.atoms.net_wm_cm              = intern(cm);
+    comp.atoms.manager                = intern("MANAGER");
     comp.atoms.net_wm_window_opacity  = intern("_NET_WM_WINDOW_OPACITY");
     comp.atoms.xrootpmap_id           = intern("_XROOTPMAP_ID");
     comp.atoms.esetroot_pmap_id       = intern("ESETROOT_PMAP_ID");
@@ -474,6 +475,26 @@ static bool acquire_selection(bool replace)
         fprintf(stderr, "kicomp: failed to acquire %s\n", "_NET_WM_CM_Sn");
         return false;
     }
+
+    /* ICCCM 2.8: a client that takes a manager selection announces it
+     * with a MANAGER message to the root, so that anyone who cares can be
+     * told rather than having to keep asking. Nobody was told before, and
+     * kiwm had to poll GetSelectionOwner to notice a compositor arrive.
+     * The WM cares more than it used to: which depth it frames windows
+     * at now depends on whether their alpha has a compositor to go to,
+     * and it re-frames them the moment that answer changes. */
+    xcb_client_message_event_t msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.response_type = XCB_CLIENT_MESSAGE;
+    msg.format = 32;
+    msg.window = comp.root;
+    msg.type = comp.atoms.manager;
+    msg.data.data32[0] = XCB_CURRENT_TIME;
+    msg.data.data32[1] = comp.atoms.net_wm_cm;
+    msg.data.data32[2] = comp.cm_window;
+    xcb_send_event(comp.conn, 0, comp.root, XCB_EVENT_MASK_STRUCTURE_NOTIFY,
+                   (const char *)&msg);
+    xcb_flush(comp.conn);
 
     if (previous != XCB_NONE) {
         /* Bounded wait: an old owner that ignores the handoff shouldn't
