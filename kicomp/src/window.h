@@ -126,6 +126,7 @@ CompWindow *window_find_by_client(xcb_window_t client);
  * running it mid-session composites the existing desktop instead of a
  * black screen (mirrors kiwm's manage_existing_windows). */
 void windows_scan(void);
+void windows_resync_order(void);
 void windows_teardown(void);
 
 #endif /* KICOMP_WINDOW_H */

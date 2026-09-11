@@ -1453,6 +1453,22 @@ void window_restack(xcb_window_t id, xcb_window_t above)
     if (cur_above == above)
         return;
 
+    if (above != XCB_NONE && !window_find(above)) {
+        /* The server says this window now sits above one the scene has
+         * never heard of. That is not a window to guess around: it is
+         * proof the scene's order has fallen out of step with the
+         * server's -- an event that named a window created and
+         * destroyed on the far side of windows_scan(), typically, which
+         * is what a WM re-framing everything the moment a compositor
+         * takes the selection produces. "Put it on top" was the old
+         * answer, and it is how the focused window came to be drawn
+         * under an unfocused one and every panel under both. The tree
+         * is the only thing that knows; ask it, once, for everything. */
+        comp_log("restack 0x%x above unknown 0x%x: resyncing from the tree", id, above);
+        windows_resync_order();
+        return;
+    }
+
     unlink_window(w);
     link_above(w, above);
 
@@ -1460,6 +1476,34 @@ void window_restack(xcb_window_t id, xcb_window_t above)
         CompRect r = window_rect(w);
         output_damage_window_rect(w, &r);
     }
+}
+
+/* Put every window the scene knows where the server's tree has it. The
+ * ordering half of windows_scan(), for when an event reveals the scene
+ * has drifted (window_restack). Adds nothing and removes nothing: a
+ * window in the tree the scene lacks is one whose CreateNotify is still
+ * on its way, and one the scene has that the tree lacks has a
+ * DestroyNotify coming. Only the order is taken from the tree. */
+void windows_resync_order(void)
+{
+    xcb_query_tree_reply_t *tree =
+        xcb_query_tree_reply(comp.conn, xcb_query_tree(comp.conn, comp.root), NULL);
+    if (!tree)
+        return;
+
+    xcb_window_t *children = xcb_query_tree_children(tree);
+    int n = xcb_query_tree_children_length(tree);
+
+    xcb_window_t above = XCB_NONE;
+    for (int i = 0; i < n; i++) {
+        if (!window_find(children[i]))
+            continue;
+        window_restack(children[i], above);
+        above = children[i];
+    }
+
+    free(tree);
+    output_damage_all();
 }
 
 void windows_scan(void)
