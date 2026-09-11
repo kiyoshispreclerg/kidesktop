@@ -32,7 +32,7 @@
  *   margin   = 24               # around the grid of desktops
  *   padding  = 24               # between the cells -- the same gap by
  *                               # default, so it reads as one spacing
- *   dim      = 0.82             # the desktops that aren't under the pointer
+ *   dim      = 0.82             # the desktops other than the selected one
  *   background = #000000        # the ground they are laid out on
  *   live_windows = desktop      # desktop | active_only | active | all --
  *                               # which of the other desktops' windows are
@@ -112,7 +112,7 @@ typedef struct {
     int desktops;
     int cols, rows;
     int current_desktop;   /* the one the output was showing when we opened */
-    int selected;          /* desktop under the pointer, -1 for none */
+    int selected;          /* the chosen cell (arrow keys), -1 for none */
 
     /* Where each desktop's cell is, in root coordinates. */
     CompRect cell[MAX_DESKTOPS];
@@ -516,13 +516,12 @@ static void on_motion(void *data, int root_x, int root_y)
         }
     }
 
-    int want = desktop_at(d, root_x, root_y);
-    if (want == d->selected)
-        return;
-    d->selected = want;
-
-    if (o)
-        output_damage_rect(&o->rect);
+    /* Passing over a cell chooses nothing: the pointer crosses every
+     * cell on the way to the one meant, and a grid that follows it
+     * around answers a question that hasn't been asked. The selection
+     * moves by the arrow keys and lands by a click; leaving without
+     * either (Escape, a click off the grid) goes back to the desktop
+     * that was showing. */
 }
 
 static void on_button(void *data, int root_x, int root_y, uint8_t button,
@@ -1238,12 +1237,11 @@ static void ex_toggle(void *data)
     comp.show_stowed_output = o->id;
     effects_add(e);
 
-    /* And it stays on the desktop that was showing. Not on whatever the
-     * pointer happens to be over once the grid has appeared underneath
-     * it: the pointer hasn't moved, so the user hasn't chosen anything,
-     * and an expo that opens with a different desktop selected than the
-     * one you were just using answers a question nobody asked. Real
-     * motion changes it (on_motion). */
+    /* And it stays on the desktop that was showing: the user hasn't
+     * chosen anything yet, and an expo that opens with a different
+     * desktop selected than the one you were just using answers a
+     * question nobody asked. The arrow keys move it; a click lands it
+     * (on_button). */
     layout(e, comp_now_ms());
 }
 
