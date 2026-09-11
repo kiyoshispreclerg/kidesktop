@@ -317,6 +317,21 @@ static void layout(CompEffect *e, double now)
         for (int i = 0; i < d->desktops && i < MAX_DESKTOPS; i++)
             arrange_grid(d, i);
 
+    /* Only the desktop you were on travels: it shrinks from the screen
+     * into its cell, and that one motion is the whole of the way in.
+     * The other desktops were not on screen, so there is nowhere for
+     * them to shrink *from* -- flying them in from a full-size position
+     * nobody ever saw was four desktops converging on the middle, with
+     * the one you were using lost among them. They are simply placed,
+     * already in their cells, and fade in as the grid does. */
+    for (int i = 0; i < d->count; i++) {
+        ExItem *it = &d->items[i];
+        if (it->sticky || it->desktop == d->current_desktop)
+            continue;
+        it->from = it->current = it->to;
+        it->alpha = it->alpha_from = 0.0f;
+    }
+
     d->leg_start = now;
     d->leg_ms = effect_instance_duration(e->instance);
     output_damage_rect(&o->rect);
@@ -372,17 +387,25 @@ static void close_mode(CompEffect *e, int enter_desktop, CompWindow *pick)
     if (enter_desktop >= 0 && enter_desktop != d->current_desktop)
         desktop_request_switch(output_by_id(d->output_id), enter_desktop);
 
+    /* The mirror of layout(): only the desktop being walked into grows
+     * back to the screen. */
+    int going = enter_desktop >= 0 ? enter_desktop : d->current_desktop;
+
     for (int i = 0; i < d->count; i++) {
         ExItem *it = &d->items[i];
         it->from = it->current;
-        it->to = it->home;
         it->alpha_from = it->alpha;
-        /* The desktops nobody chose fade out as they go: their windows
-         * are about to be unmapped again (or never were mapped), and a
-         * window sliding home to a desktop you are not on has no home to
-         * arrive at. */
-        it->alpha_to = (enter_desktop < 0 || it->desktop == enter_desktop) ? 1.0f
-                                                                          : 0.0f;
+        if (it->sticky || it->desktop == going) {
+            it->to = it->home;
+            it->alpha_to = 1.0f;
+        } else {
+            /* The desktops nobody chose stay in their cells and fade
+             * out: their windows are about to be unmapped again (or
+             * never were mapped), and a window sliding home to a desktop
+             * you are not on has no home to arrive at. */
+            it->to = it->current;
+            it->alpha_to = 0.0f;
+        }
     }
 
     d->leg_start = comp_now_ms();
@@ -650,6 +673,14 @@ static void ex_apply(CompEffect *e, CompScene *s, CompOutput *o)
     float p = leg_progress(d, e, comp_now_ms());
     float spread = d->closing ? 1.0f - p : p;
 
+    /* The one cell that moves (layout, close_mode): the desktop you came
+     * from on the way in, the one you are going to on the way out. Every
+     * other cell stands where it is at full spread and only its opacity
+     * follows the leg. */
+    int moving_cell = d->closing
+        ? (d->enter_desktop >= 0 ? d->enter_desktop : d->current_desktop)
+        : d->current_desktop;
+
     if (o->id == d->output_id) {
         /* The ground first, under everything: the desktops are laid out
          * *somewhere*, not floating over the one you were just using.
@@ -705,7 +736,8 @@ static void ex_apply(CompEffect *e, CompScene *s, CompOutput *o)
          * and is shown whole. */
         CompRect bound = o->rect;
         if (it->scenery && it->desktop >= 0 && it->desktop < d->desktops)
-            bound = clip_bound(&o->rect, &d->cell[it->desktop], spread);
+            bound = clip_bound(&o->rect, &d->cell[it->desktop],
+                               it->desktop == moving_cell ? spread : 1.0f);
 
         CompRect vis;
         if (rect_intersect(cur, &bound, &vis))
@@ -768,9 +800,7 @@ static void ex_apply(CompEffect *e, CompScene *s, CompOutput *o)
          * that has to be the one you chose. While the grid is up it is
          * the one under the pointer, which never overlaps anything
          * anyway. */
-        int top_cell = d->closing
-            ? (d->enter_desktop >= 0 ? d->enter_desktop : d->current_desktop)
-            : d->selected;
+        int top_cell = d->closing ? moving_cell : d->selected;
 
         int order[MAX_DESKTOPS];
         int cells = 0;
@@ -812,8 +842,16 @@ static void ex_apply(CompEffect *e, CompScene *s, CompOutput *o)
                     CompSceneNode node = s->nodes[i];
 
                     if (it->sticky) {
+                        /* This cell's copy moves with the cell: in place
+                         * at full spread for a standing cell, along with
+                         * the desktop for the moving one -- and fading
+                         * with the leg where the cell stands, since a
+                         * cell that does not move appears and goes by
+                         * its opacity alone. */
+                        float cs = (c == moving_cell) ? spread : 1.0f;
+                        float ca = (c == moving_cell) ? 1.0f : spread;
                         CompRect target = place_in_cell(d, o, &it->home, c);
-                        CompRect cur = lerp_rect(&it->home, &target, spread);
+                        CompRect cur = lerp_rect(&it->home, &target, cs);
 
                         float sx = (float)cur.w /
                                    (float)(node.geometry.w > 0 ? node.geometry.w : 1);
@@ -828,7 +866,7 @@ static void ex_apply(CompEffect *e, CompScene *s, CompOutput *o)
                         comp_transform_translate(&node.transform,
                                                  (float)cur.x, (float)cur.y);
 
-                        node.opacity = it->alpha;
+                        node.opacity = it->alpha * ca;
                         if (d->selected >= 0 && c != d->selected) {
                             float dim = cfg->dim;
                             if (dim < 0.0f) dim = 0.0f;
@@ -839,7 +877,7 @@ static void ex_apply(CompEffect *e, CompScene *s, CompOutput *o)
                         /* Clipped to its cell, for the same reason: the
                          * cell is this screen and a panel wider than the
                          * screen must not spill into the next cell. */
-                        CompRect bound = clip_bound(&o->rect, &d->cell[c], spread);
+                        CompRect bound = clip_bound(&o->rect, &d->cell[c], cs);
                         CompRect vis;
                         if (!rect_intersect(&cur, &bound, &vis))
                             vis = (CompRect){ 0, 0, 0, 0 };
