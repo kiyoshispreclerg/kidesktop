@@ -119,6 +119,10 @@ typedef struct {
     float scale;           /* output -> cell */
 
     bool closing;
+    /* The grid is up and a leg is running that only moves windows
+     * within it (settle, after a drop): the leg's progress is theirs,
+     * not the grid's -- which is at full spread and stays there. */
+    bool settling;
     int enter_desktop;     /* desktop to switch to on the way out, -1 = none */
     CompWindow *enter_window;
 
@@ -389,6 +393,7 @@ static void close_mode(CompEffect *e, int enter_desktop, CompWindow *pick)
         return;
 
     d->closing = true;
+    d->settling = false;
     d->enter_desktop = enter_desktop;
     d->enter_window = pick;
     d->drag = NULL;          /* whatever was held goes home with its cell */
@@ -484,6 +489,7 @@ static void settle(CompEffect *e, double now)
         for (int i = 0; i < d->desktops && i < MAX_DESKTOPS; i++)
             arrange_grid(d, i);
 
+    d->settling = true;
     d->leg_start = now;
     d->leg_ms = effect_instance_duration(e->instance);
     output_damage_rect(&o->rect);
@@ -774,7 +780,7 @@ static void ex_apply(CompEffect *e, CompScene *s, CompOutput *o)
     const ExConfig *cfg = e->instance->config;
 
     float p = leg_progress(d, e, comp_now_ms());
-    float spread = d->closing ? 1.0f - p : p;
+    float spread = d->closing ? 1.0f - p : (d->settling ? 1.0f : p);
 
     /* The one cell that moves (layout, close_mode): the desktop you came
      * from on the way in, the one you are going to on the way out. Every
