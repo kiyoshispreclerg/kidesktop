@@ -2557,12 +2557,13 @@ void manage(xcb_window_t window, bool map_requested)
     c->width = geo->width < c->min_w ? c->min_w : geo->width;
     c->height = geo->height < c->min_h ? c->min_h : geo->height;
 
-    /* Every frame is an ARGB frame, whatever the client's own depth is.
+    /* The frame is an ARGB frame when its alpha channel has somewhere to
+     * go, and the root's depth when it does not.
      *
      * For an ARGB client it is the only way its alpha survives: it draws
      * into the *frame's* backing pixmap, and a depth-24 pixmap has no
      * alpha channel to draw it into -- the transparency would be gone
-     * before a compositor ever saw it, unrecoverable.
+     * before a compositor ever saw it, unrecoverable. Always 32 for one.
      *
      * For an ordinary depth-24 client it is what makes kiwm's *own*
      * decoration able to be translucent. The client's pixels are opaque
@@ -2571,16 +2572,36 @@ void manage(xcb_window_t window, bool map_requested)
      * they land on has an alpha channel. Deciding this from the client's
      * depth -- as this did at first -- made a themed titlebar translucent
      * over Konsole and opaque over Kate, which is a property of the
-     * theme, not of the application.
+     * theme, not of the application. So 32 for one too -- when there is
+     * a compositor to give the alpha to.
      *
-     * Costs nothing on a plain X server: with no compositor a 32-bit
-     * window is simply displayed as opaque, exactly as before. */
-    if (wm.argb_visual) {
+     * Without one there is not, and this used to say the 32-bit frame
+     * "costs nothing on a plain X server: it is simply displayed as
+     * opaque". It is displayed as opaque. It does not cost nothing. A
+     * depth-32 window on a depth-24 screen goes through a format
+     * conversion on every operation the server does to it, and a resize
+     * is the server redoing the whole frame. Measured resizing a Kate
+     * window on the bare server, sampling gpu_busy_percent: 18.6-19.0%
+     * with a 32-bit frame, 10.5-10.8% with a 24-bit one -- and the 24-bit
+     * one comes in under an uncomposited kwin's 11.1-11.8% on the same
+     * drag. That was the whole of kiwm's gap against kwin, and more.
+     *
+     * Decided once, here, from the compositor's state at the time the
+     * window is framed: a window's visual cannot change after it is
+     * created. A compositor that arrives *later* finds the frames made
+     * before it opaque, and they stay so until the window is re-managed
+     * -- which is the same as kiwm on a screen with no 32-bit visual,
+     * and nothing stops working (selection.c's rule for this answer).
+     * Re-framing on a compositor's arrival is the follow-up, if the
+     * session order turns out to need it. */
+    bool argb_client = (geo->depth == 32);
+    if (wm.argb_visual && (argb_client || compositor_running())) {
         c->frame_depth = 32;
         c->frame_visual = wm.argb_visual;
     } else {
-        /* A screen with no 32-bit visual at all: root depth everywhere,
-         * and no transparency to be had from anything. */
+        /* No compositor to hand alpha to, or no 32-bit visual to hold it
+         * in: root depth, and the decoration is flattened onto its own
+         * colour when it is drawn (decoration.c). */
         c->frame_depth = wm.screen->root_depth;
         c->frame_visual = wm.visual;
     }
