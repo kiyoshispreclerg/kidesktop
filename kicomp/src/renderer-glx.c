@@ -117,6 +117,10 @@ static int shadow_texture_radius;
  * buffer already holds and every frame has to be redrawn whole. */
 static bool have_buffer_age;
 
+/* GLX_OML_sync_control: the vblank counter behind the drawable, which is
+ * what turns "the swap probably waited for vblank" into a number. */
+static bool have_oml_sync;
+
 /* The rectangle currently being repainted, in root coordinates.
  * Everything drawn is scissored to it (and to whatever else it is
  * already clipped by), so one pass over the scene per rectangle covers
@@ -433,6 +437,10 @@ static bool choose_configs(void)
     const char *client_ext = glXGetClientString(dpy, GLX_EXTENSIONS);
     have_buffer_age = epoxy_has_glx_extension(dpy, screen, "GLX_EXT_buffer_age") &&
                       client_ext && strstr(client_ext, "GLX_EXT_buffer_age");
+    /* The frame counter (presenter-glx.c). Same two-sided test: the
+     * counter is the server's, the entry point the client's. */
+    have_oml_sync = epoxy_has_glx_extension(dpy, screen, "GLX_OML_sync_control") &&
+                    client_ext && strstr(client_ext, "GLX_OML_sync_control");
 
     if (!have_tfp) {
         fprintf(stderr, "kicomp: glx: no GLX_EXT_texture_from_pixmap; "
@@ -552,11 +560,13 @@ static bool glx_start(void)
         return false;
     }
 
-    comp_info("glx %d.%d, %s, texture-from-pixmap per visual, %s",
+    comp_info("glx %d.%d, %s, texture-from-pixmap per visual, %s, %s",
               major, minor,
               glXIsDirect(dpy, context) ? "direct" : "indirect (software path)",
               have_buffer_age ? "partial repaint (buffer age)"
-                              : "full repaint every frame (no buffer age)");
+                              : "full repaint every frame (no buffer age)",
+              have_oml_sync ? "vblank counter (OML sync control)"
+                            : "no vblank counter");
     return true;
 }
 
@@ -1565,6 +1575,19 @@ void renderer_glx_swap(CompOutput *o)
 
     glXMakeContextCurrent(dpy, go->drawable, go->drawable, context);
     glXSwapBuffers(dpy, go->drawable);
+}
+
+/* The drawable's counters right now (GLX_OML_sync_control): ust is the
+ * time of the last vblank in microseconds, msc how many there have been,
+ * sbc how many swaps have completed. False without the extension, and
+ * the presenter goes back to believing rather than measuring. */
+bool renderer_glx_sync_values(CompOutput *o, int64_t *ust, int64_t *msc,
+                              int64_t *sbc)
+{
+    GlxOutput *go = o->render_data;
+    if (!go || !have_oml_sync)
+        return false;
+    return glXGetSyncValuesOML(dpy, go->drawable, ust, msc, sbc);
 }
 
 bool renderer_glx_ready(void)
