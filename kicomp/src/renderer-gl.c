@@ -57,6 +57,10 @@ static int shadow_texture_radius;
  * exactly the damage and nothing else. */
 static CompRect repaint_rect;
 
+/* The output being painted, from gl_begin() to gl_end(): the projection
+ * and the scissor boxes need to know which way up its target is. */
+static const GlOutput *frame_target;
+
 static GlWindow *windows;
 
 /* ------------------------------------------------------------------ */
@@ -388,12 +392,17 @@ static void projection_for(const CompOutput *o, float m[16])
     float ox, oy;
     float k = lens_of(o, &ox, &oy);
 
+    /* y grows downwards in X, upwards in GL -- unless the target's rows
+     * are stored top-first, in which case GL's "up" is X's down and the
+     * flip is not wanted. */
+    float dir = frame_target && frame_target->y_down ? 1.0f : -1.0f;
+
     memset(m, 0, sizeof(float) * 16);
     m[0] = 2.0f * k / w;
-    m[5] = -2.0f * k / h;      /* y grows downwards in X, upwards in GL */
+    m[5] = dir * 2.0f * k / h;
     m[10] = 1.0f;
     m[12] = -1.0f + 2.0f * (ox - (float)o->rect.x) / w;
-    m[13] = 1.0f - 2.0f * (oy - (float)o->rect.y) / h;
+    m[13] = -dir * (1.0f - 2.0f * (oy - (float)o->rect.y) / h);
     m[15] = 1.0f;
 }
 
@@ -518,7 +527,10 @@ static void scissor_for(const CompOutput *o, int x, int y, int w, int h)
     int pw = (int)((float)w * k * scale + 0.5f);
     int ph = (int)((float)h * k * scale + 0.5f);
 
-    glScissor(px, o->physical.h - (py + ph), pw, ph);
+    if (frame_target && frame_target->y_down)
+        glScissor(px, py, pw, ph);
+    else
+        glScissor(px, o->physical.h - (py + ph), pw, ph);
 }
 
 /* Defined below, once the repaint rectangle exists: the same thing as
@@ -754,6 +766,7 @@ static void frame_damage_of(const CompOutput *o, const CompRegion *damage,
 void gl_begin(CompOutput *o, GlOutput *go, const CompRegion *damage,
               unsigned age)
 {
+    frame_target = go;
     glViewport(0, 0, o->physical.w, o->physical.h);
 
     repaint_region_for(go, damage, age);
@@ -1065,6 +1078,7 @@ void gl_end(GlOutput *go)
 {
     glDisable(GL_SCISSOR_TEST);
     glFlush();
+    frame_target = NULL;
 
     /* Remembered for the frames that will inherit this buffer: in a few
      * swaps' time it comes back as the back buffer, and what it is

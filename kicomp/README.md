@@ -35,7 +35,7 @@ Options:
 | `--skip-wm-layers` | don't composite kiwm's own layers (`_KIWM_LAYER`: the alt-tab OSD, the move/resize wireframe) |
 | `--effects`, `--no-effects` | turn animations on/off |
 | `--anim-ms=N` | global animation unit, in ms |
-| `--renderer=NAME` | `auto` \| `xrender` \| `glx` |
+| `--renderer=NAME` | `auto` \| `xrender` \| `glx` \| `egl` |
 | `--presenter=NAME` | `auto` \| `present` \| `copy` |
 | `-v`, `--verbose` | detailed log (events, windows, layers, frames) |
 
@@ -103,7 +103,7 @@ optional — every key has a working default. Same format as `kiwm.conf`
 # ---- global ----
 effects            = 1     # animations on
 animation_duration = 160   # the animation unit, in ms
-renderer           = auto  # auto | xrender | glx
+renderer           = auto  # auto | xrender | glx | egl
 presenter          = auto  # auto | present | copy
 single_drawable    = 0     # 1 = legacy mode, one drawable for the screen
 skip_wm_layers     = 0     # 1 = don't composite kiwm's OSD/wireframe
@@ -1341,6 +1341,51 @@ composites correctly, damage updates reach the textures, windows open with
 `fade-in` and `scale-in` running unmodified, and 122 frames of moving and
 typing left the process's RSS unchanged with no X errors.
 
+## The EGL renderer
+
+`renderer = egl` is the same GL drawing (`renderer-gl.c` is shared with
+GLX, shaders and damage history included) on a different footing, and the
+footing is the point. It is **not** EGL on an X window — on Mesa that would
+be GLX with different spelling, swapping through DRI3 and Present inside
+the driver, in a drawable the driver owns, at a moment the driver picks.
+Here the compositor owns both:
+
+- **Frames are GBM buffers.** Each output draws into a buffer the
+  compositor allocated with scanout in mind, through a framebuffer object
+  on a surfaceless context (`EGL_KHR_surfaceless_context`) made on the
+  device the server drives the screen with (`DRI3Open` — never a guess at
+  `/dev/dri`). The buffer is named to the server as a pixmap
+  (`PixmapFromBuffers`) and handed to the **Present presenter**, the one
+  that already aims every output's frames at its own CRTC. An XRender
+  pixmap on that path is copied at vblank; this pixmap, when the window
+  covers exactly what one CRTC scans out, can be **flipped** onto it. A
+  stock server flips only a window that covers the whole screen, so with
+  two monitors the log says `mode copy` today; per-CRTC flipping is what
+  XiS adds, and nothing in the compositor changes for it.
+- **Windows are sampled through their dma-bufs.** `BuffersFromPixmap` on
+  the pixmap the compositor already names, imported once as an `EGLImage`
+  (`EGL_EXT_image_dma_buf_import`) and read every frame — no fbconfig to
+  match to the pixmap's visual and no per-frame rebind.
+- **The swapchain is the compositor's own** — three buffers per output —
+  so the buffer age that makes partial repaint safe is exact rather than
+  a driver's answer. Three because a flipped buffer stays on the screen
+  until the *next* flip lands.
+
+`presenter=` works as it does for XRender: `present` (the default when
+the server has it) or `copy`. Synchronisation with the server is implicit
+for now — the frame is flushed and the kernel's per-buffer fence makes the
+server's copy or flip wait for it — and explicit fences are a follow-up,
+as is releasing swapchain buffers on `PresentIdleNotify`.
+
+Falls back to XRender, saying why, on a server without DRI3 (Xephyr never
+has it, so this renderer is tested on the real server only), without GBM
+on its device, or without the EGL extensions it needs.
+
+Verified on the session server (XLibre, DRI3 1.0, Present 1.2, Renoir):
+two outputs compose correctly, windows the right way up with shadows and
+rounded corners, partial repaints with no ghosts left behind a window
+moved in steps, and frames landing as `copy` on both CRTCs.
+
 ## Occlusion
 
 A window that something opaque completely covers is not drawn. Nothing
@@ -1623,6 +1668,8 @@ src/
   renderer-xrender.c  XRender backend
   renderer-gl.c       the GL drawing shared by the GL platforms (shaders, damage history)
   renderer-glx.c      GLX platform (context, drawables, GLX_EXT_texture_from_pixmap)
+  renderer-egl.c      EGL/GBM platform (frames in scanout buffers named through DRI3,
+                      windows sampled through their dma-bufs; presented by Present)
   presenter.h         presenter vtable
   presenter-copy.c    COPY backend (overlay window)
   presenter-present.c PRESENT backend (per-CRTC, vblank-timed)

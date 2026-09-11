@@ -43,6 +43,13 @@ typedef struct {
      * lands in the history as "everything", which forces the next frame
      * full, which records "everything" again, for ever. */
     CompRegion frame_damage;
+
+    /* Row 0 of the target is its *top*: a texture-backed framebuffer,
+     * where the first row of memory is the first row the server scans
+     * out. A window's back buffer is the other way up (row 0 at the
+     * bottom, GL's convention), and the projection and scissor boxes
+     * are built for that unless the platform says otherwise here. */
+    bool y_down;
 } GlOutput;
 
 /* Per-window state: the texture the platform imports the window into,

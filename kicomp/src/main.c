@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.72"
+#define KICOMP_VERSION "0.2.73"
 
 #include "comp.h"
 #include "output.h"
@@ -998,7 +998,7 @@ static void usage(void)
            "  --anim-ms=N        global animation unit in ms; every effect's\n"
            "                     duration is a multiple of it\n"
            "                     (kicomp.conf: animation_duration=)\n"
-           "  --renderer=NAME    auto|xrender (kicomp.conf: renderer=)\n"
+           "  --renderer=NAME    auto|xrender|glx|egl (kicomp.conf: renderer=)\n"
            "  --presenter=NAME   auto|present|copy (kicomp.conf: presenter=)\n"
            "\n"
            "kicomp is optional: kiwm is fully usable without it, and\n"
@@ -1128,26 +1128,36 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    /* One renderer so far, so "auto" and "xrender" land in the same place
-     * -- but the choice is made here, by name, so that adding
-     * renderer-gl.c is a line in this function and nothing else. */
+    /* The renderer, by name. `auto` stays on XRender: the GL backends
+     * are the newer ones and do not do everything the older one does
+     * yet (the density layers, the shade stash), so they are asked for
+     * by name until they do. */
     bool want_glx = (strcmp(comp.renderer_name, "glx") == 0);
-    if (!want_glx && strcmp(comp.renderer_name, "auto") &&
+    bool want_egl = (strcmp(comp.renderer_name, "egl") == 0);
+    if (!want_glx && !want_egl && strcmp(comp.renderer_name, "auto") &&
         strcmp(comp.renderer_name, "xrender"))
         fprintf(stderr, "kicomp: no renderer named '%s'; using xrender\n",
                 comp.renderer_name);
 
-    /* `auto` stays on XRender: the GL backend is the newer one and does
-     * not do everything the older one does yet (shadows, shape clipping,
-     * the density layers), so it is asked for by name until it does. */
-    renderer = want_glx ? renderer_glx() : renderer_xrender();
+    if (want_egl && !renderer_egl_available()) {
+        /* Said why already. */
+        want_egl = false;
+    }
+
+    renderer = want_glx ? renderer_glx()
+             : want_egl ? renderer_egl()
+             : renderer_xrender();
 
     /* Presenter: capability decides, name overrides. `auto` takes Present
      * when the server has it -- a frame that lands at vblank instead of
      * whenever the copy happens to reach the scanout is strictly better,
      * and it is the only one of the two that can say when the frame
      * actually appeared. `copy` is the fallback and the way to compare
-     * the two. */
+     * the two.
+     *
+     * The EGL renderer's frames are pixmaps like XRender's -- GBM
+     * buffers the server knows through DRI3 -- so the same two X
+     * presenters serve it, and Present is where they can flip. */
     if (want_glx) {
         /* With GL the frame *is* the drawable's back buffer, so the swap
          * is the presentation -- an X presenter has no pixmap of ours to

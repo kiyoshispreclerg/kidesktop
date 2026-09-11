@@ -62,6 +62,11 @@ typedef struct CompRenderer {
 
 const CompRenderer *renderer_xrender(void);
 const CompRenderer *renderer_glx(void);
+const CompRenderer *renderer_egl(void);
+/* Whether the EGL platform can start on this server (DRI3, a GBM device,
+ * the EGL extensions it needs) -- asked before choosing it, so the
+ * fallback happens before any output is created. */
+bool renderer_egl_available(void);
 
 /* Chosen once at startup, in main.c. */
 extern const CompRenderer *renderer;
