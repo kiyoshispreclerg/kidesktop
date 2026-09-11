@@ -3,10 +3,13 @@
 
 #include "wm.h"
 
-/* The outline: a hollow rectangle drawn *around* where a window is or is
- * about to be, in the focused decoration's own color, with nothing inside
- * it -- the classic "wireframe" preview xfwm and every other WM of that
- * lineage draws.
+/* The outline: where a window is or is about to be, drawn in the focused
+ * decoration's own color without touching the window itself. Without a
+ * compositor it's the classic wireframe -- a hollow band around the
+ * rectangle, nothing inside it -- that xfwm and every other WM of that
+ * lineage draws; with one it's the rectangle itself, filled at a strong
+ * transparency (kiwm.conf's outline_alpha=), each one a real ARGB window
+ * the compositor can animate like any other. See outline.c.
  *
  * Two things use it, both cases where kiwm needs to point at a window
  * without moving or resizing anything yet:

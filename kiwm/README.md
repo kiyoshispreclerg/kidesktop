@@ -364,6 +364,7 @@ a warning on stderr, not a hard error. A key you leave out of the file keeps its
 | `border_color` | `#000000` | Fallback border color, used only when no theme `colors` file overrides it (see "Theming"). |
 | `snap_threshold` | `20` | How close (pixels) the pointer must get to an output's *usable* area edge while dragging a window to snap it there -- top edge maximizes, left/right edges fill exactly half the width, Windows7/kwin-style. `0` disables snapping entirely. |
 | `live_snap_resize` | `0` | Whether an edge snap (`snap_threshold` above) resizes the window *while* you drag it (`1`, kiwm's original behavior), or only draws an outline where it will land and applies that geometry when you release the button (`0`, the default). The live version means a window that jumps to half the screen and back as the pointer crosses in and out of the edge zone while you're still deciding; the outline is what xfwm shows instead. |
+| `outline_alpha` | `0.3` | How opaque the outline's *filled* look is (0..1) -- what it becomes under a compositor, see "The outline" below. The wireframe look drawn without one is always opaque. |
 | `outline_width` | `16` | Thickness (pixels) of the outline kiwm draws around a window it's pointing at without moving it yet -- the snap preview above, and the switcher with `osd_live_preview_windows=0`. The band straddles the window's edge, half outside and half in, so `16` is 8px either side. Clamped to 1..64. |
 | `resize_grip` | `12` | Thickness (pixels) of the invisible resize ring **around** a window: a plain click in it resizes -- from a corner where two edges meet, along one axis on an edge -- instead of going to whatever is under it, and hovering it shows the matching resize cursor. The ring sits entirely outside the frame, so it costs the application nothing (it used to be a strip *inside* the frame, where a wide grip shadowed a scrollbar sitting at the window's edge) and all four edges are the same thickness. Works with or without a visible border. Not offered on a maximized or fullscreen window (both fill their output; there is nothing to drag their edges towards), but half-tiled windows keep it, so the shared edge of a tiled pair can be dragged without a modifier. `0` disables it (resizing then needs the modifier drag). |
 | `live_resize` | `1` | Whether resizing changes the window as the pointer moves (`1`, the default), or only outlines the size it's heading for and applies it when the button is released (`0`). Covers every resize the same way: the grip, a modifier-drag, or an application's own `_NET_WM_MOVERESIZE` request. |
@@ -814,9 +815,19 @@ either side by default):
   following the pointer, and the outline shows the size and position it will take when the button
   is released.
 
-It's one override-redirect window, XCB SHAPE-clipped down to just the band so the middle stays a
-real hole with the window underneath showing through, and with an empty *input* shape so it can
-never intercept a click -- including during the drag it's previewing. It is painted by *being* its
+That's the look **without a compositor**: one override-redirect window, XCB SHAPE-clipped down to
+just the band so the middle stays a real hole with the window underneath showing through. **With a
+compositor** (`_NET_WM_CM_S0` owned) it becomes xfwm4's composited look instead: the rectangle
+itself, filled with the same theme color at `outline_alpha=` (`0.3` by default). Each rectangle is
+then a real ARGB window sized and positioned exactly as the rectangle, with the theme's corner
+radii cut into its shape so it reads as the window it stands for, mapped while shown and unmapped
+otherwise -- on purpose, so the compositor sees an ordinary window doing ordinary things and can put
+its effects on it: a geometry change it can animate, a map/unmap it can fade, a scale like any
+other window's. On kicomp's side these windows are the `outline` window type, and an effect has to
+be pointed at it (`windows = windows,outline`) like at any other type; see kicomp's README. The look is picked per show, so a compositor starting or stopping needs no
+restart. Both looks carry an empty *input* shape so they can never intercept a click -- including
+during the drag they're previewing -- and both mark themselves as kiwm's `outline` layer
+(`_KIWM_LAYER`) so a compositor can tell them from application windows. It is painted by *being* its
 color rather than by drawing into it (the window's background pixel is the decoration color), so
 the server fills whatever a resize exposes as part of the same operation that resizes it -- drawing
 the color in afterwards showed as a visible flash of the old contents at the new size on every step

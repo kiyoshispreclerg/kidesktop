@@ -1182,6 +1182,14 @@ typedef struct {
      * extra pixel inside). */
     int outline_width;
 
+    /* How opaque the outline's *filled* look is (kiwm.conf's
+     * outline_alpha=, 0..1, default 0.3): the look it takes under a
+     * compositor, where each rectangle is a real ARGB window filled with
+     * the theme color at this alpha, xfwm4-style. The wireframe look
+     * drawn without a compositor is always opaque and doesn't read this.
+     * See outline.c. */
+    double outline_alpha;
+
     /* How thick the invisible resize ring around a window is, in pixels
      * (kiwm.conf's resize_grip=, default 12; 0 disables it). A plain
      * left-click in it starts a resize -- from a corner where two edges

@@ -47,6 +47,7 @@ static void apply_builtin_defaults(void)
     wm.snap_threshold = 20;
     wm.live_snap_resize = false;
     wm.outline_width = 16;
+    wm.outline_alpha = 0.3;
     wm.resize_grip = 12;
     wm.live_resize = true;
     wm.magnet_threshold = 10;
@@ -240,6 +241,10 @@ static void write_default_config(const char *path)
         "# the switcher with osd_live_preview_windows=0. Straddles the edge,\n"
         "# half outside and half in.\n"
         "outline_width=16\n"
+        "\n"
+        "# With a compositor running the outline is a filled rectangle in the\n"
+        "# theme color instead of a band -- this is how opaque it is (0..1).\n"
+        "outline_alpha=0.3\n"
         "\n"
         "# Thickness, in pixels, of the invisible resize ring around a\n"
         "# window: a plain click in it resizes instead of going to whatever\n"
@@ -478,6 +483,11 @@ void config_load(void)
             if (n < 1) n = 1;
             if (n > MAX_OUTLINE_WIDTH) n = MAX_OUTLINE_WIDTH;
             wm.outline_width = n;
+        } else if (strcmp(key, "outline_alpha") == 0) {
+            double a = atof(val);
+            if (a < 0.0) a = 0.0;
+            if (a > 1.0) a = 1.0;
+            wm.outline_alpha = a;
         } else if (strcmp(key, "resize_grip") == 0) {
             int n = atoi(val);
             if (n < 0) n = 0;
