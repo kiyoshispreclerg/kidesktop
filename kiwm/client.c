@@ -496,6 +496,11 @@ static void send_synthetic_configure(Client *c, int bt, int th)
  * lagging the pointer. */
 void apply_frame_geometry(Client *c)
 {
+    apply_frame_geometry_told(c, true);
+}
+
+void apply_frame_geometry_told(Client *c, bool tell_client)
+{
     int bt, th;
     deco_insets(c, &bt, &th);
 
@@ -560,13 +565,26 @@ void apply_frame_geometry(Client *c)
 
     c->geom_sent = true;
 
-    /* Never skipped, whatever the two above did. This one carries the
-     * client's *root-relative* position, which a move changes even though
-     * nothing about the client's geometry within the frame did -- and it
-     * is the only thing that tells a client its request was denied when
-     * handle_configure_request() re-affirms the geometry of a maximized
-     * window (ICCCM 4.1.5). It is a SendEvent: it costs no drawing. */
-    send_synthetic_configure(c, bt, th);
+    /* Not skipped for being unchanged, whatever the two above did. This
+     * one carries the client's *root-relative* position, which a move
+     * changes even though nothing about the client's geometry within the
+     * frame did -- and it is the only thing that tells a client its
+     * request was denied when handle_configure_request() re-affirms the
+     * geometry of a maximized window (ICCCM 4.1.5).
+     *
+     * It is a SendEvent and costs kiwm no drawing. It costs the *client*
+     * something, though: a toolkit answers a ConfigureNotify by
+     * re-deriving its screen position and whatever depends on it, and
+     * during a move drag this went out on every motion event -- 125 a
+     * second from an ordinary mouse, for a position the display shows
+     * 60 of. Measured on a move drag of a Kate window: 1.5 points of
+     * GPU busy. So a drag sends it once per frame (tell_client from
+     * handle_motion(), true on the frame's due step and false between),
+     * and finish_drag()'s unconditional apply sends the final one. Every
+     * other caller passes true: outside a drag each apply is one
+     * event, and the client is owed it. */
+    if (tell_client)
+        send_synthetic_configure(c, bt, th);
 
     /* The invisible resize ring lives outside this frame, so it has to
      * follow it (grip.h). A no-op mid-drag, where the ring is unreachable

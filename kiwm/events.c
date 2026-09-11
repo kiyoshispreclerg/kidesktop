@@ -1403,11 +1403,13 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
      * finish_drag() applies it unconditionally when the drag ends, so a
      * skipped last step cannot leave a stale size on screen. */
     if (wm.drag_mode == DRAG_MOVE || due) {
-        apply_frame_geometry(c);
+        /* The client is told its new position once per frame, not once
+         * per motion event -- see apply_frame_geometry_told(). */
+        apply_frame_geometry_told(c, due);
         for (int i = 0; i < wm.resize_neighbors_x_count; i++)
-            apply_frame_geometry(wm.resize_neighbors_x[i].client);
+            apply_frame_geometry_told(wm.resize_neighbors_x[i].client, due);
         for (int i = 0; i < wm.resize_neighbors_y_count; i++)
-            apply_frame_geometry(wm.resize_neighbors_y[i].client);
+            apply_frame_geometry_told(wm.resize_neighbors_y[i].client, due);
     }
 
     /* The *painted* chrome -- rounded-corner XShape re-clip and the

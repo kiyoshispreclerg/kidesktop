@@ -15,6 +15,7 @@ Client *find_client_window(xcb_window_t window);
 void deco_insets(Client *c, int *bt, int *th);
 
 void configure_frame(Client *c);
+void apply_frame_geometry_told(Client *c, bool tell_client);
 /* Cheap subset of configure_frame() -- geometry + synthetic ConfigureNotify
  * only, no XShape re-clip or decoration repaint. See client.c's comment;
  * used by events.c's handle_motion() on every move/resize motion event,
