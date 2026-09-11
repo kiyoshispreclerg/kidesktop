@@ -602,6 +602,46 @@ static void ex_update(CompEffect *e, double now)
     }
 }
 
+/* A node of a window that is not an item but is on this output's screen
+ * right now, and so belongs to the desktop the output is showing (see
+ * ex_apply's rebuild). Not the WM's own overlays, which are never part of
+ * any desktop, and not a window whose middle is on another monitor --
+ * the node is only here because it reaches across. */
+static bool late_arrival(const CompOutput *o, const CompSceneNode *n)
+{
+    const CompWindow *w = n->win;
+    if (!w->mapped || w->held || w->wm_layer[0])
+        return false;
+    CompRect centre = { n->geometry.x + n->geometry.w / 2,
+                        n->geometry.y + n->geometry.h / 2, 1, 1 };
+    CompRect hit;
+    return rect_intersect(&centre, &o->rect, &hit);
+}
+
+/* Draws `node` where its window would sit in cell `c` at this point of
+ * the spread: at home when the grid is down, scaled into the cell when
+ * it is up, and in between on the way. */
+static void shrink_into_cell(const ExData *d, const CompOutput *o,
+                             CompSceneNode *node, int c, float spread)
+{
+    CompRect target = place_in_cell(d, o, &node->geometry, c);
+    CompRect cur = lerp_rect(&node->geometry, &target, spread);
+
+    float sx = (float)cur.w / (float)(node->geometry.w > 0 ? node->geometry.w : 1);
+    float sy = (float)cur.h / (float)(node->geometry.h > 0 ? node->geometry.h : 1);
+
+    comp_transform_identity(&node->transform);
+    comp_transform_translate(&node->transform, (float)-node->geometry.x,
+                             (float)-node->geometry.y);
+    comp_transform_scale(&node->transform, sx, sy);
+    comp_transform_translate(&node->transform, (float)cur.x, (float)cur.y);
+
+    CompRect vis;
+    if (!rect_intersect(&cur, &o->rect, &vis))
+        vis = (CompRect){ 0, 0, 0, 0 };
+    node->visible_rect = vis;
+}
+
 static void ex_apply(CompEffect *e, CompScene *s, CompOutput *o)
 {
     ExData *d = e->data;
@@ -696,9 +736,26 @@ static void ex_apply(CompEffect *e, CompScene *s, CompOutput *o)
         static CompSceneNode rebuilt[MAX_SCENE_NODES];
         int n = 0;
 
-        /* Anything that is not ours keeps its place at the bottom. */
+        /* A window that is not an item and is on screen now belongs to
+         * whichever desktop this output is showing -- the one being
+         * walked into, on the way out. That is the WM mapping a window
+         * the compositor had no picture of (never seen mapped since it
+         * started, so never stowed), or one opened while the grid was
+         * up. It joins that desktop's cell as a late arrival, drawn in
+         * its stack order among the cell's own windows and shrunk to the
+         * cell as they are. Left where it fell -- at the bottom, whole,
+         * untransformed -- it was drawn *under* the cells of the
+         * desktops nobody chose, which are still fading out over it:
+         * the desktop you are arriving at, painted over by the ones you
+         * are leaving. */
+        int late_cell = (d->closing && d->enter_desktop >= 0) ? d->enter_desktop
+                                                              : d->current_desktop;
+
+        /* Anything else that is not ours keeps its place at the bottom:
+         * the WM's own overlays, and windows off this output. */
         for (int i = 0; i < s->count && n < MAX_SCENE_NODES; i++)
-            if (!item_for(d, s->nodes[i].win))
+            if (!item_for(d, s->nodes[i].win) &&
+                !late_arrival(o, &s->nodes[i]))
                 rebuilt[n++] = s->nodes[i];
 
         /* Cell order, with one cell moved to the end: the desktop you are
@@ -732,8 +789,15 @@ static void ex_apply(CompEffect *e, CompScene *s, CompOutput *o)
             for (int pass = 0; pass < 3; pass++) {
                 for (int i = 0; i < s->count && n < MAX_SCENE_NODES; i++) {
                     ExItem *it = item_for(d, s->nodes[i].win);
-                    if (!it)
+                    if (!it) {
+                        if (pass != 1 || c != late_cell ||
+                            !late_arrival(o, &s->nodes[i]))
+                            continue;
+                        CompSceneNode node = s->nodes[i];
+                        shrink_into_cell(d, o, &node, c, spread);
+                        rebuilt[n++] = node;
                         continue;
+                    }
 
                     /* Sticky scenery bookends the cell; everything that
                      * belongs to this desktop goes between, in the order
