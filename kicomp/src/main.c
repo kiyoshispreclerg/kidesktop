@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.55"
+#define KICOMP_VERSION "0.2.56"
 
 #include "comp.h"
 #include "output.h"
@@ -1194,7 +1194,38 @@ int main(int argc, char **argv)
     /* Prints the drawable count/geometry itself, here and on every later
      * output change. */
     outputs_refresh();
+
+    /* The scan has to be a snapshot nothing else touches. The root's
+     * event mask was selected at the top of main(), and everything that
+     * happened on the screen between then and now -- the WM reacting to
+     * the overlay appearing, to the previous compositor letting go --
+     * has been sitting in xcb's queue the whole time. Left there, it is
+     * replayed *after* the scan: ConfigureNotifys whose above_sibling
+     * was true a second ago, each one dragging a window back to where
+     * the tree no longer has it. That is how a compositor came up with
+     * an unfocused window painted over the focused one, or an ordinary
+     * window painted over the panel, while the input plainly went to
+     * the right place.
+     *
+     * So: grab the server (no client changes anything from here to the
+     * ungrab), round-trip once so every event generated before the grab
+     * took hold is in our queue, apply those to the scene in the order
+     * they came, and only then read the tree. Whatever arrives after
+     * the ungrab postdates the tree and is consistent with it. */
+    xcb_grab_server(comp.conn);
+    free(xcb_get_input_focus_reply(comp.conn,
+                                   xcb_get_input_focus(comp.conn), NULL));
+    {
+        xcb_generic_event_t *ev;
+        while ((ev = xcb_poll_for_event(comp.conn))) {
+            handle_event(ev);
+            free(ev);
+        }
+    }
     windows_scan();
+    xcb_ungrab_server(comp.conn);
+    xcb_flush(comp.conn);
+
     announce_selection();
     /* The windows that were already on screen never "appear", so this is
      * where they get asked for the density their output wants -- the
