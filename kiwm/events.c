@@ -133,8 +133,16 @@ static void handle_configure_request(xcb_configure_request_event_t *ev)
         return;
     }
 
-    if (client_maximized(c)) {
-        /* Ignore geometry requests while maximized; just re-affirm current state. */
+    if (client_maximized(c) || c->fullscreen) {
+        /* Ignore geometry requests while maximized or fullscreen; just
+         * re-affirm the current state. Fullscreen is the case that bit:
+         * a fullscreen window's size is its output's, and a client that
+         * asks for another (VirtualBox's VM window asks for 1920x1080,
+         * the screen it would like to be on, while fullscreen on a
+         * 1440x900 one) was getting it -- a fullscreen window bigger
+         * than its screen, hanging off the edge. kwin refuses the same
+         * request the same way (events.cpp: "refuse resizing of
+         * fullscreen windows"). */
         configure_frame(c);
         xcb_flush(wm.conn);
         return;
