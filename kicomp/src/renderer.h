@@ -57,6 +57,7 @@ typedef struct CompRenderer {
 
     void (*background_invalidate)(void);
     xcb_pixmap_t (*output_pixmap)(const CompOutput *o);
+    void (*output_pixmap_idle)(CompOutput *o, xcb_pixmap_t pixmap);
     void (*shutdown)(void);
 } CompRenderer;
 
@@ -125,6 +126,13 @@ void renderer_window_density_invalidate(CompWindow *w, bool decoration);
  * XCB_NONE when the backend has no such thing -- a GL backend would
  * answer that, and would come with a presenter that doesn't ask. */
 xcb_pixmap_t renderer_output_pixmap(const CompOutput *o);
+
+/* The server is done with a pixmap it was handed to present (Present's
+ * IdleNotify): a backend that rotates buffers may draw into it again.
+ * Until this arrives a flipped buffer is still what the monitor shows,
+ * and drawing into it would draw onto the screen. A backend with one
+ * target per output has nothing to release and leaves the op NULL. */
+void renderer_output_pixmap_idle(CompOutput *o, xcb_pixmap_t pixmap);
 
 /* Picture format of the root visual. An XRender detail, but the COPY
  * presenter needs the same answer and there should be exactly one place

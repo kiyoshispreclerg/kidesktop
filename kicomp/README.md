@@ -1368,14 +1368,17 @@ Here the compositor owns both:
   match to the pixmap's visual and no per-frame rebind.
 - **The swapchain is the compositor's own** — three buffers per output —
   so the buffer age that makes partial repaint safe is exact rather than
-  a driver's answer. Three because a flipped buffer stays on the screen
-  until the *next* flip lands.
+  a driver's answer. A buffer handed to the server is busy until Present
+  says otherwise (`PresentIdleNotify`): a copied one comes back as soon
+  as the copy is done, a flipped one only when the next flip has replaced
+  it on the screen, and drawing into it before that would be drawing onto
+  the monitor. Each frame takes the free buffer shown most recently, the
+  one with the least to redraw.
 
 `presenter=` works as it does for XRender: `present` (the default when
 the server has it) or `copy`. Synchronisation with the server is implicit
 for now — the frame is flushed and the kernel's per-buffer fence makes the
-server's copy or flip wait for it — and explicit fences are a follow-up,
-as is releasing swapchain buffers on `PresentIdleNotify`.
+server's copy or flip wait for it — and explicit fences are a follow-up.
 
 Falls back to XRender, saying why, on a server without DRI3 (Xephyr never
 has it, so this renderer is tested on the real server only), without GBM

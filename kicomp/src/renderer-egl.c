@@ -32,15 +32,21 @@
  * current with no surface at all (EGL_KHR_surfaceless_context); every
  * frame goes to a framebuffer object backed by the buffer being drawn.
  *
- * The swapchain is the compositor's own -- three buffers per output,
- * used in turn -- which means the buffer age that makes partial
- * repaint safe is not a question for the driver: a buffer drawn n
- * presents ago is n presents old, exactly. Three rather than two
- * because a flipped buffer is still on the screen until the *next*
- * flip lands, so the one presented last frame is not free when this
- * frame is drawn; the output's presenter never paints a frame while
- * one is in flight (busy), so by the time a buffer comes round again
- * the one after it has replaced it on the scanout.
+ * The swapchain is the compositor's own -- three buffers per output --
+ * which means the buffer age that makes partial repaint safe is not a
+ * question for the driver: a buffer drawn n presents ago is n presents
+ * old, exactly. A buffer handed to the server is *busy* until Present
+ * says otherwise (IdleNotify, through renderer_output_pixmap_idle): a
+ * copied one comes back as soon as the copy is done, a flipped one
+ * only when the next flip has replaced it on the screen, and drawing
+ * into it before that would be drawing onto the monitor. Each frame
+ * takes the free buffer that was shown most recently, since that is
+ * the one with the least to redraw; three are allocated so there is
+ * always one to take while one is on the screen and one is queued
+ * behind it. The COPY presenter never reports idle; for it every
+ * buffer but the one presented last counts as free, the copy out of
+ * that one being the only server-side job that could still be running
+ * by the time the next frame starts.
  *
  * Synchronisation with the server is implicit for now: the GPU work is
  * flushed at the end of the frame, and the kernel's per-buffer fence
@@ -92,6 +98,7 @@ typedef struct {
     /* The frame counter's value when this buffer was last presented;
      * 0 if never. Its age at the next draw is the frames since. */
     uint64_t presented_at;
+    bool busy;                      /* handed to the server, no idle yet */
 } EglBuffer;
 
 /* Per-output state, hung off CompOutput::render_data. */
@@ -101,6 +108,7 @@ typedef struct {
     int current;                    /* the buffer being (or last) drawn */
     uint64_t frames;                /* presents so far, for the ages */
     uint32_t format;                /* DRM fourcc of the buffers */
+    bool idle_seen;                 /* the presenter does report idle */
 } EglOutput;
 
 /* The EGL half of a window (GlWindow::platform): the image over its
@@ -338,6 +346,7 @@ static void buffer_free(EglBuffer *b)
         b->bo = NULL;
     }
     b->presented_at = 0;
+    b->busy = false;
 }
 
 /* Allocates one buffer of the output's size: a GBM buffer the display
@@ -602,9 +611,37 @@ static void egl_begin(CompOutput *o, const CompRegion *damage)
 
     eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, context);
 
-    /* The next buffer round. Its age is exact: the presents since it
-     * was last shown, and 0 if it never was. */
-    eo->current = (eo->current + 1) % SWAPCHAIN;
+    /* The free buffer shown most recently: the least to redraw. Never
+     * the one presented last, idle or not: with the COPY presenter the
+     * server's copy out of it and this frame's drawing into it would be
+     * two GPU jobs on one buffer with nothing ordering them. Beyond
+     * that, with a presenter that never says idle (COPY) every buffer
+     * counts as free -- the copy is done by the time its frame's
+     * completion let this one start. */
+    int pick = -1;
+    for (int i = 0; i < SWAPCHAIN; i++) {
+        const EglBuffer *b = &eo->buffers[i];
+        if (eo->frames > 0 && b->presented_at == eo->frames)
+            continue;
+        if (eo->idle_seen && b->busy)
+            continue;
+        if (pick < 0 || b->presented_at > eo->buffers[pick].presented_at)
+            pick = i;
+    }
+    if (pick < 0) {
+        /* Every buffer is with the server: the presenter's busy gate
+         * should have stopped this frame before it started. Take the
+         * one the server has had longest and say so -- the alternative
+         * is an output that never paints again. */
+        comp_log("egl: %s: every buffer busy; reusing the oldest", o->name);
+        for (int i = 0; i < SWAPCHAIN; i++)
+            if (pick < 0 || eo->buffers[i].presented_at < eo->buffers[pick].presented_at)
+                pick = i;
+    }
+    eo->current = pick;
+
+    /* Its age is exact: the presents since it was last shown, and 0 if
+     * it never was. */
     EglBuffer *b = &eo->buffers[eo->current];
     unsigned age = 0;
     if (b->presented_at > 0)
@@ -638,7 +675,21 @@ static void egl_end(CompOutput *o)
     EglBuffer *b = &eo->buffers[eo->current];
     eo->frames++;
     b->presented_at = eo->frames;
+    b->busy = true;
     o->target = b->picture;
+}
+
+/* Present is done with the pixmap: copied, or flipped away from. */
+static void egl_output_pixmap_idle(CompOutput *o, xcb_pixmap_t pixmap)
+{
+    EglOutput *eo = o->render_data;
+    if (!eo)
+        return;
+
+    eo->idle_seen = true;
+    for (int i = 0; i < SWAPCHAIN; i++)
+        if (eo->buffers[i].pixmap == pixmap)
+            eo->buffers[i].busy = false;
 }
 
 static xcb_pixmap_t egl_output_pixmap(const CompOutput *o)
@@ -686,6 +737,7 @@ static const CompRenderer egl_renderer = {
     .window_free        = gl_window_free,
     .window_has_content = gl_window_has_content,
     .output_pixmap      = egl_output_pixmap,
+    .output_pixmap_idle = egl_output_pixmap_idle,
     .shutdown           = egl_shutdown,
 };
 

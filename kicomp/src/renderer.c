@@ -92,6 +92,12 @@ xcb_pixmap_t renderer_output_pixmap(const CompOutput *o)
     return XCB_NONE;
 }
 
+void renderer_output_pixmap_idle(CompOutput *o, xcb_pixmap_t pixmap)
+{
+    if (renderer && renderer->output_pixmap_idle)
+        renderer->output_pixmap_idle(o, pixmap);
+}
+
 void renderer_shutdown(void)
 {
     if (renderer && renderer->shutdown)

@@ -103,12 +103,16 @@ static bool present_init(CompOutput *o)
         xcb_xfixes_destroy_region(comp.conn, empty);
     }
 
-    /* Completions only. IdleNotify would say when the pixmap is reusable,
-     * which matters to a backend that rotates buffers; this one draws into
-     * the same target every frame and waits for the completion anyway. */
+    /* Completions, and IdleNotify: when the server is done with a pixmap
+     * it was handed. XRender draws into the same target every frame and
+     * waits for the completion anyway; a renderer that rotates buffers
+     * (EGL) needs the idle, because a *flipped* buffer is the screen
+     * until the next flip lands, and its completion says nothing about
+     * that. */
     po->eid = xcb_generate_id(comp.conn);
     xcb_present_select_input(comp.conn, po->eid, po->window,
-                             XCB_PRESENT_EVENT_MASK_COMPLETE_NOTIFY);
+                             XCB_PRESENT_EVENT_MASK_COMPLETE_NOTIFY |
+                             XCB_PRESENT_EVENT_MASK_IDLE_NOTIFY);
 
     xcb_map_window(comp.conn, po->window);
 
@@ -239,6 +243,20 @@ static bool present_handle_event(xcb_generic_event_t *ev)
     xcb_ge_generic_event_t *ge = (xcb_ge_generic_event_t *)ev;
     if (ge->extension != comp.present_opcode)
         return false;
+
+    if (ge->event_type == XCB_PRESENT_IDLE_NOTIFY) {
+        xcb_present_idle_notify_event_t *idle =
+            (xcb_present_idle_notify_event_t *)ev;
+        for (int i = 0; i < comp.output_count; i++) {
+            CompOutput *o = &comp.outputs[i];
+            PresentOutput *po = o->present_data;
+            if (po && po->window == idle->window) {
+                renderer_output_pixmap_idle(o, idle->pixmap);
+                break;
+            }
+        }
+        return true;
+    }
     if (ge->event_type != XCB_PRESENT_COMPLETE_NOTIFY)
         return true;   /* ours, but not something this presenter uses */
 
