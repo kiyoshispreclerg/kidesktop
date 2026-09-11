@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.53"
+#define KICOMP_VERSION "0.2.54"
 
 #include "comp.h"
 #include "output.h"
@@ -119,6 +119,51 @@ static void on_signal(int sig)
 {
     (void)sig;
     comp.running = false;
+}
+
+/* SIGUSR1: print the scene's stacking order, bottom to top, next to the
+ * server's, so a "drawn in the wrong order" report can be told apart from
+ * a "server has it wrong" one without guessing. Only a flag is set here;
+ * the loop does the printing, off the signal handler. */
+static volatile sig_atomic_t dump_stack_requested;
+
+static void on_dump_stack(int sig)
+{
+    (void)sig;
+    dump_stack_requested = 1;
+}
+
+static void dump_stack(void)
+{
+    xcb_query_tree_reply_t *tree =
+        xcb_query_tree_reply(comp.conn, xcb_query_tree(comp.conn, comp.root), NULL);
+    xcb_window_t *kids = tree ? xcb_query_tree_children(tree) : NULL;
+    int nkids = tree ? xcb_query_tree_children_length(tree) : 0;
+
+    fprintf(stderr, "kicomp: stack, bottom to top (scene | server):\n");
+    int i = 0;
+    CompWindow *w = comp.stack;
+    /* Two columns walked side by side; the server's column skips windows
+     * the scene never tracks (our own), so the rows line up when the two
+     * agree and visibly drift when they do not. */
+    int k = 0;
+    while (w || k < nkids) {
+        xcb_window_t sv = XCB_NONE;
+        while (k < nkids) {
+            xcb_window_t cand = kids[k++];
+            if (cand == comp.overlay || cand == comp.cm_window)
+                continue;
+            sv = cand;
+            break;
+        }
+        fprintf(stderr, "  %3d  scene 0x%08x %s%s  |  server 0x%08x%s\n", i++,
+                w ? w->id : 0, w && w->mapped ? "mapped  " : "unmapped",
+                w && w->input_only ? " io" : "   ",
+                sv, (w && sv && w->id != sv) ? "   <-- differs" : "");
+        if (w)
+            w = w->next;
+    }
+    free(tree);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1174,6 +1219,8 @@ int main(int argc, char **argv)
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
     sigaction(SIGHUP, &sa, NULL);
+    sa.sa_handler = on_dump_stack;
+    sigaction(SIGUSR1, &sa, NULL);
 
     comp.running = true;
     int fd = xcb_get_file_descriptor(comp.conn);
@@ -1258,6 +1305,11 @@ int main(int argc, char **argv)
          * (section 38). While an animation runs, the timeout is the next
          * output's frame deadline -- each output on its own clock, none
          * waiting for another (section 19/49). */
+        if (dump_stack_requested) {
+            dump_stack_requested = 0;
+            dump_stack();
+        }
+
         int timeout = scheduler_timeout(comp_now_ms());
         struct pollfd p = { fd, POLLIN, 0 };
         if (poll(&p, 1, timeout) < 0) {
