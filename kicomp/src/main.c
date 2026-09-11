@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.64"
+#define KICOMP_VERSION "0.2.65"
 
 #include "comp.h"
 #include "output.h"
@@ -160,6 +160,21 @@ static void dump_stack(void)
                 w ? w->id : 0, w && w->mapped ? "mapped  " : "unmapped",
                 w && w->input_only ? " io" : "   ",
                 sv, (w && sv && w->id != sv) ? "   <-- differs" : "");
+        /* What decides how far this window's repaints reach: its
+         * rectangle, the state that turns the shadow off, and the
+         * reach the shadow adds to every damage rectangle. A window
+         * flush against an output's edge that still shows a reach here
+         * is one whose every repaint wakes the neighbouring output. */
+        if (w && w->mapped && !w->input_only) {
+            CompRect r = window_rect(w);
+            fprintf(stderr, "                %dx%d%+d%+d %s%s%s%s shadow +%d\n",
+                    r.w, r.h, r.x, r.y,
+                    comp_window_type_name(w->type),
+                    (w->state & COMP_STATE_MAXIMIZED) ? " maximized" : "",
+                    (w->state & COMP_STATE_FULLSCREEN) ? " fullscreen" : "",
+                    w->focused ? " focused" : "",
+                    shadow_margin_for_window(w));
+        }
         if (w)
             w = w->next;
     }
