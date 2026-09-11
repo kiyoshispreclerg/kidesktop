@@ -138,6 +138,8 @@ void shape_update_frame(Client *c)
     xcb_shape_combine(wm.conn, XCB_SHAPE_SO_SET, XCB_SHAPE_SK_INPUT, XCB_SHAPE_SK_INPUT,
                       c->frame, (int16_t)bt, (int16_t)th, c->window);
 
+    c->frame_shaped = true;
+
     if (th <= 0 && bt <= 0)
         return;
 
@@ -164,4 +166,6 @@ void shape_update_frame(Client *c)
                          XCB_CLIP_ORDERING_UNSORTED, c->frame, 0, 0, (uint32_t)n, deco);
     xcb_shape_rectangles(wm.conn, XCB_SHAPE_SO_UNION, XCB_SHAPE_SK_INPUT,
                          XCB_CLIP_ORDERING_UNSORTED, c->frame, 0, 0, (uint32_t)n, deco);
+
+    c->frame_shaped = true;
 }

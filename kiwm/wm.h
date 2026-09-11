@@ -413,6 +413,11 @@ struct Client {
     } shape_sig;
     bool shape_sig_valid;
 
+    /* Whether the frame currently carries a bounding shape at all. A
+     * square theme wants none, and "none" is a state, not an operation:
+     * once the frame has no shape there is nothing to clear. */
+    bool frame_shaped;
+
     bool mapped;
 
     /* Held up to be looked at: on screen, but only because a compositor
