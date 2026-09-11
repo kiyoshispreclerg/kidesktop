@@ -783,10 +783,17 @@ void window_focus_changed(xcb_window_t active)
          * else happens to repaint those pixels. In practice a decorating
          * WM hides it by repainting its titlebar on focus, which damages
          * the window anyway; an undecorated window has nothing to hide
-         * behind. output_damage_window_rect() grows the rectangle by this
-         * window's shadow reach on its own. */
+         * behind.
+         *
+         * Grown by the *larger* of the two shadows, not the one this
+         * window wears now: the flag has already flipped, so asking the
+         * window (output_damage_window_rect) answers for the shadow it is
+         * about to have -- and when that is the smaller one, the ring
+         * the bigger one reached and this one doesn't is left standing
+         * on screen. output_damage_rect() grows by the worst case over
+         * both styles, which is the same area for the gain and the loss. */
         CompRect r = window_rect(w);
-        output_damage_window_rect(w, &r);
+        output_damage_rect(&r);
     }
 }
 
