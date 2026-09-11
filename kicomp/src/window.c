@@ -1474,10 +1474,21 @@ void windows_scan(void)
     int n = xcb_query_tree_children_length(tree);
 
     /* QueryTree returns bottom-most first, which is exactly the order our
-     * list wants: each new window goes above the previous one. */
+     * list wants: each new window goes above the previous one.
+     *
+     * A window already known is *restacked* to where the tree has it,
+     * not skipped. Events are selected before this scan runs, so a
+     * window that was created or restacked in between arrived through
+     * an event first and was placed by that event alone -- a create
+     * puts it on top -- and the tree is the only thing that knows where
+     * it really ended up. Skipping it left it wherever the event said,
+     * which was wrong for the rest of the session. */
     xcb_window_t above = XCB_NONE;
     for (int i = 0; i < n; i++) {
-        window_add(children[i], above);
+        if (window_find(children[i]))
+            window_restack(children[i], above);
+        else
+            window_add(children[i], above);
         if (window_find(children[i]))
             above = children[i];
     }

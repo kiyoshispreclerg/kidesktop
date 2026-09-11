@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.52"
+#define KICOMP_VERSION "0.2.53"
 
 #include "comp.h"
 #include "output.h"
@@ -476,25 +476,6 @@ static bool acquire_selection(bool replace)
         return false;
     }
 
-    /* ICCCM 2.8: a client that takes a manager selection announces it
-     * with a MANAGER message to the root, so that anyone who cares can be
-     * told rather than having to keep asking. Nobody was told before, and
-     * kiwm had to poll GetSelectionOwner to notice a compositor arrive.
-     * The WM cares more than it used to: which depth it frames windows
-     * at now depends on whether their alpha has a compositor to go to,
-     * and it re-frames them the moment that answer changes. */
-    xcb_client_message_event_t msg;
-    memset(&msg, 0, sizeof(msg));
-    msg.response_type = XCB_CLIENT_MESSAGE;
-    msg.format = 32;
-    msg.window = comp.root;
-    msg.type = comp.atoms.manager;
-    msg.data.data32[0] = XCB_CURRENT_TIME;
-    msg.data.data32[1] = comp.atoms.net_wm_cm;
-    msg.data.data32[2] = comp.cm_window;
-    xcb_send_event(comp.conn, 0, comp.root, XCB_EVENT_MASK_STRUCTURE_NOTIFY,
-                   (const char *)&msg);
-    xcb_flush(comp.conn);
 
     if (previous != XCB_NONE) {
         /* Bounded wait: an old owner that ignores the handoff shouldn't
@@ -519,6 +500,31 @@ static bool acquire_selection(bool replace)
     }
 
     return true;
+}
+
+/* ICCCM 2.8: a client that takes a manager selection announces it with
+ * a MANAGER message to the root. Sent from main(), *after* the event
+ * mask is selected and the existing windows are scanned -- not from
+ * acquire_selection(), where it first went. kiwm answers this message
+ * by re-framing every window on screen (a burst of creates, restacks
+ * and destroys), and a compositor that is not yet listening sees only
+ * the tail of that burst and then scans a tree that no longer matches
+ * what it half-saw: windows drawn in the wrong order until the next
+ * thing restacked them. Announce when ready, not when owning. */
+static void announce_selection(void)
+{
+    xcb_client_message_event_t msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.response_type = XCB_CLIENT_MESSAGE;
+    msg.format = 32;
+    msg.window = comp.root;
+    msg.type = comp.atoms.manager;
+    msg.data.data32[0] = XCB_CURRENT_TIME;
+    msg.data.data32[1] = comp.atoms.net_wm_cm;
+    msg.data.data32[2] = comp.cm_window;
+    xcb_send_event(comp.conn, 0, comp.root, XCB_EVENT_MASK_STRUCTURE_NOTIFY,
+                   (const char *)&msg);
+    xcb_flush(comp.conn);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1144,6 +1150,7 @@ int main(int argc, char **argv)
      * output change. */
     outputs_refresh();
     windows_scan();
+    announce_selection();
     /* The windows that were already on screen never "appear", so this is
      * where they get asked for the density their output wants -- the
      * appear/move paths in window.c cover every later one. */
