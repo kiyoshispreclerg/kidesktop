@@ -65,6 +65,18 @@
  * the wallpaper: the ground moves first and everything standing on it
  * comes after. Set it to 0 for the flat wall, where the whole desktop is
  * one rigid panel.
+ *
+ * On the desktop being left, only what can be *seen* takes part in that
+ * cascade. A window entirely under another one -- everything under a
+ * maximized or fullscreen window, wallpaper included -- is not a layer of
+ * the landscape, it is something the landscape is hiding; giving it a
+ * turn of its own would have the visible window wait on windows nobody
+ * knew were there, and then stand still while they slid out from under
+ * it. So a covered window takes the timer of the window covering it and
+ * travels with it, unseen, and it consumes no turn: the delays are
+ * counted over the windows that show. The desktop being entered is not
+ * treated this way -- it is arriving, and every window of it has its own
+ * turn to arrive with, as before.
  */
 #include "../effect.h"
 #include "../animation.h"
@@ -170,7 +182,8 @@ static bool config_key(void *config, const char *key, const char *value)
  * output, since two monitors can switch at the same moment and neither
  * one's cascade is the other's. Leaving and entering windows are counted
  * apart: they are two desktops moving together, each with its own bottom
- * to start from.
+ * to start from -- and the leaving side no longer counts this way at all
+ * (leaving_rank below), only the entering one does.
  *
  * Past MAX_OUTPUTS the answer is 0, which is the flat wall -- the
  * behaviour before any of this existed. */
@@ -218,6 +231,123 @@ static const CompOutput *output_for(const CompRect *r)
             return &comp.outputs[i];
     }
     return NULL;
+}
+
+/* Is `inner` entirely inside `outer`? */
+static bool rect_contains(const CompRect *outer, const CompRect *inner)
+{
+    return inner->x >= outer->x && inner->y >= outer->y &&
+           inner->x + inner->w <= outer->x + outer->w &&
+           inner->y + inner->h <= outer->y + outer->h;
+}
+
+/* The leaving side's turn-taking, worked out from the stack rather than
+ * counted as the events arrive (rank_in_switch): whether a window shows
+ * depends on what is *above* it, and its event comes before theirs.
+ *
+ * Which windows are leaving with this switch is known from two sides.
+ * The flush walks the stack bottom-first and clears pending_disappear as
+ * it goes, so above the window in hand every leaving window still has
+ * the flag, and below it the ones this effect has already handed a turn
+ * are remembered here, per switch (comp.desktop_changed_ms, as in
+ * rank_in_switch). Everything a window can see of the batch is noted the
+ * first time it is seen, so a later window in the same switch counts
+ * over the same list an earlier one did and the turns agree. */
+#define WALL_MAX_LEAVING 256
+
+static struct {
+    double batch_at;
+    int count;
+    xcb_window_t ids[WALL_MAX_LEAVING];
+} leaving_batch = { .batch_at = -1.0 };
+
+static bool leaving_noted(xcb_window_t id)
+{
+    for (int i = 0; i < leaving_batch.count; i++)
+        if (leaving_batch.ids[i] == id)
+            return true;
+    return false;
+}
+
+static void leaving_note(xcb_window_t id)
+{
+    if (leaving_noted(id) || leaving_batch.count >= WALL_MAX_LEAVING)
+        return;
+    leaving_batch.ids[leaving_batch.count++] = id;
+}
+
+/* How many turns `w` waits before it goes: the number of *showing*
+ * leaving windows below it on this output -- or, when it is itself hidden
+ * under one of them, below the topmost window hiding it, whose turn it
+ * takes. Covered means the whole rectangle lies inside what a leaving
+ * window above is certainly opaque about (window_opaque_rect: under kiwm
+ * the client, never the translucent frame), so a window peeking out from
+ * under a titlebar still slides on its own. */
+static int leaving_rank(CompWindow *w, const CompOutput *o)
+{
+    if (comp.desktop_changed_ms != leaving_batch.batch_at) {
+        leaving_batch.batch_at = comp.desktop_changed_ms;
+        leaving_batch.count = 0;
+    }
+
+    CompWindow *list[WALL_MAX_LEAVING];
+    int n = 0, wi = -1;
+    bool above = false;
+
+    for (CompWindow *x = comp.stack; x && n < WALL_MAX_LEAVING; x = x->next) {
+        bool leaving;
+        if (x == w) {
+            above = true;
+            leaving = true;
+        } else if (above) {
+            leaving = leaving_noted(x->id) ||
+                      (x->pending_disappear && !x->zombie && !x->held);
+        } else {
+            leaving = leaving_noted(x->id);
+        }
+        if (!leaving)
+            continue;
+
+        CompRect r = window_rect(x);
+        if (output_for(&r) != o)
+            continue;
+
+        if (x == w)
+            wi = n;
+        list[n++] = x;
+    }
+    if (wi < 0)
+        return 0;
+
+    for (int i = 0; i < n; i++)
+        leaving_note(list[i]->id);
+
+    /* covered[i]: the topmost window hiding list[i], or -1 if it shows. */
+    int covered[WALL_MAX_LEAVING];
+    for (int i = 0; i < n; i++) {
+        covered[i] = -1;
+        CompRect r = window_rect(list[i]);
+        for (int j = n - 1; j > i; j--) {
+            CompRect op = window_opaque_rect(list[j]);
+            if (op.w > 0 && op.h > 0 && rect_contains(&op, &r)) {
+                covered[i] = j;
+                break;
+            }
+        }
+    }
+
+    int top = covered[wi] >= 0 ? covered[wi] : wi;
+    int rank = 0;
+    for (int k = 0; k < top; k++)
+        if (covered[k] < 0)
+            rank++;
+
+    if (covered[wi] >= 0)
+        comp_log("wall: 0x%x leaves at turn %d, under 0x%x", w->id, rank,
+                 list[covered[wi]]->id);
+    else
+        comp_log("wall: 0x%x leaves at turn %d", w->id, rank);
+    return rank;
 }
 
 /* Where the window is drawn at this point in the animation: the real
@@ -396,8 +526,8 @@ static void on_event(CompWindow *w, const CompEvent *event,
      * frame until its turn comes (comp_progress reads a start that has
      * not arrived as zero). A leaving window waits where it is; an
      * entering one waits off the side it is coming from. */
-    e->start_time = comp_now_ms() +
-                    (double)rank_in_switch(o, leaving) * d->cfg->parallax_ms;
+    int rank = leaving ? leaving_rank(w, o) : rank_in_switch(o, leaving);
+    e->start_time = comp_now_ms() + (double)rank * d->cfg->parallax_ms;
     e->duration = duration;
     e->data = d;
 
