@@ -126,10 +126,16 @@ bool acquire_wm_selection(int screen_nbr, bool replace)
  * displays the premultiplied colour of a window nobody composites and the
  * theme's colour would arrive darker than the theme names it.
  */
+static bool cached;
+static double asked_at = -1.0;
+
+void compositor_running_reset(void)
+{
+    asked_at = -1.0;
+}
+
 bool compositor_running(void)
 {
-    static bool cached;
-    static double asked_at = -1.0;
 
     if (wm.cm_atom == XCB_ATOM_NONE)
         return false;
@@ -143,8 +149,81 @@ bool compositor_running(void)
     if (!r)
         return cached;      /* keep the last answer rather than inventing one */
 
+    bool was = cached;
     cached = r->owner != XCB_NONE;
+    /* The fallback for a compositor that does not announce itself with
+     * MANAGER (compositor_watch_event below is the prompt path): the
+     * flip is noticed at whatever repaint asks next, and the main loop
+     * reframes then. Only flagged -- never acted on here, because this
+     * is called from inside draw_decoration(). */
+    if (asked_at >= 0.0 && cached != was)
+        wm.compositor_changed = true;
+    if (r->owner != wm.cm_owner)
+        compositor_watch_owner(r->owner);
     asked_at = now;
     free(r);
     return cached;
+}
+
+/* Watching the compositor rather than asking about it. Two events say
+ * everything: the ICCCM MANAGER message a compositor sends to the root
+ * on taking _NET_WM_CM_Sn (arrival), and the DestroyNotify of the window
+ * that owns it (departure -- a compositor that exits takes its windows
+ * with it, and StructureNotify is selected on that window here for
+ * exactly that). The cached answer above is dropped on either, so the
+ * next compositor_running() asks afresh. */
+void compositor_watch_owner(xcb_window_t owner)
+{
+    wm.cm_owner = owner;
+    if (owner == XCB_NONE)
+        return;
+    uint32_t mask = XCB_EVENT_MASK_STRUCTURE_NOTIFY;
+    xcb_change_window_attributes(wm.conn, owner, XCB_CW_EVENT_MASK, &mask);
+}
+
+void compositor_watch_init(void)
+{
+    if (wm.cm_atom == XCB_ATOM_NONE)
+        return;
+    xcb_get_selection_owner_reply_t *r = xcb_get_selection_owner_reply(
+        wm.conn, xcb_get_selection_owner(wm.conn, wm.cm_atom), NULL);
+    if (!r)
+        return;
+    compositor_watch_owner(r->owner);
+    free(r);
+}
+
+static void compositor_forget_cache(void)
+{
+    /* Force the next compositor_running() to ask, whatever the cache
+     * says: the answer has just been seen to change. */
+    compositor_running_reset();
+}
+
+bool compositor_watch_event(xcb_generic_event_t *event)
+{
+    uint8_t type = event->response_type & ~0x80;
+
+    if (type == XCB_CLIENT_MESSAGE) {
+        xcb_client_message_event_t *ev = (xcb_client_message_event_t *)event;
+        if (ev->type != wm.atoms.manager || ev->format != 32 ||
+            ev->data.data32[1] != wm.cm_atom)
+            return false;
+        compositor_watch_owner((xcb_window_t)ev->data.data32[2]);
+        compositor_forget_cache();
+        wm.compositor_changed = true;
+        return true;
+    }
+
+    if (type == XCB_DESTROY_NOTIFY) {
+        xcb_destroy_notify_event_t *ev = (xcb_destroy_notify_event_t *)event;
+        if (wm.cm_owner == XCB_NONE || ev->window != wm.cm_owner)
+            return false;
+        wm.cm_owner = XCB_NONE;
+        compositor_forget_cache();
+        wm.compositor_changed = true;
+        return true;
+    }
+
+    return false;
 }

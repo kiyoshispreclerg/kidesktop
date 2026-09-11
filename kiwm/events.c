@@ -12,6 +12,7 @@
 #include "menu.h"
 #include "outline.h"
 #include "shape.h"
+#include "selection.h"
 #include "grip.h"
 
 #include <xcb/randr.h>
@@ -1949,6 +1950,12 @@ void handle_event(xcb_generic_event_t *event)
         shape_handle_notify(event);
         return;
     }
+
+    /* A compositor arriving (MANAGER) or leaving (its window destroyed):
+     * noted here, acted on by main.c's loop once this batch of events is
+     * drained. Not consumed for DestroyNotify -- nothing else claims the
+     * compositor's window, but the switch below is harmless on it. */
+    compositor_watch_event(event);
 
     switch (type) {
     case XCB_MAP_REQUEST:

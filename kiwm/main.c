@@ -41,7 +41,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KIWM_VERSION "0.4.34"
+#define KIWM_VERSION "0.4.35"
 
 #include "wm.h"
 #include "config.h"
@@ -261,6 +261,7 @@ static void setup_wm(bool replace)
         xcb_disconnect(wm.conn);
         exit(EXIT_FAILURE);
     }
+    compositor_watch_init();
 
     /* kiwm.conf's hide_deco_on_maximize= already set wm.hide_deco_on_maximize
      * above (config_load()); the env var is just a quick override on top,
@@ -554,6 +555,20 @@ int main(int argc, char **argv)
         if (!wm.running || xcb_connection_has_error(wm.conn))
             break;
 
+        /* A compositor came or went (selection.c). Every frame's depth
+         * may now be wrong for it; done here, between event batches, so
+         * the reparenting never runs from inside a repaint or a drag
+         * step. Cleared first: reframing itself repaints, and a repaint
+         * re-asks compositor_running(), which must not re-flag the
+         * change it is in the middle of answering. */
+        if (wm.compositor_changed) {
+            wm.compositor_changed = false;
+            if (wm.auto_switch_argb) {
+                int n = clients_reframe_all();
+                fprintf(stderr, "kiwm: compositor %s; %d window(s) reframed\n",
+                        compositor_running() ? "arrived" : "left", n);
+            }
+        }
 
         /* Blocking wait, except while a switcher overlay is open: then the
          * loop also has to wake up on its own every so often to notice the

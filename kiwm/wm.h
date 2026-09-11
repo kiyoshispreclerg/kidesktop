@@ -886,6 +886,13 @@ typedef struct {
      * in selection.c, which is where the screen number is known; read by
      * compositor_running(). */
     xcb_atom_t cm_atom;
+    /* Who owns it, as last seen -- watched (StructureNotify on the
+     * owner) so its going away is an event rather than a poll. */
+    xcb_window_t cm_owner;
+    /* A compositor arrived or left since the main loop last looked
+     * (selection.c sets it; main.c's loop acts on it, so that the
+     * reframing never happens from inside a repaint). */
+    bool compositor_changed;
 
     XisOutput outputs[MAX_OUTPUTS];
     int output_count;
@@ -1183,6 +1190,13 @@ typedef struct {
      * they're one gesture as far as the user is concerned. The outline is
      * the same one the switcher and snap previews use (outline.c). */
     bool live_resize;
+
+    /* kiwm.conf's auto_switch_argb= (default 1): follow the compositor.
+     * A frame is 32-bit only while there is a compositor to give its
+     * alpha to (client.c's frame_choose_depth); when one arrives or
+     * leaves, every window is moved into a frame of the right depth
+     * (client_reframe). Off, frames keep the depth they were made with. */
+    bool auto_switch_argb;
 
     /* Where the deferred (live_resize=0) resize has got to: the frame rect
      * the outline is currently showing, applied to the client by

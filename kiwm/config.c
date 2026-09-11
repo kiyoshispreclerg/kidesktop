@@ -41,6 +41,7 @@ static void apply_builtin_defaults(void)
     wm.desktop_columns = 0;
     wm.desktop_rows = 1;
     wm.mod_key = MOD_META;
+    wm.auto_switch_argb = true;
     wm.border_thickness = 0;
     wm.border_r = 0.0; wm.border_g = 0.0; wm.border_b = 0.0; wm.border_a = 1.0;
     wm.snap_threshold = 20;
@@ -481,6 +482,8 @@ void config_load(void)
             wm.magnet_threshold = n < 0 ? 0 : n;
         } else if (strcmp(key, "link_resize_neighbors") == 0) {
             wm.link_resize_neighbors = atoi(val) != 0;
+        } else if (strcmp(key, "auto_switch_argb") == 0) {
+            wm.auto_switch_argb = atoi(val) != 0;
         } else if (strcmp(key, "focus_follows_mouse") == 0) {
             wm.focus_follows_mouse = atoi(val) != 0;
         } else if (strcmp(key, "appmenu_command") == 0) {
