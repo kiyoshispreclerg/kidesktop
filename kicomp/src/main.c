@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.66"
+#define KICOMP_VERSION "0.2.67"
 
 #include "comp.h"
 #include "output.h"
@@ -1231,6 +1231,14 @@ int main(int argc, char **argv)
     free(xcb_get_input_focus_reply(comp.conn,
                                    xcb_get_input_focus(comp.conn), NULL));
     {
+        /* Adopted, like the tree: what these events describe happened
+         * while the compositor was still coming up -- kiwm re-framing
+         * every window for it, above all -- and nobody watched it
+         * happen. Taken as live events, the frames of the windows on
+         * other desktops arrived as never having been mapped, and the
+         * first switch to one of those desktops had them open rather
+         * than slide in. */
+        windows_adopting(true);
         xcb_generic_event_t *ev;
         while ((ev = xcb_poll_for_event(comp.conn))) {
             handle_event(ev);
@@ -1238,6 +1246,7 @@ int main(int argc, char **argv)
         }
     }
     windows_scan();
+    windows_adopting(false);
     xcb_ungrab_server(comp.conn);
     xcb_flush(comp.conn);
 

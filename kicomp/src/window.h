@@ -126,6 +126,13 @@ CompWindow *window_find_by_client(xcb_window_t client);
  * running it mid-session composites the existing desktop instead of a
  * black screen (mirrors kiwm's manage_existing_windows). */
 void windows_scan(void);
+
+/* Whether a window arriving now was already there before the compositor
+ * was ready to watch (window.c's adopting_existing): main.c turns this
+ * on around the events it drains before the scan, which describe what
+ * happened *during* startup, not something the user just did. windows_scan
+ * itself sets and clears it for its own duration. */
+void windows_adopting(bool on);
 void windows_resync_order(void);
 void windows_teardown(void);
 

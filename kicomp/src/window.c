@@ -72,6 +72,76 @@ static bool left_with_a_desktop(CompWindow *w)
  * as if they had. */
 static bool adopting_existing;
 
+void windows_adopting(bool on)
+{
+    adopting_existing = on;
+}
+
+/* Clients whose frame has just gone while they themselves live on.
+ *
+ * kiwm re-frames a window when a compositor arrives or leaves: a new
+ * frame is created, the client reparented into it, the old frame
+ * destroyed. To the compositor that is a window being created -- one
+ * that, for a client on a desktop that isn't showing, has never been
+ * seen mapped -- so the first time that desktop is switched to, the
+ * window "opened" instead of arriving with its desktop, and the wall
+ * slid without it. The client is the same client, and whether it has
+ * been on screen is a fact about the client, not about the box the WM
+ * put it in. So a frame that dies leaves that fact here under the
+ * client's id, and the frame that next resolves to that client takes it
+ * back. */
+#define MAX_ORPHANS 64
+
+static struct {
+    xcb_window_t client;
+    bool has_been_mapped;
+} orphans[MAX_ORPHANS];
+static int orphan_count;
+
+static void orphan_note(const CompWindow *w)
+{
+    if (w->client == XCB_NONE || w->client == w->id)
+        return;
+
+    /* The next frame may already have resolved the client -- a flush
+     * ran between the new frame's map and the old frame's destroy -- in
+     * which case the fact goes straight to it. */
+    for (CompWindow *it = comp.stack; it; it = it->next) {
+        if (it == w || it->zombie || it->client != w->client)
+            continue;
+        if (w->has_been_mapped)
+            it->has_been_mapped = true;
+        return;
+    }
+    for (int i = 0; i < orphan_count; i++) {
+        if (orphans[i].client == w->client) {
+            orphans[i].has_been_mapped |= w->has_been_mapped;
+            return;
+        }
+    }
+    if (orphan_count >= MAX_ORPHANS) {
+        memmove(&orphans[0], &orphans[1], sizeof(orphans[0]) * (MAX_ORPHANS - 1));
+        orphan_count--;
+    }
+    orphans[orphan_count].client = w->client;
+    orphans[orphan_count].has_been_mapped = w->has_been_mapped;
+    orphan_count++;
+}
+
+static void orphan_claim(CompWindow *w)
+{
+    for (int i = 0; i < orphan_count; i++) {
+        if (orphans[i].client != w->client)
+            continue;
+        if (orphans[i].has_been_mapped)
+            w->has_been_mapped = true;
+        memmove(&orphans[i], &orphans[i + 1],
+                sizeof(orphans[0]) * (size_t)(orphan_count - i - 1));
+        orphan_count--;
+        return;
+    }
+}
+
 static void window_destroy(CompWindow *w);
 static uint32_t read_window_state(CompWindow *w);
 static void read_window_group(CompWindow *w);
@@ -316,6 +386,7 @@ static xcb_window_t resolve_client(CompWindow *w)
                 break;
             }
         }
+        orphan_claim(w);
         /* Whoever the client turns out to be, this is the moment its
          * identity can be read -- and every path that resolves a client
          * has to do it, not just the reparent. A window adopted at
@@ -1189,6 +1260,10 @@ static void window_add_at(xcb_window_t id, xcb_window_t above, bool on_top)
     if (w->mapped && !adopting_existing)
         w->pending_appear = true;
 
+    comp_log("add 0x%x %s%s%s", id, w->mapped ? "mapped" : "unmapped",
+             adopting_existing ? ", adopted" : "",
+             w->has_been_mapped ? ", has been mapped" : "");
+
     if (w->mapped) {
         damage_create(w);
         CompRect r = window_rect(w);
@@ -1209,6 +1284,7 @@ void window_add_top(xcb_window_t id)
 /* Releases everything and drops the entry from the mirror. */
 static void window_destroy(CompWindow *w)
 {
+    orphan_note(w);
     /* Drops the density pictures and, for a window that is merely going
      * away rather than dying, the requests we wrote on it (density.h). */
     density_forget(w);
@@ -1309,6 +1385,7 @@ void window_map(xcb_window_t id)
     if (!w || w->mapped)
         return;
 
+    comp_log("map 0x%x", id);
     w->mapped = true;
 
     /* Back on screen: the kept picture is now the stale one, and the
@@ -1351,6 +1428,7 @@ void window_unmap(xcb_window_t id)
     if (!w || !w->mapped)
         return;
 
+    comp_log("unmap 0x%x", id);
     w->mapped = false;
     damage_destroy(w);
 
