@@ -1617,6 +1617,7 @@ src/
   effects/            one file per effect: geometry, fade-in, fade-out,
                       scale-in, scale-out, shade, minimize, desktop-wall,
                       smooth-move, dodge
+  dri3.c              DRI3: dma-bufs behind pixmaps, both ways
   renderer.h          renderer vtable
   renderer.c          the core's side of it: one wrapper per backend hook
   renderer-xrender.c  XRender backend

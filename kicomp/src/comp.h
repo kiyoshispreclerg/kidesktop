@@ -74,6 +74,7 @@ typedef struct CompCaps {
                           * with no sender -- so a visual bell has to ask
                           * XKB for BellNotify. */
     bool present;        /* Present extension: vblank-timed presentation */
+    bool dri3;           /* DRI3: dma-bufs behind pixmaps, both ways (dri3.h) */
     /* X-INPUT-SCALE: per-CRTC cursor confinement (inputscale.h). This is
      * what per-output scaling depends on -- without it kicomp scales
      * nothing, because the pointer could then reach scanout the

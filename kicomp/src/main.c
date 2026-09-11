@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.71"
+#define KICOMP_VERSION "0.2.72"
 
 #include "comp.h"
 #include "output.h"
@@ -45,6 +45,7 @@
 #include "scene.h"
 #include "renderer.h"
 #include "presenter.h"
+#include "dri3.h"
 #include "effect.h"
 #include "animation.h"
 #include "scheduler.h"
@@ -385,6 +386,8 @@ static bool caps_detect(void)
             free(v);
         }
     }
+
+    dri3_probe();
 
     /* Per-CRTC FLIP is Fase 8: declared false so no code path can
      * accidentally believe in it. Present being here does not mean frames
@@ -1180,10 +1183,12 @@ int main(int argc, char **argv)
               comp.root_w, comp.root_h);
     comp_info("renderer=%s presenter=%s", renderer->name, presenter->name);
     comp_info("capabilities: composite=%d overlay=%d damage=%d xfixes=%d "
-              "render=%d randr=%d present=%d input-scale=%d flip-per-crtc=%d",
+              "render=%d randr=%d present=%d dri3=%d input-scale=%d "
+              "flip-per-crtc=%d",
               comp.caps.composite, comp.caps.overlay, comp.caps.damage,
               comp.caps.xfixes, comp.caps.render, comp.caps.randr,
-              comp.caps.present, comp.caps.input_scale, comp.caps.flip_per_crtc);
+              comp.caps.present, comp.caps.dri3, comp.caps.input_scale,
+              comp.caps.flip_per_crtc);
     if (comp.skip_wm_layers)
         comp_info("skipping kiwm's own layers (_KIWM_LAYER)");
     if (comp_shadow.enabled)
