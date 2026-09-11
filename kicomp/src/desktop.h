@@ -102,6 +102,13 @@ bool desktop_request_prime(void);
  * answer to this. */
 bool desktop_request_hold(const CompWindow *w, int ms);
 
+/* Asks the WM to put a window on another desktop of its output -- and
+ * nothing else: same place, same size, the desktop number is all that
+ * changes. The window is unmapped or mapped by the WM as its new desktop
+ * is hidden or showing, and that arrives back as the ordinary events.
+ * False where the WM doesn't answer to _NET_WM_DESKTOP. */
+bool desktop_request_move(const CompWindow *w, int desktop);
+
 void desktop_shutdown(void);
 
 #endif /* KICOMP_DESKTOP_H */

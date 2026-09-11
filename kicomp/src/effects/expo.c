@@ -129,7 +129,19 @@ typedef struct {
      * screen. The ask expires by itself, so this is what makes it a
      * renewal rather than a promise (LiveWindows). */
     double held_at;
+
+    /* A window picked up with the button and carried across the grid
+     * (on_button, on_motion): its picture follows the pointer, and where
+     * it is let go decides its desktop. NULL when nothing is held. Until
+     * the pointer has moved DRAG_SLOP away from where it went down this
+     * is still a click that may yet be released in place. */
+    ExItem *drag;
+    bool drag_moving;
+    int drag_x, drag_y;      /* where the button went down */
+    int drag_dx, drag_dy;    /* pointer's offset inside the picture */
 } ExData;
+
+#define DRAG_SLOP 8
 
 typedef struct {
     char hotkey[64];
@@ -143,6 +155,8 @@ typedef struct {
 
 static const CompEffectOps ex_ops;
 static CompEffect *active;
+
+static ExItem *item_for(ExData *d, const CompWindow *win);
 
 /* ------------------------------------------------------------------ */
 /* layout                                                              */
@@ -377,6 +391,7 @@ static void close_mode(CompEffect *e, int enter_desktop, CompWindow *pick)
     d->closing = true;
     d->enter_desktop = enter_desktop;
     d->enter_window = pick;
+    d->drag = NULL;          /* whatever was held goes home with its cell */
     input_release();
 
     /* Asked now rather than when the animation ends: the WM has a desktop
@@ -444,17 +459,68 @@ static bool on_key(void *data, xcb_keysym_t sym, const char *text, uint16_t mods
     return true;
 }
 
+/* Every window back to its place in its cell, from wherever it is now,
+ * over one leg: what follows a drop, when one window has changed cell
+ * and (with arrange=grid) the two cells it left and joined have to make
+ * room and close up. */
+static void settle(CompEffect *e, double now)
+{
+    ExData *d = e->data;
+    const ExConfig *cfg = e->instance->config;
+
+    CompOutput *o = output_by_id(d->output_id);
+    if (!o)
+        return;
+
+    for (int i = 0; i < d->count; i++) {
+        ExItem *it = &d->items[i];
+        it->from = it->current;
+        it->alpha_from = it->alpha;
+        it->alpha_to = 1.0f;
+        it->to = place_in_cell(d, o, &it->home, it->desktop);
+    }
+
+    if (cfg->arrange == ARRANGE_GRID)
+        for (int i = 0; i < d->desktops && i < MAX_DESKTOPS; i++)
+            arrange_grid(d, i);
+
+    d->leg_start = now;
+    d->leg_ms = effect_instance_duration(e->instance);
+    output_damage_rect(&o->rect);
+}
+
 static void on_motion(void *data, int root_x, int root_y)
 {
     CompEffect *e = data;
     ExData *d = e->data;
+    CompOutput *o = output_by_id(d->output_id);
+
+    if (d->drag) {
+        /* A press becomes a drag once it has clearly moved: the picture
+         * is pinned to the pointer from then on, keeping the offset it
+         * was picked up with, and stays pinned however the legs behind
+         * it are interpolating (from == to == here). */
+        if (!d->drag_moving) {
+            int dx = root_x - d->drag_x, dy = root_y - d->drag_y;
+            if (dx * dx + dy * dy >= DRAG_SLOP * DRAG_SLOP)
+                d->drag_moving = true;
+        }
+        if (d->drag_moving) {
+            ExItem *it = d->drag;
+            CompRect r = it->current;
+            r.x = root_x - d->drag_dx;
+            r.y = root_y - d->drag_dy;
+            it->from = it->to = it->current = r;
+            if (o)
+                output_damage_rect(&o->rect);
+        }
+    }
 
     int want = desktop_at(d, root_x, root_y);
     if (want == d->selected)
         return;
     d->selected = want;
 
-    CompOutput *o = output_by_id(d->output_id);
     if (o)
         output_damage_rect(&o->rect);
 }
@@ -465,12 +531,50 @@ static void on_button(void *data, int root_x, int root_y, uint8_t button,
     CompEffect *e = data;
     ExData *d = e->data;
 
-    /* Pressing only points at a desktop; letting go is what walks into
-     * it. So a press on the wrong cell can be slid off and released
-     * elsewhere, as a button anywhere else would allow. */
+    /* Pressing chooses nothing; letting go is what walks into a
+     * desktop. So a press on the wrong cell can be slid off and released
+     * elsewhere, as a button anywhere else would allow.
+     *
+     * A press *on a window* picks it up (on_motion): moved to
+     * another cell and let go there, the window changes desktop and
+     * nothing else -- same place, same size -- and the grid stays up.
+     * Released where it was pressed, it is the click it always was. */
     if (pressed) {
         on_motion(data, root_x, root_y);
+        if (button == 1 && !d->closing) {
+            CompWindow *w = window_at(d, root_x, root_y);
+            ExItem *it = w ? item_for(d, w) : NULL;
+            /* A window on every desktop has no other desktop to go to. */
+            if (it && !it->sticky) {
+                d->drag = it;
+                d->drag_moving = false;
+                d->drag_x = root_x;
+                d->drag_y = root_y;
+                d->drag_dx = root_x - it->current.x;
+                d->drag_dy = root_y - it->current.y;
+            }
+        }
         return;
+    }
+
+    if (button == 1 && d->drag) {
+        ExItem *it = d->drag;
+        bool moved = d->drag_moving;
+        d->drag = NULL;
+
+        if (moved) {
+            /* Dropped: on another cell it changes desktop -- asked of the
+             * WM, and the cell it now sits in is the answer assumed,
+             * since what comes back is a window unmapping or mapping and
+             * the grid draws it from its picture either way. Anywhere
+             * else it goes back where it came from. */
+            int desk = desktop_at(d, root_x, root_y);
+            if (desk >= 0 && desk != it->desktop &&
+                desktop_request_move(it->win, desk))
+                it->desktop = desk;
+            settle(e, comp_now_ms());
+            return;
+        }
     }
 
     if (button != 1) {
@@ -721,7 +825,7 @@ static void ex_apply(CompEffect *e, CompScene *s, CompOutput *o)
 
         /* The desktop under the pointer is the one you are about to walk
          * into; the rest stand back. */
-        if (d->selected >= 0 && it->desktop != d->selected) {
+        if (d->selected >= 0 && it->desktop != d->selected && it != d->drag) {
             float dim = cfg->dim;
             if (dim < 0.0f) dim = 0.0f;
             if (dim > 1.0f) dim = 1.0f;
@@ -899,9 +1003,14 @@ static void ex_apply(CompEffect *e, CompScene *s, CompOutput *o)
      * first frame of the way out, rather than waiting for the WM to
      * raise it once the grid is already gone. Drawing order for these
      * frames only; the WM's stacking is not touched. */
-    if (d->closing && d->enter_window) {
+    CompWindow *front = NULL;
+    if (d->closing && d->enter_window)
+        front = d->enter_window;
+    else if (d->drag && d->drag_moving)
+        front = d->drag->win;   /* carried over the other cells, not under them */
+    if (front) {
         for (int i = 0; i < s->count; i++) {
-            if (s->nodes[i].win != d->enter_window)
+            if (s->nodes[i].win != front)
                 continue;
             CompSceneNode node = s->nodes[i];
             memmove(&s->nodes[i], &s->nodes[i + 1],

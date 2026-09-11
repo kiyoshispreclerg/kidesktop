@@ -427,6 +427,35 @@ bool desktop_request_hold(const CompWindow *w, int ms)
     return true;
 }
 
+bool desktop_request_move(const CompWindow *w, int desktop)
+{
+    if (comp.atoms.net_wm_desktop == XCB_NONE || desktop < 0)
+        return false;
+
+    xcb_window_t client = w->client != XCB_NONE ? w->client : w->id;
+
+    /* EWMH's _NET_WM_DESKTOP message: sent to the root, about the
+     * client, with source indication 2 -- a pager acting for the user,
+     * which is what an expo grid is. Under kiwm the number is the
+     * output's own desktop index, the same one the cells are laid out
+     * by (PROTOCOL.md). */
+    xcb_client_message_event_t msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.response_type = XCB_CLIENT_MESSAGE;
+    msg.format = 32;
+    msg.window = client;
+    msg.type = comp.atoms.net_wm_desktop;
+    msg.data.data32[0] = (uint32_t)desktop;
+    msg.data.data32[1] = 2;
+
+    xcb_send_event(comp.conn, 0, comp.root,
+                   XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY |
+                   XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT,
+                   (const char *)&msg);
+    xcb_flush(comp.conn);
+    return true;
+}
+
 void desktop_shutdown(void)
 {
     track_count = 0;
