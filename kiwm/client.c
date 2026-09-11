@@ -2864,7 +2864,26 @@ void manage(xcb_window_t window, bool map_requested)
      * screen somewhere the user put it, and re-centering every window on
      * a --replace would be its own bug. `map_requested` is manage()'s
      * argument for "this is a fresh MapRequest". */
-    if (map_requested && !c->hints_has_position) {
+    if (map_requested && !c->hints_has_position &&
+        window_has_state(window, wm.atoms.net_wm_state_fullscreen) &&
+        output_index_containing_point(c->x + c->width / 2, c->y + c->height / 2) >= 0) {
+        /* A window that asks to come up fullscreen is asking for a
+         * *screen*, and the only thing it has said about which one is
+         * where it put itself: VirtualBox's VM window is created at
+         * (0,0), 1280x720, and expects to fill the monitor that is. It
+         * carries no position hint -- Qt sets none for a position the
+         * app never chose -- so the rule below would centre it on the
+         * pointer's output and fullscreen it there, on whichever screen
+         * the manager window happened to be on. kwin ends up honouring
+         * the window's own geometry for this case too (its workarea
+         * re-check after mapping re-derives the fullscreen area from the
+         * geometry's centre), so a VM that filled the big screen there
+         * fills the big screen here. Only when that geometry is actually
+         * on an output; a window that placed itself nowhere falls
+         * through to placement like any other. */
+        c->output = output_index_containing_point(c->x + c->width / 2, c->y + c->height / 2);
+        c->desktop = wm.outputs[c->output].desktop;
+    } else if (map_requested && !c->hints_has_position) {
         place_client_centered(c, bt, th);
 
         /* c->output/c->desktop were derived from the position the client

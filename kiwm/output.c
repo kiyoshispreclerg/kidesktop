@@ -61,6 +61,16 @@ static long output_distance2(const XisOutput *o, int x, int y)
  * the screen the window is actually falling off, which is the one the user
  * is looking at it on -- and it is what kwin answers, which is why Plasma
  * got this case right where kiwm did not. */
+/* The output a point is inside of, or -1: unlike output_index_for_point()
+ * this does not settle for the nearest one. */
+int output_index_containing_point(int x, int y)
+{
+    for (int i = 0; i < wm.output_count; i++)
+        if (output_distance2(&wm.outputs[i], x, y) == 0)
+            return i;
+    return -1;
+}
+
 int output_index_for_point(int x, int y)
 {
     int best = -1;
