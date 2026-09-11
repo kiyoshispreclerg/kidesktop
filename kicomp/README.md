@@ -465,6 +465,7 @@ declare no type at all (most older applications):
 | `dnd` | `DND` |
 | `dock` | `DOCK` |
 | `desktop` | `DESKTOP` |
+| `outline` | *(not an EWMH type)* kiwm's move/resize/switcher preview -- under a compositor a real ARGB window per rectangle, marked `_KIWM_LAYER=outline`, made a window precisely so effects can be pointed at it |
 
 And five group shorthands:
 
@@ -481,9 +482,13 @@ And five group shorthands:
 windows = normal,dialog,tooltip,popup-menu
 ```
 
-kiwm's own layers (`_KIWM_LAYER`: the alt-tab OSD, the wireframe) and
-`InputOnly` windows never get an effect — that is a core rule, not
-configuration.
+kiwm's own layers (`_KIWM_LAYER`: the alt-tab OSD) and `InputOnly`
+windows never get an effect — that is a core rule, not configuration. The
+one exception is the `outline` layer: kiwm makes it a real window per
+rectangle *for* this, so `windows = windows,outline` on `[effect:geometry]`
+animates the preview following a drag, and the fade/scale open-close
+effects (whose defaults already include every type but `desktop`) fade
+it in and out.
 
 **How the core knows.** An X unmap can be a close, a minimize or leaving
 a desktop; a resize can be a maximize, a shade, going fullscreen or just

@@ -451,6 +451,14 @@ static void read_window_kind(CompWindow *w)
 {
     w->type = COMP_WINDOW_UNKNOWN;
 
+    /* kiwm's outline carries no _NET_WM_WINDOW_TYPE (it isn't an
+     * application window); its _KIWM_LAYER is its type. read_wm_layer()
+     * runs before this, at adoption, and kiwm never changes the mark. */
+    if (strcmp(w->wm_layer, "outline") == 0) {
+        w->type = COMP_WINDOW_OUTLINE;
+        return;
+    }
+
     xcb_window_t client = resolve_client(w);
     if (client == XCB_NONE || comp.atoms.net_wm_window_type == XCB_NONE)
         return;

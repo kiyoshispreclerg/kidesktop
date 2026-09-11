@@ -61,7 +61,7 @@ static const char *const window_type_names[COMP_WINDOW_TYPE_COUNT] = {
     "unknown", "normal", "dialog", "utility", "toolbar", "splash",
     "menu", "dropdown-menu", "popup-menu", "combo",
     "tooltip", "notification", "dnd",
-    "dock", "desktop",
+    "dock", "desktop", "outline",
 };
 
 /* Group aliases, so the common cases don't have to be spelled out one
@@ -418,8 +418,11 @@ void effects_window_event(CompWindow *w, const CompEvent *ev)
 
     /* The WM's own overlays are never animated by an effect: they are the
      * WM's business, and whether they are composited at all is already a
-     * separate decision (--skip-wm-layers). */
-    if (w->wm_layer[0] || w->input_only)
+     * separate decision (--skip-wm-layers). The one exception is the
+     * outline, which kiwm makes a real window per rectangle *for* this --
+     * so a fade or a geometry animation can be asked for on it like on
+     * any other kind of window (COMP_WINDOW_OUTLINE, "windows=outline"). */
+    if ((w->wm_layer[0] && w->type != COMP_WINDOW_OUTLINE) || w->input_only)
         return;
 
     for (CompEffectInstance *i = instances; i; i = i->next) {

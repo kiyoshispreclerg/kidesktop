@@ -201,6 +201,12 @@ typedef enum {
     COMP_WINDOW_DND,
     COMP_WINDOW_DOCK,
     COMP_WINDOW_DESKTOP,
+    /* Not an EWMH type: kiwm's own outline (its move/resize/switcher
+     * preview, marked _KIWM_LAYER=outline), which under a compositor is
+     * a real ARGB window per rectangle precisely so effects can be
+     * pointed at it -- "windows=outline" in an effect's config. The only
+     * WM layer effects ever touch; see effects_window_event(). */
+    COMP_WINDOW_OUTLINE,
     COMP_WINDOW_TYPE_COUNT
 } CompWindowType;
 
