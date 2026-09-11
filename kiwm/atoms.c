@@ -25,6 +25,8 @@ void ewmh_init_atoms(void)
     wm.atoms.wm_state = intern_atom("WM_STATE");
     wm.atoms.wm_change_state = intern_atom("WM_CHANGE_STATE");
     wm.atoms.net_wm_name = intern_atom("_NET_WM_NAME");
+    wm.atoms.net_wm_sync_request = intern_atom("_NET_WM_SYNC_REQUEST");
+    wm.atoms.net_wm_sync_request_counter = intern_atom("_NET_WM_SYNC_REQUEST_COUNTER");
     wm.atoms.net_wm_pid = intern_atom("_NET_WM_PID");
     wm.atoms.utf8_string = intern_atom("UTF8_STRING");
 

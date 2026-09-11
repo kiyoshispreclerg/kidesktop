@@ -368,6 +368,19 @@ struct Client {
      * the matching visual -- see decoration.c's draw_decoration(). */
     uint8_t frame_depth;
     uint8_t client_depth;    /* the client's own; frame_choose_depth() reads it */
+
+    /* _NET_WM_SYNC_REQUEST state (sync.h). counter is XCB_NONE for a
+     * client that does not do sync, and everything below is then unused.
+     * value is the last one asked for; pending, whether the client has
+     * yet to reach it; missed, whether a drag step was held back for it
+     * and is owed the moment it arrives. */
+    uint32_t sync_counter;
+    uint32_t sync_alarm;
+    uint64_t sync_value;
+    bool sync_pending;
+    bool sync_missed;
+    double sync_sent_ms;
+    double sync_gave_up_ms;  /* when it last timed out; see SYNC_GIVE_UP_MS */
     xcb_visualtype_t *frame_visual;
 
     /* X-DENSITY (density.h): a compositor scaling this window's monitor
@@ -649,6 +662,9 @@ typedef struct {
     xcb_atom_t wm_protocols;
     xcb_atom_t wm_delete_window;
     xcb_atom_t wm_take_focus;   /* see Client::takes_focus */
+    /* EWMH resize synchronisation -- see sync.h. */
+    xcb_atom_t net_wm_sync_request;
+    xcb_atom_t net_wm_sync_request_counter;
     xcb_atom_t wm_state;
     xcb_atom_t wm_change_state;
     xcb_atom_t net_wm_name;
@@ -853,6 +869,8 @@ typedef struct {
     bool shape_ext_present;  /* XCB SHAPE extension: rounded corners (see radius_tl etc) and
                               * forwarding a client's own shape onto its frame (shape.c). */
     int shape_event_base;    /* SHAPE's runtime event number -- see shape.c's shape_init(). */
+    bool sync_ext_present;   /* XSync: _NET_WM_SYNC_REQUEST (sync.h). */
+    int sync_event_base;
     xcb_gcontext_t deco_gc;  /* reused across every draw_decoration() call -- see decoration.c. */
     bool debug_resize;       /* KIWM_DEBUG_RESIZE=1 -- see main.c's monotonic_ms(). */
 

@@ -41,7 +41,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KIWM_VERSION "0.4.38"
+#define KIWM_VERSION "0.4.39"
 
 #include "wm.h"
 #include "config.h"
@@ -54,6 +54,7 @@
 #include "keybind.h"
 #include "osd.h"
 #include "selection.h"
+#include "sync.h"
 #include "shape.h"
 
 #include <xcb/randr.h>
@@ -277,6 +278,7 @@ static void setup_wm(bool replace)
      * forwarded onto the frame kiwm wraps it in. Must run before the first
      * configure_frame() call either way. */
     shape_init();
+    sync_init();
 
     /* Reused by every draw_decoration() call (decoration.c) to blit its
      * off-screen pixmap onto the actual frame -- created once here rather

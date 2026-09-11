@@ -10,6 +10,7 @@
 #include "menu.h"
 #include "outline.h"
 #include "shape.h"
+#include "sync.h"
 #include "selection.h"
 #include "grip.h"
 #include "atoms.h"
@@ -47,7 +48,7 @@ void client_refresh_appmenu(Client *c)
     c->has_appmenu = found;
 }
 
-static bool client_supports_protocol(xcb_window_t window, xcb_atom_t proto)
+bool client_supports_protocol(xcb_window_t window, xcb_atom_t proto)
 {
     xcb_get_property_reply_t *reply = xcb_get_property_reply(wm.conn,
         xcb_get_property(wm.conn, 0, window, wm.atoms.wm_protocols, XCB_ATOM_ATOM, 0, 64), NULL);
@@ -553,6 +554,11 @@ void apply_frame_geometry_told(Client *c, bool tell_client)
     if (!c->geom_sent ||
         c->sent_client_x != bt || c->sent_client_y != th ||
         c->sent_client_w != c->width || c->sent_client_h != c->height) {
+        /* A new size: a client that does sync is told first what to say
+         * when it has drawn it, and a drag waits for that before the
+         * next one (sync.h). A no-op for every other client. */
+        if (c->sent_client_w != c->width || c->sent_client_h != c->height)
+            sync_request(c);
         uint32_t cv[] = { (uint32_t)bt, (uint32_t)th, (uint32_t)c->width, (uint32_t)c->height };
         xcb_configure_window(wm.conn, c->window,
                              XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
@@ -2134,6 +2140,7 @@ void unmanage(Client *c)
     /* Frees the density pixmap and stops publishing for a frame that is
      * about to stop existing (density.h). */
     deco_density_forget(c);
+    sync_untrack_client(c);
 
     int fx = c->x, fy = c->y, fw = c->frame_width, fh = c->frame_height;
 
@@ -2907,6 +2914,10 @@ void manage(xcb_window_t window, bool map_requested)
     /* ShapeNotify, so a client that carves up (or later changes) its own
      * silhouette has that forwarded onto the frame -- see shape.c. */
     shape_track_client(c);
+
+    /* _NET_WM_SYNC_REQUEST: the counter it names and the alarm that
+     * reports its acknowledgements -- see sync.h. */
+    sync_track_client(c);
 
     /* The X save-set: the server's own insurance for exactly the disaster
      * a reparenting WM can cause by dying. Destroying a window destroys

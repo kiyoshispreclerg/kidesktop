@@ -13,6 +13,7 @@
 #include "outline.h"
 #include "shape.h"
 #include "selection.h"
+#include "sync.h"
 #include "grip.h"
 
 #include <xcb/randr.h>
@@ -1235,6 +1236,24 @@ static void update_resize_neighbors(Client *c, int bt, int th)
     resolve_resize_neighbors(c, c->x, c->y, c->width, c->height, bt, th, true, NULL, NULL);
 }
 
+/* One window's share of one frame of a resize drag: the geometry (with
+ * the sync request that precedes it, apply_frame_geometry_told), the
+ * shape, the decoration. Unless the client is still drawing the previous
+ * size -- then nothing, and the step is owed: sync_handle_alarm() pays
+ * it the moment the acknowledgement lands, so a pointer that has stopped
+ * moving still gets its last size applied. */
+static void resize_step(Client *c, double now)
+{
+    if (!sync_client_ready(c, now)) {
+        c->sync_missed = true;
+        return;
+    }
+    c->sync_missed = false;
+    apply_frame_geometry_told(c, true);
+    shape_update_frame(c);
+    draw_decoration(c);
+}
+
 static void handle_motion(xcb_motion_notify_event_t *ev)
 {
     if (!wm.drag_client || wm.drag_mode == DRAG_NONE) {
@@ -1402,14 +1421,10 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
      * c->height, set above) is already current either way, and
      * finish_drag() applies it unconditionally when the drag ends, so a
      * skipped last step cannot leave a stale size on screen. */
-    if (wm.drag_mode == DRAG_MOVE || due) {
+    if (wm.drag_mode == DRAG_MOVE) {
         /* The client is told its new position once per frame, not once
          * per motion event -- see apply_frame_geometry_told(). */
         apply_frame_geometry_told(c, due);
-        for (int i = 0; i < wm.resize_neighbors_x_count; i++)
-            apply_frame_geometry_told(wm.resize_neighbors_x[i].client, due);
-        for (int i = 0; i < wm.resize_neighbors_y_count; i++)
-            apply_frame_geometry_told(wm.resize_neighbors_y[i].client, due);
     }
 
     /* The *painted* chrome -- rounded-corner XShape re-clip and the
@@ -1448,16 +1463,15 @@ static void handle_motion(xcb_motion_notify_event_t *ev)
         return;
     }
 
-    shape_update_frame(c);
-    draw_decoration(c);
-    for (int i = 0; i < wm.resize_neighbors_x_count; i++) {
-        shape_update_frame(wm.resize_neighbors_x[i].client);
-        draw_decoration(wm.resize_neighbors_x[i].client);
-    }
-    for (int i = 0; i < wm.resize_neighbors_y_count; i++) {
-        shape_update_frame(wm.resize_neighbors_y[i].client);
-        draw_decoration(wm.resize_neighbors_y[i].client);
-    }
+    /* A resize step, once per frame, for the dragged window and each
+     * neighbour a linked resize carries along -- each on its own terms:
+     * a window whose client has not yet drawn the last size it was given
+     * sits this frame out (sync.h) while the others go on. */
+    resize_step(c, now);
+    for (int i = 0; i < wm.resize_neighbors_x_count; i++)
+        resize_step(wm.resize_neighbors_x[i].client, now);
+    for (int i = 0; i < wm.resize_neighbors_y_count; i++)
+        resize_step(wm.resize_neighbors_y[i].client, now);
     xcb_flush(wm.conn);
 }
 
@@ -1644,6 +1658,13 @@ static void handle_property_notify(xcb_property_notify_event_t *ev)
         if ((ev->atom == wm.atoms.net_wm_strut || ev->atom == wm.atoms.net_wm_strut_partial) &&
             dock_refresh_strut(ev->window))
             xcb_flush(wm.conn);
+        return;
+    }
+
+    if (ev->atom == wm.atoms.net_wm_sync_request_counter) {
+        /* Set (or replaced) after the window was mapped -- toolkits do
+         * it early, but not all of them before the first map. */
+        sync_track_client(c);
         return;
     }
 
@@ -1973,6 +1994,13 @@ void handle_event(xcb_generic_event_t *event)
      * event number is assigned at runtime and can't be a case label. */
     if (shape_is_notify_event(type)) {
         shape_handle_notify(event);
+        return;
+    }
+
+    /* XSync's AlarmNotify: a client saying it has drawn the size it was
+     * last given (sync.h). Runtime event number, like SHAPE's. */
+    if (sync_is_alarm_event(type)) {
+        sync_handle_alarm(event);
         return;
     }
 
