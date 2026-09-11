@@ -1588,10 +1588,18 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
          * had. */
         xcb_render_picture_t mask = XCB_NONE;
         bool shape_masked = false;
-        if (comp.caps.xfixes && !from_stash && w->shaped &&
+        if (comp.caps.xfixes && !from_stash &&
             needs_matrix && !(move_only && o->scale == 1.0f && !node_lensed)) {
-            mask = window_shape_mask(w, n->opacity);
-            shape_masked = (mask != XCB_NONE);
+            /* Ask for the shape before asking whether there is one: a
+             * resize drops the cached shape and its `shaped` with it,
+             * and the effect that animates that resize (geometry, on a
+             * maximize or a restore) starts on the very next frame --
+             * reading the stale flag here kept every such animation
+             * square-cornered from its first frame to its last. */
+            if (window_shape(w) != XCB_NONE && w->shaped) {
+                mask = window_shape_mask(w, n->opacity);
+                shape_masked = (mask != XCB_NONE);
+            }
         }
         if (!shape_masked)
             mask = window_alpha(w, n->opacity);
