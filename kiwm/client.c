@@ -2271,7 +2271,12 @@ static void seed_restore_geometry(Client *c)
  * Which output: a transient goes to its parent's, since a dialog belongs
  * to the window it came from and following the pointer could throw it onto
  * a different screen than the window it is asking about. Everything else
- * goes to the pointer's, which is where the user is looking.
+ * goes to kiwm.conf's new_window_output= -- the pointer's output unless
+ * told otherwise (output.c's output_for_new_window()), which is where
+ * the user is looking, and which is also what a launcher's startup
+ * notification would say if kiwm read one, since the launcher is under
+ * the pointer too. The primary or the largest output are the other
+ * answers, for whoever wants new windows to always land on one screen.
  *
  * Clamped to the workarea rather than allowed to go negative: a window
  * taller than the screen would otherwise be centered with its titlebar
@@ -2306,7 +2311,7 @@ static void place_client_centered(Client *c, int bt, int th)
             output = parent->output;
     }
     if (output < 0 || output >= wm.output_count)
-        output = output_for_pointer();
+        output = output_for_new_window();
 
     centre_on_workarea(output, c->width + bt * 2, c->height + th + bt, &c->x, &c->y);
 }

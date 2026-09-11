@@ -21,6 +21,33 @@ int primary_output_index(void)
     return wm.output_count > 0 ? 0 : -1;
 }
 
+/* The output with the most pixels; the first of them if several tie. */
+int largest_output_index(void)
+{
+    int best = -1;
+    long best_area = -1;
+    for (int i = 0; i < wm.output_count; i++) {
+        long area = (long)wm.outputs[i].width * wm.outputs[i].height;
+        if (area > best_area) {
+            best_area = area;
+            best = i;
+        }
+    }
+    return best;
+}
+
+/* Where a window that did not ask for a position opens -- kiwm.conf's
+ * new_window_output=. Not asked for transients, which follow their
+ * parent (client.c's place_client_centered()). */
+int output_for_new_window(void)
+{
+    switch (wm.new_window_output) {
+    case NEW_WINDOW_POINTER: return output_for_pointer();
+    case NEW_WINDOW_LARGEST: return largest_output_index();
+    default:                 return primary_output_index();
+    }
+}
+
 /* How far a point is from an output's scanout box, squared -- 0 when the
  * point is inside it. Squared because nothing here needs the real
  * distance, only which of two is smaller, and a square root would just

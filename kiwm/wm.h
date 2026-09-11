@@ -1395,6 +1395,12 @@ typedef struct {
      * output an open overlay belongs to. */
     bool osd_output_follows_pointer;
 
+    /* Which output a new window is centred on when it did not ask for a
+     * position (kiwm.conf's new_window_output=). Transients always go to
+     * their parent's output; this is for everything else -- see
+     * client.c's place_client_centered(). */
+    enum { NEW_WINDOW_PRIMARY, NEW_WINDOW_POINTER, NEW_WINDOW_LARGEST } new_window_output;
+
     /* Whether the window switcher lists windows most-recently-used first
      * (kiwm.conf's osd_order=mru) instead of in kiwm's own client order
      * (osd_order=list, the default). With MRU the focused window is

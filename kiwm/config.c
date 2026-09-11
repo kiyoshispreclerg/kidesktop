@@ -59,6 +59,7 @@ static void apply_builtin_defaults(void)
     wm.osd_live_preview_windows = false;
     wm.osd_live_preview_desktops = false;
     wm.osd_output_follows_pointer = false;
+    wm.new_window_output = NEW_WINDOW_POINTER;
     wm.osd_mru_order = false;
     wm.osd_desktop_windows = true;
     snprintf(wm.theme_path, sizeof(wm.theme_path), "greenxp");
@@ -343,6 +344,13 @@ static void write_default_config(const char *path)
         "# Meta+Tab themselves act on, never what receives keyboard input.\n"
         "osd_output_follows_pointer=0\n"
         "\n"
+        "# Which output a new window opens on when it did not ask for a\n"
+        "# position (most windows): 'pointer' (the default: whichever output\n"
+        "# the mouse is on when the window appears), 'primary', or 'largest'\n"
+        "# (the biggest output by area). Dialogs and other transients always\n"
+        "# open on their parent's output regardless.\n"
+        "new_window_output=pointer\n"
+        "\n"
         "# Order the window switcher lists windows in: 'list' (the default,\n"
         "# kiwm's own client order) or 'mru' (most recently used first, so a\n"
         "# single Tab flips to the previous window).\n"
@@ -512,6 +520,13 @@ void config_load(void)
             wm.osd_desktop_windows = atoi(val) != 0;
         } else if (strcmp(key, "osd_output_follows_pointer") == 0) {
             wm.osd_output_follows_pointer = atoi(val) != 0;
+        } else if (strcmp(key, "new_window_output") == 0) {
+            if (strcasecmp(val, "pointer") == 0)
+                wm.new_window_output = NEW_WINDOW_POINTER;
+            else if (strcasecmp(val, "largest") == 0)
+                wm.new_window_output = NEW_WINDOW_LARGEST;
+            else
+                wm.new_window_output = NEW_WINDOW_POINTER;
         } else if (strcmp(key, "theme") == 0) {
             snprintf(wm.theme_path, sizeof(wm.theme_path), "%s", val);
         } else if (strcmp(key, "titlebar_layout") == 0) {
