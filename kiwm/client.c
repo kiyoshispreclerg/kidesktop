@@ -2379,6 +2379,220 @@ static bool adopt_initial_wm_state(Client *c)
     return hidden;
 }
 
+/* Which depth the frame gets. Decided from the client's own depth and
+ * from whether a compositor is running *now* -- and re-decided by
+ * client_reframe() when the latter changes. */
+static void frame_choose_depth(Client *c)
+{
+    /* The frame is an ARGB frame when its alpha channel has somewhere to
+     * go, and the root's depth when it does not.
+     *
+     * For an ARGB client it is the only way its alpha survives: it draws
+     * into the *frame's* backing pixmap, and a depth-24 pixmap has no
+     * alpha channel to draw it into -- the transparency would be gone
+     * before a compositor ever saw it, unrecoverable. Always 32 for one.
+     *
+     * For an ordinary depth-24 client it is what makes kiwm's *own*
+     * decoration able to be translucent. The client's pixels are opaque
+     * either way (it fills its own region), but the titlebar and borders
+     * are drawn by kiwm, and they can only have real alpha if the surface
+     * they land on has an alpha channel. Deciding this from the client's
+     * depth -- as this did at first -- made a themed titlebar translucent
+     * over Konsole and opaque over Kate, which is a property of the
+     * theme, not of the application. So 32 for one too -- when there is
+     * a compositor to give the alpha to.
+     *
+     * Without one there is not, and this used to say the 32-bit frame
+     * "costs nothing on a plain X server: it is simply displayed as
+     * opaque". It is displayed as opaque. It does not cost nothing. A
+     * depth-32 window on a depth-24 screen goes through a format
+     * conversion on every operation the server does to it, and a resize
+     * is the server redoing the whole frame. Measured resizing a Kate
+     * window on the bare server, sampling gpu_busy_percent: 18.6-19.0%
+     * with a 32-bit frame, 10.5-10.8% with a 24-bit one -- and the 24-bit
+     * one comes in under an uncomposited kwin's 11.1-11.8% on the same
+     * drag. That was the whole of kiwm's gap against kwin, and more.
+     *
+     * Decided once, here, from the compositor's state at the time the
+     * window is framed: a window's visual cannot change after it is
+     * created. A compositor that arrives *later* finds the frames made
+     * before it opaque, and they stay so until the window is re-managed
+     * -- which is the same as kiwm on a screen with no 32-bit visual,
+     * and nothing stops working (selection.c's rule for this answer).
+     * Re-framing on a compositor's arrival is the follow-up, if the
+     * session order turns out to need it. */
+    bool argb_client = (c->client_depth == 32);
+    if (wm.argb_visual && (argb_client || compositor_running())) {
+        c->frame_depth = 32;
+        c->frame_visual = wm.argb_visual;
+    } else {
+        /* No compositor to hand alpha to, or no 32-bit visual to hold it
+         * in: root depth, and the decoration is flattened onto its own
+         * colour when it is drawn (decoration.c). */
+        c->frame_depth = wm.screen->root_depth;
+        c->frame_visual = wm.visual;
+    }
+}
+
+/* The frame window itself, at c->frame_depth, sized for the client plus
+ * its insets. Split out of manage() so client_reframe() can make a second
+ * one for a client that already has a Client. */
+static void frame_create(Client *c, int bt, int th)
+{
+    c->frame = xcb_generate_id(wm.conn);
+
+    /* xcb_create_window's value-list must appear in ascending bit order of
+     * the CW_* flags in the mask, NOT the order they're OR'd together in
+     * source -- CW_BORDER_PIXEL (0x08) sorts before CW_EVENT_MASK (0x800),
+     * so border-pixel goes first. Getting this backwards (as an earlier
+     * version of this code did) silently sends 0 as the *event mask* and
+     * the intended event-mask bits as the border pixel instead: the frame
+     * window then never receives Expose at all, so an unfocused window's
+     * titlebar/border never gets cleared or redrawn once something else
+     * has been drawn over it -- exactly the "keeps whatever was drawn over
+     * it, like a background-None window" symptom this fixes. */
+    uint32_t values[] = {
+        0, /* border_pixel: unused, frame's X border_width is 0 */
+        XCB_EVENT_MASK_EXPOSURE |
+        /* PropertyChange for the frame's own properties: a compositor
+         * writes _X_DENSITY_REQUESTED here to ask for a dense
+         * decoration (density.h). */
+        XCB_EVENT_MASK_PROPERTY_CHANGE |
+        XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE |
+        XCB_EVENT_MASK_POINTER_MOTION |
+        XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_LEAVE_WINDOW |
+        /* SubstructureRedirect on the frame too, not just root: once a
+         * client's top-level window is reparented into the frame, it's no
+         * longer a direct child of root, so root's own SubstructureRedirect
+         * no longer covers it -- any ConfigureWindow the app later issues
+         * on *itself* (many toolkits do this to restore a remembered
+         * position/size well after being mapped, unaware it's reparented at
+         * all, per ICCCM's transparency requirement) would otherwise apply
+         * directly against its real parent (the frame) with no redirect at
+         * all: the app's intended *absolute screen* x/y lands as a raw
+         * frame-relative offset instead, shoving the content way off inside
+         * the frame -- exactly the "content displaced by however far the
+         * window used to be from (0,0), cut off in a corner" bug this
+         * fixes. With this selected, that request instead comes back to us
+         * as a ConfigureRequest (handle_configure_request(), which now
+         * knows to treat it as the *content's* intended position, not the
+         * frame's, since that's what the app actually meant). */
+        XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT
+    };
+    /* An ARGB frame (c->frame_depth == 32, see above) doesn't share its
+     * parent's depth, so it needs a colormap of its own on top of the
+     * border pixel -- and CW_COLORMAP (0x2000) sorts *after* CW_EVENT_MASK
+     * (0x800) in the value list, same ascending-bit-order rule as the
+     * comment above. Root-depth frames keep exactly the request they
+     * always had. */
+    if (c->frame_depth == 32) {
+        uint32_t argb_values[] = { values[0], values[1], wm.argb_colormap };
+        xcb_create_window(wm.conn, 32, c->frame, wm.root,
+                          c->x, c->y, c->width + bt * 2, c->height + th + bt, 0,
+                          XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.argb_visual->visual_id,
+                          XCB_CW_BORDER_PIXEL | XCB_CW_EVENT_MASK | XCB_CW_COLORMAP,
+                          argb_values);
+    } else {
+        xcb_create_window(wm.conn, wm.screen->root_depth, c->frame, wm.root,
+                          c->x, c->y, c->width + bt * 2, c->height + th + bt, 0,
+                          XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.screen->root_visual,
+                          XCB_CW_BORDER_PIXEL | XCB_CW_EVENT_MASK, values);
+    }
+
+}
+
+/* Moves a client into a new frame of the depth frame_choose_depth() now
+ * wants, when that differs from the depth its frame has. A window's
+ * visual is fixed at creation, so "change the frame's depth" can only
+ * ever mean "make another frame and move the client into it" -- which
+ * is what manage() does for a window adopted from a previous WM, done
+ * here to a window kiwm is already managing, keeping its Client.
+ *
+ * Why it exists: without a compositor a 32-bit frame costs ~8 points of
+ * GPU during a resize and buys nothing (frame_choose_depth); with one it
+ * is what lets the decoration be translucent. A session that starts or
+ * stops its compositor (kicomp --toggle) changes the right answer for
+ * every window on screen, and this is how they follow it.
+ *
+ * What the reparent does that has to be accounted for: a mapped window
+ * is unmapped and remapped by the server as it moves, which arrives as
+ * the same two UnmapNotify manage() already swallows, then a MapNotify
+ * that handle_map_notify() lets through harmlessly (c->mapped is still
+ * true). The unmap can also make the server drop the focus, so a focused
+ * window is focused again at the end. The new frame is stacked directly
+ * above the old one before the old one goes, so the window keeps its
+ * place in the order. Returns whether anything was done. */
+bool client_reframe(Client *c)
+{
+    uint8_t had = c->frame_depth;
+    frame_choose_depth(c);
+    if (c->frame_depth == had)
+        return false;
+
+    xcb_window_t old_frame = c->frame;
+    int bt, th;
+    deco_insets(c, &bt, &th);
+
+    /* Whatever a compositor was sampling lived on the old frame. Told
+     * now, while c->frame still names it, so the properties are deleted
+     * from the window that carried them. */
+    deco_density_forget(c);
+
+    frame_create(c, bt, th);
+
+    uint32_t sv[] = { old_frame, XCB_STACK_MODE_ABOVE };
+    xcb_configure_window(wm.conn, c->frame,
+                         XCB_CONFIG_WINDOW_SIBLING | XCB_CONFIG_WINDOW_STACK_MODE, sv);
+
+    /* One, not manage()'s two: the second UnmapNotify there comes by
+     * SubstructureNotify from the window's parent, which for a fresh
+     * adoption is the root. Here the parent is the old frame, and a
+     * frame does not select SubstructureNotify. Counting one too many
+     * would swallow the app's own next unmap. */
+    if (c->mapped)
+        c->ignore_unmap += 1;
+    xcb_reparent_window(wm.conn, c->window, c->frame, bt, th);
+    if (c->mapped)
+        xcb_map_window(wm.conn, c->frame);
+
+    xcb_destroy_window(wm.conn, old_frame);
+
+    /* Everything that remembered the old frame's state starts over: it
+     * has no geometry sent, no shape, and no decoration yet. */
+    c->geom_sent = false;
+    c->shape_sig_valid = false;
+    c->frame_shaped = false;
+    configure_frame(c);
+
+    /* The server reverts the focus when the focused window is unmapped,
+     * and the reparent unmapped it. Sent directly rather than through
+     * focus_client(), which sees wm.focused == c and rightly sends
+     * nothing for a window it believes already has the focus -- the
+     * model is right; it is the server that was made to forget. */
+    if (wm.focused == c) {
+        xcb_set_input_focus(wm.conn, XCB_INPUT_FOCUS_POINTER_ROOT,
+                            c->window, XCB_CURRENT_TIME);
+        send_take_focus(c);
+    }
+
+    return true;
+}
+
+/* Every managed window, for a compositor arriving or leaving. Returns
+ * how many actually changed frame. */
+int clients_reframe_all(void)
+{
+    int n = 0;
+    for (Client *c = wm.clients; c; c = c->next)
+        if (client_reframe(c))
+            n++;
+    if (n) {
+        restack_all();
+        xcb_flush(wm.conn);
+    }
+    return n;
+}
+
 /* `map_requested` distinguishes the two ways a window gets here, and it
  * matters for exactly one thing: whether kiwm may map it.
  *
@@ -2557,54 +2771,8 @@ void manage(xcb_window_t window, bool map_requested)
     c->width = geo->width < c->min_w ? c->min_w : geo->width;
     c->height = geo->height < c->min_h ? c->min_h : geo->height;
 
-    /* The frame is an ARGB frame when its alpha channel has somewhere to
-     * go, and the root's depth when it does not.
-     *
-     * For an ARGB client it is the only way its alpha survives: it draws
-     * into the *frame's* backing pixmap, and a depth-24 pixmap has no
-     * alpha channel to draw it into -- the transparency would be gone
-     * before a compositor ever saw it, unrecoverable. Always 32 for one.
-     *
-     * For an ordinary depth-24 client it is what makes kiwm's *own*
-     * decoration able to be translucent. The client's pixels are opaque
-     * either way (it fills its own region), but the titlebar and borders
-     * are drawn by kiwm, and they can only have real alpha if the surface
-     * they land on has an alpha channel. Deciding this from the client's
-     * depth -- as this did at first -- made a themed titlebar translucent
-     * over Konsole and opaque over Kate, which is a property of the
-     * theme, not of the application. So 32 for one too -- when there is
-     * a compositor to give the alpha to.
-     *
-     * Without one there is not, and this used to say the 32-bit frame
-     * "costs nothing on a plain X server: it is simply displayed as
-     * opaque". It is displayed as opaque. It does not cost nothing. A
-     * depth-32 window on a depth-24 screen goes through a format
-     * conversion on every operation the server does to it, and a resize
-     * is the server redoing the whole frame. Measured resizing a Kate
-     * window on the bare server, sampling gpu_busy_percent: 18.6-19.0%
-     * with a 32-bit frame, 10.5-10.8% with a 24-bit one -- and the 24-bit
-     * one comes in under an uncomposited kwin's 11.1-11.8% on the same
-     * drag. That was the whole of kiwm's gap against kwin, and more.
-     *
-     * Decided once, here, from the compositor's state at the time the
-     * window is framed: a window's visual cannot change after it is
-     * created. A compositor that arrives *later* finds the frames made
-     * before it opaque, and they stay so until the window is re-managed
-     * -- which is the same as kiwm on a screen with no 32-bit visual,
-     * and nothing stops working (selection.c's rule for this answer).
-     * Re-framing on a compositor's arrival is the follow-up, if the
-     * session order turns out to need it. */
-    bool argb_client = (geo->depth == 32);
-    if (wm.argb_visual && (argb_client || compositor_running())) {
-        c->frame_depth = 32;
-        c->frame_visual = wm.argb_visual;
-    } else {
-        /* No compositor to hand alpha to, or no 32-bit visual to hold it
-         * in: root depth, and the decoration is flattened onto its own
-         * colour when it is drawn (decoration.c). */
-        c->frame_depth = wm.screen->root_depth;
-        c->frame_visual = wm.visual;
-    }
+    c->client_depth = geo->depth;
+    frame_choose_depth(c);
     free(geo);
 
     c->output = output_index_for_point(c->x + c->width / 2, c->y + c->height / 2);
@@ -2623,46 +2791,6 @@ void manage(xcb_window_t window, bool map_requested)
     c->takes_focus = client_supports_protocol(window, wm.atoms.wm_take_focus);
     client_refresh_appmenu(c);
 
-    c->frame = xcb_generate_id(wm.conn);
-
-    /* xcb_create_window's value-list must appear in ascending bit order of
-     * the CW_* flags in the mask, NOT the order they're OR'd together in
-     * source -- CW_BORDER_PIXEL (0x08) sorts before CW_EVENT_MASK (0x800),
-     * so border-pixel goes first. Getting this backwards (as an earlier
-     * version of this code did) silently sends 0 as the *event mask* and
-     * the intended event-mask bits as the border pixel instead: the frame
-     * window then never receives Expose at all, so an unfocused window's
-     * titlebar/border never gets cleared or redrawn once something else
-     * has been drawn over it -- exactly the "keeps whatever was drawn over
-     * it, like a background-None window" symptom this fixes. */
-    uint32_t values[] = {
-        0, /* border_pixel: unused, frame's X border_width is 0 */
-        XCB_EVENT_MASK_EXPOSURE |
-        /* PropertyChange for the frame's own properties: a compositor
-         * writes _X_DENSITY_REQUESTED here to ask for a dense
-         * decoration (density.h). */
-        XCB_EVENT_MASK_PROPERTY_CHANGE |
-        XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE |
-        XCB_EVENT_MASK_POINTER_MOTION |
-        XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_LEAVE_WINDOW |
-        /* SubstructureRedirect on the frame too, not just root: once a
-         * client's top-level window is reparented into the frame, it's no
-         * longer a direct child of root, so root's own SubstructureRedirect
-         * no longer covers it -- any ConfigureWindow the app later issues
-         * on *itself* (many toolkits do this to restore a remembered
-         * position/size well after being mapped, unaware it's reparented at
-         * all, per ICCCM's transparency requirement) would otherwise apply
-         * directly against its real parent (the frame) with no redirect at
-         * all: the app's intended *absolute screen* x/y lands as a raw
-         * frame-relative offset instead, shoving the content way off inside
-         * the frame -- exactly the "content displaced by however far the
-         * window used to be from (0,0), cut off in a corner" bug this
-         * fixes. With this selected, that request instead comes back to us
-         * as a ConfigureRequest (handle_configure_request(), which now
-         * knows to treat it as the *content's* intended position, not the
-         * frame's, since that's what the app actually meant). */
-        XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT
-    };
     /* No maximize/fullscreen state has been adopted yet at this point, so
      * this is just "the configured border/titlebar, unless the client
      * asked for none at all" (Client::undecorated above) -- adopting a
@@ -2722,25 +2850,7 @@ void manage(xcb_window_t window, bool map_requested)
         c->desktop = wm.output_count > 0 ? wm.outputs[c->output].desktop : 0;
     }
 
-    /* An ARGB frame (c->frame_depth == 32, see above) doesn't share its
-     * parent's depth, so it needs a colormap of its own on top of the
-     * border pixel -- and CW_COLORMAP (0x2000) sorts *after* CW_EVENT_MASK
-     * (0x800) in the value list, same ascending-bit-order rule as the
-     * comment above. Root-depth frames keep exactly the request they
-     * always had. */
-    if (c->frame_depth == 32) {
-        uint32_t argb_values[] = { values[0], values[1], wm.argb_colormap };
-        xcb_create_window(wm.conn, 32, c->frame, wm.root,
-                          c->x, c->y, c->width + bt * 2, c->height + th + bt, 0,
-                          XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.argb_visual->visual_id,
-                          XCB_CW_BORDER_PIXEL | XCB_CW_EVENT_MASK | XCB_CW_COLORMAP,
-                          argb_values);
-    } else {
-        xcb_create_window(wm.conn, wm.screen->root_depth, c->frame, wm.root,
-                          c->x, c->y, c->width + bt * 2, c->height + th + bt, 0,
-                          XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.screen->root_visual,
-                          XCB_CW_BORDER_PIXEL | XCB_CW_EVENT_MASK, values);
-    }
+    frame_create(c, bt, th);
 
     /* POINTER_MOTION on the *client's* window, which a WM normally has no
      * reason to want. It was originally how events.c noticed the pointer

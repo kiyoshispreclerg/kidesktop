@@ -203,5 +203,7 @@ void popup_focus_released(xcb_window_t window);
 void manage(xcb_window_t window, bool map_requested);
 void manage_existing_windows(void);
 void unmanage(Client *c);
+bool client_reframe(Client *c);
+int clients_reframe_all(void);
 
 #endif /* KIWM_CLIENT_H */

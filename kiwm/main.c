@@ -41,7 +41,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KIWM_VERSION "0.4.33"
+#define KIWM_VERSION "0.4.34"
 
 #include "wm.h"
 #include "config.h"
@@ -553,6 +553,7 @@ int main(int argc, char **argv)
         }
         if (!wm.running || xcb_connection_has_error(wm.conn))
             break;
+
 
         /* Blocking wait, except while a switcher overlay is open: then the
          * loop also has to wake up on its own every so often to notice the

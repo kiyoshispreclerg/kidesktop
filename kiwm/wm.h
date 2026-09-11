@@ -367,6 +367,7 @@ struct Client {
      * a GC and a CopyArea are each bound to one depth, and Cairo needs
      * the matching visual -- see decoration.c's draw_decoration(). */
     uint8_t frame_depth;
+    uint8_t client_depth;    /* the client's own; frame_choose_depth() reads it */
     xcb_visualtype_t *frame_visual;
 
     /* X-DENSITY (density.h): a compositor scaling this window's monitor
