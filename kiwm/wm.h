@@ -1253,7 +1253,14 @@ typedef struct {
      * what makes an edge grip feel like one instead of a corner in
      * disguise. See events.c's handle_motion(). */
     bool resize_axis_x, resize_axis_y;
-    double last_drag_apply_ms;  /* see DRAG_REDRAW_FALLBACK_MS / events.c's handle_motion() */
+    /* When the drag's next frame is owed (monotonic ms). A deadline that
+     * advances by one period each time it is met -- not "the last time
+     * we applied", which loses frames to quantisation: motion events
+     * arrive every 8 ms and a 60 Hz period is 16.7, so "at least 16.7
+     * since the last apply" is first satisfied 24 ms later, every time,
+     * and the drag runs at ~42 fps on a 60 Hz screen. See handle_motion()
+     * and DRAG_REDRAW_FALLBACK_MS. */
+    double next_drag_apply_ms;
 
     /* Set for the whole drag by events.c's begin_drag() when a DRAG_RESIZE
      * starts on the shared edge of two half-snapped windows (Client::
