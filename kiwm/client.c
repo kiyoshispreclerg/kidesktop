@@ -2582,7 +2582,17 @@ bool client_reframe(Client *c)
     if (c->mapped)
         c->ignore_unmap += 1;
     xcb_reparent_window(wm.conn, c->window, c->frame, bt, th);
-    if (c->mapped)
+
+    /* Only onto the screen if the window belongs there *now*. `mapped`
+     * says "should be on screen", and switch_workspace() leaves it set
+     * on the windows of the desktop it hides -- so mapping on it alone
+     * put every window of every other desktop on the current one the
+     * moment a compositor arrived, where they sat until their desktop
+     * was next left. */
+    bool on_screen = c->mapped && !c->minimized &&
+                     (c->sticky ||
+                      (c->output >= 0 && wm.outputs[c->output].desktop == c->desktop));
+    if (on_screen)
         xcb_map_window(wm.conn, c->frame);
 
     xcb_destroy_window(wm.conn, old_frame);
