@@ -130,6 +130,10 @@ static void stash_free(CompWindow *w);
 static void xr_window_shape_invalidate(CompWindow *w)
 {
     w->shaped = false;
+    if (w->shape_mask) {
+        xcb_render_free_picture(comp.conn, w->shape_mask);
+        w->shape_mask = 0;
+    }
     if (!w->shape)
         return;
     xcb_xfixes_destroy_region(comp.conn, w->shape);
@@ -588,6 +592,77 @@ static xcb_render_picture_t window_alpha(CompWindow *w, float opacity)
     w->alpha = pict;
     w->alpha_value = opacity;
     return pict;
+}
+
+/* The window's shape as a mask picture (CompWindow::shape_mask): the
+ * alternative to clipping with the region, for the nodes the region
+ * cannot follow -- a window being scaled by an effect, or drawn on an
+ * output whose pixels are not logical pixels. The mask lives in the same
+ * space as the window's pixmap, so whatever matrix samples the pixmap
+ * samples the mask, and the silhouette scales with the contents.
+ *
+ * It carries the opacity as its value, which is what makes it *the*
+ * mask rather than one of two: XRender takes a single mask picture, and
+ * the constant-alpha one (window_alpha) cannot be combined with this in
+ * the same composite. Refilled only when the value changes -- a fade
+ * costs two fills per frame, a steady window none.
+ *
+ * XCB_NONE when the window is not shaped, or the mask cannot be made:
+ * the caller then draws the rectangle, as it always did. */
+static xcb_render_picture_t window_shape_mask(CompWindow *w, float opacity)
+{
+    xcb_xfixes_region_t shape = window_shape(w);
+    if (shape == XCB_NONE || !w->shaped)
+        return XCB_NONE;
+    if (opacity < 0.0f)
+        opacity = 0.0f;
+    if (opacity > 1.0f)
+        opacity = 1.0f;
+
+    CompRect r = window_rect(w);
+    if (r.w <= 0 || r.h <= 0)
+        return XCB_NONE;
+
+    if (!w->shape_mask) {
+        xcb_render_pictformat_t fmt = format_a8();
+        if (!fmt)
+            return XCB_NONE;
+
+        xcb_pixmap_t pm = xcb_generate_id(comp.conn);
+        xcb_create_pixmap(comp.conn, 8, pm, comp.root,
+                          (uint16_t)r.w, (uint16_t)r.h);
+        xcb_render_picture_t pict = xcb_generate_id(comp.conn);
+        xcb_render_create_picture(comp.conn, pict, pm, fmt, 0, NULL);
+        xcb_free_pixmap(comp.conn, pm);   /* the picture keeps it alive */
+
+        w->shape_mask = pict;
+        w->shape_mask_alpha = -1.0f;
+    }
+
+    if (w->shape_mask_alpha != opacity) {
+        xcb_rectangle_t whole = { 0, 0, (uint16_t)r.w, (uint16_t)r.h };
+        xcb_render_color_t clear = { 0, 0, 0, 0 };
+        xcb_render_color_t fill = {
+            0, 0, 0, (uint16_t)(opacity * 0xffff)
+        };
+
+        /* Nothing outside the shape, the value inside it. The region is
+         * window-relative and the pixmap starts at the border, so the
+         * clip is offset by the border to line the two up. */
+        xcb_xfixes_set_picture_clip_region(comp.conn, w->shape_mask,
+                                           XCB_XFIXES_REGION_NONE, 0, 0);
+        xcb_render_fill_rectangles(comp.conn, XCB_RENDER_PICT_OP_SRC,
+                                   w->shape_mask, clear, 1, &whole);
+        xcb_xfixes_set_picture_clip_region(comp.conn, w->shape_mask, shape,
+                                           (int16_t)w->border, (int16_t)w->border);
+        xcb_render_fill_rectangles(comp.conn, XCB_RENDER_PICT_OP_SRC,
+                                   w->shape_mask, fill, 1, &whole);
+        xcb_xfixes_set_picture_clip_region(comp.conn, w->shape_mask,
+                                           XCB_XFIXES_REGION_NONE, 0, 0);
+        w->shape_mask_alpha = opacity;
+    }
+
+    return w->shape_mask;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1479,7 +1554,6 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
             draw_shadow(o, w, &n->geometry, n->opacity);
 
         xcb_render_picture_t source = from_stash ? w->prev_picture : w->picture;
-        xcb_render_picture_t mask = window_alpha(w, n->opacity);
 
         /* A node an effect is transforming (section 22): XRender wants
          * the inverse mapping, and a matrix that isn't invertible as an
@@ -1488,6 +1562,39 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
         CompTransform inverse;
         bool transformed = !comp_transform_is_identity(&n->transform) &&
                            comp_transform_invert_affine(&n->transform, &inverse);
+
+        /* A transform that is only a move keeps its shape as a region
+         * clip (below); anything else needs the shape as a mask. */
+        float tdx = 0.0f, tdy = 0.0f;
+        bool move_only = !transformed ||
+                         comp_transform_is_translation(&n->transform, &tdx, &tdy);
+
+        /* A lens counts too: the destination rectangle is magnified by
+         * to_target_*, and without a matrix to sample through, XRender
+         * would simply read that many more source pixels -- a window
+         * cropped rather than a window enlarged. */
+        float nlox, nloy;
+        bool node_lensed = lens_of(o, &nlox, &nloy) != 1.0f ||
+                           nlox != 0.0f || nloy != 0.0f;
+        bool needs_matrix = transformed || o->scale != 1.0f || node_lensed;
+
+        /* The shape follows the window through a scale as a mask, not
+         * as a clip: the mask is sampled through the same matrix as the
+         * pixmap, so a rounded corner stays round at every size of an
+         * expo cell or a scale-in, and on a scaled output. The region
+         * clip stays for the plain and the moved cases, where it costs
+         * nothing per frame. Not for the stash: the mask describes the
+         * window's current silhouette, which is not the one those pixels
+         * had. */
+        xcb_render_picture_t mask = XCB_NONE;
+        bool shape_masked = false;
+        if (comp.caps.xfixes && !from_stash && w->shaped &&
+            needs_matrix && !(move_only && o->scale == 1.0f && !node_lensed)) {
+            mask = window_shape_mask(w, n->opacity);
+            shape_masked = (mask != XCB_NONE);
+        }
+        if (!shape_masked)
+            mask = window_alpha(w, n->opacity);
 
         /* Clip the target to this window's shape before drawing it. The
          * region is window-relative, so the window's origin in target
@@ -1522,25 +1629,23 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
              * it (VirtualBox's mini-toolbar) is drawn as a screen-sized
              * ghost of whatever its pixmap happens to hold.
              *
-             * A scaled or rotated one still has to go without, since the
-             * region cannot follow it. */
-            float tdx = 0.0f, tdy = 0.0f;
-            bool move_only = !transformed ||
-                             comp_transform_is_translation(&n->transform, &tdx, &tdy);
+             * A scaled or rotated one goes by the mask instead
+             * (shape_masked, above); the clip here is then only the
+             * frame's damage. */
+            xcb_xfixes_region_t shape = (from_stash || !move_only || shape_masked)
+                                        ? XCB_NONE : window_shape(w);
 
-            xcb_xfixes_region_t shape = (from_stash || !move_only) ? XCB_NONE
-                                                                  : window_shape(w);
-
-            /* A window being *scaled* cannot keep its silhouette -- XFixes
-             * has no way to scale a region -- but it can keep its
-             * extents, and for the window this matters to those are not
-             * the same rectangle at all. VirtualBox's mini-toolbar is a
-             * screen-sized window with a small bar shaped out of it, so
-             * drawing its whole rectangle while an effect shrinks it puts
-             * a screen-sized ghost of stale contents in the middle of the
-             * expo grid. The extents carried through the same transform
-             * are exactly that bar. */
-            if (!shape && !from_stash && transformed && w->shaped &&
+            /* A window being scaled *without* a mask (the mask could not
+             * be made) cannot keep its silhouette -- XFixes has no way to
+             * scale a region -- but it can keep its extents, and for the
+             * window this matters to those are not the same rectangle
+             * at all. VirtualBox's mini-toolbar is a screen-sized window
+             * with a small bar shaped out of it, so drawing its whole
+             * rectangle while an effect shrinks it puts a screen-sized
+             * ghost of stale contents in the middle of the expo grid.
+             * The extents carried through the same transform are exactly
+             * that bar. */
+            if (!shape && !shape_masked && !from_stash && transformed && w->shaped &&
                 w->shape_extents.w > 0 && w->shape_extents.h > 0) {
                 window_shape(w);          /* refreshes the extents */
                 CompRect ext = { w->x + w->shape_extents.x,
@@ -1588,15 +1693,6 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
          * the source picture, so it is built in the direction the sampling
          * goes: target pixels -> logical root -> (the effect's inverse) ->
          * the window's own pixmap. */
-        /* A lens counts too: the destination rectangle is magnified by
-         * to_target_*, and without a matrix to sample through, XRender
-         * would simply read that many more source pixels -- a window
-         * cropped rather than a window enlarged. */
-        float nlox, nloy;
-        bool node_lensed = lens_of(o, &nlox, &nloy) != 1.0f ||
-                           nlox != 0.0f || nloy != 0.0f;
-        bool needs_matrix = transformed || o->scale != 1.0f || node_lensed;
-
         if (needs_matrix) {
             /* Target pixels -> logical root: the physical scale, the
              * output's origin and the lens, all of which this output
@@ -1612,6 +1708,10 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
 
             comp_transform_translate(&m, (float)-n->geometry.x, (float)-n->geometry.y);
             picture_transform_set(source, &m);
+            /* The mask is in the pixmap's space, so it is sampled through
+             * the very same matrix -- that is the whole trick. */
+            if (shape_masked)
+                picture_transform_set(mask, &m);
 
             /* The matrix consumes target coordinates now, so that is what
              * goes in as the source point. */
@@ -1629,8 +1729,11 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
 
         /* The picture outlives the frame, so the transform must not: the
          * next paint may well be an ordinary one. */
-        if (needs_matrix)
+        if (needs_matrix) {
             picture_transform_reset(source);
+            if (shape_masked)
+                picture_transform_reset(mask);
+        }
 
         /* And, over the client area, the client's own denser contents if
          * it published any (density.h). What was just drawn is the frame:
@@ -1650,17 +1753,25 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
              * same order they sit in, and the same order they were drawn
              * in at logical size. Each is a separate drawable published by
              * a separate program (the WM's frame, the app's window), and
-             * only what each one published is dense. */
+             * only what each one published is dense.
+             *
+             * With the constant-alpha mask, not the shape one: the dense
+             * pictures are sampled through matrices of their own, which
+             * the shape mask (in the frame pixmap's space) would not
+             * follow. The dense client area lies inside the frame, away
+             * from the corners the shape is about. */
+            xcb_render_picture_t dense_mask =
+                shape_masked ? window_alpha(w, n->opacity) : mask;
             float density;
             if (deco_density_active(w, &density))
-                draw_dense(o, n, w, mask, &n->geometry, density, true);
+                draw_dense(o, n, w, dense_mask, &n->geometry, density, true);
             if (density_active(w, &density)) {
                 CompRect client = {
                     n->geometry.x + w->client_rect.x,
                     n->geometry.y + w->client_rect.y,
                     w->client_rect.w, w->client_rect.h
                 };
-                draw_dense(o, n, w, mask, &client, density, false);
+                draw_dense(o, n, w, dense_mask, &client, density, false);
             }
         }
 

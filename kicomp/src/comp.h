@@ -462,6 +462,16 @@ typedef struct CompWindow {
      * has to ask the shape, not the geometry. */
     bool shaped;
     CompRect shape_extents;
+
+    /* The same shape as a picture: an A8 mask the size of the window's
+     * pixmap, opaque inside the shape, holding the node's opacity as its
+     * value. What the region cannot do is be scaled, and this can -- a
+     * mask takes the same transform as the window, so a shaped window
+     * keeps its silhouette through every effect that resizes it (expo,
+     * scale, geometry). Built from the region on demand, refilled when
+     * the opacity it holds changes, dropped with the region. */
+    xcb_render_picture_t shape_mask;
+    float shape_mask_alpha;
 } CompWindow;
 
 typedef struct KiComp {
