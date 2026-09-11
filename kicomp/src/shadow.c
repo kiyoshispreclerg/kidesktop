@@ -5,6 +5,7 @@
 
 #include <math.h>
 #include "effect.h"   /* comp_window_type_mask_parse */
+#include "window.h"   /* window_rect */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -144,9 +145,23 @@ bool shadow_for_window(const CompWindow *w, CompShadowStyle *out)
 
     /* A window filling its screen has nothing to cast a shadow onto: its
      * edges are the screen's edges. Drawing one is invisible at best, and
-     * at worst a dark band down the side of the next monitor. */
+     * at worst a dark band down the side of the next monitor -- and a
+     * repaint of that window that wakes the next monitor up, every
+     * frame, for the band's sake.
+     *
+     * The state says so for a window the WM maximized; the geometry says
+     * so for one that sized itself to the screen without asking for the
+     * state (browsers and toolkit "kiosk" windows do), and the two are
+     * the same window as far as a shadow is concerned. */
     if (w->state & (COMP_STATE_MAXIMIZED | COMP_STATE_FULLSCREEN))
         return false;
+    CompRect r = window_rect((CompWindow *)w);
+    for (int i = 0; i < comp.output_count; i++) {
+        const CompRect *o = &comp.outputs[i].rect;
+        if (r.x <= o->x && r.y <= o->y &&
+            r.x + r.w >= o->x + o->w && r.y + r.h >= o->y + o->h)
+            return false;
+    }
 
     *out = w->focused ? comp_shadow.active : comp_shadow.inactive;
     return out->opacity > 0.0f && out->radius > 0;
