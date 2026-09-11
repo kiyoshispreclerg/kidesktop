@@ -1620,7 +1620,8 @@ src/
   renderer.h          renderer vtable
   renderer.c          the core's side of it: one wrapper per backend hook
   renderer-xrender.c  XRender backend
-  renderer-glx.c      GLX backend (GL_EXT_texture_from_pixmap, shaders)
+  renderer-gl.c       the GL drawing shared by the GL platforms (shaders, damage history)
+  renderer-glx.c      GLX platform (context, drawables, GLX_EXT_texture_from_pixmap)
   presenter.h         presenter vtable
   presenter-copy.c    COPY backend (overlay window)
   presenter-present.c PRESENT backend (per-CRTC, vblank-timed)
