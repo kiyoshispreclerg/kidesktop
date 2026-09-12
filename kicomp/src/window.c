@@ -1168,7 +1168,19 @@ static void damage_destroy(CompWindow *w)
 {
     if (w->damage == XCB_NONE)
         return;
-    xcb_damage_destroy(comp.conn, w->damage);
+    /* Checked, and the error thrown away: a Damage dies with its window,
+     * and an unmap can be followed by a destroy before this request
+     * reaches the server -- in which case it names something already
+     * gone, which is not a mistake worth a line in the log. */
+    xcb_discard_reply(comp.conn,
+                      xcb_damage_destroy_checked(comp.conn, w->damage).sequence);
+    w->damage = XCB_NONE;
+}
+
+/* For a window the *server* destroyed: its Damage went with it, so there
+ * is nothing to ask for -- asking is a BadDamage every time. */
+static void damage_forget(CompWindow *w)
+{
     w->damage = XCB_NONE;
 }
 
@@ -1341,7 +1353,7 @@ void window_remove(xcb_window_t id)
         output_damage_window_rect(w, &r);
     }
 
-    damage_destroy(w);
+    damage_forget(w);
 
     /* The X window is gone, but that is not the same as the *mirror*
      * entry being gone: a window that was on screen a moment ago still

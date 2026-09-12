@@ -67,8 +67,10 @@ void damage_collect(void)
             CompRect whole = window_rect(w);
             effects_damage_window(w, &whole);
 
-            xcb_damage_subtract(comp.conn, w->damage, XCB_XFIXES_REGION_NONE,
-                                XCB_XFIXES_REGION_NONE);
+            xcb_discard_reply(comp.conn,
+                xcb_damage_subtract_checked(comp.conn, w->damage,
+                                            XCB_XFIXES_REGION_NONE,
+                                            XCB_XFIXES_REGION_NONE).sequence);
             continue;
         }
 
@@ -83,10 +85,18 @@ void damage_collect(void)
         /* Subtract with a region to receive what was subtracted: that
          * both hands us everything damaged since the last frame and
          * re-arms the reporting for the next one. All asynchronous -- the
-         * replies are read below, in one go. */
+         * replies are read below, in one go.
+         *
+         * Checked, with the error discarded: the window may have been
+         * destroyed between the DamageNotify that set damage_pending and
+         * this request, taking its Damage with it, and the DestroyNotify
+         * that would have told us is still on its way. The region then
+         * simply comes back empty. */
         xcb_xfixes_region_t region = xcb_generate_id(comp.conn);
         xcb_xfixes_create_region(comp.conn, region, 0, NULL);
-        xcb_damage_subtract(comp.conn, w->damage, XCB_XFIXES_REGION_NONE, region);
+        xcb_discard_reply(comp.conn,
+            xcb_damage_subtract_checked(comp.conn, w->damage,
+                                        XCB_XFIXES_REGION_NONE, region).sequence);
 
         windows[n] = w;
         regions[n] = region;
