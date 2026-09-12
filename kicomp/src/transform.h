@@ -36,10 +36,10 @@ bool comp_transform_is_identity(const CompTransform *t);
  * pure moves. */
 bool comp_transform_is_translation(const CompTransform *t, float *dx, float *dy);
 
-/* Where a rectangle lands once the transform is applied to it.
- *
- * Only meaningful for the affine transforms the effects here build --
- * moves and scales -- which is why it maps two corners rather than four.
+/* Where a rectangle lands once the transform is applied to it: the
+ * bounding box of the four transformed corners, perspective divide and
+ * all -- the same answer comp_transform_bbox gives, and these two are
+ * now one implementation.
  * What it is for: a window being scaled loses its shape clip, because
  * neither XFixes nor a scissor box can scale a region, and a window whose
  * rectangle is far larger than what it draws then appears as its whole
@@ -55,6 +55,26 @@ void comp_transform_multiply(CompTransform *out, const CompTransform *a, const C
 /* In-place: t = t composed with the new operation applied *after* it. */
 void comp_transform_translate(CompTransform *t, float dx, float dy);
 void comp_transform_scale(CompTransform *t, float sx, float sy);
+
+/* The three that make a cover flow: a rotation out of the plane, a push
+ * away from the viewer, and the projection that turns the two into
+ * foreshortening.
+ *
+ * Nodes are flat -- a scene node is a rectangle at z = 0 -- so the depth
+ * these introduce only ever comes from the rotation and the push, and
+ * comp_transform_point() already divides by the w that results (its row
+ * 3 reads x and y, which is all a z = 0 input can contribute). That is
+ * why perspective needs nothing from the rest of the core: bounding
+ * boxes, damage and the GL matrix path were projective all along, with
+ * nothing yet building a matrix that used it.
+ *
+ * `distance` is how far the eye is from the plane, in root pixels: the
+ * larger it is the weaker the effect, and 0 (or anything non-positive)
+ * means no projection at all, which leaves the matrix affine and so
+ * usable by the XRender backend too. */
+void comp_transform_rotate_y(CompTransform *t, float radians);
+void comp_transform_translate_z(CompTransform *t, float dz);
+void comp_transform_perspective(CompTransform *t, float distance);
 
 void comp_transform_point(const CompTransform *t, float x, float y, float *ox, float *oy);
 

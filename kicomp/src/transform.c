@@ -57,6 +57,49 @@ void comp_transform_scale(CompTransform *t, float sx, float sy)
     comp_transform_multiply(t, &op, t);
 }
 
+void comp_transform_rotate_y(CompTransform *t, float radians)
+{
+    CompTransform op;
+    comp_transform_identity(&op);
+    float c = cosf(radians), s = sinf(radians);
+    op.m[0][0] =  c;  op.m[0][2] = s;
+    op.m[2][0] = -s;  op.m[2][2] = c;
+    comp_transform_multiply(t, &op, t);
+}
+
+void comp_transform_translate_z(CompTransform *t, float dz)
+{
+    CompTransform op;
+    comp_transform_identity(&op);
+    op.m[2][3] = dz;
+    comp_transform_multiply(t, &op, t);
+}
+
+void comp_transform_perspective(CompTransform *t, float distance)
+{
+    if (distance <= 0.0f)
+        return;                 /* no projection: the matrix stays affine */
+
+    CompTransform op;
+    comp_transform_identity(&op);
+    /* w = 1 - z/distance: a point pushed away from the eye divides by
+     * more than one and so lands nearer the centre and smaller. */
+    op.m[3][2] = -1.0f / distance;
+    /* And z itself is dropped on the way out.
+     *
+     * There is no depth buffer here -- the renderers draw the scene in
+     * list order and that order is the depth -- so once z has been
+     * turned into w it has no further use. Leaving it in is not merely
+     * untidy: GL clips a vertex whose |z| exceeds its w, and the depth
+     * an effect works in is root pixels, hundreds of them, against a w
+     * near 1. A turned cover would be thrown away in its entirety by
+     * the near and far planes, which is exactly what it did -- the
+     * flat, z = 0 cover at the front of the row drew and every tilted
+     * one beside it vanished. */
+    op.m[2][2] = 0.0f;
+    comp_transform_multiply(t, &op, t);
+}
+
 void comp_transform_point(const CompTransform *t, float x, float y, float *ox, float *oy)
 {
     float w = t->m[3][0] * x + t->m[3][1] * y + t->m[3][3];
@@ -141,23 +184,16 @@ bool comp_transform_is_translation(const CompTransform *t, float *dx, float *dy)
 
 CompRect comp_transform_rect(const CompTransform *t, const CompRect *r)
 {
-    float x0 = (float)r->x, y0 = (float)r->y;
-    float x1 = (float)(r->x + r->w), y1 = (float)(r->y + r->h);
-
-    float ax = t->m[0][0] * x0 + t->m[0][1] * y0 + t->m[0][3];
-    float ay = t->m[1][0] * x0 + t->m[1][1] * y0 + t->m[1][3];
-    float bx = t->m[0][0] * x1 + t->m[0][1] * y1 + t->m[0][3];
-    float by = t->m[1][0] * x1 + t->m[1][1] * y1 + t->m[1][3];
-
-    if (bx < ax) { float tmp = ax; ax = bx; bx = tmp; }
-    if (by < ay) { float tmp = ay; ay = by; by = tmp; }
-
+    /* The bounding box, which is the only honest answer: a rotation
+     * makes any of the four corners the extreme one, and a projection
+     * moves them by different amounts because each divides by its own w.
+     * This used to map two corners and read only the affine part, which
+     * was right for the moves and scales the first effects built and
+     * silently wrong for everything since -- a turned cover's extents
+     * came out as a rectangle that did not contain it, and the renderer,
+     * which uses this to scissor a shaped window it cannot clip by
+     * region, drew nothing at all. */
     CompRect out;
-    out.x = (int)floorf(ax);
-    out.y = (int)floorf(ay);
-    out.w = (int)ceilf(bx) - out.x;
-    out.h = (int)ceilf(by) - out.y;
-    if (out.w < 0) out.w = 0;
-    if (out.h < 0) out.h = 0;
+    comp_transform_bbox(t, r, &out);
     return out;
 }
