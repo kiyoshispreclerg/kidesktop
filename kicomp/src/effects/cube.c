@@ -844,6 +844,15 @@ static void cube_open(const CompEffectInstance *self, bool flick)
         return;
     }
 
+    /* Asked afresh rather than taken from what was last seen. Which
+     * desktop an output is on reaches the compositor as a property
+     * change, so a cube opened in the moment after a switch -- which is
+     * exactly what a second press of the turn key is -- would otherwise
+     * build its faces starting from the desktop that has just been
+     * left, and come up facing the wrong one. Before the count as well
+     * as before the current one: both come from the same reading. */
+    desktop_refresh();
+
     int faces = desktop_count();
     if (faces < 2 || faces > MAX_FACES)
         return;                 /* one desktop is not a prism */

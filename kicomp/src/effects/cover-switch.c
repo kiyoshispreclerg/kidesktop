@@ -464,11 +464,26 @@ static void hold_live_windows(CompEffect *e, double now)
     CsData *d = e->data;
     const CsConfig *cfg = e->instance->config;
 
-    if (!cfg->live_windows || !cfg->other_desktops || d->closing)
+    if (!cfg->other_desktops || d->closing)
         return;
     if (d->held_at != 0.0 && now - d->held_at < HOLD_RENEW_MS)
         return;
     d->held_at = now;
+
+    /* The other desktops' own wallpapers, renewed while the row is up.
+     *
+     * Not for the row itself, which shows windows and not grounds, but
+     * for what happens straight after it: choosing a window on another
+     * desktop hands over to the desktop wall, and the wall slides that
+     * desktop in with whatever picture of its wallpaper the compositor
+     * has. With none -- and there is none until something draws it once
+     * while the window manager has it up -- the desktop arrives on
+     * black. Asking here means the photograph is taken during the
+     * second the user spends choosing. */
+    desktop_request_prime();
+
+    if (!cfg->live_windows)
+        return;
 
     for (int i = 0; i < d->count; i++) {
         CompWindow *w = d->items[i].win;
@@ -888,7 +903,20 @@ static void cs_apply(CompEffect *e, CompScene *s, CompOutput *o)
              * here; the rest are in it for their windows, not for their
              * scenery. */
             int nd = desktop_of(node->win);
-            if (nd >= 0 && nd != COMP_DESKTOP_ALL && nd != d->start_desktop) {
+            bool keep = nd < 0 || nd == COMP_DESKTOP_ALL ||
+                        nd == d->start_desktop;
+
+            /* And the desktop being switched to, once one has been
+             * chosen. The window manager starts bringing it in while
+             * this row is still lying back down, and the wall sliding a
+             * desktop in with no wallpaper under it was this rule
+             * outliving its reason: by then the ground is not the one
+             * the row opened on but the one it is handing over to. */
+            if (!keep && d->closing && d->selected >= 0 &&
+                d->selected < d->count)
+                keep = nd == d->items[d->selected].desktop;
+
+            if (!keep) {
                 node->visible_rect = (CompRect){ 0, 0, 0, 0 };
                 continue;
             }
@@ -1046,6 +1074,13 @@ static CompEffect *open_mode(const CompEffectInstance *self, CompOutput *o,
         free(d);
         return NULL;
     }
+
+    /* Asked afresh rather than taken from what was last seen. Which
+     * desktop an output is on reaches the compositor as a property
+     * change, and a mode opened in the moment after a switch -- the
+     * cube's own, or a switcher's -- would otherwise lay itself out
+     * against the desktop that has just been left. */
+    desktop_refresh();
 
     d->output_id = o->id;
     d->start_desktop = desktop_current_for_output(o);
