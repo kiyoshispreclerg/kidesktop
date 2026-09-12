@@ -109,4 +109,12 @@ bool input_pointer_position(int *root_x, int *root_y);
  * feed back on itself. */
 void input_pointer_warp(int root_x, int root_y);
 
+/* Hides or shows the pointer, for a mode that has taken the screen over
+ * and is not being pointed at -- a cube being turned is driven by how
+ * far the pointer has moved, never by what it is over, and an arrow
+ * sitting in the middle of it is just something in the way. Balanced:
+ * every hide needs its show, and the cursor is only really back when the
+ * last hide has been undone. */
+void input_cursor_hide(bool hide);
+
 #endif /* KICOMP_INPUT_H */

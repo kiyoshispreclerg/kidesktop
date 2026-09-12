@@ -78,7 +78,10 @@ typedef struct {
     float window_gap;
     float window_spacing;
 
-    float cap_r, cap_g, cap_b;          /* the top and bottom */
+    /* The top and bottom, as a colour with an alpha of its own: they are
+     * only ever seen once the cube is tilted, and how solid they should
+     * be is a matter of taste rather than of correctness. */
+    float cap_r, cap_g, cap_b, cap_a;
     float back_r, back_g, back_b;       /* behind the cube */
     float background;                   /* how solid that is */
 
@@ -96,6 +99,11 @@ typedef struct {
      * (client_hold), and a minimized window has no pixmap to show. It is
      * simply absent from its face rather than a hole in it. */
     CubeLive live;
+
+    /* The wallpaper lies on its face; so do the panels, over it. A panel
+     * floating off the surface with the windows reads as a window, which
+     * it is not -- it is part of the desktop it is on. */
+    bool flat_docks;
 } CubeConfig;
 
 typedef struct {
@@ -111,6 +119,7 @@ typedef struct {
     bool settling;              /* gliding to the face that was chosen */
 
     float tilt;
+    float tilt_from;            /* where the tilt was when settling began */
 
     /* The point the pointer is pinned to while the drag lasts: every
      * motion is measured from it and the pointer put back on it. */
@@ -195,6 +204,55 @@ static void face_transform(CompTransform *t, const CompOutput *o,
                            const CubeConfig *cfg, const CubeData *d, int i)
 {
     face_transform_at(t, o, cfg, d, i, 0.0f);
+}
+
+/* A cap: the lid or the floor, laid flat across the prism and carried
+ * through the same turn and tilt as the sides.
+ *
+ * A solid is a rectangle and a prism's cross-section is an N-gon, so for
+ * four faces this is exact and for any other N it is the square around
+ * it -- visible as a little overhang at the corners. Worth taking: a cap
+ * is only ever seen while the cube is tilted, it is one flat colour, and
+ * the alternative is a polygon primitive nothing else would use.
+ *
+ * `up` is +1 for the lid and -1 for the floor. */
+static void cap_transform(CompTransform *t, const CompOutput *o,
+                          const CubeConfig *cfg, const CubeData *d, int up)
+{
+    float r = apothem_of(o, d->faces);
+    float back = (float)o->rect.w * cfg->zoom * d->phase;
+
+    float cx = (float)o->rect.x + (float)o->rect.w * 0.5f;
+    float cy = (float)o->rect.y + (float)o->rect.h * 0.5f;
+
+    comp_transform_identity(t);
+    comp_transform_translate(t, -cx, -cy);
+    /* Laid flat, each one turned its own way so that its front points
+     * out of the prism -- the lid upwards, the floor downwards. Laying
+     * both down with the same rotation leaves one of them inside out,
+     * and the winding test then culls whichever one you are looking at. */
+    comp_transform_rotate_x(t, (float)up * (float)M_PI * 0.5f);
+    comp_transform_translate(t, 0.0f, (float)up * (float)o->rect.h * -0.5f);
+    comp_transform_rotate_y(t, d->angle);
+    comp_transform_rotate_x(t, d->tilt);
+    comp_transform_translate_z(t, -(r + back));
+    comp_transform_perspective(t, (float)o->rect.w * cfg->perspective);
+    comp_transform_translate(t, cx, cy);
+}
+
+/* The square a cap is drawn as, centred on the output. */
+static CompRect cap_rect(const CompOutput *o, const CubeData *d)
+{
+    float r = apothem_of(o, d->faces);
+    int side = (int)(r * 2.0f + 0.5f);
+    if (side < 1)
+        side = (int)o->rect.w;      /* two faces: no inside to cap */
+
+    return (CompRect){
+        o->rect.x + (o->rect.w - side) / 2,
+        o->rect.y + (o->rect.h - side) / 2,
+        side, side
+    };
 }
 
 /* How far away a face's middle ends up, as the w the projection divides
@@ -305,6 +363,7 @@ static void close_mode(CompEffect *e)
     d->angle_from = d->angle;
     d->angle_to = -step * (float)face;
     d->angle_time = comp_now_ms();
+    d->tilt_from = d->tilt;
     d->settling = true;
     d->dragging = false;
 
@@ -471,13 +530,21 @@ static void cube_update(CompEffect *e, double now)
     float phase = d->phase_from +
                   (d->phase_to - d->phase_from) * eased(e, d->phase_time, now);
     float angle = d->angle;
-    if (d->settling)
-        angle = d->angle_from +
-                (d->angle_to - d->angle_from) * eased(e, d->angle_time, now);
+    float tilt = d->tilt;
+    if (d->settling) {
+        float p = eased(e, d->angle_time, now);
+        angle = d->angle_from + (d->angle_to - d->angle_from) * p;
+        /* Level again as well as square on: the cube lines up with the
+         * desktop in both directions on the way out, or it lies back
+         * down still leaning and the desktop appears to drop into
+         * place. */
+        tilt = d->tilt_from * (1.0f - p);
+    }
 
-    if (phase != d->phase || angle != d->angle) {
+    if (phase != d->phase || angle != d->angle || tilt != d->tilt) {
         d->phase = phase;
         d->angle = angle;
+        d->tilt = tilt;
         mark_dirty(d);
     }
 }
@@ -541,7 +608,7 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
      * ordered back to front -- there is no depth buffer, so the order is
      * the depth. Sorted by the w the projection divides by, which is the
      * distance the matrix itself reports. */
-    struct { CompTransform t; float depth; int i; } vis[MAX_FACES];
+    struct { CompTransform t; CompRect rect; float depth; int i; } vis[MAX_FACES + 2];
     int count = 0;
 
     for (int i = 0; i < d->faces && count < MAX_FACES; i++) {
@@ -550,9 +617,28 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
         if (!face_faces_us(&t, &o->rect))
             continue;
         vis[count].t = t;
+        vis[count].rect = o->rect;
         vis[count].depth = face_depth(&t, o);
         vis[count].i = i;
         count++;
+    }
+
+    /* The lid and the floor, in the same list so they sort by depth with
+     * the sides rather than beside them. i < 0 marks them: they carry no
+     * windows. */
+    if (cfg->cap_a > 0.0f) {
+        CompRect cr = cap_rect(o, d);
+        for (int up = 1; up >= -1; up -= 2) {
+            CompTransform t;
+            cap_transform(&t, o, cfg, d, up);
+            if (!face_faces_us(&t, &cr))
+                continue;
+            vis[count].t = t;
+            vis[count].rect = cr;
+            vis[count].depth = face_depth(&t, o);
+            vis[count].i = -1;
+            count++;
+        }
     }
 
     for (int a = 1; a < count; a++) {
@@ -578,9 +664,12 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
     for (int k = 0; k < count; k++) {
         int face = vis[k].i;
 
-        scene_add_solid(s, &o->rect, &vis[k].t,
-                        cfg->cap_r, cfg->cap_g, cfg->cap_b, d->phase,
-                        (float)placed - 0.5f);
+        scene_add_solid(s, &vis[k].rect, &vis[k].t,
+                        cfg->cap_r, cfg->cap_g, cfg->cap_b,
+                        cfg->cap_a * d->phase, (float)placed - 0.5f);
+
+        if (face < 0)
+            continue;                   /* a cap carries nothing */
 
         /* This face's windows, bottom of the stack first, each one a
          * little further off the surface than the last. */
@@ -590,13 +679,23 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
             if (face_of_window(d, o, node->win) != face)
                 continue;
 
-            float off = cfg->window_gap + cfg->window_spacing * (float)depth;
+            /* The desktop's own wallpaper lies *on* its face, and the
+             * panels on top of it, because neither is a window floating
+             * above a desktop -- they are part of the one they belong
+             * to. Only the windows stand off it, and only they count
+             * towards the spacing. */
+            bool flat = node->win->type == COMP_WINDOW_DESKTOP ||
+                        (cfg->flat_docks && node->win->type == COMP_WINDOW_DOCK);
+            float off = flat ? 0.0f
+                             : cfg->window_gap +
+                               cfg->window_spacing * (float)depth;
             CompTransform t;
             face_transform_at(&t, o, cfg, d, face, off * d->phase);
 
             node->transform = t;
             comp_transform_bbox(&t, &node->geometry, &node->visible_rect);
-            depth++;
+            if (!flat)
+                depth++;
 
             if (n != placed)
                 scene_move_node(s, n, placed);
@@ -629,6 +728,7 @@ static void cube_destroy(CompEffect *e)
         if (d && comp.show_stowed_output == d->output_id)
             comp.show_stowed_output = COMP_NO_OUTPUT;
     }
+    input_cursor_hide(false);
     free(e->data);
     e->data = NULL;
 }
@@ -716,8 +816,14 @@ static void cube_press(void *data)
      * have joined never let them in. */
     comp.show_stowed_output = o->id;
 
+    /* Nothing here is pointed at -- the cube is turned by how far the
+     * pointer has moved, never by what it is over -- so the arrow is
+     * only something in the way. */
+    input_cursor_hide(true);
+
     if (!input_grab(&cube_input, e)) {
         comp.show_stowed_output = COMP_NO_OUTPUT;
+        input_cursor_hide(false);
         free(d);
         free(e);
         return;
@@ -755,14 +861,18 @@ static void cube_init(const CompEffectInstance *self)
 /* configuration                                                       */
 /* ------------------------------------------------------------------ */
 
-static bool parse_colour(const char *v, float *r, float *g, float *b)
+/* #rrggbb or #rrggbbaa. The alpha is optional because most colours here
+ * are opaque and writing "ff" every time to say so is noise. */
+static bool parse_colour(const char *v, float *r, float *g, float *b, float *a)
 {
-    unsigned rr, gg, bb;
-    if (sscanf(v, "#%2x%2x%2x", &rr, &gg, &bb) != 3)
+    unsigned rr, gg, bb, aa = 255;
+    int n = sscanf(v, "#%2x%2x%2x%2x", &rr, &gg, &bb, &aa);
+    if (n < 3)
         return false;
     *r = (float)rr / 255.0f;
     *g = (float)gg / 255.0f;
     *b = (float)bb / 255.0f;
+    *a = (float)aa / 255.0f;
     return true;
 }
 
@@ -777,9 +887,11 @@ static void cube_defaults(void *config)
     c->window_gap = 40.0f;
     c->window_spacing = 26.0f;
     c->cap_r = c->cap_g = c->cap_b = 0.22f;
+    c->cap_a = 1.0f;
     c->back_r = c->back_g = c->back_b = 0.0f;
     c->background = 0.9f;
     c->live = LIVE_ALL;
+    c->flat_docks = true;
 }
 
 static bool cube_config_key(void *config, const char *key, const char *value)
@@ -807,10 +919,13 @@ static bool cube_config_key(void *config, const char *key, const char *value)
         }
         return true;
     }
+    if (!strcmp(key, "flat_docks")) { c->flat_docks = atoi(value) != 0; return true; }
     if (!strcmp(key, "cap_color"))
-        return parse_colour(value, &c->cap_r, &c->cap_g, &c->cap_b);
-    if (!strcmp(key, "background_color"))
-        return parse_colour(value, &c->back_r, &c->back_g, &c->back_b);
+        return parse_colour(value, &c->cap_r, &c->cap_g, &c->cap_b, &c->cap_a);
+    if (!strcmp(key, "background_color")) {
+        float ignored = 1.0f;
+        return parse_colour(value, &c->back_r, &c->back_g, &c->back_b, &ignored);
+    }
     return false;
 }
 

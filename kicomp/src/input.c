@@ -282,6 +282,24 @@ double input_mode_ended_ms(void)
     return grab_ended_ms;
 }
 
+void input_cursor_hide(bool hide)
+{
+    /* XFixes counts hides, so this must not: two modes hiding and one
+     * showing would leave the cursor gone for good. One flag, one
+     * outstanding hide at most. */
+    static bool hidden;
+
+    if (!comp.caps.xfixes || hide == hidden)
+        return;
+
+    if (hide)
+        xcb_xfixes_hide_cursor(comp.conn, comp.root);
+    else
+        xcb_xfixes_show_cursor(comp.conn, comp.root);
+    xcb_flush(comp.conn);
+    hidden = hide;
+}
+
 void input_pointer_warp(int root_x, int root_y)
 {
     xcb_warp_pointer(comp.conn, XCB_NONE, comp.root, 0, 0, 0, 0,
