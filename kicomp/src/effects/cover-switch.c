@@ -71,7 +71,13 @@ typedef struct {
 
     int   visible;        /* covers drawn each side of the front one */
     float background;     /* opacity of the ground under everything */
+
     bool  labels;
+    /* Where the selected window's title sits, as a fraction of the
+     * output's height from its top, and how wide it may grow before it
+     * is wrapped. */
+    float label_y;
+    int   label_width;
     bool  wrap;           /* stepping past the end comes back round */
 } CsConfig;
 
@@ -111,6 +117,7 @@ static const CompEffectOps cs_ops;
 static CompEffect *active;
 
 static void phase_to(CsData *d, float to, double now);
+static void close_mode(CompEffect *e, bool activate_it);
 
 /* ------------------------------------------------------------------ */
 /* the item list                                                       */
@@ -340,6 +347,87 @@ static void mark_dirty(const CsData *d)
     output_damage_all();
 }
 
+/* Drop a window the compositor is forgetting (effect.h). The row goes on
+ * without it rather than closing: a window closing itself while the user
+ * is walking the list is an ordinary thing, and throwing them out of the
+ * switcher for it would be the surprising answer. */
+static void cs_window_gone(CompEffect *e, CompWindow *w)
+{
+    CsData *d = e->data;
+    if (!d)
+        return;
+
+    for (int i = 0; i < d->count; i++) {
+        if (d->items[i].win != w)
+            continue;
+
+        if (d->items[i].label)
+            text_free(d->items[i].label);
+
+        memmove(&d->items[i], &d->items[i + 1],
+                sizeof(CsItem) * (size_t)(d->count - i - 1));
+        d->count--;
+
+        /* Keep the selection on the window it was on. Removing something
+         * ahead of it in the row shifts everything after it down one, so
+         * the index has to come down with it -- and the row's position
+         * with the index, or the covers would slide by one for a change
+         * the user did not make. */
+        if (i < d->selected) {
+            d->selected--;
+            d->pos -= 1.0f;
+            d->pos_from -= 1.0f;
+        } else if (i == d->selected && d->selected >= d->count) {
+            d->selected = d->count - 1;
+        }
+
+        if (d->count == 0 && !d->closing)
+            close_mode(e, false);
+        else
+            mark_dirty(d);
+        return;
+    }
+}
+
+/* Windows that appeared since the row was built, appended to the end.
+ *
+ * The end rather than the top of the stack, which is where a new window
+ * really is: the user is part-way through a walk along this row, and
+ * inserting ahead of where they are would move the thing under their
+ * finger. Cheap enough to ask every frame -- it is a pointer comparison
+ * per window per item, over the handful of each that a screen has. */
+static void refresh_items(CompEffect *e)
+{
+    CsData *d = e->data;
+    const CsConfig *cfg = e->instance->config;
+    if (d->closing || d->count >= MAX_ITEMS)
+        return;
+
+    bool added = false;
+    for (CompWindow *w = comp.stack; w && d->count < MAX_ITEMS; w = w->next) {
+        if (!eligible(w, e->instance, d->output_id))
+            continue;
+
+        bool known = false;
+        for (int i = 0; i < d->count && !known; i++)
+            known = d->items[i].win == w;
+        if (known)
+            continue;
+
+        CsItem *it = &d->items[d->count++];
+        memset(it, 0, sizeof(*it));
+        it->win = w;
+        it->home = window_rect(w);
+        read_title(w, it->title, sizeof(it->title));
+        if (cfg->labels)
+            it->label = text_render(it->title, text_theme_style(), cfg->label_width);
+        added = true;
+    }
+
+    if (added)
+        mark_dirty(d);
+}
+
 static void step_selection(CompEffect *e, int by)
 {
     CsData *d = e->data;
@@ -559,6 +647,8 @@ static void cs_update(CompEffect *e, double now)
 {
     CsData *d = e->data;
 
+    refresh_items(e);
+
     float pp = eased(e, d->phase_time, now);
     float phase = d->phase_from + (d->phase_to - d->phase_from) * pp;
 
@@ -642,6 +732,9 @@ static void cs_apply(CompEffect *e, CompScene *s, CompOutput *o)
         scene_set_backdrop(s, &o->rect, 0.0f, 0.0f, 0.0f,
                            cfg->background * alive);
 
+    bool done[MAX_ITEMS];
+    memset(done, 0, sizeof(done));
+
     /* Two passes over the scene: place every cover, then put the nodes
      * in back-to-front order. There is no depth buffer -- the renderers
      * draw the list in order -- so the order *is* the depth, and a row
@@ -693,29 +786,40 @@ static void cs_apply(CompEffect *e, CompScene *s, CompOutput *o)
         node->opacity *= edge_alpha(cfg, slot);
     }
 
-    /* Back to front: the furthest from the middle first.
+    /* Back to front, and the whole row above everything else.
      *
-     * Adjacent swaps only, repeated until a pass changes nothing. Moving
-     * a node shifts every index after it, so a sort that picks nodes out
-     * of the list by index while it walks that same list scrambles it --
-     * swapping neighbours is the one move whose effect on the indices is
-     * small enough to reason about. Nodes that are not covers are never
-     * compared, so docks and anything that appeared after the mode
-     * opened keep the places the scene gave them. */
-    for (int pass = 0; pass < s->count; pass++) {
-        bool swapped = false;
-        for (int a = 0; a + 1 < s->count; a++) {
-            int ia = index_of(d, s->nodes[a].win);
-            int ib = index_of(d, s->nodes[a + 1].win);
-            if (ia < 0 || ib < 0)
+     * There is no depth buffer -- the renderers draw the list in order
+     * and that order is the depth -- so each cover is moved to the end
+     * of the list, furthest from the middle first. The one facing the
+     * user is moved last and therefore ends up on top of every other
+     * cover, which is what "the one you are choosing is in front" has
+     * to mean when the covers overlap.
+     *
+     * Moving to the end rather than sorting in place is the point: an
+     * in-place sort that only ever swaps neighbours cannot move a cover
+     * past a node that is not one, so a dock or a window that opened
+     * mid-mode sitting between two covers would pin them where they
+     * were. This way the row ends up above those too, which is also
+     * where a mode belongs. */
+    for (int pass = 0; pass < d->count; pass++) {
+        int pick = -1;
+        float pick_slot = -1.0f;
+
+        for (int a = 0; a < s->count; a++) {
+            int i = index_of(d, s->nodes[a].win);
+            if (i < 0 || done[i])
                 continue;
-            if (fabsf(slot_of(d, ib)) > fabsf(slot_of(d, ia))) {
-                scene_move_node(s, a + 1, a);
-                swapped = true;
+            float dist = fabsf(slot_of(d, i));
+            if (pick < 0 || dist > pick_slot) {
+                pick = a;
+                pick_slot = dist;
             }
         }
-        if (!swapped)
+        if (pick < 0)
             break;
+
+        done[index_of(d, s->nodes[pick].win)] = true;
+        scene_move_node(s, pick, s->count - 1);
     }
 
     /* The title of the one in front, under the row. */
@@ -725,7 +829,7 @@ static void cs_apply(CompEffect *e, CompScene *s, CompOutput *o)
             int tw = text_width(img), th = text_height(img);
             CompRect where = {
                 o->rect.x + (o->rect.w - tw) / 2,
-                o->rect.y + o->rect.h - o->rect.h / 8 - th / 2,
+                o->rect.y + (int)((float)o->rect.h * cfg->label_y) - th / 2,
                 tw, th
             };
             scene_add_chrome(s, img, &where, alive);
@@ -750,6 +854,7 @@ static const CompEffectOps cs_ops = {
     .update     = cs_update,
     .apply      = cs_apply,
     .finished   = cs_finished,
+    .window_gone = cs_window_gone,
     .destroy    = cs_destroy,
     .damage_map = cs_damage_map,
 };
@@ -797,7 +902,7 @@ static void cs_toggle(void *data)
         it->home = window_rect(w);
         read_title(w, it->title, sizeof(it->title));
         if (cfg->labels)
-            it->label = text_render(it->title, text_theme_style(), 640);
+            it->label = text_render(it->title, text_theme_style(), cfg->label_width);
     }
 
     if (d->count < 2) {
@@ -877,6 +982,8 @@ static void cs_defaults(void *config)
     c->visible = 4;
     c->background = 0.82f;
     c->labels = true;
+    c->label_y = 0.86f;
+    c->label_width = 640;
     c->wrap = true;
 }
 
@@ -897,6 +1004,8 @@ static bool cs_config_key(void *config, const char *key, const char *value)
     if (!strcmp(key, "visible"))     { c->visible = atoi(value); return true; }
     if (!strcmp(key, "background"))  { c->background = (float)atof(value); return true; }
     if (!strcmp(key, "labels"))      { c->labels = atoi(value) != 0; return true; }
+    if (!strcmp(key, "label_y"))     { c->label_y = (float)atof(value); return true; }
+    if (!strcmp(key, "label_width")) { c->label_width = atoi(value); return true; }
     if (!strcmp(key, "wrap"))        { c->wrap = atoi(value) != 0; return true; }
     return false;
 }
