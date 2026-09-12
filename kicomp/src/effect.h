@@ -65,6 +65,17 @@ typedef struct CompEffectOps {
     bool (*damage_map)(const CompEffect *e, const CompWindow *w,
                        const CompRect *in, CompRect *out);
 
+    /* This window is being forgotten: drop every reference to it now.
+     *
+     * For the effects that are *modes* -- a grid, a row of covers --
+     * which hold a list of windows rather than animating one. The core
+     * already ends an effect whose own `window` has gone, and that is
+     * the whole story for an animation; a mode outlives any one window
+     * in it and would be left holding a pointer to freed memory.
+     *
+     * Called for every running effect, before the window is freed. */
+    void (*window_gone)(CompEffect *e, CompWindow *w);
+
     /* Free whatever `data` holds. The CompEffect itself is freed by the
      * core. */
     void (*destroy)(CompEffect *e);

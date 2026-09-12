@@ -456,6 +456,14 @@ void effects_damage_window(const CompWindow *w, const CompRect *r)
 
 void effects_window_gone(CompWindow *w)
 {
+    /* Everything running hears about it first, whether or not the window
+     * is what it animates: a mode holds a list and has to drop this one
+     * from it. Done before the loop below, because that loop frees the
+     * effects the window belonged to and a mode is not one of them. */
+    for (CompEffect *e = running; e; e = e->next)
+        if (e->ops->window_gone)
+            e->ops->window_gone(e, w);
+
     CompEffect **pp = &running;
     while (*pp) {
         CompEffect *e = *pp;
