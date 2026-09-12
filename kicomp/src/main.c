@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.82"
+#define KICOMP_VERSION "0.2.83"
 
 #include "comp.h"
 #include "output.h"
@@ -1427,6 +1427,37 @@ int main(int argc, char **argv)
         if (dump_stack_requested) {
             dump_stack_requested = 0;
             dump_stack();
+        }
+
+        /* Anything already sitting in xcb's queue must be handled before
+         * this loop is allowed to sleep.
+         *
+         * The drain at the top of the iteration empties the queue, but
+         * everything after it that waits for a *reply* -- damage_collect's
+         * fetch_region, the input-focus round trip above -- reads from the
+         * socket to find that reply, and any events that arrived ahead of
+         * it come off the socket with it and are left in the queue. They
+         * are no longer on the fd, so poll() below has nothing to report
+         * and sleeps for the whole timeout with work already in hand.
+         *
+         * For a window whose damage is reported at NON_EMPTY that is not
+         * merely late, it is a stall: the DamageNotify sitting in the
+         * queue is what would have set damage_pending, damage_pending is
+         * what leads to the subtract, and until the subtract the server
+         * reports nothing further for that window. So the window stops
+         * being repainted until some *other* event happens to wake the
+         * loop -- measured on the real session as up to a second of a
+         * 60 fps video going unpainted (63 frames the client had drawn
+         * and nobody saw), with the second monitor's traffic as what
+         * eventually woke it.
+         *
+         * Handling one and going round again is enough: the top of the
+         * loop drains the rest. */
+        xcb_generic_event_t *queued = xcb_poll_for_queued_event(comp.conn);
+        if (queued) {
+            handle_event(queued);
+            free(queued);
+            continue;
         }
 
         int timeout = scheduler_timeout(comp_now_ms());
