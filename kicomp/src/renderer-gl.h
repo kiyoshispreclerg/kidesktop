@@ -76,6 +76,15 @@ typedef struct GlWindow {
     int shape_count;
     bool shape_known;
 
+    /* The same silhouette as an alpha texture, built only if something
+     * ever draws this window turned or scaled -- a scissor box is a
+     * screen-space rectangle and cannot follow a rotation, so that is
+     * the one case where the shape has to travel with the pixels
+     * instead of around them. Made once and kept with the rectangles;
+     * 0 while it has not been needed, and again after a reshape. */
+    GLuint shape_mask;
+    bool shape_mask_tried;
+
     /* The platform's half (a GLXPixmap, an EGLImage): one malloc'd block
      * the platform allocates in window_bind and this side frees with the
      * window, after window_unbind has let go of what it names. */

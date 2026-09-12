@@ -39,6 +39,7 @@ static const GlPlatform *platform;
 
 static GLuint program;
 static GLint u_projection, u_transform, u_opacity, u_texture, u_y_flip;
+static GLint u_mask, u_use_mask;
 static GLuint quad_vbo;
 
 /* The shadow program, and the profile texture it reads (see shadow.h:
@@ -79,19 +80,30 @@ static const char *vertex_source =
     "uniform mat4 transform;\n"
     "uniform float y_flip;\n"
     "varying vec2 texcoord;\n"
+    "varying vec2 maskcoord;\n"
     "void main() {\n"
     "    texcoord = vec2(position.x,\n"
     "                    mix(position.y, 1.0 - position.y, y_flip));\n"
+    /* The mask is built the way X measures a window -- y downwards --
+     * so it is sampled by the quad's own coordinate and never by the
+     * flipped one, whatever way up this driver hands over the pixmap. */
+    "    maskcoord = position;\n"
     "    gl_Position = projection * transform * vec4(position, 0.0, 1.0);\n"
     "}\n";
 
 static const char *fragment_source =
     "#version 120\n"
     "uniform sampler2D texture0;\n"
+    "uniform sampler2D mask;\n"
+    "uniform float use_mask;\n"
     "uniform float opacity;\n"
     "varying vec2 texcoord;\n"
+    "varying vec2 maskcoord;\n"
     "void main() {\n"
     "    vec4 c = texture2D(texture0, texcoord);\n"
+    /* Premultiplied, so the silhouette multiplies the whole texel --
+     * colour and alpha together -- rather than the alpha alone. */
+    "    c *= mix(1.0, texture2D(mask, maskcoord).a, use_mask);\n"
     "    gl_FragColor = c * opacity;\n"
     "}\n";
 
@@ -191,6 +203,8 @@ static bool program_build(void)
     u_opacity = glGetUniformLocation(program, "opacity");
     u_texture = glGetUniformLocation(program, "texture0");
     u_y_flip = glGetUniformLocation(program, "y_flip");
+    u_mask = glGetUniformLocation(program, "mask");
+    u_use_mask = glGetUniformLocation(program, "use_mask");
 
     /* One unit quad, reused for every window: the transform is what makes
      * it the right size in the right place, which is the same thing the
@@ -316,6 +330,12 @@ GLuint gl_window_texture(GlWindow *g)
 
 static void gl_shape_forget(GlWindow *g)
 {
+    if (g->shape_mask) {
+        glDeleteTextures(1, &g->shape_mask);
+        g->shape_mask = 0;
+    }
+    g->shape_mask_tried = false;
+
     free(g->shape_rects);
     g->shape_rects = NULL;
     g->shape_count = 0;
@@ -845,6 +865,7 @@ static void draw_backdrop(CompOutput *o, const CompScene *s,
     rect_matrix(&b->rect, &identity, m);
 
     glUseProgram(program);
+    glUniform1f(u_use_mask, 0.0f);
     glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
     glUniform1i(u_texture, 0);
     glUniform1f(u_y_flip, 0.0f);
@@ -887,6 +908,69 @@ static void draw_piece(const CompOutput *o, const CompRect *piece,
     for (int k = 0; k < rest.count; k++)
         if (scissor_to(o, &rest.rects[k]))
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+/* The window's silhouette as an alpha texture, in the pixmap's own
+ * coordinates, made on first use and kept with the shape rectangles.
+ *
+ * Only ever needed by a node something is turning or scaling: a scissor
+ * box is an axis-aligned rectangle in screen pixels, so it can follow a
+ * window being slid but not one being rotated, and the shape has to
+ * travel *with* the pixels instead of around them. Sampled through the
+ * quad's own coordinate, which is the same space the rectangles are
+ * measured in once the border is accounted for -- the pixmap starts at
+ * (x - border, y - border) and a shape rectangle at (x, y).
+ *
+ * 0 when there is nothing to mask with, which the caller reads as "draw
+ * it square", the same answer it had before this existed. */
+static GLuint shape_mask_texture(CompWindow *w, GlWindow *g)
+{
+    if (g->shape_mask_tried)
+        return g->shape_mask;
+    g->shape_mask_tried = true;
+
+    if (!w->shaped || g->shape_count <= 0)
+        return 0;
+
+    CompRect wr = window_rect(w);
+    if (wr.w <= 0 || wr.h <= 0 || wr.w > 8192 || wr.h > 8192)
+        return 0;
+
+    unsigned char *bits = calloc((size_t)wr.w * (size_t)wr.h, 1);
+    if (!bits)
+        return 0;
+
+    for (int i = 0; i < g->shape_count; i++) {
+        const xcb_rectangle_t *sr = &g->shape_rects[i];
+        int x0 = sr->x + w->border;
+        int y0 = sr->y + w->border;
+        int x1 = x0 + (int)sr->width;
+        int y1 = y0 + (int)sr->height;
+
+        if (x0 < 0) x0 = 0;
+        if (y0 < 0) y0 = 0;
+        if (x1 > wr.w) x1 = wr.w;
+        if (y1 > wr.h) y1 = wr.h;
+
+        for (int y = y0; y < y1; y++)
+            memset(bits + (size_t)y * (size_t)wr.w + x0, 0xff, (size_t)(x1 - x0));
+    }
+
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, wr.w, wr.h, 0,
+                 GL_ALPHA, GL_UNSIGNED_BYTE, bits);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    free(bits);
+    g->shape_mask = tex;
+    return tex;
 }
 
 /* A rectangle measured in the window's own coordinates -- a shape
@@ -978,7 +1062,28 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     if (comp_transform_is_identity(&n->transform) && n->opacity >= 1.0f)
         opaque = window_opaque_rect(w);
 
-    if (g->shape_count > 0 && move_only) {
+    /* A node being turned or scaled cannot keep its silhouette as
+     * scissor boxes, so it wears it as a mask instead -- which is what
+     * makes an expo cell or a cover in a row keep the rounded corners
+     * kiwm gave it. Built on the first frame that needs it, and only
+     * ever for such a node: the ordinary case below stays exactly as
+     * cheap as it was. */
+    GLuint mask = (!move_only && w->shaped) ? shape_mask_texture(w, g) : 0;
+    if (mask) {
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, mask);
+        glActiveTexture(GL_TEXTURE0);
+        glUniform1i(u_mask, 1);
+        glUniform1f(u_use_mask, 1.0f);
+    } else {
+        glUniform1f(u_use_mask, 0.0f);
+    }
+
+    if (mask) {
+        /* The mask cuts the silhouette, so the only clip left is the
+         * part of the screen this pass is repainting. */
+        draw_piece(o, &repaint_rect, &opaque);
+    } else if (g->shape_count > 0 && move_only) {
         for (int k = 0; k < g->shape_count; k++) {
             const xcb_rectangle_t *sr = &g->shape_rects[k];
             CompRect piece = in_node_space(n, w, sr->x, sr->y,
@@ -1061,6 +1166,7 @@ static void draw_chrome(CompOutput *o, const CompScene *s,
         return;
 
     glUseProgram(program);
+    glUniform1f(u_use_mask, 0.0f);
     glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
     glUniform1i(u_texture, 0);
     /* The pixels came from Cairo, which lays out a row top-first, the
@@ -1121,6 +1227,7 @@ void gl_draw_scene(CompOutput *o, GlOutput *go, CompScene *s)
     glUseProgram(program);
     glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
     glUniform1i(u_texture, 0);
+    glUniform1f(u_use_mask, 0.0f);
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
