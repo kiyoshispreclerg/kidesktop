@@ -63,6 +63,7 @@ static void apply_builtin_defaults(void)
     wm.new_window_output = NEW_WINDOW_POINTER;
     wm.osd_mru_order = false;
     wm.osd_cover_switch = true;
+    wm.osd_other_desktops = true;
     wm.osd_desktop_windows = true;
     snprintf(wm.theme_path, sizeof(wm.theme_path), "greenxp");
 
@@ -522,6 +523,8 @@ void config_load(void)
             wm.osd_live_preview_desktops = atoi(val) != 0;
         } else if (strcmp(key, "osd_cover_switch") == 0) {
             wm.osd_cover_switch = atoi(val) != 0;
+        } else if (strcmp(key, "osd_other_desktops") == 0) {
+            wm.osd_other_desktops = atoi(val) != 0;
         } else if (strcmp(key, "osd_order") == 0) {
             if (strcasecmp(val, "mru") == 0)
                 wm.osd_mru_order = true;

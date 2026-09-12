@@ -123,7 +123,18 @@ void tabbox_build_default(TabBoxState *state, int output_idx, int desktop)
          * Committing to one restores it (activate_client()). What stays
          * out is a window that isn't on this output/desktop at all, and
          * one the client itself says isn't a switch target. */
-        if (c->output == output_idx && (c->sticky || c->desktop == desktop) &&
+        /* Every desktop of this output, not just the one showing
+         * (kiwm.conf's osd_other_desktops=, on by default). A switcher
+         * that stops at the desktop you happen to be on cannot reach
+         * half of what is open, and on an empty desktop it offers
+         * nothing at all. Committing to one of these switches to its
+         * desktop on the way -- activate_client() already does that.
+         *
+         * `mapped` is the client's own "belongs on screen", not the
+         * frame's map state, so a window away with its desktop still
+         * has it set and needs no special case here. */
+        bool here = c->sticky || c->desktop == desktop;
+        if (c->output == output_idx && (here || wm.osd_other_desktops) &&
             (c->mapped || c->minimized) && !c->skip_taskbar) {
             state->items[state->count++] = c;
         }

@@ -33,6 +33,7 @@
 #include "../output.h"
 #include "../input.h"
 #include "../scene.h"
+#include "../desktop.h"
 #include "../transform.h"
 #include "../text.h"
 #include "../animation.h"
@@ -81,6 +82,13 @@ typedef struct {
      * is on screen for a second. */
     bool  other_desktops;
 
+    /* And kept *live* while the row is up, rather than showing the
+     * picture they had when their desktop was left. One row of windows
+     * for a second or two is a small thing to ask the window manager to
+     * hold up, and a switcher that shows a video still playing is
+     * telling the truth about what it is offering. */
+    bool  live_windows;
+
     bool  labels;
     /* Where the selected window's title sits, as a fraction of the
      * output's height from its top, and how wide it may grow before it
@@ -102,6 +110,8 @@ typedef struct {
 
     CsItem items[MAX_ITEMS];
     int count;
+
+    double held_at;       /* when the holds were last renewed */
 
     int selected;         /* the item the user is on */
     float pos;            /* where the row actually is, easing to `selected` */
@@ -422,6 +432,34 @@ static void cs_window_gone(CompEffect *e, CompWindow *w)
  * inserting ahead of where they are would move the thing under their
  * finger. Cheap enough to ask every frame -- it is a pointer comparison
  * per window per item, over the handful of each that a screen has. */
+/* Asks the window manager to keep the row's away-with-their-desktop
+ * windows on screen, renewed because kiwm caps a hold at two seconds of
+ * its own accord and a hold-down Alt+Tab can outlast that.
+ *
+ * Only the ones that are actually away: everything on this desktop is
+ * live for free, and asking about it would be asking the WM to hold up
+ * something it is already showing. */
+#define HOLD_MS       1500
+#define HOLD_RENEW_MS 500
+
+static void hold_live_windows(CompEffect *e, double now)
+{
+    CsData *d = e->data;
+    const CsConfig *cfg = e->instance->config;
+
+    if (!cfg->live_windows || !cfg->other_desktops || d->closing)
+        return;
+    if (d->held_at != 0.0 && now - d->held_at < HOLD_RENEW_MS)
+        return;
+    d->held_at = now;
+
+    for (int i = 0; i < d->count; i++) {
+        CompWindow *w = d->items[i].win;
+        if (w && !w->mapped)
+            desktop_request_hold(w, HOLD_MS);
+    }
+}
+
 static void refresh_items(CompEffect *e)
 {
     CsData *d = e->data;
@@ -693,6 +731,7 @@ static void cs_update(CompEffect *e, double now)
 {
     CsData *d = e->data;
 
+    hold_live_windows(e, now);
     refresh_items(e);
 
     float pp = eased(e, d->phase_time, now);
@@ -946,7 +985,13 @@ static CompEffect *open_mode(const CompEffectInstance *self, CompOutput *o,
             CompWindow *w = window_find_by_client(wins[i]);
             if (!w)
                 w = window_find(wins[i]);
-            if (!w || !w->mapped || w->zombie)
+            if (!w || w->zombie)
+                continue;
+            /* Not `mapped`: a window away with one of this output's other
+             * desktops is unmapped, and it is exactly the one the window
+             * manager is asking us to show. What it needs instead is a
+             * picture -- on screen now, or kept from when it left. */
+            if (!w->mapped && !(cfg->other_desktops && w->stowed))
                 continue;
 
             CsItem *it = &d->items[d->count++];
@@ -1183,6 +1228,7 @@ static void cs_defaults(void *config)
     c->visible = 4;
     c->background = 0.82f;
     c->other_desktops = true;
+    c->live_windows = true;
     c->labels = true;
     c->label_y = 0.86f;
     c->label_width = 640;
@@ -1206,6 +1252,7 @@ static bool cs_config_key(void *config, const char *key, const char *value)
     if (!strcmp(key, "visible"))     { c->visible = atoi(value); return true; }
     if (!strcmp(key, "background"))  { c->background = (float)atof(value); return true; }
     if (!strcmp(key, "other_desktops")) { c->other_desktops = atoi(value) != 0; return true; }
+    if (!strcmp(key, "live_windows"))   { c->live_windows = atoi(value) != 0; return true; }
     if (!strcmp(key, "labels"))      { c->labels = atoi(value) != 0; return true; }
     if (!strcmp(key, "label_y"))     { c->label_y = (float)atof(value); return true; }
     if (!strcmp(key, "label_width")) { c->label_width = atoi(value); return true; }

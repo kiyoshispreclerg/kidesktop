@@ -1423,6 +1423,10 @@ typedef struct {
      * nothing about the hold or the commit changes either way. */
     bool osd_cover_switch;
 
+    /* kiwm.conf's osd_other_desktops= (default 1): the window switcher
+     * lists every desktop of the output, not only the one on screen. */
+    bool osd_other_desktops;
+
     /* Whether each square of the desktop switcher's grid also shows the
      * windows living on that desktop, drawn as little rectangles at their
      * real geometry scaled into the square -- kiwm.conf's
