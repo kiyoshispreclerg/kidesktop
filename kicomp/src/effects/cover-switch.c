@@ -70,7 +70,6 @@ typedef struct {
     float depth;
 
     int   visible;        /* covers drawn each side of the front one */
-    float dim;            /* the ones that are not selected */
     float background;     /* opacity of the ground under everything */
     bool  labels;
     bool  wrap;           /* stepping past the end comes back round */
@@ -211,6 +210,23 @@ static bool eligible(const CompWindow *w, const CompEffectInstance *self, int ou
 /* ------------------------------------------------------------------ */
 /* layout                                                              */
 /* ------------------------------------------------------------------ */
+
+/* How solid a cover is, by how far out it has travelled.
+ *
+ * One all the way out to the last cover the row shows, then down to
+ * nothing across the width of one more. So exactly one cover at each end
+ * is ever part-way, which is what makes a long list read as a row that
+ * continues past the edge rather than one that stops dead there. */
+static float edge_alpha(const CsConfig *cfg, float slot)
+{
+    float d = fabsf(slot);
+    float last = (float)cfg->visible;
+    if (d <= last)
+        return 1.0f;
+    if (d >= last + 1.0f)
+        return 0.0f;
+    return 1.0f - (d - last);
+}
 
 /* Where item `i` sits, as a signed distance from the front of the row.
  * Fractional while the row is gliding, which is what makes the covers
@@ -430,22 +446,82 @@ static bool on_key(void *data, xcb_keysym_t sym, const char *text, uint16_t mods
     }
 }
 
+/* Which cover is under this point, or -1.
+ *
+ * By the bounding box of where each one is actually drawn, and when two
+ * overlap the one nearer the front wins -- which is both what the eye
+ * reads as "on top" (they are drawn in that order) and what the hand
+ * means, since the front cover is the one not hidden behind anything. */
+static int item_at(const CsData *d, const CompOutput *o, const CsConfig *cfg,
+                   int x, int y)
+{
+    int best = -1;
+    float best_slot = 0.0f;
+
+    for (int i = 0; i < d->count; i++) {
+        float slot = slot_of(d, i);
+        if (fabsf(slot) > (float)cfg->visible + 1.0f)
+            continue;
+
+        CompRect geo = placed_rect(&d->items[i], o, cfg, d->phase);
+        CompTransform t;
+        cover_transform(&t, &geo, o, cfg, slot, d->phase);
+
+        CompRect box;
+        comp_transform_bbox(&t, &geo, &box);
+        if (x < box.x || y < box.y || x >= box.x + box.w || y >= box.y + box.h)
+            continue;
+
+        if (best < 0 || fabsf(slot) < best_slot) {
+            best = i;
+            best_slot = fabsf(slot);
+        }
+    }
+    return best;
+}
+
 static void on_button(void *data, int root_x, int root_y, uint8_t button, bool pressed)
 {
     CompEffect *e = data;
-    (void)root_x;
-    (void)root_y;
+    CsData *d = e->data;
+    const CsConfig *cfg = e->instance->config;
 
-    if (!pressed)
+    /* On the release, not the press: a press is a user still deciding --
+     * they can slide off what they pressed on and let go somewhere else,
+     * the way every button on every desktop works. The wheel has no
+     * release worth waiting for. */
+    if (button == 4 || button == 5) {
+        if (pressed)
+            step_selection(e, button == 4 ? -1 : +1);
         return;
-    if (button == 4)              /* wheel up */
-        step_selection(e, -1);
-    else if (button == 5)         /* wheel down */
-        step_selection(e, +1);
-    else if (button == 1)
-        close_mode(e, true);
-    else if (button == 3)
+    }
+    if (pressed)
+        return;
+
+    if (button == 3) {
         close_mode(e, false);
+        return;
+    }
+    if (button != 1)
+        return;
+
+    CompOutput *o = output_by_id(d->output_id);
+    int hit = o ? item_at(d, o, cfg, root_x, root_y) : -1;
+
+    if (hit < 0) {
+        /* The ground around the row: a click there is a click on nothing,
+         * which everywhere else means "never mind". */
+        close_mode(e, false);
+        return;
+    }
+
+    /* Clicking a cover is choosing it, exactly as Return chooses the one
+     * in front. Selected first so the walk out starts from the right
+     * place -- the row is still a row while it lies back down. */
+    d->pos_from = d->pos;
+    d->pos_time = comp_now_ms();
+    d->selected = hit;
+    close_mode(e, true);
 }
 
 static const CompInputHandler cs_input = {
@@ -601,9 +677,20 @@ static void cs_apply(CompEffect *e, CompScene *s, CompOutput *o)
         node->transform = t;
         comp_transform_bbox(&t, &geo, &node->visible_rect);
 
-        float d_slot = fabsf(slot);
-        float lit = d_slot < 0.5f ? 1.0f : cfg->dim;
-        node->opacity *= lit * alive;
+        /* A cover is never dimmed for being unselected -- every window in
+         * the row is a real window and the user is reading them, not
+         * being told which one is chosen; the one in front is already
+         * marked out by facing them. The only opacity in the row is at
+         * its two ends, where the outermost cover fades: with more
+         * windows than the row shows, that is what lets one travel off
+         * one end while another arrives at the other instead of both
+         * appearing and vanishing outright.
+         *
+         * And nothing fades on the way in or out. At phase 0 a window
+         * has to look exactly as it does on the desktop, because that
+         * is where it still is -- the movement is the whole effect and
+         * a fade would hide it. */
+        node->opacity *= edge_alpha(cfg, slot);
     }
 
     /* Back to front: the furthest from the middle first.
@@ -788,7 +875,6 @@ static void cs_defaults(void *config)
     c->step = 0.055f;
     c->depth = 260.0f;
     c->visible = 4;
-    c->dim = 0.7f;
     c->background = 0.82f;
     c->labels = true;
     c->wrap = true;
@@ -809,7 +895,6 @@ static bool cs_config_key(void *config, const char *key, const char *value)
     if (!strcmp(key, "step"))        { c->step = (float)atof(value); return true; }
     if (!strcmp(key, "depth"))       { c->depth = (float)atof(value); return true; }
     if (!strcmp(key, "visible"))     { c->visible = atoi(value); return true; }
-    if (!strcmp(key, "dim"))         { c->dim = (float)atof(value); return true; }
     if (!strcmp(key, "background"))  { c->background = (float)atof(value); return true; }
     if (!strcmp(key, "labels"))      { c->labels = atoi(value) != 0; return true; }
     if (!strcmp(key, "wrap"))        { c->wrap = atoi(value) != 0; return true; }
