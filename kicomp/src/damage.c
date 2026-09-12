@@ -68,10 +68,22 @@ void damage_collect(void)
         }
 
         if (n >= MAX_COLLECT) {
-            /* Out of slots: correct, just coarser. */
+            /* Out of slots: correct, just coarser -- the whole window
+             * rather than the pieces that changed.
+             *
+             * The subtract is not optional even here. It is what re-arms
+             * the reporting: at NON_EMPTY the server says nothing further
+             * about a window until its damage has been taken, so a
+             * window that only ever fell down this branch would go
+             * permanently silent and stop being repainted. Nothing is
+             * fetched with it, because the region is not wanted. */
             CompRect r = window_rect(w);
             output_damage_window_rect(w, &r);
             effects_damage_window(w, &r);
+            xcb_discard_reply(comp.conn,
+                xcb_damage_subtract_checked(comp.conn, w->damage,
+                                            XCB_XFIXES_REGION_NONE,
+                                            XCB_XFIXES_REGION_NONE).sequence);
             continue;
         }
 
