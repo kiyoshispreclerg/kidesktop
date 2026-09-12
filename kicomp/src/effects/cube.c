@@ -45,6 +45,15 @@
 
 #define MAX_FACES 16
 
+/* Long enough that a frame or two of stall does not put a face out, and
+ * renewed well inside it: kiwm caps a hold at two seconds of its own
+ * accord, so this has to be asked again rather than asked once for as
+ * long as the cube might be held open. */
+#define HOLD_MS       1500
+#define HOLD_RENEW_MS 500
+
+typedef enum { LIVE_NONE, LIVE_ACTIVE, LIVE_ALL } CubeLive;
+
 typedef struct {
     char hotkey[128];
 
@@ -72,6 +81,21 @@ typedef struct {
     float cap_r, cap_g, cap_b;          /* the top and bottom */
     float back_r, back_g, back_b;       /* behind the cube */
     float background;                   /* how solid that is */
+
+    /* How much of the other desktops is kept alive while the cube is
+     * open. Their windows are unmapped -- there is no pixmap of a window
+     * on a desktop nobody is showing -- so a face is empty unless the
+     * window manager is asked to hold them up.
+     *
+     *   none    hold nothing: the other faces show their wallpaper only
+     *   active  the last window used on each, which is the one that
+     *           makes a face recognisable for the least work
+     *   all     every window of every desktop
+     *
+     * Minimized windows are never held, whatever this says: kiwm refuses
+     * (client_hold), and a minimized window has no pixmap to show. It is
+     * simply absent from its face rather than a hole in it. */
+    CubeLive live;
 } CubeConfig;
 
 typedef struct {
@@ -93,6 +117,8 @@ typedef struct {
     int drag_x, drag_y;
     bool dragging;
 
+    double held_at;             /* when the holds were last renewed */
+
     float phase;                /* 0 the plain desktop, 1 the open cube */
     float phase_from, phase_to;
     double phase_time;
@@ -101,6 +127,8 @@ typedef struct {
 
 static const CompEffectOps cube_ops;
 static CompEffect *active;
+
+static int face_of_window(const CubeData *d, const CompOutput *o, CompWindow *w);
 static const CompEffectInstance *bound_instance;
 
 /* ------------------------------------------------------------------ */
@@ -381,9 +409,64 @@ static float eased(const CompEffect *e, double since, double now)
     return comp_ease(e->instance->easing, (float)t);
 }
 
+/* The window last used on `desktop` of this output, by the compositor's
+ * own focus record -- X keeps no focus history to read. What `active`
+ * holds: one window is what makes a face recognisable, and holding one
+ * is a fraction of the cost of holding all of them. */
+static CompWindow *last_used_on(const CubeData *d, const CompOutput *o, int face)
+{
+    CompWindow *best = NULL;
+
+    for (CompWindow *w = comp.stack; w; w = w->next) {
+        if (w->input_only || w->zombie || w->wm_layer[0])
+            continue;
+        if (face_of_window(d, o, w) != face)
+            continue;
+        if (!best || w->focus_serial > best->focus_serial)
+            best = w;
+    }
+    return best;
+}
+
+/* Asks the window manager to keep the other desktops' windows up.
+ *
+ * Renewed rather than asked once: kiwm caps a hold at two seconds of its
+ * own accord, and a cube is held open for as long as the user keeps
+ * turning it. Not while the mode is closing -- everything is on its way
+ * back to where it belongs and the faces are about to stop being looked
+ * at. */
+static void hold_live_windows(CompEffect *e, double now)
+{
+    CubeData *d = e->data;
+    const CubeConfig *cfg = e->instance->config;
+    CompOutput *o = output_by_id(d->output_id);
+
+    if (!o || d->closing || cfg->live == LIVE_NONE)
+        return;
+    if (d->held_at != 0.0 && now - d->held_at < HOLD_RENEW_MS)
+        return;
+    d->held_at = now;
+
+    for (CompWindow *w = comp.stack; w; w = w->next) {
+        if (w->input_only || w->zombie || w->wm_layer[0])
+            continue;
+
+        int face = face_of_window(d, o, w);
+        if (face <= 0)
+            continue;               /* no face here, or the one in front */
+
+        if (cfg->live == LIVE_ACTIVE && w != last_used_on(d, o, face))
+            continue;
+
+        desktop_request_hold(w, HOLD_MS);
+    }
+}
+
 static void cube_update(CompEffect *e, double now)
 {
     CubeData *d = e->data;
+
+    hold_live_windows(e, now);
 
     float phase = d->phase_from +
                   (d->phase_to - d->phase_from) * eased(e, d->phase_time, now);
@@ -491,6 +574,7 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
      * the solids are given a z just before the first of them. */
     int placed = 0;                     /* nodes settled at the front */
 
+
     for (int k = 0; k < count; k++) {
         int face = vis[k].i;
 
@@ -521,13 +605,30 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
     }
 
     /* Anything with no face on this cube -- another output's window, or
-     * one whose desktop is not among these -- is not drawn. */
-    for (int n = placed; n < s->count; n++)
+     * one whose desktop is not among these -- is not drawn.
+     *
+     * Cleared *and* made transparent. An untransformed node at full
+     * opacity is what scene_cull_occluded() reads as something opaque
+     * covering the scene, and it works from where the window really is;
+     * left at 1.0 these would cut a window-shaped hole out of the cube
+     * standing in front of them. Emptying the rectangle alone is not
+     * enough, because that pass never looks at it. */
+    for (int n = placed; n < s->count; n++) {
         s->nodes[n].visible_rect = (CompRect){ 0, 0, 0, 0 };
+        s->nodes[n].opacity = 0.0f;
+    }
+
 }
 
 static void cube_destroy(CompEffect *e)
 {
+    /* The other desktops go back to being invisible the moment this
+     * stops drawing them; the holds themselves lapse on their own. */
+    if (comp.show_stowed_output != COMP_NO_OUTPUT) {
+        CubeData *d = e->data;
+        if (d && comp.show_stowed_output == d->output_id)
+            comp.show_stowed_output = COMP_NO_OUTPUT;
+    }
     free(e->data);
     e->data = NULL;
 }
@@ -596,7 +697,27 @@ static void cube_press(void *data)
 
     phase_to(d, 1.0f, comp_now_ms());
 
+    /* The other desktops' own wallpapers, which are windows like any
+     * other and away with their desktop (desktop.h). Asked for once, as
+     * the cube opens: they do not change while it is up, and a face with
+     * its own wallpaper is the difference between four desktops and four
+     * grey squares. */
+    desktop_request_prime();
+
+    /* And say that this output is the one showing them.
+     *
+     * A window held up for a photograph, or stowed with the desktop it
+     * belongs to, is deliberately kept out of the scene -- otherwise it
+     * would appear on a desktop it is not on for as long as the hold
+     * outlives whatever asked for it (scene.c). An effect that means to
+     * draw those windows has to say so, and this is how: without it the
+     * holds above are granted, the windows really are mapped again, and
+     * the cube still draws empty faces, because the scene they would
+     * have joined never let them in. */
+    comp.show_stowed_output = o->id;
+
     if (!input_grab(&cube_input, e)) {
+        comp.show_stowed_output = COMP_NO_OUTPUT;
         free(d);
         free(e);
         return;
@@ -658,6 +779,7 @@ static void cube_defaults(void *config)
     c->cap_r = c->cap_g = c->cap_b = 0.22f;
     c->back_r = c->back_g = c->back_b = 0.0f;
     c->background = 0.9f;
+    c->live = LIVE_ALL;
 }
 
 static bool cube_config_key(void *config, const char *key, const char *value)
@@ -675,6 +797,16 @@ static bool cube_config_key(void *config, const char *key, const char *value)
     if (!strcmp(key, "window_gap"))     { c->window_gap = (float)atof(value); return true; }
     if (!strcmp(key, "window_spacing")) { c->window_spacing = (float)atof(value); return true; }
     if (!strcmp(key, "background"))  { c->background = (float)atof(value); return true; }
+    if (!strcmp(key, "live_windows")) {
+        if (!strcmp(value, "none"))        c->live = LIVE_NONE;
+        else if (!strcmp(value, "active")) c->live = LIVE_ACTIVE;
+        else if (!strcmp(value, "all"))    c->live = LIVE_ALL;
+        else {
+            fprintf(stderr, "kicomp: config: unknown live_windows '%s'\n", value);
+            return false;
+        }
+        return true;
+    }
     if (!strcmp(key, "cap_color"))
         return parse_colour(value, &c->cap_r, &c->cap_g, &c->cap_b);
     if (!strcmp(key, "background_color"))

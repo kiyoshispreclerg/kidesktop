@@ -1187,6 +1187,7 @@ static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
         while (si < s->solid_count && s->solids[si].z <= (float)i)
             draw_solid(o, &s->solids[si++], projection);
 
+
         if (n->visible_rect.w <= 0 || n->visible_rect.h <= 0)
             continue;
 
