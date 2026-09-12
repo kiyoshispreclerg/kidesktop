@@ -3,6 +3,7 @@
 #include "output.h"
 #include "window.h"
 #include "effect.h"
+#include "region.h"
 
 #include <stdlib.h>
 
@@ -24,14 +25,6 @@ void damage_window_reported(CompWindow *w)
      * the Damage object and won't report again until the subtract at
      * frame time, which is also what fetches all of it at once. */
     w->damage_pending = true;
-}
-
-/* Is `inner` entirely within `outer`? */
-static bool rect_inside(const CompRect *inner, const CompRect *outer)
-{
-    return inner->x >= outer->x && inner->y >= outer->y &&
-           inner->x + inner->w <= outer->x + outer->w &&
-           inner->y + inner->h <= outer->y + outer->h;
 }
 
 void damage_collect(void)
@@ -152,8 +145,16 @@ void damage_collect(void)
              * (comp.h's cover). This is what a video behind a text
              * editor costs, and it should be nothing. */
             bool unseen = false;
-            for (int c = 0; c < w->cover_count && !unseen; c++)
-                unseen = rect_inside(&d, &w->cover[c]);
+            if (w->cover_count > 0) {
+                /* Under the covers *together*: a piece that straddles two
+                 * opaque windows is as invisible as one under either. */
+                CompRegion left;
+                region_clear(&left);
+                region_add(&left, &d);
+                for (int c = 0; c < w->cover_count; c++)
+                    region_subtract_rect(&left, &w->cover[c]);
+                unseen = region_is_empty(&left);
+            }
 
             /* ...unless an effect is drawing this window somewhere else,
              * where nothing is covering it: what is hidden here is not

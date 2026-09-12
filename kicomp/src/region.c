@@ -109,3 +109,62 @@ bool region_hits(const CompRegion *r, const CompRect *rect)
             return true;
     return false;
 }
+
+void region_subtract_rect(CompRegion *r, const CompRect *cut)
+{
+    if (r->full || cut->w <= 0 || cut->h <= 0)
+        return;
+
+    CompRect out[COMP_REGION_MAX];
+    int n = 0;
+
+    for (int i = 0; i < r->count; i++) {
+        const CompRect *a = &r->rects[i];
+        CompRect hit;
+        if (!rect_intersect(a, cut, &hit)) {
+            if (n == COMP_REGION_MAX)
+                return;
+            out[n++] = *a;
+            continue;
+        }
+
+        /* The band above the hole and the one below it span the whole
+         * width; the two beside it only the hole's own height. Four
+         * pieces at most, and only the non-empty ones are kept. */
+        CompRect pieces[4] = {
+            { a->x, a->y, a->w, hit.y - a->y },
+            { a->x, hit.y + hit.h, a->w, (a->y + a->h) - (hit.y + hit.h) },
+            { a->x, hit.y, hit.x - a->x, hit.h },
+            { hit.x + hit.w, hit.y, (a->x + a->w) - (hit.x + hit.w), hit.h },
+        };
+        for (int k = 0; k < 4; k++) {
+            if (pieces[k].w <= 0 || pieces[k].h <= 0)
+                continue;
+            if (n == COMP_REGION_MAX)
+                return;
+            out[n++] = pieces[k];
+        }
+    }
+
+    memcpy(r->rects, out, sizeof(CompRect) * (size_t)n);
+    r->count = n;
+}
+
+void region_intersect_rect(CompRegion *r, const CompRect *box)
+{
+    if (r->full) {
+        r->full = false;
+        r->count = 0;
+        if (box->w > 0 && box->h > 0)
+            r->rects[r->count++] = *box;
+        return;
+    }
+
+    int n = 0;
+    for (int i = 0; i < r->count; i++) {
+        CompRect hit;
+        if (rect_intersect(&r->rects[i], box, &hit))
+            r->rects[n++] = hit;
+    }
+    r->count = n;
+}

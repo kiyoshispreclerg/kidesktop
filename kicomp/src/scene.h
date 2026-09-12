@@ -23,6 +23,16 @@ typedef struct CompSceneNode {
                              * whatever area the effect actually covers
                              * once a transform is in play */
 
+    /* Where this node can actually be seen: visible_rect grown by the
+     * shadow's reach, minus every opaque window drawn over it
+     * (scene_cull_occluded). Root coordinates. A renderer clips the node
+     * to this ∩ the frame's damage and draws nothing else -- the part of
+     * a window behind an opaque one costs no pixels at all, which is the
+     * difference between a compositor that costs what is on screen and
+     * one that costs what is *visible*. Never empty for a node that is
+     * still in the scene: an empty one is culled. */
+    CompRegion clip;
+
     /* Root-to-root, applied to `geometry` (transform.h). Identity for
      * every node the effects didn't touch, which is the fast path in the
      * renderer. */
@@ -105,8 +115,10 @@ void scene_set_backdrop(CompScene *s, const CompRect *rect,
  * incremental updates are a later optimization (section 47.7). */
 void scene_build(CompScene *s, CompOutput *o);
 
-/* Drops the nodes that something opaque completely covers, and records
- * on each surviving window what covers it (comp.h's cover/occluded).
+/* Drops the nodes that something opaque completely covers, gives each
+ * surviving node its `clip` (the part of it not under anything opaque),
+ * records on each window what covers it (comp.h's cover/occluded) and on
+ * the output what is covered at all (CompOutput's covered).
  *
  * Separate from scene_build, and called after the effects have run: they
  * move what covers what, and occlusion decided before that is occlusion

@@ -55,10 +55,12 @@ typedef struct CompTransform {
     float m[4][4];
 } CompTransform;
 
-/* How many covering rectangles a window remembers. Small on purpose: the
- * case worth catching is one opaque window over another, and each one is
- * another containment test per damaged rectangle. */
-#define MAX_COVERS 4
+/* How many covering rectangles a window remembers, and how many opaque
+ * windows a scene subtracts from the ones beneath. Small on purpose: past
+ * a handful the rectangles cost more to carry than the pixels they save,
+ * and a desktop rarely has more opaque windows than this stacked over
+ * one spot. */
+#define MAX_COVERS 8
 
 typedef struct CompCaps {
     bool composite;      /* Composite extension present */
@@ -131,6 +133,14 @@ typedef struct CompOutput {
      * whole -- so any path that marks an output dirty without saying
      * where errs towards a correct frame rather than a missing one. */
     CompRegion damage;
+
+    /* Where something opaque is drawn this frame, in root coordinates:
+     * the opaque rectangles scene_cull_occluded() found, listed rather
+     * than merged. Anything painted *under* the windows -- the wallpaper,
+     * an effect's ground -- has no business touching these pixels, since
+     * the window on top is about to replace every one of them. Rebuilt
+     * with the scene, valid for the frame being drawn. */
+    CompRegion covered;
 
     /* The lens this output is being looked at through, in root
      * coordinates: identity for every output that isn't zoomed, which is

@@ -55,4 +55,19 @@ CompRect region_bounds(const CompRegion *r);
  * region. */
 bool region_hits(const CompRegion *r, const CompRect *rect);
 
+/* Takes `cut` out of the region: every rectangle overlapping it is
+ * replaced by the (up to four) pieces of itself that lie outside.
+ *
+ * Bounded like everything else here. When the pieces would not fit,
+ * the region is left as it was -- too much, never too little, which for
+ * a region that says where to paint is the safe side to err on. A full
+ * region has no rectangles to cut and is likewise left alone; a caller
+ * that needs the difference turns it into a rectangle first. */
+void region_subtract_rect(CompRegion *r, const CompRect *cut);
+
+/* Intersection with a rectangle, in place: each rectangle is trimmed to
+ * `box`, and the ones that miss it are dropped. A full region becomes
+ * `box` itself. */
+void region_intersect_rect(CompRegion *r, const CompRect *box);
+
 #endif /* KICOMP_REGION_H */

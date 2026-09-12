@@ -9,6 +9,7 @@
 #include "shadow.h"
 #include "window.h"
 #include "effect.h"
+#include "region.h"
 
 #include <string.h>
 
@@ -171,25 +172,29 @@ void scene_set_backdrop(CompScene *s, const CompRect *rect,
 void scene_cull_occluded(CompScene *s, CompOutput *o)
 {
     /* Walking from the top down, each window that is certainly opaque
-     * covers the ones below it; any of those whose whole visible
-     * rectangle -- grown by the shadow's reach, since a window paints
-     * outside itself -- falls inside one of those covers is not drawn at
-     * all. That is the difference between a compositor that costs the
-     * same whatever is on screen and one that costs what is visible, and
-     * it is why a window behind another one gets cheaper on desktops
-     * that do it.
+     * covers the ones below it. Each node's clip starts as its whole
+     * visible rectangle -- grown by the shadow's reach, since a window
+     * paints outside itself -- and has every cover above it cut out; a
+     * node left with nothing is not drawn at all, and one left with less
+     * than it started with is drawn only there. That is the difference
+     * between a compositor that costs the same whatever is on screen and
+     * one that costs what is visible: two maximized windows are the
+     * everyday case, and the one beneath used to be composited in full
+     * for every frame of a video playing in the one on top.
      *
-     * Deliberately conservative in three ways: only against a *single*
-     * covering rectangle rather than the union of several (a window
-     * hidden by two overlapping ones stays drawn), only for untransformed
-     * fully opaque nodes, and only using the part of a window we are sure
-     * about (window.h's opaque -- the client inside a frame, never the
-     * frame itself, which under kiwm is translucent). A window wrongly
-     * culled disappears; a window wrongly kept merely costs what it
-     * costs today. */
+     * Conservative in two ways: only untransformed, fully opaque nodes
+     * cover anything, and only with the part of them we are sure about
+     * (window.h's opaque -- the client inside a frame, never the frame
+     * itself, which under kiwm is translucent). A window wrongly culled
+     * disappears; a window wrongly kept merely costs what it costs
+     * today. And where the pieces would not fit the region, the cut is
+     * skipped rather than approximated (region.h) -- again too much,
+     * never too little. */
     int reach = shadow_margin();
     CompRect cover[MAX_COVERS];
     int covers = 0;
+
+    region_clear(&o->covered);
 
     for (int i = s->count - 1; i >= 0; i--) {
         CompSceneNode *n = &s->nodes[i];
@@ -200,11 +205,12 @@ void scene_cull_occluded(CompScene *s, CompOutput *o)
         probe.w += reach * 2;
         probe.h += reach * 2;
 
-        bool hidden = false;
-        for (int c = 0; c < covers && !hidden; c++)
-            hidden = rect_contains(&cover[c], &probe);
+        region_clear(&n->clip);
+        region_add(&n->clip, &probe);
+        for (int c = 0; c < covers; c++)
+            region_subtract_rect(&n->clip, &cover[c]);
 
-        if (hidden) {
+        if (region_is_empty(&n->clip)) {
             /* Remembered on the window, not just dropped from the list:
              * damage.c uses it to stop answering damage nobody can see
              * (comp.h). Only when the window is wholly on this output,
@@ -253,8 +259,10 @@ void scene_cull_occluded(CompScene *s, CompOutput *o)
             comp_transform_is_identity(&n->transform)) {
             CompRect op = window_opaque_rect(n->win);
             CompRect vis;
-            if (op.w > 0 && op.h > 0 && rect_intersect(&op, &o->rect, &vis))
+            if (op.w > 0 && op.h > 0 && rect_intersect(&op, &o->rect, &vis)) {
                 cover[covers++] = vis;
+                region_add(&o->covered, &vis);
+            }
         }
     }
 }

@@ -774,7 +774,7 @@ void gl_begin(CompOutput *o, GlOutput *go, const CompRegion *damage,
 
     glClearColor(0.109f, 0.109f, 0.109f, 1.0f);
 
-    if (region_is_full(&go->repaint)) {
+    if (region_is_full(&go->repaint) && o->covered.count == 0) {
         glDisable(GL_SCISSOR_TEST);
         glClear(GL_COLOR_BUFFER_BIT);
         return;
@@ -782,10 +782,19 @@ void gl_begin(CompOutput *o, GlOutput *go, const CompRegion *damage,
 
     /* Only the ground that is about to be redrawn. Clearing the whole
      * buffer here would throw away precisely the pixels the buffer age
-     * just told us are still good. */
+     * just told us are still good.
+     *
+     * And not under an opaque window (CompOutput's covered): the window
+     * replaces those pixels a moment later, so clearing them first is a
+     * pass over the buffer for nothing. */
+    CompRegion ground = go->repaint;
+    region_intersect_rect(&ground, &o->rect);
+    for (int i = 0; i < o->covered.count; i++)
+        region_subtract_rect(&ground, &o->covered.rects[i]);
+
     glEnable(GL_SCISSOR_TEST);
-    for (int i = 0; i < go->repaint.count; i++) {
-        const CompRect *r = &go->repaint.rects[i];
+    for (int i = 0; i < ground.count; i++) {
+        const CompRect *r = &ground.rects[i];
         scissor_for(o, r->x, r->y, r->w, r->h);
         glClear(GL_COLOR_BUFFER_BIT);
     }
@@ -850,9 +859,96 @@ static void draw_backdrop(CompOutput *o, const CompScene *s,
 /* One pass over the scene, everything clipped to `repaint_rect`. Called
  * once per damaged rectangle, so a frame where two small things changed
  * costs two small passes instead of one screen-sized one. */
+/* One node, inside repaint_rect -- which by the time this runs is one
+ * piece of the node's own clip (scene.h) ∩ one damaged rectangle, so
+ * every scissor box below is already inside both. */
+static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
+                      GlWindow *g, const float projection[16])
+{
+    /* The shape first: the shadow is cast around the window's
+     * silhouette, and both of them are about to want it. */
+    shape_fetch(w, g);
+
+    /* Under the window, and before its texture is bound: the shadow
+     * program has its own idea of what is in texture unit 0. */
+    draw_shadow(o, n, w, g, projection);
+    glUseProgram(program);
+    glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
+    glUniform1i(u_texture, 0);
+
+    if (!platform->window_bind(w, g))
+        return;
+
+    float m[16];
+    node_matrix(n, m);
+    glUniformMatrix4fv(u_transform, 1, GL_FALSE, m);
+    glUniform1f(u_opacity, n->opacity);
+    /* GLX_Y_INVERTED_EXT *true* means the pixmap's first texture row
+     * is its top one, which is already what the texture coordinates
+     * here assume (they run downwards, like X's own y). It is the
+     * *false* case -- GL's usual bottom-first convention -- that has
+     * to be mirrored. Getting this backwards draws every window
+     * upside down, which is worth stating plainly because the two
+     * mistakes look identical until you try the other driver. */
+    glUniform1f(u_y_flip, g->y_inverted ? 0.0f : 1.0f);
+
+    /* A shaped window is drawn through its silhouette, one scissor
+     * box per rectangle: rounded corners are the everyday case here,
+     * since kiwm rounds every frame it draws, and without this the
+     * corners come back square with whatever the pixmap holds
+     * outside them.
+     *
+     * Only while the window is where it says it is, or is being
+     * moved: a scissor box is in screen pixels, so it can follow a
+     * translation but not a scale or a rotation. A window mid-scale
+     * is drawn whole for those frames, which is what the XRender
+     * backend does with the same reasoning. */
+    float tdx = 0.0f, tdy = 0.0f;
+    bool move_only = comp_transform_is_identity(&n->transform) ||
+                     comp_transform_is_translation(&n->transform, &tdx, &tdy);
+
+    if (g->shape_count > 0 && move_only) {
+        for (int k = 0; k < g->shape_count; k++) {
+            const xcb_rectangle_t *sr = &g->shape_rects[k];
+            CompRect piece = { w->x + (int)tdx + sr->x,
+                               w->y + (int)tdy + sr->y,
+                               sr->width, sr->height };
+            if (!scissor_to(o, &piece))
+                continue;
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        }
+    } else if (!move_only && w->shaped &&
+               w->shape_extents.w > 0 && w->shape_extents.h > 0) {
+        /* Being scaled, so the silhouette cannot come along -- a
+         * scissor box lives in screen pixels. Its *extents* can,
+         * carried through the same transform, and for the window this
+         * matters to they are nothing like its rectangle:
+         * VirtualBox's mini-toolbar is a screen-sized window with a
+         * small bar shaped out of it, and drawing the rectangle while
+         * an effect shrinks it puts a screen-sized ghost of stale
+         * contents in the middle of the grid. */
+        CompRect ext = { w->x + w->shape_extents.x,
+                         w->y + w->shape_extents.y,
+                         w->shape_extents.w, w->shape_extents.h };
+        CompRect moved = comp_transform_rect(&n->transform, &ext);
+        if (scissor_to(o, &moved))
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    } else {
+        /* Unshaped: the damage rectangle is the whole clip. */
+        scissor_for(o, repaint_rect.x, repaint_rect.y,
+                    repaint_rect.w, repaint_rect.h);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
+}
+
 static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
 {
     draw_backdrop(o, s, projection);
+
+    /* The rectangle this pass is repainting; each node narrows it to the
+     * pieces of itself that are not under an opaque window, and puts it
+     * back afterwards. */
+    CompRect damaged = repaint_rect;
 
     for (int i = 0; i < s->count; i++) {
         CompSceneNode *n = &s->nodes[i];
@@ -865,95 +961,24 @@ static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
         if (!g)
             continue;
 
-        /* Nothing of this window is in the rectangle being repainted --
-         * grown by the shadow's reach, since a window paints outside
-         * itself. This test is where the saving actually comes from: the
-         * scissor would clip it anyway, but binding a pixmap and issuing
-         * draws for a window nobody can see is the work worth not doing. */
-        CompRect touch = n->visible_rect;
-        int reach = shadow_margin_for_window(w);
-        touch.x -= reach;
-        touch.y -= reach;
-        touch.w += reach * 2;
-        touch.h += reach * 2;
-        CompRect ignored;
-        if (!rect_intersect(&touch, &repaint_rect, &ignored))
+        /* Only where the node shows *and* the pass is repainting. This
+         * test is where the saving actually comes from: the scissor
+         * would clip it anyway, but binding a pixmap and issuing draws
+         * for a window nobody can see is the work worth not doing -- and
+         * a maximized window under another one is drawn nowhere at all
+         * for a frame whose damage is all inside the one on top. */
+        if (region_is_full(&n->clip)) {
+            draw_node(o, n, w, g, projection);
             continue;
-
-        /* The shape first: the shadow is cast around the window's
-         * silhouette, and both of them are about to want it. */
-        shape_fetch(w, g);
-
-        /* Under the window, and before its texture is bound: the shadow
-         * program has its own idea of what is in texture unit 0. */
-        draw_shadow(o, n, w, g, projection);
-        glUseProgram(program);
-        glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
-        glUniform1i(u_texture, 0);
-
-        if (!platform->window_bind(w, g))
-            continue;
-
-        float m[16];
-        node_matrix(n, m);
-        glUniformMatrix4fv(u_transform, 1, GL_FALSE, m);
-        glUniform1f(u_opacity, n->opacity);
-        /* GLX_Y_INVERTED_EXT *true* means the pixmap's first texture row
-         * is its top one, which is already what the texture coordinates
-         * here assume (they run downwards, like X's own y). It is the
-         * *false* case -- GL's usual bottom-first convention -- that has
-         * to be mirrored. Getting this backwards draws every window
-         * upside down, which is worth stating plainly because the two
-         * mistakes look identical until you try the other driver. */
-        glUniform1f(u_y_flip, g->y_inverted ? 0.0f : 1.0f);
-
-        /* A shaped window is drawn through its silhouette, one scissor
-         * box per rectangle: rounded corners are the everyday case here,
-         * since kiwm rounds every frame it draws, and without this the
-         * corners come back square with whatever the pixmap holds
-         * outside them.
-         *
-         * Only while the window is where it says it is, or is being
-         * moved: a scissor box is in screen pixels, so it can follow a
-         * translation but not a scale or a rotation. A window mid-scale
-         * is drawn whole for those frames, which is what the XRender
-         * backend does with the same reasoning. */
-        float tdx = 0.0f, tdy = 0.0f;
-        bool move_only = comp_transform_is_identity(&n->transform) ||
-                         comp_transform_is_translation(&n->transform, &tdx, &tdy);
-
-        if (g->shape_count > 0 && move_only) {
-            for (int k = 0; k < g->shape_count; k++) {
-                const xcb_rectangle_t *sr = &g->shape_rects[k];
-                CompRect piece = { w->x + (int)tdx + sr->x,
-                                   w->y + (int)tdy + sr->y,
-                                   sr->width, sr->height };
-                if (!scissor_to(o, &piece))
-                    continue;
-                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-            }
-        } else if (!move_only && w->shaped &&
-                   w->shape_extents.w > 0 && w->shape_extents.h > 0) {
-            /* Being scaled, so the silhouette cannot come along -- a
-             * scissor box lives in screen pixels. Its *extents* can,
-             * carried through the same transform, and for the window this
-             * matters to they are nothing like its rectangle:
-             * VirtualBox's mini-toolbar is a screen-sized window with a
-             * small bar shaped out of it, and drawing the rectangle while
-             * an effect shrinks it puts a screen-sized ghost of stale
-             * contents in the middle of the grid. */
-            CompRect ext = { w->x + w->shape_extents.x,
-                             w->y + w->shape_extents.y,
-                             w->shape_extents.w, w->shape_extents.h };
-            CompRect moved = comp_transform_rect(&n->transform, &ext);
-            if (scissor_to(o, &moved))
-                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        } else {
-            /* Unshaped: the damage rectangle is the whole clip. */
-            scissor_for(o, repaint_rect.x, repaint_rect.y,
-                        repaint_rect.w, repaint_rect.h);
-            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         }
+        for (int k = 0; k < n->clip.count; k++) {
+            CompRect piece;
+            if (!rect_intersect(&n->clip.rects[k], &damaged, &piece))
+                continue;
+            repaint_rect = piece;
+            draw_node(o, n, w, g, projection);
+        }
+        repaint_rect = damaged;
     }
 }
 
