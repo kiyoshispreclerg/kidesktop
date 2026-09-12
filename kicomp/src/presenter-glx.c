@@ -145,6 +145,23 @@ static uint64_t glx_present_msc(CompOutput *o)
     return (uint64_t)po->msc;
 }
 
+/* When this output's last frame was scanned out, for the frame clock to
+ * phase itself to (presenter.h).
+ *
+ * GLX_OML_sync_control's UST is the same monotonic microsecond clock
+ * Present's is, and measure() has already read it after the swap -- so
+ * the phasing that the Present path gets for free costs nothing here
+ * either. Without it this backend's deadlines sit wherever the first one
+ * landed, and a frame whose damage arrives just after the vblank waits
+ * most of an interval for no reason. */
+static double glx_vblank_ms(CompOutput *o)
+{
+    GlxPresentOutput *po = o->present_data;
+    if (!po || !po->counted || po->ust <= 0)
+        return 0.0;
+    return (double)po->ust / 1000.0;
+}
+
 static void glx_sync_info(CompOutput *o, char *buf, size_t n)
 {
     GlxPresentOutput *po = o->present_data;
@@ -173,6 +190,7 @@ static const CompPresenter glx_presenter = {
     .destroy   = glx_present_destroy,
     .present   = glx_present,
     .get_msc   = glx_present_msc,
+    .vblank_ms = glx_vblank_ms,
     .sync_info = glx_sync_info,
 };
 
