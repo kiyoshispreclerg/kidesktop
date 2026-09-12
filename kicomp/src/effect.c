@@ -405,6 +405,19 @@ void effects_update(double now)
 
 void effects_apply(CompScene *s, CompOutput *o)
 {
+    /* A mode that has taken this output over draws it alone (effect.h's
+     * owns_output). `running` is newest first, so the first match is the
+     * one that took it over most recently -- which is the one the user
+     * is looking at. */
+    for (CompEffect *e = running; e; e = e->next) {
+        if (!e->ops->owns_output || !e->ops->apply)
+            continue;
+        if (e->ops->owns_output(e) != o->id)
+            continue;
+        e->ops->apply(e, s, o);
+        return;
+    }
+
     for (CompEffect *e = running; e; e = e->next)
         if (e->ops->apply)
             e->ops->apply(e, s, o);
@@ -470,6 +483,20 @@ void effects_claim_window(CompEventKind kind, const CompWindow *w, double ms)
     window_claims[slot].win = w;
     window_claims[slot].kind = kind;
     window_claims[slot].until = now + ms;
+}
+
+void effects_show_stowed(int output_id, bool on)
+{
+    static int refs;
+
+    if (on) {
+        refs++;
+        comp.show_stowed_output = output_id;
+        return;
+    }
+
+    if (refs > 0 && --refs == 0)
+        comp.show_stowed_output = COMP_NO_OUTPUT;
 }
 
 /* Which output a window counts as being on -- the largest overlap, the

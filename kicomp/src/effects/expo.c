@@ -1078,14 +1078,23 @@ static void ex_destroy(CompEffect *e)
 
     if (e == active) {
         active = NULL;
-        comp.show_stowed_output = COMP_NO_OUTPUT;
+        effects_show_stowed(COMP_NO_OUTPUT, false);
         input_release();
     }
     free(e->data);
     e->data = NULL;
 }
 
+/* The grid replaces the scene for its output: while it is up, nothing
+ * else may draw there (effect.h). */
+static int ex_owns_output(const CompEffect *e)
+{
+    const ExData *d = e->data;
+    return d ? d->output_id : COMP_NO_OUTPUT;
+}
+
 static const CompEffectOps ex_ops = {
+    .owns_output = ex_owns_output,
     .name       = "expo",
     .update     = ex_update,
     .apply      = ex_apply,
@@ -1248,7 +1257,7 @@ static void ex_toggle(void *data)
      * one's: the monitor next to it is showing a desktop somebody is
      * still using, and its own put-away windows have no business being
      * drawn over it. */
-    comp.show_stowed_output = o->id;
+    effects_show_stowed(o->id, true);
     effects_add(e);
 
     /* And it stays on the desktop that was showing: the user hasn't

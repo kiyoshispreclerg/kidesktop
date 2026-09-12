@@ -784,18 +784,24 @@ static void cube_destroy(CompEffect *e)
 {
     /* The other desktops go back to being invisible the moment this
      * stops drawing them; the holds themselves lapse on their own. */
-    if (comp.show_stowed_output != COMP_NO_OUTPUT) {
-        CubeData *d = e->data;
-        if (d && comp.show_stowed_output == d->output_id)
-            comp.show_stowed_output = COMP_NO_OUTPUT;
-    }
+    if (e->data)
+        effects_show_stowed(((CubeData *)e->data)->output_id, false);
     input_cursor_hide(false);
     free(e->data);
     e->data = NULL;
 }
 
+/* The cube replaces the scene for its output: while it is up, nothing
+ * else may draw there (effect.h). */
+static int cube_owns_output(const CompEffect *e)
+{
+    const CubeData *d = e->data;
+    return d ? d->output_id : COMP_NO_OUTPUT;
+}
+
 static const CompEffectOps cube_ops = {
     .name     = "cube",
+    .owns_output = cube_owns_output,
     .update   = cube_update,
     .apply    = cube_apply,
     .finished = cube_finished,
@@ -886,7 +892,7 @@ static void cube_open(const CompEffectInstance *self, bool flick)
      * holds above are granted, the windows really are mapped again, and
      * the cube still draws empty faces, because the scene they would
      * have joined never let them in. */
-    comp.show_stowed_output = o->id;
+    effects_show_stowed(o->id, true);
 
     /* Nothing here is pointed at -- the cube is turned by how far the
      * pointer has moved, never by what it is over -- so the arrow is
@@ -894,7 +900,7 @@ static void cube_open(const CompEffectInstance *self, bool flick)
     if (!flick) {
         input_cursor_hide(true);
         if (!input_grab(&cube_input, e)) {
-            comp.show_stowed_output = COMP_NO_OUTPUT;
+            effects_show_stowed(COMP_NO_OUTPUT, false);
             input_cursor_hide(false);
             free(d);
             free(e);

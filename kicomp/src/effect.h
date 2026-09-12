@@ -65,6 +65,19 @@ typedef struct CompEffectOps {
     bool (*damage_map)(const CompEffect *e, const CompWindow *w,
                        const CompRect *in, CompRect *out);
 
+    /* The output this effect has taken over entirely, or COMP_NO_OUTPUT.
+     *
+     * For the modes that rebuild the scene rather than adjust it -- the
+     * cube and the expo grid both replace the node list wholesale. While
+     * one of those is up, nothing else may apply to that output: effects
+     * are applied newest first, so an older one still running would
+     * write its own transforms over a list whose indices it no longer
+     * understands, and the picture comes apart. Starting the cube while
+     * a desktop wall was still sliding did exactly that.
+     *
+     * The newest one wins when two claim the same output. */
+    int (*owns_output)(const CompEffect *e);
+
     /* This window is being forgotten: drop every reference to it now.
      *
      * For the effects that are *modes* -- a grid, a row of covers --
@@ -310,6 +323,15 @@ void effects_claim(CompEventKind kind, int output_id, double ms);
  * arrive where it already is rather than come in from the side with the
  * rest. */
 void effects_claim_window(CompEventKind kind, const CompWindow *w, double ms);
+
+/* "I am drawing this output's *other* desktops": what lets the windows
+ * kept only for their contents into the scene (comp.show_stowed_output).
+ *
+ * Counted, because more than one mode wants it and they overlap: an
+ * Alt+Tab row is still fading out when the cube opens, and the row's
+ * teardown clearing the flag left the cube's faces empty. Every take
+ * needs its release, and the flag only really drops on the last one. */
+void effects_show_stowed(int output_id, bool on);
 
 /* The window is going away: drop anything animating it, right now. */
 /* Asks every running effect where this window's damage belongs (see
