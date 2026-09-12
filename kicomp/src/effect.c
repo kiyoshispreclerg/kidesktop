@@ -435,6 +435,43 @@ void effects_claim(CompEventKind kind, int output_id, double ms)
     }
 }
 
+/* And the same for single windows. A handful of slots: a claim is a
+ * moment long and only a mode closing ever makes one. */
+#define MAX_WINDOW_CLAIMS 8
+
+static struct {
+    const CompWindow *win;
+    CompEventKind kind;
+    double until;
+} window_claims[MAX_WINDOW_CLAIMS];
+
+void effects_claim_window(CompEventKind kind, const CompWindow *w, double ms)
+{
+    if (!w || kind < 0 || kind >= COMP_EVENT_COUNT || ms <= 0.0)
+        return;
+
+    double now = comp_now_ms();
+    int slot = -1;
+
+    /* The same claim renewed, else a free slot, else the one expiring
+     * soonest -- which is the one whose loss costs least. */
+    for (int i = 0; i < MAX_WINDOW_CLAIMS; i++) {
+        if (window_claims[i].win == w && window_claims[i].kind == kind) {
+            slot = i;
+            break;
+        }
+        if (window_claims[i].until <= now &&
+            (slot < 0 || window_claims[slot].until > now))
+            slot = i;
+        else if (slot < 0 || window_claims[i].until < window_claims[slot].until)
+            slot = i;
+    }
+
+    window_claims[slot].win = w;
+    window_claims[slot].kind = kind;
+    window_claims[slot].until = now + ms;
+}
+
 /* Which output a window counts as being on -- the largest overlap, the
  * same answer the effects use. */
 static int output_id_of(const CompWindow *w)
@@ -460,7 +497,14 @@ static bool claimed(CompEventKind kind, const CompWindow *w)
 {
     if (kind < 0 || kind >= COMP_EVENT_COUNT)
         return false;
-    if (comp_now_ms() >= claims[kind].until)
+
+    double now = comp_now_ms();
+    for (int i = 0; i < MAX_WINDOW_CLAIMS; i++)
+        if (window_claims[i].win == w && window_claims[i].kind == kind &&
+            now < window_claims[i].until)
+            return true;
+
+    if (now >= claims[kind].until)
         return false;
     if (claims[kind].output == COMP_NO_OUTPUT)
         return true;
@@ -526,6 +570,13 @@ void effects_damage_window(const CompWindow *w, const CompRect *r)
 
 void effects_window_gone(CompWindow *w)
 {
+    /* Forget any claim on it: the pointer is about to be freed, and the
+     * next window to land on that address must not inherit it. */
+    for (int i = 0; i < MAX_WINDOW_CLAIMS; i++)
+        if (window_claims[i].win == w)
+            window_claims[i].until = 0.0, window_claims[i].win = NULL;
+
+
     /* Everything running hears about it first, whether or not the window
      * is what it animates: a mode holds a list and has to drop this one
      * from it. Done before the loop below, because that loop frees the

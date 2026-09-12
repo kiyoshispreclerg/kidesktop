@@ -563,23 +563,37 @@ static void close_mode(CompEffect *e, bool activate_it)
     if (!d->external)
         input_release();
 
-    if (activate_it && !d->external &&
-        d->selected >= 0 && d->selected < d->count) {
-        /* The one place this effect touches the session: the window the
-         * user landed on is raised and focused, once, on the way out. */
+    if (activate_it && d->selected >= 0 && d->selected < d->count) {
         CompWindow *w = d->items[d->selected].win;
-        if (w && w->mapped && !w->zombie) {
-            /* Activating a window can take the desktop with it, and the
-             * user has just watched the row bring that window round to
-             * the front. Nothing else may animate the change on top of
-             * that -- the wall sliding a desktop in behind the covers
-             * lying back down is one movement too many (effect.h's
-             * effects_claim). */
+        if (w && !w->zombie) {
             double cover = effect_instance_duration(e->instance) * 2.0 + 400.0;
-            effects_claim(COMP_EVENT_DESKTOP_LEAVE, d->output_id, cover);
-            effects_claim(COMP_EVENT_DESKTOP_ENTER, d->output_id, cover);
 
-            activate(w);
+            /* The user picked this window out of a row of them: they
+             * looked at the lot and pointed. Dodge answering to the
+             * focus that follows would rearrange the desktop underneath
+             * their own decision -- which is the reasoning dodge already
+             * applies to show-windows, through input_mode_ended_ms().
+             * That one cannot help here: driven from the window manager
+             * this mode never takes a grab, so there is no mode ending
+             * for dodge to notice. */
+            effects_claim_window(COMP_EVENT_FOCUS, w, cover);
+
+            /* If the window is on another desktop, activating it takes
+             * the desktop with it -- and the wall sliding that desktop
+             * in is exactly right: everything on it really is arriving
+             * from somewhere else. Everything except this one window,
+             * which the user has just watched swing round to the front
+             * and which has to arrive where it already is instead of
+             * coming in from the side with the rest. */
+            effects_claim_window(COMP_EVENT_DESKTOP_ENTER, w, cover);
+            effects_claim_window(COMP_EVENT_DESKTOP_LEAVE, w, cover);
+
+            /* The claims are made either way; the activation only when
+             * this mode is its own. Driven from the window manager it is
+             * the WM that focuses -- but the animation is still ours, and
+             * so is knowing which window must not be animated. */
+            if (!d->external)
+                activate(w);
         }
     }
 
@@ -1138,8 +1152,13 @@ void cover_switch_external(const uint32_t *data, int len)
     int selected = (int)data[1];
 
     if (state != 1) {
+        /* State 2 is the window manager saying the user chose the
+         * selection rather than gave up. Nothing here focuses it -- the
+         * WM does that -- but the difference decides whether the window
+         * they chose is exempt from whatever else animates the change
+         * (effect.h's effects_claim_window). */
         if (active && ((CsData *)active->data)->external)
-            close_mode(active, false);
+            close_mode(active, state == 2);
         return;
     }
 

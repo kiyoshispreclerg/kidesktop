@@ -300,6 +300,17 @@ void effects_window_event(CompWindow *w, const CompEvent *ev);
  * aside for a focus the user chose out of a grid. */
 void effects_claim(CompEventKind kind, int output_id, double ms);
 
+/* The same, for one window rather than a whole output.
+ *
+ * Because sometimes the change *should* be animated and one window's
+ * part of it should not: choosing a window on another desktop from the
+ * cover switcher is a desktop change, and the wall sliding that desktop
+ * in is exactly right -- except for the window that was chosen, which
+ * the user has just watched swing round to the front and which must
+ * arrive where it already is rather than come in from the side with the
+ * rest. */
+void effects_claim_window(CompEventKind kind, const CompWindow *w, double ms);
+
 /* The window is going away: drop anything animating it, right now. */
 /* Asks every running effect where this window's damage belongs (see
  * damage_map above), and damages that too. The damage where the window
