@@ -287,6 +287,7 @@ extern const CompEffectModule effect_desktop_wall;
 extern const CompEffectModule effect_smooth_move;
 extern const CompEffectModule effect_dodge;
 extern const CompEffectModule effect_show_windows;
+extern const CompEffectModule effect_cover_switch;
 extern const CompEffectModule effect_expo;
 extern const CompEffectModule effect_visual_bell;
 extern const CompEffectModule effect_zoom;

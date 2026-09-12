@@ -19,6 +19,7 @@ SRCS := src/main.c src/config.c src/dri3.c src/output.c src/renderer.c src/windo
         src/effects/desktop-wall.c src/effects/smooth-move.c \
         src/effects/dodge.c \
         src/effects/show-windows.c \
+        src/effects/cover-switch.c \
         src/effects/expo.c \
         src/effects/visual-bell.c \
         src/effects/zoom.c \

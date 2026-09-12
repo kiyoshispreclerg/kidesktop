@@ -24,6 +24,7 @@ static const CompEffectModule *const modules[] = {
     &effect_smooth_move,
     &effect_dodge,
     &effect_show_windows,
+    &effect_cover_switch,
     &effect_expo,
     &effect_visual_bell,
     &effect_zoom,
