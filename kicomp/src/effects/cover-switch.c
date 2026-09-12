@@ -512,8 +512,19 @@ static void close_mode(CompEffect *e, bool activate_it)
         /* The one place this effect touches the session: the window the
          * user landed on is raised and focused, once, on the way out. */
         CompWindow *w = d->items[d->selected].win;
-        if (w && w->mapped && !w->zombie)
+        if (w && w->mapped && !w->zombie) {
+            /* Activating a window can take the desktop with it, and the
+             * user has just watched the row bring that window round to
+             * the front. Nothing else may animate the change on top of
+             * that -- the wall sliding a desktop in behind the covers
+             * lying back down is one movement too many (effect.h's
+             * effects_claim). */
+            double cover = effect_instance_duration(e->instance) * 2.0 + 400.0;
+            effects_claim(COMP_EVENT_DESKTOP_LEAVE, d->output_id, cover);
+            effects_claim(COMP_EVENT_DESKTOP_ENTER, d->output_id, cover);
+
             activate(w);
+        }
     }
 
     d->closing = true;

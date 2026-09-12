@@ -274,6 +274,32 @@ void effects_apply(CompScene *s, CompOutput *o);
  * effects are off. */
 void effects_window_event(CompWindow *w, const CompEvent *ev);
 
+/* An effect that has already shown the user what a change means claims
+ * it, and whatever would otherwise animate that change stands down.
+ *
+ * What this is for: leaving the cube, the expo grid or the cover
+ * switcher changes the desktop, and the desktop wall would then slide
+ * that desktop in -- a second animation, of a change the user has just
+ * watched happen, played over the top of the first. The windows arrived
+ * with the mode that was showing them; they must not also come sliding
+ * in from the side.
+ *
+ * Claimed for a stretch of time rather than for an instant, because the
+ * event does not exist yet when the claim is made: the compositor asks
+ * the window manager, the WM acts, and the unmaps and property changes
+ * that become a desktop-leave come back a round trip later. The caller
+ * says how long, because only it knows how long its own animation runs
+ * and how far behind the events will trail.
+ *
+ * Per output, since a desktop is per output here -- a cube turning on
+ * one monitor has nothing to say about a desktop changing on the other.
+ * COMP_NO_OUTPUT claims the change everywhere.
+ *
+ * This is the general form of something the effects were already doing
+ * by hand: dodge asks input_mode_ended_ms() so it does not shove windows
+ * aside for a focus the user chose out of a grid. */
+void effects_claim(CompEventKind kind, int output_id, double ms);
+
 /* The window is going away: drop anything animating it, right now. */
 /* Asks every running effect where this window's damage belongs (see
  * damage_map above), and damages that too. The damage where the window

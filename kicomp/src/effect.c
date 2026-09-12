@@ -4,6 +4,7 @@
 #include "effect.h"
 #include "animation.h"
 #include "output.h"
+#include "window.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -409,10 +410,78 @@ void effects_apply(CompScene *s, CompOutput *o)
             e->ops->apply(e, s, o);
 }
 
+/* Changes some effect has said it is already showing (effect.h). One
+ * deadline per kind of event, with the output it was claimed for. */
+static struct {
+    double until;
+    int output;
+} claims[COMP_EVENT_COUNT];
+
+void effects_claim(CompEventKind kind, int output_id, double ms)
+{
+    if (kind < 0 || kind >= COMP_EVENT_COUNT || ms <= 0.0)
+        return;
+
+    double until = comp_now_ms() + ms;
+
+    /* The longer claim wins, and a claim for everywhere outlives one for
+     * a single output: two modes closing at once must not shorten each
+     * other's cover. */
+    if (until > claims[kind].until || claims[kind].until < comp_now_ms()) {
+        claims[kind].until = until;
+        claims[kind].output = output_id;
+    } else if (output_id == COMP_NO_OUTPUT) {
+        claims[kind].output = COMP_NO_OUTPUT;
+    }
+}
+
+/* Which output a window counts as being on -- the largest overlap, the
+ * same answer the effects use. */
+static int output_id_of(const CompWindow *w)
+{
+    CompRect r = window_rect(w);
+    int best = COMP_NO_OUTPUT;
+    long best_area = 0;
+
+    for (int i = 0; i < comp.output_count; i++) {
+        CompRect hit;
+        if (!rect_intersect(&r, &comp.outputs[i].rect, &hit))
+            continue;
+        long a = (long)hit.w * hit.h;
+        if (a > best_area) {
+            best_area = a;
+            best = comp.outputs[i].id;
+        }
+    }
+    return best;
+}
+
+static bool claimed(CompEventKind kind, const CompWindow *w)
+{
+    if (kind < 0 || kind >= COMP_EVENT_COUNT)
+        return false;
+    if (comp_now_ms() >= claims[kind].until)
+        return false;
+    if (claims[kind].output == COMP_NO_OUTPUT)
+        return true;
+    return output_id_of(w) == claims[kind].output;
+}
+
 void effects_window_event(CompWindow *w, const CompEvent *ev)
 {
     if (!enabled)
         return;
+
+    /* Already shown by whatever caused it (effect.h's effects_claim).
+     * Dropped here rather than in each effect, so a mode that claims a
+     * change does not have to know which effects would have answered
+     * it -- and so an effect added later is covered without being told
+     * about the modes. */
+    if (claimed(ev->kind, w)) {
+        comp_log("window 0x%x: %s already shown by another effect",
+                 w->id, comp_event_name(ev->kind));
+        return;
+    }
 
     instances_init();
     comp_log("window 0x%x (%s): %s", w->id, comp_window_type_name(w->type),

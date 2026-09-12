@@ -404,8 +404,16 @@ static void close_mode(CompEffect *e, int enter_desktop, CompWindow *pick)
      * the two halves land. What it does arrives back as ordinary events
      * -- windows mapping, the property changing -- and the animation
      * carries on regardless. */
-    if (enter_desktop >= 0 && enter_desktop != d->current_desktop)
+    if (enter_desktop >= 0 && enter_desktop != d->current_desktop) {
+        /* Shown already, on the cell the user walked into: the wall must
+         * not slide the same desktop in a second time behind the grid
+         * closing over it (effect.h's effects_claim). */
+        double cover = effect_instance_duration(e->instance) * 2.0 + 400.0;
+        effects_claim(COMP_EVENT_DESKTOP_LEAVE, d->output_id, cover);
+        effects_claim(COMP_EVENT_DESKTOP_ENTER, d->output_id, cover);
+
         desktop_request_switch(output_by_id(d->output_id), enter_desktop);
+    }
 
     /* The mirror of layout(): only the desktop being walked into grows
      * back to the screen. */
