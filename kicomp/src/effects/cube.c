@@ -62,6 +62,13 @@ typedef struct {
      * go. */
     float tilt_max;
 
+    /* How far the first window floats off its face, and how far each
+     * one after it floats off the one below -- Compiz's 3D windows.
+     * Both in root pixels: a window's distance from its own desktop is
+     * not a fraction of anything. */
+    float window_gap;
+    float window_spacing;
+
     float cap_r, cap_g, cap_b;          /* the top and bottom */
     float back_r, back_g, back_b;       /* behind the cube */
     float background;                   /* how solid that is */
@@ -122,8 +129,14 @@ static float apothem_of(const CompOutput *o, int faces)
  * surface sits at exactly z = 0 and the projection leaves it alone --
  * which is why phase 0 is the untouched desktop rather than an
  * approximation of it. */
-static void face_transform(CompTransform *t, const CompOutput *o,
-                           const CubeConfig *cfg, const CubeData *d, int i)
+/* The same placement as a face, `off` pixels out in front of it: 0 is
+ * the face itself, and a window floating above its desktop is the very
+ * same rectangle a little nearer the viewer. One function for both so a
+ * window and the face under it cannot be placed by two pieces of
+ * arithmetic that might disagree. */
+static void face_transform_at(CompTransform *t, const CompOutput *o,
+                              const CubeConfig *cfg, const CubeData *d,
+                              int i, float off)
 {
     float step = 2.0f * (float)M_PI / (float)d->faces;
     float own = step * (float)i;
@@ -141,13 +154,19 @@ static void face_transform(CompTransform *t, const CompOutput *o,
      * and the prism would come out as a stack of sheets sliding through
      * each other instead of a ring of faces. Pushed out first and turned
      * second, every face ends up at the apothem facing outwards. */
-    comp_transform_translate_z(t, r);
+    comp_transform_translate_z(t, r + off);
     comp_transform_rotate_y(t, own);
     comp_transform_rotate_y(t, d->angle);
     comp_transform_rotate_x(t, d->tilt);
     comp_transform_translate_z(t, -(r + back));
     comp_transform_perspective(t, (float)o->rect.w * cfg->perspective);
     comp_transform_translate(t, cx, cy);
+}
+
+static void face_transform(CompTransform *t, const CompOutput *o,
+                           const CubeConfig *cfg, const CubeData *d, int i)
+{
+    face_transform_at(t, o, cfg, d, i, 0.0f);
 }
 
 /* How far away a face's middle ends up, as the w the projection divides
@@ -391,18 +410,45 @@ static bool cube_finished(const CompEffect *e, double now)
 /* drawing                                                             */
 /* ------------------------------------------------------------------ */
 
+/* Which face a window belongs on: the desktop it is on, counted round
+ * from the one that was in front when the cube opened. -1 for a window
+ * that has no face here -- one on another output, or on no desktop of
+ * this one.
+ *
+ * Which output a window counts as being on is output_of()'s answer, the
+ * same one show-windows, expo and the cover switcher use. Worth knowing
+ * that kiwm decides it differently, by the output containing the
+ * window's centre; the two disagree only for a window straddling two
+ * monitors, and if that reads badly it is this one function to change. */
+static int face_of_window(const CubeData *d, const CompOutput *o, CompWindow *w)
+{
+    CompRect r = window_rect(w);
+    if (r.w <= 0 || r.h <= 0)
+        return -1;
+
+    CompOutput *ow = output_of(&r);
+    if (!ow || ow->id != o->id)
+        return -1;
+
+    int desktop = 0, index = 0;
+    if (!desktop_of_window(w, &desktop, &index))
+        return -1;
+
+    /* Sticky: on every desktop, so it rides the face in front. */
+    if (desktop == COMP_DESKTOP_ALL)
+        return 0;
+    if (desktop < 0 || desktop >= d->faces)
+        return -1;
+
+    return (desktop - d->first_desktop + d->faces) % d->faces;
+}
+
 static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
 {
     CubeData *d = e->data;
     const CubeConfig *cfg = e->instance->config;
     if (o->id != d->output_id)
         return;
-
-    /* Nothing of the desktop itself is drawn by this mode yet: the
-     * windows are the next thing to go on the faces. For now they are
-     * put away so what is on screen is the prism alone. */
-    for (int n = 0; n < s->count; n++)
-        s->nodes[n].visible_rect = (CompRect){ 0, 0, 0, 0 };
 
     if (cfg->background > 0.0f)
         scene_set_backdrop(s, &o->rect, cfg->back_r, cfg->back_g, cfg->back_b,
@@ -434,16 +480,50 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
         }
     }
 
-    /* All of them above the scene's own nodes, which are empty anyway.
-     * The z they are given is what will let the windows of one face be
-     * drawn between two faces once there are windows on them. */
+    /* Faces back to front, and each one's windows immediately after it:
+     * a window floats above its own face and so is drawn over it, and
+     * under every face that is nearer than the one it belongs to. That
+     * interleaving is the whole reason a solid carries a position in the
+     * node order (scene.h) -- drawing all the faces and then all the
+     * windows gets it exactly wrong the moment they overlap.
+     *
+     * The nodes are reordered so each face's windows sit together, and
+     * the solids are given a z just before the first of them. */
+    int placed = 0;                     /* nodes settled at the front */
+
     for (int k = 0; k < count; k++) {
-        float shade = 1.0f - 0.12f * (float)(vis[k].i % d->faces);
+        int face = vis[k].i;
+
         scene_add_solid(s, &o->rect, &vis[k].t,
-                        cfg->cap_r * shade, cfg->cap_g * shade,
-                        cfg->cap_b * shade, d->phase,
-                        (float)s->count + (float)k);
+                        cfg->cap_r, cfg->cap_g, cfg->cap_b, d->phase,
+                        (float)placed - 0.5f);
+
+        /* This face's windows, bottom of the stack first, each one a
+         * little further off the surface than the last. */
+        int depth = 0;
+        for (int n = placed; n < s->count; n++) {
+            CompSceneNode *node = &s->nodes[n];
+            if (face_of_window(d, o, node->win) != face)
+                continue;
+
+            float off = cfg->window_gap + cfg->window_spacing * (float)depth;
+            CompTransform t;
+            face_transform_at(&t, o, cfg, d, face, off * d->phase);
+
+            node->transform = t;
+            comp_transform_bbox(&t, &node->geometry, &node->visible_rect);
+            depth++;
+
+            if (n != placed)
+                scene_move_node(s, n, placed);
+            placed++;
+        }
     }
+
+    /* Anything with no face on this cube -- another output's window, or
+     * one whose desktop is not among these -- is not drawn. */
+    for (int n = placed; n < s->count; n++)
+        s->nodes[n].visible_rect = (CompRect){ 0, 0, 0, 0 };
 }
 
 static void cube_destroy(CompEffect *e)
@@ -573,6 +653,8 @@ static void cube_defaults(void *config)
     c->perspective = 1.4f;
     c->turns = 1.0f;
     c->tilt_max = 90.0f;
+    c->window_gap = 40.0f;
+    c->window_spacing = 26.0f;
     c->cap_r = c->cap_g = c->cap_b = 0.22f;
     c->back_r = c->back_g = c->back_b = 0.0f;
     c->background = 0.9f;
@@ -590,6 +672,8 @@ static bool cube_config_key(void *config, const char *key, const char *value)
     if (!strcmp(key, "perspective")) { c->perspective = (float)atof(value); return true; }
     if (!strcmp(key, "turns"))       { c->turns = (float)atof(value); return true; }
     if (!strcmp(key, "tilt_max"))    { c->tilt_max = (float)atof(value); return true; }
+    if (!strcmp(key, "window_gap"))     { c->window_gap = (float)atof(value); return true; }
+    if (!strcmp(key, "window_spacing")) { c->window_spacing = (float)atof(value); return true; }
     if (!strcmp(key, "background"))  { c->background = (float)atof(value); return true; }
     if (!strcmp(key, "cap_color"))
         return parse_colour(value, &c->cap_r, &c->cap_g, &c->cap_b);
