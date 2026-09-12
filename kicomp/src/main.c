@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.79"
+#define KICOMP_VERSION "0.2.81"
 
 #include "comp.h"
 #include "output.h"
@@ -81,7 +81,7 @@ void comp_log(const char *fmt, ...)
         return;
     va_list ap;
     va_start(ap, fmt);
-    fputs("kicomp: ", stderr);
+    fprintf(stderr, "kicomp: [%.2f] ", comp_now_ms());
     vfprintf(stderr, fmt, ap);
     fputc('\n', stderr);
     va_end(ap);

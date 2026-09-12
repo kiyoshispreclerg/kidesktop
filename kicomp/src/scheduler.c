@@ -4,11 +4,20 @@
 #include "presenter.h"
 #include "unredirect.h"
 
+#include <math.h>
+
 static double period_ms(const CompOutput *o)
 {
     double hz = o->refresh_hz > 1.0 ? o->refresh_hz : 60.0;
     return 1000.0 / hz;
 }
+
+/* How long after a vblank the frame clock's deadline sits. Long enough
+ * for what the vblank sets in motion to have arrived -- the server
+ * copies a vsynced client's frame at the vblank and the damage for it
+ * reaches us a few hundred microseconds later -- and no longer, so that
+ * frame goes out in the very next scanout rather than the one after. */
+#define VBLANK_PHASE_MS 1.0
 
 bool scheduler_may_paint(CompOutput *o, double now)
 {
@@ -16,6 +25,25 @@ bool scheduler_may_paint(CompOutput *o, double now)
         return false;
 
     double p = period_ms(o);
+
+    /* Phased to the monitor when the presenter can say when the last
+     * frame was scanned out: the next deadline is the first
+     * (vblank + phase) after now, however many periods on that is. A
+     * deadline that sits at an arbitrary point of the refresh interval
+     * -- which is what a clock that only ever adds a period to itself
+     * has -- was holding a frame whose damage arrived just after the
+     * vblank for as much as ten milliseconds, for no reason but where
+     * the clock happened to start. */
+    double vblank = presenter && presenter->vblank_ms
+                    ? presenter->vblank_ms(o) : 0.0;
+    if (vblank > 0.0 && now - vblank < 1000.0) {
+        double phase = vblank + VBLANK_PHASE_MS;
+        double periods = floor((now - phase) / p) + 1.0;
+        if (periods < 1.0)
+            periods = 1.0;
+        o->next_frame_ms = phase + periods * p;
+        return true;
+    }
 
     /* Advance from the deadline, not from `now`, so a steady animation
      * keeps a steady cadence instead of drifting a little later every
