@@ -760,8 +760,12 @@ int desktop_entry_find_by_wm_class(const char *wm_class, char *out_name, size_t 
  * *every* level into one array, so a handful of top-level menus with
  * dynamic contents (Recent Documents, a long Bookmarks list, ...) adds up
  * fast even though any single displayed dropdown stays small -- plain
- * ints, so the extra array size costs nothing that matters. */
-#define MENU_TREE_MAX_ITEMS 512
+ * ints, so the extra array size costs nothing that matters. 512 wasn't
+ * generous enough in practice: real menu-heavy apps (LibreOffice, GIMP,
+ * Blender) sum well past it once every submenu is counted, and
+ * dbusmenu_parse_node() silently stops recursing once max_items is hit --
+ * no error, just a menu quietly missing its later entries. */
+#define MENU_TREE_MAX_ITEMS 4096
 typedef struct {
     char label[64];
     int enabled; /* 0 = greyed out, not selectable */
