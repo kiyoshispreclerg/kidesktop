@@ -56,6 +56,10 @@ typedef enum { LIVE_NONE, LIVE_ACTIVE, LIVE_ALL } CubeLive;
 
 typedef struct {
     char hotkey[128];
+    /* Turning the cube by one face without a drag: the same mode, opened
+     * and closed by itself. */
+    char hotkey_next[128];
+    char hotkey_prev[128];
 
     /* How far the cube stands off from the eye once it is open, and how
      * strong the projection is -- both as fractions of the output's
@@ -132,6 +136,10 @@ typedef struct {
     float phase_from, phase_to;
     double phase_time;
     bool closing;
+
+    /* Opened by a key rather than held by a button: it turns one face
+     * and shuts itself, so there is no release to wait for. */
+    bool flick;
 } CubeData;
 
 static const CompEffectOps cube_ops;
@@ -345,7 +353,8 @@ static void close_mode(CompEffect *e)
     if (d->closing)
         return;
 
-    input_release();
+    if (!d->flick)
+        input_release();
 
     /* The face it landed on, asked for rather than done: a compositor
      * does not switch desktops, it says which one the user chose and
@@ -547,6 +556,11 @@ static void cube_update(CompEffect *e, double now)
         d->tilt = tilt;
         mark_dirty(d);
     }
+
+    /* A flick has no button to let go of: it is done when it has turned
+     * as far as it was asked to, and closes itself. */
+    if (d->flick && !d->closing && d->settling && angle == d->angle_to)
+        close_mode(e);
 }
 
 static bool cube_finished(const CompEffect *e, double now)
@@ -745,9 +759,12 @@ static const CompEffectOps cube_ops = {
 /* the trigger                                                         */
 /* ------------------------------------------------------------------ */
 
-static void cube_press(void *data)
+/* Opens the mode. `flick` is the keyboard's way in: it turns one face
+ * and shuts itself, so it takes no grab and leaves the pointer alone --
+ * there is no release to wait for, and a grab with nothing to end it is
+ * a session that cannot be clicked. */
+static void cube_open(const CompEffectInstance *self, bool flick)
 {
-    const CompEffectInstance *self = data;
     const CubeConfig *cfg = self->config;
 
     if (active)
@@ -786,7 +803,8 @@ static void cube_press(void *data)
 
     d->drag_x = px;
     d->drag_y = py;
-    d->dragging = true;
+    d->dragging = !flick;
+    d->flick = flick;
 
     e->ops = &cube_ops;
     e->instance = self;
@@ -819,14 +837,15 @@ static void cube_press(void *data)
     /* Nothing here is pointed at -- the cube is turned by how far the
      * pointer has moved, never by what it is over -- so the arrow is
      * only something in the way. */
-    input_cursor_hide(true);
-
-    if (!input_grab(&cube_input, e)) {
-        comp.show_stowed_output = COMP_NO_OUTPUT;
-        input_cursor_hide(false);
-        free(d);
-        free(e);
-        return;
+    if (!flick) {
+        input_cursor_hide(true);
+        if (!input_grab(&cube_input, e)) {
+            comp.show_stowed_output = COMP_NO_OUTPUT;
+            input_cursor_hide(false);
+            free(d);
+            free(e);
+            return;
+        }
     }
 
     (void)cfg;
@@ -835,15 +854,54 @@ static void cube_press(void *data)
     mark_dirty(d);
 }
 
-static void cube_init(const CompEffectInstance *self)
+/* One face over, with no drag: the cube opens, turns, and shuts itself.
+ *
+ * The same mode as the drag, not a second one -- so it holds the other
+ * desktops up, draws their windows and lands on a face exactly as a
+ * turned cube does, and a user who reaches for the key gets the same
+ * picture as one who reaches for the mouse. While a drag is already
+ * running it just aims the turn one face further, which is what pressing
+ * the key mid-turn should obviously do.
+ *
+ * `by` is +1 for the next desktop and -1 for the previous. The cube
+ * turns the other way from the desktop it is moving to: bringing the
+ * next face round to the front means swinging the prism backwards. */
+static void cube_step(const CompEffectInstance *self, int by)
 {
-    const CubeConfig *cfg = self->config;
-    bound_instance = self;
-    if (!cfg->hotkey[0])
+    float step;
+
+    if (!active) {
+        cube_open(self, true);
+        if (!active)
+            return;
+    }
+
+    CubeData *d = active->data;
+    if (d->closing)
         return;
 
-    char buf[sizeof(cfg->hotkey)];
-    snprintf(buf, sizeof(buf), "%s", cfg->hotkey);
+    step = 2.0f * (float)M_PI / (float)d->faces;
+    d->angle_from = d->angle;
+    d->angle_to = (d->settling ? d->angle_to : d->angle) - step * (float)by;
+    d->angle_time = comp_now_ms();
+    d->tilt_from = d->tilt;
+    d->settling = true;
+    mark_dirty(d);
+}
+
+static void cube_next(void *data) { cube_step(data, +1); }
+static void cube_prev(void *data) { cube_step(data, -1); }
+
+/* A comma-separated list of specs, because the same action reached from
+ * more than one combination is an ordinary thing to want. */
+static void bind_keys(const char *spec, void (*fn)(void *),
+                      const CompEffectInstance *self)
+{
+    if (!spec || !spec[0])
+        return;
+
+    char buf[128];
+    snprintf(buf, sizeof(buf), "%s", spec);
 
     char *save = NULL;
     for (char *tok = strtok_r(buf, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
@@ -853,8 +911,23 @@ static void cube_init(const CompEffectInstance *self)
         while (end > tok && (end[-1] == ' ' || end[-1] == '\t'))
             *--end = '\0';
         if (*tok)
-            input_bind_hotkey(tok, cube_press, (void *)self);
+            input_bind_hotkey(tok, fn, (void *)self);
     }
+}
+
+static void cube_press(void *data)
+{
+    cube_open(data, false);
+}
+
+static void cube_init(const CompEffectInstance *self)
+{
+    const CubeConfig *cfg = self->config;
+    bound_instance = self;
+
+    bind_keys(cfg->hotkey, cube_press, self);
+    bind_keys(cfg->hotkey_next, cube_next, self);
+    bind_keys(cfg->hotkey_prev, cube_prev, self);
 }
 
 /* ------------------------------------------------------------------ */
@@ -880,6 +953,8 @@ static void cube_defaults(void *config)
 {
     CubeConfig *c = config;
     snprintf(c->hotkey, sizeof(c->hotkey), "%s", "Ctrl+Meta+Button1");
+    snprintf(c->hotkey_next, sizeof(c->hotkey_next), "%s", "Ctrl+Meta+Right");
+    snprintf(c->hotkey_prev, sizeof(c->hotkey_prev), "%s", "Ctrl+Meta+Left");
     c->zoom = 0.9f;
     c->perspective = 1.4f;
     c->turns = 1.0f;
@@ -900,6 +975,14 @@ static bool cube_config_key(void *config, const char *key, const char *value)
 
     if (!strcmp(key, "hotkey")) {
         snprintf(c->hotkey, sizeof(c->hotkey), "%s", value);
+        return true;
+    }
+    if (!strcmp(key, "hotkey_next")) {
+        snprintf(c->hotkey_next, sizeof(c->hotkey_next), "%s", value);
+        return true;
+    }
+    if (!strcmp(key, "hotkey_prev")) {
+        snprintf(c->hotkey_prev, sizeof(c->hotkey_prev), "%s", value);
         return true;
     }
     if (!strcmp(key, "zoom"))        { c->zoom = (float)atof(value); return true; }
