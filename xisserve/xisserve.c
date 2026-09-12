@@ -42,7 +42,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.4"
+#define XISSERVE_VERSION "0.1.5"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460

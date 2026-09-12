@@ -16,7 +16,14 @@
 #include <gtk/gtk.h>
 #include <stdint.h>
 
-#define DBUSMENU_MAX_ITEMS 512
+/* Same cap and same reasoning as xispanel/xispanel.h's MENU_TREE_MAX_ITEMS
+ * (bumped there for the identical symptom): a whole-tree GetLayout fetch
+ * flattens *every* item across *every* submenu level into one array, and
+ * dbusmenu_parse_node() silently stops recursing once this is hit -- no
+ * error, just a menu quietly missing its later entries. Real menu-heavy
+ * apps (LibreOffice, GIMP, Blender) sum well past 512 once every submenu
+ * is counted. */
+#define DBUSMENU_MAX_ITEMS 4096
 
 typedef struct {
     char label[128];
