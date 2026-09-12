@@ -13,6 +13,19 @@
 typedef struct CompRenderer {
     const char *name;
 
+    /* Can this backend draw a node through a *projective* matrix -- one
+     * with a perspective divide -- or only an affine one?
+     *
+     * The GL backends carry the node's whole 4x4 to the vertex shader and
+     * let the pipeline divide by w, so they can. XRender inverts the
+     * affine part and gives up on anything else (comp_transform_invert_
+     * affine), drawing the node untransformed rather than drawing
+     * nonsense -- which for an effect built on perspective would mean
+     * every window sitting where it really is. So an effect asks first,
+     * and flattens itself into something affine when the answer is no.
+     */
+    bool projective;
+
     bool (*init)(CompOutput *o);      /* create this output's target */
     void (*destroy)(CompOutput *o);
 
@@ -141,6 +154,9 @@ void renderer_output_pixmap_idle(CompOutput *o, xcb_pixmap_t pixmap);
  * the one in flight, and the presenter has to wait for that frame to
  * land before the next may be drawn. */
 bool renderer_output_has_free_buffer(const CompOutput *o);
+
+/* Whether the chosen backend can draw a perspective transform. */
+bool renderer_is_projective(void);
 
 /* Picture format of the root visual. An XRender detail, but the COPY
  * presenter needs the same answer and there should be exactly one place

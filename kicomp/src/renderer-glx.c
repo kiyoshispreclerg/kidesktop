@@ -585,6 +585,7 @@ static void glx_shutdown(void)
 
 static const CompRenderer glx_renderer = {
     .name       = "glx",
+    .projective         = true,
     .init       = glx_init,
     .destroy    = glx_destroy,
     .begin      = glx_begin,

@@ -98,6 +98,11 @@ void renderer_output_pixmap_idle(CompOutput *o, xcb_pixmap_t pixmap)
         renderer->output_pixmap_idle(o, pixmap);
 }
 
+bool renderer_is_projective(void)
+{
+    return renderer && renderer->projective;
+}
+
 bool renderer_output_has_free_buffer(const CompOutput *o)
 {
     return renderer && renderer->output_has_free_buffer &&

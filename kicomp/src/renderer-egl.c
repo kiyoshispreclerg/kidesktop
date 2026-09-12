@@ -744,6 +744,7 @@ static void egl_shutdown(void)
 
 static const CompRenderer egl_renderer = {
     .name       = "egl",
+    .projective         = true,
     .init       = egl_init,
     .destroy    = egl_destroy,
     .begin      = egl_begin,

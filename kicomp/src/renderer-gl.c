@@ -889,6 +889,36 @@ static void draw_piece(const CompOutput *o, const CompRect *piece,
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
+/* A rectangle measured in the window's own coordinates -- a shape
+ * rectangle, the shape's extents -- placed where the node is actually
+ * being drawn.
+ *
+ * The two are not the same place. A shape is measured against the
+ * window's real rectangle, which is where the window *is*; the node's
+ * geometry is where it is being *shown*, and an effect is free to make
+ * that somewhere else and a different size (an expo cell, a cover in a
+ * row). Reading the shape at the window's real position and then
+ * applying the node's transform to it asks the transform a question
+ * about a rectangle it was never built to move, and the scissor that
+ * comes out has nothing to do with the node. */
+static CompRect in_node_space(const CompSceneNode *n, const CompWindow *w,
+                              int rx, int ry, int rw, int rh)
+{
+    CompRect wr = window_rect(w);
+    if (wr.w <= 0 || wr.h <= 0)
+        return (CompRect){ n->geometry.x + rx, n->geometry.y + ry, rw, rh };
+
+    float sx = (float)n->geometry.w / (float)wr.w;
+    float sy = (float)n->geometry.h / (float)wr.h;
+
+    return (CompRect){
+        n->geometry.x + (int)((float)rx * sx),
+        n->geometry.y + (int)((float)ry * sy),
+        (int)((float)rw * sx + 0.5f),
+        (int)((float)rh * sy + 0.5f),
+    };
+}
+
 /* One node, inside repaint_rect -- which by the time this runs is one
  * piece of the node's own clip (scene.h) ∩ one damaged rectangle, so
  * every scissor box below is already inside both. */
@@ -951,9 +981,10 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     if (g->shape_count > 0 && move_only) {
         for (int k = 0; k < g->shape_count; k++) {
             const xcb_rectangle_t *sr = &g->shape_rects[k];
-            CompRect piece = { w->x + (int)tdx + sr->x,
-                               w->y + (int)tdy + sr->y,
-                               sr->width, sr->height };
+            CompRect piece = in_node_space(n, w, sr->x, sr->y,
+                                           sr->width, sr->height);
+            piece.x += (int)tdx;
+            piece.y += (int)tdy;
             draw_piece(o, &piece, &opaque);
         }
     } else if (!move_only && w->shaped &&
@@ -966,9 +997,9 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
          * small bar shaped out of it, and drawing the rectangle while
          * an effect shrinks it puts a screen-sized ghost of stale
          * contents in the middle of the grid. */
-        CompRect ext = { w->x + w->shape_extents.x,
-                         w->y + w->shape_extents.y,
-                         w->shape_extents.w, w->shape_extents.h };
+        CompRect ext = in_node_space(n, w, w->shape_extents.x,
+                                     w->shape_extents.y,
+                                     w->shape_extents.w, w->shape_extents.h);
         CompRect moved = comp_transform_rect(&n->transform, &ext);
         if (scissor_to(o, &moved))
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
