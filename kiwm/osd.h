@@ -44,9 +44,36 @@ typedef struct {
     /* Paints the content area (already translated so 0,0 is its top-left
      * corner) into a `w`x`h` box. */
     void (*paint)(cairo_t *cr, const TabBoxState *state, int w, int h);
+
+    /* This presentation draws none of kiwm's own pixels: something else
+     * is showing the list. measure() and paint() are then never called,
+     * no overlay window is mapped, and no outline is drawn -- but the
+     * hold, the grab, the stepping and the commit are the same code as
+     * ever, because who holds the keyboard is not a question of how the
+     * list is drawn. */
+    bool external;
+
+    /* Optional, and only useful to an external presentation: the hold
+     * opened, the selection moved, the hold ended. `committed` says
+     * whether the selection is being acted on or the hold was abandoned
+     * -- kiwm does the acting either way, so this is only so the other
+     * side can tell the difference. */
+    void (*open)(const TabBoxState *state);
+    void (*step)(const TabBoxState *state);
+    void (*close)(const TabBoxState *state, bool committed);
 } TabBoxOps;
 
 extern const TabBoxOps simple_list_tabbox_ops;
+
+/* The row of covers the compositor draws (tabbox-cover.c). Used in place
+ * of the list when the compositor offers it and kiwm.conf asks for it;
+ * cover_switch_offered() is what that asking checks. */
+extern const TabBoxOps cover_switch_tabbox_ops;
+bool cover_switch_offered(void);
+
+/* The window list, built the way every switcher here builds it. Shared
+ * so a presentation never gets to disagree about what is switchable. */
+void tabbox_build_default(TabBoxState *state, int output_idx, int desktop);
 
 /* Called from keybind.c's run_action() for every window-switcher shortcut
  * (direction +1/-1) -- opens the window-switcher OSD on the first call of

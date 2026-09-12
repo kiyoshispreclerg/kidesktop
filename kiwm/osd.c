@@ -107,7 +107,7 @@ static int original_desktop = 0;
 
 /* ---- window-switcher TabBoxOps: simple vertical list ---- */
 
-static void list_build(TabBoxState *state, int output_idx, int desktop)
+void tabbox_build_default(TabBoxState *state, int output_idx, int desktop)
 {
     state->count = 0;
     state->selected = 0;
@@ -210,7 +210,7 @@ static void list_paint(cairo_t *cr, const TabBoxState *state, int w, int h)
 
 const TabBoxOps simple_list_tabbox_ops = {
     .name = "simple_list",
-    .build = list_build,
+    .build = tabbox_build_default,
     .measure = list_measure,
     .paint = list_paint,
 };
@@ -509,6 +509,14 @@ static void paint_desktops_wrapper(cairo_t *cr, int w, int h)
 
 static void repaint_windows(void)
 {
+    /* Somebody else is drawing this one (osd.h's TabBoxOps::external):
+     * kiwm has no window up and measure/paint would have nothing to
+     * measure. Guarded here rather than at every call site so the paths
+     * that merely ask for a refresh -- an expose, a client going away --
+     * need know nothing about it. */
+    if (active_tabbox_ops->external)
+        return;
+
     int cw, ch;
     active_tabbox_ops->measure(&tb_state, &cw, &ch);
     draw_chrome_and_content(cw, ch, paint_windows_wrapper);
@@ -523,8 +531,17 @@ static void repaint_desktops(void)
     draw_chrome_and_content(cw, ch, paint_desktops_wrapper);
 }
 
+/* Whether the hold that is closing committed its selection -- set by
+ * commit_and_close() just before it calls close_osd(), because both
+ * paths into close_osd() have to say which one they are. */
+static bool closing_committed;
+
 static void close_osd(void)
 {
+    if (kind == OSD_WINDOWS && active_tabbox_ops->close)
+        active_tabbox_ops->close(&tb_state, closing_committed);
+    closing_committed = false;
+
     outline_hide();
     if (osd_win != XCB_NONE && osd_mapped) {
         xcb_unmap_window(wm.conn, osd_win);
@@ -547,6 +564,7 @@ static void close_osd(void)
  * (osd_poll_release(), osd_handle_button_press()). */
 static void commit_and_close(void)
 {
+    closing_committed = true;
     if (kind == OSD_WINDOWS) {
         if (tb_state.count > 0 && tb_state.selected >= 0 && tb_state.selected < tb_state.count)
             activate_client(tb_state.items[tb_state.selected]);
@@ -697,6 +715,13 @@ void osd_windows_step(int direction, uint16_t mods)
     int desktop = wm.outputs[output_idx].desktop;
 
     if (kind != OSD_WINDOWS) {
+        /* Which presentation, decided here and not before: the answer
+         * depends on a compositor that may have started or stopped since
+         * the last hold, and this is the only moment it is used. */
+        active_tabbox_ops = (wm.osd_cover_switch && cover_switch_offered())
+                          ? &cover_switch_tabbox_ops
+                          : &simple_list_tabbox_ops;
+
         active_tabbox_ops->build(&tb_state, output_idx, desktop);
         if (tb_state.count == 0)
             return; /* nothing to switch to -- don't open an empty OSD */
@@ -710,9 +735,21 @@ void osd_windows_step(int direction, uint16_t mods)
          * key+modifier combo it was registered for (Tab here), never for
          * a bare release of the modifier key by itself. */
         grab_for_hold();
+        if (active_tabbox_ops->open)
+            active_tabbox_ops->open(&tb_state);
     }
 
     tb_state.selected = (tb_state.selected + direction + tb_state.count) % tb_state.count;
+    if (active_tabbox_ops->external) {
+        /* Nothing of kiwm's is on screen, so there is nothing to outline
+         * against and nothing to repaint: the row the compositor draws
+         * *is* the highlight, and outlining the real window underneath it
+         * would point at where the window is rather than at the cover the
+         * user is looking at. */
+        active_tabbox_ops->step(&tb_state);
+        return;
+    }
+
     if (wm.osd_live_preview_windows) {
         /* activate_client(), not focus_client(): the list includes
          * minimized windows, and one of those has to be restored before

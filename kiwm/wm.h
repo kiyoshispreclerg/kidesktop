@@ -1416,6 +1416,13 @@ typedef struct {
      * "flip between the last two windows" behavior most desktops have. */
     bool osd_mru_order;
 
+    /* kiwm.conf's osd_cover_switch= (default 1): use the compositor's
+     * row of covers for the window switcher when it offers one, instead
+     * of kiwm's own list. Only ever a preference -- with no compositor,
+     * or one that does not offer it, the list is what appears, and
+     * nothing about the hold or the commit changes either way. */
+    bool osd_cover_switch;
+
     /* Whether each square of the desktop switcher's grid also shows the
      * windows living on that desktop, drawn as little rectangles at their
      * real geometry scaled into the square -- kiwm.conf's
