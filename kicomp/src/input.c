@@ -282,6 +282,13 @@ double input_mode_ended_ms(void)
     return grab_ended_ms;
 }
 
+void input_pointer_warp(int root_x, int root_y)
+{
+    xcb_warp_pointer(comp.conn, XCB_NONE, comp.root, 0, 0, 0, 0,
+                     (int16_t)root_x, (int16_t)root_y);
+    xcb_flush(comp.conn);
+}
+
 bool input_pointer_position(int *root_x, int *root_y)
 {
     xcb_query_pointer_reply_t *r = xcb_query_pointer_reply(comp.conn,

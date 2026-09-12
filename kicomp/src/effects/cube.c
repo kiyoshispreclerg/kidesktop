@@ -81,9 +81,9 @@ typedef struct {
 
     float tilt;
 
-    /* Where the drag started, and the cube's angle when it did. */
+    /* The point the pointer is pinned to while the drag lasts: every
+     * motion is measured from it and the pointer put back on it. */
     int drag_x, drag_y;
-    float drag_angle;
     bool dragging;
 
     float phase;                /* 0 the plain desktop, 1 the open cube */
@@ -280,17 +280,32 @@ static void on_motion(void *data, int root_x, int root_y)
     if (!o || !d->dragging || d->closing)
         return;
 
-    float across = (float)(root_x - d->drag_x) / (float)o->rect.w;
-    d->angle = d->drag_angle + across * cfg->turns * 2.0f * (float)M_PI;
+    /* Every motion measured against the anchor and the pointer put back
+     * on it, rather than against where the drag began.
+     *
+     * Turning a cube is something the user goes on doing past the point
+     * where the cursor would have run into the side of the screen, and a
+     * drag measured from its origin simply stops there -- the pointer
+     * cannot move any further, so neither can the cube. Measuring the
+     * step and giving the pointer back its place makes the travel
+     * unbounded. The warp arrives as one more motion, at the anchor, a
+     * distance of zero from it, so this does not feed back on itself. */
+    int dx = root_x - d->drag_x;
+    int dy = root_y - d->drag_y;
+    if (dx == 0 && dy == 0)
+        return;
+    input_pointer_warp(d->drag_x, d->drag_y);
 
-    /* The tilt stops at the poles: past straight down there is nothing
-     * further to see, only the cube upside down. */
-    float down = (float)(root_y - d->drag_y) / (float)o->rect.h;
+    d->angle += (float)dx / (float)o->rect.w * cfg->turns * 2.0f * (float)M_PI;
+
+    /* Pulling down leans the cube back, the way pulling the near edge of
+     * a box towards you tips its top into view. The tilt stops at the
+     * poles: past looking straight down there is nothing further to see,
+     * only the cube upside down. */
     float limit = cfg->tilt_max * (float)M_PI / 180.0f;
-    float tilt = down * limit * 2.0f;
-    if (tilt > limit) tilt = limit;
-    if (tilt < -limit) tilt = -limit;
-    d->tilt = tilt;
+    d->tilt -= (float)dy / (float)o->rect.h * limit * 2.0f;
+    if (d->tilt > limit) d->tilt = limit;
+    if (d->tilt < -limit) d->tilt = -limit;
 
     mark_dirty(d);
 }
@@ -490,7 +505,6 @@ static void cube_press(void *data)
 
     d->drag_x = px;
     d->drag_y = py;
-    d->drag_angle = 0.0f;
     d->dragging = true;
 
     e->ops = &cube_ops;

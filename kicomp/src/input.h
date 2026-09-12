@@ -97,4 +97,16 @@ bool input_handle_event(xcb_generic_event_t *ev);
  * it is starting from. False if the server won't say. */
 bool input_pointer_position(int *root_x, int *root_y);
 
+/* Puts the pointer back where it was.
+ *
+ * For a mode driven by how far the pointer has *moved* rather than by
+ * where it is -- turning a cube, which the user goes on doing long after
+ * the cursor would have run into the side of the screen. Such a mode
+ * measures every motion against a fixed anchor and warps back to it, so
+ * the next motion measures from the same place and the travel is
+ * unbounded. The warp itself arrives as one more motion, at the anchor,
+ * whose distance from the anchor is zero -- which is why this does not
+ * feed back on itself. */
+void input_pointer_warp(int root_x, int root_y);
+
 #endif /* KICOMP_INPUT_H */
