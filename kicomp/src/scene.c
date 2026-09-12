@@ -30,6 +30,7 @@ void scene_build(CompScene *s, CompOutput *o)
      * it in apply(), which runs before anything is drawn. */
     comp_transform_identity(&o->view);
     s->chrome_count = 0;
+    s->solid_count = 0;
     s->backdrop.rect = (CompRect){ 0, 0, 0, 0 };
 
     for (CompWindow *w = comp.stack; w; w = w->next) {
@@ -142,6 +143,39 @@ void scene_add_chrome(CompScene *s, struct CompTextImage *image,
     c->image = image;
     c->rect = *rect;
     c->opacity = opacity;
+}
+
+void scene_add_solid(CompScene *s, const CompRect *rect,
+                     const CompTransform *transform,
+                     float r, float g, float b, float opacity, float z)
+{
+    if (!s || !rect || s->solid_count >= MAX_SCENE_SOLIDS)
+        return;
+    if (rect->w <= 0 || rect->h <= 0 || opacity <= 0.0f)
+        return;
+
+    /* Sorted by z as they arrive: the renderers walk the nodes and the
+     * solids together in one pass and need this list already in order.
+     * Insertion, because a scene has a handful of these and they are
+     * usually added in order anyway. */
+    int at = s->solid_count;
+    while (at > 0 && s->solids[at - 1].z > z) {
+        s->solids[at] = s->solids[at - 1];
+        at--;
+    }
+
+    CompSceneSolid *q = &s->solids[at];
+    q->rect = *rect;
+    if (transform)
+        q->transform = *transform;
+    else
+        comp_transform_identity(&q->transform);
+    q->r = r;
+    q->g = g;
+    q->b = b;
+    q->opacity = opacity > 1.0f ? 1.0f : opacity;
+    q->z = z;
+    s->solid_count++;
 }
 
 void scene_set_backdrop(CompScene *s, const CompRect *rect,

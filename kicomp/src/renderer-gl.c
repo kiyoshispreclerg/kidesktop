@@ -1114,6 +1114,58 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     }
 }
 
+/* One coloured quad (scene.h's CompSceneSolid). The same one-texel
+ * texture the backdrop uses -- a flat colour is a texel, and going
+ * through the window shader means a quad and a window are drawn by the
+ * same code, so a cube's face and the windows above it cannot disagree
+ * about perspective. */
+static void draw_solid(const CompOutput *o, const CompSceneSolid *q,
+                       const float projection[16])
+{
+    CompRect box;
+    comp_transform_bbox(&q->transform, &q->rect, &box);
+    CompRect ignored;
+    if (!rect_intersect(&box, &repaint_rect, &ignored))
+        return;
+
+    static GLuint tex;
+    if (!tex) {
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    } else {
+        glBindTexture(GL_TEXTURE_2D, tex);
+    }
+
+    unsigned char px[4] = {
+        (unsigned char)(q->r * 255.0f + 0.5f),
+        (unsigned char)(q->g * 255.0f + 0.5f),
+        (unsigned char)(q->b * 255.0f + 0.5f),
+        255,
+    };
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, px);
+
+    float m[16];
+    rect_matrix(&q->rect, &q->transform, m);
+
+    glUseProgram(program);
+    glUniform1f(u_use_mask, 0.0f);
+    glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
+    glUniform1i(u_texture, 0);
+    glUniform1f(u_y_flip, 0.0f);
+    glUniformMatrix4fv(u_transform, 1, GL_FALSE, m);
+    glUniform1f(u_opacity, q->opacity);
+
+    scissor_for(o, repaint_rect.x, repaint_rect.y,
+                repaint_rect.w, repaint_rect.h);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
 static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
 {
     draw_backdrop(o, s, projection);
@@ -1123,9 +1175,17 @@ static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
      * back afterwards. */
     CompRect damaged = repaint_rect;
 
+    /* Solids and nodes in one walk: a solid's z says where among the
+     * nodes it is drawn (scene.h), which is what lets a cube's near face
+     * come out in front of the windows floating above its far one. */
+    int si = 0;
+
     for (int i = 0; i < s->count; i++) {
         CompSceneNode *n = &s->nodes[i];
         CompWindow *w = n->win;
+
+        while (si < s->solid_count && s->solids[si].z <= (float)i)
+            draw_solid(o, &s->solids[si++], projection);
 
         if (n->visible_rect.w <= 0 || n->visible_rect.h <= 0)
             continue;
@@ -1153,6 +1213,9 @@ static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
         }
         repaint_rect = damaged;
     }
+
+    while (si < s->solid_count)
+        draw_solid(o, &s->solids[si++], projection);
 }
 
 /* An effect's labels (scene.h), over everything and never scaled. The

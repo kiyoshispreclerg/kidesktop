@@ -89,6 +89,32 @@ typedef struct CompSceneBackdrop {
     float opacity;
 } CompSceneBackdrop;
 
+/* A flat rectangle of colour with a transform of its own: the faces and
+ * caps of a cube, and anything else an effect needs to draw that is not
+ * a window and not text.
+ *
+ * The z is what makes it usable together with the windows. A scene's
+ * draw order is its node array's order (CompSceneNode::z is the index
+ * it sits at), so a solid's z says where in that same order it belongs:
+ * 2.5 is drawn after node 2 and before node 3. Without it a cube could
+ * not be drawn at all -- its near face has to come out in front of the
+ * windows floating above its far face, and those are a node and a solid
+ * that have to interleave. Solids are kept sorted by z.
+ *
+ * Only a backend that can draw a projective matrix honours the
+ * transform; the others draw the untransformed ones and skip the rest,
+ * which is the same bargain every other transformed thing here makes
+ * (renderer.h's `projective`). */
+#define MAX_SCENE_SOLIDS 32
+
+typedef struct CompSceneSolid {
+    CompRect rect;              /* root coordinates, before the transform */
+    CompTransform transform;
+    float r, g, b;              /* straight, 0..1 -- not premultiplied */
+    float opacity;
+    float z;                    /* where among the nodes this is drawn */
+} CompSceneSolid;
+
 typedef struct CompScene {
     CompOutput *output;
     CompSceneNode nodes[MAX_SCENE_NODES];
@@ -97,6 +123,9 @@ typedef struct CompScene {
     CompSceneChrome chrome[MAX_SCENE_CHROME];
     int chrome_count;
 
+    CompSceneSolid solids[MAX_SCENE_SOLIDS];
+    int solid_count;
+
     CompSceneBackdrop backdrop;
 } CompScene;
 
@@ -104,6 +133,13 @@ typedef struct CompScene {
  * never rendered -- a label is worth nothing to fail a frame over. */
 void scene_add_chrome(CompScene *s, struct CompTextImage *image,
                       const CompRect *rect, float opacity);
+
+/* Adds one coloured quad, keeping the list sorted by z. Ignored when the
+ * scene is full or the rectangle is empty -- like chrome, a quad is not
+ * worth failing a frame over. */
+void scene_add_solid(CompScene *s, const CompRect *rect,
+                     const CompTransform *transform,
+                     float r, float g, float b, float opacity, float z);
 
 /* Sets the ground for this frame. Cleared again by the next
  * scene_build(), like everything else an effect puts here. */

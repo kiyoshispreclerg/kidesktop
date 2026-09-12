@@ -1567,6 +1567,35 @@ static void draw_chrome(CompOutput *o, const CompScene *s);
 static void draw_backdrop(CompOutput *o, const CompScene *s,
                           const CompRegion *damage);
 
+/* One coloured quad (scene.h's CompSceneSolid).
+ *
+ * Untransformed ones only. XRender can express an affine picture
+ * transform but a fill has no picture to transform, so a turned quad
+ * would have to be drawn as a polygon this backend has no path for --
+ * and the one thing that wants turned quads, the cube, needs a
+ * projective matrix and so refuses to run here at all
+ * (renderer.h's `projective`). Skipping is therefore the honest answer
+ * rather than a gap: nothing that gets this far has a transform. */
+static void draw_solid(CompOutput *o, const CompSceneSolid *q)
+{
+    if (!comp_transform_is_identity(&q->transform))
+        return;
+
+    clip_to_frame(o, XCB_NONE, 0, 0);
+
+    float a = q->opacity;
+    xcb_render_color_t c = {
+        (uint16_t)(q->r * a * 65535.0f + 0.5f),
+        (uint16_t)(q->g * a * 65535.0f + 0.5f),
+        (uint16_t)(q->b * a * 65535.0f + 0.5f),
+        (uint16_t)(a * 65535.0f + 0.5f),
+    };
+
+    xcb_rectangle_t r = to_target_rect(o, &q->rect);
+    xcb_render_fill_rectangles(comp.conn, XCB_RENDER_PICT_OP_OVER, o->target,
+                               c, 1, &r);
+}
+
 static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
 {
     if (!o->target)
@@ -1574,9 +1603,15 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
 
     draw_backdrop(o, s, damage);
 
+    /* Solids and nodes in one walk, by the solid's z (scene.h). */
+    int si = 0;
+
     for (int i = 0; i < s->count; i++) {
         CompSceneNode *n = &s->nodes[i];
         CompWindow *w = n->win;
+
+        while (si < s->solid_count && s->solids[si].z <= (float)i)
+            draw_solid(o, &s->solids[si++]);
 
         /* Nothing to draw here: either the window doesn't reach this
          * output, or an effect kept the node around without claiming any
@@ -1907,6 +1942,9 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
 
         frame_clip_widen();
     }
+
+    while (si < s->solid_count)
+        draw_solid(o, &s->solids[si++]);
 
     draw_chrome(o, s);
 }
