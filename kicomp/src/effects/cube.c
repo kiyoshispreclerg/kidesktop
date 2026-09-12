@@ -1015,9 +1015,9 @@ static void cube_defaults(void *config)
     snprintf(c->hotkey, sizeof(c->hotkey), "%s", "Ctrl+Meta+Button1");
     snprintf(c->hotkey_next, sizeof(c->hotkey_next), "%s", "Ctrl+Meta+Right");
     snprintf(c->hotkey_prev, sizeof(c->hotkey_prev), "%s", "Ctrl+Meta+Left");
-    c->zoom = 0.9f;
+    c->zoom = 0.55f;
     c->flick_zoom = 0.0f;
-    c->perspective = 1.4f;
+    c->perspective = 0.7f;
     c->turns = 1.0f;
     c->tilt_max = 90.0f;
     c->window_gap = 40.0f;
