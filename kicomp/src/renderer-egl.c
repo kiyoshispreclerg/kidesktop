@@ -603,21 +603,15 @@ bool renderer_egl_available(void)
 /* the renderer                                                        */
 /* ------------------------------------------------------------------ */
 
-static void egl_begin(CompOutput *o, const CompRegion *damage)
+/* The free buffer shown most recently: the least to redraw. Never the
+ * one presented last, idle or not: with the COPY presenter the server's
+ * copy out of it and this frame's drawing into it would be two GPU jobs
+ * on one buffer with nothing ordering them. Beyond that, with a
+ * presenter that never says idle (COPY) every buffer counts as free --
+ * the copy is done by the time its frame's completion let this one
+ * start. -1 when every buffer is with the server. */
+static int free_buffer(const EglOutput *eo)
 {
-    EglOutput *eo = o->render_data;
-    if (!eo)
-        return;
-
-    eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, context);
-
-    /* The free buffer shown most recently: the least to redraw. Never
-     * the one presented last, idle or not: with the COPY presenter the
-     * server's copy out of it and this frame's drawing into it would be
-     * two GPU jobs on one buffer with nothing ordering them. Beyond
-     * that, with a presenter that never says idle (COPY) every buffer
-     * counts as free -- the copy is done by the time its frame's
-     * completion let this one start. */
     int pick = -1;
     for (int i = 0; i < SWAPCHAIN; i++) {
         const EglBuffer *b = &eo->buffers[i];
@@ -628,6 +622,30 @@ static void egl_begin(CompOutput *o, const CompRegion *damage)
         if (pick < 0 || b->presented_at > eo->buffers[pick].presented_at)
             pick = i;
     }
+    return pick;
+}
+
+/* The presenter's throttle asks this before waiting on a completion: a
+ * frame that has somewhere to go need not wait for the last one to
+ * land. What it buys is a frame the server's CompleteNotify cannot take
+ * away -- the XLibre server delivers the completion of a per-CRTC flip
+ * a vblank late every few seconds, and an output gated on it merged two
+ * of a video's frames into one each time. */
+static bool egl_output_has_free_buffer(const CompOutput *o)
+{
+    const EglOutput *eo = o->render_data;
+    return eo && free_buffer(eo) >= 0;
+}
+
+static void egl_begin(CompOutput *o, const CompRegion *damage)
+{
+    EglOutput *eo = o->render_data;
+    if (!eo)
+        return;
+
+    eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, context);
+
+    int pick = free_buffer(eo);
     if (pick < 0) {
         /* Every buffer is with the server: the presenter's busy gate
          * should have stopped this frame before it started. Take the
@@ -738,6 +756,7 @@ static const CompRenderer egl_renderer = {
     .window_has_content = gl_window_has_content,
     .output_pixmap      = egl_output_pixmap,
     .output_pixmap_idle = egl_output_pixmap_idle,
+    .output_has_free_buffer = egl_output_has_free_buffer,
     .shutdown           = egl_shutdown,
 };
 

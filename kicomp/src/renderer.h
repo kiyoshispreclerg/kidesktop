@@ -58,6 +58,7 @@ typedef struct CompRenderer {
     void (*background_invalidate)(void);
     xcb_pixmap_t (*output_pixmap)(const CompOutput *o);
     void (*output_pixmap_idle)(CompOutput *o, xcb_pixmap_t pixmap);
+    bool (*output_has_free_buffer)(const CompOutput *o);
     void (*shutdown)(void);
 } CompRenderer;
 
@@ -133,6 +134,13 @@ xcb_pixmap_t renderer_output_pixmap(const CompOutput *o);
  * and drawing into it would draw onto the screen. A backend with one
  * target per output has nothing to release and leaves the op NULL. */
 void renderer_output_pixmap_idle(CompOutput *o, xcb_pixmap_t pixmap);
+
+/* Whether the next frame has a buffer to go into that the server is not
+ * still holding -- a swapchain with one idle buffer says yes. False for
+ * a backend with a single target per output, where the only buffer is
+ * the one in flight, and the presenter has to wait for that frame to
+ * land before the next may be drawn. */
+bool renderer_output_has_free_buffer(const CompOutput *o);
 
 /* Picture format of the root visual. An XRender detail, but the COPY
  * presenter needs the same answer and there should be exactly one place

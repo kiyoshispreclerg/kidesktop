@@ -44,6 +44,12 @@ typedef struct CompPresenter {
      * when unknown -- the per-output frame clock (Fase 7) will use it. */
     uint64_t (*get_msc)(CompOutput *o);
 
+    /* When this output's last frame was scanned out, on comp_now_ms()'s
+     * clock -- the vblank the frame clock should be phased to
+     * (scheduler.c). 0 when unknown: no frame has landed yet, or the
+     * backend is not told. Optional. */
+    double (*vblank_ms)(CompOutput *o);
+
     /* One line of human prose on *how* this output's frames are being
      * paced and landed -- the stats effect's answer to "is this actually
      * synced to the monitor, or just to a software timer guessing at the

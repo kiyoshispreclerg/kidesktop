@@ -29,11 +29,16 @@
  * unlocks -- with this presenter already in place.
  *
  * Throttling: an output that still has a frame in flight is not painted
- * again. Queueing a second present before the first has landed does not
- * make anything appear sooner; it builds a backlog, and every frame in it
- * is one more frame of latency between what the user did and what they
- * see. The output stays dirty and is painted as soon as the completion
- * arrives, which makes the loop vblank-driven for free.
+ * again *unless the renderer has another buffer to paint into*. With a
+ * single target (XRender) the frame in flight is the only buffer there
+ * is, so the output stays dirty and is painted as soon as the completion
+ * arrives -- vblank-driven for free. With a swapchain (EGL) the
+ * completion is a measurement, not a gate: a second present aimed at the
+ * same vblank replaces the first in the server's queue rather than
+ * piling up behind it, so there is no backlog to fear, and waiting would
+ * only hand the server's timing back to us as our own -- the XLibre
+ * server reports a per-CRTC flip a vblank late every few seconds, and
+ * every one of those was a frame of a video merged into the next.
  */
 #include "presenter.h"
 #include "renderer.h"
@@ -213,6 +218,17 @@ static bool present_busy(CompOutput *o)
     if (!po || !po->pending)
         return false;
 
+    /* A frame is in flight, but the next one has a buffer of its own to
+     * go into: no reason to wait. Present itself keeps the queue at one
+     * -- a second frame aimed at the same vblank replaces the first
+     * (PresentCompleteModeSkip) rather than piling up behind it -- so
+     * the latency argument for the gate (the header) does not apply, and
+     * the completion becomes what it should be: a measurement. What the
+     * gate cost was a whole frame every time the server reported a flip
+     * late, which it does. */
+    if (renderer_output_has_free_buffer(o))
+        return false;
+
     if (comp_now_ms() - po->pending_since > COMPLETE_TIMEOUT_MS) {
         /* No completion is coming. Say so once and carry on unthrottled
          * rather than leaving the output frozen. */
@@ -277,8 +293,8 @@ static bool present_handle_event(xcb_generic_event_t *ev)
         /* The output may still be dirty (something changed while that
          * frame was in flight); the main loop paints it on this same
          * wake-up, which is what makes the loop vblank-paced. */
-        comp_log("present %s: msc %llu mode %s", o->name,
-                 (unsigned long long)c->msc, mode_name(c->mode));
+        comp_log("present %s: msc %llu mode %s ust %llu", o->name,
+                 (unsigned long long)c->msc, mode_name(c->mode), (unsigned long long)c->ust);
         break;
     }
 
@@ -289,6 +305,16 @@ static uint64_t present_msc(CompOutput *o)
 {
     PresentOutput *po = o->present_data;
     return po ? po->msc : 0;
+}
+
+/* UST is microseconds on CLOCK_MONOTONIC -- the same clock as
+ * comp_now_ms(), which is what makes it usable as a deadline. */
+static double present_vblank_ms(CompOutput *o)
+{
+    PresentOutput *po = o->present_data;
+    if (!po || po->ust == 0)
+        return 0.0;
+    return (double)po->ust / 1000.0;
 }
 
 /* What the server actually told us the last frame did, not what was
@@ -316,6 +342,7 @@ static const CompPresenter present_presenter = {
     .busy         = present_busy,
     .handle_event = present_handle_event,
     .get_msc      = present_msc,
+    .vblank_ms    = present_vblank_ms,
     .sync_info    = present_sync_info,
 };
 
