@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.74"
+#define KICOMP_VERSION "0.2.75"
 
 #include "comp.h"
 #include "output.h"
@@ -541,25 +541,50 @@ static bool acquire_selection(bool replace)
 
 
     if (previous != XCB_NONE) {
-        /* Bounded wait: an old owner that ignores the handoff shouldn't
-         * hang us forever. */
+        /* The old owner answers SelectionClear by shutting down, and
+         * the last thing its shutdown does is destroy the window that
+         * owned the selection -- after it has unredirected the screen.
+         * So that window's DestroyNotify is the moment the screen is
+         * free, and the only one: redirecting before it is two
+         * compositors redirecting at once, which is a black screen.
+         *
+         * Bounded wait, then the same answer `--toggle` gives an
+         * instance that doesn't respond: close its connection, which
+         * makes the server revert everything it did -- the redirection
+         * included -- and destroy its windows, so the same DestroyNotify
+         * arrives. An owner that never lets go is otherwise an owner
+         * that was "replaced" while still redirecting the screen, and
+         * this instance failing at the redirect a moment later. */
+        bool gone = false, killed = false;
         int waited_ms = 0;
-        while (waited_ms < 3000) {
+        while (waited_ms < 5000) {
             xcb_generic_event_t *ev = xcb_poll_for_event(comp.conn);
             if (!ev) {
+                if (waited_ms >= 3000 && !killed) {
+                    fprintf(stderr, "kicomp: the running compositor did not let "
+                                    "go of the screen; closing its connection\n");
+                    xcb_kill_client(comp.conn, previous);
+                    xcb_flush(comp.conn);
+                    killed = true;
+                }
                 struct pollfd p = { xcb_get_file_descriptor(comp.conn), POLLIN, 0 };
                 if (poll(&p, 1, 50) < 0 && errno != EINTR)
                     break;
                 waited_ms += 50;
                 continue;
             }
-            bool gone = ((ev->response_type & 0x7f) == XCB_DESTROY_NOTIFY) &&
-                        ((xcb_destroy_notify_event_t *)ev)->window == previous;
+            gone = ((ev->response_type & 0x7f) == XCB_DESTROY_NOTIFY) &&
+                   ((xcb_destroy_notify_event_t *)ev)->window == previous;
             free(ev);
             if (gone)
                 break;
         }
-        comp_log("previous compositor released the selection");
+        if (gone)
+            comp_log("previous compositor released the screen%s",
+                     killed ? " (once its connection was closed)" : "");
+        else
+            fprintf(stderr, "kicomp: the previous compositor's window is still "
+                            "there; trying to take over anyway\n");
     }
 
     return true;
@@ -919,6 +944,22 @@ static void handle_event(xcb_generic_event_t *ev)
          * the session back the way it was. */
         if (e->type == comp.atoms.kicomp_quit && comp.atoms.kicomp_quit != XCB_NONE) {
             comp_info("asked to quit; compositing off");
+            comp.running = false;
+        }
+        break;
+    }
+    case XCB_SELECTION_CLEAR: {
+        /* Another compositor took _NET_WM_CM_Sn (`kicomp --replace`, or
+         * anything else that owns the manager selection): the screen is
+         * theirs now. Leave the loop so the shutdown path unredirects,
+         * releases the overlay and destroys the selection window -- the
+         * DestroyNotify on that window is what the new owner is waiting
+         * for before it redirects (acquire_selection). Until this was
+         * handled a replaced instance simply kept running, and the new
+         * one found the screen still redirected. */
+        xcb_selection_clear_event_t *e = (xcb_selection_clear_event_t *)ev;
+        if (e->owner == comp.cm_window && e->selection == comp.atoms.net_wm_cm) {
+            comp_info("replaced by another compositor; compositing off");
             comp.running = false;
         }
         break;
