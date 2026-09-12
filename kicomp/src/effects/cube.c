@@ -137,6 +137,8 @@ typedef struct {
     double held_at;             /* when the holds were last renewed */
 
     float zoom;                 /* how far back, chosen when it opened */
+    float window_gap;           /* and how far the windows stand off it */
+    float window_spacing;
 
     float phase;                /* 0 the plain desktop, 1 the open cube */
     float phase_from, phase_to;
@@ -346,12 +348,26 @@ static void phase_to(CubeData *d, float to, double now)
     d->phase_time = now;
 }
 
-/* The face the cube is nearest to, and the turn that would centre it. */
-static int nearest_face(const CubeData *d)
+/* How many faces round from where it started the cube is nearest to --
+ * a whole number of steps, which may be negative or past a full turn.
+ *
+ * Kept as the count rather than reduced to a face index, because the
+ * count is what the cube has to turn *to*. Reducing first and settling
+ * on that face's own angle is a longer way round whenever the two differ
+ * by a turn: at one step backwards the nearest face is the last one, and
+ * aiming at its canonical angle sends the cube all the way forwards
+ * through every other face to reach a position it is already at. */
+static int nearest_turn(const CubeData *d)
 {
     float step = 2.0f * (float)M_PI / (float)d->faces;
-    int k = (int)lrintf(-d->angle / step);
-    k %= d->faces;
+    return (int)lrintf(-d->angle / step);
+}
+
+/* And which face that is, which is the same count brought back into
+ * range -- the only place the two should be confused is here. */
+static int face_of_turn(const CubeData *d, int turn)
+{
+    int k = turn % d->faces;
     if (k < 0)
         k += d->faces;
     return k;
@@ -370,17 +386,20 @@ static void close_mode(CompEffect *e)
      * does not switch desktops, it says which one the user chose and
      * the window manager decides what that means. */
     CompOutput *o = output_by_id(d->output_id);
-    int face = nearest_face(d);
+    int turn = nearest_turn(d);
+    int face = face_of_turn(d, turn);
     if (o && face != 0) {
         int want = (d->first_desktop + face) % d->faces;
         desktop_request_switch(o, want);
     }
 
     /* Settle onto that face on the way out, so the picture that lies back
-     * down is the one being switched to. */
+     * down is the one being switched to -- at the turn it is nearest,
+     * never at that face's canonical angle, which can be most of a
+     * revolution away from where the cube is standing. */
     float step = 2.0f * (float)M_PI / (float)d->faces;
     d->angle_from = d->angle;
-    d->angle_to = -step * (float)face;
+    d->angle_to = -step * (float)turn;
     d->angle_time = comp_now_ms();
     d->tilt_from = d->tilt;
     d->settling = true;
@@ -730,8 +749,8 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
                     continue;
 
                 float off = flat ? 0.0f
-                                 : cfg->window_gap +
-                                   cfg->window_spacing * (float)depth;
+                                 : d->window_gap +
+                                   d->window_spacing * (float)depth;
                 if (!flat)
                     depth++;
 
@@ -823,7 +842,13 @@ static void cube_open(const CompEffectInstance *self, bool flick)
     d->drag_y = py;
     d->dragging = !flick;
     d->flick = flick;
+    /* A keyed turn is the desktops sweeping past at full size, so the
+     * windows lie on their faces for it: standing them off the surface
+     * only means something when the cube has backed away far enough to
+     * see that it has depth. */
     d->zoom = flick ? cfg->flick_zoom : cfg->zoom;
+    d->window_gap = flick ? 0.0f : cfg->window_gap;
+    d->window_spacing = flick ? 0.0f : cfg->window_spacing;
 
     e->ops = &cube_ops;
     e->instance = self;
