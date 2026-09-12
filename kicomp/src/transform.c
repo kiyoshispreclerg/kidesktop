@@ -57,6 +57,16 @@ void comp_transform_scale(CompTransform *t, float sx, float sy)
     comp_transform_multiply(t, &op, t);
 }
 
+void comp_transform_rotate_x(CompTransform *t, float radians)
+{
+    CompTransform op;
+    comp_transform_identity(&op);
+    float c = cosf(radians), s = sinf(radians);
+    op.m[1][1] =  c;  op.m[1][2] = -s;
+    op.m[2][1] =  s;  op.m[2][2] =  c;
+    comp_transform_multiply(t, &op, t);
+}
+
 void comp_transform_rotate_y(CompTransform *t, float radians)
 {
     CompTransform op;

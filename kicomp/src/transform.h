@@ -72,6 +72,7 @@ void comp_transform_scale(CompTransform *t, float sx, float sy);
  * larger it is the weaker the effect, and 0 (or anything non-positive)
  * means no projection at all, which leaves the matrix affine and so
  * usable by the XRender backend too. */
+void comp_transform_rotate_x(CompTransform *t, float radians);
 void comp_transform_rotate_y(CompTransform *t, float radians);
 void comp_transform_translate_z(CompTransform *t, float dz);
 void comp_transform_perspective(CompTransform *t, float distance);

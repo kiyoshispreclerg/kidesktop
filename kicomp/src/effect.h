@@ -299,6 +299,7 @@ extern const CompEffectModule effect_smooth_move;
 extern const CompEffectModule effect_dodge;
 extern const CompEffectModule effect_show_windows;
 extern const CompEffectModule effect_cover_switch;
+extern const CompEffectModule effect_cube;
 
 /* cover-switch driven by the window manager rather than by a hotkey of
  * ours -- see the protocol described in effects/cover-switch.c. `data`
