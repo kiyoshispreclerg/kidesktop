@@ -72,6 +72,15 @@ typedef struct {
     int   visible;        /* covers drawn each side of the front one */
     float background;     /* opacity of the ground under everything */
 
+    /* Windows from the output's other desktops as well as the one on
+     * screen. They are unmapped, but the compositor keeps their last
+     * contents (keep_hidden_contents, on by default), so what a cover
+     * shows is the desktop as the user left it -- which for a switcher
+     * is the picture that means something. Live faces, as the cube
+     * holds them up for, would be a good deal more work for a mode that
+     * is on screen for a second. */
+    bool  other_desktops;
+
     bool  labels;
     /* Where the selected window's title sits, as a fraction of the
      * output's height from its top, and how wide it may grow before it
@@ -207,7 +216,16 @@ static CompOutput *output_of(const CompRect *r)
 
 static bool eligible(const CompWindow *w, const CompEffectInstance *self, int output_id)
 {
-    if (!w->mapped || w->input_only || w->zombie || w->wm_layer[0])
+    const CsConfig *cfg = self->config;
+
+    if (w->input_only || w->zombie || w->wm_layer[0])
+        return false;
+
+    /* On screen, or away with one of this output's other desktops and
+     * still holding the picture it had when it left (comp.h's stowed).
+     * A window that is neither is one there is nothing to show for --
+     * minimized with its contents dropped, or gone. */
+    if (!w->mapped && !(cfg->other_desktops && w->stowed))
         return false;
     if (w->type == COMP_WINDOW_DOCK || w->type == COMP_WINDOW_DESKTOP)
         return false;
@@ -870,6 +888,11 @@ static void cs_destroy(CompEffect *e)
     CsData *d = e->data;
     if (!d)
         return;
+
+    /* The other desktops go back to being invisible the moment this
+     * stops drawing them. */
+    if (comp.show_stowed_output == d->output_id)
+        comp.show_stowed_output = COMP_NO_OUTPUT;
     for (int i = 0; i < d->count; i++)
         if (d->items[i].label)
             text_free(d->items[i].label);
@@ -971,6 +994,13 @@ static CompEffect *open_mode(const CompEffectInstance *self, CompOutput *o,
         selected = 0;
     if (selected >= d->count)
         selected = d->count - 1;
+
+    /* And say that this output is the one showing them. A window kept
+     * only because its contents are worth keeping is deliberately left
+     * out of the scene, or it would appear on a desktop it is not on
+     * (scene.c); an effect that means to draw those has to say so. */
+    if (cfg->other_desktops)
+        comp.show_stowed_output = o->id;
 
     e->ops = &cs_ops;
     e->instance = self;
@@ -1152,6 +1182,7 @@ static void cs_defaults(void *config)
     c->depth = 260.0f;
     c->visible = 4;
     c->background = 0.82f;
+    c->other_desktops = true;
     c->labels = true;
     c->label_y = 0.86f;
     c->label_width = 640;
@@ -1174,6 +1205,7 @@ static bool cs_config_key(void *config, const char *key, const char *value)
     if (!strcmp(key, "depth"))       { c->depth = (float)atof(value); return true; }
     if (!strcmp(key, "visible"))     { c->visible = atoi(value); return true; }
     if (!strcmp(key, "background"))  { c->background = (float)atof(value); return true; }
+    if (!strcmp(key, "other_desktops")) { c->other_desktops = atoi(value) != 0; return true; }
     if (!strcmp(key, "labels"))      { c->labels = atoi(value) != 0; return true; }
     if (!strcmp(key, "label_y"))     { c->label_y = (float)atof(value); return true; }
     if (!strcmp(key, "label_width")) { c->label_width = atoi(value); return true; }
