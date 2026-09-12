@@ -859,6 +859,36 @@ static void draw_backdrop(CompOutput *o, const CompScene *s,
 /* One pass over the scene, everything clipped to `repaint_rect`. Called
  * once per damaged rectangle, so a frame where two small things changed
  * costs two small passes instead of one screen-sized one. */
+/* The bound quad through one scissor rectangle -- split around the
+ * window's opaque rectangle when there is one: what falls inside it is
+ * drawn with blending off, the rest (up to four rectangles) blended.
+ * Each part is still intersected with repaint_rect by scissor_to(). */
+static void draw_piece(const CompOutput *o, const CompRect *piece,
+                       const CompRect *opaque)
+{
+    CompRect solid;
+    if (opaque->w <= 0 || opaque->h <= 0 ||
+        !rect_intersect(piece, opaque, &solid)) {
+        if (scissor_to(o, piece))
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        return;
+    }
+
+    if (scissor_to(o, &solid)) {
+        glDisable(GL_BLEND);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        glEnable(GL_BLEND);
+    }
+
+    CompRegion rest;
+    region_clear(&rest);
+    region_add(&rest, piece);
+    region_subtract_rect(&rest, &solid);
+    for (int k = 0; k < rest.count; k++)
+        if (scissor_to(o, &rest.rects[k]))
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
 /* One node, inside repaint_rect -- which by the time this runs is one
  * piece of the node's own clip (scene.h) ∩ one damaged rectangle, so
  * every scissor box below is already inside both. */
@@ -907,15 +937,24 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     bool move_only = comp_transform_is_identity(&n->transform) ||
                      comp_transform_is_translation(&n->transform, &tdx, &tdy);
 
+    /* The part of the window known to be opaque (window.h's opaque: the
+     * client inside the frame, when it has no alpha and no shape) is
+     * drawn with blending off, and only the rest -- the frame around it,
+     * translucent under kiwm -- is blended. Blending reads the pixels it
+     * is about to replace; on a video that is a full pass over the
+     * client's area a frame, read for nothing. Only while the window is
+     * where it says it is: the rectangle is in screen pixels. */
+    CompRect opaque = { 0, 0, 0, 0 };
+    if (comp_transform_is_identity(&n->transform) && n->opacity >= 1.0f)
+        opaque = window_opaque_rect(w);
+
     if (g->shape_count > 0 && move_only) {
         for (int k = 0; k < g->shape_count; k++) {
             const xcb_rectangle_t *sr = &g->shape_rects[k];
             CompRect piece = { w->x + (int)tdx + sr->x,
                                w->y + (int)tdy + sr->y,
                                sr->width, sr->height };
-            if (!scissor_to(o, &piece))
-                continue;
-            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            draw_piece(o, &piece, &opaque);
         }
     } else if (!move_only && w->shaped &&
                w->shape_extents.w > 0 && w->shape_extents.h > 0) {
@@ -935,9 +974,7 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     } else {
         /* Unshaped: the damage rectangle is the whole clip. */
-        scissor_for(o, repaint_rect.x, repaint_rect.y,
-                    repaint_rect.w, repaint_rect.h);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        draw_piece(o, &repaint_rect, &opaque);
     }
 }
 

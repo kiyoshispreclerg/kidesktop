@@ -1802,13 +1802,55 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
             sy = dy;
         }
 
-        /* OVER, always: for a depth-24 window the source has no alpha
-         * channel, XRender reads it as opaque, and the result is
-         * identical to a plain copy. For a depth-32 window this is
-         * precisely the blending an uncomposited server can't do. */
-        xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER,
-                             source, mask, o->target,
-                             sx, sy, sx, sy, dx, dy, dw, dh);
+        /* The part of the window known to be opaque (window.h's opaque:
+         * the client inside the frame, when it has no alpha and no shape)
+         * is *copied*, and only the rest -- the frame around it, whose
+         * titlebar and border are translucent under kiwm -- is blended.
+         * OVER reads the destination it is about to replace; on a video
+         * that is a full pass of the client's pixels a frame, read for
+         * nothing. Straight draws only: through a matrix the client's
+         * rectangle is not a rectangle of the target any more. */
+        CompRect op = { 0, 0, 0, 0 };
+        if (!needs_matrix && !from_stash && mask == XCB_NONE &&
+            n->opacity >= 1.0f) {
+            CompRect whole = window_opaque_rect(w);
+            if (!rect_intersect(&whole, &n->visible_rect, &op))
+                op = (CompRect){ 0, 0, 0, 0 };
+        }
+
+        if (op.w > 0 && op.h > 0) {
+            xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_SRC,
+                                 source, XCB_NONE, o->target,
+                                 (int16_t)(op.x - n->geometry.x),
+                                 (int16_t)(op.y - n->geometry.y), 0, 0,
+                                 (int16_t)to_target_x(o, op.x),
+                                 (int16_t)to_target_y(o, op.y),
+                                 (uint16_t)op.w, (uint16_t)op.h);
+
+            /* The frame around it: up to four rectangles, blended. */
+            CompRegion rest;
+            region_clear(&rest);
+            region_add(&rest, &n->visible_rect);
+            region_subtract_rect(&rest, &op);
+            for (int k = 0; k < rest.count; k++) {
+                const CompRect *r = &rest.rects[k];
+                xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER,
+                                     source, XCB_NONE, o->target,
+                                     (int16_t)(r->x - n->geometry.x),
+                                     (int16_t)(r->y - n->geometry.y), 0, 0,
+                                     (int16_t)to_target_x(o, r->x),
+                                     (int16_t)to_target_y(o, r->y),
+                                     (uint16_t)r->w, (uint16_t)r->h);
+            }
+        } else {
+            /* OVER: for a depth-24 window the source has no alpha
+             * channel, XRender reads it as opaque, and the result is
+             * identical to a plain copy. For a depth-32 window this is
+             * precisely the blending an uncomposited server can't do. */
+            xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER,
+                                 source, mask, o->target,
+                                 sx, sy, sx, sy, dx, dy, dw, dh);
+        }
 
         /* The picture outlives the frame, so the transform must not: the
          * next paint may well be an ordinary one. */
