@@ -111,6 +111,7 @@ typedef struct {
 
 typedef struct {
     int output_id;
+    int start_desktop;    /* the one that was showing when the row opened */
 
     CsItem items[MAX_ITEMS];
     int count;
@@ -875,9 +876,23 @@ static void cs_apply(CompEffect *e, CompScene *s, CompOutput *o)
         int i = index_of(d, node->win);
 
         if (i < 0) {
-            /* Not in the row: a dock, or a window that appeared after
-             * the mode opened. Faded out with the ground rather than
-             * left sitting on top of it. */
+            /* Not in the row: the wallpaper, a panel, or a window that
+             * appeared after the mode opened.
+             *
+             * The ones belonging to another desktop are not drawn at
+             * all. With other_desktops on they are in the scene -- that
+             * is what lets the row show their windows -- and left alone
+             * every desktop's wallpaper is painted over every other,
+             * which comes out as all of them at once through the
+             * dimming. Only the desktop the row opened on is the ground
+             * here; the rest are in it for their windows, not for their
+             * scenery. */
+            int nd = desktop_of(node->win);
+            if (nd >= 0 && nd != COMP_DESKTOP_ALL && nd != d->start_desktop) {
+                node->visible_rect = (CompRect){ 0, 0, 0, 0 };
+                continue;
+            }
+
             node->opacity *= 1.0f - cfg->background * alive;
             continue;
         }
@@ -1033,6 +1048,7 @@ static CompEffect *open_mode(const CompEffectInstance *self, CompOutput *o,
     }
 
     d->output_id = o->id;
+    d->start_desktop = desktop_current_for_output(o);
 
     if (wins) {
         /* The window manager's own list and the window manager's own

@@ -548,11 +548,27 @@ static void hold_live_windows(CompEffect *e, double now)
     const CubeConfig *cfg = e->instance->config;
     CompOutput *o = output_by_id(d->output_id);
 
-    if (!o || d->closing || cfg->live == LIVE_NONE)
+    if (!o || d->closing)
         return;
     if (d->held_at != 0.0 && now - d->held_at < HOLD_RENEW_MS)
         return;
     d->held_at = now;
+
+    /* The other desktops' own wallpapers, asked for again and again
+     * rather than once when the cube opened.
+     *
+     * kiwm raises a desktop layer for 700 ms, on the reasoning that a
+     * compositor will have named its pixmap within that -- which is true
+     * of the expo grid, where every cell is drawn from the first frame.
+     * A cube culls the faces turned away from the viewer, so a wallpaper
+     * whose face is at the back is never drawn, never named, and is back
+     * down before it ever comes round. Renewing means that whenever a
+     * face does turn to the front its layer is either up right now or
+     * was up moments ago, and either way there is a picture of it. */
+    desktop_request_prime();
+
+    if (cfg->live == LIVE_NONE)
+        return;
 
     for (CompWindow *w = comp.stack; w; w = w->next) {
         if (w->input_only || w->zombie || w->wm_layer[0])
@@ -874,13 +890,6 @@ static void cube_open(const CompEffectInstance *self, bool flick)
     e->data = d;
 
     phase_to(d, 1.0f, comp_now_ms());
-
-    /* The other desktops' own wallpapers, which are windows like any
-     * other and away with their desktop (desktop.h). Asked for once, as
-     * the cube opens: they do not change while it is up, and a face with
-     * its own wallpaper is the difference between four desktops and four
-     * grey squares. */
-    desktop_request_prime();
 
     /* And say that this output is the one showing them.
      *
