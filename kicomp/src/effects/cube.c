@@ -65,6 +65,10 @@ typedef struct {
      * strong the projection is -- both as fractions of the output's
      * width, so one setting looks the same on every monitor. */
     float zoom;
+    /* And the distance a keyed turn uses, which is its own taste: 0
+     * leaves the front face filling the screen, so the desktops sweep
+     * past at full size instead of the cube backing away first. */
+    float flick_zoom;
     float perspective;
 
     /* A drag across the whole output turns the cube this many times. */
@@ -132,6 +136,8 @@ typedef struct {
 
     double held_at;             /* when the holds were last renewed */
 
+    float zoom;                 /* how far back, chosen when it opened */
+
     float phase;                /* 0 the plain desktop, 1 the open cube */
     float phase_from, phase_to;
     double phase_time;
@@ -144,6 +150,10 @@ typedef struct {
 
 static const CompEffectOps cube_ops;
 static CompEffect *active;
+
+/* face_of_window()'s answer for a window that is on every desktop, and
+ * so has to be drawn on every side. */
+#define CUBE_EVERY_FACE (-2)
 
 static int face_of_window(const CubeData *d, const CompOutput *o, CompWindow *w);
 static const CompEffectInstance *bound_instance;
@@ -186,7 +196,7 @@ static void face_transform_at(CompTransform *t, const CompOutput *o,
     float step = 2.0f * (float)M_PI / (float)d->faces;
     float own = step * (float)i;
     float r = apothem_of(o, d->faces);
-    float back = (float)o->rect.w * cfg->zoom * d->phase;
+    float back = (float)o->rect.w * d->zoom * d->phase;
 
     float cx = (float)o->rect.x + (float)o->rect.w * 0.5f;
     float cy = (float)o->rect.y + (float)o->rect.h * 0.5f;
@@ -228,7 +238,7 @@ static void cap_transform(CompTransform *t, const CompOutput *o,
                           const CubeConfig *cfg, const CubeData *d, int up)
 {
     float r = apothem_of(o, d->faces);
-    float back = (float)o->rect.w * cfg->zoom * d->phase;
+    float back = (float)o->rect.w * d->zoom * d->phase;
 
     float cx = (float)o->rect.x + (float)o->rect.w * 0.5f;
     float cy = (float)o->rect.y + (float)o->rect.h * 0.5f;
@@ -521,7 +531,7 @@ static void hold_live_windows(CompEffect *e, double now)
 
         int face = face_of_window(d, o, w);
         if (face <= 0)
-            continue;               /* no face here, or the one in front */
+            continue;               /* every face, none, or the one in front */
 
         if (cfg->live == LIVE_ACTIVE && w != last_used_on(d, o, face))
             continue;
@@ -598,9 +608,12 @@ static int face_of_window(const CubeData *d, const CompOutput *o, CompWindow *w)
     if (!desktop_of_window(w, &desktop, &index))
         return -1;
 
-    /* Sticky: on every desktop, so it rides the face in front. */
+    /* On every desktop, so it belongs to every face: the panels, and a
+     * wallpaper that is published once for the screen rather than once
+     * per desktop (plasmashell's is one window; xisback publishes a
+     * layer per desktop, which lands in the ordinary case below). */
     if (desktop == COMP_DESKTOP_ALL)
-        return 0;
+        return CUBE_EVERY_FACE;
     if (desktop < 0 || desktop >= d->faces)
         return -1;
 
@@ -663,74 +676,79 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
         }
     }
 
-    /* Faces back to front, and each one's windows immediately after it:
-     * a window floats above its own face and so is drawn over it, and
-     * under every face that is nearer than the one it belongs to. That
+    /* Faces back to front, each with its own windows immediately after
+     * it: a window floats above its own face and so is drawn over it,
+     * and under every face nearer than the one it belongs to. That
      * interleaving is the whole reason a solid carries a position in the
-     * node order (scene.h) -- drawing all the faces and then all the
-     * windows gets it exactly wrong the moment they overlap.
+     * node order (scene.h) -- all the faces and then all the windows is
+     * wrong the moment they overlap, which with a turned cube is most of
+     * the time.
      *
-     * The nodes are reordered so each face's windows sit together, and
-     * the solids are given a z just before the first of them. */
-    int placed = 0;                     /* nodes settled at the front */
-
+     * One window, several nodes. The scene is a list of things to draw
+     * rather than a list of windows, so the panels and a wallpaper that
+     * belongs to the screen instead of to one desktop -- plasmashell
+     * publishes one such window, where xisback publishes a layer per
+     * desktop -- are copied onto every side. Without that they appear on
+     * one face and the rest of the cube is bare, which is exactly what
+     * it looked like.
+     *
+     * The list is rebuilt rather than reordered: a node has to appear
+     * more than once, and the order within a face has to be the
+     * wallpaper, then the panels, then that face's windows, whatever
+     * order the window manager stacked them in overall. */
+    static CompSceneNode rebuilt[MAX_SCENE_NODES];
+    int n = 0;
 
     for (int k = 0; k < count; k++) {
         int face = vis[k].i;
 
         scene_add_solid(s, &vis[k].rect, &vis[k].t,
                         cfg->cap_r, cfg->cap_g, cfg->cap_b,
-                        cfg->cap_a * d->phase, (float)placed - 0.5f);
+                        cfg->cap_a * d->phase, (float)n - 0.5f);
 
         if (face < 0)
             continue;                   /* a cap carries nothing */
 
-        /* This face's windows, bottom of the stack first, each one a
-         * little further off the surface than the last. */
+        /* Pass 0 is what lies on the face -- the wallpaper and, unless
+         * told otherwise, the panels. Pass 1 is what stands above it.
+         * Two passes rather than one because a panel is stacked above
+         * the windows and has to be drawn below them here: it is part of
+         * the desktop, and they are the things on top of it. */
         int depth = 0;
-        for (int n = placed; n < s->count; n++) {
-            CompSceneNode *node = &s->nodes[n];
-            if (face_of_window(d, o, node->win) != face)
-                continue;
+        for (int pass = 0; pass < 2; pass++) {
+            for (int i = 0; i < s->count && n < MAX_SCENE_NODES; i++) {
+                CompSceneNode node = s->nodes[i];
+                CompWindow *w = node.win;
 
-            /* The desktop's own wallpaper lies *on* its face, and the
-             * panels on top of it, because neither is a window floating
-             * above a desktop -- they are part of the one they belong
-             * to. Only the windows stand off it, and only they count
-             * towards the spacing. */
-            bool flat = node->win->type == COMP_WINDOW_DESKTOP ||
-                        (cfg->flat_docks && node->win->type == COMP_WINDOW_DOCK);
-            float off = flat ? 0.0f
-                             : cfg->window_gap +
-                               cfg->window_spacing * (float)depth;
-            CompTransform t;
-            face_transform_at(&t, o, cfg, d, face, off * d->phase);
+                int owner = face_of_window(d, o, w);
+                if (owner != face && owner != CUBE_EVERY_FACE)
+                    continue;
 
-            node->transform = t;
-            comp_transform_bbox(&t, &node->geometry, &node->visible_rect);
-            if (!flat)
-                depth++;
+                bool flat = w->type == COMP_WINDOW_DESKTOP ||
+                            (cfg->flat_docks && w->type == COMP_WINDOW_DOCK);
+                if (flat != (pass == 0))
+                    continue;
 
-            if (n != placed)
-                scene_move_node(s, n, placed);
-            placed++;
+                float off = flat ? 0.0f
+                                 : cfg->window_gap +
+                                   cfg->window_spacing * (float)depth;
+                if (!flat)
+                    depth++;
+
+                CompTransform t;
+                face_transform_at(&t, o, cfg, d, face, off * d->phase);
+                node.transform = t;
+                comp_transform_bbox(&t, &node.geometry, &node.visible_rect);
+                rebuilt[n++] = node;
+            }
         }
     }
 
-    /* Anything with no face on this cube -- another output's window, or
-     * one whose desktop is not among these -- is not drawn.
-     *
-     * Cleared *and* made transparent. An untransformed node at full
-     * opacity is what scene_cull_occluded() reads as something opaque
-     * covering the scene, and it works from where the window really is;
-     * left at 1.0 these would cut a window-shaped hole out of the cube
-     * standing in front of them. Emptying the rectangle alone is not
-     * enough, because that pass never looks at it. */
-    for (int n = placed; n < s->count; n++) {
-        s->nodes[n].visible_rect = (CompRect){ 0, 0, 0, 0 };
-        s->nodes[n].opacity = 0.0f;
-    }
-
+    /* Anything with no face at all -- another output's window, one whose
+     * desktop is not among these -- is simply not in the new list, and
+     * so is not drawn. */
+    memcpy(s->nodes, rebuilt, sizeof(CompSceneNode) * (size_t)n);
+    s->count = n;
 }
 
 static void cube_destroy(CompEffect *e)
@@ -805,6 +823,7 @@ static void cube_open(const CompEffectInstance *self, bool flick)
     d->drag_y = py;
     d->dragging = !flick;
     d->flick = flick;
+    d->zoom = flick ? cfg->flick_zoom : cfg->zoom;
 
     e->ops = &cube_ops;
     e->instance = self;
@@ -956,6 +975,7 @@ static void cube_defaults(void *config)
     snprintf(c->hotkey_next, sizeof(c->hotkey_next), "%s", "Ctrl+Meta+Right");
     snprintf(c->hotkey_prev, sizeof(c->hotkey_prev), "%s", "Ctrl+Meta+Left");
     c->zoom = 0.9f;
+    c->flick_zoom = 0.0f;
     c->perspective = 1.4f;
     c->turns = 1.0f;
     c->tilt_max = 90.0f;
@@ -986,6 +1006,7 @@ static bool cube_config_key(void *config, const char *key, const char *value)
         return true;
     }
     if (!strcmp(key, "zoom"))        { c->zoom = (float)atof(value); return true; }
+    if (!strcmp(key, "flick_zoom"))  { c->flick_zoom = (float)atof(value); return true; }
     if (!strcmp(key, "perspective")) { c->perspective = (float)atof(value); return true; }
     if (!strcmp(key, "turns"))       { c->turns = (float)atof(value); return true; }
     if (!strcmp(key, "tilt_max"))    { c->tilt_max = (float)atof(value); return true; }
