@@ -299,6 +299,13 @@ extern const CompEffectModule effect_smooth_move;
 extern const CompEffectModule effect_dodge;
 extern const CompEffectModule effect_show_windows;
 extern const CompEffectModule effect_cover_switch;
+
+/* cover-switch driven by the window manager rather than by a hotkey of
+ * ours -- see the protocol described in effects/cover-switch.c. `data`
+ * is the _KICOMP_SWITCHER property's words; `len` how many there are.
+ * cover_switch_available() is what _KICOMP_EFFECTS answers with. */
+void cover_switch_external(const uint32_t *data, int len);
+bool cover_switch_available(void);
 extern const CompEffectModule effect_expo;
 extern const CompEffectModule effect_visual_bell;
 extern const CompEffectModule effect_zoom;

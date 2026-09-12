@@ -576,6 +576,11 @@ typedef struct KiComp {
                                               * look at the hidden wallpapers */
         xcb_atom_t kiwm_hold_window;     /* ...and for a live look at one window */
         xcb_atom_t kiwm_held;            /* which the WM marks while it lasts */
+        /* The window manager driving a compositor mode, and what the
+         * compositor answers that it can be asked for -- see the
+         * protocol in effects/cover-switch.c. */
+        xcb_atom_t kicomp_switcher;
+        xcb_atom_t kicomp_effects;
         xcb_atom_t kiwm_wm_output;         /* which output a window is on */
         xcb_atom_t net_wm_desktop;         /* which desktop a window is on */
     } atoms;

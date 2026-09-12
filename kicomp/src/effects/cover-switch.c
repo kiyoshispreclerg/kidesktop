@@ -111,10 +111,18 @@ typedef struct {
     double phase_time;
 
     bool closing;
+
+    /* Driven by the window manager rather than by our own hotkey: it
+     * holds the keyboard, so this mode took no grab, releases none, and
+     * chooses nothing -- the WM decides what the walk meant when its key
+     * comes up. See the protocol at the bottom of this file. */
+    bool external;
 } CsData;
 
 static const CompEffectOps cs_ops;
 static CompEffect *active;
+
+static const CompEffectInstance *bound_instance;
 
 static void phase_to(CsData *d, float to, double now);
 static void close_mode(CompEffect *e, bool activate_it);
@@ -403,6 +411,13 @@ static void refresh_items(CompEffect *e)
     if (d->closing || d->count >= MAX_ITEMS)
         return;
 
+    /* Not when a window manager is driving: the list it gave is the
+     * list, in the order it means to walk, and adding to it here would
+     * put covers in the row that its key never reaches. If the set
+     * changes it writes the property again. */
+    if (d->external)
+        return;
+
     bool added = false;
     for (CompWindow *w = comp.stack; w && d->count < MAX_ITEMS; w = w->next) {
         if (!eligible(w, e->instance, d->output_id))
@@ -489,9 +504,11 @@ static void close_mode(CompEffect *e, bool activate_it)
     if (d->closing)
         return;
 
-    input_release();
+    if (!d->external)
+        input_release();
 
-    if (activate_it && d->selected >= 0 && d->selected < d->count) {
+    if (activate_it && !d->external &&
+        d->selected >= 0 && d->selected < d->count) {
         /* The one place this effect touches the session: the window the
          * user landed on is raised and focused, once, on the way out. */
         CompWindow *w = d->items[d->selected].win;
@@ -863,13 +880,194 @@ static const CompEffectOps cs_ops = {
 /* the trigger                                                         */
 /* ------------------------------------------------------------------ */
 
+/* Starts the mode on `o` with the windows `wins` names, or with every
+ * eligible window on that output when `wins` is NULL (the hotkey's
+ * case). Returns the effect, or NULL when there is nothing to show.
+ *
+ * Takes no grab: the caller decides whether this mode is driven by our
+ * own keyboard handler or by a window manager that already has one. */
+static CompEffect *open_mode(const CompEffectInstance *self, CompOutput *o,
+                             const xcb_window_t *wins, int count, int selected)
+{
+    const CsConfig *cfg = self->config;
+
+    CompEffect *e = calloc(1, sizeof(*e));
+    CsData *d = calloc(1, sizeof(*d));
+    if (!e || !d) {
+        free(e);
+        free(d);
+        return NULL;
+    }
+
+    d->output_id = o->id;
+
+    if (wins) {
+        /* The window manager's own list and the window manager's own
+         * order: it is the one walking it, and a switcher that showed a
+         * different order than the key steps through would be lying. A
+         * name we do not know is skipped rather than refused -- it may
+         * be a window on another output, or one that closed between the
+         * WM writing the list and us reading it. */
+        for (int i = 0; i < count && d->count < MAX_ITEMS; i++) {
+            CompWindow *w = window_find_by_client(wins[i]);
+            if (!w)
+                w = window_find(wins[i]);
+            if (!w || !w->mapped || w->zombie)
+                continue;
+
+            CsItem *it = &d->items[d->count++];
+            it->win = w;
+            it->home = window_rect(w);
+            read_title(w, it->title, sizeof(it->title));
+            if (cfg->labels)
+                it->label = text_render(it->title, text_theme_style(),
+                                        cfg->label_width);
+        }
+    } else {
+        /* Top of the stack first: the row reads the way the user's own
+         * most-recent order does, which is the order Alt+Tab walks. */
+        for (CompWindow *w = comp.stack; w && d->count < MAX_ITEMS; w = w->next) {
+            if (!eligible(w, self, d->output_id))
+                continue;
+            CsItem *it = &d->items[d->count++];
+            it->win = w;
+            it->home = window_rect(w);
+            read_title(w, it->title, sizeof(it->title));
+            if (cfg->labels)
+                it->label = text_render(it->title, text_theme_style(),
+                                        cfg->label_width);
+        }
+
+        /* comp.stack runs bottom to top, so the list came out that way:
+         * reverse it. */
+        for (int i = 0, j = d->count - 1; i < j; i++, j--) {
+            CsItem tmp = d->items[i];
+            d->items[i] = d->items[j];
+            d->items[j] = tmp;
+        }
+    }
+
+    if (d->count < 2) {
+        for (int i = 0; i < d->count; i++)
+            if (d->items[i].label)
+                text_free(d->items[i].label);
+        free(d);
+        free(e);
+        return NULL;
+    }
+
+    if (selected < 0)
+        selected = 0;
+    if (selected >= d->count)
+        selected = d->count - 1;
+
+    e->ops = &cs_ops;
+    e->instance = self;
+    e->window = NULL;
+    e->start_time = comp_now_ms();
+    e->duration = 0.0;            /* finished() decides */
+    e->data = d;
+
+    d->selected = selected;
+    d->pos = 0.0f;
+    d->pos_from = 0.0f;
+    d->pos_time = comp_now_ms();
+    d->phase = 0.0f;              /* every window still exactly where it is */
+    phase_to(d, 1.0f, comp_now_ms());
+
+    return e;
+}
+
 static void cs_toggle(void *data)
 {
     const CompEffectInstance *self = data;
-    const CsConfig *cfg = self->config;
 
     if (active) {
         step_selection(active, +1);   /* the hotkey again walks the row */
+        return;
+    }
+
+    /* The active screen is the one the pointer is on, decided once. */
+    int px = 0, py = 0;
+    input_pointer_position(&px, &py);
+    CompRect at = { px, py, 1, 1 };
+    CompOutput *o = output_of(&at);
+    if (!o)
+        o = comp.output_count > 0 ? &comp.outputs[0] : NULL;
+    if (!o)
+        return;
+
+    /* One in, so the row opens on the window behind the active one --
+     * which is what a switcher is for. */
+    CompEffect *e = open_mode(self, o, NULL, 0, 1);
+    if (!e)
+        return;
+
+    if (!input_grab(&cs_input, e)) {
+        cs_destroy(e);
+        free(e);
+        return;
+    }
+
+    active = e;
+    effects_add(e);
+    mark_dirty(e->data);
+}
+
+/* ------------------------------------------------------------------ */
+/* driven by the window manager                                        */
+/* ------------------------------------------------------------------ */
+
+/* Only one client can hold the keyboard, and the one that must hold it
+ * for Alt+Tab is the window manager: it owns the key, it owns the hold,
+ * and it is the only thing that can decide and carry out what the walk
+ * meant. So the compositor never grabs for this. The WM writes what it
+ * wants shown on the root window and the compositor draws it -- and if
+ * the compositor is not running, or was built without this effect, or
+ * has it switched off, the WM sees no answer and falls back to its own
+ * on-screen display with nothing having been negotiated.
+ *
+ *   _KICOMP_EFFECTS   on the window owning _NET_WM_CM_Sn: the names of
+ *                     the modes that can be driven this way, space
+ *                     separated. Its absence is the whole of "do not
+ *                     try" -- a WM reads it once, when it needs to
+ *                     decide which switcher to use.
+ *
+ *   _KICOMP_SWITCHER  on the root, CARDINAL/32:
+ *                       [0] state: 0 end, 1 show, 2 end (chosen)
+ *                       [1] the selected entry's index
+ *                       [2..] the windows, in the order to show them
+ *                     Written on every step of the walk; the compositor
+ *                     watches it and moves the row to match.
+ *
+ * States 0 and 2 differ only in what the WM does next -- this side
+ * closes the same way either time, and focuses nothing at all, because
+ * the WM is the one that knows whether the user let go or gave up. */
+void cover_switch_external(const uint32_t *data, int len)
+{
+    if (!bound_instance || len < 2)
+        return;
+
+    uint32_t state = data[0];
+    int selected = (int)data[1];
+
+    if (state != 1) {
+        if (active && ((CsData *)active->data)->external)
+            close_mode(active, false);
+        return;
+    }
+
+    if (active) {
+        CsData *d = active->data;
+        if (!d->external)
+            return;            /* our own hotkey has it; leave it alone */
+        if (selected != d->selected) {
+            d->pos_from = d->pos;
+            d->pos_time = comp_now_ms();
+            d->selected = selected < 0 ? 0
+                        : (selected >= d->count ? d->count - 1 : selected);
+            mark_dirty(d);
+        }
         return;
     }
 
@@ -882,71 +1080,33 @@ static void cs_toggle(void *data)
     if (!o)
         return;
 
-    CompEffect *e = calloc(1, sizeof(*e));
-    CsData *d = calloc(1, sizeof(*d));
-    if (!e || !d) {
-        free(e);
-        free(d);
+    CompEffect *e = open_mode(bound_instance, o, data + 2, len - 2, selected);
+    if (!e)
         return;
-    }
 
-    d->output_id = o->id;
-
-    /* Top of the stack first: the row reads the way the user's own
-     * most-recent order does, which is the order Alt+Tab walks. */
-    for (CompWindow *w = comp.stack; w && d->count < MAX_ITEMS; w = w->next) {
-        if (!eligible(w, self, d->output_id))
-            continue;
-        CsItem *it = &d->items[d->count++];
-        it->win = w;
-        it->home = window_rect(w);
-        read_title(w, it->title, sizeof(it->title));
-        if (cfg->labels)
-            it->label = text_render(it->title, text_theme_style(), cfg->label_width);
-    }
-
-    if (d->count < 2) {
-        cs_destroy(&(CompEffect){ .data = d });
-        free(e);
-        return;
-    }
-
-    /* comp.stack runs bottom to top, so the list came out that way:
-     * reverse it, and start on the one under the active window. */
-    for (int i = 0, j = d->count - 1; i < j; i++, j--) {
-        CsItem tmp = d->items[i];
-        d->items[i] = d->items[j];
-        d->items[j] = tmp;
-    }
-
-    e->ops = &cs_ops;
-    e->instance = self;
-    e->window = NULL;
-    e->start_time = comp_now_ms();
-    e->duration = 0.0;            /* finished() decides */
-    e->data = d;
-
-    d->selected = 1;              /* the one behind the active window */
-    d->pos = 0.0f;
-    d->pos_from = 0.0f;
-    d->pos_time = comp_now_ms();
-    d->phase = 0.0f;              /* every window still exactly where it is */
-    phase_to(d, 1.0f, comp_now_ms());
-
-    if (!input_grab(&cs_input, e)) {
-        cs_destroy(e);
-        free(e);
-        return;
-    }
-
+    ((CsData *)e->data)->external = true;
     active = e;
     effects_add(e);
-    mark_dirty(d);
+    mark_dirty(e->data);
+}
+
+/* Whether this effect is available to be driven that way at all: the
+ * module is compiled in, enabled in the config, and has been given its
+ * instance. What _KICOMP_EFFECTS answers with. */
+bool cover_switch_available(void)
+{
+    return bound_instance != NULL;
 }
 
 static void cs_init(const CompEffectInstance *self)
 {
     const CsConfig *cfg = self->config;
+
+    /* Remembered whether or not there is a hotkey: a window manager can
+     * drive this mode with no key of ours bound at all, which is the
+     * arrangement this effect is really for. */
+    bound_instance = self;
+
     if (!cfg->hotkey[0])
         return;
 

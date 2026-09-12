@@ -98,6 +98,24 @@ void comp_info(const char *fmt, ...)
 }
 
 /* _NET_ACTIVE_WINDOW, the focused window as the WM publishes it. */
+/* What the window manager wants the switcher to show (effects/
+ * cover-switch.c). Read whole, because a walk is a burst of these and
+ * only the last one is worth acting on -- the property is the state,
+ * not a queue of events. */
+static void read_switcher_request(void)
+{
+    xcb_get_property_reply_t *r = xcb_get_property_reply(comp.conn,
+        xcb_get_property(comp.conn, 0, comp.root, comp.atoms.kicomp_switcher,
+                         XCB_ATOM_CARDINAL, 0, 2 + MAX_SCENE_NODES), NULL);
+    if (!r)
+        return;
+
+    int len = xcb_get_property_value_length(r) / 4;
+    if (len >= 2)
+        cover_switch_external(xcb_get_property_value(r), len);
+    free(r);
+}
+
 static xcb_window_t read_active_window(void)
 {
     if (comp.atoms.net_active_window == XCB_NONE)
@@ -219,6 +237,8 @@ static void atoms_init(void)
     /* "Shut down cleanly" -- sent by `kicomp --toggle` to whichever
      * instance already owns the selection. */
     comp.atoms.kicomp_quit            = intern("_KICOMP_QUIT");
+    comp.atoms.kicomp_switcher        = intern("_KICOMP_SWITCHER");
+    comp.atoms.kicomp_effects         = intern("_KICOMP_EFFECTS");
 
     comp.atoms.net_wm_window_type     = intern("_NET_WM_WINDOW_TYPE");
     comp.atoms.type_normal            = intern("_NET_WM_WINDOW_TYPE_NORMAL");
@@ -897,6 +917,8 @@ static void handle_event(xcb_generic_event_t *ev)
                 output_damage_all();
             } else if (e->atom == comp.atoms.net_active_window) {
                 window_focus_changed(read_active_window());
+            } else if (e->atom == comp.atoms.kicomp_switcher) {
+                read_switcher_request();
             } else if (e->atom == comp.atoms.net_current_desktop ||
                        e->atom == comp.atoms.kiwm_output_desktop ||
                        e->atom == comp.atoms.kiwm_outputs ||
@@ -1264,6 +1286,26 @@ int main(int argc, char **argv)
         effects_init();
     } else {
         comp_info("effects off");
+    }
+
+    /* What a window manager may ask this compositor to draw for it
+     * (effects/cover-switch.c). Published on the window owning
+     * _NET_WM_CM_Sn, which is what a WM already has to look up to know
+     * there is a compositor at all, and left absent when there is
+     * nothing on offer -- the absence is the answer.
+     *
+     * Set once, after the effects are built, because whether a mode is
+     * on the list depends on the config having enabled it. */
+    {
+        char offer[128];
+        int n = 0;
+        if (comp.effects && cover_switch_available())
+            n += snprintf(offer + n, sizeof offer - n, "%scover-switch",
+                          n ? " " : "");
+        if (n > 0)
+            xcb_change_property(comp.conn, XCB_PROP_MODE_REPLACE, comp.cm_window,
+                                comp.atoms.kicomp_effects, XCB_ATOM_STRING, 8,
+                                (uint32_t)n, offer);
     }
 
     /* Before the outputs are built: whether an output may be scaled at
