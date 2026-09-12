@@ -101,6 +101,10 @@ typedef struct {
 typedef struct {
     CompWindow *win;
     CompRect home;
+    /* Which desktop it is on, so the ones that are not going to be on
+     * screen can be seen off rather than simply cut. COMP_DESKTOP_ALL
+     * for a sticky window, which is on whichever one you land on. */
+    int desktop;
     char title[TITLE_MAX];
     CompTextImage *label;
 } CsItem;
@@ -112,6 +116,8 @@ typedef struct {
     int count;
 
     double held_at;       /* when the holds were last renewed */
+    bool took_stowed;     /* this mode is one of the reasons the other
+                           * desktops' windows are in the scene */
 
     int selected;         /* the item the user is on */
     float pos;            /* where the row actually is, easing to `selected` */
@@ -197,6 +203,16 @@ static void read_title(CompWindow *w, char *out, size_t outsz)
         out[n] = '\0';
     }
     free(r);
+}
+
+/* Which desktop a window is on, or COMP_DESKTOP_ALL when it is on all
+ * of them. -1 when there is no answer. */
+static int desktop_of(const CompWindow *w)
+{
+    int desktop = 0, index = 0;
+    if (!desktop_of_window(w, &desktop, &index))
+        return -1;
+    return desktop;
 }
 
 static CompOutput *output_by_id(int id)
@@ -489,6 +505,7 @@ static void refresh_items(CompEffect *e)
         memset(it, 0, sizeof(*it));
         it->win = w;
         it->home = window_rect(w);
+        it->desktop = desktop_of(w);
         read_title(w, it->title, sizeof(it->title));
         if (cfg->labels)
             it->label = text_render(it->title, text_theme_style(), cfg->label_width);
@@ -834,6 +851,20 @@ static void cs_apply(CompEffect *e, CompScene *s, CompOutput *o)
     bool done[MAX_ITEMS];
     memset(done, 0, sizeof(done));
 
+    /* Which items belong to a desktop that is about to stop showing:
+     * everything whose desktop is neither the chosen window's nor "all".
+     * Worked out once rather than per node, since the answer is the same
+     * for the whole frame. */
+    bool leaving[MAX_ITEMS];
+    memset(leaving, 0, sizeof(leaving));
+    if (d->closing && d->selected >= 0 && d->selected < d->count) {
+        int landing = d->items[d->selected].desktop;
+        for (int i = 0; i < d->count; i++)
+            leaving[i] = d->items[i].desktop >= 0 &&
+                         d->items[i].desktop != landing &&
+                         d->items[i].desktop != COMP_DESKTOP_ALL;
+    }
+
     /* Two passes over the scene: place every cover, then put the nodes
      * in back-to-front order. There is no depth buffer -- the renderers
      * draw the list in order -- so the order *is* the depth, and a row
@@ -883,6 +914,20 @@ static void cs_apply(CompEffect *e, CompScene *s, CompOutput *o)
          * is where it still is -- the movement is the whole effect and
          * a fade would hide it. */
         node->opacity *= edge_alpha(cfg, slot);
+
+        /* On the way out, the windows that are not going to be on screen
+         * are seen off rather than simply cut.
+         *
+         * The row can hold windows from several desktops (other_desktops);
+         * when it closes, only the chosen window's desktop stays. Letting
+         * the rest simply stop being drawn at the end of the animation is
+         * a row that half vanishes, so they fade as they fly home --
+         * which is also the truth about them: they are going away.
+         *
+         * A sticky window is on whichever desktop you land on, so it
+         * never fades. */
+        if (d->closing && leaving[i])
+            node->opacity *= alive;
     }
 
     /* Back to front, and the whole row above everything else.
@@ -943,9 +988,10 @@ static void cs_destroy(CompEffect *e)
         return;
 
     /* The other desktops go back to being invisible the moment this
-     * stops drawing them. */
-    if (comp.show_stowed_output == d->output_id)
-        comp.show_stowed_output = COMP_NO_OUTPUT;
+     * stops drawing them -- and only if this mode was one of the reasons
+     * they were visible, since the count is shared. */
+    if (d->took_stowed)
+        effects_show_stowed(d->output_id, false);
     for (int i = 0; i < d->count; i++)
         if (d->items[i].label)
             text_free(d->items[i].label);
@@ -1011,6 +1057,7 @@ static CompEffect *open_mode(const CompEffectInstance *self, CompOutput *o,
             CsItem *it = &d->items[d->count++];
             it->win = w;
             it->home = window_rect(w);
+            it->desktop = desktop_of(w);
             read_title(w, it->title, sizeof(it->title));
             if (cfg->labels)
                 it->label = text_render(it->title, text_theme_style(),
@@ -1025,6 +1072,7 @@ static CompEffect *open_mode(const CompEffectInstance *self, CompOutput *o,
             CsItem *it = &d->items[d->count++];
             it->win = w;
             it->home = window_rect(w);
+            it->desktop = desktop_of(w);
             read_title(w, it->title, sizeof(it->title));
             if (cfg->labels)
                 it->label = text_render(it->title, text_theme_style(),
@@ -1058,8 +1106,10 @@ static CompEffect *open_mode(const CompEffectInstance *self, CompOutput *o,
      * only because its contents are worth keeping is deliberately left
      * out of the scene, or it would appear on a desktop it is not on
      * (scene.c); an effect that means to draw those has to say so. */
-    if (cfg->other_desktops)
-        comp.show_stowed_output = o->id;
+    if (cfg->other_desktops) {
+        effects_show_stowed(o->id, true);
+        d->took_stowed = true;
+    }
 
     e->ops = &cs_ops;
     e->instance = self;
