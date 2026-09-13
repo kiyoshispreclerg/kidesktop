@@ -19,9 +19,10 @@ no compositing, with real transparency (32-bit windows' alpha and
 
 Two renderers now: **XRender**, which is complete and what `auto` picks,
 and a **GLX** one that is new and does not do everything the older one
-does yet (see below). Wobbly and blur are what the GL one is still for —
-they cannot be expressed in XRender at all — and the cube already needs
-it, since XRender's picture transform is affine and a cube is not.
+does yet (see below). Blur is what the GL one is still for — it cannot be
+expressed in XRender at all — and the cube, the magic lamp and wobbly
+already need it, since XRender's picture transform is affine and a
+projective cube, a genie neck and a bending sheet are not.
 
 ```sh
 make
@@ -247,6 +248,15 @@ events   = move
 windows  = windows
 max_lag  = 48                   # px the picture may fall behind the pointer
 resize   = 0                    # smooth resize drags too
+
+[effect:wobbly]                  # a dragged window behaves like cloth
+enabled      = 0                 # off by default: it bends what you hold
+events       = move
+windows      = windows
+stiffness    = 0.06              # how hard it pulls back to rigid
+drag         = 0.90              # how much speed survives each step
+move_factor  = 0.10              # how much of the speed becomes movement
+tessellation = 12                # cells per side of the drawn mesh (2..16)
 
 [effect:expo]
 enabled   = 1
@@ -950,6 +960,77 @@ one multiply.
 Off by default: it is the one effect that touches something the user is
 actively holding.
 
+### `wobbly`
+
+A window dragged around behaves like a sheet of something soft: the point
+you are holding follows the pointer, the rest of it lags and catches up,
+and when you let go it swings past itself once or twice before going
+rigid again.
+
+The model is kwin's, and it is worth following exactly rather than
+approximating, because what makes a wobble read as cloth rather than as
+rubber is not the springs — it is the two things around them:
+
+- **The physics is coarse: a 4×4 grid of masses and no more.** Sixteen
+  points are cheap enough to integrate at a fixed step and stable at any
+  stiffness someone will ask for.
+- **What is drawn is not that grid.** The sixteen masses are the control
+  net of a bicubic Bézier surface, and the mesh handed to the scene is
+  that surface finely tessellated. A simulated dense grid drawn straight
+  looks like a trampoline; a coarse net drawn as a Bézier looks like a
+  sheet.
+
+Each mass is pulled by its four neighbours toward keeping the spacing it
+had when the window was rigid, so the sum of those springs is zero
+exactly when the net is the window's own grid — wherever that grid
+happens to be. That is why one **pinned** point is what ties the sheet to
+the window: while you drag, the point you grabbed is pinned and tracks
+the window exactly, and every other point only hears about the move
+through the springs. Between the two spring passes there is a smoothing
+pass over the net (kwin's `heightRingLinearMean`); without it the corners
+ring against each other and the sheet creases.
+
+Letting go changes nothing about the springs — the grabbed point stays
+pinned, and since the window has stopped it is already sitting on its
+rest position, so it goes on anchoring the sheet while everything else
+swings back to it. kwin re-pins the middle of the net at that moment
+instead, because it is told exactly when the button came up; kicomp only
+learns a drag ended by the moves stopping, by which time the sheet has
+partly settled, and pinning points that are still displaced adds a pull
+that was not there a frame earlier — one late swing bigger than the
+wobble it was supposed to be finishing.
+
+**The corners and the shadow come along.** The silhouette is worn as a
+mask sampled by each vertex's place in the grid, so kiwm's rounded
+corners stay round *with* the bend instead of being cut out of the screen
+where the window used to be. The shadow bends too, which needs no second
+pixmap: a shadow here is a blurred rectangle computed from a tiny profile
+texture, so the profile is measured in the shadow rectangle's own
+coordinates and *painted onto* the window's mesh, sampled past its edges
+to reach the blur radius. The window's own area is discarded, so what is
+actually shaded is the rim.
+
+The integration runs in fixed 10 ms steps however long the frame took: a
+spring integrated with a variable step is a spring whose stiffness
+depends on the frame rate.
+
+| key | what it does |
+|---|---|
+| `stiffness` | how hard it pulls back to rigid (default `0.06`) |
+| `drag` | how much speed survives each step (default `0.90`) — lower settles sooner |
+| `move_factor` | how much of the speed becomes movement (default `0.10`) |
+| `tessellation` | cells per side of the drawn mesh, `2`..`16` (default `12`) |
+
+Only the GL backend draws a mesh; on XRender the node carries the
+rectangle the mesh spans, so the window is drawn where it is and simply
+does not bend. Only moves wobble, not resizes: a resize drag moves the
+window's edges rather than the window, and wobbling the edge the pointer
+is holding is a different effect (kwin's is separate too, with per-edge
+rules).
+
+Off by default, for the same reason as `smooth-move`: it bends something
+the user is actively holding.
+
 ### `show-windows`
 
 Every window on the active screen at once, laid out in a grid to pick one
@@ -1534,7 +1615,6 @@ What's left:
 | effect | how |
 |---|---|
 | `present-windows` grid chrome | the filter box and a selection outline `show-windows` should draw: needs a way to put text and rectangles on screen, which is a font stack decision (pango+cairo, freetype+XRender glyphs, or the X core font) |
-| `wobbly` | the mesh is here now (`magic-lamp` drew the first one); wobbly is the same mesh driven by a spring model instead of a genie funnel |
 | `blur` | needs the GL renderer: shaders behind a translucent window |
 
 ## Per-output scaling (HiDPI)
@@ -1678,8 +1758,8 @@ energy of the magnified version.
 XRender composites a desktop perfectly well — but for **what can be
 expressed**: XRender's picture transform is affine and its clip is a set
 of rectangles, which is why a window being animated loses its rounded
-corners today, and why wobbly, blur and the cube are not merely slow there
-but impossible. A shader has none of those limits.
+corners today, and why blur, the cube and the two mesh effects (the magic
+lamp, wobbly) are not merely slow there but impossible. A shader has none of those limits.
 
 It follows the same architecture as everything else: **one drawable per
 output**. Each output gets its own GLX window, a child of the Composite
@@ -1977,9 +2057,10 @@ timestamps now arriving. Deriving it from those is a change to
 
 ## What is **not** implemented (and where it goes)
 
-- **More effects** (sections 24.5-24.7) — wobbly, blur, cube. All three
-  ask for the GL renderer, which now exists but is not yet at parity with
-  XRender (see above); they come after it is.
+- **Blur** (section 24.7) — the one effect still missing, and the one that
+  needs a shader sampling what is behind a translucent window. The cube,
+  the magic lamp and wobbly are in, all three GL-only for the same
+  reason: XRender cannot express what they draw (see above).
 - **MSC/UST-derived period** (the rest of Fase 7, sections 19/49) — the
   Present presenter reports MSC and UST per completed frame and the loop
   is throttled by them, but the frame clock's period still comes from

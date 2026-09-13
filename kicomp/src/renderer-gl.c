@@ -29,6 +29,7 @@
 
 #include <xcb/shape.h>
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,7 +49,7 @@ static GLuint mesh_vbo;
  * its tiles from). */
 static GLuint shadow_program;
 static GLint su_projection, su_transform, su_color, su_size, su_span,
-             su_hole, su_profile;
+             su_hole, su_profile, su_use_uv;
 static GLuint shadow_texture;
 static int shadow_texture_radius;
 
@@ -94,8 +95,11 @@ static const char *vertex_source =
     "                    mix(uvc.y, 1.0 - uvc.y, y_flip));\n"
     /* The mask is built the way X measures a window -- y downwards --
      * so it is sampled by the quad's own coordinate and never by the
-     * flipped one, whatever way up this driver hands over the pixmap. */
-    "    maskcoord = position;\n"
+     * flipped one, whatever way up this driver hands over the pixmap.
+     * For a mesh that coordinate is the vertex's place in the grid,
+     * which is its place in the window: the silhouette then bends with
+     * the window instead of being cut out of the screen. */
+    "    maskcoord = uvc;\n"
     "    gl_Position = projection * transform * vec4(position, 0.0, 1.0);\n"
     "}\n";
 
@@ -132,12 +136,18 @@ static const char *fragment_source =
 static const char *shadow_vertex_source =
     "#version 120\n"
     "attribute vec2 position;\n"
+    /* For a bent shadow (draw_shadow_mesh): the vertex's place inside the
+     * shadow's own rectangle, which is what the profile below is measured
+     * in. The position is then free to be anywhere -- that is what lets a
+     * blurred rectangle be painted onto a sheet that is not one. */
+    "attribute vec2 uv;\n"
     "uniform mat4 projection;\n"
     "uniform mat4 transform;\n"
     "uniform vec2 size;\n"
+    "uniform float use_uv;\n"
     "varying vec2 local;\n"
     "void main() {\n"
-    "    local = position * size;\n"
+    "    local = mix(position, uv, use_uv) * size;\n"
     "    gl_Position = projection * transform * vec4(position, 0.0, 1.0);\n"
     "}\n";
 
@@ -237,6 +247,7 @@ static bool program_build(void)
         glAttachShader(shadow_program, vs);
         glAttachShader(shadow_program, fs);
         glBindAttribLocation(shadow_program, 0, "position");
+        glBindAttribLocation(shadow_program, 1, "uv");
         glLinkProgram(shadow_program);
         glDeleteShader(vs);
         glDeleteShader(fs);
@@ -256,6 +267,7 @@ static bool program_build(void)
             su_size = glGetUniformLocation(shadow_program, "size");
             su_span = glGetUniformLocation(shadow_program, "span");
             su_hole = glGetUniformLocation(shadow_program, "hole");
+            su_use_uv = glGetUniformLocation(shadow_program, "use_uv");
             su_profile = glGetUniformLocation(shadow_program, "profile");
         }
     }
@@ -1017,16 +1029,161 @@ static CompRect in_node_space(const CompSceneNode *n, const CompWindow *w,
     };
 }
 
+/* A point of a mesh at (u, v), where 0..1 spans the window -- bilinear
+ * inside, and *extrapolated* outside, which is the whole reason this
+ * exists: the shadow's rectangle reaches past the window by the blur
+ * radius, so bending it means asking the mesh where it would be a little
+ * beyond its own edge. Clamping the cell and letting the weights run past
+ * 0..1 continues the boundary cell's own slope, so the shadow leaves the
+ * window's edge in the direction that edge is actually leaning. */
+static void mesh_sample(const CompSceneMesh *mesh, float u, float v,
+                        float *out_x, float *out_y)
+{
+    int cols = mesh->cols, rows = mesh->rows;
+
+    float fu = u * (float)cols;
+    float fv = v * (float)rows;
+
+    int i0 = (int)floorf(fu);
+    int j0 = (int)floorf(fv);
+    if (i0 < 0) i0 = 0;
+    if (i0 > cols - 1) i0 = cols - 1;
+    if (j0 < 0) j0 = 0;
+    if (j0 > rows - 1) j0 = rows - 1;
+
+    float tu = fu - (float)i0;
+    float tv = fv - (float)j0;
+
+    int stride = cols + 1;
+    int a = j0 * stride + i0;
+    int b = a + 1;
+    int c = a + stride;
+    int d = c + 1;
+
+    float top_x = mesh->x[a] + (mesh->x[b] - mesh->x[a]) * tu;
+    float top_y = mesh->y[a] + (mesh->y[b] - mesh->y[a]) * tu;
+    float bot_x = mesh->x[c] + (mesh->x[d] - mesh->x[c]) * tu;
+    float bot_y = mesh->y[c] + (mesh->y[d] - mesh->y[c]) * tu;
+
+    *out_x = top_x + (bot_x - top_x) * tv;
+    *out_y = top_y + (bot_y - top_y) * tv;
+}
+
+/* The shadow of a window that is not a rectangle any more.
+ *
+ * A shadow is a blurred rectangle and cannot be bent by its own shader --
+ * but it does not have to be. The blur profile and the hole are measured
+ * in the shadow rectangle's own coordinates, which the vertex shader now
+ * takes as a per-vertex `uv` (shadow_vertex_source), so the rectangle can
+ * be *painted onto* whatever geometry it is given. Here that geometry is
+ * the window's own mesh, sampled over the part of itself the shadow box
+ * covers -- past its edges included (mesh_sample) -- so the shadow leans
+ * and curves with the window instead of sitting under it as a rectangle
+ * the bend has left behind. */
+static void draw_shadow_mesh(const CompOutput *o, const CompSceneNode *n,
+                             CompWindow *w, const float projection[16])
+{
+    const CompSceneMesh *mesh = n->mesh;
+
+    CompShadowStyle st;
+    if (!shadow_program || !shadow_for_window(w, &st))
+        return;
+    if (st.opacity <= 0.0f || st.radius <= 0)
+        return;
+
+    int r = st.radius;
+    if (!shadow_profile_texture(r))
+        return;
+
+    /* The window's rectangle as the mesh's 0..1 stands for, and the
+     * shadow's box around it -- the same box the rectangular path builds,
+     * so a window that stops bending keeps the shadow it had. */
+    CompRect base = n->geometry;
+    if (base.w <= 0 || base.h <= 0)
+        return;
+    CompRect box = { base.x + st.offset_x - r, base.y + st.offset_y - r,
+                     base.w + r * 2, base.h + r * 2 };
+
+    int cols = mesh->cols, rows = mesh->rows;
+    static float verts[MESH_MAX_COLS * MESH_MAX_ROWS * 6 * 4];
+    int v = 0;
+
+    for (int gy = 0; gy < rows; gy++) {
+        for (int gx = 0; gx < cols; gx++) {
+            /* Each corner twice over: where it is in the shadow's own
+             * rectangle (for the profile) and where the window's mesh
+             * puts that place (for the screen). */
+            const float bu[4] = { (float)gx / cols, (float)(gx + 1) / cols,
+                                  (float)gx / cols, (float)(gx + 1) / cols };
+            const float bv[4] = { (float)gy / rows, (float)gy / rows,
+                                  (float)(gy + 1) / rows, (float)(gy + 1) / rows };
+            float px[4], py[4];
+            for (int k = 0; k < 4; k++) {
+                /* The shadow box point, expressed in the window's own
+                 * 0..1 -- outside it wherever the box reaches past. */
+                float mu = ((float)box.x + bu[k] * (float)box.w - (float)base.x)
+                           / (float)base.w;
+                float mv = ((float)box.y + bv[k] * (float)box.h - (float)base.y)
+                           / (float)base.h;
+                mesh_sample(mesh, mu, mv, &px[k], &py[k]);
+            }
+
+            const int idx[6] = { 0, 1, 2, 1, 3, 2 };
+            for (int t = 0; t < 6; t++) {
+                int k = idx[t];
+                verts[v++] = px[k];
+                verts[v++] = py[k];
+                verts[v++] = bu[k];
+                verts[v++] = bv[k];
+            }
+        }
+    }
+
+    float identity[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+
+    glUseProgram(shadow_program);
+    glUniformMatrix4fv(su_projection, 1, GL_FALSE, projection);
+    glUniformMatrix4fv(su_transform, 1, GL_FALSE, identity);
+    glUniform4f(su_color, st.r, st.g, st.b, st.opacity * n->opacity);
+    glUniform2f(su_size, (float)box.w, (float)box.h);
+    glUniform1f(su_span, (float)(r * 2));
+    glUniform1i(su_profile, 0);
+    glUniform1f(su_use_uv, 1.0f);
+    /* The window's own place in the box, so the shadow is not drawn
+     * behind it -- in the box's coordinates, which the bend carries. */
+    glUniform4f(su_hole, (float)(base.x - box.x), (float)(base.y - box.y),
+                (float)base.w, (float)base.h);
+    glBindTexture(GL_TEXTURE_2D, shadow_texture);
+
+    glBindBuffer(GL_ARRAY_BUFFER, mesh_vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)v * (GLsizeiptr)sizeof(float),
+                 verts, GL_STREAM_DRAW);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), NULL);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                          (const void *)(2 * sizeof(float)));
+
+    scissor_for(o, repaint_rect.x, repaint_rect.y, repaint_rect.w, repaint_rect.h);
+    glDrawArrays(GL_TRIANGLES, 0, v / 4);
+
+    glUniform1f(su_use_uv, 0.0f);
+}
+
 /* A window handed over as a deformed grid (scene.h): two triangles per
  * cell, the vertices already in root coordinates so the transform is the
  * identity and the projection alone puts them on screen, and a texture
  * coordinate per vertex so the window's pixmap follows the bend. This is
- * the shape a matrix cannot say -- the magic lamp's genie neck -- and the
- * one thing the quad path below cannot draw.
+ * the shape a matrix cannot say -- the magic lamp's genie neck, a wobbling
+ * window's sheet -- and the one thing the quad path below cannot draw.
  *
- * No shadow and no shape mask: a window funnelling into a button is not a
- * rectangle with a silhouette any more, and a neck's shadow is not a
- * thing anyone has wanted to see. */
+ * The silhouette comes along: kiwm rounds every frame it draws, and the
+ * mask is sampled by the vertex's place in the grid, so the corners stay
+ * round and round *with* the bend rather than being cut out of the screen
+ * where the window used to be.
+ *
+ * The shadow comes along only when the mesh asks for it (scene.h), and it
+ * bends with the window rather than staying the rectangle underneath --
+ * see draw_shadow_mesh. */
 static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
                            GlWindow *g, const float projection[16])
 {
@@ -1034,6 +1191,11 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     int cols = mesh->cols, rows = mesh->rows;
     if (cols < 1 || rows < 1 || cols > MESH_MAX_COLS || rows > MESH_MAX_ROWS)
         return;
+
+    /* Under the window, and before its texture is bound: the shadow
+     * program has its own idea of what is in texture unit 0. */
+    if (mesh->shadow)
+        draw_shadow_mesh(o, n, w, projection);
 
     glUseProgram(program);
     glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
@@ -1072,8 +1234,20 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     glUniformMatrix4fv(u_transform, 1, GL_FALSE, identity);
     glUniform1f(u_opacity, n->opacity);
     glUniform1f(u_y_flip, g->y_inverted ? 0.0f : 1.0f);
-    glUniform1f(u_use_mask, 0.0f);
     glUniform1f(u_use_uv, 1.0f);
+
+    /* The silhouette, worn as a mask: a scissor box cannot follow a bend,
+     * and every frame kiwm draws has rounded corners to keep. */
+    GLuint shape = w->shaped ? shape_mask_texture(w, g) : 0;
+    if (shape) {
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, shape);
+        glActiveTexture(GL_TEXTURE0);
+        glUniform1i(u_mask, 1);
+        glUniform1f(u_use_mask, 1.0f);
+    } else {
+        glUniform1f(u_use_mask, 0.0f);
+    }
 
     glBindBuffer(GL_ARRAY_BUFFER, mesh_vbo);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)v * (GLsizeiptr)sizeof(float),

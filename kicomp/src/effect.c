@@ -29,6 +29,7 @@ static const CompEffectModule *const modules[] = {
     &effect_cube,
     &effect_expo,
     &effect_magic_lamp,
+    &effect_wobbly,
     &effect_visual_bell,
     &effect_zoom,
     &effect_stats,

@@ -388,6 +388,7 @@ void cover_switch_external(const uint32_t *data, int len);
 bool cover_switch_available(void);
 extern const CompEffectModule effect_expo;
 extern const CompEffectModule effect_magic_lamp;
+extern const CompEffectModule effect_wobbly;
 extern const CompEffectModule effect_visual_bell;
 extern const CompEffectModule effect_zoom;
 extern const CompEffectModule effect_stats;

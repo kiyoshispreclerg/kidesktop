@@ -30,7 +30,7 @@
  * A backend that cannot draw a mesh falls back to the node's `transform`,
  * which the effect sets to the plain shrink the mesh approximates; only
  * the GL backend reads the mesh. */
-#define MESH_MAX_COLS 8
+#define MESH_MAX_COLS 16
 #define MESH_MAX_ROWS 48
 #define MESH_MAX_VERTS ((MESH_MAX_COLS + 1) * (MESH_MAX_ROWS + 1))
 
@@ -38,6 +38,15 @@ typedef struct CompSceneMesh {
     int cols, rows;
     float x[MESH_MAX_VERTS];
     float y[MESH_MAX_VERTS];
+
+    /* Cast a shadow under the rectangle the mesh spans. A shadow is a
+     * blurred rectangle (shadow.h) and cannot be bent along with the
+     * window, so this is only worth asking for where the mesh stays
+     * roughly rectangular -- a wobbling window does, and wants its
+     * shadow; a window funnelling into a taskbar button does not, and a
+     * rectangle of shadow following the neck would be a shape nothing
+     * on screen explains. */
+    bool shadow;
 } CompSceneMesh;
 
 typedef struct CompSceneNode {
