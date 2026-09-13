@@ -34,7 +34,10 @@ Complete enough to be the window manager this desktop is run on day to day. What
   outlined where it was when it went away -- kiwm never loses that geometry, since minimizing only
   unmaps the frame -- and that same rectangle is published as `_KIWM_MINIMIZED_GEOMETRY` (see
   [PROTOCOL.md](PROTOCOL.md)) for anything outside kiwm that wants it, a compositor animating the
-  minimize/restore above all.
+  minimize/restore above all. The window switcher lists every desktop of the output by default
+  (`osd_other_desktops=`), and a compositor that offers one can draw it in kiwm's place
+  (`osd_cover_switch=`) without kiwm giving up the keyboard -- see "The switcher the compositor
+  draws" below.
 - Virtual desktops tracked **independently per output** (not one global workspace number) --
   see [PROTOCOL.md](PROTOCOL.md).
 - Already-open windows are picked up at startup, not just windows mapped afterward -- *with the
@@ -379,6 +382,8 @@ a warning on stderr, not a hard error. A key you leave out of the file keeps its
 | `force_unflip` | `auto` | Whether the delayed repaint rounds after a fullscreen window loses focus are sent -- the 150ms and 500ms re-exposes that survive the X server's unflip copying the last page-flipped frame over everything (see the bullet above). `auto` sends them only when no compositor owns `_NET_WM_CM_S<n>` and the server has the `Present` extension, which is the case that needs them; `always` sends them whatever else is running (kiwm's behavior since the fix); `never` sends only the immediate `ClearArea` round. The extra rounds cost two `ClearArea` sweeps over the uncovered windows, and only on a fullscreen window losing focus. |
 | `osd_enabled` | `1` | `1` (default) shows a themed overlay while holding Alt+Tab/Meta+Tab, only switching on release -- see "On-screen overlays (OSD)" below. `0` reverts to switching immediately on every Tab press, no overlay. |
 | `osd_live_preview_windows` | `0` | `1` applies every Alt+Tab step live (raise + focus the highlighted window) instead of only on release -- Escape then reverts to whatever was focused before the hold started. `0` (default) leaves everything untouched until release. Ignored when `osd_enabled=0`. |
+| `osd_cover_switch` | `1` | Let the compositor draw the window switcher, as a row of covers, instead of kiwm's own list -- when it offers one. A preference, not a requirement: kiwm asks at the moment a hold opens whether the compositor advertises the mode, and with no compositor, one built without the effect, or one with it switched off, the answer is the same and the list is what appears. Nothing about the hold, the grab or the commit changes either way; see "The switcher the compositor draws" below. |
+| `osd_other_desktops` | `1` | List every desktop of the output in the window switcher, not only the one on screen. A switcher that stops at the desktop you happen to be on cannot reach half of what is open, and on an empty desktop it offers nothing at all and does not open. Committing to one of these switches to its desktop on the way, which `activate_client()` already did for any other route to the same window. |
 | `osd_live_preview_desktops` | `0` | The same for the desktop switcher (Meta+Tab): `1` switches to the highlighted desktop on every step. Separate from the windows one because previewing a *window* raises and focuses it, which is far more disruptive than previewing a desktop. The old `osd_live_preview=` still works and sets both. |
 | `osd_desktop_windows` | `1` | `1` (default) draws the windows of each desktop inside its square in the Meta+Tab desktop switcher, at their real geometry scaled down -- the same picture xispanel's pager draws with `show_windows=yes`, except kiwm already owns every window's geometry, so it costs nothing but the drawing. The squares are drawn taller when this is on, since a scaled-down window in a 64px-high square is a couple of pixels of nothing. `0` gives plain numbered squares. |
 | `osd_output_follows_pointer` | `0` | `1` opens an overlay on whichever output the pointer is on (polled once when the hold starts), instead of the currently focused window's output (`0`, default; falls back to the pointer's output only when nothing is focused). Not the same as `focus_follows_mouse=` -- only decides which screen Alt+Tab/Meta+Tab themselves act on. |
@@ -791,11 +796,37 @@ regardless, and the failure is logged.
 
 The window list
 is built behind a small `TabBoxOps` vtable (`osd.h`/`osd.c`) -- kwin calls the same idea a "tabbox"
--- so a different presentation (a thumbnail grid, cover-flow, ...) can be swapped in later by
-writing a new `TabBoxOps` and pointing one variable at it, with no changes to the hold/release
-mechanics or eligibility rules. Only one implementation exists today: `simple_list_tabbox_ops`, the
-plain list above. The desktop grid isn't behind such a vtable -- it's a single fixed presentation,
-not asked to be swappable.
+-- so a different presentation can be swapped in by writing a new `TabBoxOps` and pointing one
+variable at it, with no changes to the hold/release mechanics or eligibility rules. Two exist:
+`simple_list_tabbox_ops`, the plain list above, and `cover_switch_tabbox_ops`, which draws nothing
+of kiwm's own and asks the compositor to draw it instead. The desktop grid isn't behind such a
+vtable -- it's a single fixed presentation, not asked to be swappable.
+
+### The switcher the compositor draws
+
+With `osd_cover_switch=1` (the default) and a compositor that offers it, Alt+Tab is drawn by the
+compositor as a row of covers in perspective instead of by kiwm as a list. What does **not** change
+is everything about the hold: kiwm grabs the keyboard exactly as it always did, steps the same list
+built by the same eligibility rules, and commits by activating the selected client on release.
+
+That is not an implementation detail, it is the reason the arrangement works. Only one client can
+hold a grab, and for Alt+Tab it has to be the window manager -- it owns the key, it owns the hold,
+and it is the only thing that can decide and carry out what the hold meant. So `tabbox-cover.c`
+takes no grab, reads no key and moves no focus; it writes what is being offered on a property and
+the compositor draws it.
+
+Two properties, and the compositor's side of them is documented in `kicomp`'s README:
+
+- **`_KICOMP_EFFECTS`**, on the window owning `_NET_WM_CM_Sn`: the modes the compositor can be
+  asked to draw, space separated. Read at the moment a hold opens rather than watched, because that
+  is the only moment the answer is used and a compositor that started or stopped between two holds
+  is then noticed for free.
+- **`_KICOMP_SWITCHER`**, on the root: the state, the selected entry's index, and the windows in the
+  order to show them, rewritten on every step.
+
+The fallback needs no negotiating and cannot get out of step: no compositor, one built without the
+effect, and one with it switched off all leave `_KICOMP_EFFECTS` absent, and the absence is the
+whole of the answer.
 
 ### The outline
 
