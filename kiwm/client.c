@@ -2658,9 +2658,26 @@ bool client_reframe(Client *c)
      * SubstructureNotify from the window's parent, which for a fresh
      * adoption is the root. Here the parent is the old frame, and a
      * frame does not select SubstructureNotify. Counting one too many
-     * would swallow the app's own next unmap. */
-    if (c->mapped)
+     * would swallow the app's own next unmap.
+     *
+     * Not `if (c->mapped)`: that flag is kiwm's "belongs on screen", and
+     * a minimized window has it clear while its client window is still
+     * mapped in X -- minimizing unmaps the *frame* (minimize_client) --
+     * so the reparent unmaps and remaps it all the same. Uncounted, that
+     * UnmapNotify read as the client withdrawing: the window was
+     * unmanaged, reparented back to the root, and remapped there,
+     * decorationless, the moment a compositor started or stopped. Only
+     * a shaded window's client is really unmapped (toggle_shade).
+     *
+     * The MapNotify of the remap is harmless for a window that belongs
+     * on screen (handle_map_notify sees c->mapped set) and is the
+     * minimized window asking to be shown for one that does not -- so
+     * that one is told to expect it too (Client::ignore_map). */
+    if (!c->shaded) {
         c->ignore_unmap += 1;
+        if (!c->mapped)
+            c->ignore_map += 1;
+    }
     xcb_reparent_window(wm.conn, c->window, c->frame, bt, th);
 
     /* Only onto the screen if the window belongs there *now*. `mapped`
