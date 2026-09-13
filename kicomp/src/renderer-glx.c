@@ -41,8 +41,8 @@
  * flashing black, then red, with pieces of windows out of place".
  *
  * Still XRender-only, for the GL renderer as a whole: the X-DENSITY
- * layers and the shade stash. `renderer = glx` is opt-in until they are
- * there, and `auto` still picks xrender.
+ * layers. `renderer = glx` is opt-in until they are there, and `auto`
+ * still picks xrender.
  */
 #include "renderer-gl.h"
 #include "window.h"
@@ -596,6 +596,13 @@ static const CompRenderer glx_renderer = {
     .window_shape_invalidate = gl_window_shape_invalidate,
     .window_free        = gl_window_free,
     .window_has_content = gl_window_has_content,
+
+    .window_stash       = gl_window_stash,
+    .window_has_stash   = gl_window_has_stash,
+    .window_stash_rect  = gl_window_stash_rect,
+    .stash_hold         = gl_stash_hold,
+    .stash_release      = gl_stash_release,
+    .stash_drop_unheld  = gl_stash_drop_unheld,
     .shutdown           = glx_shutdown,
 };
 

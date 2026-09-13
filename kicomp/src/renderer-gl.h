@@ -89,6 +89,22 @@ typedef struct GlWindow {
      * the platform allocates in window_bind and this side frees with the
      * window, after window_unbind has let go of what it names. */
     void *platform;
+
+    /* The contents a resize replaced, set aside rather than freed
+     * (renderer.h's stash) -- the platform half and the texture reading
+     * it, moved here whole. What lets shade roll up a window whose live
+     * pixmap has already collapsed to a titlebar: the pixels that have to
+     * roll are gone from the window, but the pixmap we named is still
+     * ours until we free it, and the texture is still bound to it.
+     *
+     * `stash_holds` is how many effects are drawing it; at zero the flush
+     * drops it (gl_stash_drop_unheld), so a plain resize leaves nothing
+     * behind. */
+    void *stash_platform;
+    GLuint stash_texture;
+    CompRect stash_rect;        /* the rectangle those pixels covered */
+    bool stash_y_inverted;
+    int stash_holds;
 } GlWindow;
 
 typedef struct {
@@ -123,5 +139,15 @@ void gl_window_invalidate(CompWindow *w);
 void gl_window_shape_invalidate(CompWindow *w);
 void gl_window_free(CompWindow *w);
 bool gl_window_has_content(const CompWindow *w);
+
+/* The stash (renderer.h), the same for every platform: the window's
+ * previous contents kept instead of thrown away when a resize replaces
+ * them, so an effect can still draw what the window looked like. */
+void gl_window_stash(CompWindow *w, const CompRect *was);
+bool gl_window_has_stash(const CompWindow *w);
+CompRect gl_window_stash_rect(const CompWindow *w);
+void gl_stash_hold(CompWindow *w);
+void gl_stash_release(CompWindow *w);
+void gl_stash_drop_unheld(CompWindow *w);
 
 #endif /* KICOMP_RENDERER_GL_H */

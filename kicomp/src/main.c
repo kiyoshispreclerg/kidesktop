@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.96"
+#define KICOMP_VERSION "0.2.97"
 
 #include "comp.h"
 #include "output.h"
@@ -1201,8 +1201,8 @@ int main(int argc, char **argv)
 
     /* The renderer, by name. `auto` stays on XRender: the GL backends
      * are the newer ones and do not do everything the older one does
-     * yet (the density layers, the shade stash), so they are asked for
-     * by name until they do. */
+     * yet (the density layers), so they are asked for by name until
+     * they do. */
     bool want_glx = (strcmp(comp.renderer_name, "glx") == 0);
     bool want_egl = (strcmp(comp.renderer_name, "egl") == 0);
     if (!want_glx && !want_egl && strcmp(comp.renderer_name, "auto") &&

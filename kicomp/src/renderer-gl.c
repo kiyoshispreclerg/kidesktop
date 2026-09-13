@@ -368,6 +368,119 @@ static void gl_shape_forget(GlWindow *g)
     g->shape_known = false;
 }
 
+/* ---- the stash: contents a resize replaced (renderer-gl.h) ---- */
+
+static void gl_stash_free(GlWindow *g)
+{
+    if (!g->stash_platform && !g->stash_texture)
+        return;
+
+    /* The platform releases what it named through a GlWindow, so the
+     * stash is handed to it as one: its own platform half and the texture
+     * that half is bound into, and nothing else of this window's. */
+    if (g->stash_platform) {
+        GlWindow tmp;
+        memset(&tmp, 0, sizeof(tmp));
+        tmp.id = g->id;
+        tmp.platform = g->stash_platform;
+        tmp.texture = g->stash_texture;
+        platform->window_unbind(&tmp);
+        free(g->stash_platform);
+        g->stash_platform = NULL;
+    }
+    if (g->stash_texture) {
+        glDeleteTextures(1, &g->stash_texture);
+        g->stash_texture = 0;
+    }
+    g->stash_holds = 0;
+}
+
+void gl_window_stash(CompWindow *w, const CompRect *was)
+{
+    GlWindow *g = gl_window_find(w->id);
+
+    /* Nothing bound to stash. Whatever was there is still the most recent
+     * thing this window ever looked like, so leave it. */
+    if (!g || !g->platform || !g->content)
+        return;
+
+    /* An effect is drawing the stash right now: it keeps it. Replacing it
+     * here would delete the texture mid-animation, and the node would
+     * quietly fall back to the window's *live* contents while still being
+     * drawn at the size the old ones were -- which for a shade is the
+     * collapsed titlebar stretched over the whole window. A window that
+     * resizes twice on its way into a shade (Qt sends more configures
+     * than X clients usually do) is exactly how that happens, and the
+     * first stash is the one the effect wanted anyway. */
+    if (g->stash_holds > 0)
+        return;
+
+    /* Otherwise one stash at a time: nothing is holding the old one, and
+     * the newest contents are the ones worth keeping. */
+    gl_stash_free(g);
+
+    /* Moved whole, not copied: the texture stays bound to the platform's
+     * image, which stays bound to the pixmap we named -- and a named
+     * pixmap is ours until we free it, whatever the window does next.
+     * That is the entire trick, and why there is nothing to read back. */
+    g->stash_platform = g->platform;
+    g->stash_texture = g->texture;
+    g->stash_y_inverted = g->y_inverted;
+    /* The rectangle those pixels covered -- the *old* one. The window's
+     * geometry is already the new size by the time this runs, which is
+     * the trap: stashing window_rect(w) here records the size the
+     * contents are not. */
+    g->stash_rect = *was;
+    g->stash_holds = 0;
+
+    /* The live half starts over: the next bind names the new pixmap into
+     * a new texture. */
+    g->platform = NULL;
+    g->texture = 0;
+    g->content = false;
+    g->width = g->height = 0;
+
+    /* The silhouette belongs to the size that just changed. */
+    gl_shape_forget(g);
+}
+
+bool gl_window_has_stash(const CompWindow *w)
+{
+    GlWindow *g = gl_window_find(w->id);
+    return g && g->stash_platform != NULL;
+}
+
+CompRect gl_window_stash_rect(const CompWindow *w)
+{
+    GlWindow *g = gl_window_find(w->id);
+    return g ? g->stash_rect : (CompRect){ 0, 0, 0, 0 };
+}
+
+void gl_stash_hold(CompWindow *w)
+{
+    GlWindow *g = gl_window_find(w->id);
+    if (g)
+        g->stash_holds++;
+}
+
+void gl_stash_release(CompWindow *w)
+{
+    GlWindow *g = gl_window_find(w->id);
+    if (!g)
+        return;
+    if (g->stash_holds > 0)
+        g->stash_holds--;
+    if (g->stash_holds == 0)
+        gl_stash_free(g);
+}
+
+void gl_stash_drop_unheld(CompWindow *w)
+{
+    GlWindow *g = gl_window_find(w->id);
+    if (g && g->stash_holds == 0)
+        gl_stash_free(g);
+}
+
 void gl_window_invalidate(CompWindow *w)
 {
     GlWindow *g = gl_window_find(w->id);
@@ -398,6 +511,9 @@ void gl_window_free(CompWindow *w)
         free(g->platform);
         if (g->texture)
             glDeleteTextures(1, &g->texture);
+        /* Whatever an effect was still holding goes with it: the window
+         * is gone, and so is anything that was drawing it. */
+        gl_stash_free(g);
         free(g->shape_rects);
         free(g);
         return;
@@ -1293,8 +1409,33 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
     glUniform1i(u_texture, 0);
 
-    if (!platform->window_bind(w, g))
+    /* An effect drawing what the window looked like before its last
+     * resize (shade, rolling a window up behind its own titlebar). The
+     * node's geometry describes those contents, not the window's current
+     * ones -- and the texture is the one set aside with them, still bound
+     * to the pixmap that was named then, so there is nothing to bind and
+     * nothing to read back. */
+    bool from_stash = n->use_stash && g->stash_platform && g->stash_texture;
+
+    if (from_stash) {
+        glBindTexture(GL_TEXTURE_2D, g->stash_texture);
+    } else if (!platform->window_bind(w, g)) {
         return;
+    }
+
+    /* The window itself reaches no further than the area the scene says
+     * it covers. For an ordinary window that changes nothing -- the quad
+     * is its rectangle and `clip` is that rectangle grown by the reach of
+     * a shadow that has already been drawn. It is what makes a *crop*
+     * work: shade shortens visible_rect and nothing else, and the picture
+     * has to stop where it stops rather than spilling into the shadow's
+     * margin. (XRender composites exactly this rectangle, which is why
+     * the same effect has always cropped cleanly there.) */
+    CompRect full_repaint = repaint_rect;
+    CompRect body;
+    if (!rect_intersect(&full_repaint, &n->visible_rect, &body))
+        return;
+    repaint_rect = body;
 
     float m[16];
     node_matrix(n, m);
@@ -1307,7 +1448,8 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * to be mirrored. Getting this backwards draws every window
      * upside down, which is worth stating plainly because the two
      * mistakes look identical until you try the other driver. */
-    glUniform1f(u_y_flip, g->y_inverted ? 0.0f : 1.0f);
+    glUniform1f(u_y_flip, (from_stash ? g->stash_y_inverted : g->y_inverted)
+                              ? 0.0f : 1.0f);
 
     /* A shaped window is drawn through its silhouette, one scissor
      * box per rectangle: rounded corners are the everyday case here,
@@ -1332,7 +1474,8 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * client's area a frame, read for nothing. Only while the window is
      * where it says it is: the rectangle is in screen pixels. */
     CompRect opaque = { 0, 0, 0, 0 };
-    if (comp_transform_is_identity(&n->transform) && n->opacity >= 1.0f)
+    if (!from_stash && comp_transform_is_identity(&n->transform) &&
+        n->opacity >= 1.0f)
         opaque = window_opaque_rect(w);
 
     /* A node being turned or scaled cannot keep its silhouette as
@@ -1341,7 +1484,13 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * kiwm gave it. Built on the first frame that needs it, and only
      * ever for such a node: the ordinary case below stays exactly as
      * cheap as it was. */
-    GLuint mask = (!move_only && w->shaped) ? shape_mask_texture(w, g) : 0;
+    /* Never for the stash: every silhouette this window has -- the
+     * rectangles and the mask alike -- describes the size it is now, and
+     * these contents are the size it was. Cutting the old picture with
+     * the new shape is how a rolled-up window ends up with a bite taken
+     * out of it. The crop above is the only clip a stash needs. */
+    GLuint mask = (!from_stash && !move_only && w->shaped)
+                      ? shape_mask_texture(w, g) : 0;
     if (mask) {
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, mask);
@@ -1356,7 +1505,7 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         /* The mask cuts the silhouette, so the only clip left is the
          * part of the screen this pass is repainting. */
         draw_piece(o, &repaint_rect, &opaque);
-    } else if (g->shape_count > 0 && move_only) {
+    } else if (!from_stash && g->shape_count > 0 && move_only) {
         for (int k = 0; k < g->shape_count; k++) {
             const xcb_rectangle_t *sr = &g->shape_rects[k];
             CompRect piece = in_node_space(n, w, sr->x, sr->y,
@@ -1365,7 +1514,7 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
             piece.y += (int)tdy;
             draw_piece(o, &piece, &opaque);
         }
-    } else if (!move_only && w->shaped &&
+    } else if (!from_stash && !move_only && w->shaped &&
                w->shape_extents.w > 0 && w->shape_extents.h > 0) {
         /* Being scaled, so the silhouette cannot come along -- a
          * scissor box lives in screen pixels. Its *extents* can,
@@ -1382,9 +1531,11 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         if (scissor_to(o, &moved))
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     } else {
-        /* Unshaped: the damage rectangle is the whole clip. */
+        /* Unshaped, or a stash: the damage rectangle is the whole clip. */
         draw_piece(o, &repaint_rect, &opaque);
     }
+
+    repaint_rect = full_repaint;
 }
 
 /* One coloured quad (scene.h's CompSceneSolid). The same one-texel
@@ -1652,6 +1803,8 @@ void gl_teardown(void)
         free(g->platform);
         if (g->texture)
             glDeleteTextures(1, &g->texture);
+        if (platform)
+            gl_stash_free(g);
         free(g->shape_rects);
         free(g);
     }

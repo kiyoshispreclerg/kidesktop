@@ -755,6 +755,13 @@ static const CompRenderer egl_renderer = {
     .window_shape_invalidate = gl_window_shape_invalidate,
     .window_free        = gl_window_free,
     .window_has_content = gl_window_has_content,
+
+    .window_stash       = gl_window_stash,
+    .window_has_stash   = gl_window_has_stash,
+    .window_stash_rect  = gl_window_stash_rect,
+    .stash_hold         = gl_stash_hold,
+    .stash_release      = gl_stash_release,
+    .stash_drop_unheld  = gl_stash_drop_unheld,
     .output_pixmap      = egl_output_pixmap,
     .output_pixmap_idle = egl_output_pixmap_idle,
     .output_has_free_buffer = egl_output_has_free_buffer,

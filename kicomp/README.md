@@ -1827,7 +1827,6 @@ this one file rather than a change anywhere else:
 | | |
 |---|---|
 | X-DENSITY layers | the dense decoration and contents are drawn by the XRender path only |
-| the shade stash | so `shade` has nothing to roll up under this renderer |
 | MSC/UST | `GLX_OML_sync_control` would give the same numbers the Present presenter reports |
 
 Verified on a nested session (llvmpipe, GLX 1.4 direct): the desktop
