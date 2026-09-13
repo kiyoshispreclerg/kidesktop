@@ -1005,12 +1005,6 @@ Each label is laid out once when the grid opens and composited from then
 on; the filter box is the one that is re-laid on each keystroke, which is
 a layout per keystroke and no more.
 
-Not there yet: **minimized windows and windows on other desktops are
-missing** from the grid. The store that would fix it exists —
-`keep_hidden_contents`, which the expo grid already draws from — so this
-is now a matter of letting them into the layout rather than of having
-nothing to draw.
-
 ### `expo`
 
 Every virtual desktop at once, laid out the way the pager lays them out,
@@ -1108,10 +1102,19 @@ while another arrives at the other.
 **It reaches the other desktops** (`other_desktops`), because an Alt+Tab
 that stops at the desktop you happen to be on cannot reach half of what
 is open, and on an empty desktop it would offer nothing at all. Those
-windows are unmapped, so the WM is asked to hold them up
-(`live_windows`); the ground follows the selection as you walk
-(`follow_desktop`), and the desktops that are not going to be on screen
-fade out as the covers fly home.
+windows are unmapped: they are drawn from the picture kept of them when
+they left (`keep_hidden_contents`), or live where `live_windows` (this
+section's, or the global one) has the WM hold them up — and one there is
+no picture of at all, put away before this compositor was running, is
+held up once so that there is a picture by the next time. The ground
+follows the selection as you walk (`follow_desktop`), and the desktops
+that are not going to be on screen fade out as the covers fly home.
+
+**And the minimized windows**, always, from their kept pictures: they
+are this desktop's windows, put away, and a switcher that cannot reach
+them cannot reach half of what is open either. One minimized before the
+compositor was running has no picture and is left out — nothing can be
+asked for it.
 
 **Every ground is photographed while you choose.** A window's pixmap is
 only named when something draws it, and a desktop's wallpaper is only up

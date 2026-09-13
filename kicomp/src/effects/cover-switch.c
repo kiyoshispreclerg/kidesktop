@@ -257,6 +257,33 @@ static CompOutput *output_of(const CompRect *r)
     return best;
 }
 
+/* Whether a window that is not on screen has a place in the row.
+ *
+ * Minimized, with the picture it had when it went (comp.h's stowed): yes,
+ * always -- it is one of this desktop's windows, put away, and a switcher
+ * that cannot reach it is a switcher that cannot reach half of what is
+ * open. Away with one of this output's other desktops: with other_desktops
+ * on, from its picture -- or, where there is no picture at all, because
+ * it was put away before this compositor was running, with an empty
+ * cover this once and a hold asked for it (hold_live_windows), so there
+ * is a picture by the next time. A minimized window with no picture is
+ * left out: nothing can be asked for it. */
+static bool away_but_showable(const CompWindow *w, const CsConfig *cfg,
+                              int output_id)
+{
+    if (w->state & COMP_STATE_MINIMIZED)
+        return w->stowed;
+    if (!cfg->other_desktops)
+        return false;
+    if (w->stowed)
+        return true;
+    /* No picture: only if it really is away with another desktop. An
+     * unmapped window *on* this desktop is one that has not opened yet,
+     * or one its owner hid, and neither is a cover. */
+    int desk = desktop_of(w);
+    return desk >= 0 && desk != desktop_current_for_output(output_by_id(output_id));
+}
+
 static bool eligible(const CompWindow *w, const CompEffectInstance *self, int output_id)
 {
     const CsConfig *cfg = self->config;
@@ -264,11 +291,9 @@ static bool eligible(const CompWindow *w, const CompEffectInstance *self, int ou
     if (w->input_only || w->zombie || w->wm_layer[0])
         return false;
 
-    /* On screen, or away with one of this output's other desktops and
-     * still holding the picture it had when it left (comp.h's stowed).
-     * A window that is neither is one there is nothing to show for --
-     * minimized with its contents dropped, or gone. */
-    if (!w->mapped && !(cfg->other_desktops && w->stowed))
+    /* On screen, or put away with something to show for it
+     * (away_but_showable). */
+    if (!w->mapped && !away_but_showable(w, cfg, output_id))
         return false;
     if (w->type == COMP_WINDOW_DOCK || w->type == COMP_WINDOW_DESKTOP)
         return false;
@@ -498,12 +523,19 @@ static void hold_live_windows(CompEffect *e, double now)
      * second the user spends choosing. */
     desktop_request_prime();
 
-    if (comp_live_windows_resolve(cfg->live_windows) == COMP_LIVE_DESKTOP)
-        return;
+    /* The windows: every one away with its desktop where live_windows
+     * (this section's, or kicomp's own) says so -- and whatever it says,
+     * one there is no picture of at all, held up once so that it is
+     * drawn here, which names its pixmap, and kept when the hold ends
+     * (away_but_showable). Minimized windows are never asked for: kiwm
+     * refuses, and they are drawn from their pictures. */
+    bool live = comp_live_windows_resolve(cfg->live_windows) != COMP_LIVE_DESKTOP;
 
     for (int i = 0; i < d->count; i++) {
         CompWindow *w = d->items[i].win;
-        if (w && !w->mapped)
+        if (!w || w->mapped || (w->state & COMP_STATE_MINIMIZED))
+            continue;
+        if (live || !renderer_window_has_content(w))
             desktop_request_hold(w, HOLD_MS);
     }
 }
@@ -1191,7 +1223,7 @@ static CompEffect *open_mode(const CompEffectInstance *self, CompOutput *o,
              * desktops is unmapped, and it is exactly the one the window
              * manager is asking us to show. What it needs instead is a
              * picture -- on screen now, or kept from when it left. */
-            if (!w->mapped && !(cfg->other_desktops && w->stowed))
+            if (!w->mapped && !away_but_showable(w, cfg, d->output_id))
                 continue;
 
             CsItem *it = &d->items[d->count++];
