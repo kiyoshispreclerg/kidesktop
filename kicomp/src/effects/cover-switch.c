@@ -612,14 +612,19 @@ static void close_mode(CompEffect *e, bool activate_it)
             effects_claim_window(COMP_EVENT_FOCUS, w, cover);
 
             /* If the window is on another desktop, activating it takes
-             * the desktop with it -- and the wall sliding that desktop
-             * in is exactly right: everything on it really is arriving
-             * from somewhere else. Everything except this one window,
-             * which the user has just watched swing round to the front
-             * and which has to arrive where it already is instead of
-             * coming in from the side with the rest. */
-            effects_claim_window(COMP_EVENT_DESKTOP_ENTER, w, cover);
-            effects_claim_window(COMP_EVENT_DESKTOP_LEAVE, w, cover);
+             * the desktop with it -- and this row is what shows that
+             * happening: the covers fly home and the two wallpapers
+             * cross. Nothing else animates the same change on top of
+             * it, the wall least of all, which would be a second answer
+             * to one question and would break the rule that one thing
+             * at a time takes the screen.
+             *
+             * Claimed for the whole output rather than for this window
+             * alone. A wall that ran for every window *except* the
+             * chosen one would be exactly the half-animation this is
+             * meant to avoid. */
+            effects_claim(COMP_EVENT_DESKTOP_ENTER, d->output_id, cover);
+            effects_claim(COMP_EVENT_DESKTOP_LEAVE, d->output_id, cover);
 
             /* The claims are made either way; the activation only when
              * this mode is its own. Driven from the window manager it is
@@ -903,25 +908,37 @@ static void cs_apply(CompEffect *e, CompScene *s, CompOutput *o)
              * here; the rest are in it for their windows, not for their
              * scenery. */
             int nd = desktop_of(node->win);
-            bool keep = nd < 0 || nd == COMP_DESKTOP_ALL ||
+            int landing = (d->selected >= 0 && d->selected < d->count)
+                        ? d->items[d->selected].desktop : d->start_desktop;
+
+            bool here = nd < 0 || nd == COMP_DESKTOP_ALL ||
                         nd == d->start_desktop;
+            /* The desktop being switched to counts as ground too, once
+             * one has been chosen: the window manager starts bringing it
+             * in while this row is still lying back down, and hiding it
+             * then was this rule outliving its reason. */
+            bool arriving = d->closing && nd >= 0 &&
+                            nd != COMP_DESKTOP_ALL && nd == landing &&
+                            nd != d->start_desktop;
 
-            /* And the desktop being switched to, once one has been
-             * chosen. The window manager starts bringing it in while
-             * this row is still lying back down, and the wall sliding a
-             * desktop in with no wallpaper under it was this rule
-             * outliving its reason: by then the ground is not the one
-             * the row opened on but the one it is handing over to. */
-            if (!keep && d->closing && d->selected >= 0 &&
-                d->selected < d->count)
-                keep = nd == d->items[d->selected].desktop;
-
-            if (!keep) {
+            if (!here && !arriving) {
                 node->visible_rect = (CompRect){ 0, 0, 0, 0 };
                 continue;
             }
 
             node->opacity *= 1.0f - cfg->background * alive;
+
+            /* Two grounds while the row hands over to another desktop,
+             * so they cross: the one it opened on goes as the one it is
+             * arriving at comes. A cut between two wallpapers is the one
+             * moment in this effect where nothing is moving to look at,
+             * and it reads as a flicker. A sticky ground belongs to both
+             * and is left alone. */
+            if (arriving)
+                node->opacity *= 1.0f - alive;
+            else if (d->closing && nd >= 0 && nd != COMP_DESKTOP_ALL &&
+                     nd != landing)
+                node->opacity *= alive;
             continue;
         }
 
@@ -1042,8 +1059,18 @@ static void cs_destroy(CompEffect *e)
     e->data = NULL;
 }
 
+/* The row is a desktop-scale mode: while it is up nothing else that
+ * takes the screen over may start (effect.h). It adjusts the scene
+ * rather than replacing it, so it does not draw alone. */
+static int cs_owns_output(const CompEffect *e)
+{
+    const CsData *d = e->data;
+    return d ? d->output_id : COMP_NO_OUTPUT;
+}
+
 static const CompEffectOps cs_ops = {
     .name       = "cover-switch",
+    .owns_output = cs_owns_output,
     .update     = cs_update,
     .apply      = cs_apply,
     .finished   = cs_finished,
@@ -1066,6 +1093,13 @@ static CompEffect *open_mode(const CompEffectInstance *self, CompOutput *o,
                              const xcb_window_t *wins, int count, int selected)
 {
     const CsConfig *cfg = self->config;
+
+    /* One thing at a time takes the screen over: a cube, an expo grid, a
+     * row of covers, a wall. Two of those at once is not a picture of
+     * anything, so this simply does not open and the key does nothing
+     * (effect.h). */
+    if (effects_mode_running(o->id, &cs_ops))
+        return NULL;
 
     CompEffect *e = calloc(1, sizeof(*e));
     CsData *d = calloc(1, sizeof(*d));

@@ -461,8 +461,17 @@ static void wall_destroy(CompEffect *e)
     e->data = NULL;
 }
 
+/* A wall is one animation made of one effect per window, and it takes
+ * the whole output over for as long as it runs (effect.h). */
+static int wall_owns_output(const CompEffect *e)
+{
+    const WallData *d = e->data;
+    return d ? d->output_id : COMP_NO_OUTPUT;
+}
+
 static const CompEffectOps wall_ops = {
     .name     = "desktop-wall",
+    .owns_output = wall_owns_output,
     .update   = wall_update,
     .apply    = wall_apply,
     .finished = wall_finished,
@@ -498,6 +507,14 @@ static void on_event(CompWindow *w, const CompEvent *event,
 
     double duration = effect_instance_duration(self);
     if (duration <= 0.0)
+        return;
+
+    /* Not while something else has the screen: a cube or an expo grid is
+     * already showing the user this very change, and a wall sliding
+     * underneath it would be a second answer to one question. A wall's
+     * own other windows are not "something else" -- one wall is many
+     * effects (effect.h). */
+    if (effects_mode_running(o->id, &wall_ops))
         return;
 
     CompEffect *e = calloc(1, sizeof(*e));

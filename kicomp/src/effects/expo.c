@@ -1095,6 +1095,7 @@ static int ex_owns_output(const CompEffect *e)
 
 static const CompEffectOps ex_ops = {
     .owns_output = ex_owns_output,
+    .rebuilds_scene = true,
     .name       = "expo",
     .update     = ex_update,
     .apply      = ex_apply,
@@ -1136,6 +1137,12 @@ static void ex_toggle(void *data)
         return;              /* one desktop is not a grid */
     if (desktops > MAX_DESKTOPS)
         desktops = MAX_DESKTOPS;
+    /* One thing at a time takes the screen over: a cube, an expo grid, a
+     * row of covers, a wall. Two of those at once is not a picture of
+     * anything, so this simply does not open (effect.h). */
+    if (effects_mode_running(o->id, &ex_ops))
+        return;
+
 
     CompEffect *e = calloc(1, sizeof(*e));
     ExData *d = calloc(1, sizeof(*d));

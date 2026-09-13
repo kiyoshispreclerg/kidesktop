@@ -1018,8 +1018,17 @@ static void sw_destroy(CompEffect *e)
     e->data = NULL;
 }
 
+/* The grid is a desktop-scale mode: while it is up nothing else that
+ * takes the screen over may start (effect.h). */
+static int sw_owns_output(const CompEffect *e)
+{
+    const SwData *d = e->data;
+    return d ? d->output_id : COMP_NO_OUTPUT;
+}
+
 static const CompEffectOps sw_ops = {
     .name       = "show-windows",
+    .owns_output = sw_owns_output,
     .update     = sw_update,
     .apply      = sw_apply,
     .finished   = sw_finished,
@@ -1052,6 +1061,12 @@ static void sw_toggle(void *data)
     if (!o)
         o = comp.output_count > 0 ? &comp.outputs[0] : NULL;
     if (!o)
+        return;
+
+    /* One thing at a time takes the screen over: a cube, an expo grid, a
+     * row of covers, a wall. Two of those at once is not a picture of
+     * anything, so this simply does not open (effect.h). */
+    if (effects_mode_running(o->id, &sw_ops))
         return;
 
     CompEffect *e = calloc(1, sizeof(*e));

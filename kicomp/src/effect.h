@@ -65,18 +65,31 @@ typedef struct CompEffectOps {
     bool (*damage_map)(const CompEffect *e, const CompWindow *w,
                        const CompRect *in, CompRect *out);
 
-    /* The output this effect has taken over entirely, or COMP_NO_OUTPUT.
+    /* The output this effect has taken over, or COMP_NO_OUTPUT.
      *
-     * For the modes that rebuild the scene rather than adjust it -- the
-     * cube and the expo grid both replace the node list wholesale. While
-     * one of those is up, nothing else may apply to that output: effects
-     * are applied newest first, so an older one still running would
-     * write its own transforms over a list whose indices it no longer
-     * understands, and the picture comes apart. Starting the cube while
-     * a desktop wall was still sliding did exactly that.
+     * What "taken over" means: the effect is showing the user the whole
+     * desktop rather than one window on it -- a cube, an expo grid, a
+     * row of covers, a wall sliding one desktop out and another in.
+     * Two of those at once is not a picture of anything, so a mode asks
+     * effects_mode_running() before it opens and simply does not, and
+     * the answer to a hotkey is that nothing happens.
      *
-     * The newest one wins when two claim the same output. */
+     * The desktop wall is one such thing made of many effects -- one per
+     * window -- which is why the question is asked about *other kinds*
+     * of effect rather than about any effect at all. */
     int (*owns_output)(const CompEffect *e);
+
+    /* And this one draws it alone: it replaces the scene's node list
+     * rather than adjusting it, so nothing else may apply to that
+     * output. Effects are applied newest first, so an older one still
+     * running would write its transforms over a list whose indices it no
+     * longer understands, and the picture comes apart -- which is what
+     * starting the cube during a wall used to do.
+     *
+     * Not every mode needs this. The wall moves windows about and is
+     * perfectly happy for a window closing in the middle of it to fade
+     * out as it goes. */
+    bool rebuilds_scene;
 
     /* This window is being forgotten: drop every reference to it now.
      *
@@ -311,6 +324,12 @@ void effects_window_event(CompWindow *w, const CompEvent *ev);
  * This is the general form of something the effects were already doing
  * by hand: dodge asks input_mode_ended_ms() so it does not shove windows
  * aside for a focus the user chose out of a grid. */
+/* Is some *other* kind of desktop-scale effect already running on this
+ * output (effect.h's owns_output)? `self` is the caller's own ops, so
+ * that the desktop wall -- which is one animation made of one effect per
+ * window -- does not refuse itself. */
+bool effects_mode_running(int output_id, const CompEffectOps *self);
+
 void effects_claim(CompEventKind kind, int output_id, double ms);
 
 /* The same, for one window rather than a whole output.

@@ -403,14 +403,25 @@ void effects_update(double now)
     }
 }
 
+bool effects_mode_running(int output_id, const CompEffectOps *self)
+{
+    for (CompEffect *e = running; e; e = e->next) {
+        if (!e->ops->owns_output || e->ops == self)
+            continue;
+        if (e->ops->owns_output(e) == output_id)
+            return true;
+    }
+    return false;
+}
+
 void effects_apply(CompScene *s, CompOutput *o)
 {
-    /* A mode that has taken this output over draws it alone (effect.h's
-     * owns_output). `running` is newest first, so the first match is the
-     * one that took it over most recently -- which is the one the user
-     * is looking at. */
+    /* A mode that draws this output alone does exactly that (effect.h's
+     * rebuilds_scene). `running` is newest first, so the first match is
+     * the one that took it over most recently -- which is the one the
+     * user is looking at. */
     for (CompEffect *e = running; e; e = e->next) {
-        if (!e->ops->owns_output || !e->ops->apply)
+        if (!e->ops->rebuilds_scene || !e->ops->owns_output || !e->ops->apply)
             continue;
         if (e->ops->owns_output(e) != o->id)
             continue;

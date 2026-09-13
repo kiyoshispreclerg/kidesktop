@@ -818,6 +818,7 @@ static int cube_owns_output(const CompEffect *e)
 static const CompEffectOps cube_ops = {
     .name     = "cube",
     .owns_output = cube_owns_output,
+    .rebuilds_scene = true,
     .update   = cube_update,
     .apply    = cube_apply,
     .finished = cube_finished,
@@ -851,6 +852,20 @@ static void cube_open(const CompEffectInstance *self, bool flick)
      * build its faces starting from the desktop that has just been
      * left, and come up facing the wrong one. Before the count as well
      * as before the current one: both come from the same reading. */
+    CompRect at0 = { 0, 0, 1, 1 };
+    {
+        int qx = 0, qy = 0;
+        input_pointer_position(&qx, &qy);
+        at0 = (CompRect){ qx, qy, 1, 1 };
+    }
+    CompOutput *o0 = output_of(&at0);
+    /* One thing at a time takes the screen over: a cube, an expo grid, a
+     * row of covers, a wall. Two of those at once is not a picture of
+     * anything, so this simply does not open and the key does nothing
+     * (effect.h). */
+    if (o0 && effects_mode_running(o0->id, &cube_ops))
+        return;
+
     desktop_refresh();
 
     int faces = desktop_count();
