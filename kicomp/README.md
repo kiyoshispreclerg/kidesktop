@@ -1172,7 +1172,13 @@ full size instead of the cube backing away first.
 fractions of anything, because how far a window floats off its desktop is
 not a proportion of the screen. The wallpaper and the panels lie *on* the
 face instead (`flat_docks`): they are part of the desktop they belong to,
-not things standing above it.
+not things standing above it. The prism is drawn first, every face back
+to front, and the windows after it, again by the depth of their face — a
+window that hangs past its desktop's edge, or floats off a face that is
+turning away, reaches into the neighbouring face's part of the screen,
+and is drawn there rather than cut off by it. On the other monitors, the
+strip of a window that hangs over from the cube's screen fades out while
+the cube is up.
 
 **The other desktops are kept alive** by asking the WM to hold their
 windows up (`live_windows`), renewed while the cube is open — kiwm caps a

@@ -748,13 +748,25 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
         }
     }
 
-    /* Faces back to front, each with its own windows immediately after
-     * it: a window floats above its own face and so is drawn over it,
-     * and under every face nearer than the one it belongs to. That
-     * interleaving is the whole reason a solid carries a position in the
-     * node order (scene.h) -- all the faces and then all the windows is
-     * wrong the moment they overlap, which with a turned cube is most of
-     * the time.
+    /* The prism first, then the windows: every face back to front --
+     * the wallpaper and the panels lying on it, and the caps between
+     * them by depth -- and only then every face's windows, again by the
+     * depth of the face they float above.
+     *
+     * Not each face with its own windows immediately after it, which is
+     * how this was first written, on the reasoning that a window floats
+     * above its face and under every nearer one. What that got wrong is
+     * that a window is not confined to its face: it floats *off* it
+     * (window_gap), and it may hang past the desktop's edge, and both
+     * of those reach into the neighbouring face's part of the screen --
+     * where the nearer face, drawn afterwards, painted over them. A
+     * window on the face turning away lost its edge to the face turning
+     * in, and a window hanging past the desktop lost the part that hung,
+     * at exactly the moment the turn made the next face the near one.
+     * The faces of a convex prism never overlap on screen, so what
+     * remains to order is the windows among themselves, and depth of
+     * face does that: the near face's windows are drawn last and lie
+     * over anything a far face's window reaches across.
      *
      * One window, several nodes. The scene is a list of things to draw
      * rather than a list of windows, so the panels and a wallpaper that
@@ -771,23 +783,22 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
     static CompSceneNode rebuilt[MAX_SCENE_NODES];
     int n = 0;
 
-    for (int k = 0; k < count; k++) {
-        int face = vis[k].i;
+    /* Pass 0 is what lies on the faces -- the wallpaper and, unless told
+     * otherwise, the panels -- with the solids among them. Pass 1 is
+     * what stands above them. */
+    for (int pass = 0; pass < 2; pass++) {
+        for (int k = 0; k < count; k++) {
+            int face = vis[k].i;
 
-        scene_add_solid(s, &vis[k].rect, &vis[k].t,
-                        cfg->cap_r, cfg->cap_g, cfg->cap_b,
-                        cfg->cap_a * d->phase, (float)n - 0.5f);
+            if (pass == 0)
+                scene_add_solid(s, &vis[k].rect, &vis[k].t,
+                                cfg->cap_r, cfg->cap_g, cfg->cap_b,
+                                cfg->cap_a * d->phase, (float)n - 0.5f);
 
-        if (face < 0)
-            continue;                   /* a cap carries nothing */
+            if (face < 0)
+                continue;               /* a cap carries nothing */
 
-        /* Pass 0 is what lies on the face -- the wallpaper and, unless
-         * told otherwise, the panels. Pass 1 is what stands above it.
-         * Two passes rather than one because a panel is stacked above
-         * the windows and has to be drawn below them here: it is part of
-         * the desktop, and they are the things on top of it. */
-        int depth = 0;
-        for (int pass = 0; pass < 2; pass++) {
+            int depth = 0;
             for (int i = 0; i < s->count && n < MAX_SCENE_NODES; i++) {
                 CompSceneNode node = s->nodes[i];
                 CompWindow *w = node.win;
