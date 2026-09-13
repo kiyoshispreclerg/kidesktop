@@ -676,8 +676,28 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
 {
     CubeData *d = e->data;
     const CubeConfig *cfg = e->instance->config;
-    if (o->id != d->output_id)
+
+    if (o->id != d->output_id) {
+        /* The other monitors. A window of the cube's screen can hang
+         * over the edge onto a neighbour, and that strip has nowhere to
+         * go: the window is on a face of the cube now, turning with it,
+         * and the piece left behind on the next monitor is a sliver of
+         * something visibly somewhere else. So it fades out where it is
+         * as the cube opens, and comes back as it closes. The other
+         * monitor's own windows are not touched. */
+        CompOutput *home = output_by_id(d->output_id);
+        if (!home)
+            return;
+        for (int i = 0; i < s->count; i++) {
+            CompSceneNode *n = &s->nodes[i];
+            if (n->win->wm_layer[0])
+                continue;
+            if (face_of_window(d, home, n->win) == -1)
+                continue;
+            n->opacity *= 1.0f - d->phase;
+        }
         return;
+    }
 
     if (cfg->background > 0.0f)
         scene_set_backdrop(s, &o->rect, cfg->back_r, cfg->back_g, cfg->back_b,
