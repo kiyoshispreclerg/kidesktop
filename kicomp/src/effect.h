@@ -330,6 +330,18 @@ void effects_window_event(CompWindow *w, const CompEvent *ev);
  * window -- does not refuse itself. */
 bool effects_mode_running(int output_id, const CompEffectOps *self);
 
+/* How long a claim needs to last.
+ *
+ * Long enough for the change to come back: the compositor asks the
+ * window manager, the WM acts, and the unmaps and property changes that
+ * become a desktop-leave arrive a round trip later -- tens of
+ * milliseconds. Not scaled by the claiming effect's own duration, which
+ * was the mistake this replaces: an animation's length says nothing
+ * about when the events arrive, and with a slow animation setting it
+ * produced a claim lasting over two seconds, which swallowed the next
+ * desktop switch the user made by hand. */
+#define COMP_CLAIM_MS 500.0
+
 void effects_claim(CompEventKind kind, int output_id, double ms);
 
 /* The same, for one window rather than a whole output.

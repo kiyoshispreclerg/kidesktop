@@ -396,7 +396,7 @@ static void close_mode(CompEffect *e)
  * it -- without this the wall slides the new desktop in over the top of
  * the cube lying back down. Long enough to cover the way out and the
  * round trip the events take to come back through the window manager. */
-        double cover = effect_instance_duration(e->instance) * 2.0 + 400.0;
+        double cover = COMP_CLAIM_MS;
         effects_claim(COMP_EVENT_DESKTOP_LEAVE, o->id, cover);
         effects_claim(COMP_EVENT_DESKTOP_ENTER, o->id, cover);
 

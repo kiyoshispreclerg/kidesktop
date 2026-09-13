@@ -89,6 +89,12 @@ typedef struct {
      * telling the truth about what it is offering. */
     bool  live_windows;
 
+    /* The ground follows the selection: walking onto a window that lives
+     * on another desktop fades that desktop's wallpaper in under the
+     * row, rather than waiting until the row closes to show where you
+     * are going. */
+    bool  follow_desktop;
+
     bool  labels;
     /* Where the selected window's title sits, as a fraction of the
      * output's height from its top, and how wide it may grow before it
@@ -112,6 +118,11 @@ typedef struct {
 typedef struct {
     int output_id;
     int start_desktop;    /* the one that was showing when the row opened */
+
+    /* Which desktop's wallpaper is the ground, and which one it is
+     * crossing from. They differ only while a fade is running. */
+    int ground_from, ground_to;
+    double ground_time;
 
     CsItem items[MAX_ITEMS];
     int count;
@@ -599,7 +610,7 @@ static void close_mode(CompEffect *e, bool activate_it)
     if (activate_it && d->selected >= 0 && d->selected < d->count) {
         CompWindow *w = d->items[d->selected].win;
         if (w && !w->zombie) {
-            double cover = effect_instance_duration(e->instance) * 2.0 + 400.0;
+            double cover = COMP_CLAIM_MS;
 
             /* The user picked this window out of a row of them: they
              * looked at the lot and pointed. Dodge answering to the
@@ -779,11 +790,39 @@ static void phase_to(CsData *d, float to, double now)
     d->phase_time = now;
 }
 
+/* The ground the row is standing on, kept in step with the selection.
+ *
+ * Asked once a frame rather than at each of the places the selection can
+ * change -- a key, the wheel, a click, a window manager writing the
+ * property -- because there are four of those and one of this. */
+static void ground_follow(CompEffect *e, double now)
+{
+    CsData *d = e->data;
+    const CsConfig *cfg = e->instance->config;
+
+    if (!cfg->follow_desktop || d->closing)
+        return;
+    if (d->selected < 0 || d->selected >= d->count)
+        return;
+
+    int want = d->items[d->selected].desktop;
+    if (want < 0 || want == COMP_DESKTOP_ALL)
+        return;                     /* sticky: it is on this one too */
+    if (want == d->ground_to)
+        return;
+
+    d->ground_from = d->ground_to;
+    d->ground_to = want;
+    d->ground_time = now;
+    mark_dirty(d);
+}
+
 static void cs_update(CompEffect *e, double now)
 {
     CsData *d = e->data;
 
     hold_live_windows(e, now);
+    ground_follow(e, now);
     refresh_items(e);
 
     float pp = eased(e, d->phase_time, now);
@@ -908,37 +947,36 @@ static void cs_apply(CompEffect *e, CompScene *s, CompOutput *o)
              * here; the rest are in it for their windows, not for their
              * scenery. */
             int nd = desktop_of(node->win);
-            int landing = (d->selected >= 0 && d->selected < d->count)
-                        ? d->items[d->selected].desktop : d->start_desktop;
 
-            bool here = nd < 0 || nd == COMP_DESKTOP_ALL ||
-                        nd == d->start_desktop;
-            /* The desktop being switched to counts as ground too, once
-             * one has been chosen: the window manager starts bringing it
-             * in while this row is still lying back down, and hiding it
-             * then was this rule outliving its reason. */
-            bool arriving = d->closing && nd >= 0 &&
-                            nd != COMP_DESKTOP_ALL && nd == landing &&
-                            nd != d->start_desktop;
+            /* Sticky, or not on a desktop at all: it is the ground of
+             * whichever desktop you are on, and never fades. */
+            if (nd < 0 || nd == COMP_DESKTOP_ALL) {
+                node->opacity *= 1.0f - cfg->background * alive;
+                continue;
+            }
 
-            if (!here && !arriving) {
+            /* Two grounds at most: the one the row is standing on and
+             * the one it is crossing to. Anything else belongs to a
+             * desktop nobody is looking at and is not drawn -- with
+             * other_desktops on they are all in the scene, and left
+             * alone every wallpaper is painted over every other, which
+             * through the dimming comes out as all of them at once. */
+            float mix = eased(e, d->ground_time, comp_now_ms());
+            float ground;
+
+            if (nd == d->ground_to)
+                ground = (d->ground_from == d->ground_to) ? 1.0f : mix;
+            else if (nd == d->ground_from)
+                ground = 1.0f - mix;
+            else
+                ground = 0.0f;
+
+            if (ground <= 0.0f) {
                 node->visible_rect = (CompRect){ 0, 0, 0, 0 };
                 continue;
             }
 
-            node->opacity *= 1.0f - cfg->background * alive;
-
-            /* Two grounds while the row hands over to another desktop,
-             * so they cross: the one it opened on goes as the one it is
-             * arriving at comes. A cut between two wallpapers is the one
-             * moment in this effect where nothing is moving to look at,
-             * and it reads as a flicker. A sticky ground belongs to both
-             * and is left alone. */
-            if (arriving)
-                node->opacity *= 1.0f - alive;
-            else if (d->closing && nd >= 0 && nd != COMP_DESKTOP_ALL &&
-                     nd != landing)
-                node->opacity *= alive;
+            node->opacity *= (1.0f - cfg->background * alive) * ground;
             continue;
         }
 
@@ -1118,6 +1156,7 @@ static CompEffect *open_mode(const CompEffectInstance *self, CompOutput *o,
 
     d->output_id = o->id;
     d->start_desktop = desktop_current_for_output(o);
+    d->ground_from = d->ground_to = d->start_desktop;
 
     if (wins) {
         /* The window manager's own list and the window manager's own
@@ -1383,6 +1422,7 @@ static void cs_defaults(void *config)
     c->background = 0.82f;
     c->other_desktops = true;
     c->live_windows = true;
+    c->follow_desktop = true;
     c->labels = true;
     c->label_y = 0.86f;
     c->label_width = 640;
@@ -1407,6 +1447,7 @@ static bool cs_config_key(void *config, const char *key, const char *value)
     if (!strcmp(key, "background"))  { c->background = (float)atof(value); return true; }
     if (!strcmp(key, "other_desktops")) { c->other_desktops = atoi(value) != 0; return true; }
     if (!strcmp(key, "live_windows"))   { c->live_windows = atoi(value) != 0; return true; }
+    if (!strcmp(key, "follow_desktop")) { c->follow_desktop = atoi(value) != 0; return true; }
     if (!strcmp(key, "labels"))      { c->labels = atoi(value) != 0; return true; }
     if (!strcmp(key, "label_y"))     { c->label_y = (float)atof(value); return true; }
     if (!strcmp(key, "label_width")) { c->label_width = atoi(value); return true; }
