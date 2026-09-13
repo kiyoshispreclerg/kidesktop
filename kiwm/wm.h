@@ -446,6 +446,14 @@ struct Client {
      * anyone, it is being photographed. */
     double hold_until;
 
+    /* Whether the frame is actually up for that reason right now --
+     * marked _KIWM_HELD, no input shape. A hold asked for a window that
+     * is *visible* is kept as a standing wish (hold_until set, this
+     * clear): if the window leaves the screen with its desktop before
+     * the wish runs out it is held instead of unmapped, so what is being
+     * recorded from it never goes blank (client_hold_instead_of_unmap). */
+    bool held;
+
     /* Maximization, tracked per axis: EWMH has always had
      * _NET_WM_STATE_MAXIMIZED_VERT and _HORZ as two independent states,
      * and both single-axis ones are real things a user asks for (kwin

@@ -1023,15 +1023,6 @@ void switch_workspace(int output_idx, int desktop)
 
     int old = wm.outputs[output_idx].desktop;
 
-    /* Anything being held up for its picture (client.h's client_hold) is
-     * put back first: this function is about to decide what belongs on
-     * screen, and a window that is on screen for someone else's reasons
-     * would either be left mapped on a desktop it does not belong to or
-     * be counted as one that was already there. */
-    for (Client *c = wm.clients; c; c = c->next)
-        if (c->hold_until != 0.0)
-            client_release_hold(c);
-
     /* A window being dragged comes along to the new desktop -- switch
      * desktops with the mouse button still held and the window travels
      * with the pointer instead of being left behind (and yanked out from
@@ -1081,7 +1072,11 @@ void switch_workspace(int output_idx, int desktop)
         if (c->output != output_idx || c->minimized || c->sticky)
             continue; /* sticky clients stay mapped through every desktop switch */
         if (c->desktop == old) {
-            if (c->mapped)
+            /* Leaving with its desktop -- or, when a compositor asked
+             * to keep it alive (client.h's client_hold_instead_of_unmap),
+             * staying up marked and without input, so the picture being
+             * taken of it never goes blank. */
+            if (c->mapped && !client_hold_instead_of_unmap(c))
                 xcb_unmap_window(wm.conn, c->frame);
         } else if (c->desktop == desktop) {
             /* Not `if (c->mapped)`: that flag means "should be on screen",
@@ -1096,8 +1091,17 @@ void switch_workspace(int output_idx, int desktop)
              * desktop arrives is whether it is minimized, which is
              * already the loop's own precondition above. */
             {
+                /* Held up for its picture until now (client.h's
+                 * client_hold): the frame is already mapped, and the
+                 * hold ends by leaving it there -- no unmap and map,
+                 * so the window arrives with the contents it has been
+                 * drawing rather than with none (client_release_hold).
+                 * Both requests are no-ops on a frame in that state.
+                 * Holds on windows of other desktops are left alone:
+                 * nothing about them has changed. */
                 xcb_map_window(wm.conn, c->frame);
                 c->mapped = true;
+                client_release_hold(c);
                 /* Whichever of the desktop's windows was focused most
                  * recently -- which, since that's the last thing that
                  * happened before leaving this desktop, is the window the
@@ -1117,8 +1121,16 @@ void switch_workspace(int output_idx, int desktop)
     if (to_focus) {
         focus_client(to_focus);
     } else {
-        if (wm.focused && wm.focused->output == output_idx)
+        if (wm.focused && wm.focused->output == output_idx) {
+            /* The server reverts the focus by itself when the focused
+             * window is unmapped -- but a window held up on its way out
+             * was not unmapped, and would go on taking the keyboard
+             * from a desktop nobody can see it on. */
+            if (wm.focused->held)
+                xcb_set_input_focus(wm.conn, XCB_INPUT_FOCUS_POINTER_ROOT,
+                                    wm.root, XCB_CURRENT_TIME);
             wm.focused = NULL;
+        }
         ewmh_update_active_window();
     }
 

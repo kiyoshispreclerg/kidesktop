@@ -788,25 +788,35 @@ static void hold_input_shape(Client *c, bool none)
     }
 }
 
+/* The frame becomes one that is up for a picture only: marked, so a
+ * compositor reading the events in order knows what it is looking at,
+ * and with no input shape, so it cannot be clicked. */
+static void hold_mark(Client *c)
+{
+    uint32_t one = 1;
+    xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, c->frame,
+                        wm.atoms.kiwm_held, XCB_ATOM_CARDINAL, 32, 1, &one);
+    hold_input_shape(c, true);
+    c->held = true;
+}
+
 void client_hold(xcb_window_t window, int ms)
 {
     Client *c = find_client_window(window);
     if (!c)
         return;
 
-    /* Only a window that is away with its desktop. Everything else is
-     * either already on screen or put away for a reason of its own, and
-     * neither is this request's business.
+    /* Only a window that is away with its desktop, or on it. Everything
+     * else is put away for a reason of its own, and that is not this
+     * request's business.
      *
      * Which desktop its output is showing is the whole test: `mapped` is
      * not the frame's map state but the client's own "belongs on screen"
      * (see switch_workspace, which unmaps the frame and leaves the flag
      * alone), so a window away with its desktop still has it set. */
-    if (c->minimized || c->shaded || c->sticky)
+    if (c->minimized || c->shaded || c->sticky || !c->mapped)
         return;
     if (c->output < 0 || c->output >= wm.output_count)
-        return;
-    if (wm.outputs[c->output].desktop == c->desktop)
         return;
 
     if (ms <= 0)
@@ -814,14 +824,18 @@ void client_hold(xcb_window_t window, int ms)
     if (ms > HOLD_MAX_MS)
         ms = HOLD_MAX_MS;
 
-    if (c->hold_until == 0.0) {
+    if (wm.outputs[c->output].desktop == c->desktop) {
+        /* Visible: nothing to hold up, but the wish is kept, and it is
+         * what client_hold_instead_of_unmap answers to when the desktop
+         * is left. Renewed the same way a hold is. */
+        c->hold_until = monotonic_ms() + ms;
+        return;
+    }
+
+    if (!c->held) {
         /* Marked before it is mapped, so that a compositor reading the
          * events in order knows what the map is before it sees it. */
-        uint32_t one = 1;
-        xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, c->frame,
-                            wm.atoms.kiwm_held, XCB_ATOM_CARDINAL, 32, 1, &one);
-
-        hold_input_shape(c, true);
+        hold_mark(c);
 
         /* And it is left exactly where it is in the stack.
          *
@@ -863,12 +877,54 @@ void client_release_hold(Client *c)
 
     c->hold_until = 0.0;
 
-    /* Back where it was: unmapped, its own input shape, and no mark. The
-     * mark is deleted *after* the unmap, so the same reader that saw the
-     * map explained still has the explanation when the window goes. */
-    xcb_unmap_window(wm.conn, c->frame);
+    /* A wish nothing came of: the window was visible the whole time. */
+    if (!c->held)
+        return;
+
+    /* Where it belongs *now*, not where it was when the hold began. A
+     * hold that outlives a compositor's grid ends the old way -- the
+     * frame goes back down. But a hold can also end because the window
+     * came to belong on screen while it was up: its desktop was switched
+     * to, it was moved to the desktop being shown, it was made sticky.
+     * Unmapping it then, to map it again in the next request, is an
+     * unmap and a map the compositor and the application both have to
+     * live through -- X frees the contents in between, so the desktop
+     * arrives with windows that have to draw themselves from scratch,
+     * and a recorder holding on to one (kicomp's live_windows) gets a
+     * blank frame at every switch. The frame is already up; it stays
+     * up, and only what marked it as *merely* up is taken back. */
+    bool belongs = c->mapped && !c->minimized &&
+                   (c->sticky ||
+                    (c->output >= 0 && c->output < wm.output_count &&
+                     wm.outputs[c->output].desktop == c->desktop));
+    if (!belongs)
+        xcb_unmap_window(wm.conn, c->frame);
+
+    /* Its own input shape, and no mark. The mark is deleted *after* the
+     * unmap, so the same reader that saw the map explained still has
+     * the explanation when the window goes -- and with no unmap, the
+     * mark going while the frame stays up is how that reader learns the
+     * window has arrived for real. */
     hold_input_shape(c, false);
     xcb_delete_property(wm.conn, c->frame, wm.atoms.kiwm_held);
+    c->held = false;
+}
+
+bool client_hold_instead_of_unmap(Client *c)
+{
+    if (c->hold_until == 0.0 || c->held)
+        return false;
+    if (monotonic_ms() >= c->hold_until)
+        return false;
+
+    /* The frame never goes down, so nothing is lost and nothing has to
+     * be drawn again: the window goes on drawing into the same pixmap,
+     * with the mark and the empty input shape as the only change. The
+     * compositor sees the mark appear on a mapped frame, which is its
+     * cue that the window has left with its desktop. */
+    hold_mark(c);
+    xcb_flush(wm.conn);
+    return true;
 }
 
 int client_hold_timeout_ms(void)
@@ -1522,6 +1578,10 @@ void toggle_sticky(Client *c, int want /* -1=toggle 0=off 1=on */)
         }
     }
 
+    /* A window that was up only to be looked at is now up (or down) for
+     * a reason of its own; the hold has nothing left to undo. */
+    client_release_hold(c);
+
     ewmh_update_wm_state(c);
     xcb_flush(wm.conn);
 }
@@ -2000,6 +2060,9 @@ void minimize_client(Client *c)
         xcb_unmap_window(wm.conn, c->frame);
         c->mapped = false;
     }
+    /* Held up for a picture while being minimized: the user put it
+     * away, which ends the hold along with everything else. */
+    client_release_hold(c);
     if (wm.focused == c)
         wm.focused = NULL;
 
@@ -2092,6 +2155,7 @@ void client_reassign_output(Client *c, int output_idx)
         else
             xcb_unmap_window(wm.conn, c->frame);
     }
+    client_release_hold(c);
 
     ewmh_update_wm_desktop(c);
     ewmh_update_wm_output(c);
@@ -2111,10 +2175,20 @@ void set_client_desktop(Client *c, int desktop)
 
     c->desktop = desktop;
 
-    if (was_visible && !now_visible && c->mapped)
-        xcb_unmap_window(wm.conn, c->frame);
-    else if (!was_visible && now_visible && c->mapped)
+    if (was_visible && !now_visible && c->mapped) {
+        if (!client_hold_instead_of_unmap(c))
+            xcb_unmap_window(wm.conn, c->frame);
+    } else if (!was_visible && now_visible && c->mapped)
         xcb_map_window(wm.conn, c->frame);
+
+    /* Moved onto the desktop being shown while held up for a picture:
+     * it stays up, and stops being merely held (client_release_hold).
+     * Moved between two hidden desktops: goes down, and is held again
+     * if whoever holds it still wants it. Moved *off* the desktop being
+     * shown with a wish standing, it was just held instead (above) and
+     * the hold goes on. */
+    if (now_visible || !c->held)
+        client_release_hold(c);
 
     ewmh_update_wm_desktop(c);
     xcb_flush(wm.conn);
@@ -2567,6 +2641,12 @@ bool client_reframe(Client *c)
      * now, while c->frame still names it, so the properties are deleted
      * from the window that carried them. */
     deco_density_forget(c);
+
+    /* So did a hold: its mark and its empty input shape go with the old
+     * frame, and the new one is mapped below only if the window belongs
+     * on screen. Whoever was holding it asks again. */
+    c->hold_until = 0.0;
+    c->held = false;
 
     frame_create(c, bt, th);
 

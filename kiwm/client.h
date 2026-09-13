@@ -172,17 +172,31 @@ void client_run_pending_expose(void);
  * a mode that lasts holds on -- there is no "release" request, on
  * purpose.
  *
- * Refused for anything that isn't merely away with its desktop:
- * minimized (the user put it away), shaded (whose *client* window really
- * is unmapped), sticky and already-visible windows have nothing to
- * hold. */
+ * Refused for anything that isn't merely away with its desktop, or on
+ * it: minimized (the user put it away), shaded (whose *client* window
+ * really is unmapped) and sticky windows have nothing to hold. For a
+ * window that is *visible* nothing is done now -- there is nothing to
+ * do -- but the prize is kept as a standing wish: should the window
+ * leave the screen with its desktop before it runs out, it is held
+ * instead of unmapped (client_hold_instead_of_unmap), which is what
+ * lets a compositor keep a window continuously alive across a desktop
+ * switch (kicomp's live_windows). */
 void client_hold(xcb_window_t window, int ms);
 int  client_hold_timeout_ms(void);
 void client_run_holds(void);
 
-/* Puts a held window back now, whatever its prize said. For the paths
- * that are about to decide this window's visibility themselves. */
+/* Ends a hold now, whatever its prize said, for the paths that decide
+ * this window's visibility themselves: the frame goes down if the window
+ * no longer belongs on screen and stays up if it does -- only the mark
+ * and the empty input shape are taken back either way. */
 void client_release_hold(Client *c);
+
+/* For a path about to unmap a visible window that is leaving with its
+ * desktop: if a hold was asked for it while it was visible (a standing
+ * wish -- see client_hold), the frame stays up, marked and without
+ * input, instead of going down, and this returns true. False, and
+ * nothing done, when nobody asked; the caller unmaps as usual. */
+bool client_hold_instead_of_unmap(Client *c);
 
 /* Recomputes Client::allow_* from the client's current WM_NORMAL_HINTS /
  * _MOTIF_WM_HINTS and republishes _NET_WM_ALLOWED_ACTIONS -- see

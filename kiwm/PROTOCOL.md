@@ -205,13 +205,32 @@ same is true for anything else that wants a real thumbnail of a window that isn'
 panel's task list included: the request is not the compositor's private business.
 
 There is deliberately no "release" request. Asking again before the time is up extends it, which
-is how something that lasts (a grid that stays open) holds on, and the window manager is the one
+is how something that lasts (a grid that stays open, or a compositor keeping the other desktops
+live for a screen recorder -- kicomp's `live_windows`) holds on, and the window manager is the one
 that puts the window back -- so whoever asked can crash mid-picture and the session still ends up
-where it should, within the prize it asked for. A desktop switch puts every held window back
-first, before deciding what belongs on screen.
+where it should, within the prize it asked for.
 
-Refused, silently, for a window that is not merely away with its desktop: minimized (the user put
-it away), shaded (whose client window really is unmapped), sticky, or already visible.
+A hold ends where the window belongs *now*, not where it was when the hold began. Normally that is
+back down: the frame is unmapped, then `_KIWM_HELD` deleted. But when the window came to belong on
+screen while it was held -- its desktop was switched to, it was moved to the desktop being shown,
+it was made sticky -- the frame is **left mapped**: it gets its input shape back and `_KIWM_HELD`
+is deleted, and that deletion on a frame that stays mapped is how a reader learns the window has
+arrived for real. No unmap and map, so the window arrives with the contents it has been drawing
+all along rather than with none. A desktop switch leaves holds on the windows of every *other*
+desktop alone: nothing about them has changed.
+
+Refused, silently, for a window that is not merely away with its desktop, or on it: minimized
+(the user put it away), shaded (whose client window really is unmapped), or sticky.
+
+Asked for a window that is **visible**, nothing is done now -- there is nothing to do -- but the
+time is kept as a standing wish. Should the window leave the screen with its desktop before the
+wish runs out (the desktop switched away, the window moved to a hidden desktop), the frame is
+**not unmapped**: it stays up, gets an empty input shape, and `_KIWM_HELD` is set on it, and
+that mark appearing on a frame that stays mapped is how a reader learns the window has left with
+its desktop. Nothing is lost in between -- the application draws on into the same pixmap -- which
+is what lets a compositor keep a window continuously alive across a desktop switch for a screen
+recorder (kicomp's `live_windows`): it asks for every window, visible or not, once a second. A
+wish that nothing came of simply expires.
 
 ## Interaction with standard EWMH
 
