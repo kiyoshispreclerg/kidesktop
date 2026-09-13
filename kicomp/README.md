@@ -300,6 +300,9 @@ labels             = 1        # names under the thumbnails, filter box on top
 other_outputs      = 0        # gather the other monitors' windows too
 hide_docks         = 1        # panels fade out while the grid is up
 filter_debounce_ms = 100      # typing has to pause this long to rearrange
+live_windows       = desktop  # desktop | active | all: which of the other
+                              # desktops' windows keep drawing while the
+                              # grid is up; left out, the global one
 
 [effect:cover-switch]
 enabled        = 1
@@ -931,6 +934,7 @@ both renderers without either of them knowing it exists.
 | `other_outputs` | gather the other monitors' windows into this grid too (default off) |
 | `hide_docks` | panels fade out while the grid is up (default on) |
 | `filter_debounce_ms` | how long typing has to pause before the grid rearranges (default 100) |
+| `live_windows` | `desktop` / `active` / `all`: which of the other desktops' windows are kept drawing while the grid is up; the global `live_windows` when left out |
 
 **Which windows are in it** is asked the way a taskbar asks:
 `_NET_CLIENT_LIST` plus `_NET_WM_STATE_SKIP_TASKBAR`, the same pair
@@ -940,6 +944,16 @@ itself — and it settles panels, desktop windows, override-redirect popups
 and anything that asked not to be listed, all at once and for the reason
 they are not in the taskbar either. The `windows` type mask applies on
 top of it.
+
+**Every window, not only the ones on screen.** A minimized window and a
+window on another desktop are in the grid too, drawn from the picture
+kept of them when they were put away (`keep_hidden_contents`) — or live,
+where `live_windows` (this section's, or the global one) has them held
+up. A window on another desktop that there is *no* picture of, because
+it was put away before this compositor was running, gets an empty cell
+the first time and is held up for a moment so that there is a picture
+by the next; a minimized window with no picture is left out, since
+nothing can be asked for it.
 
 **Filtering fades**, rather than shuffling: a window that stops matching
 dissolves where it stands and comes back when it matches again. Sliding
@@ -1262,9 +1276,8 @@ kept window stays **out of the scene** until an effect asks for it
 still animating is not "merely kept", and stays in the scene, or the
 minimize animation would have nothing to shrink.
 
-The same store is what a cover-switch or flip alt-tab will draw from, and
-what `show-windows` needs before it can put minimized windows in its
-grid.
+The same store is what the cover switcher and `show-windows` draw their
+minimized windows, and the other desktops' windows, from.
 
 ### Keeping the windows themselves alive (`live_windows`)
 

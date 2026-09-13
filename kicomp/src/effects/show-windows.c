@@ -33,6 +33,10 @@
  *   labels        = 1           # window names under the thumbnails, and
  *                               # the filter box at the top of the screen
  *   filter_debounce_ms = 100
+ *   live_windows  = desktop     # desktop | active | all: which of the
+ *                               # other desktops' windows keep drawing
+ *                               # while the grid is up; left out, it is
+ *                               # kicomp's own live_windows
  *
  * Typing filters the grid by window title; Escape clears the filter, and
  * clears the mode when there is nothing to clear. Left/Right/Up/Down move
@@ -46,6 +50,8 @@
 #include "../transform.h"
 #include "../text.h"
 #include "../scene.h"
+#include "../desktop.h"
+#include "../renderer.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -87,6 +93,12 @@ typedef struct {
      * and leaving it lying over the top of the layout is the one part of
      * the desktop the grid cannot arrange around. */
     bool is_dock;
+
+    /* Which desktop it is on (-1 where the WM says nothing, or every
+     * one), for the holds: a window away with its desktop can be asked
+     * for live, a minimized one cannot. */
+    int desktop;
+    bool minimized;
 } SwItem;
 
 typedef struct {
@@ -117,6 +129,11 @@ typedef struct {
      * typing. */
     struct CompTextImage *filter_image;
     char filter_shown[MAX_FILTER];
+
+    int current_desktop;    /* what the grid's output is showing */
+    double held_at;         /* when the holds were last renewed */
+    bool took_stowed;       /* this mode is a reason the put-away
+                             * windows are in the scene */
 } SwData;
 
 typedef enum {
@@ -135,6 +152,7 @@ typedef struct {
     bool hide_docks;
     bool labels;
     double debounce_ms;
+    CompLiveWindows live;   /* COMP_LIVE_INHERIT: kicomp's own */
 } SwConfig;
 
 static const CompEffectOps sw_ops;
@@ -320,18 +338,31 @@ static bool skips_taskbar(const CompWindow *w)
 static bool eligible(const CompWindow *w, const SwConfig *cfg,
                      const CompEffectInstance *self, int output_id)
 {
-    if (!w->mapped || w->input_only || w->zombie)
+    if (w->input_only || w->zombie)
         return false;
+    /* On screen -- for real, or held up for its picture (comp.h's
+     * held) -- or put away with the picture it had when it went (comp.h's
+     * stowed): minimized, or on a desktop that isn't showing. Every
+     * window there is, which is what a grid to pick from has to be.
+     *
+     * And one away with its desktop that there is no picture of at all
+     * (put away before this compositor was running): its cell is empty
+     * this once, and the grid asks for it to be held up so that it is
+     * not the next time (hold_live_windows). Not a minimized window
+     * with no picture -- nothing can be asked for it, and an empty cell
+     * that stays empty is worse than no cell. */
+    if (!w->mapped && !w->stowed) {
+        int desk = -1;
+        if ((w->state & COMP_STATE_MINIMIZED) ||
+            !desktop_of_window(w, &desk, NULL) || desk < 0)
+            return false;
+    }
     if (!(self->windows & COMP_WINDOW_BIT(w->type)))
         return false;
     if (w->wm_layer[0])   /* kiwm's own OSD and outlines are not windows */
         return false;
     if (!in_client_list(w) || skips_taskbar(w))
         return false;
-
-    /* Minimized windows, and windows on a desktop that isn't showing,
-     * are unmapped -- there is no pixmap of them to draw, which is a
-     * bigger problem than a filter and is why they are not here yet. */
 
     CompRect r = window_rect(w);
     if (r.w <= 0 || r.h <= 0)
@@ -785,6 +816,63 @@ static bool sw_damage_map(const CompEffect *e, const CompWindow *w,
     return out->w > 0 && out->h > 0;
 }
 
+/* Long enough that a frame or two of stall does not put a window out,
+ * and renewed well inside it: kiwm caps a hold at two seconds of its own
+ * accord, and a grid stays up as long as the user takes to choose. */
+#define HOLD_MS       1500
+#define HOLD_RENEW_MS 500
+
+static const SwItem *last_used_on(const SwData *d, int desktop)
+{
+    const SwItem *best = NULL;
+    for (int i = 0; i < d->count; i++) {
+        const SwItem *it = &d->items[i];
+        if (it->is_dock || it->minimized || it->desktop != desktop)
+            continue;
+        if (!best || it->win->focus_serial > best->win->focus_serial)
+            best = it;
+    }
+    return best;
+}
+
+/* Asks the WM to keep the other desktops' windows on screen while the
+ * grid is up, so their cells show what those windows are doing rather
+ * than what they were doing when the desktop was left -- as much of
+ * them as live_windows says (kicomp's own, unless this section says
+ * otherwise).
+ *
+ * And, whatever it says, any window there is *no* picture of at all: one
+ * put away before this compositor was running, or whose kept picture was
+ * dropped while it was away. Held up once, it is drawn here, which names
+ * its pixmap, and the picture is kept when the hold ends -- so the cell
+ * that was empty this time is not empty the next. */
+static void hold_live_windows(CompEffect *e, double now)
+{
+    SwData *d = e->data;
+    const SwConfig *cfg = e->instance->config;
+    CompLiveWindows live = comp_live_windows_resolve(cfg->live);
+
+    if (d->closing)
+        return;
+    if (d->held_at != 0.0 && now - d->held_at < HOLD_RENEW_MS)
+        return;
+    d->held_at = now;
+
+    for (int i = 0; i < d->count; i++) {
+        const SwItem *it = &d->items[i];
+        if (it->is_dock || it->minimized || it->desktop < 0)
+            continue;
+        if (it->desktop == d->current_desktop)
+            continue;                   /* on screen already: live for free */
+
+        bool wanted = live == COMP_LIVE_ALL ||
+                      (live == COMP_LIVE_ACTIVE && it == last_used_on(d, it->desktop));
+        bool blank = !it->win->mapped && !renderer_window_has_content(it->win);
+        if (wanted || blank)
+            desktop_request_hold(it->win, HOLD_MS);
+    }
+}
+
 static void sw_update(CompEffect *e, double now)
 {
     SwData *d = e->data;
@@ -845,6 +933,9 @@ static void sw_update(CompEffect *e, double now)
             output_damage_rect(&d->items[i].home);
             output_damage_rect(&d->items[i].current);
         }
+    } else if (!d->closing) {
+        /* Standing still, which is when anyone is reading the cells. */
+        hold_live_windows(e, now);
     }
 }
 
@@ -889,8 +980,19 @@ static void sw_apply(CompEffect *e, CompScene *s, CompOutput *o)
         CompSceneNode *n = &s->nodes[i];
 
         SwItem *it = item_for(d, n->win);
-        if (!it)
+        if (!it) {
+            /* Not in the grid. The put-away windows are in the scene
+             * because this mode asked for them (took_stowed) -- for its
+             * items. One that is not an item, another desktop's
+             * wallpaper above all, must not appear on this one. */
+            if (n->win->stowed || n->win->held) {
+                memmove(&s->nodes[i], &s->nodes[i + 1],
+                        sizeof(CompSceneNode) * (size_t)(s->count - i - 1));
+                s->count--;
+                i--;
+            }
             continue;
+        }
 
         const CompRect *cur = &it->current;
 
@@ -1007,6 +1109,9 @@ static void sw_destroy(CompEffect *e)
     if (d)
         text_free(d->filter_image);
 
+    if (d && d->took_stowed)
+        effects_show_stowed(d->output_id, false);
+
     if (e == active) {
         active = NULL;
         input_release();
@@ -1079,6 +1184,7 @@ static void sw_toggle(void *data)
 
     d->output_id = o->id;
     d->selected = -1;
+    d->current_desktop = desktop_current_for_output(o);
 
     client_list_read();
 
@@ -1088,6 +1194,11 @@ static void sw_toggle(void *data)
 
         SwItem *it = &d->items[d->count++];
         it->win = w;
+        it->minimized = (w->state & COMP_STATE_MINIMIZED) != 0;
+        it->desktop = -1;
+        int desk = -1;
+        if (desktop_of_window(w, &desk, NULL) && desk >= 0)
+            it->desktop = desk;
         it->home = window_rect(w);
         it->from = it->home;
         it->current = it->home;
@@ -1152,6 +1263,13 @@ static void sw_toggle(void *data)
     active = e;
     effects_add(e);
 
+    /* And say that this output is the one showing the put-away windows.
+     * A window kept only because its picture is worth keeping, or up
+     * only to be photographed, is deliberately left out of the scene
+     * (scene.c); a mode that means to draw those has to say so. */
+    effects_show_stowed(o->id, true);
+    d->took_stowed = true;
+
     layout(e, comp_now_ms());
     select_first(d);
     on_motion(e, px, py);     /* whatever is already under the pointer */
@@ -1200,6 +1318,7 @@ static void sw_defaults(void *config)
     c->hide_docks = true;
     c->labels = true;
     c->debounce_ms = 100.0;
+    c->live = COMP_LIVE_INHERIT;
 }
 
 static bool sw_config_key(void *config, const char *key, const char *value)
@@ -1208,6 +1327,14 @@ static bool sw_config_key(void *config, const char *key, const char *value)
 
     if (!strcmp(key, "hotkey")) {
         snprintf(c->hotkey, sizeof(c->hotkey), "%s", value);
+        return true;
+    }
+    if (!strcmp(key, "live_windows")) {
+        int live = comp_live_windows_parse(value);
+        if (live < 0)
+            fprintf(stderr, "kicomp: config: unknown live_windows '%s'\n", value);
+        else
+            c->live = (CompLiveWindows)live;
         return true;
     }
     if (!strcmp(key, "order")) {
