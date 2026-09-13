@@ -11,7 +11,7 @@
 #include <string.h>
 #include <ctype.h>
 
-#define MAX_HOTKEYS 8
+#define MAX_HOTKEYS 32
 
 typedef struct {
     xcb_keycode_t keycode;   /* 0 when this binding is a mouse button */
