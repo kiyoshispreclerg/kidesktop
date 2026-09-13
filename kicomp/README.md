@@ -914,9 +914,12 @@ from — bound to `Meta+A` (and `Meta+W`) by default.
 
 It is the first effect that is a **mode**: it takes the keyboard and the
 pointer for as long as it is up, and hands them back when you choose. The
-windows shrink from where they really are into their cells, arrows and
-the pointer move the selection, typing filters by title, Return takes you
-to the window and Escape puts everything back.
+windows shrink from where they really are into their cells, arrows move
+the selection, typing filters by title, Return takes you to the selected
+window, clicking one takes you to that one, and Escape (or the hotkey
+again) puts everything back. The pointer only *lights* the window under
+it: a grid opened and closed without a choice leaves the desktop exactly
+as it found it, whatever the pointer crossed on the way.
 
 **No window is moved.** The grid is scene transforms and opacity, so
 every window stays exactly where the WM put it for the whole time — which

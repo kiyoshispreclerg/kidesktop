@@ -40,7 +40,10 @@
  *
  * Typing filters the grid by window title; Escape clears the filter, and
  * clears the mode when there is nothing to clear. Left/Right/Up/Down move
- * the selection, Return activates it, and so does clicking one.
+ * the selection and Return activates it; clicking a window activates
+ * that one. The pointer only *lights* the window under it -- it does not
+ * select, so opening the grid and closing it again without choosing
+ * leaves the desktop exactly as it was, whatever the pointer crossed.
  */
 #include "../effect.h"
 #include "../animation.h"
@@ -108,7 +111,8 @@ typedef struct {
     int output_id;
     int cols, rows;
 
-    int selected;       /* index into items, -1 for none */
+    int selected;       /* index into items, -1 for none: what Return picks */
+    int hovered;        /* under the pointer, -1 for none: lit, not picked */
     bool closing;
     bool activate_on_close;
 
@@ -549,10 +553,41 @@ static void select_first(SwData *d)
     select_cell(d, 0);
 }
 
+static void hover(SwData *d, int i)
+{
+    if (i == d->hovered)
+        return;
+    d->hovered = i;
+
+    for (int k = 0; k < comp.output_count; k++)
+        if (comp.outputs[k].id == d->output_id)
+            output_damage_rect(&comp.outputs[k].rect);
+}
+
+/* The item under a point of the screen, -1 for the space between. */
+static int item_under(const SwData *d, int root_x, int root_y)
+{
+    for (int i = 0; i < d->count; i++) {
+        const SwItem *it = &d->items[i];
+        if (it->cell < 0)
+            continue;
+        if (root_x >= it->current.x && root_x < it->current.x + it->current.w &&
+            root_y >= it->current.y && root_y < it->current.y + it->current.h)
+            return i;
+    }
+    return -1;
+}
+
 static void move_selection(SwData *d, int dx, int dy)
 {
-    if (d->selected < 0 || d->cols < 1)
+    if (d->cols < 1)
         return;
+    /* Nothing selected yet: the first arrow lands on the first cell,
+     * rather than on the one past it. */
+    if (d->selected < 0) {
+        select_first(d);
+        return;
+    }
     int cell = d->items[d->selected].cell;
     if (cell < 0)
         return;
@@ -689,21 +724,15 @@ static bool on_key(void *data, xcb_keysym_t sym, const char *text, uint16_t mods
     return false;
 }
 
+/* The pointer lights the window under it and nothing more. Selecting on
+ * hover meant that the grid, opened and closed again without a choice,
+ * had chosen whatever the pointer happened to cross on the way -- and
+ * a mode that is cancelled has to leave the desktop as it found it. */
 static void on_motion(void *data, int root_x, int root_y)
 {
     CompEffect *e = data;
     SwData *d = e->data;
-
-    for (int i = 0; i < d->count; i++) {
-        SwItem *it = &d->items[i];
-        if (it->cell < 0)
-            continue;
-        if (root_x >= it->current.x && root_x < it->current.x + it->current.w &&
-            root_y >= it->current.y && root_y < it->current.y + it->current.h) {
-            select_cell(d, it->cell);
-            return;
-        }
-    }
+    hover(d, item_under(d, root_x, root_y));
 }
 
 static void on_button(void *data, int root_x, int root_y, uint8_t button,
@@ -712,10 +741,9 @@ static void on_button(void *data, int root_x, int root_y, uint8_t button,
     CompEffect *e = data;
     SwData *d = e->data;
 
-    /* The press only moves the selection under the pointer; letting go is
-     * what chooses. Someone who presses on the wrong window can slide off
-     * it and release somewhere else, which is how every button on every
-     * desktop behaves. */
+    /* Letting go is what chooses. Someone who presses on the wrong
+     * window can slide off it and release somewhere else, which is how
+     * every button on every desktop behaves. */
     if (pressed) {
         on_motion(data, root_x, root_y);
         return;
@@ -725,15 +753,13 @@ static void on_button(void *data, int root_x, int root_y, uint8_t button,
         close_mode(e, false);
         return;
     }
-    on_motion(data, root_x, root_y);
+
     /* Clicking the space between cells is not a choice -- it is how you
      * dismiss a grid, the same as clicking outside a menu. */
-    bool on_a_window = d->selected >= 0 &&
-        root_x >= d->items[d->selected].current.x &&
-        root_x < d->items[d->selected].current.x + d->items[d->selected].current.w &&
-        root_y >= d->items[d->selected].current.y &&
-        root_y < d->items[d->selected].current.y + d->items[d->selected].current.h;
-    close_mode(e, on_a_window);
+    int i = item_under(d, root_x, root_y);
+    if (i >= 0)
+        select_cell(d, d->items[i].cell);
+    close_mode(e, i >= 0);
 }
 
 static const CompInputHandler sw_input = {
@@ -891,10 +917,13 @@ static void sw_update(CompEffect *e, double now)
 
         layout(e, now);
 
-        /* Whatever was selected may have just been filtered away. */
-        if (d->selected >= 0 && d->items[d->selected].cell < 0)
-            select_first(d);
-        else if (d->selected < 0)
+        /* Whatever was selected may have just been filtered away -- and
+         * typing a filter is choosing: the first match is selected, so
+         * that typing a name and pressing Return is all it takes. An
+         * emptied filter selects nothing again. */
+        if (!d->filter[0])
+            d->selected = -1;
+        else if (d->selected < 0 || d->items[d->selected].cell < 0)
             select_first(d);
     }
 
@@ -1010,7 +1039,8 @@ static void sw_apply(CompEffect *e, CompScene *s, CompOutput *o)
          * Return would pick. */
         n->opacity *= it->alpha;
 
-        bool chosen = (d->selected >= 0 && &d->items[d->selected] == it);
+        bool chosen = (d->selected >= 0 && &d->items[d->selected] == it) ||
+                      (d->hovered >= 0 && &d->items[d->hovered] == it);
         if (!chosen && !it->is_dock) {
             float dim = cfg->dim;
             if (dim < 0.0f) dim = 0.0f;
@@ -1047,7 +1077,8 @@ static void sw_apply(CompEffect *e, CompScene *s, CompOutput *o)
             /* The chosen one at full strength, the rest as dim as their
              * windows: the label is part of the window, not a separate
              * thing to read. */
-            bool chosen = (d->selected >= 0 && &d->items[d->selected] == it);
+            bool chosen = (d->selected >= 0 && &d->items[d->selected] == it) ||
+                          (d->hovered >= 0 && &d->items[d->hovered] == it);
             if (!chosen)
                 a *= comp_lerp(1.0f, cfg->dim, spread);
             scene_add_chrome(s, it->label, &at, a);
@@ -1153,7 +1184,7 @@ static void sw_toggle(void *data)
     /* Already up: the hotkey is a toggle, which is what a key that opens
      * a mode has to be -- there is no second key to close it with. */
     if (active) {
-        close_mode(active, active->data && ((SwData *)active->data)->selected >= 0);
+        close_mode(active, false);
         return;
     }
 
@@ -1184,6 +1215,7 @@ static void sw_toggle(void *data)
 
     d->output_id = o->id;
     d->selected = -1;
+    d->hovered = -1;
     d->current_desktop = desktop_current_for_output(o);
 
     client_list_read();
@@ -1270,8 +1302,9 @@ static void sw_toggle(void *data)
     effects_show_stowed(o->id, true);
     d->took_stowed = true;
 
+    /* Nothing selected: Return with nothing chosen does nothing, and a
+     * grid closed without a choice leaves the desktop as it found it. */
     layout(e, comp_now_ms());
-    select_first(d);
     on_motion(e, px, py);     /* whatever is already under the pointer */
 }
 
