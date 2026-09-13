@@ -116,6 +116,16 @@ typedef struct {
      * floating off the surface with the windows reads as a window, which
      * it is not -- it is part of the desktop it is on. */
     bool flat_docks;
+
+    /* How see-through the cube's shell -- its faces, their wallpaper and
+     * their panels, and the caps -- goes while a *mouse* drag is turning
+     * it: 0 solid (the default), 1 gone entirely. The windows themselves
+     * stay solid, and the ones on the faces turned away are drawn too,
+     * so a drag becomes a way to look at every desktop's windows at once,
+     * floating where they are in the turn. Not applied to a keyed turn
+     * (hotkey_next/prev): that one flicks past a single face and shuts
+     * itself, with nothing to look through. */
+    float spin_transparency;
 } CubeConfig;
 
 typedef struct {
@@ -703,28 +713,41 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
         scene_set_backdrop(s, &o->rect, cfg->back_r, cfg->back_g, cfg->back_b,
                            cfg->background * d->phase);
 
-    /* Every face placed, the ones turned away dropped, and the rest
-     * ordered back to front -- there is no depth buffer, so the order is
-     * the depth. Sorted by the w the projection divides by, which is the
-     * distance the matrix itself reports. */
-    struct { CompTransform t; CompRect rect; float depth; int i; } vis[MAX_FACES + 2];
+    /* See-through while a *mouse* drag turns the cube: the shell fades
+     * (veil is what its opacity is multiplied by, 1 solid, 0 gone), and
+     * the faces turned away have their windows drawn too, so the drag
+     * shows every desktop's windows at once. A keyed turn (flick) never
+     * does this -- it is on its way to one face and back. */
+    bool spin = d->dragging && !d->flick && cfg->spin_transparency > 0.0f;
+    float veil = spin ? 1.0f - cfg->spin_transparency : 1.0f;
+
+    /* Every face placed and ordered back to front -- there is no depth
+     * buffer, so the order is the depth. Sorted by the w the projection
+     * divides by, which is the distance the matrix itself reports. The
+     * ones turned away carry no solid (you never see the back of a face),
+     * but while the cube is see-through they still carry their windows --
+     * `front` is which. */
+    struct { CompTransform t; CompRect rect; float depth; int i; bool front; }
+        vis[MAX_FACES + 2];
     int count = 0;
 
     for (int i = 0; i < d->faces && count < MAX_FACES; i++) {
         CompTransform t;
         face_transform(&t, o, cfg, d, i);
-        if (!face_faces_us(&t, &o->rect))
+        bool front = face_faces_us(&t, &o->rect);
+        if (!front && !spin)
             continue;
         vis[count].t = t;
         vis[count].rect = o->rect;
         vis[count].depth = face_depth(&t, o);
         vis[count].i = i;
+        vis[count].front = front;
         count++;
     }
 
     /* The lid and the floor, in the same list so they sort by depth with
      * the sides rather than beside them. i < 0 marks them: they carry no
-     * windows. */
+     * windows. Turned-away caps are never drawn, see-through or not. */
     if (cfg->cap_a > 0.0f) {
         CompRect cr = cap_rect(o, d);
         for (int up = 1; up >= -1; up -= 2) {
@@ -736,6 +759,7 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
             vis[count].rect = cr;
             vis[count].depth = face_depth(&t, o);
             vis[count].i = -1;
+            vis[count].front = true;
             count++;
         }
     }
@@ -790,10 +814,14 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
         for (int k = 0; k < count; k++) {
             int face = vis[k].i;
 
-            if (pass == 0)
+            /* The face's own backing quad, and the caps -- the shell.
+             * A face turned away has none (you would be seeing its
+             * inside), and while the cube is see-through what is drawn
+             * fades by `veil`. */
+            if (pass == 0 && vis[k].front)
                 scene_add_solid(s, &vis[k].rect, &vis[k].t,
                                 cfg->cap_r, cfg->cap_g, cfg->cap_b,
-                                cfg->cap_a * d->phase, (float)n - 0.5f);
+                                cfg->cap_a * d->phase * veil, (float)n - 0.5f);
 
             if (face < 0)
                 continue;               /* a cap carries nothing */
@@ -820,6 +848,16 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
                             (cfg->flat_docks && w->type == COMP_WINDOW_DOCK);
                 if (flat != (pass == 0))
                     continue;
+
+                /* The wallpaper and the panels are the shell too: they
+                 * fade with it, and a turned-away face shows neither --
+                 * only its windows, floating where the turn puts them.
+                 * The windows themselves stay solid whatever `veil` is. */
+                if (flat) {
+                    if (!vis[k].front)
+                        continue;
+                    node.opacity *= veil;
+                }
 
                 float off = flat ? 0.0f
                                  : d->window_gap +
@@ -1108,6 +1146,7 @@ static void cube_defaults(void *config)
     c->background = 0.9f;
     c->live = COMP_LIVE_INHERIT;
     c->flat_docks = true;
+    c->spin_transparency = 0.0f;
 }
 
 static bool cube_config_key(void *config, const char *key, const char *value)
@@ -1134,6 +1173,11 @@ static bool cube_config_key(void *config, const char *key, const char *value)
     if (!strcmp(key, "window_gap"))     { c->window_gap = (float)atof(value); return true; }
     if (!strcmp(key, "window_spacing")) { c->window_spacing = (float)atof(value); return true; }
     if (!strcmp(key, "background"))  { c->background = (float)atof(value); return true; }
+    if (!strcmp(key, "spin_transparency")) {
+        float t = (float)atof(value);
+        c->spin_transparency = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+        return true;
+    }
     if (!strcmp(key, "live_windows")) {
         int live = comp_live_windows_parse(value);
         if (live < 0) {

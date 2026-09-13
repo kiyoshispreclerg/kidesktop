@@ -366,6 +366,12 @@ background      = 0.9         # how solid that is
 flat_docks      = 1           # panels lie on their face over the wallpaper,
                               # rather than floating with the windows: they
                               # are part of the desktop, not things on it
+spin_transparency = 0         # 0..1: how see-through the shell (faces,
+                              # their wallpaper and panels, the caps) goes
+                              # while a *mouse* drag turns it, so the
+                              # windows on the faces turned away show
+                              # through. 0 solid (default), 1 gone. A keyed
+                              # turn is never see-through
 live_windows    = all         # desktop | active | all: how much of the
                               # other desktops is kept alive; left out, the
                               # global live_windows. Minimized windows are
@@ -1180,6 +1186,14 @@ and is drawn there rather than cut off by it. On the other monitors, the
 strip of a window that hangs over from the cube's screen fades out while
 the cube is up.
 
+**A mouse drag can turn the cube see-through** (`spin_transparency`): its
+faces, their wallpaper and panels, and the caps fade by that much while
+you drag, and the windows on the faces turned away — normally hidden
+behind the front of the cube — are drawn too, so the turn shows every
+desktop's windows at once, floating where they are in it. The windows
+themselves stay solid. A keyed turn is left alone: it is on its way to
+one face and back, with nothing to look through.
+
 **The other desktops are kept alive** by asking the WM to hold their
 windows up (`live_windows`), renewed while the cube is open — kiwm caps a
 hold at two seconds of its own accord and a cube stays open as long as the
@@ -1210,6 +1224,7 @@ to open on XRender.
 | `cap_color` | the top and bottom, `#rrggbb` or `#rrggbbaa` (`#383838ff`) |
 | `background_color`, `background` | behind the cube (`#000000`) and how solid it is (0.9) |
 | `flat_docks` | panels lie on their face over the wallpaper (on) |
+| `spin_transparency` | `0`..`1` (default `0`): how see-through the shell — the faces, their wallpaper and panels, and the caps — goes while a **mouse** drag turns the cube, so the windows on the faces turned away show through it and a drag becomes a way to see every desktop's windows at once. The windows stay solid; a keyed turn (`hotkey_next`/`prev`) is never affected |
 | `live_windows` | `desktop` / `active` / `all`: how much of the other desktops is kept alive; the global `live_windows` when left out. Minimized windows are never on a face, held or otherwise — they are not on their desktop |
 
 ### One mode at a time
