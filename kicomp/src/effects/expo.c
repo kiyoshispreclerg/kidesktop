@@ -34,9 +34,10 @@
  *                               # default, so it reads as one spacing
  *   dim      = 0.82             # the desktops other than the selected one
  *   background = #000000        # the ground they are laid out on
- *   live_windows = desktop      # desktop | active_only | active | all --
- *                               # which of the other desktops' windows are
- *                               # kept drawing while the grid is up
+ *   live_windows = desktop      # desktop | active | all -- which of the
+ *                               # other desktops' windows are kept drawing
+ *                               # while the grid is up; left out, it is
+ *                               # kicomp's own live_windows
  *   arrange  = stack            # stack | grid -- windows as they are, or
  *                               # tidied into a little grid of their own
  */
@@ -62,7 +63,8 @@ typedef enum {
     ARRANGE_GRID,    /* tidied into a grid inside their cell */
 } Arrange;
 
-/* Which windows keep *moving* while the grid is up.
+/* Which windows keep *moving* while the grid is up (comp.h's
+ * CompLiveWindows, the same scale kicomp's own live_windows uses).
  *
  * A window on a desktop nobody is showing is not on screen, and X keeps
  * nothing of a window that is not on screen: what a cell draws is the
@@ -73,16 +75,9 @@ typedef enum {
  * left it drawing in the first place. So it is asked for by name.
  *
  * The desktop you are on is not part of the question: its windows are on
- * screen and therefore live whatever is set here. */
-typedef enum {
-    LIVE_DESKTOP,      /* only the desktop you are on -- nothing is held */
-    LIVE_ACTIVE_ONLY,  /* ...and the last-used window of each other desktop */
-    LIVE_ACTIVE,       /* the same set: a separate name because what it says
-                        * is "this desktop *and* the others' active ones",
-                        * which is what someone writing it means, even
-                        * though the first half needs no asking */
-    LIVE_ALL,          /* every window of every desktop */
-} LiveWindows;
+ * screen and therefore live whatever is set here. And where kicomp is
+ * already keeping the other desktops live all the time, the grid finds
+ * them live when it opens and its own holds change nothing. */
 
 typedef struct {
     CompWindow *win;
@@ -154,7 +149,7 @@ typedef struct {
     float dim;
     Arrange arrange;
     float bg[3];       /* the ground the desktops are laid out on */
-    LiveWindows live;
+    CompLiveWindows live;   /* COMP_LIVE_INHERIT: kicomp's own */
 } ExConfig;
 
 static const CompEffectOps ex_ops;
@@ -667,7 +662,8 @@ static void hold_live_windows(CompEffect *e, double now)
     ExData *d = e->data;
     const ExConfig *cfg = e->instance->config;
 
-    if (cfg->live == LIVE_DESKTOP)
+    CompLiveWindows live = comp_live_windows_resolve(cfg->live);
+    if (live == COMP_LIVE_DESKTOP)
         return;
     if (d->held_at != 0.0 && now - d->held_at < HOLD_RENEW_MS)
         return;
@@ -680,7 +676,7 @@ static void hold_live_windows(CompEffect *e, double now)
             continue;
         if (it->desktop == d->current_desktop)
             continue;                   /* on screen already: live for free */
-        if (cfg->live != LIVE_ALL && it != last_used_on(d, it->desktop))
+        if (live != COMP_LIVE_ALL && it != last_used_on(d, it->desktop))
             continue;
 
         desktop_request_hold(it->win, HOLD_MS);
@@ -1316,10 +1312,11 @@ static void ex_defaults(void *config)
      * desktop you came from is *gone* while you choose, and any colour
      * with something in it reads as another desktop. */
     c->bg[0] = c->bg[1] = c->bg[2] = 0.0f;
-    /* Nothing held: the other desktops show their last picture, and the
-     * windows on them go on costing nothing, which is the whole point of
-     * the WM having put them away. */
-    c->live = LIVE_DESKTOP;
+    /* Whatever kicomp itself keeps live -- nothing, by its default: the
+     * other desktops show their last picture, and the windows on them go
+     * on costing nothing, which is the whole point of the WM having put
+     * them away. */
+    c->live = COMP_LIVE_INHERIT;
 }
 
 static bool ex_config_key(void *config, const char *key, const char *value)
@@ -1355,12 +1352,11 @@ static bool ex_config_key(void *config, const char *key, const char *value)
         return true;
     }
     if (!strcmp(key, "live_windows")) {
-        if (!strcmp(value, "desktop"))          c->live = LIVE_DESKTOP;
-        else if (!strcmp(value, "active_only")) c->live = LIVE_ACTIVE_ONLY;
-        else if (!strcmp(value, "active"))      c->live = LIVE_ACTIVE;
-        else if (!strcmp(value, "all"))         c->live = LIVE_ALL;
-        else
+        int live = comp_live_windows_parse(value);
+        if (live < 0)
             fprintf(stderr, "kicomp: config: unknown live_windows '%s'\n", value);
+        else
+            c->live = (CompLiveWindows)live;
         return true;
     }
     if (!strcmp(key, "arrange")) {

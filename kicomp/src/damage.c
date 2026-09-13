@@ -45,6 +45,22 @@ void damage_collect(void)
         if (w->damage == XCB_NONE)
             continue;
 
+        /* On screen only to be photographed (comp.h's held), and nothing
+         * open that photographs it: the scene leaves it out, so what it
+         * drew is not on anyone's screen and repainting there would be
+         * repainting the same pixels. This is what a video playing on
+         * another desktop costs while live_windows keeps it going, and
+         * it should be nothing. Taken, not fetched, like the occluded
+         * case below -- the server reports nothing more until it is. */
+        if (w->held && comp.show_stowed_output == COMP_NO_OUTPUT &&
+            w->retain_count <= (w->stowed ? 1 : 0)) {
+            xcb_discard_reply(comp.conn,
+                xcb_damage_subtract_checked(comp.conn, w->damage,
+                                            XCB_XFIXES_REGION_NONE,
+                                            XCB_XFIXES_REGION_NONE).sequence);
+            continue;
+        }
+
         if (w->occluded) {
             /* Covered by something opaque (scene.c). The damage still has
              * to be *taken* -- the server stops reporting until it is --

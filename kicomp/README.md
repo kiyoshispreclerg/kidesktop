@@ -113,6 +113,14 @@ skip_wm_layers     = 0     # 1 = don't composite kiwm's OSD/wireframe
 keep_hidden_contents = 1   # keep the last picture of a window the WM put
                            # away (minimized, another desktop), so effects
                            # like expo can draw it. One pixmap each
+live_windows       = desktop  # desktop | active | all: which windows on the
+                           # desktops you are *not* looking at keep drawing
+                           # all the time — the windows themselves, not a
+                           # picture — so a recorder can capture one that
+                           # is on another desktop. The effects that hold
+                           # windows up while open (expo, cube, cover-
+                           # switch) take this as their default. Costs
+                           # every hidden application drawing as if seen
 claim_ms           = 500   # how long an effect's claim on a change lasts.
                            # A mode that has just shown the user a desktop
                            # change says so, and whatever would otherwise
@@ -245,9 +253,10 @@ arrange   = stack             # stack | grid: windows where they are on
                               # their desktop, or tidied into a little
                               # grid inside each cell
 background = #000000          # the ground the desktops are laid out on
-live_windows = desktop        # desktop | active_only | active | all: which
-                              # of the other desktops' windows keep drawing
-                              # while the grid is up. Anything but `desktop`
+live_windows = desktop        # desktop | active | all: which of the other
+                              # desktops' windows keep drawing while the
+                              # grid is up; left out, the global
+                              # live_windows. Anything but `desktop`
                               # asks the WM to hold them on screen
                               # (kiwm/PROTOCOL.md), which costs exactly what
                               # leaving them drawing would have cost
@@ -316,9 +325,11 @@ wrap           = 1            # stepping past the end comes back round
 other_desktops = 1            # list this output's other desktops' windows
                               # too — an Alt+Tab that stops at the desktop
                               # you are on cannot reach half of what is open
-live_windows   = 1            # and keep them drawing while the row is up,
+live_windows   = all          # and keep them drawing while the row is up,
                               # rather than showing what they last looked
-                              # like (asks the WM to hold them: PROTOCOL.md)
+                              # like (asks the WM to hold them: PROTOCOL.md).
+                              # desktop | all (1/0 still work); left out,
+                              # the global live_windows
 follow_desktop = 1            # walking onto a window that lives elsewhere
                               # fades that desktop's wallpaper in under the
                               # row, instead of waiting for the row to close
@@ -352,9 +363,10 @@ background      = 0.9         # how solid that is
 flat_docks      = 1           # panels lie on their face over the wallpaper,
                               # rather than floating with the windows: they
                               # are part of the desktop, not things on it
-live_windows    = all         # none | active | all: how much of the other
-                              # desktops is kept alive. Minimized windows
-                              # are never held whatever this says — there is
+live_windows    = all         # desktop | active | all: how much of the
+                              # other desktops is kept alive; left out, the
+                              # global live_windows. Minimized windows are
+                              # never held whatever this says — there is
                               # no picture of them to show
 
 # a second instance of the same effect, with different numbers: inherits
@@ -1103,7 +1115,7 @@ nothing can leak through from behind if nothing behind is opaque.
 | `labels`, `label_y`, `label_width` | the selected window's title (on), where it sits (0.86 of the height) and how wide it may grow (640 px) |
 | `wrap` | stepping past the end comes back round (on) |
 | `other_desktops` | list this output's other desktops' windows too (on) |
-| `live_windows` | and keep them drawing rather than showing their last picture (on) |
+| `live_windows` | and keep them drawing rather than showing their last picture: `desktop` / `all` (`0` / `1` still work); the global `live_windows` when left out |
 | `follow_desktop` | fade to the selected window's own desktop's wallpaper as you walk (on) |
 
 ### `cube`
@@ -1172,7 +1184,7 @@ to open on XRender.
 | `cap_color` | the top and bottom, `#rrggbb` or `#rrggbbaa` (`#383838ff`) |
 | `background_color`, `background` | behind the cube (`#000000`) and how solid it is (0.9) |
 | `flat_docks` | panels lie on their face over the wallpaper (on) |
-| `live_windows` | `none` / `active` / `all` (default `all`): how much of the other desktops is kept alive. Minimized windows are never held whatever this says — there is no picture of them to show |
+| `live_windows` | `desktop` / `active` / `all`: how much of the other desktops is kept alive; the global `live_windows` when left out. Minimized windows are never held whatever this says — there is no picture of them to show |
 
 ### One mode at a time
 
@@ -1253,6 +1265,62 @@ minimize animation would have nothing to shrink.
 The same store is what a cover-switch or flip alt-tab will draw from, and
 what `show-windows` needs before it can put minimized windows in its
 grid.
+
+### Keeping the windows themselves alive (`live_windows`)
+
+A kept picture is a picture: the window it was taken of has stopped
+drawing, because X keeps nothing of a window that is not on screen, and
+the WM took the whole desktop off screen when you left it. Point a
+screen recorder at a window on another desktop and it records the frame
+that window had when you last looked.
+
+`live_windows` in the main section is kwin's "keep windows alive on
+inactive desktops", done from this side. Anything but `desktop` asks the
+WM to hold the named windows up — kiwm's `_KIWM_HOLD_WINDOW`
+(kiwm/PROTOCOL.md): the frame is mapped again, with no input shape, so
+that X has the window on screen and the application keeps drawing into a
+real pixmap — and this compositor leaves a held window **out of the
+scene**, so nobody sees it on the desktop it does not belong to. The
+recorder, which names the window's pixmap for itself, sees it live.
+
+| value | what is held |
+|---|---|
+| `desktop` | nothing — the default, and what everything cost before this existed |
+| `active` | the window last used on each of the other desktops |
+| `all` | every window on every desktop of every output |
+
+Minimized windows are never held: the user put them away, and kiwm
+refuses. Sticky windows, docks and wallpapers are not in question — they
+are on screen anyway.
+
+Nothing in kiwm changes to make this last: a hold is capped at two
+seconds there, and kicomp asks again every second for as long as it runs.
+So a compositor that dies takes its holds with it within two seconds and
+the session is left exactly as the WM had it, which is why the protocol
+has no "hold forever" and this doesn't want one.
+
+A desktop switch never unmaps or maps a window this keeps alive, in
+either direction. The *visible* windows are asked for too: kiwm does
+nothing for them but keeps the wish, and when their desktop is left it
+marks the frame `_KIWM_HELD` and takes its input away instead of
+unmapping it — this side reads the mark appearing as the window leaving,
+and the wall slides it out with the picture it is still drawing. Coming
+back, kiwm gives the frame its input shape back and drops the mark, which
+this side reads as the window arriving. The pixmap the recorder is
+reading from is the same one throughout; there is no frame in which the
+window is not on screen for X.
+
+What it costs is what it says: every hidden application draws as if it
+were being looked at, browsers and videos included, which is the same
+cost kwin's option has. The damage a held window reports is taken and
+dropped while nothing on screen shows it, so the compositor itself
+repaints nothing for it.
+
+The three effects that hold windows up while they are open — expo, the
+cube and the cover switcher — take this as the default for their own
+`live_windows`, and each may still say otherwise in its section. With the
+global one at `all` their holds change nothing: the windows are already
+live when they open.
 
 ### `stats`
 

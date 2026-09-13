@@ -88,6 +88,25 @@ typedef struct CompCaps {
 /* No output at all, where an output id is expected. */
 #define COMP_NO_OUTPUT (-1)
 
+/* How much of the desktops nobody is showing is kept live (the
+ * live_windows= key below, and the effects' own, which share the scale).
+ * Minus one is "not said": an effect whose section leaves it out follows
+ * the global one. */
+typedef enum {
+    COMP_LIVE_INHERIT = -1,
+    COMP_LIVE_DESKTOP = 0,   /* the desktop you are on; nothing is held */
+    COMP_LIVE_ACTIVE,        /* ...and the last-used window of each other */
+    COMP_LIVE_ALL,           /* every window of every desktop */
+} CompLiveWindows;
+
+/* Parses desktop | active | all (and the effects' older spellings of
+ * the same three: none, active_only); -1 for anything else. */
+int comp_live_windows_parse(const char *value);
+
+/* The setting in force for an effect: its own, or the global one where
+ * its section said nothing. */
+CompLiveWindows comp_live_windows_resolve(CompLiveWindows own);
+
 /* One output = one scene, one drawable, one clock, one presentation
  * (section 18). This prototype already keeps the per-output target and
  * dirty flag; the per-output clock/pacing is Fase 7. */
@@ -626,6 +645,34 @@ typedef struct KiComp {
     bool unredirect;
 
     bool keep_stowed;
+
+    /* kicomp.conf's live_windows= (default desktop): which windows on
+     * the desktops nobody is showing are kept *drawing*, all the time,
+     * rather than only while an effect that shows them is open.
+     *
+     * X keeps nothing of a window that is not on screen, and the WM
+     * takes a desktop's windows off screen when the desktop is left. So
+     * a screen recorder pointed at a window on another desktop gets the
+     * picture it had when that desktop was left, and nothing more --
+     * unless the window is held up (kiwm/PROTOCOL.md's
+     * _KIWM_HOLD_WINDOW): on screen for X, so the application keeps
+     * drawing into a real pixmap, and left out of the scene here, so
+     * nobody sees it. That is what kwin's "keep windows alive on
+     * inactive desktops" is, done from the compositor's side.
+     *
+     *   desktop  only the desktop you are on is live (nothing is held)
+     *   active   ...and the last-used window of every other desktop
+     *   all      every window of every desktop
+     *
+     * Minimized windows are never held: the user put them away, and
+     * kiwm refuses. What it costs is every application on every desktop
+     * drawing as if it were being looked at, which is the same cost
+     * kwin's option has and why it is off by default.
+     *
+     * The effects that hold windows up while they are open (expo, cube,
+     * cover-switch) take this as their own default, and each may still
+     * say otherwise in its section. */
+    CompLiveWindows live_windows;
 
     /* kicomp.conf's claim_ms= (default 500): how long an effect's claim
      * on a change lasts (effect.h's effects_claim). It has to cover the

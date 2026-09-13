@@ -86,8 +86,13 @@ typedef struct {
      * picture they had when their desktop was left. One row of windows
      * for a second or two is a small thing to ask the window manager to
      * hold up, and a switcher that shows a video still playing is
-     * telling the truth about what it is offering. */
-    bool  live_windows;
+     * telling the truth about what it is offering.
+     *
+     * On kicomp's scale (comp.h's CompLiveWindows) so that, left out of
+     * the section, it is kicomp's own live_windows; a row holds either
+     * every window it shows or none, so `active` means the same as
+     * `all` here. 0 and 1 still mean what they meant. */
+    CompLiveWindows live_windows;
 
     /* The ground follows the selection: walking onto a window that lives
      * on another desktop fades that desktop's wallpaper in under the
@@ -493,7 +498,7 @@ static void hold_live_windows(CompEffect *e, double now)
      * second the user spends choosing. */
     desktop_request_prime();
 
-    if (!cfg->live_windows)
+    if (comp_live_windows_resolve(cfg->live_windows) == COMP_LIVE_DESKTOP)
         return;
 
     for (int i = 0; i < d->count; i++) {
@@ -1432,7 +1437,7 @@ static void cs_defaults(void *config)
     c->visible = 4;
     c->background = 0.82f;
     c->other_desktops = true;
-    c->live_windows = true;
+    c->live_windows = COMP_LIVE_INHERIT;
     c->follow_desktop = true;
     c->labels = true;
     c->label_y = 0.86f;
@@ -1457,7 +1462,17 @@ static bool cs_config_key(void *config, const char *key, const char *value)
     if (!strcmp(key, "visible"))     { c->visible = atoi(value); return true; }
     if (!strcmp(key, "background"))  { c->background = (float)atof(value); return true; }
     if (!strcmp(key, "other_desktops")) { c->other_desktops = atoi(value) != 0; return true; }
-    if (!strcmp(key, "live_windows"))   { c->live_windows = atoi(value) != 0; return true; }
+    if (!strcmp(key, "live_windows")) {
+        int live = comp_live_windows_parse(value);
+        if (live < 0 && (!strcmp(value, "0") || !strcmp(value, "1")))
+            live = atoi(value) ? COMP_LIVE_ALL : COMP_LIVE_DESKTOP;
+        if (live < 0) {
+            fprintf(stderr, "kicomp: config: unknown live_windows '%s'\n", value);
+            return false;
+        }
+        c->live_windows = (CompLiveWindows)live;
+        return true;
+    }
     if (!strcmp(key, "follow_desktop")) { c->follow_desktop = atoi(value) != 0; return true; }
     if (!strcmp(key, "labels"))      { c->labels = atoi(value) != 0; return true; }
     if (!strcmp(key, "label_y"))     { c->label_y = (float)atof(value); return true; }

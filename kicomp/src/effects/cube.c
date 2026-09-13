@@ -52,7 +52,6 @@
 #define HOLD_MS       1500
 #define HOLD_RENEW_MS 500
 
-typedef enum { LIVE_NONE, LIVE_ACTIVE, LIVE_ALL } CubeLive;
 
 typedef struct {
     char hotkey[128];
@@ -98,15 +97,20 @@ typedef struct {
      * on a desktop nobody is showing -- so a face is empty unless the
      * window manager is asked to hold them up.
      *
-     *   none    hold nothing: the other faces show their wallpaper only
+     *   desktop hold nothing: the other faces show their wallpaper only
+     *           (`none` says the same)
      *   active  the last window used on each, which is the one that
      *           makes a face recognisable for the least work
      *   all     every window of every desktop
      *
      * Minimized windows are never held, whatever this says: kiwm refuses
      * (client_hold), and a minimized window has no pixmap to show. It is
-     * simply absent from its face rather than a hole in it. */
-    CubeLive live;
+     * simply absent from its face rather than a hole in it.
+     *
+     * Left out of the section, it is kicomp's own live_windows
+     * (comp.h): what the compositor keeps live all the time is what a
+     * cube finds live when it opens. */
+    CompLiveWindows live;
 
     /* The wallpaper lies on its face; so do the panels, over it. A panel
      * floating off the surface with the windows reads as a window, which
@@ -567,7 +571,8 @@ static void hold_live_windows(CompEffect *e, double now)
      * was up moments ago, and either way there is a picture of it. */
     desktop_request_prime();
 
-    if (cfg->live == LIVE_NONE)
+    CompLiveWindows live = comp_live_windows_resolve(cfg->live);
+    if (live == COMP_LIVE_DESKTOP)
         return;
 
     for (CompWindow *w = comp.stack; w; w = w->next) {
@@ -578,7 +583,7 @@ static void hold_live_windows(CompEffect *e, double now)
         if (face <= 0)
             continue;               /* every face, none, or the one in front */
 
-        if (cfg->live == LIVE_ACTIVE && w != last_used_on(d, o, face))
+        if (live == COMP_LIVE_ACTIVE && w != last_used_on(d, o, face))
             continue;
 
         desktop_request_hold(w, HOLD_MS);
@@ -1059,7 +1064,7 @@ static void cube_defaults(void *config)
     c->cap_a = 1.0f;
     c->back_r = c->back_g = c->back_b = 0.0f;
     c->background = 0.9f;
-    c->live = LIVE_ALL;
+    c->live = COMP_LIVE_INHERIT;
     c->flat_docks = true;
 }
 
@@ -1088,13 +1093,12 @@ static bool cube_config_key(void *config, const char *key, const char *value)
     if (!strcmp(key, "window_spacing")) { c->window_spacing = (float)atof(value); return true; }
     if (!strcmp(key, "background"))  { c->background = (float)atof(value); return true; }
     if (!strcmp(key, "live_windows")) {
-        if (!strcmp(value, "none"))        c->live = LIVE_NONE;
-        else if (!strcmp(value, "active")) c->live = LIVE_ACTIVE;
-        else if (!strcmp(value, "all"))    c->live = LIVE_ALL;
-        else {
+        int live = comp_live_windows_parse(value);
+        if (live < 0) {
             fprintf(stderr, "kicomp: config: unknown live_windows '%s'\n", value);
             return false;
         }
+        c->live = (CompLiveWindows)live;
         return true;
     }
     if (!strcmp(key, "flat_docks")) { c->flat_docks = atoi(value) != 0; return true; }

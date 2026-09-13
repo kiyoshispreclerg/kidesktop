@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.86"
+#define KICOMP_VERSION "0.2.87"
 
 #include "comp.h"
 #include "output.h"
@@ -1450,6 +1450,11 @@ int main(int argc, char **argv)
             scheduler_tick(now);
         }
 
+        /* The other desktops' windows, kept drawing for whoever is
+         * recording one (comp.h's live_windows): asked for again before
+         * the WM lets them go. */
+        desktop_live_tick(now);
+
         /* Before the paint, and after the events that decide it: an
          * output handed over in this frame must not also be painted in
          * it, and one taken back must be. */
@@ -1503,6 +1508,13 @@ int main(int argc, char **argv)
         }
 
         int timeout = scheduler_timeout(comp_now_ms());
+
+        /* A standing hold has to be renewed whether or not X has
+         * anything to say meanwhile. */
+        int live = desktop_live_timeout_ms(comp_now_ms());
+        if (live >= 0 && (timeout < 0 || live < timeout))
+            timeout = live;
+
         struct pollfd p = { fd, POLLIN, 0 };
         if (poll(&p, 1, timeout) < 0) {
             if (errno == EINTR)

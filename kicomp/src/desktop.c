@@ -427,6 +427,132 @@ bool desktop_request_hold(const CompWindow *w, int ms)
     return true;
 }
 
+/* ------------------------------------------------------------------ */
+/* keeping the other desktops live (desktop.h, comp.h's live_windows)  */
+/* ------------------------------------------------------------------ */
+
+/* A hold as long as kiwm allows, renewed with half of it to spare: a
+ * loop iteration that is late by a few hundred milliseconds -- a paint
+ * that took a while, a burst of events -- must not let a hold lapse,
+ * because a lapse is an unmap and a map, and a recorder pointed at the
+ * window gets a blank frame for it. */
+#define LIVE_HOLD_MS   2000
+#define LIVE_RENEW_MS  1000
+
+/* Desktops per output that `active` keeps a slot for -- the same cap the
+ * expo grid draws. */
+#define LIVE_MAX_DESKTOPS 32
+
+static double live_held_at;
+
+/* The desktop an output index is showing, by the WM's own numbering
+ * (kiwm/PROTOCOL.md's _KIWM_OUTPUTS order), which is the numbering
+ * _KIWM_WM_OUTPUT on a window uses. -1 where nothing says. */
+static int current_for_index(int index)
+{
+    if (global_only)
+        return track_count > 0 ? tracks[0].desktop : -1;
+
+    char names[MAX_OUTPUTS][32];
+    int n = read_output_names(names);
+    if (index < 0 || index >= n)
+        return -1;
+    Track *t = track_find(names[index]);
+    return t ? t->desktop : -1;
+}
+
+/* Whether this window is one live_windows is about: on a desktop, put
+ * away with it or not, and nothing else. Fills where it belongs.
+ *
+ * The visible ones are asked for too. Nothing is held up for them --
+ * they are up -- but kiwm keeps the wish, and when the desktop is left
+ * a window with a wish standing is held on its way out instead of
+ * being unmapped (kiwm/PROTOCOL.md): the frame never goes down, so the
+ * recorder pointed at it never gets a blank frame and the application
+ * never has to draw itself again. Without the wish, the switch is an
+ * unmap, and the hold that follows a second later is a fresh, empty
+ * window. */
+static bool on_a_desktop(CompWindow *w, int *desktop, int *out_index)
+{
+    if (w->input_only || w->zombie || w->wm_layer[0])
+        return false;
+    /* The user put it away; there is nothing of it to keep drawing, and
+     * the WM would refuse anyway. */
+    if (w->state & COMP_STATE_MINIMIZED)
+        return false;
+    /* The wallpaper and the panels belong to the screen, not to what a
+     * recorder points at. */
+    if (w->type == COMP_WINDOW_DOCK || w->type == COMP_WINDOW_DESKTOP)
+        return false;
+    /* Unmapped and being animated -- a fade-out, most likely. Mapping it
+     * under the animation would replace the picture being drawn with a
+     * fresh, empty one (window_map); it gets its hold the next time
+     * round, once the effect has let go. The stow's own retain is not an
+     * animation, and a mapped window has nothing to lose by asking. */
+    if (!w->mapped && w->retain_count > (w->stowed ? 1 : 0))
+        return false;
+
+    int desk = -1, out = -1;
+    if (!desktop_of_window(w, &desk, &out) || desk < 0)
+        return false;               /* sticky, or nothing said */
+    if (current_for_index(out) < 0)
+        return false;
+
+    *desktop = desk;
+    *out_index = out;
+    return true;
+}
+
+void desktop_live_tick(double now)
+{
+    if (comp.live_windows == COMP_LIVE_DESKTOP ||
+        comp.atoms.kiwm_hold_window == XCB_NONE)
+        return;
+    if (live_held_at != 0.0 && now - live_held_at < LIVE_RENEW_MS)
+        return;
+    live_held_at = now;
+
+    /* `active`: the window used most recently on each (output, desktop)
+     * -- kicomp's own focus record, since X keeps no such history. One
+     * slot per desktop of each output is the most there can be. */
+    CompWindow *last_used[MAX_OUTPUTS][LIVE_MAX_DESKTOPS];
+    if (comp.live_windows == COMP_LIVE_ACTIVE)
+        memset(last_used, 0, sizeof(last_used));
+
+    for (CompWindow *w = comp.stack; w; w = w->next) {
+        int desk, out;
+        if (!on_a_desktop(w, &desk, &out))
+            continue;
+
+        if (comp.live_windows == COMP_LIVE_ALL) {
+            desktop_request_hold(w, LIVE_HOLD_MS);
+            continue;
+        }
+
+        int oi = out < 0 ? 0 : out;
+        if (oi >= MAX_OUTPUTS || desk >= LIVE_MAX_DESKTOPS)
+            continue;
+        CompWindow **slot = &last_used[oi][desk];
+        if (!*slot || w->focus_serial > (*slot)->focus_serial)
+            *slot = w;
+    }
+
+    if (comp.live_windows == COMP_LIVE_ACTIVE)
+        for (int o = 0; o < MAX_OUTPUTS; o++)
+            for (int d = 0; d < LIVE_MAX_DESKTOPS; d++)
+                if (last_used[o][d])
+                    desktop_request_hold(last_used[o][d], LIVE_HOLD_MS);
+}
+
+int desktop_live_timeout_ms(double now)
+{
+    if (comp.live_windows == COMP_LIVE_DESKTOP ||
+        comp.atoms.kiwm_hold_window == XCB_NONE)
+        return -1;
+    double due = live_held_at + LIVE_RENEW_MS - now;
+    return due <= 0.0 ? 0 : (int)(due + 0.5);
+}
+
 bool desktop_request_move(const CompWindow *w, int desktop)
 {
     if (comp.atoms.net_wm_desktop == XCB_NONE || desktop < 0)

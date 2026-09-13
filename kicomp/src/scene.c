@@ -68,7 +68,8 @@ void scene_build(CompScene *s, CompOutput *o)
          * -- in the second or so a hold outlives the grid that wanted it
          * -- it is a window from another desktop appearing on this one
          * and disappearing again. */
-        if (w->held && comp.show_stowed_output != o->id)
+        if (w->held && comp.show_stowed_output != o->id &&
+            w->retain_count <= (w->stowed ? 1 : 0))
             continue;
         if (w->opacity <= 0.0)
             continue;

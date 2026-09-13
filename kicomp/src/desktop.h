@@ -102,6 +102,19 @@ bool desktop_request_prime(void);
  * answer to this. */
 bool desktop_request_hold(const CompWindow *w, int ms);
 
+/* The standing version of that: comp.live_windows (comp.h). Every
+ * window it names on a desktop nobody is showing is held up, and held
+ * again before the WM's own limit on a hold runs out, for as long as
+ * the compositor is running -- and no longer, which is the point of
+ * asking again rather than once: a compositor that dies takes its holds
+ * with it within the WM's limit.
+ *
+ * desktop_live_tick() is called once per pass of the main loop and does
+ * its work when it is due; desktop_live_timeout_ms() is how long until
+ * then, -1 when nothing is being kept live, for the loop's poll(). */
+void desktop_live_tick(double now);
+int  desktop_live_timeout_ms(double now);
+
 /* Asks the WM to put a window on another desktop of its output -- and
  * nothing else: same place, same size, the desktop number is all that
  * changes. The window is unmapped or mapped by the WM as its new desktop

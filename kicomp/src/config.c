@@ -68,6 +68,25 @@ static void config_path(char *out, size_t outsz)
     snprintf(out, outsz, "%s/.config/kicomp.conf", home);
 }
 
+int comp_live_windows_parse(const char *value)
+{
+    /* The effects each had a spelling of this before it was one
+     * setting -- expo's `desktop`/`active_only`, cube's `none` -- and a
+     * config written for them keeps meaning what it meant. */
+    if (!strcmp(value, "desktop") || !strcmp(value, "none"))
+        return COMP_LIVE_DESKTOP;
+    if (!strcmp(value, "active") || !strcmp(value, "active_only"))
+        return COMP_LIVE_ACTIVE;
+    if (!strcmp(value, "all"))
+        return COMP_LIVE_ALL;
+    return -1;
+}
+
+CompLiveWindows comp_live_windows_resolve(CompLiveWindows own)
+{
+    return own == COMP_LIVE_INHERIT ? comp.live_windows : own;
+}
+
 static void apply_builtin_defaults(void)
 {
     output_rule_count = 0;
@@ -91,6 +110,7 @@ static void apply_builtin_defaults(void)
     comp.unredirect = true;
 
     comp.keep_stowed = true;
+    comp.live_windows = COMP_LIVE_DESKTOP;
     comp.claim_ms = 500.0;
     comp.show_stowed_output = COMP_NO_OUTPUT;
 
@@ -325,6 +345,12 @@ static void config_pass(FILE *f, bool instances_pass)
                 comp.claim_ms = 0.0;
         } else if (strcmp(key, "keep_hidden_contents") == 0) {
             comp.keep_stowed = atoi(val) != 0;
+        } else if (strcmp(key, "live_windows") == 0) {
+            int live = comp_live_windows_parse(val);
+            if (live < 0)
+                fprintf(stderr, "kicomp: config: unknown live_windows '%s'\n", val);
+            else
+                comp.live_windows = (CompLiveWindows)live;
         } else if (strcmp(key, "renderer") == 0) {
             snprintf(comp.renderer_name, sizeof(comp.renderer_name), "%s", val);
         } else if (strcmp(key, "presenter") == 0) {

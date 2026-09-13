@@ -821,7 +821,46 @@ void window_state_changed(CompWindow *w)
 
 void window_held_changed(CompWindow *w, bool held)
 {
+    bool was = w->held;
+
+    /* Unmarked after the unmap that ends a hold, with that unmap still
+     * waiting to be classified: the mark is what tells the flush the
+     * unmap was nothing happening, and both reached us in the same
+     * batch. It stays until the flush has read it. */
+    if (was && !held && !w->mapped && w->pending_disappear)
+        return;
+
     w->held = held;
+
+    /* Marked while mapped, with no map of its own on the way: the WM
+     * held it on its way *out* -- its desktop was left, and the frame
+     * was kept up for whoever asked (kiwm/PROTOCOL.md) rather than
+     * unmapped. To the desktop this is the window leaving all the same,
+     * and the flush classifies it as it would an unmap. The picture it
+     * leaves with is not a kept one: the window is still drawing. */
+    if (!was && held && w->mapped && !w->pending_appear && !w->zombie) {
+        w->pending_disappear = true;
+
+        CompRect r = window_rect(w);
+        output_damage_window_rect(w, &r);
+        return;
+    }
+
+    /* Unmarked while still mapped: its desktop arrived and the WM kept
+     * the frame up rather than unmapping and mapping it (kiwm/
+     * PROTOCOL.md) -- the picture never went away. To the desktop this
+     * is the window arriving all the same, and the flush classifies it
+     * as it would a map (a desktop switched to, most likely). It has
+     * been on screen since the hold began, whatever has_been_mapped
+     * says. */
+    if (was && !held && w->mapped && !w->zombie) {
+        w->has_been_mapped = true;
+        w->pending_disappear = false;
+        w->pending_appear = true;
+
+        CompRect r = window_rect(w);
+        output_damage_window_rect(w, &r);
+    }
 }
 
 void window_focus_changed(xcb_window_t active)
@@ -981,12 +1020,19 @@ void windows_flush_events(void)
              * going back where it already was, so nothing happened to
              * the desktop and there is nothing to animate. Its picture
              * is still worth keeping, which is the whole reason it was
-             * held. */
-            if (w->held && !w->zombie) {
+             * held.
+             *
+             * Not a held window that is still mapped, though: that one
+             * was marked on its way out with its desktop
+             * (window_held_changed), and it left like any other. */
+            if (w->held && !w->mapped && !w->zombie) {
                 if (comp.keep_stowed && !w->stowed) {
                     w->stowed = true;
                     window_retain(w);
                 }
+                /* The mark went with the unmap (window_held_changed
+                 * kept it for this); the window is no longer held. */
+                w->held = false;
                 w->state_before = now;
                 w = next;
                 continue;
@@ -1016,15 +1062,18 @@ void windows_flush_events(void)
              * it (comp.show_stowed_output), so nothing about the screen
              * changes; what it costs is one pixmap per hidden window,
              * which is why it is a setting. */
-            if (comp.keep_stowed && !w->zombie && !w->stowed &&
+            if (comp.keep_stowed && !w->zombie && !w->stowed && !w->mapped &&
                 (kind == COMP_EVENT_DESKTOP_LEAVE || kind == COMP_EVENT_MINIMIZE)) {
                 w->stowed = true;
                 window_retain(w);
             }
 
             /* Nobody kept it: let the contents go, and the entry with
-             * them if the window itself is already gone. */
-            if (w->retain_count == 0) {
+             * them if the window itself is already gone. Not for a
+             * window that is still mapped (held on its way out): its
+             * contents are live, and the pixmap is the one it draws
+             * into. */
+            if (w->retain_count == 0 && !w->mapped) {
                 effects_window_gone(w);
                 if (w->zombie) {
                     window_destroy(w);
