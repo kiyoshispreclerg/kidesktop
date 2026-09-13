@@ -971,11 +971,22 @@ static void cs_apply(CompEffect *e, CompScene *s, CompOutput *o)
             else
                 ground = 0.0f;
 
-            if (ground <= 0.0f) {
-                node->visible_rect = (CompRect){ 0, 0, 0, 0 };
-                continue;
-            }
-
+            /* The ones that are not the ground are still *drawn*, at
+             * nothing.
+             *
+             * A window's pixmap is only named when something draws it,
+             * and a desktop's wallpaper is only up for the 700 ms the
+             * window manager raises it for. Hiding the other desktops'
+             * grounds outright meant the one the user walks towards had
+             * never been photographed, and the fade arrived at black.
+             * Drawn at zero they are photographed while the user is
+             * choosing and cannot be seen doing it -- which is also why
+             * this is opacity and not stacking: nothing can leak through
+             * from behind if nothing behind is opaque.
+             *
+             * It costs a full-screen quad per desktop per frame for the
+             * second or two the row is up, and buys the fade having
+             * something to fade to. */
             node->opacity *= (1.0f - cfg->background * alive) * ground;
             continue;
         }
