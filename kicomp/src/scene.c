@@ -101,6 +101,7 @@ void scene_build(CompScene *s, CompOutput *o)
         n->geometry = geom;
         n->visible_rect = vis;
         comp_transform_identity(&n->transform);
+        n->mesh = NULL;
         n->use_stash = false;
         n->opacity = (float)w->opacity;
         n->z = s->count;

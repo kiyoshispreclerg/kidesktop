@@ -22,6 +22,7 @@ SRCS := src/main.c src/config.c src/dri3.c src/output.c src/renderer.c src/windo
         src/effects/cover-switch.c \
         src/effects/cube.c \
         src/effects/expo.c \
+        src/effects/magic-lamp.c \
         src/effects/visual-bell.c \
         src/effects/zoom.c \
         src/effects/stats.c

@@ -38,9 +38,10 @@ static const GlPlatform *platform;
 
 
 static GLuint program;
-static GLint u_projection, u_transform, u_opacity, u_texture, u_y_flip;
+static GLint u_projection, u_transform, u_opacity, u_texture, u_y_flip, u_use_uv;
 static GLint u_mask, u_use_mask;
 static GLuint quad_vbo;
+static GLuint mesh_vbo;
 
 /* The shadow program, and the profile texture it reads (see shadow.h:
  * one dimension, 2*radius alpha texels, the same numbers XRender builds
@@ -76,14 +77,21 @@ static GlWindow *windows;
 static const char *vertex_source =
     "#version 120\n"
     "attribute vec2 position;\n"
+    /* A second coordinate, used only for a mesh (scene.h): there the
+     * position is a root-coordinate vertex, nowhere near 0..1, so the
+     * texture coordinate cannot be derived from it as the quad path
+     * does. `use_uv` picks between the two. */
+    "attribute vec2 uv;\n"
     "uniform mat4 projection;\n"
     "uniform mat4 transform;\n"
     "uniform float y_flip;\n"
+    "uniform float use_uv;\n"
     "varying vec2 texcoord;\n"
     "varying vec2 maskcoord;\n"
     "void main() {\n"
-    "    texcoord = vec2(position.x,\n"
-    "                    mix(position.y, 1.0 - position.y, y_flip));\n"
+    "    vec2 uvc = mix(position, uv, use_uv);\n"
+    "    texcoord = vec2(uvc.x,\n"
+    "                    mix(uvc.y, 1.0 - uvc.y, y_flip));\n"
     /* The mask is built the way X measures a window -- y downwards --
      * so it is sampled by the quad's own coordinate and never by the
      * flipped one, whatever way up this driver hands over the pixmap. */
@@ -184,6 +192,7 @@ static bool program_build(void)
     glAttachShader(program, vs);
     glAttachShader(program, fs);
     glBindAttribLocation(program, 0, "position");
+    glBindAttribLocation(program, 1, "uv");
     glLinkProgram(program);
 
     glDeleteShader(vs);
@@ -205,6 +214,7 @@ static bool program_build(void)
     u_y_flip = glGetUniformLocation(program, "y_flip");
     u_mask = glGetUniformLocation(program, "mask");
     u_use_mask = glGetUniformLocation(program, "use_mask");
+    u_use_uv = glGetUniformLocation(program, "use_uv");
 
     /* One unit quad, reused for every window: the transform is what makes
      * it the right size in the right place, which is the same thing the
@@ -213,6 +223,10 @@ static bool program_build(void)
     glGenBuffers(1, &quad_vbo);
     glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
+
+    /* Filled per frame for a mesh node (draw_mesh_node): interleaved
+     * x,y (root coordinates) and u,v (place in the grid). */
+    glGenBuffers(1, &mesh_vbo);
 
     /* The shadow program is optional in the sense that failing to build
      * it costs shadows, not the session: everything else still draws. */
@@ -1003,6 +1017,84 @@ static CompRect in_node_space(const CompSceneNode *n, const CompWindow *w,
     };
 }
 
+/* A window handed over as a deformed grid (scene.h): two triangles per
+ * cell, the vertices already in root coordinates so the transform is the
+ * identity and the projection alone puts them on screen, and a texture
+ * coordinate per vertex so the window's pixmap follows the bend. This is
+ * the shape a matrix cannot say -- the magic lamp's genie neck -- and the
+ * one thing the quad path below cannot draw.
+ *
+ * No shadow and no shape mask: a window funnelling into a button is not a
+ * rectangle with a silhouette any more, and a neck's shadow is not a
+ * thing anyone has wanted to see. */
+static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
+                           GlWindow *g, const float projection[16])
+{
+    const CompSceneMesh *mesh = n->mesh;
+    int cols = mesh->cols, rows = mesh->rows;
+    if (cols < 1 || rows < 1 || cols > MESH_MAX_COLS || rows > MESH_MAX_ROWS)
+        return;
+
+    glUseProgram(program);
+    glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
+    glUniform1i(u_texture, 0);
+
+    if (!platform->window_bind(w, g))
+        return;
+
+    static float verts[MESH_MAX_COLS * MESH_MAX_ROWS * 6 * 4];
+    int v = 0;
+    for (int gy = 0; gy < rows; gy++) {
+        for (int gx = 0; gx < cols; gx++) {
+            int i00 = gy * (cols + 1) + gx;
+            int i10 = i00 + 1;
+            int i01 = i00 + (cols + 1);
+            int i11 = i01 + 1;
+
+            float u0 = (float)gx / (float)cols;
+            float u1 = (float)(gx + 1) / (float)cols;
+            float t0 = (float)gy / (float)rows;
+            float t1 = (float)(gy + 1) / (float)rows;
+
+            const int idx[6] = { i00, i10, i01, i10, i11, i01 };
+            const float us[6]  = { u0, u1, u0, u1, u1, u0 };
+            const float ts[6]  = { t0, t0, t1, t0, t1, t1 };
+            for (int k = 0; k < 6; k++) {
+                verts[v++] = mesh->x[idx[k]];
+                verts[v++] = mesh->y[idx[k]];
+                verts[v++] = us[k];
+                verts[v++] = ts[k];
+            }
+        }
+    }
+
+    float identity[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+    glUniformMatrix4fv(u_transform, 1, GL_FALSE, identity);
+    glUniform1f(u_opacity, n->opacity);
+    glUniform1f(u_y_flip, g->y_inverted ? 0.0f : 1.0f);
+    glUniform1f(u_use_mask, 0.0f);
+    glUniform1f(u_use_uv, 1.0f);
+
+    glBindBuffer(GL_ARRAY_BUFFER, mesh_vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)v * (GLsizeiptr)sizeof(float),
+                 verts, GL_STREAM_DRAW);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), NULL);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                          (const void *)(2 * sizeof(float)));
+
+    /* Every cell is inside the mesh's bounding box, so one scissor to
+     * what this pass repaints is all the clipping there is. */
+    scissor_for(o, repaint_rect.x, repaint_rect.y, repaint_rect.w, repaint_rect.h);
+    glDrawArrays(GL_TRIANGLES, 0, v / 4);
+
+    /* Back to the plain quad for whatever node is drawn next. */
+    glDisableVertexAttribArray(1);
+    glUniform1f(u_use_uv, 0.0f);
+    glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+}
+
 /* One node, inside repaint_rect -- which by the time this runs is one
  * piece of the node's own clip (scene.h) ∩ one damaged rectangle, so
  * every scissor box below is already inside both. */
@@ -1012,6 +1104,13 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     /* The shape first: the shadow is cast around the window's
      * silhouette, and both of them are about to want it. */
     shape_fetch(w, g);
+
+    /* A deformed grid is its own path: no shadow, no shape mask, every
+     * vertex already placed (scene.h). */
+    if (n->mesh) {
+        draw_mesh_node(o, n, w, g, projection);
+        return;
+    }
 
     /* Under the window, and before its texture is bound: the shadow
      * program has its own idea of what is in texture unit 0. */
@@ -1399,6 +1498,10 @@ void gl_teardown(void)
     if (quad_vbo) {
         glDeleteBuffers(1, &quad_vbo);
         quad_vbo = 0;
+    }
+    if (mesh_vbo) {
+        glDeleteBuffers(1, &mesh_vbo);
+        mesh_vbo = 0;
     }
     platform = NULL;
 }

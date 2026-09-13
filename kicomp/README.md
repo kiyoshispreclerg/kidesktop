@@ -206,6 +206,14 @@ events   = minimize,restore
 windows  = windows
 fade     = 1                    # fade along the way as well as shrink
 
+[effect:magic-lamp]              # the genie way to minimize -- enable this
+enabled  = 0                     # OR minimize above, not both
+duration = 2.5
+events   = minimize,restore
+grid_res = 32                    # rows the neck is cut into (4..48)
+waves    = 0                     # ripples travelling the neck (0..12)
+wave_amp = 0.4                   # how far a ripple pushes it (× window width)
+
 [effect:desktop-wall]
 enabled  = 1
 duration = 1.5                  # the whole screen moves: longer than one window
@@ -724,6 +732,35 @@ Minimizing draws a window X has already unmapped, so it keeps it alive
 with `window_retain()` exactly as `fade-out` does. If `fade-out` is also
 answering to `minimize`, turn one of the two off — otherwise both will
 animate the same disappearance.
+
+### `magic-lamp`
+
+The other way to minimize: the window is sucked into its taskbar button
+like a genie into a lamp — the edge nearest the button narrows first and
+pulls the rest down a curving neck after it, and it plays backwards on
+restore. It answers to the same `minimize`/`restore` events as
+`minimize`, so enable one or the other, not both.
+
+The shape is not affine — every row across the window is a different
+width and sits at a different place along the neck — so it is drawn as a
+**deformed grid** (`scene.h`'s mesh) rather than a scaled rectangle: a
+column of quads, each a slice of the window's own pixmap, placed where
+this frame's neck puts it. The model is Compiz's: a sigmoid gives the
+neck its curve, and the animation runs in phases — the window shapes into
+the neck, stretches down it, then the last of it is pulled through.
+
+Only the **GL backend** draws the mesh. On XRender the same node carries
+the plain shrink-toward-the-button that `minimize` does, so the effect
+still points the window at its taskbar box there — just without the neck.
+
+Where the button is comes from `_NET_WM_ICON_GEOMETRY` like `minimize`,
+with the same bottom-of-the-output fallback when no taskbar says.
+
+| key | what it does |
+|---|---|
+| `grid_res` | how many rows the neck is cut into, `4`..`48` (default `32`): more is smoother and a little dearer |
+| `waves` | how many ripples travel the neck, `0`..`12` (default `0`, a still neck — the same as Compiz) |
+| `wave_amp` | how far a ripple pushes the neck, as a fraction of the window's width (default `0.4`); only matters with `waves` above 0 |
 
 ### `geometry` (section 24.4)
 
@@ -1497,7 +1534,8 @@ What's left:
 | effect | how |
 |---|---|
 | `present-windows` grid chrome | the filter box and a selection outline `show-windows` should draw: needs a way to put text and rectangles on screen, which is a font stack decision (pango+cairo, freetype+XRender glyphs, or the X core font) |
-| `wobbly`, `blur` | need the GL renderer: a mesh per window, and shaders |
+| `wobbly` | the mesh is here now (`magic-lamp` drew the first one); wobbly is the same mesh driven by a spring model instead of a genie funnel |
+| `blur` | needs the GL renderer: shaders behind a translucent window |
 
 ## Per-output scaling (HiDPI)
 

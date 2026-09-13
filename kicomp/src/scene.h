@@ -14,6 +14,32 @@
 #include "comp.h"
 #include "transform.h"
 
+/* A window drawn as a deformed grid -- the one shape a transform cannot
+ * express, because every cell of it is a quadrilateral rather than a
+ * scaled rectangle. The magic lamp funnels a window into its taskbar
+ * button one row at a time, a different width and slant for each, which
+ * is exactly that.
+ *
+ * Vertices are in root coordinates, row-major, (cols+1) x (rows+1) of
+ * them; the cell between four neighbours shows the matching piece of the
+ * window's own pixmap (a vertex's texture coordinate is its own place in
+ * the grid, gx/cols and gy/rows). The mesh is owned by the effect and
+ * only has to outlive the frame -- the scene is rebuilt from scratch
+ * every frame, so there is nothing to copy here.
+ *
+ * A backend that cannot draw a mesh falls back to the node's `transform`,
+ * which the effect sets to the plain shrink the mesh approximates; only
+ * the GL backend reads the mesh. */
+#define MESH_MAX_COLS 8
+#define MESH_MAX_ROWS 48
+#define MESH_MAX_VERTS ((MESH_MAX_COLS + 1) * (MESH_MAX_ROWS + 1))
+
+typedef struct CompSceneMesh {
+    int cols, rows;
+    float x[MESH_MAX_VERTS];
+    float y[MESH_MAX_VERTS];
+} CompSceneMesh;
+
 typedef struct CompSceneNode {
     CompWindow *win;
 
@@ -37,6 +63,13 @@ typedef struct CompSceneNode {
      * every node the effects didn't touch, which is the fast path in the
      * renderer. */
     CompTransform transform;
+
+    /* Non-NULL: draw the window as this deformed grid instead of as one
+     * quad under `transform` (the CompSceneMesh above). Set by the magic
+     * lamp; the GL backend draws it exactly, and a backend that cannot
+     * falls back to `transform`. Owned by the effect, valid this frame
+     * only. */
+    const CompSceneMesh *mesh;
 
     /* Draw the window's stashed contents (renderer.h) rather than its
      * live ones, with `geometry` describing those instead. What lets
