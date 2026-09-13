@@ -11,14 +11,17 @@ no compositing, with real transparency (32-bit windows' alpha and
 - an effect interface: *geometry change*, *fade in/out*, *scale in/out*,
   *shade/unshade*, *minimize/restore*, *desktop wall*, *dodge*,
   *smooth move*, *show windows* — every window at once, in a grid to pick
-  one from — and *expo*, every desktop at once;
+  one from — *expo*, every desktop at once, *cover switch*, the window
+  list as a row of covers for the WM's own Alt+Tab, and the *cube*, the
+  desktops as the faces of a turning prism;
 - a per-output frame clock driving the animations;
 - configuration in `kicomp.conf`.
 
 Two renderers now: **XRender**, which is complete and what `auto` picks,
 and a **GLX** one that is new and does not do everything the older one
-does yet (see below). Wobbly, blur and the cube are what the GL one is
-for — they cannot be expressed in XRender at all.
+does yet (see below). Wobbly and blur are what the GL one is still for —
+they cannot be expressed in XRender at all — and the cube already needs
+it, since XRender's picture transform is affine and a cube is not.
 
 ```sh
 make
@@ -110,6 +113,14 @@ skip_wm_layers     = 0     # 1 = don't composite kiwm's OSD/wireframe
 keep_hidden_contents = 1   # keep the last picture of a window the WM put
                            # away (minimized, another desktop), so effects
                            # like expo can draw it. One pixmap each
+claim_ms           = 500   # how long an effect's claim on a change lasts.
+                           # A mode that has just shown the user a desktop
+                           # change says so, and whatever would otherwise
+                           # animate it stands down; this has to cover the
+                           # round trip (ask the WM, the WM acts, the events
+                           # come back) and no more — past that, a change the
+                           # *user* makes is mistaken for the one already
+                           # shown and goes unanimated
 unredirect_fullscreen = 1  # stand aside when one window fills an output and
                            # nothing else is visible on it: that window is
                            # unredirected, that output stops being composited
@@ -280,6 +291,71 @@ labels             = 1        # names under the thumbnails, filter box on top
 other_outputs      = 0        # gather the other monitors' windows too
 hide_docks         = 1        # panels fade out while the grid is up
 filter_debounce_ms = 100      # typing has to pause this long to rearrange
+
+[effect:cover-switch]
+enabled        = 1
+hotkey         = Meta+C       # how to reach it without a WM driving it
+duration       = 0.9
+easing         = out
+angle          = 60           # how far a cover is turned once fully aside
+perspective    = 1.2          # eye distance, as a fraction of the output's
+                              # width — smaller is a wider lens
+cover          = 0.45         # the front cover's size, same units
+gap            = 0.17         # front cover to the first one each side
+step           = 0.055        # and between the ones after that, so a long
+                              # list crowds towards the edges
+depth          = 260          # how far back the turned covers sit, in px
+visible        = 4            # covers drawn each side; the outermost one
+                              # fades across the width of one more, so a
+                              # long row reads as continuing past the edge
+background     = 0.82         # how solid the ground under the row is
+labels         = 1            # the selected window's title, under the row
+label_y        = 0.86         # where it sits, as a fraction of the height
+label_width    = 640          # how wide it may grow before it wraps
+wrap           = 1            # stepping past the end comes back round
+other_desktops = 1            # list this output's other desktops' windows
+                              # too — an Alt+Tab that stops at the desktop
+                              # you are on cannot reach half of what is open
+live_windows   = 1            # and keep them drawing while the row is up,
+                              # rather than showing what they last looked
+                              # like (asks the WM to hold them: PROTOCOL.md)
+follow_desktop = 1            # walking onto a window that lives elsewhere
+                              # fades that desktop's wallpaper in under the
+                              # row, instead of waiting for the row to close
+
+[effect:cube]
+enabled         = 1
+hotkey          = Ctrl+Meta+Button1   # press, turn, let go
+hotkey_next     = Ctrl+Meta+Right     # one face over, with no drag
+hotkey_prev     = Ctrl+Meta+Left
+duration        = 1.2
+easing          = out
+zoom            = 0.55        # how far the cube stands off from the eye,
+                              # as a fraction of the output's width
+flick_zoom      = 0.0         # and for a keyed turn: 0 leaves the front
+                              # face filling the screen, so the desktops
+                              # sweep past at full size
+perspective     = 0.7         # eye distance, same units — smaller is a
+                              # wider lens and a stronger vanishing point
+turns           = 1.0         # a drag across the whole output turns the
+                              # cube this many times
+tilt_max        = 90          # how far the vertical drag may lean it, in
+                              # degrees; 90 is looking straight down on it
+window_gap      = 40          # how far the first window floats off its
+                              # face, in px, and
+window_spacing  = 26          # how far each one after it floats off the
+                              # last — Compiz's 3D windows. Both are 0 for
+                              # a keyed turn, which does not back away
+cap_color       = #383838ff   # the top and bottom; #rrggbb or #rrggbbaa
+background_color = #000000    # behind the cube
+background      = 0.9         # how solid that is
+flat_docks      = 1           # panels lie on their face over the wallpaper,
+                              # rather than floating with the windows: they
+                              # are part of the desktop, not things on it
+live_windows    = all         # none | active | all: how much of the other
+                              # desktops is kept alive. Minimized windows
+                              # are never held whatever this says — there is
+                              # no picture of them to show
 
 # a second instance of the same effect, with different numbers: inherits
 # everything from [effect:scale-out] and overrides only what it declares
@@ -963,6 +1039,199 @@ asked.
 | `dim` | the desktops that are not selected (default 0.82) |
 | `arrange` | `stack` (default) — windows where they really are — or `grid`, tidied into a little grid inside each cell |
 
+### `cover-switch`
+
+The window list as a row of covers seen at an angle — the shape Compiz's
+shift switcher, KWin's cover switch and iTunes all landed on. The windows
+stand in a line receding to both sides, turned away from the viewer, and
+the one being chosen swings flat to face you. Picking is a walk along a
+line rather than a hunt across a grid, which is the right shape for
+Alt+Tab: the user is stepping through an order they already have in their
+head.
+
+**The window manager holds the keyboard.** Only one client can, and for
+Alt+Tab it has to be the WM — it owns the key, it owns the hold, and it
+is the only thing that can carry out what the walk meant. So the
+compositor never grabs for this: kiwm writes what it wants shown on the
+root and the compositor draws it. `hotkey` is how the mode is reached
+with no WM driving it, and how it is tested. See **Driving a mode from
+the window manager**, below.
+
+**Nothing is focused while the row is up.** The selection here is the
+effect's own; on the way out it sends the ordinary `_NET_ACTIVE_WINDOW`
+request any pager sends and the WM decides what that means. A switcher
+that focused as it stepped would raise and re-stack windows underneath
+the very animation drawing them.
+
+**Everything is a movement, never a cut.** One phase carries the mode: at
+0 every window is exactly where it really is and the transform is the
+identity, at 1 it is the full row. So the covers fly out of the desktop
+and tilt as they go, and lie back down on the way out — and at either end
+what is on screen is the real desktop, pixel for pixel.
+
+**No cover is dimmed for being unselected.** Every window in the row is a
+real window the user is reading, and the one in front is already marked
+out by facing them. The only opacity in the row is at its two ends, where
+the outermost cover fades across the width of one more — with more
+windows than the row shows, that is what lets one travel off one end
+while another arrives at the other.
+
+**It reaches the other desktops** (`other_desktops`), because an Alt+Tab
+that stops at the desktop you happen to be on cannot reach half of what
+is open, and on an empty desktop it would offer nothing at all. Those
+windows are unmapped, so the WM is asked to hold them up
+(`live_windows`); the ground follows the selection as you walk
+(`follow_desktop`), and the desktops that are not going to be on screen
+fade out as the covers fly home.
+
+**Every ground is photographed while you choose.** A window's pixmap is
+only named when something draws it, and a desktop's wallpaper is only up
+for the moment the WM raises it for — so the other desktops' grounds are
+drawn at zero opacity rather than hidden. They are photographed while the
+user is choosing and cannot be seen doing it, and the fade has something
+to fade to. Opacity rather than stacking them behind the current one:
+nothing can leak through from behind if nothing behind is opaque.
+
+| key | what it does |
+|---|---|
+| `hotkey` | one or more combinations (default `Meta+C`), for reaching it with no WM driving it |
+| `angle`, `perspective` | how far a cover turns once aside (60°) and the eye distance (1.2 of the output's width — smaller is a wider lens) |
+| `cover`, `gap`, `step` | the front cover's size (0.45), the gap to the first one each side (0.17), and the smaller step between the ones after it (0.055), all as fractions of the width |
+| `depth` | how far back a turned cover sits, in px (260) |
+| `visible` | covers each side of the front one (4); the outermost fades across the width of one more |
+| `background` | how solid the ground under the row is (0.82) |
+| `labels`, `label_y`, `label_width` | the selected window's title (on), where it sits (0.86 of the height) and how wide it may grow (640 px) |
+| `wrap` | stepping past the end comes back round (on) |
+| `other_desktops` | list this output's other desktops' windows too (on) |
+| `live_windows` | and keep them drawing rather than showing their last picture (on) |
+| `follow_desktop` | fade to the selected window's own desktop's wallpaper as you walk (on) |
+
+### `cube`
+
+The desktops as the faces of a turning prism. `Ctrl+Meta+Button1` opens
+it, the drag turns it, letting go chooses the face you landed on;
+`Ctrl+Meta+Left`/`Right` turn one face with no drag.
+
+**One cube per output, never one across all of them.** Everything here is
+per output — scene, target, presenter, damage, and the frame clock down
+to its vblank phase — and two monitors present at different instants, so
+a cube spanning both would be one scene drawn into two targets that fly at
+different moments: a seam that tears down the middle. Under kiwm each
+output has a desktop of its own besides, so a single cube would have no
+single front face to speak of.
+
+**N desktops make an N-sided prism**, the way Compiz does it: four is the
+cube everyone means, three a triangle, six a hexagon, two a sheet of paper
+with a side each. The faces are the output's own rectangle stood around a
+common axis at the apothem — half the width over `tan(pi/N)` — which is
+what makes every N look right with no number tuned per shape.
+
+**Phase 0 is the desktop exactly as it is.** The push away from the eye is
+`apothem + zoom`, so at `zoom` 0 the front face's surface sits at
+precisely z = 0 where the projection does not scale it, the prism has not
+turned, and every other face is behind it and culled. Opening and closing
+move between that and the open cube, so both ends of the mode are the real
+desktop rather than an approximation of it. A keyed turn uses `flick_zoom`
+(0 by default), which is that same standstill: the desktops sweep past at
+full size instead of the cube backing away first.
+
+**Windows float above their own face** — Compiz's 3D windows — at
+`window_gap` and then `window_spacing` apart, in root pixels rather than
+fractions of anything, because how far a window floats off its desktop is
+not a proportion of the screen. The wallpaper and the panels lie *on* the
+face instead (`flat_docks`): they are part of the desktop they belong to,
+not things standing above it.
+
+**The other desktops are kept alive** by asking the WM to hold their
+windows up (`live_windows`), renewed while the cube is open — kiwm caps a
+hold at two seconds of its own accord and a cube stays open as long as the
+user keeps turning it. Their wallpapers are asked for on the same cadence:
+a desktop layer is raised for a moment on the reasoning that a compositor
+will have photographed it, which is true of the expo grid (every cell is
+drawn from the first frame) and false of a cube, which culls the faces
+turned away.
+
+**Nothing switches a desktop.** On release the nearest face is asked for
+with `desktop_request_switch`, the way a pager asks, and the WM decides
+what that means — and the turn settles on the face it is *nearest*, never
+on that face's canonical angle, which can be most of a revolution away
+from where the cube is standing.
+
+The cube needs a backend that can draw a projective matrix, so it refuses
+to open on XRender.
+
+| key | what it does |
+|---|---|
+| `hotkey` | press, turn, let go (default `Ctrl+Meta+Button1`) |
+| `hotkey_next`, `hotkey_prev` | one face over with no drag (`Ctrl+Meta+Right` / `Left`) |
+| `zoom`, `flick_zoom` | how far the cube stands off from the eye for a drag (0.55 of the output's width) and for a keyed turn (0 — no standing off at all) |
+| `perspective` | eye distance, same units (0.7); smaller is a wider lens and a stronger vanishing point |
+| `turns` | how many turns a drag across the whole output makes (1.0) |
+| `tilt_max` | how far the vertical drag may lean it, in degrees (90 — straight down on it) |
+| `window_gap`, `window_spacing` | how far the first window floats off its face and each one after it off the last, in px (40 / 26); both 0 for a keyed turn |
+| `cap_color` | the top and bottom, `#rrggbb` or `#rrggbbaa` (`#383838ff`) |
+| `background_color`, `background` | behind the cube (`#000000`) and how solid it is (0.9) |
+| `flat_docks` | panels lie on their face over the wallpaper (on) |
+| `live_windows` | `none` / `active` / `all` (default `all`): how much of the other desktops is kept alive. Minimized windows are never held whatever this says — there is no picture of them to show |
+
+### One mode at a time
+
+A cube, an expo grid, a row of covers, a desktop wall: each of those is
+showing the user the whole desktop, and two of them at once is not a
+picture of anything. A mode asks before it opens and simply does not, so
+the key does nothing — which is the honest answer, not an error. Effects
+that animate one window (`fade`, `scale`, `geometry`, `visual-bell`) are
+untouched by this and go on running underneath.
+
+Two properties say it. **Taking the screen over** (`owns_output`) is what
+makes a mode exclusive; **drawing it alone** (`rebuilds_scene`) is a
+separate thing, and only the cube and the grid do it, because only they
+replace the scene's node list — an older effect applied afterwards would
+write its transforms over a list whose indices it no longer understands.
+The wall moves windows about and is perfectly happy for a window closing
+in the middle of it to fade out as it goes. And the question is asked
+about *other kinds* of effect, because a wall is one animation made of one
+effect per window and must not refuse itself.
+
+### Saying a change is already being shown
+
+Leaving the cube, the expo grid or the cover switcher changes the desktop,
+and the desktop wall would then slide that desktop in: a second animation,
+of a change the user has just watched happen, played over the first. So a
+mode **claims** the change it is about to cause (`effects_claim`), and the
+core drops the events it claimed — dropped there rather than tested in
+each effect, so a mode does not have to know which effects would have
+answered, and an effect written later is covered without being told the
+modes exist.
+
+A claim lasts `claim_ms` (500 by default) and is per output, since a
+desktop is per output here. It has to cover the round trip — ask the WM,
+the WM acts, the events come back — and no more: every millisecond past
+that is one in which a change the *user* makes is mistaken for the one
+already being shown. A claim can also name **one window**
+(`effects_claim_window`), for when the change should be animated and one
+window's part of it should not.
+
+### Driving a mode from the window manager
+
+`cover-switch` is meant to be reached through the WM's own Alt+Tab, and
+the protocol is two properties:
+
+- **`_KICOMP_EFFECTS`** on the window owning `_NET_WM_CM_Sn` — the modes
+  that can be driven this way, space separated. Absent when there are
+  none, and the absence is the whole of the negotiation: no compositor,
+  one built without the effect, and one with it switched off all read the
+  same, and the WM uses its own on-screen display.
+- **`_KICOMP_SWITCHER`** on the root, `CARDINAL/32`: state (0 end, 1 show,
+  2 end having chosen), the selected entry's index, then the windows in
+  the order to show them. Written on every step of the walk; the property
+  is the state rather than a queue, so a burst of steps costs one read of
+  the last one.
+
+Ending and ending-having-chosen differ only in what the WM does next: this
+side closes the same way either time and focuses nothing at all, because
+the WM is the one that knows whether the user let go or gave up.
+
 ### Keeping the picture of a window that isn't there
 
 An expo showing every desktop has to draw windows the WM has unmapped,
@@ -1120,7 +1389,6 @@ What's left:
 | effect | how |
 |---|---|
 | `present-windows` grid chrome | the filter box and a selection outline `show-windows` should draw: needs a way to put text and rectangles on screen, which is a font stack decision (pango+cairo, freetype+XRender glyphs, or the X core font) |
-| `cube` | the wall's rotation instead of its translation: needs a perspective transform the XRender backend can't express (its transform is affine), so this one waits for GL |
 | `wobbly`, `blur` | need the GL renderer: a mesh per window, and shaders |
 
 ## Per-output scaling (HiDPI)
