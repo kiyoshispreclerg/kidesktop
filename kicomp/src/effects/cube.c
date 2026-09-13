@@ -103,9 +103,9 @@ typedef struct {
      *           makes a face recognisable for the least work
      *   all     every window of every desktop
      *
-     * Minimized windows are never held, whatever this says: kiwm refuses
-     * (client_hold), and a minimized window has no pixmap to show. It is
-     * simply absent from its face rather than a hole in it.
+     * Minimized windows are never on a face, whatever this says: they
+     * are not on their desktop, and a face is the desktop as it would
+     * look (cube_apply). Nor could they be held -- kiwm refuses.
      *
      * Left out of the section, it is kicomp's own live_windows
      * (comp.h): what the compositor keeps live all the time is what a
@@ -531,6 +531,8 @@ static CompWindow *last_used_on(const CubeData *d, const CompOutput *o, int face
     for (CompWindow *w = comp.stack; w; w = w->next) {
         if (w->input_only || w->zombie || w->wm_layer[0])
             continue;
+        if (w->state & COMP_STATE_MINIMIZED)
+            continue;               /* not on its face; cannot be held */
         if (face_of_window(d, o, w) != face)
             continue;
         if (!best || w->focus_serial > best->focus_serial)
@@ -772,6 +774,15 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
 
                 int owner = face_of_window(d, o, w);
                 if (owner != face && owner != CUBE_EVERY_FACE)
+                    continue;
+
+                /* A minimized window is not on its desktop, and a face is
+                 * that desktop as it would look. Its picture is in the
+                 * scene (comp.h's keep_stowed, for the effects that are
+                 * *about* what is put away), but drawn back onto the
+                 * desktop it was taken off it shows a desktop nobody
+                 * has. */
+                if (w->state & COMP_STATE_MINIMIZED)
                     continue;
 
                 bool flat = w->type == COMP_WINDOW_DESKTOP ||

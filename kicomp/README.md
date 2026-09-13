@@ -1204,7 +1204,7 @@ to open on XRender.
 | `cap_color` | the top and bottom, `#rrggbb` or `#rrggbbaa` (`#383838ff`) |
 | `background_color`, `background` | behind the cube (`#000000`) and how solid it is (0.9) |
 | `flat_docks` | panels lie on their face over the wallpaper (on) |
-| `live_windows` | `desktop` / `active` / `all`: how much of the other desktops is kept alive; the global `live_windows` when left out. Minimized windows are never held whatever this says — there is no picture of them to show |
+| `live_windows` | `desktop` / `active` / `all`: how much of the other desktops is kept alive; the global `live_windows` when left out. Minimized windows are never on a face, held or otherwise — they are not on their desktop |
 
 ### One mode at a time
 
