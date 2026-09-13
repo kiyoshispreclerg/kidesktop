@@ -91,6 +91,7 @@ static void apply_builtin_defaults(void)
     comp.unredirect = true;
 
     comp.keep_stowed = true;
+    comp.claim_ms = 500.0;
     comp.show_stowed_output = COMP_NO_OUTPUT;
 
     /* "auto" means "whatever capability detection picks", which is what
@@ -318,6 +319,10 @@ static void config_pass(FILE *f, bool instances_pass)
             comp.skip_wm_layers = atoi(val) != 0;
         } else if (strcmp(key, "unredirect_fullscreen") == 0) {
             comp.unredirect = atoi(val) != 0;
+        } else if (strcmp(key, "claim_ms") == 0) {
+            comp.claim_ms = atof(val);
+            if (comp.claim_ms < 0.0)
+                comp.claim_ms = 0.0;
         } else if (strcmp(key, "keep_hidden_contents") == 0) {
             comp.keep_stowed = atoi(val) != 0;
         } else if (strcmp(key, "renderer") == 0) {

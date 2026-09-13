@@ -408,7 +408,7 @@ static void close_mode(CompEffect *e, int enter_desktop, CompWindow *pick)
         /* Shown already, on the cell the user walked into: the wall must
          * not slide the same desktop in a second time behind the grid
          * closing over it (effect.h's effects_claim). */
-        double cover = COMP_CLAIM_MS;
+        double cover = comp.claim_ms;
         effects_claim(COMP_EVENT_DESKTOP_LEAVE, d->output_id, cover);
         effects_claim(COMP_EVENT_DESKTOP_ENTER, d->output_id, cover);
 

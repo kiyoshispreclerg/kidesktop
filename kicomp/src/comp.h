@@ -627,6 +627,14 @@ typedef struct KiComp {
 
     bool keep_stowed;
 
+    /* kicomp.conf's claim_ms= (default 500): how long an effect's claim
+     * on a change lasts (effect.h's effects_claim). It has to cover the
+     * round trip -- the compositor asks the window manager, the WM acts,
+     * and the events come back -- and no more: every millisecond past
+     * that is one in which a change the *user* makes is mistaken for the
+     * one already being shown and goes unanimated. */
+    double claim_ms;
+
     /* Which output is being shown them, by id -- COMP_NO_OUTPUT for
      * none. An output rather than a flag because the effect that asks is
      * one screen's: expo lays out the desktops of the monitor it was

@@ -610,7 +610,7 @@ static void close_mode(CompEffect *e, bool activate_it)
     if (activate_it && d->selected >= 0 && d->selected < d->count) {
         CompWindow *w = d->items[d->selected].win;
         if (w && !w->zombie) {
-            double cover = COMP_CLAIM_MS;
+            double cover = comp.claim_ms;
 
             /* The user picked this window out of a row of them: they
              * looked at the lot and pointed. Dodge answering to the
