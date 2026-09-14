@@ -94,7 +94,7 @@
 
 #include "tabs.h"
 
-#define KICONF_VERSION "0.1.2"
+#define KICONF_VERSION "0.1.3"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -103,9 +103,20 @@
  * xispanel/xisback the same way, build_telas_tab() shells out to `xrandr`
  * -- so building all 8 up front made every kiconf launch pay for tabs the
  * user may never open, including blocking on daemons that aren't running.
- * Instead, each notebook page starts as an empty placeholder box; the real
- * build_X_tab() call happens on first visit (GtkNotebook's "switch-page")
- * and is cached in g_tabs[].built so revisiting a tab never rebuilds it. */
+ * Instead, each notebook page starts as an empty placeholder box, and the
+ * real build_X_tab() call happens on first visit (GtkNotebook's
+ * "switch-page").
+ *
+ * Only ever one tab's content is kept built at a time: GtkNotebook sizes
+ * itself to fit the largest of *all* its pages, built or not, not just the
+ * current one, so once a wide tab (e.g. Telas) had been visited, the
+ * window could never be resized narrower than it again even after
+ * switching to a smaller tab. Tearing the previous tab's content down on
+ * every switch (back to an empty placeholder) keeps the notebook's size
+ * request bounded by whatever single tab is actually showing. The cost is
+ * that switching away and back re-does that tab's build_X_tab() (and its
+ * I/O) and discards any unapplied edits in it -- same tradeoff control
+ * panels like GNOME Settings make with their per-module pages. */
 typedef GtkWidget *(*TabBuilder)(void);
 
 typedef struct {
@@ -127,6 +138,8 @@ static LazyTab g_tabs[] = {
 };
 #define N_TABS ((int)(sizeof(g_tabs) / sizeof(g_tabs[0])))
 
+static int g_current_tab = -1;
+
 static void ensure_tab_built(int idx)
 {
     if (idx < 0 || idx >= N_TABS || g_tabs[idx].built) {
@@ -138,12 +151,32 @@ static void ensure_tab_built(int idx)
     g_tabs[idx].built = 1;
 }
 
+/* Destroys idx's content widget (recursively, along with everything it
+ * owns -- combobox models, list stores, signal handlers), leaving its
+ * placeholder empty again. Safe to call whether or not the tab is built. */
+static void unbuild_tab(int idx)
+{
+    if (idx < 0 || idx >= N_TABS || !g_tabs[idx].built) {
+        return;
+    }
+    GList *children = gtk_container_get_children(GTK_CONTAINER(g_tabs[idx].placeholder));
+    for (GList *l = children; l; l = l->next) {
+        gtk_widget_destroy(GTK_WIDGET(l->data));
+    }
+    g_list_free(children);
+    g_tabs[idx].built = 0;
+}
+
 static void on_switch_page(GtkNotebook *notebook, GtkNotebookPage *page, guint page_num, gpointer data)
 {
     (void)notebook;
     (void)page;
     (void)data;
+    if (g_current_tab >= 0 && g_current_tab != (int)page_num) {
+        unbuild_tab(g_current_tab);
+    }
     ensure_tab_built((int)page_num);
+    g_current_tab = (int)page_num;
 }
 
 int main(int argc, char **argv)
@@ -181,7 +214,8 @@ int main(int argc, char **argv)
     /* The initially-selected page (0, "Aparencia") never gets a
      * "switch-page" emission for itself -- it's already current when the
      * handler is connected -- so it's built explicitly here. */
-    ensure_tab_built(gtk_notebook_get_current_page(GTK_NOTEBOOK(notebook)));
+    g_current_tab = gtk_notebook_get_current_page(GTK_NOTEBOOK(notebook));
+    ensure_tab_built(g_current_tab);
     gtk_main();
     return 0;
 }
