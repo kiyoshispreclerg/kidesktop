@@ -94,7 +94,7 @@
 
 #include "tabs.h"
 
-#define KICONF_VERSION "0.1.4"
+#define KICONF_VERSION "0.1.5"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -146,12 +146,34 @@ static LazyTab g_tabs[] = {
 static GtkWidget *g_notebook;
 static int g_current_tab = -1;
 
+static void on_back_clicked(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    (void)data;
+    gtk_notebook_set_current_page(GTK_NOTEBOOK(g_notebook), HOME_PAGE);
+}
+
+/* One row, left-aligned, added above every module's own content -- kept
+ * here rather than in each tabs/ file so all 8 modules get it the same
+ * way and none of them need to know they're being shown inside a
+ * "navigate back to home" scheme at all (same reasoning as the tab-strip
+ * navigation itself: one shared mechanism, not a per-tab opt-in). */
+static GtkWidget *make_back_button(void)
+{
+    GtkWidget *btn = gtk_button_new_from_stock(GTK_STOCK_GO_BACK);
+    g_signal_connect(btn, "clicked", G_CALLBACK(on_back_clicked), NULL);
+    GtkWidget *row = gtk_hbox_new(FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row), btn, FALSE, FALSE, 0);
+    return row;
+}
+
 static void ensure_tab_built(int idx)
 {
     if (idx < 0 || idx >= N_TABS || g_tabs[idx].built) {
         return;
     }
     GtkWidget *content = g_tabs[idx].build();
+    gtk_box_pack_start(GTK_BOX(g_tabs[idx].placeholder), make_back_button(), FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(g_tabs[idx].placeholder), content, TRUE, TRUE, 0);
     gtk_widget_show_all(g_tabs[idx].placeholder);
     g_tabs[idx].built = 1;
