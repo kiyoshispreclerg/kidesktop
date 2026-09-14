@@ -42,7 +42,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.6"
+#define XISSERVE_VERSION "0.1.7"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -177,6 +177,8 @@ static void usage(const char *argv0)
     }
     fprintf(stderr, "\n       %s --menu [<window> <x> <y>] "
                     "[--window=<id>] [--menu-x=<px>] [--menu-y=<px>]\n", argv0);
+    fprintf(stderr, "       %s --question --text=<pergunta> --button=<rotulo>:<valor> "
+                    "[--button=<rotulo>:<valor> ...]\n", argv0);
     fprintf(stderr, "       %s --version\n", argv0);
 }
 
@@ -2028,6 +2030,16 @@ int main(int argc, char **argv)
      * happens to be running. */
     if (args.menu_mode)
         return appmenu_run(args.menu_window, args.menu_x, args.menu_y);
+
+    /* --question: same deal, but detected by a raw argv scan rather than
+     * through LaunchArgs -- its --text/--button flags are question.c's
+     * own, unrelated to (and parsed independently of) parse_argv()'s
+     * option table above, which already ignored them as unknown. See
+     * question.c and PROTOCOL.md. */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--question") == 0)
+            return question_run(argc, argv);
+    }
 
     const char *rundir = getenv("XDG_RUNTIME_DIR");
     if (!rundir || !*rundir) rundir = "/tmp";

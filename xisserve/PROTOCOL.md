@@ -140,6 +140,42 @@ the input grab. Exit status is non-zero (with a message on stderr) when
 the window exports no menu or the menu comes back empty -- kiwm hides the
 button for such windows anyway, so this is the belt to that suspenders.
 
+## `--question`: a Zenity-style question popup
+
+`--question` is, like `--menu`, **not** part of the xispanel contract
+above and **not** subject to the singleton behavior below -- any number
+of `--question` instances can be up at once, each its own process:
+
+```
+xisserve --question --text=<pergunta> --button=<rotulo>:<valor> [--button=<rotulo>:<valor> ...]
+```
+
+`--text` is the question shown in the popup; each `--button` (1-8 of
+them, repeatable) adds one plain GTK2 button labeled `<rotulo>` that
+closes the dialog and answers with the int `<valor>` -- split on the
+*last* `:` in the argument, so a label is free to contain its own colons.
+Example:
+
+```
+xisserve --question --text="Fechar sem salvar?" --button="Cancelar:0" --button="Fechar:1"
+```
+
+The chosen value is printed to stdout and also used as the process exit
+code (low byte only -- an answer outside 0-255 still prints correctly on
+stdout, but a caller reading only the exit status needs to keep its
+values in that range). Dismissing the dialog with no button clicked (the
+WM's close button, or Escape) exits 1 with no stdout; a usage error
+(missing `--text` or no `--button`) exits 2.
+
+It takes no singleton lock and opens no control socket, the same
+reasoning as `--menu`: a question is a one-shot, per-call thing, and
+relaying it into an already-running instance would mean fighting that
+instance's window for the position and the input grab -- worse, here it
+would also make two unrelated callers' questions collide into one popup.
+The dialog carries no `--bg`/`--fg`/`--font` theming either; it's a plain
+GTK2 window matching whatever GTK2 theme is already active on the
+session.
+
 ## Singleton / toggle behavior (xisserve's own responsibility)
 
 xispanel does **not** track whether xisserve is already running, hold a

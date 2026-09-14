@@ -83,6 +83,16 @@ gboolean xisserve_window_appmenu(unsigned long window, char *busname, size_t bn_
 int appmenu_run(unsigned long window, int x, int y);
 void plugin_globalmenu_search(const char *query, GPtrArray *results);
 
+/* --question mode: a Zenity-style question popup, entirely outside the
+ * launcher's singleton/control-socket machinery (like --menu above, so
+ * any number of instances can be up at once). `argv`/`argc` are handed
+ * over as-is -- question.c does its own getopt_long pass for its own
+ * --text/--button flags, independent of parse_argv()'s LaunchArgs.
+ * Returns the process exit code: the chosen button's value (low byte),
+ * 1 if the dialog was dismissed with no button clicked, or 2 on a usage
+ * error (missing --text or no --button). See PROTOCOL.md. */
+int question_run(int argc, char **argv);
+
 /* Same fork+setsid+execl-via-sh-c "don't wait" pattern xispanel.c's own
  * run_detached() uses -- defined once in xisserve.c, exported so plugins
  * that launch something themselves don't duplicate it. */
