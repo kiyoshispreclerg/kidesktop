@@ -94,7 +94,7 @@
 
 #include "tabs.h"
 
-#define KICONF_VERSION "0.1.6"
+#define KICONF_VERSION "0.1.7"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
