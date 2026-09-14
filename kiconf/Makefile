@@ -6,7 +6,7 @@ BINDIR := $(PREFIX)/bin
 
 SRCS := kiconf.c common.c tabs/appearance.c tabs/shortcuts.c tabs/entrada.c \
         tabs/outras.c tabs/permissoes.c tabs/paineis.c tabs/wallpaper.c \
-        tabs/telas.c
+        tabs/telas.c tabs/janelas.c tabs/efeitos.c
 
 all: kiconf
 

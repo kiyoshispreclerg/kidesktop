@@ -14,5 +14,7 @@ GtkWidget *build_permissoes_tab(void);
 GtkWidget *build_paineis_tab(void);
 GtkWidget *build_wallpaper_tab(void);
 GtkWidget *build_telas_tab(void);
+GtkWidget *build_janelas_tab(void);
+GtkWidget *build_efeitos_tab(void);
 
 #endif /* KICONF_TABS_H */
