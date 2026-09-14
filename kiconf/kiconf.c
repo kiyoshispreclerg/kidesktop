@@ -94,7 +94,7 @@
 
 #include "tabs.h"
 
-#define KICONF_VERSION "0.1.3"
+#define KICONF_VERSION "0.1.4"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -121,23 +121,29 @@ typedef GtkWidget *(*TabBuilder)(void);
 
 typedef struct {
     const char *label;
+    const char *stock_icon;
     TabBuilder build;
     GtkWidget *placeholder;
     int built;
 } LazyTab;
 
 static LazyTab g_tabs[] = {
-    {"Aparencia", build_appearance_tab, NULL, 0},
-    {"Atalhos", build_shortcuts_tab, NULL, 0},
-    {"Telas", build_telas_tab, NULL, 0},
-    {"Entrada", build_entrada_tab, NULL, 0},
-    {"Wallpaper", build_wallpaper_tab, NULL, 0},
-    {"Outras", build_outras_tab, NULL, 0},
-    {"Paineis", build_paineis_tab, NULL, 0},
-    {"Permissoes", build_permissoes_tab, NULL, 0},
+    {"Aparencia", GTK_STOCK_SELECT_COLOR, build_appearance_tab, NULL, 0},
+    {"Atalhos", GTK_STOCK_JUMP_TO, build_shortcuts_tab, NULL, 0},
+    {"Telas", GTK_STOCK_FULLSCREEN, build_telas_tab, NULL, 0},
+    {"Entrada", GTK_STOCK_EDIT, build_entrada_tab, NULL, 0},
+    {"Wallpaper", GTK_STOCK_FILE, build_wallpaper_tab, NULL, 0},
+    {"Outras", GTK_STOCK_PREFERENCES, build_outras_tab, NULL, 0},
+    {"Paineis", GTK_STOCK_JUSTIFY_FILL, build_paineis_tab, NULL, 0},
+    {"Permissoes", GTK_STOCK_DIALOG_AUTHENTICATION, build_permissoes_tab, NULL, 0},
 };
 #define N_TABS ((int)(sizeof(g_tabs) / sizeof(g_tabs[0])))
 
+/* Page 0 is the icon-grid home page (see build_home_page()); module i
+ * (0-based, into g_tabs[]) lives at notebook page i + 1. */
+#define HOME_PAGE 0
+
+static GtkWidget *g_notebook;
 static int g_current_tab = -1;
 
 static void ensure_tab_built(int idx)
@@ -172,11 +178,62 @@ static void on_switch_page(GtkNotebook *notebook, GtkNotebookPage *page, guint p
     (void)notebook;
     (void)page;
     (void)data;
-    if (g_current_tab >= 0 && g_current_tab != (int)page_num) {
+    if (g_current_tab >= 0) {
         unbuild_tab(g_current_tab);
+        g_current_tab = -1;
     }
-    ensure_tab_built((int)page_num);
-    g_current_tab = (int)page_num;
+    if ((int)page_num != HOME_PAGE) {
+        int idx = (int)page_num - 1;
+        ensure_tab_built(idx);
+        g_current_tab = idx;
+    }
+}
+
+/* ---- home page: a small "control panel" of module icons --------------- */
+
+static void on_module_icon_clicked(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    gtk_notebook_set_current_page(GTK_NOTEBOOK(g_notebook), GPOINTER_TO_INT(data));
+}
+
+static GtkWidget *make_module_button(const LazyTab *tab, int page_num)
+{
+    GtkWidget *btn = gtk_button_new();
+    gtk_container_set_border_width(GTK_CONTAINER(btn), 6);
+
+    GtkWidget *box = gtk_vbox_new(FALSE, 4);
+    GtkWidget *icon = gtk_image_new_from_stock(tab->stock_icon, GTK_ICON_SIZE_DIALOG);
+    GtkWidget *label = gtk_label_new(tab->label);
+    gtk_box_pack_start(GTK_BOX(box), icon, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), label, FALSE, FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(btn), box);
+
+    g_signal_connect(btn, "clicked", G_CALLBACK(on_module_icon_clicked), GINT_TO_POINTER(page_num));
+    return btn;
+}
+
+/* Plain icon grid, 4 per row -- same idea as GNOME Settings/Windows'
+ * Control Panel "home": no state of its own, so unlike the module tabs it
+ * stays built for the whole session instead of going through
+ * ensure_tab_built()/unbuild_tab(). */
+static GtkWidget *build_home_page(void)
+{
+    const int cols = 4;
+    const int rows = (N_TABS + cols - 1) / cols;
+    GtkWidget *grid = gtk_table_new(rows, cols, TRUE);
+    gtk_table_set_row_spacings(GTK_TABLE(grid), 8);
+    gtk_table_set_col_spacings(GTK_TABLE(grid), 8);
+    for (int i = 0; i < N_TABS; i++) {
+        int r = i / cols, c = i % cols;
+        GtkWidget *btn = make_module_button(&g_tabs[i], i + 1);
+        gtk_table_attach(GTK_TABLE(grid), btn, c, c + 1, r, r + 1,
+                          GTK_EXPAND | GTK_FILL, GTK_EXPAND | GTK_FILL, 0, 0);
+    }
+    GtkWidget *outer = gtk_vbox_new(FALSE, 0);
+    gtk_container_set_border_width(GTK_CONTAINER(outer), 16);
+    gtk_box_pack_start(GTK_BOX(outer), grid, TRUE, TRUE, 0);
+    return outer;
 }
 
 int main(int argc, char **argv)
@@ -198,11 +255,14 @@ int main(int argc, char **argv)
     g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
     GtkWidget *notebook = gtk_notebook_new();
-    /* Stacked on the left instead of GTK's top-tab default -- with 8 tabs
-     * the top row was starting to wrap/crowd at the window's default
-     * width; a left column scales to more tabs without eating vertical
-     * space from the (often taller) tab content below it. */
-    gtk_notebook_set_tab_pos(GTK_NOTEBOOK(notebook), GTK_POS_LEFT);
+    g_notebook = notebook;
+    /* No visible tab strip -- navigation is the home page's icon grid (and
+     * eventually a "Voltar" in each module), same as a regular OS control
+     * panel/settings app, not a tabbed dialog. GtkNotebook itself is still
+     * the simplest way to hold "one page visible, the rest torn down"
+     * (see on_switch_page() above), it's just not shown as tabs. */
+    gtk_notebook_set_show_tabs(GTK_NOTEBOOK(notebook), FALSE);
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), build_home_page(), gtk_label_new("Inicio"));
     for (int i = 0; i < N_TABS; i++) {
         g_tabs[i].placeholder = gtk_vbox_new(FALSE, 0);
         gtk_notebook_append_page(GTK_NOTEBOOK(notebook), g_tabs[i].placeholder, gtk_label_new(g_tabs[i].label));
@@ -211,11 +271,6 @@ int main(int argc, char **argv)
 
     gtk_container_add(GTK_CONTAINER(window), notebook);
     gtk_widget_show_all(window);
-    /* The initially-selected page (0, "Aparencia") never gets a
-     * "switch-page" emission for itself -- it's already current when the
-     * handler is connected -- so it's built explicitly here. */
-    g_current_tab = gtk_notebook_get_current_page(GTK_NOTEBOOK(notebook));
-    ensure_tab_built(g_current_tab);
     gtk_main();
     return 0;
 }
