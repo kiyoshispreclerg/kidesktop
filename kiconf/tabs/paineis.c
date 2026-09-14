@@ -41,38 +41,6 @@ typedef struct {
     char panel[NAME_LEN], options[512];
 } ThemeRec;
 
-static char *skip_ws(char *p)
-{
-    while (*p == ' ' || *p == '\t') {
-        p++;
-    }
-    return p;
-}
-
-/* Splits off the next whitespace-run-separated field from *cursor,
- * NUL-terminating it in place and advancing *cursor past it -- xispanel's
- * config format ("fields separated by any run of spaces and/or tabs",
- * see PROTOCOL.md) needs this instead of strtok since the trailing
- * key=value tail must be kept as one raw chunk, not tokenized further. */
-static char *next_field(char **cursor)
-{
-    char *p = skip_ws(*cursor);
-    if (!*p) {
-        *cursor = p;
-        return NULL;
-    }
-    char *start = p;
-    while (*p && *p != ' ' && *p != '\t') {
-        p++;
-    }
-    if (*p) {
-        *p = '\0';
-        p++;
-    }
-    *cursor = p;
-    return start;
-}
-
 static void load_xispanel_conf(PanelRec *panels, int *n_panels, WidgetRec *widgets, int *n_widgets,
                                  ThemeRec *themes, int *n_themes)
 {
@@ -192,21 +160,12 @@ static void save_xispanel_conf(void)
     rename(tmp, path);
 }
 
-static void xispanel_ctl_path(char *out, size_t outsz)
-{
-    const char *rundir = getenv("XDG_RUNTIME_DIR");
-    snprintf(out, outsz, "%s/xispanel-ctl.sock", (rundir && *rundir) ? rundir : "/tmp");
-}
-
 static void save_panels_cb(GtkWidget *widget, gpointer data)
 {
     (void)widget;
     (void)data;
     save_xispanel_conf();
-    char path[PATH_MAX];
-    xispanel_ctl_path(path, sizeof(path));
-    char resp[JSON_BUF_LEN];
-    json_line_send(path, "{\"cmd\":\"RELOAD\"}", resp, sizeof(resp));
+    xispanel_reload();
 }
 
 static void add_panel_cb(GtkWidget *widget, gpointer data)

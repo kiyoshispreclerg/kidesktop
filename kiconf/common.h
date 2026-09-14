@@ -26,6 +26,22 @@ int run_capture(char *const argv[], char *out, size_t outsz);
 
 int json_line_send(const char *sockpath, const char *req, char *resp, size_t respsz);
 
+/* Sends xispanel-ctl a RELOAD, same as Paineis' own "Salvar" -- for
+ * anything that edits xispanel.conf directly (Paineis, and Atalhos'
+ * xispanel widget hotkeys) and wants it picked up live, since xispanel
+ * (unlike kiwm/kicomp) does have a control socket for this. */
+void xispanel_reload(void);
+
+/* ---- xispanel.conf line tokenizing (PANEL/WIDGET/THEME records) ------- */
+
+char *skip_ws(char *p);
+/* Splits off the next whitespace-run-separated field from *cursor,
+ * NUL-terminating it in place and advancing *cursor past it -- xispanel's
+ * config format ("fields separated by any run of spaces and/or tabs",
+ * see xispanel/PROTOCOL.md) needs this instead of strtok since a trailing
+ * key=value tail must be kept as one raw chunk, not tokenized further. */
+char *next_field(char **cursor);
+
 /* ---- config path resolution (mirrors kiconfd.c/xiskeys.c exactly) ---- */
 
 void resolve_path(const char *filename, char *out, size_t outsz);

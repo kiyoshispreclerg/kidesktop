@@ -3,6 +3,7 @@
 #include "common.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -166,6 +167,42 @@ int json_line_send(const char *sockpath, const char *req, char *resp, size_t res
     resp[total] = '\0';
     close(fd);
     return total > 0;
+}
+
+void xispanel_reload(void)
+{
+    const char *rundir = getenv("XDG_RUNTIME_DIR");
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/xispanel-ctl.sock", (rundir && *rundir) ? rundir : "/tmp");
+    char resp[JSON_BUF_LEN];
+    json_line_send(path, "{\"cmd\":\"RELOAD\"}", resp, sizeof(resp));
+}
+
+char *skip_ws(char *p)
+{
+    while (*p == ' ' || *p == '\t') {
+        p++;
+    }
+    return p;
+}
+
+char *next_field(char **cursor)
+{
+    char *p = skip_ws(*cursor);
+    if (!*p) {
+        *cursor = p;
+        return NULL;
+    }
+    char *start = p;
+    while (*p && *p != ' ' && *p != '\t') {
+        p++;
+    }
+    if (*p) {
+        *p = '\0';
+        p++;
+    }
+    *cursor = p;
+    return start;
 }
 
 GtkWidget *labeled_row(GtkWidget *table, int row, const char *label_text, GtkWidget *widget)
