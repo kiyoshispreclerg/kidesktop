@@ -1,42 +1,39 @@
 /*
  * kicomp - XiS compositor for kiwm
  *
- * First prototype, per kiwm-kicomp-projeto.md (Fase 5).
+ * kiwm's optional compositor. Every effect and renderer described in
+ * README.md is implemented; current work is bug-fixing.
  *
- * Scope of this prototype:
+ * Summary:
  *   - Capability detection at runtime for Composite/Damage/XFixes/Render/
- *     RandR (section 17/30). Nothing here assumes XiS, FLIP, or GL.
+ *     RandR/Present/X-INPUT-SCALE/X-DENSITY. Nothing here assumes a
+ *     particular server.
  *   - Manual redirection of root's children, painted onto the Composite
  *     overlay window.
- *   - One scene, one drawable, one dirty flag per RandR output
- *     (sections 4/18/39). A window crossing two outputs is clipped into
- *     each output's scene separately (section 26).
- *   - Renderer and presenter behind their own vtables (sections 15/28),
- *     with XRender and COPY as the first implementations.
+ *   - One scene, one drawable, one dirty flag per RandR output. A window
+ *     crossing two outputs is clipped into each output's scene
+ *     separately.
+ *   - Renderer (`xrender`, `glx`, `egl`) and presenter (`copy`,
+ *     `present`) behind their own vtables.
  *   - Real per-window alpha: depth-32 windows blend, and
- *     _NET_WM_WINDOW_OPACITY is honoured. That is the only intended
- *     visible difference from an uncomposited screen -- the goal of this
- *     milestone is "exactly the same desktop, plus working transparency".
+ *     _NET_WM_WINDOW_OPACITY is honoured.
  *   - Idle costs nothing: the process sleeps in poll() and repaints only
  *     the outputs damage actually touched.
- *   - Effects behind their own vtable (sections 23/42), geometry change
- *     as the first one, and a per-output frame clock to drive them
- *     (section 19). Durations are time, never frames, and every one of
- *     them is a multiple of a single number in kicomp.conf (section 20).
+ *   - Effects behind their own vtable, each a module with a per-output
+ *     frame clock driving it. Durations are time, never frames, and
+ *     every one of them is a multiple of a single number in kicomp.conf.
  *
- * Explicitly NOT here yet: UST-derived pacing and the XiS FLIP presenter
- * (the rest of Fase 7/8), parity for the GL renderer (Fase 6 -- it draws
- * the desktop, but shadows, shape clipping and the density layers are
- * still XRender-only, and the effects that want GL come after that),
- * unredirect of a fullscreen output, and any kiwm<->kicomp IPC
- * (section 32) -- this version learns everything from plain X events, so
- * kiwm needs no changes at all to be composited, and killing kicomp
- * returns the session to the uncomposited path (section 31).
+ * Remaining gaps: blur, an MSC/UST-derived frame-clock period, the XiS
+ * FLIP presenter, and a kiwm<->kicomp IPC to replace the X-event
+ * heuristics that currently classify what happened to a window (see
+ * README.md's "Known gaps"). This version learns everything from plain
+ * X events, so kiwm needs no changes at all to be composited, and
+ * killing kicomp returns the session to the uncomposited path.
  */
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.2.97"
+#define KICOMP_VERSION "0.3.0"
 
 #include "comp.h"
 #include "output.h"
@@ -409,10 +406,10 @@ static bool caps_detect(void)
 
     dri3_probe();
 
-    /* Per-CRTC FLIP is Fase 8: declared false so no code path can
-     * accidentally believe in it. Present being here does not mean frames
-     * are flipping -- an XRender pixmap is not a scanout buffer, so the
-     * server will copy it at vblank, which is already the point. */
+    /* Per-CRTC FLIP isn't implemented yet: declared false so no code path
+     * can accidentally believe in it. Present being here does not mean
+     * frames are flipping -- an XRender pixmap is not a scanout buffer, so
+     * the server will copy it at vblank, which is already the point. */
     comp.caps.flip_per_crtc = false;
 
     if (!comp.caps.composite || !comp.caps.overlay) {
@@ -671,8 +668,7 @@ static bool overlay_acquire(void)
 /* ------------------------------------------------------------------ */
 
 /* One scene buffer reused across outputs and frames: scene_build() fills
- * it from scratch each time, and there is exactly one render thread
- * (section 41). */
+ * it from scratch each time, and there is exactly one render thread. */
 static CompScene scene;
 
 static void paint_dirty_outputs(double now)
@@ -711,15 +707,15 @@ static void paint_dirty_outputs(double now)
 
         /* Its own clock decides, not the event that dirtied it: a burst
          * of damage becomes one frame, and an output stays at its own
-         * refresh rate while another animates at a different one
-         * (section 19). An output whose slot already passed paints right
-         * away, so nothing waits for a deadline that isn't there. */
+         * refresh rate while another animates at a different one. An
+         * output whose slot already passed paints right away, so nothing
+         * waits for a deadline that isn't there. */
         if (!scheduler_may_paint(o, now))
             continue;
 
-        /* What of it to repaint (section 39). Passed to the renderer and
-         * the presenter rather than read by them off the output, so the
-         * frame works from one region that cannot change under it. */
+        /* What of it to repaint. Passed to the renderer and the presenter
+         * rather than read by them off the output, so the frame works
+         * from one region that cannot change under it. */
         CompRegion region;
         output_paint_region(o, &region);
 
@@ -1037,7 +1033,7 @@ static void shutdown_compositor(void)
         comp.overlay = XCB_NONE;
     }
     /* Hand the screen back to the server's own painting, so the session
-     * continues exactly as it did before kicomp started (section 31). */
+     * continues exactly as it did before kicomp started. */
     xcb_composite_unredirect_subwindows(comp.conn, comp.root,
                                         XCB_COMPOSITE_REDIRECT_MANUAL);
     if (comp.cm_window != XCB_NONE)
@@ -1442,9 +1438,9 @@ int main(int argc, char **argv)
 
         double now = comp_now_ms();
 
-        /* Animations advance on the wall clock, never on a frame count
-         * (section 20). update() is also where an effect posts the damage
-         * for what it is about to change, so it runs before the paint. */
+        /* Animations advance on the wall clock, never on a frame count.
+         * update() is also where an effect posts the damage for what it
+         * is about to change, so it runs before the paint. */
         if (effects_active()) {
             effects_update(now);
             scheduler_tick(now);
@@ -1467,10 +1463,10 @@ int main(int argc, char **argv)
             break;
 
         /* Idle costs nothing: with nothing animating and nothing waiting
-         * for its slot, this blocks until X has something to say
-         * (section 38). While an animation runs, the timeout is the next
-         * output's frame deadline -- each output on its own clock, none
-         * waiting for another (section 19/49). */
+         * for its slot, this blocks until X has something to say. While
+         * an animation runs, the timeout is the next output's frame
+         * deadline -- each output on its own clock, none waiting for
+         * another. */
         if (dump_stack_requested) {
             dump_stack_requested = 0;
             dump_stack();

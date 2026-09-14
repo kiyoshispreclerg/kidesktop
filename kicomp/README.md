@@ -1,10 +1,8 @@
 # kicomp
 
-kiwm's optional compositor, following `kiwm/kiwm-kicomp-projeto.md`.
-
-It started as the Fase 5 prototype — exactly the scene you would see with
-no compositing, with real transparency (32-bit windows' alpha and
-`_NET_WM_WINDOW_OPACITY`) as the only difference. It now also has:
+kiwm's optional compositor. Every feature it's meant to have is
+implemented: real transparency (32-bit windows' alpha and
+`_NET_WM_WINDOW_OPACITY`), plus:
 
 - window shapes applied while compositing (rounded corners, shaped clients);
 - configurable shadows, different for focused and unfocused windows;
@@ -17,12 +15,14 @@ no compositing, with real transparency (32-bit windows' alpha and
 - a per-output frame clock driving the animations;
 - configuration in `kicomp.conf`.
 
-Two renderers now: **XRender**, which is complete and what `auto` picks,
-and a **GLX** one that is new and does not do everything the older one
-does yet (see below). Blur is what the GL one is still for — it cannot be
-expressed in XRender at all — and the cube, the magic lamp and wobbly
-already need it, since XRender's picture transform is affine and a
-projective cube, a genie neck and a bending sheet are not.
+Two renderers: **XRender**, which is complete and what `auto` picks, and a
+**GLX**/**EGL** one for what XRender's affine transform and rectangle clip
+cannot express — blur, the cube, the magic lamp, wobbly (see below).
+
+**Status:** every effect and renderer described in this README is
+implemented, still with bugs to work out — that's the current phase,
+covering the 0.3.x line. 0.4.x is meant to be the first release
+candidate.
 
 ```sh
 make
@@ -95,7 +95,7 @@ don't change, they simply get a single screen-sized output.
 
 `kicomp` is optional in every sense: `kiwm` doesn't know it exists, needs
 no changes to be composited, and killing `kicomp` returns the session to
-the uncomposited path (section 31 of the design document).
+the uncomposited path.
 
 ## Configuration
 
@@ -622,8 +622,8 @@ exactly the bug of geometry sliding a window that was being rolled up).
 For window managers that don't do this, kicomp still makes a round trip
 before classifying, which is the best that can be done from outside.
 
-It is also the heuristic that section 32's IPC will replace: the WM knows
-first-hand what it did.
+It is also the heuristic a future kiwm⟷kicomp IPC would replace: the WM
+knows first-hand what it did.
 
 ## Effects
 
@@ -642,21 +642,21 @@ Two rules an effect has to respect:
   that output's scene, so the same effect can be mid-flight on one
   monitor and finished on the other.
 
-And one it can never break: **it doesn't touch the WM's logical state**
-(section 27). An effect changes a scene node's `transform` and `opacity`,
-and nothing else — the window really is where the WM says it is; it
-merely looks like it hasn't arrived yet.
+And one it can never break: **it doesn't touch the WM's logical state**.
+An effect changes a scene node's `transform` and `opacity`, and nothing
+else — the window really is where the WM says it is; it merely looks
+like it hasn't arrived yet.
 
 Adding an effect = one file in `src/effects/`, its declaration in
 `effect.h`, and one line in `effect.c`'s table. Nothing else in the
-compositor changes (section 42).
+compositor changes.
 
 A module also declares the size and defaults of its config block
 (`config_size`/`config_defaults`/`config_key`); the core allocates **one
 block per instance** and passes the instance that matched (`self`) to the
 event callback — which is the entire mechanism behind multiple instances.
 
-### `fade-in` (section 24.1)
+### `fade-in`
 
 A window that has just appeared comes up from transparent. No keys of its
 own: just the universal ones. On by default, for
@@ -666,7 +666,7 @@ Opacity is *multiplied*, not assigned: a terminal already half
 transparent through `_NET_WM_WINDOW_OPACITY` doesn't become opaque just
 because it was opening.
 
-### `scale-in` (section 24.2)
+### `scale-in`
 
 A window that has just appeared grows into place. The destination is
 always its real geometry; what is configurable is where it grows from:
@@ -681,14 +681,14 @@ followed the mouse would drag the animation sideways. Off by default:
 stacked on top of `fade-in` it is a matter of taste, so it is left to be
 chosen.
 
-### `fade-out` (section 24.1) and `scale-out` (section 24.3)
+### `fade-out` and `scale-out`
 
 The same two reversed, on closing. `scale-out` also reverses the
 direction: it starts at the real size and goes to `to`, toward the same
 `origin` `scale-in` would have grown out of. A `to` above 1 makes the
 window swell slightly before vanishing instead of shrinking. The two
 compose without knowing about each other — one writes `transform`, the
-other `opacity` — which is section 24.3's "zoom + fade on close".
+other `opacity` — which is a "zoom + fade on close".
 
 They are the first effects that outlive their own subject: by the time
 they start, X has already unmapped the window and the application may
@@ -772,7 +772,7 @@ with the same bottom-of-the-output fallback when no taskbar says.
 | `waves` | how many ripples travel the neck, `0`..`12` (default `0`, a still neck — the same as Compiz) |
 | `wave_amp` | how far a ripple pushes the neck, as a fraction of the window's width (default `0.4`); only matters with `waves` above 0 |
 
-### `geometry` (section 24.4)
+### `geometry`
 
 The first one. A window that jumps to another size or place — maximize,
 restore, half-tile, snap — slides and scales there instead of
@@ -780,10 +780,10 @@ teleporting.
 
 It does **not** animate drags: a move/resize with the mouse arrives as a
 stream of configures, and animating those would leave the window visibly
-behind the pointer. Without section 32's IPC (the WM is what knows a drag
-is in progress), the stream itself is the signal — `window.c` times the
-gap between configures and marks the sequence as interactive. That is the
-heuristic the IPC will replace.
+behind the pointer. Without a kiwm⟷kicomp IPC to say a drag is in
+progress, the stream itself is the signal — `window.c` times the gap
+between configures and marks the sequence as interactive. That is the
+heuristic such an IPC would replace.
 
 While a window is being *scaled* the shape clip steps aside: the region is
 in untransformed coordinates and XFixes can't scale one, so rounded
@@ -825,9 +825,9 @@ as one motion because it *is* one motion, described a window at a time.
 desktop changed. With two monitors side by side that is not a detail: a
 window sliding out of the left monitor would otherwise slide *into* the
 right one, showing one desktop's transition on another desktop that isn't
-going anywhere. Since each output has its own scene and its own drawable
-(section 18), confining it is one comparison — the effect simply declines
-to touch a scene that isn't its output's.
+going anywhere. Since each output has its own scene and its own drawable,
+confining it is one comparison — the effect simply declines to touch a
+scene that isn't its output's.
 
 That leaves the windows straddling the boundary. Their far piece is on an
 output that is staying put, so it can't slide (same reason) and it can't
@@ -1593,11 +1593,7 @@ begins and ends at exactly 1.0: a bell that finishes a fraction of a
 percent large would leave the window subtly the wrong size until
 something else redrew it.
 
-### What's missing, and what each one needs
-
-The effects still to come all fit XRender — none of them needs GL.
-
-Two pieces of infrastructure they were waiting on now exist:
+Two pieces of infrastructure the later effects are built on:
 
 - **a window that outlives its own end** — `window_retain()` /
   `window_release()`, and an entry that becomes a *zombie* when X
@@ -1609,13 +1605,6 @@ Two pieces of infrastructure they were waiting on now exist:
   looked like a moment ago. What `shade` is built on, since the frame has
   already collapsed to its titlebar by the time anyone knows it was a
   shade.
-
-What's left:
-
-| effect | how |
-|---|---|
-| `present-windows` grid chrome | the filter box and a selection outline `show-windows` should draw: needs a way to put text and rectangles on screen, which is a font stack decision (pango+cairo, freetype+XRender glyphs, or the X core font) |
-| `blur` | needs the GL renderer: shaders behind a translucent window |
 
 ## Per-output scaling (HiDPI)
 
@@ -1645,9 +1634,8 @@ Confining the pointer is only half of what a scaled output needs. The
 other half is that everything laying windows out has to treat the logical
 box as the whole of that monitor — otherwise a maximized window fills the
 scanout while only its top-left corner is drawn, which is exactly the
-symptom. kicomp cannot fix that itself: window geometry belongs to the WM
-(section 27/33), and the compositor's job ends at saying where the desktop
-actually is.
+symptom. kicomp cannot fix that itself: window geometry belongs to the WM,
+and the compositor's job ends at saying where the desktop actually is.
 
 Rectangles in root coordinates, deliberately — the same reasoning
 X-INPUT-SCALE's own protocol gives for taking a rectangle rather than a
@@ -2001,8 +1989,8 @@ its own child window covering exactly it, and its frame is presented with
 that output's `target_crtc` — so a frame for the 144 Hz monitor is timed
 against *that* monitor's vblank, not against whichever CRTC the server
 would pick for a screen-spanning window. One window per CRTC is also the
-shape a per-CRTC page flip needs later (Fase 8): a window covering exactly
-one CRTC can have its buffer scanned out directly.
+shape a per-CRTC page flip needs: a window covering exactly one CRTC can
+have its buffer scanned out directly.
 
 Frames do not flip yet, and the presenter is not why: an XRender pixmap is
 not a scanout buffer, so the server copies it (`mode copy` in the `-v`
@@ -2018,60 +2006,65 @@ arrives, which makes the loop vblank-driven rather than timer-driven while
 anything is animating. Measured on a nested session: MSC increments by
 exactly 1 between consecutive frames of an animation.
 
-What is still missing from Fase 7 is the other half: the frame clock's
-*period* still comes from RandR's reported rate rather than from the UST
-timestamps now arriving. Deriving it from those is a change to
-`scheduler.c` alone.
+Still missing is the other half: the frame clock's *period* still comes
+from RandR's reported rate rather than from the UST timestamps now
+arriving. Deriving it from those is a change to `scheduler.c` alone.
 
-## What is implemented
+## Architecture summary
 
-| Section of the doc | State |
-|---|---|
-| 17/30/45 — capability detection | Composite/Damage/XFixes/Render/RandR detected at runtime; nothing assumes XiS |
-| 4/18 — output as the unit of presentation | one pixmap + picture per output, sized to it, never one global surface |
-| 39 — per-output dirty state | only the output damage actually touched is repainted |
-| 56 — X-DENSITY | the density requested per window on a scaled output, the client's auxiliary pixmap sampled in place of its magnified contents |
-| 56 — per-output scaling | logical vs physical box per output, DPI-derived, drawn magnified into a physical target; gated on X-INPUT-SCALE, whose per-CRTC confinement keeps the pointer inside the logical desktop |
-| 39 — region repaint | and only the *part* of it that changed: the damage region is tracked per output, clips the background, the windows and their shadows, skips windows nothing touched, and bounds what the presenter copies |
-| 26 — window crossing outputs | `window ∩ output` clipped per output, one scene node in each |
-| 21 — scene graph | intermediate `CompScene`/`CompSceneNode`; effects never see X windows |
-| 28 — renderer abstraction | `CompRenderer` vtable, `xrender` backend |
-| 15/16 — presenter abstraction | `CompPresenter` vtable, with `copy` (overlay window) and `present` (PresentPixmap per CRTC, vblank-timed, MSC/UST reported) |
-| 33 — visual mirror | state comes only from X events; the WM stays the authority |
-| 38 — lightness | sleeps in `poll()`, no timers, no polling, no repainting just in case |
-| — | window shapes applied as a clip (rounded corners, clients with their own shape) |
-| — | real alpha: the client's *and* kiwm's frame in a 32-bit visual, plus `_NET_WM_WINDOW_OPACITY` |
-| 22 — transform | 4x4 matrix on the scene node; the XRender backend consumes the affine 2D part |
-| 23/42 — effects as modules | their own vtable; a new effect = one file + one line |
-| 19 — per-output scheduler | a frame clock per output, at each one's rate |
-| 20/40 — time-based animation | progress comes from the monotonic clock; duration is a multiple of a global unit |
-| 24.1/24.2/24.3/24.4 — effects | fade in/out, scale in/out (configurable origin), geometry change, shade/unshade, minimize/restore, desktop wall, smooth move, dodge |
-| — | per-output current desktop read from the WM (`_KIWM_OUTPUT_DESKTOP`/`_NET_CURRENT_DESKTOP` + `_NET_DESKTOP_LAYOUT`), which is what gives the wall its direction and tells a departing window from a closing one |
-| — | semantic events (open/close/minimize/maximize/shade/focus/...), configurable per effect |
-| — | window-type filter (`windows=`) and several instances of one effect, each with its own parameters |
-| — | per-effect easing, spring included |
-| — | shadows (nine-patch, cost independent of window size), with their own values for focused and unfocused windows |
-| — | windows retained past their own end (`window_retain`), which is what makes animating a close possible |
-| — | the stash: contents a resize replaced, kept for an effect that still needs them (what shade rolls up) |
+- Capability detection at runtime (Composite/Damage/XFixes/Render/RandR/
+  Present/X-INPUT-SCALE/X-DENSITY); nothing assumes a particular server.
+- The output is the unit of presentation: one pixmap + picture per output,
+  sized to it, with its own dirty state, damage region and frame clock —
+  never one global surface. A window crossing two outputs is clipped into
+  each output's scene separately (`window ∩ output`).
+- Per-output scaling (HiDPI) and X-DENSITY: logical vs. physical box per
+  output, DPI-derived, drawn magnified into a physical target; gated on
+  X-INPUT-SCALE, whose per-CRTC confinement keeps the pointer inside the
+  logical desktop.
+- Region repaint: only the part of an output that actually changed is
+  redrawn — clips the background, the windows and their shadows, skips
+  windows nothing touched, and bounds what the presenter copies.
+- Scene graph (`CompScene`/`CompSceneNode`) between the window mirror and
+  the renderer: effects never see X windows, only transform + opacity.
+- Renderer (`CompRenderer` vtable: `xrender`, `glx`, `egl`) and presenter
+  (`CompPresenter` vtable: `copy`, `present` — PresentPixmap per CRTC,
+  vblank-timed, MSC/UST reported) are both swappable backends.
+- Visual mirror: all state comes from X events; the WM stays the
+  authority and kicomp never touches its logical state.
+- Idle costs nothing: sleeps in `poll()`, no timers, no polling, no
+  repainting just in case.
+- Window shapes applied as a clip (rounded corners, clients with their
+  own shape); real alpha (the client's and kiwm's frame in a 32-bit
+  visual, plus `_NET_WM_WINDOW_OPACITY`).
+- Effects as modules behind their own vtable — a new effect is one file
+  plus one line in `effect.c`'s table — with time-based animation (a
+  monotonic clock, duration as a multiple of a global unit), semantic
+  events (open/close/minimize/maximize/shade/focus/...), a window-type
+  filter, several instances of one effect each with its own parameters,
+  and per-effect easing (spring included).
+- Windows retained past their own end (`window_retain`), which is what
+  makes animating a close possible, and the stash — contents a resize
+  replaced, kept for an effect that still needs them (what shade rolls
+  up).
 
-## What is **not** implemented (and where it goes)
+## Known gaps
 
-- **Blur** (section 24.7) — the one effect still missing, and the one that
-  needs a shader sampling what is behind a translucent window. The cube,
-  the magic lamp and wobbly are in, all three GL-only for the same
-  reason: XRender cannot express what they draw (see above).
-- **MSC/UST-derived period** (the rest of Fase 7, sections 19/49) — the
-  Present presenter reports MSC and UST per completed frame and the loop
-  is throttled by them, but the frame clock's period still comes from
-  RandR's reported rate rather than from measured UST intervals.
-- **The XiS FLIP presenter** (Fase 8) — `CompPresentMode` and
+- **Blur** — the one effect still missing: it needs a shader sampling
+  what is behind a translucent window. The cube, the magic lamp and
+  wobbly are in, all three GL-only for the same reason: XRender cannot
+  express what they draw (see above).
+- **MSC/UST-derived frame-clock period** — the Present presenter reports
+  MSC and UST per completed frame and the loop is throttled by them, but
+  the frame clock's period still comes from RandR's reported rate rather
+  than from measured UST intervals.
+- **The XiS FLIP presenter** — `CompPresentMode` and
   `CompPresenter::get_msc` already exist for it; `caps.flip_per_crtc` is
-  declared `false` on purpose, so no code path can believe in it early.
-- **Unredirecting a single output** (a fullscreen window) — the decision
-  is per output and fits in the paint loop, but isn't there yet.
-- **`kiwm` ⟷ `kicomp` IPC** (section 32) — deliberately absent in the
-  first version. When it exists it replaces only the *source* of the
-  updates; the mirror in `window.c` stays as it is.
+  declared `false` on purpose, so no code path can believe in it before
+  the fork actually offers it.
+- **`kiwm` ⟷ `kicomp` IPC** — not there yet. When it exists it replaces
+  only the *source* of the updates (the heuristics noted above); the
+  mirror in `window.c` stays as it is.
 
 ## Shape and kiwm's layers
 
