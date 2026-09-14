@@ -1,9 +1,9 @@
 /*
  * kiwm - XiS Window Manager
  *
- * Built along kiwm-kicomp-projeto.md's phased plan; what it does today
- * covers Fase 1 and most of Fase 2/3/4, and is what the desktop is
- * actually run on.
+ * The stacking window manager KiDesktop is actually run on day to day.
+ * Every feature aimed for is implemented; current work is bug-fixing
+ * (see README.md for the full feature list and configuration).
  *
  * Scope:
  *   - XCB connection, root ownership, --replace (ICCCM manager selection).
@@ -41,7 +41,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KIWM_VERSION "0.4.47"
+#define KIWM_VERSION "0.5.0"
 
 #include "wm.h"
 #include "config.h"
@@ -350,8 +350,8 @@ static void setup_wm(bool replace)
      * the first draw_decoration(). */
     pango_text_init(wm.title_font);
 
-    /* RandR: outputs are the unit of presentation (section 4) even in a
-     * WM without a compositor -- we still need it for per-output desktops. */
+    /* RandR: outputs are the unit of presentation even in a WM without a
+     * compositor -- we still need it for per-output desktops. */
     const xcb_query_extension_reply_t *randr_ext = xcb_get_extension_data(wm.conn, &xcb_randr_id);
     if (randr_ext && randr_ext->present) {
         wm.randr_event_base = randr_ext->first_event;

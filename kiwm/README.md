@@ -3,14 +3,15 @@
 **kiwm** is the stacking window manager for **KiDesktop** -- plain XCB (no Xlib), Cairo + Imlib2
 for decoration, RandR for multi-monitor. KiDesktop is built with XiS/XLibre in mind but isn't
 exclusive to it -- it targets X11 generally, and kiwm works the same standalone on any X server
-(no compositor required); an optional compositor (`kicomp`) is planned alongside it but never a
-dependency. See [kiwm-kicomp-projeto.md](kiwm-kicomp-projeto.md) for the full architecture/phased
-plan this was built from, and [PROTOCOL.md](PROTOCOL.md) for the one custom (non-EWMH) protocol it
+(no compositor required); an optional compositor, [kicomp](../kicomp), sits alongside it but is
+never a dependency. See [PROTOCOL.md](PROTOCOL.md) for the one custom (non-EWMH) protocol it
 exposes.
 
 ### Status
 
-Complete enough to be the window manager this desktop is run on day to day. What works:
+Every feature aimed for is implemented, and this is the window manager the desktop runs on day to
+day -- what's left is fixing what's still wrong with it, not adding more. That's the current phase,
+covering the 0.5.x line; 0.6.x is meant to be the first release candidate. What works:
 
 - map/unmap/move/resize/maximize/minimize/close, click-to-focus (or optional
   focus-follows-mouse), Alt-Tab-style window cycling.
@@ -489,10 +490,9 @@ these, all optional and independent -- a theme missing some files just falls bac
   bottom-left` (CSS `border-radius` order). Default `0` (no key, or no `colors` file at all) means
   square corners, unchanged from before this existed. `round_maximized=` (default `0`) squares a
   maximized window's corners off -- set to `1` to keep rounding them too. A window that exactly
-  fills its whole output (also what a future real fullscreen state would look like) is **never**
-  rounded either way, regardless of these settings -- rounding the very corners of the screen
-  itself would just
-  show the desktop background poking through.
+  fills its whole output (maximized both ways, or fullscreen) is **never** rounded either way,
+  regardless of these settings -- rounding the very corners of the screen itself would just show
+  the desktop background poking through.
 
   The rest of the file describes the title text, rendered via Pango (per-glyph font fallback, so
   titles in scripts the default font doesn't cover -- CJK, Cyrillic, Arabic, etc. -- still show up
