@@ -1,0 +1,446 @@
+/* kiconf - Entrada tab: pointer/touchpad, key repeat/bell, XiS kbd flags.
+ * See kiconf.c's top doc comment for the overall design. */
+#include "../common.h"
+#include "../tabs.h"
+
+#include <ctype.h>
+#include <dirent.h>
+#include <errno.h>
+#include <limits.h>
+#include <math.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+/* Entrada (pointer/keyboard) tab widgets + baselines */
+static GtkWidget *g_pointer_combo;
+static GtkWidget *g_pointer_accel_spin;
+static GtkWidget *g_pointer_natural_chk, *g_pointer_lefth_chk, *g_pointer_tap_chk;
+static GtkWidget *g_kbd_repeat_chk, *g_kbd_delay_spin, *g_kbd_rate_spin;
+static GtkWidget *g_bell_percent_spin, *g_bell_pitch_spin, *g_bell_dur_spin;
+static GtkWidget *g_toggle_mods_chk, *g_kick_hotkeys_chk;
+
+typedef struct {
+    double accel_speed;
+    int has_accel;
+    int natural_scroll, has_natural;
+    int left_handed, has_lefth;
+    int tapping, has_tap;
+} PointerProps;
+static PointerProps g_pointer_baseline;
+static char g_pointer_baseline_device[NAME_LEN];
+static char g_master_kbd[NAME_LEN];
+
+typedef struct {
+    int repeat_enabled, repeat_delay, repeat_rate;
+    int bell_percent, bell_pitch, bell_duration;
+} KbdState;
+static KbdState g_kbd_baseline;
+static int g_toggle_mods_baseline, g_kick_hotkeys_baseline;
+
+/* ---- Entrada tab: pointer/touchpad + key repeat/bell + XiS kbd flags -- */
+
+/* Scans `xinput list-props` output for a line containing `propname` and
+ * returns whatever follows the last ':' on that line, trimmed -- matches
+ * xinput's "<Prop Name> (id):\t<value>" format without needing to know
+ * the numeric prop id. */
+static int xinput_get_prop_line(const char *output, const char *propname, char *out, size_t outsz)
+{
+    out[0] = '\0';
+    size_t plen = strlen(propname);
+    const char *p = strstr(output, propname);
+    if (!p) {
+        return 0;
+    }
+    const char *line_end = strchr(p, '\n');
+    if (!line_end) {
+        line_end = p + strlen(p);
+    }
+    const char *colon = NULL;
+    for (const char *q = p + plen; q < line_end; q++) {
+        if (*q == ':') {
+            colon = q;
+        }
+    }
+    if (!colon) {
+        return 0;
+    }
+    const char *v = colon + 1;
+    while (*v == ' ' || *v == '\t') {
+        v++;
+    }
+    size_t len = (size_t)(line_end - v);
+    if (len >= outsz) {
+        len = outsz - 1;
+    }
+    memcpy(out, v, len);
+    out[len] = '\0';
+    while (len > 0 && (out[len - 1] == ' ' || out[len - 1] == '\t' || out[len - 1] == '\r')) {
+        out[--len] = '\0';
+    }
+    return 1;
+}
+
+/* Strips xinput's tree-drawing glyphs (multi-byte UTF-8 box/arrow chars
+ * before the name, e.g. "⎣ "/"↳ ") and the trailing "id=N	[...]" tail
+ * (already cut off by the caller), leaving just the device name. Must NOT
+ * stop at the first non-ASCII byte -- that's exactly the glyph bytes that
+ * need skipping, not a reason to keep them. */
+static void clean_xinput_name(char *s)
+{
+    char *t = trim(s);
+    while (*t && !isalnum((unsigned char)*t)) {
+        t++;
+    }
+    if (t != s) {
+        memmove(s, t, strlen(t) + 1);
+    }
+}
+
+static int list_pointer_devices(char names[][NAME_LEN], int max)
+{
+    char *argv[] = {"xinput", "list", "--short", NULL};
+    char out[8192];
+    if (!run_capture(argv, out, sizeof(out))) {
+        return 0;
+    }
+    int n = 0;
+    char *save = NULL;
+    char *line = strtok_r(out, "\n", &save);
+    while (line && n < max) {
+        if (strstr(line, "slave") && strstr(line, "pointer") &&
+            !strstr(line, "XTEST") && !strstr(line, "Virtual core")) {
+            char *idpos = strstr(line, "id=");
+            if (idpos) {
+                char name[NAME_LEN];
+                size_t len = (size_t)(idpos - line);
+                if (len >= sizeof(name)) {
+                    len = sizeof(name) - 1;
+                }
+                memcpy(name, line, len);
+                name[len] = '\0';
+                clean_xinput_name(name);
+                if (name[0]) {
+                    snprintf(names[n], NAME_LEN, "%s", name);
+                    n++;
+                }
+            }
+        }
+        line = strtok_r(NULL, "\n", &save);
+    }
+    return n;
+}
+
+static void master_keyboard_name(char *out, size_t outsz)
+{
+    snprintf(out, outsz, "Virtual core keyboard");
+    char *argv[] = {"xinput", "list", NULL};
+    char buf[8192];
+    if (!run_capture(argv, buf, sizeof(buf))) {
+        return;
+    }
+    char *save = NULL;
+    char *line = strtok_r(buf, "\n", &save);
+    while (line) {
+        if (strstr(line, "master keyboard")) {
+            char *idpos = strstr(line, "id=");
+            if (idpos) {
+                char name[NAME_LEN];
+                size_t len = (size_t)(idpos - line);
+                if (len >= sizeof(name)) {
+                    len = sizeof(name) - 1;
+                }
+                memcpy(name, line, len);
+                name[len] = '\0';
+                clean_xinput_name(name);
+                if (name[0]) {
+                    snprintf(out, outsz, "%s", name);
+                    return;
+                }
+            }
+        }
+        line = strtok_r(NULL, "\n", &save);
+    }
+}
+
+static void detect_pointer_props(const char *device, PointerProps *pp)
+{
+    memset(pp, 0, sizeof(*pp));
+    char *argv[] = {"xinput", "list-props", (char *)device, NULL};
+    char out[8192];
+    if (!run_capture(argv, out, sizeof(out))) {
+        return;
+    }
+    char val[64];
+    if (xinput_get_prop_line(out, "libinput Accel Speed", val, sizeof(val))) {
+        pp->accel_speed = atof(val);
+        pp->has_accel = 1;
+    }
+    if (xinput_get_prop_line(out, "libinput Natural Scrolling Enabled", val, sizeof(val))) {
+        pp->natural_scroll = atoi(val) != 0;
+        pp->has_natural = 1;
+    }
+    if (xinput_get_prop_line(out, "libinput Left Handed Enabled", val, sizeof(val))) {
+        pp->left_handed = atoi(val) != 0;
+        pp->has_lefth = 1;
+    }
+    if (xinput_get_prop_line(out, "libinput Tapping Enabled", val, sizeof(val))) {
+        pp->tapping = atoi(val) != 0;
+        pp->has_tap = 1;
+    }
+}
+
+static void detect_special_kbd(const char *kbd, int *toggle_mods, int *kick_hotkeys)
+{
+    *toggle_mods = 0;
+    *kick_hotkeys = 0;
+    char *argv[] = {"xinput", "list-props", (char *)kbd, NULL};
+    char out[8192];
+    if (!run_capture(argv, out, sizeof(out))) {
+        return;
+    }
+    char val[64];
+    if (xinput_get_prop_line(out, "Toggle Lock Modifiers On Press", val, sizeof(val))) {
+        *toggle_mods = atoi(val) != 0;
+    }
+    if (xinput_get_prop_line(out, "Kick Hotkeys On Release", val, sizeof(val))) {
+        *kick_hotkeys = atoi(val) != 0;
+    }
+}
+
+static void detect_kbd_xset(KbdState *k)
+{
+    k->repeat_enabled = 1;
+    k->repeat_delay = 660;
+    k->repeat_rate = 25;
+    k->bell_percent = 50;
+    k->bell_pitch = 400;
+    k->bell_duration = 100;
+    char *argv[] = {"xset", "q", NULL};
+    char out[8192];
+    if (!run_capture(argv, out, sizeof(out))) {
+        return;
+    }
+    char *p;
+    if ((p = strstr(out, "auto repeat:"))) {
+        p += strlen("auto repeat:");
+        while (*p == ' ') {
+            p++;
+        }
+        k->repeat_enabled = strncmp(p, "on", 2) == 0;
+    }
+    if ((p = strstr(out, "auto repeat delay:"))) {
+        int d = 0, r = 0;
+        if (sscanf(p, "auto repeat delay:%d repeat rate:%d", &d, &r) == 2) {
+            k->repeat_delay = d;
+            k->repeat_rate = r;
+        }
+    }
+    if ((p = strstr(out, "bell percent:"))) {
+        int pc = 0, pi = 0, du = 0;
+        if (sscanf(p, "bell percent:%d bell pitch:%d bell duration:%d", &pc, &pi, &du) == 3) {
+            k->bell_percent = pc;
+            k->bell_pitch = pi;
+            k->bell_duration = du;
+        }
+    }
+}
+
+static void apply_kbd_diff(const KbdState *cur, const KbdState *base)
+{
+    if (cur->repeat_enabled != base->repeat_enabled) {
+        char *argv[] = {"xset", "r", cur->repeat_enabled ? "on" : "off", NULL};
+        run_fire(argv);
+    }
+    if (cur->repeat_delay != base->repeat_delay || cur->repeat_rate != base->repeat_rate) {
+        char delaybuf[16], ratebuf[16];
+        snprintf(delaybuf, sizeof(delaybuf), "%d", cur->repeat_delay);
+        snprintf(ratebuf, sizeof(ratebuf), "%d", cur->repeat_rate);
+        char *argv[] = {"xset", "r", "rate", delaybuf, ratebuf, NULL};
+        run_fire(argv);
+    }
+    if (cur->bell_percent != base->bell_percent || cur->bell_pitch != base->bell_pitch ||
+        cur->bell_duration != base->bell_duration) {
+        char pbuf[16], pitbuf[16], dbuf[16];
+        snprintf(pbuf, sizeof(pbuf), "%d", cur->bell_percent);
+        snprintf(pitbuf, sizeof(pitbuf), "%d", cur->bell_pitch);
+        snprintf(dbuf, sizeof(dbuf), "%d", cur->bell_duration);
+        char *argv[] = {"xset", "b", pbuf, pitbuf, dbuf, NULL};
+        run_fire(argv);
+    }
+}
+
+static void on_pointer_device_changed(GtkComboBox *combo, gpointer data)
+{
+    (void)data;
+    gchar *dev = gtk_combo_box_get_active_text(combo);
+    if (!dev) {
+        return;
+    }
+    snprintf(g_pointer_baseline_device, sizeof(g_pointer_baseline_device), "%s", dev);
+    detect_pointer_props(dev, &g_pointer_baseline);
+    g_free(dev);
+
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_pointer_accel_spin), g_pointer_baseline.has_accel ? g_pointer_baseline.accel_speed : 0.0);
+    gtk_widget_set_sensitive(g_pointer_accel_spin, g_pointer_baseline.has_accel);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_pointer_natural_chk), g_pointer_baseline.natural_scroll);
+    gtk_widget_set_sensitive(g_pointer_natural_chk, g_pointer_baseline.has_natural);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_pointer_lefth_chk), g_pointer_baseline.left_handed);
+    gtk_widget_set_sensitive(g_pointer_lefth_chk, g_pointer_baseline.has_lefth);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_pointer_tap_chk), g_pointer_baseline.tapping);
+    gtk_widget_set_sensitive(g_pointer_tap_chk, g_pointer_baseline.has_tap);
+}
+
+static void apply_entrada_cb(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    (void)data;
+
+    if (g_pointer_baseline_device[0]) {
+        double accel = gtk_spin_button_get_value(GTK_SPIN_BUTTON(g_pointer_accel_spin));
+        int natural = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_pointer_natural_chk));
+        int lefth = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_pointer_lefth_chk));
+        int tap = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_pointer_tap_chk));
+
+        if (g_pointer_baseline.has_accel && accel != g_pointer_baseline.accel_speed) {
+            char val[32];
+            snprintf(val, sizeof(val), "%.6f", accel);
+            char *argv[] = {"xinput", "set-prop", g_pointer_baseline_device, "libinput Accel Speed", val, NULL};
+            run_fire(argv);
+        }
+        if (g_pointer_baseline.has_natural && natural != g_pointer_baseline.natural_scroll) {
+            char *argv[] = {"xinput", "set-prop", g_pointer_baseline_device,
+                             "libinput Natural Scrolling Enabled", natural ? "1" : "0", NULL};
+            run_fire(argv);
+        }
+        if (g_pointer_baseline.has_lefth && lefth != g_pointer_baseline.left_handed) {
+            char *argv[] = {"xinput", "set-prop", g_pointer_baseline_device,
+                             "libinput Left Handed Enabled", lefth ? "1" : "0", NULL};
+            run_fire(argv);
+        }
+        if (g_pointer_baseline.has_tap && tap != g_pointer_baseline.tapping) {
+            char *argv[] = {"xinput", "set-prop", g_pointer_baseline_device,
+                             "libinput Tapping Enabled", tap ? "1" : "0", NULL};
+            run_fire(argv);
+        }
+        detect_pointer_props(g_pointer_baseline_device, &g_pointer_baseline);
+    }
+
+    KbdState kcur;
+    kcur.repeat_enabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_kbd_repeat_chk));
+    kcur.repeat_delay = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_kbd_delay_spin));
+    kcur.repeat_rate = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_kbd_rate_spin));
+    kcur.bell_percent = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_bell_percent_spin));
+    kcur.bell_pitch = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_bell_pitch_spin));
+    kcur.bell_duration = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_bell_dur_spin));
+    apply_kbd_diff(&kcur, &g_kbd_baseline);
+    g_kbd_baseline = kcur;
+
+    int toggle_mods = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_toggle_mods_chk));
+    int kick_hotkeys = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_kick_hotkeys_chk));
+    if (g_master_kbd[0]) {
+        if (toggle_mods != g_toggle_mods_baseline) {
+            char *argv[] = {"xinput", "set-prop", g_master_kbd, "Toggle Lock Modifiers On Press",
+                             toggle_mods ? "1" : "0", NULL};
+            run_fire(argv);
+        }
+        if (kick_hotkeys != g_kick_hotkeys_baseline) {
+            char *argv[] = {"xinput", "set-prop", g_master_kbd, "Kick Hotkeys On Release",
+                             kick_hotkeys ? "1" : "0", NULL};
+            run_fire(argv);
+        }
+    }
+    g_toggle_mods_baseline = toggle_mods;
+    g_kick_hotkeys_baseline = kick_hotkeys;
+}
+
+GtkWidget *build_entrada_tab(void)
+{
+    snprintf(g_pointer_baseline_device, sizeof(g_pointer_baseline_device), "%s", "");
+    master_keyboard_name(g_master_kbd, sizeof(g_master_kbd));
+    detect_special_kbd(g_master_kbd, &g_toggle_mods_baseline, &g_kick_hotkeys_baseline);
+    detect_kbd_xset(&g_kbd_baseline);
+
+    GtkWidget *outer = gtk_vbox_new(FALSE, 8);
+    gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
+
+    GtkWidget *ptr_table = gtk_table_new(5, 2, FALSE);
+    g_pointer_combo = gtk_combo_box_new_text();
+    char devnames[32][NAME_LEN];
+    int ndev = list_pointer_devices(devnames, 32);
+    for (int i = 0; i < ndev; i++) {
+        gtk_combo_box_append_text(GTK_COMBO_BOX(g_pointer_combo), devnames[i]);
+    }
+    labeled_row(ptr_table, 0, "Dispositivo:", g_pointer_combo);
+    g_pointer_accel_spin = gtk_spin_button_new_with_range(-1.0, 1.0, 0.1);
+    gtk_spin_button_set_digits(GTK_SPIN_BUTTON(g_pointer_accel_spin), 2);
+    labeled_row(ptr_table, 1, "Velocidade (Accel Speed):", g_pointer_accel_spin);
+    g_pointer_natural_chk = gtk_check_button_new_with_label("Rolagem natural");
+    gtk_table_attach(GTK_TABLE(ptr_table), g_pointer_natural_chk, 0, 2, 2, 3, GTK_FILL, GTK_FILL, 4, 2);
+    g_pointer_lefth_chk = gtk_check_button_new_with_label("Canhoto (inverter botoes)");
+    gtk_table_attach(GTK_TABLE(ptr_table), g_pointer_lefth_chk, 0, 2, 3, 4, GTK_FILL, GTK_FILL, 4, 2);
+    g_pointer_tap_chk = gtk_check_button_new_with_label("Tocar para clicar (touchpad)");
+    gtk_table_attach(GTK_TABLE(ptr_table), g_pointer_tap_chk, 0, 2, 4, 5, GTK_FILL, GTK_FILL, 4, 2);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with("Ponteiro/touchpad", ptr_table), FALSE, FALSE, 0);
+    g_signal_connect(g_pointer_combo, "changed", G_CALLBACK(on_pointer_device_changed), NULL);
+    if (ndev > 0) {
+        gtk_combo_box_set_active(GTK_COMBO_BOX(g_pointer_combo), 0);
+    } else {
+        gtk_widget_set_sensitive(g_pointer_accel_spin, FALSE);
+        gtk_widget_set_sensitive(g_pointer_natural_chk, FALSE);
+        gtk_widget_set_sensitive(g_pointer_lefth_chk, FALSE);
+        gtk_widget_set_sensitive(g_pointer_tap_chk, FALSE);
+    }
+
+    GtkWidget *kbd_table = gtk_table_new(3, 2, FALSE);
+    g_kbd_repeat_chk = gtk_check_button_new_with_label("Repeticao automatica");
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_kbd_repeat_chk), g_kbd_baseline.repeat_enabled);
+    gtk_table_attach(GTK_TABLE(kbd_table), g_kbd_repeat_chk, 0, 2, 0, 1, GTK_FILL, GTK_FILL, 4, 2);
+    g_kbd_delay_spin = gtk_spin_button_new_with_range(100, 3000, 10);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_kbd_delay_spin), g_kbd_baseline.repeat_delay);
+    labeled_row(kbd_table, 1, "Atraso inicial (ms):", g_kbd_delay_spin);
+    g_kbd_rate_spin = gtk_spin_button_new_with_range(1, 100, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_kbd_rate_spin), g_kbd_baseline.repeat_rate);
+    labeled_row(kbd_table, 2, "Taxa (rep/s):", g_kbd_rate_spin);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with("Repeticao de tecla", kbd_table), FALSE, FALSE, 0);
+
+    GtkWidget *bell_table = gtk_table_new(3, 2, FALSE);
+    g_bell_percent_spin = gtk_spin_button_new_with_range(0, 100, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_bell_percent_spin), g_kbd_baseline.bell_percent);
+    labeled_row(bell_table, 0, "Volume (%):", g_bell_percent_spin);
+    g_bell_pitch_spin = gtk_spin_button_new_with_range(1, 5000, 10);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_bell_pitch_spin), g_kbd_baseline.bell_pitch);
+    labeled_row(bell_table, 1, "Tom (Hz):", g_bell_pitch_spin);
+    g_bell_dur_spin = gtk_spin_button_new_with_range(0, 5000, 10);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_bell_dur_spin), g_kbd_baseline.bell_duration);
+    labeled_row(bell_table, 2, "Duracao (ms):", g_bell_dur_spin);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with("Campainha", bell_table), FALSE, FALSE, 0);
+
+    GtkWidget *special_box = gtk_vbox_new(FALSE, 2);
+    g_toggle_mods_chk = gtk_check_button_new_with_label(
+        "ToggleModifiersOnPress -- alterna trava de modificador ao pressionar");
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_toggle_mods_chk), g_toggle_mods_baseline);
+    gtk_box_pack_start(GTK_BOX(special_box), g_toggle_mods_chk, FALSE, FALSE, 0);
+    g_kick_hotkeys_chk = gtk_check_button_new_with_label(
+        "KickHotkeysOnRelease -- troca layout de teclado ao soltar o atalho");
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_kick_hotkeys_chk), g_kick_hotkeys_baseline);
+    gtk_box_pack_start(GTK_BOX(special_box), g_kick_hotkeys_chk, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with("Opcoes especiais de teclado (XiS)", special_box), FALSE, FALSE, 0);
+
+    GtkWidget *apply_btn = gtk_button_new_with_label("Aplicar");
+    g_signal_connect(apply_btn, "clicked", G_CALLBACK(apply_entrada_cb), NULL);
+    GtkWidget *btnbox = gtk_hbox_new(FALSE, 0);
+    gtk_box_pack_end(GTK_BOX(btnbox), apply_btn, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), btnbox, FALSE, FALSE, 0);
+
+    GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(scroll), outer);
+    return scroll;
+}
