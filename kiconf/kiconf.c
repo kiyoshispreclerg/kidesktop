@@ -94,7 +94,57 @@
 
 #include "tabs.h"
 
-#define KICONF_VERSION "0.1.1"
+#define KICONF_VERSION "0.1.2"
+
+/* ---- lazy tab construction ---------------------------------------------
+ * Each build_X_tab() was cheap at first, but several now do real I/O the
+ * moment they're built -- build_permissoes_tab() connects to xisguard's
+ * control socket, build_paineis_tab()/build_wallpaper_tab() talk to
+ * xispanel/xisback the same way, build_telas_tab() shells out to `xrandr`
+ * -- so building all 8 up front made every kiconf launch pay for tabs the
+ * user may never open, including blocking on daemons that aren't running.
+ * Instead, each notebook page starts as an empty placeholder box; the real
+ * build_X_tab() call happens on first visit (GtkNotebook's "switch-page")
+ * and is cached in g_tabs[].built so revisiting a tab never rebuilds it. */
+typedef GtkWidget *(*TabBuilder)(void);
+
+typedef struct {
+    const char *label;
+    TabBuilder build;
+    GtkWidget *placeholder;
+    int built;
+} LazyTab;
+
+static LazyTab g_tabs[] = {
+    {"Aparencia", build_appearance_tab, NULL, 0},
+    {"Atalhos", build_shortcuts_tab, NULL, 0},
+    {"Telas", build_telas_tab, NULL, 0},
+    {"Entrada", build_entrada_tab, NULL, 0},
+    {"Wallpaper", build_wallpaper_tab, NULL, 0},
+    {"Outras", build_outras_tab, NULL, 0},
+    {"Paineis", build_paineis_tab, NULL, 0},
+    {"Permissoes", build_permissoes_tab, NULL, 0},
+};
+#define N_TABS ((int)(sizeof(g_tabs) / sizeof(g_tabs[0])))
+
+static void ensure_tab_built(int idx)
+{
+    if (idx < 0 || idx >= N_TABS || g_tabs[idx].built) {
+        return;
+    }
+    GtkWidget *content = g_tabs[idx].build();
+    gtk_box_pack_start(GTK_BOX(g_tabs[idx].placeholder), content, TRUE, TRUE, 0);
+    gtk_widget_show_all(g_tabs[idx].placeholder);
+    g_tabs[idx].built = 1;
+}
+
+static void on_switch_page(GtkNotebook *notebook, GtkNotebookPage *page, guint page_num, gpointer data)
+{
+    (void)notebook;
+    (void)page;
+    (void)data;
+    ensure_tab_built((int)page_num);
+}
 
 int main(int argc, char **argv)
 {
@@ -120,17 +170,18 @@ int main(int argc, char **argv)
      * width; a left column scales to more tabs without eating vertical
      * space from the (often taller) tab content below it. */
     gtk_notebook_set_tab_pos(GTK_NOTEBOOK(notebook), GTK_POS_LEFT);
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), build_appearance_tab(), gtk_label_new("Aparencia"));
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), build_shortcuts_tab(), gtk_label_new("Atalhos"));
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), build_telas_tab(), gtk_label_new("Telas"));
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), build_entrada_tab(), gtk_label_new("Entrada"));
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), build_wallpaper_tab(), gtk_label_new("Wallpaper"));
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), build_outras_tab(), gtk_label_new("Outras"));
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), build_paineis_tab(), gtk_label_new("Paineis"));
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), build_permissoes_tab(), gtk_label_new("Permissoes"));
+    for (int i = 0; i < N_TABS; i++) {
+        g_tabs[i].placeholder = gtk_vbox_new(FALSE, 0);
+        gtk_notebook_append_page(GTK_NOTEBOOK(notebook), g_tabs[i].placeholder, gtk_label_new(g_tabs[i].label));
+    }
+    g_signal_connect(notebook, "switch-page", G_CALLBACK(on_switch_page), NULL);
 
     gtk_container_add(GTK_CONTAINER(window), notebook);
     gtk_widget_show_all(window);
+    /* The initially-selected page (0, "Aparencia") never gets a
+     * "switch-page" emission for itself -- it's already current when the
+     * handler is connected -- so it's built explicitly here. */
+    ensure_tab_built(gtk_notebook_get_current_page(GTK_NOTEBOOK(notebook)));
     gtk_main();
     return 0;
 }
