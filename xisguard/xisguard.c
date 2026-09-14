@@ -24,7 +24,7 @@
 #define CTL_BUF_SIZE        65536
 #define REPORT_THROTTLE_S   1
 
-#define XISGUARD_VERSION    "0.4.0"
+#define XISGUARD_VERSION    "0.4.1"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -61,6 +61,13 @@
 #define BTN_TRUST_EXACT         "Trust EXACT"
 #define BTN_ALLOW_EXACT_SESSION "Allow EXACT (session)"
 #define BTN_TRUST_EXACT_SESSION "Trust EXACT (session)"
+
+/* Dialog backend used to ask the user Allow/Deny/Trust questions.
+ * Detected once at startup: xisserve is the default, zenity the fallback
+ * for systems without it. */
+#define DIALOG_NONE     0
+#define DIALOG_XISSERVE 1
+#define DIALOG_ZENITY   2
 
 static const struct {
     int   id;
@@ -154,9 +161,10 @@ static pthread_t control_thread;
 static volatile int should_exit = 0;
 
 static int no_pause_mode = 0;      /* 1 = notify only, no SIGSTOP */
-static int quiet_mode = 0;         /* 1 = no Zenity, terminal logs only */
+static int quiet_mode = 0;         /* 1 = no dialog, terminal logs only */
 static int always_kill_mode = 0;   /* 1 = kill unknown processes immediately */
 static int log_level = 2;          /* 0=silent, 1=clean, 2=normal, 3=verbose, 4=debug */
+static int dialog_backend = DIALOG_NONE; /* resolved once at startup, see detect_dialog_backend() */
 
 /* Bitmasks for per-action CLI overrides (bit N-1 = action N, 1-16).
  * Checked before perms.conf; deny wins if both bits are set for same action. */
@@ -768,7 +776,7 @@ int is_report_ignored(const char *exe) {
     return 0;
 }
 
-/* ====================== ZENITY DIALOG ====================== */
+/* ====================== DIALOG BACKENDS ====================== */
 
 /* Escapa aspas simples para uso dentro de strings single-quoted no shell.
  * ' → '\'' (fecha aspas, barra+aspas literal, reabre aspas). */
@@ -788,20 +796,62 @@ static void shell_sq_escape(char *dst, size_t dst_sz, const char *src) {
     dst[j] = '\0';
 }
 
-int show_zenity_dialog(const struct Alert *alert) {
-    char zenity_cmd[8192];
-    const char *action_str = action_to_string(alert->action);
-    const char *action_desc = action_to_description(alert->action);
-
-    /* Replace '|' with space for display (zenity shows "exe args" instead of "exe|args") */
+/* Replace '|' with space for display ("exe args" instead of "exe|args"),
+ * then shell-escape into safe_exe. Shared by every dialog backend. */
+static void prepare_display_exe(const struct Alert *alert, char *safe_exe, size_t safe_exe_sz) {
     char display_exe[PATH_MAX + 1024];
     strncpy(display_exe, alert->exe, sizeof(display_exe) - 1);
     display_exe[sizeof(display_exe) - 1] = '\0';
     char *pipe_pos = strchr(display_exe, '|');
     if (pipe_pos) *pipe_pos = ' ';
 
+    shell_sq_escape(safe_exe, safe_exe_sz, trim_exe_for_log(display_exe));
+}
+
+/* Looks up prog in $PATH the same way execvp/the shell would, without
+ * actually running it. Used at startup to pick a dialog backend. */
+static int prog_in_path(const char *prog) {
+    const char *path_env = getenv("PATH");
+    if (!path_env || !*path_env)
+        path_env = "/usr/local/bin:/usr/bin:/bin";
+
+    char paths[4096];
+    strncpy(paths, path_env, sizeof(paths) - 1);
+    paths[sizeof(paths) - 1] = '\0';
+
+    char *saveptr = NULL;
+    for (char *dir = strtok_r(paths, ":", &saveptr); dir; dir = strtok_r(NULL, ":", &saveptr)) {
+        char full[PATH_MAX];
+        snprintf(full, sizeof(full), "%s/%s", dir, prog);
+        if (access(full, X_OK) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+/* Picks which dialog program to use, once, at startup: xisserve is the
+ * default (--question, see xisserve/PROTOCOL.md), zenity is the fallback
+ * for systems that don't have it. */
+void detect_dialog_backend(void) {
+    if (prog_in_path("xisserve")) {
+        dialog_backend = DIALOG_XISSERVE;
+        log_msg("Dialog backend: xisserve (default)");
+    } else if (prog_in_path("zenity")) {
+        dialog_backend = DIALOG_ZENITY;
+        log_msg("Dialog backend: zenity (fallback, xisserve not found in PATH)");
+    } else {
+        dialog_backend = DIALOG_NONE;
+        log_msg("Dialog backend: none found (xisserve/zenity missing) - unauthorized processes will be denied for the session");
+    }
+}
+
+static int show_zenity_dialog(const struct Alert *alert) {
+    char zenity_cmd[8192];
+    const char *action_str = action_to_string(alert->action);
+    const char *action_desc = action_to_description(alert->action);
+
     char safe_exe[512];
-    shell_sq_escape(safe_exe, sizeof(safe_exe), trim_exe_for_log(display_exe));
+    prepare_display_exe(alert, safe_exe, sizeof(safe_exe));
 
     int has_args = (strchr(alert->exe, '|') != NULL);
 
@@ -886,6 +936,99 @@ int show_zenity_dialog(const struct Alert *alert) {
         return 2;  /* Deny permanent (exe only) */
     } else {
         return 99; /* BTN_DENY_SESSION (cancel/timeout) */
+    }
+}
+
+/* xisserve --question takes at most 8 --button flags (see
+ * xisserve/PROTOCOL.md), one short of the 10 choices the exe|args case
+ * offers on zenity. The two dropped there are the rarest combination
+ * (EXACT + session-only); everything else -- permanent EXACT included --
+ * stays available. Each button's label:value pair answers with the same
+ * response codes show_zenity_dialog()/process_next_alert() already use,
+ * so no string matching is needed on the way back. */
+static int show_xisserve_dialog(const struct Alert *alert) {
+    char xisserve_cmd[8192];
+    const char *action_str = action_to_string(alert->action);
+    const char *action_desc = action_to_description(alert->action);
+
+    char safe_exe[512];
+    prepare_display_exe(alert, safe_exe, sizeof(safe_exe));
+
+    int has_args = (strchr(alert->exe, '|') != NULL);
+
+    if (has_args) {
+        snprintf(xisserve_cmd, sizeof(xisserve_cmd),
+            "xisserve --question "
+            "--text='Permission: %s (%s)\n"
+                    "Program: %s (%d)' "
+            "--button='" BTN_ALLOW ":0' "
+            "--button='" BTN_DENY ":2' "
+            "--button='" BTN_ALLOW_SESSION ":1' "
+            "--button='" BTN_DENY_SESSION ":99' "
+            "--button='" BTN_TRUST ":3' "
+            "--button='" BTN_TRUST_SESSION ":6' "
+            "--button='" BTN_ALLOW_EXACT ":4' "
+            "--button='" BTN_TRUST_EXACT ":7' "
+            "2>/dev/null",
+            action_str, action_desc, safe_exe, alert->pid);
+    } else {
+        snprintf(xisserve_cmd, sizeof(xisserve_cmd),
+            "xisserve --question "
+            "--text='Permission: %s (%s)\n"
+                    "Program: %s (%d)' "
+            "--button='" BTN_ALLOW ":0' "
+            "--button='" BTN_DENY ":2' "
+            "--button='" BTN_ALLOW_SESSION ":1' "
+            "--button='" BTN_DENY_SESSION ":99' "
+            "--button='" BTN_TRUST ":3' "
+            "--button='" BTN_TRUST_SESSION ":6' "
+            "2>/dev/null",
+            action_str, action_desc, safe_exe, alert->pid);
+    }
+
+    log_msg("Showing xisserve dialog for %s %s (%d)",
+            action_str, trim_exe_for_log(alert->exe), alert->pid);
+
+    FILE *fp = popen(xisserve_cmd, "r");
+    if (!fp) {
+        log_msg("ERROR: failed to call xisserve");
+        return 99;
+    }
+
+    char output[64] = {0};
+    int got_output = (fgets(output, sizeof(output), fp) != NULL);
+    if (got_output) output[strcspn(output, "\n")] = '\0';
+
+    int status = pclose(fp);
+    int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+
+    int response;
+    if (got_output && output[0] != '\0') {
+        /* A button was clicked: xisserve prints <valor> straight to
+         * stdout, no label matching needed. */
+        response = atoi(output);
+    } else {
+        /* Dismissed (WM close / Escape) exits 1 with no stdout; a usage
+         * error exits 2. Either way there's no answer, so treat it the
+         * same as zenity's cancel/timeout. */
+        response = 99;
+    }
+
+    log_msg("xisserve returned %d (exit %d) | '%s'", response, exit_code, output);
+    return response;
+}
+
+/* Dispatches to whichever dialog backend detect_dialog_backend() picked
+ * at startup. */
+int show_dialog(const struct Alert *alert) {
+    switch (dialog_backend) {
+        case DIALOG_XISSERVE:
+            return show_xisserve_dialog(alert);
+        case DIALOG_ZENITY:
+            return show_zenity_dialog(alert);
+        default:
+            log_msg("No dialog backend available; denying for this session");
+            return 99;
     }
 }
 
@@ -1268,7 +1411,7 @@ void process_next_alert() {
     if (always_kill_mode || quiet_mode) {
         response = always_kill_mode ? -1 : 99;
     } else {
-        response = show_zenity_dialog(&alert);
+        response = show_dialog(&alert);
     }
 
     /* Extract exe without args for non-exact rules */
@@ -1360,7 +1503,7 @@ void send_heartbeat() {
  * server. Each connection sends one flat JSON request line and gets one JSON
  * response line back. Restricted to the owning user (mode 0600) since some
  * commands (ADD_RULE) can grant permissions that would otherwise require a
- * Zenity confirmation.
+ * dialog confirmation.
  */
 
 static void handle_control_message(const char *req, char *resp, size_t resp_sz) {
@@ -1619,7 +1762,7 @@ int main(int argc, char *argv[]) {
             printf("Usage: %s [options]\n", argv[0]);
             printf("Options:\n");
             printf("  --no-pause / --notify-only     Do not send SIGSTOP/SIGCONT\n");
-            printf("  --quiet / --no-zenity          No Zenity dialogs; deny all unauthorized processes for the current session\n");
+            printf("  --quiet / --no-zenity          No dialog prompts (xisserve/zenity); deny all unauthorized processes for the current session\n");
             printf("  --always-kill                  Kill (SIGKILL) all unauthorized processes immediately\n");
             printf("  --conf <dir> or --conf=<dir>   Base config directory (default: ~/.config/xisguard)\n");
             printf("  --log-level N                  Verbosity level (0-4)\n");
@@ -1670,7 +1813,7 @@ int main(int argc, char *argv[]) {
         } else if (strcmp(argv[i], "--quiet") == 0 ||
                  strcmp(argv[i], "--no-zenity") == 0) {
             quiet_mode = 1;
-            log_msg("QUIET mode activated (no Zenity dialogs)");
+            log_msg("QUIET mode activated (no dialog prompts)");
         } else if (strcmp(argv[i], "--always-kill") == 0) {
             always_kill_mode = 1;
             log_msg("ALWAYS-KILL mode activated (unknown processes will be killed)");
@@ -1724,6 +1867,8 @@ int main(int argc, char *argv[]) {
         log_msg("No XNOTIFY Extension found on display %d. Exiting.", display);
         return 0;
     }
+
+    detect_dialog_backend();
 
     const char *runtime_dir = getenv("XDG_RUNTIME_DIR");
     const char *base_dir = (runtime_dir && *runtime_dir) ? runtime_dir : "/tmp";
@@ -1792,7 +1937,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    /* Owner-only: this channel can grant permissions without a Zenity prompt. */
+    /* Owner-only: this channel can grant permissions without a dialog prompt. */
     chmod(CTL_SOCKET_PATH_BUF, 0600);
     listen(ctl_fd, 4);
 
