@@ -57,6 +57,28 @@ void signal_daemon(const char *procname)
     waitpid(pid, &status, 0);
 }
 
+void spawn_replace(const char *prog)
+{
+    pid_t pid = fork();
+    if (pid < 0) {
+        return;
+    }
+    if (pid == 0) {
+        setsid();
+        execlp(prog, prog, "--replace", (char *)NULL);
+        _exit(127);
+    }
+    /* No waitpid: prog is meant to outlive kiconf by the rest of the
+     * session, so there is nothing to usefully wait for. */
+}
+
+int process_running(const char *procname)
+{
+    char *argv[] = {"pgrep", "-x", (char *)procname, NULL};
+    char out[64];
+    return run_capture(argv, out, sizeof(out)) && out[0];
+}
+
 /* ---- generic subprocess helpers (xrandr/xinput/xset/xprop/wmctrl) ---- */
 
 /* Runs argv (NULL-terminated), waits for it, and returns its exit code
@@ -161,5 +183,56 @@ GtkWidget *frame_with(const char *title, GtkWidget *child)
     gtk_container_set_border_width(GTK_CONTAINER(child), 8);
     gtk_container_add(GTK_CONTAINER(frame), child);
     return frame;
+}
+
+GtkWidget *make_color_button(const char *hex)
+{
+    GdkColor c;
+    if (!gdk_color_parse(hex, &c)) {
+        gdk_color_parse("#000000", &c);
+    }
+    return gtk_color_button_new_with_color(&c);
+}
+
+void color_button_hex(GtkWidget *btn, char *out, size_t outsz)
+{
+    GdkColor c;
+    gtk_color_button_get_color(GTK_COLOR_BUTTON(btn), &c);
+    snprintf(out, outsz, "#%02x%02x%02x", c.red >> 8, c.green >> 8, c.blue >> 8);
+}
+
+static int combo_option_index(const char *const *options, const char *val)
+{
+    for (int i = 0; options[i]; i++) {
+        if (!strcmp(options[i], val)) {
+            return i;
+        }
+    }
+    return 0;
+}
+
+GtkWidget *make_options_combo(const char *const *options, const char *current)
+{
+    GtkWidget *combo = gtk_combo_box_new_text();
+    for (int i = 0; options[i]; i++) {
+        gtk_combo_box_append_text(GTK_COMBO_BOX(combo), options[i]);
+    }
+    gtk_combo_box_set_active(GTK_COMBO_BOX(combo), combo_option_index(options, current));
+    return combo;
+}
+
+const char *combo_text(GtkWidget *combo, const char *const *options)
+{
+    int idx = gtk_combo_box_get_active(GTK_COMBO_BOX(combo));
+    return idx >= 0 && options[idx] ? options[idx] : options[0];
+}
+
+void fprintf_double(FILE *f, const char *key, double val, int digits)
+{
+    char fmt[8];
+    snprintf(fmt, sizeof(fmt), "%%.%df", digits);
+    char buf[64];
+    g_ascii_formatd(buf, sizeof(buf), fmt, val);
+    fprintf(f, "%s=%s\n", key, buf);
 }
 

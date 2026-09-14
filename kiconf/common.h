@@ -12,6 +12,7 @@
 
 #include <gtk/gtk.h>
 #include <stddef.h>
+#include <stdio.h>
 
 #define NAME_LEN 128
 #define JSON_BUF_LEN 65536
@@ -33,9 +34,46 @@ char *trim(char *s);
 /* Sends SIGHUP to every process named `procname` (exact match, not -f). */
 void signal_daemon(const char *procname);
 
+/* True iff a process named exactly `procname` is running right now
+ * (`pgrep -x`, never `-f` -- an -f pattern can match unrelated processes
+ * by their full command line). */
+int process_running(const char *procname);
+
+/* Spawns `prog --replace` detached (fire-and-forget, no wait) -- for
+ * daemons like kiwm/kicomp that have no config-reload signal at all
+ * (SIGHUP means "shut down" for both): the running instance answers
+ * losing its ICCCM/EWMH manager selection by exiting on its own, so
+ * starting a new one with --replace is the entire "restart" story. */
+void spawn_replace(const char *prog);
+
 /* ---- generic GTK2 table-layout helpers -------------------------------- */
 
 GtkWidget *labeled_row(GtkWidget *table, int row, const char *label_text, GtkWidget *widget);
 GtkWidget *frame_with(const char *title, GtkWidget *child);
+
+/* "#rrggbb"/"#rrggbbaa" <-> GtkColorButton -- used by every tab that edits
+ * a flat color setting (Aparencia, Gerenciamento de janelas, Efeitos do
+ * compositor's shadow color). Alpha is accepted on the way in (falls back
+ * to black on a parse failure) but never round-tripped back out: GTK2's
+ * plain color button has no alpha channel of its own, and every config
+ * format this writes into treats a bare #rrggbb as fully opaque anyway. */
+GtkWidget *make_color_button(const char *hex);
+void color_button_hex(GtkWidget *btn, char *out, size_t outsz);
+
+/* A GtkComboBox over a fixed, NULL-terminated array of plain option
+ * strings (mod_key=alt/meta, focus_stealing_prevention=none/low/..., a
+ * renderer name, etc.) -- used wherever a config key's value is one of a
+ * short closed set, as opposed to make_theme_combo()'s scanned-from-disk
+ * lists (which stay local to the Aparencia tab, the only one that scans
+ * anything). combo_text() reads back whichever option is selected. */
+GtkWidget *make_options_combo(const char *const *options, const char *current);
+const char *combo_text(GtkWidget *combo, const char *const *options);
+
+/* Writes "key=value\n" to `f` with `val` formatted to `digits` decimals
+ * and always a '.' separator, regardless of LC_NUMERIC -- plain
+ * fprintf("%f") prints "0,45" under a comma-decimal locale (pt_BR and
+ * others), which every config file these tabs write into parses with a
+ * plain C-locale atof/strtod and would silently misread. */
+void fprintf_double(FILE *f, const char *key, double val, int digits);
 
 #endif /* KICONF_COMMON_H */

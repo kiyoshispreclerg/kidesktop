@@ -264,22 +264,6 @@ static void load_appearance(Appearance *a)
     fclose(f);
 }
 
-static GtkWidget *make_color_button(const char *hex)
-{
-    GdkColor c;
-    if (!gdk_color_parse(hex, &c)) {
-        gdk_color_parse("#000000", &c);
-    }
-    return gtk_color_button_new_with_color(&c);
-}
-
-static void color_button_hex(GtkWidget *btn, char *out, size_t outsz)
-{
-    GdkColor c;
-    gtk_color_button_get_color(GTK_COLOR_BUTTON(btn), &c);
-    snprintf(out, outsz, "#%02x%02x%02x", c.red >> 8, c.green >> 8, c.blue >> 8);
-}
-
 static void save_appearance_cb(GtkWidget *widget, gpointer data)
 {
     (void)widget;
