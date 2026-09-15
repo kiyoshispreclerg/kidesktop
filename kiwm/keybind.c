@@ -27,6 +27,7 @@
 #include "osd.h"
 #include "menu.h"
 #include "decoration.h"
+#include "findcursor.h"
 
 #include <X11/keysym.h>
 
@@ -101,6 +102,7 @@ static Keybind binds[] = {
     BIND("key_move_to_desktop_6", KB_MOVE_TO_DESKTOP, 5, "",             "...desktop 6"),
     BIND("key_move_to_desktop_7", KB_MOVE_TO_DESKTOP, 6, "",             "...desktop 7"),
     BIND("key_move_to_desktop_8", KB_MOVE_TO_DESKTOP, 7, "",             "...desktop 8"),
+    BIND("key_find_cursor",  KB_FIND_CURSOR,  0, "ModKey+F7",            "flash a shrinking square onto the pointer, to help find it"),
 };
 
 static const int bind_count = (int)(sizeof(binds) / sizeof(binds[0]));
@@ -341,6 +343,7 @@ static void run_action(KeyAction action, int arg, uint16_t mods)
     case KB_DESKTOP_PREV_HORZ: osd_desktops_step(-1, DESKTOP_AXIS_HORZ, mods); return;
     case KB_DESKTOP_NEXT_VERT: osd_desktops_step(+1, DESKTOP_AXIS_VERT, mods); return;
     case KB_DESKTOP_PREV_VERT: osd_desktops_step(-1, DESKTOP_AXIS_VERT, mods); return;
+    case KB_FIND_CURSOR:  findcursor_trigger(); return;
 
     case KB_DESKTOP_GOTO: {
         /* Same "which screen does this act on" rule the switchers use

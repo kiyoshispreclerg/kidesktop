@@ -687,6 +687,7 @@ key_move_to_desktop_next=
 key_move_to_desktop_prev=
 key_move_to_desktop_1=
 key_move_to_desktop_2=         # ...through key_move_to_desktop_8, unbound by default
+key_find_cursor=ModKey+F7
 ```
 
 - Syntax is `Mod+Mod+Key`, case-insensitive: `Meta+Down`, `alt+shift+Tab`, `Ctrl+Alt+F1`.
@@ -705,6 +706,10 @@ key_move_to_desktop_2=         # ...through key_move_to_desktop_8, unbound by de
 - `key_move_to_desktop_*` sends the focused window to another desktop of its own output *without*
   following it there -- pair one with a `key_desktop_*` binding to do both. The `next`/`prev` pair
   steps from wherever the window currently is, not from the output's current desktop.
+- `key_find_cursor` is the classic Windows-XP "where's my pointer" trick: a hollow square, the same
+  color and thickness as `outline_width=`'s window outlines, flashes down onto the pointer over half
+  a second. Unlike the outline used elsewhere, this one stays a plain wireframe even with a
+  compositor running (at least for now). Clear it like any other `key_*` to turn the effect off.
 - Keys are named like their X keysyms (`Tab`, `Up`, `Down`, `Left`, `Right`, `Escape`, `Return`,
   `space`, `Home`, `End`, `PageUp`, `PageDown`, `Delete`, `F1`-`F12`), a single printable character
   (`a`, `7`, `/`), or a raw `0x<hex>` keysym for anything else.

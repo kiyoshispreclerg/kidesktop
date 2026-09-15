@@ -9,6 +9,7 @@
 #include "osd.h"
 #include "menu.h"
 #include "outline.h"
+#include "findcursor.h"
 #include "shape.h"
 #include "sync.h"
 #include "selection.h"
@@ -1447,6 +1448,8 @@ static void restack_all_core(Client *promote, bool to_top)
         } else if (!c && (osd_owns_window(kids[i]) || window_menu_owns_window(kids[i]))) {
             l = LAYER_OSD;
         } else if (!c && outline_owns_window(kids[i])) {
+            l = LAYER_OUTLINE;
+        } else if (!c && findcursor_owns_window(kids[i])) {
             l = LAYER_OUTLINE;
         } else if (!c && grip_owns_window(kids[i])) {
             /* A resize ring is placed relative to its own frame, not

@@ -54,6 +54,7 @@ typedef enum {
     KB_MOVE_TO_DESKTOP,
     KB_MOVE_TO_DESKTOP_NEXT,
     KB_MOVE_TO_DESKTOP_PREV,
+    KB_FIND_CURSOR,        /* flash a shrinking square onto the pointer (findcursor.c) */
 } KeyAction;
 
 /* Parses one kiwm.conf line if it's a key_* binding, returning false (and

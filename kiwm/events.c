@@ -11,6 +11,7 @@
 #include "osd.h"
 #include "menu.h"
 #include "outline.h"
+#include "findcursor.h"
 #include "shape.h"
 #include "selection.h"
 #include "sync.h"
@@ -2176,6 +2177,7 @@ void handle_event(xcb_generic_event_t *event)
         osd_handle_expose(ev->window);
         window_menu_handle_expose(ev->window);
         outline_handle_expose(ev->window);
+        findcursor_handle_expose(ev->window);
         Client *c = find_client_window(ev->window);
         /* Growing the frame during an active *resize* (resize_step(),
          * paced to the output's refresh rate) uncovers new frame area and
