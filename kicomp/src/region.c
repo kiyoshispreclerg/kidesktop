@@ -49,26 +49,46 @@ void region_add(CompRegion *r, const CompRect *rect)
     if (rect->w <= 0 || rect->h <= 0)
         return;
 
+    /* The rectangles are kept disjoint, the way a QRegion or a pixman
+     * region is, and not merely non-nested. What is added is the part of
+     * `rect` that nothing here covers yet -- up to four pieces per
+     * rectangle it overlaps -- so a consumer that does a pass per
+     * rectangle does each pixel once. A moving window damages its old
+     * and its new place every frame, two rectangles that overlap by all
+     * but a sliver; with buffer-age history on top a GL frame was
+     * running the same scissored pass over the same pixels eight or
+     * nine times, which was most of what a drag cost. */
+    int n = 0;
     for (int i = 0; i < r->count; i++) {
         if (contains(&r->rects[i], rect))
             return;                       /* already covered */
-        if (contains(rect, &r->rects[i])) {
-            r->rects[i] = *rect;          /* swallows the old one */
-            return;
-        }
+        if (!contains(rect, &r->rects[i]))
+            r->rects[n++] = r->rects[i];  /* the ones it swallows go */
+    }
+    r->count = n;
+
+    CompRegion piece = { .count = 1, .full = false };
+    piece.rects[0] = *rect;
+    bool room = true;
+    for (int i = 0; i < r->count && piece.count > 0 && room; i++) {
+        region_subtract_rect(&piece, &r->rects[i]);
+        /* A subtract that ran out of slots leaves its region untouched,
+         * so the piece still overlapping is the sign it gave up. */
+        room = !region_hits(&piece, &r->rects[i]);
     }
 
-    if (r->count < COMP_REGION_MAX) {
-        r->rects[r->count++] = *rect;
+    if (room && r->count + piece.count <= COMP_REGION_MAX) {
+        for (int k = 0; k < piece.count; k++)
+            r->rects[r->count++] = piece.rects[k];
         return;
     }
 
     /* Out of slots: everything becomes the box around everything. Past a
-     * point the rectangles cost more to carry than the pixels they save. */
-    CompRect all = r->rects[0];
-    for (int i = 1; i < r->count; i++)
+     * point the rectangles cost more to carry than the pixels they save.
+     * One rectangle is disjoint by definition. */
+    CompRect all = *rect;
+    for (int i = 0; i < r->count; i++)
         all = union_of(&all, &r->rects[i]);
-    all = union_of(&all, rect);
 
     r->rects[0] = all;
     r->count = 1;
