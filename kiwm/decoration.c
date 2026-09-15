@@ -1039,12 +1039,29 @@ void paint_deco(Client *c, cairo_t *cr, int w, int h, bool focused, bool argb)
         int ih = cairo_image_surface_get_height(wm.deco_bg);
         draw_9slice(cr, wm.deco_bg, iw, ih, wm.bg_slice_l, wm.bg_slice_t, wm.bg_slice_r, wm.bg_slice_b,
                    w, TITLEBAR_H);
+    } else if (wm.have_theme_colors) {
+        /* No theme PNG to tint: paint the theme's own bg_active=/bg_inactive=
+         * directly, at its own alpha, the same way the side/bottom border
+         * uses border_active=/border_inactive= directly below. Falling
+         * through to deco_bg= (black) and relying on the 0.55 translucent
+         * tint below would only ever show 55% of the configured color. */
+        if (focused)
+            cairo_set_source_rgba(cr, wm.bg_active_r, wm.bg_active_g, wm.bg_active_b, wm.bg_active_a);
+        else
+            cairo_set_source_rgba(cr, wm.bg_inactive_r, wm.bg_inactive_g, wm.bg_inactive_b, wm.bg_inactive_a);
+        cairo_paint(cr);
     } else {
         /* No theme PNG (missing file, or no theme configured yet): flat
          * fallback color from kiwm.conf's deco_bg= (default black). */
         cairo_set_source_rgba(cr, wm.deco_bg_r, wm.deco_bg_g, wm.deco_bg_b, wm.deco_bg_a);
         cairo_paint(cr);
     }
+
+    /* Whether the block above already painted the theme's bg color at full
+     * strength (no PNG to tint) -- if so the translucent focus tint below
+     * must be skipped entirely, not just weakened, or it would mud the
+     * color right back towards black/white on top of the correct result. */
+    bool flat_theme_bg = !wm.deco_bg && wm.have_theme_colors;
 
     /* Focus tint on top of the theme image: a real per-focus color from
      * greenxp/colors when loaded, else the old plain white/black opacity
@@ -1053,6 +1070,9 @@ void paint_deco(Client *c, cairo_t *cr, int w, int h, bool focused, bool argb)
     if (deco_tint_replace) {
         /* Already the tint's own color -- the focus tint would only mud
          * it back towards the theme. */
+    } else if (flat_theme_bg) {
+        /* Already painted bg_active=/bg_inactive= directly above, at full
+         * strength -- no PNG underneath left to tint. */
     } else if (wm.have_theme_colors) {
         /* The color's own alpha multiplies the tint's: #rrggbb (opaque)
          * tints exactly as before, and a color given an alpha channel
@@ -1069,7 +1089,7 @@ void paint_deco(Client *c, cairo_t *cr, int w, int h, bool focused, bool argb)
         else
             cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.35);
     }
-    if (!deco_tint_replace)
+    if (!deco_tint_replace && !flat_theme_bg)
         cairo_paint(cr);
 
     /* over: the theme is still there underneath, washed in the hovered
