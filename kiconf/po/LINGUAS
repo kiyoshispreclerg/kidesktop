@@ -1,0 +1,3 @@
+# One language code per line (gettext locale codes: pt_BR, es, de, ...).
+# `make mo`/`make install` build and install exactly these; see README.md
+# for how to add one. Empty until the first translation actually exists.

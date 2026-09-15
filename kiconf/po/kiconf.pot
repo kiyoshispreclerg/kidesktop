@@ -1,0 +1,62 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the kiconf package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: kiconf\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-09-15 15:18-0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=CHARSET\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: kiconf.c:133
+msgid "Aparencia"
+msgstr ""
+
+#: kiconf.c:134
+msgid "Atalhos"
+msgstr ""
+
+#: kiconf.c:135
+msgid "Telas"
+msgstr ""
+
+#: kiconf.c:136
+msgid "Entrada"
+msgstr ""
+
+#: kiconf.c:137
+msgid "Wallpaper"
+msgstr ""
+
+#: kiconf.c:138
+msgid "Outras"
+msgstr ""
+
+#: kiconf.c:139
+msgid "Paineis"
+msgstr ""
+
+#: kiconf.c:140
+msgid "Permissoes"
+msgstr ""
+
+#: kiconf.c:141
+msgid "Gerenciamento de janelas"
+msgstr ""
+
+#: kiconf.c:142
+msgid "Efeitos do compositor"
+msgstr ""
+
+#: kiconf.c:309
+msgid "Inicio"
+msgstr ""

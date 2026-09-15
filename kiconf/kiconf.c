@@ -90,11 +90,13 @@
  */
 #include <gtk/gtk.h>
 
+#include <locale.h>
 #include <string.h>
 
+#include "i18n.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.1.8"
+#define KICONF_VERSION "0.1.9"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -128,16 +130,16 @@ typedef struct {
 } LazyTab;
 
 static LazyTab g_tabs[] = {
-    {"Aparencia", GTK_STOCK_SELECT_COLOR, build_appearance_tab, NULL, 0},
-    {"Atalhos", GTK_STOCK_JUMP_TO, build_shortcuts_tab, NULL, 0},
-    {"Telas", GTK_STOCK_FULLSCREEN, build_telas_tab, NULL, 0},
-    {"Entrada", GTK_STOCK_EDIT, build_entrada_tab, NULL, 0},
-    {"Wallpaper", GTK_STOCK_FILE, build_wallpaper_tab, NULL, 0},
-    {"Outras", GTK_STOCK_PREFERENCES, build_outras_tab, NULL, 0},
-    {"Paineis", GTK_STOCK_JUSTIFY_FILL, build_paineis_tab, NULL, 0},
-    {"Permissoes", GTK_STOCK_DIALOG_AUTHENTICATION, build_permissoes_tab, NULL, 0},
-    {"Gerenciamento de janelas", GTK_STOCK_DND_MULTIPLE, build_janelas_tab, NULL, 0},
-    {"Efeitos do compositor", GTK_STOCK_CONVERT, build_efeitos_tab, NULL, 0},
+    {N_("Aparencia"), GTK_STOCK_SELECT_COLOR, build_appearance_tab, NULL, 0},
+    {N_("Atalhos"), GTK_STOCK_JUMP_TO, build_shortcuts_tab, NULL, 0},
+    {N_("Telas"), GTK_STOCK_FULLSCREEN, build_telas_tab, NULL, 0},
+    {N_("Entrada"), GTK_STOCK_EDIT, build_entrada_tab, NULL, 0},
+    {N_("Wallpaper"), GTK_STOCK_FILE, build_wallpaper_tab, NULL, 0},
+    {N_("Outras"), GTK_STOCK_PREFERENCES, build_outras_tab, NULL, 0},
+    {N_("Paineis"), GTK_STOCK_JUSTIFY_FILL, build_paineis_tab, NULL, 0},
+    {N_("Permissoes"), GTK_STOCK_DIALOG_AUTHENTICATION, build_permissoes_tab, NULL, 0},
+    {N_("Gerenciamento de janelas"), GTK_STOCK_DND_MULTIPLE, build_janelas_tab, NULL, 0},
+    {N_("Efeitos do compositor"), GTK_STOCK_CONVERT, build_efeitos_tab, NULL, 0},
 };
 #define N_TABS ((int)(sizeof(g_tabs) / sizeof(g_tabs[0])))
 
@@ -228,7 +230,7 @@ static GtkWidget *make_module_button(const LazyTab *tab, int page_num)
 
     GtkWidget *box = gtk_vbox_new(FALSE, 4);
     GtkWidget *icon = gtk_image_new_from_stock(tab->stock_icon, GTK_ICON_SIZE_DIALOG);
-    GtkWidget *label = gtk_label_new(tab->label);
+    GtkWidget *label = gtk_label_new(_(tab->label));
     gtk_box_pack_start(GTK_BOX(box), icon, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box), label, FALSE, FALSE, 0);
     gtk_container_add(GTK_CONTAINER(btn), box);
@@ -260,8 +262,26 @@ static GtkWidget *build_home_page(void)
     return outer;
 }
 
+/* setlocale()+bindtextdomain()+textdomain(): the three calls every
+ * gettext program makes once, before building any UI, so _()/gettext()
+ * knows both which language to look up (the user's LANG/LC_MESSAGES,
+ * via setlocale(LC_ALL, "") -- GTK itself never calls this on its own)
+ * and where the "kiconf" catalog's .mo files live (LOCALEDIR, baked in by
+ * the Makefile from PREFIX, same as kiconfd.conf's own path resolution
+ * follows XDG_CONFIG_HOME/HOME at runtime rather than a compiled-in
+ * value). Translations live in po/ -- see po/README.md. */
+void kiconf_i18n_init(void)
+{
+    setlocale(LC_ALL, "");
+    bindtextdomain("kiconf", LOCALEDIR);
+    bind_textdomain_codeset("kiconf", "UTF-8");
+    textdomain("kiconf");
+}
+
 int main(int argc, char **argv)
 {
+    kiconf_i18n_init();
+
     /* Checked before gtk_init() so `kiconf --version` works even without
      * a display (X connection), same as most CLI-invokable GTK tools. */
     for (int i = 1; i < argc; i++) {
@@ -286,10 +306,10 @@ int main(int argc, char **argv)
      * the simplest way to hold "one page visible, the rest torn down"
      * (see on_switch_page() above), it's just not shown as tabs. */
     gtk_notebook_set_show_tabs(GTK_NOTEBOOK(notebook), FALSE);
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), build_home_page(), gtk_label_new("Inicio"));
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), build_home_page(), gtk_label_new(_("Inicio")));
     for (int i = 0; i < N_TABS; i++) {
         g_tabs[i].placeholder = gtk_vbox_new(FALSE, 0);
-        gtk_notebook_append_page(GTK_NOTEBOOK(notebook), g_tabs[i].placeholder, gtk_label_new(g_tabs[i].label));
+        gtk_notebook_append_page(GTK_NOTEBOOK(notebook), g_tabs[i].placeholder, gtk_label_new(_(g_tabs[i].label)));
     }
     g_signal_connect(notebook, "switch-page", G_CALLBACK(on_switch_page), NULL);
 
