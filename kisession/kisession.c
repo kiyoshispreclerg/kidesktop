@@ -65,7 +65,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KISESSION_VERSION "0.1.3"
+#define KISESSION_VERSION "0.1.4"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -86,9 +86,13 @@
 
 static const char *const WM_CANDIDATES[] = {"kiwm", "compiz", "kwin_x11", "kwin", "openbox", NULL};
 
-/* Polkit agents, first one installed wins. Disabled by default: nothing
- * in the KiDesktop stack triggers polkit on its own, and an agent nobody
- * needs is just another resident process. */
+/* Polkit agents, first one installed wins. Enabled by default: kiconf's
+ * Sistema tab shells out to localectl/timedatectl, both of which ask
+ * polkit to authorize the change (systemd-localed/-timedated's own
+ * policy, nothing kiconf implements) -- with no agent running that
+ * authorization has nowhere to prompt and just fails. Harmless if none
+ * of POLKIT_CANDIDATES is installed: start_polkit() turns the service
+ * back off itself in that case, same as before this default flipped. */
 static const char *const POLKIT_CANDIDATES[] = {
     "lxpolkit",
     "polkit-mate-authentication-agent-1",
@@ -149,7 +153,7 @@ static const SvcDef SERVICES[] = {
     {"xiskeys", SVC_SUPERVISED, ARGV_XISKEYS, 1, "global hotkeys", 0},
     {"audio", SVC_ONESHOT, NULL, 1, "pipewire/pulseaudio, only if nothing already started one", 0},
     {"locker", SVC_SUPERVISED, ARGV_LOCKER, 1, "xss-lock + i3lock screen locking", 0},
-    {"polkit", SVC_SUPERVISED, NULL, 0, "polkit authentication agent (off: nothing here needs one yet)", 0},
+    {"polkit", SVC_SUPERVISED, NULL, 1, "polkit authentication agent (needed by kiconf's Sistema tab)", 0},
     {"wm", SVC_WM, NULL, 1, "window manager, see 'wm =' above", 0},
     /* After the WM, because a compositor coming up into a session that
      * already has frames is the ordinary case it handles anyway, and a
