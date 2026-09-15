@@ -305,6 +305,10 @@ static void model_step(MagicLampData *d, float p)
 
     d->bbox = (CompRect){ (int)minx - 1, (int)miny - 1,
                           (int)(maxx - minx) + 3, (int)(maxy - miny) + 3 };
+
+    /* New vertices: without this the renderer keeps drawing the ones it
+     * uploaded first (scene.h's generation). */
+    m->generation++;
 }
 
 /* The raw 0..1 of the animation, where 0 is the window whole and 1 is it

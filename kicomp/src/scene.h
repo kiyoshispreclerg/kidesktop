@@ -39,7 +39,9 @@ typedef struct CompSceneMesh {
     float x[MESH_MAX_VERTS];
     float y[MESH_MAX_VERTS];
 
-    /* Bumped every time x/y is rewritten. The mesh's own pointer stays
+    /* Bumped by the effect every time it rewrites x/y -- every effect
+     * that fills a mesh must, or the GL backend goes on drawing the
+     * vertices it uploaded first. The mesh's own pointer stays
      * the same for as long as the effect lives (kwin's wobbly rebuilds
      * the same struct in place every frame rather than handing over a
      * new one), so a renderer that wants to upload the tessellated
