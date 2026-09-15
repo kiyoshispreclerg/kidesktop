@@ -2695,10 +2695,16 @@ bool client_reframe(Client *c)
     xcb_destroy_window(wm.conn, old_frame);
 
     /* Everything that remembered the old frame's state starts over: it
-     * has no geometry sent, no shape, and no decoration yet. */
+     * has no geometry sent, no shape, and no decoration yet. Including
+     * the flat border windows (wm.h's Client::border_win[]) -- they were
+     * children of old_frame, so destroying it just destroyed them too;
+     * left pointing at those now-dead ids, border_sync() would mistake
+     * them for still existing and never make the new frame's. */
     c->geom_sent = false;
     c->shape_sig_valid = false;
     c->frame_shaped = false;
+    c->border_win[0] = c->border_win[1] = c->border_win[2] = XCB_NONE;
+    c->border_pixel_valid = false;
     configure_frame(c);
 
     /* The server reverts the focus when the focused window is unmapped,
