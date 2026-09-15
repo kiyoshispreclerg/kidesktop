@@ -832,6 +832,7 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
      * wallpaper, then the panels, then that face's windows, whatever
      * order the window manager stacked them in overall. */
     static CompSceneNode rebuilt[MAX_SCENE_NODES];
+    static CompSceneNode faceset[MAX_SCENE_NODES];
     int n = 0;
 
     /* Pass 0 is what lies on the faces -- the wallpaper and, unless told
@@ -854,7 +855,8 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
                 continue;               /* a cap carries nothing */
 
             int depth = 0;
-            for (int i = 0; i < s->count && n < MAX_SCENE_NODES; i++) {
+            int fn = 0;
+            for (int i = 0; i < s->count && fn < MAX_SCENE_NODES; i++) {
                 CompSceneNode node = s->nodes[i];
                 CompWindow *w = node.win;
 
@@ -896,7 +898,31 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
                 face_transform_at(&t, o, cfg, d, face, off * d->phase);
                 node.transform = t;
                 comp_transform_bbox(&t, &node.geometry, &node.visible_rect);
-                rebuilt[n++] = node;
+                faceset[fn++] = node;
+            }
+
+            /* Stacked bottom to top, `off` grows with height in the
+             * stack, and that offset runs out along the face's own
+             * normal -- towards whoever is looking at that face head
+             * on. Drawn in that same order (topmost, biggest off,
+             * last) is right when the face points at us: the nearest
+             * window is painted last and so covers the rest, which is
+             * what a painter's algorithm needs.
+             *
+             * A face turned away is only up at all because the shell
+             * is see-through, and its own normal now points *away*
+             * from the camera -- so the biggest off is the farthest
+             * window here, not the nearest. Painting it last would
+             * still draw it over the others. Run the same list back
+             * to front instead: farthest (top of stack) first, then
+             * nearer ones over it, which is the occlusion a viewer on
+             * this side of the shell actually sees. */
+            if (vis[k].front) {
+                for (int j = 0; j < fn && n < MAX_SCENE_NODES; j++)
+                    rebuilt[n++] = faceset[j];
+            } else {
+                for (int j = fn - 1; j >= 0 && n < MAX_SCENE_NODES; j--)
+                    rebuilt[n++] = faceset[j];
             }
         }
     }
