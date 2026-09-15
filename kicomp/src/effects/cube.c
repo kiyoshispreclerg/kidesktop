@@ -366,10 +366,13 @@ static CompOutput *output_of(const CompRect *r)
 
 static void mark_dirty(const CubeData *d)
 {
-    (void)d;
     /* The cube covers the output and every frame of a turn changes all of
-     * it; working out a smaller region would cost more than it saves. */
-    output_damage_all();
+     * it; working out a smaller region would cost more than it saves.
+     * Scoped to this output alone, not output_damage_all() -- a cube open
+     * on one monitor has no business repainting the others every tick. */
+    CompOutput *o = output_by_id(d->output_id);
+    if (o)
+        output_damage_rect(&o->rect);
 }
 
 static void phase_to(CubeData *d, float to, double now)
@@ -625,6 +628,15 @@ static void cube_update(CompEffect *e, double now)
 
     hold_live_windows(e, now);
 
+    /* Every tick the cube is up, whatever else does or doesn't change.
+     * A window's own damage is only its own rectangle, but the transform
+     * can put that content anywhere across the whole prism, over faces
+     * that did not themselves move this frame -- a video playing on one
+     * face is enough to leave the rest of the screen painting only that
+     * window's damage, which bleeds over the cube at any angle a partial
+     * repaint does not happen to cover. */
+    mark_dirty(d);
+
     float phase = d->phase_from +
                   (d->phase_to - d->phase_from) * eased(e, d->phase_time, now);
     float angle = d->angle;
@@ -649,12 +661,9 @@ static void cube_update(CompEffect *e, double now)
         tilt = d->tilt_from * (1.0f - p);
     }
 
-    if (phase != d->phase || angle != d->angle || tilt != d->tilt) {
-        d->phase = phase;
-        d->angle = angle;
-        d->tilt = tilt;
-        mark_dirty(d);
-    }
+    d->phase = phase;
+    d->angle = angle;
+    d->tilt = tilt;
 
     /* A flick has no button to let go of: it is done when it has turned
      * as far as it was asked to, and closes itself. */
