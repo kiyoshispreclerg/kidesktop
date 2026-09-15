@@ -992,7 +992,16 @@ static bool decoration_hover_tint(Client *c, const DecoSlot *slots, int nslots,
  * difference between a sharp titlebar and a blurry one.
  *
  * `argb` is whether the surface has a real alpha channel to clear. */
-void paint_deco(Client *c, cairo_t *cr, int w, int h, bool focused, bool argb)
+/* The titlebar strip: background image/tint, focus wash, title and
+ * buttons -- everything paint_deco() used to draw before falling through
+ * to the border, now split out so draw_decoration() can paint it into a
+ * pixmap of its own (w x TITLEBAR_H) instead of one sized to the whole
+ * frame. Also hands back the hover tint decoration_hover_tint() computed,
+ * since the border strips need the same values and slots (whose hover
+ * state they come from) exist only in here. */
+static void paint_titlebar(Client *c, cairo_t *cr, int w, bool focused, bool argb,
+                           double *out_dtr, double *out_dtg, double *out_dtb, double *out_dta,
+                           bool *out_deco_tint, bool *out_deco_tint_replace)
 {
     /* A depth-32 pixmap starts as undefined *including* its alpha channel,
      * and everything painted below is composited OVER what's there -- so
@@ -1019,6 +1028,9 @@ void paint_deco(Client *c, cairo_t *cr, int w, int h, bool focused, bool argb)
     double dtr = 0, dtg = 0, dtb = 0, dta = 0;
     bool deco_tint = decoration_hover_tint(c, slots, nslots, &dtr, &dtg, &dtb, &dta);
     bool deco_tint_replace = deco_tint && wm.btn_tinting == BTN_TINT_REPLACE;
+
+    *out_dtr = dtr; *out_dtg = dtg; *out_dtb = dtb; *out_dta = dta;
+    *out_deco_tint = deco_tint; *out_deco_tint_replace = deco_tint_replace;
 
     /* Everything below is the titlebar strip only -- clip to it so the
      * theme image/tint doesn't stretch down over the side/bottom border
@@ -1187,6 +1199,79 @@ void paint_deco(Client *c, cairo_t *cr, int w, int h, bool focused, bool argb)
     }
 
     cairo_restore(cr);
+}
+
+/* One flat-colored border strip (left, right or bottom -- kiwm.conf's
+ * border_thickness=, color from greenxp/colors when loaded, else
+ * border_color=), painted into a Cairo context sized to exactly that
+ * strip. `cr` is expected to already cover the strip's whole area, so a
+ * plain cairo_paint() -- rather than paint_deco()'s cairo_rectangle()
+ * of all three strips followed by one cairo_fill() -- is the same fill
+ * for whichever one this call is doing. `dtr`/`dtg`/`dtb`/`dta`/
+ * `deco_tint`/`deco_tint_replace` are decoration_hover_tint()'s answer,
+ * from paint_titlebar() -- the border washes with the same hovered-button
+ * tint the titlebar does, so it is not computed twice. */
+static void paint_border_fill(cairo_t *cr, bool argb, bool focused,
+                              bool deco_tint, bool deco_tint_replace,
+                              double dtr, double dtg, double dtb, double dta)
+{
+    /* Same reasoning as paint_titlebar()'s: a fresh pixmap's alpha is
+     * undefined, and an ARGB frame's border can carry its own alpha
+     * (border_active=/border_inactive=), so start from real transparency
+     * rather than whatever garbage the server handed back. */
+    if (argb) {
+        cairo_save(cr);
+        cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+        cairo_set_source_rgba(cr, 0, 0, 0, 0);
+        cairo_paint(cr);
+        cairo_restore(cr);
+    }
+
+    if (wm.have_theme_colors) {
+        if (focused)
+            cairo_set_source_rgba(cr, wm.border_active_r, wm.border_active_g, wm.border_active_b,
+                                  wm.border_active_a);
+        else
+            cairo_set_source_rgba(cr, wm.border_inactive_r, wm.border_inactive_g,
+                                  wm.border_inactive_b, wm.border_inactive_a);
+    } else {
+        cairo_set_source_rgba(cr, wm.border_r, wm.border_g, wm.border_b, wm.border_a);
+    }
+    if (deco_tint_replace)
+        cairo_set_source_rgba(cr, dtr, dtg, dtb, dta);
+    cairo_paint(cr);
+
+    /* The border is part of the decoration, so it washes with it. */
+    if (deco_tint && !deco_tint_replace) {
+        cairo_set_source_rgba(cr, dtr, dtg, dtb, dta);
+        cairo_paint(cr);
+    }
+}
+
+/* Everything the decoration *is*, painted into whatever Cairo context it
+ * is handed at whatever size that context implies.
+ *
+ * Split out of draw_decoration() so it can be run twice: once at the
+ * frame's real size, for the frame itself, and once into a
+ * density-scaled pixmap for a compositor doing per-monitor HiDPI scaling
+ * (density.c). The second call gets a context with cairo_scale() already
+ * applied, so the text is re-shaped and the shapes re-rasterized at the
+ * bigger size instead of being magnified afterwards -- which is the whole
+ * difference between a sharp titlebar and a blurry one.
+ *
+ * Unlike draw_decoration()'s own painting (which splits the titlebar and
+ * each border strip into their own appropriately-sized pixmap -- see its
+ * comment), this still draws everything into the one context it is
+ * handed, titlebar and border alike: both of paint_deco()'s callers
+ * already have a single w x h surface to paint into and no reason to
+ * split it.
+ *
+ * `argb` is whether the surface has a real alpha channel to clear. */
+void paint_deco(Client *c, cairo_t *cr, int w, int h, bool focused, bool argb)
+{
+    double dtr = 0, dtg = 0, dtb = 0, dta = 0;
+    bool deco_tint = false, deco_tint_replace = false;
+    paint_titlebar(c, cr, w, focused, argb, &dtr, &dtg, &dtb, &dta, &deco_tint, &deco_tint_replace);
 
     /* Flat-colored left/right/bottom border (kiwm.conf's border_thickness=,
      * default 0 = no border, just the titlebar; color from greenxp/colors
@@ -1219,7 +1304,6 @@ void paint_deco(Client *c, cairo_t *cr, int w, int h, bool focused, bool argb)
             cairo_fill(cr);
         }
     }
-
 }
 
 void draw_decoration(Client *c)
@@ -1245,47 +1329,24 @@ void draw_decoration(Client *c)
         return;
 
     bool focused = (c == wm.focused);
+    bool argb = (c->frame_depth == 32);
     bool dbg = wm.debug_resize && wm.drag_mode == DRAG_RESIZE;
     double t_start = dbg ? monotonic_ms() : 0;
+    double t_pixmap = 0, t_paint = 0, t_flush = 0, t_copy = 0;
 
-    /* Render into an off-screen pixmap, not the frame directly: every
-     * paint call below (background, focus tint, title text, each button)
-     * used to land on the actual window the instant it was sent, so a
-     * fast sequence of redraws (dragging/resizing) could show those
-     * layers appearing one at a time -- visible flicker. Blitting the
-     * finished pixmap in one xcb_copy_area() at the end instead makes
-     * the whole update atomic from the X server's point of view. */
-    xcb_pixmap_t pixmap = xcb_generate_id(wm.conn);
-    xcb_create_pixmap(wm.conn, c->frame_depth, pixmap, c->frame, (uint16_t)w, (uint16_t)h);
-    double t_pixmap = dbg ? monotonic_ms() : 0;
+    /* CopyArea requires source and destination to share a depth, and the
+     * GC is bound to one too -- so an ARGB frame is blitted with the
+     * depth-32 GC main.c made for exactly this (wm.deco_gc_argb). */
+    xcb_gcontext_t gc = (argb && wm.deco_gc_argb) ? wm.deco_gc_argb : wm.deco_gc;
 
-    cairo_surface_t *surface = cairo_xcb_surface_create(wm.conn, pixmap, c->frame_visual, w, h);
-    cairo_t *cr = cairo_create(surface);
-
-    paint_deco(c, cr, w, h, focused, c->frame_depth == 32);
-
-    /* With nothing compositing, make what was just drawn opaque.
-     *
-     * The theme's colours carry alpha (greenxp's titlebar is #008800bb)
-     * and paint_deco() honours it, which is right in front of a
-     * compositor and wrong without one: X ignores the alpha channel of a
-     * window nobody is compositing and displays the *premultiplied*
-     * colour, so that green arrived as (0,100,0) instead of the (0,136,0)
-     * the theme names. A titlebar quietly darker than its own theme,
-     * rather than a transparent one.
-     *
-     * DEST_OVER puts this underneath everything already drawn instead of
-     * over it, so the layering paint_deco() built -- theme image, focus
-     * tint, button tint, title and its shadow -- is untouched and only the
-     * transparency it left behind is filled in. A titlebar the theme tints
-     * uniformly therefore comes out at exactly the theme's colour: 0.73 of
-     * the green over 0.27 of the same green is that green.
-     *
-     * Not inside paint_deco(), because density.c calls that too -- and
-     * the dense copy it publishes exists solely for a compositor to
-     * sample, so it must keep every bit of its alpha. */
-    if (!compositor_running()) {
-        double br, bgc, bb;
+    /* With nothing compositing, whatever a strip's own paint left
+     * translucent (the theme's colours carry alpha, e.g. greenxp's
+     * titlebar #008800bb) has to be made opaque the same way paint_deco()
+     * always did for the whole frame -- see the comment that used to sit
+     * here. Same background colour for every strip, computed once. */
+    bool opaque_fallback = !compositor_running();
+    double br = 0, bgc = 0, bb = 0;
+    if (opaque_fallback) {
         if (wm.have_theme_colors) {
             br  = focused ? wm.bg_active_r : wm.bg_inactive_r;
             bgc = focused ? wm.bg_active_g : wm.bg_inactive_g;
@@ -1293,38 +1354,127 @@ void draw_decoration(Client *c)
         } else {
             br = wm.deco_bg_r; bgc = wm.deco_bg_g; bb = wm.deco_bg_b;
         }
-
-        cairo_save(cr);
-        cairo_set_operator(cr, CAIRO_OPERATOR_DEST_OVER);
-        cairo_set_source_rgb(cr, br, bgc, bb);
-        cairo_paint(cr);
-        cairo_restore(cr);
     }
 
-    double t_paint = dbg ? monotonic_ms() : 0;
+    /* Painted into a pixmap of its own for each of these, not the frame
+     * directly (same reason as always: a fast sequence of redraws while
+     * dragging/resizing must not show layers landing on the window one at
+     * a time, so each xcb_copy_area() below is the atomic end of one),
+     * and not one pixmap sized to the whole frame either. A resize step
+     * runs this once per frame for the whole drag, and only the titlebar
+     * strip and the (usually few-pixel-thick) border actually change --
+     * the interior is the client's content window, always fully covering
+     * whatever the frame shows behind it. A frame-sized pixmap was
+     * therefore allocating, painting and blitting every pixel of that
+     * covered interior too, on every single step: for a 1200x800 window
+     * that is ~3.8MB of CreatePixmap + CopyArea traffic 60-140 times a
+     * second, for pixels nobody was ever going to see. Painting the
+     * titlebar strip (w x TITLEBAR_H) and each border strip (bt x its own
+     * length) into its own right-sized pixmap instead keeps the same
+     * atomicity per strip while paying only for the perimeter, not the
+     * area -- confirmed with KIWM_DEBUG_RESIZE=1 create_pixmap/paint
+     * dominating the frame-sized version's cost. */
+    double dtr = 0, dtg = 0, dtb = 0, dta = 0;
+    bool deco_tint = false, deco_tint_replace = false;
+    {
+        double sp0 = dbg ? monotonic_ms() : 0;
 
-    cairo_destroy(cr);
-    cairo_surface_flush(surface);
-    cairo_surface_destroy(surface);
-    double t_flush = dbg ? monotonic_ms() : 0;
+        xcb_pixmap_t pixmap = xcb_generate_id(wm.conn);
+        xcb_create_pixmap(wm.conn, c->frame_depth, pixmap, c->frame, (uint16_t)w, (uint16_t)TITLEBAR_H);
+        double sp1 = dbg ? monotonic_ms() : 0;
+        t_pixmap += sp1 - sp0;
 
-    /* CopyArea requires source and destination to share a depth, and the
-     * GC is bound to one too -- so an ARGB frame is blitted with the
-     * depth-32 GC main.c made for exactly this (wm.deco_gc_argb). */
-    xcb_gcontext_t gc = (c->frame_depth == 32 && wm.deco_gc_argb) ? wm.deco_gc_argb : wm.deco_gc;
-    xcb_copy_area(wm.conn, pixmap, c->frame, gc, 0, 0, 0, 0, (uint16_t)w, (uint16_t)h);
-    xcb_free_pixmap(wm.conn, pixmap);
+        cairo_surface_t *surface = cairo_xcb_surface_create(wm.conn, pixmap, c->frame_visual, w, TITLEBAR_H);
+        cairo_t *cr = cairo_create(surface);
+
+        paint_titlebar(c, cr, w, focused, argb, &dtr, &dtg, &dtb, &dta, &deco_tint, &deco_tint_replace);
+
+        if (opaque_fallback) {
+            cairo_save(cr);
+            cairo_set_operator(cr, CAIRO_OPERATOR_DEST_OVER);
+            cairo_set_source_rgb(cr, br, bgc, bb);
+            cairo_paint(cr);
+            cairo_restore(cr);
+        }
+        double sp2 = dbg ? monotonic_ms() : 0;
+        t_paint += sp2 - sp1;
+
+        cairo_destroy(cr);
+        cairo_surface_flush(surface);
+        cairo_surface_destroy(surface);
+        double sp3 = dbg ? monotonic_ms() : 0;
+        t_flush += sp3 - sp2;
+
+        xcb_copy_area(wm.conn, pixmap, c->frame, gc, 0, 0, 0, 0, (uint16_t)w, (uint16_t)TITLEBAR_H);
+        xcb_free_pixmap(wm.conn, pixmap);
+        double sp4 = dbg ? monotonic_ms() : 0;
+        t_copy += sp4 - sp3;
+    }
+
+    /* The flat left/right/bottom border, each its own strip -- see
+     * paint_border_fill(). Reuses the titlebar's hover tint (dtr/.../
+     * deco_tint_replace above) rather than recomputing it: hovering a
+     * button washes the border the same colour as the titlebar. */
+    int bt = wm.border_thickness;
+    if (bt > 0 && h > TITLEBAR_H) {
+        int border_h = h - TITLEBAR_H;
+        struct { int x, y, sw, sh; } strips[3] = {
+            { 0,      TITLEBAR_H, bt, border_h }, /* left */
+            { w - bt, TITLEBAR_H, bt, border_h }, /* right */
+            { 0,      h - bt,     w,  bt       }, /* bottom */
+        };
+
+        for (int i = 0; i < 3; i++) {
+            double sp0 = dbg ? monotonic_ms() : 0;
+
+            xcb_pixmap_t pixmap = xcb_generate_id(wm.conn);
+            xcb_create_pixmap(wm.conn, c->frame_depth, pixmap, c->frame,
+                              (uint16_t)strips[i].sw, (uint16_t)strips[i].sh);
+            double sp1 = dbg ? monotonic_ms() : 0;
+            t_pixmap += sp1 - sp0;
+
+            cairo_surface_t *surface = cairo_xcb_surface_create(wm.conn, pixmap, c->frame_visual,
+                                                                strips[i].sw, strips[i].sh);
+            cairo_t *cr = cairo_create(surface);
+
+            paint_border_fill(cr, argb, focused, deco_tint, deco_tint_replace, dtr, dtg, dtb, dta);
+
+            if (opaque_fallback) {
+                cairo_save(cr);
+                cairo_set_operator(cr, CAIRO_OPERATOR_DEST_OVER);
+                cairo_set_source_rgb(cr, br, bgc, bb);
+                cairo_paint(cr);
+                cairo_restore(cr);
+            }
+            double sp2 = dbg ? monotonic_ms() : 0;
+            t_paint += sp2 - sp1;
+
+            cairo_destroy(cr);
+            cairo_surface_flush(surface);
+            cairo_surface_destroy(surface);
+            double sp3 = dbg ? monotonic_ms() : 0;
+            t_flush += sp3 - sp2;
+
+            xcb_copy_area(wm.conn, pixmap, c->frame, gc, 0, 0,
+                         (int16_t)strips[i].x, (int16_t)strips[i].y,
+                         (uint16_t)strips[i].sw, (uint16_t)strips[i].sh);
+            xcb_free_pixmap(wm.conn, pixmap);
+            double sp4 = dbg ? monotonic_ms() : 0;
+            t_copy += sp4 - sp3;
+        }
+    }
 
     /* And the same decoration again, at whatever density a compositor
      * asked for (density.h). A no-op -- not even a branch's worth of work
-     * -- unless one did. */
+     * -- unless one did. Still the frame-sized paint_deco(): this is not
+     * the resize-hot path, and a compositor sampling it wants one pixmap
+     * to composite over the window, not four. */
     deco_density_publish(c, w, h, focused);
 
     if (dbg) {
         double t_end = monotonic_ms();
         fprintf(stderr, "kiwm: [resize-debug] draw_decoration: create_pixmap=%.2fms paint=%.2fms "
                         "cairo_flush=%.2fms copy_area=%.2fms total=%.2fms\n",
-                t_pixmap - t_start, t_paint - t_pixmap, t_flush - t_paint, t_end - t_flush,
-                t_end - t_start);
+                t_pixmap, t_paint, t_flush, t_copy, t_end - t_start);
     }
 }
