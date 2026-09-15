@@ -12,7 +12,8 @@ LIBS := $(shell pkg-config --cflags --libs gtk+-2.0) -lm $(LIBINTL)
 
 SRCS := kiconf.c common.c tabs/appearance.c tabs/shortcuts.c tabs/entrada.c \
         tabs/outras.c tabs/permissoes.c tabs/paineis.c tabs/wallpaper.c \
-        tabs/telas.c tabs/janelas.c tabs/efeitos.c
+        tabs/telas.c tabs/janelas.c tabs/efeitos.c tabs/sistema.c \
+        tabs/programas.c tabs/autostart.c
 
 # po/LINGUAS: one language code per line ("pt_BR", "es", ...), '#' comments.
 # Empty/missing until the first translation actually exists (see po/README.md).
