@@ -111,6 +111,7 @@ typedef struct {
     /* The net: where each mass is, where the window says it should be,
      * and how it is moving. */
     Vec pos[NET_COUNT];
+    Vec prev[NET_COUNT];        /* pos before the last step, to draw between */
     Vec origin[NET_COUNT];
     Vec vel[NET_COUNT];
     Vec acc[NET_COUNT];
@@ -214,7 +215,7 @@ static void net_reset(WobblyData *d, const CompRect *r)
     for (int row = 0; row < NET; row++) {
         for (int col = 0; col < NET; col++) {
             int i = row * NET + col;
-            d->pos[i] = d->origin[i] = rest_at(r, col, row);
+            d->pos[i] = d->prev[i] = d->origin[i] = rest_at(r, col, row);
             d->vel[i] = (Vec){ 0.0f, 0.0f };
             d->acc[i] = (Vec){ 0.0f, 0.0f };
             d->pinned[i] = false;
@@ -283,6 +284,8 @@ static bool integrate(WobblyData *d, const CompRect *rect, float dt)
 
     float x_len = (float)rect->w / (float)(NET - 1);
     float y_len = (float)rect->h / (float)(NET - 1);
+
+    memcpy(d->prev, d->pos, sizeof(d->prev));
 
     for (int row = 0; row < NET; row++)
         for (int col = 0; col < NET; col++)
@@ -359,7 +362,7 @@ static bool integrate(WobblyData *d, const CompRect *rect, float dt)
  * control points, so this is one Bernstein sum per drawn vertex and no
  * conversion at all. What makes the sheet smooth however coarse the
  * physics is. */
-static Vec bezier_at(const WobblyData *d, float u, float v)
+static Vec bezier_at(const Vec *pos, float u, float v)
 {
     float bu[NET], bv[NET];
     float iu = 1.0f - u, iv = 1.0f - v;
@@ -378,17 +381,31 @@ static Vec bezier_at(const WobblyData *d, float u, float v)
     for (int row = 0; row < NET; row++) {
         for (int col = 0; col < NET; col++) {
             float weight = bu[col] * bv[row];
-            out.x += weight * d->pos[row * NET + col].x;
-            out.y += weight * d->pos[row * NET + col].y;
+            out.x += weight * pos[row * NET + col].x;
+            out.y += weight * pos[row * NET + col].y;
         }
     }
     return out;
 }
 
-static void build_mesh(WobblyData *d)
+/* `alpha` is how far into the next step the frame falls: the net is drawn
+ * between where the last step left it and where the one before did, so
+ * the picture advances by exactly the frame's time however the fixed
+ * steps happen to straddle it. Without it, at 60 Hz, successive frames
+ * showed the simulation 20, 20, 10, 20, 20, 10 ms further along -- a
+ * spring that jumps unevenly reads as a low frame rate however many
+ * frames are drawn. (The usual "fix your timestep" answer; the state a
+ * step behind is a lag nobody can see.) */
+static void build_mesh(WobblyData *d, float alpha)
 {
     CompSceneMesh *m = &d->mesh;
     int cols = m->cols, rows = m->rows;
+
+    Vec pos[NET_COUNT];
+    for (int i = 0; i < NET_COUNT; i++) {
+        pos[i].x = d->prev[i].x + (d->pos[i].x - d->prev[i].x) * alpha;
+        pos[i].y = d->prev[i].y + (d->pos[i].y - d->prev[i].y) * alpha;
+    }
 
     float minx = 0.0f, miny = 0.0f, maxx = 0.0f, maxy = 0.0f;
     bool first = true;
@@ -397,7 +414,7 @@ static void build_mesh(WobblyData *d)
         float v = (float)gy / (float)rows;
         for (int gx = 0; gx <= cols; gx++) {
             float u = (float)gx / (float)cols;
-            Vec p = bezier_at(d, u, v);
+            Vec p = bezier_at(pos, u, v);
             int i = gy * (cols + 1) + gx;
             m->x[i] = p.x;
             m->y[i] = p.y;
@@ -447,7 +464,11 @@ static void wobbly_update(CompEffect *e, double now)
 
     /* Fixed steps, however long the frame was. A frame that took 40 ms
      * runs four of them; one that took 2 ms runs none and the net is
-     * simply drawn where it already was. */
+     * drawn between the last two states (build_mesh). The step is never
+     * shortened to fit the remainder: this runs once per loop iteration,
+     * which is many times a frame while events are arriving, and `drag`
+     * is applied per step -- tiny steps would damp the sheet to a crawl
+     * while events flow and let it jump whenever the loop sleeps. */
     bool moving = true;
     int guard = 0;
     while (now - d->clock >= STEP_MS && guard++ < 64) {
@@ -463,7 +484,10 @@ static void wobbly_update(CompEffect *e, double now)
     if (!d->dragging && !moving)
         d->rigid = true;
 
-    build_mesh(d);
+    float alpha = (float)((now - d->clock) / STEP_MS);
+    if (alpha < 0.0f) alpha = 0.0f;
+    if (alpha > 1.0f) alpha = 1.0f;
+    build_mesh(d, alpha);
 
     /* One rect, not two: the old and new bbox overlap by most of their
      * area, and their union is one rectangle where two would be one plus
@@ -620,7 +644,7 @@ static void on_event(CompWindow *w, const CompEvent *event,
      * along under the rectangle the sheet spans (scene.h). */
     d->mesh.shadow = true;
 
-    build_mesh(d);
+    build_mesh(d, 1.0f);
     d->covered = d->bbox;
 
     e->ops = &wobbly_ops;
