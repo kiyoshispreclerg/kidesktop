@@ -1368,6 +1368,22 @@ static void paint_border_fill(cairo_t *cr, bool argb, bool focused,
  * from kiwm at all for the common case (colour unchanged) of a resize
  * step. See wm.h's comment for why this is three dedicated windows and
  * not the frame's own background. */
+/* Destroys the three border windows, if they exist -- the theme has no
+ * border, the decoration is hidden altogether (a maximized window with
+ * hide_deco_on_maximize=1), or a compositor just arrived and border_sync()
+ * is about to paint the border for real onto the frame instead. Safe to
+ * call when there's nothing to destroy. */
+static void border_hide(Client *c)
+{
+    if (c->border_win[0] == XCB_NONE)
+        return;
+    for (int i = 0; i < 3; i++) {
+        xcb_destroy_window(wm.conn, c->border_win[i]);
+        c->border_win[i] = XCB_NONE;
+    }
+    c->border_pixel_valid = false;
+}
+
 static void border_sync(Client *c, int w, int h, bool focused,
                         double dtr, double dtg, double dtb, double dta,
                         bool deco_tint, bool deco_tint_replace,
@@ -1377,13 +1393,7 @@ static void border_sync(Client *c, int w, int h, bool focused,
     bool want = bt > 0 && h > TITLEBAR_H;
 
     if (!want) {
-        if (c->border_win[0] != XCB_NONE) {
-            for (int i = 0; i < 3; i++) {
-                xcb_destroy_window(wm.conn, c->border_win[i]);
-                c->border_win[i] = XCB_NONE;
-            }
-            c->border_pixel_valid = false;
-        }
+        border_hide(c);
         return;
     }
 
@@ -1499,6 +1509,13 @@ void draw_decoration(Client *c)
          * a window that is supposed to have no decoration at all
          * (density.h). */
         deco_density_hide(c);
+        /* And the three flat border windows (border_sync()) -- left up
+         * from before hide_deco_on_maximize=1 (or undecorated=, or a
+         * shaded/fullscreen window) took effect, they would otherwise sit
+         * at their last size over whatever the window grew or moved into,
+         * looking exactly like decoration on a window that is supposed to
+         * have none. */
+        border_hide(c);
         return;
     }
     /* Set in manage() -- the root visual for a normal client, the screen's
@@ -1616,17 +1633,10 @@ void draw_decoration(Client *c)
         t_paint += sp1 - sp0;
     } else {
         /* A compositor arriving mid-session leaves border_win[] behind
-         * from whenever there wasn't one -- destroy it (they're the
-         * frame's children, so nothing else needs cleanup) before
-         * painting the border for real below, or their flat colour would
-         * sit on top of it. */
-        if (c->border_win[0] != XCB_NONE) {
-            for (int i = 0; i < 3; i++) {
-                xcb_destroy_window(wm.conn, c->border_win[i]);
-                c->border_win[i] = XCB_NONE;
-            }
-            c->border_pixel_valid = false;
-        }
+         * from whenever there wasn't one -- destroy it before painting
+         * the border for real below, or their flat colour would sit on
+         * top of it. */
+        border_hide(c);
 
         if (bt > 0 && h > TITLEBAR_H) {
             int border_h = h - TITLEBAR_H;
