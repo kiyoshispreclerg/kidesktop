@@ -52,6 +52,16 @@
 #define HOLD_MS       1500
 #define HOLD_RENEW_MS 500
 
+/* How quickly the drawn angle catches up with where a drag is pulling it.
+ * Motion events do not arrive on the same clock as frames do -- a
+ * constant mouse speed can still land two events in one frame and none in
+ * the next -- so painting the raw delta every frame turns that jitter
+ * straight into jitter in the cube's angular speed, which a rotation
+ * makes very easy to see. Chasing the target with a time-constant filter
+ * instead means the picture's speed is a function of the clock, not of
+ * how the events happened to bunch up. */
+#define DRAG_SMOOTH_MS 35.0
+
 
 typedef struct {
     char hotkey[128];
@@ -142,6 +152,13 @@ typedef struct {
 
     float tilt;
     float tilt_from;            /* where the tilt was when settling began */
+
+    /* Where a live drag is pulling the angle and tilt towards -- the raw
+     * sum of pointer motion, unsmoothed. `angle`/`tilt` chase these once
+     * per frame (cube_update) rather than jumping straight to them. */
+    float angle_target;
+    float tilt_target;
+    double drag_tick;           /* when that chase last advanced */
 
     /* The point the pointer is pinned to while the drag lasts: every
      * motion is measured from it and the pointer put back on it. */
@@ -464,16 +481,16 @@ static void on_motion(void *data, int root_x, int root_y)
         return;
     input_pointer_warp(d->drag_x, d->drag_y);
 
-    d->angle += (float)dx / (float)o->rect.w * cfg->turns * 2.0f * (float)M_PI;
+    d->angle_target += (float)dx / (float)o->rect.w * cfg->turns * 2.0f * (float)M_PI;
 
     /* Pulling down leans the cube back, the way pulling the near edge of
      * a box towards you tips its top into view. The tilt stops at the
      * poles: past looking straight down there is nothing further to see,
      * only the cube upside down. */
     float limit = cfg->tilt_max * (float)M_PI / 180.0f;
-    d->tilt -= (float)dy / (float)o->rect.h * limit * 2.0f;
-    if (d->tilt > limit) d->tilt = limit;
-    if (d->tilt < -limit) d->tilt = -limit;
+    d->tilt_target -= (float)dy / (float)o->rect.h * limit * 2.0f;
+    if (d->tilt_target > limit) d->tilt_target = limit;
+    if (d->tilt_target < -limit) d->tilt_target = -limit;
 
     mark_dirty(d);
 }
@@ -612,7 +629,17 @@ static void cube_update(CompEffect *e, double now)
                   (d->phase_to - d->phase_from) * eased(e, d->phase_time, now);
     float angle = d->angle;
     float tilt = d->tilt;
-    if (d->settling) {
+    if (d->dragging && !d->settling) {
+        /* Chase the drag's raw target by a fraction of the remaining
+         * distance set by how much real time has passed, not by how many
+         * motion events happened to arrive -- see DRAG_SMOOTH_MS. */
+        double dt = now - d->drag_tick;
+        if (dt < 0.0) dt = 0.0;
+        d->drag_tick = now;
+        float k = 1.0f - expf((float)(-dt / DRAG_SMOOTH_MS));
+        angle = d->angle + (d->angle_target - d->angle) * k;
+        tilt = d->tilt + (d->tilt_target - d->tilt) * k;
+    } else if (d->settling) {
         float p = eased(e, d->angle_time, now);
         angle = d->angle_from + (d->angle_to - d->angle_from) * p;
         /* Level again as well as square on: the cube lines up with the
@@ -982,6 +1009,7 @@ static void cube_open(const CompEffectInstance *self, bool flick)
     d->drag_x = px;
     d->drag_y = py;
     d->dragging = !flick;
+    d->drag_tick = comp_now_ms();
     d->flick = flick;
     /* A keyed turn is the desktops sweeping past at full size, so the
      * windows lie on their faces for it: standing them off the surface
