@@ -273,3 +273,221 @@ void fprintf_double(FILE *f, const char *key, double val, int digits)
     fprintf(f, "%s=%s\n", key, buf);
 }
 
+/* ---- .desktop files ---------------------------------------------------- */
+
+int desktop_entry_get(const char *path, const char *key, char *out, size_t outsz)
+{
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        return 0;
+    }
+    int in_entry = 0;
+    int found = 0;
+    size_t keylen = strlen(key);
+    char line[1024];
+    while (!found && fgets(line, sizeof(line), f)) {
+        char *l = trim(line);
+        if (l[0] == '[') {
+            in_entry = !strcmp(l, "[Desktop Entry]");
+            continue;
+        }
+        if (!in_entry || l[0] == '#' || !*l) {
+            continue;
+        }
+        char *eq = strchr(l, '=');
+        if (!eq) {
+            continue;
+        }
+        *eq = '\0';
+        char *k = trim(l);
+        if (strlen(k) == keylen && !strcmp(k, key)) {
+            snprintf(out, outsz, "%s", trim(eq + 1));
+            found = 1;
+        }
+    }
+    fclose(f);
+    return found;
+}
+
+void desktop_entry_set_key(const char *path, const char *key, const char *value)
+{
+    FILE *in = fopen(path, "r");
+    if (!in) {
+        /* New file: the minimal thing kisession.c's own desktop_get()
+         * (and desktop_entry_get() above) needs to see this key. */
+        if (!value) {
+            return; /* nothing to remove from a file that isn't there */
+        }
+        FILE *f = fopen(path, "w");
+        if (!f) {
+            g_warning("kiconf: could not write '%s': %s", path, strerror(errno));
+            return;
+        }
+        fprintf(f, "[Desktop Entry]\n%s=%s\n", key, value);
+        fclose(f);
+        return;
+    }
+
+    char tmp[PATH_MAX];
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    FILE *out = fopen(tmp, "w");
+    if (!out) {
+        g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
+        fclose(in);
+        return;
+    }
+
+    int in_entry = 0;
+    int written = 0;
+    size_t keylen = strlen(key);
+    char line[1024];
+    while (fgets(line, sizeof(line), in)) {
+        size_t len = strlen(line);
+        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
+            line[--len] = '\0';
+        }
+        char buf[1024];
+        snprintf(buf, sizeof(buf), "%s", line);
+        char *l = trim(buf);
+
+        if (l[0] == '[') {
+            if (in_entry && !written && value) {
+                fprintf(out, "%s=%s\n", key, value);
+                written = 1;
+            }
+            in_entry = !strcmp(l, "[Desktop Entry]");
+            fprintf(out, "%s\n", line);
+            continue;
+        }
+
+        if (in_entry && *l && *l != '#') {
+            char *eq = strchr(l, '=');
+            if (eq) {
+                *eq = '\0';
+                if (strlen(trim(l)) == keylen && !strcmp(trim(l), key)) {
+                    if (value) {
+                        fprintf(out, "%s=%s\n", key, value);
+                        written = 1;
+                    } /* else: drop the line -- key removed */
+                    continue;
+                }
+            }
+        }
+        fprintf(out, "%s\n", line);
+    }
+    if (in_entry && !written && value) {
+        fprintf(out, "%s=%s\n", key, value);
+        written = 1;
+    }
+    if (!written && value) {
+        /* No [Desktop Entry] group existed at all (a near-empty or
+         * malformed file) -- add one rather than silently doing nothing. */
+        fprintf(out, "[Desktop Entry]\n%s=%s\n", key, value);
+    }
+
+    fclose(in);
+    fclose(out);
+    rename(tmp, path);
+}
+
+/* ---- kisession.conf ----------------------------------------------------- */
+
+const KisessionServiceDef KISESSION_SERVICES[] = {
+    {"dbus", "Barramento de sessao (D-Bus) + ambiente de ativacao", 1},
+    {"xisguard", "Permissoes XNOTIFY", 1},
+    {"kiconfd", "Daemon de tema/cursor/configuracoes", 1},
+    {"xismenu", "Registrador do menu de aplicativos (menu global)", 1},
+    {"xisback", "Papel de parede", 1},
+    {"xispanel", "Painel/barra de tarefas", 1},
+    {"xiskeys", "Atalhos globais de teclado", 1},
+    {"audio", "pipewire/pulseaudio (so se nada mais ja tiver iniciado um)", 1},
+    {"locker", "Bloqueio de tela (xss-lock + i3lock)", 1},
+    {"polkit", "Agente de autenticacao polkit", 1},
+    {"wm", "Gerenciador de janelas", 1},
+    {"kicomp", "Compositor (opcional)", 1},
+    {"autostart", "Entradas de inicio automatico XDG (aplicativos instalados)", 1},
+};
+
+static int kisession_service_index(const char *name)
+{
+    for (int i = 0; i < N_KISESSION_SERVICES; i++) {
+        if (!strcmp(KISESSION_SERVICES[i].name, name)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void kisession_load(KisessionConfig *c)
+{
+    c->wm[0] = '\0';
+    for (int i = 0; i < N_KISESSION_SERVICES; i++) {
+        c->enabled[i] = KISESSION_SERVICES[i].default_enabled;
+    }
+
+    char path[PATH_MAX];
+    resolve_path("kisession.conf", path, sizeof(path));
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        return;
+    }
+    char line[1024];
+    while (fgets(line, sizeof(line), f)) {
+        char *hash = strchr(line, '#');
+        if (hash) {
+            *hash = '\0';
+        }
+        char *l = trim(line);
+        if (!*l) {
+            continue;
+        }
+        if (!strncmp(l, "SERVICE", 7) && (l[7] == ' ' || l[7] == '\t')) {
+            char *p = trim(l + 7);
+            char *sp = p;
+            while (*sp && *sp != ' ' && *sp != '\t') {
+                sp++;
+            }
+            if (*sp) {
+                *sp++ = '\0';
+            }
+            char *val = trim(sp);
+            int idx = kisession_service_index(p);
+            if (idx >= 0) {
+                c->enabled[idx] = (val[0] == '0') ? 0 : 1;
+            }
+            continue;
+        }
+        if (!strncmp(l, "wm", 2)) {
+            char *eq = strchr(l, '=');
+            if (eq) {
+                snprintf(c->wm, sizeof(c->wm), "%s", trim(eq + 1));
+            }
+        }
+    }
+    fclose(f);
+}
+
+void kisession_save(const KisessionConfig *c)
+{
+    char path[PATH_MAX];
+    resolve_path("kisession.conf", path, sizeof(path));
+    char tmp[PATH_MAX];
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    FILE *f = fopen(tmp, "w");
+    if (!f) {
+        g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
+        return;
+    }
+    fprintf(f, "# kisession config (written by kiconf's Programas padrao / "
+                "Iniciar automaticamente tabs)\n");
+    fprintf(f, "# See kisession/kisession.c for the full reference.\n\n");
+    fprintf(f, "wm = %s\n\n", c->wm);
+    for (int i = 0; i < N_KISESSION_SERVICES; i++) {
+        fprintf(f, "SERVICE\t%s\t%d\t# %s\n", KISESSION_SERVICES[i].name,
+                c->enabled[i], KISESSION_SERVICES[i].doc);
+    }
+    fclose(f);
+    rename(tmp, path);
+    signal_daemon("kisession");
+}
+

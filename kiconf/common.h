@@ -94,4 +94,49 @@ const char *combo_text(GtkWidget *combo, const char *const *options);
  * plain C-locale atof/strtod and would silently misread. */
 void fprintf_double(FILE *f, const char *key, double val, int digits);
 
+/* ---- .desktop files (freedesktop Desktop Entry spec, the subset used
+ * for XDG autostart and for finding installed apps by category) -------- */
+
+/* Reads one key from a .desktop file's [Desktop Entry] group only (a
+ * "[Desktop Action ...]" group must not answer for it), matching the
+ * unlocalized key exactly -- a "Name[pt_BR]" never satisfies "Name".
+ * Mirrors kisession.c's own desktop_get(): what it reads is what
+ * kisession itself will see. Returns 1 and fills `out` if found. */
+int desktop_entry_get(const char *path, const char *key, char *out, size_t outsz);
+
+/* Sets (value non-NULL) or removes (value NULL) one key inside a
+ * .desktop file's [Desktop Entry] group, touching nothing else in the
+ * file -- other keys, other groups (a "[Desktop Action ...]" the user
+ * hand-wrote, say), comments. Creates a minimal file (just
+ * "[Desktop Entry]" and that one key) if `path` doesn't exist yet. */
+void desktop_entry_set_key(const char *path, const char *key, const char *value);
+
+/* ---- kisession.conf: wm=/SERVICE lines, shared by the Programas padrao
+ * (wm=) and Iniciar automaticamente (SERVICE list) tabs ---------------- */
+
+/* Mirrors kisession.c's own SERVICES[] table (name, one-line doc,
+ * built-in default_enabled) -- kept here by hand for the same reason as
+ * tabs/shortcuts.c's kiwm/kicomp catalogs: kisession has no
+ * machine-readable listing of its own services to read this from.
+ * Update it in the same commit that adds/removes a kisession service. */
+typedef struct {
+    const char *name;
+    const char *doc;
+    int default_enabled;
+} KisessionServiceDef;
+
+extern const KisessionServiceDef KISESSION_SERVICES[];
+#define N_KISESSION_SERVICES 13
+
+typedef struct {
+    char wm[NAME_LEN];
+    int enabled[N_KISESSION_SERVICES]; /* parallel to KISESSION_SERVICES */
+} KisessionConfig;
+
+/* kisession.conf's whole schema is these two things (see kisession.c's
+ * own doc comment) -- nothing else to preserve, so unlike kiwm.conf this
+ * loads/saves the file whole rather than merging around foreign lines. */
+void kisession_load(KisessionConfig *c);
+void kisession_save(const KisessionConfig *c);
+
 #endif /* KICONF_COMMON_H */
