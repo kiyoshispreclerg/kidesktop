@@ -39,6 +39,15 @@ typedef struct CompSceneMesh {
     float x[MESH_MAX_VERTS];
     float y[MESH_MAX_VERTS];
 
+    /* Bumped every time x/y is rewritten. The mesh's own pointer stays
+     * the same for as long as the effect lives (kwin's wobbly rebuilds
+     * the same struct in place every frame rather than handing over a
+     * new one), so a renderer that wants to upload the tessellated
+     * vertices once per frame -- instead of once per scissor piece it
+     * happens to be drawn through -- needs something finer than the
+     * pointer to tell two frames' worth of the same mesh apart. */
+    unsigned generation;
+
     /* Cast a shadow under the rectangle the mesh spans. A shadow is a
      * blurred rectangle (shadow.h) and cannot be bent along with the
      * window, so this is only worth asking for where the mesh stays

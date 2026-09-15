@@ -43,6 +43,25 @@ static GLint u_projection, u_transform, u_opacity, u_texture, u_y_flip, u_use_uv
 static GLint u_mask, u_use_mask;
 static GLuint quad_vbo;
 static GLuint mesh_vbo;
+static GLuint shadow_mesh_vbo;
+
+/* draw_mesh_node/draw_shadow_mesh are called once per scissor piece a
+ * window's clip happens to be split into, and again for every rect a
+ * frame's damage (or buffer-age history) carries -- often several times
+ * for the same mesh in the same frame. The tessellated vertices only
+ * change when the effect rebuilds them (CompSceneMesh.generation, bumped
+ * in scene.h/wobbly.c), so a call that sees the same (mesh, generation)
+ * as the last one skips rebuilding the vertex array on the CPU and
+ * re-uploading it, and just redraws what is already sitting in the VBO
+ * from the previous call. Kept separate from the shadow's cache because
+ * the two draw into different buffers and would otherwise evict each
+ * other on the calls that use both. */
+static const CompSceneMesh *mesh_cache_mesh;
+static unsigned mesh_cache_generation;
+static int mesh_cache_vcount;
+static const CompSceneMesh *shadow_cache_mesh;
+static unsigned shadow_cache_generation;
+static int shadow_cache_vcount;
 
 /* The shadow program, and the profile texture it reads (see shadow.h:
  * one dimension, 2*radius alpha texels, the same numbers XRender builds
@@ -237,6 +256,7 @@ static bool program_build(void)
     /* Filled per frame for a mesh node (draw_mesh_node): interleaved
      * x,y (root coordinates) and u,v (place in the grid). */
     glGenBuffers(1, &mesh_vbo);
+    glGenBuffers(1, &shadow_mesh_vbo);
 
     /* The shadow program is optional in the sense that failing to build
      * it costs shadows, not the session: everything else still draws. */
@@ -1222,37 +1242,48 @@ static void draw_shadow_mesh(const CompOutput *o, const CompSceneNode *n,
 
     int cols = mesh->cols, rows = mesh->rows;
     static float verts[MESH_MAX_COLS * MESH_MAX_ROWS * 6 * 4];
-    int v = 0;
+    int v;
 
-    for (int gy = 0; gy < rows; gy++) {
-        for (int gx = 0; gx < cols; gx++) {
-            /* Each corner twice over: where it is in the shadow's own
-             * rectangle (for the profile) and where the window's mesh
-             * puts that place (for the screen). */
-            const float bu[4] = { (float)gx / cols, (float)(gx + 1) / cols,
-                                  (float)gx / cols, (float)(gx + 1) / cols };
-            const float bv[4] = { (float)gy / rows, (float)gy / rows,
-                                  (float)(gy + 1) / rows, (float)(gy + 1) / rows };
-            float px[4], py[4];
-            for (int k = 0; k < 4; k++) {
-                /* The shadow box point, expressed in the window's own
-                 * 0..1 -- outside it wherever the box reaches past. */
-                float mu = ((float)box.x + bu[k] * (float)box.w - (float)base.x)
-                           / (float)base.w;
-                float mv = ((float)box.y + bv[k] * (float)box.h - (float)base.y)
-                           / (float)base.h;
-                mesh_sample(mesh, mu, mv, &px[k], &py[k]);
-            }
+    bool cached = shadow_cache_mesh == mesh &&
+                  shadow_cache_generation == mesh->generation;
 
-            const int idx[6] = { 0, 1, 2, 1, 3, 2 };
-            for (int t = 0; t < 6; t++) {
-                int k = idx[t];
-                verts[v++] = px[k];
-                verts[v++] = py[k];
-                verts[v++] = bu[k];
-                verts[v++] = bv[k];
+    if (cached) {
+        v = shadow_cache_vcount;
+    } else {
+        v = 0;
+        for (int gy = 0; gy < rows; gy++) {
+            for (int gx = 0; gx < cols; gx++) {
+                /* Each corner twice over: where it is in the shadow's own
+                 * rectangle (for the profile) and where the window's mesh
+                 * puts that place (for the screen). */
+                const float bu[4] = { (float)gx / cols, (float)(gx + 1) / cols,
+                                      (float)gx / cols, (float)(gx + 1) / cols };
+                const float bv[4] = { (float)gy / rows, (float)gy / rows,
+                                      (float)(gy + 1) / rows, (float)(gy + 1) / rows };
+                float px[4], py[4];
+                for (int k = 0; k < 4; k++) {
+                    /* The shadow box point, expressed in the window's own
+                     * 0..1 -- outside it wherever the box reaches past. */
+                    float mu = ((float)box.x + bu[k] * (float)box.w - (float)base.x)
+                               / (float)base.w;
+                    float mv = ((float)box.y + bv[k] * (float)box.h - (float)base.y)
+                               / (float)base.h;
+                    mesh_sample(mesh, mu, mv, &px[k], &py[k]);
+                }
+
+                const int idx[6] = { 0, 1, 2, 1, 3, 2 };
+                for (int t = 0; t < 6; t++) {
+                    int k = idx[t];
+                    verts[v++] = px[k];
+                    verts[v++] = py[k];
+                    verts[v++] = bu[k];
+                    verts[v++] = bv[k];
+                }
             }
         }
+        shadow_cache_mesh = mesh;
+        shadow_cache_generation = mesh->generation;
+        shadow_cache_vcount = v;
     }
 
     float identity[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
@@ -1271,9 +1302,10 @@ static void draw_shadow_mesh(const CompOutput *o, const CompSceneNode *n,
                 (float)base.w, (float)base.h);
     glBindTexture(GL_TEXTURE_2D, shadow_texture);
 
-    glBindBuffer(GL_ARRAY_BUFFER, mesh_vbo);
-    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)v * (GLsizeiptr)sizeof(float),
-                 verts, GL_STREAM_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, shadow_mesh_vbo);
+    if (!cached)
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)v * (GLsizeiptr)sizeof(float),
+                     verts, GL_STREAM_DRAW);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), NULL);
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
@@ -1321,29 +1353,41 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         return;
 
     static float verts[MESH_MAX_COLS * MESH_MAX_ROWS * 6 * 4];
-    int v = 0;
-    for (int gy = 0; gy < rows; gy++) {
-        for (int gx = 0; gx < cols; gx++) {
-            int i00 = gy * (cols + 1) + gx;
-            int i10 = i00 + 1;
-            int i01 = i00 + (cols + 1);
-            int i11 = i01 + 1;
+    int v;
 
-            float u0 = (float)gx / (float)cols;
-            float u1 = (float)(gx + 1) / (float)cols;
-            float t0 = (float)gy / (float)rows;
-            float t1 = (float)(gy + 1) / (float)rows;
+    bool cached = mesh_cache_mesh == mesh &&
+                  mesh_cache_generation == mesh->generation;
 
-            const int idx[6] = { i00, i10, i01, i10, i11, i01 };
-            const float us[6]  = { u0, u1, u0, u1, u1, u0 };
-            const float ts[6]  = { t0, t0, t1, t0, t1, t1 };
-            for (int k = 0; k < 6; k++) {
-                verts[v++] = mesh->x[idx[k]];
-                verts[v++] = mesh->y[idx[k]];
-                verts[v++] = us[k];
-                verts[v++] = ts[k];
+    if (cached) {
+        v = mesh_cache_vcount;
+    } else {
+        v = 0;
+        for (int gy = 0; gy < rows; gy++) {
+            for (int gx = 0; gx < cols; gx++) {
+                int i00 = gy * (cols + 1) + gx;
+                int i10 = i00 + 1;
+                int i01 = i00 + (cols + 1);
+                int i11 = i01 + 1;
+
+                float u0 = (float)gx / (float)cols;
+                float u1 = (float)(gx + 1) / (float)cols;
+                float t0 = (float)gy / (float)rows;
+                float t1 = (float)(gy + 1) / (float)rows;
+
+                const int idx[6] = { i00, i10, i01, i10, i11, i01 };
+                const float us[6]  = { u0, u1, u0, u1, u1, u0 };
+                const float ts[6]  = { t0, t0, t1, t0, t1, t1 };
+                for (int k = 0; k < 6; k++) {
+                    verts[v++] = mesh->x[idx[k]];
+                    verts[v++] = mesh->y[idx[k]];
+                    verts[v++] = us[k];
+                    verts[v++] = ts[k];
+                }
             }
         }
+        mesh_cache_mesh = mesh;
+        mesh_cache_generation = mesh->generation;
+        mesh_cache_vcount = v;
     }
 
     float identity[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
@@ -1366,8 +1410,9 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     }
 
     glBindBuffer(GL_ARRAY_BUFFER, mesh_vbo);
-    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)v * (GLsizeiptr)sizeof(float),
-                 verts, GL_STREAM_DRAW);
+    if (!cached)
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)v * (GLsizeiptr)sizeof(float),
+                     verts, GL_STREAM_DRAW);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), NULL);
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
@@ -1830,6 +1875,12 @@ void gl_teardown(void)
         glDeleteBuffers(1, &mesh_vbo);
         mesh_vbo = 0;
     }
+    if (shadow_mesh_vbo) {
+        glDeleteBuffers(1, &shadow_mesh_vbo);
+        shadow_mesh_vbo = 0;
+    }
+    mesh_cache_mesh = NULL;
+    shadow_cache_mesh = NULL;
     platform = NULL;
 }
 

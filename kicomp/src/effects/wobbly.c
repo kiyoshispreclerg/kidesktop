@@ -412,6 +412,10 @@ static void build_mesh(WobblyData *d)
 
     d->bbox = (CompRect){ (int)minx - 1, (int)miny - 1,
                           (int)(maxx - minx) + 3, (int)(maxy - miny) + 3 };
+
+    /* Marks this as new content, so the renderer uploads it once instead
+     * of once per scissor piece it is drawn through (scene.h). */
+    m->generation++;
 }
 
 /* Let go. Nothing about the springs changes: the point the pointer had
@@ -461,8 +465,22 @@ static void wobbly_update(CompEffect *e, double now)
 
     build_mesh(d);
 
-    output_damage_rect(&d->covered);
-    output_damage_rect(&d->bbox);
+    /* One rect, not two: the old and new bbox overlap by most of their
+     * area, and their union is one rectangle where two would be one plus
+     * the slivers region_add cuts to keep them disjoint -- one scissor
+     * pass for the renderer instead of several. */
+    CompRect damage = {
+        d->covered.x < d->bbox.x ? d->covered.x : d->bbox.x,
+        d->covered.y < d->bbox.y ? d->covered.y : d->bbox.y,
+        0, 0
+    };
+    int x1 = (d->covered.x + d->covered.w > d->bbox.x + d->bbox.w)
+             ? d->covered.x + d->covered.w : d->bbox.x + d->bbox.w;
+    int y1 = (d->covered.y + d->covered.h > d->bbox.y + d->bbox.h)
+             ? d->covered.y + d->covered.h : d->bbox.y + d->bbox.h;
+    damage.w = x1 - damage.x;
+    damage.h = y1 - damage.y;
+    output_damage_rect(&damage);
     d->covered = d->bbox;
 }
 
