@@ -980,6 +980,23 @@ static bool decoration_hover_tint(Client *c, const DecoSlot *slots, int nslots,
     return true;
 }
 
+/* decoration_hover_tint()'s answer, without painting anything -- needed by
+ * both paint_titlebar() (to wash the titlebar with it) and border_sync()
+ * (to wash the border windows with the same colour, so hovering a button
+ * whose tint_scope covers the whole decoration doesn't stop at the
+ * titlebar's edge). compute_deco_layout() is cheap (button/title
+ * placement arithmetic, no drawing), so computing it twice a frame when
+ * both callers run costs nothing worth caching. */
+static void hover_tint_state(Client *c, int w, double *dtr, double *dtg, double *dtb, double *dta,
+                             bool *deco_tint, bool *deco_tint_replace)
+{
+    DecoSlot slots[MAX_DECO_ELEMS];
+    int nslots = compute_deco_layout(c, w, slots, MAX_DECO_ELEMS);
+    *dtr = *dtg = *dtb = *dta = 0;
+    *deco_tint = decoration_hover_tint(c, slots, nslots, dtr, dtg, dtb, dta);
+    *deco_tint_replace = *deco_tint && wm.btn_tinting == BTN_TINT_REPLACE;
+}
+
 /* Everything the decoration *is*, painted into whatever Cairo context it
  * is handed at whatever size that context implies.
  *
@@ -1022,15 +1039,21 @@ static void paint_titlebar(Client *c, cairo_t *cr, int w, bool focused, bool arg
 
     /* Needed before the background is painted, not just to place the
      * elements: which button the pointer is on decides whether the whole
-     * decoration takes that button's tint (button_tint_scope=). */
-    DecoSlot slots[MAX_DECO_ELEMS];
-    int nslots = compute_deco_layout(c, w, slots, MAX_DECO_ELEMS);
-    double dtr = 0, dtg = 0, dtb = 0, dta = 0;
-    bool deco_tint = decoration_hover_tint(c, slots, nslots, &dtr, &dtg, &dtb, &dta);
-    bool deco_tint_replace = deco_tint && wm.btn_tinting == BTN_TINT_REPLACE;
+     * decoration takes that button's tint (button_tint_scope=). Also
+     * border_sync()'s answer for the border windows, which is why it's
+     * handed back rather than kept local -- see hover_tint_state(). */
+    double dtr, dtg, dtb, dta;
+    bool deco_tint, deco_tint_replace;
+    hover_tint_state(c, w, &dtr, &dtg, &dtb, &dta, &deco_tint, &deco_tint_replace);
 
     *out_dtr = dtr; *out_dtg = dtg; *out_dtb = dtb; *out_dta = dta;
     *out_deco_tint = deco_tint; *out_deco_tint_replace = deco_tint_replace;
+
+    /* hover_tint_state() computed its own copy of this to find the
+     * hovered slot's tint; the loop below needs the layout itself, to
+     * actually place the title and each button. */
+    DecoSlot slots[MAX_DECO_ELEMS];
+    int nslots = compute_deco_layout(c, w, slots, MAX_DECO_ELEMS);
 
     /* Everything below is the titlebar strip only -- clip to it so the
      * theme image/tint doesn't stretch down over the side/bottom border
@@ -1333,6 +1356,81 @@ static void paint_border_fill(cairo_t *cr, bool argb, bool focused,
     }
 }
 
+/* Without a compositor, keeps the three flat border windows (wm.h's
+ * Client::border_win[]) in step with the frame: created the first time
+ * they're wanted, destroyed (by destroying the frame, since they're its
+ * children) whenever they aren't, repositioned/resized on every call to
+ * track the frame's current geometry, and only pushed a new
+ * XCB_CW_BACK_PIXEL when the border's actual colour changed. The
+ * repositioning is the whole trick: a border window resized to its new
+ * size is a plain ConfigureWindow, and the X server fills whatever that
+ * uncovers from the background already sitting on it -- no draw request
+ * from kiwm at all for the common case (colour unchanged) of a resize
+ * step. See wm.h's comment for why this is three dedicated windows and
+ * not the frame's own background. */
+static void border_sync(Client *c, int w, int h, bool focused,
+                        double dtr, double dtg, double dtb, double dta,
+                        bool deco_tint, bool deco_tint_replace,
+                        double br, double bgc, double bb)
+{
+    int bt = wm.border_thickness;
+    bool want = bt > 0 && h > TITLEBAR_H;
+
+    if (!want) {
+        if (c->border_win[0] != XCB_NONE) {
+            for (int i = 0; i < 3; i++) {
+                xcb_destroy_window(wm.conn, c->border_win[i]);
+                c->border_win[i] = XCB_NONE;
+            }
+            c->border_pixel_valid = false;
+        }
+        return;
+    }
+
+    int border_h = h - TITLEBAR_H;
+    struct { int x, y, sw, sh; } strips[3] = {
+        { 0,      TITLEBAR_H, bt, border_h }, /* left */
+        { w - bt, TITLEBAR_H, bt, border_h }, /* right */
+        { 0,      h - bt,     w,  bt       }, /* bottom */
+    };
+
+    uint32_t pixel = border_solid_pixel(c->frame_visual, focused, deco_tint, deco_tint_replace,
+                                        dtr, dtg, dtb, dta, br, bgc, bb);
+
+    if (c->border_win[0] == XCB_NONE) {
+        for (int i = 0; i < 3; i++) {
+            c->border_win[i] = xcb_generate_id(wm.conn);
+            uint32_t values[] = { pixel };
+            xcb_create_window(wm.conn, c->frame_depth, c->border_win[i], c->frame,
+                              (int16_t)strips[i].x, (int16_t)strips[i].y,
+                              (uint16_t)strips[i].sw, (uint16_t)strips[i].sh, 0,
+                              XCB_WINDOW_CLASS_INPUT_OUTPUT, c->frame_visual->visual_id,
+                              XCB_CW_BACK_PIXEL, values);
+            xcb_map_window(wm.conn, c->border_win[i]);
+        }
+        c->border_pixel = pixel;
+        c->border_pixel_valid = true;
+        return;
+    }
+
+    for (int i = 0; i < 3; i++) {
+        uint32_t geo[] = { (uint32_t)strips[i].x, (uint32_t)strips[i].y,
+                          (uint32_t)strips[i].sw, (uint32_t)strips[i].sh };
+        xcb_configure_window(wm.conn, c->border_win[i],
+                             XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
+                             XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, geo);
+    }
+
+    if (!c->border_pixel_valid || c->border_pixel != pixel) {
+        for (int i = 0; i < 3; i++) {
+            xcb_change_window_attributes(wm.conn, c->border_win[i], XCB_CW_BACK_PIXEL, &pixel);
+            xcb_clear_area(wm.conn, 0, c->border_win[i], 0, 0, 0, 0);
+        }
+        c->border_pixel = pixel;
+        c->border_pixel_valid = true;
+    }
+}
+
 /* Everything the decoration *is*, painted into whatever Cairo context it
  * is handed at whatever size that context implies.
  *
@@ -1501,45 +1599,43 @@ void draw_decoration(Client *c)
      * hovering a button washes the border the same colour as the
      * titlebar. */
     int bt = wm.border_thickness;
-    if (bt > 0 && h > TITLEBAR_H) {
-        int border_h = h - TITLEBAR_H;
-        struct { int x, y, sw, sh; } strips[3] = {
-            { 0,      TITLEBAR_H, bt, border_h }, /* left */
-            { w - bt, TITLEBAR_H, bt, border_h }, /* right */
-            { 0,      h - bt,     w,  bt       }, /* bottom */
-        };
-
-        if (opaque_fallback) {
-            /* No compositor: the border is a flat, fully opaque colour
-             * with nothing else ever painted over it, which is exactly
-             * what a window's own background exists for. Set once on
-             * XCB_CW_BACK_PIXEL, it is what the X server fills a resize's
-             * newly-uncovered area with on its own -- no pixmap, no
-             * cairo, no copy_area, for as long as the drag lasts. Only
-             * when the colour a resize would expose has actually changed
-             * (border_pixel_valid catches the very first call too) is
-             * anything sent, and even that is a single attribute change
-             * plus an xcb_clear_area() -- a server-side fill from the
-             * background it was just given, not a round trip through
-             * kiwm's own rendering. This is the fix for the gap this
-             * function used to have against xfwm4/kwin's uncomposited
-             * resize: those don't repaint a flat border every frame
-             * either, and now neither does this. */
-            double sp0 = dbg ? monotonic_ms() : 0;
-            uint32_t pixel = border_solid_pixel(c->frame_visual, focused, deco_tint,
-                                                deco_tint_replace, dtr, dtg, dtb, dta,
-                                                br, bgc, bb);
-            if (!c->border_pixel_valid || c->border_pixel != pixel) {
-                xcb_change_window_attributes(wm.conn, c->frame, XCB_CW_BACK_PIXEL, &pixel);
-                for (int i = 0; i < 3; i++)
-                    xcb_clear_area(wm.conn, 0, c->frame, (int16_t)strips[i].x, (int16_t)strips[i].y,
-                                   (uint16_t)strips[i].sw, (uint16_t)strips[i].sh);
-                c->border_pixel = pixel;
-                c->border_pixel_valid = true;
+    if (opaque_fallback) {
+        /* See wm.h's Client::border_win[] and border_sync()'s own comment
+         * for why this is three dedicated child windows rather than the
+         * frame's own background (that was tried first -- it flickered).
+         * A resize step's whole cost for the border collapses to
+         * repositioning them, which the X server answers by filling
+         * whatever that uncovers from their stored background on its
+         * own -- no pixmap, no cairo, no copy_area. This is the fix for
+         * the gap this function used to have against xfwm4/kwin's
+         * uncomposited resize: those don't repaint a flat border every
+         * frame either, and now neither does this. */
+        double sp0 = dbg ? monotonic_ms() : 0;
+        border_sync(c, w, h, focused, dtr, dtg, dtb, dta, deco_tint, deco_tint_replace, br, bgc, bb);
+        double sp1 = dbg ? monotonic_ms() : 0;
+        t_paint += sp1 - sp0;
+    } else {
+        /* A compositor arriving mid-session leaves border_win[] behind
+         * from whenever there wasn't one -- destroy it (they're the
+         * frame's children, so nothing else needs cleanup) before
+         * painting the border for real below, or their flat colour would
+         * sit on top of it. */
+        if (c->border_win[0] != XCB_NONE) {
+            for (int i = 0; i < 3; i++) {
+                xcb_destroy_window(wm.conn, c->border_win[i]);
+                c->border_win[i] = XCB_NONE;
             }
-            double sp1 = dbg ? monotonic_ms() : 0;
-            t_paint += sp1 - sp0;
-        } else {
+            c->border_pixel_valid = false;
+        }
+
+        if (bt > 0 && h > TITLEBAR_H) {
+            int border_h = h - TITLEBAR_H;
+            struct { int x, y, sw, sh; } strips[3] = {
+                { 0,      TITLEBAR_H, bt, border_h }, /* left */
+                { w - bt, TITLEBAR_H, bt, border_h }, /* right */
+                { 0,      h - bt,     w,  bt       }, /* bottom */
+            };
+
             /* A compositor is running: the border can carry real alpha
              * (border_active=/border_inactive=), which XCB_CW_BACK_PIXEL
              * has no way to express, so it is painted for real, into its

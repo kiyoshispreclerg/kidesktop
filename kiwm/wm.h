@@ -432,19 +432,30 @@ struct Client {
      * once the frame has no shape there is nothing to clear. */
     bool frame_shaped;
 
-    /* The flat border's last-set XCB_CW_BACK_PIXEL, and whether one has
-     * been set at all yet (decoration.c's draw_decoration()). Without a
-     * compositor the border is a solid opaque colour with nothing else
-     * ever drawn over it during a resize, so the frame's own background
-     * can carry it: the X server fills whatever a growing resize step
-     * newly uncovers from this pixel on its own, no repaint requested by
-     * kiwm at all. Only when the colour a resize would expose has
-     * actually changed (focus, hover tint, theme reload) does anything
-     * have to be pushed -- and even then it's xcb_clear_area(), not a
-     * pixmap/cairo/copy_area round trip. Compared against on every
-     * draw_decoration() call so an unrelated repaint (titlebar hover,
-     * Expose from someone else) that leaves the border's colour alone
-     * costs nothing here. */
+    /* Three flat-colored child windows of the frame -- left, right, bottom
+     * -- that carry the border without a compositor (decoration.c's
+     * border_sync()). Each has XCB_CW_BACK_PIXEL set to the border's
+     * current colour, so resizing *them* alongside the frame is all a
+     * resize step has to do: the X server fills whatever area that
+     * uncovers from the stored background on its own, no pixmap/cairo/
+     * copy_area round trip. Never the frame's *own* background -- that
+     * was tried first and flickered, because the frame also carries the
+     * titlebar, and a resize step there would auto-fill the whole frame
+     * (border colour) an instant before the titlebar's own redraw painted
+     * over it, a visible two-step flash on every grown resize step for
+     * exactly the part that isn't a flat colour. A window that is nothing
+     * but a flat colour has no second paint to flash against, so these
+     * three are it. children of the frame, so destroying the frame is
+     * all their own cleanup needs. XCB_NONE (all three) when there is no
+     * border to show (border_thickness=0, a compositor is running and
+     * needs real alpha instead, or the decoration is hidden). */
+    xcb_window_t border_win[3];
+
+    /* The colour last pushed to border_win[]'s XCB_CW_BACK_PIXEL, and
+     * whether one has been pushed at all yet -- compared against on every
+     * border_sync() call so an unrelated repaint (titlebar hover, a
+     * resize step where focus/tint haven't changed) sends nothing beyond
+     * the repositioning ConfigureWindow the resize itself needs anyway. */
     uint32_t border_pixel;
     bool border_pixel_valid;
 
