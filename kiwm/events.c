@@ -2177,7 +2177,17 @@ void handle_event(xcb_generic_event_t *event)
         window_menu_handle_expose(ev->window);
         outline_handle_expose(ev->window);
         Client *c = find_client_window(ev->window);
-        if (c) {
+        /* Growing the frame during an active drag (resize_step(), paced to
+         * the output's refresh rate) uncovers new frame area and earns
+         * itself exactly this Expose -- for a repaint resize_step() has
+         * already done, synchronously, with geometry at least as current
+         * as this event's. By the time this arrives the screen already
+         * shows the right decoration; redrawing again here was a second
+         * full draw_decoration() for every single grown resize step, for
+         * a picture already on screen. Confirmed via KIWM_DEBUG_RESIZE:
+         * this doubled draw_decoration()'s call count during a resize
+         * that grows the window, on top of whatever its own cost was. */
+        if (c && wm.drag_client != c) {
             draw_decoration(c);
             xcb_flush(wm.conn);
         }

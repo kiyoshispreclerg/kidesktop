@@ -432,6 +432,22 @@ struct Client {
      * once the frame has no shape there is nothing to clear. */
     bool frame_shaped;
 
+    /* The flat border's last-set XCB_CW_BACK_PIXEL, and whether one has
+     * been set at all yet (decoration.c's draw_decoration()). Without a
+     * compositor the border is a solid opaque colour with nothing else
+     * ever drawn over it during a resize, so the frame's own background
+     * can carry it: the X server fills whatever a growing resize step
+     * newly uncovers from this pixel on its own, no repaint requested by
+     * kiwm at all. Only when the colour a resize would expose has
+     * actually changed (focus, hover tint, theme reload) does anything
+     * have to be pushed -- and even then it's xcb_clear_area(), not a
+     * pixmap/cairo/copy_area round trip. Compared against on every
+     * draw_decoration() call so an unrelated repaint (titlebar hover,
+     * Expose from someone else) that leaves the border's colour alone
+     * costs nothing here. */
+    uint32_t border_pixel;
+    bool border_pixel_valid;
+
     bool mapped;
 
     /* Held up to be looked at: on screen, but only because a compositor

@@ -1201,6 +1201,91 @@ static void paint_titlebar(Client *c, cairo_t *cr, int w, bool focused, bool arg
     cairo_restore(cr);
 }
 
+/* One color channel (0.0-1.0) packed into whatever bits `mask` occupies
+ * of a pixel value -- the same tiny building block outline.c's own
+ * channel_to_pixel() is, kept local rather than shared: it's four lines,
+ * and the two files have no other reason to depend on each other. */
+static uint32_t border_channel_to_pixel(double v, uint32_t mask)
+{
+    if (mask == 0)
+        return 0;
+    int shift = 0;
+    while (((mask >> shift) & 1) == 0)
+        shift++;
+    uint32_t range = mask >> shift;
+    if (v < 0.0) v = 0.0;
+    if (v > 1.0) v = 1.0;
+    return ((uint32_t)(v * range + 0.5) << shift) & mask;
+}
+
+/* Composites (sr,sg,sb,sa) OVER the accumulated premultiplied color
+ * (*pr,*pg,*pb,*pa) -- the same Porter-Duff "over" cairo_paint() performs,
+ * done in doubles instead of on a pixmap, so border_solid_pixel() below
+ * can work out what a whole cairo_paint() sequence would have left on
+ * screen without asking the server to actually paint anything. */
+static void composite_over(double *pr, double *pg, double *pb, double *pa,
+                           double sr, double sg, double sb, double sa)
+{
+    *pr = sr * sa + (*pr) * (1.0 - sa);
+    *pg = sg * sa + (*pg) * (1.0 - sa);
+    *pb = sb * sa + (*pb) * (1.0 - sa);
+    *pa = sa + (*pa) * (1.0 - sa);
+}
+
+/* Without a compositor, the border is never anything but a flat, opaque
+ * color for as long as nothing about focus/hover/theme changes -- exactly
+ * the case a window's own XCB_CW_BACK_PIXEL exists for: set once, it is
+ * what the X server fills a resize's newly-uncovered area with, on its
+ * own, with no repaint requested by kiwm at all (draw_decoration()'s own
+ * comment has the measurements). This works out that flat color -- the
+ * same composite paint_border_fill() + draw_decoration()'s DEST_OVER
+ * opaque-fallback would have produced, arrived at by doing the "paint
+ * border, wash tint, flatten over bg" sequence in arithmetic instead of
+ * on a surface -- and packs it for `frame_visual` (root-depth or, for an
+ * ARGB frame with no compositor to hand real alpha to, the 32-bit visual
+ * with its alpha bits forced opaque, same as every other no-compositor
+ * flattening in this file). */
+static uint32_t border_solid_pixel(xcb_visualtype_t *frame_visual, bool focused,
+                                   bool deco_tint, bool deco_tint_replace,
+                                   double dtr, double dtg, double dtb, double dta,
+                                   double br, double bgc, double bb)
+{
+    double pr = 0, pg = 0, pb = 0, pa = 0;
+
+    if (deco_tint_replace) {
+        composite_over(&pr, &pg, &pb, &pa, dtr, dtg, dtb, dta);
+    } else {
+        if (wm.have_theme_colors) {
+            if (focused)
+                composite_over(&pr, &pg, &pb, &pa, wm.border_active_r, wm.border_active_g,
+                              wm.border_active_b, wm.border_active_a);
+            else
+                composite_over(&pr, &pg, &pb, &pa, wm.border_inactive_r, wm.border_inactive_g,
+                              wm.border_inactive_b, wm.border_inactive_a);
+        } else {
+            composite_over(&pr, &pg, &pb, &pa, wm.border_r, wm.border_g, wm.border_b, wm.border_a);
+        }
+        if (deco_tint)
+            composite_over(&pr, &pg, &pb, &pa, dtr, dtg, dtb, dta);
+    }
+
+    /* The DEST_OVER opaque-fallback flatten: whatever transparency is
+     * still left (pa < 1) shows the background color underneath, and the
+     * result is fully opaque either way -- see draw_decoration(). */
+    pr = pr + br * (1.0 - pa);
+    pg = pg + bgc * (1.0 - pa);
+    pb = pb + bb * (1.0 - pa);
+
+    uint32_t pixel = border_channel_to_pixel(pr, frame_visual->red_mask) |
+                     border_channel_to_pixel(pg, frame_visual->green_mask) |
+                     border_channel_to_pixel(pb, frame_visual->blue_mask);
+    uint32_t rgb_mask = frame_visual->red_mask | frame_visual->green_mask | frame_visual->blue_mask;
+    uint32_t alpha_mask = ~rgb_mask;
+    if (alpha_mask)
+        pixel |= border_channel_to_pixel(1.0, alpha_mask);
+    return pixel;
+}
+
 /* One flat-colored border strip (left, right or bottom -- kiwm.conf's
  * border_thickness=, color from greenxp/colors when loaded, else
  * border_color=), painted into a Cairo context sized to exactly that
@@ -1411,10 +1496,10 @@ void draw_decoration(Client *c)
         t_copy += sp4 - sp3;
     }
 
-    /* The flat left/right/bottom border, each its own strip -- see
-     * paint_border_fill(). Reuses the titlebar's hover tint (dtr/.../
-     * deco_tint_replace above) rather than recomputing it: hovering a
-     * button washes the border the same colour as the titlebar. */
+    /* The flat left/right/bottom border. Reuses the titlebar's hover tint
+     * (dtr/.../deco_tint_replace above) rather than recomputing it:
+     * hovering a button washes the border the same colour as the
+     * titlebar. */
     int bt = wm.border_thickness;
     if (bt > 0 && h > TITLEBAR_H) {
         int border_h = h - TITLEBAR_H;
@@ -1424,43 +1509,71 @@ void draw_decoration(Client *c)
             { 0,      h - bt,     w,  bt       }, /* bottom */
         };
 
-        for (int i = 0; i < 3; i++) {
+        if (opaque_fallback) {
+            /* No compositor: the border is a flat, fully opaque colour
+             * with nothing else ever painted over it, which is exactly
+             * what a window's own background exists for. Set once on
+             * XCB_CW_BACK_PIXEL, it is what the X server fills a resize's
+             * newly-uncovered area with on its own -- no pixmap, no
+             * cairo, no copy_area, for as long as the drag lasts. Only
+             * when the colour a resize would expose has actually changed
+             * (border_pixel_valid catches the very first call too) is
+             * anything sent, and even that is a single attribute change
+             * plus an xcb_clear_area() -- a server-side fill from the
+             * background it was just given, not a round trip through
+             * kiwm's own rendering. This is the fix for the gap this
+             * function used to have against xfwm4/kwin's uncomposited
+             * resize: those don't repaint a flat border every frame
+             * either, and now neither does this. */
             double sp0 = dbg ? monotonic_ms() : 0;
-
-            xcb_pixmap_t pixmap = xcb_generate_id(wm.conn);
-            xcb_create_pixmap(wm.conn, c->frame_depth, pixmap, c->frame,
-                              (uint16_t)strips[i].sw, (uint16_t)strips[i].sh);
-            double sp1 = dbg ? monotonic_ms() : 0;
-            t_pixmap += sp1 - sp0;
-
-            cairo_surface_t *surface = cairo_xcb_surface_create(wm.conn, pixmap, c->frame_visual,
-                                                                strips[i].sw, strips[i].sh);
-            cairo_t *cr = cairo_create(surface);
-
-            paint_border_fill(cr, argb, focused, deco_tint, deco_tint_replace, dtr, dtg, dtb, dta);
-
-            if (opaque_fallback) {
-                cairo_save(cr);
-                cairo_set_operator(cr, CAIRO_OPERATOR_DEST_OVER);
-                cairo_set_source_rgb(cr, br, bgc, bb);
-                cairo_paint(cr);
-                cairo_restore(cr);
+            uint32_t pixel = border_solid_pixel(c->frame_visual, focused, deco_tint,
+                                                deco_tint_replace, dtr, dtg, dtb, dta,
+                                                br, bgc, bb);
+            if (!c->border_pixel_valid || c->border_pixel != pixel) {
+                xcb_change_window_attributes(wm.conn, c->frame, XCB_CW_BACK_PIXEL, &pixel);
+                for (int i = 0; i < 3; i++)
+                    xcb_clear_area(wm.conn, 0, c->frame, (int16_t)strips[i].x, (int16_t)strips[i].y,
+                                   (uint16_t)strips[i].sw, (uint16_t)strips[i].sh);
+                c->border_pixel = pixel;
+                c->border_pixel_valid = true;
             }
-            double sp2 = dbg ? monotonic_ms() : 0;
-            t_paint += sp2 - sp1;
+            double sp1 = dbg ? monotonic_ms() : 0;
+            t_paint += sp1 - sp0;
+        } else {
+            /* A compositor is running: the border can carry real alpha
+             * (border_active=/border_inactive=), which XCB_CW_BACK_PIXEL
+             * has no way to express, so it is painted for real, into its
+             * own right-sized pixmap per strip -- see paint_border_fill(). */
+            for (int i = 0; i < 3; i++) {
+                double sp0 = dbg ? monotonic_ms() : 0;
 
-            cairo_destroy(cr);
-            cairo_surface_flush(surface);
-            cairo_surface_destroy(surface);
-            double sp3 = dbg ? monotonic_ms() : 0;
-            t_flush += sp3 - sp2;
+                xcb_pixmap_t pixmap = xcb_generate_id(wm.conn);
+                xcb_create_pixmap(wm.conn, c->frame_depth, pixmap, c->frame,
+                                  (uint16_t)strips[i].sw, (uint16_t)strips[i].sh);
+                double sp1 = dbg ? monotonic_ms() : 0;
+                t_pixmap += sp1 - sp0;
 
-            xcb_copy_area(wm.conn, pixmap, c->frame, gc, 0, 0,
-                         (int16_t)strips[i].x, (int16_t)strips[i].y,
-                         (uint16_t)strips[i].sw, (uint16_t)strips[i].sh);
-            xcb_free_pixmap(wm.conn, pixmap);
-            double sp4 = dbg ? monotonic_ms() : 0;
-            t_copy += sp4 - sp3;
+                cairo_surface_t *surface = cairo_xcb_surface_create(wm.conn, pixmap, c->frame_visual,
+                                                                    strips[i].sw, strips[i].sh);
+                cairo_t *cr = cairo_create(surface);
+
+                paint_border_fill(cr, argb, focused, deco_tint, deco_tint_replace, dtr, dtg, dtb, dta);
+                double sp2 = dbg ? monotonic_ms() : 0;
+                t_paint += sp2 - sp1;
+
+                cairo_destroy(cr);
+                cairo_surface_flush(surface);
+                cairo_surface_destroy(surface);
+                double sp3 = dbg ? monotonic_ms() : 0;
+                t_flush += sp3 - sp2;
+
+                xcb_copy_area(wm.conn, pixmap, c->frame, gc, 0, 0,
+                             (int16_t)strips[i].x, (int16_t)strips[i].y,
+                             (uint16_t)strips[i].sw, (uint16_t)strips[i].sh);
+                xcb_free_pixmap(wm.conn, pixmap);
+                double sp4 = dbg ? monotonic_ms() : 0;
+                t_copy += sp4 - sp3;
+            }
         }
     }
 
