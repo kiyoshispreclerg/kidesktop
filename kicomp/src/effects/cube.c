@@ -749,13 +749,20 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
         scene_set_backdrop(s, &o->rect, cfg->back_r, cfg->back_g, cfg->back_b,
                            cfg->background * d->phase);
 
-    /* See-through while a *mouse* drag turns the cube: the shell fades
+    /* See-through while a *mouse* mode turns the cube: the shell fades
      * (veil is what its opacity is multiplied by, 1 solid, 0 gone), and
-     * the faces turned away have their windows drawn too, so the drag
+     * the faces turned away have their windows drawn too, so a drag
      * shows every desktop's windows at once. A keyed turn (flick) never
-     * does this -- it is on its way to one face and back. */
-    bool spin = d->dragging && !d->flick && cfg->spin_transparency > 0.0f;
-    float veil = spin ? 1.0f - cfg->spin_transparency : 1.0f;
+     * does this -- it is on its way to one face and back.
+     *
+     * Tied to `phase` rather than snapped on for as long as `dragging`
+     * holds: the cube opens and closes on the same eased curve either
+     * way, and riding it here means the shell fades in as the prism
+     * stands up and fades back to solid as it lies back down, instead of
+     * jumping straight to spin_transparency the instant the button goes
+     * down and popping back to solid the instant it comes up. */
+    bool spin = !d->flick && cfg->spin_transparency > 0.0f;
+    float veil = spin ? 1.0f - cfg->spin_transparency * d->phase : 1.0f;
 
     /* Every face placed and ordered back to front -- there is no depth
      * buffer, so the order is the depth. Sorted by the w the projection
