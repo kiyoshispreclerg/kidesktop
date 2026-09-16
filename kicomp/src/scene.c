@@ -295,7 +295,17 @@ void scene_cull_occluded(CompScene *s, CompOutput *o)
             comp_transform_is_identity(&n->transform)) {
             CompRect op = window_opaque_rect(n->win);
             CompRect vis;
-            if (op.w > 0 && op.h > 0 && rect_intersect(&op, &o->rect, &vis)) {
+            /* window_opaque_rect() answers for the window as it really
+             * is, not as this node is being shown -- an effect like
+             * shade crops what is actually drawn via visible_rect
+             * without touching the window itself. Without this
+             * intersection, a rolled-up window still claims to cover
+             * its full pre-shade rectangle, and whatever is behind it
+             * gets culled out of a screen area where nothing opaque is
+             * actually on top any more. */
+            if (op.w > 0 && op.h > 0 &&
+                rect_intersect(&op, &n->visible_rect, &op) &&
+                rect_intersect(&op, &o->rect, &vis)) {
                 cover[covers++] = vis;
                 region_add(&o->covered, &vis);
             }
