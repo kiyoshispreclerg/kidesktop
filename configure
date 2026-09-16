@@ -1,0 +1,48 @@
+#!/bin/sh
+# configure - dependency check for a full KiDesktop build.
+#
+# Run this before `make install` (from the project root, it runs
+# automatically as a prerequisite -- see Makefile). It only checks that the
+# libraries shared across the suite are present; each component still finds
+# its own optional dependencies itself (e.g. dbus-1 for tray/globalmenu
+# support in xispanel/xisserve) and degrades or fails on its own.
+#
+# Building a single component on its own -- `make -C kiconf install`, say --
+# does not need this script: that component's Makefile only pulls in what
+# it personally links against.
+set -e
+
+MISSING=0
+
+check() {
+	pkg="$1"
+	label="${2:-$1}"
+	if pkg-config --exists "$pkg" 2>/dev/null; then
+		printf '  [ok]      %-10s (%s)\n' "$label" "$(pkg-config --modversion "$pkg")"
+	else
+		printf '  [MISSING] %-10s (pkg-config: %s)\n' "$label" "$pkg"
+		MISSING=1
+	fi
+}
+
+echo "Checking dependencies for a full KiDesktop build..."
+echo
+
+check cairo
+check pango
+check imlib2
+check dbus-1 dbus
+check gtk+-2.0 gtk2
+
+echo
+
+if [ "$MISSING" -ne 0 ]; then
+	echo "Missing dependencies listed above -- install them, then re-run ./configure."
+	echo "(Debian/Ubuntu: libcairo2-dev libpango1.0-dev libimlib2-dev libdbus-1-dev libgtk2.0-dev)"
+	echo
+	echo "To build just one component instead, skip this script and run"
+	echo "'make -C <component>' -- it only needs that component's own dependencies."
+	exit 1
+fi
+
+echo "All dependencies found. Run 'make install' to build and install KiDesktop."

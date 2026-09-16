@@ -2,10 +2,23 @@
 COMPONENTS = kisession kiwm kicomp xispanel xisserve xisnotif xisback \
              kiconf kiconfd xiskeys xismenu xisguard
 
-all install uninstall clean:
+# Full-suite build/install checks the shared dependencies first (see
+# ./configure). Building a single component directly, e.g.
+# `make -C kiconf install`, skips this and only needs that component's own
+# dependencies.
+all install: check-deps
 	@for c in $(COMPONENTS); do \
 		echo "==> $$c: $@"; \
 		$(MAKE) -C $$c $@ || exit 1; \
 	done
 
-.PHONY: all install uninstall clean $(COMPONENTS)
+uninstall clean:
+	@for c in $(COMPONENTS); do \
+		echo "==> $$c: $@"; \
+		$(MAKE) -C $$c $@ || exit 1; \
+	done
+
+check-deps:
+	@./configure
+
+.PHONY: all install uninstall clean check-deps $(COMPONENTS)
