@@ -140,6 +140,38 @@ the input grab. Exit status is non-zero (with a message on stderr) when
 the window exports no menu or the menu comes back empty -- kiwm hides the
 button for such windows anyway, so this is the belt to that suspenders.
 
+## `--applications`: a cascading menu of every installed app
+
+`--applications` is, like `--menu`, **not** part of the xispanel contract
+above and **not** subject to the singleton behavior below. It exists to be
+bound as an xisback click or scroll action (see xisback's `PROTOCOL.md`,
+"Click and scroll actions"), so right-clicking bare desktop space can pop
+an "Applications" list the way Plasma/kickoff-style shells do:
+
+```
+xisserve --applications [<x> <y>]
+xisserve --applications --apps-x=<px> --apps-y=<px>
+```
+
+Both spellings are accepted (and can be mixed; a flag wins over the
+positional in its slot), same as `--menu`'s `<window> <x> <y>`. When
+neither a flag nor a positional argument gives `<x>`/`<y>`, they default
+to the `XISBACK_CLICK_X`/`XISBACK_CLICK_Y` environment variables xisback's
+`run_action()` sets on the child it execs -- so `xisback --on-right-click
+'xisserve --applications'` needs no argument wiring at all, the popup just
+appears where the click landed.
+
+Every `.desktop` file xisserve would otherwise list in its own launcher
+window is scanned fresh (independent of any running launcher instance),
+bucketed into the same freedesktop categories the launcher's category
+pane uses, and shown as a real cascading GTK menu: top level one item per
+category in use, each opening a submenu of that category's apps
+(alphabetical, with icons). Choosing an app launches it exactly like
+clicking it in the launcher would; dismissing the menu (Escape, a click
+outside) exits with no side effect. Like `--menu`, it takes no singleton
+lock and opens no control socket -- one process per popup, living only as
+long as the menu is on screen.
+
 ## `--question`: a Zenity-style question popup
 
 `--question` is, like `--menu`, **not** part of the xispanel contract
