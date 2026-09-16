@@ -136,6 +136,17 @@ typedef struct {
      * (hotkey_next/prev): that one flicks past a single face and shuts
      * itself, with nothing to look through. */
     float spin_transparency;
+
+    /* Whether a face carries its own backing quad (cap_r/g/b/cap_a) at
+     * all, sides and caps alike. spin_transparency already fades the
+     * wallpaper's own opacity (it is a window like any other put on the
+     * face), so with a wallpaper on every desktop the backing quad is a
+     * second, redundant layer under it -- this is a way to try the cube
+     * as nothing but that prism of wallpapers, no shell of its own
+     * showing through when spun. The caps have no wallpaper to fall back
+     * on, so turning this off simply removes them too. On by default,
+     * matching how the cube always looked before this existed. */
+    bool shell;
 } CubeConfig;
 
 typedef struct {
@@ -791,7 +802,7 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
     /* The lid and the floor, in the same list so they sort by depth with
      * the sides rather than beside them. i < 0 marks them: they carry no
      * windows. Turned-away caps are never drawn, see-through or not. */
-    if (cfg->cap_a > 0.0f) {
+    if (cfg->shell && cfg->cap_a > 0.0f) {
         CompRect cr = cap_rect(o, d);
         for (int up = 1; up >= -1; up -= 2) {
             CompTransform t;
@@ -862,7 +873,7 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
              * A face turned away has none (you would be seeing its
              * inside), and while the cube is see-through what is drawn
              * fades by `veil`. */
-            if (pass == 0 && vis[k].front)
+            if (pass == 0 && vis[k].front && cfg->shell)
                 scene_add_solid(s, &vis[k].rect, &vis[k].t,
                                 cfg->cap_r, cfg->cap_g, cfg->cap_b,
                                 cfg->cap_a * d->phase * veil, (float)n - 0.5f);
@@ -1217,6 +1228,7 @@ static void cube_defaults(void *config)
     c->live = COMP_LIVE_INHERIT;
     c->flat_docks = true;
     c->spin_transparency = 0.0f;
+    c->shell = true;
 }
 
 static bool cube_config_key(void *config, const char *key, const char *value)
@@ -1258,6 +1270,7 @@ static bool cube_config_key(void *config, const char *key, const char *value)
         return true;
     }
     if (!strcmp(key, "flat_docks")) { c->flat_docks = atoi(value) != 0; return true; }
+    if (!strcmp(key, "shell"))      { c->shell = atoi(value) != 0; return true; }
     if (!strcmp(key, "cap_color"))
         return parse_colour(value, &c->cap_r, &c->cap_g, &c->cap_b, &c->cap_a);
     if (!strcmp(key, "background_color")) {

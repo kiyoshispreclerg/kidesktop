@@ -390,6 +390,15 @@ spin_transparency = 0         # 0..1: how see-through the shell (faces,
                               # windows on the faces turned away show
                               # through. 0 solid (default), 1 gone. A keyed
                               # turn is never see-through
+shell           = 1           # whether a face draws its own backing quad
+                              # (cap_color/cap_a) at all, sides and caps
+                              # alike. spin_transparency already fades a
+                              # face's own wallpaper, so with one on every
+                              # desktop the backing quad is a second layer
+                              # under it — 0 tries the cube as nothing but
+                              # that prism of wallpapers, no shell of its
+                              # own, and the caps simply vanish (they have
+                              # no wallpaper to fall back on)
 live_windows    = all         # desktop | active | all: how much of the
                               # other desktops is kept alive; left out, the
                               # global live_windows. Minimized windows are
@@ -1342,7 +1351,8 @@ to open on XRender.
 | `cap_color` | the top and bottom, `#rrggbb` or `#rrggbbaa` (`#383838ff`) |
 | `background_color`, `background` | behind the cube (`#000000`) and how solid it is (0.9) |
 | `flat_docks` | panels lie on their face over the wallpaper (on) |
-| `spin_transparency` | `0`..`1` (default `0`): how see-through the shell — the faces, their wallpaper and panels, and the caps — goes while a **mouse** drag turns the cube, so the windows on the faces turned away show through it and a drag becomes a way to see every desktop's windows at once. The windows stay solid; a keyed turn (`hotkey_next`/`prev`) is never affected |
+| `spin_transparency` | `0`..`1` (default `0`): how see-through the shell — the faces, their wallpaper and panels, and the caps — goes while a **mouse** drag turns the cube, so the windows on the faces turned away show through it and a drag becomes a way to see every desktop's windows at once. The windows stay solid; a keyed turn (`hotkey_next`/`prev`) is never affected. Fades in and out with the cube's own open/close animation rather than snapping on and off |
+| `shell` | whether a face draws its own backing quad (`cap_color`) at all, sides and caps alike (on). `spin_transparency` already fades a face's own wallpaper, so off tries the cube as nothing but a prism of wallpapers, no shell of its own; the caps simply vanish, having no wallpaper to fall back on |
 | `live_windows` | `desktop` / `active` / `all`: how much of the other desktops is kept alive; the global `live_windows` when left out. Minimized windows are never on a face, held or otherwise — they are not on their desktop |
 
 ### One mode at a time
