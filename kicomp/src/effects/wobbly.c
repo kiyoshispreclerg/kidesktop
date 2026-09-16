@@ -47,13 +47,27 @@
  *   drag         = 0.90     # how much speed survives each step
  *   move_factor  = 0.10     # how much of the speed becomes movement
  *   tessellation = 12       # cells per side of the drawn mesh (2..16)
+ *   resize       = 0        # also wobble on resize drags, not just moves
  *
  * Only the GL backend draws a mesh; on XRender the node carries the plain
  * rectangle the mesh spans instead, so the window is drawn where it is
- * and simply does not bend. And only moves wobble, not resizes: a resize
- * drag moves the window's edges rather than the window, and wobbling the
- * edge the pointer is holding is a different effect (kwin's is separate
- * too, with per-edge rules).
+ * and simply does not bend.
+ *
+ * A resize can wobble too (resize=1), off by default since it is more
+ * likely than a move to fight with whatever the window itself is doing
+ * while being resized. The same single point is pinned (the one nearest
+ * the pointer) exactly as for a move -- but that alone would let the
+ * *whole* net drift on the still side, since nothing else anchors it
+ * there. So resize mode adds a second mechanism on top: each side of the
+ * window (top/bottom/left/right) starts the drag locked rigid, and stays
+ * that way -- its rows or columns forced back to the window's own
+ * rectangle every step, overriding the springs outright -- until that
+ * side has actually moved away from where the grab found it, at which
+ * point it latches free for the rest of the drag and is left to the
+ * springs like everything else. This is kwin's own
+ * can_wobble_top/bottom/left/right, copied rather than approximated: it
+ * is what keeps the corner opposite the drag dead still while the one
+ * under the pointer, and the side leading up to it, wobble.
  */
 #include "../effect.h"
 #include "../animation.h"
@@ -99,6 +113,7 @@ typedef struct {
     float drag;
     float move_factor;
     int tessellation;
+    bool resize;    /* off by default: see kicomp.conf's resize= below */
 } WobblyConfig;
 
 typedef struct {
@@ -122,6 +137,18 @@ typedef struct {
     double last_move_ms;        /* when the last drag step arrived */
     double clock;               /* how far the integration has got */
     bool rigid;                 /* settled: nothing left to draw */
+
+    /* Resize only: which sides are allowed to wobble. A move sets all
+     * four true straight away; a resize starts with all four false and
+     * `drag_rect` holding the rectangle as it was at the grab, and each
+     * one latches true, permanently for the rest of the drag, the first
+     * time that side's coordinate differs from `drag_rect` -- kwin's
+     * can_wobble_top/bottom/left/right. Until a side latches, its rows or
+     * columns are held rigid every step regardless of what the springs
+     * computed (see integrate()), which is what keeps the still corner
+     * of a resize dead still while the dragged one wobbles. */
+    bool wobble_top, wobble_bottom, wobble_left, wobble_right;
+    CompRect drag_rect;
 
     CompSceneMesh mesh;         /* the Bezier surface, handed to the scene */
     CompRect bbox;              /* what it covers, for damage and the clip */
@@ -169,6 +196,7 @@ static void config_defaults(void *config)
     c->drag = 0.90f;
     c->move_factor = 0.10f;
     c->tessellation = 12;
+    c->resize = false;
 }
 
 static bool config_key(void *config, const char *key, const char *value)
@@ -195,6 +223,10 @@ static bool config_key(void *config, const char *key, const char *value)
         if (t < 2) t = 2;
         if (t > MESH_MAX_COLS) t = MESH_MAX_COLS;
         c->tessellation = t;
+        return true;
+    }
+    if (strcmp(key, "resize") == 0) {
+        c->resize = atoi(value) != 0;
         return true;
     }
     return false;
@@ -353,6 +385,23 @@ static bool integrate(WobblyData *d, const CompRect *rect, float dt)
         d->pos[i].x += d->vel[i].x * dt * cfg->move_factor;
         d->pos[i].y += d->vel[i].y * dt * cfg->move_factor;
         vel_sum += fabsf(d->vel[i].x) + fabsf(d->vel[i].y);
+    }
+
+    /* The still sides of a resize, overriding whatever the springs just
+     * computed -- kwin's own post-pass. Each axis is independent and each
+     * rule covers all but the one row/column nearest the side that *is*
+     * allowed to wobble, so with neither side of an axis wobbling yet
+     * every row or column on it ends up locked and that axis holds
+     * perfectly rigid, and as soon as one side latches the lock backs off
+     * to leave only the strip nearest the other side free. */
+    for (int row = 0; row < NET; row++) {
+        for (int col = 0; col < NET; col++) {
+            int i = row * NET + col;
+            if ((!d->wobble_top && row < NET - 1) || (!d->wobble_bottom && row > 0))
+                d->pos[i].y = d->origin[i].y;
+            if ((!d->wobble_left && col < NET - 1) || (!d->wobble_right && col > 0))
+                d->pos[i].x = d->origin[i].x;
+        }
     }
 
     return !(acc_sum < STOP_ACC && vel_sum < STOP_VEL);
@@ -559,6 +608,37 @@ static const CompEffectOps wobbly_ops = {
     .destroy  = wobbly_destroy,
 };
 
+/* Called once, at the moment a fresh drag grabs the window (not on every
+ * step): sets up which sides start out allowed to wobble.
+ *
+ * A move has no still side to keep rigid -- the whole net is free from
+ * the first step, exactly as before this effect knew about resizes at
+ * all. A resize starts with every side locked and `rect` kept as the
+ * reference: nothing may wobble until wobble_update() below has seen
+ * that side actually move away from where the grab found it. */
+static void wobble_start(WobblyData *d, const CompRect *rect, bool is_resize)
+{
+    d->wobble_top = d->wobble_bottom = d->wobble_left = d->wobble_right = !is_resize;
+    d->drag_rect = *rect;
+}
+
+/* Called on every step of a drag: once a side has moved from where the
+ * grab found it, it stays free to wobble for the rest of the drag, even
+ * if -- corner resizes do this constantly -- the pointer wanders back
+ * near the start for a moment. Latching rather than re-checking each
+ * step is what keeps a side from snapping rigid again mid-drag. */
+static void wobble_update(WobblyData *d, const CompRect *rect)
+{
+    if (!d->wobble_top && rect->y != d->drag_rect.y)
+        d->wobble_top = true;
+    if (!d->wobble_left && rect->x != d->drag_rect.x)
+        d->wobble_left = true;
+    if (!d->wobble_right && (rect->x + rect->w) != (d->drag_rect.x + d->drag_rect.w))
+        d->wobble_right = true;
+    if (!d->wobble_bottom && (rect->y + rect->h) != (d->drag_rect.y + d->drag_rect.h))
+        d->wobble_bottom = true;
+}
+
 /* The point of the net nearest the pointer, which is the one the user is
  * holding: a titlebar drag grabs a top edge, and the sheet should hang
  * from there rather than from the middle. Falls back to the top-left
@@ -587,16 +667,19 @@ static void on_event(CompWindow *w, const CompEvent *event,
 {
     const WobblyConfig *cfg = self->config;
 
-    /* A drag, and a drag that moves the window. A jump the WM made is the
-     * geometry effect's business, and a resize moves edges rather than
-     * the window (see the header). */
+    /* A drag, either moving or resizing the window. A jump the WM made is
+     * the geometry effect's business. Both pin the same single point
+     * under the pointer; only a resize also arms the still-side lock
+     * (wobble_start/wobble_update, integrate()). */
     if (!event->interactive || !w->mapped || w->input_only)
-        return;
-    if (event->to.w != event->from.w || event->to.h != event->from.h)
         return;
 
     CompRect rect = window_rect(w);
     if (rect.w <= 0 || rect.h <= 0)
+        return;
+
+    bool is_resize = event->to.w != event->from.w || event->to.h != event->from.h;
+    if (is_resize && !cfg->resize)
         return;
 
     double now = comp_now_ms();
@@ -615,7 +698,9 @@ static void on_event(CompWindow *w, const CompEvent *event,
             for (int i = 0; i < NET_COUNT; i++)
                 d->pinned[i] = false;
             d->pinned[pinned_for_pointer(&rect)] = true;
+            wobble_start(d, &rect, is_resize);
         }
+        wobble_update(d, &rect);
         d->last_move_ms = now;
         return;
     }
@@ -631,6 +716,7 @@ static void on_event(CompWindow *w, const CompEvent *event,
     d->cfg = cfg;
     net_reset(d, &rect);
     d->pinned[pinned_for_pointer(&rect)] = true;
+    wobble_start(d, &rect, is_resize);
     d->dragging = true;
     d->last_move_ms = now;
     d->clock = now;

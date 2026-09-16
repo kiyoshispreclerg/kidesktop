@@ -257,6 +257,7 @@ stiffness    = 0.06              # how hard it pulls back to rigid
 drag         = 0.90              # how much speed survives each step
 move_factor  = 0.10              # how much of the speed becomes movement
 tessellation = 12                # cells per side of the drawn mesh (2..16)
+resize       = 0                 # wobble resize drags too
 
 [effect:expo]
 enabled   = 1
@@ -1029,13 +1030,23 @@ depends on the frame rate.
 | `drag` | how much speed survives each step (default `0.90`) — lower settles sooner |
 | `move_factor` | how much of the speed becomes movement (default `0.10`) |
 | `tessellation` | cells per side of the drawn mesh, `2`..`16` (default `12`) |
+| `resize` | wobble resize drags too, not just moves (default `0`) |
 
 Only the GL backend draws a mesh; on XRender the node carries the
 rectangle the mesh spans, so the window is drawn where it is and simply
-does not bend. Only moves wobble, not resizes: a resize drag moves the
-window's edges rather than the window, and wobbling the edge the pointer
-is holding is a different effect (kwin's is separate too, with per-edge
-rules).
+does not bend.
+
+`resize` is off by default because a resize wobbles differently from a
+move and is more likely to fight with whatever the window itself is
+doing while being resized. It pins the same single point nearest the
+pointer that a move does, but that alone would let the whole net drift
+on the still side of the drag, since nothing else anchors it there. So
+resize mode adds kwin's own second mechanism: each side of the window
+starts a resize drag locked rigid to the window's rectangle, and only
+lets go — permanently, for the rest of that drag — once it has actually
+moved from where the grab found it. That is what keeps the corner
+opposite the drag dead still while the one under the pointer, and the
+side leading up to it, wobble.
 
 Off by default, for the same reason as `smooth-move`: it bends something
 the user is actively holding.
