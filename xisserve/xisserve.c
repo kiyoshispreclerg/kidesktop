@@ -42,7 +42,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.8"
+#define XISSERVE_VERSION "0.1.9"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -131,6 +131,7 @@ static gboolean g_pin_managed;
 static GtkListStore *g_cat_store;
 static GtkListStore *g_view_store;
 static GPtrArray *g_apps;           /* ResultEntry*, persistent scanned apps, owned */
+static GArray *g_last_scan_dirs;    /* ScanDirState snapshot the current g_apps was built from, owned */
 static GPtrArray *g_plugin_results; /* ResultEntry*, rebuilt every search, owned */
 static GHashTable *g_favorites;     /* set of .desktop basenames (key owned, value unused) */
 static char g_selected_category[32] = "favorites";
@@ -996,20 +997,105 @@ static void scan_apps_into(GPtrArray *apps)
     g_ptr_array_sort(apps, compare_apps_by_name);
 }
 
+/* One directory rescan_apps() reads .desktop files from, plus the mtime
+ * it had the last time we actually scanned it. A directory's mtime
+ * changes whenever an entry is added or removed inside it, so comparing
+ * this snapshot against a fresh stat() is enough to detect "something
+ * installed/uninstalled since last time" without inotify or re-reading
+ * any .desktop file. A missing directory is recorded as mtime 0 so it's
+ * picked up the moment it's created. */
+typedef struct {
+    char path[PATH_MAX];
+    time_t mtime;
+} ScanDirState;
+
+/* Same directory list/order scan_apps_into() walks (home dir, then each
+ * XDG_DATA_DIRS entry) -- kept separate so collecting the snapshot never
+ * has to touch a single .desktop file. */
+static GArray *collect_scan_dir_state(void)
+{
+    GArray *state = g_array_new(FALSE, FALSE, sizeof(ScanDirState));
+    struct stat sb;
+    ScanDirState st;
+
+    char home_apps[PATH_MAX];
+    const char *xdg_data_home = getenv("XDG_DATA_HOME");
+    if (xdg_data_home && *xdg_data_home) {
+        snprintf(home_apps, sizeof(home_apps), "%s/applications", xdg_data_home);
+    } else {
+        const char *home = getenv("HOME");
+        snprintf(home_apps, sizeof(home_apps), "%s/.local/share/applications", home ? home : "");
+    }
+    snprintf(st.path, sizeof(st.path), "%s", home_apps);
+    st.mtime = (stat(st.path, &sb) == 0) ? sb.st_mtime : 0;
+    g_array_append_val(state, st);
+
+    const char *xdg_data_dirs = getenv("XDG_DATA_DIRS");
+    if (!xdg_data_dirs || !*xdg_data_dirs) xdg_data_dirs = "/usr/local/share:/usr/share";
+    char *dirs_copy = g_strdup(xdg_data_dirs);
+    char *saveptr = NULL;
+    for (char *tok = strtok_r(dirs_copy, ":", &saveptr); tok; tok = strtok_r(NULL, ":", &saveptr)) {
+        snprintf(st.path, sizeof(st.path), "%s/applications", tok);
+        st.mtime = (stat(st.path, &sb) == 0) ? sb.st_mtime : 0;
+        g_array_append_val(state, st);
+    }
+    g_free(dirs_copy);
+    return state;
+}
+
+static gboolean scan_dir_state_equal(const GArray *a, const GArray *b)
+{
+    if (a->len != b->len) return FALSE;
+    for (guint i = 0; i < a->len; i++) {
+        const ScanDirState *sa = &g_array_index(a, ScanDirState, i);
+        const ScanDirState *sb = &g_array_index(b, ScanDirState, i);
+        if (sa->mtime != sb->mtime || strcmp(sa->path, sb->path) != 0) return FALSE;
+    }
+    return TRUE;
+}
+
+/* Refreshes is_favorite on every already-scanned entry from the current
+ * g_favorites -- the cheap part of what a full rescan would otherwise
+ * redo, kept separate so the "nothing changed on disk" path below can
+ * still pick up a favorites file someone hand-edited between opens. */
+static void resync_favorite_flags(void)
+{
+    for (guint i = 0; i < g_apps->len; i++) {
+        ResultEntry *e = g_ptr_array_index(g_apps, i);
+        e->is_favorite = g_favorites && g_hash_table_contains(g_favorites, e->id);
+    }
+}
+
+/* Re-reading and re-parsing every .desktop file on every launcher open
+ * is the bulk of xisserve's startup cost, and almost always pointless --
+ * nothing gets installed or removed between two opens of the same
+ * session. So: skip straight back to the cached g_apps from last time
+ * unless a directory's mtime says its contents actually changed. */
 static void rescan_apps(void)
 {
-    if (g_apps) {
-        for (guint i = 0; i < g_apps->len; i++) result_entry_free(g_ptr_array_index(g_apps, i));
-        g_ptr_array_free(g_apps, TRUE);
-    }
-    g_apps = g_ptr_array_new();
     load_favorites();
     /* load_config() is *not* called here -- show_launcher() does it for
      * every view, not just this one. rescan_apps() only runs for the
      * launcher, so config-reading pages (the audio mixer's scroll step)
      * would otherwise never see a config file at all. */
+
+    GArray *current_dirs = collect_scan_dir_state();
+    if (g_apps && g_last_scan_dirs && scan_dir_state_equal(g_last_scan_dirs, current_dirs)) {
+        g_array_free(current_dirs, TRUE);
+        resync_favorite_flags();
+        return;
+    }
+
+    if (g_apps) {
+        for (guint i = 0; i < g_apps->len; i++) result_entry_free(g_ptr_array_index(g_apps, i));
+        g_ptr_array_free(g_apps, TRUE);
+    }
+    g_apps = g_ptr_array_new();
     scan_apps_into(g_apps);
     build_category_store();
+
+    if (g_last_scan_dirs) g_array_free(g_last_scan_dirs, TRUE);
+    g_last_scan_dirs = current_dirs;
 }
 
 GPtrArray *xisserve_scan_apps(void)
@@ -2073,6 +2159,13 @@ int main(int argc, char **argv)
     }
 
     gtk_init(&argc, &argv);
+
+    /* run_detached()'s children (app launches) are never waitpid()'d --
+     * ignoring SIGCHLD makes the kernel reap them itself instead of
+     * leaving zombies, same pattern xispanel/xisback use. Matters most
+     * for the persistent launcher daemon below, which stays alive (and
+     * would keep accumulating zombies) for the rest of the session. */
+    signal(SIGCHLD, SIG_IGN);
 
     LaunchArgs args;
     if (parse_argv(argc, argv, &args) != 0) {
