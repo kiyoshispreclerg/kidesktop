@@ -217,8 +217,17 @@ xisserve --keyboard --output-x=<px> --output-y=<px> --output-w=<px> --output-h=<
 
 Also outside the xispanel contract and the launcher's own singleton
 below, but not a one-shot popup either: it opens a mouse-driven on-screen
-keyboard docked to the bottom of the given output rectangle (or the
-default screen if `--output-*` is omitted) and stays up until closed.
+keyboard docked to the bottom of the given output rectangle and stays up
+until closed. `--output-*` is normally left out entirely -- unlike the
+launcher's other pages, nothing anchors `--keyboard` to a specific panel
+button, so on a multi-monitor session it instead looks up which RandR
+monitor the currently focused window (falling back to the pointer) is
+actually on and docks there, rather than trusting parse_argv()'s
+"0,0,1920,1080" fallback default and risking landing on a screen the
+user isn't even looking at -- this detection runs unconditionally and
+overrides whatever `--output-*` gave (or defaulted to); an explicit
+`--output-*` only actually takes effect if the lookup itself fails (no
+RandR, nothing focused and no pointer either, ...).
 Every key is a real button; clicking one synthesizes the actual keycode
 via XTest, so whatever window currently has input focus receives it --
 this window itself never takes focus (`WM_HINTS` input=False) and is

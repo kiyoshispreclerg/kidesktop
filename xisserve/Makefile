@@ -1,8 +1,10 @@
 CFLAGS ?= -Wall -Wextra -O2
 # xtst: --keyboard's on-screen keyboard synthesizes keystrokes via XTest
 # (keyboard.c) -- libxtst-dev ships on every X11 desktop that would ever
-# run this, same tier of dependency as x11 itself.
-PKGS := gtk+-2.0 x11 xtst
+# run this, same tier of dependency as x11 itself. xrandr: same file,
+# finding which output the active window is actually on so the keyboard
+# docks there instead of always defaulting to output (0,0).
+PKGS := gtk+-2.0 x11 xtst xrandr
 PKG_CFLAGS := $(shell pkg-config --cflags $(PKGS))
 PKG_LIBS := $(shell pkg-config --libs $(PKGS)) -ldl
 

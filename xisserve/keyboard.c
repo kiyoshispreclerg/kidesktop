@@ -63,6 +63,7 @@
 #include <X11/Xatom.h>
 #include <X11/XKBlib.h>
 #include <X11/extensions/XTest.h>
+#include <X11/extensions/Xrandr.h>
 
 #include <fcntl.h>
 #include <signal.h>
@@ -678,6 +679,98 @@ static void reserve_strut(GdkWindow *gw, int x, int y, int w, int h)
     XChangeProperty(g_dpy, xwin, a_desktop, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&all_desktops, 1);
 }
 
+/* ---- follow the active window's own output on a multi-monitor session --
+ *
+ * Nothing hands --keyboard an --output-x/-y/-w/-h the way xispanel does
+ * for the launcher's other pages (there's no panel button it's anchored
+ * to -- it's opened by a hotkey, from anywhere); a caller that doesn't
+ * pass those flags at all falls back to parse_argv()'s hardcoded
+ * "0,0,1920,1080" default, which on a real multi-monitor session can
+ * dock the keyboard on a screen the user isn't even looking at. So
+ * before trusting that default, look up which RandR output actually
+ * contains the currently focused window (falling back to wherever the
+ * pointer is if there's no usable _NET_ACTIVE_WINDOW) and use that
+ * instead when found -- an explicit --output-* still wins if this
+ * lookup fails for any reason (no RandR, nothing focused, ...). */
+/* RandR 1.5 "Monitor" objects (what `xrandr --listmonitors`/--setmonitor
+ * shows), not the older per-CRTC geometry -- kiwm's own output tracking
+ * (output.c's xcb_randr_get_monitors() call) already made this same call
+ * for this project, since a Monitor is the thing that's actually allowed
+ * to be a carved-out region of one CRTC (or span more than one), which is
+ * exactly how a WM would expose more logical outputs than the hardware
+ * has physical ones. */
+static gboolean find_output_containing(Display *dpy, Window root, int px, int py, int *ox, int *oy, int *ow,
+                                        int *oh)
+{
+    int nmon = 0;
+    XRRMonitorInfo *mons = XRRGetMonitors(dpy, root, True, &nmon);
+    if (!mons) return FALSE;
+    gboolean found = FALSE;
+    long best_area = 0;
+    /* More than one monitor can legitimately contain the same point (a
+     * "combined" whole-screen entry alongside the real per-output ones
+     * some setups expose) -- the smallest one that does is the more
+     * specific, more useful answer. */
+    for (int i = 0; i < nmon; i++) {
+        XRRMonitorInfo *m = &mons[i];
+        if (px < m->x || px >= m->x + m->width || py < m->y || py >= m->y + m->height) continue;
+        long area = (long)m->width * (long)m->height;
+        if (!found || area < best_area) {
+            *ox = m->x;
+            *oy = m->y;
+            *ow = m->width;
+            *oh = m->height;
+            best_area = area;
+            found = TRUE;
+        }
+    }
+    XRRFreeMonitors(mons);
+    return found;
+}
+
+static Window get_active_window(Display *dpy, Window root)
+{
+    Atom prop = XInternAtom(dpy, "_NET_ACTIVE_WINDOW", False);
+    Atom type;
+    int format;
+    unsigned long nitems, bytes_after;
+    unsigned char *data = NULL;
+    Window w = None;
+    if (XGetWindowProperty(dpy, root, prop, 0, 1, False, XA_WINDOW, &type, &format, &nitems, &bytes_after, &data) ==
+            Success &&
+        data) {
+        if (nitems >= 1) w = *(Window *)data;
+        XFree(data);
+    }
+    return w;
+}
+
+static gboolean resolve_active_output(Display *dpy, Window root, int *ox, int *oy, int *ow, int *oh)
+{
+    Window active = get_active_window(dpy, root);
+    if (active != None) {
+        XWindowAttributes attrs;
+        Window child;
+        int rx, ry;
+        /* XGetWindowAttributes()/XTranslateCoordinates() can legitimately
+         * fail here -- the "active" window from a stale property can
+         * already be gone by the time this runs. */
+        if (XGetWindowAttributes(dpy, active, &attrs) &&
+            XTranslateCoordinates(dpy, active, attrs.root, 0, 0, &rx, &ry, &child)) {
+            int cx = rx + attrs.width / 2, cy = ry + attrs.height / 2;
+            if (find_output_containing(dpy, root, cx, cy, ox, oy, ow, oh)) return TRUE;
+        }
+    }
+
+    Window root_ret, child_ret;
+    int rx, ry, wxr, wyr;
+    unsigned int mask;
+    if (XQueryPointer(dpy, root, &root_ret, &child_ret, &rx, &ry, &wxr, &wyr, &mask)) {
+        if (find_output_containing(dpy, root, rx, ry, ox, oy, ow, oh)) return TRUE;
+    }
+    return FALSE;
+}
+
 /* ---- toggle-on-second-invocation singleton ------------------------------
  *
  * Deliberately its own tiny lock, separate from the launcher's
@@ -762,6 +855,20 @@ int keyboard_run(int output_x, int output_y, int output_w, int output_h)
     g_kc_super = XKeysymToKeycode(g_dpy, XK_Super_L);
     g_kc_capslock = XKeysymToKeycode(g_dpy, XK_Caps_Lock);
     g_scratch_kc = claim_scratch_keycode();
+
+    /* Whatever --output-x/-y/-w/-h (or parse_argv()'s own defaults for
+     * them) handed us, prefer the RandR output the currently focused
+     * window (or failing that, the pointer) actually sits on -- see
+     * resolve_active_output()'s comment. */
+    {
+        int aox, aoy, aow, aoh;
+        if (resolve_active_output(g_dpy, DefaultRootWindow(g_dpy), &aox, &aoy, &aow, &aoh)) {
+            output_x = aox;
+            output_y = aoy;
+            output_w = aow;
+            output_h = aoh;
+        }
+    }
 
     if (output_w <= 0) output_w = gdk_screen_get_width(gdk_screen_get_default());
     if (output_h <= 0) output_h = gdk_screen_get_height(gdk_screen_get_default());
