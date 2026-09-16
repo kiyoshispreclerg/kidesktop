@@ -228,6 +228,17 @@ a key, the chord fires and every latch clears); Caps Lock is a real
 toggle of the server's own lock state, reflected in a lamp alongside Num
 Lock/Scroll Lock.
 
+The board itself is swappable, Android-keyboard-style: a "Layout" key
+cycles through every registered layout (QWERTY, QWERTY ABNT2 with a Ç
+key, and an Emoji grid ship today), each one just a data table in
+keyboard.c -- adding one (AZERTY, a 12-key kana board, a math-symbol
+board, ...) needs no change anywhere else in the file. A layout entry
+that needs a character the loaded X keymap has no key for at all (ABNT2's
+Ç, every emoji) gets it by briefly remapping one otherwise-unused keycode
+to that exact Unicode codepoint and sending that -- the same trick
+`xdotool type` uses, since core X11/XTest has no "just send this
+codepoint" call.
+
 It keeps a *small* singleton of its own, entirely separate from the
 launcher's (`$XDG_RUNTIME_DIR/xisserve-keyboard.lock`, not
 `xisserve.lock`): the first invocation opens the keyboard and blocks

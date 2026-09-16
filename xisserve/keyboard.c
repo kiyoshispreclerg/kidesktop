@@ -1,11 +1,41 @@
 /*
- * keyboard.c - `xisserve --keyboard`: an on-screen QWERTY keyboard docked
- * to the bottom of the screen, driven entirely by mouse clicks. Every
- * button synthesizes the real key via XTest, so whatever window last had
- * input focus keeps it and receives the keystrokes -- this window itself
- * never asks for focus (WM_HINTS input=False, the same ICCCM contract
- * xispanel's own panel windows use) and reserves its strip of the screen
- * via _NET_WM_STRUT_PARTIAL like any other dock.
+ * keyboard.c - `xisserve --keyboard`: an on-screen keyboard docked to the
+ * bottom of the screen, driven entirely by mouse clicks, that can switch
+ * between several independent layouts (QWERTY, QWERTY ABNT2, Emoji, ...)
+ * the same way an Android keyboard switches between ABC/123/emoji boards --
+ * a tap on the globe-ish "Layout" key cycles kLayouts[] and rebuilds the
+ * key rows from that layout's own data table. Adding a layout (AZERTY, a
+ * 12-key kana board, a math-symbol board, ...) is just one more KbRow[]
+ * array and one more kLayouts[] entry -- everything below this comment
+ * block is layout-agnostic engine, nothing in it names a specific layout.
+ *
+ * Every button synthesizes the real character via XTest, so whatever
+ * window last had input focus keeps it and receives the keystrokes -- this
+ * window itself never asks for focus (WM_HINTS input=False, the same
+ * ICCCM contract xispanel's own panel windows use) and reserves its strip
+ * of the screen via _NET_WM_STRUT_PARTIAL like any other dock.
+ *
+ * Unlike a plain QWERTY board (every key already exists as a real keycode
+ * in the active X keymap), a layout like ABNT2's ç/Ç or the emoji board
+ * needs characters the loaded keymap has no key for at all. There is no
+ * core X11/XTest call to "just send this Unicode codepoint", so this file
+ * borrows the same trick `xdotool type` uses: claim one otherwise-unused
+ * keycode for the process's lifetime, and before sending a character that
+ * has no native key, briefly remap that scratch keycode to the exact
+ * keysym Unicode encodes it as (`gdk_unicode_to_keyval()`, which follows
+ * the same "keysym = 0x01000000 + codepoint" convention XKB itself uses)
+ * and send that instead. See kb_send_utf8().
+ *
+ * Because every character key already names its own exact unshifted/
+ * shifted glyph (KbKeySpec::lo/hi) rather than relying on the receiving
+ * application to resolve a physical Shift/Caps-Lock chord, letter case is
+ * entirely this on-screen keyboard's own call -- Android-style, not
+ * "physical keyboard style". Caps Lock is XOR'd with the on-screen Shift
+ * latch to decide upper/lower for is_letter keys specifically (never for
+ * digits/punctuation/emoji, matching a real keyboard where Caps Lock only
+ * ever affects cased letters); clicking the Caps Lock key also still
+ * toggles the *real* server-side lock (and its lamp), so a physical
+ * keyboard plugged in at the same time stays in sync.
  *
  * Like --menu/--applications/--question, this stays outside the
  * launcher's own singleton/control-socket machinery -- relaying it into
@@ -20,13 +50,9 @@
  * toggle it off, the usual shape a hotkey binding wants. Always an exact
  * PID signal, never pkill/pgrep -f (see the lock-file dance below).
  *
- * Modifiers (Shift/Ctrl/Alt/Super) are one-shot latches: click one,
- * click a key, the chord fires and every latch clears -- exactly what a
- * real chord (Ctrl+C, Alt+Tab, Shift+a) looks like from the X server's
- * point of view, which is also what lets Caps Lock's real, server-side
- * state (not anything this process tracks) decide letter case exactly
- * the way a physical keyboard would. Caps Lock itself is a real toggle
- * (one XK_Caps_Lock press/release) rather than a latch.
+ * Ctrl/Alt/Super are one-shot latches, physically chorded around whatever
+ * key is clicked next (real Ctrl+C, Alt+Tab, Super+X on the wire) -- see
+ * kb_send_key().
  */
 #include <gtk/gtk.h>
 #include <gdk/gdkx.h>
@@ -53,98 +79,241 @@
 #define BASE_KEY_W 40
 
 typedef enum {
-    KK_CHAR,   /* keysym is the unshifted base glyph; label is looked up live */
-    KK_ACTION, /* keysym is sent as-is (Tab/Enter/BackSpace/Esc/arrows/Space) */
+    KK_CHAR,     /* lo/hi are the UTF-8 glyphs sent directly -- see kb_send_utf8() */
+    KK_ACTION,   /* action_keysym sent as-is (Tab/Enter/BackSpace/Esc/arrows/Space) */
     KK_MODIFIER, /* one-shot latch (Shift/Ctrl/Alt/Super) */
     KK_CAPSLOCK, /* real toggle, own lamp */
+    KK_LAYOUT,   /* switches to the next registered layout, see kLayouts[] */
 } KbKeyType;
 
 typedef struct {
     KbKeyType type;
-    KeySym keysym;   /* 0 for a plain spacer */
-    const char *label; /* fixed label -- KK_ACTION/KK_MODIFIER/KK_CAPSLOCK only */
-    double weight;   /* relative width, 1.0 = one normal key */
+    const char *lo, *hi; /* KK_CHAR only: UTF-8 glyph, unshifted/shifted -- hi NULL means
+                           * Shift has no effect on this key (most punctuation-free symbols,
+                           * every emoji). */
+    gboolean is_letter;  /* KK_CHAR only: true if hi is this key's real *case* pair -- see the
+                           * file comment on why Caps Lock only applies to these. */
+    KeySym action_keysym; /* KK_ACTION only; also identifies which modifier a KK_MODIFIER is */
+    const char *label;   /* fixed label -- everything but KK_CHAR */
+    double weight;       /* relative width, 1.0 = one normal key */
 } KbKeySpec;
 
-static const KbKeySpec kRow0[] = {
-    {KK_ACTION, XK_Escape, "Esc", 1.3},
-    {KK_CHAR, XK_1, NULL, 1}, {KK_CHAR, XK_2, NULL, 1}, {KK_CHAR, XK_3, NULL, 1},
-    {KK_CHAR, XK_4, NULL, 1}, {KK_CHAR, XK_5, NULL, 1}, {KK_CHAR, XK_6, NULL, 1},
-    {KK_CHAR, XK_7, NULL, 1}, {KK_CHAR, XK_8, NULL, 1}, {KK_CHAR, XK_9, NULL, 1},
-    {KK_CHAR, XK_0, NULL, 1},
-    {KK_CHAR, XK_minus, NULL, 1}, {KK_CHAR, XK_equal, NULL, 1},
-    {KK_ACTION, XK_BackSpace, "\xe2\x8c\xab", 2.0}, /* U+232B ERASE TO THE LEFT */
-};
-
-static const KbKeySpec kRow1[] = {
-    {KK_ACTION, XK_Tab, "Tab", 1.6},
-    {KK_CHAR, XK_q, NULL, 1}, {KK_CHAR, XK_w, NULL, 1}, {KK_CHAR, XK_e, NULL, 1},
-    {KK_CHAR, XK_r, NULL, 1}, {KK_CHAR, XK_t, NULL, 1}, {KK_CHAR, XK_y, NULL, 1},
-    {KK_CHAR, XK_u, NULL, 1}, {KK_CHAR, XK_i, NULL, 1}, {KK_CHAR, XK_o, NULL, 1},
-    {KK_CHAR, XK_p, NULL, 1},
-    {KK_CHAR, XK_bracketleft, NULL, 1}, {KK_CHAR, XK_bracketright, NULL, 1},
-    {KK_CHAR, XK_backslash, NULL, 1.3},
-};
-
-static const KbKeySpec kRow2[] = {
-    {KK_CAPSLOCK, 0, "Caps", 1.9},
-    {KK_CHAR, XK_a, NULL, 1}, {KK_CHAR, XK_s, NULL, 1}, {KK_CHAR, XK_d, NULL, 1},
-    {KK_CHAR, XK_f, NULL, 1}, {KK_CHAR, XK_g, NULL, 1}, {KK_CHAR, XK_h, NULL, 1},
-    {KK_CHAR, XK_j, NULL, 1}, {KK_CHAR, XK_k, NULL, 1}, {KK_CHAR, XK_l, NULL, 1},
-    {KK_CHAR, XK_semicolon, NULL, 1}, {KK_CHAR, XK_apostrophe, NULL, 1},
-    {KK_ACTION, XK_Return, "Enter", 2.3},
-};
-
-static const KbKeySpec kRow3[] = {
-    {KK_MODIFIER, XK_Shift_L, "Shift", 2.4},
-    {KK_CHAR, XK_z, NULL, 1}, {KK_CHAR, XK_x, NULL, 1}, {KK_CHAR, XK_c, NULL, 1},
-    {KK_CHAR, XK_v, NULL, 1}, {KK_CHAR, XK_b, NULL, 1}, {KK_CHAR, XK_n, NULL, 1},
-    {KK_CHAR, XK_m, NULL, 1},
-    {KK_CHAR, XK_comma, NULL, 1}, {KK_CHAR, XK_period, NULL, 1}, {KK_CHAR, XK_slash, NULL, 1},
-    {KK_MODIFIER, XK_Shift_R, "Shift", 2.4},
-};
-
-static const KbKeySpec kRow4[] = {
-    {KK_MODIFIER, XK_Control_L, "Ctrl", 1.4},
-    {KK_MODIFIER, XK_Super_L, "Super", 1.2},
-    {KK_MODIFIER, XK_Alt_L, "Alt", 1.2},
-    {KK_ACTION, XK_space, "", 6.0},
-    {KK_MODIFIER, XK_Alt_R, "Alt", 1.2},
-    {KK_ACTION, XK_Left, "\xe2\x86\x90", 1},
-    {KK_ACTION, XK_Down, "\xe2\x86\x93", 1},
-    {KK_ACTION, XK_Up, "\xe2\x86\x91", 1},
-    {KK_ACTION, XK_Right, "\xe2\x86\x92", 1},
-};
-
 typedef struct { const KbKeySpec *keys; int n; } KbRow;
-static const KbRow kRows[] = {
-    {kRow0, (int)(sizeof(kRow0) / sizeof(kRow0[0]))},
-    {kRow1, (int)(sizeof(kRow1) / sizeof(kRow1[0]))},
-    {kRow2, (int)(sizeof(kRow2) / sizeof(kRow2[0]))},
-    {kRow3, (int)(sizeof(kRow3) / sizeof(kRow3[0]))},
-    {kRow4, (int)(sizeof(kRow4) / sizeof(kRow4[0]))},
+#define ROW(arr) {arr, (int)(sizeof(arr) / sizeof((arr)[0]))}
+
+/* ---- QWERTY (also the base every other Latin-alphabet layout below
+ * reuses rows from -- only the row that actually differs needs its own
+ * copy, e.g. ABNT2 below only replaces row 2). ------------------------- */
+
+static const KbKeySpec kQwertyRow0[] = {
+    {.type = KK_ACTION, .action_keysym = XK_Escape, .label = "Esc", .weight = 1.3},
+    {.type = KK_CHAR, .lo = "1", .hi = "!", .weight = 1},
+    {.type = KK_CHAR, .lo = "2", .hi = "@", .weight = 1},
+    {.type = KK_CHAR, .lo = "3", .hi = "#", .weight = 1},
+    {.type = KK_CHAR, .lo = "4", .hi = "$", .weight = 1},
+    {.type = KK_CHAR, .lo = "5", .hi = "%", .weight = 1},
+    {.type = KK_CHAR, .lo = "6", .hi = "^", .weight = 1},
+    {.type = KK_CHAR, .lo = "7", .hi = "&", .weight = 1},
+    {.type = KK_CHAR, .lo = "8", .hi = "*", .weight = 1},
+    {.type = KK_CHAR, .lo = "9", .hi = "(", .weight = 1},
+    {.type = KK_CHAR, .lo = "0", .hi = ")", .weight = 1},
+    {.type = KK_CHAR, .lo = "-", .hi = "_", .weight = 1},
+    {.type = KK_CHAR, .lo = "=", .hi = "+", .weight = 1},
+    {.type = KK_ACTION, .action_keysym = XK_BackSpace, .label = "\xe2\x8c\xab", .weight = 2.0}, /* U+232B */
 };
-#define N_ROWS ((int)(sizeof(kRows) / sizeof(kRows[0])))
 
-/* One-shot modifier latches -- cleared after the next non-modifier key.
- * Real Caps Lock state lives on the server, not here; g_capslock_lamp_on
- * only mirrors it for the lamp (see poll_indicators()). */
+static const KbKeySpec kQwertyRow1[] = {
+    {.type = KK_ACTION, .action_keysym = XK_Tab, .label = "Tab", .weight = 1.6},
+    {.type = KK_CHAR, .lo = "q", .hi = "Q", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "w", .hi = "W", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "e", .hi = "E", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "r", .hi = "R", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "t", .hi = "T", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "y", .hi = "Y", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "u", .hi = "U", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "i", .hi = "I", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "o", .hi = "O", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "p", .hi = "P", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "[", .hi = "{", .weight = 1},
+    {.type = KK_CHAR, .lo = "]", .hi = "}", .weight = 1},
+    {.type = KK_CHAR, .lo = "\\", .hi = "|", .weight = 1.3},
+};
+
+static const KbKeySpec kQwertyRow2[] = {
+    {.type = KK_CAPSLOCK, .label = "Caps", .weight = 1.9},
+    {.type = KK_CHAR, .lo = "a", .hi = "A", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "s", .hi = "S", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "d", .hi = "D", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "f", .hi = "F", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "g", .hi = "G", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "h", .hi = "H", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "j", .hi = "J", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "k", .hi = "K", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "l", .hi = "L", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = ";", .hi = ":", .weight = 1},
+    {.type = KK_CHAR, .lo = "'", .hi = "\"", .weight = 1},
+    {.type = KK_ACTION, .action_keysym = XK_Return, .label = "Enter", .weight = 2.3},
+};
+
+static const KbKeySpec kQwertyRow3[] = {
+    {.type = KK_MODIFIER, .action_keysym = XK_Shift_L, .label = "Shift", .weight = 2.4},
+    {.type = KK_CHAR, .lo = "z", .hi = "Z", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "x", .hi = "X", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "c", .hi = "C", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "v", .hi = "V", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "b", .hi = "B", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "n", .hi = "N", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "m", .hi = "M", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = ",", .hi = "<", .weight = 1},
+    {.type = KK_CHAR, .lo = ".", .hi = ">", .weight = 1},
+    {.type = KK_CHAR, .lo = "/", .hi = "?", .weight = 1},
+    {.type = KK_MODIFIER, .action_keysym = XK_Shift_R, .label = "Shift", .weight = 2.4},
+};
+
+static const KbKeySpec kQwertyRow4[] = {
+    {.type = KK_MODIFIER, .action_keysym = XK_Control_L, .label = "Ctrl", .weight = 1.3},
+    {.type = KK_MODIFIER, .action_keysym = XK_Super_L, .label = "Super", .weight = 1.1},
+    {.type = KK_MODIFIER, .action_keysym = XK_Alt_L, .label = "Alt", .weight = 1.1},
+    {.type = KK_ACTION, .action_keysym = XK_space, .label = "", .weight = 5.0},
+    {.type = KK_MODIFIER, .action_keysym = XK_Alt_R, .label = "Alt", .weight = 1.1},
+    {.type = KK_LAYOUT, .label = "Layout", .weight = 1.4},
+    {.type = KK_ACTION, .action_keysym = XK_Left, .label = "\xe2\x86\x90", .weight = 1},
+    {.type = KK_ACTION, .action_keysym = XK_Down, .label = "\xe2\x86\x93", .weight = 1},
+    {.type = KK_ACTION, .action_keysym = XK_Up, .label = "\xe2\x86\x91", .weight = 1},
+    {.type = KK_ACTION, .action_keysym = XK_Right, .label = "\xe2\x86\x92", .weight = 1},
+};
+
+static const KbRow kQwertyRows[] = {
+    ROW(kQwertyRow0), ROW(kQwertyRow1), ROW(kQwertyRow2), ROW(kQwertyRow3), ROW(kQwertyRow4),
+};
+
+/* ---- QWERTY ABNT2: same board, only the home row differs -- the
+ * Brazilian ABNT2 keyboard's most-missed key by far is Ç, sitting where
+ * US QWERTY has `;`. Full ABNT2 fidelity would also mean dead keys for
+ * ´ ` ^ ~ (a separate press-then-press-vowel step to compose á/à/â/ã) --
+ * skipped here: a virtual keyboard can just offer each precomposed
+ * accented letter directly on its own key far more easily than a real
+ * keyboard's dead-key dance, but that's a bigger per-key data-entry job
+ * than this pass covers. Cedilla was the specific ask, so that's what's
+ * here; everything else stays byte-for-byte the QWERTY row above. */
+static const KbKeySpec kAbnt2Row2[] = {
+    {.type = KK_CAPSLOCK, .label = "Caps", .weight = 1.9},
+    {.type = KK_CHAR, .lo = "a", .hi = "A", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "s", .hi = "S", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "d", .hi = "D", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "f", .hi = "F", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "g", .hi = "G", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "h", .hi = "H", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "j", .hi = "J", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "k", .hi = "K", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "l", .hi = "L", .is_letter = TRUE, .weight = 1},
+    {.type = KK_CHAR, .lo = "\xc3\xa7", .hi = "\xc3\x87", .is_letter = TRUE, .weight = 1}, /* ç / Ç */
+    {.type = KK_CHAR, .lo = "'", .hi = "\"", .weight = 1},
+    {.type = KK_ACTION, .action_keysym = XK_Return, .label = "Enter", .weight = 2.3},
+};
+
+static const KbRow kAbnt2Rows[] = {
+    ROW(kQwertyRow0), ROW(kQwertyRow1), ROW(kAbnt2Row2), ROW(kQwertyRow3), ROW(kQwertyRow4),
+};
+
+/* ---- Emoji: no case, no modifiers -- just five rows of common emoji
+ * plus a small control row. Each is sent as a single Unicode codepoint
+ * (see kb_send_utf8()), so entries needing a combining/ZWJ sequence
+ * (skin-tone modifiers, family emoji, flags) are left out on purpose --
+ * only the base character would be sent otherwise. */
+static const KbKeySpec kEmojiRow0[] = {
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x98\x80", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x98\x82", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x98\x85", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x98\x8a", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x98\x8d", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x98\x98", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x98\x9c", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\xa4\x94", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x98\x8e", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x98\xa2", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x98\xa1", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x98\xb1", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\xa5\xb3", .weight = 1},
+};
+static const KbKeySpec kEmojiRow1[] = {
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x91\x8d", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x91\x8e", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x91\x8f", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x99\x8f", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x92\xaa", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x91\x8b", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xe2\x9c\x8c", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\xa4\x9d", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xe2\x9d\xa4", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x92\x94", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x92\x95", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x94\xa5", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xe2\x9c\xa8", .weight = 1},
+};
+static const KbKeySpec kEmojiRow2[] = {
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x90\xb6", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x90\xb1", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x90\xad", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x90\xb9", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x90\xb0", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\xa6\x8a", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x90\xbb", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x90\xbc", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x90\xb8", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x90\xb5", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x8c\xb8", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x8c\x9e", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x8c\x99", .weight = 1},
+};
+static const KbKeySpec kEmojiRow3[] = {
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\x8e", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\x95", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\x94", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\x9f", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\xa9", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\xa6", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\xba", .weight = 1}, {.type = KK_CHAR, .lo = "\xe2\x98\x95", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\xab", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\x87", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\x89", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\xa5\x91", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\x93", .weight = 1},
+};
+static const KbKeySpec kEmojiRow4[] = {
+    {.type = KK_CHAR, .lo = "\xe2\xad\x90", .weight = 1}, {.type = KK_CHAR, .lo = "\xe2\x9a\xa1", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x8e\x89", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x8e\x81", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x93\xb1", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x92\xa1", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x94\x92", .weight = 1}, {.type = KK_CHAR, .lo = "\xe2\x8f\xb0", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xf0\x9f\x93\x8c", .weight = 1}, {.type = KK_CHAR, .lo = "\xe2\x9c\x85", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xe2\x9d\x8c", .weight = 1}, {.type = KK_CHAR, .lo = "\xe2\x9d\x93", .weight = 1},
+    {.type = KK_CHAR, .lo = "\xe2\x9d\x97", .weight = 1},
+};
+static const KbKeySpec kEmojiControlRow[] = {
+    {.type = KK_LAYOUT, .label = "Layout", .weight = 2.0},
+    {.type = KK_ACTION, .action_keysym = XK_space, .label = "", .weight = 5.0},
+    {.type = KK_ACTION, .action_keysym = XK_BackSpace, .label = "\xe2\x8c\xab", .weight = 2.0},
+    {.type = KK_ACTION, .action_keysym = XK_Return, .label = "Enter", .weight = 2.0},
+};
+
+static const KbRow kEmojiRows[] = {
+    ROW(kEmojiRow0), ROW(kEmojiRow1), ROW(kEmojiRow2), ROW(kEmojiRow3), ROW(kEmojiRow4), ROW(kEmojiControlRow),
+};
+
+/* ---- layout registry: add a layout by adding one more KbRow[] table
+ * above and one more entry here -- nothing else in this file needs to
+ * know it exists. */
+typedef struct {
+    const char *name;
+    const KbRow *rows;
+    int n_rows;
+} KbLayout;
+
+static const KbLayout kLayouts[] = {
+    {"QWERTY", kQwertyRows, (int)(sizeof(kQwertyRows) / sizeof(kQwertyRows[0]))},
+    {"ABNT2", kAbnt2Rows, (int)(sizeof(kAbnt2Rows) / sizeof(kAbnt2Rows[0]))},
+    {"Emoji", kEmojiRows, (int)(sizeof(kEmojiRows) / sizeof(kEmojiRows[0]))},
+};
+#define N_LAYOUTS ((int)(sizeof(kLayouts) / sizeof(kLayouts[0])))
+static int g_layout_idx;
+static GtkWidget *g_rows_container; /* rebuilt from scratch on every layout switch */
+
+/* One-shot latches -- cleared after the next non-modifier key. Widget
+ * pointers are re-resolved on every rebuild_rows() (a layout is free to
+ * not offer a given modifier at all -- the Emoji layout offers none of
+ * them -- so every use below is NULL-guarded). */
 static gboolean g_shift_latched, g_ctrl_latched, g_alt_latched, g_super_latched;
-static GtkWidget *g_shift_btns[2]; /* left + right Shift both reflect/clear together */
-static GtkWidget *g_alt_btns[2];   /* left + right Alt, same deal */
+static GtkWidget *g_shift_btns[2], *g_alt_btns[2];
 static GtkWidget *g_ctrl_btn, *g_super_btn;
-static GtkWidget *g_capslock_btn;
 static GtkWidget *g_lamp_caps, *g_lamp_num, *g_lamp_scroll;
+static gboolean g_capslock_on; /* mirrors real server state, see poll_indicators() */
 
-/* Every KK_CHAR button, so a Shift latch toggle can refresh their glyphs
- * to the shifted level live (cosmetic only -- what's actually sent is
- * decided at click time by kb_send_key(), see its comment). */
-typedef struct { GtkWidget *btn; KeyCode kc; } CharKeyWidget;
-static CharKeyWidget g_char_keys[128];
+/* Every KK_CHAR button on the current layout, so a Shift/Caps change can
+ * refresh their glyphs live -- cosmetic only, kb_send_utf8() recomputes
+ * the same lo/hi choice independently at click time. */
+typedef struct { GtkWidget *btn; const KbKeySpec *spec; } CharKeyWidget;
+static CharKeyWidget g_char_keys[256];
 static int g_n_char_keys;
 
 static Display *g_dpy;
-static KeyCode g_kc_shift, g_kc_ctrl, g_kc_alt, g_kc_super, g_kc_capslock;
+static KeyCode g_kc_shift, g_kc_ctrl, g_kc_alt, g_kc_super, g_kc_capslock, g_scratch_kc;
 
 static void set_lamp(GtkWidget *lamp, gboolean on)
 {
@@ -154,82 +323,85 @@ static void set_lamp(GtkWidget *lamp, gboolean on)
     gtk_widget_modify_bg(lamp, GTK_STATE_NORMAL, &c);
 }
 
+static void refresh_char_labels(void);
+
 /* Polled rather than event-driven, same call as xisserve.c's own
  * check_parent_alive() -- there's no portable low-overhead "notify me
  * when XKB indicator state changes" short of subscribing to the Xkb
- * extension's own event stream, which isn't worth it for a lamp that
- * only needs to be eventually-consistent. Bits 0/1/2 are Caps/Num/
- * Scroll Lock on every XKB base ruleset this project targets. */
+ * extension's own event stream, which isn't worth it for a lamp (and the
+ * Caps-Lock-driven letter case, see the file comment) that only need to
+ * be eventually-consistent. Bits 0/1/2 are Caps/Num/Scroll Lock on every
+ * XKB base ruleset this project targets. */
 static gboolean poll_indicators(gpointer data)
 {
     (void)data;
     unsigned int state = 0;
     XkbGetIndicatorState(g_dpy, XkbUseCoreKbd, &state);
-    set_lamp(g_lamp_caps, (state & 0x01) != 0);
+    gboolean caps = (state & 0x01) != 0;
+    set_lamp(g_lamp_caps, caps);
     set_lamp(g_lamp_num, (state & 0x02) != 0);
     set_lamp(g_lamp_scroll, (state & 0x04) != 0);
+    if (caps != g_capslock_on) {
+        g_capslock_on = caps;
+        refresh_char_labels();
+    }
     return TRUE;
 }
 
-/* Live glyph for a KK_CHAR key's keycode at the current Shift level --
- * queried from the active keymap (whatever layout is actually loaded,
- * not a hardcoded US table) so the label always matches what will
- * really be typed, non-US layouts included. */
-static void char_key_glyph(KeyCode kc, gboolean shifted, char *out, size_t outsz)
+/* Which of a KK_CHAR key's glyphs is currently in effect: for a letter,
+ * Caps Lock and the on-screen Shift latch XOR together (Shift cancels
+ * Caps for a letter, exactly like a real keyboard); for anything else
+ * (digits, punctuation, emoji) only the on-screen Shift latch matters,
+ * since real Caps Lock never touches symbol rows either. */
+static gboolean char_key_is_hi(const KbKeySpec *spec)
 {
-    KeySym ks = XkbKeycodeToKeysym(g_dpy, kc, 0, shifted ? 1 : 0);
-    if (ks == NoSymbol) ks = XkbKeycodeToKeysym(g_dpy, kc, 0, 0);
-    guint32 uc = ks ? gdk_keyval_to_unicode((guint)ks) : 0;
-    if (uc) {
-        gchar buf[8];
-        gint n = g_unichar_to_utf8((gunichar)uc, buf);
-        buf[n] = 0;
-        snprintf(out, outsz, "%s", buf);
-    } else {
-        snprintf(out, outsz, "?");
-    }
+    if (!spec->hi) return FALSE;
+    if (spec->is_letter) return (g_shift_latched != g_capslock_on);
+    return g_shift_latched;
 }
 
 static void refresh_char_labels(void)
 {
-    char glyph[8];
     for (int i = 0; i < g_n_char_keys; i++) {
-        char_key_glyph(g_char_keys[i].kc, g_shift_latched, glyph, sizeof(glyph));
+        const KbKeySpec *spec = g_char_keys[i].spec;
+        const char *glyph = char_key_is_hi(spec) ? spec->hi : spec->lo;
         gtk_button_set_label(GTK_BUTTON(g_char_keys[i].btn), glyph);
     }
 }
 
-/* Clears every one-shot latch (visually too -- toggling the buttons off
- * re-enters their own "toggled" handlers, which is what actually flips
- * the g_*_latched booleans back to FALSE). */
+/* Clears every one-shot latch (visually too -- toggling a button off
+ * re-enters its own "toggled" handler, which is what actually flips the
+ * matching g_*_latched boolean back to FALSE). NULL-guarded since the
+ * active layout may not offer a given modifier at all. */
 static void clear_latches(void)
 {
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_shift_btns[0]), FALSE);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_shift_btns[1]), FALSE);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_ctrl_btn), FALSE);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_alt_btns[0]), FALSE);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_alt_btns[1]), FALSE);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_super_btn), FALSE);
+    if (g_shift_btns[0]) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_shift_btns[0]), FALSE);
+    if (g_shift_btns[1]) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_shift_btns[1]), FALSE);
+    if (g_ctrl_btn) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_ctrl_btn), FALSE);
+    if (g_alt_btns[0]) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_alt_btns[0]), FALSE);
+    if (g_alt_btns[1]) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_alt_btns[1]), FALSE);
+    if (g_super_btn) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_super_btn), FALSE);
+    /* Shift itself has no physical chord to send (see kb_send_utf8()),
+     * but it's still a one-shot latch UI-wise. */
+    g_shift_latched = FALSE;
 }
 
-/* Sends one physical key, wrapped in whatever modifiers are currently
- * latched -- the same shape a real chorded keypress takes on the wire,
- * which is exactly why this needs no separate "compute the shifted
- * keysym" logic: the receiving application (and the server's own Caps
- * Lock state) resolves the keycode+modifiers into a character the same
- * way it would for a physical keyboard. */
+/* Sends one physical key, wrapped in whatever of Ctrl/Alt/Super is
+ * currently latched -- the real chord shape (Ctrl+C, Alt+Tab, Super+X)
+ * on the wire. No Shift here: which glyph to send was already decided by
+ * the caller (kb_send_utf8()) or is simply not applicable (action keys),
+ * see the file comment on why this keyboard resolves case itself rather
+ * than delegating to the receiving end's modifier handling. */
 static void kb_send_key(KeyCode kc)
 {
     if (!kc) return;
     if (g_ctrl_latched && g_kc_ctrl) XTestFakeKeyEvent(g_dpy, g_kc_ctrl, True, 0);
     if (g_alt_latched && g_kc_alt) XTestFakeKeyEvent(g_dpy, g_kc_alt, True, 0);
     if (g_super_latched && g_kc_super) XTestFakeKeyEvent(g_dpy, g_kc_super, True, 0);
-    if (g_shift_latched && g_kc_shift) XTestFakeKeyEvent(g_dpy, g_kc_shift, True, 0);
 
     XTestFakeKeyEvent(g_dpy, kc, True, 0);
     XTestFakeKeyEvent(g_dpy, kc, False, 0);
 
-    if (g_shift_latched && g_kc_shift) XTestFakeKeyEvent(g_dpy, g_kc_shift, False, 0);
     if (g_super_latched && g_kc_super) XTestFakeKeyEvent(g_dpy, g_kc_super, False, 0);
     if (g_alt_latched && g_kc_alt) XTestFakeKeyEvent(g_dpy, g_kc_alt, False, 0);
     if (g_ctrl_latched && g_kc_ctrl) XTestFakeKeyEvent(g_dpy, g_kc_ctrl, False, 0);
@@ -238,11 +410,86 @@ static void kb_send_key(KeyCode kc)
     clear_latches();
 }
 
-static void on_key_clicked(GtkWidget *btn, gpointer data)
+/* Resolves one UTF-8 character (one codepoint -- see the emoji tables'
+ * comment on why multi-codepoint sequences are avoided) to a keycode and
+ * sends it through kb_send_key().
+ *
+ * XKeysymToKeycode() only promises that *some* level of the keycode it
+ * returns carries the keysym we asked for -- on a real layout, a letter
+ * or ABNT2's Ç live at level 1 (the *shifted* level) of the exact same
+ * keycode their lowercase/unshifted sibling lives on at level 0. Sending
+ * that keycode bare would produce level 0's glyph regardless of which
+ * one we actually asked for, so this checks which level the target
+ * keysym is actually at and physically holds Shift around the event
+ * when it isn't level 0 -- the one place this file still synthesizes a
+ * real Shift chord, purely as an implementation detail of "how do I
+ * reach this exact already-decided glyph", not to decide the glyph
+ * itself (that's still entirely char_key_is_hi()'s call, see the file
+ * comment). Falls back to the scratch keycode, remapped to exactly this
+ * keysym at level 0, when the active keymap has no key for it at all. */
+static void kb_send_utf8(const char *utf8)
+{
+    if (!utf8 || !utf8[0]) return;
+    gunichar uc = g_utf8_get_char(utf8);
+    guint keyval = gdk_unicode_to_keyval(uc);
+    if (!keyval) return;
+    KeySym target = (KeySym)keyval;
+
+    KeyCode kc = XKeysymToKeycode(g_dpy, target);
+    gboolean need_shift = FALSE;
+    if (kc) {
+        need_shift = (XkbKeycodeToKeysym(g_dpy, kc, 0, 0) != target);
+    } else if (g_scratch_kc) {
+        XChangeKeyboardMapping(g_dpy, g_scratch_kc, 1, &target, 1);
+        XSync(g_dpy, False);
+        kc = g_scratch_kc;
+    }
+    if (!kc) return;
+
+    if (need_shift && g_kc_shift) XTestFakeKeyEvent(g_dpy, g_kc_shift, True, 0);
+    kb_send_key(kc);
+    if (need_shift && g_kc_shift) XTestFakeKeyEvent(g_dpy, g_kc_shift, False, 0);
+}
+
+/* Claims one keycode we can freely remap for characters the active
+ * keymap has no native key for -- prefers one with no symbol at any
+ * level in the current map; falls back to the highest keycode in range
+ * if the map happens to be completely full (very unlikely, but then
+ * XChangeKeyboardMapping just overwrites whatever was there for this
+ * process's lifetime, which is still harmless -- nothing else runs
+ * between this claim and the process exiting). */
+static KeyCode claim_scratch_keycode(void)
+{
+    int min_kc, max_kc;
+    XDisplayKeycodes(g_dpy, &min_kc, &max_kc);
+    int per_kc = 0;
+    KeySym *map = XGetKeyboardMapping(g_dpy, (KeyCode)min_kc, max_kc - min_kc + 1, &per_kc);
+    KeyCode found = 0;
+    for (int kc = max_kc; kc >= min_kc && !found; kc--) {
+        gboolean empty = TRUE;
+        for (int j = 0; j < per_kc; j++) {
+            if (map[(kc - min_kc) * per_kc + j] != NoSymbol) {
+                empty = FALSE;
+                break;
+            }
+        }
+        if (empty) found = (KeyCode)kc;
+    }
+    XFree(map);
+    return found ? found : (KeyCode)max_kc;
+}
+
+static void on_action_clicked(GtkWidget *btn, gpointer data)
 {
     (void)btn;
-    KeyCode kc = (KeyCode)(guintptr)data;
-    kb_send_key(kc);
+    kb_send_key((KeyCode)(guintptr)data);
+}
+
+static void on_char_clicked(GtkWidget *btn, gpointer data)
+{
+    (void)btn;
+    const KbKeySpec *spec = data;
+    kb_send_utf8(char_key_is_hi(spec) ? spec->hi : spec->lo);
 }
 
 static void on_capslock_clicked(GtkWidget *btn, gpointer data)
@@ -264,9 +511,9 @@ static void on_shift_toggled(GtkToggleButton *btn, gpointer data)
     /* Both Shift buttons mirror each other -- clicking either one is
      * "Shift is latched", not two independent modifiers. */
     g_shift_latched = active;
-    if (GTK_WIDGET(btn) == g_shift_btns[0])
+    if (GTK_WIDGET(btn) == g_shift_btns[0] && g_shift_btns[1])
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_shift_btns[1]), active);
-    else if (GTK_WIDGET(btn) == g_shift_btns[1])
+    else if (GTK_WIDGET(btn) == g_shift_btns[1] && g_shift_btns[0])
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_shift_btns[0]), active);
     refresh_char_labels();
 }
@@ -282,9 +529,9 @@ static void on_alt_toggled(GtkToggleButton *btn, gpointer data)
     (void)data;
     gboolean active = gtk_toggle_button_get_active(btn);
     g_alt_latched = active;
-    if (GTK_WIDGET(btn) == g_alt_btns[0])
+    if (GTK_WIDGET(btn) == g_alt_btns[0] && g_alt_btns[1])
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_alt_btns[1]), active);
-    else if (GTK_WIDGET(btn) == g_alt_btns[1])
+    else if (GTK_WIDGET(btn) == g_alt_btns[1] && g_alt_btns[0])
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_alt_btns[0]), active);
 }
 
@@ -301,65 +548,70 @@ static void on_close_clicked(GtkWidget *btn, gpointer data)
     gtk_main_quit();
 }
 
+static void rebuild_rows(void); /* forward -- on_layout_clicked needs it below */
+
+static void on_layout_clicked(GtkWidget *btn, gpointer data)
+{
+    (void)btn;
+    (void)data;
+    g_layout_idx = (g_layout_idx + 1) % N_LAYOUTS;
+    rebuild_rows();
+}
+
 static GtkWidget *make_key_button(const KbKeySpec *spec)
 {
     GtkWidget *btn;
-    KeyCode kc = spec->keysym ? XKeysymToKeycode(g_dpy, spec->keysym) : 0;
 
     switch (spec->type) {
-    case KK_CHAR: {
-        char glyph[8];
-        char_key_glyph(kc, FALSE, glyph, sizeof(glyph));
-        btn = gtk_button_new_with_label(glyph);
+    case KK_CHAR:
+        btn = gtk_button_new_with_label(char_key_is_hi(spec) ? spec->hi : spec->lo);
         if (g_n_char_keys < (int)(sizeof(g_char_keys) / sizeof(g_char_keys[0]))) {
             g_char_keys[g_n_char_keys].btn = btn;
-            g_char_keys[g_n_char_keys].kc = kc;
+            g_char_keys[g_n_char_keys].spec = spec;
             g_n_char_keys++;
         }
-        g_signal_connect(btn, "clicked", G_CALLBACK(on_key_clicked), (gpointer)(guintptr)kc);
+        g_signal_connect(btn, "clicked", G_CALLBACK(on_char_clicked), (gpointer)spec);
+        break;
+    case KK_ACTION: {
+        KeyCode kc = XKeysymToKeycode(g_dpy, spec->action_keysym);
+        btn = gtk_button_new_with_label(spec->label);
+        g_signal_connect(btn, "clicked", G_CALLBACK(on_action_clicked), (gpointer)(guintptr)kc);
         break;
     }
-    case KK_ACTION:
-        btn = gtk_button_new_with_label(spec->label);
-        g_signal_connect(btn, "clicked", G_CALLBACK(on_key_clicked), (gpointer)(guintptr)kc);
-        break;
     case KK_MODIFIER:
         btn = gtk_toggle_button_new_with_label(spec->label);
-        if (spec->keysym == XK_Shift_L) {
+        if (spec->action_keysym == XK_Shift_L) {
             g_shift_btns[0] = btn;
             g_signal_connect(btn, "toggled", G_CALLBACK(on_shift_toggled), NULL);
-        } else if (spec->keysym == XK_Shift_R) {
+        } else if (spec->action_keysym == XK_Shift_R) {
             g_shift_btns[1] = btn;
             g_signal_connect(btn, "toggled", G_CALLBACK(on_shift_toggled), NULL);
-        } else if (spec->keysym == XK_Control_L) {
+        } else if (spec->action_keysym == XK_Control_L) {
             g_ctrl_btn = btn;
             g_signal_connect(btn, "toggled", G_CALLBACK(on_ctrl_toggled), NULL);
-        } else if (spec->keysym == XK_Alt_L) {
+        } else if (spec->action_keysym == XK_Alt_L) {
             g_alt_btns[0] = btn;
             g_signal_connect(btn, "toggled", G_CALLBACK(on_alt_toggled), NULL);
-        } else if (spec->keysym == XK_Alt_R) {
+        } else if (spec->action_keysym == XK_Alt_R) {
             g_alt_btns[1] = btn;
             g_signal_connect(btn, "toggled", G_CALLBACK(on_alt_toggled), NULL);
-        } else if (spec->keysym == XK_Super_L) {
+        } else if (spec->action_keysym == XK_Super_L) {
             g_super_btn = btn;
             g_signal_connect(btn, "toggled", G_CALLBACK(on_super_toggled), NULL);
         }
         break;
     case KK_CAPSLOCK:
+        btn = gtk_button_new_with_label(spec->label);
+        g_signal_connect(btn, "clicked", G_CALLBACK(on_capslock_clicked), NULL);
+        break;
+    case KK_LAYOUT:
     default:
         btn = gtk_button_new_with_label(spec->label);
-        g_capslock_btn = btn;
-        g_signal_connect(btn, "clicked", G_CALLBACK(on_capslock_clicked), NULL);
+        g_signal_connect(btn, "clicked", G_CALLBACK(on_layout_clicked), NULL);
         break;
     }
 
     gtk_widget_set_size_request(btn, (int)(BASE_KEY_W * spec->weight), KEY_H);
-    /* GTK buttons grab GTK-internal focus on click for keyboard
-     * activation (Space/Enter re-triggering them) -- harmless for a
-     * mouse-only on-screen keyboard, but GTK_CAN_FOCUS still lets Tab
-     * land on them if some other input ever reaches this window. Since
-     * this window never holds X input focus (see build below), that
-     * never happens in practice; left as GTK's default. */
     return btn;
 }
 
@@ -371,6 +623,29 @@ static GtkWidget *build_row(const KbRow *row)
         gtk_box_pack_start(GTK_BOX(hbox), btn, TRUE, TRUE, 0);
     }
     return hbox;
+}
+
+/* Tears down the previous layout's row widgets and builds the new one's
+ * from scratch -- every per-layout widget pointer (modifier buttons,
+ * char-key list) is invalid the moment this starts, so they're all reset
+ * before build_row() repopulates whichever of them the new layout uses. */
+static void rebuild_rows(void)
+{
+    GList *children = gtk_container_get_children(GTK_CONTAINER(g_rows_container));
+    for (GList *l = children; l; l = l->next) gtk_widget_destroy(GTK_WIDGET(l->data));
+    g_list_free(children);
+
+    g_n_char_keys = 0;
+    g_shift_btns[0] = g_shift_btns[1] = NULL;
+    g_alt_btns[0] = g_alt_btns[1] = NULL;
+    g_ctrl_btn = g_super_btn = NULL;
+    g_shift_latched = g_ctrl_latched = g_alt_latched = g_super_latched = FALSE;
+
+    const KbLayout *layout = &kLayouts[g_layout_idx];
+    for (int i = 0; i < layout->n_rows; i++) {
+        gtk_box_pack_start(GTK_BOX(g_rows_container), build_row(&layout->rows[i]), TRUE, TRUE, 0);
+    }
+    gtk_widget_show_all(g_rows_container);
 }
 
 static GtkWidget *build_lamp(const char *label_text)
@@ -486,6 +761,7 @@ int keyboard_run(int output_x, int output_y, int output_w, int output_h)
     g_kc_alt = XKeysymToKeycode(g_dpy, XK_Alt_L);
     g_kc_super = XKeysymToKeycode(g_dpy, XK_Super_L);
     g_kc_capslock = XKeysymToKeycode(g_dpy, XK_Caps_Lock);
+    g_scratch_kc = claim_scratch_keycode();
 
     if (output_w <= 0) output_w = gdk_screen_get_width(gdk_screen_get_default());
     if (output_h <= 0) output_h = gdk_screen_get_height(gdk_screen_get_default());
@@ -538,9 +814,10 @@ int keyboard_run(int output_x, int output_y, int output_w, int output_h)
     gtk_box_pack_end(GTK_BOX(header), close_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(vbox), header, FALSE, FALSE, 0);
 
-    for (int i = 0; i < N_ROWS; i++) {
-        gtk_box_pack_start(GTK_BOX(vbox), build_row(&kRows[i]), TRUE, TRUE, 0);
-    }
+    g_rows_container = gtk_vbox_new(FALSE, KEY_GAP);
+    gtk_box_pack_start(GTK_BOX(vbox), g_rows_container, TRUE, TRUE, 0);
+    g_layout_idx = 0;
+    rebuild_rows();
 
     gtk_widget_realize(win);
     reserve_strut(win->window, win_x, win_y, win_w, win_h);
