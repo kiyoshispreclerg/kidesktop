@@ -396,6 +396,20 @@ typedef struct CompWindow {
      * See damage.c. */
     bool damage_pending;
 
+    /* False from the moment a resize changes this window's size until the
+     * first real DamageNotify arrives afterwards (damage.c's
+     * damage_window_reported). A resized window's new backing pixmap is
+     * not painted the instant the geometry changes -- the client redraws
+     * asynchronously, on its own schedule -- so a GL backend that rebinds
+     * to it right away is binding a pixmap with nothing in it yet, which
+     * reads back as black or garbage. Backends that gate their rebind on
+     * this (renderer-glx.c, renderer-egl.c) keep drawing the *old*,
+     * still-valid texture stretched to the new size in the meantime,
+     * which is what the node's transform already does for any texture
+     * whose pixel size doesn't match its geometry -- so nothing else
+     * about drawing has to change, only when the swap happens. */
+    bool content_ready;
+
     /* XRender backend state (renderer-xrender.c). A second renderer would
      * add its own fields here or hang them off a void *render_data. */
     xcb_pixmap_t pixmap;

@@ -1283,6 +1283,7 @@ static void window_add_at(xcb_window_t id, xcb_window_t above, bool on_top)
     w->mapped = (attr->map_state == XCB_MAP_STATE_VIEWABLE);
     w->opacity = 1.0;
     w->damage = XCB_NONE;
+    w->content_ready = true;
 
     free(attr);
     free(geo);
@@ -1557,6 +1558,11 @@ void window_configure(xcb_window_t id, int x, int y, int w_, int h_, int border,
          * already collapsed to a titlebar). Set aside rather than freed;
          * the flush drops it if no effect claims it. */
         renderer_window_stash(w, &old);
+
+        /* The new pixmap is unpainted until the client redraws into it,
+         * which hasn't happened yet -- see comp.h's content_ready. A GL
+         * backend checks this before switching textures. */
+        w->content_ready = false;
     }
 
     window_restack(id, above);

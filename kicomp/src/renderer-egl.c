@@ -539,7 +539,15 @@ static bool egl_window_bind(CompWindow *w, GlWindow *g)
     }
 
     CompRect r = window_rect(w);
-    if (x->pixmap != XCB_NONE && (g->width != r.w || g->height != r.h))
+
+    /* content_ready gates only the *resize* case: until the client has
+     * actually redrawn into its new, differently-sized pixmap, keep
+     * importing the old one. draw_node's transform already stretches
+     * whatever is bound to the node's current geometry, so the stale
+     * image just scales to the new size instead of the new, unpainted
+     * buffer reading back as black (comp.h). */
+    if (x->pixmap != XCB_NONE && (g->width != r.w || g->height != r.h) &&
+        w->content_ready)
         egl_window_unbind(g);
 
     if (x->pixmap == XCB_NONE) {

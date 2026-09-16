@@ -25,6 +25,12 @@ void damage_window_reported(CompWindow *w)
      * the Damage object and won't report again until the subtract at
      * frame time, which is also what fetches all of it at once. */
     w->damage_pending = true;
+
+    /* Real pixels changed, so if this is the first report since a resize,
+     * whatever the client drew is there now -- comp.h's content_ready,
+     * checked by the GL backends before they swap to a resized window's
+     * new pixmap. */
+    w->content_ready = true;
 }
 
 void damage_collect(void)
