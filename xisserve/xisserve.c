@@ -42,7 +42,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.9"
+#define XISSERVE_VERSION "0.1.10"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -895,6 +895,7 @@ static void parse_desktop_file(const char *path, const char *basename, GPtrArray
     snprintf(e->subtitle, sizeof(e->subtitle), "%s", xisserve_category_label(e->category_key));
     e->is_favorite = g_favorites && g_hash_table_contains(g_favorites, e->id);
     e->from_desktop = TRUE;
+    snprintf(e->icon_spec, sizeof(e->icon_spec), "%s", icon_raw);
     if (icon_raw[0]) e->icon = xisserve_resolve_icon(icon_raw, XISSERVE_ICON_PX);
 
     g_ptr_array_add(apps, e);
@@ -1054,6 +1055,151 @@ static gboolean scan_dir_state_equal(const GArray *a, const GArray *b)
     return TRUE;
 }
 
+/* ---- on-disk apps cache -------------------------------------------------
+ *
+ * rescan_apps()'s in-memory skip (scan_dir_state_equal() above) only
+ * helps the long-lived launcher daemon -- it does nothing for
+ * `xisserve --applications` (applications.c), which is always a brand
+ * new one-shot process with no memory of any previous scan (see that
+ * file's own comment for why it deliberately stays out of the daemon).
+ * This plain-text file is what lets *that* process skip re-reading and
+ * re-parsing every .desktop file too: a snapshot of the last scan's
+ * results, guarded by the exact same directory-mtime check, so it goes
+ * stale the moment something is actually installed or removed and never
+ * serves a wrong answer.
+ *
+ * Only the tiny text fields needed to rebuild a ResultEntry are stored
+ * (a few hundred apps is tens of KB, nowhere near a megabyte) -- icons
+ * are deliberately left out and still resolved through
+ * xisserve_resolve_icon() on load, same as a fresh scan would, so icon
+ * theme lookups/decodes aren't a correctness concern for this cache.
+ *
+ * Format is plain text so a stray corrupt line degrades to "skip that
+ * one app" rather than a hard failure: one 0x1F-separated record per
+ * line (id/name/exec/category_key/icon_spec -- none of those can
+ * legally contain a newline or 0x1F, they're single-line .desktop
+ * values), preceded by the directory-mtime snapshot it was built from.
+ */
+static void apps_cache_path(char *out, size_t outsz)
+{
+    const char *xdg_cache = getenv("XDG_CACHE_HOME");
+    if (xdg_cache && *xdg_cache) {
+        mkdir(xdg_cache, 0700);
+        snprintf(out, outsz, "%s/xisserve-apps.cache", xdg_cache);
+        return;
+    }
+    const char *home = getenv("HOME");
+    char cachedir[PATH_MAX];
+    snprintf(cachedir, sizeof(cachedir), "%s/.cache", home ? home : "");
+    mkdir(cachedir, 0700);
+    snprintf(out, outsz, "%s/xisserve-apps.cache", cachedir);
+}
+
+#define APPS_CACHE_MAGIC "XISSERVE-APPS-CACHE 1"
+
+/* Written after every real scan (both the daemon's and a one-shot
+ * process's) so whichever runs next -- daemon or one-shot, either one --
+ * finds it warm. Best-effort: a failure to write just means the next
+ * process pays for a real scan too, same as if the cache never
+ * existed. */
+static void write_apps_cache(const GArray *dirs, const GPtrArray *apps)
+{
+    char path[PATH_MAX], tmp[PATH_MAX];
+    apps_cache_path(path, sizeof(path));
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+
+    FILE *f = fopen(tmp, "w");
+    if (!f) return;
+
+    fprintf(f, "%s\n%u\n", APPS_CACHE_MAGIC, dirs->len);
+    for (guint i = 0; i < dirs->len; i++) {
+        const ScanDirState *st = &g_array_index(dirs, ScanDirState, i);
+        fprintf(f, "%ld\t%s\n", (long)st->mtime, st->path);
+    }
+    fprintf(f, "%u\n", apps->len);
+    for (guint i = 0; i < apps->len; i++) {
+        const ResultEntry *e = g_ptr_array_index(apps, i);
+        fprintf(f, "%s\x1f%s\x1f%s\x1f%s\x1f%s\n", e->id, e->name, e->exec, e->category_key, e->icon_spec);
+    }
+    fclose(f);
+    rename(tmp, path); /* atomic: a reader never sees a half-written cache */
+}
+
+/* Reads the cache back into out_apps (assumed empty) iff its directory
+ * snapshot matches current_dirs exactly -- otherwise leaves out_apps
+ * untouched and returns FALSE, telling the caller to do a real scan
+ * (and re-write the cache from its result). */
+static gboolean load_apps_cache_if_fresh(const GArray *current_dirs, GPtrArray *out_apps)
+{
+    char path[PATH_MAX];
+    apps_cache_path(path, sizeof(path));
+    FILE *f = fopen(path, "r");
+    if (!f) return FALSE;
+
+    gboolean ok = FALSE;
+    char line[4096];
+    GArray *cached_dirs = NULL;
+
+    if (!fgets(line, sizeof(line), f) || strncmp(line, APPS_CACHE_MAGIC, strlen(APPS_CACHE_MAGIC)) != 0)
+        goto out;
+
+    unsigned ndirs = 0;
+    if (!fgets(line, sizeof(line), f) || sscanf(line, "%u", &ndirs) != 1) goto out;
+
+    cached_dirs = g_array_new(FALSE, FALSE, sizeof(ScanDirState));
+    for (unsigned i = 0; i < ndirs; i++) {
+        if (!fgets(line, sizeof(line), f)) goto out;
+        size_t l = strlen(line);
+        while (l > 0 && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = 0;
+        char *tab = strchr(line, '\t');
+        if (!tab) goto out;
+        *tab = 0;
+        ScanDirState st;
+        st.mtime = (time_t)atol(line);
+        snprintf(st.path, sizeof(st.path), "%s", tab + 1);
+        g_array_append_val(cached_dirs, st);
+    }
+
+    if (!scan_dir_state_equal(cached_dirs, current_dirs)) goto out; /* stale -- caller rescans */
+
+    unsigned napps = 0;
+    if (!fgets(line, sizeof(line), f) || sscanf(line, "%u", &napps) != 1) goto out;
+
+    for (unsigned i = 0; i < napps; i++) {
+        if (!fgets(line, sizeof(line), f)) break;
+        size_t l = strlen(line);
+        while (l > 0 && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = 0;
+
+        char *fields[5];
+        int nf = 0;
+        char *p = line;
+        fields[nf++] = p;
+        while (nf < 5 && (p = strchr(p, '\x1f')) != NULL) {
+            *p++ = 0;
+            fields[nf++] = p;
+        }
+        if (nf != 5) continue; /* corrupt line -- skip this one app, not the whole cache */
+
+        ResultEntry *e = g_new0(ResultEntry, 1);
+        snprintf(e->id, sizeof(e->id), "%s", fields[0]);
+        snprintf(e->name, sizeof(e->name), "%s", fields[1]);
+        snprintf(e->exec, sizeof(e->exec), "%s", fields[2]);
+        snprintf(e->category_key, sizeof(e->category_key), "%s", fields[3]);
+        snprintf(e->icon_spec, sizeof(e->icon_spec), "%s", fields[4]);
+        snprintf(e->subtitle, sizeof(e->subtitle), "%s", xisserve_category_label(e->category_key));
+        e->from_desktop = TRUE;
+        e->is_favorite = g_favorites && g_hash_table_contains(g_favorites, e->id);
+        if (e->icon_spec[0]) e->icon = xisserve_resolve_icon(e->icon_spec, XISSERVE_ICON_PX);
+        g_ptr_array_add(out_apps, e);
+    }
+    ok = TRUE;
+
+out:
+    if (cached_dirs) g_array_free(cached_dirs, TRUE);
+    fclose(f);
+    return ok;
+}
+
 /* Refreshes is_favorite on every already-scanned entry from the current
  * g_favorites -- the cheap part of what a full rescan would otherwise
  * redo, kept separate so the "nothing changed on disk" path below can
@@ -1086,22 +1232,35 @@ static void rescan_apps(void)
         return;
     }
 
+    GPtrArray *fresh_apps = g_ptr_array_new();
+    if (!load_apps_cache_if_fresh(current_dirs, fresh_apps)) {
+        scan_apps_into(fresh_apps);
+        write_apps_cache(current_dirs, fresh_apps);
+    }
+
     if (g_apps) {
         for (guint i = 0; i < g_apps->len; i++) result_entry_free(g_ptr_array_index(g_apps, i));
         g_ptr_array_free(g_apps, TRUE);
     }
-    g_apps = g_ptr_array_new();
-    scan_apps_into(g_apps);
+    g_apps = fresh_apps;
     build_category_store();
 
     if (g_last_scan_dirs) g_array_free(g_last_scan_dirs, TRUE);
     g_last_scan_dirs = current_dirs;
 }
 
+/* Used by applications.c's one-shot `--applications` process, which has
+ * no g_apps/g_last_scan_dirs of its own to fall back on (a fresh
+ * process every time) -- so it always checks the on-disk cache instead. */
 GPtrArray *xisserve_scan_apps(void)
 {
     GPtrArray *apps = g_ptr_array_new();
-    scan_apps_into(apps);
+    GArray *current_dirs = collect_scan_dir_state();
+    if (!load_apps_cache_if_fresh(current_dirs, apps)) {
+        scan_apps_into(apps);
+        write_apps_cache(current_dirs, apps);
+    }
+    g_array_free(current_dirs, TRUE);
     return apps;
 }
 

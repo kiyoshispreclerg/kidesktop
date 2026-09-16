@@ -40,6 +40,9 @@ struct ResultEntry {
     gboolean is_favorite;
     gboolean from_desktop;
     GdkPixbuf *icon;        /* owned; NULL = no icon drawn for this row */
+    char icon_spec[256];    /* raw Icon= value icon was resolved from, "" if none; kept around
+                              * so the on-disk apps cache can persist it (a pixbuf itself can't) --
+                              * see xisserve.c's apps-cache section */
 
     ResultActivateFn activate_fn;         /* optional, see above */
     gpointer activate_data;               /* opaque payload for activate_fn */
