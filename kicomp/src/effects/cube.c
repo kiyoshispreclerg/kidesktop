@@ -128,13 +128,14 @@ typedef struct {
     bool flat_docks;
 
     /* How see-through the cube's shell -- its faces, their wallpaper and
-     * their panels, and the caps -- goes while a *mouse* drag is turning
-     * it: 0 solid (the default), 1 gone entirely. The windows themselves
-     * stay solid, and the ones on the faces turned away are drawn too,
-     * so a drag becomes a way to look at every desktop's windows at once,
-     * floating where they are in the turn. Not applied to a keyed turn
-     * (hotkey_next/prev): that one flicks past a single face and shuts
-     * itself, with nothing to look through. */
+     * panels, and the caps -- goes while a *mouse* drag is turning it: 0
+     * solid (the default), 1 gone entirely. The windows themselves stay
+     * solid, and both they and the wallpaper are drawn on the faces
+     * turned away too, so a drag becomes a way to look at every desktop
+     * -- its wallpaper and its windows -- at once, floating where the
+     * turn puts them. Not applied to a keyed turn (hotkey_next/prev):
+     * that one flicks past a single face and shuts itself, with nothing
+     * to look through. */
     float spin_transparency;
 
     /* Whether a face carries its own backing quad (cap_r/g/b/cap_a) at
@@ -905,12 +906,17 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
                 if (flat != (pass == 0))
                     continue;
 
-                /* The wallpaper and the panels are the shell too: they
-                 * fade with it, and a turned-away face shows neither --
-                 * only its windows, floating where the turn puts them.
-                 * The windows themselves stay solid whatever `veil` is. */
+                /* The panels are the shell too: they fade with it, and a
+                 * turned-away face shows none, only its windows floating
+                 * where the turn puts them. The wallpaper is not the
+                 * shell, though drawn in the same pass as one -- it is
+                 * what a face *is*, shell or no shell, so a turned-away
+                 * face carries it as well (reached at all only because
+                 * `spin` put that face in `vis[]` to begin with). The
+                 * windows themselves stay solid whatever `veil` is. */
+                bool wallpaper = w->type == COMP_WINDOW_DESKTOP;
                 if (flat) {
-                    if (!vis[k].front)
+                    if (!vis[k].front && !wallpaper)
                         continue;
                     node.opacity *= veil;
                 }
