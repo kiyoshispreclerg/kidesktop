@@ -400,14 +400,20 @@ typedef struct CompWindow {
      * first real DamageNotify arrives afterwards (damage.c's
      * damage_window_reported). A resized window's new backing pixmap is
      * not painted the instant the geometry changes -- the client redraws
-     * asynchronously, on its own schedule -- so a GL backend that rebinds
-     * to it right away is binding a pixmap with nothing in it yet, which
-     * reads back as black or garbage. Backends that gate their rebind on
-     * this (renderer-glx.c, renderer-egl.c) keep drawing the *old*,
-     * still-valid texture stretched to the new size in the meantime,
-     * which is what the node's transform already does for any texture
-     * whose pixel size doesn't match its geometry -- so nothing else
-     * about drawing has to change, only when the swap happens. */
+     * asynchronously, on its own schedule -- so binding it right away
+     * means binding a pixmap with nothing in it yet, which reads back as
+     * black or garbage.
+     *
+     * window.c's resize handling already sets the *old* contents aside in
+     * the stash (renderer.h) for any effect that wants them; this is what
+     * makes that picture available with nobody having to ask for it too.
+     * While this is false, window.c holds the stash open (renderer_stash_
+     * hold) so the flush doesn't drop it, and the GL drawing path
+     * (draw_node, draw_mesh_node in renderer-gl.c) draws from the stash
+     * instead of binding the live, still-unpainted pixmap -- stretched to
+     * the new size, exactly like any texture whose pixel size doesn't
+     * match its geometry. damage.c releases the hold the moment this
+     * flips back true. */
     bool content_ready;
 
     /* XRender backend state (renderer-xrender.c). A second renderer would

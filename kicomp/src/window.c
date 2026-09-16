@@ -1555,13 +1555,26 @@ void window_configure(xcb_window_t id, int x, int y, int w_, int h_, int border,
          * we hold is the old size -- but it is also the only record of
          * what the window looked like a moment ago, which an effect may
          * still need (shade rolls up a window whose real pixmap has
-         * already collapsed to a titlebar). Set aside rather than freed;
-         * the flush drops it if no effect claims it. */
+         * already collapsed to a titlebar), and now also what the plain
+         * drawing path shows in place of the new pixmap until it has
+         * something in it (see below and comp.h's content_ready). Set
+         * aside rather than freed; the flush drops it once nothing claims
+         * it any more. */
         renderer_window_stash(w, &old);
 
         /* The new pixmap is unpainted until the client redraws into it,
-         * which hasn't happened yet -- see comp.h's content_ready. A GL
-         * backend checks this before switching textures. */
+         * which is asynchronous and hasn't happened yet. Holding the
+         * stash keeps the picture just set aside from being dropped at
+         * this frame's flush -- comp.h's content_ready is what the
+         * drawing path checks to use it, and damage.c is what lets go of
+         * the hold once real content has arrived.
+         *
+         * Held once per pending resize, not once per configure: a drag
+         * fires this every step, and content_ready is already false for
+         * every step after the first, so holding again on those would
+         * need a matching extra release that nothing sends. */
+        if (w->content_ready)
+            renderer_stash_hold(w);
         w->content_ready = false;
     }
 

@@ -4,6 +4,7 @@
 #include "window.h"
 #include "effect.h"
 #include "region.h"
+#include "renderer.h"
 
 #include <stdlib.h>
 
@@ -28,8 +29,12 @@ void damage_window_reported(CompWindow *w)
 
     /* Real pixels changed, so if this is the first report since a resize,
      * whatever the client drew is there now -- comp.h's content_ready,
-     * checked by the GL backends before they swap to a resized window's
-     * new pixmap. */
+     * which the drawing path checks to stop preferring the stashed
+     * picture over the live one. Release matches the hold window.c took
+     * out when it went false, one per pending resize rather than one per
+     * report. */
+    if (!w->content_ready)
+        renderer_stash_release(w);
     w->content_ready = true;
 }
 

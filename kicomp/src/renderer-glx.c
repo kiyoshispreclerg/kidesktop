@@ -444,14 +444,7 @@ static bool glx_window_bind(CompWindow *w, GlWindow *g)
 
     CompRect r = window_rect(w);
 
-    /* content_ready gates only the *resize* case -- the pixmap that would
-     * replace this one is the window's new size but not yet its new
-     * pixels (comp.h). Until the client has actually redrawn, keep the
-     * old pixmap and texture bound: draw_node's transform already stretch
-     * whatever texture is bound to the node's current geometry, so the
-     * stale picture just scales to the new size instead of the new,
-     * unpainted pixmap reading back as black. */
-    if (x->pixmap && (g->width != r.w || g->height != r.h) && w->content_ready)
+    if (x->pixmap && (g->width != r.w || g->height != r.h))
         glx_window_unbind(g);
 
     if (!x->pixmap) {

@@ -1349,8 +1349,19 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
     glUniform1i(u_texture, 0);
 
-    if (!platform->window_bind(w, g))
+    /* Same fallback as the plain quad path (draw_node): while a resize's
+     * new pixmap sits unpainted (!w->content_ready, comp.h), draw the
+     * last picture that was actually painted instead of binding and
+     * reading back black -- which matters more here than anywhere else,
+     * since a wobbling window keeps repainting every frame while the net
+     * settles, long past the single repaint a plain resize step gets. */
+    bool from_stash = !w->content_ready && g->stash_platform && g->stash_texture;
+
+    if (from_stash) {
+        glBindTexture(GL_TEXTURE_2D, g->stash_texture);
+    } else if (!platform->window_bind(w, g)) {
         return;
+    }
 
     static float verts[MESH_MAX_COLS * MESH_MAX_ROWS * 6 * 4];
     int v;
@@ -1393,7 +1404,8 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     float identity[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
     glUniformMatrix4fv(u_transform, 1, GL_FALSE, identity);
     glUniform1f(u_opacity, n->opacity);
-    glUniform1f(u_y_flip, g->y_inverted ? 0.0f : 1.0f);
+    glUniform1f(u_y_flip, (from_stash ? g->stash_y_inverted : g->y_inverted)
+                              ? 0.0f : 1.0f);
     glUniform1f(u_use_uv, 1.0f);
 
     /* The silhouette, worn as a mask: a scissor box cannot follow a bend,
@@ -1454,13 +1466,20 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
     glUniform1i(u_texture, 0);
 
-    /* An effect drawing what the window looked like before its last
-     * resize (shade, rolling a window up behind its own titlebar). The
-     * node's geometry describes those contents, not the window's current
-     * ones -- and the texture is the one set aside with them, still bound
-     * to the pixmap that was named then, so there is nothing to bind and
-     * nothing to read back. */
-    bool from_stash = n->use_stash && g->stash_platform && g->stash_texture;
+    /* Two reasons to draw the stashed picture instead of the live one.
+     * `use_stash` is an effect's own choice: the node's geometry describes
+     * what the window looked like before its last resize (shade, rolling a
+     * window up behind its own titlebar), not what it looks like now, so
+     * the contents have to match. The other is nobody's choice: the live
+     * pixmap exists but the client hasn't painted it yet
+     * (!w->content_ready, comp.h) -- rather than bind that and read back
+     * black, keep showing the last picture that was actually painted,
+     * stretched to the node's current geometry same as any other texture
+     * whose pixel size doesn't match it. Either way there is nothing to
+     * bind and nothing to read back: the texture is already bound to the
+     * pixmap that was named then. */
+    bool from_stash = (n->use_stash || !w->content_ready) &&
+                       g->stash_platform && g->stash_texture;
 
     if (from_stash) {
         glBindTexture(GL_TEXTURE_2D, g->stash_texture);
