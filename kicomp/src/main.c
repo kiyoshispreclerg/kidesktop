@@ -33,7 +33,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.3.15"
+#define KICOMP_VERSION "0.3.16"
 
 #include "comp.h"
 #include "output.h"
@@ -1015,6 +1015,49 @@ static void handle_event(xcb_generic_event_t *ev)
     }
 }
 
+/* Every event queued right now, motion coalesced.
+ *
+ * A grabbed drag (input.c) turns every MotionNotify into an XWarpPointer
+ * -- cube.c's on_motion puts the pointer back on its anchor so the turn
+ * has nowhere to run out of screen -- and each of those is a request the
+ * server has to act on and a reply-generating round of its own besides.
+ * Reading the queue one event at a time during a fast drag means one
+ * warp per raw sample the mouse ever reported, which is where kicomp and
+ * the X server were both spending most of a spin's CPU: nothing was
+ * costing more than warping the pointer for a position nobody was ever
+ * going to see painted, because a later sample in the same burst was
+ * about to replace it before the next frame.
+ *
+ * Only the *last* position in an unbroken run of motion matters for
+ * anything downstream -- the drag target it feeds (cube.c's DRAG_SMOOTH_MS
+ * chase) is already decoupled from how the samples arrived -- so a run of
+ * them is collapsed to one dispatch. Anything else in the queue still
+ * goes out one at a time, in order, exactly as before. */
+static void drain_events(void)
+{
+    xcb_generic_event_t *ev;
+    xcb_generic_event_t *pending_motion = NULL;
+
+    while ((ev = xcb_poll_for_event(comp.conn))) {
+        if ((ev->response_type & 0x7f) == XCB_MOTION_NOTIFY) {
+            free(pending_motion);
+            pending_motion = ev;
+            continue;
+        }
+        if (pending_motion) {
+            handle_event(pending_motion);
+            free(pending_motion);
+            pending_motion = NULL;
+        }
+        handle_event(ev);
+        free(ev);
+    }
+    if (pending_motion) {
+        handle_event(pending_motion);
+        free(pending_motion);
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /* setup / teardown                                                    */
 /* ------------------------------------------------------------------ */
@@ -1393,11 +1436,7 @@ int main(int argc, char **argv)
     while (comp.running) {
         /* Drain everything queued, *then* paint once: a burst of damage
          * from one application costs one repaint, not one per event. */
-        xcb_generic_event_t *ev;
-        while ((ev = xcb_poll_for_event(comp.conn))) {
-            handle_event(ev);
-            free(ev);
-        }
+        drain_events();
 
         /* Something is waiting to be classified, and the evidence may be
          * one event behind: a shade arrives as a ConfigureNotify plus the
@@ -1415,10 +1454,7 @@ int main(int argc, char **argv)
         if (windows_have_pending()) {
             free(xcb_get_input_focus_reply(comp.conn,
                                            xcb_get_input_focus(comp.conn), NULL));
-            while ((ev = xcb_poll_for_event(comp.conn))) {
-                handle_event(ev);
-                free(ev);
-            }
+            drain_events();
             /* And the same question asked of the desktop properties, by
              * reading them rather than by waiting for their PropertyNotify:
              * kiwm unmaps the outgoing windows *before* publishing the new
