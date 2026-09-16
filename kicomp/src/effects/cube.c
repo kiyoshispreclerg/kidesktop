@@ -523,8 +523,6 @@ static void on_motion(void *data, int root_x, int root_y)
     d->tilt_target -= (float)dy / (float)o->rect.h * limit * 2.0f;
     if (d->tilt_target > limit) d->tilt_target = limit;
     if (d->tilt_target < -limit) d->tilt_target = -limit;
-
-    mark_dirty(d);
 }
 
 static void on_button(void *data, int root_x, int root_y, uint8_t button,
@@ -657,14 +655,15 @@ static void cube_update(CompEffect *e, double now)
 
     hold_live_windows(e, now);
 
-    /* Every tick the cube is up, whatever else does or doesn't change.
-     * A window's own damage is only its own rectangle, but the transform
-     * can put that content anywhere across the whole prism, over faces
-     * that did not themselves move this frame -- a video playing on one
-     * face is enough to leave the rest of the screen painting only that
-     * window's damage, which bleeds over the cube at any angle a partial
-     * repaint does not happen to cover. */
-    mark_dirty(d);
+    /* Something on this output already damaged itself this tick -- a
+     * window's own content, most likely, collected by damage_collect()
+     * before update() runs. Left as just that window's rectangle, a
+     * partial repaint of a scene under a 3D transform is only correct
+     * when the transform itself is not also changing that same frame;
+     * escalating it to the whole output whenever there is *any* damage
+     * to begin with costs nothing extra on a tick with none. */
+    CompOutput *ov = output_by_id(d->output_id);
+    bool already_dirty = ov && ov->dirty;
 
     float phase = d->phase_from +
                   (d->phase_to - d->phase_from) * eased(e, d->phase_time, now);
@@ -690,9 +689,16 @@ static void cube_update(CompEffect *e, double now)
         tilt = d->tilt_from * (1.0f - p);
     }
 
+    bool changed = phase != d->phase || angle != d->angle || tilt != d->tilt;
     d->phase = phase;
     d->angle = angle;
     d->tilt = tilt;
+
+    /* Either this turned the cube itself, which always needs the whole
+     * output repainted, or something else already did and that repaint
+     * needs widening to the whole output too (the comment above). */
+    if (changed || already_dirty)
+        mark_dirty(d);
 
     /* A flick has no button to let go of: it is done when it has turned
      * as far as it was asked to, and closes itself. */
