@@ -208,6 +208,35 @@ The dialog carries no `--bg`/`--fg`/`--font` theming either; it's a plain
 GTK2 window matching whatever GTK2 theme is already active on the
 session.
 
+## `--keyboard`: an on-screen QWERTY keyboard
+
+```
+xisserve --keyboard
+xisserve --keyboard --output-x=<px> --output-y=<px> --output-w=<px> --output-h=<px>
+```
+
+Also outside the xispanel contract and the launcher's own singleton
+below, but not a one-shot popup either: it opens a mouse-driven on-screen
+keyboard docked to the bottom of the given output rectangle (or the
+default screen if `--output-*` is omitted) and stays up until closed.
+Every key is a real button; clicking one synthesizes the actual keycode
+via XTest, so whatever window currently has input focus receives it --
+this window itself never takes focus (`WM_HINTS` input=False) and is
+never a click-to-focus target, the same contract xispanel's own dock
+windows use. Shift/Ctrl/Alt/Super are one-shot latches (click one, click
+a key, the chord fires and every latch clears); Caps Lock is a real
+toggle of the server's own lock state, reflected in a lamp alongside Num
+Lock/Scroll Lock.
+
+It keeps a *small* singleton of its own, entirely separate from the
+launcher's (`$XDG_RUNTIME_DIR/xisserve-keyboard.lock`, not
+`xisserve.lock`): the first invocation opens the keyboard and blocks
+until it's closed (its own close button, or `SIGTERM`); a second
+invocation while one is already up reads that instance's PID from the
+lock file and signals it instead of opening a second keyboard -- run the
+same command again to toggle it off, which is what a hotkey binding
+wants. See keyboard.c.
+
 ## Singleton / toggle behavior (xisserve's own responsibility)
 
 xispanel does **not** track whether xisserve is already running, hold a

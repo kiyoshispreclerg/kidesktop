@@ -42,7 +42,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.10"
+#define XISSERVE_VERSION "0.1.11"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -106,6 +106,12 @@ typedef struct {
      * bound to any click with no per-binding argument wiring. */
     int apps_mode;
     int apps_x, apps_y;
+
+    /* --keyboard: not a page either, an on-screen QWERTY keyboard docked
+     * to the bottom of output_x/y/w/h (see keyboard.c). No coordinates
+     * of its own -- it just reads the output_* fields every invocation
+     * already carries. */
+    int keyboard_mode;
 } LaunchArgs;
 
 static LaunchArgs g_args;
@@ -146,6 +152,7 @@ enum {
     OPT_BG, OPT_FG, OPT_FONT, OPT_FONT_SIZE,
     OPT_MENU, OPT_MENU_WINDOW, OPT_MENU_X, OPT_MENU_Y,
     OPT_APPS, OPT_APPS_X, OPT_APPS_Y,
+    OPT_KEYBOARD,
     /* Page mode flags occupy OPT_PAGE_BASE + <index into kPages>, so
      * kPages stays the single place a page's flag name is written. */
     OPT_PAGE_BASE = 2000,
@@ -178,6 +185,10 @@ static const struct option kFixedOpts[] = {
     {"applications", no_argument, 0, OPT_APPS},
     {"apps-x", required_argument, 0, OPT_APPS_X},
     {"apps-y", required_argument, 0, OPT_APPS_Y},
+    /* --keyboard takes no arguments of its own -- it's docked using the
+     * same --output-x/-y/-w/-h flags every invocation already accepts,
+     * see keyboard.c. */
+    {"keyboard", no_argument, 0, OPT_KEYBOARD},
 };
 #define N_FIXED_OPTS ((int)(sizeof(kFixedOpts) / sizeof(kFixedOpts[0])))
 
@@ -195,6 +206,8 @@ static void usage(const char *argv0)
                     "[--window=<id>] [--menu-x=<px>] [--menu-y=<px>]\n", argv0);
     fprintf(stderr, "       %s --applications [<x> <y>] "
                     "[--apps-x=<px>] [--apps-y=<px>]\n", argv0);
+    fprintf(stderr, "       %s --keyboard [--output-x=<px> --output-y=<px> "
+                    "--output-w=<px> --output-h=<px>]\n", argv0);
     fprintf(stderr, "       %s --question --text=<pergunta> --button=<rotulo>:<valor> "
                     "[--button=<rotulo>:<valor> ...]\n", argv0);
     fprintf(stderr, "       %s --version\n", argv0);
@@ -264,6 +277,7 @@ static int parse_argv(int argc, char **argv, LaunchArgs *a)
         case OPT_APPS: a->apps_mode = 1; break;
         case OPT_APPS_X: a->apps_x = atoi(optarg); break;
         case OPT_APPS_Y: a->apps_y = atoi(optarg); break;
+        case OPT_KEYBOARD: a->keyboard_mode = 1; break;
         default: break; /* unknown flag -- ignored on purpose, see above */
         }
     }
@@ -2343,6 +2357,12 @@ int main(int argc, char **argv)
      * applications.c. */
     if (args.apps_mode)
         return applications_run(args.apps_x, args.apps_y);
+
+    /* --keyboard: also outside the singleton/control-socket machinery,
+     * but a persistent dock rather than a one-shot popup -- see
+     * keyboard.c's own "toggle on second invocation" singleton. */
+    if (args.keyboard_mode)
+        return keyboard_run(args.output_x, args.output_y, args.output_w, args.output_h);
 
     /* --question: same deal, but detected by a raw argv scan rather than
      * through LaunchArgs -- its --text/--button flags are question.c's

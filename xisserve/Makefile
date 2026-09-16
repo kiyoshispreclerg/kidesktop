@@ -1,5 +1,8 @@
 CFLAGS ?= -Wall -Wextra -O2
-PKGS := gtk+-2.0 x11
+# xtst: --keyboard's on-screen keyboard synthesizes keystrokes via XTest
+# (keyboard.c) -- libxtst-dev ships on every X11 desktop that would ever
+# run this, same tier of dependency as x11 itself.
+PKGS := gtk+-2.0 x11 xtst
 PKG_CFLAGS := $(shell pkg-config --cflags $(PKGS))
 PKG_LIBS := $(shell pkg-config --libs $(PKGS)) -ldl
 
@@ -36,7 +39,7 @@ endif
 # runtime -- or present with no sound server answering -- the page shows
 # an explanatory placeholder instead of failing. Same "shell out, don't
 # reimplement" call xispanel/pulse.c already made, for the same reason.
-SRCS := xisserve.c appmenu.c question.c applications.c plugins/terminal.c plugins/globalmenu.c $(DBUS_SRC) \
+SRCS := xisserve.c appmenu.c question.c applications.c keyboard.c plugins/terminal.c plugins/globalmenu.c $(DBUS_SRC) \
         pages/calendar.c pages/audio.c pages/pulse.c
 OBJS := $(SRCS:.c=.o)
 HDRS := xisserve.h plugins/dbusmenu.h pages/pulse.h

@@ -107,6 +107,15 @@ int question_run(int argc, char **argv);
  * code. See applications.c and PROTOCOL.md. */
 int applications_run(int x, int y);
 
+/* --keyboard: a mouse-driven on-screen QWERTY keyboard docked to the
+ * bottom of the (output_x, output_y, output_w, output_h) rectangle --
+ * output_w/output_h <= 0 falls back to the default screen's size. Own
+ * "run again to toggle it off" singleton, separate from the launcher's
+ * (see keyboard.c's file comment for why); still no LaunchArgs-page
+ * relation to the launcher window itself. Returns the process exit
+ * code. See keyboard.c and PROTOCOL.md. */
+int keyboard_run(int output_x, int output_y, int output_w, int output_h);
+
 /* Fresh .desktop scan across $XDG_DATA_DIRS + ~/.local/share/applications,
  * independent of the launcher's own persistent app list -- used by
  * applications.c, a one-shot process that never touches the launcher's
