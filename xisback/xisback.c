@@ -74,7 +74,7 @@ int xis_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int 
 int xis_fd(void);
 int xis_poll_change(void);
 
-#define XISBACK_VERSION "0.4.1"
+#define XISBACK_VERSION "0.4.2"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -155,10 +155,12 @@ static Atom g_atom_opacity;
 
 /* Click actions are global (not per-layer): one shell command per mouse
  * button, plus one for double-click (any button). Run via `sh -c` with
- * XISBACK_OUTPUT/XISBACK_DESKTOP set to the clicked layer's key, so a
- * single generic command (e.g. `xisback --next`) can react to whichever
- * layer was clicked without the daemon needing to know what "next
- * wallpaper" even means for click purposes. */
+ * XISBACK_OUTPUT/XISBACK_DESKTOP set to the clicked layer's key, and
+ * XISBACK_CLICK_X/XISBACK_CLICK_Y set to the root-relative click position,
+ * so a single generic command (e.g. `xisback --next`) can react to
+ * whichever layer was clicked without the daemon needing to know what
+ * "next wallpaper" even means for click purposes, and a menu-popping
+ * command (e.g. `xisserve --applications`) knows where to appear. */
 static char g_action_left[ACTION_CMD_LEN];
 static char g_action_right[ACTION_CMD_LEN];
 static char g_action_middle[ACTION_CMD_LEN];
@@ -172,6 +174,8 @@ static int g_click_pending_button; /* 0 = none */
 static struct timespec g_click_pending_time;
 static char g_click_pending_output[64];
 static int g_click_pending_desktop;
+static int g_click_pending_x;
+static int g_click_pending_y;
 
 /* ------------------------------------------------------------------ */
 /* command line / wire protocol                                       */
@@ -224,9 +228,12 @@ static void usage(const char *prog)
             "                      shell command to run when a layer's window is\n"
             "                      clicked (global, not per-layer); empty string\n"
             "                      clears it. Runs with XISBACK_OUTPUT/\n"
-            "                      XISBACK_DESKTOP set to the clicked layer's key, so\n"
-            "                      e.g. `--on-left-click 'xisback --next'` advances\n"
-            "                      whichever layer was clicked\n"
+            "                      XISBACK_DESKTOP set to the clicked layer's key and\n"
+            "                      XISBACK_CLICK_X/XISBACK_CLICK_Y set to the click's\n"
+            "                      root-relative pointer position, so e.g.\n"
+            "                      `--on-left-click 'xisback --next'` advances\n"
+            "                      whichever layer was clicked, or a menu command can\n"
+            "                      pop up right where the pointer was\n"
             "  --get-actions       print the currently configured click commands\n"
             "  --quit              stop the daemon\n"
             "  --version           print version and exit\n"
@@ -436,8 +443,12 @@ static void destroy_layer(Layer *l)
  * becomes a zombie. output/desktop identify the layer whose window was
  * clicked and are exposed to the command as XISBACK_OUTPUT/
  * XISBACK_DESKTOP, so e.g. `xisback --next` run as the command reacts to
- * whichever layer triggered it instead of needing a hardcoded target. */
-static void run_action(const char *cmd, const char *output, int desktop)
+ * whichever layer triggered it instead of needing a hardcoded target.
+ * x/y are the click's root-relative pointer position (ev.xbutton.x_root/
+ * y_root), exposed as XISBACK_CLICK_X/XISBACK_CLICK_Y so a command like
+ * `xisserve --applications` can pop its menu right where the user clicked
+ * instead of guessing a position. */
+static void run_action(const char *cmd, const char *output, int desktop, int x, int y)
 {
     if (!cmd || !cmd[0]) {
         return;
@@ -449,13 +460,19 @@ static void run_action(const char *cmd, const char *output, int desktop)
     }
     if (pid == 0) {
         char dstr[16];
+        char xstr[16];
+        char ystr[16];
         if (desktop < 0) {
             snprintf(dstr, sizeof(dstr), "*");
         } else {
             snprintf(dstr, sizeof(dstr), "%d", desktop);
         }
+        snprintf(xstr, sizeof(xstr), "%d", x);
+        snprintf(ystr, sizeof(ystr), "%d", y);
         setenv("XISBACK_OUTPUT", output ? output : "*", 1);
         setenv("XISBACK_DESKTOP", dstr, 1);
+        setenv("XISBACK_CLICK_X", xstr, 1);
+        setenv("XISBACK_CLICK_Y", ystr, 1);
         setsid();
         execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
         _exit(127);
@@ -1705,7 +1722,7 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                              * nothing to disambiguate against: fire the
                              * single-click action immediately, no delay. */
                             const char *single = (button == Button1) ? g_action_left : (button == Button2) ? g_action_middle : g_action_right;
-                            run_action(single, l->output, l->desktop);
+                            run_action(single, l->output, l->desktop, ev.xbutton.x_root, ev.xbutton.y_root);
                         } else if (g_click_pending_button == button) {
                             struct timespec mono_now;
                             clock_gettime(CLOCK_MONOTONIC, &mono_now);
@@ -1713,14 +1730,14 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                                                  (double)(mono_now.tv_nsec - g_click_pending_time.tv_nsec) / 1e6;
                             g_click_pending_button = 0;
                             if (elapsed_ms <= DOUBLE_CLICK_MS) {
-                                run_action(g_action_double, l->output, l->desktop);
+                                run_action(g_action_double, l->output, l->desktop, ev.xbutton.x_root, ev.xbutton.y_root);
                             } else {
                                 /* Second click arrived too late to count as
                                  * a double: treat the first one as a single
                                  * (already timed out) and this one starts a
                                  * fresh pending click. */
                                 const char *single = (button == Button1) ? g_action_left : (button == Button2) ? g_action_middle : g_action_right;
-                                run_action(single, l->output, l->desktop);
+                                run_action(single, l->output, l->desktop, ev.xbutton.x_root, ev.xbutton.y_root);
                             }
                         } else {
                             /* A different button was already pending (rare:
@@ -1731,12 +1748,14 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                                 const char *pending_single = (g_click_pending_button == Button1) ? g_action_left
                                                             : (g_click_pending_button == Button2) ? g_action_middle
                                                             : g_action_right;
-                                run_action(pending_single, g_click_pending_output, g_click_pending_desktop);
+                                run_action(pending_single, g_click_pending_output, g_click_pending_desktop, g_click_pending_x, g_click_pending_y);
                             }
                             g_click_pending_button = button;
                             clock_gettime(CLOCK_MONOTONIC, &g_click_pending_time);
                             snprintf(g_click_pending_output, sizeof(g_click_pending_output), "%s", l->output);
                             g_click_pending_desktop = l->desktop;
+                            g_click_pending_x = ev.xbutton.x_root;
+                            g_click_pending_y = ev.xbutton.y_root;
                         }
                     }
                 }
@@ -1760,7 +1779,7 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                 const char *single = (g_click_pending_button == Button1) ? g_action_left
                                     : (g_click_pending_button == Button2) ? g_action_middle
                                     : g_action_right;
-                run_action(single, g_click_pending_output, g_click_pending_desktop);
+                run_action(single, g_click_pending_output, g_click_pending_desktop, g_click_pending_x, g_click_pending_y);
                 g_click_pending_button = 0;
             }
         }
