@@ -315,42 +315,58 @@ int desktop_current_for_output(const CompOutput *o)
     return t ? t->desktop : -1;
 }
 
+void desktop_of_window_invalidate(CompWindow *w)
+{
+    w->desktop_cache_valid = false;
+}
+
 bool desktop_of_window(const CompWindow *w, int *desktop, int *output_index)
 {
     if (!w)
         return false;
 
-    xcb_window_t client = w->client != XCB_NONE ? w->client : w->id;
+    /* A const-correct memoization: nothing about the window's own state
+     * changes, only what is cached about it, and every caller already
+     * treats this as a pure query. */
+    CompWindow *mw = (CompWindow *)w;
 
-    int desk = -1, out = -1;
-    xcb_get_property_reply_t *r = xcb_get_property_reply(comp.conn,
-        xcb_get_property(comp.conn, 0, client, comp.atoms.net_wm_desktop,
-                         XCB_ATOM_CARDINAL, 0, 1), NULL);
-    if (r) {
-        if (xcb_get_property_value_length(r) >= 4) {
-            uint32_t v = *(uint32_t *)xcb_get_property_value(r);
-            desk = (v == 0xffffffffu) ? COMP_DESKTOP_ALL : (int)v;
+    if (!mw->desktop_cache_valid) {
+        xcb_window_t client = w->client != XCB_NONE ? w->client : w->id;
+
+        int desk = -1, out = -1;
+        xcb_get_property_reply_t *r = xcb_get_property_reply(comp.conn,
+            xcb_get_property(comp.conn, 0, client, comp.atoms.net_wm_desktop,
+                             XCB_ATOM_CARDINAL, 0, 1), NULL);
+        if (r) {
+            if (xcb_get_property_value_length(r) >= 4) {
+                uint32_t v = *(uint32_t *)xcb_get_property_value(r);
+                desk = (v == 0xffffffffu) ? COMP_DESKTOP_ALL : (int)v;
+            }
+            free(r);
         }
-        free(r);
-    }
 
-    /* Under kiwm a desktop number is only unique within an output, so the
-     * pair is the answer and half of it is a wrong one
-     * (kiwm/PROTOCOL.md). */
-    r = xcb_get_property_reply(comp.conn,
-        xcb_get_property(comp.conn, 0, client, comp.atoms.kiwm_wm_output,
-                         XCB_ATOM_CARDINAL, 0, 1), NULL);
-    if (r) {
-        if (xcb_get_property_value_length(r) >= 4)
-            out = (int)*(uint32_t *)xcb_get_property_value(r);
-        free(r);
+        /* Under kiwm a desktop number is only unique within an output, so
+         * the pair is the answer and half of it is a wrong one
+         * (kiwm/PROTOCOL.md). */
+        r = xcb_get_property_reply(comp.conn,
+            xcb_get_property(comp.conn, 0, client, comp.atoms.kiwm_wm_output,
+                             XCB_ATOM_CARDINAL, 0, 1), NULL);
+        if (r) {
+            if (xcb_get_property_value_length(r) >= 4)
+                out = (int)*(uint32_t *)xcb_get_property_value(r);
+            free(r);
+        }
+
+        mw->desktop_cache = (desk >= 0 || desk == COMP_DESKTOP_ALL) ? desk : -1;
+        mw->desktop_cache_output = out;
+        mw->desktop_cache_valid = true;
     }
 
     if (desktop)
-        *desktop = desk;
+        *desktop = mw->desktop_cache;
     if (output_index)
-        *output_index = out;
-    return desk >= 0 || desk == COMP_DESKTOP_ALL;
+        *output_index = mw->desktop_cache_output;
+    return mw->desktop_cache >= 0 || mw->desktop_cache == COMP_DESKTOP_ALL;
 }
 
 bool desktop_request_switch(const CompOutput *o, int desktop)

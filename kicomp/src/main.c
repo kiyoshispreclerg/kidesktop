@@ -33,7 +33,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.3.14"
+#define KICOMP_VERSION "0.3.15"
 
 #include "comp.h"
 #include "output.h"
@@ -960,6 +960,14 @@ static void handle_event(xcb_generic_event_t *ev)
                 w = window_find(e->window);
             if (w)
                 window_state_changed(w);
+        } else if (e->atom == comp.atoms.net_wm_desktop ||
+                   e->atom == comp.atoms.kiwm_wm_output) {
+            /* Same split: whichever the WM published this on. */
+            CompWindow *w = window_find_by_client(e->window);
+            if (!w)
+                w = window_find(e->window);
+            if (w)
+                desktop_of_window_invalidate(w);
         }
         break;
     }

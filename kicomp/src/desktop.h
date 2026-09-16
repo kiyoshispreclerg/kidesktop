@@ -74,6 +74,12 @@ void desktop_grid(int *columns, int *rows);
 int  desktop_current_for_output(const CompOutput *o);
 int  desktop_output_index(const CompOutput *o);
 bool desktop_of_window(const CompWindow *w, int *desktop, int *output_index);
+
+/* Forgets desktop_of_window()'s cached answer for this window -- a
+ * PropertyNotify for _NET_WM_DESKTOP or _KIWM_WM_OUTPUT on its client, or
+ * the client itself resolving to a different window than the cache was
+ * taken from (window.c). The next ask re-fetches. */
+void desktop_of_window_invalidate(CompWindow *w);
 bool desktop_request_switch(const CompOutput *o, int desktop);
 
 /* Asks the WM to put every wallpaper it is hiding on screen for a

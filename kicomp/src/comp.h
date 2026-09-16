@@ -292,6 +292,17 @@ typedef struct CompWindow {
     xcb_window_t transient_for;
     uint32_t pid;
 
+    /* desktop_of_window()'s answer (desktop.c), memoized: two GetProperty
+     * round trips (_NET_WM_DESKTOP, _KIWM_WM_OUTPUT) is fine for the rare,
+     * one-off callers it was written for, but an effect like the cube asks
+     * it once per window per face per painted frame, and at that rate the
+     * round trips are most of what a continuous turn cost, on both this
+     * process and the X server answering them. Valid until a
+     * PropertyNotify for either atom says otherwise (main.c). */
+    bool desktop_cache_valid;
+    int desktop_cache;         /* -1: desktop_of_window() would return false */
+    int desktop_cache_output;
+
     /* When this window was last reconfigured, and how many configures
      * arrived back to back -- how window.c tells a drag (a stream) from
      * a maximize (one jump), which is the difference between an effect

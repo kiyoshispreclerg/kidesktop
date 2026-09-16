@@ -329,6 +329,11 @@ static xcb_window_t resolve_client(CompWindow *w)
     if (w->client != XCB_NONE)
         return w->client;
 
+    /* Whatever desktop_of_window() cached was read off w->id, the
+     * fallback source before a client exists to read it off instead
+     * (desktop.c) -- stale the moment one is found below. */
+    desktop_of_window_invalidate(w);
+
     /* A top-level window the WM manages *without* reparenting speaks for
      * itself, children or no children. Panels and desktop windows are
      * exactly that under kiwm -- there is nothing to decorate, so there
