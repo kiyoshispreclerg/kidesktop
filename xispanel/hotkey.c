@@ -118,7 +118,19 @@ static int parse_hotkey_spec(const char *spec, unsigned int *out_mods, KeyCode *
         fprintf(stderr, "xispanel: hotkey: spec '%s' has no key, only modifiers\n", spec);
         return 0;
     }
+    /* XStringToKeysym() wants a symbolic name ("period", not "."), which
+     * is not what anyone writing a spec by hand types for punctuation --
+     * a natural, common binding like "Meta+." fails that lookup and
+     * silently drops otherwise. Every printable ASCII/Latin-1 keysym is
+     * numerically equal to its own character code by X11's own encoding
+     * convention, so a single literal character goes straight to a
+     * keysym value with no name-table lookup needed at all. Same fix,
+     * same reasoning as xiskeys.c's own parse_hotkey_spec(). */
     KeySym ks = XStringToKeysym(keyname);
+    if (ks == NoSymbol && keyname[1] == '\0' && (unsigned char)keyname[0] >= 0x20 &&
+        (unsigned char)keyname[0] <= 0xff) {
+        ks = (KeySym)(unsigned char)keyname[0];
+    }
     if (ks == NoSymbol) {
         fprintf(stderr, "xispanel: hotkey: unknown key name '%s' in spec '%s'\n", keyname, spec);
         return 0;

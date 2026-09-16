@@ -62,7 +62,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define XISKEYS_VERSION "0.2.1"
+#define XISKEYS_VERSION "0.2.2"
 #define MAX_BINDINGS 128
 #define LINE_MAX_LEN 768
 #define CMD_MAX_LEN 512
@@ -186,7 +186,18 @@ static int parse_hotkey_spec(const char *spec, unsigned int *out_mods, KeyCode *
         fprintf(stderr, "xiskeys: spec '%s' has no key, only modifiers\n", spec);
         return 0;
     }
+    /* XStringToKeysym() wants a symbolic name ("period", not "."), which
+     * is not what anyone writing a spec by hand types for punctuation --
+     * "Meta+." (a natural, common binding) fails that lookup and silently
+     * drops the whole binding otherwise. Every printable ASCII/Latin-1
+     * keysym is numerically equal to its own character code by X11's own
+     * encoding convention, so a single literal character goes straight
+     * to a keysym value with no name-table lookup needed at all. */
     KeySym ks = XStringToKeysym(keyname);
+    if (ks == NoSymbol && keyname[1] == '\0' && (unsigned char)keyname[0] >= 0x20 &&
+        (unsigned char)keyname[0] <= 0xff) {
+        ks = (KeySym)(unsigned char)keyname[0];
+    }
     if (ks == NoSymbol) {
         fprintf(stderr, "xiskeys: unknown key name '%s' in spec '%s'\n", keyname, spec);
         return 0;
@@ -407,6 +418,7 @@ static void write_default_config(const char *path)
     fprintf(f, "\n# --- your own launchers/commands, add as many as you want -----------------\n");
     fprintf(f, "#BIND\tterminal\tMeta+Return\txterm\n");
     fprintf(f, "#BIND\tbrowser\tMeta+B\tfirefox\n");
+    fprintf(f, "#BIND\tvirtual-keyboard\tMeta+.\txisserve --keyboard\n");
     fclose(f);
 }
 
