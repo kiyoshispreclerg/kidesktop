@@ -74,7 +74,7 @@ int xis_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int 
 int xis_fd(void);
 int xis_poll_change(void);
 
-#define XISBACK_VERSION "0.4.2"
+#define XISBACK_VERSION "0.4.3"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -154,8 +154,10 @@ static char g_configpath[PATH_MAX];
 static Atom g_atom_opacity;
 
 /* Click actions are global (not per-layer): one shell command per mouse
- * button, plus one for double-click (any button). Run via `sh -c` with
- * XISBACK_OUTPUT/XISBACK_DESKTOP set to the clicked layer's key, and
+ * button, plus one for double-click (any button) and one each for the
+ * scroll wheel (Button4 = up, Button5 = down). Run via `sh -c` with
+ * XISBACK_OUTPUT/XISBACK_DESKTOP set to the clicked layer's key,
+ * XISBACK_IMAGE set to that layer's currently-shown image path, and
  * XISBACK_CLICK_X/XISBACK_CLICK_Y set to the root-relative click position,
  * so a single generic command (e.g. `xisback --next`) can react to
  * whichever layer was clicked without the daemon needing to know what
@@ -165,15 +167,20 @@ static char g_action_left[ACTION_CMD_LEN];
 static char g_action_right[ACTION_CMD_LEN];
 static char g_action_middle[ACTION_CMD_LEN];
 static char g_action_double[ACTION_CMD_LEN];
+static char g_action_scroll_up[ACTION_CMD_LEN];
+static char g_action_scroll_down[ACTION_CMD_LEN];
 
 /* Single in-flight click debounce: waiting to see if a second same-button
  * click arrives within DOUBLE_CLICK_MS before deciding it was a single
  * click. Only used when a double-click action is actually configured --
- * otherwise single clicks fire immediately with zero added latency. */
+ * otherwise single clicks fire immediately with zero added latency. Scroll
+ * (Button4/5) never goes through this: there's no "double-scroll" concept,
+ * so those always fire immediately regardless of g_action_double. */
 static int g_click_pending_button; /* 0 = none */
 static struct timespec g_click_pending_time;
 static char g_click_pending_output[64];
 static int g_click_pending_desktop;
+static char g_click_pending_image[PATH_MAX];
 static int g_click_pending_x;
 static int g_click_pending_y;
 
@@ -199,12 +206,15 @@ typedef struct {
     /* CMD_SETACTIONS: only the *_set flags that are true get applied on top
      * of whatever the daemon currently has (run_as_client fetches the
      * current bindings first) -- so `--on-left-click foo` alone doesn't
-     * wipe out the other three. */
+     * wipe out the other three (now five: scroll up/down included). */
     char action_left[ACTION_CMD_LEN];
     char action_right[ACTION_CMD_LEN];
     char action_middle[ACTION_CMD_LEN];
     char action_double[ACTION_CMD_LEN];
+    char action_scroll_up[ACTION_CMD_LEN];
+    char action_scroll_down[ACTION_CMD_LEN];
     int action_left_set, action_right_set, action_middle_set, action_double_set;
+    int action_scroll_up_set, action_scroll_down_set;
 } Command;
 
 static void usage(const char *prog)
@@ -224,17 +234,18 @@ static void usage(const char *prog)
             "  --next              advance the given layer's slideshow now (no-op if\n"
             "                      it isn't a slideshow); honors --output/--desktop\n"
             "  --on-left-click CMD, --on-right-click CMD, --on-middle-click CMD,\n"
-            "  --on-double-click CMD\n"
+            "  --on-double-click CMD, --on-scroll-up CMD, --on-scroll-down CMD\n"
             "                      shell command to run when a layer's window is\n"
-            "                      clicked (global, not per-layer); empty string\n"
-            "                      clears it. Runs with XISBACK_OUTPUT/\n"
-            "                      XISBACK_DESKTOP set to the clicked layer's key and\n"
-            "                      XISBACK_CLICK_X/XISBACK_CLICK_Y set to the click's\n"
-            "                      root-relative pointer position, so e.g.\n"
+            "                      clicked or scrolled (global, not per-layer); empty\n"
+            "                      string clears it. Runs with XISBACK_OUTPUT/\n"
+            "                      XISBACK_DESKTOP set to the clicked layer's key,\n"
+            "                      XISBACK_IMAGE set to that layer's current image\n"
+            "                      path, and XISBACK_CLICK_X/XISBACK_CLICK_Y set to\n"
+            "                      the click's root-relative pointer position, so e.g.\n"
             "                      `--on-left-click 'xisback --next'` advances\n"
             "                      whichever layer was clicked, or a menu command can\n"
             "                      pop up right where the pointer was\n"
-            "  --get-actions       print the currently configured click commands\n"
+            "  --get-actions       print the currently configured click/scroll commands\n"
             "  --quit              stop the daemon\n"
             "  --version           print version and exit\n"
             "\n"
@@ -318,6 +329,16 @@ static int parse_argv(int argc, char **argv, Command *cmd)
             sanitize_action_cmd(cmd->action_double);
             cmd->action_double_set = 1;
             cmd->type = CMD_SETACTIONS;
+        } else if (!strcmp(argv[i], "--on-scroll-up") && i + 1 < argc) {
+            snprintf(cmd->action_scroll_up, sizeof(cmd->action_scroll_up), "%s", argv[++i]);
+            sanitize_action_cmd(cmd->action_scroll_up);
+            cmd->action_scroll_up_set = 1;
+            cmd->type = CMD_SETACTIONS;
+        } else if (!strcmp(argv[i], "--on-scroll-down") && i + 1 < argc) {
+            snprintf(cmd->action_scroll_down, sizeof(cmd->action_scroll_down), "%s", argv[++i]);
+            sanitize_action_cmd(cmd->action_scroll_down);
+            cmd->action_scroll_down_set = 1;
+            cmd->type = CMD_SETACTIONS;
         } else if (!strcmp(argv[i], "--get-actions")) {
             cmd->type = CMD_GETACTIONS;
         } else if (!strcmp(argv[i], "--quit")) {
@@ -356,7 +377,7 @@ static void build_line(const Command *c, char *buf, size_t bufsz)
         snprintf(buf, bufsz, "NEXT\t%s\t%s\n", c->output, c->desktop_str);
         break;
     case CMD_SETACTIONS:
-        snprintf(buf, bufsz, "SETACTIONS\t%s\t%s\t%s\t%s\n", c->action_left, c->action_right, c->action_middle, c->action_double);
+        snprintf(buf, bufsz, "SETACTIONS\t%s\t%s\t%s\t%s\t%s\t%s\n", c->action_left, c->action_right, c->action_middle, c->action_double, c->action_scroll_up, c->action_scroll_down);
         break;
     case CMD_GETACTIONS:
         snprintf(buf, bufsz, "ACTIONS\n");
@@ -444,11 +465,13 @@ static void destroy_layer(Layer *l)
  * clicked and are exposed to the command as XISBACK_OUTPUT/
  * XISBACK_DESKTOP, so e.g. `xisback --next` run as the command reacts to
  * whichever layer triggered it instead of needing a hardcoded target.
- * x/y are the click's root-relative pointer position (ev.xbutton.x_root/
- * y_root), exposed as XISBACK_CLICK_X/XISBACK_CLICK_Y so a command like
- * `xisserve --applications` can pop its menu right where the user clicked
- * instead of guessing a position. */
-static void run_action(const char *cmd, const char *output, int desktop, int x, int y)
+ * image is that layer's currently-shown image path, exposed as
+ * XISBACK_IMAGE (empty string if the layer somehow has none). x/y are the
+ * click's root-relative pointer position (ev.xbutton.x_root/y_root),
+ * exposed as XISBACK_CLICK_X/XISBACK_CLICK_Y so a command like `xisserve
+ * --applications` can pop its menu right where the user clicked instead
+ * of guessing a position. */
+static void run_action(const char *cmd, const char *output, int desktop, const char *image, int x, int y)
 {
     if (!cmd || !cmd[0]) {
         return;
@@ -471,6 +494,7 @@ static void run_action(const char *cmd, const char *output, int desktop, int x, 
         snprintf(ystr, sizeof(ystr), "%d", y);
         setenv("XISBACK_OUTPUT", output ? output : "*", 1);
         setenv("XISBACK_DESKTOP", dstr, 1);
+        setenv("XISBACK_IMAGE", image ? image : "", 1);
         setenv("XISBACK_CLICK_X", xstr, 1);
         setenv("XISBACK_CLICK_Y", ystr, 1);
         setsid();
@@ -1031,7 +1055,7 @@ static void save_config(void)
         }
         fprintf(f, "LAYER\t%s\t%s\t%s\t%d\t%d\t%d\t%s\n", l->output, dstr, l->mode == MODE_STRETCH ? "stretch" : "fill", l->interval, l->shuffle, l->fade_ms, l->source);
     }
-    fprintf(f, "ACTIONS\t%s\t%s\t%s\t%s\n", g_action_left, g_action_right, g_action_middle, g_action_double);
+    fprintf(f, "ACTIONS\t%s\t%s\t%s\t%s\t%s\t%s\n", g_action_left, g_action_right, g_action_middle, g_action_double, g_action_scroll_up, g_action_scroll_down);
     fclose(f);
     if (rename(tmp, g_configpath) != 0) {
         fprintf(stderr, "xisback: could not save '%s': %s\n", g_configpath, strerror(errno));
@@ -1217,6 +1241,13 @@ static void load_config(void)
             snprintf(g_action_right, sizeof(g_action_right), "%s", fields[2]);
             snprintf(g_action_middle, sizeof(g_action_middle), "%s", fields[3]);
             snprintf(g_action_double, sizeof(g_action_double), "%s", fields[4]);
+            /* Pre-scroll-actions config lines only had these first four --
+             * leave the scroll bindings empty (their static-global default)
+             * rather than treat a 5-field line as malformed. */
+            if (nf >= 7) {
+                snprintf(g_action_scroll_up, sizeof(g_action_scroll_up), "%s", fields[5]);
+                snprintf(g_action_scroll_down, sizeof(g_action_scroll_down), "%s", fields[6]);
+            }
         } else if (nf == 7) {
             /* Pre-0.4 config lines had no leading LAYER tag -- keep reading
              * them so upgrading the binary doesn't silently drop whatever
@@ -1324,12 +1355,12 @@ static void handle_line(char *line, FILE *out)
         return;
     }
     if (strcmp(fields[0], "ACTIONS") == 0) {
-        fprintf(out, "%s\t%s\t%s\t%s\n", g_action_left, g_action_right, g_action_middle, g_action_double);
+        fprintf(out, "%s\t%s\t%s\t%s\t%s\t%s\n", g_action_left, g_action_right, g_action_middle, g_action_double, g_action_scroll_up, g_action_scroll_down);
         return;
     }
     if (strcmp(fields[0], "SETACTIONS") == 0) {
         if (nf < 5) {
-            fprintf(out, "ERR usage: SETACTIONS left right middle double\n");
+            fprintf(out, "ERR usage: SETACTIONS left right middle double [scroll_up scroll_down]\n");
             return;
         }
         snprintf(g_action_left, sizeof(g_action_left), "%s", fields[1]);
@@ -1340,6 +1371,14 @@ static void handle_line(char *line, FILE *out)
         sanitize_action_cmd(g_action_right);
         sanitize_action_cmd(g_action_middle);
         sanitize_action_cmd(g_action_double);
+        /* Older clients may still send only the first four -- keep the
+         * scroll bindings as they were rather than wipe them to empty. */
+        if (nf >= 7) {
+            snprintf(g_action_scroll_up, sizeof(g_action_scroll_up), "%s", fields[5]);
+            snprintf(g_action_scroll_down, sizeof(g_action_scroll_down), "%s", fields[6]);
+            sanitize_action_cmd(g_action_scroll_up);
+            sanitize_action_cmd(g_action_scroll_down);
+        }
         save_config();
         fprintf(out, "OK\n");
         return;
@@ -1387,7 +1426,8 @@ static void handle_signal(int sig)
  * single flag the caller passed wiping out the other three. Returns -1 (and
  * leaves the outputs untouched) on any failure -- callers treat that as
  * "assume unset/empty", same as a fresh daemon with no bindings yet. */
-static int fetch_actions(const char *sockpath, char *left, size_t leftsz, char *right, size_t rightsz, char *middle, size_t middlesz, char *dbl, size_t dblsz)
+static int fetch_actions(const char *sockpath, char *left, size_t leftsz, char *right, size_t rightsz, char *middle, size_t middlesz, char *dbl, size_t dblsz,
+                          char *scroll_up, size_t scroll_up_sz, char *scroll_down, size_t scroll_down_sz)
 {
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) {
@@ -1408,7 +1448,7 @@ static int fetch_actions(const char *sockpath, char *left, size_t leftsz, char *
     }
     shutdown(fd, SHUT_WR);
 
-    char buf[4 * ACTION_CMD_LEN];
+    char buf[6 * ACTION_CMD_LEN];
     size_t total = 0;
     ssize_t n;
     while (total < sizeof(buf) - 1 && (n = read(fd, buf + total, sizeof(buf) - 1 - total)) > 0) {
@@ -1422,11 +1462,11 @@ static int fetch_actions(const char *sockpath, char *left, size_t leftsz, char *
         buf[--len] = 0;
     }
 
-    char *fields[4];
+    char *fields[6];
     int nf = 0;
     char *p = buf;
     fields[nf++] = p;
-    while (nf < 4 && (p = strchr(p, '\t'))) {
+    while (nf < 6 && (p = strchr(p, '\t'))) {
         *p = 0;
         p++;
         fields[nf++] = p;
@@ -1438,6 +1478,13 @@ static int fetch_actions(const char *sockpath, char *left, size_t leftsz, char *
     snprintf(right, rightsz, "%s", fields[1]);
     snprintf(middle, middlesz, "%s", fields[2]);
     snprintf(dbl, dblsz, "%s", fields[3]);
+    /* An older daemon's ACTIONS reply only has these first four -- leave
+     * the scroll outputs untouched (caller passes in "" already) rather
+     * than fail the whole fetch over a field it predates. */
+    if (nf >= 6) {
+        snprintf(scroll_up, scroll_up_sz, "%s", fields[4]);
+        snprintf(scroll_down, scroll_down_sz, "%s", fields[5]);
+    }
     return 0;
 }
 
@@ -1452,10 +1499,13 @@ static int run_as_client(const char *sockpath, const Command *cmd_in)
     Command *cmd = &cmd_buf;
 
     if (cmd->type == CMD_SETACTIONS &&
-        !(cmd->action_left_set && cmd->action_right_set && cmd->action_middle_set && cmd->action_double_set)) {
+        !(cmd->action_left_set && cmd->action_right_set && cmd->action_middle_set && cmd->action_double_set &&
+          cmd->action_scroll_up_set && cmd->action_scroll_down_set)) {
         char cur_left[ACTION_CMD_LEN] = "", cur_right[ACTION_CMD_LEN] = "";
         char cur_middle[ACTION_CMD_LEN] = "", cur_double[ACTION_CMD_LEN] = "";
-        if (fetch_actions(sockpath, cur_left, sizeof(cur_left), cur_right, sizeof(cur_right), cur_middle, sizeof(cur_middle), cur_double, sizeof(cur_double)) == 0) {
+        char cur_scroll_up[ACTION_CMD_LEN] = "", cur_scroll_down[ACTION_CMD_LEN] = "";
+        if (fetch_actions(sockpath, cur_left, sizeof(cur_left), cur_right, sizeof(cur_right), cur_middle, sizeof(cur_middle), cur_double, sizeof(cur_double),
+                           cur_scroll_up, sizeof(cur_scroll_up), cur_scroll_down, sizeof(cur_scroll_down)) == 0) {
             if (!cmd->action_left_set) {
                 snprintf(cmd->action_left, sizeof(cmd->action_left), "%s", cur_left);
             }
@@ -1467,6 +1517,12 @@ static int run_as_client(const char *sockpath, const Command *cmd_in)
             }
             if (!cmd->action_double_set) {
                 snprintf(cmd->action_double, sizeof(cmd->action_double), "%s", cur_double);
+            }
+            if (!cmd->action_scroll_up_set) {
+                snprintf(cmd->action_scroll_up, sizeof(cmd->action_scroll_up), "%s", cur_scroll_up);
+            }
+            if (!cmd->action_scroll_down_set) {
+                snprintf(cmd->action_scroll_down, sizeof(cmd->action_scroll_down), "%s", cur_scroll_down);
             }
         }
     }
@@ -1698,12 +1754,19 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                     refresh_all_layer_geometries();
                 } else if (ev.type == ButtonPress) {
                     /* Button2 is the middle button in X11's numbering (not
-                     * Button3 -- that's right). Wheel scroll shows up as
-                     * Button4/5; we don't bind anything to those. */
+                     * Button3 -- that's right). Button4/5 are the scroll
+                     * wheel (up/down); handled separately below since they
+                     * have no double-click concept and don't take focus. */
                     int idx = find_layer_by_window(ev.xbutton.window);
-                    if (idx >= 0 && (ev.xbutton.button == Button1 || ev.xbutton.button == Button2 || ev.xbutton.button == Button3)) {
+                    if (idx >= 0 && (ev.xbutton.button == Button4 || ev.xbutton.button == Button5)) {
+                        Layer *l = &g_layers[idx];
+                        const char *image = (l->n_images > 0) ? l->images[l->img_idx] : "";
+                        const char *scroll = (ev.xbutton.button == Button4) ? g_action_scroll_up : g_action_scroll_down;
+                        run_action(scroll, l->output, l->desktop, image, ev.xbutton.x_root, ev.xbutton.y_root);
+                    } else if (idx >= 0 && (ev.xbutton.button == Button1 || ev.xbutton.button == Button2 || ev.xbutton.button == Button3)) {
                         Layer *l = &g_layers[idx];
                         int button = (int)ev.xbutton.button;
+                        const char *image = (l->n_images > 0) ? l->images[l->img_idx] : "";
 
                         /* Only a left click takes the keyboard focus; the
                          * middle/right menus (and their actions) leave it
@@ -1722,7 +1785,7 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                              * nothing to disambiguate against: fire the
                              * single-click action immediately, no delay. */
                             const char *single = (button == Button1) ? g_action_left : (button == Button2) ? g_action_middle : g_action_right;
-                            run_action(single, l->output, l->desktop, ev.xbutton.x_root, ev.xbutton.y_root);
+                            run_action(single, l->output, l->desktop, image, ev.xbutton.x_root, ev.xbutton.y_root);
                         } else if (g_click_pending_button == button) {
                             struct timespec mono_now;
                             clock_gettime(CLOCK_MONOTONIC, &mono_now);
@@ -1730,14 +1793,14 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                                                  (double)(mono_now.tv_nsec - g_click_pending_time.tv_nsec) / 1e6;
                             g_click_pending_button = 0;
                             if (elapsed_ms <= DOUBLE_CLICK_MS) {
-                                run_action(g_action_double, l->output, l->desktop, ev.xbutton.x_root, ev.xbutton.y_root);
+                                run_action(g_action_double, l->output, l->desktop, image, ev.xbutton.x_root, ev.xbutton.y_root);
                             } else {
                                 /* Second click arrived too late to count as
                                  * a double: treat the first one as a single
                                  * (already timed out) and this one starts a
                                  * fresh pending click. */
                                 const char *single = (button == Button1) ? g_action_left : (button == Button2) ? g_action_middle : g_action_right;
-                                run_action(single, l->output, l->desktop, ev.xbutton.x_root, ev.xbutton.y_root);
+                                run_action(single, l->output, l->desktop, image, ev.xbutton.x_root, ev.xbutton.y_root);
                             }
                         } else {
                             /* A different button was already pending (rare:
@@ -1748,12 +1811,13 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                                 const char *pending_single = (g_click_pending_button == Button1) ? g_action_left
                                                             : (g_click_pending_button == Button2) ? g_action_middle
                                                             : g_action_right;
-                                run_action(pending_single, g_click_pending_output, g_click_pending_desktop, g_click_pending_x, g_click_pending_y);
+                                run_action(pending_single, g_click_pending_output, g_click_pending_desktop, g_click_pending_image, g_click_pending_x, g_click_pending_y);
                             }
                             g_click_pending_button = button;
                             clock_gettime(CLOCK_MONOTONIC, &g_click_pending_time);
                             snprintf(g_click_pending_output, sizeof(g_click_pending_output), "%s", l->output);
                             g_click_pending_desktop = l->desktop;
+                            snprintf(g_click_pending_image, sizeof(g_click_pending_image), "%s", image);
                             g_click_pending_x = ev.xbutton.x_root;
                             g_click_pending_y = ev.xbutton.y_root;
                         }
@@ -1779,7 +1843,7 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                 const char *single = (g_click_pending_button == Button1) ? g_action_left
                                     : (g_click_pending_button == Button2) ? g_action_middle
                                     : g_action_right;
-                run_action(single, g_click_pending_output, g_click_pending_desktop, g_click_pending_x, g_click_pending_y);
+                run_action(single, g_click_pending_output, g_click_pending_desktop, g_click_pending_image, g_click_pending_x, g_click_pending_y);
                 g_click_pending_button = 0;
             }
         }

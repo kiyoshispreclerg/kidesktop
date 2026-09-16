@@ -28,7 +28,7 @@ CLEARALL\n
 LIST\n
 NEXT\t<output>\t<desktop>\n
 ACTIONS\n
-SETACTIONS\t<left>\t<right>\t<middle>\t<double>\n
+SETACTIONS\t<left>\t<right>\t<middle>\t<double>\t<scroll_up>\t<scroll_down>\n
 PING\n
 QUIT\n
 ```
@@ -60,9 +60,12 @@ image/folder, repositions if needed) instead of creating a new one.
 its interval timer firing right now, including a crossfade if configured)
 and resets the timer; it's a no-op (still `OK`) if the layer is a single
 image or `interval` is `0` — there's nothing to advance to. `ACTIONS` and
-`SETACTIONS` read/write the four click-action commands described in "Click
-actions" below; they're global, not per-layer, so they take no
-`output`/`desktop` arguments.
+`SETACTIONS` read/write the six click/scroll-action commands described in
+"Click and scroll actions" below; they're global, not per-layer, so they
+take no `output`/`desktop` arguments. `SETACTIONS` accepts a legacy 5-field
+line (`SETACTIONS\t<left>\t<right>\t<middle>\t<double>\n`, no scroll
+fields) for older callers -- the daemon leaves whatever scroll bindings it
+already had untouched in that case rather than clearing them.
 
 ### Responses
 
@@ -73,8 +76,11 @@ actions" below; they're global, not per-layer, so they take no
   as `SET` (without the leading `SET\t`):
   `output\tdesktop\tmode\tinterval\tshuffle\tfade_ms\tpath\n`.
   Connection closes (EOF) at the end of the list.
-- For `ACTIONS`: one line, `left\tright\tmiddle\tdouble\n` — the four
-  command strings currently bound (empty string for an unbound slot).
+- For `ACTIONS`: one line,
+  `left\tright\tmiddle\tdouble\tscroll_up\tscroll_down\n` — the six
+  command strings currently bound (empty string for an unbound slot). A
+  daemon predating scroll actions would only send the first four; this
+  daemon always sends all six.
 
 ## Crossfade
 
@@ -92,28 +98,45 @@ immediately rather than animating, since there's no "old" content to fade
 from in that case. `<fade_ms>` is clamped to `[0, 5000]` by the daemon
 regardless of what a client sends.
 
-## Click actions
+## Click and scroll actions
 
-Each layer's window accepts left/right/middle clicks and double-clicks
-(any button). What happens on click is **global** to the daemon, not
-per-layer: four shell command strings (`left`, `right`, `middle`,
-`double`), run via `sh -c "<cmd>"` when the corresponding click lands on
-*any* layer's window. An empty string means no action for that slot
-(the common case, and the default).
+Each layer's window accepts left/right/middle clicks, double-clicks (any
+button), and scroll-wheel up/down. What happens is **global** to the
+daemon, not per-layer: six shell command strings (`left`, `right`,
+`middle`, `double`, `scroll_up`, `scroll_down`), run via `sh -c "<cmd>"`
+when the corresponding click/scroll lands on *any* layer's window. An
+empty string means no action for that slot (the common case, and the
+default).
 
-The command runs detached (the daemon doesn't wait for it) with two
-environment variables set to identify which layer was actually clicked:
-`XISBACK_OUTPUT` and `XISBACK_DESKTOP` (same values as that layer's
-`<output>`/`<desktop>`). This is what makes a *generic* "next wallpaper"
-binding work without the daemon needing a special built-in for it — bind
-`xisback --next` as the command, and since `--next` falls back to
-`$XISBACK_OUTPUT`/`$XISBACK_DESKTOP` when `--output`/`--desktop` aren't
-passed explicitly, it advances whichever layer was clicked.
+The command runs detached (the daemon doesn't wait for it) with five
+environment variables set to identify what was actually clicked/scrolled:
+
+- `XISBACK_OUTPUT` / `XISBACK_DESKTOP` — that layer's `<output>`/
+  `<desktop>`. This is what makes a *generic* "next wallpaper" binding
+  work without the daemon needing a special built-in for it — bind
+  `xisback --next` as the command, and since `--next` falls back to
+  `$XISBACK_OUTPUT`/`$XISBACK_DESKTOP` when `--output`/`--desktop` aren't
+  passed explicitly, it advances whichever layer was clicked.
+- `XISBACK_IMAGE` — the path of the image that layer is currently
+  showing (the exact file, even mid-slideshow; empty if the layer
+  somehow has none). Lets a command act on "the picture on screen right
+  now" -- e.g. copy it somewhere, open it in a viewer, or feed it to
+  some other tool -- without querying `LIST` first.
+- `XISBACK_CLICK_X` / `XISBACK_CLICK_Y` — the click's root-relative
+  pointer position (screen coordinates). Meant for a command that pops
+  its own menu or popup and needs to know where to put it — e.g.
+  `xisserve --applications`, which reads these to open right where the
+  desktop was clicked (see xisserve's PROTOCOL.md). For a scroll event
+  these are the pointer position at the time of the scroll, same as a
+  click would report.
 
 Double-click detection needs to briefly hold back the single-click action
 to see if a second click of the same button arrives within 400ms — but
 only when a `double` command is actually configured; with no double-click
 binding, single clicks fire the instant the button goes down, no delay.
+Scroll (`scroll_up`/`scroll_down`) never goes through this: there's no
+"double-scroll" concept, and scrolling doesn't take keyboard focus either
+(only a left click does).
 
 Command strings must not contain literal tab or newline characters (they're
 flattened to spaces if you try) since they travel as tab-separated protocol
@@ -125,16 +148,18 @@ you need something more elaborate than a one-liner.
 On every successful `SET`, `CLEAR`, `CLEARALL`, or `SETACTIONS`, the daemon
 rewrites `$XDG_CONFIG_HOME/xisback.conf` (fallback `~/.config/xisback.conf`)
 with one `LAYER\t...` line per active layer (same fields as `SET`, plus the
-leading tag) and one `ACTIONS\t...` line for the click bindings. On
+leading tag) and one `ACTIONS\t...` line for the click/scroll bindings. On
 startup, before processing command-line arguments, the daemon reads that
 file and replays each line (`SET` for `LAYER` lines, `SETACTIONS` for the
 `ACTIONS` line), restoring the previous session's state — so a plain
 `xisback` invoked with no arguments (e.g. from a login autostart entry)
-comes back up with the last configured wallpaper/slideshow and click
-bindings instead of a blank desktop until someone reconfigures it.
+comes back up with the last configured wallpaper/slideshow and click/
+scroll bindings instead of a blank desktop until someone reconfigures it.
 Pre-0.4 config files (unprefixed layer lines, no click actions) are still
 read on first load for a smooth upgrade; they get rewritten in the new
-tagged format on the next change.
+tagged format on the next change. Likewise, a pre-scroll-actions
+`ACTIONS` line (5 fields: tag + left/right/middle/double, no scroll_up/
+scroll_down) loads fine, just with both scroll bindings starting empty.
 
 ## Python example
 
@@ -170,8 +195,11 @@ send("SET\t*\t*\tfill\t300\t0\t1000\t/home/kiyoshi/Pictures/wall.jpg")
 print(send("LIST"))
 
 # left-click advances whatever layer was clicked; double-click shows a
-# notification with which output/desktop it was; right/middle left unbound
-send("SETACTIONS\txisback --next\t\t\tnotify-send \"clicked $XISBACK_OUTPUT / $XISBACK_DESKTOP\"")
+# notification with which output/desktop/image it was; right/middle left
+# unbound; scroll up/down also advance the slideshow one step at a time
+send("SETACTIONS\txisback --next\t\t\t"
+     "notify-send \"clicked $XISBACK_OUTPUT / $XISBACK_DESKTOP\" \"$XISBACK_IMAGE\""
+     "\txisback --next\txisback --next")
 
 print(send("ACTIONS"))
 ```
