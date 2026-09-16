@@ -1,6 +1,11 @@
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 LOCALEDIR := $(PREFIX)/share/locale
+# Independent of PREFIX like kisession's XSESSIONSDIR: these are the
+# standard freedesktop locations app launchers scan, regardless of where
+# the binary itself gets installed.
+DESKTOPDIR ?= /usr/share/applications
+ICONDIR ?= /usr/share/icons/hicolor/scalable/apps
 
 CFLAGS ?= -Wall -Wextra -O2
 CFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"'
@@ -57,14 +62,24 @@ install: kiconf mo
 	for lang in $(LINGUAS); do \
 		install -Dm644 po/$$lang.mo $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/kiconf.mo; \
 	done
+	sed 's|@BINDIR@|$(BINDIR)|' kiconf.desktop.in > kiconf.desktop
+	install -Dm644 kiconf.desktop $(DESTDIR)$(DESKTOPDIR)/kiconf.desktop
+	rm -f kiconf.desktop
+	install -Dm644 kiconf.svg $(DESTDIR)$(ICONDIR)/kiconf.svg
+	-update-desktop-database $(DESTDIR)$(DESKTOPDIR) 2>/dev/null
+	-gtk-update-icon-cache -f -t $(DESTDIR)/usr/share/icons/hicolor 2>/dev/null
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/kiconf
 	for lang in $(LINGUAS); do \
 		rm -f $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/kiconf.mo; \
 	done
+	rm -f $(DESTDIR)$(DESKTOPDIR)/kiconf.desktop
+	rm -f $(DESTDIR)$(ICONDIR)/kiconf.svg
+	-update-desktop-database $(DESTDIR)$(DESKTOPDIR) 2>/dev/null
+	-gtk-update-icon-cache -f -t $(DESTDIR)/usr/share/icons/hicolor 2>/dev/null
 
 clean:
-	rm -f kiconf po/*.mo
+	rm -f kiconf po/*.mo kiconf.desktop
 
 .PHONY: all clean install uninstall pot update-po mo

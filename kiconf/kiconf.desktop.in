@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=KiDesktop Settings
+Comment=Configure appearance, input, shortcuts, panels and more
+Exec=@BINDIR@/kiconf
+TryExec=@BINDIR@/kiconf
+Icon=kiconf
+Type=Application
+Categories=Settings;DesktopSettings;
