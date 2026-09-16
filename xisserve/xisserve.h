@@ -93,6 +93,31 @@ void plugin_globalmenu_search(const char *query, GPtrArray *results);
  * error (missing --text or no --button). See PROTOCOL.md. */
 int question_run(int argc, char **argv);
 
+/* --applications: a one-shot cascading menu of every installed app,
+ * grouped by freedesktop category, at root coordinates (x, y) -- like
+ * --menu above but listing every scanned .desktop entry instead of one
+ * window's own menu. Meant as an xisback click-action command (see
+ * xisback's XISBACK_CLICK_X/XISBACK_CLICK_Y), so right-clicking bare
+ * desktop space can pop an "Applications" list the way Plasma/kickoff-
+ * style shells do. Same "no singleton, no control socket, own
+ * gtk_main()" reasoning as --menu/--question. Returns the process exit
+ * code. See applications.c and PROTOCOL.md. */
+int applications_run(int x, int y);
+
+/* Fresh .desktop scan across $XDG_DATA_DIRS + ~/.local/share/applications,
+ * independent of the launcher's own persistent app list -- used by
+ * applications.c, a one-shot process that never touches the launcher's
+ * state (favorites included: is_favorite is always FALSE on these
+ * entries). Caller owns the returned array: result_entry_free() each
+ * element, then g_ptr_array_free() the array itself. Sorted by name;
+ * category_key is bucketed the same way the launcher's own scan does. */
+GPtrArray *xisserve_scan_apps(void);
+
+/* Sidebar/menu label for a category_key as bucketed by
+ * xisserve_scan_apps() (e.g. "Development" -> "Desenvolvimento"), or
+ * "Outros" for an unrecognized key. Never returns NULL. */
+const char *xisserve_category_label(const char *key);
+
 /* Same fork+setsid+execl-via-sh-c "don't wait" pattern xispanel.c's own
  * run_detached() uses -- defined once in xisserve.c, exported so plugins
  * that launch something themselves don't duplicate it. */

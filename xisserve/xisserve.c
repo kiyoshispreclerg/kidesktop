@@ -42,7 +42,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.7"
+#define XISSERVE_VERSION "0.1.8"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -97,6 +97,15 @@ typedef struct {
     int menu_mode;
     unsigned long menu_window;
     int menu_x, menu_y;
+
+    /* --applications: not a page either, a one-shot cascading menu of
+     * every installed app (see applications.c). Meant as an xisback
+     * click-action command; x/y default to XISBACK_CLICK_X/
+     * XISBACK_CLICK_Y (the click position xisback's run_action() sets on
+     * its child) when not given explicitly, so the same command works
+     * bound to any click with no per-binding argument wiring. */
+    int apps_mode;
+    int apps_x, apps_y;
 } LaunchArgs;
 
 static LaunchArgs g_args;
@@ -135,6 +144,7 @@ enum {
     OPT_EDGE, OPT_OUTPUT_X, OPT_OUTPUT_Y, OPT_OUTPUT_W, OPT_OUTPUT_H,
     OPT_BG, OPT_FG, OPT_FONT, OPT_FONT_SIZE,
     OPT_MENU, OPT_MENU_WINDOW, OPT_MENU_X, OPT_MENU_Y,
+    OPT_APPS, OPT_APPS_X, OPT_APPS_Y,
     /* Page mode flags occupy OPT_PAGE_BASE + <index into kPages>, so
      * kPages stays the single place a page's flag name is written. */
     OPT_PAGE_BASE = 2000,
@@ -162,6 +172,11 @@ static const struct option kFixedOpts[] = {
     {"window", required_argument, 0, OPT_MENU_WINDOW},
     {"menu-x", required_argument, 0, OPT_MENU_X},
     {"menu-y", required_argument, 0, OPT_MENU_Y},
+    /* --applications takes its x/y the same way --menu takes its
+     * window/x/y: either these flags or positional arguments after it. */
+    {"applications", no_argument, 0, OPT_APPS},
+    {"apps-x", required_argument, 0, OPT_APPS_X},
+    {"apps-y", required_argument, 0, OPT_APPS_Y},
 };
 #define N_FIXED_OPTS ((int)(sizeof(kFixedOpts) / sizeof(kFixedOpts[0])))
 
@@ -177,6 +192,8 @@ static void usage(const char *argv0)
     }
     fprintf(stderr, "\n       %s --menu [<window> <x> <y>] "
                     "[--window=<id>] [--menu-x=<px>] [--menu-y=<px>]\n", argv0);
+    fprintf(stderr, "       %s --applications [<x> <y>] "
+                    "[--apps-x=<px>] [--apps-y=<px>]\n", argv0);
     fprintf(stderr, "       %s --question --text=<pergunta> --button=<rotulo>:<valor> "
                     "[--button=<rotulo>:<valor> ...]\n", argv0);
     fprintf(stderr, "       %s --version\n", argv0);
@@ -243,6 +260,9 @@ static int parse_argv(int argc, char **argv, LaunchArgs *a)
         case OPT_MENU_WINDOW: a->menu_window = strtoul(optarg, NULL, 0); break;
         case OPT_MENU_X: a->menu_x = atoi(optarg); break;
         case OPT_MENU_Y: a->menu_y = atoi(optarg); break;
+        case OPT_APPS: a->apps_mode = 1; break;
+        case OPT_APPS_X: a->apps_x = atoi(optarg); break;
+        case OPT_APPS_Y: a->apps_y = atoi(optarg); break;
         default: break; /* unknown flag -- ignored on purpose, see above */
         }
     }
@@ -258,6 +278,29 @@ static int parse_argv(int argc, char **argv, LaunchArgs *a)
             else if (pos == 1 && !a->menu_x)  a->menu_x = atoi(v);
             else if (pos == 2 && !a->menu_y)  a->menu_y = atoi(v);
             pos++;
+        }
+    }
+
+    /* Positional form: `--applications <x> <y>`, same spelling
+     * convention as --menu above. Falls back to XISBACK_CLICK_X/
+     * XISBACK_CLICK_Y (see xisback.c's run_action()) when neither a flag
+     * nor a positional argument gave a value, so `xisback --on-right-
+     * click 'xisserve --applications'` needs no argument wiring at all. */
+    if (a->apps_mode) {
+        int pos = 0;
+        for (int i = optind; i < argc && pos < 2; i++) {
+            const char *v = argv[i];
+            if (pos == 0 && !a->apps_x) a->apps_x = atoi(v);
+            else if (pos == 1 && !a->apps_y) a->apps_y = atoi(v);
+            pos++;
+        }
+        if (!a->apps_x) {
+            const char *env_x = getenv("XISBACK_CLICK_X");
+            if (env_x && *env_x) a->apps_x = atoi(env_x);
+        }
+        if (!a->apps_y) {
+            const char *env_y = getenv("XISBACK_CLICK_Y");
+            if (env_y && *env_y) a->apps_y = atoi(env_y);
         }
     }
     return 0;
@@ -564,7 +607,7 @@ static const CategoryDef kCategoryDefs[] = {
 };
 #define N_CATEGORY_DEFS ((int)(sizeof(kCategoryDefs) / sizeof(kCategoryDefs[0])))
 
-static const char *category_label_for_key(const char *key)
+const char *xisserve_category_label(const char *key)
 {
     if (strcmp(key, "favorites") == 0) return "Favoritos";
     if (strcmp(key, "all") == 0) return "Todos os Programas";
@@ -848,8 +891,8 @@ static void parse_desktop_file(const char *path, const char *basename, GPtrArray
         snprintf(e->exec, sizeof(e->exec), "%s", exec_clean);
     }
     bucket_categories(categories_raw, e->category_key, sizeof(e->category_key));
-    snprintf(e->subtitle, sizeof(e->subtitle), "%s", category_label_for_key(e->category_key));
-    e->is_favorite = g_hash_table_contains(g_favorites, e->id);
+    snprintf(e->subtitle, sizeof(e->subtitle), "%s", xisserve_category_label(e->category_key));
+    e->is_favorite = g_favorites && g_hash_table_contains(g_favorites, e->id);
     e->from_desktop = TRUE;
     if (icon_raw[0]) e->icon = xisserve_resolve_icon(icon_raw, XISSERVE_ICON_PX);
 
@@ -884,7 +927,7 @@ static gint compare_category_keys_by_label(gconstpointer a, gconstpointer b)
 {
     const char *ka = *(const char **)a;
     const char *kb = *(const char **)b;
-    return g_utf8_collate(category_label_for_key(ka), category_label_for_key(kb));
+    return g_utf8_collate(xisserve_category_label(ka), xisserve_category_label(kb));
 }
 
 /* Rebuilds g_cat_store: "Favoritos" and "Todos os Programas" first
@@ -913,7 +956,7 @@ static void build_category_store(void)
     for (guint i = 0; i < keys->len; i++) {
         const char *key = g_ptr_array_index(keys, i);
         gtk_list_store_append(g_cat_store, &it);
-        gtk_list_store_set(g_cat_store, &it, CCOL_KEY, key, CCOL_LABEL, category_label_for_key(key), -1);
+        gtk_list_store_set(g_cat_store, &it, CCOL_KEY, key, CCOL_LABEL, xisserve_category_label(key), -1);
     }
     g_hash_table_destroy(seen_keys);
     g_ptr_array_free(keys, TRUE);
@@ -921,7 +964,38 @@ static void build_category_store(void)
 
 /* Home dir first (XDG_DATA_HOME takes priority), then each entry of
  * XDG_DATA_DIRS in order -- basenames already seen are skipped so an
- * earlier, higher-priority directory's copy of a .desktop file wins. */
+ * earlier, higher-priority directory's copy of a .desktop file wins.
+ * Shared by rescan_apps() (the launcher's persistent list) and
+ * xisserve_scan_apps() (a fresh one-shot scan for applications.c). */
+static void scan_apps_into(GPtrArray *apps)
+{
+    GHashTable *seen = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+
+    char home_apps[PATH_MAX];
+    const char *xdg_data_home = getenv("XDG_DATA_HOME");
+    if (xdg_data_home && *xdg_data_home) {
+        snprintf(home_apps, sizeof(home_apps), "%s/applications", xdg_data_home);
+    } else {
+        const char *home = getenv("HOME");
+        snprintf(home_apps, sizeof(home_apps), "%s/.local/share/applications", home ? home : "");
+    }
+    scan_dir_desktop_files(home_apps, apps, seen);
+
+    const char *xdg_data_dirs = getenv("XDG_DATA_DIRS");
+    if (!xdg_data_dirs || !*xdg_data_dirs) xdg_data_dirs = "/usr/local/share:/usr/share";
+    char *dirs_copy = g_strdup(xdg_data_dirs);
+    char *saveptr = NULL;
+    for (char *tok = strtok_r(dirs_copy, ":", &saveptr); tok; tok = strtok_r(NULL, ":", &saveptr)) {
+        char dirpath[PATH_MAX];
+        snprintf(dirpath, sizeof(dirpath), "%s/applications", tok);
+        scan_dir_desktop_files(dirpath, apps, seen);
+    }
+    g_free(dirs_copy);
+    g_hash_table_destroy(seen);
+
+    g_ptr_array_sort(apps, compare_apps_by_name);
+}
+
 static void rescan_apps(void)
 {
     if (g_apps) {
@@ -934,33 +1008,15 @@ static void rescan_apps(void)
      * every view, not just this one. rescan_apps() only runs for the
      * launcher, so config-reading pages (the audio mixer's scroll step)
      * would otherwise never see a config file at all. */
-
-    GHashTable *seen = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
-
-    char home_apps[PATH_MAX];
-    const char *xdg_data_home = getenv("XDG_DATA_HOME");
-    if (xdg_data_home && *xdg_data_home) {
-        snprintf(home_apps, sizeof(home_apps), "%s/applications", xdg_data_home);
-    } else {
-        const char *home = getenv("HOME");
-        snprintf(home_apps, sizeof(home_apps), "%s/.local/share/applications", home ? home : "");
-    }
-    scan_dir_desktop_files(home_apps, g_apps, seen);
-
-    const char *xdg_data_dirs = getenv("XDG_DATA_DIRS");
-    if (!xdg_data_dirs || !*xdg_data_dirs) xdg_data_dirs = "/usr/local/share:/usr/share";
-    char *dirs_copy = g_strdup(xdg_data_dirs);
-    char *saveptr = NULL;
-    for (char *tok = strtok_r(dirs_copy, ":", &saveptr); tok; tok = strtok_r(NULL, ":", &saveptr)) {
-        char dirpath[PATH_MAX];
-        snprintf(dirpath, sizeof(dirpath), "%s/applications", tok);
-        scan_dir_desktop_files(dirpath, g_apps, seen);
-    }
-    g_free(dirs_copy);
-    g_hash_table_destroy(seen);
-
-    g_ptr_array_sort(g_apps, compare_apps_by_name);
+    scan_apps_into(g_apps);
     build_category_store();
+}
+
+GPtrArray *xisserve_scan_apps(void)
+{
+    GPtrArray *apps = g_ptr_array_new();
+    scan_apps_into(apps);
+    return apps;
 }
 
 static void hide_launcher(void); /* defined below, alongside the pointer/keyboard grab it releases */
@@ -2030,6 +2086,11 @@ int main(int argc, char **argv)
      * happens to be running. */
     if (args.menu_mode)
         return appmenu_run(args.menu_window, args.menu_x, args.menu_y);
+
+    /* --applications: same one-shot-popup deal as --menu, see
+     * applications.c. */
+    if (args.apps_mode)
+        return applications_run(args.apps_x, args.apps_y);
 
     /* --question: same deal, but detected by a raw argv scan rather than
      * through LaunchArgs -- its --text/--button flags are question.c's
