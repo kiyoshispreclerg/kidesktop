@@ -857,16 +857,25 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
      *
      * The list is rebuilt rather than reordered: a node has to appear
      * more than once, and the order within a face has to be the
-     * wallpaper, then the panels, then that face's windows, whatever
+     * wallpaper, then the panels, then that face's windows -- except a
+     * face turned away, where it is the windows first and the wallpaper
+     * over them, since there we are looking at that face's back and its
+     * own windows stand off the far side of it, away from us -- whatever
      * order the window manager stacked them in overall. */
     static CompSceneNode rebuilt[MAX_SCENE_NODES];
     static CompSceneNode faceset[MAX_SCENE_NODES];
     int n = 0;
 
-    /* Pass 0 is what lies on the faces -- the wallpaper and, unless told
-     * otherwise, the panels -- with the solids among them. Pass 1 is
-     * what stands above them. */
-    for (int pass = 0; pass < 2; pass++) {
+    /* Pass -1 is a turned-away face's own windows -- drawn before even
+     * the wallpaper, because what we are looking at is the *back* of
+     * that face: the window stands off it on the far side, away from us,
+     * and the wallpaper (its front) is what should cover it here, the
+     * same way the wallpaper covers a front face's own windows from
+     * behind. Pass 0 is what lies on the faces -- the wallpaper on every
+     * face, front or back, and, unless told otherwise, the panels on the
+     * front ones -- with the solids among them. Pass 1 is a front face's
+     * windows, standing above all of that. */
+    for (int pass = -1; pass < 2; pass++) {
         for (int k = 0; k < count; k++) {
             int face = vis[k].i;
 
@@ -903,8 +912,12 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
 
                 bool flat = w->type == COMP_WINDOW_DESKTOP ||
                             (cfg->flat_docks && w->type == COMP_WINDOW_DOCK);
-                if (flat != (pass == 0))
+                if (flat) {
+                    if (pass != 0)
+                        continue;
+                } else if (pass != (vis[k].front ? 1 : -1)) {
                     continue;
+                }
 
                 /* The panels are the shell too: they fade with it, and a
                  * turned-away face shows none, only its windows floating
