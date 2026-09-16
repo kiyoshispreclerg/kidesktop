@@ -383,8 +383,25 @@ static void mark_dirty(const CubeData *d)
      * Scoped to this output alone, not output_damage_all() -- a cube open
      * on one monitor has no business repainting the others every tick. */
     CompOutput *o = output_by_id(d->output_id);
-    if (o)
-        output_damage_rect(&o->rect);
+    if (!o)
+        return;
+    output_damage_rect(&o->rect);
+
+    /* Except for the sliver of a window that hangs over onto a
+     * neighbouring monitor (cube_apply's other-monitors branch): that
+     * fade lives on an output which is not this one, so damaging only
+     * our own screen above never reaches it, and it would freeze
+     * wherever `d->phase` happened to be the last time something else
+     * damaged that monitor. Just the window's own rect, not the whole
+     * neighbour -- the fade is the only thing there that is changing. */
+    for (CompWindow *w = comp.stack; w; w = w->next) {
+        if (w->wm_layer[0])
+            continue;
+        if (face_of_window(d, o, w) == -1)
+            continue;
+        CompRect r = window_rect(w);
+        output_damage_window_rect(w, &r);
+    }
 }
 
 static void phase_to(CubeData *d, float to, double now)
