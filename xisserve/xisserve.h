@@ -86,6 +86,11 @@ GPtrArray *xisserve_load_recent_xbel(void);
  * substring match -- see plugins/recent.c. */
 void plugin_recent_search(const char *query, GPtrArray *results);
 
+/* Search plugin matching the query against the current user's own
+ * running processes, offering terminate/kill/kill-tree results -- see
+ * plugins/process.c. */
+void plugin_process_search(const char *query, GPtrArray *results);
+
 /* The com.canonical.dbusmenu busname+object path a window exports
  * (_KDE_NET_WM_APPMENU_SERVICE_NAME/_OBJECT_PATH, what every Qt/KF5 app
  * sets), or FALSE when it exports none. `window` of 0 means the current
