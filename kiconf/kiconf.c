@@ -90,13 +90,20 @@
  */
 #include <gtk/gtk.h>
 
+#include <fcntl.h>
+#include <limits.h>
 #include <locale.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 #include "i18n.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.0"
+#define KICONF_VERSION "0.2.1"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -265,6 +272,173 @@ static GtkWidget *build_home_page(void)
     return outer;
 }
 
+/* ---- --tab=NAME argument resolution ------------------------------------
+ * Matches against g_tabs[].label itself (the untranslated, plain-ASCII
+ * strings, e.g. "Atalhos", "Wallpaper") rather than the gettext()'d text
+ * shown on screen, so a --tab argument works the same regardless of the
+ * user's locale -- same reasoning as process_running()/signal_daemon()
+ * matching on a fixed process name rather than anything localized. Also
+ * accepts a plain 1-based index, matching the order --list-tabs prints. */
+static int resolve_tab_index(const char *arg)
+{
+    if (!arg || !*arg) {
+        return -1;
+    }
+    char *end;
+    long n = strtol(arg, &end, 10);
+    if (end != arg && *end == '\0') {
+        return (n >= 1 && n <= N_TABS) ? (int)(n - 1) : -1;
+    }
+    for (int i = 0; i < N_TABS; i++) {
+        if (!strcasecmp(g_tabs[i].label, arg)) {
+            return i;
+        }
+    }
+    /* Unambiguous case-insensitive prefix, e.g. "wall" -> "Wallpaper". */
+    int found = -1;
+    size_t len = strlen(arg);
+    for (int i = 0; i < N_TABS; i++) {
+        if (!strncasecmp(g_tabs[i].label, arg, len)) {
+            if (found >= 0) {
+                return -1;
+            }
+            found = i;
+        }
+    }
+    return found;
+}
+
+static void list_tabs(void)
+{
+    for (int i = 0; i < N_TABS; i++) {
+        printf("%2d  %s\n", i + 1, g_tabs[i].label);
+    }
+}
+
+/* ---- single instance: flock'd lock file + a tiny Unix control socket --
+ * Mirrors xisback.c's own main()'s pattern exactly (lock file decides
+ * daemon-vs-client, same rundir/fallback): whichever kiconf process
+ * grabs the flock first keeps running as the one GUI instance and listens
+ * on kiconf-ctl.sock for the rest; every later invocation just connects
+ * to it, sends what it was asked to do (focus, or focus-and-switch-tab),
+ * and exits -- no window of its own, no "pending changes" question to
+ * ask, since it never builds any UI. */
+static void lock_and_sock_paths(char *lockpath, char *sockpath, size_t sz)
+{
+    const char *rundir = getenv("XDG_RUNTIME_DIR");
+    if (!rundir || !*rundir) {
+        rundir = "/tmp";
+    }
+    snprintf(lockpath, sz, "%s/kiconf.lock", rundir);
+    snprintf(sockpath, sz, "%s/kiconf-ctl.sock", rundir);
+}
+
+/* Tries to hand `tab_idx` (-1 for "just focus") off to an already-running
+ * kiconf instance. Returns 1 if one was found and notified (caller should
+ * exit without touching GTK at all), 0 if this process should become the
+ * running instance itself. */
+static int notify_running_instance(const char *sockpath, int tab_idx)
+{
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) {
+        return 0;
+    }
+    struct sockaddr_un addr = {0};
+    addr.sun_family = AF_UNIX;
+    snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", sockpath);
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        close(fd);
+        return 0;
+    }
+    char line[64];
+    if (tab_idx >= 0) {
+        snprintf(line, sizeof(line), "TAB %d\n", tab_idx);
+    } else {
+        snprintf(line, sizeof(line), "FOCUS\n");
+    }
+    if (write(fd, line, strlen(line)) < 0) {
+        /* Fall through anyway -- the other instance is still alive and
+         * holding the lock, so this process must not also become GUI. */
+    }
+    close(fd);
+    return 1;
+}
+
+static GtkWidget *g_window;
+static int g_listenfd = -1;
+static char g_sockpath[PATH_MAX];
+
+/* Applies one line read from the control socket ("FOCUS" or "TAB <n>") to
+ * the already-running instance's window/notebook. */
+static void apply_ctl_line(char *line)
+{
+    char *nl = strchr(line, '\n');
+    if (nl) {
+        *nl = '\0';
+    }
+    if (!strncmp(line, "TAB ", 4)) {
+        int idx = atoi(line + 4);
+        if (idx >= 0 && idx < N_TABS) {
+            gtk_notebook_set_current_page(GTK_NOTEBOOK(g_notebook), idx + 1);
+        }
+    }
+    gtk_window_present(GTK_WINDOW(g_window));
+}
+
+static gboolean on_ctl_accept(GIOChannel *source, GIOCondition condition, gpointer data)
+{
+    (void)condition;
+    (void)data;
+    int listenfd = g_io_channel_unix_get_fd(source);
+    int fd = accept(listenfd, NULL, NULL);
+    if (fd >= 0) {
+        char buf[64] = {0};
+        ssize_t n = read(fd, buf, sizeof(buf) - 1);
+        if (n > 0) {
+            apply_ctl_line(buf);
+        }
+        close(fd);
+    }
+    return TRUE; /* keep watching */
+}
+
+/* Binds+listens on sockpath and hooks it into GTK's main loop -- run once
+ * this process has won the flock and is about to become the GUI
+ * instance. Stale sockets from a kiconf that crashed without cleaning up
+ * are harmless to unlink first: the lock file, not the socket's mere
+ * existence, is what decided single-instance-ness. */
+static void start_ctl_listener(const char *sockpath)
+{
+    snprintf(g_sockpath, sizeof(g_sockpath), "%s", sockpath);
+    unlink(sockpath);
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) {
+        return;
+    }
+    struct sockaddr_un addr = {0};
+    addr.sun_family = AF_UNIX;
+    snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", sockpath);
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0 || listen(fd, 8) != 0) {
+        close(fd);
+        return;
+    }
+    g_listenfd = fd;
+
+    GIOChannel *chan = g_io_channel_unix_new(fd);
+    g_io_add_watch(chan, G_IO_IN, on_ctl_accept, NULL);
+    g_io_channel_unref(chan);
+}
+
+static void stop_ctl_listener(void)
+{
+    if (g_listenfd >= 0) {
+        close(g_listenfd);
+        g_listenfd = -1;
+        unlink(g_sockpath);
+    }
+}
+
 /* setlocale()+bindtextdomain()+textdomain(): the three calls every
  * gettext program makes once, before building any UI, so _()/gettext()
  * knows both which language to look up (the user's LANG/LC_MESSAGES,
@@ -285,18 +459,53 @@ int main(int argc, char **argv)
 {
     kiconf_i18n_init();
 
-    /* Checked before gtk_init() so `kiconf --version` works even without
-     * a display (X connection), same as most CLI-invokable GTK tools. */
+    /* Checked before gtk_init() so `kiconf --version`/`--list-tabs` work
+     * even without a display (X connection), same as most CLI-invokable
+     * GTK tools. */
+    const char *tab_arg = NULL;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--version") || !strcmp(argv[i], "-V")) {
             printf("kiconf %s\n", KICONF_VERSION);
             return 0;
+        } else if (!strcmp(argv[i], "--list-tabs")) {
+            list_tabs();
+            return 0;
+        } else if ((!strcmp(argv[i], "--tab") || !strcmp(argv[i], "-t")) && i + 1 < argc) {
+            tab_arg = argv[++i];
+        } else if (!strncmp(argv[i], "--tab=", 6)) {
+            tab_arg = argv[i] + 6;
         }
+    }
+
+    int tab_idx = -1;
+    if (tab_arg) {
+        tab_idx = resolve_tab_index(tab_arg);
+        if (tab_idx < 0) {
+            fprintf(stderr, "kiconf: unknown tab '%s' -- run --list-tabs to see valid names\n", tab_arg);
+        }
+    }
+
+    char lockpath[PATH_MAX], sockpath[PATH_MAX];
+    lock_and_sock_paths(lockpath, sockpath, sizeof(lockpath));
+
+    int lockfd = open(lockpath, O_CREAT | O_RDWR, 0600);
+    if (lockfd >= 0 && flock(lockfd, LOCK_EX | LOCK_NB) != 0) {
+        /* Another kiconf already owns the lock: hand this request off to
+         * it (focus it, switching tab if one was requested) instead of
+         * opening a second window. */
+        close(lockfd);
+        if (notify_running_instance(sockpath, tab_idx)) {
+            return 0;
+        }
+        /* The lock holder isn't answering its socket (crashed mid-init,
+         * stale lock, ...) -- fall through and become the GUI ourselves
+         * rather than doing nothing. */
     }
 
     gtk_init(&argc, &argv);
 
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    g_window = window;
     gtk_window_set_title(GTK_WINDOW(window), "kiconf");
     gtk_window_set_default_size(GTK_WINDOW(window), 640, 660);
     g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
@@ -318,6 +527,16 @@ int main(int argc, char **argv)
 
     gtk_container_add(GTK_CONTAINER(window), notebook);
     gtk_widget_show_all(window);
+
+    if (tab_idx >= 0) {
+        gtk_notebook_set_current_page(GTK_NOTEBOOK(notebook), tab_idx + 1);
+    }
+
+    /* Now that we hold the lock and have a window to focus/switch on
+     * later requests, start listening for them. */
+    start_ctl_listener(sockpath);
+
     gtk_main();
+    stop_ctl_listener();
     return 0;
 }
