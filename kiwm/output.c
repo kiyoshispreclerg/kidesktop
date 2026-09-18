@@ -999,6 +999,23 @@ void outputs_refresh(void)
     for (Client *c = wm.clients; c; c = c->next)
         client_reassign_output(c, output_index_for_point(c->x + c->width / 2, c->y + c->height / 2));
 
+    /* Wallpaper layers (wm.h's DesktopLayer) keep their own output index,
+     * cached in layer_read() from whichever output's rectangle the window
+     * happened to sit inside of. That index is only ever recomputed when
+     * the layer's own window gets a ConfigureNotify (desktop_layer_refresh,
+     * events.c) -- so a kscreen layout change that reorders wm.outputs[] or
+     * moves the *other* output's rectangle onto this one's old position,
+     * without xisback itself moving this particular window, leaves l->output
+     * pointing at the wrong monitor and layer_apply() showing/hiding it
+     * against that monitor's current desktop instead of its own. Redone
+     * here, right after wm.outputs[] is rebuilt, the same way clients and
+     * docks already are above. */
+    for (int i = 0; i < wm.desktop_layer_count; i++) {
+        DesktopLayer *l = &wm.desktop_layers[i];
+        layer_read(l);
+        layer_apply(l);
+    }
+
     ewmh_update_output_props();
     ewmh_set_desktop_geometry();
     ewmh_set_workarea();
