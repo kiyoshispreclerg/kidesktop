@@ -2029,6 +2029,22 @@ void handle_event(xcb_generic_event_t *event)
     case XCB_CONFIGURE_REQUEST:
         handle_configure_request((xcb_configure_request_event_t *)event);
         break;
+    case XCB_CONFIGURE_NOTIFY: {
+        /* A wallpaper layer moving/resizing itself -- xisback repositioning
+         * it onto its output's new CRTC rectangle after a kscreen layout
+         * change. outputs_refresh() (output.c) already re-resolves every
+         * layer's output right when the RandR event comes in, but that is
+         * racing xisback's own independent reaction to the very same
+         * event: kiwm can easily get there first and read the window's
+         * *old* position against the *new* wm.outputs[], picking the wrong
+         * monitor, with nothing to correct it afterwards since kiwm never
+         * otherwise tracks a desktop layer's geometry. This is that
+         * correction, run every time the window's real position settles,
+         * whichever process got there first. */
+        xcb_configure_notify_event_t *ev = (xcb_configure_notify_event_t *)event;
+        desktop_layer_refresh(ev->window);
+        break;
+    }
     case XCB_DESTROY_NOTIFY: {
         xcb_destroy_notify_event_t *ev = (xcb_destroy_notify_event_t *)event;
         Client *c = find_client_window(ev->window);
