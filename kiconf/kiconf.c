@@ -72,8 +72,11 @@
  *     GtkDrawingArea + Cairo (gdk_cairo_create() in an "expose-event"
  *     handler) is the GTK2 equivalent of the QGraphicsScene xisconf.py
  *     uses, and "button-press-event"/"motion-notify-event"/
- *     "button-release-event" on the same widget cover dragging, snapping
- *     to other outputs' edges within a few canvas pixels (screens_snap()).
+ *     "button-release-event" on the same widget cover dragging -- unlike
+ *     xisconf.py's free-floating canvas, outputs always dock flush
+ *     against their nearest neighbor while dragging (screens_dock()), so
+ *     the layout stays gap-free and the fit-to-canvas zoom, frozen for
+ *     the drag's duration, never jumps around.
  *     "Saida selecionada" also covers Mirror/DPI/Scale like xisconf.py's
  *     panel does -- but since plain `xrandr` (no --verbose) never reports
  *     them, they can't be diffed against real hardware state like every
@@ -103,7 +106,7 @@
 #include "i18n.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.4"
+#define KICONF_VERSION "0.2.5"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the

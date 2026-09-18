@@ -57,6 +57,14 @@ static int g_n_outputs = 0;
 static int g_screens_selected = -1;
 static int g_screens_dragging = 0;
 static double g_screens_drag_dx, g_screens_drag_dy;
+/* World transform frozen for the duration of a drag gesture (see
+ * screens_canvas_press()) -- computed once when the drag starts and
+ * reused by every motion event and by expose while dragging, instead of
+ * recomputing compute_world() on every step. Recomputing live was the
+ * cause of the "canvas zooms out while dragging" bug: moving an output
+ * far away grew the world bounding box, which shrank the fit-to-canvas
+ * scale in the middle of the gesture. */
+static double g_screens_drag_ox, g_screens_drag_oy, g_screens_drag_scale;
 static int g_screens_syncing = 0;
 static GtkWidget *g_screens_canvas;
 static GtkWidget *g_screens_res_combo, *g_screens_rate_combo, *g_screens_rot_combo;
@@ -68,11 +76,13 @@ static GtkWidget *g_screens_status_label;
 /* ---- Telas tab: xrandr layout, draggable canvas ----------------------- */
 /*
  * Ported subset of xisconf.py's Screens tab: connect/enable/disable,
- * resolution+refresh rate, position (via drag on the canvas, snapping to
- * other outputs' edges), rotation, primary output, mirror/DPI/scale, all
- * diffed against a baseline before Aplicar sends only what changed (see
- * apply_output_diff(), which mirrors xisconf.py's _output_diff_args()
- * field for field). Deliberately NOT ported -- xisconf.py's generic
+ * resolution+refresh rate, position (via drag on the canvas -- outputs
+ * always dock flush against their nearest neighbor, see screens_dock(),
+ * so the layout stays gap-free and the canvas zoom never changes mid-
+ * drag), rotation, primary output, mirror/DPI/scale, all diffed against a
+ * baseline before Aplicar sends only what changed (see apply_output_diff(),
+ * which mirrors xisconf.py's _output_diff_args() field for field).
+ * Deliberately NOT ported -- xisconf.py's generic
  * "advanced driver properties" system (TearFree, underscan, PRIME Sync,
  * etc., discovered from `xrandr --verbose`'s per-output "supported:"/
  * "range:" sub-lines): needs parsing --verbose output (a second xrandr
@@ -533,6 +543,88 @@ static void screens_snap(int idx, int *x, int *y, int w, int h, double scale)
     }
 }
 
+/* Outputs must sit side by side with no gaps -- the user can only choose
+ * which side of the nearest other output the dragged one docks to, and
+ * where along that shared edge, not an arbitrary free position. Finds the
+ * other connected+enabled output closest (by rect center) to the
+ * dragged rect's candidate position, then:
+ *   - picks the dock axis (x or y) as whichever the drag moved further
+ *     along, relative to that anchor's center;
+ *   - locks that axis flush against the anchor's near edge (zero gap);
+ *   - clamps the other (free) axis so the two rectangles keep at least
+ *     1 world unit of overlap, instead of drifting arbitrarily far and
+ *     re-inflating the world bounding box (which is what let the canvas
+ *     zoom out in the first place -- see compute_world()).
+ * Only touches *x and *y -- w/h are the dragged output's own visual size. */
+static void screens_dock(int idx, int *x, int *y, int w, int h, double scale)
+{
+    int have_other = 0, best = -1;
+    double best_dist = 0;
+    double dcx = *x + w / 2.0, dcy = *y + h / 2.0;
+
+    for (int i = 0; i < g_n_outputs; i++) {
+        if (i == idx) {
+            continue;
+        }
+        ScreenOutput *o = &g_outputs[i];
+        if (!o->connected || !o->enabled) {
+            continue;
+        }
+        int ow, oh;
+        output_visual_size(o, &ow, &oh);
+        double ocx = o->x + ow / 2.0, ocy = o->y + oh / 2.0;
+        double dist = hypot(dcx - ocx, dcy - ocy);
+        if (!have_other || dist < best_dist) {
+            have_other = 1;
+            best_dist = dist;
+            best = i;
+        }
+    }
+    if (!have_other) {
+        return; /* only output on the canvas -- nothing to dock against */
+    }
+
+    ScreenOutput *r = &g_outputs[best];
+    int rw, rh;
+    output_visual_size(r, &rw, &rh);
+    double rcx = r->x + rw / 2.0, rcy = r->y + rh / 2.0;
+    double dx = dcx - rcx, dy = dcy - rcy;
+    int dock_x = fabs(dx) >= fabs(dy);
+
+    if (dock_x) {
+        *x = dx >= 0 ? r->x + rw : r->x - w;
+        int ymin = r->y - h + 1, ymax = r->y + rh - 1;
+        if (*y < ymin) {
+            *y = ymin;
+        }
+        if (*y > ymax) {
+            *y = ymax;
+        }
+    } else {
+        *y = dy >= 0 ? r->y + rh : r->y - h;
+        int xmin = r->x - w + 1, xmax = r->x + rw - 1;
+        if (*x < xmin) {
+            *x = xmin;
+        }
+        if (*x > xmax) {
+            *x = xmax;
+        }
+    }
+
+    /* Soft-snap the free axis to any other output's edges within the
+     * usual pixel threshold, for a nicer "click into alignment" feel
+     * (e.g. lining up the tops of two side-by-side monitors). This can
+     * only move the free axis in practice since the docked one is
+     * already flush against its nearest neighbor, but re-enforce it
+     * anyway in case a different, closer output won the snap. */
+    screens_snap(idx, x, y, w, h, scale);
+    if (dock_x) {
+        *x = dx >= 0 ? r->x + rw : r->x - w;
+    } else {
+        *y = dy >= 0 ? r->y + rh : r->y - h;
+    }
+}
+
 static void sync_screens_form(void);
 
 static gboolean screens_canvas_expose(GtkWidget *widget, GdkEventExpose *event, gpointer data)
@@ -545,7 +637,13 @@ static gboolean screens_canvas_expose(GtkWidget *widget, GdkEventExpose *event, 
     cairo_paint(cr);
 
     double ox, oy, scale;
-    compute_world(&ox, &oy, &scale, cw, ch);
+    if (g_screens_dragging) {
+        ox = g_screens_drag_ox;
+        oy = g_screens_drag_oy;
+        scale = g_screens_drag_scale;
+    } else {
+        compute_world(&ox, &oy, &scale, cw, ch);
+    }
 
     for (int i = 0; i < g_n_outputs; i++) {
         ScreenOutput *o = &g_outputs[i];
@@ -590,6 +688,9 @@ static gboolean screens_canvas_press(GtkWidget *widget, GdkEventButton *event, g
         g_screens_dragging = 1;
         g_screens_drag_dx = event->x - rx;
         g_screens_drag_dy = event->y - ry;
+        g_screens_drag_ox = ox;
+        g_screens_drag_oy = oy;
+        g_screens_drag_scale = scale;
         sync_screens_form();
         gtk_widget_queue_draw(widget);
     }
@@ -602,9 +703,8 @@ static gboolean screens_canvas_motion(GtkWidget *widget, GdkEventMotion *event, 
     if (!g_screens_dragging || g_screens_selected < 0) {
         return TRUE;
     }
-    int cw = widget->allocation.width, ch = widget->allocation.height;
-    double ox, oy, scale;
-    compute_world(&ox, &oy, &scale, cw, ch);
+    (void)widget;
+    double ox = g_screens_drag_ox, oy = g_screens_drag_oy, scale = g_screens_drag_scale;
     if (scale <= 0) {
         return TRUE;
     }
@@ -615,9 +715,9 @@ static gboolean screens_canvas_motion(GtkWidget *widget, GdkEventMotion *event, 
     if (!o->mirror_of[0]) {
         int w, h;
         output_visual_size(o, &w, &h);
-        screens_snap(g_screens_selected, &o->x, &o->y, w, h, scale);
+        screens_dock(g_screens_selected, &o->x, &o->y, w, h, scale);
     }
-    gtk_widget_queue_draw(widget);
+    gtk_widget_queue_draw(g_screens_canvas);
     return TRUE;
 }
 
@@ -922,10 +1022,12 @@ GtkWidget *build_telas_tab(void)
     gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
 
     GtkWidget *note = gtk_label_new(
-        "Arraste as caixas pra reposicionar -- encaixa nas bordas de outras\n"
-        "saidas automaticamente. Espelho/DPI/Escala nao sao detectados do\n"
-        "hardware (xrandr sem --verbose nao expoe isso), so escritos ao\n"
-        "Aplicar; propriedades avancadas do driver nao foram portadas.");
+        "Arraste as caixas pra reposicionar -- ficam sempre lado a lado,\n"
+        "encostadas na saida mais proxima, sem espacos entre elas; so a\n"
+        "posicao ao longo da borda compartilhada e livre. Espelho/DPI/\n"
+        "Escala nao sao detectados do hardware (xrandr sem --verbose nao\n"
+        "expoe isso), so escritos ao Aplicar; propriedades avancadas do\n"
+        "driver nao foram portadas.");
     gtk_misc_set_alignment(GTK_MISC(note), 0.0, 0.5);
     gtk_box_pack_start(GTK_BOX(outer), note, FALSE, FALSE, 0);
 
