@@ -2039,10 +2039,12 @@ void handle_event(xcb_generic_event_t *event)
          * *old* position against the *new* wm.outputs[], picking the wrong
          * monitor, with nothing to correct it afterwards since kiwm never
          * otherwise tracks a desktop layer's geometry. This is that
-         * correction, run every time the window's real position settles,
-         * whichever process got there first. */
+         * correction, run every time the window's real rectangle changes,
+         * whichever process got there first -- desktop_layer_notify_configure()
+         * itself ignores a same-rectangle ConfigureNotify, which is what
+         * desktop_layers_prime()'s own restack-only reorder produces. */
         xcb_configure_notify_event_t *ev = (xcb_configure_notify_event_t *)event;
-        desktop_layer_refresh(ev->window);
+        desktop_layer_notify_configure(ev->window, ev->x, ev->y, ev->width, ev->height);
         break;
     }
     case XCB_DESTROY_NOTIFY: {

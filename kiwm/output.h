@@ -81,6 +81,7 @@ void desktop_layer_track(xcb_window_t window);
 bool desktop_layer_forget(xcb_window_t window);
 /* Its _NET_WM_DESKTOP changed. */
 bool desktop_layer_refresh(xcb_window_t window);
+bool desktop_layer_notify_configure(xcb_window_t window, int x, int y, int width, int height);
 /* The topmost layer currently on screen -- what a new one (a crossfade
  * window) has to be stacked above to be seen at all. */
 xcb_window_t desktop_layer_topmost_mapped(void);

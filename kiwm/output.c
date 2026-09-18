@@ -350,6 +350,10 @@ static void layer_read(DesktopLayer *l)
     if (g) {
         l->output = output_index_for_point(g->x + g->width / 2,
                                            g->y + g->height / 2);
+        l->x = g->x;
+        l->y = g->y;
+        l->width = g->width;
+        l->height = g->height;
         free(g);
     }
 }
@@ -414,6 +418,26 @@ bool desktop_layer_refresh(xcb_window_t window)
     DesktopLayer *l = layer_find(window);
     if (!l)
         return false;
+
+    layer_read(l);
+    layer_apply(l);
+    return true;
+}
+
+/* A layer's own ConfigureNotify (events.c): re-derive its output only if
+ * the rectangle the event reports actually differs from what layer_read()
+ * last saw. Priming (desktop_layers_prime) restacks a layer via
+ * XCB_CONFIG_WINDOW_STACK_MODE alone -- same x/y/width/height, new
+ * ConfigureNotify regardless -- and treating that as a real move would
+ * call layer_apply() and immediately hide the layer priming just showed. */
+bool desktop_layer_notify_configure(xcb_window_t window, int x, int y, int width, int height)
+{
+    DesktopLayer *l = layer_find(window);
+    if (!l)
+        return false;
+
+    if (l->x == x && l->y == y && l->width == width && l->height == height)
+        return true;            /* found, but nothing actually moved */
 
     layer_read(l);
     layer_apply(l);

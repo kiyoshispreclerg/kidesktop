@@ -303,6 +303,15 @@ typedef struct DesktopLayer {
     int desktop;        /* -1 = sticky, on every desktop */
     int output;         /* index into wm.outputs, or -1 */
 
+    /* The window's own rectangle, as of the last layer_read(). Compared
+     * against a ConfigureNotify's fields (events.c) before re-deriving
+     * `output` from it: priming (desktop_layers_prime, below) restacks a
+     * layer with XCB_CONFIG_WINDOW_STACK_MODE alone, which is itself a
+     * ConfigureNotify with the position unchanged -- reacting to that one
+     * as if the window had moved would immediately layer_apply() it back
+     * off screen, undoing the very prime that restack was part of. */
+    int x, y, width, height;
+
     /* While being *primed*: on screen but under the wallpaper you can
      * see, until this moment passes (output.h's desktop_layers_prime).
      * 0 when it is simply shown or hidden like any other. */
