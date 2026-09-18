@@ -76,7 +76,10 @@
  *     xisconf.py's free-floating canvas, outputs always dock flush
  *     against their nearest neighbor while dragging (screens_dock()), so
  *     the layout stays gap-free and the fit-to-canvas zoom, frozen for
- *     the drag's duration, never jumps around.
+ *     the drag's duration, never jumps around. Aplicar also persists the
+ *     resulting layout to kiconfd-screens.conf for kiconfd to replay via
+ *     xrandr at the next session's start (save_screens_layout()), since
+ *     plain xrandr state doesn't survive a logout/login on its own.
  *     "Saida selecionada" also covers Mirror/DPI/Scale like xisconf.py's
  *     panel does -- but since plain `xrandr` (no --verbose) never reports
  *     them, they can't be diffed against real hardware state like every
@@ -106,7 +109,7 @@
 #include "i18n.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.5"
+#define KICONF_VERSION "0.2.7"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the

@@ -6,6 +6,15 @@
  * restart. This is the daemon half of the xisconf remake (kiconf being the
  * GTK2 front-end).
  *
+ * Log: off by default (stdout/stderr behave normally, i.e. whatever
+ * kisession/startx/the display manager's Xsession script already does
+ * with an inherited child's fds). Pass --log, or set KICONFD_LOG=1 in
+ * the environment kiconfd is launched with, to redirect them instead to
+ * a fixed $XDG_CONFIG_HOME/kiconfd.log (fallback ~/.config/kiconfd.log)
+ * -- see redirect_log_to_file() -- for debugging startup issues (a
+ * saved screens layout not applying, etc.) without hunting for wherever
+ * the launcher happened to route the inherited fds.
+ *
  * Config: $XDG_CONFIG_HOME/kiconfd.conf (fallback ~/.config/kiconfd.conf),
  * simple "key = value" lines, '#' comments. Recognized keys:
  *
@@ -44,6 +53,16 @@
  *     cursor keys upserted under [Settings], other keys left alone) plus a
  *     fully kiconfd-owned gtk-{3,4}.0/kiconf-colors.css using @define-color,
  *     imported from gtk.css via one marked line.
+ *   Screens (xrandr) -- $XDG_CONFIG_HOME/kiconfd-screens.conf, a separate
+ *     file kiconf's Telas tab writes on Aplicar (see its save_screens_
+ *     layout()) and kiconfd replays via one `xrandr` call at session
+ *     start (see apply_screens_layout()) -- xrandr's own layout doesn't
+ *     survive a logout/login on its own. Kept out of kiconfd.conf
+ *     because that file gets fully rewritten by kiconf's Aparencia tab,
+ *     which knows nothing about screens; a separate file is the same
+ *     trick already used for the GTK/Qt color-scheme files below. Only
+ *     applied once, at startup -- not on SIGHUP, since Telas already
+ *     applies its changes live with its own direct xrandr calls.
  *   Qt5/6  -- ~/.config/qt{5,6}ct/qt{5,6}ct.conf (style/icon_theme/fonts/
  *     color_scheme_path upserted under [Appearance]/[Fonts]) plus a fully
  *     kiconfd-owned qt{5,6}ct/colors/kiconf.conf QPalette color scheme.
@@ -67,18 +86,22 @@
 #include <X11/Xcursor/Xcursor.h>
 #include <X11/Xlib.h>
 
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <math.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/file.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.2"
+#define KICONFD_VERSION "0.2.3"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -137,6 +160,57 @@ static void resolve_configpath(void)
     snprintf(configdir, sizeof(configdir), "%s/.config", home);
     mkdir(configdir, 0700);
     snprintf(g_configpath, sizeof(g_configpath), "%s/kiconfd.conf", configdir);
+}
+
+/* Opt-in (see main()'s --log/KICONFD_LOG handling): redirects every
+ * later fprintf(stderr, ...)/printf() in this file to a fixed file
+ * instead of the inherited stdout/stderr. Whatever launches kiconfd --
+ * kisession, startx with no .xinitrc, a display manager's Xsession
+ * script -- has its own, often surprising ideas about where a child's
+ * stdout/stderr end up (inherited fds get mixed with the X server's own
+ * banner, silently swallowed, or routed to a log the user doesn't know
+ * to look at); this sidesteps all of that for the times it actually
+ * matters (debugging), without kiconfd normally touching the launcher's
+ * own logging at all. Line-buffered so a later crash/kill doesn't lose
+ * the tail of it. */
+static void redirect_log_to_file(void)
+{
+    char logpath[PATH_MAX];
+    const char *xdg_config = getenv("XDG_CONFIG_HOME");
+    if (xdg_config && *xdg_config) {
+        mkdir(xdg_config, 0700);
+        snprintf(logpath, sizeof(logpath), "%s/kiconfd.log", xdg_config);
+    } else {
+        const char *home = getenv("HOME");
+        if (!home || !*home) {
+            home = "/tmp";
+        }
+        char configdir[PATH_MAX];
+        snprintf(configdir, sizeof(configdir), "%s/.config", home);
+        mkdir(configdir, 0700);
+        snprintf(logpath, sizeof(logpath), "%s/kiconfd.log", configdir);
+    }
+
+    int fd = open(logpath, O_CREAT | O_WRONLY | O_APPEND, 0600);
+    if (fd < 0) {
+        fprintf(stderr, "kiconfd: could not open log file '%s': %s (logging to the inherited stderr instead)\n",
+                 logpath, strerror(errno));
+        return;
+    }
+    dup2(fd, STDOUT_FILENO);
+    dup2(fd, STDERR_FILENO);
+    if (fd > STDERR_FILENO) {
+        close(fd);
+    }
+    setvbuf(stdout, NULL, _IOLBF, 0);
+    setvbuf(stderr, NULL, _IOLBF, 0);
+
+    time_t now = time(NULL);
+    char timebuf[64];
+    struct tm tmv;
+    localtime_r(&now, &tmv);
+    strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", &tmv);
+    fprintf(stderr, "\n---- kiconfd %s starting, pid %d, %s ----\n", KICONFD_VERSION, (int)getpid(), timebuf);
 }
 
 /* Trims leading/trailing whitespace in place, returns the (possibly
@@ -381,6 +455,60 @@ static void path_in_config(char *out, size_t outsz, const char *rel)
     } else {
         snprintf(out, outsz, "%s/.config/%s", xdg_home(), rel);
     }
+}
+
+/* ------------------------------------------------------------------ */
+/* generic subprocess helpers (xrandr), mirroring kiconf/common.c's     */
+/* run_fire()/run_capture() -- duplicated rather than shared since      */
+/* kiconfd and kiconf are separate binaries with their own Makefiles.   */
+/* ------------------------------------------------------------------ */
+
+static int run_fire(char *const argv[])
+{
+    pid_t pid = fork();
+    if (pid < 0) {
+        return -1;
+    }
+    if (pid == 0) {
+        execvp(argv[0], argv);
+        _exit(127);
+    }
+    int status;
+    waitpid(pid, &status, 0);
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+static int run_capture(char *const argv[], char *out, size_t outsz)
+{
+    out[0] = '\0';
+    int pipefd[2];
+    if (pipe(pipefd) != 0) {
+        return 0;
+    }
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return 0;
+    }
+    if (pid == 0) {
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        close(pipefd[1]);
+        execvp(argv[0], argv);
+        _exit(127);
+    }
+    close(pipefd[1]);
+    size_t total = 0;
+    ssize_t n;
+    while (total + 1 < outsz && (n = read(pipefd[0], out + total, outsz - 1 - total)) > 0) {
+        total += (size_t)n;
+    }
+    out[total] = '\0';
+    close(pipefd[0]);
+    int status;
+    waitpid(pid, &status, 0);
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -845,6 +973,208 @@ static void apply_qt(const char *ctdir)
 }
 
 /* ------------------------------------------------------------------ */
+/* Screens (xrandr) -- $XDG_CONFIG_HOME/kiconfd-screens.conf            */
+/* ------------------------------------------------------------------ */
+
+#define MAX_SCREENS 16
+
+typedef struct {
+    char name[NAME_LEN];
+    int enabled, primary;
+    char mode[16], rate[16];
+    int x, y;
+    char rotation[16];
+    double scale_x, scale_y;
+    int dpi;
+    char mirror_of[NAME_LEN];
+} ScreenLayout;
+
+static char g_screenspath[PATH_MAX];
+
+static void resolve_screenspath(void)
+{
+    const char *xdg_config = getenv("XDG_CONFIG_HOME");
+    if (xdg_config && *xdg_config) {
+        snprintf(g_screenspath, sizeof(g_screenspath), "%s/kiconfd-screens.conf", xdg_config);
+        return;
+    }
+    const char *home = getenv("HOME");
+    if (!home || !*home) {
+        home = "/tmp";
+    }
+    snprintf(g_screenspath, sizeof(g_screenspath), "%s/.config/kiconfd-screens.conf", home);
+}
+
+/* Parses kiconfd-screens.conf -- one line per connected output, fields
+ * in the fixed order kiconf's save_screens_layout() writes them in:
+ * NAME ENABLED MODE RATE X Y ROTATION PRIMARY SCALE_X SCALE_Y DPI MIRROR
+ * ('-' standing in for an absent MODE/RATE/MIRROR). Returns the number
+ * of outputs parsed. */
+static int load_screens_layout(ScreenLayout *outs, int max)
+{
+    FILE *f = fopen(g_screenspath, "r");
+    if (!f) {
+        return 0;
+    }
+    char line[512];
+    int n = 0;
+    while (n < max && fgets(line, sizeof(line), f)) {
+        char *l = trim(line);
+        if (!*l || *l == '#') {
+            continue;
+        }
+        ScreenLayout *o = &outs[n];
+        memset(o, 0, sizeof(*o));
+        char mirror[NAME_LEN];
+        int got = sscanf(l, "%127s %d %15s %15s %d %d %15s %d %lf %lf %d %127s",
+                           o->name, &o->enabled, o->mode, o->rate, &o->x, &o->y,
+                           o->rotation, &o->primary, &o->scale_x, &o->scale_y, &o->dpi, mirror);
+        if (got != 12) {
+            fprintf(stderr, "kiconfd: screens: skipping malformed line: '%s'\n", l);
+            continue;
+        }
+        if (!strcmp(o->mode, "-")) {
+            o->mode[0] = '\0';
+        }
+        if (!strcmp(o->rate, "-")) {
+            o->rate[0] = '\0';
+        }
+        if (strcmp(mirror, "-") != 0) {
+            snprintf(o->mirror_of, sizeof(o->mirror_of), "%s", mirror);
+        }
+        n++;
+    }
+    fclose(f);
+    return n;
+}
+
+/* Only outputs `xrandr` (no args) currently reports as connected can be
+ * named in a --output block without the whole call failing, so this
+ * mirrors just enough of kiconf's detect_outputs() to get the connected
+ * name set -- not the full mode/geometry parse, which kiconfd never
+ * needs. */
+static int screens_connected_names(char names[][NAME_LEN], int max)
+{
+    char *argv[] = {"xrandr", NULL};
+    char out[16384];
+    if (!run_capture(argv, out, sizeof(out))) {
+        return 0;
+    }
+    int n = 0;
+    char *save = NULL;
+    char *line = strtok_r(out, "\n", &save);
+    while (line && n < max) {
+        if (!isspace((unsigned char)line[0])) {
+            char tmp[512];
+            snprintf(tmp, sizeof(tmp), "%s", line);
+            char *save2 = NULL;
+            char *t1 = strtok_r(tmp, " \t", &save2);
+            char *t2 = t1 ? strtok_r(NULL, " \t", &save2) : NULL;
+            if (t1 && t2 && !strcmp(t2, "connected")) {
+                snprintf(names[n++], NAME_LEN, "%s", t1);
+            }
+        }
+        line = strtok_r(NULL, "\n", &save);
+    }
+    return n;
+}
+
+/* Replays a saved layout via one `xrandr` call covering every saved
+ * output that's still connected (an --output block for a name xrandr
+ * doesn't currently recognize fails the whole call, so those are
+ * skipped rather than attempted) -- same one-shot-covering-everything
+ * shape as xisconf.py's build_command(). Silently does nothing if no
+ * layout was ever saved (kiconf's Telas tab never applied one, or
+ * XDG_CONFIG_HOME has no kiconfd-screens.conf yet). */
+static void apply_screens_layout(void)
+{
+    ScreenLayout screens[MAX_SCREENS];
+    int n = load_screens_layout(screens, MAX_SCREENS);
+    if (n == 0) {
+        fprintf(stderr, "kiconfd: screens: no saved layout at '%s' (or it was empty/unparsable), nothing to apply\n",
+                 g_screenspath);
+        return;
+    }
+    char connected[MAX_SCREENS][NAME_LEN];
+    int n_connected = screens_connected_names(connected, MAX_SCREENS);
+    if (n_connected == 0) {
+        fprintf(stderr, "kiconfd: screens: `xrandr` reported no connected outputs (or the call itself "
+                        "failed -- is xrandr in PATH?); saved layout has %d output(s), applying none\n", n);
+    }
+
+    char *argv[8 + MAX_SCREENS * 14];
+    int ac = 0;
+    argv[ac++] = "xrandr";
+    char bufs[MAX_SCREENS][6][32];
+    int n_applied = 0;
+
+    for (int i = 0; i < n; i++) {
+        ScreenLayout *o = &screens[i];
+        int is_connected = 0;
+        for (int j = 0; j < n_connected; j++) {
+            if (!strcmp(connected[j], o->name)) {
+                is_connected = 1;
+                break;
+            }
+        }
+        if (!is_connected) {
+            continue;
+        }
+        n_applied++;
+        argv[ac++] = "--output";
+        argv[ac++] = o->name;
+        if (!o->enabled) {
+            argv[ac++] = "--off";
+            continue;
+        }
+        if (o->mirror_of[0]) {
+            argv[ac++] = "--same-as";
+            argv[ac++] = o->mirror_of;
+        } else {
+            if (o->mode[0]) {
+                argv[ac++] = "--mode";
+                argv[ac++] = o->mode;
+            }
+            if (o->rate[0]) {
+                argv[ac++] = "--rate";
+                argv[ac++] = o->rate;
+            }
+            snprintf(bufs[i][0], sizeof(bufs[i][0]), "%dx%d", o->x, o->y);
+            argv[ac++] = "--pos";
+            argv[ac++] = bufs[i][0];
+        }
+        argv[ac++] = "--rotate";
+        argv[ac++] = o->rotation[0] ? o->rotation : "normal";
+        argv[ac++] = o->primary ? "--primary" : "--noprimary";
+        double sx = fabs(o->scale_x) > 1e-6 ? o->scale_x : 1.0;
+        double sy = fabs(o->scale_y) > 1e-6 ? o->scale_y : 1.0;
+        snprintf(bufs[i][1], sizeof(bufs[i][1]), "%.4fx%.4f", sx, sy);
+        argv[ac++] = "--scale";
+        argv[ac++] = bufs[i][1];
+        if (o->dpi) {
+            argv[ac++] = "--set";
+            argv[ac++] = "DPI";
+            snprintf(bufs[i][2], sizeof(bufs[i][2]), "%d", o->dpi);
+            argv[ac++] = bufs[i][2];
+        }
+    }
+    argv[ac] = NULL;
+
+    if (n_applied == 0) {
+        if (n_connected > 0) {
+            fprintf(stderr, "kiconfd: screens: none of the %d saved output name(s) match a currently "
+                            "connected output, applying nothing\n", n);
+        }
+        return;
+    }
+    if (run_fire(argv) != 0) {
+        fprintf(stderr, "kiconfd: screens: xrandr call failed applying saved layout\n");
+    } else {
+        fprintf(stderr, "kiconfd: applied saved screen layout (%d output(s))\n", n_applied);
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* config persistence                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -1018,10 +1348,22 @@ int main(int argc, char **argv)
 {
     if (argc > 1 && (!strcmp(argv[1], "-h") || !strcmp(argv[1], "--help"))) {
         printf("kiconfd %s - session settings daemon for KiDesktop\n", KICONFD_VERSION);
-        printf("Usage: kiconfd\n");
+        printf("Usage: kiconfd [--log]\n");
         printf("Config: $XDG_CONFIG_HOME/kiconfd.conf (fallback ~/.config/kiconfd.conf)\n");
+        printf("Screens: $XDG_CONFIG_HOME/kiconfd-screens.conf, applied via xrandr at startup only\n");
+        printf("Log: off by default (inherits stdout/stderr as usual). --log, or KICONFD_LOG=1 in "
+                "the environment, redirects them to $XDG_CONFIG_HOME/kiconfd.log instead.\n");
         printf("SIGHUP reloads the config and reapplies settings.\n");
         return 0;
+    }
+
+    int want_log = (argc > 1 && !strcmp(argv[1], "--log"));
+    const char *envlog = getenv("KICONFD_LOG");
+    if (envlog && *envlog && strcmp(envlog, "0") != 0) {
+        want_log = 1;
+    }
+    if (want_log) {
+        redirect_log_to_file();
     }
 
     const char *rundir = getenv("XDG_RUNTIME_DIR");
@@ -1037,6 +1379,7 @@ int main(int argc, char **argv)
     }
 
     resolve_configpath();
+    resolve_screenspath();
 
     g_dpy = XOpenDisplay(NULL);
     if (!g_dpy) {
@@ -1044,6 +1387,11 @@ int main(int argc, char **argv)
         return 1;
     }
     g_root = DefaultRootWindow(g_dpy);
+
+    /* Before everything else: kiwm/kicomp start right after kiconfd (see
+     * kisession's service order) and read the output layout at their own
+     * startup, so the saved arrangement needs to be live before they do. */
+    apply_screens_layout();
 
     /* Claimed before the first apply_all() below, so the very first
      * publish already goes out over XSETTINGS too. */
