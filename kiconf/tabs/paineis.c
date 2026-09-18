@@ -1030,6 +1030,26 @@ static void on_panel_selection_changed(GtkTreeSelection *sel, gpointer data)
 
 GtkWidget *build_paineis_tab(void)
 {
+    /* g_shelf/g_themes/g_selected_panel are plain C statics, not GTK
+     * objects -- kiconf.c tears down and fully rebuilds a tab's *widgets*
+     * on every switch (see its own file doc comment), but that discards
+     * nothing here on its own, since these three survive as ordinary
+     * process memory across calls. Without resetting them, a second
+     * visit's shelf_find_or_add() calls below just keep appending onto
+     * whatever the *previous* visit already put there instead of
+     * starting clean, and worse: on_panel_selection_changed()'s very
+     * first line flushes g_widgets_store into shelf_from_store(g_selected_panel)
+     * using the *stale* leftover panel name from before this function
+     * even reads the file -- against the brand-new, still-empty
+     * g_widgets_store created further down, which wipes that panel's
+     * just-loaded widgets back out to nothing. That's the bug: revisiting
+     * Paineis (drag-reorder or not) left whichever panel was selected
+     * when you last left showing an empty widget list the moment it (or
+     * whatever panel happens to be first) gets selected again. */
+    g_n_shelf = 0;
+    g_n_themes = 0;
+    g_selected_panel[0] = '\0';
+
     PanelRec panels[MAX_PANELS];
     WidgetRec widgets[MAX_WIDGETS];
     ThemeRec themes[MAX_PANELS];
