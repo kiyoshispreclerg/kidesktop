@@ -91,6 +91,10 @@ void plugin_recent_search(const char *query, GPtrArray *results);
  * plugins/process.c. */
 void plugin_process_search(const char *query, GPtrArray *results);
 
+/* Search plugin: if the whole query parses as a basic math expression,
+ * offers one result showing its value -- see plugins/calculator.c. */
+void plugin_calculator_search(const char *query, GPtrArray *results);
+
 /* The com.canonical.dbusmenu busname+object path a window exports
  * (_KDE_NET_WM_APPMENU_SERVICE_NAME/_OBJECT_PATH, what every Qt/KF5 app
  * sets), or FALSE when it exports none. `window` of 0 means the current

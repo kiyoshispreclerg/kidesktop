@@ -6,7 +6,7 @@ CFLAGS ?= -Wall -Wextra -O2
 # docks there instead of always defaulting to output (0,0).
 PKGS := gtk+-2.0 x11 xtst xrandr
 PKG_CFLAGS := $(shell pkg-config --cflags $(PKGS))
-PKG_LIBS := $(shell pkg-config --libs $(PKGS)) -ldl
+PKG_LIBS := $(shell pkg-config --libs $(PKGS)) -ldl -lm
 
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
@@ -41,7 +41,7 @@ endif
 # runtime -- or present with no sound server answering -- the page shows
 # an explanatory placeholder instead of failing. Same "shell out, don't
 # reimplement" call xispanel/pulse.c already made, for the same reason.
-SRCS := xisserve.c appmenu.c question.c applications.c keyboard.c session.c plugins/terminal.c plugins/globalmenu.c plugins/recent.c plugins/process.c $(DBUS_SRC) \
+SRCS := xisserve.c appmenu.c question.c applications.c keyboard.c session.c plugins/terminal.c plugins/globalmenu.c plugins/recent.c plugins/process.c plugins/calculator.c $(DBUS_SRC) \
         pages/calendar.c pages/audio.c pages/pulse.c
 OBJS := $(SRCS:.c=.o)
 HDRS := xisserve.h plugins/dbusmenu.h pages/pulse.h

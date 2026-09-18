@@ -42,7 +42,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.19"
+#define XISSERVE_VERSION "0.1.20"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -761,6 +761,7 @@ static const SearchPlugin kSearchPlugins[] = {
     {"globalmenu", plugin_globalmenu_search},
     {"recent", plugin_recent_search},
     {"process", plugin_process_search},
+    {"calculator", plugin_calculator_search},
 };
 #define N_SEARCH_PLUGINS ((int)(sizeof(kSearchPlugins) / sizeof(kSearchPlugins[0])))
 
