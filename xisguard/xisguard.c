@@ -24,7 +24,7 @@
 #define CTL_BUF_SIZE        65536
 #define REPORT_THROTTLE_S   1
 
-#define XISGUARD_VERSION    "0.4.1"
+#define XISGUARD_VERSION    "0.4.2"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -165,6 +165,20 @@ static int quiet_mode = 0;         /* 1 = no dialog, terminal logs only */
 static int always_kill_mode = 0;   /* 1 = kill unknown processes immediately */
 static int log_level = 2;          /* 0=silent, 1=clean, 2=normal, 3=verbose, 4=debug */
 static int dialog_backend = DIALOG_NONE; /* resolved once at startup, see detect_dialog_backend() */
+
+/* 1 = perms.conf is disabled: the only valid rules are the ones the X server
+ * already loaded from its own SYSCONFDIR/xnotify.conf* files, plus whatever
+ * is granted for the current session. A permanent Allow/Trust in this mode
+ * is written to the server's own xnotify.conf.d instead, see save_rule(). */
+static int secure_mode = 0;
+
+/* Server's real drop-in rules directory (SYSCONFDIR "/xnotify.conf.d"),
+ * learned on demand from the X server itself since SYSCONFDIR is a
+ * compile-time constant of the server, not of xisguard. Filled in by
+ * handle_message() on a "CONFIG_PATH" reply, see request_config_path(). */
+static char secure_conf_dir[512] = {0};
+static pthread_mutex_t secure_conf_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  secure_conf_cond = PTHREAD_COND_INITIALIZER;
 
 /* Bitmasks for per-action CLI overrides (bit N-1 = action N, 1-16).
  * Checked before perms.conf; deny wins if both bits are set for same action. */
@@ -369,6 +383,15 @@ pattern_matches(const char *s, const char *p) {
 /* ====================== CONFIG (USER ONLY) ====================== */
 
 void load_user_config(void) {
+    if (secure_mode) {
+        pthread_mutex_lock(&ignored_lock);
+        ignored_count = 0;
+        pthread_mutex_unlock(&ignored_lock);
+        last_config_mtime = time(NULL);
+        log_filtered(2, "Secure mode: %s is disabled, only the server's own rules and session grants apply", perms_file);
+        return;
+    }
+
     pthread_mutex_lock(&ignored_lock);
     ignored_count = 0;
 
@@ -485,6 +508,7 @@ int get_preconfig_rule(const char *exe, int action_id, char *matched_pattern, si
 /* ====================== SYNC PERMISSIONS TO X SERVER ====================== */
 
 void send_permission(int action, const char *exe, pid_t pid, int command_type);
+static void secure_save_rule(const char *exe, int action_id, int is_allow);
 
 void send_all_permissions_to_xserver(void) {
     pthread_mutex_lock(&ignored_lock);
@@ -530,6 +554,11 @@ void send_all_permissions_to_xserver(void) {
 
 void save_rule(const char *exe, int action_id, int is_allow) {
     if (!exe || *exe == '\0') return;
+
+    if (secure_mode) {
+        secure_save_rule(exe, action_id, is_allow);
+        return;
+    }
 
     const char *action_str = action_to_string(action_id);
 
@@ -1108,7 +1137,11 @@ void remove_all_alerts_for_pid(pid_t pid) {
     }
 }
 
-void send_query_action(const char *action) {
+/* Sends a raw JSON command to the X server's xperms.<display>.sock (the
+ * same guard -> server channel used by send_permission()). Fire-and-forget,
+ * like every other command on this socket; replies (if any) arrive later as
+ * a datagram on our own xnotify.<display>.sock, handled by handle_message(). */
+static void send_raw_command(const char *json) {
     const char *runtime_dir = getenv("XDG_RUNTIME_DIR");
     const char *base_dir = (runtime_dir && *runtime_dir) ? runtime_dir : "/tmp";
 
@@ -1122,12 +1155,123 @@ void send_query_action(const char *action) {
     addr.sun_family = AF_UNIX;
     snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", socket_path);
 
+    sendto(sock, json, strlen(json), 0, (struct sockaddr*)&addr, sizeof(addr));
+    close(sock);
+}
+
+void send_query_action(const char *action) {
     char msg[256];
     snprintf(msg, sizeof(msg),
              "{\"command\":\"QUERY_ACTION\",\"action\":\"%s\"}", action);
+    send_raw_command(msg);
+}
 
-    sendto(sock, msg, strlen(msg), 0, (struct sockaddr*)&addr, sizeof(addr));
-    close(sock);
+/* Secure mode only: asks the X server for its real rule drop-in directory
+ * (SYSCONFDIR "/xnotify.conf.d") since SYSCONFDIR is a compile-time constant
+ * of the server, not of xisguard. The reply comes back as a "CONFIG_PATH"
+ * message handled in handle_message(). */
+static void request_config_path(void) {
+    send_raw_command("{\"command\":\"GET_CONFIG_PATH\"}");
+}
+
+/* Asks the server to re-read xnotify.conf / xnotify.conf.d from disk, e.g.
+ * right after secure_save_rule() has written a new drop-in file there. */
+static void request_server_reload(void) {
+    send_raw_command("{\"command\":\"RELOAD\"}");
+}
+
+/* Blocks (briefly) until secure_conf_dir is known, requesting it from the
+ * server if needed. Returns 1 and fills out on success, 0 on timeout. */
+static int wait_for_secure_conf_dir(char *out, size_t out_sz, int timeout_ms) {
+    pthread_mutex_lock(&secure_conf_lock);
+    if (secure_conf_dir[0] == '\0') {
+        request_config_path();
+
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec  += timeout_ms / 1000;
+        ts.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
+        if (ts.tv_nsec >= 1000000000L) {
+            ts.tv_sec++;
+            ts.tv_nsec -= 1000000000L;
+        }
+
+        while (secure_conf_dir[0] == '\0') {
+            if (pthread_cond_timedwait(&secure_conf_cond, &secure_conf_lock, &ts) != 0)
+                break;
+        }
+    }
+
+    int ok = (secure_conf_dir[0] != '\0');
+    if (ok)
+        snprintf(out, out_sz, "%s", secure_conf_dir);
+    pthread_mutex_unlock(&secure_conf_lock);
+    return ok;
+}
+
+/* Secure mode only: writes exe/action_id/is_allow as a rule line into the
+ * X server's own SYSCONFDIR/xnotify.conf.d/50-xisguard.conf, escalating via
+ * polkit since that path normally requires root, then asks the server to
+ * reload. exe/pattern content never touches a shell string: it is written
+ * to a plain temp file and pkexec's helper script only ever sees the
+ * directory and temp file paths as argv, so there is no injection vector. */
+static void secure_save_rule(const char *exe, int action_id, int is_allow) {
+    if (!exe || *exe == '\0') return;
+
+    char dir[512];
+    if (!wait_for_secure_conf_dir(dir, sizeof(dir), 2000)) {
+        log_msg("Secure mode: could not learn the server's config directory in time; "
+                "rule for %s was NOT saved permanently (this session only)", trim_exe_for_log(exe));
+        return;
+    }
+
+    const char *action_str = (action_id == -1) ? "ALL" : action_to_string(action_id);
+
+    char tmp_path[] = "/tmp/xisguard-rule-XXXXXX";
+    int fd = mkstemp(tmp_path);
+    if (fd < 0) {
+        log_msg("Secure mode: mkstemp failed: %s", strerror(errno));
+        return;
+    }
+    FILE *f = fdopen(fd, "w");
+    if (!f) {
+        close(fd);
+        unlink(tmp_path);
+        return;
+    }
+    fprintf(f, "%s %s %s\n", is_allow ? "ALLOW" : "DENY", action_str, exe);
+    fclose(f);
+    chmod(tmp_path, 0644);
+
+    log_msg("Secure mode: asking for admin rights (polkit) to write '%s %s %s' into %s/50-xisguard.conf",
+            is_allow ? "ALLOW" : "DENY", action_str, trim_exe_for_log(exe), dir);
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        execlp("pkexec", "pkexec", "sh", "-c",
+               "mkdir -p \"$1\" && cat \"$2\" >> \"$1/50-xisguard.conf\"",
+               "sh", dir, tmp_path, (char*)NULL);
+        _exit(127);
+    }
+
+    int ok = 0;
+    if (pid > 0) {
+        int status;
+        waitpid(pid, &status, 0);
+        ok = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    } else {
+        log_msg("Secure mode: fork() failed: %s", strerror(errno));
+    }
+
+    unlink(tmp_path);
+
+    if (ok) {
+        log_msg("Secure mode: rule saved to %s/50-xisguard.conf, requesting server reload", dir);
+        request_server_reload();
+    } else {
+        log_msg("Secure mode: could not save the rule permanently (polkit denied/cancelled, or write failed); "
+                "'%s' stays allowed for this session only", trim_exe_for_log(exe));
+    }
 }
 
 /* Escapa " e \ em strings JSON; descarta caracteres de controle. */
@@ -1260,6 +1404,20 @@ void handle_message(const char *msg) {
             strncpy(command, p, len);
             command[len] = '\0';
         }
+    }
+
+    /* Reply to request_config_path(); has no action/pid, so handle it before
+     * the action<=0||pid<=0 bail-out below. */
+    if (strcmp(command, "CONFIG_PATH") == 0) {
+        char dir[512];
+        if (json_get_str(msg, "dir", dir, sizeof(dir))) {
+            pthread_mutex_lock(&secure_conf_lock);
+            snprintf(secure_conf_dir, sizeof(secure_conf_dir), "%s", dir);
+            pthread_cond_broadcast(&secure_conf_cond);
+            pthread_mutex_unlock(&secure_conf_lock);
+            log_filtered(2, "Secure mode: server config directory is %s", dir);
+        }
+        return;
     }
 
     p = strstr(msg, "\"action\":");
@@ -1523,8 +1681,8 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
     if (strcasecmp(cmd, "GET_STATUS") == 0) {
         snprintf(resp, resp_sz,
             "{\"ok\":true,\"version\":\"%s\",\"display\":%d,"
-            "\"no_pause\":%d,\"quiet\":%d,\"always_kill\":%d,\"log_level\":%d}\n",
-            XISGUARD_VERSION, display, no_pause_mode, quiet_mode, always_kill_mode, log_level);
+            "\"no_pause\":%d,\"quiet\":%d,\"always_kill\":%d,\"log_level\":%d,\"secure_mode\":%d}\n",
+            XISGUARD_VERSION, display, no_pause_mode, quiet_mode, always_kill_mode, log_level, secure_mode);
         return;
     }
 
@@ -1764,6 +1922,8 @@ int main(int argc, char *argv[]) {
             printf("  --no-pause / --notify-only     Do not send SIGSTOP/SIGCONT\n");
             printf("  --quiet / --no-zenity          No dialog prompts (xisserve/zenity); deny all unauthorized processes for the current session\n");
             printf("  --always-kill                  Kill (SIGKILL) all unauthorized processes immediately\n");
+            printf("  --secure-mode                  Disable perms.conf; permanent Allow/Trust choices are written\n");
+            printf("                                   to the X server's own xnotify.conf.d instead (via polkit)\n");
             printf("  --conf <dir> or --conf=<dir>   Base config directory (default: ~/.config/xisguard)\n");
             printf("  --log-level N                  Verbosity level (0-4)\n");
             printf("  --allow ACTION                 Always allow ACTION for any program (overrides perms.conf)\n");
@@ -1817,6 +1977,9 @@ int main(int argc, char *argv[]) {
         } else if (strcmp(argv[i], "--always-kill") == 0) {
             always_kill_mode = 1;
             log_msg("ALWAYS-KILL mode activated (unknown processes will be killed)");
+        } else if (strcmp(argv[i], "--secure-mode") == 0) {
+            secure_mode = 1;
+            log_msg("SECURE mode activated (perms.conf disabled; permanent rules go through polkit into the server's own config)");
         } else if (strcmp(argv[i], "--allow") == 0 && i + 1 < argc) {
             int act = string_to_action(argv[++i]);
             if (act == -1) {
@@ -1850,6 +2013,11 @@ int main(int argc, char *argv[]) {
             int lvl = atoi(argv[i] + 12);
             if (lvl >= 0 && lvl <= 4) log_level = lvl;
         }
+    }
+
+    if (secure_mode && no_pause_mode) {
+        log_msg("Warning: --secure-mode with --no-pause means an unauthorized process keeps running, "
+                "unpaused, for as long as the polkit prompt for a permanent rule is up. Continuing anyway.");
     }
 
     /* Persist the final runtime flags for the next invocation */
@@ -1942,6 +2110,9 @@ int main(int argc, char *argv[]) {
     listen(ctl_fd, 4);
 
     log_msg("XisGuard control socket ready - listening on %s", CTL_SOCKET_PATH_BUF);
+
+    if (secure_mode)
+        request_config_path();   /* prefetch, so it's likely cached before it's first needed */
 
     pthread_create(&file_monitor_thread, NULL, file_monitor_loop, NULL);
     pthread_create(&processor_thread, NULL, alert_processor_loop, NULL);

@@ -52,6 +52,8 @@ Useful options:
 
 `xisguard --always-kill`                 # automatically kill unauthorized processes
 
+`xisguard --secure-mode`                 # disable perms.conf; permanent rules go into the X server's own config via polkit
+
 `xisguard --conf=$HOME/.config/xisguard` # custom configuration directory
 
 #### Global action overrides
