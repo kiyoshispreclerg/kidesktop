@@ -64,14 +64,17 @@ static int xisback_send(const char *cmd, char *resp, size_t respsz)
     }
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
         close(fd);
+        /* xisback doesn't daemonize/detach itself (same as kiwm/kicomp --
+         * see spawn_replace()'s own doc comment) -- it just runs its event
+         * loop forever in this child, so waitpid()ing on it here would
+         * block until xisback eventually exits, i.e. forever. setsid()
+         * detaches it from kiconf the same way spawn_replace() does, so
+         * it outlives kiconf instead of dying with it. */
         pid_t pid = fork();
         if (pid == 0) {
+            setsid();
             execlp("xisback", "xisback", (char *)NULL);
             _exit(127);
-        }
-        if (pid > 0) {
-            int status;
-            waitpid(pid, &status, 0);
         }
         usleep(300000);
         fd = socket(AF_UNIX, SOCK_STREAM, 0);
