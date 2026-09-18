@@ -42,7 +42,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.15"
+#define XISSERVE_VERSION "0.1.16"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -941,6 +941,106 @@ static void scan_dir_desktop_files(const char *dir, GPtrArray *apps, GHashTable 
         g_hash_table_add(seen, g_strdup(de->d_name));
     }
     closedir(d);
+}
+
+/* Locates basename's own .desktop file on disk, walking the same home-
+ * then-XDG_DATA_DIRS precedence scan_apps_into() uses -- so a right-click
+ * context menu can re-read the file for its [Desktop Action] groups
+ * without keeping that in the persisted ResultEntry/on-disk apps cache. */
+static gboolean find_desktop_file_path(const char *basename, char *out, size_t outsz)
+{
+    char home_apps[PATH_MAX];
+    const char *xdg_data_home = getenv("XDG_DATA_HOME");
+    if (xdg_data_home && *xdg_data_home) {
+        snprintf(home_apps, sizeof(home_apps), "%s/applications", xdg_data_home);
+    } else {
+        const char *home = getenv("HOME");
+        snprintf(home_apps, sizeof(home_apps), "%s/.local/share/applications", home ? home : "");
+    }
+    snprintf(out, outsz, "%s/%s", home_apps, basename);
+    if (access(out, F_OK) == 0) return TRUE;
+
+    const char *xdg_data_dirs = getenv("XDG_DATA_DIRS");
+    if (!xdg_data_dirs || !*xdg_data_dirs) xdg_data_dirs = "/usr/local/share:/usr/share";
+    char *dirs_copy = g_strdup(xdg_data_dirs);
+    char *saveptr = NULL;
+    gboolean found = FALSE;
+    for (char *tok = strtok_r(dirs_copy, ":", &saveptr); tok; tok = strtok_r(NULL, ":", &saveptr)) {
+        snprintf(out, outsz, "%s/applications/%s", tok, basename);
+        if (access(out, F_OK) == 0) { found = TRUE; break; }
+    }
+    g_free(dirs_copy);
+    return found;
+}
+
+/* One freedesktop.org "Desktop Action" -- the jumplist mechanism behind
+ * e.g. Firefox's "Nova aba anonima" context-menu entry: a token in the
+ * [Desktop Entry] group's Actions= list names a [Desktop Action <token>]
+ * group elsewhere in the same file, which carries its own Name=/Exec=. */
+typedef struct {
+    char name[256];
+    char exec[1300];
+} DesktopAction;
+
+/* Parses path's Actions= list and, for each named token, that action's
+ * own group -- returns a GArray of DesktopAction (possibly zero-length,
+ * never NULL). Two passes over the file (list, then each group) rather
+ * than a real multi-group parser: actions are rare and this only runs
+ * once per right-click, not on every keystroke like the app scan. */
+static GArray *load_desktop_actions(const char *path)
+{
+    GArray *actions = g_array_new(FALSE, TRUE, sizeof(DesktopAction));
+
+    char actions_raw[512] = "";
+    char line[2048];
+    FILE *f = fopen(path, "r");
+    if (!f) return actions;
+    int in_entry = 0, seen_entry = 0;
+    while (fgets(line, sizeof(line), f)) {
+        size_t l = strlen(line);
+        while (l > 0 && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = 0;
+        if (line[0] == '[') {
+            if (strncmp(line, "[Desktop Entry]", 15) == 0) { in_entry = 1; seen_entry = 1; }
+            else { in_entry = 0; if (seen_entry) break; }
+            continue;
+        }
+        if (!in_entry) continue;
+        char *eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = 0;
+        if (strcmp(line, "Actions") == 0) snprintf(actions_raw, sizeof(actions_raw), "%s", eq + 1);
+    }
+    fclose(f);
+    if (!actions_raw[0]) return actions;
+
+    char *copy = g_strdup(actions_raw);
+    char *saveptr = NULL;
+    for (char *tok = strtok_r(copy, ";", &saveptr); tok; tok = strtok_r(NULL, ";", &saveptr)) {
+        char group[80];
+        snprintf(group, sizeof(group), "[Desktop Action %s]", tok);
+
+        f = fopen(path, "r");
+        if (!f) continue;
+        DesktopAction act;
+        memset(&act, 0, sizeof(act));
+        int in_group = 0;
+        while (fgets(line, sizeof(line), f)) {
+            size_t l = strlen(line);
+            while (l > 0 && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = 0;
+            if (line[0] == '[') { in_group = (strcmp(line, group) == 0); continue; }
+            if (!in_group) continue;
+            char *eq2 = strchr(line, '=');
+            if (!eq2) continue;
+            *eq2 = 0;
+            const char *key = line, *val = eq2 + 1;
+            if (strcmp(key, "Name") == 0) snprintf(act.name, sizeof(act.name), "%s", val);
+            else if (strcmp(key, "Exec") == 0) strip_exec_field_codes(val, act.exec, sizeof(act.exec));
+        }
+        fclose(f);
+        if (act.name[0] && act.exec[0]) g_array_append_val(actions, act);
+    }
+    g_free(copy);
+    return actions;
 }
 
 static gint compare_apps_by_name(gconstpointer a, gconstpointer b)
@@ -2063,6 +2163,24 @@ static void on_favorite_menu_item(GtkWidget *item, gpointer user_data)
     rebuild_results();
 }
 
+/* One jumplist entry's own Exec, handed over as the signal's own owned
+ * copy (via g_signal_connect_data's GClosureNotify below) since the
+ * GArray of DesktopAction it came from is freed once the menu is built. */
+static void on_jumplist_action_activate(GtkWidget *item, gpointer user_data)
+{
+    (void)item;
+    run_detached((const char *)user_data);
+    hide_launcher();
+}
+
+/* GClosureNotify adapter for g_free -- its signature (gpointer, GClosure*)
+ * doesn't match g_free's plain (gpointer) one. */
+static void free_closure_data(gpointer data, GClosure *closure)
+{
+    (void)closure;
+    g_free(data);
+}
+
 /* Set for the duration of our own right-click context menu -- see
  * on_window_grab_broken()'s comment for why this needs to be
  * distinguishable from a *foreign* grab theft. */
@@ -2115,6 +2233,24 @@ static gboolean on_tree_button_press(GtkWidget *tv, GdkEventButton *ev, gpointer
     if (!e || !e->from_desktop) return TRUE;
 
     GtkWidget *menu = gtk_menu_new();
+
+    /* Jumplist: the app's own [Desktop Action] entries (e.g. Firefox's
+     * "Nova aba anonima"), listed above the favorite toggle the way
+     * every DE that supports these draws them. */
+    char desktop_path[PATH_MAX];
+    if (find_desktop_file_path(e->id, desktop_path, sizeof(desktop_path))) {
+        GArray *actions = load_desktop_actions(desktop_path);
+        for (guint i = 0; i < actions->len; i++) {
+            DesktopAction *act = &g_array_index(actions, DesktopAction, i);
+            GtkWidget *aitem = gtk_menu_item_new_with_label(act->name);
+            g_signal_connect_data(aitem, "activate", G_CALLBACK(on_jumplist_action_activate),
+                                   g_strdup(act->exec), free_closure_data, 0);
+            gtk_menu_shell_append(GTK_MENU_SHELL(menu), aitem);
+        }
+        if (actions->len > 0) gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
+        g_array_free(actions, TRUE);
+    }
+
     GtkWidget *item = gtk_menu_item_new_with_label(e->is_favorite ? "Remover dos Favoritos" : "Adicionar aos Favoritos");
     g_signal_connect(item, "activate", G_CALLBACK(on_favorite_menu_item), e);
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
