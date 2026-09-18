@@ -257,6 +257,36 @@ lock file and signals it instead of opening a second keyboard -- run the
 same command again to toggle it off, which is what a hotkey binding
 wants. See keyboard.c.
 
+## `--session`: a "what do you want to do" picker
+
+```
+xisserve --session
+```
+
+Also outside the xispanel contract and the launcher's own singleton, and
+a one-shot popup like `--menu`/`--question` rather than something that
+stays up (like `--keyboard`). It shows a small always-on-top window,
+centered on whichever RandR monitor the focused window (falling back to
+the pointer) is actually on -- the same lookup `--keyboard` uses to dock
+itself, see that section above -- with one button per power action the
+launcher's own footer already offers: Desligar, Reiniciar, Suspender,
+Sair, Trocar usuario (only shown if `dm-tool` is installed), Bloquear
+tela. Clicking one shows the exact same Yes/No confirmation the footer
+button does and, on Yes, runs the exact same command -- both draw from
+one shared table (see xisserve.h's `xisserve_power_action_*` functions)
+so there is exactly one place each command lives. Escape, its own "X" or
+"Cancelar" button, or the WM's close button dismiss it with no action
+taken and no side effect; picking "No" on a confirmation leaves the
+picker open so another action can still be chosen.
+
+Meant to be what a power/session hotkey calls instead of the raw command
+directly -- xiskeys' shipped defaults point `Ctrl+Alt+Delete`,
+`Ctrl+Alt+End`, `XF86Sleep`, `Meta+Shift+L` and `Meta+Shift+U` at
+`xisserve --session` rather than each running its own
+`systemctl reboot`/`poweroff`/`suspend`/logout/switch-user command
+straight away, so a stray tap always asks first through one shared
+picker.
+
 ## Singleton / toggle behavior (xisserve's own responsibility)
 
 xispanel does **not** track whether xisserve is already running, hold a

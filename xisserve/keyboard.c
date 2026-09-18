@@ -691,7 +691,11 @@ static void reserve_strut(GdkWindow *gw, int x, int y, int w, int h)
  * contains the currently focused window (falling back to wherever the
  * pointer is if there's no usable _NET_ACTIVE_WINDOW) and use that
  * instead when found -- an explicit --output-* still wins if this
- * lookup fails for any reason (no RandR, nothing focused, ...). */
+ * lookup fails for any reason (no RandR, nothing focused, ...).
+ *
+ * xisserve_resolve_active_output() below is exported (see xisserve.h) so
+ * session.c's --session picker can center itself on the same monitor
+ * rather than duplicating this lookup. */
 /* RandR 1.5 "Monitor" objects (what `xrandr --listmonitors`/--setmonitor
  * shows), not the older per-CRTC geometry -- kiwm's own output tracking
  * (output.c's xcb_randr_get_monitors() call) already made this same call
@@ -745,7 +749,7 @@ static Window get_active_window(Display *dpy, Window root)
     return w;
 }
 
-static gboolean resolve_active_output(Display *dpy, Window root, int *ox, int *oy, int *ow, int *oh)
+gboolean xisserve_resolve_active_output(Display *dpy, Window root, int *ox, int *oy, int *ow, int *oh)
 {
     Window active = get_active_window(dpy, root);
     if (active != None) {
@@ -859,10 +863,10 @@ int keyboard_run(int output_x, int output_y, int output_w, int output_h)
     /* Whatever --output-x/-y/-w/-h (or parse_argv()'s own defaults for
      * them) handed us, prefer the RandR output the currently focused
      * window (or failing that, the pointer) actually sits on -- see
-     * resolve_active_output()'s comment. */
+     * xisserve_resolve_active_output()'s comment. */
     {
         int aox, aoy, aow, aoh;
-        if (resolve_active_output(g_dpy, DefaultRootWindow(g_dpy), &aox, &aoy, &aow, &aoh)) {
+        if (xisserve_resolve_active_output(g_dpy, DefaultRootWindow(g_dpy), &aox, &aoy, &aow, &aoh)) {
             output_x = aox;
             output_y = aoy;
             output_w = aow;

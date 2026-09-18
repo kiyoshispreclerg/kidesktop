@@ -42,7 +42,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.14"
+#define XISSERVE_VERSION "0.1.15"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -112,6 +112,12 @@ typedef struct {
      * of its own -- it just reads the output_* fields every invocation
      * already carries. */
     int keyboard_mode;
+
+    /* --session: not a page either, a one-shot "what do you want to do
+     * with this session" picker (see session.c). Takes no arguments of
+     * its own -- it centers itself on the current monitor the same way
+     * --keyboard docks on it. */
+    int session_mode;
 } LaunchArgs;
 
 static LaunchArgs g_args;
@@ -153,6 +159,7 @@ enum {
     OPT_MENU, OPT_MENU_WINDOW, OPT_MENU_X, OPT_MENU_Y,
     OPT_APPS, OPT_APPS_X, OPT_APPS_Y,
     OPT_KEYBOARD,
+    OPT_SESSION,
     /* Page mode flags occupy OPT_PAGE_BASE + <index into kPages>, so
      * kPages stays the single place a page's flag name is written. */
     OPT_PAGE_BASE = 2000,
@@ -189,6 +196,8 @@ static const struct option kFixedOpts[] = {
      * same --output-x/-y/-w/-h flags every invocation already accepts,
      * see keyboard.c. */
     {"keyboard", no_argument, 0, OPT_KEYBOARD},
+    /* --session takes no arguments of its own either -- see session.c. */
+    {"session", no_argument, 0, OPT_SESSION},
 };
 #define N_FIXED_OPTS ((int)(sizeof(kFixedOpts) / sizeof(kFixedOpts[0])))
 
@@ -208,6 +217,7 @@ static void usage(const char *argv0)
                     "[--apps-x=<px>] [--apps-y=<px>]\n", argv0);
     fprintf(stderr, "       %s --keyboard [--output-x=<px> --output-y=<px> "
                     "--output-w=<px> --output-h=<px>]\n", argv0);
+    fprintf(stderr, "       %s --session\n", argv0);
     fprintf(stderr, "       %s --question --text=<pergunta> --button=<rotulo>:<valor> "
                     "[--button=<rotulo>:<valor> ...]\n", argv0);
     fprintf(stderr, "       %s --version\n", argv0);
@@ -278,6 +288,7 @@ static int parse_argv(int argc, char **argv, LaunchArgs *a)
         case OPT_APPS_X: a->apps_x = atoi(optarg); break;
         case OPT_APPS_Y: a->apps_y = atoi(optarg); break;
         case OPT_KEYBOARD: a->keyboard_mode = 1; break;
+        case OPT_SESSION: a->session_mode = 1; break;
         default: break; /* unknown flag -- ignored on purpose, see above */
         }
     }
@@ -1905,21 +1916,52 @@ static const PowerAction kPowerActions[] = {
 };
 #define N_POWER_ACTIONS ((int)(sizeof(kPowerActions) / sizeof(kPowerActions[0])))
 
-static void on_power_button_clicked(GtkWidget *btn, gpointer user_data)
+/* Shared with session.c's --session picker -- see xisserve.h. `parent`
+ * (may be NULL) only sets the confirm dialog's transient-for, so it stays
+ * above whichever window asked for it. */
+int xisserve_n_power_actions(void)
 {
-    (void)btn;
-    const PowerAction *action = (const PowerAction *)user_data;
-    hide_launcher();
+    return N_POWER_ACTIONS;
+}
 
-    GtkWidget *dialog = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL, GTK_MESSAGE_QUESTION, GTK_BUTTONS_YES_NO, "%s",
-                                                action->confirm_msg);
+gboolean xisserve_power_action_visible(int i)
+{
+    const PowerAction *action = &kPowerActions[i];
+    if (!action->probe_bin) return TRUE;
+    gchar *found = g_find_program_in_path(action->probe_bin);
+    if (!found) return FALSE;
+    g_free(found);
+    return TRUE;
+}
+
+const char *xisserve_power_action_label(int i)
+{
+    return kPowerActions[i].label;
+}
+
+gboolean xisserve_power_action_run(int i, GtkWidget *parent)
+{
+    const PowerAction *action = &kPowerActions[i];
+
+    GtkWidget *dialog = gtk_message_dialog_new(parent ? GTK_WINDOW(parent) : NULL, GTK_DIALOG_MODAL,
+                                                GTK_MESSAGE_QUESTION, GTK_BUTTONS_YES_NO, "%s", action->confirm_msg);
     gtk_window_set_title(GTK_WINDOW(dialog), action->label);
     gint resp = gtk_dialog_run(GTK_DIALOG(dialog));
     gtk_widget_destroy(dialog);
 
     if (resp == GTK_RESPONSE_YES && action->cmd) {
         run_detached(action->cmd);
+        return TRUE;
     }
+    return FALSE;
+}
+
+static void on_power_button_clicked(GtkWidget *btn, gpointer user_data)
+{
+    (void)btn;
+    int idx = GPOINTER_TO_INT(user_data);
+    hide_launcher();
+    xisserve_power_action_run(idx, NULL);
 }
 
 /* ---- control socket I/O -------------------------------------------------- */
@@ -2283,14 +2325,9 @@ static void build_ui(void)
 
     g_footer = gtk_hbox_new(TRUE, 2);
     for (int i = 0; i < N_POWER_ACTIONS; i++) {
-        const PowerAction *action = &kPowerActions[i];
-        if (action->probe_bin) {
-            gchar *found = g_find_program_in_path(action->probe_bin);
-            if (!found) continue;
-            g_free(found);
-        }
-        GtkWidget *btn = gtk_button_new_with_label(action->label);
-        g_signal_connect(btn, "clicked", G_CALLBACK(on_power_button_clicked), (gpointer)action);
+        if (!xisserve_power_action_visible(i)) continue;
+        GtkWidget *btn = gtk_button_new_with_label(kPowerActions[i].label);
+        g_signal_connect(btn, "clicked", G_CALLBACK(on_power_button_clicked), GINT_TO_POINTER(i));
         gtk_box_pack_start(GTK_BOX(g_footer), btn, TRUE, TRUE, 0);
     }
     gtk_box_pack_start(GTK_BOX(vbox), g_footer, FALSE, FALSE, 0);
@@ -2363,6 +2400,11 @@ int main(int argc, char **argv)
      * keyboard.c's own "toggle on second invocation" singleton. */
     if (args.keyboard_mode)
         return keyboard_run(args.output_x, args.output_y, args.output_w, args.output_h);
+
+    /* --session: same one-shot-popup deal as --menu/--question, see
+     * session.c. */
+    if (args.session_mode)
+        return session_run();
 
     /* --question: same deal, but detected by a raw argv scan rather than
      * through LaunchArgs -- its --text/--button flags are question.c's

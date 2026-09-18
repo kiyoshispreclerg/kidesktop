@@ -13,6 +13,7 @@
 #define XISSERVE_H
 
 #include <gtk/gtk.h>
+#include <X11/Xlib.h>
 
 /* Every result row's icon (app icon, or a plugin's own) is resolved to
  * this fixed square size -- see xisserve_resolve_icon(). */
@@ -115,6 +116,48 @@ int applications_run(int x, int y);
  * relation to the launcher window itself. Returns the process exit
  * code. See keyboard.c and PROTOCOL.md. */
 int keyboard_run(int output_x, int output_y, int output_w, int output_h);
+
+/* Resolves the RandR "Monitor" rectangle (xrandr --listmonitors) that
+ * currently matters most: the one containing the focused window's
+ * center, falling back to wherever the pointer is if there's no usable
+ * _NET_ACTIVE_WINDOW. Returns FALSE if RandR is unavailable or neither
+ * lookup resolves (caller should fall back to the full screen then).
+ * Implemented in keyboard.c, which made this same lookup first for
+ * --keyboard's own docking; exported so session.c's --session picker can
+ * center on the same monitor without a second copy of it. */
+gboolean xisserve_resolve_active_output(Display *dpy, Window root, int *ox, int *oy, int *ow, int *oh);
+
+/* --session: a centered, always-on-top "what do you want to do with this
+ * session" picker -- Desligar/Reiniciar/Suspender/Sair/Trocar
+ * usuario/Bloquear tela, the same actions and confirmation dialogs the
+ * launcher's own footer buttons use (see xisserve_n_power_actions() et
+ * al. below), reused here so there is exactly one place each command
+ * lives. Escape, a "Cancelar"/"X" button, or the WM close button dismiss
+ * it with no action taken. Like --menu/--question, this stays outside
+ * the launcher's singleton/control-socket machinery: it's a one-shot
+ * popup, not part of the xispanel contract. Returns the process exit
+ * code. See session.c and PROTOCOL.md. */
+int session_run(void);
+
+/* The launcher's own power-action table (Desligar/Reiniciar/Suspender/
+ * Sair/Trocar usuario/Bloquear tela) -- shared with session.c's
+ * --session picker so both draw the same buttons from the same source
+ * rather than keeping two copies of the command list in sync by hand.
+ * `i` ranges over [0, xisserve_n_power_actions()); an action whose
+ * required binary (per its probe) isn't installed is still counted but
+ * xisserve_power_action_visible() reports it as not shown, matching how
+ * the launcher's own footer already skips it. xisserve_power_action_run()
+ * shows the same Yes/No confirmation dialog (parented on `parent`, which
+ * may be NULL) and, on Yes, runs the action's command via run_detached()
+ * -- it does not hide/close `parent` itself, that's each caller's own
+ * job (the launcher hides itself first, session.c exits after). */
+int xisserve_n_power_actions(void);
+gboolean xisserve_power_action_visible(int i);
+const char *xisserve_power_action_label(int i);
+/* Returns TRUE if the user answered Yes and a command actually ran (FALSE
+ * for No/dismissed, or for a stub action with no command of its own e.g.
+ * "Sair" today) -- session.c uses this to know whether to close itself. */
+gboolean xisserve_power_action_run(int i, GtkWidget *parent);
 
 /* Fresh .desktop scan across $XDG_DATA_DIRS + ~/.local/share/applications,
  * independent of the launcher's own persistent app list -- used by
