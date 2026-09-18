@@ -103,7 +103,7 @@
 #include "i18n.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.2"
+#define KICONF_VERSION "0.2.3"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
