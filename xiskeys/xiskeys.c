@@ -62,7 +62,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define XISKEYS_VERSION "0.2.2"
+#define XISKEYS_VERSION "0.2.3"
 #define MAX_BINDINGS 128
 #define LINE_MAX_LEN 768
 #define CMD_MAX_LEN 512
@@ -395,16 +395,23 @@ static void write_default_config(const char *path)
     fprintf(f, "\n# --- power / brightness --------------------------------------------------\n");
     fprintf(f, "BIND\tbrightness-up\tXF86MonBrightnessUp\tbrightnessctl set 5%%+\n");
     fprintf(f, "BIND\tbrightness-down\tXF86MonBrightnessDown\tbrightnessctl set 5%%-\n");
-    fprintf(f, "BIND\tsuspend\tXF86Sleep\tsystemctl suspend\n");
-    fprintf(f, "BIND\tpoweroff\tCtrl+Alt+End\tsystemctl poweroff\n");
-    fprintf(f, "BIND\treboot\tCtrl+Alt+Delete\tsystemctl reboot\n");
+    fprintf(f, "# Every power/session action below calls xisserve --session (a centered,\n");
+    fprintf(f, "# always-on-top Desligar/Reiniciar/Suspender/Sair/Trocar usuario/Bloquear\n");
+    fprintf(f, "# tela picker, each button confirming before it acts) rather than running\n");
+    fprintf(f, "# systemctl/loginctl/dm-tool directly, so a stray tap on any of these keys\n");
+    fprintf(f, "# always asks first instead of immediately suspending/rebooting/logging\n");
+    fprintf(f, "# out -- see xisserve/PROTOCOL.md's \"--session\" section.\n");
+    fprintf(f, "BIND\tsuspend\tXF86Sleep\txisserve --session\n");
+    fprintf(f, "BIND\tpoweroff\tCtrl+Alt+End\txisserve --session\n");
+    fprintf(f, "BIND\treboot\tCtrl+Alt+Delete\txisserve --session\n");
     fprintf(f, "\n# --- session (i3lock per XISDESKTOP_PLAN.md's screen-locker choice) ------\n");
     fprintf(f, "BIND\tlock-session\tMeta+L\ti3lock\n");
-    fprintf(f, "BIND\tlogout\tMeta+Shift+L\tloginctl terminate-session \"$XDG_SESSION_ID\"\n");
+    fprintf(f, "BIND\tlogout\tMeta+Shift+L\txisserve --session\n");
     fprintf(f, "# Fast user switching depends on whichever display manager/greeter\n");
     fprintf(f, "# KiDesktop ends up using (e.g. `dm-tool switch-to-greeter` for LightDM) --\n");
-    fprintf(f, "# not chosen yet, left unbound.\n");
-    fprintf(f, "#BIND\tswitch-user\tMeta+Shift+U\tdm-tool switch-to-greeter\n");
+    fprintf(f, "# not chosen yet, left unbound; the --session picker itself only shows its\n");
+    fprintf(f, "# own \"Trocar usuario\" button when dm-tool is actually installed.\n");
+    fprintf(f, "#BIND\tswitch-user\tMeta+Shift+U\txisserve --session\n");
     fprintf(f, "\n# --- displays --------------------------------------------------------------\n");
     fprintf(f, "BIND\tdisplays\tMeta+P\tkiconf\n");
     fprintf(f, "\n# --- compositing ----------------------------------------------------------\n");
