@@ -82,6 +82,10 @@ typedef struct {
  * entries and by plugins/recent.c's search plugin. */
 GPtrArray *xisserve_load_recent_xbel(void);
 
+/* Search plugin over the same recent-files list, filename/path
+ * substring match -- see plugins/recent.c. */
+void plugin_recent_search(const char *query, GPtrArray *results);
+
 /* The com.canonical.dbusmenu busname+object path a window exports
  * (_KDE_NET_WM_APPMENU_SERVICE_NAME/_OBJECT_PATH, what every Qt/KF5 app
  * sets), or FALSE when it exports none. `window` of 0 means the current

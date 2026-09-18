@@ -42,7 +42,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.17"
+#define XISSERVE_VERSION "0.1.18"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -759,6 +759,7 @@ typedef struct {
 static const SearchPlugin kSearchPlugins[] = {
     {"terminal", plugin_terminal_search},
     {"globalmenu", plugin_globalmenu_search},
+    {"recent", plugin_recent_search},
 };
 #define N_SEARCH_PLUGINS ((int)(sizeof(kSearchPlugins) / sizeof(kSearchPlugins[0])))
 
