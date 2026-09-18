@@ -752,6 +752,18 @@ int desktop_entry_find_by_wm_class(const char *wm_class, char *out_name, size_t 
  * right-click menu, appended after its own fixed items. */
 int desktop_entry_load_actions(const char *desktop_path, char out_names[][128], char out_execs[][512], int max);
 
+/* This app's own recently-used.xbel entries (XDG "recent files" list,
+ * the same file GTK/Qt apps already read/write), newest first, only
+ * ones whose file still exists -- see ewmh.c's own doc comment. Used by
+ * tasklist.c's right-click menu, appended after its jumplist section.
+ * app_stem is matched the same loose way desktop_entry_find_by_wm_class()
+ * matches a WM_CLASS against a .desktop basename. */
+int desktop_recent_files_for_app(const char *app_stem, char out_paths[][PATH_MAX], int max);
+/* Builds the shell command to open file_path with the app named by
+ * desktop_path's own Exec= (field-code substituted, shell-quoted) --
+ * see ewmh.c's own doc comment. Returns 0 if desktop_path has no Exec=. */
+int desktop_entry_build_exec_with_file(const char *desktop_path, const char *file_path, char *out, size_t outsz);
+
 /* ---- context menu (menu.c) ----
  *
  * Generic popup: any widget can open one with its own item list, an

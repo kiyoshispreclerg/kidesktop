@@ -108,6 +108,8 @@ typedef struct {
     int group_apps; /* 1 = collapse same-app windows (matched by WM_CLASS) into one button; 0 (default) = don't. */
     int fixed_first; /* 1 (default) = pinned block always before the regular-windows block; 0 = regular block
                        * first, pinned block after -- see tasklist_on_tick()'s block-merge doc comment. */
+    int recent_max; /* how many of the app's own recently-used.xbel entries the jumplist section of its
+                      * right-click menu lists (see tasklist_on_button()); 0 disables the section entirely. */
     PinnedApp pinned[MAX_PINNED];
     int n_pinned;
     /* Absolute path of the pinned-apps sidecar file (fixed_list=), empty
@@ -467,6 +469,10 @@ static int tasklist_init(PanelWidget *w)
     tp->show_desktop_badge = kv_get(w->config_kv, "show_desktop_badge", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
     tp->group_apps = kv_get(w->config_kv, "group", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
     tp->fixed_first = !(kv_get(w->config_kv, "fixed_first", buf, sizeof(buf)) && strcmp(buf, "no") == 0);
+    tp->recent_max = kv_get_int(w->config_kv, "recent_max", 5);
+    if (tp->recent_max < 0) {
+        tp->recent_max = 0;
+    }
     tp->n_desktops = 1;
 
     /* Optional `pinned=<wm_class1>,<wm_class2>,...` -- pins that should
@@ -1282,6 +1288,121 @@ static void tasklist_paint(PanelWidget *w, cairo_t *cr)
  * real app's Actions= list runs anywhere near this many entries. */
 #define MAX_JUMPLIST_ACTIONS 6
 
+/* Recent-files entries appended after the jumplist actions, same menu
+ * -- see MAX_JUMPLIST_ACTIONS above and TasklistJumplist below. Capped
+ * independent of TasklistPriv::recent_max (the user-configured count),
+ * which this clamps down to if larger. */
+#define MAX_RECENT_ITEMS 6
+
+/* Everything a task's right-click menu's jumplist section (actions +
+ * recent files) needs, re-derived from wm_class alone at both build
+ * time (tasklist_on_button()) and selection time (tasklist_menu_
+ * select()) via tasklist_resolve_jumplist() -- see its doc comment for
+ * why nothing here is kept around between the two. */
+typedef struct {
+    char desktop_path[PATH_MAX];
+    char action_names[MAX_JUMPLIST_ACTIONS][128];
+    char action_execs[MAX_JUMPLIST_ACTIONS][512];
+    int n_actions;
+    char recent_paths[MAX_RECENT_ITEMS][PATH_MAX];
+    int n_recent;
+} TasklistJumplist;
+
+/* Resolves wm_class to its .desktop file (if any) and, from that, its
+ * jumplist actions and up to recent_max (clamped to MAX_RECENT_ITEMS)
+ * of its own recently-used.xbel entries. Called both when building a
+ * task's context menu and, again, when tasklist_menu_select() resolves
+ * which item was picked -- re-read rather than kept around from the
+ * menu-build call, the same "re-read at click/select time" call
+ * xisserve's own launcher makes for this identical feature (a fresh
+ * .desktop-file directory scan per right-click is cheap enough, and
+ * avoids threading extra state through panel_menu_open()'s single
+ * opaque ctx pointer, which tasklist.c already uses for the window/
+ * placeholder identity). */
+static void tasklist_resolve_jumplist(const char *wm_class, int recent_max, TasklistJumplist *jl)
+{
+    memset(jl, 0, sizeof(*jl));
+    if (!wm_class || !wm_class[0]) {
+        return;
+    }
+    desktop_entry_find_by_wm_class(wm_class, NULL, 0, NULL, 0, NULL, 0, jl->desktop_path, sizeof(jl->desktop_path));
+    if (!jl->desktop_path[0]) {
+        return;
+    }
+    jl->n_actions = desktop_entry_load_actions(jl->desktop_path, jl->action_names, jl->action_execs,
+                                                MAX_JUMPLIST_ACTIONS);
+    int cap = recent_max < MAX_RECENT_ITEMS ? recent_max : MAX_RECENT_ITEMS;
+    if (cap > 0) {
+        jl->n_recent = desktop_recent_files_for_app(wm_class, jl->recent_paths, cap);
+    }
+}
+
+/* Appends jl's actions then its recent files to items[] (each of its
+ * own section preceded by a separator), advancing *n -- shared by both
+ * places tasklist_on_button() builds a context menu (real window,
+ * placeholder). Caller's items[] must have room for up to 2 +
+ * MAX_JUMPLIST_ACTIONS + MAX_RECENT_ITEMS more slots. */
+static void tasklist_jumplist_append_items(const TasklistJumplist *jl, MenuItem *items, int *n)
+{
+    if (jl->n_actions > 0) {
+        items[*n].label[0] = 0;
+        items[*n].enabled = 0;
+        items[*n].is_separator = 1;
+        (*n)++;
+        for (int i = 0; i < jl->n_actions; i++) {
+            snprintf(items[*n].label, sizeof(items[*n].label), "%s", jl->action_names[i]);
+            items[*n].enabled = 1;
+            items[*n].is_separator = 0;
+            (*n)++;
+        }
+    }
+    if (jl->n_recent > 0) {
+        items[*n].label[0] = 0;
+        items[*n].enabled = 0;
+        items[*n].is_separator = 1;
+        (*n)++;
+        for (int i = 0; i < jl->n_recent; i++) {
+            const char *base = strrchr(jl->recent_paths[i], '/');
+            base = base ? base + 1 : jl->recent_paths[i];
+            snprintf(items[*n].label, sizeof(items[*n].label), "%s", base);
+            items[*n].enabled = 1;
+            items[*n].is_separator = 0;
+            (*n)++;
+        }
+    }
+}
+
+/* Maps an absolute `index` into the items[] tasklist_jumplist_append_
+ * items() built back to which jumplist-or-recent entry it is --
+ * `fixed_count` is how many ordinary (non-jumplist) items came before
+ * it in that same menu (7 for a real window, 2 for a placeholder).
+ * Returns 0 for a separator or out-of-range index (nothing to do),
+ * 1 with *is_recent/*item_i set otherwise. */
+static int tasklist_jumplist_index_lookup(const TasklistJumplist *jl, int fixed_count, int index, int *is_recent,
+                                           int *item_i)
+{
+    int i = fixed_count;
+    if (jl->n_actions > 0) {
+        i++; /* separator */
+        if (index >= i && index < i + jl->n_actions) {
+            *is_recent = 0;
+            *item_i = index - i;
+            return 1;
+        }
+        i += jl->n_actions;
+    }
+    if (jl->n_recent > 0) {
+        i++; /* separator */
+        if (index >= i && index < i + jl->n_recent) {
+            *is_recent = 1;
+            *item_i = index - i;
+            return 1;
+        }
+        i += jl->n_recent;
+    }
+    return 0;
+}
+
 /* Context menu item order for a real window: 0=minimize/restore,
  * 1=maximize/restore, 2=move, 3=close, [separator], 5=pin/unpin,
  * 6=open another instance. ctx is
@@ -1301,21 +1422,24 @@ static void tasklist_menu_select(Panel *panel, PanelWidget *w, void *ctx, int in
         if (pi < 0 || pi >= tp->n_pinned) {
             return;
         }
-        if (index >= 3) {
-            /* index 2 is the jumplist separator (never selectable); 3.. are
-             * the actions themselves -- re-resolved from wm_class rather
-             * than kept around from when the menu was built, same "re-read
-             * rather than cache" call xisserve's own launcher makes for
-             * this identical feature. */
-            char desktop_path[PATH_MAX] = "";
-            desktop_entry_find_by_wm_class(tp->pinned[pi].wm_class, NULL, 0, NULL, 0, NULL, 0, desktop_path,
-                                            sizeof(desktop_path));
-            if (desktop_path[0]) {
-                char names[MAX_JUMPLIST_ACTIONS][128], execs[MAX_JUMPLIST_ACTIONS][512];
-                int n_actions = desktop_entry_load_actions(desktop_path, names, execs, MAX_JUMPLIST_ACTIONS);
-                int action_i = index - 3;
-                if (action_i >= 0 && action_i < n_actions) {
-                    run_detached(execs[action_i]);
+        if (index >= 2) {
+            /* index 2.. is the jumplist section (actions, then recent
+             * files) -- re-resolved from wm_class rather than kept around
+             * from when the menu was built, same "re-read rather than
+             * cache" call xisserve's own launcher makes for this identical
+             * feature. */
+            TasklistJumplist jl;
+            tasklist_resolve_jumplist(tp->pinned[pi].wm_class, tp->recent_max, &jl);
+            int is_recent = 0, item_i = 0;
+            if (tasklist_jumplist_index_lookup(&jl, 2, index, &is_recent, &item_i)) {
+                if (is_recent) {
+                    char exec_cmd[600];
+                    if (desktop_entry_build_exec_with_file(jl.desktop_path, jl.recent_paths[item_i], exec_cmd,
+                                                            sizeof(exec_cmd))) {
+                        run_detached(exec_cmd);
+                    }
+                } else {
+                    run_detached(jl.action_execs[item_i]);
                 }
             }
         } else {
@@ -1341,22 +1465,24 @@ static void tasklist_menu_select(Panel *panel, PanelWidget *w, void *ctx, int in
     Window win = (Window)(uintptr_t)ctx;
     int idx = tasklist_find(tp, win);
 
-    if (index >= 8) {
-        /* index 7 is the jumplist separator (never selectable); 8.. are
-         * the actions themselves -- re-resolved from wm_class rather than
-         * kept around from when the menu was built, same "re-read rather
-         * than cache" call xisserve's own launcher makes for this
-         * identical feature. */
+    if (index >= 7) {
+        /* index 7.. is the jumplist section (actions, then recent files)
+         * -- re-resolved from wm_class rather than kept around from when
+         * the menu was built, same "re-read rather than cache" call
+         * xisserve's own launcher makes for this identical feature. */
         if (idx >= 0) {
-            char desktop_path[PATH_MAX] = "";
-            desktop_entry_find_by_wm_class(tp->tasks[idx].wm_class, NULL, 0, NULL, 0, NULL, 0, desktop_path,
-                                            sizeof(desktop_path));
-            if (desktop_path[0]) {
-                char names[MAX_JUMPLIST_ACTIONS][128], execs[MAX_JUMPLIST_ACTIONS][512];
-                int n_actions = desktop_entry_load_actions(desktop_path, names, execs, MAX_JUMPLIST_ACTIONS);
-                int action_i = index - 8;
-                if (action_i >= 0 && action_i < n_actions) {
-                    run_detached(execs[action_i]);
+            TasklistJumplist jl;
+            tasklist_resolve_jumplist(tp->tasks[idx].wm_class, tp->recent_max, &jl);
+            int is_recent = 0, item_i = 0;
+            if (tasklist_jumplist_index_lookup(&jl, 7, index, &is_recent, &item_i)) {
+                if (is_recent) {
+                    char exec_cmd[600];
+                    if (desktop_entry_build_exec_with_file(jl.desktop_path, jl.recent_paths[item_i], exec_cmd,
+                                                            sizeof(exec_cmd))) {
+                        run_detached(exec_cmd);
+                    }
+                } else {
+                    run_detached(jl.action_execs[item_i]);
                 }
             }
         }
@@ -1491,7 +1617,7 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
             return 1;
         }
         if (button == Button3) {
-            MenuItem items[2 + 1 + MAX_JUMPLIST_ACTIONS];
+            MenuItem items[2 + 2 + MAX_JUMPLIST_ACTIONS + MAX_RECENT_ITEMS];
             memset(items, 0, sizeof(items));
             snprintf(items[0].label, sizeof(items[0].label), "Abrir");
             items[0].enabled = 1;
@@ -1501,25 +1627,9 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
             items[1].is_separator = 0;
             int n = 2;
 
-            char desktop_path[PATH_MAX] = "";
-            desktop_entry_find_by_wm_class(e->wm_class, NULL, 0, NULL, 0, NULL, 0, desktop_path,
-                                            sizeof(desktop_path));
-            if (desktop_path[0]) {
-                char names[MAX_JUMPLIST_ACTIONS][128], execs[MAX_JUMPLIST_ACTIONS][512];
-                int n_actions = desktop_entry_load_actions(desktop_path, names, execs, MAX_JUMPLIST_ACTIONS);
-                if (n_actions > 0) {
-                    items[n].label[0] = 0;
-                    items[n].enabled = 0;
-                    items[n].is_separator = 1;
-                    n++;
-                    for (int i = 0; i < n_actions; i++) {
-                        snprintf(items[n].label, sizeof(items[n].label), "%s", names[i]);
-                        items[n].enabled = 1;
-                        items[n].is_separator = 0;
-                        n++;
-                    }
-                }
-            }
+            TasklistJumplist jl;
+            tasklist_resolve_jumplist(e->wm_class, tp->recent_max, &jl);
+            tasklist_jumplist_append_items(&jl, items, &n);
 
             int pi = -1;
             for (int i = 0; i < tp->n_pinned; i++) {
@@ -1557,7 +1667,7 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
     }
 
     if (button == Button3) {
-        MenuItem items[7 + 1 + MAX_JUMPLIST_ACTIONS];
+        MenuItem items[7 + 2 + MAX_JUMPLIST_ACTIONS + MAX_RECENT_ITEMS];
         memset(items, 0, sizeof(items));
         int n = 0;
         snprintf(items[n].label, sizeof(items[n].label), "%s", e->minimized ? "Restaurar" : "Minimizar");
@@ -1589,24 +1699,9 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
         items[n].is_separator = 0;
         n++;
 
-        char desktop_path[PATH_MAX] = "";
-        desktop_entry_find_by_wm_class(e->wm_class, NULL, 0, NULL, 0, NULL, 0, desktop_path, sizeof(desktop_path));
-        if (desktop_path[0]) {
-            char names[MAX_JUMPLIST_ACTIONS][128], execs[MAX_JUMPLIST_ACTIONS][512];
-            int n_actions = desktop_entry_load_actions(desktop_path, names, execs, MAX_JUMPLIST_ACTIONS);
-            if (n_actions > 0) {
-                items[n].label[0] = 0;
-                items[n].enabled = 0;
-                items[n].is_separator = 1;
-                n++;
-                for (int i = 0; i < n_actions; i++) {
-                    snprintf(items[n].label, sizeof(items[n].label), "%s", names[i]);
-                    items[n].enabled = 1;
-                    items[n].is_separator = 0;
-                    n++;
-                }
-            }
-        }
+        TasklistJumplist jl;
+        tasklist_resolve_jumplist(e->wm_class, tp->recent_max, &jl);
+        tasklist_jumplist_append_items(&jl, items, &n);
 
         panel_menu_open(w->panel, w, anchor_x, anchor_w, items, n, (void *)(uintptr_t)e->win, tasklist_menu_select);
         return 1;

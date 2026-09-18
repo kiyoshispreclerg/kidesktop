@@ -11,6 +11,7 @@
 #include <X11/Xatom.h>
 #include <X11/Xutil.h>
 
+#include <ctype.h>
 #include <dirent.h>
 #include <limits.h>
 #include <stdio.h>
@@ -1839,6 +1840,346 @@ int desktop_entry_load_actions(const char *desktop_path, char out_names[][128], 
             snprintf(out_execs[n], 512, "%s", exec_raw);
             n++;
         }
+    }
+    return n;
+}
+
+/* ---- recently-used.xbel (XDG "recent files" list) ------------------------
+ *
+ * xispanel links no XML library (xisserve.c's own equivalent uses
+ * GLib's GMarkupParser, but xispanel pulls in neither glib nor
+ * libxml2), so this is a small tolerant scanner instead: finds each
+ * "<bookmark ...>...</bookmark>" span in the raw file text and, inside
+ * it, the href= attribute and any nested "<bookmark:application
+ * name=...>" tags. Good enough for a well-formed file written by
+ * GTK/Qt's own recent-files code, the only kind this ever sees in
+ * practice -- not a real XML parser (no CDATA, no arbitrary nesting,
+ * no encoding other than the entities the spec's own writers use).
+ */
+
+static void xbel_unescape(char *s)
+{
+    char *o = s;
+    for (char *p = s; *p;) {
+        if (*p == '&') {
+            if (!strncmp(p, "&amp;", 5)) { *o++ = '&'; p += 5; continue; }
+            if (!strncmp(p, "&apos;", 6)) { *o++ = '\''; p += 6; continue; }
+            if (!strncmp(p, "&quot;", 6)) { *o++ = '"'; p += 6; continue; }
+            if (!strncmp(p, "&lt;", 4)) { *o++ = '<'; p += 4; continue; }
+            if (!strncmp(p, "&gt;", 4)) { *o++ = '>'; p += 4; continue; }
+        }
+        *o++ = *p++;
+    }
+    *o = 0;
+}
+
+static void percent_decode(const char *in, char *out, size_t outsz)
+{
+    size_t o = 0;
+    for (const char *p = in; *p && o + 1 < outsz; p++) {
+        if (p[0] == '%' && isxdigit((unsigned char)p[1]) && isxdigit((unsigned char)p[2])) {
+            char hex[3] = { p[1], p[2], 0 };
+            out[o++] = (char)strtol(hex, NULL, 16);
+            p += 2;
+        } else {
+            out[o++] = *p;
+        }
+    }
+    out[o] = 0;
+}
+
+/* Case-insensitive "needle anywhere in haystack", written out rather
+ * than relying on strcasestr() (a GNU extension xispanel's build
+ * doesn't otherwise need to reach for). */
+static int str_ci_contains(const char *haystack, const char *needle)
+{
+    size_t nl = strlen(needle);
+    if (!nl) {
+        return 1;
+    }
+    for (const char *p = haystack; *p; p++) {
+        if (strncasecmp(p, needle, nl) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* One entry recent_xbel_find_for_app() returns: a local filesystem
+ * path (href decoded) and the raw ISO-8601 modified= timestamp it was
+ * found under -- kept only to sort candidates newest-first while
+ * scanning, of no further use to the caller. */
+typedef struct {
+    char path[PATH_MAX];
+    char modified[32];
+} RecentXbelMatch;
+
+/* Scans $XDG_DATA_HOME/recently-used.xbel for entries whose own
+ * bookmark:application list plausibly names app_stem (a WM_CLASS or
+ * .desktop-basename-style token, matched case-insensitively as a
+ * substring either way, same heuristic desktop_entry_find_by_wm_class()
+ * already uses for the file itself) -- skipping any entry whose file no
+ * longer exists. Fills `out` (caller-sized, `max` entries) with the
+ * newest matches by their modified= timestamp (ISO-8601 sorts
+ * correctly as a plain string) and returns how many were found, up to
+ * `max`, scanning the *entire* file to find them rather than stopping
+ * at the first `max` matches encountered. 0 if the file is missing,
+ * empty, or app_stem matches nothing in it. */
+static int recent_xbel_find_for_app(const char *app_stem, RecentXbelMatch *out, int max)
+{
+    if (!app_stem || !app_stem[0] || max <= 0) {
+        return 0;
+    }
+
+    char path[PATH_MAX];
+    const char *xdg_data_home = getenv("XDG_DATA_HOME");
+    if (xdg_data_home && xdg_data_home[0]) {
+        snprintf(path, sizeof(path), "%s/recently-used.xbel", xdg_data_home);
+    } else {
+        const char *home = getenv("HOME");
+        snprintf(path, sizeof(path), "%s/.local/share/recently-used.xbel", home ? home : "");
+    }
+
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        return 0;
+    }
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz <= 0 || sz > 8 * 1024 * 1024) { /* sane cap -- this file is never meant to grow unbounded */
+        fclose(f);
+        return 0;
+    }
+    char *buf = malloc((size_t)sz + 1);
+    if (!buf) {
+        fclose(f);
+        return 0;
+    }
+    size_t rd = fread(buf, 1, (size_t)sz, f);
+    buf[rd] = 0;
+    fclose(f);
+
+    int n = 0; /* entries currently held in out[], <= max, sorted newest (out[0]) to oldest */
+    const char *cursor = buf;
+    for (;;) {
+        const char *bm = strstr(cursor, "<bookmark ");
+        if (!bm) {
+            break;
+        }
+        const char *bm_end = strstr(bm, "</bookmark>");
+        if (!bm_end) {
+            break;
+        }
+        cursor = bm_end + strlen("</bookmark>");
+
+        const char *href = strstr(bm, "href=\"");
+        if (!href || href > bm_end) {
+            continue;
+        }
+        href += 6;
+        const char *href_close = strchr(href, '"');
+        if (!href_close || href_close > bm_end) {
+            continue;
+        }
+        char href_raw[PATH_MAX];
+        size_t hl = (size_t)(href_close - href);
+        if (hl >= sizeof(href_raw)) {
+            hl = sizeof(href_raw) - 1;
+        }
+        memcpy(href_raw, href, hl);
+        href_raw[hl] = 0;
+        xbel_unescape(href_raw);
+        if (strncmp(href_raw, "file://", 7) != 0) {
+            continue;
+        }
+        char local[PATH_MAX];
+        percent_decode(href_raw + 7, local, sizeof(local));
+        if (access(local, F_OK) != 0) {
+            continue;
+        }
+
+        char modified[32] = "";
+        const char *mod = strstr(bm, "modified=\"");
+        if (mod && mod < bm_end) {
+            mod += 10;
+            const char *mod_close = strchr(mod, '"');
+            if (mod_close && mod_close < bm_end) {
+                size_t ml = (size_t)(mod_close - mod);
+                if (ml >= sizeof(modified)) {
+                    ml = sizeof(modified) - 1;
+                }
+                memcpy(modified, mod, ml);
+                modified[ml] = 0;
+            }
+        }
+
+        int app_matched = 0;
+        const char *scan = bm;
+        while (scan < bm_end) {
+            const char *app_tag = strstr(scan, "bookmark:application ");
+            if (!app_tag || app_tag > bm_end) {
+                break;
+            }
+            const char *name_attr = strstr(app_tag, "name=\"");
+            const char *tag_close = strchr(app_tag, '>');
+            if (!name_attr || name_attr > bm_end || (tag_close && name_attr > tag_close)) {
+                scan = app_tag + 20;
+                continue;
+            }
+            name_attr += 6;
+            const char *name_close = strchr(name_attr, '"');
+            if (!name_close || name_close > bm_end) {
+                break;
+            }
+            char app_name[128];
+            size_t al = (size_t)(name_close - name_attr);
+            if (al >= sizeof(app_name)) {
+                al = sizeof(app_name) - 1;
+            }
+            memcpy(app_name, name_attr, al);
+            app_name[al] = 0;
+            xbel_unescape(app_name);
+            if (str_ci_contains(app_name, app_stem) || str_ci_contains(app_stem, app_name)) {
+                app_matched = 1;
+                break;
+            }
+            scan = name_close;
+        }
+        if (!app_matched) {
+            continue;
+        }
+
+        /* Insertion sort into out[], newest-first -- skip outright if
+         * out[] is already full of `max` strictly newer entries. */
+        if (n == max && strcmp(modified, out[max - 1].modified) <= 0) {
+            continue;
+        }
+        int pos = n < max ? n : max - 1;
+        while (pos > 0 && strcmp(modified, out[pos - 1].modified) > 0) {
+            out[pos] = out[pos - 1];
+            pos--;
+        }
+        snprintf(out[pos].path, sizeof(out[pos].path), "%s", local);
+        snprintf(out[pos].modified, sizeof(out[pos].modified), "%s", modified);
+        if (n < max) {
+            n++;
+        }
+    }
+    free(buf);
+    return n;
+}
+
+/* Single-quotes `in` for safe use inside an `sh -c` command string
+ * (embedded single quotes become '\''), same technique xisserve.c's own
+ * shell_quote() uses. */
+static void shell_quote_path(const char *in, char *out, size_t outsz)
+{
+    size_t o = 0;
+    if (o + 1 < outsz) {
+        out[o++] = '\'';
+    }
+    for (const char *p = in; *p && o + 1 < outsz; p++) {
+        if (*p == '\'') {
+            const char *rep = "'\\''";
+            for (const char *r = rep; *r && o + 1 < outsz; r++) {
+                out[o++] = *r;
+            }
+        } else {
+            out[o++] = *p;
+        }
+    }
+    if (o + 1 < outsz) {
+        out[o++] = '\'';
+    }
+    out[o] = 0;
+}
+
+/* Re-reads desktop_path's own [Desktop Entry] Exec= and substitutes the
+ * first %f/%F/%u/%U field code with file_path (shell-quoted) -- opening
+ * a specific recent file with the app that (per recently-used.xbel)
+ * last opened it, the same "open this file with this app" launch
+ * xisserve.c's own build_exec_with_file() offers in its launcher.
+ * Other field codes are dropped like strip_desktop_field_codes() does;
+ * an Exec with no file/uri code at all gets file_path appended as an
+ * extra argument. Returns 0 if desktop_path has no Exec= at all. */
+int desktop_entry_build_exec_with_file(const char *desktop_path, const char *file_path, char *out, size_t outsz)
+{
+    FILE *f = fopen(desktop_path, "r");
+    if (!f) {
+        return 0;
+    }
+    char exec_raw[512] = "";
+    char line[1024];
+    int in_entry = 0, seen_entry = 0;
+    while (fgets(line, sizeof(line), f)) {
+        size_t l = strlen(line);
+        while (l > 0 && (line[l - 1] == '\n' || line[l - 1] == '\r')) {
+            line[--l] = 0;
+        }
+        if (line[0] == '[') {
+            in_entry = strcmp(line, "[Desktop Entry]") == 0;
+            if (in_entry) {
+                seen_entry = 1;
+            } else if (seen_entry) {
+                break;
+            }
+            continue;
+        }
+        if (!in_entry) {
+            continue;
+        }
+        if (!strncmp(line, "Exec=", 5)) {
+            snprintf(exec_raw, sizeof(exec_raw), "%s", line + 5);
+        }
+    }
+    fclose(f);
+    if (!exec_raw[0]) {
+        return 0;
+    }
+
+    char quoted[PATH_MAX + 4];
+    shell_quote_path(file_path, quoted, sizeof(quoted));
+    size_t ql = strlen(quoted);
+
+    size_t o = 0;
+    int inserted = 0;
+    for (const char *p = exec_raw; *p && o + 1 < outsz; p++) {
+        if (*p == '%' && p[1]) {
+            char c = p[1];
+            if (c == '%') {
+                out[o++] = '%';
+            } else if (!inserted && (c == 'f' || c == 'F' || c == 'u' || c == 'U') && o + ql < outsz) {
+                memcpy(out + o, quoted, ql);
+                o += ql;
+                inserted = 1;
+            }
+            p++;
+            continue;
+        }
+        out[o++] = *p;
+    }
+    out[o] = 0;
+    if (!inserted && o + 1 + ql < outsz) {
+        out[o++] = ' ';
+        snprintf(out + o, outsz - o, "%s", quoted);
+    }
+    return 1;
+}
+
+/* Public wrapper: same as recent_xbel_find_for_app() above, but returns
+ * just the paths (out_paths[][path_sz], parallel array) -- the
+ * modified= sort key is internal bookkeeping tasklist.c has no use
+ * for. */
+int desktop_recent_files_for_app(const char *app_stem, char out_paths[][PATH_MAX], int max)
+{
+    RecentXbelMatch matches[16];
+    if (max > 16) {
+        max = 16;
+    }
+    int n = recent_xbel_find_for_app(app_stem, matches, max);
+    for (int i = 0; i < n; i++) {
+        snprintf(out_paths[i], PATH_MAX, "%s", matches[i].path);
     }
     return n;
 }
