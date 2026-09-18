@@ -737,10 +737,20 @@ cairo_surface_t *load_icon_argb(const char *path, int target_size);
  * res_class -- see ewmh.c's doc comment for the match rules and scope.
  * Used by tasklist.c both to name/launch/icon a pinned-but-not-running
  * app and to fill in a real running window's icon when _NET_WM_ICON
- * didn't supply one. Each out_* pointer is optional (pass NULL/0 to
- * skip it). Returns 1 on a match, 0 if nothing matched. */
+ * didn't supply one, and (via out_path) to re-read that same .desktop
+ * file for its jumplist actions and per-app recent files, the same way
+ * xisserve's own launcher does for its results (see xisserve.c's
+ * find_desktop_file_path()/load_desktop_actions()). Each out_* pointer
+ * is optional (pass NULL/0 to skip it). Returns 1 on a match, 0 if
+ * nothing matched. */
 int desktop_entry_find_by_wm_class(const char *wm_class, char *out_name, size_t name_sz, char *out_exec,
-                                    size_t exec_sz, char *out_icon_name, size_t icon_sz);
+                                    size_t exec_sz, char *out_icon_name, size_t icon_sz, char *out_path,
+                                    size_t path_sz);
+
+/* Jumplist actions ([Desktop Action ...] groups) off the .desktop file
+ * at desktop_path -- see ewmh.c's own doc comment. Used by tasklist.c's
+ * right-click menu, appended after its own fixed items. */
+int desktop_entry_load_actions(const char *desktop_path, char out_names[][128], char out_execs[][512], int max);
 
 /* ---- context menu (menu.c) ----
  *

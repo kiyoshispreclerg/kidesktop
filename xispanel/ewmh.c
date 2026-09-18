@@ -1659,7 +1659,8 @@ static void add_desktop_search_dir(char dirs[][PATH_MAX], int *n, int max, const
  * strip_desktop_field_codes()). Returns 1 on any match, 0 if nothing
  * matched anywhere. */
 int desktop_entry_find_by_wm_class(const char *wm_class, char *out_name, size_t name_sz, char *out_exec,
-                                    size_t exec_sz, char *out_icon_name, size_t icon_sz)
+                                    size_t exec_sz, char *out_icon_name, size_t icon_sz, char *out_path,
+                                    size_t path_sz)
 {
     if (!wm_class || !wm_class[0]) {
         return 0;
@@ -1689,7 +1690,7 @@ int desktop_entry_find_by_wm_class(const char *wm_class, char *out_name, size_t 
         add_desktop_search_dir(dirs, &n_dirs, 16, tok);
     }
 
-    char fb_name[256] = "", fb_exec[512] = "", fb_icon[256] = "";
+    char fb_name[256] = "", fb_exec[512] = "", fb_icon[256] = "", fb_path[PATH_MAX] = "";
     int have_fallback = 0;
 
     for (int d = 0; d < n_dirs; d++) {
@@ -1718,6 +1719,9 @@ int desktop_entry_find_by_wm_class(const char *wm_class, char *out_name, size_t 
                 if (out_icon_name && icon_sz) {
                     snprintf(out_icon_name, icon_sz, "%s", icon);
                 }
+                if (out_path && path_sz) {
+                    snprintf(out_path, path_sz, "%s", path);
+                }
                 return 1;
             }
             if (m == 1 && !have_fallback) {
@@ -1725,6 +1729,7 @@ int desktop_entry_find_by_wm_class(const char *wm_class, char *out_name, size_t 
                 snprintf(fb_name, sizeof(fb_name), "%s", name);
                 snprintf(fb_exec, sizeof(fb_exec), "%s", exec);
                 snprintf(fb_icon, sizeof(fb_icon), "%s", icon);
+                snprintf(fb_path, sizeof(fb_path), "%s", path);
             }
         }
         closedir(dh);
@@ -1742,5 +1747,98 @@ int desktop_entry_find_by_wm_class(const char *wm_class, char *out_name, size_t 
     if (out_icon_name && icon_sz) {
         snprintf(out_icon_name, icon_sz, "%s", fb_icon);
     }
+    if (out_path && path_sz) {
+        snprintf(out_path, path_sz, "%s", fb_path);
+    }
     return 1;
+}
+
+/* Parses desktop_path's own [Desktop Entry] Actions= list and, for each
+ * named token, that action's own [Desktop Action <token>] group's
+ * Name=/Exec= (field codes stripped) -- the freedesktop.org "Desktop
+ * Action" mechanism behind jumplist entries like Firefox's "Nova aba
+ * anonima". Fills the parallel out_names[]/out_execs[] arrays (128/512
+ * bytes each, matching MenuItem::label's own headroom) up to `max`
+ * entries and returns how many were found (0 if the file declares none,
+ * doesn't exist, or none of its named groups turned out usable). Meant
+ * to be called at right-click time (see tasklist.c's tasklist_on_button()),
+ * same "re-read rather than cache" call xisserve's own launcher makes
+ * for the identical feature. */
+int desktop_entry_load_actions(const char *desktop_path, char out_names[][128], char out_execs[][512], int max)
+{
+    if (!desktop_path || !desktop_path[0] || max <= 0) {
+        return 0;
+    }
+    FILE *f = fopen(desktop_path, "r");
+    if (!f) {
+        return 0;
+    }
+    char actions_raw[512] = "";
+    char line[1024];
+    int in_entry = 0, seen_entry = 0;
+    while (fgets(line, sizeof(line), f)) {
+        size_t l = strlen(line);
+        while (l > 0 && (line[l - 1] == '\n' || line[l - 1] == '\r')) {
+            line[--l] = 0;
+        }
+        if (line[0] == '[') {
+            in_entry = strcmp(line, "[Desktop Entry]") == 0;
+            if (in_entry) {
+                seen_entry = 1;
+            } else if (seen_entry) {
+                break;
+            }
+            continue;
+        }
+        if (!in_entry) {
+            continue;
+        }
+        if (!strncmp(line, "Actions=", 8)) {
+            snprintf(actions_raw, sizeof(actions_raw), "%s", line + 8);
+        }
+    }
+    fclose(f);
+    if (!actions_raw[0]) {
+        return 0;
+    }
+
+    int n = 0;
+    char *save = NULL;
+    for (char *tok = strtok_r(actions_raw, ";", &save); tok && n < max; tok = strtok_r(NULL, ";", &save)) {
+        char group[96];
+        snprintf(group, sizeof(group), "[Desktop Action %s]", tok);
+
+        f = fopen(desktop_path, "r");
+        if (!f) {
+            continue;
+        }
+        int in_group = 0;
+        char name[128] = "", exec_raw[512] = "";
+        while (fgets(line, sizeof(line), f)) {
+            size_t l = strlen(line);
+            while (l > 0 && (line[l - 1] == '\n' || line[l - 1] == '\r')) {
+                line[--l] = 0;
+            }
+            if (line[0] == '[') {
+                in_group = strcmp(line, group) == 0;
+                continue;
+            }
+            if (!in_group) {
+                continue;
+            }
+            if (!strncmp(line, "Name=", 5)) {
+                snprintf(name, sizeof(name), "%s", line + 5);
+            } else if (!strncmp(line, "Exec=", 5)) {
+                snprintf(exec_raw, sizeof(exec_raw), "%s", line + 5);
+            }
+        }
+        fclose(f);
+        if (name[0] && exec_raw[0]) {
+            strip_desktop_field_codes(exec_raw);
+            snprintf(out_names[n], 128, "%s", name);
+            snprintf(out_execs[n], 512, "%s", exec_raw);
+            n++;
+        }
+    }
+    return n;
 }

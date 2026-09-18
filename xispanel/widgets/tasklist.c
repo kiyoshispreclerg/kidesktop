@@ -26,6 +26,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -271,12 +272,12 @@ static int tasklist_launch_class(TasklistPriv *tp, const char *wm_class, Window 
     }
 
     char exec[512];
-    if (desktop_entry_find_by_wm_class(wm_class, NULL, 0, exec, sizeof(exec), NULL, 0) && exec[0]) {
+    if (desktop_entry_find_by_wm_class(wm_class, NULL, 0, exec, sizeof(exec), NULL, 0, NULL, 0) && exec[0]) {
         run_detached(exec);
         return 1;
     }
-    if (sp && first_word[0] && desktop_entry_find_by_wm_class(first_word, NULL, 0, exec, sizeof(exec), NULL, 0) &&
-        exec[0]) {
+    if (sp && first_word[0] &&
+        desktop_entry_find_by_wm_class(first_word, NULL, 0, exec, sizeof(exec), NULL, 0, NULL, 0) && exec[0]) {
         run_detached(exec);
         return 1;
     }
@@ -348,7 +349,7 @@ static void tasklist_pin_class(PanelWidget *w, const char *cls)
 
     char icon_name[256] = "";
     desktop_entry_find_by_wm_class(cls, pa->name, sizeof(pa->name), pa->exec, sizeof(pa->exec), icon_name,
-                                    sizeof(icon_name));
+                                    sizeof(icon_name), NULL, 0);
     if (!pa->name[0]) {
         snprintf(pa->name, sizeof(pa->name), "%s", cls);
     }
@@ -621,7 +622,8 @@ static int tasklist_on_tick(PanelWidget *w, uint64_t now)
              * avoid. */
             e->icon_lookup_tried = 1;
             char icon_name[256] = "";
-            if (desktop_entry_find_by_wm_class(e->wm_class, NULL, 0, NULL, 0, icon_name, sizeof(icon_name)) &&
+            if (desktop_entry_find_by_wm_class(e->wm_class, NULL, 0, NULL, 0, icon_name, sizeof(icon_name), NULL,
+                                                0) &&
                 icon_name[0]) {
                 e->icon = resolve_icon_theme_name(icon_name, icon_fetch_size_for(icon_px));
             }
@@ -1273,6 +1275,13 @@ static void tasklist_paint(PanelWidget *w, cairo_t *cr)
  * this ctx is outstanding. */
 #define TASKLIST_PLACEHOLDER_CTX_TAG (1ULL << 32)
 
+/* Jumplist entries appended to a task's context menu after its own
+ * fixed items -- see tasklist_on_button()'s Button3 handling and
+ * tasklist_menu_select()'s index >= its own fixed-item-count case.
+ * Small on purpose: this is a right-click menu, not a submenu, and no
+ * real app's Actions= list runs anywhere near this many entries. */
+#define MAX_JUMPLIST_ACTIONS 6
+
 /* Context menu item order for a real window: 0=minimize/restore,
  * 1=maximize/restore, 2=move, 3=close, [separator], 5=pin/unpin,
  * 6=open another instance. ctx is
@@ -1292,18 +1301,37 @@ static void tasklist_menu_select(Panel *panel, PanelWidget *w, void *ctx, int in
         if (pi < 0 || pi >= tp->n_pinned) {
             return;
         }
-        switch (index) {
-        case 0: /* Abrir */
-            if (tp->pinned[pi].exec[0]) {
-                run_detached(tp->pinned[pi].exec);
+        if (index >= 3) {
+            /* index 2 is the jumplist separator (never selectable); 3.. are
+             * the actions themselves -- re-resolved from wm_class rather
+             * than kept around from when the menu was built, same "re-read
+             * rather than cache" call xisserve's own launcher makes for
+             * this identical feature. */
+            char desktop_path[PATH_MAX] = "";
+            desktop_entry_find_by_wm_class(tp->pinned[pi].wm_class, NULL, 0, NULL, 0, NULL, 0, desktop_path,
+                                            sizeof(desktop_path));
+            if (desktop_path[0]) {
+                char names[MAX_JUMPLIST_ACTIONS][128], execs[MAX_JUMPLIST_ACTIONS][512];
+                int n_actions = desktop_entry_load_actions(desktop_path, names, execs, MAX_JUMPLIST_ACTIONS);
+                int action_i = index - 3;
+                if (action_i >= 0 && action_i < n_actions) {
+                    run_detached(execs[action_i]);
+                }
             }
-            break;
-        case 1: /* Desafixar */
-            tasklist_unpin_class(tp, tp->pinned[pi].wm_class);
-            tasklist_persist_pinned(w);
-            break;
-        default:
-            break;
+        } else {
+            switch (index) {
+            case 0: /* Abrir */
+                if (tp->pinned[pi].exec[0]) {
+                    run_detached(tp->pinned[pi].exec);
+                }
+                break;
+            case 1: /* Desafixar */
+                tasklist_unpin_class(tp, tp->pinned[pi].wm_class);
+                tasklist_persist_pinned(w);
+                break;
+            default:
+                break;
+            }
         }
         tasklist_on_tick(w, now_ms()); /* rebuild tasks[]/pinned[] state immediately, don't wait ~2s */
         w->panel->dirty = 1;
@@ -1312,6 +1340,31 @@ static void tasklist_menu_select(Panel *panel, PanelWidget *w, void *ctx, int in
 
     Window win = (Window)(uintptr_t)ctx;
     int idx = tasklist_find(tp, win);
+
+    if (index >= 8) {
+        /* index 7 is the jumplist separator (never selectable); 8.. are
+         * the actions themselves -- re-resolved from wm_class rather than
+         * kept around from when the menu was built, same "re-read rather
+         * than cache" call xisserve's own launcher makes for this
+         * identical feature. */
+        if (idx >= 0) {
+            char desktop_path[PATH_MAX] = "";
+            desktop_entry_find_by_wm_class(tp->tasks[idx].wm_class, NULL, 0, NULL, 0, NULL, 0, desktop_path,
+                                            sizeof(desktop_path));
+            if (desktop_path[0]) {
+                char names[MAX_JUMPLIST_ACTIONS][128], execs[MAX_JUMPLIST_ACTIONS][512];
+                int n_actions = desktop_entry_load_actions(desktop_path, names, execs, MAX_JUMPLIST_ACTIONS);
+                int action_i = index - 8;
+                if (action_i >= 0 && action_i < n_actions) {
+                    run_detached(execs[action_i]);
+                }
+            }
+        }
+        XFlush(g_dpy);
+        tasklist_on_tick(w, now_ms());
+        w->panel->dirty = 1;
+        return;
+    }
 
     switch (index) {
     case 0:
@@ -1438,7 +1491,7 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
             return 1;
         }
         if (button == Button3) {
-            MenuItem items[2];
+            MenuItem items[2 + 1 + MAX_JUMPLIST_ACTIONS];
             memset(items, 0, sizeof(items));
             snprintf(items[0].label, sizeof(items[0].label), "Abrir");
             items[0].enabled = 1;
@@ -1446,6 +1499,28 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
             snprintf(items[1].label, sizeof(items[1].label), "Desafixar");
             items[1].enabled = 1;
             items[1].is_separator = 0;
+            int n = 2;
+
+            char desktop_path[PATH_MAX] = "";
+            desktop_entry_find_by_wm_class(e->wm_class, NULL, 0, NULL, 0, NULL, 0, desktop_path,
+                                            sizeof(desktop_path));
+            if (desktop_path[0]) {
+                char names[MAX_JUMPLIST_ACTIONS][128], execs[MAX_JUMPLIST_ACTIONS][512];
+                int n_actions = desktop_entry_load_actions(desktop_path, names, execs, MAX_JUMPLIST_ACTIONS);
+                if (n_actions > 0) {
+                    items[n].label[0] = 0;
+                    items[n].enabled = 0;
+                    items[n].is_separator = 1;
+                    n++;
+                    for (int i = 0; i < n_actions; i++) {
+                        snprintf(items[n].label, sizeof(items[n].label), "%s", names[i]);
+                        items[n].enabled = 1;
+                        items[n].is_separator = 0;
+                        n++;
+                    }
+                }
+            }
+
             int pi = -1;
             for (int i = 0; i < tp->n_pinned; i++) {
                 if (strcmp(tp->pinned[i].wm_class, e->wm_class) == 0) {
@@ -1457,7 +1532,7 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
                 return 1;
             }
             void *ctx = (void *)(uintptr_t)(TASKLIST_PLACEHOLDER_CTX_TAG | (unsigned)pi);
-            panel_menu_open(w->panel, w, anchor_x, anchor_w, items, 2, ctx, tasklist_menu_select);
+            panel_menu_open(w->panel, w, anchor_x, anchor_w, items, n, ctx, tasklist_menu_select);
             return 1;
         }
         return 0;
@@ -1482,7 +1557,7 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
     }
 
     if (button == Button3) {
-        MenuItem items[7];
+        MenuItem items[7 + 1 + MAX_JUMPLIST_ACTIONS];
         memset(items, 0, sizeof(items));
         int n = 0;
         snprintf(items[n].label, sizeof(items[n].label), "%s", e->minimized ? "Restaurar" : "Minimizar");
@@ -1513,6 +1588,26 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
         items[n].enabled = 1;
         items[n].is_separator = 0;
         n++;
+
+        char desktop_path[PATH_MAX] = "";
+        desktop_entry_find_by_wm_class(e->wm_class, NULL, 0, NULL, 0, NULL, 0, desktop_path, sizeof(desktop_path));
+        if (desktop_path[0]) {
+            char names[MAX_JUMPLIST_ACTIONS][128], execs[MAX_JUMPLIST_ACTIONS][512];
+            int n_actions = desktop_entry_load_actions(desktop_path, names, execs, MAX_JUMPLIST_ACTIONS);
+            if (n_actions > 0) {
+                items[n].label[0] = 0;
+                items[n].enabled = 0;
+                items[n].is_separator = 1;
+                n++;
+                for (int i = 0; i < n_actions; i++) {
+                    snprintf(items[n].label, sizeof(items[n].label), "%s", names[i]);
+                    items[n].enabled = 1;
+                    items[n].is_separator = 0;
+                    n++;
+                }
+            }
+        }
+
         panel_menu_open(w->panel, w, anchor_x, anchor_w, items, n, (void *)(uintptr_t)e->win, tasklist_menu_select);
         return 1;
     }

@@ -391,7 +391,7 @@ static int winctl_on_tick(PanelWidget *w, uint64_t now)
             char wm_class[64], icon_name[256] = "";
             ewmh_get_class(active, wm_class, sizeof(wm_class));
             if (wm_class[0] &&
-                desktop_entry_find_by_wm_class(wm_class, NULL, 0, NULL, 0, icon_name, sizeof(icon_name)) &&
+                desktop_entry_find_by_wm_class(wm_class, NULL, 0, NULL, 0, icon_name, sizeof(icon_name), NULL, 0) &&
                 icon_name[0]) {
                 wp->icon = resolve_icon_theme_name(icon_name, icon_fetch_size_for(icon_px));
             }
