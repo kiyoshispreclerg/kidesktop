@@ -64,6 +64,24 @@ typedef void (*SearchPluginFn)(const char *query, GPtrArray *results);
 
 void plugin_terminal_search(const char *query, GPtrArray *results);
 
+/* One entry of $XDG_DATA_HOME/recently-used.xbel (the XDG "recent
+ * files" list every GTK/Qt app already reads and writes) -- see
+ * xisserve.c's "recently-used.xbel" section for the GMarkup parser
+ * behind xisserve_load_recent_xbel() below. */
+typedef struct {
+    char path[4096];     /* PATH_MAX, spelled out since limits.h isn't pulled in here */
+    char modified[32];   /* raw ISO-8601 modified= timestamp; sorts correctly as a plain string */
+    GPtrArray *apps;      /* g_strdup'd bookmark:application name= values that opened this item */
+} RecentXbelItem;
+
+/* Parses recently-used.xbel into a fresh GPtrArray of RecentXbelItem*,
+ * newest-modified first, skipping entries whose file no longer exists.
+ * Caller owns the array: g_ptr_array_free(arr, TRUE) frees every item
+ * too. Never NULL, empty if the file is missing or unparseable. Used by
+ * xisserve.c's own "recent files opened with this app" context-menu
+ * entries and by plugins/recent.c's search plugin. */
+GPtrArray *xisserve_load_recent_xbel(void);
+
 /* The com.canonical.dbusmenu busname+object path a window exports
  * (_KDE_NET_WM_APPMENU_SERVICE_NAME/_OBJECT_PATH, what every Qt/KF5 app
  * sets), or FALSE when it exports none. `window` of 0 means the current

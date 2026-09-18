@@ -42,7 +42,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.16"
+#define XISSERVE_VERSION "0.1.17"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -987,15 +987,18 @@ typedef struct {
  * never NULL). Two passes over the file (list, then each group) rather
  * than a real multi-group parser: actions are rare and this only runs
  * once per right-click, not on every keystroke like the app scan. */
-static GArray *load_desktop_actions(const char *path)
+/* Reads a single top-level [Desktop Entry] key's raw value out of a
+ * .desktop file -- shared by load_desktop_actions() (Actions=) and
+ * build_exec_with_file() (Exec=) below, both of which only need one
+ * field from the entry group rather than a full parse_desktop_file()
+ * pass. */
+static gboolean read_desktop_entry_key(const char *path, const char *key, char *out, size_t outsz)
 {
-    GArray *actions = g_array_new(FALSE, TRUE, sizeof(DesktopAction));
-
-    char actions_raw[512] = "";
-    char line[2048];
+    out[0] = 0;
     FILE *f = fopen(path, "r");
-    if (!f) return actions;
-    int in_entry = 0, seen_entry = 0;
+    if (!f) return FALSE;
+    char line[2048];
+    int in_entry = 0, seen_entry = 0, found = 0;
     while (fgets(line, sizeof(line), f)) {
         size_t l = strlen(line);
         while (l > 0 && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = 0;
@@ -1008,10 +1011,20 @@ static GArray *load_desktop_actions(const char *path)
         char *eq = strchr(line, '=');
         if (!eq) continue;
         *eq = 0;
-        if (strcmp(line, "Actions") == 0) snprintf(actions_raw, sizeof(actions_raw), "%s", eq + 1);
+        if (strcmp(line, key) == 0) { snprintf(out, outsz, "%s", eq + 1); found = 1; }
     }
     fclose(f);
-    if (!actions_raw[0]) return actions;
+    return found;
+}
+
+static GArray *load_desktop_actions(const char *path)
+{
+    GArray *actions = g_array_new(FALSE, TRUE, sizeof(DesktopAction));
+
+    char actions_raw[512];
+    if (!read_desktop_entry_key(path, "Actions", actions_raw, sizeof(actions_raw)) || !actions_raw[0]) {
+        return actions;
+    }
 
     char *copy = g_strdup(actions_raw);
     char *saveptr = NULL;
@@ -1019,11 +1032,12 @@ static GArray *load_desktop_actions(const char *path)
         char group[80];
         snprintf(group, sizeof(group), "[Desktop Action %s]", tok);
 
-        f = fopen(path, "r");
+        FILE *f = fopen(path, "r");
         if (!f) continue;
         DesktopAction act;
         memset(&act, 0, sizeof(act));
         int in_group = 0;
+        char line[2048];
         while (fgets(line, sizeof(line), f)) {
             size_t l = strlen(line);
             while (l > 0 && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = 0;
@@ -1041,6 +1055,190 @@ static GArray *load_desktop_actions(const char *path)
     }
     g_free(copy);
     return actions;
+}
+
+/* Re-reads path's own [Desktop Entry] Exec= and substitutes the first
+ * %f/%F/%u/%U field code with file_path (shell-quoted) -- the recent-
+ * files context menu's "open this file with this app" launch, since
+ * the cached, already-field-code-stripped ResultEntry::exec has nowhere
+ * left to put an argument back. Other field codes are dropped exactly
+ * like strip_exec_field_codes(); an Exec with no file/uri code at all
+ * gets file_path appended as an extra argument. */
+static gboolean build_exec_with_file(const char *desktop_path, const char *file_path, char *out, size_t outsz)
+{
+    char exec_raw[1024];
+    if (!read_desktop_entry_key(desktop_path, "Exec", exec_raw, sizeof(exec_raw)) || !exec_raw[0]) {
+        return FALSE;
+    }
+
+    char quoted[PATH_MAX + 4];
+    shell_quote(file_path, quoted, sizeof(quoted));
+    size_t ql = strlen(quoted);
+
+    size_t o = 0;
+    gboolean inserted = FALSE;
+    for (const char *p = exec_raw; *p && o + 1 < outsz; p++) {
+        if (*p == '%' && p[1]) {
+            char c = p[1];
+            if (c == '%') {
+                out[o++] = '%';
+            } else if (!inserted && (c == 'f' || c == 'F' || c == 'u' || c == 'U') && o + ql < outsz) {
+                memcpy(out + o, quoted, ql);
+                o += ql;
+                inserted = TRUE;
+            }
+            p++;
+            continue;
+        }
+        out[o++] = *p;
+    }
+    out[o] = 0;
+    if (!inserted && o + 1 + ql < outsz) {
+        out[o++] = ' ';
+        snprintf(out + o, outsz - o, "%s", quoted);
+    }
+    return TRUE;
+}
+
+/* ---- recently-used.xbel (XDG "recent files" list) ------------------------
+ *
+ * Shared between two features: an app's own right-click context menu
+ * ("recent files opened with GIMP") and plugins/recent.c's search
+ * plugin (recent files/folders matching the query anywhere, no app
+ * filter). This is the freedesktop.org "Recent File Storage
+ * Specification" -- the same recently-used.xbel GTK/Qt apps already
+ * both read and write -- parsed with GLib's own GMarkupParser so no new
+ * dependency (libxml2) is pulled in for it. RecentXbelItem itself is
+ * declared in xisserve.h, alongside xisserve_load_recent_xbel(). */
+
+static void recent_xbel_item_free(gpointer p)
+{
+    RecentXbelItem *it = p;
+    if (!it) return;
+    if (it->apps) g_ptr_array_free(it->apps, TRUE);
+    g_free(it);
+}
+
+typedef struct {
+    GPtrArray *items;    /* RecentXbelItem*, owned by the caller once appended */
+    RecentXbelItem *cur; /* the <bookmark> currently being parsed, or NULL between them */
+} RecentXbelParseState;
+
+static void recent_xbel_start(GMarkupParseContext *ctx, const char *element, const char **attr_names,
+                               const char **attr_values, gpointer user_data, GError **error)
+{
+    (void)ctx;
+    (void)error;
+    RecentXbelParseState *st = user_data;
+    if (strcmp(element, "bookmark") == 0) {
+        RecentXbelItem *it = g_new0(RecentXbelItem, 1);
+        it->apps = g_ptr_array_new_with_free_func(g_free);
+        for (int i = 0; attr_names[i]; i++) {
+            if (strcmp(attr_names[i], "href") == 0) {
+                char *decoded = g_filename_from_uri(attr_values[i], NULL, NULL);
+                if (decoded) {
+                    snprintf(it->path, sizeof(it->path), "%s", decoded);
+                    g_free(decoded);
+                }
+            } else if (strcmp(attr_names[i], "modified") == 0) {
+                snprintf(it->modified, sizeof(it->modified), "%s", attr_values[i]);
+            }
+        }
+        st->cur = it;
+    } else if (strcmp(element, "bookmark:application") == 0 && st->cur) {
+        for (int i = 0; attr_names[i]; i++) {
+            if (strcmp(attr_names[i], "name") == 0) {
+                g_ptr_array_add(st->cur->apps, g_strdup(attr_values[i]));
+                break;
+            }
+        }
+    }
+}
+
+static void recent_xbel_end(GMarkupParseContext *ctx, const char *element, gpointer user_data, GError **error)
+{
+    (void)ctx;
+    (void)error;
+    RecentXbelParseState *st = user_data;
+    if (strcmp(element, "bookmark") == 0 && st->cur) {
+        if (st->cur->path[0] && g_file_test(st->cur->path, G_FILE_TEST_EXISTS)) {
+            g_ptr_array_add(st->items, st->cur);
+        } else {
+            recent_xbel_item_free(st->cur);
+        }
+        st->cur = NULL;
+    }
+}
+
+static gint compare_recent_items_newest_first(gconstpointer a, gconstpointer b)
+{
+    const RecentXbelItem *ia = *(const RecentXbelItem **)a;
+    const RecentXbelItem *ib = *(const RecentXbelItem **)b;
+    return strcmp(ib->modified, ia->modified);
+}
+
+/* Parses $XDG_DATA_HOME (or ~/.local/share)/recently-used.xbel into a
+ * fresh GPtrArray of RecentXbelItem*, newest-modified first, skipping
+ * any entry whose file no longer exists. Caller owns the array --
+ * g_ptr_array_free(arr, TRUE) frees every item too (recent_xbel_item_free
+ * is its element free func). Never NULL, empty if the file is missing
+ * or unparseable. */
+GPtrArray *xisserve_load_recent_xbel(void)
+{
+    GPtrArray *items = g_ptr_array_new_with_free_func(recent_xbel_item_free);
+
+    char path[PATH_MAX];
+    const char *xdg_data_home = getenv("XDG_DATA_HOME");
+    if (xdg_data_home && *xdg_data_home) {
+        snprintf(path, sizeof(path), "%s/recently-used.xbel", xdg_data_home);
+    } else {
+        const char *home = getenv("HOME");
+        snprintf(path, sizeof(path), "%s/.local/share/recently-used.xbel", home ? home : "");
+    }
+
+    char *contents = NULL;
+    gsize len = 0;
+    if (!g_file_get_contents(path, &contents, &len, NULL)) return items;
+
+    RecentXbelParseState st;
+    st.items = items;
+    st.cur = NULL;
+    GMarkupParser parser = { recent_xbel_start, recent_xbel_end, NULL, NULL, NULL };
+    GMarkupParseContext *ctx = g_markup_parse_context_new(&parser, 0, &st, NULL);
+    g_markup_parse_context_parse(ctx, contents, (gssize)len, NULL);
+    g_markup_parse_context_end_parse(ctx, NULL);
+    g_markup_parse_context_free(ctx);
+    g_free(contents);
+    if (st.cur) recent_xbel_item_free(st.cur); /* unterminated last <bookmark>, if any */
+
+    g_ptr_array_sort(items, compare_recent_items_newest_first);
+    return items;
+}
+
+/* TRUE if any of item's bookmark:application name= values plausibly
+ * refers to app_id (a .desktop basename, with or without the ".desktop"
+ * suffix) -- apps write their own binary/generic name there, not the
+ * desktop id, so this is a case-insensitive substring match rather than
+ * an exact one (e.g. "firefox" written by Firefox itself matches
+ * "firefox.desktop"). */
+static gboolean recent_item_matches_app(const RecentXbelItem *item, const char *app_id)
+{
+    char stem[160];
+    snprintf(stem, sizeof(stem), "%s", app_id);
+    size_t l = strlen(stem);
+    if (l > 8 && strcasecmp(stem + l - 8, ".desktop") == 0) stem[l - 8] = 0;
+    if (!stem[0]) return FALSE;
+
+    gchar *stem_cf = g_utf8_casefold(stem, -1);
+    gboolean match = FALSE;
+    for (guint i = 0; i < item->apps->len && !match; i++) {
+        const char *app_name = g_ptr_array_index(item->apps, i);
+        gchar *app_cf = g_utf8_casefold(app_name, -1);
+        if (strstr(app_cf, stem_cf) || strstr(stem_cf, app_cf)) match = TRUE;
+        g_free(app_cf);
+    }
+    g_free(stem_cf);
+    return match;
 }
 
 static gint compare_apps_by_name(gconstpointer a, gconstpointer b)
@@ -2248,6 +2446,33 @@ static gboolean on_tree_button_press(GtkWidget *tv, GdkEventButton *ev, gpointer
             gtk_menu_shell_append(GTK_MENU_SHELL(menu), aitem);
         }
         if (actions->len > 0) gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
+
+        /* Recent files this app itself opened, per recently-used.xbel --
+         * count is configurable ("RECENT\tcount" in xisserve.conf),
+         * defaulting to 5; 0 turns the section off entirely. Clicking
+         * one re-runs the app's own Exec= with that file substituted
+         * in, same as a real DE's "recent documents" jumplist section. */
+        int recent_count = xisserve_config_get_int("RECENT", "count", 5);
+        if (recent_count > 0) {
+            GPtrArray *recent = xisserve_load_recent_xbel();
+            int shown = 0;
+            for (guint i = 0; i < recent->len && shown < recent_count; i++) {
+                RecentXbelItem *ritem = g_ptr_array_index(recent, i);
+                if (!recent_item_matches_app(ritem, e->id)) continue;
+                char exec_with_file[1300];
+                if (!build_exec_with_file(desktop_path, ritem->path, exec_with_file, sizeof(exec_with_file))) continue;
+                char *label = g_path_get_basename(ritem->path);
+                GtkWidget *ritem_w = gtk_menu_item_new_with_label(label);
+                g_free(label);
+                g_signal_connect_data(ritem_w, "activate", G_CALLBACK(on_jumplist_action_activate),
+                                       g_strdup(exec_with_file), free_closure_data, 0);
+                gtk_menu_shell_append(GTK_MENU_SHELL(menu), ritem_w);
+                shown++;
+            }
+            if (shown > 0) gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
+            g_ptr_array_free(recent, TRUE);
+        }
+
         g_array_free(actions, TRUE);
     }
 
