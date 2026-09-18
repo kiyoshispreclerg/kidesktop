@@ -1118,8 +1118,19 @@ static GLuint shape_mask_texture(CompWindow *w, GlWindow *g)
             memset(bits + (size_t)y * (size_t)wr.w + x0, 0xff, (size_t)(x1 - x0));
     }
 
+    /* Built on unit 1, where it is going to be sampled from -- and, more
+     * to the point, NOT on unit 0: both callers have already bound the
+     * window's own texture there by the time they ask for the mask, and
+     * building it through unit 0 (as this used to) left that unit empty
+     * for the draw that followed. The window then came out black for
+     * every frame the mask was (re)made on: the first frame of any
+     * transformed effect, and every single step of a wobbly resize,
+     * since kiwm reshapes the frame -- and so discards the mask -- on
+     * each one. Only a shaped frame ever gets here, which is why a theme
+     * with border_radius= showed it and a square one never did. */
     GLuint tex = 0;
     glGenTextures(1, &tex);
+    glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, tex);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, wr.w, wr.h, 0,
@@ -1128,7 +1139,7 @@ static GLuint shape_mask_texture(CompWindow *w, GlWindow *g)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
 
     free(bits);
     g->shape_mask = tex;
