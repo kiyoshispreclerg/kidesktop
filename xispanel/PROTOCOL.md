@@ -1110,6 +1110,25 @@ up/down changed the real system volume (confirmed against `pactl
 get-sink-volume` before/after), click toggled real mute state, and the
 tooltip reflected both sink and source levels correctly.
 
+### Energy
+
+The `energy` widget's icon reads `/sys/class/power_supply` directly
+(no subprocess, unlike `volume`'s `pactl` or xisserve's own `--energy`
+page's `upower`) -- a once-a-second sysfs read is cheap enough on its
+own, and the widget only ever needs one battery's percentage and status
+word, not the richer per-device breakdown xisserve's page shows. Click
+opens `xisserve --energy` (battery/AC, other UPower devices' batteries,
+brightness, night light), same `xisserve_spawn_for_widget()` pattern as
+`volume`'s click opening `--audio`.
+
+On a system with a battery, the icon is a battery outline filled to the
+charge percentage (a lightning bolt overlays it while charging), falling
+back to a themed `battery-<full|good|low|caution|empty>[-charging]` icon
+when the theme ships one. On a system with none at all (most desktops
+and VMs) there's nothing to show as a charge level, so the icon becomes
+a plain sun/brightness glyph instead -- the page behind the click still
+has brightness and night light controls either way.
+
 ### Window thumbnails
 
 `tasklist`'s `show_thumbs=yes` draws a live thumbnail of the hovered

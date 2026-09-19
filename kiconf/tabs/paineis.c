@@ -493,6 +493,9 @@ static const WidgetField VOLUME_FIELDS[] = {
     WF_STR("cmd", "Comando ao clicar (xisserve)", ""),
     WF_STR("cmd_edit", "Comando (clique direito)", "pavucontrol"),
 };
+static const WidgetField ENERGY_FIELDS[] = {
+    WF_STR("cmd", "Comando ao clicar (xisserve)", ""),
+};
 static const WidgetField NOTIF_FIELDS[] = {
     WF_ENUM("corner", "Canto dos alertas (toast)", "bottom-right", NOTIF_CORNER_OPTS),
     WF_INT("timeout", "Duracao do alerta (ms)", "5000", 500, 60000),
@@ -525,6 +528,7 @@ static const WidgetSchema WIDGET_SCHEMAS[] = {
     WSCHEMA("tray", TRAY_FIELDS),
     WSCHEMA("launcher", LAUNCHER_FIELDS),
     WSCHEMA("volume", VOLUME_FIELDS),
+    WSCHEMA("energy", ENERGY_FIELDS),
     WSCHEMA("notif", NOTIF_FIELDS),
     WSCHEMA("globalmenu", GLOBALMENU_FIELDS),
     WSCHEMA("folder", FOLDER_FIELDS),
@@ -536,7 +540,7 @@ static const WidgetSchema WIDGET_SCHEMAS[] = {
 
 static const char *const WIDGET_TYPE_NAMES[] = {
     "spacer", "clock", "tasklist", "pager", "monitor", "winctl", "tray", "launcher",
-    "volume", "notif", "globalmenu", "folder", "xisserve", NULL,
+    "volume", "energy", "notif", "globalmenu", "folder", "xisserve", NULL,
 };
 
 static const WidgetSchema *find_widget_schema(const char *name)

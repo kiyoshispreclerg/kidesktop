@@ -93,7 +93,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.18"
+#define XISPANEL_VERSION "0.6.19"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 #define IPC_MAX_LEN 4096
@@ -344,6 +344,7 @@ static const PanelWidgetOps *g_widget_registry[] = {
     &notif_ops,
     &pager_ops,
     &monitor_ops,
+    &energy_ops,
     NULL,
 };
 
@@ -641,8 +642,9 @@ static void write_default_config_if_missing(void)
             "WIDGET\tmain\t2\ttasklist\tmode=wide group=yes same_output=yes icon_padding=6 show_thumbs=yes\n"
             "WIDGET\tmain\t3\tspacer\n"
             "WIDGET\tmain\t4\tvolume\n"
-            "WIDGET\tmain\t5\ttray icon_padding=5\n"
-            "WIDGET\tmain\t6\tclock\n",
+            "WIDGET\tmain\t5\tenergy\n"
+            "WIDGET\tmain\t6\ttray icon_padding=5\n"
+            "WIDGET\tmain\t7\tclock\n",
             output);
     fclose(f);
     fprintf(stderr, "xispanel: no config found, wrote a default panel to %s\n", g_configpath);

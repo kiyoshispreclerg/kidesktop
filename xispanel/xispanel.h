@@ -1255,5 +1255,6 @@ void xisserve_spawn_for_widget(PanelWidget *w, const char *cmd_name, const char 
 extern const PanelWidgetOps notif_ops;
 extern const PanelWidgetOps pager_ops;
 extern const PanelWidgetOps monitor_ops;
+extern const PanelWidgetOps energy_ops;
 
 #endif

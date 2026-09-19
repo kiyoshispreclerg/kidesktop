@@ -120,7 +120,7 @@ BINDIR := $(PREFIX)/bin
 # xisback and kiconfd -- compiled directly in, same as every other
 # source file here, so each program stays independently buildable and
 # installable on its own (no shared library to depend on at runtime).
-SRCS := xispanel.c ewmh.c menu.c tooltip.c toast.c launchfx.c hotkey.c $(MODTAP_SRCS) pulse.c pango_text.c $(DBUS_SRCS) $(THUMB_SRCS) $(DENSITY_SRCS) $(INPUTSCALE_SRCS) widgets/spacer.c widgets/clock.c widgets/tasklist.c widgets/winctl.c widgets/tray.c widgets/launcher.c widgets/volume.c widgets/globalmenu.c widgets/folder.c widgets/xisserve.c widgets/notif.c widgets/pager.c widgets/monitor.c ../shared/xis_outputs.c
+SRCS := xispanel.c ewmh.c menu.c tooltip.c toast.c launchfx.c hotkey.c $(MODTAP_SRCS) pulse.c pango_text.c $(DBUS_SRCS) $(THUMB_SRCS) $(DENSITY_SRCS) $(INPUTSCALE_SRCS) widgets/spacer.c widgets/clock.c widgets/tasklist.c widgets/winctl.c widgets/tray.c widgets/launcher.c widgets/volume.c widgets/globalmenu.c widgets/folder.c widgets/xisserve.c widgets/notif.c widgets/pager.c widgets/monitor.c widgets/energy.c ../shared/xis_outputs.c
 OBJS := $(SRCS:.c=.o)
 
 all: xispanel
