@@ -92,6 +92,20 @@ shipped widget with no page implemented for it.)
   working. ALSA-only systems land there too, and are told why -- bare
   ALSA has no per-application streams at all, that concept being
   precisely what a sound server introduces.
+- `--energy`: AC/battery status, other UPower devices' batteries
+  (wireless mouse/keyboard, etc.), a screen brightness slider, and night
+  light (checkbox + color-temperature slider). State comes from `upower`,
+  `brightnessctl` and `xsct` (https://github.com/faf0/sct), each shelled
+  out to rather than linked -- see `pages/power.h`. Each section only
+  shows when its own tool is available, so a system missing one of the
+  three still gets a useful page for the other two.
+
+  Night light's checkbox switches between "kiconfd applies it on the
+  schedule set in kiconf's Energia tab" and manual: unchecked, dragging
+  the slider calls `xsct` directly and immediately. Both this page and
+  kiconf write the same `kiconfd-nightlight.conf`; kiconfd is the only
+  one that reads the schedule (start/end) out of it -- see kiconfd.c's
+  own doc comment.
 - `--notifications`: passed by xispanel's `notif` widget on left click,
   anchored to the bell icon. Should show the notification history --
   xispanel's notifd.c ring buffer is in xispanel's process, not

@@ -42,7 +42,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.22"
+#define XISSERVE_VERSION "0.1.23"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -74,6 +74,7 @@ enum { CCOL_KEY = 0, CCOL_LABEL, N_CCOLS };
 static const XisservePage kPages[] = {
     {"calendar", 0, 0, page_calendar_build, page_calendar_on_show, NULL},
     {"audio", 380, 480, page_audio_build, page_audio_on_show, page_audio_on_hide},
+    {"energy", 380, 480, page_energy_build, page_energy_on_show, page_energy_on_hide},
 };
 #define N_PAGES ((int)(sizeof(kPages) / sizeof(kPages[0])))
 

@@ -42,9 +42,9 @@ endif
 # an explanatory placeholder instead of failing. Same "shell out, don't
 # reimplement" call xispanel/pulse.c already made, for the same reason.
 SRCS := xisserve.c appmenu.c question.c applications.c keyboard.c session.c plugins/terminal.c plugins/globalmenu.c plugins/recent.c plugins/process.c plugins/calculator.c $(DBUS_SRC) \
-        pages/calendar.c pages/audio.c pages/pulse.c
+        pages/calendar.c pages/audio.c pages/pulse.c pages/energy.c pages/power.c
 OBJS := $(SRCS:.c=.o)
-HDRS := xisserve.h plugins/dbusmenu.h pages/pulse.h
+HDRS := xisserve.h plugins/dbusmenu.h pages/pulse.h pages/power.h
 
 all: xisserve
 

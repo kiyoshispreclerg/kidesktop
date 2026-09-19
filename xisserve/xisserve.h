@@ -275,4 +275,8 @@ GtkWidget *page_audio_build(void);
 void page_audio_on_show(void);
 void page_audio_on_hide(void);
 
+GtkWidget *page_energy_build(void);
+void page_energy_on_show(void);
+void page_energy_on_hide(void);
+
 #endif
