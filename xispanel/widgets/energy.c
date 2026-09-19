@@ -17,6 +17,14 @@
  * something useful on a battery-less machine (brightness slider, night
  * light), the icon just can't represent "charge" for something that
  * doesn't have one.
+ *
+ * Also fires a low-battery toast (toast_show_osd(), in-process -- no
+ * socket needed, this widget already lives inside xispanel itself)
+ * whenever the charge crosses 20/10/5% while discharging, each threshold
+ * at most once per discharge cycle (see g_low_notified/on_tick()'s low-
+ * battery block). This reuses the same sysfs read the icon already does
+ * on every tick, so it costs nothing extra to poll for -- the interval=
+ * config key controls both.
  */
 #include "../xispanel.h"
 
@@ -35,12 +43,24 @@ typedef enum {
     ENERGY_FULL,
 } EnergyState;
 
+#define ENERGY_DEFAULT_INTERVAL_MS 10000
+#define ENERGY_MIN_INTERVAL_MS 1000
+
 typedef struct {
     char cmd[192]; /* xisserve binary opened on left click */
+    int interval_ms;
 
     int have_battery;
     int pct;
     EnergyState state;
+
+    /* 100 = nothing warned about yet this discharge cycle, else the
+     * lowest threshold (20/10/5) already notified for -- see the
+     * low-battery block in energy_on_tick(). Reset to 100 the moment the
+     * battery stops discharging (charging, full, or gone), so unplugging
+     * again re-arms every threshold rather than staying silent forever
+     * after the first warning. */
+    int low_notified_threshold;
 } EnergyPriv;
 
 static size_t read_file(const char *path, char *buf, size_t bufsz)
@@ -137,17 +157,63 @@ static int energy_init(PanelWidget *w)
     if (!kv_get(w->config_kv, "cmd", ep->cmd, sizeof(ep->cmd)) || !ep->cmd[0]) {
         snprintf(ep->cmd, sizeof(ep->cmd), "xisserve");
     }
+    ep->interval_ms = kv_get_int(w->config_kv, "interval", ENERGY_DEFAULT_INTERVAL_MS);
+    if (ep->interval_ms < ENERGY_MIN_INTERVAL_MS) {
+        ep->interval_ms = ENERGY_MIN_INTERVAL_MS;
+    }
+    ep->low_notified_threshold = 100;
     w->next_tick_ms = now_ms();
     return 0;
+}
+
+/* 100 = "cleared", else the lowest of these already warned about -- see
+ * EnergyPriv's own doc comment. Ordered lowest-to-highest deliberately:
+ * energy_on_tick()'s loop below stops at the first (threshold, pct)
+ * pair that qualifies, and checking the most urgent threshold first is
+ * what makes that the *deepest* one crossed since the last notification
+ * rather than the shallowest. Matters most right after a reset (plugged
+ * in, then unplugged again already at 8%, say) -- highest-to-lowest
+ * would fire the now-redundant 20% notice; this fires 10% instead, the
+ * one that's actually still true. A slow gradual drain (30 -> 25 -> 20
+ * -> ... -> 4) still notifies 20, then 10, then 5 in that order either
+ * way, since each is only ever satisfied on its own tick. */
+static const int ENERGY_LOW_THRESHOLDS[] = {5, 10, 20};
+#define N_ENERGY_LOW_THRESHOLDS ((int)(sizeof(ENERGY_LOW_THRESHOLDS) / sizeof(ENERGY_LOW_THRESHOLDS[0])))
+
+static void notify_low_battery(PanelWidget *w, int pct, int threshold)
+{
+    Panel *p = w->panel;
+    const char *icon_name = threshold <= 5 ? "battery-empty" : threshold <= 10 ? "battery-caution" : "battery-low";
+    ToastUrgency urgency = threshold <= 10 ? TOAST_URGENCY_CRITICAL : TOAST_URGENCY_NORMAL;
+    cairo_surface_t *icon = panel_theme_icon(p, icon_name, 40);
+    char summary[64];
+    snprintf(summary, sizeof(summary), "Bateria fraca: %d%%", pct);
+    /* Longer than an ordinary OSD's default (toast.c's TOAST_OSD_DEFAULT_MS)
+     * -- this matters more than confirming a scroll/hotkey just landed. */
+    toast_show_osd(icon, summary, NULL, pct, urgency, 6000);
 }
 
 static int energy_on_tick(PanelWidget *w, uint64_t now)
 {
     EnergyPriv *ep = w->priv;
-    w->next_tick_ms = now + 1000;
+    w->next_tick_ms = now + ep->interval_ms;
     int o_have = ep->have_battery, o_pct = ep->pct;
     EnergyState o_state = ep->state;
     ep->have_battery = find_battery(&ep->pct, &ep->state);
+
+    if (!ep->have_battery || ep->state != ENERGY_DISCHARGING) {
+        ep->low_notified_threshold = 100;
+    } else {
+        for (int i = 0; i < N_ENERGY_LOW_THRESHOLDS; i++) {
+            int threshold = ENERGY_LOW_THRESHOLDS[i];
+            if (ep->pct <= threshold && ep->low_notified_threshold > threshold) {
+                notify_low_battery(w, ep->pct, threshold);
+                ep->low_notified_threshold = threshold;
+                break;
+            }
+        }
+    }
+
     return o_have != ep->have_battery || o_pct != ep->pct || o_state != ep->state;
 }
 

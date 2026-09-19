@@ -495,6 +495,7 @@ static const WidgetField VOLUME_FIELDS[] = {
 };
 static const WidgetField ENERGY_FIELDS[] = {
     WF_STR("cmd", "Comando ao clicar (xisserve)", ""),
+    WF_INT("interval", "Intervalo de leitura da bateria (ms)", "10000", 1000, 300000),
 };
 static const WidgetField NOTIF_FIELDS[] = {
     WF_ENUM("corner", "Canto dos alertas (toast)", "bottom-right", NOTIF_CORNER_OPTS),

@@ -1130,10 +1130,12 @@ tooltip reflected both sink and source levels correctly.
 
 The `energy` widget's icon reads `/sys/class/power_supply` directly
 (no subprocess, unlike `volume`'s `pactl` or xisserve's own `--energy`
-page's `upower`) -- a once-a-second sysfs read is cheap enough on its
-own, and the widget only ever needs one battery's percentage and status
-word, not the richer per-device breakdown xisserve's page shows. Click
-opens `xisserve --energy` (battery/AC, other UPower devices' batteries,
+page's `upower`) on a timer, `interval=` ms apart (default 10000 --
+configurable since, unlike volume, a battery percentage has no reason to
+be checked every second; `kiconf`'s Paineis tab exposes this same key).
+The widget only ever needs one battery's percentage and status word, not
+the richer per-device breakdown xisserve's page shows. Click opens
+`xisserve --energy` (battery/AC, other UPower devices' batteries,
 brightness, night light), same `xisserve_spawn_for_widget()` pattern as
 `volume`'s click opening `--audio`.
 
@@ -1144,6 +1146,15 @@ when the theme ships one. On a system with none at all (most desktops
 and VMs) there's nothing to show as a charge level, so the icon becomes
 a plain sun/brightness glyph instead -- the page behind the click still
 has brightness and night light controls either way.
+
+The same `interval=`-paced read also drives a low-battery warning: a
+toast (`toast_show_osd()`, called in-process -- no control-socket round
+trip needed, the widget already lives inside xispanel) fires once each
+time the charge crosses 20%, 10%, and 5% while discharging, `urgency`
+`critical` at 10% and below. Crossing back out of "discharging"
+(charging, full, or the battery disappearing) re-arms every threshold,
+so unplugging again below the same level warns again rather than staying
+silent for the rest of the session.
 
 ### Window thumbnails
 
