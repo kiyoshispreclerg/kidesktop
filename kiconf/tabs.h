@@ -17,6 +17,7 @@ GtkWidget *build_telas_tab(void);
 GtkWidget *build_janelas_tab(void);
 GtkWidget *build_efeitos_tab(void);
 GtkWidget *build_sistema_tab(void);
+GtkWidget *build_energia_tab(void);
 GtkWidget *build_programas_tab(void);
 GtkWidget *build_autostart_tab(void);
 

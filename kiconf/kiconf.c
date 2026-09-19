@@ -109,7 +109,7 @@
 #include "i18n.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.12"
+#define KICONF_VERSION "0.2.14"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -154,6 +154,7 @@ static LazyTab g_tabs[] = {
     {N_("Gerenciamento de janelas"), GTK_STOCK_DND_MULTIPLE, build_janelas_tab, NULL, 0},
     {N_("Efeitos do compositor"), GTK_STOCK_CONVERT, build_efeitos_tab, NULL, 0},
     {N_("Sistema"), GTK_STOCK_HARDDISK, build_sistema_tab, NULL, 0},
+    {N_("Energia"), GTK_STOCK_QUIT, build_energia_tab, NULL, 0},
     {N_("Programas padrao"), GTK_STOCK_EXECUTE, build_programas_tab, NULL, 0},
     {N_("Iniciar automaticamente"), GTK_STOCK_MEDIA_PLAY, build_autostart_tab, NULL, 0},
 };
