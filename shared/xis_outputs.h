@@ -55,8 +55,30 @@ typedef struct {
 /* Lists every currently connected, actively-driven (has a CRTC) output --
  * connector name plus EDID identity when it has one. Returns the count
  * written to `outs` (capped at `max`, see XIS_MAX_OUTPUTS for a sane
- * bound to pass). */
-int xis_list_outputs(Display *dpy, XisOutput *outs, int max);
+ * bound to pass).
+ *
+ * `forced`: 0 uses XRRGetScreenResourcesCurrent() (the X server's own
+ * cached view -- fast, no round trip to the driver/hardware), 1 uses
+ * XRRGetScreenResources() (forces the server to actually re-poll the
+ * hardware first -- slower, but authoritative). The cache is server-wide,
+ * not per-client: once *anything* has forced a poll, every later cached
+ * (0) call from any client sees the same fresh data too.
+ *
+ * This matters specifically for EDID: an output's CRTC/mode/geometry is
+ * kept current by the RandR change events every caller here already
+ * reacts to, but a monitor's EDID (read over DDC at the driver's own
+ * probe time) can still be sitting in the cache from an early moment in
+ * the X session when that particular monitor's DDC read hadn't actually
+ * finished yet -- with no CRTC/topology change to ever notify anyone
+ * that it's now different, this stays wrong for the cache's whole
+ * lifetime (a whole session) unless something forces a re-poll. Pass 1
+ * at every "resolve a saved output id" call site that isn't a tight
+ * per-render/per-frame hot path -- daemon startup, an interactive user
+ * action (a kiconf combobox opening), a reconcile after an actual RandR
+ * event -- and 0 in a hot path (once a session's cache is fresh, which
+ * one straggling forced call anywhere already guarantees, 0 is exactly
+ * as correct and much cheaper). */
+int xis_list_outputs(Display *dpy, XisOutput *outs, int max, int forced);
 
 /* Computes just one output's "edid:..." id. Returns 1 and fills `out`
  * (>= XIS_OUTPUT_STR_LEN bytes) if `output` has a readable EDID property
@@ -73,10 +95,11 @@ int xis_output_edid_id(Display *dpy, RROutput output, char *out, size_t outsz);
  * screen", never a real output -- always returns 0 too; callers already
  * special-case "*" before this and should keep doing so). Call this
  * before every geometry/placement lookup (every render, not just at
- * load time) -- it does one XRRGetScreenResourcesCurrent() round trip,
- * cheap enough for that, and it's what makes "edid:..." ids need no
+ * load time) -- cheap enough for that with `forced` 0 (see
+ * xis_list_outputs()'s own doc comment for what `forced` means and when
+ * to pass 1 instead), and it's what makes "edid:..." ids need no
  * persisted rename/reconcile step at all: there's nothing to go stale. */
-int xis_resolve_output(Display *dpy, const char *saved_id, char *out_name, size_t outsz);
+int xis_resolve_output(Display *dpy, const char *saved_id, char *out_name, size_t outsz, int forced);
 
 typedef struct {
     char from[XIS_OUTPUT_STR_LEN]; /* one of saved_ids[], verbatim */
@@ -95,7 +118,10 @@ typedef struct {
  * coin flip). Intended for a load-time, persist-the-fix step (mirrors
  * what xisback/xispanel already did before this existed) -- not a
  * per-render call like xis_resolve_output(). Returns the number of pairs
- * written to `map` (capped at `max_map`). */
+ * written to `map` (capped at `max_map`). Always called at a startup or
+ * reconcile point, never a hot path, so this always forces a poll (see
+ * xis_list_outputs()'s own doc comment on `forced`) -- there's no cached
+ * variant of this one. */
 int xis_build_output_rename_map(Display *dpy, const char *const *saved_ids, int n_saved, XisOutputRename *map, int max_map);
 
 const char *xis_apply_output_rename(const XisOutputRename *map, int n_map, const char *saved_id);

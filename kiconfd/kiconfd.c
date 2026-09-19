@@ -126,7 +126,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.5"
+#define KICONFD_VERSION "0.2.6"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -1056,15 +1056,30 @@ static int load_screens_layout(ScreenLayout *outs, int max)
  * whatever connector that monitor currently really is via
  * xis_resolve_output() (edid: ids) or xis_build_output_rename_map()'s
  * positional self-heal (plain names only, same as before this existed),
- * exactly like xisback/xispanel resolve the same kind of saved id. */
-static void apply_screens_layout(void)
+ * exactly like xisback/xispanel resolve the same kind of saved id.
+ *
+ * Returns the number of saved outputs that did NOT resolve to anything
+ * currently connected (0 meaning every saved output was applied, or
+ * there was no saved layout at all) -- the caller (main(), see its own
+ * retry loop) uses this to retry a few times a moment later rather than
+ * give up for the rest of the session: unlike xisback/xispanel, which
+ * react to every RRScreenChangeNotify for as long as they run, kiconfd
+ * has no event loop at all (just pause() waiting for signals -- see
+ * main()) and only ever calls this once, right at startup, before
+ * kiwm/kicomp even start. A monitor whose EDID the X server hasn't
+ * finished reading yet at that exact moment (a real race -- see
+ * xisback.c's own reconcile_layer_outputs() for the same problem on its
+ * side) would otherwise silently keep the session on whatever default
+ * layout the driver picked, for good, since there is nothing later to
+ * ever retry it. */
+static int apply_screens_layout(void)
 {
     ScreenLayout screens[MAX_SCREENS];
     int n = load_screens_layout(screens, MAX_SCREENS);
     if (n == 0) {
         fprintf(stderr, "kiconfd: screens: no saved layout at '%s' (or it was empty/unparsable), nothing to apply\n",
                  g_screenspath);
-        return;
+        return 0;
     }
 
     const char *saved_ptrs[MAX_SCREENS];
@@ -1085,7 +1100,13 @@ static void apply_screens_layout(void)
     for (int i = 0; i < n; i++) {
         ScreenLayout *o = &screens[i];
         const char *want = strncmp(o->name, "edid:", 5) == 0 ? o->name : xis_apply_output_rename(rename_map, n_rename, o->name);
-        if (!xis_resolve_output(g_dpy, want, resolved_name[i], sizeof(resolved_name[i]))) {
+        /* forced=1: this whole function runs at most a handful of times,
+         * right at session startup (see main()'s own retry loop around
+         * the call to this function) -- not a hot path, and exactly the
+         * "X server's RandR cache might still be missing this monitor's
+         * EDID" moment forcing a poll matters most for. See
+         * xis_list_outputs()'s own doc comment on `forced`. */
+        if (!xis_resolve_output(g_dpy, want, resolved_name[i], sizeof(resolved_name[i]), 1)) {
             continue;
         }
         n_applied++;
@@ -1097,7 +1118,7 @@ static void apply_screens_layout(void)
         }
         if (o->mirror_of[0]) {
             const char *mirror_want = strncmp(o->mirror_of, "edid:", 5) == 0 ? o->mirror_of : xis_apply_output_rename(rename_map, n_rename, o->mirror_of);
-            if (xis_resolve_output(g_dpy, mirror_want, resolved_mirror[i], sizeof(resolved_mirror[i]))) {
+            if (xis_resolve_output(g_dpy, mirror_want, resolved_mirror[i], sizeof(resolved_mirror[i]), 1)) {
                 argv[ac++] = "--same-as";
                 argv[ac++] = resolved_mirror[i];
             }
@@ -1134,13 +1155,14 @@ static void apply_screens_layout(void)
     if (n_applied == 0) {
         fprintf(stderr, "kiconfd: screens: none of the %d saved output(s) match a currently connected "
                         "output, applying nothing\n", n);
-        return;
+        return n;
     }
     if (run_fire(argv) != 0) {
         fprintf(stderr, "kiconfd: screens: xrandr call failed applying saved layout\n");
     } else {
-        fprintf(stderr, "kiconfd: applied saved screen layout (%d output(s))\n", n_applied);
+        fprintf(stderr, "kiconfd: applied saved screen layout (%d/%d output(s))\n", n_applied, n);
     }
+    return n - n_applied;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1379,8 +1401,23 @@ int main(int argc, char **argv)
 
     /* Before everything else: kiwm/kicomp start right after kiconfd (see
      * kisession's service order) and read the output layout at their own
-     * startup, so the saved arrangement needs to be live before they do. */
-    apply_screens_layout();
+     * startup, so the saved arrangement needs to be live before they do.
+     *
+     * Retried a few times, briefly, if some saved output didn't resolve
+     * the first try -- this is normally exactly the startup race
+     * apply_screens_layout()'s own doc comment describes (a monitor's
+     * EDID not fully readable yet at the very first attempt, this early
+     * in the session), and it typically clears within the first attempt
+     * or two. Capped at ~1.5s total so a genuinely-disconnected monitor
+     * (nothing more will ever resolve it) doesn't stall the rest of
+     * session startup behind it for long. */
+    for (int attempt = 0; attempt < 8; attempt++) {
+        int unresolved = apply_screens_layout();
+        if (unresolved <= 0) {
+            break;
+        }
+        usleep(200000);
+    }
 
     /* Claimed before the first apply_all() below, so the very first
      * publish already goes out over XSETTINGS too. */

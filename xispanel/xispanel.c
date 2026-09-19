@@ -93,7 +93,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.16"
+#define XISPANEL_VERSION "0.6.17"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 #define IPC_MAX_LEN 4096
@@ -487,7 +487,15 @@ static int resolve_output_geometry(const char *name, int *ox, int *oy, int *ow, 
 {
     char resolved[XIS_OUTPUT_STR_LEN];
     if (strncmp(name, "edid:", 5) == 0) {
-        if (!xis_resolve_output(g_dpy, name, resolved, sizeof(resolved))) {
+        /* forced=0: this runs on every geometry resolve (panel move,
+         * RandR event, the periodic reconcile poll), a hot path -- see
+         * xis_list_outputs()'s own doc comment on `forced`. Correct
+         * without ever forcing here because main() forces one poll at
+         * startup before the first load_config() (see its own comment),
+         * enough for every later cached read this session to see fresh
+         * EDID -- RandR-change events keep the cache itself current
+         * after that. */
+        if (!xis_resolve_output(g_dpy, name, resolved, sizeof(resolved), 0)) {
             return 0;
         }
         name = resolved;
@@ -2680,6 +2688,22 @@ static int run_as_daemon(const char *sockpath)
         fprintf(stderr, "xispanel: using configured font '%s'\n", g_font_family);
     }
     pango_text_init(g_font_family);
+
+    /* One forced poll before the very first resolve_output_geometry()
+     * call (inside reload_all_panels() below): the X server's own RandR
+     * cache can still be missing/stale EDID data this early in a fresh
+     * session, with no CRTC/topology change ever generated to say so --
+     * see xis_list_outputs()'s own doc comment on `forced`, and
+     * resolve_output_geometry()'s comment on why its own per-call
+     * lookup deliberately stays uncached-forcing. One forced read here
+     * is enough for the rest of the session -- it updates the
+     * server-wide cache (not per-client), and this program's own
+     * RandR-change-event reaction (see XRRSelectInput() above) keeps it
+     * current after that. */
+    {
+        XisOutput warm[XIS_MAX_OUTPUTS];
+        xis_list_outputs(g_dpy, warm, XIS_MAX_OUTPUTS, 1);
+    }
 
     reload_all_panels();
     /* Watch the root + every client window for the properties the polling

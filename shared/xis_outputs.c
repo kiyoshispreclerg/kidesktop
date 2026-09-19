@@ -45,10 +45,10 @@ int xis_output_edid_id(Display *dpy, RROutput output, char *out, size_t outsz)
     return ok;
 }
 
-int xis_list_outputs(Display *dpy, XisOutput *outs, int max)
+int xis_list_outputs(Display *dpy, XisOutput *outs, int max, int forced)
 {
     Window root = DefaultRootWindow(dpy);
-    XRRScreenResources *res = XRRGetScreenResourcesCurrent(dpy, root);
+    XRRScreenResources *res = forced ? XRRGetScreenResources(dpy, root) : XRRGetScreenResourcesCurrent(dpy, root);
     if (!res) {
         return 0;
     }
@@ -70,13 +70,13 @@ int xis_list_outputs(Display *dpy, XisOutput *outs, int max)
     return n;
 }
 
-int xis_resolve_output(Display *dpy, const char *saved_id, char *out_name, size_t outsz)
+int xis_resolve_output(Display *dpy, const char *saved_id, char *out_name, size_t outsz, int forced)
 {
     if (!saved_id || !*saved_id || strcmp(saved_id, "*") == 0) {
         return 0;
     }
     XisOutput outs[XIS_MAX_OUTPUTS];
-    int n = xis_list_outputs(dpy, outs, XIS_MAX_OUTPUTS);
+    int n = xis_list_outputs(dpy, outs, XIS_MAX_OUTPUTS, forced);
     int is_edid = strncmp(saved_id, "edid:", 5) == 0;
     for (int i = 0; i < n; i++) {
         int match = is_edid ? (outs[i].id[0] && strcmp(outs[i].id, saved_id) == 0) : (strcmp(outs[i].name, saved_id) == 0);
@@ -91,7 +91,7 @@ int xis_resolve_output(Display *dpy, const char *saved_id, char *out_name, size_
 int xis_build_output_rename_map(Display *dpy, const char *const *saved_ids, int n_saved, XisOutputRename *map, int max_map)
 {
     XisOutput real[XIS_MAX_OUTPUTS];
-    int n_real = xis_list_outputs(dpy, real, XIS_MAX_OUTPUTS);
+    int n_real = xis_list_outputs(dpy, real, XIS_MAX_OUTPUTS, 1);
     int claimed[XIS_MAX_OUTPUTS] = {0};
 
     /* Dedup saved_ids into the plain-literal-name subset this function

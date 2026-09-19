@@ -268,7 +268,10 @@ static void populate_edid_ids(ScreenOutput *outs, int n)
 {
     Display *dpy = GDK_DISPLAY_XDISPLAY(gdk_display_get_default());
     XisOutput real[XIS_MAX_OUTPUTS];
-    int n_real = xis_list_outputs(dpy, real, XIS_MAX_OUTPUTS);
+    /* forced=1: called from detect_outputs(), itself only ever called
+     * interactively (tab open, Detectar novamente, Aplicar) -- not a hot
+     * path. See xis_list_outputs()'s own doc comment on `forced`. */
+    int n_real = xis_list_outputs(dpy, real, XIS_MAX_OUTPUTS, 1);
     for (int i = 0; i < n; i++) {
         outs[i].edid_id[0] = '\0';
         for (int j = 0; j < n_real; j++) {

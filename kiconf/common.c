@@ -340,7 +340,10 @@ GtkWidget *make_output_combo(int include_wildcard, const char *current)
 
     Display *dpy = GDK_DISPLAY_XDISPLAY(gdk_display_get_default());
     XisOutput outs[XIS_MAX_OUTPUTS];
-    int n = xis_list_outputs(dpy, outs, XIS_MAX_OUTPUTS);
+    /* forced=1: an interactive, one-off UI action (opening this combo),
+     * not a hot path -- see xis_list_outputs()'s own doc comment on why
+     * a cached read can carry a stale EDID indefinitely. */
+    int n = xis_list_outputs(dpy, outs, XIS_MAX_OUTPUTS, 1);
     for (int i = 0; i < n; i++) {
         const char *value = outs[i].id[0] ? outs[i].id : outs[i].name;
         char label[96];

@@ -76,7 +76,7 @@ int xis_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int 
 int xis_fd(void);
 int xis_poll_change(void);
 
-#define XISBACK_VERSION "0.4.5"
+#define XISBACK_VERSION "0.4.6"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -559,7 +559,16 @@ static void layer_geometry(Layer *l, int *x, int *y, int *w, int *h)
     const char *name = l->output;
     int found = strcmp(l->output, "*") != 0;
     if (found && strncmp(l->output, "edid:", 5) == 0) {
-        found = xis_resolve_output(g_dpy, l->output, resolved, sizeof(resolved));
+        /* forced=0: this runs on every render (slideshow tick, RandR
+         * event, crossfade step), a real hot path -- see
+         * xis_list_outputs()'s own doc comment on `forced`. Correct
+         * without ever forcing here because main() forces one poll at
+         * startup before the first layer_apply_set() (see its own
+         * comment), which is enough to make every later cached read,
+         * from any client, see fresh EDID for the rest of the session --
+         * the RandR-change events refresh_all_layer_geometries() already
+         * reacts to keep the cache itself current after that. */
+        found = xis_resolve_output(g_dpy, l->output, resolved, sizeof(resolved), 0);
         name = resolved;
     }
     if (!found || !resolve_output_geometry(name, x, y, w, h)) {
@@ -1621,6 +1630,23 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
     fcntl(ConnectionNumber(g_dpy), F_SETFD, FD_CLOEXEC);
     if (xis_fd() >= 0) {
         fcntl(xis_fd(), F_SETFD, FD_CLOEXEC);
+    }
+
+    /* One forced poll before the very first layer_geometry() call
+     * (inside load_config() below): the X server's own RandR cache can
+     * still be missing/stale EDID data this early in a fresh session (a
+     * monitor's DDC read simply not finished yet at output-enumeration
+     * time), with no CRTC/topology change ever generated to say so --
+     * see xis_list_outputs()'s own doc comment on `forced`. One forced
+     * read here is enough for the rest of the session: it updates the
+     * server-wide cache (not per-client), and every actual RandR change
+     * after this point keeps it current on its own via the event this
+     * program already reacts to (see XRRSelectInput() above). Cheap
+     * enough to eat once at startup; layer_geometry()'s own per-render
+     * xis_resolve_output() call deliberately stays uncached-forcing. */
+    {
+        XisOutput warm[XIS_MAX_OUTPUTS];
+        xis_list_outputs(g_dpy, warm, XIS_MAX_OUTPUTS, 1);
     }
 
     snprintf(g_configpath, sizeof(g_configpath), "%s", configpath);
