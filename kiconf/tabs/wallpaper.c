@@ -2,6 +2,7 @@
  * See kiconf.c's top doc comment for the overall design. */
 #include "../common.h"
 #include "../tabs.h"
+#include "../../shared/xis_outputs.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -29,7 +30,7 @@ static WpLayer g_wp_layers[MAX_WP_LAYERS];
 static int g_n_wp_layers = 0;
 static GtkListStore *g_wp_layers_store;
 static GtkWidget *g_wp_layers_view;
-static GtkWidget *g_wp_output_entry, *g_wp_desktop_entry, *g_wp_mode_combo;
+static GtkWidget *g_wp_output_combo, *g_wp_desktop_entry, *g_wp_mode_combo;
 static GtkWidget *g_wp_interval_spin, *g_wp_shuffle_chk, *g_wp_fade_spin, *g_wp_path_entry;
 static GtkWidget *g_wp_action_left, *g_wp_action_right, *g_wp_action_middle, *g_wp_action_double;
 static GtkWidget *g_wp_status_label;
@@ -159,7 +160,7 @@ static void refresh_wp_layers(void)
 
 static void wp_load_layer_into_form(const WpLayer *l)
 {
-    gtk_entry_set_text(GTK_ENTRY(g_wp_output_entry), l->output);
+    output_combo_select(g_wp_output_combo, l->output);
     gtk_entry_set_text(GTK_ENTRY(g_wp_desktop_entry), l->desktop);
     gtk_combo_box_set_active(GTK_COMBO_BOX(g_wp_mode_combo), strcmp(l->mode, "stretch") == 0 ? 1 : 0);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_wp_interval_spin), l->interval);
@@ -202,7 +203,8 @@ static void on_wp_set(GtkWidget *widget, gpointer data)
 {
     (void)widget;
     (void)data;
-    const char *output = gtk_entry_get_text(GTK_ENTRY(g_wp_output_entry));
+    char output[XIS_OUTPUT_STR_LEN];
+    output_combo_value(g_wp_output_combo, output, sizeof(output));
     const char *desktop = gtk_entry_get_text(GTK_ENTRY(g_wp_desktop_entry));
     gchar *mode = gtk_combo_box_get_active_text(GTK_COMBO_BOX(g_wp_mode_combo));
     int interval = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_wp_interval_spin));
@@ -212,7 +214,7 @@ static void on_wp_set(GtkWidget *widget, gpointer data)
 
     char cmd[PATH_MAX + 256];
     snprintf(cmd, sizeof(cmd), "SET\t%s\t%s\t%s\t%d\t%d\t%d\t%s",
-              output[0] ? output : "*", desktop[0] ? desktop : "*", mode ? mode : "fill",
+              output, desktop[0] ? desktop : "*", mode ? mode : "fill",
               interval, shuffle, fade_ms, path);
     char resp[256];
     xisback_send(cmd, resp, sizeof(resp));
@@ -385,9 +387,8 @@ GtkWidget *build_wallpaper_tab(void)
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Camadas ativas (clique numa linha pra editar)", layers_box), TRUE, TRUE, 0);
 
     GtkWidget *set_table = gtk_table_new(6, 2, FALSE);
-    g_wp_output_entry = gtk_entry_new();
-    gtk_entry_set_text(GTK_ENTRY(g_wp_output_entry), "*");
-    labeled_row(set_table, 0, "Output ('*' = tudo):", g_wp_output_entry);
+    g_wp_output_combo = make_output_combo(1, "*");
+    labeled_row(set_table, 0, "Output:", g_wp_output_combo);
     g_wp_desktop_entry = gtk_entry_new();
     gtk_entry_set_text(GTK_ENTRY(g_wp_desktop_entry), "*");
     labeled_row(set_table, 1, "Desktop ('*' = todos):", g_wp_desktop_entry);

@@ -13,12 +13,22 @@ CFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"'
 # separate library to find) -- only add it where it's actually a separate
 # lib (musl, *BSD): try linking a trivial program against it and see.
 LIBINTL := $(shell echo 'int main(void){return 0;}' | $(CC) -x c - -o /dev/null -lintl 2>/dev/null && echo -lintl)
-LIBS := $(shell pkg-config --cflags --libs gtk+-2.0) -lm $(LIBINTL)
+# x11/xrandr: shared/xis_outputs.c's XRR*/X* calls (make_output_combo()
+# in common.c, the Wallpaper/Telas tabs' output picker) -- gtk+-2.0's own
+# --libs pulls in gdk-x11-2.0 but not x11/xrandr themselves, and without
+# an explicit -lX11 here (only reachable transitively through
+# gdk-x11-2.0.so, not from any symbol on this command line directly) the
+# linker refuses -lXrandr with "DSO missing from command line".
+LIBS := $(shell pkg-config --cflags --libs gtk+-2.0 x11 xrandr) -lm $(LIBINTL)
 
+# shared/xis_outputs.c: stable EDID-based output identity, also used by
+# xisback/xispanel/kiconfd -- compiled directly in, same as every other
+# source file here, so kiconf stays independently buildable and
+# installable on its own (no shared library to depend on at runtime).
 SRCS := kiconf.c common.c tabs/appearance.c tabs/shortcuts.c tabs/entrada.c \
         tabs/outras.c tabs/permissoes.c tabs/paineis.c tabs/wallpaper.c \
         tabs/telas.c tabs/janelas.c tabs/efeitos.c tabs/sistema.c \
-        tabs/programas.c tabs/autostart.c
+        tabs/programas.c tabs/autostart.c ../shared/xis_outputs.c
 
 # po/LINGUAS: one language code per line ("pt_BR", "es", ...), '#' comments.
 # Empty/missing until the first translation actually exists (see po/README.md).

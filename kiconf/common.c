@@ -2,6 +2,10 @@
  * comment for the overall design and common.h for what lives here. */
 #include "common.h"
 
+#include <gdk/gdkx.h>
+
+#include "../shared/xis_outputs.h"
+
 #include <errno.h>
 #include <limits.h>
 #include <signal.h>
@@ -262,6 +266,113 @@ const char *combo_text(GtkWidget *combo, const char *const *options)
 {
     int idx = gtk_combo_box_get_active(GTK_COMBO_BOX(combo));
     return idx >= 0 && options[idx] ? options[idx] : options[0];
+}
+
+/* ---- output picker: scans live outputs (shared/xis_outputs.h) so the
+ * Wallpaper/Telas tabs' "which monitor" fields are a combobox like every
+ * other "pick something that exists" field in this program (theme/icon/
+ * cursor -- see kiconf.c's own top doc comment), instead of a free-text
+ * field the user would otherwise have to fill with a hand-typed
+ * "edid:VVV:PPPP:SSSSSSSS" id. The combo's *value* per row (what
+ * output_combo_value() returns) is that id when the output has one, or
+ * its bare connector name when it doesn't -- never the display label,
+ * which also shows the connector name for a human to recognize the
+ * monitor by. */
+
+#define OUTPUT_COMBO_IDS_KEY "xis-output-ids"
+#define OUTPUT_COMBO_N_KEY "xis-output-n"
+
+static void output_combo_ids_append(GtkWidget *combo, const char *value)
+{
+    int n = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(combo), OUTPUT_COMBO_N_KEY));
+    char *ids = g_object_get_data(G_OBJECT(combo), OUTPUT_COMBO_IDS_KEY);
+    ids = g_realloc(ids, (size_t)(n + 1) * XIS_OUTPUT_STR_LEN);
+    snprintf(ids + (size_t)n * XIS_OUTPUT_STR_LEN, XIS_OUTPUT_STR_LEN, "%s", value);
+    /* g_object_set_data_full() would free the old block on replace, but
+     * that old block is exactly what we just g_realloc()'d from (already
+     * freed/moved by g_realloc itself) -- steal the slot back with plain
+     * set_data first so it doesn't get double-freed. */
+    g_object_steal_data(G_OBJECT(combo), OUTPUT_COMBO_IDS_KEY);
+    g_object_set_data_full(G_OBJECT(combo), OUTPUT_COMBO_IDS_KEY, ids, g_free);
+    g_object_set_data(G_OBJECT(combo), OUTPUT_COMBO_N_KEY, GINT_TO_POINTER(n + 1));
+}
+
+/* Selects `current` in `combo` (built by make_output_combo()), appending
+ * one more row for it first if it's not among the currently live
+ * outputs -- a saved id for a monitor that's unplugged right now, or a
+ * plain literal name from a config predating "edid:..." ids, must stay
+ * visible/selected rather than silently jumping to something else. */
+void output_combo_select(GtkWidget *combo, const char *current)
+{
+    if (!current || !current[0]) {
+        current = "*";
+    }
+    int n = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(combo), OUTPUT_COMBO_N_KEY));
+    char *ids = g_object_get_data(G_OBJECT(combo), OUTPUT_COMBO_IDS_KEY);
+    for (int i = 0; i < n; i++) {
+        if (strcmp(ids + (size_t)i * XIS_OUTPUT_STR_LEN, current) == 0) {
+            gtk_combo_box_set_active(GTK_COMBO_BOX(combo), i);
+            return;
+        }
+    }
+    char label[96];
+    snprintf(label, sizeof(label), "%s (nao conectado agora)", current);
+    gtk_combo_box_append_text(GTK_COMBO_BOX(combo), label);
+    output_combo_ids_append(combo, current);
+    gtk_combo_box_set_active(GTK_COMBO_BOX(combo), n);
+}
+
+/* `include_wildcard`: whether row 0 is "*" (every output) -- the
+ * Wallpaper tab wants it (a layer can span every screen), the Telas tab
+ * never does (a saved screen-layout entry is always one specific
+ * output). `current` is pre-selected the same way output_combo_select()
+ * does it (and may be "*", an "edid:..." id, a literal connector name,
+ * or empty/NULL to mean "*"). */
+GtkWidget *make_output_combo(int include_wildcard, const char *current)
+{
+    GtkWidget *combo = gtk_combo_box_new_text();
+    g_object_set_data(G_OBJECT(combo), OUTPUT_COMBO_N_KEY, GINT_TO_POINTER(0));
+
+    if (include_wildcard) {
+        gtk_combo_box_append_text(GTK_COMBO_BOX(combo), "* (todas as telas)");
+        output_combo_ids_append(combo, "*");
+    }
+
+    Display *dpy = GDK_DISPLAY_XDISPLAY(gdk_display_get_default());
+    XisOutput outs[XIS_MAX_OUTPUTS];
+    int n = xis_list_outputs(dpy, outs, XIS_MAX_OUTPUTS);
+    for (int i = 0; i < n; i++) {
+        const char *value = outs[i].id[0] ? outs[i].id : outs[i].name;
+        char label[96];
+        if (outs[i].id[0]) {
+            /* outs[i].id is "edid:VVV:PPPP:SSSSSSSS" -- skip the
+             * "edid:" prefix in the label, it's implementation detail a
+             * user picking a monitor from a list doesn't need to see. */
+            snprintf(label, sizeof(label), "%s (%s)", outs[i].name, outs[i].id + 5);
+        } else {
+            snprintf(label, sizeof(label), "%s (sem EDID)", outs[i].name);
+        }
+        gtk_combo_box_append_text(GTK_COMBO_BOX(combo), label);
+        output_combo_ids_append(combo, value);
+    }
+
+    output_combo_select(combo, current);
+    return combo;
+}
+
+/* The stored value (an "edid:..." id, a literal connector name, or "*")
+ * behind whichever row of `combo` is currently selected -- never the
+ * display label. */
+void output_combo_value(GtkWidget *combo, char *out, size_t outsz)
+{
+    int active = gtk_combo_box_get_active(GTK_COMBO_BOX(combo));
+    int n = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(combo), OUTPUT_COMBO_N_KEY));
+    char *ids = g_object_get_data(G_OBJECT(combo), OUTPUT_COMBO_IDS_KEY);
+    if (active >= 0 && active < n && ids) {
+        snprintf(out, outsz, "%s", ids + (size_t)active * XIS_OUTPUT_STR_LEN);
+    } else {
+        snprintf(out, outsz, "*");
+    }
 }
 
 void fprintf_double(FILE *f, const char *key, double val, int digits)

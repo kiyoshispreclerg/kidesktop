@@ -87,6 +87,15 @@ void color_button_hex(GtkWidget *btn, char *out, size_t outsz);
 GtkWidget *make_options_combo(const char *const *options, const char *current);
 const char *combo_text(GtkWidget *combo, const char *const *options);
 
+/* ---- output picker: which monitor, scanned live + EDID-identified ---- */
+
+/* See common.c for the full doc comment. `current` may be "*", an
+ * "edid:..." id (shared/xis_outputs.h), a literal connector name, or
+ * empty/NULL (meaning "*"). */
+GtkWidget *make_output_combo(int include_wildcard, const char *current);
+void output_combo_select(GtkWidget *combo, const char *current);
+void output_combo_value(GtkWidget *combo, char *out, size_t outsz);
+
 /* Writes "key=value\n" to `f` with `val` formatted to `digits` decimals
  * and always a '.' separator, regardless of LC_NUMERIC -- plain
  * fprintf("%f") prints "0,45" under a comma-decimal locale (pt_BR and
