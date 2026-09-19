@@ -91,7 +91,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.12"
+#define XISPANEL_VERSION "0.6.14"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 #define IPC_MAX_LEN 4096
@@ -612,11 +612,13 @@ static void write_default_config_if_missing(void)
     }
     fprintf(f,
             "PANEL\tmain\t%s\tedge=bottom\tpct=100\tthickness=32\tmode=dock\n"
-            "WIDGET\tmain\t0\tlauncher\n"
-            "WIDGET\tmain\t1\ttasklist\tmode=wide\n"
-            "WIDGET\tmain\t2\tspacer\n"
-            "WIDGET\tmain\t3\ttray\n"
-            "WIDGET\tmain\t4\tclock\n",
+            "WIDGET\tmain\t0\txisserve\n"
+            "WIDGET\tmain\t1\tpager	show_windows=yes\n"
+            "WIDGET\tmain\t2\ttasklist\tmode=wide group=yes same_output=yes icon_padding=6 show_thumbs=yes\n"
+            "WIDGET\tmain\t3\tspacer\n"
+            "WIDGET\tmain\t4\tvolume\n"
+            "WIDGET\tmain\t5\ttray icon_padding=5\n"
+            "WIDGET\tmain\t6\tclock\n",
             output);
     fclose(f);
     fprintf(stderr, "xispanel: no config found, wrote a default panel to %s\n", g_configpath);
