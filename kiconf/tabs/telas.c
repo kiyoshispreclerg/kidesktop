@@ -2,6 +2,9 @@
  * See kiconf.c's top doc comment for the overall design. */
 #include "../common.h"
 #include "../tabs.h"
+#include "../../shared/xis_outputs.h"
+
+#include <gdk/gdkx.h>
 
 #include <ctype.h>
 #include <dirent.h>
@@ -36,6 +39,21 @@ typedef struct {
 } OutMode;
 typedef struct {
     char name[NAME_LEN];
+    /* "edid:VVV:PPPP:SSSSSSSS" (shared/xis_outputs.h), or empty if this
+     * connector has no EDID to read -- filled in by populate_edid_ids()
+     * right after detect_outputs() parses `xrandr`'s text output (which
+     * has no EDID of its own to give us). `name` is still what every
+     * live xrandr call and every on-canvas label uses -- name is exactly
+     * what the current connector is called *right now*, which is all a
+     * live `xrandr --output <name> ...` call ever needs. `edid_id`
+     * exists for the one place that outlives "right now": what
+     * save_screens_layout() writes to kiconfd-screens.conf, so a saved
+     * layout keeps matching the same physical monitor after a reboot
+     * even if RandR happens to enumerate/name its connector differently
+     * next time (kiconfd's own apply_screens_layout() already resolves
+     * an "edid:..." id back to whatever connector it currently is, the
+     * same way xisback/xispanel do -- see shared/xis_outputs.h). */
+    char edid_id[XIS_OUTPUT_STR_LEN];
     int connected, enabled, primary;
     int x, y, width, height;
     char rotation[16];
@@ -237,6 +255,31 @@ static void parse_rate_tokens(ScreenOutput *o, const char *modename, char *rest)
     }
 }
 
+/* Fills each of outs[0..n)'s edid_id by matching its (already-parsed)
+ * name against a live XRandR scan -- `xrandr`'s plain text output has no
+ * EDID of its own to give detect_outputs() directly (see ScreenOutput's
+ * own comment on edid_id), so this is a second, Xlib-side pass over the
+ * same connectors. kiconf isn't otherwise an Xlib client of its own
+ * (everything else in this program goes through GTK or a subprocess),
+ * but the GTK2/GDK connection already open is the same X display --
+ * GDK_DISPLAY_XDISPLAY() just hands back its Display*, no second
+ * connection made. */
+static void populate_edid_ids(ScreenOutput *outs, int n)
+{
+    Display *dpy = GDK_DISPLAY_XDISPLAY(gdk_display_get_default());
+    XisOutput real[XIS_MAX_OUTPUTS];
+    int n_real = xis_list_outputs(dpy, real, XIS_MAX_OUTPUTS);
+    for (int i = 0; i < n; i++) {
+        outs[i].edid_id[0] = '\0';
+        for (int j = 0; j < n_real; j++) {
+            if (!strcmp(real[j].name, outs[i].name)) {
+                snprintf(outs[i].edid_id, sizeof(outs[i].edid_id), "%s", real[j].id);
+                break;
+            }
+        }
+    }
+}
+
 static int detect_outputs(ScreenOutput *outs, int max)
 {
     char *argv[] = {"xrandr", NULL};
@@ -274,6 +317,7 @@ static int detect_outputs(ScreenOutput *outs, int max)
         }
         line = strtok_r(NULL, "\n", &save);
     }
+    populate_edid_ids(outs, n);
     return n;
 }
 
@@ -1009,6 +1053,29 @@ static void screens_redetect_preserving_extras(void)
  * the layout picked here survives a logout/login -- xrandr's own state
  * doesn't. Called right after Aplicar, once g_outputs reflects what was
  * actually just applied (post screens_redetect_preserving_extras()). */
+/* The stable identifier to persist for the output currently named
+ * `name` -- its edid_id if it has one, else the plain connector name
+ * unchanged (a virtual/headless output with no EDID, say). Looks it up
+ * among g_outputs rather than taking a ScreenOutput* directly since it's
+ * also used for mirror_of, which only ever stores another output's
+ * *name*, not a pointer to it. */
+static const char *screens_persist_id(const char *name)
+{
+    for (int i = 0; i < g_n_outputs; i++) {
+        if (!strcmp(g_outputs[i].name, name)) {
+            return g_outputs[i].edid_id[0] ? g_outputs[i].edid_id : g_outputs[i].name;
+        }
+    }
+    return name;
+}
+
+/* Writes the persisted id (edid_id when available -- see ScreenOutput's
+ * own comment -- else the plain connector name) rather than always the
+ * live connector name: kiconfd's apply_screens_layout() resolves either
+ * kind back to a real connector at the next session's start (same
+ * xis_resolve_output()-based resolution as xisback/xispanel), but only
+ * the edid_id form keeps matching the same physical monitor if RandR
+ * happens to enumerate/name it differently next boot. */
 static void save_screens_layout(void)
 {
     char path[PATH_MAX];
@@ -1033,11 +1100,11 @@ static void save_screens_layout(void)
         fmt_c_double(sxbuf, sizeof(sxbuf), sx);
         fmt_c_double(sybuf, sizeof(sybuf), sy);
         fprintf(f, "%s %d %s %s %d %d %s %d %s %s %d %s\n",
-                 o->name, o->enabled,
+                 o->edid_id[0] ? o->edid_id : o->name, o->enabled,
                  o->current_mode[0] ? o->current_mode : "-",
                  o->current_rate[0] ? o->current_rate : "-",
                  o->x, o->y, o->rotation, o->primary, sxbuf, sybuf, o->dpi,
-                 o->mirror_of[0] ? o->mirror_of : "-");
+                 o->mirror_of[0] ? screens_persist_id(o->mirror_of) : "-");
     }
     fclose(f);
     if (rename(tmp, path) != 0) {
