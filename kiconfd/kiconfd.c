@@ -1326,9 +1326,18 @@ static void reload_config(void)
 
 int main(int argc, char **argv)
 {
+    /* Checked before anything else (no display/lock/config needed) so
+     * `kiconfd --version` works to check whether the installed build is
+     * current without starting the daemon at all -- same as kiconf's
+     * own `--version`/`-V`. */
+    if (argc > 1 && (!strcmp(argv[1], "--version") || !strcmp(argv[1], "-V"))) {
+        printf("kiconfd %s\n", KICONFD_VERSION);
+        return 0;
+    }
+
     if (argc > 1 && (!strcmp(argv[1], "-h") || !strcmp(argv[1], "--help"))) {
         printf("kiconfd %s - session settings daemon for KiDesktop\n", KICONFD_VERSION);
-        printf("Usage: kiconfd [--log]\n");
+        printf("Usage: kiconfd [--log|--version|-V]\n");
         printf("Config: $XDG_CONFIG_HOME/kiconfd.conf (fallback ~/.config/kiconfd.conf)\n");
         printf("Screens: $XDG_CONFIG_HOME/kiconfd-screens.conf, applied via xrandr at startup only\n");
         printf("Log: off by default (inherits stdout/stderr as usual). --log, or KICONFD_LOG=1 in "
