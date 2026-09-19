@@ -60,6 +60,8 @@
 
 #include "xispanel.h"
 
+#include "../shared/xis_outputs.h"
+
 #include <Imlib2.h>
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
@@ -91,7 +93,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.15"
+#define XISPANEL_VERSION "0.6.16"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 #define IPC_MAX_LEN 4096
@@ -473,9 +475,23 @@ static int init_font(const char *family_hint)
 
 /* *out_hz is left at 0 if the CRTC's current mode has no usable timing
  * info to compute one from -- callers should treat that as "unknown",
- * not "the output truly refreshes at 0Hz". */
+ * not "the output truly refreshes at 0Hz".
+ *
+ * `name` can also be an "edid:..." stable-monitor id (see
+ * shared/xis_outputs.h) instead of a literal connector name -- resolved
+ * fresh, live, right here, every call, so a connector rename between two
+ * calls never needs any reconcile step for these the way a plain saved
+ * name does (see build_output_rename_map() below, which only ever
+ * touches plain-name panels). */
 static int resolve_output_geometry(const char *name, int *ox, int *oy, int *ow, int *oh, double *out_hz)
 {
+    char resolved[XIS_OUTPUT_STR_LEN];
+    if (strncmp(name, "edid:", 5) == 0) {
+        if (!xis_resolve_output(g_dpy, name, resolved, sizeof(resolved))) {
+            return 0;
+        }
+        name = resolved;
+    }
     XRRScreenResources *res = XRRGetScreenResourcesCurrent(g_dpy, g_root);
     if (!res) {
         return 0;
@@ -2093,57 +2109,24 @@ int config_widget_set_key(const char *panel_name, int order, const char *type_na
     return 1;
 }
 
-static int list_connected_outputs(char names[][64], int max)
-{
-    XRRScreenResources *res = XRRGetScreenResourcesCurrent(g_dpy, g_root);
-    if (!res) {
-        return 0;
-    }
-    int n = 0;
-    for (int i = 0; i < res->noutput && n < max; i++) {
-        XRROutputInfo *oi = XRRGetOutputInfo(g_dpy, res, res->outputs[i]);
-        if (oi && oi->connection == RR_Connected && oi->crtc) {
-            snprintf(names[n], 64, "%s", oi->name);
-            n++;
-        }
-        if (oi) {
-            XRRFreeOutputInfo(oi);
-        }
-    }
-    XRRFreeScreenResources(res);
-    return n;
-}
-
-typedef struct {
-    char from[64];
-    char to[64];
-} OutputRename;
-
-/* Reconciles the config's PANEL output= names against what's actually
- * connected right now -- same fix and same reasoning as xisback's
- * build_output_rename_map(): outputs get renamed by drivers/re-plugging
- * often enough that a saved "HDMI-1" panel can silently stop matching
- * anything on the next boot, and panel_resolve_geometry() then falls back
- * to full-screen for it, stacking every per-output panel on top of each
- * other on whatever output happens to come first.
- *
- * Names that already match exactly are left alone. The remaining (config
- * name, real name) pairs are only auto-matched positionally when their
- * counts agree -- i.e. the monitor count didn't change, just the names --
- * since that's the one case where "just renumber them in order" is a safe
- * guess rather than a coin flip. Returns the number of pairs written to
- * `map` (possibly 0, meaning no remapping is needed or possible). */
-static int build_output_rename_map(const char *path, OutputRename *map, int max_map)
+/* Surveys every "PANEL <name> <output> ..." line's output= token (an
+ * edid: id or a literal connector name alike -- xis_build_output_rename_map()
+ * sorts out which apply to it) for feeding into that shared rename-map
+ * builder. Same reasoning as xisback's own equivalent: outputs get
+ * renamed by drivers/re-plugging often enough that a saved "HDMI-1"
+ * panel can silently stop matching anything on the next boot, and
+ * panel_resolve_geometry() then falls back to full-screen for it,
+ * stacking every per-output panel on top of each other on whatever
+ * output happens to come first. */
+static int collect_saved_output_ids(const char *path, char ids[][XIS_OUTPUT_STR_LEN], int max)
 {
     FILE *f = fopen(path, "r");
     if (!f) {
         return 0;
     }
-
-    char cfg_outputs[MAX_PANELS][64];
-    int n_cfg = 0;
+    int n = 0;
     char line[LINE_MAX_LEN];
-    while (fgets(line, sizeof(line), f)) {
+    while (n < max && fgets(line, sizeof(line), f)) {
         size_t len = strlen(line);
         while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
             line[--len] = 0;
@@ -2173,87 +2156,25 @@ static int build_output_rename_map(const char *path, OutputRename *map, int max_
             }
         }
         const char *output = tok[1]; /* PANEL <name> <output> ... */
-        if (!output || strcmp(output, "*") == 0) {
-            continue;
-        }
-        int dup = 0;
-        for (int i = 0; i < n_cfg; i++) {
-            if (strcmp(cfg_outputs[i], output) == 0) {
-                dup = 1;
-                break;
-            }
-        }
-        if (!dup && n_cfg < MAX_PANELS) {
-            snprintf(cfg_outputs[n_cfg], sizeof(cfg_outputs[n_cfg]), "%s", output);
-            n_cfg++;
+        if (output) {
+            snprintf(ids[n], XIS_OUTPUT_STR_LEN, "%s", output);
+            n++;
         }
     }
     fclose(f);
-
-    char real_outputs[MAX_PANELS][64];
-    int n_real = list_connected_outputs(real_outputs, MAX_PANELS);
-
-    if (n_cfg == 0 || n_cfg != n_real) {
-        return 0;
-    }
-
-    char unmatched_cfg[MAX_PANELS][64];
-    char unmatched_real[MAX_PANELS][64];
-    int n_unmatched_cfg = 0, n_unmatched_real = 0;
-
-    for (int i = 0; i < n_cfg; i++) {
-        int found = 0;
-        for (int j = 0; j < n_real; j++) {
-            if (strcmp(cfg_outputs[i], real_outputs[j]) == 0) {
-                found = 1;
-                break;
-            }
-        }
-        if (!found) {
-            snprintf(unmatched_cfg[n_unmatched_cfg], sizeof(unmatched_cfg[0]), "%s", cfg_outputs[i]);
-            n_unmatched_cfg++;
-        }
-    }
-    for (int j = 0; j < n_real; j++) {
-        int found = 0;
-        for (int i = 0; i < n_cfg; i++) {
-            if (strcmp(real_outputs[j], cfg_outputs[i]) == 0) {
-                found = 1;
-                break;
-            }
-        }
-        if (!found) {
-            snprintf(unmatched_real[n_unmatched_real], sizeof(unmatched_real[0]), "%s", real_outputs[j]);
-            n_unmatched_real++;
-        }
-    }
-
-    /* n_unmatched_cfg == n_unmatched_real is guaranteed here: n_cfg == n_real
-     * and both lists remove the same exactly-matched names from equal-size
-     * pools. */
-    int n_map = 0;
-    for (int i = 0; i < n_unmatched_cfg && n_map < max_map; i++) {
-        snprintf(map[n_map].from, sizeof(map[n_map].from), "%s", unmatched_cfg[i]);
-        snprintf(map[n_map].to, sizeof(map[n_map].to), "%s", unmatched_real[i]);
-        n_map++;
-    }
-    return n_map;
-}
-
-static const char *apply_output_rename(const OutputRename *map, int n_map, const char *name)
-{
-    for (int i = 0; i < n_map; i++) {
-        if (strcmp(map[i].from, name) == 0) {
-            return map[i].to;
-        }
-    }
-    return name;
+    return n;
 }
 
 static void load_config(void)
 {
-    OutputRename rename_map[MAX_PANELS];
-    int n_rename = build_output_rename_map(g_configpath, rename_map, MAX_PANELS);
+    char saved_ids[MAX_PANELS][XIS_OUTPUT_STR_LEN];
+    int n_saved = collect_saved_output_ids(g_configpath, saved_ids, MAX_PANELS);
+    const char *saved_ptrs[MAX_PANELS];
+    for (int i = 0; i < n_saved; i++) {
+        saved_ptrs[i] = saved_ids[i];
+    }
+    XisOutputRename rename_map[MAX_PANELS];
+    int n_rename = xis_build_output_rename_map(g_dpy, saved_ptrs, n_saved, rename_map, MAX_PANELS);
 
     FILE *f = fopen(g_configpath, "r");
     if (!f) {
@@ -2306,7 +2227,7 @@ static void load_config(void)
         }
 
         if (strcmp(fields[0], "PANEL") == 0 && nf >= 3) {
-            const char *output = apply_output_rename(rename_map, n_rename, fields[2]);
+            const char *output = xis_apply_output_rename(rename_map, n_rename, fields[2]);
             Panel *pan = alloc_panel(fields[1], output);
             if (!pan) {
                 fprintf(stderr, "xispanel: config: too many panels, ignoring '%s'\n", fields[1]);

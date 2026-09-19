@@ -48,6 +48,8 @@
 #include <X11/Xutil.h>
 #include <X11/extensions/Xrandr.h>
 
+#include "../shared/xis_outputs.h"
+
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -74,7 +76,7 @@ int xis_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int 
 int xis_fd(void);
 int xis_poll_change(void);
 
-#define XISBACK_VERSION "0.4.4"
+#define XISBACK_VERSION "0.4.5"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -544,34 +546,23 @@ static int resolve_output_geometry(const char *name, int *ox, int *oy, int *ow, 
     return found;
 }
 
-/* Fills `names` with the currently connected, actively-driven (has a CRTC)
- * XRandR output names, in their natural enumeration order. Used to
- * reconcile config output names against reality at startup -- see
- * build_output_rename_map(). */
-static int list_connected_outputs(char names[][64], int max)
-{
-    XRRScreenResources *res = XRRGetScreenResourcesCurrent(g_dpy, g_root);
-    if (!res) {
-        return 0;
-    }
-    int n = 0;
-    for (int i = 0; i < res->noutput && n < max; i++) {
-        XRROutputInfo *oi = XRRGetOutputInfo(g_dpy, res, res->outputs[i]);
-        if (oi && oi->connection == RR_Connected && oi->crtc) {
-            snprintf(names[n], 64, "%s", oi->name);
-            n++;
-        }
-        if (oi) {
-            XRRFreeOutputInfo(oi);
-        }
-    }
-    XRRFreeScreenResources(res);
-    return n;
-}
-
+/* l->output can be "*", a literal XRandR connector name, or an
+ * "edid:..." stable-monitor id (see shared/xis_outputs.h) -- the latter
+ * is re-resolved against live XRandR state on every call, so a connector
+ * rename between two calls (a reboot, a replug) never needs any
+ * persisted fix-up for these the way a plain name does (see
+ * reconcile_layer_outputs()/build_output_rename_map() below, which only
+ * ever touch plain-name layers). */
 static void layer_geometry(Layer *l, int *x, int *y, int *w, int *h)
 {
-    if (strcmp(l->output, "*") == 0 || !resolve_output_geometry(l->output, x, y, w, h)) {
+    char resolved[XIS_OUTPUT_STR_LEN];
+    const char *name = l->output;
+    int found = strcmp(l->output, "*") != 0;
+    if (found && strncmp(l->output, "edid:", 5) == 0) {
+        found = xis_resolve_output(g_dpy, l->output, resolved, sizeof(resolved));
+        name = resolved;
+    }
+    if (!found || !resolve_output_geometry(name, x, y, w, h)) {
         if (strcmp(l->output, "*") != 0) {
             fprintf(stderr, "xisback: output '%s' not found, falling back to full screen\n", l->output);
         }
@@ -1062,35 +1053,45 @@ static void save_config(void)
     }
 }
 
-typedef struct {
-    char from[64];
-    char to[64];
-} OutputRename;
+/* This LAYER (or legacy-format) line's output field, or NULL if the line
+ * isn't one at all (ACTIONS, blank, malformed). Used identically by both
+ * collect_saved_output_ids()'s survey pass and load_config()'s real
+ * pass, factored out so they can never again disagree about which lines
+ * are LAYER lines the way they briefly did -- an "ACTIONS\t..." line
+ * also happens to split into 7 tab-separated fields (ACTIONS + 6 action
+ * commands), same as a legacy-format LAYER line, and used to get misread
+ * as one with output="ACTIONS" here while load_config() correctly ruled
+ * it out, inflating the survey's output count by one bogus entry and
+ * silently breaking every config with a saved ACTIONS line (i.e. nearly
+ * all of them). */
+static const char *layer_line_output_field(char *const *fields, int nf)
+{
+    if (strcmp(fields[0], "LAYER") == 0 && nf >= 2) {
+        return fields[1];
+    }
+    if (strcmp(fields[0], "ACTIONS") == 0) {
+        return NULL;
+    }
+    if (nf == 7) {
+        return fields[0];
+    }
+    return NULL;
+}
 
-/* Reconciles the config's output names against what's actually connected
- * right now. Outputs get renamed by drivers/re-plugging often enough that a
- * saved "HDMI-1" layer can silently stop matching anything on the next
- * boot -- layer_geometry() then falls back to full-screen for it, and with
- * one full-screen layer per originally-per-output wallpaper stacked on top
- * of each other, it looks like a single wallpaper covering everything.
- *
- * Names that already match exactly are left alone. The remaining
- * (config name, real name) pairs are only auto-matched positionally when
- * their counts agree -- i.e. the monitor count didn't change, just the
- * names -- since that's the one case where "just renumber them in order"
- * is a safe guess rather than a coin flip. Returns the number of pairs
- * written to `map` (possibly 0, meaning no remapping is needed or possible). */
-static int build_output_rename_map(const char *path, OutputRename *map, int max_map)
+/* Surveys every LAYER line's output field (edid: id or literal name
+ * alike -- xis_build_output_rename_map() sorts out which apply to it) for
+ * feeding into that shared rename-map builder. Returns the count written
+ * to `ids` (capped at `max`, duplicates included -- the shared builder
+ * dedups on its own). */
+static int collect_saved_output_ids(const char *path, char ids[][XIS_OUTPUT_STR_LEN], int max)
 {
     FILE *f = fopen(path, "r");
     if (!f) {
         return 0;
     }
-
-    char cfg_outputs[MAX_LAYERS][64];
-    int n_cfg = 0;
+    int n = 0;
     char line[LINE_MAX_LEN];
-    while (fgets(line, sizeof(line), f)) {
+    while (n < max && fgets(line, sizeof(line), f)) {
         size_t len = strlen(line);
         while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
             line[--len] = 0;
@@ -1107,100 +1108,26 @@ static int build_output_rename_map(const char *path, OutputRename *map, int max_
             p++;
             fields[nf++] = p;
         }
-        /* Same output field position in both the current "LAYER\t..." format
-         * and the pre-0.4 unprefixed one -- but an "ACTIONS\t..." line also
-         * happens to come out to 7 fields (ACTIONS + 6 action commands), so
-         * it must be ruled out first or it gets misread as a legacy-format
-         * LAYER line with output="ACTIONS", inflating n_cfg by one bogus
-         * entry and breaking the n_cfg==n_real check below for every config
-         * that has a saved ACTIONS line (i.e. nearly all of them) -- see
-         * load_config()'s own three-way branch just below, which this
-         * mirrors and must stay in sync with. */
-        const char *output = (strcmp(fields[0], "LAYER") == 0 && nf >= 2) ? fields[1]
-                            : (strcmp(fields[0], "ACTIONS") == 0) ? NULL
-                            : (nf == 7) ? fields[0]
-                            : NULL;
-        if (!output || strcmp(output, "*") == 0) {
-            continue;
-        }
-        int dup = 0;
-        for (int i = 0; i < n_cfg; i++) {
-            if (strcmp(cfg_outputs[i], output) == 0) {
-                dup = 1;
-                break;
-            }
-        }
-        if (!dup && n_cfg < MAX_LAYERS) {
-            snprintf(cfg_outputs[n_cfg], sizeof(cfg_outputs[n_cfg]), "%s", output);
-            n_cfg++;
+        const char *output = layer_line_output_field(fields, nf);
+        if (output) {
+            snprintf(ids[n], XIS_OUTPUT_STR_LEN, "%s", output);
+            n++;
         }
     }
     fclose(f);
-
-    char real_outputs[MAX_LAYERS][64];
-    int n_real = list_connected_outputs(real_outputs, MAX_LAYERS);
-
-    if (n_cfg == 0 || n_cfg != n_real) {
-        return 0;
-    }
-
-    char unmatched_cfg[MAX_LAYERS][64];
-    char unmatched_real[MAX_LAYERS][64];
-    int n_unmatched_cfg = 0, n_unmatched_real = 0;
-
-    for (int i = 0; i < n_cfg; i++) {
-        int found = 0;
-        for (int j = 0; j < n_real; j++) {
-            if (strcmp(cfg_outputs[i], real_outputs[j]) == 0) {
-                found = 1;
-                break;
-            }
-        }
-        if (!found) {
-            snprintf(unmatched_cfg[n_unmatched_cfg], sizeof(unmatched_cfg[0]), "%s", cfg_outputs[i]);
-            n_unmatched_cfg++;
-        }
-    }
-    for (int j = 0; j < n_real; j++) {
-        int found = 0;
-        for (int i = 0; i < n_cfg; i++) {
-            if (strcmp(real_outputs[j], cfg_outputs[i]) == 0) {
-                found = 1;
-                break;
-            }
-        }
-        if (!found) {
-            snprintf(unmatched_real[n_unmatched_real], sizeof(unmatched_real[0]), "%s", real_outputs[j]);
-            n_unmatched_real++;
-        }
-    }
-
-    /* n_unmatched_cfg == n_unmatched_real is guaranteed here: n_cfg == n_real
-     * and both lists remove the same exactly-matched names from equal-size
-     * pools. */
-    int n_map = 0;
-    for (int i = 0; i < n_unmatched_cfg && n_map < max_map; i++) {
-        snprintf(map[n_map].from, sizeof(map[n_map].from), "%s", unmatched_cfg[i]);
-        snprintf(map[n_map].to, sizeof(map[n_map].to), "%s", unmatched_real[i]);
-        n_map++;
-    }
-    return n_map;
-}
-
-static const char *apply_output_rename(const OutputRename *map, int n_map, const char *name)
-{
-    for (int i = 0; i < n_map; i++) {
-        if (strcmp(map[i].from, name) == 0) {
-            return map[i].to;
-        }
-    }
-    return name;
+    return n;
 }
 
 static void load_config(void)
 {
-    OutputRename rename_map[MAX_LAYERS];
-    int n_rename = build_output_rename_map(g_configpath, rename_map, MAX_LAYERS);
+    char saved_ids[MAX_LAYERS][XIS_OUTPUT_STR_LEN];
+    int n_saved = collect_saved_output_ids(g_configpath, saved_ids, MAX_LAYERS);
+    const char *saved_ptrs[MAX_LAYERS];
+    for (int i = 0; i < n_saved; i++) {
+        saved_ptrs[i] = saved_ids[i];
+    }
+    XisOutputRename rename_map[MAX_LAYERS];
+    int n_rename = xis_build_output_rename_map(g_dpy, saved_ptrs, n_saved, rename_map, MAX_LAYERS);
     for (int i = 0; i < n_rename; i++) {
         fprintf(stderr, "xisback: config: output '%s' not found but screen count still matches, using '%s' instead (by screen order)\n", rename_map[i].from, rename_map[i].to);
     }
@@ -1235,7 +1162,7 @@ static void load_config(void)
                 continue;
             }
             enum mode mode = (strcmp(fields[3], "stretch") == 0) ? MODE_STRETCH : MODE_FILL;
-            const char *output = apply_output_rename(rename_map, n_rename, fields[1]);
+            const char *output = xis_apply_output_rename(rename_map, n_rename, fields[1]);
             char errbuf[256];
             if (layer_apply_set(output, parse_desktop(fields[2]), mode, atoi(fields[4]), atoi(fields[5]), atoi(fields[6]), fields[7], errbuf, sizeof(errbuf)) != 0) {
                 fprintf(stderr, "xisback: config: %s\n", errbuf);
@@ -1261,7 +1188,7 @@ static void load_config(void)
              * them so upgrading the binary doesn't silently drop whatever
              * wallpaper was already configured. */
             enum mode mode = (strcmp(fields[2], "stretch") == 0) ? MODE_STRETCH : MODE_FILL;
-            const char *output = apply_output_rename(rename_map, n_rename, fields[0]);
+            const char *output = xis_apply_output_rename(rename_map, n_rename, fields[0]);
             char errbuf[256];
             if (layer_apply_set(output, parse_desktop(fields[1]), mode, atoi(fields[3]), atoi(fields[4]), atoi(fields[5]), fields[6], errbuf, sizeof(errbuf)) != 0) {
                 fprintf(stderr, "xisback: config: %s\n", errbuf);
@@ -1279,11 +1206,21 @@ static void load_config(void)
  * have appeared / received a CRTC yet.  In that case the screen counts
  * don't match and no rename map is created.  When RandR later reports
  * the completed configuration, try the same positional reconciliation
- * again and update the live layers. */
+ * again and update the live layers.
+ *
+ * Only ever touches plain-name layers (xis_build_output_rename_map()
+ * skips "edid:..." ones by design -- those are already re-resolved fresh
+ * on every layer_geometry() call, live, with nothing here to reconcile). */
 static int reconcile_layer_outputs(void)
 {
-    OutputRename rename_map[MAX_LAYERS];
-    int n_rename = build_output_rename_map(g_configpath, rename_map, MAX_LAYERS);
+    char saved_ids[MAX_LAYERS][XIS_OUTPUT_STR_LEN];
+    int n_saved = collect_saved_output_ids(g_configpath, saved_ids, MAX_LAYERS);
+    const char *saved_ptrs[MAX_LAYERS];
+    for (int i = 0; i < n_saved; i++) {
+        saved_ptrs[i] = saved_ids[i];
+    }
+    XisOutputRename rename_map[MAX_LAYERS];
+    int n_rename = xis_build_output_rename_map(g_dpy, saved_ptrs, n_saved, rename_map, MAX_LAYERS);
     if (n_rename <= 0) {
         return 0;
     }
@@ -1295,7 +1232,7 @@ static int reconcile_layer_outputs(void)
             continue;
         }
 
-        const char *new_output = apply_output_rename(rename_map, n_rename, l->output);
+        const char *new_output = xis_apply_output_rename(rename_map, n_rename, l->output);
         if (strcmp(new_output, l->output) != 0) {
             fprintf(stderr,
                     "xisback: RandR: output '%s' is now '%s' (by screen order)\n",

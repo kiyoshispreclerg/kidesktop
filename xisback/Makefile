@@ -4,6 +4,12 @@ LIBS := $(shell pkg-config --cflags --libs x11 xrandr imlib2) -lm
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 
+# shared/xis_outputs.c: stable EDID-based output identity, also used by
+# xispanel and kiconfd -- compiled directly in, same as every other
+# source file here, so each program stays independently buildable and
+# installable on its own (no shared library to depend on at runtime).
+SHARED_SRC := ../shared/xis_outputs.c
+
 # xcb/xcb-randr/x11-xcb (xisback_inputscale.c's X-INPUT-SCALE client query --
 # see that file's doc comment, adapted from xispanel/inputscale.c) are the
 # one place this otherwise Xlib-only program touches XCB, needed only
@@ -28,8 +34,8 @@ endif
 
 all: xisback
 
-xisback: xisback.c $(INPUTSCALE_SRC)
-	$(CC) $(CFLAGS) $(INPUTSCALE_CPPFLAGS) -o $@ xisback.c $(INPUTSCALE_SRC) $(LIBS) $(INPUTSCALE_LDLIBS)
+xisback: xisback.c $(INPUTSCALE_SRC) $(SHARED_SRC)
+	$(CC) $(CFLAGS) $(INPUTSCALE_CPPFLAGS) -o $@ xisback.c $(INPUTSCALE_SRC) $(SHARED_SRC) $(LIBS) $(INPUTSCALE_LDLIBS)
 
 install: xisback
 	install -Dm755 xisback $(DESTDIR)$(BINDIR)/xisback
