@@ -290,12 +290,44 @@ void dbusmenu_free_item_icons(DbusMenuItem *items, int n)
     }
 }
 
+/* Many real DBusMenu servers (GIMP/GTK2-era apps via appmenu-gtk-module,
+ * Electron/Chromium apps like VSCodium) only populate a submenu's children
+ * lazily, in response to this call naming the item about to be displayed;
+ * without it GetLayout can return that item with an empty (or absent)
+ * child list even though it really has one. The reply's "needUpdateLayout"
+ * bool is ignored -- we're about to call GetLayout right after regardless,
+ * so there is nothing to act on differently either way. Servers that don't
+ * implement AboutToShow at all just error the call, which is harmless:
+ * fall through to GetLayout unchanged. */
+static void dbusmenu_about_to_show(const char *busname, const char *path, int32_t parent_id)
+{
+    DBusMessage *msg = p_dbus_message_new_method_call(busname, path, DBUSMENU_IFACE, "AboutToShow");
+    if (!msg) {
+        return;
+    }
+    DBusMessageIter it;
+    p_dbus_message_iter_init_append(msg, &it);
+    p_dbus_message_iter_append_basic(&it, DBUS_TYPE_INT32, &parent_id);
+    DBusError err;
+    p_dbus_error_init(&err);
+    DBusMessage *reply = p_dbus_connection_send_with_reply_and_block(g_conn, msg, DBUSMENU_CALL_TIMEOUT_MS, &err);
+    p_dbus_message_unref(msg);
+    if (p_dbus_error_is_set(&err)) {
+        p_dbus_error_free(&err);
+    }
+    if (reply) {
+        p_dbus_message_unref(reply);
+    }
+}
+
 int dbusmenu_fetch(const char *busname, const char *path, int32_t parent_id, int32_t depth, DbusMenuItem *out_items,
                     int *out_ids, int *out_depth, int max_items)
 {
     if (!dbusmenu_ensure_connected()) {
         return -1;
     }
+
+    dbusmenu_about_to_show(busname, path, parent_id);
 
     DBusMessage *msg = p_dbus_message_new_method_call(busname, path, DBUSMENU_IFACE, "GetLayout");
     if (!msg) {
