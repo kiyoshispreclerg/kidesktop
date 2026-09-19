@@ -74,7 +74,7 @@ int xis_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int 
 int xis_fd(void);
 int xis_poll_change(void);
 
-#define XISBACK_VERSION "0.4.3"
+#define XISBACK_VERSION "0.4.4"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -1108,8 +1108,16 @@ static int build_output_rename_map(const char *path, OutputRename *map, int max_
             fields[nf++] = p;
         }
         /* Same output field position in both the current "LAYER\t..." format
-         * and the pre-0.4 unprefixed one. */
+         * and the pre-0.4 unprefixed one -- but an "ACTIONS\t..." line also
+         * happens to come out to 7 fields (ACTIONS + 6 action commands), so
+         * it must be ruled out first or it gets misread as a legacy-format
+         * LAYER line with output="ACTIONS", inflating n_cfg by one bogus
+         * entry and breaking the n_cfg==n_real check below for every config
+         * that has a saved ACTIONS line (i.e. nearly all of them) -- see
+         * load_config()'s own three-way branch just below, which this
+         * mirrors and must stay in sync with. */
         const char *output = (strcmp(fields[0], "LAYER") == 0 && nf >= 2) ? fields[1]
+                            : (strcmp(fields[0], "ACTIONS") == 0) ? NULL
                             : (nf == 7) ? fields[0]
                             : NULL;
         if (!output || strcmp(output, "*") == 0) {
@@ -1263,6 +1271,44 @@ static void load_config(void)
         }
     }
     fclose(f);
+}
+
+/* Reconcile already-loaded layers after RandR changes.
+ *
+ * At startup load_config() does this once, but a second monitor may not
+ * have appeared / received a CRTC yet.  In that case the screen counts
+ * don't match and no rename map is created.  When RandR later reports
+ * the completed configuration, try the same positional reconciliation
+ * again and update the live layers. */
+static int reconcile_layer_outputs(void)
+{
+    OutputRename rename_map[MAX_LAYERS];
+    int n_rename = build_output_rename_map(g_configpath, rename_map, MAX_LAYERS);
+    if (n_rename <= 0) {
+        return 0;
+    }
+
+    int changed = 0;
+    for (int i = 0; i < MAX_LAYERS; i++) {
+        Layer *l = &g_layers[i];
+        if (!l->in_use || strcmp(l->output, "*") == 0) {
+            continue;
+        }
+
+        const char *new_output = apply_output_rename(rename_map, n_rename, l->output);
+        if (strcmp(new_output, l->output) != 0) {
+            fprintf(stderr,
+                    "xisback: RandR: output '%s' is now '%s' (by screen order)\n",
+                    l->output, new_output);
+            snprintf(l->output, sizeof(l->output), "%s", new_output);
+            changed = 1;
+        }
+    }
+
+    if (changed) {
+        save_config();
+    }
+    return changed;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1751,6 +1797,7 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                 XNextEvent(g_dpy, &ev);
                 if (g_rr_event_base >= 0 && ev.type == g_rr_event_base + RRScreenChangeNotify) {
                     XRRUpdateConfiguration(&ev);
+                    reconcile_layer_outputs();
                     refresh_all_layer_geometries();
                 } else if (ev.type == ButtonPress) {
                     /* Button2 is the middle button in X11's numbering (not
