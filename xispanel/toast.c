@@ -38,7 +38,18 @@
 #define TOAST_SUMMARY_SIZE 14.0
 #define TOAST_BODY_SIZE 12.0
 
+/* Default lifetime for an OSD toast (toast_show_osd()) that doesn't pass
+ * its own timeout_ms -- shorter than a DBus notification's own ~5s
+ * default (notifd.c's own substitute for a sender's -1), since an OSD is
+ * meant to confirm something the user just did (a scroll, a hotkey) and
+ * should get out of the way quickly rather than linger like a message
+ * someone else sent. */
+#define TOAST_OSD_DEFAULT_MS 2500
+
 typedef struct {
+    /* 0 for an OSD toast (toast_show_osd()) -- notifd.c's own ids start
+     * at 1 (see g_next_id in notifd.c), so 0 doubles as "not a real
+     * notification, don't call notifd_mark_read() for this one". */
     unsigned int notif_id;
     Window win;
     cairo_surface_t *surface;
@@ -57,11 +68,20 @@ typedef struct {
     char app_name[NOTIFD_APP_NAME_MAX];
     char summary[NOTIFD_SUMMARY_MAX];
     char body[NOTIFD_BODY_MAX];
-    /* Borrowed from notifd.c's ring entry, not owned/freed here -- only
-     * safe because a toast's own ~5s default lifetime is always far
-     * shorter than it'd take NOTIFD_MAX (50) more notifications to arrive
-     * and evict the entry this pointer came from. */
+    /* Borrowed from notifd.c's ring entry (a DBus arrival) or from
+     * whatever the toast_show_osd() caller already resolved (an OSD) --
+     * either way, not owned/freed here. For a DBus arrival this is safe
+     * because a toast's own ~5s default lifetime is always far shorter
+     * than it'd take NOTIFD_MAX (50) more notifications to arrive and
+     * evict the entry this pointer came from. */
     cairo_surface_t *icon;
+    /* -1 = no level bar (every DBus-arrived toast). 0-100 draws one under
+     * the text, for volume/brightness-style OSDs -- see toast_show_osd(). */
+    int level;
+    /* Stored but not yet acted on -- see toast_show_osd()'s doc comment
+     * in xispanel.h. Reserved for a later pass that colors the toast (or
+     * plays a sound) differently for ToastUrgency's CRITICAL/LOW ends. */
+    ToastUrgency urgency;
 } Toast;
 
 static Toast g_toasts[TOAST_ARRAY_CAP];
@@ -242,6 +262,22 @@ static void paint_toast(Toast *t)
         pango_show_text_boxed(cr, text_x, pad - 2 + TOAST_SUMMARY_SIZE + 6, TOAST_BODY_SIZE + 6, text_w,
                                TOAST_BODY_SIZE, t->body, NULL);
     }
+
+    /* Level bar (volume/brightness-style OSD only -- see toast_show_osd()).
+     * Sits along the bottom of the padded area regardless of whether body
+     * text is present: an OSD toast has no body in practice, and the rare
+     * combination isn't worth a layout special case for. */
+    if (t->level >= 0) {
+        double bar_h = 4;
+        double bar_y = TOAST_H - pad - bar_h;
+        int level = t->level > 100 ? 100 : t->level;
+        cairo_set_source_rgba(cr, g_fg_r, g_fg_g, g_fg_b, 0.25);
+        cairo_rectangle(cr, text_x, bar_y, text_w, bar_h);
+        cairo_fill(cr);
+        cairo_set_source_rgba(cr, g_fg_r, g_fg_g, g_fg_b, 0.95);
+        cairo_rectangle(cr, text_x, bar_y, text_w * (level / 100.0), bar_h);
+        cairo_fill(cr);
+    }
 }
 
 static void destroy_toast_window(Toast *t)
@@ -284,15 +320,15 @@ static void remove_toast(int idx)
     reposition_all();
 }
 
-static void toast_on_arrived(const NotifEntry *e, int expire_timeout_ms)
+/* Common half of showing any toast, DBus-arrived or OSD: evicts enough
+ * oldest-first room for one more (see the loop's own comment) and hands
+ * back a zeroed slot for the caller to fill in. Doesn't map/paint the
+ * window itself -- see map_and_show_toast() below -- since the two
+ * callers fill different fields (notif_id/app_name for a real
+ * notification vs. level/urgency for an OSD) before that part runs. */
+static Toast *claim_toast_slot(void)
 {
     ensure_visual();
-    /* Room for one more, freeing up as many oldest-first as it takes --
-     * normally at most one eviction, but a loop (not a single if) since
-     * the workarea can also have shrunk since the last arrival (e.g.
-     * another panel/dock appeared), which could put the cap below g_n by
-     * more than one. Cap it at TOAST_ARRAY_CAP too so a pathological
-     * capacity (huge screen) never overflows the fixed-size array. */
     int cap = toast_capacity();
     if (cap > TOAST_ARRAY_CAP) {
         cap = TOAST_ARRAY_CAP;
@@ -300,23 +336,18 @@ static void toast_on_arrived(const NotifEntry *e, int expire_timeout_ms)
     while (g_n >= cap && g_n > 0) {
         remove_toast(0); /* drop the oldest visible toast to make room */
     }
-
     Toast *t = &g_toasts[g_n];
     memset(t, 0, sizeof(*t));
-    t->notif_id = e->id;
-    snprintf(t->app_name, sizeof(t->app_name), "%s", e->app_name);
-    snprintf(t->summary, sizeof(t->summary), "%s", e->summary);
-    snprintf(t->body, sizeof(t->body), "%s", e->body);
-    t->icon = e->icon;
-    /* expire_timeout_ms is already resolved by notifd.c (see the
-     * NotifArrivedFn doc comment in xispanel.h) -- widgets/notif.c's
-     * timeout= config only ever changes what notifd.c substitutes for a
-     * sender that didn't request its own, so a negative value should
-     * never actually reach here, but treat it the same as 0 (immediate
-     * default) rather than trust it blindly. */
-    t->timeout_ms = expire_timeout_ms > 0 ? (uint64_t)expire_timeout_ms : 0;
-    t->expire_ms = t->timeout_ms != 0 ? now_ms() + t->timeout_ms : 0;
+    t->level = -1; /* caller overrides for an OSD with a level bar */
+    return t;
+}
 
+/* Creates `t`'s window, paints it, and restacks everyone else -- the
+ * part every toast needs regardless of where its content came from.
+ * `t` must be the slot claim_toast_slot() just returned (i.e. still at
+ * g_toasts[g_n]); this is what actually advances g_n. */
+static void map_and_show_toast(Toast *t)
+{
     g_n++; /* toast_screen_pos() positions by index within the *new* total
              * count, so this new toast counts itself -- incrementing first
              * makes toast_screen_pos(g_n - 1, ...) below identical to what
@@ -351,6 +382,41 @@ static void toast_on_arrived(const NotifEntry *e, int expire_timeout_ms)
      * the current g_n/array order, so it's simplest to just always call it
      * here rather than only moving the older ones by hand. */
     reposition_all();
+}
+
+static void toast_on_arrived(const NotifEntry *e, int expire_timeout_ms)
+{
+    Toast *t = claim_toast_slot();
+    t->notif_id = e->id;
+    snprintf(t->app_name, sizeof(t->app_name), "%s", e->app_name);
+    snprintf(t->summary, sizeof(t->summary), "%s", e->summary);
+    snprintf(t->body, sizeof(t->body), "%s", e->body);
+    t->icon = e->icon;
+    t->urgency = TOAST_URGENCY_NORMAL;
+    /* expire_timeout_ms is already resolved by notifd.c (see the
+     * NotifArrivedFn doc comment in xispanel.h) -- widgets/notif.c's
+     * timeout= config only ever changes what notifd.c substitutes for a
+     * sender that didn't request its own, so a negative value should
+     * never actually reach here, but treat it the same as 0 (immediate
+     * default) rather than trust it blindly. */
+    t->timeout_ms = expire_timeout_ms > 0 ? (uint64_t)expire_timeout_ms : 0;
+    t->expire_ms = t->timeout_ms != 0 ? now_ms() + t->timeout_ms : 0;
+    map_and_show_toast(t);
+}
+
+void toast_show_osd(cairo_surface_t *icon, const char *summary, const char *body, int level, ToastUrgency urgency,
+                     int timeout_ms)
+{
+    Toast *t = claim_toast_slot();
+    /* t->notif_id stays 0 -- see its own doc comment on the Toast struct. */
+    snprintf(t->summary, sizeof(t->summary), "%s", summary ? summary : "");
+    snprintf(t->body, sizeof(t->body), "%s", body ? body : "");
+    t->icon = icon;
+    t->level = level < 0 ? -1 : level;
+    t->urgency = urgency;
+    t->timeout_ms = (uint64_t)(timeout_ms > 0 ? timeout_ms : TOAST_OSD_DEFAULT_MS);
+    t->expire_ms = now_ms() + t->timeout_ms;
+    map_and_show_toast(t);
 }
 
 void toast_init(void)

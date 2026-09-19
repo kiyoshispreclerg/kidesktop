@@ -1117,16 +1117,48 @@ void notifd_set_default_expire_ms(int ms);
  * in a fixed corner of the (default-screen) desktop -- deliberately not
  * built on tooltip.c (informational, no click) or menu.c (takes a pointer
  * grab, single popup at a time): a toast needs neither hover-intent timing
- * nor an input grab, and several can be visible at once. Wired to notifd.c
- * purely via notifd_set_arrived_callback() -- toast.c never polls notifd_
- * count() itself, only ever reacts to genuinely new arrivals. Clicking a
- * toast dismisses it early and marks the underlying notification read
- * (notifd_mark_read()); otherwise it auto-dismisses after its own
- * expire_timeout_ms (0 = never auto-expire, per the Notify() spec). */
+ * nor an input grab, and several can be visible at once. Two independent
+ * ways a toast gets shown:
+ *
+ *  - A DBus org.freedesktop.Notifications.Notify() call, via
+ *    notifd_set_arrived_callback() -- toast.c never polls notifd_count()
+ *    itself, only ever reacts to genuinely new arrivals. Clicking such a
+ *    toast dismisses it early and marks the underlying notification read
+ *    (notifd_mark_read()); otherwise it auto-dismisses after its own
+ *    expire_timeout_ms (0 = never auto-expire, per the Notify() spec).
+ *  - toast_show_osd() below, called directly in-process (no DBus, no
+ *    notifd involved at all) for one-off feedback a widget wants to show
+ *    about its own state changing -- volume/brightness/night-light/low-
+ *    battery, say. A toast shown this way isn't tied to any notifd.c
+ *    entry (notif_id stays 0) and always auto-expires. */
 void toast_init(void); /* call once at startup, after ewmh_init_atoms() (needs g_atom_wm_window_type*) */
 void toast_tick(uint64_t now); /* dismiss expired toasts -- call alongside tooltip_tick()/panel_menu_tick() */
 uint64_t toast_next_wake_ms(void); /* 0 = no toast pending expiry, else fold into the main loop's timeout */
 int toast_handle_event(const XEvent *ev); /* 1 if `ev` belonged to a toast popup (click-to-dismiss, Expose) */
+/* Reserved for a later pass that gives CRITICAL (at least) a visibly
+ * different toast color, and possibly a sound -- toast_show_osd() stores
+ * whichever value it's given today, but every level renders identically
+ * for now. Mirrors the three-way urgency hint DBus notifications already
+ * have (freedesktop's Notify() "urgency" byte hint, 0/1/2), so a future
+ * pass can treat both paths the same way instead of inventing a second
+ * scheme for OSDs specifically. */
+typedef enum {
+    TOAST_URGENCY_LOW,
+    TOAST_URGENCY_NORMAL,
+    TOAST_URGENCY_CRITICAL,
+} ToastUrgency;
+/* Shows a toast directly -- see this section's own doc comment above for
+ * how this differs from a DBus-arrived one. `icon` is borrowed exactly
+ * like a DBus notification's own icon (not freed here) -- resolve it
+ * with panel_theme_icon() (a widget already has its own Panel*) or pass
+ * NULL for none. `level` is -1 for no bar, or 0-100 to draw one under the
+ * text (a volume/brightness-style OSD) -- see toast.c's paint_toast().
+ * `urgency` is stored only, see ToastUrgency above. `timeout_ms` <= 0
+ * uses toast.c's own OSD default (shorter than a DBus notification's,
+ * since this is meant to confirm something the user just did); an OSD
+ * toast always auto-expires, unlike a DBus one's "0 = never" option. */
+void toast_show_osd(cairo_surface_t *icon, const char *summary, const char *body, int level, ToastUrgency urgency,
+                     int timeout_ms);
 
 /* launchfx.c: optional zoom+fade "launch feedback" popup over a clicked
  * launcher icon -- compositor-only, see that file's comment for why
