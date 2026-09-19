@@ -9,7 +9,12 @@
  * Also the one thing in the session that applies the night light
  * schedule (kiconf's Energia tab) on a timer -- see the "night light"
  * section below and apply_nightlight()'s own comment for why this file
- * ended up owning that instead of a separate daemon.
+ * ended up owning that instead of a separate daemon. Each time that
+ * actually turns the tint on or off (never for a mid-window temperature-
+ * only edit), it also tells xispanel to pop a toast about it --
+ * notify_xispanel_osd(), a fire-and-forget JSON line to xispanel-ctl's
+ * `OSD` command (see xispanel/PROTOCOL.md) that silently does nothing if
+ * xispanel isn't running.
  *
  * Log: off by default (stdout/stderr behave normally, i.e. whatever
  * kisession/startx/the display manager's Xsession script already does
@@ -126,12 +131,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/file.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/un.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.7"
+#define KICONFD_VERSION "0.2.8"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -1304,14 +1311,67 @@ static int have_cmd(const char *name)
 static int g_nightlight_applied = -1;
 static int g_nightlight_applied_temp = -1;
 
+/* Same JSON-line-over-Unix-socket send kiconf/common.c's own
+ * xispanel_reload() does (json_line_send() there) -- duplicated rather
+ * than shared, same as every other cross-binary bit of this codebase
+ * (nothing here links against kiconf's object files). Fire-and-forget:
+ * doesn't wait for or read the response, and silently does nothing if
+ * xispanel isn't running or its socket doesn't exist (connect() just
+ * fails) -- a night light toggle showing no popup because nothing was
+ * there to show it is fine; kiconfd stalling or erroring over a missing
+ * panel process is not. `summary`/`icon` are always one of this file's
+ * own fixed strings (never user input), so no JSON escaping is needed. */
+static void notify_xispanel_osd(const char *summary, const char *icon)
+{
+    const char *rundir = getenv("XDG_RUNTIME_DIR");
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/xispanel-ctl.sock", (rundir && *rundir) ? rundir : "/tmp");
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) {
+        return;
+    }
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", path);
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0) {
+        char line[256];
+        snprintf(line, sizeof(line), "{\"cmd\":\"OSD\",\"summary\":\"%s\",\"icon\":\"%s\"}\n", summary, icon);
+        ssize_t unused = write(fd, line, strlen(line));
+        (void)unused; /* best-effort, see the function's own doc comment */
+        /* xispanel always writes a response line back -- draining it
+         * (rather than just closing) avoids an EPIPE on *its* side that
+         * would otherwise land in its own log every time this fires. The
+         * response body itself isn't useful here (nothing to react to),
+         * so it's read and discarded, not parsed. */
+        shutdown(fd, SHUT_WR);
+        char resp[64];
+        while (read(fd, resp, sizeof(resp)) > 0) {
+        }
+    }
+    close(fd);
+}
+
 static void apply_nightlight(void)
 {
     NightlightSchedule c;
     load_nightlight_schedule(&c);
 
+    /* Whether this call is transitioning out of a real prior state
+     * (0 or 1) rather than kiconfd's own startup (-1, "not yet applied
+     * this run") -- only a real transition is worth a toast. Without
+     * this, every session start would pop "luz noturna desativada" the
+     * instant kiconfd applies its very first day-default reset, even
+     * though nothing the user would recognize as a *change* happened. */
+    int had_prior_state = g_nightlight_applied != -1;
+
     if (!c.enabled) {
         if (g_nightlight_applied != 0) {
             run_fire((char *const[]){"xsct", NULL});
+            if (had_prior_state) {
+                notify_xispanel_osd("Luz noturna desativada", "night-light-symbolic");
+            }
             g_nightlight_applied = 0;
             g_nightlight_applied_temp = -1;
         }
@@ -1335,12 +1395,22 @@ static void apply_nightlight(void)
             char tempstr[16];
             snprintf(tempstr, sizeof(tempstr), "%d", c.temp);
             run_fire((char *const[]){"xsct", tempstr, NULL});
+            /* Only the on/off edge gets a toast, not a mid-window
+             * temperature-only change (kiconf's Energia tab Aplicar
+             * while already inside the window) -- that one only needed
+             * a fresh xsct call, not an announcement. */
+            if (had_prior_state && g_nightlight_applied != 1) {
+                notify_xispanel_osd("Luz noturna ativada", "night-light-symbolic");
+            }
             g_nightlight_applied = 1;
             g_nightlight_applied_temp = c.temp;
         }
     } else {
         if (g_nightlight_applied != 0) {
             run_fire((char *const[]){"xsct", NULL});
+            if (had_prior_state) {
+                notify_xispanel_osd("Luz noturna desativada", "night-light-symbolic");
+            }
             g_nightlight_applied = 0;
             g_nightlight_applied_temp = -1;
         }
