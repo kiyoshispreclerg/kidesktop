@@ -30,6 +30,7 @@ socket rather than xisback's `SET`-style protocol.
 {"cmd":"PING"}
 {"cmd":"GET_STATUS"}
 {"cmd":"RELOAD"}
+{"cmd":"OSD","summary":"Volume","level":65,"icon":"volume-high"}
 {"cmd":"QUIT"}
 ```
 
@@ -38,6 +39,21 @@ socket rather than xisback's `SET`-style protocol.
 - `RELOAD` -> tears down every panel/widget and reloads
   `$XDG_CONFIG_HOME/xispanel.conf` from scratch, then reactivates every
   panel found in it. `{"ok":true}` on success.
+- `OSD` -> shows a toast popup directly (`toast_show_osd()`, see
+  `xispanel.h`), entirely independent of the DBus notification pipeline
+  (`notifd.c`/`org.freedesktop.Notifications`) -- for a process outside
+  xispanel (`xiskeys`'s hotkey actions; `kiconfd`'s night-light schedule)
+  to show one-off feedback about a change *it* just made, without linking
+  against xispanel or reimplementing the popup. Fields, all but
+  `summary` optional: `icon` (a themed icon name, resolved against the
+  first live panel's theme), `body`, `level` (0-100, draws a bar under
+  the text -- omit for a plain text toast), `urgency` (`"low"`,
+  `"normal"` (default), or `"critical"` -- stored for a later pass that
+  colors/sounds differently per level, no visible effect yet), and
+  `timeout_ms` (omit for toast.c's own shorter OSD default). `{"ok":true}`
+  on success; malformed/missing fields degrade rather than error (an
+  empty `summary`, no icon, etc.), same "never just fail to show
+  something" spirit as the rest of this protocol.
 - `QUIT` -> stops the daemon. `{"ok":true}`
 
 Unknown commands get `{"ok":false,"error":"unknown command"}`.

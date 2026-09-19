@@ -93,7 +93,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.19"
+#define XISPANEL_VERSION "0.6.20"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 #define IPC_MAX_LEN 4096
@@ -2362,6 +2362,27 @@ static int build_sockaddr_un(struct sockaddr_un *addr, const char *path)
 
 /* Same minimal flat-JSON helpers as xisguard-ctl -- good enough for the
  * request shapes this protocol actually needs, no parser dependency. */
+static int json_get_int(const char *msg, const char *key, int *out)
+{
+    char needle[64];
+    snprintf(needle, sizeof(needle), "\"%s\":", key);
+    const char *p = strstr(msg, needle);
+    if (!p) {
+        return 0;
+    }
+    p += strlen(needle);
+    while (*p == ' ') {
+        p++;
+    }
+    char *end;
+    long v = strtol(p, &end, 10);
+    if (end == p) {
+        return 0;
+    }
+    *out = (int)v;
+    return 1;
+}
+
 static int json_get_str(const char *msg, const char *key, char *dst, size_t dst_sz)
 {
     dst[0] = 0;
@@ -2409,6 +2430,46 @@ static void handle_ipc_message(const char *req, char *resp, size_t resp_sz)
         snprintf(resp, resp_sz, "{\"ok\":true,\"version\":\"%s\",\"panels\":%d}\n", XISPANEL_VERSION, n_panels);
     } else if (strcmp(cmd, "RELOAD") == 0) {
         reload_all_panels();
+        snprintf(resp, resp_sz, "{\"ok\":true}\n");
+    } else if (strcmp(cmd, "OSD") == 0) {
+        /* Lets a process outside xispanel (xiskeys today; kiconfd next --
+         * see toast_show_osd()'s own doc comment in xispanel.h) show a
+         * toast without linking against xispanel or reimplementing the
+         * popup itself. Every field but "summary" is optional. */
+        char icon_name[128] = "", summary[NOTIFD_SUMMARY_MAX] = "", body[NOTIFD_BODY_MAX] = "";
+        char urgency_str[16] = "";
+        json_get_str(req, "icon", icon_name, sizeof(icon_name));
+        json_get_str(req, "summary", summary, sizeof(summary));
+        json_get_str(req, "body", body, sizeof(body));
+        json_get_str(req, "urgency", urgency_str, sizeof(urgency_str));
+        int level = -1, timeout_ms = 0;
+        json_get_int(req, "level", &level);
+        json_get_int(req, "timeout_ms", &timeout_ms);
+
+        ToastUrgency urgency = TOAST_URGENCY_NORMAL;
+        if (!strcmp(urgency_str, "low")) {
+            urgency = TOAST_URGENCY_LOW;
+        } else if (!strcmp(urgency_str, "critical")) {
+            urgency = TOAST_URGENCY_CRITICAL;
+        }
+
+        /* Icon theme lookup needs a Panel* (per-panel theme, see
+         * panel_theme_icon()) -- there's only ever one toast stack
+         * regardless of how many panels/outputs exist (toast.c's own doc
+         * comment), so the first live panel stands in for "the" theme,
+         * same as toast_set_corner()/toast_set_colors() already treat
+         * "whichever notif widget last touched it" as one global source
+         * of truth. 40px matches toast.c's own TOAST_ICON. */
+        cairo_surface_t *icon = NULL;
+        if (icon_name[0]) {
+            for (int i = 0; i < MAX_PANELS; i++) {
+                if (g_panels[i].in_use) {
+                    icon = panel_theme_icon(&g_panels[i], icon_name, 40);
+                    break;
+                }
+            }
+        }
+        toast_show_osd(icon, summary, body, level, urgency, timeout_ms);
         snprintf(resp, resp_sz, "{\"ok\":true}\n");
     } else if (strcmp(cmd, "QUIT") == 0) {
         g_quit = 1;
