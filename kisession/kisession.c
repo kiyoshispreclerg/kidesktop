@@ -65,7 +65,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KISESSION_VERSION "0.1.4"
+#define KISESSION_VERSION "0.1.5"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -1396,6 +1396,79 @@ static int qt_platformtheme_available(const char *name)
     return 0;
 }
 
+/* True if a GTK module of this name is installed for GTK2 or GTK3 -- same
+ * glisted-directory reasoning as qt_platformtheme_available(). */
+static int gtk_module_available(const char *name)
+{
+    static const char *const patterns[] = {
+        "/usr/lib/*/gtk-2.0/modules/lib%s.so",
+        "/usr/lib/*/gtk-3.0/modules/lib%s.so",
+        "/usr/lib/gtk-2.0/modules/lib%s.so",
+        "/usr/lib/gtk-3.0/modules/lib%s.so",
+        NULL,
+    };
+    for (int i = 0; patterns[i]; i++) {
+        char pat[PATH_MAX];
+        snprintf(pat, sizeof(pat), patterns[i], name);
+        glob_t g;
+        memset(&g, 0, sizeof(g));
+        int hit = (glob(pat, 0, NULL, &g) == 0 && g.gl_pathc > 0);
+        globfree(&g);
+        if (hit) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* appmenu-gtk-module is what makes GTK2 apps (GIMP) and classic-widget-menu
+ * GTK3 apps (most of them -- only GApplication+GMenuModel ones export on
+ * their own) show up in xismenu's translator (../xismenu/gmenu.c) instead
+ * of keeping their menu in-window. GTK loads it from two independent
+ * places: this GTK_MODULES environment variable, and the "gtk-modules="
+ * key in ~/.gtkrc-2.0 / ~/.config/gtk-3.0/settings.ini -- and the latter
+ * is not something kisession owns or can rely on staying put (kiconfd
+ * never touches that key, but something outside this codebase evidently
+ * can: it was observed missing from both files despite having been
+ * present in an earlier session, with nothing here having written to
+ * either file since). Setting it here too means the module loads even
+ * when a dotfile gets rewritten by something that doesn't know it needs
+ * to preserve that one token in a colon-list it doesn't otherwise touch.
+ * Appends to (rather than replacing) an existing GTK_MODULES, same as the
+ * "appmenu-gtk-module.service" systemd unit XFCE/GNOME/MATE sessions get
+ * does -- kisession is the equivalent for a session that reaches none of
+ * those targets. */
+static void setup_gtk_modules(void)
+{
+    if (!gtk_module_available("appmenu-gtk-module")) {
+        return;
+    }
+    const char *existing = getenv("GTK_MODULES");
+    if (existing && *existing) {
+        /* Match on the bare token, not just any substring -- a module
+         * name that happens to be a *suffix* of another one (there are
+         * none today, but nothing rules it out) must not look present. */
+        const char *p = existing;
+        size_t want_len = strlen("appmenu-gtk-module");
+        int have = 0;
+        while (*p && !have) {
+            const char *colon = strchr(p, ':');
+            size_t tok_len = colon ? (size_t)(colon - p) : strlen(p);
+            have = tok_len == want_len && strncmp(p, "appmenu-gtk-module", want_len) == 0;
+            p = colon ? colon + 1 : p + tok_len;
+        }
+        if (have) {
+            return;
+        }
+        char joined[512];
+        snprintf(joined, sizeof(joined), "%s:appmenu-gtk-module", existing);
+        setenv("GTK_MODULES", joined, 1);
+    } else {
+        setenv("GTK_MODULES", "appmenu-gtk-module", 1);
+    }
+    fprintf(stderr, "kisession: GTK_MODULES=%s\n", getenv("GTK_MODULES"));
+}
+
 /* Qt reads its appearance from whatever QT_QPA_PLATFORMTHEME names, and
  * nothing else sets it -- so without this everything kiconfd writes for Qt
  * is inert, which is exactly what "the session doesn't start with my
@@ -1445,6 +1518,7 @@ static void setup_environment(char **argv)
     setenv("XDG_MENU_PREFIX", "kidesktop-", 1);
     setenv("XDG_SESSION_TYPE", "x11", 1);
     setup_qt_platformtheme();
+    setup_gtk_modules();
 
     if (!svc_enabled("dbus")) {
         return;
@@ -1492,7 +1566,7 @@ static void setup_environment(char **argv)
     static const char *const upd[] = {
         "dbus-update-activation-environment", "--systemd", "DISPLAY", "XAUTHORITY",
         "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE",
-        "QT_QPA_PLATFORMTHEME", NULL,
+        "QT_QPA_PLATFORMTHEME", "GTK_MODULES", NULL,
     };
     char found[PATH_MAX];
     if (find_in_path(upd[0], found, sizeof(found))) {

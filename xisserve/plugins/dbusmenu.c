@@ -144,7 +144,7 @@ static GdkPixbuf *decode_icon_data(const unsigned char *data, int len)
  * invisible items and their entire subtree; disabled items are still
  * listed (globalmenu.c filters those out of search results itself). */
 static void dbusmenu_parse_node(DBusMessageIter *variant_iter, int depth, DbusMenuItem *out_items, int *out_ids,
-                                 int *out_depth, int max_items, int *n)
+                                 int *out_depth, int *out_has_submenu, int max_items, int *n)
 {
     if (*n >= max_items) {
         return;
@@ -167,7 +167,7 @@ static void dbusmenu_parse_node(DBusMessageIter *variant_iter, int depth, DbusMe
     char icon_name[256] = "";
     static unsigned char icon_data[DBUSMENU_ICON_DATA_MAX];
     int icon_data_len = 0;
-    int is_separator = 0, enabled = 1, visible = 1;
+    int is_separator = 0, enabled = 1, visible = 1, declares_submenu = 0;
     if (p_dbus_message_iter_get_arg_type(&node) == DBUS_TYPE_ARRAY) {
         DBusMessageIter props;
         p_dbus_message_iter_recurse(&node, &props);
@@ -212,6 +212,12 @@ static void dbusmenu_parse_node(DBusMessageIter *variant_iter, int depth, DbusMe
                     dbus_bool_t b = TRUE;
                     p_dbus_message_iter_get_basic(&val, &b);
                     visible = b;
+                } else if (!strcmp(key, "children-display") && vt == DBUS_TYPE_STRING) {
+                    const char *s = NULL;
+                    p_dbus_message_iter_get_basic(&val, &s);
+                    if (s && !strcmp(s, "submenu")) {
+                        declares_submenu = 1;
+                    }
                 } else if (!strcmp(key, "icon-name") && vt == DBUS_TYPE_STRING) {
                     const char *s = NULL;
                     p_dbus_message_iter_get_basic(&val, &s);
@@ -261,18 +267,25 @@ static void dbusmenu_parse_node(DBusMessageIter *variant_iter, int depth, DbusMe
         }
         out_ids[*n] = id;
         out_depth[*n] = depth;
+        out_has_submenu[*n] = declares_submenu;
         (*n)++;
     }
 
     /* Third field: av (array of variant), each wrapping a child node --
      * present (possibly empty) whether or not this item has visible
      * children; recurse only if actually visible, matching the skip
-     * above. */
+     * above. An item can declare children-display=submenu and still land
+     * here with zero actual children -- servers that populate a submenu
+     * lazily (Electron's, at least) only do it in response to that
+     * specific item's own AboutToShow, which a single recursive
+     * GetLayout never sends; dbusmenu_fetch() checks out_has_submenu
+     * after this returns and resolves any such item with its own
+     * AboutToShow+GetLayout round trip. */
     if (visible && p_dbus_message_iter_get_arg_type(&node) == DBUS_TYPE_ARRAY) {
         DBusMessageIter children;
         p_dbus_message_iter_recurse(&node, &children);
         while (p_dbus_message_iter_get_arg_type(&children) == DBUS_TYPE_VARIANT && *n < max_items) {
-            dbusmenu_parse_node(&children, depth + 1, out_items, out_ids, out_depth, max_items, n);
+            dbusmenu_parse_node(&children, depth + 1, out_items, out_ids, out_depth, out_has_submenu, max_items, n);
             if (!p_dbus_message_iter_next(&children)) {
                 break;
             }
@@ -320,15 +333,16 @@ static void dbusmenu_about_to_show(const char *busname, const char *path, int32_
     }
 }
 
-int dbusmenu_fetch(const char *busname, const char *path, int32_t parent_id, int32_t depth, DbusMenuItem *out_items,
-                    int *out_ids, int *out_depth, int max_items)
+/* The actual GetLayout round trip + flattening, no AboutToShow and no
+ * lazy-submenu expansion -- dbusmenu_fetch() below is the public entry
+ * point and does both around this. Split out so the expansion pass can
+ * call this again, once per item that needs resolving, without
+ * recursing into dbusmenu_fetch() itself (which would re-run the
+ * expansion pass on top of an expansion pass). */
+static int dbusmenu_fetch_one(const char *busname, const char *path, int32_t parent_id, int32_t depth,
+                               DbusMenuItem *out_items, int *out_ids, int *out_depth, int *out_has_submenu,
+                               int max_items)
 {
-    if (!dbusmenu_ensure_connected()) {
-        return -1;
-    }
-
-    dbusmenu_about_to_show(busname, path, parent_id);
-
     DBusMessage *msg = p_dbus_message_new_method_call(busname, path, DBUSMENU_IFACE, "GetLayout");
     if (!msg) {
         return -1;
@@ -373,7 +387,7 @@ int dbusmenu_fetch(const char *busname, const char *path, int32_t parent_id, int
                 DBusMessageIter children;
                 p_dbus_message_iter_recurse(&root, &children);
                 while (p_dbus_message_iter_get_arg_type(&children) == DBUS_TYPE_VARIANT && n < max_items) {
-                    dbusmenu_parse_node(&children, 0, out_items, out_ids, out_depth, max_items, &n);
+                    dbusmenu_parse_node(&children, 0, out_items, out_ids, out_depth, out_has_submenu, max_items, &n);
                     if (!p_dbus_message_iter_next(&children)) {
                         break;
                     }
@@ -382,6 +396,90 @@ int dbusmenu_fetch(const char *busname, const char *path, int32_t parent_id, int
         }
     }
     p_dbus_message_unref(reply);
+    return n;
+}
+
+/* One item's own subtree, used only to resolve a single lazy submenu
+ * found by dbusmenu_fetch()'s expansion pass -- kept well under
+ * DBUSMENU_MAX_ITEMS since it only ever needs to hold one submenu's
+ * worth of items, not a whole tree. */
+#define DBUSMENU_EXPAND_MAX 512
+
+int dbusmenu_fetch(const char *busname, const char *path, int32_t parent_id, int32_t depth, DbusMenuItem *out_items,
+                    int *out_ids, int *out_depth, int max_items)
+{
+    if (!dbusmenu_ensure_connected()) {
+        return -1;
+    }
+
+    dbusmenu_about_to_show(busname, path, parent_id);
+
+    int has_submenu[DBUSMENU_MAX_ITEMS];
+    int n = dbusmenu_fetch_one(busname, path, parent_id, depth, out_items, out_ids, out_depth, has_submenu, max_items);
+    if (n <= 0 || depth >= 0) {
+        /* depth >= 0 asked for a bounded number of levels on purpose; an
+         * item stopping short of its own children there is the requested
+         * shape, not a lazy server -- only an unbounded (depth<0) fetch
+         * can tell the two apart. */
+        return n;
+    }
+
+    /* Some servers (Electron's DBusMenu implementation, at least --
+     * confirmed live against VSCodium) only populate a submenu's children
+     * in response to *that specific item's* own AboutToShow, no matter
+     * how the root request was made -- a single recursive GetLayout(0,-1)
+     * comes back with every "children-display":"submenu" item present but
+     * empty. Resolve each one with its own AboutToShow+GetLayout and
+     * splice the result in at its place, repeating since a freshly
+     * spliced-in item can itself be another lazy submenu, until a full
+     * pass finds nothing left to expand or max_items is reached. */
+    for (int pass = 0; pass < max_items; pass++) {
+        int expanded = 0;
+        for (int i = 0; i < n; i++) {
+            if (!has_submenu[i]) {
+                continue;
+            }
+            int has_children = (i + 1 < n) && out_depth[i + 1] > out_depth[i];
+            if (has_children) {
+                continue;
+            }
+            dbusmenu_about_to_show(busname, path, out_ids[i]);
+            DbusMenuItem sub_items[DBUSMENU_EXPAND_MAX];
+            int sub_ids[DBUSMENU_EXPAND_MAX], sub_depth[DBUSMENU_EXPAND_MAX], sub_has[DBUSMENU_EXPAND_MAX];
+            int sub_n = dbusmenu_fetch_one(busname, path, out_ids[i], -1, sub_items, sub_ids, sub_depth, sub_has,
+                                            DBUSMENU_EXPAND_MAX);
+            has_submenu[i] = 0; /* resolved either way -- an empty reply really is an empty menu */
+            if (sub_n <= 0) {
+                continue;
+            }
+            int room = max_items - n;
+            if (sub_n > room) {
+                sub_n = room;
+            }
+            if (sub_n <= 0) {
+                break;
+            }
+            int base_depth = out_depth[i] + 1;
+            int at = i + 1;
+            size_t tail = (size_t)(n - at);
+            memmove(&out_items[at + sub_n], &out_items[at], tail * sizeof(*out_items));
+            memmove(&out_ids[at + sub_n], &out_ids[at], tail * sizeof(*out_ids));
+            memmove(&out_depth[at + sub_n], &out_depth[at], tail * sizeof(*out_depth));
+            memmove(&has_submenu[at + sub_n], &has_submenu[at], tail * sizeof(*has_submenu));
+            for (int j = 0; j < sub_n; j++) {
+                out_items[at + j] = sub_items[j];
+                out_ids[at + j] = sub_ids[j];
+                out_depth[at + j] = sub_depth[j] + base_depth;
+                has_submenu[at + j] = sub_has[j];
+            }
+            n += sub_n;
+            expanded = 1;
+            break; /* indices shifted -- restart the scan from the top */
+        }
+        if (!expanded) {
+            break;
+        }
+    }
     return n;
 }
 
