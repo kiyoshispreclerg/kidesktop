@@ -2,6 +2,7 @@
  * See kiconf.c's top doc comment for the overall design. */
 #include "../common.h"
 #include "../tabs.h"
+#include "../../shared/xis_outputs.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -46,6 +47,8 @@ static char g_selected_panel[NAME_LEN] = "";
  * since add_widget_cb()/widget_row_activated() (down among the other UI
  * callbacks) call it before that point in the file. */
 static void open_widget_dialog(GtkTreeIter *iter);
+/* Same story, for "Adicionar/editar painel dialog" and add_panel_cb(). */
+static void open_panel_dialog(GtkTreeIter *iter);
 
 enum { COL_PANEL_NAME = 0, COL_PANEL_OUTPUT, COL_PANEL_OPTIONS, N_PANEL_COLS };
 enum { COL_WIDGET_TYPE = 0, COL_WIDGET_OPTIONS, N_WIDGET_COLS };
@@ -327,11 +330,7 @@ static void add_panel_cb(GtkWidget *widget, gpointer data)
 {
     (void)widget;
     (void)data;
-    GtkTreeIter it;
-    gtk_list_store_append(g_panels_store, &it);
-    gtk_list_store_set(g_panels_store, &it,
-                        COL_PANEL_NAME, "novo-painel", COL_PANEL_OUTPUT, "*",
-                        COL_PANEL_OPTIONS, "edge=top pct=100 thickness=32 mode=dock", -1);
+    open_panel_dialog(NULL);
 }
 
 static void remove_panel_cb(GtkWidget *widget, gpointer data)
@@ -382,7 +381,7 @@ static void remove_panel_cb(GtkWidget *widget, gpointer data)
  * WT_STRING handle those: see the "skip empty (or ENUM's "none") values"
  * rule in open_widget_dialog() below, which is what makes leaving one of
  * those blank actually omit the key instead of writing a hollow default. */
-typedef enum { WT_BOOL, WT_INT, WT_STRING, WT_ENUM, WT_COLOR_OPT } WidgetFieldType;
+typedef enum { WT_BOOL, WT_BOOL01, WT_INT, WT_STRING, WT_ENUM, WT_COLOR_OPT } WidgetFieldType;
 
 typedef struct {
     const char *key;
@@ -401,6 +400,12 @@ typedef struct {
 } WidgetSchema;
 
 #define WF_BOOL(k, l, d) {k, l, WT_BOOL, d, 0, 0, NULL}
+/* Same as WF_BOOL but spelled "0"/"1" on disk instead of "no"/"yes" --
+ * PANEL's own tooltip_reuse is the one field in this whole schema table
+ * that isn't a widget option (see PANEL_FIELDS below, kv_get_int()!=0 in
+ * apply_panel_kv()), so it gets its own field type rather than forcing
+ * every WT_BOOL consumer to know which spelling a given key uses. */
+#define WF_BOOL01(k, l, d) {k, l, WT_BOOL01, d, 0, 0, NULL}
 #define WF_INT(k, l, d, mn, mx) {k, l, WT_INT, d, mn, mx, NULL}
 #define WF_STR(k, l, d) {k, l, WT_STRING, d, 0, 0, NULL}
 #define WF_ENUM(k, l, d, o) {k, l, WT_ENUM, d, 0, 0, o}
@@ -647,6 +652,11 @@ static GtkWidget *build_widget_field(const WidgetField *f, const char *val)
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(w), !strcmp(val, "yes"));
         return w;
     }
+    case WT_BOOL01: {
+        GtkWidget *w = gtk_check_button_new();
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(w), !strcmp(val, "1"));
+        return w;
+    }
     case WT_INT: {
         GtkWidget *w = gtk_spin_button_new_with_range(f->min, f->max, 1);
         gtk_spin_button_set_value(GTK_SPIN_BUTTON(w), atoi(val));
@@ -703,6 +713,9 @@ static void widget_field_value(const WidgetField *f, GtkWidget *w, char *out, si
     switch (f->type) {
     case WT_BOOL:
         snprintf(out, outsz, "%s", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(w)) ? "yes" : "no");
+        break;
+    case WT_BOOL01:
+        snprintf(out, outsz, "%s", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(w)) ? "1" : "0");
         break;
     case WT_INT:
         snprintf(out, outsz, "%d", gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(w)));
@@ -872,27 +885,117 @@ static void rename_panel_everywhere(const char *old_name, const char *new_name)
     }
 }
 
-static void panel_cell_edited(GtkCellRendererText *cell, gchar *path_str, gchar *new_text, gpointer data)
+/* ---- "Adicionar/editar painel" dialog -- same idea as the widget
+ * dialog above, just simpler: PANEL has one fixed schema (no per-type
+ * selector to switch/rebuild), plus a name field and an output picker
+ * ahead of it. Every key here is always written on OK (never omitted
+ * the way a blank WT_STRING/WT_COLOR_OPT is for widgets) -- none of
+ * these fields have "presence alone" semantics, and every default below
+ * is transcribed from alloc_panel()'s own field inits (see PROTOCOL.md's
+ * "PANEL" reference, kept in sync with that, not the other way around),
+ * so writing them all is exactly the same as leaving them unset. */
+static const char *const PANEL_EDGE_OPTS[] = {"top", "bottom", "left", "right", NULL};
+static const char *const PANEL_MODE_OPTS[] = {"dock", "overlay", "autohide", NULL};
+static const char *const PANEL_ROTATE_OPTS[] = {"0", "90", "180", "270", NULL};
+
+static const WidgetField PANEL_FIELDS[] = {
+    WF_ENUM("edge", "Borda", "top", PANEL_EDGE_OPTS),
+    WF_INT("pct", "Percentual da borda ocupado (1-100)", "100", 1, 100),
+    WF_INT("thickness", "Espessura (px)", "32", 4, 500),
+    WF_ENUM("mode", "Modo", "dock", PANEL_MODE_OPTS),
+    WF_ENUM("rotate", "Rotacao do conteudo (graus)", "0", PANEL_ROTATE_OPTS),
+    WF_INT("tooltip_delay", "Atraso pra abrir dica (ms)", "500", 0, 10000),
+    WF_INT("tooltip_close_delay", "Atraso pra fechar dica (ms)", "300", 0, 10000),
+    WF_BOOL01("tooltip_reuse", "Reaproveitar janela da dica entre widgets", "0"),
+    WF_INT("padding_extra", "Espacamento extra da dica (px)", "0", 0, 100),
+};
+#define N_PANEL_FIELDS ((int)(sizeof(PANEL_FIELDS) / sizeof(PANEL_FIELDS[0])))
+
+/* Shared by "Adicionar painel" (iter == NULL, appends a new row on OK)
+ * and double-clicking/activating an existing row (iter != NULL, updates
+ * that row in place) -- see add_panel_cb()/panel_row_activated(). */
+static void open_panel_dialog(GtkTreeIter *iter)
 {
-    (void)cell;
-    gint col = GPOINTER_TO_INT(data);
-    GtkTreePath *path = gtk_tree_path_new_from_string(path_str);
-    GtkTreeIter it;
-    if (gtk_tree_model_get_iter(GTK_TREE_MODEL(g_panels_store), &it, path)) {
-        if (col == COL_PANEL_NAME) {
-            gchar *old_name;
-            gtk_tree_model_get(GTK_TREE_MODEL(g_panels_store), &it, COL_PANEL_NAME, &old_name, -1);
-            rename_panel_everywhere(old_name ? old_name : "", new_text);
-            g_free(old_name);
-            if (g_theme_label) {
-                char label_text[NAME_LEN + 16];
-                snprintf(label_text, sizeof(label_text), "THEME de '%s':", g_selected_panel);
-                gtk_label_set_text(GTK_LABEL(g_theme_label), label_text);
+    gchar *cur_name = NULL, *cur_output = NULL, *cur_opts = NULL;
+    if (iter) {
+        gtk_tree_model_get(GTK_TREE_MODEL(g_panels_store), iter, COL_PANEL_NAME, &cur_name, COL_PANEL_OUTPUT,
+                            &cur_output, COL_PANEL_OPTIONS, &cur_opts, -1);
+    }
+
+    WOptToken toks[MAX_WOPT_TOKENS];
+    int n_toks = parse_wopts_tokens(cur_opts, toks, MAX_WOPT_TOKENS);
+
+    GtkWidget *dialog = gtk_dialog_new_with_buttons(iter ? "Editar painel" : "Adicionar painel", NULL,
+                                                     GTK_DIALOG_MODAL, GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
+                                                     GTK_STOCK_OK, GTK_RESPONSE_OK, NULL);
+    gtk_window_set_default_size(GTK_WINDOW(dialog), 440, 420);
+    GtkWidget *content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+    GtkWidget *outer = gtk_vbox_new(FALSE, 8);
+    gtk_container_set_border_width(GTK_CONTAINER(outer), 8);
+    gtk_box_pack_start(GTK_BOX(content_area), outer, TRUE, TRUE, 0);
+
+    GtkWidget *top_table = gtk_table_new(2, 2, FALSE);
+    GtkWidget *name_entry = gtk_entry_new();
+    gtk_entry_set_text(GTK_ENTRY(name_entry), cur_name && cur_name[0] ? cur_name : "novo-painel");
+    labeled_row(top_table, 0, "Nome:", name_entry);
+    GtkWidget *output_combo = make_output_combo(1, cur_output && cur_output[0] ? cur_output : "*");
+    labeled_row(top_table, 1, "Output:", output_combo);
+    gtk_box_pack_start(GTK_BOX(outer), top_table, FALSE, FALSE, 0);
+
+    gtk_box_pack_start(GTK_BOX(outer), gtk_hseparator_new(), FALSE, FALSE, 0);
+
+    GtkWidget *fields_scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(fields_scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    GtkWidget *fields_box = gtk_vbox_new(FALSE, 4);
+    gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(fields_scroll), fields_box);
+    gtk_box_pack_start(GTK_BOX(outer), fields_scroll, TRUE, TRUE, 0);
+
+    GtkWidget *field_widgets[N_PANEL_FIELDS];
+    GtkWidget *fields_table = gtk_table_new(N_PANEL_FIELDS, 2, FALSE);
+    for (int i = 0; i < N_PANEL_FIELDS; i++) {
+        const char *val = n_toks > 0 ? wopts_tokens_find(toks, n_toks, PANEL_FIELDS[i].key) : NULL;
+        field_widgets[i] = build_widget_field(&PANEL_FIELDS[i], val);
+        labeled_row(fields_table, i, PANEL_FIELDS[i].label, field_widgets[i]);
+    }
+    gtk_box_pack_start(GTK_BOX(fields_box), fields_table, FALSE, FALSE, 0);
+
+    gtk_widget_show_all(dialog);
+    gint resp = gtk_dialog_run(GTK_DIALOG(dialog));
+    if (resp == GTK_RESPONSE_OK) {
+        const char *new_name_text = gtk_entry_get_text(GTK_ENTRY(name_entry));
+        if (new_name_text[0]) {
+            char output[XIS_OUTPUT_STR_LEN];
+            output_combo_value(output_combo, output, sizeof(output));
+
+            char opts[512] = "";
+            for (int i = 0; i < N_PANEL_FIELDS; i++) {
+                char valbuf[256];
+                widget_field_value(&PANEL_FIELDS[i], field_widgets[i], valbuf, sizeof(valbuf));
+                wopts_append(opts, sizeof(opts), PANEL_FIELDS[i].key, valbuf);
+            }
+
+            if (iter) {
+                rename_panel_everywhere(cur_name ? cur_name : "", new_name_text);
+                if (g_theme_label) {
+                    char label_text[NAME_LEN + 16];
+                    snprintf(label_text, sizeof(label_text), "THEME de '%s':", g_selected_panel);
+                    gtk_label_set_text(GTK_LABEL(g_theme_label), label_text);
+                }
+                gtk_list_store_set(g_panels_store, iter, COL_PANEL_NAME, new_name_text, COL_PANEL_OUTPUT, output,
+                                    COL_PANEL_OPTIONS, opts, -1);
+            } else {
+                GtkTreeIter target;
+                gtk_list_store_append(g_panels_store, &target);
+                gtk_list_store_set(g_panels_store, &target, COL_PANEL_NAME, new_name_text, COL_PANEL_OUTPUT, output,
+                                    COL_PANEL_OPTIONS, opts, -1);
             }
         }
-        gtk_list_store_set(g_panels_store, &it, col, new_text, -1);
     }
-    gtk_tree_path_free(path);
+
+    gtk_widget_destroy(dialog);
+    g_free(cur_name);
+    g_free(cur_output);
+    g_free(cur_opts);
 }
 
 static void add_widget_cb(GtkWidget *widget, gpointer data)
@@ -926,14 +1029,30 @@ static void widget_row_activated(GtkTreeView *view, GtkTreePath *path, GtkTreeVi
     }
 }
 
+/* Double-clicking (or Enter-activating) a panel row opens the same
+ * dialog "Adicionar painel" does, pre-filled from that row -- same
+ * change as widget_row_activated() below, and for the same reason: a
+ * real form (output picker + schema fields) beats editing three flat
+ * text cells in place, one of which (Opcoes) was the exact same raw
+ * key=value string the widget dialog already replaced for WIDGET rows. */
+static void panel_row_activated(GtkTreeView *view, GtkTreePath *path, GtkTreeViewColumn *col, gpointer data)
+{
+    (void)view;
+    (void)col;
+    (void)data;
+    GtkTreeIter it;
+    if (gtk_tree_model_get_iter(GTK_TREE_MODEL(g_panels_store), &it, path)) {
+        open_panel_dialog(&it);
+    }
+}
+
 static GtkWidget *build_panels_view(void)
 {
     GtkWidget *view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_panels_store));
+    g_signal_connect(view, "row-activated", G_CALLBACK(panel_row_activated), NULL);
     const char *titles[N_PANEL_COLS] = {"Nome", "Output", "Opcoes"};
     for (int col = 0; col < N_PANEL_COLS; col++) {
         GtkCellRenderer *renderer = gtk_cell_renderer_text_new();
-        g_object_set(renderer, "editable", TRUE, NULL);
-        g_signal_connect(renderer, "edited", G_CALLBACK(panel_cell_edited), GINT_TO_POINTER(col));
         GtkTreeViewColumn *tvcol = gtk_tree_view_column_new_with_attributes(titles[col], renderer, "text", col, NULL);
         gtk_tree_view_column_set_expand(tvcol, TRUE);
         gtk_tree_view_append_column(GTK_TREE_VIEW(view), tvcol);
