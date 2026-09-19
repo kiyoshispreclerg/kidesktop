@@ -18,8 +18,10 @@ endif
 
 all: xismenu
 
-xismenu: xismenu.c
-	$(CC) $(CFLAGS) $(PKG_CFLAGS) -o $@ xismenu.c $(PKG_LIBS)
+SRCS := xismenu.c gmenu.c
+
+xismenu: $(SRCS) xismenu.h
+	$(CC) $(CFLAGS) $(PKG_CFLAGS) -o $@ $(SRCS) $(PKG_LIBS)
 
 install: xismenu
 	install -Dm755 xismenu $(DESTDIR)$(BINDIR)/xismenu

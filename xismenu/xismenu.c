@@ -28,17 +28,21 @@
  * application starts, so anything launched before this daemon never
  * exports at all -- not even later.
  *
- * GTK applications are *not* covered and cannot be: they never call
- * RegisterWindow, exporting GMenuModel through _GTK_MENUBAR_OBJECT_PATH
- * instead, which is a different protocol. Translating that is a separate
- * job (see README.md) and would live in this same daemon.
+ * GTK applications don't register: GTK3 natively, and GTK2 through
+ * appmenu-gtk-module, export a *GMenuModel* instead -- a different
+ * protocol, which is what gmenu.c translates into DBusMenu objects served
+ * by this same process (see that file). The one place the two meet here
+ * is appmenu-gtk-module, which *does* call RegisterWindow, with its
+ * GMenuModel path: that registration is kept in the table (the module
+ * expects it) but never advertised as DBusMenu -- it's handed to the
+ * translator as a hint instead.
  */
 #define _POSIX_C_SOURCE 200809L
 
-#include <dbus/dbus.h>
-#include <xcb/xcb.h>
+#include "xismenu.h"
 
 #include <getopt.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -47,8 +51,6 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-
-#define XISMENU_VERSION "0.1.0"
 
 #define REGISTRAR_NAME "com.canonical.AppMenu.Registrar"
 #define REGISTRAR_PATH "/com/canonical/AppMenu/Registrar"
@@ -70,23 +72,32 @@
  * and a fixed table keeps this daemon allocation-free after startup. */
 #define MAX_MENUS 512
 
-#define BUSNAME_MAX 128
-#define PATH_MAX_LEN 256
-
 typedef struct {
     uint32_t window;
     char service[BUSNAME_MAX];  /* the application's unique bus name */
-    char path[PATH_MAX_LEN];    /* its com.canonical.dbusmenu object */
+    char path[PATH_MAX_LEN];    /* its menu object -- DBusMenu, or GMenuModel (see below) */
+    bool gmenu;                 /* a GMenuModel export: registered, not advertised */
 } MenuEntry;
+
+/* appmenu-gtk-module's object paths. Anything registered under here is an
+ * org.gtk.Menus object, which no consumer of the window properties can
+ * read, so it must not be advertised as if it were DBusMenu. */
+#define GMENU_PATH_PREFIX "/org/appmenu/gtk/"
+
+static bool is_gmenu_path(const char *path)
+{
+    return strncmp(path, GMENU_PATH_PREFIX, strlen(GMENU_PATH_PREFIX)) == 0;
+}
 
 static MenuEntry g_menus[MAX_MENUS];
 static int g_menu_count;
 
-static DBusConnection *g_bus;
-static xcb_connection_t *g_xcb;
+DBusConnection *g_bus;
+xcb_connection_t *g_xcb;
+xcb_window_t g_root;
 static xcb_atom_t g_atom_service, g_atom_path;
 
-static bool g_verbose;
+bool g_verbose;
 static bool g_write_props = true;
 static volatile sig_atomic_t g_running = 1;
 
@@ -119,7 +130,7 @@ static const char *INTROSPECT_XML =
     " </interface>"
     "</node>";
 
-static void logmsg(const char *fmt, ...)
+void logmsg(const char *fmt, ...)
 {
     char stamp[16];
     time_t now = time(NULL);
@@ -156,7 +167,7 @@ static xcb_atom_t intern(const char *name)
 /* Both properties are plain STRING, not UTF8_STRING -- that is what every
  * reader of them expects (xispanel's globalmenu widget, xisserve's
  * plugin, kiwm), and what Plasma writes. */
-static void write_props(uint32_t window, const char *service, const char *path)
+void write_props(uint32_t window, const char *service, const char *path)
 {
     if (!g_write_props || !g_xcb)
         return;
@@ -167,7 +178,7 @@ static void write_props(uint32_t window, const char *service, const char *path)
     xcb_flush(g_xcb);
 }
 
-static void clear_props(uint32_t window)
+void clear_props(uint32_t window)
 {
     if (!g_write_props || !g_xcb)
         return;
@@ -231,7 +242,8 @@ static void drop_service(const char *service)
         }
         uint32_t w = g_menus[i].window;
         logmsg("window 0x%x: %s vanished, dropping", w, service);
-        clear_props(w);
+        if (!g_menus[i].gmenu && !gmenu_window_translated(w))
+            clear_props(w);
         forget_at(i);
         emit_unregistered(w);
     }
@@ -307,9 +319,23 @@ static void handle_register(DBusMessage *msg)
     }
     snprintf(e->service, sizeof(e->service), "%s", sender);
     snprintf(e->path, sizeof(e->path), "%s", path);
+    e->gmenu = is_gmenu_path(path);
 
-    logmsg("RegisterWindow 0x%x -> %s %s", window, sender, path);
-    write_props(window, sender, path);
+    if (e->gmenu) {
+        logmsg("RegisterWindow 0x%x -> %s %s (GMenuModel -- handing to the translator)",
+               window, sender, path);
+        /* appmenu-gtk-module registering is the surest sign this window
+         * now carries the _GTK_* properties: have the translator look at
+         * it right away rather than wait for a PropertyNotify. If it
+         * takes the window, the properties point at us; if not, nothing
+         * must advertise a GMenuModel object as DBusMenu. */
+        gmenu_rescan_window(window);
+        if (!gmenu_window_translated(window))
+            clear_props(window);
+    } else {
+        logmsg("RegisterWindow 0x%x -> %s %s", window, sender, path);
+        write_props(window, sender, path);
+    }
     watch_service(sender, true);
     send_signal("WindowRegistered", window, sender, path);
     reply_empty(msg);
@@ -328,8 +354,10 @@ static void handle_unregister(DBusMessage *msg)
             continue;
         char service[BUSNAME_MAX];
         snprintf(service, sizeof(service), "%s", g_menus[i].service);
+        bool gmenu = g_menus[i].gmenu;
         forget_at(i);
-        clear_props(window);
+        if (!gmenu && !gmenu_window_translated(window))
+            clear_props(window);
         if (!service_still_used(service))
             watch_service(service, false);
         break;
@@ -435,6 +463,16 @@ static DBusHandlerResult on_message(DBusConnection *conn, DBusMessage *msg, void
     return DBUS_HANDLER_RESULT_HANDLED;
 }
 
+static DBusHandlerResult on_message_all(DBusConnection *conn, DBusMessage *msg, void *data)
+{
+    /* The app's Changed signals and the /MenuBar/<n> objects belong to
+     * the translator; everything else is the registrar's. */
+    DBusHandlerResult r = gmenu_handle_message(msg);
+    if (r == DBUS_HANDLER_RESULT_HANDLED)
+        return r;
+    return on_message(conn, msg, data);
+}
+
 /* ---- startup --------------------------------------------------------- */
 
 static void usage(const char *argv0)
@@ -454,11 +492,64 @@ static void usage(const char *argv0)
             argv0, argv0, PROP_SERVICE, PROP_PATH, KAPPMENU_NAME);
 }
 
+/* Who owns a bus name right now, as "unique-name (pid comm)" -- the
+ * detail that turns "already owned" into something actionable. The
+ * usual culprit is a kded5 left over from a Plasma session: the systemd
+ * user instance, and with it the session bus at $XDG_RUNTIME_DIR/bus,
+ * outlives the X session that started it, so a kisession launched
+ * afterwards inherits every KDE daemon still running on that bus. */
+static void describe_owner(const char *name, char *out, size_t outsz)
+{
+    snprintf(out, outsz, "unknown owner");
+
+    DBusMessage *m = dbus_message_new_method_call(DBUS_SERVICE_DBUS, DBUS_PATH_DBUS,
+                                                  DBUS_INTERFACE_DBUS, "GetNameOwner");
+    if (!m)
+        return;
+    dbus_message_append_args(m, DBUS_TYPE_STRING, &name, DBUS_TYPE_INVALID);
+    DBusMessage *r = dbus_connection_send_with_reply_and_block(g_bus, m, 1000, NULL);
+    dbus_message_unref(m);
+    if (!r)
+        return;
+    const char *owner = NULL;
+    if (!dbus_message_get_args(r, NULL, DBUS_TYPE_STRING, &owner, DBUS_TYPE_INVALID)) {
+        dbus_message_unref(r);
+        return;
+    }
+    snprintf(out, outsz, "%s", owner);
+
+    m = dbus_message_new_method_call(DBUS_SERVICE_DBUS, DBUS_PATH_DBUS, DBUS_INTERFACE_DBUS,
+                                     "GetConnectionUnixProcessID");
+    if (m) {
+        dbus_message_append_args(m, DBUS_TYPE_STRING, &owner, DBUS_TYPE_INVALID);
+        DBusMessage *r2 = dbus_connection_send_with_reply_and_block(g_bus, m, 1000, NULL);
+        dbus_message_unref(m);
+        uint32_t pid = 0;
+        if (r2 && dbus_message_get_args(r2, NULL, DBUS_TYPE_UINT32, &pid, DBUS_TYPE_INVALID)) {
+            char comm[64] = "?", path[64];
+            snprintf(path, sizeof(path), "/proc/%u/comm", pid);
+            FILE *f = fopen(path, "r");
+            if (f) {
+                if (fgets(comm, sizeof(comm), f)) {
+                    char *nl = strchr(comm, '\n');
+                    if (nl) *nl = '\0';
+                }
+                fclose(f);
+            }
+            snprintf(out, outsz, "%s (pid %u, %s)", owner, pid, comm);
+        }
+        if (r2)
+            dbus_message_unref(r2);
+    }
+    dbus_message_unref(r);
+}
+
 /* Requests a name and insists on actually owning it. Being queued behind
- * an existing registrar (kded5, most likely, if this is run on a session
- * that still has one) is not something to limp along with: an application
+ * an existing registrar is not something to limp along with: applications
  * would register with the other one and this daemon would sit there
- * pretending to be the menu service. */
+ * pretending to be the menu service. So it says exactly who has it, and
+ * exits -- kisession restarts it with backoff, and the log then shows what
+ * has to go away first. */
 static bool own_name(const char *name)
 {
     DBusError err;
@@ -470,7 +561,11 @@ static bool own_name(const char *name)
         return false;
     }
     if (r != DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER) {
-        logmsg("%s is already owned -- is kded5 (or another registrar) running?", name);
+        char who[160];
+        describe_owner(name, who, sizeof(who));
+        logmsg("%s is already owned by %s -- a registrar left over from another "
+               "session (kded5's, usually)? nothing will register with this one until it is gone",
+               name, who);
         return false;
     }
     logmsg("owning %s", name);
@@ -531,10 +626,14 @@ int main(int argc, char **argv)
         } else {
             g_atom_service = intern(PROP_SERVICE);
             g_atom_path = intern(PROP_PATH);
+            xcb_screen_iterator_t it = xcb_setup_roots_iterator(xcb_get_setup(g_xcb));
+            for (int i = 0; i < screen && it.rem; i++)
+                xcb_screen_next(&it);
+            g_root = it.data ? it.data->root : XCB_NONE;
         }
     }
 
-    if (!dbus_connection_add_filter(g_bus, on_message, NULL, NULL)) {
+    if (!dbus_connection_add_filter(g_bus, on_message_all, NULL, NULL)) {
         logmsg("out of memory adding message filter");
         return 1;
     }
@@ -543,16 +642,55 @@ int main(int argc, char **argv)
     if (kde_name && !own_name(KAPPMENU_NAME))
         logmsg("continuing without %s -- apps keep their own menubar", KAPPMENU_NAME);
 
+    /* Which bus this is on, and as whom: the first thing to compare with
+     * an application that "doesn't register" -- if its
+     * DBUS_SESSION_BUS_ADDRESS differs, the two never meet. */
+    const char *addr = getenv("DBUS_SESSION_BUS_ADDRESS");
+    logmsg("on %s as %s", addr ? addr : "(autolaunched bus)", dbus_bus_get_unique_name(g_bus));
+
+    /* The GMenuModel translator: discovers GTK windows through X and
+     * serves their menus under this connection's unique name. */
+    gmenu_init(dbus_bus_get_unique_name(g_bus));
     logmsg("waiting for applications to register");
 
-    /* One blocking dispatch loop on the bus: this daemon has no other
-     * event source. The X connection is write-only here (two property
-     * requests per registration), so it never needs to be polled. The
-     * timeout is only so a signal that arrives mid-wait is noticed
-     * promptly rather than at the next message. */
+    /* Two event sources -- the bus, and X for the translator's discovery
+     * -- so poll() on both fds. libdbus is driven by hand here rather
+     * than through its watch/timeout callbacks: after poll() wakes, a
+     * zero-timeout read_write_dispatch() pulls in whatever arrived, and
+     * dispatch() is drained. The 1s cap is only so a termination signal
+     * that lands mid-wait is noticed promptly. */
+    int dbus_fd = -1;
+    dbus_connection_get_unix_fd(g_bus, &dbus_fd);
     while (g_running) {
-        if (!dbus_connection_read_write_dispatch(g_bus, 1000))
+        struct pollfd fds[2];
+        int nfds = 0;
+        fds[nfds++] = (struct pollfd){ .fd = dbus_fd, .events = POLLIN };
+        if (g_xcb)
+            fds[nfds++] = (struct pollfd){ .fd = xcb_get_file_descriptor(g_xcb), .events = POLLIN };
+
+        /* Anything libdbus already queued (a reply that arrived while a
+         * synchronous call was waiting) must be dispatched before
+         * blocking, or it sits there until the next unrelated wakeup. */
+        int timeout = dbus_connection_get_dispatch_status(g_bus) == DBUS_DISPATCH_DATA_REMAINS ? 0 : 1000;
+        if (poll(fds, (nfds_t)nfds, timeout) < 0 && !g_running)
+            break;
+
+        if (!dbus_connection_read_write_dispatch(g_bus, 0))
             break; /* disconnected */
+        while (dbus_connection_get_dispatch_status(g_bus) == DBUS_DISPATCH_DATA_REMAINS)
+            dbus_connection_dispatch(g_bus);
+
+        if (g_xcb) {
+            xcb_generic_event_t *ev;
+            while ((ev = xcb_poll_for_event(g_xcb))) {
+                gmenu_handle_x_event(ev);
+                free(ev);
+            }
+            if (xcb_connection_has_error(g_xcb)) {
+                logmsg("X connection lost");
+                break;
+            }
+        }
     }
 
     logmsg("exiting");

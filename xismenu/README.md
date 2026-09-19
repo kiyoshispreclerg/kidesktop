@@ -1,6 +1,6 @@
 # xismenu
 
-The application menu registrar KiDesktop was missing. Version 0.1.0.
+The application menu registrar KiDesktop was missing. Version 0.1.2.
 
 ## The problem it exists for
 
@@ -44,10 +44,11 @@ application's bus name vanishes: nothing calls `UnregisterWindow` on a crash, an
 a stale entry pointing at a dead connection is worse than no entry, since a
 consumer would wait for a reply that can never come.
 
+Two files: `xismenu.c` (the registrar) and `gmenu.c` (the translator).
 libdbus and xcb, linked directly (unlike xispanel/xisserve, which `dlopen`
 libdbus so they still run without it -- a registrar with no bus has nothing to
 fall back to). One blocking dispatch loop on the bus, no other event source; the
-X connection is write-only, two property requests per registration. ~1.7 MB RSS.
+X connection also drives GTK discovery. ~1.7 MB RSS.
 
 ## Start order matters
 
@@ -68,25 +69,84 @@ before XDG autostart -- it is a `SERVICE` row there, on by default.
   application with no menu at all. It is the switch to flip once the global menu
   is genuinely part of the setup.
 
-It refuses to share the name: if kded5 (or another registrar) already owns it,
-xismenu says so and exits rather than sit there pretending to be the menu service
-while applications register with the other one.
+It refuses to share the name: if another registrar already owns it, xismenu
+says **who** (unique name, pid and process name) and exits rather than sit there
+pretending to be the menu service while applications register with the other one.
+kisession restarts it with backoff, so the log keeps saying what has to go away.
 
-## GTK is not covered
+The usual culprit is a **kded5 left over from a Plasma session**. kisession uses
+the systemd user instance's bus (`$XDG_RUNTIME_DIR/bus`), and that instance --
+with every KDE daemon still running on it -- outlives the X session that started
+it. A kisession launched after a Plasma session on the same user inherits kded5
+(and its half-working appmenu module: it hands out `_KDE_NET_WM_APPMENU_OBJECT_PATH`
+but no `SERVICE_NAME` without the rest of Plasma), plasmashell, gmenudbusmenuproxy
+and the rest. Until they are gone -- a fresh login, or `systemctl --user stop` on
+the plasma units -- no registrar of ours can take over, whatever the platform
+theme. It also logs which bus it is on and as whom at startup, the first thing to
+compare with an application that "doesn't register".
 
-GTK applications never call `RegisterWindow`. They export `GMenuModel` through
-`_GTK_MENUBAR_OBJECT_PATH` + `_GTK_UNIQUE_BUS_NAME`, which GTK sets by itself with
-no registrar involved -- a different protocol that none of the consumers here
-read. So the registrar can do nothing for them, and covering them needs a
-*translator*, not a handshake.
+Verified against a clean bus (Xvfb + private session bus, xismenu the only
+registrar, no KDE process anywhere): fceux, a plain Qt5 app, registers and gets
+both properties with **either** `QT_QPA_PLATFORMTHEME=kde` or `gtk3` (kisession's
+default) -- libqgtk3 carries Qt's own generic DBus menubar, plasma-integration is
+not required for anything.
 
-The natural home for that is this same daemon: watch windows carrying those
-properties, serve a `com.canonical.dbusmenu` object per window on xismenu's own
-connection, and point `_KDE_NET_WM_APPMENU_*` at itself. Every existing consumer
-would then work with GTK applications unchanged, still speaking only DBusMenu. The
-cheap alternative is running Plasma's standalone `gmenudbusmenuproxy`, which is one
-line in kisession but a Plasma dependency, and whose coverage measured partial
-here.
+## GTK: translated, not registered
+
+GTK itself never calls `RegisterWindow`. What GTK3 does natively, and GTK2 does
+through **appmenu-gtk-module** (loaded via `gtk-modules=appmenu-gtk-module` in
+`~/.gtkrc-2.0` / `settings.ini` -- GIMP 2.10 is the reference case), is export
+the menu as a **GMenuModel** (`org.gtk.Menus` + `org.gtk.Actions`) and say so on
+the window: `_GTK_UNIQUE_BUS_NAME`, `_GTK_MENUBAR_OBJECT_PATH`, and for native
+GTK3 `_GTK_APPLICATION_OBJECT_PATH`/`_GTK_WINDOW_OBJECT_PATH` for the `app.`/`win.`
+action groups. That is a different protocol from DBusMenu, the only one any
+consumer here speaks. Under Plasma, `gmenudbusmenuproxy` bridges the two.
+
+`gmenu.c` is that bridge. For every window carrying those properties it serves a
+`com.canonical.dbusmenu` object of its own at `/MenuBar/<window>` and points the
+window's `_KDE_NET_WM_APPMENU_*` at **itself**, so every existing consumer works
+with GTK applications unchanged -- verified with GIMP 2.10 under kiwm: 678 items
+from 194 menus, `xisserve --menu` opens it, and a `clicked` on Help > About opens
+GIMP's About dialog.
+
+- **Discovery is by X11**, not by the bus: the registrar only ever hears from
+  appmenu-gtk-module windows, native GTK3 ones tell nobody. So xismenu watches the
+  window manager's `_NET_CLIENT_LIST` and each client's `_GTK_*` properties. A
+  gmenu-path registration reaching the registrar is used as one more hint to look
+  at that window immediately. This needs a WM that maintains `_NET_CLIENT_LIST`
+  (kiwm does; so does every EWMH WM); without one, GTK menus aren't found.
+- **Requires appmenu-gtk-module actually loaded** -- the GTK2 and GTK3 module
+  builds (Debian/Ubuntu: `appmenu-gtk2-module` + `appmenu-gtk3-module`, both
+  from the `appmenu-gtk-module` source, GIMP needs the GTK2 one and any
+  classic-widget-menu GTK3 app the other) have to be installed *and* actually
+  loaded by the application, which GTK does from `GTK_MODULES` and from the
+  `gtk-modules=` key in `~/.gtkrc-2.0` (GTK2) / `~/.config/gtk-3.0/settings.ini`
+  (GTK3). kisession sets `GTK_MODULES=appmenu-gtk-module` itself
+  (`setup_gtk_modules()`, appended to any existing value) precisely so this
+  doesn't depend on those dotfiles keeping that token -- something outside
+  this codebase was observed silently dropping `appmenu-gtk-module` from both
+  files' `gtk-modules=` list between two otherwise identical sessions, which
+  looked exactly like "GIMP/GTK3 apps stopped exporting their menu" until
+  traced back to the missing module.
+- **Built from the application once, then held until something actually
+  invalidates it**: a stale-past-2s *root* `GetLayout` (the menu being reopened
+  from the top, a fresh look at whatever the app has now), or the app's own
+  `Changed` signal (which also emits `LayoutUpdated`). A subtree `GetLayout`
+  never triggers a rebuild by itself, however long the menu has been sitting
+  open -- rebuilding reassigns every item's id from scratch, so doing that
+  underneath a consumer still holding an id from the last build would turn its
+  next click into `DBUS_ERROR_INVALID_ARGS` (this is what "submenus stop
+  working after the menu's been open a bit" would look like). Building itself
+  is `org.gtk.Menus.Start()` for the root group, then for every group a
+  `:submenu`/`:section` refers to until closure, one call per round; plus
+  `org.gtk.Actions.DescribeAll()` on each action object for enabled/checked
+  state. All local IPC -- GIMP's menu builds in a few milliseconds.
+- Sections become runs of items with separators between them; submenus become
+  items with children; an item whose action doesn't exist is insensitive, as in
+  GTK; a boolean action state becomes a checkmark.
+- A `clicked` `Event` becomes `org.gtk.Actions.Activate()` on the object the
+  action's prefix names (`unity.` → the menubar object, `app.`/`win.` → theirs).
+- Not translated yet: icons, radio groups (shown as plain items), accelerators.
 
 ## Building
 
