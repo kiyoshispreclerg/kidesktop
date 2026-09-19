@@ -93,7 +93,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.17"
+#define XISPANEL_VERSION "0.6.18"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 #define IPC_MAX_LEN 4096
@@ -2797,6 +2797,13 @@ static int run_as_daemon(const char *sockpath)
                 timeout_ms = delta;
             }
         }
+        uint64_t launchfx_wake = launchfx_next_wake_ms();
+        if (launchfx_wake != 0) {
+            long delta = (long)(launchfx_wake > now ? launchfx_wake - now : 0);
+            if (timeout_ms < 0 || delta < timeout_ms) {
+                timeout_ms = delta;
+            }
+        }
 
         /* mpris_poll()/sni_poll()/notifd_poll() are only actually called
          * once per select() wake, on whatever cadence *this* loop wakes
@@ -2874,6 +2881,8 @@ static int run_as_daemon(const char *sockpath)
                      * takes no grab and never handles clicks) */
                 } else if (toast_handle_event(&ev)) {
                     /* consumed by a toast popup (click-to-dismiss, Expose) */
+                } else if (launchfx_handle_event(&ev)) {
+                    /* consumed by the launch-feedback zoom+fade popup (Expose only) */
                 } else if (ev.type == ButtonPress) {
                     int is_sensor = 0;
                     Panel *p = find_panel_by_window(ev.xbutton.window, &is_sensor);
@@ -2975,6 +2984,7 @@ static int run_as_daemon(const char *sockpath)
         tooltip_tick(now);
         panel_menu_tick(now);
         toast_tick(now);
+        launchfx_tick(now);
         if (!disable_mpris) {
             mpris_poll(now);
         }

@@ -105,6 +105,12 @@ typedef struct {
     int show_thumbs; /* 1 = tooltip includes a live thumbnail of the hovered task's window (see thumb.c);
                        * no-op if xispanel was built without libXcomposite or no compositor is running. */
     int show_desktop_badge; /* 1 = draw the task's virtual-desktop number on its icon; 0 (default) = don't. */
+    int launch_feedback; /* 1 = a clicked launcher icon (pinned placeholder) zooms+fades via launchfx.c;
+                           * 0 (default) = don't. Purely cosmetic -- never gates whether the launch itself
+                           * happens. */
+    double launch_feedback_zoom; /* how large the icon grows by the end of the animation, e.g. 2.0 = 2x.
+                                   * Only read when launch_feedback is set. */
+    int launch_feedback_ms; /* how long the animation takes, ms. Only read when launch_feedback is set. */
     int group_apps; /* 1 = collapse same-app windows (matched by WM_CLASS) into one button; 0 (default) = don't. */
     int fixed_first; /* 1 (default) = pinned block always before the regular-windows block; 0 = regular block
                        * first, pinned block after -- see tasklist_on_tick()'s block-merge doc comment. */
@@ -467,6 +473,15 @@ static int tasklist_init(PanelWidget *w)
     }
     tp->show_thumbs = kv_get(w->config_kv, "show_thumbs", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
     tp->show_desktop_badge = kv_get(w->config_kv, "show_desktop_badge", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
+    tp->launch_feedback = kv_get(w->config_kv, "launch_feedback", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
+    tp->launch_feedback_zoom = kv_get(w->config_kv, "launch_feedback_zoom", buf, sizeof(buf)) ? atof(buf) : 2.0;
+    if (tp->launch_feedback_zoom < 1.05) {
+        tp->launch_feedback_zoom = 1.05;
+    }
+    tp->launch_feedback_ms = kv_get_int(w->config_kv, "launch_feedback_ms", 500);
+    if (tp->launch_feedback_ms < 16) {
+        tp->launch_feedback_ms = 16;
+    }
     tp->group_apps = kv_get(w->config_kv, "group", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
     tp->fixed_first = !(kv_get(w->config_kv, "fixed_first", buf, sizeof(buf)) && strcmp(buf, "no") == 0);
     tp->recent_max = kv_get_int(w->config_kv, "recent_max", 5);
@@ -1610,6 +1625,33 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
                 if (strcmp(tp->pinned[pi].wm_class, e->wm_class) == 0) {
                     if (tp->pinned[pi].exec[0]) {
                         run_detached(tp->pinned[pi].exec);
+                        if (tp->launch_feedback) {
+                            /* Icon's on-screen center, not just wherever
+                             * inside the button the pointer happened to
+                             * land -- same root-space formula (panel->x/y +
+                             * w->x + this button's own local offset) as the
+                             * _NET_WM_ICON_GEOMETRY mapping above in
+                             * tasklist_paint(), including its same rotate=0/
+                             * 180-only caveat at 90/270. icon_x_off mirrors
+                             * that same paint-time centering (bw==anchor_w
+                             * here is always the compact/placeholder case,
+                             * since only a placeholder reaches this code
+                             * path). */
+                            Panel *p = w->panel;
+                            int icon_px = icon_size_for(w->thickness, tp->icon_padding);
+                            int icon_x_off = (anchor_w - icon_px) / 2;
+                            int horiz = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM);
+                            int icon_cx, icon_cy;
+                            if (horiz) {
+                                icon_cx = p->x + w->x + anchor_x + icon_x_off + icon_px / 2;
+                                icon_cy = p->y + w->thickness / 2;
+                            } else {
+                                icon_cx = p->x + w->thickness / 2;
+                                icon_cy = p->y + w->x + anchor_x + icon_x_off + icon_px / 2;
+                            }
+                            launchfx_trigger(tp->pinned[pi].icon, icon_cx, icon_cy, icon_px,
+                                              tp->launch_feedback_zoom, tp->launch_feedback_ms);
+                        }
                     }
                     break;
                 }
