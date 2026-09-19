@@ -31,22 +31,27 @@
  * menu to kiwm.conf's appmenu_command=, never speaking DBus itself. */
 void client_refresh_appmenu(Client *c)
 {
-    bool found = false;
+    /* Both properties name one half of the (bus name, object path) pair
+     * the menu is reached through -- either alone is useless, and Qt/KF5
+     * apps set them as two separate PropertyNotify events, so a window
+     * caught between the two would otherwise flash has_appmenu=true with
+     * no usable path yet. */
     const xcb_atom_t props[] = {
         wm.atoms.kde_net_wm_appmenu_service_name,
         wm.atoms.kde_net_wm_appmenu_object_path,
     };
-    for (size_t i = 0; i < sizeof(props) / sizeof(props[0]) && !found; i++) {
-        if (props[i] == XCB_ATOM_NONE)
-            continue;
+    bool all_present = true;
+    for (size_t i = 0; i < sizeof(props) / sizeof(props[0]) && all_present; i++) {
+        if (props[i] == XCB_ATOM_NONE) {
+            all_present = false;
+            break;
+        }
         xcb_get_property_reply_t *r = xcb_get_property_reply(wm.conn,
             xcb_get_property(wm.conn, 0, c->window, props[i], XCB_GET_PROPERTY_TYPE_ANY, 0, 1), NULL);
-        if (r) {
-            found = xcb_get_property_value_length(r) > 0;
-            free(r);
-        }
+        all_present = r && xcb_get_property_value_length(r) > 0;
+        free(r);
     }
-    c->has_appmenu = found;
+    c->has_appmenu = all_present;
 }
 
 bool client_supports_protocol(xcb_window_t window, xcb_atom_t proto)
