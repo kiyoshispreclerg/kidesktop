@@ -6,6 +6,11 @@
  * restart. This is the daemon half of the xisconf remake (kiconf being the
  * GTK2 front-end).
  *
+ * Also the one thing in the session that applies the night light
+ * schedule (kiconf's Energia tab) on a timer -- see the "night light"
+ * section below and apply_nightlight()'s own comment for why this file
+ * ended up owning that instead of a separate daemon.
+ *
  * Log: off by default (stdout/stderr behave normally, i.e. whatever
  * kisession/startx/the display manager's Xsession script already does
  * with an inherited child's fds). Pass --log, or set KICONFD_LOG=1 in
@@ -126,7 +131,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.6"
+#define KICONFD_VERSION "0.2.7"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -1166,6 +1171,183 @@ static int apply_screens_layout(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* night light (kiconfd-nightlight.conf)                                */
+/* ------------------------------------------------------------------ */
+
+/* Schedule set by kiconf's Energia tab, applied here via `xsct`
+ * (https://github.com/faf0/sct) -- see xisserve/PROTOCOL.md's `--energy`
+ * entry for the other writer of this same file: its checkbox+slider is
+ * the "right now, manual" side of the same feature, toggling `enabled`
+ * and, while off, setting `temp` directly. Neither of those other two
+ * processes ever calls xsct on a timer themselves -- only kiconfd does,
+ * since it's the one thing in this session that's already resident and
+ * already has a loop to hang a periodic check off of.
+ *
+ * Checked once at startup and then every NIGHTLIGHT_POLL_SEC while
+ * main()'s loop is otherwise just waiting on a signal (see main()'s own
+ * comment) -- a plain wall-clock poll rather than computing the exact
+ * next transition and sleeping until then, since the loop already has to
+ * wake up periodically for this and the extra precision buys nothing a
+ * user would notice for a screen tint. SIGHUP (kiconf's Aplicar, or
+ * xisserve's checkbox) short-circuits the wait so a change made by hand
+ * still takes effect immediately rather than up to NIGHTLIGHT_POLL_SEC
+ * late. */
+#define NIGHTLIGHT_POLL_SEC 60
+
+typedef struct {
+    int enabled;
+    int start_min; /* minutes since midnight */
+    int end_min;
+    int temp;
+} NightlightSchedule;
+
+static char g_nightlightpath[PATH_MAX];
+
+static void resolve_nightlightpath(void)
+{
+    const char *xdg_config = getenv("XDG_CONFIG_HOME");
+    if (xdg_config && *xdg_config) {
+        snprintf(g_nightlightpath, sizeof(g_nightlightpath), "%s/kiconfd-nightlight.conf", xdg_config);
+        return;
+    }
+    const char *home = getenv("HOME");
+    if (!home || !*home) {
+        home = "/tmp";
+    }
+    snprintf(g_nightlightpath, sizeof(g_nightlightpath), "%s/.config/kiconfd-nightlight.conf", home);
+}
+
+/* "HH:MM" -> minutes since midnight, clamped to a valid time of day on
+ * anything malformed rather than propagating garbage into the window
+ * check below. */
+static int parse_hhmm(const char *s)
+{
+    int h = 0, m = 0;
+    sscanf(s, "%d:%d", &h, &m);
+    if (h < 0 || h > 23) {
+        h = 0;
+    }
+    if (m < 0 || m > 59) {
+        m = 0;
+    }
+    return h * 60 + m;
+}
+
+static void load_nightlight_schedule(NightlightSchedule *c)
+{
+    c->enabled = 0;
+    c->start_min = 20 * 60;
+    c->end_min = 6 * 60;
+    c->temp = 4000;
+
+    FILE *f = fopen(g_nightlightpath, "r");
+    if (!f) {
+        return;
+    }
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char *l = trim(line);
+        if (!*l || *l == '#') {
+            continue;
+        }
+        char *eq = strchr(l, '=');
+        if (!eq) {
+            continue;
+        }
+        *eq = '\0';
+        char *key = trim(l);
+        char *val = trim(eq + 1);
+        if (!strcmp(key, "enabled")) {
+            c->enabled = atoi(val) ? 1 : 0;
+        } else if (!strcmp(key, "start")) {
+            c->start_min = parse_hhmm(val);
+        } else if (!strcmp(key, "end")) {
+            c->end_min = parse_hhmm(val);
+        } else if (!strcmp(key, "temp")) {
+            c->temp = atoi(val);
+        }
+    }
+    fclose(f);
+}
+
+/* `now` within [start, end), wrapping past midnight when end <= start
+ * (the ordinary case for a night light: e.g. start=20:00, end=06:00) --
+ * start == end is treated as "never on" rather than "always on", since
+ * that's almost certainly an unset/zeroed field, not a deliberate
+ * 24-hour request. */
+static int nightlight_time_in_window(int now_min, int start_min, int end_min)
+{
+    if (start_min == end_min) {
+        return 0;
+    }
+    if (start_min < end_min) {
+        return now_min >= start_min && now_min < end_min;
+    }
+    return now_min >= start_min || now_min < end_min;
+}
+
+static int have_cmd(const char *name)
+{
+    char *argv[] = {"sh", "-c", NULL, NULL};
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "command -v %s >/dev/null 2>&1", name);
+    argv[2] = cmd;
+    return run_fire(argv) == 0;
+}
+
+/* -1 = not yet applied this run, 0 = day/off last applied, 1 = night
+ * temperature last applied -- so a call that finds nothing changed since
+ * the last one doesn't re-run xsct every NIGHTLIGHT_POLL_SEC for no
+ * reason. Tracks the temperature too: editing just the number in kiconf
+ * while already inside the window (no on/off transition) still needs a
+ * fresh xsct call to pick it up. */
+static int g_nightlight_applied = -1;
+static int g_nightlight_applied_temp = -1;
+
+static void apply_nightlight(void)
+{
+    NightlightSchedule c;
+    load_nightlight_schedule(&c);
+
+    if (!c.enabled) {
+        if (g_nightlight_applied != 0) {
+            run_fire((char *const[]){"xsct", NULL});
+            g_nightlight_applied = 0;
+            g_nightlight_applied_temp = -1;
+        }
+        return;
+    }
+
+    if (!have_cmd("xsct")) {
+        /* Nothing to do, and nothing to warn about on every poll --
+         * kiconf's Energia tab already tells the user xsct is missing
+         * when they open it. */
+        return;
+    }
+
+    time_t t = time(NULL);
+    struct tm lt;
+    localtime_r(&t, &lt);
+    int now_min = lt.tm_hour * 60 + lt.tm_min;
+
+    if (nightlight_time_in_window(now_min, c.start_min, c.end_min)) {
+        if (g_nightlight_applied != 1 || g_nightlight_applied_temp != c.temp) {
+            char tempstr[16];
+            snprintf(tempstr, sizeof(tempstr), "%d", c.temp);
+            run_fire((char *const[]){"xsct", tempstr, NULL});
+            g_nightlight_applied = 1;
+            g_nightlight_applied_temp = c.temp;
+        }
+    } else {
+        if (g_nightlight_applied != 0) {
+            run_fire((char *const[]){"xsct", NULL});
+            g_nightlight_applied = 0;
+            g_nightlight_applied_temp = -1;
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* config persistence                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -1362,6 +1544,8 @@ int main(int argc, char **argv)
         printf("Usage: kiconfd [--log|--version|-V]\n");
         printf("Config: $XDG_CONFIG_HOME/kiconfd.conf (fallback ~/.config/kiconfd.conf)\n");
         printf("Screens: $XDG_CONFIG_HOME/kiconfd-screens.conf, applied via xrandr at startup only\n");
+        printf("Night light: $XDG_CONFIG_HOME/kiconfd-nightlight.conf, applied via xsct every %ds "
+                "(if installed)\n", NIGHTLIGHT_POLL_SEC);
         printf("Log: off by default (inherits stdout/stderr as usual). --log, or KICONFD_LOG=1 in "
                 "the environment, redirects them to $XDG_CONFIG_HOME/kiconfd.log instead.\n");
         printf("SIGHUP reloads the config and reapplies settings.\n");
@@ -1391,6 +1575,7 @@ int main(int argc, char **argv)
 
     resolve_configpath();
     resolve_screenspath();
+    resolve_nightlightpath();
 
     g_dpy = XOpenDisplay(NULL);
     if (!g_dpy) {
@@ -1430,13 +1615,21 @@ int main(int argc, char **argv)
 
     load_config();
     apply_and_persist_defaults();
+    apply_nightlight();
 
+    /* sleep() rather than pause(): the loop now also has to wake up on
+     * its own, without any signal, for the night light schedule (see
+     * apply_nightlight()'s own comment) -- a plain signal wait has
+     * nothing to wake it for that. Any of the three signals below still
+     * cuts the sleep short (EINTR), so SIGHUP still reloads/reapplies
+     * immediately instead of waiting up to NIGHTLIGHT_POLL_SEC. */
     while (!g_quit) {
         if (g_reload) {
             g_reload = 0;
             reload_config();
         }
-        pause();
+        apply_nightlight();
+        sleep(NIGHTLIGHT_POLL_SEC);
     }
 
     XCloseDisplay(g_dpy);
