@@ -42,6 +42,8 @@
 #define NIGHTLIGHT_TEMP_MIN 2700
 #define NIGHTLIGHT_TEMP_MAX 6500
 #define NIGHTLIGHT_TEMP_DEFAULT 4000
+#define BRIGHTNESS_SCROLL_STEP 5
+#define NIGHTLIGHT_SCROLL_STEP 100
 
 static GtkWidget *g_root;
 static GtkWidget *g_box; /* rebuilt in place */
@@ -190,6 +192,43 @@ static void notify_kiconfd(void)
 }
 
 /* ---- widget callbacks ---------------------------------------------------- */
+
+/* GtkRange's built-in scroll handling is defined in terms of the
+ * widget's own axis, so on a *horizontal* slider scroll-up means "move
+ * left" -- backwards from what a level control should do (and from what
+ * --audio's volume slider does on scroll, see its own on_scale_scroll()
+ * comment). Handling the event here and returning TRUE replaces that
+ * mapping entirely: up/right raises, down/left lowers, by `data`'s step
+ * (GPOINTER_TO_INT), clamped to the slider's own configured range so
+ * this works unmodified for both brightness (0-100) and night light's
+ * temperature (NIGHTLIGHT_TEMP_MIN-MAX). gtk_range_set_value() emits
+ * "value-changed", so the existing handler still does the actual
+ * brightness_set_pct()/nightlight_apply() -- this only decides the new
+ * number. */
+static gboolean on_scale_scroll(GtkWidget *w, GdkEventScroll *ev, gpointer data)
+{
+    int step = GPOINTER_TO_INT(data);
+    GtkAdjustment *adj = gtk_range_get_adjustment(GTK_RANGE(w));
+    double v = gtk_range_get_value(GTK_RANGE(w));
+    if (ev->direction == GDK_SCROLL_UP || ev->direction == GDK_SCROLL_RIGHT) {
+        v += step;
+    } else if (ev->direction == GDK_SCROLL_DOWN || ev->direction == GDK_SCROLL_LEFT) {
+        v -= step;
+    } else {
+        return FALSE;
+    }
+    double lo = gtk_adjustment_get_lower(adj);
+    double hi = gtk_adjustment_get_upper(adj);
+    if (v < lo) {
+        v = lo;
+    }
+    if (v > hi) {
+        v = hi;
+    }
+    note_user_action();
+    gtk_range_set_value(GTK_RANGE(w), v);
+    return TRUE;
+}
 
 static gboolean on_brightness_press(GtkWidget *w, GdkEventButton *ev, gpointer data)
 {
@@ -349,6 +388,7 @@ static void add_brightness_section(void)
     g_brightness_scale = gtk_hscale_new_with_range(0, 100, 1);
     gtk_scale_set_digits(GTK_SCALE(g_brightness_scale), 0);
     gtk_scale_set_value_pos(GTK_SCALE(g_brightness_scale), GTK_POS_RIGHT);
+    gtk_range_set_increments(GTK_RANGE(g_brightness_scale), BRIGHTNESS_SCROLL_STEP, BRIGHTNESS_SCROLL_STEP * 2);
     style_fg(g_brightness_scale);
     int pct = brightness_get_pct();
     g_updating = TRUE;
@@ -357,6 +397,8 @@ static void add_brightness_section(void)
     g_signal_connect(g_brightness_scale, "value-changed", G_CALLBACK(on_brightness_changed), NULL);
     g_signal_connect(g_brightness_scale, "button-press-event", G_CALLBACK(on_brightness_press), NULL);
     g_signal_connect(g_brightness_scale, "button-release-event", G_CALLBACK(on_brightness_release), NULL);
+    g_signal_connect(g_brightness_scale, "scroll-event", G_CALLBACK(on_scale_scroll),
+                      GINT_TO_POINTER(BRIGHTNESS_SCROLL_STEP));
     gtk_box_pack_start(GTK_BOX(g_box), g_brightness_scale, FALSE, FALSE, 0);
 }
 
@@ -381,6 +423,7 @@ static void add_nightlight_section(void)
     g_nightlight_scale = gtk_hscale_new_with_range(NIGHTLIGHT_TEMP_MIN, NIGHTLIGHT_TEMP_MAX, 100);
     gtk_scale_set_digits(GTK_SCALE(g_nightlight_scale), 0);
     gtk_scale_set_value_pos(GTK_SCALE(g_nightlight_scale), GTK_POS_RIGHT);
+    gtk_range_set_increments(GTK_RANGE(g_nightlight_scale), NIGHTLIGHT_SCROLL_STEP, NIGHTLIGHT_SCROLL_STEP * 2);
     style_fg(g_nightlight_scale);
     gtk_box_pack_start(GTK_BOX(g_box), g_nightlight_scale, FALSE, FALSE, 0);
 
@@ -394,6 +437,8 @@ static void add_nightlight_section(void)
     g_signal_connect(g_nightlight_scale, "value-changed", G_CALLBACK(on_nightlight_scale_changed), NULL);
     g_signal_connect(g_nightlight_scale, "button-press-event", G_CALLBACK(on_brightness_press), NULL);
     g_signal_connect(g_nightlight_scale, "button-release-event", G_CALLBACK(on_brightness_release), NULL);
+    g_signal_connect(g_nightlight_scale, "scroll-event", G_CALLBACK(on_scale_scroll),
+                      GINT_TO_POINTER(NIGHTLIGHT_SCROLL_STEP));
 }
 
 static void clear_rows(void)
