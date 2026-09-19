@@ -82,6 +82,13 @@ typedef struct {
      * in xispanel.h. Reserved for a later pass that colors the toast (or
      * plays a sound) differently for ToastUrgency's CRITICAL/LOW ends. */
     ToastUrgency urgency;
+    /* "" for every DBus-arrived toast (never coalesced -- each Notify()
+     * is its own message). An OSD toast with a non-empty tag reuses an
+     * already-showing toast with the same tag in place (see
+     * toast_show_osd()) instead of stacking a new one -- volume changing
+     * three times in a second from a scroll wheel should update one
+     * popup, not stack three. */
+    char tag[32];
 } Toast;
 
 static Toast g_toasts[TOAST_ARRAY_CAP];
@@ -404,10 +411,30 @@ static void toast_on_arrived(const NotifEntry *e, int expire_timeout_ms)
     map_and_show_toast(t);
 }
 
-void toast_show_osd(cairo_surface_t *icon, const char *summary, const char *body, int level, ToastUrgency urgency,
-                     int timeout_ms)
+/* Finds an already-showing OSD toast with this exact tag, or -1 -- "" (no
+ * tag) never matches anything, including another untagged toast, so
+ * every untagged toast_show_osd() call keeps the old "always a new
+ * toast" behavior. */
+static int find_toast_by_tag(const char *tag)
 {
-    Toast *t = claim_toast_slot();
+    if (!tag || !tag[0]) {
+        return -1;
+    }
+    for (int i = 0; i < g_n; i++) {
+        if (!strcmp(g_toasts[i].tag, tag)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void toast_show_osd(cairo_surface_t *icon, const char *summary, const char *body, int level, ToastUrgency urgency,
+                     int timeout_ms, const char *tag)
+{
+    int existing = find_toast_by_tag(tag);
+    /* Same field-filling either branch takes -- only what happens
+     * around it differs (reuse the window in place vs. create one). */
+    Toast *t = existing >= 0 ? &g_toasts[existing] : claim_toast_slot();
     /* t->notif_id stays 0 -- see its own doc comment on the Toast struct. */
     snprintf(t->summary, sizeof(t->summary), "%s", summary ? summary : "");
     snprintf(t->body, sizeof(t->body), "%s", body ? body : "");
@@ -416,6 +443,17 @@ void toast_show_osd(cairo_surface_t *icon, const char *summary, const char *body
     t->urgency = urgency;
     t->timeout_ms = (uint64_t)(timeout_ms > 0 ? timeout_ms : TOAST_OSD_DEFAULT_MS);
     t->expire_ms = now_ms() + t->timeout_ms;
+
+    if (existing >= 0) {
+        /* Reused in place: same window, same stack position (no
+         * restacking -- see this function's own doc comment in
+         * xispanel.h), just a fresh paint and a fresh countdown. Cheaper
+         * than the new-toast path too: no window (re)creation. */
+        paint_toast(t);
+        XFlush(g_dpy);
+        return;
+    }
+    snprintf(t->tag, sizeof(t->tag), "%s", tag ? tag : "");
     map_and_show_toast(t);
 }
 

@@ -512,6 +512,12 @@ int panel_draw_skin(const PanelSkin *skin, cairo_t *cr, int state, double x, dou
  * NULL when there's no theme, no such file, or it failed to decode -- the
  * caller then draws its own Cairo glyph exactly as before. */
 cairo_surface_t *panel_theme_icon(Panel *p, const char *name, int size);
+/* Same lookup, but for code that has no Panel* of its own to ask (the
+ * OSD control-socket command, audio_events.c) -- resolves against
+ * whichever live panel happens to be first, since there's only one
+ * toast stack regardless of how many panels/themes exist anyway (see
+ * toast_show_osd()'s own doc comment). NULL if no panel is up yet. */
+cairo_surface_t *xispanel_first_panel_icon(const char *name, int size);
 /* Paints `p`'s full content (background + every widget, in logical panel-
  * local coordinates) into `cr` with an extra cairo_scale(scale, scale)
  * pushed first -- the actual drawing code neither knows nor cares about
@@ -1150,15 +1156,26 @@ typedef enum {
 /* Shows a toast directly -- see this section's own doc comment above for
  * how this differs from a DBus-arrived one. `icon` is borrowed exactly
  * like a DBus notification's own icon (not freed here) -- resolve it
- * with panel_theme_icon() (a widget already has its own Panel*) or pass
- * NULL for none. `level` is -1 for no bar, or 0-100 to draw one under the
- * text (a volume/brightness-style OSD) -- see toast.c's paint_toast().
- * `urgency` is stored only, see ToastUrgency above. `timeout_ms` <= 0
- * uses toast.c's own OSD default (shorter than a DBus notification's,
- * since this is meant to confirm something the user just did); an OSD
- * toast always auto-expires, unlike a DBus one's "0 = never" option. */
+ * with panel_theme_icon() (a widget already has its own Panel*) or
+ * xispanel_first_panel_icon() (code that doesn't), or pass NULL for
+ * none. `level` is -1 for no bar, or 0-100 to draw one under the text (a
+ * volume/brightness-style OSD) -- see toast.c's paint_toast(). `urgency`
+ * is stored only, see ToastUrgency above. `timeout_ms` <= 0 uses
+ * toast.c's own OSD default (shorter than a DBus notification's, since
+ * this is meant to confirm something the user just did); an OSD toast
+ * always auto-expires, unlike a DBus one's "0 = never" option.
+ *
+ * `tag` (may be NULL/"") opts into coalescing: if a toast with this
+ * exact tag is already showing, its content is updated *in place*
+ * (same window, same stack position, no restacking) and its countdown
+ * restarts, instead of stacking a second toast -- audio_events.c passes
+ * "volume" for this, so a volume scrolled up and down repeatedly
+ * updates one popup rather than piling several up. "" never matches
+ * anything (including another "" toast), so every untagged call keeps
+ * the plain "always a new toast" behavior -- existing callers that
+ * don't care about coalescing can just pass NULL. */
 void toast_show_osd(cairo_surface_t *icon, const char *summary, const char *body, int level, ToastUrgency urgency,
-                     int timeout_ms);
+                     int timeout_ms, const char *tag);
 
 /* launchfx.c: optional zoom+fade "launch feedback" popup over a clicked
  * launcher icon -- compositor-only, see that file's comment for why
@@ -1234,6 +1251,32 @@ int pulse_get_sink_state(const char *sink, int *out_pct, int *out_muted);
 int pulse_get_source_state(const char *source, int *out_pct, int *out_muted);
 void pulse_set_sink_volume_relative(const char *sink, int delta_pct); /* delta_pct may be negative */
 void pulse_toggle_sink_mute(const char *sink);
+/* 1 on success, filling `out` with the default sink/source's technical
+ * name (`pactl get-default-sink`/`get-default-source`'s own reply) --
+ * audio_events.c's way of noticing the default device changed. */
+int pulse_get_default_sink_name(char *out, size_t outsz);
+int pulse_get_default_source_name(char *out, size_t outsz);
+
+/* ---- audio device/volume change notifications (audio_events.c) ----
+ *
+ * Runs `pactl subscribe` as a long-lived child process (started lazily,
+ * respawned with a backoff if it ever dies -- pactl_available() being
+ * false, or the sound server not running yet at xispanel's own startup,
+ * are both normal, not fatal) and reacts to its event stream instead of
+ * polling: a toast_show_osd() when the default sink's volume/mute
+ * changes, or when the default sink/source itself switches to a
+ * different device. Deliberately narrower than every event `subscribe`
+ * emits -- device hotplug (new/remove) isn't handled yet, only `change`
+ * on sink/server.
+ *
+ * xispanel.c's main loop calls audio_events_fd() every iteration (like
+ * sni_fd(), re-read rather than cached: it starts at -1 until the first
+ * successful spawn, and goes back to -1 whenever the child dies) and, if
+ * that fd comes back readable, audio_events_poll() -- which is also safe
+ * to call at any other time (e.g. every loop iteration) since it's a
+ * non-blocking drain, not a blocking read. */
+int audio_events_fd(void);
+void audio_events_poll(void);
 
 /* ---- live window thumbnails: XComposite, no libpulse-style dlopen (thumb.c) ----
  *

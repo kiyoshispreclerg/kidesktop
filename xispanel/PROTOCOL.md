@@ -50,10 +50,14 @@ socket rather than xisback's `SET`-style protocol.
   the text -- omit for a plain text toast), `urgency` (`"low"`,
   `"normal"` (default), or `"critical"` -- stored for a later pass that
   colors/sounds differently per level, no visible effect yet), and
-  `timeout_ms` (omit for toast.c's own shorter OSD default). `{"ok":true}`
-  on success; malformed/missing fields degrade rather than error (an
-  empty `summary`, no icon, etc.), same "never just fail to show
-  something" spirit as the rest of this protocol.
+  `timeout_ms` (omit for toast.c's own shorter OSD default), and `tag` --
+  an arbitrary short string opting into coalescing: a second `OSD` with
+  the same `tag` while the first is still showing updates that toast's
+  content and restarts its countdown *in place* instead of stacking a
+  new one (omit `tag`, or send `""`, for the old "always a new toast"
+  behavior). `{"ok":true}` on success; malformed/missing fields degrade
+  rather than error (an empty `summary`, no icon, etc.), same "never
+  just fail to show something" spirit as the rest of this protocol.
 - `QUIT` -> stops the daemon. `{"ok":true}`
 
 Unknown commands get `{"ok":false,"error":"unknown command"}`.

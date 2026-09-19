@@ -181,3 +181,48 @@ void pulse_toggle_sink_mute(const char *sink)
     snprintf(args, sizeof(args), "set-sink-mute %s toggle", sink);
     pactl_run_fire(args);
 }
+
+static void rstrip(char *s)
+{
+    size_t l = strlen(s);
+    while (l > 0 && (s[l - 1] == '\n' || s[l - 1] == '\r' || s[l - 1] == ' ')) {
+        s[--l] = 0;
+    }
+}
+
+/* `pactl get-default-sink`/`get-default-source`'s own one-line reply --
+ * the technical device name (e.g. "alsa_output.pci-0000_00_1f.3.analog-
+ * stereo"), not the human-readable Description `pactl list sinks` would
+ * additionally have. Good enough to notice *that* the default changed
+ * and to tell two devices apart in a toast; a prettier name is a
+ * possible follow-up, not done here to keep this to what audio_events.c
+ * actually needs (a value to diff against the last one seen). */
+static int pulse_get_default_name(const char *which, char *out, size_t outsz)
+{
+    out[0] = 0;
+    if (!pulse_available()) {
+        return 0;
+    }
+    char args[32];
+    snprintf(args, sizeof(args), "get-default-%s", which);
+    FILE *f = pactl_run(args);
+    if (!f) {
+        return 0;
+    }
+    int ok = fgets(out, (int)outsz, f) != NULL;
+    pclose(f);
+    if (ok) {
+        rstrip(out);
+    }
+    return ok && out[0];
+}
+
+int pulse_get_default_sink_name(char *out, size_t outsz)
+{
+    return pulse_get_default_name("sink", out, outsz);
+}
+
+int pulse_get_default_source_name(char *out, size_t outsz)
+{
+    return pulse_get_default_name("source", out, outsz);
+}

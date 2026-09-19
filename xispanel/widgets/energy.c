@@ -190,7 +190,7 @@ static void notify_low_battery(PanelWidget *w, int pct, int threshold)
     snprintf(summary, sizeof(summary), "Bateria fraca: %d%%", pct);
     /* Longer than an ordinary OSD's default (toast.c's TOAST_OSD_DEFAULT_MS)
      * -- this matters more than confirming a scroll/hotkey just landed. */
-    toast_show_osd(icon, summary, NULL, pct, urgency, 6000);
+    toast_show_osd(icon, summary, NULL, pct, urgency, 6000, "battery-low");
 }
 
 static int energy_on_tick(PanelWidget *w, uint64_t now)

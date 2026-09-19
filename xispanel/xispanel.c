@@ -93,7 +93,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.21"
+#define XISPANEL_VERSION "0.6.22"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 #define IPC_MAX_LEN 4096
@@ -1321,6 +1321,16 @@ cairo_surface_t *panel_theme_icon(Panel *p, const char *name, int size)
     return surf;
 }
 
+cairo_surface_t *xispanel_first_panel_icon(const char *name, int size)
+{
+    for (int i = 0; i < MAX_PANELS; i++) {
+        if (g_panels[i].in_use) {
+            return panel_theme_icon(&g_panels[i], name, size);
+        }
+    }
+    return NULL;
+}
+
 /* Paints one source sub-rectangle [sx,sy,sw,sh] of `src` into one
  * destination rectangle [dx,dy,dw,dh] of `cr`, scaling to fit -- the one
  * building block every corner/edge/center region of a 9-slice draw
@@ -2437,11 +2447,15 @@ static void handle_ipc_message(const char *req, char *resp, size_t resp_sz)
          * toast without linking against xispanel or reimplementing the
          * popup itself. Every field but "summary" is optional. */
         char icon_name[128] = "", summary[NOTIFD_SUMMARY_MAX] = "", body[NOTIFD_BODY_MAX] = "";
-        char urgency_str[16] = "";
+        char urgency_str[16] = "", tag[32] = "";
         json_get_str(req, "icon", icon_name, sizeof(icon_name));
         json_get_str(req, "summary", summary, sizeof(summary));
         json_get_str(req, "body", body, sizeof(body));
         json_get_str(req, "urgency", urgency_str, sizeof(urgency_str));
+        /* Optional -- see toast_show_osd()'s own doc comment on `tag`.
+         * Lets a repeat caller (xiskeys holding a brightness key down,
+         * say) update one popup instead of stacking a new one per call. */
+        json_get_str(req, "tag", tag, sizeof(tag));
         int level = -1, timeout_ms = 0;
         json_get_int(req, "level", &level);
         json_get_int(req, "timeout_ms", &timeout_ms);
@@ -2453,23 +2467,10 @@ static void handle_ipc_message(const char *req, char *resp, size_t resp_sz)
             urgency = TOAST_URGENCY_CRITICAL;
         }
 
-        /* Icon theme lookup needs a Panel* (per-panel theme, see
-         * panel_theme_icon()) -- there's only ever one toast stack
-         * regardless of how many panels/outputs exist (toast.c's own doc
-         * comment), so the first live panel stands in for "the" theme,
-         * same as toast_set_corner()/toast_set_colors() already treat
-         * "whichever notif widget last touched it" as one global source
-         * of truth. 40px matches toast.c's own TOAST_ICON. */
-        cairo_surface_t *icon = NULL;
-        if (icon_name[0]) {
-            for (int i = 0; i < MAX_PANELS; i++) {
-                if (g_panels[i].in_use) {
-                    icon = panel_theme_icon(&g_panels[i], icon_name, 40);
-                    break;
-                }
-            }
-        }
-        toast_show_osd(icon, summary, body, level, urgency, timeout_ms);
+        /* 40px matches toast.c's own TOAST_ICON. xispanel_first_panel_icon()
+         * is the "no Panel* of my own" lookup -- see its own doc comment. */
+        cairo_surface_t *icon = icon_name[0] ? xispanel_first_panel_icon(icon_name, 40) : NULL;
+        toast_show_osd(icon, summary, body, level, urgency, timeout_ms, tag);
         snprintf(resp, resp_sz, "{\"ok\":true}\n");
     } else if (strcmp(cmd, "QUIT") == 0) {
         g_quit = 1;
@@ -2809,6 +2810,17 @@ static int run_as_daemon(const char *sockpath)
                 maxfd = snifd;
             }
         }
+        /* Same "re-read every iteration" reasoning as snifd above: -1
+         * until pactl subscribe is actually running, which only happens
+         * lazily (and gets re-tried on its own backoff after a crash --
+         * see audio_events_fd()). */
+        int audiofd = audio_events_fd();
+        if (audiofd >= 0) {
+            FD_SET(audiofd, &rfds);
+            if (audiofd > maxfd) {
+                maxfd = audiofd;
+            }
+        }
 
         uint64_t now = now_ms();
         long timeout_ms = -1;
@@ -3060,6 +3072,9 @@ static int run_as_daemon(const char *sockpath)
          * notif widget's own on_tick polling unread count. */
         if (snifd >= 0 && r > 0 && FD_ISSET(snifd, &rfds)) {
             sni_wake();
+        }
+        if (audiofd >= 0 && r > 0 && FD_ISSET(audiofd, &rfds)) {
+            audio_events_poll();
         }
         int tray_changed = disable_sni ? 0 : sni_poll(now);
         if (!disable_notifd) {
