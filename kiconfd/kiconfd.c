@@ -33,9 +33,27 @@
  *   gtk4_theme        = <GTK4 theme name>
  *   icon_theme        = <icon theme name>
  *   qt_style          = <QStyle name, e.g. "Fusion">
+ *   export_to_other_desktops = 0|1   (see below, default 0)
  *
  * Any key missing the first time is filled with a sane default and saved
  * back, same as cursor_theme/cursor_size always did.
+ *
+ * export_to_other_desktops: off by default. ~/.gtkrc-2.0, ~/.config/
+ * gtk-{3,4}.0/settings.ini and ~/.config/qt{5,6}ct/qt{5,6}ct.conf are not
+ * KiDesktop-specific -- they're the *same* files any other desktop's GTK/Qt
+ * apps (and, for GTK, the desktop's own theme-sync tool, e.g. Plasma's
+ * kde-gtk-config) read regardless of which session wrote them last. With
+ * this off, apply_all() leaves those files alone entirely and a KiDesktop
+ * session still themes itself correctly through the two channels that are
+ * genuinely scoped to the current X session -- XSETTINGS (live, covers
+ * theme/icon/font/cursor for GTK2/3 and any Qt app following it) and
+ * RESOURCE_MANAGER (Xcursor/Xft). The one casualty is the custom color
+ * palette, which has no session-only channel (see the XSETTINGS comment
+ * below) and so only ever reaches apps through those shared files -- with
+ * export off, GTK/Qt apps keep the palette their own theme ships instead.
+ * Turning it on is an explicit "make this account's GTK/Qt apps look like
+ * this under every desktop" opt-in from kiconf's Aparencia tab; turning it
+ * back off does not revert files a prior export already wrote.
  *
  * What gets touched per toolkit:
  *   XSETTINGS (_XSETTINGS_S<screen>) -- theme/icon theme/font/cursor. The
@@ -43,16 +61,20 @@
  *     file backend below is read once at app startup, so without this,
  *     "Aplicar" would only affect programs launched afterwards. See
  *     apply_xsettings(). Colors are the exception -- XSETTINGS has no key
- *     for a palette, so those still need an app restart.
+ *     for a palette, so those still need an app restart. Always applied,
+ *     regardless of export_to_other_desktops -- scoped to this X session.
  *   Xresources (RESOURCE_MANAGER) -- Xcursor.theme/size, Xft.font. The
  *     one thing every X11 app can fall back to regardless of toolkit.
+ *     Always applied -- also scoped to this X session.
  *   GTK2   -- ~/.gtkrc-2.0, inside a "# BEGIN/END KICONF" marked block
  *     (theme/icon-theme/font/cursor keys, plus a style override for the
  *     color palette) so anything else the user hand-edited there survives.
+ *     Only written when export_to_other_desktops is on.
  *   GTK3/4 -- ~/.config/gtk-{3,4}.0/settings.ini (theme/icon-theme/font/
  *     cursor keys upserted under [Settings], other keys left alone) plus a
  *     fully kiconfd-owned gtk-{3,4}.0/kiconf-colors.css using @define-color,
- *     imported from gtk.css via one marked line.
+ *     imported from gtk.css via one marked line. Only written when
+ *     export_to_other_desktops is on.
  *   Screens (xrandr) -- $XDG_CONFIG_HOME/kiconfd-screens.conf, a separate
  *     file kiconf's Telas tab writes on Aplicar (see its save_screens_
  *     layout()) and kiconfd replays via one `xrandr` call at session
@@ -70,7 +92,8 @@
  *     names it; setting that variable is kisession's job (see
  *     setup_qt_platformtheme() there), and it prefers the "gtk3" plugin
  *     when available, in which case Qt apps follow the GTK3 settings and
- *     the XSETTINGS broadcast above instead of these files.
+ *     the XSETTINGS broadcast above instead of these files. Only written
+ *     when export_to_other_desktops is on.
  *   wx (wxWidgets) -- no separate file: wxGTK (the default on Linux) is a
  *     GTK wrapper and already follows the GTK settings above. Nothing to
  *     do here.
@@ -101,7 +124,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.3"
+#define KICONFD_VERSION "0.2.4"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -134,6 +157,9 @@ static char g_gtk3_theme[NAME_LEN] = "";
 static char g_gtk4_theme[NAME_LEN] = "";
 static char g_icon_theme[NAME_LEN] = "";
 static char g_qt_style[NAME_LEN] = "";
+/* -1 = not yet loaded from config (apply_and_persist_defaults() fills it
+ * with 0). See the export_to_other_desktops doc comment above main(). */
+static int g_export_other_desktops = -1;
 
 static void handle_signal(int sig)
 {
@@ -1203,6 +1229,7 @@ static void save_config(void)
     fprintf(f, "gtk4_theme = %s\n", g_gtk4_theme);
     fprintf(f, "icon_theme = %s\n", g_icon_theme);
     fprintf(f, "qt_style = %s\n", g_qt_style);
+    fprintf(f, "export_to_other_desktops = %d\n", g_export_other_desktops > 0 ? 1 : 0);
     fclose(f);
     if (rename(tmp, g_configpath) != 0) {
         fprintf(stderr, "kiconfd: could not save '%s': %s\n", g_configpath, strerror(errno));
@@ -1261,6 +1288,8 @@ static void load_config(void)
             snprintf(g_icon_theme, sizeof(g_icon_theme), "%s", val);
         } else if (!strcmp(key, "qt_style")) {
             snprintf(g_qt_style, sizeof(g_qt_style), "%s", val);
+        } else if (!strcmp(key, "export_to_other_desktops")) {
+            g_export_other_desktops = atoi(val) ? 1 : 0;
         } else {
             fprintf(stderr, "kiconfd: config: unknown key '%s', ignoring\n", key);
         }
@@ -1277,14 +1306,16 @@ static void apply_all(void)
     apply_resource_manager();
     apply_cursor_theme();
     apply_xsettings();
-    apply_gtk2();
-    apply_gtk_modern("3.0", g_gtk3_theme);
-    apply_gtk_modern("4.0", g_gtk4_theme);
-    apply_qt("qt5ct");
-    apply_qt("qt6ct");
+    if (g_export_other_desktops > 0) {
+        apply_gtk2();
+        apply_gtk_modern("3.0", g_gtk3_theme);
+        apply_gtk_modern("4.0", g_gtk4_theme);
+        apply_qt("qt5ct");
+        apply_qt("qt6ct");
+    }
     XFlush(g_dpy);
-    fprintf(stderr, "kiconfd: applied settings (cursor='%s' gtk2='%s' gtk3='%s' gtk4='%s' qt_style='%s')\n",
-             g_cursor_theme, g_gtk2_theme, g_gtk3_theme, g_gtk4_theme, g_qt_style);
+    fprintf(stderr, "kiconfd: applied settings (cursor='%s' gtk2='%s' gtk3='%s' gtk4='%s' qt_style='%s' export_other_desktops=%d)\n",
+             g_cursor_theme, g_gtk2_theme, g_gtk3_theme, g_gtk4_theme, g_qt_style, g_export_other_desktops > 0);
 }
 
 static void apply_and_persist_defaults(void)
@@ -1323,6 +1354,11 @@ static void apply_and_persist_defaults(void)
 
 #undef DEFAULT_STR
 
+    if (g_export_other_desktops < 0) {
+        g_export_other_desktops = 0;
+        changed = 1;
+    }
+
     if (changed) {
         fprintf(stderr, "kiconfd: config missing some settings, filled in defaults and saved them\n");
         save_config();
@@ -1340,6 +1376,7 @@ static void reload_config(void)
     g_font_general[0] = g_font_monospace[0] = '\0';
     g_gtk2_theme[0] = g_gtk3_theme[0] = g_gtk4_theme[0] = '\0';
     g_icon_theme[0] = g_qt_style[0] = '\0';
+    g_export_other_desktops = -1;
     load_config();
     apply_and_persist_defaults();
 }

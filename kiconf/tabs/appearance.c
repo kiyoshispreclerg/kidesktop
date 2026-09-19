@@ -34,6 +34,7 @@ static GtkWidget *g_color_selbg_btn;
 static GtkWidget *g_color_selfg_btn;
 static GtkWidget *g_font_general_btn;
 static GtkWidget *g_font_mono_btn;
+static GtkWidget *g_export_other_check;
 
 /* ---- installed-theme scanning ----------------------------------------- */
 
@@ -196,6 +197,7 @@ typedef struct {
     char font_general[NAME_LEN], font_monospace[NAME_LEN];
     char gtk2_theme[NAME_LEN], gtk3_theme[NAME_LEN], gtk4_theme[NAME_LEN];
     char icon_theme[NAME_LEN], qt_style[NAME_LEN];
+    int export_other_desktops;
 } Appearance;
 
 /* Defaults mirror kiconfd's own apply_and_persist_defaults() -- if
@@ -218,6 +220,7 @@ static void appearance_defaults(Appearance *a)
     snprintf(a->gtk4_theme, sizeof(a->gtk4_theme), "Adwaita");
     snprintf(a->icon_theme, sizeof(a->icon_theme), "Adwaita");
     snprintf(a->qt_style, sizeof(a->qt_style), "Fusion");
+    a->export_other_desktops = 0;
 }
 
 static void load_appearance(Appearance *a)
@@ -259,6 +262,7 @@ static void load_appearance(Appearance *a)
         else SET("gtk4_theme", gtk4_theme);
         else SET("icon_theme", icon_theme);
         else SET("qt_style", qt_style);
+        else if (!strcmp(key, "export_to_other_desktops")) a->export_other_desktops = atoi(val) ? 1 : 0;
 #undef SET
     }
     fclose(f);
@@ -302,6 +306,7 @@ static void save_appearance_cb(GtkWidget *widget, gpointer data)
     gchar *qtstyle = combo_active_text_or(g_qt_style_combo, "Fusion");
     snprintf(a.qt_style, sizeof(a.qt_style), "%s", qtstyle);
     g_free(qtstyle);
+    a.export_other_desktops = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_export_other_check)) ? 1 : 0;
 
     char path[PATH_MAX];
     resolve_path("kiconfd.conf", path, sizeof(path));
@@ -328,6 +333,7 @@ static void save_appearance_cb(GtkWidget *widget, gpointer data)
     fprintf(f, "gtk4_theme = %s\n", a.gtk4_theme);
     fprintf(f, "icon_theme = %s\n", a.icon_theme);
     fprintf(f, "qt_style = %s\n", a.qt_style);
+    fprintf(f, "export_to_other_desktops = %d\n", a.export_other_desktops);
     fclose(f);
     rename(tmp, path);
 
@@ -595,6 +601,16 @@ GtkWidget *build_appearance_tab(void)
     g_font_mono_btn = gtk_font_button_new_with_font(a.font_monospace);
     labeled_row(fonts_table, 1, "Fonte monoespacada:", g_font_mono_btn);
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Fontes", fonts_table), FALSE, FALSE, 0);
+
+    g_export_other_check = gtk_check_button_new_with_label(
+        "Exportar temas/cores/icones/cursor para outros desktops (GTK/Qt)");
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_export_other_check), a.export_other_desktops);
+    gtk_widget_set_tooltip_text(g_export_other_check,
+        "Quando desligado (padrao), essa aparencia so vale para a sessao KiDesktop.\n"
+        "Quando ligado, kiconfd tambem escreve em ~/.gtkrc-2.0, ~/.config/gtk-3.0 e "
+        "gtk-4.0/settings.ini e ~/.config/qt5ct/qt6ct -- os mesmos arquivos que outros "
+        "desktops (ex.: KDE Plasma) usam, entao apps GTK/Qt tambem mudam de visual la.");
+    gtk_box_pack_start(GTK_BOX(outer), g_export_other_check, FALSE, FALSE, 0);
 
     GtkWidget *import_btn = gtk_button_new_with_label("Importar da sessao atual");
     g_signal_connect(import_btn, "clicked", G_CALLBACK(import_appearance_cb), NULL);
