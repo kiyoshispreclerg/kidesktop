@@ -109,7 +109,7 @@
 #include "i18n.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.16"
+#define KICONF_VERSION "0.2.17"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -140,23 +140,24 @@ typedef struct {
     TabBuilder build;
     GtkWidget *placeholder;
     int built;
+    int dirty;
 } LazyTab;
 
 static LazyTab g_tabs[] = {
-    {N_("Aparencia"), GTK_STOCK_SELECT_COLOR, build_appearance_tab, NULL, 0},
-    {N_("Atalhos"), GTK_STOCK_JUMP_TO, build_shortcuts_tab, NULL, 0},
-    {N_("Telas"), GTK_STOCK_FULLSCREEN, build_telas_tab, NULL, 0},
-    {N_("Entrada"), GTK_STOCK_EDIT, build_entrada_tab, NULL, 0},
-    {N_("Wallpaper"), GTK_STOCK_FILE, build_wallpaper_tab, NULL, 0},
-    {N_("Outras"), GTK_STOCK_PREFERENCES, build_outras_tab, NULL, 0},
-    {N_("Paineis"), GTK_STOCK_JUSTIFY_FILL, build_paineis_tab, NULL, 0},
-    {N_("Permissoes"), GTK_STOCK_DIALOG_AUTHENTICATION, build_permissoes_tab, NULL, 0},
-    {N_("Gerenciamento de janelas"), GTK_STOCK_DND_MULTIPLE, build_janelas_tab, NULL, 0},
-    {N_("Efeitos do compositor"), GTK_STOCK_CONVERT, build_efeitos_tab, NULL, 0},
-    {N_("Sistema"), GTK_STOCK_HARDDISK, build_sistema_tab, NULL, 0},
-    {N_("Energia"), GTK_STOCK_QUIT, build_energia_tab, NULL, 0},
-    {N_("Programas padrao"), GTK_STOCK_EXECUTE, build_programas_tab, NULL, 0},
-    {N_("Iniciar automaticamente"), GTK_STOCK_MEDIA_PLAY, build_autostart_tab, NULL, 0},
+    {N_("Aparencia"), GTK_STOCK_SELECT_COLOR, build_appearance_tab, NULL, 0, 0},
+    {N_("Atalhos"), GTK_STOCK_JUMP_TO, build_shortcuts_tab, NULL, 0, 0},
+    {N_("Telas"), GTK_STOCK_FULLSCREEN, build_telas_tab, NULL, 0, 0},
+    {N_("Entrada"), GTK_STOCK_EDIT, build_entrada_tab, NULL, 0, 0},
+    {N_("Wallpaper"), GTK_STOCK_FILE, build_wallpaper_tab, NULL, 0, 0},
+    {N_("Outras"), GTK_STOCK_PREFERENCES, build_outras_tab, NULL, 0, 0},
+    {N_("Paineis"), GTK_STOCK_JUSTIFY_FILL, build_paineis_tab, NULL, 0, 0},
+    {N_("Permissoes"), GTK_STOCK_DIALOG_AUTHENTICATION, build_permissoes_tab, NULL, 0, 0},
+    {N_("Gerenciamento de janelas"), GTK_STOCK_DND_MULTIPLE, build_janelas_tab, NULL, 0, 0},
+    {N_("Efeitos do compositor"), GTK_STOCK_CONVERT, build_efeitos_tab, NULL, 0, 0},
+    {N_("Sistema"), GTK_STOCK_HARDDISK, build_sistema_tab, NULL, 0, 0},
+    {N_("Energia"), GTK_STOCK_QUIT, build_energia_tab, NULL, 0, 0},
+    {N_("Programas padrao"), GTK_STOCK_EXECUTE, build_programas_tab, NULL, 0, 0},
+    {N_("Iniciar automaticamente"), GTK_STOCK_MEDIA_PLAY, build_autostart_tab, NULL, 0, 0},
 };
 #define N_TABS ((int)(sizeof(g_tabs) / sizeof(g_tabs[0])))
 
@@ -165,12 +166,18 @@ static LazyTab g_tabs[] = {
 #define HOME_PAGE 0
 
 static GtkWidget *g_notebook;
+static GtkWidget *g_window;
 static int g_current_tab = -1;
+
+static int confirm_leave_current_tab(void);
 
 static void on_back_clicked(GtkWidget *widget, gpointer data)
 {
     (void)widget;
     (void)data;
+    if (!confirm_leave_current_tab()) {
+        return;
+    }
     gtk_notebook_set_current_page(GTK_NOTEBOOK(g_notebook), HOME_PAGE);
 }
 
@@ -188,6 +195,116 @@ static GtkWidget *make_back_button(void)
     return row;
 }
 
+/* ---- pending-changes tracking -------------------------------------------
+ * One shared mechanism for all 14 tabs rather than a per-tab dirty flag
+ * each build_X_tab() has to remember to set/clear by hand: after a tab is
+ * built, connect_dirty_tracking() walks its whole widget tree and hooks
+ * the "value changed" signal of every editable widget type used anywhere
+ * in tabs/ (entries, spin buttons, combo/color/font/file buttons, text
+ * views, and tree view models -- which also covers list-based tabs'
+ * Adicionar/Remover buttons, since those mutate the model directly) to
+ * mark that tab dirty. Buttons whose label starts with "Aplicar"/"Salvar"
+ * -- the actual persist-to-disk action in every tab, see the grep of
+ * gtk_button_new_with_label() calls across tabs/ -- clear it again once
+ * their own "clicked" handler (connected first, inside build_X_tab()) has
+ * run. Connecting happens after build() returns so a tab's *initial*
+ * population (loading current config into its widgets) never itself
+ * counts as a pending edit. */
+static void mark_dirty_cb(GtkWidget *w, gpointer data)
+{
+    (void)w;
+    int idx = GPOINTER_TO_INT(data);
+    if (idx >= 0 && idx < N_TABS) {
+        g_tabs[idx].dirty = 1;
+    }
+}
+
+static void clear_dirty_cb(GtkWidget *w, gpointer data)
+{
+    (void)w;
+    int idx = GPOINTER_TO_INT(data);
+    if (idx >= 0 && idx < N_TABS) {
+        g_tabs[idx].dirty = 0;
+    }
+}
+
+static int is_commit_label(const char *label)
+{
+    return label && (!strncmp(label, "Aplicar", 7) || !strncmp(label, "Salvar", 6));
+}
+
+static void connect_dirty_tracking(GtkWidget *w, int idx)
+{
+    gpointer d = GINT_TO_POINTER(idx);
+
+    if (GTK_IS_SPIN_BUTTON(w)) {
+        g_signal_connect(w, "value-changed", G_CALLBACK(mark_dirty_cb), d);
+    } else if (GTK_IS_ENTRY(w)) {
+        g_signal_connect(w, "changed", G_CALLBACK(mark_dirty_cb), d);
+    } else if (GTK_IS_TOGGLE_BUTTON(w)) {
+        g_signal_connect(w, "toggled", G_CALLBACK(mark_dirty_cb), d);
+    } else if (GTK_IS_COMBO_BOX(w)) {
+        g_signal_connect(w, "changed", G_CALLBACK(mark_dirty_cb), d);
+    } else if (GTK_IS_COLOR_BUTTON(w)) {
+        g_signal_connect(w, "color-set", G_CALLBACK(mark_dirty_cb), d);
+    } else if (GTK_IS_FONT_BUTTON(w)) {
+        g_signal_connect(w, "font-set", G_CALLBACK(mark_dirty_cb), d);
+    } else if (GTK_IS_FILE_CHOOSER_BUTTON(w)) {
+        g_signal_connect(w, "file-set", G_CALLBACK(mark_dirty_cb), d);
+    } else if (GTK_IS_TEXT_VIEW(w)) {
+        GtkTextBuffer *buf = gtk_text_view_get_buffer(GTK_TEXT_VIEW(w));
+        g_signal_connect(buf, "changed", G_CALLBACK(mark_dirty_cb), d);
+    } else if (GTK_IS_TREE_VIEW(w)) {
+        GtkTreeModel *model = gtk_tree_view_get_model(GTK_TREE_VIEW(w));
+        if (model) {
+            g_signal_connect(model, "row-changed", G_CALLBACK(mark_dirty_cb), d);
+            g_signal_connect(model, "row-inserted", G_CALLBACK(mark_dirty_cb), d);
+            g_signal_connect(model, "row-deleted", G_CALLBACK(mark_dirty_cb), d);
+        }
+    }
+
+    if (GTK_IS_BUTTON(w) && !GTK_IS_TOGGLE_BUTTON(w) && is_commit_label(gtk_button_get_label(GTK_BUTTON(w)))) {
+        g_signal_connect_after(w, "clicked", G_CALLBACK(clear_dirty_cb), d);
+    }
+
+    if (GTK_IS_CONTAINER(w)) {
+        GList *children = gtk_container_get_children(GTK_CONTAINER(w));
+        for (GList *l = children; l; l = l->next) {
+            connect_dirty_tracking(GTK_WIDGET(l->data), idx);
+        }
+        g_list_free(children);
+    }
+}
+
+/* Asks the user to confirm discarding g_current_tab's pending edits, if
+ * any. Returns 1 if it's fine to leave the tab now (nothing pending, or
+ * the user confirmed), 0 if the caller must not proceed (stay put). */
+static int confirm_leave_current_tab(void)
+{
+    if (g_current_tab < 0 || !g_tabs[g_current_tab].dirty) {
+        return 1;
+    }
+    GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(g_window), GTK_DIALOG_MODAL,
+                                             GTK_MESSAGE_QUESTION, GTK_BUTTONS_YES_NO, "%s",
+                                             _("Ha alteracoes nao aplicadas nesta aba. "
+                                               "Tem certeza que deseja sair sem aplica-las?"));
+    gtk_window_set_title(GTK_WINDOW(dlg), _("Alteracoes pendentes"));
+    int response = gtk_dialog_run(GTK_DIALOG(dlg));
+    gtk_widget_destroy(dlg);
+    return response == GTK_RESPONSE_YES;
+}
+
+/* "delete-event" fires when the user tries to close the window (titlebar X,
+ * Alt+F4, ...) before GTK's default handler destroys it -- returning TRUE
+ * here stops that default handler, keeping the window open. */
+static gboolean on_window_delete(GtkWidget *widget, GdkEvent *event, gpointer data)
+{
+    (void)widget;
+    (void)event;
+    (void)data;
+    return confirm_leave_current_tab() ? FALSE : TRUE;
+}
+
 static void ensure_tab_built(int idx)
 {
     if (idx < 0 || idx >= N_TABS || g_tabs[idx].built) {
@@ -198,6 +315,8 @@ static void ensure_tab_built(int idx)
     gtk_box_pack_start(GTK_BOX(g_tabs[idx].placeholder), content, TRUE, TRUE, 0);
     gtk_widget_show_all(g_tabs[idx].placeholder);
     g_tabs[idx].built = 1;
+    g_tabs[idx].dirty = 0;
+    connect_dirty_tracking(g_tabs[idx].placeholder, idx);
 }
 
 /* Destroys idx's content widget (recursively, along with everything it
@@ -214,6 +333,7 @@ static void unbuild_tab(int idx)
     }
     g_list_free(children);
     g_tabs[idx].built = 0;
+    g_tabs[idx].dirty = 0;
 }
 
 static void on_switch_page(GtkNotebook *notebook, GtkNotebookPage *page, guint page_num, gpointer data)
@@ -237,6 +357,9 @@ static void on_switch_page(GtkNotebook *notebook, GtkNotebookPage *page, guint p
 static void on_module_icon_clicked(GtkWidget *widget, gpointer data)
 {
     (void)widget;
+    if (!confirm_leave_current_tab()) {
+        return;
+    }
     gtk_notebook_set_current_page(GTK_NOTEBOOK(g_notebook), GPOINTER_TO_INT(data));
 }
 
@@ -371,7 +494,6 @@ static int notify_running_instance(const char *sockpath, int tab_idx)
     return 1;
 }
 
-static GtkWidget *g_window;
 static int g_listenfd = -1;
 static char g_sockpath[PATH_MAX];
 
@@ -385,7 +507,7 @@ static void apply_ctl_line(char *line)
     }
     if (!strncmp(line, "TAB ", 4)) {
         int idx = atoi(line + 4);
-        if (idx >= 0 && idx < N_TABS) {
+        if (idx >= 0 && idx < N_TABS && confirm_leave_current_tab()) {
             gtk_notebook_set_current_page(GTK_NOTEBOOK(g_notebook), idx + 1);
         }
     }
@@ -515,6 +637,7 @@ int main(int argc, char **argv)
     g_window = window;
     gtk_window_set_title(GTK_WINDOW(window), "kiconf");
     gtk_window_set_default_size(GTK_WINDOW(window), 640, 660);
+    g_signal_connect(window, "delete-event", G_CALLBACK(on_window_delete), NULL);
     g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
     GtkWidget *notebook = gtk_notebook_new();
