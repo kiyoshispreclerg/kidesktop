@@ -506,6 +506,21 @@ read once at startup (kiwm never watches kiconfd.conf for changes, same as kiwm.
   theme can have both: a base color that differs by focus, and one specific button -- close, say
   -- washed a different color only while the pointer is on it).
 
+  `button_fg_active=`/`button_fg_inactive=` are the same fallback's *glyph* color -- the X,
+  square, pin, etc. cairo draws for a button with no sprite -- previously a hardcoded light gray
+  no matter the theme or focus. Left unset (the default), a button's glyph just matches
+  `fg_active=`/`fg_inactive=`, the titlebar's own text color, at full opacity -- so most themes
+  never need this key at all, the glyphs already look right for free. Set one explicitly only to
+  give the glyph a color that differs from the title text (its own alpha *is* honored then, unlike
+  `fg_active=`'s).
+
+  Both button hover feedback (the resting-color alpha bump above) and `button_tint_scope=decoration`
+  below need kiwm to actually be tracking which button the pointer is on -- true unconditionally now,
+  but until this existed it was skipped whenever no `btns.png` was loaded (it used to matter only for
+  picking a sprite's hover row), so a colors-only theme's buttons had no hover feedback and its
+  `button_tint_scope=decoration` never triggered at all. greenkiyo's `close_button_tint=` is the
+  theme this fixes.
+
   Two more keys in the same `colors` file control corner rounding (via the XCB SHAPE extension --
   no compositor needed, so this works even without `kicomp`):
   ```

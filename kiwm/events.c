@@ -901,14 +901,17 @@ static bool try_edge_snap(Client *c, xcb_motion_notify_event_t *ev, int dx, int 
 }
 
 /* Tracks which titlebar button (if any) the pointer currently sits over,
- * for btns.png's hover row (see decoration.c's draw_button()) -- a no-op
- * whenever no button theme is loaded, so plain-fallback decoration
- * doesn't pay for tracking/repainting it never uses. */
+ * for btns.png's hover row (see decoration.c's draw_button()) -- also
+ * needed without a sprite theme at all: the plain flat-block fallback
+ * uses `hovered` too (a brighter button_bg_active=/button_bg_inactive=,
+ * and it's what makes button_tint_scope=decoration's whole-frame wash
+ * possible), so this used to bail out early whenever !wm.deco_btns and
+ * silently drop both -- a colors-only theme's hover tint and its
+ * button_bg_*'s hover bump never fired. Always tracked now; repainting an
+ * unthemed client on hover is one cheap Cairo pass, not worth special-
+ * casing away. */
 static void update_button_hover(xcb_motion_notify_event_t *ev)
 {
-    if (!wm.deco_btns)
-        return;
-
     Client *c = find_client_window(ev->event);
     int slot = -1;
     if (c && client_deco_visible(c)) {
