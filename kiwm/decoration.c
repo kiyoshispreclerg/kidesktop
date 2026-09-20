@@ -445,6 +445,12 @@ static void load_colors_theme(void)
             parse_hex_color(val, &wm.btn_bg_active_r, &wm.btn_bg_active_g, &wm.btn_bg_active_b, &wm.btn_bg_active_a);
         else if (strcmp(key, "button_bg_inactive") == 0)
             parse_hex_color(val, &wm.btn_bg_inactive_r, &wm.btn_bg_inactive_g, &wm.btn_bg_inactive_b, &wm.btn_bg_inactive_a);
+        else if (strcmp(key, "button_fg_active") == 0)
+            wm.btn_fg_active_set = parse_hex_color(val, &wm.btn_fg_active_r, &wm.btn_fg_active_g,
+                                                   &wm.btn_fg_active_b, &wm.btn_fg_active_a);
+        else if (strcmp(key, "button_fg_inactive") == 0)
+            wm.btn_fg_inactive_set = parse_hex_color(val, &wm.btn_fg_inactive_r, &wm.btn_fg_inactive_g,
+                                                     &wm.btn_fg_inactive_b, &wm.btn_fg_inactive_a);
         else if (strcmp(key, "border_radius") == 0) {
             int a = 0, b = 0, cc = 0, d = 0;
             int n = sscanf(val, "%d %d %d %d", &a, &b, &cc, &d);
@@ -642,6 +648,7 @@ void load_decoration(void)
     wm.btn_bg_active_a = 0.30;
     wm.btn_bg_inactive_r = wm.btn_bg_inactive_g = wm.btn_bg_inactive_b = 0.0;
     wm.btn_bg_inactive_a = 0.30;
+    wm.btn_fg_active_set = wm.btn_fg_inactive_set = false;
 
     load_bg_theme();
     load_btn_theme();
@@ -1041,7 +1048,21 @@ fallback_glyph:
         cairo_fill(cr);
     }
 
-    cairo_set_source_rgba(cr, 0.92, 0.92, 0.95, 1.0);
+    /* button_fg_active=/button_fg_inactive= if the theme set one, else the
+     * titlebar's own fg_active_/fg_inactive_ (title text color) at full
+     * opacity -- fg_*'s own alpha is about the *titlebar's* translucency,
+     * same reason DECO_TITLE above ignores it for the title text itself. */
+    if (focused) {
+        if (wm.btn_fg_active_set)
+            cairo_set_source_rgba(cr, wm.btn_fg_active_r, wm.btn_fg_active_g, wm.btn_fg_active_b, wm.btn_fg_active_a);
+        else
+            cairo_set_source_rgba(cr, wm.fg_active_r, wm.fg_active_g, wm.fg_active_b, 1.0);
+    } else {
+        if (wm.btn_fg_inactive_set)
+            cairo_set_source_rgba(cr, wm.btn_fg_inactive_r, wm.btn_fg_inactive_g, wm.btn_fg_inactive_b, wm.btn_fg_inactive_a);
+        else
+            cairo_set_source_rgba(cr, wm.fg_inactive_r, wm.fg_inactive_g, wm.fg_inactive_b, 1.0);
+    }
     cairo_set_line_width(cr, 1.5);
 
     double cx = x + BUTTON_W / 2.0;

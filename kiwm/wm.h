@@ -1115,6 +1115,18 @@ typedef struct {
     double btn_bg_active_r, btn_bg_active_g, btn_bg_active_b, btn_bg_active_a;
     double btn_bg_inactive_r, btn_bg_inactive_g, btn_bg_inactive_b, btn_bg_inactive_a;
 
+    /* Fallback button *glyph* color (colors file's button_fg_active=/
+     * button_fg_inactive=) -- the X/square/pin cairo draws for a button no
+     * btns.png sprite covers, previously a hardcoded light gray regardless
+     * of theme or focus. Off (the _set flags false) until a theme sets
+     * one, in which case draw_button() uses fg_active_/fg_inactive_ (the
+     * title text color) instead -- same "sensible fallback, no config
+     * required" as everywhere else, and it means a theme's titlebar text
+     * and its button glyphs already match without this key existing. */
+    bool btn_fg_active_set, btn_fg_inactive_set;
+    double btn_fg_active_r, btn_fg_active_g, btn_fg_active_b, btn_fg_active_a;
+    double btn_fg_inactive_r, btn_fg_inactive_g, btn_fg_inactive_b, btn_fg_inactive_a;
+
     /* Theme colors, each with an alpha channel: every color kiwm reads --
      * here from the theme's `colors` file, and kiwm.conf's own deco_bg=/
      * deco_fg=/border_color= below -- takes either #rrggbb (opaque) or

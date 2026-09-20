@@ -41,7 +41,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KIWM_VERSION "0.5.12"
+#define KIWM_VERSION "0.5.13"
 
 #include "wm.h"
 #include "config.h"

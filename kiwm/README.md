@@ -487,6 +487,8 @@ read once at startup (kiwm never watches kiconfd.conf for changes, same as kiwm.
   border_inactive=#202020
   button_bg_active=#000000
   button_bg_inactive=#000000
+  button_fg_active=#ffffff
+  button_fg_inactive=#a0a0a0
   ```
   Any key left out (or the whole file missing) falls back to the single `deco_bg`/`deco_fg`/
   `border_color` kiwm.conf values, which in turn produce the plain look: the same titlebar color
