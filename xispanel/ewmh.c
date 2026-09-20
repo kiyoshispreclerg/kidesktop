@@ -14,6 +14,7 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <limits.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1151,6 +1152,34 @@ void draw_fallback_icon(cairo_t *cr, double x, double y, double size, const char
     double tw;
     pango_text_extents_ellipsized(cr, letter, font_size_px, 0, &tw, NULL);
     pango_show_text_boxed(cr, x + (size - tw) / 2.0, y, size, 0, font_size_px, letter, NULL);
+    cairo_restore(cr);
+}
+
+/* Placeholder mark for the `xisserve` launcher widget (widgets/xisserve.c)
+ * when no icon= is configured: a round "start button" badge (same idea as
+ * KDE's Kickoff or the Windows Start flag -- a fixed, theme-independent
+ * brand color rather than draw_fallback_icon()'s translucent-square-plus-
+ * first-letter treatment those use, which reads as "no icon found" rather
+ * than as an actual button) with a bold stylized "K" -- standing in for
+ * "Kickoff-alike" today, and the intended seed of a real KiDesktop mark
+ * later (same glyph, so swapping in a proper drawn logo down the line
+ * won't change what users already recognize in the panel). Self-contained
+ * on `size` alone (no panel font_size_px input) so it scales cleanly at
+ * any icon_px a panel's thickness produces. */
+void draw_start_badge_icon(cairo_t *cr, double x, double y, double size)
+{
+    cairo_save(cr);
+    double r = size / 2.0;
+    double cx = x + r, cy = y + r;
+    cairo_arc(cr, cx, cy, r, 0, 2 * M_PI);
+    cairo_set_source_rgb(cr, 0.0, 0.6, 0.0); /* #009900 */
+    cairo_fill(cr);
+
+    double font_size_px = size * 0.58;
+    double tw;
+    pango_text_extents_ellipsized(cr, "K", font_size_px, 0, &tw, NULL);
+    cairo_set_source_rgb(cr, 1, 1, 1);
+    pango_show_text_boxed_bold(cr, x + (size - tw) / 2.0, y, size, 0, font_size_px, "K", 1, NULL);
     cairo_restore(cr);
 }
 

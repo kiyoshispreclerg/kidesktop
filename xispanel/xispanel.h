@@ -721,6 +721,11 @@ cairo_surface_t *shrink_icon_surface(cairo_surface_t *src, int target_size);
 void draw_icon_scaled(cairo_t *cr, cairo_surface_t *icon, double x, double y, double size);
 void draw_fallback_icon(cairo_t *cr, double x, double y, double size, const char *title, double fg_r, double fg_g,
                          double fg_b, double font_size_px);
+/* Round "start button" placeholder (fixed brand-green badge + bold "K")
+ * for widgets/xisserve.c's launcher button when no icon= is configured --
+ * see its doc comment in ewmh.c for why this widget gets its own mark
+ * instead of draw_fallback_icon()'s generic letter-square. */
+void draw_start_badge_icon(cairo_t *cr, double x, double y, double size);
 void trim_to_width(cairo_t *cr, char *text, size_t bufsz, double max_width);
 /* Trims `s` in place back to its last complete UTF-8 codepoint boundary
  * -- call after assembling a string by hand (repeated snprintf() calls

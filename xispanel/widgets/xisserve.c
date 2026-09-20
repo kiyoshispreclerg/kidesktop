@@ -96,7 +96,6 @@ static void xisserve_measure(PanelWidget *w, int cross_axis, int *out_len, int *
 static void xisserve_paint(PanelWidget *w, cairo_t *cr)
 {
     XisservePriv *xp = w->priv;
-    Panel *p = w->panel;
     int ox, oy, owidth, oheight;
     widget_get_rect(w, &ox, &oy, &owidth, &oheight);
     (void)owidth;
@@ -109,7 +108,7 @@ static void xisserve_paint(PanelWidget *w, cairo_t *cr)
     if (xp->icon) {
         draw_icon_scaled(cr, xp->icon, icon_x, icon_y, icon_px);
     } else {
-        draw_fallback_icon(cr, icon_x, icon_y, icon_px, xp->name, p->fg_r, p->fg_g, p->fg_b, panel_text_size(p));
+        draw_start_badge_icon(cr, icon_x, icon_y, icon_px);
     }
 }
 
