@@ -1114,7 +1114,9 @@ typedef struct {
     char body[NOTIFD_BODY_MAX];
     cairo_surface_t *icon; /* NULL if none/unresolved -- never freed by the caller, owned by notifd.c */
     int read; /* 0 = unread, counts toward notifd_unread_count() */
-    uint64_t received_ms;
+    uint64_t received_ms; /* wall-clock (CLOCK_REALTIME) ms since epoch -- NOT now_ms()'s
+                            * CLOCK_MONOTONIC, which is meaningless once turned back into a
+                            * calendar date/time (see xisserve's --notifications page). */
 } NotifEntry;
 void notifd_poll(uint64_t now); /* call periodically from the main loop, e.g. alongside sni_poll() */
 int notifd_count(void); /* currently held, oldest first */

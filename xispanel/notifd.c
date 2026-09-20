@@ -38,6 +38,7 @@
 #include <dlfcn.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #define NOTIFD_POLL_MS 500
 #define NOTIFD_MAX 50
@@ -247,7 +248,12 @@ static void ring_append(const char *app_name, const char *app_icon, const char *
     snprintf(dst->body, sizeof(dst->body), "%s", body);
     dst->icon = resolve_notif_icon(app_icon);
     dst->read = 0;
-    dst->received_ms = now_ms();
+    /* Wall-clock, not now_ms()'s CLOCK_MONOTONIC -- this is a calendar
+     * timestamp meant to be shown back as a date/time (see xisserve's
+     * --notifications page), not a poll-interval reference point. */
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    dst->received_ms = (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)(ts.tv_nsec / 1000000L);
 
     fprintf(stderr, "xispanel: notifd: notification received (id=%u app=%s summary=%s)\n", dst->id,
             dst->app_name[0] ? dst->app_name : "?", dst->summary);
