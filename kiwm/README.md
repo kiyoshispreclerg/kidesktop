@@ -485,11 +485,24 @@ read once at startup (kiwm never watches kiconfd.conf for changes, same as kiwm.
   fg_inactive=#a0a0a0
   border_active=#3a6ea5
   border_inactive=#202020
+  button_bg_active=#000000
+  button_bg_inactive=#000000
   ```
   Any key left out (or the whole file missing) falls back to the single `deco_bg`/`deco_fg`/
   `border_color` kiwm.conf values, which in turn produce the plain look: the same titlebar color
   regardless of focus, just a white/black opacity tint layered on top to hint which window is
   active.
+
+  `button_bg_active=`/`button_bg_inactive=` (both default `#000000`, i.e. plain black) only matter
+  when there's no `btns.png` covering a given button -- they're the flat block's fill color, so a
+  colors-only theme (no button sprites at all, e.g. greenkiyo) can still give focused and
+  unfocused windows visibly different buttons instead of the identical black block kiwm always
+  drew before these keys existed. The alpha in each color is the button's resting-state opacity
+  (`#00000000` through `#000000ff`, `30%` before this existed); hovering/pressing it scales that
+  alpha up (x1.5/x2, capped at fully opaque) rather than taking their own keys, so "hover reads
+  brighter" keeps working for free. This is layered *under* the per-button hover tint below (a
+  theme can have both: a base color that differs by focus, and one specific button -- close, say
+  -- washed a different color only while the pointer is on it).
 
   Two more keys in the same `colors` file control corner rounding (via the XCB SHAPE extension --
   no compositor needed, so this works even without `kicomp`):

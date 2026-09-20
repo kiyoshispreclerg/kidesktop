@@ -1100,6 +1100,21 @@ typedef struct {
     int btn_tinting;     /* ButtonTinting */
     int btn_tint_scope;  /* ButtonTintScope */
 
+    /* Fallback button base color (colors file's button_bg_active=/
+     * button_bg_inactive=), used only for the plain flat-block look a
+     * button draws in without a btns.png sprite -- see decoration.c's
+     * draw_button(). Defaults to black (0,0,0), which combined with the
+     * hardcoded alpha ramp below reproduces kiwm's original look exactly.
+     * Unlike btn_tint_* above (one button's *hover* wash), this is the
+     * *resting* fill, and it's the only per-focus knob a colors-only theme
+     * (no btns.png at all) has over the buttons -- until now every button
+     * looked identical whether its window was focused or not. `_a` is the
+     * button's normal-state alpha; hover/pressed scale it up (x1.5/x2,
+     * capped at 1.0) rather than taking their own keys, keeping the same
+     * "hover is brighter" feel a theme gets for free. */
+    double btn_bg_active_r, btn_bg_active_g, btn_bg_active_b, btn_bg_active_a;
+    double btn_bg_inactive_r, btn_bg_inactive_g, btn_bg_inactive_b, btn_bg_inactive_a;
+
     /* Theme colors, each with an alpha channel: every color kiwm reads --
      * here from the theme's `colors` file, and kiwm.conf's own deco_bg=/
      * deco_fg=/border_color= below -- takes either #rrggbb (opaque) or

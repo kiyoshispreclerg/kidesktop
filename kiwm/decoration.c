@@ -441,6 +441,10 @@ static void load_colors_theme(void)
             parse_hex_color(val, &wm.border_active_r, &wm.border_active_g, &wm.border_active_b, &wm.border_active_a);
         else if (strcmp(key, "border_inactive") == 0)
             parse_hex_color(val, &wm.border_inactive_r, &wm.border_inactive_g, &wm.border_inactive_b, &wm.border_inactive_a);
+        else if (strcmp(key, "button_bg_active") == 0)
+            parse_hex_color(val, &wm.btn_bg_active_r, &wm.btn_bg_active_g, &wm.btn_bg_active_b, &wm.btn_bg_active_a);
+        else if (strcmp(key, "button_bg_inactive") == 0)
+            parse_hex_color(val, &wm.btn_bg_inactive_r, &wm.btn_bg_inactive_g, &wm.btn_bg_inactive_b, &wm.btn_bg_inactive_a);
         else if (strcmp(key, "border_radius") == 0) {
             int a = 0, b = 0, cc = 0, d = 0;
             int n = sscanf(val, "%d %d %d %d", &a, &b, &cc, &d);
@@ -634,6 +638,10 @@ void load_decoration(void)
     wm.btn_tinting = BTN_TINT_OVER;
     wm.btn_tint_scope = BTN_SCOPE_BUTTON;
     wm.hover_btn = -1;
+    wm.btn_bg_active_r = wm.btn_bg_active_g = wm.btn_bg_active_b = 0.0;
+    wm.btn_bg_active_a = 0.30;
+    wm.btn_bg_inactive_r = wm.btn_bg_inactive_g = wm.btn_bg_inactive_b = 0.0;
+    wm.btn_bg_inactive_a = 0.30;
 
     load_bg_theme();
     load_btn_theme();
@@ -1009,10 +1017,20 @@ static void draw_button(cairo_t *cr, double x, DecoElemKind kind, int col, char 
 
 fallback_glyph:
     /* No sprite sheet (or none covering this button): the button is a flat
-     * block, so the tint is just that block's color -- over the plain one,
-     * or instead of it. */
+     * block in the theme's button_bg_active=/button_bg_inactive= color
+     * (colors file; black at 30% by default, unchanged from before those
+     * keys existed) -- the tint is just layered over that, or instead of
+     * it. Hover/pressed scale the base alpha up rather than picking their
+     * own color, same "brighter on hover" feel a theme gets for free. */
     if (!tint_only) {
-        cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, pressed ? 0.60 : ((hovered || active) ? 0.45 : 0.30));
+        double br = focused ? wm.btn_bg_active_r : wm.btn_bg_inactive_r;
+        double bg = focused ? wm.btn_bg_active_g : wm.btn_bg_inactive_g;
+        double bb = focused ? wm.btn_bg_active_b : wm.btn_bg_inactive_b;
+        double ba = focused ? wm.btn_bg_active_a : wm.btn_bg_inactive_a;
+        ba *= pressed ? 2.0 : ((hovered || active) ? 1.5 : 1.0);
+        if (ba > 1.0)
+            ba = 1.0;
+        cairo_set_source_rgba(cr, br, bg, bb, ba);
         cairo_rectangle(cr, x, 0, BUTTON_W, TITLEBAR_H);
         cairo_fill(cr);
     }
