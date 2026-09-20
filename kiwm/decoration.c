@@ -940,9 +940,18 @@ int compute_deco_layout(const Client *c, int frame_width, DecoSlot *out, int max
  * row whenever `active`, in lieu of a dedicated "on" row the sprite
  * doesn't have -- there's no "clicked" row use at all yet, kiwm fires
  * button actions directly on press with no separate held-down moment to
- * show one during (see wm.h's BTNCOL_* comment). */
+ * show one during (see wm.h's BTNCOL_* comment).
+ *
+ * `focused` picks between the sheet's two 3-row blocks -- rows 0-2
+ * (normal/hover/clicked) for the focused window's titlebar, rows 3-5 the
+ * same three states for every unfocused one. A sheet drawn before the
+ * unfocused block existed simply doesn't have it (3 or fewer rows) and
+ * `focused` is then ignored -- unfocused windows draw the same rows as
+ * focused ones, exactly as before, rather than clamping down onto
+ * whatever row happens to sit at the sheet's bottom edge (row 2, "clicked",
+ * for instance, which would be a wrong resting look). */
 static void draw_button(cairo_t *cr, double x, DecoElemKind kind, int col, char glyph,
-                        bool hovered, bool active, bool pressed)
+                        bool hovered, bool active, bool pressed, bool focused)
 {
     /* The theme's per-button hover tint (see wm.h's btn_tint_*): applied
      * only while the pointer is on this button -- `active` is a toggle
@@ -965,6 +974,11 @@ static void draw_button(cairo_t *cr, double x, DecoElemKind kind, int col, char 
                 rows = 1;
         }
         int row = pressed ? 2 : ((hovered || active) ? 1 : 0);
+        /* The unfocused block only applies if the sheet actually has one
+         * (more than 3 rows) -- otherwise every window draws the focused
+         * block's rows, same as a sheet with no theme at all. */
+        if (!focused && rows > 3)
+            row += 3;
         if (row >= rows)
             row = rows - 1;
 
@@ -1303,10 +1317,10 @@ static void paint_titlebar(Client *c, cairo_t *cr, int w, bool focused, bool arg
             }
             break;
         case DECO_SHADE:
-            draw_button(cr, s->x, DECO_SHADE, BTNCOL_SHADE, '^', hovered, false, pressed);
+            draw_button(cr, s->x, DECO_SHADE, BTNCOL_SHADE, '^', hovered, false, pressed, focused);
             break;
         case DECO_MINIMIZE:
-            draw_button(cr, s->x, DECO_MINIMIZE, BTNCOL_MINIMIZE, '-', hovered, false, pressed);
+            draw_button(cr, s->x, DECO_MINIMIZE, BTNCOL_MINIMIZE, '-', hovered, false, pressed, focused);
             break;
         case DECO_MAXIMIZE:
             /* The "restore" look stands for any maximization, including a
@@ -1314,19 +1328,19 @@ static void paint_titlebar(Client *c, cairo_t *cr, int w, bool focused, bool arg
              * giving the state up rather than taking more of it. */
             draw_button(cr, s->x, DECO_MAXIMIZE,
                        (c->max_horz || c->max_vert) ? BTNCOL_RESTORE : BTNCOL_MAXIMIZE,
-                       (c->max_horz || c->max_vert) ? 'r' : '+', hovered, false, pressed);
+                       (c->max_horz || c->max_vert) ? 'r' : '+', hovered, false, pressed, focused);
             break;
         case DECO_CLOSE:
-            draw_button(cr, s->x, DECO_CLOSE, BTNCOL_CLOSE, 'x', hovered, false, pressed);
+            draw_button(cr, s->x, DECO_CLOSE, BTNCOL_CLOSE, 'x', hovered, false, pressed, focused);
             break;
         case DECO_KEEP_ABOVE:
-            draw_button(cr, s->x, DECO_KEEP_ABOVE, BTNCOL_KEEP_ABOVE, 'a', hovered, c->keep_above, pressed);
+            draw_button(cr, s->x, DECO_KEEP_ABOVE, BTNCOL_KEEP_ABOVE, 'a', hovered, c->keep_above, pressed, focused);
             break;
         case DECO_KEEP_ALL_DESKTOPS:
-            draw_button(cr, s->x, DECO_KEEP_ALL_DESKTOPS, BTNCOL_KEEP_ALL_DESKTOPS, 'd', hovered, c->sticky, pressed);
+            draw_button(cr, s->x, DECO_KEEP_ALL_DESKTOPS, BTNCOL_KEEP_ALL_DESKTOPS, 'd', hovered, c->sticky, pressed, focused);
             break;
         case DECO_APPMENU:
-            draw_button(cr, s->x, DECO_APPMENU, BTNCOL_APPMENU, 'm', hovered, false, pressed);
+            draw_button(cr, s->x, DECO_APPMENU, BTNCOL_APPMENU, 'm', hovered, false, pressed, focused);
             break;
         }
     }

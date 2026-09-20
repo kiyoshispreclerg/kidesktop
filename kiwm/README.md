@@ -459,18 +459,25 @@ read once at startup (kiwm never watches kiconfd.conf for changes, same as kiwm.
   bottom=5
   ```
   Those four numbers (pixels, measured in the source image) stay unscaled as the four corners;
-  everything else stretches to fill whatever's left. A 0-everywhere (or missing) `slice` degrades
+  everything else stretches to fill whatever's left. A 0-everywhere (or missing) `bg.slice` degrades
   to a plain full-image stretch.
 - **`btns.png`** + **`btns.slice`** -- the window-control button sprite sheet. A fixed grid, *not*
   a 9-slice: every cell is the same size (`cell_width=`/`cell_height=` in `btns.slice`, defaults
   to kiwm's own button size if the sidecar is missing). Columns (left to right, fixed order, not
   configurable -- this is about where an icon lives in the image file, unrelated to
   `titlebar_layout=`'s on-screen order): close, maximize, restore, minimize, shade, keep_above,
-  keep_all_desktops. Rows (top to bottom): normal, hover, clicked -- "clicked" isn't used yet
-  (kiwm fires button actions on press, not release, so there's no separate held-down moment to
-  show it during); toggle buttons (keep_above/keep_all_desktops) use the hover row to indicate
-  "on" too, in lieu of a dedicated row for that.
-- **`colors`** -- per-focus titlebar/border colors, plain `key=value`, `#rrggbb`:
+  keep_all_desktops, appmenu (only drawn when `appmenu_command=` is set). Rows (top to bottom):
+  normal, hover, clicked for the *focused* window's titlebar, then the same three states again for
+  every *unfocused* one -- "clicked" isn't used yet (kiwm fires button actions on press, not
+  release, so there's no separate held-down moment to show it during); toggle buttons
+  (keep_above/keep_all_desktops) use the hover row to indicate "on" too, in lieu of a dedicated row
+  for that. The unfocused block (rows 4-6) is entirely optional, same "degrade gracefully" rule as
+  everything else here: a sheet with only 3 rows (every theme before this existed) just draws those
+  same rows regardless of focus, exactly as before -- shipping the extra block costs kiwm nothing
+  but a handful more KB of decoded image in memory, nowhere near enough to matter next to X11/
+  Cairo/GTK's own footprint.
+- **`colors`** -- per-focus titlebar/border/button colors, plain `key=value`, `#rrggbb` or
+  `#rrggbbaa`:
   ```
   bg_active=#3a6ea5
   bg_inactive=#202020

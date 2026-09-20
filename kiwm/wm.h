@@ -53,10 +53,14 @@
 /* btns.png sprite sheet column order (see greenxp/btns.slice) -- fixed by
  * convention, not configurable (unlike the on-screen *order* of buttons,
  * see DecoElemKind/kiwm.conf's titlebar_layout=). Rows (not enumerated
- * here) are always normal=0/hover=1/clicked=2 top-to-bottom -- "clicked"
- * is drawn while a button is held down, between the press that arms it
- * and the release that fires it (see KiWM::pressed_client). A sheet with
- * fewer rows just reuses its last one. */
+ * here) are normal=0/hover=1/clicked=2 top-to-bottom for the focused
+ * window's titlebar, then the same three states again at rows 3-5 for
+ * every unfocused one -- "clicked" is drawn while a button is held down,
+ * between the press that arms it and the release that fires it (see
+ * KiWM::pressed_client). A sheet with 3 or fewer rows just draws the same
+ * (focused) rows for unfocused windows too; one with more than 3 but
+ * fewer than 6 reuses its last row, same "degrade gracefully" rule as
+ * everywhere else. */
 #define BTNCOL_CLOSE             0
 #define BTNCOL_MAXIMIZE          1
 #define BTNCOL_RESTORE           2
