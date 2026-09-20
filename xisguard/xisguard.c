@@ -24,7 +24,7 @@
 #define CTL_BUF_SIZE        65536
 #define REPORT_THROTTLE_S   1
 
-#define XISGUARD_VERSION    "0.4.2"
+#define XISGUARD_VERSION    "0.4.3"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -717,12 +717,13 @@ static void load_xnotify_conf(void) {
         else if (strcmp(k, "log_level") == 0) {
             int lvl = atoi(v);
             if (lvl >= 0 && lvl <= 4) log_level = lvl;
-        }
+        } else if (strcmp(k, "secure_mode") == 0)
+            secure_mode = atoi(v) ? 1 : 0;
     }
     fclose(f);
     last_xnotify_conf_mtime = time(NULL);
-    log_filtered(3, "Loaded xnotify.conf: no_pause=%d quiet=%d always_kill=%d log_level=%d",
-                 no_pause_mode, quiet_mode, always_kill_mode, log_level);
+    log_filtered(3, "Loaded xnotify.conf: no_pause=%d quiet=%d always_kill=%d log_level=%d secure_mode=%d",
+                 no_pause_mode, quiet_mode, always_kill_mode, log_level, secure_mode);
 }
 
 static void save_xnotify_conf(void) {
@@ -737,6 +738,7 @@ static void save_xnotify_conf(void) {
     fprintf(f, "quiet=%d\n", quiet_mode);
     fprintf(f, "always_kill=%d\n", always_kill_mode);
     fprintf(f, "log_level=%d\n", log_level);
+    fprintf(f, "secure_mode=%d\n", secure_mode);
     fclose(f);
     last_xnotify_conf_mtime = time(NULL);
     log_filtered(3, "Saved xnotify.conf");
@@ -1688,16 +1690,27 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
 
     if (strcasecmp(cmd, "SET_STATUS") == 0) {
         int v;
+        int secure_mode_changed = 0;
         if (json_get_int(req, "no_pause", &v))     no_pause_mode = v ? 1 : 0;
         if (json_get_int(req, "quiet", &v))         quiet_mode = v ? 1 : 0;
         if (json_get_int(req, "always_kill", &v))   always_kill_mode = v ? 1 : 0;
         if (json_get_int(req, "log_level", &v) && v >= 0 && v <= 4) log_level = v;
+        if (json_get_int(req, "secure_mode", &v) && (v ? 1 : 0) != secure_mode) {
+            secure_mode = v ? 1 : 0;
+            secure_mode_changed = 1;
+        }
         save_xnotify_conf();
-        log_msg("Control: SET_STATUS no_pause=%d quiet=%d always_kill=%d log_level=%d",
-                no_pause_mode, quiet_mode, always_kill_mode, log_level);
+        /* Re-derives the in-memory rule set for the new mode: turning
+         * secure mode on drops perms.conf's user rules (see its own
+         * early-return branch above), turning it off reloads them. */
+        if (secure_mode_changed) {
+            load_user_config();
+        }
+        log_msg("Control: SET_STATUS no_pause=%d quiet=%d always_kill=%d log_level=%d secure_mode=%d",
+                no_pause_mode, quiet_mode, always_kill_mode, log_level, secure_mode);
         snprintf(resp, resp_sz,
-            "{\"ok\":true,\"no_pause\":%d,\"quiet\":%d,\"always_kill\":%d,\"log_level\":%d}\n",
-            no_pause_mode, quiet_mode, always_kill_mode, log_level);
+            "{\"ok\":true,\"no_pause\":%d,\"quiet\":%d,\"always_kill\":%d,\"log_level\":%d,\"secure_mode\":%d}\n",
+            no_pause_mode, quiet_mode, always_kill_mode, log_level, secure_mode);
         return;
     }
 
@@ -1765,6 +1778,24 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
         load_ignore_reports();
         send_all_permissions_to_xserver();
         snprintf(resp, resp_sz, "{\"ok\":true}\n");
+        return;
+    }
+
+    /* Lets a control-socket client (kiconf's Permissoes tab) find and
+     * read the system-wide rules for itself -- SYSCONFDIR is a compile-
+     * time constant of the X server, not of xisguard or kiconf, so this
+     * just forwards wait_for_secure_conf_dir()'s own query to whichever
+     * client asks, the same one secure_save_rule() uses to learn where
+     * to write. Read-only: only polkit (secure_save_rule()) writes here. */
+    if (strcasecmp(cmd, "GET_SYSTEM_RULES_PATH") == 0) {
+        char dir[512];
+        if (wait_for_secure_conf_dir(dir, sizeof(dir), 2000)) {
+            char edir[1024];
+            json_escape_str(edir, sizeof(edir), dir);
+            snprintf(resp, resp_sz, "{\"ok\":true,\"dir\":\"%s\"}\n", edir);
+        } else {
+            snprintf(resp, resp_sz, "{\"ok\":false,\"error\":\"timeout\"}\n");
+        }
         return;
     }
 
