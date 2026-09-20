@@ -1,5 +1,5 @@
 # KiDesktop - build every component
-COMPONENTS = kisession kiwm kicomp xispanel xisserve xisnotif xisback \
+COMPONENTS = kisession kiwm kicomp xispanel xisserve xisback \
              kiconf kiconfd xiskeys xismenu xisguard
 
 # Full-suite build/install checks the shared dependencies first (see
