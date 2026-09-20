@@ -23,11 +23,12 @@
 #include <unistd.h>
 
 /* Telas tab (xrandr) widgets + state -- see build_telas_tab()'s doc
- * comment for what's deliberately NOT ported (scale/DPI/generic driver
- * properties). */
+ * comment for what's deliberately NOT ported (scale/DPI read-back). */
 #define MAX_OUTPUTS 16
 #define MAX_MODES 32
 #define MAX_RATES 16
+#define MAX_EXTRA_PROPS 24
+#define MAX_PROP_SUPPORTED 10
 typedef struct {
     char rate[16];
     int is_current;
@@ -37,6 +38,22 @@ typedef struct {
     ModeRate rates[MAX_RATES];
     int n_rates;
 } OutMode;
+/* One `xrandr --verbose` driver property (TearFree, underscan, scaling
+ * mode, PRIME Synchronization, HDCP, max bpc, non-desktop, etc. --
+ * whatever the driver exposes) -- mirrors xisconf.py's extra_props_meta/
+ * extra_prop_values dict pair, flattened into one struct per property
+ * since C has no dict. See parse_verbose_props() for how `supported`/
+ * `has_range` get filled in (an editable property has one or the
+ * other), and build_extra_prop_widget() for what kind of GTK control
+ * each becomes. */
+typedef struct {
+    char name[48];
+    char value[64];
+    char supported[MAX_PROP_SUPPORTED][40];
+    int n_supported;
+    int has_range;
+    long range_lo, range_hi;
+} ExtraProp;
 typedef struct {
     char name[NAME_LEN];
     /* "edid:VVV:PPPP:SSSSSSSS" (shared/xis_outputs.h), or empty if this
@@ -69,6 +86,18 @@ typedef struct {
     char mirror_of[NAME_LEN];
     int dpi;
     double scale_x, scale_y;
+    /* `xrandr --verbose`'s per-output driver properties, classified the
+     * same way xisconf.py's _parse_verbose_props() does: editable (has a
+     * "supported:" enum or a "range:", and isn't force-listed as
+     * read-only) vs read-only display-only text. Filled in by
+     * parse_verbose_props(), called right after detect_outputs() --
+     * unlike mirror_of/dpi/scale above, these ARE read back from
+     * hardware fresh on every detect, so screens_redetect_preserving_extras()
+     * does not need to preserve them across a re-detect. */
+    ExtraProp extra_props[MAX_EXTRA_PROPS];
+    int n_extra_props;
+    ExtraProp extra_readonly[MAX_EXTRA_PROPS];
+    int n_extra_readonly;
 } ScreenOutput;
 static ScreenOutput g_outputs[MAX_OUTPUTS];
 static ScreenOutput g_outputs_baseline[MAX_OUTPUTS];
@@ -91,6 +120,13 @@ static GtkWidget *g_screens_enabled_chk, *g_screens_primary_chk;
 static GtkWidget *g_screens_mirror_combo;
 static GtkWidget *g_screens_dpi_spin, *g_screens_scale_spin;
 static GtkWidget *g_screens_status_label;
+/* Advanced/other driver properties (xrandr --verbose) -- the *_box is
+ * what gets torn down and rebuilt (a fresh GtkTable each time, same
+ * "destroy and recreate" approach paineis.c's widget dialogs use) on
+ * every selection change or re-detect; the *_frame wrapping it is hidden
+ * entirely when the selected output has none of that kind. */
+static GtkWidget *g_screens_extra_editable_frame, *g_screens_extra_editable_box;
+static GtkWidget *g_screens_extra_readonly_frame, *g_screens_extra_readonly_box;
 
 /* ---- Telas tab: xrandr layout, draggable canvas ----------------------- */
 /*
@@ -105,15 +141,13 @@ static GtkWidget *g_screens_status_label;
  * save_screens_layout()), which kiconfd applies via xrandr at the start
  * of every session -- see kiconfd.c's apply_screens_layout() -- since
  * xrandr's own layout doesn't otherwise survive a session restart.
- * Deliberately NOT ported -- xisconf.py's generic
- * "advanced driver properties" system (TearFree, underscan, PRIME Sync,
- * etc., discovered from `xrandr --verbose`'s per-output "supported:"/
- * "range:" sub-lines): needs parsing --verbose output (a second xrandr
- * call with a much richer, driver-dependent format) and a dynamic
- * per-property widget system, which didn't fit this pass. Only plain
- * `xrandr` (no --verbose) is parsed here -- which also means mirror/DPI/
- * scale can't be read back from hardware, only written (see the
- * ScreenOutput struct's comment and screens_redetect_preserving_extras()).
+ * Also ports xisconf.py's generic "advanced driver properties" system
+ * (TearFree, underscan, PRIME Synchronization, HDCP, max bpc,
+ * non-desktop, etc.) via a second `xrandr --verbose` call -- see
+ * parse_verbose_props()/rebuild_extra_props_ui(). mirror/DPI/scale are
+ * the one thing still write-only (not read back from hardware), by
+ * design -- see the ScreenOutput struct's own comment and
+ * screens_redetect_preserving_extras().
  */
 
 static int is_xid_token(const char *t)
@@ -324,6 +358,227 @@ static int detect_outputs(ScreenOutput *outs, int max)
     return n;
 }
 
+/* ---- Telas tab: `xrandr --verbose` driver properties ------------------
+ * Ports xisconf.py's generic "advanced properties" system: a second
+ * xrandr call (--verbose has a much richer, driver-dependent per-output
+ * property dump the plain call above doesn't show at all) classified
+ * into editable (has a "supported:" enum or a "range:") vs read-only,
+ * with a purely cosmetic force-readonly/hidden list for properties that
+ * are technically editable-shaped but make no sense as a user control
+ * (LUTs, identifiers, timestamps, EDID, ...) -- see _READONLY_PROPS/
+ * _HIDDEN_PROPS in xisconf.py, kept in sync with that list, not derived
+ * from anything on this side. DPI is skipped entirely here: it already
+ * has its own dedicated spin button (write-only by this file's existing
+ * design, see the ScreenOutput struct's own comment), so showing it a
+ * second time as a generic property would be redundant. */
+static const char *const EXTRA_PROP_FORCE_READONLY[] = {
+    "GAMMA_LUT_SIZE", "DEGAMMA_LUT_SIZE", "GAMMA_LUT", "DEGAMMA_LUT",
+    "CONNECTOR_ID", "vrr_capable", "link-status",
+    "Identifier", "Timestamp", "Subpixel", "Gamma", "Brightness", "Clones",
+    "CRTC", "CRTCs", NULL,
+};
+static const char *const EXTRA_PROP_HIDDEN[] = {"EDID", "_KDE_SCREEN_INDEX", "CTM", NULL};
+
+static int name_in_list(const char *name, const char *const *list)
+{
+    for (int i = 0; list[i]; i++) {
+        if (!strcmp(name, list[i])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static ScreenOutput *find_output_by_name(ScreenOutput *outs, int n, const char *name)
+{
+    for (int i = 0; i < n; i++) {
+        if (!strcmp(outs[i].name, name)) {
+            return &outs[i];
+        }
+    }
+    return NULL;
+}
+
+static void add_extra_readonly(ScreenOutput *o, const char *name, const char *val)
+{
+    if (o->n_extra_readonly >= MAX_EXTRA_PROPS) {
+        return;
+    }
+    ExtraProp *p = &o->extra_readonly[o->n_extra_readonly++];
+    snprintf(p->name, sizeof(p->name), "%s", name);
+    snprintf(p->value, sizeof(p->value), "%s", val);
+}
+
+static void add_extra_prop(ScreenOutput *o, const char *name, const char *val,
+                            char supported[][40], int n_supported, int has_range, long lo, long hi)
+{
+    if (o->n_extra_props >= MAX_EXTRA_PROPS) {
+        return;
+    }
+    ExtraProp *p = &o->extra_props[o->n_extra_props++];
+    snprintf(p->name, sizeof(p->name), "%s", name);
+    snprintf(p->value, sizeof(p->value), "%s", val);
+    p->n_supported = n_supported;
+    for (int i = 0; i < n_supported; i++) {
+        snprintf(p->supported[i], sizeof(p->supported[0]), "%s", supported[i]);
+    }
+    p->has_range = has_range;
+    p->range_lo = lo;
+    p->range_hi = hi;
+}
+
+/* Splits `buf` in place on '\n' into `lines[0..return)` -- unlike
+ * strtok_r-based splitting elsewhere in this file, this keeps every line
+ * including blank ones (`lines[j][0] == '\0'`) since parse_verbose_props()
+ * below needs correct line-index lookahead (Transform's 3-line skip, the
+ * "\t\t"-prefixed metadata peek). */
+static int split_lines_keep_blanks(char *buf, char **lines, int max)
+{
+    int n = 0;
+    char *p = buf;
+    while (*p && n < max) {
+        lines[n++] = p;
+        char *nl = strchr(p, '\n');
+        if (!nl) {
+            break;
+        }
+        *nl = '\0';
+        p = nl + 1;
+    }
+    return n;
+}
+
+#define MAX_VERBOSE_LINES 8192
+
+/* Mirrors xisconf.py's _parse_verbose_props() -- see its own, more
+ * detailed doc comment for the property-classification rules this
+ * follows line for line. `text` is mutated (line-split in place). */
+static void parse_verbose_props(char *text, ScreenOutput *outs, int n)
+{
+    static char *lines[MAX_VERBOSE_LINES];
+    int nlines = split_lines_keep_blanks(text, lines, MAX_VERBOSE_LINES);
+    char current[NAME_LEN] = "";
+    int i = 0;
+    while (i < nlines) {
+        char *line = lines[i];
+        if (line[0] != '\0' && !isspace((unsigned char)line[0])) {
+            char tmp[512];
+            snprintf(tmp, sizeof(tmp), "%s", line);
+            char *save2 = NULL;
+            char *t1 = strtok_r(tmp, " \t", &save2);
+            char *t2 = t1 ? strtok_r(NULL, " \t", &save2) : NULL;
+            if (t2 && (!strcmp(t2, "connected") || !strcmp(t2, "disconnected"))) {
+                snprintf(current, sizeof(current), "%s", t1);
+            } else {
+                current[0] = '\0';
+            }
+            i++;
+            continue;
+        }
+        if (line[0] == '\0' || line[0] != '\t' || line[1] == '\t') {
+            i++;
+            continue;
+        }
+        ScreenOutput *out = current[0] ? find_output_by_name(outs, n, current) : NULL;
+        if (!out) {
+            i++;
+            continue;
+        }
+        char *stripped = line + 1;
+
+        if (!strncmp(stripped, "Transform:", 10)) {
+            i += 3;
+            continue;
+        }
+        char *colon = strchr(stripped, ':');
+        if (!colon) {
+            i++;
+            continue;
+        }
+        char name[48];
+        size_t namelen = (size_t)(colon - stripped);
+        if (namelen >= sizeof(name)) {
+            namelen = sizeof(name) - 1;
+        }
+        memcpy(name, stripped, namelen);
+        name[namelen] = '\0';
+
+        char *val = colon + 1;
+        while (*val == ' ') {
+            val++;
+        }
+        size_t vlen = strlen(val);
+        while (vlen > 0 && (val[vlen - 1] == ' ' || val[vlen - 1] == '\t' || val[vlen - 1] == '\r')) {
+            val[--vlen] = '\0';
+        }
+
+        char supported[MAX_PROP_SUPPORTED][40];
+        int n_supported = 0;
+        int has_range = 0;
+        long range_lo = 0, range_hi = 0;
+        int j = i + 1;
+        while (j < nlines && lines[j][0] == '\t' && lines[j][1] == '\t') {
+            char *sub = lines[j] + 2;
+            while (*sub == ' ') {
+                sub++;
+            }
+            if (!strncmp(sub, "supported:", 10)) {
+                char *list = sub + 10;
+                while (*list == ' ') {
+                    list++;
+                }
+                char listbuf[256];
+                snprintf(listbuf, sizeof(listbuf), "%s", list);
+                char *savec = NULL;
+                char *tok = strtok_r(listbuf, ",", &savec);
+                while (tok && n_supported < MAX_PROP_SUPPORTED) {
+                    while (*tok == ' ') {
+                        tok++;
+                    }
+                    size_t tl = strlen(tok);
+                    while (tl > 0 && (tok[tl - 1] == ' ' || tok[tl - 1] == '\t')) {
+                        tok[--tl] = '\0';
+                    }
+                    if (tl > 0) {
+                        snprintf(supported[n_supported++], sizeof(supported[0]), "%s", tok);
+                    }
+                    tok = strtok_r(NULL, ",", &savec);
+                }
+            } else if (!strncmp(sub, "range:", 6)) {
+                long lo, hi;
+                if (sscanf(sub, "range: (%ld, %ld)", &lo, &hi) == 2 ||
+                    sscanf(sub, "range:(%ld,%ld)", &lo, &hi) == 2) {
+                    has_range = 1;
+                    range_lo = lo;
+                    range_hi = hi;
+                }
+            }
+            j++;
+        }
+
+        if (name_in_list(name, EXTRA_PROP_HIDDEN) || !strcmp(name, "DPI")) {
+            i = j;
+            continue;
+        }
+        if (name_in_list(name, EXTRA_PROP_FORCE_READONLY) || (n_supported == 0 && !has_range)) {
+            add_extra_readonly(out, name, val);
+        } else {
+            add_extra_prop(out, name, val, supported, n_supported, has_range, range_lo, range_hi);
+        }
+        i = j;
+    }
+}
+
+static void detect_verbose_props(ScreenOutput *outs, int n)
+{
+    char *argv[] = {"xrandr", "--verbose", NULL};
+    static char out[262144];
+    if (!run_capture(argv, out, sizeof(out))) {
+        return;
+    }
+    parse_verbose_props(out, outs, n);
+}
+
 /* Formats `v` as "%.4f" using the "C" locale's '.' decimal point
  * regardless of the process's actual LC_NUMERIC -- kiconf calls
  * setlocale(LC_ALL, "") for i18n (see kiconf.c's main()), so plain
@@ -484,6 +739,33 @@ static void apply_output_diff(const ScreenOutput *o, const ScreenOutput *base)
     }
     argv[ac] = NULL;
     if (changed) {
+        run_fire(argv);
+    }
+}
+
+/* Sends one `xrandr --output NAME --set PROPNAME value` call per advanced
+ * property that changed since `base` -- a separate call per property
+ * rather than folding them into apply_output_diff()'s own argv (like
+ * xisconf.py's _output_diff_args() does) since there can be many more of
+ * these than that fixed-size array has room for. */
+static void apply_extra_prop_diffs(const ScreenOutput *o, const ScreenOutput *base)
+{
+    if (!o->connected || !o->enabled) {
+        return;
+    }
+    for (int i = 0; i < o->n_extra_props; i++) {
+        const ExtraProp *p = &o->extra_props[i];
+        const char *old_val = NULL;
+        for (int j = 0; j < base->n_extra_props; j++) {
+            if (!strcmp(base->extra_props[j].name, p->name)) {
+                old_val = base->extra_props[j].value;
+                break;
+            }
+        }
+        if (old_val && !strcmp(old_val, p->value)) {
+            continue;
+        }
+        char *argv[] = {"xrandr", "--output", (char *)o->name, "--set", (char *)p->name, (char *)p->value, NULL};
         run_fire(argv);
     }
 }
@@ -705,6 +987,144 @@ static void screens_dock(int idx, int *x, int *y, int w, int h, double scale)
 
 static void sync_screens_form(void);
 
+/* ---- Telas tab: advanced/other properties widgets ---------------------
+ * Each ExtraProp* handed to these callbacks points directly into
+ * g_outputs[selected].extra_props[]/extra_readonly[] -- stable for as
+ * long as the widget referencing it is alive, since only a re-detect
+ * (which always tears down and rebuilds every one of these widgets right
+ * along with it, see rebuild_extra_props_ui()) ever overwrites that
+ * memory. */
+static void on_extra_prop_combo_changed(GtkWidget *widget, gpointer data)
+{
+    ExtraProp *p = (ExtraProp *)data;
+    if (g_screens_syncing) {
+        return;
+    }
+    gchar *txt = gtk_combo_box_get_active_text(GTK_COMBO_BOX(widget));
+    if (txt) {
+        snprintf(p->value, sizeof(p->value), "%s", txt);
+        g_free(txt);
+    }
+}
+
+static void on_extra_prop_bool_changed(GtkWidget *widget, gpointer data)
+{
+    ExtraProp *p = (ExtraProp *)data;
+    if (g_screens_syncing) {
+        return;
+    }
+    snprintf(p->value, sizeof(p->value), "%s", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget)) ? "1" : "0");
+}
+
+static void on_extra_prop_spin_changed(GtkWidget *widget, gpointer data)
+{
+    ExtraProp *p = (ExtraProp *)data;
+    if (g_screens_syncing) {
+        return;
+    }
+    snprintf(p->value, sizeof(p->value), "%d", gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(widget)));
+}
+
+static GtkWidget *build_extra_prop_widget(ExtraProp *p)
+{
+    if (p->n_supported > 0) {
+        GtkWidget *w = gtk_combo_box_new_text();
+        int active = -1;
+        for (int i = 0; i < p->n_supported; i++) {
+            gtk_combo_box_append_text(GTK_COMBO_BOX(w), p->supported[i]);
+            if (!strcmp(p->supported[i], p->value)) {
+                active = i;
+            }
+        }
+        gtk_combo_box_set_active(GTK_COMBO_BOX(w), active >= 0 ? active : 0);
+        g_signal_connect(w, "changed", G_CALLBACK(on_extra_prop_combo_changed), p);
+        return w;
+    }
+    if (p->has_range) {
+        if (p->range_lo == 0 && p->range_hi == 1) {
+            GtkWidget *w = gtk_check_button_new();
+            gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(w), p->value[0] && strcmp(p->value, "0"));
+            g_signal_connect(w, "toggled", G_CALLBACK(on_extra_prop_bool_changed), p);
+            return w;
+        }
+        GtkWidget *w = gtk_spin_button_new_with_range((double)p->range_lo, (double)p->range_hi, 1);
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(w), atof(p->value));
+        g_signal_connect(w, "value-changed", G_CALLBACK(on_extra_prop_spin_changed), p);
+        return w;
+    }
+    return gtk_label_new(p->value);
+}
+
+static void clear_container(GtkWidget *box)
+{
+    GList *kids = gtk_container_get_children(GTK_CONTAINER(box));
+    for (GList *l = kids; l; l = l->next) {
+        gtk_widget_destroy(GTK_WIDGET(l->data));
+    }
+    g_list_free(kids);
+}
+
+/* Rebuilds both property groups for the currently selected output --
+ * called by sync_screens_form() (every selection change) and after every
+ * re-detect, since the properties themselves are read back from hardware
+ * fresh each time (see the ScreenOutput struct's own comment on this). */
+static void rebuild_extra_props_ui(void)
+{
+    clear_container(g_screens_extra_editable_box);
+    clear_container(g_screens_extra_readonly_box);
+    if (g_screens_selected < 0) {
+        gtk_widget_hide(g_screens_extra_editable_frame);
+        gtk_widget_hide(g_screens_extra_readonly_frame);
+        return;
+    }
+    ScreenOutput *o = &g_outputs[g_screens_selected];
+
+    if (o->n_extra_props > 0) {
+        GtkWidget *table = gtk_table_new(o->n_extra_props, 2, FALSE);
+        for (int i = 0; i < o->n_extra_props; i++) {
+            char label[64];
+            snprintf(label, sizeof(label), "%s:", o->extra_props[i].name);
+            GtkWidget *w = build_extra_prop_widget(&o->extra_props[i]);
+            labeled_row(table, i, label, w);
+        }
+        gtk_box_pack_start(GTK_BOX(g_screens_extra_editable_box), table, FALSE, FALSE, 0);
+        gtk_widget_show_all(g_screens_extra_editable_box);
+        gtk_widget_show(g_screens_extra_editable_frame);
+    } else {
+        gtk_widget_hide(g_screens_extra_editable_frame);
+    }
+
+    if (o->n_extra_readonly > 0) {
+        /* 2 side-by-side label:value columns instead of one long single
+         * column list -- read-only properties can pile up (a dozen+ on
+         * some drivers), same split xisconf.py's own form_extra_readonly/
+         * form_extra_readonly2 does. */
+        int half = (o->n_extra_readonly + 1) / 2;
+        int n2 = o->n_extra_readonly - half;
+        GtkWidget *hbox = gtk_hbox_new(FALSE, 12);
+        GtkWidget *t1 = gtk_table_new(half > 0 ? half : 1, 2, FALSE);
+        GtkWidget *t2 = gtk_table_new(n2 > 0 ? n2 : 1, 2, FALSE);
+        for (int i = 0; i < o->n_extra_readonly; i++) {
+            char label[64];
+            snprintf(label, sizeof(label), "%s:", o->extra_readonly[i].name);
+            GtkWidget *val = gtk_label_new(o->extra_readonly[i].value);
+            gtk_misc_set_alignment(GTK_MISC(val), 0.0, 0.5);
+            if (i < half) {
+                labeled_row(t1, i, label, val);
+            } else {
+                labeled_row(t2, i - half, label, val);
+            }
+        }
+        gtk_box_pack_start(GTK_BOX(hbox), t1, TRUE, TRUE, 0);
+        gtk_box_pack_start(GTK_BOX(hbox), t2, TRUE, TRUE, 0);
+        gtk_box_pack_start(GTK_BOX(g_screens_extra_readonly_box), hbox, FALSE, FALSE, 0);
+        gtk_widget_show_all(g_screens_extra_readonly_box);
+        gtk_widget_show(g_screens_extra_readonly_frame);
+    } else {
+        gtk_widget_hide(g_screens_extra_readonly_frame);
+    }
+}
+
 static gboolean screens_canvas_expose(GtkWidget *widget, GdkEventExpose *event, gpointer data)
 {
     (void)event;
@@ -888,6 +1308,8 @@ static void sync_screens_form(void)
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_screens_dpi_spin), o->dpi > 0 ? o->dpi : 96);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_screens_scale_spin), fabs(o->scale_x) > 1e-6 ? o->scale_x : 1.0);
 
+    rebuild_extra_props_ui();
+
     g_screens_syncing = 0;
 }
 
@@ -1033,6 +1455,7 @@ static void screens_redetect_preserving_extras(void)
     }
 
     g_n_outputs = detect_outputs(g_outputs, MAX_OUTPUTS);
+    detect_verbose_props(g_outputs, g_n_outputs);
 
     for (int i = 0; i < g_n_outputs; i++) {
         for (int j = 0; j < n_snap; j++) {
@@ -1121,6 +1544,7 @@ static void on_screens_apply(GtkWidget *widget, gpointer data)
     (void)data;
     for (int i = 0; i < g_n_outputs; i++) {
         apply_output_diff(&g_outputs[i], &g_outputs_baseline[i]);
+        apply_extra_prop_diffs(&g_outputs[i], &g_outputs_baseline[i]);
     }
     screens_redetect_preserving_extras();
     save_screens_layout();
@@ -1132,6 +1556,8 @@ static void on_screens_apply(GtkWidget *widget, gpointer data)
     gtk_label_set_text(GTK_LABEL(g_screens_status_label), status);
     if (g_screens_selected >= 0) {
         sync_screens_form();
+    } else {
+        rebuild_extra_props_ui();
     }
     gtk_widget_queue_draw(g_screens_canvas);
 }
@@ -1149,6 +1575,8 @@ static void on_screens_refresh(GtkWidget *widget, gpointer data)
     gtk_label_set_text(GTK_LABEL(g_screens_status_label), status);
     if (g_screens_selected >= 0) {
         sync_screens_form();
+    } else {
+        rebuild_extra_props_ui();
     }
     gtk_widget_queue_draw(g_screens_canvas);
 }
@@ -1156,6 +1584,7 @@ static void on_screens_refresh(GtkWidget *widget, gpointer data)
 GtkWidget *build_telas_tab(void)
 {
     g_n_outputs = detect_outputs(g_outputs, MAX_OUTPUTS);
+    detect_verbose_props(g_outputs, g_n_outputs);
     memcpy(g_outputs_baseline, g_outputs, sizeof(g_outputs));
     for (int i = 0; i < g_n_outputs; i++) {
         if (g_outputs[i].connected && g_outputs[i].enabled) {
@@ -1171,10 +1600,10 @@ GtkWidget *build_telas_tab(void)
         "Arraste as caixas pra reposicionar -- ficam sempre lado a lado,\n"
         "encostadas na saida mais proxima, sem espacos entre elas; so a\n"
         "posicao ao longo da borda compartilhada e livre. Espelho/DPI/\n"
-        "Escala nao sao detectados do hardware (xrandr sem --verbose nao\n"
-        "expoe isso), so escritos ao Aplicar; propriedades avancadas do\n"
-        "driver nao foram portadas. Aplicar tambem grava o layout pra ser\n"
-        "reaplicado automaticamente no inicio da proxima sessao.");
+        "Escala nao sao detectados do hardware (nem xrandr --verbose\n"
+        "expoe isso), so escritos ao Aplicar. Aplicar tambem grava o\n"
+        "layout pra ser reaplicado automaticamente no inicio da proxima\n"
+        "sessao.");
     gtk_misc_set_alignment(GTK_MISC(note), 0.0, 0.5);
     gtk_box_pack_start(GTK_BOX(outer), note, FALSE, FALSE, 0);
 
@@ -1226,7 +1655,39 @@ GtkWidget *build_telas_tab(void)
     gtk_spin_button_set_digits(GTK_SPIN_BUTTON(g_screens_scale_spin), 2);
     g_signal_connect(g_screens_scale_spin, "value-changed", G_CALLBACK(on_screens_scale_changed), NULL);
     labeled_row(form_table, 7, "Escala:", g_screens_scale_spin);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Saida selecionada", form_table), FALSE, FALSE, 0);
+
+    /* The 3 per-output sections side by side in one row instead of
+     * stacked -- "Outras propriedades" especially can pile up a dozen+
+     * rows on some drivers, which made the tab very tall stacked
+     * vertically; each of the 2 property sections scrolls internally
+     * (fixed height) instead of growing the tab further. */
+    GtkWidget *sections_row = gtk_hbox_new(FALSE, 8);
+    gtk_box_pack_start(GTK_BOX(sections_row), frame_with("Saida selecionada", form_table), TRUE, TRUE, 0);
+
+    /* Advanced (editable) driver properties -- TearFree, underscan,
+     * scaling mode, PRIME Synchronization, HDCP, max bpc, non-desktop,
+     * etc., whatever `xrandr --verbose` exposes for the selected output.
+     * Hidden entirely when it has none (see rebuild_extra_props_ui()). */
+    g_screens_extra_editable_box = gtk_vbox_new(FALSE, 4);
+    GtkWidget *extra_editable_scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(extra_editable_scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(extra_editable_scroll), g_screens_extra_editable_box);
+    gtk_widget_set_size_request(extra_editable_scroll, -1, 200);
+    g_screens_extra_editable_frame = frame_with("Propriedades avancadas", extra_editable_scroll);
+    gtk_box_pack_start(GTK_BOX(sections_row), g_screens_extra_editable_frame, TRUE, TRUE, 0);
+
+    /* Other (read-only) properties -- same source, but forced read-only
+     * (LUTs, identifiers, timestamps, ...) or with no editable shape at
+     * all (no "supported:"/"range:" sub-line). */
+    g_screens_extra_readonly_box = gtk_vbox_new(FALSE, 4);
+    GtkWidget *extra_readonly_scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(extra_readonly_scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(extra_readonly_scroll), g_screens_extra_readonly_box);
+    gtk_widget_set_size_request(extra_readonly_scroll, -1, 200);
+    g_screens_extra_readonly_frame = frame_with("Outras propriedades", extra_readonly_scroll);
+    gtk_box_pack_start(GTK_BOX(sections_row), g_screens_extra_readonly_frame, TRUE, TRUE, 0);
+
+    gtk_box_pack_start(GTK_BOX(outer), sections_row, FALSE, FALSE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 6);
     GtkWidget *refresh_btn = gtk_button_new_with_label("Detectar novamente");
@@ -1239,6 +1700,8 @@ GtkWidget *build_telas_tab(void)
 
     if (g_screens_selected >= 0) {
         sync_screens_form();
+    } else {
+        rebuild_extra_props_ui();
     }
 
     return outer;
