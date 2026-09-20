@@ -76,6 +76,7 @@
 #include FT_FREETYPE_H
 
 #include <ctype.h>
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -93,7 +94,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.22"
+#define XISPANEL_VERSION "0.6.23"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 #define IPC_MAX_LEN 4096
@@ -926,6 +927,107 @@ cairo_surface_t *load_png_argb(const char *path)
     }
     cairo_surface_mark_dirty(surf);
     imlib_free_image();
+    return surf;
+}
+
+/* ---- librsvg, dlopen'd on first use --------------------------------
+ * Only 4 symbols needed, own struct/typedefs below instead of
+ * <librsvg/rsvg.h> so this builds with no new -dev package and no new
+ * Makefile PKGS entry -- same "dlopen the .so, never link it" approach
+ * as libdbus-1 in sni.c/mpris.c/dbusmenu.c, just with hand-written
+ * declarations instead of a system header because unlike dbus-1 this one
+ * isn't otherwise a build-time dependency of this project at all. The
+ * struct layout below is librsvg's long-stable public ABI (RsvgHandle is
+ * opaque, only ever passed back to librsvg itself; RsvgDimensionData's
+ * four fields haven't changed since librsvg 2.x's first release). */
+typedef void RsvgHandle;
+typedef struct {
+    int width;
+    int height;
+    double em;
+    double ex;
+} RsvgDimensionData;
+
+static void *g_librsvg = NULL;
+static int g_librsvg_attempted = 0;
+static RsvgHandle *(*p_rsvg_handle_new_from_file)(const char *, void *);
+static void (*p_rsvg_handle_get_dimensions)(RsvgHandle *, RsvgDimensionData *);
+static int (*p_rsvg_handle_render_cairo)(RsvgHandle *, cairo_t *);
+static void (*p_g_object_unref)(void *);
+
+static int svg_ensure_loaded(void)
+{
+    if (g_librsvg) {
+        return 1;
+    }
+    if (g_librsvg_attempted) {
+        return 0;
+    }
+    g_librsvg_attempted = 1;
+    g_librsvg = dlopen("librsvg-2.so.2", RTLD_NOW | RTLD_GLOBAL);
+    if (!g_librsvg) {
+        g_librsvg = dlopen("librsvg-2.so", RTLD_NOW | RTLD_GLOBAL);
+    }
+    if (!g_librsvg) {
+        return 0;
+    }
+    *(void **)(&p_rsvg_handle_new_from_file) = dlsym(g_librsvg, "rsvg_handle_new_from_file");
+    *(void **)(&p_rsvg_handle_get_dimensions) = dlsym(g_librsvg, "rsvg_handle_get_dimensions");
+    *(void **)(&p_rsvg_handle_render_cairo) = dlsym(g_librsvg, "rsvg_handle_render_cairo");
+    *(void **)(&p_g_object_unref) = dlsym(g_librsvg, "g_object_unref");
+    if (!p_rsvg_handle_new_from_file || !p_rsvg_handle_get_dimensions || !p_rsvg_handle_render_cairo ||
+        !p_g_object_unref) {
+        dlclose(g_librsvg);
+        g_librsvg = NULL;
+        return 0;
+    }
+    return 1;
+}
+
+/* See xispanel.h's doc comment. */
+cairo_surface_t *load_svg_argb(const char *path, int target_size)
+{
+    if (!path || !path[0] || target_size <= 0 || !svg_ensure_loaded()) {
+        return NULL;
+    }
+    RsvgHandle *h = p_rsvg_handle_new_from_file(path, NULL);
+    if (!h) {
+        return NULL;
+    }
+    RsvgDimensionData dim = {0};
+    p_rsvg_handle_get_dimensions(h, &dim);
+    if (dim.width <= 0 || dim.height <= 0) {
+        p_g_object_unref(h);
+        return NULL;
+    }
+    double scale = (double)target_size / (double)(dim.width > dim.height ? dim.width : dim.height);
+    int nw = (int)(dim.width * scale + 0.5);
+    int nh = (int)(dim.height * scale + 0.5);
+    if (nw < 1) {
+        nw = 1;
+    }
+    if (nh < 1) {
+        nh = 1;
+    }
+    cairo_surface_t *surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, nw, nh);
+    if (cairo_surface_status(surf) != CAIRO_STATUS_SUCCESS) {
+        cairo_surface_destroy(surf);
+        p_g_object_unref(h);
+        return NULL;
+    }
+    cairo_t *cr = cairo_create(surf);
+    cairo_scale(cr, scale, scale);
+    /* Cairo composites RSVG's drawing straight into an ARGB32 surface
+     * already premultiplied -- unlike load_png_argb()'s manual Imlib2
+     * premultiply above, there's nothing to convert here. */
+    int ok = p_rsvg_handle_render_cairo(h, cr);
+    cairo_destroy(cr);
+    p_g_object_unref(h);
+    if (!ok) {
+        cairo_surface_destroy(surf);
+        return NULL;
+    }
+    cairo_surface_mark_dirty(surf);
     return surf;
 }
 

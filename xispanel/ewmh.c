@@ -1306,7 +1306,10 @@ cairo_surface_t *resolve_icon_theme_name(const char *name, int target_size)
         return NULL;
     }
     if (name[0] == '/') {
-        return shrink_icon_surface(load_png_argb(name), target_size);
+        size_t len = strlen(name);
+        cairo_surface_t *surf = (len > 4 && strcmp(name + len - 4, ".svg") == 0) ? load_svg_argb(name, target_size)
+                                                                                  : load_png_argb(name);
+        return shrink_icon_surface(surf, target_size);
     }
 
     /* The configured icon theme (THEME's icon_theme= in xispanel.conf,
@@ -1457,24 +1460,36 @@ cairo_surface_t *resolve_icon_theme_name(const char *name, int target_size)
      * alone made konsole/kate unresolvable before the "legacy" fix
      * above gave Adwaita's PNG a chance to be tried at all). Trying .png
      * first costs nothing when only one extension exists in a given
-     * directory, and wins outright when both do. */
+     * directory, and wins outright when both do. An .svg candidate goes
+     * through load_svg_argb() (dlopen'd librsvg, see xispanel.c) instead
+     * of load_png_argb() -- confirmed real gap: Remmina's tray IconName
+     * ("org.remmina.Remmina-status") and KDE Discover's update-available
+     * IconName ("update-low") both exist *only* as .svg in every theme
+     * that ships them (hicolor, breeze), so without this they always fell
+     * back to the plain-letter icon regardless of how correct the path
+     * grid above is. */
     static const char *exts[] = {".png", ".svg"};
     char path[PATH_MAX];
     for (int b = 0; b < n_bases; b++) {
         for (size_t c = 0; c < sizeof(categories) / sizeof(categories[0]); c++) {
             for (size_t s = 0; s < n_sizedirs; s++) {
                 for (size_t e = 0; e < sizeof(exts) / sizeof(exts[0]); e++) {
+                    int is_svg = exts[e][1] == 's';
                     /* breeze order: <category>/<sizedir>/<name> */
                     snprintf(path, sizeof(path), "%s/%s/%s/%s%s", bases[b], categories[c], sizedirs[s], name,
                              exts[e]);
-                    cairo_surface_t *surf = access(path, R_OK) == 0 ? load_png_argb(path) : NULL;
+                    cairo_surface_t *surf = access(path, R_OK) != 0 ? NULL
+                                             : is_svg               ? load_svg_argb(path, target_size)
+                                                                     : load_png_argb(path);
                     if (surf) {
                         return shrink_icon_surface(surf, target_size);
                     }
                     /* Adwaita/hicolor order: <sizedir>/<category>/<name> */
                     snprintf(path, sizeof(path), "%s/%s/%s/%s%s", bases[b], sizedirs[s], categories[c], name,
                              exts[e]);
-                    surf = access(path, R_OK) == 0 ? load_png_argb(path) : NULL;
+                    surf = access(path, R_OK) != 0 ? NULL
+                           : is_svg               ? load_svg_argb(path, target_size)
+                                                   : load_png_argb(path);
                     if (surf) {
                         return shrink_icon_surface(surf, target_size);
                     }
@@ -1492,10 +1507,12 @@ cairo_surface_t *resolve_icon_theme_name(const char *name, int target_size)
     for (size_t d = 0; d < sizeof(pixmap_dirs) / sizeof(pixmap_dirs[0]); d++) {
         for (size_t e = 0; e < sizeof(exts2) / sizeof(exts2[0]); e++) {
             snprintf(path, sizeof(path), "%s/%s%s", pixmap_dirs[d], name, exts2[e]);
-            cairo_surface_t *surf = access(path, R_OK) == 0 ? load_png_argb(path) : NULL;
+            if (access(path, R_OK) != 0) {
+                continue;
+            }
+            cairo_surface_t *surf = exts2[e][1] == 's' ? load_svg_argb(path, target_size) : load_png_argb(path);
             if (surf) {
-                surf = shrink_icon_surface(surf, target_size);
-                return surf;
+                return shrink_icon_surface(surf, target_size);
             }
         }
     }

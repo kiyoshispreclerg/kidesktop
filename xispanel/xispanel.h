@@ -464,6 +464,19 @@ int panel_lookup_output_rect(const char *name, int *out_x, int *out_y, int *out_
  * (see panel_load_bg_image()) and available to any widget that wants to
  * load an image of its own, e.g. `launcher`'s icon= key. */
 cairo_surface_t *load_png_argb(const char *path);
+/* Renders an .svg file straight to a target_size x target_size (or
+ * intrinsic-aspect, capped to target_size on the long side) premultiplied
+ * ARGB32 Cairo surface via librsvg, dlopen'd at first call (never linked --
+ * see sni.c's libdbus-1 for the same pattern). NULL whenever librsvg isn't
+ * installed, the file fails to parse, or target_size <= 0 -- callers
+ * (resolve_icon_theme_name() in ewmh.c) treat that exactly like a missing
+ * file and keep trying the next candidate. Exists because Imlib2 has no
+ * built-in SVG support of its own and its optional loader plugin (which
+ * itself just shells out to librsvg) isn't guaranteed installed -- see
+ * resolve_icon_theme_name()'s doc comment for the real-world icons
+ * (Remmina's tray icon, KDE Discover's update-available icon) that are
+ * SVG-only in every theme that ships them at all. */
+cairo_surface_t *load_svg_argb(const char *path, int target_size);
 /* Draws `src` (sw x sh) into cr's current (0,0)-(dw,dh) rect as a 9-slice
  * (see panel_load_bg_image()'s doc comment in xispanel.c for the technique).
  * Exported so tooltip.c/toast.c can paint their popups with the same panel

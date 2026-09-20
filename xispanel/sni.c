@@ -472,8 +472,37 @@ static void sni_append_prop_dict(DBusMessageIter *arr, const char *prop)
     p_dbus_message_iter_close_container(arr, &entry);
 }
 
+/* True for the handful of DBusError names that actually mean "this peer
+ * didn't answer" (genuinely hung, gone, or the bus gave up waiting) --
+ * the only cases sni_get_item_prop()'s wedged-item quarantine is meant to
+ * catch. Everything else that can come back from a Properties.Get -- most
+ * commonly InvalidArgs/UnknownProperty/UnknownMethod for an optional
+ * property the item simply doesn't implement (confirmed live: Remmina's
+ * ayatana-appindicator SNI answers Get "IconPixmap" with
+ * org.freedesktop.DBus.Error.InvalidArgs, "No such property", well within
+ * SNI_CALL_TIMEOUT_MS -- proof the item is alive and responsive, not
+ * evidence it should be quarantined) -- means the peer is alive and
+ * answered, just doesn't have that property. */
+static int sni_err_is_unresponsive(const DBusError *err)
+{
+    if (!err->name) {
+        return 1; /* no reply at all and no named error -- treat as hung */
+    }
+    return strcmp(err->name, "org.freedesktop.DBus.Error.NoReply") == 0 ||
+           strcmp(err->name, "org.freedesktop.DBus.Error.Timeout") == 0 ||
+           strcmp(err->name, "org.freedesktop.DBus.Error.TimedOut") == 0 ||
+           strcmp(err->name, "org.freedesktop.DBus.Error.ServiceUnknown") == 0 ||
+           strcmp(err->name, "org.freedesktop.DBus.Error.NameHasNoOwner") == 0 ||
+           strcmp(err->name, "org.freedesktop.DBus.Error.Disconnected") == 0;
+}
+
+/* out_unresponsive (may be NULL): set only on a NULL return, telling the
+ * caller whether that NULL means "peer didn't answer at all" (should
+ * count against sni_get_item_prop()'s quarantine) or "peer answered with
+ * an ordinary property/method error" (peer is fine, just say no to this
+ * one call -- see sni_err_is_unresponsive()). */
 static DBusMessage *sni_call2s(const char *dest, const char *path, const char *iface, const char *method,
-                                const char *arg1, const char *arg2)
+                                const char *arg1, const char *arg2, int *out_unresponsive)
 {
     DBusMessage *msg = p_dbus_message_new_method_call(dest, path, iface, method);
     if (!msg) {
@@ -488,6 +517,9 @@ static DBusMessage *sni_call2s(const char *dest, const char *path, const char *i
     DBusMessage *reply = p_dbus_connection_send_with_reply_and_block(g_conn, msg, SNI_CALL_TIMEOUT_MS, &err);
     p_dbus_message_unref(msg);
     if (p_dbus_error_is_set(&err)) {
+        if (out_unresponsive) {
+            *out_unresponsive = sni_err_is_unresponsive(&err);
+        }
         p_dbus_error_free(&err);
         return NULL;
     }
@@ -506,9 +538,10 @@ static DBusMessage *sni_get_item_prop(SniItem *it, const char *prop, uint64_t no
         return NULL;
     }
 
+    int unresponsive = 0;
     DBusMessage *reply = sni_call2s(it->busname, it->path,
                                      "org.freedesktop.DBus.Properties", "Get",
-                                     SNI_ITEM_IFACE, prop);
+                                     SNI_ITEM_IFACE, prop, &unresponsive);
     if (reply) {
         if (it->fail_count) {
             fprintf(stderr, "xispanel: sni: item responsive again: %s%s\n", it->busname, it->path);
@@ -516,6 +549,18 @@ static DBusMessage *sni_get_item_prop(SniItem *it, const char *prop, uint64_t no
         it->fail_count = 0;
         it->quarantine_until_ms = 0;
         return reply;
+    }
+    if (!unresponsive) {
+        /* Peer answered -- just doesn't have `prop` (e.g. IconPixmap on an
+         * item that only ever sets IconName). It's alive: clear any
+         * existing quarantine same as a successful reply would, and don't
+         * block this tick's other property fetches on the same item. */
+        if (it->fail_count) {
+            fprintf(stderr, "xispanel: sni: item responsive again: %s%s\n", it->busname, it->path);
+        }
+        it->fail_count = 0;
+        it->quarantine_until_ms = 0;
+        return NULL;
     }
 
     uint64_t backoff = (uint64_t)SNI_QUARANTINE_BASE_MS << (it->fail_count < 5 ? it->fail_count : 5);
@@ -1159,7 +1204,7 @@ int sni_poll(uint64_t now)
         g_initial_sync_done = 1;
         DBusMessage *reply = sni_call2s(g_watcher_name, SNI_WATCHER_PATH,
                                          "org.freedesktop.DBus.Properties", "Get",
-                                         g_watcher_name, "RegisteredStatusNotifierItems");
+                                         g_watcher_name, "RegisteredStatusNotifierItems", NULL);
         if (reply) {
             DBusMessageIter it, variant, arr;
             if (p_dbus_message_iter_init(reply, &it) &&
@@ -1397,7 +1442,8 @@ int sni_menu_open(int idx, Panel *panel, PanelWidget *widget, int anchor_x, int 
     const char *busname = g_items[idx].busname;
     const char *path = g_items[idx].path;
 
-    DBusMessage *mreply = sni_call2s(busname, path, "org.freedesktop.DBus.Properties", "Get", SNI_ITEM_IFACE, "Menu");
+    DBusMessage *mreply =
+        sni_call2s(busname, path, "org.freedesktop.DBus.Properties", "Get", SNI_ITEM_IFACE, "Menu", NULL);
     if (!mreply) {
         return 0;
     }
