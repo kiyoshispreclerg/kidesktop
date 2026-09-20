@@ -26,6 +26,7 @@ static GtkWidget *g_gtk3_combo;
 static GtkWidget *g_gtk4_combo;
 static GtkWidget *g_icon_combo;
 static GtkWidget *g_qt_style_combo;
+static GtkWidget *g_kidesktop_theme_combo;
 static GtkWidget *g_color_bg_btn;
 static GtkWidget *g_color_fg_btn;
 static GtkWidget *g_color_base_btn;
@@ -177,6 +178,66 @@ static GtkWidget *make_theme_combo(ThemeList *tl, const char *current)
     return combo;
 }
 
+/* KiDesktop's own theme folders (themes/<name>/colors, optionally +
+ * bg.png/btns.png/... -- see themes/template), the session-wide theme
+ * kiwm/xispanel fall back to when their own kiwm.conf/xispanel.conf
+ * `theme=` doesn't cover a given file (see kiwm/README.md's "Theming" and
+ * xispanel/PROTOCOL.md's "Bitmap themes"). Scanned the same way GTK/icon/
+ * cursor themes are above: a theme is "installed" iff it has a `colors`
+ * file directly under it. Two real install locations plus the
+ * source-tree `themes/` folder relative to kiconf's own working
+ * directory, so this finds the same themes kiwm/xispanel would from
+ * theirs when all three are run from the usual place in the tree. */
+static ThemeList scan_kidesktop_themes(void)
+{
+    ThemeList tl = {.n = 0};
+    char home_base[PATH_MAX];
+    const char *home = getenv("HOME");
+    snprintf(home_base, sizeof(home_base), "%s/.local/share/kidesktop/themes", home ? home : "");
+    const char *bases[] = {
+        "/usr/share/kidesktop/themes", home_base, "../themes", "./themes", "themes", NULL,
+    };
+    scan_marker_dirs(&tl, bases, "colors", 0);
+    return tl;
+}
+
+/* Same as make_theme_combo(), plus a leading "(nenhum)" entry standing for
+ * an empty theme= (no central theme picked -- kiwm/xispanel/xisserve then
+ * only ever use their own per-program config/args, exactly as before this
+ * existed). `current` empty selects that entry instead of falling through
+ * to whatever theme happens to be first alphabetically. */
+static GtkWidget *make_theme_combo_with_none(ThemeList *tl, const char *current)
+{
+    theme_list_sort(tl);
+    GtkWidget *combo = gtk_combo_box_new_text();
+    gtk_combo_box_append_text(GTK_COMBO_BOX(combo), "(nenhum)");
+    int idx = 0;
+    for (int i = 0; i < tl->n; i++) {
+        gtk_combo_box_append_text(GTK_COMBO_BOX(combo), tl->names[i]);
+        if (current[0] && !strcmp(tl->names[i], current)) {
+            idx = i + 1;
+        }
+    }
+    if (current[0] && idx == 0) {
+        gtk_combo_box_append_text(GTK_COMBO_BOX(combo), current);
+        idx = tl->n + 1;
+    }
+    gtk_combo_box_set_active(GTK_COMBO_BOX(combo), idx);
+    return combo;
+}
+
+/* "(nenhum)" (or nothing selected) -> "", same convention read_config()
+ * above expects for "no central theme". */
+static gchar *theme_combo_value(GtkWidget *combo)
+{
+    gchar *t = gtk_combo_box_get_active_text(GTK_COMBO_BOX(combo));
+    if (!t || !strcmp(t, "(nenhum)")) {
+        g_free(t);
+        return g_strdup("");
+    }
+    return t;
+}
+
 static gchar *combo_active_text_or(GtkWidget *combo, const char *fallback)
 {
     gchar *t = gtk_combo_box_get_active_text(GTK_COMBO_BOX(combo));
@@ -198,6 +259,10 @@ typedef struct {
     char gtk2_theme[NAME_LEN], gtk3_theme[NAME_LEN], gtk4_theme[NAME_LEN];
     char icon_theme[NAME_LEN], qt_style[NAME_LEN];
     int export_other_desktops;
+    /* KiDesktop's central theme (see scan_kidesktop_themes() above) --
+     * empty means none picked, kiwm/xispanel/xisserve stay exactly as
+     * they were before this key existed. */
+    char kidesktop_theme[NAME_LEN];
 } Appearance;
 
 /* Defaults mirror kiconfd's own apply_and_persist_defaults() -- if
@@ -221,6 +286,7 @@ static void appearance_defaults(Appearance *a)
     snprintf(a->icon_theme, sizeof(a->icon_theme), "Adwaita");
     snprintf(a->qt_style, sizeof(a->qt_style), "Fusion");
     a->export_other_desktops = 0;
+    a->kidesktop_theme[0] = '\0';
 }
 
 static void load_appearance(Appearance *a)
@@ -263,6 +329,7 @@ static void load_appearance(Appearance *a)
         else SET("icon_theme", icon_theme);
         else SET("qt_style", qt_style);
         else if (!strcmp(key, "export_to_other_desktops")) a->export_other_desktops = atoi(val) ? 1 : 0;
+        else SET("theme", kidesktop_theme);
 #undef SET
     }
     fclose(f);
@@ -308,6 +375,10 @@ static void save_appearance_cb(GtkWidget *widget, gpointer data)
     g_free(qtstyle);
     a.export_other_desktops = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_export_other_check)) ? 1 : 0;
 
+    gchar *kitheme = theme_combo_value(g_kidesktop_theme_combo);
+    snprintf(a.kidesktop_theme, sizeof(a.kidesktop_theme), "%s", kitheme);
+    g_free(kitheme);
+
     char path[PATH_MAX];
     resolve_path("kiconfd.conf", path, sizeof(path));
     char tmp[PATH_MAX];
@@ -334,6 +405,7 @@ static void save_appearance_cb(GtkWidget *widget, gpointer data)
     fprintf(f, "icon_theme = %s\n", a.icon_theme);
     fprintf(f, "qt_style = %s\n", a.qt_style);
     fprintf(f, "export_to_other_desktops = %d\n", a.export_other_desktops);
+    fprintf(f, "theme = %s\n", a.kidesktop_theme);
     fclose(f);
     rename(tmp, path);
 
@@ -550,6 +622,20 @@ GtkWidget *build_appearance_tab(void)
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_cursor_size_spin), a.cursor_size > 0 ? a.cursor_size : 24);
     labeled_row(cursor_table, 1, "Tamanho:", g_cursor_size_spin);
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Cursor", cursor_table), FALSE, FALSE, 0);
+
+    /* KiDesktop's own central theme (kiwm/xispanel/xisserve) */
+    GtkWidget *kidesktop_table = gtk_table_new(1, 2, FALSE);
+    ThemeList kithemes = scan_kidesktop_themes();
+    g_kidesktop_theme_combo = make_theme_combo_with_none(&kithemes, a.kidesktop_theme);
+    labeled_row(kidesktop_table, 0, "Tema do KiDesktop:", g_kidesktop_theme_combo);
+    GtkWidget *kidesktop_frame = frame_with("Tema do KiDesktop (kiwm, xispanel)", kidesktop_table);
+    gtk_widget_set_tooltip_text(kidesktop_frame,
+        "kiwm e xispanel leem primeiro seu proprio tema (kiwm.conf/xispanel.conf); qualquer\n"
+        "arquivo que faltar la (ou a ausencia de um tema proprio) cai neste tema central antes\n"
+        "de usar a aparencia padrao embutida. xisserve nao usa isso -- so recebe cores via\n"
+        "argumentos de quem o chama. Procurado em /usr/share/kidesktop/themes,\n"
+        "~/.local/share/kidesktop/themes e na pasta themes/ do codigo-fonte.");
+    gtk_box_pack_start(GTK_BOX(outer), kidesktop_frame, FALSE, FALSE, 0);
 
     /* Toolkit themes */
     GtkWidget *themes_table = gtk_table_new(5, 2, FALSE);
