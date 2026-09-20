@@ -107,15 +107,23 @@ shipped widget with no page implemented for it.)
   one that reads the schedule (start/end) out of it -- see kiconfd.c's
   own doc comment.
 - `--notifications`: passed by xispanel's `notif` widget on left click,
-  anchored to the bell icon. Should show the notification history --
-  xispanel's notifd.c ring buffer is in xispanel's process, not
-  xisserve's, so this page needs to read the history from somewhere:
-  either xispanel grows a control-socket query for it, or xisserve reads
-  the same history xisnotif is planned to keep (see
-  `../XISDESKTOP_PLAN.md`). Deciding that is part of implementing this
-  flag. **Not implemented yet** -- meanwhile the widget's right click
-  still opens the same history inline as a panel menu, which needs no
-  second process at all.
+  anchored to the bell icon. Shows the notification history: every held
+  entry newest-first (app name, date/time, summary/body), each with its
+  own "Remover" button plus a "Limpar tudo" (with a Yes/No confirmation)
+  for the whole list. **Implemented in `pages/notifications.c`.**
+
+  Storage stays where it already was: xispanel is the
+  `org.freedesktop.Notifications` DBus service itself (`notifd.c`'s ring
+  buffer), so it's the only process a `Notify()` call ever reaches -- an
+  independent DBus listener on the xisserve side would see nothing, since
+  the spec has exactly one owner of that well-known name and nothing to
+  poll from a non-owner. So this page is a plain client of xispanel's
+  existing control socket (`$XDG_RUNTIME_DIR/xispanel-ctl.sock`, see
+  `../xispanel/PROTOCOL.md`): `GET_NOTIFICATIONS` on every show/poll,
+  `DELETE_NOTIFICATION`/`CLEAR_NOTIFICATIONS` from the per-row/"Limpar
+  tudo" buttons -- xispanel grew those three commands for exactly this.
+  The widget's right click still opens the same history inline as a
+  panel menu too, which needs no second process at all.
 
 ## `--menu`: an application menu popup for a window manager
 

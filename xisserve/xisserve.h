@@ -261,6 +261,7 @@ int xisserve_config_get_int(const char *section, const char *key, int fallback);
  */
 typedef struct {
     const char *flag;      /* long-option name, e.g. "audio" -- also the JSON/control-socket value */
+    const char *title;     /* header-strip label while this page is showing, e.g. "\xc3\x81udio" */
     int min_width;         /* forced minimum window size while this page is up... */
     int min_height;        /* ...or 0/0 to shrink the window to the page's own natural size */
     GtkWidget *(*build)(void); /* called once at startup; returns the page's root widget */
@@ -278,5 +279,9 @@ void page_audio_on_hide(void);
 GtkWidget *page_energy_build(void);
 void page_energy_on_show(void);
 void page_energy_on_hide(void);
+
+GtkWidget *page_notifications_build(void);
+void page_notifications_on_show(void);
+void page_notifications_on_hide(void);
 
 #endif

@@ -24,11 +24,13 @@ Not yet implemented: an icon-grid layout (list-only for now).
 
 ## Why a separate process
 
-Same reasoning as `xisnotif` (see its README): a real search-as-you-type
-popup with icon-grid/list results is GTK-shaped UI work that doesn't fit
-`xispanel`'s "no toolkit, plain Cairo" philosophy. `xispanel`'s own
-`launcher` widget (`../xispanel/widgets/launcher.c`) stays a simple
-pin-a-shortcut icon; `xisserve` is where full application search lives.
+A real search-as-you-type popup with icon-grid/list results (and, for
+the same reason, the calendar/audio/energy/notifications pages it also
+hosts -- see `xisserve.h`'s "pages" section) is GTK-shaped UI work that
+doesn't fit `xispanel`'s "no toolkit, plain Cairo" philosophy.
+`xispanel`'s own `launcher` widget (`../xispanel/widgets/launcher.c`)
+stays a simple pin-a-shortcut icon; `xisserve` is where full application
+search (and every other page needing real list-widget UI) lives.
 
 ## Positioning
 
@@ -99,6 +101,22 @@ table in `xisserve.c`:
   running streams where they are -- so without the move, picking a new
   output appears to do nothing while the audio you can actually hear
   keeps coming out of the old device.
+- **`--energy`** (`pages/energy.c` + `pages/power.c`) -- AC/battery
+  status, other UPower devices' batteries, a screen brightness slider,
+  and night light (shared schedule config with kiconf's Energia tab).
+  Opened by xispanel's `energy` widget.
+- **`--notifications`** (`pages/notifications.c`) -- the notification
+  history: every held entry newest-first (app name, date/time, summary/
+  body), each with its own "Remover" button plus a "Limpar tudo" for the
+  whole list. Opened by xispanel's `notif` widget on left click (right
+  click still opens the same history inline as a panel menu).
+
+  The ring buffer itself lives in xispanel's process, not here --
+  xispanel is the `org.freedesktop.Notifications` DBus service itself
+  (`notifd.c`), the only process a `Notify()` call ever reaches, so this
+  page is a plain client of xispanel's control socket
+  (`GET_NOTIFICATIONS`/`DELETE_NOTIFICATION`/`CLEAR_NOTIFICATIONS`, see
+  `../xispanel/PROTOCOL.md`) rather than a second notification store.
 
 ## `--menu`: the decoration's application menu
 
@@ -187,10 +205,16 @@ per-result icon are resolved through `xisserve_resolve_icon()`
 (`xisserve.h`), cached process-wide by icon spec so repeat lookups
 (every rescan, every keystroke) are cheap.
 
-## Open question: matching the system theme
+## Matching the system theme
 
-Same as `xisnotif` -- see its README's "Open question" section. Applies
-here identically (font + KDE Plasma color scheme in GTK2).
+Unlike a bare standalone GTK2 process, xisserve never has to guess at the
+system theme itself: every invocation already carries `--bg`/`--fg`/
+`--font`/`--font-size` straight from the invoking panel's own resolved
+theme (see `PROTOCOL.md`), applied in `apply_theme()`. A page that wants
+finer control than the shared window-level colors gives it (per-row
+colors, say) reads them back via `xisserve_get_fg_rgba()`/
+`xisserve_get_bg_rgba()` (`xisserve.h`) rather than trusting GTK2's own
+theme.
 
 ## Building
 

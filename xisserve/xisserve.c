@@ -34,6 +34,7 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <limits.h>
+#include <pwd.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,7 +43,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.24"
+#define XISSERVE_VERSION "0.1.25"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -72,9 +73,11 @@ enum { CCOL_KEY = 0, CCOL_LABEL, N_CCOLS };
  * what keeps a small popup small); the audio mixer asks for real room,
  * since its rows only make sense at a usable slider width. */
 static const XisservePage kPages[] = {
-    {"calendar", 0, 0, page_calendar_build, page_calendar_on_show, NULL},
-    {"audio", 380, 480, page_audio_build, page_audio_on_show, page_audio_on_hide},
-    {"energy", 380, 480, page_energy_build, page_energy_on_show, page_energy_on_hide},
+    {"calendar", "Calend\xc3\xa1rio", 0, 0, page_calendar_build, page_calendar_on_show, NULL},
+    {"audio", "\xc3\x81udio", 380, 480, page_audio_build, page_audio_on_show, page_audio_on_hide},
+    {"energy", "Energia", 380, 480, page_energy_build, page_energy_on_show, page_energy_on_hide},
+    {"notifications", "Notifica\xc3\xa7\xc3\xb5""es", 380, 480, page_notifications_build,
+     page_notifications_on_show, page_notifications_on_hide},
 };
 #define N_PAGES ((int)(sizeof(kPages) / sizeof(kPages[0])))
 
@@ -134,6 +137,7 @@ static GtkWidget *g_footer;       /* power-action buttons; launcher view only */
  * apply_view_mode() -- it's the one row shared by every view, so the pin
  * toggle in it needs no per-page duplicate. */
 static GtkWidget *g_header;
+static GtkWidget *g_header_title; /* left of g_pin_btn -- see update_header_title() */
 static GtkWidget *g_pin_btn;
 /* "Pinned": stay open until explicitly closed instead of vanishing on
  * the first click elsewhere -- see on_pin_toggled(). g_pin_managed
@@ -1648,6 +1652,7 @@ static void apply_theme(void)
     gtk_widget_modify_base(g_treeview, GTK_STATE_NORMAL, &bg_color);
     gtk_widget_modify_text(g_cat_treeview, GTK_STATE_NORMAL, &fg_color);
     gtk_widget_modify_base(g_cat_treeview, GTK_STATE_NORMAL, &bg_color);
+    gtk_widget_modify_fg(g_header_title, GTK_STATE_NORMAL, &fg_color);
 
     PangoFontDescription *desc = pango_font_description_new();
     pango_font_description_set_family(desc, g_args.font[0] ? g_args.font : "sans-serif");
@@ -1655,6 +1660,7 @@ static void apply_theme(void)
     gtk_widget_modify_font(g_entry, desc);
     gtk_widget_modify_font(g_treeview, desc);
     gtk_widget_modify_font(g_cat_treeview, desc);
+    gtk_widget_modify_font(g_header_title, desc);
 
     /* Each page's root gets the same treatment. Only the root is
      * touched: GTK propagates a modified font/bg down to children that
@@ -2012,8 +2018,54 @@ static void rebuild_results(void)
  * Must run *after* gtk_widget_show_all(g_window) in show_launcher():
  * show_all() sets every child visible unconditionally, so these hide()
  * calls have to come later to stick. */
+/* The launcher's own header title: the user's real name (GECOS's "Full
+ * Name" field, up to its first comma -- the rest is office/phone/etc,
+ * rarely filled in and not a name), falling back to the login name when
+ * GECOS has nothing usable. Resolved once and cached -- neither changes
+ * while xisserve is running. */
+static const char *launcher_display_name(void)
+{
+    static char name[128];
+    static gboolean resolved;
+    if (resolved) {
+        return name;
+    }
+    resolved = TRUE;
+    name[0] = 0;
+    struct passwd *pw = getpwuid(getuid());
+    if (pw && pw->pw_gecos && pw->pw_gecos[0]) {
+        size_t len = strcspn(pw->pw_gecos, ",");
+        if (len > 0) {
+            if (len >= sizeof(name)) {
+                len = sizeof(name) - 1;
+            }
+            memcpy(name, pw->pw_gecos, len);
+            name[len] = 0;
+        }
+    }
+    if (!name[0] && pw && pw->pw_name) {
+        snprintf(name, sizeof(name), "%s", pw->pw_name);
+    }
+    if (!name[0]) {
+        snprintf(name, sizeof(name), "In\xc3\xadcio");
+    }
+    return name;
+}
+
+/* Left of g_pin_btn in the shared header -- the empty space there
+ * otherwise says nothing about which screen is open. The user's own name
+ * on the default launcher view (there's no other natural title for it),
+ * or the active page's own title (kPages[].title) on any page. */
+static void update_header_title(void)
+{
+    const char *text = g_args.page == PAGE_LAUNCHER ? launcher_display_name() : kPages[g_args.page].title;
+    gtk_label_set_text(GTK_LABEL(g_header_title), text);
+}
+
 static void apply_view_mode(void)
 {
+    update_header_title();
+
     gboolean launcher = g_args.page == PAGE_LAUNCHER;
 
     for (int i = 0; i < N_PAGES; i++) {
@@ -2625,6 +2677,12 @@ static void build_ui(void)
      * out of the way of whatever each view puts below it. */
     g_header = gtk_hbox_new(FALSE, 4);
     gtk_box_pack_start(GTK_BOX(vbox), g_header, FALSE, FALSE, 0);
+    /* The empty space left of the pin button -- see update_header_title(),
+     * called once apply_view_mode() knows which page (if any) is showing. */
+    g_header_title = gtk_label_new(NULL);
+    gtk_misc_set_alignment(GTK_MISC(g_header_title), 0.0f, 0.5f);
+    gtk_label_set_ellipsize(GTK_LABEL(g_header_title), PANGO_ELLIPSIZE_END);
+    gtk_box_pack_start(GTK_BOX(g_header), g_header_title, TRUE, TRUE, 0);
     g_pin_btn = gtk_toggle_button_new_with_label("Fixar");
     gtk_widget_set_tooltip_text(g_pin_btn, "Manter aberto ao clicar fora");
     g_signal_connect(g_pin_btn, "toggled", G_CALLBACK(on_pin_toggled), NULL);
