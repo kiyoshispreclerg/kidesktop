@@ -94,7 +94,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.24"
+#define XISPANEL_VERSION "0.6.25"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 #define IPC_MAX_LEN 4096
@@ -1115,34 +1115,149 @@ static void load_slice_file(const char *path, int *l, int *t, int *r, int *b)
     load_slice_file_quiet(path, l, t, r, b);
 }
 
+/* KiDesktop's central theme (kiconfd.conf's theme=, saved by kiconf's
+ * Aparencia tab) -- resolved once, lazily, the first time a panel's own
+ * `theme=` doesn't have a file this program is looking for, and cached
+ * here for the rest of the run (xispanel never watches kiconfd.conf, same
+ * as it never watches its own xispanel.conf outside of RELOAD). Empty
+ * after resolution means there isn't one, so every lookup falls through
+ * to this program's plain bg=/fg= colors, unchanged from before this
+ * existed. */
+static char g_central_theme_dir[PATH_MAX];
+static int g_central_theme_resolved = 0;
+
+static void read_central_theme_name(char *out, size_t outsz)
+{
+    out[0] = '\0';
+    char path[PATH_MAX];
+    const char *xdg = getenv("XDG_CONFIG_HOME");
+    if (xdg && *xdg) {
+        snprintf(path, sizeof(path), "%s/kiconfd.conf", xdg);
+    } else {
+        snprintf(path, sizeof(path), "%s/.config/kiconfd.conf", getenv("HOME") ? getenv("HOME") : "/tmp");
+    }
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        return;
+    }
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        char *eq = strchr(line, '=');
+        if (!eq) {
+            continue;
+        }
+        *eq = '\0';
+        char *key = line;
+        while (*key == ' ' || *key == '\t') {
+            key++;
+        }
+        char *kend = key + strlen(key);
+        while (kend > key && (kend[-1] == ' ' || kend[-1] == '\t')) {
+            *--kend = '\0';
+        }
+        if (strcmp(key, "theme") != 0) {
+            continue;
+        }
+        char *val = eq + 1;
+        while (*val == ' ' || *val == '\t') {
+            val++;
+        }
+        val[strcspn(val, "\r\n")] = '\0';
+        snprintf(out, outsz, "%s", val);
+        break;
+    }
+    fclose(f);
+}
+
+/* Resolves a bare theme name to an actual folder, trying the two real
+ * install locations and the source-tree `themes/` folder relative to the
+ * current directory (same spots kiwm's own find_theme_file() tries, see
+ * kiwm/decoration.c) -- first existing directory wins. */
+static int resolve_theme_dir(const char *name, char *out, size_t outsz)
+{
+    char home_base[PATH_MAX];
+    const char *home = getenv("HOME");
+    snprintf(home_base, sizeof(home_base), "%s/.local/share/kidesktop/themes", home ? home : "");
+    const char *bases[] = {
+        "/usr/share/kidesktop/themes", home_base, "../themes", "./themes", "themes",
+    };
+    for (size_t i = 0; i < sizeof(bases) / sizeof(bases[0]); i++) {
+        snprintf(out, outsz, "%s/%s", bases[i], name);
+        struct stat st;
+        if (stat(out, &st) == 0 && S_ISDIR(st.st_mode)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static const char *get_central_theme_dir(void)
+{
+    if (!g_central_theme_resolved) {
+        g_central_theme_resolved = 1;
+        char name[NAME_MAX];
+        read_central_theme_name(name, sizeof(name));
+        if (!name[0] || !resolve_theme_dir(name, g_central_theme_dir, sizeof(g_central_theme_dir))) {
+            g_central_theme_dir[0] = '\0';
+        }
+    }
+    return g_central_theme_dir[0] ? g_central_theme_dir : NULL;
+}
+
+/* Resolves "<theme>/<relname>" against p's own theme_path first, falling
+ * back to KiDesktop's central theme (see get_central_theme_dir() above)
+ * only when p's own theme doesn't have this particular file -- a panel
+ * theme missing a file (or with none configured at all) still gets it
+ * from the central theme if there is one, per file, exactly like kiwm's
+ * own find_theme_file(). Returns true and fills `out` with the winning
+ * path, or false if neither has it. */
+static int panel_find_theme_file(Panel *p, const char *relname, char *out, size_t outsz)
+{
+    if (p->theme_path[0]) {
+        snprintf(out, outsz, "%s/%s", p->theme_path, relname);
+        if (access(out, R_OK) == 0) {
+            return 1;
+        }
+    }
+    const char *central = get_central_theme_dir();
+    if (central) {
+        snprintf(out, outsz, "%s/%s", central, relname);
+        if (access(out, R_OK) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Loads (or reloads) p's bg_image_surface + slice insets from its
- * currently configured theme_path -- a folder containing fixed-named
- * files (bg.png, slice) rather than separately-pointed-to files, so a
- * theme can grow more files later without new config keys. Called once
- * from panel_activate() -- config paths don't change without a full
- * RELOAD, which tears down and re-activates every panel anyway. */
+ * currently configured theme_path, falling back to KiDesktop's central
+ * theme -- a folder containing fixed-named files (bg.png, bg.slice)
+ * rather than separately-pointed-to files, so a theme can grow more files
+ * later without new config keys. Called once from panel_activate() --
+ * config paths don't change without a full RELOAD, which tears down and
+ * re-activates every panel anyway. */
 static void panel_load_bg_image(Panel *p)
 {
     if (p->bg_image_surface) {
         cairo_surface_destroy(p->bg_image_surface);
         p->bg_image_surface = NULL;
     }
-    if (!p->theme_path[0]) {
+    char path[PATH_MAX];
+    if (!panel_find_theme_file(p, "bg.png", path, sizeof(path))) {
         return;
     }
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/bg.png", p->theme_path);
     p->bg_image_surface = load_png_argb(path);
     if (!p->bg_image_surface) {
         fprintf(stderr, "xispanel: panel '%s': could not load theme background '%s', falling back to bg color\n",
                 p->name, path);
         return;
     }
-    snprintf(path, sizeof(path), "%s/slice", p->theme_path);
-    load_slice_file(path, &p->bg_slice_l, &p->bg_slice_t, &p->bg_slice_r, &p->bg_slice_b);
+    if (panel_find_theme_file(p, "bg.slice", path, sizeof(path))) {
+        load_slice_file(path, &p->bg_slice_l, &p->bg_slice_t, &p->bg_slice_r, &p->bg_slice_b);
+    }
 }
 
-/* Sidecar grid measurements for btns.png -- unlike bg.png/slice's 9-slice
+/* Sidecar grid measurements for btns.png -- unlike bg.png/bg.slice's 9-slice
  * insets, this is a plain fixed cell size (no stretching), so it only has
  * two keys. Defaults match kiwm's fallback (its own titlebar button size)
  * closely enough to look reasonable before any real theme is applied;
@@ -1169,7 +1284,7 @@ static void load_btns_slice_file(const char *path, int *cell_w, int *cell_h)
 }
 
 /* Loads (or reloads) p's btns_image_surface + cell size from the same
- * theme_path bg.png/slice already come from -- btns.png/btns.slice, the
+ * theme_path bg.png/bg.slice already come from -- btns.png/btns.slice, the
  * window-control button sprite sheet (see the Panel struct's doc comment
  * for the fixed column/row grid it follows). Independent of whether
  * bg.png loaded: a theme missing one file doesn't take the other down.
@@ -1180,19 +1295,20 @@ static void panel_load_btns_image(Panel *p)
         cairo_surface_destroy(p->btns_image_surface);
         p->btns_image_surface = NULL;
     }
-    if (!p->theme_path[0]) {
-        return;
-    }
     char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/btns.png", p->theme_path);
-    p->btns_image_surface = load_png_argb(path);
-    if (!p->btns_image_surface) {
+    if (!panel_find_theme_file(p, "btns.png", path, sizeof(path))) {
         /* Not a warning like bg.png's: btns.png is the newer, optional
          * half of a theme -- plenty of valid themes (e.g. one authored
-         * before winctl.c consumed this) only ship bg.png/slice. */
+         * before winctl.c consumed this) only ship bg.png/bg.slice. */
         return;
     }
-    snprintf(path, sizeof(path), "%s/btns.slice", p->theme_path);
+    p->btns_image_surface = load_png_argb(path);
+    if (!p->btns_image_surface) {
+        return;
+    }
+    if (!panel_find_theme_file(p, "btns.slice", path, sizeof(path))) {
+        path[0] = '\0';
+    }
     load_btns_slice_file(path, &p->btns_cell_w, &p->btns_cell_h);
 }
 
@@ -1211,11 +1327,11 @@ static void panel_load_skin(Panel *p, const char *name, PanelSkin *skin)
         cairo_surface_destroy(skin->surface);
     }
     memset(skin, 0, sizeof(*skin));
-    if (!p->theme_path[0]) {
+    char relname[NAME_MAX], path[PATH_MAX];
+    snprintf(relname, sizeof(relname), "%s.png", name);
+    if (!panel_find_theme_file(p, relname, path, sizeof(path))) {
         return;
     }
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/%s.png", p->theme_path, name);
     skin->surface = load_png_argb(path);
     if (!skin->surface) {
         return;
@@ -1223,7 +1339,10 @@ static void panel_load_skin(Panel *p, const char *name, PanelSkin *skin)
     int img_w = cairo_image_surface_get_width(skin->surface);
     int img_h = cairo_image_surface_get_height(skin->surface);
 
-    snprintf(path, sizeof(path), "%s/%s.slice", p->theme_path, name);
+    snprintf(relname, sizeof(relname), "%s.slice", name);
+    if (!panel_find_theme_file(p, relname, path, sizeof(path))) {
+        path[0] = '\0';
+    }
     load_slice_file_quiet(path, &skin->l, &skin->t, &skin->r, &skin->b);
     skin->cell_w = img_w;
     skin->cell_h = img_h;
@@ -1299,11 +1418,10 @@ static void panel_load_skins(Panel *p)
 static void panel_load_theme_colors(Panel *p)
 {
     p->border_radius = 0;
-    if (!p->theme_path[0]) {
+    char path[PATH_MAX];
+    if (!panel_find_theme_file(p, "colors", path, sizeof(path))) {
         return;
     }
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/colors", p->theme_path);
     FILE *f = fopen(path, "r");
     if (!f) {
         return;
@@ -1400,7 +1518,7 @@ static void panel_free_theme_icons(Panel *p)
 
 cairo_surface_t *panel_theme_icon(Panel *p, const char *name, int size)
 {
-    if (!p->theme_path[0] || !name || !name[0] || size <= 0) {
+    if (!name || !name[0] || size <= 0) {
         return NULL;
     }
     for (int i = 0; i < p->n_icon_cache; i++) {
@@ -1411,9 +1529,11 @@ cairo_surface_t *panel_theme_icon(Panel *p, const char *name, int size)
     if (p->n_icon_cache >= PANEL_ICON_CACHE_MAX) {
         return NULL;
     }
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/icons/%s.png", p->theme_path, name);
-    cairo_surface_t *surf = load_icon_argb(path, icon_fetch_size_for(size));
+    char relname[NAME_MAX], path[PATH_MAX];
+    snprintf(relname, sizeof(relname), "icons/%s.png", name);
+    cairo_surface_t *surf = panel_find_theme_file(p, relname, path, sizeof(path))
+                                 ? load_icon_argb(path, icon_fetch_size_for(size))
+                                 : NULL;
     /* Negative results are cached too -- a themeless icon name would
      * otherwise re-stat the same missing file on every single repaint. */
     snprintf(p->icon_cache[p->n_icon_cache].name, sizeof(p->icon_cache[0].name), "%s", name);

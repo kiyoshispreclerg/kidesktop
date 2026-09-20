@@ -229,7 +229,7 @@ struct Panel {
      * panel_load_btns_image() in xispanel.c. A theme is a folder shared
      * with kiwm (see kiwm/README.md's "Theming" section -- same file
      * names on purpose, so one theme folder serves both): fixed-named
-     * files (bg.png, slice, btns.png, btns.slice, colors) rather than
+     * files (bg.png, bg.slice, btns.png, btns.slice, colors) rather than
      * separately-pointed-to files, so more files can be added to a theme
      * later without new config keys. theme_path is the raw config value
      * (kept so reload can retry); bg_image_surface/btns_image_surface are

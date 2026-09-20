@@ -653,15 +653,25 @@ purpose, so one theme folder themes both the panel and kiwm's window
 decorations/buttons at once (point kiwm's own `theme=` in `kiwm.conf` and
 xispanel's `theme=` here at the same path).
 
-- **`bg.png`** + **`slice`** -- the panel's background, drawn as a 9-slice
+Every file below is looked up **per file**, not per theme: whatever `theme=`
+here doesn't provide (or a missing `theme=` altogether) falls back to
+KiDesktop's central theme -- kiconf's Aparencia tab, saved as `theme=` in
+kiconfd.conf, resolved against `/usr/share/kidesktop/themes`,
+`~/.local/share/kidesktop/themes` and the source-tree `themes/` folder --
+and only once that also has nothing does the plain `bg=`/`fg=`/vector-glyph
+look kick in. Read once at panel activation, so switching the central theme
+in kiconf takes effect on the next `RELOAD` (same as any other config
+change).
+
+- **`bg.png`** + **`bg.slice`** -- the panel's background, drawn as a 9-slice
   to fit any panel thickness/length without looking stretched-blurry at
-  the corners: the image's four corners (sized by `slice`'s `left`/`top`/
+  the corners: the image's four corners (sized by `bg.slice`'s `left`/`top`/
   `right`/`bottom`, in source-image pixels) are copied unscaled, the four
   edge strips between them stretch along one axis each, and the middle
   stretches on both -- standard border-image technique, also used by
   tint2, GTK, and CSS `border-image`. Real per-pixel alpha in the PNG
   works exactly like `bg`'s `#RRGGBBAA` does: visible transparency
-  wherever a compositor is running, fully opaque otherwise. `slice` is a
+  wherever a compositor is running, fully opaque otherwise. `bg.slice` is a
   tiny standalone text file living next to `bg.png` in the theme folder
   (not part of `xispanel.conf`):
   ```
@@ -676,7 +686,7 @@ xispanel's `theme=` here at the same path).
 - **`btns.png`** + **`btns.slice`** -- `winctl`'s minimize/maximize/close
   button sprites, a fixed grid (not a 9-slice, no stretching): every cell
   is `cell_width`x`cell_height` pixels (`btns.slice`, same tiny `key=value`
-  format as `slice`; defaults to 24x24 if the file's missing or a key's
+  format as `bg.slice`; defaults to 24x24 if the file's missing or a key's
   left out). Columns, left to right, fixed order (matches kiwm's
   `wm.h` `BTNCOL_*`, so a shared `btns.png` lines up for both): close,
   maximize, restore, minimize, shade, keep_above, keep_all_desktops --
@@ -747,13 +757,13 @@ xispanel's `theme=` here at the same path).
   `colors` file (or without those keys), nothing changes -- the built-in
   dark colors and Fontconfig's default font apply as before.
 
-[`themes/template/bg.png`](themes/template/bg.png) +
-[`themes/template/slice`](themes/template/slice) are a starting point for
+[`../themes/template/bg.png`](../themes/template/bg.png) +
+[`../themes/template/bg.slice`](../themes/template/bg.slice) are a starting point for
 the background half: a 48x48 image with clearly color-coded,
 semi-transparent corner/edge/center regions and thin red guide lines
 exactly on the slice boundaries, so the 9 regions are visible at a glance.
 Paint over it (or start fresh at whatever resolution you like) and delete
-the guide lines once you have a real theme -- `slice`'s numbers, not the
+the guide lines once you have a real theme -- `bg.slice`'s numbers, not the
 image's actual size, are what xispanel goes by, so the source image can be
 any resolution/aspect ratio.
 
