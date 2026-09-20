@@ -1,7 +1,7 @@
 /* Decoration: Cairo + Imlib2. Loads an optional theme from wm.theme_path
  * (kiwm.conf's theme=, default "greenxp" -- the same folder xispanel's own
- * theme backgrounds use, sharing its bg.png + 9-slice "slice" sidecar
- * convention) -- bg.png/slice, btns.png/btns.slice (window-control button
+ * theme backgrounds use, sharing its bg.png + 9-slice "bg.slice" sidecar
+ * convention) -- bg.png/bg.slice, btns.png/btns.slice (window-control button
  * sprite sheet) and colors (per-focus titlebar/border colors). Every piece
  * loads independently; whatever isn't found just falls back to a plain
  * flat kiwm.conf-configured look, there's no all-or-nothing theme
@@ -17,10 +17,12 @@
 
 #include <math.h>
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
 
 static cairo_surface_t *load_png_argb(const char *path)
 {
@@ -71,12 +73,110 @@ static cairo_surface_t *load_png_argb(const char *path)
     return surf;
 }
 
+/* KiDesktop's central theme, read from kiconfd.conf's `theme=` key
+ * (see kiconf/tabs/appearance.c) -- the session-wide theme choice kiconf's
+ * Aparencia tab saves. Resolved once, lazily, on the first theme file
+ * kiwm.conf's own theme_path fails to provide, and cached here for the
+ * rest of the run (kiwm never reloads kiconfd.conf itself; a theme change
+ * there takes effect the next time kiwm starts, same as kiwm.conf's own
+ * theme= would). Empty after resolution means "no central theme
+ * available", so every lookup falls through to kiwm's own hardcoded
+ * flat-color look, unchanged from before this existed. */
+static char central_theme_dir[PATH_MAX];
+static bool central_theme_resolved = false;
+
+/* Same key=value reader every other config file in this codebase uses,
+ * just for the one key kiwm cares about in a file it doesn't own. Missing
+ * file or missing key both just leave `out` empty -- kiconfd may never
+ * have run, or the user may never have picked a theme in kiconf. */
+static void read_central_theme_name(char *out, size_t outsz)
+{
+    out[0] = '\0';
+    char path[PATH_MAX];
+    const char *xdg = getenv("XDG_CONFIG_HOME");
+    if (xdg && *xdg)
+        snprintf(path, sizeof(path), "%s/kiconfd.conf", xdg);
+    else
+        snprintf(path, sizeof(path), "%s/.config/kiconfd.conf", getenv("HOME") ? getenv("HOME") : "/tmp");
+
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return;
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        char *eq = strchr(line, '=');
+        if (!eq)
+            continue;
+        *eq = '\0';
+        char *key = line;
+        while (*key == ' ' || *key == '\t')
+            key++;
+        char *kend = key + strlen(key);
+        while (kend > key && (kend[-1] == ' ' || kend[-1] == '\t'))
+            *--kend = '\0';
+        if (strcmp(key, "theme") != 0)
+            continue;
+        char *val = eq + 1;
+        while (*val == ' ' || *val == '\t')
+            val++;
+        size_t vlen = strcspn(val, "\r\n");
+        val[vlen] = '\0';
+        snprintf(out, outsz, "%s", val);
+        break;
+    }
+    fclose(f);
+}
+
+/* Resolves a bare theme name (kiconfd.conf's theme=) to an actual folder,
+ * trying the same source-tree-relative spots as kiwm's own theme_path
+ * (see find_theme_file() below) plus the two real install locations
+ * nothing writes to yet but this is ready for. First existing directory
+ * wins; the search stops there, same "first match" rule as everywhere
+ * else in this file. */
+static bool resolve_theme_dir(const char *name, char *out, size_t outsz)
+{
+    char home_base[PATH_MAX];
+    const char *home = getenv("HOME");
+    snprintf(home_base, sizeof(home_base), "%s/.local/share/kidesktop/themes", home ? home : "");
+
+    const char *bases[] = {
+        "/usr/share/kidesktop/themes", home_base, "../themes", "./themes", "themes",
+    };
+    for (size_t i = 0; i < sizeof(bases) / sizeof(bases[0]); i++) {
+        snprintf(out, outsz, "%s/%s", bases[i], name);
+        struct stat st;
+        if (stat(out, &st) == 0 && S_ISDIR(st.st_mode))
+            return true;
+    }
+    return false;
+}
+
+/* Lazily resolves and caches the central theme dir (see the comment on
+ * central_theme_dir above). Returns NULL when there isn't one, so callers
+ * can just check for that instead of an empty-string dance every time. */
+static const char *get_central_theme_dir(void)
+{
+    if (!central_theme_resolved) {
+        central_theme_resolved = true;
+        char name[NAME_MAX];
+        read_central_theme_name(name, sizeof(name));
+        if (!name[0] || !resolve_theme_dir(name, central_theme_dir, sizeof(central_theme_dir)))
+            central_theme_dir[0] = '\0';
+    }
+    return central_theme_dir[0] ? central_theme_dir : NULL;
+}
+
 /* Resolves <wm.theme_path>/<name> (kiwm.conf's theme=, default "greenxp")
  * against the same three relative-location conventions the old hardcoded
  * bg.png search used ($KIWM_DECO_BG only replaces bg.png itself, not the
- * whole theme folder). Returns true and fills `out` with the first
- * candidate that actually exists, or false if none do -- caller decides
- * what "not found" means (individual pieces just fall back on their own). */
+ * whole theme folder). Falls back to KiDesktop's central theme
+ * (kiconfd.conf's theme=, see get_central_theme_dir() above) only once
+ * kiwm's own theme_path has nothing for this particular file -- a theme
+ * that ships some files but not others still gets its own first, per
+ * file, before central ever comes into it. Returns true and fills `out`
+ * with the first candidate that actually exists, or false if none do --
+ * caller decides what "not found" means (individual pieces just fall
+ * back on their own). */
 static bool find_theme_file(const char *name, char *out, size_t outsz)
 {
     const char *prefixes[] = { "..", ".", "" };
@@ -85,6 +185,16 @@ static bool find_theme_file(const char *name, char *out, size_t outsz)
             snprintf(out, outsz, "%s/%s/%s", prefixes[i], wm.theme_path, name);
         else
             snprintf(out, outsz, "%s/%s", wm.theme_path, name);
+        FILE *f = fopen(out, "r");
+        if (f) {
+            fclose(f);
+            return true;
+        }
+    }
+
+    const char *central = get_central_theme_dir();
+    if (central) {
+        snprintf(out, outsz, "%s/%s", central, name);
         FILE *f = fopen(out, "r");
         if (f) {
             fclose(f);
@@ -120,7 +230,7 @@ static bool parse_hex_color(const char *s, double *r, double *g, double *b, doub
 }
 
 /* Sidecar "measurements" file for a 9-slice bg_image: plain key=value
- * lines, same format/spirit as xispanel's own bg.png/slice loader.
+ * lines, same format/spirit as xispanel's own bg.png/bg.slice loader.
  * Missing file or missing keys just default that inset to 0 -- a
  * 0-everywhere slice degrades to a plain full-image stretch. */
 static void load_bg_slice_file(const char *path, int *l, int *t, int *r, int *b)
@@ -161,7 +271,7 @@ static void load_bg_theme(void)
         return;
     }
 
-    if (find_theme_file("slice", path, sizeof(path)))
+    if (find_theme_file("bg.slice", path, sizeof(path)))
         load_bg_slice_file(path, &wm.bg_slice_l, &wm.bg_slice_t, &wm.bg_slice_r, &wm.bg_slice_b);
 }
 

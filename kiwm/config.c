@@ -369,7 +369,7 @@ static void write_default_config(const char *path)
         "# show_windows=yes. 1 = on (default), 0 = plain numbered squares.\n"
         "osd_desktop_windows=1\n"
         "\n"
-        "# Theme folder (bg.png/slice, btns.png/btns.slice, colors -- see\n"
+        "# Theme folder (bg.png/bg.slice, btns.png/btns.slice, colors -- see\n"
         "# kiwm/README or the greenxp/ folder itself for the file formats).\n"
         "# Resolved the same way kiwm looks for its own binary-relative\n"
         "# files: tried as ../<theme>, ./<theme> and plain <theme>.\n"

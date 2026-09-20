@@ -1002,7 +1002,7 @@ typedef struct {
      * piece loads independently and falls back on its own if missing --
      * there's no all-or-nothing theme requirement. */
     cairo_surface_t *deco_bg;   /* greenxp/bg.png, ARGB32, or NULL */
-    int bg_slice_l, bg_slice_t, bg_slice_r, bg_slice_b;  /* greenxp/slice, 9-slice insets */
+    int bg_slice_l, bg_slice_t, bg_slice_r, bg_slice_b;  /* greenxp/bg.slice, 9-slice insets */
 
     cairo_surface_t *deco_btns; /* greenxp/btns.png button sprite sheet, ARGB32, or NULL */
     int btn_cell_w, btn_cell_h; /* greenxp/btns.slice: cell_width=/cell_height= */

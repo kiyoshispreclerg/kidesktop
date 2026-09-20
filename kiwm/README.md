@@ -441,12 +441,17 @@ so there's no risk of a click landing on the "wrong" element relative to what's 
 
 kiwm looks for a theme folder (`theme=` in kiwm.conf, default `greenxp`, resolved as
 `../<theme>`, `./<theme>`, or plain `<theme>` relative to the current directory) containing any of
-these, all optional and independent -- a theme missing some files just falls back to the plain
-`kiwm.conf`-configured look for whatever it's missing:
+these, all optional and independent -- **per file**, not per theme: whatever kiwm.conf's own
+`theme=` doesn't provide for a given file falls back to KiDesktop's central theme (kiconf's
+Aparencia tab, saved as `theme=` in kiconfd.conf, resolved against `/usr/share/kidesktop/themes`,
+`~/.local/share/kidesktop/themes` and the source-tree `themes/` folder), and only once *that* also
+has nothing does the plain `kiwm.conf`-configured flat-color look kick in. The central theme is
+read once at startup (kiwm never watches kiconfd.conf for changes, same as kiwm.conf's own
+`theme=`), so switching it in kiconf takes effect the next time kiwm starts.
 
-- **`bg.png`** + **`slice`** -- the titlebar background, drawn as a proper 9-slice (same file
+- **`bg.png`** + **`bg.slice`** -- the titlebar background, drawn as a proper 9-slice (same file
   format xispanel's own panel backgrounds use, so one theme folder can serve both): `bg.png` is
-  the source image, `slice` is a plain-text sidecar:
+  the source image, `bg.slice` is a plain-text sidecar:
   ```
   left=5
   top=5
