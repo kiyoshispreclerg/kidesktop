@@ -449,6 +449,52 @@ void notifd_mark_read(unsigned int id)
     }
 }
 
+/* Removes one entry by id (xisserve's --notifications page, "remover" per
+ * row -- see xispanel.c's DELETE_NOTIFICATION). No-op if id isn't
+ * currently held. Closes the gap by shifting every later entry one slot
+ * towards g_head rather than leaving a hole, so notifd_get()'s
+ * (g_head+idx)%NOTIFD_MAX indexing stays contiguous for every index below
+ * the new g_count -- the shifted-past slot at the old tail is left with a
+ * stale duplicate struct (harmless: its icon pointer is never destroyed
+ * from there, only from whichever slot the entry currently lives in when
+ * it's eventually evicted or removed for real; ring_append() memset()s
+ * over it, if reused, before anything reads it). */
+void notifd_remove(unsigned int id)
+{
+    int found = -1;
+    for (int i = 0; i < g_count; i++) {
+        if (g_ring[(g_head + i) % NOTIFD_MAX].id == id) {
+            found = i;
+            break;
+        }
+    }
+    if (found < 0) {
+        return;
+    }
+    NotifEntry *fe = &g_ring[(g_head + found) % NOTIFD_MAX];
+    if (fe->icon) {
+        cairo_surface_destroy(fe->icon);
+    }
+    for (int i = found; i < g_count - 1; i++) {
+        g_ring[(g_head + i) % NOTIFD_MAX] = g_ring[(g_head + i + 1) % NOTIFD_MAX];
+    }
+    g_count--;
+}
+
+/* Drops every held entry ("Limpar tudo" in xisserve's --notifications
+ * page) -- see xispanel.c's CLEAR_NOTIFICATIONS. */
+void notifd_clear(void)
+{
+    for (int i = 0; i < g_count; i++) {
+        NotifEntry *e = &g_ring[(g_head + i) % NOTIFD_MAX];
+        if (e->icon) {
+            cairo_surface_destroy(e->icon);
+        }
+    }
+    g_head = 0;
+    g_count = 0;
+}
+
 void notifd_set_arrived_callback(NotifArrivedFn fn)
 {
     g_arrived_fn = fn;

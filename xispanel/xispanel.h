@@ -1123,6 +1123,12 @@ int notifd_count(void); /* currently held, oldest first */
 const NotifEntry *notifd_get(int idx); /* NULL if idx out of range */
 int notifd_unread_count(void);
 void notifd_mark_read(unsigned int id); /* no-op if id isn't currently held */
+/* Removes one entry (no-op if id isn't currently held) or every entry --
+ * xisserve's --notifications page's per-row "remover" and "Limpar tudo",
+ * reached over the control socket (see xispanel.c's DELETE_NOTIFICATION/
+ * CLEAR_NOTIFICATIONS). */
+void notifd_remove(unsigned int id);
+void notifd_clear(void);
 /* Optional: called once, right when a new Notify() call is parsed and
  * appended -- lets a toast-popup mechanism react to genuinely new
  * arrivals without polling notifd_count() for changes itself.

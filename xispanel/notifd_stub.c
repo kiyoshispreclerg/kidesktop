@@ -33,6 +33,15 @@ void notifd_mark_read(unsigned int id)
     (void)id;
 }
 
+void notifd_remove(unsigned int id)
+{
+    (void)id;
+}
+
+void notifd_clear(void)
+{
+}
+
 void notifd_set_arrived_callback(NotifArrivedFn fn)
 {
     (void)fn;

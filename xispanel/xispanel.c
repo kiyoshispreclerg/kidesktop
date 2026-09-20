@@ -94,10 +94,15 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.25"
+#define XISPANEL_VERSION "0.6.26"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
-#define IPC_MAX_LEN 4096
+/* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
+ * full-size entries (app_name/summary/body near their NOTIFD_*_MAX caps,
+ * JSON-escaped to up to 2x) in one response -- worst case runs past 50KB.
+ * Every other command's request/response stays tiny; this only costs a
+ * bigger stack buffer per accepted connection, never held long-term. */
+#define IPC_MAX_LEN 65536
 #define AUTOHIDE_ANIM_MS 150
 #define AUTOHIDE_DELAY_MS 400
 
@@ -2645,6 +2650,32 @@ static int json_get_str(const char *msg, const char *key, char *dst, size_t dst_
     return 1;
 }
 
+/* Escapes `in` for safe embedding inside a JSON string literal -- just
+ * enough for text a notification sender controls (summary/body/app_name):
+ * '"', '\\', and the control characters JSON forbids literally. Anything
+ * else (UTF-8 multibyte sequences included) passes through untouched, so
+ * this only ever grows the string, never reinterprets it. Truncates
+ * (rather than overflowing) if `out` is too small for the worst case. */
+static void json_escape(const char *in, char *out, size_t out_sz)
+{
+    size_t o = 0;
+    for (const unsigned char *p = (const unsigned char *)in; *p && o + 2 < out_sz; p++) {
+        switch (*p) {
+        case '"': out[o++] = '\\'; out[o++] = '"'; break;
+        case '\\': out[o++] = '\\'; out[o++] = '\\'; break;
+        case '\n': out[o++] = '\\'; out[o++] = 'n'; break;
+        case '\r': out[o++] = '\\'; out[o++] = 'r'; break;
+        case '\t': out[o++] = '\\'; out[o++] = 't'; break;
+        default:
+            if (*p < 0x20) {
+                break; /* drop other control bytes rather than emit invalid JSON */
+            }
+            out[o++] = (char)*p;
+        }
+    }
+    out[o] = 0;
+}
+
 static void handle_ipc_message(const char *req, char *resp, size_t resp_sz)
 {
     char cmd[32];
@@ -2693,6 +2724,42 @@ static void handle_ipc_message(const char *req, char *resp, size_t resp_sz)
          * is the "no Panel* of my own" lookup -- see its own doc comment. */
         cairo_surface_t *icon = icon_name[0] ? xispanel_first_panel_icon(icon_name, 40) : NULL;
         toast_show_osd(icon, summary, body, level, urgency, timeout_ms, tag);
+        snprintf(resp, resp_sz, "{\"ok\":true}\n");
+    } else if (strcmp(cmd, "GET_NOTIFICATIONS") == 0) {
+        /* xisserve's --notifications page (see xisserve/PROTOCOL.md): the
+         * ring buffer lives here (notifd.c), not in xisserve's process, so
+         * this is the one query that hands the whole history out over the
+         * socket in one shot -- there's no paging, NOTIFD_MAX (50) is
+         * small enough that it never needs one. Newest first, matching
+         * the inline panel-menu history the notif widget's right click
+         * already shows. */
+        int n = notifd_count();
+        size_t o = (size_t)snprintf(resp, resp_sz, "{\"ok\":true,\"count\":%d,\"notifications\":[", n);
+        for (int i = n - 1; i >= 0 && o < resp_sz; i--) {
+            const NotifEntry *e = notifd_get(i);
+            if (!e) {
+                continue;
+            }
+            char app_esc[NOTIFD_APP_NAME_MAX * 2], sum_esc[NOTIFD_SUMMARY_MAX * 2], body_esc[NOTIFD_BODY_MAX * 2];
+            json_escape(e->app_name, app_esc, sizeof(app_esc));
+            json_escape(e->summary, sum_esc, sizeof(sum_esc));
+            json_escape(e->body, body_esc, sizeof(body_esc));
+            o += (size_t)snprintf(resp + o, o < resp_sz ? resp_sz - o : 0,
+                                   "%s{\"id\":%u,\"app_name\":\"%s\",\"summary\":\"%s\",\"body\":\"%s\","
+                                   "\"received_ms\":%llu,\"read\":%s}",
+                                   i == n - 1 ? "" : ",", e->id, app_esc, sum_esc, body_esc,
+                                   (unsigned long long)e->received_ms, e->read ? "true" : "false");
+        }
+        if (o < resp_sz) {
+            o += (size_t)snprintf(resp + o, resp_sz - o, "]}\n");
+        }
+    } else if (strcmp(cmd, "DELETE_NOTIFICATION") == 0) {
+        int id = 0;
+        json_get_int(req, "id", &id);
+        notifd_remove((unsigned int)id);
+        snprintf(resp, resp_sz, "{\"ok\":true}\n");
+    } else if (strcmp(cmd, "CLEAR_NOTIFICATIONS") == 0) {
+        notifd_clear();
         snprintf(resp, resp_sz, "{\"ok\":true}\n");
     } else if (strcmp(cmd, "QUIT") == 0) {
         g_quit = 1;
@@ -3147,8 +3214,23 @@ static int run_as_daemon(const char *sockpath)
                     reqbuf[n] = 0;
                     char resp[IPC_MAX_LEN];
                     handle_ipc_message(reqbuf, resp, sizeof(resp));
-                    if (write(cfd, resp, strlen(resp)) < 0) {
-                        perror("xispanel: write");
+                    /* GET_NOTIFICATIONS can fill tens of KB -- a single
+                     * write() to a stream socket is allowed to send less
+                     * than asked, so this has to loop until it's all out
+                     * (or the client's gone) rather than assuming one call
+                     * covers it, unlike every other command's tiny reply. */
+                    size_t resp_len = strlen(resp);
+                    size_t sent = 0;
+                    while (sent < resp_len) {
+                        ssize_t w = write(cfd, resp + sent, resp_len - sent);
+                        if (w < 0) {
+                            if (errno == EINTR) {
+                                continue;
+                            }
+                            perror("xispanel: write");
+                            break;
+                        }
+                        sent += (size_t)w;
                     }
                 }
                 close(cfd);

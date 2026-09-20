@@ -31,6 +31,9 @@ socket rather than xisback's `SET`-style protocol.
 {"cmd":"GET_STATUS"}
 {"cmd":"RELOAD"}
 {"cmd":"OSD","summary":"Volume","level":65,"icon":"volume-high"}
+{"cmd":"GET_NOTIFICATIONS"}
+{"cmd":"DELETE_NOTIFICATION","id":<id>}
+{"cmd":"CLEAR_NOTIFICATIONS"}
 {"cmd":"QUIT"}
 ```
 
@@ -58,6 +61,20 @@ socket rather than xisback's `SET`-style protocol.
   behavior). `{"ok":true}` on success; malformed/missing fields degrade
   rather than error (an empty `summary`, no icon, etc.), same "never
   just fail to show something" spirit as the rest of this protocol.
+- `GET_NOTIFICATIONS` -> the whole notification history held by `notifd.c`
+  (see `xispanel.h`'s `NotifEntry`), newest first -- `{"ok":true,
+  "count":N,"notifications":[{"id":1,"app_name":"...","summary":"...",
+  "body":"...","received_ms":1234567890,"read":false}, ...]}`. Exists for
+  `xisserve`'s `--notifications` page (see `../xisserve/PROTOCOL.md`):
+  the ring buffer lives here, in xispanel's process (it's the
+  `org.freedesktop.Notifications` DBus service itself), not in
+  xisserve's, so this is how that page reads it. No paging -- `notifd.c`
+  caps the buffer at 50 entries, small enough that one response always
+  covers it (this is the one command whose response can run well past
+  `OSD`/`GET_STATUS`-sized replies).
+- `DELETE_NOTIFICATION` -> removes one entry by `id` (no-op if it isn't
+  currently held). `{"ok":true}`
+- `CLEAR_NOTIFICATIONS` -> drops every held entry. `{"ok":true}`
 - `QUIT` -> stops the daemon. `{"ok":true}`
 
 Unknown commands get `{"ok":false,"error":"unknown command"}`.
