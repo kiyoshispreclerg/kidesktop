@@ -40,6 +40,15 @@ static GtkListStore *g_panels_store;
 static GtkListStore *g_widgets_store;
 static GtkWidget *g_theme_options_entry;
 static GtkWidget *g_theme_label;
+/* bg/fg/spacing dedicated controls -- see THEME_BG_FIELD et al. below.
+ * g_theme_bg_box/g_theme_fg_box are fixed table cells; the WT_COLOR_OPT
+ * widget actually inside them is rebuilt (not just re-valued) on every
+ * panel switch, same as open_panel_dialog()'s own fields, since
+ * build_widget_field()/widget_field_value() are this file's only API for
+ * that widget type. */
+static GtkWidget *g_theme_bg_box, *g_theme_fg_box;
+static GtkWidget *g_theme_bg_field, *g_theme_fg_field;
+static GtkWidget *g_theme_spacing_spin;
 static char g_selected_panel[NAME_LEN] = "";
 
 /* Defined with the rest of the widget-options schema/dialog machinery
@@ -49,6 +58,9 @@ static char g_selected_panel[NAME_LEN] = "";
 static void open_widget_dialog(GtkTreeIter *iter);
 /* Same story, for "Adicionar/editar painel dialog" and add_panel_cb(). */
 static void open_panel_dialog(GtkTreeIter *iter);
+/* Same story, for the bg/fg/spacing THEME controls, defined near
+ * build_widget_field() below but needed by save_panels_cb() above that. */
+static void theme_opts_from_fields(char *out, size_t outsz);
 
 enum { COL_PANEL_NAME = 0, COL_PANEL_OUTPUT, COL_PANEL_OPTIONS, N_PANEL_COLS };
 enum { COL_WIDGET_TYPE = 0, COL_WIDGET_OPTIONS, N_WIDGET_COLS };
@@ -303,9 +315,7 @@ static void save_xispanel_conf(void)
     if (g_selected_panel[0]) {
         ThemeRec *cur = theme_find_or_add(g_selected_panel);
         if (cur) {
-            char *theme_opts = gtk_editable_get_chars(GTK_EDITABLE(g_theme_options_entry), 0, -1);
-            snprintf(cur->options, sizeof(cur->options), "%s", theme_opts ? theme_opts : "");
-            g_free(theme_opts);
+            theme_opts_from_fields(cur->options, sizeof(cur->options));
         }
     }
     for (int i = 0; i < g_n_themes; i++) {
@@ -423,6 +433,15 @@ static const char *const NOTIF_CORNER_OPTS[] = {
     "center-right", NULL,
 };
 static const char *const GLOBALMENU_MODE_OPTS[] = {"open", "closed", NULL};
+
+/* Panel-level THEME line's bg/fg/spacing, broken out of the free-text
+ * THEME entry into dedicated color pickers + a spin button (xisconf.py
+ * parity) -- other THEME keys (font_size, h_color, theme=<folder>, see
+ * apply_theme_kv() in xispanel.c) stay in that free-text entry, which
+ * keeps whatever it already had for those minus these 3 keys. */
+static const WidgetField THEME_BG_FIELD = WF_COLOR_OPT("bg", "Definir:");
+static const WidgetField THEME_FG_FIELD = WF_COLOR_OPT("fg", "Definir:");
+static const WidgetField THEME_SPACING_FIELD = WF_INT("spacing", "Espacamento entre widgets (px)", "4", 0, 64);
 
 static const WidgetField SPACER_FIELDS[] = {
     WF_INT("size", "Tamanho fixo (px, 0 = elastico)", "0", 0, 2000),
@@ -744,6 +763,82 @@ static void widget_field_value(const WidgetField *f, GtkWidget *w, char *out, si
     }
 }
 
+/* Rebuilds `*cur` (a WT_COLOR_OPT hbox previously returned by
+ * build_widget_field(), or NULL the first time) inside `box`, the same
+ * "destroy and recreate" approach rebuild_widget_fields() uses for the
+ * widget-options dialog -- this file has no API to just re-value one of
+ * these widgets in place. */
+static void theme_rebuild_color_field(GtkWidget *box, GtkWidget **cur, const WidgetField *f, const char *val)
+{
+    if (*cur) {
+        gtk_widget_destroy(*cur);
+    }
+    *cur = build_widget_field(f, val);
+    gtk_box_pack_start(GTK_BOX(box), *cur, TRUE, TRUE, 0);
+    gtk_widget_show_all(*cur);
+}
+
+/* Everything in `opts` except bg=/fg=/spacing= -- what's left in the
+ * free-text THEME entry once those 3 keys get their own dedicated
+ * controls below (font_size=, h_color=, theme=<folder>, see
+ * apply_theme_kv() in xispanel.c). */
+static void theme_opts_strip_known(const char *opts, char *out, size_t outsz)
+{
+    out[0] = '\0';
+    WOptToken toks[MAX_WOPT_TOKENS];
+    int n = parse_wopts_tokens(opts, toks, MAX_WOPT_TOKENS);
+    for (int i = 0; i < n; i++) {
+        if (!strcmp(toks[i].key, "bg") || !strcmp(toks[i].key, "fg") || !strcmp(toks[i].key, "spacing")) {
+            continue;
+        }
+        wopts_append(out, outsz, toks[i].key, toks[i].val);
+    }
+}
+
+/* Loads the bg/fg/spacing controls and the free-text "other options"
+ * entry from `opts` (a panel's ThemeRec.options, or "" for none) --
+ * called on every panel switch and when first building the tab. */
+static void sync_theme_fields_from_opts(const char *opts)
+{
+    WOptToken toks[MAX_WOPT_TOKENS];
+    int n = parse_wopts_tokens(opts, toks, MAX_WOPT_TOKENS);
+    theme_rebuild_color_field(g_theme_bg_box, &g_theme_bg_field, &THEME_BG_FIELD, wopts_tokens_find(toks, n, "bg"));
+    theme_rebuild_color_field(g_theme_fg_box, &g_theme_fg_field, &THEME_FG_FIELD, wopts_tokens_find(toks, n, "fg"));
+    const char *spacing = wopts_tokens_find(toks, n, "spacing");
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_theme_spacing_spin), spacing ? atoi(spacing) : 4);
+
+    char leftover[512];
+    theme_opts_strip_known(opts, leftover, sizeof(leftover));
+    if (g_theme_options_entry) {
+        gtk_entry_set_text(GTK_ENTRY(g_theme_options_entry), leftover);
+    }
+}
+
+/* Inverse of sync_theme_fields_from_opts(): rebuilds a full THEME options
+ * string from the bg/fg/spacing controls plus whatever's left in the
+ * free-text entry (font_size=, h_color=, theme=, ...). */
+static void theme_opts_from_fields(char *out, size_t outsz)
+{
+    out[0] = '\0';
+    char *leftover = g_theme_options_entry ? gtk_editable_get_chars(GTK_EDITABLE(g_theme_options_entry), 0, -1) : NULL;
+    if (leftover && leftover[0]) {
+        snprintf(out, outsz, "%s", leftover);
+    }
+    g_free(leftover);
+
+    char valbuf[256];
+    widget_field_value(&THEME_BG_FIELD, g_theme_bg_field, valbuf, sizeof(valbuf));
+    if (valbuf[0]) {
+        wopts_append(out, outsz, "bg", valbuf);
+    }
+    widget_field_value(&THEME_FG_FIELD, g_theme_fg_field, valbuf, sizeof(valbuf));
+    if (valbuf[0]) {
+        wopts_append(out, outsz, "fg", valbuf);
+    }
+    snprintf(valbuf, sizeof(valbuf), "%d", gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_theme_spacing_spin)));
+    wopts_append(out, outsz, "spacing", valbuf);
+}
+
 /* "Adicionar/editar widget" dialog state -- see open_widget_dialog(). */
 typedef struct {
     GtkWidget *type_combo;
@@ -983,7 +1078,7 @@ static void open_panel_dialog(GtkTreeIter *iter)
                 rename_panel_everywhere(cur_name ? cur_name : "", new_name_text);
                 if (g_theme_label) {
                     char label_text[NAME_LEN + 16];
-                    snprintf(label_text, sizeof(label_text), "THEME de '%s':", g_selected_panel);
+                    snprintf(label_text, sizeof(label_text), "Outras opcoes de '%s':", g_selected_panel);
                     gtk_label_set_text(GTK_LABEL(g_theme_label), label_text);
                 }
                 gtk_list_store_set(g_panels_store, iter, COL_PANEL_NAME, new_name_text, COL_PANEL_OUTPUT, output,
@@ -1109,18 +1204,14 @@ static void on_panel_selection_changed(GtkTreeSelection *sel, gpointer data)
 {
     (void)data;
 
-    /* Save whatever's currently in the theme entry back to the panel that
-     * was selected *before* this change -- otherwise switching away loses
-     * an unsaved edit the moment another row is clicked. */
-    if (g_selected_panel[0] && g_theme_options_entry) {
-        char *opts = gtk_editable_get_chars(GTK_EDITABLE(g_theme_options_entry), 0, -1);
-        if (opts && opts[0]) {
-            ThemeRec *r = theme_find_or_add(g_selected_panel);
-            if (r) {
-                snprintf(r->options, sizeof(r->options), "%s", opts);
-            }
+    /* Save whatever's currently in the theme controls back to the panel
+     * that was selected *before* this change -- otherwise switching away
+     * loses an unsaved edit the moment another row is clicked. */
+    if (g_selected_panel[0] && g_theme_bg_field) {
+        ThemeRec *r = theme_find_or_add(g_selected_panel);
+        if (r) {
+            theme_opts_from_fields(r->options, sizeof(r->options));
         }
-        g_free(opts);
     }
 
     /* Likewise, shelve the outgoing panel's widgets (its on-screen order
@@ -1141,13 +1232,13 @@ static void on_panel_selection_changed(GtkTreeSelection *sel, gpointer data)
 
     shelf_to_store(g_selected_panel);
 
-    if (g_theme_options_entry) {
+    if (g_theme_bg_field) {
         ThemeRec *r = g_selected_panel[0] ? theme_find(g_selected_panel) : NULL;
-        gtk_entry_set_text(GTK_ENTRY(g_theme_options_entry), r ? r->options : "");
+        sync_theme_fields_from_opts(r ? r->options : "");
     }
     if (g_theme_label) {
         char label_text[NAME_LEN + 16];
-        snprintf(label_text, sizeof(label_text), "THEME de '%s':", g_selected_panel[0] ? g_selected_panel : "?");
+        snprintf(label_text, sizeof(label_text), "Outras opcoes de '%s':", g_selected_panel[0] ? g_selected_panel : "?");
         gtk_label_set_text(GTK_LABEL(g_theme_label), label_text);
     }
 }
@@ -1173,6 +1264,8 @@ GtkWidget *build_paineis_tab(void)
     g_n_shelf = 0;
     g_n_themes = 0;
     g_selected_panel[0] = '\0';
+    g_theme_bg_field = NULL;
+    g_theme_fg_field = NULL;
 
     PanelRec panels[MAX_PANELS];
     WidgetRec widgets[MAX_WIDGETS];
@@ -1270,23 +1363,36 @@ GtkWidget *build_paineis_tab(void)
 
     /* Theme now follows whichever panel is selected above (see
      * on_panel_selection_changed()) instead of always being "the first
-     * panel with a THEME line" -- g_theme_options_entry/g_theme_label are
-     * updated live on every selection change; xispanel still defaults to
-     * the live system theme when a panel has no THEME line at all (see
-     * PROTOCOL.md), so most panels simply leave this blank. */
-    GtkWidget *theme_table = gtk_table_new(1, 2, FALSE);
+     * panel with a THEME line" -- these controls are updated live on
+     * every selection change; xispanel still defaults to the live system
+     * theme when a panel has no THEME line at all (see PROTOCOL.md), so
+     * most panels simply leave this blank. */
+    GtkWidget *theme_table = gtk_table_new(4, 2, FALSE);
+    GtkWidget *bg_label = gtk_label_new("Cor de fundo:");
+    gtk_misc_set_alignment(GTK_MISC(bg_label), 0.0, 0.5);
+    gtk_table_attach(GTK_TABLE(theme_table), bg_label, 0, 1, 0, 1, GTK_FILL, GTK_FILL, 4, 3);
+    g_theme_bg_box = gtk_hbox_new(FALSE, 0);
+    gtk_table_attach(GTK_TABLE(theme_table), g_theme_bg_box, 1, 2, 0, 1, GTK_EXPAND | GTK_FILL, GTK_FILL, 4, 3);
+
+    GtkWidget *fg_label = gtk_label_new("Cor do texto:");
+    gtk_misc_set_alignment(GTK_MISC(fg_label), 0.0, 0.5);
+    gtk_table_attach(GTK_TABLE(theme_table), fg_label, 0, 1, 1, 2, GTK_FILL, GTK_FILL, 4, 3);
+    g_theme_fg_box = gtk_hbox_new(FALSE, 0);
+    gtk_table_attach(GTK_TABLE(theme_table), g_theme_fg_box, 1, 2, 1, 2, GTK_EXPAND | GTK_FILL, GTK_FILL, 4, 3);
+
+    g_theme_spacing_spin = gtk_spin_button_new_with_range(THEME_SPACING_FIELD.min, THEME_SPACING_FIELD.max, 1);
+    labeled_row(theme_table, 2, "Espacamento entre widgets (px):", g_theme_spacing_spin);
+
     g_theme_options_entry = gtk_entry_new();
     ThemeRec *initial_theme = g_selected_panel[0] ? theme_find(g_selected_panel) : NULL;
-    if (initial_theme) {
-        gtk_entry_set_text(GTK_ENTRY(g_theme_options_entry), initial_theme->options);
-    }
     char theme_label_text[NAME_LEN + 16];
-    snprintf(theme_label_text, sizeof(theme_label_text), "THEME de '%s':", g_selected_panel[0] ? g_selected_panel : "?");
+    snprintf(theme_label_text, sizeof(theme_label_text), "Outras opcoes de '%s':", g_selected_panel[0] ? g_selected_panel : "?");
     g_theme_label = gtk_label_new(theme_label_text);
     gtk_misc_set_alignment(GTK_MISC(g_theme_label), 0.0, 0.5);
-    gtk_table_attach(GTK_TABLE(theme_table), g_theme_label, 0, 1, 0, 1, GTK_FILL, GTK_FILL, 4, 3);
-    gtk_table_attach(GTK_TABLE(theme_table), g_theme_options_entry, 1, 2, 0, 1, GTK_EXPAND | GTK_FILL, GTK_FILL, 4, 3);
+    gtk_table_attach(GTK_TABLE(theme_table), g_theme_label, 0, 1, 3, 4, GTK_FILL, GTK_FILL, 4, 3);
+    gtk_table_attach(GTK_TABLE(theme_table), g_theme_options_entry, 1, 2, 3, 4, GTK_EXPAND | GTK_FILL, GTK_FILL, 4, 3);
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Tema (cores/fonte do painel selecionado)", theme_table), FALSE, FALSE, 0);
+    sync_theme_fields_from_opts(initial_theme ? initial_theme->options : "");
 
     GtkWidget *save_btn = gtk_button_new_with_label("Salvar e recarregar xispanel");
     g_signal_connect(save_btn, "clicked", G_CALLBACK(save_panels_cb), NULL);
