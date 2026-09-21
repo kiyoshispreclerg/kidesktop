@@ -416,6 +416,24 @@ typedef struct CompWindow {
      * flips back true. */
     bool content_ready;
 
+    /* A DamageNotify for this window arrived while its resize was still
+     * `pending_geometry` -- not yet classified into the event that says
+     * what the resize *was* (window.c's windows_flush_events runs later
+     * in the same frame, after every queued X event, DamageNotify
+     * included, has already been drained: see main.c's poll loop).
+     *
+     * Releasing content_ready's hold right away, the way
+     * damage_window_reported normally does, would let the flush's
+     * classification -- shade.c asking to roll up a window, in
+     * particular -- lose a race it cannot see coming: a client fast
+     * enough to repaint before the flush runs would have the stash freed
+     * out from under it before shade.c ever gets to hold its own share,
+     * and a shade some of the time comes up with nothing to roll up and
+     * silently declines instead of animating. Deferred here and applied
+     * once windows_flush_events has had its turn (same function), so
+     * whatever wanted the stash for its own reasons got there first. */
+    bool content_ready_deferred;
+
     /* XRender backend state (renderer-xrender.c). A second renderer would
      * add its own fields here or hang them off a void *render_data. */
     xcb_pixmap_t pixmap;

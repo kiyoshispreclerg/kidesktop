@@ -504,6 +504,13 @@ static void on_motion(void *data, int root_x, int root_y)
     ExData *d = e->data;
     CompOutput *o = output_by_id(d->output_id);
 
+    /* Cursor visibility is not this mode's own to lose -- but a prior
+     * mode can leave it hidden (the cube, entered and left in the same
+     * gesture), and this is a grid the user picks and drags windows
+     * around in with no arrow to see. Any motion clears that
+     * unconditionally. */
+    input_cursor_hide(false);
+
     if (d->drag) {
         /* A press becomes a drag once it has clearly moved: the picture
          * is pinned to the pointer from then on, keeping the offset it

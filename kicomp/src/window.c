@@ -1168,6 +1168,16 @@ void windows_flush_events(void)
             density_update_window(w);
 
             emit_geometry(w, kind, &w->pending_from, &to, w->pending_interactive);
+
+            /* The resize is classified now, so a DamageNotify that beat
+             * this flush here (comp.h's content_ready_deferred) can
+             * finally give up the hold it left standing -- after
+             * whatever emit_geometry just ran (shade.c, in particular)
+             * has had its chance to take its own. */
+            if (w->content_ready_deferred) {
+                w->content_ready_deferred = false;
+                renderer_stash_release(w);
+            }
         } else if (w->pending_state) {
             /* A state change with no geometry change of its own -- still
              * worth reporting as what it is, with the window's current

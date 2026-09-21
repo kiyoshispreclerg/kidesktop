@@ -182,6 +182,32 @@ static void on_event(CompWindow *w, const CompEvent *event,
         d->content = window_rect(w);
     }
 
+    /* Either way, this effect has already settled what to draw and how
+     * big to draw it -- rolling up, the stash at its own real size
+     * (above); unrolling, the live pixmap at the window's new full size.
+     * `content_ready` being still false here (window.c's resize handling
+     * leaves it false until the client repaints, which for a shade or
+     * unshade can lag well past this animation, or never happen at all
+     * if nothing about the picture actually changed) would otherwise
+     * leave every renderer's own fallback in charge: it draws the *old*
+     * stash -- a titlebar strip unrolling, or the whole window rolling
+     * up -- stretched to whatever geometry the *current* node happens to
+     * have, which for these two is a completely different picture at a
+     * completely different aspect, not a same-content placeholder. That
+     * reads as exactly the artifact this was leaving behind: the
+     * original window's picture compressed into the titlebar once
+     * rolling up had already finished, or the titlebar's picture
+     * stretched over the full window once unrolling had.
+     *
+     * Forcing it true and releasing the hold window.c took out for it
+     * settles that permanently rather than waiting on a repaint that may
+     * not come -- the same release damage.c would have done once real
+     * content arrived. */
+    if (!w->content_ready) {
+        w->content_ready = true;
+        renderer_stash_release(w);
+    }
+
     d->covered = d->content;
 
     e->ops = &shade_ops;

@@ -32,9 +32,20 @@ void damage_window_reported(CompWindow *w)
      * which the drawing path checks to stop preferring the stashed
      * picture over the live one. Release matches the hold window.c took
      * out when it went false, one per pending resize rather than one per
-     * report. */
-    if (!w->content_ready)
-        renderer_stash_release(w);
+     * report.
+     *
+     * Unless that resize hasn't been classified yet (comp.h's
+     * content_ready_deferred): this report can arrive well before
+     * windows_flush_events gets to say what the resize *was*, and an
+     * effect that turns out to want the stash for its own reasons --
+     * shade.c rolling a window up -- has to get its own hold in first.
+     * windows_flush_events applies this once it has. */
+    if (!w->content_ready) {
+        if (w->pending_geometry)
+            w->content_ready_deferred = true;
+        else
+            renderer_stash_release(w);
+    }
     w->content_ready = true;
 }
 

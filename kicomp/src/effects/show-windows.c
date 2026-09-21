@@ -618,12 +618,25 @@ static void close_mode(CompEffect *e, bool activate)
     input_release();
 
     for (int i = 0; i < d->count; i++) {
-        d->items[i].from = d->items[i].current;
-        d->items[i].to = d->items[i].home;
-        d->items[i].alpha_from = d->items[i].alpha;
+        SwItem *it = &d->items[i];
+        it->from = it->current;
+        it->to = it->home;
+        it->alpha_from = it->alpha;
+
         /* Back to being themselves: the ones the filter hid fade in on
-         * the way home, and the panels come back with them. */
-        d->items[i].alpha_to = 1.0f;
+         * the way home, and the panels come back with them.
+         *
+         * A window on another desktop has no "home" to be seen at here
+         * -- it was only drawn at all because live_windows held it up
+         * for the grid, and that hold lapses the moment this closes.
+         * Left at full alpha it would zoom into its real position and
+         * then simply vanish the instant the hold ends, one frame with
+         * no fade to it. Fading it out over the same leg the zoom
+         * already runs makes losing it part of the same motion instead
+         * of a cut after it. */
+        bool elsewhere = !it->is_dock && it->desktop >= 0 &&
+                          it->desktop != d->current_desktop;
+        it->alpha_to = elsewhere ? 0.0f : 1.0f;
     }
     d->leg_start = comp_now_ms();
     d->leg_ms = effect_instance_duration(e->instance);
@@ -732,6 +745,11 @@ static void on_motion(void *data, int root_x, int root_y)
 {
     CompEffect *e = data;
     SwData *d = e->data;
+    /* Cursor visibility here is not this mode's own to lose -- but a
+     * prior mode can leave it hidden (the cube, entered and left in the
+     * same gesture), and this is the grid the user is now hovering with
+     * no arrow to see. Any motion clears that unconditionally. */
+    input_cursor_hide(false);
     hover(d, item_under(d, root_x, root_y));
 }
 

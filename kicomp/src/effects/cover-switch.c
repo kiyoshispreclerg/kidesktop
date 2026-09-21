@@ -796,9 +796,23 @@ static void on_button(void *data, int root_x, int root_y, uint8_t button, bool p
     close_mode(e, true);
 }
 
+/* This row is chosen with the keys or the wheel, never by pointing --
+ * there is nothing here for the pointer to do. But cursor visibility is
+ * not this mode's own to lose, and a prior mode can leave it hidden (the
+ * cube, entered and left in the same gesture); any motion clears that
+ * unconditionally. */
+static void on_motion(void *data, int root_x, int root_y)
+{
+    (void)data;
+    (void)root_x;
+    (void)root_y;
+    input_cursor_hide(false);
+}
+
 static const CompInputHandler cs_input = {
     .key    = on_key,
     .button = on_button,
+    .motion = on_motion,
 };
 
 /* ------------------------------------------------------------------ */

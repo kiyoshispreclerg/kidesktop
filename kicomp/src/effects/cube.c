@@ -172,12 +172,9 @@ typedef struct {
     float tilt_target;
     double drag_tick;           /* when that chase last advanced */
 
-    /* The point the pointer is pinned to while the drag lasts, and the
-     * angle/tilt target it was pinned at -- moved together, and only
-     * when the pointer has drifted far enough to risk the edge of the
-     * output, not on every motion (see on_motion). */
+    /* The point the pointer is pinned to while the drag lasts: every
+     * motion is measured from it and the pointer put back on it. */
     int drag_x, drag_y;
-    float angle_base, tilt_base;
     bool dragging;
 
     double held_at;             /* when the holds were last renewed */
@@ -445,8 +442,15 @@ static void close_mode(CompEffect *e)
     if (d->closing)
         return;
 
-    if (!d->flick)
+    if (!d->flick) {
         input_release();
+        /* Shown back, and the pointer already free to move, the moment
+         * the way out begins -- not only once the settle animation
+         * finishes and the effect is torn down. The user let go of the
+         * drag or picked a face; there is nothing left for the pointer
+         * to do here. */
+        input_cursor_hide(false);
+    }
 
     /* The face it landed on, asked for rather than done: a compositor
      * does not switch desktops, it says which one the user chose and
@@ -500,49 +504,41 @@ static void on_motion(void *data, int root_x, int root_y)
     if (!o || !d->dragging || d->closing)
         return;
 
-    /* Every motion measured against the anchor, an absolute offset from
-     * it rather than an increment added to the last one -- so the
-     * anchor, and the angle/tilt it was measured from (angle_base,
-     * tilt_base), only need moving when the pointer has actually drifted
-     * far enough to matter, not on every single motion.
+    /* Every motion measured against the anchor and the pointer put back
+     * on it, rather than against where the drag began.
      *
      * Turning a cube is something the user goes on doing past the point
      * where the cursor would have run into the side of the screen, and a
      * drag measured from its origin simply stops there -- the pointer
-     * cannot move any further, so neither can the cube. Putting the
-     * pointer back on the anchor before that happens makes the travel
-     * unbounded. Once per motion event, that is an XWarpPointer -- a
-     * request the server has to act on and a round of its own -- for
-     * every single sample a fast mouse ever reports, which is most of
-     * what a continuous turn was costing on both ends. Once per this
-     * margin of travel instead, it costs the same over the length of a
-     * drag but a small constant number of times rather than once per
-     * raw sample. The warp arrives as one more motion, at the anchor, a
-     * distance of zero from it, so this does not feed back on itself. */
+     * cannot move any further, so neither can the cube. Measuring the
+     * step and giving the pointer back its place makes the travel
+     * unbounded. The warp arrives as one more motion, at the anchor, a
+     * distance of zero from it, so this does not feed back on itself.
+     *
+     * A margin-based version of this once warped only after the pointer
+     * drifted a third of the output's shorter side, to cut down on
+     * XWarpPointer round trips. That broke a drag started near the edge
+     * of the screen: the real pointer gets clamped there by the X server
+     * long before it drifts far enough to reach the margin, so it never
+     * warps and the cube stops turning exactly the way it did with no
+     * anchor at all. Warping every event is the only way that holds for
+     * every starting position. */
     int dx = root_x - d->drag_x;
     int dy = root_y - d->drag_y;
     if (dx == 0 && dy == 0)
         return;
+    input_pointer_warp(d->drag_x, d->drag_y);
 
-    d->angle_target = d->angle_base +
-        (float)dx / (float)o->rect.w * cfg->turns * 2.0f * (float)M_PI;
+    d->angle_target += (float)dx / (float)o->rect.w * cfg->turns * 2.0f * (float)M_PI;
 
     /* Pulling down leans the cube back, the way pulling the near edge of
      * a box towards you tips its top into view. The tilt stops at the
      * poles: past looking straight down there is nothing further to see,
      * only the cube upside down. */
     float limit = cfg->tilt_max * (float)M_PI / 180.0f;
-    float tilt = d->tilt_base - (float)dy / (float)o->rect.h * limit * 2.0f;
-    if (tilt > limit) tilt = limit;
-    if (tilt < -limit) tilt = -limit;
-    d->tilt_target = tilt;
-
-    int margin = (o->rect.w < o->rect.h ? o->rect.w : o->rect.h) / 3;
-    if (abs(dx) > margin || abs(dy) > margin) {
-        input_pointer_warp(d->drag_x, d->drag_y);
-        d->angle_base = d->angle_target;
-        d->tilt_base = d->tilt_target;
-    }
+    d->tilt_target -= (float)dy / (float)o->rect.h * limit * 2.0f;
+    if (d->tilt_target > limit) d->tilt_target = limit;
+    if (d->tilt_target < -limit) d->tilt_target = -limit;
 }
 
 static void on_button(void *data, int root_x, int root_y, uint8_t button,
