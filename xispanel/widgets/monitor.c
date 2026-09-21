@@ -772,6 +772,13 @@ static int monitor_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t bu
     return 1;
 }
 
+/* Same condition monitor_paint() switches to high_color on. */
+static int monitor_is_urgent(PanelWidget *w)
+{
+    MonitorPriv *mp = w->priv;
+    return mp->has_value && mp->high > 0 && mp->value >= mp->high;
+}
+
 const PanelWidgetOps monitor_ops = {
     .type_name = "monitor",
     .embeddable = 1,
@@ -781,4 +788,5 @@ const PanelWidgetOps monitor_ops = {
     .paint = monitor_paint,
     .on_tick = monitor_on_tick,
     .get_tooltip = monitor_get_tooltip,
+    .is_urgent = monitor_is_urgent,
 };

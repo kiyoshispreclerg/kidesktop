@@ -235,8 +235,8 @@ void widget_get_rect(const PanelWidget *w, int *x, int *y, int *width, int *heig
 
 PanelWidget *panel_widget_at(Panel *p, int axis_pos, int cross_pos)
 {
-    for (int i = 0; i < p->n_widgets; i++) {
-        PanelWidget *w = &p->widgets[i];
+    for (int i = 0; i < p->n_layout; i++) {
+        PanelWidget *w = p->layout[i];
         if (axis_pos >= w->x && axis_pos < w->x + w->len && cross_pos >= w->y && cross_pos < w->y + w->thickness) {
             return w;
         }
@@ -1756,11 +1756,11 @@ static void panel_set_size(Panel *p, int w, int h)
  * don't touch the (possibly rounded) border. */
 static void container_layout(Panel *p)
 {
-    int n = p->n_widgets;
+    int n = p->n_layout;
     int lens[MAX_WIDGETS];
     int total = 0, max_len = 0;
     for (int i = 0; i < n; i++) {
-        PanelWidget *w = &p->widgets[i];
+        PanelWidget *w = p->layout[i];
         int len = 0, min = 0;
         if (w->ops->measure) {
             w->ops->measure(w, p->thickness, &len, &min);
@@ -1786,7 +1786,7 @@ static void container_layout(Panel *p)
 
     int cursor = 0, row = 0, widest = 0;
     for (int i = 0; i < n; i++) {
-        PanelWidget *w = &p->widgets[i];
+        PanelWidget *w = p->layout[i];
         if (cursor > 0 && cursor + lens[i] > row_len) {
             row++;
             cursor = 0;
@@ -1812,21 +1812,50 @@ static void container_layout(Panel *p)
     }
 }
 
+/* Rebuilds p->layout[] -- see its doc comment in xispanel.h. */
+static void panel_build_layout(Panel *p)
+{
+    p->n_layout = 0;
+    if (p->mode == MODE_CONTAINER) {
+        for (int i = 0; i < p->n_widgets; i++) {
+            if (!p->widgets[i].inlined) {
+                p->layout[p->n_layout++] = &p->widgets[i];
+            }
+        }
+        return;
+    }
+    for (int i = 0; i < p->n_widgets; i++) {
+        PanelWidget *w = &p->widgets[i];
+        Panel *q = panel_container_popup(w);
+        /* Inlined popup widgets sit just before their container's
+         * chevron, so the arrow still reads as "and more in here". */
+        for (int j = 0; q && j < q->n_widgets; j++) {
+            if (q->widgets[j].inlined && p->n_layout < MAX_WIDGETS * 2) {
+                p->layout[p->n_layout++] = &q->widgets[j];
+            }
+        }
+        if (p->n_layout < MAX_WIDGETS * 2) {
+            p->layout[p->n_layout++] = w;
+        }
+    }
+}
+
 static void panel_layout(Panel *p)
 {
+    panel_build_layout(p);
     if (p->mode == MODE_CONTAINER) {
         container_layout(p);
         return;
     }
     int axis_len = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? p->w : p->h;
-    int lens[MAX_WIDGETS];
-    int mins[MAX_WIDGETS];
+    int lens[MAX_WIDGETS * 2];
+    int mins[MAX_WIDGETS * 2];
     int n_greedy = 0;
     int fixed_total = 0;
     int min_total = 0;
 
-    for (int i = 0; i < p->n_widgets; i++) {
-        PanelWidget *w = &p->widgets[i];
+    for (int i = 0; i < p->n_layout; i++) {
+        PanelWidget *w = p->layout[i];
         int out_len = 0;
         int out_min = 0;
         if (w->ops->measure) {
@@ -1843,20 +1872,20 @@ static void panel_layout(Panel *p)
         }
     }
 
-    int spacing_total = p->spacing * (p->n_widgets > 0 ? p->n_widgets - 1 : 0);
+    int spacing_total = p->spacing * (p->n_layout > 0 ? p->n_layout - 1 : 0);
     int available = axis_len - spacing_total;
     if (available < 0) {
         available = 0;
     }
 
-    int final_lens[MAX_WIDGETS];
+    int final_lens[MAX_WIDGETS * 2];
 
     if (fixed_total <= available) {
         /* Everyone gets their desired size; greedy widgets split whatever
          * is left over. */
         int remaining = available - fixed_total;
         int greedy_each = (n_greedy > 0 && remaining > 0) ? remaining / n_greedy : 0;
-        for (int i = 0; i < p->n_widgets; i++) {
+        for (int i = 0; i < p->n_layout; i++) {
             final_lens[i] = lens[i] < 0 ? greedy_each : lens[i];
         }
     } else {
@@ -1872,7 +1901,7 @@ static void panel_layout(Panel *p)
         if (deficit > shrinkable) {
             deficit = shrinkable;
         }
-        for (int i = 0; i < p->n_widgets; i++) {
+        for (int i = 0; i < p->n_layout; i++) {
             if (lens[i] < 0) {
                 final_lens[i] = 0;
                 continue;
@@ -1884,8 +1913,8 @@ static void panel_layout(Panel *p)
     }
 
     int cursor = 0;
-    for (int i = 0; i < p->n_widgets; i++) {
-        PanelWidget *w = &p->widgets[i];
+    for (int i = 0; i < p->n_layout; i++) {
+        PanelWidget *w = p->layout[i];
         int len = final_lens[i] < 0 ? 0 : final_lens[i];
         w->x = cursor;
         w->y = 0;
@@ -1933,8 +1962,8 @@ void panel_paint_content(Panel *p, cairo_t *cr, double scale)
     cairo_restore(cr);
 
     cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
-    for (int i = 0; i < p->n_widgets; i++) {
-        PanelWidget *w = &p->widgets[i];
+    for (int i = 0; i < p->n_layout; i++) {
+        PanelWidget *w = p->layout[i];
         if (w->ops->paint) {
             cairo_save(cr);
             /* This widget's real, physical, un-rotated on-panel rectangle
@@ -2308,6 +2337,14 @@ static void panel_add_widget(Panel *p, int order, const char *type, const char *
     w->panel = p;
     w->order = order;
     snprintf(w->config_kv, sizeof(w->config_kv), "%s", kvline ? kvline : "");
+    if (p->mode == MODE_CONTAINER) {
+        char buf[16];
+        if (kv_get(w->config_kv, "inline", buf, sizeof(buf))) {
+            w->inline_mode = !strcmp(buf, "urgent") ? INLINE_URGENT
+                             : (!strcmp(buf, "yes") || !strcmp(buf, "always")) ? INLINE_ALWAYS
+                                                                                  : INLINE_NO;
+        }
+    }
     if (ops->priv_size > 0) {
         w->priv = calloc(1, ops->priv_size);
     }
@@ -3277,6 +3314,40 @@ static void link_containers(void)
     }
 }
 
+/* Moves each container-popup widget between the popup and its owner bar
+ * as its inline= asks: inline=yes lives on the bar permanently,
+ * inline=urgent only while its is_urgent() says so. Both panels relayout
+ * on a change; the popup resizes with it next time it's laid out. Runs
+ * once per main-loop pass (after the widgets' own ticks, so is_urgent()
+ * sees fresh state). */
+static void containers_update_inline(void)
+{
+    for (int i = 0; i < MAX_PANELS; i++) {
+        Panel *q = &g_panels[i];
+        if (!q->in_use || q->mode != MODE_CONTAINER || !q->owner) {
+            continue;
+        }
+        Panel *bar = q->owner->panel;
+        for (int j = 0; j < q->n_widgets; j++) {
+            PanelWidget *w = &q->widgets[j];
+            int want = w->inline_mode == INLINE_ALWAYS ||
+                       (w->inline_mode == INLINE_URGENT && w->ops->is_urgent && w->ops->is_urgent(w));
+            if (want == w->inlined) {
+                continue;
+            }
+            tooltip_close(); /* may be describing this very widget where it no longer is */
+            w->inlined = want;
+            w->panel = want ? bar : q;
+            bar->dirty = 1;
+            q->dirty = 1;
+            if (bar->hover_widget == w || q->hover_widget == w) {
+                bar->hover_widget = NULL;
+                q->hover_widget = NULL;
+            }
+        }
+    }
+}
+
 static void dispatch_button(Panel *p, int button, int x, int y, int root_x, int root_y)
 {
     int axis_pos = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? x : y;
@@ -3800,11 +3871,15 @@ static int run_as_daemon(const char *sockpath)
                 PanelWidget *w = &p->widgets[j];
                 if (w->next_tick_ms != 0 && now >= w->next_tick_ms && w->ops->on_tick) {
                     if (w->ops->on_tick(w, now)) {
-                        p->dirty = 1;
+                        w->panel->dirty = 1; /* the bar it's inlined on, if it is */
                     }
                 }
             }
-            if (p->dirty && p->mapped) {
+        }
+        containers_update_inline();
+        for (int i = 0; i < MAX_PANELS; i++) {
+            Panel *p = &g_panels[i];
+            if (p->in_use && p->dirty && p->mapped) {
                 panel_layout(p);
                 panel_repaint(p);
             }

@@ -347,6 +347,12 @@ static int notif_on_button(PanelWidget *w, int button, int local_x, int local_y,
     return 1;
 }
 
+static int notif_is_urgent(PanelWidget *w)
+{
+    (void)w;
+    return notifd_unread_count() > 0;
+}
+
 const PanelWidgetOps notif_ops = {
     .type_name = "notif",
     .embeddable = 1,
@@ -356,4 +362,5 @@ const PanelWidgetOps notif_ops = {
     .measure = notif_measure,
     .on_button = notif_on_button,
     .on_tick = notif_on_tick,
+    .is_urgent = notif_is_urgent,
 };

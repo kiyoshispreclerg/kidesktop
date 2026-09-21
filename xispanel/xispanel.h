@@ -86,6 +86,13 @@ typedef struct {
      * (or none that changed) still reschedules its next tick and returns
      * 0. */
     int (*on_tick)(PanelWidget *w, uint64_t now);
+    /* Optional, embeddable widgets only: 1 while this widget has
+     * something worth surfacing on the bar right now (unread
+     * notifications, a metric over its high= threshold, a low battery).
+     * Drives the WIDGET line's inline=urgent -- see "Container popups"
+     * in PROTOCOL.md. Polled every main-loop pass, so keep it a plain
+     * read of state the widget's own on_tick already maintains. */
+    int (*is_urgent)(PanelWidget *w);
     /* Optional (NULL is fine -- most widgets don't need this): fills buf
      * with tooltip text (lines separated by '\n') to show after the
      * pointer hovers over local_x (widget-local, main-axis) for a bit.
@@ -179,7 +186,18 @@ struct PanelWidget {
     /* 0 = no pending tick. Folded into the main loop's "soonest timeout"
      * computation so widgets don't need their own timerfd. */
     uint64_t next_tick_ms;
+
+    /* Widgets inside a container popup only: the WIDGET line's inline=
+     * (INLINE_NO/URGENT/ALWAYS) and whether the widget is currently
+     * surfaced on the owner bar instead of in the popup. While inlined,
+     * `panel` points at the owner bar (it's laid out, painted and
+     * clicked there, in the bar's own theme) and the popup skips it --
+     * see containers_update_inline() in xispanel.c. */
+    int inline_mode;
+    int inlined;
 };
+
+enum { INLINE_NO = 0, INLINE_URGENT = 1, INLINE_ALWAYS = 2 };
 
 struct Panel {
     int in_use;
@@ -340,6 +358,14 @@ struct Panel {
 
     PanelWidget widgets[MAX_WIDGETS];
     int n_widgets;
+    /* What panel_layout() actually lays out and panel_paint_content()/
+     * panel_widget_at() walk, rebuilt on every layout: this panel's own
+     * widgets, minus any of them currently inlined onto an owner bar
+     * (container popups), plus -- right before each `container` widget
+     * -- every popup widget currently inlined here. Ticks and destroy
+     * still walk widgets[] itself; only where a widget *shows* changes. */
+    PanelWidget *layout[MAX_WIDGETS * 2];
+    int n_layout;
 
     /* Container popups (mode=container) only. `owner` is the `container`
      * widget (on some other panel) whose name= names this panel -- NULL

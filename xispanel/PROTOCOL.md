@@ -573,7 +573,8 @@ Widget types implemented so far:
   what it hides. `hotkey=<spec>` (optional) toggles the popup from the
   keyboard, same syntax as `folder`'s. Left-click toggles; any other
   button does nothing. A `container` can't itself be placed inside a
-  container.
+  container. Widgets *inside* the popup take an extra `inline=no|urgent|
+  yes` key (default `no`) -- see "Container popups".
 
 ### Global hotkeys
 
@@ -875,6 +876,19 @@ own bg/fg, spacing, bitmap theme, `border_radius` from the theme's
   `mode=container` panel is logged and ignored -- including `container`
   itself, so containers never nest.
 - One popup is open at a time; opening another closes the first.
+- **Surfacing onto the bar**: a popup widget's `WIDGET` line may carry
+  `inline=yes` (always shown on the owner bar, just before the
+  container's chevron, instead of in the popup) or `inline=urgent`
+  (shown there only while the widget reports something worth seeing:
+  `notif` with unread notifications, `monitor` at or over its `high=`,
+  `energy` discharging at 20% or below -- the same conditions their own
+  badge/color/toast already react to; `tray`, `volume`, `folder`,
+  `launcher` have no such state and never surface on their own). While
+  inlined the widget is laid out, painted and clicked on the bar, in the
+  bar's own theme, and the popup drops it (and shrinks). The default,
+  `inline=no`, keeps it in the popup only. This is what keeps the bar
+  down to the chevron most of the time while still pushing the one
+  thing that needs attention out where it's seen.
 
 A `mode=container` panel that no `container` widget's `name=` links to
 can never open. Rather than exist invisibly it falls back to a plain

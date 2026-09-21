@@ -382,6 +382,15 @@ static int energy_on_button(PanelWidget *w, int button, int local_x, int local_y
     return 1;
 }
 
+/* Low battery, by the same first threshold the low-battery toast fires
+ * at -- and only while actually discharging, so a low but charging
+ * battery doesn't count. */
+static int energy_is_urgent(PanelWidget *w)
+{
+    EnergyPriv *ep = w->priv;
+    return ep->have_battery && ep->state == ENERGY_DISCHARGING && ep->pct <= ENERGY_LOW_THRESHOLDS[N_ENERGY_LOW_THRESHOLDS - 1];
+}
+
 const PanelWidgetOps energy_ops = {
     .type_name = "energy",
     .embeddable = 1,
@@ -392,4 +401,5 @@ const PanelWidgetOps energy_ops = {
     .on_button = energy_on_button,
     .on_tick = energy_on_tick,
     .get_tooltip = energy_get_tooltip,
+    .is_urgent = energy_is_urgent,
 };
