@@ -94,7 +94,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.26"
+#define XISPANEL_VERSION "0.6.27"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -1477,6 +1477,7 @@ static void panel_apply_shape(Panel *p)
     if (r <= 0) {
         if (p->shaped) {
             XShapeCombineMask(g_dpy, p->win, ShapeBounding, 0, 0, None, ShapeSet);
+            XShapeCombineMask(g_dpy, p->win, ShapeInput, 0, 0, None, ShapeSet);
             p->shaped = 0;
         }
         return;
@@ -1505,6 +1506,15 @@ static void panel_apply_shape(Panel *p)
 
     XShapeCombineMask(g_dpy, p->win, ShapeBounding, 0, 0, mask, ShapeSet);
     XFreePixmap(g_dpy, mask);
+
+    /* ShapeInput defaults to whatever ShapeBounding is set to, which would
+     * make the rounded-off corner pixels unclickable (clicks there fall
+     * through to whatever is behind the panel). Force it back to the full
+     * rectangle so hit-testing ignores the rounding -- only painting is
+     * clipped. */
+    XRectangle full = {0, 0, p->w, p->h};
+    XShapeCombineRectangles(g_dpy, p->win, ShapeInput, 0, 0, &full, 1, ShapeSet, 0);
+
     p->shaped = 1;
 }
 
