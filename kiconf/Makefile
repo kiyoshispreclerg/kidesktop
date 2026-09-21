@@ -25,7 +25,7 @@ LIBS := $(shell pkg-config --cflags --libs gtk+-2.0 x11 xrandr) -lm $(LIBINTL)
 # xisback/xispanel/kiconfd -- compiled directly in, same as every other
 # source file here, so kiconf stays independently buildable and
 # installable on its own (no shared library to depend on at runtime).
-SRCS := kiconf.c common.c tabs/appearance.c tabs/shortcuts.c tabs/entrada.c \
+SRCS := kiconf.c common.c sysinfo.c tabs/appearance.c tabs/shortcuts.c tabs/entrada.c \
         tabs/outras.c tabs/permissoes.c tabs/paineis.c tabs/wallpaper.c \
         tabs/telas.c tabs/janelas.c tabs/efeitos.c tabs/sistema.c \
         tabs/programas.c tabs/autostart.c tabs/energia.c ../shared/xis_outputs.c

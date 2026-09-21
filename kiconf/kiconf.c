@@ -107,9 +107,10 @@
 #include <unistd.h>
 
 #include "i18n.h"
+#include "sysinfo.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.21"
+#define KICONF_VERSION "0.2.22"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -383,6 +384,12 @@ static GtkWidget *make_module_button(const LazyTab *tab, int page_num)
  * Control Panel "home": no state of its own, so unlike the module tabs it
  * stays built for the whole session instead of going through
  * ensure_tab_built()/unbuild_tab(). */
+/* Two-column row: a narrower "about this computer" summary (see
+ * sysinfo.c) on the left, the module icon grid -- unchanged -- taking the
+ * rest of the width on the right. The sysinfo side gets a fixed-ish
+ * request via FALSE/FALSE packing (sized to its own content) while the
+ * grid side is TRUE/TRUE so it's the one that grows when the window is
+ * resized, same as before this split existed. */
 static GtkWidget *build_home_page(void)
 {
     const int cols = 4;
@@ -396,9 +403,17 @@ static GtkWidget *build_home_page(void)
         gtk_table_attach(GTK_TABLE(grid), btn, c, c + 1, r, r + 1,
                           GTK_EXPAND | GTK_FILL, GTK_EXPAND | GTK_FILL, 0, 0);
     }
+
+    GtkWidget *sysinfo = build_sysinfo_panel();
+    gtk_widget_set_size_request(sysinfo, 260, -1);
+
+    GtkWidget *row = gtk_hbox_new(FALSE, 16);
+    gtk_box_pack_start(GTK_BOX(row), sysinfo, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row), grid, TRUE, TRUE, 0);
+
     GtkWidget *outer = gtk_vbox_new(FALSE, 0);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 16);
-    gtk_box_pack_start(GTK_BOX(outer), grid, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), row, TRUE, TRUE, 0);
     return outer;
 }
 

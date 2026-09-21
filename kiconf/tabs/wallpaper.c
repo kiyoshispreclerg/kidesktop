@@ -33,6 +33,7 @@ static GtkWidget *g_wp_layers_view;
 static GtkWidget *g_wp_output_combo, *g_wp_desktop_entry, *g_wp_mode_combo;
 static GtkWidget *g_wp_interval_spin, *g_wp_shuffle_chk, *g_wp_fade_spin, *g_wp_path_entry;
 static GtkWidget *g_wp_action_left, *g_wp_action_right, *g_wp_action_middle, *g_wp_action_double;
+static GtkWidget *g_wp_action_scroll_up, *g_wp_action_scroll_down;
 static GtkWidget *g_wp_status_label;
 
 enum { COL_WP_OUTPUT = 0, COL_WP_DESKTOP, COL_WP_MODE, COL_WP_INTERVAL, COL_WP_SHUFFLE, COL_WP_FADE, COL_WP_PATH, N_WP_COLS };
@@ -316,8 +317,11 @@ static void on_wp_actions_save(GtkWidget *widget, gpointer data)
     const char *right = gtk_entry_get_text(GTK_ENTRY(g_wp_action_right));
     const char *middle = gtk_entry_get_text(GTK_ENTRY(g_wp_action_middle));
     const char *dbl = gtk_entry_get_text(GTK_ENTRY(g_wp_action_double));
+    const char *scroll_up = gtk_entry_get_text(GTK_ENTRY(g_wp_action_scroll_up));
+    const char *scroll_down = gtk_entry_get_text(GTK_ENTRY(g_wp_action_scroll_down));
     char cmd[1024];
-    snprintf(cmd, sizeof(cmd), "SETACTIONS\t%s\t%s\t%s\t%s", left, right, middle, dbl);
+    snprintf(cmd, sizeof(cmd), "SETACTIONS\t%s\t%s\t%s\t%s\t%s\t%s",
+              left, right, middle, dbl, scroll_up, scroll_down);
     char resp[256];
     xisback_send(cmd, resp, sizeof(resp));
 }
@@ -332,11 +336,15 @@ static void load_wp_actions(void)
     char *left = strtok_r(resp, "\t", &save);
     char *right = left ? strtok_r(NULL, "\t", &save) : NULL;
     char *middle = right ? strtok_r(NULL, "\t", &save) : NULL;
-    char *dbl = middle ? strtok_r(NULL, "\n", &save) : NULL;
+    char *dbl = middle ? strtok_r(NULL, "\t", &save) : NULL;
+    char *scroll_up = dbl ? strtok_r(NULL, "\t", &save) : NULL;
+    char *scroll_down = scroll_up ? strtok_r(NULL, "\n", &save) : NULL;
     gtk_entry_set_text(GTK_ENTRY(g_wp_action_left), left ? left : "");
     gtk_entry_set_text(GTK_ENTRY(g_wp_action_right), right ? right : "");
     gtk_entry_set_text(GTK_ENTRY(g_wp_action_middle), middle ? middle : "");
     gtk_entry_set_text(GTK_ENTRY(g_wp_action_double), dbl ? dbl : "");
+    gtk_entry_set_text(GTK_ENTRY(g_wp_action_scroll_up), scroll_up ? scroll_up : "");
+    gtk_entry_set_text(GTK_ENTRY(g_wp_action_scroll_down), scroll_down ? scroll_down : "");
 }
 
 GtkWidget *build_wallpaper_tab(void)
@@ -430,7 +438,7 @@ GtkWidget *build_wallpaper_tab(void)
     gtk_box_pack_start(GTK_BOX(set_box), set_btnbox, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Definir/substituir uma camada", set_box), FALSE, FALSE, 0);
 
-    GtkWidget *actions_table = gtk_table_new(4, 2, FALSE);
+    GtkWidget *actions_table = gtk_table_new(6, 2, FALSE);
     g_wp_action_left = gtk_entry_new();
     labeled_row(actions_table, 0, "Clique esquerdo:", g_wp_action_left);
     g_wp_action_right = gtk_entry_new();
@@ -439,6 +447,10 @@ GtkWidget *build_wallpaper_tab(void)
     labeled_row(actions_table, 2, "Clique do meio:", g_wp_action_middle);
     g_wp_action_double = gtk_entry_new();
     labeled_row(actions_table, 3, "Clique duplo:", g_wp_action_double);
+    g_wp_action_scroll_up = gtk_entry_new();
+    labeled_row(actions_table, 4, "Rolar pra cima:", g_wp_action_scroll_up);
+    g_wp_action_scroll_down = gtk_entry_new();
+    labeled_row(actions_table, 5, "Rolar pra baixo:", g_wp_action_scroll_down);
     GtkWidget *actions_box = gtk_vbox_new(FALSE, 4);
     gtk_box_pack_start(GTK_BOX(actions_box), actions_table, FALSE, FALSE, 0);
     GtkWidget *actions_save_btn = gtk_button_new_with_label("Salvar acoes de clique");
