@@ -1072,7 +1072,7 @@ static int refresh_text(void)
     return changed;
 }
 
-void tooltip_notice_motion(Panel *p, int axis_pos)
+void tooltip_notice_motion(Panel *p, int axis_pos, int cross_pos)
 {
     if (panel_menu_is_open()) {
         /* A menu is up somewhere -- don't track hover or open a tooltip
@@ -1083,14 +1083,7 @@ void tooltip_notice_motion(Panel *p, int axis_pos)
         return;
     }
 
-    PanelWidget *hit = NULL;
-    for (int i = 0; i < p->n_widgets; i++) {
-        PanelWidget *w = &p->widgets[i];
-        if (axis_pos >= w->x && axis_pos < w->x + w->len) {
-            hit = w;
-            break;
-        }
-    }
+    PanelWidget *hit = panel_widget_at(p, axis_pos, cross_pos);
 
     if (!hit || !hit->ops->get_tooltip) {
         /* Moved onto a widget (or dead space, e.g. a spacer) that has no

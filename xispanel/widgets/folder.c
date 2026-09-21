@@ -414,6 +414,7 @@ static int folder_on_button(PanelWidget *w, int button, int local_x, int local_y
 
 const PanelWidgetOps folder_ops = {
     .type_name = "folder",
+    .embeddable = 1,
     .priv_size = sizeof(FolderPriv),
     .init = folder_init,
     .destroy = folder_destroy,

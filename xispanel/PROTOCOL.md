@@ -133,7 +133,14 @@ PANEL	top	*	edge=top	pct=100	thickness=32	mode=dock
 - `mode`: `dock` (reserves screen space via `_NET_WM_STRUT_PARTIAL`) |
   `overlay` (floats on top, no reserved space) | `autohide` (overlay,
   slides in on hover over a thin edge sensor and back out shortly after
-  the pointer leaves). Default `dock`.
+  the pointer leaves) | `container` (not a screen-edge bar at all: the
+  popup a `container` widget on another panel opens -- see "Container
+  popups" below; `edge`/`pct` are ignored, the popup follows its owner
+  widget). Default `dock`.
+- `layout`: `row` | `grid`, `mode=container` only (default `row`). `row`
+  lays the popup's widgets out in one line along the owner panel's own
+  axis, like a bar; `grid` wraps that line into rows (columns, for a
+  vertical owner) so the popup comes out roughly square.
 - `rotate`: `0` | `90` | `180` | `270` (default `0`). Rotates every
   widget's content as a rigid whole around the center of its on-panel
   slot -- works on *any* edge, not just left/right: `180` on a top panel
@@ -557,6 +564,17 @@ Widget types implemented so far:
   Meta alone" key, remap a tap into a synthetic keysym upstream with a
   tool like `xcape` and point `hotkey=` at that synthetic key instead.
 
+- `container`: `name=<panel>` (required) names the `mode=container`
+  `PANEL` this widget opens as a popup beside itself -- see "Container
+  popups" below. Draws only the small chevron a combobox uses to say
+  "this opens" (pointing away from the bar, flipping back while the popup
+  is up), or `icon=<path>` instead; its hover tooltip reads "Container"
+  plus the type name of every widget inside, so the arrow alone tells
+  what it hides. `hotkey=<spec>` (optional) toggles the popup from the
+  keyboard, same syntax as `folder`'s. Left-click toggles; any other
+  button does nothing. A `container` can't itself be placed inside a
+  container.
+
 ### Global hotkeys
 
 Any widget can offer its own `hotkey=<spec>`-style config option(s) bound
@@ -803,6 +821,67 @@ on `RELOAD`), never per frame: a theme that ships none of these files
 costs one failed `open()` per name at startup and a NULL check per draw
 afterwards, which is why a colors-only theme performs exactly like no
 theme at all.
+
+## Container popups
+
+A `container` widget is a single slot on a normal panel that opens a
+whole second panel as a popup beside it -- a system-tray-style "more
+things live in here" drawer. The popup is a real `PANEL` line with
+`mode=container`, named by the widget's `name=`, with its own `WIDGET`
+and `THEME` lines:
+
+```
+PANEL	top	*	edge=top	thickness=32	mode=dock
+WIDGET	top	0	tasklist
+WIDGET	top	1	container	name=sys
+WIDGET	top	2	clock
+PANEL	sys	*	mode=container	thickness=32	layout=grid
+WIDGET	sys	0	tray
+WIDGET	sys	1	volume
+WIDGET	sys	2	notif
+THEME	sys	bg=#303030ee	spacing=6
+```
+
+Because it *is* a panel, everything a bar can do the popup can do too:
+the same widget types (laid out, painted, hovered, clicked, tooltipped
+and context-menued by the exact same code), the same `THEME` keys (its
+own bg/fg, spacing, bitmap theme, `border_radius` from the theme's
+`colors`), `rotate=`. What differs:
+
+- **No screen space.** It isn't a dock: no strut, no edge, mapped only
+  while open. `edge`/`pct` on its `PANEL` line are ignored; it takes the
+  owner panel's edge so its widgets run along the same axis as the bar.
+- **Sized by content**, not by the output: `thickness` is the row
+  height (column width, for a vertical owner), the length is whatever
+  its widgets measure to. A widget appearing or growing (a new tray
+  icon) resizes the popup in place. `layout=grid` wraps the widgets into
+  rows aiming for a square (the target row length is the side of a
+  square with the same area as the one-row strip, never shorter than
+  the widest single widget); `layout=row` (default) is a single line.
+  `spacing` doubles as the outer margin.
+- **Positioned like a menu**: glued to the owner panel's outer edge,
+  centered on the `container` widget, clamped onto the output.
+- **Dismissal**: click anywhere outside it (a pointer grab, like a
+  menu's -- but with `owner_events`, so the popup's own widgets, every
+  panel and any toast keep receiving their clicks normally while it's
+  open), Escape, or the owner icon again. Clicking another widget on any
+  bar closes it *and* still goes through to that widget. A menu opened
+  by a widget inside the popup (a tray item's, `folder`'s) takes the
+  grab over for as long as it's up and hands it back on close. An
+  autohide owner bar stays out while its popup is open.
+- **Only embeddable widgets** may live inside: `monitor`, `tray`,
+  `volume`, `notif`, `folder`, `launcher`, `energy` (types marked
+  `embeddable` in their `PanelWidgetOps`). Anything else on a
+  `mode=container` panel is logged and ignored -- including `container`
+  itself, so containers never nest.
+- One popup is open at a time; opening another closes the first.
+
+A `mode=container` panel that no `container` widget's `name=` links to
+can never open. Rather than exist invisibly it falls back to a plain
+`overlay` bar (logged), so the mistake is visible and fixable in the
+config -- placed on its own `edge=` unless another bar on the same
+output already occupies it, in which case the first free edge (top,
+bottom, left, right) is used instead.
 
 ## Context menus
 
@@ -1296,6 +1375,9 @@ own file" structure:
   e.g. `folder` or a tray item's `IconName` -- lives here rather than in
   `sni.c` since it has no DBus dependency of its own and `folder` needs
   it too).
+- `widgets/container.c`: the `container` widget -- just the icon and the
+  click; the popup itself is a Panel driven by xispanel.c's "container
+  popups" section (open/close/place/grab, `link_containers()`).
 - `menu.c`: the generic context-menu popup described above.
 - `tooltip.c`: the generic hover-tooltip popup described above.
 - `hotkey.c`: the global-hotkey grab table described in "Global hotkeys"

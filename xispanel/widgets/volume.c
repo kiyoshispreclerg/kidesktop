@@ -217,6 +217,7 @@ static int volume_on_button(PanelWidget *w, int button, int local_x, int local_y
 
 const PanelWidgetOps volume_ops = {
     .type_name = "volume",
+    .embeddable = 1,
     .priv_size = sizeof(VolumePriv),
     .init = volume_init,
     .measure = volume_measure,

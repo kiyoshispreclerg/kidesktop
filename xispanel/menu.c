@@ -181,6 +181,7 @@ void panel_menu_close(void)
     if (on_close) {
         on_close(ctx);
     }
+    panel_container_menu_closed();
 }
 
 /* Destroys every frame at `level` and deeper -- used both when collapsing

@@ -64,6 +64,7 @@
 
 #include <Imlib2.h>
 #include <X11/Xatom.h>
+#include <X11/keysym.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/extensions/Xrandr.h>
@@ -94,7 +95,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.27"
+#define XISPANEL_VERSION "0.6.28"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -121,6 +122,9 @@ static int g_rr_event_base;
 static volatile sig_atomic_t g_quit = 0;
 static Panel g_panels[MAX_PANELS];
 static char g_configpath[PATH_MAX];
+/* The one container popup currently open (at most one at a time, same
+ * as menus) -- see the "container popups" section. */
+static Panel *g_open_container = NULL;
 
 static FT_Library g_ft_lib;
 static FT_Face g_ft_face;
@@ -227,6 +231,17 @@ void widget_get_rect(const PanelWidget *w, int *x, int *y, int *width, int *heig
         *width = w->thickness;
         *height = w->len;
     }
+}
+
+PanelWidget *panel_widget_at(Panel *p, int axis_pos, int cross_pos)
+{
+    for (int i = 0; i < p->n_widgets; i++) {
+        PanelWidget *w = &p->widgets[i];
+        if (axis_pos >= w->x && axis_pos < w->x + w->len && cross_pos >= w->y && cross_pos < w->y + w->thickness) {
+            return w;
+        }
+    }
+    return NULL;
 }
 
 int panel_widget_hover_local_x(const PanelWidget *w, int *out_local_x)
@@ -351,6 +366,7 @@ static const PanelWidgetOps *g_widget_registry[] = {
     &pager_ops,
     &monitor_ops,
     &energy_ops,
+    &container_ops,
     NULL,
 };
 
@@ -658,12 +674,16 @@ static void write_default_config_if_missing(void)
 
 static void panel_resolve_geometry(Panel *p)
 {
-    if (strcmp(p->output, "*") != 0 &&
-        resolve_output_geometry(p->output, &p->out_x, &p->out_y, &p->out_w, &p->out_h, &p->out_refresh_hz)) {
+    /* A container popup lives on whatever output its owner widget's
+     * panel is on -- its own PANEL line's output field only matters for
+     * the unlinked fallback (see link_containers()). */
+    const char *output = (p->mode == MODE_CONTAINER && p->owner) ? p->owner->panel->output : p->output;
+    if (strcmp(output, "*") != 0 &&
+        resolve_output_geometry(output, &p->out_x, &p->out_y, &p->out_w, &p->out_h, &p->out_refresh_hz)) {
         /* matched */
     } else {
-        if (strcmp(p->output, "*") != 0) {
-            fprintf(stderr, "xispanel: panel '%s': output '%s' not found, falling back to full screen\n", p->name, p->output);
+        if (strcmp(output, "*") != 0) {
+            fprintf(stderr, "xispanel: panel '%s': output '%s' not found, falling back to full screen\n", p->name, output);
         }
         p->out_x = 0;
         p->out_y = 0;
@@ -673,6 +693,26 @@ static void panel_resolve_geometry(Panel *p)
     }
 
     p->thickness = p->thickness_cfg;
+
+    if (p->mode == MODE_CONTAINER) {
+        /* Widgets run along the owner panel's own axis (a horizontal
+         * panel opens a horizontal popup, rows stacking away from the
+         * panel; a vertical one opens columns) -- so the popup's layout
+         * and its widgets' orientation match the bar it hangs off of.
+         * Size comes from the content (panel_layout()) and the position
+         * from the owner widget at open time (container_place()); 1x1 is
+         * just so the window can be created now. */
+        if (p->owner) {
+            p->edge = p->owner->panel->edge;
+        }
+        p->w = 1;
+        p->h = 1;
+        p->x = p->out_x;
+        p->y = p->out_y;
+        p->hidden_x = p->x;
+        p->hidden_y = p->y;
+        return;
+    }
 
     if (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) {
         p->w = p->out_w * p->pct / 100;
@@ -788,7 +828,11 @@ static Window panel_create_window(Panel *p, int x, int y, int w, int h)
     XClassHint ch = {(char *)"xispanel", (char *)"xispanel"};
     XSetClassHint(g_dpy, win, &ch);
 
-    XChangeProperty(g_dpy, win, g_atom_wm_window_type, XA_ATOM, 32, PropModeReplace, (unsigned char *)&g_atom_wm_window_type_dock, 1);
+    /* A container popup is announced as a popup menu, not a dock: it's
+     * transient and sits beside the bar, and a compositor's per-type
+     * effects (menu fade/slide vs. dock treatment) should see it that way. */
+    Atom type = (p->mode == MODE_CONTAINER) ? g_atom_wm_window_type_popup_menu : g_atom_wm_window_type_dock;
+    XChangeProperty(g_dpy, win, g_atom_wm_window_type, XA_ATOM, 32, PropModeReplace, (unsigned char *)&type, 1);
 
     if (managed) {
         /* ICCCM input=False: never wants keyboard focus, so click-to-focus
@@ -1657,27 +1701,123 @@ int panel_draw_skin(const PanelSkin *skin, cairo_t *cr, int state, double x, dou
     return 1;
 }
 
+static void panel_create_buf(Panel *p)
+{
+    p->buf_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, p->w, p->h);
+    p->buf_cr = cairo_create(p->buf_surface);
+    if (g_font_face) {
+        cairo_set_font_face(p->buf_cr, g_font_face);
+    }
+    cairo_set_font_size(p->buf_cr, panel_text_size(p));
+}
+
 static void panel_create_surface(Panel *p)
 {
     p->surface = cairo_xlib_surface_create(g_dpy, p->win, p->visual, p->w, p->h);
     p->cr = cairo_create(p->surface);
-
-    p->buf_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, p->w, p->h);
-    p->buf_cr = cairo_create(p->buf_surface);
     if (g_font_face) {
         cairo_set_font_face(p->cr, g_font_face);
-        cairo_set_font_face(p->buf_cr, g_font_face);
     }
     cairo_set_font_size(p->cr, panel_text_size(p));
-    cairo_set_font_size(p->buf_cr, panel_text_size(p));
+    panel_create_buf(p);
+}
+
+/* Container popups only: their size follows their content, so a widget
+ * appearing/growing (a new tray icon, say) resizes the window in place.
+ * Every edge-anchored panel keeps the fixed size panel_resolve_geometry()
+ * gave it. */
+static void panel_apply_shape(Panel *p);
+static void panel_set_size(Panel *p, int w, int h)
+{
+    p->w = w;
+    p->h = h;
+    if (!p->win) {
+        return;
+    }
+    XResizeWindow(g_dpy, p->win, (unsigned)w, (unsigned)h);
+    cairo_xlib_surface_set_size(p->surface, w, h);
+    cairo_destroy(p->buf_cr);
+    cairo_surface_destroy(p->buf_surface);
+    panel_create_buf(p);
+    panel_apply_shape(p);
 }
 
 /* ------------------------------------------------------------------ */
 /* layout + paint                                                       */
 /* ------------------------------------------------------------------ */
 
+/* Layout for a container popup: the window is sized to fit its widgets
+ * rather than the widgets squeezed into a fixed window. layout=row (the
+ * default) is one line along the owner panel's axis, exactly like a bar;
+ * layout=grid wraps that line into rows so the popup comes out roughly
+ * square -- the target row length is the side of a square with the same
+ * area as the whole one-row strip, never shorter than the widest single
+ * widget. p->spacing doubles as the popup's outer margin so widgets
+ * don't touch the (possibly rounded) border. */
+static void container_layout(Panel *p)
+{
+    int n = p->n_widgets;
+    int lens[MAX_WIDGETS];
+    int total = 0, max_len = 0;
+    for (int i = 0; i < n; i++) {
+        PanelWidget *w = &p->widgets[i];
+        int len = 0, min = 0;
+        if (w->ops->measure) {
+            w->ops->measure(w, p->thickness, &len, &min);
+        }
+        if (len < 0) {
+            len = p->thickness * 2; /* greedy has nothing to be greedy about here */
+        }
+        lens[i] = len;
+        total += len;
+        if (len > max_len) {
+            max_len = len;
+        }
+    }
+
+    int gap = p->spacing;
+    int pad = p->spacing;
+    int row_len = total + (n > 1 ? gap * (n - 1) : 0);
+    if (p->grid && n > 1) {
+        double area = (double)row_len * (p->thickness + gap);
+        int target = (int)(sqrt(area) + 0.5);
+        row_len = target > max_len ? target : max_len;
+    }
+
+    int cursor = 0, row = 0, widest = 0;
+    for (int i = 0; i < n; i++) {
+        PanelWidget *w = &p->widgets[i];
+        if (cursor > 0 && cursor + lens[i] > row_len) {
+            row++;
+            cursor = 0;
+        }
+        w->x = pad + cursor;
+        w->y = pad + row * (p->thickness + gap);
+        w->len = lens[i];
+        w->thickness = p->thickness;
+        cursor += lens[i] + gap;
+        if (cursor - gap > widest) {
+            widest = cursor - gap;
+        }
+    }
+    int rows = n > 0 ? row + 1 : 0;
+    int content_len = n > 0 ? widest : p->thickness;
+    int content_cross = n > 0 ? rows * p->thickness + (rows - 1) * gap : p->thickness;
+
+    int horizontal = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM);
+    int want_w = (horizontal ? content_len : content_cross) + 2 * pad;
+    int want_h = (horizontal ? content_cross : content_len) + 2 * pad;
+    if (want_w != p->w || want_h != p->h) {
+        panel_set_size(p, want_w, want_h);
+    }
+}
+
 static void panel_layout(Panel *p)
 {
+    if (p->mode == MODE_CONTAINER) {
+        container_layout(p);
+        return;
+    }
     int axis_len = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? p->w : p->h;
     int lens[MAX_WIDGETS];
     int mins[MAX_WIDGETS];
@@ -1748,6 +1888,7 @@ static void panel_layout(Panel *p)
         PanelWidget *w = &p->widgets[i];
         int len = final_lens[i] < 0 ? 0 : final_lens[i];
         w->x = cursor;
+        w->y = 0;
         w->len = len;
         w->thickness = p->thickness;
         cursor += len + p->spacing;
@@ -1810,11 +1951,11 @@ void panel_paint_content(Panel *p, cairo_t *cr, double scale)
             int px, py, pw, ph;
             if (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) {
                 px = w->x;
-                py = 0;
+                py = w->y;
                 pw = w->len;
                 ph = w->thickness;
             } else {
-                px = 0;
+                px = w->y;
                 py = w->x;
                 pw = w->thickness;
                 ph = w->len;
@@ -1947,6 +2088,13 @@ static int panel_autohide_tick(Panel *p, uint64_t now)
     }
 
     if (p->ah_hide_deadline_ms && now >= p->ah_hide_deadline_ms) {
+        if (g_open_container && g_open_container->owner->panel == p) {
+            /* A container popup hanging off this bar is open: the pointer
+             * left the bar for the popup, not for good. Hold the bar until
+             * the popup closes (container_close() restarts the timer). */
+            p->ah_hide_deadline_ms = now + AUTOHIDE_DELAY_MS;
+            return 1;
+        }
         p->ah_hide_deadline_ms = 0;
         p->ah_state = AH_HIDING;
         p->ah_anim_start_ms = now;
@@ -2073,6 +2221,8 @@ static void panel_activate(Panel *p)
     if (p->mode == MODE_AUTOHIDE) {
         p->sensor_win = panel_create_sensor(p);
         p->mapped = 0;
+    } else if (p->mode == MODE_CONTAINER) {
+        p->mapped = 0; /* mapped by container_open() only */
     } else {
         XMapWindow(g_dpy, p->win);
         XRaiseWindow(g_dpy, p->win);
@@ -2147,6 +2297,11 @@ static void panel_add_widget(Panel *p, int order, const char *type, const char *
         fprintf(stderr, "xispanel: panel '%s': unknown widget type '%s'\n", p->name, type);
         return;
     }
+    if (p->mode == MODE_CONTAINER && !ops->embeddable) {
+        fprintf(stderr, "xispanel: container '%s': widget type '%s' can't be placed inside a container, ignoring\n",
+                p->name, type);
+        return;
+    }
     PanelWidget *w = &p->widgets[p->n_widgets++];
     memset(w, 0, sizeof(*w));
     w->ops = ops;
@@ -2187,6 +2342,9 @@ static enum panel_mode parse_mode(const char *s)
     if (!strcmp(s, "autohide")) {
         return MODE_AUTOHIDE;
     }
+    if (!strcmp(s, "container")) {
+        return MODE_CONTAINER;
+    }
     return MODE_DOCK;
 }
 
@@ -2195,6 +2353,9 @@ static void apply_panel_kv(Panel *p, const char *kvline)
     char buf[64];
     if (kv_get(kvline, "edge", buf, sizeof(buf))) {
         p->edge = parse_edge(buf);
+    }
+    if (kv_get(kvline, "layout", buf, sizeof(buf))) {
+        p->grid = strcmp(buf, "grid") == 0;
     }
     p->pct = kv_get_int(kvline, "pct", p->pct);
     if (p->pct < 1) {
@@ -2518,8 +2679,11 @@ static void load_config(void)
     fclose(f);
 }
 
+static void link_containers(void);
+
 static void reload_all_panels(void)
 {
+    panel_container_close_all(); /* releases its grab; the Panel is about to go away */
     panel_menu_close(); /* about to invalidate every Panel/PanelWidget it could reference */
     tooltip_close();
     for (int i = 0; i < MAX_PANELS; i++) {
@@ -2529,6 +2693,7 @@ static void reload_all_panels(void)
     }
     memset(g_panels, 0, sizeof(g_panels));
     load_config();
+    link_containers();
     for (int i = 0; i < MAX_PANELS; i++) {
         if (g_panels[i].in_use) {
             panel_activate(&g_panels[i]);
@@ -2874,19 +3039,251 @@ static int density_property_dispatch(const XPropertyEvent *ev)
     return density_handle_property(p, ev);
 }
 
+/* ------------------------------------------------------------------ */
+/* container popups                                                     */
+/* ------------------------------------------------------------------ */
+
+Panel *panel_container_popup(PanelWidget *w)
+{
+    for (int i = 0; i < MAX_PANELS; i++) {
+        if (g_panels[i].in_use && g_panels[i].mode == MODE_CONTAINER && g_panels[i].owner == w) {
+            return &g_panels[i];
+        }
+    }
+    return NULL;
+}
+
+/* Glues the popup to the owner panel's outer edge, centered on the owner
+ * widget (plasmashell centers its system-tray popup on the icon the same
+ * way), then clamps it onto the output. */
+static void container_place(Panel *q)
+{
+    Panel *o = q->owner->panel;
+    PanelWidget *ow = q->owner;
+    int x, y;
+    if (o->edge == EDGE_TOP || o->edge == EDGE_BOTTOM) {
+        x = o->x + ow->x + (ow->len - q->w) / 2;
+        y = (o->edge == EDGE_TOP) ? o->y + o->h : o->y - q->h;
+    } else {
+        y = o->y + ow->x + (ow->len - q->h) / 2;
+        x = (o->edge == EDGE_LEFT) ? o->x + o->w : o->x - q->w;
+    }
+    if (x + q->w > o->out_x + o->out_w) {
+        x = o->out_x + o->out_w - q->w;
+    }
+    if (y + q->h > o->out_y + o->out_h) {
+        y = o->out_y + o->out_h - q->h;
+    }
+    if (x < o->out_x) {
+        x = o->out_x;
+    }
+    if (y < o->out_y) {
+        y = o->out_y;
+    }
+    q->x = x;
+    q->y = y;
+    XMoveWindow(g_dpy, q->win, x, y);
+}
+
+/* owner_events=True, unlike a menu's grab: events over any of our own
+ * windows (the popup itself, every panel, a toast) are delivered to that
+ * window normally, so the popup's widgets, the owner bar and everything
+ * else keep working while it's open. Only a click that lands on nothing
+ * of ours comes back reported against the popup window, with coordinates
+ * outside it -- that's the "clicked outside, dismiss" signal (see
+ * container_handle_event()). */
+static void container_grab(Panel *q)
+{
+    XGrabPointer(g_dpy, q->win, True, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+    XGrabKeyboard(g_dpy, q->win, True, GrabModeAsync, GrabModeAsync, CurrentTime);
+}
+
+static void container_close(Panel *q)
+{
+    if (!q->open) {
+        return;
+    }
+    q->open = 0;
+    if (g_open_container == q) {
+        g_open_container = NULL;
+    }
+    panel_menu_close(); /* a child widget's menu can't outlive the popup it hangs off of */
+    tooltip_close();
+    XUngrabKeyboard(g_dpy, CurrentTime);
+    XUngrabPointer(g_dpy, CurrentTime);
+    XUnmapWindow(g_dpy, q->win);
+    q->mapped = 0;
+    q->hover_widget = NULL;
+
+    Panel *o = q->owner->panel;
+    o->dirty = 1;
+    /* The owner bar's hide timer was held off while the popup was up
+     * (see panel_autohide_tick()); if the pointer isn't actually over the
+     * bar now, start it. No LeaveNotify is coming to do that for us. */
+    if (o->mode == MODE_AUTOHIDE && o->mapped) {
+        Window rw, cw;
+        int rx, ry, wx, wy;
+        unsigned int mask;
+        if (XQueryPointer(g_dpy, g_root, &rw, &cw, &rx, &ry, &wx, &wy, &mask) &&
+            !(rx >= o->x && rx < o->x + o->w && ry >= o->y && ry < o->y + o->h)) {
+            panel_autohide_leave(o);
+        }
+    }
+    XFlush(g_dpy);
+}
+
+static void container_open(Panel *q)
+{
+    if (!q->owner || q->win == None || q->open) {
+        return;
+    }
+    if (g_open_container) {
+        container_close(g_open_container);
+    }
+    panel_menu_close();
+    tooltip_close();
+    q->open = 1;
+    g_open_container = q;
+    panel_layout(q); /* sizes the window to its content */
+    container_place(q);
+    XMapWindow(g_dpy, q->win);
+    XRaiseWindow(g_dpy, q->win);
+    q->mapped = 1;
+    q->dirty = 1;
+    panel_repaint(q); /* paint before the first Expose can show a blank frame */
+    container_grab(q);
+    q->owner->panel->dirty = 1;
+}
+
+void panel_container_toggle(Panel *popup)
+{
+    if (popup->open) {
+        container_close(popup);
+    } else {
+        container_open(popup);
+    }
+}
+
+void panel_container_close_all(void)
+{
+    if (g_open_container) {
+        container_close(g_open_container);
+    }
+}
+
+void panel_container_menu_closed(void)
+{
+    if (g_open_container) {
+        container_grab(g_open_container);
+    }
+}
+
+/* Returns 1 if `ev` was consumed on behalf of the open popup: Escape
+ * closes it; a click reported outside it (nothing of ours under the
+ * pointer, see container_grab()) closes it; a click on any *other* panel
+ * closes it too, and is swallowed when it landed on the owner icon
+ * itself -- otherwise that icon's on_button() would just reopen what
+ * the click meant to close. A click on another panel's other widgets
+ * still goes through, so the bar stays usable with the popup up. */
+static int container_handle_event(const XEvent *ev)
+{
+    Panel *q = g_open_container;
+    if (!q) {
+        return 0;
+    }
+    if (ev->type == KeyPress) {
+        XKeyEvent key = ev->xkey;
+        if (XLookupKeysym(&key, 0) == XK_Escape) {
+            container_close(q);
+            return 1;
+        }
+        return 0;
+    }
+    if (ev->type != ButtonPress) {
+        return 0;
+    }
+    if (ev->xbutton.window == q->win) {
+        int x = ev->xbutton.x, y = ev->xbutton.y;
+        if (x < 0 || y < 0 || x >= q->w || y >= q->h) {
+            container_close(q);
+            return 1;
+        }
+        return 0;
+    }
+    int is_sensor = 0;
+    Panel *p = find_panel_by_window(ev->xbutton.window, &is_sensor);
+    if (!p || is_sensor) {
+        return 0;
+    }
+    int horiz = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM);
+    int on_owner = panel_widget_at(p, horiz ? ev->xbutton.x : ev->xbutton.y, horiz ? ev->xbutton.y : ev->xbutton.x) ==
+                   q->owner;
+    container_close(q);
+    return on_owner;
+}
+
+/* Resolves every mode=container PANEL to the `container` widget whose
+ * name= names it. Runs once per (re)load, after every line has been read,
+ * so the file order of the two lines doesn't matter. A container panel
+ * nothing links to can't ever open -- rather than exist invisibly it
+ * falls back to a plain overlay bar (so the mistake is at least visible
+ * and fixable from the config), steered onto an edge of its output no
+ * other bar already occupies when its own edge= is taken. */
+static void link_containers(void)
+{
+    for (int i = 0; i < MAX_PANELS; i++) {
+        Panel *q = &g_panels[i];
+        if (!q->in_use || q->mode != MODE_CONTAINER) {
+            continue;
+        }
+        q->owner = NULL;
+        for (int j = 0; j < MAX_PANELS && !q->owner; j++) {
+            Panel *p = &g_panels[j];
+            if (!p->in_use || p->mode == MODE_CONTAINER) {
+                continue;
+            }
+            for (int k = 0; k < p->n_widgets; k++) {
+                PanelWidget *w = &p->widgets[k];
+                char name[64];
+                if (strcmp(w->ops->type_name, "container") == 0 && kv_get(w->config_kv, "name", name, sizeof(name)) &&
+                    strcmp(name, q->name) == 0) {
+                    q->owner = w;
+                    break;
+                }
+            }
+        }
+        if (q->owner) {
+            continue;
+        }
+        fprintf(stderr, "xispanel: container '%s': no container widget has name=%s, showing it as an overlay panel\n",
+                q->name, q->name);
+        q->mode = MODE_OVERLAY;
+        int taken[4] = {0};
+        for (int j = 0; j < MAX_PANELS; j++) {
+            Panel *p = &g_panels[j];
+            if (p->in_use && p != q && p->mode != MODE_CONTAINER && strcmp(p->output, q->output) == 0) {
+                taken[p->edge] = 1;
+            }
+        }
+        if (taken[q->edge]) {
+            const enum edge order[4] = {EDGE_TOP, EDGE_BOTTOM, EDGE_LEFT, EDGE_RIGHT};
+            for (int e = 0; e < 4; e++) {
+                if (!taken[order[e]]) {
+                    q->edge = order[e];
+                    break;
+                }
+            }
+        }
+    }
+}
+
 static void dispatch_button(Panel *p, int button, int x, int y, int root_x, int root_y)
 {
     int axis_pos = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? x : y;
     int cross_pos = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? y : x;
-    for (int i = 0; i < p->n_widgets; i++) {
-        PanelWidget *w = &p->widgets[i];
-        if (axis_pos >= w->x && axis_pos < w->x + w->len) {
-            if (w->ops->on_button) {
-                int local = axis_pos - w->x;
-                w->ops->on_button(w, button, local, cross_pos, root_x, root_y);
-            }
-            return;
-        }
+    PanelWidget *w = panel_widget_at(p, axis_pos, cross_pos);
+    if (w && w->ops->on_button) {
+        w->ops->on_button(w, button, axis_pos - w->x, cross_pos - w->y, root_x, root_y);
     }
 }
 
@@ -2898,20 +3295,13 @@ static void dispatch_button(Panel *p, int button, int x, int y, int root_x, int 
  * over the *same* spot (X can resend these) isn't a repaint each time. */
 static void panel_update_hover(Panel *p, int axis_pos, int cross_pos)
 {
-    PanelWidget *hit = NULL;
-    int local_x = 0;
-    for (int i = 0; i < p->n_widgets; i++) {
-        PanelWidget *w = &p->widgets[i];
-        if (axis_pos >= w->x && axis_pos < w->x + w->len) {
-            hit = w;
-            local_x = axis_pos - w->x;
-            break;
-        }
-    }
-    if (hit != p->hover_widget || (hit && (local_x != p->hover_local_x || cross_pos != p->hover_local_y))) {
+    PanelWidget *hit = panel_widget_at(p, axis_pos, cross_pos);
+    int local_x = hit ? axis_pos - hit->x : 0;
+    int local_y = hit ? cross_pos - hit->y : 0;
+    if (hit != p->hover_widget || (hit && (local_x != p->hover_local_x || local_y != p->hover_local_y))) {
         p->hover_widget = hit;
         p->hover_local_x = local_x;
-        p->hover_local_y = cross_pos;
+        p->hover_local_y = local_y;
         p->dirty = 1;
     }
 }
@@ -3265,6 +3655,9 @@ static int run_as_daemon(const char *sockpath)
                      * see thumb.c/tooltip.c's tooltip_tick() */
                 } else if (panel_menu_handle_event(&ev)) {
                     /* consumed by the open context menu */
+                } else if (container_handle_event(&ev)) {
+                    /* Escape / click-outside / owner-icon click closed the
+                     * open container popup -- see container_handle_event() */
                 } else if (tooltip_handle_event(&ev)) {
                     /* consumed by the tooltip popup (just Expose -- it
                      * takes no grab and never handles clicks) */
@@ -3285,7 +3678,7 @@ static int run_as_daemon(const char *sockpath)
                     if (p && !is_sensor) {
                         int axis_pos = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? ev.xmotion.x : ev.xmotion.y;
                         int cross_pos = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? ev.xmotion.y : ev.xmotion.x;
-                        tooltip_notice_motion(p, axis_pos);
+                        tooltip_notice_motion(p, axis_pos, cross_pos);
                         panel_update_hover(p, axis_pos, cross_pos);
                     }
                 } else if (ev.type == EnterNotify) {
@@ -3427,6 +3820,7 @@ static int run_as_daemon(const char *sockpath)
         XFlush(g_dpy);
     }
 
+    panel_container_close_all();
     panel_menu_close();
     tooltip_close();
     for (int i = 0; i < MAX_PANELS; i++) {

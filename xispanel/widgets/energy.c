@@ -384,6 +384,7 @@ static int energy_on_button(PanelWidget *w, int button, int local_x, int local_y
 
 const PanelWidgetOps energy_ops = {
     .type_name = "energy",
+    .embeddable = 1,
     .priv_size = sizeof(EnergyPriv),
     .init = energy_init,
     .measure = energy_measure,

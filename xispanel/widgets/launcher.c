@@ -146,6 +146,7 @@ static int launcher_on_button(PanelWidget *w, int button, int local_x, int local
 
 const PanelWidgetOps launcher_ops = {
     .type_name = "launcher",
+    .embeddable = 1,
     .priv_size = sizeof(LauncherPriv),
     .init = launcher_init,
     .destroy = launcher_destroy,

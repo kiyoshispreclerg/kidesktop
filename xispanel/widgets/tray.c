@@ -195,6 +195,7 @@ static int tray_on_button(PanelWidget *w, int button, int local_x, int local_y, 
 
 const PanelWidgetOps tray_ops = {
     .type_name = "tray",
+    .embeddable = 1,
     .priv_size = sizeof(TrayPriv),
     .init = tray_init,
     .paint = tray_paint,

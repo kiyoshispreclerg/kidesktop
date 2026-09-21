@@ -349,6 +349,7 @@ static int notif_on_button(PanelWidget *w, int button, int local_x, int local_y,
 
 const PanelWidgetOps notif_ops = {
     .type_name = "notif",
+    .embeddable = 1,
     .priv_size = sizeof(NotifPriv),
     .init = notif_init,
     .paint = notif_paint,

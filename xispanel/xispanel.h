@@ -20,7 +20,12 @@
 #define MAX_WIDGETS 32
 
 enum edge { EDGE_TOP, EDGE_BOTTOM, EDGE_LEFT, EDGE_RIGHT };
-enum panel_mode { MODE_DOCK, MODE_OVERLAY, MODE_AUTOHIDE };
+/* MODE_CONTAINER: not a screen-edge bar at all but the popup a `container`
+ * widget on some other panel opens -- see "Container popups" in
+ * PROTOCOL.md. Same Panel struct, same widget/layout/paint/event
+ * machinery, just sized by its content, positioned beside its owner
+ * widget, and mapped only while open. */
+enum panel_mode { MODE_DOCK, MODE_OVERLAY, MODE_AUTOHIDE, MODE_CONTAINER };
 enum autohide_state { AH_HIDDEN, AH_SHOWING, AH_SHOWN, AH_HIDING };
 
 typedef struct PanelWidget PanelWidget;
@@ -51,6 +56,12 @@ typedef struct {
 typedef struct {
     const char *type_name; /* "spacer", "clock", "tasklist", ... -- used in config */
     size_t priv_size; /* per-instance state, zeroed on creation */
+    /* 1 if this type may be placed inside a `container` popup panel
+     * (mode=container). Widgets that only make sense on a real screen-
+     * edge bar (tasklist, winctl, pager, spacer, ...) and the container
+     * type itself (no nesting) leave this 0 -- panel_add_widget() refuses
+     * them on a container panel. */
+    int embeddable;
 
     int (*init)(PanelWidget *w);
     void (*destroy)(PanelWidget *w);
@@ -160,8 +171,10 @@ struct PanelWidget {
     void *priv;
 
     /* Filled in by panel_layout(); main-axis position/length, cross-axis
-     * thickness (<= panel thickness). */
-    int x, len, thickness;
+     * thickness (<= panel thickness). `y` is the cross-axis offset of the
+     * row this widget landed in -- always 0 on a normal one-row panel,
+     * only a container panel with layout=grid ever stacks rows. */
+    int x, y, len, thickness;
 
     /* 0 = no pending tick. Folded into the main loop's "soonest timeout"
      * computation so widgets don't need their own timerfd. */
@@ -328,6 +341,16 @@ struct Panel {
     PanelWidget widgets[MAX_WIDGETS];
     int n_widgets;
 
+    /* Container popups (mode=container) only. `owner` is the `container`
+     * widget (on some other panel) whose name= names this panel -- NULL
+     * until link_containers() resolves it after the config is read. `grid`
+     * is layout=grid (wrap widgets into rows aiming for a square) vs the
+     * default single row along the owner panel's own axis. `open` is 1
+     * while the popup is mapped (and holding the click-outside grab). */
+    PanelWidget *owner;
+    int grid;
+    int open;
+
     /* Generic per-panel hover-highlight state, updated by the main
      * event loop's MotionNotify/LeaveNotify handling -- see
      * panel_widget_hover_local_x() in xispanel.c. Independent of
@@ -409,6 +432,13 @@ int parse_hex_color(const char *hex, double *r, double *g, double *b, double *a)
  * orientation (horizontal panels lay widgets out along x, vertical panels
  * along y). */
 void widget_get_rect(const PanelWidget *w, int *x, int *y, int *width, int *height);
+/* The widget under (axis_pos, cross_pos) on p, in the panel's own
+ * physical window coordinates split into main/cross axis -- the one
+ * hit-test every click/hover/tooltip lookup shares. cross_pos only
+ * matters on a layout=grid container panel, where widgets stack in
+ * rows; a one-row panel matches on axis_pos alone. NULL if nothing is
+ * there. */
+PanelWidget *panel_widget_at(Panel *p, int axis_pos, int cross_pos);
 /* True (and fills *out_local_x, if not NULL) if the pointer is currently
  * hovering `w` -- generic hover-highlight support any widget can opt
  * into from its own paint(). *out_local_x is in the same local-axis
@@ -903,6 +933,28 @@ int panel_menu_is_open(void);
  * 0 otherwise -- xispanel.c's event loop dispatches to this first without
  * needing to know anything about the menu's internals. */
 int panel_menu_handle_event(const XEvent *ev);
+
+/* ---- container popups (xispanel.c) ----
+ *
+ * A `container` widget is a single icon on a normal panel that opens a
+ * whole second panel (a PANEL line with mode=container, named by the
+ * widget's name=) as a popup beside it -- no strut, mapped only while
+ * open, dismissed by a click anywhere outside it or Escape. The popup is
+ * a real Panel: its own WIDGET/THEME lines, the same layout/paint/hover/
+ * tooltip/menu code paths, just sized by its content and positioned like
+ * a menu frame. Only embeddable widget types may live in one (see
+ * PanelWidgetOps.embeddable). */
+/* The container panel whose name= link resolved to `w`, or NULL if the
+ * widget's name= matched no mode=container PANEL line (logged once at
+ * load; the icon then does nothing). */
+Panel *panel_container_popup(PanelWidget *w);
+void panel_container_toggle(Panel *popup);
+void panel_container_close_all(void);
+/* menu.c calls this from panel_menu_close(): a child widget's own menu
+ * took over the pointer/keyboard grab the open popup was holding for its
+ * click-outside dismissal, and releasing the menu's grab released ours
+ * too -- re-take it if a popup is still open. No-op otherwise. */
+void panel_container_menu_closed(void);
 /* Call periodically from the main loop (like tooltip_tick()/
  * tooltip_next_wake_ms()) -- drives the hover-open-submenu and
  * hover-away-closes-everything delays, which are time-based and not
@@ -982,7 +1034,7 @@ void modtap_process(void); /* call when modtap_fd() is readable */
  * panel widget and doesn't need to handle clicks itself -- the pointer
  * leaving the panel window is all it needs to know to hide. See tooltip.c
  * for the delay/positioning details. */
-void tooltip_notice_motion(Panel *p, int axis_pos); /* call on MotionNotify over a panel window */
+void tooltip_notice_motion(Panel *p, int axis_pos, int cross_pos); /* call on MotionNotify over a panel window */
 void tooltip_notice_leave(Panel *p); /* call on LeaveNotify from a panel window */
 void tooltip_tick(uint64_t now); /* advance the show-delay timer / refresh shown content */
 uint64_t tooltip_next_wake_ms(void); /* 0 = no pending timer, else fold into the main loop's timeout */
@@ -1357,5 +1409,6 @@ extern const PanelWidgetOps notif_ops;
 extern const PanelWidgetOps pager_ops;
 extern const PanelWidgetOps monitor_ops;
 extern const PanelWidgetOps energy_ops;
+extern const PanelWidgetOps container_ops;
 
 #endif

@@ -774,6 +774,7 @@ static int monitor_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t bu
 
 const PanelWidgetOps monitor_ops = {
     .type_name = "monitor",
+    .embeddable = 1,
     .priv_size = sizeof(MonitorPriv),
     .init = monitor_init,
     .measure = monitor_measure,

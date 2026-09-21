@@ -46,6 +46,11 @@ defaults (Fontconfig's `sans-serif`, dark panel colors). See
 - Widgets that don't fit the panel's available space shrink toward a
   per-type minimum instead of overflowing it (see PROTOCOL.md's "Widget
   sizing").
+- `container`: one chevron on a bar that opens a whole second panel
+  (`PANEL ... mode=container`, its own widgets/theme, one row or a
+  square-ish grid) as a popup beside it -- a system-tray-style drawer
+  for the widgets that don't need to be on the bar all the time. See
+  PROTOCOL.md's "Container popups".
 - A generic context-menu popup any widget can use for itself or a
   sub-item, not just the panel as a whole -- glued to the panel edge and
   aligned to the triggering item, plasmashell-style.
