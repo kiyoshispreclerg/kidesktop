@@ -536,6 +536,23 @@ static const WidgetField XISSERVE_FIELDS[] = {
     WF_STR("name", "Nome (dica)", "Applications"),
     WF_STR("hotkey", "Atalho global (opcional)", ""),
 };
+/* name= is the mode=container PANEL this chevron opens -- the popup's
+ * own widgets are edited by selecting *that* panel in the Paineis list,
+ * same as any other panel's. */
+static const WidgetField CONTAINER_FIELDS[] = {
+    WF_STR("name", "Painel container que abre (nome)", ""),
+    WF_STR("icon", "Icone (caminho; vazio = setinha)", ""),
+    WF_STR("hotkey", "Atalho global (opcional)", ""),
+};
+
+/* Extra row every widget gets while it sits *inside* a container panel
+ * (see is_container_panel()): inline=no|urgent|yes, whether it also/only
+ * shows on the owner bar -- see xispanel/PROTOCOL.md's "Container
+ * popups". Not a per-type schema field since it's the panel it's on,
+ * not the type, that decides whether the key means anything. */
+static const char *const INLINE_OPTS[] = {"no", "urgent", "yes", NULL};
+static const WidgetField CONTAINER_INLINE_FIELD =
+    WF_ENUM("inline", "Mostrar no painel dono (inline)", "no", INLINE_OPTS);
 
 #define WSCHEMA(n, f) {n, f, (int)(sizeof(f) / sizeof(f[0]))}
 static const WidgetSchema WIDGET_SCHEMAS[] = {
@@ -553,15 +570,23 @@ static const WidgetSchema WIDGET_SCHEMAS[] = {
     WSCHEMA("globalmenu", GLOBALMENU_FIELDS),
     WSCHEMA("folder", FOLDER_FIELDS),
     WSCHEMA("xisserve", XISSERVE_FIELDS),
+    WSCHEMA("container", CONTAINER_FIELDS),
 };
 #undef WSCHEMA
 #define N_WIDGET_SCHEMAS ((int)(sizeof(WIDGET_SCHEMAS) / sizeof(WIDGET_SCHEMAS[0])))
-#define WIDGET_MAX_FIELDS 13 /* winctl/monitor have the most, at 10/13 */
+#define WIDGET_MAX_FIELDS 14 /* winctl/monitor have the most, at 10/13, plus the inline row */
 
 static const char *const WIDGET_TYPE_NAMES[] = {
     "spacer", "clock", "tasklist", "pager", "monitor", "winctl", "tray", "launcher",
-    "volume", "energy", "notif", "globalmenu", "folder", "xisserve", NULL,
+    "volume", "energy", "notif", "globalmenu", "folder", "xisserve", "container", NULL,
 };
+/* The only types xispanel accepts on a mode=container panel (its
+ * `embeddable` PanelWidgetOps flag -- keep in sync with the widget files
+ * under xispanel/widgets/). Deliberately no `container`: they don't nest. */
+static const char *const EMBEDDABLE_TYPE_NAMES[] = {
+    "monitor", "tray", "launcher", "volume", "energy", "notif", "folder", NULL,
+};
+
 
 static const WidgetSchema *find_widget_schema(const char *name)
 {
@@ -663,6 +688,33 @@ static void wopts_append(char *opts, size_t optssz, const char *key, const char 
     } else {
         snprintf(opts + len, optssz - len, "%s", val);
     }
+}
+
+/* 1 if the PANEL row named `panel` in g_panels_store has mode=container
+ * -- decides which type list and which extra fields the widget dialog
+ * shows for the selected panel's widgets. */
+static int is_container_panel(const char *panel)
+{
+    if (!panel || !panel[0]) {
+        return 0;
+    }
+    int result = 0;
+    GtkTreeIter it;
+    gboolean valid = gtk_tree_model_get_iter_first(GTK_TREE_MODEL(g_panels_store), &it);
+    while (valid && !result) {
+        gchar *name, *opts;
+        gtk_tree_model_get(GTK_TREE_MODEL(g_panels_store), &it, COL_PANEL_NAME, &name, COL_PANEL_OPTIONS, &opts, -1);
+        if (name && !strcmp(name, panel)) {
+            WOptToken toks[MAX_WOPT_TOKENS];
+            int n = parse_wopts_tokens(opts, toks, MAX_WOPT_TOKENS);
+            const char *mode = wopts_tokens_find(toks, n, "mode");
+            result = mode && !strcmp(mode, "container");
+        }
+        g_free(name);
+        g_free(opts);
+        valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(g_panels_store), &it);
+    }
+    return result;
 }
 
 static GtkWidget *build_widget_field(const WidgetField *f, const char *val)
@@ -845,6 +897,8 @@ typedef struct {
     GtkWidget *fields_box;
     GtkWidget *field_widgets[WIDGET_MAX_FIELDS];
     const WidgetSchema *schema;
+    int in_container;         /* editing a widget of a mode=container panel */
+    GtkWidget *inline_widget; /* the CONTAINER_INLINE_FIELD row, when in_container */
 } WidgetDialogState;
 
 static void rebuild_widget_fields(WidgetDialogState *st, const WOptToken *toks, int n_toks)
@@ -862,12 +916,20 @@ static void rebuild_widget_fields(WidgetDialogState *st, const WOptToken *toks, 
     }
     g_free(name);
 
-    GtkWidget *table = gtk_table_new(st->schema->n_fields > 0 ? st->schema->n_fields : 1, 2, FALSE);
+    int n_rows = st->schema->n_fields + (st->in_container ? 1 : 0);
+    GtkWidget *table = gtk_table_new(n_rows > 0 ? n_rows : 1, 2, FALSE);
     for (int i = 0; i < st->schema->n_fields; i++) {
         const WidgetField *f = &st->schema->fields[i];
         const char *val = n_toks > 0 ? wopts_tokens_find(toks, n_toks, f->key) : NULL;
         st->field_widgets[i] = build_widget_field(f, val);
         labeled_row(table, i, f->label, st->field_widgets[i]);
+    }
+    st->inline_widget = NULL;
+    if (st->in_container) {
+        const WidgetField *f = &CONTAINER_INLINE_FIELD;
+        const char *val = n_toks > 0 ? wopts_tokens_find(toks, n_toks, f->key) : NULL;
+        st->inline_widget = build_widget_field(f, val);
+        labeled_row(table, st->schema->n_fields, f->label, st->inline_widget);
     }
     gtk_box_pack_start(GTK_BOX(st->fields_box), table, FALSE, FALSE, 0);
     gtk_widget_show_all(st->fields_box);
@@ -897,13 +959,18 @@ static void open_widget_dialog(GtkTreeIter *iter)
         gtk_tree_model_get(GTK_TREE_MODEL(g_widgets_store), iter, COL_WIDGET_TYPE, &cur_type, COL_WIDGET_OPTIONS,
                             &cur_opts, -1);
     }
-    const char *initial_type = (cur_type && find_widget_schema(cur_type)) ? cur_type : WIDGET_TYPE_NAMES[0];
+    /* A container panel only takes embeddable types (xispanel logs and
+     * drops anything else), so don't even offer the rest there. */
+    int in_container = is_container_panel(g_selected_panel);
+    const char *const *type_names = in_container ? EMBEDDABLE_TYPE_NAMES : WIDGET_TYPE_NAMES;
+    const char *initial_type = (cur_type && find_widget_schema(cur_type)) ? cur_type : type_names[0];
 
     WOptToken toks[MAX_WOPT_TOKENS];
     int n_toks = parse_wopts_tokens(cur_opts, toks, MAX_WOPT_TOKENS);
 
     WidgetDialogState st;
     memset(&st, 0, sizeof(st));
+    st.in_container = in_container;
 
     GtkWidget *dialog = gtk_dialog_new_with_buttons(iter ? "Editar widget" : "Adicionar widget", NULL,
                                                      GTK_DIALOG_MODAL, GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
@@ -915,7 +982,7 @@ static void open_widget_dialog(GtkTreeIter *iter)
     gtk_box_pack_start(GTK_BOX(content_area), outer, TRUE, TRUE, 0);
 
     GtkWidget *top_table = gtk_table_new(1, 2, FALSE);
-    st.type_combo = make_options_combo(WIDGET_TYPE_NAMES, initial_type);
+    st.type_combo = make_options_combo(type_names, initial_type);
     labeled_row(top_table, 0, "Tipo de widget:", st.type_combo);
     gtk_box_pack_start(GTK_BOX(outer), top_table, FALSE, FALSE, 0);
 
@@ -942,6 +1009,13 @@ static void open_widget_dialog(GtkTreeIter *iter)
              * key", see the file doc comment above WT_COLOR_OPT. */
             if (valbuf[0] && strcmp(valbuf, "none") != 0) {
                 wopts_append(opts, sizeof(opts), st.schema->fields[i].key, valbuf);
+            }
+        }
+        if (st.inline_widget) {
+            char valbuf[256];
+            widget_field_value(&CONTAINER_INLINE_FIELD, st.inline_widget, valbuf, sizeof(valbuf));
+            if (valbuf[0] && strcmp(valbuf, "no") != 0) { /* "no" is xispanel's default: omit */
+                wopts_append(opts, sizeof(opts), CONTAINER_INLINE_FIELD.key, valbuf);
             }
         }
         gchar *type = gtk_combo_box_get_active_text(GTK_COMBO_BOX(st.type_combo));
@@ -995,14 +1069,16 @@ static void rename_panel_everywhere(const char *old_name, const char *new_name)
  * "PANEL" reference, kept in sync with that, not the other way around),
  * so writing them all is exactly the same as leaving them unset. */
 static const char *const PANEL_EDGE_OPTS[] = {"top", "bottom", "left", "right", NULL};
-static const char *const PANEL_MODE_OPTS[] = {"dock", "overlay", "autohide", NULL};
+static const char *const PANEL_MODE_OPTS[] = {"dock", "overlay", "autohide", "container", NULL};
+static const char *const PANEL_LAYOUT_OPTS[] = {"row", "grid", NULL};
 static const char *const PANEL_ROTATE_OPTS[] = {"0", "90", "180", "270", NULL};
 
 static const WidgetField PANEL_FIELDS[] = {
     WF_ENUM("edge", "Borda", "top", PANEL_EDGE_OPTS),
     WF_INT("pct", "Percentual da borda ocupado (1-100)", "100", 1, 100),
     WF_INT("thickness", "Espessura (px)", "32", 4, 500),
-    WF_ENUM("mode", "Modo", "dock", PANEL_MODE_OPTS),
+    WF_ENUM("mode", "Modo (container = popup de um widget container)", "dock", PANEL_MODE_OPTS),
+    WF_ENUM("layout", "Disposicao (so mode=container)", "row", PANEL_LAYOUT_OPTS),
     WF_ENUM("rotate", "Rotacao do conteudo (graus)", "0", PANEL_ROTATE_OPTS),
     WF_INT("tooltip_delay", "Atraso pra abrir dica (ms)", "500", 0, 10000),
     WF_INT("tooltip_close_delay", "Atraso pra fechar dica (ms)", "300", 0, 10000),
