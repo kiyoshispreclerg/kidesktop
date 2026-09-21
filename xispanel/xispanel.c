@@ -95,7 +95,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.28"
+#define XISPANEL_VERSION "0.6.29"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -2717,6 +2717,7 @@ static void load_config(void)
 }
 
 static void link_containers(void);
+static void schedule_widget_repoll(uint64_t at_ms);
 
 static void reload_all_panels(void)
 {
@@ -3166,6 +3167,7 @@ static void container_close(Panel *q)
             panel_autohide_leave(o);
         }
     }
+    schedule_widget_repoll(now_ms()); /* notif re-reads panel_free_area() right away */
     XFlush(g_dpy);
 }
 
@@ -3190,6 +3192,7 @@ static void container_open(Panel *q)
     panel_repaint(q); /* paint before the first Expose can show a blank frame */
     container_grab(q);
     q->owner->panel->dirty = 1;
+    schedule_widget_repoll(now_ms()); /* notif re-reads panel_free_area() right away */
 }
 
 void panel_container_toggle(Panel *popup)
@@ -3205,6 +3208,49 @@ void panel_container_close_all(void)
 {
     if (g_open_container) {
         container_close(g_open_container);
+    }
+}
+
+void panel_free_area(const Panel *p, int *out_x, int *out_y, int *out_w, int *out_h)
+{
+    int ox = p->out_x, oy = p->out_y, ow = p->out_w, oh = p->out_h;
+    int strip[4] = {0}; /* indexed by enum edge */
+    for (int i = 0; i < MAX_PANELS; i++) {
+        const Panel *b = &g_panels[i];
+        if (!b->in_use || b->mode != MODE_DOCK || b->out_x != ox || b->out_y != oy || b->out_w != ow ||
+            b->out_h != oh) {
+            continue;
+        }
+        int s = (b->edge == EDGE_TOP)      ? b->y + b->h - oy
+                : (b->edge == EDGE_BOTTOM) ? oy + oh - b->y
+                : (b->edge == EDGE_LEFT)   ? b->x + b->w - ox
+                                           : ox + ow - b->x;
+        if (s > strip[b->edge]) {
+            strip[b->edge] = s;
+        }
+    }
+    const Panel *q = g_open_container;
+    if (q && q->owner) {
+        const Panel *b = q->owner->panel;
+        if (b->mode == MODE_DOCK && b->out_x == ox && b->out_y == oy && b->out_w == ow && b->out_h == oh) {
+            int s = (b->edge == EDGE_TOP)      ? q->y + q->h - oy
+                    : (b->edge == EDGE_BOTTOM) ? oy + oh - q->y
+                    : (b->edge == EDGE_LEFT)   ? q->x + q->w - ox
+                                               : ox + ow - q->x;
+            if (s > strip[b->edge]) {
+                strip[b->edge] = s;
+            }
+        }
+    }
+    *out_x = ox + strip[EDGE_LEFT];
+    *out_y = oy + strip[EDGE_TOP];
+    *out_w = ow - strip[EDGE_LEFT] - strip[EDGE_RIGHT];
+    *out_h = oh - strip[EDGE_TOP] - strip[EDGE_BOTTOM];
+    if (*out_w < 1) {
+        *out_w = 1;
+    }
+    if (*out_h < 1) {
+        *out_h = 1;
     }
 }
 

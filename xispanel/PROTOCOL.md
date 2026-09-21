@@ -491,7 +491,12 @@ Widget types implemented so far:
   many `notif` widgets exist, so the last one to load wins for both, and
   `timeout=` only applies to senders that didn't request their own
   expire timeout. The toasts are confined to this widget's own panel's
-  output and painted in that panel's `bg`/`fg`.
+  output minus every `mode=dock` bar's strip on it and, while one is
+  open, minus the container popup hanging off any of those bars (so a
+  toast in the same corner as an open drawer stacks past it instead of
+  over it -- they re-place live as the popup opens/closes), and painted
+  in that panel's `bg`/`fg`. Inside a container popup, "own panel" is
+  the owner bar for both.
 - `globalmenu`: renders the active window's exported application menu
   (File/Edit/View/...), when it has one -- see "Global menu (appmenu)"
   below for the underlying mechanism. `mode=open|closed` (default

@@ -981,6 +981,15 @@ void panel_container_close_all(void);
  * click-outside dismissal, and releasing the menu's grab released ours
  * too -- re-take it if a popup is still open. No-op otherwise. */
 void panel_container_menu_closed(void);
+
+/* The part of the output `p` sits on that no bar covers: the output
+ * rect minus every mode=dock panel's edge strip on that same output
+ * (not just p's own -- a second dock on the opposite edge counts too)
+ * and, while one is open, minus the container popup hanging off any of
+ * those bars (the strip on its owner's edge grows to the popup's far
+ * edge). For a container popup `p` itself this is its owner bar's
+ * output. What the toast stack confines itself to -- see notif.c. */
+void panel_free_area(const Panel *p, int *out_x, int *out_y, int *out_w, int *out_h);
 /* Call periodically from the main loop (like tooltip_tick()/
  * tooltip_next_wake_ms()) -- drives the hover-open-submenu and
  * hover-away-closes-everything delays, which are time-based and not

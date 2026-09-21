@@ -32,7 +32,8 @@
  *
  * The toast stack is also confined to *this* widget's own panel's
  * output (toast_set_output_rect(), see xispanel.h) -- never the whole
- * multi-monitor screen -- and painted in this panel's own bg/fg theme
+ * multi-monitor screen -- minus every dock bar on it and any open
+ * container popup (panel_free_area()), and painted in this panel's own bg/fg theme
  * colors (toast_set_colors()), so toasts visually match the panel that
  * owns the bell icon rather than using a hardcoded look.
  */
@@ -74,39 +75,6 @@ static ToastCorner parse_corner(const char *s)
         return TOAST_CORNER_CENTER_RIGHT;
     }
     return TOAST_CORNER_BOTTOM_RIGHT;
-}
-
-/* This panel's own output, shrunk by its own dock strip (if it reserves
- * one) -- see toast_set_output_rect()'s doc comment. Only this panel's
- * own strip is accounted for (not any *other* panel/dock that might
- * also sit on the same output), same pragmatic scope the rest of this
- * feature keeps: exactly right for the common single-panel-per-output
- * setup, a reasonable approximation otherwise. */
-static void compute_output_rect(Panel *p, int *out_x, int *out_y, int *out_w, int *out_h)
-{
-    *out_x = p->out_x;
-    *out_y = p->out_y;
-    *out_w = p->out_w;
-    *out_h = p->out_h;
-    if (p->mode != MODE_DOCK) {
-        return;
-    }
-    switch (p->edge) {
-    case EDGE_TOP:
-        *out_y += p->thickness;
-        *out_h -= p->thickness;
-        break;
-    case EDGE_BOTTOM:
-        *out_h -= p->thickness;
-        break;
-    case EDGE_LEFT:
-        *out_x += p->thickness;
-        *out_w -= p->thickness;
-        break;
-    case EDGE_RIGHT:
-        *out_w -= p->thickness;
-        break;
-    }
 }
 
 static int notif_init(PanelWidget *w)
@@ -155,7 +123,7 @@ static int notif_on_tick(PanelWidget *w, uint64_t now)
      * by itself warrant a panel repaint. */
     Panel *p = w->panel;
     int ox, oy, ow, oh;
-    compute_output_rect(p, &ox, &oy, &ow, &oh);
+    panel_free_area(p, &ox, &oy, &ow, &oh);
     toast_set_output_rect(ox, oy, ow, oh);
     toast_set_colors(p->bg_r, p->bg_g, p->bg_b, p->bg_a, p->fg_r, p->fg_g, p->fg_b, p->fg_a);
     toast_set_bg_image(p->bg_image_surface, p->bg_slice_l, p->bg_slice_t, p->bg_slice_r, p->bg_slice_b);
