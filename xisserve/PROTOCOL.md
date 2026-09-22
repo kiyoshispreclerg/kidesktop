@@ -69,10 +69,10 @@ shipped widget with no page implemented for it.)
   size) and its own reposition pass, so it still clamps fully inside
   `--output-*` on outputs much smaller than the launcher's own fixed
   size. A second invocation toggles/repositions/retheme exactly like the
-  launcher view (see "Singleton / toggle behavior" below) -- switching
-  between calendar and launcher mode on an already-open xisserve still
-  just closes it on that click, same as any other toggle; the new mode
-  takes effect on the *next* open.
+  launcher view (see "Singleton / toggle behavior" below) -- and since
+  the toggle is per mode, asking for the calendar while the launcher (or
+  any other page) is open switches to it right there rather than closing
+  what's up.
 
 - `--audio`: passed by xispanel's `volume` widget on left click,
   anchored to the volume icon. Shows the streams currently playing or
@@ -337,6 +337,19 @@ icon for a possibly-already-open app works. This means:
   widgets are two different buttons, and making the user dismiss one
   popup before the other button would do anything cost a click for
   nothing -- see xisserve.c's `toggle_visibility()`.
+- While a popup is up xisserve holds an input grab, so the click that
+  dismisses it never reaches the panel. If that click landed on a panel
+  (an EWMH `_NET_WM_WINDOW_TYPE_DOCK` window, which is what xispanel
+  marks its panels as) xisserve re-delivers it with XTest once the
+  window is gone and the user's button is back up, so the widget under
+  the pointer sees a normal click and does whatever it does -- which,
+  with the per-mode toggle above, is what makes switching popups a
+  single click. Widgets need no code for this and can't tell such a
+  click apart from any other; the only thing xisserve itself does
+  differently is ignore the request that comes straight back from a
+  replayed click asking for the page it just closed (that's the same
+  button being pressed again, and it has already done its job). A click
+  on anything that isn't a dock stays swallowed, as before.
 - The simplest way to hand the new argv to an already-running instance:
   have the second invocation connect to a small control socket the first
   instance opened (line-JSON, same shape as `xisguard-ctl`/

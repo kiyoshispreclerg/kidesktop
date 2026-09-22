@@ -21,6 +21,9 @@
  */
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
+#include <gdk/gdkx.h>
+#include <X11/Xatom.h>
+#include <X11/extensions/XTest.h> /* passing a dismissing click through to the panel, see replay_click() */
 
 #include "xisserve.h"
 
@@ -43,7 +46,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.28"
+#define XISSERVE_VERSION "0.1.29"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -2138,6 +2141,14 @@ static void apply_view_mode(void)
  * page has been told anything. */
 static int g_shown_page = PAGE_LAUNCHER;
 
+/* The page that was on screen when a click was last passed through, and
+ * when -- see on_ctl_accept(), which uses them to tell "the same widget
+ * was clicked again" (close, and stay closed) from "another widget was
+ * clicked" (open that one). */
+static int g_replayed_page = PAGE_LAUNCHER;
+static gint64 g_replayed_at;
+#define REPLAY_DEBOUNCE_US 700000
+
 static void leave_current_page(void)
 {
     if (g_shown_page >= 0 && kPages[g_shown_page].on_hide) {
@@ -2372,6 +2383,24 @@ static gboolean on_ctl_accept(GIOChannel *source, GIOCondition cond, gpointer da
 
     LaunchArgs newargs;
     if (parse_json_args(buf, &newargs)) {
+        /* A click we passed through to the panel (replay_click()) comes
+         * back here almost immediately, as the widget under it spawning
+         * its own xisserve. If it asks for the very page that click
+         * just dismissed, it was the same widget being clicked a second
+         * time -- the close already happened, so opening again would
+         * make that button impossible to close with. Any other page is
+         * a different widget, which is the whole point of the replay.
+         *
+         * Only a replayed click arms this, and only for a moment, so an
+         * ordinary second press of the same panel button (nothing on
+         * screen, nothing replayed) still opens normally. */
+        if (!GTK_WIDGET_VISIBLE(g_window) && g_replayed_at &&
+            g_get_monotonic_time() - g_replayed_at < REPLAY_DEBOUNCE_US &&
+            newargs.page == g_replayed_page) {
+            g_replayed_at = 0;
+            return TRUE;
+        }
+        g_replayed_at = 0;
         g_args = newargs;
         apply_theme();
         /* reposition_window() is no longer called standalone here -- it
@@ -2578,6 +2607,131 @@ static gboolean on_tree_button_press(GtkWidget *tv, GdkEventButton *ev, gpointer
  * clicks landing on g_window's own background between child widgets
  * (the vbox has no GdkWindow of its own, so those land here too) --
  * only the former should close the popup, hence the bounds check. */
+/* ---- passing a dismissing click through to the panel ---------------------
+ *
+ * The input grab that makes "click anywhere else to close" work also
+ * eats that click, so switching from one panel widget's page to
+ * another's used to take two clicks: one outside to dismiss, one on the
+ * widget that was already clicked. This section is what makes it one --
+ * a dismissing click that landed on a panel is re-delivered after the
+ * window is gone, so the widget under the pointer sees it and asks for
+ * its own page (which toggle_visibility() now swaps in place).
+ *
+ * Only clicks on an EWMH dock (what xispanel marks its panels as, see
+ * xispanel/xispanel.c) are passed on. A dismissing click on an ordinary
+ * window stays swallowed, exactly as before: clicking "somewhere else"
+ * to close a popup shouldn't also press whatever button happened to be
+ * under the pointer in another application.
+ */
+
+/* Walks the window tree down from the root along the pointer's position
+ * looking for _NET_WM_WINDOW_TYPE_DOCK -- checked at every level rather
+ * than only on the deepest child, since the dock property lives on a
+ * panel's toplevel and the pointer is usually over one of its children.
+ * Errors are trapped: any window here can be destroyed between the
+ * query and the property read. */
+static gboolean pointer_over_dock(void)
+{
+    Display *dpy = GDK_DISPLAY();
+    Atom type_atom = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE", True);
+    Atom dock_atom = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_DOCK", True);
+    if (type_atom == None || dock_atom == None) return FALSE;
+
+    gboolean found = FALSE;
+    gdk_error_trap_push();
+
+    Window w = GDK_ROOT_WINDOW(), child = None, root_ret;
+    int rx, ry, wx, wy;
+    unsigned int mask;
+    while (!found && XQueryPointer(dpy, w, &root_ret, &child, &rx, &ry, &wx, &wy, &mask) &&
+           child != None) {
+        w = child;
+        Atom actual;
+        int fmt;
+        unsigned long n = 0, after = 0;
+        unsigned char *prop = NULL;
+        if (XGetWindowProperty(dpy, w, type_atom, 0, 8, False, XA_ATOM, &actual, &fmt, &n, &after,
+                               &prop) == Success && prop) {
+            if (actual == XA_ATOM && fmt == 32) {
+                Atom *atoms = (Atom *)prop;
+                for (unsigned long i = 0; i < n; i++) {
+                    if (atoms[i] == dock_atom) found = TRUE;
+                }
+            }
+            XFree(prop);
+        }
+    }
+
+    gdk_flush();
+    gdk_error_trap_pop();
+    return found;
+}
+
+/* Synthesizing the click the grab swallowed has one hard requirement:
+ * the user's own button must be up first. A press of a button the
+ * server already considers held produces nothing at all, and while this
+ * runs from that very press's handler the real release hasn't happened
+ * yet -- a human holds a click for tens of milliseconds. Firing
+ * immediately therefore delivered only the release half, and the widget
+ * under the pointer saw no click; with fast synthetic input (xdotool)
+ * it worked or not depending on which arrived first, which is exactly
+ * the sort of intermittency that would have been miserable to chase
+ * later. So: poll for the release, then replay.
+ *
+ * XTest rather than XSendEvent because a panel has no reason to accept
+ * synthetic events, and xisserve already links libXtst for the
+ * on-screen keyboard. */
+#define REPLAY_POLL_MS 10
+#define REPLAY_GIVE_UP_MS 600
+
+typedef struct {
+    guint button;
+    int waited_ms;
+} PendingReplay;
+
+static gboolean replay_when_released(gpointer data)
+{
+    PendingReplay *pr = data;
+    Display *dpy = GDK_DISPLAY();
+
+    Window root_ret, child = None;
+    int rx, ry, wx, wy;
+    unsigned int mask = 0;
+    if (!XQueryPointer(dpy, GDK_ROOT_WINDOW(), &root_ret, &child, &rx, &ry, &wx, &wy, &mask)) {
+        g_free(pr);
+        return FALSE;
+    }
+
+    if (mask & (Button1Mask | Button2Mask | Button3Mask | Button4Mask | Button5Mask)) {
+        pr->waited_ms += REPLAY_POLL_MS;
+        if (pr->waited_ms < REPLAY_GIVE_UP_MS) return TRUE; /* still held -- keep waiting */
+        g_free(pr);                                          /* stuck button, or a drag: drop it */
+        return FALSE;
+    }
+
+    /* The pointer can have left the panel while the button was held --
+     * a press-drag-release is not a click on anything, and passing it
+     * on would press whatever the pointer ended up over. */
+    if (pointer_over_dock()) {
+        /* Timed from here, not from the click that started the wait:
+         * what on_ctl_accept() is debouncing is the request this very
+         * replay is about to provoke. */
+        g_replayed_at = g_get_monotonic_time();
+        XTestFakeButtonEvent(dpy, pr->button, True, CurrentTime);
+        XTestFakeButtonEvent(dpy, pr->button, False, CurrentTime);
+        XFlush(dpy);
+    }
+    g_free(pr);
+    return FALSE;
+}
+
+static void replay_click(guint button)
+{
+    PendingReplay *pr = g_new0(PendingReplay, 1);
+    pr->button = button;
+    g_timeout_add(REPLAY_POLL_MS, replay_when_released, pr);
+}
+
 static gboolean on_window_button_press(GtkWidget *w, GdkEventButton *ev, gpointer data)
 {
     (void)data;
@@ -2591,7 +2745,13 @@ static gboolean on_window_button_press(GtkWidget *w, GdkEventButton *ev, gpointe
          * still land here in the window between unpinning and the grab
          * being re-established.) */
         if (g_pinned) return FALSE;
-        hide_launcher();
+        gboolean to_panel = pointer_over_dock();
+        int was_showing = g_shown_page;
+        hide_launcher(); /* drops the grab, so the replay below reaches the panel */
+        if (to_panel) {
+            g_replayed_page = was_showing;
+            replay_click(ev->button);
+        }
         return TRUE;
     }
     /* Clicked inside while pinned: take the keyboard back. Nothing else
