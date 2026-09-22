@@ -909,13 +909,20 @@ static void tasklist_measure(PanelWidget *w, int cross_axis, int *out_len, int *
  * the top of both paint() and on_button() so hit-testing and drawing can
  * never disagree about where a button (or the scroll arrows) actually is.
  *
- * When scrollable, a TASKLIST_ARROW_W-wide slot is reserved at *both*
- * ends of the widget (not just the trailing one a stacked up/down pair
- * used to occupy) -- always, regardless of scroll_offset, so the button
- * row's own position/width stays put as scrolling reveals/hides one end
- * or the other; only can_left/can_right (whether each slot's arrow is
- * actually usable right now) change, deciding what tasklist_paint() draws
- * into an already-reserved slot, not the slot's own existence. */
+ * Each end's TASKLIST_ARROW_W slot is reserved only while that specific
+ * direction actually needs its arrow -- unlike the (always-both-reserved)
+ * first cut of this, so scrolled all the way to one end lets the button
+ * row use the *other* end's now-unneeded slot too, instead of leaving it
+ * permanently blank. The left slot is trivial (scroll_offset > 0 alone
+ * decides it, independent of how anything lays out); the right slot
+ * isn't knowable until we see whether the visible buttons actually reach
+ * the last display slot, which itself depends on how much room was
+ * reserved -- so this tries with the right slot reserved first
+ * (pessimistic), and only if the layout still reaches the end anyway,
+ * retries once without it. Freeing that space can only let *more*
+ * buttons fit, never fewer, so a "reaches the end" verdict from the first
+ * pass only gets more true on the second, never flips back -- one retry
+ * is always enough, no fixed point iteration needed. */
 static void tasklist_layout_visible(PanelWidget *w)
 {
     TasklistPriv *tp = w->priv;
@@ -926,11 +933,6 @@ static void tasklist_layout_visible(PanelWidget *w)
     }
 
     tp->scrollable = natural_total > w->len;
-    int reserve = tp->scrollable ? (TASKLIST_ARROW_W + TASKLIST_ARROW_GAP) : 0;
-    int content_avail = w->len - 2 * reserve;
-    if (content_avail < 0) {
-        content_avail = 0;
-    }
 
     if (!tp->scrollable) {
         /* Everything fits again (tasks closed since the user last
@@ -947,41 +949,65 @@ static void tasklist_layout_visible(PanelWidget *w)
         tp->scroll_offset = 0;
     }
 
-    int cursor = reserve; /* leading arrow slot, if reserved */
-    tp->n_visible = 0;
-    /* tp->vis_idx[] now stores *display-slot* indices (0..n_display-1),
-     * not raw tasks[] indices -- resolve via tp->display_repr[] wherever
-     * the actual TaskEntry is needed. */
-    for (int i = tp->scroll_offset; i < tp->n_display && tp->n_visible < MAX_TASKS; i++) {
-        int bw = tp->btn_w[i];
-        int gap = tp->n_visible > 0 ? TASKLIST_BTN_GAP : 0;
-        if (tp->n_visible > 0 && cursor - reserve + gap + bw > content_avail) {
-            break;
+    int left_reserve = (tp->scrollable && tp->scroll_offset > 0) ? (TASKLIST_ARROW_W + TASKLIST_ARROW_GAP) : 0;
+    int right_reserve = tp->scrollable ? (TASKLIST_ARROW_W + TASKLIST_ARROW_GAP) : 0;
+
+    for (int pass = 0; pass < 2; pass++) {
+        int content_avail = w->len - left_reserve - right_reserve;
+        if (content_avail < 0) {
+            content_avail = 0;
         }
-        if (tp->n_visible == 0 && bw > content_avail) {
-            bw = content_avail; /* clip the single button that still fits */
+
+        int cursor = left_reserve;
+        tp->n_visible = 0;
+        /* tp->vis_idx[] stores *display-slot* indices (0..n_display-1),
+         * not raw tasks[] indices -- resolve via tp->display_repr[]
+         * wherever the actual TaskEntry is needed. */
+        for (int i = tp->scroll_offset; i < tp->n_display && tp->n_visible < MAX_TASKS; i++) {
+            int bw = tp->btn_w[i];
+            int gap = tp->n_visible > 0 ? TASKLIST_BTN_GAP : 0;
+            if (tp->n_visible > 0 && cursor - left_reserve + gap + bw > content_avail) {
+                break;
+            }
+            if (tp->n_visible == 0 && bw > content_avail) {
+                bw = content_avail; /* clip the single button that still fits */
+            }
+            cursor += gap;
+            tp->vis_idx[tp->n_visible] = i;
+            tp->vis_x[tp->n_visible] = cursor;
+            tp->vis_w[tp->n_visible] = bw;
+            cursor += bw;
+            tp->n_visible++;
         }
-        cursor += gap;
-        tp->vis_idx[tp->n_visible] = i;
-        tp->vis_x[tp->n_visible] = cursor;
-        tp->vis_w[tp->n_visible] = bw;
-        cursor += bw;
-        tp->n_visible++;
+
+        int reaches_end = tp->n_visible > 0 && tp->vis_idx[tp->n_visible - 1] >= tp->n_display - 1;
+        if (pass == 0 && right_reserve > 0 && reaches_end) {
+            right_reserve = 0; /* the reserved slot went unused -- retry without it */
+            continue;
+        }
+        break;
     }
 
-    tp->can_left = tp->scrollable && tp->scroll_offset > 0;
-    tp->can_right = tp->scrollable && tp->n_visible > 0 && tp->vis_idx[tp->n_visible - 1] < tp->n_display - 1;
+    tp->can_left = left_reserve > 0;
+    tp->can_right = right_reserve > 0;
 }
 
-/* 1 if local_x falls inside either end's reserved arrow slot (whether or
- * not that particular arrow is actually usable right now -- see
- * tasklist_layout_visible()'s doc comment on why the slot itself is
- * always reserved). Shared by every hit-test in this file (tooltip
- * variants, on_button's click routing) so none of them can disagree with
- * paint() about where the button row actually starts/ends. */
+/* 1 if local_x falls inside an end's arrow slot that's actually reserved
+ * right now (can_left/can_right -- see tasklist_layout_visible()'s doc
+ * comment: a direction with nothing left to scroll to reserves no space
+ * at all, so its slot is just ordinary button-row territory here, not an
+ * arrow zone). Shared by every hit-test in this file (tooltip variants,
+ * on_button's click routing) so none of them can disagree with paint()
+ * about where the button row actually starts/ends. */
 static int tasklist_in_arrow_zone(const TasklistPriv *tp, int w_len, int local_x)
 {
-    return tp->scrollable && (local_x < TASKLIST_ARROW_W || local_x >= w_len - TASKLIST_ARROW_W);
+    if (tp->can_left && local_x < TASKLIST_ARROW_W) {
+        return 1;
+    }
+    if (tp->can_right && local_x >= w_len - TASKLIST_ARROW_W) {
+        return 1;
+    }
+    return 0;
 }
 
 /* Full (untruncated) title of whatever task button is under local_x, with

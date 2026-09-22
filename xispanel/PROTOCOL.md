@@ -267,13 +267,14 @@ Widget types implemented so far:
   panel windows). If the widget doesn't have room for every open window's
   button, it shrinks to as little as one button wide and shows a small
   arrow at each end instead of overflowing the panel -- the leading one
-  scrolls back a task at a time, the trailing one forward, and each is
-  only actually drawn while there's something left in that direction
-  (both always reserve their space regardless, so the button row itself
-  never shifts as you scroll). The scroll wheel pages the same way from
-  anywhere over the widget, including straight over the task buttons
-  between the two arrows, not just over an arrow itself -- see "Widget
-  sizing" below. `same_desktop=yes|no` (default
+  scrolls back a task at a time, the trailing one forward. Each only
+  reserves its own space and gets drawn at all while there's actually
+  something left to scroll to in that direction, so scrolling all the
+  way to either end lets the button row reclaim that end's now-unneeded
+  slot instead of leaving it permanently blank. The scroll wheel pages
+  the same way from anywhere over the widget, including straight over
+  the task buttons between the two arrows, not just over an arrow itself
+  -- see "Widget sizing" below. `same_desktop=yes|no` (default
   `no`) restricts the list to windows on the current `_NET_CURRENT_DESKTOP`
   (ignored if the WM never sets that property). `same_output=yes|no`
   (default `no`) restricts the list to windows whose center falls on this
