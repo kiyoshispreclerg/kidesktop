@@ -536,7 +536,12 @@ Widget types implemented so far:
   moves between a menu-having and a menu-less window. Clicking it while
   there's no menu still does nothing either way -- `keep=` only changes
   whether the icon and its space stay put, not whether there's anything
-  to open. Polls `_NET_ACTIVE_WINDOW` every ~300ms, same tradeoff as
+  to open. Hovering shows "Menu de \<programa\>" or "Sem menu de
+  \<programa\>" (the tracked window's `WM_CLASS`, falling back to its
+  title, or just "Sem menu" with neither available) as a plain tooltip --
+  the only way to tell an empty `keep=yes` icon apart from one that
+  genuinely has something to show without opening it first. Polls
+  `_NET_ACTIVE_WINDOW` every ~300ms, same tradeoff as
   `tasklist`/`winctl`'s polling; only re-fetches the top-level item list
   when the tracked window (or its menu's busname/objpath) actually
   changes, not on every poll tick -- each submenu's own contents are

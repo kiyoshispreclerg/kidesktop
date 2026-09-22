@@ -392,6 +392,40 @@ static void globalmenu_paint(PanelWidget *w, cairo_t *cr)
     }
 }
 
+/* "Menu de <programa>" / "Sem menu de <programa>" -- lets the user tell
+ * an empty hamburger (keep=yes with no menu) apart from "this window
+ * really does have one, hover/click to see it" without needing to
+ * actually open it first. <programa> is the tracked window's WM_CLASS
+ * (ewmh_get_class(), e.g. "Firefox"), falling back to its title if the
+ * class is empty, or dropped entirely if nothing at all is tracked
+ * (filtered out, or no active window). No click behavior of its own --
+ * *out_closable is left at its default 0. */
+static int globalmenu_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t bufsz, int *anchor_x, int *anchor_w,
+                                   int *out_closable, void **out_ctx)
+{
+    (void)local_x;
+    (void)out_closable;
+    (void)out_ctx;
+    GlobalmenuPriv *gp = w->priv;
+    if (gp->tracked_win == None) {
+        snprintf(buf, bufsz, "Sem menu");
+    } else {
+        char name[128];
+        ewmh_get_class(gp->tracked_win, name, sizeof(name));
+        if (!name[0]) {
+            ewmh_get_title(gp->tracked_win, name, sizeof(name));
+        }
+        if (name[0]) {
+            snprintf(buf, bufsz, "%s de %s", gp->has_menu ? "Menu" : "Sem menu", name);
+        } else {
+            snprintf(buf, bufsz, "%s", gp->has_menu ? "Menu" : "Sem menu");
+        }
+    }
+    *anchor_x = 0;
+    *anchor_w = w->len;
+    return 1;
+}
+
 static void globalmenu_select(Panel *panel, PanelWidget *widget, void *ctx, int index)
 {
     (void)panel;
@@ -523,4 +557,5 @@ const PanelWidgetOps globalmenu_ops = {
     .paint = globalmenu_paint,
     .on_button = globalmenu_on_button,
     .on_tick = globalmenu_on_tick,
+    .get_tooltip = globalmenu_get_tooltip,
 };
