@@ -543,6 +543,12 @@ static const WidgetField CONTAINER_FIELDS[] = {
     WF_STR("name", "Painel container que abre (nome)", ""),
     WF_STR("icon", "Icone (caminho; vazio = setinha)", ""),
     WF_STR("hotkey", "Atalho global (opcional)", ""),
+    /* WF_STR (not WF_INT): blank means "key omitted", which is what tells
+     * xispanel to fall back to the popup panel's own THEME spacing=
+     * instead of forcing 0px -- see the WT_STRING "skip empty" rule the
+     * OK handler below already applies, same convention width= (winctl)
+     * and every other optional numeric-as-text key here uses. */
+    WF_STR("padding", "Espacamento entre widgets dentro (px; vazio = espacamento do painel)", ""),
 };
 
 /* Extra row every widget gets while it sits *inside* a container panel

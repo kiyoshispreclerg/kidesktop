@@ -95,7 +95,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.29"
+#define XISPANEL_VERSION "0.6.30"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -1752,8 +1752,10 @@ static void panel_set_size(Panel *p, int w, int h)
  * layout=grid wraps that line into rows so the popup comes out roughly
  * square -- the target row length is the side of a square with the same
  * area as the whole one-row strip, never shorter than the widest single
- * widget. p->spacing doubles as the popup's outer margin so widgets
- * don't touch the (possibly rounded) border. */
+ * widget. The gap between widgets and the popup's own outer margin both
+ * come from the owner `container` widget's padding= (WIDGET line), when
+ * set -- otherwise p->spacing (the popup panel's own THEME spacing=), so
+ * an unthemed container popup still looks like before this key existed. */
 static void container_layout(Panel *p)
 {
     int n = p->n_layout;
@@ -1775,8 +1777,9 @@ static void container_layout(Panel *p)
         }
     }
 
-    int gap = p->spacing;
-    int pad = p->spacing;
+    int padding_cfg = p->owner ? kv_get_int(p->owner->config_kv, "padding", -1) : -1;
+    int gap = padding_cfg >= 0 ? padding_cfg : p->spacing;
+    int pad = gap;
     int row_len = total + (n > 1 ? gap * (n - 1) : 0);
     if (p->grid && n > 1) {
         double area = (double)row_len * (p->thickness + gap);

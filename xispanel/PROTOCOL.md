@@ -576,10 +576,13 @@ Widget types implemented so far:
   is up), or `icon=<path>` instead; its hover tooltip reads "Container"
   plus the type name of every widget inside, so the arrow alone tells
   what it hides. `hotkey=<spec>` (optional) toggles the popup from the
-  keyboard, same syntax as `folder`'s. Left-click toggles; any other
-  button does nothing. A `container` can't itself be placed inside a
-  container. Widgets *inside* the popup take an extra `inline=no|urgent|
-  yes` key (default `no`) -- see "Container popups".
+  keyboard, same syntax as `folder`'s. `padding=<px>` spaces the popup's
+  own widgets apart, and pads its outer edge by the same amount --
+  overrides the popup panel's own THEME `spacing=` when set (unset keeps
+  using that, default `4`). Left-click toggles; any other button does
+  nothing. A `container` can't itself be placed inside a container.
+  Widgets *inside* the popup take an extra `inline=no|urgent|yes` key
+  (default `no`) -- see "Container popups".
 
 ### Global hotkeys
 

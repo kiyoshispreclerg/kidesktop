@@ -16,6 +16,11 @@
  *
  * hotkey=<spec> toggles the popup from the keyboard (same spec syntax
  * folder/xisserve use, see hotkey_register()).
+ *
+ * padding=<px> spaces the popup's own widgets apart (and pads its outer
+ * edge by the same amount), overriding the popup panel's own THEME
+ * spacing= -- see container_layout() in xispanel.c, the actual place
+ * this key is read (this widget only ever stores name=/icon=/hotkey=).
  */
 #include "../xispanel.h"
 
