@@ -95,6 +95,17 @@
  *     trick already used for the GTK/Qt color-scheme files below. Only
  *     applied once, at startup -- not on SIGHUP, since Telas already
  *     applies its changes live with its own direct xrandr calls.
+ *   Input (kiconfd-input.conf) -- $XDG_CONFIG_HOME/kiconfd-input.conf, a
+ *     separate file kiconf's Entrada tab writes on Aplicar (same
+ *     out-of-kiconfd.conf reasoning as Screens above): NumLock-on-start
+ *     (applied via XkbLockModifiers, no external tool) and the two XiS
+ *     keyboard flags (ToggleModifiersOnPress/KickHotkeysOnRelease,
+ *     applied via `xinput set-prop`, same calls Entrada's own Aplicar
+ *     makes live) -- see apply_input_settings(). Unlike Screens, also
+ *     reapplied on SIGHUP: NumLock has no live-apply of its own in
+ *     kiconf (nothing to press to see it happen this session without
+ *     this), so Entrada's Aplicar signals kiconfd the same way Energia's
+ *     does for night light.
  *   Qt5/6  -- ~/.config/qt{5,6}ct/qt{5,6}ct.conf (style/icon_theme/fonts/
  *     color_scheme_path upserted under [Appearance]/[Fonts]) plus a fully
  *     kiconfd-owned qt{5,6}ct/colors/kiconf.conf QPalette color scheme.
@@ -118,10 +129,13 @@
 #include <X11/Xatom.h>
 #include <X11/Xcursor/Xcursor.h>
 #include <X11/Xlib.h>
+#include <X11/XKBlib.h>
 #include <X11/extensions/Xrandr.h>
+#include <X11/keysym.h>
 
 #include "../shared/xis_outputs.h"
 
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -138,7 +152,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.8"
+#define KICONFD_VERSION "0.2.9"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -516,6 +530,44 @@ static int run_fire(char *const argv[])
     int status;
     waitpid(pid, &status, 0);
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+/* Same duplication rationale as run_fire() above, mirroring kiconf/
+ * common.c's own run_capture(): runs argv and captures its stdout,
+ * returning 1 on a clean exit (0 otherwise) -- used to read back xinput's
+ * current property values so apply_input_settings() below only fires a
+ * `set-prop` for whatever actually needs changing. */
+static int run_capture(char *const argv[], char *out, size_t outsz)
+{
+    out[0] = '\0';
+    int pipefd[2];
+    if (pipe(pipefd) != 0) {
+        return 0;
+    }
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return 0;
+    }
+    if (pid == 0) {
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        close(pipefd[1]);
+        execvp(argv[0], argv);
+        _exit(127);
+    }
+    close(pipefd[1]);
+    size_t total = 0;
+    ssize_t n;
+    while (total + 1 < outsz && (n = read(pipefd[0], out + total, outsz - 1 - total)) > 0) {
+        total += (size_t)n;
+    }
+    out[total] = '\0';
+    close(pipefd[0]);
+    int status;
+    waitpid(pid, &status, 0);
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1178,6 +1230,240 @@ static int apply_screens_layout(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* Input (kiconfd-input.conf)                                          */
+/* ------------------------------------------------------------------ */
+
+/* Set by kiconf's Entrada tab, applied here once at the start of each
+ * session -- see entrada.c's own doc comment on why this needs a
+ * separate file from kiconfd.conf (that one is rewritten whole by the
+ * Aparencia tab's own Aplicar, which would silently drop these keys). */
+typedef struct {
+    int numlock_on_start;
+    int toggle_mods_on_press;
+    int kick_hotkeys_on_release;
+} InputSessionConfig;
+
+static char g_inputpath[PATH_MAX];
+
+static void resolve_inputpath(void)
+{
+    const char *xdg_config = getenv("XDG_CONFIG_HOME");
+    if (xdg_config && *xdg_config) {
+        snprintf(g_inputpath, sizeof(g_inputpath), "%s/kiconfd-input.conf", xdg_config);
+        return;
+    }
+    const char *home = getenv("HOME");
+    if (!home || !*home) {
+        home = "/tmp";
+    }
+    snprintf(g_inputpath, sizeof(g_inputpath), "%s/.config/kiconfd-input.conf", home);
+}
+
+/* Returns 1 if kiconfd-input.conf exists (whether or not it set
+ * anything to non-default) -- apply_input_settings() below uses this the
+ * same way apply_nightlight() uses load_nightlight_schedule()'s return:
+ * "nobody ever touched this feature" and "explicitly configured to the
+ * default" need to be told apart before deciding whether to touch
+ * anything. */
+static int load_input_config(InputSessionConfig *c)
+{
+    c->numlock_on_start = 0;
+    c->toggle_mods_on_press = 0;
+    c->kick_hotkeys_on_release = 0;
+
+    FILE *f = fopen(g_inputpath, "r");
+    if (!f) {
+        return 0;
+    }
+    char line[LINE_MAX_LEN];
+    while (fgets(line, sizeof(line), f)) {
+        char *l = trim(line);
+        if (!*l || *l == '#') {
+            continue;
+        }
+        char *eq = strchr(l, '=');
+        if (!eq) {
+            continue;
+        }
+        *eq = '\0';
+        char *key = trim(l);
+        char *val = trim(eq + 1);
+        if (!strcmp(key, "numlock_on_start")) {
+            c->numlock_on_start = atoi(val) != 0;
+        } else if (!strcmp(key, "toggle_mods_on_press")) {
+            c->toggle_mods_on_press = atoi(val) != 0;
+        } else if (!strcmp(key, "kick_hotkeys_on_release")) {
+            c->kick_hotkeys_on_release = atoi(val) != 0;
+        }
+    }
+    fclose(f);
+    return 1;
+}
+
+/* Same tree-drawing-glyph/id= stripping kiconf/entrada.c's own
+ * clean_xinput_name()/master_keyboard_name() do -- duplicated rather
+ * than shared, see this file's own run_fire() doc comment. */
+static void clean_xinput_name(char *s)
+{
+    char *t = trim(s);
+    while (*t && !isalnum((unsigned char)*t)) {
+        t++;
+    }
+    if (t != s) {
+        memmove(s, t, strlen(t) + 1);
+    }
+}
+
+static void master_keyboard_name(char *out, size_t outsz)
+{
+    snprintf(out, outsz, "Virtual core keyboard");
+    char *argv[] = {"xinput", "list", NULL};
+    char buf[8192];
+    if (!run_capture(argv, buf, sizeof(buf))) {
+        return;
+    }
+    char *save = NULL;
+    char *line = strtok_r(buf, "\n", &save);
+    while (line) {
+        if (strstr(line, "master keyboard")) {
+            char *idpos = strstr(line, "id=");
+            if (idpos) {
+                char name[NAME_LEN];
+                size_t len = (size_t)(idpos - line);
+                if (len >= sizeof(name)) {
+                    len = sizeof(name) - 1;
+                }
+                memcpy(name, line, len);
+                name[len] = '\0';
+                clean_xinput_name(name);
+                if (name[0]) {
+                    snprintf(out, outsz, "%s", name);
+                    return;
+                }
+            }
+        }
+        line = strtok_r(NULL, "\n", &save);
+    }
+}
+
+/* Same "<Prop Name> (id):\t<value>" line scan as kiconf/entrada.c's own
+ * xinput_get_prop_line(). */
+static int xinput_get_prop_line(const char *output, const char *propname, char *out, size_t outsz)
+{
+    out[0] = '\0';
+    size_t plen = strlen(propname);
+    const char *p = strstr(output, propname);
+    if (!p) {
+        return 0;
+    }
+    const char *line_end = strchr(p, '\n');
+    if (!line_end) {
+        line_end = p + strlen(p);
+    }
+    const char *colon = NULL;
+    for (const char *q = p + plen; q < line_end; q++) {
+        if (*q == ':') {
+            colon = q;
+        }
+    }
+    if (!colon) {
+        return 0;
+    }
+    const char *v = colon + 1;
+    while (*v == ' ' || *v == '\t') {
+        v++;
+    }
+    size_t len = (size_t)(line_end - v);
+    if (len >= outsz) {
+        len = outsz - 1;
+    }
+    memcpy(out, v, len);
+    out[len] = '\0';
+    while (len > 0 && (out[len - 1] == ' ' || out[len - 1] == '\t' || out[len - 1] == '\r')) {
+        out[--len] = '\0';
+    }
+    return 1;
+}
+
+/* NumLock isn't always Mod2Mask -- same numlock_mask() technique used by
+ * xispanel/hotkey.c and xiskeys.c (see either's own comment): whatever
+ * modifier slot the server's current map puts Num_Lock's keycode in. */
+static unsigned int numlock_mask(void)
+{
+    KeyCode numlock_kc = XKeysymToKeycode(g_dpy, XK_Num_Lock);
+    if (!numlock_kc) {
+        return 0;
+    }
+    XModifierKeymap *map = XGetModifierMapping(g_dpy);
+    if (!map) {
+        return 0;
+    }
+    unsigned int mask = 0;
+    for (int mod = 0; mod < 8; mod++) {
+        for (int k = 0; k < map->max_keypermod; k++) {
+            if (map->modifiermap[mod * map->max_keypermod + k] == numlock_kc) {
+                mask = 1u << mod;
+            }
+        }
+    }
+    XFreeModifiermap(map);
+    return mask;
+}
+
+/* Applies kiconfd-input.conf: NumLock's lock state via XkbLockModifiers
+ * (no external tool needed, and the only way to set a modifier *lock*
+ * rather than send a key event), the two XiS keyboard flags via `xinput
+ * set-prop` on the master keyboard -- same calls kiconf/entrada.c's own
+ * Aplicar makes live, just replayed here for a session kiconf wasn't
+ * open for. Each one is read back first and only touched if it doesn't
+ * already match, same "diff before firing" shape as entrada.c's
+ * apply_kbd_diff() -- called both once at startup and on every SIGHUP
+ * (see reload_config()), so re-running it mid-session never re-fires a
+ * `set-prop` that already took. */
+static void apply_input_settings(void)
+{
+    InputSessionConfig c;
+    if (!load_input_config(&c)) {
+        return;
+    }
+
+    unsigned int nlmask = numlock_mask();
+    if (nlmask) {
+        XkbStateRec state;
+        XkbGetState(g_dpy, XkbUseCoreKbd, &state);
+        int locked = (state.locked_mods & nlmask) != 0;
+        if (locked != c.numlock_on_start) {
+            XkbLockModifiers(g_dpy, XkbUseCoreKbd, nlmask, c.numlock_on_start ? nlmask : 0);
+        }
+    }
+
+    char kbd[NAME_LEN];
+    master_keyboard_name(kbd, sizeof(kbd));
+    char *argv[] = {"xinput", "list-props", kbd, NULL};
+    char out[8192];
+    if (!run_capture(argv, out, sizeof(out))) {
+        return;
+    }
+    char val[64];
+    if (xinput_get_prop_line(out, "Toggle Lock Modifiers On Press", val, sizeof(val))) {
+        int cur = atoi(val) != 0;
+        if (cur != c.toggle_mods_on_press) {
+            char *set[] = {"xinput", "set-prop", kbd, "Toggle Lock Modifiers On Press",
+                             c.toggle_mods_on_press ? "1" : "0", NULL};
+            run_fire(set);
+        }
+    }
+    if (xinput_get_prop_line(out, "Kick Hotkeys On Release", val, sizeof(val))) {
+        int cur = atoi(val) != 0;
+        if (cur != c.kick_hotkeys_on_release) {
+            char *set[] = {"xinput", "set-prop", kbd, "Kick Hotkeys On Release",
+                             c.kick_hotkeys_on_release ? "1" : "0", NULL};
+            run_fire(set);
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* night light (kiconfd-nightlight.conf)                                */
 /* ------------------------------------------------------------------ */
 
@@ -1240,7 +1526,12 @@ static int parse_hhmm(const char *s)
     return h * 60 + m;
 }
 
-static void load_nightlight_schedule(NightlightSchedule *c)
+/* Returns 1 if kiconfd-nightlight.conf exists -- apply_nightlight()'s
+ * manual-mode branch needs this to tell "nobody has ever touched the
+ * night light feature" (stay at the display's native temperature) apart
+ * from "the struct's in-memory defaults" (which happen to be the same
+ * zeroed/4000K values either way), see its own comment. */
+static int load_nightlight_schedule(NightlightSchedule *c)
 {
     c->enabled = 0;
     c->start_min = 20 * 60;
@@ -1249,7 +1540,7 @@ static void load_nightlight_schedule(NightlightSchedule *c)
 
     FILE *f = fopen(g_nightlightpath, "r");
     if (!f) {
-        return;
+        return 0;
     }
     char line[128];
     while (fgets(line, sizeof(line), f)) {
@@ -1275,6 +1566,7 @@ static void load_nightlight_schedule(NightlightSchedule *c)
         }
     }
     fclose(f);
+    return 1;
 }
 
 /* `now` within [start, end), wrapping past midnight when end <= start
@@ -1356,7 +1648,7 @@ static void notify_xispanel_osd(const char *summary, const char *icon)
 static void apply_nightlight(void)
 {
     NightlightSchedule c;
-    load_nightlight_schedule(&c);
+    int have_config = load_nightlight_schedule(&c);
 
     /* Whether this call is transitioning out of a real prior state
      * (0 or 1) rather than kiconfd's own startup (-1, "not yet applied
@@ -1367,13 +1659,35 @@ static void apply_nightlight(void)
     int had_prior_state = g_nightlight_applied != -1;
 
     if (!c.enabled) {
-        if (g_nightlight_applied != 0) {
-            run_fire((char *const[]){"xsct", NULL});
-            if (had_prior_state) {
-                notify_xispanel_osd("Luz noturna desativada", "night-light-symbolic");
+        /* Manual mode (xisserve's --energy checkbox unchecked, or the
+         * schedule simply never turned on): apply whatever temperature
+         * was last set by hand instead of resetting to day -- xisserve's
+         * slider saves `temp` here on every drag precisely so a fresh X
+         * session (gamma always starts back at native, xsct's own state
+         * doesn't survive a logout/login any more than xrandr's does)
+         * picks the same tint back up instead of coming up plain until
+         * the user revisits the slider. Gated on have_config: nobody
+         * ever having touched kiconf's Energia tab or xisserve's
+         * --energy page at all must still mean "leave the display
+         * alone", not "apply the struct's bare 4000K default out of
+         * nowhere". */
+        if (!have_config) {
+            if (g_nightlight_applied != 0) {
+                run_fire((char *const[]){"xsct", NULL});
+                if (had_prior_state) {
+                    notify_xispanel_osd("Luz noturna desativada", "night-light-symbolic");
+                }
+                g_nightlight_applied = 0;
+                g_nightlight_applied_temp = -1;
             }
-            g_nightlight_applied = 0;
-            g_nightlight_applied_temp = -1;
+            return;
+        }
+        if (g_nightlight_applied != 1 || g_nightlight_applied_temp != c.temp) {
+            char tempstr[16];
+            snprintf(tempstr, sizeof(tempstr), "%d", c.temp);
+            run_fire((char *const[]){"xsct", tempstr, NULL});
+            g_nightlight_applied = 1;
+            g_nightlight_applied_temp = c.temp;
         }
         return;
     }
@@ -1596,6 +1910,7 @@ static void reload_config(void)
     g_export_other_desktops = -1;
     load_config();
     apply_and_persist_defaults();
+    apply_input_settings();
 }
 
 int main(int argc, char **argv)
@@ -1614,6 +1929,8 @@ int main(int argc, char **argv)
         printf("Usage: kiconfd [--log|--version|-V]\n");
         printf("Config: $XDG_CONFIG_HOME/kiconfd.conf (fallback ~/.config/kiconfd.conf)\n");
         printf("Screens: $XDG_CONFIG_HOME/kiconfd-screens.conf, applied via xrandr at startup only\n");
+        printf("Input: $XDG_CONFIG_HOME/kiconfd-input.conf (NumLock-on-start + XiS keyboard flags), "
+                "applied at startup and on SIGHUP\n");
         printf("Night light: $XDG_CONFIG_HOME/kiconfd-nightlight.conf, applied via xsct every %ds "
                 "(if installed)\n", NIGHTLIGHT_POLL_SEC);
         printf("Log: off by default (inherits stdout/stderr as usual). --log, or KICONFD_LOG=1 in "
@@ -1646,6 +1963,7 @@ int main(int argc, char **argv)
     resolve_configpath();
     resolve_screenspath();
     resolve_nightlightpath();
+    resolve_inputpath();
 
     g_dpy = XOpenDisplay(NULL);
     if (!g_dpy) {
@@ -1685,6 +2003,7 @@ int main(int argc, char **argv)
 
     load_config();
     apply_and_persist_defaults();
+    apply_input_settings();
     apply_nightlight();
 
     /* sleep() rather than pause(): the loop now also has to wake up on

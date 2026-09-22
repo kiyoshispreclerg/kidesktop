@@ -102,10 +102,14 @@ shipped widget with no page implemented for it.)
 
   Night light's checkbox switches between "kiconfd applies it on the
   schedule set in kiconf's Energia tab" and manual: unchecked, dragging
-  the slider calls `xsct` directly and immediately. Both this page and
-  kiconf write the same `kiconfd-nightlight.conf`; kiconfd is the only
-  one that reads the schedule (start/end) out of it -- see kiconfd.c's
-  own doc comment.
+  the slider calls `xsct` directly and immediately, and also saves the
+  temperature into `kiconfd-nightlight.conf`'s `temp` field -- kiconfd
+  reapplies that same value at the start of the next session (gamma
+  doesn't survive a logout/login any more than xrandr's layout does), so
+  whichever tint was last set here is what a fresh session comes up
+  with. Both this page and kiconf write the same `kiconfd-nightlight.conf`;
+  kiconfd is the only one that reads the schedule (start/end) out of it
+  -- see kiconfd.c's own doc comment.
 - `--notifications`: passed by xispanel's `notif` widget on left click,
   anchored to the bell icon. Shows the notification history: every held
   entry newest-first (app name, date/time, summary/body), each with its
