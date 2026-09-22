@@ -348,12 +348,26 @@ static float edge_alpha(const CsConfig *cfg, float slot)
     return 1.0f - (d - last);
 }
 
+/* Whether this row is long enough for the wrap below to mean anything.
+ *
+ * Two covers have no far side to carry anything around to: each one is
+ * already the other's neighbour on both sides at once, so wrapping only
+ * decides which side the one that isn't in front is drawn on -- and a
+ * held Tab would turn one way for ever through a pair the eye reads as
+ * going back and forth. Under three, the row stays the plain line it
+ * always was and stepping walks it end to end. */
+static bool row_wraps(const CsData *d)
+{
+    return d->count > 2;
+}
+
 /* Where item `i` sits, as a signed distance from the front of the row.
  * Fractional while the row is gliding, which is what makes the covers
  * turn *through* the movement rather than snap at the end of it.
  *
- * Wrapped by the row's own length whenever going the other way round is
- * shorter -- so a selection near either end of the list still reads as
+ * Wrapped by the row's own length (when it has one to speak of --
+ * row_wraps above) whenever going the other way round is shorter -- so
+ * a selection near either end of the list still reads as
  * a row with something on both sides of it, instead of nearly the whole
  * list piled up on one. The item farthest from the front on the heavy
  * side comes out with a slot on the *light* side instead, exactly as if
@@ -378,7 +392,7 @@ static float slot_of(const CsData *d, int i)
     float raw = (float)i - d->pos;
     float n = (float)d->count;
 
-    if (n > 1.0f) {
+    if (row_wraps(d)) {
         raw = fmodf(raw, n);
         if (raw > n * 0.5f)
             raw -= n;
@@ -664,9 +678,11 @@ static void step_selection(CompEffect *e, int by)
      * but arriving at it by continuing the turn instead of sweeping
      * back across everyone in between to get there the "short" way
      * through the real array. Only while cfg->wrap actually means
-     * something -- without it there is no far end to keep turning past,
-     * and next already sits exactly where pos should glide to. */
-    d->pos_target = cfg->wrap ? d->pos_target + (float)by : (float)next;
+     * something, and only on a row with a far end to keep turning past
+     * (row_wraps): without either, next already sits exactly where pos
+     * should glide to. */
+    d->pos_target = (cfg->wrap && row_wraps(d)) ? d->pos_target + (float)by
+                                                : (float)next;
     mark_dirty(d);
 }
 
@@ -1483,9 +1499,13 @@ void cover_switch_external(const uint32_t *data, int len)
              * resolves for its own caller and slot_of resolves for
              * display (see CsData::pos_target). Anything else really is
              * a jump (the WM naming an arbitrary entry) and glides there
-             * the direct way. */
+             * the direct way.
+             *
+             * Not for a pair (row_wraps): with two entries the two tests
+             * below are +-1 themselves, so every ordinary step would be
+             * read as its own opposite and the row would turn backwards. */
             int by = clamped - d->selected;
-            if (cfg->wrap && d->count > 1) {
+            if (cfg->wrap && row_wraps(d)) {
                 if (by == 1 - d->count) by = 1;
                 else if (by == d->count - 1) by = -1;
             }
