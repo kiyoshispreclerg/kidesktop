@@ -266,8 +266,14 @@ Widget types implemented so far:
   never listed (desktop containment layers, other panels, xispanel's own
   panel windows). If the widget doesn't have room for every open window's
   button, it shrinks to as little as one button wide and shows a small
-  up/down arrow pair (one task at a time) instead of overflowing the
-  panel -- see "Widget sizing" below. `same_desktop=yes|no` (default
+  arrow at each end instead of overflowing the panel -- the leading one
+  scrolls back a task at a time, the trailing one forward, and each is
+  only actually drawn while there's something left in that direction
+  (both always reserve their space regardless, so the button row itself
+  never shifts as you scroll). The scroll wheel pages the same way from
+  anywhere over the widget, including straight over the task buttons
+  between the two arrows, not just over an arrow itself -- see "Widget
+  sizing" below. `same_desktop=yes|no` (default
   `no`) restricts the list to windows on the current `_NET_CURRENT_DESKTOP`
   (ignored if the WM never sets that property). `same_output=yes|no`
   (default `no`) restricts the list to windows whose center falls on this
@@ -641,10 +647,10 @@ as everything fits; once it doesn't, it shrinks widgets proportionally to
 how much slack (desired minus minimum) each one has, never below any
 widget's minimum. Widgets that can't meaningfully shrink (`clock`) report
 `min == desired`; `spacer`'s minimum is always `0`, so it's the first
-thing squeezed away. `tasklist`'s minimum is one button plus room for the
-scroll-arrow pair described above -- if it's given less than its natural
-width, it shows as many buttons as fit starting from its current scroll
-position rather than clipping or overflowing.
+thing squeezed away. `tasklist`'s minimum is one button plus room for
+both end arrow slots described above -- if it's given less than its
+natural width, it shows as many buttons as fit starting from its current
+scroll position rather than clipping or overflowing.
 
 ### `THEME`
 
@@ -794,8 +800,9 @@ change).
 - **`icons/`** -- a folder of PNGs replacing widgets' built-in vector
   glyphs, one file per name: `volume-muted`, `volume-low`,
   `volume-medium`, `volume-high` (the speaker, picked by level/mute
-  state), `bell` and `bell-unread` (the `notif` icon), `scroll-up` and
-  `scroll-down` (the tasklist's overflow arrows). Any name the theme
+  state), `bell` and `bell-unread` (the `notif` icon), `scroll-back` and
+  `scroll-forward` (the tasklist's overflow arrows -- back = the leading,
+  earlier-tasks one; forward = the trailing, later-tasks one). Any name the theme
   doesn't ship falls back to the Cairo drawing for that one glyph alone,
   so a partial icon set is fine. Each (name, size) is decoded once and
   cached on the panel -- including misses, so an unthemed name costs one

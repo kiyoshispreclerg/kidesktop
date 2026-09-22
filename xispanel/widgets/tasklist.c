@@ -163,8 +163,16 @@ typedef struct {
     int vis_x[MAX_TASKS];
     int vis_w[MAX_TASKS];
     int n_visible;
-    int scrollable; /* 1 if not everything fits and the arrow pair is shown */
-    int arrow_x; /* local x of the up/down arrow pair, valid iff scrollable */
+    /* 1 if not everything fits -- both end arrow slots (TASKLIST_ARROW_W
+     * each, see tasklist_layout_visible()) are then always reserved on
+     * either side of the button row, so the row's own position/width
+     * never jumps as scroll_offset changes; can_left/can_right (which
+     * arrow, if either, is actually usable right now) decide only
+     * whether each one gets drawn and responds to a click, not whether
+     * its space is reserved. */
+    int scrollable;
+    int can_left;  /* scroll_offset > 0 -- earlier tasks exist to scroll back to */
+    int can_right; /* the last visible button isn't tasks[]'s last -- later tasks exist */
 
     /* Signature of everything tasklist_paint() draws that can change on
      * its own between ticks (the task set, the active-window highlight,
@@ -889,17 +897,25 @@ static void tasklist_measure(PanelWidget *w, int cross_axis, int *out_len, int *
     *out_len = tp->n_display > 0 ? cursor - TASKLIST_BTN_GAP : 0;
 
     /* Minimum: room for exactly one task button (a square, cross_axis wide,
-     * since that's the smallest a button can usefully be) plus the up/down
-     * arrow pair that tasklist_layout_visible() reserves once scrolling
+     * since that's the smallest a button can usefully be) plus both end
+     * arrow slots that tasklist_layout_visible() reserves once scrolling
      * kicks in. */
-    *out_min_len = tp->n_display > 0 ? (cross_axis + TASKLIST_ARROW_W + TASKLIST_ARROW_GAP) : 0;
+    *out_min_len = tp->n_display > 0 ? (cross_axis + 2 * (TASKLIST_ARROW_W + TASKLIST_ARROW_GAP)) : 0;
 }
 
 /* Recomputes which tasks are visible (tp->vis_*) from the widget's actual
  * allotted w->len, which may be less than the natural width tasklist_measure()
  * reported if panel_layout() had to shrink it to fit the panel. Called at
  * the top of both paint() and on_button() so hit-testing and drawing can
- * never disagree about where a button (or the scroll arrows) actually is. */
+ * never disagree about where a button (or the scroll arrows) actually is.
+ *
+ * When scrollable, a TASKLIST_ARROW_W-wide slot is reserved at *both*
+ * ends of the widget (not just the trailing one a stacked up/down pair
+ * used to occupy) -- always, regardless of scroll_offset, so the button
+ * row's own position/width stays put as scrolling reveals/hides one end
+ * or the other; only can_left/can_right (whether each slot's arrow is
+ * actually usable right now) change, deciding what tasklist_paint() draws
+ * into an already-reserved slot, not the slot's own existence. */
 static void tasklist_layout_visible(PanelWidget *w)
 {
     TasklistPriv *tp = w->priv;
@@ -910,7 +926,8 @@ static void tasklist_layout_visible(PanelWidget *w)
     }
 
     tp->scrollable = natural_total > w->len;
-    int content_avail = tp->scrollable ? w->len - TASKLIST_ARROW_W - TASKLIST_ARROW_GAP : w->len;
+    int reserve = tp->scrollable ? (TASKLIST_ARROW_W + TASKLIST_ARROW_GAP) : 0;
+    int content_avail = w->len - 2 * reserve;
     if (content_avail < 0) {
         content_avail = 0;
     }
@@ -930,7 +947,7 @@ static void tasklist_layout_visible(PanelWidget *w)
         tp->scroll_offset = 0;
     }
 
-    int cursor = 0;
+    int cursor = reserve; /* leading arrow slot, if reserved */
     tp->n_visible = 0;
     /* tp->vis_idx[] now stores *display-slot* indices (0..n_display-1),
      * not raw tasks[] indices -- resolve via tp->display_repr[] wherever
@@ -938,7 +955,7 @@ static void tasklist_layout_visible(PanelWidget *w)
     for (int i = tp->scroll_offset; i < tp->n_display && tp->n_visible < MAX_TASKS; i++) {
         int bw = tp->btn_w[i];
         int gap = tp->n_visible > 0 ? TASKLIST_BTN_GAP : 0;
-        if (tp->n_visible > 0 && cursor + gap + bw > content_avail) {
+        if (tp->n_visible > 0 && cursor - reserve + gap + bw > content_avail) {
             break;
         }
         if (tp->n_visible == 0 && bw > content_avail) {
@@ -952,7 +969,19 @@ static void tasklist_layout_visible(PanelWidget *w)
         tp->n_visible++;
     }
 
-    tp->arrow_x = tp->scrollable ? w->len - TASKLIST_ARROW_W : -1;
+    tp->can_left = tp->scrollable && tp->scroll_offset > 0;
+    tp->can_right = tp->scrollable && tp->n_visible > 0 && tp->vis_idx[tp->n_visible - 1] < tp->n_display - 1;
+}
+
+/* 1 if local_x falls inside either end's reserved arrow slot (whether or
+ * not that particular arrow is actually usable right now -- see
+ * tasklist_layout_visible()'s doc comment on why the slot itself is
+ * always reserved). Shared by every hit-test in this file (tooltip
+ * variants, on_button's click routing) so none of them can disagree with
+ * paint() about where the button row actually starts/ends. */
+static int tasklist_in_arrow_zone(const TasklistPriv *tp, int w_len, int local_x)
+{
+    return tp->scrollable && (local_x < TASKLIST_ARROW_W || local_x >= w_len - TASKLIST_ARROW_W);
 }
 
 /* Full (untruncated) title of whatever task button is under local_x, with
@@ -971,7 +1000,7 @@ static int tasklist_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t b
     TasklistPriv *tp = w->priv;
     tasklist_layout_visible(w);
 
-    if (tp->scrollable && local_x >= tp->arrow_x) {
+    if (tasklist_in_arrow_zone(tp, w->len, local_x)) {
         return 0;
     }
     for (int vi = 0; vi < tp->n_visible; vi++) {
@@ -1037,7 +1066,7 @@ static int tasklist_get_tooltip_mpris(PanelWidget *w, int local_x, char *out_bus
     TasklistPriv *tp = w->priv;
     tasklist_layout_visible(w);
 
-    if (tp->scrollable && local_x >= tp->arrow_x) {
+    if (tasklist_in_arrow_zone(tp, w->len, local_x)) {
         return 0;
     }
     for (int vi = 0; vi < tp->n_visible; vi++) {
@@ -1083,7 +1112,7 @@ static int tasklist_get_tooltip_thumb(PanelWidget *w, int local_x, Window *out_w
     }
     tasklist_layout_visible(w);
 
-    if (tp->scrollable && local_x >= tp->arrow_x) {
+    if (tasklist_in_arrow_zone(tp, w->len, local_x)) {
         return 0;
     }
     for (int vi = 0; vi < tp->n_visible; vi++) {
@@ -1113,7 +1142,7 @@ static int tasklist_get_tooltip_group(PanelWidget *w, int local_x, TooltipGroupI
     TasklistPriv *tp = w->priv;
     tasklist_layout_visible(w);
 
-    if (tp->scrollable && local_x >= tp->arrow_x) {
+    if (tasklist_in_arrow_zone(tp, w->len, local_x)) {
         return 0;
     }
     for (int vi = 0; vi < tp->n_visible; vi++) {
@@ -1135,6 +1164,37 @@ static int tasklist_get_tooltip_group(PanelWidget *w, int local_x, TooltipGroupI
         }
     }
     return 0;
+}
+
+/* Draws one end's scroll arrow, filling its TASKLIST_ARROW_W x thickness
+ * slot at (slot_x, slot_y) -- `dir` -1 points left/back (earlier tasks),
+ * +1 points right/forward (later tasks); only called while that
+ * direction actually has something to scroll to (see tasklist_paint()),
+ * so there's no "exhausted" look to draw any more. icons/scroll-back.png
+ * / scroll-forward.png replace the vector triangle when the theme ships
+ * them. */
+static void tasklist_draw_arrow(cairo_t *cr, Panel *p, int slot_x, int slot_y, int thickness, int dir)
+{
+    double cx = slot_x + TASKLIST_ARROW_W / 2.0;
+    double cy = slot_y + thickness / 2.0;
+    int arrow_px = thickness - 10 > 6 ? thickness - 10 : 6;
+    if (arrow_px > TASKLIST_ARROW_W) {
+        arrow_px = TASKLIST_ARROW_W;
+    }
+    cairo_surface_t *icon = panel_theme_icon(p, dir < 0 ? "scroll-back" : "scroll-forward", arrow_px);
+    if (icon) {
+        draw_icon_scaled(cr, icon, cx - arrow_px / 2.0, cy - arrow_px / 2.0, arrow_px);
+        return;
+    }
+    double half = thickness * 0.21;
+    double tip = cx + dir * half * 0.7;  /* the pointed end, toward the scroll direction */
+    double base = cx - dir * half * 0.7; /* the flat (vertical) edge */
+    cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.85);
+    cairo_move_to(cr, base, cy - half);
+    cairo_line_to(cr, base, cy + half);
+    cairo_line_to(cr, tip, cy);
+    cairo_close_path(cr);
+    cairo_fill(cr);
 }
 
 static void tasklist_paint(PanelWidget *w, cairo_t *cr)
@@ -1279,48 +1339,17 @@ static void tasklist_paint(PanelWidget *w, cairo_t *cr)
         cairo_paint_with_alpha(cr, e->minimized ? 0.55 : 1.0);
     }
 
-    if (tp->scrollable) {
-        int ax = ox + tp->arrow_x;
-        int half = w->thickness / 2;
-        int can_up = tp->scroll_offset > 0;
-        int can_down = tp->vis_idx[tp->n_visible - 1] < tp->n_display - 1;
-        double cx = ax + TASKLIST_ARROW_W / 2.0;
-
-        /* icons/scroll-up.png / scroll-down.png replace the vector
-         * triangles when the theme ships them; a themed arrow is drawn at
-         * half opacity when its direction is exhausted, matching the
-         * dimmed vector one. */
-        int arrow_px = half - 4 > 6 ? half - 4 : 6;
-        cairo_surface_t *up_icon = panel_theme_icon(p, "scroll-up", arrow_px);
-        cairo_surface_t *down_icon = panel_theme_icon(p, "scroll-down", arrow_px);
-
-        if (up_icon) {
-            cairo_push_group(cr);
-            draw_icon_scaled(cr, up_icon, cx - arrow_px / 2.0, oy + (half - arrow_px) / 2.0, arrow_px);
-            cairo_pop_group_to_source(cr);
-            cairo_paint_with_alpha(cr, can_up ? 1.0 : 0.35);
-        } else {
-            cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, can_up ? 0.85 : 0.25);
-            cairo_move_to(cr, cx - 4, oy + half - 3);
-            cairo_line_to(cr, cx + 4, oy + half - 3);
-            cairo_line_to(cr, cx, oy + 2);
-            cairo_close_path(cr);
-            cairo_fill(cr);
-        }
-
-        if (down_icon) {
-            cairo_push_group(cr);
-            draw_icon_scaled(cr, down_icon, cx - arrow_px / 2.0, oy + half + (half - arrow_px) / 2.0, arrow_px);
-            cairo_pop_group_to_source(cr);
-            cairo_paint_with_alpha(cr, can_down ? 1.0 : 0.35);
-        } else {
-            cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, can_down ? 0.85 : 0.25);
-            cairo_move_to(cr, cx - 4, oy + half + 3);
-            cairo_line_to(cr, cx + 4, oy + half + 3);
-            cairo_line_to(cr, cx, oy + w->thickness - 2);
-            cairo_close_path(cr);
-            cairo_fill(cr);
-        }
+    /* Each end's arrow only occupies (and is only drawn into) its own
+     * reserved TASKLIST_ARROW_W slot -- see tasklist_layout_visible()'s
+     * doc comment -- and only appears at all while that direction
+     * actually has something to scroll to; there's no "exhausted, dimmed"
+     * state to show any more since an unusable arrow simply isn't drawn,
+     * leaving its slot as plain background instead. */
+    if (tp->can_left) {
+        tasklist_draw_arrow(cr, p, ox, oy, w->thickness, -1);
+    }
+    if (tp->can_right) {
+        tasklist_draw_arrow(cr, p, ox + w->len - TASKLIST_ARROW_W, oy, w->thickness, 1);
     }
 }
 
@@ -1598,16 +1627,20 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
     TasklistPriv *tp = w->priv;
     tasklist_layout_visible(w);
 
-    /* Mouse wheel pages the tasklist from anywhere over the widget, not
-     * just over the up/down arrow pair -- same direction convention as
-     * the arrows (wheel up = earlier tasks, wheel down = later). */
+    (void)local_y;
+
+    /* Mouse wheel pages the tasklist from anywhere over the widget --
+     * including straight over the task buttons between the two end
+     * arrows, not just over an arrow itself -- same direction convention
+     * as the arrows (wheel up = earlier tasks/left arrow, wheel down =
+     * later tasks/right arrow). */
     if (tp->scrollable && (button == Button4 || button == Button5)) {
         if (button == Button4) {
-            if (tp->scroll_offset > 0) {
+            if (tp->can_left) {
                 tp->scroll_offset--;
             }
         } else {
-            if (tp->n_visible > 0 && tp->vis_idx[tp->n_visible - 1] < tp->n_display - 1) {
+            if (tp->can_right) {
                 tp->scroll_offset++;
             }
         }
@@ -1615,13 +1648,13 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
         return 1;
     }
 
-    if (tp->scrollable && local_x >= tp->arrow_x && button == Button1) {
-        if (local_y < w->thickness / 2) {
-            if (tp->scroll_offset > 0) {
+    if (button == Button1 && tasklist_in_arrow_zone(tp, w->len, local_x)) {
+        if (local_x < TASKLIST_ARROW_W) {
+            if (tp->can_left) {
                 tp->scroll_offset--;
             }
         } else {
-            if (tp->n_visible > 0 && tp->vis_idx[tp->n_visible - 1] < tp->n_display - 1) {
+            if (tp->can_right) {
                 tp->scroll_offset++;
             }
         }
