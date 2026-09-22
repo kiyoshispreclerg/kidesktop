@@ -95,7 +95,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.37"
+#define XISPANEL_VERSION "0.6.38"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -2288,6 +2288,7 @@ static Panel *alloc_panel(const char *name, const char *output)
             p->mode = MODE_DOCK;
             p->tooltip_delay_ms = 500;
             p->tooltip_close_delay_ms = 300;
+            p->tooltip_reuse_window = 1;
             p->bg_r = 0.12;
             p->bg_g = 0.12;
             p->bg_b = 0.12;

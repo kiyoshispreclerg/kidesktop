@@ -162,7 +162,7 @@ PANEL	top	*	edge=top	pct=100	thickness=32	mode=dock
   a bit less than the open delay). `0` closes instantly. Lets the pointer
   cross from the widget into the popup itself (e.g. to click something in
   it) without the popup vanishing out from under it.
-- `tooltip_reuse`: `0` (default) or `1`. When `1`, moving the pointer from
+- `tooltip_reuse`: `1` (default) or `0`. When `1`, moving the pointer from
   one tooltip-bearing widget straight to another reuses the same X window
   (`XMoveResizeWindow` + `cairo_xlib_surface_set_size`, then a full
   repaint) instead of destroying and recreating it. The window is still
@@ -172,10 +172,10 @@ PANEL	top	*	edge=top	pct=100	thickness=32	mode=dock
   widget-to-widget hover. The point is compositor-visual: a same-window
   move/resize lets effects like KWin's "Geometry Change" animate the
   transition smoothly, instead of the flicker a window create+destroy
-  causes. Off by default since not every compositor has that effect, and
-  a briefly-reused window keeping the previous item's content on screen
-  during the new item's `tooltip_delay` is a visible (if intentional)
-  behavior change from the default create/destroy-per-item flow.
+  causes. `tooltip_reuse=0` opts back out to a plain destroy/recreate per
+  item, e.g. for a compositor without that effect where a briefly-reused
+  window keeping the previous item's content on screen during the new
+  item's `tooltip_delay` would just look like a stale tooltip instead.
 
 ### `WIDGET`
 

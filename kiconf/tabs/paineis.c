@@ -1095,7 +1095,7 @@ static const WidgetField PANEL_FIELDS[] = {
     WF_ENUM("rotate", "Rotacao do conteudo (graus)", "0", PANEL_ROTATE_OPTS),
     WF_INT("tooltip_delay", "Atraso pra abrir dica (ms)", "500", 0, 10000),
     WF_INT("tooltip_close_delay", "Atraso pra fechar dica (ms)", "300", 0, 10000),
-    WF_BOOL01("tooltip_reuse", "Reaproveitar janela da dica entre widgets", "0"),
+    WF_BOOL01("tooltip_reuse", "Reaproveitar janela da dica entre widgets", "1"),
     WF_INT("padding_extra", "Espacamento extra da dica (px)", "0", 0, 100),
 };
 #define N_PANEL_FIELDS ((int)(sizeof(PANEL_FIELDS) / sizeof(PANEL_FIELDS[0])))
