@@ -73,11 +73,20 @@ void grip_drag_params(GripEdge edge, int *right, int *bottom,
  * WM_NORMAL_HINTS say it is fixed-size (Client::allow_resize) has no
  * resize to offer. Half-tiled windows *do* keep their ring -- dragging the
  * shared edge of a tiled pair without a modifier is what
- * link_resize_neighbors= is for. */
+ * link_resize_neighbors= is for.
+ *
+ * Not `!c->held` either: a held frame stays mapped (client_hold_instead_
+ * of_unmap) precisely so a compositor keeping it live across a desktop
+ * switch never sees it go blank -- but "mapped" and "on this desktop" have
+ * parted ways for exactly that window, and grip_frame_mapped() only ever
+ * hears about the map/unmap that no longer happens. Left out, the ring
+ * stays up over a frame nobody can see: invisible, but still eight
+ * InputOnly windows grabbing every click and showing a resize cursor
+ * where the desktop underneath should be. */
 static bool grip_wanted(const Client *c)
 {
     return wm.resize_grip > 0 && c->grip_ring != XCB_NONE &&
-           c->grip_frame_mapped &&
+           c->grip_frame_mapped && !c->held &&
            c->allow_resize && !c->shaded &&
            !client_maximized(c) && !c->fullscreen;
 }

@@ -804,6 +804,19 @@ static void hold_mark(Client *c)
                         wm.atoms.kiwm_held, XCB_ATOM_CARDINAL, 32, 1, &one);
     hold_input_shape(c, true);
     c->held = true;
+
+    /* grip_wanted() now says no -- but the resize ring only re-syncs
+     * itself off the frame's own MapNotify/UnmapNotify (grip.h), and a
+     * window held in place instead of being unmapped
+     * (client_hold_instead_of_unmap) generates neither: its frame stays
+     * exactly as mapped as it already was. Without this, the ring is
+     * left standing over a frame the compositor is no longer drawing --
+     * invisible, but still eight InputOnly windows swallowing clicks and
+     * showing a resize cursor where the desktop underneath should be.
+     * A no-op for the other caller (client_hold(), marking a window
+     * before it maps): grip_frame_mapped is already false there, so
+     * grip_wanted() was already refusing the ring. */
+    grip_sync(c);
 }
 
 void client_hold(xcb_window_t window, int ms)
@@ -923,6 +936,17 @@ void client_release_hold(Client *c)
     hold_input_shape(c, false);
     xcb_delete_property(wm.conn, c->frame, wm.atoms.kiwm_held);
     c->held = false;
+
+    /* The ring's own counterpart to hold_mark()'s grip_sync(): a hold
+     * that ends with the frame staying up (`belongs`) fires no
+     * MapNotify -- it was already mapped -- so nothing else re-checks
+     * grip_wanted() now that `!c->held` is true again. A hold that ends
+     * by unmapping the frame (`!belongs`, above) needs no such kick:
+     * that unmap's own UnmapNotify calls grip_frame_mapped(c, false)
+     * once it arrives, and calling grip_sync() here first would show
+     * the ring for the instant in between. */
+    if (belongs)
+        grip_sync(c);
 }
 
 bool client_hold_instead_of_unmap(Client *c)
