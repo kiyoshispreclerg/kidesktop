@@ -118,6 +118,21 @@ typedef struct GlWindow {
     xcb_rectangle_t *stash_shape_rects;
     int stash_shape_count;
     bool stash_shaped;
+
+    /* X-DENSITY (density.h): the client's own denser pixels, one layer
+     * for its contents ([0]) and one for the WM's decoration around them
+     * ([1]), each a pixmap the client published rather than one this
+     * side named. Held as a GlWindow of its own so the platform imports
+     * it through the same texture machinery as the window itself, with
+     * one difference the platform has to know about: the pixmap is the
+     * client's, borrowed, never freed from here (GlPlatform::pixmap_bind).
+     *
+     * Not in the `windows` list -- reached only from here -- and its `id`
+     * is the *pixmap's* XID, which is how a republished pixmap is told
+     * from the one already imported. NULL until the client publishes
+     * something; freed again when it withdraws it
+     * (gl_window_density_invalidate) or the window goes. */
+    struct GlWindow *dense[2];
 } GlWindow;
 
 typedef struct {
@@ -130,6 +145,14 @@ typedef struct {
     /* Let go of what window_bind named (resized, unmapped, going away),
      * leaving the texture itself. Must cope with never having bound. */
     void (*window_unbind)(GlWindow *g);
+    /* Bind a pixmap *somebody else* owns -- an X-DENSITY layer the client
+     * published (GlWindow::dense) -- to gl_window_texture(g), setting
+     * g->content, width/height, y_inverted the same as window_bind. The
+     * size and depth are the pixmap's own, already asked of the server.
+     * window_unbind lets go of it the same way, except that it must not
+     * free the pixmap: it was never this side's to free. */
+    bool (*pixmap_bind)(xcb_pixmap_t pixmap, int width, int height,
+                        uint8_t depth, GlWindow *g);
 } GlPlatform;
 
 /* With the platform's context current: builds the programs once. */
@@ -150,6 +173,7 @@ GLuint gl_window_texture(GlWindow *g);
 /* The CompRenderer window ops, the same for every platform. */
 void gl_window_invalidate(CompWindow *w);
 void gl_window_shape_invalidate(CompWindow *w);
+void gl_window_density_invalidate(CompWindow *w, bool decoration);
 void gl_window_free(CompWindow *w);
 bool gl_window_has_content(const CompWindow *w);
 

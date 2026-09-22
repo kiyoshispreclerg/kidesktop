@@ -113,10 +113,13 @@ typedef struct {
 
 /* The EGL half of a window (GlWindow::platform): the image over its
  * pixmap's dma-buf. The pixmap itself is named here as well, since it
- * has to outlive the import. */
+ * has to outlive the import -- unless it is `borrowed`: an X-DENSITY
+ * layer is a pixmap the client made and still owns (egl_pixmap_bind),
+ * and freeing that from here would pull it out from under the client. */
 typedef struct {
     xcb_pixmap_t pixmap;
     EGLImageKHR image;
+    bool borrowed;
 } EglWindow;
 
 /* ------------------------------------------------------------------ */
@@ -517,10 +520,73 @@ static void egl_window_unbind(GlWindow *g)
         x->image = EGL_NO_IMAGE_KHR;
     }
     if (x->pixmap != XCB_NONE) {
-        xcb_free_pixmap(comp.conn, x->pixmap);
+        if (!x->borrowed)
+            xcb_free_pixmap(comp.conn, x->pixmap);
         x->pixmap = XCB_NONE;
     }
     g->content = false;
+}
+
+/* The import shared by a named window pixmap and a borrowed one: the
+ * buffer behind the pixmap as an image, and the image as the texture. */
+static bool egl_import(xcb_pixmap_t pixmap, EglWindow *x, GlWindow *g)
+{
+    Dri3Buffer d;
+    if (!dri3_buffer_from_pixmap(pixmap, &d))
+        return false;
+    uint32_t fourcc = fourcc_for_depth(d.depth);
+    if (fourcc)
+        x->image = image_from_dmabuf(fourcc, d.width, d.height, d.nplanes,
+                                     d.fd, d.stride, d.offset, d.modifier);
+    /* The image holds its own reference to the buffer. */
+    dri3_buffer_close(&d);
+    if (x->image == EGL_NO_IMAGE_KHR)
+        return false;
+
+    glBindTexture(GL_TEXTURE_2D, gl_window_texture(g));
+    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, x->image);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    g->content = true;
+    /* Row 0 of the buffer is the top of the window: the texture is
+     * already the way the drawing's coordinates run. */
+    g->y_inverted = true;
+    return true;
+}
+
+/* A pixmap the client owns (an X-DENSITY layer), imported once and bound
+ * on every draw after that -- no re-import per frame for the same reason
+ * a window gets none: the texture reads the buffer's memory, so what the
+ * client draws into it next is what the next frame samples. */
+static bool egl_pixmap_bind(xcb_pixmap_t pixmap, int width, int height,
+                            uint8_t depth, GlWindow *g)
+{
+    EglWindow *x = g->platform;
+    if (!x) {
+        x = calloc(1, sizeof(*x));
+        if (!x)
+            return false;
+        x->image = EGL_NO_IMAGE_KHR;
+        g->platform = x;
+    }
+    x->borrowed = true;
+
+    if (x->pixmap != XCB_NONE && x->pixmap != pixmap)
+        egl_window_unbind(g);
+
+    if (x->pixmap == XCB_NONE) {
+        x->pixmap = pixmap;
+        if (!egl_import(pixmap, x, g)) {
+            egl_window_unbind(g);
+            return false;
+        }
+        g->width = width;
+        g->height = height;
+        g->argb = (depth == 32);
+    }
+
+    glBindTexture(GL_TEXTURE_2D, g->texture);
+    return true;
 }
 
 /* Names the window's contents and imports the buffer behind them, once
@@ -551,34 +617,15 @@ static bool egl_window_bind(CompWindow *w, GlWindow *g)
             return false;
         }
         x->pixmap = pixmap;
+        x->borrowed = false;
 
-        Dri3Buffer d;
-        if (!dri3_buffer_from_pixmap(pixmap, &d)) {
+        if (!egl_import(pixmap, x, g)) {
             egl_window_unbind(g);
             return false;
         }
-        uint32_t fourcc = fourcc_for_depth(d.depth);
-        if (fourcc)
-            x->image = image_from_dmabuf(fourcc, d.width, d.height, d.nplanes,
-                                         d.fd, d.stride, d.offset, d.modifier);
-        /* The image holds its own reference to the buffer. */
-        dri3_buffer_close(&d);
-        if (x->image == EGL_NO_IMAGE_KHR) {
-            egl_window_unbind(g);
-            return false;
-        }
-
-        glBindTexture(GL_TEXTURE_2D, gl_window_texture(g));
-        glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, x->image);
-        glBindTexture(GL_TEXTURE_2D, 0);
-
-        g->content = true;
         g->width = r.w;
         g->height = r.h;
         g->argb = w->argb;
-        /* Row 0 of the buffer is the top of the window: the texture is
-         * already the way the drawing's coordinates run. */
-        g->y_inverted = true;
     }
 
     glBindTexture(GL_TEXTURE_2D, g->texture);
@@ -588,6 +635,7 @@ static bool egl_window_bind(CompWindow *w, GlWindow *g)
 static const GlPlatform egl_platform = {
     .window_bind   = egl_window_bind,
     .window_unbind = egl_window_unbind,
+    .pixmap_bind   = egl_pixmap_bind,
 };
 
 /* For main.c to decide before any output exists: can this platform
@@ -753,6 +801,7 @@ static const CompRenderer egl_renderer = {
 
     .window_invalidate  = gl_window_invalidate,
     .window_shape_invalidate = gl_window_shape_invalidate,
+    .window_density_invalidate = gl_window_density_invalidate,
     .window_free        = gl_window_free,
     .window_has_content = gl_window_has_content,
 

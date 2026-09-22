@@ -40,9 +40,11 @@
  * drawing only the damaged part of a buffer of unknown age is "parts
  * flashing black, then red, with pieces of windows out of place".
  *
- * Still XRender-only, for the GL renderer as a whole: the X-DENSITY
- * layers. `renderer = glx` is opt-in until they are there, and `auto`
- * still picks xrender.
+ * The X-DENSITY layers come through the same texture-from-pixmap path
+ * as the windows themselves (glx_pixmap_bind): the pixmap the client
+ * published is attached under the config for the screen's visual of its
+ * depth, and rebound every draw the way a window is, so a republished
+ * frame reaches the texture on every driver.
  */
 #include "renderer-gl.h"
 #include "window.h"
@@ -112,6 +114,10 @@ typedef struct {
     Pixmap pixmap;          /* the named contents pixmap */
     GLXPixmap glx_pixmap;
     bool bound;             /* the image is currently bound to the texture */
+    /* The pixmap is the client's, not one named here (an X-DENSITY
+     * layer, glx_pixmap_bind): let go of the GLXPixmap over it, never
+     * of the pixmap itself. */
+    bool borrowed;
 } GlxWindow;
 
 static bool choose_configs(void)
@@ -141,7 +147,7 @@ static bool choose_configs(void)
     /* Texture-from-pixmap has to be there; without it this backend has
      * no way to sample a window at all. The configs themselves are chosen
      * per visual, lazily, when the first window with that visual is
-     * bound (tfp_config_for). */
+     * bound (tfp_config_for_visual). */
     const char *ext = glXQueryExtensionsString(dpy, screen);
     have_tfp = ext && strstr(ext, "GLX_EXT_texture_from_pixmap");
     /* Asked through epoxy rather than by searching the server's
@@ -184,17 +190,17 @@ static bool choose_configs(void)
  * with usable = false so the walk is not repeated for every frame of
  * every window that has it, and that window simply isn't drawn by this
  * backend. */
-static TfpConfig *tfp_config_for(const CompWindow *w)
+static TfpConfig *tfp_config_for_visual(xcb_visualid_t visual, bool argb)
 {
     for (TfpConfig *c = tfp_configs; c; c = c->next)
-        if (c->visual == w->visual)
+        if (c->visual == visual)
             return c;
 
     TfpConfig *c = calloc(1, sizeof(*c));
     if (!c)
         return NULL;
-    c->visual = w->visual;
-    c->rgba = w->argb;
+    c->visual = visual;
+    c->rgba = argb;
     c->next = tfp_configs;
     tfp_configs = c;
 
@@ -207,7 +213,7 @@ static TfpConfig *tfp_config_for(const CompWindow *w)
     for (int i = 0; i < count; i++) {
         int visual_id = 0, drawable = 0, targets = 0, rgb = 0, rgba = 0;
         glXGetFBConfigAttrib(dpy, all[i], GLX_VISUAL_ID, &visual_id);
-        if ((xcb_visualid_t)visual_id != w->visual)
+        if ((xcb_visualid_t)visual_id != visual)
             continue;
 
         glXGetFBConfigAttrib(dpy, all[i], GLX_DRAWABLE_TYPE, &drawable);
@@ -223,7 +229,7 @@ static TfpConfig *tfp_config_for(const CompWindow *w)
         /* An ARGB window wants its alpha; anything else is happy with
          * RGB, and asking for RGBA on a visual that has no alpha bits
          * gets undefined values in that channel rather than an error. */
-        if (w->argb && rgba)
+        if (argb && rgba)
             c->rgba = true;
         else if (rgb)
             c->rgba = false;
@@ -245,17 +251,46 @@ static TfpConfig *tfp_config_for(const CompWindow *w)
 
     if (!c->usable)
         fprintf(stderr, "kicomp: glx: no texture-from-pixmap config for visual 0x%x\n",
-                (unsigned)w->visual);
+                (unsigned)visual);
     return c;
+}
+
+/* A bare pixmap has a depth and no visual, and the configs above are
+ * matched by visual for a reason (see TfpConfig). So the screen's own
+ * visual of that depth stands in: the root's for the root depth, and for
+ * 32 the one ARGB TrueColor visual a screen offers -- which is the visual
+ * every ARGB window and every ARGB pixmap on this screen was drawn with,
+ * cairo's included, so it reads those bytes the way they were written.
+ * XCB_NONE for a depth the screen has no visual for. */
+static xcb_visualid_t visual_for_depth(uint8_t depth)
+{
+    if (depth == comp.screen->root_depth)
+        return comp.screen->root_visual;
+
+    xcb_depth_iterator_t di = xcb_screen_allowed_depths_iterator(comp.screen);
+    for (; di.rem; xcb_depth_next(&di)) {
+        if (di.data->depth != depth)
+            continue;
+        xcb_visualtype_iterator_t vi = xcb_depth_visuals_iterator(di.data);
+        for (; vi.rem; xcb_visualtype_next(&vi))
+            if (vi.data->_class == XCB_VISUAL_CLASS_TRUE_COLOR)
+                return vi.data->visual_id;
+        if (xcb_depth_visuals_length(di.data) > 0)
+            return xcb_depth_visuals(di.data)[0].visual_id;
+    }
+    return XCB_NONE;
 }
 
 /* Opened once, on the first output. Everything here is per-screen rather
  * than per-output: one context, one program, one set of configs. */
 static bool glx_window_bind(CompWindow *w, GlWindow *g);
 static void glx_window_unbind(GlWindow *g);
+static bool glx_pixmap_bind(xcb_pixmap_t pixmap, int width, int height,
+                            uint8_t depth, GlWindow *g);
 
 static const GlPlatform glx_platform = {
     .window_bind   = glx_window_bind,
+    .pixmap_bind   = glx_pixmap_bind,
     .window_unbind = glx_window_unbind,
 };
 
@@ -421,10 +456,77 @@ static void glx_window_unbind(GlWindow *g)
         x->glx_pixmap = 0;
     }
     if (x->pixmap) {
-        xcb_free_pixmap(comp.conn, (xcb_pixmap_t)x->pixmap);
+        if (!x->borrowed)
+            xcb_free_pixmap(comp.conn, (xcb_pixmap_t)x->pixmap);
         x->pixmap = 0;
     }
     g->content = false;
+}
+
+/* The GLXPixmap that lets a texture read `pixmap`, through the config
+ * for `visual` (tfp_config_for_visual). False for a visual no config
+ * serves. */
+static bool glx_attach(GlxWindow *x, GlWindow *g, xcb_visualid_t visual,
+                       bool argb)
+{
+    TfpConfig *cfg = tfp_config_for_visual(visual, argb);
+    if (!cfg || !cfg->usable)
+        return false;
+
+    const int attrs[] = {
+        GLX_TEXTURE_TARGET_EXT, GLX_TEXTURE_2D_EXT,
+        GLX_TEXTURE_FORMAT_EXT, cfg->rgba ? GLX_TEXTURE_FORMAT_RGBA_EXT
+                                          : GLX_TEXTURE_FORMAT_RGB_EXT,
+        None
+    };
+    x->glx_pixmap = glXCreatePixmap(dpy, cfg->config, x->pixmap, attrs);
+    if (!x->glx_pixmap)
+        return false;
+    g->y_inverted = cfg->y_inverted;
+    return true;
+}
+
+/* A pixmap the client owns (an X-DENSITY layer): attached once, and
+ * bound again every draw with the same release/bind pair a window's own
+ * contents get -- the client republishes the same XID with new pixels in
+ * it, and that pair is how those pixels reach the texture on drivers
+ * that don't update a bound one in place. */
+static bool glx_pixmap_bind(xcb_pixmap_t pixmap, int width, int height,
+                            uint8_t depth, GlWindow *g)
+{
+    GlxWindow *x = g->platform;
+    if (!x) {
+        x = calloc(1, sizeof(*x));
+        if (!x)
+            return false;
+        g->platform = x;
+    }
+    x->borrowed = true;
+
+    if (x->pixmap && x->pixmap != (Pixmap)pixmap)
+        glx_window_unbind(g);
+
+    if (!x->pixmap) {
+        xcb_visualid_t visual = visual_for_depth(depth);
+        if (visual == XCB_NONE)
+            return false;
+
+        x->pixmap = (Pixmap)pixmap;
+        g->width = width;
+        g->height = height;
+        g->argb = (depth == 32);
+        if (!glx_attach(x, g, visual, g->argb)) {
+            glx_window_unbind(g);
+            return false;
+        }
+        g->content = true;
+    }
+
+    glx_window_release(g, x);
+    glBindTexture(GL_TEXTURE_2D, gl_window_texture(g));
+    glXBindTexImageEXT(dpy, x->glx_pixmap, GLX_FRONT_LEFT_EXT, NULL);
+    x->bound = true;
+    return true;
 }
 
 /* Names the window's contents and binds them as a texture. The pixmap is
@@ -457,29 +559,16 @@ static bool glx_window_bind(CompWindow *w, GlWindow *g)
         }
 
         x->pixmap = pixmap;
+        x->borrowed = false;
         g->content = true;
         g->width = r.w;
         g->height = r.h;
         g->argb = w->argb;
 
-        TfpConfig *cfg = tfp_config_for(w);
-        if (!cfg || !cfg->usable) {
+        if (!glx_attach(x, g, w->visual, w->argb)) {
             glx_window_unbind(g);
             return false;
         }
-
-        const int attrs[] = {
-            GLX_TEXTURE_TARGET_EXT, GLX_TEXTURE_2D_EXT,
-            GLX_TEXTURE_FORMAT_EXT, cfg->rgba ? GLX_TEXTURE_FORMAT_RGBA_EXT
-                                              : GLX_TEXTURE_FORMAT_RGB_EXT,
-            None
-        };
-        x->glx_pixmap = glXCreatePixmap(dpy, cfg->config, x->pixmap, attrs);
-        if (!x->glx_pixmap) {
-            glx_window_unbind(g);
-            return false;
-        }
-        g->y_inverted = cfg->y_inverted;
     }
 
     /* Released first, then bound again: that pair is how the contents of
@@ -594,6 +683,7 @@ static const CompRenderer glx_renderer = {
 
     .window_invalidate  = gl_window_invalidate,
     .window_shape_invalidate = gl_window_shape_invalidate,
+    .window_density_invalidate = gl_window_density_invalidate,
     .window_free        = gl_window_free,
     .window_has_content = gl_window_has_content,
 

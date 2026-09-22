@@ -23,6 +23,7 @@
 #include "region.h"
 #include "output.h"
 #include "window.h"
+#include "density.h"
 #include "shadow.h"
 #include "text.h"
 #include "transform.h"
@@ -569,6 +570,28 @@ void gl_window_shape_invalidate(CompWindow *w)
         gl_shape_forget(g);
 }
 
+/* ---- X-DENSITY layers (renderer-gl.h's GlWindow::dense) ---- */
+
+static void gl_dense_free(GlWindow **slot)
+{
+    GlWindow *d = *slot;
+    if (!d)
+        return;
+    platform->window_unbind(d);
+    free(d->platform);
+    if (d->texture)
+        glDeleteTextures(1, &d->texture);
+    free(d);
+    *slot = NULL;
+}
+
+void gl_window_density_invalidate(CompWindow *w, bool decoration)
+{
+    GlWindow *g = gl_window_find(w->id);
+    if (g)
+        gl_dense_free(&g->dense[decoration ? 1 : 0]);
+}
+
 void gl_window_free(CompWindow *w)
 {
     GlWindow **pp = &windows;
@@ -586,6 +609,8 @@ void gl_window_free(CompWindow *w)
         /* Whatever an effect was still holding goes with it: the window
          * is gone, and so is anything that was drawing it. */
         gl_stash_free(g);
+        gl_dense_free(&g->dense[0]);
+        gl_dense_free(&g->dense[1]);
         free(g->shape_rects);
         free(g);
         return;
@@ -1127,6 +1152,129 @@ static void draw_piece(const CompOutput *o, const CompRect *piece,
     for (int k = 0; k < rest.count; k++)
         if (scissor_to(o, &rest.rects[k]))
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+/* ------------------------------------------------------------------ */
+/* X-DENSITY: the client's own denser contents                         */
+/* ------------------------------------------------------------------ */
+
+/* The texture over one X-DENSITY layer of this window, bound and ready
+ * to sample, or NULL when there is nothing to draw -- the GL side of what
+ * renderer-xrender.c's density_picture() does with a Picture.
+ *
+ * Imported once per pixmap the client publishes, then bound again on
+ * every draw through the platform's own op, which is what lets a GLX
+ * driver that doesn't update a bound texture in place pick up a
+ * republished frame (the same release/bind pair its window contents
+ * get). The client's rectangle inside the frame is asked for alongside
+ * the contents layer, since that pixmap holds the client's own pixels
+ * with no decoration around them and the frame is where it is drawn.
+ *
+ * A pixmap the server no longer knows -- the publisher died, or freed it
+ * before this got to look -- is forgotten (the XID zeroed) so it is not
+ * asked about again every frame; the client republishing is what brings
+ * it back (density_property_changed). */
+static GlWindow *dense_layer(CompWindow *w, GlWindow *g, bool decoration)
+{
+    GlWindow **slot = &g->dense[decoration ? 1 : 0];
+    xcb_pixmap_t *pixmap = decoration ? &w->deco_density_pixmap
+                                      : &w->density_pixmap;
+
+    if (!platform->pixmap_bind || *pixmap == 0)
+        return NULL;
+    if (!decoration && w->client == XCB_NONE)
+        return NULL;
+
+    GlWindow *d = *slot;
+
+    /* Published under a new XID: the old import describes a drawable
+     * that may not even exist any more. */
+    if (d && d->id != *pixmap) {
+        gl_dense_free(slot);
+        d = NULL;
+    }
+
+    if (!d) {
+        xcb_get_geometry_cookie_t cc = { 0 };
+        if (!decoration)
+            cc = xcb_get_geometry(comp.conn, w->client);
+        xcb_get_geometry_cookie_t pc = xcb_get_geometry(comp.conn, *pixmap);
+
+        xcb_get_geometry_reply_t *cg = decoration ? NULL
+                                      : xcb_get_geometry_reply(comp.conn, cc, NULL);
+        xcb_get_geometry_reply_t *pg = xcb_get_geometry_reply(comp.conn, pc, NULL);
+
+        if (!pg || (!decoration && !cg)) {
+            free(cg);
+            free(pg);
+            *pixmap = 0;
+            return NULL;
+        }
+
+        if (cg) {
+            w->client_rect.x = cg->x + cg->border_width;
+            w->client_rect.y = cg->y + cg->border_width;
+            w->client_rect.w = cg->width;
+            w->client_rect.h = cg->height;
+        }
+
+        d = calloc(1, sizeof(*d));
+        if (!d) {
+            free(cg);
+            free(pg);
+            return NULL;
+        }
+        d->id = *pixmap;
+        d->width = pg->width;
+        d->height = pg->height;
+        d->argb = (pg->depth == 32);
+        free(cg);
+        free(pg);
+        *slot = d;
+    }
+
+    /* The depth is only read on the first import; afterwards the
+     * platform already has the pixmap and this is the per-draw bind. */
+    if (!platform->pixmap_bind(*pixmap, d->width, d->height,
+                               d->argb ? 32 : 24, d)) {
+        gl_dense_free(slot);
+        *pixmap = 0;
+        return NULL;
+    }
+    return d;
+}
+
+/* One X-DENSITY layer over the window already drawn: `area` is the
+ * logical rectangle those pixels cover (the whole frame for the
+ * decoration, the client's rectangle inside it for the contents), drawn
+ * as one quad through the node's own transform. The density never
+ * appears here: the texture simply has that many more texels across the
+ * same logical rectangle, and the lens in the projection is what turns
+ * them into more pixels on screen -- a 2x layer under a 2x zoom lands
+ * one texel per pixel, which is the entire point of it.
+ *
+ * Blended, never through the opaque short cut: the decoration's pixmap
+ * is transparent everywhere the WM didn't paint, which is exactly the
+ * hole the client's own contents show through. And without the shape
+ * mask, as the XRender backend does it too: the contents layer lies
+ * inside the frame, away from the corners the shape is about, and the
+ * decoration layer is the WM's own painting of those corners, alpha and
+ * all. */
+static void draw_dense(const CompOutput *o, const CompSceneNode *n,
+                       const GlWindow *d, const CompRect *area)
+{
+    CompRect visible;
+    if (!rect_intersect(area, &n->visible_rect, &visible))
+        return;
+
+    float m[16];
+    rect_matrix(area, &n->transform, m);
+    glUniformMatrix4fv(u_transform, 1, GL_FALSE, m);
+    glUniform1f(u_y_flip, d->y_inverted ? 0.0f : 1.0f);
+    glUniform1f(u_use_mask, 0.0f);
+
+    CompRect none = { 0, 0, 0, 0 };
+    draw_piece(o, &visible, &none);
 }
 
 /* The window's silhouette as an alpha texture, in the pixmap's own
@@ -1736,6 +1884,39 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         draw_piece(o, &repaint_rect, &opaque);
     }
 
+    /* And, over what was just drawn, the client's own denser pixels if it
+     * published any (density.h): the decoration first, then the contents
+     * inside it -- the same order they sit in, and the same order they
+     * were drawn in at logical size. Each is a separate drawable
+     * published by a separate program (the WM's frame, the app's window),
+     * and only what each one published is dense.
+     *
+     * Only while the window is where it says it is, or is being moved:
+     * a window mid-scale is worth exactly as much sharpness as it has
+     * milliseconds left, and a stash is the picture from before any of
+     * this. The mask, when one is bound above, is left out: these layers
+     * bind textures of their own on unit 0, and the shape they would
+     * need is the one the WM painted into its own layer already. */
+    if (!from_stash && move_only) {
+        float density;
+        if (deco_density_active(w, &density)) {
+            GlWindow *d = dense_layer(w, g, true);
+            if (d)
+                draw_dense(o, n, d, &n->geometry);
+        }
+        if (density_active(w, &density)) {
+            GlWindow *d = dense_layer(w, g, false);
+            if (d) {
+                CompRect client = {
+                    n->geometry.x + w->client_rect.x,
+                    n->geometry.y + w->client_rect.y,
+                    w->client_rect.w, w->client_rect.h
+                };
+                draw_dense(o, n, d, &client);
+            }
+        }
+    }
+
     repaint_rect = full_repaint;
 }
 
@@ -2004,8 +2185,11 @@ void gl_teardown(void)
         free(g->platform);
         if (g->texture)
             glDeleteTextures(1, &g->texture);
-        if (platform)
+        if (platform) {
             gl_stash_free(g);
+            gl_dense_free(&g->dense[0]);
+            gl_dense_free(&g->dense[1]);
+        }
         free(g->shape_rects);
         free(g);
     }
