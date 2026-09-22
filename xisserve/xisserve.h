@@ -271,6 +271,7 @@ typedef struct {
 
 GtkWidget *page_calendar_build(void);
 void page_calendar_on_show(void);
+void page_calendar_on_hide(void);
 
 GtkWidget *page_audio_build(void);
 void page_audio_on_show(void);

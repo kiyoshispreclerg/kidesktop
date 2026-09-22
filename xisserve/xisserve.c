@@ -43,7 +43,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.25"
+#define XISSERVE_VERSION "0.1.26"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -69,11 +69,14 @@ enum { CCOL_KEY = 0, CCOL_LABEL, N_CCOLS };
 
 /* Every page PROTOCOL.md's mode flags can select. Adding one is one row
  * here plus its own pages/<name>.c -- see xisserve.h's "pages" section.
- * The calendar keeps 0/0 (shrink to the widget's natural size, which is
- * what keeps a small popup small); the audio mixer asks for real room,
- * since its rows only make sense at a usable slider width. */
+ * The calendar now has a left text panel alongside the GtkCalendar
+ * itself (date/time, other zones, the selected day's events -- see
+ * pages/calendar.c), so unlike the other three it needs a forced
+ * minimum width to keep that panel from being squeezed to nothing; the
+ * audio mixer's own min size is for the same reason (its rows only
+ * make sense at a usable slider width). */
 static const XisservePage kPages[] = {
-    {"calendar", "Calend\xc3\xa1rio", 0, 0, page_calendar_build, page_calendar_on_show, NULL},
+    {"calendar", "Calend\xc3\xa1rio", 460, 360, page_calendar_build, page_calendar_on_show, page_calendar_on_hide},
     {"audio", "\xc3\x81udio", 380, 480, page_audio_build, page_audio_on_show, page_audio_on_hide},
     {"energy", "Energia", 380, 480, page_energy_build, page_energy_on_show, page_energy_on_hide},
     {"notifications", "Notifica\xc3\xa7\xc3\xb5""es", 380, 480, page_notifications_build,
