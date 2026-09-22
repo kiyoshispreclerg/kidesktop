@@ -195,11 +195,32 @@ static int g_group_n = 0;
  * comment on why this replaces menu.c's grab-based dismissal here. */
 static uint64_t g_close_deadline_ms = 0;
 
+/* Set right after show_popup()'s reuse path moves/resizes/raises the
+ * existing popup window (tooltip_reuse=1, now the default), cleared by
+ * the very next EnterNotify tooltip_handle_event() sees for it. Purely
+ * defensive: X generates a crossing event for a window's configuration
+ * change (move/resize/restack) landing it under an otherwise-stationary
+ * pointer exactly the same way it does for real pointer motion -- mode
+ * is NotifyNormal either way, nothing in the event tells the two apart
+ * -- so sliding a large reused popup (a thumbnail's is tall) into place
+ * under the panel, right as the pointer happens to be leaving through
+ * that same screen area, can raise a phantom EnterNotify on the popup.
+ * Uncaught, that cancels the close that was just armed by the genuine
+ * LeaveNotify on the panel moments earlier, and nothing else was ever
+ * going to re-arm it -- the tooltip is then stuck until a real hover
+ * cycle (back onto the panel, then away again) produces a LeaveNotify
+ * that isn't shadowed by a reposition. Ignoring one EnterNotify right
+ * after our own reposition trades a vanishingly rare "closes instead of
+ * granting the crossing-into-the-popup grace window" for never getting
+ * stuck open -- no polling or timer added, still purely event-driven. */
+static int g_suppress_popup_enter = 0;
+
 static void destroy_popup(void)
 {
     if (!g_popup) {
         return;
     }
+    g_suppress_popup_enter = 0; /* whatever window it applied to is going away */
     if (g_popup->back_cr) {
         cairo_destroy(g_popup->back_cr);
     }
@@ -978,6 +999,10 @@ static void show_popup(void)
         XMoveResizeWindow(g_dpy, pop->win, screen_x, screen_y, (unsigned)pop->width, (unsigned)pop->height);
         cairo_xlib_surface_set_size(pop->surface, pop->width, pop->height);
         XRaiseWindow(g_dpy, pop->win);
+        /* See g_suppress_popup_enter's own doc comment: this move/raise
+         * can itself generate a crossing event indistinguishable from a
+         * real one. */
+        g_suppress_popup_enter = 1;
     } else {
         XSetWindowAttributes attrs;
         memset(&attrs, 0, sizeof(attrs));
@@ -987,6 +1012,10 @@ static void show_popup(void)
         attrs.background_pixel = 0;
         attrs.event_mask = ExposureMask | EnterWindowMask | LeaveWindowMask | ButtonPressMask;
 
+        /* A fresh window, not the one any stale g_suppress_popup_enter
+         * (left over from a previous reused popup) could possibly apply
+         * to -- its first EnterNotify is trustworthy. */
+        g_suppress_popup_enter = 0;
         pop->win = XCreateWindow(g_dpy, g_root, screen_x, screen_y, (unsigned)pop->width, (unsigned)pop->height, 0,
                                   p->depth, InputOutput, p->visual,
                                   CWOverrideRedirect | CWColormap | CWBorderPixel | CWBackPixel | CWEventMask, &attrs);
@@ -1376,18 +1405,35 @@ int tooltip_handle_event(const XEvent *ev)
         return 0;
     }
     if (ev->type == Expose && ev->xexpose.window == g_popup->win) {
+        /* A move/resize (almost) always generates at least a partial
+         * Expose -- by the time one arrives, our own reposition's
+         * immediate aftermath is over, so any *further* EnterNotify is
+         * trustworthy again. Bounds how long g_suppress_popup_enter can
+         * possibly wait for an Enter that never comes (the common case:
+         * the reposition didn't land under the pointer at all) -- without
+         * this, that flag would sit armed indefinitely and swallow the
+         * next genuinely real crossing whenever it eventually happened. */
+        g_suppress_popup_enter = 0;
         paint_popup();
         return 1;
     }
     if (ev->type == EnterNotify && ev->xcrossing.window == g_popup->win) {
-        g_close_deadline_ms = 0;
+        if (g_suppress_popup_enter) {
+            /* Our own reposition, not a real crossing -- see
+             * g_suppress_popup_enter's doc comment. Consumed once. */
+            g_suppress_popup_enter = 0;
+        } else {
+            g_close_deadline_ms = 0;
+        }
         return 1;
     }
     if (ev->type == LeaveNotify && ev->xcrossing.window == g_popup->win) {
+        g_suppress_popup_enter = 0;
         g_close_deadline_ms = now_ms() + close_delay_ms();
         return 1;
     }
     if (ev->type == ButtonPress && ev->xbutton.window == g_popup->win) {
+        g_suppress_popup_enter = 0;
         handle_popup_click(ev->xbutton.x, ev->xbutton.y);
         return 1;
     }
