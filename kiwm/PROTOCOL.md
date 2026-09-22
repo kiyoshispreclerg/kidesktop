@@ -212,23 +212,27 @@ where it should, within the prize it asked for.
 
 A hold ends where the window belongs *now*, not where it was when the hold began. Normally that is
 back down: the frame is unmapped, then `_KIWM_HELD` deleted. But when the window came to belong on
-screen while it was held -- its desktop was switched to, it was moved to the desktop being shown,
-it was made sticky -- the frame is **left mapped**: it gets its input shape back and `_KIWM_HELD`
-is deleted, and that deletion on a frame that stays mapped is how a reader learns the window has
-arrived for real. No unmap and map, so the window arrives with the contents it has been drawing
-all along rather than with none. A desktop switch leaves holds on the windows of every *other*
-desktop alone: nothing about them has changed.
+screen while it was held -- it was restored from minimized, its desktop was switched to, it was
+moved to the desktop being shown, it was made sticky -- the frame is **left mapped**: it gets its
+input shape back and `_KIWM_HELD` is deleted, and that deletion on a frame that stays mapped is
+how a reader learns the window has arrived for real. No unmap and map, so the window arrives with
+the contents it has been drawing all along rather than with none. A desktop switch leaves holds on
+the windows of every *other* desktop alone: nothing about them has changed.
 
-Refused, silently, for a window that is not merely away with its desktop, or on it: minimized
-(the user put it away), shaded (whose client window really is unmapped), or sticky.
+Refused, silently, for a window that is neither minimized, away with its desktop, nor on it:
+shaded (whose client window really is unmapped, and shading isn't this request's business the
+way minimizing is). A minimized window is held exactly like one away with its desktop -- X threw
+its contents away either way, and getting a live one back works the same: map the frame,
+ask for a redraw, unmap it again once the time is up.
 
-Asked for a window that is **visible**, nothing is done now -- there is nothing to do -- but the
-time is kept as a standing wish. Should the window leave the screen with its desktop before the
-wish runs out (the desktop switched away, the window moved to a hidden desktop), the frame is
-**not unmapped**: it stays up, gets an empty input shape, and `_KIWM_HELD` is set on it, and
-that mark appearing on a frame that stays mapped is how a reader learns the window has left with
-its desktop. Nothing is lost in between -- the application draws on into the same pixmap -- which
-is what lets a compositor keep a window continuously alive across a desktop switch for a screen
+Asked for a window that is **visible** (on its own desktop, sticky, or otherwise -- minimized is
+the only kind of "not visible" this ever applies to now), nothing is done now -- there is nothing
+to do -- but the time is kept as a standing wish. Should the window leave the screen before the
+wish runs out (minimized, or its desktop switched away, or moved to a hidden desktop), the frame
+is **not unmapped**: it stays up, gets an empty input shape, and `_KIWM_HELD` is set on it, and
+that mark appearing on a frame that stays mapped is how a reader learns the window has left the
+screen. Nothing is lost in between -- the application draws on into the same pixmap -- which is
+what lets a compositor keep a window continuously alive across a desktop switch for a screen
 recorder (kicomp's `live_windows`): it asks for every window, visible or not, once a second. A
 wish that nothing came of simply expires.
 

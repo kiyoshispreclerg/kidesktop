@@ -812,15 +812,23 @@ void client_hold(xcb_window_t window, int ms)
     if (!c)
         return;
 
-    /* Only a window that is away with its desktop, or on it. Everything
-     * else is put away for a reason of its own, and that is not this
-     * request's business.
+    /* Only a window that is minimized, away with its desktop, or already
+     * on screen (sticky included). Shaded is the one thing still
+     * refused: its client window really is unmapped, and shading isn't
+     * this request's business the way minimizing is.
      *
-     * Which desktop its output is showing is the whole test: `mapped` is
-     * not the frame's map state but the client's own "belongs on screen"
-     * (see switch_workspace, which unmaps the frame and leaves the flag
-     * alone), so a window away with its desktop still has it set. */
-    if (c->minimized || c->shaded || c->sticky || !c->mapped)
+     * `mapped` already says which of those it is: true for "belongs on
+     * screen" (set for a window away with its desktop too -- see
+     * switch_workspace, which unmaps the frame and leaves the flag
+     * alone -- and for any sticky window, which toggle_sticky() keeps
+     * mapped regardless of desktop), false only for minimized (or a
+     * window adopted while already hidden, which minimize_client()'s own
+     * bookkeeping treats identically). So "may this be held at all" is
+     * just "mapped, or minimized" -- there is no third reason left once
+     * shaded is excluded. */
+    if (c->shaded)
+        return;
+    if (!c->mapped && !c->minimized)
         return;
     if (c->output < 0 || c->output >= wm.output_count)
         return;
@@ -830,10 +838,11 @@ void client_hold(xcb_window_t window, int ms)
     if (ms > HOLD_MAX_MS)
         ms = HOLD_MAX_MS;
 
-    if (wm.outputs[c->output].desktop == c->desktop) {
-        /* Visible: nothing to hold up, but the wish is kept, and it is
-         * what client_hold_instead_of_unmap answers to when the desktop
-         * is left. Renewed the same way a hold is. */
+    if (c->mapped) {
+        /* Already visible (on its own desktop, sticky, or otherwise) --
+         * nothing to hold up, but the wish is kept, and it is what
+         * client_hold_instead_of_unmap answers to when the desktop is
+         * left. Renewed the same way a hold is. */
         c->hold_until = monotonic_ms() + ms;
         return;
     }
