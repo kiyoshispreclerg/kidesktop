@@ -425,6 +425,11 @@ static void gl_shape_forget(GlWindow *g)
 
 static void gl_stash_free(GlWindow *g)
 {
+    free(g->stash_shape_rects);
+    g->stash_shape_rects = NULL;
+    g->stash_shape_count = 0;
+    g->stash_shaped = false;
+
     if (!g->stash_platform && !g->stash_texture)
         return;
 
@@ -485,6 +490,20 @@ void gl_window_stash(CompWindow *w, const CompRect *was)
      * contents are not. */
     g->stash_rect = *was;
     g->stash_holds = 0;
+
+    /* The silhouette those pixels were cut to, copied while it is still
+     * the *old* one -- gl_shape_forget below moves shape_rects on to the
+     * new geometry's shape, same as it always did. */
+    g->stash_shaped = false;
+    if (w->shaped && g->shape_known && g->shape_count > 0) {
+        xcb_rectangle_t *copy = malloc(sizeof(*copy) * (size_t)g->shape_count);
+        if (copy) {
+            memcpy(copy, g->shape_rects, sizeof(*copy) * (size_t)g->shape_count);
+            g->stash_shape_rects = copy;
+            g->stash_shape_count = g->shape_count;
+            g->stash_shaped = true;
+        }
+    }
 
     /* The live half starts over: the next bind names the new pixmap into
      * a new texture. */
@@ -1214,6 +1233,32 @@ static CompRect in_node_space(const CompSceneNode *n, const CompWindow *w,
     };
 }
 
+/* The same idea as in_node_space, for a shape rectangle that belongs to
+ * the *stash* rather than the live window -- there is no window_rect(w)
+ * to measure it against, since by the time from_stash is set the window
+ * has already resized out from under it. `src` is the rectangle those
+ * shape rectangles were captured at (GlWindow::stash_rect), which is the
+ * source size to scale from instead. Shade never actually rescales
+ * (its geometry is always the stash's own size, node unmoved), so this
+ * is a 1:1 copy there in practice -- kept general on the offhand chance
+ * another effect ever draws a stash somewhere else. */
+static CompRect in_stash_space(const CompSceneNode *n, const CompRect *src,
+                               int rx, int ry, int rw, int rh)
+{
+    if (src->w <= 0 || src->h <= 0)
+        return (CompRect){ n->geometry.x + rx, n->geometry.y + ry, rw, rh };
+
+    float sx = (float)n->geometry.w / (float)src->w;
+    float sy = (float)n->geometry.h / (float)src->h;
+
+    return (CompRect){
+        n->geometry.x + (int)((float)rx * sx),
+        n->geometry.y + (int)((float)ry * sy),
+        (int)((float)rw * sx + 0.5f),
+        (int)((float)rh * sy + 0.5f),
+    };
+}
+
 /* A point of a mesh at (u, v), where 0..1 spans the window -- bilinear
  * inside, and *extrapolated* outside, which is the whole reason this
  * exists: the shadow's rectangle reaches past the window by the blur
@@ -1625,11 +1670,14 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * kiwm gave it. Built on the first frame that needs it, and only
      * ever for such a node: the ordinary case below stays exactly as
      * cheap as it was. */
-    /* Never for the stash: every silhouette this window has -- the
-     * rectangles and the mask alike -- describes the size it is now, and
-     * these contents are the size it was. Cutting the old picture with
-     * the new shape is how a rolled-up window ends up with a bite taken
-     * out of it. The crop above is the only clip a stash needs. */
+    /* Not the *live* silhouette for the stash: shape_rects and the mask
+     * alike describe the size the window is now, and these contents are
+     * the size they were -- cutting the old picture with the new shape
+     * is how a rolled-up window ends up with a bite taken out of it.
+     * GlWindow::stash_shape_rects is the one captured for these pixels
+     * (gl_window_stash), used below instead when there is one; a scaled
+     * or rotated stash (nothing draws one that way today) still falls
+     * through to the plain rectangle, same as an unshaped window. */
     GLuint mask = (!from_stash && !move_only && w->shaped)
                       ? shape_mask_texture(w, g) : 0;
     if (mask) {
@@ -1655,6 +1703,15 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
             piece.y += (int)tdy;
             draw_piece(o, &piece, &opaque);
         }
+    } else if (from_stash && g->stash_shaped && move_only) {
+        for (int k = 0; k < g->stash_shape_count; k++) {
+            const xcb_rectangle_t *sr = &g->stash_shape_rects[k];
+            CompRect piece = in_stash_space(n, &g->stash_rect, sr->x, sr->y,
+                                            sr->width, sr->height);
+            piece.x += (int)tdx;
+            piece.y += (int)tdy;
+            draw_piece(o, &piece, &opaque);
+        }
     } else if (!from_stash && !move_only && w->shaped &&
                w->shape_extents.w > 0 && w->shape_extents.h > 0) {
         /* Being scaled, so the silhouette cannot come along -- a
@@ -1672,7 +1729,10 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         if (scissor_to(o, &moved))
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     } else {
-        /* Unshaped, or a stash: the damage rectangle is the whole clip. */
+        /* Unshaped, transformed past what a scissor box can follow, or a
+         * stash with no silhouette of its own to draw through (an
+         * unshaped window's, or one from before this existed): the
+         * damage rectangle is the whole clip. */
         draw_piece(o, &repaint_rect, &opaque);
     }
 

@@ -105,6 +105,19 @@ typedef struct GlWindow {
     CompRect stash_rect;        /* the rectangle those pixels covered */
     bool stash_y_inverted;
     int stash_holds;
+
+    /* The silhouette those same pixels were cut to, captured alongside
+     * them for the same reason: by the time an effect draws the stash,
+     * `shape_rects` above has already moved on to the *new* geometry's
+     * shape (gl_window_stash forgets it in the same breath it stashes
+     * the pixmap), and clipping old contents to a new silhouette is how
+     * a rolled-up window ends up with a bite taken out of it (see
+     * draw_node's from_stash). A copy, not a reference: shape_rects is
+     * freed and rebuilt in place on the next reshape, which for a
+     * shading window is imminent. */
+    xcb_rectangle_t *stash_shape_rects;
+    int stash_shape_count;
+    bool stash_shaped;
 } GlWindow;
 
 typedef struct {
