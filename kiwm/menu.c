@@ -136,7 +136,8 @@ typedef struct {
 static MenuFrame frames[MENU_MAX_FRAMES];
 static int frame_count = 0;
 static Client *menu_client = NULL;
-static bool grabbed = false;
+static bool pointer_grabbed = false;
+static bool keyboard_grabbed = false;
 
 static char desktop_labels[MAX_DESKTOPS][32];
 
@@ -570,10 +571,20 @@ void window_menu_close(void)
     while (frame_count > 0)
         destroy_frame(&frames[--frame_count]);
 
-    if (grabbed) {
+    /* Each grab is undone independently of the other's outcome -- if only
+     * one of the two ever succeeded (e.g. XCB_GRAB_STATUS_SUCCESS for the
+     * keyboard but not the pointer), the one that did must still be
+     * released, or it's stuck active until something else happens to
+     * clear it -- which for an exclusive keyboard grab means every other
+     * client's key events, including kiwm's own root-grabbed shortcuts
+     * and xiskeys', go nowhere until then. */
+    if (pointer_grabbed) {
         xcb_ungrab_pointer(wm.conn, XCB_CURRENT_TIME);
+        pointer_grabbed = false;
+    }
+    if (keyboard_grabbed) {
         xcb_ungrab_keyboard(wm.conn, XCB_CURRENT_TIME);
-        grabbed = false;
+        keyboard_grabbed = false;
     }
     menu_client = NULL;
     xcb_flush(wm.conn);
@@ -621,7 +632,8 @@ void window_menu_open(Client *c, int root_x, int root_y)
     xcb_grab_keyboard_reply_t *kb = xcb_grab_keyboard_reply(wm.conn,
         xcb_grab_keyboard(wm.conn, 0, wm.root, XCB_CURRENT_TIME,
                           XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC), NULL);
-    grabbed = (ptr && ptr->status == XCB_GRAB_STATUS_SUCCESS);
+    pointer_grabbed = (ptr && ptr->status == XCB_GRAB_STATUS_SUCCESS);
+    keyboard_grabbed = (kb && kb->status == XCB_GRAB_STATUS_SUCCESS);
     free(ptr);
     free(kb);
 
