@@ -258,6 +258,31 @@ static void notif_menu_select(Panel *panel, PanelWidget *widget, void *ctx, int 
      * the menu, same as clicking any other disabled-feeling info list. */
 }
 
+/* "X notificações não lidas" / "Sem notificações não lidas" -- the same
+ * count the badge already draws, spelled out for anyone who can't quite
+ * read a small red digit at a glance. No click behavior of its own (both
+ * left- and right-click already work identically regardless of hover) --
+ * *out_closable is left at its default 0. */
+static int notif_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t bufsz, int *anchor_x, int *anchor_w,
+                              int *out_closable, void **out_ctx)
+{
+    (void)w;
+    (void)local_x;
+    (void)out_closable;
+    (void)out_ctx;
+    int unread = notifd_unread_count();
+    if (unread == 0) {
+        snprintf(buf, bufsz, "Sem notifica\xc3\xa7\xc3\xb5""es n\xc3\xa3o lidas");
+    } else if (unread == 1) {
+        snprintf(buf, bufsz, "1 notifica\xc3\xa7\xc3\xa3o n\xc3\xa3o lida");
+    } else {
+        snprintf(buf, bufsz, "%d notifica\xc3\xa7\xc3\xb5""es n\xc3\xa3o lidas", unread);
+    }
+    *anchor_x = 0;
+    *anchor_w = w->len;
+    return 1;
+}
+
 static int notif_on_button(PanelWidget *w, int button, int local_x, int local_y, int root_x, int root_y)
 {
     (void)local_x;
@@ -330,5 +355,6 @@ const PanelWidgetOps notif_ops = {
     .measure = notif_measure,
     .on_button = notif_on_button,
     .on_tick = notif_on_tick,
+    .get_tooltip = notif_get_tooltip,
     .is_urgent = notif_is_urgent,
 };
