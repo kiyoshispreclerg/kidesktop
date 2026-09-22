@@ -68,7 +68,7 @@ static int shadow_cache_vcount;
  * its tiles from). */
 static GLuint shadow_program;
 static GLint su_projection, su_transform, su_color, su_size, su_span,
-             su_hole, su_profile, su_use_uv;
+             su_hole, su_profile, su_use_uv, su_mask, su_use_mask;
 static GLuint shadow_texture;
 static int shadow_texture_radius;
 
@@ -160,24 +160,36 @@ static const char *shadow_vertex_source =
      * in. The position is then free to be anywhere -- that is what lets a
      * blurred rectangle be painted onto a sheet that is not one. */
     "attribute vec2 uv;\n"
+    /* Also only a bent shadow's: the same vertex's place in the window
+     * itself (0..1 over its rectangle, y down as X measures it -- see
+     * maskcoord in vertex_source above, which this mirrors so the same
+     * mask texture reads the same way in both shaders). Unused, and left
+     * at the driver's default, on every other draw through this
+     * program. */
+    "attribute vec2 maskuv;\n"
     "uniform mat4 projection;\n"
     "uniform mat4 transform;\n"
     "uniform vec2 size;\n"
     "uniform float use_uv;\n"
     "varying vec2 local;\n"
+    "varying vec2 v_maskuv;\n"
     "void main() {\n"
     "    local = mix(position, uv, use_uv) * size;\n"
+    "    v_maskuv = maskuv;\n"
     "    gl_Position = projection * transform * vec4(position, 0.0, 1.0);\n"
     "}\n";
 
 static const char *shadow_fragment_source =
     "#version 120\n"
     "uniform sampler2D profile;\n"
+    "uniform sampler2D mask;\n"
+    "uniform float use_mask;\n"
     "uniform vec4 color;\n"
     "uniform vec2 size;\n"
     "uniform float span;\n"
     "uniform vec4 hole;\n"
     "varying vec2 local;\n"
+    "varying vec2 v_maskuv;\n"
     "float edge(float d) {\n"
     "    return texture2D(profile, vec2(clamp(d / span, 0.0, 1.0), 0.5)).a;\n"
     "}\n"
@@ -185,10 +197,28 @@ static const char *shadow_fragment_source =
     "    return clamp(edge(p) + edge(len - p) - 1.0, 0.0, 1.0);\n"
     "}\n"
     "void main() {\n"
-    "    if (local.x >= hole.x && local.x < hole.x + hole.z &&\n"
-    "        local.y >= hole.y && local.y < hole.y + hole.w)\n"
-    "        discard;\n"
-    "    float a = band(local.x, size.x) * band(local.y, size.y);\n"
+    /* Two ways to know what the window covers, so the shadow can leave a
+     * silhouette-shaped hole rather than a rectangular one: `hole` for a
+     * window that hasn't moved off its own rectangle (the common case,
+     * cheap), and the same rounded-corner mask the window's own body
+     * already samples (renderer-gl.c's shape_mask_texture) wherever the
+     * shadow has been bent to a mesh and cannot say the silhouette as one
+     * rectangle any more. Outside the window's own 0..1, the mask has
+     * nothing to say -- there is no bend to a shadow's blur margin that
+     * a texel beyond the window's own edge could answer for, so it cuts
+     * nothing there and the blur reaches past the corner exactly as it
+     * does past a straight edge. */
+    "    float cut;\n"
+    "    if (use_mask > 0.5) {\n"
+    "        cut = (v_maskuv.x >= 0.0 && v_maskuv.x <= 1.0 &&\n"
+    "               v_maskuv.y >= 0.0 && v_maskuv.y <= 1.0)\n"
+    "              ? texture2D(mask, v_maskuv).a : 0.0;\n"
+    "    } else {\n"
+    "        cut = (local.x >= hole.x && local.x < hole.x + hole.z &&\n"
+    "               local.y >= hole.y && local.y < hole.y + hole.w)\n"
+    "              ? 1.0 : 0.0;\n"
+    "    }\n"
+    "    float a = band(local.x, size.x) * band(local.y, size.y) * (1.0 - cut);\n"
     "    gl_FragColor = vec4(color.rgb * color.a * a, color.a * a);\n"
     "}\n";
 
@@ -268,6 +298,7 @@ static bool program_build(void)
         glAttachShader(shadow_program, fs);
         glBindAttribLocation(shadow_program, 0, "position");
         glBindAttribLocation(shadow_program, 1, "uv");
+        glBindAttribLocation(shadow_program, 2, "maskuv");
         glLinkProgram(shadow_program);
         glDeleteShader(vs);
         glDeleteShader(fs);
@@ -289,6 +320,8 @@ static bool program_build(void)
             su_hole = glGetUniformLocation(shadow_program, "hole");
             su_use_uv = glGetUniformLocation(shadow_program, "use_uv");
             su_profile = glGetUniformLocation(shadow_program, "profile");
+            su_mask = glGetUniformLocation(shadow_program, "mask");
+            su_use_mask = glGetUniformLocation(shadow_program, "use_mask");
         }
     }
 
@@ -833,6 +866,11 @@ static void draw_shadow(const CompOutput *o, const CompSceneNode *n,
     glUniform2f(su_size, (float)box.w, (float)box.h);
     glUniform1f(su_span, (float)(r * 2));
     glUniform1i(su_profile, 0);
+    /* The mask path is draw_shadow_mesh's alone (a rectangle can already
+     * say its own hole precisely, in scissor boxes below); left set from
+     * a previous bent shadow this frame otherwise, since the program and
+     * its uniforms are shared. */
+    glUniform1f(su_use_mask, 0.0f);
     glBindTexture(GL_TEXTURE_2D, shadow_texture);
 
     /* The silhouette, where the window has one and is where it says it
@@ -1228,7 +1266,8 @@ static void mesh_sample(const CompSceneMesh *mesh, float u, float v,
  * and curves with the window instead of sitting under it as a rectangle
  * the bend has left behind. */
 static void draw_shadow_mesh(const CompOutput *o, const CompSceneNode *n,
-                             CompWindow *w, const float projection[16])
+                             CompWindow *w, GlWindow *g,
+                             const float projection[16])
 {
     const CompSceneMesh *mesh = n->mesh;
 
@@ -1251,8 +1290,17 @@ static void draw_shadow_mesh(const CompOutput *o, const CompSceneNode *n,
     CompRect box = { base.x + st.offset_x - r, base.y + st.offset_y - r,
                      base.w + r * 2, base.h + r * 2 };
 
+    /* The same rounded-corner mask the window's own body wears
+     * (shape_mask_texture, GL_TEXTURE1) -- built once per reshape and
+     * cached there already, so reusing it here for the hole costs one
+     * more sample per shadow pixel and nothing to build. Without it a
+     * bent shadow can only punch a rectangular hole (below), which
+     * leaves a notch of neither-window-nor-shadow at each rounded
+     * corner once the window is bent instead of sitting still. */
+    GLuint mask = w->shaped ? shape_mask_texture(w, g) : 0;
+
     int cols = mesh->cols, rows = mesh->rows;
-    static float verts[MESH_MAX_COLS * MESH_MAX_ROWS * 6 * 4];
+    static float verts[MESH_MAX_COLS * MESH_MAX_ROWS * 6 * 6];
     int v;
 
     bool cached = shadow_cache_mesh == mesh &&
@@ -1271,15 +1319,18 @@ static void draw_shadow_mesh(const CompOutput *o, const CompSceneNode *n,
                                       (float)gx / cols, (float)(gx + 1) / cols };
                 const float bv[4] = { (float)gy / rows, (float)gy / rows,
                                       (float)(gy + 1) / rows, (float)(gy + 1) / rows };
-                float px[4], py[4];
+                float px[4], py[4], mu[4], mv[4];
                 for (int k = 0; k < 4; k++) {
                     /* The shadow box point, expressed in the window's own
-                     * 0..1 -- outside it wherever the box reaches past. */
-                    float mu = ((float)box.x + bu[k] * (float)box.w - (float)base.x)
-                               / (float)base.w;
-                    float mv = ((float)box.y + bv[k] * (float)box.h - (float)base.y)
-                               / (float)base.h;
-                    mesh_sample(mesh, mu, mv, &px[k], &py[k]);
+                     * 0..1 -- outside it wherever the box reaches past.
+                     * Also exactly the mask's own texture coordinate
+                     * (shape_mask_texture is built over the same window
+                     * rectangle, y down the same way). */
+                    mu[k] = ((float)box.x + bu[k] * (float)box.w - (float)base.x)
+                            / (float)base.w;
+                    mv[k] = ((float)box.y + bv[k] * (float)box.h - (float)base.y)
+                            / (float)base.h;
+                    mesh_sample(mesh, mu[k], mv[k], &px[k], &py[k]);
                 }
 
                 const int idx[6] = { 0, 1, 2, 1, 3, 2 };
@@ -1289,6 +1340,8 @@ static void draw_shadow_mesh(const CompOutput *o, const CompSceneNode *n,
                     verts[v++] = py[k];
                     verts[v++] = bu[k];
                     verts[v++] = bv[k];
+                    verts[v++] = mu[k];
+                    verts[v++] = mv[k];
                 }
             }
         }
@@ -1307,25 +1360,38 @@ static void draw_shadow_mesh(const CompOutput *o, const CompSceneNode *n,
     glUniform1f(su_span, (float)(r * 2));
     glUniform1i(su_profile, 0);
     glUniform1f(su_use_uv, 1.0f);
-    /* The window's own place in the box, so the shadow is not drawn
-     * behind it -- in the box's coordinates, which the bend carries. */
-    glUniform4f(su_hole, (float)(base.x - box.x), (float)(base.y - box.y),
-                (float)base.w, (float)base.h);
+
+    if (mask) {
+        glUniform1i(su_mask, 1);
+        glUniform1f(su_use_mask, 1.0f);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, mask);
+        glActiveTexture(GL_TEXTURE0);
+    } else {
+        glUniform1f(su_use_mask, 0.0f);
+        /* Unshaped: the same rectangular hole the plain path uses. */
+        glUniform4f(su_hole, (float)(base.x - box.x), (float)(base.y - box.y),
+                    (float)base.w, (float)base.h);
+    }
     glBindTexture(GL_TEXTURE_2D, shadow_texture);
 
     glBindBuffer(GL_ARRAY_BUFFER, shadow_mesh_vbo);
     if (!cached)
         glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)v * (GLsizeiptr)sizeof(float),
                      verts, GL_STREAM_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), NULL);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 6 * sizeof(float), NULL);
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
                           (const void *)(2 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
+                          (const void *)(4 * sizeof(float)));
 
     scissor_for(o, repaint_rect.x, repaint_rect.y, repaint_rect.w, repaint_rect.h);
-    glDrawArrays(GL_TRIANGLES, 0, v / 4);
+    glDrawArrays(GL_TRIANGLES, 0, v / 6);
 
     glUniform1f(su_use_uv, 0.0f);
+    glDisableVertexAttribArray(2);
 }
 
 /* A window handed over as a deformed grid (scene.h): two triangles per
@@ -1354,7 +1420,7 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     /* Under the window, and before its texture is bound: the shadow
      * program has its own idea of what is in texture unit 0. */
     if (mesh->shadow)
-        draw_shadow_mesh(o, n, w, projection);
+        draw_shadow_mesh(o, n, w, g, projection);
 
     glUseProgram(program);
     glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
