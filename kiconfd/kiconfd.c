@@ -152,7 +152,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.10"
+#define KICONFD_VERSION "0.2.11"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -1424,16 +1424,29 @@ static void apply_input_settings(void)
 {
     InputSessionConfig c;
     if (!load_input_config(&c)) {
+        fprintf(stderr, "kiconfd: input: no '%s', nothing to apply\n", g_inputpath);
         return;
     }
+    fprintf(stderr, "kiconfd: input: loaded '%s' (numlock_on_start=%d toggle_mods_on_press=%d "
+                    "kick_hotkeys_on_release=%d)\n",
+             g_inputpath, c.numlock_on_start, c.toggle_mods_on_press, c.kick_hotkeys_on_release);
 
     unsigned int nlmask = numlock_mask();
-    if (nlmask) {
+    if (!nlmask) {
+        fprintf(stderr, "kiconfd: input: could not find NumLock's modifier bit "
+                        "(no Num_Lock keycode, or it's not bound to any modifier) -- skipping\n");
+    } else {
         XkbStateRec state;
-        XkbGetState(g_dpy, XkbUseCoreKbd, &state);
-        int locked = (state.locked_mods & nlmask) != 0;
+        Bool got_state = XkbGetState(g_dpy, XkbUseCoreKbd, &state);
+        int locked = got_state && (state.locked_mods & nlmask) != 0;
+        fprintf(stderr, "kiconfd: input: numlock mask=0x%x got_state=%d locked_mods=0x%x "
+                        "currently_locked=%d want=%d\n",
+                 nlmask, got_state, got_state ? state.locked_mods : 0, locked, c.numlock_on_start);
         if (locked != c.numlock_on_start) {
-            XkbLockModifiers(g_dpy, XkbUseCoreKbd, nlmask, c.numlock_on_start ? nlmask : 0);
+            Bool ok = XkbLockModifiers(g_dpy, XkbUseCoreKbd, nlmask, c.numlock_on_start ? nlmask : 0);
+            XFlush(g_dpy);
+            fprintf(stderr, "kiconfd: input: XkbLockModifiers(%s) -> %d\n",
+                     c.numlock_on_start ? "on" : "off", ok);
         }
     }
 
@@ -1442,6 +1455,7 @@ static void apply_input_settings(void)
     char *argv[] = {"xinput", "list-props", kbd, NULL};
     char out[8192];
     if (!run_capture(argv, out, sizeof(out))) {
+        fprintf(stderr, "kiconfd: input: 'xinput list-props \"%s\"' failed, skipping XiS kbd flags\n", kbd);
         return;
     }
     char val[64];
