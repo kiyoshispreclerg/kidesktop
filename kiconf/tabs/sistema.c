@@ -42,7 +42,15 @@
  * offers locales already known to the system (`localectl list-locales`,
  * or `locale -a` without systemd) -- generating a new one (Debian/
  * Ubuntu's locale-gen, or equivalent) is a distro-specific step outside
- * kiconf's reach either way. */
+ * kiconf's reach either way.
+ *
+ * "Fusos horarios adicionais" below is unrelated to any of that: it's
+ * a plain list-store editor for ki-zones.conf (one extra IANA zone +
+ * optional label per row), which xisserve's --calendar page reads to
+ * show a handful of other timezones' current time alongside the local
+ * one (pages/calendar.c). A user config file, not a privileged system
+ * setting, so it gets its own "Salvar" -- no pkexec/polkit, no
+ * have_systemd_timedate() branching, unlike everything above it. */
 #include "../common.h"
 #include "../tabs.h"
 
@@ -60,6 +68,12 @@ static GtkWidget *g_tz_combo;
 static GtkWidget *g_ntp_chk;
 static GtkWidget *g_year_spin, *g_month_spin, *g_day_spin, *g_hour_spin, *g_min_spin, *g_sec_spin;
 static GtkWidget *g_manual_box;
+
+/* ---- extra timezones (ki-zones.conf, read by xisserve's --calendar
+ * page for its "other zones" clocks -- see pages/calendar.c) --------- */
+enum { COL_ZONE_IANA = 0, COL_ZONE_LABEL, N_ZONE_COLS };
+static GtkListStore *g_zones_store;
+static GtkWidget *g_zones_status_label;
 
 /* Forward declarations: the non-systemd fallback helpers live further
  * down (see "non-systemd fallbacks" below), but current_locale() and
@@ -358,6 +372,175 @@ static void ntp_toggled_cb(GtkWidget *widget, gpointer data)
     gtk_widget_set_sensitive(g_manual_box, !gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget)));
 }
 
+/* Every known IANA zone name, same source as the main Fuso horario combo
+ * (timedatectl list-timezones under systemd, tzdata's own zone1970.tab
+ * otherwise) but collected into a plain GtkListStore instead of
+ * appended straight into a combobox -- what the extra-zones list's own
+ * per-row combo cell (make_zone_iana_column() below) needs as its
+ * model. */
+static void fill_zone_liststore(GtkListStore *store, int systemd_time)
+{
+    char out[65536];
+    int ok;
+    if (systemd_time) {
+        char *argv[] = {"timedatectl", "list-timezones", NULL};
+        ok = run_capture(argv, out, sizeof(out));
+    } else {
+        FILE *f = fopen("/usr/share/zoneinfo/zone1970.tab", "r");
+        if (!f) {
+            f = fopen("/usr/share/zoneinfo/zone.tab", "r");
+        }
+        ok = 0;
+        if (f) {
+            char line[512];
+            GString *buf = g_string_new(NULL);
+            while (fgets(line, sizeof(line), f)) {
+                if (line[0] == '#' || line[0] == '\n') {
+                    continue;
+                }
+                char *save = NULL;
+                strtok_r(line, "\t", &save);
+                strtok_r(NULL, "\t", &save);
+                char *zone = strtok_r(NULL, "\t\n", &save);
+                if (zone && *zone) {
+                    g_string_append_printf(buf, "%s\n", zone);
+                }
+            }
+            fclose(f);
+            snprintf(out, sizeof(out), "%s", buf->str);
+            g_string_free(buf, TRUE);
+            ok = 1;
+        }
+    }
+    if (!ok) {
+        return;
+    }
+    char *save = NULL;
+    for (char *line = strtok_r(out, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+        GtkTreeIter it;
+        gtk_list_store_append(store, &it);
+        gtk_list_store_set(store, &it, 0, line, -1);
+    }
+}
+
+static void load_extra_zones(void)
+{
+    gtk_list_store_clear(g_zones_store);
+
+    char path[PATH_MAX];
+    resolve_path("ki-zones.conf", path, sizeof(path));
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        return;
+    }
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        char *l = trim(line);
+        if (!*l || *l == '#') {
+            continue;
+        }
+        char *save = NULL;
+        char *tag = strtok_r(l, "\t", &save);
+        char *iana = tag ? strtok_r(NULL, "\t", &save) : NULL;
+        if (!tag || strcmp(tag, "ZONE") != 0 || !iana || !iana[0]) {
+            continue;
+        }
+        char *label = strtok_r(NULL, "\t", &save);
+        GtkTreeIter it;
+        gtk_list_store_append(g_zones_store, &it);
+        gtk_list_store_set(g_zones_store, &it, COL_ZONE_IANA, iana,
+                            COL_ZONE_LABEL, (label && label[0]) ? label : "", -1);
+    }
+    fclose(f);
+}
+
+static void save_extra_zones_cb(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    (void)data;
+
+    char path[PATH_MAX];
+    resolve_path("ki-zones.conf", path, sizeof(path));
+    char tmp[PATH_MAX];
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    FILE *f = fopen(tmp, "w");
+    if (!f) {
+        g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
+        return;
+    }
+    fprintf(f, "# ki-zones.conf -- one extra clock per line:\n");
+    fprintf(f, "#   ZONE\\t<IANA zone name>\\t<label shown instead of the zone name; may be empty>\n");
+
+    GtkTreeIter it;
+    gboolean valid = gtk_tree_model_get_iter_first(GTK_TREE_MODEL(g_zones_store), &it);
+    while (valid) {
+        gchar *iana, *label;
+        gtk_tree_model_get(GTK_TREE_MODEL(g_zones_store), &it,
+                            COL_ZONE_IANA, &iana, COL_ZONE_LABEL, &label, -1);
+        if (iana && *iana) {
+            fprintf(f, "ZONE\t%s\t%s\n", iana, label ? label : "");
+        }
+        g_free(iana);
+        g_free(label);
+        valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(g_zones_store), &it);
+    }
+    fclose(f);
+    rename(tmp, path);
+
+    gtk_label_set_text(GTK_LABEL(g_zones_status_label), "Gravado.");
+}
+
+static void add_zone_cb(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    (void)data;
+    GtkTreeIter it;
+    gtk_list_store_append(g_zones_store, &it);
+    gtk_list_store_set(g_zones_store, &it, COL_ZONE_IANA, "UTC", COL_ZONE_LABEL, "", -1);
+}
+
+static void remove_zone_cb(GtkWidget *widget, gpointer data)
+{
+    GtkTreeView *view = GTK_TREE_VIEW(data);
+    (void)widget;
+    GtkTreeSelection *sel = gtk_tree_view_get_selection(view);
+    GtkTreeIter it;
+    if (gtk_tree_selection_get_selected(sel, NULL, &it)) {
+        gtk_list_store_remove(g_zones_store, &it);
+    }
+}
+
+static void zone_cell_edited(GtkCellRendererText *cell, gchar *path_str, gchar *new_text, gpointer data)
+{
+    (void)cell;
+    gint col = GPOINTER_TO_INT(data);
+    GtkTreePath *path = gtk_tree_path_new_from_string(path_str);
+    GtkTreeIter it;
+    if (gtk_tree_model_get_iter(GTK_TREE_MODEL(g_zones_store), &it, path)) {
+        gtk_list_store_set(g_zones_store, &it, col, new_text, -1);
+    }
+    gtk_tree_path_free(path);
+}
+
+/* Fuso's own cell is a combo with has-entry=TRUE: the dropdown offers
+ * every known zone (same list the main Fuso horario combo above
+ * shows), but typing something not on it is still accepted -- same
+ * "don't fully hand-hold" choice Paineis' tab makes for its own
+ * key=value fields (see this file's own top doc comment for others). */
+static GtkTreeViewColumn *make_zone_iana_column(int systemd_time)
+{
+    GtkListStore *options = gtk_list_store_new(1, G_TYPE_STRING);
+    fill_zone_liststore(options, systemd_time);
+
+    GtkCellRenderer *renderer = gtk_cell_renderer_combo_new();
+    g_object_set(renderer, "editable", TRUE, "model", options, "text-column", 0,
+                 "has-entry", TRUE, NULL);
+    g_object_unref(options);
+    g_signal_connect(renderer, "edited", G_CALLBACK(zone_cell_edited), GINT_TO_POINTER(COL_ZONE_IANA));
+
+    return gtk_tree_view_column_new_with_attributes("Fuso (IANA)", renderer, "text", COL_ZONE_IANA, NULL);
+}
+
 static void apply_cb(GtkWidget *widget, gpointer data)
 {
     (void)widget;
@@ -571,6 +754,51 @@ GtkWidget *build_sistema_tab(void)
     gtk_box_pack_start(GTK_BOX(dt_vbox), g_manual_box, FALSE, FALSE, 0);
 
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Data e hora", dt_vbox), FALSE, FALSE, 0);
+
+    /* Fusos horarios adicionais: ki-zones.conf, plain user file -- no
+     * pkexec/polkit involved, so it gets its own "Salvar" button
+     * instead of going through Aplicar's privileged path below. */
+    GtkWidget *zones_vbox = gtk_vbox_new(FALSE, 6);
+
+    g_zones_store = gtk_list_store_new(N_ZONE_COLS, G_TYPE_STRING, G_TYPE_STRING);
+    load_extra_zones();
+    GtkWidget *zones_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_zones_store));
+    gtk_tree_view_append_column(GTK_TREE_VIEW(zones_view), make_zone_iana_column(systemd_time));
+
+    GtkCellRenderer *zone_label_r = gtk_cell_renderer_text_new();
+    g_object_set(zone_label_r, "editable", TRUE, NULL);
+    g_signal_connect(zone_label_r, "edited", G_CALLBACK(zone_cell_edited), GINT_TO_POINTER(COL_ZONE_LABEL));
+    GtkTreeViewColumn *zone_label_col =
+        gtk_tree_view_column_new_with_attributes("Rotulo (opcional)", zone_label_r, "text", COL_ZONE_LABEL, NULL);
+    gtk_tree_view_column_set_expand(zone_label_col, TRUE);
+    gtk_tree_view_append_column(GTK_TREE_VIEW(zones_view), zone_label_col);
+
+    GtkWidget *zones_scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(zones_scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_widget_set_size_request(zones_scroll, -1, 120);
+    gtk_container_add(GTK_CONTAINER(zones_scroll), zones_view);
+    gtk_box_pack_start(GTK_BOX(zones_vbox), zones_scroll, TRUE, TRUE, 0);
+
+    g_zones_status_label = gtk_label_new("");
+    gtk_misc_set_alignment(GTK_MISC(g_zones_status_label), 0.0, 0.5);
+    gtk_box_pack_start(GTK_BOX(zones_vbox), g_zones_status_label, FALSE, FALSE, 0);
+
+    GtkWidget *zones_btnbox = gtk_hbox_new(FALSE, 6);
+    GtkWidget *zone_add_btn = gtk_button_new_with_label("Adicionar");
+    GtkWidget *zone_remove_btn = gtk_button_new_with_label("Remover");
+    GtkWidget *zone_save_btn = gtk_button_new_with_label("Salvar");
+    g_signal_connect(zone_add_btn, "clicked", G_CALLBACK(add_zone_cb), NULL);
+    g_signal_connect(zone_remove_btn, "clicked", G_CALLBACK(remove_zone_cb), zones_view);
+    g_signal_connect(zone_save_btn, "clicked", G_CALLBACK(save_extra_zones_cb), NULL);
+    gtk_box_pack_start(GTK_BOX(zones_btnbox), zone_add_btn, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(zones_btnbox), zone_remove_btn, FALSE, FALSE, 0);
+    gtk_box_pack_end(GTK_BOX(zones_btnbox), zone_save_btn, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(zones_vbox), zones_btnbox, FALSE, FALSE, 0);
+
+    gtk_box_pack_start(GTK_BOX(outer),
+                        frame_with("Fusos horarios adicionais (mostrados na aba Calendario do xisserve)",
+                                    zones_vbox),
+                        TRUE, TRUE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 0);
     GtkWidget *apply_btn = gtk_button_new_with_label("Aplicar");
