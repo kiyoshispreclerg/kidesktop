@@ -502,6 +502,7 @@ static const WidgetField WINCTL_FIELDS[] = {
 };
 static const WidgetField TRAY_FIELDS[] = {
     WF_INT("icon_padding", "Espacamento dos icones (px)", "0", 0, 64),
+    WF_INT("rows", "Linhas da grade de icones", "1", 1, 16),
 };
 static const WidgetField LAUNCHER_FIELDS[] = {
     WF_STR("icon", "Icone (caminho)", ""),

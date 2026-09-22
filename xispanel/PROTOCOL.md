@@ -452,7 +452,14 @@ Widget types implemented so far:
   per-icon, so the gap between two adjacent icons ends up the same width
   as the gap from an icon to the widget's own edge, not double that (a
   naive per-icon-slot padding would count both icons' padding at every
-  internal boundary). Left-click sends `Activate(x,y)`, middle-click
+  internal boundary). `rows=<N>` (default `1`) lays icons out in an
+  N-row grid instead of one ever-growing single-row strip -- useful on a
+  wide panel to keep the icons a sensible size instead of tracking the
+  panel's own thickness. Fills column by column (the first `N` icons
+  become column 0 top-to-bottom, the next `N` column 1, and so on);
+  `icon_padding=` is reused as the gap between rows too, the same value
+  already used between columns and around the grid's own edge, so the
+  whole thing reads as one evenly-spaced grid. Left-click sends `Activate(x,y)`, middle-click
   `SecondaryActivate(x,y)`, right-click `ContextMenu(x,y)` (the item's
   own process pops up its own menu near that point -- xispanel doesn't
   render it). Hovering shows the item's `Title` (or `IconName` if

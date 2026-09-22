@@ -14,6 +14,17 @@
  * expecting hosts to do exactly this. Falls back to plain ContextMenu(x,y)
  * when there's no Menu property. Middle-click always just
  * SecondaryActivate()s the item -- DBusMenu has no equivalent for it.
+ *
+ * rows=<N> (default 1): lays icons out in an N-row grid instead of one
+ * long single-row strip, filling column by column (the first N icons
+ * become column 0 top-to-bottom, the next N column 1, and so on) --
+ * useful on a wide panel where a single row of icons would otherwise
+ * just keep growing sideways forever; a few rows keeps the icons a
+ * sensible size instead of tracking the panel's own thickness. The gap
+ * between rows is icon_padding=, the exact same value already used
+ * between columns and around the whole grid's own edge, so the result
+ * reads as one evenly-spaced grid rather than rows and columns spaced
+ * differently from each other.
  */
 #include "../xispanel.h"
 
@@ -23,14 +34,16 @@
 #include <string.h>
 
 typedef struct {
-    /* px of empty space around the whole widget's icon row, *and* between
-     * adjacent icons -- deliberately the same amount both places (not
-     * doubled between icons the way padding-per-icon-slot would), so the
-     * gap between two icons visually matches the gap from an icon to the
-     * widget's own edge. 0 (default) = icons fill the whole button
-     * height with no gaps at all, touching edge to edge. See
+    /* px of empty space around the whole widget's icon grid, *and*
+     * between adjacent icons (horizontally *and*, with rows > 1,
+     * vertically) -- deliberately the same amount everywhere (not
+     * doubled between icons the way padding-per-icon-slot would), so
+     * every gap in the grid -- icon to icon, row to row, icon to the
+     * widget's own edge -- matches. 0 (default) = icons fill the whole
+     * button height with no gaps at all, touching edge to edge. See
      * icon_size_for() in ewmh.c and tray_layout() below. */
     int icon_padding;
+    int rows; /* rows=<N>, default 1 -- see the file comment */
 } TrayPriv;
 
 static int tray_init(PanelWidget *w)
@@ -40,11 +53,15 @@ static int tray_init(PanelWidget *w)
     if (tp->icon_padding < 0) {
         tp->icon_padding = 0;
     }
+    tp->rows = kv_get_int(w->config_kv, "rows", 1);
+    if (tp->rows < 1) {
+        tp->rows = 1;
+    }
     w->next_tick_ms = now_ms();
     return 0;
 }
 
-static void tray_layout(PanelWidget *w, int *out_icon_px, int *out_slot, int *out_pad);
+static void tray_layout(PanelWidget *w, int *out_icon_px, int *out_slot, int *out_pad, int *out_rows);
 
 static int tray_on_tick(PanelWidget *w, uint64_t now)
 {
@@ -58,41 +75,56 @@ static int tray_on_tick(PanelWidget *w, uint64_t now)
 
     /* Re-synced every tick rather than once at init() so a later RELOAD
      * (panel thickness change) or a second tray widget with a different
-     * icon_padding= keeps sni.c's next IconPixmap/theme fetch shrinking to
-     * the right size -- cheap, sni_set_icon_target_size() is a plain
-     * assignment. Only ever affects icons (re)fetched *after* this call,
-     * see its doc comment. */
-    int icon_px, slot, pad;
-    tray_layout(w, &icon_px, &slot, &pad);
+     * icon_padding=/rows= keeps sni.c's next IconPixmap/theme fetch
+     * shrinking to the right size -- cheap, sni_set_icon_target_size() is
+     * a plain assignment. Only ever affects icons (re)fetched *after*
+     * this call, see its doc comment. */
+    int icon_px, slot, pad, rows;
+    tray_layout(w, &icon_px, &slot, &pad, &rows);
     sni_set_icon_target_size(icon_fetch_size_for(icon_px));
     return 0;
 }
 
-/* icon_px: side length of each (square) icon. slot: icon_px + one
- * padding's worth of trailing gap -- the leading edge gets its own
- * padding too, so total width is `pad + n*slot` (the last icon's
- * trailing "slot" padding doubles as the widget's own trailing edge
- * padding). Shared by measure/paint/hit-testing so they can never
- * disagree about where an icon is, same pattern tasklist uses. */
-static void tray_layout(PanelWidget *w, int *out_icon_px, int *out_slot, int *out_pad)
+/* icon_px: side length of each (square) icon -- with rows == 1 (the
+ * default), the whole cross-axis (thickness) minus one padding's worth
+ * on each edge, exactly as before rows= existed; with rows > 1, the
+ * cross-axis is instead split into `rows` icon-sized bands with a
+ * padding's worth of gap between and around them (rows+1 gaps total),
+ * same formula generalized. slot: icon_px + one padding's worth of
+ * trailing gap, used identically along both axes (columns horizontally,
+ * rows vertically) since icons are square and padding is uniform -- the
+ * leading edge gets its own padding too, so a grid of `cols` columns is
+ * `pad + cols*slot` wide and `rows` rows is `pad + rows*slot` tall (which
+ * is just w->thickness by construction). Shared by measure/paint/hit-
+ * testing so they can never disagree about where an icon is, same
+ * pattern tasklist uses. */
+static void tray_layout(PanelWidget *w, int *out_icon_px, int *out_slot, int *out_pad, int *out_rows)
 {
     TrayPriv *tp = w->priv;
-    *out_icon_px = icon_size_for(w->thickness, tp->icon_padding);
-    *out_pad = tp->icon_padding;
-    *out_slot = *out_icon_px + *out_pad;
+    int pad = tp->icon_padding;
+    int rows = tp->rows;
+    int icon_px = (w->thickness - (rows + 1) * pad) / rows;
+    if (icon_px < 4) {
+        icon_px = 4;
+    }
+    *out_icon_px = icon_px;
+    *out_pad = pad;
+    *out_slot = icon_px + pad;
+    *out_rows = rows;
 }
 
 static void tray_measure(PanelWidget *w, int cross_axis, int *out_len, int *out_min_len)
 {
     (void)cross_axis;
-    int icon_px, slot, pad;
-    tray_layout(w, &icon_px, &slot, &pad);
+    int icon_px, slot, pad, rows;
+    tray_layout(w, &icon_px, &slot, &pad, &rows);
     int n = sni_count();
-    *out_len = n > 0 ? pad + n * slot : 0;
+    int cols = n > 0 ? (n + rows - 1) / rows : 0;
+    *out_len = cols > 0 ? pad + cols * slot : 0;
     *out_min_len = *out_len;
 }
 
-static int tray_hit_test(int local_x, int icon_px, int slot, int pad, int n);
+static int tray_hit_test(int local_x, int local_y, int icon_px, int slot, int pad, int rows, int n);
 
 static void tray_paint(PanelWidget *w, cairo_t *cr)
 {
@@ -101,46 +133,59 @@ static void tray_paint(PanelWidget *w, cairo_t *cr)
     (void)owidth;
     (void)oheight;
 
-    int icon_px, slot, pad;
-    tray_layout(w, &icon_px, &slot, &pad);
+    int icon_px, slot, pad, rows;
+    tray_layout(w, &icon_px, &slot, &pad, &rows);
     int n = sni_count();
-    int icon_y = oy + (w->thickness - icon_px) / 2;
-    int hover_local_x;
-    int hovered = panel_widget_hover_local_x(w, &hover_local_x) ? tray_hit_test(hover_local_x, icon_px, slot, pad, n)
-                                                                  : -1;
+    int hover_local_x, hover_local_y;
+    int hovered = (panel_widget_hover_local_x(w, &hover_local_x) && panel_widget_hover_local_y(w, &hover_local_y))
+                      ? tray_hit_test(hover_local_x, hover_local_y, icon_px, slot, pad, rows, n)
+                      : -1;
     for (int i = 0; i < n; i++) {
-        int bx = ox + pad + i * slot;
+        int col = i / rows;
+        int row = i % rows;
+        int bx = ox + pad + col * slot;
+        int by = oy + pad + row * slot;
         if (i == hovered) {
-            widget_paint_hover_rect(w, cr, bx, icon_px);
+            widget_paint_hover_cell(w, cr, bx, by, icon_px, icon_px);
         }
         cairo_surface_t *icon = sni_icon(i);
         if (icon) {
-            draw_icon_scaled(cr, icon, bx, icon_y, icon_px);
+            draw_icon_scaled(cr, icon, bx, by, icon_px);
         } else {
-            draw_fallback_icon(cr, bx, icon_y, icon_px, sni_title(i), w->panel->fg_r, w->panel->fg_g, w->panel->fg_b,
+            draw_fallback_icon(cr, bx, by, icon_px, sni_title(i), w->panel->fg_r, w->panel->fg_g, w->panel->fg_b,
                                 panel_text_size(w->panel));
         }
     }
 }
 
-/* -1 if local_x isn't over any icon at all -- either before the leading
- * padding, past the last icon, or sitting in the gap between two icons
- * (local_x - pad within a slot but past that slot's icon_px). Plain
- * integer division of (local_x - pad) would mis-hit slot 0 for a
- * negative local_x - pad (truncates toward zero), so the leading-edge
- * case needs its own check rather than falling out of the division. */
-static int tray_hit_test(int local_x, int icon_px, int slot, int pad, int n)
+/* -1 if (local_x, local_y) isn't over any icon at all -- before the
+ * leading edge on either axis, past the last column/row, or sitting in
+ * a padding gap between two icons (within a slot but past that slot's
+ * own icon_px on either axis). Plain integer division of (local - pad)
+ * would mis-hit slot 0 for a negative local - pad (truncates toward
+ * zero), so the leading-edge case needs its own check rather than
+ * falling out of the division. Column-major indexing matches how
+ * tray_paint() places icons (col = i / rows, row = i % rows): the first
+ * `rows` icons fill column 0 top-to-bottom, the next `rows` column 1,
+ * and so on. */
+static int tray_hit_test(int local_x, int local_y, int icon_px, int slot, int pad, int rows, int n)
 {
-    if (slot <= 0 || local_x < pad) {
+    if (slot <= 0 || local_x < pad || local_y < pad) {
         return -1;
     }
-    int idx = (local_x - pad) / slot;
+    int col = (local_x - pad) / slot;
+    int row = (local_y - pad) / slot;
+    if (row < 0 || row >= rows) {
+        return -1;
+    }
+    int within_col = (local_x - pad) - col * slot;
+    int within_row = (local_y - pad) - row * slot;
+    if (within_col >= icon_px || within_row >= icon_px) {
+        return -1; /* in a gap, between two icons on either axis */
+    }
+    int idx = col * rows + row;
     if (idx < 0 || idx >= n) {
         return -1;
-    }
-    int within_slot = (local_x - pad) - idx * slot;
-    if (within_slot >= icon_px) {
-        return -1; /* in the gap after this icon, before the next one */
     }
     return idx;
 }
@@ -150,9 +195,13 @@ static int tray_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t bufsz
 {
     (void)out_closable;
     (void)out_ctx;
-    int icon_px, slot, pad;
-    tray_layout(w, &icon_px, &slot, &pad);
-    int idx = tray_hit_test(local_x, icon_px, slot, pad, sni_count());
+    int icon_px, slot, pad, rows;
+    tray_layout(w, &icon_px, &slot, &pad, &rows);
+    int local_y = 0;
+    if (rows > 1 && !panel_widget_hover_local_y(w, &local_y)) {
+        return 0; /* multi-row grid: no way to tell which row without the pointer's y */
+    }
+    int idx = tray_hit_test(local_x, local_y, icon_px, slot, pad, rows, sni_count());
     if (idx < 0) {
         return 0;
     }
@@ -161,21 +210,20 @@ static int tray_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t bufsz
         return 0;
     }
     snprintf(buf, bufsz, "%s", title);
-    *anchor_x = pad + idx * slot;
+    *anchor_x = pad + (idx / rows) * slot;
     *anchor_w = icon_px;
     return 1;
 }
 
 static int tray_on_button(PanelWidget *w, int button, int local_x, int local_y, int root_x, int root_y)
 {
-    (void)local_y;
-    int icon_px, slot, pad;
-    tray_layout(w, &icon_px, &slot, &pad);
-    int idx = tray_hit_test(local_x, icon_px, slot, pad, sni_count());
+    int icon_px, slot, pad, rows;
+    tray_layout(w, &icon_px, &slot, &pad, &rows);
+    int idx = tray_hit_test(local_x, local_y, icon_px, slot, pad, rows, sni_count());
     if (idx < 0) {
         return 0;
     }
-    int anchor_x = pad + idx * slot;
+    int anchor_x = pad + (idx / rows) * slot;
     switch (button) {
     case Button1:
         sni_activate(idx, root_x, root_y);
