@@ -391,6 +391,13 @@ extern const CompEffectModule effect_magic_lamp;
 extern const CompEffectModule effect_wobbly;
 extern const CompEffectModule effect_visual_bell;
 extern const CompEffectModule effect_zoom;
+
+/* What density.c asks zoom.c for before requesting a window's contents
+ * (density.c's wanted_density): the density bucket the zoom lens on this
+ * output currently wants, 1 where there is none. See effects/zoom.c's
+ * density_level_for. */
+int zoom_density_level(int output_id);
+
 extern const CompEffectModule effect_stats;
 
 #endif /* KICOMP_EFFECT_H */

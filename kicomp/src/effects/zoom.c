@@ -43,6 +43,7 @@
 #include "../input.h"
 #include "../window.h"
 #include "../transform.h"
+#include "../density.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -68,6 +69,15 @@ typedef struct {
      * while a lens is up. */
     int last_px, last_py;
     double last_poll;
+
+    /* The density last asked of every window for this: 1 below 2x, 2
+     * from there up to 3x, and so on (zoom_density_level) -- a bucket
+     * rather than the exact magnification, since X-DENSITY redraws a
+     * window's own contents at a whole multiple and a fractional ask
+     * would only be rounded down to the same thing anyway. Kept so
+     * density_update_all() is only worth calling on the frame this
+     * actually changes, not on every one the lens moves. */
+    int density_level;
 } ZoomData;
 
 typedef enum {
@@ -254,6 +264,16 @@ static void follow_pointer(CompEffect *e, ZoomData *d, double now)
         d->leg_ms = 1.0;
 }
 
+/* The density bucket a magnification asks of X-DENSITY: 1 up to and
+ * including 2x (native contents are still sharp enough not to be worth
+ * a redraw), 2 from there through 3x, and so on -- a client only ever
+ * draws itself at a whole multiple, so anything between two buckets
+ * would just be rounded down to the lower one on arrival. */
+static int density_level_for(float factor)
+{
+    return factor <= 1.0f ? 1 : (int)ceilf(factor);
+}
+
 static void zoom_update(CompEffect *e, double now)
 {
     ZoomData *d = e->data;
@@ -264,15 +284,28 @@ static void zoom_update(CompEffect *e, double now)
     CompRect was = d->current;
     d->current = lerp_rect(&d->from, &d->to, p);
 
+    CompOutput *o = output_by_id(d->output_id);
+
     /* Only while it is actually moving: a screen held at a fixed
      * magnification is a still picture, and repainting it sixty times a
      * second for nothing is the cost this compositor is careful about
      * everywhere else. */
-    if (p < 1.0f || was.x != d->current.x || was.y != d->current.y ||
-        was.w != d->current.w || was.h != d->current.h) {
-        CompOutput *o = output_by_id(d->output_id);
-        if (o)
-            output_damage_rect(&o->rect);
+    if (o && (p < 1.0f || was.x != d->current.x || was.y != d->current.y ||
+              was.w != d->current.w || was.h != d->current.h))
+        output_damage_rect(&o->rect);
+
+    /* Only while it crosses into a different bucket: unlike the repaint
+     * above, this is not a per-frame cost to spare, it is a redraw asked
+     * of every window on the desktop -- worth paying once a bucket
+     * boundary is actually crossed, never on every step of the glide
+     * through it. */
+    if (o) {
+        float factor = (float)o->rect.w / (float)(d->current.w > 0 ? d->current.w : 1);
+        int level = density_level_for(factor);
+        if (level != d->density_level) {
+            d->density_level = level;
+            density_update_all();
+        }
     }
 }
 
@@ -324,8 +357,18 @@ static void zoom_destroy(CompEffect *e)
         output_damage_rect(&o->rect);
     }
 
+    bool had_density = d && d->density_level > 1;
+
     if (e == active)
         active = NULL;
+
+    /* Windows asked for a denser redraw while this was open ask for
+     * their ordinary one back now that it is gone -- zoom_density_level
+     * already answers 1 with `active` cleared above, this is only the
+     * refresh that makes anyone actually ask again. */
+    if (had_density)
+        density_update_all();
+
     free(e->data);
     e->data = NULL;
 }
@@ -337,6 +380,20 @@ static const CompEffectOps zoom_ops = {
     .finished = zoom_finished,
     .destroy  = zoom_destroy,
 };
+
+/* What density.c asks before requesting a window's contents: 1 for every
+ * output but the one currently zoomed (there is at most one -- `active`
+ * above), and that one's own bucket (zoom_update) otherwise. Answered
+ * from here rather than the other way around because at most one effect
+ * instance is ever open, so there is nothing for density.c to look up on
+ * its own that this doesn't already have to hand. */
+int zoom_density_level(int output_id)
+{
+    if (!active)
+        return 1;
+    const ZoomData *d = active->data;
+    return d->output_id == output_id ? d->density_level : 1;
+}
 
 /* ------------------------------------------------------------------ */
 /* the wheel                                                           */

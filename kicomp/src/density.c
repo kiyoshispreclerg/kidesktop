@@ -3,6 +3,7 @@
 #include "output.h"
 #include "window.h"
 #include "renderer.h"
+#include "effect.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,21 +11,56 @@
 
 static xcb_window_t manager_window;
 
-/* The density to ask a window for: whatever its output is scaled to. A
- * window straddling two differently scaled outputs has to pick one, and
- * the one holding its centre is the same rule everything else here uses.
- * Returns 1.0 for a window on no output at all. */
+/* The largest texture a GPU is trusted to hold (renderer-gl.c's own
+ * shape_mask_texture assumes the same number), and how much of it a
+ * dense window's auxiliary pixmap is allowed to ask for. Left as
+ * headroom rather than spent in full: this is one window on a desktop
+ * that may have several asking at once, and a wide monitor's own
+ * framebuffer wants some of the same budget. */
+#define DENSITY_MAX_TEXTURE 8192
+#define DENSITY_TEXTURE_HEADROOM 0.70f
+
+/* The density to ask a window for: whatever its output is scaled to,
+ * times whatever the zoom lens on that output currently wants on top of
+ * it (effect.h's zoom_density_level -- 1 where there is no lens, or the
+ * window is on a different output than the one that has it). A window
+ * straddling two differently scaled outputs has to pick one, and the one
+ * holding its centre is the same rule everything else here uses. Returns
+ * 1.0 for a window on no output at all. */
 static float wanted_density(const CompWindow *w)
 {
     CompRect r = window_rect(w);
     CompRect centre = { r.x + r.w / 2, r.y + r.h / 2, 1, 1 };
 
+    float density = 1.0f;
+    bool on_an_output = false;
+
     for (int i = 0; i < comp.output_count; i++) {
         CompRect hit;
-        if (rect_intersect(&centre, &comp.outputs[i].rect, &hit))
-            return comp.outputs[i].scale;
+        if (rect_intersect(&centre, &comp.outputs[i].rect, &hit)) {
+            density = comp.outputs[i].scale *
+                      (float)zoom_density_level(comp.outputs[i].id);
+            on_an_output = true;
+            break;
+        }
     }
-    return 1.0f;
+    if (!on_an_output)
+        return 1.0f;
+
+    /* Capped rather than refused: a window whose logical size would
+     * blow its dense pixmap past the budget above is asked for as much
+     * density as fits instead of the 1/1 it would fall back to on its
+     * own -- sharper is still better than not, for as much of it as the
+     * texture can actually hold. */
+    float budget = (float)DENSITY_MAX_TEXTURE * DENSITY_TEXTURE_HEADROOM;
+    if (r.w > 0 && budget / (float)r.w < density)
+        density = budget / (float)r.w;
+    if (r.h > 0 && budget / (float)r.h < density)
+        density = budget / (float)r.h;
+    if (density < 1.0f)
+        density = 1.0f;
+
+    return density;
 }
 
 /* A float as the small fraction the protocol carries. Densities are
