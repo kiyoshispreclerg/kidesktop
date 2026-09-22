@@ -43,6 +43,11 @@
  * poll below is far too coarse for that). */
 #define TASKLIST_URGENT_BLINK_PERIOD_MS 500
 #define TASKLIST_URGENT_TICK_MS 150
+/* Mirrors tooltip.c's own DEFAULT_THUMB_W/H -- used when only one of
+ * thumb_w=/thumb_h= is configured, so the other axis still gets
+ * tooltip.c's normal default instead of silently becoming 0. */
+#define DEFAULT_TASKLIST_THUMB_W 200
+#define DEFAULT_TASKLIST_THUMB_H 130
 
 typedef struct {
     Window win;
@@ -104,6 +109,16 @@ typedef struct {
                         * whole button height. See icon_size_for(). */
     int show_thumbs; /* 1 = tooltip includes a live thumbnail of the hovered task's window (see thumb.c);
                        * no-op if xispanel was built without libXcomposite or no compositor is running. */
+    /* thumb_w=/thumb_h= (show_thumbs=yes only): overrides tooltip.c's
+     * default thumbnail bounding box (200x130) -- see
+     * tasklist_get_tooltip_thumb_size(). 0 (the default for both) means
+     * "use tooltip.c's own default", not "zero-size". The window's own
+     * aspect ratio still picks which axis of the box actually constrains
+     * the drawn size (thumb.c's paint_scaled() never upscales and always
+     * fits within the box), so a wide box alone already handles both a
+     * landscape and a portrait window -- there's no separate "orientation"
+     * setting needed, just how big the box itself is allowed to get. */
+    int thumb_w, thumb_h;
     int show_desktop_badge; /* 1 = draw the task's virtual-desktop number on its icon; 0 (default) = don't. */
     int launch_feedback; /* 1 = a clicked launcher icon (pinned placeholder) zooms+fades via launchfx.c;
                            * 0 (default) = don't. Purely cosmetic -- never gates whether the launch itself
@@ -472,6 +487,14 @@ static int tasklist_init(PanelWidget *w)
         tp->icon_padding = 0;
     }
     tp->show_thumbs = kv_get(w->config_kv, "show_thumbs", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
+    tp->thumb_w = kv_get_int(w->config_kv, "thumb_w", 0);
+    tp->thumb_h = kv_get_int(w->config_kv, "thumb_h", 0);
+    if (tp->thumb_w < 0) {
+        tp->thumb_w = 0;
+    }
+    if (tp->thumb_h < 0) {
+        tp->thumb_h = 0;
+    }
     tp->show_desktop_badge = kv_get(w->config_kv, "show_desktop_badge", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
     tp->launch_feedback = kv_get(w->config_kv, "launch_feedback", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
     tp->launch_feedback_zoom = kv_get(w->config_kv, "launch_feedback_zoom", buf, sizeof(buf)) ? atof(buf) : 2.0;
@@ -1029,6 +1052,23 @@ static int tasklist_get_tooltip_mpris(PanelWidget *w, int local_x, char *out_bus
         }
     }
     return 0;
+}
+
+/* thumb_w=/thumb_h= -- see TasklistPriv's own doc comment. Queried by
+ * tooltip.c regardless of show_thumbs (a grouped hover's thumbnails go
+ * through get_tooltip_group() instead, but still want this same box
+ * size), so this doesn't gate on show_thumbs the way tasklist_get_
+ * tooltip_thumb() below does. 0 = "not configured" for either axis --
+ * report nothing (tooltip.c's own default box) rather than a 0x0 box. */
+static int tasklist_get_tooltip_thumb_size(PanelWidget *w, int *out_w, int *out_h)
+{
+    TasklistPriv *tp = w->priv;
+    if (tp->thumb_w <= 0 && tp->thumb_h <= 0) {
+        return 0;
+    }
+    *out_w = tp->thumb_w > 0 ? tp->thumb_w : DEFAULT_TASKLIST_THUMB_W;
+    *out_h = tp->thumb_h > 0 ? tp->thumb_h : DEFAULT_TASKLIST_THUMB_H;
+    return 1;
 }
 
 /* Same re-resolve-from-local_x pattern as tasklist_get_tooltip_mpris()
@@ -1764,6 +1804,7 @@ const PanelWidgetOps tasklist_ops = {
     .get_tooltip = tasklist_get_tooltip,
     .get_tooltip_mpris = tasklist_get_tooltip_mpris,
     .get_tooltip_thumb = tasklist_get_tooltip_thumb,
+    .get_tooltip_thumb_size = tasklist_get_tooltip_thumb_size,
     .get_tooltip_group = tasklist_get_tooltip_group,
     .tooltip_activate = tasklist_tooltip_activate,
     .tooltip_close_item = tasklist_tooltip_close_item,

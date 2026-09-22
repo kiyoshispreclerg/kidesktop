@@ -54,8 +54,12 @@
 #define MPRIS_BTN_SIZE 22
 #define MPRIS_BTN_GAP 4
 #define MPRIS_ROW_H (MPRIS_BTN_SIZE + TOOLTIP_PAD_Y)
-#define THUMB_W 200
-#define THUMB_H 130
+/* Fallback bounding box a live thumbnail (single or grouped) is fit into
+ * when the hovered widget doesn't implement get_tooltip_thumb_size() --
+ * see g_thumb_w/g_thumb_h below, which every actual use of a thumbnail
+ * size in this file reads instead of these directly. */
+#define DEFAULT_THUMB_W 200
+#define DEFAULT_THUMB_H 130
 #define THUMB_MARGIN 6 /* gap between the thumbnail and whatever's drawn below it */
 
 /* Grouped-item (tasklist group=yes) tooltip layout -- a completely separate
@@ -63,13 +67,11 @@
  * g_has_group branches in show_popup()/paint_popup()/handle_popup_click().
  * Cells are arranged in a row-major grid, wrapping to a new row once the
  * output's width is exhausted and capping the row count once its height
- * is too -- see compute_group_grid(). */
-/* Same size as the single-window tooltip's thumbnail (THUMB_W/H) -- the
+ * is too -- see compute_group_grid(). Grouped thumbnails always use the
+ * exact same box as the single-window tooltip (g_thumb_w/g_thumb_h) -- the
  * tooltip is meant to grow with the group instead of shrinking thumbnails
  * to fit, capped by compute_group_grid()'s wrap/"+N mais" overflow
  * handling rather than by making each cell smaller. */
-#define GROUP_THUMB_W THUMB_W
-#define GROUP_THUMB_H THUMB_H
 #define GROUP_CELL_GAP 8
 #define GROUP_TITLE_ROW_H (TOOLTIP_CLOSE_ICON + 6) /* title + close icon share this row, under the thumbnail */
 #define GROUP_TITLE_MAXW 150 /* text-mode cell content width cap before ellipsis */
@@ -113,7 +115,7 @@ typedef struct {
      * g_has_mpris. */
     int mpris_btn_x[3], mpris_btn_y, mpris_btn_size;
     /* y where "normal" content (text/close-icon/mpris row) starts --
-     * 0 unless g_has_thumb, in which case it's THUMB_H + THUMB_MARGIN,
+     * 0 unless g_has_thumb, in which case it's g_thumb_h + THUMB_MARGIN,
      * pushed down to make room for the thumbnail drawn at the top. */
     int content_y0;
 
@@ -170,6 +172,14 @@ static int g_mpris_playing = 0;
  * xispanel.h. */
 static int g_has_thumb = 0;
 static Window g_thumb_win = None;
+/* The bounding box every live thumbnail this hover draws (single or, via
+ * get_tooltip_group(), grouped) is fit into -- DEFAULT_THUMB_W/H unless
+ * the hovered widget implements get_tooltip_thumb_size(), reset alongside
+ * g_has_thumb/g_thumb_win by query_thumb() below regardless of whether
+ * *this* particular hover turns out to have a thumbnail at all, since a
+ * grouped hover (no get_tooltip_thumb) still needs it. */
+static int g_thumb_w = DEFAULT_THUMB_W;
+static int g_thumb_h = DEFAULT_THUMB_H;
 
 /* Set alongside g_text whenever the current hover target implements
  * get_tooltip_group() and reports a grouped (count > 1) item -- see
@@ -254,14 +264,27 @@ static void query_mpris(PanelWidget *w, int local_x)
 }
 
 /* Queries get_tooltip_thumb() (if `w` implements it) for `local_x`,
- * updating g_has_thumb/g_thumb_win. thumb_available() itself is cheap
- * (a cached extension check + one XGetSelectionOwner), so there's no
- * need to gate this call on anything beyond the widget implementing the
- * optional callback at all. */
+ * updating g_has_thumb/g_thumb_win, and get_tooltip_thumb_size() (if `w`
+ * implements *that*), updating g_thumb_w/g_thumb_h -- unconditionally,
+ * even for a widget with no single-window thumbnail at all, since a
+ * grouped hover (get_tooltip_group(), queried separately) still wants a
+ * custom box size from the same widget instance. thumb_available() itself
+ * is cheap (a cached extension check + one XGetSelectionOwner), so
+ * there's no need to gate the get_tooltip_thumb call on anything beyond
+ * the widget implementing the optional callback at all. */
 static void query_thumb(PanelWidget *w, int local_x)
 {
     g_has_thumb = 0;
     g_thumb_win = None;
+    g_thumb_w = DEFAULT_THUMB_W;
+    g_thumb_h = DEFAULT_THUMB_H;
+    if (w->ops->get_tooltip_thumb_size) {
+        int tw = 0, th = 0;
+        if (w->ops->get_tooltip_thumb_size(w, &tw, &th) && tw > 0 && th > 0) {
+            g_thumb_w = tw;
+            g_thumb_h = th;
+        }
+    }
     if (!w->ops->get_tooltip_thumb || !thumb_available()) {
         return;
     }
@@ -390,7 +413,7 @@ static void paint_popup_group(void)
         const char *title = g_group_items[i].title;
 
         if (g_popup->group_thumbs) {
-            if (!thumb_paint(cr, g_group_items[i].win, ix, iy, GROUP_THUMB_W, GROUP_THUMB_H)) {
+            if (!thumb_paint(cr, g_group_items[i].win, ix, iy, g_thumb_w, g_thumb_h)) {
                 /* Window closed/unmapped, or compositor just stopped -- same
                  * graceful fallback as the single-window thumbnail: leave
                  * the reserved space blank rather than resizing mid-display. */
@@ -399,8 +422,8 @@ static void paint_popup_group(void)
             /* Leave room for the close icon at the row's right edge -- title
              * is left-aligned in what's left, not centered under the whole
              * thumbnail, so it never runs under the icon. */
-            double row_y = iy + GROUP_THUMB_H;
-            pango_show_text_boxed(cr, ix, row_y, GROUP_TITLE_ROW_H, GROUP_THUMB_W - TOOLTIP_CLOSE_ICON - 8,
+            double row_y = iy + g_thumb_h;
+            pango_show_text_boxed(cr, ix, row_y, GROUP_TITLE_ROW_H, g_thumb_w - TOOLTIP_CLOSE_ICON - 8,
                                    tooltip_font_size(), title, NULL);
         } else {
             cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.95);
@@ -508,10 +531,10 @@ static int thumb_bbox(int *out_x, int *out_y, int *out_w, int *out_h)
         return 0;
     }
     if (g_has_thumb) {
-        *out_x = (int)((g_popup->width - THUMB_W) / 2.0);
+        *out_x = (int)((g_popup->width - g_thumb_w) / 2.0);
         *out_y = pad_y();
-        *out_w = THUMB_W;
-        *out_h = THUMB_H;
+        *out_w = g_thumb_w;
+        *out_h = g_thumb_h;
         return 1;
     }
     if (!g_has_group || !g_popup->group_thumbs || g_popup->group_shown_n <= 0) {
@@ -526,11 +549,11 @@ static int thumb_bbox(int *out_x, int *out_y, int *out_w, int *out_h)
         if (iy < y0) {
             y0 = iy;
         }
-        if (ix + GROUP_THUMB_W > x1) {
-            x1 = ix + GROUP_THUMB_W;
+        if (ix + g_thumb_w > x1) {
+            x1 = ix + g_thumb_w;
         }
-        if (iy + GROUP_THUMB_H > y1) {
-            y1 = iy + GROUP_THUMB_H;
+        if (iy + g_thumb_h > y1) {
+            y1 = iy + g_thumb_h;
         }
     }
     *out_x = x0;
@@ -568,11 +591,11 @@ static void repaint_thumbs_only(void)
     draw_popup_background(cr);
     if (g_has_group) {
         for (int i = 0; i < g_popup->group_shown_n; i++) {
-            thumb_paint(cr, g_group_items[i].win, g_popup->group_item_x[i], g_popup->group_item_y[i], GROUP_THUMB_W,
-                         GROUP_THUMB_H);
+            thumb_paint(cr, g_group_items[i].win, g_popup->group_item_x[i], g_popup->group_item_y[i], g_thumb_w,
+                         g_thumb_h);
         }
     } else {
-        thumb_paint(cr, g_thumb_win, (g_popup->width - THUMB_W) / 2.0, pad_y(), THUMB_W, THUMB_H);
+        thumb_paint(cr, g_thumb_win, (g_popup->width - g_thumb_w) / 2.0, pad_y(), g_thumb_w, g_thumb_h);
     }
     cairo_restore(cr);
     blit_rect_and_flush(bx, by, bw, bh);
@@ -594,8 +617,8 @@ static void paint_popup(void)
     }
 
     if (g_has_thumb) {
-        double thumb_x = (g_popup->width - THUMB_W) / 2.0;
-        if (!thumb_paint(cr, g_thumb_win, thumb_x, pad_y(), THUMB_W, THUMB_H)) {
+        double thumb_x = (g_popup->width - g_thumb_w) / 2.0;
+        if (!thumb_paint(cr, g_thumb_win, thumb_x, pad_y(), g_thumb_w, g_thumb_h)) {
             /* Window closed/unmapped between query_thumb() and now, or
              * the compositor just stopped -- fall through with just the
              * reserved blank space rather than resizing the popup
@@ -728,11 +751,11 @@ static void show_popup_single_layout(TooltipPopup *pop)
     }
 
     if (g_has_thumb) {
-        int thumb_row_w = THUMB_W + pad_x() * 2;
+        int thumb_row_w = g_thumb_w + pad_x() * 2;
         if (thumb_row_w > pop->width) {
             pop->width = thumb_row_w;
         }
-        pop->content_y0 = pad_y() + THUMB_H + THUMB_MARGIN;
+        pop->content_y0 = pad_y() + g_thumb_h + THUMB_MARGIN;
     } else {
         pop->content_y0 = 0;
     }
@@ -812,8 +835,8 @@ static void show_popup_group_layout(TooltipPopup *pop)
 
     int cell_w, cell_h;
     if (pop->group_thumbs) {
-        cell_w = GROUP_THUMB_W;
-        cell_h = GROUP_THUMB_H + GROUP_TITLE_ROW_H;
+        cell_w = g_thumb_w;
+        cell_h = g_thumb_h + GROUP_TITLE_ROW_H;
     } else {
         /* Widest title across every member (capped to GROUP_TITLE_MAXW,
          * same width pango_show_text_boxed() below will ellipsize each
@@ -863,7 +886,7 @@ static void show_popup_group_layout(TooltipPopup *pop)
              * "close icon at the row's right edge" convention as the
              * single-window tooltip's own close icon. */
             pop->group_close_x[i] = ix + cell_w - TOOLTIP_CLOSE_ICON;
-            pop->group_close_y[i] = iy + GROUP_THUMB_H + (GROUP_TITLE_ROW_H - TOOLTIP_CLOSE_ICON) / 2;
+            pop->group_close_y[i] = iy + g_thumb_h + (GROUP_TITLE_ROW_H - TOOLTIP_CLOSE_ICON) / 2;
         } else {
             pop->group_close_x[i] = ix + cell_w - TOOLTIP_CLOSE_ICON;
             pop->group_close_y[i] = iy + (cell_h - TOOLTIP_CLOSE_ICON) / 2;

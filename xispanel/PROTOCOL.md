@@ -283,7 +283,17 @@ Widget types implemented so far:
   button height. `show_thumbs=yes|no` (default `no`) adds a live
   thumbnail of the hovered task's window to its tooltip (see "Window
   thumbnails" below); clicking the thumbnail activates the window, same
-  as clicking anywhere else in a closable tooltip. `group=yes|no` (default
+  as clicking anywhere else in a closable tooltip. `thumb_w=<px>`/
+  `thumb_h=<px>` (`show_thumbs=yes` only, default `0` = tooltip.c's own
+  200x130) override the thumbnail's bounding box -- the window's own
+  aspect ratio still decides which axis actually constrains the drawn
+  size (it's fit inside the box without ever being upscaled), so one box
+  already serves both a wide and a tall window; bump `thumb_w` for
+  mostly-landscape windows, `thumb_h` for mostly-portrait ones, or both
+  for an overall bigger (or smaller, or square) preview. Setting only one
+  leaves the other at its own 200/130 default. Also sizes the thumbnail
+  row of a `group=yes` button's tooltip, since both use the same box.
+  `group=yes|no` (default
   `no`) collapses windows sharing the same `WM_CLASS` (the general
   "which application" half of it, `res_class` -- not the per-instance
   name) into a single button, with a small count badge (bottom-left of

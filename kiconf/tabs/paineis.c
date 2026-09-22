@@ -462,6 +462,11 @@ static const WidgetField TASKLIST_FIELDS[] = {
     WF_BOOL("minimized_only", "So janelas minimizadas", "no"),
     WF_INT("icon_padding", "Espacamento do icone (px)", "0", 0, 64),
     WF_BOOL("show_thumbs", "Miniaturas na dica", "no"),
+    /* WF_STR (not WF_INT): blank = "key omitted" = tooltip.c's own
+     * 200x130 default for that axis -- same "skip empty" convention the
+     * container widget's own padding= field uses. */
+    WF_STR("thumb_w", "Largura maxima da miniatura (px; vazio = 200)", ""),
+    WF_STR("thumb_h", "Altura maxima da miniatura (px; vazio = 130)", ""),
     WF_BOOL("group", "Agrupar por aplicativo", "no"),
 };
 static const WidgetField PAGER_FIELDS[] = {

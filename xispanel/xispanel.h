@@ -149,6 +149,20 @@ typedef struct {
      * (see its file comment), so this works the same with or without
      * one. */
     int (*get_tooltip_thumb)(PanelWidget *w, int local_x, Window *out_win);
+    /* Optional, queried right after a successful get_tooltip() regardless
+     * of whether get_tooltip_thumb()/get_tooltip_group() below actually
+     * apply to this particular hover: overrides tooltip.c's default
+     * thumbnail bounding box (single *and* grouped thumbnails both use
+     * it) for as long as this hover is shown. Fill *out_w/*out_h (both >
+     * 0) and return 1, or return 0 to keep the default box. Only the axis
+     * that actually constrains a given window's own aspect ratio ends up
+     * mattering (thumb.c's paint_scaled() fits within the box without
+     * ever upscaling) -- so one box comfortably serves both a wide and a
+     * tall window without any separate "orientation" concept: whichever
+     * axis is tighter for that particular window's shape is the one that
+     * bites. tasklist's own thumb_w=/thumb_h= (show_thumbs=yes only) is
+     * the only current source of this. */
+    int (*get_tooltip_thumb_size)(PanelWidget *w, int *out_w, int *out_h);
     /* Optional, called right after a successful get_tooltip(): for a
      * *grouped* item representing more than one window (tasklist's
      * group=yes), fill up to max_items entries of *out_items and set
