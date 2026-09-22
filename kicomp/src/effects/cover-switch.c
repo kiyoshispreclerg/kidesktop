@@ -136,10 +136,29 @@ typedef struct {
     bool took_stowed;     /* this mode is one of the reasons the other
                            * desktops' windows are in the scene */
 
-    int selected;         /* the item the user is on */
-    float pos;            /* where the row actually is, easing to `selected` */
+    int selected;         /* the item the user is on -- always a real index,
+                           * 0..count-1: everything that reads a window out
+                           * of d->items by it depends on that. */
+    float pos;            /* where the row actually is, easing to `pos_target` */
     double pos_time;      /* when the current glide started */
     float pos_from;
+
+    /* What `pos` eases towards. Equal to (float)selected whenever the
+     * change that set it was a jump to a particular window -- opening
+     * the row, a click, the WM naming an arbitrary entry -- so the row
+     * glides straight there the short way, wrapped by slot_of like
+     * everything else.
+     *
+     * Not equal to it, deliberately, for a step that crossed the end of
+     * the list: `selected` itself has to stay a real index (every direct
+     * read of d->items[d->selected] depends on that), but this keeps
+     * moving one further in whatever direction the step was, unbounded.
+     * A step from the last window to the first is still +1 here, not a
+     * jump back to 0 -- which is what keeps a held Tab turning one way
+     * through a list that wraps instead of sweeping back across every
+     * window in between once it reaches the end. slot_of's own wrap is
+     * what makes an unbounded value still land on the right cover. */
+    float pos_target;
 
     /* How far *into* the mode the picture is: 0 leaves every window
      * exactly where it really is, untransformed; 1 is the full row.
@@ -331,10 +350,42 @@ static float edge_alpha(const CsConfig *cfg, float slot)
 
 /* Where item `i` sits, as a signed distance from the front of the row.
  * Fractional while the row is gliding, which is what makes the covers
- * turn *through* the movement rather than snap at the end of it. */
+ * turn *through* the movement rather than snap at the end of it.
+ *
+ * Wrapped by the row's own length whenever going the other way round is
+ * shorter -- so a selection near either end of the list still reads as
+ * a row with something on both sides of it, instead of nearly the whole
+ * list piled up on one. The item farthest from the front on the heavy
+ * side comes out with a slot on the *light* side instead, exactly as if
+ * it had been carried from the last position of one to the last
+ * position of the other; doing it as a wrap rather than an actual move
+ * is what lets it fall back into place on its own as the selection
+ * keeps changing, with nothing here to undo.
+ *
+ * d->items and d->selected never move for this -- they are the real
+ * order, which is what keyboard stepping and wrap-around navigation
+ * (cfg->wrap) both still walk. Only where a cover is *drawn* takes the
+ * shortcut, here.
+ *
+ * `pos` is no longer guaranteed to stay within the list's own length --
+ * a held Tab that keeps crossing the end walks pos_target past it one
+ * step at a time rather than folding it back to a real index (see
+ * CsData::pos_target) -- so this brings it back into range with a
+ * proper modulo first, not the single +-n nudge that was enough while
+ * pos stayed within one length of 0. */
 static float slot_of(const CsData *d, int i)
 {
-    return (float)i - d->pos;
+    float raw = (float)i - d->pos;
+    float n = (float)d->count;
+
+    if (n > 1.0f) {
+        raw = fmodf(raw, n);
+        if (raw > n * 0.5f)
+            raw -= n;
+        else if (raw <= -n * 0.5f)
+            raw += n;
+    }
+    return raw;
 }
 
 /* The front cover's rectangle on this output: the window scaled to fit
@@ -471,8 +522,10 @@ static void cs_window_gone(CompEffect *e, CompWindow *w)
             d->selected--;
             d->pos -= 1.0f;
             d->pos_from -= 1.0f;
+            d->pos_target -= 1.0f;
         } else if (i == d->selected && d->selected >= d->count) {
             d->selected = d->count - 1;
+            d->pos_target = (float)d->selected;
         }
 
         if (d->count == 0 && !d->closing)
@@ -603,6 +656,17 @@ static void step_selection(CompEffect *e, int by)
     d->pos_from = d->pos;
     d->pos_time = comp_now_ms();
     d->selected = next;
+
+    /* The glide's target keeps moving by `by`, unbounded, rather than
+     * jumping to (float)next -- which is what next itself just did, the
+     * moment the step crossed the end of the list. Landing on the same
+     * window either way (slot_of wraps this the same as any other pos),
+     * but arriving at it by continuing the turn instead of sweeping
+     * back across everyone in between to get there the "short" way
+     * through the real array. Only while cfg->wrap actually means
+     * something -- without it there is no far end to keep turning past,
+     * and next already sits exactly where pos should glide to. */
+    d->pos_target = cfg->wrap ? d->pos_target + (float)by : (float)next;
     mark_dirty(d);
 }
 
@@ -793,6 +857,7 @@ static void on_button(void *data, int root_x, int root_y, uint8_t button, bool p
     d->pos_from = d->pos;
     d->pos_time = comp_now_ms();
     d->selected = hit;
+    d->pos_target = (float)hit;
     close_mode(e, true);
 }
 
@@ -880,7 +945,7 @@ static void cs_update(CompEffect *e, double now)
     float phase = d->phase_from + (d->phase_to - d->phase_from) * pp;
 
     float gp = eased(e, d->pos_time, now);
-    float glide = d->pos_from + ((float)d->selected - d->pos_from) * gp;
+    float glide = d->pos_from + (d->pos_target - d->pos_from) * gp;
 
     if (phase != d->phase || glide != d->pos) {
         d->phase = phase;
@@ -1307,6 +1372,7 @@ static CompEffect *open_mode(const CompEffectInstance *self, CompOutput *o,
     d->selected = selected;
     d->pos = 0.0f;
     d->pos_from = 0.0f;
+    d->pos_target = (float)selected;
     d->pos_time = comp_now_ms();
     d->phase = 0.0f;              /* every window still exactly where it is */
     phase_to(d, 1.0f, comp_now_ms());
@@ -1402,11 +1468,30 @@ void cover_switch_external(const uint32_t *data, int len)
         CsData *d = active->data;
         if (!d->external)
             return;            /* our own hotkey has it; leave it alone */
-        if (selected != d->selected) {
+        int clamped = selected < 0 ? 0
+                    : (selected >= d->count ? d->count - 1 : selected);
+        if (clamped != d->selected) {
+            const CsConfig *cfg = active->instance->config;
+
             d->pos_from = d->pos;
             d->pos_time = comp_now_ms();
-            d->selected = selected < 0 ? 0
-                        : (selected >= d->count ? d->count - 1 : selected);
+
+            /* The WM sends an absolute index each step of its own walk,
+             * so a step that crossed the end of the list looks like any
+             * other jump from here -- unless the delta is exactly one
+             * step around the wrap, same ambiguity step_selection
+             * resolves for its own caller and slot_of resolves for
+             * display (see CsData::pos_target). Anything else really is
+             * a jump (the WM naming an arbitrary entry) and glides there
+             * the direct way. */
+            int by = clamped - d->selected;
+            if (cfg->wrap && d->count > 1) {
+                if (by == 1 - d->count) by = 1;
+                else if (by == d->count - 1) by = -1;
+            }
+            d->selected = clamped;
+            d->pos_target = (by == 1 || by == -1)
+                            ? d->pos_target + (float)by : (float)clamped;
             mark_dirty(d);
         }
         return;
