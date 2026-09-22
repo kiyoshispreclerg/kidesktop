@@ -41,6 +41,17 @@
  * first having to tab/click into a specific top-level label. Once open,
  * menu.c's cascade already supports full keyboard navigation (arrow
  * keys, Enter, Escape) with no mouse involved at all.
+ *
+ * `keep=yes` (default `no`) keeps the widget drawn and its space
+ * reserved even while the active window has no exported menu at all --
+ * without it, measure() reports 0 width whenever has_menu is false, so
+ * the widget (and everything after it on the panel) shifts every time
+ * focus moves between a menu-having and a menu-less window. With
+ * `keep=yes`, a menu-less window just shows the plain hamburger icon
+ * (never the open-mode top-level labels, since there's no menu to name
+ * them from) at its normal size -- clicking it does nothing, same as
+ * clicking anywhere else with no menu, since on_button() already bails
+ * out on !has_menu regardless of this option.
  */
 #include "../xispanel.h"
 
@@ -67,6 +78,9 @@ typedef struct {
     int same_desktop_only;
     int same_output_only;
     int focused_only;
+    /* keep=yes -- see the file comment. Never gates on_button()'s own
+     * !has_menu bail-out, only measure()/paint(). */
+    int keep;
 
     Window tracked_win;
     char busname[128];
@@ -165,6 +179,7 @@ static int globalmenu_init(PanelWidget *w)
     gp->same_desktop_only = kv_get(w->config_kv, "same_desktop", buf, sizeof(buf)) && !strcmp(buf, "yes");
     gp->same_output_only = kv_get(w->config_kv, "same_output", buf, sizeof(buf)) && !strcmp(buf, "yes");
     gp->focused_only = kv_get(w->config_kv, "focused_only", buf, sizeof(buf)) && !strcmp(buf, "yes");
+    gp->keep = kv_get(w->config_kv, "keep", buf, sizeof(buf)) && !strcmp(buf, "yes");
     gp->tracked_win = None;
     gp->open_top_index = -1;
     w->next_tick_ms = now_ms();
@@ -304,8 +319,14 @@ static void globalmenu_measure(PanelWidget *w, int cross_axis, int *out_len, int
     (void)cross_axis;
     GlobalmenuPriv *gp = w->priv;
     if (!gp->has_menu) {
-        *out_len = 0;
-        *out_min_len = 0;
+        /* keep=no (default): collapse to nothing, same as before this
+         * option existed. keep=yes: hold the hamburger icon's own width
+         * so the widget (and everything after it) doesn't jump every
+         * time focus moves between a menu-having and a menu-less window
+         * -- there's no top-level label data to lay out in open_mode
+         * without a real menu, so this is the same width either mode. */
+        *out_len = gp->keep ? w->thickness : 0;
+        *out_min_len = *out_len;
         return;
     }
     if (!gp->open_mode) {
@@ -322,7 +343,7 @@ static void globalmenu_measure(PanelWidget *w, int cross_axis, int *out_len, int
 static void globalmenu_paint(PanelWidget *w, cairo_t *cr)
 {
     GlobalmenuPriv *gp = w->priv;
-    if (!gp->has_menu) {
+    if (!gp->has_menu && !gp->keep) {
         return;
     }
     int ox, oy, owidth, oheight;
@@ -330,7 +351,12 @@ static void globalmenu_paint(PanelWidget *w, cairo_t *cr)
     widget_paint_hover_bg(w, cr);
 
     Panel *p = w->panel;
-    if (!gp->open_mode) {
+    /* No menu at all (keep=yes, or has_menu would have returned above):
+     * always the plain hamburger, regardless of open_mode -- there are
+     * no top-level labels to show without a real menu to fetch them
+     * from. Clicking it does nothing (on_button() bails out on !has_menu
+     * unconditionally, keep= never touches that). */
+    if (!gp->has_menu || !gp->open_mode) {
         /* Hamburger icon: three horizontal bars, same visual weight as
          * tray's fallback icon glyphs. */
         int s = w->thickness - GLOBALMENU_ICON_PAD * 2;

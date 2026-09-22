@@ -522,7 +522,14 @@ Widget types implemented so far:
   menu tree as a cascade instead, rooted at the top rather than one
   top-level item. Collapses to zero width whenever the active window has
   no exported menu (same "just don't render" fallback `tray` uses when
-  empty). Polls `_NET_ACTIVE_WINDOW` every ~300ms, same tradeoff as
+  empty) -- unless `keep=yes` (default `no`), which instead keeps the
+  widget at the hamburger icon's own width and keeps drawing that icon
+  (regardless of `mode=`, since there's no top-level label data without
+  a real menu), so the panel's layout doesn't shift every time focus
+  moves between a menu-having and a menu-less window. Clicking it while
+  there's no menu still does nothing either way -- `keep=` only changes
+  whether the icon and its space stay put, not whether there's anything
+  to open. Polls `_NET_ACTIVE_WINDOW` every ~300ms, same tradeoff as
   `tasklist`/`winctl`'s polling; only re-fetches the top-level item list
   when the tracked window (or its menu's busname/objpath) actually
   changes, not on every poll tick -- each submenu's own contents are

@@ -528,6 +528,7 @@ static const WidgetField NOTIF_FIELDS[] = {
 };
 static const WidgetField GLOBALMENU_FIELDS[] = {
     WF_ENUM("mode", "Modo", "closed", GLOBALMENU_MODE_OPTS),
+    WF_BOOL("keep", "Manter o icone/espaco sem menu", "no"),
 };
 static const WidgetField FOLDER_FIELDS[] = {
     WF_STR("path", "Pasta", ""),
