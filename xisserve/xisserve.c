@@ -46,7 +46,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.29"
+#define XISSERVE_VERSION "0.1.30"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -2141,13 +2141,38 @@ static void apply_view_mode(void)
  * page has been told anything. */
 static int g_shown_page = PAGE_LAUNCHER;
 
-/* The page that was on screen when a click was last passed through, and
- * when -- see on_ctl_accept(), which uses them to tell "the same widget
- * was clicked again" (close, and stay closed) from "another widget was
- * clicked" (open that one). */
-static int g_replayed_page = PAGE_LAUNCHER;
-static gint64 g_replayed_at;
-#define REPLAY_DEBOUNCE_US 700000
+/* The fallback that closes a popup left up (grab dropped, not hidden)
+ * for a dismissing click replayed onto the panel underneath it -- see
+ * the big comment on that machinery further down, above pointer_over_
+ * dock(). If the replayed click actually reaches an xisserve-spawning
+ * widget, that widget's own request arrives on the control socket well
+ * within this and on_ctl_accept() cancels it, so the window closing (or
+ * swapping to the new page) is driven by the widget's request, not by
+ * this timer. If the click missed every such widget (a panel button
+ * that doesn't spawn xisserve, or empty panel space), nothing ever
+ * arrives, and this is what finally closes a window that would
+ * otherwise be stuck open with no grab watching for the next click.
+ * 250ms is generous for a Unix-socket round trip plus a fresh process's
+ * gtk_init() (~7ms measured) but short enough that the miss case reads
+ * as a slightly late close rather than a stuck window. */
+#define PENDING_DISMISS_MS 250
+static guint g_pending_dismiss_id;
+
+static gboolean pending_dismiss_fire(gpointer data)
+{
+    (void)data;
+    g_pending_dismiss_id = 0;
+    hide_launcher();
+    return FALSE;
+}
+
+static void cancel_pending_dismiss(void)
+{
+    if (g_pending_dismiss_id) {
+        g_source_remove(g_pending_dismiss_id);
+        g_pending_dismiss_id = 0;
+    }
+}
 
 static void leave_current_page(void)
 {
@@ -2383,24 +2408,15 @@ static gboolean on_ctl_accept(GIOChannel *source, GIOCondition cond, gpointer da
 
     LaunchArgs newargs;
     if (parse_json_args(buf, &newargs)) {
-        /* A click we passed through to the panel (replay_click()) comes
-         * back here almost immediately, as the widget under it spawning
-         * its own xisserve. If it asks for the very page that click
-         * just dismissed, it was the same widget being clicked a second
-         * time -- the close already happened, so opening again would
-         * make that button impossible to close with. Any other page is
-         * a different widget, which is the whole point of the replay.
-         *
-         * Only a replayed click arms this, and only for a moment, so an
-         * ordinary second press of the same panel button (nothing on
-         * screen, nothing replayed) still opens normally. */
-        if (!GTK_WIDGET_VISIBLE(g_window) && g_replayed_at &&
-            g_get_monotonic_time() - g_replayed_at < REPLAY_DEBOUNCE_US &&
-            newargs.page == g_replayed_page) {
-            g_replayed_at = 0;
-            return TRUE;
-        }
-        g_replayed_at = 0;
+        /* A click passed through to the panel (replay_click()) lands
+         * here almost immediately, as the widget under it spawning its
+         * own xisserve -- and the window is still up (on_window_button_
+         * press() no longer hides it before replaying, see that
+         * comment), so this is just an ordinary toggle_visibility()
+         * call: same page as what's showing means the same widget was
+         * clicked again, which closes it; a different page shows it in
+         * place, no hide/show cycle in between. */
+        cancel_pending_dismiss(); /* a request arrived -- the fallback below is moot */
         g_args = newargs;
         apply_theme();
         /* reposition_window() is no longer called standalone here -- it
@@ -2613,9 +2629,21 @@ static gboolean on_tree_button_press(GtkWidget *tv, GdkEventButton *ev, gpointer
  * eats that click, so switching from one panel widget's page to
  * another's used to take two clicks: one outside to dismiss, one on the
  * widget that was already clicked. This section is what makes it one --
- * a dismissing click that landed on a panel is re-delivered after the
- * window is gone, so the widget under the pointer sees it and asks for
- * its own page (which toggle_visibility() now swaps in place).
+ * a dismissing click that landed on a panel is re-delivered once the
+ * grab is out of its way, so the widget under the pointer sees it and
+ * asks for its own page.
+ *
+ * Crucially the window itself is *not* hidden first. The whole point is
+ * that the widget's own request (toggle_visibility(), now per-page) is
+ * what decides the window's fate -- close if it names the page already
+ * showing, swap content+geometry in place otherwise -- and it can only
+ * tell those apart correctly if g_shown_page hasn't already been reset
+ * by a premature hide_launcher(). Staying up and mapped the whole time
+ * is also what turns the switch into the same smooth in-place resize
+ * every other page-to-page transition already gets (show_launcher() on
+ * an already-visible window never unmaps it) instead of a hide/show
+ * flicker -- pending_dismiss_fire() below is only the fallback for a
+ * click that misses every xisserve-spawning widget.
  *
  * Only clicks on an EWMH dock (what xispanel marks its panels as, see
  * xispanel/xispanel.c) are passed on. A dismissing click on an ordinary
@@ -2684,6 +2712,10 @@ static gboolean pointer_over_dock(void)
 #define REPLAY_POLL_MS 10
 #define REPLAY_GIVE_UP_MS 600
 
+/* g_pending_dismiss_id/cancel_pending_dismiss()/PENDING_DISMISS_MS live
+ * earlier, next to g_shown_page -- on_ctl_accept() needs them and comes
+ * before this section in the file. */
+
 typedef struct {
     guint button;
     int waited_ms;
@@ -2699,13 +2731,15 @@ static gboolean replay_when_released(gpointer data)
     unsigned int mask = 0;
     if (!XQueryPointer(dpy, GDK_ROOT_WINDOW(), &root_ret, &child, &rx, &ry, &wx, &wy, &mask)) {
         g_free(pr);
+        hide_launcher();
         return FALSE;
     }
 
     if (mask & (Button1Mask | Button2Mask | Button3Mask | Button4Mask | Button5Mask)) {
         pr->waited_ms += REPLAY_POLL_MS;
         if (pr->waited_ms < REPLAY_GIVE_UP_MS) return TRUE; /* still held -- keep waiting */
-        g_free(pr);                                          /* stuck button, or a drag: drop it */
+        g_free(pr);                                          /* stuck button, or a drag: give up and close */
+        hide_launcher();
         return FALSE;
     }
 
@@ -2713,13 +2747,12 @@ static gboolean replay_when_released(gpointer data)
      * a press-drag-release is not a click on anything, and passing it
      * on would press whatever the pointer ended up over. */
     if (pointer_over_dock()) {
-        /* Timed from here, not from the click that started the wait:
-         * what on_ctl_accept() is debouncing is the request this very
-         * replay is about to provoke. */
-        g_replayed_at = g_get_monotonic_time();
         XTestFakeButtonEvent(dpy, pr->button, True, CurrentTime);
         XTestFakeButtonEvent(dpy, pr->button, False, CurrentTime);
         XFlush(dpy);
+        g_pending_dismiss_id = g_timeout_add(PENDING_DISMISS_MS, pending_dismiss_fire, NULL);
+    } else {
+        hide_launcher();
     }
     g_free(pr);
     return FALSE;
@@ -2745,12 +2778,13 @@ static gboolean on_window_button_press(GtkWidget *w, GdkEventButton *ev, gpointe
          * still land here in the window between unpinning and the grab
          * being re-established.) */
         if (g_pinned) return FALSE;
-        gboolean to_panel = pointer_over_dock();
-        int was_showing = g_shown_page;
-        hide_launcher(); /* drops the grab, so the replay below reaches the panel */
-        if (to_panel) {
-            g_replayed_page = was_showing;
+        if (pointer_over_dock()) {
+            /* Just drop the grab -- see the section comment above for
+             * why the window itself stays up. */
+            ungrab_input();
             replay_click(ev->button);
+        } else {
+            hide_launcher();
         }
         return TRUE;
     }

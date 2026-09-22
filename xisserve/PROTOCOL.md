@@ -332,24 +332,32 @@ icon for a possibly-already-open app works. This means:
   visibility state at all.
 - The toggle is per *mode*, not per window: a second invocation asking
   for a **different** mode than the one on screen (`--audio` while
-  `--calendar` is up, say) switches to it in place instead of closing.
-  Only asking again for the mode already showing closes it. Two panel
-  widgets are two different buttons, and making the user dismiss one
-  popup before the other button would do anything cost a click for
-  nothing -- see xisserve.c's `toggle_visibility()`.
+  `--calendar` is up, say) switches to it **in the same window**, which
+  stays mapped the whole time -- only its content and geometry change,
+  the same smooth resize a Meta-key press already gets when it asks for
+  the launcher view while some other page is open. Only asking again for
+  the mode already showing closes it. Two panel widgets are two
+  different buttons, and making the user dismiss one popup before the
+  other button would do anything cost a click for nothing -- see
+  xisserve.c's `toggle_visibility()`.
 - While a popup is up xisserve holds an input grab, so the click that
   dismisses it never reaches the panel. If that click landed on a panel
   (an EWMH `_NET_WM_WINDOW_TYPE_DOCK` window, which is what xispanel
-  marks its panels as) xisserve re-delivers it with XTest once the
-  window is gone and the user's button is back up, so the widget under
-  the pointer sees a normal click and does whatever it does -- which,
-  with the per-mode toggle above, is what makes switching popups a
-  single click. Widgets need no code for this and can't tell such a
-  click apart from any other; the only thing xisserve itself does
-  differently is ignore the request that comes straight back from a
-  replayed click asking for the page it just closed (that's the same
-  button being pressed again, and it has already done its job). A click
-  on anything that isn't a dock stays swallowed, as before.
+  marks its panels as) xisserve drops the grab and re-delivers the click
+  with XTest once the user's button is back up, so the widget under the
+  pointer sees a normal click and does whatever it does -- which, with
+  the per-mode toggle above, is what makes switching popups a single
+  click *and* keeps it one continuous window the whole time: the popup
+  is deliberately left mapped and showing its current page/content
+  through the whole replay, and it's the widget's own resulting request
+  that decides its fate (same page = close, different page = swap in
+  place) exactly like any other second invocation. Widgets need no code
+  for this and can't tell such a click apart from any other. If the
+  click misses every xisserve-spawning widget (a panel button that
+  doesn't open xisserve, or blank panel space), a short fallback timer
+  closes the now-ownerless popup instead of leaving it stuck open. A
+  click on anything that isn't a dock stays swallowed, as before, and
+  closes immediately -- no grab-drop, no replay.
 - The simplest way to hand the new argv to an already-running instance:
   have the second invocation connect to a small control socket the first
   instance opened (line-JSON, same shape as `xisguard-ctl`/
