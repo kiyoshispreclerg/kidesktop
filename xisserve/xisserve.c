@@ -43,7 +43,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.27"
+#define XISSERVE_VERSION "0.1.28"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -2188,12 +2188,21 @@ static void show_launcher(void)
     gtk_widget_grab_focus(g_args.page == PAGE_LAUNCHER ? g_entry : g_page_roots[g_args.page]);
 }
 
+/* What a later invocation asking for g_args.page should do to a window
+ * that may already be up. Toggling is only right when the same view is
+ * asked for twice -- that's "the user pressed the same panel button
+ * again", and closing is what they meant. A *different* page while one
+ * is showing is a different widget being used, and swapping the content
+ * in place is both what the user asked for and one click cheaper than
+ * making them dismiss the old page first. */
 static void toggle_visibility(void)
 {
-    if (GTK_WIDGET_VISIBLE(g_window)) {
-        hide_launcher();
-    } else {
+    if (!GTK_WIDGET_VISIBLE(g_window)) {
         show_launcher();
+    } else if (g_args.page != g_shown_page) {
+        show_launcher(); /* re-runs the whole show path against the new page */
+    } else {
+        hide_launcher();
     }
 }
 

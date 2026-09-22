@@ -330,6 +330,13 @@ icon for a possibly-already-open app works. This means:
   currently shown, hide it. This gives the widget click a natural
   open/close toggle for free, without xispanel needing to know xisserve's
   visibility state at all.
+- The toggle is per *mode*, not per window: a second invocation asking
+  for a **different** mode than the one on screen (`--audio` while
+  `--calendar` is up, say) switches to it in place instead of closing.
+  Only asking again for the mode already showing closes it. Two panel
+  widgets are two different buttons, and making the user dismiss one
+  popup before the other button would do anything cost a click for
+  nothing -- see xisserve.c's `toggle_visibility()`.
 - The simplest way to hand the new argv to an already-running instance:
   have the second invocation connect to a small control socket the first
   instance opened (line-JSON, same shape as `xisguard-ctl`/
