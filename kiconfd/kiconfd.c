@@ -152,7 +152,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.9"
+#define KICONFD_VERSION "0.2.10"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -1971,6 +1971,19 @@ int main(int argc, char **argv)
         return 1;
     }
     g_root = DefaultRootWindow(g_dpy);
+
+    /* Xkb's per-Display bookkeeping (what XkbGetState()/XkbLockModifiers()
+     * in apply_input_settings() need) isn't set up just by having a
+     * Display* -- the client has to negotiate the extension first, same
+     * as any other X extension. Skipping this makes those calls silent
+     * no-ops rather than errors, which is exactly what made NumLock-on-
+     * start look like it did nothing. */
+    {
+        int xkb_opcode, xkb_event, xkb_error, xkb_major = XkbMajorVersion, xkb_minor = XkbMinorVersion;
+        if (!XkbQueryExtension(g_dpy, &xkb_opcode, &xkb_event, &xkb_error, &xkb_major, &xkb_minor)) {
+            fprintf(stderr, "kiconfd: XKEYBOARD extension not available -- NumLock-on-start won't work\n");
+        }
+    }
 
     /* Before everything else: kiwm/kicomp start right after kiconfd (see
      * kisession's service order) and read the output layout at their own
