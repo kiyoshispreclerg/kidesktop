@@ -22,7 +22,7 @@ until EOF, close. Fields are separated by `\t` (tab).
 ### Commands
 
 ```
-SET\t<output>\t<desktop>\t<mode>\t<interval>\t<shuffle>\t<fade_ms>\t<path>\n
+SET\t<output>\t<desktop>\t<mode>\t<interval>\t<shuffle>\t<fade_ms>\t<path>\t<color>\n
 CLEAR\t<output>\t<desktop>\n
 CLEARALL\n
 LIST\n
@@ -50,7 +50,16 @@ QUIT\n
   daemon. See "Crossfade" below for how it's implemented.
 - `<path>`: path to an image file, or to a folder (in which case every file
   with an image extension inside it becomes a slide, in alphabetical or
-  random order per `<shuffle>`).
+  random order per `<shuffle>`). May be empty for a solid-color layer with
+  no image at all.
+- `<color>` (optional, may be omitted entirely for a legacy 8-field `SET` --
+  the daemon then treats it as unset): `#RRGGBB` (the `#` is optional). Used
+  as the layer's fill whenever there's no image to show it instead --
+  `<path>` empty, not found, or failing to decode -- so the daemon logs a
+  warning to stderr in that case but never leaves the layer showing
+  garbage. An empty/omitted/malformed `<color>` itself falls back to plain
+  black. This is what makes xisback never come up (or end up, mid-session)
+  without *something* painted for every layer.
 
 `(output, desktop)` is the key: a repeated `SET` with the same
 `(output, desktop)` pair **replaces** the existing layer (swaps
@@ -74,7 +83,7 @@ already had untouched in that case rather than clearing them.
 - `PONG\n` — response to `PING`.
 - For `LIST`: zero or more lines, one per active layer, same field format
   as `SET` (without the leading `SET\t`):
-  `output\tdesktop\tmode\tinterval\tshuffle\tfade_ms\tpath\n`.
+  `output\tdesktop\tmode\tinterval\tshuffle\tfade_ms\tpath\tcolor\n`.
   Connection closes (EOF) at the end of the list.
 - For `ACTIONS`: one line,
   `left\tright\tmiddle\tdouble\tscroll_up\tscroll_down\n` — the six
@@ -159,7 +168,22 @@ Pre-0.4 config files (unprefixed layer lines, no click actions) are still
 read on first load for a smooth upgrade; they get rewritten in the new
 tagged format on the next change. Likewise, a pre-scroll-actions
 `ACTIONS` line (5 fields: tag + left/right/middle/double, no scroll_up/
-scroll_down) loads fine, just with both scroll bindings starting empty.
+scroll_down) loads fine, just with both scroll bindings starting empty. A
+pre-0.5 `LAYER` line (8 fields, no trailing `<color>`) loads fine too, with
+`<color>` starting unset (black fallback).
+
+### First run / empty config
+
+If the config file doesn't exist yet, or exists but has no `LAYER` lines at
+all (nothing to restore), the daemon auto-provisions one black,
+all-desktops (`desktop=*`) layer per currently connected output (by stable
+EDID id when the monitor has one, else its connector name; see
+`../shared/xis_outputs.h`) instead of coming up with a blank desktop, and
+immediately persists that as the new config. If RandR reports no connected
+outputs at all, it falls back to a single `(output=*, desktop=*)` layer.
+This only ever happens on an empty config -- a config with layers that
+merely fail to apply (e.g. a saved output that's no longer connected) is
+left as-is, not replaced.
 
 ## Python example
 
@@ -176,6 +200,9 @@ def send(cmd: str) -> str:
 
 # single wallpaper for everything, default 1s crossfade
 send("SET\t*\t*\tfill\t300\t0\t1000\t/home/kiyoshi/Pictures/wall.jpg")
+
+# solid color, no image at all
+send("SET\tDP-1\t*\tfill\t300\t0\t0\t\t#204060")
 
 # one per output, instant switch (no crossfade)
 send("SET\tDP-1\t*\tfill\t300\t0\t0\t/home/kiyoshi/Pictures/dp1.jpg")
@@ -214,6 +241,21 @@ switching from "one global wallpaper" to "one per output" (or per desktop),
 the UI should send `CLEARALL` before recreating the layers under the new
 scheme, to make sure every point of the screen, on every desktop, is
 covered by at most one layer.
+
+That said, two layers pinned to two *different* named outputs should never
+overlap on their own -- each is sized/positioned to exactly its own CRTC's
+geometry, and CRTCs don't overlap. As a belt-and-suspenders check for that
+specific case (a missed/racy RandR event, stale cached geometry, ...), the
+daemon compares every pair of named-output layers' on-screen rectangles
+every 10 seconds and, if any two intersect, re-resolves every layer's
+geometry fresh from live RandR state (the same thing an actual RandR event
+already triggers). This check deliberately ignores `(output=*)` layers and
+same-output pairs (different desktops of one output are expected to share
+geometry) -- it only ever reacts to the specific "two different real
+outputs' windows shouldn't be touching" case, and can only fix it when the
+cause is stale xisback-side geometry; if the window manager itself isn't
+honoring a window's geometry, there's nothing further xisback can do about
+it.
 
 ## Multi-monitor and KWin's render loop
 

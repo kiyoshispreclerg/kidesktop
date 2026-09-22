@@ -26,7 +26,12 @@
  * A source can be a single image file (static) or a directory (slideshow,
  * cycled every --interval seconds, no fade/effects; sorted alphabetically
  * by default or, with --shuffle, in random order that reshuffles every
- * time it wraps around).
+ * time it wraps around) -- or left empty for a solid-color layer with no
+ * image at all. Every layer also has a --color: it's what gets shown
+ * whenever there's no image to show instead (no source, a source that
+ * doesn't exist, or one that fails to decode), falling back to plain black
+ * if --color itself is unset -- so a layer, once created, never ends up
+ * showing nothing / garbage pixels.
  *
  * Only one instance runs per session (guarded by an flock'd lock file under
  * XDG_RUNTIME_DIR). Any further invocation - including simply running this
@@ -39,7 +44,19 @@
  * $XDG_CONFIG_HOME/xisback.conf (fallback ~/.config/xisback.conf) and
  * replays it on startup, so a plain `xisback` with no arguments (e.g. run
  * from a login autostart entry) comes back up showing whatever was last
- * configured instead of a blank desktop.
+ * configured instead of a blank desktop. If that config doesn't exist yet
+ * or has no layers in it at all (first run), the daemon auto-provisions
+ * one black, all-desktops layer per currently connected output instead --
+ * see create_default_layers() -- so there's always *something* covering
+ * every screen from the very first launch, no external tool required to
+ * set an initial wallpaper.
+ *
+ * As a further safety net, every OVERLAP_CHECK_INTERVAL_SEC seconds the
+ * daemon checks whether any two named-output layers' on-screen rectangles
+ * are overlapping (which should never happen -- CRTCs don't overlap) and,
+ * if so, re-resolves every layer's geometry fresh from RandR to try to
+ * correct it; see check_layer_overlap()'s own doc comment for what this
+ * can and can't fix.
  */
 
 #include <Imlib2.h>
@@ -76,7 +93,7 @@ int xis_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int 
 int xis_fd(void);
 int xis_poll_change(void);
 
-#define XISBACK_VERSION "0.4.6"
+#define XISBACK_VERSION "0.4.7"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -84,6 +101,8 @@ int xis_poll_change(void);
 #define FADE_TICK_USEC 33000 /* ~30fps while a crossfade is in flight */
 #define ACTION_CMD_LEN 512
 #define DOUBLE_CLICK_MS 400
+#define COLOR_STR_LEN 16
+#define OVERLAP_CHECK_INTERVAL_SEC 10
 
 enum mode { MODE_FILL, MODE_STRETCH };
 
@@ -121,7 +140,9 @@ typedef struct {
     int interval; /* seconds between slideshow switches; 0 = never auto-advance */
     int shuffle; /* 0 = alphabetical order, 1 = random order (reshuffled each wrap) */
     int fade_ms; /* crossfade duration on image switch, ms; 0 = instant swap */
-    char source[PATH_MAX]; /* image file or directory */
+    char source[PATH_MAX]; /* image file or directory; "" = no image, color only */
+    char color[COLOR_STR_LEN]; /* "#RRGGBB" fallback color, used when source is empty
+                                 * or fails to load; "" itself falls back to black */
 
     Window win;
     Pixmap cur_pixmap;
@@ -204,6 +225,7 @@ typedef struct {
     int shuffle;
     int fade_ms;
     char source[PATH_MAX];
+    char color[COLOR_STR_LEN];
 
     /* CMD_SETACTIONS: only the *_set flags that are true get applied on top
      * of whatever the daemon currently has (run_as_client fetches the
@@ -230,6 +252,10 @@ static void usage(const char *prog)
             "  --interval SECONDS  slideshow interval, folders only (default 300)\n"
             "  --shuffle           slideshow in random order (default: alphabetical)\n"
             "  --fade SECONDS      crossfade duration on image switch, 0-5 (default 1)\n"
+            "  --color '#RRGGBB'   fallback color for this layer: shown if no image is\n"
+            "                      given, or if the given image fails to load (default:\n"
+            "                      black); can be used with no image at all for a solid\n"
+            "                      color layer\n"
             "  --clear             remove the given (output,desktop) layer\n"
             "  --clear-all         remove all layers\n"
             "  --list              list active layers\n"
@@ -300,6 +326,11 @@ static int parse_argv(int argc, char **argv, Command *cmd)
             cmd->shuffle = 1;
         } else if (!strcmp(argv[i], "--fade") && i + 1 < argc) {
             cmd->fade_ms = clamp_fade_ms((int)(atof(argv[++i]) * 1000.0 + 0.5));
+        } else if (!strcmp(argv[i], "--color") && i + 1 < argc) {
+            snprintf(cmd->color, sizeof(cmd->color), "%s", argv[++i]);
+            if (cmd->type == CMD_NONE) {
+                cmd->type = CMD_SET;
+            }
         } else if (!strcmp(argv[i], "--version")) {
             printf("xisback %s\n", XISBACK_VERSION);
             exit(0);
@@ -364,7 +395,7 @@ static void build_line(const Command *c, char *buf, size_t bufsz)
 {
     switch (c->type) {
     case CMD_SET:
-        snprintf(buf, bufsz, "SET\t%s\t%s\t%s\t%d\t%d\t%d\t%s\n", c->output, c->desktop_str, c->mode_str, c->interval, c->shuffle, c->fade_ms, c->source);
+        snprintf(buf, bufsz, "SET\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\n", c->output, c->desktop_str, c->mode_str, c->interval, c->shuffle, c->fade_ms, c->source, c->color);
         break;
     case CMD_CLEAR:
         snprintf(buf, bufsz, "CLEAR\t%s\t%s\n", c->output, c->desktop_str);
@@ -793,20 +824,70 @@ static void layer_load_sources(Layer *l)
     }
 }
 
-static Pixmap render_pixmap(int w, int h, const char *path, enum mode mode)
+/* Parses a "#RRGGBB" (the leading '#' is optional) layer color into an
+ * allocated X pixel value. Returns 0 (leaving *pixel untouched) for an
+ * empty/malformed string or an XAllocColor failure -- callers treat that
+ * exactly like an unset color, falling back to plain black. */
+static int parse_layer_color(const char *s, unsigned long *pixel)
 {
-    Imlib_Image image = imlib_load_image(path);
+    if (!s || !s[0]) {
+        return 0;
+    }
+    if (s[0] == '#') {
+        s++;
+    }
+    unsigned int r, g, b;
+    if (strlen(s) != 6 || sscanf(s, "%02x%02x%02x", &r, &g, &b) != 3) {
+        return 0;
+    }
+    XColor xc;
+    xc.red = (unsigned short)(r * 257);
+    xc.green = (unsigned short)(g * 257);
+    xc.blue = (unsigned short)(b * 257);
+    xc.flags = DoRed | DoGreen | DoBlue;
+    if (!XAllocColor(g_dpy, g_cmap, &xc)) {
+        return 0;
+    }
+    *pixel = xc.pixel;
+    return 1;
+}
+
+/* The pixel a layer falls back to whenever it has no image to show (no
+ * source configured, or the image failed to load): the layer's own --color
+ * if it parses, else plain black -- so a layer is never left showing
+ * whatever garbage bits happened to be in a freshly allocated pixmap. */
+static unsigned long layer_fallback_pixel(const Layer *l)
+{
+    unsigned long pixel;
+    if (parse_layer_color(l->color, &pixel)) {
+        return pixel;
+    }
+    return BlackPixel(g_dpy, g_screen);
+}
+
+/* Renders one layer's current slide (or, with path NULL/empty or a failed
+ * load, a solid fill of fallback_pixel) into a freshly allocated w*h
+ * pixmap. The fallback fill always happens first, underneath any image --
+ * fill mode always covers the whole area anyway (scale = max), but this
+ * also gives a transparent image sane matting instead of a hardcoded black
+ * background. */
+static Pixmap render_pixmap(int w, int h, const char *path, enum mode mode, unsigned long fallback_pixel)
+{
+    Pixmap pmap = XCreatePixmap(g_dpy, g_root, (unsigned)w, (unsigned)h, (unsigned)g_depth);
+    XSetForeground(g_dpy, g_gc, fallback_pixel);
+    XFillRectangle(g_dpy, pmap, g_gc, 0, 0, (unsigned)w, (unsigned)h);
+
+    Imlib_Image image = (path && path[0]) ? imlib_load_image(path) : NULL;
     if (!image) {
-        fprintf(stderr, "xisback: failed to load '%s'\n", path);
-        return None;
+        if (path && path[0]) {
+            fprintf(stderr, "xisback: failed to load '%s', using fallback color\n", path);
+        }
+        return pmap;
     }
     imlib_context_set_image(image);
     int iw = imlib_image_get_width();
     int ih = imlib_image_get_height();
-
-    Pixmap pmap = XCreatePixmap(g_dpy, g_root, (unsigned)w, (unsigned)h, (unsigned)g_depth);
     imlib_context_set_drawable(pmap);
-    XFillRectangle(g_dpy, pmap, g_gc, 0, 0, (unsigned)w, (unsigned)h);
 
     if (mode == MODE_STRETCH) {
         imlib_render_image_on_drawable_at_size(0, 0, w, h);
@@ -869,10 +950,8 @@ static void layer_finish_fade(Layer *l)
  * transition doesn't make sense. */
 static void layer_render(Layer *l, int use_fade)
 {
-    if (l->n_images == 0) {
-        return;
-    }
-    Pixmap next = render_pixmap(l->width, l->height, l->images[l->img_idx], l->mode);
+    const char *path = (l->n_images > 0) ? l->images[l->img_idx] : NULL;
+    Pixmap next = render_pixmap(l->width, l->height, path, l->mode, layer_fallback_pixel(l));
     if (next == None) {
         return;
     }
@@ -989,6 +1068,59 @@ static void refresh_all_layer_geometries(void)
     XFlush(g_dpy);
 }
 
+static int rects_overlap(int x1, int y1, int w1, int h1, int x2, int y2, int w2, int h2)
+{
+    if (w1 <= 0 || h1 <= 0 || w2 <= 0 || h2 <= 0) {
+        return 0;
+    }
+    return x1 < x2 + w2 && x2 < x1 + w1 && y1 < y2 + h2 && y2 < y1 + h1;
+}
+
+/* Belt-and-suspenders sanity check, run every OVERLAP_CHECK_INTERVAL_SEC
+ * from the daemon loop: two layers pinned to *different* named outputs
+ * should never end up with intersecting on-screen rectangles -- each is
+ * sized/positioned to exactly its own CRTC's geometry, and CRTCs don't
+ * overlap. If they do anyway (a missed/racy RandR event, a stale cached
+ * geometry, ...), the only corrective action available from here is to
+ * re-resolve every layer's geometry fresh from live RandR state, exactly
+ * like a real RandR event would trigger -- so that's what this does.
+ *
+ * Deliberately skips pairs sharing the same output (different desktops of
+ * the same output legitimately share geometry -- the WM shows only one at
+ * a time) and any pair involving a "*" (whole-screen) layer -- a "*" layer
+ * is *expected* to overlap every named-output layer whenever both exist at
+ * once, and no amount of re-resolving geometry can change that; avoiding
+ * that mix in the first place is the caller's responsibility (see the
+ * file's top comment). If overlap persists right after a refresh, the
+ * cause is outside xisback (e.g. the window manager not honoring the
+ * window's actual geometry) and there is nothing more this daemon can do
+ * about it. */
+static void check_layer_overlap(void)
+{
+    for (int i = 0; i < MAX_LAYERS; i++) {
+        if (!g_layers[i].in_use || strcmp(g_layers[i].output, "*") == 0) {
+            continue;
+        }
+        for (int j = i + 1; j < MAX_LAYERS; j++) {
+            if (!g_layers[j].in_use || strcmp(g_layers[j].output, "*") == 0) {
+                continue;
+            }
+            if (strcmp(g_layers[i].output, g_layers[j].output) == 0) {
+                continue;
+            }
+            if (rects_overlap(g_layers[i].x, g_layers[i].y, g_layers[i].width, g_layers[i].height,
+                               g_layers[j].x, g_layers[j].y, g_layers[j].width, g_layers[j].height)) {
+                fprintf(stderr,
+                        "xisback: layers '%s' and '%s' have overlapping geometry, "
+                        "re-resolving from RandR\n",
+                        g_layers[i].output, g_layers[j].output);
+                refresh_all_layer_geometries();
+                return;
+            }
+        }
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /* config persistence ($XDG_CONFIG_HOME/xisback.conf)                  */
 /* ------------------------------------------------------------------ */
@@ -997,8 +1129,14 @@ static void refresh_all_layer_geometries(void)
  * against the layer table. Shared by the protocol's SET handler and by
  * load_config() at startup, so restoring last session's layers goes through
  * the exact same path a live client would use. On failure returns -1 and
- * writes a human-readable reason into errbuf. */
-static int layer_apply_set(const char *output, int desktop, enum mode mode, int interval, int shuffle, int fade_ms, const char *path, char *errbuf, size_t errbufsz)
+ * writes a human-readable reason into errbuf.
+ *
+ * path may be "" (color-only layer, no image at all) and, even when it
+ * isn't, a failed image load is no longer fatal here -- layer_render()
+ * falls back to `color` (or black) either way, so a SET only ever fails on
+ * running out of layer slots. A missing/unreadable path is still logged
+ * (by layer_load_sources()/render_pixmap()), just not rejected. */
+static int layer_apply_set(const char *output, int desktop, enum mode mode, int interval, int shuffle, int fade_ms, const char *path, const char *color, char *errbuf, size_t errbufsz)
 {
     int idx = find_layer(output, desktop);
     if (idx < 0) {
@@ -1016,15 +1154,21 @@ static int layer_apply_set(const char *output, int desktop, enum mode mode, int 
     l->interval = interval;
     l->shuffle = shuffle;
     l->fade_ms = clamp_fade_ms(fade_ms);
-    snprintf(l->source, sizeof(l->source), "%s", path);
+    snprintf(l->source, sizeof(l->source), "%s", path ? path : "");
+    snprintf(l->color, sizeof(l->color), "%s", color ? color : "");
     l->in_use = 1;
 
     layer_ensure_window(l);
-    layer_load_sources(l);
-    if (l->n_images == 0) {
-        snprintf(errbuf, errbufsz, "no valid image found in '%s'", path);
-        destroy_layer(l);
-        return -1;
+    if (l->source[0]) {
+        layer_load_sources(l);
+    } else {
+        for (int i = 0; i < l->n_images; i++) {
+            free(l->images[i]);
+        }
+        free(l->images);
+        l->images = NULL;
+        l->n_images = 0;
+        l->img_idx = 0;
     }
     layer_show_current(l, time(NULL));
     return 0;
@@ -1053,7 +1197,7 @@ static void save_config(void)
         } else {
             snprintf(dstr, sizeof(dstr), "%d", l->desktop);
         }
-        fprintf(f, "LAYER\t%s\t%s\t%s\t%d\t%d\t%d\t%s\n", l->output, dstr, l->mode == MODE_STRETCH ? "stretch" : "fill", l->interval, l->shuffle, l->fade_ms, l->source);
+        fprintf(f, "LAYER\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\n", l->output, dstr, l->mode == MODE_STRETCH ? "stretch" : "fill", l->interval, l->shuffle, l->fade_ms, l->source, l->color);
     }
     fprintf(f, "ACTIONS\t%s\t%s\t%s\t%s\t%s\t%s\n", g_action_left, g_action_right, g_action_middle, g_action_double, g_action_scroll_up, g_action_scroll_down);
     fclose(f);
@@ -1108,11 +1252,11 @@ static int collect_saved_output_ids(const char *path, char ids[][XIS_OUTPUT_STR_
         if (len == 0) {
             continue;
         }
-        char *fields[8];
+        char *fields[9];
         int nf = 0;
         char *p = line;
         fields[nf++] = p;
-        while (nf < 8 && (p = strchr(p, '\t'))) {
+        while (nf < 9 && (p = strchr(p, '\t'))) {
             *p = 0;
             p++;
             fields[nf++] = p;
@@ -1125,6 +1269,33 @@ static int collect_saved_output_ids(const char *path, char ids[][XIS_OUTPUT_STR_
     }
     fclose(f);
     return n;
+}
+
+/* No wallpaper layers configured at all (first run, or a hand-edited/
+ * corrupted config with no LAYER lines) -- auto-provision one black,
+ * all-desktops layer per currently connected output instead of leaving
+ * the desktop showing whatever the compositor paints behind an unmanaged
+ * desktop-type window. Prefers each output's stable EDID id over its bare
+ * connector name for the same reason load_config()'s rename map does: it
+ * keeps matching the same physical monitor across a reboot/replug that
+ * renames connectors, without needing any reconcile step of its own. Falls
+ * back to a single "*" (whole virtual screen) layer if RandR reports no
+ * connected outputs at all (or the extension isn't available). */
+static void create_default_layers(void)
+{
+    XisOutput outs[XIS_MAX_OUTPUTS];
+    int n = xis_list_outputs(g_dpy, outs, XIS_MAX_OUTPUTS, 1);
+    char errbuf[256];
+    if (n <= 0) {
+        layer_apply_set("*", -1, MODE_FILL, 300, 0, 1000, "", "", errbuf, sizeof(errbuf));
+        return;
+    }
+    for (int i = 0; i < n; i++) {
+        const char *id = outs[i].id[0] ? outs[i].id : outs[i].name;
+        if (layer_apply_set(id, -1, MODE_FILL, 300, 0, 1000, "", "", errbuf, sizeof(errbuf)) != 0) {
+            fprintf(stderr, "xisback: could not create default layer for '%s': %s\n", id, errbuf);
+        }
+    }
 }
 
 static void load_config(void)
@@ -1141,8 +1312,18 @@ static void load_config(void)
         fprintf(stderr, "xisback: config: output '%s' not found but screen count still matches, using '%s' instead (by screen order)\n", rename_map[i].from, rename_map[i].to);
     }
 
+    /* Tracks whether the file held any wallpaper layer at all (LAYER or
+     * legacy-format lines), regardless of whether applying each one
+     * actually succeeded -- an empty/missing config (first run, or one a
+     * user hand-edited down to nothing) is what triggers auto-provisioning
+     * default layers below; a config that merely failed to apply some
+     * layer (e.g. a stale output) is left alone. */
+    int layer_lines_seen = 0;
+
     FILE *f = fopen(g_configpath, "r");
     if (!f) {
+        create_default_layers();
+        save_config();
         return;
     }
     char line[LINE_MAX_LEN];
@@ -1155,25 +1336,27 @@ static void load_config(void)
             continue;
         }
 
-        char *fields[8];
+        char *fields[9];
         int nf = 0;
         char *p = line;
         fields[nf++] = p;
-        while (nf < 8 && (p = strchr(p, '\t'))) {
+        while (nf < 9 && (p = strchr(p, '\t'))) {
             *p = 0;
             p++;
             fields[nf++] = p;
         }
 
         if (strcmp(fields[0], "LAYER") == 0) {
+            layer_lines_seen++;
             if (nf < 8) {
                 fprintf(stderr, "xisback: config: skipping malformed line: '%s'\n", line);
                 continue;
             }
             enum mode mode = (strcmp(fields[3], "stretch") == 0) ? MODE_STRETCH : MODE_FILL;
             const char *output = xis_apply_output_rename(rename_map, n_rename, fields[1]);
+            const char *color = (nf >= 9) ? fields[8] : "";
             char errbuf[256];
-            if (layer_apply_set(output, parse_desktop(fields[2]), mode, atoi(fields[4]), atoi(fields[5]), atoi(fields[6]), fields[7], errbuf, sizeof(errbuf)) != 0) {
+            if (layer_apply_set(output, parse_desktop(fields[2]), mode, atoi(fields[4]), atoi(fields[5]), atoi(fields[6]), fields[7], color, errbuf, sizeof(errbuf)) != 0) {
                 fprintf(stderr, "xisback: config: %s\n", errbuf);
             }
         } else if (strcmp(fields[0], "ACTIONS") == 0) {
@@ -1196,10 +1379,11 @@ static void load_config(void)
             /* Pre-0.4 config lines had no leading LAYER tag -- keep reading
              * them so upgrading the binary doesn't silently drop whatever
              * wallpaper was already configured. */
+            layer_lines_seen++;
             enum mode mode = (strcmp(fields[2], "stretch") == 0) ? MODE_STRETCH : MODE_FILL;
             const char *output = xis_apply_output_rename(rename_map, n_rename, fields[0]);
             char errbuf[256];
-            if (layer_apply_set(output, parse_desktop(fields[1]), mode, atoi(fields[3]), atoi(fields[4]), atoi(fields[5]), fields[6], errbuf, sizeof(errbuf)) != 0) {
+            if (layer_apply_set(output, parse_desktop(fields[1]), mode, atoi(fields[3]), atoi(fields[4]), atoi(fields[5]), fields[6], "", errbuf, sizeof(errbuf)) != 0) {
                 fprintf(stderr, "xisback: config: %s\n", errbuf);
             }
         } else {
@@ -1207,6 +1391,11 @@ static void load_config(void)
         }
     }
     fclose(f);
+
+    if (layer_lines_seen == 0) {
+        create_default_layers();
+        save_config();
+    }
 }
 
 /* Reconcile already-loaded layers after RandR changes.
@@ -1299,7 +1488,7 @@ static void handle_line(char *line, FILE *out)
             } else {
                 snprintf(dstr, sizeof(dstr), "%d", l->desktop);
             }
-            fprintf(out, "%s\t%s\t%s\t%d\t%d\t%d\t%s\n", l->output, dstr, l->mode == MODE_STRETCH ? "stretch" : "fill", l->interval, l->shuffle, l->fade_ms, l->source);
+            fprintf(out, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\n", l->output, dstr, l->mode == MODE_STRETCH ? "stretch" : "fill", l->interval, l->shuffle, l->fade_ms, l->source, l->color);
         }
         return;
     }
@@ -1377,7 +1566,7 @@ static void handle_line(char *line, FILE *out)
     }
     if (strcmp(fields[0], "SET") == 0) {
         if (nf < 8) {
-            fprintf(out, "ERR usage: SET output desktop mode interval shuffle fade_ms path\n");
+            fprintf(out, "ERR usage: SET output desktop mode interval shuffle fade_ms path [color]\n");
             return;
         }
         const char *output = fields[1];
@@ -1387,9 +1576,10 @@ static void handle_line(char *line, FILE *out)
         int shuffle = atoi(fields[5]);
         int fade_ms = atoi(fields[6]);
         const char *path = fields[7];
+        const char *color = (nf >= 9) ? fields[8] : "";
 
         char errbuf[256];
-        if (layer_apply_set(output, desktop, mode, interval, shuffle, fade_ms, path, errbuf, sizeof(errbuf)) != 0) {
+        if (layer_apply_set(output, desktop, mode, interval, shuffle, fade_ms, path, color, errbuf, sizeof(errbuf)) != 0) {
             fprintf(out, "ERR %s\n", errbuf);
             return;
         }
@@ -1661,6 +1851,7 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
 
     int xfd = ConnectionNumber(g_dpy);
     int xisfd = xis_fd();
+    time_t next_overlap_check = time(NULL) + OVERLAP_CHECK_INTERVAL_SEC;
     while (!g_quit) {
         fd_set rfds;
         FD_ZERO(&rfds);
@@ -1714,6 +1905,15 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
             }
             if (timeout_ms < 0 || delta < timeout_ms) {
                 timeout_ms = delta;
+            }
+        }
+        {
+            long overlap_delta = (long)(next_overlap_check - now) * 1000;
+            if (overlap_delta < 0) {
+                overlap_delta = 0;
+            }
+            if (timeout_ms < 0 || overlap_delta < timeout_ms) {
+                timeout_ms = overlap_delta;
             }
         }
 
@@ -1882,6 +2082,11 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                 layer_advance(&g_layers[i], now);
                 XFlush(g_dpy);
             }
+        }
+
+        if (now >= next_overlap_check) {
+            check_layer_overlap();
+            next_overlap_check = now + OVERLAP_CHECK_INTERVAL_SEC;
         }
     }
 
