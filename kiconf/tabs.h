@@ -20,5 +20,6 @@ GtkWidget *build_sistema_tab(void);
 GtkWidget *build_energia_tab(void);
 GtkWidget *build_programas_tab(void);
 GtkWidget *build_autostart_tab(void);
+GtkWidget *build_eventos_tab(void);
 
 #endif /* KICONF_TABS_H */

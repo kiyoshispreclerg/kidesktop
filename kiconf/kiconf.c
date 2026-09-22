@@ -61,6 +61,12 @@
  * few dozen lines of substring scanning (json_get_str/int/bool below)
  * covers it without adding a dependency for it.
  *
+ *   Eventos -- full-rewrite editor for ki-events.conf (date, recurrence,
+ *     name, description), same list-store-plus-Adicionar/Remover/Salvar
+ *     pattern as Atalhos' xiskeys.conf editor. The only writer of that
+ *     file: xisserve's --calendar page only reads it, and its own
+ *     "Abrir eventos..." button is `kiconf --tab Eventos`, landing
+ *     straight here.
  *   Wallpaper -- plain xisback socket client (SET/CLEAR/CLEARALL/NEXT/
  *     LIST/ACTIONS/SETACTIONS, tab-separated lines, see
  *     xisback/PROTOCOL.md). No visual per-output canvas (that needs the
@@ -159,6 +165,7 @@ static LazyTab g_tabs[] = {
     {N_("Energia"), GTK_STOCK_QUIT, build_energia_tab, NULL, 0, 0},
     {N_("Programas padrao"), GTK_STOCK_EXECUTE, build_programas_tab, NULL, 0, 0},
     {N_("Iniciar automaticamente"), GTK_STOCK_MEDIA_PLAY, build_autostart_tab, NULL, 0, 0},
+    {N_("Eventos"), GTK_STOCK_INDEX, build_eventos_tab, NULL, 0, 0},
 };
 #define N_TABS ((int)(sizeof(g_tabs) / sizeof(g_tabs[0])))
 
