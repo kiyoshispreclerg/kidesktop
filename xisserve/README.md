@@ -202,8 +202,22 @@ press) moves a volume slider. Default 5.
 Both app icons (`.desktop` `Icon=`, resolved via `GtkIconTheme` for a
 themed name or loaded directly for an absolute path) and a plugin's own
 per-result icon are resolved through `xisserve_resolve_icon()`
-(`xisserve.h`), cached process-wide by icon spec so repeat lookups
+(`icons.c`), cached process-wide by icon spec so repeat lookups
 (every rescan, every keystroke) are cheap.
+
+Resolving is also, by a wide margin, the most expensive thing xisserve
+does: on a desktop with ~550 apps it measures 570-950 ms, against 7 ms
+to start GTK, 2 ms to read every `.desktop` file, and 7 ms to build the
+whole `--applications` menu. So nothing resolves an icon while scanning
+or while loading the apps cache -- only the `Icon=` spec is kept. A view
+goes on screen with whatever is already cached and hands the rest to an
+`XisserveIconJob`, which resolves a few milliseconds' worth per idle so
+the icons appear in place over the next frames. Both the launcher's
+results list and the `--applications` menu use that same job rather than
+each inventing its own lazy scheme. Opening the launcher went from
+~700 ms to 115 ms this way, and the `--applications` menu -- a fresh
+process every time, so always resolving from cold -- from ~650 ms to
+58 ms.
 
 ## Matching the system theme
 

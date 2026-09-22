@@ -43,7 +43,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.26"
+#define XISSERVE_VERSION "0.1.27"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -153,6 +153,12 @@ static GtkListStore *g_view_store;
 static GPtrArray *g_apps;           /* ResultEntry*, persistent scanned apps, owned */
 static GArray *g_last_scan_dirs;    /* ScanDirState snapshot the current g_apps was built from, owned */
 static GPtrArray *g_plugin_results; /* ResultEntry*, rebuilt every search, owned */
+/* Icons still missing from the rows currently in g_view_store (owned).
+ * It borrows both the rows and the ResultEntry* behind them, so it is
+ * cancelled before either can go away: rebuild_results() (clears the
+ * store, frees the plugin results), rescan_apps() (frees g_apps) and
+ * hide_launcher() (nobody's looking any more). */
+static XisserveIconJob *g_row_icon_job;
 static GHashTable *g_favorites;     /* set of .desktop basenames (key owned, value unused) */
 static char g_selected_category[32] = "favorites";
 static GtkTreePath *g_hovered_cat_path;
@@ -564,33 +570,9 @@ static void strip_exec_field_codes(const char *in, char *out, size_t outsz)
 
 static void hex_to_rgba(const char *hex, double *r, double *g, double *b, double *a); /* defined below, theming section */
 
-/* spec -> resolved GdkPixbuf* (or the NULL "nothing resolves this"
- * result), keyed exactly as passed to xisserve_resolve_icon(). g_hash_
- * table_lookup_extended() (not a plain lookup()) is what lets a cached
- * NULL be told apart from "not in the cache yet" without a sentinel. */
-static GHashTable *g_icon_cache;
-
-GdkPixbuf *xisserve_resolve_icon(const char *spec, int size)
-{
-    if (!spec || !spec[0]) return NULL;
-    if (!g_icon_cache) g_icon_cache = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
-
-    gpointer cached = NULL;
-    if (g_hash_table_lookup_extended(g_icon_cache, spec, NULL, &cached)) {
-        return cached ? GDK_PIXBUF(g_object_ref(cached)) : NULL;
-    }
-
-    GdkPixbuf *pixbuf = NULL;
-    if (spec[0] == '/') {
-        pixbuf = gdk_pixbuf_new_from_file_at_size(spec, size, size, NULL);
-    } else {
-        pixbuf = gtk_icon_theme_load_icon(gtk_icon_theme_get_default(), spec, size, GTK_ICON_LOOKUP_FORCE_SIZE, NULL);
-    }
-    /* The cache keeps its own reference (or NULL); every caller,
-     * including this first one, gets back a fresh ref it owns. */
-    g_hash_table_insert(g_icon_cache, g_strdup(spec), pixbuf);
-    return pixbuf ? g_object_ref(pixbuf) : NULL;
-}
+/* xisserve_resolve_icon() and its cache live in icons.c, next to the
+ * progressive filler that exists because resolving is by far the most
+ * expensive thing either view does. */
 
 void xisserve_get_fg_rgba(double *r, double *g, double *b, double *a)
 {
@@ -931,8 +913,9 @@ static void parse_desktop_file(const char *path, const char *basename, GPtrArray
     snprintf(e->subtitle, sizeof(e->subtitle), "%s", xisserve_category_label(e->category_key));
     e->is_favorite = g_favorites && g_hash_table_contains(g_favorites, e->id);
     e->from_desktop = TRUE;
+    /* Only the spec -- the pixbuf itself is resolved later, by whichever
+     * view actually draws this entry (icons.c). */
     snprintf(e->icon_spec, sizeof(e->icon_spec), "%s", icon_raw);
-    if (icon_raw[0]) e->icon = xisserve_resolve_icon(icon_raw, XISSERVE_ICON_PX);
 
     g_ptr_array_add(apps, e);
 }
@@ -1404,9 +1387,11 @@ static gboolean scan_dir_state_equal(const GArray *a, const GArray *b)
  *
  * Only the tiny text fields needed to rebuild a ResultEntry are stored
  * (a few hundred apps is tens of KB, nowhere near a megabyte) -- icons
- * are deliberately left out and still resolved through
- * xisserve_resolve_icon() on load, same as a fresh scan would, so icon
- * theme lookups/decodes aren't a correctness concern for this cache.
+ * are deliberately left out, and loading the cache doesn't resolve them
+ * either: an Icon= spec is all a view needs to fill its icons in
+ * progressively once it's on screen (see icons.c), and resolving all of
+ * them here was costing more than everything else xisserve does at
+ * startup put together.
  *
  * Format is plain text so a stray corrupt line degrades to "skip that
  * one app" rather than a hard failure: one 0x1F-separated record per
@@ -1523,7 +1508,7 @@ static gboolean load_apps_cache_if_fresh(const GArray *current_dirs, GPtrArray *
         snprintf(e->subtitle, sizeof(e->subtitle), "%s", xisserve_category_label(e->category_key));
         e->from_desktop = TRUE;
         e->is_favorite = g_favorites && g_hash_table_contains(g_favorites, e->id);
-        if (e->icon_spec[0]) e->icon = xisserve_resolve_icon(e->icon_spec, XISSERVE_ICON_PX);
+        /* e->icon stays NULL here on purpose -- see parse_desktop_file(). */
         g_ptr_array_add(out_apps, e);
     }
     ok = TRUE;
@@ -1553,6 +1538,7 @@ static void resync_favorite_flags(void)
  * unless a directory's mtime says its contents actually changed. */
 static void rescan_apps(void)
 {
+    xisserve_icon_job_cancel(&g_row_icon_job); /* it borrows g_apps' entries, which may be freed below */
     load_favorites();
     /* load_config() is *not* called here -- show_launcher() does it for
      * every view, not just this one. rescan_apps() only runs for the
@@ -1916,6 +1902,10 @@ static void hide_launcher(void)
      * audio mixer's `pactl` poll in particular has no business running
      * against a window nobody can see. */
     leave_current_page();
+    /* Same reasoning for the icon fill: there's no point resolving
+     * icons for a list nobody can see, and the next open rebuilds it
+     * from scratch anyway. */
+    xisserve_icon_job_cancel(&g_row_icon_job);
     ungrab_input();
     gtk_widget_hide(g_window);
     /* Every close returns the pin to its default, whichever way the
@@ -1947,11 +1937,33 @@ static gchar *result_markup(const ResultEntry *e)
     return markup;
 }
 
+/* An IconJob target is the row's index: rows are only ever appended by
+ * rebuild_results(), which cancels the job before it clears the store,
+ * so an index handed out here still means the same row when it lands. */
+static void apply_row_icon(gpointer target, GdkPixbuf *icon, gpointer user_data)
+{
+    (void)user_data;
+    GtkTreeIter it;
+    GtkTreePath *path = gtk_tree_path_new_from_indices(GPOINTER_TO_INT(target), -1);
+    if (gtk_tree_model_get_iter(GTK_TREE_MODEL(g_view_store), &it, path)) {
+        gtk_list_store_set(g_view_store, &it, VCOL_ICON, icon, -1);
+    }
+    gtk_tree_path_free(path);
+}
+
 static void append_result_row(GtkListStore *store, ResultEntry *e)
 {
     gchar *markup = result_markup(e);
     GtkTreeIter it;
     gtk_list_store_append(store, &it);
+
+    /* Already resolved (a plugin's own icon, or anything drawn earlier
+     * this session) goes straight in; the rest is queued so the list
+     * appears now and its icons catch up over the next few frames. */
+    if (!e->icon && !xisserve_icon_resolved(e->icon_spec, &e->icon) && g_row_icon_job) {
+        gint row = gtk_tree_model_iter_n_children(GTK_TREE_MODEL(store), NULL) - 1;
+        xisserve_icon_job_add(g_row_icon_job, e, GINT_TO_POINTER(row));
+    }
     gtk_list_store_set(store, &it, VCOL_ICON, e->icon, VCOL_MARKUP, markup, VCOL_ENTRY, e, -1);
     g_free(markup);
 }
@@ -1967,10 +1979,15 @@ static void rebuild_results(void)
     const char *query = gtk_entry_get_text(GTK_ENTRY(g_entry));
     gboolean searching = query && *query;
 
+    /* Before the store is cleared and the plugin results freed: the
+     * pending job borrows both. */
+    xisserve_icon_job_cancel(&g_row_icon_job);
     gtk_list_store_clear(g_view_store);
 
     for (guint i = 0; i < g_plugin_results->len; i++) result_entry_free(g_ptr_array_index(g_plugin_results, i));
     g_ptr_array_set_size(g_plugin_results, 0);
+
+    g_row_icon_job = xisserve_icon_job_new(apply_row_icon, NULL);
 
     if (searching) {
         gtk_widget_hide(g_cat_scroll);
@@ -1999,6 +2016,8 @@ static void rebuild_results(void)
             if (include) append_result_row(g_view_store, e);
         }
     }
+
+    xisserve_icon_job_start(&g_row_icon_job);
 
     GtkTreeIter first;
     if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(g_view_store), &first)) {

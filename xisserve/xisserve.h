@@ -229,6 +229,32 @@ void build_terminal_exec(const char *cmd, char *out, size_t outsz);
  * placeholder. */
 GdkPixbuf *xisserve_resolve_icon(const char *spec, int size);
 
+/* Non-blocking peek at the same cache: TRUE (with *out set to an owned
+ * reference, or NULL) when `spec` has already been resolved in this
+ * process or is empty, FALSE when resolving it would mean a theme
+ * lookup and an image decode right now. Lets a view put what it already
+ * has on screen immediately and leave the rest to an IconJob below --
+ * see icons.c for why that split matters so much. */
+gboolean xisserve_icon_resolved(const char *spec, GdkPixbuf **out);
+
+/* Resolves a batch of entries' icons a few milliseconds at a time from
+ * a GLib idle, calling `apply` for each one as it lands so a list or
+ * menu that is already on screen fills in progressively instead of
+ * making the user wait for all of them before anything is drawn. The
+ * pixbuf handed to `apply` is borrowed (the ResultEntry owns it); the
+ * job borrows both entries and targets and owns neither, so it MUST be
+ * cancelled before anything it points at is freed. See icons.c. */
+typedef struct XisserveIconJob XisserveIconJob;
+typedef void (*XisserveIconApplyFn)(gpointer target, GdkPixbuf *icon, gpointer user_data);
+
+XisserveIconJob *xisserve_icon_job_new(XisserveIconApplyFn apply, gpointer user_data);
+void xisserve_icon_job_add(XisserveIconJob *job, ResultEntry *entry, gpointer target);
+/* Starts the idle (and clears *job straight away if there was nothing
+ * left to resolve); cancel takes **job too, so a cancelled job always
+ * leaves the caller's pointer NULL rather than dangling. */
+void xisserve_icon_job_start(XisserveIconJob **job);
+void xisserve_icon_job_cancel(XisserveIconJob **job);
+
 /* The launcher's current --fg color (already parsed from argv/the
  * control socket), 0..1 components -- for a plugin's own generated
  * fallback icon (e.g. globalmenu's hamburger) to stay legible against

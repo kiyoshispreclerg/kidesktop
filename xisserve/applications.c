@@ -54,6 +54,19 @@ static void position_menu(GtkMenu *menu, gint *x, gint *y, gboolean *push_in, gp
     *push_in = TRUE;
 }
 
+/* Icons land on items that are already built and (for the top-level
+ * menu) already on screen -- so unlike the show_all() pass, the image
+ * itself has to be shown by hand. Items are created as image menu items
+ * up front whenever the .desktop had an Icon= at all, precisely so
+ * there's something here to hang the image on later. */
+static void apply_menu_icon(gpointer target, GdkPixbuf *icon, gpointer user_data)
+{
+    (void)user_data;
+    GtkWidget *img = gtk_image_new_from_pixbuf(icon);
+    gtk_widget_show(img);
+    gtk_image_menu_item_set_image(GTK_IMAGE_MENU_ITEM(target), img);
+}
+
 static gint compare_keys_by_label(gconstpointer a, gconstpointer b)
 {
     const char *ka = *(const char **)a;
@@ -88,6 +101,13 @@ int applications_run(int x, int y)
     }
     g_ptr_array_sort(keys, compare_keys_by_label);
 
+    /* A fresh process resolves every icon from cold, which measured at
+     * 570-950ms for ~550 apps -- an order of magnitude more than
+     * everything else this program does put together (see icons.c). So
+     * the menu is built and popped up with only the icons already in
+     * hand, and the rest fill in from an idle while it's on screen. */
+    XisserveIconJob *job = xisserve_icon_job_new(apply_menu_icon, NULL);
+
     GtkWidget *top = gtk_menu_new();
     for (guint i = 0; i < keys->len; i++) {
         const char *key = g_ptr_array_index(keys, i);
@@ -99,11 +119,14 @@ int applications_run(int x, int y)
 
         for (guint j = 0; j < bucket->len; j++) {
             ResultEntry *e = g_ptr_array_index(bucket, j);
-            GtkWidget *item = e->icon ? gtk_image_menu_item_new_with_label(e->name)
-                                       : gtk_menu_item_new_with_label(e->name);
+            gboolean have_icon = xisserve_icon_resolved(e->icon_spec, &e->icon);
+            GtkWidget *item = e->icon_spec[0] ? gtk_image_menu_item_new_with_label(e->name)
+                                              : gtk_menu_item_new_with_label(e->name);
             if (e->icon)
                 gtk_image_menu_item_set_image(GTK_IMAGE_MENU_ITEM(item),
                                               gtk_image_new_from_pixbuf(e->icon));
+            else if (!have_icon)
+                xisserve_icon_job_add(job, e, item);
             g_signal_connect(item, "activate", G_CALLBACK(on_app_activate), e);
             gtk_menu_shell_append(GTK_MENU_SHELL(submenu), item);
         }
@@ -114,8 +137,10 @@ int applications_run(int x, int y)
 
     gint pos[2] = { x, y };
     gtk_menu_popup(GTK_MENU(top), NULL, NULL, position_menu, pos, 0, gtk_get_current_event_time());
+    xisserve_icon_job_start(&job);
     gtk_main();
 
+    xisserve_icon_job_cancel(&job); /* it borrows the entries freed just below */
     g_hash_table_destroy(buckets);
     g_ptr_array_free(keys, TRUE);
     for (guint i = 0; i < apps->len; i++) result_entry_free(g_ptr_array_index(apps, i));
