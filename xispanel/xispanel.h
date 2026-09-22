@@ -527,6 +527,39 @@ int panel_lookup_output_size(const char *name, int *out_w, int *out_h);
 /* Same plus the output's root-coordinate origin -- pager.c's
  * show_windows= mode maps window positions into an output's miniature. */
 int panel_lookup_output_rect(const char *name, int *out_x, int *out_y, int *out_w, int *out_h);
+/* Resolves `name` -- a plain RandR connector name, an "edid:..." stable
+ * id (see shared/xis_outputs.h; kiconf's own output combo box saves one
+ * by default, precisely so a panel keeps following the right physical
+ * monitor across a reconnect/rename), or "*" -- to the plain connector
+ * name it currently refers to. A thin wrapper around shared/xis_outputs.
+ * h's own xis_resolve_output() (the one canonical resolver every other
+ * kidesktop program -- xisback, kiconfd -- already uses for this),
+ * exposed here so widget/ewmh code can compare a panel's configured
+ * output against some *other* list of plain connector names in the same
+ * terms without needing to know or duplicate the edid: step itself.
+ * ewmh_kiwm_current_desktop_for_output() (and everything built on it --
+ * ewmh_resolve_active_for_output(), used by tasklist.c/winctl.c, and
+ * globalmenu.c's own same_output_only filter) and pager.c's
+ * same_output_only=yes (the default) are the current uses: kiwm's own
+ * _KIWM_OUTPUTS is always plain connector names, never edid: ids, so
+ * comparing it against an unresolved output= that happens to be an
+ * edid: id (the common case once a panel's output has ever been set via
+ * kiconf) would silently never match anything -- every one of those
+ * "restrict to this panel's own output" features would then fall back to
+ * treating every output as this one's own, looking exactly as if the
+ * feature were off despite the config asking for it. Returns 0 (leaving
+ * *out untouched) for "*", or any name (edid: or plain) that doesn't
+ * currently resolve to a connected output; 1 otherwise. Not the right
+ * choice for a hot per-frame path (a real XRRGetScreenResourcesCurrent()
+ * round trip every call) -- resolve_output_geometry() (xispanel.c) and
+ * ewmh_kiwm_current_desktop_for_output() (ewmh.c) special-case only the
+ * edid: prefix internally instead, for exactly that reason. */
+int panel_resolve_output_name(const char *name, char *out, size_t outsz);
+/* panel_resolve_output_name(p->output, ...) -- convenience for a caller
+ * that already has the Panel* in hand (pager.c) rather than just the
+ * bare string (ewmh_kiwm_current_desktop_for_output() and its own
+ * callers, which only ever see w->panel->output as a string). */
+int panel_resolve_own_output(const Panel *p, char *out, size_t outsz);
 /* Decodes any format Imlib2 understands (PNG, SVG if librsvg's loader is
  * present at runtime, etc.) into a premultiplied-alpha ARGB32 Cairo
  * surface, or NULL on any failure (missing file, decode error, larger

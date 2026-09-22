@@ -206,10 +206,20 @@ static int pager_refresh(PanelWidget *w)
 
         int match = -1;
         if (pp->same_output_only) {
-            for (int i = 0; i < n_outputs; i++) {
-                if (strcmp(names[i], p->output) == 0) {
-                    match = i;
-                    break;
+            /* p->output may be an "edid:..." stable id (kiconf's own
+             * output combo saves one by default) -- names[] is always
+             * plain connector names, straight from kiwm's _KIWM_OUTPUTS,
+             * so comparing the raw, unresolved id against them would
+             * silently never match anything and same_output_only would
+             * look exactly like same_output_only=no. See
+             * panel_resolve_own_output()'s own doc comment. */
+            char own[64];
+            if (panel_resolve_own_output(p, own, sizeof(own))) {
+                for (int i = 0; i < n_outputs; i++) {
+                    if (strcmp(names[i], own) == 0) {
+                        match = i;
+                        break;
+                    }
                 }
             }
         }

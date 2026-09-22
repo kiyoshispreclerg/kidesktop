@@ -95,7 +95,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.39"
+#define XISPANEL_VERSION "0.6.40"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -496,6 +496,36 @@ static int init_font(const char *family_hint)
 /* RandR output geometry (same pattern as xisback's resolve_output_geometry)*/
 /* ------------------------------------------------------------------ */
 
+/* Resolves `name` -- a plain RandR connector name, an "edid:..."
+ * stable-monitor id (see shared/xis_outputs.h), or "*" -- to the plain
+ * connector name it currently refers to, via the same shared, canonical
+ * xis_resolve_output() every other kidesktop program (xisback, kiconfd)
+ * already uses for this. Unlike resolve_output_geometry() below (a hot
+ * path that special-cases only the edid: prefix, to avoid this same
+ * XRRGetScreenResourcesCurrent() round trip twice on every single
+ * geometry resolve -- see its own comment), this one is for callers that
+ * need a *name*, not a geometry, and aren't called anywhere near that
+ * often: pager.c's same_output_only, and ewmh_kiwm_current_desktop_for_
+ * output() (and everything built on it -- ewmh_resolve_active_for_
+ * output(), tasklist.c/winctl.c, and globalmenu.c's own same_output_only
+ * filter), all of which need to compare a panel's configured output
+ * against kiwm's own _KIWM_OUTPUTS (always plain connector names, never
+ * edid: ids) in the same plain-name terms. Without this, comparing an
+ * unresolved edid: id (the common case once a panel's output has ever
+ * been set via kiconf's own output combo box) against that list would
+ * silently never match anything, and every one of those "restrict to
+ * this panel's own output" features would fall back to treating every
+ * output as this one's own -- looking exactly as if the feature were
+ * off despite the config asking for it. Returns 0 (leaving `out`
+ * untouched) for "*", or a name that doesn't currently resolve to a
+ * connected output (edid: or plain -- unlike the hot path below, a
+ * stale/disconnected plain name is caught here too, not just edid:
+ * ids); 1 otherwise. */
+int panel_resolve_output_name(const char *name, char *out, size_t outsz)
+{
+    return xis_resolve_output(g_dpy, name, out, outsz, 0);
+}
+
 /* *out_hz is left at 0 if the CRTC's current mode has no usable timing
  * info to compute one from -- callers should treat that as "unknown",
  * not "the output truly refreshes at 0Hz".
@@ -505,16 +535,20 @@ static int init_font(const char *family_hint)
  * fresh, live, right here, every call, so a connector rename between two
  * calls never needs any reconcile step for these the way a plain saved
  * name does (see build_output_rename_map() below, which only ever
- * touches plain-name panels). */
+ * touches plain-name panels). Deliberately doesn't just call
+ * panel_resolve_output_name() for every name unconditionally: this runs
+ * on every geometry resolve (panel move, RandR event, the periodic
+ * reconcile poll), a hot path, and that would mean two full
+ * XRRGetScreenResourcesCurrent()-plus-output-loop passes (one inside
+ * xis_resolve_output(), one right here) for the common plain-name case
+ * that needs only one. */
 static int resolve_output_geometry(const char *name, int *ox, int *oy, int *ow, int *oh, double *out_hz)
 {
     char resolved[XIS_OUTPUT_STR_LEN];
     if (strncmp(name, "edid:", 5) == 0) {
-        /* forced=0: this runs on every geometry resolve (panel move,
-         * RandR event, the periodic reconcile poll), a hot path -- see
-         * xis_list_outputs()'s own doc comment on `forced`. Correct
-         * without ever forcing here because main() forces one poll at
-         * startup before the first load_config() (see its own comment),
+        /* forced=0: see xis_list_outputs()'s own doc comment on
+         * `forced`; correct without ever forcing here because main()
+         * forces one poll at startup before the first load_config(),
          * enough for every later cached read this session to see fresh
          * EDID -- RandR-change events keep the cache itself current
          * after that. */
@@ -576,6 +610,11 @@ static int resolve_output_geometry(const char *name, int *ox, int *oy, int *ow, 
     }
     XRRFreeScreenResources(res);
     return found;
+}
+
+int panel_resolve_own_output(const Panel *p, char *out, size_t outsz)
+{
+    return panel_resolve_output_name(p->output, out, outsz);
 }
 
 /* Public wrapper around resolve_output_geometry() for widgets that only

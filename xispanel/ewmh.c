@@ -822,10 +822,32 @@ int ewmh_kiwm_get_wm_output(Window w)
  * *out_output_idx and returns that output's current desktop -- or returns
  * -1 (leaving *out_output_idx at -1) if kiwm isn't running or the name
  * doesn't match any known output (e.g. a panel configured with output=*,
- * which spans every output and so has no single one to filter by). */
+ * which spans every output and so has no single one to filter by).
+ *
+ * `output_name` (a Panel's own output=) may be an "edid:..." stable id
+ * (see shared/xis_outputs.h) rather than a literal connector name --
+ * _KIWM_OUTPUTS is always plain connector names, so this resolves it via
+ * panel_resolve_output_name() first, same as resolve_output_geometry()
+ * (xispanel.c) does for a panel's own geometry -- without it, an edid:
+ * id (the common case once a panel's output has ever been set via
+ * kiconf's own output combo box) would never text-match anything here,
+ * silently breaking this function's caller (ewmh_resolve_active_for_
+ * output(), used by tasklist.c/winctl.c) and globalmenu.c's own
+ * same_output_only filter alike. Only resolved when it's actually an
+ * edid: id, same reason resolve_output_geometry() only special-cases
+ * that prefix: this runs on every tasklist/winctl/globalmenu repaint, a
+ * fast enough path that an unconditional extra RandR round trip for the
+ * (still common) plain-name case isn't worth paying for here. */
 int ewmh_kiwm_current_desktop_for_output(const char *output_name, int *out_output_idx)
 {
     *out_output_idx = -1;
+    char resolved[64];
+    if (strncmp(output_name, "edid:", 5) == 0) {
+        if (!panel_resolve_output_name(output_name, resolved, sizeof(resolved))) {
+            return -1;
+        }
+        output_name = resolved;
+    }
     char names[64][64];
     int n_outputs = 0;
     if (!ewmh_kiwm_get_outputs(names, 64, &n_outputs)) {
