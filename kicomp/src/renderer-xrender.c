@@ -347,8 +347,16 @@ static xcb_render_picture_t density_picture(CompWindow *w, bool decoration)
     }
 
     if (cg) {
-        w->client_rect.x = cg->x + cg->border_width;
-        w->client_rect.y = cg->y + cg->border_width;
+        /* Only while there *is* a frame -- see the same guard in
+         * renderer-gl.c's dense_layer(): xcb_get_geometry() answers in the
+         * parent's coordinates, so for an unframed window (its own client,
+         * parented to the root) the reply is its position on the desktop,
+         * and using that as an offset puts the dense layer nowhere near the
+         * window. No frame means no decoration around the contents either:
+         * the offset is zero. */
+        bool framed = w->client != w->id;
+        w->client_rect.x = framed ? cg->x + cg->border_width : 0;
+        w->client_rect.y = framed ? cg->y + cg->border_width : 0;
         w->client_rect.w = cg->width;
         w->client_rect.h = cg->height;
     }

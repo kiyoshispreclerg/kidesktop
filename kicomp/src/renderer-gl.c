@@ -1212,8 +1212,18 @@ static GlWindow *dense_layer(CompWindow *w, GlWindow *g, bool decoration)
         }
 
         if (cg) {
-            w->client_rect.x = cg->x + cg->border_width;
-            w->client_rect.y = cg->y + cg->border_width;
+            /* Only while there *is* a frame: xcb_get_geometry() answers in
+             * the parent's coordinates, and an unframed window's parent is
+             * the root -- so the reply carries its position on the desktop,
+             * which used as an offset pushes the layer that far off the
+             * window a second time (a panel at 1920,180 drew its dense
+             * pixels at 3840,360, i.e. clipped away to nothing, and went
+             * back to looking exactly as blurry as before -- silently, since
+             * every step before this one succeeded). Such a window is its
+             * own client with no decoration around it: the offset is zero. */
+            bool framed = w->client != w->id;
+            w->client_rect.x = framed ? cg->x + cg->border_width : 0;
+            w->client_rect.y = framed ? cg->y + cg->border_width : 0;
             w->client_rect.w = cg->width;
             w->client_rect.h = cg->height;
         }
