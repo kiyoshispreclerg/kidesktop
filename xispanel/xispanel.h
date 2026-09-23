@@ -188,7 +188,22 @@ struct PanelWidget {
      * config file -- see config_widget_set_key(), used by tasklist.c's
      * pinned-apps persistence to find that line again later. */
     int order;
-    char config_kv[256]; /* raw "key=value key2=value2 ..." from config */
+    /* raw "key=value key2=value2 ..." from config -- 768, not some smaller
+     * round number, because a widget with many options (tasklist's is the
+     * longest: mode/same_desktop/same_output/minimized_only/icon_padding/
+     * show_thumbs/thumb_w/thumb_h/group/pinned/fixed_first/launch_feedback
+     * (plus its own _zoom/_ms)/recent_max/fixed_list all at once, real-world
+     * example seen at 279 bytes and climbing as more keys get added) can
+     * exceed a smaller buffer, and did: the previous 256-byte size
+     * silently truncated the line via snprintf below, cutting off
+     * whichever key(s) happened to sit at the end -- fixed_list= for
+     * anyone with show_thumbs=/launch_feedback=/etc. also set, which then
+     * looked exactly like "fixed_list isn't being read at all" (no error,
+     * just kv_get() never finding a key that was never actually stored).
+     * kiconf's own per-widget options field (kiconf/tabs/paineis.c's
+     * WidgetRec::options) caps at 512, so this needs to comfortably clear
+     * that plus room for hand-added keys on top. */
+    char config_kv[1024];
     void *priv;
 
     /* Filled in by panel_layout(); main-axis position/length, cross-axis
