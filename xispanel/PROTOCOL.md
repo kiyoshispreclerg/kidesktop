@@ -328,6 +328,32 @@ Widget types implemented so far:
   every member even after wrapping, the grid caps out with a trailing
   "+N mais" cell rather than silently dropping members with no
   indication more exist.
+  `pinned=<wm_class1>,<wm_class2>,...` hand-edits pins that should already
+  be there on startup -- pins added later via the right-click "Fixar"
+  menu persist on their own (see `fixed_list=` next) so this is only
+  useful for seeding pins before ever using that menu, or ones you'd
+  rather keep spelled out in the config itself. `fixed_list=<file>` is
+  the sidecar xispanel writes and maintains itself: the first "Fixar"
+  writes this key (a `xispanel-pinned-<panel>-<order>.list` file next to
+  `xispanel.conf`, or a chosen relative/absolute path if it's hand-set
+  first) and keeps its wm_class list, one per line, in sync with every
+  later pin/unpin -- this is what makes "Fixar" survive a restart. Losing
+  this key (e.g. by hand-editing the WIDGET line back out) leaves the
+  file on disk but forgets which pins it holds; xispanel does not delete
+  it. `fixed_first=yes|no` (default `yes`) puts the pinned block before
+  the regular-windows block; `no` swaps the order instead, without
+  otherwise mixing pinned and regular buttons together.
+  `launch_feedback=yes|no` (default `no`) zooms+fades a pinned
+  placeholder's icon when clicking it launches the app, so there's some
+  visual acknowledgement while the real window hasn't appeared yet;
+  `launch_feedback_zoom=<factor>` (default `2.0`, minimum `1.05`) sets how
+  large the icon grows by the end of the animation, and
+  `launch_feedback_ms=<ms>` (default `500`, minimum `16`) how long it
+  takes -- both ignored unless `launch_feedback=yes`.
+  `recent_max=<n>` (default `5`) caps how many of an app's own
+  `recently-used.xbel` entries show in its jumplist section (right-click
+  menu / pinned-placeholder context menu); `0` omits the section
+  entirely.
 - `pager`: a grid of desktop squares, current desktop highlighted, click
   to switch. Reads kiwm's per-output desktops (`_KIWM_OUTPUTS`) when kiwm
   is running, otherwise plain
