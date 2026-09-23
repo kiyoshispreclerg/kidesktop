@@ -468,6 +468,12 @@ static const WidgetField TASKLIST_FIELDS[] = {
     WF_STR("thumb_w", "Largura maxima da miniatura (px; vazio = 200)", ""),
     WF_STR("thumb_h", "Altura maxima da miniatura (px; vazio = 130)", ""),
     WF_BOOL("group", "Agrupar por aplicativo", "no"),
+    WF_STR("pinned", "Apps fixados no inicio (wm_class1,wm_class2,...)", ""),
+    WF_BOOL("fixed_first", "Bloco de fixados antes das janelas normais", "yes"),
+    WF_BOOL("launch_feedback", "Animar icone fixado ao lancar", "no"),
+    WF_STR("launch_feedback_zoom", "Ampliacao do icone ao lancar (ex: 2.0; minimo 1.05)", "2.0"),
+    WF_INT("launch_feedback_ms", "Duracao da animacao ao lancar (ms)", "500", 16, 5000),
+    WF_INT("recent_max", "Itens recentes na lista do app (0 = ocultar)", "5", 0, 50),
     /* Sidecar file xispanel itself writes/maintains on every pin/unpin
      * (see tasklist_persist_pinned() in widgets/tasklist.c) -- shown here
      * mainly so it's visible and doesn't get silently discarded, not
@@ -536,6 +542,10 @@ static const WidgetField NOTIF_FIELDS[] = {
 static const WidgetField GLOBALMENU_FIELDS[] = {
     WF_ENUM("mode", "Modo", "closed", GLOBALMENU_MODE_OPTS),
     WF_BOOL("keep", "Manter o icone/espaco sem menu", "no"),
+    WF_BOOL("same_desktop", "So a area de trabalho atual", "no"),
+    WF_BOOL("same_output", "So esta tela", "no"),
+    WF_BOOL("focused_only", "So com foco real do teclado", "no"),
+    WF_STR("hotkey", "Atalho global (opcional)", ""),
 };
 static const WidgetField FOLDER_FIELDS[] = {
     WF_STR("path", "Pasta", ""),
@@ -593,7 +603,7 @@ static const WidgetSchema WIDGET_SCHEMAS[] = {
 };
 #undef WSCHEMA
 #define N_WIDGET_SCHEMAS ((int)(sizeof(WIDGET_SCHEMAS) / sizeof(WIDGET_SCHEMAS[0])))
-#define WIDGET_MAX_FIELDS 14 /* winctl/monitor have the most, at 10/13, plus the inline row */
+#define WIDGET_MAX_FIELDS 18 /* tasklist has the most, at 17, plus the inline row */
 
 static const char *const WIDGET_TYPE_NAMES[] = {
     "spacer", "clock", "tasklist", "pager", "monitor", "winctl", "tray", "launcher",
