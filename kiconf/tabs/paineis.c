@@ -468,6 +468,12 @@ static const WidgetField TASKLIST_FIELDS[] = {
     WF_STR("thumb_w", "Largura maxima da miniatura (px; vazio = 200)", ""),
     WF_STR("thumb_h", "Altura maxima da miniatura (px; vazio = 130)", ""),
     WF_BOOL("group", "Agrupar por aplicativo", "no"),
+    /* Sidecar file xispanel itself writes/maintains on every pin/unpin
+     * (see tasklist_persist_pinned() in widgets/tasklist.c) -- shown here
+     * mainly so it's visible and doesn't get silently discarded, not
+     * because it's meant to be hand-typed; blank until the first "Fixar"
+     * click sets it. */
+    WF_STR("fixed_list", "Arquivo de apps fixados (gerado ao fixar o primeiro)", ""),
 };
 static const WidgetField PAGER_FIELDS[] = {
     WF_BOOL("same_output_only", "So as areas de trabalho desta tela", "yes"),
@@ -1032,6 +1038,31 @@ static void open_widget_dialog(GtkTreeIter *iter)
             }
         }
         gchar *type = gtk_combo_box_get_active_text(GTK_COMBO_BOX(st.type_combo));
+
+        /* Carry over any key from the widget's original options that
+         * isn't one of the form fields just written above -- e.g.
+         * tasklist's own `pinned=`/`fixed_first=`/`recent_max=`/
+         * `launch_feedback*=`, or a key this schema table simply hasn't
+         * caught up with yet. Without this, opts above is built from
+         * *only* the schema fields, so anything else the widget's config
+         * line carried (including state the widget itself writes back,
+         * like tasklist's fixed_list= sidecar -- see its own field above)
+         * would silently vanish the moment this dialog's OK is clicked,
+         * even though nothing about it was ever shown or touched here.
+         * Skipped when the type was changed: a key from the *previous*
+         * type's options is meaningless (and potentially misleading) on
+         * the new one. */
+        if (cur_type && type && !strcmp(cur_type, type)) {
+            for (int i = 0; i < n_toks; i++) {
+                int known = st.inline_widget && !strcmp(CONTAINER_INLINE_FIELD.key, toks[i].key);
+                for (int j = 0; !known && j < st.schema->n_fields; j++) {
+                    known = !strcmp(st.schema->fields[j].key, toks[i].key);
+                }
+                if (!known) {
+                    wopts_append(opts, sizeof(opts), toks[i].key, toks[i].val);
+                }
+            }
+        }
 
         GtkTreeIter target;
         if (iter) {
