@@ -790,6 +790,31 @@ int density_handle_property(Panel *p, const XPropertyEvent *ev); /* 1 if consume
 void density_render(Panel *p);      /* call at the end of panel_repaint() -- no-op unless density != 1/1 */
 void density_panel_destroyed(Panel *p); /* frees the aux pixmap/surface/cr, if any -- call from panel_deactivate() */
 
+/* Same mechanism as the four functions above, packaged generically for
+ * xispanel's other top-level windows (tooltip/toast/menu/launchfx) so
+ * each one can opt in without copying the pixmap/atom plumbing. Panel
+ * keeps its own dedicated fields/functions above rather than being
+ * rerouted through this -- proven code, no reason to touch it for this.
+ *
+ * One DensityLayer per window, for as long as that window (its XID) is
+ * alive: register right after XCreateWindow (needs PropertyChangeMask in
+ * its own attrs.event_mask, same as Panel's own window), unregister right
+ * before XDestroyWindow. A window that's reused at a new size across
+ * repaints (tooltip.c's, notably) keeps the same DensityLayer the whole
+ * time -- density_layer_render()'s logical_w/logical_h are read fresh on
+ * every call, exactly like density_render(Panel*)'s own p->w/p->h. */
+typedef struct DensityLayer DensityLayer;
+DensityLayer *density_layer_register(Window win, Visual *visual, int depth,
+                                      void (*paint)(cairo_t *cr, double scale, void *ctx), void *ctx);
+void density_layer_unregister(DensityLayer *dl); /* NULL is a no-op */
+int density_layer_handle_property(DensityLayer *dl, const XPropertyEvent *ev); /* 1 if consumed */
+/* `logical_w`/`logical_h` are the window's own current on-screen size (not
+ * scaled); `base_font_size`, if > 0, is set as the offscreen cr's default
+ * font size before `paint` runs, the same seed density_render(Panel*)
+ * gives its own img_cr via panel_text_size() -- pass 0 when `paint` always
+ * sets its own size before drawing any text. */
+void density_layer_render(DensityLayer *dl, int logical_w, int logical_h, double base_font_size);
+
 /* ---- X-INPUT-SCALE: per-CRTC cursor-confinement query (inputscale.c) ----
  *
  * See /home/kiyoshi/Downloads/kiyoshi-forks/xserver/doc/

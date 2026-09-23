@@ -33,6 +33,7 @@
 #include <cairo/cairo-xlib.h>
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static Atom g_atom_density_manager;
@@ -98,6 +99,10 @@ static void density_reset_all_panels(void)
     panel_foreach(reset_one_panel_density, NULL);
 }
 
+/* Forward-declared: defined in the generic-layer section below, but
+ * needed here first -- see that definition's own doc comment. */
+static void density_reset_all_layers(void);
+
 int density_handle_xfixes_event(const XEvent *ev)
 {
     if (!g_xfixes_available || ev->type != g_xfixes_event_base + XFixesSelectionNotify) {
@@ -109,6 +114,7 @@ int density_handle_xfixes_event(const XEvent *ev)
         fprintf(stderr, "xispanel: X-DENSITY compositor %s\n", now_present ? "appeared" : "disappeared");
         if (!now_present) {
             density_reset_all_panels();
+            density_reset_all_layers();
         }
     }
     return 1;
@@ -256,4 +262,202 @@ void density_panel_destroyed(Panel *p)
     }
     p->density_pixmap_w = 0;
     p->density_pixmap_h = 0;
+}
+
+/* ---- X-DENSITY: generic per-window layer (see the doc comment on this
+ * struct's forward declaration in xispanel.h) ----
+ *
+ * Every field mirrors one of Panel's own density_* fields one for one --
+ * this is that same pixmap/surface/cr/img_surface/img_cr shape, just
+ * addressed through a pointer instead of being spelled out on Panel,
+ * so tooltip/toast/menu/launchfx can each have one (or several, for
+ * menu's cascaded submenus) without their own copy of density_ensure_
+ * pixmap()/density_render()'s bodies. */
+struct DensityLayer {
+    Window win;
+    Visual *visual;
+    int depth;
+    void (*paint)(cairo_t *cr, double scale, void *ctx);
+    void *ctx;
+
+    int num, den;
+    int pixmap_w, pixmap_h;
+    Pixmap pixmap;
+    cairo_surface_t *surface;
+    cairo_t *cr;
+    cairo_surface_t *img_surface;
+    cairo_t *img_cr;
+
+    struct DensityLayer *next;
+};
+
+/* Every live layer, so density_reset_all_panels()'s sibling below can
+ * snap every one of them back to 1/1 when the compositor disappears --
+ * unlike Panel, there's no g_panels[]-style fixed array these windows
+ * already live in for that walk to reuse. */
+static DensityLayer *g_layers;
+
+DensityLayer *density_layer_register(Window win, Visual *visual, int depth,
+                                      void (*paint)(cairo_t *cr, double scale, void *ctx), void *ctx)
+{
+    DensityLayer *dl = calloc(1, sizeof(*dl));
+    if (!dl) {
+        return NULL;
+    }
+    dl->win = win;
+    dl->visual = visual;
+    dl->depth = depth;
+    dl->paint = paint;
+    dl->ctx = ctx;
+    dl->num = dl->den = 1;
+    dl->next = g_layers;
+    g_layers = dl;
+    return dl;
+}
+
+static void density_layer_free_pixmap(DensityLayer *dl)
+{
+    if (dl->img_cr) {
+        cairo_destroy(dl->img_cr);
+        dl->img_cr = NULL;
+    }
+    if (dl->img_surface) {
+        cairo_surface_destroy(dl->img_surface);
+        dl->img_surface = NULL;
+    }
+    if (dl->cr) {
+        cairo_destroy(dl->cr);
+        dl->cr = NULL;
+    }
+    if (dl->surface) {
+        cairo_surface_destroy(dl->surface);
+        dl->surface = NULL;
+    }
+    if (dl->pixmap != None) {
+        XFreePixmap(g_dpy, dl->pixmap);
+        dl->pixmap = None;
+    }
+    dl->pixmap_w = dl->pixmap_h = 0;
+}
+
+void density_layer_unregister(DensityLayer *dl)
+{
+    if (!dl) {
+        return;
+    }
+    density_layer_free_pixmap(dl);
+    for (DensityLayer **pp = &g_layers; *pp; pp = &(*pp)->next) {
+        if (*pp == dl) {
+            *pp = dl->next;
+            break;
+        }
+    }
+    free(dl);
+}
+
+/* Snaps every registered layer back to 1/1 and drops its auxiliary pixmap
+ * -- the popup-side equivalent of reset_one_panel_density() above, called
+ * alongside it from density_reset_all_panels()'s call site below. */
+static void density_reset_all_layers(void)
+{
+    for (DensityLayer *dl = g_layers; dl; dl = dl->next) {
+        if (dl->num != 1 || dl->den != 1) {
+            dl->num = dl->den = 1;
+            XDeleteProperty(g_dpy, dl->win, g_atom_density_scale);
+            XDeleteProperty(g_dpy, dl->win, g_atom_density_pixmap);
+        }
+        density_layer_free_pixmap(dl);
+    }
+}
+
+int density_layer_handle_property(DensityLayer *dl, const XPropertyEvent *ev)
+{
+    if (!dl || ev->window != dl->win || ev->atom != g_atom_density_requested) {
+        return 0;
+    }
+    if (!compositor_present()) {
+        return 1;
+    }
+    Atom actual_type;
+    int actual_format;
+    unsigned long n_items, bytes_after;
+    unsigned char *prop = NULL;
+    int num = 1, den = 1;
+    if (XGetWindowProperty(g_dpy, dl->win, g_atom_density_requested, 0, 2, False, XA_CARDINAL, &actual_type,
+                            &actual_format, &n_items, &bytes_after, &prop) == Success &&
+        prop) {
+        if (n_items >= 2) {
+            long *v = (long *)(void *)prop;
+            if (v[0] > 0 && v[1] > 0) {
+                num = (int)v[0];
+                den = (int)v[1];
+            }
+        }
+        XFree(prop);
+    }
+    dl->num = num;
+    dl->den = den;
+    return 1;
+}
+
+static int density_layer_ensure_pixmap(DensityLayer *dl, int pw, int ph)
+{
+    if (dl->pixmap != None && dl->pixmap_w == pw && dl->pixmap_h == ph) {
+        return 1;
+    }
+    density_layer_free_pixmap(dl);
+    dl->pixmap = XCreatePixmap(g_dpy, dl->win, (unsigned)pw, (unsigned)ph, (unsigned)dl->depth);
+    if (dl->pixmap == None) {
+        return 0;
+    }
+    dl->surface = cairo_xlib_surface_create(g_dpy, dl->pixmap, dl->visual, pw, ph);
+    dl->cr = cairo_create(dl->surface);
+    dl->img_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, pw, ph);
+    dl->img_cr = cairo_create(dl->img_surface);
+    dl->pixmap_w = pw;
+    dl->pixmap_h = ph;
+    return 1;
+}
+
+void density_layer_render(DensityLayer *dl, int logical_w, int logical_h, double base_font_size)
+{
+    if (!dl || (dl->num == 1 && dl->den == 1)) {
+        return;
+    }
+    if (!compositor_present()) {
+        return;
+    }
+    double scale = (double)dl->num / dl->den;
+    int pw = (int)(logical_w * scale + 0.5);
+    int ph = (int)(logical_h * scale + 0.5);
+    if (pw < 1 || ph < 1) {
+        return;
+    }
+    if (!density_layer_ensure_pixmap(dl, pw, ph)) {
+        return;
+    }
+
+    if (g_font_face) {
+        cairo_set_font_face(dl->img_cr, g_font_face);
+    }
+    if (base_font_size > 0) {
+        cairo_set_font_size(dl->img_cr, base_font_size);
+    }
+    dl->paint(dl->img_cr, scale, dl->ctx);
+    cairo_surface_flush(dl->img_surface);
+
+    cairo_save(dl->cr);
+    cairo_set_operator(dl->cr, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_surface(dl->cr, dl->img_surface, 0, 0);
+    cairo_paint(dl->cr);
+    cairo_restore(dl->cr);
+    cairo_surface_flush(dl->surface);
+
+    long scale_val[2] = {dl->num, dl->den};
+    XChangeProperty(g_dpy, dl->win, g_atom_density_scale, XA_CARDINAL, 32, PropModeReplace,
+                     (unsigned char *)scale_val, 2);
+    long pixmap_val = (long)dl->pixmap;
+    XChangeProperty(g_dpy, dl->win, g_atom_density_pixmap, XA_CARDINAL, 32, PropModeReplace,
+                     (unsigned char *)&pixmap_val, 1);
+    XFlush(g_dpy);
 }

@@ -54,6 +54,12 @@ typedef struct {
     Window win;
     cairo_surface_t *surface;
     cairo_t *cr;
+    /* X-DENSITY (density.c) for this toast's own window -- see
+     * toast_density_paint()/g_density_toast's doc comment above for why
+     * this array being memmove()'d on dismissal is safe (the pointer
+     * itself just rides along) while a `Toast *` baked into it would not
+     * be. */
+    DensityLayer *density;
     uint64_t expire_ms; /* 0 = never auto-expire */
     /* Original requested lifetime in ms (0 = never-expire), kept alongside
      * expire_ms so a LeaveNotify can restart the full countdown rather
@@ -226,9 +232,12 @@ static void toast_screen_pos(int idx, int *out_x, int *out_y)
     *out_y = at_bottom ? base_y - step : base_y + step;
 }
 
-static void paint_toast(Toast *t)
+/* The actual content draw, parameterized on `cr` so it can target either
+ * t->cr (the normal on-screen path, scale 1) or a density layer's own
+ * offscreen img_cr (X-DENSITY, see toast_density_paint() below) -- same
+ * split as tooltip.c's draw_popup(). */
+static void draw_toast(cairo_t *cr, Toast *t)
 {
-    cairo_t *cr = t->cr;
     cairo_save(cr);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -287,6 +296,33 @@ static void paint_toast(Toast *t)
     }
 }
 
+/* Set right before density_layer_render() below, for the duration of that
+ * one synchronous call -- g_toasts[] is a dense array that shifts entries
+ * down on a dismissal (see the file doc comment), so a `Toast *` baked
+ * into the DensityLayer at registration time could outlive the slot it
+ * pointed to. Reading the always-current `t` through this global instead
+ * (density_layer_register()'s `ctx` stays NULL) sidesteps that: the
+ * paint callback only ever runs inside this one call, never stored for
+ * later, so there's nothing to go stale. */
+static Toast *g_density_toast;
+
+static void toast_density_paint(cairo_t *cr, double scale, void *ctx)
+{
+    (void)ctx;
+    cairo_save(cr);
+    cairo_scale(cr, scale, scale);
+    draw_toast(cr, g_density_toast);
+    cairo_restore(cr);
+}
+
+static void paint_toast(Toast *t)
+{
+    draw_toast(t->cr, t);
+    g_density_toast = t;
+    density_layer_render(t->density, TOAST_W, TOAST_H, TOAST_SUMMARY_SIZE);
+    g_density_toast = NULL;
+}
+
 static void destroy_toast_window(Toast *t)
 {
     if (t->cr) {
@@ -295,6 +331,7 @@ static void destroy_toast_window(Toast *t)
     if (t->surface) {
         cairo_surface_destroy(t->surface);
     }
+    density_layer_unregister(t->density);
     if (t->win) {
         XDestroyWindow(g_dpy, t->win);
     }
@@ -369,7 +406,8 @@ static void map_and_show_toast(Toast *t)
     attrs.colormap = g_cmap;
     attrs.border_pixel = 0;
     attrs.background_pixel = 0;
-    attrs.event_mask = ExposureMask | ButtonPressMask | EnterWindowMask | LeaveWindowMask;
+    /* PropertyChangeMask: needed for _X_DENSITY_REQUESTED (density.c). */
+    attrs.event_mask = ExposureMask | ButtonPressMask | EnterWindowMask | LeaveWindowMask | PropertyChangeMask;
 
     t->win = XCreateWindow(g_dpy, g_root, x, y, TOAST_W, TOAST_H, 0, g_depth, InputOutput, g_visual,
                             CWOverrideRedirect | CWColormap | CWBorderPixel | CWBackPixel | CWEventMask, &attrs);
@@ -377,6 +415,7 @@ static void map_and_show_toast(Toast *t)
                      (unsigned char *)&g_atom_wm_window_type_tooltip, 1);
     t->surface = cairo_xlib_surface_create(g_dpy, t->win, g_visual, TOAST_W, TOAST_H);
     t->cr = cairo_create(t->surface);
+    t->density = density_layer_register(t->win, g_visual, g_depth, toast_density_paint, NULL);
 
     XMapWindow(g_dpy, t->win);
     XRaiseWindow(g_dpy, t->win);
@@ -637,6 +676,13 @@ int toast_handle_event(const XEvent *ev)
                 if (g_toasts[i].timeout_ms != 0) {
                     g_toasts[i].expire_ms = now_ms() + g_toasts[i].timeout_ms;
                 }
+                return 1;
+            }
+        }
+    } else if (ev->type == PropertyNotify) {
+        for (int i = 0; i < g_n; i++) {
+            if (density_layer_handle_property(g_toasts[i].density, &ev->xproperty)) {
+                paint_toast(&g_toasts[i]);
                 return 1;
             }
         }

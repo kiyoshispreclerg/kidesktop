@@ -107,6 +107,10 @@ typedef struct {
     Pixmap back_pix;
     cairo_surface_t *back;
     cairo_t *back_cr;
+    /* X-DENSITY (density.c) for this popup window -- registered once at
+     * XCreateWindow time, torn down in destroy_popup() below alongside
+     * everything else. See tooltip_density_paint()/paint_popup(). */
+    DensityLayer *density;
     int width, height;
     /* Close-icon hit-rect, in popup-local coordinates; only meaningful
      * when g_closable. */
@@ -236,6 +240,7 @@ static void destroy_popup(void)
     if (g_popup->surface) {
         cairo_surface_destroy(g_popup->surface);
     }
+    density_layer_unregister(g_popup->density);
     XDestroyWindow(g_dpy, g_popup->win);
     free(g_popup);
     g_popup = NULL;
@@ -422,10 +427,9 @@ static int measure_lines(cairo_t *cr, double font_size, char lines[TOOLTIP_MAX_L
 /* Draws every laid-out cell from show_popup_group_layout() -- thumbnail
  * or plain title, plus a per-item close icon -- and the trailing "+N
  * mais" note if the grid had to cap how many members fit on screen. */
-static void paint_popup_group(void)
+static void paint_popup_group(cairo_t *cr)
 {
     Panel *p = g_panel;
-    cairo_t *cr = g_popup->back_cr;
 
     for (int i = 0; i < g_popup->group_shown_n; i++) {
         int ix = g_popup->group_item_x[i];
@@ -622,18 +626,21 @@ static void repaint_thumbs_only(void)
     blit_rect_and_flush(bx, by, bw, bh);
 }
 
-static void paint_popup(void)
+/* The actual content draw, shared between the normal on-screen path
+ * (paint_popup() below, into g_popup->back_cr at scale 1) and the
+ * X-DENSITY path (tooltip_density_paint(), into the density layer's own
+ * img_cr with a cairo_scale() already pushed) -- everything here draws
+ * in the popup's own logical (unscaled) coordinates either way, same as
+ * panel_paint_content() does for a Panel. Does not blit anywhere itself;
+ * callers own that (blit_and_flush() for the normal path, density_layer_
+ * render()'s own img_surface->pixmap blit for the other). */
+static void draw_popup(cairo_t *cr)
 {
-    if (!g_popup || !g_panel) {
-        return;
-    }
     Panel *p = g_panel;
-    cairo_t *cr = g_popup->back_cr;
     draw_popup_background(cr);
 
     if (g_has_group) {
-        paint_popup_group();
-        blit_and_flush();
+        paint_popup_group(cr);
         return;
     }
 
@@ -721,8 +728,31 @@ static void paint_popup(void)
         cairo_close_path(cr);
         cairo_fill(cr);
     }
+}
 
+/* xispanel: X-DENSITY paint callback (density_layer_register()'s `paint`)
+ * -- draws the popup's content at `scale` into `cr` (the density layer's
+ * own offscreen img_cr), then density_layer_render() blits and publishes
+ * it. `ctx` is unused: there's only ever one tooltip popup at a time, so
+ * draw_popup() already knows what to draw from g_popup/g_panel same as
+ * the normal path does. */
+static void tooltip_density_paint(cairo_t *cr, double scale, void *ctx)
+{
+    (void)ctx;
+    cairo_save(cr);
+    cairo_scale(cr, scale, scale);
+    draw_popup(cr);
+    cairo_restore(cr);
+}
+
+static void paint_popup(void)
+{
+    if (!g_popup || !g_panel) {
+        return;
+    }
+    draw_popup(g_popup->back_cr);
     blit_and_flush();
+    density_layer_render(g_popup->density, g_popup->width, g_popup->height, tooltip_font_size());
 }
 
 /* Original single-item layout (text + optional close icon/mpris row/
@@ -1010,7 +1040,9 @@ static void show_popup(void)
         attrs.colormap = p->cmap;
         attrs.border_pixel = 0;
         attrs.background_pixel = 0;
-        attrs.event_mask = ExposureMask | EnterWindowMask | LeaveWindowMask | ButtonPressMask;
+        /* PropertyChangeMask: needed for _X_DENSITY_REQUESTED (density.c),
+         * same reason xispanel.c's own panel windows carry it. */
+        attrs.event_mask = ExposureMask | EnterWindowMask | LeaveWindowMask | ButtonPressMask | PropertyChangeMask;
 
         /* A fresh window, not the one any stale g_suppress_popup_enter
          * (left over from a previous reused popup) could possibly apply
@@ -1024,6 +1056,7 @@ static void show_popup(void)
 
         pop->surface = cairo_xlib_surface_create(g_dpy, pop->win, p->visual, pop->width, pop->height);
         pop->cr = cairo_create(pop->surface);
+        pop->density = density_layer_register(pop->win, p->visual, p->depth, tooltip_density_paint, NULL);
 
         XMapWindow(g_dpy, pop->win);
         XRaiseWindow(g_dpy, pop->win);
@@ -1435,6 +1468,14 @@ int tooltip_handle_event(const XEvent *ev)
     if (ev->type == ButtonPress && ev->xbutton.window == g_popup->win) {
         g_suppress_popup_enter = 0;
         handle_popup_click(ev->xbutton.x, ev->xbutton.y);
+        return 1;
+    }
+    if (ev->type == PropertyNotify && density_layer_handle_property(g_popup->density, &ev->xproperty)) {
+        /* _X_DENSITY_REQUESTED changed -- repaint now rather than waiting
+         * for the next Expose, same reasoning as Panel's own p->dirty=1
+         * (density_handle_property()'s doc comment), just immediate here
+         * since paint_popup() is cheap and this event is rare. */
+        paint_popup();
         return 1;
     }
     return 0;

@@ -90,6 +90,10 @@ typedef struct {
     Window win;
     cairo_surface_t *surface;
     cairo_t *cr;
+    /* X-DENSITY (density.c) for this frame's own window -- see
+     * menu_density_paint()'s doc comment for why baking `&frames[i]` in
+     * at registration is safe here (unlike toast.c's array). */
+    DensityLayer *density;
     int idx[MENU_TREE_MAX_ITEMS]; /* flat indices (into PanelMenu::items/parent) shown in this frame, in order */
     int n; /* total items across every page */
     int paging; /* 1 if n doesn't fit in one page */
@@ -152,6 +156,7 @@ static void destroy_frame_resources(MenuFrame *f)
     if (f->surface) {
         cairo_surface_destroy(f->surface);
     }
+    density_layer_unregister(f->density);
     if (f->win) {
         XDestroyWindow(g_dpy, f->win);
     }
@@ -231,13 +236,13 @@ static int frame_pos_to_row(const MenuFrame *f, int pos)
 static int menu_icon_size(const PanelMenu *m);
 static int menu_icon_column_w(const PanelMenu *m);
 
-static void paint_frame(PanelMenu *m, MenuFrame *f)
+/* The actual content draw, parameterized on `cr` so it can target either
+ * f->cr (the normal on-screen path, scale 1) or a density layer's own
+ * offscreen img_cr (X-DENSITY, see menu_density_paint() below) -- same
+ * split as tooltip.c's draw_popup()/toast.c's draw_toast(). */
+static void draw_frame(cairo_t *cr, PanelMenu *m, MenuFrame *f)
 {
-    if (!f->win) {
-        return;
-    }
     Panel *p = m->owner_panel;
-    cairo_t *cr = f->cr;
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, p->bg_r, p->bg_g, p->bg_b, p->bg_a);
     cairo_paint(cr);
@@ -324,8 +329,30 @@ static void paint_frame(PanelMenu *m, MenuFrame *f)
             cairo_stroke(cr);
         }
     }
+}
+
+/* `ctx` is the MenuFrame* itself -- safe to bake in at registration time,
+ * unlike toast.c's array: frames[] only ever truncates from the tail
+ * (m->n_frames = level, see this file's doc comment on that), never
+ * shifts a live frame to a different slot mid-array. */
+static void menu_density_paint(cairo_t *cr, double scale, void *ctx)
+{
+    MenuFrame *f = ctx;
+    cairo_save(cr);
+    cairo_scale(cr, scale, scale);
+    draw_frame(cr, g_menu, f);
+    cairo_restore(cr);
+}
+
+static void paint_frame(PanelMenu *m, MenuFrame *f)
+{
+    if (!f->win) {
+        return;
+    }
+    draw_frame(f->cr, m, f);
     cairo_surface_flush(f->surface);
     XFlush(g_dpy);
+    density_layer_render(f->density, f->width, f->visible_rows * m->item_h, m->font_size);
 }
 
 /* Fills out_idx[]/out_n with the flat indices of every item whose parent
@@ -502,7 +529,9 @@ static int create_frame_window(PanelMenu *m, MenuFrame *f, int want_grab)
     attrs.colormap = p->cmap;
     attrs.border_pixel = 0;
     attrs.background_pixel = 0;
-    attrs.event_mask = ExposureMask | (want_grab ? (ButtonPressMask | PointerMotionMask | KeyPressMask) : 0);
+    /* PropertyChangeMask: needed for _X_DENSITY_REQUESTED (density.c). */
+    attrs.event_mask =
+        ExposureMask | PropertyChangeMask | (want_grab ? (ButtonPressMask | PointerMotionMask | KeyPressMask) : 0);
 
     f->win = XCreateWindow(g_dpy, g_root, f->screen_x, f->screen_y, (unsigned)f->width, (unsigned)f->height, 0,
                             p->depth, InputOutput, p->visual,
@@ -512,6 +541,7 @@ static int create_frame_window(PanelMenu *m, MenuFrame *f, int want_grab)
 
     f->surface = cairo_xlib_surface_create(g_dpy, f->win, p->visual, f->width, f->height);
     f->cr = cairo_create(f->surface);
+    f->density = density_layer_register(f->win, p->visual, p->depth, menu_density_paint, f);
 
     XMapWindow(g_dpy, f->win);
     XRaiseWindow(g_dpy, f->win);
@@ -1073,6 +1103,14 @@ int panel_menu_handle_event(const XEvent *ev)
             }
         }
         return 1;
+    }
+    if (ev->type == PropertyNotify) {
+        for (int i = 0; i < m->n_frames; i++) {
+            if (density_layer_handle_property(m->frames[i].density, &ev->xproperty)) {
+                paint_frame(m, &m->frames[i]);
+                return 1;
+            }
+        }
     }
     return 0;
 }
