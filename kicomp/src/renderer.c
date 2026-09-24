@@ -9,11 +9,19 @@
  * here" and every caller having to ask whether stashes exist.
  */
 #include "renderer.h"
+#include "stowpix.h"
 
 const CompRenderer *renderer;
 
 void renderer_window_invalidate(CompWindow *w)
 {
+    /* Before the backend lets go: whatever was published as this
+     * window's kept picture (stowpix.h) is that very pixmap, and the
+     * XID must stop being advertised before it stops existing. Every
+     * path that drops a window's contents comes through here, which is
+     * what makes this the one place that has to remember. */
+    stowpix_drop(w);
+
     if (renderer && renderer->window_invalidate)
         renderer->window_invalidate(w);
 }
@@ -26,6 +34,8 @@ void renderer_window_shape_invalidate(CompWindow *w)
 
 void renderer_window_free(CompWindow *w)
 {
+    stowpix_drop(w);
+
     if (renderer && renderer->window_free)
         renderer->window_free(w);
 }
@@ -77,6 +87,13 @@ void renderer_stash_drop_unheld(CompWindow *w)
 {
     if (renderer && renderer->stash_drop_unheld)
         renderer->stash_drop_unheld(w);
+}
+
+xcb_pixmap_t renderer_window_pixmap(const CompWindow *w)
+{
+    if (renderer && renderer->window_pixmap)
+        return renderer->window_pixmap(w);
+    return XCB_NONE;
 }
 
 void renderer_background_invalidate(void)

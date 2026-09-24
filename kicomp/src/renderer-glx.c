@@ -287,12 +287,25 @@ static bool glx_window_bind(CompWindow *w, GlWindow *g);
 static void glx_window_unbind(GlWindow *g);
 static bool glx_pixmap_bind(xcb_pixmap_t pixmap, int width, int height,
                             uint8_t depth, GlWindow *g);
+static xcb_pixmap_t glx_window_pixmap(const GlWindow *g);
 
 static const GlPlatform glx_platform = {
     .window_bind   = glx_window_bind,
     .pixmap_bind   = glx_pixmap_bind,
     .window_unbind = glx_window_unbind,
+    .window_pixmap = glx_window_pixmap,
 };
+
+/* renderer-gl.h: what window_bind named, and only that -- a borrowed
+ * pixmap is the client's own X-DENSITY layer, which nobody here may
+ * hand out or promise anything about. */
+static xcb_pixmap_t glx_window_pixmap(const GlWindow *g)
+{
+    const GlxWindow *x = g->platform;
+    if (!x || x->borrowed)
+        return XCB_NONE;
+    return x->pixmap;
+}
 
 static bool glx_start(void)
 {
@@ -686,6 +699,7 @@ static const CompRenderer glx_renderer = {
     .window_density_invalidate = gl_window_density_invalidate,
     .window_free        = gl_window_free,
     .window_has_content = gl_window_has_content,
+    .window_pixmap      = gl_window_pixmap,
 
     .window_stash       = gl_window_stash,
     .window_has_stash   = gl_window_has_stash,

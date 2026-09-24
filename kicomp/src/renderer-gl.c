@@ -2176,6 +2176,14 @@ bool gl_window_has_content(const CompWindow *w)
     return g && g->content;
 }
 
+xcb_pixmap_t gl_window_pixmap(const CompWindow *w)
+{
+    GlWindow *g = gl_window_find(w->id);
+    if (!g || !g->content || !platform || !platform->window_pixmap)
+        return XCB_NONE;
+    return platform->window_pixmap(g);
+}
+
 bool gl_setup(const GlPlatform *p)
 {
     platform = p;

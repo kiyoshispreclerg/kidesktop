@@ -153,6 +153,11 @@ typedef struct {
      * free the pixmap: it was never this side's to free. */
     bool (*pixmap_bind)(xcb_pixmap_t pixmap, int width, int height,
                         uint8_t depth, GlWindow *g);
+    /* The pixmap window_bind named, or XCB_NONE when nothing is bound --
+     * and XCB_NONE too for a pixmap_bind'ed one, which belongs to the
+     * client and is not this side's to offer anyone (renderer.h's
+     * renderer_window_pixmap). */
+    xcb_pixmap_t (*window_pixmap)(const GlWindow *g);
 } GlPlatform;
 
 /* With the platform's context current: builds the programs once. */
@@ -176,6 +181,7 @@ void gl_window_shape_invalidate(CompWindow *w);
 void gl_window_density_invalidate(CompWindow *w, bool decoration);
 void gl_window_free(CompWindow *w);
 bool gl_window_has_content(const CompWindow *w);
+xcb_pixmap_t gl_window_pixmap(const CompWindow *w);
 
 /* The stash (renderer.h), the same for every platform: the window's
  * previous contents kept instead of thrown away when a resize replaces

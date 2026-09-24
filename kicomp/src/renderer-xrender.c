@@ -168,6 +168,15 @@ static bool xr_window_has_content(const CompWindow *w)
     return w->picture != 0;
 }
 
+/* renderer.h: the named pixmap itself, for stowpix.h to publish. Only
+ * while a Picture stands over it -- w->pixmap and w->picture are made
+ * and freed together, and the Picture is what says the binding is whole
+ * rather than half-built. */
+static xcb_pixmap_t xr_window_pixmap(const CompWindow *w)
+{
+    return w->picture ? w->pixmap : XCB_NONE;
+}
+
 /* ---- the stash: contents a resize replaced (renderer.h) ---- */
 
 static void stash_free(CompWindow *w)
@@ -2112,6 +2121,7 @@ static const CompRenderer xrender_renderer = {
     .window_shape_invalidate   = xr_window_shape_invalidate,
     .window_free               = xr_window_free,
     .window_has_content        = xr_window_has_content,
+    .window_pixmap             = xr_window_pixmap,
     .window_density_invalidate = xr_window_density_invalidate,
 
     .window_stash              = xr_window_stash,

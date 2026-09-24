@@ -33,7 +33,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.3.30"
+#define KICOMP_VERSION "0.3.31"
 
 #include "comp.h"
 #include "output.h"
@@ -236,6 +236,7 @@ static void atoms_init(void)
     comp.atoms.kicomp_quit            = intern("_KICOMP_QUIT");
     comp.atoms.kicomp_switcher        = intern("_KICOMP_SWITCHER");
     comp.atoms.kicomp_effects         = intern("_KICOMP_EFFECTS");
+    comp.atoms.kicomp_stowed_pixmap   = intern("_KICOMP_STOWED_PIXMAP");
 
     comp.atoms.net_wm_window_type     = intern("_NET_WM_WINDOW_TYPE");
     comp.atoms.type_normal            = intern("_NET_WM_WINDOW_TYPE_NORMAL");

@@ -339,6 +339,12 @@ typedef struct CompWindow {
      * draw it. Holds one retain of its own, released when it comes back. */
     bool stowed;
 
+    /* The pixmap that stow is published as, while it is (stowpix.h):
+     * the XID written to _KICOMP_STOWED_PIXMAP on this window, kept
+     * here so it can be withdrawn again before the pixmap is freed.
+     * XCB_NONE when nothing is published. */
+    xcb_pixmap_t stow_published;
+
     /* EWMH state (CompWindowState), and what it was before the batch of
      * events being processed -- the difference is what says "this resize
      * was a maximize". */
@@ -649,6 +655,8 @@ typedef struct KiComp {
          * protocol in effects/cover-switch.c. */
         xcb_atom_t kicomp_switcher;
         xcb_atom_t kicomp_effects;
+        xcb_atom_t kicomp_stowed_pixmap; /* the kept picture of a hidden window,
+                                          * offered to others (stowpix.h) */
         xcb_atom_t kiwm_wm_output;         /* which output a window is on */
         xcb_atom_t net_wm_desktop;         /* which desktop a window is on */
     } atoms;

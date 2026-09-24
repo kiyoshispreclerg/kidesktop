@@ -7,6 +7,7 @@
  * the mirror itself stays exactly as it is here.
  */
 #include "window.h"
+#include "stowpix.h"
 #include "output.h"
 #include "renderer.h"
 #include "effect.h"
@@ -1034,6 +1035,7 @@ void windows_flush_events(void)
                 if (comp.keep_stowed && !w->stowed) {
                     w->stowed = true;
                     window_retain(w);
+                    stowpix_publish(w);
                 }
                 /* The mark went with the unmap (window_held_changed
                  * kept it for this); the window is no longer held. */
@@ -1071,6 +1073,12 @@ void windows_flush_events(void)
                 (kind == COMP_EVENT_DESKTOP_LEAVE || kind == COMP_EVENT_MINIMIZE)) {
                 w->stowed = true;
                 window_retain(w);
+                /* And offered to anyone else who wants a picture of a
+                 * window that is no longer on screen -- a panel's task
+                 * list, which otherwise has to ask the WM to hold the
+                 * window up and hope the application still paints
+                 * (stowpix.h). */
+                stowpix_publish(w);
             }
 
             /* Nobody kept it: let the contents go, and the entry with
@@ -1419,6 +1427,9 @@ void window_remove(xcb_window_t id)
     }
 
     damage_forget(w);
+    /* The X window is gone: the property published on it went with it,
+     * and nothing may try to delete it (stowpix.h). */
+    stowpix_gone(w);
 
     /* The X window is gone, but that is not the same as the *mirror*
      * entry being gone: a window that was on screen a moment ago still

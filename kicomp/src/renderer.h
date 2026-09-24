@@ -61,6 +61,8 @@ typedef struct CompRenderer {
     bool (*window_has_content)(const CompWindow *w);
     void (*window_density_invalidate)(CompWindow *w, bool decoration);
 
+    xcb_pixmap_t (*window_pixmap)(const CompWindow *w);
+
     void (*window_stash)(CompWindow *w, const CompRect *was);
     bool (*window_has_stash)(const CompWindow *w);
     CompRect (*window_stash_rect)(const CompWindow *w);
@@ -128,6 +130,19 @@ void renderer_stash_drop_unheld(CompWindow *w);
  * a window that was never painted has no pixmap to keep, and naming one
  * after it is unmapped simply fails. */
 bool renderer_window_has_content(const CompWindow *w);
+
+/* The pixmap the window's contents are bound to right now -- the one
+ * NameWindowPixmap handed this side, which goes on holding the last
+ * picture the window drew after it is unmapped. XCB_NONE when nothing
+ * is bound (never painted, just invalidated) or when what is bound is
+ * not ours to offer: an X-DENSITY layer is the *client's* pixmap, named
+ * by the client and gone whenever it says so.
+ *
+ * Exists for stowpix.h, which publishes that XID so a panel can draw a
+ * minimized window's kept picture. Nobody may free it: it is freed here,
+ * through renderer_window_invalidate(). */
+xcb_pixmap_t renderer_window_pixmap(const CompWindow *w);
+
 void renderer_background_invalidate(void);
 
 /* The cached Picture for a window's X-DENSITY pixmap is stale (a

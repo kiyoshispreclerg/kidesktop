@@ -1446,6 +1446,44 @@ minimize animation would have nothing to shrink.
 The same store is what the cover switcher and `show-windows` draw their
 minimized windows, and the other desktops' windows, from.
 
+### Lending that picture out (`_KICOMP_STOWED_PIXMAP`)
+
+Nobody else can keep it. X frees the contents of a window that is not on
+screen, and the pixmap kicomp holds is the only copy there will ever be
+— a panel wanting a thumbnail of a minimized window has nowhere to get
+one, which is what kiwm's `_KIWM_HOLD_WINDOW` exists to fix: the WM maps
+the frame for a moment so somebody can take a live picture.
+
+That works for a window away with its desktop, where the application has
+no idea anything happened and repaints on the Expose. It does not work
+for a **minimized** one, because the application is told: Firefox
+suspends its rendering the moment GTK reports the window iconified, so
+the frame comes back up mapped, marked, and completely black — measured,
+0 CPU ticks across all its processes for three seconds of continuous
+hold. And the hold *destroys* the good picture on its way, since mapping
+the window names a fresh pixmap for it.
+
+So while a window's contents are being kept, kicomp publishes the pixmap
+holding them, as **`_KICOMP_STOWED_PIXMAP`** (`PIXMAP/32`, one XID) on
+the window it belongs to — the frame, on a reparenting WM. Written when
+the window is put away, deleted before the pixmap is freed for any
+reason (the window came back, was resized, went away).
+
+For a reader — xispanel's tasklist with `live_thumbs=no` is the first —
+the rules are short:
+
+- **draw from it, never free it.** The pixmap is kicomp's; an
+  `XFreePixmap` from another client destroys it for everyone, X having no
+  ownership to appeal to.
+- **read the property per paint, don't cache the XID.** It is withdrawn
+  the instant the picture stops being valid.
+- **tolerate the error anyway.** Between the read and the draw the window
+  can come back; a permissive error handler over the draw is the whole of
+  the handling needed.
+- what you get is the window *as it was when it went away* — decoration
+  included, since the pixmap is the frame's — which is what every expo
+  and every task manager has always shown.
+
 ### Keeping the windows themselves alive (`live_windows`)
 
 A kept picture is a picture: the window it was taken of has stopped

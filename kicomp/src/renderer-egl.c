@@ -632,10 +632,22 @@ static bool egl_window_bind(CompWindow *w, GlWindow *g)
     return true;
 }
 
+/* renderer-gl.h: what window_bind named, and only that -- a borrowed
+ * pixmap is the client's own X-DENSITY layer, which nobody here may
+ * hand out or promise anything about. */
+static xcb_pixmap_t egl_window_pixmap(const GlWindow *g)
+{
+    const EglWindow *x = g->platform;
+    if (!x || x->borrowed)
+        return XCB_NONE;
+    return x->pixmap;
+}
+
 static const GlPlatform egl_platform = {
     .window_bind   = egl_window_bind,
     .window_unbind = egl_window_unbind,
     .pixmap_bind   = egl_pixmap_bind,
+    .window_pixmap = egl_window_pixmap,
 };
 
 /* For main.c to decide before any output exists: can this platform
@@ -804,6 +816,7 @@ static const CompRenderer egl_renderer = {
     .window_density_invalidate = gl_window_density_invalidate,
     .window_free        = gl_window_free,
     .window_has_content = gl_window_has_content,
+    .window_pixmap      = gl_window_pixmap,
 
     .window_stash       = gl_window_stash,
     .window_has_stash   = gl_window_has_stash,
