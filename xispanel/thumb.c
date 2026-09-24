@@ -527,11 +527,28 @@ void thumb_watch(Window win)
     int self_redirected = 0;
     Window target = resolve_composited_window(win, &wa, &pix, &self_redirected);
     if (target == None) {
-        /* Most often: the window is on a desktop that isn't showing, so
-         * there is nothing to name a pixmap from. Ask for it to be put
-         * up (see ask_hold) and let the next repaint try again -- by
-         * then it is on screen and this resolves normally. */
-        ask_hold(win);
+        /* Most often: the window is on a desktop that isn't showing, or
+         * minimized, so there is nothing to name a pixmap from.
+         *
+         * live_thumbs=yes: ask for it to be put up (see ask_hold) and
+         * let the next repaint try again -- by then it is on screen and
+         * this resolves normally.
+         *
+         * live_thumbs=no: don't. thumb_paint()'s own slow path draws
+         * kicomp's kept picture instead (paint_stowed()) on every call,
+         * which is correct and cheap for a picture that doesn't change --
+         * there is nothing here worth a continuous watch over, and
+         * asking for a hold regardless of this setting was the bug: it
+         * put the window back on screen and let it resume drawing (a
+         * still-running application, unlike Firefox, just keeps
+         * animating into that live pixmap once held), which is exactly
+         * what live_thumbs=no promises not to do. Every call site in
+         * thumb_paint() already makes this same choice -- this one, run
+         * once up front by show_popup() before the first paint, was the
+         * one left asking unconditionally. */
+        if (g_live_thumbs) {
+            ask_hold(win);
+        }
         XSetErrorHandler(prev);
         return;
     }
