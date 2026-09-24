@@ -467,6 +467,12 @@ static const WidgetField TASKLIST_FIELDS[] = {
      * container widget's own padding= field uses. */
     WF_STR("thumb_w", "Largura maxima da miniatura (px; vazio = 200)", ""),
     WF_STR("thumb_h", "Altura maxima da miniatura (px; vazio = 130)", ""),
+    /* Only decides what a thumbnail of a window that is *not on screen*
+     * is made of: "yes" holds the window up for a live picture (kiwm's
+     * _KIWM_HOLD_WINDOW), "no" draws the last one kicomp kept of it
+     * (_KICOMP_STOWED_PIXMAP) -- which is the only thing that works for
+     * an application that stops drawing while minimized. */
+    WF_BOOL("live_thumbs", "Miniatura ao vivo de janela fora da tela", "no"),
     WF_BOOL("group", "Agrupar por aplicativo", "no"),
     WF_STR("pinned", "Apps fixados no inicio (wm_class1,wm_class2,...)", ""),
     WF_BOOL("fixed_first", "Bloco de fixados antes das janelas normais", "yes"),
