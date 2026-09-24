@@ -152,6 +152,28 @@ int density_handle_property(Panel *p, const XPropertyEvent *ev)
         p->density_num = num;
         p->density_den = den;
         p->dirty = 1; /* next repaint picks up density_render() below with the new factor */
+        if (num == 1 && den == 1) {
+            /* Withdrawn -- delete what we published *now*, not just stop
+             * republishing it. density_render() below no-ops the instant
+             * density_num/den read back 1/1 (its "vastly common case, do
+             * nothing" early-out), so nothing would otherwise ever delete
+             * these or free the pixmap -- the compositor's own density_
+             * active() only ever trusts *our* last-published SCALE/PIXMAP,
+             * never the mere absence of its own request (kicomp/src/
+             * density.c: "num/den -- what the client says it is actually
+             * drawing at -- believed over what we asked for"), so a stale
+             * SCALE=N/1 left in place keeps it compositing the same frozen
+             * pixmap over this window forever, over top of whatever the
+             * window keeps drawing normally underneath -- visible as the
+             * whole panel appearing to freeze the instant a zoom that once
+             * touched it ends, while it keeps responding to input just
+             * fine underneath (this generic property write is all the
+             * window itself ever needed to look right again; nothing
+             * about a panel's own paint() calls was ever the problem). */
+            XDeleteProperty(g_dpy, p->win, g_atom_density_scale);
+            XDeleteProperty(g_dpy, p->win, g_atom_density_pixmap);
+            density_panel_destroyed(p);
+        }
     }
     return 1;
 }
@@ -397,6 +419,16 @@ int density_layer_handle_property(DensityLayer *dl, const XPropertyEvent *ev)
     }
     dl->num = num;
     dl->den = den;
+    if (num == 1 && den == 1) {
+        /* Withdrawn -- delete what we published now, same reasoning as
+         * density_handle_property(Panel*)'s own doc comment above: without
+         * this, the compositor keeps compositing our last dense pixmap
+         * over the window forever, since it trusts our last-published
+         * SCALE/PIXMAP over the mere absence of its own request. */
+        XDeleteProperty(g_dpy, dl->win, g_atom_density_scale);
+        XDeleteProperty(g_dpy, dl->win, g_atom_density_pixmap);
+        density_layer_free_pixmap(dl);
+    }
     return 1;
 }
 
