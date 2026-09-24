@@ -119,6 +119,10 @@ static GtkWidget *g_screens_res_combo, *g_screens_rate_combo, *g_screens_rot_com
 static GtkWidget *g_screens_enabled_chk, *g_screens_primary_chk;
 static GtkWidget *g_screens_mirror_combo;
 static GtkWidget *g_screens_dpi_spin, *g_screens_scale_spin;
+/* Last value the DPI spinner settled on -- used by on_screens_dpi_changed()
+ * to tell which way a step landed inside the disallowed 1..95 gap (see its
+ * own comment) so it knows whether to snap down to 0 (Auto) or up to 96. */
+static int g_screens_dpi_last = 0;
 static GtkWidget *g_screens_status_label;
 /* Advanced/other driver properties (xrandr --verbose) -- the *_box is
  * what gets torn down and rebuilt (a fresh GtkTable each time, same
@@ -193,6 +197,11 @@ static void parse_output_header(char *line, ScreenOutput *o)
     snprintf(o->rotation, sizeof(o->rotation), "normal");
     o->scale_x = 1.0;
     o->scale_y = 1.0;
+    /* -1 means "kiconf hasn't been told a DPI for this output" (skip
+     * --set DPI entirely); 0 is now a real, explicit value meaning
+     * "AutoDPI" (xrandr --set DPI 0), distinct from leaving it alone.
+     * See g_screens_dpi_spin's own comment in build_telas_tab(). */
+    o->dpi = -1;
     char *tokens[32];
     int n = tokenize_ws(line, tokens, 32);
     if (n < 2) {
@@ -654,7 +663,7 @@ static void apply_output_diff(const ScreenOutput *o, const ScreenOutput *base)
                   fmt_c_double(sybuf, sizeof(sybuf), sy));
         argv[ac++] = "--scale";
         argv[ac++] = scalebuf;
-        if (o->dpi) {
+        if (o->dpi >= 0) {
             argv[ac++] = "--set";
             argv[ac++] = "DPI";
             snprintf(dpibuf, sizeof(dpibuf), "%d", o->dpi);
@@ -730,7 +739,7 @@ static void apply_output_diff(const ScreenOutput *o, const ScreenOutput *base)
         argv[ac++] = scalebuf;
         changed = 1;
     }
-    if (o->dpi != base->dpi && o->dpi) {
+    if (o->dpi != base->dpi && o->dpi >= 0) {
         argv[ac++] = "--set";
         argv[ac++] = "DPI";
         snprintf(dpibuf, sizeof(dpibuf), "%d", o->dpi);
@@ -1305,7 +1314,8 @@ static void sync_screens_form(void)
     }
     gtk_combo_box_set_active(GTK_COMBO_BOX(g_screens_mirror_combo), mirror_idx);
 
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_screens_dpi_spin), o->dpi > 0 ? o->dpi : 96);
+    g_screens_dpi_last = o->dpi >= 0 ? o->dpi : 96;
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_screens_dpi_spin), g_screens_dpi_last);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_screens_scale_spin), fabs(o->scale_x) > 1e-6 ? o->scale_x : 1.0);
 
     rebuild_extra_props_ui();
@@ -1409,13 +1419,57 @@ static void on_screens_mirror_changed(GtkWidget *widget, gpointer data)
     gtk_widget_queue_draw(g_screens_canvas);
 }
 
+/* DPI spinner text: 0 reads as "Auto" (xrandr --set DPI 0, AutoDPI --
+ * see g_screens_dpi_spin's own comment in build_telas_tab()), anything
+ * else as the plain number. */
+static gboolean on_screens_dpi_output(GtkSpinButton *spin, gpointer data)
+{
+    (void)data;
+    int v = gtk_spin_button_get_value_as_int(spin);
+    char buf[16];
+    snprintf(buf, sizeof(buf), v == 0 ? "Auto" : "%d", v);
+    if (strcmp(gtk_entry_get_text(GTK_ENTRY(spin)), buf)) {
+        gtk_entry_set_text(GTK_ENTRY(spin), buf);
+    }
+    return TRUE;
+}
+
+/* Accepts "Auto" (or an empty field) as 0 typed back in; anything else
+ * falls through to GtkSpinButton's own numeric parsing. */
+static gint on_screens_dpi_input(GtkSpinButton *spin, gdouble *new_val, gpointer data)
+{
+    (void)data;
+    const char *text = gtk_entry_get_text(GTK_ENTRY(spin));
+    while (isspace((unsigned char)*text)) {
+        text++;
+    }
+    if (!*text || !g_ascii_strcasecmp(text, "auto")) {
+        *new_val = 0;
+        return TRUE;
+    }
+    return FALSE;
+}
+
 static void on_screens_dpi_changed(GtkWidget *widget, gpointer data)
 {
     (void)data;
     if (g_screens_syncing || g_screens_selected < 0) {
         return;
     }
-    g_outputs[g_screens_selected].dpi = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(widget));
+    GtkSpinButton *spin = GTK_SPIN_BUTTON(widget);
+    int v = gtk_spin_button_get_value_as_int(spin);
+    /* 0 (Auto) and 96..960 (in steps of 12) are the only values that mean
+     * anything to xrandr -- anything strictly between is just how far a
+     * single spin-button step (12) or a typed value happened to land.
+     * Snap it to whichever end it's headed towards instead of leaving it
+     * stuck somewhere neither Auto nor a real DPI. */
+    if (v > 0 && v < 96) {
+        v = (v > g_screens_dpi_last) ? 96 : 0;
+        gtk_spin_button_set_value(spin, v);
+        return; /* set_value() re-enters this handler with the snapped v */
+    }
+    g_screens_dpi_last = v;
+    g_outputs[g_screens_selected].dpi = v;
 }
 
 static void on_screens_scale_changed(GtkWidget *widget, gpointer data)
@@ -1597,12 +1651,8 @@ GtkWidget *build_telas_tab(void)
     gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
 
     GtkWidget *note = gtk_label_new(
-        "Arraste as caixas pra reposicionar -- ficam sempre lado a lado,\n"
-        "encostadas na saida mais proxima, sem espacos entre elas; so a\n"
-        "posicao ao longo da borda compartilhada e livre. Espelho/DPI/\n"
-        "Escala nao sao detectados do hardware (nem xrandr --verbose\n"
-        "expoe isso), so escritos ao Aplicar. Aplicar tambem grava o\n"
-        "layout pra ser reaplicado automaticamente no inicio da proxima\n"
+        "Arraste as caixas pra reposicionar. Aplicar tambem grava o "
+        "layout pra ser reaplicado automaticamente no inicio da proxima "
         "sessao.");
     gtk_misc_set_alignment(GTK_MISC(note), 0.0, 0.5);
     gtk_box_pack_start(GTK_BOX(outer), note, FALSE, FALSE, 0);
@@ -1648,7 +1698,19 @@ GtkWidget *build_telas_tab(void)
     g_screens_mirror_combo = gtk_combo_box_new_text();
     g_signal_connect(g_screens_mirror_combo, "changed", G_CALLBACK(on_screens_mirror_changed), NULL);
     labeled_row(form_table, 5, "Espelhar (mirror):", g_screens_mirror_combo);
-    g_screens_dpi_spin = gtk_spin_button_new_with_range(48, 960, 12);
+    /* 0 is a real, explicit choice here, not "unset" -- it's what
+     * xrandr --set DPI 0 means with AutoDPI on in the (forked) X server:
+     * pick the DPI automatically instead of forcing one. Anything the
+     * user actually cares to force is 96 and up in steps of 12, so the
+     * range runs 0..960 but on_screens_dpi_changed() snaps the disallowed
+     * 1..95 gap to whichever end a step or typed value was headed
+     * towards, and the "input"/"output" signals show/accept "Auto" for
+     * 0 rather than the bare number. o->dpi itself uses a separate -1
+     * sentinel (see parse_output_header()) for "not set at all", so 0
+     * here is never confused with "leave DPI alone". */
+    g_screens_dpi_spin = gtk_spin_button_new_with_range(0, 960, 12);
+    g_signal_connect(g_screens_dpi_spin, "output", G_CALLBACK(on_screens_dpi_output), NULL);
+    g_signal_connect(g_screens_dpi_spin, "input", G_CALLBACK(on_screens_dpi_input), NULL);
     g_signal_connect(g_screens_dpi_spin, "value-changed", G_CALLBACK(on_screens_dpi_changed), NULL);
     labeled_row(form_table, 6, "DPI:", g_screens_dpi_spin);
     g_screens_scale_spin = gtk_spin_button_new_with_range(0.25, 4.0, 0.05);

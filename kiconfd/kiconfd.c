@@ -152,7 +152,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.11"
+#define KICONFD_VERSION "0.2.12"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -1207,7 +1207,12 @@ static int apply_screens_layout(void)
         snprintf(bufs[i][1], sizeof(bufs[i][1]), "%.4fx%.4f", sx, sy);
         argv[ac++] = "--scale";
         argv[ac++] = bufs[i][1];
-        if (o->dpi) {
+        if (o->dpi >= 0) {
+            /* 0 is AutoDPI (xrandr --set DPI 0), a real explicit value
+             * kiconf's Telas tab can save now, not "unset" -- see its
+             * own g_screens_dpi_spin comment. -1 (from a layout saved
+             * before that field ever got touched) is the "unset" case
+             * and is what's actually being excluded here. */
             argv[ac++] = "--set";
             argv[ac++] = "DPI";
             snprintf(bufs[i][2], sizeof(bufs[i][2]), "%d", o->dpi);
