@@ -24,6 +24,16 @@ int thumb_paint(cairo_t *cr, Window win, double x, double y, double max_w, doubl
     return 0;
 }
 
+void thumb_set_live(int live)
+{
+    (void)live;
+}
+
+int thumb_needs_poll(void)
+{
+    return 1;
+}
+
 void thumb_watch(Window win)
 {
     (void)win;

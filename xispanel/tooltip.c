@@ -304,6 +304,13 @@ static void query_thumb(PanelWidget *w, int local_x)
     g_thumb_win = None;
     g_thumb_w = DEFAULT_THUMB_W;
     g_thumb_h = DEFAULT_THUMB_H;
+    /* How thumb.c should answer for a window that isn't on screen, for
+     * as long as this hover is shown -- asked of the widget the same way
+     * the box size is, and for the same reason: it is that widget
+     * instance's own option (tasklist's live_thumbs=), and two tasklists
+     * on two panels may well disagree. Reset to the default here so a
+     * widget that has no opinion never inherits the last one's. */
+    thumb_set_live(w->ops->get_tooltip_thumb_live ? w->ops->get_tooltip_thumb_live(w) : 1);
     if (w->ops->get_tooltip_thumb_size) {
         int tw = 0, th = 0;
         if (w->ops->get_tooltip_thumb_size(w, &tw, &th) && tw > 0 && th > 0) {
@@ -1307,7 +1314,9 @@ void tooltip_tick(uint64_t now)
      * than instant. */
     if (g_has_thumb || (g_has_group && g_popup && g_popup->group_thumbs)) {
         int dirty = thumb_take_dirty();
-        if (dirty || now - g_last_thumb_paint_ms >= thumb_fallback_interval_ms()) {
+        /* ...and not at all for a picture that cannot change: the
+         * compositor's kept one (thumb_needs_poll()). */
+        if (dirty || (thumb_needs_poll() && now - g_last_thumb_paint_ms >= thumb_fallback_interval_ms())) {
             g_last_thumb_paint_ms = now;
             /* Just the thumbnail cells -- see repaint_thumbs_only(). The
              * rest of the popup can't have changed since the last full
@@ -1335,7 +1344,8 @@ uint64_t tooltip_next_wake_ms(void)
          * with zero X activity in between -- the fast path (XDamage)
          * doesn't need an entry here since it wakes select() via the X
          * fd on its own. */
-        if (g_shown && (g_has_thumb || (g_has_group && g_popup && g_popup->group_thumbs))) {
+        if (g_shown && thumb_needs_poll() &&
+            (g_has_thumb || (g_has_group && g_popup && g_popup->group_thumbs))) {
             uint64_t w3 = g_last_thumb_paint_ms + thumb_fallback_interval_ms();
             if (wake == 0 || w3 < wake) {
                 wake = w3;

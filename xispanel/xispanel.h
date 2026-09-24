@@ -163,6 +163,16 @@ typedef struct {
      * bites. tasklist's own thumb_w=/thumb_h= (show_thumbs=yes only) is
      * the only current source of this. */
     int (*get_tooltip_thumb_size)(PanelWidget *w, int *out_w, int *out_h);
+    /* Optional, queried alongside get_tooltip_thumb_size() and just as
+     * unconditionally (a grouped hover's thumbnails want the same
+     * answer): what to do about a hovered window that is *not on
+     * screen*. Return 1 to have the window manager hold it up for a live
+     * picture, 0 to draw the last picture the compositor kept of it --
+     * see thumb_set_live(), which is what this feeds, for what each
+     * costs. A widget that doesn't implement it gets 1, which is what
+     * this has always done. tasklist's live_thumbs= is the only current
+     * source. */
+    int (*get_tooltip_thumb_live)(PanelWidget *w);
     /* Optional, called right after a successful get_tooltip(): for a
      * *grouped* item representing more than one window (tasklist's
      * group=yes), fill up to max_items entries of *out_items and set
@@ -1491,6 +1501,29 @@ int thumb_available(void); /* 1 if libXcomposite/libXdamage were built in and th
  * (preserving aspect ratio, never upscaled past the window's real size,
  * centered in any leftover space), returns 1 if it painted anything. */
 int thumb_paint(cairo_t *cr, Window win, double x, double y, double max_w, double max_h);
+/* What to do about a window that is *not on screen* -- minimized, or
+ * away with its desktop -- whose contents X has therefore thrown away.
+ * tasklist's `live_thumbs=` (see PROTOCOL.md), passed on by tooltip.c
+ * for as long as a hover from that widget is shown:
+ *
+ *   1 (the default) ask the window manager to hold the window up for a
+ *     moment so a *live* picture can be taken (kiwm's _KIWM_HOLD_WINDOW).
+ *     What this has always done.
+ *   0 draw the last picture the compositor kept of it instead
+ *     (kicomp's _KICOMP_STOWED_PIXMAP), and never ask for a hold. Still,
+ *     frozen at the moment the window went away -- and the only thing
+ *     that works for an application which stops drawing while minimized,
+ *     Firefox being the one that does.
+ *
+ * Only ever consulted for a window that isn't on screen: a window that
+ * is has live contents of its own either way. */
+void thumb_set_live(int live);
+/* Whether a shown thumbnail can still change by itself -- 1 for a window
+ * on screen (or one being held up for a live picture), 0 for a picture
+ * the compositor merely kept, which is frozen until the window comes
+ * back. tooltip.c's backstop repaint poll asks before running: polling a
+ * frozen picture is X round trips a second for the same bytes. */
+int thumb_needs_poll(void);
 /* Live-thumbnail change tracking via XDamage -- see thumb.c's file
  * comment. tooltip.c calls thumb_watch() for every window a shown
  * tooltip currently displays a thumbnail of (idempotent -- a window

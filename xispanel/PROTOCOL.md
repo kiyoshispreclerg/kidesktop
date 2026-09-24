@@ -300,6 +300,14 @@ Widget types implemented so far:
   for an overall bigger (or smaller, or square) preview. Setting only one
   leaves the other at its own 200/130 default. Also sizes the thumbnail
   row of a `group=yes` button's tooltip, since both use the same box.
+  `live_thumbs=yes|no` (default `no`) picks what a thumbnail of a window
+  that is **not on screen** -- minimized, or away with its desktop --
+  is made of: `no` draws the last picture the compositor kept of it
+  (kicomp's `_KICOMP_STOWED_PIXMAP`) and never asks for a hold; `yes`
+  asks the window manager to hold the window up for a moment so a live
+  picture can be taken instead (kiwm's `_KIWM_HOLD_WINDOW`). See "Window
+  thumbnails" below for which to want. No effect on a window that *is* on
+  screen: that one has live contents either way.
   `group=yes|no` (default
   `no`) collapses windows sharing the same `WM_CLASS` (the general
   "which application" half of it, `res_class` -- not the per-instance
@@ -1389,6 +1397,42 @@ raw client window fails with `BadMatch`, and an ancestor frame (walked
 via `XQueryTree()`, capped at 4 hops) is what's actually redirected.
 `resolve_composited_window()` tries `win` itself first, then each
 ancestor in turn, until one succeeds or it hits the root.
+
+**A window that isn't on screen (`live_thumbs=`)**: X frees the contents
+of a window that is not on screen, so there is nothing to name a pixmap
+from -- which is why a tooltip for a minimized window, or one on another
+desktop, used to come up blank. Two ways out, and the option picks:
+
+- `live_thumbs=no` (default) draws the picture kicomp already keeps of
+  every window it has put away (its `keep_hidden_contents`, the same
+  store its expo grid draws from), published as `_KICOMP_STOWED_PIXMAP`
+  on the window -- read fresh per paint, drawn from, never freed (the
+  pixmap is the compositor's). Frozen at the moment the window went
+  away, and nothing at all without a compositor keeping one.
+- `live_thumbs=yes` asks kiwm to map the window's frame for a moment so a
+  live picture can be taken instead -- `_KIWM_HOLD_WINDOW`, see
+  kiwm/PROTOCOL.md. The window is not moved, not restacked and not told
+  anything; kiwm puts it back itself when the time runs out, and a
+  compositor knows not to draw a window marked `_KIWM_HELD`, so nothing
+  appears on screen. Asking again renews it, which is what a tooltip that
+  stays open does by repainting. Only ever asked for while a compositor
+  is running, since without one X would simply draw the held window over
+  the desktop you are looking at.
+
+Why `no` is the default: a hold only produces a picture if the
+application answers the Expose that comes with it, and a *minimized*
+window is one case where some of them deliberately don't. Firefox
+suspends its rendering the moment GTK reports the window iconified, so a
+held librewolf window comes back mapped, marked, and completely black --
+measured at zero CPU across all its processes for three seconds of
+continuous hold, while kate and smplayer beside it repaint in full. The
+hold also destroys the compositor's kept picture on the way, since
+mapping the window names a fresh pixmap for it -- so `yes` can turn a
+window that had a perfectly good frozen thumbnail into one with none at
+all. `yes` is still worth reaching for on a window merely away with its
+desktop, where the application is never told anything happened and there
+is no such failure mode -- a live picture there is strictly better, just
+not worth it as the default for every window alike.
 
 **Real-world gotcha #2, live tracking:** `tasklist`'s `show_thumbs=yes`
 tooltip repaints on two independent tracks, not one:

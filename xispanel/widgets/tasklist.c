@@ -109,6 +109,30 @@ typedef struct {
                         * whole button height. See icon_size_for(). */
     int show_thumbs; /* 1 = tooltip includes a live thumbnail of the hovered task's window (see thumb.c);
                        * no-op if xispanel was built without libXcomposite or no compositor is running. */
+    /* live_thumbs=yes | no (default) -- only ever decides what happens
+     * for a window that is *not on screen* (minimized, or away with its
+     * desktop), since one that is has live contents either way:
+     *
+     *   yes  ask kiwm to hold the window up for a moment so a live
+     *        picture can be taken (_KIWM_HOLD_WINDOW). Right for a window
+     *        on another desktop, where the application never learns
+     *        anything happened and repaints at once -- but breaks on a
+     *        *minimized* one for any application that stops drawing
+     *        while iconified (confirmed on Firefox/librewolf: the frame
+     *        comes back mapped, marked and completely black, measured at
+     *        zero CPU across every one of its processes for three
+     *        seconds of continuous hold), and the hold destroys the
+     *        compositor's own kept picture on its way, since mapping the
+     *        window names a fresh pixmap for it.
+     *   no   (default) draw the last picture kicomp kept of it instead
+     *        (_KICOMP_STOWED_PIXMAP), and never ask for a hold. Frozen at
+     *        the moment the window went away, but that is what every
+     *        task manager has always shown for a minimized window, and
+     *        it works the same for every application -- no per-client
+     *        guessing, no hold, no flash.
+     *
+     * See thumb.c's paint_stowed() and kicomp's README. */
+    int live_thumbs;
     /* thumb_w=/thumb_h= (show_thumbs=yes only): overrides tooltip.c's
      * default thumbnail bounding box (200x130) -- see
      * tasklist_get_tooltip_thumb_size(). 0 (the default for both) means
@@ -495,6 +519,7 @@ static int tasklist_init(PanelWidget *w)
         tp->icon_padding = 0;
     }
     tp->show_thumbs = kv_get(w->config_kv, "show_thumbs", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
+    tp->live_thumbs = kv_get(w->config_kv, "live_thumbs", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
     tp->thumb_w = kv_get_int(w->config_kv, "thumb_w", 0);
     tp->thumb_h = kv_get_int(w->config_kv, "thumb_h", 0);
     if (tp->thumb_w < 0) {
@@ -1124,6 +1149,17 @@ static int tasklist_get_tooltip_thumb_size(PanelWidget *w, int *out_w, int *out_
     *out_w = tp->thumb_w > 0 ? tp->thumb_w : DEFAULT_TASKLIST_THUMB_W;
     *out_h = tp->thumb_h > 0 ? tp->thumb_h : DEFAULT_TASKLIST_THUMB_H;
     return 1;
+}
+
+/* live_thumbs= -- see TasklistPriv's own doc comment. Queried by
+ * tooltip.c regardless of show_thumbs, the same way (and for the same
+ * reason) as tasklist_get_tooltip_thumb_size() above: a grouped hover
+ * draws its thumbnails without going through get_tooltip_thumb() at all,
+ * and wants this answer too. */
+static int tasklist_get_tooltip_thumb_live(PanelWidget *w)
+{
+    TasklistPriv *tp = w->priv;
+    return tp->live_thumbs;
 }
 
 /* Same re-resolve-from-local_x pattern as tasklist_get_tooltip_mpris()
@@ -1864,6 +1900,7 @@ const PanelWidgetOps tasklist_ops = {
     .get_tooltip_mpris = tasklist_get_tooltip_mpris,
     .get_tooltip_thumb = tasklist_get_tooltip_thumb,
     .get_tooltip_thumb_size = tasklist_get_tooltip_thumb_size,
+    .get_tooltip_thumb_live = tasklist_get_tooltip_thumb_live,
     .get_tooltip_group = tasklist_get_tooltip_group,
     .tooltip_activate = tasklist_tooltip_activate,
     .tooltip_close_item = tasklist_tooltip_close_item,

@@ -63,6 +63,7 @@
 #include "xispanel.h"
 
 #include <X11/Xlib.h>
+#include <X11/Xatom.h>
 #include <X11/extensions/Xcomposite.h>
 #include <X11/extensions/Xdamage.h>
 #include <cairo/cairo-xlib.h>
@@ -83,6 +84,8 @@ static volatile sig_atomic_t g_thumb_had_error;
 
 static Window resolve_composited_window(Window win, XWindowAttributes *out_wa, Pixmap *out_pix,
                                          int *out_self_redirected);
+static void paint_scaled(cairo_t *cr, cairo_surface_t *surf, int sw, int sh, double x, double y, double max_w,
+                          double max_h);
 
 static int thumb_error_handler(Display *dpy, XErrorEvent *ev)
 {
@@ -237,6 +240,140 @@ static void renew_hold(Window win)
     }
 }
 
+/* ------------------------------------------------------------------ */
+/* the other answer: the compositor's kept picture (live_thumbs=no)     */
+/* ------------------------------------------------------------------ */
+
+/* The hold above buys a *live* picture of a window that isn't on screen,
+ * and for a window merely away with its desktop it works: the
+ * application is never told anything happened and repaints on the Expose
+ * the window manager sends it. For a *minimized* window it can't be made
+ * to work, because the application is told -- Firefox suspends its
+ * rendering the moment GTK reports the window iconified, so the frame is
+ * mapped, marked and drawn by nobody, and the tooltip shows a black
+ * rectangle. Measured: zero CPU across every librewolf process for three
+ * seconds of continuous hold, while kate and smplayer next to it repaint
+ * in full.
+ *
+ * Nobody but the compositor can help there. X frees the contents of a
+ * window that is not on screen, so the pixmap the compositor already
+ * holds is the only copy of that window's last picture there will ever
+ * be -- and kicomp, which keeps exactly that for its expo grid, offers
+ * the XID as `_KICOMP_STOWED_PIXMAP` on the window (see its README). The
+ * picture is frozen at the moment the window went away, which is what
+ * every task manager has always shown.
+ *
+ * Nothing here may free that pixmap: it belongs to the compositor, and
+ * an XFreePixmap from this side would destroy it for everyone, X having
+ * no ownership to appeal to. The property is read afresh per paint and
+ * never cached, since the compositor withdraws it the instant the
+ * picture stops being valid -- and the race that leaves (the window came
+ * back between the read and the draw) ends in an X error the permissive
+ * handler over every paint here already absorbs. */
+static int g_live_thumbs = 1;
+
+void thumb_set_live(int live)
+{
+    g_live_thumbs = live ? 1 : 0;
+}
+
+/* The pixmap kicomp published for `win`, or for whichever ancestor frame
+ * actually carries it -- same "the WM wraps the client in frames" walk as
+ * resolve_composited_window(), and for the same reason: the compositor
+ * knows the frame, `_NET_CLIENT_LIST` names the client. */
+static Pixmap stowed_pixmap(Window win, Window *out_holder)
+{
+    static Atom prop;
+
+    if (prop == None) {
+        prop = XInternAtom(g_dpy, "_KICOMP_STOWED_PIXMAP", False);
+    }
+
+    Window probe = win;
+    for (int hops = 0; hops < 5; hops++) {
+        Atom type = None;
+        int fmt = 0;
+        unsigned long n = 0, after = 0;
+        unsigned char *data = NULL;
+
+        g_thumb_had_error = 0;
+        if (XGetWindowProperty(g_dpy, probe, prop, 0, 1, False, XA_PIXMAP, &type, &fmt, &n, &after, &data) ==
+                Success &&
+            !g_thumb_had_error && data != NULL) {
+            Pixmap pix = None;
+            if (type == XA_PIXMAP && fmt == 32 && n >= 1) {
+                pix = (Pixmap)((const unsigned long *)(const void *)data)[0];
+            }
+            XFree(data);
+            if (pix != None) {
+                *out_holder = probe;
+                return pix;
+            }
+        }
+
+        Window root_ret, parent, *kids = NULL;
+        unsigned int n_kids = 0;
+        g_thumb_had_error = 0;
+        if (!XQueryTree(g_dpy, probe, &root_ret, &parent, &kids, &n_kids) || g_thumb_had_error) {
+            break;
+        }
+        if (kids) {
+            XFree(kids);
+        }
+        if (parent == None || parent == root_ret) {
+            break;
+        }
+        probe = parent;
+    }
+    return None;
+}
+
+/* Draws that kept picture, if there is one. Returns 0 -- "nothing
+ * painted", the same graceful outcome as a failed live thumbnail -- when
+ * no compositor is keeping one: no kicomp, keep_hidden_contents off, or
+ * a window that went away before it was ever painted. Must be called
+ * with the permissive thumb_error_handler installed. */
+static int paint_stowed(cairo_t *cr, Window win, double x, double y, double max_w, double max_h)
+{
+    Window holder = None;
+    Pixmap pix = stowed_pixmap(win, &holder);
+    if (pix == None) {
+        return 0;
+    }
+
+    /* The visual is the *window's* -- a pixmap has only a depth, and
+     * cairo needs to know how to read the bits, which for an ARGB window
+     * (kiwm's own layers, a client with a 32-bit visual) is not what the
+     * root visual would say. The size is the pixmap's own: it covers the
+     * frame and its border, which is not the client window's geometry. */
+    XWindowAttributes wa;
+    g_thumb_had_error = 0;
+    if (!XGetWindowAttributes(g_dpy, holder, &wa) || g_thumb_had_error) {
+        return 0;
+    }
+
+    Window root_ret;
+    int gx = 0, gy = 0;
+    unsigned int gw = 0, gh = 0, gborder = 0, gdepth = 0;
+    g_thumb_had_error = 0;
+    if (!XGetGeometry(g_dpy, pix, &root_ret, &gx, &gy, &gw, &gh, &gborder, &gdepth) || g_thumb_had_error) {
+        return 0; /* withdrawn between the read and here -- the race above */
+    }
+    if (gw == 0 || gh == 0 || (int)gdepth != wa.depth) {
+        return 0;
+    }
+
+    cairo_surface_t *surf = cairo_xlib_surface_create(g_dpy, pix, wa.visual, (int)gw, (int)gh);
+    if (cairo_surface_status(surf) != CAIRO_STATUS_SUCCESS) {
+        cairo_surface_destroy(surf);
+        return 0;
+    }
+    paint_scaled(cr, surf, (int)gw, (int)gh, x, y, max_w, max_h);
+    cairo_surface_destroy(surf);
+    /* And emphatically no XFreePixmap: see the file's note above. */
+    return 1;
+}
+
 static int damage_available(void)
 {
     if (!g_damage_checked) {
@@ -312,6 +449,35 @@ typedef struct {
 static ThumbWatch g_watches[THUMB_MAX_WATCHES];
 static int g_n_watches = 0;
 static volatile sig_atomic_t g_thumb_dirty = 0;
+
+/* Can anything a shown tooltip is drawing still change by itself?
+ *
+ * tooltip.c repaints a shown thumbnail on a timer as well as on damage
+ * (its thumb_fallback_interval_ms(), roughly half the output's refresh
+ * rate), because damage delivery for a GPU-presented window proved
+ * unreliable -- see its doc comment. That backstop is only worth
+ * anything for a picture that *moves*: a window on screen goes on
+ * drawing into its pixmap, and a held one does too, which is also how
+ * the hold gets renewed. The compositor's kept picture is the opposite
+ * of that -- the window that drew it is not running, and the pixmap is
+ * frozen until it comes back -- so polling it is round trips per second
+ * for a picture that is the same every time.
+ *
+ * Only ever false with live_thumbs=no *and* nothing on screen being
+ * watched: a hover over a window that is up draws live contents either
+ * way, and wants the poll like it always did. */
+int thumb_needs_poll(void)
+{
+    if (g_live_thumbs) {
+        return 1;
+    }
+    for (int i = 0; i < g_n_watches; i++) {
+        if (g_watches[i].mapped) {
+            return 1;
+        }
+    }
+    return 0;
+}
 
 /* Releases just the cached composited pixmap + cairo surface, leaving the
  * watch itself (damage handle, resolved target, event-mask change) in
@@ -732,10 +898,19 @@ int thumb_paint(cairo_t *cr, Window win, double x, double y, double max_w, doubl
              * Unless it is merely away with its desktop, which is what
              * the hold is for: asking here is also what *renews* it, so
              * a tooltip that stays open keeps the window up simply by
-             * repainting, and one that closes stops asking. */
-            ask_hold(w->win);
+             * repainting, and one that closes stops asking.
+             *
+             * Or, with live_thumbs=no, what the compositor kept of it --
+             * no hold at all then, which is the point: see paint_stowed()
+             * and thumb_set_live(). */
+            int painted = 0;
+            if (g_live_thumbs) {
+                ask_hold(w->win);
+            } else {
+                painted = paint_stowed(cr, w->win, x, y, max_w, max_h);
+            }
             XSetErrorHandler(prev);
-            return 0;
+            return painted;
         }
         if (w->pix == None) {
             /* First paint after an invalidating structure event (or after
@@ -784,9 +959,16 @@ int thumb_paint(cairo_t *cr, Window win, double x, double y, double max_w, doubl
          * cost rather than a real leak. */
         g_thumb_had_error = 0;
         if (resolve_composited_window(win, &wa, &pix, NULL) == None) {
-            ask_hold(win);
+            /* Same two answers for a window with no contents of its own
+             * as on the watched path above. */
+            int painted = 0;
+            if (g_live_thumbs) {
+                ask_hold(win);
+            } else {
+                painted = paint_stowed(cr, win, x, y, max_w, max_h);
+            }
             XSetErrorHandler(prev);
-            return 0;
+            return painted;
         }
     }
 

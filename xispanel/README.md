@@ -61,15 +61,24 @@ defaults (Fontconfig's `sans-serif`, dark panel colors). See
   `show_thumbs=yes` adds a live window thumbnail (XComposite -- no
   dependency at all if `libxcomposite-dev` isn't installed; works with or
   without a compositor running, self-redirecting the window when nothing
-  else has already). A window on another desktop has no contents to show
-  -- X keeps none for a window that is off screen -- so with a compositor
-  running the tooltip asks kiwm to hold it up while it is open
-  (`_KIWM_HOLD_WINDOW`, see kiwm/PROTOCOL.md): the window is put back on
-  screen where the compositor knows not to draw it, feeds the thumbnail,
-  and is put away again by the window manager itself. Only with a
-  compositor: without one there is no such thing as an invisible map, and
-  a tooltip that flashes another desktop's window over the one you are
-  using is worse than one with no picture in it.
+  else has already). A window on another desktop, or minimized, has no
+  contents to show -- X keeps none for a window that is off screen -- so
+  by default (`live_thumbs=no`) the tooltip draws the last picture the
+  compositor kept of it instead (`_KICOMP_STOWED_PIXMAP`), with no hold
+  at all: frozen where the window was when it went away, but the only
+  thing that works for an application that stops drawing while
+  minimized -- Firefox suspends its rendering when it is told the window
+  was iconified, so a held librewolf window is a black rectangle no
+  matter how long it is held. `live_thumbs=yes` asks kiwm to hold the
+  window up while the tooltip is open instead (`_KIWM_HOLD_WINDOW`, see
+  kiwm/PROTOCOL.md): the window is put back on screen where the
+  compositor knows not to draw it, feeds the thumbnail with a genuinely
+  live picture, and is put away again by the window manager itself --
+  worth it for a window merely away with its desktop, which has no such
+  black-rectangle problem, but only with a compositor running: without
+  one there is no such thing as an invisible map, and a tooltip that
+  flashes another desktop's window over the one you are using is worse
+  than one with no picture in it.
 - Basic theming: background/foreground color with alpha (real per-pixel
   transparency when a compositor provides an ARGB visual), spacing. A
   panel's background can also be a 9-slice PNG instead of a solid color
