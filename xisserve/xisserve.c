@@ -46,7 +46,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.30"
+#define XISSERVE_VERSION "0.1.31"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -136,6 +136,17 @@ static GtkWidget *g_entry;
 static GtkWidget *g_cat_treeview;
 static GtkWidget *g_cat_scroll;
 static GtkWidget *g_treeview;
+static GtkWidget *g_result_list_scroll; /* wraps g_treeview */
+static GtkWidget *g_iconview;
+static GtkWidget *g_result_grid_scroll; /* wraps g_iconview */
+static GtkWidget *g_grid_toggle_btn;
+/* "LAUNCHER\tgrid"/"LAUNCHER\tgrid_columns" in xisserve.conf -- reloaded
+ * (along with everything else load_config() owns) on every show_launcher(),
+ * so an edit takes effect on next open without restarting the daemon. The
+ * toggle button flips g_grid_mode for the rest of the session without
+ * touching the file (see on_grid_toggle()). */
+static gboolean g_grid_mode;
+static int g_grid_columns = 4;
 static GtkWidget *g_content_box;  /* cat_scroll + results scroll; launcher view only */
 static GtkWidget *g_footer_sep;
 static GtkWidget *g_footer;       /* power-action buttons; launcher view only */
@@ -165,6 +176,7 @@ static XisserveIconJob *g_row_icon_job;
 static GHashTable *g_favorites;     /* set of .desktop basenames (key owned, value unused) */
 static char g_selected_category[32] = "favorites";
 static GtkTreePath *g_hovered_cat_path;
+static GtkTreePath *g_hovered_result_path;
 static pid_t g_watch_pid;
 
 /* ---- argv / JSON plumbing -------------------------------------------- */
@@ -826,6 +838,20 @@ static void load_config(void)
         snprintf(key, sizeof(key), "PLUGIN\t%s", kSearchPlugins[i].name);
         const char *val = g_hash_table_lookup(g_config, key);
         g_plugin_enabled[i] = !val || strcasecmp(val, "no") != 0;
+    }
+
+    /* Results view: "LAUNCHER\tgrid_columns" always applies (live-
+     * reloadable, like everything else here); "LAUNCHER\tgrid" only sets
+     * the *starting* mode, once -- after that the header's toggle button
+     * owns g_grid_mode for the rest of the session, and reloading config
+     * on every show_launcher() must not stomp on a click the user just
+     * made. */
+    int cols = xisserve_config_get_int("LAUNCHER", "grid_columns", g_grid_columns);
+    g_grid_columns = cols >= 1 ? cols : 1;
+    static gboolean initial_mode_applied;
+    if (!initial_mode_applied) {
+        g_grid_mode = xisserve_config_get_int("LAUNCHER", "grid", 0) != 0;
+        initial_mode_applied = TRUE;
     }
 }
 
@@ -1977,6 +2003,8 @@ static void append_result_row(GtkListStore *store, ResultEntry *e)
  * mode (query empty) lists only g_selected_category's apps, split with
  * the category pane. Called on every keystroke, every category
  * selection/hover change, and after a favorite toggle. */
+static void select_result_path(GtkTreePath *path); /* defined below, by on_tree_button_press() */
+
 static void rebuild_results(void)
 {
     const char *query = gtk_entry_get_text(GTK_ENTRY(g_entry));
@@ -1986,6 +2014,10 @@ static void rebuild_results(void)
      * pending job borrows both. */
     xisserve_icon_job_cancel(&g_row_icon_job);
     gtk_list_store_clear(g_view_store);
+    if (g_hovered_result_path) {
+        gtk_tree_path_free(g_hovered_result_path);
+        g_hovered_result_path = NULL;
+    }
 
     for (guint i = 0; i < g_plugin_results->len; i++) result_entry_free(g_ptr_array_index(g_plugin_results, i));
     g_ptr_array_set_size(g_plugin_results, 0);
@@ -2024,8 +2056,49 @@ static void rebuild_results(void)
 
     GtkTreeIter first;
     if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(g_view_store), &first)) {
-        gtk_tree_selection_select_iter(gtk_tree_view_get_selection(GTK_TREE_VIEW(g_treeview)), &first);
+        GtkTreePath *p = gtk_tree_model_get_path(GTK_TREE_MODEL(g_view_store), &first);
+        select_result_path(p);
+        gtk_tree_path_free(p);
     }
+}
+
+static void on_grid_toggle(GtkToggleButton *btn, gpointer data); /* defined below */
+
+/* Shows exactly one of g_result_list_scroll/g_result_grid_scroll and
+ * keeps the header toggle button's label/state and the icon view's
+ * column count in sync with g_grid_mode/g_grid_columns -- called after
+ * every g_grid_mode change (the toggle button) and after every
+ * load_config() (grid_columns can change from under a running daemon).
+ * A no-op before build_ui() has run (config is loaded once before the
+ * first show_launcher(), which is before any widget exists). */
+static void apply_grid_mode(void)
+{
+    if (!g_result_list_scroll) return;
+    gtk_icon_view_set_columns(GTK_ICON_VIEW(g_iconview), g_grid_columns);
+    if (g_grid_mode) {
+        gtk_widget_hide(g_result_list_scroll);
+        gtk_widget_show(g_result_grid_scroll);
+    } else {
+        gtk_widget_hide(g_result_grid_scroll);
+        gtk_widget_show(g_result_list_scroll);
+    }
+    g_signal_handlers_block_by_func(g_grid_toggle_btn, on_grid_toggle, NULL);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_grid_toggle_btn), g_grid_mode);
+    gtk_button_set_label(GTK_BUTTON(g_grid_toggle_btn), g_grid_mode ? "Lista" : "Grade");
+    g_signal_handlers_unblock_by_func(g_grid_toggle_btn, on_grid_toggle, NULL);
+}
+
+static void on_grid_toggle(GtkToggleButton *btn, gpointer data)
+{
+    (void)data;
+    g_grid_mode = gtk_toggle_button_get_active(btn);
+    apply_grid_mode();
+    /* Clicking a GtkButton grabs keyboard focus onto it like any other
+     * focusable widget -- without this, Up/Down/Left/Right (and typing)
+     * silently stop reaching g_entry until the user clicks back into it,
+     * which looks exactly like "the grid doesn't respond to the arrow
+     * keys" right after switching view modes. */
+    gtk_widget_grab_focus(g_entry);
 }
 
 /* Shows exactly one of the mutually-exclusive widget groups build_ui()
@@ -2114,11 +2187,13 @@ static void apply_view_mode(void)
         gtk_widget_show(g_content_box);
         gtk_widget_show(g_footer_sep);
         gtk_widget_show(g_footer);
+        gtk_widget_show(g_grid_toggle_btn);
     } else {
         gtk_widget_hide(g_entry);
         gtk_widget_hide(g_content_box);
         gtk_widget_hide(g_footer_sep);
         gtk_widget_hide(g_footer);
+        gtk_widget_hide(g_grid_toggle_btn);
     }
 
     /* set_size_request() alone only changes what GTK's layout engine
@@ -2188,6 +2263,10 @@ static void show_launcher(void)
         gtk_tree_path_free(g_hovered_cat_path);
         g_hovered_cat_path = NULL;
     }
+    if (g_hovered_result_path) {
+        gtk_tree_path_free(g_hovered_result_path);
+        g_hovered_result_path = NULL;
+    }
 
     leave_current_page();
     load_config(); /* before either branch -- pages read settings too, see rescan_apps() */
@@ -2211,6 +2290,7 @@ static void show_launcher(void)
 
     gtk_widget_show_all(g_window);
     apply_view_mode();
+    apply_grid_mode(); /* after show_all(), which would otherwise re-show the losing one; grid_columns (and, once, grid) can change out from under a running daemon */
     reposition_window(); /* after apply_view_mode() -- needs its real, now-settled size */
     gtk_window_present(GTK_WINDOW(g_window));
     gdk_window_raise(g_window->window);
@@ -2461,22 +2541,36 @@ static gboolean on_entry_key_press(GtkWidget *w, GdkEventKey *ev, gpointer data)
         hide_launcher();
         return TRUE;
     }
-    if (ev->keyval == GDK_Up || ev->keyval == GDK_Down) {
+    gboolean nav_row = (ev->keyval == GDK_Up || ev->keyval == GDK_Down);
+    /* Left/Right only drive grid navigation in grid mode -- in list mode
+     * they're left alone so they keep moving the text cursor while
+     * typing a query, same as always. Up/Down already gave up that
+     * behaviour (in both modes) long before grid mode existed, so
+     * extending the same trade to Left/Right for grid mode is
+     * consistent rather than a new regression. */
+    gboolean nav_col = g_grid_mode && (ev->keyval == GDK_Left || ev->keyval == GDK_Right);
+    if (nav_row || nav_col) {
+        GtkTreeModel *model = GTK_TREE_MODEL(g_view_store);
         GtkTreeSelection *sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(g_treeview));
-        GtkTreeModel *model = NULL;
         GtkTreeIter iter;
-        GtkTreePath *path;
-        if (!gtk_tree_selection_get_selected(sel, &model, &iter)) {
-            model = gtk_tree_view_get_model(GTK_TREE_VIEW(g_treeview));
-            if (!gtk_tree_model_get_iter_first(model, &iter)) return TRUE;
-            path = gtk_tree_model_get_path(model, &iter);
-        } else {
-            path = gtk_tree_model_get_path(model, &iter);
-            if (ev->keyval == GDK_Down) gtk_tree_path_next(path);
-            else gtk_tree_path_prev(path);
+        int idx = -1;
+        if (gtk_tree_selection_get_selected(sel, NULL, &iter)) {
+            GtkTreePath *cur = gtk_tree_model_get_path(model, &iter);
+            idx = gtk_tree_path_get_indices(cur)[0];
+            gtk_tree_path_free(cur);
         }
-        if (gtk_tree_model_get_iter(model, &iter, path)) {
-            gtk_tree_selection_select_iter(sel, &iter);
+        int n = gtk_tree_model_iter_n_children(model, NULL);
+        if (n == 0) return TRUE;
+        int step = nav_row ? (g_grid_mode ? g_grid_columns : 1) : 1;
+        int forward = nav_row ? (ev->keyval == GDK_Down) : (ev->keyval == GDK_Right);
+        int next = (idx < 0) ? 0 : idx + (forward ? step : -step);
+        if (next < 0) next = 0;
+        if (next >= n) next = n - 1;
+        GtkTreePath *path = gtk_tree_path_new_from_indices(next, -1);
+        select_result_path(path);
+        if (g_grid_mode) {
+            gtk_icon_view_scroll_to_path(GTK_ICON_VIEW(g_iconview), path, FALSE, 0, 0);
+        } else {
             gtk_tree_view_scroll_to_cell(GTK_TREE_VIEW(g_treeview), path, NULL, FALSE, 0, 0);
         }
         gtk_tree_path_free(path);
@@ -2534,33 +2628,14 @@ static void on_context_menu_selection_done(GtkWidget *menu, gpointer data)
  * Favoritos"/"Remover dos Favoritos" -- plugin-synthetic results (no
  * stable id to persist) don't get the menu at all. Left-click launches,
  * same as before. */
-static gboolean on_tree_button_press(GtkWidget *tv, GdkEventButton *ev, gpointer data)
+/* Shared by on_tree_button_press() (list mode) and on_icon_button_press()
+ * (grid mode) -- both just need to select the row/item under the click
+ * and, on right-click, offer the same jumplist/favorite menu. */
+static void show_result_context_menu(GtkTreeModel *model, GtkTreeIter *iter, guint button, guint32 time)
 {
-    (void)data;
-    if (ev->type != GDK_BUTTON_PRESS || (ev->button != 1 && ev->button != 3)) return FALSE;
-    GtkTreePath *path = NULL;
-    if (!gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(tv), (int)ev->x, (int)ev->y, &path, NULL, NULL, NULL)) {
-        return FALSE;
-    }
-    GtkTreeModel *model = gtk_tree_view_get_model(GTK_TREE_VIEW(tv));
-    GtkTreeIter iter;
-    if (!gtk_tree_model_get_iter(model, &iter, path)) {
-        gtk_tree_path_free(path);
-        return FALSE;
-    }
-
-    if (ev->button == 1) {
-        launch_iter(model, &iter);
-        gtk_tree_path_free(path);
-        return FALSE;
-    }
-
-    /* button == 3 */
-    gtk_tree_selection_select_iter(gtk_tree_view_get_selection(GTK_TREE_VIEW(tv)), &iter);
     ResultEntry *e = NULL;
-    gtk_tree_model_get(model, &iter, VCOL_ENTRY, &e, -1);
-    gtk_tree_path_free(path);
-    if (!e || !e->from_desktop) return TRUE;
+    gtk_tree_model_get(model, iter, VCOL_ENTRY, &e, -1);
+    if (!e || !e->from_desktop) return;
 
     GtkWidget *menu = gtk_menu_new();
 
@@ -2614,7 +2689,76 @@ static gboolean on_tree_button_press(GtkWidget *tv, GdkEventButton *ev, gpointer
     g_signal_connect(menu, "selection-done", G_CALLBACK(on_context_menu_selection_done), NULL);
     gtk_widget_show_all(menu);
     g_context_menu_active = TRUE;
-    gtk_menu_popup(GTK_MENU(menu), NULL, NULL, NULL, NULL, ev->button, ev->time);
+    gtk_menu_popup(GTK_MENU(menu), NULL, NULL, NULL, NULL, button, time);
+}
+
+/* Keeps whichever of the list/grid widgets is hidden in sync with the
+ * one currently visible, so switching view modes (or a hover/keyboard
+ * move on the visible one) never loses track of "the selected result" --
+ * on_entry_activate() and on_entry_key_press() below always read/write
+ * it through g_treeview's own GtkTreeSelection regardless of which
+ * widget is actually showing. */
+static void select_result_path(GtkTreePath *path)
+{
+    GtkTreeIter it;
+    if (!gtk_tree_model_get_iter(GTK_TREE_MODEL(g_view_store), &it, path)) return;
+    gtk_tree_selection_select_iter(gtk_tree_view_get_selection(GTK_TREE_VIEW(g_treeview)), &it);
+    if (g_iconview) gtk_icon_view_select_path(GTK_ICON_VIEW(g_iconview), path);
+}
+
+static gboolean on_tree_button_press(GtkWidget *tv, GdkEventButton *ev, gpointer data)
+{
+    (void)data;
+    if (ev->type != GDK_BUTTON_PRESS || (ev->button != 1 && ev->button != 3)) return FALSE;
+    GtkTreePath *path = NULL;
+    if (!gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(tv), (int)ev->x, (int)ev->y, &path, NULL, NULL, NULL)) {
+        return FALSE;
+    }
+    GtkTreeModel *model = gtk_tree_view_get_model(GTK_TREE_VIEW(tv));
+    GtkTreeIter iter;
+    if (!gtk_tree_model_get_iter(model, &iter, path)) {
+        gtk_tree_path_free(path);
+        return FALSE;
+    }
+
+    if (ev->button == 1) {
+        launch_iter(model, &iter);
+        gtk_tree_path_free(path);
+        return FALSE;
+    }
+
+    /* button == 3 */
+    select_result_path(path);
+    gtk_tree_path_free(path);
+    show_result_context_menu(model, &iter, ev->button, ev->time);
+    return TRUE;
+}
+
+/* Grid-mode counterpart of on_tree_button_press() above, same left/right
+ * click behaviour against a GtkIconView instead of the GtkTreeView. */
+static gboolean on_icon_button_press(GtkWidget *iv, GdkEventButton *ev, gpointer data)
+{
+    (void)data;
+    if (ev->type != GDK_BUTTON_PRESS || (ev->button != 1 && ev->button != 3)) return FALSE;
+    GtkTreePath *path = gtk_icon_view_get_path_at_pos(GTK_ICON_VIEW(iv), (int)ev->x, (int)ev->y);
+    if (!path) return FALSE;
+    GtkTreeModel *model = gtk_icon_view_get_model(GTK_ICON_VIEW(iv));
+    GtkTreeIter iter;
+    if (!gtk_tree_model_get_iter(model, &iter, path)) {
+        gtk_tree_path_free(path);
+        return FALSE;
+    }
+
+    if (ev->button == 1) {
+        launch_iter(model, &iter);
+        gtk_tree_path_free(path);
+        return FALSE;
+    }
+
+    /* button == 3 */
+    select_result_path(path);
+    gtk_tree_path_free(path);
+    show_result_context_menu(model, &iter, ev->button, ev->time);
     return TRUE;
 }
 
@@ -2869,6 +3013,50 @@ static gboolean on_category_motion(GtkWidget *tv, GdkEventMotion *ev, gpointer d
     return FALSE;
 }
 
+/* Same hover-highlight treatment as the category pane above (see its
+ * comment) -- the results list otherwise had no mouse feedback at all,
+ * unlike every other list in this app. Selecting the row under the
+ * pointer is safe here too: Enter/click both act on whatever the
+ * treeview's selection already is (on_entry_activate(),
+ * on_tree_button_press()), so hovering doesn't change what a keyboard
+ * arrow-key selection already set beyond what moving the mouse over it
+ * would imply anyway. */
+static gboolean on_result_motion(GtkWidget *tv, GdkEventMotion *ev, gpointer data)
+{
+    (void)data;
+    GtkTreePath *path = NULL;
+    if (!gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(tv), (int)ev->x, (int)ev->y, &path, NULL, NULL, NULL)) {
+        return FALSE;
+    }
+    if (g_hovered_result_path && gtk_tree_path_compare(g_hovered_result_path, path) == 0) {
+        gtk_tree_path_free(path);
+        return FALSE;
+    }
+    if (g_hovered_result_path) gtk_tree_path_free(g_hovered_result_path);
+    g_hovered_result_path = path; /* ownership taken -- select_result_path() below only reads it */
+
+    select_result_path(path);
+    return FALSE;
+}
+
+/* Grid-mode counterpart of on_result_motion() above, same debounced
+ * hover-selects-under-pointer treatment against the GtkIconView. */
+static gboolean on_icon_motion(GtkWidget *iv, GdkEventMotion *ev, gpointer data)
+{
+    (void)data;
+    GtkTreePath *path = gtk_icon_view_get_path_at_pos(GTK_ICON_VIEW(iv), (int)ev->x, (int)ev->y);
+    if (!path) return FALSE;
+    if (g_hovered_result_path && gtk_tree_path_compare(g_hovered_result_path, path) == 0) {
+        gtk_tree_path_free(path);
+        return FALSE;
+    }
+    if (g_hovered_result_path) gtk_tree_path_free(g_hovered_result_path);
+    g_hovered_result_path = path;
+
+    select_result_path(path);
+    return FALSE;
+}
+
 static void build_ui(void)
 {
     g_window = gtk_window_new(GTK_WINDOW_POPUP);
@@ -2912,6 +3100,16 @@ static void build_ui(void)
     gtk_widget_set_tooltip_text(g_pin_btn, "Manter aberto ao clicar fora");
     g_signal_connect(g_pin_btn, "toggled", G_CALLBACK(on_pin_toggled), NULL);
     gtk_box_pack_end(GTK_BOX(g_header), g_pin_btn, FALSE, FALSE, 0);
+
+    /* List<->grid toggle for the results pane -- only meaningful on the
+     * launcher view, so apply_view_mode() shows/hides it alongside
+     * g_entry rather than it living in g_content_box (which searching
+     * already half-hides). Label always names the mode a click would
+     * switch *to*, same convention as g_pin_btn's "Fixar"/state pattern. */
+    g_grid_toggle_btn = gtk_toggle_button_new_with_label("Grade");
+    gtk_widget_set_tooltip_text(g_grid_toggle_btn, "Alternar entre lista e grade de icones");
+    g_signal_connect(g_grid_toggle_btn, "toggled", G_CALLBACK(on_grid_toggle), NULL);
+    gtk_box_pack_end(GTK_BOX(g_header), g_grid_toggle_btn, FALSE, FALSE, 0);
 
     g_entry = gtk_entry_new();
     g_signal_connect(g_entry, "changed", G_CALLBACK(on_entry_changed), NULL);
@@ -2962,11 +3160,33 @@ static void build_ui(void)
     gtk_tree_view_column_set_title(col, "Programa");
     gtk_tree_view_append_column(GTK_TREE_VIEW(g_treeview), col);
     g_signal_connect(g_treeview, "button-press-event", G_CALLBACK(on_tree_button_press), NULL);
+    gtk_widget_add_events(g_treeview, GDK_POINTER_MOTION_MASK);
+    g_signal_connect(g_treeview, "motion-notify-event", G_CALLBACK(on_result_motion), NULL);
 
-    GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-    gtk_container_add(GTK_CONTAINER(scroll), g_treeview);
-    gtk_box_pack_start(GTK_BOX(g_content_box), scroll, TRUE, TRUE, 0);
+    g_result_list_scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(g_result_list_scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_container_add(GTK_CONTAINER(g_result_list_scroll), g_treeview);
+    gtk_box_pack_start(GTK_BOX(g_content_box), g_result_list_scroll, TRUE, TRUE, 0);
+
+    /* Grid view of the very same g_view_store -- an icon and a markup
+     * column are all GtkIconView needs, so no separate model/rebuild
+     * path is required; apply_grid_mode() just swaps which of these two
+     * scrolled windows is visible. */
+    g_iconview = gtk_icon_view_new_with_model(GTK_TREE_MODEL(g_view_store));
+    gtk_icon_view_set_pixbuf_column(GTK_ICON_VIEW(g_iconview), VCOL_ICON);
+    gtk_icon_view_set_markup_column(GTK_ICON_VIEW(g_iconview), VCOL_MARKUP);
+    gtk_icon_view_set_selection_mode(GTK_ICON_VIEW(g_iconview), GTK_SELECTION_SINGLE);
+    gtk_icon_view_set_columns(GTK_ICON_VIEW(g_iconview), g_grid_columns);
+    gtk_icon_view_set_item_width(GTK_ICON_VIEW(g_iconview), 84);
+    g_signal_connect(g_iconview, "button-press-event", G_CALLBACK(on_icon_button_press), NULL);
+    gtk_widget_add_events(g_iconview, GDK_POINTER_MOTION_MASK);
+    g_signal_connect(g_iconview, "motion-notify-event", G_CALLBACK(on_icon_motion), NULL);
+
+    g_result_grid_scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(g_result_grid_scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_container_add(GTK_CONTAINER(g_result_grid_scroll), g_iconview);
+    gtk_box_pack_start(GTK_BOX(g_content_box), g_result_grid_scroll, TRUE, TRUE, 0);
+    apply_grid_mode(); /* both scrolls default to shown once packed -- pick one now */
 
     g_footer_sep = gtk_hseparator_new();
     gtk_box_pack_start(GTK_BOX(vbox), g_footer_sep, FALSE, FALSE, 0);
