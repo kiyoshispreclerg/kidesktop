@@ -186,7 +186,11 @@ static Atom g_atom_opacity;
  * whichever layer was clicked without the daemon needing to know what
  * "next wallpaper" even means for click purposes, and a menu-popping
  * command (e.g. `xisserve --applications`) knows where to appear. */
-static char g_action_left[ACTION_CMD_LEN];
+/* Left-click defaults to opening kiconf's panel-configuration tab (the
+ * one place a wallpaper-desktop click would plausibly want to lead to)
+ * so a first run isn't left with a dead left-click; the other buttons
+ * have no sensible default action and stay empty. */
+static char g_action_left[ACTION_CMD_LEN] = "kiconf --tab Paineis";
 static char g_action_right[ACTION_CMD_LEN];
 static char g_action_middle[ACTION_CMD_LEN];
 static char g_action_double[ACTION_CMD_LEN];
@@ -1319,6 +1323,7 @@ static void load_config(void)
      * default layers below; a config that merely failed to apply some
      * layer (e.g. a stale output) is left alone. */
     int layer_lines_seen = 0;
+    int actions_line_seen = 0;
 
     FILE *f = fopen(g_configpath, "r");
     if (!f) {
@@ -1364,6 +1369,7 @@ static void load_config(void)
                 fprintf(stderr, "xisback: config: skipping malformed line: '%s'\n", line);
                 continue;
             }
+            actions_line_seen = 1;
             snprintf(g_action_left, sizeof(g_action_left), "%s", fields[1]);
             snprintf(g_action_right, sizeof(g_action_right), "%s", fields[2]);
             snprintf(g_action_middle, sizeof(g_action_middle), "%s", fields[3]);
@@ -1394,6 +1400,12 @@ static void load_config(void)
 
     if (layer_lines_seen == 0) {
         create_default_layers();
+        save_config();
+    } else if (!actions_line_seen) {
+        /* Layers were already configured but the file predates (or never
+         * got) an ACTIONS line -- persist the in-memory click-action
+         * defaults now instead of silently re-deriving them from the
+         * static initializers on every run. */
         save_config();
     }
 }
