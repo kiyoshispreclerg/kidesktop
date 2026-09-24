@@ -2118,11 +2118,34 @@ void restore_client(Client *c)
     c->minimized = false;
     xcb_delete_property(wm.conn, c->window, wm.atoms.kiwm_minimized_geometry);
 
+    /* Published before the map that carries the restore out, the same way
+     * minimize_client() publishes it before its unmap: anything watching
+     * has to be able to tell this appearance from a window opening. It
+     * matters more here than there, because for a held window (below)
+     * there is no map to explain -- this property is the only thing that
+     * says what happened. */
+    ewmh_update_wm_state(c);
+
     if (c->sticky || wm.outputs[c->output].desktop == c->desktop) {
+        /* Held up for a picture until now (client_hold): the frame is
+         * already mapped, and the hold now ends with the window
+         * belonging on screen, so client_release_hold() leaves it up and
+         * only takes back the mark and the empty input shape -- the
+         * window arrives with the contents it has been drawing rather
+         * than with none. Both requests here are no-ops on a frame in
+         * that state; switch_workspace() does exactly this for the same
+         * reason when a desktop arrives.
+         *
+         * Without the release the hold outlives the restore: the frame
+         * is mapped already, so the map produces no MapNotify, and the
+         * window stays marked _KIWM_HELD -- a compositor goes on not
+         * drawing it (kicomp's scene.c), so the window doesn't appear
+         * and no restore animation runs, until the hold happens to
+         * expire a second later. */
         xcb_map_window(wm.conn, c->frame);
         c->mapped = true;
+        client_release_hold(c);
     }
-    ewmh_update_wm_state(c);
     xcb_flush(wm.conn);
 }
 
