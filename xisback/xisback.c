@@ -63,6 +63,7 @@
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/extensions/Xfixes.h>
 #include <X11/extensions/Xrandr.h>
 
 #include "../shared/xis_outputs.h"
@@ -93,7 +94,7 @@ int xis_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int 
 int xis_fd(void);
 int xis_poll_change(void);
 
-#define XISBACK_VERSION "0.4.7"
+#define XISBACK_VERSION "0.4.8"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -175,6 +176,21 @@ static volatile sig_atomic_t g_quit = 0;
 static Layer g_layers[MAX_LAYERS];
 static char g_configpath[PATH_MAX];
 static Atom g_atom_opacity;
+
+/* WM_S<screen>/_NET_WM_CM_S<screen> manager-selection tracking (ICCCM
+ * 4.3 and the EWMH compositing-manager convention respectively): whichever
+ * WM/compositor is active holds ownership of these for as long as it's
+ * running, so an XFixes selection-owner-changed notification is a cheap,
+ * event-driven way to learn "the WM/compositor just changed" without
+ * polling or watching PropertyNotify on anything. Used only to redo the
+ * output-rename/geometry/overlap checks below in case the new WM/
+ * compositor manages outputs, reparenting or per-CRTC confinement
+ * differently than the old one did -- see the XFixesSelectionNotify
+ * handling in main()'s event loop. */
+static int g_xfixes_available;
+static int g_xfixes_event_base;
+static Atom g_atom_wm_sn;
+static Atom g_atom_cm_sn;
 
 /* Click actions are global (not per-layer): one shell command per mouse
  * button, plus one for double-click (any button) and one each for the
@@ -1805,6 +1821,20 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
         XRRSelectInput(g_dpy, g_root, RRScreenChangeNotifyMask);
     }
 
+    int xfixes_error_base;
+    g_xfixes_available = XFixesQueryExtension(g_dpy, &g_xfixes_event_base, &xfixes_error_base);
+    if (!g_xfixes_available) {
+        fprintf(stderr, "xisback: XFixes extension unavailable, won't notice WM/compositor restarts\n");
+    } else {
+        char sn_name[32];
+        snprintf(sn_name, sizeof(sn_name), "WM_S%d", g_screen);
+        g_atom_wm_sn = XInternAtom(g_dpy, sn_name, False);
+        snprintf(sn_name, sizeof(sn_name), "_NET_WM_CM_S%d", g_screen);
+        g_atom_cm_sn = XInternAtom(g_dpy, sn_name, False);
+        XFixesSelectSelectionInput(g_dpy, g_root, g_atom_wm_sn, XFixesSetSelectionOwnerNotifyMask);
+        XFixesSelectSelectionInput(g_dpy, g_root, g_atom_cm_sn, XFixesSetSelectionOwnerNotifyMask);
+    }
+
     xis_init(g_dpy, g_root);
 
     unlink(sockpath);
@@ -1974,6 +2004,15 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                     XRRUpdateConfiguration(&ev);
                     reconcile_layer_outputs();
                     refresh_all_layer_geometries();
+                } else if (g_xfixes_available && ev.type == g_xfixes_event_base + XFixesSelectionNotify) {
+                    XFixesSelectionNotifyEvent *sn = (XFixesSelectionNotifyEvent *)&ev;
+                    if (sn->selection == g_atom_wm_sn || sn->selection == g_atom_cm_sn) {
+                        fprintf(stderr, "xisback: %s changed, re-checking layers\n",
+                                sn->selection == g_atom_wm_sn ? "window manager" : "compositor");
+                        reconcile_layer_outputs();
+                        refresh_all_layer_geometries();
+                        check_layer_overlap();
+                    }
                 } else if (ev.type == ButtonPress) {
                     /* Button2 is the middle button in X11's numbering (not
                      * Button3 -- that's right). Button4/5 are the scroll
