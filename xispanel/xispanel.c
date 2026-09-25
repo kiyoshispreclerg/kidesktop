@@ -96,7 +96,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.59"
+#define XISPANEL_VERSION "0.6.60"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -118,6 +118,9 @@ int g_screen;
 cairo_font_face_t *g_font_face;
 char g_font_family[128]; /* filled once at startup, see config_scan_globals() */
 char g_icon_theme[128];  /* same -- THEME's icon_theme=, read by ewmh.c's resolve_icon_theme_name() */
+/* THEME's force_shape_corners=1 -- see config_scan_globals() and
+ * panel_wants_alpha_clip()'s doc comment in xispanel.h. */
+static int g_force_shape_corners = 0;
 
 static int g_rr_event_base;
 static volatile sig_atomic_t g_quit = 0;
@@ -418,8 +421,10 @@ static void config_scan_globals(void)
 {
     g_font_family[0] = 0;
     g_icon_theme[0] = 0;
+    g_force_shape_corners = 0;
     char theme_dir[PATH_MAX];
     theme_dir[0] = 0;
+    int force_shape_seen = 0;
     FILE *f = fopen(g_configpath, "r");
     if (!f) {
         return;
@@ -441,6 +446,13 @@ static void config_scan_globals(void)
         }
         if (!theme_dir[0]) {
             kv_get(line, "theme", theme_dir, sizeof(theme_dir));
+        }
+        if (!force_shape_seen) {
+            char value[16];
+            if (kv_get(line, "force_shape_corners", value, sizeof(value))) {
+                g_force_shape_corners = atoi(value) != 0;
+                force_shape_seen = 1;
+            }
         }
         if (g_font_family[0] && g_icon_theme[0]) {
             break;
@@ -1691,7 +1703,15 @@ int panel_compositor_present(void)
  * would actually render as transparent to fall back on instead. */
 int panel_wants_alpha_clip(int depth)
 {
-    return depth == 32 && panel_compositor_present();
+    /* THEME's force_shape_corners=1 opts back out of alpha-clip
+     * entirely, everywhere -- one knob for whoever wants the panel bar,
+     * every toast/tooltip/menu, and (via density.c's DensityLayer, which
+     * paints through the same clip) any X-DENSITY dense pixmap to go
+     * back to plain XShape, corner-click loss and all, in exchange for
+     * skipping the extra transparent clear + clip cairo does per repaint
+     * -- real on a panel/tasklist that repaints often, negligible on an
+     * ephemeral popup that doesn't. */
+    return !g_force_shape_corners && depth == 32 && panel_compositor_present();
 }
 
 /* The generic form of panel_apply_shape() below: rounds `win` (w x h) to

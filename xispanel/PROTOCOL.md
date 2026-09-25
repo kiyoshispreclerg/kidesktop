@@ -731,6 +731,18 @@ THEME	top	bg=#202020cc	fg=#eeeeee	spacing=6
 search path for the whole daemon), even though they're written on a
 per-panel `THEME` line like the rest of the appearance keys: the first
 `THEME` line that sets each one wins, and both are read once at startup.
+- `force_shape_corners`: `1` to always round corners (the panel bar,
+  toast/tooltip/menu popups, and any X-DENSITY dense pixmap) with a plain
+  XShape mask instead of clipping real per-pixel alpha, even where a
+  compositor and an ARGB visual would otherwise make the alpha-clip path
+  available. XShape costs the rounded-off corner pixels their
+  clickability for good (fine for the small ephemeral popups, not
+  something you'd normally want on the panel bar itself) in exchange for
+  a slightly cheaper repaint -- real savings on something that repaints
+  often (the panel bar, a live tasklist), negligible on a popup that
+  doesn't. Same process-global, first-`THEME`-line-wins rule as `font`/
+  `icon_theme` above. Unset (or `0`) picks alpha-clip whenever it's
+  available, same as before this key existed.
 - `theme`: path to a *folder* of bitmap theme files, replacing the solid
   `bg` color (and winctl's vector button glyphs) with themed art -- see
   "Bitmap themes" below. `bg`/`fg` are never overridden by this: they stay
