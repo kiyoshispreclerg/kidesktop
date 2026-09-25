@@ -95,7 +95,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.46"
+#define XISPANEL_VERSION "0.6.47"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -1547,22 +1547,58 @@ static void panel_load_theme_colors(Panel *p)
     fclose(f);
 }
 
+/* Traces the same rounded-rectangle path panel_apply_shape() masks the
+ * window to (see there for why the corners can't just be a SHAPE mask
+ * clipping p->win itself). Shared so painting and hit-testing never
+ * disagree about where the curve actually falls. */
+static void panel_trace_rounded_rect(cairo_t *cr, int w, int h, int r)
+{
+    double rr = r;
+    cairo_new_path(cr);
+    cairo_arc(cr, rr, rr, rr, M_PI, 1.5 * M_PI);
+    cairo_arc(cr, w - rr, rr, rr, 1.5 * M_PI, 2 * M_PI);
+    cairo_arc(cr, w - rr, h - rr, rr, 0, 0.5 * M_PI);
+    cairo_arc(cr, rr, h - rr, rr, 0.5 * M_PI, M_PI);
+    cairo_close_path(cr);
+}
+
 /* Applies (or clears) the panel window's rounded-corner shape mask, from
  * the theme's border_radius=. Uses the SHAPE extension directly on a
  * 1-bit pixmap -- no compositor involved, so this works on a bare X
- * server exactly like kiwm's own rounded frames. A radius of 0 (the
- * default, and any theme without the key) resets the window to its plain
- * rectangle, so nothing changes for an unthemed panel. */
+ * server exactly like kiwm's own rounded frames used to. A radius of 0
+ * (the default, and any theme without the key) resets the window to its
+ * plain rectangle, so nothing changes for an unthemed panel.
+ *
+ * On an ARGB visual this is a no-op on purpose: panel_paint_content()
+ * already clips the *content* to the same rounded rect and leaves those
+ * pixels transparent, which looks identical once a compositor is
+ * painting p->win's alpha -- and unlike SHAPE, it never touches the
+ * window's hit region. SHAPE-masking ShapeBounding *always* narrows what
+ * XYToWindow() will hit-test into the window, and this server's
+ * miSpriteTrace() ANDs that check with ShapeInput rather than letting
+ * ShapeInput override it (confirmed empirically: setting ShapeInput back
+ * to the full rectangle, as a previous version of this function did,
+ * does not stop clicks in the rounded-off corners from falling through
+ * to whatever is behind the panel) -- so once ShapeBounding excludes the
+ * corners there is no way, from this side of the protocol, to make them
+ * clickable again. Only the uncomposited fallback below still needs (and
+ * still has) that limitation. */
 static void panel_apply_shape(Panel *p)
 {
     if (!p->win) {
+        return;
+    }
+    if (p->depth == 32) {
+        if (p->shaped) {
+            XShapeCombineMask(g_dpy, p->win, ShapeBounding, 0, 0, None, ShapeSet);
+            p->shaped = 0;
+        }
         return;
     }
     int r = p->border_radius;
     if (r <= 0) {
         if (p->shaped) {
             XShapeCombineMask(g_dpy, p->win, ShapeBounding, 0, 0, None, ShapeSet);
-            XShapeCombineMask(g_dpy, p->win, ShapeInput, 0, 0, None, ShapeSet);
             p->shaped = 0;
         }
         return;
@@ -1578,28 +1614,13 @@ static void panel_apply_shape(Panel *p)
     cairo_set_source_rgba(mcr, 0, 0, 0, 0); /* transparent = clipped away */
     cairo_paint(mcr);
     cairo_set_source_rgba(mcr, 1, 1, 1, 1);
-    double rr = r;
-    cairo_new_path(mcr);
-    cairo_arc(mcr, rr, rr, rr, M_PI, 1.5 * M_PI);
-    cairo_arc(mcr, p->w - rr, rr, rr, 1.5 * M_PI, 2 * M_PI);
-    cairo_arc(mcr, p->w - rr, p->h - rr, rr, 0, 0.5 * M_PI);
-    cairo_arc(mcr, rr, p->h - rr, rr, 0.5 * M_PI, M_PI);
-    cairo_close_path(mcr);
+    panel_trace_rounded_rect(mcr, p->w, p->h, r);
     cairo_fill(mcr);
     cairo_destroy(mcr);
     cairo_surface_destroy(ms);
 
     XShapeCombineMask(g_dpy, p->win, ShapeBounding, 0, 0, mask, ShapeSet);
     XFreePixmap(g_dpy, mask);
-
-    /* ShapeInput defaults to whatever ShapeBounding is set to, which would
-     * make the rounded-off corner pixels unclickable (clicks there fall
-     * through to whatever is behind the panel). Force it back to the full
-     * rectangle so hit-testing ignores the rounding -- only painting is
-     * clipped. */
-    XRectangle full = {0, 0, p->w, p->h};
-    XShapeCombineRectangles(g_dpy, p->win, ShapeInput, 0, 0, &full, 1, ShapeSet, 0);
-
     p->shaped = 1;
 }
 
@@ -1977,6 +1998,27 @@ void panel_paint_content(Panel *p, cairo_t *cr, double scale)
 {
     cairo_save(cr);
     cairo_scale(cr, scale, scale);
+
+    /* On an ARGB visual (a compositor is running), the rounded corners are
+     * cut by clipping the *painted content* to a rounded rect and leaving
+     * those pixels transparent -- not by SHAPE-masking p->win (see
+     * panel_apply_shape()'s comment: the corners of a SHAPE-bounded window
+     * can never be made clickable again, no matter what ShapeInput says).
+     * This way p->win keeps its full rectangular hit region and the round
+     * look is purely cosmetic, exactly like kiwm's own rounded frames on a
+     * composited session. Without ARGB there is no alpha channel to cut
+     * into, so panel_apply_shape() falls back to SHAPE for the visual
+     * effect and the corners stay unclickable -- an uncomposited session
+     * only, and not fixable from here. */
+    if (p->border_radius > 0 && p->depth == 32) {
+        int r = p->border_radius;
+        int max_r = (p->w < p->h ? p->w : p->h) / 2;
+        if (r > max_r) {
+            r = max_r;
+        }
+        panel_trace_rounded_rect(cr, p->w, p->h, r);
+        cairo_clip(cr);
+    }
 
     /* Only the single cairo_paint() at the end of panel_repaint() (blitting
      * the finished buffer onto the real, on-screen p->cr/surface) touches
