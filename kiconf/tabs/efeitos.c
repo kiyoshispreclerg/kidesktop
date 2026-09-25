@@ -34,6 +34,7 @@ typedef struct {
     int single_drawable, skip_wm_layers, unredirect_fullscreen;
     double claim_ms;
     int keep_hidden_contents;
+    int density;
     char live_windows[16];
 } KicompGlobals;
 
@@ -67,6 +68,7 @@ static void globals_defaults(KicompGlobals *g)
     g->unredirect_fullscreen = 1;
     g->claim_ms = 500.0;
     g->keep_hidden_contents = 1;
+    g->density = 1;
     snprintf(g->live_windows, sizeof(g->live_windows), "desktop");
 }
 
@@ -213,6 +215,7 @@ static void load_kicomp_conf(KicompGlobals *g, ShadowConfig *sh, EffectRow *rows
             else if (!strcmp(key, "single_drawable")) g->single_drawable = atoi(val) != 0;
             else if (!strcmp(key, "skip_wm_layers")) g->skip_wm_layers = atoi(val) != 0;
             else if (!strcmp(key, "unredirect_fullscreen")) g->unredirect_fullscreen = atoi(val) != 0;
+            else if (!strcmp(key, "density")) g->density = atoi(val) != 0;
             else if (!strcmp(key, "claim_ms")) g->claim_ms = atof(val);
             else if (!strcmp(key, "keep_hidden_contents")) g->keep_hidden_contents = atoi(val) != 0;
             else if (!strcmp(key, "live_windows")) SETS(live_windows);
@@ -263,7 +266,7 @@ static void write_opts(FILE *out, const char *opts)
 static GtkWidget *g_status_label;
 static GtkWidget *g_effects_chk, *g_anim_spin, *g_renderer_combo, *g_presenter_combo;
 static GtkWidget *g_single_drawable_chk, *g_skip_wm_layers_chk, *g_unredirect_chk;
-static GtkWidget *g_claim_spin, *g_keep_hidden_chk, *g_live_windows_combo;
+static GtkWidget *g_claim_spin, *g_keep_hidden_chk, *g_live_windows_combo, *g_density_chk;
 static GtkWidget *g_sh_enabled_chk, *g_sh_windows_entry, *g_sh_radius_spin, *g_sh_opacity_spin;
 static GtkWidget *g_sh_offx_spin, *g_sh_offy_spin, *g_sh_color_btn;
 static GtkWidget *g_sh_custom_i_chk, *g_sh_radius_i_spin, *g_sh_opacity_i_spin;
@@ -926,6 +929,7 @@ static void save_efeitos_cb(GtkWidget *widget, gpointer data)
     fprintf(out, "single_drawable=%d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_single_drawable_chk)));
     fprintf(out, "skip_wm_layers=%d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_skip_wm_layers_chk)));
     fprintf(out, "unredirect_fullscreen=%d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_unredirect_chk)));
+    fprintf(out, "density=%d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_density_chk)));
     fprintf_double(out, "claim_ms", gtk_spin_button_get_value(GTK_SPIN_BUTTON(g_claim_spin)), 1);
     fprintf(out, "keep_hidden_contents=%d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_keep_hidden_chk)));
     fprintf(out, "live_windows=%s\n", combo_text(g_live_windows_combo, LIVE_WINDOWS_OPTS));
@@ -1027,7 +1031,7 @@ GtkWidget *build_efeitos_tab(void)
     gtk_box_pack_start(GTK_BOX(content), top_row, FALSE, FALSE, 0);
 
     /* Geral */
-    GtkWidget *general_table = gtk_table_new(10, 2, FALSE);
+    GtkWidget *general_table = gtk_table_new(11, 2, FALSE);
     g_effects_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_effects_chk), g.effects);
     labeled_row(general_table, 0, "Efeitos habilitados:", g_effects_chk);
@@ -1055,6 +1059,9 @@ GtkWidget *build_efeitos_tab(void)
     labeled_row(general_table, 8, "Manter conteudo de janelas ocultas (expo/wall):", g_keep_hidden_chk);
     g_live_windows_combo = make_options_combo(LIVE_WINDOWS_OPTS, g.live_windows);
     labeled_row(general_table, 9, "Janelas ao vivo em efeitos (expo/wall/cube):", g_live_windows_combo);
+    g_density_chk = gtk_check_button_new();
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_density_chk), g.density);
+    labeled_row(general_table, 10, "X-DENSITY (decoracao/conteudo nitidos sob zoom):", g_density_chk);
     gtk_box_pack_start(GTK_BOX(top_row), frame_with("Geral", general_table), TRUE, TRUE, 0);
 
     /* Sombra -- focused fields directly in the frame, unfocused override
