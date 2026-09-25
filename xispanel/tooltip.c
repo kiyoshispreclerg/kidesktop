@@ -1178,14 +1178,15 @@ void tooltip_notice_motion(Panel *p, int axis_pos, int cross_pos)
     PanelWidget *hit = panel_widget_at(p, axis_pos, cross_pos);
 
     if (!hit || !hit->ops->get_tooltip) {
-        /* Moved onto a widget (or dead space, e.g. a spacer) that has no
-         * tooltip of its own -- same hover-intent grace period as actually
-         * leaving the panel (tooltip_notice_leave()), not an instant close,
-         * so a quick pass over a spacer between two tooltip-bearing widgets
-         * doesn't kill a tooltip the pointer is still effectively near. */
-        if (g_panel == p && g_widget) {
-            g_close_deadline_ms = now_ms() + close_delay_ms();
-        }
+        /* Empty panel space -- a spacer, the gap between two widgets, or
+         * past the last widget -- doesn't count as leaving at all: no
+         * grace-period deadline gets started here, unlike actually leaving
+         * the panel window (tooltip_notice_leave()). The pointer crossing
+         * that gap while moving from one tooltip-bearing widget to another
+         * is completely normal, not a sign of hover intent lapsing, so it
+         * shouldn't cost the still-open (or still-pending) tooltip any of
+         * its grace window -- landing on a *different* widget below is
+         * what actually resets/closes things. */
         return;
     }
 
@@ -1318,7 +1319,13 @@ void tooltip_tick(uint64_t now)
                 Panel *p = g_panel;
                 int axis_pos = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? win_x : win_y;
                 PanelWidget *hit = panel_widget_at(p, axis_pos, (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? win_y : win_x);
-                if (hit == g_widget && hit->ops->get_tooltip) {
+                if (!hit || !hit->ops->get_tooltip) {
+                    /* Empty panel space doesn't count against the pending
+                     * open either (see tooltip_notice_motion()) -- still
+                     * open, anchored on the widget that actually started
+                     * the timer. */
+                    on_target = 1;
+                } else if (hit == g_widget) {
                     char buf[256];
                     int ax = 0, aw = hit->len, closable = 0;
                     void *ctx = NULL;
