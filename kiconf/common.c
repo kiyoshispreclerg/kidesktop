@@ -6,6 +6,7 @@
 
 #include "../shared/xis_outputs.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <limits.h>
 #include <signal.h>
@@ -502,6 +503,96 @@ void desktop_entry_set_key(const char *path, const char *key, const char *value)
     fclose(in);
     fclose(out);
     rename(tmp, path);
+}
+
+/* ---- installed .desktop apps (Associacoes de arquivos / Menu de
+ * programas) ---------------------------------------------------------- */
+
+const char *mime_query_default(const char *mimetype, char *out, size_t outsz)
+{
+    char *argv[] = {"xdg-mime", "query", "default", (char *)mimetype, NULL};
+    if (!run_capture(argv, out, outsz)) {
+        out[0] = '\0';
+    }
+    size_t len = strlen(out);
+    while (len > 0 && (out[len - 1] == '\n' || out[len - 1] == '\r')) {
+        out[--len] = '\0';
+    }
+    return out;
+}
+
+static void scan_all_apps_dir(const char *dir, int is_user_dir, DesktopApp *out, int *n, int max)
+{
+    DIR *d = opendir(dir);
+    if (!d) {
+        return;
+    }
+    struct dirent *ent;
+    while (*n < max && (ent = readdir(d))) {
+        size_t len = strlen(ent->d_name);
+        if (len < 9 || strcmp(ent->d_name + len - 8, ".desktop")) {
+            continue;
+        }
+        for (int i = 0; i < *n; i++) {
+            if (!strcmp(out[i].id, ent->d_name)) {
+                goto next; /* a higher-priority dir already provided this id */
+            }
+        }
+        {
+            char path[512];
+            snprintf(path, sizeof(path), "%s/%s", dir, ent->d_name);
+            char buf[16];
+            if (desktop_entry_get(path, "Type", buf, sizeof(buf)) && strcmp(buf, "Application")) {
+                continue;
+            }
+            if (desktop_entry_get(path, "Hidden", buf, sizeof(buf)) && !strcmp(buf, "true")) {
+                continue;
+            }
+
+            DesktopApp *a = &out[*n];
+            memset(a, 0, sizeof(*a));
+            snprintf(a->path, sizeof(a->path), "%s", path);
+            snprintf(a->id, sizeof(a->id), "%s", ent->d_name);
+            if (!desktop_entry_get(path, "Name", a->name, sizeof(a->name))) {
+                snprintf(a->name, sizeof(a->name), "%s", ent->d_name);
+            }
+            desktop_entry_get(path, "Comment", a->comment, sizeof(a->comment));
+            desktop_entry_get(path, "Icon", a->icon, sizeof(a->icon));
+            desktop_entry_get(path, "Exec", a->exec, sizeof(a->exec));
+            desktop_entry_get(path, "Categories", a->categories, sizeof(a->categories));
+            desktop_entry_get(path, "MimeType", a->mimetypes, sizeof(a->mimetypes));
+            a->nodisplay = desktop_entry_get(path, "NoDisplay", buf, sizeof(buf)) && !strcmp(buf, "true");
+            a->terminal = desktop_entry_get(path, "Terminal", buf, sizeof(buf)) && !strcmp(buf, "true");
+            a->is_user = is_user_dir;
+            (*n)++;
+        }
+    next:;
+    }
+    closedir(d);
+}
+
+int scan_all_apps(DesktopApp *out, int max)
+{
+    int n = 0;
+    char userdir[512];
+    const char *xdg_data = getenv("XDG_DATA_HOME");
+    if (xdg_data && *xdg_data) {
+        snprintf(userdir, sizeof(userdir), "%s/applications", xdg_data);
+    } else {
+        snprintf(userdir, sizeof(userdir), "%s/.local/share/applications", getenv("HOME") ? getenv("HOME") : "/tmp");
+    }
+    scan_all_apps_dir(userdir, 1, out, &n, max);
+
+    char dirs[2048];
+    const char *xdg_dirs = getenv("XDG_DATA_DIRS");
+    snprintf(dirs, sizeof(dirs), "%s", (xdg_dirs && *xdg_dirs) ? xdg_dirs : "/usr/local/share:/usr/share");
+    char *save = NULL;
+    for (char *tok = strtok_r(dirs, ":", &save); tok; tok = strtok_r(NULL, ":", &save)) {
+        char path[512];
+        snprintf(path, sizeof(path), "%s/applications", tok);
+        scan_all_apps_dir(path, 0, out, &n, max);
+    }
+    return n;
 }
 
 /* ---- kisession.conf ----------------------------------------------------- */

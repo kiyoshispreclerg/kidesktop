@@ -37,7 +37,7 @@
 typedef struct {
     char id[NAME_LEN];   /* .desktop basename, what xdg-mime/xdg-terminals.list want */
     char name[NAME_LEN]; /* Name=, what the combo shows */
-} DesktopApp;
+} CategoryApp;
 
 /* True iff `list` (a ';'-separated Categories= value) has `category` as
  * one of its entries (not just a substring -- "TerminalEmulator" must
@@ -60,7 +60,7 @@ static int categories_has(const char *list, const char *category)
     return 0;
 }
 
-static void scan_apps_dir(const char *dir, const char *category, DesktopApp *out, int *n, int max)
+static void scan_apps_dir(const char *dir, const char *category, CategoryApp *out, int *n, int max)
 {
     DIR *d = opendir(dir);
     if (!d) {
@@ -101,7 +101,7 @@ static void scan_apps_dir(const char *dir, const char *category, DesktopApp *out
  * same precedence order (first found wins an id) real .desktop lookups
  * use, though for listing purposes here a duplicate id just gets skipped
  * rather than mattering which copy "won". */
-static int scan_apps_by_category(const char *category, DesktopApp *out, int max)
+static int scan_apps_by_category(const char *category, CategoryApp *out, int max)
 {
     int n = 0;
     char userdir[PATH_MAX];
@@ -125,25 +125,12 @@ static int scan_apps_by_category(const char *category, DesktopApp *out, int max)
     return n;
 }
 
-static const char *xdg_mime_query_default(const char *mimetype, char *out, size_t outsz)
-{
-    char *argv[] = {"xdg-mime", "query", "default", (char *)mimetype, NULL};
-    if (!run_capture(argv, out, outsz)) {
-        out[0] = '\0';
-    }
-    size_t len = strlen(out);
-    while (len > 0 && (out[len - 1] == '\n' || out[len - 1] == '\r')) {
-        out[--len] = '\0';
-    }
-    return out;
-}
-
 /* One "default app for a category" row: a combo of every installed app
  * in that Categories= bucket, applying via xdg-mime default <id>
  * <mimetypes...> (mimetypes is a single pre-built space-separated string). */
 typedef struct {
     GtkWidget *combo;
-    DesktopApp apps[MAX_APPS];
+    CategoryApp apps[MAX_APPS];
     int n_apps;
     char mimetypes[256]; /* space-separated, passed to xdg-mime as-is */
 } MimeDefaultRow;
@@ -166,7 +153,7 @@ static GtkWidget *add_mime_default_row(GtkWidget *table, int row, const char *la
     if (sp) {
         *sp = '\0';
     }
-    xdg_mime_query_default(first_mime, current, sizeof(current));
+    mime_query_default(first_mime, current, sizeof(current));
 
     r->combo = gtk_combo_box_new_text();
     int idx = -1;
@@ -191,7 +178,7 @@ static GtkWidget *add_mime_default_row(GtkWidget *table, int row, const char *la
 
 /* Terminal: not a MIME default -- see the file doc comment. */
 static GtkWidget *g_terminal_combo;
-static DesktopApp g_terminal_apps[MAX_APPS];
+static CategoryApp g_terminal_apps[MAX_APPS];
 static int g_n_terminal_apps;
 
 static void terminal_list_path(char *out, size_t outsz)
