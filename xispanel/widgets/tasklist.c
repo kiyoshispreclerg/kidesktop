@@ -1035,14 +1035,57 @@ static int tasklist_in_arrow_zone(const TasklistPriv *tp, int w_len, int local_x
     return 0;
 }
 
+/* Lists the display slots a scroll arrow hides -- [0, scroll_offset) for
+ * the left arrow, [vis_idx[n_visible-1]+1, n_display) for the right one --
+ * one title per line, in the same order they'd scroll into view. A slot
+ * collapsed into a group (display_count > 1) gets its representative's
+ * title plus a "(+N)" count for the rest, same idea as the button itself
+ * showing one icon/title for the whole group. Returns the number of lines
+ * written (0 if the arrow, despite being hovered, currently hides
+ * nothing -- shouldn't happen since tasklist_in_arrow_zone() only answers
+ * yes for a direction can_left/can_right already say has something). */
+static int tasklist_list_overflow(const TasklistPriv *tp, int left, char *buf, size_t bufsz)
+{
+    int from, to; /* display-slot range, exclusive end */
+    if (left) {
+        from = 0;
+        to = tp->scroll_offset;
+    } else {
+        from = tp->n_visible > 0 ? tp->vis_idx[tp->n_visible - 1] + 1 : tp->scroll_offset;
+        to = tp->n_display;
+    }
+    size_t used = 0;
+    int n = 0;
+    for (int d = from; d < to && used < bufsz; d++) {
+        int repr = tp->display_repr[d];
+        int extra = tp->display_count[d] - 1;
+        int wrote;
+        if (extra > 0) {
+            wrote = snprintf(buf + used, bufsz - used, "%s%s (+%d)", n > 0 ? "\n" : "", tp->tasks[repr].title, extra);
+        } else {
+            wrote = snprintf(buf + used, bufsz - used, "%s%s", n > 0 ? "\n" : "", tp->tasks[repr].title);
+        }
+        if (wrote < 0) {
+            break;
+        }
+        used += (size_t)wrote;
+        n++;
+    }
+    trim_to_utf8_boundary(buf); /* a snprintf() above that ran out of room could have cut mid-codepoint */
+    return n;
+}
+
 /* Full (untruncated) title of whatever task button is under local_x, with
  * the anchor set to that specific button's span -- not the whole widget --
  * so the tooltip lines up with the actual task, same as on_button()'s
- * hit-testing. No tooltip over the scroll arrows. A single (ungrouped, or
- * group of one) task is clickable exactly as before: the window's XID is
- * packed into *out_ctx for tooltip_activate()/tooltip_close_item() below.
- * A grouped button (count > 1) instead lists every member's title, one per
- * line, and isn't clickable -- which member "the click" should mean is
+ * hit-testing. Over a scroll arrow instead: the titles of every task that
+ * arrow would scroll into view, one per line (see tasklist_list_overflow()),
+ * anchored on the arrow itself -- not clickable/closable, same as a
+ * grouped button's tooltip below. A single (ungrouped, or group of one)
+ * task is clickable exactly as before: the window's XID is packed into
+ * *out_ctx for tooltip_activate()/tooltip_close_item() below. A grouped
+ * button (count > 1) instead lists every member's title, one per line,
+ * and isn't clickable -- which member "the click" should mean is
  * ambiguous from a tooltip; click the button itself for the selection
  * popup (see tasklist_on_button()). */
 static int tasklist_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t bufsz, int *anchor_x, int *anchor_w,
@@ -1052,7 +1095,15 @@ static int tasklist_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t b
     tasklist_layout_visible(w);
 
     if (tasklist_in_arrow_zone(tp, w->len, local_x)) {
-        return 0;
+        int left = tp->can_left && local_x < TASKLIST_ARROW_W;
+        if (tasklist_list_overflow(tp, left, buf, bufsz) == 0) {
+            return 0;
+        }
+        *out_closable = 0;
+        *out_ctx = NULL;
+        *anchor_x = left ? 0 : w->len - TASKLIST_ARROW_W;
+        *anchor_w = TASKLIST_ARROW_W;
+        return 1;
     }
     for (int vi = 0; vi < tp->n_visible; vi++) {
         if (local_x >= tp->vis_x[vi] && local_x < tp->vis_x[vi] + tp->vis_w[vi]) {
