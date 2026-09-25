@@ -70,6 +70,19 @@ typedef struct {
     int last_px, last_py;
     double last_poll;
 
+    /* Where following the pointer wants the view to sit, and when the
+     * chase towards it last advanced -- the same scheme cube.c uses for
+     * a drag (see DRAG_SMOOTH_MS there): the poll above only discovers
+     * where the pointer is, it does not move the lens. zoom_update()
+     * moves d->current towards this target by a fraction of the
+     * remaining distance every frame, so the pan's speed is a function
+     * of the clock rather than of how the 12ms polls happened to land
+     * against the frame clock -- painting the raw poll position (or, as
+     * before, re-easing a short leg towards it on every poll) turned
+     * that misalignment straight into visible stutter. */
+    int target_x, target_y;
+    double follow_tick;
+
     /* The density last asked of every window for this: 1 below 2x, 2
      * from there up to 3x, and so on (zoom_density_level) -- a bucket
      * rather than the exact magnification, since X-DENSITY redraws a
@@ -195,6 +208,10 @@ static float leg_progress(const ZoomData *d, const CompEffect *e, double now)
  * per pass of a loop that runs whenever anything at all happens. */
 #define FOLLOW_POLL_MS 12.0
 
+/* How quickly the drawn view catches up with where following the pointer
+ * is pulling it -- cube.c's DRAG_SMOOTH_MS, same reasoning. */
+#define FOLLOW_SMOOTH_MS 40.0
+
 /* The lens follows the pointer. Proportional by default: where the
  * pointer sits across the screen is where the lens sits across the
  * desktop, so pushing into a corner shows that corner and the whole
@@ -250,18 +267,8 @@ static void follow_pointer(CompEffect *e, ZoomData *d, double now)
     }
 
     view = clamp_view(&view, &o->rect);
-    if (view.x == d->to.x && view.y == d->to.y)
-        return;
-
-    /* A short leg rather than a jump: the same easing the wheel gets,
-     * but brief, so panning is smooth without feeling like it is being
-     * dragged along behind the hand. */
-    d->from = d->current;
-    d->to = view;
-    d->leg_start = now;
-    d->leg_ms = effect_instance_duration(e->instance) * 0.35;
-    if (d->leg_ms < 1.0)
-        d->leg_ms = 1.0;
+    d->target_x = view.x;
+    d->target_y = view.y;
 }
 
 /* The density bucket a magnification asks of X-DENSITY: 1 up to and
@@ -282,7 +289,28 @@ static void zoom_update(CompEffect *e, double now)
 
     float p = leg_progress(d, e, now);
     CompRect was = d->current;
-    d->current = lerp_rect(&d->from, &d->to, p);
+
+    if (p < 1.0f) {
+        /* A wheel notch in flight: let its own eased leg own the whole
+         * rectangle, size included, exactly as before. */
+        d->current = lerp_rect(&d->from, &d->to, p);
+        d->target_x = d->current.x;
+        d->target_y = d->current.y;
+        d->follow_tick = now;
+    } else {
+        /* Settled at a magnification: the size is fixed at d->to, and
+         * the pointer's own chase (cube.c's DRAG_SMOOTH_MS scheme) is
+         * what moves x and y from here on. */
+        d->current.w = d->to.w;
+        d->current.h = d->to.h;
+
+        double dt = now - d->follow_tick;
+        if (dt < 0.0) dt = 0.0;
+        d->follow_tick = now;
+        float k = 1.0f - expf((float)(-dt / FOLLOW_SMOOTH_MS));
+        d->current.x = was.x + (int)(((float)d->target_x - (float)was.x) * k + 0.5f);
+        d->current.y = was.y + (int)(((float)d->target_y - (float)was.y) * k + 0.5f);
+    }
 
     CompOutput *o = output_by_id(d->output_id);
 
