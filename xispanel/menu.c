@@ -144,6 +144,14 @@ typedef struct {
     uint64_t pending_since_ms;
     int pending_frame, pending_pos;
 
+    /* Flat index of the "Configurar paineis" item every menu gets appended
+     * to its root level (see panel_menu_open_tree_lazy()) -- select_and_
+     * close() special-cases this index instead of forwarding it to the
+     * caller's on_select, which knows nothing about an item it never
+     * supplied. -1 only if there was no room left to append it
+     * (MENU_TREE_MAX_ITEMS already exhausted by the caller's own items). */
+    int tail_action_idx;
+
 } PanelMenu;
 
 static PanelMenu *g_menu = NULL;
@@ -622,6 +630,11 @@ static int open_submenu(PanelMenu *m, int parent_frame, int parent_pos)
 static void select_and_close(int idx)
 {
     PanelMenu *m = g_menu;
+    if (idx == m->tail_action_idx) {
+        panel_menu_close();
+        run_detached("kiconf --tab Paineis");
+        return;
+    }
     Panel *op = m->owner_panel;
     PanelWidget *ow = m->owner_widget;
     void *ctx = m->ctx;
@@ -899,7 +912,12 @@ void panel_menu_open_tree_lazy(Panel *owner_panel, PanelWidget *owner_widget, in
     if (g_menu) {
         panel_menu_close();
     }
-    if (n_items <= 0 || n_items > MENU_TREE_MAX_ITEMS) {
+    /* n_items == 0 is allowed on purpose: an empty right-click (nothing but
+     * blank panel space under the pointer) still opens a menu, made up of
+     * nothing but the tail action appended below -- see xispanel.c's
+     * empty-space Button3 handler. Two slots short of the cap, not one:
+     * room for both the tail item and the separator in front of it. */
+    if (n_items < 0 || n_items > MENU_TREE_MAX_ITEMS - 2) {
         return;
     }
 
@@ -907,18 +925,43 @@ void panel_menu_open_tree_lazy(Panel *owner_panel, PanelWidget *owner_widget, in
     if (!m) {
         return;
     }
-    memcpy(m->items, items, sizeof(MenuItem) * (size_t)n_items);
-    memcpy(m->lazy, lazy, sizeof(int) * (size_t)n_items);
-    m->n_items = n_items;
-    depth_to_parent(depth, m->parent, n_items);
-    for (int i = 0; i < n_items; i++) {
-        m->has_children[i] = lazy[i] ? 1 : 0;
-    }
-    for (int i = 0; i < n_items; i++) {
-        if (m->parent[i] >= 0) {
-            m->has_children[m->parent[i]] = 1;
+    if (n_items > 0) {
+        memcpy(m->items, items, sizeof(MenuItem) * (size_t)n_items);
+        memcpy(m->lazy, lazy, sizeof(int) * (size_t)n_items);
+        depth_to_parent(depth, m->parent, n_items);
+        for (int i = 0; i < n_items; i++) {
+            m->has_children[i] = lazy[i] ? 1 : 0;
+        }
+        for (int i = 0; i < n_items; i++) {
+            if (m->parent[i] >= 0) {
+                m->has_children[m->parent[i]] = 1;
+            }
         }
     }
+    m->n_items = n_items;
+
+    /* "Configurar paineis", appended as the last root-level item of every
+     * menu this file opens -- a separator in front of it too, but only
+     * when the menu already had items of its own (an empty-space menu is
+     * just this one entry, no separator needed above nothing). See
+     * select_and_close()'s tail_action_idx check for where the click on
+     * it actually goes. */
+    m->tail_action_idx = -1;
+    if (n_items > 0) {
+        MenuItem *sep = &m->items[m->n_items];
+        memset(sep, 0, sizeof(*sep));
+        sep->is_separator = 1;
+        m->parent[m->n_items] = -1;
+        m->n_items++;
+    }
+    MenuItem *tail = &m->items[m->n_items];
+    memset(tail, 0, sizeof(*tail));
+    snprintf(tail->label, sizeof(tail->label), "Configurar pain\xc3\xa9is");
+    tail->enabled = 1;
+    m->parent[m->n_items] = -1;
+    m->tail_action_idx = m->n_items;
+    m->n_items++;
+
     m->owner_panel = owner_panel;
     m->owner_widget = owner_widget;
     m->ctx = ctx;
@@ -950,12 +993,18 @@ void panel_menu_open_tree_lazy(Panel *owner_panel, PanelWidget *owner_widget, in
      * item -- same convention as plasmashell's taskbar context menus,
      * not "wherever the click happened to land". */
     int screen_x, screen_y;
+    /* owner_widget is NULL for a menu opened over blank panel space (no
+     * widget under the click at all -- see xispanel.c's empty-space
+     * Button3 handler): anchor_x is then already panel-relative on its
+     * own, same as every widget's own ->x, so there's simply nothing to
+     * add. */
+    int widget_x = owner_widget ? owner_widget->x : 0;
     if (owner_panel->edge == EDGE_TOP || owner_panel->edge == EDGE_BOTTOM) {
-        screen_x = owner_panel->x + owner_widget->x + anchor_x;
+        screen_x = owner_panel->x + widget_x + anchor_x;
         screen_y = (owner_panel->edge == EDGE_TOP) ? (owner_panel->y + owner_panel->h) : (owner_panel->y - f0->height);
     } else {
         screen_x = (owner_panel->edge == EDGE_LEFT) ? (owner_panel->x + owner_panel->w) : (owner_panel->x - f0->width);
-        screen_y = owner_panel->y + owner_widget->x + anchor_x;
+        screen_y = owner_panel->y + widget_x + anchor_x;
     }
     if (screen_x + f0->width > owner_panel->out_x + owner_panel->out_w) {
         screen_x = owner_panel->out_x + owner_panel->out_w - f0->width;
@@ -986,11 +1035,16 @@ void panel_menu_open_tree(Panel *owner_panel, PanelWidget *owner_widget, int anc
                            const MenuItem *items, const int *depth, int n_items, void *ctx, MenuSelectFn on_select,
                            MenuHoverRootFn on_hover_root, MenuCloseFn on_close)
 {
-    if (n_items <= 0 || n_items > MENU_TREE_MAX_ITEMS) {
+    /* n_items == 0 is valid -- see panel_menu_open_tree_lazy()'s doc
+     * comment (an empty-panel-space right-click's menu is nothing but the
+     * appended "Configurar paineis" tail item). */
+    if (n_items < 0 || n_items > MENU_TREE_MAX_ITEMS - 2) {
         return;
     }
     int lazy[MENU_TREE_MAX_ITEMS];
-    memset(lazy, 0, sizeof(int) * (size_t)n_items);
+    if (n_items > 0) {
+        memset(lazy, 0, sizeof(int) * (size_t)n_items);
+    }
     panel_menu_open_tree_lazy(owner_panel, owner_widget, anchor_x, anchor_w, items, depth, lazy, n_items, ctx,
                                on_select, NULL, on_hover_root, on_close);
 }
@@ -998,11 +1052,13 @@ void panel_menu_open_tree(Panel *owner_panel, PanelWidget *owner_widget, int anc
 void panel_menu_open(Panel *owner_panel, PanelWidget *owner_widget, int anchor_x, int anchor_w, const MenuItem *items,
                       int n_items, void *ctx, MenuSelectFn on_select)
 {
-    if (n_items <= 0 || n_items > MENU_TREE_MAX_ITEMS) {
+    if (n_items < 0 || n_items > MENU_TREE_MAX_ITEMS - 2) {
         return;
     }
     int depth[MENU_TREE_MAX_ITEMS];
-    memset(depth, 0, sizeof(int) * (size_t)n_items);
+    if (n_items > 0) {
+        memset(depth, 0, sizeof(int) * (size_t)n_items);
+    }
     panel_menu_open_tree(owner_panel, owner_widget, anchor_x, anchor_w, items, depth, n_items, ctx, on_select, NULL,
                           NULL);
 }

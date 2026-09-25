@@ -95,7 +95,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.51"
+#define XISPANEL_VERSION "0.6.52"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -3517,6 +3517,16 @@ static void dispatch_button(Panel *p, int button, int x, int y, int root_x, int 
     PanelWidget *w = panel_widget_at(p, axis_pos, cross_pos);
     if (w && w->ops->on_button) {
         w->ops->on_button(w, button, axis_pos - w->x, cross_pos - w->y, root_x, root_y);
+    } else if (!w && button == Button3) {
+        /* Blank panel space -- a spacer, the gap between two widgets, past
+         * the last one -- gets a context menu too, same as clicking any
+         * widget that has one: panel_menu_open() always appends
+         * "Configurar paineis" as the menu's last item (see menu.c), so an
+         * empty click still opens *something* rather than doing nothing,
+         * with that one entry. anchor_x is the click's own panel-relative
+         * axis position, not tied to any widget -- see panel_menu_open_
+         * tree_lazy()'s owner_widget-may-be-NULL handling. */
+        panel_menu_open(p, NULL, axis_pos, 0, NULL, 0, NULL, NULL);
     }
 }
 
