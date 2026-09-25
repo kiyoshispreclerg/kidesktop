@@ -311,4 +311,12 @@ GtkWidget *page_notifications_build(void);
 void page_notifications_on_show(void);
 void page_notifications_on_hide(void);
 
+GtkWidget *page_network_build(void);
+void page_network_on_show(void);
+void page_network_on_hide(void);
+
+GtkWidget *page_storage_build(void);
+void page_storage_on_show(void);
+void page_storage_on_hide(void);
+
 #endif

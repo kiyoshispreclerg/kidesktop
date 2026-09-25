@@ -46,7 +46,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.31"
+#define XISSERVE_VERSION "0.1.32"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -84,6 +84,8 @@ static const XisservePage kPages[] = {
     {"energy", "Energia", 380, 480, page_energy_build, page_energy_on_show, page_energy_on_hide},
     {"notifications", "Notifica\xc3\xa7\xc3\xb5""es", 380, 480, page_notifications_build,
      page_notifications_on_show, page_notifications_on_hide},
+    {"network", "Rede", 380, 480, page_network_build, page_network_on_show, page_network_on_hide},
+    {"storage", "Armazenamento", 380, 480, page_storage_build, page_storage_on_show, page_storage_on_hide},
 };
 #define N_PAGES ((int)(sizeof(kPages) / sizeof(kPages[0])))
 
