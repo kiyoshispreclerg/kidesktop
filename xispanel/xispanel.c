@@ -95,7 +95,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.54"
+#define XISPANEL_VERSION "0.6.55"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -1591,66 +1591,80 @@ void panel_trace_rounded_rect(cairo_t *cr, int w, int h, int r)
     cairo_close_path(cr);
 }
 
-/* Applies (or clears) the panel window's rounded-corner shape mask, from
- * the theme's border_radius=. Uses the SHAPE extension directly on a
- * 1-bit pixmap -- no compositor involved, so this works on a bare X
- * server exactly like kiwm's own rounded frames used to. A radius of 0
- * (the default, and any theme without the key) resets the window to its
- * plain rectangle, so nothing changes for an unthemed panel.
+/* Applies (r > 0) or clears (r <= 0) win's SHAPE bounding mask to a
+ * rounded rectangle of the given radius, straight on a 1-bit pixmap -- no
+ * compositor involved, works on a bare X server exactly like kiwm's own
+ * rounded frames (kiwm/menu.c's own context-menu popup uses the same
+ * technique). Shared by every ephemeral popup that wants the panel
+ * theme's border_radius= look: menu.c's frames, tooltip.c's popup,
+ * toast.c's toasts, all round the exact same way this same call.
  *
- * On an ARGB visual this is a no-op on purpose: panel_paint_content()
- * already clips the *content* to the same rounded rect and leaves those
- * pixels transparent, which looks identical once a compositor is
- * painting p->win's alpha -- and unlike SHAPE, it never touches the
- * window's hit region. SHAPE-masking ShapeBounding *always* narrows what
+ * This does cost the popup's own rounded-off corner pixels their
+ * clickability -- SHAPE-masking ShapeBounding always narrows what
  * XYToWindow() will hit-test into the window, and this server's
  * miSpriteTrace() ANDs that check with ShapeInput rather than letting
- * ShapeInput override it (confirmed empirically: setting ShapeInput back
- * to the full rectangle, as a previous version of this function did,
- * does not stop clicks in the rounded-off corners from falling through
- * to whatever is behind the panel) -- so once ShapeBounding excludes the
- * corners there is no way, from this side of the protocol, to make them
- * clickable again. Only the uncomposited fallback below still needs (and
- * still has) that limitation. */
-static void panel_apply_shape(Panel *p)
+ * ShapeInput override it (confirmed empirically against a standalone
+ * Xlib repro: setting ShapeInput back to the full rectangle does not
+ * stop clicks in the rounded-off corners from falling through to
+ * whatever's behind), so there is no way, from this side of the
+ * protocol, to get them back once ShapeBounding excludes them. Fine for
+ * a small popup with no interactive content anywhere near its own
+ * corner; NOT fine for the panel bar itself (real widgets sit flush
+ * against its edges), which is why panel_apply_shape() below takes a
+ * different approach instead of calling this. */
+void panel_shape_round_corners(Window win, int w, int h, int r)
 {
-    if (!p->win) {
-        return;
-    }
-    if (p->depth == 32) {
-        if (p->shaped) {
-            XShapeCombineMask(g_dpy, p->win, ShapeBounding, 0, 0, None, ShapeSet);
-            p->shaped = 0;
-        }
-        return;
-    }
-    int r = p->border_radius;
     if (r <= 0) {
-        if (p->shaped) {
-            XShapeCombineMask(g_dpy, p->win, ShapeBounding, 0, 0, None, ShapeSet);
-            p->shaped = 0;
-        }
+        XShapeCombineMask(g_dpy, win, ShapeBounding, 0, 0, None, ShapeSet);
         return;
     }
-    int max_r = (p->w < p->h ? p->w : p->h) / 2;
+    int max_r = (w < h ? w : h) / 2;
     if (r > max_r) {
         r = max_r;
     }
-    Pixmap mask = XCreatePixmap(g_dpy, p->win, p->w, p->h, 1);
-    cairo_surface_t *ms = cairo_xlib_surface_create_for_bitmap(g_dpy, mask, DefaultScreenOfDisplay(g_dpy), p->w, p->h);
+    Pixmap mask = XCreatePixmap(g_dpy, win, (unsigned)w, (unsigned)h, 1);
+    cairo_surface_t *ms = cairo_xlib_surface_create_for_bitmap(g_dpy, mask, DefaultScreenOfDisplay(g_dpy), w, h);
     cairo_t *mcr = cairo_create(ms);
     cairo_set_operator(mcr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(mcr, 0, 0, 0, 0); /* transparent = clipped away */
     cairo_paint(mcr);
     cairo_set_source_rgba(mcr, 1, 1, 1, 1);
-    panel_trace_rounded_rect(mcr, p->w, p->h, r);
+    panel_trace_rounded_rect(mcr, w, h, r);
     cairo_fill(mcr);
     cairo_destroy(mcr);
     cairo_surface_destroy(ms);
 
-    XShapeCombineMask(g_dpy, p->win, ShapeBounding, 0, 0, mask, ShapeSet);
+    XShapeCombineMask(g_dpy, win, ShapeBounding, 0, 0, mask, ShapeSet);
     XFreePixmap(g_dpy, mask);
-    p->shaped = 1;
+}
+
+/* Applies (or clears) the panel window's rounded-corner shape mask, from
+ * the theme's border_radius=. A radius of 0 (the default, and any theme
+ * without the key) resets the window to its plain rectangle, so nothing
+ * changes for an unthemed panel.
+ *
+ * On an ARGB visual this doesn't call panel_shape_round_corners() at all:
+ * panel_paint_content() instead clips the *content* to the same rounded
+ * rect and leaves those pixels transparent, which looks identical once a
+ * compositor is painting p->win's alpha -- and unlike SHAPE, it never
+ * touches the window's hit region, so real widgets flush against the
+ * panel's own rounded corner stay fully clickable. Without ARGB there's
+ * no alpha channel for that, so this falls back to
+ * panel_shape_round_corners() same as every other popup -- accepting
+ * that tradeoff (corners permanently unclickable, see that function's
+ * doc comment) only because there's no better option left on a bare,
+ * uncomposited server. */
+static void panel_apply_shape(Panel *p)
+{
+    if (!p->win) {
+        return;
+    }
+    int r = (p->depth == 32) ? 0 : p->border_radius;
+    if (r <= 0 && !p->shaped) {
+        return;
+    }
+    panel_shape_round_corners(p->win, p->w, p->h, r);
+    p->shaped = r > 0;
 }
 
 /* Drops every decoded theme icon (see panel_theme_icon()) -- called when

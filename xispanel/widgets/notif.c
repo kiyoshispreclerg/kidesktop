@@ -129,6 +129,7 @@ static int notif_on_tick(PanelWidget *w, uint64_t now)
     toast_set_bg_image(p->bg_image_surface, p->bg_slice_l, p->bg_slice_t, p->bg_slice_r, p->bg_slice_b);
     toast_set_skin(&p->menu_skin);
     toast_set_padding_extra(p->tooltip_toast_padding_extra);
+    toast_set_border_radius(p->border_radius);
 
     /* The one thing this widget draws that changes on its own (a new
      * Notify() arriving, or a toast/menu marking one read) is the unread

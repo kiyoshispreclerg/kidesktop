@@ -1035,6 +1035,11 @@ static void show_popup(void)
     if (reuse) {
         XMoveResizeWindow(g_dpy, pop->win, screen_x, screen_y, (unsigned)pop->width, (unsigned)pop->height);
         cairo_xlib_surface_set_size(pop->surface, pop->width, pop->height);
+        /* Re-applied every time, not just at creation: a reused popup's
+         * size changes with its content (a longer line, a group gaining a
+         * thumbnail row...), and the SHAPE mask has to match exactly or
+         * it'd clip a stale rectangle instead of the current one. */
+        panel_shape_round_corners(pop->win, pop->width, pop->height, p->border_radius);
         XRaiseWindow(g_dpy, pop->win);
         /* See g_suppress_popup_enter's own doc comment: this move/raise
          * can itself generate a crossing event indistinguishable from a
@@ -1060,6 +1065,7 @@ static void show_popup(void)
                                   CWOverrideRedirect | CWColormap | CWBorderPixel | CWBackPixel | CWEventMask, &attrs);
         XChangeProperty(g_dpy, pop->win, g_atom_wm_window_type, XA_ATOM, 32, PropModeReplace,
                          (unsigned char *)&g_atom_wm_window_type_tooltip, 1);
+        panel_shape_round_corners(pop->win, pop->width, pop->height, p->border_radius);
 
         pop->surface = cairo_xlib_surface_create(g_dpy, pop->win, p->visual, pop->width, pop->height);
         pop->cr = cairo_create(pop->surface);

@@ -131,6 +131,11 @@ static int g_bg_slice_l = 0, g_bg_slice_t = 0, g_bg_slice_r = 0, g_bg_slice_b = 
  * panel's own spacing. */
 static int g_pad_extra = 0;
 
+/* Mirrors the owning panel's border_radius=, same borrowed-from-notif.c's
+ * on_tick pattern as everything else above -- see toast_set_border_
+ * radius(). 0 = square, the original look. */
+static int g_border_radius = 0;
+
 static Visual *g_visual = NULL;
 static int g_depth = 0;
 static Colormap g_cmap = None;
@@ -414,6 +419,7 @@ static void map_and_show_toast(Toast *t)
                             CWOverrideRedirect | CWColormap | CWBorderPixel | CWBackPixel | CWEventMask, &attrs);
     XChangeProperty(g_dpy, t->win, g_atom_wm_window_type, XA_ATOM, 32, PropModeReplace,
                      (unsigned char *)&g_atom_wm_window_type_tooltip, 1);
+    panel_shape_round_corners(t->win, TOAST_W, TOAST_H, g_border_radius);
     t->surface = cairo_xlib_surface_create(g_dpy, t->win, g_visual, TOAST_W, TOAST_H);
     t->cr = cairo_create(t->surface);
     t->density = density_layer_register(t->win, g_visual, g_depth, toast_density_paint, NULL);
@@ -607,6 +613,32 @@ void toast_set_padding_extra(int extra)
     g_pad_extra = extra;
     for (int i = 0; i < g_n; i++) {
         paint_toast(&g_toasts[i]);
+    }
+    if (g_n > 0) {
+        XFlush(g_dpy);
+    }
+}
+
+/* Mirrors widgets/notif.c's own panel's border_radius=, same on_tick
+ * re-sync pattern as toast_set_colors()/toast_set_padding_extra() -- see
+ * panel_shape_round_corners()'s doc comment for why a toast (a small,
+ * ephemeral popup with no content near its own corner) rounds via plain
+ * SHAPE rather than the panel bar's own compositor-dependent alpha clip.
+ * Every toast is the same fixed TOAST_W x TOAST_H, so one shape call
+ * covers them all -- re-applied to each already-showing one immediately
+ * rather than waiting for its next paint_toast(), since changing the
+ * radius doesn't otherwise dirty anything. */
+void toast_set_border_radius(int r)
+{
+    if (r < 0) {
+        r = 0;
+    }
+    if (g_border_radius == r) {
+        return;
+    }
+    g_border_radius = r;
+    for (int i = 0; i < g_n; i++) {
+        panel_shape_round_corners(g_toasts[i].win, TOAST_W, TOAST_H, g_border_radius);
     }
     if (g_n > 0) {
         XFlush(g_dpy);

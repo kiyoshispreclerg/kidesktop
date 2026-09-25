@@ -259,25 +259,16 @@ static int menu_icon_column_w(const PanelMenu *m);
 static void draw_frame(cairo_t *cr, PanelMenu *m, MenuFrame *f)
 {
     Panel *p = m->owner_panel;
-    /* Rounded corners the same way panel_apply_shape()/panel_paint_content()
-     * round the panel bar itself on an ARGB visual: clip the *content* to
-     * a rounded rect and leave those pixels transparent, rather than
-     * SHAPE-masking f->win -- see panel_apply_shape()'s doc comment for
-     * why that would only make the corners permanently unclickable on
-     * this server. create_frame_window() gives every frame the owner
-     * panel's own p->visual/p->depth, so this is exactly the same ARGB
-     * check. Without ARGB there's no alpha channel to cut into, so the
-     * frame just stays square -- unlike the panel bar, this file has no
-     * SHAPE fallback for the uncomposited case (a small popup's own
-     * corners being square there is a far smaller loss than a whole
-     * panel edge being unclippable would be, so it wasn't worth the
-     * second code path). */
-    int rounded = p->border_radius > 0 && p->depth == 32;
-    cairo_save(cr);
-    if (rounded) {
-        panel_trace_rounded_rect(cr, f->width, f->height, p->border_radius);
-        cairo_clip(cr);
-    }
+    /* Corners are rounded by SHAPE-masking f->win itself (see
+     * create_frame_window() and panel_shape_round_corners()'s doc
+     * comment), not by clipping the painted content -- works with or
+     * without a compositor, unlike the panel bar's own alpha-clip
+     * approach, at the cost of the rounded-off corner pixels'
+     * clickability. Fine for a popup with no content anywhere near its
+     * own corner. Painting itself needs no special-casing for it at all:
+     * whatever gets drawn into the corner pixels here simply never shows,
+     * SHAPE clips it at the X server, same as it always did for the
+     * bounding rect before rounded corners existed. */
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, p->bg_r, p->bg_g, p->bg_b, p->bg_a);
     cairo_paint(cr);
@@ -364,20 +355,16 @@ static void draw_frame(cairo_t *cr, PanelMenu *m, MenuFrame *f)
             cairo_stroke(cr);
         }
     }
-    cairo_restore(cr); /* pops the rounded-rect clip pushed at the top, if any */
 
     /* Outer border, same subtle definition kiwm's own context menu draws
-     * around itself -- stroked along the same rounded-rect path as the
-     * clip above (when rounded) so it actually hugs the curve instead of
-     * getting cut off square against it. */
+     * around itself -- a plain rectangle even when rounded: SHAPE already
+     * crops whatever's painted in the corner pixels at the X server, so a
+     * square-cornered stroke comes out hugging the curve on its own,
+     * without needing its own rounded-rect path here. */
     cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.3);
     cairo_set_line_width(cr, MENU_FRAME_BORDER_W);
     double inset = MENU_FRAME_BORDER_W / 2.0;
-    if (rounded) {
-        panel_trace_rounded_rect(cr, f->width, f->height, p->border_radius);
-    } else {
-        cairo_rectangle(cr, inset, inset, f->width - 2 * inset, f->height - 2 * inset);
-    }
+    cairo_rectangle(cr, inset, inset, f->width - 2 * inset, f->height - 2 * inset);
     cairo_stroke(cr);
 }
 
@@ -588,6 +575,7 @@ static int create_frame_window(PanelMenu *m, MenuFrame *f, int want_grab)
                             CWOverrideRedirect | CWColormap | CWBorderPixel | CWBackPixel | CWEventMask, &attrs);
     XChangeProperty(g_dpy, f->win, g_atom_wm_window_type, XA_ATOM, 32, PropModeReplace,
                      (unsigned char *)&g_atom_wm_window_type_popup_menu, 1);
+    panel_shape_round_corners(f->win, f->width, f->height, p->border_radius);
 
     f->surface = cairo_xlib_surface_create(g_dpy, f->win, p->visual, f->width, f->height);
     f->cr = cairo_create(f->surface);

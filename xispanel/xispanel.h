@@ -685,6 +685,12 @@ void panel_paint_content(Panel *p, cairo_t *cr, double scale);
  * why it's alpha-clipped content, not a SHAPE mask, on an ARGB visual) and
  * menu.c's popup frames, which round the same way for the same reason. */
 void panel_trace_rounded_rect(cairo_t *cr, int w, int h, int r);
+/* SHAPE-masks `win` (any size w x h) to that same rounded rect, or clears
+ * the mask back to a plain rectangle when r <= 0 -- see its doc comment
+ * in xispanel.c for why this is right for an ephemeral popup (menu.c's
+ * frames, tooltip.c's popup, toast.c's toasts) but not the panel bar
+ * itself. */
+void panel_shape_round_corners(Window win, int w, int h, int r);
 /* Calls cb(p, ctx) for every in-use panel -- lets density.c react to a
  * compositor disappearing (reset every panel's density to 1/1) without
  * needing xispanel.c's own g_panels[]/MAX_PANELS storage details exposed. */
@@ -1463,6 +1469,7 @@ void toast_set_skin(const PanelSkin *skin);
 /* Mirrors a panel's tooltip_toast_padding_extra onto the toast popups --
  * same on_tick re-sync pattern as toast_set_colors() above. */
 void toast_set_padding_extra(int extra);
+void toast_set_border_radius(int r);
 
 /* ---- volume control: shells out to `pactl`, no libpulse linked (pulse.c) ----
  *
