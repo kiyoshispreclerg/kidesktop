@@ -96,7 +96,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.57"
+#define XISPANEL_VERSION "0.6.58"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -976,6 +976,20 @@ void run_detached(const char *cmd)
     }
     if (pid == 0) {
         setsid();
+        /* The actual double fork: this first child exits immediately
+         * below, orphaning the grandchild that execs `cmd` -- the kernel
+         * reparents it to init (or whatever subreaper owns the tree), not
+         * to xispanel. Without this second fork, setsid() alone detaches
+         * from the controlling terminal but leaves ppid pointing at
+         * xispanel for as long as the launched program runs, so it shows
+         * up nested under xispanel in any process-tree view. */
+        pid_t pid2 = fork();
+        if (pid2 < 0) {
+            _exit(1);
+        }
+        if (pid2 > 0) {
+            _exit(0);
+        }
         execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
         _exit(127);
     }
