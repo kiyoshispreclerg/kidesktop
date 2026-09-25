@@ -1828,11 +1828,11 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
          * the source picture, so it is built in the direction the sampling
          * goes: target pixels -> logical root -> (the effect's inverse) ->
          * the window's own pixmap. */
+        CompTransform m;
         if (needs_matrix) {
             /* Target pixels -> logical root: the physical scale, the
              * output's origin and the lens, all of which this output
              * puts between a root coordinate and a pixel. */
-            CompTransform m;
             target_to_root(o, &m);
 
             if (transformed) {
@@ -1940,8 +1940,26 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
             xcb_render_picture_t dense_mask =
                 shape_masked ? window_alpha(w, n->opacity) : mask;
             float density;
-            if (deco_density_active(w, &density))
-                draw_dense(o, n, w, dense_mask, &n->geometry, density, true);
+            if (deco_density_active(w, &density)) {
+                /* Unlike the client's dense content, the decoration's
+                 * dense pixmap *is* the corners -- it covers the whole
+                 * frame, and it has no rounding of its own (kiwm's shape
+                 * is a window property, not baked into the pixmap). Drawn
+                 * with the constant-alpha mask like the rest, it paints
+                 * square right over whatever the base composite above
+                 * left rounded. The shape mask lives in the same logical,
+                 * unscaled window space that draw sampled it in, so it
+                 * wants that matrix, not the dense pixmap's -- XRender
+                 * lets source and mask carry independent transforms. */
+                xcb_render_picture_t deco_mask = dense_mask;
+                if (shape_masked) {
+                    picture_transform_set(mask, &m);
+                    deco_mask = mask;
+                }
+                draw_dense(o, n, w, deco_mask, &n->geometry, density, true);
+                if (shape_masked)
+                    picture_transform_reset(mask);
+            }
             if (density_active(w, &density)) {
                 CompRect client = {
                     n->geometry.x + w->client_rect.x,
