@@ -95,7 +95,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.52"
+#define XISPANEL_VERSION "0.6.53"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -3515,18 +3515,33 @@ static void dispatch_button(Panel *p, int button, int x, int y, int root_x, int 
     int axis_pos = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? x : y;
     int cross_pos = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? y : x;
     PanelWidget *w = panel_widget_at(p, axis_pos, cross_pos);
+    int handled = 0;
     if (w && w->ops->on_button) {
-        w->ops->on_button(w, button, axis_pos - w->x, cross_pos - w->y, root_x, root_y);
-    } else if (!w && button == Button3) {
-        /* Blank panel space -- a spacer, the gap between two widgets, past
-         * the last one -- gets a context menu too, same as clicking any
-         * widget that has one: panel_menu_open() always appends
-         * "Configurar paineis" as the menu's last item (see menu.c), so an
-         * empty click still opens *something* rather than doing nothing,
-         * with that one entry. anchor_x is the click's own panel-relative
-         * axis position, not tied to any widget -- see panel_menu_open_
-         * tree_lazy()'s owner_widget-may-be-NULL handling. */
-        panel_menu_open(p, NULL, axis_pos, 0, NULL, 0, NULL, NULL);
+        handled = w->ops->on_button(w, button, axis_pos - w->x, cross_pos - w->y, root_x, root_y);
+    }
+    if (!handled && button == Button3) {
+        /* Nothing else claimed this right-click -- no widget under it at
+         * all (blank panel space: a spacer, the gap between two widgets,
+         * past the last one, inside a widget's own unused space like
+         * tasklist's tail past the last button), a widget with no
+         * on_button op (monitor, spacer), or one whose on_button doesn't
+         * handle Button3 (every widget's own 0-for-unhandled convention,
+         * e.g. globalmenu/pager/clock/energy/xisserve/container/folder/
+         * network/storage) -- every one of those gets a context menu too,
+         * same as a widget with its own (tray/tasklist/winctl/notif):
+         * panel_menu_open() always appends "Configurar paineis" as the
+         * menu's last item (see menu.c), so this never opens truly empty,
+         * just that one entry at minimum. Anchored on the widget's own
+         * span when there is one (matching every widget that opens its
+         * own menu this same way, e.g. winctl_on_button()), or on the
+         * click's own panel-relative position when there's no widget at
+         * all (see panel_menu_open_tree_lazy()'s owner_widget-may-be-NULL
+         * handling). */
+        if (w) {
+            panel_menu_open(p, w, 0, w->len, NULL, 0, NULL, NULL);
+        } else {
+            panel_menu_open(p, NULL, axis_pos, 0, NULL, 0, NULL, NULL);
+        }
     }
 }
 
