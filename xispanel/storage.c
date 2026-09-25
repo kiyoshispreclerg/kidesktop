@@ -6,12 +6,26 @@
  * rather than shared since xispanel is a separate binary/codebase (same
  * "duplicated on purpose" call notifications.c's own doc comment makes
  * for xisserve/xispanel's two independent small JSON/kv parsers).
+ *
+ * The lsblk run goes through asyncmd.c, not popen(): `lsblk` is normally
+ * instant, but it stat()s every block device, so a spun-down or dying USB
+ * disk can stall it for seconds -- and anything that stalls here stalls
+ * the whole panel (see asyncmd.c's doc comment). Going through asyncmd
+ * also means widgets/storage.c and storage_events.c, which ask on
+ * different intervals for the exact same command, now share one child
+ * process and one snapshot instead of each forking its own.
  */
 #include "xispanel.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* One exact string, because asyncmd.c keys its snapshot slots by the
+ * command text: widgets/storage.c and storage_events.c must ask with a
+ * byte-identical command to share the same child and snapshot rather than
+ * each getting a slot (and a process) of its own. */
+#define STORAGE_LSBLK_CMD "LC_ALL=C lsblk -P -o NAME,PKNAME,TYPE,SIZE,FSTYPE,LABEL,MOUNTPOINT,RM,HOTPLUG"
 
 /* One `KEY="value"` pair starting at or after *pp, value unescaped
  * (lsblk backslash-escapes '"'/'\\' inside -P output). Advances *pp past
@@ -77,16 +91,18 @@ static void apply_kv(StorageDevice *d, char removable[8], char hotplug[8], const
     }
 }
 
-int storage_list(StorageDevice *out, int max, int *out_count)
+uint64_t storage_list(unsigned refresh_ms, StorageDevice *out, int max, int *out_count)
 {
     *out_count = 0;
-    FILE *f = popen("LC_ALL=C lsblk -P -o NAME,PKNAME,TYPE,SIZE,FSTYPE,LABEL,MOUNTPOINT,RM,HOTPLUG 2>/dev/null", "r");
-    if (!f) {
-        return 0;
+
+    const char *text = "";
+    uint64_t gen = asyncmd_get(STORAGE_LSBLK_CMD, refresh_ms, &text);
+    if (gen == 0) {
+        return 0; /* first run hasn't finished yet -- no snapshot to parse */
     }
+
     char line[1024];
-    while (*out_count < max && fgets(line, sizeof(line), f)) {
-        line[strcspn(line, "\n")] = 0;
+    while (*out_count < max && asyncmd_next_line(&text, line, sizeof(line))) {
         if (!line[0]) {
             continue;
         }
@@ -110,6 +126,5 @@ int storage_list(StorageDevice *out, int max, int *out_count)
         }
         out[(*out_count)++] = d;
     }
-    pclose(f);
-    return 1;
+    return gen;
 }

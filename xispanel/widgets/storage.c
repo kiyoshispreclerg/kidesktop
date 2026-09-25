@@ -47,7 +47,15 @@ static int storage_on_tick(PanelWidget *w, uint64_t now)
     StorageDevice old[STORAGE_MAX_DEVICES];
     memcpy(old, sp->devices, sizeof(old));
 
-    storage_list(sp->devices, STORAGE_MAX_DEVICES, &sp->count);
+    /* Never blocks -- the last completed `lsblk` snapshot, refreshed in
+     * the background (see ../storage.c). Generation 0 means the first run
+     * hasn't landed yet: keep the previous state rather than briefly
+     * painting "nothing attached". */
+    if (storage_list(STORAGE_POLL_MS, sp->devices, STORAGE_MAX_DEVICES, &sp->count) == 0) {
+        sp->count = o_count;
+        memcpy(sp->devices, old, sizeof(old));
+        return 0;
+    }
 
     if (o_count != sp->count) {
         return 1;

@@ -29,6 +29,7 @@ static uint64_t g_next_poll_ms = 0;
 static StorageDevice g_last[STORAGE_EVENTS_MAX_DEVICES];
 static int g_last_count = 0;
 static int g_seeded = 0;
+static uint64_t g_last_gen = 0;
 
 static const StorageDevice *find_by_name(const StorageDevice *list, int count, const char *name)
 {
@@ -64,9 +65,19 @@ void storage_events_poll(uint64_t now)
 
     StorageDevice cur[STORAGE_EVENTS_MAX_DEVICES];
     int cur_count = 0;
-    if (!storage_list(cur, STORAGE_EVENTS_MAX_DEVICES, &cur_count)) {
+    uint64_t gen = storage_list(STORAGE_EVENTS_POLL_MS, cur, STORAGE_EVENTS_MAX_DEVICES, &cur_count);
+    if (gen == 0) {
+        /* First `lsblk` run still in flight. Critically NOT the same as
+         * "no devices attached": seeding the baseline from an empty
+         * snapshot here would make every already-plugged device look
+         * newly arrived the moment the real one lands, toasting them all
+         * at startup. */
         return;
     }
+    if (gen == g_last_gen) {
+        return; /* same snapshot as last time -- nothing can have changed */
+    }
+    g_last_gen = gen;
 
     if (!g_seeded) {
         /* First poll after startup: seed the baseline silently -- every
