@@ -139,6 +139,7 @@ static void list_kind(const char *listing, PulseKind kind, const char *header, G
             e->kind = kind;
             e->index = atoi(line + header_len);
             e->volume_pct = -1;
+            e->device_index = -1;
             g_ptr_array_add(out, e);
             continue;
         }
@@ -200,6 +201,12 @@ static void list_kind(const char *listing, PulseKind kind, const char *header, G
             e->muted = strcmp(val, "yes") == 0;
         } else if (strcmp(key, "Corked") == 0) {
             e->corked = strcmp(val, "yes") == 0;
+        } else if (strcmp(key, "Sink") == 0 || strcmp(key, "Source") == 0) {
+            /* Only present on sink-input/source-output blocks (the
+             * stream's currently attached device); a device block's own
+             * "Sink:"/"Source:" would never appear, pactl doesn't emit
+             * a field named after the object kind on itself. */
+            e->device_index = atoi(val);
         } else if (strcmp(key, "State") == 0) {
             e->suspended = strcmp(val, "SUSPENDED") == 0;
         } else if (strcmp(key, "Volume") == 0) {
@@ -394,6 +401,20 @@ void pulse_set_default(const PulseEntry *e)
     } else {
         move_all_streams("source-outputs", "move-source-output", e->name);
     }
+}
+
+void pulse_move_stream(const PulseEntry *stream, const char *target_name)
+{
+    if (!pulse_available()) {
+        return;
+    }
+    if (stream->kind != PULSE_SINK_INPUT && stream->kind != PULSE_SOURCE_OUTPUT) {
+        return;
+    }
+    const char *mover = stream->kind == PULSE_SINK_INPUT ? "move-sink-input" : "move-source-output";
+    char args[512];
+    snprintf(args, sizeof(args), "%s %d %s", mover, stream->index, target_name);
+    pactl_run_fire(args);
 }
 
 /* "Disable" for a device means suspending it, not tearing down its card

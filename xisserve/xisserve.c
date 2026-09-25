@@ -46,7 +46,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.32"
+#define XISSERVE_VERSION "0.1.33"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -89,7 +89,11 @@ static const XisservePage kPages[] = {
 };
 #define N_PAGES ((int)(sizeof(kPages) / sizeof(kPages[0])))
 
+/* NULL until a page is actually requested for the first time -- see
+ * ensure_page_built() and build_ui()'s comment on why pages are no
+ * longer built eagerly. */
 static GtkWidget *g_page_roots[N_PAGES];
+static GtkWidget *g_main_vbox; /* what ensure_page_built() packs a freshly-built root into */
 
 typedef struct {
     int anchor_x, anchor_y, anchor_w, anchor_h;
@@ -1658,6 +1662,32 @@ static gboolean on_window_expose(GtkWidget *w, GdkEventExpose *ev, gpointer data
     return FALSE;
 }
 
+/* Only the root is touched: GTK propagates a modified font/bg down to
+ * children that haven't overridden it, and a page that wants finer
+ * control (the audio mixer colors its own labels, since its rows are
+ * rebuilt long after this runs) does that itself via
+ * xisserve_get_fg_rgba(). Split out from apply_theme() so
+ * ensure_page_built() can theme a single root the instant it's built,
+ * without waiting for the next full apply_theme() pass. */
+static void apply_theme_to_root(GtkWidget *root)
+{
+    double r, g, b, a;
+    hex_to_rgba(g_args.bg, &r, &g, &b, &a);
+    GdkColor bg_color = {0, (guint16)(r * 65535), (guint16)(g * 65535), (guint16)(b * 65535)};
+    hex_to_rgba(g_args.fg, &r, &g, &b, &a);
+    GdkColor fg_color = {0, (guint16)(r * 65535), (guint16)(g * 65535), (guint16)(b * 65535)};
+
+    PangoFontDescription *desc = pango_font_description_new();
+    pango_font_description_set_family(desc, g_args.font[0] ? g_args.font : "sans-serif");
+    if (g_args.font_size > 0) pango_font_description_set_absolute_size(desc, g_args.font_size * PANGO_SCALE);
+
+    gtk_widget_modify_bg(root, GTK_STATE_NORMAL, &bg_color);
+    gtk_widget_modify_text(root, GTK_STATE_NORMAL, &fg_color);
+    gtk_widget_modify_font(root, desc);
+
+    pango_font_description_free(desc);
+}
+
 static void apply_theme(void)
 {
     double r, g, b, a;
@@ -1681,22 +1711,32 @@ static void apply_theme(void)
     gtk_widget_modify_font(g_treeview, desc);
     gtk_widget_modify_font(g_cat_treeview, desc);
     gtk_widget_modify_font(g_header_title, desc);
-
-    /* Each page's root gets the same treatment. Only the root is
-     * touched: GTK propagates a modified font/bg down to children that
-     * haven't overridden it, and a page that wants finer control (the
-     * audio mixer colors its own labels, since its rows are rebuilt
-     * long after this runs) does that itself via
-     * xisserve_get_fg_rgba(). */
-    for (int i = 0; i < N_PAGES; i++) {
-        if (!g_page_roots[i]) continue;
-        gtk_widget_modify_bg(g_page_roots[i], GTK_STATE_NORMAL, &bg_color);
-        gtk_widget_modify_text(g_page_roots[i], GTK_STATE_NORMAL, &fg_color);
-        gtk_widget_modify_font(g_page_roots[i], desc);
-    }
     pango_font_description_free(desc);
 
+    /* Only pages built so far -- see apply_theme_to_root()'s comment;
+     * one not yet requested gets themed the moment ensure_page_built()
+     * constructs it instead. */
+    for (int i = 0; i < N_PAGES; i++) {
+        if (!g_page_roots[i]) continue;
+        apply_theme_to_root(g_page_roots[i]);
+    }
+
     gtk_widget_queue_draw(g_window);
+}
+
+/* Constructs kPages[idx]'s root widget on first use and packs it into
+ * g_main_vbox -- see build_ui()'s comment on why this now happens here
+ * instead of eagerly for every page at startup. A no-op past the first
+ * call for a given page (its root, once built, is kept for the rest of
+ * the daemon's life: page-to-page switching stays an instant show/hide,
+ * same as before -- only the *first* visit to each page pays a build
+ * cost now). */
+static void ensure_page_built(int idx)
+{
+    if (g_page_roots[idx]) return;
+    g_page_roots[idx] = kPages[idx].build();
+    gtk_box_pack_start(GTK_BOX(g_main_vbox), g_page_roots[idx], TRUE, TRUE, 0);
+    apply_theme_to_root(g_page_roots[idx]);
 }
 
 /* Glues the popup to the panel's outer edge aligned with the anchor
@@ -2284,6 +2324,11 @@ static void show_launcher(void)
         }
         rebuild_results();
     } else {
+        /* First visit to this page in the daemon's life: build it now,
+         * rather than at startup -- see build_ui()'s comment. Before
+         * on_show(), which fills the (now-existing) widgets with current
+         * data. */
+        ensure_page_built(g_args.page);
         /* Before apply_view_mode(): a page's on_show() is what fills it
          * with current data, and the window is sized from the result. */
         if (kPages[g_args.page].on_show) kPages[g_args.page].on_show();
@@ -2607,10 +2652,25 @@ static void free_closure_data(gpointer data, GClosure *closure)
     g_free(data);
 }
 
-/* Set for the duration of our own right-click context menu -- see
- * on_window_grab_broken()'s comment for why this needs to be
- * distinguishable from a *foreign* grab theft. */
-static gboolean g_context_menu_active = FALSE;
+/* Set for the duration of any of *our own* popups that take the X grab
+ * away from g_window (right-click context menu, a page's own
+ * GtkComboBox dropdown) -- see on_window_grab_broken()'s comment for why
+ * this needs to be distinguishable from a *foreign* grab theft. Exported
+ * as xisserve_transient_popup_begin()/_end() below rather than kept
+ * file-private, so pages/*.c share this one mechanism instead of each
+ * inventing its own flag. */
+static gboolean g_transient_popup_active = FALSE;
+
+void xisserve_transient_popup_begin(void)
+{
+    g_transient_popup_active = TRUE;
+}
+
+void xisserve_transient_popup_end(void)
+{
+    g_transient_popup_active = FALSE;
+    if (GTK_WIDGET_VISIBLE(g_window)) grab_input();
+}
 
 /* GtkMenu's own popup takes the X pointer/keyboard grab while shown,
  * superseding grab_input()'s explicit gdk_pointer_grab/gdk_keyboard_grab
@@ -2622,8 +2682,7 @@ static void on_context_menu_selection_done(GtkWidget *menu, gpointer data)
 {
     (void)data;
     gtk_widget_destroy(menu);
-    g_context_menu_active = FALSE;
-    if (GTK_WIDGET_VISIBLE(g_window)) grab_input();
+    xisserve_transient_popup_end();
 }
 
 /* Right-click on a real (from_desktop) result offers "Adicionar aos
@@ -2690,7 +2749,7 @@ static void show_result_context_menu(GtkTreeModel *model, GtkTreeIter *iter, gui
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
     g_signal_connect(menu, "selection-done", G_CALLBACK(on_context_menu_selection_done), NULL);
     gtk_widget_show_all(menu);
-    g_context_menu_active = TRUE;
+    xisserve_transient_popup_begin();
     gtk_menu_popup(GTK_MENU(menu), NULL, NULL, NULL, NULL, button, time);
 }
 
@@ -2950,18 +3009,19 @@ static gboolean on_window_button_press(GtkWidget *w, GdkEventButton *ev, gpointe
  * (e.g. a different app opening its own grabbing popup); when that
  * happens we're no longer guaranteed input focus or outside-click
  * detection, so just close rather than linger in a half-working state.
- * BUT our own right-click context menu breaks our grab exactly the same
- * way (GtkMenu's popup takes its own grab while shown) -- that case is
- * expected and already handled by on_context_menu_selection_done()
- * reclaiming the grab once the menu closes, so it must NOT hide us here
- * too, or the main window vanishes the instant the context menu opens,
- * leaving only the little menu on screen with nothing behind it. */
+ * BUT one of our OWN popups (right-click context menu, a page's own
+ * GtkComboBox dropdown) breaks our grab exactly the same way (GtkMenu's
+ * popup takes its own grab while shown) -- that case is expected and
+ * already handled by xisserve_transient_popup_end() reclaiming the grab
+ * once it closes, so it must NOT hide us here too, or the main window
+ * vanishes the instant that popup opens, leaving only the little popup
+ * on screen with nothing behind it. */
 static gboolean on_window_grab_broken(GtkWidget *w, GdkEventGrabBroken *ev, gpointer data)
 {
     (void)w;
     (void)ev;
     (void)data;
-    if (g_context_menu_active) return FALSE;
+    if (g_transient_popup_active) return FALSE;
     /* Pinned windows hold no grab by design, so losing one is not the
      * "we've been left in a half-working state" signal it otherwise is
      * -- it's just the expected consequence of pinning. */
@@ -3082,6 +3142,7 @@ static void build_ui(void)
     g_signal_connect(g_window, "visibility-notify-event", G_CALLBACK(on_window_visibility), NULL);
 
     GtkWidget *vbox = gtk_vbox_new(FALSE, 4);
+    g_main_vbox = vbox; /* ensure_page_built() packs a page's root in here on its first visit */
     gtk_container_set_border_width(GTK_CONTAINER(vbox), 6);
     gtk_container_add(GTK_CONTAINER(g_window), vbox);
 
@@ -3202,16 +3263,15 @@ static void build_ui(void)
     }
     gtk_box_pack_start(GTK_BOX(vbox), g_footer, FALSE, FALSE, 0);
 
-    /* Every page's root goes into the same vbox as the launcher's own
-     * widgets, all of them normally hidden -- apply_view_mode() shows
-     * exactly one group. Built once, up front, rather than lazily on
-     * first use: a page's build() is cheap (no data is fetched there --
-     * that's on_show()'s job) and this keeps apply_theme() able to
-     * assume every root already exists. */
-    for (int i = 0; i < N_PAGES; i++) {
-        g_page_roots[i] = kPages[i].build();
-        gtk_box_pack_start(GTK_BOX(vbox), g_page_roots[i], TRUE, TRUE, 0);
-    }
+    /* Every page's root eventually goes into this same vbox as the
+     * launcher's own widgets, all of them normally hidden --
+     * apply_view_mode() shows exactly one group. Not built here, though:
+     * each kPages[i].build() only runs the first time that page is
+     * actually requested (ensure_page_built(), called from
+     * show_launcher()), so a session that only ever opens one or two
+     * pages never pays to construct the others. g_page_roots therefore
+     * starts all-NULL -- apply_theme() and apply_view_mode() already
+     * skip a NULL entry. */
 }
 
 int main(int argc, char **argv)

@@ -30,6 +30,14 @@
 #include <unistd.h>
 
 #define AUDIO_POLL_MS 1500
+/* Caps how wide a stream's device_combo can grow -- GtkComboBox's
+ * natural width otherwise follows its *longest* item's full text (a
+ * device Description can run to 40+ chars), which forced the whole page
+ * wider than the window and made every other row's content scroll
+ * horizontally to see. The renderer's own PANGO_ELLIPSIZE_END (set where
+ * the combo is built) is what lets it actually shrink to this instead of
+ * just clipping mid-glyph; the full name is still there as a tooltip. */
+#define AUDIO_DEVICE_COMBO_MAX_WIDTH 150
 /* How long after a user-initiated change to leave the poll alone -- see
  * the file comment. */
 #define AUDIO_SETTLE_US (900 * 1000)
@@ -55,7 +63,13 @@ typedef struct {
     GtkWidget *mute;
     GtkWidget *use_default;
     GtkWidget *active;
+    GtkWidget *device_combo; /* streams only: which sink/source this stream plays to/records from */
 } AudioRow;
+
+/* device_combo's model columns: DCOL_NAME is the target device's stable
+ * pactl name (what pulse_move_stream() addresses it by), DCOL_LABEL its
+ * Description. */
+enum { DCOL_NAME = 0, DCOL_LABEL, N_DCOLS };
 
 /* Applied to every state, not just GTK_STATE_NORMAL: a GtkCheckButton
  * draws its label in GTK_STATE_ACTIVE while checked and PRELIGHT under
@@ -172,6 +186,47 @@ static void on_mute_toggled(GtkToggleButton *btn, gpointer data)
     pulse_set_mute(&row->entry, row->entry.muted);
 }
 
+/* GtkComboBox's dropdown list takes the X grab the same way our
+ * right-click context menu does (see xisserve.h's
+ * xisserve_transient_popup_begin()/_end()) -- "popup-shown" is the GTK2
+ * property that fires for both opening and closing, so one handler
+ * covers the whole pair. */
+static void on_device_combo_popup_notify(GObject *combo, GParamSpec *pspec, gpointer data)
+{
+    (void)pspec;
+    (void)data;
+    gboolean shown = FALSE;
+    g_object_get(combo, "popup-shown", &shown, NULL);
+    if (shown) {
+        xisserve_transient_popup_begin();
+    } else {
+        xisserve_transient_popup_end();
+    }
+}
+
+static void on_device_combo_changed(GtkComboBox *combo, gpointer data)
+{
+    if (g_updating) {
+        return;
+    }
+    GtkTreeIter iter;
+    if (!gtk_combo_box_get_active_iter(combo, &iter)) {
+        return;
+    }
+    AudioRow *row = data;
+    gchar *target_name = NULL, *target_label = NULL;
+    gtk_tree_model_get(gtk_combo_box_get_model(combo), &iter, DCOL_NAME, &target_name, DCOL_LABEL, &target_label, -1);
+    if (!target_name) {
+        g_free(target_label);
+        return;
+    }
+    gtk_widget_set_tooltip_text(GTK_WIDGET(combo), target_label);
+    note_user_action();
+    pulse_move_stream(&row->entry, target_name);
+    g_free(target_name);
+    g_free(target_label);
+}
+
 static gboolean rebuild_idle(gpointer data)
 {
     (void)data;
@@ -230,11 +285,102 @@ static GtkWidget *section_header(const char *text)
     return label;
 }
 
+/* Builds the sink/source picker for a stream row (PULSE_SINK_INPUT ->
+ * PULSE_SINK choices, PULSE_SOURCE_OUTPUT -> PULSE_SOURCE choices),
+ * pre-selected to the stream's current device (e->device_index, matched
+ * against each candidate's own `index` from the same snapshot). NULL for
+ * a device row, or a stream whose target device isn't in `all_entries`
+ * (nothing to preselect against, so nothing to build). */
+static GtkWidget *build_device_combo(const PulseEntry *e, GPtrArray *all_entries)
+{
+    PulseKind target_kind = e->kind == PULSE_SINK_INPUT ? PULSE_SINK : PULSE_SOURCE;
+
+    GtkListStore *store = gtk_list_store_new(N_DCOLS, G_TYPE_STRING, G_TYPE_STRING);
+    GtkTreeIter active_iter;
+    gboolean have_active = FALSE;
+    char active_label[256];
+    active_label[0] = 0;
+    for (guint i = 0; i < all_entries->len; i++) {
+        PulseEntry *cand = g_ptr_array_index(all_entries, i);
+        if (cand->kind != target_kind) {
+            continue;
+        }
+        GtkTreeIter iter;
+        gtk_list_store_append(store, &iter);
+        gtk_list_store_set(store, &iter, DCOL_NAME, cand->name, DCOL_LABEL, cand->label, -1);
+        if (cand->index == e->device_index) {
+            active_iter = iter;
+            have_active = TRUE;
+            snprintf(active_label, sizeof(active_label), "%s", cand->label);
+        }
+    }
+
+    GtkWidget *combo = gtk_combo_box_new_with_model(GTK_TREE_MODEL(store));
+    g_object_unref(store);
+    GtkCellRenderer *rend = gtk_cell_renderer_text_new();
+    gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(combo), rend, TRUE);
+    gtk_cell_layout_add_attribute(GTK_CELL_LAYOUT(combo), rend, "text", DCOL_LABEL);
+    /* Ellipsize on the renderer is what actually lets the combo shrink
+     * below its longest item's natural width -- the size_request below
+     * this just picks the ceiling it shrinks (or is offered) to. Popup
+     * rows aren't capped: the dropdown itself can still show full names. */
+    g_object_set(rend, "ellipsize", PANGO_ELLIPSIZE_END, NULL);
+    gtk_widget_set_size_request(combo, AUDIO_DEVICE_COMBO_MAX_WIDTH, -1);
+    if (have_active) {
+        gtk_combo_box_set_active_iter(GTK_COMBO_BOX(combo), &active_iter);
+        gtk_widget_set_tooltip_text(combo, active_label);
+    }
+    return combo;
+}
+
+/* Re-selects device_combo's active item to match e->device_index against
+ * `all_entries`, without touching the combo's own list of choices --
+ * refresh_values()'s in-place counterpart to build_device_combo()'s
+ * initial selection, for when a stream's target device changed (user
+ * picked a new one here, or it moved some other way) but the set of
+ * rows on screen didn't. */
+static void sync_device_combo(AudioRow *row, GPtrArray *all_entries)
+{
+    if (!row->device_combo) {
+        return;
+    }
+    PulseKind target_kind = row->entry.kind == PULSE_SINK_INPUT ? PULSE_SINK : PULSE_SOURCE;
+    const char *target_name = NULL;
+    for (guint i = 0; i < all_entries->len; i++) {
+        PulseEntry *cand = g_ptr_array_index(all_entries, i);
+        if (cand->kind == target_kind && cand->index == row->entry.device_index) {
+            target_name = cand->name;
+            break;
+        }
+    }
+    if (!target_name) {
+        return;
+    }
+    GtkTreeModel *model = gtk_combo_box_get_model(GTK_COMBO_BOX(row->device_combo));
+    GtkTreeIter iter;
+    if (!gtk_tree_model_get_iter_first(model, &iter)) {
+        return;
+    }
+    do {
+        gchar *name = NULL, *label = NULL;
+        gtk_tree_model_get(model, &iter, DCOL_NAME, &name, DCOL_LABEL, &label, -1);
+        gboolean match = name && strcmp(name, target_name) == 0;
+        g_free(name);
+        if (match) {
+            gtk_combo_box_set_active_iter(GTK_COMBO_BOX(row->device_combo), &iter);
+            gtk_widget_set_tooltip_text(row->device_combo, label);
+            g_free(label);
+            return;
+        }
+        g_free(label);
+    } while (gtk_tree_model_iter_next(model, &iter));
+}
+
 /* Rows are structurally the same for every kind -- name/icon and mute on
  * top, slider below -- with devices growing one extra line of
  * device-only controls (default/active). Keeping one builder rather than
  * one per kind is what keeps the four sections visually consistent. */
-static GtkWidget *build_row(const PulseEntry *e)
+static GtkWidget *build_row(const PulseEntry *e, GPtrArray *all_entries)
 {
     AudioRow *row = g_new0(AudioRow, 1);
     row->entry = *e;
@@ -271,6 +417,11 @@ static GtkWidget *build_row(const PulseEntry *e)
     gtk_misc_set_alignment(GTK_MISC(label), 0.0f, 0.5f);
     style_fg(label);
     gtk_box_pack_start(GTK_BOX(top), label, TRUE, TRUE, 0);
+
+    if (e->kind == PULSE_SINK_INPUT || e->kind == PULSE_SOURCE_OUTPUT) {
+        row->device_combo = build_device_combo(e, all_entries);
+        gtk_box_pack_start(GTK_BOX(top), row->device_combo, FALSE, FALSE, 0);
+    }
 
     row->mute = gtk_toggle_button_new_with_label("Mudo");
     gtk_box_pack_start(GTK_BOX(top), row->mute, FALSE, FALSE, 0);
@@ -317,6 +468,10 @@ static GtkWidget *build_row(const PulseEntry *e)
     g_signal_connect(row->scale, "button-release-event", G_CALLBACK(on_scale_release), NULL);
     g_signal_connect(row->scale, "scroll-event", G_CALLBACK(on_scale_scroll), NULL);
     g_signal_connect(row->mute, "toggled", G_CALLBACK(on_mute_toggled), row);
+    if (row->device_combo) {
+        g_signal_connect(row->device_combo, "changed", G_CALLBACK(on_device_combo_changed), row);
+        g_signal_connect(row->device_combo, "notify::popup-shown", G_CALLBACK(on_device_combo_popup_notify), NULL);
+    }
     if (row->use_default) {
         g_signal_connect(row->use_default, "toggled", G_CALLBACK(on_default_toggled), row);
         g_signal_connect(row->active, "toggled", G_CALLBACK(on_active_toggled), row);
@@ -382,7 +537,7 @@ static void add_section(const char *title, GPtrArray *entries, PulseKind kind, g
             header_done = TRUE;
             *any = TRUE;
         }
-        gtk_box_pack_start(GTK_BOX(g_rows_box), build_row(e), FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(g_rows_box), build_row(e, entries), FALSE, FALSE, 0);
     }
 }
 
@@ -465,6 +620,7 @@ static void refresh_values(GPtrArray *entries)
                 gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(row->use_default), e->is_default);
                 gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(row->active), !e->suspended);
             }
+            sync_device_combo(row, entries);
             break;
         }
     }

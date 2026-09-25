@@ -46,6 +46,10 @@ typedef struct {
     gboolean is_default;  /* devices only */
     gboolean suspended;   /* devices only: State: SUSPENDED */
     gboolean corked;      /* streams only: paused rather than actively playing */
+    int device_index;     /* streams only: the sink/source index this stream is currently
+                            * attached to ("Sink: N"/"Source: N" in `pactl list`) -- matches
+                            * a PULSE_SINK/PULSE_SOURCE entry's own `index` from the same
+                            * pulse_list() snapshot. -1 if not parsed. */
 } PulseEntry;
 
 /* 1 if `pactl` exists and a sound server answered it. Probed once and
@@ -78,5 +82,13 @@ void pulse_set_mute(const PulseEntry *e, gboolean muted);
  * hear keeps coming from the old one. */
 void pulse_set_default(const PulseEntry *e);
 void pulse_set_suspended(const PulseEntry *e, gboolean suspended);
+
+/* Streams only (PULSE_SINK_INPUT/PULSE_SOURCE_OUTPUT); no-op otherwise.
+ * Moves this one stream onto `target_name` (a PULSE_SINK's name for a
+ * sink-input, a PULSE_SOURCE's name for a source-output) -- the
+ * per-stream equivalent of pulse_set_default()'s move_all_streams(), for
+ * picking a device for a single running program rather than for every
+ * stream at once. */
+void pulse_move_stream(const PulseEntry *stream, const char *target_name);
 
 #endif

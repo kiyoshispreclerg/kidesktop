@@ -212,6 +212,19 @@ void run_detached(const char *cmd);
 /* Single-quotes `in` for safe use inside an `sh -c` command string. */
 void shell_quote(const char *in, char *out, size_t outsz);
 
+/* A page's own widget (GtkComboBox's dropdown, most commonly) is about
+ * to take the X grab away from g_window, the same way the launcher's
+ * own right-click context menu already does -- see xisserve.c's
+ * on_window_grab_broken(). Call _begin() right before showing that
+ * widget's popup and _end() once it closes (e.g. a GtkComboBox's
+ * "notify::popup-shown" going FALSE), so on_window_grab_broken() knows
+ * this is our own popup stealing the grab, not something to hide the
+ * window over, and _end() reclaims the grab afterwards. Nest freely
+ * (paired begin/end calls only, not meant to overlap two different
+ * popups at once). */
+void xisserve_transient_popup_begin(void);
+void xisserve_transient_popup_end(void);
+
 /* Wraps `cmd` in the session's terminal-exec fallback chain (xdg-
  * terminal-exec, then $TERMINAL, then x-terminal-emulator, then xterm),
  * routed through `sh -c` so a multi-word cmd is split by the shell
