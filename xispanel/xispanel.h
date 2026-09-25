@@ -349,6 +349,14 @@ struct Panel {
     int border_radius;
     int shaped; /* 1 once a rounded-corner shape mask has been applied */
 
+    /* title_shadow=/title_shadow_offset= from the same theme file -- the
+     * exact keys kiwm's own titlebar text reads, so a theme that shadows
+     * window titles shadows panel text the same way, with no separate
+     * xispanel-only key to keep in sync. */
+    int text_shadow;
+    double text_shadow_r, text_shadow_g, text_shadow_b, text_shadow_a;
+    double text_shadow_dx, text_shadow_dy;
+
     /* Theme icons/ folder: PNGs replacing widgets' vector glyphs, keyed
      * by name+size and resolved on first use (see panel_theme_icon()). */
     struct {
@@ -478,12 +486,15 @@ void pango_text_init(const char *family); /* call once at startup, after g_font_
  * pixel size is needed to position the text itself (e.g. centering). */
 void pango_text_extents_ellipsized(cairo_t *cr, const char *text, double size_px, double max_width_px, double *out_w,
                                     double *out_h);
+/* `p` supplies the theme's title_shadow=/title_shadow_offset= (NULL is
+ * fine -- just no shadow, e.g. notif.c's little unread-count badge, which
+ * has no owning Panel handy at that call site). */
 void pango_show_text_boxed(cairo_t *cr, double x, double top_y, double box_h, double max_width_px, double size_px,
-                            const char *text, double *out_w);
+                            const char *text, double *out_w, const Panel *p);
 /* pango_show_text_boxed(), with `bold` drawn bold -- see pango_text.c's doc
  * comment. */
 void pango_show_text_boxed_bold(cairo_t *cr, double x, double top_y, double box_h, double max_width_px,
-                                 double size_px, const char *text, int bold, double *out_w);
+                                 double size_px, const char *text, int bold, double *out_w, const Panel *p);
 
 /* ---- small helpers widgets rely on (xispanel.c) ---- */
 uint64_t now_ms(void);

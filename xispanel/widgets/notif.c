@@ -205,7 +205,7 @@ static void draw_badge(cairo_t *cr, double icon_x, double icon_y, double icon_px
     cairo_fill(cr);
 
     cairo_set_source_rgb(cr, 1, 1, 1);
-    pango_show_text_boxed(cr, bx + (bw - tw) / 2.0, by, bh, bw, fs, label, NULL);
+    pango_show_text_boxed(cr, bx + (bw - tw) / 2.0, by, bh, bw, fs, label, NULL, NULL);
     cairo_restore(cr);
 }
 

@@ -388,7 +388,7 @@ static void globalmenu_paint(PanelWidget *w, cairo_t *cr)
         double tw;
         pango_text_extents_ellipsized(cr, gp->top_items[i].label, panel_text_size(p), 0, &tw, NULL);
         double tx = ox + gp->btn_x[i] + (gp->btn_w[i] - tw) / 2.0;
-        pango_show_text_boxed(cr, tx, oy, oheight, 0, panel_text_size(p), gp->top_items[i].label, NULL);
+        pango_show_text_boxed(cr, tx, oy, oheight, 0, panel_text_size(p), gp->top_items[i].label, NULL, p);
     }
 }
 

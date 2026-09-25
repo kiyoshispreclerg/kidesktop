@@ -272,11 +272,12 @@ static void draw_toast(cairo_t *cr, Toast *t)
 
     cairo_set_source_rgba(cr, g_fg_r, g_fg_g, g_fg_b, g_fg_a);
     const char *summary = t->summary[0] ? t->summary : t->app_name;
-    pango_show_text_boxed(cr, text_x, pad - 2, TOAST_SUMMARY_SIZE + 6, text_w, TOAST_SUMMARY_SIZE, summary, NULL);
+    pango_show_text_boxed(cr, text_x, pad - 2, TOAST_SUMMARY_SIZE + 6, text_w, TOAST_SUMMARY_SIZE, summary, NULL,
+                           NULL);
     if (t->body[0]) {
         cairo_set_source_rgba(cr, g_fg_r, g_fg_g, g_fg_b, g_fg_a * 0.75);
         pango_show_text_boxed(cr, text_x, pad - 2 + TOAST_SUMMARY_SIZE + 6, TOAST_BODY_SIZE + 6, text_w,
-                               TOAST_BODY_SIZE, t->body, NULL);
+                               TOAST_BODY_SIZE, t->body, NULL, NULL);
     }
 
     /* Level bar (volume/brightness-style OSD only -- see toast_show_osd()).

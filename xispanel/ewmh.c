@@ -1173,7 +1173,7 @@ void draw_fallback_icon(cairo_t *cr, double x, double y, double size, const char
     cairo_set_source_rgba(cr, fg_r, fg_g, fg_b, 0.9);
     double tw;
     pango_text_extents_ellipsized(cr, letter, font_size_px, 0, &tw, NULL);
-    pango_show_text_boxed(cr, x + (size - tw) / 2.0, y, size, 0, font_size_px, letter, NULL);
+    pango_show_text_boxed(cr, x + (size - tw) / 2.0, y, size, 0, font_size_px, letter, NULL, NULL);
     cairo_restore(cr);
 }
 
@@ -1201,7 +1201,7 @@ void draw_start_badge_icon(cairo_t *cr, double x, double y, double size)
     double tw;
     pango_text_extents_ellipsized(cr, "K", font_size_px, 0, &tw, NULL);
     cairo_set_source_rgb(cr, 1, 1, 1);
-    pango_show_text_boxed_bold(cr, x + (size - tw) / 2.0, y, size, 0, font_size_px, "K", 1, NULL);
+    pango_show_text_boxed_bold(cr, x + (size - tw) / 2.0, y, size, 0, font_size_px, "K", 1, NULL, NULL);
     cairo_restore(cr);
 }
 

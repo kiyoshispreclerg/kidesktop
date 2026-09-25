@@ -317,7 +317,7 @@ static void draw_frame(cairo_t *cr, PanelMenu *m, MenuFrame *f)
             text_x = 10 + menu_icon_column_w(m);
         }
         cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, it->enabled ? 0.95 : 0.4);
-        pango_show_text_boxed(cr, text_x, y, m->item_h, 0, m->font_size, it->label, NULL);
+        pango_show_text_boxed(cr, text_x, y, m->item_h, 0, m->font_size, it->label, NULL, p);
 
         if (m->has_children[idx]) {
             double ax = f->width - MENU_ARROW_RESERVE + 4;

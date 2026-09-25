@@ -563,7 +563,7 @@ static void pager_paint(PanelWidget *w, cairo_t *cr)
                 pango_text_extents_ellipsized(cr, label, panel_text_size(p), 0, &tw, NULL);
                 cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, is_current ? 0.95 : 0.6);
                 pango_show_text_boxed(cr, bx + (pp->btn_w[g] - tw) / 2.0, by, pp->row_h, pp->btn_w[g],
-                                       panel_text_size(p), label, NULL);
+                                       panel_text_size(p), label, NULL, p);
             }
         }
         if (g < pp->n_groups - 1) {

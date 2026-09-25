@@ -533,7 +533,7 @@ static void winctl_paint(PanelWidget *w, cairo_t *cr)
         double tw;
         pango_text_extents_ellipsized(cr, text, panel_text_size(p), owidth - 16, &tw, NULL);
         pango_show_text_boxed(cr, ox + (owidth - tw) / 2.0, oy, w->thickness, owidth - 16, panel_text_size(p), text,
-                               NULL);
+                               NULL, p);
         return;
     }
 
@@ -566,7 +566,7 @@ static void winctl_paint(PanelWidget *w, cairo_t *cr)
      * drawing entirely rather than overflow into the buttons. */
     if (wp->title[0] && content_end - tx - 8 > 0) {
         cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.95);
-        pango_show_text_boxed(cr, tx, oy, w->thickness, content_end - tx - 8, panel_text_size(p), wp->title, NULL);
+        pango_show_text_boxed(cr, tx, oy, w->thickness, content_end - tx - 8, panel_text_size(p), wp->title, NULL, p);
     }
 
     int hover_local_x;

@@ -719,7 +719,7 @@ static void monitor_paint(PanelWidget *w, cairo_t *cr)
             }
         }
         cairo_set_source_rgba(cr, fr, fg, fb, mp->has_value ? fa : fa * 0.5);
-        pango_show_text_boxed(cr, text_x + (text_w - tw) / 2.0, y, text_h, text_w, size, mp->text, NULL);
+        pango_show_text_boxed(cr, text_x + (text_w - tw) / 2.0, y, text_h, text_w, size, mp->text, NULL, p);
     }
 }
 

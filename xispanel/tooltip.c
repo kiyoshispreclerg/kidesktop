@@ -456,10 +456,10 @@ static void paint_popup_group(cairo_t *cr)
              * thumbnail, so it never runs under the icon. */
             double row_y = iy + g_thumb_h;
             pango_show_text_boxed(cr, ix, row_y, GROUP_TITLE_ROW_H, g_thumb_w - TOOLTIP_CLOSE_ICON - 8,
-                                   tooltip_font_size(), title, NULL);
+                                   tooltip_font_size(), title, NULL, p);
         } else {
             cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.95);
-            pango_show_text_boxed(cr, ix, iy, ih, GROUP_TITLE_MAXW, tooltip_font_size(), title, NULL);
+            pango_show_text_boxed(cr, ix, iy, ih, GROUP_TITLE_MAXW, tooltip_font_size(), title, NULL, p);
         }
 
         double cx = g_popup->group_close_x[i], cy = g_popup->group_close_y[i];
@@ -484,7 +484,7 @@ static void paint_popup_group(cairo_t *cr)
         double tw;
         pango_text_extents_ellipsized(cr, more, tooltip_font_size(), 0, &tw, NULL);
         double tx = ix + (iw - tw) / 2.0;
-        pango_show_text_boxed(cr, tx, iy, ih, 0, tooltip_font_size(), more, NULL);
+        pango_show_text_boxed(cr, tx, iy, ih, 0, tooltip_font_size(), more, NULL, p);
     }
 }
 
@@ -672,7 +672,7 @@ static void draw_popup(cairo_t *cr)
     cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, p->fg_a);
     for (int i = 0; i < n; i++) {
         double ty = content_y0 + pad_y() + i * line_h;
-        pango_show_text_boxed(cr, pad_x(), ty, line_h, TOOLTIP_MAX_LINE_W, fsz, lines[i], NULL);
+        pango_show_text_boxed(cr, pad_x(), ty, line_h, TOOLTIP_MAX_LINE_W, fsz, lines[i], NULL, p);
     }
 
     if (g_closable) {

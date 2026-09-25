@@ -95,7 +95,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.49"
+#define XISPANEL_VERSION "0.6.50"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -345,6 +345,19 @@ int parse_hex_color(const char *hex, double *r, double *g, double *b, double *a)
     *b = bi / 255.0;
     *a = ai / 255.0;
     return 1;
+}
+
+/* "dx dy" (kiwm's title_shadow_offset= grammar) -- a lone number applies to
+ * both axes, same as kiwm's own parse_offset(). */
+static void parse_offset(const char *val, double *dx, double *dy)
+{
+    double x = 0, y = 0;
+    int n = sscanf(val, "%lf %lf", &x, &y);
+    if (n < 1) {
+        return;
+    }
+    *dx = x;
+    *dy = (n == 2) ? y : x;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1499,6 +1512,10 @@ static void panel_load_skins(Panel *p)
  *   border_radius          -> rounded panel corners, via the SHAPE
  *                             extension (no compositor needed), the same
  *                             1/2/4-number form kiwm accepts.
+ *   title_shadow(_offset)  -> drop shadow under every text xispanel draws
+ *                             (task titles, menu items, tooltips...),
+ *                             exactly the keys and #rrggbb[aa]/"dx dy"
+ *                             grammar kiwm reads for its own titlebar text.
  *
  * `font=` is deliberately not read here: the font face is process-global
  * and resolved before any panel exists, so config_scan_globals() reads it
@@ -1508,6 +1525,8 @@ static void panel_load_skins(Panel *p)
 static void panel_load_theme_colors(Panel *p)
 {
     p->border_radius = 0;
+    p->text_shadow = 0;
+    p->text_shadow_dx = p->text_shadow_dy = 1.0; /* kiwm's own default offset */
     char path[PATH_MAX];
     if (!panel_find_theme_file(p, "colors", path, sizeof(path))) {
         return;
@@ -1542,6 +1561,16 @@ static void panel_load_theme_colors(Panel *p)
              * a per-corner shape mask for no visible gain on a bar. */
             int v = atoi(line + 14);
             p->border_radius = v > 0 ? v : 0;
+        } else if (!strncmp(line, "title_shadow_offset=", 20)) {
+            parse_offset(line + 20, &p->text_shadow_dx, &p->text_shadow_dy);
+        } else if (!strncmp(line, "title_shadow=", 13)) {
+            const char *val = line + 13;
+            if (!val[0] || !strcasecmp(val, "none") || !strcasecmp(val, "off")) {
+                p->text_shadow = 0;
+            } else {
+                p->text_shadow = parse_hex_color(val, &p->text_shadow_r, &p->text_shadow_g, &p->text_shadow_b,
+                                                  &p->text_shadow_a);
+            }
         }
     }
     fclose(f);

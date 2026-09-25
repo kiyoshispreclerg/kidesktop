@@ -83,17 +83,24 @@ void pango_text_extents_ellipsized(cairo_t *cr, const char *text, double size_px
  * already got it from pango_text_extents_ellipsized() to position `x`
  * itself for centering). */
 void pango_show_text_boxed(cairo_t *cr, double x, double top_y, double box_h, double max_width_px, double size_px,
-                            const char *text, double *out_w)
+                            const char *text, double *out_w, const Panel *p)
 {
-    pango_show_text_boxed_bold(cr, x, top_y, box_h, max_width_px, size_px, text, 0, out_w);
+    pango_show_text_boxed_bold(cr, x, top_y, box_h, max_width_px, size_px, text, 0, out_w, p);
 }
 
 /* pango_show_text_boxed(), with the title drawn bold when `bold` is set --
  * tasklist.c's urgent-window look (see ewmh_get_urgent()). Its own
  * function rather than a param on pango_show_text_boxed() so none of that
- * function's other ~15 call sites need touching. */
+ * function's other ~15 call sites need touching.
+ *
+ * `p`'s title_shadow (see xispanel.c's panel_load_theme_colors() doc
+ * comment) draws first, an extra copy of the same layout offset by
+ * title_shadow_dx/dy in the shadow color -- same order and technique as
+ * kiwm's own pango_show_title_text() for window titles, minus the outline
+ * (xispanel has no matching theme key for it yet). The real fill always
+ * goes last, on top, at whatever color the caller already set on `cr`. */
 void pango_show_text_boxed_bold(cairo_t *cr, double x, double top_y, double box_h, double max_width_px,
-                                 double size_px, const char *text, int bold, double *out_w)
+                                 double size_px, const char *text, int bold, double *out_w, const Panel *p)
 {
     PangoLayout *layout = build_layout(cr, text, size_px, max_width_px, bold);
     int lw, lh;
@@ -101,7 +108,18 @@ void pango_show_text_boxed_bold(cairo_t *cr, double x, double top_y, double box_
     if (out_w) {
         *out_w = lw;
     }
-    cairo_move_to(cr, x, top_y + (box_h - lh) / 2.0);
+    double y = top_y + (box_h - lh) / 2.0;
+
+    if (p && p->text_shadow) {
+        double fr, fg, fb, fa;
+        cairo_pattern_get_rgba(cairo_get_source(cr), &fr, &fg, &fb, &fa);
+        cairo_set_source_rgba(cr, p->text_shadow_r, p->text_shadow_g, p->text_shadow_b, p->text_shadow_a);
+        cairo_move_to(cr, x + p->text_shadow_dx, y + p->text_shadow_dy);
+        pango_cairo_show_layout(cr, layout);
+        cairo_set_source_rgba(cr, fr, fg, fb, fa);
+    }
+
+    cairo_move_to(cr, x, y);
     pango_cairo_show_layout(cr, layout);
     g_object_unref(layout);
 }

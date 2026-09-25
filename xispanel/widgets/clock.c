@@ -302,7 +302,7 @@ static void clock_paint(PanelWidget *w, cairo_t *cr)
     for (int i = 0; i < n_lines; i++) {
         double tw;
         pango_text_extents_ellipsized(cr, lines[i], size, 0, &tw, NULL);
-        pango_show_text_boxed(cr, x + (width - tw) / 2.0, y + i * band, band, 0, size, lines[i], NULL);
+        pango_show_text_boxed(cr, x + (width - tw) / 2.0, y + i * band, band, 0, size, lines[i], NULL, p);
     }
 }
 

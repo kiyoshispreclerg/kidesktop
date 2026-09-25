@@ -1358,7 +1358,7 @@ static void tasklist_paint(PanelWidget *w, cairo_t *cr)
              * boxes. See pango_text.c. */
             cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.95);
             pango_show_text_boxed_bold(cr, bx + icon_px + 10, oy, w->thickness, bw - icon_px - 16, panel_text_size(p),
-                                        e->title, e->urgent, NULL);
+                                        e->title, e->urgent, NULL, p);
         }
         if (tp->show_desktop_badge && tp->n_desktops > 1 && e->desktop >= 0) {
             char badge[16];
