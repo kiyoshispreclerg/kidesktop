@@ -95,7 +95,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.53"
+#define XISPANEL_VERSION "0.6.54"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -1580,7 +1580,7 @@ static void panel_load_theme_colors(Panel *p)
  * window to (see there for why the corners can't just be a SHAPE mask
  * clipping p->win itself). Shared so painting and hit-testing never
  * disagree about where the curve actually falls. */
-static void panel_trace_rounded_rect(cairo_t *cr, int w, int h, int r)
+void panel_trace_rounded_rect(cairo_t *cr, int w, int h, int r)
 {
     double rr = r;
     cairo_new_path(cr);

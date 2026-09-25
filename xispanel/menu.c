@@ -80,6 +80,14 @@
 #define MENU_MAX_FRAMES 6
 #define MENU_ARROW_RESERVE 16 /* extra right-edge width reserved when any item in a frame has children */
 #define MENU_PARENT_STACK_DEPTH 64 /* see depth_to_parent() -- deeper than any real menu/folder tree goes */
+/* Fixed row height, same as kiwm's own context menu (MENU_ROW_H there) --
+ * both were meant to read as the same widget (see kiwm/menu.c's own doc
+ * comment), so xispanel's rows no longer tracking the owner panel's
+ * thickness fixes the mismatch. Still bumped for a bigger-than-usual
+ * font, same as before (see panel_menu_open_tree_lazy()). */
+#define MENU_ROW_H 26
+#define MENU_FRAME_PAD_Y 4 /* chrome padding above the first row / below the last -- kiwm's MENU_PAD_Y */
+#define MENU_FRAME_BORDER_W 1.5 /* outer border stroke width -- kiwm's own */
 
 /* Row->position sentinels -- see frame_row_to_pos(). */
 #define MENU_ROW_NONE (-1)
@@ -251,6 +259,25 @@ static int menu_icon_column_w(const PanelMenu *m);
 static void draw_frame(cairo_t *cr, PanelMenu *m, MenuFrame *f)
 {
     Panel *p = m->owner_panel;
+    /* Rounded corners the same way panel_apply_shape()/panel_paint_content()
+     * round the panel bar itself on an ARGB visual: clip the *content* to
+     * a rounded rect and leave those pixels transparent, rather than
+     * SHAPE-masking f->win -- see panel_apply_shape()'s doc comment for
+     * why that would only make the corners permanently unclickable on
+     * this server. create_frame_window() gives every frame the owner
+     * panel's own p->visual/p->depth, so this is exactly the same ARGB
+     * check. Without ARGB there's no alpha channel to cut into, so the
+     * frame just stays square -- unlike the panel bar, this file has no
+     * SHAPE fallback for the uncomposited case (a small popup's own
+     * corners being square there is a far smaller loss than a whole
+     * panel edge being unclippable would be, so it wasn't worth the
+     * second code path). */
+    int rounded = p->border_radius > 0 && p->depth == 32;
+    cairo_save(cr);
+    if (rounded) {
+        panel_trace_rounded_rect(cr, f->width, f->height, p->border_radius);
+        cairo_clip(cr);
+    }
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, p->bg_r, p->bg_g, p->bg_b, p->bg_a);
     cairo_paint(cr);
@@ -258,10 +285,10 @@ static void draw_frame(cairo_t *cr, PanelMenu *m, MenuFrame *f)
     /* A theme's menu.png frames the popup over that base fill (kept
      * underneath so a frame with transparent edges still has the panel's
      * own bg behind it, and so an unthemed menu looks exactly as before). */
-    panel_draw_skin(&p->menu_skin, cr, SKIN_NORMAL, 0, 0, f->width, f->visible_rows * m->item_h);
+    panel_draw_skin(&p->menu_skin, cr, SKIN_NORMAL, 0, 0, f->width, f->height);
 
     for (int row = 0; row < f->visible_rows; row++) {
-        int y = row * m->item_h;
+        int y = MENU_FRAME_PAD_Y + row * m->item_h;
         int pos = frame_row_to_pos(f, row);
 
         if (pos == MENU_ROW_PREV || pos == MENU_ROW_NEXT) {
@@ -337,6 +364,21 @@ static void draw_frame(cairo_t *cr, PanelMenu *m, MenuFrame *f)
             cairo_stroke(cr);
         }
     }
+    cairo_restore(cr); /* pops the rounded-rect clip pushed at the top, if any */
+
+    /* Outer border, same subtle definition kiwm's own context menu draws
+     * around itself -- stroked along the same rounded-rect path as the
+     * clip above (when rounded) so it actually hugs the curve instead of
+     * getting cut off square against it. */
+    cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.3);
+    cairo_set_line_width(cr, MENU_FRAME_BORDER_W);
+    double inset = MENU_FRAME_BORDER_W / 2.0;
+    if (rounded) {
+        panel_trace_rounded_rect(cr, f->width, f->height, p->border_radius);
+    } else {
+        cairo_rectangle(cr, inset, inset, f->width - 2 * inset, f->height - 2 * inset);
+    }
+    cairo_stroke(cr);
 }
 
 /* `ctx` is the MenuFrame* itself -- safe to bake in at registration time,
@@ -360,7 +402,7 @@ static void paint_frame(PanelMenu *m, MenuFrame *f)
     draw_frame(f->cr, m, f);
     cairo_surface_flush(f->surface);
     XFlush(g_dpy);
-    density_layer_render(f->density, f->width, f->visible_rows * m->item_h, m->font_size);
+    density_layer_render(f->density, f->width, f->height, m->font_size);
 }
 
 /* Fills out_idx[]/out_n with the flat indices of every item whose parent
@@ -504,7 +546,7 @@ static void layout_frame(PanelMenu *m, MenuFrame *f)
     Panel *p = m->owner_panel;
     f->width = measure_frame_width(m, f->idx, f->n, &f->has_icon);
 
-    int max_rows_fit = p->out_h / m->item_h;
+    int max_rows_fit = (p->out_h - 2 * MENU_FRAME_PAD_Y) / m->item_h;
     if (max_rows_fit < 1) {
         max_rows_fit = 1;
     }
@@ -521,7 +563,7 @@ static void layout_frame(PanelMenu *m, MenuFrame *f)
         f->page_count = (f->n + f->items_per_page - 1) / f->items_per_page;
         f->visible_rows = f->items_per_page + 2;
     }
-    f->height = f->visible_rows * m->item_h;
+    f->height = 2 * MENU_FRAME_PAD_Y + f->visible_rows * m->item_h;
 }
 
 /* Creates, maps, and paints a frame window for `f` (idx[]/n/width/height/
@@ -602,7 +644,7 @@ static int open_submenu(PanelMenu *m, int parent_frame, int parent_pos)
     Panel *p = m->owner_panel;
     int parent_row = frame_pos_to_row(pf, parent_pos);
     f->screen_x = pf->screen_x + pf->width;
-    f->screen_y = pf->screen_y + parent_row * m->item_h;
+    f->screen_y = pf->screen_y + MENU_FRAME_PAD_Y + parent_row * m->item_h;
     if (f->screen_x + f->width > p->out_x + p->out_w) {
         f->screen_x = pf->screen_x - f->width; /* flip to the left of the parent frame instead */
     }
@@ -658,7 +700,14 @@ static void hit_test(PanelMenu *m, int root_x, int root_y, int *out_frame, int *
         MenuFrame *f = &m->frames[i];
         if (root_x >= f->screen_x && root_x < f->screen_x + f->width && root_y >= f->screen_y &&
             root_y < f->screen_y + f->height) {
-            int row = (root_y - f->screen_y) / m->item_h;
+            /* dy < MENU_FRAME_PAD_Y (the pointer is in the top chrome
+             * padding, above row 0) needs its own check rather than
+             * falling out of the subtraction below: a negative dy - PAD
+             * divided by item_h truncates toward zero in C, not floor, so
+             * e.g. dy=PAD-1 would wrongly divide to row 0 instead of
+             * previous-of-zero. */
+            int dy = root_y - f->screen_y;
+            int row = (dy < MENU_FRAME_PAD_Y) ? -1 : (dy - MENU_FRAME_PAD_Y) / m->item_h;
             *out_frame = i;
             *out_row = (row >= 0 && row < f->visible_rows) ? row : -1;
             return;
@@ -970,13 +1019,10 @@ void panel_menu_open_tree_lazy(Panel *owner_panel, PanelWidget *owner_widget, in
     m->on_hover_root = on_hover_root;
     m->on_close = on_close;
 
-    m->item_h = (int)(owner_panel->thickness * 0.7);
-    if (m->item_h < 20) {
-        m->item_h = 20;
-    }
+    m->item_h = MENU_ROW_H;
     /* font_size_px if set (system-detected or THEME's font_size=), else
-     * the historical item_h-proportional size -- same layering
-     * panel_text_size() applies to in-panel widget text. */
+     * the item_h-proportional size -- same layering panel_text_size()
+     * applies to in-panel widget text. */
     m->font_size = owner_panel->font_size_px > 0 ? owner_panel->font_size_px : m->item_h * 0.5;
     if (m->item_h < m->font_size * 1.6) {
         m->item_h = (int)(m->font_size * 1.6); /* keep rows tall enough for a bigger-than-usual font size */

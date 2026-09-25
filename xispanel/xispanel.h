@@ -679,6 +679,12 @@ cairo_surface_t *xispanel_first_panel_icon(const char *name, int size);
  * see TESTS/X-DENSITY.md. Vector/text content redraws crisp at any scale
  * this way; pre-rendered icon bitmaps don't (see density.c's doc comment). */
 void panel_paint_content(Panel *p, cairo_t *cr, double scale);
+/* Traces a rounded-rectangle path (kiwm's same 1/2/4-number border_radius=
+ * corner curve) into `cr`'s current path, [0,0]-[w,h] -- shared by the
+ * panel bar's own corner clip (see panel_apply_shape()'s doc comment for
+ * why it's alpha-clipped content, not a SHAPE mask, on an ARGB visual) and
+ * menu.c's popup frames, which round the same way for the same reason. */
+void panel_trace_rounded_rect(cairo_t *cr, int w, int h, int r);
 /* Calls cb(p, ctx) for every in-use panel -- lets density.c react to a
  * compositor disappearing (reset every panel's density to 1/1) without
  * needing xispanel.c's own g_panels[]/MAX_PANELS storage details exposed. */
