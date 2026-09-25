@@ -1291,7 +1291,47 @@ void tooltip_tick(uint64_t now)
     }
     if (!g_shown) {
         if (now - g_since_ms >= (uint64_t)g_panel->tooltip_delay_ms) {
-            show_popup();
+            /* Re-check what's actually under the pointer right before
+             * opening, instead of trusting g_widget/g_anchor_* as of the
+             * last motion event: g_since_ms only ever gets reset when the
+             * hit-tested widget itself changes (tooltip_notice_motion()'s
+             * "different item" branch) -- moving off that widget into dead
+             * panel space (a spacer, the gap between two sub-items) leaves
+             * g_widget and g_since_ms untouched on purpose, so a tooltip
+             * that's merely paused for the hover-intent grace period can
+             * resume instead of restarting. But that same untouched state
+             * means the delay elapsing while the pointer is sitting in
+             * that gap would otherwise pop the tooltip up over nothing.
+             * Query the pointer live and redo the exact hit-test
+             * tooltip_notice_motion() would: only open when it still lands
+             * on g_widget's same sub-item; otherwise skip this tick and
+             * try again next tick -- it'll open the moment the pointer is
+             * back over the widget that started the timer (or, if it
+             * moved to a different widget instead, that motion event
+             * already restarted g_since_ms for it, so this same check
+             * naturally applies to the new target). */
+            Window root, child;
+            int root_x, root_y, win_x, win_y;
+            unsigned mask;
+            int on_target = 0;
+            if (XQueryPointer(g_dpy, g_panel->win, &root, &child, &root_x, &root_y, &win_x, &win_y, &mask)) {
+                Panel *p = g_panel;
+                int axis_pos = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? win_x : win_y;
+                PanelWidget *hit = panel_widget_at(p, axis_pos, (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? win_y : win_x);
+                if (hit == g_widget && hit->ops->get_tooltip) {
+                    char buf[256];
+                    int ax = 0, aw = hit->len, closable = 0;
+                    void *ctx = NULL;
+                    int local_x = axis_pos - hit->x;
+                    if (hit->ops->get_tooltip(hit, local_x, buf, sizeof(buf), &ax, &aw, &closable, &ctx) &&
+                        ax == g_anchor_x && aw == g_anchor_w) {
+                        on_target = 1;
+                    }
+                }
+            }
+            if (on_target) {
+                show_popup();
+            }
         }
         return;
     }
