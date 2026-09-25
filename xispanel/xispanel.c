@@ -96,7 +96,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.56"
+#define XISPANEL_VERSION "0.6.57"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -2107,6 +2107,18 @@ void panel_paint_content(Panel *p, cairo_t *cr, double scale)
 {
     cairo_save(cr);
     cairo_scale(cr, scale, scale);
+
+    /* Unclipped, unconditional: buf_surface is reused across repaints
+     * (only recreated on resize), so any corner pixels a *previous*
+     * repaint painted solid -- e.g. while SHAPE was doing the rounding
+     * instead of this clip, compositor off -- would otherwise just sit
+     * there forever once alpha-clip takes back over below, since a clip
+     * only holds back *new* painting, it doesn't erase what's already in
+     * the pixels it excludes. Cheap enough not to bother conditioning on
+     * corner_alpha_clip actually being active this frame. */
+    cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_rgba(cr, 0, 0, 0, 0);
+    cairo_paint(cr);
 
     /* With an ARGB visual and an actual compositor running (p->corner_
      * alpha_clip -- see panel_apply_shape()'s doc comment for why *both*
