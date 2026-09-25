@@ -108,6 +108,13 @@ int density_handle_xfixes_event(const XEvent *ev)
     if (!g_xfixes_available || ev->type != g_xfixes_event_base + XFixesSelectionNotify) {
         return 0;
     }
+    /* Checked explicitly, not just the event type: xispanel.c now watches
+     * a second selection (_NET_WM_CM_S<screen>, for the panel bar's own
+     * corner-rounding method) via the same XFixes mechanism, and every
+     * selection's notify shares this one event type. */
+    if (((const XFixesSelectionNotifyEvent *)ev)->selection != g_atom_density_manager) {
+        return 0;
+    }
     int now_present = XGetSelectionOwner(g_dpy, g_atom_density_manager) != None;
     if (now_present != g_compositor_present) {
         g_compositor_present = now_present;

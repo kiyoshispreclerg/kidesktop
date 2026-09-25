@@ -348,6 +348,18 @@ struct Panel {
     int cfg_has_bg, cfg_has_fg, cfg_has_font_size;
     int border_radius;
     int shaped; /* 1 once a rounded-corner shape mask has been applied */
+    /* 1 if the last panel_apply_shape() found an ARGB visual *and* an
+     * actual compositor holding _NET_WM_CM_S<screen> -- panel_paint_
+     * content() reads this (cheap: no X round trip on every repaint)
+     * instead of re-checking live, to decide whether it needs to clip
+     * the corners itself (see panel_apply_shape()'s doc comment: SHAPE
+     * handles it otherwise). Recomputed whenever panel_apply_shape() runs
+     * (resize, activate, theme RELOAD) -- a compositor appearing/
+     * disappearing without any of those in between stays stale until the
+     * next one, same tradeoff X-DENSITY's own compositor tracking doesn't
+     * make (it watches live via XFixes) but a plain corner clip doesn't
+     * need to either. */
+    int corner_alpha_clip;
 
     /* title_shadow=/title_shadow_offset= from the same theme file -- the
      * exact keys kiwm's own titlebar text reads, so a theme that shadows
@@ -691,6 +703,10 @@ void panel_trace_rounded_rect(cairo_t *cr, int w, int h, int r);
  * frames, tooltip.c's popup, toast.c's toasts) but not the panel bar
  * itself. */
 void panel_shape_round_corners(Window win, int w, int h, int r);
+/* True if an actual compositor holds _NET_WM_CM_S<screen> right now -- a
+ * live, uncached round trip (see xispanel.c's doc comment on why an ARGB
+ * *visual* existing isn't the same question). */
+int panel_compositor_present(void);
 /* Calls cb(p, ctx) for every in-use panel -- lets density.c react to a
  * compositor disappearing (reset every panel's density to 1/1) without
  * needing xispanel.c's own g_panels[]/MAX_PANELS storage details exposed. */

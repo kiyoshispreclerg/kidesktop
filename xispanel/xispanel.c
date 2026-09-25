@@ -67,6 +67,7 @@
 #include <X11/keysym.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/extensions/Xfixes.h>
 #include <X11/extensions/Xrandr.h>
 #include <X11/extensions/shape.h>
 
@@ -95,7 +96,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.55"
+#define XISPANEL_VERSION "0.6.56"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -1638,33 +1639,98 @@ void panel_shape_round_corners(Window win, int w, int h, int r)
     XFreePixmap(g_dpy, mask);
 }
 
+/* Whether a compositor is actually painting this screen right now, per
+ * the standard EWMH convention (same selection kicomp/any other
+ * compositor takes ownership of for as long as it's redirecting
+ * windows). An ARGB *visual* being available (XMatchVisualInfo finding a
+ * 32-bit TrueColor one) says nothing about this on its own -- that's a
+ * static server capability, offered whether or not anything is actually
+ * compositing, so painting alpha into an ARGB window with no compositor
+ * running doesn't make it see-through, it just shows whatever raw,
+ * unblended pixels land there. A live XGetSelectionOwner() round trip,
+ * not cached -- every call site here is rare (panel_apply_shape(), on
+ * resize/activate/theme RELOAD), not the per-repaint hot path. */
+int panel_compositor_present(void)
+{
+    char name[32];
+    snprintf(name, sizeof(name), "_NET_WM_CM_S%d", g_screen);
+    Atom cm = XInternAtom(g_dpy, name, False);
+    return XGetSelectionOwner(g_dpy, cm) != None;
+}
+
 /* Applies (or clears) the panel window's rounded-corner shape mask, from
  * the theme's border_radius=. A radius of 0 (the default, and any theme
  * without the key) resets the window to its plain rectangle, so nothing
  * changes for an unthemed panel.
  *
- * On an ARGB visual this doesn't call panel_shape_round_corners() at all:
+ * With an ARGB visual *and* an actual compositor (panel_compositor_
+ * present()) this doesn't call panel_shape_round_corners() at all:
  * panel_paint_content() instead clips the *content* to the same rounded
- * rect and leaves those pixels transparent, which looks identical once a
- * compositor is painting p->win's alpha -- and unlike SHAPE, it never
- * touches the window's hit region, so real widgets flush against the
- * panel's own rounded corner stay fully clickable. Without ARGB there's
- * no alpha channel for that, so this falls back to
- * panel_shape_round_corners() same as every other popup -- accepting
- * that tradeoff (corners permanently unclickable, see that function's
- * doc comment) only because there's no better option left on a bare,
- * uncomposited server. */
+ * rect and leaves those pixels transparent, which looks identical once
+ * the compositor is painting p->win's alpha -- and unlike SHAPE, it
+ * never touches the window's hit region, so real widgets flush against
+ * the panel's own rounded corner stay fully clickable. Every other case
+ * (no ARGB visual, or one exists but nothing is actually compositing)
+ * falls back to panel_shape_round_corners() same as every other popup --
+ * accepting that tradeoff (corners permanently unclickable, see that
+ * function's doc comment) only because there's no alpha channel that
+ * would actually render as transparent to fall back on instead. */
 static void panel_apply_shape(Panel *p)
 {
     if (!p->win) {
         return;
     }
-    int r = (p->depth == 32) ? 0 : p->border_radius;
+    p->corner_alpha_clip = p->depth == 32 && panel_compositor_present();
+    int r = p->corner_alpha_clip ? 0 : p->border_radius;
     if (r <= 0 && !p->shaped) {
         return;
     }
     panel_shape_round_corners(p->win, p->w, p->h, r);
     p->shaped = r > 0;
+}
+
+/* Live tracking for panel_compositor_present(): panel_apply_shape() only
+ * re-checks it on resize/activate/theme RELOAD, so a compositor toggling
+ * on/off in between (kicomp started or killed while xispanel just keeps
+ * running) needs its own push, or a panel stays on whichever corner-
+ * rounding method it last picked -- alpha-clip with no compositor left to
+ * composite it paints solid black where the corners should be, not
+ * transparent. Watched via XFixes on _NET_WM_CM_S<screen>, same mechanism
+ * (different selection) as density.c's own compositor tracking. */
+static Atom g_cm_atom;
+static int g_cm_xfixes_event_base = -1;
+
+static void panel_reapply_shape_cb(Panel *p, void *ctx)
+{
+    (void)ctx;
+    panel_apply_shape(p);
+    p->dirty = 1;
+}
+
+static void panel_compositor_watch_init(void)
+{
+    char name[32];
+    snprintf(name, sizeof(name), "_NET_WM_CM_S%d", g_screen);
+    g_cm_atom = XInternAtom(g_dpy, name, False);
+    int error_base;
+    if (!XFixesQueryExtension(g_dpy, &g_cm_xfixes_event_base, &error_base)) {
+        return;
+    }
+    XFixesSelectSelectionInput(g_dpy, g_root, g_cm_atom,
+                                XFixesSetSelectionOwnerNotifyMask | XFixesSelectionWindowDestroyNotifyMask |
+                                    XFixesSelectionClientCloseNotifyMask);
+}
+
+static int panel_compositor_handle_xfixes_event(const XEvent *ev)
+{
+    if (g_cm_xfixes_event_base < 0 || ev->type != g_cm_xfixes_event_base + XFixesSelectionNotify) {
+        return 0;
+    }
+    if (((const XFixesSelectionNotifyEvent *)ev)->selection != g_cm_atom) {
+        return 0;
+    }
+    panel_foreach(panel_reapply_shape_cb, NULL);
+    return 1;
 }
 
 /* Drops every decoded theme icon (see panel_theme_icon()) -- called when
@@ -2042,18 +2108,19 @@ void panel_paint_content(Panel *p, cairo_t *cr, double scale)
     cairo_save(cr);
     cairo_scale(cr, scale, scale);
 
-    /* On an ARGB visual (a compositor is running), the rounded corners are
-     * cut by clipping the *painted content* to a rounded rect and leaving
-     * those pixels transparent -- not by SHAPE-masking p->win (see
-     * panel_apply_shape()'s comment: the corners of a SHAPE-bounded window
-     * can never be made clickable again, no matter what ShapeInput says).
-     * This way p->win keeps its full rectangular hit region and the round
-     * look is purely cosmetic, exactly like kiwm's own rounded frames on a
-     * composited session. Without ARGB there is no alpha channel to cut
-     * into, so panel_apply_shape() falls back to SHAPE for the visual
-     * effect and the corners stay unclickable -- an uncomposited session
-     * only, and not fixable from here. */
-    if (p->border_radius > 0 && p->depth == 32) {
+    /* With an ARGB visual and an actual compositor running (p->corner_
+     * alpha_clip -- see panel_apply_shape()'s doc comment for why *both*
+     * matter, not just the visual), the rounded corners are cut by
+     * clipping the *painted content* to a rounded rect and leaving those
+     * pixels transparent -- not by SHAPE-masking p->win (the corners of a
+     * SHAPE-bounded window can never be made clickable again, no matter
+     * what ShapeInput says). This way p->win keeps its full rectangular
+     * hit region and the round look is purely cosmetic, exactly like
+     * kiwm's own rounded frames on a composited session. Every other case
+     * falls back to panel_apply_shape()'s own SHAPE masking for the
+     * visual effect instead, and the corners stay unclickable there --
+     * not fixable from this side. */
+    if (p->border_radius > 0 && p->corner_alpha_clip) {
         int r = p->border_radius;
         int max_r = (p->w < p->h ? p->w : p->h) / 2;
         if (r > max_r) {
@@ -3661,6 +3728,7 @@ static int run_as_daemon(const char *sockpath)
 
     ewmh_init_atoms();
     density_init();     /* X-DENSITY (see TESTS/X-DENSITY.md) -- must come after g_screen/g_root are set above */
+    panel_compositor_watch_init(); /* live _NET_WM_CM_S<screen> tracking, see its own doc comment */
     inputscale_init();  /* X-INPUT-SCALE (see inputscale.c) -- same ordering requirement */
     if (!disable_modtap) {
         modtap_init(); /* bare-modifier ("tap Meta alone") hotkeys, see hotkey.c/modtap.c */
@@ -3920,6 +3988,11 @@ static int run_as_daemon(const char *sockpath)
                 } else if (density_handle_xfixes_event(&ev)) {
                     /* the _X_DENSITY_MANAGER_S<screen> selection appeared/
                      * disappeared -- see density.c/TESTS/X-DENSITY.md */
+                } else if (panel_compositor_handle_xfixes_event(&ev)) {
+                    /* _NET_WM_CM_S<screen> appeared/disappeared -- every
+                     * panel's corner-rounding method may need to switch,
+                     * see panel_compositor_handle_xfixes_event()'s doc
+                     * comment above panel_compositor_watch_init() */
                 } else if (hotkey_handle_event(&ev)) {
                     /* consumed by a registered global hotkey -- see hotkey.c */
                 } else if (thumb_handle_event(&ev)) {
