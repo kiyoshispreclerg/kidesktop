@@ -1271,7 +1271,7 @@ static GlWindow *dense_layer(CompWindow *w, GlWindow *g, bool decoration)
  * decoration layer is the WM's own painting of those corners, alpha and
  * all. */
 static void draw_dense(const CompOutput *o, const CompSceneNode *n,
-                       const GlWindow *d, const CompRect *area)
+                       const GlWindow *d, const CompRect *area, GLuint mask)
 {
     CompRect visible;
     if (!rect_intersect(area, &n->visible_rect, &visible))
@@ -1281,7 +1281,23 @@ static void draw_dense(const CompOutput *o, const CompSceneNode *n,
     rect_matrix(area, &n->transform, m);
     glUniformMatrix4fv(u_transform, 1, GL_FALSE, m);
     glUniform1f(u_y_flip, d->y_inverted ? 0.0f : 1.0f);
-    glUniform1f(u_use_mask, 0.0f);
+
+    /* The mask, when there is one, samples through maskcoord -- the
+     * quad's own 0..1 corners (vertex_source), same as the window's
+     * regular draw above. It lines up with this quad exactly because
+     * `area` is that same n->geometry: GL stretches whatever texture is
+     * bound on unit 0 to fill it regardless of that texture's own size,
+     * so the dense layer's different resolution changes nothing about
+     * where the mask's corners fall. */
+    if (mask) {
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, mask);
+        glActiveTexture(GL_TEXTURE0);
+        glUniform1i(u_mask, 1);
+        glUniform1f(u_use_mask, 1.0f);
+    } else {
+        glUniform1f(u_use_mask, 0.0f);
+    }
 
     CompRect none = { 0, 0, 0, 0 };
     draw_piece(o, &visible, &none);
@@ -1904,15 +1920,24 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * Only while the window is where it says it is, or is being moved:
      * a window mid-scale is worth exactly as much sharpness as it has
      * milliseconds left, and a stash is the picture from before any of
-     * this. The mask, when one is bound above, is left out: these layers
-     * bind textures of their own on unit 0, and the shape they would
-     * need is the one the WM painted into its own layer already. */
+     * this.
+     *
+     * The decoration layer covers the whole frame, corners included, and
+     * (unlike the client's own contents) has no rounding of its own --
+     * kiwm's rounding is the frame's X SHAPE, a window property, not
+     * anything baked into the pixmap it draws. Without the same shape
+     * mask the base draw above wears, it paints square right over the
+     * round corners that draw just left underneath. The client's dense
+     * content skips it: it only ever covers the area inside the frame,
+     * away from the corners the shape is about. */
     if (!from_stash && move_only) {
         float density;
         if (deco_density_active(w, &density)) {
             GlWindow *d = dense_layer(w, g, true);
-            if (d)
-                draw_dense(o, n, d, &n->geometry);
+            if (d) {
+                GLuint mask = w->shaped ? shape_mask_texture(w, g) : 0;
+                draw_dense(o, n, d, &n->geometry, mask);
+            }
         }
         if (density_active(w, &density)) {
             GlWindow *d = dense_layer(w, g, false);
@@ -1922,7 +1947,7 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
                     n->geometry.y + w->client_rect.y,
                     w->client_rect.w, w->client_rect.h
                 };
-                draw_dense(o, n, d, &client);
+                draw_dense(o, n, d, &client, 0);
             }
         }
     }
