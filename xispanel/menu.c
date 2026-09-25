@@ -102,6 +102,10 @@ typedef struct {
      * menu_density_paint()'s doc comment for why baking `&frames[i]` in
      * at registration is safe here (unlike toast.c's array). */
     DensityLayer *density;
+    /* Rounded-corner state (panel_round_corners()) -- see toast.c's
+     * Toast::shaped/alpha_clip for the pair's meaning. */
+    int shaped;
+    int alpha_clip;
     int idx[MENU_TREE_MAX_ITEMS]; /* flat indices (into PanelMenu::items/parent) shown in this frame, in order */
     int n; /* total items across every page */
     int paging; /* 1 if n doesn't fit in one page */
@@ -259,20 +263,34 @@ static int menu_icon_column_w(const PanelMenu *m);
 static void draw_frame(cairo_t *cr, PanelMenu *m, MenuFrame *f)
 {
     Panel *p = m->owner_panel;
-    /* Corners are rounded by SHAPE-masking f->win itself (see
-     * create_frame_window() and panel_shape_round_corners()'s doc
-     * comment), not by clipping the painted content -- works with or
-     * without a compositor, unlike the panel bar's own alpha-clip
-     * approach, at the cost of the rounded-off corner pixels'
-     * clickability. Fine for a popup with no content anywhere near its
-     * own corner. Painting itself needs no special-casing for it at all:
-     * whatever gets drawn into the corner pixels here simply never shows,
-     * SHAPE clips it at the X server, same as it always did for the
-     * bounding rect before rounded corners existed. */
+    cairo_save(cr);
+
+    /* Corners round by SHAPE-masking f->win itself, or by clipping this
+     * paint to a real alpha edge instead, whichever panel_round_corners()
+     * decided at create_frame_window() time (f->alpha_clip) -- same
+     * choice the panel bar itself makes. The SHAPE case needs nothing
+     * further here: whatever gets drawn into the corner pixels simply
+     * never shows, clipped at the X server exactly like the plain
+     * rectangle always was. The alpha-clip case needs this cairo_clip()
+     * -- f->cr is reused across repaints, so the background fill below
+     * would otherwise paint square every time (no compositor-driven
+     * repaint of the outside to cover it back up, unlike a real window
+     * manager's frame). */
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
-    cairo_set_source_rgba(cr, p->bg_r, p->bg_g, p->bg_b, p->bg_a);
+    cairo_set_source_rgba(cr, 0, 0, 0, 0);
     cairo_paint(cr);
     cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+    if (f->alpha_clip && p->border_radius > 0) {
+        int r = p->border_radius;
+        int max_r = (f->width < f->height ? f->width : f->height) / 2;
+        if (r > max_r) {
+            r = max_r;
+        }
+        panel_trace_rounded_rect(cr, f->width, f->height, r);
+        cairo_clip(cr);
+    }
+    cairo_set_source_rgba(cr, p->bg_r, p->bg_g, p->bg_b, p->bg_a);
+    cairo_paint(cr);
     /* A theme's menu.png frames the popup over that base fill (kept
      * underneath so a frame with transparent edges still has the panel's
      * own bg behind it, and so an unthemed menu looks exactly as before). */
@@ -357,15 +375,18 @@ static void draw_frame(cairo_t *cr, PanelMenu *m, MenuFrame *f)
     }
 
     /* Outer border, same subtle definition kiwm's own context menu draws
-     * around itself -- a plain rectangle even when rounded: SHAPE already
-     * crops whatever's painted in the corner pixels at the X server, so a
-     * square-cornered stroke comes out hugging the curve on its own,
-     * without needing its own rounded-rect path here. */
+     * around itself -- a plain rectangle even when rounded: the corner
+     * pixels are already spoken for, by SHAPE at the X server or by the
+     * clip above, so a square-cornered stroke comes out hugging the
+     * curve on its own either way, without needing its own rounded-rect
+     * path here. */
     cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.3);
     cairo_set_line_width(cr, MENU_FRAME_BORDER_W);
     double inset = MENU_FRAME_BORDER_W / 2.0;
     cairo_rectangle(cr, inset, inset, f->width - 2 * inset, f->height - 2 * inset);
     cairo_stroke(cr);
+
+    cairo_restore(cr);
 }
 
 /* `ctx` is the MenuFrame* itself -- safe to bake in at registration time,
@@ -575,7 +596,7 @@ static int create_frame_window(PanelMenu *m, MenuFrame *f, int want_grab)
                             CWOverrideRedirect | CWColormap | CWBorderPixel | CWBackPixel | CWEventMask, &attrs);
     XChangeProperty(g_dpy, f->win, g_atom_wm_window_type, XA_ATOM, 32, PropModeReplace,
                      (unsigned char *)&g_atom_wm_window_type_popup_menu, 1);
-    panel_shape_round_corners(f->win, f->width, f->height, p->border_radius);
+    f->alpha_clip = panel_round_corners(f->win, f->width, f->height, p->border_radius, p->depth, &f->shaped);
 
     f->surface = cairo_xlib_surface_create(g_dpy, f->win, p->visual, f->width, f->height);
     f->cr = cairo_create(f->surface);

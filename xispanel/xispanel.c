@@ -96,7 +96,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.58"
+#define XISPANEL_VERSION "0.6.59"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -1689,18 +1689,51 @@ int panel_compositor_present(void)
  * accepting that tradeoff (corners permanently unclickable, see that
  * function's doc comment) only because there's no alpha channel that
  * would actually render as transparent to fall back on instead. */
+int panel_wants_alpha_clip(int depth)
+{
+    return depth == 32 && panel_compositor_present();
+}
+
+/* The generic form of panel_apply_shape() below: rounds `win` (w x h) to
+ * `radius`, choosing between a real per-pixel-alpha clip the caller
+ * applies in its own paint code (see panel_paint_content()'s own use of
+ * panel_trace_rounded_rect() for the pattern) and a plain XShape mask,
+ * by the same rule panel_apply_shape() uses for the panel bar itself --
+ * alpha only where there's an ARGB visual *and* an actual compositor to
+ * render it, since otherwise it would just show raw unblended pixels.
+ * Any ephemeral popup (menu.c's frames, tooltip.c's popup, toast.c's
+ * toasts) can round exactly this way instead of always paying XShape's
+ * corner-hit-test cost.
+ *
+ * `*shaped` is the caller's own record of whether `win` currently
+ * carries an XShape mask (start it at 0/false) -- kept across calls the
+ * same way Panel::shaped is, so a plain repaint with nothing changed
+ * never resends a mask that's already there, and a transition away from
+ * XShape (radius changed to 0, or alpha-clip just became available)
+ * still clears one that's stale.
+ *
+ * Returns whether the caller should now alpha-clip its own content
+ * painting to panel_trace_rounded_rect(w, h, radius) instead of relying
+ * on XShape -- the caller is responsible for that painting; this only
+ * ever touches win's XShape mask, never its content. */
+int panel_round_corners(Window win, int w, int h, int radius, int depth, int *shaped)
+{
+    int alpha_clip = panel_wants_alpha_clip(depth);
+    int r = alpha_clip ? 0 : radius;
+    if (r <= 0 && !*shaped) {
+        return alpha_clip;
+    }
+    panel_shape_round_corners(win, w, h, r);
+    *shaped = r > 0;
+    return alpha_clip;
+}
+
 static void panel_apply_shape(Panel *p)
 {
     if (!p->win) {
         return;
     }
-    p->corner_alpha_clip = p->depth == 32 && panel_compositor_present();
-    int r = p->corner_alpha_clip ? 0 : p->border_radius;
-    if (r <= 0 && !p->shaped) {
-        return;
-    }
-    panel_shape_round_corners(p->win, p->w, p->h, r);
-    p->shaped = r > 0;
+    p->corner_alpha_clip = panel_round_corners(p->win, p->w, p->h, p->border_radius, p->depth, &p->shaped);
 }
 
 /* Live tracking for panel_compositor_present(): panel_apply_shape() only

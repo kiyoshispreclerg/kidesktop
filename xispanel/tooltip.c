@@ -111,6 +111,11 @@ typedef struct {
      * XCreateWindow time, torn down in destroy_popup() below alongside
      * everything else. See tooltip_density_paint()/paint_popup(). */
     DensityLayer *density;
+    /* Rounded-corner state (panel_round_corners()) -- see TooltipPopup's
+     * sibling in toast.c (Toast::shaped/alpha_clip) for the pair's
+     * meaning; same idea, one popup window here instead of many. */
+    int shaped;
+    int alpha_clip;
     int width, height;
     /* Close-icon hit-rect, in popup-local coordinates; only meaningful
      * when g_closable. */
@@ -529,10 +534,33 @@ static void blit_rect_and_flush(int x, int y, int w, int h)
 static void draw_popup_background(cairo_t *cr)
 {
     Panel *p = g_panel;
+    /* Unconditional, regardless of alpha_clip right now -- back_cr/img_cr
+     * are reused across repaints, so corner pixels a *previous* repaint
+     * left solid (SHAPE was rounding instead, say) would otherwise just
+     * sit there once alpha-clip takes back over, since a clip only holds
+     * back *new* painting -- see panel_paint_content()'s own doc comment
+     * for the same reasoning. */
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
     cairo_paint(cr);
     cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+
+    /* Real alpha instead of XShape when there's a compositor to render it
+     * (panel_round_corners()). Left as an open clip -- not saved/restored
+     * here -- so it also covers whatever the caller paints after this
+     * returns (draw_popup()'s icon/text/mpris row, repaint_thumbs_only()'s
+     * thumbnail): both already wrap their own call to this in a
+     * save/restore of their own. */
+    if (g_popup->alpha_clip && p->border_radius > 0) {
+        int r = p->border_radius;
+        int max_r = (g_popup->width < g_popup->height ? g_popup->width : g_popup->height) / 2;
+        if (r > max_r) {
+            r = max_r;
+        }
+        panel_trace_rounded_rect(cr, g_popup->width, g_popup->height, r);
+        cairo_clip(cr);
+    }
+
     /* Frame preference: the theme's own popup frame (menu.png) first,
      * then the panel background's 9-slice, then the flat bg color -- a
      * tooltip is a popup, so a theme that draws popups differently from
@@ -644,10 +672,16 @@ static void repaint_thumbs_only(void)
 static void draw_popup(cairo_t *cr)
 {
     Panel *p = g_panel;
+    /* Own save/restore: draw_popup_background() above may leave a clip
+     * open on `cr` (the alpha-clip case), and this is where it gets
+     * closed again -- paint_popup() calls this directly with no save of
+     * its own, unlike tooltip_density_paint()'s cairo_scale() wrapper. */
+    cairo_save(cr);
     draw_popup_background(cr);
 
     if (g_has_group) {
         paint_popup_group(cr);
+        cairo_restore(cr);
         return;
     }
 
@@ -735,6 +769,8 @@ static void draw_popup(cairo_t *cr)
         cairo_close_path(cr);
         cairo_fill(cr);
     }
+
+    cairo_restore(cr);
 }
 
 /* xispanel: X-DENSITY paint callback (density_layer_register()'s `paint`)
@@ -1039,7 +1075,8 @@ static void show_popup(void)
          * size changes with its content (a longer line, a group gaining a
          * thumbnail row...), and the SHAPE mask has to match exactly or
          * it'd clip a stale rectangle instead of the current one. */
-        panel_shape_round_corners(pop->win, pop->width, pop->height, p->border_radius);
+        pop->alpha_clip = panel_round_corners(pop->win, pop->width, pop->height, p->border_radius, p->depth,
+                                              &pop->shaped);
         XRaiseWindow(g_dpy, pop->win);
         /* See g_suppress_popup_enter's own doc comment: this move/raise
          * can itself generate a crossing event indistinguishable from a
@@ -1065,7 +1102,8 @@ static void show_popup(void)
                                   CWOverrideRedirect | CWColormap | CWBorderPixel | CWBackPixel | CWEventMask, &attrs);
         XChangeProperty(g_dpy, pop->win, g_atom_wm_window_type, XA_ATOM, 32, PropModeReplace,
                          (unsigned char *)&g_atom_wm_window_type_tooltip, 1);
-        panel_shape_round_corners(pop->win, pop->width, pop->height, p->border_radius);
+        pop->alpha_clip = panel_round_corners(pop->win, pop->width, pop->height, p->border_radius, p->depth,
+                                              &pop->shaped);
 
         pop->surface = cairo_xlib_surface_create(g_dpy, pop->win, p->visual, pop->width, pop->height);
         pop->cr = cairo_create(pop->surface);

@@ -60,6 +60,13 @@ typedef struct {
      * itself just rides along) while a `Toast *` baked into it would not
      * be. */
     DensityLayer *density;
+    /* Rounded-corner state (panel_round_corners()): whether win currently
+     * carries an XShape mask, and whether it should instead be rounded by
+     * clipping the painted content to a real alpha edge -- see
+     * draw_toast()'s use of the latter. Same pair as Panel::shaped/
+     * corner_alpha_clip, one per toast since each is its own window. */
+    int shaped;
+    int alpha_clip;
     uint64_t expire_ms; /* 0 = never auto-expire */
     /* Original requested lifetime in ms (0 = never-expire), kept alongside
      * expire_ms so a LeaveNotify can restart the full countdown rather
@@ -244,10 +251,31 @@ static void toast_screen_pos(int idx, int *out_x, int *out_y)
 static void draw_toast(cairo_t *cr, Toast *t)
 {
     cairo_save(cr);
+    /* Unconditional, regardless of alpha_clip this frame: t->cr/img_cr are
+     * reused across repaints, so a corner XShape was rounding last time
+     * (compositor off, say) can still hold opaque pixels a clip only
+     * holds *new* painting back from -- see panel_paint_content()'s own
+     * doc comment for the same reasoning. */
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_rgba(cr, 0, 0, 0, 0);
     cairo_paint(cr);
     cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+
+    /* Real alpha instead of XShape when there's a compositor to render it
+     * (panel_round_corners()) -- covers the whole rest of this function,
+     * not just the background, so the border stroke comes out hugging the
+     * curve on its own and nothing (icon, text, level bar) can bleed past
+     * it into a corner that's supposed to be transparent. */
+    if (t->alpha_clip && g_border_radius > 0) {
+        int r = g_border_radius;
+        int max_r = (TOAST_W < TOAST_H ? TOAST_W : TOAST_H) / 2;
+        if (r > max_r) {
+            r = max_r;
+        }
+        panel_trace_rounded_rect(cr, TOAST_W, TOAST_H, r);
+        cairo_clip(cr);
+    }
+
     if (g_skin && panel_draw_skin(g_skin, cr, SKIN_NORMAL, 0, 0, TOAST_W, TOAST_H)) {
         /* themed popup frame -- see g_skin */
     } else if (g_bg_image) {
@@ -259,7 +287,6 @@ static void draw_toast(cairo_t *cr, Toast *t)
         cairo_set_source_rgba(cr, g_bg_r, g_bg_g, g_bg_b, g_bg_a);
         cairo_paint(cr);
     }
-    cairo_restore(cr);
 
     cairo_set_source_rgba(cr, g_fg_r, g_fg_g, g_fg_b, 0.15);
     cairo_set_line_width(cr, 1);
@@ -300,6 +327,8 @@ static void draw_toast(cairo_t *cr, Toast *t)
         cairo_rectangle(cr, text_x, bar_y, text_w * (level / 100.0), bar_h);
         cairo_fill(cr);
     }
+
+    cairo_restore(cr);
 }
 
 /* Set right before density_layer_render() below, for the duration of that
@@ -419,7 +448,7 @@ static void map_and_show_toast(Toast *t)
                             CWOverrideRedirect | CWColormap | CWBorderPixel | CWBackPixel | CWEventMask, &attrs);
     XChangeProperty(g_dpy, t->win, g_atom_wm_window_type, XA_ATOM, 32, PropModeReplace,
                      (unsigned char *)&g_atom_wm_window_type_tooltip, 1);
-    panel_shape_round_corners(t->win, TOAST_W, TOAST_H, g_border_radius);
+    t->alpha_clip = panel_round_corners(t->win, TOAST_W, TOAST_H, g_border_radius, g_depth, &t->shaped);
     t->surface = cairo_xlib_surface_create(g_dpy, t->win, g_visual, TOAST_W, TOAST_H);
     t->cr = cairo_create(t->surface);
     t->density = density_layer_register(t->win, g_visual, g_depth, toast_density_paint, NULL);
@@ -621,13 +650,13 @@ void toast_set_padding_extra(int extra)
 
 /* Mirrors widgets/notif.c's own panel's border_radius=, same on_tick
  * re-sync pattern as toast_set_colors()/toast_set_padding_extra() -- see
- * panel_shape_round_corners()'s doc comment for why a toast (a small,
- * ephemeral popup with no content near its own corner) rounds via plain
- * SHAPE rather than the panel bar's own compositor-dependent alpha clip.
- * Every toast is the same fixed TOAST_W x TOAST_H, so one shape call
- * covers them all -- re-applied to each already-showing one immediately
- * rather than waiting for its next paint_toast(), since changing the
- * radius doesn't otherwise dirty anything. */
+ * panel_round_corners()'s doc comment for how a toast picks between
+ * XShape and a real alpha clip, same rule as the panel bar itself. Every
+ * toast is the same fixed TOAST_W x TOAST_H, so one call covers them
+ * all. Re-applied (and repainted) immediately rather than waiting for
+ * the next paint_toast(): a plain XShape change alone would dirty
+ * nothing further, but the alpha-clip case rounds through the painted
+ * content itself, so it needs the repaint to actually show. */
 void toast_set_border_radius(int r)
 {
     if (r < 0) {
@@ -638,7 +667,9 @@ void toast_set_border_radius(int r)
     }
     g_border_radius = r;
     for (int i = 0; i < g_n; i++) {
-        panel_shape_round_corners(g_toasts[i].win, TOAST_W, TOAST_H, g_border_radius);
+        Toast *t = &g_toasts[i];
+        t->alpha_clip = panel_round_corners(t->win, TOAST_W, TOAST_H, g_border_radius, g_depth, &t->shaped);
+        paint_toast(t);
     }
     if (g_n > 0) {
         XFlush(g_dpy);

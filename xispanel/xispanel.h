@@ -698,15 +698,29 @@ void panel_paint_content(Panel *p, cairo_t *cr, double scale);
  * menu.c's popup frames, which round the same way for the same reason. */
 void panel_trace_rounded_rect(cairo_t *cr, int w, int h, int r);
 /* SHAPE-masks `win` (any size w x h) to that same rounded rect, or clears
- * the mask back to a plain rectangle when r <= 0 -- see its doc comment
- * in xispanel.c for why this is right for an ephemeral popup (menu.c's
- * frames, tooltip.c's popup, toast.c's toasts) but not the panel bar
- * itself. */
+ * the mask back to a plain rectangle when r <= 0 -- see its doc comment in
+ * xispanel.c for the cost (the rounded-off corner pixels lose their
+ * clickability for good) that makes this the fallback rather than the
+ * first choice; panel_round_corners() below is what everything -- the
+ * panel bar and every ephemeral popup alike -- actually calls. */
 void panel_shape_round_corners(Window win, int w, int h, int r);
 /* True if an actual compositor holds _NET_WM_CM_S<screen> right now -- a
  * live, uncached round trip (see xispanel.c's doc comment on why an ARGB
  * *visual* existing isn't the same question). */
 int panel_compositor_present(void);
+/* depth == 32 && panel_compositor_present() -- the condition under which
+ * a rounded corner can be real per-pixel alpha instead of an XShape mask
+ * (panel_round_corners() below). Exposed on its own for a caller that
+ * only needs the yes/no, not the XShape bookkeeping that comes with it. */
+int panel_wants_alpha_clip(int depth);
+/* Generic form of the panel bar's own panel_apply_shape(): rounds win
+ * (w x h) to radius, picking XShape or (the return value) a real alpha
+ * clip the caller applies itself in its paint code, by panel_wants_
+ * alpha_clip()'s rule. *shaped is the caller's own "does win currently
+ * carry an XShape mask" flag, read and updated across calls the same
+ * way Panel::shaped is -- start it at 0. See xispanel.c for the full
+ * reasoning. */
+int panel_round_corners(Window win, int w, int h, int radius, int depth, int *shaped);
 /* Calls cb(p, ctx) for every in-use panel -- lets density.c react to a
  * compositor disappearing (reset every panel's density to 1/1) without
  * needing xispanel.c's own g_panels[]/MAX_PANELS storage details exposed. */
