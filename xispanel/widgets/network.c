@@ -50,7 +50,21 @@ static int network_on_tick(PanelWidget *w, uint64_t now)
     snprintf(o_type, sizeof(o_type), "%s", np->type);
     snprintf(o_name, sizeof(o_name), "%s", np->name);
 
-    np->connected = network_get_summary(np->type, sizeof(np->type), np->name, sizeof(np->name), &np->signal_pct);
+    /* Never blocks: this reads the last completed `nmcli` snapshot and
+     * asks asyncmd.c to refresh it in the background when it has aged
+     * past NETWORK_POLL_MS (see ../network.c). Until the very first run
+     * finishes it returns generation 0, and the widget simply keeps
+     * painting its initial "not connected" state for a tick or two
+     * instead of the panel waiting on nmcli to answer. */
+    char type[16], name[128];
+    int connected = 0, signal_pct = -1;
+    if (network_get_summary(NETWORK_POLL_MS, type, sizeof(type), name, sizeof(name), &signal_pct, &connected) == 0) {
+        return 0;
+    }
+    np->connected = connected;
+    np->signal_pct = signal_pct;
+    snprintf(np->type, sizeof(np->type), "%s", type);
+    snprintf(np->name, sizeof(np->name), "%s", name);
 
     return o_connected != np->connected || o_signal != np->signal_pct || strcmp(o_type, np->type) != 0 ||
            strcmp(o_name, np->name) != 0;
