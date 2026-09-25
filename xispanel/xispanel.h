@@ -16,6 +16,7 @@
 #include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/select.h> /* fd_set, for asyncmd_fds()'s main-loop plumbing */
 
 #define MAX_WIDGETS 32
 
@@ -1542,16 +1543,64 @@ int pulse_get_default_source_name(char *out, size_t outsz);
 int audio_events_fd(void);
 void audio_events_poll(void);
 
+/* ---- non-blocking external commands (asyncmd.c) ----
+ *
+ * The one way anything in xispanel may read a shell command's output. A
+ * plain popen()/pclose() from a widget's on_tick blocks the entire panel
+ * for as long as the command runs -- see asyncmd.c's own doc comment for
+ * the 6.3-second `nmcli dev wifi list` that forced this -- so widgets ask
+ * here instead and get back the last *completed* run's stdout, never
+ * waiting for a child process.
+ *
+ * asyncmd_get() returns a generation counter: 0 until the first run of
+ * `cmd` has finished, then +1 per completed run, so a caller re-parses
+ * only when it differs from the generation it last saw. `*out_text` is
+ * that run's stdout, valid until the next asyncmd_poll(). The call also
+ * schedules: if the cached output is older than `refresh_ms`, the next
+ * run is spawned in the background (never more than one at a time per
+ * command) and the old output returned meanwhile. Callers sharing a
+ * command string share its child and its snapshot, and the shared slot
+ * refreshes at the shortest interval any of them asked for. */
+uint64_t asyncmd_get(const char *cmd, unsigned refresh_ms, const char **out_text);
+
+/* Main-loop plumbing, same shape as audio_events_fd()/audio_events_poll():
+ * asyncmd_fds() adds every running child's pipe to `rfds` and returns the
+ * updated maxfd, so a finishing command wakes select() immediately rather
+ * than waiting out the next widget tick. asyncmd_poll() drains them and
+ * returns 1 if any run completed -- xispanel.c turns that into a
+ * schedule_widget_repoll() so fresh data paints right away. It's a
+ * non-blocking drain, safe to call every iteration regardless of
+ * readiness. */
+int asyncmd_fds(fd_set *rfds, int maxfd);
+int asyncmd_poll(uint64_t now);
+
+/* Walks a snapshot line by line: copies the line at *pp into `out`
+ * (newline and any trailing CR stripped), advances *pp past it, and
+ * returns 0 once the snapshot is exhausted -- the replacement for the
+ * fgets() loop each consumer used to run against its own popen()ed
+ * FILE*. A line longer than `outsz` is truncated, not split. */
+int asyncmd_next_line(const char **pp, char *out, size_t outsz);
+
 /* ---- connectivity summary: shells out to `nmcli` (network.c) ----
  *
  * Small on purpose: just enough for widgets/network.c's icon/tooltip
  * (is something connected, what kind, its name, wifi signal). The full
  * device list and wifi scan/connect UI is xisserve's own --network page,
  * a separate binary/codebase -- nothing here is shared with it. */
-/* 1 if a device is connected, filling `type` ("wifi"/"ethernet"), `name`
- * (the connection's name), and `*signal_pct` (0-100, wifi only; -1 for
- * ethernet or when not connected). 0 if nothing is connected. */
-int network_get_summary(char *type, size_t type_sz, char *name, size_t name_sz, int *signal_pct);
+/* Reads the last completed `nmcli` snapshot, refreshing it in the
+ * background (asyncmd.c) once it is older than `refresh_ms` -- never
+ * waits on nmcli, which is the whole point: see network.c's doc comment
+ * on the 6.3-second wifi rescan this used to block the panel for.
+ *
+ * Returns that snapshot's generation, 0 while the first run is still in
+ * flight -- and at 0 nothing else is filled in, so a caller must treat it
+ * as "ask again later", NOT as "nothing is connected". Otherwise
+ * `*out_connected` is 1/0, with `type` ("wifi"/"ethernet"), `name` (the
+ * connection's name) and `*signal_pct` (0-100, wifi only; -1 for
+ * ethernet, when not connected, or while the signal's own slower-
+ * refreshing snapshot is still empty) filled accordingly. */
+uint64_t network_get_summary(unsigned refresh_ms, char *type, size_t type_sz, char *name, size_t name_sz,
+                              int *signal_pct, int *out_connected);
 
 /* ---- removable storage snapshot: shells out to `lsblk` (storage.c) ----
  *
@@ -1571,10 +1620,18 @@ typedef struct {
 /* Fills `out` (up to `max` entries) with every currently-attached
  * removable/hotplug block device (partitions of a partitioned disk
  * individually, or a disk itself when it carries a filesystem directly
- * with no partition table), setting `*out_count`. Returns 0 if `lsblk`
- * itself couldn't be run at all (missing binary); an empty result (no
- * removable media attached) still returns 1 with `*out_count` == 0. */
-int storage_list(StorageDevice *out, int max, int *out_count);
+ * with no partition table), setting `*out_count`.
+ *
+ * Reads the last completed `lsblk` snapshot and refreshes it in the
+ * background (asyncmd.c) once it is older than `refresh_ms` -- it never
+ * waits on lsblk. Returns that snapshot's generation, which is 0 while
+ * the first run is still in flight: at 0 `*out_count` is 0 too, and a
+ * caller must NOT read that as "no removable media attached" -- that
+ * distinction is exactly what keeps storage_events.c from seeding an
+ * empty baseline at startup and then toasting every already-plugged
+ * device as newly arrived. Callers that only re-diff on change can
+ * compare the generation against the last one they parsed. */
+uint64_t storage_list(unsigned refresh_ms, StorageDevice *out, int max, int *out_count);
 
 /* ---- removable-device hotplug/mount toasts (storage_events.c) ----
  *

@@ -3929,6 +3929,10 @@ static int run_as_daemon(const char *sockpath)
                 maxfd = audiofd;
             }
         }
+        /* Whatever external commands the widgets currently have in
+         * flight (asyncmd.c) -- a varying set each iteration, so this
+         * adds them wholesale rather than tracking individual fds here. */
+        maxfd = asyncmd_fds(&rfds, maxfd);
 
         uint64_t now = now_ms();
         long timeout_ms = -1;
@@ -4210,6 +4214,15 @@ static int run_as_daemon(const char *sockpath)
         int tray_changed = disable_sni ? 0 : sni_poll(now);
         if (!disable_notifd) {
             notifd_poll(now);
+        }
+        /* Before the widget ticks below, so a command that finished this
+         * iteration is already published when they ask for it. A
+         * completed run means some widget's data changed, but asyncmd.c
+         * has no idea which -- so nudge them all to re-tick now instead
+         * of letting the new value sit unpainted until each widget's next
+         * natural tick (same mechanism a geometry change uses). */
+        if (asyncmd_poll(now)) {
+            schedule_widget_repoll(now);
         }
         storage_events_poll(now); /* rate-limits itself internally, see its own doc comment */
         for (int i = 0; i < MAX_PANELS; i++) {
