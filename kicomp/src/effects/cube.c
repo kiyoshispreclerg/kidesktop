@@ -62,6 +62,14 @@
  * how the events happened to bunch up. */
 #define DRAG_SMOOTH_MS 35.0
 
+/* How quickly the drawn zoom catches up with where the wheel has sent
+ * it. Slower than DRAG_SMOOTH_MS on purpose: a drag is a continuous
+ * motion already, chased only to smooth out event jitter, but a wheel
+ * arrives as discrete notches -- without its own chase each one would
+ * snap the eye straight to its new distance, which through a face is
+ * a jump cut rather than a walk. */
+#define ZOOM_SMOOTH_MS 150.0
+
 
 typedef struct {
     char hotkey[128];
@@ -82,6 +90,16 @@ typedef struct {
 
     /* A drag across the whole output turns the cube this many times. */
     float turns;
+
+    /* The wheel, while a mouse drag holds the cube open: each notch
+     * moves `zoom` this much, in the same fraction-of-width units as
+     * `zoom` itself. Scrolling in past zero walks the eye through the
+     * near face and into the cube -- see CUBE_NEAR_EPS and `inside` in
+     * cube_apply for how a face that the eye has reached is dropped
+     * instead of flipping inside out. */
+    float zoom_step;
+    float zoom_min;
+    float zoom_max;
 
     /* How far the vertical drag may tilt it, in degrees. 90 is looking
      * at it exactly from above or below, which is as far as there is to
@@ -179,7 +197,9 @@ typedef struct {
 
     double held_at;             /* when the holds were last renewed */
 
-    float zoom;                 /* how far back, chosen when it opened */
+    float zoom;                 /* how far back, drawn from -- chases zoom_target */
+    float zoom_target;          /* where the wheel has walked the eye to */
+    double zoom_tick;           /* when that chase last advanced */
     float window_gap;           /* and how far the windows stand off it */
     float window_spacing;
 
@@ -327,6 +347,45 @@ static float face_depth(const CompTransform *t, const CompOutput *o)
     float x = (float)o->rect.x + (float)o->rect.w * 0.5f;
     float y = (float)o->rect.y + (float)o->rect.h * 0.5f;
     return t->m[3][0] * x + t->m[3][1] * y + t->m[3][3];
+}
+
+/* face_depth() is the w the projection divides by, and it is exactly
+ * `1 - z/distance` (comp_transform_perspective): it falls to zero as a
+ * plane reaches the eye and goes negative once the eye has passed
+ * through it, at which point dividing by it does not draw the plane
+ * closer any more, it mirrors it. There being no clip plane in this
+ * pipeline -- the renderers draw whatever quad they are handed, they do
+ * not cut one -- a plane the eye has reached has to be dropped whole
+ * rather than let its w cross zero, which is what lets the wheel walk
+ * the eye through a face instead of turning it inside out at the
+ * threshold. The epsilon is a hair short of the actual singularity so
+ * the last visible sliver is still comfortably a projection. */
+#define CUBE_NEAR_EPS 0.08f
+
+static bool cube_past_eye(const CompTransform *t, const CompOutput *o)
+{
+    return face_depth(t, o) <= CUBE_NEAR_EPS;
+}
+
+/* How much a face nearing the eye has to be pulled towards fully solid
+ * before it is dropped, so that crossing into `inside` (cube_apply) is
+ * a face fading to solid and vanishing rather than the whole shell
+ * popping from see-through to opaque in one frame the instant the eye
+ * passes zero. 0 once still comfortably away (spin_transparency's own
+ * veil applies unchanged); 1 at the cutoff, an instant before
+ * cube_past_eye would drop it. */
+#define CUBE_NEAR_FADE 0.5f
+
+static float cube_near_solid(const CompTransform *t, const CompOutput *o)
+{
+    float w = face_depth(t, o);
+    float band = CUBE_NEAR_EPS + CUBE_NEAR_FADE;
+    if (w >= band)
+        return 0.0f;
+    if (w <= CUBE_NEAR_EPS)
+        return 1.0f;
+    float x = (band - w) / CUBE_NEAR_FADE;
+    return x * x * (3.0f - 2.0f * x);      /* smoothstep */
 }
 
 /* Is this face turned towards the viewer?
@@ -541,13 +600,37 @@ static void on_motion(void *data, int root_x, int root_y)
     if (d->tilt_target < -limit) d->tilt_target = -limit;
 }
 
+/* Buttons 4/5 are the wheel (input.h) -- X reports a notch as a press
+ * immediately followed by a release, so only the press need move the
+ * eye, or the same notch would count twice. Up walks the eye in,
+ * through the near face and on into the cube; down backs it out. */
+static void cube_zoom_wheel(CompEffect *e, int dir)
+{
+    CubeData *d = e->data;
+    const CubeConfig *cfg = e->instance->config;
+
+    if (d->closing)
+        return;
+
+    d->zoom_target += cfg->zoom_step * (float)dir;
+    if (d->zoom_target < cfg->zoom_min) d->zoom_target = cfg->zoom_min;
+    if (d->zoom_target > cfg->zoom_max) d->zoom_target = cfg->zoom_max;
+
+    mark_dirty(d);
+}
+
 static void on_button(void *data, int root_x, int root_y, uint8_t button,
                       bool pressed)
 {
     CompEffect *e = data;
     (void)root_x;
     (void)root_y;
-    (void)button;
+
+    if (button == 4 || button == 5) {
+        if (pressed)
+            cube_zoom_wheel(e, button == 4 ? -1 : 1);
+        return;
+    }
 
     /* The mode lasts exactly as long as the button is down -- it was
      * opened by the press, and letting go is the whole of choosing. */
@@ -705,10 +788,26 @@ static void cube_update(CompEffect *e, double now)
         tilt = d->tilt_from * (1.0f - p);
     }
 
-    bool changed = phase != d->phase || angle != d->angle || tilt != d->tilt;
+    /* The wheel's own chase, independent of dragging/settling -- it runs
+     * whenever the target it set is not yet where the eye is drawn,
+     * closing or not (closing still eases zoom back is not needed since
+     * cube_open resets it fresh next time, but there is no reason to
+     * freeze it either). */
+    float zoom = d->zoom;
+    if (zoom != d->zoom_target) {
+        double zdt = now - d->zoom_tick;
+        if (zdt < 0.0) zdt = 0.0;
+        float zk = 1.0f - expf((float)(-zdt / ZOOM_SMOOTH_MS));
+        zoom = d->zoom + (d->zoom_target - d->zoom) * zk;
+    }
+    d->zoom_tick = now;
+
+    bool changed = phase != d->phase || angle != d->angle || tilt != d->tilt ||
+                   zoom != d->zoom;
     d->phase = phase;
     d->angle = angle;
     d->tilt = tilt;
+    d->zoom = zoom;
 
     /* Either this turned the cube itself, which always needs the whole
      * output repainted, or something else already did and that repaint
@@ -812,7 +911,12 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
      * stands up and fades back to solid as it lies back down, instead of
      * jumping straight to spin_transparency the instant the button goes
      * down and popping back to solid the instant it comes up. */
-    bool spin = !d->flick && cfg->spin_transparency > 0.0f;
+    /* The wheel has walked the eye past zero: it is inside the prism
+     * now, among the faces rather than in front of them, so every face
+     * has to carry its windows the way a turned-away one does while
+     * spinning -- there is no "outside" left to be looking in from. */
+    bool inside = d->zoom * d->phase < 0.0f;
+    bool spin = (!d->flick && cfg->spin_transparency > 0.0f) || inside;
     float veil = spin ? 1.0f - cfg->spin_transparency * d->phase : 1.0f;
 
     /* Every face placed and ordered back to front -- there is no depth
@@ -820,20 +924,25 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
      * divides by, which is the distance the matrix itself reports. The
      * ones turned away carry no solid (you never see the back of a face),
      * but while the cube is see-through they still carry their windows --
-     * `front` is which. */
-    struct { CompTransform t; CompRect rect; float depth; int i; bool front; }
+     * `front` is which. A face the eye has already reached (cube_past_eye)
+     * is dropped instead: its w has fallen through zero and there is no
+     * projection left to draw, only a mirror of one. */
+    struct { CompTransform t; CompRect rect; float depth; float near; int i; bool front; }
         vis[MAX_FACES + 2];
     int count = 0;
 
     for (int i = 0; i < d->faces && count < MAX_FACES; i++) {
         CompTransform t;
         face_transform(&t, o, cfg, d, i);
+        if (cube_past_eye(&t, o))
+            continue;
         bool front = face_faces_us(&t, &o->rect);
         if (!front && !spin)
             continue;
         vis[count].t = t;
         vis[count].rect = o->rect;
         vis[count].depth = face_depth(&t, o);
+        vis[count].near = cube_near_solid(&t, o);
         vis[count].i = i;
         vis[count].front = front;
         count++;
@@ -847,11 +956,14 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
         for (int up = 1; up >= -1; up -= 2) {
             CompTransform t;
             cap_transform(&t, o, cfg, d, up);
+            if (cube_past_eye(&t, o))
+                continue;
             if (!face_faces_us(&t, &cr))
                 continue;
             vis[count].t = t;
             vis[count].rect = cr;
             vis[count].depth = face_depth(&t, o);
+            vis[count].near = cube_near_solid(&t, o);
             vis[count].i = -1;
             vis[count].front = true;
             count++;
@@ -918,6 +1030,14 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
         for (int k = 0; k < count; k++) {
             int face = vis[k].i;
 
+            /* `veil` pulled towards solid as this particular face nears
+             * the eye (cube_near_solid), so a face does not sit at a
+             * constant spin_transparency right up to the frame it is
+             * dropped -- it solidifies over CUBE_NEAR_FADE and only then
+             * goes, which is what makes crossing into `inside` a fade
+             * instead of the whole shell popping opaque in one tick. */
+            float veil_k = veil + (1.0f - veil) * vis[k].near;
+
             /* The face's own backing quad, and the caps -- the shell.
              * A face turned away has none (you would be seeing its
              * inside), and while the cube is see-through what is drawn
@@ -925,7 +1045,7 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
             if (pass == 0 && vis[k].front && cfg->shell)
                 scene_add_solid(s, &vis[k].rect, &vis[k].t,
                                 cfg->cap_r, cfg->cap_g, cfg->cap_b,
-                                cfg->cap_a * d->phase * veil, (float)n - 0.5f);
+                                cfg->cap_a * d->phase * veil_k, (float)n - 0.5f);
 
             if (face < 0)
                 continue;               /* a cap carries nothing */
@@ -970,7 +1090,7 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
                 if (flat) {
                     if (!vis[k].front && !wallpaper)
                         continue;
-                    node.opacity *= veil;
+                    node.opacity *= veil_k;
                 }
 
                 float off = flat ? 0.0f
@@ -981,6 +1101,8 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
 
                 CompTransform t;
                 face_transform_at(&t, o, cfg, d, face, off * d->phase);
+                if (cube_past_eye(&t, o))
+                    continue;       /* this window's own plane, not just its face's, has been reached */
                 node.transform = t;
                 comp_transform_bbox(&t, &node.geometry, &node.visible_rect);
                 faceset[fn++] = node;
@@ -1127,6 +1249,8 @@ static void cube_open(const CompEffectInstance *self, bool flick)
      * only means something when the cube has backed away far enough to
      * see that it has depth. */
     d->zoom = flick ? cfg->flick_zoom : cfg->zoom;
+    d->zoom_target = d->zoom;
+    d->zoom_tick = comp_now_ms();
     d->window_gap = flick ? 0.0f : cfg->window_gap;
     d->window_spacing = flick ? 0.0f : cfg->window_spacing;
 
@@ -1275,6 +1399,9 @@ static void cube_defaults(void *config)
     c->zoom = 0.55f;
     c->flick_zoom = 0.0f;
     c->perspective = 0.7f;
+    c->zoom_step = 0.1f;
+    c->zoom_min = -2.0f;
+    c->zoom_max = 1.6f;
     c->turns = 1.0f;
     c->tilt_max = 90.0f;
     c->window_gap = 40.0f;
@@ -1308,6 +1435,9 @@ static bool cube_config_key(void *config, const char *key, const char *value)
     if (!strcmp(key, "zoom"))        { c->zoom = (float)atof(value); return true; }
     if (!strcmp(key, "flick_zoom"))  { c->flick_zoom = (float)atof(value); return true; }
     if (!strcmp(key, "perspective")) { c->perspective = (float)atof(value); return true; }
+    if (!strcmp(key, "zoom_step"))   { c->zoom_step = (float)atof(value); return true; }
+    if (!strcmp(key, "zoom_min"))    { c->zoom_min = (float)atof(value); return true; }
+    if (!strcmp(key, "zoom_max"))    { c->zoom_max = (float)atof(value); return true; }
     if (!strcmp(key, "turns"))       { c->turns = (float)atof(value); return true; }
     if (!strcmp(key, "tilt_max"))    { c->tilt_max = (float)atof(value); return true; }
     if (!strcmp(key, "window_gap"))     { c->window_gap = (float)atof(value); return true; }
