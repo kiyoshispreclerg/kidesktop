@@ -95,7 +95,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.45"
+#define XISPANEL_VERSION "0.6.46"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -367,6 +367,8 @@ static const PanelWidgetOps *g_widget_registry[] = {
     &monitor_ops,
     &energy_ops,
     &container_ops,
+    &network_ops,
+    &storage_ops,
     NULL,
 };
 
@@ -3947,6 +3949,7 @@ static int run_as_daemon(const char *sockpath)
         if (!disable_notifd) {
             notifd_poll(now);
         }
+        storage_events_poll(now); /* rate-limits itself internally, see its own doc comment */
         for (int i = 0; i < MAX_PANELS; i++) {
             Panel *p = &g_panels[i];
             if (!p->in_use) {

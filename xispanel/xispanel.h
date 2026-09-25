@@ -1488,6 +1488,52 @@ int pulse_get_default_source_name(char *out, size_t outsz);
 int audio_events_fd(void);
 void audio_events_poll(void);
 
+/* ---- connectivity summary: shells out to `nmcli` (network.c) ----
+ *
+ * Small on purpose: just enough for widgets/network.c's icon/tooltip
+ * (is something connected, what kind, its name, wifi signal). The full
+ * device list and wifi scan/connect UI is xisserve's own --network page,
+ * a separate binary/codebase -- nothing here is shared with it. */
+/* 1 if a device is connected, filling `type` ("wifi"/"ethernet"), `name`
+ * (the connection's name), and `*signal_pct` (0-100, wifi only; -1 for
+ * ethernet or when not connected). 0 if nothing is connected. */
+int network_get_summary(char *type, size_t type_sz, char *name, size_t name_sz, int *signal_pct);
+
+/* ---- removable storage snapshot: shells out to `lsblk` (storage.c) ----
+ *
+ * Used by both widgets/storage.c (its own tooltip) and storage_events.c
+ * (hotplug/mount toasts) -- see storage_events.c's own doc comment for
+ * why this is polled rather than driven off `udisksctl monitor`. */
+typedef struct {
+    char name[64];        /* e.g. "sdb1" */
+    char pkname[64];       /* parent disk, e.g. "sdb"; "" if this row IS a disk */
+    char type[16];          /* "disk" or "part" */
+    char size[32];
+    char fstype[32];
+    char label[128];
+    char mountpoint[PATH_MAX];
+} StorageDevice;
+
+/* Fills `out` (up to `max` entries) with every currently-attached
+ * removable/hotplug block device (partitions of a partitioned disk
+ * individually, or a disk itself when it carries a filesystem directly
+ * with no partition table), setting `*out_count`. Returns 0 if `lsblk`
+ * itself couldn't be run at all (missing binary); an empty result (no
+ * removable media attached) still returns 1 with `*out_count` == 0. */
+int storage_list(StorageDevice *out, int max, int *out_count);
+
+/* ---- removable-device hotplug/mount toasts (storage_events.c) ----
+ *
+ * Polls storage_list() on its own internal cadence (STORAGE_EVENTS_POLL_MS
+ * in storage_events.c) and diffs against the previous snapshot: a toast
+ * for a newly-appeared device, and one when a device's mountpoint clears
+ * *and* no sibling partition of the same disk is still mounted (i.e. it's
+ * now safe to physically unplug). xispanel.c's main loop calls this
+ * every iteration, same as notifd_poll() -- it rate-limits itself
+ * internally, so there's no fd to wire in and no harm calling it more
+ * often than it actually acts. */
+void storage_events_poll(uint64_t now);
+
 /* ---- live window thumbnails: XComposite, no libpulse-style dlopen (thumb.c) ----
  *
  * Unlike mpris.c/sni.c's runtime dlopen(), there's no equivalent trick for
@@ -1565,5 +1611,7 @@ extern const PanelWidgetOps pager_ops;
 extern const PanelWidgetOps monitor_ops;
 extern const PanelWidgetOps energy_ops;
 extern const PanelWidgetOps container_ops;
+extern const PanelWidgetOps network_ops;
+extern const PanelWidgetOps storage_ops;
 
 #endif
