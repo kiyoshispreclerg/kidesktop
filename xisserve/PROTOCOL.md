@@ -321,25 +321,40 @@ unconditionally, on every single click, the same way clicking a taskbar
 icon for a possibly-already-open app works. This means:
 
 - xisserve **must** be a singleton, using the same `flock` pattern
-  `xisback`/`xisguard` already use
-  (`$XDG_RUNTIME_DIR/xisserve.lock`) -- a second invocation while one is
-  already running must not open a second window.
-- A second invocation should be treated as "reposition + retheme using
-  the new argv, then toggle visibility" -- i.e. if xisserve is currently
-  hidden, show it (repositioned/rethemed per the new anchor); if it's
-  currently shown, hide it. This gives the widget click a natural
-  open/close toggle for free, without xispanel needing to know xisserve's
-  visibility state at all.
-- The toggle is per *mode*, not per window: a second invocation asking
-  for a **different** mode than the one on screen (`--audio` while
-  `--calendar` is up, say) switches to it **in the same window**, which
-  stays mapped the whole time -- only its content and geometry change,
-  the same smooth resize a Meta-key press already gets when it asks for
-  the launcher view while some other page is open. Only asking again for
-  the mode already showing closes it. Two panel widgets are two
-  different buttons, and making the user dismiss one popup before the
-  other button would do anything cost a click for nothing -- see
-  xisserve.c's `toggle_visibility()`.
+  `xisback`/`xisguard` already use -- a second invocation asking for the
+  same kind (see below) while one is already running must not open a
+  second window.
+- **Two singletons, not one:** the default launcher view (no mode flag,
+  or any flag this table doesn't list as a page) has its own lock/socket
+  (`$XDG_RUNTIME_DIR/xisserve-launcher.lock`/`.sock`), separate from
+  every page's (`--audio`, `--calendar`, ... -- these all still share one
+  lock/socket, `$XDG_RUNTIME_DIR/xisserve.lock`/`.sock`, unchanged from
+  before this split). Same trick `--keyboard` already uses for its own
+  separate singleton (`xisserve-keyboard.lock`, see above) applied one
+  level up: launcher and pages are different tools used for different
+  things (a quick app search vs. a panel widget's popup), so opening one
+  no longer closes or replaces the other -- both can be up on screen at
+  once, in two separate windows. A page opening while another page is
+  already up still behaves exactly as below (same window, swapped
+  content); it's specifically the launcher that got its own window.
+- A second invocation of the **same kind** should be treated as
+  "reposition + retheme using the new argv, then toggle visibility" --
+  i.e. if that kind's window is currently hidden, show it (repositioned/
+  rethemed per the new anchor); if it's currently shown, hide it. This
+  gives the widget click a natural open/close toggle for free, without
+  xispanel needing to know xisserve's visibility state at all.
+- Within the pages singleton, the toggle is per *mode*, not per window: a
+  second invocation asking for a **different** page than the one on
+  screen (`--audio` while `--calendar` is up, say) switches to it **in
+  the same window**, which stays mapped the whole time -- only its
+  content and geometry change, the same smooth resize a page-to-page
+  switch already gets. Only asking again for the mode already showing
+  closes it. Two panel widgets are two different buttons, and making the
+  user dismiss one popup before the other button would do anything cost
+  a click for nothing -- see xisserve.c's `toggle_visibility()`. (The
+  launcher singleton never sees this branch at all: it only ever
+  receives launcher-mode requests, since anything else is routed to the
+  pages singleton's socket instead.)
 - While a popup is up xisserve holds an input grab, so the click that
   dismisses it never reaches the panel. If that click landed on a panel
   (an EWMH `_NET_WM_WINDOW_TYPE_DOCK` window, which is what xispanel

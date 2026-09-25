@@ -46,7 +46,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.33"
+#define XISSERVE_VERSION "0.1.34"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -3348,9 +3348,24 @@ int main(int argc, char **argv)
 
     const char *rundir = getenv("XDG_RUNTIME_DIR");
     if (!rundir || !*rundir) rundir = "/tmp";
+    /* Two singletons, not one: the launcher (search/app list) and every
+     * page (--audio, --network, ...) used to share a single lock/socket/
+     * window, so opening the launcher while a page was up replaced the
+     * page's content with the launcher's (and vice versa) -- annoying
+     * since they're used for different things (a quick app search vs. a
+     * panel widget's popup) and a user reasonably wants both up at once.
+     * Splitting by lock/socket path is the same trick --keyboard already
+     * uses for its own separate singleton (see PROTOCOL.md, keyboard.c) --
+     * PAGE_LAUNCHER gets its own "xisserve-launcher.lock"/".sock"; every
+     * page keeps sharing the original "xisserve.lock"/".sock" exactly as
+     * before (so they still replace each other in one window -- only the
+     * launcher was split out), which also means no other caller (xispanel
+     * widgets already spawning `xisserve --audio` etc.) needs to change
+     * anything. */
     char lockpath[PATH_MAX], sockpath[PATH_MAX];
-    snprintf(lockpath, sizeof(lockpath), "%s/xisserve.lock", rundir);
-    snprintf(sockpath, sizeof(sockpath), "%s/xisserve.sock", rundir);
+    const char *kind_suffix = args.page == PAGE_LAUNCHER ? "-launcher" : "";
+    snprintf(lockpath, sizeof(lockpath), "%s/xisserve%s.lock", rundir, kind_suffix);
+    snprintf(sockpath, sizeof(sockpath), "%s/xisserve%s.sock", rundir, kind_suffix);
 
     int lockfd = open(lockpath, O_CREAT | O_RDWR, 0600);
     if (lockfd < 0) {
