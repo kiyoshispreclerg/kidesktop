@@ -94,7 +94,7 @@ int xis_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int 
 int xis_fd(void);
 int xis_poll_change(void);
 
-#define XISBACK_VERSION "0.4.8"
+#define XISBACK_VERSION "0.4.9"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -551,6 +551,20 @@ static void run_action(const char *cmd, const char *output, int desktop, const c
         setenv("XISBACK_CLICK_X", xstr, 1);
         setenv("XISBACK_CLICK_Y", ystr, 1);
         setsid();
+        /* Double fork: this first child exits immediately below,
+         * orphaning the grandchild that execs `cmd` -- the kernel
+         * reparents it to init instead of leaving ppid pointing at
+         * xisback for as long as the launched program runs (which would
+         * otherwise show it nested under xisback in any process-tree
+         * view). setsid() alone only detaches from the controlling
+         * terminal, it doesn't change ppid. */
+        pid_t pid2 = fork();
+        if (pid2 < 0) {
+            _exit(1);
+        }
+        if (pid2 > 0) {
+            _exit(0);
+        }
         execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
         _exit(127);
     }
