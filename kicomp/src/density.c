@@ -83,6 +83,16 @@ static void as_fraction(float density, uint32_t *num, uint32_t *den)
 
 void density_init(void)
 {
+    if (!comp.density_enabled) {
+        /* Never claims the selection: a client checks for the manager
+         * with XGetSelectionOwner()/XFixesSelectSelectionInput() before
+         * ever asking for a density, so leaving it unclaimed is enough on
+         * its own for every client to fall back to the plain, magnified
+         * path -- nothing else in this file needs to know density is
+         * off. */
+        comp_log("X-DENSITY disabled (kicomp.conf's density=0)");
+        return;
+    }
     if (comp.atoms.density_manager == XCB_NONE)
         return;
 

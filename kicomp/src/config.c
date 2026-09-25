@@ -108,6 +108,7 @@ static void apply_builtin_defaults(void)
      * anyone asking. It gives the output back the moment there is
      * anything to draw over it (unredirect.h). */
     comp.unredirect = true;
+    comp.density_enabled = true;
 
     comp.keep_stowed = true;
     comp.live_windows = COMP_LIVE_DESKTOP;
@@ -339,6 +340,8 @@ static void config_pass(FILE *f, bool instances_pass)
             comp.skip_wm_layers = atoi(val) != 0;
         } else if (strcmp(key, "unredirect_fullscreen") == 0) {
             comp.unredirect = atoi(val) != 0;
+        } else if (strcmp(key, "density") == 0) {
+            comp.density_enabled = atoi(val) != 0;
         } else if (strcmp(key, "claim_ms") == 0) {
             comp.claim_ms = atof(val);
             if (comp.claim_ms < 0.0)

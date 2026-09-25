@@ -713,6 +713,17 @@ typedef struct KiComp {
      * the desktop on the other. */
     bool unredirect;
 
+    /* kicomp.conf's density= (default on): whether to claim
+     * _X_DENSITY_MANAGER_Sn at all (density.c's density_init()). Off
+     * means no client ever sees a density manager, so none of them
+     * requests or renders a dense pixmap in the first place -- the
+     * protocol costs nothing to begin with on a 1x, non-zoomed desktop
+     * (wanted_density() already comes out 1/1 there), so this only
+     * actually saves anything on a scaled output or with the zoom effect
+     * in heavy use, at the cost of decoration/content going back to
+     * plain magnified pixels in exactly those cases. */
+    bool density_enabled;
+
     bool keep_stowed;
 
     /* kicomp.conf's live_windows= (default desktop): which windows on
