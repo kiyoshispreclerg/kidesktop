@@ -46,7 +46,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.34"
+#define XISSERVE_VERSION "0.1.35"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -525,6 +525,17 @@ void run_detached(const char *cmd)
     }
     if (pid == 0) {
         setsid();
+        /* Double fork: this first child exits immediately below,
+         * orphaning the grandchild that execs `cmd` -- reparented to
+         * init instead of staying a child of xisserve for as long as the
+         * launched program runs. setsid() alone doesn't change ppid. */
+        pid_t pid2 = fork();
+        if (pid2 < 0) {
+            _exit(1);
+        }
+        if (pid2 > 0) {
+            _exit(0);
+        }
         execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
         _exit(127);
     }
