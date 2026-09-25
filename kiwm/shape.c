@@ -139,6 +139,7 @@ void shape_update_frame(Client *c)
                       c->frame, (int16_t)bt, (int16_t)th, c->window);
 
     c->frame_shaped = true;
+    withdraw_corner_radii(c);
 
     if (th <= 0 && bt <= 0)
         return;

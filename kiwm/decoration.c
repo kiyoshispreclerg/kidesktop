@@ -840,6 +840,33 @@ static bool client_fills_output(Client *c)
            c->frame_width == o->width && c->frame_height == o->height;
 }
 
+void publish_corner_radii(Client *c, int tl, int tr, int br, int bl)
+{
+    if (c->published_radii && c->published_tl == tl && c->published_tr == tr &&
+        c->published_br == br && c->published_bl == bl)
+        return;
+
+    uint32_t value[4] = { (uint32_t)tl, (uint32_t)tr, (uint32_t)br, (uint32_t)bl };
+    xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, c->frame,
+                        wm.atoms.kiwm_corner_radius, XCB_ATOM_CARDINAL, 32,
+                        4, value);
+
+    c->published_radii = true;
+    c->published_tl = tl;
+    c->published_tr = tr;
+    c->published_br = br;
+    c->published_bl = bl;
+}
+
+void withdraw_corner_radii(Client *c)
+{
+    if (!c->published_radii)
+        return;
+
+    xcb_delete_property(wm.conn, c->frame, wm.atoms.kiwm_corner_radius);
+    c->published_radii = false;
+}
+
 void apply_rounded_shape(Client *c)
 {
     if (!wm.shape_ext_present)
@@ -852,6 +879,8 @@ void apply_rounded_shape(Client *c)
         square = true;
 
     if (square) {
+        publish_corner_radii(c, 0, 0, 0, 0);
+
         /* Nothing to clear: the frame already has no shape.
          *
          * This branch used to send the clear unconditionally, which meant
@@ -881,6 +910,16 @@ void apply_rounded_shape(Client *c)
     xcb_shape_rectangles(wm.conn, XCB_SHAPE_SO_SET, XCB_SHAPE_SK_BOUNDING, XCB_CLIP_ORDERING_Y_SORTED,
                          c->frame, 0, 0, (uint32_t)n, rects);
     c->frame_shaped = true;
+
+    /* The same clamp build_rounded_rects() applied internally above --
+     * published unclamped, a theme's oversized border_radius would tell a
+     * compositor to round the corners bigger than the shape actually is. */
+    int ptl = wm.radius_tl, ptr = wm.radius_tr, pbr = wm.radius_br, pbl = wm.radius_bl;
+    if (ptl > MAX_CORNER_RADIUS) ptl = MAX_CORNER_RADIUS;
+    if (ptr > MAX_CORNER_RADIUS) ptr = MAX_CORNER_RADIUS;
+    if (pbr > MAX_CORNER_RADIUS) pbr = MAX_CORNER_RADIUS;
+    if (pbl > MAX_CORNER_RADIUS) pbl = MAX_CORNER_RADIUS;
+    publish_corner_radii(c, ptl, ptr, pbr, pbl);
 }
 
 /* Whether this client permits the action a given titlebar element invokes

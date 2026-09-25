@@ -113,6 +113,7 @@ void ewmh_init_atoms(void)
     wm.atoms.x_density_requested = intern_atom("_X_DENSITY_REQUESTED");
     wm.atoms.x_density_scale     = intern_atom("_X_DENSITY_SCALE");
     wm.atoms.x_density_pixmap    = intern_atom("_X_DENSITY_PIXMAP");
+    wm.atoms.kiwm_corner_radius  = intern_atom("_KIWM_CORNER_RADIUS");
     wm.atoms.kiwm_wm_output = intern_atom("_KIWM_WM_OUTPUT");
     wm.atoms.kiwm_minimized_geometry = intern_atom("_KIWM_MINIMIZED_GEOMETRY");
     wm.atoms.kiwm_layer = intern_atom("_KIWM_LAYER");

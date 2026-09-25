@@ -440,6 +440,17 @@ struct Client {
     } shape_sig;
     bool shape_sig_valid;
 
+    /* What _KIWM_CORNER_RADIUS last actually carried (decoration.c's
+     * publish_corner_radii()), so a resize that leaves the effective
+     * radii untouched -- the overwhelming majority of them, since the
+     * radii are almost always just the theme's -- does not repeat the
+     * same ChangeProperty every single frame of the drag. Mirrors
+     * geom_sent's reasoning above. published_radii false means no
+     * property is currently on the frame at all (never sent, or
+     * withdrawn -- see the client-shaped path in shape.c). */
+    bool published_radii;
+    int published_tl, published_tr, published_br, published_bl;
+
     /* Whether the frame currently carries a bounding shape at all. A
      * square theme wants none, and "none" is a state, not an operation:
      * once the frame has no shape there is nothing to clear. */
@@ -893,6 +904,12 @@ typedef struct {
     xcb_atom_t x_density_requested;
     xcb_atom_t x_density_scale;
     xcb_atom_t x_density_pixmap;
+
+    /* The frame's own corner radii, so a compositor scaling the
+     * decoration up (X-DENSITY) can round its corners analytically
+     * instead of stretching a 1x rasterization of them (decoration.c's
+     * publish_corner_radii()). */
+    xcb_atom_t kiwm_corner_radius;
 } Atoms;
 
 typedef struct {

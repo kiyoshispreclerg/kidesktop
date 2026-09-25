@@ -53,6 +53,36 @@ void load_client_icon(Client *c);
  * XCB SHAPE extension. */
 void apply_rounded_shape(Client *c);
 
+/* Writes _KIWM_CORNER_RADIUS on c->frame with the four radii
+ * apply_rounded_shape() just clipped the bounding shape to (frame-local
+ * logical pixels), *only* when they differ from what is already there
+ * (Client::published_radii/published_t*) -- a plain resize revisits this
+ * on every frame of the drag with the same theme radii each time, and
+ * without the cache that would be a ChangeProperty per frame for no
+ * reason. A compositor doing X-DENSITY reads it to round a scaled-up
+ * decoration analytically instead of stretching a 1x shape mask -- see
+ * kicomp's renderer-gl.c.
+ *
+ * All-zero is a real value here, not "absent": it is exactly what a
+ * square theme, or a maximized frame with round_maximized off, or a
+ * frame filling its output, actually clips to -- a plain rectangle,
+ * which is what the four zeros analytically describe too. What must
+ * *not* come through here is a shape this doesn't describe at all: see
+ * withdraw_corner_radii() below for that case. */
+void publish_corner_radii(Client *c, int tl, int tr, int br, int bl);
+
+/* Removes _KIWM_CORNER_RADIUS from c->frame (only sending the request if
+ * one is actually there -- same cache as publish_corner_radii()), for a
+ * shape this doesn't describe: a client-shaped window's silhouette
+ * (shape.c), the one case where the frame's bounding shape is not a
+ * rounded rect at all. Publishing all-zero there would tell a compositor
+ * "this frame is a plain rectangle", which for a shaped client is
+ * false -- VirtualBox's mini-toolbar is the standing example, a
+ * screen-sized frame with a small bar carved out of it. Withdrawing
+ * instead leaves the property genuinely absent, which is what tells a
+ * compositor to fall back to the real shape mask. */
+void withdraw_corner_radii(Client *c);
+
 /* Builds a rounded-rectangle region for a w x h box with the given
  * per-corner radii, as a list of xcb_rectangle_t suitable for
  * xcb_shape_rectangles() -- the shared building block behind
