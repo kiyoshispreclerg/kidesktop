@@ -8,14 +8,24 @@
  * (xisserve/pages/network.c, a separate binary/codebase -- nothing here
  * is shared with it), which this widget's click opens.
  *
- * Both nmcli calls go through asyncmd.c rather than popen(): this is the
- * file that made that mechanism necessary. `nmcli dev wifi list` asks
- * NetworkManager to re-scan the radio whenever its cached scan is older
- * than ~30s, and the scan itself measured 6.3 seconds on a USB wifi
- * dongle -- straight popen()/fgets() here froze the entire panel for
- * those 6.3 seconds, roughly every 36. Nothing is parsed until a run has
- * actually completed, so every function below reads a snapshot string and
- * returns immediately.
+ * The `device status` call goes through asyncmd.c rather than popen():
+ * this is the file that made that mechanism necessary in the first
+ * place (see asyncmd.c's own doc comment) -- nmcli itself is fast
+ * (~10ms), but nothing shelling out from a widget's on_tick may ever
+ * block the main loop, no matter how fast it usually is.
+ *
+ * The signal strength, however, no longer shells out to `nmcli dev wifi
+ * list` at all. That command asks NetworkManager to re-scan the radio
+ * whenever its cached scan is older than ~30s, and the scan itself
+ * measured 6.3 seconds on a USB wifi dongle -- the original stall this
+ * whole mechanism exists to fix. Even rate-limited through asyncmd it
+ * still meant forcing a real radio scan every 30s just to read a number,
+ * which measurably hurt throughput on that same dongle. The kernel
+ * already publishes per-interface signal quality at all times, no scan
+ * needed, in /proc/net/wireless -- world-readable (mode 0444) like the
+ * rest of /proc/net, and a plain synchronous read of it costs nowhere
+ * near enough to need asyncmd.c's treatment (it's not shelling out to
+ * anything, just parsing a kernel-maintained /proc file).
  */
 #include "xispanel.h"
 
@@ -24,15 +34,7 @@
 #include <string.h>
 
 #define NETWORK_STATUS_CMD "LC_ALL=C nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device status"
-#define NETWORK_WIFI_CMD "LC_ALL=C nmcli -t -f IN-USE,SIGNAL dev wifi list"
 
-/* The wifi signal refreshes far more slowly than the connectivity summary
- * it decorates, because of that rescan: it is no longer able to stall the
- * panel, but a rescan every few seconds still keeps the radio busy and
- * measurably hurts throughput on the dongle. Signal strength changing a
- * bar or two late is not worth that; which network is connected (the
- * cheap `device status` call, ~10ms) keeps the caller's own interval. */
-#define NETWORK_SIGNAL_REFRESH_MS 30000
 
 /* Splits `line` in place on ':' into at most 4 fields (DEVICE, TYPE,
  * STATE, CONNECTION), the last one taking whatever's left -- so a
@@ -56,6 +58,77 @@ static int split4(char *line, char *out[4])
     return 1;
 }
 
+/* /proc/net/wireless's "link" column for `dev`, as a 0-100 percentage, or
+ * -1 if `dev` has no entry there (not a wifi interface after all, or a
+ * driver that never registered with the wireless-extensions compat layer
+ * -- vanishingly rare among wifi drivers still in use, but every caller
+ * here already treats -1 as "signal unknown" rather than an error, so
+ * this degrades exactly as gracefully as the old nmcli-based lookup did
+ * on any failure).
+ *
+ * Format, header included (see `man 5 proc`, or wireless.h in an old
+ * wireless-tools source tree):
+ *
+ *   Inter-| sta-|   Quality        |   Discarded packets               | ...
+ *    face | tus | link level noise |  nwid  crypt   frag  retry   misc | ...
+ *   wlan0: 0000   61.  -60.  -256.       0      0      0      0      0   ...
+ *
+ * `link`'s trailing '.' is wireless-tools' historical stand-in for a
+ * value flagged "updated" -- present on every normal reading, harmless to
+ * atoi() either way since it just stops the number there. The scale
+ * itself is fixed at 0-100 by the kernel's cfg80211 wext-compat layer for
+ * every driver that goes through it (essentially all of them today:
+ * mac80211-based drivers, which covers Intel/Realtek/Atheros/Broadcom/
+ * MediaTek in-tree and out-of-tree alike) -- unlike raw RSSI or a
+ * driver-private "quality" unit, so no further normalization is needed. */
+static int wifi_link_quality(const char *dev)
+{
+    FILE *f = fopen("/proc/net/wireless", "r");
+    if (!f) {
+        return -1;
+    }
+    char line[256];
+    int pct = -1;
+    /* First two lines are the header shown above; every line after that
+     * is one interface. A file with fewer than two lines (truncated?)
+     * just falls through to the loop below finding nothing to match. */
+    if (!fgets(line, sizeof(line), f) || !fgets(line, sizeof(line), f)) {
+        fclose(f);
+        return -1;
+    }
+    size_t dev_len = strlen(dev);
+    while (fgets(line, sizeof(line), f)) {
+        char *colon = strchr(line, ':');
+        if (!colon) {
+            continue;
+        }
+        size_t name_len = (size_t)(colon - line);
+        /* Leading whitespace before the name is padding, not part of it
+         * -- interface names never legitimately contain spaces. */
+        char *name_start = line;
+        while (name_len > 0 && *name_start == ' ') {
+            name_start++;
+            name_len--;
+        }
+        if (name_len != dev_len || strncmp(name_start, dev, dev_len) != 0) {
+            continue;
+        }
+        int status;
+        double link;
+        if (sscanf(colon + 1, "%x %lf", &status, &link) == 2) {
+            pct = (int)link;
+            if (pct < 0) {
+                pct = 0;
+            } else if (pct > 100) {
+                pct = 100;
+            }
+        }
+        break;
+    }
+    fclose(f);
+    return pct;
+}
+
 uint64_t network_get_summary(unsigned refresh_ms, char *type, size_t type_sz, char *name, size_t name_sz,
                               int *signal_pct, int *out_connected)
 {
@@ -72,6 +145,7 @@ uint64_t network_get_summary(unsigned refresh_ms, char *type, size_t type_sz, ch
 
     char line[512];
     int found = 0;
+    char dev_name[64] = "";
     while (!found && asyncmd_next_line(&text, line, sizeof(line))) {
         if (!line[0]) {
             continue;
@@ -92,30 +166,15 @@ uint64_t network_get_summary(unsigned refresh_ms, char *type, size_t type_sz, ch
         }
         snprintf(type, type_sz, "%s", typ);
         snprintf(name, name_sz, "%s", conn[0] ? conn : dev);
+        snprintf(dev_name, sizeof(dev_name), "%s", dev);
         found = 1;
     }
 
-    /* Only ask for the signal once something wifi is actually up: on
-     * ethernet or with nothing connected the rescan would cost the same
-     * and answer a question nobody is asking. Its own snapshot may well
-     * still be empty (gen 0) on the first passes -- *signal_pct then
-     * stays -1, which the widget already draws as "connected, strength
-     * unknown" rather than as a missing connection. */
+    /* Ethernet has no signal to report (stays -1); wifi reads the
+     * kernel's own live quality figure -- see wifi_link_quality()'s own
+     * doc comment on why this no longer shells out to nmcli at all. */
     if (found && strcmp(type, "wifi") == 0) {
-        const char *wtext = "";
-        if (asyncmd_get(NETWORK_WIFI_CMD, NETWORK_SIGNAL_REFRESH_MS, &wtext) != 0) {
-            char wline[128];
-            while (asyncmd_next_line(&wtext, wline, sizeof(wline))) {
-                if (wline[0] != '*') {
-                    continue;
-                }
-                char *colon = strchr(wline, ':');
-                if (colon) {
-                    *signal_pct = atoi(colon + 1);
-                }
-                break;
-            }
-        }
+        *signal_pct = wifi_link_quality(dev_name);
     }
 
     *out_connected = found;
