@@ -33,7 +33,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KICOMP_VERSION "0.3.34"
+#define KICOMP_VERSION "0.3.35"
 
 #include "comp.h"
 #include "output.h"
@@ -275,6 +275,7 @@ static void atoms_init(void)
     comp.atoms.density_requested      = intern("_X_DENSITY_REQUESTED");
     comp.atoms.density_scale          = intern("_X_DENSITY_SCALE");
     comp.atoms.density_pixmap         = intern("_X_DENSITY_PIXMAP");
+    comp.atoms.kiwm_corner_radius     = intern("_KIWM_CORNER_RADIUS");
 
     /* Not a standard atom: the XLibre fork's per-output DPI property,
      * literally called "DPI" (TESTS/DPI-PER-OUTPUT.md). Interned
@@ -951,6 +952,11 @@ static void handle_event(xcb_generic_event_t *ev)
                 w = window_find(e->window);
             if (w)
                 density_property_changed(w, e->window);
+        } else if (e->atom == comp.atoms.kiwm_corner_radius) {
+            /* Lives on the frame itself, same as the SHAPE it describes. */
+            CompWindow *w = window_find(e->window);
+            if (w)
+                window_update_corner_radii(w);
         } else if (e->atom == comp.atoms.net_wm_state ||
                    e->atom == comp.atoms.wm_state) {
             /* These live on the client window inside the frame, which is

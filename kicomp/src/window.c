@@ -254,6 +254,41 @@ void window_update_opacity(CompWindow *w)
     }
 }
 
+void window_update_corner_radii(CompWindow *w)
+{
+    bool was_known = w->corner_radii_known;
+    int prev_tl = w->corner_tl, prev_tr = w->corner_tr;
+    int prev_br = w->corner_br, prev_bl = w->corner_bl;
+
+    w->corner_radii_known = false;
+
+    if (comp.atoms.kiwm_corner_radius == XCB_NONE)
+        return;
+
+    xcb_get_property_reply_t *r = xcb_get_property_reply(comp.conn,
+        xcb_get_property(comp.conn, 0, w->id, comp.atoms.kiwm_corner_radius,
+                         XCB_ATOM_CARDINAL, 0, 4), NULL);
+    if (!r)
+        return;
+
+    if (r->type == XCB_ATOM_CARDINAL && r->format == 32 &&
+        xcb_get_property_value_length(r) >= 16) {
+        const uint32_t *v = xcb_get_property_value(r);
+        w->corner_tl = (int)v[0];
+        w->corner_tr = (int)v[1];
+        w->corner_br = (int)v[2];
+        w->corner_bl = (int)v[3];
+        w->corner_radii_known = true;
+    }
+    free(r);
+
+    if (w->corner_radii_known != was_known || w->corner_tl != prev_tl ||
+        w->corner_tr != prev_tr || w->corner_br != prev_br || w->corner_bl != prev_bl) {
+        CompRect r2 = window_rect(w);
+        output_damage_window_rect(w, &r2);
+    }
+}
+
 /* _KIWM_LAYER, kiwm's marking on its own overlay windows ("osd",
  * "outline"). Read once when the window is adopted: kiwm sets it at
  * creation and never changes it. */
@@ -1324,6 +1359,7 @@ static void window_add_at(xcb_window_t id, xcb_window_t above, bool on_top)
         xcb_shape_select_input(comp.conn, id, 1);
 
     window_update_opacity(w);
+    window_update_corner_radii(w);
     read_wm_layer(w);
     read_window_kind(w);
     w->state = w->state_before = read_window_state(w);

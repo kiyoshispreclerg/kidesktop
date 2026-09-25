@@ -42,6 +42,7 @@ static const GlPlatform *platform;
 static GLuint program;
 static GLint u_projection, u_transform, u_opacity, u_texture, u_y_flip, u_use_uv;
 static GLint u_mask, u_use_mask;
+static GLint u_use_corners, u_corner_radii, u_corner_size;
 static GLuint quad_vbo;
 static GLuint mesh_vbo;
 static GLuint shadow_mesh_vbo;
@@ -129,13 +130,43 @@ static const char *fragment_source =
     "uniform sampler2D mask;\n"
     "uniform float use_mask;\n"
     "uniform float opacity;\n"
+    /* The analytic alternative to `mask`: kiwm's own corner radii
+     * (_KIWM_CORNER_RADIUS), tl/tr/br/bl, in the same logical pixels as
+     * corner_size (the quad's own w x h). Used instead of a rasterized
+     * mask texture wherever the radii are known -- draw_dense()'s
+     * decoration layer today -- so the round corners of a density-scaled
+     * frame come out exactly as round as the screen has pixels for,
+     * rather than a magnified 1x stair-step. */
+    "uniform float use_corners;\n"
+    "uniform vec4 corner_radii;\n"
+    "uniform vec2 corner_size;\n"
     "varying vec2 texcoord;\n"
     "varying vec2 maskcoord;\n"
+    /* A rounded box's signed distance, one independent radius per corner
+     * (Inigo Quilez's formulation): p relative to the box's centre,
+     * b its half-size. r picks the corner p is actually in. */
+    "float rounded_box_sdf(vec2 p, vec2 b, vec4 r) {\n"
+    "    float rr = (p.x < 0.0)\n"
+    "        ? ((p.y < 0.0) ? r.x : r.w)\n"
+    "        : ((p.y < 0.0) ? r.y : r.z);\n"
+    "    vec2 q = abs(p) - b + rr;\n"
+    "    return min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - rr;\n"
+    "}\n"
     "void main() {\n"
     "    vec4 c = texture2D(texture0, texcoord);\n"
     /* Premultiplied, so the silhouette multiplies the whole texel --
      * colour and alpha together -- rather than the alpha alone. */
     "    c *= mix(1.0, texture2D(mask, maskcoord).a, use_mask);\n"
+    "    if (use_corners > 0.5) {\n"
+    "        vec2 local = maskcoord * corner_size;\n"
+    "        float dist = rounded_box_sdf(local - corner_size * 0.5,\n"
+    "                                     corner_size * 0.5, corner_radii);\n"
+    /* fwidth(dist) is how much the distance changes over one screen
+     * pixel -- in logical units that shrink as density grows -- so this
+     * band is always about one screen pixel wide, at any scale. */
+    "        float aa = max(fwidth(dist), 0.0001);\n"
+    "        c *= 1.0 - smoothstep(-aa, aa, dist);\n"
+    "    }\n"
     "    gl_FragColor = c * opacity;\n"
     "}\n";
 
@@ -275,6 +306,9 @@ static bool program_build(void)
     u_mask = glGetUniformLocation(program, "mask");
     u_use_mask = glGetUniformLocation(program, "use_mask");
     u_use_uv = glGetUniformLocation(program, "use_uv");
+    u_use_corners = glGetUniformLocation(program, "use_corners");
+    u_corner_radii = glGetUniformLocation(program, "corner_radii");
+    u_corner_size = glGetUniformLocation(program, "corner_size");
 
     /* One unit quad, reused for every window: the transform is what makes
      * it the right size in the right place, which is the same thing the
@@ -1270,8 +1304,16 @@ static GlWindow *dense_layer(CompWindow *w, GlWindow *g, bool decoration)
  * inside the frame, away from the corners the shape is about, and the
  * decoration layer is the WM's own painting of those corners, alpha and
  * all. */
+/* kiwm's answer for its own frame's corner radii (_KIWM_CORNER_RADIUS),
+ * when draw_dense() should round its decoration layer analytically
+ * instead of through a rasterized shape texture. NULL/unused fields mean
+ * "not this corner" the same way a 0 radius does -- see corner_radii in
+ * comp.h. */
+typedef struct { int tl, tr, br, bl; } CornerRadii;
+
 static void draw_dense(const CompOutput *o, const CompSceneNode *n,
-                       const GlWindow *d, const CompRect *area, GLuint mask)
+                       const GlWindow *d, const CompRect *area, GLuint mask,
+                       const CornerRadii *corners)
 {
     CompRect visible;
     if (!rect_intersect(area, &n->visible_rect, &visible))
@@ -1282,25 +1324,48 @@ static void draw_dense(const CompOutput *o, const CompSceneNode *n,
     glUniformMatrix4fv(u_transform, 1, GL_FALSE, m);
     glUniform1f(u_y_flip, d->y_inverted ? 0.0f : 1.0f);
 
-    /* The mask, when there is one, samples through maskcoord -- the
-     * quad's own 0..1 corners (vertex_source), same as the window's
-     * regular draw above. It lines up with this quad exactly because
-     * `area` is that same n->geometry: GL stretches whatever texture is
-     * bound on unit 0 to fill it regardless of that texture's own size,
-     * so the dense layer's different resolution changes nothing about
-     * where the mask's corners fall. */
-    if (mask) {
+    /* Three ways to come out of this: kiwm's own radii, analytically
+     * (the decoration layer, when they are known -- exact at any density,
+     * see rounded_box_sdf in fragment_source), the rasterized shape
+     * texture (the fallback: no radii published, an irregular client
+     * shape, or a non-kiwm frame), or no masking at all (the client's
+     * dense content, which never reaches the corners). Both mask forms
+     * sample through maskcoord -- the quad's own 0..1 corners
+     * (vertex_source), same as the window's regular draw above -- which
+     * lines up with this quad exactly because `area` is that same
+     * n->geometry: GL stretches whatever texture is bound on unit 0 to
+     * fill it regardless of that texture's own size, so the dense layer's
+     * different resolution changes nothing about where the corners
+     * fall. */
+    if (corners) {
+        glUniform1f(u_use_corners, 1.0f);
+        glUniform4f(u_corner_radii, (float)corners->tl, (float)corners->tr,
+                   (float)corners->br, (float)corners->bl);
+        glUniform2f(u_corner_size, (float)area->w, (float)area->h);
+        glUniform1f(u_use_mask, 0.0f);
+    } else if (mask) {
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, mask);
         glActiveTexture(GL_TEXTURE0);
         glUniform1i(u_mask, 1);
         glUniform1f(u_use_mask, 1.0f);
+        glUniform1f(u_use_corners, 0.0f);
     } else {
         glUniform1f(u_use_mask, 0.0f);
+        glUniform1f(u_use_corners, 0.0f);
     }
 
     CompRect none = { 0, 0, 0, 0 };
     draw_piece(o, &visible, &none);
+
+    /* use_corners is this function's own transient state -- nothing else
+     * in the file sets it, so it must not survive past this draw the way
+     * use_mask's callers are each trusted to manage their own. Left at
+     * 1.0 here, the next unrelated draw (another window's, a shadow, a
+     * solid) would sample corner_radii/corner_size as they stood for
+     * *this* window. */
+    if (corners)
+        glUniform1f(u_use_corners, 0.0f);
 }
 
 /* The window's silhouette as an alpha texture, in the pixmap's own
@@ -1925,18 +1990,28 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * The decoration layer covers the whole frame, corners included, and
      * (unlike the client's own contents) has no rounding of its own --
      * kiwm's rounding is the frame's X SHAPE, a window property, not
-     * anything baked into the pixmap it draws. Without the same shape
-     * mask the base draw above wears, it paints square right over the
-     * round corners that draw just left underneath. The client's dense
-     * content skips it: it only ever covers the area inside the frame,
-     * away from the corners the shape is about. */
+     * anything baked into the pixmap it draws. Without a mask of its own
+     * it would paint square right over the round corners the base draw
+     * just left underneath, so it wears kiwm's own published radii
+     * (_KIWM_CORNER_RADIUS) as an analytic mask when they are known --
+     * exactly round at any density, unlike stretching the 1x shape
+     * texture -- and falls back to that texture otherwise (an irregular
+     * client shape, or a frame that isn't kiwm's). The client's dense
+     * content skips masking entirely: it only ever covers the area inside
+     * the frame, away from the corners the shape is about. */
     if (!from_stash && move_only) {
         float density;
         if (deco_density_active(w, &density)) {
             GlWindow *d = dense_layer(w, g, true);
             if (d) {
-                GLuint mask = w->shaped ? shape_mask_texture(w, g) : 0;
-                draw_dense(o, n, d, &n->geometry, mask);
+                CornerRadii radii = { w->corner_tl, w->corner_tr,
+                                      w->corner_br, w->corner_bl };
+                if (w->corner_radii_known) {
+                    draw_dense(o, n, d, &n->geometry, 0, &radii);
+                } else {
+                    GLuint mask = w->shaped ? shape_mask_texture(w, g) : 0;
+                    draw_dense(o, n, d, &n->geometry, mask, NULL);
+                }
             }
         }
         if (density_active(w, &density)) {
@@ -1947,7 +2022,7 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
                     n->geometry.y + w->client_rect.y,
                     w->client_rect.w, w->client_rect.h
                 };
-                draw_dense(o, n, d, &client, 0);
+                draw_dense(o, n, d, &client, 0, NULL);
             }
         }
     }

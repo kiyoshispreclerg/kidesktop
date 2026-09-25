@@ -34,6 +34,14 @@ void window_configure(xcb_window_t id, int x, int y, int w, int h, int border,
 void window_restack(xcb_window_t id, xcb_window_t above);
 void window_update_opacity(CompWindow *w);
 
+/* _KIWM_CORNER_RADIUS on the frame (comp.h's corner_radii_known/corner_*):
+ * kiwm's own answer for what its rounded corners actually are, so a
+ * renderer scaling the decoration up can round it analytically instead of
+ * stretching a 1x mask. Absent (or read once and found missing) simply
+ * means "not kiwm, or nothing published yet" -- callers fall back to the
+ * shape mask exactly as before this existed. */
+void window_update_corner_radii(CompWindow *w);
+
 /* Re-reads _NET_WM_WINDOW_TYPE (comp.h's CompWindowKind). Windows are
  * classified when adopted and again when mapped, since a frame is often
  * created before the client is reparented into it. */

@@ -563,6 +563,17 @@ typedef struct CompWindow {
      * the opacity it holds changes, dropped with the region. */
     xcb_render_picture_t shape_mask;
     float shape_mask_alpha;
+
+    /* _KIWM_CORNER_RADIUS (density.h/decoration.c on the kiwm side): the
+     * frame's own corner radii, in the same logical pixels as its own
+     * geometry. Lets a scaled decoration (X-DENSITY) be rounded
+     * analytically instead of stretching a 1x rasterization of the shape
+     * -- see renderer-gl.c's draw_dense(). corner_radii_known is false
+     * until the property is read at least once (or the window is not
+     * kiwm's), in which case every caller falls back to shape_mask
+     * exactly as if this didn't exist. */
+    bool corner_radii_known;
+    int corner_tl, corner_tr, corner_br, corner_bl;
 } CompWindow;
 
 typedef struct KiComp {
@@ -639,6 +650,7 @@ typedef struct KiComp {
         xcb_atom_t density_requested;
         xcb_atom_t density_scale;
         xcb_atom_t density_pixmap;
+        xcb_atom_t kiwm_corner_radius;     /* kiwm's frame corner radii */
 
         xcb_atom_t randr_dpi;              /* the fork's per-output "DPI" */
         xcb_atom_t xis_confined_area;      /* published: the logical boxes */
