@@ -50,6 +50,8 @@
 #include <X11/Xlib.h>
 #include <X11/keysym.h>
 
+#include "../shared/xis_spawn.h"
+
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -62,7 +64,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define XISKEYS_VERSION "0.2.3"
+#define XISKEYS_VERSION "0.2.4"
 #define MAX_BINDINGS 128
 #define LINE_MAX_LEN 768
 #define CMD_MAX_LEN 512
@@ -505,19 +507,17 @@ static void reload_config(void)
     load_config();
 }
 
+/* The launch itself -- double fork, an `exec` that leaves no shell in
+ * the tree, and the transient systemd scope that keeps the launched app
+ * out of xiskeys' own cgroup (so it isn't attributed to xiskeys, and
+ * isn't killed when xiskeys is) -- lives in shared/xis_spawn.c, shared
+ * with xispanel/xisserve/xisback. */
 static void run_action(const Binding *b)
 {
-    pid_t pid = fork();
-    if (pid < 0) {
-        perror("xiskeys: fork");
-        return;
-    }
-    if (pid == 0) {
-        setenv("XISKEYS_ACTION", b->action, 1);
-        setsid();
-        execl("/bin/sh", "sh", "-c", b->command, (char *)NULL);
-        _exit(127);
-    }
+    char env_action[256];
+    snprintf(env_action, sizeof(env_action), "XISKEYS_ACTION=%s", b->action);
+    const char *env[] = {env_action, NULL};
+    xis_spawn_detached_env(b->command, env);
 }
 
 static void handle_keypress(const XKeyEvent *ev)
