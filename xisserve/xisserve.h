@@ -204,9 +204,12 @@ GPtrArray *xisserve_scan_apps(void);
  * "Outros" for an unrecognized key. Never returns NULL. */
 const char *xisserve_category_label(const char *key);
 
-/* Same fork+setsid+execl-via-sh-c "don't wait" pattern xispanel.c's own
- * run_detached() uses -- defined once in xisserve.c, exported so plugins
- * that launch something themselves don't duplicate it. */
+/* Launches `cmd` as an independent user application: double-forked,
+ * setsid()'d, never waited on, and -- on a systemd session -- inside its
+ * own transient scope, so the launched app isn't a member of xisserve's
+ * (i.e. xispanel's) cgroup and doesn't die with it. One shared
+ * implementation, shared/xis_spawn.h, which has the full reasoning;
+ * exported here so plugins that launch something don't duplicate it. */
 void run_detached(const char *cmd);
 
 /* Single-quotes `in` for safe use inside an `sh -c` command string. */

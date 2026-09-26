@@ -27,6 +27,8 @@
 
 #include "xisserve.h"
 
+#include "../shared/xis_spawn.h"
+
 #include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -46,7 +48,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.35"
+#define XISSERVE_VERSION "0.1.36"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -241,7 +243,8 @@ static void usage(const char *argv0)
     fprintf(stderr,
             "usage: %s --anchor-x=<px> --anchor-y=<px> --anchor-w=<px> --anchor-h=<px> "
             "--edge=top|bottom|left|right --output-x=<px> --output-y=<px> --output-w=<px> "
-            "--output-h=<px> --bg=#RRGGBBAA --fg=#RRGGBBAA --font=<family> --font-size=<px>",
+            "--output-h=<px> --bg=#RRGGBBAA --fg=#RRGGBBAA --font=<family> --font-size=<px> "
+            "[--watch-pid=<pid>]",
             argv0);
     for (int i = 0; i < N_PAGES; i++) {
         fprintf(stderr, " [--%s]", kPages[i].flag);
@@ -512,33 +515,15 @@ static int open_listen_socket(const char *sockpath)
 
 /* ---- app launching ----------------------------------------------------- */
 
-/* Same fork+setsid+execl-via-sh-c pattern xispanel.c's run_detached()
- * uses -- duplicated here since xisserve is a standalone binary.
- * Exported (see xisserve.h) so plugins can launch things too. */
+/* Launches `cmd` as an independent user application -- the double fork,
+ * the `exec` that leaves no shell in the tree, and the transient systemd
+ * scope that keeps the app out of xisserve's (i.e. xispanel's) own
+ * cgroup all live in shared/xis_spawn.c, shared with xispanel's
+ * identically-named wrapper. Exported (see xisserve.h) so plugins can
+ * launch things too. */
 void run_detached(const char *cmd)
 {
-    if (!cmd || !cmd[0]) return;
-    pid_t pid = fork();
-    if (pid < 0) {
-        perror("xisserve: fork");
-        return;
-    }
-    if (pid == 0) {
-        setsid();
-        /* Double fork: this first child exits immediately below,
-         * orphaning the grandchild that execs `cmd` -- reparented to
-         * init instead of staying a child of xisserve for as long as the
-         * launched program runs. setsid() alone doesn't change ppid. */
-        pid_t pid2 = fork();
-        if (pid2 < 0) {
-            _exit(1);
-        }
-        if (pid2 > 0) {
-            _exit(0);
-        }
-        execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
-        _exit(127);
-    }
+    xis_spawn_detached(cmd);
 }
 
 /* Same single-quote shell-escaping helper folder.c/xisserve widget.c
@@ -2380,66 +2365,39 @@ static void toggle_visibility(void)
     }
 }
 
-/* Reads /proc/<pid>/comm (trimmed). Returns 0 if the process is gone or
- * /proc isn't available, leaving comm untouched. */
-static int read_proc_comm(pid_t pid, char *comm, size_t comm_sz)
+/* Whose death should close this popup, as told to us by --watch-pid.
+ *
+ * It has to be told: there is no way left to *infer* it. A xisserve
+ * launched by a panel widget is deliberately not a descendant of that
+ * panel at all -- shared/xis_spawn.c double-forks it and puts it in its
+ * own systemd scope, so getppid() reads as init/systemd --user, and
+ * there's no `sh -c` stub to climb past either (this used to guess by
+ * doing exactly that, which silently degraded into "watch systemd --user
+ * forever" once the launch path stopped leaving those breadcrumbs).
+ *
+ * Absent or unparseable means no watch at all -- right for a xisserve
+ * started by hand, or by a WM's own keybinding, where there is no panel
+ * whose lifetime this popup belongs to. Parsed straight off argv rather
+ * than through parse_argv()/LaunchArgs: it's a property of *this*
+ * process, not of the popup being requested, so it has no business
+ * travelling over the socket to an already-running instance. */
+static pid_t parse_watch_pid(int argc, char **argv)
 {
-    char path[64];
-    snprintf(path, sizeof(path), "/proc/%d/comm", (int)pid);
-    FILE *f = fopen(path, "r");
-    if (!f) return 0;
-    int ok = fgets(comm, comm_sz, f) != NULL;
-    fclose(f);
-    if (!ok) return 0;
-    size_t l = strlen(comm);
-    while (l > 0 && (comm[l - 1] == '\n' || comm[l - 1] == '\r')) comm[--l] = 0;
-    return 1;
-}
-
-static pid_t read_proc_ppid(pid_t pid)
-{
-    char path[64];
-    snprintf(path, sizeof(path), "/proc/%d/status", (int)pid);
-    FILE *f = fopen(path, "r");
-    if (!f) return -1;
-    char line[256];
-    pid_t ppid = -1;
-    while (fgets(line, sizeof(line), f)) {
-        if (strncmp(line, "PPid:", 5) == 0) {
-            sscanf(line + 5, "%d", &ppid);
-            break;
-        }
+    const char *flag = "--watch-pid=";
+    size_t flag_len = strlen(flag);
+    for (int i = 1; i < argc; i++) {
+        if (strncmp(argv[i], flag, flag_len) != 0) continue;
+        long v = strtol(argv[i] + flag_len, NULL, 10);
+        if (v > 1) return (pid_t)v;
     }
-    fclose(f);
-    return ppid;
-}
-
-/* xispanel's run_detached() forks a single "sh -c '<cmd>'" child and
- * never waits on it. Some shells tail-call-exec the last command of a
- * -c string, which would make that child become xisserve itself
- * (getppid() then reads as xispanel's own PID directly) -- but that
- * optimization isn't guaranteed, and in practice the shell here stays
- * alive as an intermediary, blocked waiting on us, so our direct parent
- * is that shell and never changes even after xispanel dies. Climb past
- * a shell-named direct parent to the grandparent, which is xispanel. */
-static pid_t resolve_watch_pid(void)
-{
-    pid_t p = getppid();
-    char comm[64];
-    if (read_proc_comm(p, comm, sizeof(comm)) &&
-        (strcmp(comm, "sh") == 0 || strcmp(comm, "bash") == 0 || strcmp(comm, "dash") == 0 ||
-         strcmp(comm, "ash") == 0)) {
-        pid_t gp = read_proc_ppid(p);
-        if (gp > 0) p = gp;
-    }
-    return p;
+    return 0;
 }
 
 /* Polled rather than event-driven: there's no portable "notify me when
  * this other process exits" primitive (Linux's PR_SET_PDEATHSIG only
- * covers one's own direct parent, which per resolve_watch_pid() above
- * isn't reliably xispanel here anyway, and still just delivers a signal
- * we'd have to poll for regardless). */
+ * covers one's own direct parent, which per parse_watch_pid() above is
+ * never the panel here, and still just delivers a signal we'd have to
+ * poll for regardless). */
 static gboolean check_parent_alive(gpointer data)
 {
     (void)data;
@@ -3395,8 +3353,10 @@ int main(int argc, char **argv)
     }
 
     /* We hold the lock: this invocation becomes the singleton daemon. */
-    g_watch_pid = resolve_watch_pid();
-    g_timeout_add_seconds(2, check_parent_alive, NULL);
+    g_watch_pid = parse_watch_pid(argc, argv);
+    if (g_watch_pid > 0) {
+        g_timeout_add_seconds(2, check_parent_alive, NULL);
+    }
 
     g_plugin_results = g_ptr_array_new();
     g_args = args;

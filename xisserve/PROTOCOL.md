@@ -11,7 +11,8 @@ xisserve's own argument parsing changes shape.
 
 On every click of the `xisserve` widget -- and of any other widget that
 opens xisserve anchored to itself, see `--calendar` below -- xispanel runs
-(via `sh -c`, detached, `cmd=` config key overrides the binary name/path,
+(detached and reparented away from the panel entirely, see
+`shared/xis_spawn.h`; `cmd=` config key overrides the binary name/path,
 default `xisserve` resolved through `$PATH`):
 
 ```
@@ -19,7 +20,7 @@ xisserve --anchor-x=<px> --anchor-y=<px> --anchor-w=<px> --anchor-h=<px> \
          --edge=top|bottom|left|right \
          --output-x=<px> --output-y=<px> --output-w=<px> --output-h=<px> \
          --bg=#RRGGBBAA --fg=#RRGGBBAA \
-         --font=<family name> --font-size=<px>
+         --font=<family name> --font-size=<px> --watch-pid=<pid>
 ```
 
 All coordinates are root-window pixels (not relative to the panel or to
@@ -51,6 +52,14 @@ is enough; nothing needs `--flag=value` split-on-`=` beyond what
   resolved text size in pixels. `--font` is a bare family name
   (e.g. `Comic Relief`), never pre-quoted -- your argv parser gets it
   as one whole string already, no shell-unescaping needed on your end.
+- `--watch-pid`: the PID of the xispanel process that opened this popup.
+  Close (exit) when that process is gone -- the popup belongs to a panel
+  and must not outlive it as an orphan window. It is passed explicitly
+  because xisserve cannot infer it: the launch path deliberately makes
+  xisserve nobody's child (double fork, own systemd scope), so its
+  `getppid()` is init/systemd, not xispanel. A xisserve started without
+  this flag -- by hand, or from a WM keybinding -- simply watches
+  nothing, which is the right answer there.
 
 A mode flag may follow the ones above, selecting which page/tab xisserve
 opens instead of its default launcher view. An xisserve that doesn't know

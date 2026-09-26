@@ -38,6 +38,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 typedef struct {
     char cmd[192];    /* xisserve binary path/name */
@@ -219,13 +220,20 @@ void xisserve_spawn_for_widget(PanelWidget *w, const char *cmd_name, const char 
     char font_q[sizeof(g_font_family) + 8];
     shell_quote(g_font_family[0] ? g_font_family : "sans-serif", font_q, sizeof(font_q));
 
+    /* --watch-pid: this popup belongs to *this* panel, so it closes when
+     * this panel goes away. xisserve can no longer work that out from its
+     * own parentage -- run_detached() deliberately makes it nobody's
+     * child (see shared/xis_spawn.h) -- so the pid is passed explicitly.
+     * getpid(), not the widget: one xisserve daemon serves every widget
+     * of every panel in this process. */
     char cmd[900];
     snprintf(cmd, sizeof(cmd),
              "%s --anchor-x=%d --anchor-y=%d --anchor-w=%d --anchor-h=%d --edge=%s "
              "--output-x=%d --output-y=%d --output-w=%d --output-h=%d "
-             "--bg=%s --fg=%s --font=%s --font-size=%d%s%s",
+             "--bg=%s --fg=%s --font=%s --font-size=%d --watch-pid=%d%s%s",
              cmd_q, ax, ay, aw, ah, edge_name(p->edge), p->out_x, p->out_y, p->out_w, p->out_h, bg_hex, fg_hex,
-             font_q, (int)(font_size + 0.5), extra_args ? " " : "", extra_args ? extra_args : "");
+             font_q, (int)(font_size + 0.5), (int)getpid(), extra_args ? " " : "",
+             extra_args ? extra_args : "");
     run_detached(cmd);
 }
 
