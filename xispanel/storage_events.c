@@ -21,6 +21,7 @@
 #include "xispanel.h"
 
 #include <string.h>
+#include <stdio.h>
 
 #define STORAGE_EVENTS_POLL_MS 2000
 #define STORAGE_EVENTS_MAX_DEVICES 32

@@ -75,6 +75,7 @@
 #include <cairo/cairo-xlib.h>
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 #define MENU_MAX_FRAMES 6
