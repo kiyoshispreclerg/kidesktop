@@ -33,6 +33,15 @@
 #include <unistd.h>
 
 #define MAX_TASKS 64
+/* Cap on how many members a grouped button's Button1 pick-list or Button3
+ * per-window-submenu tree actually lists -- see tasklist_on_button()'s
+ * grouped handling. TASKLIST_GROUP_MENU_ITEM_CAP sizes the flat items[]/
+ * depth[] arrays the Button3 tree needs: one title row per member plus up
+ * to 21 of its own action/jumplist rows (7 fixed + up to 2 section
+ * separators + 6 jumplist actions + 6 recent files -- see
+ * tasklist_build_action_items()). */
+#define TASKLIST_GROUP_MENU_MAX_MEMBERS 20
+#define TASKLIST_GROUP_MENU_ITEM_CAP (TASKLIST_GROUP_MENU_MAX_MEMBERS * 22)
 #define TASKLIST_BTN_GAP 3
 #define TASKLIST_WIDE_MAXW 180
 #define TASKLIST_ARROW_W 14
@@ -197,6 +206,20 @@ typedef struct {
     int scrollable;
     int can_left;  /* scroll_offset > 0 -- earlier tasks exist to scroll back to */
     int can_right; /* the last visible button isn't tasks[]'s last -- later tasks exist */
+
+    /* Per-flat-item (menu.c index space) target window and, for the
+     * Button3 grouped tree, which of tasklist_build_action_items()'s
+     * local action indices that item is -- filled by tasklist_on_button()
+     * right before opening a grouped button's menu, read back by
+     * tasklist_menu_select() (see TASKLIST_GROUP_PICK_CTX_TAG/
+     * TASKLIST_GROUP_ACTIONS_CTX_TAG). Lives here (not malloc'd per-open)
+     * since menu.c only ever has one menu open at a time and this widget
+     * instance already outlives any menu it opens -- no separate
+     * allocation/on_close teardown needed. -1 for a title row (not itself
+     * actionable -- has children instead). */
+    Window menu_group_win[TASKLIST_GROUP_MENU_ITEM_CAP];
+    int menu_group_local_idx[TASKLIST_GROUP_MENU_ITEM_CAP];
+    int menu_group_n;
 
     /* Signature of everything tasklist_paint() draws that can change on
      * its own between ticks (the task set, the active-window highlight,
@@ -1478,6 +1501,19 @@ static void tasklist_paint(PanelWidget *w, cairo_t *cr)
  * this ctx is outstanding. */
 #define TASKLIST_PLACEHOLDER_CTX_TAG (1ULL << 32)
 
+/* ctx tags for a grouped button's menu (see tasklist_on_button()'s
+ * display_count > 1 handling): distinct bits from TASKLIST_PLACEHOLDER_
+ * CTX_TAG above and carrying no extra data of their own (unlike that one,
+ * which ORs a pinned[] index into its low bits) -- the actual per-item
+ * target window/action live in tp->menu_group_win[]/menu_group_local_idx[]
+ * instead, indexed by tasklist_menu_select()'s `index` (the flat item
+ * position menu.c always passes, regardless of tree nesting). PICK is the
+ * plain Button1 "which task?" list (selecting activates that window
+ * directly); ACTIONS is the Button3 tree (each member's title has the
+ * usual per-window action set as its submenu). */
+#define TASKLIST_GROUP_PICK_CTX_TAG (1ULL << 33)
+#define TASKLIST_GROUP_ACTIONS_CTX_TAG (1ULL << 34)
+
 /* Jumplist entries appended to a task's context menu after its own
  * fixed items -- see tasklist_on_button()'s Button3 handling and
  * tasklist_menu_select()'s index >= its own fixed-item-count case.
@@ -1600,14 +1636,140 @@ static int tasklist_jumplist_index_lookup(const TasklistJumplist *jl, int fixed_
     return 0;
 }
 
-/* Context menu item order for a real window: 0=minimize/restore,
- * 1=maximize/restore, 2=move, 3=close, [separator], 5=pin/unpin,
- * 6=open another instance. ctx is
- * the clicked window's XID, packed directly into the void* (Window fits
- * in a pointer-sized integer on every platform this targets -- no heap
- * allocation needed for something this small and short-lived). For a
- * placeholder (pinned, not running), it's a much shorter menu: 0=Abrir,
- * 1=Desafixar -- see tasklist_on_button()'s Button3 handling. */
+/* Builds the standard real-window context-menu items (0=minimize/restore,
+ * 1=maximize/restore, 2=move, 3=close, [4]=separator, 5=pin/unpin,
+ * 6=open another instance, 7..=jumplist actions/recent files) for `e`
+ * into `items` (caller-zeroed, sized >= 7 + 2 + MAX_JUMPLIST_ACTIONS +
+ * MAX_RECENT_ITEMS). Shared by the plain per-window Button3 menu and, per
+ * group member, a grouped button's Button3 submenu (see
+ * tasklist_on_button()) -- tasklist_apply_action() below is the exact
+ * inverse, expecting this same numbering as its own local_idx. */
+static int tasklist_build_action_items(TasklistPriv *tp, const TaskEntry *e, MenuItem *items)
+{
+    int n = 0;
+    snprintf(items[n].label, sizeof(items[n].label), "%s", e->minimized ? "Restaurar" : "Minimizar");
+    items[n].enabled = 1;
+    n++;
+    snprintf(items[n].label, sizeof(items[n].label), "%s", e->maximized ? "Restaurar tamanho" : "Maximizar");
+    items[n].enabled = 1;
+    n++;
+    snprintf(items[n].label, sizeof(items[n].label), "Mover");
+    items[n].enabled = 1;
+    n++;
+    snprintf(items[n].label, sizeof(items[n].label), "Fechar");
+    items[n].enabled = 1;
+    n++;
+    items[n].is_separator = 1;
+    n++;
+    snprintf(items[n].label, sizeof(items[n].label), "%s", e->pinned ? "Desafixar" : "Fixar");
+    items[n].enabled = 1;
+    n++;
+    snprintf(items[n].label, sizeof(items[n].label), "Abrir nova instância");
+    items[n].enabled = 1;
+    n++;
+
+    TasklistJumplist jl;
+    tasklist_resolve_jumplist(e->wm_class, tp->recent_max, &jl);
+    tasklist_jumplist_append_items(&jl, items, &n);
+    return n;
+}
+
+/* Applies tasklist_build_action_items()'s action `local_idx` to `win` (a
+ * real window, never a placeholder -- see tasklist_menu_select()'s own
+ * placeholder branch for that separate, shorter menu), then refreshes
+ * state the same way every menu selection here always has. `win` is
+ * re-resolved to a tasks[] index fresh rather than trusting anything
+ * cached from when the menu was built, same "re-read at select time" the
+ * rest of this file already does for the jumplist. Shared by the plain
+ * per-window Button3 menu and each group member's own submenu selection
+ * (see tasklist_menu_select()). */
+static void tasklist_apply_action(PanelWidget *w, Window win, int local_idx)
+{
+    TasklistPriv *tp = w->priv;
+    int idx = tasklist_find(tp, win);
+
+    if (local_idx >= 7) {
+        /* index 7.. is the jumplist section (actions, then recent files)
+         * -- re-resolved from wm_class rather than kept around from when
+         * the menu was built, same "re-read rather than cache" call
+         * xisserve's own launcher makes for this identical feature. */
+        if (idx >= 0) {
+            TasklistJumplist jl;
+            tasklist_resolve_jumplist(tp->tasks[idx].wm_class, tp->recent_max, &jl);
+            int is_recent = 0, item_i = 0;
+            if (tasklist_jumplist_index_lookup(&jl, 7, local_idx, &is_recent, &item_i)) {
+                if (is_recent) {
+                    char exec_cmd[600];
+                    if (desktop_entry_build_exec_with_file(jl.desktop_path, jl.recent_paths[item_i], exec_cmd,
+                                                            sizeof(exec_cmd))) {
+                        run_detached(exec_cmd);
+                    }
+                } else {
+                    run_detached(jl.action_execs[item_i]);
+                }
+            }
+        }
+        XFlush(g_dpy);
+        tasklist_on_tick(w, now_ms());
+        w->panel->dirty = 1;
+        return;
+    }
+
+    switch (local_idx) {
+    case 0:
+        if (idx >= 0) {
+            ewmh_toggle_minimize(win, tp->tasks[idx].minimized);
+        }
+        break;
+    case 1:
+        ewmh_toggle_maximize(win);
+        break;
+    case 2: {
+        Window root_ret, child_ret;
+        int rx, ry, wx, wy;
+        unsigned mask;
+        XQueryPointer(g_dpy, g_root, &root_ret, &child_ret, &rx, &ry, &wx, &wy, &mask);
+        ewmh_move_interactive(win, rx, ry);
+        break;
+    }
+    case 3:
+        ewmh_close(win);
+        break;
+    case 6: /* Abrir nova instância -- same action as a middle click */
+        if (idx >= 0) {
+            tasklist_launch_class(tp, tp->tasks[idx].wm_class, tp->tasks[idx].win);
+        }
+        break;
+    case 5:
+        if (idx >= 0) {
+            if (tp->tasks[idx].pinned) {
+                tasklist_unpin_class(tp, tp->tasks[idx].wm_class);
+                tasklist_persist_pinned(w);
+            } else if (tp->tasks[idx].wm_class[0]) {
+                tasklist_pin_class(w, tp->tasks[idx].wm_class);
+                tasklist_persist_pinned(w);
+            }
+        }
+        break;
+    default:
+        break;
+    }
+    XFlush(g_dpy);
+    tasklist_on_tick(w, now_ms()); /* re-derive TaskEntry::pinned from tp->pinned[] immediately -- see its doc comment */
+    w->panel->dirty = 1;
+}
+
+/* Context menu item order for a real window: see tasklist_build_action_
+ * items()'s doc comment. ctx is the clicked window's XID, packed directly
+ * into the void* (Window fits in a pointer-sized integer on every
+ * platform this targets -- no heap allocation needed for something this
+ * small and short-lived). For a placeholder (pinned, not running), it's a
+ * much shorter menu: 0=Abrir, 1=Desafixar -- see tasklist_on_button()'s
+ * Button3 handling. For a *grouped* button's menu (Button1's plain pick
+ * list, or Button3's per-member submenu tree), ctx is one of the
+ * TASKLIST_GROUP_*_CTX_TAG sentinels instead and the real per-item target
+ * comes from tp->menu_group_win[]/menu_group_local_idx[] -- see
+ * tasklist_on_button()'s display_count > 1 handling. */
 static void tasklist_menu_select(Panel *panel, PanelWidget *w, void *ctx, int index)
 {
     (void)panel;
@@ -1659,78 +1821,44 @@ static void tasklist_menu_select(Panel *panel, PanelWidget *w, void *ctx, int in
         return;
     }
 
-    Window win = (Window)(uintptr_t)ctx;
-    int idx = tasklist_find(tp, win);
-
-    if (index >= 7) {
-        /* index 7.. is the jumplist section (actions, then recent files)
-         * -- re-resolved from wm_class rather than kept around from when
-         * the menu was built, same "re-read rather than cache" call
-         * xisserve's own launcher makes for this identical feature. */
-        if (idx >= 0) {
-            TasklistJumplist jl;
-            tasklist_resolve_jumplist(tp->tasks[idx].wm_class, tp->recent_max, &jl);
-            int is_recent = 0, item_i = 0;
-            if (tasklist_jumplist_index_lookup(&jl, 7, index, &is_recent, &item_i)) {
-                if (is_recent) {
-                    char exec_cmd[600];
-                    if (desktop_entry_build_exec_with_file(jl.desktop_path, jl.recent_paths[item_i], exec_cmd,
-                                                            sizeof(exec_cmd))) {
-                        run_detached(exec_cmd);
-                    }
-                } else {
-                    run_detached(jl.action_execs[item_i]);
-                }
-            }
+    if (raw == TASKLIST_GROUP_PICK_CTX_TAG) {
+        /* Button1's plain "which task?" list -- selecting one just
+         * activates it directly, no action switch involved. */
+        if (index < 0 || index >= tp->menu_group_n) {
+            return;
         }
+        Window win = tp->menu_group_win[index];
+        if (win == None) {
+            return;
+        }
+        int idx = tasklist_find(tp, win);
+        if (idx >= 0 && tp->tasks[idx].minimized) {
+            ewmh_toggle_minimize(win, 1);
+        }
+        ewmh_activate(win);
         XFlush(g_dpy);
-        tasklist_on_tick(w, now_ms());
         w->panel->dirty = 1;
         return;
     }
 
-    switch (index) {
-    case 0:
-        if (idx >= 0) {
-            ewmh_toggle_minimize(win, tp->tasks[idx].minimized);
+    if (raw == TASKLIST_GROUP_ACTIONS_CTX_TAG) {
+        /* Button3's per-member submenu tree -- a title row itself has no
+         * local_idx (it only ever opens its own submenu, see menu.c: a
+         * has-children item's click never reaches on_select), so this is
+         * only ever hit for an actual leaf action. */
+        if (index < 0 || index >= tp->menu_group_n) {
+            return;
         }
-        break;
-    case 1:
-        ewmh_toggle_maximize(win);
-        break;
-    case 2: {
-        Window root_ret, child_ret;
-        int rx, ry, wx, wy;
-        unsigned mask;
-        XQueryPointer(g_dpy, g_root, &root_ret, &child_ret, &rx, &ry, &wx, &wy, &mask);
-        ewmh_move_interactive(win, rx, ry);
-        break;
+        Window win = tp->menu_group_win[index];
+        int local_idx = tp->menu_group_local_idx[index];
+        if (win != None && local_idx >= 0) {
+            tasklist_apply_action(w, win, local_idx);
+        }
+        return;
     }
-    case 3:
-        ewmh_close(win);
-        break;
-    case 6: /* Abrir nova instância -- same action as a middle click */
-        if (idx >= 0) {
-            tasklist_launch_class(tp, tp->tasks[idx].wm_class, tp->tasks[idx].win);
-        }
-        break;
-    case 5:
-        if (idx >= 0) {
-            if (tp->tasks[idx].pinned) {
-                tasklist_unpin_class(tp, tp->tasks[idx].wm_class);
-                tasklist_persist_pinned(w);
-            } else if (tp->tasks[idx].wm_class[0]) {
-                tasklist_pin_class(w, tp->tasks[idx].wm_class);
-                tasklist_persist_pinned(w);
-            }
-        }
-        break;
-    default:
-        break;
-    }
-    XFlush(g_dpy);
-    tasklist_on_tick(w, now_ms()); /* re-derive TaskEntry::pinned from tp->pinned[] immediately -- see its doc comment */
-    w->panel->dirty = 1;
+
+    Window win = (Window)(uintptr_t)ctx;
+    tasklist_apply_action(w, win, index);
 }
 
 static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local_y, int root_x, int root_y)
@@ -1775,11 +1903,12 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
         return 1;
     }
 
-    int idx = -1;
+    int idx = -1, di = -1;
     int anchor_x = 0, anchor_w = w->len;
     for (int vi = 0; vi < tp->n_visible; vi++) {
         if (local_x >= tp->vis_x[vi] && local_x < tp->vis_x[vi] + tp->vis_w[vi]) {
-            idx = tp->display_repr[tp->vis_idx[vi]];
+            di = tp->vis_idx[vi];
+            idx = tp->display_repr[di];
             anchor_x = tp->vis_x[vi];
             anchor_w = tp->vis_w[vi];
             break;
@@ -1788,11 +1917,6 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
     if (idx < 0) {
         return 0;
     }
-    /* Both left- and right-click always act on the group's representative
-     * window (whatever the button is currently showing) -- picking a
-     * *different* member of a grouped button is done by hovering for the
-     * tooltip's per-window list instead (see tasklist_get_tooltip_group()),
-     * not by a separate click target here. */
     TaskEntry *e = &tp->tasks[idx];
 
     /* Middle-click always means "launch another instance of this
@@ -1800,6 +1924,74 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
      * placeholder -- see tasklist_launch_class(). */
     if (button == Button2) {
         return tasklist_launch_class(tp, e->wm_class, e->is_placeholder ? None : e->win);
+    }
+
+    /* A grouped button (display_count > 1, group=yes collapsing same-app
+     * windows together) can't act on "the" window for Button1/Button3 --
+     * there isn't a single one, e is just whichever member happens to be
+     * the representative. Button1 instead opens a plain list of the
+     * group's own task names (selecting one activates that task, so
+     * nothing opens "randomly"); Button3 opens the usual action menu but
+     * with the group's task names as its top level, each one's own
+     * per-window actions as its submenu -- see the two TASKLIST_GROUP_*_
+     * CTX_TAG branches in tasklist_menu_select(). A placeholder is never
+     * grouped (each is its own single pinned entry), so this only ever
+     * applies to real running windows. */
+    if (!e->is_placeholder && tp->display_count[di] > 1 && (button == Button1 || button == Button3)) {
+        int members[MAX_TASKS];
+        int nm = tasklist_group_members(tp, idx, members, MAX_TASKS);
+        if (nm > TASKLIST_GROUP_MENU_MAX_MEMBERS) {
+            nm = TASKLIST_GROUP_MENU_MAX_MEMBERS;
+        }
+
+        if (button == Button1) {
+            MenuItem items[TASKLIST_GROUP_MENU_MAX_MEMBERS];
+            memset(items, 0, sizeof(items));
+            tp->menu_group_n = nm;
+            for (int i = 0; i < nm; i++) {
+                TaskEntry *me = &tp->tasks[members[i]];
+                snprintf(items[i].label, sizeof(items[i].label), "%s", me->title);
+                items[i].enabled = 1;
+                tp->menu_group_win[i] = me->win;
+                tp->menu_group_local_idx[i] = -1;
+            }
+            panel_menu_open(w->panel, w, anchor_x, anchor_w, items, nm,
+                             (void *)(uintptr_t)TASKLIST_GROUP_PICK_CTX_TAG, tasklist_menu_select);
+            return 1;
+        }
+
+        /* Button3: a title row (depth 0) per member, followed immediately
+         * by its own action_items() block (depth 1) -- see
+         * panel_menu_open_tree()'s items[]/depth[] doc comment in
+         * xispanel.h for how that flat pair encodes the tree. */
+        MenuItem items[TASKLIST_GROUP_MENU_ITEM_CAP];
+        int depth[TASKLIST_GROUP_MENU_ITEM_CAP];
+        memset(items, 0, sizeof(items));
+        int n = 0;
+        for (int i = 0; i < nm && n < TASKLIST_GROUP_MENU_ITEM_CAP; i++) {
+            TaskEntry *me = &tp->tasks[members[i]];
+            snprintf(items[n].label, sizeof(items[n].label), "%s", me->title);
+            items[n].enabled = 1;
+            depth[n] = 0;
+            tp->menu_group_win[n] = me->win;
+            tp->menu_group_local_idx[n] = -1;
+            n++;
+
+            MenuItem sub[7 + 2 + MAX_JUMPLIST_ACTIONS + MAX_RECENT_ITEMS];
+            memset(sub, 0, sizeof(sub));
+            int sn = tasklist_build_action_items(tp, me, sub);
+            for (int k = 0; k < sn && n < TASKLIST_GROUP_MENU_ITEM_CAP; k++) {
+                items[n] = sub[k];
+                depth[n] = 1;
+                tp->menu_group_win[n] = me->win;
+                tp->menu_group_local_idx[n] = sub[k].is_separator ? -1 : k;
+                n++;
+            }
+        }
+        tp->menu_group_n = n;
+        panel_menu_open_tree(w->panel, w, anchor_x, anchor_w, items, depth, n,
+                              (void *)(uintptr_t)TASKLIST_GROUP_ACTIONS_CTX_TAG, tasklist_menu_select, NULL, NULL);
+        return 1;
     }
 
     if (e->is_placeholder) {
@@ -1897,40 +2089,7 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
     if (button == Button3) {
         MenuItem items[7 + 2 + MAX_JUMPLIST_ACTIONS + MAX_RECENT_ITEMS];
         memset(items, 0, sizeof(items));
-        int n = 0;
-        snprintf(items[n].label, sizeof(items[n].label), "%s", e->minimized ? "Restaurar" : "Minimizar");
-        items[n].enabled = 1;
-        items[n].is_separator = 0;
-        n++;
-        snprintf(items[n].label, sizeof(items[n].label), "%s", e->maximized ? "Restaurar tamanho" : "Maximizar");
-        items[n].enabled = 1;
-        items[n].is_separator = 0;
-        n++;
-        snprintf(items[n].label, sizeof(items[n].label), "Mover");
-        items[n].enabled = 1;
-        items[n].is_separator = 0;
-        n++;
-        snprintf(items[n].label, sizeof(items[n].label), "Fechar");
-        items[n].enabled = 1;
-        items[n].is_separator = 0;
-        n++;
-        items[n].label[0] = 0;
-        items[n].enabled = 0;
-        items[n].is_separator = 1;
-        n++;
-        snprintf(items[n].label, sizeof(items[n].label), "%s", e->pinned ? "Desafixar" : "Fixar");
-        items[n].enabled = 1;
-        items[n].is_separator = 0;
-        n++;
-        snprintf(items[n].label, sizeof(items[n].label), "Abrir nova instância");
-        items[n].enabled = 1;
-        items[n].is_separator = 0;
-        n++;
-
-        TasklistJumplist jl;
-        tasklist_resolve_jumplist(e->wm_class, tp->recent_max, &jl);
-        tasklist_jumplist_append_items(&jl, items, &n);
-
+        int n = tasklist_build_action_items(tp, e, items);
         panel_menu_open(w->panel, w, anchor_x, anchor_w, items, n, (void *)(uintptr_t)e->win, tasklist_menu_select);
         return 1;
     }
