@@ -991,11 +991,6 @@ int desktop_entry_find_by_wm_class(const char *wm_class, char *out_name, size_t 
                                     size_t exec_sz, char *out_icon_name, size_t icon_sz, char *out_path,
                                     size_t path_sz);
 
-/* Jumplist actions ([Desktop Action ...] groups) off the .desktop file
- * at desktop_path -- see ewmh.c's own doc comment. Used by tasklist.c's
- * right-click menu, appended after its own fixed items. */
-int desktop_entry_load_actions(const char *desktop_path, char out_names[][128], char out_execs[][512], int max);
-
 /* This app's own recently-used.xbel entries (XDG "recent files" list,
  * the same file GTK/Qt apps already read/write), newest first, only
  * ones whose file still exists -- see ewmh.c's own doc comment. Used by
@@ -1003,10 +998,13 @@ int desktop_entry_load_actions(const char *desktop_path, char out_names[][128], 
  * app_stem is matched the same loose way desktop_entry_find_by_wm_class()
  * matches a WM_CLASS against a .desktop basename. */
 int desktop_recent_files_for_app(const char *app_stem, char out_paths[][PATH_MAX], int max);
-/* Builds the shell command to open file_path with the app named by
- * desktop_path's own Exec= (field-code substituted, shell-quoted) --
- * see ewmh.c's own doc comment. Returns 0 if desktop_path has no Exec=. */
-int desktop_entry_build_exec_with_file(const char *desktop_path, const char *file_path, char *out, size_t outsz);
+
+/* Jumplist actions ([Desktop Action ...] groups) and the recent-files
+ * "open with this app" Exec substitution are both in
+ * shared/xis_desktop_actions.h now (xis_desktop_load_actions(),
+ * xis_desktop_build_exec_with_file()) -- xisserve.c's launcher grew the
+ * exact same two functions independently before this was pulled out.
+ * tasklist.c includes that header directly. */
 
 /* ---- context menu (menu.c) ----
  *

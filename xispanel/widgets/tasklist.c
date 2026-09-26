@@ -21,6 +21,7 @@
  * comment).
  */
 #include "../xispanel.h"
+#include "../../shared/xis_desktop_actions.h"
 
 #include <X11/Xlib.h>
 
@@ -1653,7 +1654,7 @@ static void tasklist_resolve_jumplist(const char *wm_class, int recent_max, Task
     if (!jl->desktop_path[0]) {
         return;
     }
-    jl->n_actions = desktop_entry_load_actions(jl->desktop_path, jl->action_names, jl->action_execs,
+    jl->n_actions = xis_desktop_load_actions(jl->desktop_path, jl->action_names, jl->action_execs,
                                                 MAX_JUMPLIST_ACTIONS);
     int cap = recent_max < MAX_RECENT_ITEMS ? recent_max : MAX_RECENT_ITEMS;
     if (cap > 0) {
@@ -1791,7 +1792,7 @@ static void tasklist_apply_action(PanelWidget *w, Window win, int local_idx)
             if (tasklist_jumplist_index_lookup(&jl, 7, local_idx, &is_recent, &item_i)) {
                 if (is_recent) {
                     char exec_cmd[600];
-                    if (desktop_entry_build_exec_with_file(jl.desktop_path, jl.recent_paths[item_i], exec_cmd,
+                    if (xis_desktop_build_exec_with_file(jl.desktop_path, jl.recent_paths[item_i], exec_cmd,
                                                             sizeof(exec_cmd))) {
                         run_detached(exec_cmd);
                     }
@@ -1884,7 +1885,7 @@ static void tasklist_menu_select(Panel *panel, PanelWidget *w, void *ctx, int in
             if (tasklist_jumplist_index_lookup(&jl, 2, index, &is_recent, &item_i)) {
                 if (is_recent) {
                     char exec_cmd[600];
-                    if (desktop_entry_build_exec_with_file(jl.desktop_path, jl.recent_paths[item_i], exec_cmd,
+                    if (xis_desktop_build_exec_with_file(jl.desktop_path, jl.recent_paths[item_i], exec_cmd,
                                                             sizeof(exec_cmd))) {
                         run_detached(exec_cmd);
                     }

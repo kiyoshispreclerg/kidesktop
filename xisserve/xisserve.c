@@ -28,6 +28,7 @@
 #include "xisserve.h"
 
 #include "../shared/xis_spawn.h"
+#include "../shared/xis_desktop_actions.h"
 
 #include <sys/file.h>
 #include <sys/socket.h>
@@ -1007,122 +1008,32 @@ typedef struct {
     char exec[1300];
 } DesktopAction;
 
-/* Parses path's Actions= list and, for each named token, that action's
- * own group -- returns a GArray of DesktopAction (possibly zero-length,
- * never NULL). Two passes over the file (list, then each group) rather
- * than a real multi-group parser: actions are rare and this only runs
- * once per right-click, not on every keystroke like the app scan. */
-/* Reads a single top-level [Desktop Entry] key's raw value out of a
- * .desktop file -- shared by load_desktop_actions() (Actions=) and
- * build_exec_with_file() (Exec=) below, both of which only need one
- * field from the entry group rather than a full parse_desktop_file()
- * pass. */
-static gboolean read_desktop_entry_key(const char *path, const char *key, char *out, size_t outsz)
-{
-    out[0] = 0;
-    FILE *f = fopen(path, "r");
-    if (!f) return FALSE;
-    char line[2048];
-    int in_entry = 0, seen_entry = 0, found = 0;
-    while (fgets(line, sizeof(line), f)) {
-        size_t l = strlen(line);
-        while (l > 0 && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = 0;
-        if (line[0] == '[') {
-            if (strncmp(line, "[Desktop Entry]", 15) == 0) { in_entry = 1; seen_entry = 1; }
-            else { in_entry = 0; if (seen_entry) break; }
-            continue;
-        }
-        if (!in_entry) continue;
-        char *eq = strchr(line, '=');
-        if (!eq) continue;
-        *eq = 0;
-        if (strcmp(line, key) == 0) { snprintf(out, outsz, "%s", eq + 1); found = 1; }
-    }
-    fclose(f);
-    return found;
-}
-
+/* GArray-of-DesktopAction wrapper around shared/xis_desktop_actions.h's
+ * xis_desktop_load_actions() -- xispanel's tasklist.c grew the exact
+ * same jumplist parsing independently before it was pulled out; this is
+ * just the adapter to this file's own GArray-based menu-building below
+ * (see show_result_context_menu()). Never NULL, possibly zero-length. */
 static GArray *load_desktop_actions(const char *path)
 {
     GArray *actions = g_array_new(FALSE, TRUE, sizeof(DesktopAction));
 
-    char actions_raw[512];
-    if (!read_desktop_entry_key(path, "Actions", actions_raw, sizeof(actions_raw)) || !actions_raw[0]) {
-        return actions;
-    }
-
-    char *copy = g_strdup(actions_raw);
-    char *saveptr = NULL;
-    for (char *tok = strtok_r(copy, ";", &saveptr); tok; tok = strtok_r(NULL, ";", &saveptr)) {
-        char group[80];
-        snprintf(group, sizeof(group), "[Desktop Action %s]", tok);
-
-        FILE *f = fopen(path, "r");
-        if (!f) continue;
+    char names[6][128];
+    char execs[6][512];
+    int n = xis_desktop_load_actions(path, names, execs, 6);
+    for (int i = 0; i < n; i++) {
         DesktopAction act;
-        memset(&act, 0, sizeof(act));
-        int in_group = 0;
-        char line[2048];
-        while (fgets(line, sizeof(line), f)) {
-            size_t l = strlen(line);
-            while (l > 0 && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = 0;
-            if (line[0] == '[') { in_group = (strcmp(line, group) == 0); continue; }
-            if (!in_group) continue;
-            char *eq2 = strchr(line, '=');
-            if (!eq2) continue;
-            *eq2 = 0;
-            const char *key = line, *val = eq2 + 1;
-            if (strcmp(key, "Name") == 0) snprintf(act.name, sizeof(act.name), "%s", val);
-            else if (strcmp(key, "Exec") == 0) strip_exec_field_codes(val, act.exec, sizeof(act.exec));
-        }
-        fclose(f);
-        if (act.name[0] && act.exec[0]) g_array_append_val(actions, act);
+        snprintf(act.name, sizeof(act.name), "%s", names[i]);
+        snprintf(act.exec, sizeof(act.exec), "%s", execs[i]);
+        g_array_append_val(actions, act);
     }
-    g_free(copy);
     return actions;
 }
 
-/* Re-reads path's own [Desktop Entry] Exec= and substitutes the first
- * %f/%F/%u/%U field code with file_path (shell-quoted) -- the recent-
- * files context menu's "open this file with this app" launch, since
- * the cached, already-field-code-stripped ResultEntry::exec has nowhere
- * left to put an argument back. Other field codes are dropped exactly
- * like strip_exec_field_codes(); an Exec with no file/uri code at all
- * gets file_path appended as an extra argument. */
+/* Thin gboolean/GLib-friendly wrapper around
+ * xis_desktop_build_exec_with_file() -- see shared/xis_desktop_actions.h. */
 static gboolean build_exec_with_file(const char *desktop_path, const char *file_path, char *out, size_t outsz)
 {
-    char exec_raw[1024];
-    if (!read_desktop_entry_key(desktop_path, "Exec", exec_raw, sizeof(exec_raw)) || !exec_raw[0]) {
-        return FALSE;
-    }
-
-    char quoted[PATH_MAX + 4];
-    shell_quote(file_path, quoted, sizeof(quoted));
-    size_t ql = strlen(quoted);
-
-    size_t o = 0;
-    gboolean inserted = FALSE;
-    for (const char *p = exec_raw; *p && o + 1 < outsz; p++) {
-        if (*p == '%' && p[1]) {
-            char c = p[1];
-            if (c == '%') {
-                out[o++] = '%';
-            } else if (!inserted && (c == 'f' || c == 'F' || c == 'u' || c == 'U') && o + ql < outsz) {
-                memcpy(out + o, quoted, ql);
-                o += ql;
-                inserted = TRUE;
-            }
-            p++;
-            continue;
-        }
-        out[o++] = *p;
-    }
-    out[o] = 0;
-    if (!inserted && o + 1 + ql < outsz) {
-        out[o++] = ' ';
-        snprintf(out + o, outsz - o, "%s", quoted);
-    }
-    return TRUE;
+    return xis_desktop_build_exec_with_file(desktop_path, file_path, out, outsz) ? TRUE : FALSE;
 }
 
 /* ---- recently-used.xbel (XDG "recent files" list) ------------------------
