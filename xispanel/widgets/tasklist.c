@@ -44,6 +44,12 @@
 #define TASKLIST_GROUP_MENU_ITEM_CAP (TASKLIST_GROUP_MENU_MAX_MEMBERS * 22)
 #define TASKLIST_BTN_GAP 3
 #define TASKLIST_WIDE_MAXW 180
+/* Floor a wide-mode (title-showing) button can be shrunk down to when
+ * tasklist_layout_visible() squeezes the visible set to fit one more task
+ * instead of leaving unused space -- see tasklist_slot_min_w(). Icon-only
+ * (compact=yes) and placeholder buttons never shrink below their own
+ * fixed square size (the panel's own thickness) regardless of this. */
+#define TASKLIST_SHRINK_MIN_WIDE 120
 #define TASKLIST_ARROW_W 14
 #define TASKLIST_ARROW_GAP 4
 /* Urgent-task hover-blink: half-period (2fps = 500ms on, 500ms off) and how
@@ -971,6 +977,21 @@ static void tasklist_measure(PanelWidget *w, int cross_axis, int *out_len, int *
  * buttons fit, never fewer, so a "reaches the end" verdict from the first
  * pass only gets more true on the second, never flips back -- one retry
  * is always enough, no fixed point iteration needed. */
+/* Floor tasklist_layout_visible()'s shrink-to-fit-one-more pass may bring
+ * display slot `display_idx`'s button width down to -- its own natural
+ * (unshrunk) width for an icon-only (compact=yes) or placeholder button,
+ * since squeezing a square icon button narrower would just distort it,
+ * never below its own natural width either way (a short title has nothing
+ * to gain from being padded out towards the floor). */
+static int tasklist_slot_min_w(const TasklistPriv *tp, int display_idx)
+{
+    int natural = tp->btn_w[display_idx];
+    if (tp->compact || tp->tasks[tp->display_repr[display_idx]].is_placeholder) {
+        return natural;
+    }
+    return natural < TASKLIST_SHRINK_MIN_WIDE ? natural : TASKLIST_SHRINK_MIN_WIDE;
+}
+
 static void tasklist_layout_visible(PanelWidget *w)
 {
     TasklistPriv *tp = w->priv;
@@ -1026,6 +1047,76 @@ static void tasklist_layout_visible(PanelWidget *w)
             tp->vis_w[tp->n_visible] = bw;
             cursor += bw;
             tp->n_visible++;
+        }
+
+        /* The buttons above are still at their natural width, so whatever
+         * content_avail is left over once the next task no longer fits is
+         * just dead space -- rather than accept that, see how many more
+         * *would* fit if every visible button (this new one included)
+         * shrank towards tasklist_slot_min_w()'s floor, and if so, shrink
+         * them all proportionally between that floor and each one's own
+         * natural width until the whole set exactly fills content_avail.
+         * Only ever grows tp->n_visible, never shrinks it below what the
+         * natural-width loop above already found. */
+        if (tp->scrollable && tp->n_visible > 0 && tp->scroll_offset + tp->n_visible < tp->n_display) {
+            int m = tp->n_visible;
+            long floor_sum = 0, natural_sum = 0;
+            for (int i = 0; i < m; i++) {
+                int di = tp->scroll_offset + i;
+                floor_sum += tasklist_slot_min_w(tp, di);
+                natural_sum += tp->btn_w[di];
+                if (i > 0) {
+                    floor_sum += TASKLIST_BTN_GAP;
+                    natural_sum += TASKLIST_BTN_GAP;
+                }
+            }
+            while (tp->scroll_offset + m < tp->n_display) {
+                int di = tp->scroll_offset + m;
+                long add = tasklist_slot_min_w(tp, di) + TASKLIST_BTN_GAP;
+                if (floor_sum + add > content_avail) {
+                    break;
+                }
+                floor_sum += add;
+                natural_sum += tp->btn_w[di] + TASKLIST_BTN_GAP;
+                m++;
+            }
+            if (m > tp->n_visible) {
+                int total_gap = TASKLIST_BTN_GAP * (m - 1);
+                long floor_content = floor_sum - total_gap;
+                long natural_content = natural_sum - total_gap;
+                int target_content = content_avail - total_gap;
+                if (target_content < floor_content) {
+                    target_content = (int)floor_content; /* shouldn't happen, feasibility already checked */
+                }
+                /* Interpolate every button between its own floor and its
+                 * own natural width by the same fraction `t`, chosen so
+                 * the whole row sums to exactly target_content -- pixel
+                 * rounding may leave a few px of slack, not worth chasing
+                 * for a taskbar row. */
+                double t = natural_content > floor_content
+                               ? (double)(target_content - floor_content) / (double)(natural_content - floor_content)
+                               : 0.0;
+                if (t < 0.0) {
+                    t = 0.0;
+                } else if (t > 1.0) {
+                    t = 1.0;
+                }
+                int x = left_reserve;
+                for (int i = 0; i < m; i++) {
+                    int di = tp->scroll_offset + i;
+                    int fl = tasklist_slot_min_w(tp, di);
+                    int nat = tp->btn_w[di];
+                    int bw = fl + (int)((nat - fl) * t);
+                    if (i > 0) {
+                        x += TASKLIST_BTN_GAP;
+                    }
+                    tp->vis_idx[i] = di;
+                    tp->vis_x[i] = x;
+                    tp->vis_w[i] = bw;
+                    x += bw;
+                }
+                tp->n_visible = m;
+            }
         }
 
         int reaches_end = tp->n_visible > 0 && tp->vis_idx[tp->n_visible - 1] >= tp->n_display - 1;
