@@ -196,12 +196,19 @@ static void on_back_clicked(GtkWidget *widget, gpointer data)
  * way and none of them need to know they're being shown inside a
  * "navigate back to home" scheme at all (same reasoning as the tab-strip
  * navigation itself: one shared mechanism, not a per-tab opt-in). */
-static GtkWidget *make_back_button(void)
+static GtkWidget *make_back_button(const char *title)
 {
     GtkWidget *btn = gtk_button_new_from_stock(GTK_STOCK_GO_BACK);
     g_signal_connect(btn, "clicked", G_CALLBACK(on_back_clicked), NULL);
-    GtkWidget *row = gtk_hbox_new(FALSE, 0);
+    GtkWidget *row = gtk_hbox_new(FALSE, 8);
     gtk_box_pack_start(GTK_BOX(row), btn, FALSE, FALSE, 0);
+
+    GtkWidget *label = gtk_label_new(NULL);
+    char *markup = g_markup_printf_escaped("<span size=\"large\">%s</span>", title);
+    gtk_label_set_markup(GTK_LABEL(label), markup);
+    g_free(markup);
+    gtk_box_pack_start(GTK_BOX(row), label, FALSE, FALSE, 0);
+
     return row;
 }
 
@@ -321,7 +328,7 @@ static void ensure_tab_built(int idx)
         return;
     }
     GtkWidget *content = g_tabs[idx].build();
-    gtk_box_pack_start(GTK_BOX(g_tabs[idx].placeholder), make_back_button(), FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(g_tabs[idx].placeholder), make_back_button(_(g_tabs[idx].label)), FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(g_tabs[idx].placeholder), content, TRUE, TRUE, 0);
     gtk_widget_show_all(g_tabs[idx].placeholder);
     g_tabs[idx].built = 1;
