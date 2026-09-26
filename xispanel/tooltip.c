@@ -1345,16 +1345,18 @@ void tooltip_tick(uint64_t now)
              * g_widget and g_since_ms untouched on purpose, so a tooltip
              * that's merely paused for the hover-intent grace period can
              * resume instead of restarting. But that same untouched state
-             * means the delay elapsing while the pointer is sitting in
-             * that gap would otherwise pop the tooltip up over nothing.
-             * Query the pointer live and redo the exact hit-test
-             * tooltip_notice_motion() would: only open when it still lands
-             * on g_widget's same sub-item; otherwise skip this tick and
-             * try again next tick -- it'll open the moment the pointer is
-             * back over the widget that started the timer (or, if it
-             * moved to a different widget instead, that motion event
+             * means the delay elapsing while the pointer has actually moved
+             * elsewhere (dead space, or a different widget entirely) would
+             * otherwise pop the tooltip up over nothing. Query the pointer
+             * live and only open when it still lands on g_widget's same
+             * sub-item -- anywhere else (including empty panel space, which
+             * is fine to sit in without arming the close grace period, but
+             * not fine to *open* a tooltip while sitting in) skips this
+             * tick and tries again next one: it'll open the moment the
+             * pointer is back over the widget that started the timer, or,
+             * if it moved to a different widget instead, that motion event
              * already restarted g_since_ms for it, so this same check
-             * naturally applies to the new target). */
+             * naturally applies to the new target. */
             Window root, child;
             int root_x, root_y, win_x, win_y;
             unsigned mask;
@@ -1363,18 +1365,12 @@ void tooltip_tick(uint64_t now)
                 Panel *p = g_panel;
                 int axis_pos = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? win_x : win_y;
                 PanelWidget *hit = panel_widget_at(p, axis_pos, (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? win_y : win_x);
-                if (!hit || !hit->ops->get_tooltip) {
-                    /* Empty panel space doesn't count against the pending
-                     * open either (see tooltip_notice_motion()) -- still
-                     * open, anchored on the widget that actually started
-                     * the timer. */
-                    on_target = 1;
-                } else if (hit == g_widget) {
+                if (hit == g_widget) {
                     char buf[256];
                     int ax = 0, aw = hit->len, closable = 0;
                     void *ctx = NULL;
                     int local_x = axis_pos - hit->x;
-                    if (hit->ops->get_tooltip(hit, local_x, buf, sizeof(buf), &ax, &aw, &closable, &ctx) &&
+                    if (hit->ops->get_tooltip && hit->ops->get_tooltip(hit, local_x, buf, sizeof(buf), &ax, &aw, &closable, &ctx) &&
                         ax == g_anchor_x && aw == g_anchor_w) {
                         on_target = 1;
                     }
