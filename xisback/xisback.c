@@ -67,6 +67,7 @@
 #include <X11/extensions/Xrandr.h>
 
 #include "../shared/xis_outputs.h"
+#include "../shared/xis_spawn.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -94,7 +95,7 @@ int xis_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int 
 int xis_fd(void);
 int xis_poll_change(void);
 
-#define XISBACK_VERSION "0.4.9"
+#define XISBACK_VERSION "0.4.10"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -529,45 +530,29 @@ static void run_action(const char *cmd, const char *output, int desktop, const c
     if (!cmd || !cmd[0]) {
         return;
     }
-    pid_t pid = fork();
-    if (pid < 0) {
-        perror("xisback: fork");
-        return;
+    char env_output[512];
+    char env_desktop[32];
+    char env_image[PATH_MAX + 32];
+    char env_x[32];
+    char env_y[32];
+    snprintf(env_output, sizeof(env_output), "XISBACK_OUTPUT=%s", output ? output : "*");
+    if (desktop < 0) {
+        snprintf(env_desktop, sizeof(env_desktop), "XISBACK_DESKTOP=*");
+    } else {
+        snprintf(env_desktop, sizeof(env_desktop), "XISBACK_DESKTOP=%d", desktop);
     }
-    if (pid == 0) {
-        char dstr[16];
-        char xstr[16];
-        char ystr[16];
-        if (desktop < 0) {
-            snprintf(dstr, sizeof(dstr), "*");
-        } else {
-            snprintf(dstr, sizeof(dstr), "%d", desktop);
-        }
-        snprintf(xstr, sizeof(xstr), "%d", x);
-        snprintf(ystr, sizeof(ystr), "%d", y);
-        setenv("XISBACK_OUTPUT", output ? output : "*", 1);
-        setenv("XISBACK_DESKTOP", dstr, 1);
-        setenv("XISBACK_IMAGE", image ? image : "", 1);
-        setenv("XISBACK_CLICK_X", xstr, 1);
-        setenv("XISBACK_CLICK_Y", ystr, 1);
-        setsid();
-        /* Double fork: this first child exits immediately below,
-         * orphaning the grandchild that execs `cmd` -- the kernel
-         * reparents it to init instead of leaving ppid pointing at
-         * xisback for as long as the launched program runs (which would
-         * otherwise show it nested under xisback in any process-tree
-         * view). setsid() alone only detaches from the controlling
-         * terminal, it doesn't change ppid. */
-        pid_t pid2 = fork();
-        if (pid2 < 0) {
-            _exit(1);
-        }
-        if (pid2 > 0) {
-            _exit(0);
-        }
-        execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
-        _exit(127);
-    }
+    snprintf(env_image, sizeof(env_image), "XISBACK_IMAGE=%s", image ? image : "");
+    snprintf(env_x, sizeof(env_x), "XISBACK_CLICK_X=%d", x);
+    snprintf(env_y, sizeof(env_y), "XISBACK_CLICK_Y=%d", y);
+    const char *env[] = {env_output, env_desktop, env_image, env_x, env_y, NULL};
+
+    /* Everything a click action needs to be independent of xisback --
+     * the double fork, the `exec` that leaves no shell parked in the
+     * tree, and the transient systemd scope that stops the launched app
+     * from being a member of xisback's own cgroup (and from being killed
+     * with it) -- lives in shared/xis_spawn.c, shared with xispanel/
+     * xisserve/xiskeys. */
+    xis_spawn_detached_env(cmd, env);
 }
 
 /* ------------------------------------------------------------------ */

@@ -8,7 +8,7 @@ BINDIR := $(PREFIX)/bin
 # xispanel and kiconfd -- compiled directly in, same as every other
 # source file here, so each program stays independently buildable and
 # installable on its own (no shared library to depend on at runtime).
-SHARED_SRC := ../shared/xis_outputs.c
+SHARED_SRC := ../shared/xis_outputs.c ../shared/xis_spawn.c
 
 # xcb/xcb-randr/x11-xcb (xisback_inputscale.c's X-INPUT-SCALE client query --
 # see that file's doc comment, adapted from xispanel/inputscale.c) are the
