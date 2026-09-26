@@ -365,6 +365,30 @@ static void parse_offset(const char *val, double *dx, double *dy)
     *dy = (n == 2) ? y : x;
 }
 
+/* "bold", "semibold", "light", ... or a raw Pango weight number (100..1000)
+ * -> PangoWeight, same table and fallback (keep normal) as kiwm's own
+ * parse_font_weight() for THEME's font_weight=. */
+static int parse_font_weight(const char *val)
+{
+    static const struct { const char *name; int weight; } weights[] = {
+        { "thin", 100 },       { "ultralight", 200 }, { "light", 300 },
+        { "semilight", 350 },  { "book", 380 },       { "normal", 400 },
+        { "regular", 400 },    { "medium", 500 },     { "semibold", 600 },
+        { "bold", 700 },       { "ultrabold", 800 },  { "heavy", 900 },
+        { "black", 900 },
+    };
+    for (size_t i = 0; i < sizeof(weights) / sizeof(weights[0]); i++) {
+        if (!strcasecmp(val, weights[i].name)) {
+            return weights[i].weight;
+        }
+    }
+    int n = atoi(val);
+    if (n >= 100 && n <= 1000) {
+        return n;
+    }
+    return 400;
+}
+
 /* ------------------------------------------------------------------ */
 /* widget registry                                                      */
 /* ------------------------------------------------------------------ */
@@ -1523,6 +1547,12 @@ static void panel_load_skins(Panel *p)
  *                             (task titles, menu items, tooltips...),
  *                             exactly the keys and #rrggbb[aa]/"dx dy"
  *                             grammar kiwm reads for its own titlebar text.
+ *   font_weight            -> base weight for that same text, kiwm's own
+ *                             names ("bold", "semibold", ...) or a raw
+ *                             100-1000 Pango weight number.
+ *   title_outline(_width)  -> stroke around the glyphs of that same text,
+ *                             again the same #rrggbb[aa]/pixel-width keys
+ *                             kiwm reads for its titlebar text.
  *
  * `font=` is deliberately not read here: the font face is process-global
  * and resolved before any panel exists, so config_scan_globals() reads it
@@ -1534,6 +1564,9 @@ static void panel_load_theme_colors(Panel *p)
     p->border_radius = 0;
     p->text_shadow = 0;
     p->text_shadow_dx = p->text_shadow_dy = 1.0; /* kiwm's own default offset */
+    p->font_weight = 400; /* PANGO_WEIGHT_NORMAL */
+    p->text_outline = 0;
+    p->text_outline_width = 1.0;
     char path[PATH_MAX];
     if (!panel_find_theme_file(p, "colors", path, sizeof(path))) {
         return;
@@ -1577,6 +1610,28 @@ static void panel_load_theme_colors(Panel *p)
             } else {
                 p->text_shadow = parse_hex_color(val, &p->text_shadow_r, &p->text_shadow_g, &p->text_shadow_b,
                                                   &p->text_shadow_a);
+            }
+        } else if (!strncmp(line, "font_weight=", 12)) {
+            p->font_weight = parse_font_weight(line + 12);
+        } else if (!strncmp(line, "title_outline_width=", 20)) {
+            double v = atof(line + 20);
+            if (v < 0) {
+                v = 0;
+            }
+            /* Past a few pixels the stroke stops being an outline and
+             * starts being a blob with a letter somewhere inside it --
+             * same clamp as kiwm's own title_outline_width=. */
+            if (v > 8.0) {
+                v = 8.0;
+            }
+            p->text_outline_width = v;
+        } else if (!strncmp(line, "title_outline=", 14)) {
+            const char *val = line + 14;
+            if (!val[0] || !strcasecmp(val, "none") || !strcasecmp(val, "off")) {
+                p->text_outline = 0;
+            } else {
+                p->text_outline = parse_hex_color(val, &p->text_outline_r, &p->text_outline_g, &p->text_outline_b,
+                                                   &p->text_outline_a);
             }
         }
     }

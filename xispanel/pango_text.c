@@ -37,10 +37,10 @@ void pango_text_init(const char *family)
 /* Shared setup for both the measuring and drawing entry points below --
  * a PangoLayout carrying `text` at `size_px`, ellipsized to max_width_px
  * if positive. Caller owns the returned layout (g_object_unref() it). */
-static PangoLayout *build_layout(cairo_t *cr, const char *text, double size_px, double max_width_px, int bold)
+static PangoLayout *build_layout(cairo_t *cr, const char *text, double size_px, double max_width_px, int weight)
 {
     pango_font_description_set_absolute_size(g_desc, size_px * PANGO_SCALE);
-    pango_font_description_set_weight(g_desc, bold ? PANGO_WEIGHT_BOLD : PANGO_WEIGHT_NORMAL);
+    pango_font_description_set_weight(g_desc, (PangoWeight)weight);
     PangoLayout *layout = pango_cairo_create_layout(cr);
     pango_layout_set_font_description(layout, g_desc);
     pango_layout_set_single_paragraph_mode(layout, TRUE);
@@ -63,7 +63,7 @@ static PangoLayout *build_layout(cairo_t *cr, const char *text, double size_px, 
 void pango_text_extents_ellipsized(cairo_t *cr, const char *text, double size_px, double max_width_px, double *out_w,
                                     double *out_h)
 {
-    PangoLayout *layout = build_layout(cr, text, size_px, max_width_px, 0);
+    PangoLayout *layout = build_layout(cr, text, size_px, max_width_px, PANGO_WEIGHT_NORMAL);
     int lw, lh;
     pango_layout_get_pixel_size(layout, &lw, &lh);
     if (out_w) {
@@ -91,18 +91,20 @@ void pango_show_text_boxed(cairo_t *cr, double x, double top_y, double box_h, do
 /* pango_show_text_boxed(), with the title drawn bold when `bold` is set --
  * tasklist.c's urgent-window look (see ewmh_get_urgent()). Its own
  * function rather than a param on pango_show_text_boxed() so none of that
- * function's other ~15 call sites need touching.
+ * function's other ~15 call sites need touching. `bold` forces
+ * PANGO_WEIGHT_BOLD regardless of `p`'s own font_weight= -- urgent is its
+ * own distinct look, not a theme setting.
  *
- * `p`'s title_shadow (see xispanel.c's panel_load_theme_colors() doc
- * comment) draws first, an extra copy of the same layout offset by
- * title_shadow_dx/dy in the shadow color -- same order and technique as
- * kiwm's own pango_show_title_text() for window titles, minus the outline
- * (xispanel has no matching theme key for it yet). The real fill always
- * goes last, on top, at whatever color the caller already set on `cr`. */
+ * `p`'s title_shadow and title_outline (see xispanel.c's
+ * panel_load_theme_colors() doc comment) draw first, in that order --
+ * same technique and draw order (shadow, outline, fill) as kiwm's own
+ * pango_show_title_text() for window titles. The real fill always goes
+ * last, on top, at whatever color the caller already set on `cr`. */
 void pango_show_text_boxed_bold(cairo_t *cr, double x, double top_y, double box_h, double max_width_px,
                                  double size_px, const char *text, int bold, double *out_w, const Panel *p)
 {
-    PangoLayout *layout = build_layout(cr, text, size_px, max_width_px, bold);
+    int weight = bold ? PANGO_WEIGHT_BOLD : (p && p->font_weight ? p->font_weight : PANGO_WEIGHT_NORMAL);
+    PangoLayout *layout = build_layout(cr, text, size_px, max_width_px, weight);
     int lw, lh;
     pango_layout_get_pixel_size(layout, &lw, &lh);
     if (out_w) {
@@ -110,15 +112,28 @@ void pango_show_text_boxed_bold(cairo_t *cr, double x, double top_y, double box_
     }
     double y = top_y + (box_h - lh) / 2.0;
 
+    double fr, fg, fb, fa;
+    cairo_pattern_get_rgba(cairo_get_source(cr), &fr, &fg, &fb, &fa);
+
     if (p && p->text_shadow) {
-        double fr, fg, fb, fa;
-        cairo_pattern_get_rgba(cairo_get_source(cr), &fr, &fg, &fb, &fa);
         cairo_set_source_rgba(cr, p->text_shadow_r, p->text_shadow_g, p->text_shadow_b, p->text_shadow_a);
         cairo_move_to(cr, x + p->text_shadow_dx, y + p->text_shadow_dy);
         pango_cairo_show_layout(cr, layout);
-        cairo_set_source_rgba(cr, fr, fg, fb, fa);
     }
 
+    if (p && p->text_outline && p->text_outline_width > 0.0) {
+        cairo_set_source_rgba(cr, p->text_outline_r, p->text_outline_g, p->text_outline_b, p->text_outline_a);
+        cairo_set_line_width(cr, p->text_outline_width);
+        /* Round joins/caps: a miter join on a glyph's sharp corners spikes
+         * out well past the stroke width at panel text sizes. */
+        cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+        cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+        cairo_move_to(cr, x, y);
+        pango_cairo_layout_path(cr, layout);
+        cairo_stroke(cr);
+    }
+
+    cairo_set_source_rgba(cr, fr, fg, fb, fa);
     cairo_move_to(cr, x, y);
     pango_cairo_show_layout(cr, layout);
     g_object_unref(layout);

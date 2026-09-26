@@ -370,6 +370,15 @@ struct Panel {
     double text_shadow_r, text_shadow_g, text_shadow_b, text_shadow_a;
     double text_shadow_dx, text_shadow_dy;
 
+    /* font_weight= (a PangoWeight, 400 = normal) and title_outline=/
+     * title_outline_width= from the same file -- again the exact keys and
+     * grammar kiwm's titlebar text reads, so theme text weight/outline
+     * stay in sync between the two programs without a xispanel-only key. */
+    int font_weight;
+    int text_outline;
+    double text_outline_r, text_outline_g, text_outline_b, text_outline_a;
+    double text_outline_width;
+
     /* Theme icons/ folder: PNGs replacing widgets' vector glyphs, keyed
      * by name+size and resolved on first use (see panel_theme_icon()). */
     struct {
@@ -499,9 +508,10 @@ void pango_text_init(const char *family); /* call once at startup, after g_font_
  * pixel size is needed to position the text itself (e.g. centering). */
 void pango_text_extents_ellipsized(cairo_t *cr, const char *text, double size_px, double max_width_px, double *out_w,
                                     double *out_h);
-/* `p` supplies the theme's title_shadow=/title_shadow_offset= (NULL is
- * fine -- just no shadow, e.g. notif.c's little unread-count badge, which
- * has no owning Panel handy at that call site). */
+/* `p` supplies the theme's font_weight=, title_shadow=/title_shadow_offset=
+ * and title_outline=/title_outline_width= (NULL is fine -- just the plain
+ * weight and no shadow/outline, e.g. notif.c's little unread-count badge,
+ * which has no owning Panel handy at that call site). */
 void pango_show_text_boxed(cairo_t *cr, double x, double top_y, double box_h, double max_width_px, double size_px,
                             const char *text, double *out_w, const Panel *p);
 /* pango_show_text_boxed(), with `bold` drawn bold -- see pango_text.c's doc
