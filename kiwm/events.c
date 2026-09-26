@@ -15,6 +15,8 @@
 #include "shape.h"
 #include "selection.h"
 #include "sync.h"
+
+#include "../shared/xis_spawn.h"
 #include "grip.h"
 
 #include <xcb/randr.h>
@@ -506,13 +508,12 @@ static bool deco_kind_is_button(DecoElemKind kind)
  * the way, so the *next* left click restores it to the geometry from
  * before any of it), right maximizes horizontally only, middle
  * vertically only. Every other button ignores anything but the left. */
-/* kiwm.conf's appmenu_command= with %w/%x/%y filled in, run detached.
- *
- * The double fork is what keeps kiwm from collecting zombies without
- * installing a SIGCHLD handler: the intermediate child exits immediately
- * (and is reaped right here), leaving the actual command reparented to
- * init. setsid() then keeps it out of kiwm's process group, so a menu
- * helper doesn't die with the terminal kiwm was started from. */
+/* kiwm.conf's appmenu_command= with %w/%x/%y filled in, run detached --
+ * double-forked (so kiwm collects no zombie and the helper isn't a child
+ * of kiwm), setsid()'d (so it doesn't die with the terminal kiwm was
+ * started from) and, on a systemd session, moved into its own transient
+ * scope (so it isn't a member of kiwm's cgroup and isn't killed when kiwm
+ * exits). All of that lives in shared/xis_spawn.c -- see its header. */
 static void run_appmenu_command(Client *c, int root_x, int root_y)
 {
     if (!wm.appmenu_command[0])
@@ -547,17 +548,7 @@ static void run_appmenu_command(Client *c, int root_x, int root_y)
     }
     cmd[o < sizeof(cmd) ? o : sizeof(cmd) - 1] = '\0';
 
-    pid_t pid = fork();
-    if (pid == 0) {
-        if (fork() == 0) {
-            setsid();
-            execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
-            _exit(127);
-        }
-        _exit(0);
-    } else if (pid > 0) {
-        waitpid(pid, NULL, 0);
-    }
+    xis_spawn_detached(cmd);
 }
 
 static void run_deco_button(Client *c, DecoElemKind kind, uint8_t button, int slot_x)
