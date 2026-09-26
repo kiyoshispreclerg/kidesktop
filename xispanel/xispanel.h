@@ -726,11 +726,14 @@ int panel_round_corners(Window win, int w, int h, int radius, int depth, int *sh
  * compositor disappearing (reset every panel's density to 1/1) without
  * needing xispanel.c's own g_panels[]/MAX_PANELS storage details exposed. */
 void panel_foreach(void (*cb)(Panel *p, void *ctx), void *ctx);
-/* Runs `cmd` via `sh -c`, detached (double-forked via setsid()) and never
- * waited on -- SIGCHLD is set to SIG_IGN in main() so the child is
- * auto-reaped by the kernel instead of becoming a zombie, same pattern
- * xisback's run_action() uses for its own click actions. No-op if `cmd`
- * is NULL/empty. */
+/* Launches `cmd` as an independent user application: double-forked,
+ * setsid()'d, never waited on (SIGCHLD is SIG_IGN in main(), so nothing
+ * becomes a zombie), and -- on a systemd session -- inside its own
+ * transient scope, so the app is neither attributed to xispanel nor
+ * killed along with it. shared/xis_spawn.h has the full reasoning and is
+ * the one implementation xisback/xiskeys/xisserve share. No-op if `cmd`
+ * is NULL/empty. Use asyncmd.c instead for the panel's *own*
+ * subprocesses, the ones whose output it reads. */
 void run_detached(const char *cmd);
 /* Directory containing xispanel.conf -- see xispanel.c's doc comment on
  * config_dir()/config_widget_set_key() for why these two exist (a single

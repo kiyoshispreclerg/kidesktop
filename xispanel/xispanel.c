@@ -61,6 +61,7 @@
 #include "xispanel.h"
 
 #include "../shared/xis_outputs.h"
+#include "../shared/xis_spawn.h"
 
 #include <Imlib2.h>
 #include <X11/Xatom.h>
@@ -96,7 +97,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.61"
+#define XISPANEL_VERSION "0.6.62"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -975,36 +976,15 @@ static Window panel_create_sensor(Panel *p)
 /* 9-slice PNG background theme                                        */
 /* ------------------------------------------------------------------ */
 
-/* Runs `cmd` via `sh -c`, detached (see xispanel.h's doc comment). */
+/* Launches `cmd` as an independent user application (see xispanel.h's
+ * doc comment). One line because every part of what "independent"
+ * actually takes -- the double fork, the `exec` that keeps no shell
+ * around, and the transient systemd scope that stops the app from being
+ * a member of xispanel's own cgroup -- lives in shared/xis_spawn.c,
+ * shared with xisserve's identically-named wrapper. */
 void run_detached(const char *cmd)
 {
-    if (!cmd || !cmd[0]) {
-        return;
-    }
-    pid_t pid = fork();
-    if (pid < 0) {
-        perror("xispanel: fork");
-        return;
-    }
-    if (pid == 0) {
-        setsid();
-        /* The actual double fork: this first child exits immediately
-         * below, orphaning the grandchild that execs `cmd` -- the kernel
-         * reparents it to init (or whatever subreaper owns the tree), not
-         * to xispanel. Without this second fork, setsid() alone detaches
-         * from the controlling terminal but leaves ppid pointing at
-         * xispanel for as long as the launched program runs, so it shows
-         * up nested under xispanel in any process-tree view. */
-        pid_t pid2 = fork();
-        if (pid2 < 0) {
-            _exit(1);
-        }
-        if (pid2 > 0) {
-            _exit(0);
-        }
-        execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
-        _exit(127);
-    }
+    xis_spawn_detached(cmd);
 }
 
 /* Decodes `path` via Imlib2 into a premultiplied-alpha cairo ARGB32
