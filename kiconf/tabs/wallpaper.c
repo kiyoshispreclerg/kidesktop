@@ -380,7 +380,11 @@ GtkWidget *build_wallpaper_tab(void)
     GtkWidget *clear_sel_btn = gtk_button_new_with_label("Limpar selecionada");
     GtkWidget *clear_all_btn = gtk_button_new_with_label("Limpar todas");
     GtkWidget *refresh_btn = gtk_button_new_with_label("Atualizar");
-    GtkWidget *global_btn = gtk_button_new_with_label("Mesmo papel de parede pra tudo");
+    /* Short label + tooltip instead of the full sentence -- 5 buttons in
+     * one row, this one alone was pushing the tab past the 700px minimum
+     * width. */
+    GtkWidget *global_btn = gtk_button_new_with_label("Igualar todas");
+    gtk_widget_set_tooltip_text(global_btn, "Mesmo papel de parede pra tudo");
     g_signal_connect(next_btn, "clicked", G_CALLBACK(on_wp_next), NULL);
     g_signal_connect(clear_sel_btn, "clicked", G_CALLBACK(on_wp_clear_selected), NULL);
     g_signal_connect(clear_all_btn, "clicked", G_CALLBACK(on_wp_clear_all), NULL);
@@ -392,7 +396,9 @@ GtkWidget *build_wallpaper_tab(void)
     gtk_box_pack_start(GTK_BOX(layers_btnbox), refresh_btn, FALSE, FALSE, 0);
     gtk_box_pack_end(GTK_BOX(layers_btnbox), global_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(layers_box), layers_btnbox, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Camadas ativas (clique numa linha pra editar)", layers_box), TRUE, TRUE, 0);
+    GtkWidget *layers_frame = frame_with("Camadas ativas", layers_box);
+    gtk_widget_set_tooltip_text(layers_frame, "Clique numa linha pra editar");
+    gtk_box_pack_start(GTK_BOX(outer), layers_frame, TRUE, TRUE, 0);
 
     GtkWidget *set_table = gtk_table_new(6, 2, FALSE);
     g_wp_output_combo = make_output_combo(1, "*");

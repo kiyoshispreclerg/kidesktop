@@ -116,7 +116,7 @@
 #include "sysinfo.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.31"
+#define KICONF_VERSION "0.2.32"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -383,11 +383,18 @@ static void on_module_icon_clicked(GtkWidget *widget, gpointer data)
 static GtkWidget *make_module_button(const LazyTab *tab, int page_num)
 {
     GtkWidget *btn = gtk_button_new();
-    gtk_container_set_border_width(GTK_CONTAINER(btn), 6);
+    gtk_container_set_border_width(GTK_CONTAINER(btn), 2);
 
-    GtkWidget *box = gtk_vbox_new(FALSE, 4);
-    GtkWidget *icon = gtk_image_new_from_stock(tab->stock_icon, GTK_ICON_SIZE_DIALOG);
+    GtkWidget *box = gtk_vbox_new(FALSE, 2);
+    GtkWidget *icon = gtk_image_new_from_stock(tab->stock_icon, GTK_ICON_SIZE_DND);
     GtkWidget *label = gtk_label_new(_(tab->label));
+    /* Fixed width + wrap so long labels ("Gerenciamento de janelas",
+     * "Associacoes de arquivos", ...) grow the button downward instead of
+     * outward -- left unwrapped, the widest label alone (times 4 columns)
+     * pushed the whole window well past the 700px minimum width. */
+    gtk_label_set_line_wrap(GTK_LABEL(label), TRUE);
+    gtk_label_set_justify(GTK_LABEL(label), GTK_JUSTIFY_CENTER);
+    gtk_widget_set_size_request(label, 68, -1);
     gtk_box_pack_start(GTK_BOX(box), icon, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box), label, FALSE, FALSE, 0);
     gtk_container_add(GTK_CONTAINER(btn), box);
@@ -408,11 +415,11 @@ static GtkWidget *make_module_button(const LazyTab *tab, int page_num)
  * resized, same as before this split existed. */
 static GtkWidget *build_home_page(void)
 {
-    const int cols = 4;
+    const int cols = 5;
     const int rows = (N_TABS + cols - 1) / cols;
     GtkWidget *grid = gtk_table_new(rows, cols, TRUE);
-    gtk_table_set_row_spacings(GTK_TABLE(grid), 8);
-    gtk_table_set_col_spacings(GTK_TABLE(grid), 8);
+    gtk_table_set_row_spacings(GTK_TABLE(grid), 6);
+    gtk_table_set_col_spacings(GTK_TABLE(grid), 6);
     for (int i = 0; i < N_TABS; i++) {
         int r = i / cols, c = i % cols;
         GtkWidget *btn = make_module_button(&g_tabs[i], i + 1);
@@ -421,14 +428,14 @@ static GtkWidget *build_home_page(void)
     }
 
     GtkWidget *sysinfo = build_sysinfo_panel();
-    gtk_widget_set_size_request(sysinfo, 260, -1);
+    gtk_widget_set_size_request(sysinfo, 190, -1);
 
-    GtkWidget *row = gtk_hbox_new(FALSE, 16);
+    GtkWidget *row = gtk_hbox_new(FALSE, 8);
     gtk_box_pack_start(GTK_BOX(row), sysinfo, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(row), grid, TRUE, TRUE, 0);
 
     GtkWidget *outer = gtk_vbox_new(FALSE, 0);
-    gtk_container_set_border_width(GTK_CONTAINER(outer), 16);
+    gtk_container_set_border_width(GTK_CONTAINER(outer), 10);
     gtk_box_pack_start(GTK_BOX(outer), row, TRUE, TRUE, 0);
     return outer;
 }
@@ -667,7 +674,9 @@ int main(int argc, char **argv)
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     g_window = window;
     gtk_window_set_title(GTK_WINDOW(window), "kiconf");
-    gtk_window_set_default_size(GTK_WINDOW(window), 640, 660);
+    GdkGeometry geometry = { .min_width = 700, .min_height = 500 };
+    gtk_window_set_geometry_hints(GTK_WINDOW(window), NULL, &geometry, GDK_HINT_MIN_SIZE);
+    gtk_window_set_default_size(GTK_WINDOW(window), 700, 600);
     g_signal_connect(window, "delete-event", G_CALLBACK(on_window_delete), NULL);
     g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 

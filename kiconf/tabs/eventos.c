@@ -175,8 +175,8 @@ static GtkTreeViewColumn *make_recur_column(void)
 
 GtkWidget *build_eventos_tab(void)
 {
-    GtkWidget *outer = gtk_vbox_new(FALSE, 8);
-    gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
+    GtkWidget *outer = gtk_vbox_new(FALSE, 6);
+    gtk_container_set_border_width(GTK_CONTAINER(outer), 8);
 
     GtkWidget *info = gtk_label_new(
         "Eventos e feriados pessoais mostrados na aba Calendario do xisserve. "
@@ -213,7 +213,7 @@ GtkWidget *build_eventos_tab(void)
 
     GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-    gtk_widget_set_size_request(scroll, -1, 320);
+    gtk_widget_set_size_request(scroll, -1, 260);
     gtk_container_add(GTK_CONTAINER(scroll), view);
     gtk_box_pack_start(GTK_BOX(outer), scroll, TRUE, TRUE, 0);
 

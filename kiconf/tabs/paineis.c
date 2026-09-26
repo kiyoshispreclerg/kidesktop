@@ -1417,8 +1417,8 @@ GtkWidget *build_paineis_tab(void)
     int n_panels, n_widgets, n_themes;
     load_xispanel_conf(panels, &n_panels, widgets, &n_widgets, themes, &n_themes);
 
-    GtkWidget *outer = gtk_vbox_new(FALSE, 8);
-    gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
+    GtkWidget *outer = gtk_vbox_new(FALSE, 6);
+    gtk_container_set_border_width(GTK_CONTAINER(outer), 8);
 
     GtkWidget *note = gtk_label_new(
         "Editor direto de xispanel.conf (PANEL/WIDGET/THEME). Opcoes sao\n"
@@ -1438,7 +1438,7 @@ GtkWidget *build_paineis_tab(void)
     GtkTreeSelection *panels_sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(panels_view));
     GtkWidget *panels_scroll = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(panels_scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-    gtk_widget_set_size_request(panels_scroll, -1, 100);
+    gtk_widget_set_size_request(panels_scroll, -1, 80);
     gtk_container_add(GTK_CONTAINER(panels_scroll), panels_view);
     GtkWidget *panels_box = gtk_vbox_new(FALSE, 4);
     gtk_box_pack_start(GTK_BOX(panels_box), panels_scroll, TRUE, TRUE, 0);
@@ -1450,7 +1450,7 @@ GtkWidget *build_paineis_tab(void)
     gtk_box_pack_start(GTK_BOX(panels_btnbox), padd, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(panels_btnbox), prem, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(panels_box), panels_btnbox, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Paineis", panels_box), FALSE, FALSE, 0);
+    GtkWidget *panels_frame = frame_with("Paineis", panels_box);
 
     /* g_widgets_store only ever holds one panel's widgets at a time (see
      * its own doc comment) -- every panel's widgets loaded from the file
@@ -1491,7 +1491,7 @@ GtkWidget *build_paineis_tab(void)
     GtkWidget *widgets_view = build_widgets_view();
     GtkWidget *widgets_scroll = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(widgets_scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-    gtk_widget_set_size_request(widgets_scroll, -1, 180);
+    gtk_widget_set_size_request(widgets_scroll, -1, 150);
     gtk_container_add(GTK_CONTAINER(widgets_scroll), widgets_view);
     GtkWidget *widgets_box = gtk_vbox_new(FALSE, 4);
     gtk_box_pack_start(GTK_BOX(widgets_box), widgets_scroll, TRUE, TRUE, 0);
@@ -1503,7 +1503,7 @@ GtkWidget *build_paineis_tab(void)
     gtk_box_pack_start(GTK_BOX(widgets_btnbox), wadd, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(widgets_btnbox), wrem, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(widgets_box), widgets_btnbox, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Widgets do painel selecionado", widgets_box), TRUE, TRUE, 0);
+    GtkWidget *widgets_frame = frame_with("Widgets do painel selecionado", widgets_box);
 
     /* Theme now follows whichever panel is selected above (see
      * on_panel_selection_changed()) instead of always being "the first
@@ -1535,8 +1535,22 @@ GtkWidget *build_paineis_tab(void)
     gtk_misc_set_alignment(GTK_MISC(g_theme_label), 0.0, 0.5);
     gtk_table_attach(GTK_TABLE(theme_table), g_theme_label, 0, 1, 3, 4, GTK_FILL, GTK_FILL, 4, 3);
     gtk_table_attach(GTK_TABLE(theme_table), g_theme_options_entry, 1, 2, 3, 4, GTK_EXPAND | GTK_FILL, GTK_FILL, 4, 3);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Tema (cores/fonte do painel selecionado)", theme_table), FALSE, FALSE, 0);
+    GtkWidget *theme_frame = frame_with("Tema (cores/fonte do painel selecionado)", theme_table);
     sync_theme_fields_from_opts(initial_theme ? initial_theme->options : "");
+
+    /* 2 columns instead of everything stacked in one -- Paineis + Tema on
+     * the left, Widgets do painel selecionado (the one that can hold the
+     * most rows) alone on the right, so the tab's minimum height stays
+     * under the 700x500 window minimum instead of the 3 frames piling up
+     * vertically. */
+    GtkWidget *left_col = gtk_vbox_new(FALSE, 8);
+    gtk_box_pack_start(GTK_BOX(left_col), panels_frame, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left_col), theme_frame, FALSE, FALSE, 0);
+
+    GtkWidget *columns_row = gtk_hbox_new(FALSE, 8);
+    gtk_box_pack_start(GTK_BOX(columns_row), left_col, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(columns_row), widgets_frame, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), columns_row, TRUE, TRUE, 0);
 
     GtkWidget *save_btn = gtk_button_new_with_label("Salvar e recarregar xispanel");
     g_signal_connect(save_btn, "clicked", G_CALLBACK(save_panels_cb), NULL);

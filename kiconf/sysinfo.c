@@ -219,7 +219,7 @@ static void add_fact(GtkWidget *box, const char *label, const char *value)
      * against -- left to negotiate its own size inside a plain vbox, it
      * requests one unbroken line and gets clipped instead by whatever
      * width the sysinfo panel ends up with. */
-    gtk_widget_set_size_request(lbl, 240, -1);
+    gtk_widget_set_size_request(lbl, 170, -1);
     gtk_box_pack_start(GTK_BOX(box), lbl, FALSE, FALSE, 0);
 }
 

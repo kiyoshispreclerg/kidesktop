@@ -887,20 +887,34 @@ static GtkWidget *build_fixed_shortcuts_view(void)
 {
     GtkWidget *view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_fixed_store));
 
+    /* Fixed, capped column widths + ellipsize instead of sizing to the
+     * longest cell -- both the widget-action label and the "sem hotkey=..."
+     * default text can run to 60+ chars, which otherwise forced this tab
+     * (and the window) far wider than the 700px minimum. */
     GtkCellRenderer *label_r = gtk_cell_renderer_text_new();
+    g_object_set(label_r, "ellipsize", PANGO_ELLIPSIZE_END, NULL);
     GtkTreeViewColumn *label_col = gtk_tree_view_column_new_with_attributes("Acao", label_r, "text", COL_FX_LABEL, NULL);
     gtk_tree_view_column_set_expand(label_col, TRUE);
+    gtk_tree_view_column_set_sizing(label_col, GTK_TREE_VIEW_COLUMN_FIXED);
+    gtk_tree_view_column_set_fixed_width(label_col, 220);
     gtk_tree_view_append_column(GTK_TREE_VIEW(view), label_col);
 
     GtkCellRenderer *def_r = gtk_cell_renderer_text_new();
-    gtk_tree_view_append_column(GTK_TREE_VIEW(view),
-        gtk_tree_view_column_new_with_attributes("Padrao", def_r, "text", COL_FX_DEFAULT, NULL));
+    g_object_set(def_r, "ellipsize", PANGO_ELLIPSIZE_END, NULL);
+    GtkTreeViewColumn *def_col =
+        gtk_tree_view_column_new_with_attributes("Padrao", def_r, "text", COL_FX_DEFAULT, NULL);
+    gtk_tree_view_column_set_sizing(def_col, GTK_TREE_VIEW_COLUMN_FIXED);
+    gtk_tree_view_column_set_fixed_width(def_col, 150);
+    gtk_tree_view_append_column(GTK_TREE_VIEW(view), def_col);
 
     GtkCellRenderer *spec_r = gtk_cell_renderer_text_new();
-    g_object_set(spec_r, "editable", TRUE, NULL);
+    g_object_set(spec_r, "editable", TRUE, "ellipsize", PANGO_ELLIPSIZE_END, NULL);
     g_signal_connect(spec_r, "edited", G_CALLBACK(fixed_spec_edited), NULL);
-    gtk_tree_view_append_column(GTK_TREE_VIEW(view),
-        gtk_tree_view_column_new_with_attributes("Atalho", spec_r, "text", COL_FX_SPEC, NULL));
+    GtkTreeViewColumn *spec_col =
+        gtk_tree_view_column_new_with_attributes("Atalho", spec_r, "text", COL_FX_SPEC, NULL);
+    gtk_tree_view_column_set_sizing(spec_col, GTK_TREE_VIEW_COLUMN_FIXED);
+    gtk_tree_view_column_set_fixed_width(spec_col, 100);
+    gtk_tree_view_append_column(GTK_TREE_VIEW(view), spec_col);
 
     return view;
 }
@@ -976,8 +990,8 @@ static void load_fixed_shortcuts(void)
 
 GtkWidget *build_shortcuts_tab(void)
 {
-    GtkWidget *outer = gtk_vbox_new(FALSE, 8);
-    gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
+    GtkWidget *outer = gtk_vbox_new(FALSE, 6);
+    gtk_container_set_border_width(GTK_CONTAINER(outer), 8);
 
     /* Atalhos personalizados: xiskeys.conf, unchanged from before. */
     GtkWidget *vbox = gtk_vbox_new(FALSE, 6);
@@ -988,16 +1002,22 @@ GtkWidget *build_shortcuts_tab(void)
     const char *titles[N_SHORTCUT_COLS] = {"Acao", "Atalho", "Comando"};
     for (int col = 0; col < N_SHORTCUT_COLS; col++) {
         GtkCellRenderer *renderer = gtk_cell_renderer_text_new();
-        g_object_set(renderer, "editable", TRUE, NULL);
+        g_object_set(renderer, "editable", TRUE, "ellipsize", PANGO_ELLIPSIZE_END, NULL);
         g_signal_connect(renderer, "edited", G_CALLBACK(shortcut_cell_edited), GINT_TO_POINTER(col));
         GtkTreeViewColumn *tvcol = gtk_tree_view_column_new_with_attributes(titles[col], renderer, "text", col, NULL);
+        /* Capped at a fixed width instead of sizing to the longest cell --
+         * "Comando" especially can hold a full shell command/path, which
+         * otherwise forced this whole tab (and the window) far wider than
+         * the 700px minimum; the cell still shows the full text on edit. */
+        gtk_tree_view_column_set_sizing(tvcol, GTK_TREE_VIEW_COLUMN_FIXED);
+        gtk_tree_view_column_set_fixed_width(tvcol, 150);
         gtk_tree_view_column_set_expand(tvcol, TRUE);
         gtk_tree_view_append_column(GTK_TREE_VIEW(view), tvcol);
     }
 
     GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-    gtk_widget_set_size_request(scroll, -1, 160);
+    gtk_widget_set_size_request(scroll, -1, 90);
     gtk_container_add(GTK_CONTAINER(scroll), view);
     gtk_box_pack_start(GTK_BOX(vbox), scroll, TRUE, TRUE, 0);
 
@@ -1014,9 +1034,12 @@ GtkWidget *build_shortcuts_tab(void)
     gtk_box_pack_start(GTK_BOX(vbox), btnbox, FALSE, FALSE, 0);
 
     load_shortcuts();
-    gtk_box_pack_start(GTK_BOX(outer),
-                        frame_with("Atalhos personalizados (xiskeys.conf, crie/edite/remova a vontade)", vbox),
-                        TRUE, TRUE, 0);
+    /* Short frame titles (GtkFrame doesn't wrap them, so a long one forces
+     * the whole tab -- and window -- wider than the 700px minimum) with
+     * the detail moved to a tooltip instead. */
+    GtkWidget *custom_frame = frame_with("Atalhos personalizados", vbox);
+    gtk_widget_set_tooltip_text(custom_frame, "xiskeys.conf, crie/edite/remova a vontade");
+    gtk_box_pack_start(GTK_BOX(outer), custom_frame, TRUE, TRUE, 0);
 
     /* Atalhos fixos do sistema: kiwm.conf/kicomp.conf, catalog-driven. */
     GtkWidget *fixed_vbox = gtk_vbox_new(FALSE, 6);
@@ -1027,7 +1050,7 @@ GtkWidget *build_shortcuts_tab(void)
     GtkWidget *fixed_view = build_fixed_shortcuts_view();
     GtkWidget *fixed_scroll = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(fixed_scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-    gtk_widget_set_size_request(fixed_scroll, -1, 220);
+    gtk_widget_set_size_request(fixed_scroll, -1, 130);
     gtk_container_add(GTK_CONTAINER(fixed_scroll), fixed_view);
     gtk_box_pack_start(GTK_BOX(fixed_vbox), fixed_scroll, TRUE, TRUE, 0);
 
@@ -1036,17 +1059,17 @@ GtkWidget *build_shortcuts_tab(void)
     gtk_box_pack_start(GTK_BOX(fixed_vbox), g_fixed_status_label, FALSE, FALSE, 0);
 
     GtkWidget *fixed_btnbox = gtk_hbox_new(FALSE, 6);
-    GtkWidget *fixed_save_btn = gtk_button_new_with_label("Aplicar (grava kiwm.conf, kicomp.conf e xispanel.conf)");
+    GtkWidget *fixed_save_btn = gtk_button_new_with_label("Aplicar");
+    gtk_widget_set_tooltip_text(fixed_save_btn, "Grava kiwm.conf, kicomp.conf e xispanel.conf");
     g_signal_connect(fixed_save_btn, "clicked", G_CALLBACK(save_fixed_shortcuts_cb), NULL);
     gtk_box_pack_end(GTK_BOX(fixed_btnbox), fixed_save_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(fixed_vbox), fixed_btnbox, FALSE, FALSE, 0);
 
-    gtk_box_pack_start(GTK_BOX(outer),
-                        frame_with("Atalhos fixos do sistema (kiwm, efeitos ativos do kicomp, widgets do "
-                                    "xispanel que aceitam hotkey= -- em branco = usa o padrao daquele "
-                                    "programa, ou nenhum atalho no caso do xispanel)",
-                                    fixed_vbox),
-                        FALSE, FALSE, 0);
+    GtkWidget *fixed_frame = frame_with("Atalhos fixos do sistema", fixed_vbox);
+    gtk_widget_set_tooltip_text(fixed_frame,
+        "kiwm, efeitos ativos do kicomp, widgets do xispanel que aceitam hotkey= -- "
+        "em branco = usa o padrao daquele programa, ou nenhum atalho no caso do xispanel");
+    gtk_box_pack_start(GTK_BOX(outer), fixed_frame, FALSE, FALSE, 0);
 
     return outer;
 }

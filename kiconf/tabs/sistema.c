@@ -655,8 +655,8 @@ static void apply_cb(GtkWidget *widget, gpointer data)
 
 GtkWidget *build_sistema_tab(void)
 {
-    GtkWidget *outer = gtk_vbox_new(FALSE, 8);
-    gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
+    GtkWidget *outer = gtk_vbox_new(FALSE, 4);
+    gtk_container_set_border_width(GTK_CONTAINER(outer), 8);
 
     int systemd_time = have_systemd_timedate();
     const char *ntp_svc = systemd_time ? NULL : detect_ntp_service();
@@ -694,7 +694,7 @@ GtkWidget *build_sistema_tab(void)
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Idioma", lang_table), FALSE, FALSE, 0);
 
     /* Data e hora */
-    GtkWidget *dt_vbox = gtk_vbox_new(FALSE, 6);
+    GtkWidget *dt_vbox = gtk_vbox_new(FALSE, 4);
 
     GtkWidget *tz_table = gtk_table_new(1, 2, FALSE);
     g_tz_combo = gtk_combo_box_new_text();
@@ -758,7 +758,7 @@ GtkWidget *build_sistema_tab(void)
     /* Fusos horarios adicionais: ki-zones.conf, plain user file -- no
      * pkexec/polkit involved, so it gets its own "Salvar" button
      * instead of going through Aplicar's privileged path below. */
-    GtkWidget *zones_vbox = gtk_vbox_new(FALSE, 6);
+    GtkWidget *zones_vbox = gtk_vbox_new(FALSE, 4);
 
     g_zones_store = gtk_list_store_new(N_ZONE_COLS, G_TYPE_STRING, G_TYPE_STRING);
     load_extra_zones();
@@ -775,7 +775,7 @@ GtkWidget *build_sistema_tab(void)
 
     GtkWidget *zones_scroll = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(zones_scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-    gtk_widget_set_size_request(zones_scroll, -1, 120);
+    gtk_widget_set_size_request(zones_scroll, -1, 60);
     gtk_container_add(GTK_CONTAINER(zones_scroll), zones_view);
     gtk_box_pack_start(GTK_BOX(zones_vbox), zones_scroll, TRUE, TRUE, 0);
 
@@ -795,10 +795,9 @@ GtkWidget *build_sistema_tab(void)
     gtk_box_pack_end(GTK_BOX(zones_btnbox), zone_save_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(zones_vbox), zones_btnbox, FALSE, FALSE, 0);
 
-    gtk_box_pack_start(GTK_BOX(outer),
-                        frame_with("Fusos horarios adicionais (mostrados na aba Calendario do xisserve)",
-                                    zones_vbox),
-                        TRUE, TRUE, 0);
+    GtkWidget *zones_frame = frame_with("Fusos horarios adicionais", zones_vbox);
+    gtk_widget_set_tooltip_text(zones_frame, "Mostrados na aba Calendario do xisserve");
+    gtk_box_pack_start(GTK_BOX(outer), zones_frame, TRUE, TRUE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 0);
     GtkWidget *apply_btn = gtk_button_new_with_label("Aplicar");

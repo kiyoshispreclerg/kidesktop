@@ -222,7 +222,12 @@ GtkWidget *labeled_row(GtkWidget *table, int row, const char *label_text, GtkWid
 GtkWidget *frame_with(const char *title, GtkWidget *child)
 {
     GtkWidget *frame = gtk_frame_new(title);
-    gtk_container_set_border_width(GTK_CONTAINER(child), 8);
+    /* Not every child is a container (e.g. Telas' drawing-area canvas) --
+     * set_border_width would assert on those, so only apply it when it's
+     * actually meaningful. */
+    if (GTK_IS_CONTAINER(child)) {
+        gtk_container_set_border_width(GTK_CONTAINER(child), 8);
+    }
     gtk_container_add(GTK_CONTAINER(frame), child);
     return frame;
 }

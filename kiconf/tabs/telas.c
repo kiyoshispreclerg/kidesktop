@@ -1647,14 +1647,19 @@ GtkWidget *build_telas_tab(void)
         }
     }
 
-    GtkWidget *outer = gtk_vbox_new(FALSE, 8);
-    gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
+    GtkWidget *outer = gtk_vbox_new(FALSE, 6);
+    gtk_container_set_border_width(GTK_CONTAINER(outer), 8);
 
     GtkWidget *note = gtk_label_new(
         "Arraste as caixas pra reposicionar. Aplicar tambem grava o "
         "layout pra ser reaplicado automaticamente no inicio da proxima "
         "sessao.");
     gtk_misc_set_alignment(GTK_MISC(note), 0.0, 0.5);
+    /* Unwrapped, this single line alone was wider than the 700px minimum
+     * window width -- wrap it against the tab's own content width instead
+     * of letting it force the window wider. */
+    gtk_label_set_line_wrap(GTK_LABEL(note), TRUE);
+    gtk_widget_set_size_request(note, 600, -1);
     gtk_box_pack_start(GTK_BOX(outer), note, FALSE, FALSE, 0);
 
     g_screens_status_label = gtk_label_new("-");
@@ -1667,7 +1672,7 @@ GtkWidget *build_telas_tab(void)
     }
 
     g_screens_canvas = gtk_drawing_area_new();
-    gtk_widget_set_size_request(g_screens_canvas, -1, 220);
+    gtk_widget_set_size_request(g_screens_canvas, -1, 100);
     gtk_widget_add_events(g_screens_canvas, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_POINTER_MOTION_MASK);
     g_signal_connect(g_screens_canvas, "expose-event", G_CALLBACK(screens_canvas_expose), NULL);
     g_signal_connect(g_screens_canvas, "button-press-event", G_CALLBACK(screens_canvas_press), NULL);
@@ -1675,29 +1680,34 @@ GtkWidget *build_telas_tab(void)
     g_signal_connect(g_screens_canvas, "button-release-event", G_CALLBACK(screens_canvas_release), NULL);
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Layout (arraste pra mover)", g_screens_canvas), TRUE, TRUE, 0);
 
-    GtkWidget *form_table = gtk_table_new(8, 2, FALSE);
+    /* 2 columns of 4 rows instead of 1 column of 8 -- same reasoning as
+     * "Outras propriedades" below: a single 8-row table forced this frame
+     * (and with it the whole tab) taller than the 700x500 minimum window
+     * size allows. */
+    GtkWidget *form_col1 = gtk_table_new(4, 2, FALSE);
+    GtkWidget *form_col2 = gtk_table_new(4, 2, FALSE);
     g_screens_res_combo = gtk_combo_box_new_text();
     g_signal_connect(g_screens_res_combo, "changed", G_CALLBACK(on_screens_res_changed), NULL);
-    labeled_row(form_table, 0, "Resolucao:", g_screens_res_combo);
+    labeled_row(form_col1, 0, "Resolucao:", g_screens_res_combo);
     g_screens_rate_combo = gtk_combo_box_new_text();
     g_signal_connect(g_screens_rate_combo, "changed", G_CALLBACK(on_screens_rate_changed), NULL);
-    labeled_row(form_table, 1, "Taxa de atualizacao:", g_screens_rate_combo);
+    labeled_row(form_col1, 1, "Taxa de atualizacao:", g_screens_rate_combo);
     g_screens_rot_combo = gtk_combo_box_new_text();
     gtk_combo_box_append_text(GTK_COMBO_BOX(g_screens_rot_combo), "normal");
     gtk_combo_box_append_text(GTK_COMBO_BOX(g_screens_rot_combo), "left");
     gtk_combo_box_append_text(GTK_COMBO_BOX(g_screens_rot_combo), "right");
     gtk_combo_box_append_text(GTK_COMBO_BOX(g_screens_rot_combo), "inverted");
     g_signal_connect(g_screens_rot_combo, "changed", G_CALLBACK(on_screens_rot_changed), NULL);
-    labeled_row(form_table, 2, "Rotacao:", g_screens_rot_combo);
-    g_screens_enabled_chk = gtk_check_button_new_with_label("Saida ligada");
-    g_signal_connect(g_screens_enabled_chk, "toggled", G_CALLBACK(on_screens_enabled_toggled), NULL);
-    gtk_table_attach(GTK_TABLE(form_table), g_screens_enabled_chk, 0, 2, 3, 4, GTK_FILL, GTK_FILL, 4, 2);
-    g_screens_primary_chk = gtk_check_button_new_with_label("Saida primaria");
-    g_signal_connect(g_screens_primary_chk, "toggled", G_CALLBACK(on_screens_primary_toggled), NULL);
-    gtk_table_attach(GTK_TABLE(form_table), g_screens_primary_chk, 0, 2, 4, 5, GTK_FILL, GTK_FILL, 4, 2);
+    labeled_row(form_col1, 2, "Rotacao:", g_screens_rot_combo);
     g_screens_mirror_combo = gtk_combo_box_new_text();
     g_signal_connect(g_screens_mirror_combo, "changed", G_CALLBACK(on_screens_mirror_changed), NULL);
-    labeled_row(form_table, 5, "Espelhar (mirror):", g_screens_mirror_combo);
+    labeled_row(form_col1, 3, "Espelhar (mirror):", g_screens_mirror_combo);
+    g_screens_enabled_chk = gtk_check_button_new_with_label("Saida ligada");
+    g_signal_connect(g_screens_enabled_chk, "toggled", G_CALLBACK(on_screens_enabled_toggled), NULL);
+    gtk_table_attach(GTK_TABLE(form_col2), g_screens_enabled_chk, 0, 2, 0, 1, GTK_FILL, GTK_FILL, 4, 2);
+    g_screens_primary_chk = gtk_check_button_new_with_label("Saida primaria");
+    g_signal_connect(g_screens_primary_chk, "toggled", G_CALLBACK(on_screens_primary_toggled), NULL);
+    gtk_table_attach(GTK_TABLE(form_col2), g_screens_primary_chk, 0, 2, 1, 2, GTK_FILL, GTK_FILL, 4, 2);
     /* 0 is a real, explicit choice here, not "unset" -- it's what
      * xrandr --set DPI 0 means with AutoDPI on in the (forked) X server:
      * pick the DPI automatically instead of forcing one. Anything the
@@ -1712,11 +1722,15 @@ GtkWidget *build_telas_tab(void)
     g_signal_connect(g_screens_dpi_spin, "output", G_CALLBACK(on_screens_dpi_output), NULL);
     g_signal_connect(g_screens_dpi_spin, "input", G_CALLBACK(on_screens_dpi_input), NULL);
     g_signal_connect(g_screens_dpi_spin, "value-changed", G_CALLBACK(on_screens_dpi_changed), NULL);
-    labeled_row(form_table, 6, "DPI:", g_screens_dpi_spin);
+    labeled_row(form_col2, 2, "DPI:", g_screens_dpi_spin);
     g_screens_scale_spin = gtk_spin_button_new_with_range(0.25, 4.0, 0.05);
     gtk_spin_button_set_digits(GTK_SPIN_BUTTON(g_screens_scale_spin), 2);
     g_signal_connect(g_screens_scale_spin, "value-changed", G_CALLBACK(on_screens_scale_changed), NULL);
-    labeled_row(form_table, 7, "Escala:", g_screens_scale_spin);
+    labeled_row(form_col2, 3, "Escala:", g_screens_scale_spin);
+
+    GtkWidget *form_cols = gtk_hbox_new(FALSE, 8);
+    gtk_box_pack_start(GTK_BOX(form_cols), form_col1, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(form_cols), form_col2, TRUE, TRUE, 0);
 
     /* The 3 per-output sections side by side in one row instead of
      * stacked -- "Outras propriedades" especially can pile up a dozen+
@@ -1724,7 +1738,7 @@ GtkWidget *build_telas_tab(void)
      * vertically; each of the 2 property sections scrolls internally
      * (fixed height) instead of growing the tab further. */
     GtkWidget *sections_row = gtk_hbox_new(FALSE, 8);
-    gtk_box_pack_start(GTK_BOX(sections_row), frame_with("Saida selecionada", form_table), TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(sections_row), frame_with("Saida selecionada", form_cols), TRUE, TRUE, 0);
 
     /* Advanced (editable) driver properties -- TearFree, underscan,
      * scaling mode, PRIME Synchronization, HDCP, max bpc, non-desktop,
@@ -1732,10 +1746,19 @@ GtkWidget *build_telas_tab(void)
      * Hidden entirely when it has none (see rebuild_extra_props_ui()). */
     g_screens_extra_editable_box = gtk_vbox_new(FALSE, 4);
     GtkWidget *extra_editable_scroll = gtk_scrolled_window_new(NULL, NULL);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(extra_editable_scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    /* Horizontal scrolling (not NEVER) so an explicit width cap below
+     * actually bounds this panel instead of always requesting its full
+     * content width -- with 3 of these panels side by side, letting any
+     * one of them size to content pushed the whole window well past the
+     * 700px minimum. */
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(extra_editable_scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(extra_editable_scroll), g_screens_extra_editable_box);
-    gtk_widget_set_size_request(extra_editable_scroll, -1, 200);
-    g_screens_extra_editable_frame = frame_with("Propriedades avancadas", extra_editable_scroll);
+    gtk_widget_set_size_request(extra_editable_scroll, 90, 90);
+    /* Short title -- GtkFrame never shrinks narrower than its own label
+     * text, and with 3 of these panels side by side a longer title alone
+     * was keeping this tab wider than the 700px minimum. */
+    g_screens_extra_editable_frame = frame_with("Avancado", extra_editable_scroll);
+    gtk_widget_set_tooltip_text(g_screens_extra_editable_frame, "Propriedades avancadas");
     gtk_box_pack_start(GTK_BOX(sections_row), g_screens_extra_editable_frame, TRUE, TRUE, 0);
 
     /* Other (read-only) properties -- same source, but forced read-only
@@ -1743,10 +1766,11 @@ GtkWidget *build_telas_tab(void)
      * all (no "supported:"/"range:" sub-line). */
     g_screens_extra_readonly_box = gtk_vbox_new(FALSE, 4);
     GtkWidget *extra_readonly_scroll = gtk_scrolled_window_new(NULL, NULL);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(extra_readonly_scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(extra_readonly_scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(extra_readonly_scroll), g_screens_extra_readonly_box);
-    gtk_widget_set_size_request(extra_readonly_scroll, -1, 200);
-    g_screens_extra_readonly_frame = frame_with("Outras propriedades", extra_readonly_scroll);
+    gtk_widget_set_size_request(extra_readonly_scroll, 90, 90);
+    g_screens_extra_readonly_frame = frame_with("Outras", extra_readonly_scroll);
+    gtk_widget_set_tooltip_text(g_screens_extra_readonly_frame, "Outras propriedades");
     gtk_box_pack_start(GTK_BOX(sections_row), g_screens_extra_readonly_frame, TRUE, TRUE, 0);
 
     gtk_box_pack_start(GTK_BOX(outer), sections_row, FALSE, FALSE, 0);

@@ -497,8 +497,8 @@ GtkWidget *build_permissoes_tab(void)
 {
     xisguard_get_status(&g_xg_baseline);
 
-    GtkWidget *outer = gtk_vbox_new(FALSE, 8);
-    gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
+    GtkWidget *outer = gtk_vbox_new(FALSE, 4);
+    gtk_container_set_border_width(GTK_CONTAINER(outer), 8);
 
     char status_text[128];
     if (g_xg_baseline.online) {
@@ -509,22 +509,25 @@ GtkWidget *build_permissoes_tab(void)
     }
     g_xg_status_label = gtk_label_new(status_text);
     gtk_misc_set_alignment(GTK_MISC(g_xg_status_label), 0.0, 0.5);
+    gtk_label_set_line_wrap(GTK_LABEL(g_xg_status_label), TRUE);
+    gtk_widget_set_size_request(g_xg_status_label, 660, -1);
     gtk_box_pack_start(GTK_BOX(outer), g_xg_status_label, FALSE, FALSE, 0);
 
     GtkWidget *status_table = gtk_table_new(5, 2, FALSE);
     g_xg_no_pause_chk = gtk_check_button_new_with_label("no_pause (nao pausar decisao)");
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_xg_no_pause_chk), g_xg_baseline.no_pause);
-    gtk_table_attach(GTK_TABLE(status_table), g_xg_no_pause_chk, 0, 2, 0, 1, GTK_FILL, GTK_FILL, 4, 2);
+    gtk_table_attach(GTK_TABLE(status_table), g_xg_no_pause_chk, 0, 2, 0, 1, GTK_FILL, GTK_FILL, 4, 1);
     g_xg_quiet_chk = gtk_check_button_new_with_label("quiet (sem notificacoes)");
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_xg_quiet_chk), g_xg_baseline.quiet);
-    gtk_table_attach(GTK_TABLE(status_table), g_xg_quiet_chk, 0, 2, 1, 2, GTK_FILL, GTK_FILL, 4, 2);
+    gtk_table_attach(GTK_TABLE(status_table), g_xg_quiet_chk, 0, 2, 1, 2, GTK_FILL, GTK_FILL, 4, 1);
     g_xg_always_kill_chk = gtk_check_button_new_with_label("always_kill (sempre matar em DENY)");
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_xg_always_kill_chk), g_xg_baseline.always_kill);
-    gtk_table_attach(GTK_TABLE(status_table), g_xg_always_kill_chk, 0, 2, 2, 3, GTK_FILL, GTK_FILL, 4, 2);
-    g_xg_secure_mode_chk = gtk_check_button_new_with_label(
-        "secure_mode (regras de usuario desligadas; novas regras permanentes pedem senha root)");
+    gtk_table_attach(GTK_TABLE(status_table), g_xg_always_kill_chk, 0, 2, 2, 3, GTK_FILL, GTK_FILL, 4, 1);
+    g_xg_secure_mode_chk = gtk_check_button_new_with_label("secure_mode");
+    gtk_widget_set_tooltip_text(g_xg_secure_mode_chk,
+        "Regras de usuario desligadas; novas regras permanentes pedem senha root");
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_xg_secure_mode_chk), g_xg_baseline.secure_mode);
-    gtk_table_attach(GTK_TABLE(status_table), g_xg_secure_mode_chk, 0, 2, 3, 4, GTK_FILL, GTK_FILL, 4, 2);
+    gtk_table_attach(GTK_TABLE(status_table), g_xg_secure_mode_chk, 0, 2, 3, 4, GTK_FILL, GTK_FILL, 4, 1);
     g_xg_log_level_spin = gtk_spin_button_new_with_range(0, 5, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_xg_log_level_spin), g_xg_baseline.log_level);
     labeled_row(status_table, 4, "log_level:", g_xg_log_level_spin);
@@ -554,11 +557,11 @@ GtkWidget *build_permissoes_tab(void)
     }
     GtkWidget *rules_scroll = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(rules_scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-    gtk_widget_set_size_request(rules_scroll, -1, 160);
+    gtk_widget_set_size_request(rules_scroll, -1, 50);
     gtk_container_add(GTK_CONTAINER(rules_scroll), g_xg_rules_view);
 
-    GtkWidget *rules_box = gtk_vbox_new(FALSE, 4);
-    gtk_container_set_border_width(GTK_CONTAINER(rules_box), 6);
+    GtkWidget *rules_box = gtk_vbox_new(FALSE, 2);
+    gtk_container_set_border_width(GTK_CONTAINER(rules_box), 2);
     gtk_box_pack_start(GTK_BOX(rules_box), rules_scroll, TRUE, TRUE, 0);
 
     GtkWidget *add_row = gtk_hbox_new(FALSE, 4);
@@ -569,6 +572,10 @@ GtkWidget *build_permissoes_tab(void)
         gtk_combo_box_append_text(GTK_COMBO_BOX(g_xg_action_combo), label);
     }
     gtk_combo_box_set_active(GTK_COMBO_BOX(g_xg_action_combo), 0);
+    /* Capped instead of sizing to its longest entry ("CURSOR -- Acessar
+     * imagem/posicao do cursor" and friends) -- the full text still shows
+     * once the dropdown is open, this only bounds the closed button. */
+    gtk_widget_set_size_request(g_xg_action_combo, 170, -1);
     gtk_box_pack_start(GTK_BOX(add_row), g_xg_action_combo, TRUE, TRUE, 0);
     g_xg_type_combo = gtk_combo_box_new_text();
     gtk_combo_box_append_text(GTK_COMBO_BOX(g_xg_type_combo), "ALLOW");
@@ -611,11 +618,11 @@ GtkWidget *build_permissoes_tab(void)
     }
     GtkWidget *sys_rules_scroll = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(sys_rules_scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-    gtk_widget_set_size_request(sys_rules_scroll, -1, 160);
+    gtk_widget_set_size_request(sys_rules_scroll, -1, 50);
     gtk_container_add(GTK_CONTAINER(sys_rules_scroll), g_xg_sys_rules_view);
 
-    GtkWidget *sys_rules_box = gtk_vbox_new(FALSE, 4);
-    gtk_container_set_border_width(GTK_CONTAINER(sys_rules_box), 6);
+    GtkWidget *sys_rules_box = gtk_vbox_new(FALSE, 2);
+    gtk_container_set_border_width(GTK_CONTAINER(sys_rules_box), 2);
     gtk_box_pack_start(GTK_BOX(sys_rules_box), sys_rules_scroll, TRUE, TRUE, 0);
 
     g_xg_sys_rules_status_label = gtk_label_new("-");

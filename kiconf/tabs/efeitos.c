@@ -1037,31 +1037,43 @@ GtkWidget *build_efeitos_tab(void)
     labeled_row(general_table, 0, "Efeitos habilitados:", g_effects_chk);
     g_anim_spin = gtk_spin_button_new_with_range(0.0, 2000.0, 10.0);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_anim_spin), g.animation_duration);
-    labeled_row(general_table, 1, "Duracao base das animacoes (ms):", g_anim_spin);
+    labeled_row(general_table, 1, "Duracao animacoes (ms):", g_anim_spin);
+    gtk_widget_set_tooltip_text(g_anim_spin, "Duracao base das animacoes");
     g_renderer_combo = make_options_combo(RENDERER_OPTS, g.renderer);
     labeled_row(general_table, 2, "Renderizador:", g_renderer_combo);
     g_presenter_combo = make_options_combo(PRESENTER_OPTS, g.presenter);
-    labeled_row(general_table, 3, "Apresentador (present/copy):", g_presenter_combo);
+    /* Short labels + tooltips instead of the full sentence -- with "Geral"
+     * and "Sombra" side by side, the longest labels here alone were
+     * pushing this tab (and the window) well past the 700px minimum. */
+    labeled_row(general_table, 3, "Apresentador:", g_presenter_combo);
+    gtk_widget_set_tooltip_text(g_presenter_combo, "present/copy");
     g_single_drawable_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_single_drawable_chk), g.single_drawable);
-    labeled_row(general_table, 4, "Compor tudo em um unico drawable:", g_single_drawable_chk);
+    labeled_row(general_table, 4, "Unico drawable:", g_single_drawable_chk);
+    gtk_widget_set_tooltip_text(g_single_drawable_chk, "Compor tudo em um unico drawable");
     g_skip_wm_layers_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_skip_wm_layers_chk), g.skip_wm_layers);
-    labeled_row(general_table, 5, "Ignorar camadas de decoracao do WM:", g_skip_wm_layers_chk);
+    labeled_row(general_table, 5, "Ignorar decoracao WM:", g_skip_wm_layers_chk);
+    gtk_widget_set_tooltip_text(g_skip_wm_layers_chk, "Ignorar camadas de decoracao do WM");
     g_unredirect_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_unredirect_chk), g.unredirect_fullscreen);
-    labeled_row(general_table, 6, "Desviar (unredirect) janela em tela cheia:", g_unredirect_chk);
+    labeled_row(general_table, 6, "Unredirect tela cheia:", g_unredirect_chk);
+    gtk_widget_set_tooltip_text(g_unredirect_chk, "Desviar (unredirect) janela em tela cheia");
     g_claim_spin = gtk_spin_button_new_with_range(0.0, 5000.0, 50.0);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_claim_spin), g.claim_ms);
-    labeled_row(general_table, 7, "Tempo para reivindicar janelas ja abertas (ms):", g_claim_spin);
+    labeled_row(general_table, 7, "Reivindicar janelas (ms):", g_claim_spin);
+    gtk_widget_set_tooltip_text(g_claim_spin, "Tempo para reivindicar janelas ja abertas");
     g_keep_hidden_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_keep_hidden_chk), g.keep_hidden_contents);
-    labeled_row(general_table, 8, "Manter conteudo de janelas ocultas (expo/wall):", g_keep_hidden_chk);
+    labeled_row(general_table, 8, "Manter janelas ocultas:", g_keep_hidden_chk);
+    gtk_widget_set_tooltip_text(g_keep_hidden_chk, "Manter conteudo de janelas ocultas (expo/wall)");
     g_live_windows_combo = make_options_combo(LIVE_WINDOWS_OPTS, g.live_windows);
-    labeled_row(general_table, 9, "Janelas ao vivo em efeitos (expo/wall/cube):", g_live_windows_combo);
+    labeled_row(general_table, 9, "Janelas ao vivo:", g_live_windows_combo);
+    gtk_widget_set_tooltip_text(g_live_windows_combo, "Janelas ao vivo em efeitos (expo/wall/cube)");
     g_density_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_density_chk), g.density);
-    labeled_row(general_table, 10, "X-DENSITY (decoracao/conteudo nitidos sob zoom):", g_density_chk);
+    labeled_row(general_table, 10, "X-DENSITY:", g_density_chk);
+    gtk_widget_set_tooltip_text(g_density_chk, "Decoracao/conteudo nitidos sob zoom");
     gtk_box_pack_start(GTK_BOX(top_row), frame_with("Geral", general_table), TRUE, TRUE, 0);
 
     /* Sombra -- focused fields directly in the frame, unfocused override
@@ -1075,7 +1087,8 @@ GtkWidget *build_efeitos_tab(void)
     labeled_row(shadow_table, 0, "Sombra habilitada:", g_sh_enabled_chk);
     g_sh_windows_entry = gtk_entry_new();
     gtk_entry_set_text(GTK_ENTRY(g_sh_windows_entry), sh.windows);
-    labeled_row(shadow_table, 1, "Tipos de janela (ex.: windows,menus):", g_sh_windows_entry);
+    labeled_row(shadow_table, 1, "Tipos de janela:", g_sh_windows_entry);
+    gtk_widget_set_tooltip_text(g_sh_windows_entry, "ex.: windows,menus");
     g_sh_radius_spin = gtk_spin_button_new_with_range(1, 64, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sh_radius_spin), sh.radius);
     labeled_row(shadow_table, 2, "Raio do desfoque (px):", g_sh_radius_spin);
