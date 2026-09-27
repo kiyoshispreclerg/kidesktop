@@ -47,6 +47,9 @@ static void apply_builtin_defaults(void)
     wm.snap_threshold = 20;
     wm.side_zones = 1;
     wm.vertical_snap_by = 2;
+    wm.snap_mod = 0;
+    wm.side_zones_mod = 1;
+    wm.vertical_snap_by_mod = 2;
     wm.live_snap_resize = false;
     wm.outline_width = 16;
     wm.outline_alpha = 0.3;
@@ -152,6 +155,23 @@ static uint16_t parse_mod(const char *s, uint16_t fallback)
     return fallback;
 }
 
+/* Same as parse_mod(), but empty means "disabled" (0, which never matches
+ * a real ev->state) instead of falling back to whatever was there before
+ * -- kiwm.conf's snap_mod= is unset by default, and unsetting it back to
+ * empty has to actually turn the feature off again, not just leave it
+ * however it last was. */
+static uint16_t parse_mod_opt(const char *s, uint16_t fallback)
+{
+    if (s[0] == '\0')
+        return 0;
+    if (strcasecmp(s, "alt") == 0)
+        return MOD_ALT;
+    if (strcasecmp(s, "meta") == 0 || strcasecmp(s, "super") == 0)
+        return MOD_META;
+    fprintf(stderr, "kiwm: config: unknown snap_mod '%s' (expected alt, meta, or empty), keeping current value\n", s);
+    return fallback;
+}
+
 /* none/low/normal/high/extreme -> FocusStealingPrevention. Named after
  * kwin's own five levels, since that is the vocabulary anyone configuring
  * this already has. */
@@ -251,6 +271,16 @@ static void write_default_config(const char *path)
         "# only changes how wide a side snap is, not how many drag positions\n"
         "# exist.\n"
         "vertical_snap_by=2\n"
+        "\n"
+        "# A second side_zones=/vertical_snap_by= pair, used instead of the\n"
+        "# ones above while this modifier is held during a drag towards a\n"
+        "# left/right edge (values: alt or meta; empty, the default, disables\n"
+        "# this entirely). Lets you keep an everyday grid (say, halves) and\n"
+        "# reach a denser one (say, thirds) on demand, without a keyboard\n"
+        "# shortcut per size.\n"
+        "snap_mod=\n"
+        "side_zones_mod=1\n"
+        "vertical_snap_by_mod=2\n"
         "\n"
         "# Whether an edge snap resizes the window while you drag it (1), or\n"
         "# just outlines where it will land and applies that size when you\n"
@@ -503,6 +533,14 @@ void config_load(void)
         } else if (strcmp(key, "vertical_snap_by") == 0) {
             int n = atoi(val);
             wm.vertical_snap_by = n < 1 ? 1 : n;
+        } else if (strcmp(key, "snap_mod") == 0) {
+            wm.snap_mod = parse_mod_opt(val, wm.snap_mod);
+        } else if (strcmp(key, "side_zones_mod") == 0) {
+            int n = atoi(val);
+            wm.side_zones_mod = n < 1 ? 1 : n;
+        } else if (strcmp(key, "vertical_snap_by_mod") == 0) {
+            int n = atoi(val);
+            wm.vertical_snap_by_mod = n < 1 ? 1 : n;
         } else if (strcmp(key, "live_snap_resize") == 0) {
             wm.live_snap_resize = atoi(val) != 0;
         } else if (strcmp(key, "outline_width") == 0) {

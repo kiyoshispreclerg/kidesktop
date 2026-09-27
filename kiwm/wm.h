@@ -717,6 +717,14 @@ struct Client {
     int snap_zone;
     int snap_zone_count;
 
+    /* How many columns the width was divided into when this window was
+     * placed there -- kiwm.conf's vertical_snap_by=, or vertical_snap_by_mod=
+     * if snap_mod= was held for this particular drag. Same "frozen at snap
+     * time" reasoning as snap_zone/snap_zone_count above, and for the same
+     * reason: a later refit must reproduce this window's own width, not
+     * whichever of the two configs happens to be live right now. */
+    int snap_vsb;
+
     char title[256];
 
     Client *next;
@@ -1290,6 +1298,19 @@ typedef struct {
      * client.c's snap_client_to_side(). */
     int vertical_snap_by;
 
+    /* An alternate side_zones=/vertical_snap_by= pair, active only for a
+     * drag towards a left/right edge while this modifier is held --
+     * kiwm.conf's snap_mod= (values "alt" or "meta", empty/unset by
+     * default, which disables the whole feature: 0 never matches
+     * anything a real ev->state can have). Lets one grid be the everyday
+     * default (say, halves) and a second, denser one be a deliberate
+     * choice (say, thirds) without needing a keyboard shortcut per size --
+     * see events.c's try_edge_snap(), which decides per motion event
+     * which pair is in effect. */
+    uint16_t snap_mod;
+    int side_zones_mod;
+    int vertical_snap_by_mod;
+
     /* Whether an edge snap resizes the window *during* the drag
      * (kiwm.conf's live_snap_resize=, default 0/off) or only shows where
      * it's going to land -- outline.c's wireframe rectangle -- and applies
@@ -1370,6 +1391,18 @@ typedef struct {
      * Client::snap_zone because the window isn't committed to it until
      * release (or immediately, under live_snap_resize=). */
     int drag_snap_zone;
+
+    /* The zone count and vertical_snap_by actually in effect for this
+     * drag's current classification -- side_zones/vertical_snap_by, or
+     * the _mod pair if snap_mod= is configured and held. Recomputed fresh
+     * on every motion event (see try_edge_snap()); kept here rather than
+     * re-read from the config globals at apply time so a mid-drag toggle
+     * of snap_mod is compared against correctly (drag_snap_zone alone
+     * can't tell "zone 0 of 1" from "zone 0 of 2" apart) and so
+     * client.c's snap_client_to_side() gets a value that's already
+     * resolved rather than needing to know about snap_mod itself. */
+    int drag_snap_zones;
+    int drag_snap_vsb;
 
     /* How close (in pixels) a dragged window's frame edge must get to
      * another window's frame edge (any client, decoration included --

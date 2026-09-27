@@ -733,7 +733,8 @@ static void handle_button_press(xcb_button_press_event_t *ev)
  * window whose minimum size doesn't fit half a screen is rare enough that
  * a few pixels of difference between the outline and the final size is a
  * better trade than duplicating the clamping in two places. */
-static void snap_target_rect(Client *c, SnapSide side, int zone, int wx, int wy, int ww, int wh,
+static void snap_target_rect(Client *c, SnapSide side, int zone, int zones, int vsb,
+                             int wx, int wy, int ww, int wh,
                              int *out_x, int *out_y, int *out_w, int *out_h)
 {
     (void)c;
@@ -743,13 +744,16 @@ static void snap_target_rect(Client *c, SnapSide side, int zone, int wx, int wy,
     case SNAP_RIGHT: {
         /* Same column/row math as client.c's snap_client_to_side() --
          * kept in sync by hand since this is a preview-only rect (see the
-         * comment above), not something that could just call it. */
-        int vsb = wm.vertical_snap_by > 0 ? wm.vertical_snap_by : 1;
+         * comment above), not something that could just call it. `zones`/
+         * `vsb` are already resolved by the caller (try_edge_snap) against
+         * whichever of side_zones/vertical_snap_by or their snap_mod=
+         * counterparts applies to this drag right now. */
+        if (vsb < 1) vsb = 1;
         int unit_w = ww / vsb;
         *out_x = (side == SNAP_LEFT) ? wx : wx + ww - unit_w;
         *out_w = unit_w;
 
-        int zones = wm.side_zones > 0 ? wm.side_zones : 1;
+        if (zones < 1) zones = 1;
         if (zone < 0) zone = 0;
         if (zone >= zones) zone = zones - 1;
         int unit_h = wh / zones;
@@ -826,8 +830,12 @@ static void apply_drag_snap(Client *c, SnapSide side, int wx, int wy, int ww, in
     }
     case SNAP_LEFT:
     case SNAP_RIGHT:
+        /* wm.drag_snap_zone(s)/vsb are already resolved against snap_mod=
+         * by try_edge_snap() -- whatever was in effect for the classification
+         * this snap is committing is what the window actually gets. */
         c->snap_zone = wm.drag_snap_zone;
-        c->snap_zone_count = wm.side_zones > 0 ? wm.side_zones : 1;
+        c->snap_zone_count = wm.drag_snap_zones > 0 ? wm.drag_snap_zones : 1;
+        c->snap_vsb = wm.drag_snap_vsb > 0 ? wm.drag_snap_vsb : wm.vertical_snap_by;
         snap_client_to_side(c, side);
         break;
     case SNAP_NONE:
@@ -886,22 +894,36 @@ static bool try_edge_snap(Client *c, xcb_motion_notify_event_t *ev, int dx, int 
 
     want = snap_side_allowed(c, want);
 
-    /* Which row of side_zones= the pointer is over, along the edge --
-     * only meaningful for LEFT/RIGHT, computed regardless so a later
-     * SNAP_NONE->LEFT transition always starts from a fresh value instead
-     * of whatever stale zone a previous edge left behind. */
+    /* snap_mod= swaps in side_zones_mod=/vertical_snap_by_mod= for as long
+     * as it's held, for LEFT/RIGHT only -- there's nothing for it to affect
+     * about a TOP (maximize) snap. wm.snap_mod is 0 when unset, and
+     * `state & 0` is never true, so this is a no-op whenever the option
+     * isn't configured at all. */
+    bool want_mod = (want == SNAP_LEFT || want == SNAP_RIGHT) &&
+                    wm.snap_mod != 0 && (ev->state & wm.snap_mod);
+    int want_zones = want_mod ? wm.side_zones_mod        : wm.side_zones;
+    int want_vsb   = want_mod ? wm.vertical_snap_by_mod  : wm.vertical_snap_by;
+    if (want_zones < 1) want_zones = 1;
+    if (want_vsb < 1) want_vsb = 1;
+
+    /* Which row the pointer is over, along the edge -- only meaningful
+     * for LEFT/RIGHT, computed regardless so a later SNAP_NONE->LEFT
+     * transition always starts from a fresh value instead of whatever
+     * stale zone a previous edge left behind. */
     if (want == SNAP_LEFT || want == SNAP_RIGHT) {
-        int zones = wm.side_zones > 0 ? wm.side_zones : 1;
-        want_zone = wh > 0 ? (ev->root_y - wy) * zones / wh : 0;
+        want_zone = wh > 0 ? (ev->root_y - wy) * want_zones / wh : 0;
         if (want_zone < 0) want_zone = 0;
-        if (want_zone >= zones) want_zone = zones - 1;
+        if (want_zone >= want_zones) want_zone = want_zones - 1;
     }
 
-    if (want == wm.drag_snap_side && want_zone == wm.drag_snap_zone)
+    if (want == wm.drag_snap_side && want_zone == wm.drag_snap_zone &&
+        want_zones == wm.drag_snap_zones && want_vsb == wm.drag_snap_vsb)
         return wm.live_snap_resize && want != SNAP_NONE; /* already settled into this state (or none) */
 
     wm.drag_snap_side = want;
     wm.drag_snap_zone = want_zone;
+    wm.drag_snap_zones = want_zones;
+    wm.drag_snap_vsb = want_vsb;
     /* Snapping against another screen's edge moves the window to that
      * screen for good -- including which of its desktops the window now
      * belongs to, which is exactly what dragging it there means (see
@@ -913,7 +935,7 @@ static bool try_edge_snap(Client *c, xcb_motion_notify_event_t *ev, int dx, int 
             outline_hide();
         } else {
             int x, y, w, h;
-            snap_target_rect(c, want, want_zone, wx, wy, ww, wh, &x, &y, &w, &h);
+            snap_target_rect(c, want, want_zone, want_zones, want_vsb, wx, wy, ww, wh, &x, &y, &w, &h);
             outline_show(x, y, w, h);
         }
         return false; /* nothing applied -- the caller still moves the window */

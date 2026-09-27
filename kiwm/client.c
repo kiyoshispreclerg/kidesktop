@@ -1957,15 +1957,18 @@ void snap_client_to_side(Client *c, SnapSide side)
     int bt, th;
     deco_insets(c, &bt, &th);
 
-    /* Width: kiwm.conf's vertical_snap_by= divides the workarea into that
-     * many columns, but only the leftmost and rightmost are ever actually
-     * reachable this way -- both get the same width (floor(ww/vertical_
-     * snap_by), matching the original ww/2 for both halves when
-     * vertical_snap_by=2), and the right one is positioned flush against
-     * the workarea's right edge rather than one column-width in, so any
+    /* Width: c->snap_vsb (wm.h) says how many columns to divide the
+     * workarea into -- side_zones=/vertical_snap_by=, or their snap_mod=
+     * counterparts if that modifier was held for this particular snap,
+     * frozen at snap time by whichever caller got us here, same reasoning
+     * as snap_zone/snap_zone_count below. Only the leftmost and rightmost
+     * column are ever actually reachable this way -- both get the same
+     * width (floor(ww/vsb), matching the original ww/2 for both halves
+     * when vsb=2), and the right one is positioned flush against the
+     * workarea's right edge rather than one column-width in, so any
      * remainder pixel ends up as an untouched gap in the middle instead of
      * a rounding error against the true edge. */
-    int vsb = wm.vertical_snap_by > 0 ? wm.vertical_snap_by : 1;
+    int vsb = c->snap_vsb > 0 ? c->snap_vsb : (wm.vertical_snap_by > 0 ? wm.vertical_snap_by : 1);
     int unit_w = ww / vsb;
     int win_x = (side == SNAP_LEFT) ? wx : wx + ww - unit_w;
     int win_w = unit_w;
@@ -2024,10 +2027,12 @@ void toggle_snap_side(Client *c, SnapSide side)
             c->saved_w = c->width;
             c->saved_h = c->height;
         }
-        /* No drag position to pick a row from -- always the whole side,
-         * side_zones= or not, same as before that option existed. */
+        /* No drag position to pick a row from, or modifier to hold --
+         * always the whole side at the plain vertical_snap_by= width, same
+         * as before side_zones=/snap_mod= existed. */
         c->snap_zone = 0;
         c->snap_zone_count = 1;
+        c->snap_vsb = wm.vertical_snap_by;
         snap_client_to_side(c, side);
     }
 
