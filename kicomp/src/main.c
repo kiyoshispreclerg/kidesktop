@@ -33,7 +33,7 @@
 
 #define _GNU_SOURCE             /* ppoll */
 
-#define KICOMP_VERSION "0.3.39"
+#define KICOMP_VERSION "0.3.40"
 
 #include "comp.h"
 #include "output.h"
@@ -1135,6 +1135,13 @@ int main(int argc, char **argv)
 {
     bool replace = false;
     bool toggle = false;
+
+    /* No Mesa glthread, unless asked for: every GLX call (the per-frame
+     * texture-from-pixmap binds, the swap) makes the calling thread wait
+     * for it to drain, so for a compositor it is a second thread doing
+     * the same work in lockstep. Measured ~0.6 pts of CPU on a 60 fps
+     * video. */
+    setenv("mesa_glthread", "false", 0);
 
     /* The file first, the command line second: an option always wins
      * over kicomp.conf. */
