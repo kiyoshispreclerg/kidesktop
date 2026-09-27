@@ -152,7 +152,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.12"
+#define KICONFD_VERSION "0.2.14"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -1246,6 +1246,7 @@ typedef struct {
     int numlock_on_start;
     int toggle_mods_on_press;
     int kick_hotkeys_on_release;
+    int middle_click_emulation;
 } InputSessionConfig;
 
 static char g_inputpath[PATH_MAX];
@@ -1275,6 +1276,7 @@ static int load_input_config(InputSessionConfig *c)
     c->numlock_on_start = 0;
     c->toggle_mods_on_press = 0;
     c->kick_hotkeys_on_release = 0;
+    c->middle_click_emulation = 0;
 
     FILE *f = fopen(g_inputpath, "r");
     if (!f) {
@@ -1299,6 +1301,8 @@ static int load_input_config(InputSessionConfig *c)
             c->toggle_mods_on_press = atoi(val) != 0;
         } else if (!strcmp(key, "kick_hotkeys_on_release")) {
             c->kick_hotkeys_on_release = atoi(val) != 0;
+        } else if (!strcmp(key, "middle_click_emulation")) {
+            c->middle_click_emulation = atoi(val) != 0;
         }
     }
     fclose(f);
@@ -1317,6 +1321,45 @@ static void clean_xinput_name(char *s)
     if (t != s) {
         memmove(s, t, strlen(t) + 1);
     }
+}
+
+/* Same slave-pointer enumeration as kiconf/entrada.c's own
+ * list_pointer_devices() -- unlike the master keyboard flags above,
+ * middle-click emulation is set per pointer device, and kiconfd has no
+ * "the" pointer to target the way it has "the" master keyboard, so it
+ * applies to every slave pointer device that has the property. */
+static int list_pointer_devices(char names[][NAME_LEN], int max)
+{
+    char *argv[] = {"xinput", "list", "--short", NULL};
+    char out[8192];
+    if (!run_capture(argv, out, sizeof(out))) {
+        return 0;
+    }
+    int n = 0;
+    char *save = NULL;
+    char *line = strtok_r(out, "\n", &save);
+    while (line && n < max) {
+        if (strstr(line, "slave") && strstr(line, "pointer") &&
+            !strstr(line, "XTEST") && !strstr(line, "Virtual core")) {
+            char *idpos = strstr(line, "id=");
+            if (idpos) {
+                char name[NAME_LEN];
+                size_t len = (size_t)(idpos - line);
+                if (len >= sizeof(name)) {
+                    len = sizeof(name) - 1;
+                }
+                memcpy(name, line, len);
+                name[len] = '\0';
+                clean_xinput_name(name);
+                if (name[0]) {
+                    snprintf(names[n], NAME_LEN, "%s", name);
+                    n++;
+                }
+            }
+        }
+        line = strtok_r(NULL, "\n", &save);
+    }
+    return n;
 }
 
 static void master_keyboard_name(char *out, size_t outsz)
@@ -1433,8 +1476,9 @@ static void apply_input_settings(void)
         return;
     }
     fprintf(stderr, "kiconfd: input: loaded '%s' (numlock_on_start=%d toggle_mods_on_press=%d "
-                    "kick_hotkeys_on_release=%d)\n",
-             g_inputpath, c.numlock_on_start, c.toggle_mods_on_press, c.kick_hotkeys_on_release);
+                    "kick_hotkeys_on_release=%d middle_click_emulation=%d)\n",
+             g_inputpath, c.numlock_on_start, c.toggle_mods_on_press, c.kick_hotkeys_on_release,
+             c.middle_click_emulation);
 
     unsigned int nlmask = numlock_mask();
     if (!nlmask) {
@@ -1478,6 +1522,24 @@ static void apply_input_settings(void)
             char *set[] = {"xinput", "set-prop", kbd, "Kick Hotkeys On Release",
                              c.kick_hotkeys_on_release ? "1" : "0", NULL};
             run_fire(set);
+        }
+    }
+
+    char ptrnames[32][NAME_LEN];
+    int nptr = list_pointer_devices(ptrnames, 32);
+    for (int i = 0; i < nptr; i++) {
+        char *pargv[] = {"xinput", "list-props", ptrnames[i], NULL};
+        char pout[8192];
+        if (!run_capture(pargv, pout, sizeof(pout))) {
+            continue;
+        }
+        if (xinput_get_prop_line(pout, "libinput Middle Emulation Enabled", val, sizeof(val))) {
+            int cur = atoi(val) != 0;
+            if (cur != c.middle_click_emulation) {
+                char *set[] = {"xinput", "set-prop", ptrnames[i], "libinput Middle Emulation Enabled",
+                                 c.middle_click_emulation ? "1" : "0", NULL};
+                run_fire(set);
+            }
         }
     }
 }

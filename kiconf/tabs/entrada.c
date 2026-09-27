@@ -22,6 +22,7 @@
 static GtkWidget *g_pointer_combo;
 static GtkWidget *g_pointer_accel_spin;
 static GtkWidget *g_pointer_natural_chk, *g_pointer_lefth_chk, *g_pointer_tap_chk;
+static GtkWidget *g_pointer_middle_chk;
 static GtkWidget *g_kbd_repeat_chk, *g_kbd_delay_spin, *g_kbd_rate_spin;
 static GtkWidget *g_bell_percent_spin, *g_bell_pitch_spin, *g_bell_dur_spin;
 static GtkWidget *g_toggle_mods_chk, *g_kick_hotkeys_chk, *g_numlock_start_chk;
@@ -62,6 +63,7 @@ typedef struct {
     int numlock_on_start;
     int toggle_mods_on_press;
     int kick_hotkeys_on_release;
+    int middle_click_emulation;
 } InputSessionConfig;
 
 static void input_config_defaults(InputSessionConfig *c)
@@ -69,6 +71,7 @@ static void input_config_defaults(InputSessionConfig *c)
     c->numlock_on_start = 0;
     c->toggle_mods_on_press = 0;
     c->kick_hotkeys_on_release = 0;
+    c->middle_click_emulation = 0;
 }
 
 static void input_config_load(InputSessionConfig *c)
@@ -99,6 +102,8 @@ static void input_config_load(InputSessionConfig *c)
             c->toggle_mods_on_press = atoi(val) != 0;
         } else if (!strcmp(key, "kick_hotkeys_on_release")) {
             c->kick_hotkeys_on_release = atoi(val) != 0;
+        } else if (!strcmp(key, "middle_click_emulation")) {
+            c->middle_click_emulation = atoi(val) != 0;
         }
     }
     fclose(f);
@@ -120,6 +125,7 @@ static void input_config_save(const InputSessionConfig *c)
     fprintf(f, "numlock_on_start = %d\n", c->numlock_on_start ? 1 : 0);
     fprintf(f, "toggle_mods_on_press = %d\n", c->toggle_mods_on_press ? 1 : 0);
     fprintf(f, "kick_hotkeys_on_release = %d\n", c->kick_hotkeys_on_release ? 1 : 0);
+    fprintf(f, "middle_click_emulation = %d\n", c->middle_click_emulation ? 1 : 0);
     fclose(f);
     if (rename(tmp, path) != 0) {
         g_warning("kiconf: could not save '%s': %s", path, strerror(errno));
@@ -445,6 +451,7 @@ static void apply_entrada_cb(GtkWidget *widget, gpointer data)
     ic.numlock_on_start = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_numlock_start_chk));
     ic.toggle_mods_on_press = toggle_mods;
     ic.kick_hotkeys_on_release = kick_hotkeys;
+    ic.middle_click_emulation = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_pointer_middle_chk));
     input_config_save(&ic);
     signal_daemon("kiconfd");
 }
@@ -455,11 +462,13 @@ GtkWidget *build_entrada_tab(void)
     master_keyboard_name(g_master_kbd, sizeof(g_master_kbd));
     detect_special_kbd(g_master_kbd, &g_toggle_mods_baseline, &g_kick_hotkeys_baseline);
     detect_kbd_xset(&g_kbd_baseline);
+    InputSessionConfig ic;
+    input_config_load(&ic);
 
     GtkWidget *outer = gtk_vbox_new(FALSE, 8);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
 
-    GtkWidget *ptr_table = gtk_table_new(5, 2, FALSE);
+    GtkWidget *ptr_table = gtk_table_new(6, 2, FALSE);
     g_pointer_combo = gtk_combo_box_new_text();
     char devnames[32][NAME_LEN];
     int ndev = list_pointer_devices(devnames, 32);
@@ -476,6 +485,10 @@ GtkWidget *build_entrada_tab(void)
     gtk_table_attach(GTK_TABLE(ptr_table), g_pointer_lefth_chk, 0, 2, 3, 4, GTK_FILL, GTK_FILL, 4, 2);
     g_pointer_tap_chk = gtk_check_button_new_with_label("Tocar para clicar (touchpad)");
     gtk_table_attach(GTK_TABLE(ptr_table), g_pointer_tap_chk, 0, 2, 4, 5, GTK_FILL, GTK_FILL, 4, 2);
+    g_pointer_middle_chk = gtk_check_button_new_with_label(
+        "Emular clique do meio com clique direito e esquerdo simultaneos");
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_pointer_middle_chk), ic.middle_click_emulation);
+    gtk_table_attach(GTK_TABLE(ptr_table), g_pointer_middle_chk, 0, 2, 5, 6, GTK_FILL, GTK_FILL, 4, 2);
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Ponteiro/touchpad", ptr_table), FALSE, FALSE, 0);
     g_signal_connect(g_pointer_combo, "changed", G_CALLBACK(on_pointer_device_changed), NULL);
     if (ndev > 0) {
@@ -522,8 +535,6 @@ GtkWidget *build_entrada_tab(void)
     gtk_box_pack_start(GTK_BOX(special_box), g_kick_hotkeys_chk, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Opcoes especiais de teclado (XiS)", special_box), FALSE, FALSE, 0);
 
-    InputSessionConfig ic;
-    input_config_load(&ic);
     GtkWidget *session_box = gtk_vbox_new(FALSE, 2);
     g_numlock_start_chk = gtk_check_button_new_with_label("Ativar NumLock ao iniciar a sessao");
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_numlock_start_chk), ic.numlock_on_start);
