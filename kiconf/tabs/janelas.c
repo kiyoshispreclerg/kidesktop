@@ -31,7 +31,9 @@ static const char *const MANAGED_KEYS[] = {
     "deco_bg", "deco_fg", "hide_deco_on_maximize",
     "num_desktops", "desktop_columns", "desktop_rows",
     "mod_key", "border_thickness", "border_color",
-    "snap_threshold", "live_snap_resize", "outline_width", "outline_alpha",
+    "snap_threshold", "side_zones", "vertical_snap_by",
+    "snap_mod", "side_zones_mod", "vertical_snap_by_mod",
+    "live_snap_resize", "outline_width", "outline_alpha",
     "resize_grip", "live_resize", "magnet_threshold", "link_resize_neighbors",
     "auto_switch_argb", "focus_follows_mouse", "appmenu_command",
     "focus_stealing_prevention", "force_unflip",
@@ -60,6 +62,9 @@ typedef struct {
     int border_thickness;
     char border_color[16];
     int snap_threshold, live_snap_resize;
+    int side_zones, vertical_snap_by;
+    char snap_mod[8];
+    int side_zones_mod, vertical_snap_by_mod;
     int outline_width;
     double outline_alpha;
     int resize_grip, live_resize;
@@ -92,6 +97,11 @@ static void kiwm_defaults(KiwmConfig *c)
     c->border_thickness = 0;
     snprintf(c->border_color, sizeof(c->border_color), "#000000");
     c->snap_threshold = 20;
+    c->side_zones = 1;
+    c->vertical_snap_by = 2;
+    snprintf(c->snap_mod, sizeof(c->snap_mod), "none");
+    c->side_zones_mod = 1;
+    c->vertical_snap_by_mod = 2;
     c->outline_width = 16;
     c->outline_alpha = 0.3;
     c->resize_grip = 12;
@@ -145,6 +155,13 @@ static void load_kiwm_config(KiwmConfig *c)
         else if (!strcmp(key, "border_thickness")) c->border_thickness = atoi(val);
         else if (!strcmp(key, "border_color")) SETS(border_color);
         else if (!strcmp(key, "snap_threshold")) c->snap_threshold = atoi(val);
+        else if (!strcmp(key, "side_zones")) c->side_zones = atoi(val);
+        else if (!strcmp(key, "vertical_snap_by")) c->vertical_snap_by = atoi(val);
+        /* Empty means "disabled" in kiwm.conf, but the combo needs an
+         * actual option string to land on -- see SNAP_MOD_OPTS below. */
+        else if (!strcmp(key, "snap_mod")) snprintf(c->snap_mod, sizeof(c->snap_mod), "%s", *val ? val : "none");
+        else if (!strcmp(key, "side_zones_mod")) c->side_zones_mod = atoi(val);
+        else if (!strcmp(key, "vertical_snap_by_mod")) c->vertical_snap_by_mod = atoi(val);
         else if (!strcmp(key, "live_snap_resize")) c->live_snap_resize = atoi(val) != 0;
         else if (!strcmp(key, "outline_width")) c->outline_width = atoi(val);
         else if (!strcmp(key, "outline_alpha")) c->outline_alpha = atof(val);
@@ -179,6 +196,8 @@ static GtkWidget *g_deco_bg_btn, *g_deco_fg_btn, *g_hide_deco_chk;
 static GtkWidget *g_theme_entry, *g_titlebar_entry;
 static GtkWidget *g_border_thick_spin, *g_border_color_btn, *g_grip_spin, *g_live_resize_chk;
 static GtkWidget *g_snap_spin, *g_live_snap_chk, *g_outline_w_spin, *g_outline_a_spin;
+static GtkWidget *g_side_zones_spin, *g_vsb_spin;
+static GtkWidget *g_snap_mod_combo, *g_side_zones_mod_spin, *g_vsb_mod_spin;
 static GtkWidget *g_magnet_spin, *g_link_resize_chk;
 static GtkWidget *g_modkey_combo, *g_ffm_chk, *g_fsp_combo, *g_force_unflip_combo;
 static GtkWidget *g_auto_argb_chk, *g_new_win_combo, *g_appmenu_entry;
@@ -196,6 +215,7 @@ static void refresh_status(void)
 }
 
 static const char *const MOD_KEY_OPTS[] = {"meta", "alt", NULL};
+static const char *const SNAP_MOD_OPTS[] = {"none", "meta", "alt", NULL};
 static const char *const FSP_OPTS[] = {"none", "low", "normal", "high", "extreme", NULL};
 static const char *const FORCE_UNFLIP_OPTS[] = {"auto", "always", "never", NULL};
 static const char *const NEW_WIN_OPTS[] = {"pointer", "largest", NULL};
@@ -220,6 +240,16 @@ static void save_janelas_cb(GtkWidget *widget, gpointer data)
     c.live_resize = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_live_resize_chk));
 
     c.snap_threshold = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_snap_spin));
+    c.side_zones = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_side_zones_spin));
+    c.vertical_snap_by = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_vsb_spin));
+    /* "none" is a display-only option -- kiwm.conf itself wants an empty
+     * value to mean "disabled" (see load_kiwm_config() above). */
+    {
+        const char *snap_mod_val = combo_text(g_snap_mod_combo, SNAP_MOD_OPTS);
+        snprintf(c.snap_mod, sizeof(c.snap_mod), "%s", strcmp(snap_mod_val, "none") == 0 ? "" : snap_mod_val);
+    }
+    c.side_zones_mod = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_side_zones_mod_spin));
+    c.vertical_snap_by_mod = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_vsb_mod_spin));
     c.live_snap_resize = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_live_snap_chk));
     c.outline_width = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_outline_w_spin));
     c.outline_alpha = gtk_spin_button_get_value(GTK_SPIN_BUTTON(g_outline_a_spin));
@@ -270,6 +300,11 @@ static void save_janelas_cb(GtkWidget *widget, gpointer data)
     fprintf(out, "border_thickness=%d\n", c.border_thickness);
     fprintf(out, "border_color=%s\n", c.border_color);
     fprintf(out, "snap_threshold=%d\n", c.snap_threshold);
+    fprintf(out, "side_zones=%d\n", c.side_zones);
+    fprintf(out, "vertical_snap_by=%d\n", c.vertical_snap_by);
+    fprintf(out, "snap_mod=%s\n", c.snap_mod);
+    fprintf(out, "side_zones_mod=%d\n", c.side_zones_mod);
+    fprintf(out, "vertical_snap_by_mod=%d\n", c.vertical_snap_by_mod);
     fprintf(out, "live_snap_resize=%d\n", c.live_snap_resize);
     fprintf(out, "outline_width=%d\n", c.outline_width);
     fprintf_double(out, "outline_alpha", c.outline_alpha, 2);
@@ -393,26 +428,40 @@ GtkWidget *build_janelas_tab(void)
     gtk_box_pack_start(GTK_BOX(content), frame_with("Borda e redimensionamento", border_table), FALSE, FALSE, 0);
 
     /* Encaixe (snap) */
-    GtkWidget *snap_table = gtk_table_new(6, 2, FALSE);
+    GtkWidget *snap_table = gtk_table_new(11, 2, FALSE);
     g_snap_spin = gtk_spin_button_new_with_range(0, 200, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_snap_spin), c.snap_threshold);
     labeled_row(snap_table, 0, "Distancia para encaixar na borda da tela (px):", g_snap_spin);
+    g_side_zones_spin = gtk_spin_button_new_with_range(1, 12, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_side_zones_spin), c.side_zones);
+    labeled_row(snap_table, 1, "Linhas empilhadas ao encaixar nas laterais:", g_side_zones_spin);
+    g_vsb_spin = gtk_spin_button_new_with_range(1, 12, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_vsb_spin), c.vertical_snap_by);
+    labeled_row(snap_table, 2, "Divisor de largura ao encaixar nas laterais (2 = metade):", g_vsb_spin);
+    g_snap_mod_combo = make_options_combo(SNAP_MOD_OPTS, c.snap_mod);
+    labeled_row(snap_table, 3, "Modificador para uma segunda grade de encaixe:", g_snap_mod_combo);
+    g_side_zones_mod_spin = gtk_spin_button_new_with_range(1, 12, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_side_zones_mod_spin), c.side_zones_mod);
+    labeled_row(snap_table, 4, "Linhas empilhadas com o modificador segurado:", g_side_zones_mod_spin);
+    g_vsb_mod_spin = gtk_spin_button_new_with_range(1, 12, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_vsb_mod_spin), c.vertical_snap_by_mod);
+    labeled_row(snap_table, 5, "Divisor de largura com o modificador segurado:", g_vsb_mod_spin);
     g_live_snap_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_live_snap_chk), c.live_snap_resize);
-    labeled_row(snap_table, 1, "Redimensionar ao vivo durante o encaixe:", g_live_snap_chk);
+    labeled_row(snap_table, 6, "Redimensionar ao vivo durante o encaixe:", g_live_snap_chk);
     g_outline_w_spin = gtk_spin_button_new_with_range(1, 64, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_outline_w_spin), c.outline_width);
-    labeled_row(snap_table, 2, "Espessura do contorno de pre-visualizacao (px):", g_outline_w_spin);
+    labeled_row(snap_table, 7, "Espessura do contorno de pre-visualizacao (px):", g_outline_w_spin);
     g_outline_a_spin = gtk_spin_button_new_with_range(0.0, 1.0, 0.05);
     gtk_spin_button_set_digits(GTK_SPIN_BUTTON(g_outline_a_spin), 2);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_outline_a_spin), c.outline_alpha);
-    labeled_row(snap_table, 3, "Opacidade do contorno (com compositor):", g_outline_a_spin);
+    labeled_row(snap_table, 8, "Opacidade do contorno (com compositor):", g_outline_a_spin);
     g_magnet_spin = gtk_spin_button_new_with_range(0, 200, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_magnet_spin), c.magnet_threshold);
-    labeled_row(snap_table, 4, "Distancia para encaixar em outra janela (px):", g_magnet_spin);
+    labeled_row(snap_table, 9, "Distancia para encaixar em outra janela (px):", g_magnet_spin);
     g_link_resize_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_link_resize_chk), c.link_resize_neighbors);
-    labeled_row(snap_table, 5, "Redimensionar vizinhas junto:", g_link_resize_chk);
+    labeled_row(snap_table, 10, "Redimensionar vizinhas junto:", g_link_resize_chk);
     gtk_box_pack_start(GTK_BOX(content), frame_with("Encaixe (snap)", snap_table), FALSE, FALSE, 0);
 
     /* Comportamento */
