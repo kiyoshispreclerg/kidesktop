@@ -1,6 +1,7 @@
 /* See text.h. */
 #include "text.h"
 
+#include <epoxy/gl.h>
 #include <pango/pangocairo.h>
 #include <xcb/render.h>
 
@@ -443,6 +444,12 @@ void text_free(CompTextImage *img)
         xcb_render_free_picture(comp.conn, img->picture);
     if (img->pixmap)
         xcb_free_pixmap(comp.conn, img->pixmap);
+    /* Nonzero only once the GL backend uploaded it, and effects shut
+     * down before the renderer, so the context is still current. Without
+     * this every re-rendered label (stats twice a second per output)
+     * left a texture behind in VRAM. */
+    if (img->texture)
+        glDeleteTextures(1, &img->texture);
     free(img->pixels);
     free(img);
 }
