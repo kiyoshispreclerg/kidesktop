@@ -64,7 +64,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define XISKEYS_VERSION "0.2.4"
+#define XISKEYS_VERSION "0.2.5"
 #define MAX_BINDINGS 128
 #define LINE_MAX_LEN 768
 #define CMD_MAX_LEN 512
@@ -409,6 +409,7 @@ static void write_default_config(const char *path)
     fprintf(f, "\n# --- session (i3lock per XISDESKTOP_PLAN.md's screen-locker choice) ------\n");
     fprintf(f, "BIND\tlock-session\tMeta+L\ti3lock\n");
     fprintf(f, "BIND\tlogout\tMeta+Shift+L\txisserve --session\n");
+    fprintf(f, "BIND\tkill-window\tCtrl+Alt+Escape\txkill\n");
     fprintf(f, "# Fast user switching depends on whichever display manager/greeter\n");
     fprintf(f, "# KiDesktop ends up using (e.g. `dm-tool switch-to-greeter` for LightDM) --\n");
     fprintf(f, "# not chosen yet, left unbound; the --session picker itself only shows its\n");
