@@ -48,9 +48,28 @@ typedef struct {
      * the initial click) -- see folder_lazy_children(). Reset to empty
      * only when a brand new menu is opened (folder_on_button()). */
     enum folder_action action[MENU_TREE_MAX_ITEMS];
-    char item_path[MENU_TREE_MAX_ITEMS][PATH_MAX];
+    /* strdup'd, NULL for entries without a path (separators etc.). Not a
+     * fixed [MENU_TREE_MAX_ITEMS][PATH_MAX] table: that was 16 MiB per
+     * widget, one 4 KiB page per path, so every entry ever listed stayed
+     * resident for good. */
+    char *item_path[MENU_TREE_MAX_ITEMS];
     int n_items;
 } FolderPriv;
+
+static void set_item_path(FolderPriv *fp, int index, const char *path)
+{
+    free(fp->item_path[index]);
+    fp->item_path[index] = path ? strdup(path) : NULL;
+}
+
+static void clear_item_paths(FolderPriv *fp)
+{
+    for (int i = 0; i < fp->n_items; i++) {
+        free(fp->item_path[i]);
+        fp->item_path[i] = NULL;
+    }
+    fp->n_items = 0;
+}
 
 /* Wraps `in` in single quotes for safe use inside an `sh -c` command
  * string, escaping any embedded single quote as the standard POSIX
@@ -156,6 +175,7 @@ static void folder_destroy(PanelWidget *w)
     if (fp->icon) {
         cairo_surface_destroy(fp->icon);
     }
+    clear_item_paths(fp);
     hotkey_unregister_widget(w);
 }
 
@@ -236,7 +256,7 @@ static int build_one_level(FolderPriv *fp, const char *dirpath, int base, MenuIt
         snprintf(mi->label, sizeof(mi->label), "Abrir esta pasta");
         out_lazy[n] = 0;
         fp->action[base + n] = ACT_OPEN_FOLDER;
-        snprintf(fp->item_path[base + n], sizeof(fp->item_path[0]), "%s", dirpath);
+        set_item_path(fp, base + n, dirpath);
         n++;
     }
     if (n < max_items) {
@@ -246,7 +266,7 @@ static int build_one_level(FolderPriv *fp, const char *dirpath, int base, MenuIt
         snprintf(mi->label, sizeof(mi->label), "Abrir terminal aqui");
         out_lazy[n] = 0;
         fp->action[base + n] = ACT_OPEN_TERMINAL;
-        snprintf(fp->item_path[base + n], sizeof(fp->item_path[0]), "%s", dirpath);
+        set_item_path(fp, base + n, dirpath);
         n++;
     }
     if (n >= max_items) {
@@ -291,6 +311,7 @@ static int build_one_level(FolderPriv *fp, const char *dirpath, int base, MenuIt
         mi->is_separator = 1;
         out_lazy[n] = 0;
         fp->action[base + n] = ACT_NONE;
+        set_item_path(fp, base + n, NULL);
         n++;
     }
 
@@ -308,7 +329,7 @@ static int build_one_level(FolderPriv *fp, const char *dirpath, int base, MenuIt
          * anymore -- see the file comment. */
         out_lazy[n] = entries[i].is_dir ? 1 : 0;
         fp->action[base + n] = ACT_ACTIVATE_ENTRY;
-        snprintf(fp->item_path[base + n], sizeof(fp->item_path[0]), "%s", full);
+        set_item_path(fp, base + n, full);
         n++;
     }
     if (overflow && n < max_items) {
@@ -318,6 +339,7 @@ static int build_one_level(FolderPriv *fp, const char *dirpath, int base, MenuIt
         snprintf(mi->label, sizeof(mi->label), "... mais itens (%d+)", FOLDER_MAX_PER_DIR);
         out_lazy[n] = 0;
         fp->action[base + n] = ACT_NONE;
+        set_item_path(fp, base + n, NULL);
         n++;
     }
     return n;
@@ -331,7 +353,7 @@ static int folder_lazy_children(void *ctx, int parent_index, MenuItem *out_items
 {
     PanelWidget *w = ctx;
     FolderPriv *fp = w->priv;
-    if (parent_index < 0 || parent_index >= fp->n_items) {
+    if (parent_index < 0 || parent_index >= fp->n_items || !fp->item_path[parent_index]) {
         return 0;
     }
     int room = MENU_TREE_MAX_ITEMS - fp->n_items;
@@ -352,7 +374,7 @@ static void folder_select(Panel *panel, PanelWidget *widget, void *ctx, int inde
     (void)panel;
     (void)ctx;
     FolderPriv *fp = widget->priv;
-    if (index < 0 || index >= fp->n_items) {
+    if (index < 0 || index >= fp->n_items || !fp->item_path[index]) {
         return;
     }
     switch (fp->action[index]) {
@@ -383,7 +405,7 @@ static void folder_open_menu(PanelWidget *w)
     if (!fp->path[0]) {
         return;
     }
-    fp->n_items = 0; /* fresh session -- see the file comment on why this isn't cached */
+    clear_item_paths(fp); /* fresh session -- see the file comment on why this isn't cached */
 
     MenuItem items[MENU_TREE_MAX_ITEMS];
     int depth[MENU_TREE_MAX_ITEMS];

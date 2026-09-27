@@ -152,6 +152,12 @@ static uint64_t g_last_thumb_paint_ms = 0;
 static int g_shown = 0;
 static int g_closable = 0;
 static void *g_ctx = NULL;
+/* Set when the show delay elapsed with the pointer off g_widget's sub-item
+ * (tooltip_tick()'s live re-check failed), cleared by the next motion
+ * event. While set, the elapsed delay is not a wake-up: without this the
+ * deadline stays in the past, select() gets a zero timeout and the main
+ * loop spins on XQueryPointer until the pointer moves. */
+static int g_delay_parked = 0;
 
 /* TOOLTIP_PAD_X/Y plus the owning panel's tooltip_toast_padding_extra (see
  * that field's doc comment in xispanel.h) -- lets a panel stay packed
@@ -262,6 +268,7 @@ void tooltip_close(void)
     g_shown = 0;
     g_closable = 0;
     g_ctx = NULL;
+    g_delay_parked = 0;
     g_has_mpris = 0;
     g_mpris_busname[0] = 0;
     g_mpris_playing = 0;
@@ -1218,6 +1225,7 @@ void tooltip_notice_motion(Panel *p, int axis_pos, int cross_pos)
         }
         return;
     }
+    g_delay_parked = 0; /* any motion is worth one more live re-check */
 
     PanelWidget *hit = panel_widget_at(p, axis_pos, cross_pos);
 
@@ -1335,7 +1343,7 @@ void tooltip_tick(uint64_t now)
         return;
     }
     if (!g_shown) {
-        if (now - g_since_ms >= (uint64_t)g_panel->tooltip_delay_ms) {
+        if (!g_delay_parked && now - g_since_ms >= (uint64_t)g_panel->tooltip_delay_ms) {
             /* Re-check what's actually under the pointer right before
              * opening, instead of trusting g_widget/g_anchor_* as of the
              * last motion event: g_since_ms only ever gets reset when the
@@ -1378,6 +1386,8 @@ void tooltip_tick(uint64_t now)
             }
             if (on_target) {
                 show_popup();
+            } else {
+                g_delay_parked = 1;
             }
         }
         return;
@@ -1423,7 +1433,10 @@ uint64_t tooltip_next_wake_ms(void)
     if (g_widget) {
         uint64_t w2 = g_shown ? (g_last_refresh_ms + TOOLTIP_REFRESH_MS)
                                : (g_since_ms + (uint64_t)g_panel->tooltip_delay_ms);
-        if (wake == 0 || w2 < wake) {
+        if (!g_shown && g_delay_parked) {
+            w2 = 0;
+        }
+        if (w2 && (wake == 0 || w2 < wake)) {
             wake = w2;
         }
         /* Bounds select()'s timeout so thumb_fallback_interval_ms()'s
