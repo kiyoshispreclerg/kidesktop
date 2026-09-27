@@ -45,6 +45,8 @@ static void apply_builtin_defaults(void)
     wm.border_thickness = 0;
     wm.border_r = 0.0; wm.border_g = 0.0; wm.border_b = 0.0; wm.border_a = 1.0;
     wm.snap_threshold = 20;
+    wm.side_zones = 1;
+    wm.vertical_snap_by = 2;
     wm.live_snap_resize = false;
     wm.outline_width = 16;
     wm.outline_alpha = 0.3;
@@ -232,6 +234,23 @@ static void write_default_config(const char *path)
         "# mod_key-drag, to snap it there (top = maximize, left/right =\n"
         "# half-width, like Windows 7/kwin). 0 disables snapping.\n"
         "snap_threshold=20\n"
+        "\n"
+        "# How many stacked rows a left/right edge snap divides the usable\n"
+        "# area's height into (default 1: one row, a snapped window fills the\n"
+        "# full height). 2 lets two windows stack on the same side, each\n"
+        "# taking half the height; 3 divides it three ways, and so on. Which\n"
+        "# row a drag lands in follows the pointer's height along the edge.\n"
+        "# A keyboard tile (key_tile_left=/key_tile_right=) always uses the\n"
+        "# full height, regardless of this.\n"
+        "side_zones=1\n"
+        "\n"
+        "# How many columns a left/right edge snap divides the usable area's\n"
+        "# width into (default 2: half-width, like Windows 7/kwin). 3 gives a\n"
+        "# third of the width, 4 a quarter, and so on. Only the leftmost and\n"
+        "# rightmost column are ever reachable by dragging to an edge -- this\n"
+        "# only changes how wide a side snap is, not how many drag positions\n"
+        "# exist.\n"
+        "vertical_snap_by=2\n"
         "\n"
         "# Whether an edge snap resizes the window while you drag it (1), or\n"
         "# just outlines where it will land and applies that size when you\n"
@@ -478,6 +497,12 @@ void config_load(void)
         } else if (strcmp(key, "snap_threshold") == 0) {
             int n = atoi(val);
             wm.snap_threshold = n < 0 ? 0 : n;
+        } else if (strcmp(key, "side_zones") == 0) {
+            int n = atoi(val);
+            wm.side_zones = n < 1 ? 1 : n;
+        } else if (strcmp(key, "vertical_snap_by") == 0) {
+            int n = atoi(val);
+            wm.vertical_snap_by = n < 1 ? 1 : n;
         } else if (strcmp(key, "live_snap_resize") == 0) {
             wm.live_snap_resize = atoi(val) != 0;
         } else if (strcmp(key, "outline_width") == 0) {

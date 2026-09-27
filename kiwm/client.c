@@ -1957,14 +1957,40 @@ void snap_client_to_side(Client *c, SnapSide side)
     int bt, th;
     deco_insets(c, &bt, &th);
 
-    int half = ww / 2;
+    /* Width: kiwm.conf's vertical_snap_by= divides the workarea into that
+     * many columns, but only the leftmost and rightmost are ever actually
+     * reachable this way -- both get the same width (floor(ww/vertical_
+     * snap_by), matching the original ww/2 for both halves when
+     * vertical_snap_by=2), and the right one is positioned flush against
+     * the workarea's right edge rather than one column-width in, so any
+     * remainder pixel ends up as an untouched gap in the middle instead of
+     * a rounding error against the true edge. */
+    int vsb = wm.vertical_snap_by > 0 ? wm.vertical_snap_by : 1;
+    int unit_w = ww / vsb;
+    int win_x = (side == SNAP_LEFT) ? wx : wx + ww - unit_w;
+    int win_w = unit_w;
+
+    /* Height: c->snap_zone/snap_zone_count (wm.h) say which row of how
+     * many this particular snap uses -- side_zones= for a drag-picked row,
+     * or a flat 1-of-1 (the whole height) for a keyboard tile, set by
+     * whichever caller got us here (toggle_snap_side() below, or events.c's
+     * apply_drag_snap()). The last row absorbs the remainder, same
+     * reasoning as the right column above. */
+    int zones = c->snap_zone_count > 0 ? c->snap_zone_count : 1;
+    int zone = c->snap_zone;
+    if (zone < 0) zone = 0;
+    if (zone >= zones) zone = zones - 1;
+    int unit_h = wh / zones;
+    int zone_y = wy + zone * unit_h;
+    int zone_h = (zone == zones - 1) ? (wh - zone * unit_h) : unit_h;
+
     c->max_horz = false;
     c->max_vert = false;
     c->snap_side = side;
-    c->y = wy;
-    c->height = wh - th - bt;
-    c->x = (side == SNAP_LEFT) ? wx : wx + (ww - half);
-    c->width = half - bt * 2;
+    c->y = zone_y;
+    c->height = zone_h - th - bt;
+    c->x = win_x;
+    c->width = win_w - bt * 2;
     if (c->width < c->min_w) c->width = c->min_w;
     if (c->height < c->min_h) c->height = c->min_h;
 }
@@ -1998,6 +2024,10 @@ void toggle_snap_side(Client *c, SnapSide side)
             c->saved_w = c->width;
             c->saved_h = c->height;
         }
+        /* No drag position to pick a row from -- always the whole side,
+         * side_zones= or not, same as before that option existed. */
+        c->snap_zone = 0;
+        c->snap_zone_count = 1;
         snap_client_to_side(c, side);
     }
 

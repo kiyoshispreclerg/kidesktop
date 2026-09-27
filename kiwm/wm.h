@@ -703,6 +703,20 @@ struct Client {
      * it's the exact same state a titlebar maximize-click produces. */
     SnapSide snap_side;
 
+    /* Which row this window occupies when snap_side is LEFT/RIGHT, and how
+     * many rows the side was divided into when it was placed there --
+     * kiwm.conf's side_zones= (client.c's snap_client_to_side()). Both are
+     * meaningless while snap_side is NONE/TOP. Frozen at snap time rather
+     * than re-read from wm.side_zones later so a window keeps the shape it
+     * was given even if a future refit (refit_tiled_clients(), e.g. a panel
+     * appearing) has to recompute it against a new workarea -- it recomputes
+     * the *same* zone-out-of-zone-count, not whatever side_zones= currently
+     * says. A keyboard tile (toggle_snap_side(), no drag position to pick a
+     * row from) always uses zone 0 of a count of 1: the whole side, exactly
+     * like before this option existed. */
+    int snap_zone;
+    int snap_zone_count;
+
     char title[256];
 
     Client *next;
@@ -1257,6 +1271,25 @@ typedef struct {
      * snap_threshold= (default 20). 0 disables snapping entirely. */
     int snap_threshold;
 
+    /* How many stacked rows a left/right edge snap divides the output's
+     * workarea *height* into -- kiwm.conf's side_zones= (default 1: one
+     * row, the window fills the full height, kiwm's original behaviour).
+     * Which row a drag lands in follows the pointer's vertical position
+     * along the edge (events.c's try_edge_snap()); a keyboard tile
+     * (key_tile_left=/key_tile_right=) always uses the full height,
+     * ignoring this -- see Client::snap_zone above. */
+    int side_zones;
+
+    /* How many columns a left/right edge snap divides the output's
+     * workarea *width* into -- kiwm.conf's vertical_snap_by= (default 2:
+     * half-width, kiwm's original behaviour; 3 gives a third, 4 a quarter,
+     * and so on). Only the leftmost and rightmost column are ever actually
+     * reachable by dragging to an edge -- there's no drag gesture for the
+     * columns in between -- so this only ever changes how *wide* a side
+     * snap is, not how many distinct positions exist. See
+     * client.c's snap_client_to_side(). */
+    int vertical_snap_by;
+
     /* Whether an edge snap resizes the window *during* the drag
      * (kiwm.conf's live_snap_resize=, default 0/off) or only shows where
      * it's going to land -- outline.c's wireframe rectangle -- and applies
@@ -1330,6 +1363,13 @@ typedef struct {
      * so handle_motion can tell when the pointer has moved out of the edge
      * zone again and needs to restore the pre-drag floating geometry. */
     SnapSide drag_snap_side;
+
+    /* Which row of side_zones= the pointer is currently over, while
+     * drag_snap_side is LEFT/RIGHT -- meaningless otherwise. Same
+     * reasoning as drag_snap_side itself: tracked separately from
+     * Client::snap_zone because the window isn't committed to it until
+     * release (or immediately, under live_snap_resize=). */
+    int drag_snap_zone;
 
     /* How close (in pixels) a dragged window's frame edge must get to
      * another window's frame edge (any client, decoration included --
