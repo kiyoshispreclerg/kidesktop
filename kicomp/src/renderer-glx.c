@@ -114,6 +114,7 @@ typedef struct {
     Pixmap pixmap;          /* the named contents pixmap */
     GLXPixmap glx_pixmap;
     bool bound;             /* the image is currently bound to the texture */
+    uint32_t bound_seq;     /* CompWindow::damage_seq when it was bound */
     /* The pixmap is the client's, not one named here (an X-DENSITY
      * layer, glx_pixmap_bind): let go of the GLXPixmap over it, never
      * of the pixmap itself. */
@@ -586,11 +587,21 @@ static bool glx_window_bind(CompWindow *w, GlWindow *g)
 
     /* Released first, then bound again: that pair is how the contents of
      * a window that has drawn since the last frame actually reach the
-     * texture on most drivers. */
+     * texture on most drivers. Only when it *has* drawn, though: each
+     * pair is a GLX call that makes Mesa's worker threads catch up, and
+     * a window is drawn once per repaint rectangle and clip piece -- an
+     * unchanged one, or the second piece of a changed one, keeps the
+     * binding it has. A window without a Damage object can't say, so it
+     * is rebound every time. */
+    if (x->bound && w->damage != XCB_NONE && x->bound_seq == w->damage_seq) {
+        glBindTexture(GL_TEXTURE_2D, gl_window_texture(g));
+        return true;
+    }
     glx_window_release(g, x);
     glBindTexture(GL_TEXTURE_2D, gl_window_texture(g));
     glXBindTexImageEXT(dpy, x->glx_pixmap, GLX_FRONT_LEFT_EXT, NULL);
     x->bound = true;
+    x->bound_seq = w->damage_seq;
     return true;
 }
 

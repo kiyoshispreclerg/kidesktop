@@ -33,7 +33,7 @@
 
 #define _GNU_SOURCE             /* ppoll */
 
-#define KICOMP_VERSION "0.3.40"
+#define KICOMP_VERSION "0.3.41"
 
 #include "comp.h"
 #include "output.h"

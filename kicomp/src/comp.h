@@ -402,6 +402,12 @@ typedef struct CompWindow {
      * See damage.c. */
     bool damage_pending;
 
+    /* Bumped on every DamageNotify. A backend that has to rebind a
+     * window's pixmap to pick up new contents (GLX's texture-from-pixmap)
+     * does it only when this moved since its last bind, not on every draw
+     * of an unchanged window. */
+    uint32_t damage_seq;
+
     /* False from the moment a resize changes this window's size until the
      * first real DamageNotify arrives afterwards (damage.c's
      * damage_window_reported). A resized window's new backing pixmap is
