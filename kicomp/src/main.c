@@ -31,9 +31,9 @@
  * killing kicomp returns the session to the uncomposited path.
  */
 
-#define _POSIX_C_SOURCE 200809L
+#define _GNU_SOURCE             /* ppoll */
 
-#define KICOMP_VERSION "0.3.38"
+#define KICOMP_VERSION "0.3.39"
 
 #include "comp.h"
 #include "output.h"
@@ -61,6 +61,7 @@
 #include <xcb/present.h>
 
 #include <errno.h>
+#include <math.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -1553,7 +1554,7 @@ int main(int argc, char **argv)
             continue;
         }
 
-        int timeout = scheduler_timeout(comp_now_ms());
+        double timeout = scheduler_timeout(comp_now_ms());
 
         /* A standing hold has to be renewed whether or not X has
          * anything to say meanwhile. */
@@ -1561,8 +1562,15 @@ int main(int argc, char **argv)
         if (live >= 0 && (timeout < 0 || live < timeout))
             timeout = live;
 
+        /* ppoll, not poll: the frame deadline is not on a millisecond
+         * boundary, and poll() rounding the last fraction of one down to
+         * 0 had the loop spinning through it every frame. */
         struct pollfd p = { fd, POLLIN, 0 };
-        if (poll(&p, 1, timeout) < 0) {
+        struct timespec ts = {
+            (time_t)(timeout / 1000.0),
+            (long)(fmod(timeout, 1000.0) * 1e6),
+        };
+        if (ppoll(&p, 1, timeout < 0 ? NULL : &ts, NULL) < 0) {
             if (errno == EINTR)
                 continue;
             break;

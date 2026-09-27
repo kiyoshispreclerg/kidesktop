@@ -45,10 +45,12 @@ void scheduler_tick(double now);
  * animation -- see scheduler.c. */
 bool scheduler_wants_frame(CompOutput *o);
 
-/* poll() timeout in ms until the earliest output that still owes a frame,
- * or the next animation frame when an effect is running with nothing
- * dirty; -1 when nothing is pending and the compositor can sleep until an
- * X event. */
-int scheduler_timeout(double now);
+/* Timeout in ms, fractional, until the earliest output that still owes a
+ * frame, or the next animation frame when an effect is running with
+ * nothing dirty; -1 when nothing is pending and the compositor can sleep
+ * until an X event. Fractional because the deadline is: rounded down to
+ * poll()'s whole milliseconds, the last one before it came out as 0 and
+ * the loop spun through it. */
+double scheduler_timeout(double now);
 
 #endif /* KICOMP_SCHEDULER_H */

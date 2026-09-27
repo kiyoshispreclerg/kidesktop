@@ -103,7 +103,7 @@ bool scheduler_wants_frame(CompOutput *o)
     return true;
 }
 
-int scheduler_timeout(double now)
+double scheduler_timeout(double now)
 {
     double earliest = -1.0;
 
@@ -159,6 +159,6 @@ int scheduler_timeout(double now)
     if (earliest < 0.0)
         return -1;                   /* idle: sleep until an X event */
 
-    int ms = (int)(earliest - now);
-    return ms < 0 ? 0 : ms;
+    double ms = earliest - now;
+    return ms < 0.0 ? 0.0 : ms;
 }
