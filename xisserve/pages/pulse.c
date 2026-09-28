@@ -11,6 +11,7 @@
  * of a browser tab, say), which would otherwise parse as a field.
  */
 #include "pulse.h"
+#include "../../shared/xis_pactl_subscribe.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -374,6 +375,104 @@ static void move_all_streams(const char *listing, const char *mover, const char 
     }
 }
 
+/* Sticky default: after set-default-sink/-source, module-stream-restore
+ * still sends a *new* stream from an app that already ran before back to
+ * whatever device it used last time, unless that app happens to still be
+ * running right now (move_all_streams() below already covers that case,
+ * and its move does update the app's stream-restore entry). An app that
+ * was closed at the moment the default changed keeps its stale entry and
+ * snaps back to the old device on its next launch -- not what picking a
+ * new default here means to a user (compare: KDE's own mixer keeps
+ * routing new streams to the default for the rest of the session, even
+ * for apps with old history).
+ *
+ * So besides the one-time move, a `pactl subscribe` is kept running for
+ * the rest of the daemon's life (not tied to the --audio page being open
+ * -- an app can start at any time) and every sink-input/source-output
+ * that shows up *after* a default was picked here gets moved onto it too.
+ * `g_sticky_sink`/`g_sticky_source` hold the current target, empty until
+ * the user actually uses "Padrão" at least once -- nothing is spawned or
+ * moved before that. */
+static char g_sticky_sink[256];
+static char g_sticky_source[256];
+static XisPactlSubscribe *g_watch;
+static int g_watch_fd = -1;
+static guint g_watch_io_id;
+static guint g_watch_pump_id;
+
+static void move_new_stream(const char *facility, int index, const char *target)
+{
+    if (index < 0 || !target[0]) {
+        return;
+    }
+    const char *mover = !strcmp(facility, "sink-input") ? "move-sink-input" : "move-source-output";
+    char args[512];
+    snprintf(args, sizeof(args), "%s %d %s", mover, index, target);
+    pactl_run_fire(args);
+}
+
+static void on_watch_event(const char *type, const char *facility, int index, void *user_data)
+{
+    (void)user_data;
+    if (strcmp(type, "new") != 0) {
+        return;
+    }
+    if (!strcmp(facility, "sink-input")) {
+        move_new_stream(facility, index, g_sticky_sink);
+    } else if (!strcmp(facility, "source-output")) {
+        move_new_stream(facility, index, g_sticky_source);
+    }
+}
+
+static gboolean on_watch_readable(GIOChannel *ch, GIOCondition cond, gpointer data)
+{
+    (void)ch;
+    (void)data;
+    xis_pactl_subscribe_poll(g_watch);
+    /* HUP/ERR here just means the child died -- pump_watch()'s next tick
+     * notices via xis_pactl_subscribe_fd() returning a different fd (-1
+     * during backoff, then a new one once respawned) and attaches a fresh
+     * watch then. This source is done either way. */
+    return (cond & (G_IO_HUP | G_IO_ERR)) ? FALSE : TRUE;
+}
+
+/* Polled on a coarse timer rather than driven by a select()-style loop
+ * (xisserve is GLib/GTK, which has no such loop to hook a raw fd into) --
+ * cheap, since xis_pactl_subscribe_fd() only actually spawns/respawns
+ * pactl when nothing is running yet. Re-attaches the GIOChannel watch
+ * whenever the fd changes (first spawn, or a respawn after the child
+ * died). */
+static gboolean pump_watch(gpointer data)
+{
+    (void)data;
+    int fd = xis_pactl_subscribe_fd(g_watch);
+    if (fd != g_watch_fd) {
+        if (g_watch_io_id) {
+            g_source_remove(g_watch_io_id);
+            g_watch_io_id = 0;
+        }
+        g_watch_fd = fd;
+        if (fd >= 0) {
+            GIOChannel *chan = g_io_channel_unix_new(fd);
+            g_watch_io_id = g_io_add_watch(chan, G_IO_IN | G_IO_HUP | G_IO_ERR, on_watch_readable, NULL);
+            g_io_channel_unref(chan);
+        }
+    }
+    return G_SOURCE_CONTINUE;
+}
+
+#define STICKY_WATCH_PUMP_MS 2000
+
+static void ensure_sticky_watch(void)
+{
+    if (g_watch) {
+        return;
+    }
+    g_watch = xis_pactl_subscribe_new(on_watch_event, NULL);
+    pump_watch(NULL); /* attach right away instead of waiting for the first tick */
+    g_watch_pump_id = g_timeout_add(STICKY_WATCH_PUMP_MS, pump_watch, NULL);
+}
+
 /* Setting the default device only decides where *future* streams land --
  * PulseAudio/PipeWire deliberately leave already-playing streams on
  * whatever device they were routed to (verified: after
@@ -383,10 +482,9 @@ static void move_all_streams(const char *listing, const char *mover, const char 
  * the old device.
  *
  * So this does what the desktop mixers do (and what the user means by
- * picking a default): set the default *and* move everything currently
- * playing/recording over to it. The move also updates
- * module-stream-restore's per-application memory, so those apps keep
- * using the new device next time rather than snapping back. */
+ * picking a default): set the default, move everything currently
+ * playing/recording over to it, and arm the sticky watch above so
+ * anything that starts later follows too. */
 void pulse_set_default(const PulseEntry *e)
 {
     if (!pulse_available() || (e->kind != PULSE_SINK && e->kind != PULSE_SOURCE)) {
@@ -398,9 +496,12 @@ void pulse_set_default(const PulseEntry *e)
 
     if (e->kind == PULSE_SINK) {
         move_all_streams("sink-inputs", "move-sink-input", e->name);
+        snprintf(g_sticky_sink, sizeof(g_sticky_sink), "%s", e->name);
     } else {
         move_all_streams("source-outputs", "move-source-output", e->name);
+        snprintf(g_sticky_source, sizeof(g_sticky_source), "%s", e->name);
     }
+    ensure_sticky_watch();
 }
 
 void pulse_move_stream(const PulseEntry *stream, const char *target_name)

@@ -120,10 +120,13 @@ BINDIR := $(PREFIX)/bin
 # xisback and kiconfd. shared/xis_desktop_actions.c: jumplist ([Desktop
 # Action ...]) parsing and recent-file Exec substitution, also used by
 # xisserve.c's launcher (widgets/tasklist.c's right-click menu is the
-# caller here). Both compiled directly in, same as every other source
-# file here, so each program stays independently buildable and
-# installable on its own (no shared library to depend on at runtime).
-SRCS := xispanel.c ewmh.c menu.c tooltip.c toast.c launchfx.c hotkey.c $(MODTAP_SRCS) asyncmd.c pulse.c audio_events.c network.c storage.c storage_events.c pango_text.c $(DBUS_SRCS) $(THUMB_SRCS) $(DENSITY_SRCS) $(INPUTSCALE_SRCS) widgets/spacer.c widgets/clock.c widgets/tasklist.c widgets/winctl.c widgets/tray.c widgets/launcher.c widgets/volume.c widgets/globalmenu.c widgets/folder.c widgets/xisserve.c widgets/notif.c widgets/pager.c widgets/monitor.c widgets/energy.c widgets/container.c widgets/network.c widgets/storage.c ../shared/xis_outputs.c ../shared/xis_spawn.c ../shared/xis_desktop_actions.c
+# caller here). shared/xis_pactl_subscribe.c: the `pactl subscribe` child
+# (spawn/respawn/line-parsing) behind audio_events.c, also used by
+# xisserve's --audio page for its sticky-default feature. All compiled
+# directly in, same as every other source file here, so each program
+# stays independently buildable and installable on its own (no shared
+# library to depend on at runtime).
+SRCS := xispanel.c ewmh.c menu.c tooltip.c toast.c launchfx.c hotkey.c $(MODTAP_SRCS) asyncmd.c pulse.c audio_events.c network.c storage.c storage_events.c pango_text.c $(DBUS_SRCS) $(THUMB_SRCS) $(DENSITY_SRCS) $(INPUTSCALE_SRCS) widgets/spacer.c widgets/clock.c widgets/tasklist.c widgets/winctl.c widgets/tray.c widgets/launcher.c widgets/volume.c widgets/globalmenu.c widgets/folder.c widgets/xisserve.c widgets/notif.c widgets/pager.c widgets/monitor.c widgets/energy.c widgets/container.c widgets/network.c widgets/storage.c ../shared/xis_outputs.c ../shared/xis_spawn.c ../shared/xis_desktop_actions.c ../shared/xis_pactl_subscribe.c
 OBJS := $(SRCS:.c=.o)
 
 all: xispanel

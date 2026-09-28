@@ -79,7 +79,12 @@ void pulse_set_mute(const PulseEntry *e, gboolean muted);
  * moves every stream currently playing/recording onto the device --
  * setting the default alone only affects *future* streams, which makes
  * picking a new output appear to do nothing while the audio you can
- * hear keeps coming from the old one. */
+ * hear keeps coming from the old one. It also arms a background watch
+ * (see pulse.c) that keeps moving newly-appearing streams onto whichever
+ * device was picked last here, for the rest of the daemon's life --
+ * otherwise an app with old per-application history from
+ * module-stream-restore would snap back to its previous device the next
+ * time it's launched, even though a new default was picked since. */
 void pulse_set_default(const PulseEntry *e);
 void pulse_set_suspended(const PulseEntry *e, gboolean suspended);
 
