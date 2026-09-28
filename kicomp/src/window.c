@@ -1266,8 +1266,8 @@ static void damage_create(CompWindow *w)
         return;
     w->damage = xcb_generate_id(comp.conn);
     /* NON_EMPTY: one event per damage region until we subtract, which is
-     * all a repaint-the-output prototype needs -- and the cheapest of the
-     * report levels in event traffic. */
+     * all a whole-output repaint needs -- and the cheapest of the report
+     * levels in event traffic. */
     xcb_damage_create(comp.conn, w->damage, w->id, XCB_DAMAGE_REPORT_LEVEL_NON_EMPTY);
 }
 

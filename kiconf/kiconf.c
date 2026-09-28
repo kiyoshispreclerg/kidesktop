@@ -1,11 +1,8 @@
 /*
  * kiconf - GTK2 configurator for KiDesktop, remake of xisconf (Python/Qt).
  *
- * Prototype scope: two working tabs plus placeholders for the rest of
- * xisconf's feature set (Screens, Pointer/Keyboard, Permissions), which
- * already has a known implementation path -- xrandr/xinput/xset
- * subprocess calls and the xisguard control socket, same as xisconf.py --
- * just not ported to GTK2/C yet. What's new here and actually implemented:
+ * Every tab below is implemented and working, same on-disk config files
+ * and control-socket protocols xisconf.py used, just ported to GTK2/C:
  *
  *   Aparencia -- edits kiconfd's cursor theme/size, color palette, GTK2/3/4
  *     + icon theme names, Qt style, and general/monospace fonts, all

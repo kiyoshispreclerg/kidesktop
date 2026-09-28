@@ -1,11 +1,12 @@
 /*
  * kicomp - presentation abstraction (section 15).
  *
- * Rendering an output and *presenting* it are separate steps so that the
- * XiS per-CRTC FLIP backend (Fase 8) can slot in without the renderer or
- * the scene knowing anything about it. This prototype ships only the COPY
- * presenter, which composites each output's target onto the Composite
- * overlay window.
+ * Rendering an output and *presenting* it are separate steps, so the XiS
+ * per-CRTC FLIP backend (`presenter_present()`) and the GLX presenter
+ * (`presenter_glx()`) both slot in without the renderer or the scene
+ * knowing anything about it, alongside the plain COPY presenter
+ * (`presenter_copy()`), which composites each output's target onto the
+ * Composite overlay window.
  */
 #ifndef KICOMP_PRESENTER_H
 #define KICOMP_PRESENTER_H

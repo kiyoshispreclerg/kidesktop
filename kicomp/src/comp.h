@@ -108,8 +108,7 @@ int comp_live_windows_parse(const char *value);
 CompLiveWindows comp_live_windows_resolve(CompLiveWindows own);
 
 /* One output = one scene, one drawable, one clock, one presentation
- * (section 18). This prototype already keeps the per-output target and
- * dirty flag; the per-output clock/pacing is Fase 7. */
+ * (section 18). */
 typedef struct CompOutput {
     int id;
     char name[32];

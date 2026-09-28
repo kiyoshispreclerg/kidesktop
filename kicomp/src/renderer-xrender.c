@@ -1,13 +1,12 @@
-/* XRender renderer backend (section 28, "first objective: a simple
- * renderer; OpenGL later").
+/* XRender renderer backend (section 28) -- the non-OpenGL fallback; see
+ * renderer-glx.c/renderer-egl.c for the GL backends.
  *
  * What it does, and nothing more: for each output, paint the root
  * background into that output's own pixmap, then composite every scene
  * node over it, bottom to top, with PictOpOver. Because the source
  * pictures carry the window's real visual format, a depth-32 window's
  * alpha channel is honoured -- which is the one visible difference
- * between this and an uncomposited screen, and the acceptance criterion
- * for this prototype.
+ * between this and an uncomposited screen.
  *
  * Everything here is deliberately whole-output: no region-based repaint,
  * no per-node clipping beyond the composite rectangle itself. Damage only

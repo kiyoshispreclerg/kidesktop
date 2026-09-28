@@ -18,7 +18,7 @@ defaults (Fontconfig's `sans-serif`, dark panel colors). See
 
 ### Status
 
-**Early.** What works right now:
+**Somewhat usable.** What works right now:
 
 - One or more panels, each anchored to an edge (top/bottom/left/right) of
   a chosen XRandR output (or the whole virtual screen), sized by a
