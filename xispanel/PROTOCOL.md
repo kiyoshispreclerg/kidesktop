@@ -176,6 +176,14 @@ PANEL	top	*	edge=top	pct=100	thickness=32	mode=dock
   item, e.g. for a compositor without that effect where a briefly-reused
   window keeping the previous item's content on screen during the new
   item's `tooltip_delay` would just look like a stale tooltip instead.
+- `square_when_maximized`: `0` (default) or `1`. While `1`, any window on
+  this panel's own current output+desktop being maximized forces *only
+  the panel bar's own* corners square, overriding the theme's
+  `border_radius=` (see `colors` under "Theming" below) for the bar
+  itself; tooltips, toasts and menus keep rounding to the theme's radius
+  as normal either way. Re-checked live on every relevant window-manager
+  property change (maximize/minimize, client list, active window,
+  current desktop) -- same events `tasklist`/`winctl` already re-poll on.
 
 ### `WIDGET`
 

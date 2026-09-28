@@ -348,6 +348,16 @@ struct Panel {
      * explicitly, since those always win over the file. */
     int cfg_has_bg, cfg_has_fg, cfg_has_font_size;
     int border_radius;
+    /* PANEL's own square_when_maximized=yes: while 1, any window on this
+     * panel's current output+desktop being maximized forces *only the
+     * panel bar's own* corners square (see panel_effective_border_
+     * radius()) -- tooltips/toasts/menus keep reading border_radius
+     * directly and stay themed as normal. squared_now is the live result
+     * of the last panel_update_squared_for_maximized() check, kept
+     * separate from the config flag so that check is a no-op fast path
+     * when the feature is off. */
+    int square_when_maximized;
+    int squared_now;
     int shaped; /* 1 once a rounded-corner shape mask has been applied */
     /* 1 if the last panel_apply_shape() found an ARGB visual *and* an
      * actual compositor holding _NET_WM_CM_S<screen> -- panel_paint_

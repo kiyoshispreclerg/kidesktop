@@ -97,7 +97,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.66"
+#define XISPANEL_VERSION "0.6.67"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -1783,12 +1783,94 @@ int panel_round_corners(Window win, int w, int h, int radius, int depth, int *sh
     return alpha_clip;
 }
 
+/* p->border_radius, unless square_when_maximized=yes and a window on this
+ * panel's own current output+desktop is currently maximized (squared_now)
+ * -- in which case the panel bar itself rounds to 0 while everything else
+ * that reads p->border_radius directly (tooltip.c, menu.c, toast.c's own
+ * mirrored copy) stays at the theme's radius as normal. Only the panel
+ * bar's own shape (panel_apply_shape()) and content clip (panel_paint_
+ * content()) go through this -- see square_when_maximized's doc comment
+ * in xispanel.h. */
+static int panel_effective_border_radius(Panel *p)
+{
+    if (p->square_when_maximized && p->squared_now) {
+        return 0;
+    }
+    return p->border_radius;
+}
+
 static void panel_apply_shape(Panel *p)
 {
     if (!p->win) {
         return;
     }
-    p->corner_alpha_clip = panel_round_corners(p->win, p->w, p->h, p->border_radius, p->depth, &p->shaped);
+    p->corner_alpha_clip =
+        panel_round_corners(p->win, p->w, p->h, panel_effective_border_radius(p), p->depth, &p->shaped);
+}
+
+/* Re-checks square_when_maximized's condition for `p` (no-op if the option
+ * isn't set) and re-applies the panel's own shape if the result changed --
+ * called whenever a window's maximize state (or the client list/current
+ * desktop) might have changed, same events tasklist.c/winctl.c already
+ * re-poll on. Reuses the exact same output+desktop filter tasklist.c's
+ * same_desktop_only+same_output_only combination uses, since "is there a
+ * maximized window on this panel's own view" is that same filter with an
+ * early-out on the first match instead of collecting every task. */
+static void panel_update_squared_for_maximized(Panel *p)
+{
+    if (!p->square_when_maximized) {
+        if (p->squared_now) {
+            p->squared_now = 0;
+            panel_apply_shape(p);
+            p->dirty = 1;
+        }
+        return;
+    }
+
+    int kiwm_output_idx = -1;
+    int current_desktop = -1;
+    ewmh_resolve_active_for_output(p->output, &kiwm_output_idx, &current_desktop);
+    if (kiwm_output_idx < 0) {
+        current_desktop = ewmh_get_current_desktop();
+    }
+
+    Window *list = NULL;
+    int n = 0;
+    int squared = 0;
+    if (ewmh_get_client_list(&list, &n)) {
+        for (int i = 0; i < n; i++) {
+            Window win = list[i];
+            if (ewmh_skip_taskbar(win)) {
+                continue;
+            }
+            int desktop = ewmh_get_desktop(win);
+            if (current_desktop >= 0 && desktop >= 0) {
+                if (kiwm_output_idx >= 0) {
+                    if (ewmh_kiwm_get_wm_output(win) != kiwm_output_idx || desktop != current_desktop) {
+                        continue;
+                    }
+                } else if (desktop != current_desktop) {
+                    continue;
+                }
+            }
+            if (!ewmh_window_on_output(win, kiwm_output_idx, p->out_x, p->out_y, p->out_w, p->out_h)) {
+                continue;
+            }
+            int minimized, maximized;
+            ewmh_get_state_flags(win, &minimized, &maximized);
+            if (maximized && !minimized) {
+                squared = 1;
+                break;
+            }
+        }
+        XFree(list);
+    }
+
+    if (squared != p->squared_now) {
+        p->squared_now = squared;
+        panel_apply_shape(p);
+        p->dirty = 1;
+    }
 }
 
 /* Live tracking for panel_compositor_present(): panel_apply_shape() only
@@ -2234,8 +2316,9 @@ void panel_paint_content(Panel *p, cairo_t *cr, double scale)
      * falls back to panel_apply_shape()'s own SHAPE masking for the
      * visual effect instead, and the corners stay unclickable there --
      * not fixable from this side. */
-    if (p->border_radius > 0 && p->corner_alpha_clip) {
-        int r = p->border_radius;
+    int eff_radius = panel_effective_border_radius(p);
+    if (eff_radius > 0 && p->corner_alpha_clip) {
+        int r = eff_radius;
         int max_r = (p->w < p->h ? p->w : p->h) / 2;
         if (r > max_r) {
             r = max_r;
@@ -2550,6 +2633,7 @@ static void panel_activate(Panel *p)
     p->win = panel_create_window(p, start_x, start_y, p->w, p->h);
     panel_apply_strut(p);
     panel_apply_shape(p); /* theme's border_radius=, no-op without one */
+    panel_update_squared_for_maximized(p); /* square_when_maximized=, no-op unless set */
     panel_create_surface(p);
 
     for (int i = 0; i < p->n_widgets; i++) {
@@ -2738,6 +2822,7 @@ static void apply_panel_kv(Panel *p, const char *kvline)
     if (p->tooltip_toast_padding_extra < 0) {
         p->tooltip_toast_padding_extra = 0;
     }
+    p->square_when_maximized = kv_get_int(kvline, "square_when_maximized", p->square_when_maximized) != 0;
 }
 
 static void apply_theme_kv(Panel *p, const char *kvline)
@@ -4200,6 +4285,15 @@ static int run_as_daemon(const char *sockpath)
                             ewmh_watch_windows(); /* start watching any newly-mapped windows */
                         }
                         schedule_widget_repoll(now_ms());
+                        /* Same trigger tasklist/winctl re-poll on: a window's
+                         * maximize state (or the client list/current desktop)
+                         * may have just changed, which is exactly what
+                         * square_when_maximized= needs to re-check. */
+                        for (int pi = 0; pi < MAX_PANELS; pi++) {
+                            if (g_panels[pi].in_use) {
+                                panel_update_squared_for_maximized(&g_panels[pi]);
+                            }
+                        }
                     }
                 } else if (ev.type == ConfigureNotify) {
                     /* A top-level window moved/resized (SubstructureNotify on
