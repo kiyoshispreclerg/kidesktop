@@ -14,16 +14,19 @@
  * pattern xispanel's own run_detached() uses. No icon rendering yet, no
  * in-app action search (HUD) -- see README.md's "Planned scope".
  *
- * Positioning: the window is a GTK_WINDOW_POPUP (override-redirect,
- * unmanaged by the WM) so its on-screen position is exactly what we ask
- * for, per PROTOCOL.md's anchor/edge/output flags, without fighting a
- * WM's own placement policy.
+ * Positioning: the window is a real WM-managed toplevel (undecorated via
+ * gtk_window_set_decorated(FALSE), skip-taskbar/skip-pager so it plays no
+ * part in a panel's tasklist) rather than an override-redirect popup --
+ * see reposition_window()'s comment for how its on-screen position still
+ * ends up exactly where PROTOCOL.md's anchor/edge/output flags say despite
+ * that. Being a managed window is also what lets kiwm (or any EWMH WM)
+ * resize/move it like any other client: edge grips and mod_key+drag, with
+ * no code of xisserve's own involved in that part.
  */
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
 #include <gdk/gdkx.h>
 #include <X11/Xatom.h>
-#include <X11/extensions/XTest.h> /* passing a dismissing click through to the panel, see replay_click() */
 
 #include "xisserve.h"
 
@@ -49,7 +52,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.36"
+#define XISSERVE_VERSION "0.1.37"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -166,11 +169,8 @@ static GtkWidget *g_header;
 static GtkWidget *g_header_title; /* left of g_pin_btn -- see update_header_title() */
 static GtkWidget *g_pin_btn;
 /* "Pinned": stay open until explicitly closed instead of vanishing on
- * the first click elsewhere -- see on_pin_toggled(). g_pin_managed
- * tracks whether the window is currently handed to the WM as a dock
- * (set_pin_window_mode()), which decides who owns its stacking. */
+ * the first click elsewhere -- see on_pin_toggled()/set_pin_window_mode(). */
 static gboolean g_pinned;
-static gboolean g_pin_managed;
 static GtkListStore *g_cat_store;
 static GtkListStore *g_view_store;
 static GPtrArray *g_apps;           /* ResultEntry*, persistent scanned apps, owned */
@@ -1692,41 +1692,12 @@ static void reposition_window(void)
     gtk_window_move(GTK_WINDOW(g_window), x, y);
 }
 
-/* Pointer grab uses owner_events=TRUE: clicks landing on one of our own
- * widgets are reported to that widget as usual (normal GTK event
- * delivery), while clicks on any *other* window on screen -- since
- * nothing else can steal the grab -- are reported to g_window itself,
- * which on_window_button_press() below treats as "clicked outside,
- * dismiss". Same idea GtkMenu's own popups use internally. Keyboard grab
- * is what guarantees this override-redirect window actually receives
- * key events on open, since it isn't WM-managed and so never goes
- * through the normal click-to-focus/WM_TAKE_FOCUS path. */
-static void grab_input(void)
-{
-    guint32 t = gtk_get_current_event_time();
-    GdkGrabStatus pg = gdk_pointer_grab(g_window->window, TRUE, GDK_BUTTON_PRESS_MASK, NULL, NULL, t);
-    if (pg != GDK_GRAB_SUCCESS) {
-        g_warning("xisserve: pointer grab failed (status %d), outside-click-to-close won't work", pg);
-    }
-    GdkGrabStatus kg = gdk_keyboard_grab(g_window->window, TRUE, t);
-    if (kg != GDK_GRAB_SUCCESS) {
-        g_warning("xisserve: keyboard grab failed (status %d)", kg);
-    }
-}
-
-static void ungrab_input(void)
-{
-    guint32 t = gtk_get_current_event_time();
-    gdk_pointer_ungrab(t);
-    gdk_keyboard_ungrab(t);
-}
-
 /* Puts the pin back to its default (off, labelled "Fixar"). Clears
  * g_pinned *before* touching the button, because un-setting an active
  * toggle emits "toggled", and on_pin_toggled() keys its close-the-window
  * branch off g_pinned still being set -- clearing it first is what stops
  * a close from recursing back into another close. */
-static void set_pin_window_mode(gboolean as_dock); /* defined below, with the EWMH reasoning */
+static void set_pin_window_mode(gboolean pinned); /* defined below, with the EWMH reasoning */
 
 static void reset_pin(void)
 {
@@ -1742,30 +1713,22 @@ static void reset_pin(void)
 /* The pin control, shared by every view (see g_header).
  *
  * Unpressed ("Fixar", the default) is the popup behavior everything else
- * here is built around: an input grab, and the first click anywhere else
- * dismisses the window. Pressing it drops that grab and suppresses every
- * auto-dismiss path, so the window stays put and other applications can
- * be clicked and typed into normally -- a small always-on-top panel
- * rather than a popup.
+ * here is built around: the window auto-dismisses (see
+ * on_window_focus_out()) the moment it stops being the focused window --
+ * a click on anything else, anywhere on screen. Pressing it suppresses
+ * that auto-dismiss and raises the window into the WM's "always above"
+ * layer (set_pin_window_mode(), below), so it stays put and other
+ * applications can be clicked and typed into normally -- a small
+ * always-on-top panel rather than a popup.
  *
  * While pressed it reads "Fechar" and un-pressing it closes the window
  * outright rather than returning to popup mode. That's the useful
  * meaning of the second click: a pinned window is one the user is done
  * with only when they want it gone, and "revert to dismiss-on-next-
- * outside-click" would otherwise leave it hanging around waiting for a
+ * focus-loss" would otherwise leave it hanging around waiting for a
  * stray click to notice. The pin resets to off on every close (see
  * reset_pin(), called from hide_launcher()), so each open starts in the
- * default popup mode.
- *
- * The window stays override-redirect either way rather than being
- * rebuilt as a WM-managed toplevel when pinned. Handing it to the WM
- * mid-session would mean unmapping and remapping it, then re-fighting
- * the placement policy that GTK_WINDOW_POPUP was chosen to avoid in the
- * first place (see the file header and reposition_window()), and would
- * put decorations and taskbar/pager entries in play. The cost is that
- * "always on top" has to be maintained by hand -- an unmanaged window
- * has no _NET_WM_STATE_ABOVE for the WM to honor -- which is what
- * on_window_visibility() below does. */
+ * default popup mode. */
 static void on_pin_toggled(GtkToggleButton *btn, gpointer data)
 {
     (void)data;
@@ -1774,10 +1737,6 @@ static void on_pin_toggled(GtkToggleButton *btn, gpointer data)
         gtk_button_set_label(GTK_BUTTON(btn), "Fechar");
         gtk_widget_set_tooltip_text(GTK_WIDGET(btn), "Fechar o xisserve");
         if (GTK_WIDGET_VISIBLE(g_window)) {
-            /* Grab first: set_pin_window_mode() unmaps and remaps, and
-             * dropping a grab held on a window being unmapped is not
-             * something to leave to chance. */
-            ungrab_input();
             set_pin_window_mode(TRUE);
         }
         return;
@@ -1791,85 +1750,36 @@ static void on_pin_toggled(GtkToggleButton *btn, gpointer data)
     }
 }
 
-/* Fallback for keeping a pinned window on top when it could *not* be
- * handed to the WM as a dock (see set_pin_window_mode()): an unmanaged
- * window sits in the normal stacking order, so anything raised later
- * covers it, and re-raising whenever it becomes obscured is the standard
- * workaround. Deliberately not used once the window is a managed dock --
- * there the WM owns the stacking, and raising ourselves on top of it
- * would just start a fight with whatever it puts in the same layer
- * (xispanel's own panel, for one). Not a loop: the raise leaves it
- * unobscured, and this only acts on the obscured states. */
+/* Belt-and-suspenders fallback for a pinned window that a WM doesn't
+ * actually honor _NET_WM_STATE_ABOVE for: re-raise on the next moment it
+ * becomes obscured. A no-op the rest of the time -- the raise itself
+ * leaves the window unobscured, so this isn't a fight with the WM's own
+ * stacking, just a correction for WMs that ignore the state entirely. */
 static gboolean on_window_visibility(GtkWidget *w, GdkEventVisibility *ev, gpointer data)
 {
     (void)w;
     (void)data;
-    if (g_pinned && !g_pin_managed && ev->state != GDK_VISIBILITY_UNOBSCURED) {
+    if (g_pinned && ev->state != GDK_VISIBILITY_UNOBSCURED) {
         gdk_window_raise(g_window->window);
     }
     return FALSE;
 }
 
-/* Switches the toplevel between the two window kinds this popup needs.
+/* g_window is a real WM-managed toplevel at all times now (see the file
+ * header) -- this only ever toggles the *pinned* state, which is a matter
+ * of standard EWMH hints, not of remapping anything:
  *
- * Unpinned it is override-redirect: invisible to the WM, positioned
- * exactly where reposition_window() puts it with no placement policy to
- * fight (which is why GTK_WINDOW_POPUP was chosen -- see the file
- * header). That is right for a popup that lives for one interaction
- * under an input grab, but it is exactly wrong for a pinned window: a
- * WM cannot layer what it does not manage. kiwm skips override-redirect
- * windows outright (client.c's manage(): `if (attr->override_redirect)
- * return;`), so a pinned window never reaches LAYER_DOCK and gets
- * covered as soon as the WM restacks anything else -- the "sometimes it
- * isn't on top" this fixes.
- *
- * Pinned, therefore, the window is handed to the WM as a real
- * _NET_WM_WINDOW_TYPE_DOCK: the same type xispanel's panel uses, so it
- * lands in the same always-on-top layer, by the WM's own rules rather
- * than by us re-raising over everyone.
- *
- * Nothing here is kiwm-specific. _NET_WM_WINDOW_TYPE_DOCK is plain
- * EWMH, and an always-on-top dock layer is what every compliant WM
- * implements -- it's the same mechanism that keeps plasmashell's panel
- * and kickoff above ordinary windows under kwin. Two more standard
- * hints go alongside it so the result degrades sensibly on WMs that
- * layer docks less strictly: _NET_WM_STATE_ABOVE (the explicit
- * "keep above" request, via gtk_window_set_keep_above) and
- * skip-taskbar/skip-pager, which docks are conventionally given anyway
- * and which a pinned popup wants regardless. A WM honoring any one of
- * the three keeps the window up front; on_window_visibility() above
- * still covers the case where the handover didn't take at all.
- *
- * The unmap/remap is required, not incidental: a WM only ever considers
- * a window at MapRequest, and override-redirect windows never send one.
- * Toggling the attribute on a mapped window would leave the WM none the
- * wiser. The hints are all set while unmapped, so they're already on the
- * window when the WM first looks at it. */
-static void set_pin_window_mode(gboolean as_dock)
+ *   - _NET_WM_STATE_ABOVE (gtk_window_set_keep_above()): the explicit
+ *     "keep above" request, honored live by any compliant WM without a
+ *     remap -- the same mechanism that keeps plasmashell's panel and
+ *     kickoff above ordinary windows under kwin. on_window_visibility()
+ *     above is the fallback for a WM that doesn't.
+ *   - skip-taskbar/skip-pager: set unconditionally at window creation now
+ *     (build_ui()), not just while pinned -- an undecorated launcher
+ *     popup has no business in a tasklist or pager either way. */
+static void set_pin_window_mode(gboolean pinned)
 {
-    GdkWindow *gw = g_window->window;
-    if (!gw) {
-        return;
-    }
-    gboolean visible = GTK_WIDGET_VISIBLE(g_window);
-    if (visible) {
-        gtk_widget_hide(g_window);
-    }
-    gdk_window_set_override_redirect(gw, !as_dock);
-    gdk_window_set_type_hint(gw, as_dock ? GDK_WINDOW_TYPE_HINT_DOCK : GDK_WINDOW_TYPE_HINT_NORMAL);
-    gtk_window_set_keep_above(GTK_WINDOW(g_window), as_dock);
-    gtk_window_set_skip_taskbar_hint(GTK_WINDOW(g_window), as_dock);
-    gtk_window_set_skip_pager_hint(GTK_WINDOW(g_window), as_dock);
-    g_pin_managed = as_dock;
-    if (visible) {
-        gtk_widget_show(g_window);
-        /* The remap is a fresh placement as far as the WM is concerned,
-         * so the position has to be reasserted rather than assumed to
-         * have survived it. */
-        reposition_window();
-        gdk_window_raise(gw);
-        gdk_window_focus(gw, GDK_CURRENT_TIME);
-    }
+    gtk_window_set_keep_above(GTK_WINDOW(g_window), pinned);
 }
 
 static void leave_current_page(void); /* defined below, next to the page-visibility bookkeeping it owns */
@@ -1884,17 +1794,12 @@ static void hide_launcher(void)
      * icons for a list nobody can see, and the next open rebuilds it
      * from scratch anyway. */
     xisserve_icon_job_cancel(&g_row_icon_job);
-    ungrab_input();
     gtk_widget_hide(g_window);
     /* Every close returns the pin to its default, whichever way the
-     * close happened -- the "Fechar" button, Escape, a click outside, or
-     * the panel button. So the next open is always a plain popup with
-     * the button reading "Fixar" again, and (via set_pin_window_mode())
-     * an override-redirect window again rather than a dock the WM is
-     * still tracking. */
-    if (g_pin_managed) {
-        set_pin_window_mode(FALSE);
-    }
+     * close happened -- the "Fechar" button, Escape, a focus loss, or the
+     * panel button. So the next open is always a plain, non-keep-above
+     * popup with the button reading "Fixar" again. */
+    set_pin_window_mode(FALSE);
     reset_pin();
 }
 
@@ -2149,9 +2054,10 @@ static void apply_view_mode(void)
      * will *ask for* on the next negotiation -- it doesn't shrink an
      * already-mapped, already-allocated toplevel back down by itself
      * (nothing re-triggers that negotiation just because a minimum was
-     * lowered). gtk_window_resize() forces the actual window to the
-     * size we now know is right, which for GTK_WINDOW_POPUP (override-
-     * redirect, no WM to negotiate with) takes effect immediately. */
+     * lowered). gtk_window_resize() asks the WM for the size we now know
+     * is right; kiwm (like any WM) honors a client's own resize request
+     * immediately when nothing else is fighting over that window's
+     * geometry, which is the case here. */
     GtkRequisition req;
     gtk_widget_size_request(g_window, &req);
     gtk_window_resize(GTK_WINDOW(g_window), req.width, req.height);
@@ -2164,39 +2070,6 @@ static void apply_view_mode(void)
  * g_args is overwritten by the new invocation's argv before the outgoing
  * page has been told anything. */
 static int g_shown_page = PAGE_LAUNCHER;
-
-/* The fallback that closes a popup left up (grab dropped, not hidden)
- * for a dismissing click replayed onto the panel underneath it -- see
- * the big comment on that machinery further down, above pointer_over_
- * dock(). If the replayed click actually reaches an xisserve-spawning
- * widget, that widget's own request arrives on the control socket well
- * within this and on_ctl_accept() cancels it, so the window closing (or
- * swapping to the new page) is driven by the widget's request, not by
- * this timer. If the click missed every such widget (a panel button
- * that doesn't spawn xisserve, or empty panel space), nothing ever
- * arrives, and this is what finally closes a window that would
- * otherwise be stuck open with no grab watching for the next click.
- * 250ms is generous for a Unix-socket round trip plus a fresh process's
- * gtk_init() (~7ms measured) but short enough that the miss case reads
- * as a slightly late close rather than a stuck window. */
-#define PENDING_DISMISS_MS 250
-static guint g_pending_dismiss_id;
-
-static gboolean pending_dismiss_fire(gpointer data)
-{
-    (void)data;
-    g_pending_dismiss_id = 0;
-    hide_launcher();
-    return FALSE;
-}
-
-static void cancel_pending_dismiss(void)
-{
-    if (g_pending_dismiss_id) {
-        g_source_remove(g_pending_dismiss_id);
-        g_pending_dismiss_id = 0;
-    }
-}
 
 static void leave_current_page(void)
 {
@@ -2249,12 +2122,6 @@ static void show_launcher(void)
     gtk_window_present(GTK_WINDOW(g_window));
     gdk_window_raise(g_window->window);
     gdk_window_focus(g_window->window, GDK_CURRENT_TIME);
-    /* Normally always true: hide_launcher() resets the pin, so an open
-     * starts unpinned and grabbing. Guarded anyway rather than calling
-     * grab_input() unconditionally, so that a future path which shows an
-     * already-pinned window can't silently re-grab it and undo the
-     * pinning behind the toggle's back. */
-    if (!g_pinned) grab_input();
     gtk_widget_grab_focus(g_args.page == PAGE_LAUNCHER ? g_entry : g_page_roots[g_args.page]);
 }
 
@@ -2415,15 +2282,12 @@ static gboolean on_ctl_accept(GIOChannel *source, GIOCondition cond, gpointer da
 
     LaunchArgs newargs;
     if (parse_json_args(buf, &newargs)) {
-        /* A click passed through to the panel (replay_click()) lands
-         * here almost immediately, as the widget under it spawning its
-         * own xisserve -- and the window is still up (on_window_button_
-         * press() no longer hides it before replaying, see that
-         * comment), so this is just an ordinary toggle_visibility()
-         * call: same page as what's showing means the same widget was
-         * clicked again, which closes it; a different page shows it in
-         * place, no hide/show cycle in between. */
-        cancel_pending_dismiss(); /* a request arrived -- the fallback below is moot */
+        /* A second invocation targeting an already-open window (the same
+         * panel widget clicked again, or a different one) always goes
+         * through toggle_visibility(): same page as what's showing means
+         * the same widget was clicked again, which closes it; a
+         * different page shows it in place, no hide/show cycle in
+         * between. */
         g_args = newargs;
         apply_theme();
         /* reposition_window() is no longer called standalone here -- it
@@ -2532,11 +2396,11 @@ static void free_closure_data(gpointer data, GClosure *closure)
     g_free(data);
 }
 
-/* Set for the duration of any of *our own* popups that take the X grab
- * away from g_window (right-click context menu, a page's own
- * GtkComboBox dropdown) -- see on_window_grab_broken()'s comment for why
- * this needs to be distinguishable from a *foreign* grab theft. Exported
- * as xisserve_transient_popup_begin()/_end() below rather than kept
+/* Set for the duration of any of *our own* popups (right-click context
+ * menu, a page's own GtkComboBox dropdown) -- see on_window_focus_out()'s
+ * comment for why that needs to be able to tell one of these apart from
+ * g_window genuinely losing focus to another application. Exported as
+ * xisserve_transient_popup_begin()/_end() below rather than kept
  * file-private, so pages/*.c share this one mechanism instead of each
  * inventing its own flag. */
 static gboolean g_transient_popup_active = FALSE;
@@ -2549,15 +2413,10 @@ void xisserve_transient_popup_begin(void)
 void xisserve_transient_popup_end(void)
 {
     g_transient_popup_active = FALSE;
-    if (GTK_WIDGET_VISIBLE(g_window)) grab_input();
 }
 
-/* GtkMenu's own popup takes the X pointer/keyboard grab while shown,
- * superseding grab_input()'s explicit gdk_pointer_grab/gdk_keyboard_grab
- * on g_window (only one active grab can exist at a time) -- reclaim it
- * once the menu interaction ends (item picked or dismissed) so outside-
- * click-to-close and keyboard routing keep working afterwards. Also
- * frees the menu, which gtk_menu_popup() otherwise leaves to us. */
+/* Frees the menu, which gtk_menu_popup() otherwise leaves to us, and
+ * clears the transient-popup guard now that it's gone. */
 static void on_context_menu_selection_done(GtkWidget *menu, gpointer data)
 {
     (void)data;
@@ -2703,210 +2562,27 @@ static gboolean on_icon_button_press(GtkWidget *iv, GdkEventButton *ev, gpointer
     return TRUE;
 }
 
-/* Fires both for genuine outside clicks (owner_events=TRUE reports those
- * to the grab window, i.e. us, per grab_input()'s comment) and for
- * clicks landing on g_window's own background between child widgets
- * (the vbox has no GdkWindow of its own, so those land here too) --
- * only the former should close the popup, hence the bounds check. */
-/* ---- passing a dismissing click through to the panel ---------------------
+/* Now that g_window is a real WM-managed toplevel (see the file header),
+ * "click anywhere else to close" is just the standard click-to-focus
+ * consequence: clicking any other window makes the WM move X input focus
+ * there, which is exactly the signal to dismiss. No grab, no replayed
+ * clicks -- a click landing on a xispanel widget (or anywhere else)
+ * reaches it directly and normally; if that widget spawns its own
+ * xisserve request it arrives on the control socket and on_ctl_accept()
+ * -> toggle_visibility() decides the window's fate (close if it names the
+ * page already showing, swap content+geometry in place otherwise) same
+ * as always.
  *
- * The input grab that makes "click anywhere else to close" work also
- * eats that click, so switching from one panel widget's page to
- * another's used to take two clicks: one outside to dismiss, one on the
- * widget that was already clicked. This section is what makes it one --
- * a dismissing click that landed on a panel is re-delivered once the
- * grab is out of its way, so the widget under the pointer sees it and
- * asks for its own page.
- *
- * Crucially the window itself is *not* hidden first. The whole point is
- * that the widget's own request (toggle_visibility(), now per-page) is
- * what decides the window's fate -- close if it names the page already
- * showing, swap content+geometry in place otherwise -- and it can only
- * tell those apart correctly if g_shown_page hasn't already been reset
- * by a premature hide_launcher(). Staying up and mapped the whole time
- * is also what turns the switch into the same smooth in-place resize
- * every other page-to-page transition already gets (show_launcher() on
- * an already-visible window never unmaps it) instead of a hide/show
- * flicker -- pending_dismiss_fire() below is only the fallback for a
- * click that misses every xisserve-spawning widget.
- *
- * Only clicks on an EWMH dock (what xispanel marks its panels as, see
- * xispanel/xispanel.c) are passed on. A dismissing click on an ordinary
- * window stays swallowed, exactly as before: clicking "somewhere else"
- * to close a popup shouldn't also press whatever button happened to be
- * under the pointer in another application.
- */
-
-/* Walks the window tree down from the root along the pointer's position
- * looking for _NET_WM_WINDOW_TYPE_DOCK -- checked at every level rather
- * than only on the deepest child, since the dock property lives on a
- * panel's toplevel and the pointer is usually over one of its children.
- * Errors are trapped: any window here can be destroyed between the
- * query and the property read. */
-static gboolean pointer_over_dock(void)
-{
-    Display *dpy = GDK_DISPLAY();
-    Atom type_atom = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE", True);
-    Atom dock_atom = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_DOCK", True);
-    if (type_atom == None || dock_atom == None) return FALSE;
-
-    gboolean found = FALSE;
-    gdk_error_trap_push();
-
-    Window w = GDK_ROOT_WINDOW(), child = None, root_ret;
-    int rx, ry, wx, wy;
-    unsigned int mask;
-    while (!found && XQueryPointer(dpy, w, &root_ret, &child, &rx, &ry, &wx, &wy, &mask) &&
-           child != None) {
-        w = child;
-        Atom actual;
-        int fmt;
-        unsigned long n = 0, after = 0;
-        unsigned char *prop = NULL;
-        if (XGetWindowProperty(dpy, w, type_atom, 0, 8, False, XA_ATOM, &actual, &fmt, &n, &after,
-                               &prop) == Success && prop) {
-            if (actual == XA_ATOM && fmt == 32) {
-                Atom *atoms = (Atom *)prop;
-                for (unsigned long i = 0; i < n; i++) {
-                    if (atoms[i] == dock_atom) found = TRUE;
-                }
-            }
-            XFree(prop);
-        }
-    }
-
-    gdk_flush();
-    gdk_error_trap_pop();
-    return found;
-}
-
-/* Synthesizing the click the grab swallowed has one hard requirement:
- * the user's own button must be up first. A press of a button the
- * server already considers held produces nothing at all, and while this
- * runs from that very press's handler the real release hasn't happened
- * yet -- a human holds a click for tens of milliseconds. Firing
- * immediately therefore delivered only the release half, and the widget
- * under the pointer saw no click; with fast synthetic input (xdotool)
- * it worked or not depending on which arrived first, which is exactly
- * the sort of intermittency that would have been miserable to chase
- * later. So: poll for the release, then replay.
- *
- * XTest rather than XSendEvent because a panel has no reason to accept
- * synthetic events, and xisserve already links libXtst for the
- * on-screen keyboard. */
-#define REPLAY_POLL_MS 10
-#define REPLAY_GIVE_UP_MS 600
-
-/* g_pending_dismiss_id/cancel_pending_dismiss()/PENDING_DISMISS_MS live
- * earlier, next to g_shown_page -- on_ctl_accept() needs them and comes
- * before this section in the file. */
-
-typedef struct {
-    guint button;
-    int waited_ms;
-} PendingReplay;
-
-static gboolean replay_when_released(gpointer data)
-{
-    PendingReplay *pr = data;
-    Display *dpy = GDK_DISPLAY();
-
-    Window root_ret, child = None;
-    int rx, ry, wx, wy;
-    unsigned int mask = 0;
-    if (!XQueryPointer(dpy, GDK_ROOT_WINDOW(), &root_ret, &child, &rx, &ry, &wx, &wy, &mask)) {
-        g_free(pr);
-        hide_launcher();
-        return FALSE;
-    }
-
-    if (mask & (Button1Mask | Button2Mask | Button3Mask | Button4Mask | Button5Mask)) {
-        pr->waited_ms += REPLAY_POLL_MS;
-        if (pr->waited_ms < REPLAY_GIVE_UP_MS) return TRUE; /* still held -- keep waiting */
-        g_free(pr);                                          /* stuck button, or a drag: give up and close */
-        hide_launcher();
-        return FALSE;
-    }
-
-    /* The pointer can have left the panel while the button was held --
-     * a press-drag-release is not a click on anything, and passing it
-     * on would press whatever the pointer ended up over. */
-    if (pointer_over_dock()) {
-        XTestFakeButtonEvent(dpy, pr->button, True, CurrentTime);
-        XTestFakeButtonEvent(dpy, pr->button, False, CurrentTime);
-        XFlush(dpy);
-        g_pending_dismiss_id = g_timeout_add(PENDING_DISMISS_MS, pending_dismiss_fire, NULL);
-    } else {
-        hide_launcher();
-    }
-    g_free(pr);
-    return FALSE;
-}
-
-static void replay_click(guint button)
-{
-    PendingReplay *pr = g_new0(PendingReplay, 1);
-    pr->button = button;
-    g_timeout_add(REPLAY_POLL_MS, replay_when_released, pr);
-}
-
-static gboolean on_window_button_press(GtkWidget *w, GdkEventButton *ev, gpointer data)
-{
-    (void)data;
-    if (ev->type != GDK_BUTTON_PRESS) return FALSE;
-    gboolean outside =
-        ev->x < 0 || ev->y < 0 || ev->x >= w->allocation.width || ev->y >= w->allocation.height;
-    if (outside) {
-        /* Pinned: clicking elsewhere is meant to go to that other
-         * window, not dismiss this one. (With no grab active this
-         * handler barely sees outside clicks anyway, but a click can
-         * still land here in the window between unpinning and the grab
-         * being re-established.) */
-        if (g_pinned) return FALSE;
-        if (pointer_over_dock()) {
-            /* Just drop the grab -- see the section comment above for
-             * why the window itself stays up. */
-            ungrab_input();
-            replay_click(ev->button);
-        } else {
-            hide_launcher();
-        }
-        return TRUE;
-    }
-    /* Clicked inside while pinned: take the keyboard back. Nothing else
-     * will hand it over -- an override-redirect window is invisible to
-     * the WM's click-to-focus, and while pinned there's no keyboard grab
-     * routing keys here either, so without this the search entry and
-     * every other control would be unusable after focusing another
-     * application. */
-    if (g_pinned) {
-        gdk_window_focus(g_window->window, ev->time);
-    }
-    return FALSE;
-}
-
-/* The WM or another client can steal an active grab out from under us
- * (e.g. a different app opening its own grabbing popup); when that
- * happens we're no longer guaranteed input focus or outside-click
- * detection, so just close rather than linger in a half-working state.
- * BUT one of our OWN popups (right-click context menu, a page's own
- * GtkComboBox dropdown) breaks our grab exactly the same way (GtkMenu's
- * popup takes its own grab while shown) -- that case is expected and
- * already handled by xisserve_transient_popup_end() reclaiming the grab
- * once it closes, so it must NOT hide us here too, or the main window
- * vanishes the instant that popup opens, leaving only the little popup
- * on screen with nothing behind it. */
-static gboolean on_window_grab_broken(GtkWidget *w, GdkEventGrabBroken *ev, gpointer data)
+ * g_transient_popup_active guards against one of our OWN popups (the
+ * right-click context menu, a page's own GtkComboBox dropdown) being
+ * mistaken for that: see xisserve_transient_popup_begin()/_end(). */
+static gboolean on_window_focus_out(GtkWidget *w, GdkEventFocus *ev, gpointer data)
 {
     (void)w;
     (void)ev;
     (void)data;
-    if (g_transient_popup_active) return FALSE;
-    /* Pinned windows hold no grab by design, so losing one is not the
-     * "we've been left in a half-working state" signal it otherwise is
-     * -- it's just the expected consequence of pinning. */
-    if (g_pinned) return FALSE;
-    gtk_widget_hide(g_window);
+    if (g_pinned || g_transient_popup_active) return FALSE;
+    hide_launcher();
     return FALSE;
 }
 
@@ -3001,15 +2677,19 @@ static gboolean on_icon_motion(GtkWidget *iv, GdkEventMotion *ev, gpointer data)
 
 static void build_ui(void)
 {
-    g_window = gtk_window_new(GTK_WINDOW_POPUP);
+    g_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_widget_set_size_request(g_window, WIN_WIDTH, WIN_HEIGHT);
-    /* GTK_WINDOW_POPUP is override-redirect (no WM decorations, so no
-     * drag-to-resize border of its own), but resizable is otherwise an
-     * independent property -- explicit here so a WM that resizes
-     * windows by some other means regardless of decoration (e.g. kiwm's
-     * own corner-resize) isn't refused by GTK on our end. */
+    /* Undecorated (no titlebar/border of our own -- see the file header)
+     * but a completely ordinary, WM-managed, resizable toplevel
+     * otherwise: this is what lets kiwm's own edge grips and mod_key+drag
+     * move/resize it like any other client. skip-taskbar/skip-pager keep
+     * it out of a panel's tasklist despite being managed, which is what
+     * being unmanaged used to do for free. */
+    gtk_window_set_decorated(GTK_WINDOW(g_window), FALSE);
     gtk_window_set_resizable(GTK_WINDOW(g_window), TRUE);
-    gtk_widget_add_events(g_window, GDK_BUTTON_PRESS_MASK | GDK_VISIBILITY_NOTIFY_MASK);
+    gtk_window_set_skip_taskbar_hint(GTK_WINDOW(g_window), TRUE);
+    gtk_window_set_skip_pager_hint(GTK_WINDOW(g_window), TRUE);
+    gtk_widget_add_events(g_window, GDK_VISIBILITY_NOTIFY_MASK);
 
     GdkScreen *screen = gtk_widget_get_screen(g_window);
     GdkColormap *cmap = gdk_screen_get_rgba_colormap(screen);
@@ -3017,8 +2697,7 @@ static void build_ui(void)
     gtk_widget_set_app_paintable(g_window, TRUE);
 
     g_signal_connect(g_window, "expose-event", G_CALLBACK(on_window_expose), NULL);
-    g_signal_connect(g_window, "button-press-event", G_CALLBACK(on_window_button_press), NULL);
-    g_signal_connect(g_window, "grab-broken-event", G_CALLBACK(on_window_grab_broken), NULL);
+    g_signal_connect(g_window, "focus-out-event", G_CALLBACK(on_window_focus_out), NULL);
     g_signal_connect(g_window, "visibility-notify-event", G_CALLBACK(on_window_visibility), NULL);
 
     GtkWidget *vbox = gtk_vbox_new(FALSE, 4);
