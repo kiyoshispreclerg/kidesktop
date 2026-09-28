@@ -52,7 +52,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.38"
+#define XISSERVE_VERSION "0.1.39"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -100,6 +100,14 @@ static const XisservePage kPages[] = {
  * longer built eagerly. */
 static GtkWidget *g_page_roots[N_PAGES];
 static GtkWidget *g_main_vbox; /* what ensure_page_built() packs a freshly-built root into */
+
+/* Which page's on_hide() still owes a call -- a page is "left" both by
+ * hiding the window and by a later invocation switching to a different
+ * page, and only the page itself knows what that should stop (the audio
+ * mixer's poll timer, say). Tracked separately from g_args.page because
+ * g_args is overwritten by the new invocation's argv before the outgoing
+ * page has been told anything. */
+static int g_shown_page = PAGE_LAUNCHER;
 
 typedef struct {
     int anchor_x, anchor_y, anchor_w, anchor_h;
@@ -1783,9 +1791,13 @@ static void set_pin_window_mode(gboolean pinned)
 }
 
 static void leave_current_page(void); /* defined below, next to the page-visibility bookkeeping it owns */
+static void save_current_page_size(void); /* defined below, next to the size-persistence it owns */
 
 static void hide_launcher(void)
 {
+    /* Before leave_current_page() moves g_shown_page off whatever this
+     * is -- see save_current_page_size()'s own comment. */
+    save_current_page_size();
     /* A hidden popup is "left" as far as its page is concerned -- the
      * audio mixer's `pactl` poll in particular has no business running
      * against a window nobody can see. */
@@ -2014,6 +2026,109 @@ static void update_header_title(void)
     gtk_label_set_text(GTK_LABEL(g_header_title), text);
 }
 
+/* ---- per-page window size persistence -------------------------------------
+ *
+ * Now that the window is genuinely resizable (see the file header), a
+ * size the user drags into place should survive the next open -- each
+ * page/launcher view remembers its own, since a wide network page and a
+ * tall calendar have nothing in common size-wise.
+ *
+ * A separate file, "xisserve-sizes.conf" next to xisserve.conf, one
+ * "flag\twidth\theight" line per view (same tab-delimited shape, but
+ * written by xisserve itself rather than hand-edited -- like
+ * xisserve-favorites.conf). Loaded lazily on first use rather than from
+ * main(): nothing before the first apply_view_mode() needs it. */
+static GHashTable *g_sizes; /* flag -> "width\theight" string, both owned */
+
+static void sizes_path(char *out, size_t outsz)
+{
+    const char *xdg_config = getenv("XDG_CONFIG_HOME");
+    if (xdg_config && *xdg_config) {
+        mkdir(xdg_config, 0700);
+        snprintf(out, outsz, "%s/xisserve-sizes.conf", xdg_config);
+        return;
+    }
+    const char *home = getenv("HOME");
+    char configdir[PATH_MAX];
+    snprintf(configdir, sizeof(configdir), "%s/.config", home ? home : "");
+    mkdir(configdir, 0700);
+    snprintf(out, outsz, "%s/xisserve-sizes.conf", configdir);
+}
+
+static void ensure_sizes_loaded(void)
+{
+    if (g_sizes) return;
+    g_sizes = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+
+    char path[PATH_MAX];
+    sizes_path(path, sizeof(path));
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        size_t l = strlen(line);
+        while (l > 0 && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = 0;
+        char *tab1 = strchr(line, '\t');
+        if (!tab1) continue;
+        *tab1 = 0;
+        int w = 0, h = 0;
+        if (sscanf(tab1 + 1, "%d\t%d", &w, &h) == 2 && w > 0 && h > 0) {
+            g_hash_table_insert(g_sizes, g_strdup(line), g_strdup_printf("%d\t%d", w, h));
+        }
+    }
+    fclose(f);
+}
+
+static void save_sizes(void)
+{
+    char path[PATH_MAX];
+    sizes_path(path, sizeof(path));
+    FILE *f = fopen(path, "w");
+    if (!f) {
+        perror("xisserve: save sizes");
+        return;
+    }
+    GHashTableIter it;
+    gpointer key, value;
+    g_hash_table_iter_init(&it, g_sizes);
+    while (g_hash_table_iter_next(&it, &key, &value)) {
+        fprintf(f, "%s\t%s\n", (const char *)key, (const char *)value);
+    }
+    fclose(f);
+}
+
+static const char *page_size_key(int page)
+{
+    return page == PAGE_LAUNCHER ? "launcher" : kPages[page].flag;
+}
+
+static gboolean get_saved_size(const char *key, int *w, int *h)
+{
+    ensure_sizes_loaded();
+    const char *val = g_hash_table_lookup(g_sizes, key);
+    return val && sscanf(val, "%d\t%d", w, h) == 2;
+}
+
+static void set_saved_size(const char *key, int w, int h)
+{
+    ensure_sizes_loaded();
+    g_hash_table_insert(g_sizes, g_strdup(key), g_strdup_printf("%d\t%d", w, h));
+    save_sizes();
+}
+
+/* Remembers whichever page/view is on screen right now, before it stops
+ * being current -- called from both show_launcher() (about to switch to
+ * a different page) and hide_launcher() (about to close), right before
+ * leave_current_page() moves g_shown_page off it. A no-op while nothing
+ * is actually mapped (startup, or a redundant second call). */
+static void save_current_page_size(void)
+{
+    if (!GTK_WIDGET_VISIBLE(g_window)) return;
+    int w, h;
+    gtk_window_get_size(GTK_WINDOW(g_window), &w, &h);
+    set_saved_size(page_size_key(g_shown_page), w, h);
+}
+
 static void apply_view_mode(void)
 {
     update_header_title();
@@ -2057,19 +2172,22 @@ static void apply_view_mode(void)
      * lowered). gtk_window_resize() asks the WM for the size we now know
      * is right; kiwm (like any WM) honors a client's own resize request
      * immediately when nothing else is fighting over that window's
-     * geometry, which is the case here. */
+     * geometry, which is the case here.
+     *
+     * A saved size (see save_current_page_size()) only ever grows this
+     * past the natural/floor requisition just computed, never shrinks it
+     * below -- a page's own minimum is still a minimum regardless of what
+     * got saved for it under, say, a since-shrunk font or output. */
     GtkRequisition req;
     gtk_widget_size_request(g_window, &req);
-    gtk_window_resize(GTK_WINDOW(g_window), req.width, req.height);
+    int want_w = req.width, want_h = req.height;
+    int saved_w, saved_h;
+    if (get_saved_size(page_size_key(g_args.page), &saved_w, &saved_h)) {
+        if (saved_w > want_w) want_w = saved_w;
+        if (saved_h > want_h) want_h = saved_h;
+    }
+    gtk_window_resize(GTK_WINDOW(g_window), want_w, want_h);
 }
-
-/* Which page's on_hide() still owes a call -- a page is "left" both by
- * hiding the window and by a later invocation switching to a different
- * page, and only the page itself knows what that should stop (the audio
- * mixer's poll timer, say). Tracked separately from g_args.page because
- * g_args is overwritten by the new invocation's argv before the outgoing
- * page has been told anything. */
-static int g_shown_page = PAGE_LAUNCHER;
 
 static void leave_current_page(void)
 {
@@ -2090,6 +2208,10 @@ static void show_launcher(void)
         g_hovered_result_path = NULL;
     }
 
+    /* Before leave_current_page() moves g_shown_page off whatever this
+     * is -- covers an in-place page swap on an already-visible window,
+     * not just a real close (hide_launcher() covers that case). */
+    save_current_page_size();
     leave_current_page();
     load_config(); /* before either branch -- pages read settings too, see rescan_apps() */
 
