@@ -52,7 +52,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.37"
+#define XISSERVE_VERSION "0.1.38"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -2196,16 +2196,26 @@ typedef struct {
 
 /* systemd-logind's `loginctl`/`systemctl` cover shutdown/reboot/suspend/
  * lock on any systemd system without needing a desktop-specific tool;
- * "Trocar usuario" only has a real answer under LightDM's `dm-tool`, and
- * "Sair" (logout) has no generic single command at all for a
- * WM-agnostic session like this one -- both ship as visible buttons per
- * the ask, the latter always shown (cmd left NULL, a stub), the former
- * hidden unless dm-tool is actually installed. */
+ * "Trocar usuario" only has a real answer under LightDM's `dm-tool`. Both
+ * are hidden unless their tool is actually installed.
+ *
+ * "Sair" (logout) has no generic single command for a WM-agnostic session
+ * like this one, so it targets kisession directly instead: SIGTERM is
+ * what kisession's own shutdown_session() already listens for (see
+ * kisession.c) to stop every service gracefully in reverse start order
+ * and then exit, and kisession.pid (written at startup, see
+ * write_pidfile()) is how a process with no other relationship to it
+ * finds its pid. Silent no-op (both `cat` and `kill` errors redirected)
+ * when kisession isn't running -- e.g. xisserve started by hand outside
+ * a KiDesktop session -- rather than surfacing a confusing error for a
+ * button that's always shown. */
 static const PowerAction kPowerActions[] = {
     {"Desligar", "systemctl", "systemctl poweroff", "Desligar o computador agora?"},
     {"Reiniciar", "systemctl", "systemctl reboot", "Reiniciar o computador agora?"},
     {"Suspender", "systemctl", "systemctl suspend", "Suspender o computador agora?"},
-    {"Sair", NULL, NULL, "Encerrar a sessao atual?"},
+    {"Sair", NULL,
+     "kill -TERM \"$(cat \"${XDG_RUNTIME_DIR:-/tmp}/kisession.pid\" 2>/dev/null)\" 2>/dev/null",
+     "Encerrar a sessao atual?"},
     {"Trocar usuario", "dm-tool", "dm-tool switch-to-greeter", "Trocar de usuario agora?"},
     {"Bloquear tela", "loginctl", "loginctl lock-session", "Bloquear a tela agora?"},
 };

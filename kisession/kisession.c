@@ -65,7 +65,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KISESSION_VERSION "0.1.5"
+#define KISESSION_VERSION "0.1.6"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -788,6 +788,49 @@ static int x_error_ignore(Display *dpy, XErrorEvent *ev)
     (void)dpy;
     (void)ev;
     return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* pidfile -- lets another process (xisserve's "Sair") find us to ask  */
+/* for a graceful shutdown, without inventing a control socket for the */
+/* one thing a signal already does (see shutdown_session()).           */
+/* ------------------------------------------------------------------ */
+
+static void pidfile_path(char *out, size_t outsz)
+{
+    snprintf(out, outsz, "%s/kisession.pid", env_or("XDG_RUNTIME_DIR", "/tmp"));
+}
+
+static void write_pidfile(void)
+{
+    char path[PATH_MAX];
+    pidfile_path(path, sizeof(path));
+    FILE *f = fopen(path, "w");
+    if (!f) {
+        fprintf(stderr, "kisession: could not write pidfile '%s': %s\n", path, strerror(errno));
+        return;
+    }
+    fprintf(f, "%d\n", (int)getpid());
+    fclose(f);
+}
+
+/* Only removed if it's still ours -- a second kisession instance failing
+ * to start (singleton check elsewhere, if any) must never delete the
+ * running one's pidfile out from under it. */
+static void remove_pidfile(void)
+{
+    char path[PATH_MAX];
+    pidfile_path(path, sizeof(path));
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        return;
+    }
+    int pid = 0;
+    int scanned = fscanf(f, "%d", &pid);
+    fclose(f);
+    if (scanned == 1 && pid == (int)getpid()) {
+        unlink(path);
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1683,7 +1726,13 @@ int main(int argc, char **argv)
     fcntl(g_sigpipe[1], F_SETFL, O_NONBLOCK);
     install_signals();
 
+    /* setup_environment() may re-exec this process under dbus-run-session
+     * (see its own comment) -- execvp() never returns when that happens,
+     * so the pidfile is only ever written by the process that's actually
+     * going to stay alive as kisession, with the PID that's actually
+     * going to keep meaning something. */
     setup_environment(argv);
+    write_pidfile();
 
     /* Opened after the environment is settled (a dbus-run-session re-exec
      * above would have thrown this away). Not fatal if it fails: only the
@@ -1750,6 +1799,7 @@ int main(int argc, char **argv)
     }
 
     shutdown_session();
+    remove_pidfile();
     if (g_dpy) {
         XCloseDisplay(g_dpy);
     }
