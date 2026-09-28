@@ -371,6 +371,8 @@ extern const CompEffectModule effect_fade_in;
 extern const CompEffectModule effect_fade_out;
 extern const CompEffectModule effect_scale_in;
 extern const CompEffectModule effect_scale_out;
+extern const CompEffectModule effect_slide_in;
+extern const CompEffectModule effect_slide_out;
 extern const CompEffectModule effect_shade;
 extern const CompEffectModule effect_minimize;
 extern const CompEffectModule effect_desktop_wall;

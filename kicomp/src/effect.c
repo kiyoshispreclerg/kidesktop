@@ -19,6 +19,8 @@ static const CompEffectModule *const modules[] = {
     &effect_fade_out,
     &effect_scale_in,
     &effect_scale_out,
+    &effect_slide_in,
+    &effect_slide_out,
     &effect_shade,
     &effect_minimize,
     &effect_desktop_wall,

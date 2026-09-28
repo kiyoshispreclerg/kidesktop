@@ -15,6 +15,7 @@ SRCS := src/main.c src/config.c src/dri3.c src/output.c src/renderer.c src/windo
         src/effects/geometry.c \
         src/effects/fade-in.c src/effects/fade-out.c \
         src/effects/scale-in.c src/effects/scale-out.c \
+        src/effects/slide-in.c src/effects/slide-out.c \
         src/effects/shade.c src/effects/minimize.c \
         src/effects/desktop-wall.c src/effects/smooth-move.c \
         src/effects/dodge.c \

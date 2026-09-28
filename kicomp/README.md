@@ -712,6 +712,32 @@ By default they answer only to `close`. To have minimizing dissolve too,
 `events = close,minimize` — and when the `minimize` effect exists, take
 it back out of that list.
 
+### `slide-in` and `slide-out`
+
+A window that has just appeared arrives from a point a little off its
+real position, sliding the rest of the way in; `slide-out` is the same
+in reverse, on closing. Aimed at popups rather than ordinary windows —
+the default window list is `popups`, which is where a xisserve page
+(the launcher, the audio/network/energy flyouts) and a xispanel tooltip
+or toast live.
+
+| key | values |
+|---|---|
+| `offset` | how far displaced at the start (or end), as a fraction of the window's own size on the slide axis (0.02–3.0, default 0.3) |
+| `direction` | `auto` (default): whichever axis points at the nearest edge of the window's output — horizontal for the left/right edge, vertical for top/bottom. `horizontal` / `vertical` pin the axis; the sign still follows the nearest edge on it. |
+
+The direction is computed once, when the effect starts, from the
+window's own centre against its output's edges — a popup pinned to the
+right of the screen always arrives from further right, never from the
+left, whichever axis is picked. Like `scale-in`/`scale-out`, the
+transform is a pure translate: the window keeps its shape clip the whole
+time, so a rounded-corner popup doesn't briefly square off mid-slide.
+
+`slide-out` outlives its own window exactly as `fade-out`/`scale-out`
+do — held by `window_retain()` until the animation ends. Off by default,
+same as `scale-in`/`scale-out`: stacked on top of `fade-in`/`fade-out`
+it's a matter of taste.
+
 ### `shade` / `unshade`
 
 The window rolls up behind its own titlebar, and unrolls back out of it.
