@@ -52,7 +52,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.39"
+#define XISSERVE_VERSION "0.1.40"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -108,6 +108,17 @@ static GtkWidget *g_main_vbox; /* what ensure_page_built() packs a freshly-built
  * g_args is overwritten by the new invocation's argv before the outgoing
  * page has been told anything. */
 static int g_shown_page = PAGE_LAUNCHER;
+
+/* The size apply_view_mode() actually asked the WM for -- what
+ * reposition_window() must anchor against, since re-querying
+ * gtk_widget_size_request() there (the widget's natural/floor
+ * requisition) undercounts whenever a saved size (get_saved_size()) grew
+ * the window past it: an edge anchored off that smaller number leaves the
+ * *real*, larger window hanging off whichever side it grew towards once
+ * the WM actually applies the resize (asynchronous now that the window is
+ * WM-managed, unlike the old override-redirect popup where the resize
+ * used to be visible immediately). */
+static int g_applied_w = WIN_WIDTH, g_applied_h = WIN_HEIGHT;
 
 typedef struct {
     int anchor_x, anchor_y, anchor_w, anchor_h;
@@ -1669,9 +1680,7 @@ static void ensure_page_built(int idx)
  * larger than the guess. */
 static void reposition_window(void)
 {
-    GtkRequisition req;
-    gtk_widget_size_request(g_window, &req);
-    int ww = req.width, wh = req.height;
+    int ww = g_applied_w, wh = g_applied_h;
     int x, y;
     if (strcmp(g_args.edge, "top") == 0) {
         x = g_args.anchor_x;
@@ -1974,10 +1983,11 @@ static void on_grid_toggle(GtkToggleButton *btn, gpointer data)
  * split-pane layout is designed around it); a page gets whatever floor
  * its kPages row asks for, or none at all (0/0 -- the calendar), in
  * which case the window ends up exactly that widget's natural size for
- * the active font/locale. reposition_window() (called right after this,
- * in show_launcher()) then queries the real resulting size rather than
- * guessing it, which is what actually keeps the popup fully inside its
- * output.
+ * the active font/locale. This function is also what sets g_applied_w/h
+ * to the real size just asked for (natural/floor, or a saved size grown
+ * past it); reposition_window() (called right after this, in
+ * show_launcher()) anchors against those rather than guessing, which is
+ * what actually keeps the window fully inside its output.
  *
  * Must run *after* gtk_widget_show_all(g_window) in show_launcher():
  * show_all() sets every child visible unconditionally, so these hide()
@@ -2186,6 +2196,8 @@ static void apply_view_mode(void)
         if (saved_w > want_w) want_w = saved_w;
         if (saved_h > want_h) want_h = saved_h;
     }
+    g_applied_w = want_w;
+    g_applied_h = want_h;
     gtk_window_resize(GTK_WINDOW(g_window), want_w, want_h);
 }
 
