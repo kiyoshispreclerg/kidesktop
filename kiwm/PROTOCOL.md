@@ -67,6 +67,25 @@ published for everything *outside* kiwm that has to know where a window it can n
 to be: a compositor animating a minimize or a restore from and to the right place, a taskbar doing
 the same with its own effects.
 
+### `_KIWM_CORNER_RADIUS` (`CARDINAL[4]`, format 32, per client frame)
+
+The four corner radii (pixels, frame-local logical size, top-left/top-right/bottom-right/
+bottom-left, CSS `border-radius` order) that `decoration.c`'s `apply_rounded_shape()` just clipped
+the frame's bounding SHAPE to (theme `colors` file, `border_radius=`/`round_maximized=`). Written
+only when the radii actually change -- a plain resize revisits this every frame of the drag with
+the same theme radii each time, so the property is cached and not rewritten for no reason.
+
+All-zero is a real value here, not "absent": it's exactly what a square theme, a maximized frame
+with `round_maximized=0`, or a frame filling its output actually clips to -- a plain rectangle,
+which the four zeros describe too. The property is deleted entirely (not set to zero) for a
+client-shaped window whose frame's bounding shape isn't a rounded rect at all (`shape.c` -- e.g.
+VirtualBox's mini-toolbar), since publishing all-zero there would claim "plain rectangle" falsely;
+absence tells a reader to fall back to the real SHAPE mask instead.
+
+It exists for a compositor doing per-monitor HiDPI scaling (X-DENSITY, below): rounding a
+scaled-up decoration analytically from these radii looks right at any scale, where stretching a
+1x-resolution SHAPE mask would not.
+
 ### `_KIWM_LAYER` (`STRING`, format 8, on kiwm's own overlay windows)
 
 Marks the override-redirect windows kiwm draws for itself, so a compositor can tell them apart

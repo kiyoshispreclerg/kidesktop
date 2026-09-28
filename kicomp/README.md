@@ -7,11 +7,14 @@ implemented: real transparency (32-bit windows' alpha and
 - window shapes applied while compositing (rounded corners, shaped clients);
 - configurable shadows, different for focused and unfocused windows;
 - an effect interface: *geometry change*, *fade in/out*, *scale in/out*,
-  *shade/unshade*, *minimize/restore*, *desktop wall*, *dodge*,
-  *smooth move*, *show windows* — every window at once, in a grid to pick
-  one from — *expo*, every desktop at once, *cover switch*, the window
-  list as a row of covers for the WM's own Alt+Tab, and the *cube*, the
-  desktops as the faces of a turning prism;
+  *slide in/out* (for popups), *shade/unshade*, *minimize/restore*, the
+  *magic lamp* (the genie-style alternative to minimize), *desktop wall*,
+  *dodge*, *smooth move*, *wobbly* (a dragged window bends like cloth),
+  *visual bell*, *zoom* (a magnifying lens under the pointer), *show
+  windows* — every window at once, in a grid to pick one from — *expo*,
+  every desktop at once, *cover switch*, the window list as a row of
+  covers for the WM's own Alt+Tab, the *cube*, the desktops as the faces
+  of a turning prism, and *stats*, an on-screen instrument panel;
 - a per-output frame clock driving the animations;
 - configuration in `kicomp.conf`.
 
@@ -67,9 +70,9 @@ backends, the detected capabilities, and how many drawables there are and
 why — reprinted on every output change:
 
 ```
-kicomp: kicomp 0.2.1 on :0 screen 0 (3840x1080)
+kicomp: kicomp 0.3.42 on :0 screen 0 (3840x1080)
 kicomp: renderer=xrender presenter=copy
-kicomp: capabilities: composite=1 overlay=1 damage=1 xfixes=1 render=1 randr=1 present=0 flip-per-crtc=0
+kicomp: capabilities: composite=1 overlay=1 damage=1 xfixes=1 render=1 randr=1 present=0 dri3=0 input-scale=0 flip-per-crtc=0
 kicomp: 2 drawables (one per output)
 kicomp:   [0] DP-1         1920x1080+0+0 @ 143.98 Hz
 kicomp:   [1] HDMI-1       1920x1080+1920+0 @ 60.00 Hz
@@ -2236,8 +2239,10 @@ src/
   region.c/.h         the damage region: rectangles, client-side
   damage.c/.h         X Damage in, per-output regions out (batched)
   effects/            one file per effect: geometry, fade-in, fade-out,
-                      scale-in, scale-out, shade, minimize, desktop-wall,
-                      smooth-move, dodge
+                      scale-in, scale-out, slide-in, slide-out, shade,
+                      minimize, magic-lamp, desktop-wall, smooth-move,
+                      dodge, wobbly, show-windows, expo, cover-switch,
+                      cube, visual-bell, zoom, stats
   dri3.c              DRI3: dma-bufs behind pixmaps, both ways
   renderer.h          renderer vtable
   renderer.c          the core's side of it: one wrapper per backend hook

@@ -15,12 +15,13 @@ control-socket relay for reposition+retheme+toggle on a second
 invocation, quits itself if the xispanel that launched it dies, a
 categories pane (left) + results pane (right) split that collapses to a
 flat full-width search across every app while typing, favorites
-(right-click a result), icons (app icons plus a plugin's own), and a
-footer of confirm-before-running power actions (shutdown/reboot/
-suspend/logout/switch-user/lock), each shown only if its backend is
-actually installed.
-
-Not yet implemented: an icon-grid layout (list-only for now).
+(right-click a result), icons (app icons plus a plugin's own), a footer
+of confirm-before-running power actions (shutdown/reboot/suspend/logout/
+switch-user/lock) each shown only if its backend is actually installed,
+and a results view that toggles between list and icon-grid ("Grade"/
+"Lista" button in the header; `LAUNCHER grid`/`LAUNCHER grid_columns` in
+`xisserve.conf` set the starting mode and column count, see "Search
+plugins" below for the config file's shape).
 
 ## Why a separate process
 
@@ -67,6 +68,17 @@ and can append its own results, each with its own icon, subtitle
   real. Needs `libdbus-1-dev` at build time (falls back to a no-op stub
   otherwise, see the Makefile's `HAVE_DBUS` block) and a session bus at
   runtime.
+- **recent** (`plugins/recent.c`) -- matches the query against the XDG
+  "recent files" list (`recently-used.xbel`) by filename or full path,
+  across every app, and opens a match with `xdg-open`.
+- **process** (`plugins/process.c`) -- if the query (2+ chars) names a
+  running process owned by the current user, offers Finalizar (SIGTERM),
+  Matar (SIGKILL), and Matar forcado/arvore (SIGKILL to the whole process
+  group) as separate results.
+- **calculator** (`plugins/calculator.c`) -- if the whole query parses as
+  an arithmetic expression (+ - * / ^, `sqrt(...)`, parentheses), shows
+  the result as one entry; clicking/Enter copies it to the clipboard
+  instead of launching anything.
 
 Any plugin can be disabled via `$XDG_CONFIG_HOME/xisserve.conf` (falls
 back to `~/.config/xisserve.conf`), one line per plugin to turn off:
@@ -117,6 +129,15 @@ table in `xisserve.c`:
   page is a plain client of xispanel's control socket
   (`GET_NOTIFICATIONS`/`DELETE_NOTIFICATION`/`CLEAR_NOTIFICATIONS`, see
   `../xispanel/PROTOCOL.md`) rather than a second notification store.
+- **`--network`** (`pages/network.c`) -- device status (wifi/ethernet,
+  up/down) plus a wifi scan/connect list, driven by `nmcli -t` rather
+  than a linked libnm/D-Bus client. Opened by xispanel's `network`
+  widget.
+- **`--storage`** (`pages/storage.c`) -- removable block devices (USB
+  sticks, SD cards, external drives) with mount/unmount/eject, driven by
+  `lsblk -P` for listing and `udisksctl` for the actual actions (through
+  udisks2's polkit rules, so no setuid helper of our own). Opened by
+  xispanel's `storage` widget.
 
 ## `--menu`: the decoration's application menu
 

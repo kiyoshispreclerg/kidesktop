@@ -87,13 +87,25 @@ defaults (Fontconfig's `sans-serif`, dark panel colors). See
   back to the plain color scheme if the image is missing or fails to
   load.
 - A control socket (see [PROTOCOL.md](PROTOCOL.md)) for `PING`,
-  `GET_STATUS`, `RELOAD`, `QUIT`.
+  `GET_STATUS`, `RELOAD`, `OSD`, `GET_NOTIFICATIONS`,
+  `DELETE_NOTIFICATION`, `CLEAR_NOTIFICATIONS`, `QUIT`.
+- More widget types beyond the ones described above: `pager` (desktop
+  switcher grid), `monitor` (CPU/RAM/swap/GPU/VRAM/temperature reading,
+  as text and/or a bar), `notif` (notification history bell with unread
+  badge and toast popups), `globalmenu` (a window's exported application
+  menu, KDE/Qt-style), `folder` (a directory's contents as a cascading
+  menu), `energy` (battery/power icon with low-battery warnings),
+  `network`/`storage` (connectivity/removable-device icons, each opening
+  the matching `xisserve` page), `xisserve` (opens the separate
+  `xisserve` launcher process), and `container` (a chevron that opens a
+  second popup panel of widgets). See [PROTOCOL.md](PROTOCOL.md)'s
+  `WIDGET` section for the full per-type option list.
 
-Everything else this tool is meant to eventually do -- global menu,
-window thumbnails, application launcher, system monitor -- is **not
-implemented yet**. See the phased plan this was built from, and
-[PROTOCOL.md](PROTOCOL.md)'s "Source layout" section for how a new widget
-type gets added.
+Panel/widget/theme mutation over the control socket (adding/removing a
+panel or widget live, without a config-file edit) is **not implemented
+yet** -- see [PROTOCOL.md](PROTOCOL.md)'s "Commands (planned, not yet
+implemented)" section. See also its "Source layout" section for how a
+new widget type gets added.
 
 ### Dependencies
 

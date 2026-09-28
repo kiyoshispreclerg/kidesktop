@@ -65,9 +65,9 @@ A mode flag may follow the ones above, selecting which page/tab xisserve
 opens instead of its default launcher view. An xisserve that doesn't know
 a flag must ignore it and open normally rather than fail to start -- the
 widget side ships before the page does, every time. (This is enforced in
-`parse_argv()` via `opterr = 0` plus an ignore-by-default switch, and is
-live right now: `--notifications` below is already being sent by a
-shipped widget with no page implemented for it.)
+`parse_argv()` via `opterr = 0` plus an ignore-by-default switch.
+`--notifications`, `--network` and `--storage` are all implemented pages
+now, see below.)
 
 - `--calendar`: passed by xispanel's `clock` widget when its clock is
   clicked, anchored to the clock's own rectangle. Opens a navigable
@@ -137,6 +137,22 @@ shipped widget with no page implemented for it.)
   tudo" buttons -- xispanel grew those three commands for exactly this.
   The widget's right click still opens the same history inline as a
   panel menu too, which needs no second process at all.
+- `--network`: passed by xispanel's `network` widget on left click,
+  anchored to the network icon. Shows device status (wifi/ethernet,
+  up/down) plus a wifi scan/connect list. **Implemented in
+  `pages/network.c`**, driven by `nmcli -t` (shelled out to, same as
+  `pages/pulse.c`/`pages/power.c`) rather than a linked libnm/D-Bus
+  client. The widget itself covers none of this -- it only shows the
+  current connection's icon/tooltip and relies on NetworkManager's own
+  DBus notifications for connect/disconnect toasts.
+- `--storage`: passed by xispanel's `storage` widget on left click,
+  anchored to the storage icon. Shows removable block devices (USB
+  sticks, SD cards, external drives) with mount/unmount/eject.
+  **Implemented in `pages/storage.c`**, using `lsblk -P` for listing and
+  `udisksctl` for the actual mount/unmount/power-off (through udisks2's
+  own polkit rules, so no setuid helper is needed). Hotplug/mount toasts
+  are a separate mechanism (`xispanel/storage_events.c`, polling
+  `lsblk`), not this page's job.
 
 ## `--menu`: an application menu popup for a window manager
 
@@ -399,8 +415,6 @@ icon for a possibly-already-open app works. This means:
   already set for `launcher`'s `cmd=`/`folder`'s open-terminal actions
   in xispanel, which all shell out with the relevant values inline
   rather than through the environment).
-- Search backend, `.desktop` parsing, icon theme resolution, the HUD/
-  in-app-action-search idea -- see `README.md`'s "Planned scope", still
-  entirely unbuilt as of this writing.
 - Matching KDE Plasma's actual color *scheme* (not just the panel's own
-  bg/fg) in GTK2 -- see `README.md`'s "Open question" section.
+  bg/fg) in GTK2 -- see `README.md`'s "Matching the system theme" for
+  what theming xisserve does apply.

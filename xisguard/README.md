@@ -2,14 +2,14 @@
 
 **XisGuard** is a lightweight external permission guardian for XiS.
 
-It communicates with the **Xnotify** extension (present in [XiS](https://github.com/kiyoshispreclerg/xserver) of the X server) to control privileged actions that X11 clients attempt to perform in real time, such as:
+It communicates with the **Xnotify** extension (present in [XiS](https://github.com/kiyoshispreclerg/xserver)) to control privileged actions that X11 clients attempt to perform in real time, such as:
 
 - Clipboard access (SELECTION)
 - Screen recording or capture (RECORD, COMPOSITE, SCREEN)
 - Input capture or injection (INPUT, INPUT_GRAB, INPUT_INJECT)
 - Other sensitive actions (ATTACH, HOTKEY, etc.)
 
-When a program tries to perform a protected action, Xnotify notifies XisGuard, which can allow it automatically (via rules), ask the user (using Zenity), deny it, or kill the process.
+When a program tries to perform a protected action, Xnotify notifies XisGuard, which can allow it automatically (via rules), ask the user (via a dialog), deny it, or kill the process.
 
 ### Status and Purpose
 - This is a **personal hobby project**, not officially integrated into XLibre development (yet?).
@@ -25,7 +25,7 @@ It works with static rules or dynamically with the external guardian (XisGuard).
 
 ### Dependencies
 - Linux (recommended) — uses Unix domain sockets
-- Zenity (for graphical permission dialogs)
+- `xisserve` or `zenity` (for graphical permission dialogs). At startup XisGuard picks whichever it finds first in `$PATH`, preferring `xisserve`; if neither is present it just logs and denies unauthorized processes for the session.
 - GCC or Clang with pthread support
 - libX11 (for Xnotify extension detection at startup)
 - [XiS with Xnotify enabled](https://github.com/kiyoshispreclerg/xserver)
@@ -48,7 +48,7 @@ Useful options:
 
 `xisguard --no-pause`                    # notify only, do not pause processes
 
-`xisguard --quiet`                       # no Zenity dialogs, logs only
+`xisguard --quiet`                       # no dialog prompts (xisserve/zenity), logs only
 
 `xisguard --always-kill`                 # automatically kill unauthorized processes
 
@@ -109,6 +109,19 @@ values from the last run are restored automatically. CLI flags always take prece
 values and overwrite them for the next run.
 
 The file monitor thread watches `xnotify.conf` for external changes and reloads it live.
+
+### Control Socket
+
+XisGuard also listens on `xisguard-ctl.<display>.sock` (under
+`$XDG_RUNTIME_DIR`), a separate request/response channel used by
+`kiconf`'s Permissões tab (and `xisconf`'s). Restricted to the owning
+user (mode 0600), since some commands can grant permissions that would
+otherwise require a dialog confirmation. One JSON line in, one JSON line
+back per connection:
+
+`PING`, `GET_STATUS`, `SET_STATUS` (toggles the same runtime flags as the
+CLI options above), `LIST_RULES`, `ADD_RULE`, `REMOVE_RULE`, `RELOAD`,
+`GET_SYSTEM_RULES_PATH`.
 
 ### Ignore Reports
 

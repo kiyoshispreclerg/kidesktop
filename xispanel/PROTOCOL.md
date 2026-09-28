@@ -176,6 +176,10 @@ PANEL	top	*	edge=top	pct=100	thickness=32	mode=dock
   item, e.g. for a compositor without that effect where a briefly-reused
   window keeping the previous item's content on screen during the new
   item's `tooltip_delay` would just look like a stale tooltip instead.
+- `padding_extra`: pixels (default `0`, minimum `0`), added only to
+  tooltip/toast popups on top of their own normal built-in padding --
+  separate from `spacing` above, so a panel can stay packed tight while
+  its tooltips/toasts get more breathing room from their own edges.
 - `square_when_maximized`: `0` (default) or `1`. While `1`, any window on
   this panel's own current output+desktop being maximized forces *only
   the panel bar's own* corners square, overriding the theme's
@@ -543,6 +547,38 @@ Widget types implemented so far:
   adjustable per-device scrollbars in the tooltip are a known gap against
   the original ask, not yet implemented; `cmd_edit`'s external mixer
   covers that need for now.
+- `energy`: battery/power icon reading `/sys/class/power_supply` on a
+  timer -- see "Energy" below for the full behavior (icon states,
+  low-battery toasts, `interval=`). `cmd=` overrides the binary launched
+  on click (default `xisserve`), same as `volume`/`network`/`storage`.
+- `network`: single icon reflecting connectivity, backed by shelling out
+  to `nmcli` (see `../network.c`) -- no toasts of its own, since
+  NetworkManager's own DBus notifications already flow through
+  `notifd.c`/the toast pipeline. Draws a wifi-signal glyph (0-3 bars,
+  from signal strength), an ethernet-plug glyph, or a "no connection"
+  dot, falling back to a themed `network-offline`/`network-wired`/
+  `network-wireless-signal-<weak|ok|excellent>` icon when the icon theme
+  has one. Left-click opens `xisserve --network` (device list, wifi
+  scan/connect) anchored to the icon; `cmd=` overrides the binary
+  (default `xisserve`), same as the other icon-opens-a-xisserve-page
+  widgets. Hovering shows the connection name plus type/signal ("Rede:
+  *name* · Wi-Fi · NN%", "Rede: *name* · Cabo", or "Sem conexão de
+  rede"). Polls every 3s in the background (`asyncmd.c`), never blocking
+  the panel on `nmcli`.
+- `storage`: single icon reflecting whether any removable device is
+  currently attached, backed by shelling out to `lsblk` (see
+  `../storage.c`) -- a USB-stick glyph, filled when something's plugged
+  in and outlined when not, falling back to a themed
+  `drive-removable-media[-symbolic]` icon when the icon theme has one.
+  Left-click opens `xisserve --storage` (mount/unmount/eject) anchored to
+  the icon; `cmd=` overrides the binary (default `xisserve`). Hovering
+  lists up to 4 attached devices (label or device name, plus mountpoint
+  or "não montado"), with a "... e mais N" line if more are attached, or
+  "Nenhum dispositivo removível" when none are. Polls every 3s in the
+  background, same as `network`. Hotplug/mount toasts are a separate
+  concern handled by `storage_events.c` regardless of how many `storage`
+  widgets exist (same split `audio_events.c` makes from `volume`), not
+  this widget itself.
 
 - `notif`: bell icon with an unread-count badge over the built-in
   notification server (`notifd.c`'s ring buffer). Left-click opens
@@ -598,6 +634,8 @@ Widget types implemented so far:
   when the tracked window (or its menu's busname/objpath) actually
   changes, not on every poll tick -- each submenu's own contents are
   fetched fresh (one `GetLayout` call) whenever it's actually opened.
+  `same_desktop=`/`same_output=`/`focused_only=` (all off by default) and
+  `hotkey=<spec>` -- see "Global menu (appmenu)" below.
 - `folder`: a single folder icon (`path=<dir>`, required) that, on click,
   shows that folder's contents as a real cascading menu (see "Context
   menus" above) -- every directory level gets "Abrir esta pasta"/"Abrir
@@ -668,14 +706,15 @@ Widget types implemented so far:
 ### Global hotkeys
 
 Any widget can offer its own `hotkey=<spec>`-style config option(s) bound
-to one of that widget's own built-in actions -- currently just `folder`'s
-single `hotkey=<spec>` (opens its menu, same as clicking the icon), but
-the mechanism (`hotkey.c`) is generic: a future `volume` could add
-`hotkey_up=`/`hotkey_down=`/`hotkey_mute=`, each bound to its own action,
-independently of every other widget's bindings. There is deliberately no
-user-programmable "run this shell command" binding -- only *which*
-already-coded action a given hotkey triggers is configurable, not the
-action itself.
+to one of that widget's own built-in actions -- currently a single
+`hotkey=<spec>` each on `folder` (opens its menu), `xisserve` (runs its
+launch action), `container` (toggles its popup), and `globalmenu` (opens
+its whole menu tree as a cascade), but the mechanism (`hotkey.c`) is
+generic: a future `volume` could add `hotkey_up=`/`hotkey_down=`/
+`hotkey_mute=`, each bound to its own action, independently of every
+other widget's bindings. There is deliberately no user-programmable "run
+this shell command" binding -- only *which* already-coded action a given
+hotkey triggers is configurable, not the action itself.
 
 `<spec>` is `<Mod>+<Mod>+...+<Key>`, modifiers in any order and
 case-insensitive (`Ctrl`/`Control`, `Alt`, `Shift`, `Meta`/`Super`/`Win`
@@ -693,9 +732,6 @@ something else on the display (WM, another app), is logged to stderr and
 otherwise ignored -- it never stops the rest of that widget (or the panel)
 from working. Ungrabbed and forgotten on panel reload/widget teardown, so
 `RELOAD` (IPC) or a RandR hotplug reload never leaks a stale grab.
-
-System monitor is a later phase -- see the plan this tool was built
-from; it is not implemented yet.
 
 ### Widget sizing
 
@@ -1363,7 +1399,9 @@ The widget only ever needs one battery's percentage and status word, not
 the richer per-device breakdown xisserve's page shows. Click opens
 `xisserve --energy` (battery/AC, other UPower devices' batteries,
 brightness, night light), same `xisserve_spawn_for_widget()` pattern as
-`volume`'s click opening `--audio`.
+`volume`'s click opening `--audio`; `cmd=` overrides the binary launched
+(default `xisserve`), same as every other widget in this "icon opens a
+xisserve page" family.
 
 On a system with a battery, the icon is a battery outline filled to the
 charge percentage (a lightning bolt overlays it while charging), falling

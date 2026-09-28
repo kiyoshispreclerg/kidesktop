@@ -52,70 +52,62 @@ other languages :)
 
 ### Session and windows
 
-**[kisession](kisession/)** -- session leader and service supervisor. The
-display manager tracks this process, not the window manager, so a WM crash or a
-deliberate `--replace` doesn't kill your session. Supervises the desktop's own
-services with restart backoff, then runs XDG autostart once those are actually
-up and answering.
+**[kisession](kisession/)** -- session leader and service supervisor. Runs and
+restarts the desktop's other daemons, then XDG autostart.
 
-**[kiwm](kiwm/)** -- the window manager. Stacking, plain XCB (no Xlib), Cairo +
-Imlib2 for decoration, RandR for multi-monitor with per-output desktops.
-Complete enough to be the WM this desktop runs on daily.
+**[kiwm](kiwm/)** -- the window manager. Stacking, XCB, Cairo + Imlib2
+decoration, multi-monitor with per-output desktops. The WM this desktop runs
+on daily.
 
-**[kicomp](kicomp/)** -- optional compositor for `kiwm`. XRender (no OpenGL
-yet), real transparency, shaped corners, fade/scale/geometry effects. Always
-optional -- `kiwm` never depends on it.
+**[kicomp](kicomp/)** -- optional compositor for `kiwm`. XRender or OpenGL
+(GLX/EGL) backends, real transparency, shaped corners, effects. `kiwm` never
+depends on it.
 
 ### Shell
 
-**[xispanel](xispanel/)** -- panel/taskbar daemon. No toolkit: Xlib for
-windowing/RandR, Cairo for rendering, Imlib2 for images. Multiple panels, any
-screen edge, any output. Widgets for tasklist, tray (StatusNotifier), global
-menu, folders, notifications, system monitor and more.
+**[xispanel](xispanel/)** -- panel/taskbar daemon. No toolkit, multiple
+panels, any edge, any output. Tasklist, tray, global menu, folders,
+notifications, system monitor and more widgets.
 
-**[xisserve](xisserve/)** -- application launcher, kickoff/krunner style. GTK2,
-launched on demand by `xispanel`'s widget. Categories + search, favorites,
-icons, and power actions that only appear if their backend is installed.
+**[xisserve](xisserve/)** -- application launcher and misc settings pages
+(network, storage, audio, energy, calendar...), kickoff/krunner style. GTK2,
+launched on demand by `xispanel`.
 
-**[xisback](xisback/)** -- wallpaper daemon. Draws into real
-`_NET_WM_WINDOW_TYPE_DESKTOP` windows so compositing window managers have
-something to composite, instead of the root pixmap trick that compositors
-ignore. One wallpaper layer per (output, desktop), static image or slideshow.
+**[xisback](xisback/)** -- wallpaper daemon. One wallpaper layer per (output,
+desktop), static image or slideshow.
 
 ### Settings
 
-**[kiconf](kiconf/)** -- the settings app. GTK2, replacing an earlier
-Python/Qt configurator. Edits appearance, shortcuts, screens, input and
-permissions.
+**[kiconf](kiconf/)** -- the settings app: appearance, shortcuts, screens,
+input, energy and permissions.
 
-**[kiconfd](kiconfd/)** -- settings daemon, the other half of `kiconf`. Reads
-one central config file and applies it to every toolkit the desktop cares
-about -- Xcursor, GTK2/3/4, Qt, icon themes, fonts, colors -- and reloads on
-SIGHUP without restarting.
+**[kiconfd](kiconfd/)** -- settings daemon, the other half of `kiconf`.
+Applies the central config to every toolkit the desktop cares about and
+reloads on SIGHUP.
 
-**[xismenu](xismenu/)** -- application menu registrar, so global menus work at
-all. Qt/KF5 apps only export their menubar over DBus when
-`com.canonical.AppMenu.Registrar` exists on the session bus (under Plasma that
-name belongs to a kded plugin), and this owns it, then writes the
-`_KDE_NET_WM_APPMENU_*` properties every consumer here already reads --
-`kiwm`'s appmenu titlebar button, `xisserve --menu`, and `xispanel`'s global
-menu widget. It never speaks DBusMenu itself, which is what keeps the window
-manager out of the bus entirely.
+**[xismenu](xismenu/)** -- application menu registrar, so Qt/KF5 global menus
+work without a full DBusMenu implementation on the window manager's side.
 
-**[xiskeys](xiskeys/)** -- global hotkey daemon. Owns root-window key grabs for
-stateless actions only: run a command, media keys, brightness, screenshot,
-lock, power. Hotkeys that need another daemon's live state stay in that daemon.
+**[xiskeys](xiskeys/)** -- global hotkey daemon for stateless actions: run a
+command, media keys, brightness, screenshot, lock, power.
 
 ### XiS-specific
 
 **[xisguard](xisguard/)** -- the original tool, and the only component that
 requires XiS. Talks to the **Xnotify** X extension to arbitrate privileged
-client requests in real time -- clipboard, screen capture, input injection,
-hotkey grabs -- allowing, asking, denying or killing based on your rules.
+client requests in real time -- allowing, asking, denying or killing based on
+your rules.
 
 ## Building
 
-Each component builds on its own:
+For the full suite, from the repo root:
+
+```sh
+./configure   # checks shared dependencies (cairo, pango, imlib2, dbus-1, gtk2)
+make install
+```
+
+Each component also builds on its own, skipping `./configure`:
 
 ```sh
 cd kiwm && make
