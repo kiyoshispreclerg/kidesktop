@@ -496,8 +496,9 @@ Widget types implemented so far:
   whole thing reads as one evenly-spaced grid. Left-click sends `Activate(x,y)`, middle-click
   `SecondaryActivate(x,y)`, right-click `ContextMenu(x,y)` (the item's
   own process pops up its own menu near that point -- xispanel doesn't
-  render it). Hovering shows the item's `Title` (or `IconName` if
-  `Title` is empty) as a plain tooltip. See "System tray
+  render it). Hovering shows the item's `Title` (or, if empty, its
+  `IconName`, or its `ToolTip` property's own title/text) as a plain
+  tooltip. See "System tray
   (StatusNotifierItem)" below for how registration/hosting works. No
   dependency on `libdbus-1` at build *link* time -- see MPRIS's note on
   optional runtime deps, same mechanism (`sni.c`).

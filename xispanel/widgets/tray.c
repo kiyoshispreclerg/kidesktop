@@ -197,9 +197,19 @@ static int tray_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t bufsz
     (void)out_ctx;
     int icon_px, slot, pad, rows;
     tray_layout(w, &icon_px, &slot, &pad, &rows);
-    int local_y = 0;
-    if (rows > 1 && !panel_widget_hover_local_y(w, &local_y)) {
-        return 0; /* multi-row grid: no way to tell which row without the pointer's y */
+    /* The real pointer y whenever it's known -- tray_hit_test() rejects
+     * anything above the grid's own leading pad, so the old "just pass 0
+     * unless rows > 1" shortcut made every single-row tray with a nonzero
+     * icon_padding= (0 < pad) miss on every hover, and no tooltip ever
+     * appeared no matter what the item's title said. The fallback for a
+     * hover position we don't have has to sit *inside* a row band for the
+     * same reason, so it's pad (row 0's top edge), not 0. */
+    int local_y;
+    if (!panel_widget_hover_local_y(w, &local_y)) {
+        if (rows > 1) {
+            return 0; /* multi-row grid: no way to tell which row without the pointer's y */
+        }
+        local_y = pad;
     }
     int idx = tray_hit_test(local_x, local_y, icon_px, slot, pad, rows, sni_count());
     if (idx < 0) {

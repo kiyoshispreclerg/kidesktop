@@ -621,6 +621,56 @@ static int extract_get_string(DBusMessage *reply, char *buf, size_t bufsz)
     return 1;
 }
 
+/* Reads a Properties.Get reply for ToolTip: variant<(sa(iiay)ss)> --
+ * (icon-name, icon-pixmap-array, title, text). Many real tray items (most
+ * that aren't kwin/plasma's own) leave the plain Title property empty and
+ * put their actual hover text only in here, so tray_get_tooltip()'s
+ * Title/IconName fallback chain ends up empty for them even though the
+ * item clearly has something to say -- see sni_poll()'s title_dirty
+ * block. Prefers the struct's `title` field, falling back to `text` (the
+ * longer description) if title itself is empty, since either beats
+ * showing nothing. Returns 1 if it found *some* non-empty string. */
+static int extract_get_tooltip_title(DBusMessage *reply, char *buf, size_t bufsz)
+{
+    DBusMessageIter it, variant, s;
+    if (!p_dbus_message_iter_init(reply, &it) || p_dbus_message_iter_get_arg_type(&it) != DBUS_TYPE_VARIANT) {
+        return 0;
+    }
+    p_dbus_message_iter_recurse(&it, &variant);
+    if (p_dbus_message_iter_get_arg_type(&variant) != DBUS_TYPE_STRUCT) {
+        return 0;
+    }
+    p_dbus_message_iter_recurse(&variant, &s);
+    /* icon-name (string) */
+    if (p_dbus_message_iter_get_arg_type(&s) != DBUS_TYPE_STRING || !p_dbus_message_iter_next(&s)) {
+        return 0;
+    }
+    /* icon-pixmap (array of struct) */
+    if (p_dbus_message_iter_get_arg_type(&s) != DBUS_TYPE_ARRAY || !p_dbus_message_iter_next(&s)) {
+        return 0;
+    }
+    /* title (string) */
+    const char *title = NULL;
+    if (p_dbus_message_iter_get_arg_type(&s) == DBUS_TYPE_STRING) {
+        p_dbus_message_iter_get_basic(&s, &title);
+    }
+    if (title && title[0]) {
+        snprintf(buf, bufsz, "%s", title);
+        return 1;
+    }
+    /* text (string) -- fallback */
+    if (!p_dbus_message_iter_next(&s) || p_dbus_message_iter_get_arg_type(&s) != DBUS_TYPE_STRING) {
+        return 0;
+    }
+    const char *text = NULL;
+    p_dbus_message_iter_get_basic(&s, &text);
+    if (!text || !text[0]) {
+        return 0;
+    }
+    snprintf(buf, bufsz, "%s", text);
+    return 1;
+}
+
 /* Same shape as extract_get_string() but for a Properties.Get on an
  * object-path-typed property (e.g. StatusNotifierItem's "Menu") -- same
  * `const char *` marshalling as a string, just a different DBus type tag. */
@@ -1247,18 +1297,35 @@ int sni_poll(uint64_t now)
 
         if (it->title_dirty) {
             char title[128] = "";
+            /* NULL here just as often means "this item doesn't implement
+             * Title at all" (optional in the spec, and most items skip it
+             * in favor of ToolTip) as it does quarantine/timeout -- either
+             * way sni_get_item_prop() already applied its own backoff, so
+             * treating it as "no title yet" and falling through to
+             * IconName/ToolTip below (rather than `continue`ing past them,
+             * and past this item's icon fetch too) is what its own doc
+             * comment promises callers. */
             DBusMessage *treply = sni_get_item_prop(it, "Title", now);
-            if (!treply) {
-                continue; /* quarantined or timed out; retried later */
+            if (treply) {
+                extract_get_string(treply, title, sizeof(title));
+                p_dbus_message_unref(treply);
             }
-            extract_get_string(treply, title, sizeof(title));
-            p_dbus_message_unref(treply);
 
             if (!title[0]) {
                 DBusMessage *nreply = sni_get_item_prop(it, "IconName", now);
                 if (nreply) {
                     extract_get_string(nreply, title, sizeof(title));
                     p_dbus_message_unref(nreply);
+                }
+            }
+            if (!title[0]) {
+                /* Title and IconName both empty -- try ToolTip's own title/
+                 * text (see extract_get_tooltip_title()'s doc comment; this
+                 * is what most non-KDE tray items actually set). */
+                DBusMessage *treply2 = sni_get_item_prop(it, "ToolTip", now);
+                if (treply2) {
+                    extract_get_tooltip_title(treply2, title, sizeof(title));
+                    p_dbus_message_unref(treply2);
                 }
             }
             if (strcmp(it->title, title) != 0) {
