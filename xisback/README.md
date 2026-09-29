@@ -36,6 +36,8 @@ xisback --next --output NAME --desktop N
 xisback --on-left-click/--on-right-click/--on-middle-click/
         --on-double-click/--on-scroll-up/--on-scroll-down CMD
 xisback --get-actions
+xisback --lazy on|off
+xisback --get-lazy
 xisback --quit
 ```
 
@@ -51,3 +53,9 @@ expo, the cube and desktop switches); xisback then uses that picture as
 the window's background and frees its own copy, so each hidden wallpaper
 is held once instead of twice. That costs no CPU and changes nothing on
 screen.
+
+`--lazy on` also drops the image of hidden layers nobody keeps a picture
+of (no compositor, or `keep_hidden_contents=0`) and decodes it again when
+the layer is shown: less memory, but more CPU per switch and a brief
+flash of the layer's `--color` until the image is ready. Off by default;
+the setting is saved in `xisback.conf`.

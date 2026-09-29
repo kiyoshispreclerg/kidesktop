@@ -29,6 +29,8 @@ LIST\n
 NEXT\t<output>\t<desktop>\n
 ACTIONS\n
 SETACTIONS\t<left>\t<right>\t<middle>\t<double>\t<scroll_up>\t<scroll_down>\n
+LAZY\n
+SETLAZY\t<0|1>\n
 PING\n
 QUIT\n
 ```
@@ -76,6 +78,9 @@ line (`SETACTIONS\t<left>\t<right>\t<middle>\t<double>\n`, no scroll
 fields) for older callers -- the daemon leaves whatever scroll bindings it
 already had untouched in that case rather than clearing them.
 
+`LAZY` reads and `SETLAZY` writes the global lazy setting (see "Hidden
+layers" below); it is saved as a `LAZY\t1` line in the config file.
+
 ### Responses
 
 - `OK\n` — success, no extra body.
@@ -85,6 +90,7 @@ already had untouched in that case rather than clearing them.
   as `SET` (without the leading `SET\t`):
   `output\tdesktop\tmode\tinterval\tshuffle\tfade_ms\tpath\tcolor\n`.
   Connection closes (EOF) at the end of the list.
+- For `LAZY`: one line, `0\n` or `1\n`.
 - For `ACTIONS`: one line,
   `left\tright\tmiddle\tdouble\tscroll_up\tscroll_down\n` — the six
   command strings currently bound (empty string for an unbound slot). A
@@ -118,6 +124,11 @@ pixmap -- the server keeps a background pixmap alive after its creator
 frees it, so this survives the compositor exiting. A picture is only taken
 if it matches the window's size and depth and was taken after the layer's
 current image was last shown; otherwise the daemon keeps its own.
+
+With `SETLAZY\t1`, a hidden layer that has no such picture also drops its
+image (the window falls back to the layer's color) and is rendered again
+when the window manager maps it. Slideshow ticks and resizes of hidden
+layers are deferred the same way.
 
 ## Click and scroll actions
 

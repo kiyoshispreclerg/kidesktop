@@ -95,7 +95,7 @@ int xis_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int 
 int xis_fd(void);
 int xis_poll_change(void);
 
-#define XISBACK_VERSION "0.4.10"
+#define XISBACK_VERSION "0.4.11"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -155,10 +155,13 @@ typedef struct {
      *   window (_KICOMP_STOWED_PIXMAP), not ours: never XFreePixmap it.
      * mapped -- l->win is on screen (Map/UnmapNotify).
      * content_stale -- the background changed while hidden, so any kept
-     *   picture shows an older image and must not be borrowed. */
+     *   picture shows an older image and must not be borrowed.
+     * unloaded -- lazy mode dropped the image; the window shows its
+     *   fallback color until it is mapped again and re-rendered. */
     int borrowed;
     int mapped;
     int content_stale;
+    int unloaded;
 
     /* in-flight crossfade transition (only meaningful while fading != 0):
      * fade_win sits on top of win, showing next_pixmap at increasing
@@ -188,6 +191,9 @@ static Layer g_layers[MAX_LAYERS];
 static char g_configpath[PATH_MAX];
 static Atom g_atom_opacity;
 static Atom g_atom_stowed_pixmap;
+/* LAZY: hidden layers the compositor kept no picture of drop their image
+ * too, and decode it again when shown (see layer_unload()). */
+static int g_lazy;
 
 /* WM_S<screen>/_NET_WM_CM_S<screen> manager-selection tracking (ICCCM
  * 4.3 and the EWMH compositing-manager convention respectively): whichever
@@ -244,7 +250,7 @@ static int g_click_pending_y;
 /* ------------------------------------------------------------------ */
 
 typedef enum { CMD_NONE, CMD_SET, CMD_CLEAR, CMD_CLEARALL, CMD_LIST, CMD_PING, CMD_QUIT,
-               CMD_NEXT, CMD_SETACTIONS, CMD_GETACTIONS } CmdType;
+               CMD_NEXT, CMD_SETACTIONS, CMD_GETACTIONS, CMD_SETLAZY, CMD_GETLAZY } CmdType;
 
 typedef struct {
     CmdType type;
@@ -271,6 +277,8 @@ typedef struct {
     char action_scroll_down[ACTION_CMD_LEN];
     int action_left_set, action_right_set, action_middle_set, action_double_set;
     int action_scroll_up_set, action_scroll_down_set;
+
+    int lazy; /* CMD_SETLAZY */
 } Command;
 
 static void usage(const char *prog)
@@ -306,7 +314,11 @@ static void usage(const char *prog)
             "                      whichever layer was clicked, or a menu command can\n"
             "                      pop up right where the pointer was\n"
             "  --get-actions       print the currently configured click/scroll commands\n"
-
+            "  --lazy on|off       on: layers hidden with their desktop keep no image in\n"
+            "                      memory and decode it again when shown (less RAM/VRAM,\n"
+            "                      more CPU and a brief fallback color on switch); off\n"
+            "                      (default) keeps every layer ready\n"
+            "  --get-lazy          print the current --lazy setting (1 or 0)\n"
             "  --quit              stop the daemon\n"
             "  --version           print version and exit\n"
             "\n"
@@ -407,7 +419,12 @@ static int parse_argv(int argc, char **argv, Command *cmd)
             cmd->type = CMD_SETACTIONS;
         } else if (!strcmp(argv[i], "--get-actions")) {
             cmd->type = CMD_GETACTIONS;
-
+        } else if (!strcmp(argv[i], "--lazy") && i + 1 < argc) {
+            const char *v = argv[++i];
+            cmd->lazy = !strcmp(v, "on") || !strcmp(v, "1") || !strcmp(v, "yes");
+            cmd->type = CMD_SETLAZY;
+        } else if (!strcmp(argv[i], "--get-lazy")) {
+            cmd->type = CMD_GETLAZY;
         } else if (!strcmp(argv[i], "--quit")) {
             cmd->type = CMD_QUIT;
         } else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
@@ -449,7 +466,12 @@ static void build_line(const Command *c, char *buf, size_t bufsz)
     case CMD_GETACTIONS:
         snprintf(buf, bufsz, "ACTIONS\n");
         break;
-
+    case CMD_SETLAZY:
+        snprintf(buf, bufsz, "SETLAZY\t%d\n", c->lazy);
+        break;
+    case CMD_GETLAZY:
+        snprintf(buf, bufsz, "LAZY\n");
+        break;
     case CMD_PING:
         snprintf(buf, bufsz, "PING\n");
         break;
@@ -490,6 +512,19 @@ static void layer_release_pixmap(Layer *l)
     }
     l->cur_pixmap = None;
     l->borrowed = 0;
+}
+
+/* Lazy mode: a hidden layer keeps no image of its own -- the window falls
+ * back to its plain color, and layer_render() runs again on MapNotify. */
+static unsigned long layer_fallback_pixel(const Layer *l);
+static void layer_unload(Layer *l)
+{
+    if (l->win == None || l->unloaded || l->borrowed) {
+        return;
+    }
+    XSetWindowBackground(g_dpy, l->win, layer_fallback_pixel(l));
+    layer_release_pixmap(l);
+    l->unloaded = 1;
 }
 
 static int g_x_error_trapped;
@@ -553,6 +588,7 @@ static void layer_try_borrow(Layer *l)
     layer_release_pixmap(l);
     l->cur_pixmap = stowed;
     l->borrowed = 1;
+    l->unloaded = 0;
 }
 
 static int find_layer_by_window(Window w)
@@ -1045,6 +1081,7 @@ static void layer_finish_fade(Layer *l)
     }
     layer_release_pixmap(l);
     l->cur_pixmap = l->fade_pixmap;
+    l->unloaded = 0;
     l->fade_win = None;
     l->fade_pixmap = None;
     l->fading = 0;
@@ -1060,6 +1097,14 @@ static void layer_finish_fade(Layer *l)
  * transition doesn't make sense. */
 static void layer_render(Layer *l, int use_fade)
 {
+    if (g_lazy && !l->mapped && l->win != None) {
+        /* Nobody can see it: whatever it would show now gets decoded when
+         * it is mapped. A kept picture of it would be an older image. */
+        layer_finish_fade(l);
+        layer_unload(l);
+        l->content_stale = 1;
+        return;
+    }
     const char *path = (l->n_images > 0) ? l->images[l->img_idx] : NULL;
     Pixmap next = render_pixmap(l->width, l->height, path, l->mode, layer_fallback_pixel(l));
     if (next == None) {
@@ -1070,6 +1115,7 @@ static void layer_render(Layer *l, int use_fade)
         layer_finish_fade(l);
     }
 
+    l->unloaded = 0;
     if (!use_fade || l->fade_ms <= 0) {
         XSetWindowBackgroundPixmap(g_dpy, l->win, next);
         XClearWindow(g_dpy, l->win);
@@ -1311,6 +1357,9 @@ static void save_config(void)
         fprintf(f, "LAYER\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\n", l->output, dstr, l->mode == MODE_STRETCH ? "stretch" : "fill", l->interval, l->shuffle, l->fade_ms, l->source, l->color);
     }
     fprintf(f, "ACTIONS\t%s\t%s\t%s\t%s\t%s\t%s\n", g_action_left, g_action_right, g_action_middle, g_action_double, g_action_scroll_up, g_action_scroll_down);
+    if (g_lazy) {
+        fprintf(f, "LAZY\t1\n");
+    }
     fclose(f);
     if (rename(tmp, g_configpath) != 0) {
         fprintf(stderr, "xisback: could not save '%s': %s\n", g_configpath, strerror(errno));
@@ -1488,6 +1537,8 @@ static void load_config(void)
                 snprintf(g_action_scroll_up, sizeof(g_action_scroll_up), "%s", fields[5]);
                 snprintf(g_action_scroll_down, sizeof(g_action_scroll_down), "%s", fields[6]);
             }
+        } else if (strcmp(fields[0], "LAZY") == 0) {
+            g_lazy = nf >= 2 && atoi(fields[1]) != 0;
         } else if (nf == 7) {
             /* Pre-0.4 config lines had no leading LAYER tag -- keep reading
              * them so upgrading the binary doesn't silently drop whatever
@@ -1568,6 +1619,27 @@ static int reconcile_layer_outputs(void)
 /* ------------------------------------------------------------------ */
 /* protocol handling (server side)                                     */
 /* ------------------------------------------------------------------ */
+
+/* Switching LAZY on drops every hidden layer's own image right away;
+ * switching it off decodes them all again so each is ready to show. */
+static void set_lazy(int on)
+{
+    g_lazy = on;
+    for (int i = 0; i < MAX_LAYERS; i++) {
+        Layer *l = &g_layers[i];
+        if (!l->in_use || l->mapped) {
+            continue;
+        }
+        if (on) {
+            layer_finish_fade(l);
+            layer_unload(l);
+        } else if (l->unloaded) {
+            layer_render(l, 0);
+        }
+    }
+    malloc_trim(0);
+    XFlush(g_dpy);
+}
 
 static void handle_line(char *line, FILE *out)
 {
@@ -1656,6 +1728,20 @@ static void handle_line(char *line, FILE *out)
     }
     if (strcmp(fields[0], "ACTIONS") == 0) {
         fprintf(out, "%s\t%s\t%s\t%s\t%s\t%s\n", g_action_left, g_action_right, g_action_middle, g_action_double, g_action_scroll_up, g_action_scroll_down);
+        return;
+    }
+    if (strcmp(fields[0], "LAZY") == 0) {
+        fprintf(out, "%d\n", g_lazy);
+        return;
+    }
+    if (strcmp(fields[0], "SETLAZY") == 0) {
+        if (nf < 2) {
+            fprintf(out, "ERR usage: SETLAZY 0|1\n");
+            return;
+        }
+        set_lazy(atoi(fields[1]) != 0);
+        save_config();
+        fprintf(out, "OK\n");
         return;
     }
     if (strcmp(fields[0], "SETACTIONS") == 0) {
@@ -2114,7 +2200,14 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                             /* Mapping repaints from the background: what
                              * shows now is the current image again. */
                             l->content_stale = 0;
+                            if (l->unloaded) {
+                                layer_render(l, 0);
+                                malloc_trim(0);
+                            }
                         } else {
+                            if (g_lazy) {
+                                layer_unload(l);
+                            }
                             layer_try_borrow(l); /* the picture may already be published */
                         }
                     }
