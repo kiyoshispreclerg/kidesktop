@@ -99,7 +99,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.68"
+#define XISPANEL_VERSION "0.6.69"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -2383,6 +2383,23 @@ static void panel_layout(Panel *p)
  * doc comment in xispanel.h. Used for the normal on-screen buffer
  * (scale=1, from panel_repaint() below) and by density.c's auxiliary-
  * pixmap render (scale=density, see TESTS/X-DENSITY.md). */
+/* A widget's real, physical, un-rotated on-panel rectangle -- see the
+ * rotation comment in panel_paint_content(). */
+static void widget_physical_rect(const Panel *p, const PanelWidget *w, int *px, int *py, int *pw, int *ph)
+{
+    if (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) {
+        *px = w->x;
+        *py = w->y;
+        *pw = w->len;
+        *ph = w->thickness;
+    } else {
+        *px = w->y;
+        *py = w->x;
+        *pw = w->thickness;
+        *ph = w->len;
+    }
+}
+
 void panel_paint_content(Panel *p, cairo_t *cr, double scale)
 {
     cairo_save(cr);
@@ -2467,16 +2484,12 @@ void panel_paint_content(Panel *p, cairo_t *cr, double scale)
              * this -- it works from the panel's real physical layout the
              * whole time, so it's completely unaffected by rotation. */
             int px, py, pw, ph;
-            if (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) {
-                px = w->x;
-                py = w->y;
-                pw = w->len;
-                ph = w->thickness;
-            } else {
-                px = w->y;
-                py = w->x;
-                pw = w->thickness;
-                ph = w->len;
+            widget_physical_rect(p, w, &px, &py, &pw, &ph);
+            if (p->clip_active &&
+                (px >= p->hd_x1 || px + pw <= p->hd_x0 || py >= p->hd_y1 || py + ph <= p->hd_y0)) {
+                /* Nothing it draws would land inside the partial repaint. */
+                cairo_restore(cr);
+                continue;
             }
             double cx = px + pw / 2.0;
             double cy = py + ph / 2.0;
@@ -2504,7 +2517,10 @@ void panel_foreach(void (*cb)(Panel *p, void *ctx), void *ctx)
     }
 }
 
-static void panel_repaint(Panel *p)
+/* clip: repaint (and blit) only the rectangle a hover change dirtied --
+ * panel_paint_content() redraws everything from scratch, so the pixels
+ * inside come out exactly as a full repaint would leave them. */
+static void panel_repaint_clip(Panel *p, int clip)
 {
     if (!p->cr || !p->buf_cr) {
         return;
@@ -2529,7 +2545,18 @@ static void panel_repaint(Panel *p)
         cairo_set_font_size(p->buf_cr, panel_text_size(p));
     }
 
+    int cx = p->hd_x0, cy = p->hd_y0, cw = p->hd_x1 - p->hd_x0, ch = p->hd_y1 - p->hd_y0;
+    if (clip) {
+        cairo_save(p->buf_cr);
+        cairo_rectangle(p->buf_cr, cx, cy, cw, ch);
+        cairo_clip(p->buf_cr);
+        p->clip_active = 1;
+    }
     panel_paint_content(p, p->buf_cr, 1.0);
+    if (clip) {
+        p->clip_active = 0;
+        cairo_restore(p->buf_cr);
+    }
     cairo_surface_flush(p->buf_surface);
 
     /* p->cr is also used directly by widgets' measure() (cairo_text_extents
@@ -2548,6 +2575,10 @@ static void panel_repaint(Panel *p)
     }
 
     cairo_save(p->cr);
+    if (clip) {
+        cairo_rectangle(p->cr, cx, cy, cw, ch);
+        cairo_clip(p->cr);
+    }
     cairo_set_operator(p->cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_surface(p->cr, p->buf_surface, 0, 0);
     cairo_paint(p->cr);
@@ -2555,8 +2586,14 @@ static void panel_repaint(Panel *p)
     cairo_surface_flush(p->surface);
     XFlush(g_dpy);
     p->dirty = 0;
+    p->hover_dirty = 0;
 
     density_render(p);
+}
+
+static void panel_repaint(Panel *p)
+{
+    panel_repaint_clip(p, 0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -3927,16 +3964,42 @@ static void dispatch_button(Panel *p, int button, int x, int y, int root_x, int 
  * clicks. Only marks the panel dirty when the hovered widget or its
  * local_x/local_y actually changed, so a stream of MotionNotify events
  * over the *same* spot (X can resend these) isn't a repaint each time. */
+/* Adds w's physical rectangle (a couple of pixels of slack for any
+ * highlight drawn right on its edge) to the hover-dirty area. */
+static void panel_mark_hover_dirty(Panel *p, const PanelWidget *w)
+{
+    if (!w) {
+        return;
+    }
+    int x, y, ww, hh;
+    widget_physical_rect(p, w, &x, &y, &ww, &hh);
+    int x0 = x - 2 < 0 ? 0 : x - 2, y0 = y - 2 < 0 ? 0 : y - 2;
+    int x1 = x + ww + 2 > p->w ? p->w : x + ww + 2, y1 = y + hh + 2 > p->h ? p->h : y + hh + 2;
+    if (!p->hover_dirty) {
+        p->hd_x0 = x0;
+        p->hd_y0 = y0;
+        p->hd_x1 = x1;
+        p->hd_y1 = y1;
+        p->hover_dirty = 1;
+        return;
+    }
+    if (x0 < p->hd_x0) p->hd_x0 = x0;
+    if (y0 < p->hd_y0) p->hd_y0 = y0;
+    if (x1 > p->hd_x1) p->hd_x1 = x1;
+    if (y1 > p->hd_y1) p->hd_y1 = y1;
+}
+
 static void panel_update_hover(Panel *p, int axis_pos, int cross_pos)
 {
     PanelWidget *hit = panel_widget_at(p, axis_pos, cross_pos);
     int local_x = hit ? axis_pos - hit->x : 0;
     int local_y = hit ? cross_pos - hit->y : 0;
     if (hit != p->hover_widget || (hit && (local_x != p->hover_local_x || local_y != p->hover_local_y))) {
+        panel_mark_hover_dirty(p, p->hover_widget);
+        panel_mark_hover_dirty(p, hit);
         p->hover_widget = hit;
         p->hover_local_x = local_x;
         p->hover_local_y = local_y;
-        p->dirty = 1;
     }
 }
 
@@ -3945,8 +4008,8 @@ static void panel_update_hover(Panel *p, int axis_pos, int cross_pos)
 static void panel_clear_hover(Panel *p)
 {
     if (p->hover_widget) {
+        panel_mark_hover_dirty(p, p->hover_widget);
         p->hover_widget = NULL;
-        p->dirty = 1;
     }
 }
 
@@ -4475,9 +4538,29 @@ static int run_as_daemon(const char *sockpath)
         containers_update_inline();
         for (int i = 0; i < MAX_PANELS; i++) {
             Panel *p = &g_panels[i];
-            if (p->in_use && p->dirty && p->mapped) {
-                panel_layout(p);
-                panel_repaint(p);
+            if (p->in_use && (p->dirty || p->hover_dirty) && p->mapped) {
+                /* Hover alone: repaint only the area it dirtied -- unless
+                 * relaying out moved or resized anything (a widget may
+                 * grow while hovered), which needs the whole panel. */
+                int partial = !p->dirty;
+                if (partial) {
+                    int n = p->n_layout, geo[MAX_WIDGETS * 2][4];
+                    for (int k = 0; k < n; k++) {
+                        geo[k][0] = p->layout[k]->x;
+                        geo[k][1] = p->layout[k]->y;
+                        geo[k][2] = p->layout[k]->len;
+                        geo[k][3] = p->layout[k]->thickness;
+                    }
+                    panel_layout(p);
+                    partial = p->n_layout == n;
+                    for (int k = 0; partial && k < n; k++) {
+                        partial = geo[k][0] == p->layout[k]->x && geo[k][1] == p->layout[k]->y &&
+                                  geo[k][2] == p->layout[k]->len && geo[k][3] == p->layout[k]->thickness;
+                    }
+                } else {
+                    panel_layout(p);
+                }
+                panel_repaint_clip(p, partial);
             }
         }
         /* Autohide's XMoveWindow/XMapWindow/XUnmapWindow calls above (and

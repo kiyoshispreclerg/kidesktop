@@ -465,6 +465,14 @@ struct Panel {
     PanelWidget *hover_widget;
     int hover_local_x;
     int hover_local_y; /* cross-axis position, same space on_button()'s local_y uses -- see panel_widget_hover_local_y() */
+    /* A hover change only needs the widgets it moved between redrawn:
+     * panel_mark_hover_dirty() grows this physical rectangle instead of
+     * setting `dirty`, and the main loop repaints just that area when
+     * nothing else asked for a full repaint (see panel_repaint_clip()).
+     * clip_active is set only while such a repaint is running. */
+    int hover_dirty;
+    int hd_x0, hd_y0, hd_x1, hd_y1;
+    int clip_active;
 
     /* X-DENSITY (see TESTS/X-DENSITY.md and density.c): the density
      * currently applied to this panel's own auxiliary pixmap, 1/1 when
