@@ -98,7 +98,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.67"
+#define XISPANEL_VERSION "0.6.68"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -1074,7 +1074,7 @@ cairo_surface_t *load_png_argb(const char *path)
  * place inside Imlib2's own buffer and wrapped (not copied) as the cairo
  * source of the shrink, so a 1024px pixmap costs one 4 MB buffer instead
  * of two. Same cairo downscale as before, so the result is identical.
- * *shrunk (optional) reports whether a shrink actually happened. */
+ * *shrunk (optional) tells the icon disk cache whether it saved any work. */
 static cairo_surface_t *load_png_icon(const char *path, int target_size, int *shrunk)
 {
     if (shrunk) {
@@ -1262,14 +1262,105 @@ cairo_surface_t *load_icon_argb(const char *path, int target_size)
     return load_png_icon(path, target_size, NULL);
 }
 
+/* ---- on-disk cache of already-shrunk theme icons ---------------------
+ * Pinned apps and tray items resolve the same icon files on every start
+ * and config reload, often to a 512/1024px PNG (VSCodium's pixmap) or an
+ * SVG that needs librsvg dlopen'd just to render it. The shrunk result is
+ * a few KB, so it's kept as a PNG under $XDG_CACHE_HOME/xispanel/icons/.
+ * The name hashes the source path and also carries target_size and the
+ * source's mtime+size, so an updated app/theme simply misses and gets a
+ * new entry -- nothing ever needs invalidating. Only files that actually
+ * cost something are written (SVGs, and PNGs that had to be shrunk);
+ * throwaway locations (runtime dir, /tmp) are never cached. */
+static int icon_cache_dir(char *out, size_t outsz)
+{
+    const char *xdg = getenv("XDG_CACHE_HOME");
+    const char *home = getenv("HOME");
+    if (xdg && xdg[0] == '/') {
+        snprintf(out, outsz, "%s/xispanel/icons", xdg);
+    } else if (home && home[0]) {
+        snprintf(out, outsz, "%s/.cache/xispanel/icons", home);
+    } else {
+        return 0;
+    }
+    return 1;
+}
+
+static int icon_cache_path(const char *src, int target_size, char *out, size_t outsz)
+{
+    const char *rundir = getenv("XDG_RUNTIME_DIR");
+    if (target_size <= 0 || !strncmp(src, "/tmp/", 5) ||
+        (rundir && rundir[0] && !strncmp(src, rundir, strlen(rundir)))) {
+        return 0;
+    }
+    struct stat st;
+    char dir[PATH_MAX];
+    if (stat(src, &st) != 0 || !icon_cache_dir(dir, sizeof(dir))) {
+        return 0;
+    }
+    uint64_t h = 1469598103934665603ULL; /* FNV-1a */
+    for (const unsigned char *c = (const unsigned char *)src; *c; c++) {
+        h = (h ^ *c) * 1099511628211ULL;
+    }
+    int n = snprintf(out, outsz, "%s/%016llx-%d-%lld-%lld.png", dir, (unsigned long long)h, target_size,
+                     (long long)st.st_mtime, (long long)st.st_size);
+    return n > 0 && (size_t)n < outsz;
+}
+
+static void icon_cache_store(const char *cpath, cairo_surface_t *surf)
+{
+    char dir[PATH_MAX];
+    if (!icon_cache_dir(dir, sizeof(dir))) {
+        return;
+    }
+    /* mkdir -p: every component past the first '/' */
+    for (char *s = strchr(dir + 1, '/');; s = strchr(s + 1, '/')) {
+        if (s) {
+            *s = '\0';
+        }
+        if (mkdir(dir, 0700) != 0 && errno != EEXIST) {
+            return;
+        }
+        if (!s) {
+            break;
+        }
+        *s = '/';
+    }
+    char tmp[PATH_MAX + 32];
+    snprintf(tmp, sizeof(tmp), "%s.%d.tmp", cpath, (int)getpid());
+    if (cairo_surface_write_to_png(surf, tmp) == CAIRO_STATUS_SUCCESS) {
+        rename(tmp, cpath); /* atomic against a concurrent reader */
+    } else {
+        unlink(tmp);
+    }
+}
+
 /* See xispanel.h's doc comment. */
 cairo_surface_t *load_icon_file(const char *path, int target_size)
 {
-    size_t len = strlen(path);
-    if (len > 4 && strcmp(path + len - 4, ".svg") == 0) {
-        return shrink_icon_surface(load_svg_argb(path, target_size), target_size);
+    char cpath[PATH_MAX];
+    int cacheable = icon_cache_path(path, target_size, cpath, sizeof(cpath));
+    if (cacheable && access(cpath, R_OK) == 0) {
+        cairo_surface_t *surf = cairo_image_surface_create_from_png(cpath);
+        if (cairo_surface_status(surf) == CAIRO_STATUS_SUCCESS) {
+            return surf;
+        }
+        cairo_surface_destroy(surf); /* corrupt entry: decode the source, rewrite it */
     }
-    return load_png_icon(path, target_size, NULL);
+
+    size_t len = strlen(path);
+    int worth_caching = 0;
+    cairo_surface_t *surf;
+    if (len > 4 && strcmp(path + len - 4, ".svg") == 0) {
+        surf = shrink_icon_surface(load_svg_argb(path, target_size), target_size);
+        worth_caching = 1;
+    } else {
+        surf = load_png_icon(path, target_size, &worth_caching);
+    }
+    if (surf && cacheable && worth_caching) {
+        icon_cache_store(cpath, surf);
+    }
+    return surf;
 }
 
 /* Sidecar "measurements" file for a 9-slice bg_image: plain key=value

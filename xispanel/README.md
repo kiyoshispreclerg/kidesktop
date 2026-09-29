@@ -152,6 +152,12 @@ that file doesn't exist yet, it comes up with no panels -- create the
 file (see [PROTOCOL.md](PROTOCOL.md) for the format) and send `--reload`,
 or just restart it.
 
+Theme icons it had to shrink or render (large PNGs, SVGs) are cached as
+small PNGs under `$XDG_CACHE_HOME/xispanel/icons/` (fallback
+`~/.cache/xispanel/icons/`) so they aren't decoded again on every start.
+Entries follow the source file's mtime and size; deleting the directory is
+always safe.
+
 ```
 xispanel --reload    # tell the running daemon to reload its config
 xispanel --quit      # stop the running daemon

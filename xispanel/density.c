@@ -17,14 +17,13 @@
  * logical-coordinate widget paint() calls that build the normal on-screen
  * buffer, just pointed at a bigger surface with a cairo_scale(density,
  * density) pushed first. Cairo's own vector/text rasterization redraws
- * crisp at any scale this way. One known, deliberate limitation: icons
- * are pre-rendered fixed-size ARGB32 bitmaps (see ewmh_get_icon_surface()/
- * resolve_icon_theme_name()'s target_size), so they scale up as bitmaps
- * rather than gaining any real extra sharpness -- fixing that would mean
- * re-fetching every icon at a density-scaled target size for this render
- * pass alone, a larger change than this first cut makes. Text, borders,
- * hover/active highlights, and the pager's own vector grid all render
- * genuinely sharper.
+ * crisp at any scale this way. Icons are pre-rendered ARGB32 bitmaps, but
+ * every fetch caches them at icon_fetch_size_for()'s 2x headroom (ewmh.c),
+ * so densities up to 2x still downscale from real pixels; only above that
+ * do they scale up as bitmaps -- sharper still would mean re-fetching every
+ * icon at a density-scaled target size for this render pass alone. Text,
+ * borders, hover/active highlights, and the pager's own vector grid render
+ * crisp at any density.
  */
 #include "xispanel.h"
 
