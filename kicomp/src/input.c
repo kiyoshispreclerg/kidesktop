@@ -132,6 +132,31 @@ static bool parse_spec(const char *spec, uint16_t *mods_out, xcb_keysym_t *sym_o
     return true;
 }
 
+bool input_parse_spec(const char *spec, uint16_t *modifiers, uint8_t *button)
+{
+    xcb_keysym_t sym = 0;
+    uint16_t mods = 0;
+    uint8_t b = 0;
+    if (!spec || !*spec || !parse_spec(spec, &mods, &sym, &b))
+        return false;
+    if (modifiers)
+        *modifiers = mods;
+    if (button)
+        *button = b;
+    return true;
+}
+
+uint16_t input_modifiers_held(void)
+{
+    xcb_query_pointer_reply_t *r = xcb_query_pointer_reply(comp.conn,
+        xcb_query_pointer(comp.conn, comp.root), NULL);
+    if (!r)
+        return 0;
+    uint16_t mask = r->mask & 0xff & (uint16_t)~(XCB_MOD_MASK_LOCK | XCB_MOD_MASK_2);
+    free(r);
+    return mask;
+}
+
 bool input_bind_hotkey(const char *spec, void (*fn)(void *data), void *data)
 {
     if (!spec || !*spec || !fn)
@@ -414,6 +439,10 @@ bool input_handle_event(xcb_generic_event_t *ev)
 
     switch (type) {
     case XCB_KEY_RELEASE:
+        /* The server has already applied the release by the time it is
+         * read here, so asking now gives the state after it. */
+        if (grab_handler->key_release)
+            grab_handler->key_release(grab_data, input_modifiers_held());
         return true;
     case XCB_MOTION_NOTIFY: {
         xcb_motion_notify_event_t *e = (xcb_motion_notify_event_t *)ev;

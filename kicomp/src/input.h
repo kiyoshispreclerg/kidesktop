@@ -50,6 +50,12 @@ typedef struct CompInputHandler {
     void (*motion)(void *data, int root_x, int root_y);
     void (*button)(void *data, int root_x, int root_y, uint8_t button,
                    bool pressed);
+
+    /* A key was let go. `held` is the modifier mask still down *after*
+     * it -- the event itself carries the state from before, which would
+     * still report the key just released -- for a mode that lasts only as
+     * long as a modifier is held (zoom's). Optional. */
+    void (*key_release)(void *data, uint16_t held);
 } CompInputHandler;
 
 /* Opens the keysym tables. Safe to call when there is nothing to bind. */
@@ -69,6 +75,14 @@ void input_shutdown(void);
  * grabbed it), with the reason logged: a hotkey that silently does
  * nothing is worse than one that says why. */
 bool input_bind_hotkey(const char *spec, void (*fn)(void *data), void *data);
+
+/* What a spec names, without binding it: its modifier mask, and the
+ * button it ends in (0 for a key). For a mode that goes on answering its
+ * own bindings under a grab, where the root's passive grabs never fire. */
+bool input_parse_spec(const char *spec, uint16_t *modifiers, uint8_t *button);
+
+/* The modifier mask held right now (Caps Lock and Num Lock left out). */
+uint16_t input_modifiers_held(void);
 
 /* Takes the keyboard and the pointer. False if someone already has them
  * (another mode of ours, or a client with an active grab -- a menu is

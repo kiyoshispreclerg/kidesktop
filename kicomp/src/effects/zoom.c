@@ -1,9 +1,11 @@
 /*
  * zoom: one screen magnified, under Meta and the wheel.
  *
- * Not a mode (input.h): nothing is grabbed while it runs, no key is held,
+ * Not a mode (input.h): once the modifier is let go nothing is grabbed,
  * and the desktop underneath keeps working exactly as it did -- windows
- * take focus, menus open, text is typed. The screen is simply being
+ * take focus, menus open, text is typed. Only while the binding's
+ * modifier is still held after a notch is input kept from the windows
+ * (see "the hold" below). The screen is simply being
  * looked at through a lens, and the lens stays until it is wound back
  * out. That is the difference between this and every other effect here:
  * it has no end of its own to animate towards.
@@ -508,8 +510,68 @@ static void step_zoom(const CompEffectInstance *self, bool in)
     output_damage_rect(&o->rect);
 }
 
-static void on_in(void *data)  { step_zoom(data, true); }
-static void on_out(void *data) { step_zoom(data, false); }
+/* ------------------------------------------------------------------ */
+/* the hold                                                            */
+/* ------------------------------------------------------------------ */
+
+/* From the notch that zooms until the modifier is let go, nothing reaches
+ * the windows underneath: the lens is still not a mode once it is up, but
+ * the gesture that drives it is. Without this the wheel's own scrolling
+ * leaks through -- the root's passive button grab only catches the core
+ * button 4/5 a notch is emulated as, while toolkits that read XI2 smooth
+ * scrolling get the scroll valuators first, straight to the window under
+ * the pointer. An active grab takes those too.
+ *
+ * Under the grab the root's passive button grabs never fire, so the
+ * wheel's bindings are answered here instead; key bindings still reach
+ * input.c's hotkey match, which runs grab or no grab. */
+
+#define MAX_HOLD_BUTTONS 8
+
+static struct { uint8_t button; bool in; } hold_buttons[MAX_HOLD_BUTTONS];
+static int hold_button_count;
+static uint16_t hold_mods;     /* any of these down keeps the hold */
+
+static void hold_button(void *data, int x, int y, uint8_t button, bool pressed)
+{
+    (void)x; (void)y;
+    if (!pressed)
+        return;
+    for (int i = 0; i < hold_button_count; i++)
+        if (hold_buttons[i].button == button) {
+            step_zoom(data, hold_buttons[i].in);
+            return;
+        }
+}
+
+static void hold_key_release(void *data, uint16_t held)
+{
+    (void)data;
+    if (!(held & hold_mods))
+        input_release();
+}
+
+static const CompInputHandler hold_input = {
+    .button      = hold_button,
+    .key_release = hold_key_release,
+};
+
+static void hold_begin(const CompEffectInstance *self)
+{
+    /* A binding with no modifier has nothing to be let go of; and a mode
+     * already holding the grab is left alone. */
+    if (!hold_mods || !active || input_grabbed())
+        return;
+    if (!input_grab(&hold_input, (void *)self))
+        return;
+    /* Let go between the notch and the grab: its release went to the
+     * window, not here, and nothing would ever end the hold. */
+    if (!(input_modifiers_held() & hold_mods))
+        input_release();
+}
+
+static void on_in(void *data)  { step_zoom(data, true);  hold_begin(data); }
+static void on_out(void *data) { step_zoom(data, false); hold_begin(data); }
 
 static void zoom_init(const CompEffectInstance *self)
 {
@@ -528,8 +590,19 @@ static void zoom_init(const CompEffectInstance *self)
             char *end = tok + strlen(tok);
             while (end > tok && (end[-1] == ' ' || end[-1] == '\t'))
                 *--end = '\0';
-            if (*tok)
-                input_bind_hotkey(tok, which ? on_out : on_in, (void *)self);
+            if (!*tok || !input_bind_hotkey(tok, which ? on_out : on_in, (void *)self))
+                continue;
+
+            uint16_t mods = 0;
+            uint8_t button = 0;
+            if (!input_parse_spec(tok, &mods, &button))
+                continue;
+            hold_mods |= mods;
+            if (button && hold_button_count < MAX_HOLD_BUTTONS) {
+                hold_buttons[hold_button_count].button = button;
+                hold_buttons[hold_button_count].in = !which;
+                hold_button_count++;
+            }
         }
     }
 }
