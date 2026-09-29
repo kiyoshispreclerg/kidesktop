@@ -286,7 +286,11 @@ Widget types implemented so far:
   slot instead of leaving it permanently blank. The scroll wheel pages
   the same way from anywhere over the widget, including straight over
   the task buttons between the two arrows, not just over an arrow itself
-  -- see "Widget sizing" below. `same_desktop=yes|no` (default
+  -- see "Widget sizing" below. In `mode=wide`, `auto_compact=1|0`
+  (default `1`) first tries the row icon-only, as `mode=compact` would
+  draw it, once it doesn't fit even with every title shrunk; the arrows
+  only appear if even that overflows, and the titles come back as soon as
+  there is room for them again. `same_desktop=yes|no` (default
   `no`) restricts the list to windows on the current `_NET_CURRENT_DESKTOP`
   (ignored if the WM never sets that property). `same_output=yes|no`
   (default `no`) restricts the list to windows whose center falls on this

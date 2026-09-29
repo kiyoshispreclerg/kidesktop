@@ -118,6 +118,9 @@ typedef struct {
 
 typedef struct {
     int compact; /* 0 = wide (icon+label), 1 = compact (icon only) */
+    int auto_compact; /* auto_compact= (default 1): a wide row that doesn't fit even with its titles
+                       * shrunk turns icon-only before resorting to scroll arrows */
+    int compact_now; /* what is drawn right now: compact, or auto-compacted -- see tasklist_layout_visible() */
     int same_desktop_only; /* 1 = only list tasks on the current _NET_CURRENT_DESKTOP */
     int same_output_only; /* 1 = only list tasks kiwm places on this panel's own output (ewmh_window_on_output()) */
     int minimized_only; /* 1 = only list minimized tasks */
@@ -180,6 +183,8 @@ typedef struct {
     int n_tasks;
     int n_desktops;
     int btn_w[MAX_TASKS]; /* natural (unclipped) width of each *display slot*'s button -- see display_repr[] */
+    int nat_w[MAX_TASKS]; /* the same in the configured mode, as measured; btn_w[] is this or, auto-compacted,
+                           * the icon-only square */
 
     /* One display slot per taskbar button actually drawn: with group_apps
      * off, this is a 1:1 mirror of tasks[] (n_display == n_tasks,
@@ -541,6 +546,9 @@ static int tasklist_init(PanelWidget *w)
     TasklistPriv *tp = w->priv;
     char buf[16];
     tp->compact = kv_get(w->config_kv, "mode", buf, sizeof(buf)) && strcmp(buf, "compact") == 0;
+    tp->compact_now = tp->compact;
+    tp->auto_compact = !(kv_get(w->config_kv, "auto_compact", buf, sizeof(buf)) &&
+                         (strcmp(buf, "0") == 0 || strcmp(buf, "no") == 0 || strcmp(buf, "false") == 0));
     tp->same_desktop_only = kv_get(w->config_kv, "same_desktop", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
     tp->same_output_only = kv_get(w->config_kv, "same_output", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
     tp->minimized_only = kv_get(w->config_kv, "minimized_only", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
@@ -946,6 +954,7 @@ static void tasklist_measure(PanelWidget *w, int cross_axis, int *out_len, int *
                 bw = TASKLIST_WIDE_MAXW;
             }
         }
+        tp->nat_w[d] = bw;
         tp->btn_w[d] = bw;
         cursor += bw + TASKLIST_BTN_GAP;
     }
@@ -987,15 +996,44 @@ static void tasklist_measure(PanelWidget *w, int cross_axis, int *out_len, int *
 static int tasklist_slot_min_w(const TasklistPriv *tp, int display_idx)
 {
     int natural = tp->btn_w[display_idx];
-    if (tp->compact || tp->tasks[tp->display_repr[display_idx]].is_placeholder) {
+    if (tp->compact_now || tp->tasks[tp->display_repr[display_idx]].is_placeholder) {
         return natural;
     }
     return natural < TASKLIST_SHRINK_MIN_WIDE ? natural : TASKLIST_SHRINK_MIN_WIDE;
 }
 
+/* auto_compact=: whether the row still doesn't fit with every wide button
+ * shrunk to its floor, in which case it is drawn icon-only (btn_w[] set
+ * to the square) before any scroll arrow shows up. Decided afresh from
+ * nat_w[] on every layout, so the titles come back once there is room. */
+static void tasklist_pick_compact(PanelWidget *w)
+{
+    TasklistPriv *tp = w->priv;
+    tp->compact_now = tp->compact;
+    for (int i = 0; i < tp->n_display; i++) {
+        tp->btn_w[i] = tp->nat_w[i];
+    }
+    if (tp->compact || !tp->auto_compact) {
+        return;
+    }
+    int floor_total = 0;
+    for (int i = 0; i < tp->n_display; i++) {
+        floor_total += tasklist_slot_min_w(tp, i) + (i > 0 ? TASKLIST_BTN_GAP : 0);
+    }
+    if (floor_total <= w->len) {
+        return;
+    }
+    tp->compact_now = 1;
+    for (int i = 0; i < tp->n_display; i++) {
+        tp->btn_w[i] = w->thickness;
+    }
+}
+
 static void tasklist_layout_visible(PanelWidget *w)
 {
     TasklistPriv *tp = w->priv;
+
+    tasklist_pick_compact(w);
 
     int natural_total = 0;
     for (int i = 0; i < tp->n_display; i++) {
@@ -1577,7 +1615,7 @@ static void tasklist_paint(PanelWidget *w, cairo_t *cr)
          * wider than icon_px+8 whenever icon_padding= is in play), the
          * usual fixed 4px in wide mode (bw already sized around exactly
          * that in tasklist_measure()). */
-        int icon_x_off = (tp->compact || e->is_placeholder) ? (bw - icon_px) / 2 : 4;
+        int icon_x_off = (tp->compact_now || e->is_placeholder) ? (bw - icon_px) / 2 : 4;
         /* Clipped to the button first: an unclipped group is as big as the
          * whole panel, so every button, every repaint, composited a full
          * panel-width strip just to dim (or not) its own few pixels --
@@ -1592,7 +1630,7 @@ static void tasklist_paint(PanelWidget *w, cairo_t *cr)
             draw_fallback_icon(cr, bx + icon_x_off, icon_y, icon_px, e->title, p->fg_r, p->fg_g, p->fg_b,
                                 panel_text_size(p));
         }
-        if (!tp->compact && !e->is_placeholder) {
+        if (!tp->compact_now && !e->is_placeholder) {
             /* Pango draws e->title directly -- no manual truncation
              * buffer needed, it ellipsizes to fit on its own, and (unlike
              * the plain cairo_show_text() this replaced) does per-glyph
