@@ -38,6 +38,7 @@
 #include <cairo/cairo-xcb.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 /* A density is published as the fraction the protocol carries; kiwm only
  * ever echoes back what it was asked for, since it can honour any factor
@@ -58,10 +59,64 @@ static void publish_pixmap(Client *c)
                         1, &value);
 }
 
+/* A replaced or withdrawn pixmap is freed a moment later, not at once.
+ * The compositor reads the XID from the property and binds it on its
+ * next frame; freeing it in the same breath as publishing the new one
+ * (every resize does) lets a frame land in between and bind a drawable
+ * that no longer exists -- enough to take kicomp's GL backend down on
+ * Mesa's software path. By the time this fires the compositor has long
+ * since seen the property change and moved to the new pixmap. */
+#define RETIRE_MS 1000.0
+#define RETIRE_MAX 64
+
+static struct {
+    xcb_pixmap_t pixmap;
+    double due;
+} retired[RETIRE_MAX];
+static int n_retired;
+
+static void retire_pixmap(xcb_pixmap_t pixmap)
+{
+    if (n_retired == RETIRE_MAX) {
+        /* A burst bigger than any real one: the oldest has had the most
+         * time to be let go of. */
+        xcb_free_pixmap(wm.conn, retired[0].pixmap);
+        memmove(&retired[0], &retired[1], sizeof(retired[0]) * (RETIRE_MAX - 1));
+        n_retired--;
+    }
+    retired[n_retired].pixmap = pixmap;
+    retired[n_retired].due = monotonic_ms() + RETIRE_MS;
+    n_retired++;
+}
+
+void deco_density_run_retired(void)
+{
+    double now = monotonic_ms();
+    int kept = 0;
+    for (int i = 0; i < n_retired; i++) {
+        if (retired[i].due <= now)
+            xcb_free_pixmap(wm.conn, retired[i].pixmap);
+        else
+            retired[kept++] = retired[i];
+    }
+    if (kept != n_retired) {
+        n_retired = kept;
+        xcb_flush(wm.conn);
+    }
+}
+
+int deco_density_retired_timeout_ms(void)
+{
+    if (n_retired == 0)
+        return -1;
+    double in = retired[0].due - monotonic_ms(); /* appended in due order */
+    return in <= 0 ? 0 : (int)in + 1;
+}
+
 static void free_pixmap(Client *c)
 {
     if (c->deco_density_pixmap != XCB_NONE) {
-        xcb_free_pixmap(wm.conn, c->deco_density_pixmap);
+        retire_pixmap(c->deco_density_pixmap);
         c->deco_density_pixmap = XCB_NONE;
     }
     c->deco_density_w = c->deco_density_h = 0;

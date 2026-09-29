@@ -41,7 +41,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KIWM_VERSION "0.5.22"
+#define KIWM_VERSION "0.5.23"
 
 #include "wm.h"
 #include "config.h"
@@ -52,6 +52,7 @@
 #include "client.h"
 #include "events.h"
 #include "keybind.h"
+#include "density.h"
 #include "findcursor.h"
 #include "osd.h"
 #include "selection.h"
@@ -606,6 +607,13 @@ int main(int argc, char **argv)
         if (hold_in >= 0 && (timeout < 0 || hold_in < timeout))
             timeout = hold_in;
 
+        /* ...and while a replaced X-DENSITY pixmap waits to be freed
+         * (density.c's retire_pixmap). */
+        deco_density_run_retired();
+        int retired_in = deco_density_retired_timeout_ms();
+        if (retired_in >= 0 && (timeout < 0 || retired_in < timeout))
+            timeout = retired_in;
+
         /* ...and while a "find the cursor" flash is animating (findcursor.c). */
         findcursor_run();
         int findcursor_in = findcursor_timeout_ms();
@@ -624,6 +632,7 @@ int main(int argc, char **argv)
             client_run_pending_expose();
             desktop_layers_run_prime();
             client_run_holds();
+            deco_density_run_retired();
             findcursor_run();
             continue;
         }
