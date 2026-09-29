@@ -40,3 +40,14 @@ xisback --quit
 ```
 
 With no arguments, it comes up as an empty daemon waiting for commands.
+
+## Memory of hidden desktops
+
+Every layer's image is a full-output pixmap in the X server (VRAM on a
+GPU-backed server). Layers of desktops you are not on stay loaded so a
+switch shows them instantly. Under kicomp with `keep_hidden_contents` on,
+the compositor already keeps its own picture of each hidden layer (for
+expo, the cube and desktop switches); xisback then uses that picture as
+the window's background and frees its own copy, so each hidden wallpaper
+is held once instead of twice. That costs no CPU and changes nothing on
+screen.

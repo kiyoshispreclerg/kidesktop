@@ -107,6 +107,18 @@ immediately rather than animating, since there's no "old" content to fade
 from in that case. `<fade_ms>` is clamped to `[0, 5000]` by the daemon
 regardless of what a client sends.
 
+## Hidden layers
+
+A layer whose desktop is not being shown is unmapped by the window
+manager, but its image stays in the X server so showing it again is
+instant. When a compositor publishes its own kept picture of such a
+window as `_KICOMP_STOWED_PIXMAP` (kicomp's `keep_hidden_contents`), the
+daemon makes that picture the window's background and frees its own
+pixmap -- the server keeps a background pixmap alive after its creator
+frees it, so this survives the compositor exiting. A picture is only taken
+if it matches the window's size and depth and was taken after the layer's
+current image was last shown; otherwise the daemon keeps its own.
+
 ## Click and scroll actions
 
 Each layer's window accepts left/right/middle clicks, double-clicks (any

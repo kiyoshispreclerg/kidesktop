@@ -150,6 +150,16 @@ typedef struct {
     Pixmap cur_pixmap;
     int x, y, width, height;
 
+    /* Hidden-layer memory, see layer_try_borrow()/layer_unload():
+     * borrowed -- cur_pixmap is the compositor's kept picture of this
+     *   window (_KICOMP_STOWED_PIXMAP), not ours: never XFreePixmap it.
+     * mapped -- l->win is on screen (Map/UnmapNotify).
+     * content_stale -- the background changed while hidden, so any kept
+     *   picture shows an older image and must not be borrowed. */
+    int borrowed;
+    int mapped;
+    int content_stale;
+
     /* in-flight crossfade transition (only meaningful while fading != 0):
      * fade_win sits on top of win, showing next_pixmap at increasing
      * opacity; the compositor does the actual blending. Once the fade
@@ -177,6 +187,7 @@ static volatile sig_atomic_t g_quit = 0;
 static Layer g_layers[MAX_LAYERS];
 static char g_configpath[PATH_MAX];
 static Atom g_atom_opacity;
+static Atom g_atom_stowed_pixmap;
 
 /* WM_S<screen>/_NET_WM_CM_S<screen> manager-selection tracking (ICCCM
  * 4.3 and the EWMH compositing-manager convention respectively): whichever
@@ -295,6 +306,7 @@ static void usage(const char *prog)
             "                      whichever layer was clicked, or a menu command can\n"
             "                      pop up right where the pointer was\n"
             "  --get-actions       print the currently configured click/scroll commands\n"
+
             "  --quit              stop the daemon\n"
             "  --version           print version and exit\n"
             "\n"
@@ -395,6 +407,7 @@ static int parse_argv(int argc, char **argv, Command *cmd)
             cmd->type = CMD_SETACTIONS;
         } else if (!strcmp(argv[i], "--get-actions")) {
             cmd->type = CMD_GETACTIONS;
+
         } else if (!strcmp(argv[i], "--quit")) {
             cmd->type = CMD_QUIT;
         } else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
@@ -436,6 +449,7 @@ static void build_line(const Command *c, char *buf, size_t bufsz)
     case CMD_GETACTIONS:
         snprintf(buf, bufsz, "ACTIONS\n");
         break;
+
     case CMD_PING:
         snprintf(buf, bufsz, "PING\n");
         break;
@@ -464,6 +478,81 @@ static int find_layer(const char *output, int desktop)
         }
     }
     return -1;
+}
+
+/* Drops the layer's reference to its current image: frees it if it is
+ * ours, only forgets it if it is the compositor's (borrowed). Either way
+ * the window's background keeps the pixels alive until it is replaced. */
+static void layer_release_pixmap(Layer *l)
+{
+    if (l->cur_pixmap != None && !l->borrowed) {
+        XFreePixmap(g_dpy, l->cur_pixmap);
+    }
+    l->cur_pixmap = None;
+    l->borrowed = 0;
+}
+
+static int g_x_error_trapped;
+static int trap_x_error(Display *dpy, XErrorEvent *ev)
+{
+    (void)dpy;
+    (void)ev;
+    g_x_error_trapped = 1;
+    return 0;
+}
+
+/* A hidden layer and the compositor's kept picture of it (kicomp's
+ * _KICOMP_STOWED_PIXMAP, published on l->win) hold the same pixels
+ * twice. Making that picture the window's background lets ours go: the
+ * server keeps a pixmap alive for as long as a background refers to it,
+ * even after the compositor frees its own name for it, so the window
+ * still repaints instantly when shown again -- no decode, no flash. Only
+ * a picture of the *current* image is taken (not content_stale), and
+ * only one that matches the window exactly; anything else keeps ours. */
+static void layer_try_borrow(Layer *l)
+{
+    if (l->win == None || l->mapped || l->fading || l->content_stale || g_atom_stowed_pixmap == None) {
+        return;
+    }
+    Atom type;
+    int format;
+    unsigned long n, after;
+    unsigned char *data = NULL;
+    Pixmap stowed = None;
+    if (XGetWindowProperty(g_dpy, l->win, g_atom_stowed_pixmap, 0, 1, False, XA_PIXMAP, &type, &format, &n,
+                           &after, &data) == Success &&
+        data && type == XA_PIXMAP && format == 32 && n == 1) {
+        stowed = (Pixmap)((unsigned long *)(void *)data)[0];
+    }
+    if (data) {
+        XFree(data);
+    }
+    if (stowed == None || (l->borrowed && stowed == l->cur_pixmap)) {
+        return;
+    }
+
+    /* The compositor may free it at any moment (the window came back, it
+     * restarted): every error here just means "keep ours". */
+    XSync(g_dpy, False);
+    g_x_error_trapped = 0;
+    int (*old_handler)(Display *, XErrorEvent *) = XSetErrorHandler(trap_x_error);
+    Window root;
+    int gx, gy;
+    unsigned int gw = 0, gh = 0, bw, depth = 0;
+    int ok = XGetGeometry(g_dpy, stowed, &root, &gx, &gy, &gw, &gh, &bw, &depth) && !g_x_error_trapped &&
+             (int)gw == l->width && (int)gh == l->height && (int)depth == g_depth;
+    if (ok) {
+        XSetWindowBackgroundPixmap(g_dpy, l->win, stowed);
+        XSync(g_dpy, False);
+        ok = !g_x_error_trapped;
+    }
+    XSetErrorHandler(old_handler);
+    if (!ok) {
+        return;
+    }
+    layer_release_pixmap(l);
+    l->cur_pixmap = stowed;
+    l->borrowed = 1;
 }
 
 static int find_layer_by_window(Window w)
@@ -499,9 +588,7 @@ static void destroy_layer(Layer *l)
     if (l->win != None) {
         XDestroyWindow(g_dpy, l->win);
     }
-    if (l->cur_pixmap != None) {
-        XFreePixmap(g_dpy, l->cur_pixmap);
-    }
+    layer_release_pixmap(l);
     for (int i = 0; i < l->n_images; i++) {
         free(l->images[i]);
     }
@@ -687,7 +774,10 @@ static Window create_layer_window(Layer *l, int x, int y, int w, int h, int focu
     hints.input = focusable ? True : False;
     XSetWMHints(g_dpy, win, &hints);
 
-    XSelectInput(g_dpy, win, ButtonPressMask);
+    /* The main window also reports being shown/hidden and the compositor
+     * publishing its kept picture (layer_try_borrow()); the fade overlay
+     * only ever needs clicks. */
+    XSelectInput(g_dpy, win, ButtonPressMask | (focusable ? StructureNotifyMask | PropertyChangeMask : 0));
 
     return win;
 }
@@ -946,13 +1036,14 @@ static void layer_finish_fade(Layer *l)
     if (l->win != None && l->fade_pixmap != None) {
         XSetWindowBackgroundPixmap(g_dpy, l->win, l->fade_pixmap);
         XClearWindow(g_dpy, l->win);
+        if (!l->mapped) {
+            l->content_stale = 1;
+        }
     }
     if (l->fade_win != None) {
         XDestroyWindow(g_dpy, l->fade_win);
     }
-    if (l->cur_pixmap != None) {
-        XFreePixmap(g_dpy, l->cur_pixmap);
-    }
+    layer_release_pixmap(l);
     l->cur_pixmap = l->fade_pixmap;
     l->fade_win = None;
     l->fade_pixmap = None;
@@ -982,9 +1073,10 @@ static void layer_render(Layer *l, int use_fade)
     if (!use_fade || l->fade_ms <= 0) {
         XSetWindowBackgroundPixmap(g_dpy, l->win, next);
         XClearWindow(g_dpy, l->win);
-        if (l->cur_pixmap != None) {
-            XFreePixmap(g_dpy, l->cur_pixmap);
+        if (!l->mapped) {
+            l->content_stale = 1;
         }
+        layer_release_pixmap(l);
         l->cur_pixmap = next;
         return;
     }
@@ -1811,6 +1903,7 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
     imlib_set_cache_size(0);
 
     g_atom_opacity = XInternAtom(g_dpy, "_NET_WM_WINDOW_OPACITY", False);
+    g_atom_stowed_pixmap = XInternAtom(g_dpy, "_KICOMP_STOWED_PIXMAP", False);
 
     int rr_error_base;
     if (!XRRQueryExtension(g_dpy, &g_rr_event_base, &rr_error_base)) {
@@ -2011,6 +2104,26 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                         reconcile_layer_outputs();
                         refresh_all_layer_geometries();
                         check_layer_overlap();
+                    }
+                } else if (ev.type == MapNotify || ev.type == UnmapNotify) {
+                    int idx = find_layer_by_window(ev.xany.window);
+                    if (idx >= 0 && g_layers[idx].win == ev.xany.window) {
+                        Layer *l = &g_layers[idx];
+                        l->mapped = ev.type == MapNotify;
+                        if (l->mapped) {
+                            /* Mapping repaints from the background: what
+                             * shows now is the current image again. */
+                            l->content_stale = 0;
+                        } else {
+                            layer_try_borrow(l); /* the picture may already be published */
+                        }
+                    }
+                } else if (ev.type == PropertyNotify) {
+                    if (ev.xproperty.atom == g_atom_stowed_pixmap && ev.xproperty.state == PropertyNewValue) {
+                        int idx = find_layer_by_window(ev.xproperty.window);
+                        if (idx >= 0 && g_layers[idx].win == ev.xproperty.window) {
+                            layer_try_borrow(&g_layers[idx]);
+                        }
                     }
                 } else if (ev.type == ButtonPress) {
                     /* Button2 is the middle button in X11's numbering (not
