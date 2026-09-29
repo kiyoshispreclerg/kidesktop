@@ -23,8 +23,9 @@ int density_handle_property(Panel *p, const XPropertyEvent *ev)
     return 0;
 }
 
-void density_render(Panel *p)
+void density_render(Panel *p, int clip)
 {
+    (void)clip;
     (void)p;
 }
 

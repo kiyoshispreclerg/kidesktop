@@ -99,7 +99,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.69"
+#define XISPANEL_VERSION "0.6.70"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -2588,7 +2588,7 @@ static void panel_repaint_clip(Panel *p, int clip)
     p->dirty = 0;
     p->hover_dirty = 0;
 
-    density_render(p);
+    density_render(p, clip);
 }
 
 static void panel_repaint(Panel *p)

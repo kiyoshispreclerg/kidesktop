@@ -882,7 +882,9 @@ Window ewmh_resolve_active_for_output(const char *output_name, int *out_kiwm_out
 void density_init(void);                                 /* call once at startup, after ewmh_init_atoms() */
 int density_handle_xfixes_event(const XEvent *ev);        /* 1 if consumed (a manager-selection change) */
 int density_handle_property(Panel *p, const XPropertyEvent *ev); /* 1 if consumed (_X_DENSITY_REQUESTED on p->win) */
-void density_render(Panel *p);      /* call at the end of panel_repaint() -- no-op unless density != 1/1 */
+/* call at the end of panel_repaint() -- no-op unless density != 1/1.
+ * clip: only p->hd_* (the hover-dirty rectangle) changed. */
+void density_render(Panel *p, int clip);
 void density_panel_destroyed(Panel *p); /* frees the aux pixmap/surface/cr, if any -- call from panel_deactivate() */
 
 /* Same mechanism as the four functions above, packaged generically for

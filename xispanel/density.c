@@ -31,6 +31,7 @@
 #include <X11/extensions/Xfixes.h>
 #include <cairo/cairo-xlib.h>
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -212,7 +213,7 @@ static int density_ensure_pixmap(Panel *p, int pw, int ph)
     return 1;
 }
 
-void density_render(Panel *p)
+void density_render(Panel *p, int clip)
 {
     if (p->density_num == 1 && p->density_den == 1) {
         return; /* the vastly common case -- nothing requested, nothing to do */
@@ -231,21 +232,43 @@ void density_render(Panel *p)
     if (pw < 1 || ph < 1) {
         return;
     }
+    Pixmap before = p->density_pixmap;
     if (!density_ensure_pixmap(p, pw, ph)) {
         return;
     }
+    /* A hover change repaints just the rectangle it dirtied, scaled out to
+     * device pixels -- the off-screen buffer persists between frames, so
+     * everything outside it is still right. Not on a freshly (re)made
+     * pixmap, which has nothing in it yet. */
+    clip = clip && p->density_pixmap == before;
+    int cx = (int)floor(p->hd_x0 * scale), cy = (int)floor(p->hd_y0 * scale);
+    int cw = (int)ceil(p->hd_x1 * scale) - cx, ch = (int)ceil(p->hd_y1 * scale) - cy;
 
     /* Draw off-screen first, one atomic blit onto the actual pixmap after
      * -- see the doc comment on density_img_surface/density_cr in
      * xispanel.h for why (a Pixmap has no auto-Damage, so writing widgets
      * to it directly, one X request per fill/stroke, let a Damage-
      * tracking compositor resample mid-frame -- visible as flicker). */
+    if (clip) {
+        cairo_save(p->density_img_cr);
+        cairo_rectangle(p->density_img_cr, cx, cy, cw, ch);
+        cairo_clip(p->density_img_cr);
+        p->clip_active = 1;
+    }
     panel_paint_content(p, p->density_img_cr, scale);
+    if (clip) {
+        p->clip_active = 0;
+        cairo_restore(p->density_img_cr);
+    }
     cairo_surface_flush(p->density_img_surface);
 
     /* Content first, announce after (spec section 4) -- avoids the
      * compositor sampling a stale-sized or half-drawn pixmap. */
     cairo_save(p->density_cr);
+    if (clip) {
+        cairo_rectangle(p->density_cr, cx, cy, cw, ch);
+        cairo_clip(p->density_cr);
+    }
     cairo_set_operator(p->density_cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_surface(p->density_cr, p->density_img_surface, 0, 0);
     cairo_paint(p->density_cr);
