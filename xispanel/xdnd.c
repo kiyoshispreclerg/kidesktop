@@ -23,6 +23,7 @@
 
 #include <X11/Xatom.h>
 #include <limits.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define XDND_VERSION 5
@@ -244,11 +245,12 @@ static void on_selection_notify(const XSelectionEvent *se)
         unsigned char *data = NULL;
         if (XGetWindowProperty(g_dpy, pending.self, a_data, 0, 1 << 18, True, AnyPropertyType, &type, &format, &n,
                                &after, &data) == Success && data && format == 8) {
-            static char paths[XDND_MAX_FILES][PATH_MAX];
+            /* Only for the length of the drop: 64 paths are 256 KiB. */
+            char (*paths)[PATH_MAX] = malloc(sizeof(char[XDND_MAX_FILES][PATH_MAX]));
             const char *argv[XDND_MAX_FILES];
             int count = 0;
             const char *line = (const char *)data, *end = line + n;
-            while (line < end && count < XDND_MAX_FILES) {
+            while (paths && line < end && count < XDND_MAX_FILES) {
                 const char *eol = memchr(line, '\n', (size_t)(end - line));
                 const char *stop = eol ? eol : end;
                 size_t len = (size_t)(stop - line);
@@ -264,6 +266,7 @@ static void on_selection_notify(const XSelectionEvent *se)
             if (count > 0) {
                 ok = pending.w->ops->dnd_drop_files(pending.w, pending.local_x, argv, count);
             }
+            free(paths);
         }
         if (data) {
             XFree(data);
