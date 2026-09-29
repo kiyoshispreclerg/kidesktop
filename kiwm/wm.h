@@ -985,7 +985,12 @@ typedef struct {
 
     Atoms atoms;
     xcb_window_t check_win;
-    xcb_window_t sel_win;    /* WM_Sn selection owner window, watched for SelectionClear */
+    /* Where the keyboard goes when no client has it (client.c's
+     * focus_nothing()): a mapped, off-screen InputOnly window, so focus is
+     * never None -- which would deafen every passive key grab on the root,
+     * kiwm's and xiskeys' alike. */
+    xcb_window_t nofocus_win;
+    xcb_window_t sel_win;   /* WM_Sn selection owner window, watched for SelectionClear */
     xcb_atom_t sn_atom;
     /* _NET_WM_CM_Sn: whoever owns this is compositing the screen. Interned
      * in selection.c, which is where the screen number is known; read by

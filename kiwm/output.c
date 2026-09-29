@@ -1162,16 +1162,12 @@ void switch_workspace(int output_idx, int desktop)
     if (to_focus) {
         focus_client(to_focus);
     } else {
-        if (wm.focused && wm.focused->output == output_idx) {
-            /* The server reverts the focus by itself when the focused
-             * window is unmapped -- but a window held up on its way out
-             * was not unmapped, and would go on taking the keyboard
-             * from a desktop nobody can see it on. */
-            if (wm.focused->held)
-                xcb_set_input_focus(wm.conn, XCB_INPUT_FOCUS_POINTER_ROOT,
-                                    wm.root, XCB_CURRENT_TIME);
-            wm.focused = NULL;
-        }
+        /* Not left to the server's revert: a window held up on its way
+         * out was not unmapped and would go on taking the keyboard from a
+         * desktop nobody can see it on, and one that set its own focus
+         * with RevertToParent would leave focus None (focus_nothing()). */
+        if (wm.focused && wm.focused->output == output_idx)
+            focus_nothing();
         ewmh_update_active_window();
     }
 

@@ -26,6 +26,16 @@ void apply_frame_geometry(Client *c);
 void focus_client(Client *c);
 void cycle_focus(int direction);
 
+/* Creates wm.nofocus_win. Called once at startup. */
+void focus_init_nofocus_window(void);
+/* Points the keyboard at wm.nofocus_win and clears wm.focused. */
+void focus_nothing(void);
+/* The focused window is going away (closed, withdrawn, minimized): hands
+ * focus to the most recently focused window left on output_idx's current
+ * desktop, or to nothing (focus_nothing()) when there is none. `leaving`
+ * is never picked. */
+void focus_fallback(int output_idx, Client *leaving);
+
 void close_client(Client *c);
 void toggle_maximize(Client *c, int want /* -1=toggle 0=unmax 1=max */);
 /* The single-axis maximizations EWMH has always had as separate states

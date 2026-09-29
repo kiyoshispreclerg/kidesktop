@@ -190,8 +190,7 @@ void popup_focus_released(xcb_window_t window)
         xcb_set_input_focus(wm.conn, XCB_INPUT_FOCUS_POINTER_ROOT,
                             wm.focused->window, XCB_CURRENT_TIME);
     else
-        xcb_set_input_focus(wm.conn, XCB_INPUT_FOCUS_POINTER_ROOT,
-                            wm.root, XCB_CURRENT_TIME);
+        focus_nothing();
     xcb_flush(wm.conn);
 }
 
@@ -1219,6 +1218,54 @@ void cycle_focus(int direction)
     focus_client(eligible[next]);
 }
 
+void focus_init_nofocus_window(void)
+{
+    uint32_t mask = XCB_CW_OVERRIDE_REDIRECT;
+    uint32_t values[] = { 1 };
+    wm.nofocus_win = xcb_generate_id(wm.conn);
+    xcb_create_window(wm.conn, 0, wm.nofocus_win, wm.root,
+                      -100, -100, 1, 1, 0, XCB_WINDOW_CLASS_INPUT_ONLY,
+                      XCB_COPY_FROM_PARENT, mask, values);
+    xcb_map_window(wm.conn, wm.nofocus_win);
+}
+
+/* The X server itself never picks another window when the focused one
+ * goes away: it only follows the focus's revert_to, and applications that
+ * set focus themselves (WM_TAKE_FOCUS) commonly pass RevertToParent. That
+ * reverts to the frame when the client withdraws its window, then to None
+ * once kiwm destroys the frame -- and with focus None no key event is
+ * delivered at all, root grabs included. Focusing the root instead would
+ * keep the grabs alive but send typing to whatever window is under the
+ * pointer, so, like KWin and Openbox, kiwm keeps a window of its own for
+ * "nothing". */
+void focus_nothing(void)
+{
+    xcb_set_input_focus(wm.conn, XCB_INPUT_FOCUS_POINTER_ROOT,
+                        wm.nofocus_win, XCB_CURRENT_TIME);
+    wm.focused = NULL;
+    ewmh_update_active_window();
+}
+
+void focus_fallback(int output_idx, Client *leaving)
+{
+    Client *best = NULL;
+    if (output_idx >= 0 && output_idx < wm.output_count) {
+        int desktop = wm.outputs[output_idx].desktop;
+        for (Client *c = wm.clients; c; c = c->next) {
+            if (c == leaving || c->output != output_idx || !c->mapped || c->minimized)
+                continue;
+            if (!c->sticky && c->desktop != desktop)
+                continue;
+            if (!best || c->last_focus_serial > best->last_focus_serial)
+                best = c;
+        }
+    }
+    if (best)
+        focus_client(best);
+    else
+        focus_nothing();
+}
+
 static void send_delete(Client *c)
 {
     if (wm.atoms.wm_protocols == XCB_ATOM_NONE ||
@@ -2140,7 +2187,7 @@ void minimize_client(Client *c)
      * away, which ends the hold along with everything else. */
     client_release_hold(c);
     if (wm.focused == c)
-        wm.focused = NULL;
+        focus_fallback(c->output, c);
 
     ewmh_update_active_window();
     xcb_flush(wm.conn);
@@ -2317,7 +2364,9 @@ void unmanage(Client *c)
 
     int fx = c->x, fy = c->y, fw = c->frame_width, fh = c->frame_height;
 
-    if (wm.focused == c)
+    bool was_focused = wm.focused == c;
+    int output_idx = c->output;
+    if (was_focused)
         wm.focused = NULL;
     if (wm.drag_client == c) {
         wm.drag_client = NULL;
@@ -2407,6 +2456,10 @@ void unmanage(Client *c)
         cairo_surface_destroy(c->icon);
 
     remove_client(c);
+    /* After the frame is gone and c is off the list, so the fallback
+     * can't pick it and its own focus request lands last. */
+    if (was_focused)
+        focus_fallback(output_idx, NULL);
     ewmh_update_client_list();
     ewmh_update_active_window();
     xcb_flush(wm.conn);

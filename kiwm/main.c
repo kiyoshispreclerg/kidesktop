@@ -41,7 +41,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KIWM_VERSION "0.5.23"
+#define KIWM_VERSION "0.5.24"
 
 #include "wm.h"
 #include "config.h"
@@ -393,7 +393,11 @@ static void setup_wm(bool replace)
 
     ewmh_init_supported();
     ewmh_init_supporting_wm_check();
+    focus_init_nofocus_window();
     manage_existing_windows();
+    /* After a --replace the old WM's own focus window is gone with it. */
+    if (!wm.focused)
+        focus_nothing();
     ewmh_update_client_list();
     ewmh_update_active_window();
 
