@@ -645,7 +645,12 @@ void gl_window_free(CompWindow *w)
         gl_stash_free(g);
         gl_dense_free(&g->dense[0]);
         gl_dense_free(&g->dense[1]);
-        free(g->shape_rects);
+        /* The mask texture too, not just the rectangles: every shaped
+         * window that was ever drawn transformed (open/close animations
+         * included) had one, and it outlived the window -- w*h bytes of
+         * VRAM per closed window, which is how a day's use grew the
+         * process from ~60 MB to ~240 MB. */
+        gl_shape_forget(g);
         free(g);
         return;
     }
