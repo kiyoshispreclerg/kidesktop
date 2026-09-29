@@ -22,11 +22,15 @@
 #include "xispanel.h"
 
 #include <pango/pangocairo.h>
+#include <string.h>
 
 static PangoFontDescription *g_desc = NULL;
 
+static void layout_cache_clear(void);
+
 void pango_text_init(const char *family)
 {
+    layout_cache_clear();
     if (g_desc) {
         pango_font_description_free(g_desc);
     }
@@ -37,7 +41,7 @@ void pango_text_init(const char *family)
 /* Shared setup for both the measuring and drawing entry points below --
  * a PangoLayout carrying `text` at `size_px`, ellipsized to max_width_px
  * if positive. Caller owns the returned layout (g_object_unref() it). */
-static PangoLayout *build_layout(cairo_t *cr, const char *text, double size_px, double max_width_px, int weight)
+static PangoLayout *new_layout(cairo_t *cr, const char *text, double size_px, double max_width_px, int weight)
 {
     pango_font_description_set_absolute_size(g_desc, size_px * PANGO_SCALE);
     pango_font_description_set_weight(g_desc, (PangoWeight)weight);
@@ -50,6 +54,96 @@ static PangoLayout *build_layout(cairo_t *cr, const char *text, double size_px, 
     }
     pango_layout_set_text(layout, text, -1);
     return layout;
+}
+
+/* Every repaint used to shape, measure and ellipsize every string from
+ * scratch -- a third of the CPU a hover sweep over the taskbar cost, for
+ * titles that hadn't changed. Layouts are kept here instead, keyed by
+ * everything new_layout() takes (the font family is global and flushes
+ * the cache when it changes, see pango_text_init()). What pangocairo
+ * derives a layout's context from -- the effective font options and the
+ * matrix -- is part of the key too, so a hit is already in sync with `cr`
+ * and is used as is: pango_cairo_update_layout() is deliberately not
+ * called on it, since it re-lays the text out even when nothing changed
+ * (~25 us per string, measured). Strings measured on a probe surface and
+ * drawn on the panel buffer, or drawn again by the X-DENSITY pass under a
+ * scaled matrix, simply get entries of their own. */
+#define LAYOUT_CACHE_MAX 48
+
+typedef struct {
+    char *text;
+    double size_px, max_width_px;
+    int weight;
+    unsigned long fo_hash;
+    double xx, yx, xy, yy;
+    unsigned long last_use;
+    PangoLayout *layout;
+} CachedLayout;
+
+static CachedLayout g_cache[LAYOUT_CACHE_MAX];
+static unsigned long g_cache_clock;
+
+static void layout_cache_clear(void)
+{
+    for (int i = 0; i < LAYOUT_CACHE_MAX; i++) {
+        if (g_cache[i].layout) {
+            g_object_unref(g_cache[i].layout);
+            g_free(g_cache[i].text);
+        }
+    }
+    memset(g_cache, 0, sizeof(g_cache));
+}
+
+/* What pangocairo derives the layout's context from: the target's font
+ * options merged with cr's own, and the matrix minus its translation. */
+static unsigned long cr_font_options_hash(cairo_t *cr)
+{
+    cairo_font_options_t *fo = cairo_font_options_create();
+    cairo_font_options_t *crfo = cairo_font_options_create();
+    cairo_surface_get_font_options(cairo_get_target(cr), fo);
+    cairo_get_font_options(cr, crfo);
+    cairo_font_options_merge(fo, crfo);
+    unsigned long h = cairo_font_options_hash(fo);
+    cairo_font_options_destroy(crfo);
+    cairo_font_options_destroy(fo);
+    return h;
+}
+
+/* Borrowed: valid until the next call (which may evict it). */
+static PangoLayout *build_layout(cairo_t *cr, const char *text, double size_px, double max_width_px, int weight)
+{
+    unsigned long fo_hash = cr_font_options_hash(cr);
+    cairo_matrix_t m;
+    cairo_get_matrix(cr, &m);
+    CachedLayout *slot = &g_cache[0];
+    for (int i = 0; i < LAYOUT_CACHE_MAX; i++) {
+        CachedLayout *c = &g_cache[i];
+        if (c->layout && c->weight == weight && c->size_px == size_px && c->max_width_px == max_width_px &&
+            c->fo_hash == fo_hash && c->xx == m.xx && c->yx == m.yx && c->xy == m.xy && c->yy == m.yy &&
+            strcmp(c->text, text) == 0) {
+            c->last_use = ++g_cache_clock;
+            return c->layout;
+        }
+        if (!c->layout || (slot->layout && c->last_use < slot->last_use)) {
+            slot = c;
+        }
+    }
+    if (slot->layout) {
+        g_object_unref(slot->layout);
+        g_free(slot->text);
+    }
+    slot->layout = new_layout(cr, text, size_px, max_width_px, weight);
+    slot->text = g_strdup(text);
+    slot->size_px = size_px;
+    slot->max_width_px = max_width_px;
+    slot->weight = weight;
+    slot->fo_hash = fo_hash;
+    slot->xx = m.xx;
+    slot->yx = m.yx;
+    slot->xy = m.xy;
+    slot->yy = m.yy;
+    slot->last_use = ++g_cache_clock;
+    return slot->layout;
 }
 
 /* Measures `text` as it would be rendered at `size_px` -- including
@@ -72,7 +166,6 @@ void pango_text_extents_ellipsized(cairo_t *cr, const char *text, double size_px
     if (out_h) {
         *out_h = lh;
     }
-    g_object_unref(layout);
 }
 
 /* Draws `text` (any valid UTF-8, no manual truncation needed -- Pango
@@ -136,5 +229,4 @@ void pango_show_text_boxed_bold(cairo_t *cr, double x, double top_y, double box_
     cairo_set_source_rgba(cr, fr, fg, fb, fa);
     cairo_move_to(cr, x, y);
     pango_cairo_show_layout(cr, layout);
-    g_object_unref(layout);
 }
