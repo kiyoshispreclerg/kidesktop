@@ -84,6 +84,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <locale.h>
+#include <malloc.h>
 #include <math.h>
 #include <signal.h>
 #include <stdio.h>
@@ -4439,6 +4440,14 @@ int main(int argc, char **argv)
      * clock's short "%H:%M" panel format is locale-independent, but its
      * tooltip's full "weekday, day de month de year" isn't. */
     setlocale(LC_TIME, "");
+
+    /* A fixed threshold disables glibc's dynamic one, which rises to the
+     * size of any mmapped chunk once it's freed -- after one big transient
+     * (a 1024px pixmap decoded just to become a 24px icon) every later
+     * multi-MB popup/thumbnail buffer lands in the brk heap and fragments
+     * it for good instead of going back to the kernel on free. Measured
+     * ~2 MB less RSS with no behaviour change. */
+    mallopt(M_MMAP_THRESHOLD, 128 * 1024);
 
     const char *rundir = getenv("XDG_RUNTIME_DIR");
     if (!rundir || !*rundir) {
