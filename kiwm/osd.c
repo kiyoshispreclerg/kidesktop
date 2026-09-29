@@ -617,9 +617,20 @@ static void grab_for_hold(void)
      * halfway through. This is not a corner case: switching desktops with
      * a window in hand, so it travels along (output.c's switch_workspace),
      * is exactly that gesture. The drag's grab already delivers every
-     * button event to kiwm anyway, so nothing is lost by leaving it be. */
+     * button event to kiwm anyway, so nothing is lost by leaving it be.
+     *
+     * Nor while any button is held: then some application has the
+     * pointer -- a drag-and-drop in progress, typically -- and taking it
+     * away freezes that drag for good, since the grab doesn't go back to
+     * the application when the overlay closes. A click can't end the hold
+     * with a button already down anyway. */
+    xcb_query_pointer_reply_t *q = xcb_query_pointer_reply(wm.conn,
+        xcb_query_pointer(wm.conn, wm.root), NULL);
+    bool button_held = q && (q->mask & (XCB_BUTTON_MASK_1 | XCB_BUTTON_MASK_2 | XCB_BUTTON_MASK_3 |
+                                        XCB_BUTTON_MASK_4 | XCB_BUTTON_MASK_5));
+    free(q);
     xcb_grab_pointer_reply_t *ptr = NULL;
-    if (wm.drag_mode == DRAG_NONE) {
+    if (wm.drag_mode == DRAG_NONE && !button_held) {
         ptr = xcb_grab_pointer_reply(wm.conn,
             xcb_grab_pointer(wm.conn, 0, wm.root, XCB_EVENT_MASK_BUTTON_PRESS,
                              XCB_GRAB_MODE_SYNC, XCB_GRAB_MODE_ASYNC,
