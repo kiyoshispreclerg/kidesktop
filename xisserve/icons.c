@@ -29,14 +29,43 @@
  * chunk size, one cancellation rule everywhere.
  */
 #include <gtk/gtk.h>
+#include <limits.h>
 
 #include "xisserve.h"
+#include "../shared/xis_icon_cache.h"
 
 /* spec -> resolved GdkPixbuf* (or the NULL "nothing resolves this"
  * result), keyed exactly as passed to xisserve_resolve_icon(). g_hash_
  * table_lookup_extended() (not a plain lookup()) is what lets a cached
  * NULL be told apart from "not in the cache yet" without a sentinel. */
 static GHashTable *g_icon_cache;
+
+/* The shrunk-icon disk cache xispanel also uses (shared/xis_icon_cache.h):
+ * a hit is one small PNG read instead of an icon-theme SVG render (which
+ * pulls librsvg in through gdk-pixbuf's loader) or a big PNG decode.
+ * `info` set: a theme icon, loaded exactly as gtk_icon_theme_load_icon()
+ * would; NULL: `file` is an absolute Icon= path. Only results that cost
+ * something to make are written -- SVGs and PNGs larger than `size`. */
+static GdkPixbuf *load_through_disk_cache(const char *file, int size, GtkIconInfo *info)
+{
+    char cpath[PATH_MAX];
+    int cacheable = file && xis_icon_cache_path(file, size, cpath, sizeof(cpath));
+    if (cacheable) {
+        GdkPixbuf *hit = gdk_pixbuf_new_from_file(cpath, NULL);
+        if (hit) return hit;
+    }
+
+    GdkPixbuf *pixbuf = info ? gtk_icon_info_load_icon(info, NULL) : gdk_pixbuf_new_from_file_at_size(file, size, size, NULL);
+    if (!pixbuf || !cacheable) return pixbuf;
+
+    int w = 0, h = 0;
+    gboolean worth = g_str_has_suffix(file, ".svg") || g_str_has_suffix(file, ".svgz") ||
+                     (gdk_pixbuf_get_file_info(file, &w, &h) && (w > size || h > size));
+    char tmp[PATH_MAX + 32];
+    if (worth && xis_icon_cache_begin(cpath, tmp, sizeof(tmp)))
+        xis_icon_cache_end(tmp, cpath, gdk_pixbuf_save(pixbuf, tmp, "png", NULL, NULL));
+    return pixbuf;
+}
 
 GdkPixbuf *xisserve_resolve_icon(const char *spec, int size)
 {
@@ -50,9 +79,13 @@ GdkPixbuf *xisserve_resolve_icon(const char *spec, int size)
 
     GdkPixbuf *pixbuf = NULL;
     if (spec[0] == '/') {
-        pixbuf = gdk_pixbuf_new_from_file_at_size(spec, size, size, NULL);
+        pixbuf = load_through_disk_cache(spec, size, NULL);
     } else {
-        pixbuf = gtk_icon_theme_load_icon(gtk_icon_theme_get_default(), spec, size, GTK_ICON_LOOKUP_FORCE_SIZE, NULL);
+        GtkIconInfo *info = gtk_icon_theme_lookup_icon(gtk_icon_theme_get_default(), spec, size, GTK_ICON_LOOKUP_FORCE_SIZE);
+        if (info) {
+            pixbuf = load_through_disk_cache(gtk_icon_info_get_filename(info), size, info);
+            gtk_icon_info_free(info);
+        }
     }
     /* The cache keeps its own reference (or NULL); every caller,
      * including this first one, gets back a fresh ref it owns. */

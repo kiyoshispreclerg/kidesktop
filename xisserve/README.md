@@ -240,6 +240,15 @@ each inventing its own lazy scheme. Opening the launcher went from
 process every time, so always resolving from cold -- from ~650 ms to
 58 ms.
 
+Icons that are expensive to make -- SVGs, and PNGs bigger than the size
+they're drawn at -- are also kept shrunk on disk, in the same
+`$XDG_CACHE_HOME/xispanel/icons/` cache xispanel uses
+(`shared/xis_icon_cache.c`). With it warm, a fresh `--applications`
+process reads small PNGs instead of rendering SVGs, never loads librsvg,
+and uses about a third of the private memory (~8 MB instead of ~24 MB
+with the menu open). Entries follow the source file's mtime and size;
+deleting the directory is always safe.
+
 ## Matching the system theme
 
 Unlike a bare standalone GTK2 process, xisserve never has to guess at the
