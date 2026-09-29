@@ -58,6 +58,7 @@ static void apply_builtin_defaults(void)
     wm.magnet_threshold = 10;
     wm.link_resize_neighbors = false;
     wm.focus_follows_mouse = false;
+    wm.focus_raise_on_release = false;
     wm.focus_stealing_prevention = FSP_NONE;
     wm.force_unflip = FORCE_UNFLIP_AUTO;
     wm.appmenu_command[0] = '\0';
@@ -371,6 +372,14 @@ static void write_default_config(const char *path)
         "# focus-follows-mouse/\"sloppy focus\").\n"
         "focus_follows_mouse=0\n"
         "\n"
+        "# Raise+focus a window clicked on its content only when the button\n"
+        "# is released, not when it is pressed -- and not at all if that\n"
+        "# press started a drag-and-drop, so something can be dragged out of\n"
+        "# a window behind others and dropped on the one in front without\n"
+        "# either changing place or focus (0 = raise on press, the default).\n"
+        "# Titlebar clicks and ModKey drags always act on press.\n"
+        "focus_raise_on_release=0\n"
+        "\n"
         "# Show a themed on-screen overlay while holding key_window_next's\n"
         "# shortcut (window list) or key_desktop_next's (per-output desktop\n"
         "# grid) -- Alt+Tab and ModKey+Tab by default -- only switching\n"
@@ -569,6 +578,8 @@ void config_load(void)
             wm.auto_switch_argb = atoi(val) != 0;
         } else if (strcmp(key, "focus_follows_mouse") == 0) {
             wm.focus_follows_mouse = atoi(val) != 0;
+        } else if (strcmp(key, "focus_raise_on_release") == 0) {
+            wm.focus_raise_on_release = atoi(val) != 0;
         } else if (strcmp(key, "appmenu_command") == 0) {
             snprintf(wm.appmenu_command, sizeof(wm.appmenu_command), "%s", val);
         } else if (strcmp(key, "focus_stealing_prevention") == 0) {

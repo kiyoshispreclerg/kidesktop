@@ -41,7 +41,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KIWM_VERSION "0.5.24"
+#define KIWM_VERSION "0.5.25"
 
 #include "wm.h"
 #include "config.h"
@@ -50,6 +50,7 @@
 #include "decoration.h"
 #include "ewmh.h"
 #include "client.h"
+#include "clickraise.h"
 #include "events.h"
 #include "keybind.h"
 #include "density.h"
@@ -281,6 +282,7 @@ static void setup_wm(bool replace)
      * configure_frame() call either way. */
     shape_init();
     sync_init();
+    clickraise_init();
 
     /* Reused by every draw_decoration() call (decoration.c) to blit its
      * off-screen pixmap onto the actual frame -- created once here rather

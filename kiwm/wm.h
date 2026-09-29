@@ -1267,6 +1267,12 @@ typedef struct {
 
     bool focus_follows_mouse;
 
+    /* kiwm.conf's focus_raise_on_release= (default off): a click on an
+     * unfocused window's content raises+focuses it on release instead of
+     * on press, and not at all if the press started a drag-and-drop --
+     * see clickraise.c. */
+    bool focus_raise_on_release;
+
     /* How much a window asking for focus on its own behalf is trusted --
      * kiwm.conf's focus_stealing_prevention=, FSP_NONE by default (see
      * FocusStealingPrevention above and client.c's

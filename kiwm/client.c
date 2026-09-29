@@ -7,6 +7,7 @@
 #include "density.h"
 #include "ewmh.h"
 #include "osd.h"
+#include "clickraise.h"
 #include "menu.h"
 #include "outline.h"
 #include "findcursor.h"
@@ -2415,6 +2416,7 @@ void unmanage(Client *c)
      * not be left in its list -- it could otherwise get focused (dangling
      * pointer) or drawn (use-after-free) on the next repaint/commit. */
     osd_client_destroyed(c);
+    clickraise_forget(c);
     /* ...and neither can an open window menu keep pointing at it. */
     window_menu_client_destroyed(c);
 

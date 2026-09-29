@@ -9,6 +9,7 @@
 #include "ewmh.h"
 #include "keybind.h"
 #include "osd.h"
+#include "clickraise.h"
 #include "menu.h"
 #include "outline.h"
 #include "findcursor.h"
@@ -627,7 +628,14 @@ static void handle_button_press(xcb_button_press_event_t *ev)
     if (!c)
         return;
 
-    focus_client(c);
+    /* A plain click on an unfocused window's content, with
+     * focus_raise_on_release=: replayed below without raising, and
+     * decided on release (clickraise.c). */
+    if (ev->event == c->window && ev->detail == XCB_BUTTON_INDEX_1 &&
+        !(ev->state & wm.mod_key) && clickraise_wants(c))
+        clickraise_defer(c);
+    else
+        focus_client(c);
 
     int rel_x = ev->root_x - c->x;
     int rel_y = ev->root_y - c->y;
@@ -2060,6 +2068,11 @@ void handle_event(xcb_generic_event_t *event)
         sync_handle_alarm(event);
         return;
     }
+
+    /* focus_raise_on_release=: raw button releases and XdndSelection
+     * claims (clickraise.c). */
+    if (clickraise_handle_event(event))
+        return;
 
     /* A compositor arriving (MANAGER) or leaving (its window destroyed):
      * noted here, acted on by main.c's loop once this batch of events is
