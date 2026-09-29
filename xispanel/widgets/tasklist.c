@@ -1265,23 +1265,74 @@ static void tasklist_tooltip_activate(PanelWidget *w, void *ctx)
     XFlush(g_dpy);
 }
 
+/* The task button under local_x, running or pinned; NULL over an arrow
+ * or a gap. */
+static TaskEntry *tasklist_entry_at(PanelWidget *w, int local_x)
+{
+    TasklistPriv *tp = w->priv;
+    tasklist_layout_visible(w);
+    if (tasklist_in_arrow_zone(tp, w->len, local_x)) {
+        return NULL;
+    }
+    for (int vi = 0; vi < tp->n_visible; vi++) {
+        if (local_x >= tp->vis_x[vi] && local_x < tp->vis_x[vi] + tp->vis_w[vi]) {
+            return &tp->tasks[tp->display_repr[tp->vis_idx[vi]]];
+        }
+    }
+    return NULL;
+}
+
+/* Files dropped on a button open with that button's app -- its .desktop
+ * Exec=, looked up only now since that scans the application dirs. Any
+ * button with a WM_CLASS says yes while the drag moves; one whose app has
+ * no .desktop entry then turns the drop down. */
+static int tasklist_dnd_accepts_files(PanelWidget *w, int local_x)
+{
+    TaskEntry *e = tasklist_entry_at(w, local_x);
+    return e && e->wm_class[0];
+}
+
+static int tasklist_dnd_drop_files(PanelWidget *w, int local_x, const char *const *paths, int n)
+{
+    TaskEntry *e = tasklist_entry_at(w, local_x);
+    if (!e || !e->wm_class[0]) {
+        return 0;
+    }
+    char desktop_path[PATH_MAX] = "";
+    if (!desktop_entry_find_by_wm_class(e->wm_class, NULL, 0, NULL, 0, NULL, 0, desktop_path, sizeof(desktop_path))) {
+        /* Same "first word of the class" retry tasklist_launch_class()
+         * makes. */
+        char first_word[64];
+        snprintf(first_word, sizeof(first_word), "%s", e->wm_class);
+        char *sp = strpbrk(first_word, " \t");
+        if (!sp) {
+            return 0;
+        }
+        *sp = 0;
+        if (!desktop_entry_find_by_wm_class(first_word, NULL, 0, NULL, 0, NULL, 0, desktop_path,
+                                            sizeof(desktop_path))) {
+            return 0;
+        }
+    }
+    for (int i = 0; i < n;) {
+        char cmd[4096];
+        int used = xis_desktop_build_exec_with_files(desktop_path, paths + i, n - i, cmd, sizeof(cmd));
+        if (used <= 0) {
+            return i > 0;
+        }
+        run_detached(cmd);
+        i += used;
+    }
+    return 1;
+}
+
 /* A drag held over a task button raises that window (xdnd.c). A grouped
  * button raises its representative -- the drag can't open the group's
  * pick list the way a click does. */
 static Window tasklist_dnd_hover_window(PanelWidget *w, int local_x)
 {
-    TasklistPriv *tp = w->priv;
-    tasklist_layout_visible(w);
-    if (tasklist_in_arrow_zone(tp, w->len, local_x)) {
-        return None;
-    }
-    for (int vi = 0; vi < tp->n_visible; vi++) {
-        if (local_x >= tp->vis_x[vi] && local_x < tp->vis_x[vi] + tp->vis_w[vi]) {
-            TaskEntry *e = &tp->tasks[tp->display_repr[tp->vis_idx[vi]]];
-            return e->is_placeholder ? None : e->win;
-        }
-    }
-    return None;
+    TaskEntry *e = tasklist_entry_at(w, local_x);
+    return e && !e->is_placeholder ? e->win : None;
 }
 
 static void tasklist_tooltip_close_item(PanelWidget *w, void *ctx)
@@ -2234,4 +2285,6 @@ const PanelWidgetOps tasklist_ops = {
     .tooltip_activate = tasklist_tooltip_activate,
     .tooltip_close_item = tasklist_tooltip_close_item,
     .dnd_hover_window = tasklist_dnd_hover_window,
+    .dnd_accepts_files = tasklist_dnd_accepts_files,
+    .dnd_drop_files = tasklist_dnd_drop_files,
 };

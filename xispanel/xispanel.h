@@ -191,6 +191,12 @@ typedef struct {
      * drop can be finished on it -- tasklist's task buttons. None if
      * nothing there applies. */
     Window (*dnd_hover_window)(PanelWidget *w, int local_x);
+    /* Optional, together: whether files dropped at local_x would be
+     * taken (called on every drag motion, so keep it cheap), and taking
+     * them -- tasklist opens them with the button's app; 1 if it did.
+     * paths[] are local file paths decoded from the drop's text/uri-list. */
+    int (*dnd_accepts_files)(PanelWidget *w, int local_x);
+    int (*dnd_drop_files)(PanelWidget *w, int local_x, const char *const *paths, int n);
 } PanelWidgetOps;
 
 struct PanelWidget {
@@ -1496,10 +1502,11 @@ void launchfx_trigger(cairo_surface_t *icon, int cx, int cy, int icon_px, double
 void launchfx_tick(uint64_t now); /* advance/retire the active animation, if any */
 uint64_t launchfx_next_wake_ms(void); /* 0 = nothing active, else fold into the main loop's timeout */
 
-/* xdnd.c: panels as XDND targets that never accept a drop, only so a
- * drag held still over a task button can raise that window (see
- * PanelWidgetOps::dnd_hover_window). xdnd_set_aware() on every panel and
- * sensor window; xdnd_handle_event() takes the XDND ClientMessages. */
+/* xdnd.c: panels as XDND targets -- a drag held still over a task button
+ * raises that window, and files are taken only where a widget accepts
+ * them (see PanelWidgetOps::dnd_hover_window/dnd_accepts_files).
+ * xdnd_set_aware() on every panel and sensor window; xdnd_handle_event()
+ * takes the XDND ClientMessages and the dropped data's SelectionNotify. */
 void xdnd_init(void);
 void xdnd_set_aware(Window win);
 int xdnd_handle_event(const XEvent *ev);

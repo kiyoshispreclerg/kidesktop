@@ -36,4 +36,12 @@ int xis_desktop_load_actions(const char *desktop_path, char out_names[][128], ch
  * no Exec= at all. */
 int xis_desktop_build_exec_with_file(const char *desktop_path, const char *file_path, char *out, size_t outsz);
 
+/* Same for several files ("drop these files on this app"): a %F/%U
+ * field code takes all of them, a %f/%u only the first, per the .desktop
+ * spec -- which then wants the app run once per file. Returns how many
+ * of files[] went into `out` (0 if desktop_path has no Exec=), so the
+ * caller loops from files + that until all are used. */
+int xis_desktop_build_exec_with_files(const char *desktop_path, const char *const *files, int n, char *out,
+                                      size_t outsz);
+
 #endif /* XIS_DESKTOP_ACTIONS_H */

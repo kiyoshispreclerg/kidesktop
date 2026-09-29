@@ -124,29 +124,45 @@ int xis_desktop_load_actions(const char *desktop_path, char out_names[][128], ch
     return n;
 }
 
-int xis_desktop_build_exec_with_file(const char *desktop_path, const char *file_path, char *out, size_t outsz)
+/* Appends files[0..n) to out at *o, shell-quoted and space-separated,
+ * stopping at the first one that no longer fits. */
+static void xis_desktop_append_quoted(const char *const *files, int n, char *out, size_t outsz, size_t *o)
+{
+    for (int i = 0; i < n; i++) {
+        char quoted[PATH_MAX + 4];
+        xis_desktop_shell_quote(files[i], quoted, sizeof(quoted));
+        size_t ql = strlen(quoted);
+        if (*o + (i > 0) + ql >= outsz) {
+            break;
+        }
+        if (i > 0) {
+            out[(*o)++] = ' ';
+        }
+        memcpy(out + *o, quoted, ql);
+        *o += ql;
+    }
+    out[*o] = 0;
+}
+
+int xis_desktop_build_exec_with_files(const char *desktop_path, const char *const *files, int n, char *out,
+                                      size_t outsz)
 {
     char exec_raw[1024];
-    if (!xis_desktop_read_group_key(desktop_path, "[Desktop Entry]", "Exec", exec_raw, sizeof(exec_raw)) ||
+    if (n < 1 || !xis_desktop_read_group_key(desktop_path, "[Desktop Entry]", "Exec", exec_raw, sizeof(exec_raw)) ||
         !exec_raw[0]) {
         return 0;
     }
 
-    char quoted[PATH_MAX + 4];
-    xis_desktop_shell_quote(file_path, quoted, sizeof(quoted));
-    size_t ql = strlen(quoted);
-
     size_t o = 0;
-    int inserted = 0;
+    int used = 0;
     for (const char *p = exec_raw; *p && o + 1 < outsz; p++) {
         if (*p == '%' && p[1]) {
             char c = p[1];
             if (c == '%') {
                 out[o++] = '%';
-            } else if (!inserted && (c == 'f' || c == 'F' || c == 'u' || c == 'U') && o + ql < outsz) {
-                memcpy(out + o, quoted, ql);
-                o += ql;
-                inserted = 1;
+            } else if (!used && (c == 'f' || c == 'F' || c == 'u' || c == 'U')) {
+                used = (c == 'F' || c == 'U') ? n : 1;
+                xis_desktop_append_quoted(files, used, out, outsz, &o);
             }
             p++;
             continue;
@@ -154,9 +170,15 @@ int xis_desktop_build_exec_with_file(const char *desktop_path, const char *file_
         out[o++] = *p;
     }
     out[o] = 0;
-    if (!inserted && o + 1 + ql < outsz) {
+    if (!used && o + 1 < outsz) {
         out[o++] = ' ';
-        snprintf(out + o, outsz - o, "%s", quoted);
+        used = n;
+        xis_desktop_append_quoted(files, n, out, outsz, &o);
     }
-    return 1;
+    return used;
+}
+
+int xis_desktop_build_exec_with_file(const char *desktop_path, const char *file_path, char *out, size_t outsz)
+{
+    return xis_desktop_build_exec_with_files(desktop_path, &file_path, 1, out, outsz) > 0;
 }
