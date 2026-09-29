@@ -3925,6 +3925,10 @@ static int run_as_daemon(const char *sockpath)
     imlib_context_set_colormap(DefaultColormap(g_dpy, g_screen));
     imlib_context_set_anti_alias(1);
     imlib_context_set_dither(1);
+    /* Every decode is copied into a cairo surface and freed right away
+     * (load_png_argb()), so Imlib2's own decoded-image cache (4 MB by
+     * default) would only ever hold dead pixels. */
+    imlib_set_cache_size(0);
 
     ewmh_init_atoms();
     density_init();     /* X-DENSITY (see TESTS/X-DENSITY.md) -- must come after g_screen/g_root are set above */
