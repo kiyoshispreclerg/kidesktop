@@ -987,6 +987,11 @@ cairo_surface_t *resolve_icon_theme_name(const char *name, int target_size);
  * instead of load_png_argb() for any user-supplied icon=<path> that's
  * about to be drawn at a known fixed size. */
 cairo_surface_t *load_icon_argb(const char *path, int target_size);
+/* One icon file found by resolve_icon_theme_name() (ewmh.c): .svg through
+ * load_svg_argb(), anything else through Imlib2, shrunk to target_size
+ * either way. NULL if it can't be decoded (caller tries the next
+ * candidate). */
+cairo_surface_t *load_icon_file(const char *path, int target_size);
 /* Finds the .desktop entry that best matches a window's WM_CLASS
  * res_class -- see ewmh.c's doc comment for the match rules and scope.
  * Used by tasklist.c both to name/launch/icon a pinned-but-not-running

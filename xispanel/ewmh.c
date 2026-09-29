@@ -1336,7 +1336,7 @@ void trim_to_width(cairo_t *cr, char *text, size_t bufsz, double max_width)
  * scope (see the original project plan's icon_theme.c note), so this is
  * an intentionally unsophisticated stand-in: generate a fixed grid of
  * candidate paths (theme base x category x size-or-"symbolic"/"scalable"
- * x extension) and load the first hit via load_png_argb() (Imlib2,
+ * x extension) and load the first hit via load_icon_file() (Imlib2,
  * already linked -- no new dependency), rather than a real recursive/
  * spec-aware search (which risks a synchronous multi-thousand-file
  * directory walk on the main thread the first time an icon needs
@@ -1357,10 +1357,7 @@ cairo_surface_t *resolve_icon_theme_name(const char *name, int target_size)
         return NULL;
     }
     if (name[0] == '/') {
-        size_t len = strlen(name);
-        cairo_surface_t *surf = (len > 4 && strcmp(name + len - 4, ".svg") == 0) ? load_svg_argb(name, target_size)
-                                                                                  : load_png_argb(name);
-        return shrink_icon_surface(surf, target_size);
+        return load_icon_file(name, target_size);
     }
 
     /* The configured icon theme (THEME's icon_theme= in xispanel.conf,
@@ -1525,24 +1522,19 @@ cairo_surface_t *resolve_icon_theme_name(const char *name, int target_size)
         for (size_t c = 0; c < sizeof(categories) / sizeof(categories[0]); c++) {
             for (size_t s = 0; s < n_sizedirs; s++) {
                 for (size_t e = 0; e < sizeof(exts) / sizeof(exts[0]); e++) {
-                    int is_svg = exts[e][1] == 's';
                     /* breeze order: <category>/<sizedir>/<name> */
                     snprintf(path, sizeof(path), "%s/%s/%s/%s%s", bases[b], categories[c], sizedirs[s], name,
                              exts[e]);
-                    cairo_surface_t *surf = access(path, R_OK) != 0 ? NULL
-                                             : is_svg               ? load_svg_argb(path, target_size)
-                                                                     : load_png_argb(path);
+                    cairo_surface_t *surf = access(path, R_OK) != 0 ? NULL : load_icon_file(path, target_size);
                     if (surf) {
-                        return shrink_icon_surface(surf, target_size);
+                        return surf;
                     }
                     /* Adwaita/hicolor order: <sizedir>/<category>/<name> */
                     snprintf(path, sizeof(path), "%s/%s/%s/%s%s", bases[b], sizedirs[s], categories[c], name,
                              exts[e]);
-                    surf = access(path, R_OK) != 0 ? NULL
-                           : is_svg               ? load_svg_argb(path, target_size)
-                                                   : load_png_argb(path);
+                    surf = access(path, R_OK) != 0 ? NULL : load_icon_file(path, target_size);
                     if (surf) {
-                        return shrink_icon_surface(surf, target_size);
+                        return surf;
                     }
                 }
             }
@@ -1561,9 +1553,9 @@ cairo_surface_t *resolve_icon_theme_name(const char *name, int target_size)
             if (access(path, R_OK) != 0) {
                 continue;
             }
-            cairo_surface_t *surf = exts2[e][1] == 's' ? load_svg_argb(path, target_size) : load_png_argb(path);
+            cairo_surface_t *surf = load_icon_file(path, target_size);
             if (surf) {
-                return shrink_icon_surface(surf, target_size);
+                return surf;
             }
         }
     }

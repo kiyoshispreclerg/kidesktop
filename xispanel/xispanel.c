@@ -1019,6 +1019,21 @@ void run_detached(const char *cmd)
  * as "no image", not a fatal error: a THEME's path=<folder>/bg.png is
  * meant to gracefully fall back to the plain bg_r/g/b/a color whenever it
  * can't be loaded. */
+static void premultiply_row(uint32_t *dst, const uint32_t *src, int n)
+{
+    for (int x = 0; x < n; x++) {
+        uint32_t argb = src[x];
+        uint8_t a = (uint8_t)((argb >> 24) & 0xff);
+        uint8_t r = (uint8_t)((argb >> 16) & 0xff);
+        uint8_t g = (uint8_t)((argb >> 8) & 0xff);
+        uint8_t b = (uint8_t)(argb & 0xff);
+        r = (uint8_t)((r * a) / 255);
+        g = (uint8_t)((g * a) / 255);
+        b = (uint8_t)((b * a) / 255);
+        dst[x] = ((uint32_t)a << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+    }
+}
+
 cairo_surface_t *load_png_argb(const char *path)
 {
     Imlib_Image img = imlib_load_image(path);
@@ -1047,21 +1062,61 @@ cairo_surface_t *load_png_argb(const char *path)
     unsigned char *dst = cairo_image_surface_get_data(surf);
     int stride = cairo_image_surface_get_stride(surf);
     for (int y = 0; y < ih; y++) {
-        uint32_t *row = (uint32_t *)(void *)(dst + y * stride);
-        for (int x = 0; x < iw; x++) {
-            uint32_t argb = src[y * iw + x];
-            uint8_t a = (uint8_t)((argb >> 24) & 0xff);
-            uint8_t r = (uint8_t)((argb >> 16) & 0xff);
-            uint8_t g = (uint8_t)((argb >> 8) & 0xff);
-            uint8_t b = (uint8_t)(argb & 0xff);
-            r = (uint8_t)((r * a) / 255);
-            g = (uint8_t)((g * a) / 255);
-            b = (uint8_t)((b * a) / 255);
-            row[x] = ((uint32_t)a << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
-        }
+        premultiply_row((uint32_t *)(void *)(dst + y * stride), src + y * iw, iw);
     }
     cairo_surface_mark_dirty(surf);
     imlib_free_image();
+    return surf;
+}
+
+/* load_png_argb() + shrink_icon_surface() without ever holding two
+ * full-size copies: a source bigger than target_size is premultiplied in
+ * place inside Imlib2's own buffer and wrapped (not copied) as the cairo
+ * source of the shrink, so a 1024px pixmap costs one 4 MB buffer instead
+ * of two. Same cairo downscale as before, so the result is identical.
+ * *shrunk (optional) reports whether a shrink actually happened. */
+static cairo_surface_t *load_png_icon(const char *path, int target_size, int *shrunk)
+{
+    if (shrunk) {
+        *shrunk = 0;
+    }
+    Imlib_Image img = imlib_load_image(path);
+    if (!img) {
+        return NULL;
+    }
+    imlib_context_set_image(img);
+    int iw = imlib_image_get_width();
+    int ih = imlib_image_get_height();
+    if (iw <= 0 || ih <= 0 || iw > 4096 || ih > 4096) {
+        imlib_free_image_and_decache();
+        return NULL;
+    }
+    if (target_size <= 0 || (iw <= target_size && ih <= target_size)) {
+        imlib_free_image_and_decache();
+        return load_png_argb(path); /* small file, a second decode is cheap */
+    }
+    DATA32 *data = imlib_image_get_data();
+    if (!data || cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, iw) != iw * 4) {
+        imlib_free_image_and_decache();
+        return NULL;
+    }
+    for (int y = 0; y < ih; y++) {
+        premultiply_row(data + y * iw, data + y * iw, iw);
+    }
+    cairo_surface_t *wrap =
+        cairo_image_surface_create_for_data((unsigned char *)data, CAIRO_FORMAT_ARGB32, iw, ih, iw * 4);
+    cairo_surface_t *surf = shrink_icon_surface(wrap, target_size);
+    if (surf == wrap) {
+        /* shrink failed and handed back the wrapper around Imlib2's buffer,
+         * which is about to be freed below. */
+        cairo_surface_destroy(wrap);
+        surf = NULL;
+    }
+    imlib_image_put_back_data(data);
+    imlib_free_image_and_decache(); /* the buffer was premultiplied in place */
+    if (surf && shrunk) {
+        *shrunk = 1;
+    }
     return surf;
 }
 
@@ -1204,7 +1259,17 @@ cairo_surface_t *shrink_icon_surface(cairo_surface_t *src, int target_size)
 /* See xispanel.h's doc comment. */
 cairo_surface_t *load_icon_argb(const char *path, int target_size)
 {
-    return shrink_icon_surface(load_png_argb(path), target_size);
+    return load_png_icon(path, target_size, NULL);
+}
+
+/* See xispanel.h's doc comment. */
+cairo_surface_t *load_icon_file(const char *path, int target_size)
+{
+    size_t len = strlen(path);
+    if (len > 4 && strcmp(path + len - 4, ".svg") == 0) {
+        return shrink_icon_surface(load_svg_argb(path, target_size), target_size);
+    }
+    return load_png_icon(path, target_size, NULL);
 }
 
 /* Sidecar "measurements" file for a 9-slice bg_image: plain key=value
