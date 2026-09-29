@@ -631,10 +631,14 @@ static void handle_button_press(xcb_button_press_event_t *ev)
     /* A plain click on an unfocused window's content, with
      * focus_raise_on_release=: replayed below without raising, and
      * decided on release (clickraise.c). */
+    bool mod_drag = (ev->state & wm.mod_key) &&
+                    (ev->detail == XCB_BUTTON_INDEX_1 || ev->detail == XCB_BUTTON_INDEX_3);
     if (ev->event == c->window && ev->detail == XCB_BUTTON_INDEX_1 &&
         !(ev->state & wm.mod_key) && clickraise_wants(c))
         clickraise_defer(c);
-    else
+    else if (!mod_drag)
+        /* A ModKey move/resize leaves the focus and the stacking as they
+         * are: the window is handled where it is, not brought forward. */
         focus_client(c);
 
     int rel_x = ev->root_x - c->x;
