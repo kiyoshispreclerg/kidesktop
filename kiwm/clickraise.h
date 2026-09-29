@@ -22,6 +22,12 @@ void clickraise_init(void);
 bool clickraise_wants(Client *c);
 void clickraise_defer(Client *c);
 
+/* Whether an application's own request to activate c (_NET_ACTIVE_WINDOW
+ * from the app, not a pager) is just the echo of a deferred click still
+ * in progress -- Qt sends one on every click into an inactive window.
+ * Such a request is ignored; the release decides. */
+bool clickraise_absorbs_activation(Client *c);
+
 /* c is going away (unmanage()). */
 void clickraise_forget(Client *c);
 

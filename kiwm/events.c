@@ -1965,7 +1965,11 @@ static void handle_client_message(xcb_client_message_event_t *ev)
         /* data32[0] is EWMH's source indication: 2 means a pager or
          * taskbar acting on something the user clicked, anything else is
          * the application asking on its own behalf. */
-        activate_client_requested(c, ev->data.data32[0] == 2);
+        bool user_driven = ev->data.data32[0] == 2;
+        /* ...except the echo of a click kiwm is still deciding on
+         * (clickraise.h). */
+        if (user_driven || !clickraise_absorbs_activation(c))
+            activate_client_requested(c, user_driven);
     } else if (ev->type == wm.atoms.net_close_window) {
         close_client(c);
     } else if (ev->type == wm.atoms.wm_change_state) {

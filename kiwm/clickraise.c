@@ -32,7 +32,11 @@ static bool ready;
 static uint8_t xi_opcode;
 static uint8_t xfixes_event_base;
 static xcb_atom_t xdnd_selection;
-static Client *pending;
+/* The window a deferred click landed on, from press to release, and
+ * whether that release should still raise it (cleared once the press
+ * turns into a drag). */
+static Client *pressed;
+static bool raise_on_release;
 
 void clickraise_init(void)
 {
@@ -88,18 +92,24 @@ bool clickraise_wants(Client *c)
 
 void clickraise_defer(Client *c)
 {
-    pending = c;
+    pressed = c;
+    raise_on_release = true;
+}
+
+bool clickraise_absorbs_activation(Client *c)
+{
+    return c && pressed == c;
 }
 
 void clickraise_forget(Client *c)
 {
-    if (pending == c)
-        pending = NULL;
+    if (pressed == c)
+        pressed = NULL;
 }
 
 static void on_release(void)
 {
-    if (!pending)
+    if (!pressed)
         return;
 
     /* Raw events come from the physical device, before any button
@@ -113,9 +123,9 @@ static void on_release(void)
     if (still_down)
         return;
 
-    Client *c = pending;
-    pending = NULL;
-    if (c->mapped && !c->minimized)
+    Client *c = pressed;
+    pressed = NULL;
+    if (raise_on_release && c->mapped && !c->minimized)
         focus_client(c);
 }
 
@@ -140,7 +150,7 @@ bool clickraise_handle_event(xcb_generic_event_t *event)
         /* A drag started out of the window the click landed on: it stays
          * where it is, and so does the focus. */
         if (ev->owner != XCB_NONE)
-            pending = NULL;
+            raise_on_release = false;
         return true;
     }
     return false;
