@@ -99,7 +99,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.70"
+#define XISPANEL_VERSION "0.6.71"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -927,6 +927,7 @@ static Window panel_create_window(Panel *p, int x, int y, int w, int h)
      * effects (menu fade/slide vs. dock treatment) should see it that way. */
     Atom type = (p->mode == MODE_CONTAINER) ? g_atom_wm_window_type_popup_menu : g_atom_wm_window_type_dock;
     XChangeProperty(g_dpy, win, g_atom_wm_window_type, XA_ATOM, 32, PropModeReplace, (unsigned char *)&type, 1);
+    xdnd_set_aware(win); /* see xdnd.c */
 
     if (managed) {
         /* ICCCM input=False: never wants keyboard focus, so click-to-focus
@@ -989,6 +990,9 @@ static Window panel_create_sensor(Panel *p)
 
     Window win = XCreateWindow(g_dpy, g_root, sx, sy, (unsigned)sw, (unsigned)sh, 0, CopyFromParent, InputOutput,
                                 DefaultVisual(g_dpy, g_screen), CWOverrideRedirect | CWBackPixel | CWEventMask, &attrs);
+    /* A drag reaching the edge gets no EnterNotify (the drag source holds
+     * the pointer grab); XDND is what reveals the panel then -- xdnd.c. */
+    xdnd_set_aware(win);
     XMapWindow(g_dpy, win);
     /* Must stay on top (not lowered) or it would sit behind whatever else
      * occupies that screen edge and never receive the EnterNotify that
@@ -2732,6 +2736,7 @@ static void panel_deactivate(Panel *p)
         cairo_surface_destroy(p->surface);
         p->surface = NULL;
     }
+    xdnd_panel_gone(p);
     if (p->sensor_win != None) {
         XDestroyWindow(g_dpy, p->sensor_win);
         p->sensor_win = None;
@@ -3592,6 +3597,11 @@ static Panel *find_panel_by_window(Window win, int *is_sensor)
     return NULL;
 }
 
+Panel *panel_find_by_window(Window win, int *is_sensor)
+{
+    return find_panel_by_window(win, is_sensor);
+}
+
 /* density_handle_property() (density.c) needs the Panel a PropertyNotify's
  * window belongs to, which find_panel_by_window() above is only known to
  * this file -- 0 if the event isn't on any panel's own window (or is its
@@ -4013,6 +4023,24 @@ static void panel_clear_hover(Panel *p)
     }
 }
 
+/* A drag entering/moving over/leaving p (xdnd.c) -- the crossing and
+ * motion events a drag's pointer grab keeps from reaching the panel. */
+void panel_dnd_enter(Panel *p)
+{
+    panel_autohide_enter(p);
+}
+
+void panel_dnd_hover(Panel *p, int axis_pos, int cross_pos)
+{
+    panel_update_hover(p, axis_pos, cross_pos);
+}
+
+void panel_dnd_leave(Panel *p)
+{
+    panel_autohide_leave(p);
+    panel_clear_hover(p);
+}
+
 /* How long to coalesce a stream of ConfigureNotify (window move/resize)
  * events before re-polling the widgets -- a drag emits one per pointer
  * motion, and only the window's *resting* output actually matters, so
@@ -4096,6 +4124,7 @@ static int run_as_daemon(const char *sockpath)
         modtap_init(); /* bare-modifier ("tap Meta alone") hotkeys, see hotkey.c/modtap.c */
     }
     toast_init(); /* wires notifd.c's arrived callback to the toast popups, see toast.c */
+    xdnd_init();  /* before reload_all_panels(): panel windows get XdndAware at creation */
     g_atom_net_wm_state = XInternAtom(g_dpy, "_NET_WM_STATE", False);
     g_atom_net_wm_state_skip_taskbar = XInternAtom(g_dpy, "_NET_WM_STATE_SKIP_TASKBAR", False);
     g_atom_net_wm_state_skip_pager = XInternAtom(g_dpy, "_NET_WM_STATE_SKIP_PAGER", False);
@@ -4274,6 +4303,13 @@ static int run_as_daemon(const char *sockpath)
                 timeout_ms = delta;
             }
         }
+        uint64_t xdnd_wake = xdnd_next_wake_ms();
+        if (xdnd_wake != 0) {
+            long delta = (long)(xdnd_wake > now ? xdnd_wake - now : 0);
+            if (timeout_ms < 0 || delta < timeout_ms) {
+                timeout_ms = delta;
+            }
+        }
 
         /* mpris_poll()/sni_poll()/notifd_poll() are only actually called
          * once per select() wake, on whatever cadence *this* loop wakes
@@ -4376,6 +4412,8 @@ static int run_as_daemon(const char *sockpath)
                     /* consumed by a toast popup (click-to-dismiss, Expose) */
                 } else if (launchfx_handle_event(&ev)) {
                     /* consumed by the launch-feedback zoom+fade popup (Expose only) */
+                } else if (xdnd_handle_event(&ev)) {
+                    /* a drag passing over a panel -- see xdnd.c */
                 } else if (ev.type == ButtonPress) {
                     int is_sensor = 0;
                     Panel *p = find_panel_by_window(ev.xbutton.window, &is_sensor);
@@ -4487,6 +4525,7 @@ static int run_as_daemon(const char *sockpath)
         panel_menu_tick(now);
         toast_tick(now);
         launchfx_tick(now);
+        xdnd_tick(now);
         if (!disable_mpris) {
             mpris_poll(now);
         }

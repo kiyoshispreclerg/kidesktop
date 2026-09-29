@@ -1265,6 +1265,25 @@ static void tasklist_tooltip_activate(PanelWidget *w, void *ctx)
     XFlush(g_dpy);
 }
 
+/* A drag held over a task button raises that window (xdnd.c). A grouped
+ * button raises its representative -- the drag can't open the group's
+ * pick list the way a click does. */
+static Window tasklist_dnd_hover_window(PanelWidget *w, int local_x)
+{
+    TasklistPriv *tp = w->priv;
+    tasklist_layout_visible(w);
+    if (tasklist_in_arrow_zone(tp, w->len, local_x)) {
+        return None;
+    }
+    for (int vi = 0; vi < tp->n_visible; vi++) {
+        if (local_x >= tp->vis_x[vi] && local_x < tp->vis_x[vi] + tp->vis_w[vi]) {
+            TaskEntry *e = &tp->tasks[tp->display_repr[tp->vis_idx[vi]]];
+            return e->is_placeholder ? None : e->win;
+        }
+    }
+    return None;
+}
+
 static void tasklist_tooltip_close_item(PanelWidget *w, void *ctx)
 {
     (void)w;
@@ -2214,4 +2233,5 @@ const PanelWidgetOps tasklist_ops = {
     .get_tooltip_group = tasklist_get_tooltip_group,
     .tooltip_activate = tasklist_tooltip_activate,
     .tooltip_close_item = tasklist_tooltip_close_item,
+    .dnd_hover_window = tasklist_dnd_hover_window,
 };

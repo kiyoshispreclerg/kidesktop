@@ -186,6 +186,11 @@ typedef struct {
      * 0 (e.g. the hovered item isn't actually grouped) to fall back to
      * the normal single-item tooltip. */
     int (*get_tooltip_group)(PanelWidget *w, int local_x, TooltipGroupItem *out_items, int max_items, int *out_n);
+    /* Optional: the window a drag-and-drop held still over local_x should
+     * bring up (xdnd.c activates it after XDND_HOVER_ACTIVATE_MS), so the
+     * drop can be finished on it -- tasklist's task buttons. None if
+     * nothing there applies. */
+    Window (*dnd_hover_window)(PanelWidget *w, int local_x);
 } PanelWidgetOps;
 
 struct PanelWidget {
@@ -1490,6 +1495,22 @@ void toast_show_osd(cairo_surface_t *icon, const char *summary, const char *body
 void launchfx_trigger(cairo_surface_t *icon, int cx, int cy, int icon_px, double zoom, int duration_ms);
 void launchfx_tick(uint64_t now); /* advance/retire the active animation, if any */
 uint64_t launchfx_next_wake_ms(void); /* 0 = nothing active, else fold into the main loop's timeout */
+
+/* xdnd.c: panels as XDND targets that never accept a drop, only so a
+ * drag held still over a task button can raise that window (see
+ * PanelWidgetOps::dnd_hover_window). xdnd_set_aware() on every panel and
+ * sensor window; xdnd_handle_event() takes the XDND ClientMessages. */
+void xdnd_init(void);
+void xdnd_set_aware(Window win);
+int xdnd_handle_event(const XEvent *ev);
+void xdnd_panel_gone(Panel *p);
+void xdnd_tick(uint64_t now);
+uint64_t xdnd_next_wake_ms(void); /* 0 = no pending timer */
+/* xispanel.c's own panel plumbing, exported for xdnd.c. */
+Panel *panel_find_by_window(Window win, int *is_sensor);
+void panel_dnd_enter(Panel *p);
+void panel_dnd_hover(Panel *p, int axis_pos, int cross_pos);
+void panel_dnd_leave(Panel *p);
 int launchfx_handle_event(const XEvent *ev); /* 1 if `ev` (an Expose) belonged to the launchfx popup */
 /* Which anchor toasts stack from -- one global setting (not per-panel:
  * there's only ever one toast stack, regardless of how many `notif`
