@@ -308,6 +308,30 @@ static xcb_pixmap_t glx_window_pixmap(const GlWindow *g)
     return x->pixmap;
 }
 
+/* Xlib's default error handler exits the process, and on this
+ * connection every request is Mesa's, made on behalf of ids other
+ * clients own and may free at any moment -- kiwm replaces its X-DENSITY
+ * decoration pixmap on every resize, and a draw that lands between the
+ * free and the new property reaching us binds a dead XID (BadDrawable
+ * from inside glXBindTexImageEXT; seen killing the compositor under a
+ * few rounds of maximize/tile). None of that is fatal: log it, remember
+ * that something failed so the caller can drop what it was binding, and
+ * carry on. */
+static bool glx_error_seen;
+static int glx_error_log_budget = 20;
+
+static int glx_x_error(Display *d, XErrorEvent *ev)
+{
+    (void)d;
+    glx_error_seen = true;
+    if (glx_error_log_budget > 0) {
+        glx_error_log_budget--;
+        fprintf(stderr, "kicomp: glx: X error %d (request %d.%d) on 0x%lx, ignored\n",
+                ev->error_code, ev->request_code, ev->minor_code, ev->resourceid);
+    }
+    return 0;
+}
+
 static bool glx_start(void)
 {
     if (dpy)
@@ -318,6 +342,7 @@ static bool glx_start(void)
         fprintf(stderr, "kicomp: glx: cannot open a display connection\n");
         return false;
     }
+    XSetErrorHandler(glx_x_error);
 
     int major = 0, minor = 0;
     if (!glXQueryVersion(dpy, &major, &minor) ||
@@ -538,8 +563,15 @@ static bool glx_pixmap_bind(xcb_pixmap_t pixmap, int width, int height,
 
     glx_window_release(g, x);
     glBindTexture(GL_TEXTURE_2D, gl_window_texture(g));
+    glx_error_seen = false;
     glXBindTexImageEXT(dpy, x->glx_pixmap, GLX_FRONT_LEFT_EXT, NULL);
     x->bound = true;
+    if (glx_error_seen) {
+        /* The client freed it under us: let the caller drop the layer
+         * until it publishes the next one. */
+        glx_window_unbind(g);
+        return false;
+    }
     return true;
 }
 
