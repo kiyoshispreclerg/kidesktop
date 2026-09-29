@@ -991,8 +991,7 @@ cairo_surface_t *load_icon_argb(const char *path, int target_size);
  * load_svg_argb(), anything else through Imlib2, shrunk to target_size
  * either way. NULL if it can't be decoded (caller tries the next
  * candidate). Results worth keeping are cached on disk under
- * $XDG_CACHE_HOME/xispanel/icons/ -- see the cache's doc comment in
- * xispanel.c. */
+ * $XDG_CACHE_HOME/xispanel/icons/ -- see shared/xis_icon_cache.h. */
 cairo_surface_t *load_icon_file(const char *path, int target_size);
 /* Finds the .desktop entry that best matches a window's WM_CLASS
  * res_class -- see ewmh.c's doc comment for the match rules and scope.
