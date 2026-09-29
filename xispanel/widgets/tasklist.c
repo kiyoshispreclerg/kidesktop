@@ -1508,6 +1508,13 @@ static void tasklist_paint(PanelWidget *w, cairo_t *cr)
          * usual fixed 4px in wide mode (bw already sized around exactly
          * that in tasklist_measure()). */
         int icon_x_off = (tp->compact || e->is_placeholder) ? (bw - icon_px) / 2 : 4;
+        /* Clipped to the button first: an unclipped group is as big as the
+         * whole panel, so every button, every repaint, composited a full
+         * panel-width strip just to dim (or not) its own few pixels --
+         * most of the CPU a hover sweep across the taskbar cost. */
+        cairo_save(cr);
+        cairo_rectangle(cr, bx, oy, bw, w->thickness);
+        cairo_clip(cr);
         cairo_push_group(cr);
         if (e->icon) {
             draw_icon_scaled(cr, e->icon, bx + icon_x_off, icon_y, icon_px);
@@ -1565,6 +1572,7 @@ static void tasklist_paint(PanelWidget *w, cairo_t *cr)
         }
         cairo_pop_group_to_source(cr);
         cairo_paint_with_alpha(cr, e->minimized ? 0.55 : 1.0);
+        cairo_restore(cr);
     }
 
     /* Each end's arrow only occupies (and is only drawn into) its own
