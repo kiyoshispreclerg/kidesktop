@@ -238,8 +238,27 @@ static GdkPixbuf *thumb_for(long id)
 
 static GdkPixbuf *icon_for_type(const char *type)
 {
-    const char *name = !strcmp(type, "link") ? "text-html" : !strcmp(type, "files") ? "folder" : "text-x-generic";
-    return xisserve_resolve_icon(name, XISSERVE_ICON_PX);
+    /* First name the icon theme has wins. */
+    static const char *text[] = { "text-x-generic", NULL };
+    static const char *link[] = { "text-html", "applications-internet", "text-x-generic", NULL };
+    static const char *files[] = { "folder", "inode-directory", "folder-documents", "text-x-generic", NULL };
+    const char **names = !strcmp(type, "link") ? link : !strcmp(type, "files") ? files : text;
+    /* Folder icons are asked for large and scaled down: themes like Breeze
+     * draw their small "places" icons as dark monochrome glyphs, which
+     * vanish on a dark popup; the big ones are the colored folder. */
+    int ask = names == files ? 48 : XISSERVE_ICON_PX;
+    for (int i = 0; names[i]; i++) {
+        GdkPixbuf *pb = xisserve_resolve_icon(names[i], ask);
+        if (!pb)
+            continue;
+        if (gdk_pixbuf_get_width(pb) != XISSERVE_ICON_PX) {
+            GdkPixbuf *small = gdk_pixbuf_scale_simple(pb, XISSERVE_ICON_PX, XISSERVE_ICON_PX, GDK_INTERP_BILINEAR);
+            g_object_unref(pb);
+            pb = small;
+        }
+        return pb;
+    }
+    return NULL;
 }
 
 /* "14:02" today, "29/09 14:02" otherwise. */
@@ -252,6 +271,62 @@ static void short_time(long ts, char *out, size_t outsz)
     strftime(out, outsz, a.tm_yday == b.tm_yday && a.tm_year == b.tm_year ? "%H:%M" : "%d/%m %H:%M", &a);
 }
 
+/* Copied files/folders: just their names ("a.txt, fotos, b.png +2"),
+ * not full paths or file:// URIs. `raw` is kimemoryd's preview, one entry
+ * per line (a file manager's "copy"/"cut" header line is skipped); it is
+ * cut at ~200 bytes, so a last line that may be partial is dropped. */
+static char *files_summary(const char *raw)
+{
+    gboolean truncated = strlen(raw) >= 190;
+    char **lines = g_strsplit(raw, "\n", -1);
+    int n = 0;
+    while (lines[n])
+        n++;
+    if (truncated && n > 1)
+        n--;
+    GString *out = g_string_new(NULL);
+    int shown = 0, total = 0;
+    for (int i = 0; i < n; i++) {
+        char *l = g_strstrip(lines[i]);
+        if (!*l || *l == '#' || !strcmp(l, "copy") || !strcmp(l, "cut"))
+            continue;
+        total++;
+        if (shown == 3)
+            continue;
+        char *path = g_str_has_prefix(l, "file://") ? g_uri_unescape_string(l + 7, NULL) : g_strdup(l);
+        size_t len = path ? strlen(path) : 0;
+        while (len > 1 && path[len - 1] == '/')
+            path[--len] = '\0';   /* folders: "fotos/" -> "fotos" */
+        char *base = path ? g_path_get_basename(path) : g_strdup(l);
+        g_string_append_printf(out, "%s%s", shown ? ", " : "", base);
+        g_free(base);
+        g_free(path);
+        shown++;
+    }
+    if (total > shown)
+        g_string_append_printf(out, " +%d", total - shown);
+    if (truncated)
+        g_string_append(out, "\xe2\x80\xa6");
+    g_strfreev(lines);
+    return g_string_free(out, FALSE);
+}
+
+/* dst_apps without the source app itself: copying and pasting inside one
+ * app says nothing worth a " -> app" of its own. */
+static void drop_app(char *list, const char *app)
+{
+    GString *out = g_string_new(NULL);
+    char **apps = g_strsplit(list, ",", -1);
+    for (int i = 0; apps[i]; i++) {
+        if (!*apps[i] || !strcmp(apps[i], app))
+            continue;
+        g_string_append_printf(out, "%s%s", out->len ? ", " : "", apps[i]);
+    }
+    g_strfreev(apps);
+    snprintf(list, strlen(list) + 1, "%s", out->str);
+    g_string_free(out, TRUE);
+}
+
 static char *row_markup(const char *line, const char *type)
 {
     char preview[1024], src[128], src_doc[256], dsts[512], when[32];
@@ -261,15 +336,18 @@ static char *row_markup(const char *line, const char *type)
     json_str(line, "dst_apps", dsts, sizeof(dsts));
     short_time(json_long(line, "ts", 0), when, sizeof(when));
     long fav = json_long(line, "fav", 0), bytes = json_long(line, "bytes", 0);
+    drop_app(dsts, src);
 
-    /* One line: newlines/tabs flattened, cut at PREVIEW_CHARS characters. */
-    for (char *p = preview; *p; p++)
-        if (*p == '\n' || *p == '\t' || *p == '\r')
-            *p = ' ';
     char *first;
-    if (!strcmp(type, "image")) {
+    if (!strcmp(type, "files")) {
+        first = files_summary(preview);   /* needs the lines still split */
+    } else if (!strcmp(type, "image")) {
         first = g_strdup_printf("Imagem \xc2\xb7 %ld KiB", (bytes + 1023) / 1024);
     } else {
+        /* One line: newlines/tabs flattened, cut at PREVIEW_CHARS characters. */
+        for (char *p = preview; *p; p++)
+            if (*p == '\n' || *p == '\t' || *p == '\r')
+                *p = ' ';
         glong chars = g_utf8_strlen(preview, -1);
         char *cut = g_utf8_substring(g_strstrip(preview), 0, MIN(chars, PREVIEW_CHARS));
         first = g_strdup_printf("%s%s", cut, chars > PREVIEW_CHARS ? "\xe2\x80\xa6" : "");
