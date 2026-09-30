@@ -90,6 +90,8 @@ const char *km_item_text(KmItem *it);
 
 /* Rep bytes, loaded from disk on first use. NULL if unreadable. */
 const unsigned char *km_rep_data(KmItem *it, KmRep *r);
+/* items/<id>.<n> path of a rep that is on disk; 0 if it only lives in RAM. */
+int km_rep_path(KmItem *it, KmRep *r, char *out, size_t outsz);
 /* Drops the in-memory copy of big on-disk reps again (after serving). */
 void km_item_unload(KmItem *it);
 /* Frees the reps that are never persisted (the extra targets mirrored

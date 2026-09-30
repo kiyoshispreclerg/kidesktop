@@ -42,6 +42,37 @@ never taken over, so password managers can still clear them.
 
 `KIMEMORYD_DEBUG=1` logs every target fetched, refused or timed out.
 
+## Command line
+
+```
+kimemory list [-n N] [--active | --window ID] [--scope window|app|doc] [QUERY]
+kimemory show ID          text of an item (or an image's file path)
+kimemory paste ID         put an item back on the clipboard
+kimemory fav ID | unfav ID
+kimemory rm ID
+kimemory clear [--all]    non-favourites (--all: everything)
+kimemory status
+```
+
+`list --active` keeps only items copied from or pasted into the active
+window's app (`--scope app`, default), that exact window (`window`) or the
+document named in its title (`doc`). QUERY matches the text and the
+source/destination app, title and document. `>` marks what the clipboard
+holds now, `*` favourites:
+
+```
+>*   5  2026-09-30 14:38  text   XTerm -> Paster  texto simples
+    11  2026-09-30 14:34  text   XTerm -> Paster  wwwwwwww…
+```
+
+## Control socket
+
+`$XDG_RUNTIME_DIR/kimemory-ctl.<display>.sock` (mode 0600): one JSON line
+in, one response out, like xisguard's. Commands: `PING`, `STATUS`,
+`LIST {scope, win, query, limit}`, `GET {id}`, `SET {id}`,
+`FAV {id, fav}`, `REMOVE {id}`, `CLEAR {keep_favs}`. `LIST` returns
+`{"ok":true,"items":[` then one item object per line, then `]}`.
+
 ## Config
 
 `$XDG_CONFIG_HOME/kimemory.conf`, `key=value`, `SIGHUP` reloads:

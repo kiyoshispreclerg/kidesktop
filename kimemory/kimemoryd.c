@@ -5,6 +5,7 @@
  * X display. Config: $XDG_CONFIG_HOME/kimemory.conf (key=value, SIGHUP
  * reloads); data: $XDG_DATA_HOME/kimemory/. */
 #include "km_clip.h"
+#include "km_ctl.h"
 #include "km_store.h"
 
 #include <X11/Xlib.h>
@@ -193,9 +194,18 @@ int main(int argc, char **argv)
     sigaction(SIGHUP, &sa, NULL);
     signal(SIGPIPE, SIG_IGN);
 
+    char ctl_path[256];
+    const char *run = getenv("XDG_RUNTIME_DIR");
+    snprintf(ctl_path, sizeof(ctl_path), "%s/kimemory-ctl.%d.sock", run && *run ? run : "/tmp", dispnum);
+    if (!km_ctl_init(dpy, ctl_path, KIMEMORYD_VERSION))
+        fprintf(stderr, "kimemoryd: warning: no control socket at %s\n", ctl_path);
+
     fprintf(stderr, "kimemoryd %s: %d items in %s\n", KIMEMORYD_VERSION, km_store_count(), data_dir);
 
-    struct pollfd pfd = { .fd = ConnectionNumber(dpy), .events = POLLIN };
+    struct pollfd pfd[2] = {
+        { .fd = ConnectionNumber(dpy), .events = POLLIN },
+        { .fd = km_ctl_fd(), .events = POLLIN },
+    };
     while (!g_quit) {
         if (g_reload) {
             g_reload = 0;
@@ -206,11 +216,13 @@ int main(int argc, char **argv)
         }
         XFlush(dpy);
         if (!XPending(dpy)) {
-            int r = poll(&pfd, 1, km_clip_timeout_ms());
+            int r = poll(pfd, pfd[1].fd >= 0 ? 2 : 1, km_clip_timeout_ms());
             if (r < 0 && errno != EINTR)
                 break;
-            if (r > 0 && (pfd.revents & (POLLHUP | POLLERR)))
+            if (r > 0 && (pfd[0].revents & (POLLHUP | POLLERR)))
                 break;   /* X server gone */
+            if (r > 0 && (pfd[1].revents & POLLIN))
+                km_ctl_accept();
         }
         while (XPending(dpy)) {
             XEvent ev;
@@ -220,6 +232,7 @@ int main(int argc, char **argv)
         km_clip_tick();
     }
 
+    km_ctl_close();
     km_store_save();
     XCloseDisplay(dpy);
     close(lock);

@@ -183,6 +183,14 @@ const unsigned char *km_rep_data(KmItem *it, KmRep *r)
     return r->data;
 }
 
+int km_rep_path(KmItem *it, KmRep *r, char *out, size_t outsz)
+{
+    if (r->disk_n < 0)
+        return 0;
+    rep_path(out, outsz, it->id, r->disk_n);
+    return 1;
+}
+
 void km_item_unload(KmItem *it)
 {
     for (int i = 0; i < it->nreps; i++) {
