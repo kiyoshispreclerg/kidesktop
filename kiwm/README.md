@@ -437,8 +437,8 @@ left out entirely and the title takes the freed width:
   globalmenu widget reads the same way), so it never leaves a dead button on windows with no menu.
 - `clipboard` -- the window's clipboard history (kimemory). Clicking runs `clipboard_command=`
   (below) with the same `%w`/`%x`/`%y`; the default opens xisserve's `--clipboard` page under the
-  button, filtered to that window (`--filter=auto`: its document, the window itself or its app,
-  whichever has items -- the page's tabs still switch to any filter, "Tudo" included). Optional:
+  button, showing only that window's items (`--filter=auto`: the window's own, else its
+  document's, else its program's -- the page's tabs switch between those; there's no "all"). Optional:
   drawn only when listed in `titlebar_layout=`. Tintable with `clipboard_button_tint=`.
   Since those properties are usually set a moment *after* the window maps, kiwm watches for them
   and the button appears when the menu really exists. Themes have no sprite column for it yet, so
