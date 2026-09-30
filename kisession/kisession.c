@@ -65,7 +65,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KISESSION_VERSION "0.1.6"
+#define KISESSION_VERSION "0.1.7"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -133,6 +133,8 @@ static const char *const ARGV_XISBACK[] = {"xisback", NULL};
 static const char *const ARGV_XISPANEL[] = {"xispanel", NULL};
 static const char *const ARGV_XISKEYS[] = {"xiskeys", NULL};
 static const char *const ARGV_KICOMP[] = {"kicomp", NULL};
+static const char *const ARGV_KIMEMORYD[] = {"kimemoryd", NULL};
+static const char *const ARGV_KISTORYD[] = {"kistoryd", NULL};
 static const char *const ARGV_LOCKER[] = {"xss-lock", "--", "i3lock", NULL};
 
 /* Start order is table order. xisguard first so the XNOTIFY permission
@@ -151,6 +153,11 @@ static const SvcDef SERVICES[] = {
     {"xisback", SVC_SUPERVISED, ARGV_XISBACK, 1, "wallpaper", 0},
     {"xispanel", SVC_SUPERVISED, ARGV_XISPANEL, 1, "panel/taskbar", 0},
     {"xiskeys", SVC_SUPERVISED, ARGV_XISKEYS, 1, "global hotkeys", 0},
+    /* Before the WM and autostart, so the first windows of the session
+     * are already in the history; both just wait for _NET_CLIENT_LIST /
+     * _NET_ACTIVE_WINDOW to appear once the WM is up. */
+    {"kimemoryd", SVC_SUPERVISED, ARGV_KIMEMORYD, 1, "clipboard history", 0},
+    {"kistoryd", SVC_SUPERVISED, ARGV_KISTORYD, 1, "desktop activity history", 0},
     {"audio", SVC_ONESHOT, NULL, 1, "pipewire/pulseaudio, only if nothing already started one", 0},
     {"locker", SVC_SUPERVISED, ARGV_LOCKER, 1, "xss-lock + i3lock screen locking", 0},
     {"polkit", SVC_SUPERVISED, NULL, 1, "polkit authentication agent (needed by kiconf's Sistema tab)", 0},

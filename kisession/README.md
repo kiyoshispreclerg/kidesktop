@@ -25,6 +25,8 @@ It owns two things:
 | xisback | supervised | on | wallpaper |
 | xispanel | supervised | on | panel/taskbar |
 | xiskeys | supervised | on | global hotkeys |
+| kimemoryd | supervised | on | clipboard history (see `../kimemory/`) |
+| kistoryd | supervised | on | desktop activity history (see `../kistory/`) |
 | audio | oneshot | on | pipewire/pulseaudio, only if nothing already started one |
 | locker | supervised | on | `xss-lock` + `i3lock` screen locking |
 | polkit | supervised | on | polkit authentication agent (needed by kiconf's Sistema tab) |

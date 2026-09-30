@@ -610,6 +610,8 @@ const KisessionServiceDef KISESSION_SERVICES[] = {
     {"xisback", "Papel de parede", 1},
     {"xispanel", "Painel/barra de tarefas", 1},
     {"xiskeys", "Atalhos globais de teclado", 1},
+    {"kimemoryd", "Historico da area de transferencia", 1},
+    {"kistoryd", "Historico de atividade da area de trabalho", 1},
     {"audio", "pipewire/pulseaudio (so se nada mais ja tiver iniciado um)", 1},
     {"locker", "Bloqueio de tela (xss-lock + i3lock)", 1},
     {"polkit", "Agente de autenticacao polkit", 1},
@@ -617,6 +619,8 @@ const KisessionServiceDef KISESSION_SERVICES[] = {
     {"kicomp", "Compositor (opcional)", 1},
     {"autostart", "Entradas de inicio automatico XDG (aplicativos instalados)", 1},
 };
+_Static_assert(sizeof(KISESSION_SERVICES) / sizeof(KISESSION_SERVICES[0]) == N_KISESSION_SERVICES,
+               "N_KISESSION_SERVICES must match KISESSION_SERVICES");
 
 static int kisession_service_index(const char *name)
 {
