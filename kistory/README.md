@@ -27,12 +27,33 @@ ts  kind  app  exe  desktop  output  subject  detail
 | `focus` | time range | every distinct title shown while focused, ` \| `-separated |
 | `desktop` | `switch` / `at_start` | (desktop/output columns) |
 | `output` | `connected` / `disconnected` | |
+| `file` | path (or URL) | `src=xbel`, `src=kde` or `src=fd` |
 
 A `focus` line is written when the window loses focus, stamped with the
 time it gained it, and only if it stayed focused at least `min_dwell_s`.
 `app` is the WM_CLASS class (exe basename when there is none); `desktop`
 is `*` for sticky windows; `output` comes from kiwm's `_KIWM_WM_OUTPUT`,
 else the XRandR monitor under the window.
+
+## Files
+
+Third-party apps don't report what they open, so three partial sources
+are combined:
+
+- `xbel`: new or re-used entries of `recently-used.xbel` (GTK file
+  chooser, GIMP, Inkscape, LibreOffice...), with the app that used them.
+- `kde`: new `RecentDocuments/*.desktop` entries (KDE apps).
+- `fd`: when a window loses focus after at least `min_dwell_s`, the regular
+  files under `$HOME` its process holds open (players, viewers, editors
+  that keep the file open). Caches, config, databases, fonts, dotfiles are
+  skipped; the same app and file are logged at most once an hour.
+  `fd_sampling=0` turns it off.
+
+Apps whose titles are hidden get no `file` lines at all. The lists read at
+start are only a baseline: nothing is logged for entries already there.
+It can't tell open from save or export apart, and apps that read a file
+and close it without touching the xbel (plain Qt, most CLI tools) leave no
+trace.
 
 ## Privacy
 
@@ -58,6 +79,7 @@ else the XRandR monitor under the window.
 | `exclude` | `keepassxc,KeePassXC` |
 | `title_only_exclude` | (empty) |
 | `private_title_regex` | (empty) |
+| `fd_sampling` | 1 |
 
 ## Permissions (xisguard)
 

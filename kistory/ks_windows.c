@@ -39,6 +39,8 @@ static struct {
     int hidden;
 } dwell;
 
+static KsFocusEndCb focus_end_cb;
+
 static char outputs[MAX_OUTPUTS][64];
 static int noutputs;
 static long desktops[MAX_OUTPUTS];   /* per kiwm output index; [0] = EWMH desktop without kiwm */
@@ -116,7 +118,11 @@ static void dwell_end(time_t now)
     if (!dwell.active)
         return;
     dwell.active = 0;
-    if (excluded(&dwell.id) || now - dwell.start < ks_conf.min_dwell_s)
+    if (excluded(&dwell.id))
+        return;
+    if (focus_end_cb)
+        focus_end_cb(&dwell.id, dwell.start, now, dwell.hidden);
+    if (now - dwell.start < ks_conf.min_dwell_s)
         return;
     char range[64];
     ks_log_range(range, sizeof(range), dwell.start, now);
@@ -139,6 +145,11 @@ static void dwell_start(Window w, time_t now)
     dwell.id = id;
     dwell.hidden = ks_titles_hidden(id.wm_class, id.wm_instance, id.exe, id.title);
     dwell_add_title(id.title);
+}
+
+void ks_windows_on_focus_end(KsFocusEndCb cb)
+{
+    focus_end_cb = cb;
 }
 
 void ks_windows_flush(void)
