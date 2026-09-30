@@ -71,6 +71,14 @@ and can append its own results, each with its own icon, subtitle
 - **recent** (`plugins/recent.c`) -- matches the query against the XDG
   "recent files" list (`recently-used.xbel`) by filename or full path,
   across every app, and opens a match with `xdg-open`.
+- **kistory** (`plugins/kistory.c`) -- matches the query (3+ chars)
+  against kistoryd's activity log (`../kistory/`, last
+  `KISTORY search_days` days, default 30): files opened (only ones that
+  still exist; opened with `xdg-open`) and window titles focused, newest
+  first. A title whose window is still open ("· aberta") activates it;
+  otherwise its program is started again. Reads the day files directly,
+  cached in memory until one changes; `KISTORY search_max` (default 6)
+  caps the results.
 - **process** (`plugins/process.c`) -- if the query (2+ chars) names a
   running process owned by the current user, offers Finalizar (SIGTERM),
   Matar (SIGKILL), and Matar forcado/arvore (SIGKILL to the whole process

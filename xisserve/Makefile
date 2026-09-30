@@ -41,7 +41,7 @@ endif
 # runtime -- or present with no sound server answering -- the page shows
 # an explanatory placeholder instead of failing. Same "shell out, don't
 # reimplement" call xispanel/pulse.c already made, for the same reason.
-SRCS := xisserve.c icons.c appmenu.c question.c applications.c keyboard.c session.c plugins/terminal.c plugins/globalmenu.c plugins/recent.c plugins/process.c plugins/calculator.c $(DBUS_SRC) \
+SRCS := xisserve.c icons.c appmenu.c question.c applications.c keyboard.c session.c plugins/terminal.c plugins/globalmenu.c plugins/recent.c plugins/kistory.c plugins/process.c plugins/calculator.c $(DBUS_SRC) \
         pages/calendar.c pages/audio.c pages/pulse.c pages/energy.c pages/power.c pages/notifications.c \
         pages/network.c pages/storage.c pages/clipboard.c ../shared/xis_spawn.c ../shared/xis_desktop_actions.c ../shared/xis_pactl_subscribe.c ../shared/xis_icon_cache.c
 OBJS := $(SRCS:.c=.o)

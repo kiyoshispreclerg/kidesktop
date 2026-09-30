@@ -86,6 +86,11 @@ GPtrArray *xisserve_load_recent_xbel(void);
  * substring match -- see plugins/recent.c. */
 void plugin_recent_search(const char *query, GPtrArray *results);
 
+/* plugins/kistory.c: files and window titles from kistoryd's activity log
+ * (../kistory/), newest first -- opens the file, or activates the window
+ * (reopens its program when it's closed). */
+void plugin_kistory_search(const char *query, GPtrArray *results);
+
 /* Search plugin matching the query against the current user's own
  * running processes, offering terminate/kill/kill-tree results -- see
  * plugins/process.c. */
