@@ -53,7 +53,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.43"
+#define XISSERVE_VERSION "0.1.44"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -2062,7 +2062,7 @@ static const char *launcher_display_name(void)
         snprintf(name, sizeof(name), "%s", pw->pw_name);
     }
     if (!name[0]) {
-        snprintf(name, sizeof(name), "In\xc3\xadcio");
+        snprintf(name, sizeof(name), "In\xc3\xad" "cio");
     }
     return name;
 }
