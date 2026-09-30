@@ -351,6 +351,8 @@ void page_clipboard_on_hide(void);
  * and closing the popup the same way Escape does. */
 unsigned long xisserve_target_window(void);
 gboolean xisserve_target_filter(void);
+/* --filter=: "all"/"app"/"window"/"doc"/"auto", or "" when not given. */
+const char *xisserve_target_scope(void);
 void xisserve_hide(void);
 
 #endif

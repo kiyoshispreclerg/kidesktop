@@ -407,16 +407,37 @@ static void set_status(const char *text)
     gtk_label_set_text(GTK_LABEL(g_status), text);
 }
 
+/* The target as kimemoryd describes it (app, document, title), fetched
+ * once per open: only the per-window scopes return it with the list, and
+ * the "Tudo" tab should still say where Enter pastes. */
+static char g_ctx_app[128], g_ctx_doc[256], g_ctx_title[256];
+
+static void fetch_target_context(void)
+{
+    g_ctx_app[0] = g_ctx_doc[0] = g_ctx_title[0] = '\0';
+    if (!xisserve_target_window())
+        return;
+    char req[160];
+    snprintf(req, sizeof(req), "{\"cmd\":\"LIST\",\"scope\":\"window\",\"win\":\"%lu\",\"limit\":1}",
+             xisserve_target_window());
+    char *resp = ctl_request(req);
+    if (resp) {
+        json_str(resp, "for_app", g_ctx_app, sizeof(g_ctx_app));
+        json_str(resp, "for_doc", g_ctx_doc, sizeof(g_ctx_doc));
+        json_str(resp, "for_title", g_ctx_title, sizeof(g_ctx_title));
+    }
+    g_free(resp);
+}
+
 static void update_context(const char *resp)
 {
-    char app[128] = "", doc[256] = "", title[256] = "";
-    if (resp) {
-        json_str(resp, "for_app", app, sizeof(app));
-        json_str(resp, "for_doc", doc, sizeof(doc));
-        json_str(resp, "for_title", title, sizeof(title));
-    }
+    (void)resp;
+    char app[128], doc[256], title[256];
+    snprintf(app, sizeof(app), "%s", g_ctx_app);
+    snprintf(doc, sizeof(doc), "%s", g_ctx_doc);
+    snprintf(title, sizeof(title), "%s", g_ctx_title);
     if (!app[0] && xisserve_target_window()) {
-        /* Scope "all" doesn't make kimemoryd describe the target: ask X. */
+        /* kimemoryd isn't answering: at least name the app, from X. */
         char name[128];
         target_class(xisserve_target_window(), app, sizeof(app), name, sizeof(name));
     }
@@ -891,6 +912,39 @@ GtkWidget *page_clipboard_build(void)
     return g_root;
 }
 
+/* Whether `scope` has at least one item for the target window. */
+static gboolean scope_has_items(int scope)
+{
+    char req[160];
+    snprintf(req, sizeof(req), "{\"cmd\":\"LIST\",\"scope\":\"%s\",\"win\":\"%lu\",\"limit\":1}",
+             SCOPE_NAMES[scope], xisserve_target_window());
+    char *resp = ctl_request(req);
+    gboolean has = resp && strstr(resp, "{\"id\":") != NULL;
+    g_free(resp);
+    return has;
+}
+
+/* The filter the page opens with: --filter= when given ("auto" = the
+ * most specific scope with anything in it: document, then window, then
+ * app), else the target's app for --for-active/--for-window, else all. */
+static int initial_scope(void)
+{
+    if (!xisserve_target_window())
+        return SCOPE_ALL;
+    const char *want = xisserve_target_scope();
+    if (!strcmp(want, "auto")) {
+        static const int order[] = { SCOPE_DOC, SCOPE_WINDOW, SCOPE_APP };
+        for (size_t i = 0; i < G_N_ELEMENTS(order); i++)
+            if (scope_has_items(order[i]))
+                return order[i];
+        return SCOPE_ALL;
+    }
+    for (int i = 0; i < N_SCOPES; i++)
+        if (!strcmp(want, SCOPE_NAMES[i]))
+            return i;
+    return xisserve_target_filter() ? SCOPE_APP : SCOPE_ALL;
+}
+
 void page_clipboard_on_show(void)
 {
     /* Each open starts fresh: empty search, and the scope the invocation
@@ -898,7 +952,8 @@ void page_clipboard_on_show(void)
     g_signal_handlers_block_by_func(g_entry, on_entry_changed, NULL);
     gtk_entry_set_text(GTK_ENTRY(g_entry), "");
     g_signal_handlers_unblock_by_func(g_entry, on_entry_changed, NULL);
-    int scope = xisserve_target_filter() && xisserve_target_window() ? SCOPE_APP : SCOPE_ALL;
+    fetch_target_context();
+    int scope = initial_scope();
     gboolean has_target = xisserve_target_window() != 0;
     for (int i = SCOPE_APP; i < N_SCOPES; i++)
         gtk_widget_set_sensitive(g_scope_btn[i], has_target);

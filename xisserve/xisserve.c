@@ -53,7 +53,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.48"
+#define XISSERVE_VERSION "0.1.49"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -174,6 +174,14 @@ typedef struct {
      * showing the whole history. */
     unsigned long target_window;
     int target_filter;
+    /* --filter=: the page's starting filter ("all", "app", "window",
+     * "doc", or "auto": the most specific one that has items); "" = app
+     * when target_filter is set, all otherwise. */
+    char target_scope[8];
+    /* Any --output-* flag given. Without one (a WM button passing only
+     * where it was clicked), --clipboard derives the output from the
+     * anchor point instead of trusting the 1920x1080 default. */
+    int output_given;
 } LaunchArgs;
 
 static LaunchArgs g_args;
@@ -234,6 +242,7 @@ enum {
     OPT_SESSION,
     OPT_FOR_ACTIVE,
     OPT_FOR_WINDOW,
+    OPT_FILTER,
     /* Page mode flags occupy OPT_PAGE_BASE + <index into kPages>, so
      * kPages stays the single place a page's flag name is written. */
     OPT_PAGE_BASE = 2000,
@@ -275,6 +284,7 @@ static const struct option kFixedOpts[] = {
     /* --clipboard's target window, see LaunchArgs::target_window. */
     {"for-active", no_argument, 0, OPT_FOR_ACTIVE},
     {"for-window", required_argument, 0, OPT_FOR_WINDOW},
+    {"filter", required_argument, 0, OPT_FILTER},
 };
 #define N_FIXED_OPTS ((int)(sizeof(kFixedOpts) / sizeof(kFixedOpts[0])))
 
@@ -295,7 +305,8 @@ static void usage(const char *argv0)
                     "[--apps-x=<px>] [--apps-y=<px>]\n", argv0);
     fprintf(stderr, "       %s --keyboard [--output-x=<px> --output-y=<px> "
                     "--output-w=<px> --output-h=<px>]\n", argv0);
-    fprintf(stderr, "       %s --clipboard [--for-active | --for-window=<id>]\n", argv0);
+    fprintf(stderr, "       %s --clipboard [--for-active | --for-window=<id>] "
+                    "[--filter=auto|all|app|window|doc]\n", argv0);
     fprintf(stderr, "       %s --session\n", argv0);
     fprintf(stderr, "       %s --question --text=<pergunta> --button=<rotulo>:<valor> "
                     "[--button=<rotulo>:<valor> ...]\n", argv0);
@@ -349,10 +360,10 @@ static int parse_argv(int argc, char **argv, LaunchArgs *a)
         case OPT_ANCHOR_W: a->anchor_w = atoi(optarg); break;
         case OPT_ANCHOR_H: a->anchor_h = atoi(optarg); break;
         case OPT_EDGE: snprintf(a->edge, sizeof(a->edge), "%s", optarg); break;
-        case OPT_OUTPUT_X: a->output_x = atoi(optarg); break;
-        case OPT_OUTPUT_Y: a->output_y = atoi(optarg); break;
-        case OPT_OUTPUT_W: a->output_w = atoi(optarg); break;
-        case OPT_OUTPUT_H: a->output_h = atoi(optarg); break;
+        case OPT_OUTPUT_X: a->output_x = atoi(optarg); a->output_given = 1; break;
+        case OPT_OUTPUT_Y: a->output_y = atoi(optarg); a->output_given = 1; break;
+        case OPT_OUTPUT_W: a->output_w = atoi(optarg); a->output_given = 1; break;
+        case OPT_OUTPUT_H: a->output_h = atoi(optarg); a->output_given = 1; break;
         case OPT_BG: snprintf(a->bg, sizeof(a->bg), "%s", optarg); break;
         case OPT_FG: snprintf(a->fg, sizeof(a->fg), "%s", optarg); break;
         case OPT_FONT: snprintf(a->font, sizeof(a->font), "%s", optarg); break;
@@ -370,6 +381,7 @@ static int parse_argv(int argc, char **argv, LaunchArgs *a)
         case OPT_SESSION: a->session_mode = 1; break;
         case OPT_FOR_ACTIVE: a->target_filter = 1; break;
         case OPT_FOR_WINDOW: a->target_window = strtoul(optarg, NULL, 0); a->target_filter = 1; break;
+        case OPT_FILTER: snprintf(a->target_scope, sizeof(a->target_scope), "%s", optarg); break;
         default: break; /* unknown flag -- ignored on purpose, see above */
         }
     }
@@ -497,6 +509,7 @@ static int parse_json_args(const char *msg, LaunchArgs *a)
     if (json_get_str(msg, "target_window", target, sizeof(target)))
         a->target_window = strtoul(target, NULL, 10);
     json_get_int(msg, "target_filter", &a->target_filter);
+    json_get_str(msg, "target_scope", a->target_scope, sizeof(a->target_scope));
     return ok;
 }
 
@@ -526,10 +539,11 @@ static int send_to_running(const char *sockpath, const LaunchArgs *a)
                       "{\"anchor_x\":%d,\"anchor_y\":%d,\"anchor_w\":%d,\"anchor_h\":%d,\"edge\":\"%s\","
                       "\"output_x\":%d,\"output_y\":%d,\"output_w\":%d,\"output_h\":%d,"
                       "\"bg\":\"%s\",\"fg\":\"%s\",\"font\":\"%s\",\"font_size\":%d,\"page\":\"%s\","
-                      "\"target_window\":\"%lu\",\"target_filter\":%d}\n",
+                      "\"target_window\":\"%lu\",\"target_filter\":%d,\"target_scope\":\"%s\"}\n",
                       a->anchor_x, a->anchor_y, a->anchor_w, a->anchor_h, a->edge, a->output_x, a->output_y,
                       a->output_w, a->output_h, a->bg, a->fg, font_esc, a->font_size,
-                      a->page >= 0 ? kPages[a->page].flag : "", a->target_window, a->target_filter);
+                      a->page >= 0 ? kPages[a->page].flag : "", a->target_window, a->target_filter,
+                      a->target_scope);
     if (n > 0) {
         ssize_t written = write(fd, msg, (size_t)n);
         (void)written;
@@ -1848,6 +1862,11 @@ gboolean xisserve_target_filter(void)
     return g_args.target_filter != 0;
 }
 
+const char *xisserve_target_scope(void)
+{
+    return g_args.target_scope;
+}
+
 static void hide_launcher(void)
 {
     /* Before leave_current_page() moves g_shown_page off whatever this
@@ -3101,8 +3120,26 @@ static void clipboard_resolve_target(LaunchArgs *a)
         }
         gdk_error_trap_pop();
     }
-    if (a->anchor_w || a->anchor_h)
-        return;   /* opened from a panel widget: keep its anchoring */
+    if (a->anchor_w || a->anchor_h) {
+        /* Anchored (a panel widget, a WM titlebar button). A panel also
+         * passes its output; a WM button passes only the click point, so
+         * clamp to the monitor under that point instead of the default. */
+        if (!a->output_given) {
+            int n = 0;
+            XRRMonitorInfo *mons = XRRGetMonitors(dpy, root, True, &n);
+            for (int i = 0; mons && i < n; i++) {
+                if (a->anchor_x >= mons[i].x && a->anchor_x < mons[i].x + mons[i].width &&
+                    a->anchor_y >= mons[i].y && a->anchor_y < mons[i].y + mons[i].height) {
+                    a->output_x = mons[i].x; a->output_y = mons[i].y;
+                    a->output_w = mons[i].width; a->output_h = mons[i].height;
+                    break;
+                }
+            }
+            if (mons)
+                XRRFreeMonitors(mons);
+        }
+        return;
+    }
 
     int ox = 0, oy = 0, ow = 0, oh = 0;
     int wx = 0, wy = 0;
