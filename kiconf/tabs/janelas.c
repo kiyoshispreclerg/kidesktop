@@ -409,7 +409,8 @@ GtkWidget *build_janelas_tab(void)
     gtk_entry_set_text(GTK_ENTRY(g_titlebar_entry), c.titlebar_layout);
     labeled_row(titlebar_table, 0, "Elementos da barra de titulo:", g_titlebar_entry);
     gtk_box_pack_start(GTK_BOX(content), frame_with("Barra de titulo (lista separada por virgulas: icon,title,"
-                                                 "shade,minimize,maximize,close,keep_above,keep_all_desktops,appmenu)",
+                                                 "shade,minimize,maximize,close,keep_above,keep_all_desktops,appmenu,"
+                                                 "clipboard)",
                                                  titlebar_table),
                         FALSE, FALSE, 0);
 

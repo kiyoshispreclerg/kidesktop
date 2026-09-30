@@ -62,6 +62,8 @@ static void apply_builtin_defaults(void)
     wm.focus_stealing_prevention = FSP_NONE;
     wm.force_unflip = FORCE_UNFLIP_AUTO;
     wm.appmenu_command[0] = '\0';
+    snprintf(wm.clipboard_command, sizeof(wm.clipboard_command), "%s",
+             "xisserve --clipboard --for-window=%w --filter=auto --anchor-x=%x --anchor-y=%y --anchor-w=1 --anchor-h=0 --edge=top");
     wm.osd_enabled = true;
     wm.osd_live_preview_windows = false;
     wm.osd_live_preview_desktops = false;
@@ -109,6 +111,7 @@ static void parse_titlebar_layout(const char *val)
         else if (strcmp(tok, "keep_above") == 0) parsed[n++] = DECO_KEEP_ABOVE;
         else if (strcmp(tok, "keep_all_desktops") == 0) parsed[n++] = DECO_KEEP_ALL_DESKTOPS;
         else if (strcmp(tok, "appmenu") == 0) parsed[n++] = DECO_APPMENU;
+        else if (strcmp(tok, "clipboard") == 0) parsed[n++] = DECO_CLIPBOARD;
         else
             fprintf(stderr, "kiwm: config: skipping unknown titlebar_layout element '%s'\n", tok);
     }
@@ -367,6 +370,14 @@ static void write_default_config(const char *path)
         "#   appmenu_command=xisserve --menu %%w %%x %%y\n"
         "appmenu_command=\n"
         "\n"
+        "# What the titlebar's clipboard button runs (the clipboard element of\n"
+        "# titlebar_layout=): the window's clipboard history (kimemory), with\n"
+        "# the same %%w/%%x/%%y as appmenu_command=. The default opens\n"
+        "# xisserve's clipboard page under the button, filtered to that window\n"
+        "# (--filter=auto: its document, the window or its app, whichever has\n"
+        "# items; the page's own tabs switch filters). Empty hides the button.\n"
+        "clipboard_command=xisserve --clipboard --for-window=%%w --filter=auto --anchor-x=%%x --anchor-y=%%y --anchor-w=1 --anchor-h=0 --edge=top\n"
+        "\n"
         "# Raise+focus a window just by moving the pointer into it, instead\n"
         "# of requiring a click (0 = click-to-focus, the default; 1 =\n"
         "# focus-follows-mouse/\"sloppy focus\").\n"
@@ -438,7 +449,8 @@ static void write_default_config(const char *path)
         "# once a window is maximized, same slot), close, keep_above,\n"
         "# keep_all_desktops, appmenu (the application's exported menu --\n"
         "# needs appmenu_command=, and only shown on windows that\n"
-        "# export one). \"title\" is the only flexible element -- it takes\n"
+        "# export one), clipboard (the window's clipboard history, see\n"
+        "# clipboard_command=). \"title\" is the only flexible element -- it takes\n"
         "# whatever width the fixed-size ones (everything else, one BUTTON_W\n"
         "# each) don't use, wherever it falls in the order.\n"
         "titlebar_layout=icon,title,shade,minimize,maximize,close\n"
@@ -582,6 +594,8 @@ void config_load(void)
             wm.focus_raise_on_release = atoi(val) != 0;
         } else if (strcmp(key, "appmenu_command") == 0) {
             snprintf(wm.appmenu_command, sizeof(wm.appmenu_command), "%s", val);
+        } else if (strcmp(key, "clipboard_command") == 0) {
+            snprintf(wm.clipboard_command, sizeof(wm.clipboard_command), "%s", val);
         } else if (strcmp(key, "focus_stealing_prevention") == 0) {
             wm.focus_stealing_prevention = parse_focus_prevention(val, wm.focus_stealing_prevention);
         } else if (strcmp(key, "force_unflip") == 0) {

@@ -72,6 +72,8 @@
  * draw an appmenu button simply has no eighth column, and draw_button()
  * falls back to its own hand-drawn glyph for it (see decoration.c). */
 #define BTNCOL_APPMENU           7
+/* Same deal: no sheet has it yet, so it falls back to a drawn glyph. */
+#define BTNCOL_CLIPBOARD         8
 
 /* One element of the titlebar layout (kiwm.conf's titlebar_layout=,
  * default "icon,title,shade,minimize,maximize,close") -- see decoration.h's
@@ -96,13 +98,17 @@ typedef enum {
      * panel (or xisserve) already implements. Shown only on windows that
      * actually export a menu, and only when a command is configured. */
     DECO_APPMENU,
+    /* The window's clipboard history (kimemory), filtered to it:
+     * kiwm.conf's clipboard_command=. Optional like every element --
+     * shown only when titlebar_layout= lists it. */
+    DECO_CLIPBOARD,
 } DecoElemKind;
 
 #define MAX_DECO_ELEMS 12
 
 /* How many DecoElemKind values there are -- sizes the per-button tint
  * table below (wm.btn_tint), which is indexed by kind. */
-#define DECO_KIND_COUNT (DECO_APPMENU + 1)
+#define DECO_KIND_COUNT (DECO_CLIPBOARD + 1)
 
 /* What a per-button tint color does to the button under the pointer
  * (theme colors file's button_tinting=). */
@@ -1264,6 +1270,12 @@ typedef struct {
      * appmenu button at all, however titlebar_layout= is written. See
      * events.c's run_deco_button(). */
     char appmenu_command[512];
+
+    /* kiwm.conf's clipboard_command=: what the clipboard titlebar button
+     * runs, same %w/%x/%y substitution as appmenu_command=. Defaults to
+     * xisserve's --clipboard page for that window; empty hides the
+     * button. */
+    char clipboard_command[512];
 
     bool focus_follows_mouse;
 

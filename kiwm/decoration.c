@@ -387,6 +387,7 @@ static bool parse_button_tint(const char *key, const char *val)
         { "shade_button_tint",             DECO_SHADE },
         { "keep_above_button_tint",        DECO_KEEP_ABOVE },
         { "keep_all_desktops_button_tint", DECO_KEEP_ALL_DESKTOPS },
+        { "clipboard_button_tint",         DECO_CLIPBOARD },
     };
     for (size_t i = 0; i < sizeof(tints) / sizeof(tints[0]); i++) {
         if (strcmp(key, tints[i].name) != 0)
@@ -942,6 +943,7 @@ static bool deco_elem_allowed(const Client *c, DecoElemKind kind)
      * window that exports no menu (anything not Qt/KF5, most of the time)
      * and on a session with no appmenu_command= at all. */
     case DECO_APPMENU:  return wm.appmenu_command[0] && c->has_appmenu;
+    case DECO_CLIPBOARD: return wm.clipboard_command[0] != '\0';
     default:            return true;
     }
 }
@@ -1114,6 +1116,18 @@ fallback_glyph:
             cairo_move_to(cr, cx - 5, cy + i * 4);
             cairo_line_to(cr, cx + 5, cy + i * 4);
         }
+        cairo_stroke(cr);
+    } else if (glyph == 'c') {
+        /* Clipboard: a board with its clip, the clipboard button's
+         * fallback (no sprite sheet has a column for it). */
+        cairo_rectangle(cr, cx - 4.5, cy - 4.5, 9, 11);
+        cairo_stroke(cr);
+        cairo_rectangle(cr, cx - 2.5, cy - 6.5, 5, 3);
+        cairo_fill(cr);
+        cairo_move_to(cr, cx - 2.5, cy);
+        cairo_line_to(cr, cx + 2.5, cy);
+        cairo_move_to(cr, cx - 2.5, cy + 3);
+        cairo_line_to(cr, cx + 2.5, cy + 3);
         cairo_stroke(cr);
     } else if (glyph == '-') {
         cairo_move_to(cr, cx - 5, cy);
@@ -1419,6 +1433,9 @@ static void paint_titlebar(Client *c, cairo_t *cr, int w, bool focused, bool arg
             break;
         case DECO_APPMENU:
             draw_button(cr, s->x, DECO_APPMENU, BTNCOL_APPMENU, 'm', hovered, false, pressed, focused);
+            break;
+        case DECO_CLIPBOARD:
+            draw_button(cr, s->x, DECO_CLIPBOARD, BTNCOL_CLIPBOARD, 'c', hovered, false, pressed, focused);
             break;
         }
     }

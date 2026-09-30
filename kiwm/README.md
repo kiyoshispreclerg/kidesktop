@@ -395,6 +395,7 @@ a warning on stderr, not a hard error. A key you leave out of the file keeps its
 | `osd_output_follows_pointer` | `0` | `1` opens an overlay on whichever output the pointer is on (polled once when the hold starts), instead of the currently focused window's output (`0`, default; falls back to the pointer's output only when nothing is focused). Not the same as `focus_follows_mouse=` -- only decides which screen Alt+Tab/Meta+Tab themselves act on. |
 | `theme` | `greenxp` | Theme folder name/path (see "Theming"). Resolved the same way kiwm looks for its own binary-relative files: tried as `../<theme>`, `./<theme>`, and plain `<theme>` (so it works both run from the source tree and installed). |
 | `titlebar_layout` | `icon,title,shade,minimize,maximize,close` | Titlebar element order, left to right, comma-separated. See "Titlebar layout" below. |
+| `clipboard_command` | `xisserve --clipboard --for-window=%w --filter=auto --anchor-x=%x --anchor-y=%y --anchor-w=1 --anchor-h=0 --edge=top` | What the `clipboard` titlebar element runs, same substitutions as `appmenu_command`. Empty hides the button. |
 | `appmenu_command` | *(empty)* | What the `appmenu` titlebar element runs when clicked, e.g. `xisserve --menu %w %x %y`. `%w` becomes the window id (decimal), `%x`/`%y` the root coordinates just under the button; `%%` is a literal percent, and anything else is passed through untouched. Run detached (double fork + `setsid()`, so no zombies and no dying with the terminal kiwm was started from). Empty (the default) means no appmenu button at all, however `titlebar_layout=` is written. kiwm deliberately has **no DBus of its own**: a `com.canonical.dbusmenu` client inside the WM would put bus round-trips in the one process that must never block, duplicating what the panel (or xisserve) already implements -- so kiwm draws the button and hands off the menu. |
 | `key_*` | see below | Global keyboard shortcuts, one key per action (`key_minimize=Meta+Down`, ...). See "Keyboard shortcuts" below for the full list, the syntax, and how to unbind one. |
 
@@ -434,6 +435,11 @@ left out entirely and the title takes the freed width:
   hidden unless a command is configured **and** the window actually exports a menu (it carries
   `_KDE_NET_WM_APPMENU_SERVICE_NAME`/`_OBJECT_PATH`, which every Qt/KF5 app sets and xispanel's
   globalmenu widget reads the same way), so it never leaves a dead button on windows with no menu.
+- `clipboard` -- the window's clipboard history (kimemory). Clicking runs `clipboard_command=`
+  (below) with the same `%w`/`%x`/`%y`; the default opens xisserve's `--clipboard` page under the
+  button, filtered to that window (`--filter=auto`: its document, the window itself or its app,
+  whichever has items -- the page's tabs still switch to any filter, "Tudo" included). Optional:
+  drawn only when listed in `titlebar_layout=`. Tintable with `clipboard_button_tint=`.
   Since those properties are usually set a moment *after* the window maps, kiwm watches for them
   and the button appears when the menu really exists. Themes have no sprite column for it yet, so
   it falls back to a hand-drawn hamburger.
@@ -471,7 +477,8 @@ read once at startup (kiwm never watches kiconfd.conf for changes, same as kiwm.
   to kiwm's own button size if the sidecar is missing). Columns (left to right, fixed order, not
   configurable -- this is about where an icon lives in the image file, unrelated to
   `titlebar_layout=`'s on-screen order): close, maximize, restore, minimize, shade, keep_above,
-  keep_all_desktops, appmenu (only drawn when `appmenu_command=` is set). Rows (top to bottom):
+  keep_all_desktops, appmenu (only drawn when `appmenu_command=` is set), clipboard. No shipped
+  sheet has the last two yet: they fall back to a drawn glyph. Rows (top to bottom):
   normal, hover, clicked for the *focused* window's titlebar, then the same three states again for
   every *unfocused* one -- "clicked" isn't used yet (kiwm fires button actions on press, not
   release, so there's no separate held-down moment to show it during); toggle buttons

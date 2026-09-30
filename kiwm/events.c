@@ -504,6 +504,7 @@ static bool deco_kind_is_button(DecoElemKind kind)
     case DECO_KEEP_ABOVE:
     case DECO_KEEP_ALL_DESKTOPS:
     case DECO_APPMENU:
+    case DECO_CLIPBOARD:
         return true;
     default:
         return false;
@@ -516,20 +517,21 @@ static bool deco_kind_is_button(DecoElemKind kind)
  * the way, so the *next* left click restores it to the geometry from
  * before any of it), right maximizes horizontally only, middle
  * vertically only. Every other button ignores anything but the left. */
-/* kiwm.conf's appmenu_command= with %w/%x/%y filled in, run detached --
+/* A titlebar button's command (appmenu_command=, clipboard_command=)
+ * with %w/%x/%y filled in, run detached --
  * double-forked (so kiwm collects no zombie and the helper isn't a child
  * of kiwm), setsid()'d (so it doesn't die with the terminal kiwm was
  * started from) and, on a systemd session, moved into its own transient
  * scope (so it isn't a member of kiwm's cgroup and isn't killed when kiwm
  * exits). All of that lives in shared/xis_spawn.c -- see its header. */
-static void run_appmenu_command(Client *c, int root_x, int root_y)
+static void run_window_command(const char *tmpl, Client *c, int root_x, int root_y)
 {
-    if (!wm.appmenu_command[0])
+    if (!tmpl[0])
         return;
 
     char cmd[1024];
     size_t o = 0;
-    for (const char *p = wm.appmenu_command; *p && o + 1 < sizeof(cmd); p++) {
+    for (const char *p = tmpl; *p && o + 1 < sizeof(cmd); p++) {
         if (p[0] != '%' || !p[1]) {
             cmd[o++] = *p;
             continue;
@@ -579,7 +581,8 @@ static void run_deco_button(Client *c, DecoElemKind kind, uint8_t button, int sl
     /* Anchored under the button, the same place the window menu opens
      * from the icon -- the helper gets root coordinates and decides
      * nothing else about placement. */
-    case DECO_APPMENU:           run_appmenu_command(c, c->x + slot_x, c->y + TITLEBAR_H); break;
+    case DECO_APPMENU:           run_window_command(wm.appmenu_command, c, c->x + slot_x, c->y + TITLEBAR_H); break;
+    case DECO_CLIPBOARD:         run_window_command(wm.clipboard_command, c, c->x + slot_x, c->y + TITLEBAR_H); break;
     case DECO_MINIMIZE:          minimize_client(c); break;
     case DECO_SHADE:             toggle_shade(c, -1); break;
     case DECO_KEEP_ABOVE:        toggle_keep_above(c, -1); break;
