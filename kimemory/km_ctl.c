@@ -85,7 +85,9 @@ static const char *ident_app(const XisWinIdent *id)
 static int ref_matches(const Filter *f, const KmRef *r)
 {
     switch (f->scope) {
-    case 1: return r->win == f->id.win;
+    /* X reuses window ids (across sessions, and within one once a window
+     * closes): the same program too, or a stale id matches a stranger. */
+    case 1: return r->win == f->id.win && f->app[0] && strcasecmp(r->app, f->app) == 0;
     case 2: return f->app[0] && strcasecmp(r->app, f->app) == 0;
     case 3: return f->id.doc_hint[0] && strcmp(r->doc, f->id.doc_hint) == 0;
     default: return 1;
