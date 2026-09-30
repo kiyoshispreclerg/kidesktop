@@ -298,7 +298,9 @@ Window xis_winident_toplevel_for(Display *dpy, Window w)
     if (!found) {
         int nc = 0;
         XResClient *clients = NULL;
-        if (XResQueryClients(dpy, &nc, &clients) == Success) {
+        /* Xlib Status convention here (nonzero = ok), unlike
+         * XResQueryClientIds, which returns Success. */
+        if (XResQueryClients(dpy, &nc, &clients)) {
             Window active = xis_winident_active(dpy);
             for (int c = 0; c < nc && !found; c++) {
                 XID mask = clients[c].resource_mask;
