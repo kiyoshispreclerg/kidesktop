@@ -1,3 +1,4 @@
+#define _GNU_SOURCE   /* struct ucred for SO_PEERCRED */
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/stat.h>
@@ -23,8 +24,9 @@
 #define BUF_SIZE            4096
 #define CTL_BUF_SIZE        65536
 #define REPORT_THROTTLE_S   1
+#define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.3"
+#define XISGUARD_VERSION    "0.4.4"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -171,6 +173,12 @@ static int dialog_backend = DIALOG_NONE; /* resolved once at startup, see detect
  * is granted for the current session. A permanent Allow/Trust in this mode
  * is written to the server's own xnotify.conf.d instead, see save_rule(). */
 static int secure_mode = 0;
+
+/* Control-socket clients allowed to SUBSCRIBE to the event stream, by
+ * executable basename (comma-separated, persisted in xnotify.conf as
+ * `subscribers=`). The socket is already owner-only; this also keeps any
+ * other same-user process from quietly reading activity metadata. */
+static char subscribers_allow[256] = "kistoryd,kimemoryd";
 
 /* Server's real drop-in rules directory (SYSCONFDIR "/xnotify.conf.d"),
  * learned on demand from the X server itself since SYSCONFDIR is a
@@ -703,8 +711,8 @@ static void load_xnotify_conf(void) {
         char *t = trim(line);
         if (!*t || *t == '#') continue;
 
-        char key[64] = {0}, val[64] = {0};
-        if (sscanf(t, "%63[^=]=%63s", key, val) != 2) continue;
+        char key[64] = {0}, val[256] = {0};
+        if (sscanf(t, "%63[^=]=%255s", key, val) != 2) continue;
 
         char *k = trim(key);
         char *v = trim(val);
@@ -719,6 +727,8 @@ static void load_xnotify_conf(void) {
             if (lvl >= 0 && lvl <= 4) log_level = lvl;
         } else if (strcmp(k, "secure_mode") == 0)
             secure_mode = atoi(v) ? 1 : 0;
+        else if (strcmp(k, "subscribers") == 0)
+            snprintf(subscribers_allow, sizeof(subscribers_allow), "%s", v);
     }
     fclose(f);
     last_xnotify_conf_mtime = time(NULL);
@@ -739,6 +749,7 @@ static void save_xnotify_conf(void) {
     fprintf(f, "always_kill=%d\n", always_kill_mode);
     fprintf(f, "log_level=%d\n", log_level);
     fprintf(f, "secure_mode=%d\n", secure_mode);
+    fprintf(f, "subscribers=%s\n", subscribers_allow);
     fclose(f);
     last_xnotify_conf_mtime = time(NULL);
     log_filtered(3, "Saved xnotify.conf");
@@ -1389,6 +1400,8 @@ void send_permission(int action, const char *exe, pid_t pid, int command_type) {
     }
 }
 
+static void subscribers_broadcast(const char *ev, int action, pid_t pid, const char *exe);
+
 void handle_message(const char *msg) {
     int action = 0;
     pid_t pid = 0;
@@ -1475,6 +1488,9 @@ void handle_message(const char *msg) {
     const char *action_str = action_to_string(action);
 
     if (strcmp(command, "REPORT") == 0) {
+        /* Before ignore.conf: that list only quiets this daemon's own log,
+         * subscribers (kistoryd) keep their own filters. */
+        subscribers_broadcast("REPORT", action, pid, exe);
         if (is_report_ignored(exe)) {
             // Silencioso - não loga nada
             return;
@@ -1492,6 +1508,7 @@ void handle_message(const char *msg) {
     }
 
     log_msg("X server requested %s for %s", action_str, trim_exe_for_log(exe));
+    subscribers_broadcast("REQUEST", action, pid, exe);
 
     /* CLI global overrides: checked before perms.conf; deny wins over allow */
     if (action > 0 && action <= 16) {
@@ -1802,15 +1819,183 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
     snprintf(resp, resp_sz, "{\"ok\":false,\"error\":\"unknown command\"}\n");
 }
 
+/* ---- SUBSCRIBE: long-lived event stream on the same control socket ----
+ *
+ * `{"cmd":"SUBSCRIBE","actions":"SCREEN,RECORD"}` (actions optional, all
+ * when absent) keeps the connection open instead of closing it after the
+ * reply; from then on every REPORT/REQUEST from the X server is written to
+ * it as one line: {"ev":"REPORT","action":"RECORD","pid":N,"exe":"...","ts":N}.
+ * Writes are non-blocking; a subscriber that is gone or can't keep up is
+ * dropped rather than stalling the X server message path. */
+
+static struct { int fd; uint32_t mask; } subscribers[MAX_SUBSCRIBERS];
+static int subscriber_count = 0;
+static pthread_mutex_t subscribers_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void subscriber_remove_locked(int i) {
+    close(subscribers[i].fd);
+    subscribers[i] = subscribers[--subscriber_count];
+}
+
+static void subscribers_broadcast(const char *ev, int action, pid_t pid, const char *exe) {
+    if (action <= 0 || action > 16)
+        return;
+    pthread_mutex_lock(&subscribers_lock);
+    if (subscriber_count == 0) {
+        pthread_mutex_unlock(&subscribers_lock);
+        return;
+    }
+    char exe_esc[PATH_MAX * 2];
+    json_escape_str(exe_esc, sizeof(exe_esc), exe);
+    char line[PATH_MAX * 2 + 128];
+    int len = snprintf(line, sizeof(line),
+                       "{\"ev\":\"%s\",\"action\":\"%s\",\"pid\":%d,\"exe\":\"%s\",\"ts\":%ld}\n",
+                       ev, action_to_string(action), (int)pid, exe_esc, (long)time(NULL));
+    if (len >= (int)sizeof(line))
+        len = (int)sizeof(line) - 1;
+    uint32_t bit = 1u << (action - 1);
+    for (int i = 0; i < subscriber_count; ) {
+        if (subscribers[i].mask && !(subscribers[i].mask & bit)) {
+            i++;
+            continue;
+        }
+        ssize_t w = send(subscribers[i].fd, line, (size_t)len, MSG_DONTWAIT | MSG_NOSIGNAL);
+        if (w != len) {
+            log_filtered(2, "Subscriber fd %d dropped (%s)", subscribers[i].fd,
+                         w < 0 ? strerror(errno) : "short write");
+            subscriber_remove_locked(i);
+            continue;
+        }
+        i++;
+    }
+    pthread_mutex_unlock(&subscribers_lock);
+}
+
+/* Peer must be this same uid and its executable's basename must be in
+ * subscribers_allow. Fills exe_out with the basename for logging. */
+static int subscriber_peer_allowed(int conn, char *exe_out, size_t exe_sz) {
+    struct ucred cred;
+    socklen_t len = sizeof(cred);
+    exe_out[0] = '\0';
+    if (getsockopt(conn, SOL_SOCKET, SO_PEERCRED, &cred, &len) != 0)
+        return 0;
+    if (cred.uid != getuid())
+        return 0;
+
+    char link[64], path[PATH_MAX];
+    snprintf(link, sizeof(link), "/proc/%d/exe", (int)cred.pid);
+    ssize_t n = readlink(link, path, sizeof(path) - 1);
+    if (n <= 0)
+        return 0;
+    path[n] = '\0';
+    char *del = strstr(path, " (deleted)");
+    if (del) *del = '\0';
+    const char *base = strrchr(path, '/');
+    base = base ? base + 1 : path;
+    size_t bl = strlen(base);
+    if (bl >= exe_sz) bl = exe_sz - 1;
+    memcpy(exe_out, base, bl);
+    exe_out[bl] = '\0';
+
+    char list[sizeof(subscribers_allow)];
+    snprintf(list, sizeof(list), "%s", subscribers_allow);
+    char *save = NULL;
+    for (char *tok = strtok_r(list, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
+        if (strcmp(trim(tok), base) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+/* 0: not a SUBSCRIBE request; 1: `conn` kept as a subscriber (caller must
+ * not close it); -1: SUBSCRIBE refused, error reply already written. */
+static int try_subscribe(int conn, const char *req) {
+    char cmd[32] = {0};
+    json_get_str(req, "cmd", cmd, sizeof(cmd));
+    if (strcasecmp(cmd, "SUBSCRIBE") != 0)
+        return 0;
+
+    char exe[256];
+    if (!subscriber_peer_allowed(conn, exe, sizeof(exe))) {
+        log_msg("Control: SUBSCRIBE refused for %s", exe[0] ? exe : "?");
+        const char *no = "{\"ok\":false,\"error\":\"not allowed\"}\n";
+        (void)!write(conn, no, strlen(no));
+        return -1;
+    }
+
+    uint32_t mask = 0;
+    char actions[256] = {0};
+    if (json_get_str(req, "actions", actions, sizeof(actions)) && actions[0]) {
+        char *save = NULL;
+        for (char *tok = strtok_r(actions, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
+            int a = string_to_action(trim(tok));
+            if (a > 0 && a <= 16)
+                mask |= 1u << (a - 1);
+        }
+    }
+
+    pthread_mutex_lock(&subscribers_lock);
+    if (subscriber_count >= MAX_SUBSCRIBERS) {
+        pthread_mutex_unlock(&subscribers_lock);
+        const char *full = "{\"ok\":false,\"error\":\"too many subscribers\"}\n";
+        (void)!write(conn, full, strlen(full));
+        return -1;
+    }
+    const char *ok = "{\"ok\":true,\"subscribed\":true}\n";
+    (void)!write(conn, ok, strlen(ok));
+    fcntl(conn, F_SETFL, fcntl(conn, F_GETFL) | O_NONBLOCK);
+    subscribers[subscriber_count].fd = conn;
+    subscribers[subscriber_count].mask = mask;
+    subscriber_count++;
+    pthread_mutex_unlock(&subscribers_lock);
+    log_msg("Control: %s subscribed to events", exe);
+    return 1;
+}
+
 void* control_loop(void *arg) {
     (void)arg;
     log_msg("Control thread started - listening on %s", CTL_SOCKET_PATH_BUF);
 
-    struct pollfd pfd = { .fd = ctl_fd, .events = POLLIN };
-
     while (!should_exit) {
-        int r = poll(&pfd, 1, 500);
-        if (r <= 0 || !(pfd.revents & POLLIN))
+        /* Subscriber fds are polled only to notice them hanging up: they
+         * never send anything after SUBSCRIBE. */
+        struct pollfd pfds[1 + MAX_SUBSCRIBERS];
+        int sub_fds[MAX_SUBSCRIBERS];
+        int nsub;
+        pfds[0].fd = ctl_fd;
+        pfds[0].events = POLLIN;
+        pthread_mutex_lock(&subscribers_lock);
+        nsub = subscriber_count;
+        for (int i = 0; i < nsub; i++) {
+            sub_fds[i] = subscribers[i].fd;
+            pfds[1 + i].fd = sub_fds[i];
+            pfds[1 + i].events = POLLIN;
+        }
+        pthread_mutex_unlock(&subscribers_lock);
+
+        int r = poll(pfds, (nfds_t)(1 + nsub), 500);
+        if (r <= 0)
+            continue;
+
+        for (int i = 0; i < nsub; i++) {
+            if (!(pfds[1 + i].revents & (POLLIN | POLLHUP | POLLERR)))
+                continue;
+            char junk[64];
+            ssize_t n = recv(sub_fds[i], junk, sizeof(junk), MSG_DONTWAIT);
+            if (n > 0 || (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)))
+                continue;
+            pthread_mutex_lock(&subscribers_lock);
+            for (int j = 0; j < subscriber_count; j++) {
+                if (subscribers[j].fd == sub_fds[i]) {
+                    log_filtered(2, "Subscriber fd %d disconnected", sub_fds[i]);
+                    subscriber_remove_locked(j);
+                    break;
+                }
+            }
+            pthread_mutex_unlock(&subscribers_lock);
+        }
+
+        if (!(pfds[0].revents & POLLIN))
             continue;
 
         int conn = accept(ctl_fd, NULL, NULL);
@@ -1822,8 +2007,13 @@ void* control_loop(void *arg) {
         ssize_t n = read(conn, req, sizeof(req) - 1);
         if (n > 0) {
             req[n] = '\0';
-            handle_control_message(req, resp, sizeof(resp));
-            (void)!write(conn, resp, strlen(resp));
+            int sub = try_subscribe(conn, req);
+            if (sub == 1)
+                continue;
+            if (sub == 0) {
+                handle_control_message(req, resp, sizeof(resp));
+                (void)!write(conn, resp, strlen(resp));
+            }
         }
         close(conn);
     }

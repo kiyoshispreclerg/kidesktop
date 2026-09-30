@@ -123,6 +123,13 @@ back per connection:
 CLI options above), `LIST_RULES`, `ADD_RULE`, `REMOVE_RULE`, `RELOAD`,
 `GET_SYSTEM_RULES_PATH`.
 
+`SUBSCRIBE` is the exception: `{"cmd":"SUBSCRIBE","actions":"SCREEN,RECORD"}`
+(`actions` optional, all by default) keeps the connection open, and every
+REPORT/REQUEST from the X server is then written to it as one line:
+`{"ev":"REPORT","action":"RECORD","pid":N,"exe":"...","ts":N}`. Only
+programs whose executable name is listed in `subscribers=` in
+`xnotify.conf` (default `kistoryd,kimemoryd`) may subscribe.
+
 ### Ignore Reports
 
 The user can add a list of programs to the file ignore.conf (in the same path of perms.conf), and
