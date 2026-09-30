@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -72,7 +73,21 @@ void ks_log_event(time_t ts, const char *kind, const char *app, const char *exe,
     snprintf(path, sizeof(path), "%s/%04d-%02d-%02d.tsv", events_dir, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
     strftime(when, sizeof(when), "%Y-%m-%dT%H:%M:%S", &tm);
 
-    FILE *f = fopen(path, "a");
+    /* `kistory purge` rewrites day files (temp file + rename) under the
+     * same lock: if it replaced the file while we waited, append to the
+     * new one instead of the unlinked inode. */
+    FILE *f = NULL;
+    for (int tries = 0; tries < 3 && !f; tries++) {
+        f = fopen(path, "a");
+        if (!f)
+            return;
+        flock(fileno(f), LOCK_EX);
+        struct stat a, b;
+        if (fstat(fileno(f), &a) != 0 || stat(path, &b) != 0 || a.st_ino != b.st_ino) {
+            fclose(f);
+            f = NULL;
+        }
+    }
     if (!f)
         return;
     fchmod(fileno(f), 0600);

@@ -5,9 +5,9 @@
  *   ts  kind  app  exe  desktop  output  subject  detail
  *
  * ts is local ISO time (2026-09-30T14:02:11); `\t` `\n` `\\` are escaped
- * inside fields; empty fields stay empty. Each write opens, appends and
- * closes the day's file, so `kistory purge` can rewrite files safely
- * between two writes and nothing is buffered across a crash.
+ * inside fields; empty fields stay empty. Each write opens, flocks,
+ * appends and closes the day's file: nothing is buffered across a crash,
+ * and `kistory purge` (same lock) can rewrite a file between two writes.
  *
  * Pausing: while $XDG_RUNTIME_DIR/kistory-paused.<display> exists and
  * holds 0 or an epoch in the future, nothing is written (the kistory CLI

@@ -34,9 +34,38 @@ ts  kind  app  exe  desktop  output  subject  detail
 
 A `focus` line is written when the window loses focus, stamped with the
 time it gained it, and only if it stayed focused at least `min_dwell_s`.
+Period lines (focus, audio, guard) are written when the period ends, so a
+day file is in write order, not strictly sorted by `ts`.
 `app` is the WM_CLASS class (exe basename when there is none); `desktop`
 is `*` for sticky windows; `output` comes from kiwm's `_KIWM_WM_OUTPUT`,
 else the XRandR monitor under the window.
+
+## Command line
+
+`kistory` reads the day files directly, whether kistoryd runs or not.
+D is `YYYY-MM-DD`, `today`, `yesterday` or `Nd` (N days ago).
+
+```
+kistory search TERM... [--since D] [--until D] [--kind K] [--app A] [-n N]
+kistory day [D]
+kistory at 'D HH:MM'        (or just HH:MM for today)
+kistory stats [--since D]
+kistory purge (--all | [--app A] [--kind K] [--since D] [--until D])
+kistory pause [MINUTES] | resume | status
+```
+
+`search` matches every TERM case-insensitively anywhere in a line (last 30
+days by default, the last N matches). `at` lists the periods covering that
+moment and the instant events within 2 minutes of it:
+
+```
+$ kistory at 14:51:09
+2026-09-30 14:51:09  focus      XTerm            [d0 default]  14:51:09-14:51:15  arquivo.c - vim | orcamento-2026.ods - LibreOffice | shell
+2026-09-30 14:51:09  audio_play LibreWolf         14:51:09-14:51:15  AudioStream pid=12565
+```
+
+`purge` deletes whole day files for date-only filters and rewrites them
+otherwise, under the same `flock` kistoryd appends with.
 
 ## Files
 
@@ -88,7 +117,8 @@ accepts executables listed in its `subscribers=` (kistoryd is by default).
   Empty by default: browsers mark private windows only in the title, in the
   UI language, so there is no universal hint to rely on.
 - Pause: while `$XDG_RUNTIME_DIR/kistory-paused.<display>` exists holding
-  `0` (indefinitely) or an epoch in the future, nothing is written.
+  `0` (indefinitely) or an epoch in the future, nothing is written
+  (`kistory pause`/`resume`).
 - `retention_days` old day files are deleted at start and every 6 hours.
 
 ## Config
