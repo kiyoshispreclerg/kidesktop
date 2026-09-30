@@ -127,6 +127,19 @@ static int item_matches(const Filter *f, KmItem *it)
     return 0;
 }
 
+/* Text of an item for previews: its text rep, or for a file manager's
+ * copy (no text offered at all) the uri-list / copied-files list. */
+static const char *item_preview_text(KmItem *it)
+{
+    const char *text = km_item_text(it);
+    if (text || it->type != KM_FILES)
+        return text;
+    KmRep *r = km_item_find_rep(it, "text/uri-list");
+    if (!r)
+        r = km_item_find_rep(it, "x-special/gnome-copied-files");
+    return r ? (const char *)km_rep_data(it, r) : NULL;
+}
+
 static void out_item(KmItem *it)
 {
     char head[256];
@@ -134,7 +147,7 @@ static void out_item(KmItem *it)
              it->id, it->ts, TYPE_NAMES[it->type >= 0 && it->type <= KM_IMAGE ? it->type : 0], it->bytes,
              it->fav, it->id == km_clip_current());
     out_add(head);
-    out_str("preview", it->type == KM_IMAGE ? "" : km_item_text(it), PREVIEW_BYTES);
+    out_str("preview", it->type == KM_IMAGE ? "" : item_preview_text(it), PREVIEW_BYTES);
     out_add(",");
     const KmRef *src = it->nsrc ? &it->srcs[it->nsrc - 1] : NULL;
     out_str("src_app", src ? src->app : "", 64);
@@ -226,10 +239,7 @@ static void cmd_get(unsigned id)
         else
             out_str("error", "image not on disk (persist setting)", 64);
     } else {
-        const char *text = km_item_text(it);
-        KmRep *uris = km_item_find_rep(it, "text/uri-list");
-        if (!text && uris)
-            text = (const char *)km_rep_data(it, uris);
+        const char *text = item_preview_text(it);
         /* Escaping can take up to 6x; build it in its own buffer. */
         size_t n = text ? strlen(text) : 0;
         char *esc = calloc(1, n * 6 + 16);
