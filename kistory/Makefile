@@ -13,8 +13,8 @@ all: kistoryd
 # xispanel/xisserve also use -- compiled directly in, same as the other
 # shared/ sources.
 SHARED_SRC := ../shared/xis_winident.c ../shared/xis_pactl_subscribe.c
-DAEMON_SRC := kistoryd.c ks_log.c ks_windows.c ks_files.c ks_audio.c
-DAEMON_HDR := ks_config.h ks_log.h ks_windows.h ks_files.h ks_audio.h \
+DAEMON_SRC := kistoryd.c ks_log.c ks_windows.c ks_files.c ks_audio.c ks_guard.c
+DAEMON_HDR := ks_config.h ks_log.h ks_windows.h ks_files.h ks_audio.h ks_guard.h \
               ../shared/xis_winident.h ../shared/xis_pactl_subscribe.h
 
 kistoryd: $(DAEMON_SRC) $(DAEMON_HDR) $(SHARED_SRC)

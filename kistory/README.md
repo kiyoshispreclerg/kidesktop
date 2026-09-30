@@ -30,6 +30,7 @@ ts  kind  app  exe  desktop  output  subject  detail
 | `output` | `connected` / `disconnected` | |
 | `file` | path (or URL) | `src=xbel`, `src=kde` or `src=fd` |
 | `audio_play`, `audio_rec` | time range | stream's media name, `pid=N` |
+| `guard` | time range | `ACTION REPORT\|REQUEST pid=N` (xisguard) |
 
 A `focus` line is written when the window loses focus, stamped with the
 time it gained it, and only if it stayed focused at least `min_dwell_s`.
@@ -66,6 +67,17 @@ stays open but corked); periods of 2 s or more are logged, with the app's
 `application.name` and binary. Level meters ("Peak detect") are ignored,
 and the media name is dropped for apps with hidden titles.
 
+## Screen capture and other guarded actions
+
+kistoryd subscribes to xisguard's event stream (`SUBSCRIBE` on the
+existing `xisguard-ctl.<display>.sock`; the connection just stays open, no
+extra process) for the actions in `guard_actions`. The X server reports an
+action every ~2 s while a program keeps using it, so reports less than
+15 s apart are merged into one period per program, action and kind
+(`REQUEST`: asked for a permission it didn't have; `REPORT`: used one).
+If xisguard isn't running, kistoryd retries every 30 s. xisguard only
+accepts executables listed in its `subscribers=` (kistoryd is by default).
+
 ## Privacy
 
 - `exclude`: apps (WM_CLASS class/instance or exe basename) never logged.
@@ -91,6 +103,7 @@ and the media name is dropped for apps with hidden titles.
 | `title_only_exclude` | (empty) |
 | `private_title_regex` | (empty) |
 | `fd_sampling` | 1 |
+| `guard_actions` | `SCREEN,RECORD,INPUT_INJECT,INPUT` (empty: don't subscribe) |
 
 ## Permissions (xisguard)
 
