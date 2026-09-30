@@ -27,6 +27,7 @@
 #include <gdk/gdkkeysyms.h>
 #include <gdk/gdkx.h>
 #include <X11/Xatom.h>
+#include <X11/extensions/Xrandr.h>
 
 #include "xisserve.h"
 
@@ -52,7 +53,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.42"
+#define XISSERVE_VERSION "0.1.43"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -92,6 +93,8 @@ static const XisservePage kPages[] = {
      page_notifications_on_show, page_notifications_on_hide},
     {"network", "Rede", 380, 480, page_network_build, page_network_on_show, page_network_on_hide},
     {"storage", "Armazenamento", 380, 480, page_storage_build, page_storage_on_show, page_storage_on_hide},
+    {"clipboard", "\xc3\x81rea de transfer\xc3\xaancia", 420, 480, page_clipboard_build, page_clipboard_on_show,
+     page_clipboard_on_hide},
 };
 #define N_PAGES ((int)(sizeof(kPages) / sizeof(kPages[0])))
 
@@ -159,6 +162,14 @@ typedef struct {
      * its own -- it centers itself on the current monitor the same way
      * --keyboard docks on it. */
     int session_mode;
+
+    /* --clipboard's paste target: --for-window=<id>, or the window that
+     * was active when xisserve was invoked (filled in by main() before the
+     * popup can take focus). `target_filter` (--for-active/--for-window)
+     * makes the page open filtered to that window's app instead of
+     * showing the whole history. */
+    unsigned long target_window;
+    int target_filter;
 } LaunchArgs;
 
 static LaunchArgs g_args;
@@ -217,6 +228,8 @@ enum {
     OPT_APPS, OPT_APPS_X, OPT_APPS_Y,
     OPT_KEYBOARD,
     OPT_SESSION,
+    OPT_FOR_ACTIVE,
+    OPT_FOR_WINDOW,
     /* Page mode flags occupy OPT_PAGE_BASE + <index into kPages>, so
      * kPages stays the single place a page's flag name is written. */
     OPT_PAGE_BASE = 2000,
@@ -255,6 +268,9 @@ static const struct option kFixedOpts[] = {
     {"keyboard", no_argument, 0, OPT_KEYBOARD},
     /* --session takes no arguments of its own either -- see session.c. */
     {"session", no_argument, 0, OPT_SESSION},
+    /* --clipboard's target window, see LaunchArgs::target_window. */
+    {"for-active", no_argument, 0, OPT_FOR_ACTIVE},
+    {"for-window", required_argument, 0, OPT_FOR_WINDOW},
 };
 #define N_FIXED_OPTS ((int)(sizeof(kFixedOpts) / sizeof(kFixedOpts[0])))
 
@@ -275,6 +291,7 @@ static void usage(const char *argv0)
                     "[--apps-x=<px>] [--apps-y=<px>]\n", argv0);
     fprintf(stderr, "       %s --keyboard [--output-x=<px> --output-y=<px> "
                     "--output-w=<px> --output-h=<px>]\n", argv0);
+    fprintf(stderr, "       %s --clipboard [--for-active | --for-window=<id>]\n", argv0);
     fprintf(stderr, "       %s --session\n", argv0);
     fprintf(stderr, "       %s --question --text=<pergunta> --button=<rotulo>:<valor> "
                     "[--button=<rotulo>:<valor> ...]\n", argv0);
@@ -347,6 +364,8 @@ static int parse_argv(int argc, char **argv, LaunchArgs *a)
         case OPT_APPS_Y: a->apps_y = atoi(optarg); break;
         case OPT_KEYBOARD: a->keyboard_mode = 1; break;
         case OPT_SESSION: a->session_mode = 1; break;
+        case OPT_FOR_ACTIVE: a->target_filter = 1; break;
+        case OPT_FOR_WINDOW: a->target_window = strtoul(optarg, NULL, 0); a->target_filter = 1; break;
         default: break; /* unknown flag -- ignored on purpose, see above */
         }
     }
@@ -468,6 +487,12 @@ static int parse_json_args(const char *msg, LaunchArgs *a)
             break;
         }
     }
+    /* Optional: only --clipboard invocations carry these (as a string,
+     * since a window id doesn't fit json_get_int's int). */
+    char target[32] = "";
+    if (json_get_str(msg, "target_window", target, sizeof(target)))
+        a->target_window = strtoul(target, NULL, 10);
+    json_get_int(msg, "target_filter", &a->target_filter);
     return ok;
 }
 
@@ -492,14 +517,15 @@ static int send_to_running(const char *sockpath, const LaunchArgs *a)
 
     char font_esc[256];
     json_escape_str(font_esc, sizeof(font_esc), a->font);
-    char msg[768];
+    char msg[832];
     int n = snprintf(msg, sizeof(msg),
                       "{\"anchor_x\":%d,\"anchor_y\":%d,\"anchor_w\":%d,\"anchor_h\":%d,\"edge\":\"%s\","
                       "\"output_x\":%d,\"output_y\":%d,\"output_w\":%d,\"output_h\":%d,"
-                      "\"bg\":\"%s\",\"fg\":\"%s\",\"font\":\"%s\",\"font_size\":%d,\"page\":\"%s\"}\n",
+                      "\"bg\":\"%s\",\"fg\":\"%s\",\"font\":\"%s\",\"font_size\":%d,\"page\":\"%s\","
+                      "\"target_window\":\"%lu\",\"target_filter\":%d}\n",
                       a->anchor_x, a->anchor_y, a->anchor_w, a->anchor_h, a->edge, a->output_x, a->output_y,
                       a->output_w, a->output_h, a->bg, a->fg, font_esc, a->font_size,
-                      a->page >= 0 ? kPages[a->page].flag : "");
+                      a->page >= 0 ? kPages[a->page].flag : "", a->target_window, a->target_filter);
     if (n > 0) {
         ssize_t written = write(fd, msg, (size_t)n);
         (void)written;
@@ -1802,6 +1828,21 @@ static void set_pin_window_mode(gboolean pinned)
 static void leave_current_page(void); /* defined below, next to the page-visibility bookkeeping it owns */
 static void save_current_page_size(void); /* defined below, next to the size-persistence it owns */
 
+void xisserve_hide(void)
+{
+    hide_launcher();
+}
+
+unsigned long xisserve_target_window(void)
+{
+    return g_args.target_window;
+}
+
+gboolean xisserve_target_filter(void)
+{
+    return g_args.target_filter != 0;
+}
+
 static void hide_launcher(void)
 {
     /* Before leave_current_page() moves g_shown_page off whatever this
@@ -2977,6 +3018,108 @@ static void build_ui(void)
      * skip a NULL entry. */
 }
 
+/* ---- --clipboard target / placement ------------------------------------ */
+
+/* Width the clipboard page is placed for when no anchor was given; its
+ * kPages minimum, so the popup lands inside the target window's corner. */
+#define CLIPBOARD_PLACE_W 420
+
+static int page_index(const char *flag)
+{
+    for (int i = 0; i < N_PAGES; i++)
+        if (strcmp(kPages[i].flag, flag) == 0)
+            return i;
+    return PAGE_LAUNCHER;
+}
+
+static Window active_window(Display *dpy, Window root)
+{
+    Atom type;
+    int format;
+    unsigned long n, after;
+    unsigned char *data = NULL;
+    Window w = None;
+    Atom prop = XInternAtom(dpy, "_NET_ACTIVE_WINDOW", False);
+    if (XGetWindowProperty(dpy, root, prop, 0, 1, False, XA_WINDOW, &type, &format, &n, &after, &data) == Success &&
+        data && n == 1 && format == 32)
+        w = (Window) * (long *)(void *)data;
+    if (data)
+        XFree(data);
+    return w;
+}
+
+/* Called before the popup exists, so "active" is still the window the
+ * user was in. Fills target_window, and when no panel anchor was passed
+ * (a hotkey, not a panel widget) places the popup in that window's
+ * top-right corner, on its monitor -- or centered on the active monitor
+ * when there is no target at all. */
+static void clipboard_resolve_target(LaunchArgs *a)
+{
+    GdkDisplay *gd = gdk_display_get_default();
+    if (!gd)
+        return;
+    Display *dpy = GDK_DISPLAY_XDISPLAY(gd);
+    Window root = DefaultRootWindow(dpy);
+    if (!a->target_window) {
+        a->target_window = active_window(dpy, root);
+        /* Another xisserve page has focus: that popup is no paste target. */
+        XClassHint ch;
+        gdk_error_trap_push();
+        if (a->target_window && XGetClassHint(dpy, a->target_window, &ch)) {
+            if (ch.res_name && !strcasecmp(ch.res_name, "xisserve"))
+                a->target_window = 0;
+            if (ch.res_name) XFree(ch.res_name);
+            if (ch.res_class) XFree(ch.res_class);
+        }
+        gdk_error_trap_pop();
+    }
+    if (a->anchor_w || a->anchor_h)
+        return;   /* opened from a panel widget: keep its anchoring */
+
+    int ox = 0, oy = 0, ow = 0, oh = 0;
+    int wx = 0, wy = 0;
+    XWindowAttributes wa;
+    Window child;
+    gdk_error_trap_push();   /* another program's window: it may already be gone */
+    gboolean have_win = a->target_window && XGetWindowAttributes(dpy, a->target_window, &wa) &&
+                        XTranslateCoordinates(dpy, a->target_window, root, 0, 0, &wx, &wy, &child);
+    if (gdk_error_trap_pop())
+        have_win = FALSE;
+    gboolean have_out = FALSE;
+    if (have_win) {
+        int n = 0;
+        XRRMonitorInfo *mons = XRRGetMonitors(dpy, root, True, &n);
+        int cx = wx + wa.width / 2, cy = wy + wa.height / 2;
+        for (int i = 0; mons && i < n && !have_out; i++) {
+            if (cx >= mons[i].x && cx < mons[i].x + mons[i].width && cy >= mons[i].y &&
+                cy < mons[i].y + mons[i].height) {
+                ox = mons[i].x; oy = mons[i].y; ow = mons[i].width; oh = mons[i].height;
+                have_out = TRUE;
+            }
+        }
+        if (mons)
+            XRRFreeMonitors(mons);
+    }
+    if (!have_out && !xisserve_resolve_active_output(dpy, root, &ox, &oy, &ow, &oh)) {
+        ox = oy = 0;
+        ow = DisplayWidth(dpy, DefaultScreen(dpy));
+        oh = DisplayHeight(dpy, DefaultScreen(dpy));
+    }
+    a->output_x = ox; a->output_y = oy; a->output_w = ow; a->output_h = oh;
+    snprintf(a->edge, sizeof(a->edge), "top");
+    a->anchor_w = 1;
+    a->anchor_h = 0;
+    if (have_win) {
+        a->anchor_x = wx + wa.width - CLIPBOARD_PLACE_W - 8;
+        if (a->anchor_x < wx)
+            a->anchor_x = wx;
+        a->anchor_y = wy + 8;
+    } else {
+        a->anchor_x = ox + (ow - CLIPBOARD_PLACE_W) / 2;
+        a->anchor_y = oy + oh / 6;
+    }
+}
+
 int main(int argc, char **argv)
 {
     /* Checked before gtk_init() -- same reason most CLI tools handle
@@ -3048,6 +3191,9 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "--question") == 0)
             return question_run(argc, argv);
     }
+
+    if (args.page >= 0 && args.page == page_index("clipboard"))
+        clipboard_resolve_target(&args);
 
     const char *rundir = getenv("XDG_RUNTIME_DIR");
     if (!rundir || !*rundir) rundir = "/tmp";

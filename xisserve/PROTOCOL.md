@@ -66,8 +66,8 @@ opens instead of its default launcher view. An xisserve that doesn't know
 a flag must ignore it and open normally rather than fail to start -- the
 widget side ships before the page does, every time. (This is enforced in
 `parse_argv()` via `opterr = 0` plus an ignore-by-default switch.
-`--notifications`, `--network` and `--storage` are all implemented pages
-now, see below.)
+`--notifications`, `--network`, `--storage` and `--clipboard` are all
+implemented pages now, see below.)
 
 - `--calendar`: passed by xispanel's `clock` widget when its clock is
   clicked, anchored to the clock's own rectangle. Opens a navigable
@@ -153,6 +153,37 @@ now, see below.)
   own polkit rules, so no setuid helper is needed). Hotplug/mount toasts
   are a separate mechanism (`xispanel/storage_events.c`, polling
   `lsblk`), not this page's job.
+
+- `--clipboard [--for-active | --for-window=<id>]`: kimemoryd's clipboard
+  history (`../kimemory/`). **Implemented in `pages/clipboard.c`**, a
+  client of kimemoryd's control socket
+  (`$XDG_RUNTIME_DIR/kimemory-ctl.<display>.sock`); with no kimemoryd
+  running the page just says so. Not passed by any panel widget yet:
+  meant for an xiskeys binding, and works with or without the anchor
+  flags above.
+
+  The **target window** is `--for-window=<id>`, else whatever was active
+  when xisserve was invoked (read before the popup can take focus, and
+  never another xisserve page). `--for-active`/`--for-window` open the
+  list filtered to that window's app; plain `--clipboard` shows
+  everything, with the same Tudo/App/Janela/Documento filters one click
+  away. Without anchor flags the popup is placed in the target's
+  top-right corner, clamped to the target's monitor (centered on the
+  active monitor when there is no target). Both fields travel in the
+  control-socket JSON as `target_window` (a decimal string) and
+  `target_filter`, optional so older callers are unaffected.
+
+  Enter/double click pastes: kimemoryd puts the item back on the
+  clipboard (and, as its owner, records the target as the paste
+  destination), the popup closes, and once the target has focus again
+  it gets Ctrl+V through XTest -- Ctrl+Shift+V for terminals that paste
+  that way, nothing for xterm/urxvt, whose keyboard paste isn't
+  CLIPBOARD. Shift+Enter only copies. Ctrl+D (un)favourites, Delete
+  (with an empty search) removes; the same actions are on the right
+  click menu, plus "Limpar" for everything but favourites.
+  `xisserve.conf`: `CLIPBOARD\tautopaste\t0` leaves the Ctrl+V to the
+  user, `CLIPBOARD\tmax_items\t<n>` caps the list (default 200). The
+  XTest paste needs xisguard's `INPUT_INJECT` for xisserve.
 
 ## `--menu`: an application menu popup for a window manager
 

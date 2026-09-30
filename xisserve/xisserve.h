@@ -335,4 +335,17 @@ GtkWidget *page_storage_build(void);
 void page_storage_on_show(void);
 void page_storage_on_hide(void);
 
+GtkWidget *page_clipboard_build(void);
+void page_clipboard_on_show(void);
+void page_clipboard_on_hide(void);
+
+/* For pages that act on another window (--clipboard): the invocation's
+ * target window (--for-window=<id>, else whatever was active when
+ * xisserve was called, before the popup took focus; 0 if none), whether
+ * the page was asked to open filtered to it (--for-active/--for-window),
+ * and closing the popup the same way Escape does. */
+unsigned long xisserve_target_window(void);
+gboolean xisserve_target_filter(void);
+void xisserve_hide(void);
+
 #endif

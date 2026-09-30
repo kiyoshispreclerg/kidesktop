@@ -138,6 +138,11 @@ table in `xisserve.c`:
   `lsblk -P` for listing and `udisksctl` for the actual actions (through
   udisks2's polkit rules, so no setuid helper of our own). Opened by
   xispanel's `storage` widget.
+- **`--clipboard`** (`pages/clipboard.c`) -- kimemoryd's clipboard
+  history (search, filter by the target window's app/window/document,
+  paste, copy, favourite, remove), as a client of its control socket.
+  Meant for a hotkey: `xisserve --clipboard [--for-active]` opens in the
+  corner of the window that was active, and Enter pastes into it.
 
 ## `--menu`: the decoration's application menu
 
