@@ -290,6 +290,10 @@ int km_ctl_init(Display *d, const char *path, const char *version)
 {
     dpy = d;
     ctl_version = version;
+    if (strlen(path) >= sizeof(ctl_path)) {
+        fprintf(stderr, "kimemoryd: control socket path too long for a unix socket: %s\n", path);
+        return 0;
+    }
     snprintf(ctl_path, sizeof(ctl_path), "%s", path);
     ctl_fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
     if (ctl_fd < 0)
