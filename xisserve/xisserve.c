@@ -53,7 +53,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.47"
+#define XISSERVE_VERSION "0.1.48"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -122,6 +122,10 @@ static int g_shown_page = PAGE_LAUNCHER;
  * WM-managed, unlike the old override-redirect popup where the resize
  * used to be visible immediately). */
 static int g_applied_w = WIN_WIDTH, g_applied_h = WIN_HEIGHT;
+
+/* When show_launcher() last positioned the window -- see
+ * on_window_configure(). */
+static gint64 g_shown_at_us;
 
 typedef struct {
     int anchor_x, anchor_y, anchor_w, anchor_h;
@@ -2251,6 +2255,27 @@ static void leave_current_page(void)
     g_shown_page = PAGE_LAUNCHER;
 }
 
+/* GTK2's set_size_request() on the window replaces its requisition, so
+ * apply_view_mode()'s measurement can come out as the page's minimum
+ * while the real allocation grows to the content's natural width (a wide
+ * header or list): reposition_window() then clamped with the smaller
+ * number and the popup hung off the output's edge. Right after a show,
+ * the size the window actually got is the one to clamp with. Only then:
+ * later configures are the user resizing, which must not snap it back. */
+static gboolean on_window_configure(GtkWidget *w, GdkEventConfigure *ev, gpointer data)
+{
+    (void)w;
+    (void)data;
+    if (g_get_monotonic_time() - g_shown_at_us > 1000000)
+        return FALSE;
+    if (ev->width == g_applied_w && ev->height == g_applied_h)
+        return FALSE;
+    g_applied_w = ev->width;
+    g_applied_h = ev->height;
+    reposition_window();
+    return FALSE;
+}
+
 static void show_launcher(void)
 {
     if (g_hovered_cat_path) {
@@ -2295,6 +2320,7 @@ static void show_launcher(void)
     apply_view_mode();
     apply_grid_mode(); /* after show_all(), which would otherwise re-show the losing one; grid_columns (and, once, grid) can change out from under a running daemon */
     reposition_window(); /* after apply_view_mode() -- needs its real, now-settled size */
+    g_shown_at_us = g_get_monotonic_time();
     gtk_window_present(GTK_WINDOW(g_window));
     gdk_window_raise(g_window->window);
     gdk_window_focus(g_window->window, GDK_CURRENT_TIME);
@@ -2883,6 +2909,7 @@ static void build_ui(void)
     gtk_widget_set_app_paintable(g_window, TRUE);
 
     g_signal_connect(g_window, "expose-event", G_CALLBACK(on_window_expose), NULL);
+    g_signal_connect(g_window, "configure-event", G_CALLBACK(on_window_configure), NULL);
     g_signal_connect(g_window, "focus-out-event", G_CALLBACK(on_window_focus_out), NULL);
     g_signal_connect(g_window, "visibility-notify-event", G_CALLBACK(on_window_visibility), NULL);
 
