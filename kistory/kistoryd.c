@@ -2,9 +2,11 @@
  *
  * Logs what happened on the desktop as plain text, one line per event
  * (ks_log.c): windows, focus periods, virtual desktops and outputs
- * (ks_windows.c), files opened (ks_files.c). No screenshots, no content. One instance per X display.
+ * (ks_windows.c), files opened (ks_files.c), sound played/recorded
+ * (ks_audio.c). No screenshots, no content. One instance per X display.
  * Config: $XDG_CONFIG_HOME/kistory.conf (key=value, SIGHUP reloads);
  * data: $XDG_DATA_HOME/kistory/. */
+#include "ks_audio.h"
 #include "ks_config.h"
 #include "ks_files.h"
 #include "ks_log.h"
@@ -183,14 +185,16 @@ int main(int argc, char **argv)
 
     ks_log_event(time(NULL), "session", "kistoryd", "", -1, "", "start", KISTORYD_VERSION);
     ks_files_init();
+    ks_audio_init();
     ks_windows_on_focus_end(ks_files_focus_end);
     ks_windows_init(dpy);
     fprintf(stderr, "kistoryd %s: logging to %s/events\n", KISTORYD_VERSION, data_dir);
 
     time_t next_prune = time(NULL) + PRUNE_INTERVAL_S;
-    struct pollfd pfd[2] = {
+    struct pollfd pfd[3] = {
         { .fd = ConnectionNumber(dpy), .events = POLLIN },
         { .fd = ks_files_fd(), .events = POLLIN },
+        { .fd = -1, .events = POLLIN },
     };
     while (!g_quit) {
         if (g_reload) {
@@ -199,13 +203,18 @@ int main(int argc, char **argv)
         }
         XFlush(dpy);
         if (!XPending(dpy)) {
-            int r = poll(pfd, 2, 60 * 1000);
+            /* The pactl child's fd changes when it is respawned; -1 while
+             * backing off, so wake up soon enough to respawn it. */
+            pfd[2].fd = ks_audio_fd();
+            int r = poll(pfd, 3, pfd[2].fd >= 0 ? 60 * 1000 : 5000);
             if (r < 0 && errno != EINTR)
                 break;
             if (r > 0 && (pfd[0].revents & (POLLHUP | POLLERR)))
                 break;   /* X server gone */
             if (r > 0 && (pfd[1].revents & POLLIN))
                 ks_files_handle();
+            if (r > 0 && pfd[2].fd >= 0 && (pfd[2].revents & (POLLIN | POLLHUP)))
+                ks_audio_handle();
         }
         while (XPending(dpy)) {
             XEvent ev;
@@ -219,6 +228,7 @@ int main(int argc, char **argv)
     }
 
     ks_windows_flush();
+    ks_audio_flush();
     ks_log_event(time(NULL), "session", "kistoryd", "", -1, "", "stop", "");
     XCloseDisplay(dpy);
     close(lock);

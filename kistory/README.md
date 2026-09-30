@@ -3,7 +3,8 @@
 Desktop activity history for KiDesktop. `kistoryd` writes what happened on
 the desktop as plain text, one line per event, so it can be searched with
 the `kistory` CLI, `grep`, or anything else. It keeps no screenshots and
-no window contents, only names: apps, titles, desktops, outputs.
+no window contents, only names: apps, titles, files, desktops, outputs,
+sound streams.
 
 ## Log format
 
@@ -28,6 +29,7 @@ ts  kind  app  exe  desktop  output  subject  detail
 | `desktop` | `switch` / `at_start` | (desktop/output columns) |
 | `output` | `connected` / `disconnected` | |
 | `file` | path (or URL) | `src=xbel`, `src=kde` or `src=fd` |
+| `audio_play`, `audio_rec` | time range | stream's media name, `pid=N` |
 
 A `focus` line is written when the window loses focus, stamped with the
 time it gained it, and only if it stayed focused at least `min_dwell_s`.
@@ -54,6 +56,15 @@ start are only a baseline: nothing is logged for entries already there.
 It can't tell open from save or export apart, and apps that read a file
 and close it without touching the xbel (plain Qt, most CLI tools) leave no
 trace.
+
+## Audio
+
+PulseAudio/PipeWire-pulse streams, followed through one `pactl subscribe`
+child (`shared/xis_pactl_subscribe.c`) and `pactl list` on each stream
+event. A period runs while a stream is uncorked (a paused video's stream
+stays open but corked); periods of 2 s or more are logged, with the app's
+`application.name` and binary. Level meters ("Peak detect") are ignored,
+and the media name is dropped for apps with hidden titles.
 
 ## Privacy
 

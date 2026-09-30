@@ -9,10 +9,13 @@ BINDIR := $(PREFIX)/bin
 all: kistoryd
 
 # shared/xis_winident.c: window/app/document identity, shared with
-# kimemoryd -- compiled directly in, same as the other shared/ sources.
-SHARED_SRC := ../shared/xis_winident.c
-DAEMON_SRC := kistoryd.c ks_log.c ks_windows.c ks_files.c
-DAEMON_HDR := ks_config.h ks_log.h ks_windows.h ks_files.h ../shared/xis_winident.h
+# kimemoryd; shared/xis_pactl_subscribe.c: the `pactl subscribe` child
+# xispanel/xisserve also use -- compiled directly in, same as the other
+# shared/ sources.
+SHARED_SRC := ../shared/xis_winident.c ../shared/xis_pactl_subscribe.c
+DAEMON_SRC := kistoryd.c ks_log.c ks_windows.c ks_files.c ks_audio.c
+DAEMON_HDR := ks_config.h ks_log.h ks_windows.h ks_files.h ks_audio.h \
+              ../shared/xis_winident.h ../shared/xis_pactl_subscribe.h
 
 kistoryd: $(DAEMON_SRC) $(DAEMON_HDR) $(SHARED_SRC)
 	$(CC) $(CFLAGS) -o $@ $(DAEMON_SRC) $(SHARED_SRC) $(LIBS)
