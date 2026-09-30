@@ -780,7 +780,10 @@ GtkWidget *page_clipboard_build(void)
     gtk_tree_view_column_pack_start(col, pix, FALSE);
     gtk_tree_view_column_add_attribute(col, pix, "pixbuf", COL_ICON);
     GtkCellRenderer *txt = gtk_cell_renderer_text_new();
-    g_object_set(txt, "ellipsize", PANGO_ELLIPSIZE_END, NULL);
+    /* GTK2 still requests an ellipsized cell's full text width: without
+     * a width-chars floor one long copied line makes the page (and the
+     * popup) wider than the placement code expects, pushing it off-screen. */
+    g_object_set(txt, "ellipsize", PANGO_ELLIPSIZE_END, "width-chars", 24, NULL);
     gtk_tree_view_column_pack_start(col, txt, TRUE);
     gtk_tree_view_column_add_attribute(col, txt, "markup", COL_MARKUP);
     gtk_tree_view_append_column(GTK_TREE_VIEW(g_tree), col);
