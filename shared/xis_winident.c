@@ -236,7 +236,12 @@ int xis_winident_get(Display *dpy, Window win, XisWinIdent *out)
         out->exe[n > 0 ? n : 0] = '\0';
     }
 
-    char *title = get_bytes(dpy, win, A.net_wm_name, A.utf8_string, NULL);
+    /* Any type: some clients (xdotool) set _NET_WM_NAME as STRING. */
+    char *title = get_bytes(dpy, win, A.net_wm_name, AnyPropertyType, NULL);
+    if (title && !*title) {
+        free(title);
+        title = NULL;
+    }
     if (!title)
         title = get_bytes(dpy, win, XA_WM_NAME, AnyPropertyType, NULL);
     if (title) {
