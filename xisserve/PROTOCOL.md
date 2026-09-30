@@ -154,7 +154,7 @@ implemented pages now, see below.)
   are a separate mechanism (`xispanel/storage_events.c`, polling
   `lsblk`), not this page's job.
 
-- `--clipboard [--for-active | --for-window=<id>]`: kimemoryd's clipboard
+- `--clipboard [--for-active | --for-window=<id>] [--filter=<f>]`: kimemoryd's clipboard
   history (`../kimemory/`). **Implemented in `pages/clipboard.c`**, a
   client of kimemoryd's control socket
   (`$XDG_RUNTIME_DIR/kimemory-ctl.<display>.sock`); with no kimemoryd
@@ -172,6 +172,13 @@ implemented pages now, see below.)
   active monitor when there is no target). Both fields travel in the
   control-socket JSON as `target_window` (a decimal string) and
   `target_filter`, optional so older callers are unaffected.
+  `--filter=all|app|window|doc|auto` picks the starting tab instead
+  (`target_scope` in the JSON); `auto` takes the most specific one that
+  has items for the target -- its document, then the window, then its
+  app, else everything. kiwm's `clipboard` titlebar button uses
+  `--for-window=%w --filter=auto` anchored under the button
+  (`--anchor-*` without `--output-*`: the output is then the monitor
+  under the anchor point, not the 1920x1080 default).
 
   Enter/double click pastes: kimemoryd puts the item back on the
   clipboard (and, as its owner, records the target as the paste
