@@ -1789,5 +1789,6 @@ extern const PanelWidgetOps energy_ops;
 extern const PanelWidgetOps container_ops;
 extern const PanelWidgetOps network_ops;
 extern const PanelWidgetOps storage_ops;
+extern const PanelWidgetOps clipboard_ops;
 
 #endif

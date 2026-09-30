@@ -583,6 +583,16 @@ Widget types implemented so far:
   concern handled by `storage_events.c` regardless of how many `storage`
   widgets exist (same split `audio_events.c` makes from `volume`), not
   this widget itself.
+- `clipboard`: icon for kimemoryd's clipboard history (`../kimemory/`),
+  themed `edit-paste` or a drawn clipboard glyph, dimmed while
+  kimemoryd's control socket doesn't exist. Left-click opens
+  `xisserve --clipboard` anchored to the icon; the window active at the
+  click (the panel never takes focus) is xisserve's paste target.
+  `for_active=yes` adds `--for-active`, opening the list filtered to that
+  window's app; `cmd=` overrides the binary (default `xisserve`).
+  Hovering asks kimemoryd for the newest item (preview, source app) and
+  the history size, with 150 ms socket timeouts so a stuck daemon can't
+  stall the panel.
 
 - `notif`: bell icon with an unread-count badge over the built-in
   notification server (`notifd.c`'s ring buffer). Left-click opens

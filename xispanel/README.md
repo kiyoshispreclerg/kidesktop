@@ -96,7 +96,8 @@ defaults (Fontconfig's `sans-serif`, dark panel colors). See
   menu, KDE/Qt-style), `folder` (a directory's contents as a cascading
   menu), `energy` (battery/power icon with low-battery warnings),
   `network`/`storage` (connectivity/removable-device icons, each opening
-  the matching `xisserve` page), `xisserve` (opens the separate
+  the matching `xisserve` page), `clipboard` (opens `xisserve
+  --clipboard` over kimemoryd's history), `xisserve` (opens the separate
   `xisserve` launcher process), and `container` (a chevron that opens a
   second popup panel of widgets). See [PROTOCOL.md](PROTOCOL.md)'s
   `WIDGET` section for the full per-type option list.

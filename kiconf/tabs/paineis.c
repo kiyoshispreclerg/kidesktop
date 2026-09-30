@@ -546,6 +546,10 @@ static const WidgetField NETWORK_FIELDS[] = {
 static const WidgetField STORAGE_FIELDS[] = {
     WF_STR("cmd", "Comando ao clicar (xisserve)", ""),
 };
+static const WidgetField CLIPBOARD_FIELDS[] = {
+    WF_STR("cmd", "Comando ao clicar (xisserve)", ""),
+    WF_BOOL("for_active", "Abrir filtrado pelo app da janela ativa", "no"),
+};
 static const WidgetField NOTIF_FIELDS[] = {
     WF_ENUM("corner", "Canto dos alertas (toast)", "bottom-right", NOTIF_CORNER_OPTS),
     WF_INT("timeout", "Duracao do alerta (ms)", "5000", 500, 60000),
@@ -609,6 +613,7 @@ static const WidgetSchema WIDGET_SCHEMAS[] = {
     WSCHEMA("energy", ENERGY_FIELDS),
     WSCHEMA("network", NETWORK_FIELDS),
     WSCHEMA("storage", STORAGE_FIELDS),
+    WSCHEMA("clipboard", CLIPBOARD_FIELDS),
     WSCHEMA("notif", NOTIF_FIELDS),
     WSCHEMA("globalmenu", GLOBALMENU_FIELDS),
     WSCHEMA("folder", FOLDER_FIELDS),
@@ -621,13 +626,14 @@ static const WidgetSchema WIDGET_SCHEMAS[] = {
 
 static const char *const WIDGET_TYPE_NAMES[] = {
     "spacer", "clock", "tasklist", "pager", "monitor", "winctl", "tray", "launcher",
-    "volume", "energy", "network", "storage", "notif", "globalmenu", "folder", "xisserve", "container", NULL,
+    "volume", "energy", "network", "storage", "clipboard", "notif", "globalmenu", "folder", "xisserve", "container",
+    NULL,
 };
 /* The only types xispanel accepts on a mode=container panel (its
  * `embeddable` PanelWidgetOps flag -- keep in sync with the widget files
  * under xispanel/widgets/). Deliberately no `container`: they don't nest. */
 static const char *const EMBEDDABLE_TYPE_NAMES[] = {
-    "monitor", "tray", "launcher", "volume", "energy", "network", "storage", "notif", "folder", NULL,
+    "monitor", "tray", "launcher", "volume", "energy", "network", "storage", "clipboard", "notif", "folder", NULL,
 };
 
 
