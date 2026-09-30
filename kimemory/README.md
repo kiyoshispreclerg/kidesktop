@@ -18,9 +18,29 @@ sorts the copy:
 - **simple**: everything else. Every target is mirrored, so the copy can
   be served exactly as the app offered it.
 
+Legacy text encodings (`TEXT`, `STRING`, `COMPOUND_TEXT`, `text/plain`
+variants) are not fetched once UTF-8 is offered; they are served from it.
+
 The source is the managed toplevel of the X client that owns the
 selection, falling back to the active window. Copying the same content
 again moves the entry to the top and adds the new source.
+
+## Taking the clipboard over
+
+With `takeover=simple` (default), once a simple copy is fully mirrored and
+its app still owns the clipboard, kimemoryd becomes the CLIPBOARD owner
+and serves it (`TARGETS`, `TIMESTAMP`, `MULTIPLE`, text aliases, `INCR`
+for big data). Every paste then names its requestor window, which is
+recorded as a destination (several targets asked by the same window within
+1.5 s count as one paste).
+
+Rich copies stay with their app, so its internal paste paths keep working;
+kimemoryd only takes them over once that app quits, so the copy survives
+it. `takeover=onexit` does that for every copy (no destinations while the
+app is alive), `takeover=never` never serves anything. Secret copies are
+never taken over, so password managers can still clear them.
+
+`KIMEMORYD_DEBUG=1` logs every target fetched, refused or timed out.
 
 ## Config
 

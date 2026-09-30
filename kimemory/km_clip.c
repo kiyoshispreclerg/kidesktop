@@ -12,15 +12,29 @@
 #include <time.h>
 
 #define FETCH_TIMEOUT_MS 2000
+#define INCR_TIMEOUT_MS  10000
+#define PASTE_DEBOUNCE_MS 1500
+#define MAX_TRANSFERS    16
 
 static Display *dpy;
 static Window win;            /* ours: requestor for fetches */
 static int xfixes_ev;
 static KmClipConfig cfg;
+static int debug;             /* KIMEMORYD_DEBUG=1: log every fetch */
+
+static void dbg_target(const char *what, Atom target)
+{
+    if (!debug)
+        return;
+    char *n = XGetAtomName(dpy, target);
+    fprintf(stderr, "kimemoryd: debug: %s %s\n", what, n ? n : "?");
+    if (n)
+        XFree(n);
+}
 
 static Atom A_CLIPBOARD, A_TARGETS, A_TIMESTAMP, A_MULTIPLE, A_INCR, A_SAVE_TARGETS,
             A_DELETE, A_INSERT_SELECTION, A_INSERT_PROPERTY, A_UTF8, A_KM_TARGETS, A_KM_DATA,
-            A_PASSWORD_HINT;
+            A_PASSWORD_HINT, A_KM_TIME, A_ATOM_PAIR, A_TEXT, A_COMPOUND_TEXT, A_TEXT_PLAIN, A_TEXT_PLAIN_UTF8;
 
 /* Representations kept on disk (and fetched even for rich copies); every
  * other target is mirrored only for simple copies and only kept while
@@ -41,6 +55,25 @@ static const char *RICH_PREFIX[] = {
 };
 
 static unsigned current_id;
+static int owned;             /* we hold CLIPBOARD, serving current_id */
+static Time own_time;
+
+/* Outgoing INCR transfers (reps too big for one property). */
+static struct {
+    Window requestor;
+    Atom property, type;
+    int format;
+    unsigned char *data;
+    size_t len, off;
+    int done_sent;        /* zero-length terminator already written */
+    long deadline;
+} xfer[MAX_TRANSFERS];
+static int nxfer;
+
+static struct {
+    Window requestor;
+    long at;
+} last_paste;
 
 static struct {
     int active;
@@ -50,7 +83,7 @@ static struct {
     int nwant, next;
     Atom pending;         /* target of the conversion in flight */
     int rich;
-    int skipped;          /* a rep was dropped (size limit / failed): can't mirror exactly */
+    int skipped;          /* a rep was dropped (size limit / timeout): can't mirror exactly */
     size_t mirrored;
     KmItem *item;
     XisWinIdent src;
@@ -107,8 +140,17 @@ static int canonical_index(const char *name)
 
 static int is_meta_target(Atom a)
 {
+    /* INCR: xsel lists it as if it were a target. */
     return a == A_TARGETS || a == A_TIMESTAMP || a == A_MULTIPLE || a == A_SAVE_TARGETS ||
-           a == A_DELETE || a == A_INSERT_SELECTION || a == A_INSERT_PROPERTY || a == None;
+           a == A_DELETE || a == A_INSERT_SELECTION || a == A_INSERT_PROPERTY || a == A_INCR || a == None;
+}
+
+static int is_text_alias(Atom a);
+
+/* Legacy text encodings: served from the UTF-8 rep, never mirrored. */
+static int is_legacy_text(Atom a)
+{
+    return is_text_alias(a) || a == A_COMPOUND_TEXT;
 }
 
 static size_t elem_size(int format)
@@ -125,6 +167,8 @@ static void cap_reset(void)
 }
 
 static void fetch_next(void);
+
+static void take_ownership(void);
 
 static void cap_finish(void)
 {
@@ -154,6 +198,11 @@ static void cap_finish(void)
         current_id = it->id;
         fprintf(stderr, "kimemoryd: #%u from %s (%s, %zu bytes, %d reps)\n", it->id, app,
                 cap.rich ? "rich" : "simple", it->bytes, it->nreps);
+        /* Mirrored exactly and the source still owns it: serve it from
+         * here on, which is what lets pastes be traced to their window. */
+        if (!cap.rich && !cap.skipped && cfg.takeover == KM_TAKEOVER_SIMPLE &&
+            XGetSelectionOwner(dpy, A_CLIPBOARD) == cap.owner)
+            take_ownership();
     }
     cap_reset();
 }
@@ -166,6 +215,7 @@ static void fetch_next(void)
     }
     Atom t = cap.want[cap.next++];
     cap.pending = t;
+    dbg_target("fetch", t);
     XDeleteProperty(dpy, win, A_KM_DATA);
     XConvertSelection(dpy, A_CLIPBOARD, t, A_KM_DATA, win, cap.time);
     cap.deadline = now_ms() + FETCH_TIMEOUT_MS;
@@ -174,6 +224,9 @@ static void fetch_next(void)
 static void cap_start(Window owner, Time t)
 {
     cap_reset();
+    KmItem *prev = current_id ? km_store_get(current_id) : NULL;
+    if (prev)
+        km_item_drop_extras(prev);
     current_id = 0;
 
     Window top = xis_winident_toplevel_for(dpy, owner);
@@ -250,7 +303,7 @@ static void cap_plan(Atom *atoms, unsigned long n)
             if (!names[i] || strcmp(names[i], CANONICAL[c]) != 0)
                 continue;
             if (c < N_TEXT_TARGETS) {
-                if (have_text && cap.rich)
+                if (have_text)
                     break;
                 have_text = 1;
             }
@@ -261,7 +314,8 @@ static void cap_plan(Atom *atoms, unsigned long n)
     /* ...then, for simple copies, every other target too. */
     if (!cap.rich) {
         for (unsigned long i = 0; i < n; i++) {
-            if (!names[i] || is_meta_target(atoms[i]) || atoms[i] == A_PASSWORD_HINT)
+            if (!names[i] || is_meta_target(atoms[i]) || atoms[i] == A_PASSWORD_HINT ||
+                (have_text && is_legacy_text(atoms[i])))
                 continue;
             int dup = 0;
             for (int k = 0; k < cap.nwant; k++)
@@ -335,8 +389,10 @@ static void on_selection_notify(XSelectionEvent *ev)
         return;
     }
 
-    if (ev->property == None) {   /* the owner refused this target */
-        cap.skipped = 1;
+    if (ev->property == None) {
+        /* The owner refused a target it listed (xsel does this for
+         * legacy encodings): it just won't be offered when we serve. */
+        dbg_target("refused", ev->target);
         fetch_next();
         return;
     }
@@ -415,6 +471,259 @@ static void on_incr_chunk(void)
     XFree(data);
 }
 
+
+/* ---- serving (we own CLIPBOARD) ---- */
+
+static Bool is_time_notify(Display *d, XEvent *ev, XPointer arg)
+{
+    (void)d;
+    (void)arg;
+    return ev->type == PropertyNotify && ev->xproperty.window == win && ev->xproperty.atom == A_KM_TIME;
+}
+
+/* A real server timestamp (ICCCM forbids CurrentTime for ownership):
+ * a zero-length append to our own window, then its PropertyNotify. */
+static Time server_time(void)
+{
+    unsigned char none = 0;
+    XChangeProperty(dpy, win, A_KM_TIME, XA_STRING, 8, PropModeAppend, &none, 0);
+    XEvent ev;
+    XIfEvent(dpy, &ev, is_time_notify, NULL);
+    return ev.xproperty.time;
+}
+
+static void take_ownership(void)
+{
+    if (!current_id || !km_store_get(current_id))
+        return;
+    Time t = server_time();
+    XSetSelectionOwner(dpy, A_CLIPBOARD, win, t);
+    owned = XGetSelectionOwner(dpy, A_CLIPBOARD) == win;
+    if (owned) {
+        own_time = t;
+        fprintf(stderr, "kimemoryd: serving #%u\n", current_id);
+    }
+}
+
+static int is_text_alias(Atom a)
+{
+    return a == A_UTF8 || a == XA_STRING || a == A_TEXT || a == A_TEXT_PLAIN || a == A_TEXT_PLAIN_UTF8;
+}
+
+static KmRep *rep_for_target(KmItem *it, Atom target, Atom *type_out)
+{
+    char *name = XGetAtomName(dpy, target);
+    if (!name)
+        return NULL;
+    KmRep *r = km_item_find_rep(it, name);
+    XFree(name);
+    if (r) {
+        *type_out = r->type[0] ? XInternAtom(dpy, r->type, False) : target;
+        return r;
+    }
+    if (!is_text_alias(target))
+        return NULL;
+    static const char *text_names[] = { "UTF8_STRING", "text/plain;charset=utf-8", "text/plain", "STRING" };
+    for (size_t i = 0; i < sizeof(text_names) / sizeof(text_names[0]); i++) {
+        r = km_item_find_rep(it, text_names[i]);
+        if (r) {
+            *type_out = target == A_TEXT ? A_UTF8 : target;
+            return r;
+        }
+    }
+    return NULL;
+}
+
+static size_t chunk_max(void)
+{
+    long req = XExtendedMaxRequestSize(dpy);
+    if (req <= 0)
+        req = XMaxRequestSize(dpy);
+    size_t max = (size_t)req * 4 - 1024;
+    return max > 262144 ? 262144 : max;
+}
+
+static void xfer_remove(int i)
+{
+    XSelectInput(dpy, xfer[i].requestor, NoEventMask);
+    free(xfer[i].data);
+    xfer[i] = xfer[--nxfer];
+}
+
+static int xfer_start(Window requestor, Atom property, Atom type, int format,
+                      const unsigned char *data, size_t len)
+{
+    if (nxfer == MAX_TRANSFERS)
+        return 0;
+    unsigned char *copy = malloc(len ? len : 1);
+    if (!copy)
+        return 0;
+    memcpy(copy, data, len);
+    xfer[nxfer].requestor = requestor;
+    xfer[nxfer].property = property;
+    xfer[nxfer].type = type;
+    xfer[nxfer].format = format;
+    xfer[nxfer].data = copy;
+    xfer[nxfer].len = len;
+    xfer[nxfer].off = 0;
+    xfer[nxfer].done_sent = 0;
+    xfer[nxfer].deadline = now_ms() + INCR_TIMEOUT_MS;
+    nxfer++;
+    XSelectInput(dpy, requestor, PropertyChangeMask);
+    long total = (long)len;
+    XChangeProperty(dpy, requestor, property, A_INCR, 32, PropModeReplace, (unsigned char *)&total, 1);
+    return 1;
+}
+
+/* The requestor deleted the property: send the next chunk (or the end). */
+static void xfer_continue(int i)
+{
+    size_t es = elem_size(xfer[i].format);
+    if (xfer[i].done_sent) {
+        xfer_remove(i);
+        return;
+    }
+    size_t left = xfer[i].len - xfer[i].off;
+    size_t n = left < chunk_max() ? left : chunk_max();
+    n -= n % es;
+    XChangeProperty(dpy, xfer[i].requestor, xfer[i].property, xfer[i].type, xfer[i].format,
+                    PropModeReplace, xfer[i].data + xfer[i].off, (int)(n / es));
+    xfer[i].off += n;
+    if (n == 0)
+        xfer[i].done_sent = 1;
+    xfer[i].deadline = now_ms() + INCR_TIMEOUT_MS;
+}
+
+static void record_paste(Window requestor)
+{
+    long t = now_ms();
+    if (requestor == last_paste.requestor && t - last_paste.at < PASTE_DEBOUNCE_MS) {
+        last_paste.at = t;
+        return;   /* same paste asking for several targets */
+    }
+    last_paste.requestor = requestor;
+    last_paste.at = t;
+
+    KmItem *it = km_store_get(current_id);
+    if (!it)
+        return;
+    Window top = xis_winident_toplevel_for(dpy, requestor);
+    if (top == None)
+        top = xis_winident_active(dpy);
+    XisWinIdent dst;
+    if (!xis_winident_get(dpy, top, &dst))
+        return;
+    const char *app = dst.wm_class[0] ? dst.wm_class : exe_base(dst.exe);
+    km_store_add_ref(it, 1, (long)time(NULL), dst.win, app, dst.title, dst.doc_hint);
+    fprintf(stderr, "kimemoryd: #%u pasted into %s\n", it->id, app);
+}
+
+/* Writes one target into requestor's property; 1 on success. */
+static int serve_target(KmItem *it, Window requestor, Atom property, Atom target)
+{
+    if (target == A_TARGETS) {
+        Atom list[256];
+        int n = 0;
+        list[n++] = A_TARGETS;
+        list[n++] = A_TIMESTAMP;
+        list[n++] = A_MULTIPLE;
+        int text = 0;
+        for (int i = 0; i < it->nreps && n < 250; i++) {
+            Atom a = XInternAtom(dpy, it->reps[i].target, False);
+            list[n++] = a;
+            text |= is_text_alias(a);
+        }
+        if (text) {
+            Atom aliases[] = { A_UTF8, A_TEXT_PLAIN_UTF8, A_TEXT_PLAIN, XA_STRING, A_TEXT };
+            for (size_t k = 0; k < sizeof(aliases) / sizeof(aliases[0]); k++) {
+                int dup = 0;
+                for (int j = 0; j < n; j++)
+                    dup |= list[j] == aliases[k];
+                if (!dup)
+                    list[n++] = aliases[k];
+            }
+        }
+        XChangeProperty(dpy, requestor, property, XA_ATOM, 32, PropModeReplace, (unsigned char *)list, n);
+        return 1;
+    }
+    if (target == A_TIMESTAMP) {
+        long t = (long)own_time;
+        XChangeProperty(dpy, requestor, property, XA_INTEGER, 32, PropModeReplace, (unsigned char *)&t, 1);
+        return 1;
+    }
+
+    Atom type;
+    KmRep *r = rep_for_target(it, target, &type);
+    const unsigned char *data = r ? km_rep_data(it, r) : NULL;
+    if (!data)
+        return 0;
+    int format = r->format ? r->format : 8;
+    if (r->len > chunk_max()) {
+        if (!xfer_start(requestor, property, type, format, data, r->len))
+            return 0;
+    } else {
+        XChangeProperty(dpy, requestor, property, type, format, PropModeReplace, data,
+                        (int)(r->len / elem_size(format)));
+    }
+    record_paste(requestor);
+    return 1;
+}
+
+static void on_selection_request(XSelectionRequestEvent *rq)
+{
+    XSelectionEvent reply = {
+        .type = SelectionNotify, .display = dpy, .requestor = rq->requestor,
+        .selection = rq->selection, .target = rq->target, .property = None, .time = rq->time,
+    };
+    /* Obsolete clients send property None: ICCCM says use the target. */
+    Atom property = rq->property != None ? rq->property : rq->target;
+    KmItem *it = owned && rq->selection == A_CLIPBOARD ? km_store_get(current_id) : NULL;
+
+    if (it && rq->target == A_MULTIPLE) {
+        Atom type;
+        int format;
+        unsigned long n, after;
+        unsigned char *data = NULL;
+        if (XGetWindowProperty(dpy, rq->requestor, property, 0, 1024, False, AnyPropertyType, &type,
+                               &format, &n, &after, &data) == Success && data && format == 32) {
+            Atom *pairs = (Atom *)(void *)data;
+            for (unsigned long i = 0; i + 1 < n; i += 2)
+                if (!serve_target(it, rq->requestor, pairs[i + 1], pairs[i]))
+                    pairs[i + 1] = None;
+            XChangeProperty(dpy, rq->requestor, property, A_ATOM_PAIR, 32, PropModeReplace, data, (int)n);
+            reply.property = property;
+        }
+        if (data)
+            XFree(data);
+    } else if (it && serve_target(it, rq->requestor, property, rq->target)) {
+        reply.property = property;
+    }
+    if (it)
+        km_item_unload(it);
+    XSendEvent(dpy, rq->requestor, False, NoEventMask, (XEvent *)&reply);
+}
+
+int km_clip_set_current(unsigned id)
+{
+    KmItem *it = km_store_get(id);
+    if (!it)
+        return 0;
+    if (current_id && current_id != id) {
+        KmItem *prev = km_store_get(current_id);
+        if (prev)
+            km_item_drop_extras(prev);
+    }
+    current_id = id;
+    km_store_touch(it);
+    take_ownership();
+    return owned;
+}
+
+int km_clip_owned(void)
+{
+    return owned;
+}
+
 int km_clip_handle_event(XEvent *ev)
 {
     if (ev->type == xfixes_ev + XFixesSelectionNotify) {
@@ -423,7 +732,31 @@ int km_clip_handle_event(XEvent *ev)
             return 1;
         if (se->subtype == XFixesSetSelectionOwnerNotify && se->owner != None && se->owner != win)
             cap_start(se->owner, se->timestamp);
+        /* The owner quit (window destroyed / client gone) and nothing
+         * owns the clipboard now: keep its last copy alive from here. */
+        else if ((se->subtype == XFixesSelectionWindowDestroyNotify ||
+                  se->subtype == XFixesSelectionClientCloseNotify) &&
+                 !owned && cfg.takeover != KM_TAKEOVER_NEVER && !cap.active &&
+                 XGetSelectionOwner(dpy, A_CLIPBOARD) == None)
+            take_ownership();
         return 1;
+    }
+    if (ev->type == SelectionRequest && ev->xselectionrequest.owner == win) {
+        on_selection_request(&ev->xselectionrequest);
+        return 1;
+    }
+    if (ev->type == SelectionClear && ev->xselectionclear.window == win) {
+        if (ev->xselectionclear.selection == A_CLIPBOARD)
+            owned = 0;
+        return 1;
+    }
+    if (ev->type == PropertyNotify && ev->xproperty.state == PropertyDelete && ev->xproperty.window != win) {
+        for (int i = 0; i < nxfer; i++) {
+            if (xfer[i].requestor == ev->xproperty.window && xfer[i].property == ev->xproperty.atom) {
+                xfer_continue(i);
+                return 1;
+            }
+        }
     }
     if (ev->type == SelectionNotify && ev->xselection.requestor == win) {
         on_selection_notify(&ev->xselection);
@@ -440,21 +773,30 @@ int km_clip_handle_event(XEvent *ev)
 
 int km_clip_timeout_ms(void)
 {
-    if (!cap.active)
+    long deadline = cap.active ? cap.deadline : 0;
+    for (int i = 0; i < nxfer; i++)
+        if (!deadline || xfer[i].deadline < deadline)
+            deadline = xfer[i].deadline;
+    if (!deadline)
         return -1;
-    long left = cap.deadline - now_ms();
+    long left = deadline - now_ms();
     return left > 0 ? (int)left : 0;
 }
 
 void km_clip_tick(void)
 {
-    if (!cap.active || now_ms() < cap.deadline)
+    long t = now_ms();
+    for (int i = nxfer - 1; i >= 0; i--)
+        if (t >= xfer[i].deadline)
+            xfer_remove(i);   /* requestor stopped reading */
+    if (!cap.active || t < cap.deadline)
         return;
     if (!cap.want) {   /* TARGETS never answered */
         cap_plan(NULL, 0);
         return;
     }
     cap.skipped = 1;
+    dbg_target(cap.incr ? "timeout (INCR)" : "timeout", cap.pending);
     if (cap.incr) {
         free(cap.incr_buf);
         cap.incr_buf = NULL;
@@ -477,6 +819,7 @@ int km_clip_init(Display *d, const KmClipConfig *c)
 {
     dpy = d;
     cfg = *c;
+    debug = getenv("KIMEMORYD_DEBUG") && *getenv("KIMEMORYD_DEBUG") == '1';
     int err;
     if (!XFixesQueryExtension(dpy, &xfixes_ev, &err))
         return 0;
@@ -494,6 +837,12 @@ int km_clip_init(Display *d, const KmClipConfig *c)
     A_KM_TARGETS       = XInternAtom(dpy, "_KIMEMORY_TARGETS", False);
     A_KM_DATA          = XInternAtom(dpy, "_KIMEMORY_DATA", False);
     A_PASSWORD_HINT    = XInternAtom(dpy, "x-kde-passwordManagerHint", False);
+    A_KM_TIME          = XInternAtom(dpy, "_KIMEMORY_TIME", False);
+    A_ATOM_PAIR        = XInternAtom(dpy, "ATOM_PAIR", False);
+    A_TEXT             = XInternAtom(dpy, "TEXT", False);
+    A_COMPOUND_TEXT    = XInternAtom(dpy, "COMPOUND_TEXT", False);
+    A_TEXT_PLAIN       = XInternAtom(dpy, "text/plain", False);
+    A_TEXT_PLAIN_UTF8  = XInternAtom(dpy, "text/plain;charset=utf-8", False);
 
     Window root = DefaultRootWindow(dpy);
     win = XCreateSimpleWindow(dpy, root, -10, -10, 1, 1, 0, 0, 0);

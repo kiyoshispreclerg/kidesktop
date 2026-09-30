@@ -12,7 +12,16 @@
  *           only the canonical representations are fetched (text, html,
  *           uri-list, file-manager copy lists, png).
  *   simple  everything else: *every* target is mirrored, so the item can
- *           later be served exactly as the source app offered it. */
+ *           later be served exactly as the source app offered it.
+ *
+ * Taking the clipboard over (takeover=simple): once a simple copy is
+ * mirrored, kimemoryd becomes the CLIPBOARD owner and serves it, so every
+ * paste's requestor window is known and recorded as a destination. Rich
+ * copies stay with their app (its internal paste paths keep working) and
+ * are only taken over once that app quits; takeover=onexit does that for
+ * every copy, takeover=never never serves anything. Secret copies are
+ * never taken over, or a password manager's auto-clear would stop
+ * working. */
 #ifndef KM_CLIP_H
 #define KM_CLIP_H
 
@@ -45,5 +54,9 @@ void km_clip_tick(void);
 
 /* Id of the item the clipboard currently holds (0: unknown/secret). */
 unsigned km_clip_current(void);
+/* Puts history item `id` back on the clipboard (kimemoryd serves it).
+ * Returns 1 if ownership was taken. */
+int km_clip_set_current(unsigned id);
+int km_clip_owned(void);
 
 #endif /* KM_CLIP_H */
