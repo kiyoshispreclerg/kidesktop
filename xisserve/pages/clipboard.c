@@ -43,15 +43,18 @@
 #define THUMB_PX 48
 #define PREVIEW_CHARS 90
 
-enum { SCOPE_ALL, SCOPE_APP, SCOPE_WINDOW, SCOPE_DOC, N_SCOPES };
-static const char *SCOPE_NAMES[N_SCOPES] = { "all", "app", "window", "doc" };
-static const char *SCOPE_LABELS[N_SCOPES] = { "Tudo", "App", "Janela", "Documento" };
+/* Tab order is the preference order when opened for a window: that
+ * window, then its document, then its program. */
+enum { SCOPE_ALL, SCOPE_WINDOW, SCOPE_DOC, SCOPE_APP, N_SCOPES };
+static const char *SCOPE_NAMES[N_SCOPES] = { "all", "window", "doc", "app" };
+static const char *SCOPE_LABELS[N_SCOPES] = { "Tudo", "Janela", "Documento", "App" };
 
 enum { COL_ICON, COL_MARKUP, COL_ID, COL_FAV, COL_TYPE, N_COLS };
 
 static GtkWidget *g_root;
 static GtkWidget *g_entry;
 static GtkWidget *g_scope_btn[N_SCOPES];
+static GtkWidget *g_scope_box;
 static GtkWidget *g_context;
 static GtkWidget *g_tree;
 static GtkListStore *g_store;
@@ -699,6 +702,10 @@ static gboolean on_key(GtkWidget *w, GdkEventKey *ev, gpointer data)
     (void)data;
     gboolean ctrl = (ev->state & GDK_CONTROL_MASK) != 0;
     switch (ev->keyval) {
+    case GDK_Escape:
+        /* xisserve.c only binds Escape on the launcher's own entry. */
+        xisserve_hide();
+        return TRUE;
     case GDK_Down:      move_selection(1);  return TRUE;
     case GDK_Up:        move_selection(-1); return TRUE;
     case GDK_Page_Down: move_selection(8);  return TRUE;
@@ -848,7 +855,10 @@ GtkWidget *page_clipboard_build(void)
     g_signal_connect(g_entry, "key-press-event", G_CALLBACK(on_key), NULL);
     gtk_box_pack_start(GTK_BOX(g_root), g_entry, FALSE, FALSE, 0);
 
-    GtkWidget *scopes = gtk_hbox_new(FALSE, 2);
+    /* Visibility is the page's own call (see page_clipboard_on_show()),
+     * not show_all()'s: xisserve.c shows the whole window after on_show. */
+    GtkWidget *scopes = g_scope_box = gtk_hbox_new(FALSE, 2);
+    gtk_widget_set_no_show_all(scopes, TRUE);
     GSList *group = NULL;
     for (int i = 0; i < N_SCOPES; i++) {
         g_scope_btn[i] = gtk_radio_button_new_with_label(group, SCOPE_LABELS[i]);
@@ -856,6 +866,7 @@ GtkWidget *page_clipboard_build(void)
         gtk_toggle_button_set_mode(GTK_TOGGLE_BUTTON(g_scope_btn[i]), FALSE);   /* look like toggle buttons */
         gtk_widget_set_can_focus(g_scope_btn[i], FALSE);
         g_signal_connect(g_scope_btn[i], "toggled", G_CALLBACK(on_scope_toggled), GINT_TO_POINTER(i));
+        gtk_widget_set_no_show_all(g_scope_btn[i], TRUE);
         gtk_box_pack_start(GTK_BOX(scopes), g_scope_btn[i], FALSE, FALSE, 0);
     }
     gtk_box_pack_start(GTK_BOX(g_root), scopes, FALSE, FALSE, 0);
@@ -927,36 +938,63 @@ static gboolean scope_has_items(int scope)
 /* The filter the page opens with: --filter= when given ("auto" = the
  * most specific scope with anything in it: document, then window, then
  * app), else the target's app for --for-active/--for-window, else all. */
+/* Opened for a window (--for-window/--for-active, the kiwm button) the
+ * page only ever shows that window's items: "all" isn't offered. */
+static gboolean for_window_mode(void)
+{
+    return xisserve_target_filter() && xisserve_target_window();
+}
+
+static gboolean doc_known(void)
+{
+    return g_ctx_doc[0] != '\0';
+}
+
+/* Opened for a window: --filter=window/doc/app when given (doc only if
+ * the title names one); "auto" = the first of window, document, program
+ * that has items, else the program's (empty) list; no --filter = the
+ * program. Opened without one (panel, plain hotkey): everything. */
 static int initial_scope(void)
 {
-    if (!xisserve_target_window())
+    if (!for_window_mode())
         return SCOPE_ALL;
     const char *want = xisserve_target_scope();
     if (!strcmp(want, "auto")) {
-        static const int order[] = { SCOPE_DOC, SCOPE_WINDOW, SCOPE_APP };
+        static const int order[] = { SCOPE_WINDOW, SCOPE_DOC, SCOPE_APP };
         for (size_t i = 0; i < G_N_ELEMENTS(order); i++)
-            if (scope_has_items(order[i]))
+            if ((order[i] != SCOPE_DOC || doc_known()) && scope_has_items(order[i]))
                 return order[i];
-        return SCOPE_ALL;
+        return SCOPE_APP;
     }
-    for (int i = 0; i < N_SCOPES; i++)
-        if (!strcmp(want, SCOPE_NAMES[i]))
+    for (int i = SCOPE_WINDOW; i < N_SCOPES; i++)
+        if (!strcmp(want, SCOPE_NAMES[i]) && (i != SCOPE_DOC || doc_known()))
             return i;
-    return xisserve_target_filter() ? SCOPE_APP : SCOPE_ALL;
+    return SCOPE_APP;
 }
 
 void page_clipboard_on_show(void)
 {
     /* Each open starts fresh: empty search, and the scope the invocation
-     * asked for (--for-active/--for-window: the target's app). */
+     * asked for (see initial_scope()). */
     g_signal_handlers_block_by_func(g_entry, on_entry_changed, NULL);
     gtk_entry_set_text(GTK_ENTRY(g_entry), "");
     g_signal_handlers_unblock_by_func(g_entry, on_entry_changed, NULL);
     fetch_target_context();
     int scope = initial_scope();
-    gboolean has_target = xisserve_target_window() != 0;
-    for (int i = SCOPE_APP; i < N_SCOPES; i++)
-        gtk_widget_set_sensitive(g_scope_btn[i], has_target);
+    /* Tabs only when opened for a window, and then without "Tudo" (and
+     * without "Documento" when the title names none); without a window,
+     * the whole history plus the search entry is the whole page. */
+    if (for_window_mode()) {
+        for (int i = 0; i < N_SCOPES; i++) {
+            if (i == SCOPE_ALL || (i == SCOPE_DOC && !doc_known()))
+                gtk_widget_hide(g_scope_btn[i]);
+            else
+                gtk_widget_show(g_scope_btn[i]);
+        }
+        gtk_widget_show(g_scope_box);
+    } else {
+        gtk_widget_hide(g_scope_box);
+    }
     g_scope = scope;
     g_signal_handlers_block_by_func(g_scope_btn[scope], on_scope_toggled, GINT_TO_POINTER(scope));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_scope_btn[scope]), TRUE);
@@ -970,8 +1008,27 @@ void page_clipboard_on_show(void)
     gtk_widget_grab_focus(g_entry);
 }
 
+/* Closed without pasting (Escape, "Fechar"): a WM without focus
+ * fallback leaves _NET_ACTIVE_WINDOW on our hidden popup, and typing then
+ * goes nowhere. Hand focus back to the target -- but only if nothing else
+ * took it: a close by clicking another window keeps that window focused. */
+static gboolean on_return_focus(gpointer data)
+{
+    Window target = (Window)GPOINTER_TO_SIZE(data);
+    if (g_paste_id)
+        return FALSE;   /* the paste tick handles focus itself */
+    Display *dpy = xdpy();
+    Window active = active_window(dpy);
+    char cls[64] = "", name[64] = "";
+    if (active == None || (target_class(active, cls, sizeof(cls), name, sizeof(name)) && !strcasecmp(name, "xisserve")))
+        request_focus(dpy, target);
+    return FALSE;
+}
+
 void page_clipboard_on_hide(void)
 {
+    if (xisserve_target_window())
+        g_timeout_add(80, on_return_focus, GSIZE_TO_POINTER((gsize)xisserve_target_window()));
     if (g_poll_id) {
         g_source_remove(g_poll_id);
         g_poll_id = 0;

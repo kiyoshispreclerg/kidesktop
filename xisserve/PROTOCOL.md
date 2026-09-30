@@ -165,17 +165,21 @@ implemented pages now, see below.)
   The **target window** is `--for-window=<id>`, else whatever was active
   when xisserve was invoked (read before the popup can take focus, and
   never another xisserve page). `--for-active`/`--for-window` open the
-  list filtered to that window's app; plain `--clipboard` shows
-  everything, with the same Tudo/App/Janela/Documento filters one click
-  away. Without anchor flags the popup is placed in the target's
+  page **for that window**: only items copied from or pasted into it,
+  with Janela/Documento/App tabs (no "Tudo"; "Documento" only when its
+  title names one), starting on its program. Plain `--clipboard` (the
+  panel widget, a plain hotkey) has no tabs at all: the whole history
+  and the search entry. The target is still where Enter pastes, either
+  way. Without anchor flags the popup is placed in the target's
   top-right corner, clamped to the target's monitor (centered on the
   active monitor when there is no target). Both fields travel in the
   control-socket JSON as `target_window` (a decimal string) and
   `target_filter`, optional so older callers are unaffected.
-  `--filter=all|app|window|doc|auto` picks the starting tab instead
-  (`target_scope` in the JSON); `auto` takes the most specific one that
-  has items for the target -- its document, then the window, then its
-  app, else everything. kiwm's `clipboard` titlebar button uses
+  `--filter=window|doc|app|auto` picks the starting tab instead
+  (`target_scope` in the JSON); `auto` takes the first one with items
+  for the target -- the window itself, then its document, then its
+  program (whose list may then be empty; "all" is never picked for a
+  window). kiwm's `clipboard` titlebar button uses
   `--for-window=%w --filter=auto` anchored under the button
   (`--anchor-*` without `--output-*`: the output is then the monitor
   under the anchor point, not the 1920x1080 default).
@@ -185,7 +189,8 @@ implemented pages now, see below.)
   destination), the popup closes, and once the target has focus again
   it gets Ctrl+V through XTest -- Ctrl+Shift+V for terminals that paste
   that way, nothing for xterm/urxvt, whose keyboard paste isn't
-  CLIPBOARD. Shift+Enter only copies. Ctrl+D (un)favourites, Delete
+  CLIPBOARD. Shift+Enter only copies; Escape closes, handing focus back
+  to the target if nothing else took it. Ctrl+D (un)favourites, Delete
   (with an empty search) removes; the same actions are on the right
   click menu, plus "Limpar" for everything but favourites.
   `xisserve.conf`: `CLIPBOARD\tautopaste\t0` leaves the Ctrl+V to the
