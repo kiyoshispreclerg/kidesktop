@@ -113,7 +113,7 @@
 #include "sysinfo.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.34"
+#define KICONF_VERSION "0.2.35"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -377,32 +377,67 @@ static void on_module_icon_clicked(GtkWidget *widget, gpointer data)
     gtk_notebook_set_current_page(GTK_NOTEBOOK(g_notebook), GPOINTER_TO_INT(data));
 }
 
+/* Breaks a label at the word boundary nearest its midpoint, for labels
+ * long enough to not fit a 3-per-row home-page button on one line. GTK2's
+ * own label auto-wrap (line-wrap + max-width-chars) doesn't reliably
+ * reserve space for the wrap in this table/button/hbox nesting -- it was
+ * still drawing the unwrapped line and letting it run past the button
+ * (and the window edge) instead -- so the break is inserted directly into
+ * the string rather than relied on from Pango. Short labels pass through
+ * untouched. */
+static char *wrap_label_text(const char *text)
+{
+    size_t len = strlen(text);
+    if (len <= 16) {
+        return g_strdup(text);
+    }
+    size_t mid = len / 2;
+    size_t best = 0;
+    int best_dist = -1;
+    for (size_t i = 0; i < len; i++) {
+        if (text[i] == ' ') {
+            int dist = (int)(i > mid ? i - mid : mid - i);
+            if (best_dist < 0 || dist < best_dist) {
+                best_dist = dist;
+                best = i;
+            }
+        }
+    }
+    if (best_dist < 0) {
+        return g_strdup(text);
+    }
+    char *out = g_strdup(text);
+    out[best] = '\n';
+    return out;
+}
+
 static GtkWidget *make_module_button(const LazyTab *tab, int page_num)
 {
     GtkWidget *btn = gtk_button_new();
     gtk_container_set_border_width(GTK_CONTAINER(btn), 2);
 
-    GtkWidget *box = gtk_vbox_new(FALSE, 2);
-    GtkWidget *icon = gtk_image_new_from_stock(tab->stock_icon, GTK_ICON_SIZE_DND);
-    GtkWidget *label = gtk_label_new(_(tab->label));
-    /* Fixed width + wrap so long labels ("Gerenciamento de janelas",
-     * "Associacoes de arquivos", ...) grow the button downward instead of
-     * outward -- left unwrapped, the widest label alone (times 4 columns)
-     * pushed the whole window well past the 700px minimum width. */
-    gtk_label_set_line_wrap(GTK_LABEL(label), TRUE);
-    gtk_label_set_justify(GTK_LABEL(label), GTK_JUSTIFY_CENTER);
-    gtk_widget_set_size_request(label, 68, -1);
+    /* Horizontal layout -- small icon on the left, label on the right,
+     * left-aligned. Wide buttons (3 per row instead of 5) give each label
+     * enough room to read comfortably on one or two lines. */
+    GtkWidget *box = gtk_hbox_new(FALSE, 6);
+    GtkWidget *icon = gtk_image_new_from_stock(tab->stock_icon, GTK_ICON_SIZE_BUTTON);
+    char *wrapped = wrap_label_text(_(tab->label));
+    GtkWidget *label = gtk_label_new(wrapped);
+    g_free(wrapped);
+    gtk_label_set_justify(GTK_LABEL(label), GTK_JUSTIFY_LEFT);
+    gtk_misc_set_alignment(GTK_MISC(label), 0.0, 0.5);
     gtk_box_pack_start(GTK_BOX(box), icon, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(box), label, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), label, TRUE, TRUE, 0);
     gtk_container_add(GTK_CONTAINER(btn), box);
 
     g_signal_connect(btn, "clicked", G_CALLBACK(on_module_icon_clicked), GINT_TO_POINTER(page_num));
     return btn;
 }
 
-/* Plain icon grid, 4 per row -- same idea as GNOME Settings/Windows'
- * Control Panel "home": no state of its own, so unlike the module tabs it
- * stays built for the whole session instead of going through
+/* Plain icon grid, 3 per row -- wide horizontal buttons (icon + left-aligned
+ * label) instead of GNOME-style stacked icon-over-centered-label, so labels
+ * never need mid-word wrapping. No state of its own, so unlike the module
+ * tabs it stays built for the whole session instead of going through
  * ensure_tab_built()/unbuild_tab(). */
 /* Two-column row: a narrower "about this computer" summary (see
  * sysinfo.c) on the left, the module icon grid -- unchanged -- taking the
@@ -412,7 +447,7 @@ static GtkWidget *make_module_button(const LazyTab *tab, int page_num)
  * resized, same as before this split existed. */
 static GtkWidget *build_home_page(void)
 {
-    const int cols = 5;
+    const int cols = 3;
     const int rows = (N_TABS + cols - 1) / cols;
     GtkWidget *grid = gtk_table_new(rows, cols, TRUE);
     gtk_table_set_row_spacings(GTK_TABLE(grid), 6);
