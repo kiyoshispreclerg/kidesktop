@@ -26,7 +26,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KISTORYD_VERSION "0.1.0"
+#define KISTORYD_VERSION "0.1.1"
 #define PRUNE_INTERVAL_S (6 * 3600)
 
 KsConfig ks_conf;

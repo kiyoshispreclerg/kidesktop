@@ -12,7 +12,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KISTORY_VERSION "0.1.0"
+#define KISTORY_VERSION "0.1.1"
 #define NF 8   /* ts kind app exe desktop output subject detail */
 
 static char events_dir[600];

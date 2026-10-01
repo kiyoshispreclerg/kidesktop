@@ -9,7 +9,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KIMEMORY_VERSION "0.1.0"
+#define KIMEMORY_VERSION "0.1.1"
 
 static void usage(void)
 {

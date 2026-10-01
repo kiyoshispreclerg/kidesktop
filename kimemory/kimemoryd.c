@@ -20,7 +20,7 @@
 #include <sys/file.h>
 #include <unistd.h>
 
-#define KIMEMORYD_VERSION "0.1.0"
+#define KIMEMORYD_VERSION "0.1.1"
 
 static volatile sig_atomic_t g_quit, g_reload;
 static char g_conf_path[512];

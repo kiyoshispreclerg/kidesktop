@@ -91,6 +91,17 @@ work without a full DBusMenu implementation on the window manager's side.
 **[xiskeys](xiskeys/)** -- global hotkey daemon for stateless actions: run a
 command, media keys, brightness, screenshot, lock, power.
 
+### History and clipboard
+
+**[kimemory](kimemory/)** -- clipboard history. Records every copy with its
+source window, app and document, served back through `xisserve --clipboard`
+or the `kimemory` CLI.
+
+**[kistory](kistory/)** -- desktop activity history, as plain searchable
+text: windows, focus, files, outputs, audio and xisguard events. No
+screenshots, no window contents. `kistory` CLI, or search it from
+`xisserve`'s launcher.
+
 ### XiS-specific
 
 **[xisguard](xisguard/)** -- the original tool, and the only component that
