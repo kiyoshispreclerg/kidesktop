@@ -33,7 +33,9 @@
 
 #define _GNU_SOURCE             /* ppoll */
 
-#define KICOMP_VERSION "0.3.45"
+#define KICOMP_VERSION "0.3.46"
+
+#include "../../shared/xis_i18n.h"
 
 #include "comp.h"
 #include "output.h"
@@ -1104,35 +1106,37 @@ static void shutdown_compositor(void)
 
 static void usage(void)
 {
-    printf("kicomp " KICOMP_VERSION " - compositor for kiwm\n"
-           "usage: kicomp [--replace] [--toggle] [--single-drawable]\n"
+    printf("kicomp " KICOMP_VERSION " - %s\n", _("compositor for kiwm"));
+    printf("%s\n", _("usage: kicomp [--replace] [--toggle] [--single-drawable]\n"
            "              [--skip-wm-layers]\n"
            "              [--effects|--no-effects] [--anim-ms=N]\n"
            "              [--renderer=NAME] [--presenter=NAME]\n"
-           "              [-v|--verbose] [--version] [--help]\n"
-           "\n"
-           "  --replace          take over from a running compositor\n"
-           "  --toggle           turn compositing off if a compositor is\n"
-           "                     running, on if none is -- one key binding\n"
-           "  --single-drawable  legacy mode: one drawable for the whole\n"
-           "                     screen instead of one per output\n"
-           "  --skip-wm-layers   don't composite kiwm's own overlay windows\n"
-           "                     (_KIWM_LAYER: the switcher OSD, the\n"
-           "                     move/resize wireframe)\n"
-           "  --effects, --no-effects\n"
-           "                     turn animations on/off (kicomp.conf: effects=)\n"
-           "  --anim-ms=N        global animation unit in ms; every effect's\n"
-           "                     duration is a multiple of it\n"
-           "                     (kicomp.conf: animation_duration=)\n"
-           "  --renderer=NAME    auto|xrender|glx|egl (kicomp.conf: renderer=)\n"
-           "  --presenter=NAME   auto|present|copy (kicomp.conf: presenter=)\n"
-           "\n"
-           "kicomp is optional: kiwm is fully usable without it, and\n"
-           "killing kicomp returns the session to the uncomposited path.\n");
+           "              [-v|--verbose] [--version] [--help]"));
+    printf("\n\n");
+    printf("  --replace          %s\n", _("take over from a running compositor"));
+    printf("  --toggle           %s\n", _("turn compositing off if a compositor is"));
+    printf("                     %s\n", _("running, on if none is -- one key binding"));
+    printf("  --single-drawable  %s\n", _("legacy mode: one drawable for the whole"));
+    printf("                     %s\n", _("screen instead of one per output"));
+    printf("  --skip-wm-layers   %s\n", _("don't composite kiwm's own overlay windows"));
+    printf("                     %s\n", _("(_KIWM_LAYER: the switcher OSD, the"));
+    printf("                     %s\n", _("move/resize wireframe)"));
+    printf("  --effects, --no-effects\n");
+    printf("                     %s\n", _("turn animations on/off (kicomp.conf: effects=)"));
+    printf("  --anim-ms=N        %s\n", _("global animation unit in ms; every effect's"));
+    printf("                     %s\n", _("duration is a multiple of it"));
+    printf("                     %s\n", _("(kicomp.conf: animation_duration=)"));
+    printf("  --renderer=NAME    %s\n", _("auto|xrender|glx|egl (kicomp.conf: renderer=)"));
+    printf("  --presenter=NAME   %s\n", _("auto|present|copy (kicomp.conf: presenter=)"));
+    printf("\n");
+    printf("%s\n", _("kicomp is optional: kiwm is fully usable without it, and\n"
+           "killing kicomp returns the session to the uncomposited path."));
 }
 
 int main(int argc, char **argv)
 {
+    xis_i18n_init("kicomp");
+
     bool replace = false;
     bool toggle = false;
 

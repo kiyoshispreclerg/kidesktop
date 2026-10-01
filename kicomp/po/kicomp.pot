@@ -1,0 +1,93 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the kicomp package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: kicomp\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-01 14:16-0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=CHARSET\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: src/main.c:1109
+msgid "compositor for kiwm"
+msgstr ""
+
+#: src/main.c:1110
+msgid ""
+"usage: kicomp [--replace] [--toggle] [--single-drawable]\n"
+"              [--skip-wm-layers]\n"
+"              [--effects|--no-effects] [--anim-ms=N]\n"
+"              [--renderer=NAME] [--presenter=NAME]\n"
+"              [-v|--verbose] [--version] [--help]"
+msgstr ""
+
+#: src/main.c:1116
+msgid "take over from a running compositor"
+msgstr ""
+
+#: src/main.c:1117
+msgid "turn compositing off if a compositor is"
+msgstr ""
+
+#: src/main.c:1118
+msgid "running, on if none is -- one key binding"
+msgstr ""
+
+#: src/main.c:1119
+msgid "legacy mode: one drawable for the whole"
+msgstr ""
+
+#: src/main.c:1120
+msgid "screen instead of one per output"
+msgstr ""
+
+#: src/main.c:1121
+msgid "don't composite kiwm's own overlay windows"
+msgstr ""
+
+#: src/main.c:1122
+msgid "(_KIWM_LAYER: the switcher OSD, the"
+msgstr ""
+
+#: src/main.c:1123
+msgid "move/resize wireframe)"
+msgstr ""
+
+#: src/main.c:1125
+msgid "turn animations on/off (kicomp.conf: effects=)"
+msgstr ""
+
+#: src/main.c:1126
+msgid "global animation unit in ms; every effect's"
+msgstr ""
+
+#: src/main.c:1127
+msgid "duration is a multiple of it"
+msgstr ""
+
+#: src/main.c:1128
+msgid "(kicomp.conf: animation_duration=)"
+msgstr ""
+
+#: src/main.c:1129
+msgid "auto|xrender|glx|egl (kicomp.conf: renderer=)"
+msgstr ""
+
+#: src/main.c:1130
+msgid "auto|present|copy (kicomp.conf: presenter=)"
+msgstr ""
+
+#: src/main.c:1132
+msgid ""
+"kicomp is optional: kiwm is fully usable without it, and\n"
+"killing kicomp returns the session to the uncomposited path."
+msgstr ""
