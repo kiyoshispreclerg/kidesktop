@@ -49,6 +49,8 @@
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 
+#include "../shared/xis_i18n.h"
+
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -65,7 +67,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KISESSION_VERSION "0.1.7"
+#define KISESSION_VERSION "0.1.8"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -1699,11 +1701,14 @@ static int loop_timeout_ms(void)
 
 int main(int argc, char **argv)
 {
+    xis_i18n_init("kisession");
+
     if (argc > 1 && (!strcmp(argv[1], "-h") || !strcmp(argv[1], "--help"))) {
-        printf("kisession %s - session leader and service supervisor for KiDesktop\n", KISESSION_VERSION);
-        printf("Usage: kisession\n");
-        printf("Config: $XDG_CONFIG_HOME/kisession.conf (fallback ~/.config/kisession.conf)\n");
-        printf("SIGHUP reloads the config and applies the difference.\n");
+        printf("kisession %s - %s\n", KISESSION_VERSION,
+               _("session leader and service supervisor for KiDesktop"));
+        printf("%s\n", _("Usage: kisession"));
+        printf("%s\n", _("Config: $XDG_CONFIG_HOME/kisession.conf (fallback ~/.config/kisession.conf)"));
+        printf("%s\n", _("SIGHUP reloads the config and applies the difference."));
         return 0;
     }
     if (argc > 1 && (!strcmp(argv[1], "-v") || !strcmp(argv[1], "--version"))) {

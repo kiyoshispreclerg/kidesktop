@@ -1,0 +1,35 @@
+# English translations for kisession package.
+# Copyright (C) 2026 THE kisession'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the kisession package.
+# Automatically generated, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: kisession\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-01 15:02-0300\n"
+"PO-Revision-Date: 2026-10-01 15:02-0300\n"
+"Last-Translator: Automatically generated\n"
+"Language-Team: none\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: kisession.c:1708
+msgid "session leader and service supervisor for KiDesktop"
+msgstr "session leader and service supervisor for KiDesktop"
+
+#: kisession.c:1709
+msgid "Usage: kisession"
+msgstr "Usage: kisession"
+
+#: kisession.c:1710
+msgid ""
+"Config: $XDG_CONFIG_HOME/kisession.conf (fallback ~/.config/kisession.conf)"
+msgstr "Config: $XDG_CONFIG_HOME/kisession.conf (fallback ~/.config/kisession.conf)"
+
+#: kisession.c:1711
+msgid "SIGHUP reloads the config and applies the difference."
+msgstr "SIGHUP reloads the config and applies the difference."
