@@ -5,6 +5,17 @@ LIBS := $(shell pkg-config --cflags --libs x11 xcursor xrandr)
 
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
+LOCALEDIR := $(PREFIX)/share/locale
+CFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"'
+# gettext is part of glibc, so -lintl there would just fail to link (no
+# separate library to find) -- only add it where it's actually a separate
+# lib (musl, *BSD): try linking a trivial program against it and see.
+LIBINTL := $(shell echo 'int main(void){return 0;}' | $(CC) -x c - -o /dev/null -lintl 2>/dev/null && echo -lintl)
+LIBS += $(LIBINTL)
+
+# po/LINGUAS: one language code per line ("pt_BR", "es", ...), '#' comments.
+LINGUAS := $(shell test -f po/LINGUAS && grep -v '^\#' po/LINGUAS)
+MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
 # shared/xis_outputs.c: stable EDID-based output identity for the saved
 # screen layout (kiconfd-screens.conf), also used by xisback/xispanel --
@@ -20,13 +31,39 @@ all: kiconfd
 kiconfd: kiconfd.c $(SHARED_SRC)
 	$(CC) $(CFLAGS) -o $@ kiconfd.c $(SHARED_SRC) $(LIBS)
 
-install: kiconfd
+# ---- translations (see po/README.md for the day-to-day workflow) ----------
+
+pot: po/kiconfd.pot
+
+po/kiconfd.pot: kiconfd.c
+	xgettext --from-code=UTF-8 --language=C --keyword=_ --keyword=N_ \
+		--add-comments=TRANSLATORS: --sort-by-file \
+		--package-name=kiconfd \
+		-o $@ kiconfd.c
+
+update-po: pot
+	for lang in $(LINGUAS); do \
+		msgmerge --update --backup=off po/$$lang.po po/kiconfd.pot; \
+	done
+
+mo: $(MOFILES)
+
+po/%.mo: po/%.po
+	msgfmt --check -o $@ $<
+
+install: kiconfd mo
 	install -Dm755 kiconfd $(DESTDIR)$(BINDIR)/kiconfd
+	for lang in $(LINGUAS); do \
+		install -Dm644 po/$$lang.mo $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/kiconfd.mo; \
+	done
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/kiconfd
+	for lang in $(LINGUAS); do \
+		rm -f $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/kiconfd.mo; \
+	done
 
 clean:
-	rm -f kiconfd
+	rm -f kiconfd po/*.mo
 
-.PHONY: all install uninstall clean
+.PHONY: all install uninstall clean pot update-po mo

@@ -131,6 +131,8 @@
 #include <X11/Xlib.h>
 #include <X11/XKBlib.h>
 #include <X11/extensions/Xrandr.h>
+
+#include "../shared/xis_i18n.h"
 #include <X11/keysym.h>
 
 #include "../shared/xis_outputs.h"
@@ -152,7 +154,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.14"
+#define KICONFD_VERSION "0.2.15"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -1756,7 +1758,7 @@ static void apply_nightlight(void)
             if (g_nightlight_applied != 0) {
                 run_fire((char *const[]){"xsct", NULL});
                 if (had_prior_state) {
-                    notify_xispanel_osd("Luz noturna desativada", "night-light-symbolic");
+                    notify_xispanel_osd(_("Luz noturna desativada"), "night-light-symbolic");
                 }
                 g_nightlight_applied = 0;
                 g_nightlight_applied_temp = -1;
@@ -1795,7 +1797,7 @@ static void apply_nightlight(void)
              * while already inside the window) -- that one only needed
              * a fresh xsct call, not an announcement. */
             if (had_prior_state && g_nightlight_applied != 1) {
-                notify_xispanel_osd("Luz noturna ativada", "night-light-symbolic");
+                notify_xispanel_osd(_("Luz noturna ativada"), "night-light-symbolic");
             }
             g_nightlight_applied = 1;
             g_nightlight_applied_temp = c.temp;
@@ -1804,7 +1806,7 @@ static void apply_nightlight(void)
         if (g_nightlight_applied != 0) {
             run_fire((char *const[]){"xsct", NULL});
             if (had_prior_state) {
-                notify_xispanel_osd("Luz noturna desativada", "night-light-symbolic");
+                notify_xispanel_osd(_("Luz noturna desativada"), "night-light-symbolic");
             }
             g_nightlight_applied = 0;
             g_nightlight_applied_temp = -1;
@@ -1996,6 +1998,8 @@ static void reload_config(void)
 
 int main(int argc, char **argv)
 {
+    xis_i18n_init("kiconfd");
+
     /* Checked before anything else (no display/lock/config needed) so
      * `kiconfd --version` works to check whether the installed build is
      * current without starting the daemon at all -- same as kiconf's
@@ -2006,17 +2010,17 @@ int main(int argc, char **argv)
     }
 
     if (argc > 1 && (!strcmp(argv[1], "-h") || !strcmp(argv[1], "--help"))) {
-        printf("kiconfd %s - session settings daemon for KiDesktop\n", KICONFD_VERSION);
-        printf("Usage: kiconfd [--log|--version|-V]\n");
-        printf("Config: $XDG_CONFIG_HOME/kiconfd.conf (fallback ~/.config/kiconfd.conf)\n");
-        printf("Screens: $XDG_CONFIG_HOME/kiconfd-screens.conf, applied via xrandr at startup only\n");
-        printf("Input: $XDG_CONFIG_HOME/kiconfd-input.conf (NumLock-on-start + XiS keyboard flags), "
-                "applied at startup and on SIGHUP\n");
-        printf("Night light: $XDG_CONFIG_HOME/kiconfd-nightlight.conf, applied via xsct every %ds "
-                "(if installed)\n", NIGHTLIGHT_POLL_SEC);
-        printf("Log: off by default (inherits stdout/stderr as usual). --log, or KICONFD_LOG=1 in "
-                "the environment, redirects them to $XDG_CONFIG_HOME/kiconfd.log instead.\n");
-        printf("SIGHUP reloads the config and reapplies settings.\n");
+        printf("kiconfd %s - %s\n", KICONFD_VERSION, _("session settings daemon for KiDesktop"));
+        printf("%s\n", _("Usage: kiconfd [--log|--version|-V]"));
+        printf("%s\n", _("Config: $XDG_CONFIG_HOME/kiconfd.conf (fallback ~/.config/kiconfd.conf)"));
+        printf("%s\n", _("Screens: $XDG_CONFIG_HOME/kiconfd-screens.conf, applied via xrandr at startup only"));
+        printf("%s\n", _("Input: $XDG_CONFIG_HOME/kiconfd-input.conf (NumLock-on-start + XiS keyboard flags), "
+                "applied at startup and on SIGHUP"));
+        printf(_("Night light: $XDG_CONFIG_HOME/kiconfd-nightlight.conf, applied via xsct every %ds "
+                "(if installed)\n"), NIGHTLIGHT_POLL_SEC);
+        printf("%s\n", _("Log: off by default (inherits stdout/stderr as usual). --log, or KICONFD_LOG=1 in "
+                "the environment, redirects them to $XDG_CONFIG_HOME/kiconfd.log instead."));
+        printf("%s\n", _("SIGHUP reloads the config and reapplies settings."));
         return 0;
     }
 

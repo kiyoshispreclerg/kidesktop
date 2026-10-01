@@ -1,0 +1,68 @@
+# English translations for kiconfd package.
+# Copyright (C) 2026 THE kiconfd'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the kiconfd package.
+# Automatically generated, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: kiconfd\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-01 15:04-0300\n"
+"PO-Revision-Date: 2026-10-01 15:04-0300\n"
+"Last-Translator: Automatically generated\n"
+"Language-Team: none\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: kiconfd.c:1761 kiconfd.c:1809
+msgid "Luz noturna desativada"
+msgstr "Night light disabled"
+
+#: kiconfd.c:1800
+msgid "Luz noturna ativada"
+msgstr "Night light enabled"
+
+#: kiconfd.c:2013
+msgid "session settings daemon for KiDesktop"
+msgstr "session settings daemon for KiDesktop"
+
+#: kiconfd.c:2014
+msgid "Usage: kiconfd [--log|--version|-V]"
+msgstr "Usage: kiconfd [--log|--version|-V]"
+
+#: kiconfd.c:2015
+msgid "Config: $XDG_CONFIG_HOME/kiconfd.conf (fallback ~/.config/kiconfd.conf)"
+msgstr "Config: $XDG_CONFIG_HOME/kiconfd.conf (fallback ~/.config/kiconfd.conf)"
+
+#: kiconfd.c:2016
+msgid ""
+"Screens: $XDG_CONFIG_HOME/kiconfd-screens.conf, applied via xrandr at "
+"startup only"
+msgstr "Screens: $XDG_CONFIG_HOME/kiconfd-screens.conf, applied via xrandr at startup only"
+
+#: kiconfd.c:2017
+msgid ""
+"Input: $XDG_CONFIG_HOME/kiconfd-input.conf (NumLock-on-start + XiS keyboard "
+"flags), applied at startup and on SIGHUP"
+msgstr "Input: $XDG_CONFIG_HOME/kiconfd-input.conf (NumLock-on-start + XiS keyboard flags), applied at startup and on SIGHUP"
+
+#: kiconfd.c:2019
+#, c-format
+msgid ""
+"Night light: $XDG_CONFIG_HOME/kiconfd-nightlight.conf, applied via xsct "
+"every %ds (if installed)\n"
+msgstr "Night light: $XDG_CONFIG_HOME/kiconfd-nightlight.conf, applied via xsct every %ds (if installed)\n"
+
+#: kiconfd.c:2021
+msgid ""
+"Log: off by default (inherits stdout/stderr as usual). --log, or "
+"KICONFD_LOG=1 in the environment, redirects them to $XDG_CONFIG_HOME/kiconfd."
+"log instead."
+msgstr "Log: off by default (inherits stdout/stderr as usual). --log, or KICONFD_LOG=1 in the environment, redirects them to $XDG_CONFIG_HOME/kiconfd.log instead."
+
+#: kiconfd.c:2023
+msgid "SIGHUP reloads the config and reapplies settings."
+msgstr "SIGHUP reloads the config and reapplies settings."
