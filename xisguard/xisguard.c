@@ -19,6 +19,8 @@
 #include <stdint.h>
 #include <X11/Xlib.h>
 
+#include "../shared/xis_i18n.h"
+
 #define MAX_ALERTS          100
 #define MAX_IGNORED         200
 #define BUF_SIZE            4096
@@ -26,7 +28,7 @@
 #define REPORT_THROTTLE_S   1
 #define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.4"
+#define XISGUARD_VERSION    "0.4.5"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -53,16 +55,29 @@
 #define COMMAND_DENY_ACTION   6
 #define COMMAND_ALLOW         0
 
-#define BTN_ALLOW               "Allow"
-#define BTN_DENY                "Deny"
-#define BTN_TRUST               "TRUST"
-#define BTN_DENY_SESSION        "Deny (session)"
-#define BTN_ALLOW_SESSION       "Allow (session)"
-#define BTN_TRUST_SESSION       "Trust (session)"
-#define BTN_ALLOW_EXACT         "Allow EXACT"
-#define BTN_TRUST_EXACT         "Trust EXACT"
-#define BTN_ALLOW_EXACT_SESSION "Allow EXACT (session)"
-#define BTN_TRUST_EXACT_SESSION "Trust EXACT (session)"
+/* Button labels shown on the Allow/Deny/Trust dialog (zenity or
+ * xisserve --question). Plain #define string literals used to get
+ * concatenated into the dialog command at compile time (`"--ok-label='"
+ * BTN_ALLOW "' "`) -- cheap, but a macro expansion is invisible to
+ * xgettext, so it could never be translated. N_() here only marks each
+ * literal for extraction without looking it up (same convention as
+ * kiconf's FixedShortcut.doc); show_zenity_dialog()/
+ * show_xisserve_dialog() call _(BTN_ALLOW) at the point each label is
+ * actually used, building the command with %s instead of compile-time
+ * concatenation so the lookup happens at runtime. The same _(BTN_X) call
+ * is used again when matching zenity's answer below, so the match is
+ * always against whatever this session's catalog actually displayed --
+ * never against the English text. See po/README.md. */
+static const char *const BTN_ALLOW               = N_("Allow");
+static const char *const BTN_DENY                = N_("Deny");
+static const char *const BTN_TRUST               = N_("TRUST");
+static const char *const BTN_DENY_SESSION        = N_("Deny (session)");
+static const char *const BTN_ALLOW_SESSION       = N_("Allow (session)");
+static const char *const BTN_TRUST_SESSION       = N_("Trust (session)");
+static const char *const BTN_ALLOW_EXACT         = N_("Allow EXACT");
+static const char *const BTN_TRUST_EXACT         = N_("Trust EXACT");
+static const char *const BTN_ALLOW_EXACT_SESSION = N_("Allow EXACT (session)");
+static const char *const BTN_TRUST_EXACT_SESSION = N_("Trust EXACT (session)");
 
 /* Dialog backend used to ask the user Allow/Deny/Trust questions.
  * Detected once at startup: xisserve is the default, zenity the fallback
@@ -94,26 +109,31 @@ static const struct {
     { 0, NULL }
 };
 
+/* Display-only -- only ever read into the dialog text via
+ * action_to_description(), which calls _() on its way out, so N_() here
+ * just marks each literal for extraction (same convention as kiconf's
+ * XNOTIFY_ACTIONS table). action_names above is the protocol token
+ * instead, never translated. */
 static const struct {
     int   id;
     const char *name;
 } action_descriptions[] = {
-    { XNOTIFY_ATTACH,        "Use shared memory" },
-    { XNOTIFY_SELECTION,     "Access clipboard" },
-    { XNOTIFY_COMPOSITE,     "Access other windows" },
-    { XNOTIFY_SCREEN,        "Capture and draw to the screen" },
-    { XNOTIFY_RECORD,        "Record events - like keystrokes" },
-    { XNOTIFY_CURSOR,        "Access cursor (mouse) image and position" },
-    { XNOTIFY_INPUT_GRAB,    "Grab mouse or keyboard" },
-    { XNOTIFY_INPUT_INJECT,  "Insert keystrokes" },
-    { XNOTIFY_HOTKEY,        "Register global hotkeys" },
-    { XNOTIFY_INPUT,         "Capture input - even when unfocused" },
-    { XNOTIFY_MANAGE,        "List and get properties of other windows" },
-    { XNOTIFY_GRAB_OVERRIDE, "Allow to steal a grab (for screensavers)" },
-    { XNOTIFY_WARP,          "Move the mouse cursor" },
-    { XNOTIFY_FOCUS,         "Steal input focus" },
-    { XNOTIFY_RANDR,         "Change display configuration" },
-    { XNOTIFY_OVERLAY,       "Create overlay (transparent) window" },
+    { XNOTIFY_ATTACH,        N_("Use shared memory") },
+    { XNOTIFY_SELECTION,     N_("Access clipboard") },
+    { XNOTIFY_COMPOSITE,     N_("Access other windows") },
+    { XNOTIFY_SCREEN,        N_("Capture and draw to the screen") },
+    { XNOTIFY_RECORD,        N_("Record events - like keystrokes") },
+    { XNOTIFY_CURSOR,        N_("Access cursor (mouse) image and position") },
+    { XNOTIFY_INPUT_GRAB,    N_("Grab mouse or keyboard") },
+    { XNOTIFY_INPUT_INJECT,  N_("Insert keystrokes") },
+    { XNOTIFY_HOTKEY,        N_("Register global hotkeys") },
+    { XNOTIFY_INPUT,         N_("Capture input - even when unfocused") },
+    { XNOTIFY_MANAGE,        N_("List and get properties of other windows") },
+    { XNOTIFY_GRAB_OVERRIDE, N_("Allow to steal a grab (for screensavers)") },
+    { XNOTIFY_WARP,          N_("Move the mouse cursor") },
+    { XNOTIFY_FOCUS,         N_("Steal input focus") },
+    { XNOTIFY_RANDR,         N_("Change display configuration") },
+    { XNOTIFY_OVERLAY,       N_("Create overlay (transparent) window") },
     { 0, NULL }
 };
 
@@ -130,13 +150,13 @@ static const char* action_to_string(int action_id) {
 
 static const char* action_to_description(int action_id) {
     if (action_id == -1)
-        return "All the X server permissions";
+        return _("All the X server permissions");
 
     for (int i = 0; action_descriptions[i].id > 0; i++) {
         if (action_descriptions[i].id == action_id)
-            return action_descriptions[i].name;
+            return _(action_descriptions[i].name);
     }
-    return "UNKNOWN";
+    return _("UNKNOWN");
 }
 
 static int string_to_action(const char *str) {
@@ -897,6 +917,10 @@ static int show_zenity_dialog(const struct Alert *alert) {
 
     int has_args = (strchr(alert->exe, '|') != NULL);
 
+    /* Labels are %s-substituted (never compile-time concatenated) so
+     * each is looked up via _() at runtime -- see the BTN_* doc comment
+     * above. TRANSLATORS: these go inside single-quoted shell
+     * arguments; don't use an apostrophe in a translated label. */
     if (has_args) {
         snprintf(zenity_cmd, sizeof(zenity_cmd),
             "zenity --question "
@@ -904,21 +928,24 @@ static int show_zenity_dialog(const struct Alert *alert) {
             "--icon-name=dialog-warning "
             "--modal "
             "--timeout=90 "
-            "--text='<b>Permission:</b> %s (%s)\n"
-                     "Program: <b>%s</b> (%d)' "
-            "--ok-label='" BTN_ALLOW "' "
-            "--cancel-label='" BTN_DENY_SESSION "' "
-            "--extra-button='" BTN_ALLOW_SESSION "' "
-            "--extra-button='" BTN_DENY "' "
-            "--extra-button='" BTN_ALLOW_EXACT "' "
-            "--extra-button='" BTN_ALLOW_EXACT_SESSION "' "
-            "--extra-button='" BTN_TRUST "' "
-            "--extra-button='" BTN_TRUST_SESSION "' "
-            "--extra-button='" BTN_TRUST_EXACT "' "
-            "--extra-button='" BTN_TRUST_EXACT_SESSION "' "
+            "--text='<b>%s:</b> %s (%s)\n"
+                     "%s: <b>%s</b> (%d)' "
+            "--ok-label='%s' "
+            "--cancel-label='%s' "
+            "--extra-button='%s' "
+            "--extra-button='%s' "
+            "--extra-button='%s' "
+            "--extra-button='%s' "
+            "--extra-button='%s' "
+            "--extra-button='%s' "
+            "--extra-button='%s' "
+            "--extra-button='%s' "
             "--width=550 "
             "--no-wrap 2>/dev/null",
-            action_str, action_desc, safe_exe, alert->pid);
+            _("Permission"), action_str, action_desc, _("Program"), safe_exe, alert->pid,
+            _(BTN_ALLOW), _(BTN_DENY_SESSION), _(BTN_ALLOW_SESSION), _(BTN_DENY),
+            _(BTN_ALLOW_EXACT), _(BTN_ALLOW_EXACT_SESSION), _(BTN_TRUST), _(BTN_TRUST_SESSION),
+            _(BTN_TRUST_EXACT), _(BTN_TRUST_EXACT_SESSION));
     } else {
         snprintf(zenity_cmd, sizeof(zenity_cmd),
             "zenity --question "
@@ -926,17 +953,19 @@ static int show_zenity_dialog(const struct Alert *alert) {
             "--icon-name=dialog-warning "
             "--modal "
             "--timeout=90 "
-            "--text='<b>Permission:</b> %s (%s)\n"
-                     "Program: <b>%s</b> (%d)' "
-            "--ok-label='" BTN_ALLOW "' "
-            "--cancel-label='" BTN_DENY_SESSION "' "
-            "--extra-button='" BTN_ALLOW_SESSION "' "
-            "--extra-button='" BTN_DENY "' "
-            "--extra-button='" BTN_TRUST "' "
-            "--extra-button='" BTN_TRUST_SESSION "' "
+            "--text='<b>%s:</b> %s (%s)\n"
+                     "%s: <b>%s</b> (%d)' "
+            "--ok-label='%s' "
+            "--cancel-label='%s' "
+            "--extra-button='%s' "
+            "--extra-button='%s' "
+            "--extra-button='%s' "
+            "--extra-button='%s' "
             "--width=550 "
             "--no-wrap 2>/dev/null",
-            action_str, action_desc, safe_exe, alert->pid);
+            _("Permission"), action_str, action_desc, _("Program"), safe_exe, alert->pid,
+            _(BTN_ALLOW), _(BTN_DENY_SESSION), _(BTN_ALLOW_SESSION), _(BTN_DENY),
+            _(BTN_TRUST), _(BTN_TRUST_SESSION));
     }
 
     log_msg("Showing Zenity dialog for %s %s (%d)",
@@ -958,23 +987,26 @@ static int show_zenity_dialog(const struct Alert *alert) {
 
     log_msg("Zenity returned %d | '%s'", code, output);
 
+    /* Matched against _(BTN_X) -- the same translated text the dialog
+     * actually displayed and zenity echoed back -- never against the
+     * English literal, so this still works under any locale. */
     if (code == 0) {
         return 0;  /* BTN_ALLOW (exe only) */
-    } else if (strstr(output, BTN_TRUST_EXACT_SESSION) != NULL) {
+    } else if (strstr(output, _(BTN_TRUST_EXACT_SESSION)) != NULL) {
         return 8;  /* Trust all this session exact (exe|args) */
-    } else if (strstr(output, BTN_TRUST_EXACT) != NULL) {
+    } else if (strstr(output, _(BTN_TRUST_EXACT)) != NULL) {
         return 7;  /* Trust all permanent exact (exe|args) */
-    } else if (strstr(output, BTN_TRUST_SESSION) != NULL) {
+    } else if (strstr(output, _(BTN_TRUST_SESSION)) != NULL) {
         return 6;  /* Trust all this session (exe only) */
-    } else if (strstr(output, BTN_TRUST) != NULL) {
+    } else if (strstr(output, _(BTN_TRUST)) != NULL) {
         return 3;  /* Trust all permanent (exe only) */
-    } else if (strstr(output, BTN_ALLOW_EXACT_SESSION) != NULL) {
+    } else if (strstr(output, _(BTN_ALLOW_EXACT_SESSION)) != NULL) {
         return 5;  /* Allow exact this session (exe|args) */
-    } else if (strstr(output, BTN_ALLOW_EXACT) != NULL) {
+    } else if (strstr(output, _(BTN_ALLOW_EXACT)) != NULL) {
         return 4;  /* Allow exact permanent (exe|args) */
-    } else if (strstr(output, BTN_ALLOW_SESSION) != NULL) {
+    } else if (strstr(output, _(BTN_ALLOW_SESSION)) != NULL) {
         return 1;  /* Allow this session (exe only) */
-    } else if (strstr(output, BTN_DENY) != NULL) {
+    } else if (strstr(output, _(BTN_DENY)) != NULL) {
         return 2;  /* Deny permanent (exe only) */
     } else {
         return 99; /* BTN_DENY_SESSION (cancel/timeout) */
@@ -998,34 +1030,42 @@ static int show_xisserve_dialog(const struct Alert *alert) {
 
     int has_args = (strchr(alert->exe, '|') != NULL);
 
+    /* The numeric :N values are the protocol -- xisserve prints the
+     * value verbatim (see below), never the label -- so only the label
+     * itself needs _(); the value stays exactly as process_next_alert()
+     * already expects. */
     if (has_args) {
         snprintf(xisserve_cmd, sizeof(xisserve_cmd),
             "xisserve --question "
-            "--text='Permission: %s (%s)\n"
-                    "Program: %s (%d)' "
-            "--button='" BTN_ALLOW ":0' "
-            "--button='" BTN_DENY ":2' "
-            "--button='" BTN_ALLOW_SESSION ":1' "
-            "--button='" BTN_DENY_SESSION ":99' "
-            "--button='" BTN_TRUST ":3' "
-            "--button='" BTN_TRUST_SESSION ":6' "
-            "--button='" BTN_ALLOW_EXACT ":4' "
-            "--button='" BTN_TRUST_EXACT ":7' "
+            "--text='%s: %s (%s)\n"
+                    "%s: %s (%d)' "
+            "--button='%s:0' "
+            "--button='%s:2' "
+            "--button='%s:1' "
+            "--button='%s:99' "
+            "--button='%s:3' "
+            "--button='%s:6' "
+            "--button='%s:4' "
+            "--button='%s:7' "
             "2>/dev/null",
-            action_str, action_desc, safe_exe, alert->pid);
+            _("Permission"), action_str, action_desc, _("Program"), safe_exe, alert->pid,
+            _(BTN_ALLOW), _(BTN_DENY), _(BTN_ALLOW_SESSION), _(BTN_DENY_SESSION),
+            _(BTN_TRUST), _(BTN_TRUST_SESSION), _(BTN_ALLOW_EXACT), _(BTN_TRUST_EXACT));
     } else {
         snprintf(xisserve_cmd, sizeof(xisserve_cmd),
             "xisserve --question "
-            "--text='Permission: %s (%s)\n"
-                    "Program: %s (%d)' "
-            "--button='" BTN_ALLOW ":0' "
-            "--button='" BTN_DENY ":2' "
-            "--button='" BTN_ALLOW_SESSION ":1' "
-            "--button='" BTN_DENY_SESSION ":99' "
-            "--button='" BTN_TRUST ":3' "
-            "--button='" BTN_TRUST_SESSION ":6' "
+            "--text='%s: %s (%s)\n"
+                    "%s: %s (%d)' "
+            "--button='%s:0' "
+            "--button='%s:2' "
+            "--button='%s:1' "
+            "--button='%s:99' "
+            "--button='%s:3' "
+            "--button='%s:6' "
             "2>/dev/null",
-            action_str, action_desc, safe_exe, alert->pid);
+            _("Permission"), action_str, action_desc, _("Program"), safe_exe, alert->pid,
+            _(BTN_ALLOW), _(BTN_DENY), _(BTN_ALLOW_SESSION), _(BTN_DENY_SESSION),
+            _(BTN_TRUST), _(BTN_TRUST_SESSION));
     }
 
     log_msg("Showing xisserve dialog for %s %s (%d)",
@@ -2128,6 +2168,8 @@ static int check_xnotify_extension(void) {
 /* ====================== MAIN ====================== */
 
 int main(int argc, char *argv[]) {
+    xis_i18n_init("xisguard");
+
     signal(SIGINT, cleanup);
     signal(SIGTERM, cleanup);
     signal(SIGPIPE, SIG_IGN);
@@ -2138,22 +2180,22 @@ int main(int argc, char *argv[]) {
             printf("xisguard %s\n", XISGUARD_VERSION);
             return 0;
         } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
-            printf("Usage: %s [options]\n", argv[0]);
-            printf("Options:\n");
-            printf("  --no-pause / --notify-only     Do not send SIGSTOP/SIGCONT\n");
-            printf("  --quiet / --no-zenity          No dialog prompts (xisserve/zenity); deny all unauthorized processes for the current session\n");
-            printf("  --always-kill                  Kill (SIGKILL) all unauthorized processes immediately\n");
-            printf("  --secure-mode                  Disable perms.conf; permanent Allow/Trust choices are written\n");
-            printf("                                   to the X server's own xnotify.conf.d instead (via polkit)\n");
-            printf("  --conf <dir> or --conf=<dir>   Base config directory (default: ~/.config/xisguard)\n");
-            printf("  --log-level N                  Verbosity level (0-4)\n");
-            printf("  --allow ACTION                 Always allow ACTION for any program (overrides perms.conf)\n");
-            printf("  --deny  ACTION                 Always deny  ACTION for any program (overrides perms.conf)\n");
-            printf("                                 Can be repeated. ACTION: ATTACH SELECTION COMPOSITE SCREEN\n");
-            printf("                                   RECORD CURSOR INPUT_GRAB INPUT_INJECT HOTKEY INPUT\n");
-            printf("                                   MANAGE GRAB_OVERRIDE WARP FOCUS RANDR OVERLAY ALL\n");
-            printf("  --version / -V                 Print version and exit\n");
-            printf("  --help / -h                    Show this help\n");
+            printf(_("Usage: %s [options]\n"), argv[0]);
+            printf("%s\n", _("Options:"));
+            printf("  --no-pause / --notify-only     %s\n", _("Do not send SIGSTOP/SIGCONT"));
+            printf("  --quiet / --no-zenity          %s\n", _("No dialog prompts (xisserve/zenity); deny all unauthorized processes for the current session"));
+            printf("  --always-kill                  %s\n", _("Kill (SIGKILL) all unauthorized processes immediately"));
+            printf("  --secure-mode                  %s\n", _("Disable perms.conf; permanent Allow/Trust choices are written"));
+            printf("                                   %s\n", _("to the X server's own xnotify.conf.d instead (via polkit)"));
+            printf("  --conf <dir> or --conf=<dir>   %s\n", _("Base config directory (default: ~/.config/xisguard)"));
+            printf("  --log-level N                  %s\n", _("Verbosity level (0-4)"));
+            printf("  --allow ACTION                 %s\n", _("Always allow ACTION for any program (overrides perms.conf)"));
+            printf("  --deny  ACTION                 %s\n", _("Always deny  ACTION for any program (overrides perms.conf)"));
+            printf("                                 %s\n", _("Can be repeated. ACTION: ATTACH SELECTION COMPOSITE SCREEN"));
+            printf("                                   %s\n", _("RECORD CURSOR INPUT_GRAB INPUT_INJECT HOTKEY INPUT"));
+            printf("                                   %s\n", _("MANAGE GRAB_OVERRIDE WARP FOCUS RANDR OVERLAY ALL"));
+            printf("  --version / -V                 %s\n", _("Print version and exit"));
+            printf("  --help / -h                    %s\n", _("Show this help"));
             return 0;
         }
     }

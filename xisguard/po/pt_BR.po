@@ -1,0 +1,205 @@
+# Portuguese translations for xisguard package.
+# Copyright (C) 2026 THE xisguard'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the xisguard package.
+# Automatically generated, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: xisguard\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-01 14:01-0300\n"
+"PO-Revision-Date: 2026-10-01 14:01-0300\n"
+"Last-Translator: Automatically generated\n"
+"Language-Team: none\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#: xisguard.c:71
+msgid "Allow"
+msgstr "Permitir"
+
+#: xisguard.c:72
+msgid "Deny"
+msgstr "Negar"
+
+#: xisguard.c:73
+msgid "TRUST"
+msgstr "CONFIAR"
+
+#: xisguard.c:74
+msgid "Deny (session)"
+msgstr "Negar (sessão)"
+
+#: xisguard.c:75
+msgid "Allow (session)"
+msgstr "Permitir (sessão)"
+
+#: xisguard.c:76
+msgid "Trust (session)"
+msgstr "Confiar (sessão)"
+
+#: xisguard.c:77
+msgid "Allow EXACT"
+msgstr "Permitir EXATO"
+
+#: xisguard.c:78
+msgid "Trust EXACT"
+msgstr "Confiar EXATO"
+
+#: xisguard.c:79
+msgid "Allow EXACT (session)"
+msgstr "Permitir EXATO (sessão)"
+
+#: xisguard.c:80
+msgid "Trust EXACT (session)"
+msgstr "Confiar EXATO (sessão)"
+
+#: xisguard.c:121
+msgid "Use shared memory"
+msgstr "Usar memória compartilhada"
+
+#: xisguard.c:122
+msgid "Access clipboard"
+msgstr "Acessar área de transferência"
+
+#: xisguard.c:123
+msgid "Access other windows"
+msgstr "Acessar outras janelas"
+
+#: xisguard.c:124
+msgid "Capture and draw to the screen"
+msgstr "Capturar e desenhar na tela"
+
+#: xisguard.c:125
+msgid "Record events - like keystrokes"
+msgstr "Gravar eventos - como teclas"
+
+#: xisguard.c:126
+msgid "Access cursor (mouse) image and position"
+msgstr "Acessar imagem/posição do cursor (mouse)"
+
+#: xisguard.c:127
+msgid "Grab mouse or keyboard"
+msgstr "Capturar mouse ou teclado"
+
+#: xisguard.c:128
+msgid "Insert keystrokes"
+msgstr "Inserir eventos de teclado"
+
+#: xisguard.c:129
+msgid "Register global hotkeys"
+msgstr "Registrar atalhos globais"
+
+#: xisguard.c:130
+msgid "Capture input - even when unfocused"
+msgstr "Capturar entrada mesmo sem foco"
+
+#: xisguard.c:131
+msgid "List and get properties of other windows"
+msgstr "Listar e ler propriedades de outras janelas"
+
+#: xisguard.c:132
+msgid "Allow to steal a grab (for screensavers)"
+msgstr "Permitir roubar um grab (telas de bloqueio)"
+
+#: xisguard.c:133
+msgid "Move the mouse cursor"
+msgstr "Mover o cursor do mouse"
+
+#: xisguard.c:134
+msgid "Steal input focus"
+msgstr "Roubar o foco de entrada"
+
+#: xisguard.c:135
+msgid "Change display configuration"
+msgstr "Mudar a configuração de tela"
+
+#: xisguard.c:136
+msgid "Create overlay (transparent) window"
+msgstr "Criar janela overlay (transparente)"
+
+#: xisguard.c:153
+msgid "All the X server permissions"
+msgstr "Todas as permissões do X server"
+
+#: xisguard.c:159
+msgid "UNKNOWN"
+msgstr "DESCONHECIDO"
+
+#: xisguard.c:945 xisguard.c:966 xisguard.c:1051 xisguard.c:1066
+msgid "Permission"
+msgstr "Permissão"
+
+#: xisguard.c:945 xisguard.c:966 xisguard.c:1051 xisguard.c:1066
+msgid "Program"
+msgstr "Programa"
+
+#: xisguard.c:2183
+#, c-format
+msgid "Usage: %s [options]\n"
+msgstr "Uso: %s [opções]\n"
+
+#: xisguard.c:2184
+msgid "Options:"
+msgstr "Opções:"
+
+#: xisguard.c:2185
+msgid "Do not send SIGSTOP/SIGCONT"
+msgstr "Não enviar SIGSTOP/SIGCONT"
+
+#: xisguard.c:2186
+msgid ""
+"No dialog prompts (xisserve/zenity); deny all unauthorized processes for the "
+"current session"
+msgstr "Sem caixas de diálogo (xisserve/zenity); nega todos os processos não autorizados pelo resto da sessão"
+
+#: xisguard.c:2187
+msgid "Kill (SIGKILL) all unauthorized processes immediately"
+msgstr "Matar (SIGKILL) todos os processos não autorizados imediatamente"
+
+#: xisguard.c:2188
+msgid "Disable perms.conf; permanent Allow/Trust choices are written"
+msgstr "Desabilita perms.conf; escolhas permanentes de Permitir/Confiar são gravadas"
+
+#: xisguard.c:2189
+msgid "to the X server's own xnotify.conf.d instead (via polkit)"
+msgstr "no xnotify.conf.d do próprio X server (via polkit)"
+
+#: xisguard.c:2190
+msgid "Base config directory (default: ~/.config/xisguard)"
+msgstr "Diretório base de configuração (padrão: ~/.config/xisguard)"
+
+#: xisguard.c:2191
+msgid "Verbosity level (0-4)"
+msgstr "Nível de verbosidade (0-4)"
+
+#: xisguard.c:2192
+msgid "Always allow ACTION for any program (overrides perms.conf)"
+msgstr "Sempre permitir AÇÃO para qualquer programa (sobrescreve perms.conf)"
+
+#: xisguard.c:2193
+msgid "Always deny  ACTION for any program (overrides perms.conf)"
+msgstr "Sempre negar   AÇÃO para qualquer programa (sobrescreve perms.conf)"
+
+#: xisguard.c:2194
+msgid "Can be repeated. ACTION: ATTACH SELECTION COMPOSITE SCREEN"
+msgstr "Pode repetir. AÇÃO: ATTACH SELECTION COMPOSITE SCREEN"
+
+#: xisguard.c:2195
+msgid "RECORD CURSOR INPUT_GRAB INPUT_INJECT HOTKEY INPUT"
+msgstr "RECORD CURSOR INPUT_GRAB INPUT_INJECT HOTKEY INPUT"
+
+#: xisguard.c:2196
+msgid "MANAGE GRAB_OVERRIDE WARP FOCUS RANDR OVERLAY ALL"
+msgstr "MANAGE GRAB_OVERRIDE WARP FOCUS RANDR OVERLAY ALL"
+
+#: xisguard.c:2197
+msgid "Print version and exit"
+msgstr "Imprime a versão e sai"
+
+#: xisguard.c:2198
+msgid "Show this help"
+msgstr "Mostra esta ajuda"
