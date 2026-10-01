@@ -7,6 +7,17 @@ LDLIBS := $(shell pkg-config --libs $(PKGS)) -lm
 
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
+LOCALEDIR := $(PREFIX)/share/locale
+CPPFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"'
+# gettext is part of glibc, so -lintl there would just fail to link (no
+# separate library to find) -- only add it where it's actually a separate
+# lib (musl, *BSD): try linking a trivial program against it and see.
+LIBINTL := $(shell echo 'int main(void){return 0;}' | $(CC) -x c - -o /dev/null -lintl 2>/dev/null && echo -lintl)
+LDLIBS += $(LIBINTL)
+
+# po/LINGUAS: one language code per line ("pt_BR", "es", ...), '#' comments.
+LINGUAS := $(shell test -f po/LINGUAS && grep -v '^\#' po/LINGUAS)
+MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
 # ../shared/xis_spawn.c: the one "launch a user application so it is
 # genuinely independent of us" path, shared with xispanel/xisserve/
@@ -24,13 +35,39 @@ kiwm: $(OBJS)
 %.o: %.c $(HDRS)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o $@ $<
 
-install: kiwm
+# ---- translations (see po/README.md for the day-to-day workflow) ----------
+
+pot: po/kiwm.pot
+
+po/kiwm.pot: $(SRCS)
+	xgettext --from-code=UTF-8 --language=C --keyword=_ --keyword=N_ \
+		--add-comments=TRANSLATORS: --sort-by-file \
+		--package-name=kiwm \
+		-o $@ $(SRCS)
+
+update-po: pot
+	for lang in $(LINGUAS); do \
+		msgmerge --update --backup=off po/$$lang.po po/kiwm.pot; \
+	done
+
+mo: $(MOFILES)
+
+po/%.mo: po/%.po
+	msgfmt --check -o $@ $<
+
+install: kiwm mo
 	install -Dm755 kiwm $(DESTDIR)$(BINDIR)/kiwm
+	for lang in $(LINGUAS); do \
+		install -Dm644 po/$$lang.mo $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/kiwm.mo; \
+	done
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/kiwm
+	for lang in $(LINGUAS); do \
+		rm -f $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/kiwm.mo; \
+	done
 
 clean:
-	rm -f kiwm $(OBJS)
+	rm -f kiwm $(OBJS) po/*.mo
 
-.PHONY: all clean install uninstall
+.PHONY: all clean install uninstall pot update-po mo

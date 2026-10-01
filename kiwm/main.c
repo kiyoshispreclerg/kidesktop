@@ -41,7 +41,9 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KIWM_VERSION "0.5.30"
+#define KIWM_VERSION "0.5.31"
+
+#include "../shared/xis_i18n.h"
 
 #include "wm.h"
 #include "config.h"
@@ -475,12 +477,14 @@ static void cleanup(void)
 
 int main(int argc, char **argv)
 {
+    xis_i18n_init("kiwm");
+
     bool replace = false;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--replace") == 0)
             replace = true;
         else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
-            printf("usage: kiwm [--replace] [--version]\n");
+            printf(_("usage: kiwm [--replace] [--version]\n"));
             return EXIT_SUCCESS;
         } else if (strcmp(argv[i], "--version") == 0) {
             printf("kiwm %s\n", KIWM_VERSION);

@@ -1,0 +1,64 @@
+# Portuguese translations for kiwm package.
+# Copyright (C) 2026 THE kiwm'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the kiwm package.
+# Automatically generated, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: kiwm\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-01 14:20-0300\n"
+"PO-Revision-Date: 2026-10-01 14:20-0300\n"
+"Last-Translator: Automatically generated\n"
+"Language-Team: none\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#: main.c:487
+#, c-format
+msgid "usage: kiwm [--replace] [--version]\n"
+msgstr "uso: kiwm [--replace] [--version]\n"
+
+#: menu.c:107
+msgid "Minimize"
+msgstr "Minimizar"
+
+#: menu.c:108
+msgid "Maximize"
+msgstr "Maximizar"
+
+#: menu.c:108
+msgid "Restore"
+msgstr "Restaurar"
+
+#: menu.c:110
+msgid "Shade"
+msgstr "Enrolar"
+
+#: menu.c:110
+msgid "Unshade"
+msgstr "Desenrolar"
+
+#: menu.c:113
+msgid "Move to desktop"
+msgstr "Mover para a área de trabalho"
+
+#: menu.c:114
+msgid "All desktops"
+msgstr "Todas as áreas de trabalho"
+
+#: menu.c:115
+msgid "Keep above"
+msgstr "Manter no topo"
+
+#: menu.c:117
+msgid "Close"
+msgstr "Fechar"
+
+#: menu.c:207
+#, c-format
+msgid "Desktop %d"
+msgstr "Área de trabalho %d"

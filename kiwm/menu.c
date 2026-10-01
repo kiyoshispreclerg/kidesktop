@@ -38,6 +38,8 @@
 #include "keybind.h"
 #include "output.h"
 
+#include "../shared/xis_i18n.h"
+
 #include <cairo/cairo-xcb.h>
 #include <xcb/shape.h>
 
@@ -96,18 +98,23 @@ static bool is_shaded(const Client *c)     { return c->shaded; }
 static bool is_sticky(const Client *c)     { return c->sticky; }
 static bool is_kept_above(const Client *c) { return c->keep_above; }
 
+/* Display-only -- read into a MenuItem.label by build_root_items() below,
+ * which calls _() on its way out, so N_() here just marks each literal
+ * for extraction (same convention as kiconf's XNOTIFY_ACTIONS table).
+ * Nothing compares against these strings; action dispatch goes by the
+ * .action enum instead. */
 static const MenuEntry entries[] = {
-    { .label = "Minimize",       .action = ACT_MINIMIZE,   .allowed = can_minimize },
-    { .label = "Maximize",       .label_on = "Restore",
+    { .label = N_("Minimize"),       .action = ACT_MINIMIZE,   .allowed = can_minimize },
+    { .label = N_("Maximize"),       .label_on = N_("Restore"),
       .action = ACT_MAXIMIZE,    .allowed = can_maximize,  .on = is_maximized },
-    { .label = "Shade",          .label_on = "Unshade",
+    { .label = N_("Shade"),          .label_on = N_("Unshade"),
       .action = ACT_SHADE,       .on = is_shaded },
     { .separator = true },
-    { .label = "Move to desktop", .submenu = SUB_DESKTOPS, .allowed = can_pick_desktop },
-    { .label = "All desktops",   .action = ACT_STICKY,     .on = is_sticky },
-    { .label = "Keep above",     .action = ACT_KEEP_ABOVE, .on = is_kept_above },
+    { .label = N_("Move to desktop"), .submenu = SUB_DESKTOPS, .allowed = can_pick_desktop },
+    { .label = N_("All desktops"),   .action = ACT_STICKY,     .on = is_sticky },
+    { .label = N_("Keep above"),     .action = ACT_KEEP_ABOVE, .on = is_kept_above },
     { .separator = true },
-    { .label = "Close",          .action = ACT_CLOSE,      .allowed = can_close },
+    { .label = N_("Close"),          .action = ACT_CLOSE,      .allowed = can_close },
 };
 #define ENTRY_COUNT ((int)(sizeof(entries) / sizeof(entries[0])))
 
@@ -179,7 +186,7 @@ static void build_root_items(MenuFrame *f, const Client *c)
         const MenuEntry *e = &entries[i];
         bool on = e->on && e->on(c);
         MenuItem item = {
-            .label = (on && e->label_on) ? e->label_on : e->label,
+            .label = _((on && e->label_on) ? e->label_on : e->label),
             .action = e->action,
             .arg = 0,
             .submenu = e->submenu,
@@ -197,7 +204,7 @@ static void build_desktop_items(MenuFrame *f, const Client *c)
 {
     f->count = 0;
     for (int d = 0; d < wm.num_desktops && d < MAX_DESKTOPS; d++) {
-        snprintf(desktop_labels[d], sizeof(desktop_labels[d]), "Desktop %d", d + 1);
+        snprintf(desktop_labels[d], sizeof(desktop_labels[d]), _("Desktop %d"), d + 1);
         MenuItem item = {
             .label = desktop_labels[d],
             .action = ACT_TO_DESKTOP,
