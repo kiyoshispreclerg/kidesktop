@@ -1015,7 +1015,7 @@ void panel_menu_open_tree_lazy(Panel *owner_panel, PanelWidget *owner_widget, in
     }
     MenuItem *tail = &m->items[m->n_items];
     memset(tail, 0, sizeof(*tail));
-    snprintf(tail->label, sizeof(tail->label), "Configurar pain\xc3\xa9is");
+    snprintf(tail->label, sizeof(tail->label), _("Configurar pain\xc3\xa9is"));
     tail->enabled = 1;
     m->parent[m->n_items] = -1;
     m->tail_action_idx = m->n_items;

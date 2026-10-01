@@ -56,7 +56,7 @@ static int xisserve_init(PanelWidget *w)
         snprintf(xp->cmd, sizeof(xp->cmd), "xisserve");
     }
     if (!kv_get(w->config_kv, "name", xp->name, sizeof(xp->name)) || !xp->name[0]) {
-        snprintf(xp->name, sizeof(xp->name), "Applications");
+        snprintf(xp->name, sizeof(xp->name), _("Applications"));
     }
 
     char icon_path[PATH_MAX];

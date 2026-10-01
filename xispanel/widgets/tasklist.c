@@ -1855,24 +1855,24 @@ static int tasklist_jumplist_index_lookup(const TasklistJumplist *jl, int fixed_
 static int tasklist_build_action_items(TasklistPriv *tp, const TaskEntry *e, MenuItem *items)
 {
     int n = 0;
-    snprintf(items[n].label, sizeof(items[n].label), "%s", e->minimized ? "Restaurar" : "Minimizar");
+    snprintf(items[n].label, sizeof(items[n].label), "%s", e->minimized ? _("Restaurar") : _("Minimizar"));
     items[n].enabled = 1;
     n++;
-    snprintf(items[n].label, sizeof(items[n].label), "%s", e->maximized ? "Restaurar tamanho" : "Maximizar");
+    snprintf(items[n].label, sizeof(items[n].label), "%s", e->maximized ? _("Restaurar tamanho") : _("Maximizar"));
     items[n].enabled = 1;
     n++;
-    snprintf(items[n].label, sizeof(items[n].label), "Mover");
+    snprintf(items[n].label, sizeof(items[n].label), _("Mover"));
     items[n].enabled = 1;
     n++;
-    snprintf(items[n].label, sizeof(items[n].label), "Fechar");
+    snprintf(items[n].label, sizeof(items[n].label), _("Fechar"));
     items[n].enabled = 1;
     n++;
     items[n].is_separator = 1;
     n++;
-    snprintf(items[n].label, sizeof(items[n].label), "%s", e->pinned ? "Desafixar" : "Fixar");
+    snprintf(items[n].label, sizeof(items[n].label), "%s", e->pinned ? _("Desafixar") : _("Fixar"));
     items[n].enabled = 1;
     n++;
-    snprintf(items[n].label, sizeof(items[n].label), "Abrir nova instância");
+    snprintf(items[n].label, sizeof(items[n].label), _("Abrir nova instância"));
     items[n].enabled = 1;
     n++;
 
@@ -2247,10 +2247,10 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
         if (button == Button3) {
             MenuItem items[2 + 2 + MAX_JUMPLIST_ACTIONS + MAX_RECENT_ITEMS];
             memset(items, 0, sizeof(items));
-            snprintf(items[0].label, sizeof(items[0].label), "Abrir");
+            snprintf(items[0].label, sizeof(items[0].label), _("Abrir"));
             items[0].enabled = 1;
             items[0].is_separator = 0;
-            snprintf(items[1].label, sizeof(items[1].label), "Desafixar");
+            snprintf(items[1].label, sizeof(items[1].label), _("Desafixar"));
             items[1].enabled = 1;
             items[1].is_separator = 0;
             int n = 2;

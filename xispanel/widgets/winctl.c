@@ -693,18 +693,18 @@ static int winctl_on_button(PanelWidget *w, int button, int local_x, int local_y
         MenuItem items[4];
         memset(items, 0, sizeof(items));
         int n = 0;
-        snprintf(items[n].label, sizeof(items[n].label), "%s", wp->minimized ? "Restaurar" : "Minimizar");
+        snprintf(items[n].label, sizeof(items[n].label), "%s", wp->minimized ? _("Restaurar") : _("Minimizar"));
         items[n].enabled = 1;
         n++;
-        snprintf(items[n].label, sizeof(items[n].label), "%s", wp->maximized ? "Restaurar tamanho" : "Maximizar");
+        snprintf(items[n].label, sizeof(items[n].label), "%s", wp->maximized ? _("Restaurar tamanho") : _("Maximizar"));
         items[n].enabled = 1;
         n++;
         snprintf(items[n].label, sizeof(items[n].label), "%s",
-                 ewmh_get_sticky(wp->active_win) ? "Remover de todas as áreas de trabalho"
-                                                  : "Fixar em todas as áreas de trabalho");
+                 ewmh_get_sticky(wp->active_win) ? _("Remover de todas as áreas de trabalho")
+                                                  : _("Fixar em todas as áreas de trabalho"));
         items[n].enabled = 1;
         n++;
-        snprintf(items[n].label, sizeof(items[n].label), "Fechar");
+        snprintf(items[n].label, sizeof(items[n].label), _("Fechar"));
         items[n].enabled = 1;
         n++;
         panel_menu_open(w->panel, w, 0, w->len, items, n, (void *)(uintptr_t)wp->active_win, winctl_menu_select);

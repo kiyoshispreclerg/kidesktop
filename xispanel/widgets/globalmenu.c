@@ -408,7 +408,7 @@ static int globalmenu_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t
     (void)out_ctx;
     GlobalmenuPriv *gp = w->priv;
     if (gp->tracked_win == None) {
-        snprintf(buf, bufsz, "Sem menu");
+        snprintf(buf, bufsz, _("Sem menu"));
     } else {
         char name[128];
         ewmh_get_class(gp->tracked_win, name, sizeof(name));
@@ -416,9 +416,9 @@ static int globalmenu_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t
             ewmh_get_title(gp->tracked_win, name, sizeof(name));
         }
         if (name[0]) {
-            snprintf(buf, bufsz, "%s de %s", gp->has_menu ? "Menu" : "Sem menu", name);
+            snprintf(buf, bufsz, _("%s de %s"), gp->has_menu ? _("Menu") : _("Sem menu"), name);
         } else {
-            snprintf(buf, bufsz, "%s", gp->has_menu ? "Menu" : "Sem menu");
+            snprintf(buf, bufsz, "%s", gp->has_menu ? _("Menu") : _("Sem menu"));
         }
     }
     *anchor_x = 0;

@@ -273,11 +273,11 @@ static int notif_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t bufs
     (void)out_ctx;
     int unread = notifd_unread_count();
     if (unread == 0) {
-        snprintf(buf, bufsz, "Sem notifica\xc3\xa7\xc3\xb5""es n\xc3\xa3o lidas");
+        snprintf(buf, bufsz, _("Sem notifica\xc3\xa7\xc3\xb5""es n\xc3\xa3o lidas"));
     } else if (unread == 1) {
-        snprintf(buf, bufsz, "1 notifica\xc3\xa7\xc3\xa3o n\xc3\xa3o lida");
+        snprintf(buf, bufsz, _("1 notifica\xc3\xa7\xc3\xa3o n\xc3\xa3o lida"));
     } else {
-        snprintf(buf, bufsz, "%d notifica\xc3\xa7\xc3\xb5""es n\xc3\xa3o lidas", unread);
+        snprintf(buf, bufsz, _("%d notifica\xc3\xa7\xc3\xb5""es n\xc3\xa3o lidas"), unread);
     }
     *anchor_x = 0;
     *anchor_w = w->len;
@@ -313,7 +313,7 @@ static int notif_on_button(PanelWidget *w, int button, int local_x, int local_y,
     memset(items, 0, sizeof(items));
     int nitems = 0;
     if (n == 0) {
-        snprintf(items[0].label, sizeof(items[0].label), "Sem notifica\xc3\xa7\xc3\xb5""es");
+        snprintf(items[0].label, sizeof(items[0].label), _("Sem notifica\xc3\xa7\xc3\xb5""es"));
         items[0].enabled = 0;
         items[0].is_separator = 0;
         nitems = 1;

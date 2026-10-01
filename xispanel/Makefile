@@ -115,6 +115,17 @@ LDLIBS := $(shell pkg-config --libs $(PKGS)) $(THUMB_LDLIBS) $(MODTAP_LDLIBS) $(
 
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
+LOCALEDIR := $(PREFIX)/share/locale
+CPPFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"'
+# gettext is part of glibc, so -lintl there would just fail to link (no
+# separate library to find) -- only add it where it's actually a separate
+# lib (musl, *BSD): try linking a trivial program against it and see.
+LIBINTL := $(shell echo 'int main(void){return 0;}' | $(CC) -x c - -o /dev/null -lintl 2>/dev/null && echo -lintl)
+LDLIBS += $(LIBINTL)
+
+# po/LINGUAS: one language code per line ("pt_BR", "es", ...), '#' comments.
+LINGUAS := $(shell test -f po/LINGUAS && grep -v '^\#' po/LINGUAS)
+MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
 # shared/xis_outputs.c: stable EDID-based output identity, also used by
 # xisback and kiconfd. shared/xis_desktop_actions.c: jumplist ([Desktop
@@ -139,13 +150,39 @@ xispanel: $(OBJS)
 %.o: %.c xispanel.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o $@ $<
 
-install: xispanel
+# ---- translations (see po/README.md for the day-to-day workflow) ----------
+
+pot: po/xispanel.pot
+
+po/xispanel.pot: $(SRCS)
+	xgettext --from-code=UTF-8 --language=C --keyword=_ --keyword=N_ \
+		--add-comments=TRANSLATORS: --sort-by-file \
+		--package-name=xispanel \
+		-o $@ $(SRCS)
+
+update-po: pot
+	for lang in $(LINGUAS); do \
+		msgmerge --update --backup=off po/$$lang.po po/xispanel.pot; \
+	done
+
+mo: $(MOFILES)
+
+po/%.mo: po/%.po
+	msgfmt --check -o $@ $<
+
+install: xispanel mo
 	install -Dm755 xispanel $(DESTDIR)$(BINDIR)/xispanel
+	for lang in $(LINGUAS); do \
+		install -Dm644 po/$$lang.mo $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/xispanel.mo; \
+	done
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/xispanel
+	for lang in $(LINGUAS); do \
+		rm -f $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/xispanel.mo; \
+	done
 
 clean:
-	rm -f xispanel $(OBJS)
+	rm -f xispanel $(OBJS) po/*.mo
 
-.PHONY: all clean install uninstall
+.PHONY: all clean install uninstall pot update-po mo

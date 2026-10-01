@@ -98,7 +98,7 @@ void storage_events_poll(uint64_t now)
         }
         const char *label = cur[i].label[0] ? cur[i].label : cur[i].name;
         char summary[300];
-        snprintf(summary, sizeof(summary), "Novo dispositivo: %s (%s)", label, cur[i].size);
+        snprintf(summary, sizeof(summary), _("Novo dispositivo: %s (%s)"), label, cur[i].size);
         toast_show_osd(xispanel_first_panel_icon("drive-removable-media", 40), summary, NULL, -1,
                         TOAST_URGENCY_NORMAL, 0, "storage-new");
     }
@@ -119,7 +119,7 @@ void storage_events_poll(uint64_t now)
         }
         const char *label = cur[i].label[0] ? cur[i].label : cur[i].name;
         char summary[300];
-        snprintf(summary, sizeof(summary), "%s desmontado \xe2\x80\x94 pode remover com seguran\xc3\xa7""a", label);
+        snprintf(summary, sizeof(summary), _("%s desmontado \xe2\x80\x94 pode remover com seguran\xc3\xa7""a"), label);
         toast_show_osd(xispanel_first_panel_icon("drive-removable-media", 40), summary, NULL, -1,
                         TOAST_URGENCY_NORMAL, 0, "storage-safe-remove");
     }

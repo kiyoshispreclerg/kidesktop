@@ -551,7 +551,7 @@ static void monitor_format(MonitorPriv *mp, char *out, size_t outsz)
 {
     char value[24];
     if (!mp->has_value) {
-        snprintf(value, sizeof(value), "n/d");
+        snprintf(value, sizeof(value), _("n/d"));
     } else if (metric_is_temp(mp->metric)) {
         snprintf(value, sizeof(value), "%.0f°C", mp->value);
     } else {
@@ -735,9 +735,9 @@ static const char *metric_label(enum monitor_metric m)
     case METRIC_VRAM:
         return "VRAM";
     case METRIC_CPU_TEMP:
-        return "Temperatura da CPU";
+        return _("Temperatura da CPU");
     case METRIC_GPU_TEMP:
-        return "Temperatura da GPU";
+        return _("Temperatura da GPU");
     default:
         return "CPU";
     }

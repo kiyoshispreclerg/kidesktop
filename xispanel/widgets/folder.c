@@ -253,7 +253,7 @@ static int build_one_level(FolderPriv *fp, const char *dirpath, int base, MenuIt
         MenuItem *mi = &out_items[n];
         memset(mi, 0, sizeof(*mi));
         mi->enabled = 1;
-        snprintf(mi->label, sizeof(mi->label), "Abrir esta pasta");
+        snprintf(mi->label, sizeof(mi->label), _("Abrir esta pasta"));
         out_lazy[n] = 0;
         fp->action[base + n] = ACT_OPEN_FOLDER;
         set_item_path(fp, base + n, dirpath);
@@ -263,7 +263,7 @@ static int build_one_level(FolderPriv *fp, const char *dirpath, int base, MenuIt
         MenuItem *mi = &out_items[n];
         memset(mi, 0, sizeof(*mi));
         mi->enabled = 1;
-        snprintf(mi->label, sizeof(mi->label), "Abrir terminal aqui");
+        snprintf(mi->label, sizeof(mi->label), _("Abrir terminal aqui"));
         out_lazy[n] = 0;
         fp->action[base + n] = ACT_OPEN_TERMINAL;
         set_item_path(fp, base + n, dirpath);

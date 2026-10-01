@@ -99,7 +99,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.75"
+#define XISPANEL_VERSION "0.6.76"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -4643,8 +4643,7 @@ static int run_as_daemon(const char *sockpath)
 
 static void usage(const char *prog)
 {
-    fprintf(stderr,
-            "usage: %s [options]\n"
+    fprintf(stderr, _("usage: %s [options]\n"
             "\n"
             "  --reload    tell the running daemon to reload its config\n"
             "  --quit      stop the running daemon\n"
@@ -4652,16 +4651,17 @@ static void usage(const char *prog)
             "\n"
             "With no options, runs as the daemon (or does nothing but report\n"
             "'already running' if one is active). Panels/widgets/theme are\n"
-            "configured in $XDG_CONFIG_HOME/xispanel.conf -- see PROTOCOL.md.\n",
+            "configured in $XDG_CONFIG_HOME/xispanel.conf -- see PROTOCOL.md.\n"),
             prog);
 }
 
 int main(int argc, char **argv)
 {
-    /* LC_TIME affects strftime()'s %A/%B (full weekday/month names) --
-     * clock's short "%H:%M" panel format is locale-independent, but its
+    /* xis_i18n_init()'s setlocale(LC_ALL, "") covers LC_TIME too, which
+     * affects strftime()'s %A/%B (full weekday/month names) -- clock's
+     * short "%H:%M" panel format is locale-independent, but its
      * tooltip's full "weekday, day de month de year" isn't. */
-    setlocale(LC_TIME, "");
+    xis_i18n_init("xispanel");
 
     /* A fixed threshold disables glibc's dynamic one, which rises to the
      * size of any mmapped chunk once it's freed -- after one big transient
@@ -4710,7 +4710,7 @@ int main(int argc, char **argv)
         if (!strcmp(argv[1], "--reload")) {
             return ipc_client_request(sockpath, "{\"cmd\":\"RELOAD\"}\n");
         }
-        fprintf(stderr, "xispanel: unknown option '%s'\n", argv[1]);
+        fprintf(stderr, _("xispanel: unknown option '%s'\n"), argv[1]);
         usage(argv[0]);
         return 1;
     }
@@ -4730,7 +4730,7 @@ int main(int argc, char **argv)
     }
     if (flock(lockfd, LOCK_EX | LOCK_NB) != 0) {
         close(lockfd);
-        fprintf(stderr, "xispanel: already running\n");
+        fprintf(stderr, _("xispanel: already running\n"));
         return 1;
     }
 

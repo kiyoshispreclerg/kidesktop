@@ -11,6 +11,8 @@
 #ifndef XISPANEL_H
 #define XISPANEL_H
 
+#include "../shared/xis_i18n.h"
+
 #include <X11/Xlib.h>
 #include <cairo/cairo.h>
 #include <limits.h>

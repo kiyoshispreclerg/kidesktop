@@ -187,7 +187,7 @@ static void notify_low_battery(PanelWidget *w, int pct, int threshold)
     ToastUrgency urgency = threshold <= 10 ? TOAST_URGENCY_CRITICAL : TOAST_URGENCY_NORMAL;
     cairo_surface_t *icon = panel_theme_icon(p, icon_name, 40);
     char summary[64];
-    snprintf(summary, sizeof(summary), "Bateria fraca: %d%%", pct);
+    snprintf(summary, sizeof(summary), _("Bateria fraca: %d%%"), pct);
     /* Longer than an ordinary OSD's default (toast.c's TOAST_OSD_DEFAULT_MS)
      * -- this matters more than confirming a scroll/hotkey just landed. */
     toast_show_osd(icon, summary, NULL, pct, urgency, 6000, "battery-low");
@@ -339,9 +339,9 @@ static void energy_paint(PanelWidget *w, cairo_t *cr)
 static const char *energy_state_label(EnergyState s)
 {
     switch (s) {
-    case ENERGY_CHARGING: return "carregando";
-    case ENERGY_DISCHARGING: return "descarregando";
-    case ENERGY_FULL: return "completa";
+    case ENERGY_CHARGING: return _("carregando");
+    case ENERGY_DISCHARGING: return _("descarregando");
+    case ENERGY_FULL: return _("completa");
     default: return "";
     }
 }
@@ -356,12 +356,12 @@ static int energy_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t buf
     if (ep->have_battery) {
         const char *st = energy_state_label(ep->state);
         if (st[0]) {
-            snprintf(buf, bufsz, "Bateria: %d%% (%s)", ep->pct, st);
+            snprintf(buf, bufsz, _("Bateria: %d%% (%s)"), ep->pct, st);
         } else {
-            snprintf(buf, bufsz, "Bateria: %d%%", ep->pct);
+            snprintf(buf, bufsz, _("Bateria: %d%%"), ep->pct);
         }
     } else {
-        snprintf(buf, bufsz, "Brilho e luz noturna");
+        snprintf(buf, bufsz, _("Brilho e luz noturna"));
     }
     *anchor_x = 0;
     *anchor_w = w->len;

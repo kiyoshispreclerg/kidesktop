@@ -1,0 +1,224 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the xispanel package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: xispanel\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-01 17:50-0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: audio_events.c:102
+#, c-format
+msgid "Volume: %d%%"
+msgstr ""
+
+#: audio_events.c:102
+#, c-format
+msgid "Volume: mudo"
+msgstr ""
+
+#: audio_events.c:113
+#, c-format
+msgid "Saida de audio: %s"
+msgstr ""
+
+#: audio_events.c:125
+#, c-format
+msgid "Entrada de audio: %s"
+msgstr ""
+
+#: menu.c:1018
+#, c-format
+msgid "Configurar painéis"
+msgstr ""
+
+#: storage_events.c:101
+#, c-format
+msgid "Novo dispositivo: %s (%s)"
+msgstr ""
+
+#: storage_events.c:122
+#, c-format
+msgid "%s desmontado — pode remover com segurança"
+msgstr ""
+
+#: widgets/energy.c:190
+#, c-format
+msgid "Bateria fraca: %d%%"
+msgstr ""
+
+#: widgets/energy.c:342
+msgid "carregando"
+msgstr ""
+
+#: widgets/energy.c:343
+msgid "descarregando"
+msgstr ""
+
+#: widgets/energy.c:344
+msgid "completa"
+msgstr ""
+
+#: widgets/energy.c:359
+#, c-format
+msgid "Bateria: %d%% (%s)"
+msgstr ""
+
+#: widgets/energy.c:361
+#, c-format
+msgid "Bateria: %d%%"
+msgstr ""
+
+#: widgets/energy.c:364
+#, c-format
+msgid "Brilho e luz noturna"
+msgstr ""
+
+#: widgets/folder.c:256
+#, c-format
+msgid "Abrir esta pasta"
+msgstr ""
+
+#: widgets/folder.c:266
+#, c-format
+msgid "Abrir terminal aqui"
+msgstr ""
+
+#: widgets/globalmenu.c:411 widgets/globalmenu.c:419 widgets/globalmenu.c:421
+#, c-format
+msgid "Sem menu"
+msgstr ""
+
+#: widgets/globalmenu.c:419
+#, c-format
+msgid "%s de %s"
+msgstr ""
+
+#: widgets/globalmenu.c:419 widgets/globalmenu.c:421
+msgid "Menu"
+msgstr ""
+
+#: widgets/monitor.c:554
+#, c-format
+msgid "n/d"
+msgstr ""
+
+#: widgets/monitor.c:738
+msgid "Temperatura da CPU"
+msgstr ""
+
+#: widgets/monitor.c:740
+msgid "Temperatura da GPU"
+msgstr ""
+
+#: widgets/notif.c:276
+#, c-format
+msgid "Sem notificações não lidas"
+msgstr ""
+
+#: widgets/notif.c:278
+#, c-format
+msgid "1 notificação não lida"
+msgstr ""
+
+#: widgets/notif.c:280
+#, c-format
+msgid "%d notificações não lidas"
+msgstr ""
+
+#: widgets/notif.c:316
+#, c-format
+msgid "Sem notificações"
+msgstr ""
+
+#: widgets/tasklist.c:1858 widgets/winctl.c:696
+msgid "Minimizar"
+msgstr ""
+
+#: widgets/tasklist.c:1858 widgets/winctl.c:696
+msgid "Restaurar"
+msgstr ""
+
+#: widgets/tasklist.c:1861 widgets/winctl.c:699
+msgid "Maximizar"
+msgstr ""
+
+#: widgets/tasklist.c:1861 widgets/winctl.c:699
+msgid "Restaurar tamanho"
+msgstr ""
+
+#: widgets/tasklist.c:1864
+#, c-format
+msgid "Mover"
+msgstr ""
+
+#: widgets/tasklist.c:1867 widgets/winctl.c:707
+#, c-format
+msgid "Fechar"
+msgstr ""
+
+#: widgets/tasklist.c:1872 widgets/tasklist.c:2253
+#, c-format
+msgid "Desafixar"
+msgstr ""
+
+#: widgets/tasklist.c:1872
+msgid "Fixar"
+msgstr ""
+
+#: widgets/tasklist.c:1875
+#, c-format
+msgid "Abrir nova instância"
+msgstr ""
+
+#: widgets/tasklist.c:2250
+#, c-format
+msgid "Abrir"
+msgstr ""
+
+#: widgets/winctl.c:703
+msgid "Remover de todas as áreas de trabalho"
+msgstr ""
+
+#: widgets/winctl.c:704
+msgid "Fixar em todas as áreas de trabalho"
+msgstr ""
+
+#: widgets/xisserve.c:59
+#, c-format
+msgid "Applications"
+msgstr ""
+
+#: xispanel.c:4646
+#, c-format
+msgid ""
+"usage: %s [options]\n"
+"\n"
+"  --reload    tell the running daemon to reload its config\n"
+"  --quit      stop the running daemon\n"
+"  --version   print version and exit\n"
+"\n"
+"With no options, runs as the daemon (or does nothing but report\n"
+"'already running' if one is active). Panels/widgets/theme are\n"
+"configured in $XDG_CONFIG_HOME/xispanel.conf -- see PROTOCOL.md.\n"
+msgstr ""
+
+#: xispanel.c:4713
+#, c-format
+msgid "xispanel: unknown option '%s'\n"
+msgstr ""
+
+#: xispanel.c:4733
+#, c-format
+msgid "xispanel: already running\n"
+msgstr ""

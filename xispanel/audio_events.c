@@ -99,7 +99,7 @@ static void toast_volume_change(void)
 
     const char *icon_name = muted ? "volume-muted" : (pct < 34 ? "volume-low" : (pct < 67 ? "volume-medium" : "volume-high"));
     char summary[64];
-    snprintf(summary, sizeof(summary), muted ? "Volume: mudo" : "Volume: %d%%", pct);
+    snprintf(summary, sizeof(summary), muted ? _("Volume: mudo") : _("Volume: %d%%"), pct);
     toast_show_osd(xispanel_first_panel_icon(icon_name, 40), summary, NULL, muted ? 0 : pct, TOAST_URGENCY_NORMAL, 0,
                     "volume");
 }
@@ -110,7 +110,7 @@ static void toast_device_change(void)
     if (pulse_get_default_sink_name(name, sizeof(name)) && strcmp(name, g_last_sink_name) != 0) {
         snprintf(g_last_sink_name, sizeof(g_last_sink_name), "%s", name);
         char summary[300];
-        snprintf(summary, sizeof(summary), "Saida de audio: %s", name);
+        snprintf(summary, sizeof(summary), _("Saida de audio: %s"), name);
         toast_show_osd(xispanel_first_panel_icon("audio-card", 40), summary, NULL, -1, TOAST_URGENCY_NORMAL, 0,
                         "audio-sink");
         /* The switch is also a real volume baseline change (a different
@@ -122,7 +122,7 @@ static void toast_device_change(void)
     if (pulse_get_default_source_name(name, sizeof(name)) && strcmp(name, g_last_source_name) != 0) {
         snprintf(g_last_source_name, sizeof(g_last_source_name), "%s", name);
         char summary[300];
-        snprintf(summary, sizeof(summary), "Entrada de audio: %s", name);
+        snprintf(summary, sizeof(summary), _("Entrada de audio: %s"), name);
         toast_show_osd(xispanel_first_panel_icon("audio-input-microphone", 40), summary, NULL, -1,
                         TOAST_URGENCY_NORMAL, 0, "audio-source");
     }
