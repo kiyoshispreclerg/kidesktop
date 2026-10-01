@@ -23,5 +23,6 @@ GtkWidget *build_associacoes_tab(void);
 GtkWidget *build_menu_tab(void);
 GtkWidget *build_autostart_tab(void);
 GtkWidget *build_eventos_tab(void);
+GtkWidget *build_historico_tab(void);
 
 #endif /* KICONF_TABS_H */
