@@ -302,7 +302,7 @@ GtkWidget *build_programas_tab(void)
                         FALSE, FALSE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 0);
-    GtkWidget *apply_btn = gtk_button_new_with_label("Aplicar");
+    GtkWidget *apply_btn = gtk_button_new_with_label(_("Aplicar"));
     g_signal_connect(apply_btn, "clicked", G_CALLBACK(apply_programs_cb), NULL);
     gtk_box_pack_end(GTK_BOX(btnbox), apply_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(outer), btnbox, FALSE, FALSE, 0);

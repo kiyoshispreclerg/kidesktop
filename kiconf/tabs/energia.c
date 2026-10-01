@@ -161,10 +161,10 @@ GtkWidget *build_energia_tab(void)
 
     int have_xsct = have_cmd("xsct");
 
-    g_status_label = gtk_label_new(have_xsct ? ""
-        : _("xsct nao encontrado -- instale-o (https://github.com/faf0/sct) para "
-            "a luz noturna automatica funcionar. O horario ainda pode ser configurado "
-            "e salvo aqui."));
+    g_status_label = gtk_label_new(have_xsct ? "" :
+        _("xsct nao encontrado -- instale-o (https://github.com/faf0/sct) para "
+          "a luz noturna automatica funcionar. O horario ainda pode ser configurado "
+          "e salvo aqui."));
     gtk_misc_set_alignment(GTK_MISC(g_status_label), 0.0, 0.5);
     gtk_label_set_line_wrap(GTK_LABEL(g_status_label), TRUE);
     gtk_box_pack_start(GTK_BOX(outer), g_status_label, FALSE, FALSE, 0);
@@ -183,14 +183,14 @@ GtkWidget *build_energia_tab(void)
     g_start_hour_spin = gtk_spin_button_new_with_range(0, 23, 1);
     g_start_min_spin = gtk_spin_button_new_with_range(0, 59, 1);
     gtk_box_pack_start(GTK_BOX(sched_box), g_start_hour_spin, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(sched_box), gtk_label_new(":"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(sched_box), gtk_label_new(_(":")), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(sched_box), g_start_min_spin, FALSE, FALSE, 0);
 
     gtk_box_pack_start(GTK_BOX(sched_box), gtk_label_new(_("   Desligar as:")), FALSE, FALSE, 0);
     g_end_hour_spin = gtk_spin_button_new_with_range(0, 23, 1);
     g_end_min_spin = gtk_spin_button_new_with_range(0, 59, 1);
     gtk_box_pack_start(GTK_BOX(sched_box), g_end_hour_spin, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(sched_box), gtk_label_new(":"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(sched_box), gtk_label_new(_(":")), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(sched_box), g_end_min_spin, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box), sched_box, FALSE, FALSE, 0);
     set_time_spins(c.start, g_start_hour_spin, g_start_min_spin);

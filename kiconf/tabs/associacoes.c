@@ -321,7 +321,7 @@ GtkWidget *build_associacoes_tab(void)
     gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
 
     GtkWidget *search_row = gtk_hbox_new(FALSE, 4);
-    gtk_box_pack_start(GTK_BOX(search_row), gtk_label_new("Buscar:"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(search_row), gtk_label_new(_("Buscar:")), FALSE, FALSE, 0);
     g_search_entry = gtk_entry_new();
     g_signal_connect(g_search_entry, "changed", G_CALLBACK(search_changed_cb), NULL);
     gtk_box_pack_start(GTK_BOX(search_row), g_search_entry, TRUE, TRUE, 0);
@@ -352,7 +352,7 @@ GtkWidget *build_associacoes_tab(void)
     gtk_box_pack_start(GTK_BOX(outer), scroll, TRUE, TRUE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 0);
-    GtkWidget *change_btn = gtk_button_new_with_label("Alterar programa...");
+    GtkWidget *change_btn = gtk_button_new_with_label(_("Alterar programa..."));
     g_signal_connect(change_btn, "clicked", G_CALLBACK(change_app_cb), g_assoc_view);
     gtk_box_pack_end(GTK_BOX(btnbox), change_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(outer), btnbox, FALSE, FALSE, 0);

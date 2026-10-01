@@ -14,7 +14,7 @@
 #include <stddef.h>
 #include <stdio.h>
 
-#include "i18n.h"
+#include "../shared/xis_i18n.h"
 
 #define NAME_LEN 128
 #define JSON_BUF_LEN 65536

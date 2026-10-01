@@ -698,9 +698,9 @@ GtkWidget *build_appearance_tab(void)
         "desktops (ex.: KDE Plasma) usam, entao apps GTK/Qt tambem mudam de visual la.");
     gtk_box_pack_start(GTK_BOX(outer), g_export_other_check, FALSE, FALSE, 0);
 
-    GtkWidget *import_btn = gtk_button_new_with_label("Importar da sessao atual");
+    GtkWidget *import_btn = gtk_button_new_with_label(_("Importar da sessao atual"));
     g_signal_connect(import_btn, "clicked", G_CALLBACK(import_appearance_cb), NULL);
-    GtkWidget *apply_btn = gtk_button_new_with_label("Aplicar");
+    GtkWidget *apply_btn = gtk_button_new_with_label(_("Aplicar"));
     g_signal_connect(apply_btn, "clicked", G_CALLBACK(save_appearance_cb), NULL);
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 6);
     gtk_box_pack_start(GTK_BOX(btnbox), import_btn, FALSE, FALSE, 0);

@@ -934,7 +934,7 @@ static void load_fixed_shortcuts(void)
         char spec[128] = "";
         kiwm_key_value(e->conf_key, spec, sizeof(spec));
         char label[192];
-        snprintf(label, sizeof(label), "kiwm: %s", e->doc);
+        snprintf(label, sizeof(label), _("kiwm: %s"), e->doc);
         GtkTreeIter it;
         gtk_list_store_append(g_fixed_store, &it);
         gtk_list_store_set(g_fixed_store, &it,
@@ -958,7 +958,7 @@ static void load_fixed_shortcuts(void)
         char spec[128] = "";
         kicomp_effect_key_value(e->effect, e->conf_key, spec, sizeof(spec));
         char label[192];
-        snprintf(label, sizeof(label), "kicomp (%s): %s", e->effect, e->doc);
+        snprintf(label, sizeof(label), _("kicomp (%s): %s"), e->effect, e->doc);
         GtkTreeIter it;
         gtk_list_store_append(g_fixed_store, &it);
         gtk_list_store_set(g_fixed_store, &it,
@@ -972,10 +972,10 @@ static void load_fixed_shortcuts(void)
     for (int i = 0; i < n_xwidgets; i++) {
         char label[192];
         if (xwidgets[i].occurrence > 0) {
-            snprintf(label, sizeof(label), "xispanel (%s em '%s', #%d): atalho do widget",
+            snprintf(label, sizeof(label), _("xispanel (%s em '%s', #%d): atalho do widget"),
                      xwidgets[i].type, xwidgets[i].panel, xwidgets[i].occurrence + 1);
         } else {
-            snprintf(label, sizeof(label), "xispanel (%s em '%s'): atalho do widget",
+            snprintf(label, sizeof(label), _("xispanel (%s em '%s'): atalho do widget"),
                      xwidgets[i].type, xwidgets[i].panel);
         }
         GtkTreeIter it;
@@ -1022,9 +1022,9 @@ GtkWidget *build_shortcuts_tab(void)
     gtk_box_pack_start(GTK_BOX(vbox), scroll, TRUE, TRUE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 6);
-    GtkWidget *add_btn = gtk_button_new_with_label("Adicionar");
-    GtkWidget *remove_btn = gtk_button_new_with_label("Remover");
-    GtkWidget *save_btn = gtk_button_new_with_label("Salvar e recarregar xiskeys");
+    GtkWidget *add_btn = gtk_button_new_with_label(_("Adicionar"));
+    GtkWidget *remove_btn = gtk_button_new_with_label(_("Remover"));
+    GtkWidget *save_btn = gtk_button_new_with_label(_("Salvar e recarregar xiskeys"));
     g_signal_connect(add_btn, "clicked", G_CALLBACK(add_shortcut_cb), NULL);
     g_signal_connect(remove_btn, "clicked", G_CALLBACK(remove_shortcut_cb), view);
     g_signal_connect(save_btn, "clicked", G_CALLBACK(save_shortcuts_cb), NULL);
@@ -1038,7 +1038,7 @@ GtkWidget *build_shortcuts_tab(void)
      * the whole tab -- and window -- wider than the 700px minimum) with
      * the detail moved to a tooltip instead. */
     GtkWidget *custom_frame = frame_with("Atalhos personalizados", vbox);
-    gtk_widget_set_tooltip_text(custom_frame, "xiskeys.conf, crie/edite/remova a vontade");
+    gtk_widget_set_tooltip_text(custom_frame, _("xiskeys.conf, crie/edite/remova a vontade"));
     gtk_box_pack_start(GTK_BOX(outer), custom_frame, TRUE, TRUE, 0);
 
     /* Atalhos fixos do sistema: kiwm.conf/kicomp.conf, catalog-driven. */
@@ -1059,8 +1059,8 @@ GtkWidget *build_shortcuts_tab(void)
     gtk_box_pack_start(GTK_BOX(fixed_vbox), g_fixed_status_label, FALSE, FALSE, 0);
 
     GtkWidget *fixed_btnbox = gtk_hbox_new(FALSE, 6);
-    GtkWidget *fixed_save_btn = gtk_button_new_with_label("Aplicar");
-    gtk_widget_set_tooltip_text(fixed_save_btn, "Grava kiwm.conf, kicomp.conf e xispanel.conf");
+    GtkWidget *fixed_save_btn = gtk_button_new_with_label(_("Aplicar"));
+    gtk_widget_set_tooltip_text(fixed_save_btn, _("Grava kiwm.conf, kicomp.conf e xispanel.conf"));
     g_signal_connect(fixed_save_btn, "clicked", G_CALLBACK(save_fixed_shortcuts_cb), NULL);
     gtk_box_pack_end(GTK_BOX(fixed_btnbox), fixed_save_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(fixed_vbox), fixed_btnbox, FALSE, FALSE, 0);

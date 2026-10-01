@@ -1,819 +1,819 @@
-# SOME DESCRIPTIVE TITLE.
-# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# Portuguese translations for kiconf package.
+# Copyright (C) 2026 THE kiconf'S COPYRIGHT HOLDER
 # This file is distributed under the same license as the kiconf package.
-# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+# Automatically generated, 2026.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-10-01 13:53-0300\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
-"Language-Team: LANGUAGE <LL@li.org>\n"
-"Language: \n"
+"PO-Revision-Date: 2026-10-01 13:53-0300\n"
+"Last-Translator: Automatically generated\n"
+"Language-Team: none\n"
+"Language: pt_BR\n"
 "MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=CHARSET\n"
+"Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
 #: common.c:325
 #, c-format
 msgid "%s (nao conectado agora)"
-msgstr ""
+msgstr "%s (não conectado agora)"
 
 #: common.c:360
 #, c-format
 msgid "%s (%s)"
-msgstr ""
+msgstr "%s (%s)"
 
 #: common.c:362
 #, c-format
 msgid "%s (sem EDID)"
-msgstr ""
+msgstr "%s (sem EDID)"
 
 #: kiconf.c:151
 msgid "Aparencia"
-msgstr ""
+msgstr "Aparência"
 
 #: kiconf.c:152
 msgid "Atalhos"
-msgstr ""
+msgstr "Atalhos"
 
 #: kiconf.c:153
 msgid "Telas"
-msgstr ""
+msgstr "Telas"
 
 #: kiconf.c:154
 msgid "Entrada"
-msgstr ""
+msgstr "Entrada"
 
 #: kiconf.c:155
 msgid "Wallpaper"
-msgstr ""
+msgstr "Papel de parede"
 
 #: kiconf.c:156
 msgid "Outras"
-msgstr ""
+msgstr "Outras"
 
 #: kiconf.c:157
 msgid "Paineis"
-msgstr ""
+msgstr "Painéis"
 
 #: kiconf.c:158
 msgid "Permissoes"
-msgstr ""
+msgstr "Permissões"
 
 #: kiconf.c:159
 msgid "Gerenciamento de janelas"
-msgstr ""
+msgstr "Gerenciamento de janelas"
 
 #: kiconf.c:160
 msgid "Efeitos do compositor"
-msgstr ""
+msgstr "Efeitos do compositor"
 
 #: kiconf.c:161
 msgid "Sistema"
-msgstr ""
+msgstr "Sistema"
 
 #: kiconf.c:162
 msgid "Energia"
-msgstr ""
+msgstr "Energia"
 
 #: kiconf.c:163
 msgid "Programas padrao"
-msgstr ""
+msgstr "Programas padrão"
 
 #: kiconf.c:164
 msgid "Associacoes de arquivos"
-msgstr ""
+msgstr "Associações de arquivos"
 
 #: kiconf.c:165
 msgid "Menu de programas"
-msgstr ""
+msgstr "Menu de programas"
 
 #: kiconf.c:166
 msgid "Iniciar automaticamente"
-msgstr ""
+msgstr "Iniciar automaticamente"
 
 #: kiconf.c:167
 msgid "Eventos"
-msgstr ""
+msgstr "Eventos"
 
 #: kiconf.c:168
 msgid "Historico"
-msgstr ""
+msgstr "Histórico"
 
 #: kiconf.c:304
 msgid ""
 "Ha alteracoes nao aplicadas nesta aba. Tem certeza que deseja sair sem "
 "aplica-las?"
-msgstr ""
+msgstr "Há alterações não aplicadas nesta aba. Tem certeza que deseja sair sem aplicá-las?"
 
 #: kiconf.c:306
 msgid "Alteracoes pendentes"
-msgstr ""
+msgstr "Alterações pendentes"
 
 #: kiconf.c:717
 msgid "Inicio"
-msgstr ""
+msgstr "Início"
 
 #: sysinfo.c:250
 msgid "Sobre este computador"
-msgstr ""
+msgstr "Sobre este computador"
 
 #: tabs/appearance.c:701
 msgid "Importar da sessao atual"
-msgstr ""
+msgstr "Importar da sessão atual"
 
 #: tabs/appearance.c:703 tabs/autostart.c:410 tabs/energia.c:217
 #: tabs/entrada.c:544 tabs/historico.c:379 tabs/historico.c:446
 #: tabs/outras.c:215 tabs/programas.c:305 tabs/shortcuts.c:1062
 #: tabs/sistema.c:803 tabs/telas.c:1780
 msgid "Aplicar"
-msgstr ""
+msgstr "Aplicar"
 
 #: tabs/associacoes.c:324
 msgid "Buscar:"
-msgstr ""
+msgstr "Buscar:"
 
 #: tabs/associacoes.c:355
 msgid "Alterar programa..."
-msgstr ""
+msgstr "Alterar programa..."
 
 #: tabs/autostart.c:371
 msgid "Aplicar servicos (recarrega kisession na hora)"
-msgstr ""
+msgstr "Aplicar serviços (recarrega o kisession na hora)"
 
 #: tabs/autostart.c:408
 msgid "Adicionar..."
-msgstr ""
+msgstr "Adicionar..."
 
 #: tabs/autostart.c:409 tabs/eventos.c:226 tabs/shortcuts.c:1026
 #: tabs/sistema.c:788
 msgid "Remover"
-msgstr ""
+msgstr "Remover"
 
 #: tabs/efeitos.c:655 tabs/paineis.c:829
 msgid "?"
-msgstr ""
+msgstr "?"
 
 #: tabs/efeitos.c:1041
 msgid "Duracao base das animacoes"
-msgstr ""
+msgstr "Duração base das animações"
 
 #: tabs/efeitos.c:1049
 msgid "present/copy"
-msgstr ""
+msgstr "present/copy"
 
 #: tabs/efeitos.c:1053
 msgid "Compor tudo em um unico drawable"
-msgstr ""
+msgstr "Compor tudo em um único drawable"
 
 #: tabs/efeitos.c:1057
 msgid "Ignorar camadas de decoracao do WM"
-msgstr ""
+msgstr "Ignorar camadas de decoração do WM"
 
 #: tabs/efeitos.c:1061
 msgid "Desviar (unredirect) janela em tela cheia"
-msgstr ""
+msgstr "Desviar (unredirect) janela em tela cheia"
 
 #: tabs/efeitos.c:1065
 msgid "Tempo para reivindicar janelas ja abertas"
-msgstr ""
+msgstr "Tempo para reivindicar janelas já abertas"
 
 #: tabs/efeitos.c:1069
 msgid "Manter conteudo de janelas ocultas (expo/wall)"
-msgstr ""
+msgstr "Manter conteúdo de janelas ocultas (expo/wall)"
 
 #: tabs/efeitos.c:1072
 msgid "Janelas ao vivo em efeitos (expo/wall/cube)"
-msgstr ""
+msgstr "Janelas ao vivo em efeitos (expo/wall/cube)"
 
 #: tabs/efeitos.c:1076
 msgid "Decoracao/conteudo nitidos sob zoom"
-msgstr ""
+msgstr "Decoração/conteúdo nítidos sob zoom"
 
 #: tabs/efeitos.c:1091
 msgid "ex.: windows,menus"
-msgstr ""
+msgstr "ex.: windows,menus"
 
 #: tabs/efeitos.c:1104 tabs/efeitos.c:1129
 msgid "X:"
-msgstr ""
+msgstr "X:"
 
 #: tabs/efeitos.c:1106 tabs/efeitos.c:1131
 msgid "Y:"
-msgstr ""
+msgstr "Y:"
 
 #: tabs/efeitos.c:1113
 msgid "Usar valores proprios para janelas sem foco"
-msgstr ""
+msgstr "Usar valores próprios para janelas sem foco"
 
 #: tabs/efeitos.c:1160
 msgid "Adicionar efeito"
-msgstr ""
+msgstr "Adicionar efeito"
 
 #: tabs/efeitos.c:1161
 msgid "Remover efeito"
-msgstr ""
+msgstr "Remover efeito"
 
 #: tabs/efeitos.c:1170
 msgid "Reiniciar kicomp agora"
-msgstr ""
+msgstr "Reiniciar o kicomp agora"
 
 #: tabs/efeitos.c:1171
 msgid "Aplicar (grava kicomp.conf)"
-msgstr ""
+msgstr "Aplicar (grava kicomp.conf)"
 
 #: tabs/energia.c:154
 msgid "Horario de luz noturna salvo."
-msgstr ""
+msgstr "Horário de luz noturna salvo."
 
 #: tabs/energia.c:165
 msgid ""
 "xsct nao encontrado -- instale-o (https://github.com/faf0/sct) para a luz "
 "noturna automatica funcionar. O horario ainda pode ser configurado e salvo "
 "aqui."
-msgstr ""
+msgstr "xsct não encontrado -- instale-o (https://github.com/faf0/sct) para a luz noturna automática funcionar. O horário ainda pode ser configurado e salvo aqui."
 
 #: tabs/energia.c:177
 msgid "Ativar luz noturna automatica"
-msgstr ""
+msgstr "Ativar luz noturna automática"
 
 #: tabs/energia.c:182
 msgid "Ligar as:"
-msgstr ""
+msgstr "Ligar às:"
 
 #: tabs/energia.c:186 tabs/energia.c:193
 msgid ":"
-msgstr ""
+msgstr ":"
 
 #: tabs/energia.c:189
 msgid "   Desligar as:"
-msgstr ""
+msgstr "   Desligar às:"
 
 #: tabs/energia.c:202
 msgid "Temperatura durante o periodo (K):"
-msgstr ""
+msgstr "Temperatura durante o período (K):"
 
 #: tabs/energia.c:206
 msgid "Luz noturna (xsct)"
-msgstr ""
+msgstr "Luz noturna (xsct)"
 
 #: tabs/energia.c:209
 msgid ""
 "Fora do horario configurado, a tela volta a temperatura normal. Um horario "
 "de desligar menor que o de ligar cruza a meia-noite (ex.: ligar 20:00, "
 "desligar 06:00)."
-msgstr ""
+msgstr "Fora do horário configurado, a tela volta à temperatura normal. Um horário de desligar menor que o de ligar cruza a meia-noite (ex.: ligar 20:00, desligar 06:00)."
 
 #: tabs/entrada.c:482
 msgid "Rolagem natural"
-msgstr ""
+msgstr "Rolagem natural"
 
 #: tabs/entrada.c:484
 msgid "Canhoto (inverter botoes)"
-msgstr ""
+msgstr "Canhoto (inverter botões)"
 
 #: tabs/entrada.c:486
 msgid "Tocar para clicar (touchpad)"
-msgstr ""
+msgstr "Tocar para clicar (touchpad)"
 
 #: tabs/entrada.c:504
 msgid "Repeticao automatica"
-msgstr ""
+msgstr "Repetição automática"
 
 #: tabs/entrada.c:539
 msgid "Ativar NumLock ao iniciar a sessao"
-msgstr ""
+msgstr "Ativar NumLock ao iniciar a sessão"
 
 #: tabs/eventos.c:111 tabs/sistema.c:490
 msgid "Gravado."
-msgstr ""
+msgstr "Gravado."
 
 #: tabs/eventos.c:225 tabs/shortcuts.c:1025 tabs/sistema.c:787
 msgid "Adicionar"
-msgstr ""
+msgstr "Adicionar"
 
 #: tabs/eventos.c:227 tabs/sistema.c:789
 msgid "Salvar"
-msgstr ""
+msgstr "Salvar"
 
 #: tabs/historico.c:265
 msgid "kistory nao encontrado, ou kistoryd parado sem historico ainda gravado."
-msgstr ""
+msgstr "kistory não encontrado, ou kistoryd parado sem histórico ainda gravado."
 
 #: tabs/historico.c:275
 msgid ""
 "Apagar todo o historico de atividade do kistory? Isso nao pode ser desfeito."
-msgstr ""
+msgstr "Apagar todo o histórico de atividade do kistory? Isso não pode ser desfeito."
 
 #: tabs/historico.c:296
 msgid ""
 "kimemory nao encontrado, ou kimemoryd nao esta rodando (status precisa do "
 "daemon)."
-msgstr ""
+msgstr "kimemory não encontrado, ou kimemoryd não está rodando (status precisa do daemon)."
 
 #: tabs/historico.c:306
 msgid ""
 "Apagar todo o historico de area de transferencia, inclusive favoritos? Isso "
 "nao pode ser desfeito."
-msgstr ""
+msgstr "Apagar todo o histórico de área de transferência, inclusive favoritos? Isso não pode ser desfeito."
 
 #: tabs/historico.c:324
 msgid ""
 "kistory (atividade: janelas, foco, arquivos, audio) e kimemory (area de "
 "transferencia) guardam tudo em texto, sem capturas de tela. Ligar/desligar "
 "os daemons fica na aba Iniciar automaticamente."
-msgstr ""
+msgstr "kistory (atividade: janelas, foco, arquivos, áudio) e kimemory (área de transferência) guardam tudo em texto, sem capturas de tela. Ligar/desligar os daemons fica na aba Iniciar automaticamente."
 
 #: tabs/historico.c:341
 msgid "Permanencia minima p/ registrar foco (s):"
-msgstr ""
+msgstr "Permanência mínima p/ registrar foco (s):"
 
 #: tabs/historico.c:344
 msgid "0 = guardar para sempre"
-msgstr ""
+msgstr "0 = guardar para sempre"
 
 #: tabs/historico.c:345
 msgid "Reter historico por (dias):"
-msgstr ""
+msgstr "Reter histórico por (dias):"
 
 #: tabs/historico.c:349
 msgid ""
 "Acoes do xisguard a registrar, separadas por virgula. Vazio: nao assina."
-msgstr ""
+msgstr "Ações do xisguard a registrar, separadas por vírgula. Vazio: não assina."
 
 #: tabs/historico.c:350
 msgid "Acoes do xisguard a registrar:"
-msgstr ""
+msgstr "Ações do xisguard a registrar:"
 
 #: tabs/historico.c:352
 msgid "Registrar arquivos abertos por programas (alem do recentes)"
-msgstr ""
+msgstr "Registrar arquivos abertos por programas (além dos recentes)"
 
 #: tabs/historico.c:360
 msgid "Classes/nomes de programas nunca registrados, separados por virgula."
-msgstr ""
+msgstr "Classes/nomes de programas nunca registrados, separados por vírgula."
 
 #: tabs/historico.c:362 tabs/historico.c:437
 msgid "Nunca registrar:"
-msgstr ""
+msgstr "Nunca registrar:"
 
 #: tabs/historico.c:366
 msgid "Registrados sem titulo (so app, horario e local)."
-msgstr ""
+msgstr "Registrados sem título (só app, horário e local)."
 
 #: tabs/historico.c:367
 msgid "Registrar sem titulo:"
-msgstr ""
+msgstr "Registrar sem título:"
 
 #: tabs/historico.c:374
 msgid ""
 "Regex (POSIX estendida); titulos de janela anonima/privada que baterem ficam "
 "sem titulo. Vazio por padrao."
-msgstr ""
+msgstr "Regex (POSIX estendida); títulos de janela anônima/privada que baterem ficam sem título. Vazio por padrão."
 
 #: tabs/historico.c:375
 msgid "Titulo privado (regex):"
-msgstr ""
+msgstr "Título privado (regex):"
 
 #: tabs/historico.c:385 tabs/historico.c:452 tabs/permissoes.c:631
 #: tabs/telas.c:1665 tabs/wallpaper.c:355
 msgid "-"
-msgstr ""
+msgstr "-"
 
 #: tabs/historico.c:390
 msgid "Ver espaco usado"
-msgstr ""
+msgstr "Ver espaço usado"
 
 #: tabs/historico.c:391 tabs/historico.c:458
 msgid "Limpar tudo"
-msgstr ""
+msgstr "Limpar tudo"
 
 #: tabs/historico.c:397 tabs/historico.c:464
 msgid "Espaco em disco"
-msgstr ""
+msgstr "Espaço em disco"
 
 #: tabs/historico.c:399
 msgid "kistory (atividade)"
-msgstr ""
+msgstr "kistory (atividade)"
 
 #: tabs/historico.c:409
 msgid "Favoritos nao contam no limite."
-msgstr ""
+msgstr "Favoritos não contam no limite."
 
 #: tabs/historico.c:410
 msgid "Maximo de itens:"
-msgstr ""
+msgstr "Máximo de itens:"
 
 #: tabs/historico.c:413
 msgid ""
 "all: tudo em disco. favorites: so favoritos; o resto fica so em RAM. none: "
 "nada."
-msgstr ""
+msgstr "all: tudo em disco. favorites: só favoritos; o resto fica só em RAM. none: nada."
 
 #: tabs/historico.c:414
 msgid "Guardar no disco:"
-msgstr ""
+msgstr "Guardar no disco:"
 
 #: tabs/historico.c:417
 msgid ""
 "simple: assume copias simples na hora. onexit: so quando o app fecha. never: "
 "nunca assume."
-msgstr ""
+msgstr "simple: assume cópias simples na hora. onexit: só quando o app fecha. never: nunca assume."
 
 #: tabs/historico.c:418
 msgid "Assumir a area de transferencia:"
-msgstr ""
+msgstr "Assumir a área de transferência:"
 
 #: tabs/historico.c:421
 msgid "Texto maximo (KB):"
-msgstr ""
+msgstr "Texto máximo (KB):"
 
 #: tabs/historico.c:424
 msgid "Imagem maxima (MB):"
-msgstr ""
+msgstr "Imagem máxima (MB):"
 
 #: tabs/historico.c:428
 msgid "Limite extra para os outros formatos espelhados de uma copia simples."
-msgstr ""
+msgstr "Limite extra para os outros formatos espelhados de uma cópia simples."
 
 #: tabs/historico.c:429
 msgid "Espelhamento extra (MB):"
-msgstr ""
+msgstr "Espelhamento extra (MB):"
 
 #: tabs/historico.c:436
 msgid ""
 "Classes/nomes de programas cujas copias nunca sao registradas, separados por "
 "virgula."
-msgstr ""
+msgstr "Classes/nomes de programas cujas cópias nunca são registradas, separados por vírgula."
 
 #: tabs/historico.c:441
 msgid ""
 "Programas sempre tratados como copia rica (nao assumida enquanto o app "
 "estiver aberto)."
-msgstr ""
+msgstr "Programas sempre tratados como cópia rica (não assumida enquanto o app estiver aberto)."
 
 #: tabs/historico.c:442
 msgid "Sempre rica (app aberto):"
-msgstr ""
+msgstr "Sempre rica (app aberto):"
 
 #: tabs/historico.c:457
 msgid "Ver estado"
-msgstr ""
+msgstr "Ver estado"
 
 #: tabs/historico.c:466
 msgid "kimemory (area de transferencia)"
-msgstr ""
+msgstr "kimemory (área de transferência)"
 
 #: tabs/janelas.c:530
 msgid "Reiniciar kiwm agora"
-msgstr ""
+msgstr "Reiniciar o kiwm agora"
 
 #: tabs/janelas.c:531
 msgid "Aplicar (grava kiwm.conf)"
-msgstr ""
+msgstr "Aplicar (grava kiwm.conf)"
 
 #: tabs/menu.c:386
 msgid ""
 "Ocultar/editar uma entrada do sistema cria uma copia em ~/.local/share/"
 "applications -- o arquivo original nunca e alterado. \"Excluir\" so funciona "
 "em entradas ja criadas pelo usuario."
-msgstr ""
+msgstr "Ocultar/editar uma entrada do sistema cria uma cópia em ~/.local/share/applications -- o arquivo original nunca é alterado. \"Excluir\" só funciona em entradas já criadas pelo usuário."
 
 #: tabs/menu.c:394
 msgid "Novo..."
-msgstr ""
+msgstr "Novo..."
 
 #: tabs/menu.c:396
 msgid "Editar..."
-msgstr ""
+msgstr "Editar..."
 
 #: tabs/menu.c:398
 msgid "Excluir"
-msgstr ""
+msgstr "Excluir"
 
 #: tabs/outras.c:183
 msgid "DPMS habilitado"
-msgstr ""
+msgstr "DPMS habilitado"
 
 #: tabs/outras.c:204
 msgid "Preferir apagar a tela (blank)"
-msgstr ""
+msgstr "Preferir apagar a tela (blank)"
 
 #: tabs/paineis.c:807
 msgid "Definir:"
-msgstr ""
+msgstr "Definir:"
 
 #: tabs/paineis.c:1231 tabs/paineis.c:1391 tabs/paineis.c:1539
 #, c-format
 msgid "Outras opcoes de '%s':"
-msgstr ""
+msgstr "Outras opções de '%s':"
 
 #: tabs/paineis.c:1452
 msgid "Adicionar painel"
-msgstr ""
+msgstr "Adicionar painel"
 
 #: tabs/paineis.c:1453
 msgid "Remover painel"
-msgstr ""
+msgstr "Remover painel"
 
 #: tabs/paineis.c:1505
 msgid "Adicionar widget"
-msgstr ""
+msgstr "Adicionar widget"
 
 #: tabs/paineis.c:1506
 msgid "Remover widget"
-msgstr ""
+msgstr "Remover widget"
 
 #: tabs/paineis.c:1521
 msgid "Cor de fundo:"
-msgstr ""
+msgstr "Cor de fundo:"
 
 #: tabs/paineis.c:1527
 msgid "Cor do texto:"
-msgstr ""
+msgstr "Cor do texto:"
 
 #: tabs/paineis.c:1561
 msgid "Salvar e recarregar xispanel"
-msgstr ""
+msgstr "Salvar e recarregar o xispanel"
 
 #: tabs/permissoes.c:48
 msgid "Todas as acoes"
-msgstr ""
+msgstr "Todas as ações"
 
 #: tabs/permissoes.c:49
 msgid "Usar memoria compartilhada"
-msgstr ""
+msgstr "Usar memória compartilhada"
 
 #: tabs/permissoes.c:50
 msgid "Acessar area de transferencia"
-msgstr ""
+msgstr "Acessar área de transferência"
 
 #: tabs/permissoes.c:51
 msgid "Acessar outras janelas"
-msgstr ""
+msgstr "Acessar outras janelas"
 
 #: tabs/permissoes.c:52
 msgid "Capturar e desenhar na tela"
-msgstr ""
+msgstr "Capturar e desenhar na tela"
 
 #: tabs/permissoes.c:53
 msgid "Gravar eventos - como teclas"
-msgstr ""
+msgstr "Gravar eventos - como teclas"
 
 #: tabs/permissoes.c:54
 msgid "Acessar imagem/posicao do cursor"
-msgstr ""
+msgstr "Acessar imagem/posição do cursor"
 
 #: tabs/permissoes.c:55
 msgid "Capturar mouse ou teclado"
-msgstr ""
+msgstr "Capturar mouse ou teclado"
 
 #: tabs/permissoes.c:56
 msgid "Inserir eventos de teclado"
-msgstr ""
+msgstr "Inserir eventos de teclado"
 
 #: tabs/permissoes.c:57
 msgid "Registrar atalhos globais"
-msgstr ""
+msgstr "Registrar atalhos globais"
 
 #: tabs/permissoes.c:58
 msgid "Capturar entrada mesmo sem foco"
-msgstr ""
+msgstr "Capturar entrada mesmo sem foco"
 
 #: tabs/permissoes.c:59
 msgid "Listar/ler propriedades de outras janelas"
-msgstr ""
+msgstr "Listar/ler propriedades de outras janelas"
 
 #: tabs/permissoes.c:60
 msgid "Permitir roubar um grab (telas de bloqueio)"
-msgstr ""
+msgstr "Permitir roubar um grab (telas de bloqueio)"
 
 #: tabs/permissoes.c:61
 msgid "Mover o cursor do mouse"
-msgstr ""
+msgstr "Mover o cursor do mouse"
 
 #: tabs/permissoes.c:62
 msgid "Roubar o foco de entrada"
-msgstr ""
+msgstr "Roubar o foco de entrada"
 
 #: tabs/permissoes.c:63
 msgid "Mudar configuracao de tela"
-msgstr ""
+msgstr "Mudar configuração de tela"
 
 #: tabs/permissoes.c:64
 msgid "Criar janela overlay (transparente)"
-msgstr ""
+msgstr "Criar janela overlay (transparente)"
 
 #: tabs/permissoes.c:416
 #, c-format
 msgid "xisguard inacessivel."
-msgstr ""
+msgstr "xisguard inacessível."
 
 #: tabs/permissoes.c:418
 #, c-format
 msgid ""
 "Nao foi possivel descobrir o diretorio de regras de sistema (timeout do X "
 "server)."
-msgstr ""
+msgstr "Não foi possível descobrir o diretório de regras de sistema (timeout do X server)."
 
 #: tabs/permissoes.c:420
 #, c-format
 msgid "%s -- %d regra(s). Somente leitura por enquanto."
-msgstr ""
+msgstr "%s -- %d regra(s). Somente leitura por enquanto."
 
 #: tabs/permissoes.c:509
 #, c-format
 msgid "xisguard conectado."
-msgstr ""
+msgstr "xisguard conectado."
 
 #: tabs/permissoes.c:512
 #, c-format
 msgid ""
 "xisguard inacessivel (daemon parado, ou socket de controle ainda nao existe)."
-msgstr ""
+msgstr "xisguard inacessível (daemon parado, ou socket de controle ainda não existe)."
 
 #: tabs/permissoes.c:521
 msgid "no_pause (nao pausar decisao)"
-msgstr ""
+msgstr "no_pause (não pausar decisão)"
 
 #: tabs/permissoes.c:524
 msgid "quiet (sem notificacoes)"
-msgstr ""
+msgstr "quiet (sem notificações)"
 
 #: tabs/permissoes.c:527
 msgid "always_kill (sempre matar em DENY)"
-msgstr ""
+msgstr "always_kill (sempre matar em DENY)"
 
 #: tabs/permissoes.c:530
 msgid "secure_mode"
-msgstr ""
+msgstr "secure_mode"
 
 #: tabs/permissoes.c:531
 msgid "Regras de usuario desligadas; novas regras permanentes pedem senha root"
-msgstr ""
+msgstr "Regras de usuário desligadas; novas regras permanentes pedem senha root"
 
 #: tabs/permissoes.c:540
 msgid "Aplicar modo"
-msgstr ""
+msgstr "Aplicar modo"
 
 #: tabs/permissoes.c:594
 msgid "Adicionar regra"
-msgstr ""
+msgstr "Adicionar regra"
 
 #: tabs/permissoes.c:595
 msgid "Remover selecionada"
-msgstr ""
+msgstr "Remover selecionada"
 
 #: tabs/permissoes.c:596
 msgid "Recarregar (RELOAD)"
-msgstr ""
+msgstr "Recarregar (RELOAD)"
 
 #: tabs/permissoes.c:606
 msgid "Regras de usuario"
-msgstr ""
+msgstr "Regras de usuário"
 
 #: tabs/permissoes.c:636
 msgid "Recarregar"
-msgstr ""
+msgstr "Recarregar"
 
 #: tabs/permissoes.c:643
 msgid "Regras de sistema"
-msgstr ""
+msgstr "Regras de sistema"
 
 #: tabs/shortcuts.c:937
 #, c-format
 msgid "kiwm: %s"
-msgstr ""
+msgstr "kiwm: %s"
 
 #: tabs/shortcuts.c:961
 #, c-format
 msgid "kicomp (%s): %s"
-msgstr ""
+msgstr "kicomp (%s): %s"
 
 #: tabs/shortcuts.c:975
 #, c-format
 msgid "xispanel (%s em '%s', #%d): atalho do widget"
-msgstr ""
+msgstr "xispanel (%s em '%s', #%d): atalho do widget"
 
 #: tabs/shortcuts.c:978
 #, c-format
 msgid "xispanel (%s em '%s'): atalho do widget"
-msgstr ""
+msgstr "xispanel (%s em '%s'): atalho do widget"
 
 #: tabs/shortcuts.c:1027
 msgid "Salvar e recarregar xiskeys"
-msgstr ""
+msgstr "Salvar e recarregar o xiskeys"
 
 #: tabs/shortcuts.c:1041
 msgid "xiskeys.conf, crie/edite/remova a vontade"
-msgstr ""
+msgstr "xiskeys.conf, crie/edite/remova à vontade"
 
 #: tabs/shortcuts.c:1063
 msgid "Grava kiwm.conf, kicomp.conf e xispanel.conf"
-msgstr ""
+msgstr "Grava kiwm.conf, kicomp.conf e xispanel.conf"
 
 #: tabs/sistema.c:722
 msgid "Sincronizar hora automaticamente pela rede (NTP)"
-msgstr ""
+msgstr "Sincronizar hora automaticamente pela rede (NTP)"
 
 #: tabs/sistema.c:742
 msgid "Data:"
-msgstr ""
+msgstr "Data:"
 
 #: tabs/sistema.c:746
 msgid "Hora:"
-msgstr ""
+msgstr "Hora:"
 
 #: tabs/sistema.c:750
 msgid "Agora"
-msgstr ""
+msgstr "Agora"
 
 #: tabs/sistema.c:799
 msgid "Mostrados na aba Calendario do xisserve"
-msgstr ""
+msgstr "Mostrados na aba Calendário do xisserve"
 
 #: tabs/telas.c:1609 tabs/telas.c:1628 tabs/telas.c:1670
 #, c-format
 msgid "%d saida(s) detectada(s)."
-msgstr ""
+msgstr "%d saída(s) detectada(s)."
 
 #: tabs/telas.c:1705
 msgid "Saida ligada"
-msgstr ""
+msgstr "Saída ligada"
 
 #: tabs/telas.c:1708
 msgid "Saida primaria"
-msgstr ""
+msgstr "Saída primária"
 
 #: tabs/telas.c:1761
 msgid "Propriedades avancadas"
-msgstr ""
+msgstr "Propriedades avançadas"
 
 #: tabs/telas.c:1773
 msgid "Outras propriedades"
-msgstr ""
+msgstr "Outras propriedades"
 
 #: tabs/telas.c:1779
 msgid "Detectar novamente"
-msgstr ""
+msgstr "Detectar novamente"
 
 #: tabs/wallpaper.c:158
 #, c-format
 msgid "%d camada(s) ativa(s)."
-msgstr ""
+msgstr "%d camada(s) ativa(s)."
 
 #: tabs/wallpaper.c:379
 msgid "Avancar slide"
-msgstr ""
+msgstr "Avançar slide"
 
 #: tabs/wallpaper.c:380
 msgid "Limpar selecionada"
-msgstr ""
+msgstr "Limpar selecionada"
 
 #: tabs/wallpaper.c:381
 msgid "Limpar todas"
-msgstr ""
+msgstr "Limpar todas"
 
 #: tabs/wallpaper.c:382
 msgid "Atualizar"
-msgstr ""
+msgstr "Atualizar"
 
 #: tabs/wallpaper.c:386
 msgid "Igualar todas"
-msgstr ""
+msgstr "Igualar todas"
 
 #: tabs/wallpaper.c:387
 msgid "Mesmo papel de parede pra tudo"
-msgstr ""
+msgstr "Mesmo papel de parede pra tudo"
 
 #: tabs/wallpaper.c:400
 msgid "Clique numa linha pra editar"
-msgstr ""
+msgstr "Clique numa linha pra editar"
 
 #: tabs/wallpaper.c:417
 msgid "Ordem aleatoria (em vez de alfabetica)"
-msgstr ""
+msgstr "Ordem aleatória (em vez de alfabética)"
 
 #: tabs/wallpaper.c:427
 msgid "Arquivo..."
-msgstr ""
+msgstr "Arquivo..."
 
 #: tabs/wallpaper.c:428
 msgid "Pasta..."
-msgstr ""
+msgstr "Pasta..."
 
 #: tabs/wallpaper.c:436
 msgid "Imagem ou pasta:"
-msgstr ""
+msgstr "Imagem ou pasta:"
 
 #: tabs/wallpaper.c:440
 msgid "Definir camada"
-msgstr ""
+msgstr "Definir camada"
 
 #: tabs/wallpaper.c:462
 msgid "Salvar acoes de clique"
-msgstr ""
+msgstr "Salvar ações de clique"

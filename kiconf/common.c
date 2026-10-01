@@ -322,7 +322,7 @@ void output_combo_select(GtkWidget *combo, const char *current)
         }
     }
     char label[96];
-    snprintf(label, sizeof(label), "%s (nao conectado agora)", current);
+    snprintf(label, sizeof(label), _("%s (nao conectado agora)"), current);
     gtk_combo_box_append_text(GTK_COMBO_BOX(combo), label);
     output_combo_ids_append(combo, current);
     gtk_combo_box_set_active(GTK_COMBO_BOX(combo), n);
@@ -357,9 +357,9 @@ GtkWidget *make_output_combo(int include_wildcard, const char *current)
             /* outs[i].id is "edid:VVV:PPPP:SSSSSSSS" -- skip the
              * "edid:" prefix in the label, it's implementation detail a
              * user picking a monitor from a list doesn't need to see. */
-            snprintf(label, sizeof(label), "%s (%s)", outs[i].name, outs[i].id + 5);
+            snprintf(label, sizeof(label), _("%s (%s)"), outs[i].name, outs[i].id + 5);
         } else {
-            snprintf(label, sizeof(label), "%s (sem EDID)", outs[i].name);
+            snprintf(label, sizeof(label), _("%s (sem EDID)"), outs[i].name);
         }
         gtk_combo_box_append_text(GTK_COMBO_BOX(combo), label);
         output_combo_ids_append(combo, value);

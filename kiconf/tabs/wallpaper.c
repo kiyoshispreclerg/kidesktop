@@ -155,7 +155,7 @@ static void refresh_wp_layers(void)
                             COL_WP_PATH, l->path, -1);
     }
     char status[64];
-    snprintf(status, sizeof(status), "%d camada(s) ativa(s).", g_n_wp_layers);
+    snprintf(status, sizeof(status), _("%d camada(s) ativa(s)."), g_n_wp_layers);
     gtk_label_set_text(GTK_LABEL(g_wp_status_label), status);
 }
 
@@ -352,7 +352,7 @@ GtkWidget *build_wallpaper_tab(void)
     GtkWidget *outer = gtk_vbox_new(FALSE, 8);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
 
-    g_wp_status_label = gtk_label_new("-");
+    g_wp_status_label = gtk_label_new(_("-"));
     gtk_misc_set_alignment(GTK_MISC(g_wp_status_label), 0.0, 0.5);
     gtk_box_pack_start(GTK_BOX(outer), g_wp_status_label, FALSE, FALSE, 0);
 
@@ -376,15 +376,15 @@ GtkWidget *build_wallpaper_tab(void)
     GtkWidget *layers_box = gtk_vbox_new(FALSE, 4);
     gtk_box_pack_start(GTK_BOX(layers_box), wp_scroll, TRUE, TRUE, 0);
     GtkWidget *layers_btnbox = gtk_hbox_new(FALSE, 6);
-    GtkWidget *next_btn = gtk_button_new_with_label("Avancar slide");
-    GtkWidget *clear_sel_btn = gtk_button_new_with_label("Limpar selecionada");
-    GtkWidget *clear_all_btn = gtk_button_new_with_label("Limpar todas");
-    GtkWidget *refresh_btn = gtk_button_new_with_label("Atualizar");
+    GtkWidget *next_btn = gtk_button_new_with_label(_("Avancar slide"));
+    GtkWidget *clear_sel_btn = gtk_button_new_with_label(_("Limpar selecionada"));
+    GtkWidget *clear_all_btn = gtk_button_new_with_label(_("Limpar todas"));
+    GtkWidget *refresh_btn = gtk_button_new_with_label(_("Atualizar"));
     /* Short label + tooltip instead of the full sentence -- 5 buttons in
      * one row, this one alone was pushing the tab past the 700px minimum
      * width. */
-    GtkWidget *global_btn = gtk_button_new_with_label("Igualar todas");
-    gtk_widget_set_tooltip_text(global_btn, "Mesmo papel de parede pra tudo");
+    GtkWidget *global_btn = gtk_button_new_with_label(_("Igualar todas"));
+    gtk_widget_set_tooltip_text(global_btn, _("Mesmo papel de parede pra tudo"));
     g_signal_connect(next_btn, "clicked", G_CALLBACK(on_wp_next), NULL);
     g_signal_connect(clear_sel_btn, "clicked", G_CALLBACK(on_wp_clear_selected), NULL);
     g_signal_connect(clear_all_btn, "clicked", G_CALLBACK(on_wp_clear_all), NULL);
@@ -397,7 +397,7 @@ GtkWidget *build_wallpaper_tab(void)
     gtk_box_pack_end(GTK_BOX(layers_btnbox), global_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(layers_box), layers_btnbox, FALSE, FALSE, 0);
     GtkWidget *layers_frame = frame_with("Camadas ativas", layers_box);
-    gtk_widget_set_tooltip_text(layers_frame, "Clique numa linha pra editar");
+    gtk_widget_set_tooltip_text(layers_frame, _("Clique numa linha pra editar"));
     gtk_box_pack_start(GTK_BOX(outer), layers_frame, TRUE, TRUE, 0);
 
     GtkWidget *set_table = gtk_table_new(6, 2, FALSE);
@@ -414,7 +414,7 @@ GtkWidget *build_wallpaper_tab(void)
     g_wp_interval_spin = gtk_spin_button_new_with_range(5, 86400, 5);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_wp_interval_spin), 300);
     labeled_row(set_table, 3, "Intervalo do slideshow (s):", g_wp_interval_spin);
-    g_wp_shuffle_chk = gtk_check_button_new_with_label("Ordem aleatoria (em vez de alfabetica)");
+    g_wp_shuffle_chk = gtk_check_button_new_with_label(_("Ordem aleatoria (em vez de alfabetica)"));
     gtk_table_attach(GTK_TABLE(set_table), g_wp_shuffle_chk, 0, 2, 4, 5, GTK_FILL, GTK_FILL, 4, 2);
     g_wp_fade_spin = gtk_spin_button_new_with_range(0.0, 5.0, 0.1);
     gtk_spin_button_set_digits(GTK_SPIN_BUTTON(g_wp_fade_spin), 1);
@@ -424,8 +424,8 @@ GtkWidget *build_wallpaper_tab(void)
     GtkWidget *path_row = gtk_hbox_new(FALSE, 4);
     g_wp_path_entry = gtk_entry_new();
     gtk_box_pack_start(GTK_BOX(path_row), g_wp_path_entry, TRUE, TRUE, 0);
-    GtkWidget *file_btn = gtk_button_new_with_label("Arquivo...");
-    GtkWidget *folder_btn = gtk_button_new_with_label("Pasta...");
+    GtkWidget *file_btn = gtk_button_new_with_label(_("Arquivo..."));
+    GtkWidget *folder_btn = gtk_button_new_with_label(_("Pasta..."));
     g_signal_connect(file_btn, "clicked", G_CALLBACK(on_wp_pick_file), NULL);
     g_signal_connect(folder_btn, "clicked", G_CALLBACK(on_wp_pick_folder), NULL);
     gtk_box_pack_start(GTK_BOX(path_row), file_btn, FALSE, FALSE, 0);
@@ -433,11 +433,11 @@ GtkWidget *build_wallpaper_tab(void)
 
     GtkWidget *set_box = gtk_vbox_new(FALSE, 4);
     gtk_box_pack_start(GTK_BOX(set_box), set_table, FALSE, FALSE, 0);
-    GtkWidget *path_label = gtk_label_new("Imagem ou pasta:");
+    GtkWidget *path_label = gtk_label_new(_("Imagem ou pasta:"));
     gtk_misc_set_alignment(GTK_MISC(path_label), 0.0, 0.5);
     gtk_box_pack_start(GTK_BOX(set_box), path_label, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(set_box), path_row, FALSE, FALSE, 0);
-    GtkWidget *set_btn = gtk_button_new_with_label("Definir camada");
+    GtkWidget *set_btn = gtk_button_new_with_label(_("Definir camada"));
     g_signal_connect(set_btn, "clicked", G_CALLBACK(on_wp_set), NULL);
     GtkWidget *set_btnbox = gtk_hbox_new(FALSE, 0);
     gtk_box_pack_end(GTK_BOX(set_btnbox), set_btn, FALSE, FALSE, 0);
@@ -459,7 +459,7 @@ GtkWidget *build_wallpaper_tab(void)
     labeled_row(actions_table, 5, "Rolar pra baixo:", g_wp_action_scroll_down);
     GtkWidget *actions_box = gtk_vbox_new(FALSE, 4);
     gtk_box_pack_start(GTK_BOX(actions_box), actions_table, FALSE, FALSE, 0);
-    GtkWidget *actions_save_btn = gtk_button_new_with_label("Salvar acoes de clique");
+    GtkWidget *actions_save_btn = gtk_button_new_with_label(_("Salvar acoes de clique"));
     g_signal_connect(actions_save_btn, "clicked", G_CALLBACK(on_wp_actions_save), NULL);
     gtk_box_pack_start(GTK_BOX(actions_box), actions_save_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Acoes de clique", actions_box), FALSE, FALSE, 0);

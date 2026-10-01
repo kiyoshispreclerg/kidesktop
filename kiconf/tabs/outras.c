@@ -180,7 +180,7 @@ GtkWidget *build_outras_tab(void)
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Selecao primaria (XiS)", primsel_box), FALSE, FALSE, 0);
 
     GtkWidget *dpms_table = gtk_table_new(4, 2, FALSE);
-    g_dpms_enabled_chk = gtk_check_button_new_with_label("DPMS habilitado");
+    g_dpms_enabled_chk = gtk_check_button_new_with_label(_("DPMS habilitado"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_dpms_enabled_chk), g_power_baseline.dpms_enabled);
     gtk_table_attach(GTK_TABLE(dpms_table), g_dpms_enabled_chk, 0, 2, 0, 1, GTK_FILL, GTK_FILL, 4, 2);
     g_dpms_standby_spin = gtk_spin_button_new_with_range(0, 36000, 10);
@@ -201,7 +201,7 @@ GtkWidget *build_outras_tab(void)
     g_saver_cycle_spin = gtk_spin_button_new_with_range(0, 36000, 10);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_saver_cycle_spin), g_power_baseline.saver_cycle);
     labeled_row(saver_table, 1, "Ciclo, s:", g_saver_cycle_spin);
-    g_prefer_blank_chk = gtk_check_button_new_with_label("Preferir apagar a tela (blank)");
+    g_prefer_blank_chk = gtk_check_button_new_with_label(_("Preferir apagar a tela (blank)"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_prefer_blank_chk), g_power_baseline.prefer_blanking);
     gtk_table_attach(GTK_TABLE(saver_table), g_prefer_blank_chk, 0, 2, 2, 3, GTK_FILL, GTK_FILL, 4, 2);
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Protetor de tela", saver_table), FALSE, FALSE, 0);
@@ -212,7 +212,7 @@ GtkWidget *build_outras_tab(void)
     labeled_row(desk_table, 0, "Numero de areas de trabalho:", g_desktop_count_spin);
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Areas de trabalho virtuais", desk_table), FALSE, FALSE, 0);
 
-    GtkWidget *apply_btn = gtk_button_new_with_label("Aplicar");
+    GtkWidget *apply_btn = gtk_button_new_with_label(_("Aplicar"));
     g_signal_connect(apply_btn, "clicked", G_CALLBACK(apply_outras_cb), NULL);
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 0);
     gtk_box_pack_end(GTK_BOX(btnbox), apply_btn, FALSE, FALSE, 0);

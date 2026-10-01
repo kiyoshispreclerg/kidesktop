@@ -479,11 +479,11 @@ GtkWidget *build_entrada_tab(void)
     g_pointer_accel_spin = gtk_spin_button_new_with_range(-1.0, 1.0, 0.1);
     gtk_spin_button_set_digits(GTK_SPIN_BUTTON(g_pointer_accel_spin), 2);
     labeled_row(ptr_table, 1, "Velocidade (Accel Speed):", g_pointer_accel_spin);
-    g_pointer_natural_chk = gtk_check_button_new_with_label("Rolagem natural");
+    g_pointer_natural_chk = gtk_check_button_new_with_label(_("Rolagem natural"));
     gtk_table_attach(GTK_TABLE(ptr_table), g_pointer_natural_chk, 0, 2, 2, 3, GTK_FILL, GTK_FILL, 4, 2);
-    g_pointer_lefth_chk = gtk_check_button_new_with_label("Canhoto (inverter botoes)");
+    g_pointer_lefth_chk = gtk_check_button_new_with_label(_("Canhoto (inverter botoes)"));
     gtk_table_attach(GTK_TABLE(ptr_table), g_pointer_lefth_chk, 0, 2, 3, 4, GTK_FILL, GTK_FILL, 4, 2);
-    g_pointer_tap_chk = gtk_check_button_new_with_label("Tocar para clicar (touchpad)");
+    g_pointer_tap_chk = gtk_check_button_new_with_label(_("Tocar para clicar (touchpad)"));
     gtk_table_attach(GTK_TABLE(ptr_table), g_pointer_tap_chk, 0, 2, 4, 5, GTK_FILL, GTK_FILL, 4, 2);
     g_pointer_middle_chk = gtk_check_button_new_with_label(
         "Emular clique do meio com clique direito e esquerdo simultaneos");
@@ -501,7 +501,7 @@ GtkWidget *build_entrada_tab(void)
     }
 
     GtkWidget *kbd_table = gtk_table_new(3, 2, FALSE);
-    g_kbd_repeat_chk = gtk_check_button_new_with_label("Repeticao automatica");
+    g_kbd_repeat_chk = gtk_check_button_new_with_label(_("Repeticao automatica"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_kbd_repeat_chk), g_kbd_baseline.repeat_enabled);
     gtk_table_attach(GTK_TABLE(kbd_table), g_kbd_repeat_chk, 0, 2, 0, 1, GTK_FILL, GTK_FILL, 4, 2);
     g_kbd_delay_spin = gtk_spin_button_new_with_range(100, 3000, 10);
@@ -536,12 +536,12 @@ GtkWidget *build_entrada_tab(void)
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Opcoes especiais de teclado (XiS)", special_box), FALSE, FALSE, 0);
 
     GtkWidget *session_box = gtk_vbox_new(FALSE, 2);
-    g_numlock_start_chk = gtk_check_button_new_with_label("Ativar NumLock ao iniciar a sessao");
+    g_numlock_start_chk = gtk_check_button_new_with_label(_("Ativar NumLock ao iniciar a sessao"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_numlock_start_chk), ic.numlock_on_start);
     gtk_box_pack_start(GTK_BOX(session_box), g_numlock_start_chk, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Inicio de sessao", session_box), FALSE, FALSE, 0);
 
-    GtkWidget *apply_btn = gtk_button_new_with_label("Aplicar");
+    GtkWidget *apply_btn = gtk_button_new_with_label(_("Aplicar"));
     g_signal_connect(apply_btn, "clicked", G_CALLBACK(apply_entrada_cb), NULL);
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 0);
     gtk_box_pack_end(GTK_BOX(btnbox), apply_btn, FALSE, FALSE, 0);

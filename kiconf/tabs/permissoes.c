@@ -40,24 +40,28 @@ static XgStatus g_xg_baseline;
 
 enum { COL_XG_TYPE = 0, COL_XG_ACTION, COL_XG_PATTERN, N_XG_COLS };
 
+/* XNOTIFY_ACTIONS[i][0] is the protocol token (goes into perms.conf
+ * verbatim, never translated); [i][1] is only ever read into a label
+ * below, so it's N_()-marked here for extraction and _()-looked-up at
+ * the read site instead, same pattern as shortcuts.c's FixedShortcut. */
 static const char *const XNOTIFY_ACTIONS[][2] = {
-    {"ALL", "Todas as acoes"},
-    {"ATTACH", "Usar memoria compartilhada"},
-    {"SELECTION", "Acessar area de transferencia"},
-    {"COMPOSITE", "Acessar outras janelas"},
-    {"SCREEN", "Capturar e desenhar na tela"},
-    {"RECORD", "Gravar eventos - como teclas"},
-    {"CURSOR", "Acessar imagem/posicao do cursor"},
-    {"INPUT_GRAB", "Capturar mouse ou teclado"},
-    {"INPUT_INJECT", "Inserir eventos de teclado"},
-    {"HOTKEY", "Registrar atalhos globais"},
-    {"INPUT", "Capturar entrada mesmo sem foco"},
-    {"MANAGE", "Listar/ler propriedades de outras janelas"},
-    {"GRAB_OVERRIDE", "Permitir roubar um grab (telas de bloqueio)"},
-    {"WARP", "Mover o cursor do mouse"},
-    {"FOCUS", "Roubar o foco de entrada"},
-    {"RANDR", "Mudar configuracao de tela"},
-    {"OVERLAY", "Criar janela overlay (transparente)"},
+    {"ALL", N_("Todas as acoes")},
+    {"ATTACH", N_("Usar memoria compartilhada")},
+    {"SELECTION", N_("Acessar area de transferencia")},
+    {"COMPOSITE", N_("Acessar outras janelas")},
+    {"SCREEN", N_("Capturar e desenhar na tela")},
+    {"RECORD", N_("Gravar eventos - como teclas")},
+    {"CURSOR", N_("Acessar imagem/posicao do cursor")},
+    {"INPUT_GRAB", N_("Capturar mouse ou teclado")},
+    {"INPUT_INJECT", N_("Inserir eventos de teclado")},
+    {"HOTKEY", N_("Registrar atalhos globais")},
+    {"INPUT", N_("Capturar entrada mesmo sem foco")},
+    {"MANAGE", N_("Listar/ler propriedades de outras janelas")},
+    {"GRAB_OVERRIDE", N_("Permitir roubar um grab (telas de bloqueio)")},
+    {"WARP", N_("Mover o cursor do mouse")},
+    {"FOCUS", N_("Roubar o foco de entrada")},
+    {"RANDR", N_("Mudar configuracao de tela")},
+    {"OVERLAY", N_("Criar janela overlay (transparente)")},
     {NULL, NULL},
 };
 
@@ -409,11 +413,11 @@ static void refresh_xg_sys_rules(void)
     if (g_xg_sys_rules_status_label) {
         char status[600];
         if (!g_xg_baseline.online) {
-            snprintf(status, sizeof(status), "xisguard inacessivel.");
+            snprintf(status, sizeof(status), _("xisguard inacessivel."));
         } else if (!have_dir) {
-            snprintf(status, sizeof(status), "Nao foi possivel descobrir o diretorio de regras de sistema (timeout do X server).");
+            snprintf(status, sizeof(status), _("Nao foi possivel descobrir o diretorio de regras de sistema (timeout do X server)."));
         } else {
-            snprintf(status, sizeof(status), "%s -- %d regra(s). Somente leitura por enquanto.", dir, n);
+            snprintf(status, sizeof(status), _("%s -- %d regra(s). Somente leitura por enquanto."), dir, n);
         }
         gtk_label_set_text(GTK_LABEL(g_xg_sys_rules_status_label), status);
     }
@@ -502,10 +506,10 @@ GtkWidget *build_permissoes_tab(void)
 
     char status_text[128];
     if (g_xg_baseline.online) {
-        snprintf(status_text, sizeof(status_text), "xisguard conectado.");
+        snprintf(status_text, sizeof(status_text), _("xisguard conectado."));
     } else {
         snprintf(status_text, sizeof(status_text),
-                  "xisguard inacessivel (daemon parado, ou socket de controle ainda nao existe).");
+                  _("xisguard inacessivel (daemon parado, ou socket de controle ainda nao existe)."));
     }
     g_xg_status_label = gtk_label_new(status_text);
     gtk_misc_set_alignment(GTK_MISC(g_xg_status_label), 0.0, 0.5);
@@ -514,18 +518,17 @@ GtkWidget *build_permissoes_tab(void)
     gtk_box_pack_start(GTK_BOX(outer), g_xg_status_label, FALSE, FALSE, 0);
 
     GtkWidget *status_table = gtk_table_new(5, 2, FALSE);
-    g_xg_no_pause_chk = gtk_check_button_new_with_label("no_pause (nao pausar decisao)");
+    g_xg_no_pause_chk = gtk_check_button_new_with_label(_("no_pause (nao pausar decisao)"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_xg_no_pause_chk), g_xg_baseline.no_pause);
     gtk_table_attach(GTK_TABLE(status_table), g_xg_no_pause_chk, 0, 2, 0, 1, GTK_FILL, GTK_FILL, 4, 1);
-    g_xg_quiet_chk = gtk_check_button_new_with_label("quiet (sem notificacoes)");
+    g_xg_quiet_chk = gtk_check_button_new_with_label(_("quiet (sem notificacoes)"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_xg_quiet_chk), g_xg_baseline.quiet);
     gtk_table_attach(GTK_TABLE(status_table), g_xg_quiet_chk, 0, 2, 1, 2, GTK_FILL, GTK_FILL, 4, 1);
-    g_xg_always_kill_chk = gtk_check_button_new_with_label("always_kill (sempre matar em DENY)");
+    g_xg_always_kill_chk = gtk_check_button_new_with_label(_("always_kill (sempre matar em DENY)"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_xg_always_kill_chk), g_xg_baseline.always_kill);
     gtk_table_attach(GTK_TABLE(status_table), g_xg_always_kill_chk, 0, 2, 2, 3, GTK_FILL, GTK_FILL, 4, 1);
-    g_xg_secure_mode_chk = gtk_check_button_new_with_label("secure_mode");
-    gtk_widget_set_tooltip_text(g_xg_secure_mode_chk,
-        "Regras de usuario desligadas; novas regras permanentes pedem senha root");
+    g_xg_secure_mode_chk = gtk_check_button_new_with_label(_("secure_mode"));
+    gtk_widget_set_tooltip_text(g_xg_secure_mode_chk, _("Regras de usuario desligadas; novas regras permanentes pedem senha root"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_xg_secure_mode_chk), g_xg_baseline.secure_mode);
     gtk_table_attach(GTK_TABLE(status_table), g_xg_secure_mode_chk, 0, 2, 3, 4, GTK_FILL, GTK_FILL, 4, 1);
     g_xg_log_level_spin = gtk_spin_button_new_with_range(0, 5, 1);
@@ -534,7 +537,7 @@ GtkWidget *build_permissoes_tab(void)
     gtk_widget_set_sensitive(status_table, g_xg_baseline.online);
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Modo de execucao", status_table), FALSE, FALSE, 0);
 
-    GtkWidget *status_apply_btn = gtk_button_new_with_label("Aplicar modo");
+    GtkWidget *status_apply_btn = gtk_button_new_with_label(_("Aplicar modo"));
     g_signal_connect(status_apply_btn, "clicked", G_CALLBACK(apply_xg_status_cb), NULL);
     gtk_widget_set_sensitive(status_apply_btn, g_xg_baseline.online);
     GtkWidget *status_btnbox = gtk_hbox_new(FALSE, 0);
@@ -568,7 +571,7 @@ GtkWidget *build_permissoes_tab(void)
     g_xg_action_combo = gtk_combo_box_new_text();
     for (int i = 0; XNOTIFY_ACTIONS[i][0]; i++) {
         char label[96];
-        snprintf(label, sizeof(label), "%s -- %s", XNOTIFY_ACTIONS[i][0], XNOTIFY_ACTIONS[i][1]);
+        snprintf(label, sizeof(label), "%s -- %s", XNOTIFY_ACTIONS[i][0], _(XNOTIFY_ACTIONS[i][1]));
         gtk_combo_box_append_text(GTK_COMBO_BOX(g_xg_action_combo), label);
     }
     gtk_combo_box_set_active(GTK_COMBO_BOX(g_xg_action_combo), 0);
@@ -588,9 +591,9 @@ GtkWidget *build_permissoes_tab(void)
     gtk_box_pack_start(GTK_BOX(rules_box), add_row, FALSE, FALSE, 0);
 
     GtkWidget *rules_btnbox = gtk_hbox_new(FALSE, 6);
-    GtkWidget *add_btn = gtk_button_new_with_label("Adicionar regra");
-    GtkWidget *remove_btn = gtk_button_new_with_label("Remover selecionada");
-    GtkWidget *reload_btn = gtk_button_new_with_label("Recarregar (RELOAD)");
+    GtkWidget *add_btn = gtk_button_new_with_label(_("Adicionar regra"));
+    GtkWidget *remove_btn = gtk_button_new_with_label(_("Remover selecionada"));
+    GtkWidget *reload_btn = gtk_button_new_with_label(_("Recarregar (RELOAD)"));
     g_signal_connect(add_btn, "clicked", G_CALLBACK(on_xg_add_rule), NULL);
     g_signal_connect(remove_btn, "clicked", G_CALLBACK(on_xg_remove_rule), g_xg_rules_view);
     g_signal_connect(reload_btn, "clicked", G_CALLBACK(on_xg_reload), NULL);
@@ -600,7 +603,7 @@ GtkWidget *build_permissoes_tab(void)
     gtk_box_pack_start(GTK_BOX(rules_box), rules_btnbox, FALSE, FALSE, 0);
 
     gtk_widget_set_sensitive(rules_box, g_xg_baseline.online);
-    gtk_notebook_append_page(GTK_NOTEBOOK(rules_notebook), rules_box, gtk_label_new("Regras de usuario"));
+    gtk_notebook_append_page(GTK_NOTEBOOK(rules_notebook), rules_box, gtk_label_new(_("Regras de usuario")));
 
     /* ---- "Regras de sistema" page: SYSCONFDIR's xnotify.conf.d directory
      * (*.conf files), read directly by kiconf once xisguard tells it where that is (see
@@ -625,19 +628,19 @@ GtkWidget *build_permissoes_tab(void)
     gtk_container_set_border_width(GTK_CONTAINER(sys_rules_box), 2);
     gtk_box_pack_start(GTK_BOX(sys_rules_box), sys_rules_scroll, TRUE, TRUE, 0);
 
-    g_xg_sys_rules_status_label = gtk_label_new("-");
+    g_xg_sys_rules_status_label = gtk_label_new(_("-"));
     gtk_misc_set_alignment(GTK_MISC(g_xg_sys_rules_status_label), 0.0, 0.5);
     gtk_label_set_line_wrap(GTK_LABEL(g_xg_sys_rules_status_label), TRUE);
     gtk_box_pack_start(GTK_BOX(sys_rules_box), g_xg_sys_rules_status_label, FALSE, FALSE, 0);
 
-    GtkWidget *sys_reload_btn = gtk_button_new_with_label("Recarregar");
+    GtkWidget *sys_reload_btn = gtk_button_new_with_label(_("Recarregar"));
     g_signal_connect(sys_reload_btn, "clicked", G_CALLBACK(on_xg_reload), NULL);
     GtkWidget *sys_rules_btnbox = gtk_hbox_new(FALSE, 0);
     gtk_box_pack_end(GTK_BOX(sys_rules_btnbox), sys_reload_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(sys_rules_box), sys_rules_btnbox, FALSE, FALSE, 0);
 
     gtk_widget_set_sensitive(sys_rules_box, g_xg_baseline.online);
-    gtk_notebook_append_page(GTK_NOTEBOOK(rules_notebook), sys_rules_box, gtk_label_new("Regras de sistema"));
+    gtk_notebook_append_page(GTK_NOTEBOOK(rules_notebook), sys_rules_box, gtk_label_new(_("Regras de sistema")));
 
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Regras XNOTIFY", rules_notebook), TRUE, TRUE, 0);
 

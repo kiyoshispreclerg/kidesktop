@@ -1606,7 +1606,7 @@ static void on_screens_apply(GtkWidget *widget, gpointer data)
         g_screens_selected = -1;
     }
     char status[64];
-    snprintf(status, sizeof(status), "%d saida(s) detectada(s).", g_n_outputs);
+    snprintf(status, sizeof(status), _("%d saida(s) detectada(s)."), g_n_outputs);
     gtk_label_set_text(GTK_LABEL(g_screens_status_label), status);
     if (g_screens_selected >= 0) {
         sync_screens_form();
@@ -1625,7 +1625,7 @@ static void on_screens_refresh(GtkWidget *widget, gpointer data)
         g_screens_selected = -1;
     }
     char status[64];
-    snprintf(status, sizeof(status), "%d saida(s) detectada(s).", g_n_outputs);
+    snprintf(status, sizeof(status), _("%d saida(s) detectada(s)."), g_n_outputs);
     gtk_label_set_text(GTK_LABEL(g_screens_status_label), status);
     if (g_screens_selected >= 0) {
         sync_screens_form();
@@ -1662,12 +1662,12 @@ GtkWidget *build_telas_tab(void)
     gtk_widget_set_size_request(note, 600, -1);
     gtk_box_pack_start(GTK_BOX(outer), note, FALSE, FALSE, 0);
 
-    g_screens_status_label = gtk_label_new("-");
+    g_screens_status_label = gtk_label_new(_("-"));
     gtk_misc_set_alignment(GTK_MISC(g_screens_status_label), 0.0, 0.5);
     gtk_box_pack_start(GTK_BOX(outer), g_screens_status_label, FALSE, FALSE, 0);
     {
         char status[64];
-        snprintf(status, sizeof(status), "%d saida(s) detectada(s).", g_n_outputs);
+        snprintf(status, sizeof(status), _("%d saida(s) detectada(s)."), g_n_outputs);
         gtk_label_set_text(GTK_LABEL(g_screens_status_label), status);
     }
 
@@ -1702,10 +1702,10 @@ GtkWidget *build_telas_tab(void)
     g_screens_mirror_combo = gtk_combo_box_new_text();
     g_signal_connect(g_screens_mirror_combo, "changed", G_CALLBACK(on_screens_mirror_changed), NULL);
     labeled_row(form_col1, 3, "Espelhar (mirror):", g_screens_mirror_combo);
-    g_screens_enabled_chk = gtk_check_button_new_with_label("Saida ligada");
+    g_screens_enabled_chk = gtk_check_button_new_with_label(_("Saida ligada"));
     g_signal_connect(g_screens_enabled_chk, "toggled", G_CALLBACK(on_screens_enabled_toggled), NULL);
     gtk_table_attach(GTK_TABLE(form_col2), g_screens_enabled_chk, 0, 2, 0, 1, GTK_FILL, GTK_FILL, 4, 2);
-    g_screens_primary_chk = gtk_check_button_new_with_label("Saida primaria");
+    g_screens_primary_chk = gtk_check_button_new_with_label(_("Saida primaria"));
     g_signal_connect(g_screens_primary_chk, "toggled", G_CALLBACK(on_screens_primary_toggled), NULL);
     gtk_table_attach(GTK_TABLE(form_col2), g_screens_primary_chk, 0, 2, 1, 2, GTK_FILL, GTK_FILL, 4, 2);
     /* 0 is a real, explicit choice here, not "unset" -- it's what
@@ -1758,7 +1758,7 @@ GtkWidget *build_telas_tab(void)
      * text, and with 3 of these panels side by side a longer title alone
      * was keeping this tab wider than the 700px minimum. */
     g_screens_extra_editable_frame = frame_with("Avancado", extra_editable_scroll);
-    gtk_widget_set_tooltip_text(g_screens_extra_editable_frame, "Propriedades avancadas");
+    gtk_widget_set_tooltip_text(g_screens_extra_editable_frame, _("Propriedades avancadas"));
     gtk_box_pack_start(GTK_BOX(sections_row), g_screens_extra_editable_frame, TRUE, TRUE, 0);
 
     /* Other (read-only) properties -- same source, but forced read-only
@@ -1770,14 +1770,14 @@ GtkWidget *build_telas_tab(void)
     gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(extra_readonly_scroll), g_screens_extra_readonly_box);
     gtk_widget_set_size_request(extra_readonly_scroll, 90, 90);
     g_screens_extra_readonly_frame = frame_with("Outras", extra_readonly_scroll);
-    gtk_widget_set_tooltip_text(g_screens_extra_readonly_frame, "Outras propriedades");
+    gtk_widget_set_tooltip_text(g_screens_extra_readonly_frame, _("Outras propriedades"));
     gtk_box_pack_start(GTK_BOX(sections_row), g_screens_extra_readonly_frame, TRUE, TRUE, 0);
 
     gtk_box_pack_start(GTK_BOX(outer), sections_row, FALSE, FALSE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 6);
-    GtkWidget *refresh_btn = gtk_button_new_with_label("Detectar novamente");
-    GtkWidget *apply_btn = gtk_button_new_with_label("Aplicar");
+    GtkWidget *refresh_btn = gtk_button_new_with_label(_("Detectar novamente"));
+    GtkWidget *apply_btn = gtk_button_new_with_label(_("Aplicar"));
     g_signal_connect(refresh_btn, "clicked", G_CALLBACK(on_screens_refresh), NULL);
     g_signal_connect(apply_btn, "clicked", G_CALLBACK(on_screens_apply), NULL);
     gtk_box_pack_start(GTK_BOX(btnbox), refresh_btn, FALSE, FALSE, 0);

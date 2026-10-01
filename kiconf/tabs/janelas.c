@@ -527,8 +527,8 @@ GtkWidget *build_janelas_tab(void)
     gtk_box_pack_start(GTK_BOX(content), frame_with("Alternador (Alt+Tab / ModKey+Tab)", osd_table), FALSE, FALSE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 6);
-    GtkWidget *restart_btn = gtk_button_new_with_label("Reiniciar kiwm agora");
-    GtkWidget *apply_btn = gtk_button_new_with_label("Aplicar (grava kiwm.conf)");
+    GtkWidget *restart_btn = gtk_button_new_with_label(_("Reiniciar kiwm agora"));
+    GtkWidget *apply_btn = gtk_button_new_with_label(_("Aplicar (grava kiwm.conf)"));
     g_signal_connect(restart_btn, "clicked", G_CALLBACK(restart_kiwm_cb), NULL);
     g_signal_connect(apply_btn, "clicked", G_CALLBACK(save_janelas_cb), NULL);
     gtk_box_pack_start(GTK_BOX(btnbox), restart_btn, FALSE, FALSE, 0);

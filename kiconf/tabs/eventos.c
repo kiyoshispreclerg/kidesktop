@@ -108,7 +108,7 @@ static void save_events_cb(GtkWidget *widget, gpointer data)
     fclose(f);
     rename(tmp, path);
 
-    gtk_label_set_text(GTK_LABEL(g_events_status_label), "Gravado.");
+    gtk_label_set_text(GTK_LABEL(g_events_status_label), _("Gravado."));
 }
 
 static void add_event_cb(GtkWidget *widget, gpointer data)
@@ -222,9 +222,9 @@ GtkWidget *build_eventos_tab(void)
     gtk_box_pack_start(GTK_BOX(outer), g_events_status_label, FALSE, FALSE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 6);
-    GtkWidget *add_btn = gtk_button_new_with_label("Adicionar");
-    GtkWidget *remove_btn = gtk_button_new_with_label("Remover");
-    GtkWidget *save_btn = gtk_button_new_with_label("Salvar");
+    GtkWidget *add_btn = gtk_button_new_with_label(_("Adicionar"));
+    GtkWidget *remove_btn = gtk_button_new_with_label(_("Remover"));
+    GtkWidget *save_btn = gtk_button_new_with_label(_("Salvar"));
     g_signal_connect(add_btn, "clicked", G_CALLBACK(add_event_cb), NULL);
     g_signal_connect(remove_btn, "clicked", G_CALLBACK(remove_event_cb), view);
     g_signal_connect(save_btn, "clicked", G_CALLBACK(save_events_cb), NULL);

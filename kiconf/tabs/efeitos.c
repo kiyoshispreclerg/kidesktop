@@ -652,7 +652,7 @@ static GtkWidget *build_field_widget(const EffectField *f, const char *val)
         return make_color_button(hex6);
     }
     }
-    return gtk_label_new("?");
+    return gtk_label_new(_("?"));
 }
 
 /* Inverse of build_field_widget(): reads the widget's current state back
@@ -1038,7 +1038,7 @@ GtkWidget *build_efeitos_tab(void)
     g_anim_spin = gtk_spin_button_new_with_range(0.0, 2000.0, 10.0);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_anim_spin), g.animation_duration);
     labeled_row(general_table, 1, "Duracao animacoes (ms):", g_anim_spin);
-    gtk_widget_set_tooltip_text(g_anim_spin, "Duracao base das animacoes");
+    gtk_widget_set_tooltip_text(g_anim_spin, _("Duracao base das animacoes"));
     g_renderer_combo = make_options_combo(RENDERER_OPTS, g.renderer);
     labeled_row(general_table, 2, "Renderizador:", g_renderer_combo);
     g_presenter_combo = make_options_combo(PRESENTER_OPTS, g.presenter);
@@ -1046,34 +1046,34 @@ GtkWidget *build_efeitos_tab(void)
      * and "Sombra" side by side, the longest labels here alone were
      * pushing this tab (and the window) well past the 700px minimum. */
     labeled_row(general_table, 3, "Apresentador:", g_presenter_combo);
-    gtk_widget_set_tooltip_text(g_presenter_combo, "present/copy");
+    gtk_widget_set_tooltip_text(g_presenter_combo, _("present/copy"));
     g_single_drawable_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_single_drawable_chk), g.single_drawable);
     labeled_row(general_table, 4, "Unico drawable:", g_single_drawable_chk);
-    gtk_widget_set_tooltip_text(g_single_drawable_chk, "Compor tudo em um unico drawable");
+    gtk_widget_set_tooltip_text(g_single_drawable_chk, _("Compor tudo em um unico drawable"));
     g_skip_wm_layers_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_skip_wm_layers_chk), g.skip_wm_layers);
     labeled_row(general_table, 5, "Ignorar decoracao WM:", g_skip_wm_layers_chk);
-    gtk_widget_set_tooltip_text(g_skip_wm_layers_chk, "Ignorar camadas de decoracao do WM");
+    gtk_widget_set_tooltip_text(g_skip_wm_layers_chk, _("Ignorar camadas de decoracao do WM"));
     g_unredirect_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_unredirect_chk), g.unredirect_fullscreen);
     labeled_row(general_table, 6, "Unredirect tela cheia:", g_unredirect_chk);
-    gtk_widget_set_tooltip_text(g_unredirect_chk, "Desviar (unredirect) janela em tela cheia");
+    gtk_widget_set_tooltip_text(g_unredirect_chk, _("Desviar (unredirect) janela em tela cheia"));
     g_claim_spin = gtk_spin_button_new_with_range(0.0, 5000.0, 50.0);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_claim_spin), g.claim_ms);
     labeled_row(general_table, 7, "Reivindicar janelas (ms):", g_claim_spin);
-    gtk_widget_set_tooltip_text(g_claim_spin, "Tempo para reivindicar janelas ja abertas");
+    gtk_widget_set_tooltip_text(g_claim_spin, _("Tempo para reivindicar janelas ja abertas"));
     g_keep_hidden_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_keep_hidden_chk), g.keep_hidden_contents);
     labeled_row(general_table, 8, "Manter janelas ocultas:", g_keep_hidden_chk);
-    gtk_widget_set_tooltip_text(g_keep_hidden_chk, "Manter conteudo de janelas ocultas (expo/wall)");
+    gtk_widget_set_tooltip_text(g_keep_hidden_chk, _("Manter conteudo de janelas ocultas (expo/wall)"));
     g_live_windows_combo = make_options_combo(LIVE_WINDOWS_OPTS, g.live_windows);
     labeled_row(general_table, 9, "Janelas ao vivo:", g_live_windows_combo);
-    gtk_widget_set_tooltip_text(g_live_windows_combo, "Janelas ao vivo em efeitos (expo/wall/cube)");
+    gtk_widget_set_tooltip_text(g_live_windows_combo, _("Janelas ao vivo em efeitos (expo/wall/cube)"));
     g_density_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_density_chk), g.density);
     labeled_row(general_table, 10, "X-DENSITY:", g_density_chk);
-    gtk_widget_set_tooltip_text(g_density_chk, "Decoracao/conteudo nitidos sob zoom");
+    gtk_widget_set_tooltip_text(g_density_chk, _("Decoracao/conteudo nitidos sob zoom"));
     gtk_box_pack_start(GTK_BOX(top_row), frame_with("Geral", general_table), TRUE, TRUE, 0);
 
     /* Sombra -- focused fields directly in the frame, unfocused override
@@ -1088,7 +1088,7 @@ GtkWidget *build_efeitos_tab(void)
     g_sh_windows_entry = gtk_entry_new();
     gtk_entry_set_text(GTK_ENTRY(g_sh_windows_entry), sh.windows);
     labeled_row(shadow_table, 1, "Tipos de janela:", g_sh_windows_entry);
-    gtk_widget_set_tooltip_text(g_sh_windows_entry, "ex.: windows,menus");
+    gtk_widget_set_tooltip_text(g_sh_windows_entry, _("ex.: windows,menus"));
     g_sh_radius_spin = gtk_spin_button_new_with_range(1, 64, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sh_radius_spin), sh.radius);
     labeled_row(shadow_table, 2, "Raio do desfoque (px):", g_sh_radius_spin);
@@ -1101,16 +1101,16 @@ GtkWidget *build_efeitos_tab(void)
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sh_offx_spin), sh.offset_x);
     g_sh_offy_spin = gtk_spin_button_new_with_range(-128, 128, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sh_offy_spin), sh.offset_y);
-    gtk_box_pack_start(GTK_BOX(offset_box), gtk_label_new("X:"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(offset_box), gtk_label_new(_("X:")), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(offset_box), g_sh_offx_spin, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(offset_box), gtk_label_new("Y:"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(offset_box), gtk_label_new(_("Y:")), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(offset_box), g_sh_offy_spin, TRUE, TRUE, 0);
     labeled_row(shadow_table, 4, "Deslocamento (px):", offset_box);
     g_sh_color_btn = labeled_row(shadow_table, 5, "Cor:", make_color_button(sh.color));
     gtk_box_pack_start(GTK_BOX(shadow_outer), shadow_table, FALSE, FALSE, 0);
 
     GtkWidget *shadow_i_outer = gtk_vbox_new(FALSE, 4);
-    g_sh_custom_i_chk = gtk_check_button_new_with_label("Usar valores proprios para janelas sem foco");
+    g_sh_custom_i_chk = gtk_check_button_new_with_label(_("Usar valores proprios para janelas sem foco"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_sh_custom_i_chk), sh.custom_inactive);
     gtk_box_pack_start(GTK_BOX(shadow_i_outer), g_sh_custom_i_chk, FALSE, FALSE, 0);
     GtkWidget *shadow_i_table = gtk_table_new(5, 2, FALSE);
@@ -1126,9 +1126,9 @@ GtkWidget *build_efeitos_tab(void)
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sh_offx_i_spin), sh.offset_x_i);
     g_sh_offy_i_spin = gtk_spin_button_new_with_range(-128, 128, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sh_offy_i_spin), sh.offset_y_i);
-    gtk_box_pack_start(GTK_BOX(offset_i_box), gtk_label_new("X:"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(offset_i_box), gtk_label_new(_("X:")), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(offset_i_box), g_sh_offx_i_spin, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(offset_i_box), gtk_label_new("Y:"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(offset_i_box), gtk_label_new(_("Y:")), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(offset_i_box), g_sh_offy_i_spin, TRUE, TRUE, 0);
     labeled_row(shadow_i_table, 2, "Deslocamento (px):", offset_i_box);
     g_sh_color_i_btn = labeled_row(shadow_i_table, 3, "Cor:", make_color_button(sh.color_i));
@@ -1157,8 +1157,8 @@ GtkWidget *build_efeitos_tab(void)
     GtkWidget *fx_box = gtk_vbox_new(FALSE, 4);
     gtk_box_pack_start(GTK_BOX(fx_box), fx_scroll, TRUE, TRUE, 0);
     GtkWidget *fx_btnbox = gtk_hbox_new(FALSE, 6);
-    GtkWidget *fx_add = gtk_button_new_with_label("Adicionar efeito");
-    GtkWidget *fx_rem = gtk_button_new_with_label("Remover efeito");
+    GtkWidget *fx_add = gtk_button_new_with_label(_("Adicionar efeito"));
+    GtkWidget *fx_rem = gtk_button_new_with_label(_("Remover efeito"));
     g_signal_connect(fx_add, "clicked", G_CALLBACK(add_effect_cb), NULL);
     g_signal_connect(fx_rem, "clicked", G_CALLBACK(remove_effect_cb), fx_view);
     gtk_box_pack_start(GTK_BOX(fx_btnbox), fx_add, FALSE, FALSE, 0);
@@ -1167,8 +1167,8 @@ GtkWidget *build_efeitos_tab(void)
     gtk_box_pack_start(GTK_BOX(content), frame_with("Efeitos", fx_box), TRUE, TRUE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 6);
-    GtkWidget *restart_btn = gtk_button_new_with_label("Reiniciar kicomp agora");
-    GtkWidget *apply_btn = gtk_button_new_with_label("Aplicar (grava kicomp.conf)");
+    GtkWidget *restart_btn = gtk_button_new_with_label(_("Reiniciar kicomp agora"));
+    GtkWidget *apply_btn = gtk_button_new_with_label(_("Aplicar (grava kicomp.conf)"));
     g_signal_connect(restart_btn, "clicked", G_CALLBACK(restart_kicomp_cb), NULL);
     g_signal_connect(apply_btn, "clicked", G_CALLBACK(save_efeitos_cb), NULL);
     gtk_box_pack_start(GTK_BOX(btnbox), restart_btn, FALSE, FALSE, 0);

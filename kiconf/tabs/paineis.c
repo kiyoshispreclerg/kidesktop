@@ -804,7 +804,7 @@ static GtkWidget *build_widget_field(const WidgetField *f, const char *val)
          * value actually parses as a color; unchecked (defaulting to
          * black, irrelevant while unchecked) otherwise. */
         GtkWidget *box = gtk_hbox_new(FALSE, 4);
-        GtkWidget *chk = gtk_check_button_new_with_label("Definir:");
+        GtkWidget *chk = gtk_check_button_new_with_label(_("Definir:"));
         char hex6[8] = "#000000";
         gboolean has_val = val[0] != '\0';
         if (has_val) {
@@ -826,7 +826,7 @@ static GtkWidget *build_widget_field(const WidgetField *f, const char *val)
         return box;
     }
     }
-    return gtk_label_new("?");
+    return gtk_label_new(_("?"));
 }
 
 /* Inverse of build_widget_field(): reads the widget's current state back
@@ -1228,7 +1228,7 @@ static void open_panel_dialog(GtkTreeIter *iter)
                 rename_panel_everywhere(cur_name ? cur_name : "", new_name_text);
                 if (g_theme_label) {
                     char label_text[NAME_LEN + 16];
-                    snprintf(label_text, sizeof(label_text), "Outras opcoes de '%s':", g_selected_panel);
+                    snprintf(label_text, sizeof(label_text), _("Outras opcoes de '%s':"), g_selected_panel);
                     gtk_label_set_text(GTK_LABEL(g_theme_label), label_text);
                 }
                 gtk_list_store_set(g_panels_store, iter, COL_PANEL_NAME, new_name_text, COL_PANEL_OUTPUT, output,
@@ -1388,7 +1388,7 @@ static void on_panel_selection_changed(GtkTreeSelection *sel, gpointer data)
     }
     if (g_theme_label) {
         char label_text[NAME_LEN + 16];
-        snprintf(label_text, sizeof(label_text), "Outras opcoes de '%s':", g_selected_panel[0] ? g_selected_panel : "?");
+        snprintf(label_text, sizeof(label_text), _("Outras opcoes de '%s':"), g_selected_panel[0] ? g_selected_panel : "?");
         gtk_label_set_text(GTK_LABEL(g_theme_label), label_text);
     }
 }
@@ -1449,8 +1449,8 @@ GtkWidget *build_paineis_tab(void)
     GtkWidget *panels_box = gtk_vbox_new(FALSE, 4);
     gtk_box_pack_start(GTK_BOX(panels_box), panels_scroll, TRUE, TRUE, 0);
     GtkWidget *panels_btnbox = gtk_hbox_new(FALSE, 6);
-    GtkWidget *padd = gtk_button_new_with_label("Adicionar painel");
-    GtkWidget *prem = gtk_button_new_with_label("Remover painel");
+    GtkWidget *padd = gtk_button_new_with_label(_("Adicionar painel"));
+    GtkWidget *prem = gtk_button_new_with_label(_("Remover painel"));
     g_signal_connect(padd, "clicked", G_CALLBACK(add_panel_cb), NULL);
     g_signal_connect(prem, "clicked", G_CALLBACK(remove_panel_cb), panels_view);
     gtk_box_pack_start(GTK_BOX(panels_btnbox), padd, FALSE, FALSE, 0);
@@ -1502,8 +1502,8 @@ GtkWidget *build_paineis_tab(void)
     GtkWidget *widgets_box = gtk_vbox_new(FALSE, 4);
     gtk_box_pack_start(GTK_BOX(widgets_box), widgets_scroll, TRUE, TRUE, 0);
     GtkWidget *widgets_btnbox = gtk_hbox_new(FALSE, 6);
-    GtkWidget *wadd = gtk_button_new_with_label("Adicionar widget");
-    GtkWidget *wrem = gtk_button_new_with_label("Remover widget");
+    GtkWidget *wadd = gtk_button_new_with_label(_("Adicionar widget"));
+    GtkWidget *wrem = gtk_button_new_with_label(_("Remover widget"));
     g_signal_connect(wadd, "clicked", G_CALLBACK(add_widget_cb), NULL);
     g_signal_connect(wrem, "clicked", G_CALLBACK(remove_widget_cb), widgets_view);
     gtk_box_pack_start(GTK_BOX(widgets_btnbox), wadd, FALSE, FALSE, 0);
@@ -1518,13 +1518,13 @@ GtkWidget *build_paineis_tab(void)
      * theme when a panel has no THEME line at all (see PROTOCOL.md), so
      * most panels simply leave this blank. */
     GtkWidget *theme_table = gtk_table_new(4, 2, FALSE);
-    GtkWidget *bg_label = gtk_label_new("Cor de fundo:");
+    GtkWidget *bg_label = gtk_label_new(_("Cor de fundo:"));
     gtk_misc_set_alignment(GTK_MISC(bg_label), 0.0, 0.5);
     gtk_table_attach(GTK_TABLE(theme_table), bg_label, 0, 1, 0, 1, GTK_FILL, GTK_FILL, 4, 3);
     g_theme_bg_box = gtk_hbox_new(FALSE, 0);
     gtk_table_attach(GTK_TABLE(theme_table), g_theme_bg_box, 1, 2, 0, 1, GTK_EXPAND | GTK_FILL, GTK_FILL, 4, 3);
 
-    GtkWidget *fg_label = gtk_label_new("Cor do texto:");
+    GtkWidget *fg_label = gtk_label_new(_("Cor do texto:"));
     gtk_misc_set_alignment(GTK_MISC(fg_label), 0.0, 0.5);
     gtk_table_attach(GTK_TABLE(theme_table), fg_label, 0, 1, 1, 2, GTK_FILL, GTK_FILL, 4, 3);
     g_theme_fg_box = gtk_hbox_new(FALSE, 0);
@@ -1536,7 +1536,7 @@ GtkWidget *build_paineis_tab(void)
     g_theme_options_entry = gtk_entry_new();
     ThemeRec *initial_theme = g_selected_panel[0] ? theme_find(g_selected_panel) : NULL;
     char theme_label_text[NAME_LEN + 16];
-    snprintf(theme_label_text, sizeof(theme_label_text), "Outras opcoes de '%s':", g_selected_panel[0] ? g_selected_panel : "?");
+    snprintf(theme_label_text, sizeof(theme_label_text), _("Outras opcoes de '%s':"), g_selected_panel[0] ? g_selected_panel : "?");
     g_theme_label = gtk_label_new(theme_label_text);
     gtk_misc_set_alignment(GTK_MISC(g_theme_label), 0.0, 0.5);
     gtk_table_attach(GTK_TABLE(theme_table), g_theme_label, 0, 1, 3, 4, GTK_FILL, GTK_FILL, 4, 3);
@@ -1558,7 +1558,7 @@ GtkWidget *build_paineis_tab(void)
     gtk_box_pack_start(GTK_BOX(columns_row), widgets_frame, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(outer), columns_row, TRUE, TRUE, 0);
 
-    GtkWidget *save_btn = gtk_button_new_with_label("Salvar e recarregar xispanel");
+    GtkWidget *save_btn = gtk_button_new_with_label(_("Salvar e recarregar xispanel"));
     g_signal_connect(save_btn, "clicked", G_CALLBACK(save_panels_cb), NULL);
     GtkWidget *save_btnbox = gtk_hbox_new(FALSE, 0);
     gtk_box_pack_end(GTK_BOX(save_btnbox), save_btn, FALSE, FALSE, 0);

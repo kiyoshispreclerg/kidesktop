@@ -487,7 +487,7 @@ static void save_extra_zones_cb(GtkWidget *widget, gpointer data)
     fclose(f);
     rename(tmp, path);
 
-    gtk_label_set_text(GTK_LABEL(g_zones_status_label), "Gravado.");
+    gtk_label_set_text(GTK_LABEL(g_zones_status_label), _("Gravado."));
 }
 
 static void add_zone_cb(GtkWidget *widget, gpointer data)
@@ -719,7 +719,7 @@ GtkWidget *build_sistema_tab(void)
          * right now is the closest equivalent without one. */
         ntp_on = ntp_svc && process_running(ntp_svc);
     }
-    g_ntp_chk = gtk_check_button_new_with_label("Sincronizar hora automaticamente pela rede (NTP)");
+    g_ntp_chk = gtk_check_button_new_with_label(_("Sincronizar hora automaticamente pela rede (NTP)"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_ntp_chk), ntp_on);
     g_signal_connect(g_ntp_chk, "toggled", G_CALLBACK(ntp_toggled_cb), NULL);
     gtk_box_pack_start(GTK_BOX(dt_vbox), g_ntp_chk, FALSE, FALSE, 0);
@@ -739,15 +739,15 @@ GtkWidget *build_sistema_tab(void)
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_min_spin), g_date_time_get_minute(now));
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sec_spin), g_date_time_get_second(now));
     g_date_time_unref(now);
-    gtk_box_pack_start(GTK_BOX(g_manual_box), gtk_label_new("Data:"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(g_manual_box), gtk_label_new(_("Data:")), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(g_manual_box), g_year_spin, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(g_manual_box), g_month_spin, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(g_manual_box), g_day_spin, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(g_manual_box), gtk_label_new("Hora:"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(g_manual_box), gtk_label_new(_("Hora:")), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(g_manual_box), g_hour_spin, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(g_manual_box), g_min_spin, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(g_manual_box), g_sec_spin, TRUE, TRUE, 0);
-    GtkWidget *now_btn = gtk_button_new_with_label("Agora");
+    GtkWidget *now_btn = gtk_button_new_with_label(_("Agora"));
     g_signal_connect(now_btn, "clicked", G_CALLBACK(set_now_cb), NULL);
     gtk_box_pack_start(GTK_BOX(g_manual_box), now_btn, FALSE, FALSE, 0);
     gtk_widget_set_sensitive(g_manual_box, !ntp_on);
@@ -784,9 +784,9 @@ GtkWidget *build_sistema_tab(void)
     gtk_box_pack_start(GTK_BOX(zones_vbox), g_zones_status_label, FALSE, FALSE, 0);
 
     GtkWidget *zones_btnbox = gtk_hbox_new(FALSE, 6);
-    GtkWidget *zone_add_btn = gtk_button_new_with_label("Adicionar");
-    GtkWidget *zone_remove_btn = gtk_button_new_with_label("Remover");
-    GtkWidget *zone_save_btn = gtk_button_new_with_label("Salvar");
+    GtkWidget *zone_add_btn = gtk_button_new_with_label(_("Adicionar"));
+    GtkWidget *zone_remove_btn = gtk_button_new_with_label(_("Remover"));
+    GtkWidget *zone_save_btn = gtk_button_new_with_label(_("Salvar"));
     g_signal_connect(zone_add_btn, "clicked", G_CALLBACK(add_zone_cb), NULL);
     g_signal_connect(zone_remove_btn, "clicked", G_CALLBACK(remove_zone_cb), zones_view);
     g_signal_connect(zone_save_btn, "clicked", G_CALLBACK(save_extra_zones_cb), NULL);
@@ -796,11 +796,11 @@ GtkWidget *build_sistema_tab(void)
     gtk_box_pack_start(GTK_BOX(zones_vbox), zones_btnbox, FALSE, FALSE, 0);
 
     GtkWidget *zones_frame = frame_with("Fusos horarios adicionais", zones_vbox);
-    gtk_widget_set_tooltip_text(zones_frame, "Mostrados na aba Calendario do xisserve");
+    gtk_widget_set_tooltip_text(zones_frame, _("Mostrados na aba Calendario do xisserve"));
     gtk_box_pack_start(GTK_BOX(outer), zones_frame, TRUE, TRUE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 0);
-    GtkWidget *apply_btn = gtk_button_new_with_label("Aplicar");
+    GtkWidget *apply_btn = gtk_button_new_with_label(_("Aplicar"));
     g_signal_connect(apply_btn, "clicked", G_CALLBACK(apply_cb), NULL);
     gtk_box_pack_end(GTK_BOX(btnbox), apply_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(outer), btnbox, FALSE, FALSE, 0);

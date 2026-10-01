@@ -109,11 +109,11 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-#include "i18n.h"
+#include "../shared/xis_i18n.h"
 #include "sysinfo.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.36"
+#define KICONF_VERSION "0.2.37"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -639,25 +639,18 @@ static void stop_ctl_listener(void)
     }
 }
 
-/* setlocale()+bindtextdomain()+textdomain(): the three calls every
- * gettext program makes once, before building any UI, so _()/gettext()
- * knows both which language to look up (the user's LANG/LC_MESSAGES,
- * via setlocale(LC_ALL, "") -- GTK itself never calls this on its own)
- * and where the "kiconf" catalog's .mo files live (LOCALEDIR, baked in by
- * the Makefile from PREFIX, same as kiconfd.conf's own path resolution
- * follows XDG_CONFIG_HOME/HOME at runtime rather than a compiled-in
- * value). Translations live in po/ -- see po/README.md. */
-void kiconf_i18n_init(void)
-{
-    setlocale(LC_ALL, "");
-    bindtextdomain("kiconf", LOCALEDIR);
-    bind_textdomain_codeset("kiconf", "UTF-8");
-    textdomain("kiconf");
-}
-
 int main(int argc, char **argv)
 {
-    kiconf_i18n_init();
+    /* xis_i18n_init(): setlocale()+bindtextdomain()+textdomain(), the
+     * three calls every gettext program makes once, before building any
+     * UI, so _()/gettext() knows both which language to look up (the
+     * user's LANG/LC_MESSAGES -- GTK itself never calls setlocale() on
+     * its own) and where the "kiconf" catalog's .mo files live
+     * (LOCALEDIR, baked in by the Makefile from PREFIX, same as
+     * kiconfd.conf's own path resolution follows XDG_CONFIG_HOME/HOME at
+     * runtime rather than a compiled-in value). Translations live in
+     * po/ -- see po/README.md. */
+    xis_i18n_init("kiconf");
 
     /* Checked before gtk_init() so `kiconf --version`/`--list-tabs` work
      * even without a display (X connection), same as most CLI-invokable

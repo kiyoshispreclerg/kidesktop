@@ -383,19 +383,19 @@ GtkWidget *build_menu_tab(void)
     gtk_container_add(GTK_CONTAINER(scroll), g_menu_view);
     gtk_box_pack_start(GTK_BOX(outer), scroll, TRUE, TRUE, 0);
 
-    GtkWidget *note = gtk_label_new("Ocultar/editar uma entrada do sistema cria uma copia em "
-                                     "~/.local/share/applications -- o arquivo original nunca e alterado. "
-                                     "\"Excluir\" so funciona em entradas ja criadas pelo usuario.");
+    GtkWidget *note = gtk_label_new(_("Ocultar/editar uma entrada do sistema cria uma copia em "
+                                       "~/.local/share/applications -- o arquivo original nunca e alterado. "
+                                       "\"Excluir\" so funciona em entradas ja criadas pelo usuario."));
     gtk_label_set_line_wrap(GTK_LABEL(note), TRUE);
     gtk_misc_set_alignment(GTK_MISC(note), 0.0, 0.5);
     gtk_box_pack_start(GTK_BOX(outer), note, FALSE, FALSE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 4);
-    GtkWidget *new_btn = gtk_button_new_with_label("Novo...");
+    GtkWidget *new_btn = gtk_button_new_with_label(_("Novo..."));
     g_signal_connect(new_btn, "clicked", G_CALLBACK(new_entry_cb), NULL);
-    GtkWidget *edit_btn = gtk_button_new_with_label("Editar...");
+    GtkWidget *edit_btn = gtk_button_new_with_label(_("Editar..."));
     g_signal_connect(edit_btn, "clicked", G_CALLBACK(edit_entry_cb), g_menu_view);
-    GtkWidget *del_btn = gtk_button_new_with_label("Excluir");
+    GtkWidget *del_btn = gtk_button_new_with_label(_("Excluir"));
     g_signal_connect(del_btn, "clicked", G_CALLBACK(delete_entry_cb), g_menu_view);
     gtk_box_pack_start(GTK_BOX(btnbox), new_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(btnbox), edit_btn, FALSE, FALSE, 0);

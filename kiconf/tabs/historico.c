@@ -382,7 +382,7 @@ GtkWidget *build_historico_tab(void)
     gtk_box_pack_start(GTK_BOX(ks_box), ks_apply_row, FALSE, FALSE, 0);
 
     GtkWidget *ks_space_box = gtk_vbox_new(FALSE, 4);
-    g_ks_stats_label = gtk_label_new("-");
+    g_ks_stats_label = gtk_label_new(_("-"));
     gtk_misc_set_alignment(GTK_MISC(g_ks_stats_label), 0.0, 0.5);
     gtk_label_set_line_wrap(GTK_LABEL(g_ks_stats_label), TRUE);
     gtk_box_pack_start(GTK_BOX(ks_space_box), g_ks_stats_label, FALSE, FALSE, 0);
@@ -449,7 +449,7 @@ GtkWidget *build_historico_tab(void)
     gtk_box_pack_start(GTK_BOX(km_box), km_apply_row, FALSE, FALSE, 0);
 
     GtkWidget *km_space_box = gtk_vbox_new(FALSE, 4);
-    g_km_stats_label = gtk_label_new("-");
+    g_km_stats_label = gtk_label_new(_("-"));
     gtk_misc_set_alignment(GTK_MISC(g_km_stats_label), 0.0, 0.5);
     gtk_label_set_line_wrap(GTK_LABEL(g_km_stats_label), TRUE);
     gtk_box_pack_start(GTK_BOX(km_space_box), g_km_stats_label, FALSE, FALSE, 0);

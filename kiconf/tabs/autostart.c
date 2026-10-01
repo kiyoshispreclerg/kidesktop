@@ -368,7 +368,7 @@ GtkWidget *build_autostart_tab(void)
     }
     GtkWidget *svc_box = gtk_vbox_new(FALSE, 4);
     gtk_box_pack_start(GTK_BOX(svc_box), svc_table, FALSE, FALSE, 0);
-    GtkWidget *svc_apply = gtk_button_new_with_label("Aplicar servicos (recarrega kisession na hora)");
+    GtkWidget *svc_apply = gtk_button_new_with_label(_("Aplicar servicos (recarrega kisession na hora)"));
     g_signal_connect(svc_apply, "clicked", G_CALLBACK(apply_services_cb), NULL);
     GtkWidget *svc_btnbox = gtk_hbox_new(FALSE, 0);
     gtk_box_pack_end(GTK_BOX(svc_btnbox), svc_apply, FALSE, FALSE, 0);
@@ -405,9 +405,9 @@ GtkWidget *build_autostart_tab(void)
     gtk_box_pack_start(GTK_BOX(as_box), note, FALSE, FALSE, 0);
 
     GtkWidget *as_btnbox = gtk_hbox_new(FALSE, 6);
-    GtkWidget *add_btn = gtk_button_new_with_label("Adicionar...");
-    GtkWidget *remove_btn = gtk_button_new_with_label("Remover");
-    GtkWidget *as_apply = gtk_button_new_with_label("Aplicar");
+    GtkWidget *add_btn = gtk_button_new_with_label(_("Adicionar..."));
+    GtkWidget *remove_btn = gtk_button_new_with_label(_("Remover"));
+    GtkWidget *as_apply = gtk_button_new_with_label(_("Aplicar"));
     g_signal_connect(add_btn, "clicked", G_CALLBACK(add_custom_cb), NULL);
     g_signal_connect(remove_btn, "clicked", G_CALLBACK(remove_custom_cb), as_view);
     g_signal_connect(as_apply, "clicked", G_CALLBACK(apply_autostart_cb), NULL);
