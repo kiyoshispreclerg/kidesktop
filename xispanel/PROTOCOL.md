@@ -790,6 +790,20 @@ rightmost item under RTL (`../shared/xis_direction.c`).
 A widget lists its sub-items through the optional
 `PanelWidgetOps.key_item`; without it the whole widget is one item.
 
+#### Screen readers
+
+With accessibility on in the session (kisession's `a11y` service, which
+sets `QT_ACCESSIBILITY=1` and loads `atk-bridge`; or `XISPANEL_A11Y=1`,
+and `XISPANEL_A11Y=0` to force it off) `a11y.c` publishes the panels on
+the AT-SPI bus: application `xispanel` -> one window per mapped panel
+("Painel <name>") -> one push button per keyboard-navigation item, each
+with a "click" action and screen extents. Moving the keyboard focus emits
+window activate/deactivate and `state-changed:focused`, which is what
+Orca speaks. An item is named by the widget's optional
+`PanelWidgetOps.key_item_label` (winctl's buttons, tasklist's scroll
+arrows), else its tooltip text, else the kind of widget. Built only when
+`atk` and `atk-bridge-2.0` are found (`a11y_stub.c` otherwise).
+
 ### Widget sizing
 
 Every widget reports both a desired length and a minimum length from
@@ -1616,6 +1630,7 @@ own file" structure:
   the core API a widget file is built against (`now_ms`, `kv_get`,
   `widget_get_rect`, the `ewmh_*` helpers, `panel_menu_open`, ...).
 - `keynav.c`: keyboard navigation (see "Keyboard navigation").
+- `a11y.c`: the panels as an ATK tree for screen readers (see "Screen readers").
 - `ewmh.c`: EWMH/ICCCM client-list reading and window-control actions
   (activate/close/minimize/maximize/move), plus `_NET_WM_ICON` decoding,
   the icon/text drawing helpers built on top of it, and

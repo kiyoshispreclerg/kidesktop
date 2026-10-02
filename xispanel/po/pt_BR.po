@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: xispanel\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-02 18:46-0300\n"
+"POT-Creation-Date: 2026-10-02 19:07-0300\n"
 "PO-Revision-Date: 2026-10-01 17:50-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -16,6 +16,15 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#: a11y.c:237
+msgid "Clicar"
+msgstr "Clicar"
+
+#: a11y.c:302
+#, c-format
+msgid "Painel %s"
+msgstr "Painel %s"
 
 #: audio_events.c:102
 #, c-format
@@ -36,6 +45,74 @@ msgstr "Saída de áudio: %s"
 #, c-format
 msgid "Entrada de audio: %s"
 msgstr "Entrada de áudio: %s"
+
+#: keynav.c:159
+msgid "Area de trabalho"
+msgstr "Área de trabalho"
+
+#: keynav.c:159
+msgid "Lancador"
+msgstr "Lançador"
+
+#: keynav.c:160
+msgid "Relogio"
+msgstr "Relógio"
+
+#: keynav.c:160
+msgid "Tarefa"
+msgstr "Tarefa"
+
+#: keynav.c:161
+msgid "Bandeja"
+msgstr "Bandeja"
+
+#: keynav.c:161
+msgid "Volume"
+msgstr "Volume"
+
+#: keynav.c:162
+msgid "Janela ativa"
+msgstr "Janela ativa"
+
+#: keynav.c:162
+msgid "Mais"
+msgstr "Mais"
+
+#: keynav.c:163
+msgid "Menu de programas"
+msgstr "Menu de programas"
+
+#: keynav.c:163
+msgid "Menu global"
+msgstr "Menu global"
+
+#: keynav.c:164
+msgid "Notificacoes"
+msgstr "Notificações"
+
+#: keynav.c:164
+msgid "Pasta"
+msgstr "Pasta"
+
+#: keynav.c:165
+msgid "Armazenamento"
+msgstr "Armazenamento"
+
+#: keynav.c:165
+msgid "Rede"
+msgstr "Rede"
+
+#: keynav.c:166
+msgid "Area de transferencia"
+msgstr "Área de transferência"
+
+#: keynav.c:166
+msgid "Energia"
+msgstr "Energia"
+
+#: keynav.c:167
+msgid "Monitor"
+msgstr "Monitor"
 
 #: menu.c:1046
 #, c-format
@@ -141,19 +218,19 @@ msgstr "%d notificações não lidas"
 msgid "Sem notificações"
 msgstr "Sem notificações"
 
-#: widgets/tasklist.c:1858 widgets/winctl.c:696
+#: widgets/tasklist.c:1858 widgets/winctl.c:696 widgets/winctl.c:799
 msgid "Minimizar"
 msgstr "Minimizar"
 
-#: widgets/tasklist.c:1858 widgets/winctl.c:696
+#: widgets/tasklist.c:1858 widgets/winctl.c:696 widgets/winctl.c:799
 msgid "Restaurar"
 msgstr "Restaurar"
 
-#: widgets/tasklist.c:1861 widgets/winctl.c:699
+#: widgets/tasklist.c:1861 widgets/winctl.c:699 widgets/winctl.c:802
 msgid "Maximizar"
 msgstr "Maximizar"
 
-#: widgets/tasklist.c:1861 widgets/winctl.c:699
+#: widgets/tasklist.c:1861 widgets/winctl.c:699 widgets/winctl.c:802
 msgid "Restaurar tamanho"
 msgstr "Restaurar tamanho"
 
@@ -162,7 +239,7 @@ msgstr "Restaurar tamanho"
 msgid "Mover"
 msgstr "Mover"
 
-#: widgets/tasklist.c:1867 widgets/winctl.c:707
+#: widgets/tasklist.c:1867 widgets/winctl.c:707 widgets/winctl.c:805
 #, c-format
 msgid "Fechar"
 msgstr "Fechar"
@@ -186,6 +263,14 @@ msgstr "Abrir nova instância"
 msgid "Abrir"
 msgstr "Abrir"
 
+#: widgets/tasklist.c:2343
+msgid "Rolar para a esquerda"
+msgstr "Rolar para a esquerda"
+
+#: widgets/tasklist.c:2347
+msgid "Rolar para a direita"
+msgstr "Rolar para a direita"
+
 #: widgets/winctl.c:703
 msgid "Remover de todas as áreas de trabalho"
 msgstr "Remover de todas as áreas de trabalho"
@@ -199,7 +284,7 @@ msgstr "Fixar em todas as áreas de trabalho"
 msgid "Applications"
 msgstr "Aplicativos"
 
-#: xispanel.c:4775
+#: xispanel.c:4779
 #, c-format
 msgid ""
 "usage: %s [options]\n"
@@ -224,12 +309,12 @@ msgstr ""
 "um já estiver ativo). Painéis/widgets/tema são configurados em\n"
 "$XDG_CONFIG_HOME/xispanel.conf -- veja PROTOCOL.md.\n"
 
-#: xispanel.c:4846
+#: xispanel.c:4850
 #, c-format
 msgid "xispanel: unknown option '%s'\n"
 msgstr "xispanel: opção desconhecida '%s'\n"
 
-#: xispanel.c:4866
+#: xispanel.c:4870
 #, c-format
 msgid "xispanel: already running\n"
 msgstr "xispanel: já está em execução\n"

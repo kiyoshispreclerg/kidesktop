@@ -40,10 +40,6 @@
 #define KEYNAV_MAX_ITEMS 256
 #define KEYNAV_DEFAULT_KEY "Ctrl+Alt+Tab"
 
-typedef struct {
-    PanelWidget *w;
-    int x, len, y, thick; /* widget-local, see PanelWidgetOps.key_item */
-} KeyItem;
 
 static int g_active;
 static Panel *g_panel;       /* where the focus is: a bar, or an open container popup */
@@ -63,13 +59,13 @@ static int focusable(const PanelWidget *w)
     return w->ops->on_button || w->ops->get_tooltip;
 }
 
-static int widget_items(PanelWidget *w, KeyItem *out, int max)
+static int widget_items(PanelWidget *w, KeyNavItem *out, int max)
 {
     if (!focusable(w) || max <= 0) {
         return 0;
     }
     if (!w->ops->key_item) {
-        out[0] = (KeyItem){w, 0, w->len, 0, w->thickness};
+        out[0] = (KeyNavItem){w, 0, w->len, 0, w->thickness};
         return 1;
     }
     int x, len, y, thick;
@@ -77,18 +73,18 @@ static int widget_items(PanelWidget *w, KeyItem *out, int max)
     int k = 0;
     for (int i = 0; i < n && k < max; i++) {
         if (w->ops->key_item(w, i, &x, &len, &y, &thick) > i && len > 0 && thick > 0) {
-            out[k++] = (KeyItem){w, x, len, y, thick};
+            out[k++] = (KeyNavItem){w, x, len, y, thick};
         }
     }
     return k;
 }
 
-static int item_main(const KeyItem *it)
+static int item_main(const KeyNavItem *it)
 {
     return it->w->x + it->x;
 }
 
-static int item_cross(const KeyItem *it)
+static int item_cross(const KeyNavItem *it)
 {
     return it->w->y + it->y;
 }
@@ -96,14 +92,14 @@ static int item_cross(const KeyItem *it)
 /* Every item on p in screen order along the main axis (then the cross
  * axis), so Left/Right always move the way the arrow points -- also
  * under RTL, where panel_mirror_rtl() reversed where widgets sit. */
-static int collect(Panel *p, KeyItem *out, int max)
+static int collect(Panel *p, KeyNavItem *out, int max)
 {
     int n = 0;
     for (int i = 0; i < p->n_layout && n < max; i++) {
         n += widget_items(p->layout[i], out + n, max - n);
     }
     for (int i = 1; i < n; i++) {
-        KeyItem t = out[i];
+        KeyNavItem t = out[i];
         int j = i - 1;
         while (j >= 0 && (item_main(&out[j]) > item_main(&t) ||
                           (item_main(&out[j]) == item_main(&t) && item_cross(&out[j]) > item_cross(&t)))) {
@@ -115,11 +111,83 @@ static int collect(Panel *p, KeyItem *out, int max)
     return n;
 }
 
+static int find_focus(const KeyNavItem *items, int n);
+
+int keynav_list_items(Panel *p, KeyNavItem *out, int max)
+{
+    return collect(p, out, max);
+}
+
+/* Spoken/shown name of an item: the widget's own label for it
+ * (key_item_label), else its tooltip's text, else what kind of widget it
+ * is -- so a screen reader never meets an unnamed button. */
+void keynav_item_name(const KeyNavItem *it, int index_in_widget, char *buf, size_t bufsz)
+{
+    PanelWidget *w = it->w;
+    buf[0] = 0;
+    if (w->ops->key_item_label && w->ops->key_item_label(w, index_in_widget, buf, bufsz) && buf[0]) {
+        return;
+    }
+    if (w->ops->get_tooltip) {
+        char tip[256];
+        int ax = 0, aw = 0, closable = 0;
+        void *ctx = NULL;
+        /* tray/pager pick the row from the hover's cross position */
+        Panel *p = w->panel;
+        PanelWidget *saved_w = p->hover_widget;
+        int saved_x = p->hover_local_x, saved_y = p->hover_local_y;
+        p->hover_widget = w;
+        p->hover_local_x = it->x + it->len / 2;
+        p->hover_local_y = it->y + it->thick / 2;
+        int ok = w->ops->get_tooltip(w, it->x + it->len / 2, tip, sizeof(tip), &ax, &aw, &closable, &ctx);
+        p->hover_widget = saved_w;
+        p->hover_local_x = saved_x;
+        p->hover_local_y = saved_y;
+        if (ok && tip[0]) {
+            for (char *c = tip; *c; c++) {
+                if (*c == '\n') {
+                    *c = ' ';
+                }
+            }
+            snprintf(buf, bufsz, "%s", tip);
+            return;
+        }
+    }
+    static const struct {
+        const char *type, *label;
+    } kinds[] = {
+        {"launcher", N_("Lancador")},        {"pager", N_("Area de trabalho")},
+        {"tasklist", N_("Tarefa")},          {"clock", N_("Relogio")},
+        {"tray", N_("Bandeja")},             {"volume", N_("Volume")},
+        {"container", N_("Mais")},           {"winctl", N_("Janela ativa")},
+        {"xisserve", N_("Menu de programas")}, {"globalmenu", N_("Menu global")},
+        {"folder", N_("Pasta")},             {"notif", N_("Notificacoes")},
+        {"network", N_("Rede")},             {"storage", N_("Armazenamento")},
+        {"energy", N_("Energia")},           {"clipboard", N_("Area de transferencia")},
+        {"monitor", N_("Monitor")},
+    };
+    for (size_t i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++) {
+        if (!strcmp(kinds[i].type, w->ops->type_name)) {
+            snprintf(buf, bufsz, "%s", _(kinds[i].label));
+            return;
+        }
+    }
+    snprintf(buf, bufsz, "%s", w->ops->type_name);
+}
+
+int keynav_focus_index(const Panel *p, const KeyNavItem *items, int n)
+{
+    if (!g_active || p != g_panel) {
+        return -1;
+    }
+    return find_focus(items, n);
+}
+
 /* Index of the focused item in items[], or -1 when it's gone (the
  * widget's item list shrank, a reload). Items of one widget are kept in
  * their own order by collect()'s stable sort, so the k-th item of g_focus
  * in items[] is its item k. */
-static int find_focus(const KeyItem *items, int n)
+static int find_focus(const KeyNavItem *items, int n)
 {
     int k = 0, last = -1;
     for (int i = 0; i < n; i++) {
@@ -135,9 +203,9 @@ static int find_focus(const KeyItem *items, int n)
     return last; /* fewer items than before: the widget's last one */
 }
 
-static void set_focus(const KeyItem *items, int idx)
+static void set_focus(const KeyNavItem *items, int idx)
 {
-    const KeyItem *it = &items[idx];
+    const KeyNavItem *it = &items[idx];
     int k = 0;
     for (int i = 0; i < idx; i++) {
         if (items[i].w == it->w) {
@@ -146,6 +214,7 @@ static void set_focus(const KeyItem *items, int idx)
     }
     g_focus = it->w;
     g_focus_item = k;
+    a11y_focus_changed(g_panel, idx);
     int lx = it->x + it->len / 2, ly = it->y + it->thick / 2;
     panel_hover_set(g_panel, it->w, lx, ly);
     tooltip_show_at(g_panel, it->w->x + lx, it->w->y + ly);
@@ -159,7 +228,7 @@ static int first_index(int n)
 
 static void focus_first(void)
 {
-    KeyItem items[KEYNAV_MAX_ITEMS];
+    KeyNavItem items[KEYNAV_MAX_ITEMS];
     int n = collect(g_panel, items, KEYNAV_MAX_ITEMS);
     if (n > 0) {
         set_focus(items, first_index(n));
@@ -256,6 +325,7 @@ void keynav_stop(void)
         panel_autohide_hold(g_bar, 0);
     }
     tooltip_close();
+    a11y_focus_cleared();
     /* An open container popup shares the one keyboard grab this client
      * can hold and still needs it for its own Escape. */
     if (!panel_open_container()) {
@@ -312,7 +382,7 @@ void keynav_menu_closed(int by_selection)
         keynav_stop();
         return;
     }
-    KeyItem items[KEYNAV_MAX_ITEMS];
+    KeyNavItem items[KEYNAV_MAX_ITEMS];
     int n = collect(g_panel, items, KEYNAV_MAX_ITEMS);
     int cur = find_focus(items, n);
     if (cur >= 0) {
@@ -351,13 +421,13 @@ void keynav_configure(const char *spec)
  * the click opened -- see the file comment. */
 static void activate(int button)
 {
-    KeyItem items[KEYNAV_MAX_ITEMS];
+    KeyNavItem items[KEYNAV_MAX_ITEMS];
     int n = collect(g_panel, items, KEYNAV_MAX_ITEMS);
     int cur = find_focus(items, n);
     if (cur < 0) {
         return;
     }
-    const KeyItem *it = &items[cur];
+    const KeyNavItem *it = &items[cur];
     Panel *before = panel_open_container();
     g_keep = 0;
     panel_click_at(g_panel, button, item_main(it) + it->len / 2, item_cross(it) + it->thick / 2);
@@ -385,7 +455,7 @@ static void activate(int button)
 
 static void move_linear(int delta)
 {
-    KeyItem items[KEYNAV_MAX_ITEMS];
+    KeyNavItem items[KEYNAV_MAX_ITEMS];
     int n = collect(g_panel, items, KEYNAV_MAX_ITEMS);
     if (n == 0) {
         return;
@@ -400,7 +470,7 @@ static void move_linear(int delta)
 
 static void move_end(int last)
 {
-    KeyItem items[KEYNAV_MAX_ITEMS];
+    KeyNavItem items[KEYNAV_MAX_ITEMS];
     int n = collect(g_panel, items, KEYNAV_MAX_ITEMS);
     if (n > 0) {
         set_focus(items, last ? n - 1 : 0);
@@ -410,7 +480,7 @@ static void move_end(int last)
 /* Tab: the first item of the next/previous widget in screen order. */
 static void move_widget(int delta)
 {
-    KeyItem items[KEYNAV_MAX_ITEMS];
+    KeyNavItem items[KEYNAV_MAX_ITEMS];
     int n = collect(g_panel, items, KEYNAV_MAX_ITEMS);
     int cur = find_focus(items, n);
     if (cur < 0) {
@@ -439,7 +509,7 @@ static void move_widget(int delta)
  * a two-row tray or pager. */
 static void move_cross(int delta)
 {
-    KeyItem items[KEYNAV_MAX_ITEMS];
+    KeyNavItem items[KEYNAV_MAX_ITEMS];
     int n = collect(g_panel, items, KEYNAV_MAX_ITEMS);
     int cur = find_focus(items, n);
     if (cur < 0) {
@@ -500,7 +570,7 @@ static void escape(void)
         }
         g_focus = owner;
         g_focus_item = 0;
-        KeyItem items[KEYNAV_MAX_ITEMS];
+        KeyNavItem items[KEYNAV_MAX_ITEMS];
         int n = collect(g_panel, items, KEYNAV_MAX_ITEMS);
         int cur = find_focus(items, n);
         if (cur >= 0) {

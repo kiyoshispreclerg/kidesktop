@@ -100,7 +100,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.79"
+#define XISPANEL_VERSION "0.6.80"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -3333,6 +3333,7 @@ static void config_focus_key(char *out, size_t outsz)
 static void reload_all_panels(void)
 {
     keynav_stop();
+    a11y_reset();
     panel_container_close_all(); /* releases its grab; the Panel is about to go away */
     panel_menu_close(); /* about to invalidate every Panel/PanelWidget it could reference */
     tooltip_close();
@@ -4318,6 +4319,7 @@ static int run_as_daemon(const char *sockpath)
     }
 
     reload_all_panels();
+    a11y_init(); /* after the panels exist: the bridge may query them right away */
     /* Watch the root + every client window for the properties the polling
      * widgets (tasklist/winctl/globalmenu) care about, so they re-poll the
      * instant one changes rather than only on their slow fallback tick --
@@ -4455,6 +4457,7 @@ static int run_as_daemon(const char *sockpath)
         if (timeout_ms < 0) {
             timeout_ms = 1000;
         }
+        maxfd = a11y_fds(&rfds, maxfd, &timeout_ms);
 
         struct timeval tv;
         struct timeval *tvp = NULL;
@@ -4465,6 +4468,7 @@ static int run_as_daemon(const char *sockpath)
         }
 
         int r = select(maxfd + 1, &rfds, NULL, NULL, tvp);
+        a11y_dispatch(r > 0 ? &rfds : NULL);
         if (r < 0) {
             if (errno == EINTR) {
                 continue;

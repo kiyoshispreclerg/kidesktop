@@ -208,6 +208,11 @@ typedef struct {
      * clicks there. NULL = the whole widget is one item; only widgets
      * that hit-test sub-items (tasklist, tray, pager, winctl) need it. */
     int (*key_item)(PanelWidget *w, int i, int *x, int *len, int *y, int *thick);
+    /* Optional, with key_item: a name for item i when its tooltip doesn't
+     * say what it does (winctl's buttons all show the window title) --
+     * what a screen reader announces (a11y.c). Return 0 to fall back to
+     * the tooltip. */
+    int (*key_item_label)(PanelWidget *w, int i, char *buf, size_t bufsz);
 } PanelWidgetOps;
 
 struct PanelWidget {
@@ -1214,6 +1219,18 @@ int panel_list(Panel **out, int max);
  * panel under the pointer and walks its widgets' items with the arrow
  * keys; Enter clicks, Menu/Shift+F10 right-clicks, Escape leaves. See
  * PROTOCOL.md's "Keyboard navigation". */
+/* One keyboard-focusable item: a widget, or one of its key_item()s. */
+typedef struct {
+    PanelWidget *w;
+    int x, len, y, thick; /* widget-local, see PanelWidgetOps.key_item */
+} KeyNavItem;
+/* p's items in screen order -- what the arrow keys walk. */
+int keynav_list_items(Panel *p, KeyNavItem *out, int max);
+/* Name for an item (index_in_widget = its key_item index, 0 for a whole
+ * widget): key_item_label, else the tooltip, else the widget kind. */
+void keynav_item_name(const KeyNavItem *it, int index_in_widget, char *buf, size_t bufsz);
+/* Which of items[] has keyboard focus on p, or -1. */
+int keynav_focus_index(const Panel *p, const KeyNavItem *items, int n);
 void keynav_configure(const char *spec); /* (re)binds the hotkey; NULL/"" = default, "none" = off */
 void keynav_start(Panel *p); /* NULL = the bar on the output under the pointer */
 void keynav_stop(void);
@@ -1310,6 +1327,19 @@ int modtap_register(unsigned int modmask, PanelWidget *w, HotkeyFn fn); /* modma
 void modtap_unregister_widget(PanelWidget *w);
 int modtap_fd(void); /* -1 if unavailable -- fold into the main loop's select() readset */
 void modtap_process(void); /* call when modtap_fd() is readable */
+
+/* ---- screen reader support (a11y.c; a11y_stub.c without atk-bridge) ----
+ *
+ * Exposes the panels to AT-SPI as an ATK tree (application -> one window
+ * per panel -> one push button per keyboard-navigation item) and turns
+ * keynav focus into focus events, which is what Orca speaks. Only
+ * started when the session asks for accessibility (see a11y_init()). */
+void a11y_init(void);
+int a11y_fds(fd_set *rfds, int maxfd, long *timeout_ms); /* fold into select() */
+void a11y_dispatch(const fd_set *rfds); /* after select() */
+void a11y_focus_changed(Panel *p, int item_index); /* keynav moved focus */
+void a11y_focus_cleared(void);                     /* keynav ended */
+void a11y_reset(void); /* panels are about to be reloaded */
 
 /* ---- hover tooltip (tooltip.c) ----
  *
