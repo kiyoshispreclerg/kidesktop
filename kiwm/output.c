@@ -4,6 +4,7 @@
 #include "wm.h"
 #include "client.h"
 #include "ewmh.h"
+#include "../shared/xis_direction.h"
 
 #include <xcb/randr.h>
 
@@ -1239,6 +1240,11 @@ int desktop_step(int from, int direction, DesktopAxis axis)
      * straight to the neighbor, so a grid whose last row is short -- 5
      * desktops in a 3x2 -- steps over the empty cells instead of getting
      * stuck on one. At most one full lap, then give up and stay put. */
+    /* HORZ +1 means "one cell rightwards on screen", and a RTL grid
+     * counts its columns from the right (see ewmh_set_desktop_layout()). */
+    if (axis == DESKTOP_AXIS_HORZ && xis_direction_is_rtl())
+        direction = -direction;
+
     int span = (axis == DESKTOP_AXIS_HORZ) ? cols : rows;
     for (int i = 0; i < span; i++) {
         if (axis == DESKTOP_AXIS_HORZ)
@@ -1258,8 +1264,11 @@ void ewmh_set_desktop_layout(void)
     desktop_grid(&cols, &rows);
     /* _NET_WM_ORIENTATION_HORZ (row-major) from _NET_WM_TOPLEFT -- the
      * only arrangement kiwm's own grid and shortcuts describe, so it
-     * publishes exactly that rather than an option nothing here reads. */
-    uint32_t layout[] = { 0, (uint32_t)cols, (uint32_t)rows, 0 };
+     * publishes exactly that rather than an option nothing here reads.
+     * RTL starts from _NET_WM_TOPRIGHT (1) instead, so pagers mirror the
+     * grid the same way kiwm's own desktop OSD does. */
+    uint32_t corner = xis_direction_is_rtl() ? 1 : 0;
+    uint32_t layout[] = { 0, (uint32_t)cols, (uint32_t)rows, corner };
     xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, wm.root,
                         wm.atoms.net_desktop_layout, XCB_ATOM_CARDINAL, 32, 4, layout);
 }

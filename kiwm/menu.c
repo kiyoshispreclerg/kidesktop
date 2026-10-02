@@ -39,6 +39,7 @@
 #include "output.h"
 
 #include "../shared/xis_i18n.h"
+#include "../shared/xis_direction.h"
 
 #include <cairo/cairo-xcb.h>
 #include <xcb/shape.h>
@@ -273,8 +274,16 @@ static void clamp_to_output(MenuFrame *f, int anchor_x, int anchor_y, int flip_w
         return;
 
     XisOutput *o = &wm.outputs[idx];
-    if (f->x + f->w > o->x + o->width)
+    if (xis_direction_is_rtl()) {
+        /* Mirrored: menus grow to the left, flip rightwards past the
+         * anchor when they'd fall off the output's left edge. */
+        if (f->x < o->x)
+            f->x = anchor_x + flip_w;
+        if (f->x + f->w > o->x + o->width)
+            f->x = o->x + o->width - f->w;
+    } else if (f->x + f->w > o->x + o->width) {
         f->x = anchor_x - f->w - flip_w;
+    }
     if (f->x < o->x)
         f->x = o->x;
     if (f->y + f->h > o->y + o->height)
@@ -303,6 +312,10 @@ static void paint_frame(MenuFrame *f)
     cairo_rectangle(cr, 0.75, 0.75, f->w - 1.5, f->h - 1.5);
     cairo_stroke(cr);
 
+    /* RTL: check column on the right, submenu arrow on the left pointing
+     * left, text right-aligned between them (pango_text.c does that). */
+    bool rtl = xis_direction_is_rtl();
+
     for (int i = 0; i < f->count; i++) {
         MenuItem *it = &f->items[i];
 
@@ -327,6 +340,8 @@ static void paint_frame(MenuFrame *f)
             /* A plain two-stroke check mark, scaled off the row height so
              * it tracks the theme's font size like everything else. */
             double cx = MENU_TEXT_X + MENU_CHECK_W / 2.0;
+            if (rtl)
+                cx = f->w - cx;
             double cy = it->y + it->h / 2.0;
             cairo_set_source_rgba(cr, fg_r, fg_g, fg_b, alpha);
             cairo_set_line_width(cr, 1.6);
@@ -336,18 +351,20 @@ static void paint_frame(MenuFrame *f)
             cairo_stroke(cr);
         }
 
-        double text_x = MENU_TEXT_X + MENU_CHECK_W;
-        double text_max = f->w - text_x - MENU_TEXT_X - (it->submenu != SUB_NONE ? MENU_ARROW_W : 0);
+        double arrow_w = it->submenu != SUB_NONE ? MENU_ARROW_W : 0;
+        double text_x = rtl ? MENU_TEXT_X + arrow_w : MENU_TEXT_X + MENU_CHECK_W;
+        double text_max = f->w - MENU_TEXT_X - MENU_CHECK_W - MENU_TEXT_X - arrow_w;
         cairo_set_source_rgba(cr, fg_r, fg_g, fg_b, alpha);
         pango_show_text_boxed(cr, text_x, it->y, it->h, text_max, menu_font_size(),
                               it->label, false, NULL);
 
         if (it->submenu != SUB_NONE) {
-            double ax = f->w - MENU_ARROW_W;
+            double ax = rtl ? MENU_ARROW_W : f->w - MENU_ARROW_W;
+            double tip = rtl ? -5 : 5;
             double ay = it->y + it->h / 2.0;
             cairo_set_line_width(cr, 1.4);
             cairo_move_to(cr, ax, ay - 4);
-            cairo_line_to(cr, ax + 5, ay);
+            cairo_line_to(cr, ax + tip, ay);
             cairo_line_to(cr, ax, ay + 4);
             cairo_stroke(cr);
         }
@@ -466,9 +483,14 @@ static void open_submenu(int parent_depth, int row)
     layout_frame(f);
     /* Beside the row that opened it, slightly overlapping the parent's
      * border so the two read as one connected menu. */
-    f->x = parent->x + parent->w - 2;
     f->y = parent->y + parent->items[row].y - MENU_PAD_Y;
-    clamp_to_output(f, parent->x + 2, f->y, parent->w - 4);
+    if (xis_direction_is_rtl()) {
+        f->x = parent->x - f->w + 2;
+        clamp_to_output(f, parent->x, f->y, parent->w - 2);
+    } else {
+        f->x = parent->x + parent->w - 2;
+        clamp_to_output(f, parent->x + 2, f->y, parent->w - 4);
+    }
 
     frame_count = parent_depth + 2;
     map_frame(f);
@@ -537,6 +559,12 @@ static void resolve_nav_keys(void)
     nav.enter    = keycode_for_keysym(XK_Return);
     nav.kp_enter = keycode_for_keysym(XK_KP_Enter);
     nav.space    = keycode_for_keysym(XK_space);
+    /* RTL: submenus open to the left, so Left opens and Right closes. */
+    if (xis_direction_is_rtl()) {
+        xcb_keycode_t t = nav.left;
+        nav.left = nav.right;
+        nav.right = t;
+    }
     nav.resolved = true;
 }
 
@@ -620,7 +648,7 @@ void window_menu_open(Client *c, int root_x, int root_y)
 
     build_root_items(f, c);
     layout_frame(f);
-    f->x = root_x;
+    f->x = xis_direction_is_rtl() ? root_x - f->w : root_x;
     f->y = root_y;
     clamp_to_output(f, root_x, root_y, 0);
 

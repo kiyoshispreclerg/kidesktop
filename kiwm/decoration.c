@@ -10,6 +10,7 @@
 #include "selection.h"
 #include "density.h"
 #include "wm.h"
+#include "../shared/xis_direction.h"
 
 #include <cairo/cairo-xcb.h>
 #include <xcb/shape.h>
@@ -1393,6 +1394,9 @@ static void paint_titlebar(Client *c, cairo_t *cr, int w, bool focused, bool arg
             if (wm.title_center)
                 pango_show_title_text(cr, s->x, 0, TITLEBAR_H, s->width, wm.title_font_size,
                                       c->title, true, tr, tg, tb);
+            else if (xis_direction_is_rtl())
+                pango_show_title_text(cr, s->x, 0, TITLEBAR_H, s->width - 8.0, wm.title_font_size,
+                                      c->title, false, tr, tg, tb);
             else
                 pango_show_title_text(cr, s->x + 8.0, 0, TITLEBAR_H, s->width - 8.0, wm.title_font_size,
                                       c->title, false, tr, tg, tb);

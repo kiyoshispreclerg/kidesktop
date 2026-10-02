@@ -5,6 +5,7 @@
 #include "config.h"
 #include "wm.h"
 #include "keybind.h"
+#include "../shared/xis_direction.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -463,7 +464,7 @@ static void write_default_config(const char *path)
     fprintf(stderr, "kiwm: no config found, wrote defaults to %s\n", path);
 }
 
-void config_load(void)
+static void load_config_file(void)
 {
     apply_builtin_defaults();
 
@@ -645,4 +646,23 @@ void config_load(void)
         }
     }
     fclose(f);
+}
+
+/* RTL (see shared/xis_direction.h): the titlebar reads from the right, so
+ * titlebar_layout= is mirrored as it's read -- what the config lists
+ * first lands on the right edge, the left-hand buttons move to the right
+ * and vice versa. kiwm.conf stays written in the user's own reading
+ * order; nothing downstream (compute_deco_layout(), hit-testing) needs to
+ * know, it all just walks wm.deco_layout left to right. */
+void config_load(void)
+{
+    load_config_file();
+
+    if (xis_direction_is_rtl()) {
+        for (int i = 0, j = wm.deco_layout_count - 1; i < j; i++, j--) {
+            DecoElemKind t = wm.deco_layout[i];
+            wm.deco_layout[i] = wm.deco_layout[j];
+            wm.deco_layout[j] = t;
+        }
+    }
 }

@@ -32,6 +32,7 @@
 #include "client.h"
 #include "output.h"
 #include "outline.h"
+#include "../shared/xis_direction.h"
 
 #include <cairo/cairo-xcb.h>
 #include <xcb/shape.h>
@@ -194,8 +195,12 @@ static void list_paint(cairo_t *cr, const TabBoxState *state, int w, int h)
         }
 
         Client *c = state->items[i];
-        double icon_x = 6;
-        double text_x = icon_x + OSD_ICON_SIZE + 10;
+        /* RTL: icon on the right edge, title right-aligned before it
+         * (pango_text.c aligns right on its own under RTL). */
+        bool rtl = xis_direction_is_rtl();
+        double icon_x = rtl ? w - 6 - OSD_ICON_SIZE : 6;
+        double text_x = rtl ? 6 : icon_x + OSD_ICON_SIZE + 10;
+        double text_w = w - (OSD_ICON_SIZE + 10) - 12;
 
         if (c->icon) {
             int iw = cairo_image_surface_get_width(c->icon);
@@ -214,7 +219,7 @@ static void list_paint(cairo_t *cr, const TabBoxState *state, int w, int h)
         /* Minimized entries are dimmed, the same "this one isn't on
          * screen right now" cue a taskbar gives them. */
         cairo_set_source_rgba(cr, fg_r, fg_g, fg_b, c->minimized ? 0.55 : 1.0);
-        pango_show_text_boxed(cr, text_x, y, OSD_ROW_H, w - text_x - 6, wm.title_font_size + 1,
+        pango_show_text_boxed(cr, text_x, y, OSD_ROW_H, text_w, wm.title_font_size + 1,
                               c->title[0] ? c->title : "(untitled)", false, NULL);
     }
 }
@@ -318,7 +323,10 @@ static void paint_desktop_grid(cairo_t *cr, int w, int h)
             if (d < 0 || d >= desk_n)
                 continue;
 
-            double x = c * (bw + OSD_DESK_GAP);
+            /* RTL: the grid starts at the top-right corner, matching
+             * the _NET_DESKTOP_LAYOUT ewmh_set_desktop_layout() publishes. */
+            int vc = xis_direction_is_rtl() ? desk_grid_cols - 1 - c : c;
+            double x = vc * (bw + OSD_DESK_GAP);
             double y = r * (bh + OSD_DESK_GAP);
             if (d == desk_selected) {
                 cairo_set_source_rgba(cr, fg_r, fg_g, fg_b, 0.25);

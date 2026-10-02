@@ -13,6 +13,7 @@
  * truncated mid-glyph rather than showing "...").
  */
 #include "decoration.h"
+#include "../shared/xis_direction.h"
 
 #include <pango/pangocairo.h>
 
@@ -43,8 +44,17 @@ static PangoLayout *build_layout(cairo_t *cr, const char *text, double size_px, 
     if (max_width_px > 0) {
         pango_layout_set_width(layout, (int)(max_width_px * PANGO_SCALE));
         pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
-        if (center)
+        if (center) {
             pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
+        } else if (xis_direction_is_rtl()) {
+            /* RTL UI: flush right whatever script the text is in. auto_dir
+             * off, because with it on Pango flips ALIGN_RIGHT back to the
+             * left for an Arabic/Hebrew paragraph; bidi reordering inside
+             * the line is unaffected (the context's base direction stays
+             * weak, so it's still picked from the text). */
+            pango_layout_set_auto_dir(layout, FALSE);
+            pango_layout_set_alignment(layout, PANGO_ALIGN_RIGHT);
+        }
     }
     pango_layout_set_text(layout, text, -1);
     return layout;
