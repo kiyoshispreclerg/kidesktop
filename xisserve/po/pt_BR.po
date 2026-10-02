@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: xisserve\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-02 16:04-0300\n"
+"POT-Creation-Date: 2026-10-02 16:05-0300\n"
 "PO-Revision-Date: 2026-10-02 14:10-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -97,7 +97,7 @@ msgstr "Nenhum feriado ou evento neste dia."
 msgid "Abrir eventos..."
 msgstr "Abrir eventos..."
 
-#: pages/calendar.c:417
+#: pages/calendar.c:417 xisserve.c:91
 msgid "Calendário"
 msgstr "Calendário"
 
@@ -156,7 +156,7 @@ msgstr "Descarregando"
 msgid "Completa"
 msgstr "Completa"
 
-#: pages/energy.c:346
+#: pages/energy.c:346 xisserve.c:93
 msgid "Energia"
 msgstr "Energia"
 
@@ -339,6 +339,26 @@ msgstr "O que você deseja fazer?"
 #: session.c:133
 msgid "Cancelar"
 msgstr "Cancelar"
+
+#: xisserve.c:92
+msgid "Áudio"
+msgstr "Áudio"
+
+#: xisserve.c:94
+msgid "Notificações"
+msgstr "Notificações"
+
+#: xisserve.c:96
+msgid "Rede"
+msgstr "Rede"
+
+#: xisserve.c:97
+msgid "Armazenamento"
+msgstr "Armazenamento"
+
+#: xisserve.c:98
+msgid "Área de transferência"
+msgstr "Área de transferência"
 
 #: xisserve.c:693 xisserve.c:694 xisserve.c:695
 msgid "Áudio e Vídeo"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: xisserve\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-02 16:04-0300\n"
+"POT-Creation-Date: 2026-10-02 16:05-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -87,7 +87,7 @@ msgstr ""
 msgid "Abrir eventos..."
 msgstr ""
 
-#: pages/calendar.c:417
+#: pages/calendar.c:417 xisserve.c:91
 msgid "Calendário"
 msgstr ""
 
@@ -144,7 +144,7 @@ msgstr ""
 msgid "Completa"
 msgstr ""
 
-#: pages/energy.c:346
+#: pages/energy.c:346 xisserve.c:93
 msgid "Energia"
 msgstr ""
 
@@ -326,6 +326,26 @@ msgstr ""
 
 #: session.c:133
 msgid "Cancelar"
+msgstr ""
+
+#: xisserve.c:92
+msgid "Áudio"
+msgstr ""
+
+#: xisserve.c:94
+msgid "Notificações"
+msgstr ""
+
+#: xisserve.c:96
+msgid "Rede"
+msgstr ""
+
+#: xisserve.c:97
+msgid "Armazenamento"
+msgstr ""
+
+#: xisserve.c:98
+msgid "Área de transferência"
 msgstr ""
 
 #: xisserve.c:693 xisserve.c:694 xisserve.c:695

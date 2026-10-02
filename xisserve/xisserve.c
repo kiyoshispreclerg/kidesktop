@@ -55,7 +55,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.1.53"
+#define XISSERVE_VERSION "0.1.54"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -88,14 +88,14 @@ enum { CCOL_KEY = 0, CCOL_LABEL, N_CCOLS };
  * audio mixer's own min size is for the same reason (its rows only
  * make sense at a usable slider width). */
 static const XisservePage kPages[] = {
-    {"calendar", "Calend\xc3\xa1rio", 460, 360, page_calendar_build, page_calendar_on_show, page_calendar_on_hide},
-    {"audio", "\xc3\x81udio", 380, 480, page_audio_build, page_audio_on_show, page_audio_on_hide},
-    {"energy", "Energia", 380, 480, page_energy_build, page_energy_on_show, page_energy_on_hide},
-    {"notifications", "Notifica\xc3\xa7\xc3\xb5""es", 380, 480, page_notifications_build,
+    {"calendar", N_("Calend\xc3\xa1rio"), 460, 360, page_calendar_build, page_calendar_on_show, page_calendar_on_hide},
+    {"audio", N_("\xc3\x81udio"), 380, 480, page_audio_build, page_audio_on_show, page_audio_on_hide},
+    {"energy", N_("Energia"), 380, 480, page_energy_build, page_energy_on_show, page_energy_on_hide},
+    {"notifications", N_("Notifica\xc3\xa7\xc3\xb5""es"), 380, 480, page_notifications_build,
      page_notifications_on_show, page_notifications_on_hide},
-    {"network", "Rede", 380, 480, page_network_build, page_network_on_show, page_network_on_hide},
-    {"storage", "Armazenamento", 380, 480, page_storage_build, page_storage_on_show, page_storage_on_hide},
-    {"clipboard", "\xc3\x81rea de transfer\xc3\xaancia", 420, 480, page_clipboard_build, page_clipboard_on_show,
+    {"network", N_("Rede"), 380, 480, page_network_build, page_network_on_show, page_network_on_hide},
+    {"storage", N_("Armazenamento"), 380, 480, page_storage_build, page_storage_on_show, page_storage_on_hide},
+    {"clipboard", N_("\xc3\x81rea de transfer\xc3\xaancia"), 420, 480, page_clipboard_build, page_clipboard_on_show,
      page_clipboard_on_hide},
 };
 #define N_PAGES ((int)(sizeof(kPages) / sizeof(kPages[0])))
@@ -2102,7 +2102,7 @@ static const char *launcher_display_name(void)
  * or the active page's own title (kPages[].title) on any page. */
 static void update_header_title(void)
 {
-    const char *text = g_args.page == PAGE_LAUNCHER ? launcher_display_name() : kPages[g_args.page].title;
+    const char *text = g_args.page == PAGE_LAUNCHER ? launcher_display_name() : _(kPages[g_args.page].title);
     gtk_label_set_text(GTK_LABEL(g_header_title), text);
     /* The window has no title of its own (it's a popup), so without this
      * a screen reader announces an unnamed frame. */
