@@ -55,7 +55,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.1.55"
+#define XISSERVE_VERSION "0.1.56"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -1617,6 +1617,8 @@ static void hex_to_rgba(const char *hex, double *r, double *g, double *b, double
 {
     unsigned ri = 0, gi = 0, bi = 0, ai = 255;
     if (hex && hex[0] == '#' && strlen(hex) >= 7) {
+        /* cppcheck 2.7 misreads sscanf's input as uninitialized here. */
+        // cppcheck-suppress uninitvar
         sscanf(hex + 1, "%2x%2x%2x", &ri, &gi, &bi);
         if (strlen(hex) >= 9) sscanf(hex + 7, "%2x", &ai);
     }
