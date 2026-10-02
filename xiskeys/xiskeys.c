@@ -50,6 +50,7 @@
 #include <X11/Xlib.h>
 #include <X11/keysym.h>
 
+#include "../shared/xis_fmt.h"
 #include "../shared/xis_spawn.h"
 
 #include <errno.h>
@@ -64,7 +65,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define XISKEYS_VERSION "0.2.5"
+#define XISKEYS_VERSION "0.2.6"
 #define MAX_BINDINGS 128
 #define LINE_MAX_LEN 768
 #define CMD_MAX_LEN 512
@@ -196,8 +197,7 @@ static int parse_hotkey_spec(const char *spec, unsigned int *out_mods, KeyCode *
      * encoding convention, so a single literal character goes straight
      * to a keysym value with no name-table lookup needed at all. */
     KeySym ks = XStringToKeysym(keyname);
-    if (ks == NoSymbol && keyname[1] == '\0' && (unsigned char)keyname[0] >= 0x20 &&
-        (unsigned char)keyname[0] <= 0xff) {
+    if (ks == NoSymbol && keyname[1] == '\0' && (unsigned char)keyname[0] >= 0x20) {
         ks = (KeySym)(unsigned char)keyname[0];
     }
     if (ks == NoSymbol) {
@@ -544,7 +544,7 @@ static void resolve_configpath(void)
     if (!home || !*home) {
         home = "/tmp";
     }
-    char configdir[PATH_MAX];
+    char configdir[PATH_MAX - 64]; /* room for "/<name>.conf" after it */
     snprintf(configdir, sizeof(configdir), "%s/.config", home);
     mkdir(configdir, 0700);
     snprintf(g_configpath, sizeof(g_configpath), "%s/xiskeys.conf", configdir);
