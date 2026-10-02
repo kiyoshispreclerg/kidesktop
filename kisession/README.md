@@ -19,6 +19,7 @@ It owns two things:
 | service | kind | default | notes |
 |---|---|---|---|
 | dbus | env | on | session bus + activation environment |
+| a11y | supervised | off | AT-SPI bus (`at-spi-bus-launcher`) + `gail:atk-bridge` in `GTK_MODULES` + `QT_ACCESSIBILITY=1`; the environment part takes effect at next login |
 | xisguard | oneshot | on | XNOTIFY permissions; exits by itself without the extension |
 | kiconfd | supervised | on | theme/cursor/settings daemon; other services wait on it briefly at startup |
 | xismenu | supervised | on | application menu registrar (global menu); must be up before any app starts |
@@ -32,6 +33,7 @@ It owns two things:
 | polkit | supervised | on | polkit authentication agent (needed by kiconf's Sistema tab) |
 | wm | wm | on | window manager, see `wm =` below |
 | kicomp | oneshot | on | compositor; optional, not restarted (so the Alt+Shift+F12 toggle can turn it off for good until next login) |
+| screenreader | supervised | off | `orca` screen reader; needs `a11y` |
 | autostart | autostart | on | XDG autostart entries, started after everything above |
 
 ## Config

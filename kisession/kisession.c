@@ -67,7 +67,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KISESSION_VERSION "0.1.8"
+#define KISESSION_VERSION "0.1.9"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -128,6 +128,15 @@ typedef struct {
     int gate_ms;
 } SvcDef;
 
+/* at-spi-bus-launcher lives in libexec, at a path that differs per distro;
+ * first one present wins. */
+static const char *const ATSPI_CANDIDATES[] = {
+    "/usr/libexec/at-spi-bus-launcher",
+    "/usr/lib/at-spi2-core/at-spi-bus-launcher",
+    "/usr/lib/at-spi2/at-spi-bus-launcher",
+    NULL,
+};
+
 static const char *const ARGV_XISGUARD[] = {"xisguard", NULL};
 static const char *const ARGV_KICONFD[] = {"kiconfd", NULL};
 static const char *const ARGV_XISMENU[] = {"xismenu", NULL};
@@ -138,12 +147,20 @@ static const char *const ARGV_KICOMP[] = {"kicomp", NULL};
 static const char *const ARGV_KIMEMORYD[] = {"kimemoryd", NULL};
 static const char *const ARGV_KISTORYD[] = {"kistoryd", NULL};
 static const char *const ARGV_LOCKER[] = {"xss-lock", "--", "i3lock", NULL};
+static const char *const ARGV_ORCA[] = {"orca", NULL};
 
 /* Start order is table order. xisguard first so the XNOTIFY permission
  * daemon is already arbitrating before anything else touches the display;
  * kiconfd before the visible pieces so they come up already themed. */
 static const SvcDef SERVICES[] = {
     {"dbus", SVC_ENV, NULL, 1, "session bus + activation environment", 0},
+    /* Right after the bus, so every GTK/Qt program started below already
+     * finds the accessibility bus. Off by default: it also loads
+     * gail:atk-bridge into every GTK2 program (see setup_a11y_env()),
+     * which costs memory and startup time nobody without assistive
+     * technology needs. Toggling it only affects programs started after
+     * the next login, since the environment is fixed at session start. */
+    {"a11y", SVC_SUPERVISED, NULL, 0, "accessibility bus (AT-SPI) + toolkit bridges; takes effect at next login", 0},
     {"xisguard", SVC_ONESHOT, ARGV_XISGUARD, 1, "XNOTIFY permissions (exits by itself without the extension)", 0},
     {"kiconfd", SVC_SUPERVISED, ARGV_KICONFD, 1, "theme/cursor/settings daemon", 2000},
     /* Before the panel, and well before autostart, because it has to be
@@ -176,6 +193,8 @@ static const SvcDef SERVICES[] = {
      * kicomp isn't installed -- it is optional, and kiwm is fully usable
      * uncomposited. */
     {"kicomp", SVC_ONESHOT, ARGV_KICOMP, 1, "compositor (optional; not restarted, so the toggle key can turn it off)", 0},
+    /* Needs the a11y service (orca talks to applications over AT-SPI). */
+    {"screenreader", SVC_SUPERVISED, ARGV_ORCA, 0, "orca screen reader (needs a11y)", 0},
     {"autostart", SVC_AUTOSTART, NULL, 1, "XDG autostart entries, started after the services above", 0},
 };
 #define N_SERVICES ((int)(sizeof(SERVICES) / sizeof(SERVICES[0])))
@@ -594,6 +613,22 @@ static void start_polkit(int idx)
     g_state[idx].enabled = 0;
 }
 
+static void start_a11y(int idx)
+{
+    for (int i = 0; ATSPI_CANDIDATES[i]; i++) {
+        if (access(ATSPI_CANDIDATES[i], X_OK) == 0) {
+            /* --launch-immediately: start the bus now instead of waiting
+             * for the first client to ask org.a11y.Bus for it. */
+            const char *argv[] = {ATSPI_CANDIDATES[i], "--launch-immediately", NULL};
+            fprintf(stderr, "kisession: starting %s\n", argv[0]);
+            svc_record_pid(idx, spawn_const(argv));
+            return;
+        }
+    }
+    fprintf(stderr, "kisession: at-spi-bus-launcher not installed (at-spi2-core); skipping a11y\n");
+    g_state[idx].enabled = 0;
+}
+
 static void start_wm(int idx)
 {
     char wm[PATH_MAX];
@@ -656,6 +691,10 @@ static void start_service(int idx)
         }
         return;
     case SVC_SUPERVISED:
+        if (strcmp(def->name, "a11y") == 0) {
+            start_a11y(idx);
+            return;
+        }
         if (strcmp(def->name, "polkit") == 0) {
             start_polkit(idx);
             /* Nothing installed: start_polkit() turned the service off
@@ -1490,35 +1529,62 @@ static int gtk_module_available(const char *name)
  * "appmenu-gtk-module.service" systemd unit XFCE/GNOME/MATE sessions get
  * does -- kisession is the equivalent for a session that reaches none of
  * those targets. */
-static void setup_gtk_modules(void)
+static int gtk_modules_has(const char *existing, const char *want)
 {
-    if (!gtk_module_available("appmenu-gtk-module")) {
-        return;
+    /* Match on the bare token, not just any substring -- a module name
+     * that happens to be a *suffix* of another one must not look present. */
+    const char *p = existing;
+    size_t want_len = strlen(want);
+    while (*p) {
+        const char *colon = strchr(p, ':');
+        size_t tok_len = colon ? (size_t)(colon - p) : strlen(p);
+        if (tok_len == want_len && strncmp(p, want, want_len) == 0) {
+            return 1;
+        }
+        p = colon ? colon + 1 : p + tok_len;
     }
+    return 0;
+}
+
+static void gtk_modules_append(const char *module)
+{
     const char *existing = getenv("GTK_MODULES");
     if (existing && *existing) {
-        /* Match on the bare token, not just any substring -- a module
-         * name that happens to be a *suffix* of another one (there are
-         * none today, but nothing rules it out) must not look present. */
-        const char *p = existing;
-        size_t want_len = strlen("appmenu-gtk-module");
-        int have = 0;
-        while (*p && !have) {
-            const char *colon = strchr(p, ':');
-            size_t tok_len = colon ? (size_t)(colon - p) : strlen(p);
-            have = tok_len == want_len && strncmp(p, "appmenu-gtk-module", want_len) == 0;
-            p = colon ? colon + 1 : p + tok_len;
-        }
-        if (have) {
+        if (gtk_modules_has(existing, module)) {
             return;
         }
         char joined[512];
-        snprintf(joined, sizeof(joined), "%s:appmenu-gtk-module", existing);
+        snprintf(joined, sizeof(joined), "%s:%s", existing, module);
         setenv("GTK_MODULES", joined, 1);
     } else {
-        setenv("GTK_MODULES", "appmenu-gtk-module", 1);
+        setenv("GTK_MODULES", module, 1);
     }
-    fprintf(stderr, "kisession: GTK_MODULES=%s\n", getenv("GTK_MODULES"));
+}
+
+static void setup_gtk_modules(void)
+{
+    if (gtk_module_available("appmenu-gtk-module")) {
+        gtk_modules_append("appmenu-gtk-module");
+    }
+}
+
+/* Only GTK2 needs to be told to load its accessibility bridge (GTK3 has it
+ * built in, and only skips it under NO_AT_BRIDGE=1); Qt needs
+ * QT_ACCESSIBILITY=1 before it creates its bridge at all. Set only with
+ * the a11y service on, for the cost reason given at its table entry. */
+static void setup_a11y_env(void)
+{
+    if (!svc_enabled("a11y")) {
+        return;
+    }
+    if (gtk_module_available("atk-bridge")) {
+        gtk_modules_append("gail");
+        gtk_modules_append("atk-bridge");
+    } else {
+        fprintf(stderr, "kisession: GTK2 atk-bridge module not installed; GTK2 programs stay inaccessible\n");
+    }
+    setenv("QT_ACCESSIBILITY", "1", 1);
+    setenv("QT_LINUX_ACCESSIBILITY_ALWAYS_ON", "1", 1);
 }
 
 /* Qt reads its appearance from whatever QT_QPA_PLATFORMTHEME names, and
@@ -1571,6 +1637,10 @@ static void setup_environment(char **argv)
     setenv("XDG_SESSION_TYPE", "x11", 1);
     setup_qt_platformtheme();
     setup_gtk_modules();
+    setup_a11y_env();
+    if (getenv("GTK_MODULES")) {
+        fprintf(stderr, "kisession: GTK_MODULES=%s\n", getenv("GTK_MODULES"));
+    }
 
     if (!svc_enabled("dbus")) {
         return;
@@ -1618,7 +1688,7 @@ static void setup_environment(char **argv)
     static const char *const upd[] = {
         "dbus-update-activation-environment", "--systemd", "DISPLAY", "XAUTHORITY",
         "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE",
-        "QT_QPA_PLATFORMTHEME", "GTK_MODULES", NULL,
+        "QT_QPA_PLATFORMTHEME", "GTK_MODULES", "QT_ACCESSIBILITY", "QT_LINUX_ACCESSIBILITY_ALWAYS_ON", NULL,
     };
     char found[PATH_MAX];
     if (find_in_path(upd[0], found, sizeof(found))) {
