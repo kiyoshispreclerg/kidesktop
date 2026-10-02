@@ -63,6 +63,7 @@
 #include "../shared/xis_icon_cache.h"
 #include "../shared/xis_outputs.h"
 #include "../shared/xis_spawn.h"
+#include "../shared/xis_direction.h"
 
 #include <Imlib2.h>
 #include <X11/Xatom.h>
@@ -99,7 +100,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.76"
+#define XISPANEL_VERSION "0.6.77"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -2271,6 +2272,28 @@ static void container_layout(Panel *p)
     }
 }
 
+/* RTL (shared/xis_direction.h): one mirror over the finished LTR layout,
+ * for every panel and container popup alike -- no widget lays itself out
+ * differently or needs to know. Only the horizontal axis flips: x along
+ * a top/bottom bar, the cross axis (y, the rows of a grid popup) on a
+ * left/right one, whose top-to-bottom order stays as it is. Hit-testing
+ * and popup anchoring read the same w->x/w->y, so they follow along. */
+static void panel_mirror_rtl(Panel *p)
+{
+    if (!xis_direction_is_rtl()) {
+        return;
+    }
+    int horizontal = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM);
+    for (int i = 0; i < p->n_layout; i++) {
+        PanelWidget *w = p->layout[i];
+        if (horizontal) {
+            w->x = p->w - w->x - w->len;
+        } else {
+            w->y = p->w - w->y - w->thickness;
+        }
+    }
+}
+
 /* Rebuilds p->layout[] -- see its doc comment in xispanel.h. */
 static void panel_build_layout(Panel *p)
 {
@@ -2304,6 +2327,7 @@ static void panel_layout(Panel *p)
     panel_build_layout(p);
     if (p->mode == MODE_CONTAINER) {
         container_layout(p);
+        panel_mirror_rtl(p);
         return;
     }
     int axis_len = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? p->w : p->h;
@@ -2381,6 +2405,7 @@ static void panel_layout(Panel *p)
         w->thickness = p->thickness;
         cursor += len + p->spacing;
     }
+    panel_mirror_rtl(p);
 }
 
 /* Paints p's full content (background + every widget) into `cr`, with an

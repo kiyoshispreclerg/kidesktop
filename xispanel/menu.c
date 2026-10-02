@@ -73,6 +73,7 @@
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
 #include <cairo/cairo-xlib.h>
+#include "../shared/xis_direction.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -296,6 +297,7 @@ static void draw_frame(cairo_t *cr, PanelMenu *m, MenuFrame *f)
      * underneath so a frame with transparent edges still has the panel's
      * own bg behind it, and so an unthemed menu looks exactly as before). */
     panel_draw_skin(&p->menu_skin, cr, SKIN_NORMAL, 0, 0, f->width, f->height);
+    int rtl = xis_direction_is_rtl();
 
     for (int row = 0; row < f->visible_rows; row++) {
         int y = MENU_FRAME_PAD_Y + row * m->item_h;
@@ -352,24 +354,32 @@ static void draw_frame(cairo_t *cr, PanelMenu *m, MenuFrame *f)
                 cairo_fill(cr);
             }
         }
+        /* RTL: the whole row mirrored -- icon column on the right, text
+         * flush against it, submenu arrow on the left pointing left. */
         int text_x = 10;
         if (f->has_icon) {
             int icon_size = menu_icon_size(m);
             if (it->icon) {
                 double icon_y = y + (m->item_h - icon_size) / 2.0;
-                draw_icon_scaled(cr, it->icon, 10, icon_y, icon_size);
+                draw_icon_scaled(cr, it->icon, rtl ? f->width - 10 - icon_size : 10, icon_y, icon_size);
             }
             text_x = 10 + menu_icon_column_w(m);
+        }
+        if (rtl) {
+            double tw = 0;
+            pango_text_extents_ellipsized(cr, it->label, m->font_size, 0, &tw, NULL);
+            text_x = (int)(f->width - text_x - tw);
         }
         cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, it->enabled ? 0.95 : 0.4);
         pango_show_text_boxed(cr, text_x, y, m->item_h, 0, m->font_size, it->label, NULL, p);
 
         if (m->has_children[idx]) {
-            double ax = f->width - MENU_ARROW_RESERVE + 4;
+            double ax = rtl ? MENU_ARROW_RESERVE - 4 : f->width - MENU_ARROW_RESERVE + 4;
+            double tip = rtl ? -5 : 5;
             double ay = y + m->item_h / 2.0;
             cairo_set_line_width(cr, 1.4);
             cairo_move_to(cr, ax, ay - 4);
-            cairo_line_to(cr, ax + 5, ay);
+            cairo_line_to(cr, ax + tip, ay);
             cairo_line_to(cr, ax, ay + 4);
             cairo_stroke(cr);
         }
@@ -653,8 +663,16 @@ static int open_submenu(PanelMenu *m, int parent_frame, int parent_pos)
 
     Panel *p = m->owner_panel;
     int parent_row = frame_pos_to_row(pf, parent_pos);
-    f->screen_x = pf->screen_x + pf->width;
     f->screen_y = pf->screen_y + MENU_FRAME_PAD_Y + parent_row * m->item_h;
+    if (xis_direction_is_rtl()) {
+        /* RTL: cascade leftwards, flip to the right when out of room. */
+        f->screen_x = pf->screen_x - f->width;
+        if (f->screen_x < p->out_x) {
+            f->screen_x = pf->screen_x + pf->width;
+        }
+    } else {
+        f->screen_x = pf->screen_x + pf->width;
+    }
     if (f->screen_x + f->width > p->out_x + p->out_w) {
         f->screen_x = pf->screen_x - f->width; /* flip to the left of the parent frame instead */
     }
@@ -967,7 +985,6 @@ void panel_menu_open_tree_lazy(Panel *owner_panel, PanelWidget *owner_widget, in
                                 MenuSelectFn on_select, MenuLazyFn on_lazy, MenuHoverRootFn on_hover_root,
                                 MenuCloseFn on_close)
 {
-    (void)anchor_w; /* only the leading edge is needed for a dropdown-style menu */
     if (g_menu) {
         panel_menu_close();
     }
@@ -1057,6 +1074,9 @@ void panel_menu_open_tree_lazy(Panel *owner_panel, PanelWidget *owner_widget, in
     int widget_x = owner_widget ? owner_widget->x : 0;
     if (owner_panel->edge == EDGE_TOP || owner_panel->edge == EDGE_BOTTOM) {
         screen_x = owner_panel->x + widget_x + anchor_x;
+        if (xis_direction_is_rtl()) {
+            screen_x += anchor_w - f0->width; /* RTL: trailing edges aligned instead */
+        }
         screen_y = (owner_panel->edge == EDGE_TOP) ? (owner_panel->y + owner_panel->h) : (owner_panel->y - f0->height);
     } else {
         screen_x = (owner_panel->edge == EDGE_LEFT) ? (owner_panel->x + owner_panel->w) : (owner_panel->x - f0->width);
@@ -1196,9 +1216,9 @@ int panel_menu_handle_event(const XEvent *ev)
             move_hover(1);
         } else if (ks == XK_Up) {
             move_hover(-1);
-        } else if (ks == XK_Right) {
-            open_hovered_submenu();
-        } else if (ks == XK_Left) {
+        } else if (ks == (xis_direction_is_rtl() ? XK_Left : XK_Right)) {
+            open_hovered_submenu(); /* RTL: submenus open leftwards */
+        } else if (ks == (xis_direction_is_rtl() ? XK_Right : XK_Left)) {
             close_deepest_frame();
         } else if (ks == XK_Return || ks == XK_KP_Enter) {
             MenuFrame *f = &m->frames[m->n_frames - 1];
