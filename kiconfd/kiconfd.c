@@ -155,7 +155,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.17"
+#define KICONFD_VERSION "0.2.18"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -488,7 +488,11 @@ static void ini_upsert(const char *path, const char *section, const char *key, c
         while (fgets(buf, sizeof(buf), in)) {
             if (n_lines >= cap) {
                 cap = cap ? cap * 2 : 64;
-                lines = realloc(lines, (size_t)cap * sizeof(char *));
+                char **grown = realloc(lines, (size_t)cap * sizeof(char *));
+                if (!grown) {
+                    break; /* out of memory: keep what was read */
+                }
+                lines = grown;
             }
             lines[n_lines++] = strdup(buf);
         }
