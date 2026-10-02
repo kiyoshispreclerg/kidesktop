@@ -28,7 +28,7 @@
 #define REPORT_THROTTLE_S   1
 #define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.5"
+#define XISGUARD_VERSION    "0.4.6"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2

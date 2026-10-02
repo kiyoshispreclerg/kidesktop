@@ -4,13 +4,15 @@ PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 LOCALEDIR := $(PREFIX)/share/locale
 
-CFLAGS ?= -O2 -Wall -Wextra -pthread -D_FORTIFY_SOURCE=2 -fstack-protector-strong
-CFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"'
+CFLAGS ?= -O2 -Wall -Wextra -D_FORTIFY_SOURCE=2 -fstack-protector-strong
+CFLAGS += -pthread -DLOCALEDIR='"$(LOCALEDIR)"'
 # gettext is part of glibc, so -lintl there would just fail to link (no
 # separate library to find) -- only add it where it's actually a separate
 # lib (musl, *BSD): try linking a trivial program against it and see.
 LIBINTL := $(shell echo 'int main(void){return 0;}' | $(CC) -x c - -o /dev/null -lintl 2>/dev/null && echo -lintl)
-LDFLAGS ?= -pthread -lX11 $(LIBINTL)
+# Libraries in LDLIBS, not LDFLAGS: a packager's LDFLAGS (dpkg-buildflags)
+# replaces the latter wholesale.
+LDLIBS := -pthread -lX11 $(LIBINTL)
 
 # po/LINGUAS: one language code per line ("pt_BR", "es", ...), '#' comments.
 # Empty/missing until the first translation actually exists (see po/README.md).
@@ -20,7 +22,7 @@ MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 all: xisguard
 
 xisguard: xisguard.c
-	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LDLIBS)
 
 # ---- translations (see po/README.md for the day-to-day workflow) ----------
 
