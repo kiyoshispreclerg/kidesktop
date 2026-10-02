@@ -61,13 +61,13 @@ static gboolean next_kv(const char **pp, char *key, size_t keysz, char *val, siz
 
 static void apply_kv(StorageRow *r, const char *key, const char *val)
 {
-    if (strcmp(key, "NAME") == 0) snprintf(r->name, sizeof(r->name), "%s", val);
-    else if (strcmp(key, "PKNAME") == 0) snprintf(r->pkname, sizeof(r->pkname), "%s", val);
-    else if (strcmp(key, "TYPE") == 0) snprintf(r->type, sizeof(r->type), "%s", val);
-    else if (strcmp(key, "SIZE") == 0) snprintf(r->size, sizeof(r->size), "%s", val);
-    else if (strcmp(key, "FSTYPE") == 0) snprintf(r->fstype, sizeof(r->fstype), "%s", val);
-    else if (strcmp(key, "LABEL") == 0) snprintf(r->label, sizeof(r->label), "%s", val);
-    else if (strcmp(key, "MOUNTPOINT") == 0) snprintf(r->mountpoint, sizeof(r->mountpoint), "%s", val);
+    if (strcmp(key, "NAME") == 0) g_strlcpy(r->name, val, sizeof(r->name));
+    else if (strcmp(key, "PKNAME") == 0) g_strlcpy(r->pkname, val, sizeof(r->pkname));
+    else if (strcmp(key, "TYPE") == 0) g_strlcpy(r->type, val, sizeof(r->type));
+    else if (strcmp(key, "SIZE") == 0) g_strlcpy(r->size, val, sizeof(r->size));
+    else if (strcmp(key, "FSTYPE") == 0) g_strlcpy(r->fstype, val, sizeof(r->fstype));
+    else if (strcmp(key, "LABEL") == 0) g_strlcpy(r->label, val, sizeof(r->label));
+    else if (strcmp(key, "MOUNTPOINT") == 0) g_strlcpy(r->mountpoint, val, sizeof(r->mountpoint));
 }
 
 /* Removable + hotplug block devices, partitions before their own disk
@@ -90,8 +90,8 @@ static GPtrArray *fetch_storage(void)
         const char *p = line;
         char key[32], val[PATH_MAX];
         while (next_kv(&p, key, sizeof(key), val, sizeof(val))) {
-            if (strcmp(key, "RM") == 0) snprintf(removable, sizeof(removable), "%s", val);
-            else if (strcmp(key, "HOTPLUG") == 0) snprintf(hotplug, sizeof(hotplug), "%s", val);
+            if (strcmp(key, "RM") == 0) g_strlcpy(removable, val, sizeof(removable));
+            else if (strcmp(key, "HOTPLUG") == 0) g_strlcpy(hotplug, val, sizeof(hotplug));
             else apply_kv(&r, key, val);
         }
         gboolean is_removable = strcmp(removable, "1") == 0 || strcmp(hotplug, "1") == 0;

@@ -55,7 +55,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.1.54"
+#define XISSERVE_VERSION "0.1.55"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -525,9 +525,10 @@ static int send_to_running(const char *sockpath, const LaunchArgs *a)
         return -1;
     }
     struct sockaddr_un addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
-    snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", sockpath);
+    if (!xis_sun_path(&addr, sockpath)) {
+        close(fd);
+        return -1;
+    }
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
         perror("xisserve: connect");
         close(fd);
@@ -563,9 +564,11 @@ static int open_listen_socket(const char *sockpath)
         return -1;
     }
     struct sockaddr_un addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
-    snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", sockpath);
+    if (!xis_sun_path(&addr, sockpath)) {
+        fprintf(stderr, "xisserve: socket path too long: %s\n", sockpath);
+        close(fd);
+        return -1;
+    }
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
         perror("xisserve: bind");
         close(fd);
@@ -625,12 +628,14 @@ void build_terminal_exec(const char *cmd, char *out, size_t outsz)
 {
     char q[600];
     shell_quote(cmd, q, sizeof(q));
-    snprintf(out, outsz,
+    if (!xis_fmt_fits(out, outsz,
              "(exec xdg-terminal-exec -- sh -c %s 2>/dev/null) || "
              "([ -n \"$TERMINAL\" ] && exec \"$TERMINAL\" -e sh -c %s) || "
              "(exec x-terminal-emulator -e sh -c %s 2>/dev/null) || "
              "(exec xterm -e sh -c %s)",
-             q, q, q, q);
+             q, q, q, q)) {
+        out[0] = '\0'; /* too long to run as written: run nothing */
+    }
 }
 
 /* Drops %f/%F/%u/%U/%i/%c/%k/etc field codes per the .desktop spec (we
@@ -751,7 +756,7 @@ static void favorites_path(char *out, size_t outsz)
         return;
     }
     const char *home = getenv("HOME");
-    char configdir[PATH_MAX];
+    char configdir[PATH_MAX - 64]; /* room for "/<name>.conf" after it */
     snprintf(configdir, sizeof(configdir), "%s/.config", home ? home : "");
     mkdir(configdir, 0700);
     snprintf(out, outsz, "%s/xisserve-favorites.conf", configdir);
@@ -852,7 +857,7 @@ static void config_path(char *out, size_t outsz)
         return;
     }
     const char *home = getenv("HOME");
-    char configdir[PATH_MAX];
+    char configdir[PATH_MAX - 64]; /* room for "/<name>.conf" after it */
     snprintf(configdir, sizeof(configdir), "%s/.config", home ? home : "");
     mkdir(configdir, 0700);
     snprintf(out, outsz, "%s/xisserve.conf", configdir);
@@ -1049,8 +1054,7 @@ static gboolean find_desktop_file_path(const char *basename, char *out, size_t o
         const char *home = getenv("HOME");
         snprintf(home_apps, sizeof(home_apps), "%s/.local/share/applications", home ? home : "");
     }
-    snprintf(out, outsz, "%s/%s", home_apps, basename);
-    if (access(out, F_OK) == 0) return TRUE;
+    if (xis_fmt_fits(out, outsz, "%s/%s", home_apps, basename) && access(out, F_OK) == 0) return TRUE;
 
     const char *xdg_data_dirs = getenv("XDG_DATA_DIRS");
     if (!xdg_data_dirs || !*xdg_data_dirs) xdg_data_dirs = "/usr/local/share:/usr/share";
@@ -1088,8 +1092,10 @@ static GArray *load_desktop_actions(const char *path)
     int n = xis_desktop_load_actions(path, names, execs, 6);
     for (int i = 0; i < n; i++) {
         DesktopAction act;
-        snprintf(act.name, sizeof(act.name), "%s", names[i]);
-        snprintf(act.exec, sizeof(act.exec), "%s", execs[i]);
+        g_strlcpy(act.name, names[i], sizeof(act.name));
+        if (!xis_fmt_fits(act.exec, sizeof(act.exec), "%s", execs[i])) {
+            continue; /* a cut-off command line would run something else */
+        }
         g_array_append_val(actions, act);
     }
     return actions;
@@ -1416,7 +1422,7 @@ static void apps_cache_path(char *out, size_t outsz)
         return;
     }
     const char *home = getenv("HOME");
-    char cachedir[PATH_MAX];
+    char cachedir[PATH_MAX - 64]; /* room for the file name after it */
     snprintf(cachedir, sizeof(cachedir), "%s/.cache", home ? home : "");
     mkdir(cachedir, 0700);
     snprintf(out, outsz, "%s/xisserve-apps.cache", cachedir);
@@ -1431,7 +1437,7 @@ static void apps_cache_path(char *out, size_t outsz)
  * existed. */
 static void write_apps_cache(const GArray *dirs, const GPtrArray *apps)
 {
-    char path[PATH_MAX], tmp[PATH_MAX];
+    char path[PATH_MAX], tmp[PATH_MAX + 8];
     apps_cache_path(path, sizeof(path));
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
 
@@ -2132,7 +2138,7 @@ static void sizes_path(char *out, size_t outsz)
         return;
     }
     const char *home = getenv("HOME");
-    char configdir[PATH_MAX];
+    char configdir[PATH_MAX - 64]; /* room for "/<name>.conf" after it */
     snprintf(configdir, sizeof(configdir), "%s/.config", home ? home : "");
     mkdir(configdir, 0700);
     snprintf(out, outsz, "%s/xisserve-sizes.conf", configdir);
@@ -2642,7 +2648,7 @@ static void free_closure_data(gpointer data, GClosure *closure)
  * comment for why that needs to be able to tell one of these apart from
  * g_window genuinely losing focus to another application. Exported as
  * xisserve_transient_popup_begin()/_end() below rather than kept
- * file-private, so pages/*.c share this one mechanism instead of each
+ * file-private, so the pages/ sources share this one mechanism instead of each
  * inventing its own flag. */
 static gboolean g_transient_popup_active = FALSE;
 

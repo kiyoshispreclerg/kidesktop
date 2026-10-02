@@ -12,6 +12,9 @@ PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 LOCALEDIR := $(PREFIX)/share/locale
 PKG_CFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"'
+# GTK2's own headers use GLib types GLib has since deprecated (GTimeVal,
+# GTypeDebugFlags); those warnings say nothing about this code.
+PKG_CFLAGS += -DGLIB_DISABLE_DEPRECATION_WARNINGS
 # gettext is part of glibc, so -lintl there would just fail to link (no
 # separate library to find) -- only add it where it's actually a separate
 # lib (musl, *BSD): try linking a trivial program against it and see.

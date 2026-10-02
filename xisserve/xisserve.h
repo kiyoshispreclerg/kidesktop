@@ -12,6 +12,7 @@
 #ifndef XISSERVE_H
 #define XISSERVE_H
 
+#include "../shared/xis_fmt.h"
 #include "../shared/xis_i18n.h"
 
 #include <gtk/gtk.h>

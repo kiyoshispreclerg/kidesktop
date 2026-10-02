@@ -11,6 +11,7 @@
  * of a browser tab, say), which would otherwise parse as a field.
  */
 #include "pulse.h"
+#include "../../shared/xis_fmt.h"
 #include "../../shared/xis_pactl_subscribe.h"
 
 #include <ctype.h>
@@ -51,7 +52,9 @@ int pulse_available(void)
 static FILE *pactl_run(const char *args)
 {
     char cmd[512];
-    snprintf(cmd, sizeof(cmd), "LC_ALL=C pactl %s 2>/dev/null", args);
+    if (!xis_fmt_fits(cmd, sizeof(cmd), "LC_ALL=C pactl %s 2>/dev/null", args)) {
+        return NULL;
+    }
     return popen(cmd, "r");
 }
 
@@ -105,9 +108,9 @@ static void read_defaults(char *sink, size_t sink_sz, char *source, size_t sourc
     while (fgets(line, sizeof(line), f)) {
         rstrip(line);
         if (strncmp(line, "Default Sink: ", 14) == 0) {
-            snprintf(sink, sink_sz, "%s", line + 14);
+            g_strlcpy(sink, line + 14, sink_sz);
         } else if (strncmp(line, "Default Source: ", 16) == 0) {
-            snprintf(source, source_sz, "%s", line + 16);
+            g_strlcpy(source, line + 16, source_sz);
         }
     }
     pclose(f);

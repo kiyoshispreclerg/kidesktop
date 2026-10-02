@@ -37,9 +37,9 @@ void plugin_recent_search(const char *query, GPtrArray *results)
 
         ResultEntry *e = g_new0(ResultEntry, 1);
         char *base = g_path_get_basename(item->path);
-        snprintf(e->name, sizeof(e->name), "%s", base);
+        g_strlcpy(e->name, base, sizeof(e->name));
         g_free(base);
-        snprintf(e->subtitle, sizeof(e->subtitle), "%s", item->path);
+        g_strlcpy(e->subtitle, item->path, sizeof(e->subtitle));
         char quoted[1200];
         shell_quote(item->path, quoted, sizeof(quoted));
         snprintf(e->exec, sizeof(e->exec), "xdg-open %s", quoted);

@@ -93,10 +93,10 @@ static GPtrArray *fetch_devices(void)
         if (strcmp(fields[1], "loopback") == 0 || strstr(fields[0], "p2p-dev-") == fields[0])
             continue;
         NetDevice *d = g_new0(NetDevice, 1);
-        snprintf(d->device, sizeof(d->device), "%s", fields[0]);
-        snprintf(d->type, sizeof(d->type), "%s", fields[1]);
-        snprintf(d->state, sizeof(d->state), "%s", fields[2]);
-        snprintf(d->connection, sizeof(d->connection), "%s", n > 3 ? fields[3] : "");
+        g_strlcpy(d->device, fields[0], sizeof(d->device));
+        g_strlcpy(d->type, fields[1], sizeof(d->type));
+        g_strlcpy(d->state, fields[2], sizeof(d->state));
+        g_strlcpy(d->connection, n > 3 ? fields[3] : "", sizeof(d->connection));
         g_ptr_array_add(rows, d);
     }
     pclose(f);
@@ -117,9 +117,9 @@ static GPtrArray *fetch_wifi(void)
         if (n < 2 || !fields[1][0]) continue; /* hidden/blank SSID: nothing to connect to by name */
         WifiNet *w = g_new0(WifiNet, 1);
         w->in_use = (fields[0][0] == '*');
-        snprintf(w->ssid, sizeof(w->ssid), "%s", fields[1]);
+        g_strlcpy(w->ssid, fields[1], sizeof(w->ssid));
         w->signal = n > 2 ? atoi(fields[2]) : 0;
-        snprintf(w->security, sizeof(w->security), "%s", n > 3 ? fields[3] : "");
+        g_strlcpy(w->security, n > 3 ? fields[3] : "", sizeof(w->security));
         g_ptr_array_add(rows, w);
     }
     pclose(f);

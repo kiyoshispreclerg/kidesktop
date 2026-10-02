@@ -156,7 +156,7 @@ static void nightlight_config_save(const NightlightConfig *c)
 {
     char path[PATH_MAX];
     nightlight_config_path(path, sizeof(path));
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *f = fopen(tmp, "w");
     if (!f) {

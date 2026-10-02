@@ -208,7 +208,7 @@ void plugin_globalmenu_search(const char *query, GPtrArray *results)
     gchar *ql = g_utf8_casefold(query, -1);
     char top_label[128] = "";
     for (int i = 0; i < n; i++) {
-        if (depths[i] == 0) snprintf(top_label, sizeof(top_label), "%s", items[i].label);
+        if (depths[i] == 0) g_strlcpy(top_label, items[i].label, sizeof(top_label));
         if (items[i].is_separator || !items[i].enabled || !items[i].label[0]) continue;
 
         gchar *nl = g_utf8_casefold(items[i].label, -1);
@@ -217,7 +217,7 @@ void plugin_globalmenu_search(const char *query, GPtrArray *results)
         if (!match) continue;
 
         ResultEntry *e = g_new0(ResultEntry, 1);
-        snprintf(e->name, sizeof(e->name), "%s", items[i].label);
+        g_strlcpy(e->name, items[i].label, sizeof(e->name));
         if (top_label[0] && strcmp(top_label, items[i].label) != 0) {
             snprintf(e->subtitle, sizeof(e->subtitle), _("Menu - %s"), top_label);
         } else {
@@ -227,8 +227,8 @@ void plugin_globalmenu_search(const char *query, GPtrArray *results)
         e->icon = items[i].icon ? g_object_ref(items[i].icon) : hamburger_icon();
 
         MenuActivateCtx *ctx = g_new0(MenuActivateCtx, 1);
-        snprintf(ctx->busname, sizeof(ctx->busname), "%s", busname);
-        snprintf(ctx->objpath, sizeof(ctx->objpath), "%s", objpath);
+        g_strlcpy(ctx->busname, busname, sizeof(ctx->busname));
+        g_strlcpy(ctx->objpath, objpath, sizeof(ctx->objpath));
         ctx->id = ids[i];
         e->activate_fn = menu_item_activate;
         e->activate_data = ctx;

@@ -79,9 +79,10 @@ static char *ctl_request(const char *req)
         return NULL;
     }
     struct sockaddr_un addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
-    snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", sockpath);
+    if (!xis_sun_path(&addr, sockpath)) {
+        close(fd);
+        return NULL;
+    }
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
         close(fd);
         return NULL;
