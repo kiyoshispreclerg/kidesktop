@@ -132,6 +132,7 @@
 #include <X11/XKBlib.h>
 #include <X11/extensions/Xrandr.h>
 
+#include "../shared/xis_fmt.h"
 #include "../shared/xis_i18n.h"
 #include <X11/keysym.h>
 
@@ -154,7 +155,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.16"
+#define KICONFD_VERSION "0.2.17"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -212,7 +213,7 @@ static void resolve_configpath(void)
     if (!home || !*home) {
         home = "/tmp";
     }
-    char configdir[PATH_MAX];
+    char configdir[PATH_MAX - 64]; /* room for "/<name>.conf" after it */
     snprintf(configdir, sizeof(configdir), "%s/.config", home);
     mkdir(configdir, 0700);
     snprintf(g_configpath, sizeof(g_configpath), "%s/kiconfd.conf", configdir);
@@ -241,7 +242,7 @@ static void redirect_log_to_file(void)
         if (!home || !*home) {
             home = "/tmp";
         }
-        char configdir[PATH_MAX];
+        char configdir[PATH_MAX - 64]; /* room for "/<name>.conf" after it */
         snprintf(configdir, sizeof(configdir), "%s/.config", home);
         mkdir(configdir, 0700);
         snprintf(logpath, sizeof(logpath), "%s/kiconfd.log", configdir);
@@ -404,7 +405,7 @@ static void ensure_parent_dir(const char *path)
 static void update_marked_block(const char *path, const char *begin_marker, const char *end_marker, const char *body)
 {
     ensure_parent_dir(path);
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
 
     FILE *in = fopen(path, "r");
@@ -452,7 +453,7 @@ static void update_marked_block(const char *path, const char *begin_marker, cons
 static void write_owned_file(const char *path, const char *content)
 {
     ensure_parent_dir(path);
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *f = fopen(tmp, "w");
     if (!f) {
@@ -494,7 +495,7 @@ static void ini_upsert(const char *path, const char *section, const char *key, c
         fclose(in);
     }
 
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *out = fopen(tmp, "w");
     if (!out) {
@@ -1802,9 +1803,10 @@ static void notify_xispanel_osd(const char *summary, const char *icon)
         return;
     }
     struct sockaddr_un addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
-    snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", path);
+    if (!xis_sun_path(&addr, path)) {
+        close(fd);
+        return;
+    }
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0) {
         char line[256];
         snprintf(line, sizeof(line), "{\"cmd\":\"OSD\",\"summary\":\"%s\",\"icon\":\"%s\"}\n", summary, icon);
@@ -1915,7 +1917,7 @@ static void apply_nightlight(void)
 
 static void save_config(void)
 {
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", g_configpath);
     FILE *f = fopen(tmp, "w");
     if (!f) {
