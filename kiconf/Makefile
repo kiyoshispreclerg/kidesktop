@@ -72,6 +72,14 @@ mo: $(MOFILES)
 po/%.mo: po/%.po
 	msgfmt --check -o $@ $<
 
+# Refresh the desktop/icon caches on a live install only: under DESTDIR
+# (packaging) they'd ship caches that clash with every other package's,
+# and dpkg's own triggers rebuild them on the target instead.
+UPDATE_CACHES = if [ -z "$(DESTDIR)" ]; then \
+		update-desktop-database $(DESKTOPDIR) 2>/dev/null; \
+		gtk-update-icon-cache -f -t $(PREFIX)/share/icons/hicolor 2>/dev/null; \
+	fi; true
+
 install: kiconf mo
 	install -Dm755 kiconf $(DESTDIR)$(BINDIR)/kiconf
 	for lang in $(LINGUAS); do \
@@ -81,8 +89,7 @@ install: kiconf mo
 	install -Dm644 kiconf.desktop $(DESTDIR)$(DESKTOPDIR)/kiconf.desktop
 	rm -f kiconf.desktop
 	install -Dm644 kiconf.svg $(DESTDIR)$(ICONDIR)/kiconf.svg
-	-update-desktop-database $(DESTDIR)$(DESKTOPDIR) 2>/dev/null
-	-gtk-update-icon-cache -f -t $(DESTDIR)/usr/share/icons/hicolor 2>/dev/null
+	$(UPDATE_CACHES)
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/kiconf
@@ -91,8 +98,7 @@ uninstall:
 	done
 	rm -f $(DESTDIR)$(DESKTOPDIR)/kiconf.desktop
 	rm -f $(DESTDIR)$(ICONDIR)/kiconf.svg
-	-update-desktop-database $(DESTDIR)$(DESKTOPDIR) 2>/dev/null
-	-gtk-update-icon-cache -f -t $(DESTDIR)/usr/share/icons/hicolor 2>/dev/null
+	$(UPDATE_CACHES)
 
 clean:
 	rm -f kiconf po/*.mo kiconf.desktop
