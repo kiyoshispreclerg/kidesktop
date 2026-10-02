@@ -59,6 +59,15 @@ Screens and input settings live in their own separate files
 (`kiconfd-screens.conf`, `kiconfd-input.conf`) written by `kiconf`, since
 those tabs rewrite their own file rather than the whole config.
 
+`kiconfd-a11y.conf` (kiconf's Acessibilidade tab) holds the XKB AccessX
+toggles -- `sticky_keys`, `sticky_keys_two_key_off`, `slow_keys`,
+`slow_keys_delay`, `bounce_keys`, `bounce_keys_delay`, `mouse_keys`,
+`keyboard_gestures` (Shift five times / held 8 s) -- applied with
+`XkbSetControls()` with the AccessX timeout off, and `text_scale`
+(0.5-3.0), published as `Xft/DPI` over XSETTINGS and `Xft.dpi` in
+RESOURCE_MANAGER at 96 x scale (1.0 leaves both unset). AccessX is left
+alone until the file exists.
+
 `export_to_other_desktops` (off by default) controls whether kiconfd also
 writes the shared, not-KiDesktop-specific files other desktops' GTK/Qt apps
 read (`~/.gtkrc-2.0`, `gtk-{3,4}.0/settings.ini`, `qt{5,6}ct.conf`, ...).

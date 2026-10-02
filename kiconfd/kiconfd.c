@@ -154,7 +154,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.15"
+#define KICONFD_VERSION "0.2.16"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -281,6 +281,94 @@ static char *trim(char *s)
         *--end = '\0';
     }
     return s;
+}
+
+/* ------------------------------------------------------------------ */
+/* accessibility -- kiconfd-a11y.conf                                   */
+/* ------------------------------------------------------------------ */
+
+/* Written by kiconf's Acessibilidade tab; a separate file for the same
+ * reason as kiconfd-input.conf (kiconfd.conf is rewritten whole by the
+ * Aparencia tab). Re-read on every apply. Keys:
+ *   sticky_keys, sticky_keys_two_key_off, slow_keys, slow_keys_delay,
+ *   bounce_keys, bounce_keys_delay, mouse_keys, keyboard_gestures
+ *     -- XKB AccessX, see apply_accessx()
+ *   text_scale -- multiplies the 96 DPI text is laid out at (Xft/DPI in
+ *     XSETTINGS, Xft.dpi in RESOURCE_MANAGER); 1.0 leaves both unset
+ * Other keys (kiconf's own saved_* for undoing high contrast) are ignored. */
+typedef struct {
+    int present;
+    int sticky_keys, sticky_keys_two_key_off;
+    int slow_keys, slow_keys_delay;
+    int bounce_keys, bounce_keys_delay;
+    int mouse_keys, keyboard_gestures;
+    double text_scale;
+} A11yConfig;
+
+static A11yConfig g_a11y;
+
+static void load_a11y_config(void)
+{
+    A11yConfig *c = &g_a11y;
+    memset(c, 0, sizeof(*c));
+    c->sticky_keys_two_key_off = 1;
+    c->slow_keys_delay = 300;
+    c->bounce_keys_delay = 300;
+    c->text_scale = 1.0;
+
+    char path[PATH_MAX];
+    const char *xdg_config = getenv("XDG_CONFIG_HOME");
+    if (xdg_config && *xdg_config) {
+        snprintf(path, sizeof(path), "%s/kiconfd-a11y.conf", xdg_config);
+    } else {
+        snprintf(path, sizeof(path), "%s/.config/kiconfd-a11y.conf", getenv("HOME") ? getenv("HOME") : "/tmp");
+    }
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        return;
+    }
+    c->present = 1;
+    char line[LINE_MAX_LEN];
+    while (fgets(line, sizeof(line), f)) {
+        char *l = trim(line);
+        char *eq = strchr(l, '=');
+        if (!*l || *l == '#' || !eq) {
+            continue;
+        }
+        *eq = '\0';
+        char *key = trim(l);
+        char *val = trim(eq + 1);
+        if (!strcmp(key, "sticky_keys")) {
+            c->sticky_keys = atoi(val) != 0;
+        } else if (!strcmp(key, "sticky_keys_two_key_off")) {
+            c->sticky_keys_two_key_off = atoi(val) != 0;
+        } else if (!strcmp(key, "slow_keys")) {
+            c->slow_keys = atoi(val) != 0;
+        } else if (!strcmp(key, "slow_keys_delay")) {
+            c->slow_keys_delay = atoi(val);
+        } else if (!strcmp(key, "bounce_keys")) {
+            c->bounce_keys = atoi(val) != 0;
+        } else if (!strcmp(key, "bounce_keys_delay")) {
+            c->bounce_keys_delay = atoi(val);
+        } else if (!strcmp(key, "mouse_keys")) {
+            c->mouse_keys = atoi(val) != 0;
+        } else if (!strcmp(key, "keyboard_gestures")) {
+            c->keyboard_gestures = atoi(val) != 0;
+        } else if (!strcmp(key, "text_scale")) {
+            double v = atof(val);
+            if (v >= 0.5 && v <= 3.0) {
+                c->text_scale = v;
+            }
+        }
+    }
+    fclose(f);
+}
+
+/* Xft DPI for text_scale, 0 when it's 1.0 (leave DPI alone). */
+static int a11y_text_dpi(void)
+{
+    int dpi = (int)(96.0 * g_a11y.text_scale + 0.5);
+    return dpi == 96 ? 0 : dpi;
 }
 
 /* ------------------------------------------------------------------ */
@@ -582,7 +670,7 @@ static int run_capture(char *const argv[], char *out, size_t outsz)
  * xrdb/the WM put there alone. */
 static void apply_resource_manager(void)
 {
-    static const char *owned[] = {"Xcursor.theme:", "Xcursor.size:", "Xft.font:"};
+    static const char *owned[] = {"Xcursor.theme:", "Xcursor.size:", "Xft.font:", "Xft.dpi:"};
 
     Atom resman = XInternAtom(g_dpy, "RESOURCE_MANAGER", False);
 
@@ -631,6 +719,10 @@ static void apply_resource_manager(void)
     snprintf(out, sizeof(out), "%sXcursor.theme:\t%s\nXcursor.size:\t%d\nXft.font:\t%s\n",
               kept, g_cursor_theme, g_cursor_size, g_font_general);
 
+    if (a11y_text_dpi()) {
+        size_t l = strlen(out);
+        snprintf(out + l, sizeof(out) - l, "Xft.dpi:\t%d\n", a11y_text_dpi());
+    }
     XChangeProperty(g_dpy, g_root, resman, XA_STRING, 8, PropModeReplace,
                      (unsigned char *)out, (int)strlen(out));
 }
@@ -827,6 +919,9 @@ static void apply_xsettings(void)
     xs_string("Gtk/FontName", g_font_general);
     xs_string("Gtk/CursorThemeName", g_cursor_theme);
     xs_int("Gtk/CursorThemeSize", g_cursor_size);
+    if (a11y_text_dpi()) {
+        xs_int("Xft/DPI", (long)a11y_text_dpi() * 1024); /* XSETTINGS DPI is in 1/1024ths */
+    }
     xs_end();
 
     XChangeProperty(g_dpy, g_xs_win, g_xs_prop, g_xs_prop, 8, PropModeReplace, g_xs_buf, (int)g_xs_len);
@@ -1911,8 +2006,61 @@ static void load_config(void)
     fclose(f);
 }
 
+/* AccessX (XKB): sticky/slow/bounce/mouse keys and the keyboard
+ * gestures that toggle them (Shift five times, Shift held 8 s). Only
+ * touched once kiconfd-a11y.conf exists, so a session that never opened
+ * the tab keeps whatever the server or xkbset set. The AccessX timeout
+ * is turned off: it would silently switch these back off after a while
+ * without input, which is the opposite of what someone relying on them
+ * wants. */
+static void apply_accessx(void)
+{
+    const A11yConfig *c = &g_a11y;
+    if (!c->present) {
+        return;
+    }
+    XkbDescPtr xkb = XkbAllocKeyboard();
+    if (!xkb) {
+        return;
+    }
+    if (XkbGetControls(g_dpy, XkbAllControlsMask, xkb) != Success || !xkb->ctrls) {
+        fprintf(stderr, "kiconfd: a11y: XkbGetControls failed, AccessX left alone\n");
+        XkbFreeKeyboard(xkb, 0, True);
+        return;
+    }
+    XkbControlsPtr ctrls = xkb->ctrls;
+    unsigned int on = 0, all = XkbStickyKeysMask | XkbSlowKeysMask | XkbBounceKeysMask | XkbMouseKeysMask |
+                               XkbMouseKeysAccelMask | XkbAccessXKeysMask | XkbAccessXTimeoutMask;
+    if (c->sticky_keys) on |= XkbStickyKeysMask;
+    if (c->slow_keys) on |= XkbSlowKeysMask;
+    if (c->bounce_keys) on |= XkbBounceKeysMask;
+    if (c->mouse_keys) on |= XkbMouseKeysMask | XkbMouseKeysAccelMask;
+    if (c->keyboard_gestures) on |= XkbAccessXKeysMask;
+    ctrls->enabled_ctrls = (ctrls->enabled_ctrls & ~all) | on;
+
+    ctrls->ax_options |= XkbAX_LatchToLockMask; /* a modifier pressed twice stays locked */
+    if (c->sticky_keys_two_key_off) {
+        ctrls->ax_options |= XkbAX_TwoKeysMask;
+    } else {
+        ctrls->ax_options &= ~XkbAX_TwoKeysMask;
+    }
+    if (c->slow_keys_delay > 0) ctrls->slow_keys_delay = (unsigned short)c->slow_keys_delay;
+    if (c->bounce_keys_delay > 0) ctrls->debounce_delay = (unsigned short)c->bounce_keys_delay;
+
+    Bool ok = XkbSetControls(g_dpy, XkbControlsEnabledMask | XkbStickyKeysMask | XkbSlowKeysMask |
+                                         XkbBounceKeysMask | XkbAccessXKeysMask,
+                              xkb);
+    XFlush(g_dpy);
+    fprintf(stderr, "kiconfd: a11y: AccessX sticky=%d slow=%d(%dms) bounce=%d(%dms) mouse=%d gestures=%d -> %d\n",
+             c->sticky_keys, c->slow_keys, c->slow_keys_delay, c->bounce_keys, c->bounce_keys_delay, c->mouse_keys,
+             c->keyboard_gestures, ok);
+    XkbFreeKeyboard(xkb, 0, True);
+}
+
 static void apply_all(void)
 {
+    load_a11y_config();
+    apply_accessx();
     /* Resources first: Xcursor.theme/size is what every *other* client
      * reads when it loads its own cursors, and kiwm reads it once at its
      * own startup. Publishing it before the visible change keeps the two
