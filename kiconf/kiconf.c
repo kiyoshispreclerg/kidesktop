@@ -110,10 +110,11 @@
 #include <unistd.h>
 
 #include "../shared/xis_i18n.h"
+#include "../shared/xis_direction.h"
 #include "sysinfo.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.37"
+#define KICONF_VERSION "0.2.38"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -696,6 +697,11 @@ int main(int argc, char **argv)
     }
 
     gtk_init(&argc, &argv);
+    /* Direction from the shared helper rather than the gtk20 catalog, so
+     * XIS_DIRECTION/ki-direction.conf mirror kiconf with the rest of the
+     * desktop. The Telas canvas is a picture of the physical monitor
+     * arrangement and is deliberately left unmirrored. */
+    gtk_widget_set_default_direction(xis_direction_is_rtl() ? GTK_TEXT_DIR_RTL : GTK_TEXT_DIR_LTR);
 
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     g_window = window;
