@@ -2,6 +2,17 @@ CFLAGS ?= -Wall -Wextra -O2
 
 PKGS := xcb xcb-randr xcb-shape xcb-sync xcb-xinput xcb-xfixes xcb-cursor xcb-icccm cairo cairo-xcb imlib2 pango pangocairo
 
+# atk + atk-bridge-2.0: optional, Alt+Tab announced to screen readers
+# (a11y.c); a11y_stub.c without them.
+HAVE_A11Y := $(shell pkg-config --exists atk atk-bridge-2.0 && echo yes)
+ifeq ($(HAVE_A11Y),yes)
+A11Y_SRCS := a11y.c
+PKGS += atk atk-bridge-2.0
+else
+A11Y_SRCS := a11y_stub.c
+$(info kiwm: atk/atk-bridge-2.0 not found via pkg-config -- building without screen reader support)
+endif
+
 CPPFLAGS := $(shell pkg-config --cflags $(PKGS))
 LDLIBS := $(shell pkg-config --libs $(PKGS)) -lm
 
@@ -24,7 +35,7 @@ MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 # xisback/xiskeys (see its header) -- compiled straight in, no shared
 # library to depend on at runtime. ../shared/xis_direction.c: the shared
 # LTR/RTL decision (titlebar order, title/menu alignment, OSD order).
-SRCS := main.c config.c atoms.c output.c decoration.c density.c pango_text.c ewmh.c client.c events.c selection.c osd.c tabbox-cover.c menu.c outline.c findcursor.c keybind.c shape.c grip.c sync.c clickraise.c ../shared/xis_spawn.c ../shared/xis_direction.c
+SRCS := main.c config.c atoms.c output.c decoration.c density.c pango_text.c ewmh.c client.c events.c selection.c osd.c tabbox-cover.c menu.c outline.c findcursor.c keybind.c shape.c grip.c sync.c clickraise.c $(A11Y_SRCS) ../shared/xis_spawn.c ../shared/xis_direction.c
 OBJS := $(SRCS:.c=.o)
 HDRS := $(wildcard *.h)
 

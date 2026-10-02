@@ -41,7 +41,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KIWM_VERSION "0.5.32"
+#define KIWM_VERSION "0.5.33"
 
 #include "../shared/xis_i18n.h"
 
@@ -57,6 +57,7 @@
 #include "keybind.h"
 #include "density.h"
 #include "findcursor.h"
+#include "a11y.h"
 #include "osd.h"
 #include "selection.h"
 #include "sync.h"
@@ -518,9 +519,11 @@ int main(int argc, char **argv)
     sigaction(SIGHUP, &sa, NULL);
 
     setup_wm(replace);
+    a11y_init();
 
     int xfd = xcb_get_file_descriptor(wm.conn);
-    struct pollfd fds[2] = {
+    /* fds[2..] belong to a11y.c's GLib main context, refilled every pass. */
+    struct pollfd fds[2 + 32] = {
         { .fd = xfd, .events = POLLIN, .revents = 0 },
         { .fd = g_sigpipe[0], .events = POLLIN, .revents = 0 },
     };
@@ -630,7 +633,12 @@ int main(int argc, char **argv)
         if (findcursor_in >= 0 && (timeout < 0 || findcursor_in < timeout))
             timeout = findcursor_in;
 
-        int ready = poll(fds, 2, timeout);
+        int n_a11y = a11y_pollfds(fds + 2, 32, &timeout);
+        int ready = poll(fds, (nfds_t)(2 + n_a11y), timeout);
+        a11y_dispatch(ready > 0 ? fds + 2 : NULL, n_a11y);
+        if (ready > 0 && !(fds[0].revents | fds[1].revents)) {
+            continue; /* only the accessibility bus had something */
+        }
         if (ready < 0) {
             if (errno == EINTR)
                 continue;

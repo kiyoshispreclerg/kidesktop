@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiwm\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-01 14:20-0300\n"
+"POT-Creation-Date: 2026-10-02 19:10-0300\n"
 "PO-Revision-Date: 2026-10-01 14:20-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -17,48 +17,56 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: main.c:487
+#: a11y.c:145
+msgid "Alternar janelas"
+msgstr "Switch windows"
+
+#: a11y.c:253
+msgid "Janela sem titulo"
+msgstr "Untitled window"
+
+#: main.c:488
 #, c-format
 msgid "usage: kiwm [--replace] [--version]\n"
 msgstr "usage: kiwm [--replace] [--version]\n"
 
-#: menu.c:107
+#: menu.c:108
 msgid "Minimize"
 msgstr "Minimize"
 
-#: menu.c:108
+#: menu.c:109
 msgid "Maximize"
 msgstr "Maximize"
 
-#: menu.c:108
+#: menu.c:109
 msgid "Restore"
 msgstr "Restore"
 
-#: menu.c:110
+#: menu.c:111
 msgid "Shade"
 msgstr "Shade"
 
-#: menu.c:110
+#: menu.c:111
 msgid "Unshade"
 msgstr "Unshade"
 
-#: menu.c:113
+#: menu.c:114
 msgid "Move to desktop"
 msgstr "Move to desktop"
 
-#: menu.c:114
+#: menu.c:115
 msgid "All desktops"
 msgstr "All desktops"
 
-#: menu.c:115
+#: menu.c:116
 msgid "Keep above"
 msgstr "Keep above"
 
-#: menu.c:117
+#: menu.c:118
 msgid "Close"
 msgstr "Close"
 
-#: menu.c:207
+#: menu.c:208
 #, c-format
 msgid "Desktop %d"
 msgstr "Desktop %d"

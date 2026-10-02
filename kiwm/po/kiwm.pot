@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiwm\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-01 14:20-0300\n"
+"POT-Creation-Date: 2026-10-02 19:10-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,48 +17,56 @@ msgstr ""
 "Content-Type: text/plain; charset=CHARSET\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: main.c:487
+#: a11y.c:145
+msgid "Alternar janelas"
+msgstr ""
+
+#: a11y.c:253
+msgid "Janela sem titulo"
+msgstr ""
+
+#: main.c:488
 #, c-format
 msgid "usage: kiwm [--replace] [--version]\n"
 msgstr ""
 
-#: menu.c:107
+#: menu.c:108
 msgid "Minimize"
 msgstr ""
 
-#: menu.c:108
+#: menu.c:109
 msgid "Maximize"
 msgstr ""
 
-#: menu.c:108
+#: menu.c:109
 msgid "Restore"
 msgstr ""
 
-#: menu.c:110
+#: menu.c:111
 msgid "Shade"
 msgstr ""
 
-#: menu.c:110
+#: menu.c:111
 msgid "Unshade"
 msgstr ""
 
-#: menu.c:113
+#: menu.c:114
 msgid "Move to desktop"
 msgstr ""
 
-#: menu.c:114
+#: menu.c:115
 msgid "All desktops"
 msgstr ""
 
-#: menu.c:115
+#: menu.c:116
 msgid "Keep above"
 msgstr ""
 
-#: menu.c:117
+#: menu.c:118
 msgid "Close"
 msgstr ""
 
-#: menu.c:207
+#: menu.c:208
 #, c-format
 msgid "Desktop %d"
 msgstr ""

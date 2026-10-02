@@ -26,6 +26,7 @@
  * output resolution, current one highlighted, optionally with each
  * desktop's windows drawn inside its square), not asked to be swappable.
  */
+#include "a11y.h"
 #include "osd.h"
 #include "selection.h"
 #include "decoration.h"
@@ -559,6 +560,8 @@ static void close_osd(void)
 {
     if (kind == OSD_WINDOWS && active_tabbox_ops->close)
         active_tabbox_ops->close(&tb_state, closing_committed);
+    if (kind == OSD_WINDOWS)
+        a11y_tabbox_close();
     closing_committed = false;
 
     outline_hide();
@@ -767,9 +770,11 @@ void osd_windows_step(int direction, uint16_t mods)
         grab_for_hold();
         if (active_tabbox_ops->open)
             active_tabbox_ops->open(&tb_state);
+        a11y_tabbox_open(&tb_state);
     }
 
     tb_state.selected = (tb_state.selected + direction + tb_state.count) % tb_state.count;
+    a11y_tabbox_step(&tb_state);
     if (active_tabbox_ops->external) {
         /* Nothing of kiwm's is on screen, so there is nothing to outline
          * against and nothing to repaint: the row the compositor draws

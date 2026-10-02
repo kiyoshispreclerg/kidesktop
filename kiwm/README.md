@@ -861,6 +861,17 @@ variable at it, with no changes to the hold/release mechanics or eligibility rul
 of kiwm's own and asks the compositor to draw it instead. The desktop grid isn't behind such a
 vtable -- it's a single fixed presentation, not asked to be swappable.
 
+### Screen readers
+
+While the window switcher is open, kiwm publishes it on the AT-SPI bus
+(`a11y.c`): an application `kiwm` with a window "Alternar janelas" holding
+one list item per entry, the selection carrying the focus -- so Orca reads
+each title as Alt+Tab moves. Nothing else is exposed; screen readers follow
+window focus through the applications themselves. Active only when the
+session turned accessibility on (kisession's `a11y` service sets
+`QT_ACCESSIBILITY=1`/loads `atk-bridge`) or `KIWM_A11Y=1` (`0` forces it
+off), and only built with `atk` + `atk-bridge-2.0` present.
+
 ### The switcher the compositor draws
 
 With `osd_cover_switch=1` (the default) and a compositor that offers it, Alt+Tab is drawn by the

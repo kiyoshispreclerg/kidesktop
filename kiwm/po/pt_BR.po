@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiwm\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-01 14:20-0300\n"
+"POT-Creation-Date: 2026-10-02 19:10-0300\n"
 "PO-Revision-Date: 2026-10-01 14:20-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -17,48 +17,56 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
-#: main.c:487
+#: a11y.c:145
+msgid "Alternar janelas"
+msgstr "Alternar janelas"
+
+#: a11y.c:253
+msgid "Janela sem titulo"
+msgstr "Janela sem título"
+
+#: main.c:488
 #, c-format
 msgid "usage: kiwm [--replace] [--version]\n"
 msgstr "uso: kiwm [--replace] [--version]\n"
 
-#: menu.c:107
+#: menu.c:108
 msgid "Minimize"
 msgstr "Minimizar"
 
-#: menu.c:108
+#: menu.c:109
 msgid "Maximize"
 msgstr "Maximizar"
 
-#: menu.c:108
+#: menu.c:109
 msgid "Restore"
 msgstr "Restaurar"
 
-#: menu.c:110
+#: menu.c:111
 msgid "Shade"
 msgstr "Enrolar"
 
-#: menu.c:110
+#: menu.c:111
 msgid "Unshade"
 msgstr "Desenrolar"
 
-#: menu.c:113
+#: menu.c:114
 msgid "Move to desktop"
 msgstr "Mover para a área de trabalho"
 
-#: menu.c:114
+#: menu.c:115
 msgid "All desktops"
 msgstr "Todas as áreas de trabalho"
 
-#: menu.c:115
+#: menu.c:116
 msgid "Keep above"
 msgstr "Manter no topo"
 
-#: menu.c:117
+#: menu.c:118
 msgid "Close"
 msgstr "Fechar"
 
-#: menu.c:207
+#: menu.c:208
 #, c-format
 msgid "Desktop %d"
 msgstr "Área de trabalho %d"
