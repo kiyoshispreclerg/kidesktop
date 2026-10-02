@@ -61,7 +61,7 @@ static void theme_list_add(ThemeList *tl, const char *name)
     if (tl->n >= MAX_THEMES || theme_list_has(tl, name)) {
         return;
     }
-    snprintf(tl->names[tl->n], NAME_LEN, "%s", name);
+    g_strlcpy(tl->names[tl->n], name, NAME_LEN);
     tl->n++;
 }
 
@@ -381,7 +381,7 @@ static void save_appearance_cb(GtkWidget *widget, gpointer data)
 
     char path[PATH_MAX];
     resolve_path("kiconfd.conf", path, sizeof(path));
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *f = fopen(tmp, "w");
     if (!f) {

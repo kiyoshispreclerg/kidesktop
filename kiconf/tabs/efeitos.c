@@ -911,7 +911,7 @@ static void save_efeitos_cb(GtkWidget *widget, gpointer data)
 
     char path[PATH_MAX];
     resolve_path(KICOMP_CONF, path, sizeof(path));
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *out = fopen(tmp, "w");
     if (!out) {

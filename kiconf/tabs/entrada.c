@@ -113,7 +113,7 @@ static void input_config_save(const InputSessionConfig *c)
 {
     char path[PATH_MAX];
     resolve_path("kiconfd-input.conf", path, sizeof(path));
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *f = fopen(tmp, "w");
     if (!f) {

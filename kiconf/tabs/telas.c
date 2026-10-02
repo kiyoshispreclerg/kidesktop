@@ -429,7 +429,7 @@ static void add_extra_prop(ScreenOutput *o, const char *name, const char *val,
     snprintf(p->value, sizeof(p->value), "%s", val);
     p->n_supported = n_supported;
     for (int i = 0; i < n_supported; i++) {
-        snprintf(p->supported[i], sizeof(p->supported[0]), "%s", supported[i]);
+        g_strlcpy(p->supported[i], supported[i], sizeof(p->supported[0]));
     }
     p->has_range = has_range;
     p->range_lo = lo;
@@ -1500,7 +1500,7 @@ static void screens_redetect_preserving_extras(void)
     static ScreensExtra snap[MAX_OUTPUTS];
     int n_snap = 0;
     for (int i = 0; i < g_n_outputs && n_snap < MAX_OUTPUTS; i++) {
-        snprintf(snap[n_snap].name, sizeof(snap[n_snap].name), "%s", g_outputs[i].name);
+        g_strlcpy(snap[n_snap].name, g_outputs[i].name, sizeof(snap[n_snap].name));
         snprintf(snap[n_snap].mirror_of, sizeof(snap[n_snap].mirror_of), "%s", g_outputs[i].mirror_of);
         snap[n_snap].dpi = g_outputs[i].dpi;
         snap[n_snap].scale_x = g_outputs[i].scale_x;
@@ -1560,7 +1560,7 @@ static void save_screens_layout(void)
 {
     char path[PATH_MAX];
     resolve_path("kiconfd-screens.conf", path, sizeof(path));
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *f = fopen(tmp, "w");
     if (!f) {

@@ -461,7 +461,7 @@ static void save_extra_zones_cb(GtkWidget *widget, gpointer data)
 
     char path[PATH_MAX];
     resolve_path("ki-zones.conf", path, sizeof(path));
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *f = fopen(tmp, "w");
     if (!f) {

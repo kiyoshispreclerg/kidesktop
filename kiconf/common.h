@@ -44,6 +44,11 @@ char *skip_ws(char *p);
  * key=value tail must be kept as one raw chunk, not tokenized further. */
 char *next_field(char **cursor);
 
+/* snprintf() that says whether everything fit: 1 if it did, 0 if `out`
+ * holds a truncated string -- for building paths, where a cut-off one
+ * must not be used. */
+int fmt_fits(char *out, size_t outsz, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
+
 /* ---- config path resolution (mirrors kiconfd.c/xiskeys.c exactly) ---- */
 
 void resolve_path(const char *filename, char *out, size_t outsz);

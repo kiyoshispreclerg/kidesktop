@@ -144,9 +144,9 @@ static void scan_globs(void)
 
         AssocEntry *a = &g_assoc[g_n_assoc++];
         snprintf(a->ext, sizeof(a->ext), "%s", ext);
-        snprintf(a->mimetype, sizeof(a->mimetype), "%s", mimetype);
+        g_strlcpy(a->mimetype, mimetype, sizeof(a->mimetype));
         if (!mime_description(mimetype, a->label, sizeof(a->label))) {
-            snprintf(a->label, sizeof(a->label), "%s", mimetype);
+            g_strlcpy(a->label, mimetype, sizeof(a->label));
         }
     }
     fclose(f);

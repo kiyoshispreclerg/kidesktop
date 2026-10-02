@@ -120,7 +120,7 @@ static int kv_int(const KvFile *f, const char *key, int def)
 
 static void kv_save(const char *name, const KvFile *f, const char *header)
 {
-    char path[PATH_MAX], tmp[PATH_MAX];
+    char path[PATH_MAX], tmp[PATH_MAX + 8];
     resolve_path(name, path, sizeof(path));
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *fp = fopen(tmp, "w");
@@ -257,7 +257,7 @@ static void focus_key_load(char *out, size_t outsz)
  * default needs no key at all), then has xispanel reload. */
 static void focus_key_save(const char *spec)
 {
-    char path[PATH_MAX], tmp[PATH_MAX];
+    char path[PATH_MAX], tmp[PATH_MAX + 8];
     resolve_path("xispanel.conf", path, sizeof(path));
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *in = fopen(path, "r");

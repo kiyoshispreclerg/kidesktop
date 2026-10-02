@@ -258,7 +258,7 @@ static void save_xispanel_conf(void)
 {
     char path[PATH_MAX];
     resolve_path("xispanel.conf", path, sizeof(path));
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *f = fopen(tmp, "w");
     if (!f) {

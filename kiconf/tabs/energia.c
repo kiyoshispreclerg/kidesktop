@@ -95,7 +95,7 @@ static void nightlight_save(const NightlightConfig *c)
 {
     char path[PATH_MAX];
     resolve_path("kiconfd-nightlight.conf", path, sizeof(path));
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *f = fopen(tmp, "w");
     if (!f) {

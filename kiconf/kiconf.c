@@ -114,7 +114,7 @@
 #include "sysinfo.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.44"
+#define KICONF_VERSION "0.2.45"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -548,7 +548,11 @@ static int notify_running_instance(const char *sockpath, int tab_idx)
     }
     struct sockaddr_un addr = {0};
     addr.sun_family = AF_UNIX;
-    snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", sockpath);
+    if (strlen(sockpath) >= sizeof(addr.sun_path)) {
+        close(fd);
+        return 0;
+    }
+    memcpy(addr.sun_path, sockpath, strlen(sockpath) + 1);
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
         close(fd);
         return 0;
@@ -623,7 +627,11 @@ static void start_ctl_listener(const char *sockpath)
     }
     struct sockaddr_un addr = {0};
     addr.sun_family = AF_UNIX;
-    snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", sockpath);
+    if (strlen(sockpath) >= sizeof(addr.sun_path)) {
+        close(fd);
+        return;
+    }
+    memcpy(addr.sun_path, sockpath, strlen(sockpath) + 1);
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0 || listen(fd, 8) != 0) {
         close(fd);
         return;

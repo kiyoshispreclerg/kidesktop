@@ -58,7 +58,10 @@ static int xisback_send(const char *cmd, char *resp, size_t respsz)
 
     struct sockaddr_un addr = {0};
     addr.sun_family = AF_UNIX;
-    snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", path);
+    if (strlen(path) >= sizeof(addr.sun_path)) {
+        return 0;
+    }
+    memcpy(addr.sun_path, path, strlen(path) + 1);
 
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) {

@@ -123,7 +123,7 @@ static void kistory_save(const KistoryConfig *c)
 {
     char path[PATH_MAX];
     resolve_path("kistory.conf", path, sizeof(path));
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *f = fopen(tmp, "w");
     if (!f) {
@@ -191,7 +191,7 @@ static void kimemory_save(const KimemoryConfig *c)
 {
     char path[PATH_MAX];
     resolve_path("kimemory.conf", path, sizeof(path));
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *f = fopen(tmp, "w");
     if (!f) {

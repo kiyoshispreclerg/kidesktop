@@ -7,6 +7,7 @@
 #include "../shared/xis_outputs.h"
 
 #include <dirent.h>
+#include <stdarg.h>
 #include <errno.h>
 #include <limits.h>
 #include <signal.h>
@@ -49,6 +50,15 @@ char *trim(char *s)
 /* Sends SIGHUP to every process named `procname` (exact match, not -f --
  * safe against accidentally hitting unrelated processes). Fire-and-forget,
  * same spirit as run_action() elsewhere in this repo's daemons. */
+int fmt_fits(char *out, size_t outsz, const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(out, outsz, fmt, ap);
+    va_end(ap);
+    return n >= 0 && (size_t)n < outsz;
+}
+
 void signal_daemon(const char *procname)
 {
     pid_t pid = fork();
@@ -516,7 +526,7 @@ void desktop_entry_set_key(const char *path, const char *key, const char *value)
         return;
     }
 
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *out = fopen(tmp, "w");
     if (!out) {
@@ -755,7 +765,7 @@ void kisession_save(const KisessionConfig *c)
 {
     char path[PATH_MAX];
     resolve_path("kisession.conf", path, sizeof(path));
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *f = fopen(tmp, "w");
     if (!f) {

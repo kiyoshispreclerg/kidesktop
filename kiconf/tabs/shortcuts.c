@@ -165,7 +165,7 @@ static void save_shortcuts_cb(GtkWidget *widget, gpointer data)
     char path[PATH_MAX];
     resolve_path("xiskeys.conf", path, sizeof(path));
 
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *f = fopen(tmp, "w");
     if (!f) {
@@ -272,7 +272,7 @@ static void save_kiwm_shortcuts(void)
 {
     char path[PATH_MAX];
     resolve_path("kiwm.conf", path, sizeof(path));
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *out = fopen(tmp, "w");
     if (!out) {
@@ -475,7 +475,7 @@ static void save_kicomp_hotkeys(const KicompHotkeyEdit *edits, int n_edits)
 {
     char path[PATH_MAX];
     resolve_path("kicomp.conf", path, sizeof(path));
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *out = fopen(tmp, "w");
     if (!out) {
@@ -750,7 +750,7 @@ static void save_xispanel_hotkeys(const XispanelHotkeyEdit *edits, int n_edits)
     if (!in) {
         return;
     }
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *out = fopen(tmp, "w");
     if (!out) {

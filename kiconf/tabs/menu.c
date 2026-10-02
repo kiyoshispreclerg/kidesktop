@@ -178,7 +178,9 @@ static void toggle_visible_cb(GtkCellRendererToggle *cell, gchar *path_str, gpoi
     char userdir[512], userpath[512];
     user_apps_dir(userdir, sizeof(userdir));
     mkdir(userdir, 0700);
-    snprintf(userpath, sizeof(userpath), "%s/%s", userdir, app->id);
+    if (!fmt_fits(userpath, sizeof(userpath), "%s/%s", userdir, app->id)) {
+        return;
+    }
 
     if (app->is_user) {
         desktop_entry_set_key(app->path, "NoDisplay", new_nodisplay ? "true" : "false");
@@ -298,14 +300,18 @@ static void new_entry_cb(GtkWidget *widget, gpointer data)
 
     char path[512];
     int n = 0;
+    int fits;
     do {
         if (n == 0) {
-            snprintf(path, sizeof(path), "%s/%s.desktop", userdir, slug);
+            fits = fmt_fits(path, sizeof(path), "%s/%s.desktop", userdir, slug);
         } else {
-            snprintf(path, sizeof(path), "%s/%s-%d.desktop", userdir, slug, n + 1);
+            fits = fmt_fits(path, sizeof(path), "%s/%s-%d.desktop", userdir, slug, n + 1);
         }
         n++;
-    } while (access(path, F_OK) == 0 && n < 100);
+    } while (fits && access(path, F_OK) == 0 && n < 100);
+    if (!fits) {
+        return;
+    }
 
     write_full_override(path, &entry);
     refill_menu_store();
@@ -338,8 +344,9 @@ static void edit_entry_cb(GtkWidget *widget, gpointer data)
         char userdir[512], path[512];
         user_apps_dir(userdir, sizeof(userdir));
         mkdir(userdir, 0700);
-        snprintf(path, sizeof(path), "%s/%s", userdir, app->id);
-        write_full_override(path, &edited);
+        if (fmt_fits(path, sizeof(path), "%s/%s", userdir, app->id)) {
+            write_full_override(path, &edited);
+        }
     }
     refill_menu_store();
 }

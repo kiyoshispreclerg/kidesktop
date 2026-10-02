@@ -262,16 +262,17 @@ static void add_custom_cb(GtkWidget *widget, gpointer data)
 
             char path[PATH_MAX];
             int n = 0;
+            int fits;
             do {
                 if (n == 0) {
-                    snprintf(path, sizeof(path), "%s/%s.desktop", userdir, slug);
+                    fits = fmt_fits(path, sizeof(path), "%s/%s.desktop", userdir, slug);
                 } else {
-                    snprintf(path, sizeof(path), "%s/%s-%d.desktop", userdir, slug, n + 1);
+                    fits = fmt_fits(path, sizeof(path), "%s/%s-%d.desktop", userdir, slug, n + 1);
                 }
                 n++;
-            } while (access(path, F_OK) == 0 && n < 100);
+            } while (fits && access(path, F_OK) == 0 && n < 100);
 
-            FILE *f = fopen(path, "w");
+            FILE *f = fits ? fopen(path, "w") : NULL;
             if (f) {
                 fprintf(f, "[Desktop Entry]\nType=Application\nName=%s\nExec=%s\nNoDisplay=true\n", name, cmd);
                 fclose(f);
@@ -300,8 +301,9 @@ static void remove_custom_cb(GtkWidget *widget, gpointer data)
     }
     char userdir[PATH_MAX], path[PATH_MAX];
     autostart_userdir(userdir, sizeof(userdir));
-    snprintf(path, sizeof(path), "%s/%s", userdir, g_entries[row].basename);
-    unlink(path);
+    if (fmt_fits(path, sizeof(path), "%s/%s", userdir, g_entries[row].basename)) {
+        unlink(path);
+    }
     refill_autostart_store();
 }
 
@@ -328,8 +330,8 @@ static void apply_autostart_cb(GtkWidget *widget, gpointer data)
          * nothing about it actually changed. */
         if (row >= 0 && row < g_n_entries && (gboolean)!g_entries[row].hidden != enabled) {
             char path[PATH_MAX];
-            snprintf(path, sizeof(path), "%s/%s", userdir, g_entries[row].basename);
-            if (!g_entries[row].has_user_override) {
+            int fits = fmt_fits(path, sizeof(path), "%s/%s", userdir, g_entries[row].basename);
+            if (fits && !g_entries[row].has_user_override) {
                 /* First override for this entry: carry the display name
                  * over too, so the row doesn't degrade to its raw
                  * basename on the next scan just because *this* file
@@ -339,7 +341,9 @@ static void apply_autostart_cb(GtkWidget *widget, gpointer data)
                  * kisession doesn't look at those anyway. */
                 desktop_entry_set_key(path, "Name", g_entries[row].name);
             }
-            desktop_entry_set_key(path, "Hidden", enabled ? "false" : "true");
+            if (fits) {
+                desktop_entry_set_key(path, "Hidden", enabled ? "false" : "true");
+            }
         }
         valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(g_autostart_store), &it);
     }
