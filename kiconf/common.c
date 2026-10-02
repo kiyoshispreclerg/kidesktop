@@ -604,6 +604,7 @@ int scan_all_apps(DesktopApp *out, int max)
 
 const KisessionServiceDef KISESSION_SERVICES[] = {
     {"dbus", "Barramento de sessao (D-Bus) + ambiente de ativacao", 1},
+    {"a11y", "Acessibilidade (barramento AT-SPI; vale a partir do proximo login)", 0},
     {"xisguard", "Permissoes XNOTIFY", 1},
     {"kiconfd", "Daemon de tema/cursor/configuracoes", 1},
     {"xismenu", "Registrador do menu de aplicativos (menu global)", 1},
@@ -617,6 +618,7 @@ const KisessionServiceDef KISESSION_SERVICES[] = {
     {"polkit", "Agente de autenticacao polkit", 1},
     {"wm", "Gerenciador de janelas", 1},
     {"kicomp", "Compositor (opcional)", 1},
+    {"screenreader", "Leitor de tela orca (precisa de Acessibilidade)", 0},
     {"autostart", "Entradas de inicio automatico XDG (aplicativos instalados)", 1},
 };
 _Static_assert(sizeof(KISESSION_SERVICES) / sizeof(KISESSION_SERVICES[0]) == N_KISESSION_SERVICES,
