@@ -34,6 +34,7 @@ socket rather than xisback's `SET`-style protocol.
 {"cmd":"GET_NOTIFICATIONS"}
 {"cmd":"DELETE_NOTIFICATION","id":<id>}
 {"cmd":"CLEAR_NOTIFICATIONS"}
+{"cmd":"FOCUS"}
 {"cmd":"QUIT"}
 ```
 
@@ -75,6 +76,10 @@ socket rather than xisback's `SET`-style protocol.
 - `DELETE_NOTIFICATION` -> removes one entry by `id` (no-op if it isn't
   currently held). `{"ok":true}`
 - `CLEAR_NOTIFICATIONS` -> drops every held entry. `{"ok":true}`
+- `FOCUS` -> starts keyboard navigation on the bar under the pointer, as
+  `focus_key=` does (see "Keyboard navigation"); `xispanel --focus` sends
+  it. `{"ok":true}` if navigation is now active, `{"ok":false}` if the
+  keyboard could not be grabbed.
 - `QUIT` -> stops the daemon. `{"ok":true}`
 
 Unknown commands get `{"ok":false,"error":"unknown command"}`.
@@ -188,6 +193,11 @@ PANEL	top	*	edge=top	pct=100	thickness=32	mode=dock
   as normal either way. Re-checked live on every relevant window-manager
   property change (maximize/minimize, client list, active window,
   current desktop) -- same events `tasklist`/`winctl` already re-poll on.
+
+- `focus_key`: keyboard-navigation hotkey, same `<spec>` grammar as
+  widget `hotkey=` (see "Global hotkeys"). One binding for the whole
+  daemon -- the first PANEL line that sets it wins -- default
+  `Ctrl+Alt+Tab`, `none` turns it off. See "Keyboard navigation".
 
 ### `WIDGET`
 
@@ -746,6 +756,39 @@ something else on the display (WM, another app), is logged to stderr and
 otherwise ignored -- it never stops the rest of that widget (or the panel)
 from working. Ungrabbed and forgotten on panel reload/widget teardown, so
 `RELOAD` (IPC) or a RandR hotplug reload never leaks a stale grab.
+
+### Keyboard navigation
+
+`focus_key=` (default `Ctrl+Alt+Tab`) or `xispanel --focus` grabs the
+keyboard on the bar on the output under the pointer (showing it if it
+autohides) and puts a focus outline on its first item. An item is a whole
+widget, or one of a widget's sub-items: task buttons and scroll arrows
+(`tasklist`), icons (`tray`), desktop cells (`pager`), the title and each
+button (`winctl`). Spacers and widgets with neither clicks nor tooltips
+are skipped. The focused item gets the widget's own hover highlight and
+its tooltip, shown immediately.
+
+| key | action |
+|---|---|
+| Left/Right (Up/Down on a vertical bar) | previous/next item, in screen order (no wrap) |
+| Up/Down (Left/Right on a vertical bar) | item above/below, in a two-row tray or pager |
+| Tab / Shift+Tab | next/previous widget |
+| Home / End | first/last item |
+| Enter, space | click; Shift+Enter middle-clicks |
+| Menu, Shift+F10 | right click (context menu) |
+| Ctrl+Tab, F6 | next bar |
+| Escape | close the container popup focus is in, else leave |
+
+Enter does exactly what a click there does. A menu it opens is navigated
+with its own keys (see "Context menus"); Escape in it returns to the bar,
+choosing an item ends navigation. A container popup takes the focus into
+its widgets until Escape. Anything else (activating a window, launching
+xisserve, switching desktop) ends navigation, as does any mouse click,
+so a window that opened gets the keyboard. Navigation starts on the
+rightmost item under RTL (`../shared/xis_direction.c`).
+
+A widget lists its sub-items through the optional
+`PanelWidgetOps.key_item`; without it the whole widget is one item.
 
 ### Widget sizing
 
@@ -1572,6 +1615,7 @@ own file" structure:
 - `xispanel.h`: shared `Panel`/`PanelWidget`/`PanelWidgetOps` types and
   the core API a widget file is built against (`now_ms`, `kv_get`,
   `widget_get_rect`, the `ewmh_*` helpers, `panel_menu_open`, ...).
+- `keynav.c`: keyboard navigation (see "Keyboard navigation").
 - `ewmh.c`: EWMH/ICCCM client-list reading and window-control actions
   (activate/close/minimize/maximize/move), plus `_NET_WM_ICON` decoding,
   the icon/text drawing helpers built on top of it, and

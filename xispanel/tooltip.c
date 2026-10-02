@@ -1309,6 +1309,23 @@ void tooltip_notice_motion(Panel *p, int axis_pos, int cross_pos)
     g_since_ms = now_ms();
 }
 
+void tooltip_show_at(Panel *p, int axis_pos, int cross_pos)
+{
+    PanelWidget *hit = panel_widget_at(p, axis_pos, cross_pos);
+    char buf[256];
+    int ax = 0, aw = 0, closable = 0;
+    void *ctx = NULL;
+    if (panel_menu_is_open() || !hit || !hit->ops->get_tooltip ||
+        !hit->ops->get_tooltip(hit, axis_pos - hit->x, buf, sizeof(buf), &ax, &aw, &closable, &ctx)) {
+        tooltip_close();
+        return;
+    }
+    tooltip_notice_motion(p, axis_pos, cross_pos);
+    if (g_widget == hit && !g_shown) {
+        show_popup();
+    }
+}
+
 void tooltip_notice_leave(Panel *p)
 {
     if (g_panel == p && g_widget) {

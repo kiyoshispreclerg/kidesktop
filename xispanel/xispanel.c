@@ -100,7 +100,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.77"
+#define XISPANEL_VERSION "0.6.78"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -2430,6 +2430,8 @@ static void widget_physical_rect(const Panel *p, const PanelWidget *w, int *px, 
     }
 }
 
+static void panel_paint_focus_ring(PanelWidget *w, cairo_t *cr);
+
 void panel_paint_content(Panel *p, cairo_t *cr, double scale)
 {
     cairo_save(cr);
@@ -2532,10 +2534,39 @@ void panel_paint_content(Panel *p, cairo_t *cr, double scale)
             }
             cairo_translate(cr, -content_w / 2.0, -content_h / 2.0);
             w->ops->paint(w, cr);
+            panel_paint_focus_ring(w, cr);
             cairo_restore(cr);
         }
     }
     cairo_restore(cr); /* pops the scale pushed at the top */
+}
+
+/* Keyboard focus (keynav.c): an outline around the focused item, on top
+ * of the widget's own hover highlight -- that wash alone is too faint to
+ * find the focus by. Drawn in the widget's content space (same transform
+ * its paint() just ran in), so it follows rotate= too. */
+static void panel_paint_focus_ring(PanelWidget *w, cairo_t *cr)
+{
+    int x, len, y, thick;
+    if (!keynav_focus_item(w, &x, &len, &y, &thick)) {
+        return;
+    }
+    int ox, oy, cw, ch;
+    widget_get_rect(w, &ox, &oy, &cw, &ch);
+    double rx = x, ry = y, rw = len, rh = thick;
+    if (cw != w->len) { /* content runs along y: see widget_get_rect() */
+        rx = y;
+        ry = x;
+        rw = thick;
+        rh = len;
+    }
+    Panel *p = w->panel;
+    cairo_save(cr);
+    cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.9);
+    cairo_set_line_width(cr, 2.0);
+    cairo_rectangle(cr, rx + 1.0, ry + 1.0, rw - 2.0, rh - 2.0);
+    cairo_stroke(cr);
+    cairo_restore(cr);
 }
 
 void panel_foreach(void (*cb)(Panel *p, void *ctx), void *ctx)
@@ -2729,6 +2760,7 @@ static void panel_destroy_widgets(Panel *p)
 
 static void panel_deactivate(Panel *p)
 {
+    keynav_panel_gone(p);
     panel_destroy_widgets(p);
     density_panel_destroyed(p);
     if (p->bg_image_surface) {
@@ -3279,8 +3311,28 @@ static void load_config(void)
 static void link_containers(void);
 static void schedule_widget_repoll(uint64_t at_ms);
 
+/* PANEL lines' focus_key= -- one keyboard-navigation hotkey for the whole
+ * daemon (it picks the bar under the pointer), so the first line that
+ * sets it wins. "" = not set anywhere, keynav_configure()'s default. */
+static void config_focus_key(char *out, size_t outsz)
+{
+    out[0] = 0;
+    FILE *f = fopen(g_configpath, "r");
+    if (!f) {
+        return;
+    }
+    char line[1024];
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "PANEL", 5) == 0 && kv_get(line, "focus_key", out, outsz)) {
+            break;
+        }
+    }
+    fclose(f);
+}
+
 static void reload_all_panels(void)
 {
+    keynav_stop();
     panel_container_close_all(); /* releases its grab; the Panel is about to go away */
     panel_menu_close(); /* about to invalidate every Panel/PanelWidget it could reference */
     tooltip_close();
@@ -3297,6 +3349,9 @@ static void reload_all_panels(void)
             panel_activate(&g_panels[i]);
         }
     }
+    char focus_key[64];
+    config_focus_key(focus_key, sizeof(focus_key));
+    keynav_configure(focus_key);
 }
 
 /* Re-resolves every panel's output geometry (RandR CRTC box, or
@@ -3534,6 +3589,9 @@ static void handle_ipc_message(const char *req, char *resp, size_t resp_sz)
     } else if (strcmp(cmd, "CLEAR_NOTIFICATIONS") == 0) {
         notifd_clear();
         snprintf(resp, resp_sz, "{\"ok\":true}\n");
+    } else if (strcmp(cmd, "FOCUS") == 0) {
+        keynav_start(NULL);
+        snprintf(resp, resp_sz, "{\"ok\":%s}\n", keynav_active() ? "true" : "false");
     } else if (strcmp(cmd, "QUIT") == 0) {
         g_quit = 1;
         snprintf(resp, resp_sz, "{\"ok\":true}\n");
@@ -3824,6 +3882,12 @@ void panel_container_menu_closed(void)
     if (g_open_container) {
         container_grab(g_open_container);
     }
+    keynav_menu_closed(panel_menu_closing_by_selection());
+}
+
+Panel *panel_open_container(void)
+{
+    return g_open_container;
 }
 
 /* Returns 1 if `ev` was consumed on behalf of the open popup: Escape
@@ -4047,6 +4111,44 @@ static void panel_clear_hover(Panel *p)
         panel_mark_hover_dirty(p, p->hover_widget);
         p->hover_widget = NULL;
     }
+}
+
+void panel_hover_set(Panel *p, PanelWidget *w, int local_x, int local_y)
+{
+    if (!w) {
+        panel_clear_hover(p);
+        return;
+    }
+    panel_update_hover(p, w->x + local_x, w->y + local_y);
+}
+
+void panel_click_at(Panel *p, int button, int axis_pos, int cross_pos)
+{
+    int horiz = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM);
+    int x = horiz ? axis_pos : cross_pos;
+    int y = horiz ? cross_pos : axis_pos;
+    tooltip_close();
+    dispatch_button(p, button, x, y, p->x + x, p->y + y);
+}
+
+void panel_autohide_hold(Panel *p, int hold)
+{
+    if (hold) {
+        panel_autohide_enter(p);
+    } else {
+        panel_autohide_leave(p);
+    }
+}
+
+int panel_list(Panel **out, int max)
+{
+    int n = 0;
+    for (int i = 0; i < MAX_PANELS && n < max; i++) {
+        if (g_panels[i].in_use) {
+            out[n++] = &g_panels[i];
+        }
+    }
+    return n;
 }
 
 /* A drag entering/moving over/leaving p (xdnd.c) -- the crossing and
@@ -4428,6 +4530,8 @@ static int run_as_daemon(const char *sockpath)
                      * see thumb.c/tooltip.c's tooltip_tick() */
                 } else if (panel_menu_handle_event(&ev)) {
                     /* consumed by the open context menu */
+                } else if (keynav_handle_event(&ev)) {
+                    /* keyboard navigation of a panel -- see keynav.c */
                 } else if (container_handle_event(&ev)) {
                     /* Escape / click-outside / owner-icon click closed the
                      * open container popup -- see container_handle_event() */
@@ -4672,6 +4776,7 @@ static void usage(const char *prog)
             "\n"
             "  --reload    tell the running daemon to reload its config\n"
             "  --quit      stop the running daemon\n"
+            "  --focus     focus the panel under the pointer for keyboard navigation\n"
             "  --version   print version and exit\n"
             "\n"
             "With no options, runs as the daemon (or does nothing but report\n"
@@ -4731,6 +4836,9 @@ int main(int argc, char **argv)
         }
         if (!strcmp(argv[1], "--quit")) {
             return ipc_client_request(sockpath, "{\"cmd\":\"QUIT\"}\n");
+        }
+        if (!strcmp(argv[1], "--focus")) {
+            return ipc_client_request(sockpath, "{\"cmd\":\"FOCUS\"}\n");
         }
         if (!strcmp(argv[1], "--reload")) {
             return ipc_client_request(sockpath, "{\"cmd\":\"RELOAD\"}\n");

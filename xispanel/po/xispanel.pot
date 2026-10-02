@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: xispanel\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-01 17:50-0300\n"
+"POT-Creation-Date: 2026-10-02 18:46-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -37,7 +37,7 @@ msgstr ""
 msgid "Entrada de audio: %s"
 msgstr ""
 
-#: menu.c:1018
+#: menu.c:1046
 #, c-format
 msgid "Configurar painéis"
 msgstr ""
@@ -167,7 +167,7 @@ msgstr ""
 msgid "Fechar"
 msgstr ""
 
-#: widgets/tasklist.c:1872 widgets/tasklist.c:2253
+#: widgets/tasklist.c:1872 widgets/tasklist.c:2254
 #, c-format
 msgid "Desafixar"
 msgstr ""
@@ -181,7 +181,7 @@ msgstr ""
 msgid "Abrir nova instância"
 msgstr ""
 
-#: widgets/tasklist.c:2250
+#: widgets/tasklist.c:2251
 #, c-format
 msgid "Abrir"
 msgstr ""
@@ -199,13 +199,14 @@ msgstr ""
 msgid "Applications"
 msgstr ""
 
-#: xispanel.c:4646
+#: xispanel.c:4775
 #, c-format
 msgid ""
 "usage: %s [options]\n"
 "\n"
 "  --reload    tell the running daemon to reload its config\n"
 "  --quit      stop the running daemon\n"
+"  --focus     focus the panel under the pointer for keyboard navigation\n"
 "  --version   print version and exit\n"
 "\n"
 "With no options, runs as the daemon (or does nothing but report\n"
@@ -213,12 +214,12 @@ msgid ""
 "configured in $XDG_CONFIG_HOME/xispanel.conf -- see PROTOCOL.md.\n"
 msgstr ""
 
-#: xispanel.c:4713
+#: xispanel.c:4846
 #, c-format
 msgid "xispanel: unknown option '%s'\n"
 msgstr ""
 
-#: xispanel.c:4733
+#: xispanel.c:4866
 #, c-format
 msgid "xispanel: already running\n"
 msgstr ""

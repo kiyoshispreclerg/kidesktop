@@ -199,6 +199,15 @@ typedef struct {
      * paths[] are local file paths decoded from the drop's text/uri-list. */
     int (*dnd_accepts_files)(PanelWidget *w, int local_x);
     int (*dnd_drop_files)(PanelWidget *w, int local_x, const char *const *paths, int n);
+    /* Optional: the widget's keyboard-focusable sub-items (keynav.c).
+     * Returns how many there are right now; for 0 <= i < that count also
+     * fills item i's widget-local rect -- main-axis *x/*len, cross-axis
+     * *y/*thick, the same spaces on_button()'s local_x/local_y use (i < 0
+     * just counts). Focus sets the panel's hover to the item's center, so
+     * the widget's own hover highlight and tooltip show it, and Enter
+     * clicks there. NULL = the whole widget is one item; only widgets
+     * that hit-test sub-items (tasklist, tray, pager, winctl) need it. */
+    int (*key_item)(PanelWidget *w, int i, int *x, int *len, int *y, int *thick);
 } PanelWidgetOps;
 
 struct PanelWidget {
@@ -1156,6 +1165,8 @@ void panel_menu_close(void);
  * stays open until the user explicitly clicks elsewhere instead of a
  * tooltip popping up and stealing attention/screen space over it. */
 int panel_menu_is_open(void);
+/* 1 only during the panel_menu_close() an item selection triggers. */
+int panel_menu_closing_by_selection(void);
 /* Returns 1 if `ev` belonged to the open menu (and was fully handled),
  * 0 otherwise -- xispanel.c's event loop dispatches to this first without
  * needing to know anything about the menu's internals. */
@@ -1182,6 +1193,44 @@ void panel_container_close_all(void);
  * click-outside dismissal, and releasing the menu's grab released ours
  * too -- re-take it if a popup is still open. No-op otherwise. */
 void panel_container_menu_closed(void);
+/* The container popup currently open, or NULL. */
+Panel *panel_open_container(void);
+
+/* ---- core hooks for keyboard navigation (xispanel.c, used by keynav.c) ---- */
+/* Points p's hover state at (local_x, local_y) inside w, as if the
+ * pointer were there; w NULL clears it. */
+void panel_hover_set(Panel *p, PanelWidget *w, int local_x, int local_y);
+/* A click of `button` at a panel-relative main/cross-axis position, with
+ * the same fallbacks (blank-space context menu) a real click gets. */
+void panel_click_at(Panel *p, int button, int axis_pos, int cross_pos);
+/* Keeps an autohide panel shown while held (no-op for other modes). */
+void panel_autohide_hold(Panel *p, int hold);
+/* Every in-use panel, in config order; n written to *out_n. */
+int panel_list(Panel **out, int max);
+
+/* ---- keyboard navigation (keynav.c) ----
+ *
+ * A focus_key= hotkey (or `xispanel --focus`) grabs the keyboard on the
+ * panel under the pointer and walks its widgets' items with the arrow
+ * keys; Enter clicks, Menu/Shift+F10 right-clicks, Escape leaves. See
+ * PROTOCOL.md's "Keyboard navigation". */
+void keynav_configure(const char *spec); /* (re)binds the hotkey; NULL/"" = default, "none" = off */
+void keynav_start(Panel *p); /* NULL = the bar on the output under the pointer */
+void keynav_stop(void);
+int keynav_active(void);
+int keynav_handle_event(const XEvent *ev); /* 1 if consumed */
+/* A menu closed while navigating: by_selection = an item was chosen
+ * (navigation ends, the action may have opened a window that needs the
+ * keyboard), else (Escape) focus returns to the panel. */
+void keynav_menu_closed(int by_selection);
+void keynav_panel_gone(Panel *p); /* p is about to be freed */
+/* Called from an on_button() whose click only changed the widget's own
+ * view (tasklist's scroll arrows): a keyboard click there keeps
+ * navigating instead of ending it. No-op outside keyboard navigation. */
+void keynav_keep(void);
+/* 1 (and the item's widget-local rect, as PanelWidgetOps.key_item) if
+ * keyboard focus is on one of w's items -- for the focus ring. */
+int keynav_focus_item(const PanelWidget *w, int *x, int *len, int *y, int *thick);
 
 /* The part of the output `p` sits on that no bar covers: the output
  * rect minus every mode=dock panel's edge strip on that same output
@@ -1275,6 +1324,10 @@ void tooltip_notice_leave(Panel *p); /* call on LeaveNotify from a panel window 
 void tooltip_tick(uint64_t now); /* advance the show-delay timer / refresh shown content */
 uint64_t tooltip_next_wake_ms(void); /* 0 = no pending timer, else fold into the main loop's timeout */
 void tooltip_close(void); /* hide immediately -- call before invalidating any Panel/PanelWidget */
+/* Shows the tooltip for whatever sits at (axis_pos, cross_pos) right now,
+ * with no hover delay and no pointer check -- keyboard focus. Closes any
+ * open tooltip when that spot has none. */
+void tooltip_show_at(Panel *p, int axis_pos, int cross_pos);
 int tooltip_handle_event(const XEvent *ev); /* 1 if `ev` belonged to the tooltip popup */
 
 /* ---- MPRIS2 media control client (mpris.c) ----

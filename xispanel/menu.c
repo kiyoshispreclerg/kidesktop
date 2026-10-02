@@ -190,6 +190,13 @@ int panel_menu_is_open(void)
     return g_menu != NULL;
 }
 
+static int g_closing_by_selection;
+
+int panel_menu_closing_by_selection(void)
+{
+    return g_closing_by_selection;
+}
+
 void panel_menu_close(void)
 {
     if (!g_menu) {
@@ -701,7 +708,9 @@ static void select_and_close(int idx)
 {
     PanelMenu *m = g_menu;
     if (idx == m->tail_action_idx) {
+        g_closing_by_selection = 1;
         panel_menu_close();
+        g_closing_by_selection = 0;
         run_detached("kiconf --tab Paineis");
         return;
     }
@@ -709,7 +718,9 @@ static void select_and_close(int idx)
     PanelWidget *ow = m->owner_widget;
     void *ctx = m->ctx;
     MenuSelectFn cb = m->on_select;
+    g_closing_by_selection = 1;
     panel_menu_close();
+    g_closing_by_selection = 0;
     if (cb) {
         cb(op, ow, ctx, idx);
     }

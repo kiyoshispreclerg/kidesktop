@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: xispanel\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-01 17:50-0300\n"
+"POT-Creation-Date: 2026-10-02 18:46-0300\n"
 "PO-Revision-Date: 2026-10-01 17:50-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -37,7 +37,7 @@ msgstr "Saída de áudio: %s"
 msgid "Entrada de audio: %s"
 msgstr "Entrada de áudio: %s"
 
-#: menu.c:1018
+#: menu.c:1046
 #, c-format
 msgid "Configurar painéis"
 msgstr "Configurar painéis"
@@ -167,7 +167,7 @@ msgstr "Mover"
 msgid "Fechar"
 msgstr "Fechar"
 
-#: widgets/tasklist.c:1872 widgets/tasklist.c:2253
+#: widgets/tasklist.c:1872 widgets/tasklist.c:2254
 #, c-format
 msgid "Desafixar"
 msgstr "Desafixar"
@@ -181,7 +181,7 @@ msgstr "Fixar"
 msgid "Abrir nova instância"
 msgstr "Abrir nova instância"
 
-#: widgets/tasklist.c:2250
+#: widgets/tasklist.c:2251
 #, c-format
 msgid "Abrir"
 msgstr "Abrir"
@@ -199,26 +199,37 @@ msgstr "Fixar em todas as áreas de trabalho"
 msgid "Applications"
 msgstr "Aplicativos"
 
-#: xispanel.c:4646
+#: xispanel.c:4775
 #, c-format
 msgid ""
 "usage: %s [options]\n"
 "\n"
 "  --reload    tell the running daemon to reload its config\n"
 "  --quit      stop the running daemon\n"
+"  --focus     focus the panel under the pointer for keyboard navigation\n"
 "  --version   print version and exit\n"
 "\n"
 "With no options, runs as the daemon (or does nothing but report\n"
 "'already running' if one is active). Panels/widgets/theme are\n"
 "configured in $XDG_CONFIG_HOME/xispanel.conf -- see PROTOCOL.md.\n"
-msgstr "uso: %s [opções]\n\n  --reload    manda o daemon em execução recarregar a configuração\n  --quit      encerra o daemon em execução\n  --version   mostra a versão e sai\n\nSem opções, executa como daemon (ou só reporta 'already running' se\num já estiver ativo). Painéis/widgets/tema são configurados em\n$XDG_CONFIG_HOME/xispanel.conf -- veja PROTOCOL.md.\n"
+msgstr ""
+"uso: %s [opções]\n"
+"\n"
+"  --reload    manda o daemon em execução recarregar a configuração\n"
+"  --quit      encerra o daemon em execução\n"
+"  --focus     foca o painel sob o ponteiro para navegação por teclado\n"
+"  --version   mostra a versão e sai\n"
+"\n"
+"Sem opções, executa como daemon (ou só reporta 'already running' se\n"
+"um já estiver ativo). Painéis/widgets/tema são configurados em\n"
+"$XDG_CONFIG_HOME/xispanel.conf -- veja PROTOCOL.md.\n"
 
-#: xispanel.c:4713
+#: xispanel.c:4846
 #, c-format
 msgid "xispanel: unknown option '%s'\n"
 msgstr "xispanel: opção desconhecida '%s'\n"
 
-#: xispanel.c:4733
+#: xispanel.c:4866
 #, c-format
 msgid "xispanel: already running\n"
 msgstr "xispanel: já está em execução\n"
