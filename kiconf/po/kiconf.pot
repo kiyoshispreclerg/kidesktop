@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-02 16:12-0300\n"
+"POT-Creation-Date: 2026-10-02 18:55-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -104,17 +104,21 @@ msgstr ""
 msgid "Historico"
 msgstr ""
 
-#: kiconf.c:305
+#: kiconf.c:170
+msgid "Acessibilidade"
+msgstr ""
+
+#: kiconf.c:306
 msgid ""
 "Ha alteracoes nao aplicadas nesta aba. Tem certeza que deseja sair sem "
 "aplica-las?"
 msgstr ""
 
-#: kiconf.c:307
+#: kiconf.c:308
 msgid "Alteracoes pendentes"
 msgstr ""
 
-#: kiconf.c:723 kiconf.c:735
+#: kiconf.c:727 kiconf.c:739
 msgid "Inicio"
 msgstr ""
 
@@ -122,15 +126,87 @@ msgstr ""
 msgid "Sobre este computador"
 msgstr ""
 
-#: tabs/appearance.c:701
-msgid "Importar da sessao atual"
+#: tabs/acessibilidade.c:332
+msgid ""
+"Teclas de aderencia: Shift, Ctrl e Alt ficam pressionados ate a proxima tecla"
 msgstr ""
 
-#: tabs/appearance.c:703 tabs/autostart.c:410 tabs/energia.c:221
-#: tabs/entrada.c:544 tabs/historico.c:379 tabs/historico.c:446
-#: tabs/outras.c:215 tabs/programas.c:305 tabs/shortcuts.c:1062
-#: tabs/sistema.c:809 tabs/telas.c:1780
+#: tabs/acessibilidade.c:335
+msgid "Desativar a aderencia ao pressionar duas teclas juntas"
+msgstr ""
+
+#: tabs/acessibilidade.c:338
+msgid "Teclas lentas: so aceitar teclas mantidas pressionadas"
+msgstr ""
+
+#: tabs/acessibilidade.c:342
+msgid "Tempo para aceitar (ms):"
+msgstr ""
+
+#: tabs/acessibilidade.c:343
+msgid "Teclas de repercussao: ignorar toques repetidos rapidos"
+msgstr ""
+
+#: tabs/acessibilidade.c:347
+msgid "Ignorar repeticoes por (ms):"
+msgstr ""
+
+#: tabs/acessibilidade.c:348
+msgid "Teclas do mouse: mover o ponteiro com o teclado numerico"
+msgstr ""
+
+#: tabs/acessibilidade.c:350
+msgid ""
+"Ativar pelo teclado: Shift cinco vezes (aderencia) ou mantido 8 s (lentas)"
+msgstr ""
+
+#: tabs/acessibilidade.c:359
+msgid "Teclado"
+msgstr ""
+
+#: tabs/acessibilidade.c:367
+msgid "Escala do texto:"
+msgstr ""
+
+#: tabs/acessibilidade.c:370
+msgid "Tamanho do cursor (px):"
+msgstr ""
+
+#: tabs/acessibilidade.c:371
+msgid "Alto contraste (texto branco sobre preto, selecao amarela)"
+msgstr ""
+
+#: tabs/acessibilidade.c:373
+msgid "Visao"
+msgstr ""
+
+#: tabs/acessibilidade.c:378
+msgid "Suporte a tecnologias assistivas (AT-SPI)"
+msgstr ""
+
+#: tabs/acessibilidade.c:380
+msgid "Leitor de tela (orca)"
+msgstr ""
+
+#: tabs/acessibilidade.c:382
+msgid ""
+"Vale a partir do proximo login. Ctrl+Alt+Tab foca o painel para usa-lo pelo "
+"teclado (focus_key= no xispanel.conf)."
+msgstr ""
+
+#: tabs/acessibilidade.c:387
+msgid "Tecnologias assistivas"
+msgstr ""
+
+#: tabs/acessibilidade.c:389 tabs/appearance.c:703 tabs/autostart.c:410
+#: tabs/energia.c:221 tabs/entrada.c:544 tabs/historico.c:379
+#: tabs/historico.c:446 tabs/outras.c:215 tabs/programas.c:305
+#: tabs/shortcuts.c:1062 tabs/sistema.c:809 tabs/telas.c:1780
 msgid "Aplicar"
+msgstr ""
+
+#: tabs/appearance.c:701
+msgid "Importar da sessao atual"
 msgstr ""
 
 #: tabs/associacoes.c:324

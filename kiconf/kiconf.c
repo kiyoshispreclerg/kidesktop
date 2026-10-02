@@ -114,7 +114,7 @@
 #include "sysinfo.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.41"
+#define KICONF_VERSION "0.2.42"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -167,6 +167,7 @@ static LazyTab g_tabs[] = {
     {N_("Iniciar automaticamente"), GTK_STOCK_MEDIA_PLAY, build_autostart_tab, NULL, 0, 0},
     {N_("Eventos"), GTK_STOCK_INDEX, build_eventos_tab, NULL, 0, 0},
     {N_("Historico"), GTK_STOCK_FIND, build_historico_tab, NULL, 0, 0},
+    {N_("Acessibilidade"), GTK_STOCK_ZOOM_IN, build_acessibilidade_tab, NULL, 0, 0},
 };
 #define N_TABS ((int)(sizeof(g_tabs) / sizeof(g_tabs[0])))
 
