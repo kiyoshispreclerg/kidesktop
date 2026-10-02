@@ -114,7 +114,7 @@
 #include "sysinfo.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.40"
+#define KICONF_VERSION "0.2.41"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -613,7 +613,10 @@ static void start_ctl_listener(const char *sockpath)
     snprintf(g_sockpath, sizeof(g_sockpath), "%s", sockpath);
     unlink(sockpath);
 
-    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    /* CLOEXEC here and on the lock: kiconf spawns daemons (xisback, ...)
+     * that outlive it, and an inherited lock/listener made every later
+     * kiconf think one was already running and exit silently. */
+    int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0) {
         return;
     }
@@ -682,7 +685,7 @@ int main(int argc, char **argv)
     char lockpath[PATH_MAX], sockpath[PATH_MAX];
     lock_and_sock_paths(lockpath, sockpath, sizeof(lockpath));
 
-    int lockfd = open(lockpath, O_CREAT | O_RDWR, 0600);
+    int lockfd = open(lockpath, O_CREAT | O_RDWR | O_CLOEXEC, 0600);
     if (lockfd >= 0 && flock(lockfd, LOCK_EX | LOCK_NB) != 0) {
         /* Another kiconf already owns the lock: hand this request off to
          * it (focus it, switching tab if one was requested) instead of
