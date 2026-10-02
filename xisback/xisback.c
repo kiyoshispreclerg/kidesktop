@@ -96,7 +96,7 @@ int xis_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int 
 int xis_fd(void);
 int xis_poll_change(void);
 
-#define XISBACK_VERSION "0.4.12"
+#define XISBACK_VERSION "0.4.13"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -947,7 +947,11 @@ static void layer_load_sources(Layer *l)
             }
             if (n == cap) {
                 cap = cap ? cap * 2 : 16;
-                list = realloc(list, sizeof(char *) * (size_t)cap);
+                char **grown = realloc(list, sizeof(char *) * (size_t)cap);
+                if (!grown) {
+                    break; /* out of memory: keep what was listed */
+                }
+                list = grown;
             }
             char full[PATH_MAX];
             if (xis_fmt_fits(full, sizeof(full), "%s/%s", l->source, de->d_name)) {
