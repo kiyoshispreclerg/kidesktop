@@ -782,6 +782,33 @@ static int winctl_key_item(PanelWidget *w, int i, int *x, int *len, int *y, int 
     return n;
 }
 
+/* The buttons' tooltip is the window title like the rest of the widget;
+ * name them for what they do instead. The title item keeps the tooltip. */
+static int winctl_key_item_label(PanelWidget *w, int i, char *buf, size_t bufsz)
+{
+    WinctlPriv *wp = w->priv;
+    int x, len, y, thick;
+    int n = winctl_key_item(w, -1, &x, &len, &y, &thick);
+    int nb = (wp->show_always || wp->maximized) ? wp->n_buttons : 0;
+    int b = i - (n - nb);
+    if (b < 0 || b >= nb) {
+        return 0;
+    }
+    switch (wp->buttons[b]) {
+    case 'i':
+        snprintf(buf, bufsz, "%s", wp->minimized ? _("Restaurar") : _("Minimizar"));
+        return 1;
+    case 'a':
+        snprintf(buf, bufsz, "%s", wp->maximized ? _("Restaurar tamanho") : _("Maximizar"));
+        return 1;
+    case 'x':
+        snprintf(buf, bufsz, "%s", _("Fechar"));
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 const PanelWidgetOps winctl_ops = {
     .type_name = "winctl",
     .priv_size = sizeof(WinctlPriv),
@@ -793,4 +820,5 @@ const PanelWidgetOps winctl_ops = {
     .on_tick = winctl_on_tick,
     .get_tooltip = winctl_get_tooltip,
     .key_item = winctl_key_item,
+    .key_item_label = winctl_key_item_label,
 };

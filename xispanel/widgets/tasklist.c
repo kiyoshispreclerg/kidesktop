@@ -2333,6 +2333,23 @@ static int tasklist_key_item(PanelWidget *w, int i, int *x, int *len, int *y, in
     return n;
 }
 
+static int tasklist_key_item_label(PanelWidget *w, int i, char *buf, size_t bufsz)
+{
+    TasklistPriv *tp = w->priv;
+    int x, len, y, thick;
+    int n = tasklist_key_item(w, -1, &x, &len, &y, &thick);
+    int left = tp->scrollable && tp->can_left, right = tp->scrollable && tp->can_right;
+    if (left && i == 0) {
+        snprintf(buf, bufsz, "%s", _("Rolar para a esquerda"));
+        return 1;
+    }
+    if (right && i == n - 1) {
+        snprintf(buf, bufsz, "%s", _("Rolar para a direita"));
+        return 1;
+    }
+    return 0;
+}
+
 const PanelWidgetOps tasklist_ops = {
     .type_name = "tasklist",
     .priv_size = sizeof(TasklistPriv),
@@ -2354,4 +2371,5 @@ const PanelWidgetOps tasklist_ops = {
     .dnd_accepts_files = tasklist_dnd_accepts_files,
     .dnd_drop_files = tasklist_dnd_drop_files,
     .key_item = tasklist_key_item,
+    .key_item_label = tasklist_key_item_label,
 };
