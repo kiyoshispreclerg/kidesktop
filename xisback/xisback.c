@@ -66,6 +66,7 @@
 #include <X11/extensions/Xfixes.h>
 #include <X11/extensions/Xrandr.h>
 
+#include "../shared/xis_fmt.h"
 #include "../shared/xis_outputs.h"
 #include "../shared/xis_spawn.h"
 
@@ -95,7 +96,7 @@ int xis_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int 
 int xis_fd(void);
 int xis_poll_change(void);
 
-#define XISBACK_VERSION "0.4.11"
+#define XISBACK_VERSION "0.4.12"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -949,8 +950,9 @@ static void layer_load_sources(Layer *l)
                 list = realloc(list, sizeof(char *) * (size_t)cap);
             }
             char full[PATH_MAX];
-            snprintf(full, sizeof(full), "%s/%s", l->source, de->d_name);
-            list[n++] = strdup(full);
+            if (xis_fmt_fits(full, sizeof(full), "%s/%s", l->source, de->d_name)) {
+                list[n++] = strdup(full);
+            }
         }
         closedir(d);
         if (n > 0) {
@@ -1336,7 +1338,7 @@ static void save_config(void)
     if (!g_configpath[0]) {
         return;
     }
-    char tmp[PATH_MAX];
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", g_configpath);
     FILE *f = fopen(tmp, "w");
     if (!f) {
@@ -1821,9 +1823,10 @@ static int fetch_actions(const char *sockpath, char *left, size_t leftsz, char *
         return -1;
     }
     struct sockaddr_un addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
-    snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", sockpath);
+    if (!xis_sun_path(&addr, sockpath)) {
+        close(fd);
+        return -1;
+    }
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
         close(fd);
         return -1;
@@ -1920,9 +1923,11 @@ static int run_as_client(const char *sockpath, const Command *cmd_in)
         return 1;
     }
     struct sockaddr_un addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
-    snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", sockpath);
+    if (!xis_sun_path(&addr, sockpath)) {
+        fprintf(stderr, "xisback: socket path too long: %s\n", sockpath);
+        close(fd);
+        return 1;
+    }
 
     int connected = -1;
     for (int i = 0; i < 50; i++) {
@@ -2018,9 +2023,10 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
     unlink(sockpath);
     int listenfd = socket(AF_UNIX, SOCK_STREAM, 0);
     struct sockaddr_un addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
-    snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", sockpath);
+    if (!xis_sun_path(&addr, sockpath)) {
+        fprintf(stderr, "xisback: socket path too long: %s\n", sockpath);
+        return 1;
+    }
     if (bind(listenfd, (struct sockaddr *)&addr, sizeof(addr)) != 0 || listen(listenfd, 16) != 0) {
         perror("xisback: bind/listen");
         return 1;
@@ -2385,7 +2391,7 @@ int main(int argc, char **argv)
         if (!home || !*home) {
             home = "/tmp";
         }
-        char configdir[PATH_MAX];
+        char configdir[PATH_MAX - 64]; /* room for "/<name>.conf" after it */
         snprintf(configdir, sizeof(configdir), "%s/.config", home);
         mkdir(configdir, 0700);
         snprintf(configpath, sizeof(configpath), "%s/xisback.conf", configdir);
