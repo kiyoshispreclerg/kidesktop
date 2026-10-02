@@ -323,7 +323,9 @@ static xcb_render_picture_t density_picture(CompWindow *w, bool decoration)
     xcb_pixmap_t *pixmap = decoration ? &w->deco_density_pixmap
                                       : &w->density_pixmap;
 
+    /* Returning the cached value is the point, not a repeated test. */
     if (*cached)
+        // cppcheck-suppress identicalInnerCondition
         return *cached;
     if (*pixmap == 0)
         return 0;
