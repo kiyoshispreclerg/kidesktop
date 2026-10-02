@@ -298,7 +298,7 @@ static int build_one_level(FolderPriv *fp, const char *dirpath, int base, MenuIt
         if (S_ISLNK(st.st_mode)) {
             continue; /* never follow symlinks -- simplest way to rule out a loop */
         }
-        snprintf(entries[ne].name, sizeof(entries[ne].name), "%s", de->d_name);
+        xis_strlcpy(entries[ne].name, de->d_name, sizeof(entries[ne].name));
         entries[ne].is_dir = S_ISDIR(st.st_mode);
         ne++;
     }

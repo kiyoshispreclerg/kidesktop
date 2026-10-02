@@ -113,7 +113,7 @@ static int wifi_link_quality(const char *dev)
         if (name_len != dev_len || strncmp(name_start, dev, dev_len) != 0) {
             continue;
         }
-        int status;
+        unsigned int status;
         double link;
         if (sscanf(colon + 1, "%x %lf", &status, &link) == 2) {
             pct = (int)link;
