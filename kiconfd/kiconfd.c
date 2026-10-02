@@ -155,7 +155,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.18"
+#define KICONFD_VERSION "0.2.19"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128

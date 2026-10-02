@@ -35,9 +35,17 @@
 #define LOCALEDIR "/usr/local/share/locale"
 #endif
 
+/* LC_NUMERIC goes back to "C" right after: every config file here writes
+ * decimals with a '.', and under a locale whose separator is ',' (pt_BR)
+ * atof()/strtod()/sscanf("%f") stop at that '.', so "0.85" read as 0 --
+ * which is how kicomp's cube/wobbly settings and kiwm's font_size=12.5
+ * broke when gettext came in. Messages, dates and the rest keep the
+ * user's locale. GTK programs get LC_ALL reset again by gtk_init() and
+ * have to keep handling this themselves (kiconf's fprintf_double()). */
 static inline void xis_i18n_init(const char *domain)
 {
     setlocale(LC_ALL, "");
+    setlocale(LC_NUMERIC, "C");
     bindtextdomain(domain, LOCALEDIR);
     bind_textdomain_codeset(domain, "UTF-8");
     textdomain(domain);

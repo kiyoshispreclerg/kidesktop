@@ -67,7 +67,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KISESSION_VERSION "0.1.10"
+#define KISESSION_VERSION "0.1.11"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
