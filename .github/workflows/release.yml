@@ -1,0 +1,99 @@
+# Source .zip and kidesktop .deb packages for Ubuntu 22.04, Ubuntu 24.04
+# and Debian 12 (also what Devuan 5 installs).
+#
+#   tag push (v*) or a published release -> built and attached to that
+#                                           tag's GitHub release
+#   Run workflow (workflow_dispatch)     -> built and kept as workflow
+#                                           artifacts only
+name: Release packages
+
+on:
+  push:
+    tags: ["v*"]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to stamp (empty = from git: tag or 0.0.0+git<date>.<commit>)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source:
+    name: source .zip
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: git archive
+        run: |
+          v="${{ github.event.inputs.version }}"
+          [ -n "$v" ] || v=$(git describe --tags --exact-match 2>/dev/null || git rev-parse --short HEAD)
+          v="${v#v}"
+          mkdir -p dist
+          git archive --format=zip --prefix="kidesktop-$v/" -o "dist/kidesktop-$v-src.zip" HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source
+          path: dist/*.zip
+
+  deb:
+    name: deb (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: "ubuntu:22.04"
+            name: ubuntu-22.04
+          - image: "ubuntu:24.04"
+            name: ubuntu-24.04
+          - image: "debian:12"
+            name: debian-12
+    steps:
+      - name: Install git
+        run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git ca-certificates
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install build dependencies
+        run: ./scripts/install-build-deps.sh
+      - name: make deb
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          KIDESKTOP_VERSION="${{ github.event.inputs.version }}" ./scripts/build-deb.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.name }}
+          path: dist/*.deb
+
+  publish:
+    name: attach to release
+    if: github.event_name != 'workflow_dispatch'
+    needs: [source, deb]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Upload to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          ls -l out
+          # A tag push has no release yet; a published release already does.
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --generate-notes
+          gh release upload "$TAG" out/* --repo "$GITHUB_REPOSITORY" --clobber

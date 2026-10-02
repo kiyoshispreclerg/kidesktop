@@ -124,6 +124,25 @@ Each component also builds on its own, skipping `./configure`:
 cd kiwm && make
 ```
 
+Every build dependency is listed once, in `debian/control`'s
+`Build-Depends`; on Debian/Ubuntu `sudo ./scripts/install-build-deps.sh`
+installs them.
+
+### Checks and packages
+
+```sh
+make lint   # every component with -Werror, cppcheck, .po/.desktop/script checks
+make deb    # dist/kidesktop_<version>~<distro><release>_<arch>.deb for this distro
+```
+
+GitHub Actions runs `make lint` on Ubuntu 22.04, Ubuntu 24.04 and Debian 12
+for every push and pull request (`.github/workflows/ci.yml`). Pushing a
+`v*` tag or publishing a release builds the source `.zip` and the `.deb`
+for those three distros and attaches them to the release; "Run workflow"
+on *Release packages* builds the same files as workflow artifacts only
+(`.github/workflows/release.yml`). The Debian 12 package also installs on
+Devuan 5.
+
 ## License
 
 See [LICENSE](LICENSE).
