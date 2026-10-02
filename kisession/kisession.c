@@ -67,7 +67,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KISESSION_VERSION "0.1.9"
+#define KISESSION_VERSION "0.1.10"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -511,7 +511,7 @@ static pid_t spawn_const(const char *const *argv)
 {
     char *args[MAX_ARGS];
     int n = 0;
-    while (argv[n] && n < MAX_ARGS - 1) {
+    while (n < MAX_ARGS - 1 && argv[n]) {
         args[n] = (char *)argv[n];
         n++;
     }
