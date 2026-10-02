@@ -1,0 +1,429 @@
+# English translations for xisserve package.
+# Copyright (C) 2026 THE xisserve'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the xisserve package.
+# Automatically generated, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: xisserve\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-02 14:10-0300\n"
+"PO-Revision-Date: 2026-10-02 14:10-0300\n"
+"Last-Translator: Automatically generated\n"
+"Language-Team: none\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: keyboard.c:922 session.c:111
+msgid "×"
+msgstr "×"
+
+#: pages/audio.c:426
+msgid "Mudo"
+msgstr "Mute"
+
+#: pages/audio.c:442
+msgid "Padrão"
+msgstr "Default"
+
+#: pages/audio.c:447
+msgid "Ativo"
+msgstr "Active"
+
+#: pages/audio.c:512
+msgid ""
+"<b>Nenhum servidor de áudio</b>\n"
+"\n"
+"O ALSA está presente, mas o PulseAudio/PipeWire não está respondendo.\n"
+"\n"
+"O mixer por aplicativo depende de um servidor de áudio: o ALSA sozinho não "
+"separa o som por programa."
+msgstr "<b>No audio server</b>\n\nALSA is present, but PulseAudio/PipeWire isn't answering.\n\nThe per-application mixer depends on an audio server: ALSA alone doesn't separate sound by program."
+
+#: pages/audio.c:516
+msgid ""
+"<b>Nenhum servidor de áudio</b>\n"
+"\n"
+"Instale o <tt>pactl</tt> (pulseaudio-utils ou pipewire-pulse) para usar esta "
+"tela."
+msgstr "<b>No audio server</b>\n\nInstall <tt>pactl</tt> (pulseaudio-utils or pipewire-pulse) to use this screen."
+
+#: pages/audio.c:570
+msgid "Reproduzindo"
+msgstr "Playing"
+
+#: pages/audio.c:571
+msgid "Gravando"
+msgstr "Recording"
+
+#: pages/audio.c:572
+msgid "Saída"
+msgstr "Output"
+
+#: pages/audio.c:573
+msgid "Entrada"
+msgstr "Input"
+
+#: pages/audio.c:577
+msgid "Nenhum dispositivo de áudio encontrado."
+msgstr "No audio device found."
+
+#: pages/calendar.c:352
+msgid "Nenhum feriado ou evento neste dia."
+msgstr "No holiday or event on this day."
+
+#: pages/calendar.c:409
+msgid "Abrir eventos..."
+msgstr "Open events..."
+
+#: pages/clipboard.c:348
+#, c-format
+msgid "Imagem · %ld KiB"
+msgstr "Image · %ld KiB"
+
+#: pages/clipboard.c:361
+#, c-format
+msgid "de %s"
+msgstr "from %s"
+
+#: pages/clipboard.c:447
+#, c-format
+msgid "Colar em %s%s%s"
+msgstr "Paste into %s%s%s"
+
+#: pages/clipboard.c:449
+msgid "Nenhuma janela de destino"
+msgstr "No target window"
+
+#: pages/clipboard.c:913
+msgid "Limpar"
+msgstr "Clear"
+
+#: pages/clipboard.c:915
+msgid "Remove tudo menos os favoritos"
+msgstr "Removes everything except favorites"
+
+#: pages/clipboard.c:920
+msgid ""
+"Enter/duplo clique: colar · Shift+Enter: só copiar · Ctrl+D: favoritar · "
+"Delete: remover"
+msgstr "Enter/double-click: paste · Shift+Enter: copy only · Ctrl+D: favorite · Delete: remove"
+
+#: pages/energy.c:337
+msgid "Carregando"
+msgstr "Charging"
+
+#: pages/energy.c:338
+msgid "Descarregando"
+msgstr "Discharging"
+
+#: pages/energy.c:339
+msgid "Completa"
+msgstr "Full"
+
+#: pages/energy.c:346
+msgid "Energia"
+msgstr "Power"
+
+#: pages/energy.c:349
+msgid "Na bateria"
+msgstr "On battery"
+
+#: pages/energy.c:349
+msgid "Na tomada"
+msgstr "Plugged in"
+
+#: pages/energy.c:357
+#, c-format
+msgid "Bateria: %d%% (%s, %s restante)"
+msgstr "Battery: %d%% (%s, %s remaining)"
+
+#: pages/energy.c:359
+#, c-format
+msgid "Bateria: %d%% (%s)"
+msgstr "Battery: %d%% (%s)"
+
+#: pages/energy.c:363
+msgid "Este computador nao tem bateria."
+msgstr "This computer has no battery."
+
+#: pages/energy.c:369
+msgid "Outros dispositivos"
+msgstr "Other devices"
+
+#: pages/energy.c:386
+msgid "Brilho da tela"
+msgstr "Screen brightness"
+
+#: pages/energy.c:413
+msgid "Luz noturna"
+msgstr "Night light"
+
+#: pages/energy.c:418
+msgid "Automatica (horarios definidos em kiconf > Energia)"
+msgstr "Automatic (schedule set in kiconf > Power)"
+
+#: pages/energy.c:462
+msgid "upower nao encontrado -- instale-o para ver bateria/energia aqui."
+msgstr "upower not found -- install it to see battery/power here."
+
+#: pages/network.c:179
+msgid "Senha da rede"
+msgstr "Network password"
+
+#: pages/network.c:244
+msgid "Ativar"
+msgstr "Enable"
+
+#: pages/network.c:244
+msgid "Desativar"
+msgstr "Disable"
+
+#: pages/network.c:293
+msgid "Atualizar"
+msgstr "Refresh"
+
+#: pages/network.c:317
+msgid "Nenhuma rede encontrada."
+msgstr "No network found."
+
+#: pages/notifications.c:376
+msgid "Remover"
+msgstr "Remove"
+
+#: pages/notifications.c:402
+msgid "Limpar tudo"
+msgstr "Clear all"
+
+#: pages/notifications.c:410
+msgid "Nenhuma notificação."
+msgstr "No notifications."
+
+#: pages/storage.c:175
+msgid "Não montado"
+msgstr "Not mounted"
+
+#: pages/storage.c:182
+msgid "Desmontar"
+msgstr "Unmount"
+
+#: pages/storage.c:182
+msgid "Montar"
+msgstr "Mount"
+
+#: pages/storage.c:233
+msgid "Nenhum dispositivo removível conectado."
+msgstr "No removable device connected."
+
+#: pages/storage.c:251
+msgid "Remover com segurança"
+msgstr "Safely remove"
+
+#: plugins/globalmenu.c:222
+#, c-format
+msgid "Menu - %s"
+msgstr "Menu - %s"
+
+#: plugins/globalmenu.c:224
+#, c-format
+msgid "Menu"
+msgstr "Menu"
+
+#: plugins/kistory.c:336
+msgid "hoje %H:%M"
+msgstr "today %H:%M"
+
+#: plugins/kistory.c:381
+#, c-format
+msgid "Histórico · %s · %s · %s"
+msgstr "History · %s · %s · %s"
+
+#: plugins/kistory.c:382
+msgid "arquivo"
+msgstr "file"
+
+#: plugins/kistory.c:395
+#, c-format
+msgid "Histórico · %s · %s%s"
+msgstr "History · %s · %s%s"
+
+#: plugins/kistory.c:396
+msgid " · aberta"
+msgstr " · open"
+
+#: plugins/kistory.c:396
+msgid "janela"
+msgstr "window"
+
+#: plugins/process.c:68
+#, c-format
+msgid "Processo em execucao"
+msgstr "Running process"
+
+#: plugins/process.c:118
+msgid "Finalizar"
+msgstr "Terminate"
+
+#: plugins/process.c:119
+msgid "Matar"
+msgstr "Kill"
+
+#: plugins/process.c:120
+msgid "Matar forcado (arvore)"
+msgstr "Force kill (tree)"
+
+#: plugins/terminal.c:60 plugins/terminal.c:70
+#, c-format
+msgid "Terminal"
+msgstr "Terminal"
+
+#: session.c:94
+msgid "Sessao"
+msgstr "Session"
+
+#: session.c:108
+msgid "O que voce deseja fazer?"
+msgstr "What do you want to do?"
+
+#: session.c:132
+msgid "Cancelar"
+msgstr "Cancel"
+
+#: xisserve.c:691 xisserve.c:692 xisserve.c:693
+msgid "Áudio e Vídeo"
+msgstr "Audio & Video"
+
+#: xisserve.c:694
+msgid "Desenvolvimento"
+msgstr "Development"
+
+#: xisserve.c:695
+msgid "Educação"
+msgstr "Education"
+
+#: xisserve.c:696
+msgid "Jogos"
+msgstr "Games"
+
+#: xisserve.c:697
+msgid "Gráficos"
+msgstr "Graphics"
+
+#: xisserve.c:698
+msgid "Internet"
+msgstr "Internet"
+
+#: xisserve.c:699
+msgid "Escritório"
+msgstr "Office"
+
+#: xisserve.c:700
+msgid "Ciência"
+msgstr "Science"
+
+#: xisserve.c:701
+msgid "Configurações"
+msgstr "Settings"
+
+#: xisserve.c:702
+msgid "Sistema"
+msgstr "System"
+
+#: xisserve.c:703
+msgid "Acessórios"
+msgstr "Accessories"
+
+#: xisserve.c:709
+msgid "Favoritos"
+msgstr "Favorites"
+
+#: xisserve.c:710
+msgid "Todos os Programas"
+msgstr "All Programs"
+
+#: xisserve.c:714
+msgid "Outros"
+msgstr "Other"
+
+#: xisserve.c:1771 xisserve.c:2954
+msgid "Manter aberto ao clicar fora"
+msgstr "Keep open when clicking outside"
+
+#: xisserve.c:1799
+msgid "Fechar"
+msgstr "Close"
+
+#: xisserve.c:1800
+msgid "Fechar o xisserve"
+msgstr "Close xisserve"
+
+#: xisserve.c:2434
+msgid "Desligar"
+msgstr "Shut down"
+
+#: xisserve.c:2434
+msgid "Desligar o computador agora?"
+msgstr "Shut down the computer now?"
+
+#: xisserve.c:2435
+msgid "Reiniciar"
+msgstr "Restart"
+
+#: xisserve.c:2435
+msgid "Reiniciar o computador agora?"
+msgstr "Restart the computer now?"
+
+#: xisserve.c:2436
+msgid "Suspender"
+msgstr "Suspend"
+
+#: xisserve.c:2436
+msgid "Suspender o computador agora?"
+msgstr "Suspend the computer now?"
+
+#: xisserve.c:2437
+msgid "Sair"
+msgstr "Log out"
+
+#: xisserve.c:2439
+msgid "Encerrar a sessao atual?"
+msgstr "End the current session?"
+
+#: xisserve.c:2440
+msgid "Trocar de usuario agora?"
+msgstr "Switch user now?"
+
+#: xisserve.c:2440
+msgid "Trocar usuario"
+msgstr "Switch user"
+
+#: xisserve.c:2441
+msgid "Bloquear a tela agora?"
+msgstr "Lock the screen now?"
+
+#: xisserve.c:2441
+msgid "Bloquear tela"
+msgstr "Lock screen"
+
+#: xisserve.c:2717
+msgid "Adicionar aos Favoritos"
+msgstr "Add to Favorites"
+
+#: xisserve.c:2717
+msgid "Remover dos Favoritos"
+msgstr "Remove from Favorites"
+
+#: xisserve.c:2953
+msgid "Fixar"
+msgstr "Pin"
+
+#: xisserve.c:2963
+msgid "Grade"
+msgstr "Grid"
+
+#: xisserve.c:2964
+msgid "Alternar entre lista e grade de icones"
+msgstr "Toggle between list and grid of icons"

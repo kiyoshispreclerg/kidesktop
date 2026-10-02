@@ -423,7 +423,7 @@ static GtkWidget *build_row(const PulseEntry *e, GPtrArray *all_entries)
         gtk_box_pack_start(GTK_BOX(top), row->device_combo, FALSE, FALSE, 0);
     }
 
-    row->mute = gtk_toggle_button_new_with_label("Mudo");
+    row->mute = gtk_toggle_button_new_with_label(_("Mudo"));
     gtk_box_pack_start(GTK_BOX(top), row->mute, FALSE, FALSE, 0);
 
     row->scale = gtk_hscale_new_with_range(0, AUDIO_VOLUME_MAX, 1);
@@ -439,12 +439,12 @@ static GtkWidget *build_row(const PulseEntry *e, GPtrArray *all_entries)
 
     if (e->kind == PULSE_SINK || e->kind == PULSE_SOURCE) {
         GtkWidget *bottom = gtk_hbox_new(FALSE, 8);
-        row->use_default = gtk_check_button_new_with_label("Padrão");
+        row->use_default = gtk_check_button_new_with_label(_("Padrão"));
         style_fg(row->use_default);
         style_fg(gtk_bin_get_child(GTK_BIN(row->use_default)));
         gtk_box_pack_start(GTK_BOX(bottom), row->use_default, FALSE, FALSE, 0);
 
-        row->active = gtk_check_button_new_with_label("Ativo");
+        row->active = gtk_check_button_new_with_label(_("Ativo"));
         style_fg(row->active);
         style_fg(gtk_bin_get_child(GTK_BIN(row->active)));
         gtk_box_pack_start(GTK_BOX(bottom), row->active, FALSE, FALSE, 0);
@@ -509,13 +509,13 @@ static GtkWidget *unavailable_placeholder(void)
     GtkWidget *label = gtk_label_new(NULL);
     gtk_label_set_line_wrap(GTK_LABEL(label), TRUE);
     gtk_label_set_markup(GTK_LABEL(label),
-                          has_alsa ? "<b>Nenhum servidor de áudio</b>\n\n"
+                          has_alsa ? _("<b>Nenhum servidor de áudio</b>\n\n"
                                      "O ALSA está presente, mas o PulseAudio/PipeWire não está respondendo.\n\n"
                                      "O mixer por aplicativo depende de um servidor de áudio: o ALSA sozinho "
-                                     "não separa o som por programa."
-                                   : "<b>Nenhum servidor de áudio</b>\n\n"
+                                     "não separa o som por programa.")
+                                   : _("<b>Nenhum servidor de áudio</b>\n\n"
                                      "Instale o <tt>pactl</tt> (pulseaudio-utils ou pipewire-pulse) "
-                                     "para usar esta tela.");
+                                     "para usar esta tela."));
     gtk_misc_set_alignment(GTK_MISC(label), 0.0f, 0.0f);
     style_fg(label);
     return label;
@@ -567,14 +567,14 @@ static void rebuild(void)
     } else {
         g_updating = TRUE;
         gboolean any = FALSE;
-        add_section("Reproduzindo", entries, PULSE_SINK_INPUT, &any);
-        add_section("Gravando", entries, PULSE_SOURCE_OUTPUT, &any);
-        add_section("Saída", entries, PULSE_SINK, &any);
-        add_section("Entrada", entries, PULSE_SOURCE, &any);
+        add_section(_("Reproduzindo"), entries, PULSE_SINK_INPUT, &any);
+        add_section(_("Gravando"), entries, PULSE_SOURCE_OUTPUT, &any);
+        add_section(_("Saída"), entries, PULSE_SINK, &any);
+        add_section(_("Entrada"), entries, PULSE_SOURCE, &any);
         g_updating = FALSE;
 
         if (!any) {
-            GtkWidget *label = gtk_label_new("Nenhum dispositivo de áudio encontrado.");
+            GtkWidget *label = gtk_label_new(_("Nenhum dispositivo de áudio encontrado."));
             gtk_misc_set_alignment(GTK_MISC(label), 0.0f, 0.0f);
             style_fg(label);
             gtk_box_pack_start(GTK_BOX(g_rows_box), label, FALSE, FALSE, 0);

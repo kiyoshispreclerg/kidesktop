@@ -349,7 +349,7 @@ static void refresh_events(void)
     load_events_for_day((int)year, (int)month, (int)day, buf);
 
     if (buf->len == 0) {
-        gtk_label_set_text(GTK_LABEL(g_events_label), "Nenhum feriado ou evento neste dia.");
+        gtk_label_set_text(GTK_LABEL(g_events_label), _("Nenhum feriado ou evento neste dia."));
     } else {
         gtk_label_set_text(GTK_LABEL(g_events_label), buf->str);
     }
@@ -406,7 +406,7 @@ GtkWidget *page_calendar_build(void)
     gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(events_scroll), g_events_label);
     gtk_box_pack_start(GTK_BOX(left), events_scroll, TRUE, TRUE, 0);
 
-    GtkWidget *open_events_btn = gtk_button_new_with_label("Abrir eventos...");
+    GtkWidget *open_events_btn = gtk_button_new_with_label(_("Abrir eventos..."));
     g_signal_connect(open_events_btn, "clicked", G_CALLBACK(on_open_events_clicked), NULL);
     gtk_box_pack_start(GTK_BOX(left), open_events_btn, FALSE, FALSE, 0);
 

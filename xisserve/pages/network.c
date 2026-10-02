@@ -176,7 +176,7 @@ static void on_wifi_row_clicked(GtkWidget *btn, gpointer data)
         rebuild();
         return;
     }
-    GtkWidget *dlg = gtk_dialog_new_with_buttons("Senha da rede", GTK_WINDOW(gtk_widget_get_toplevel(btn)),
+    GtkWidget *dlg = gtk_dialog_new_with_buttons(_("Senha da rede"), GTK_WINDOW(gtk_widget_get_toplevel(btn)),
                                                   GTK_DIALOG_MODAL, GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
                                                   GTK_STOCK_CONNECT, GTK_RESPONSE_OK, NULL);
     GtkWidget *label = gtk_label_new(w->ssid);
@@ -241,7 +241,7 @@ static GtkWidget *build_device_row(NetDevice *d)
     gtk_box_pack_start(GTK_BOX(hbox), vbox, TRUE, TRUE, 0);
 
     if (can_toggle) {
-        GtkWidget *btn = gtk_button_new_with_label(connected ? "Desativar" : "Ativar");
+        GtkWidget *btn = gtk_button_new_with_label(connected ? _("Desativar") : _("Ativar"));
         g_signal_connect(btn, "clicked", G_CALLBACK(on_device_toggle), d);
         gtk_box_pack_start(GTK_BOX(hbox), btn, FALSE, FALSE, 0);
     }
@@ -290,7 +290,7 @@ static void rebuild(void)
     gtk_misc_set_alignment(GTK_MISC(title), 0.0f, 0.5f);
     style_fg(title);
     gtk_box_pack_start(GTK_BOX(top), title, TRUE, TRUE, 0);
-    GtkWidget *rescan_btn = gtk_button_new_with_label("Atualizar");
+    GtkWidget *rescan_btn = gtk_button_new_with_label(_("Atualizar"));
     g_signal_connect(rescan_btn, "clicked", G_CALLBACK(on_rescan_clicked), NULL);
     gtk_box_pack_start(GTK_BOX(top), rescan_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(g_box), top, FALSE, FALSE, 0);
@@ -314,7 +314,7 @@ static void rebuild(void)
 
         GPtrArray *wifi = fetch_wifi();
         if (wifi->len == 0) {
-            GtkWidget *empty = gtk_label_new("Nenhuma rede encontrada.");
+            GtkWidget *empty = gtk_label_new(_("Nenhuma rede encontrada."));
             gtk_misc_set_alignment(GTK_MISC(empty), 0.0f, 0.5f);
             style_fg(empty);
             gtk_box_pack_start(GTK_BOX(g_box), empty, FALSE, FALSE, 0);

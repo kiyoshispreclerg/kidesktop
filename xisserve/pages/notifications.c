@@ -373,7 +373,7 @@ static GtkWidget *build_row(const NotifRow *n)
 
     gtk_box_pack_start(GTK_BOX(hbox), vbox, TRUE, TRUE, 0);
 
-    GtkWidget *remove_btn = gtk_button_new_with_label("Remover");
+    GtkWidget *remove_btn = gtk_button_new_with_label(_("Remover"));
     g_signal_connect(remove_btn, "clicked", G_CALLBACK(on_remove_clicked), GUINT_TO_POINTER(n->id));
     gtk_box_pack_start(GTK_BOX(hbox), remove_btn, FALSE, FALSE, 0);
 
@@ -399,7 +399,7 @@ static void rebuild(void)
     gtk_misc_set_alignment(GTK_MISC(title), 0.0f, 0.5f);
     style_fg(title);
     gtk_box_pack_start(GTK_BOX(top), title, TRUE, TRUE, 0);
-    GtkWidget *clear_btn = gtk_button_new_with_label("Limpar tudo");
+    GtkWidget *clear_btn = gtk_button_new_with_label(_("Limpar tudo"));
     g_signal_connect(clear_btn, "clicked", G_CALLBACK(on_clear_all_clicked), NULL);
     gtk_box_pack_start(GTK_BOX(top), clear_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(g_box), top, FALSE, FALSE, 0);
@@ -407,7 +407,7 @@ static void rebuild(void)
 
     GPtrArray *rows = fetch_notifications();
     if (rows->len == 0) {
-        GtkWidget *empty = gtk_label_new("Nenhuma notifica\xc3\xa7\xc3\xa3o.");
+        GtkWidget *empty = gtk_label_new(_("Nenhuma notifica\xc3\xa7\xc3\xa3o."));
         gtk_misc_set_alignment(GTK_MISC(empty), 0.0f, 0.5f);
         style_fg(empty);
         gtk_box_pack_start(GTK_BOX(g_box), empty, FALSE, FALSE, 0);

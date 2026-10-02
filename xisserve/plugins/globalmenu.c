@@ -219,9 +219,9 @@ void plugin_globalmenu_search(const char *query, GPtrArray *results)
         ResultEntry *e = g_new0(ResultEntry, 1);
         snprintf(e->name, sizeof(e->name), "%s", items[i].label);
         if (top_label[0] && strcmp(top_label, items[i].label) != 0) {
-            snprintf(e->subtitle, sizeof(e->subtitle), "Menu - %s", top_label);
+            snprintf(e->subtitle, sizeof(e->subtitle), _("Menu - %s"), top_label);
         } else {
-            snprintf(e->subtitle, sizeof(e->subtitle), "Menu");
+            snprintf(e->subtitle, sizeof(e->subtitle), _("Menu"));
         }
         e->from_desktop = FALSE;
         e->icon = items[i].icon ? g_object_ref(items[i].icon) : hamburger_icon();

@@ -53,7 +53,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.50"
+#define XISSERVE_VERSION "0.1.51"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -688,30 +688,30 @@ typedef struct {
 } CategoryDef;
 
 static const CategoryDef kCategoryDefs[] = {
-    {"AudioVideo", "AudioVideo", "Áudio e Vídeo"},
-    {"Audio", "AudioVideo", "Áudio e Vídeo"},
-    {"Video", "AudioVideo", "Áudio e Vídeo"},
-    {"Development", "Development", "Desenvolvimento"},
-    {"Education", "Education", "Educação"},
-    {"Game", "Game", "Jogos"},
-    {"Graphics", "Graphics", "Gráficos"},
-    {"Network", "Network", "Internet"},
-    {"Office", "Office", "Escritório"},
-    {"Science", "Science", "Ciência"},
-    {"Settings", "Settings", "Configurações"},
-    {"System", "System", "Sistema"},
-    {"Utility", "Utility", "Acessórios"},
+    {"AudioVideo", "AudioVideo", N_("Áudio e Vídeo")},
+    {"Audio", "AudioVideo", N_("Áudio e Vídeo")},
+    {"Video", "AudioVideo", N_("Áudio e Vídeo")},
+    {"Development", "Development", N_("Desenvolvimento")},
+    {"Education", "Education", N_("Educação")},
+    {"Game", "Game", N_("Jogos")},
+    {"Graphics", "Graphics", N_("Gráficos")},
+    {"Network", "Network", N_("Internet")},
+    {"Office", "Office", N_("Escritório")},
+    {"Science", "Science", N_("Ciência")},
+    {"Settings", "Settings", N_("Configurações")},
+    {"System", "System", N_("Sistema")},
+    {"Utility", "Utility", N_("Acessórios")},
 };
 #define N_CATEGORY_DEFS ((int)(sizeof(kCategoryDefs) / sizeof(kCategoryDefs[0])))
 
 const char *xisserve_category_label(const char *key)
 {
-    if (strcmp(key, "favorites") == 0) return "Favoritos";
-    if (strcmp(key, "all") == 0) return "Todos os Programas";
+    if (strcmp(key, "favorites") == 0) return _("Favoritos");
+    if (strcmp(key, "all") == 0) return _("Todos os Programas");
     for (int i = 0; i < N_CATEGORY_DEFS; i++) {
-        if (strcmp(kCategoryDefs[i].key, key) == 0) return kCategoryDefs[i].label;
+        if (strcmp(kCategoryDefs[i].key, key) == 0) return _(kCategoryDefs[i].label);
     }
-    return "Outros";
+    return _("Outros");
 }
 
 /* Buckets a raw "Cat1;Cat2;;" Categories= value into out_key/out_label
@@ -1768,7 +1768,7 @@ static void reset_pin(void)
         return;
     }
     gtk_button_set_label(GTK_BUTTON(g_pin_btn), "Fixar");
-    gtk_widget_set_tooltip_text(g_pin_btn, "Manter aberto ao clicar fora");
+    gtk_widget_set_tooltip_text(g_pin_btn, _("Manter aberto ao clicar fora"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_pin_btn), FALSE);
 }
 
@@ -1796,8 +1796,8 @@ static void on_pin_toggled(GtkToggleButton *btn, gpointer data)
     (void)data;
     if (gtk_toggle_button_get_active(btn)) {
         g_pinned = TRUE;
-        gtk_button_set_label(GTK_BUTTON(btn), "Fechar");
-        gtk_widget_set_tooltip_text(GTK_WIDGET(btn), "Fechar o xisserve");
+        gtk_button_set_label(GTK_BUTTON(btn), _("Fechar"));
+        gtk_widget_set_tooltip_text(GTK_WIDGET(btn), _("Fechar o xisserve"));
         if (GTK_WIDGET_VISIBLE(g_window)) {
             set_pin_window_mode(TRUE);
         }
@@ -2431,14 +2431,14 @@ typedef struct {
  * a KiDesktop session -- rather than surfacing a confusing error for a
  * button that's always shown. */
 static const PowerAction kPowerActions[] = {
-    {"Desligar", "systemctl", "systemctl poweroff", "Desligar o computador agora?"},
-    {"Reiniciar", "systemctl", "systemctl reboot", "Reiniciar o computador agora?"},
-    {"Suspender", "systemctl", "systemctl suspend", "Suspender o computador agora?"},
-    {"Sair", NULL,
+    {N_("Desligar"), "systemctl", "systemctl poweroff", N_("Desligar o computador agora?")},
+    {N_("Reiniciar"), "systemctl", "systemctl reboot", N_("Reiniciar o computador agora?")},
+    {N_("Suspender"), "systemctl", "systemctl suspend", N_("Suspender o computador agora?")},
+    {N_("Sair"), NULL,
      "kill -TERM \"$(cat \"${XDG_RUNTIME_DIR:-/tmp}/kisession.pid\" 2>/dev/null)\" 2>/dev/null",
-     "Encerrar a sessao atual?"},
-    {"Trocar usuario", "dm-tool", "dm-tool switch-to-greeter", "Trocar de usuario agora?"},
-    {"Bloquear tela", "loginctl", "loginctl lock-session", "Bloquear a tela agora?"},
+     N_("Encerrar a sessao atual?")},
+    {N_("Trocar usuario"), "dm-tool", "dm-tool switch-to-greeter", N_("Trocar de usuario agora?")},
+    {N_("Bloquear tela"), "loginctl", "loginctl lock-session", N_("Bloquear a tela agora?")},
 };
 #define N_POWER_ACTIONS ((int)(sizeof(kPowerActions) / sizeof(kPowerActions[0])))
 
@@ -2462,7 +2462,7 @@ gboolean xisserve_power_action_visible(int i)
 
 const char *xisserve_power_action_label(int i)
 {
-    return kPowerActions[i].label;
+    return _(kPowerActions[i].label);
 }
 
 gboolean xisserve_power_action_run(int i, GtkWidget *parent)
@@ -2470,8 +2470,8 @@ gboolean xisserve_power_action_run(int i, GtkWidget *parent)
     const PowerAction *action = &kPowerActions[i];
 
     GtkWidget *dialog = gtk_message_dialog_new(parent ? GTK_WINDOW(parent) : NULL, GTK_DIALOG_MODAL,
-                                                GTK_MESSAGE_QUESTION, GTK_BUTTONS_YES_NO, "%s", action->confirm_msg);
-    gtk_window_set_title(GTK_WINDOW(dialog), action->label);
+                                                GTK_MESSAGE_QUESTION, GTK_BUTTONS_YES_NO, "%s", _(action->confirm_msg));
+    gtk_window_set_title(GTK_WINDOW(dialog), _(action->label));
     gint resp = gtk_dialog_run(GTK_DIALOG(dialog));
     gtk_widget_destroy(dialog);
 
@@ -2714,7 +2714,7 @@ static void show_result_context_menu(GtkTreeModel *model, GtkTreeIter *iter, gui
         g_array_free(actions, TRUE);
     }
 
-    GtkWidget *item = gtk_menu_item_new_with_label(e->is_favorite ? "Remover dos Favoritos" : "Adicionar aos Favoritos");
+    GtkWidget *item = gtk_menu_item_new_with_label(e->is_favorite ? _("Remover dos Favoritos") : _("Adicionar aos Favoritos"));
     g_signal_connect(item, "activate", G_CALLBACK(on_favorite_menu_item), e);
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
     g_signal_connect(menu, "selection-done", G_CALLBACK(on_context_menu_selection_done), NULL);
@@ -2950,8 +2950,8 @@ static void build_ui(void)
     gtk_misc_set_alignment(GTK_MISC(g_header_title), 0.0f, 0.5f);
     gtk_label_set_ellipsize(GTK_LABEL(g_header_title), PANGO_ELLIPSIZE_END);
     gtk_box_pack_start(GTK_BOX(g_header), g_header_title, TRUE, TRUE, 0);
-    g_pin_btn = gtk_toggle_button_new_with_label("Fixar");
-    gtk_widget_set_tooltip_text(g_pin_btn, "Manter aberto ao clicar fora");
+    g_pin_btn = gtk_toggle_button_new_with_label(_("Fixar"));
+    gtk_widget_set_tooltip_text(g_pin_btn, _("Manter aberto ao clicar fora"));
     g_signal_connect(g_pin_btn, "toggled", G_CALLBACK(on_pin_toggled), NULL);
     gtk_box_pack_end(GTK_BOX(g_header), g_pin_btn, FALSE, FALSE, 0);
 
@@ -2960,8 +2960,8 @@ static void build_ui(void)
      * g_entry rather than it living in g_content_box (which searching
      * already half-hides). Label always names the mode a click would
      * switch *to*, same convention as g_pin_btn's "Fixar"/state pattern. */
-    g_grid_toggle_btn = gtk_toggle_button_new_with_label("Grade");
-    gtk_widget_set_tooltip_text(g_grid_toggle_btn, "Alternar entre lista e grade de icones");
+    g_grid_toggle_btn = gtk_toggle_button_new_with_label(_("Grade"));
+    gtk_widget_set_tooltip_text(g_grid_toggle_btn, _("Alternar entre lista e grade de icones"));
     g_signal_connect(g_grid_toggle_btn, "toggled", G_CALLBACK(on_grid_toggle), NULL);
     gtk_box_pack_end(GTK_BOX(g_header), g_grid_toggle_btn, FALSE, FALSE, 0);
 
@@ -3048,7 +3048,7 @@ static void build_ui(void)
     g_footer = gtk_hbox_new(TRUE, 2);
     for (int i = 0; i < N_POWER_ACTIONS; i++) {
         if (!xisserve_power_action_visible(i)) continue;
-        GtkWidget *btn = gtk_button_new_with_label(kPowerActions[i].label);
+        GtkWidget *btn = gtk_button_new_with_label(_(kPowerActions[i].label));
         g_signal_connect(btn, "clicked", G_CALLBACK(on_power_button_clicked), GINT_TO_POINTER(i));
         gtk_box_pack_start(GTK_BOX(g_footer), btn, TRUE, TRUE, 0);
     }
@@ -3187,6 +3187,8 @@ static void clipboard_resolve_target(LaunchArgs *a)
 
 int main(int argc, char **argv)
 {
+    xis_i18n_init("xisserve");
+
     /* Checked before gtk_init() -- same reason most CLI tools handle
      * these first: they should work even with no display to connect to,
      * and shouldn't care whether any other flag is well-formed.

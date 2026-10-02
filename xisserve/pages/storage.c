@@ -172,14 +172,14 @@ static GtkWidget *build_row(StorageRow *r)
     style_fg(header);
     gtk_box_pack_start(GTK_BOX(vbox), header, FALSE, FALSE, 0);
 
-    GtkWidget *sub = gtk_label_new(r->mountpoint[0] ? r->mountpoint : "N\xc3\xa3o montado");
+    GtkWidget *sub = gtk_label_new(r->mountpoint[0] ? r->mountpoint : _("N\xc3\xa3o montado"));
     gtk_misc_set_alignment(GTK_MISC(sub), 0.0f, 0.5f);
     style_fg(sub);
     gtk_box_pack_start(GTK_BOX(vbox), sub, FALSE, FALSE, 0);
 
     gtk_box_pack_start(GTK_BOX(hbox), vbox, TRUE, TRUE, 0);
 
-    GtkWidget *mount_btn = gtk_button_new_with_label(r->mountpoint[0] ? "Desmontar" : "Montar");
+    GtkWidget *mount_btn = gtk_button_new_with_label(r->mountpoint[0] ? _("Desmontar") : _("Montar"));
     g_signal_connect(mount_btn, "clicked", G_CALLBACK(on_mount_toggle), r);
     gtk_box_pack_start(GTK_BOX(hbox), mount_btn, FALSE, FALSE, 0);
 
@@ -230,7 +230,7 @@ static void rebuild(void)
 
     GPtrArray *rows = fetch_storage();
     if (rows->len == 0) {
-        GtkWidget *empty = gtk_label_new("Nenhum dispositivo remov\xc3\xadvel conectado.");
+        GtkWidget *empty = gtk_label_new(_("Nenhum dispositivo remov\xc3\xadvel conectado."));
         gtk_misc_set_alignment(GTK_MISC(empty), 0.0f, 0.5f);
         style_fg(empty);
         gtk_box_pack_start(GTK_BOX(g_box), empty, FALSE, FALSE, 0);
@@ -248,7 +248,7 @@ static void rebuild(void)
             for (guint i = 0; i < group->len; i++) {
                 gtk_box_pack_start(GTK_BOX(g_box), build_row(g_ptr_array_index(group, i)), FALSE, FALSE, 0);
             }
-            GtkWidget *eject_btn = gtk_button_new_with_label("Remover com seguran\xc3\xa7""a");
+            GtkWidget *eject_btn = gtk_button_new_with_label(_("Remover com seguran\xc3\xa7""a"));
             g_signal_connect(eject_btn, "clicked", G_CALLBACK(on_eject_clicked), g_strdup(disk));
             /* g_strdup'd disk name is never freed -- these buttons live for the daemon's
              * whole session (rebuilt, not leaked-per-poll: the old row and its closure are

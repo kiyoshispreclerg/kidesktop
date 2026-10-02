@@ -333,7 +333,7 @@ static void when_string(time_t ts, char *out, size_t outsz)
     struct tm a, b;
     localtime_r(&ts, &a);
     localtime_r(&now, &b);
-    strftime(out, outsz, a.tm_yday == b.tm_yday && a.tm_year == b.tm_year ? "hoje %H:%M" : "%d/%m %H:%M", &a);
+    strftime(out, outsz, a.tm_yday == b.tm_yday && a.tm_year == b.tm_year ? _("hoje %H:%M") : "%d/%m %H:%M", &a);
 }
 
 static GdkPixbuf *app_icon(const char *app, const char *exe)
@@ -378,8 +378,8 @@ void plugin_kistory_search(const char *query, GPtrArray *results)
             char *base = g_path_get_basename(h->text);
             char *dir = g_path_get_dirname(h->text);
             snprintf(e->name, sizeof(e->name), "%s", base);
-            snprintf(e->subtitle, sizeof(e->subtitle), "Hist\xc3\xb3rico \xc2\xb7 %s \xc2\xb7 %s \xc2\xb7 %s",
-                     h->app[0] ? h->app : "arquivo", when, dir);
+            snprintf(e->subtitle, sizeof(e->subtitle), _("Hist\xc3\xb3rico \xc2\xb7 %s \xc2\xb7 %s \xc2\xb7 %s"),
+                     h->app[0] ? h->app : _("arquivo"), when, dir);
             char quoted[1200];
             shell_quote(h->text, quoted, sizeof(quoted));
             snprintf(e->exec, sizeof(e->exec), "xdg-open %s", quoted);
@@ -392,8 +392,8 @@ void plugin_kistory_search(const char *query, GPtrArray *results)
                 wins = open_windows();
             Window open = find_open_window(wins, h->text, h->app);
             snprintf(e->name, sizeof(e->name), "%s", h->text);
-            snprintf(e->subtitle, sizeof(e->subtitle), "Hist\xc3\xb3rico \xc2\xb7 %s \xc2\xb7 %s%s",
-                     h->app[0] ? h->app : "janela", when, open ? " \xc2\xb7 aberta" : "");
+            snprintf(e->subtitle, sizeof(e->subtitle), _("Hist\xc3\xb3rico \xc2\xb7 %s \xc2\xb7 %s%s"),
+                     h->app[0] ? h->app : _("janela"), when, open ? _(" \xc2\xb7 aberta") : "");
             if (open) {
                 e->activate_fn = activate_window;
                 e->activate_data = GSIZE_TO_POINTER((gsize)open);

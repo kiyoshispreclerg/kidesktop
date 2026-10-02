@@ -91,7 +91,7 @@ static void get_current_output_rect(int *ox, int *oy, int *ow, int *oh)
 int session_run(void)
 {
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(window), "Sessao");
+    gtk_window_set_title(GTK_WINDOW(window), _("Sessao"));
     gtk_window_set_type_hint(GTK_WINDOW(window), GDK_WINDOW_TYPE_HINT_DIALOG);
     gtk_window_set_keep_above(GTK_WINDOW(window), TRUE);
     gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
@@ -105,10 +105,10 @@ int session_run(void)
     gtk_container_add(GTK_CONTAINER(window), vbox);
 
     GtkWidget *header = gtk_hbox_new(FALSE, 8);
-    GtkWidget *title = gtk_label_new("O que voce deseja fazer?");
+    GtkWidget *title = gtk_label_new(_("O que voce deseja fazer?"));
     gtk_misc_set_alignment(GTK_MISC(title), 0.0, 0.5);
     gtk_box_pack_start(GTK_BOX(header), title, TRUE, TRUE, 0);
-    GtkWidget *close_btn = gtk_button_new_with_label("\xc3\x97"); /* U+00D7 MULTIPLICATION SIGN */
+    GtkWidget *close_btn = gtk_button_new_with_label(_("\xc3\x97")); /* U+00D7 MULTIPLICATION SIGN */
     gtk_widget_set_size_request(close_btn, 28, 22);
     g_signal_connect(close_btn, "clicked", G_CALLBACK(on_cancel_clicked), NULL);
     gtk_box_pack_end(GTK_BOX(header), close_btn, FALSE, FALSE, 0);
@@ -129,7 +129,7 @@ int session_run(void)
     GtkWidget *sep = gtk_hseparator_new();
     gtk_box_pack_start(GTK_BOX(vbox), sep, FALSE, FALSE, 0);
 
-    GtkWidget *cancel_btn = gtk_button_new_with_label("Cancelar");
+    GtkWidget *cancel_btn = gtk_button_new_with_label(_("Cancelar"));
     g_signal_connect(cancel_btn, "clicked", G_CALLBACK(on_cancel_clicked), NULL);
     gtk_box_pack_start(GTK_BOX(vbox), cancel_btn, FALSE, FALSE, 0);
 

@@ -919,7 +919,7 @@ int keyboard_run(int output_x, int output_y, int output_w, int output_h)
     gtk_box_pack_start(GTK_BOX(header), lamp_scroll_box, FALSE, FALSE, 4);
     GtkWidget *spacer = gtk_label_new(NULL);
     gtk_box_pack_start(GTK_BOX(header), spacer, TRUE, TRUE, 0);
-    GtkWidget *close_btn = gtk_button_new_with_label("\xc3\x97"); /* U+00D7 MULTIPLICATION SIGN */
+    GtkWidget *close_btn = gtk_button_new_with_label(_("\xc3\x97")); /* U+00D7 MULTIPLICATION SIGN */
     gtk_widget_set_size_request(close_btn, 28, 22);
     g_signal_connect(close_btn, "clicked", G_CALLBACK(on_close_clicked), NULL);
     gtk_box_pack_end(GTK_BOX(header), close_btn, FALSE, FALSE, 0);

@@ -345,7 +345,7 @@ static char *row_markup(const char *line, const char *type)
     if (!strcmp(type, "files")) {
         first = files_summary(preview);   /* needs the lines still split */
     } else if (!strcmp(type, "image")) {
-        first = g_strdup_printf("Imagem \xc2\xb7 %ld KiB", (bytes + 1023) / 1024);
+        first = g_strdup_printf(_("Imagem \xc2\xb7 %ld KiB"), (bytes + 1023) / 1024);
     } else {
         /* One line: newlines/tabs flattened, cut at PREVIEW_CHARS characters. */
         for (char *p = preview; *p; p++)
@@ -358,7 +358,7 @@ static char *row_markup(const char *line, const char *type)
     }
     char *first_esc = g_markup_escape_text(first, -1);
     GString *meta = g_string_new(NULL);
-    g_string_append_printf(meta, "de %s", src[0] ? src : "?");
+    g_string_append_printf(meta, _("de %s"), src[0] ? src : "?");
     if (src_doc[0])
         g_string_append_printf(meta, ": %s", src_doc);
     g_string_append_printf(meta, " \xc2\xb7 %s", when);
@@ -444,9 +444,9 @@ static void update_context(const char *resp)
         char name[128];
         target_class(xisserve_target_window(), app, sizeof(app), name, sizeof(name));
     }
-    char *text = app[0] ? g_strdup_printf("Colar em %s%s%s", app, doc[0] || title[0] ? ": " : "",
+    char *text = app[0] ? g_strdup_printf(_("Colar em %s%s%s"), app, doc[0] || title[0] ? ": " : "",
                                           doc[0] ? doc : title)
-                        : g_strdup("Nenhuma janela de destino");
+                        : g_strdup(_("Nenhuma janela de destino"));
     gtk_label_set_text(GTK_LABEL(g_context), text);
     g_free(text);
 }
@@ -910,15 +910,15 @@ GtkWidget *page_clipboard_build(void)
     gtk_misc_set_alignment(GTK_MISC(g_status), 0.0f, 0.5f);
     style_fg(g_status);
     gtk_box_pack_start(GTK_BOX(bottom), g_status, TRUE, TRUE, 0);
-    GtkWidget *clear = gtk_button_new_with_label("Limpar");
+    GtkWidget *clear = gtk_button_new_with_label(_("Limpar"));
     gtk_widget_set_can_focus(clear, FALSE);
-    gtk_widget_set_tooltip_text(clear, "Remove tudo menos os favoritos");
+    gtk_widget_set_tooltip_text(clear, _("Remove tudo menos os favoritos"));
     g_signal_connect(clear, "clicked", G_CALLBACK(on_clear_clicked), NULL);
     gtk_box_pack_end(GTK_BOX(bottom), clear, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(g_root), bottom, FALSE, FALSE, 0);
 
-    gtk_widget_set_tooltip_text(g_tree, "Enter/duplo clique: colar \xc2\xb7 Shift+Enter: s\xc3\xb3 copiar \xc2\xb7 "
-                                        "Ctrl+D: favoritar \xc2\xb7 Delete: remover");
+    gtk_widget_set_tooltip_text(g_tree, _("Enter/duplo clique: colar \xc2\xb7 Shift+Enter: s\xc3\xb3 copiar \xc2\xb7 "
+                                        "Ctrl+D: favoritar \xc2\xb7 Delete: remover"));
     gtk_widget_show_all(g_root);
     return g_root;
 }

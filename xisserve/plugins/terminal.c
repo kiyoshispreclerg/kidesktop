@@ -57,7 +57,7 @@ void plugin_terminal_search(const char *query, GPtrArray *results)
     ResultEntry *run = g_new0(ResultEntry, 1);
     snprintf(run->name, sizeof(run->name), "Executar: %s", query);
     snprintf(run->exec, sizeof(run->exec), "%s", query);
-    snprintf(run->subtitle, sizeof(run->subtitle), "Terminal");
+    snprintf(run->subtitle, sizeof(run->subtitle), _("Terminal"));
     run->from_desktop = FALSE;
     run->icon = run_icon();
     g_ptr_array_add(results, run);
@@ -67,7 +67,7 @@ void plugin_terminal_search(const char *query, GPtrArray *results)
     char with_shell[1024];
     snprintf(with_shell, sizeof(with_shell), "%s; exec \"${SHELL:-/bin/sh}\"", query);
     build_terminal_exec(with_shell, term->exec, sizeof(term->exec));
-    snprintf(term->subtitle, sizeof(term->subtitle), "Terminal");
+    snprintf(term->subtitle, sizeof(term->subtitle), _("Terminal"));
     term->from_desktop = FALSE;
     term->icon = terminal_icon();
     g_ptr_array_add(results, term);

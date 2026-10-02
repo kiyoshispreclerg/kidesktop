@@ -334,19 +334,19 @@ static GtkWidget *plain_row(const char *text)
 static const char *state_label(PowerState s)
 {
     switch (s) {
-    case POWER_STATE_CHARGING: return "Carregando";
-    case POWER_STATE_DISCHARGING: return "Descarregando";
-    case POWER_STATE_FULL: return "Completa";
+    case POWER_STATE_CHARGING: return _("Carregando");
+    case POWER_STATE_DISCHARGING: return _("Descarregando");
+    case POWER_STATE_FULL: return _("Completa");
     default: return "";
     }
 }
 
 static void add_battery_section(void)
 {
-    gtk_box_pack_start(GTK_BOX(g_box), section_header("Energia"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(g_box), section_header(_("Energia")), FALSE, FALSE, 0);
 
     gboolean ac = power_ac_online();
-    gtk_box_pack_start(GTK_BOX(g_box), plain_row(ac ? "Na tomada" : "Na bateria"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(g_box), plain_row(ac ? _("Na tomada") : _("Na bateria")), FALSE, FALSE, 0);
 
     PowerBattery bat;
     power_get_battery(&bat);
@@ -354,19 +354,19 @@ static void add_battery_section(void)
         char line[256];
         const char *st = state_label(bat.state);
         if (bat.time_text[0]) {
-            snprintf(line, sizeof(line), "Bateria: %d%% (%s, %s restante)", bat.percentage, st, bat.time_text);
+            snprintf(line, sizeof(line), _("Bateria: %d%% (%s, %s restante)"), bat.percentage, st, bat.time_text);
         } else {
-            snprintf(line, sizeof(line), "Bateria: %d%% (%s)", bat.percentage, st);
+            snprintf(line, sizeof(line), _("Bateria: %d%% (%s)"), bat.percentage, st);
         }
         gtk_box_pack_start(GTK_BOX(g_box), plain_row(line), FALSE, FALSE, 0);
     } else {
-        gtk_box_pack_start(GTK_BOX(g_box), plain_row("Este computador nao tem bateria."), FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(g_box), plain_row(_("Este computador nao tem bateria.")), FALSE, FALSE, 0);
     }
 
     GPtrArray *peripherals = power_list_peripherals();
     if (peripherals->len > 0) {
         gtk_box_pack_start(GTK_BOX(g_box), gtk_hseparator_new(), FALSE, FALSE, 4);
-        gtk_box_pack_start(GTK_BOX(g_box), section_header("Outros dispositivos"), FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(g_box), section_header(_("Outros dispositivos")), FALSE, FALSE, 0);
         for (guint i = 0; i < peripherals->len; i++) {
             PowerPeripheral *p = g_ptr_array_index(peripherals, i);
             char line[256];
@@ -383,7 +383,7 @@ static void add_brightness_section(void)
         return;
     }
     gtk_box_pack_start(GTK_BOX(g_box), gtk_hseparator_new(), FALSE, FALSE, 4);
-    gtk_box_pack_start(GTK_BOX(g_box), section_header("Brilho da tela"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(g_box), section_header(_("Brilho da tela")), FALSE, FALSE, 0);
 
     g_brightness_scale = gtk_hscale_new_with_range(0, 100, 1);
     gtk_scale_set_digits(GTK_SCALE(g_brightness_scale), 0);
@@ -410,12 +410,12 @@ static void add_nightlight_section(void)
         return;
     }
     gtk_box_pack_start(GTK_BOX(g_box), gtk_hseparator_new(), FALSE, FALSE, 4);
-    gtk_box_pack_start(GTK_BOX(g_box), section_header("Luz noturna"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(g_box), section_header(_("Luz noturna")), FALSE, FALSE, 0);
 
     NightlightConfig c;
     nightlight_config_load(&c);
 
-    g_nightlight_chk = gtk_check_button_new_with_label("Automatica (horarios definidos em kiconf > Energia)");
+    g_nightlight_chk = gtk_check_button_new_with_label(_("Automatica (horarios definidos em kiconf > Energia)"));
     style_fg(g_nightlight_chk);
     style_fg(gtk_bin_get_child(GTK_BIN(g_nightlight_chk)));
     gtk_box_pack_start(GTK_BOX(g_box), g_nightlight_chk, FALSE, FALSE, 0);
@@ -459,7 +459,7 @@ static void rebuild(void)
 
     if (!power_available()) {
         gtk_box_pack_start(GTK_BOX(g_box),
-                            plain_row("upower nao encontrado -- instale-o para ver bateria/energia aqui."),
+                            plain_row(_("upower nao encontrado -- instale-o para ver bateria/energia aqui.")),
                             FALSE, FALSE, 0);
     } else {
         add_battery_section();

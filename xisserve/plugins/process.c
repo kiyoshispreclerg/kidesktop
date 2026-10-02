@@ -65,7 +65,7 @@ static void add_kill_result(GPtrArray *results, pid_t pid, const char *comm,
 {
     ResultEntry *e = g_new0(ResultEntry, 1);
     snprintf(e->name, sizeof(e->name), "%s: %s (PID %d)", label_prefix, comm, (int)pid);
-    snprintf(e->subtitle, sizeof(e->subtitle), "Processo em execucao");
+    snprintf(e->subtitle, sizeof(e->subtitle), _("Processo em execucao"));
     e->from_desktop = FALSE;
     e->icon = process_icon();
 
@@ -115,9 +115,9 @@ void plugin_process_search(const char *query, GPtrArray *results)
         g_free(comm_cf);
         if (!match) continue;
 
-        add_kill_result(results, pid, comm, "Finalizar", SIGTERM, FALSE);
-        add_kill_result(results, pid, comm, "Matar", SIGKILL, FALSE);
-        add_kill_result(results, pid, comm, "Matar forcado (arvore)", SIGKILL, TRUE);
+        add_kill_result(results, pid, comm, _("Finalizar"), SIGTERM, FALSE);
+        add_kill_result(results, pid, comm, _("Matar"), SIGKILL, FALSE);
+        add_kill_result(results, pid, comm, _("Matar forcado (arvore)"), SIGKILL, TRUE);
         shown++;
     }
     closedir(d);
