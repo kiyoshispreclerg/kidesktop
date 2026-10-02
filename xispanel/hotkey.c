@@ -127,8 +127,7 @@ static int parse_hotkey_spec(const char *spec, unsigned int *out_mods, KeyCode *
      * keysym value with no name-table lookup needed at all. Same fix,
      * same reasoning as xiskeys.c's own parse_hotkey_spec(). */
     KeySym ks = XStringToKeysym(keyname);
-    if (ks == NoSymbol && keyname[1] == '\0' && (unsigned char)keyname[0] >= 0x20 &&
-        (unsigned char)keyname[0] <= 0xff) {
+    if (ks == NoSymbol && keyname[1] == '\0' && (unsigned char)keyname[0] >= 0x20) {
         ks = (KeySym)(unsigned char)keyname[0];
     }
     if (ks == NoSymbol) {

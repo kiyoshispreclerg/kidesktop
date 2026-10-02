@@ -325,9 +325,9 @@ static int notif_on_button(PanelWidget *w, int button, int local_x, int local_y,
             }
             const char *text = e->summary[0] ? e->summary : e->app_name;
             if (e->app_name[0] && e->summary[0]) {
-                snprintf(items[nitems].label, sizeof(items[nitems].label), "%s: %s", e->app_name, e->summary);
+                xis_fmt_trunc(items[nitems].label, sizeof(items[nitems].label), "%s: %s", e->app_name, e->summary);
             } else {
-                snprintf(items[nitems].label, sizeof(items[nitems].label), "%s", text);
+                xis_strlcpy(items[nitems].label, text, sizeof(items[nitems].label));
             }
             items[nitems].enabled = 0; /* informational only, see notif_menu_select() */
             items[nitems].is_separator = 0;

@@ -11,6 +11,7 @@
 #ifndef XISPANEL_H
 #define XISPANEL_H
 
+#include "../shared/xis_fmt.h"
 #include "../shared/xis_i18n.h"
 
 #include <X11/Xlib.h>
@@ -156,7 +157,7 @@ typedef struct {
      * of whether get_tooltip_thumb()/get_tooltip_group() below actually
      * apply to this particular hover: overrides tooltip.c's default
      * thumbnail bounding box (single *and* grouped thumbnails both use
-     * it) for as long as this hover is shown. Fill *out_w/*out_h (both >
+     * it) for as long as this hover is shown. Fill *out_w and *out_h (both >
      * 0) and return 1, or return 0 to keep the default box. Only the axis
      * that actually constrains a given window's own aspect ratio ends up
      * mattering (thumb.c's paint_scaled() fits within the box without
@@ -201,8 +202,8 @@ typedef struct {
     int (*dnd_drop_files)(PanelWidget *w, int local_x, const char *const *paths, int n);
     /* Optional: the widget's keyboard-focusable sub-items (keynav.c).
      * Returns how many there are right now; for 0 <= i < that count also
-     * fills item i's widget-local rect -- main-axis *x/*len, cross-axis
-     * *y/*thick, the same spaces on_button()'s local_x/local_y use (i < 0
+     * fills item i's widget-local rect -- main-axis *x and *len, cross-axis
+     * *y and *thick, the same spaces on_button()'s local_x/local_y use (i < 0
      * just counts). Focus sets the panel's hover to the item's center, so
      * the widget's own hover highlight and tooltip show it, and Enter
      * clicks there. NULL = the whole widget is one item; only widgets

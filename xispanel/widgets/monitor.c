@@ -391,8 +391,7 @@ static double hwmon_average_temp(const char *dir)
     for (int i = 1; i <= MONITOR_MAX_TEMP_INPUTS; i++) {
         char path[PATH_MAX];
         long long v;
-        snprintf(path, sizeof(path), "%s/temp%d_input", dir, i);
-        if (read_int_file(path, &v)) {
+        if (xis_fmt_fits(path, sizeof(path), "%s/temp%d_input", dir, i) && read_int_file(path, &v)) {
             sum += v / 1000.0;
             n++;
         }
@@ -430,7 +429,9 @@ static double monitor_read(MonitorPriv *mp, uint64_t now)
         }
         char path[PATH_MAX];
         long long v;
-        snprintf(path, sizeof(path), "%s/gpu_busy_percent", mp->card_path);
+        if (!xis_fmt_fits(path, sizeof(path), "%s/gpu_busy_percent", mp->card_path)) {
+            return -1;
+        }
         return read_int_file(path, &v) ? (double)v : -1;
     }
     case METRIC_VRAM: {
@@ -439,12 +440,11 @@ static double monitor_read(MonitorPriv *mp, uint64_t now)
         }
         char path[PATH_MAX];
         long long used, total;
-        snprintf(path, sizeof(path), "%s/mem_info_vram_used", mp->card_path);
-        if (!read_int_file(path, &used)) {
+        if (!xis_fmt_fits(path, sizeof(path), "%s/mem_info_vram_used", mp->card_path) || !read_int_file(path, &used)) {
             return -1;
         }
-        snprintf(path, sizeof(path), "%s/mem_info_vram_total", mp->card_path);
-        if (!read_int_file(path, &total) || total <= 0) {
+        if (!xis_fmt_fits(path, sizeof(path), "%s/mem_info_vram_total", mp->card_path) ||
+            !read_int_file(path, &total) || total <= 0) {
             return -1;
         }
         return 100.0 * (double)used / (double)total;
@@ -558,7 +558,7 @@ static void monitor_format(MonitorPriv *mp, char *out, size_t outsz)
         snprintf(value, sizeof(value), "%.0f%%", mp->value);
     }
     if (mp->label[0]) {
-        snprintf(out, outsz, "%s %s", mp->label, value);
+        xis_fmt_trunc(out, outsz, "%s %s", mp->label, value);
     } else {
         snprintf(out, outsz, "%s", value);
     }

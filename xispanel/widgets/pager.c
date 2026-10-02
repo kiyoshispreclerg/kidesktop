@@ -584,7 +584,7 @@ static void pager_paint(PanelWidget *w, cairo_t *cr)
                     pager_paint_windows(w, cr, g, d, bx, by, pp->btn_w[g], pp->row_h);
                 }
 
-                char label[8];
+                char label[12];
                 snprintf(label, sizeof(label), "%d", d + 1);
                 double tw;
                 pango_text_extents_ellipsized(cr, label, panel_text_size(p), 0, &tw, NULL);

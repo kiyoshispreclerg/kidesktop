@@ -528,7 +528,10 @@ static void tasklist_persist_pinned(PanelWidget *w)
                     "xispanel: tasklist: could not add fixed_list= to config -- pins won't survive a restart\n");
             return;
         }
-        snprintf(tp->fixed_list_path, sizeof(tp->fixed_list_path), "%s/%s", dir, fname);
+        if (!xis_fmt_fits(tp->fixed_list_path, sizeof(tp->fixed_list_path), "%s/%s", dir, fname)) {
+            tp->fixed_list_path[0] = 0;
+            return;
+        }
     }
     FILE *f = fopen(tp->fixed_list_path, "w");
     if (!f) {
@@ -610,7 +613,9 @@ static int tasklist_init(PanelWidget *w)
         } else {
             char dir[PATH_MAX];
             if (config_dir(dir, sizeof(dir))) {
-                snprintf(tp->fixed_list_path, sizeof(tp->fixed_list_path), "%s/%s", dir, fixed_list_name);
+                if (!xis_fmt_fits(tp->fixed_list_path, sizeof(tp->fixed_list_path), "%s/%s", dir, fixed_list_name)) {
+                    tp->fixed_list_path[0] = 0;
+                }
             }
         }
         if (tp->fixed_list_path[0]) {
@@ -1818,7 +1823,7 @@ static void tasklist_jumplist_append_items(const TasklistJumplist *jl, MenuItem 
  * `fixed_count` is how many ordinary (non-jumplist) items came before
  * it in that same menu (7 for a real window, 2 for a placeholder).
  * Returns 0 for a separator or out-of-range index (nothing to do),
- * 1 with *is_recent/*item_i set otherwise. */
+ * 1 with *is_recent and *item_i set otherwise. */
 static int tasklist_jumplist_index_lookup(const TasklistJumplist *jl, int fixed_count, int index, int *is_recent,
                                            int *item_i)
 {

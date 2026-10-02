@@ -100,7 +100,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.82"
+#define XISPANEL_VERSION "0.6.83"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -504,7 +504,7 @@ static void config_scan_globals(void)
                     continue;
                 }
                 if (!strncmp(line, "font=", 5)) {
-                    snprintf(g_font_family, sizeof(g_font_family), "%s", line + 5);
+                    xis_strlcpy(g_font_family, line + 5, sizeof(g_font_family));
                     size_t l = strlen(g_font_family);
                     while (l && (g_font_family[l - 1] == '\n' || g_font_family[l - 1] == '\r' ||
                                  g_font_family[l - 1] == ' ')) {
@@ -1450,8 +1450,7 @@ static const char *get_central_theme_dir(void)
 static int panel_find_theme_file(Panel *p, const char *relname, char *out, size_t outsz)
 {
     if (p->theme_path[0]) {
-        snprintf(out, outsz, "%s/%s", p->theme_path, relname);
-        if (access(out, R_OK) == 0) {
+        if (xis_fmt_fits(out, outsz, "%s/%s", p->theme_path, relname) && access(out, R_OK) == 0) {
             return 1;
         }
     }
@@ -2927,7 +2926,7 @@ static void panel_add_widget(Panel *p, int order, const char *type, const char *
     w->ops = ops;
     w->panel = p;
     w->order = order;
-    snprintf(w->config_kv, sizeof(w->config_kv), "%s", kvline ? kvline : "");
+    xis_strlcpy(w->config_kv, kvline ? kvline : "", sizeof(w->config_kv));
     if (p->mode == MODE_CONTAINER) {
         char buf[16];
         if (kv_get(w->config_kv, "inline", buf, sizeof(buf))) {
@@ -3121,7 +3120,7 @@ int config_widget_set_key(const char *panel_name, int order, const char *type_na
     if (!in) {
         return 0;
     }
-    char tmppath[PATH_MAX];
+    char tmppath[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmppath, sizeof(tmppath), "%s.tmp", g_configpath);
     FILE *out = fopen(tmppath, "w");
     if (!out) {
@@ -4824,7 +4823,7 @@ int main(int argc, char **argv)
         if (!home || !*home) {
             home = "/tmp";
         }
-        char configdir[PATH_MAX];
+        char configdir[PATH_MAX - 64]; /* room for "/xispanel.conf" after it */
         snprintf(configdir, sizeof(configdir), "%s/.config", home);
         mkdir(configdir, 0700);
         snprintf(g_configpath, sizeof(g_configpath), "%s/xispanel.conf", configdir);

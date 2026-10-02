@@ -317,11 +317,13 @@ static int build_one_level(FolderPriv *fp, const char *dirpath, int base, MenuIt
 
     for (int i = 0; i < ne && n < max_items; i++) {
         char full[PATH_MAX];
-        snprintf(full, sizeof(full), "%s/%s", dirpath, entries[i].name);
+        if (!xis_fmt_fits(full, sizeof(full), "%s/%s", dirpath, entries[i].name)) {
+            continue;
+        }
         MenuItem *mi = &out_items[n];
         memset(mi, 0, sizeof(*mi));
         mi->enabled = 1;
-        snprintf(mi->label, sizeof(mi->label), "%s%s", entries[i].name, entries[i].is_dir ? "/" : "");
+        xis_fmt_trunc(mi->label, sizeof(mi->label), "%s%s", entries[i].name, entries[i].is_dir ? "/" : "");
         /* Directories are always expand-on-demand (lazy) -- clicking one
          * opens its own submenu (this same build, rooted one level
          * deeper), it never fires folder_select() directly, so there's

@@ -71,23 +71,23 @@ static int next_kv(const char **pp, char *key, size_t keysz, char *val, size_t v
 static void apply_kv(StorageDevice *d, char removable[8], char hotplug[8], const char *key, const char *val)
 {
     if (!strcmp(key, "NAME")) {
-        snprintf(d->name, sizeof(d->name), "%s", val);
+        xis_strlcpy(d->name, val, sizeof(d->name));
     } else if (!strcmp(key, "PKNAME")) {
-        snprintf(d->pkname, sizeof(d->pkname), "%s", val);
+        xis_strlcpy(d->pkname, val, sizeof(d->pkname));
     } else if (!strcmp(key, "TYPE")) {
-        snprintf(d->type, sizeof(d->type), "%s", val);
+        xis_strlcpy(d->type, val, sizeof(d->type));
     } else if (!strcmp(key, "SIZE")) {
-        snprintf(d->size, sizeof(d->size), "%s", val);
+        xis_strlcpy(d->size, val, sizeof(d->size));
     } else if (!strcmp(key, "FSTYPE")) {
-        snprintf(d->fstype, sizeof(d->fstype), "%s", val);
+        xis_strlcpy(d->fstype, val, sizeof(d->fstype));
     } else if (!strcmp(key, "LABEL")) {
-        snprintf(d->label, sizeof(d->label), "%s", val);
+        xis_strlcpy(d->label, val, sizeof(d->label));
     } else if (!strcmp(key, "MOUNTPOINT")) {
-        snprintf(d->mountpoint, sizeof(d->mountpoint), "%s", val);
+        xis_strlcpy(d->mountpoint, val, sizeof(d->mountpoint));
     } else if (!strcmp(key, "RM")) {
-        snprintf(removable, 8, "%s", val);
+        xis_strlcpy(removable, val, 8);
     } else if (!strcmp(key, "HOTPLUG")) {
-        snprintf(hotplug, 8, "%s", val);
+        xis_strlcpy(hotplug, val, 8);
     }
 }
 

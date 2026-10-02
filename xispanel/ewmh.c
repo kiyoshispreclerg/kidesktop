@@ -1473,7 +1473,7 @@ cairo_surface_t *resolve_icon_theme_name(const char *name, int target_size)
      * available rather than blurriest). Falls back to the fixed order
      * above when target_size is unknown (0). */
     static const int numeric_sizes[] = {16, 22, 24, 32, 48, 64, 128, 256, 512};
-    char size_str_buf[sizeof(numeric_sizes) / sizeof(numeric_sizes[0]) * 2][8];
+    char size_str_buf[sizeof(numeric_sizes) / sizeof(numeric_sizes[0]) * 2][24]; /* "%dx%d" of two ints */
     const char *sizedirs_ordered[2 + sizeof(numeric_sizes) / sizeof(numeric_sizes[0]) * 2];
     const char **sizedirs = sizedirs_default;
     size_t n_sizedirs = sizeof(sizedirs_default) / sizeof(sizedirs_default[0]);
@@ -1627,13 +1627,15 @@ static int parse_desktop_file(const char *path, const char *wm_class, char *out_
             continue;
         }
         if (!strncmp(line, "Name=", 5) && !name[0]) {
-            snprintf(name, sizeof(name), "%s", line + 5);
+            xis_strlcpy(name, line + 5, sizeof(name));
         } else if (!strncmp(line, "Exec=", 5)) {
-            snprintf(exec, sizeof(exec), "%s", line + 5);
+            if (!xis_fmt_fits(exec, sizeof(exec), "%s", line + 5)) {
+                exec[0] = 0; /* a cut-off command line would run something else */
+            }
         } else if (!strncmp(line, "Icon=", 5)) {
-            snprintf(icon, sizeof(icon), "%s", line + 5);
+            xis_strlcpy(icon, line + 5, sizeof(icon));
         } else if (!strncmp(line, "StartupWMClass=", 15)) {
-            snprintf(startup_class, sizeof(startup_class), "%s", line + 15);
+            xis_strlcpy(startup_class, line + 15, sizeof(startup_class));
         } else if (!strcmp(line, "Hidden=true")) {
             hidden = 1;
         }
@@ -1646,7 +1648,7 @@ static int parse_desktop_file(const char *path, const char *wm_class, char *out_
     const char *base = strrchr(path, '/');
     base = base ? base + 1 : path;
     char basenoext[256];
-    snprintf(basenoext, sizeof(basenoext), "%s", base);
+    xis_strlcpy(basenoext, base, sizeof(basenoext));
     char *dot = strrchr(basenoext, '.');
     if (dot) {
         *dot = 0;
@@ -1693,8 +1695,9 @@ static void add_desktop_search_dir(char dirs[][PATH_MAX], int *n, int max, const
     if (*n >= max || !base || !base[0]) {
         return;
     }
-    snprintf(dirs[*n], PATH_MAX, "%s/applications", base);
-    (*n)++;
+    if (xis_fmt_fits(dirs[*n], PATH_MAX, "%s/applications", base)) {
+        (*n)++;
+    }
 }
 
 /* Searches .desktop files under XDG_DATA_HOME (or ~/.local/share) and
@@ -1766,7 +1769,9 @@ int desktop_entry_find_by_wm_class(const char *wm_class, char *out_name, size_t 
                 continue;
             }
             char path[PATH_MAX];
-            snprintf(path, sizeof(path), "%s/%s", dirs[d], de->d_name);
+            if (!xis_fmt_fits(path, sizeof(path), "%s/%s", dirs[d], de->d_name)) {
+                continue;
+            }
             char name[256], exec[512], icon[256];
             int m = parse_desktop_file(path, wm_class, name, sizeof(name), exec, sizeof(exec), icon, sizeof(icon));
             if (m == 2) {
@@ -2052,7 +2057,7 @@ int desktop_recent_files_for_app(const char *app_stem, char out_paths[][PATH_MAX
     }
     int n = recent_xbel_find_for_app(app_stem, matches, max);
     for (int i = 0; i < n; i++) {
-        snprintf(out_paths[i], PATH_MAX, "%s", matches[i].path);
+        xis_strlcpy(out_paths[i], matches[i].path, PATH_MAX);
     }
     return n;
 }
