@@ -21,4 +21,9 @@ uninstall clean:
 check-deps:
 	@./configure
 
-.PHONY: all install uninstall clean check-deps $(COMPONENTS)
+# -Werror build of every component, cppcheck, .po/.desktop/script checks --
+# the same thing CI runs (see scripts/lint.sh).
+lint:
+	@./scripts/lint.sh
+
+.PHONY: all install uninstall clean check-deps lint $(COMPONENTS)
