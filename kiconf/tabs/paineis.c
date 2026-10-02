@@ -817,6 +817,7 @@ static GtkWidget *build_widget_field(const WidgetField *f, const char *val)
         }
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(chk), has_val);
         GtkWidget *btn = make_color_button(hex6);
+        a11y_name(btn, _(f->label));
         gtk_widget_set_sensitive(btn, has_val);
         g_signal_connect_swapped(chk, "toggled", G_CALLBACK(gtk_widget_set_sensitive), btn);
         g_object_set_data(G_OBJECT(box), "chk", chk);
@@ -1541,6 +1542,8 @@ GtkWidget *build_paineis_tab(void)
     gtk_misc_set_alignment(GTK_MISC(g_theme_label), 0.0, 0.5);
     gtk_table_attach(GTK_TABLE(theme_table), g_theme_label, 0, 1, 3, 4, GTK_FILL, GTK_FILL, 4, 3);
     gtk_table_attach(GTK_TABLE(theme_table), g_theme_options_entry, 1, 2, 3, 4, GTK_EXPAND | GTK_FILL, GTK_FILL, 4, 3);
+    gtk_label_set_mnemonic_widget(GTK_LABEL(g_theme_label), g_theme_options_entry);
+    a11y_name(g_theme_options_entry, _("Outras opcoes do tema"));
     GtkWidget *theme_frame = frame_with("Tema (cores/fonte do painel selecionado)", theme_table);
     sync_theme_fields_from_opts(initial_theme ? initial_theme->options : "");
 

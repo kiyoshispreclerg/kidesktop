@@ -67,6 +67,9 @@ void spawn_replace(const char *prog);
 /* ---- generic GTK2 table-layout helpers -------------------------------- */
 
 GtkWidget *labeled_row(GtkWidget *table, int row, const char *label_text, GtkWidget *widget);
+/* Accessible name for a control with no visible text of its own (trailing
+ * ':' dropped). labeled_row() and frame_with() already do this. */
+void a11y_name(GtkWidget *widget, const char *text);
 GtkWidget *frame_with(const char *title, GtkWidget *child);
 
 /* "#rrggbb"/"#rrggbbaa" <-> GtkColorButton -- used by every tab that edits

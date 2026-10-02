@@ -366,6 +366,7 @@ GtkWidget *build_menu_tab(void)
 
     g_menu_store = gtk_tree_store_new(N_M_COLS, G_TYPE_BOOLEAN, G_TYPE_STRING, G_TYPE_INT);
     g_menu_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_menu_store));
+    a11y_name(g_menu_view, _("Menu de programas"));
     refill_menu_store();
 
     GtkCellRenderer *vis_r = gtk_cell_renderer_toggle_new();

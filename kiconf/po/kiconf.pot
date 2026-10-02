@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-01 13:53-0300\n"
+"POT-Creation-Date: 2026-10-02 16:12-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,104 +17,104 @@ msgstr ""
 "Content-Type: text/plain; charset=CHARSET\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: common.c:325
+#: common.c:393
 #, c-format
 msgid "%s (nao conectado agora)"
 msgstr ""
 
-#: common.c:360
+#: common.c:428
 #, c-format
 msgid "%s (%s)"
 msgstr ""
 
-#: common.c:362
+#: common.c:430
 #, c-format
 msgid "%s (sem EDID)"
 msgstr ""
 
-#: kiconf.c:151
+#: kiconf.c:152
 msgid "Aparencia"
 msgstr ""
 
-#: kiconf.c:152
+#: kiconf.c:153
 msgid "Atalhos"
 msgstr ""
 
-#: kiconf.c:153
+#: kiconf.c:154
 msgid "Telas"
 msgstr ""
 
-#: kiconf.c:154
+#: kiconf.c:155
 msgid "Entrada"
 msgstr ""
 
-#: kiconf.c:155
+#: kiconf.c:156
 msgid "Wallpaper"
 msgstr ""
 
-#: kiconf.c:156
+#: kiconf.c:157
 msgid "Outras"
 msgstr ""
 
-#: kiconf.c:157
+#: kiconf.c:158
 msgid "Paineis"
 msgstr ""
 
-#: kiconf.c:158
+#: kiconf.c:159
 msgid "Permissoes"
 msgstr ""
 
-#: kiconf.c:159
+#: kiconf.c:160
 msgid "Gerenciamento de janelas"
 msgstr ""
 
-#: kiconf.c:160
+#: kiconf.c:161
 msgid "Efeitos do compositor"
 msgstr ""
 
-#: kiconf.c:161
+#: kiconf.c:162
 msgid "Sistema"
 msgstr ""
 
-#: kiconf.c:162
+#: kiconf.c:163
 msgid "Energia"
 msgstr ""
 
-#: kiconf.c:163
+#: kiconf.c:164
 msgid "Programas padrao"
 msgstr ""
 
-#: kiconf.c:164
+#: kiconf.c:165
 msgid "Associacoes de arquivos"
 msgstr ""
 
-#: kiconf.c:165
+#: kiconf.c:166 tabs/menu.c:369
 msgid "Menu de programas"
 msgstr ""
 
-#: kiconf.c:166
+#: kiconf.c:167
 msgid "Iniciar automaticamente"
 msgstr ""
 
-#: kiconf.c:167
+#: kiconf.c:168 tabs/eventos.c:191
 msgid "Eventos"
 msgstr ""
 
-#: kiconf.c:168
+#: kiconf.c:169
 msgid "Historico"
 msgstr ""
 
-#: kiconf.c:304
+#: kiconf.c:305
 msgid ""
 "Ha alteracoes nao aplicadas nesta aba. Tem certeza que deseja sair sem "
 "aplica-las?"
 msgstr ""
 
-#: kiconf.c:306
+#: kiconf.c:307
 msgid "Alteracoes pendentes"
 msgstr ""
 
-#: kiconf.c:717
+#: kiconf.c:723 kiconf.c:735
 msgid "Inicio"
 msgstr ""
 
@@ -126,10 +126,10 @@ msgstr ""
 msgid "Importar da sessao atual"
 msgstr ""
 
-#: tabs/appearance.c:703 tabs/autostart.c:410 tabs/energia.c:217
+#: tabs/appearance.c:703 tabs/autostart.c:410 tabs/energia.c:221
 #: tabs/entrada.c:544 tabs/historico.c:379 tabs/historico.c:446
 #: tabs/outras.c:215 tabs/programas.c:305 tabs/shortcuts.c:1062
-#: tabs/sistema.c:803 tabs/telas.c:1780
+#: tabs/sistema.c:809 tabs/telas.c:1780
 msgid "Aplicar"
 msgstr ""
 
@@ -149,12 +149,12 @@ msgstr ""
 msgid "Adicionar..."
 msgstr ""
 
-#: tabs/autostart.c:409 tabs/eventos.c:226 tabs/shortcuts.c:1026
-#: tabs/sistema.c:788
+#: tabs/autostart.c:409 tabs/eventos.c:227 tabs/shortcuts.c:1026
+#: tabs/sistema.c:794
 msgid "Remover"
 msgstr ""
 
-#: tabs/efeitos.c:655 tabs/paineis.c:829
+#: tabs/efeitos.c:655 tabs/paineis.c:830
 msgid "?"
 msgstr ""
 
@@ -198,31 +198,39 @@ msgstr ""
 msgid "ex.: windows,menus"
 msgstr ""
 
-#: tabs/efeitos.c:1104 tabs/efeitos.c:1129
+#: tabs/efeitos.c:1102 tabs/efeitos.c:1129
+msgid "Deslocamento X"
+msgstr ""
+
+#: tabs/efeitos.c:1105 tabs/efeitos.c:1132
+msgid "Deslocamento Y"
+msgstr ""
+
+#: tabs/efeitos.c:1106 tabs/efeitos.c:1133
 msgid "X:"
 msgstr ""
 
-#: tabs/efeitos.c:1106 tabs/efeitos.c:1131
+#: tabs/efeitos.c:1108 tabs/efeitos.c:1135
 msgid "Y:"
 msgstr ""
 
-#: tabs/efeitos.c:1113
+#: tabs/efeitos.c:1115
 msgid "Usar valores proprios para janelas sem foco"
 msgstr ""
 
-#: tabs/efeitos.c:1160
+#: tabs/efeitos.c:1164
 msgid "Adicionar efeito"
 msgstr ""
 
-#: tabs/efeitos.c:1161
+#: tabs/efeitos.c:1165
 msgid "Remover efeito"
 msgstr ""
 
-#: tabs/efeitos.c:1170
+#: tabs/efeitos.c:1174
 msgid "Reiniciar kicomp agora"
 msgstr ""
 
-#: tabs/efeitos.c:1171
+#: tabs/efeitos.c:1175
 msgid "Aplicar (grava kicomp.conf)"
 msgstr ""
 
@@ -253,15 +261,31 @@ msgstr ""
 msgid "   Desligar as:"
 msgstr ""
 
-#: tabs/energia.c:202
-msgid "Temperatura durante o periodo (K):"
+#: tabs/energia.c:196
+msgid "Ligar: hora"
+msgstr ""
+
+#: tabs/energia.c:197
+msgid "Ligar: minuto"
+msgstr ""
+
+#: tabs/energia.c:198
+msgid "Desligar: hora"
+msgstr ""
+
+#: tabs/energia.c:199
+msgid "Desligar: minuto"
 msgstr ""
 
 #: tabs/energia.c:206
+msgid "Temperatura durante o periodo (K):"
+msgstr ""
+
+#: tabs/energia.c:210
 msgid "Luz noturna (xsct)"
 msgstr ""
 
-#: tabs/energia.c:209
+#: tabs/energia.c:213
 msgid ""
 "Fora do horario configurado, a tela volta a temperatura normal. Um horario "
 "de desligar menor que o de ligar cruza a meia-noite (ex.: ligar 20:00, "
@@ -292,11 +316,11 @@ msgstr ""
 msgid "Gravado."
 msgstr ""
 
-#: tabs/eventos.c:225 tabs/shortcuts.c:1025 tabs/sistema.c:787
+#: tabs/eventos.c:226 tabs/shortcuts.c:1025 tabs/sistema.c:793
 msgid "Adicionar"
 msgstr ""
 
-#: tabs/eventos.c:227 tabs/sistema.c:789
+#: tabs/eventos.c:228 tabs/sistema.c:795
 msgid "Salvar"
 msgstr ""
 
@@ -379,7 +403,7 @@ msgstr ""
 msgid "Titulo privado (regex):"
 msgstr ""
 
-#: tabs/historico.c:385 tabs/historico.c:452 tabs/permissoes.c:631
+#: tabs/historico.c:385 tabs/historico.c:452 tabs/permissoes.c:632
 #: tabs/telas.c:1665 tabs/wallpaper.c:355
 msgid "-"
 msgstr ""
@@ -476,22 +500,22 @@ msgstr ""
 msgid "Aplicar (grava kiwm.conf)"
 msgstr ""
 
-#: tabs/menu.c:386
+#: tabs/menu.c:387
 msgid ""
 "Ocultar/editar uma entrada do sistema cria uma copia em ~/.local/share/"
 "applications -- o arquivo original nunca e alterado. \"Excluir\" so funciona "
 "em entradas ja criadas pelo usuario."
 msgstr ""
 
-#: tabs/menu.c:394
+#: tabs/menu.c:395
 msgid "Novo..."
 msgstr ""
 
-#: tabs/menu.c:396
+#: tabs/menu.c:397
 msgid "Editar..."
 msgstr ""
 
-#: tabs/menu.c:398
+#: tabs/menu.c:399
 msgid "Excluir"
 msgstr ""
 
@@ -507,36 +531,40 @@ msgstr ""
 msgid "Definir:"
 msgstr ""
 
-#: tabs/paineis.c:1231 tabs/paineis.c:1391 tabs/paineis.c:1539
+#: tabs/paineis.c:1232 tabs/paineis.c:1392 tabs/paineis.c:1540
 #, c-format
 msgid "Outras opcoes de '%s':"
 msgstr ""
 
-#: tabs/paineis.c:1452
+#: tabs/paineis.c:1453
 msgid "Adicionar painel"
 msgstr ""
 
-#: tabs/paineis.c:1453
+#: tabs/paineis.c:1454
 msgid "Remover painel"
 msgstr ""
 
-#: tabs/paineis.c:1505
+#: tabs/paineis.c:1506
 msgid "Adicionar widget"
 msgstr ""
 
-#: tabs/paineis.c:1506
+#: tabs/paineis.c:1507
 msgid "Remover widget"
 msgstr ""
 
-#: tabs/paineis.c:1521
+#: tabs/paineis.c:1522
 msgid "Cor de fundo:"
 msgstr ""
 
-#: tabs/paineis.c:1527
+#: tabs/paineis.c:1528
 msgid "Cor do texto:"
 msgstr ""
 
-#: tabs/paineis.c:1561
+#: tabs/paineis.c:1546
+msgid "Outras opcoes do tema"
+msgstr ""
+
+#: tabs/paineis.c:1564
 msgid "Salvar e recarregar xispanel"
 msgstr ""
 
@@ -660,27 +688,31 @@ msgstr ""
 msgid "Aplicar modo"
 msgstr ""
 
-#: tabs/permissoes.c:594
-msgid "Adicionar regra"
+#: tabs/permissoes.c:590
+msgid "Padrao"
 msgstr ""
 
 #: tabs/permissoes.c:595
-msgid "Remover selecionada"
+msgid "Adicionar regra"
 msgstr ""
 
 #: tabs/permissoes.c:596
+msgid "Remover selecionada"
+msgstr ""
+
+#: tabs/permissoes.c:597
 msgid "Recarregar (RELOAD)"
 msgstr ""
 
-#: tabs/permissoes.c:606
+#: tabs/permissoes.c:607
 msgid "Regras de usuario"
 msgstr ""
 
-#: tabs/permissoes.c:636
+#: tabs/permissoes.c:637
 msgid "Recarregar"
 msgstr ""
 
-#: tabs/permissoes.c:643
+#: tabs/permissoes.c:644
 msgid "Regras de sistema"
 msgstr ""
 
@@ -721,18 +753,42 @@ msgid "Sincronizar hora automaticamente pela rede (NTP)"
 msgstr ""
 
 #: tabs/sistema.c:742
-msgid "Data:"
+msgid "Ano"
+msgstr ""
+
+#: tabs/sistema.c:743
+msgid "Mes"
+msgstr ""
+
+#: tabs/sistema.c:744
+msgid "Dia"
+msgstr ""
+
+#: tabs/sistema.c:745
+msgid "Hora"
 msgstr ""
 
 #: tabs/sistema.c:746
+msgid "Minuto"
+msgstr ""
+
+#: tabs/sistema.c:747
+msgid "Segundo"
+msgstr ""
+
+#: tabs/sistema.c:748
+msgid "Data:"
+msgstr ""
+
+#: tabs/sistema.c:752
 msgid "Hora:"
 msgstr ""
 
-#: tabs/sistema.c:750
+#: tabs/sistema.c:756
 msgid "Agora"
 msgstr ""
 
-#: tabs/sistema.c:799
+#: tabs/sistema.c:805
 msgid "Mostrados na aba Calendario do xisserve"
 msgstr ""
 

@@ -210,13 +210,80 @@ char *next_field(char **cursor)
     return start;
 }
 
+/* The control a row's label describes: the widget itself, or -- when a
+ * row packs a box (spin + button, entry + "Escolher...") -- the first
+ * thing inside it that takes focus. */
+static GtkWidget *a11y_target(GtkWidget *w)
+{
+    if (GTK_IS_COMBO_BOX(w) || GTK_IS_BUTTON(w) || gtk_widget_get_can_focus(w) || !GTK_IS_CONTAINER(w)) {
+        return w;
+    }
+    GtkWidget *found = NULL;
+    GList *children = gtk_container_get_children(GTK_CONTAINER(w));
+    for (GList *l = children; l && !found; l = l->next) {
+        GtkWidget *c = a11y_target(GTK_WIDGET(l->data));
+        if (GTK_IS_COMBO_BOX(c) || GTK_IS_BUTTON(c) || gtk_widget_get_can_focus(c)) {
+            found = c;
+        }
+    }
+    g_list_free(children);
+    return found ? found : w;
+}
+
+void a11y_name(GtkWidget *widget, const char *text)
+{
+    char name[256];
+    snprintf(name, sizeof(name), "%s", text);
+    size_t n = strlen(name);
+    while (n > 0 && (name[n - 1] == ':' || name[n - 1] == ' ')) {
+        name[--n] = '\0';
+    }
+    atk_object_set_name(gtk_widget_get_accessible(widget), name);
+}
+
+/* GAIL only names a control from its own text (a button's label, a
+ * combo's current item), never from a label beside it in a table -- so
+ * every spin button, entry and bare check box built through here read
+ * as unnamed. The mnemonic link gives the screen reader the
+ * labelled-by relation as well. */
+static void label_for(GtkWidget *label, const char *label_text, GtkWidget *widget)
+{
+    GtkWidget *target = a11y_target(widget);
+    gtk_label_set_mnemonic_widget(GTK_LABEL(label), target);
+    const char *cur = atk_object_get_name(gtk_widget_get_accessible(target));
+    if (GTK_IS_COMBO_BOX(target) || !cur || !*cur) {
+        a11y_name(target, label_text);
+    }
+}
+
 GtkWidget *labeled_row(GtkWidget *table, int row, const char *label_text, GtkWidget *widget)
 {
     GtkWidget *label = gtk_label_new(label_text);
+    label_for(label, label_text, widget);
     gtk_misc_set_alignment(GTK_MISC(label), 0.0, 0.5);
     gtk_table_attach(GTK_TABLE(table), label, 0, 1, row, row + 1, GTK_FILL, GTK_FILL, 4, 3);
     gtk_table_attach(GTK_TABLE(table), widget, 1, 2, row, row + 1, GTK_EXPAND | GTK_FILL, GTK_FILL, 4, 3);
     return widget;
+}
+
+/* A list or canvas alone in a frame is described by the frame's title. */
+static void name_unnamed_views(GtkWidget *w, const char *title)
+{
+    if (GTK_IS_TREE_VIEW(w) || GTK_IS_DRAWING_AREA(w) || GTK_IS_ICON_VIEW(w)) {
+        const char *cur = atk_object_get_name(gtk_widget_get_accessible(w));
+        if (!cur || !*cur) {
+            a11y_name(w, title);
+        }
+        return;
+    }
+    if (!GTK_IS_CONTAINER(w)) {
+        return;
+    }
+    GList *children = gtk_container_get_children(GTK_CONTAINER(w));
+    for (GList *l = children; l; l = l->next) {
+        name_unnamed_views(GTK_WIDGET(l->data), title);
+    }
+    g_list_free(children);
 }
 
 GtkWidget *frame_with(const char *title, GtkWidget *child)
@@ -229,6 +296,7 @@ GtkWidget *frame_with(const char *title, GtkWidget *child)
         gtk_container_set_border_width(GTK_CONTAINER(child), 8);
     }
     gtk_container_add(GTK_CONTAINER(frame), child);
+    name_unnamed_views(child, title);
     return frame;
 }
 

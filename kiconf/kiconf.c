@@ -114,7 +114,7 @@
 #include "sysinfo.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.39"
+#define KICONF_VERSION "0.2.40"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -726,6 +726,19 @@ int main(int argc, char **argv)
         gtk_notebook_append_page(GTK_NOTEBOOK(notebook), g_tabs[i].placeholder, gtk_label_new(_(g_tabs[i].label)));
     }
     g_signal_connect(notebook, "switch-page", G_CALLBACK(on_switch_page), NULL);
+    /* GAIL names a page after its tab label only while tabs are shown, so
+     * with the strip hidden every page would be announced unnamed. */
+    AtkObject *nb_acc = gtk_widget_get_accessible(notebook);
+    for (int i = 0; i <= N_TABS; i++) {
+        AtkObject *page = atk_object_ref_accessible_child(nb_acc, i);
+        if (page) {
+            char *name = g_strdup(i == 0 ? _("Inicio") : _(g_tabs[i - 1].label));
+            g_strdelimit(name, "\n", ' ');
+            atk_object_set_name(page, name);
+            g_free(name);
+            g_object_unref(page);
+        }
+    }
 
     gtk_container_add(GTK_CONTAINER(window), notebook);
     gtk_widget_show_all(window);

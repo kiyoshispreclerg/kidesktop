@@ -193,6 +193,10 @@ GtkWidget *build_energia_tab(void)
     gtk_box_pack_start(GTK_BOX(sched_box), gtk_label_new(_(":")), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(sched_box), g_end_min_spin, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box), sched_box, FALSE, FALSE, 0);
+    a11y_name(g_start_hour_spin, _("Ligar: hora"));
+    a11y_name(g_start_min_spin, _("Ligar: minuto"));
+    a11y_name(g_end_hour_spin, _("Desligar: hora"));
+    a11y_name(g_end_min_spin, _("Desligar: minuto"));
     set_time_spins(c.start, g_start_hour_spin, g_start_min_spin);
     set_time_spins(c.end, g_end_hour_spin, g_end_min_spin);
 

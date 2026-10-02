@@ -739,6 +739,12 @@ GtkWidget *build_sistema_tab(void)
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_min_spin), g_date_time_get_minute(now));
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sec_spin), g_date_time_get_second(now));
     g_date_time_unref(now);
+    a11y_name(g_year_spin, _("Ano"));
+    a11y_name(g_month_spin, _("Mes"));
+    a11y_name(g_day_spin, _("Dia"));
+    a11y_name(g_hour_spin, _("Hora"));
+    a11y_name(g_min_spin, _("Minuto"));
+    a11y_name(g_sec_spin, _("Segundo"));
     gtk_box_pack_start(GTK_BOX(g_manual_box), gtk_label_new(_("Data:")), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(g_manual_box), g_year_spin, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(g_manual_box), g_month_spin, TRUE, TRUE, 0);

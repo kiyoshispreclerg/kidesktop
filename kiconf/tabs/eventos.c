@@ -188,6 +188,7 @@ GtkWidget *build_eventos_tab(void)
 
     g_events_store = gtk_list_store_new(N_EV_COLS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
     GtkWidget *view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_events_store));
+    a11y_name(view, _("Eventos"));
 
     GtkCellRenderer *date_r = gtk_cell_renderer_text_new();
     g_object_set(date_r, "editable", TRUE, NULL);

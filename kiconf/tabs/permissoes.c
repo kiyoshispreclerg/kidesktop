@@ -587,6 +587,7 @@ GtkWidget *build_permissoes_tab(void)
     gtk_box_pack_start(GTK_BOX(add_row), g_xg_type_combo, FALSE, FALSE, 0);
     g_xg_pattern_entry = gtk_entry_new();
     gtk_entry_set_text(GTK_ENTRY(g_xg_pattern_entry), "*");
+    a11y_name(g_xg_pattern_entry, _("Padrao"));
     gtk_box_pack_start(GTK_BOX(add_row), g_xg_pattern_entry, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(rules_box), add_row, FALSE, FALSE, 0);
 

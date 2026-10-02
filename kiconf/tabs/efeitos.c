@@ -1099,8 +1099,10 @@ GtkWidget *build_efeitos_tab(void)
     GtkWidget *offset_box = gtk_hbox_new(FALSE, 4);
     g_sh_offx_spin = gtk_spin_button_new_with_range(-128, 128, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sh_offx_spin), sh.offset_x);
+    a11y_name(g_sh_offx_spin, _("Deslocamento X"));
     g_sh_offy_spin = gtk_spin_button_new_with_range(-128, 128, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sh_offy_spin), sh.offset_y);
+    a11y_name(g_sh_offy_spin, _("Deslocamento Y"));
     gtk_box_pack_start(GTK_BOX(offset_box), gtk_label_new(_("X:")), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(offset_box), g_sh_offx_spin, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(offset_box), gtk_label_new(_("Y:")), FALSE, FALSE, 0);
@@ -1124,8 +1126,10 @@ GtkWidget *build_efeitos_tab(void)
     GtkWidget *offset_i_box = gtk_hbox_new(FALSE, 4);
     g_sh_offx_i_spin = gtk_spin_button_new_with_range(-128, 128, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sh_offx_i_spin), sh.offset_x_i);
+    a11y_name(g_sh_offx_i_spin, _("Deslocamento X"));
     g_sh_offy_i_spin = gtk_spin_button_new_with_range(-128, 128, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sh_offy_i_spin), sh.offset_y_i);
+    a11y_name(g_sh_offy_i_spin, _("Deslocamento Y"));
     gtk_box_pack_start(GTK_BOX(offset_i_box), gtk_label_new(_("X:")), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(offset_i_box), g_sh_offx_i_spin, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(offset_i_box), gtk_label_new(_("Y:")), FALSE, FALSE, 0);
