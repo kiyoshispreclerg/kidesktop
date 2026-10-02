@@ -53,7 +53,9 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISSERVE_VERSION "0.1.51"
+#include "../shared/xis_direction.h"
+
+#define XISSERVE_VERSION "0.1.52"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -1727,11 +1729,14 @@ static void reposition_window(void)
 {
     int ww = g_applied_w, wh = g_applied_h;
     int x, y;
+    /* RTL: on a top/bottom bar the popup lines up with the anchor's
+     * right edge instead, the same way xispanel's own menus do. */
+    int along_x = xis_direction_is_rtl() ? g_args.anchor_x + g_args.anchor_w - ww : g_args.anchor_x;
     if (strcmp(g_args.edge, "top") == 0) {
-        x = g_args.anchor_x;
+        x = along_x;
         y = g_args.anchor_y + g_args.anchor_h;
     } else if (strcmp(g_args.edge, "bottom") == 0) {
-        x = g_args.anchor_x;
+        x = along_x;
         y = g_args.anchor_y - wh;
     } else if (strcmp(g_args.edge, "left") == 0) {
         x = g_args.anchor_x + g_args.anchor_w;
@@ -2584,7 +2589,9 @@ static gboolean on_entry_key_press(GtkWidget *w, GdkEventKey *ev, gpointer data)
         int n = gtk_tree_model_iter_n_children(model, NULL);
         if (n == 0) return TRUE;
         int step = nav_row ? (g_grid_mode ? g_grid_columns : 1) : 1;
-        int forward = nav_row ? (ev->keyval == GDK_Down) : (ev->keyval == GDK_Right);
+        /* RTL: the icon view lays items out from the right, so Left is "next". */
+        guint next_col_key = xis_direction_is_rtl() ? GDK_Left : GDK_Right;
+        int forward = nav_row ? (ev->keyval == GDK_Down) : (ev->keyval == next_col_key);
         int next = (idx < 0) ? 0 : idx + (forward ? step : -step);
         if (next < 0) next = 0;
         if (next >= n) next = n - 1;
@@ -3212,6 +3219,12 @@ int main(int argc, char **argv)
     }
 
     gtk_init(&argc, &argv);
+    /* GTK picks its own direction from the gtk20 catalog's translation of
+     * "default:LTR"; the shared helper decides instead, so a forced
+     * XIS_DIRECTION/ki-direction.conf mirrors xisserve along with kiwm
+     * and xispanel. Everything packed in boxes, the icon view and the
+     * calendar follow from here on their own. */
+    gtk_widget_set_default_direction(xis_direction_is_rtl() ? GTK_TEXT_DIR_RTL : GTK_TEXT_DIR_LTR);
 
     /* run_detached()'s children (app launches) are never waitpid()'d --
      * ignoring SIGCHLD makes the kernel reap them itself instead of

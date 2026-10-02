@@ -619,6 +619,9 @@ static GtkWidget *make_key_button(const KbKeySpec *spec)
 static GtkWidget *build_row(const KbRow *row)
 {
     GtkWidget *hbox = gtk_hbox_new(FALSE, KEY_GAP);
+    /* A key row is a picture of the physical keyboard, which doesn't
+     * mirror under RTL -- keep Q on the left whatever the UI direction. */
+    gtk_widget_set_direction(hbox, GTK_TEXT_DIR_LTR);
     for (int i = 0; i < row->n; i++) {
         GtkWidget *btn = make_key_button(&row->keys[i]);
         gtk_box_pack_start(GTK_BOX(hbox), btn, TRUE, TRUE, 0);
