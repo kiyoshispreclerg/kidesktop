@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-02 18:55-0300\n"
+"POT-Creation-Date: 2026-10-02 19:12-0300\n"
 "PO-Revision-Date: 2026-10-01 13:53-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -128,79 +128,87 @@ msgstr "Home"
 msgid "Sobre este computador"
 msgstr "About this computer"
 
-#: tabs/acessibilidade.c:332
+#: tabs/acessibilidade.c:452
 msgid ""
 "Teclas de aderencia: Shift, Ctrl e Alt ficam pressionados ate a proxima tecla"
 msgstr "Sticky keys: Shift, Ctrl and Alt stay pressed until the next key"
 
-#: tabs/acessibilidade.c:335
+#: tabs/acessibilidade.c:455
 msgid "Desativar a aderencia ao pressionar duas teclas juntas"
 msgstr "Turn sticky keys off when two keys are pressed together"
 
-#: tabs/acessibilidade.c:338
+#: tabs/acessibilidade.c:458
 msgid "Teclas lentas: so aceitar teclas mantidas pressionadas"
 msgstr "Slow keys: only accept keys held down"
 
-#: tabs/acessibilidade.c:342
+#: tabs/acessibilidade.c:462
 msgid "Tempo para aceitar (ms):"
 msgstr "Accept after (ms):"
 
-#: tabs/acessibilidade.c:343
+#: tabs/acessibilidade.c:463
 msgid "Teclas de repercussao: ignorar toques repetidos rapidos"
 msgstr "Bounce keys: ignore fast repeated presses"
 
-#: tabs/acessibilidade.c:347
+#: tabs/acessibilidade.c:467
 msgid "Ignorar repeticoes por (ms):"
 msgstr "Ignore repeats for (ms):"
 
-#: tabs/acessibilidade.c:348
+#: tabs/acessibilidade.c:468
 msgid "Teclas do mouse: mover o ponteiro com o teclado numerico"
 msgstr "Mouse keys: move the pointer with the numeric keypad"
 
-#: tabs/acessibilidade.c:350
+#: tabs/acessibilidade.c:470
 msgid ""
 "Ativar pelo teclado: Shift cinco vezes (aderencia) ou mantido 8 s (lentas)"
 msgstr "Keyboard activation: Shift five times (sticky) or held 8 s (slow)"
 
-#: tabs/acessibilidade.c:359
+#: tabs/acessibilidade.c:477
+msgid ""
+"Atalho que leva o foco do teclado ao painel (setas, Enter, Esc). \"none\" "
+"desativa."
+msgstr "Shortcut that moves keyboard focus to the panel (arrows, Enter, Esc). \"none\" turns it off."
+
+#: tabs/acessibilidade.c:478
+msgid "Atalho para focar o painel:"
+msgstr "Panel focus shortcut:"
+
+#: tabs/acessibilidade.c:485
 msgid "Teclado"
 msgstr "Keyboard"
 
-#: tabs/acessibilidade.c:367
+#: tabs/acessibilidade.c:493
 msgid "Escala do texto:"
 msgstr "Text scale:"
 
-#: tabs/acessibilidade.c:370
+#: tabs/acessibilidade.c:496
 msgid "Tamanho do cursor (px):"
 msgstr "Cursor size (px):"
 
-#: tabs/acessibilidade.c:371
+#: tabs/acessibilidade.c:497
 msgid "Alto contraste (texto branco sobre preto, selecao amarela)"
 msgstr "High contrast (white text on black, yellow selection)"
 
-#: tabs/acessibilidade.c:373
+#: tabs/acessibilidade.c:499
 msgid "Visao"
 msgstr "Vision"
 
-#: tabs/acessibilidade.c:378
+#: tabs/acessibilidade.c:504
 msgid "Suporte a tecnologias assistivas (AT-SPI)"
 msgstr "Assistive technology support (AT-SPI)"
 
-#: tabs/acessibilidade.c:380
+#: tabs/acessibilidade.c:506
 msgid "Leitor de tela (orca)"
 msgstr "Screen reader (orca)"
 
-#: tabs/acessibilidade.c:382
-msgid ""
-"Vale a partir do proximo login. Ctrl+Alt+Tab foca o painel para usa-lo pelo "
-"teclado (focus_key= no xispanel.conf)."
-msgstr "Takes effect at the next login. Ctrl+Alt+Tab focuses the panel for keyboard use (focus_key= in xispanel.conf)."
+#: tabs/acessibilidade.c:508
+msgid "Vale a partir do proximo login."
+msgstr "Takes effect at the next login."
 
-#: tabs/acessibilidade.c:387
+#: tabs/acessibilidade.c:512
 msgid "Tecnologias assistivas"
 msgstr "Assistive technology"
 
-#: tabs/acessibilidade.c:389 tabs/appearance.c:703 tabs/autostart.c:410
+#: tabs/acessibilidade.c:514 tabs/appearance.c:703 tabs/autostart.c:410
 #: tabs/energia.c:221 tabs/entrada.c:544 tabs/historico.c:379
 #: tabs/historico.c:446 tabs/outras.c:215 tabs/programas.c:305
 #: tabs/shortcuts.c:1062 tabs/sistema.c:809 tabs/telas.c:1780
@@ -630,40 +638,40 @@ msgstr "Prefer blanking the screen"
 msgid "Definir:"
 msgstr "Set:"
 
-#: tabs/paineis.c:1232 tabs/paineis.c:1392 tabs/paineis.c:1540
+#: tabs/paineis.c:1271 tabs/paineis.c:1431 tabs/paineis.c:1579
 #, c-format
 msgid "Outras opcoes de '%s':"
 msgstr "Other options for '%s':"
 
-#: tabs/paineis.c:1453
+#: tabs/paineis.c:1492
 msgid "Adicionar painel"
 msgstr "Add panel"
 
-#: tabs/paineis.c:1454
+#: tabs/paineis.c:1493
 msgid "Remover painel"
 msgstr "Remove panel"
 
-#: tabs/paineis.c:1506
+#: tabs/paineis.c:1545
 msgid "Adicionar widget"
 msgstr "Add widget"
 
-#: tabs/paineis.c:1507
+#: tabs/paineis.c:1546
 msgid "Remover widget"
 msgstr "Remove widget"
 
-#: tabs/paineis.c:1522
+#: tabs/paineis.c:1561
 msgid "Cor de fundo:"
 msgstr "Background color:"
 
-#: tabs/paineis.c:1528
+#: tabs/paineis.c:1567
 msgid "Cor do texto:"
 msgstr "Text color:"
 
-#: tabs/paineis.c:1546
+#: tabs/paineis.c:1585
 msgid "Outras opcoes do tema"
 msgstr "Other theme options"
 
-#: tabs/paineis.c:1564
+#: tabs/paineis.c:1603
 msgid "Salvar e recarregar xispanel"
 msgstr "Save and reload xispanel"
 
@@ -974,3 +982,10 @@ msgstr "Set layer"
 #: tabs/wallpaper.c:462
 msgid "Salvar acoes de clique"
 msgstr "Save click actions"
+
+#~ msgid ""
+#~ "Vale a partir do proximo login. Ctrl+Alt+Tab foca o painel para usa-lo "
+#~ "pelo teclado (focus_key= no xispanel.conf)."
+#~ msgstr ""
+#~ "Takes effect at the next login. Ctrl+Alt+Tab focuses the panel for "
+#~ "keyboard use (focus_key= in xispanel.conf)."

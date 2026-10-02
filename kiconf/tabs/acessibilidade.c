@@ -7,7 +7,8 @@
  * keys the Aparencia tab also owns; this tab only rewrites those keys in
  * place, so whatever else Aparencia saved stays. High contrast keeps the
  * values it replaced as saved_* lines in kiconfd-a11y.conf, and turning
- * it off puts them back. */
+ * it off puts them back. The panel focus key is xispanel.conf's
+ * focus_key=, kept on the first PANEL line (see xispanel/PROTOCOL.md). */
 #include "../common.h"
 #include "../tabs.h"
 
@@ -23,6 +24,10 @@ static GtkWidget *g_sticky_chk, *g_sticky_two_chk, *g_slow_chk, *g_slow_spin, *g
 static GtkWidget *g_mouse_chk, *g_gestures_chk;
 static GtkWidget *g_scale_spin, *g_cursor_spin, *g_hc_chk;
 static GtkWidget *g_atspi_chk, *g_orca_chk;
+static GtkWidget *g_focus_key_entry;
+static char g_focus_key_loaded[64];
+
+#define FOCUS_KEY_DEFAULT "Ctrl+Alt+Tab"
 
 /* kiconfd.conf keys high contrast replaces, and what it sets them to. */
 static const char *const HC_KEYS[] = {
@@ -201,6 +206,109 @@ static void write_hc_themes(void)
     g_free(gtkrc);
 }
 
+/* ---- xispanel.conf focus_key= ------------------------------------------ */
+
+/* Removes every focus_key=... token from a PANEL line's option tail. */
+static void strip_focus_key(char *opts)
+{
+    char *p;
+    while ((p = strstr(opts, "focus_key="))) {
+        if (p != opts && p[-1] != ' ' && p[-1] != '\t') {
+            break; /* part of some other key's value: leave the line alone */
+        }
+        char *end = p;
+        while (*end && *end != ' ' && *end != '\t') {
+            end++;
+        }
+        while (*end == ' ' || *end == '\t') {
+            end++;
+        }
+        memmove(p, end, strlen(end) + 1);
+    }
+    size_t n = strlen(opts);
+    while (n && (opts[n - 1] == ' ' || opts[n - 1] == '\t')) {
+        opts[--n] = '\0';
+    }
+}
+
+static void focus_key_load(char *out, size_t outsz)
+{
+    snprintf(out, outsz, "%s", FOCUS_KEY_DEFAULT);
+    char path[PATH_MAX];
+    resolve_path("xispanel.conf", path, sizeof(path));
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        return;
+    }
+    char line[2048];
+    while (fgets(line, sizeof(line), f)) {
+        char *k = strncmp(line, "PANEL", 5) ? NULL : strstr(line, "focus_key=");
+        if (k) {
+            k += strlen("focus_key=");
+            size_t n = strcspn(k, " \t\r\n");
+            snprintf(out, outsz, "%.*s", (int)n, k);
+            break;
+        }
+    }
+    fclose(f);
+}
+
+/* Rewrites xispanel.conf with `spec` on the first PANEL line only (the
+ * default needs no key at all), then has xispanel reload. */
+static void focus_key_save(const char *spec)
+{
+    char path[PATH_MAX], tmp[PATH_MAX];
+    resolve_path("xispanel.conf", path, sizeof(path));
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    FILE *in = fopen(path, "r");
+    if (!in) {
+        return; /* no panels configured: nothing to attach it to */
+    }
+    FILE *out = fopen(tmp, "w");
+    if (!out) {
+        fclose(in);
+        g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
+        return;
+    }
+    char line[2048];
+    int first = 1;
+    while (fgets(line, sizeof(line), in)) {
+        if (strncmp(line, "PANEL", 5) != 0) {
+            fputs(line, out);
+            continue;
+        }
+        line[strcspn(line, "\r\n")] = '\0';
+        strip_focus_key(line);
+        if (first && strcmp(spec, FOCUS_KEY_DEFAULT) != 0) {
+            fprintf(out, "%s focus_key=%s\n", line, spec);
+        } else {
+            fprintf(out, "%s\n", line);
+        }
+        first = 0;
+    }
+    fclose(in);
+    fclose(out);
+    if (rename(tmp, path) != 0) {
+        g_warning("kiconf: could not save '%s': %s", path, strerror(errno));
+        return;
+    }
+    xispanel_reload();
+}
+
+/* "Ctrl+Alt+Tab", "Super+F1", "none": modifiers and a keysym name. */
+static int focus_key_valid(const char *s)
+{
+    if (!*s) {
+        return 0;
+    }
+    for (const char *c = s; *c; c++) {
+        if (!g_ascii_isalnum(*c) && *c != '+' && *c != '_') {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* ---- kisession services ----------------------------------------------- */
 
 static int kisession_index(const char *name)
@@ -277,6 +385,18 @@ static void apply_cb(GtkWidget *widget, gpointer data)
     kv_save("kiconfd.conf", &conf, "# kiconfd config\n");
     signal_daemon("kiconfd");
 
+    const char *fk = gtk_entry_get_text(GTK_ENTRY(g_focus_key_entry));
+    char spec[64];
+    snprintf(spec, sizeof(spec), "%s", fk[0] ? fk : FOCUS_KEY_DEFAULT);
+    if (strcmp(spec, g_focus_key_loaded) != 0) {
+        if (focus_key_valid(spec)) {
+            focus_key_save(spec);
+            snprintf(g_focus_key_loaded, sizeof(g_focus_key_loaded), "%s", spec);
+        } else {
+            g_warning("kiconf: '%s' is not a key like Ctrl+Alt+Tab, panel focus key left alone", spec);
+        }
+    }
+
     KisessionConfig ks;
     kisession_load(&ks);
     int ia = kisession_index("a11y"), io = kisession_index("screenreader");
@@ -328,7 +448,7 @@ GtkWidget *build_acessibilidade_tab(void)
     gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(scroll), outer);
 
     /* Keyboard */
-    GtkWidget *kt = gtk_table_new(8, 2, FALSE);
+    GtkWidget *kt = gtk_table_new(9, 2, FALSE);
     g_sticky_chk = check(_("Teclas de aderencia: Shift, Ctrl e Alt ficam pressionados ate a proxima tecla"),
                          kv_int(&a11y, "sticky_keys", 0));
     attach_full(kt, 0, g_sticky_chk);
@@ -350,6 +470,12 @@ GtkWidget *build_acessibilidade_tab(void)
     g_gestures_chk = check(_("Ativar pelo teclado: Shift cinco vezes (aderencia) ou mantido 8 s (lentas)"),
                            kv_int(&a11y, "keyboard_gestures", 0));
     attach_full(kt, 7, g_gestures_chk);
+    g_focus_key_entry = gtk_entry_new();
+    focus_key_load(g_focus_key_loaded, sizeof(g_focus_key_loaded));
+    gtk_entry_set_text(GTK_ENTRY(g_focus_key_entry), g_focus_key_loaded);
+    gtk_widget_set_tooltip_text(g_focus_key_entry,
+                                _("Atalho que leva o foco do teclado ao painel (setas, Enter, Esc). \"none\" desativa."));
+    labeled_row(kt, 8, _("Atalho para focar o painel:"), g_focus_key_entry);
     g_signal_connect(g_sticky_chk, "toggled", G_CALLBACK(sync_sensitive), g_sticky_two_chk);
     g_signal_connect(g_slow_chk, "toggled", G_CALLBACK(sync_sensitive), g_slow_spin);
     g_signal_connect(g_bounce_chk, "toggled", G_CALLBACK(sync_sensitive), g_bounce_spin);
@@ -379,8 +505,7 @@ GtkWidget *build_acessibilidade_tab(void)
     attach_full(at, 0, g_atspi_chk);
     g_orca_chk = check(_("Leitor de tela (orca)"), io >= 0 && ks.enabled[io]);
     attach_full(at, 1, g_orca_chk);
-    GtkWidget *note = gtk_label_new(_("Vale a partir do proximo login. Ctrl+Alt+Tab foca o painel para usa-lo pelo "
-                                      "teclado (focus_key= no xispanel.conf)."));
+    GtkWidget *note = gtk_label_new(_("Vale a partir do proximo login."));
     gtk_label_set_line_wrap(GTK_LABEL(note), TRUE);
     gtk_misc_set_alignment(GTK_MISC(note), 0.0, 0.5);
     attach_full(at, 2, note);

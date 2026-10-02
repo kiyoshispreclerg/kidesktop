@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-02 18:55-0300\n"
+"POT-Creation-Date: 2026-10-02 19:12-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -126,79 +126,87 @@ msgstr ""
 msgid "Sobre este computador"
 msgstr ""
 
-#: tabs/acessibilidade.c:332
+#: tabs/acessibilidade.c:452
 msgid ""
 "Teclas de aderencia: Shift, Ctrl e Alt ficam pressionados ate a proxima tecla"
 msgstr ""
 
-#: tabs/acessibilidade.c:335
+#: tabs/acessibilidade.c:455
 msgid "Desativar a aderencia ao pressionar duas teclas juntas"
 msgstr ""
 
-#: tabs/acessibilidade.c:338
+#: tabs/acessibilidade.c:458
 msgid "Teclas lentas: so aceitar teclas mantidas pressionadas"
 msgstr ""
 
-#: tabs/acessibilidade.c:342
+#: tabs/acessibilidade.c:462
 msgid "Tempo para aceitar (ms):"
 msgstr ""
 
-#: tabs/acessibilidade.c:343
+#: tabs/acessibilidade.c:463
 msgid "Teclas de repercussao: ignorar toques repetidos rapidos"
 msgstr ""
 
-#: tabs/acessibilidade.c:347
+#: tabs/acessibilidade.c:467
 msgid "Ignorar repeticoes por (ms):"
 msgstr ""
 
-#: tabs/acessibilidade.c:348
+#: tabs/acessibilidade.c:468
 msgid "Teclas do mouse: mover o ponteiro com o teclado numerico"
 msgstr ""
 
-#: tabs/acessibilidade.c:350
+#: tabs/acessibilidade.c:470
 msgid ""
 "Ativar pelo teclado: Shift cinco vezes (aderencia) ou mantido 8 s (lentas)"
 msgstr ""
 
-#: tabs/acessibilidade.c:359
+#: tabs/acessibilidade.c:477
+msgid ""
+"Atalho que leva o foco do teclado ao painel (setas, Enter, Esc). \"none\" "
+"desativa."
+msgstr ""
+
+#: tabs/acessibilidade.c:478
+msgid "Atalho para focar o painel:"
+msgstr ""
+
+#: tabs/acessibilidade.c:485
 msgid "Teclado"
 msgstr ""
 
-#: tabs/acessibilidade.c:367
+#: tabs/acessibilidade.c:493
 msgid "Escala do texto:"
 msgstr ""
 
-#: tabs/acessibilidade.c:370
+#: tabs/acessibilidade.c:496
 msgid "Tamanho do cursor (px):"
 msgstr ""
 
-#: tabs/acessibilidade.c:371
+#: tabs/acessibilidade.c:497
 msgid "Alto contraste (texto branco sobre preto, selecao amarela)"
 msgstr ""
 
-#: tabs/acessibilidade.c:373
+#: tabs/acessibilidade.c:499
 msgid "Visao"
 msgstr ""
 
-#: tabs/acessibilidade.c:378
+#: tabs/acessibilidade.c:504
 msgid "Suporte a tecnologias assistivas (AT-SPI)"
 msgstr ""
 
-#: tabs/acessibilidade.c:380
+#: tabs/acessibilidade.c:506
 msgid "Leitor de tela (orca)"
 msgstr ""
 
-#: tabs/acessibilidade.c:382
-msgid ""
-"Vale a partir do proximo login. Ctrl+Alt+Tab foca o painel para usa-lo pelo "
-"teclado (focus_key= no xispanel.conf)."
+#: tabs/acessibilidade.c:508
+msgid "Vale a partir do proximo login."
 msgstr ""
 
-#: tabs/acessibilidade.c:387
+#: tabs/acessibilidade.c:512
 msgid "Tecnologias assistivas"
 msgstr ""
 
-#: tabs/acessibilidade.c:389 tabs/appearance.c:703 tabs/autostart.c:410
+#: tabs/acessibilidade.c:514 tabs/appearance.c:703 tabs/autostart.c:410
 #: tabs/energia.c:221 tabs/entrada.c:544 tabs/historico.c:379
 #: tabs/historico.c:446 tabs/outras.c:215 tabs/programas.c:305
 #: tabs/shortcuts.c:1062 tabs/sistema.c:809 tabs/telas.c:1780
@@ -607,40 +615,40 @@ msgstr ""
 msgid "Definir:"
 msgstr ""
 
-#: tabs/paineis.c:1232 tabs/paineis.c:1392 tabs/paineis.c:1540
+#: tabs/paineis.c:1271 tabs/paineis.c:1431 tabs/paineis.c:1579
 #, c-format
 msgid "Outras opcoes de '%s':"
 msgstr ""
 
-#: tabs/paineis.c:1453
+#: tabs/paineis.c:1492
 msgid "Adicionar painel"
 msgstr ""
 
-#: tabs/paineis.c:1454
+#: tabs/paineis.c:1493
 msgid "Remover painel"
 msgstr ""
 
-#: tabs/paineis.c:1506
+#: tabs/paineis.c:1545
 msgid "Adicionar widget"
 msgstr ""
 
-#: tabs/paineis.c:1507
+#: tabs/paineis.c:1546
 msgid "Remover widget"
 msgstr ""
 
-#: tabs/paineis.c:1522
+#: tabs/paineis.c:1561
 msgid "Cor de fundo:"
 msgstr ""
 
-#: tabs/paineis.c:1528
+#: tabs/paineis.c:1567
 msgid "Cor do texto:"
 msgstr ""
 
-#: tabs/paineis.c:1546
+#: tabs/paineis.c:1585
 msgid "Outras opcoes do tema"
 msgstr ""
 
-#: tabs/paineis.c:1564
+#: tabs/paineis.c:1603
 msgid "Salvar e recarregar xispanel"
 msgstr ""
 
