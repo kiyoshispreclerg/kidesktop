@@ -111,6 +111,7 @@ int session_run(void)
     GtkWidget *close_btn = gtk_button_new_with_label(_("\xc3\x97")); /* U+00D7 MULTIPLICATION SIGN */
     gtk_widget_set_size_request(close_btn, 28, 22);
     g_signal_connect(close_btn, "clicked", G_CALLBACK(on_cancel_clicked), NULL);
+    xisserve_a11y(close_btn, _("Fechar"), NULL);
     gtk_box_pack_end(GTK_BOX(header), close_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(vbox), header, FALSE, FALSE, 0);
 

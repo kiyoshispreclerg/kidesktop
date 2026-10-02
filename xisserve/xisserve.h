@@ -17,6 +17,17 @@
 #include <gtk/gtk.h>
 #include <X11/Xlib.h>
 
+/* Accessible name/description for a screen reader, for widgets whose
+ * visible text alone doesn't say what they are (an entry with no label,
+ * an icon-only or "×" button, a slider under a section header, several
+ * identical "Ativar" buttons in a list). Either may be NULL. */
+static inline void xisserve_a11y(GtkWidget *w, const char *name, const char *desc)
+{
+    AtkObject *acc = gtk_widget_get_accessible(w);
+    if (name) atk_object_set_name(acc, name);
+    if (desc) atk_object_set_description(acc, desc);
+}
+
 /* Every result row's icon (app icon, or a plugin's own) is resolved to
  * this fixed square size -- see xisserve_resolve_icon(). */
 #define XISSERVE_ICON_PX 22

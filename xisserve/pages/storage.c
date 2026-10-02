@@ -181,6 +181,7 @@ static GtkWidget *build_row(StorageRow *r)
 
     GtkWidget *mount_btn = gtk_button_new_with_label(r->mountpoint[0] ? _("Desmontar") : _("Montar"));
     g_signal_connect(mount_btn, "clicked", G_CALLBACK(on_mount_toggle), r);
+    xisserve_a11y(mount_btn, NULL, gtk_label_get_text(GTK_LABEL(header)));
     gtk_box_pack_start(GTK_BOX(hbox), mount_btn, FALSE, FALSE, 0);
 
     return hbox;
@@ -250,6 +251,7 @@ static void rebuild(void)
             }
             GtkWidget *eject_btn = gtk_button_new_with_label(_("Remover com seguran\xc3\xa7""a"));
             g_signal_connect(eject_btn, "clicked", G_CALLBACK(on_eject_clicked), g_strdup(disk));
+            xisserve_a11y(eject_btn, NULL, disk);
             /* g_strdup'd disk name is never freed -- these buttons live for the daemon's
              * whole session (rebuilt, not leaked-per-poll: the old row and its closure are
              * destroyed by clear_rows() before this runs again, taking this one string with it). */

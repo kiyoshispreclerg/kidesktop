@@ -853,6 +853,7 @@ GtkWidget *page_clipboard_build(void)
     g_signal_connect(g_entry, "changed", G_CALLBACK(on_entry_changed), NULL);
     g_signal_connect(g_entry, "activate", G_CALLBACK(on_entry_activate), NULL);
     g_signal_connect(g_entry, "key-press-event", G_CALLBACK(on_key), NULL);
+    xisserve_a11y(g_entry, _("Pesquisar"), NULL);
     gtk_box_pack_start(GTK_BOX(g_root), g_entry, FALSE, FALSE, 0);
 
     /* Visibility is the page's own call (see page_clipboard_on_show()),
@@ -882,6 +883,7 @@ GtkWidget *page_clipboard_build(void)
     gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(g_tree), FALSE);
     gtk_tree_view_set_enable_search(GTK_TREE_VIEW(g_tree), FALSE);
     gtk_widget_set_can_focus(g_tree, FALSE);   /* typing stays in the search entry */
+    xisserve_a11y(g_tree, _("Itens copiados"), NULL);
     style_fg(g_tree);
     style_bg_base(g_tree);
     GtkTreeViewColumn *col = gtk_tree_view_column_new();

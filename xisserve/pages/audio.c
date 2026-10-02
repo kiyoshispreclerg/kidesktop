@@ -424,6 +424,7 @@ static GtkWidget *build_row(const PulseEntry *e, GPtrArray *all_entries)
     }
 
     row->mute = gtk_toggle_button_new_with_label(_("Mudo"));
+    xisserve_a11y(row->mute, NULL, e->label);
     gtk_box_pack_start(GTK_BOX(top), row->mute, FALSE, FALSE, 0);
 
     row->scale = gtk_hscale_new_with_range(0, AUDIO_VOLUME_MAX, 1);
@@ -435,6 +436,7 @@ static GtkWidget *build_row(const PulseEntry *e, GPtrArray *all_entries)
      * bypasses these increments entirely -- see its comment.) */
     gtk_range_set_increments(GTK_RANGE(row->scale), scroll_step(), scroll_step() * 2);
     style_fg(row->scale);
+    xisserve_a11y(row->scale, e->label, _("Volume"));
     gtk_box_pack_start(GTK_BOX(box), row->scale, FALSE, FALSE, 0);
 
     if (e->kind == PULSE_SINK || e->kind == PULSE_SOURCE) {

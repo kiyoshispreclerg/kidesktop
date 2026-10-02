@@ -243,6 +243,7 @@ static GtkWidget *build_device_row(NetDevice *d)
     if (can_toggle) {
         GtkWidget *btn = gtk_button_new_with_label(connected ? _("Desativar") : _("Ativar"));
         g_signal_connect(btn, "clicked", G_CALLBACK(on_device_toggle), d);
+        xisserve_a11y(btn, NULL, gtk_label_get_text(GTK_LABEL(header)));
         gtk_box_pack_start(GTK_BOX(hbox), btn, FALSE, FALSE, 0);
     }
     return hbox;
@@ -268,6 +269,13 @@ static GtkWidget *build_wifi_row(WifiNet *w)
     gtk_box_pack_start(GTK_BOX(hbox), sig_label, FALSE, FALSE, 0);
 
     g_signal_connect(btn, "clicked", G_CALLBACK(on_wifi_row_clicked), w);
+    /* The visible text sits in an hbox inside the button, where GAIL
+     * doesn't look for a button's name -- and the lock/check glyphs mean
+     * nothing read aloud anyway. */
+    char desc[96];
+    snprintf(desc, sizeof(desc), "%s%s, %s", w->in_use ? _("conectada, ") : "", sig,
+             lock[0] ? _("protegida") : _("aberta"));
+    xisserve_a11y(btn, w->ssid, desc);
     return btn;
 }
 

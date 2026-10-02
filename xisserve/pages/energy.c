@@ -390,6 +390,7 @@ static void add_brightness_section(void)
     gtk_scale_set_value_pos(GTK_SCALE(g_brightness_scale), GTK_POS_RIGHT);
     gtk_range_set_increments(GTK_RANGE(g_brightness_scale), BRIGHTNESS_SCROLL_STEP, BRIGHTNESS_SCROLL_STEP * 2);
     style_fg(g_brightness_scale);
+    xisserve_a11y(g_brightness_scale, _("Brilho da tela"), NULL);
     int pct = brightness_get_pct();
     g_updating = TRUE;
     gtk_range_set_value(GTK_RANGE(g_brightness_scale), pct >= 0 ? pct : 50);
@@ -425,6 +426,7 @@ static void add_nightlight_section(void)
     gtk_scale_set_value_pos(GTK_SCALE(g_nightlight_scale), GTK_POS_RIGHT);
     gtk_range_set_increments(GTK_RANGE(g_nightlight_scale), NIGHTLIGHT_SCROLL_STEP, NIGHTLIGHT_SCROLL_STEP * 2);
     style_fg(g_nightlight_scale);
+    xisserve_a11y(g_nightlight_scale, _("Temperatura da luz noturna"), NULL);
     gtk_box_pack_start(GTK_BOX(g_box), g_nightlight_scale, FALSE, FALSE, 0);
 
     g_updating = TRUE;

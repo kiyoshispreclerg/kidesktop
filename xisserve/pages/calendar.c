@@ -414,6 +414,7 @@ GtkWidget *page_calendar_build(void)
 
     /* Right panel: the calendar itself. */
     g_calendar = gtk_calendar_new();
+    xisserve_a11y(g_calendar, _("Calend\xc3\xa1rio"), NULL);
     g_signal_connect(g_calendar, "day-selected", G_CALLBACK(on_day_selected), NULL);
     g_signal_connect(g_calendar, "month-changed", G_CALLBACK(on_day_selected), NULL);
     gtk_box_pack_start(GTK_BOX(outer), g_calendar, FALSE, FALSE, 0);

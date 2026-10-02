@@ -55,7 +55,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.1.52"
+#define XISSERVE_VERSION "0.1.53"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -2104,6 +2104,9 @@ static void update_header_title(void)
 {
     const char *text = g_args.page == PAGE_LAUNCHER ? launcher_display_name() : kPages[g_args.page].title;
     gtk_label_set_text(GTK_LABEL(g_header_title), text);
+    /* The window has no title of its own (it's a popup), so without this
+     * a screen reader announces an unnamed frame. */
+    xisserve_a11y(g_window, g_args.page == PAGE_LAUNCHER ? _("Menu de programas") : _(kPages[g_args.page].title), NULL);
 }
 
 /* ---- per-page window size persistence -------------------------------------
@@ -2976,6 +2979,7 @@ static void build_ui(void)
     g_signal_connect(g_entry, "changed", G_CALLBACK(on_entry_changed), NULL);
     g_signal_connect(g_entry, "activate", G_CALLBACK(on_entry_activate), NULL);
     g_signal_connect(g_entry, "key-press-event", G_CALLBACK(on_entry_key_press), NULL);
+    xisserve_a11y(g_entry, _("Pesquisar programas"), NULL);
     gtk_box_pack_start(GTK_BOX(vbox), g_entry, FALSE, FALSE, 0);
 
     g_content_box = gtk_hbox_new(FALSE, 4);
@@ -2991,6 +2995,7 @@ static void build_ui(void)
     GtkCellRenderer *cat_rend = gtk_cell_renderer_text_new();
     GtkTreeViewColumn *cat_col = gtk_tree_view_column_new_with_attributes("Categoria", cat_rend, "text", CCOL_LABEL, NULL);
     gtk_tree_view_append_column(GTK_TREE_VIEW(g_cat_treeview), cat_col);
+    xisserve_a11y(g_cat_treeview, _("Categorias"), NULL);
     gtk_widget_add_events(g_cat_treeview, GDK_POINTER_MOTION_MASK);
     g_signal_connect(g_cat_treeview, "motion-notify-event", G_CALLBACK(on_category_motion), NULL);
     g_signal_connect(gtk_tree_view_get_selection(GTK_TREE_VIEW(g_cat_treeview)), "changed",
@@ -3020,6 +3025,7 @@ static void build_ui(void)
     gtk_tree_view_column_add_attribute(col, rend, "markup", VCOL_MARKUP);
     gtk_tree_view_column_set_title(col, "Programa");
     gtk_tree_view_append_column(GTK_TREE_VIEW(g_treeview), col);
+    xisserve_a11y(g_treeview, _("Programas"), NULL);
     g_signal_connect(g_treeview, "button-press-event", G_CALLBACK(on_tree_button_press), NULL);
     gtk_widget_add_events(g_treeview, GDK_POINTER_MOTION_MASK);
     g_signal_connect(g_treeview, "motion-notify-event", G_CALLBACK(on_result_motion), NULL);
@@ -3039,6 +3045,7 @@ static void build_ui(void)
     gtk_icon_view_set_selection_mode(GTK_ICON_VIEW(g_iconview), GTK_SELECTION_SINGLE);
     gtk_icon_view_set_columns(GTK_ICON_VIEW(g_iconview), g_grid_columns);
     gtk_icon_view_set_item_width(GTK_ICON_VIEW(g_iconview), 84);
+    xisserve_a11y(g_iconview, _("Programas"), NULL);
     g_signal_connect(g_iconview, "button-press-event", G_CALLBACK(on_icon_button_press), NULL);
     gtk_widget_add_events(g_iconview, GDK_POINTER_MOTION_MASK);
     g_signal_connect(g_iconview, "motion-notify-event", G_CALLBACK(on_icon_motion), NULL);

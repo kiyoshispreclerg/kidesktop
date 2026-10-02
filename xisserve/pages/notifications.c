@@ -375,6 +375,7 @@ static GtkWidget *build_row(const NotifRow *n)
 
     GtkWidget *remove_btn = gtk_button_new_with_label(_("Remover"));
     g_signal_connect(remove_btn, "clicked", G_CALLBACK(on_remove_clicked), GUINT_TO_POINTER(n->id));
+    xisserve_a11y(remove_btn, NULL, n->summary[0] ? n->summary : n->body);
     gtk_box_pack_start(GTK_BOX(hbox), remove_btn, FALSE, FALSE, 0);
 
     return hbox;
