@@ -1,0 +1,83 @@
+Source: kidesktop
+Section: x11
+Priority: optional
+Maintainer: Kiyoshi Spreclerg <kiyoshi_pip@protonmail.com>
+Build-Depends: debhelper-compat (= 13),
+               pkg-config,
+               gettext,
+               libx11-dev,
+               libx11-xcb-dev,
+               libxrandr-dev,
+               libxfixes-dev,
+               libxcursor-dev,
+               libxtst-dev,
+               libxres-dev,
+               libxcomposite-dev,
+               libxdamage-dev,
+               libxcb1-dev,
+               libxcb-randr0-dev,
+               libxcb-shape0-dev,
+               libxcb-sync-dev,
+               libxcb-xinput-dev,
+               libxcb-xfixes0-dev,
+               libxcb-cursor-dev,
+               libxcb-icccm4-dev,
+               libxcb-keysyms1-dev,
+               libxcb-composite0-dev,
+               libxcb-damage0-dev,
+               libxcb-render0-dev,
+               libxcb-present-dev,
+               libxcb-dri3-dev,
+               libxcb-xkb-dev,
+               libcairo2-dev,
+               libpango1.0-dev,
+               libimlib2-dev,
+               libfreetype-dev,
+               libfontconfig-dev,
+               libgtk2.0-dev,
+               libdbus-1-dev,
+               libepoxy-dev,
+               libegl-dev,
+               libgbm-dev,
+               libdrm-dev,
+               libatk1.0-dev,
+               libatk-bridge2.0-dev
+Standards-Version: 4.6.0
+Homepage: https://github.com/kiyoshispreclerg/kidesktop
+Rules-Requires-Root: no
+
+Package: kidesktop
+Architecture: any
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+         libdbus-1-3,
+         x11-xserver-utils,
+         xinput
+Recommends: librsvg2-2,
+            pulseaudio-utils,
+            network-manager,
+            udisks2,
+            xdg-utils,
+            xss-lock,
+            i3lock,
+            zenity,
+            at-spi2-core,
+            lxpolkit | policykit-1-gnome | mate-polkit
+Suggests: orca,
+          xsct
+Description: lightweight X11 desktop: window manager, compositor, panel and tools
+ KiDesktop is a small desktop environment for X11 (and the XLibre fork),
+ built as separate programs that each work on their own:
+ .
+  * kisession - session leader and service supervisor
+  * kiwm / kicomp - window manager and compositor (XRender, GLX, EGL)
+  * xispanel - panel with taskbar, tray, menus and keyboard navigation
+  * xisserve - launcher and pages (audio, network, storage, calendar...)
+  * xisback, kiconfd, xiskeys, xismenu - wallpaper, settings daemon,
+    global hotkeys, global menu registrar
+  * kiconf - settings application
+  * xisguard - permission daemon for the XLibre XNOTIFY extension
+  * kimemory / kistory - clipboard and activity history
+ .
+ The panel, the Alt+Tab switcher and the GTK programs are reachable by
+ screen readers over AT-SPI when the session enables accessibility.

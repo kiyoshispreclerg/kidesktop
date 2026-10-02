@@ -1,0 +1,24 @@
+#!/usr/bin/make -f
+# One kidesktop package from the top-level Makefile, which builds and
+# installs every component (see ../Makefile).
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@
+
+# ./configure only checks dependencies (Build-Depends already did), and
+# the CMakeLists.txt at the root is the old Qt prototype, not part of the
+# package -- dh would otherwise try to run one of them.
+override_dh_auto_configure:
+
+override_dh_auto_build:
+	$(MAKE) PREFIX=/usr
+
+override_dh_auto_install:
+	$(MAKE) install PREFIX=/usr DESTDIR=$(CURDIR)/debian/kidesktop
+
+override_dh_auto_test:
+
+override_dh_auto_clean:
+	$(MAKE) clean

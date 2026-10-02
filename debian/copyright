@@ -1,0 +1,9 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: kidesktop
+Source: https://github.com/kiyoshispreclerg/kidesktop
+
+Files: *
+Copyright: Kiyoshi Spreclerg
+License: GPL-3+
+ On Debian systems the full text of the GNU General Public License
+ version 3 is in /usr/share/common-licenses/GPL-3.

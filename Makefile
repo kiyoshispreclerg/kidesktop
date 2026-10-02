@@ -26,4 +26,9 @@ check-deps:
 lint:
 	@./scripts/lint.sh
 
-.PHONY: all install uninstall clean check-deps lint $(COMPONENTS)
+# kidesktop_<version>_<arch>.deb for this distro, into dist/ (see
+# debian/README.source).
+deb:
+	@./scripts/build-deb.sh
+
+.PHONY: all install uninstall clean check-deps lint deb $(COMPONENTS)

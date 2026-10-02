@@ -1,0 +1,12 @@
+kidesktop Debian packaging
+==========================
+
+One binary package, kidesktop, built from the top-level Makefile.
+
+debian/changelog is not kept in git: scripts/build-deb.sh writes it for
+each build, with the version taken from the git tag (v1.2.3 -> 1.2.3, or
+0.0.0+git<date>.<commit> between tags) plus a distro suffix
+(~ubuntu22.04, ~debian12) so the per-distro builds of one release can
+sit side by side in a release's assets.
+
+    make deb            # -> dist/kidesktop_<version>_<arch>.deb
