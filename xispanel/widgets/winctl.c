@@ -751,6 +751,37 @@ static int winctl_on_button(PanelWidget *w, int button, int local_x, int local_y
     return 1;
 }
 
+/* Keyboard items: the title area (context menu, tooltip with the full
+ * title), then each button. Laid out as if hovered, since focusing the
+ * widget hovers it -- collapse_buttons= then shows all of them. */
+static int winctl_key_item(PanelWidget *w, int i, int *x, int *len, int *y, int *thick)
+{
+    WinctlPriv *wp = w->priv;
+    if (!wp->active_applies) {
+        return 0;
+    }
+    int show_buttons = wp->show_always || wp->maximized;
+    int nb = show_buttons ? wp->n_buttons : 0;
+    int btn_w = w->thickness;
+    int title_len = w->len - nb * btn_w;
+    int has_title = title_len > 0;
+    int n = has_title + nb;
+    if (i < 0 || i >= n) {
+        return n;
+    }
+    int btn0 = wp->side_start ? 0 : w->len - nb * btn_w;
+    *y = 0;
+    *thick = w->thickness;
+    if (has_title && i == 0) {
+        *x = wp->side_start ? nb * btn_w : 0;
+        *len = title_len;
+    } else {
+        *x = btn0 + (i - has_title) * btn_w;
+        *len = btn_w;
+    }
+    return n;
+}
+
 const PanelWidgetOps winctl_ops = {
     .type_name = "winctl",
     .priv_size = sizeof(WinctlPriv),
@@ -761,4 +792,5 @@ const PanelWidgetOps winctl_ops = {
     .on_button = winctl_on_button,
     .on_tick = winctl_on_tick,
     .get_tooltip = winctl_get_tooltip,
+    .key_item = winctl_key_item,
 };

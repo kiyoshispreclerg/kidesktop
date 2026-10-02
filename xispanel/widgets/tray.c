@@ -251,6 +251,21 @@ static int tray_on_button(PanelWidget *w, int button, int local_x, int local_y, 
     }
 }
 
+static int tray_key_item(PanelWidget *w, int i, int *x, int *len, int *y, int *thick)
+{
+    int icon_px, slot, pad, rows;
+    tray_layout(w, &icon_px, &slot, &pad, &rows);
+    int n = sni_count();
+    if (i < 0 || i >= n) {
+        return n;
+    }
+    *x = pad + (i / rows) * slot; /* column-major, as tray_paint() */
+    *y = pad + (i % rows) * slot;
+    *len = icon_px;
+    *thick = icon_px;
+    return n;
+}
+
 const PanelWidgetOps tray_ops = {
     .type_name = "tray",
     .embeddable = 1,
@@ -261,4 +276,5 @@ const PanelWidgetOps tray_ops = {
     .on_button = tray_on_button,
     .on_tick = tray_on_tick,
     .get_tooltip = tray_get_tooltip,
+    .key_item = tray_key_item,
 };

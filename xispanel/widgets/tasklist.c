@@ -2098,6 +2098,7 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
     }
 
     if (button == Button1 && tasklist_in_arrow_zone(tp, w->len, local_x)) {
+        keynav_keep(); /* scrolling only moves this widget's own view */
         if (local_x < TASKLIST_ARROW_W) {
             if (tp->can_left) {
                 tp->scroll_offset--;
@@ -2305,6 +2306,33 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
     return 0;
 }
 
+/* Keyboard items: the scroll arrows (when shown) and every visible
+ * button, in screen order -- Enter on an arrow scrolls like a click. */
+static int tasklist_key_item(PanelWidget *w, int i, int *x, int *len, int *y, int *thick)
+{
+    TasklistPriv *tp = w->priv;
+    tasklist_layout_visible(w);
+    int left = tp->scrollable && tp->can_left, right = tp->scrollable && tp->can_right;
+    int n = left + tp->n_visible + right;
+    if (i < 0 || i >= n) {
+        return n;
+    }
+    *y = 0;
+    *thick = w->thickness;
+    if (left && i == 0) {
+        *x = 0;
+        *len = TASKLIST_ARROW_W;
+    } else if (right && i == n - 1) {
+        *x = w->len - TASKLIST_ARROW_W;
+        *len = TASKLIST_ARROW_W;
+    } else {
+        int vi = i - left;
+        *x = tp->vis_x[vi];
+        *len = tp->vis_w[vi];
+    }
+    return n;
+}
+
 const PanelWidgetOps tasklist_ops = {
     .type_name = "tasklist",
     .priv_size = sizeof(TasklistPriv),
@@ -2325,4 +2353,5 @@ const PanelWidgetOps tasklist_ops = {
     .dnd_hover_window = tasklist_dnd_hover_window,
     .dnd_accepts_files = tasklist_dnd_accepts_files,
     .dnd_drop_files = tasklist_dnd_drop_files,
+    .key_item = tasklist_key_item,
 };

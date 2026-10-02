@@ -449,6 +449,33 @@ static int pager_cell_at(PagerPriv *pp, int local_x, int local_y, int *out_g, in
     return 0;
 }
 
+/* Keyboard items: every cell that is a desktop, group by group, column
+ * by column -- screen order on a horizontal bar. */
+static int pager_key_item(PanelWidget *w, int i, int *x, int *len, int *y, int *thick)
+{
+    PagerPriv *pp = w->priv;
+    pager_compute_geometry(pp, w->thickness);
+    int k = 0;
+    for (int g = 0; g < pp->n_groups; g++) {
+        for (int c = 0; c < pp->cols; c++) {
+            for (int r = 0; r < pp->rows; r++) {
+                int d = pager_rc_to_desktop(r, c, pp->cols, pp->rows, pp->orientation, pp->starting_corner);
+                if (d < 0 || d >= pp->n_desktops) {
+                    continue;
+                }
+                if (k == i) {
+                    *x = pp->group_x[g] + c * pp->btn_w[g];
+                    *len = pp->btn_w[g];
+                    *y = r * pp->row_h;
+                    *thick = pp->row_h;
+                }
+                k++;
+            }
+        }
+    }
+    return k;
+}
+
 static void pager_measure(PanelWidget *w, int cross_axis, int *out_len, int *out_min_len)
 {
     PagerPriv *pp = w->priv;
@@ -690,4 +717,5 @@ const PanelWidgetOps pager_ops = {
     .on_button = pager_on_button,
     .get_tooltip = pager_get_tooltip,
     .on_tick = pager_on_tick,
+    .key_item = pager_key_item,
 };
