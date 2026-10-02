@@ -100,7 +100,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.81"
+#define XISPANEL_VERSION "0.6.82"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -3323,6 +3323,7 @@ static void config_focus_key(char *out, size_t outsz)
     }
     char line[1024];
     while (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\r\n")] = 0; /* kv_get() would keep it in a last-key value */
         if (strncmp(line, "PANEL", 5) == 0 && kv_get(line, "focus_key", out, outsz)) {
             break;
         }
