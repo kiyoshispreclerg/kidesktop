@@ -136,11 +136,13 @@ make deb    # dist/kidesktop_<version>~<distro><release>_<arch>.deb for this dis
 ```
 
 GitHub Actions runs `make lint` on Ubuntu 22.04, Ubuntu 24.04 and Debian 12
-for every push and pull request (`.github/workflows/ci.yml`). Pushing a
-`v*` tag or publishing a release builds the source `.zip` and the `.deb`
-for those three distros and attaches them to the release; "Run workflow"
-on *Release packages* builds the same files as workflow artifacts only
-(`.github/workflows/release.yml`). The Debian 12 package also installs on
+for every push and pull request (`.github/workflows/ci.yml`).
+*Release packages* (`.github/workflows/release.yml`) builds the source
+`.zip` and the `.deb` for those three distros: automatically for a stable
+tag or release (`v1.0.0` and up, no `-suffix`), attached to that release;
+for a pre-release (`v0.x.y`, `v1.2.0-rc1`) only on demand -- "Run
+workflow" with the tag, attached to a release marked pre-release; "Run
+workflow" without a tag keeps the files as workflow artifacts. The Debian 12 package also installs on
 Devuan 5.
 
 ## License

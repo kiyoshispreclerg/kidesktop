@@ -1,10 +1,13 @@
 # Source .zip and kidesktop .deb packages for Ubuntu 22.04, Ubuntu 24.04
 # and Debian 12 (also what Devuan 5 installs).
 #
-#   tag push (v*) or a published release -> built and attached to that
-#                                           tag's GitHub release
-#   Run workflow (workflow_dispatch)     -> built and kept as workflow
-#                                           artifacts only
+#   stable tag push / published release   -> built and attached to that
+#     (v1.0.0 and up, no -suffix)            release automatically
+#   pre-release tag (v0.x.y, v1.2.0-rc1)   -> nothing on push; build it with
+#                                            "Run workflow" + tag, attached
+#                                            to a release marked pre-release
+#   "Run workflow" without a tag           -> built from the chosen branch,
+#                                            kept as workflow artifacts only
 name: Release packages
 
 on:
@@ -14,8 +17,8 @@ on:
     types: [published]
   workflow_dispatch:
     inputs:
-      version:
-        description: "Version to stamp (empty = from git: tag or 0.0.0+git<date>.<commit>)"
+      tag:
+        description: "Tag to build and attach to its release (e.g. v0.3.0). Empty = artifacts only, from the selected branch."
         required: false
         default: ""
 
@@ -23,21 +26,64 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event.inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
+  gate:
+    name: decide
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.d.outputs.build }}
+      publish: ${{ steps.d.outputs.publish }}
+      prerelease: ${{ steps.d.outputs.prerelease }}
+      tag: ${{ steps.d.outputs.tag }}
+      ref: ${{ steps.d.outputs.ref }}
+    steps:
+      - id: d
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then
+            tag="$INPUT_TAG"
+          else
+            tag="$REF_NAME"
+          fi
+          # Stable = v<major>.<minor>.<patch> with major >= 1 and no -suffix.
+          stable=false
+          if echo "$tag" | grep -Eq '^v?[1-9][0-9]*\.[0-9]+\.[0-9]+$'; then
+            stable=true
+          fi
+          if [ "$EVENT" = workflow_dispatch ]; then
+            build=true
+            if [ -n "$tag" ]; then publish=true; ref="refs/tags/$tag"; else publish=false; ref="$REF"; fi
+          else
+            build=$stable
+            publish=$stable
+            ref="$REF"
+          fi
+          prerelease=true
+          [ "$stable" = true ] && prerelease=false
+          echo "tag=$tag stable=$stable build=$build publish=$publish"
+          { echo "build=$build"; echo "publish=$publish"; echo "prerelease=$prerelease"
+            echo "tag=$tag"; echo "ref=$ref"; } >> "$GITHUB_OUTPUT"
+
   source:
     name: source .zip
+    needs: gate
+    if: needs.gate.outputs.build == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ needs.gate.outputs.ref }}
           fetch-depth: 0
       - name: git archive
         run: |
-          v="${{ github.event.inputs.version }}"
-          [ -n "$v" ] || v=$(git describe --tags --exact-match 2>/dev/null || git rev-parse --short HEAD)
+          v=$(git describe --tags --exact-match 2>/dev/null || git rev-parse --short HEAD)
           v="${v#v}"
           mkdir -p dist
           git archive --format=zip --prefix="kidesktop-$v/" -o "dist/kidesktop-$v-src.zip" HEAD
@@ -48,6 +94,8 @@ jobs:
 
   deb:
     name: deb (${{ matrix.image }})
+    needs: gate
+    if: needs.gate.outputs.build == 'true'
     runs-on: ubuntu-latest
     container: ${{ matrix.image }}
     strategy:
@@ -65,13 +113,14 @@ jobs:
         run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git ca-certificates
       - uses: actions/checkout@v4
         with:
+          ref: ${{ needs.gate.outputs.ref }}
           fetch-depth: 0
       - name: Install build dependencies
         run: ./scripts/install-build-deps.sh
       - name: make deb
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          KIDESKTOP_VERSION="${{ github.event.inputs.version }}" ./scripts/build-deb.sh
+          ./scripts/build-deb.sh
       - uses: actions/upload-artifact@v4
         with:
           name: deb-${{ matrix.name }}
@@ -79,8 +128,8 @@ jobs:
 
   publish:
     name: attach to release
-    if: github.event_name != 'workflow_dispatch'
-    needs: [source, deb]
+    needs: [gate, source, deb]
+    if: needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -90,10 +139,13 @@ jobs:
       - name: Upload to the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.gate.outputs.tag }}
+          PRERELEASE: ${{ needs.gate.outputs.prerelease }}
         run: |
           ls -l out
-          # A tag push has no release yet; a published release already does.
+          flag=""
+          [ "$PRERELEASE" = true ] && flag="--prerelease"
+          # A tag alone has no release yet; a published release already does.
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
-            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --generate-notes
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --generate-notes $flag
           gh release upload "$TAG" out/* --repo "$GITHUB_REPOSITORY" --clobber
