@@ -1162,6 +1162,44 @@ static const WidgetField PANEL_FIELDS[] = {
 };
 #define N_PANEL_FIELDS ((int)(sizeof(PANEL_FIELDS) / sizeof(PANEL_FIELDS[0])))
 
+/* Keys this dialog has no field for (square_when_maximized=, focus_key=,
+ * anything hand-added) are copied over from the row's old options as-is,
+ * instead of being dropped by an edit that never showed them. */
+static void keep_unlisted_panel_keys(char *opts, size_t optssz, const char *old)
+{
+    const char *p = old ? old : "";
+    while (*p) {
+        while (*p == ' ' || *p == '\t') {
+            p++;
+        }
+        if (!*p) {
+            break;
+        }
+        const char *start = p;
+        int quoted = 0;
+        while (*p && (quoted || (*p != ' ' && *p != '\t'))) {
+            if (*p == '"') {
+                quoted = !quoted;
+            }
+            p++;
+        }
+        size_t toklen = (size_t)(p - start);
+        const char *eq = memchr(start, '=', toklen);
+        if (!eq) {
+            continue;
+        }
+        size_t keylen = (size_t)(eq - start);
+        int listed = 0;
+        for (int i = 0; i < N_PANEL_FIELDS && !listed; i++) {
+            listed = strlen(PANEL_FIELDS[i].key) == keylen && !strncmp(PANEL_FIELDS[i].key, start, keylen);
+        }
+        size_t len = strlen(opts);
+        if (!listed && len + toklen + 2 < optssz) {
+            snprintf(opts + len, optssz - len, "%s%.*s", len ? " " : "", (int)toklen, start);
+        }
+    }
+}
+
 /* Shared by "Adicionar painel" (iter == NULL, appends a new row on OK)
  * and double-clicking/activating an existing row (iter != NULL, updates
  * that row in place) -- see add_panel_cb()/panel_row_activated(). */
@@ -1224,6 +1262,7 @@ static void open_panel_dialog(GtkTreeIter *iter)
                 widget_field_value(&PANEL_FIELDS[i], field_widgets[i], valbuf, sizeof(valbuf));
                 wopts_append(opts, sizeof(opts), PANEL_FIELDS[i].key, valbuf);
             }
+            keep_unlisted_panel_keys(opts, sizeof(opts), cur_opts);
 
             if (iter) {
                 rename_panel_everywhere(cur_name ? cur_name : "", new_name_text);
