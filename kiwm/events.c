@@ -191,6 +191,16 @@ static void handle_configure_request(xcb_configure_request_event_t *ev)
 
     configure_frame(c);
 
+    /* An app that moves itself after mapping (restoring a saved position,
+     * say) lands wherever it asks, and manage() already decided its output
+     * from the position it had at map time. Without re-deciding here
+     * _KIWM_WM_OUTPUT keeps naming the old screen -- the panel and the
+     * switcher list it there -- until a drag happens to re-derive it. */
+    if (ev->value_mask & (XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH |
+                          XCB_CONFIG_WINDOW_HEIGHT) &&
+        wm.drag_client != c)
+        client_reassign_output(c, output_index_for_point(c->x + c->width / 2, c->y + c->height / 2));
+
     /* A plain XRaiseWindow/XLowerWindow arrives here too, and used to be
      * dropped on the floor -- an app asking to be raised (VirtualBox's
      * mini-toolbar does exactly that when it slides back into view) simply
