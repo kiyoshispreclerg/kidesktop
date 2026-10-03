@@ -1746,8 +1746,20 @@ static void tasklist_paint(PanelWidget *w, cairo_t *cr)
             double mid = at_start ? (oy + sz / 2.0) : (oy + w->thickness - sz / 2.0);
             cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.9);
             if (tp->running_indicator == RUNNING_INDICATOR_DOT) {
-                cairo_arc(cr, bx + icon_x_off + icon_px / 2.0, mid, sz / 2.0, 0, 2 * M_PI);
-                cairo_fill(cr);
+                int max_dots = icon_px / (2 * sz);
+                if (max_dots < 1) {
+                    max_dots = 1;
+                }
+                int n_dots = group_count < max_dots ? group_count : max_dots;
+                if (n_dots < 1) {
+                    n_dots = 1;
+                }
+                double cx = bx + icon_x_off + icon_px / 2.0;
+                for (int di = 0; di < n_dots; di++) {
+                    double dx = cx + (di - (n_dots - 1) / 2.0) * 2 * sz;
+                    cairo_arc(cr, dx, mid, sz / 2.0, 0, 2 * M_PI);
+                    cairo_fill(cr);
+                }
             } else {
                 cairo_rectangle(cr, bx + icon_x_off, mid - sz / 2.0, icon_px, sz);
                 cairo_fill(cr);

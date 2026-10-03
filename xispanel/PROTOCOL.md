@@ -264,7 +264,9 @@ Widget types implemented so far:
   running-but-unfocused-and-unminimized window and a launcher placeholder
   otherwise look identical (the focused-task tint and the minimized-task
   dim each cover only their own state). `running_indicator_size=<px>`
-  (default `3`) sets the dot's diameter or the line's thickness.
+  (default `3`) sets the dot's diameter or the line's thickness. With
+  `dot`, a grouped button (`group=yes`) gets one dot per window in its
+  group, capped at however many fit across the icon (`icon_px / (2 * size)`).
   `running_indicator_side=near|far` (default `near`) picks which side of
   the icon it hugs: `near` the panel's own screen edge (e.g. the bottom of
   the icon on a `bottom` panel), `far` the opposite side, facing the
