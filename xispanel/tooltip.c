@@ -607,7 +607,8 @@ static int thumb_bbox(int *out_x, int *out_y, int *out_w, int *out_h)
     if (!g_has_group || !g_popup->group_thumbs || g_popup->group_shown_n <= 0) {
         return 0;
     }
-    int x0 = INT_MAX, y0 = INT_MAX, x1 = INT_MIN, y1 = INT_MIN;
+    int x0 = g_popup->group_item_x[0], y0 = g_popup->group_item_y[0];
+    int x1 = x0 + g_thumb_w, y1 = y0 + g_thumb_h;
     for (int i = 0; i < g_popup->group_shown_n; i++) {
         int ix = g_popup->group_item_x[i], iy = g_popup->group_item_y[i];
         if (ix < x0) {
@@ -626,7 +627,6 @@ static int thumb_bbox(int *out_x, int *out_y, int *out_w, int *out_h)
     *out_x = x0;
     *out_y = y0;
     *out_w = x1 - x0;
-    // cppcheck-suppress integerOverflow
     *out_h = y1 - y0;
     return 1;
 }
