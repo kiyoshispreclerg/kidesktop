@@ -4,7 +4,7 @@
 # Build-Depends of debian/control installed.
 #
 # Version: KIDESKTOP_VERSION if set, else the exact git tag (v1.2.3 ->
-# 1.2.3), else 0.0.0+git<commit date>.<commit>; always followed by
+# 1.2.3), else <VERSION file>+git<commit date>.<commit>; always followed by
 # ~<distro><release> (~ubuntu22.04, ~debian12), which sorts below the bare
 # version, so a later official package still upgrades over it.
 set -eu
@@ -18,7 +18,7 @@ if [ -n "${KIDESKTOP_VERSION:-}" ]; then
 elif tag=$(git describe --tags --exact-match 2>/dev/null); then
 	base="${tag#v}"
 else
-	base="0.0.0+git$(git log -1 --format=%cd --date=format:%Y%m%d).$(git rev-parse --short HEAD)"
+	base="$(tr -d ' \t\r\n' < VERSION)+git$(git log -1 --format=%cd --date=format:%Y%m%d).$(git rev-parse --short HEAD)"
 fi
 version="${base}${suffix}"
 

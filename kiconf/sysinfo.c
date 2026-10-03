@@ -223,6 +223,12 @@ static void add_fact(GtkWidget *box, const char *label, const char *value)
     gtk_box_pack_start(GTK_BOX(box), lbl, FALSE, FALSE, 0);
 }
 
+/* Set by kiconf/Makefile from ../VERSION; the fallback only matters for
+ * a hand-rolled build that bypasses the Makefile. */
+#ifndef KIDESKTOP_VERSION
+#define KIDESKTOP_VERSION "?"
+#endif
+
 GtkWidget *build_sysinfo_panel(void)
 {
     GtkWidget *box = gtk_vbox_new(FALSE, 4);
@@ -240,6 +246,7 @@ GtkWidget *build_sysinfo_panel(void)
 
     add_fact(box, "Usuario:", user);
     add_fact(box, "Computador:", host);
+    add_fact(box, "KiDesktop:", KIDESKTOP_VERSION);
     add_fact(box, "Distribuicao:", distro[0] ? distro : "?");
     add_fact(box, "Kernel:", kernel);
     add_fact(box, "Servidor X:", xserver);

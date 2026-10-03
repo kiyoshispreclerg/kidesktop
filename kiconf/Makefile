@@ -9,6 +9,10 @@ ICONDIR ?= /usr/share/icons/hicolor/scalable/apps
 
 CFLAGS ?= -Wall -Wextra -O2
 CFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"'
+# KiDesktop's single version source of truth: ../VERSION (also read by
+# scripts/build-deb.sh). Edit that file, not this Makefile.
+KIDESKTOP_VERSION := $(shell cat ../VERSION 2>/dev/null | tr -d ' \t\r\n')
+CFLAGS += -DKIDESKTOP_VERSION='"$(KIDESKTOP_VERSION)"'
 # GTK2's own headers use GLib types GLib has since deprecated (GTimeVal,
 # GTypeDebugFlags); those warnings say nothing about this code.
 CFLAGS += -DGLIB_DISABLE_DEPRECATION_WARNINGS
@@ -42,7 +46,7 @@ MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
 all: kiconf
 
-kiconf: $(SRCS)
+kiconf: $(SRCS) ../VERSION
 	$(CC) $(CFLAGS) -o $@ $(SRCS) $(LIBS)
 
 # ---- translations (see po/README.md for the day-to-day workflow) ----------
