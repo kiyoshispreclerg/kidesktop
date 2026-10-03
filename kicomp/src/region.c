@@ -166,6 +166,7 @@ void region_subtract_rect(CompRegion *r, const CompRect *cut)
         }
     }
 
+    // cppcheck-suppress uninitvar
     memcpy(r->rects, out, sizeof(CompRect) * (size_t)n);
     r->count = n;
 }

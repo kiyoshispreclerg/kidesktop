@@ -303,6 +303,7 @@ static int build_one_level(FolderPriv *fp, const char *dirpath, int base, MenuIt
         ne++;
     }
     closedir(d);
+    // cppcheck-suppress uninitvar
     qsort(entries, (size_t)ne, sizeof(entries[0]), cmp_folder_entries);
 
     if (ne > 0 && n < max_items) {

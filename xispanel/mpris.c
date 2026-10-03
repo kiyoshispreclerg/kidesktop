@@ -149,6 +149,7 @@ static DBusMessage *mpris_call0(const char *dest, const char *path, const char *
         p_dbus_error_free(&err);
         return NULL;
     }
+    // cppcheck-suppress returnDanglingLifetime
     return reply;
 }
 

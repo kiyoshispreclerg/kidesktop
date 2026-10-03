@@ -523,6 +523,7 @@ static DBusMessage *sni_call2s(const char *dest, const char *path, const char *i
         p_dbus_error_free(&err);
         return NULL;
     }
+    // cppcheck-suppress returnDanglingLifetime
     return reply;
 }
 

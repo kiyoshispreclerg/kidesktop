@@ -336,6 +336,7 @@ static int leaving_rank(CompWindow *w, const CompOutput *o)
         }
     }
 
+    // cppcheck-suppress uninitvar
     int top = covered[wi] >= 0 ? covered[wi] : wi;
     int rank = 0;
     for (int k = 0; k < top; k++)

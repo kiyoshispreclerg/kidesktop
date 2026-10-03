@@ -1397,6 +1397,7 @@ cairo_surface_t *resolve_icon_theme_name(const char *name, int target_size)
     for (size_t i = 0; i < sizeof(hardcoded) / sizeof(hardcoded[0]) && n_bases < ICON_BASE_MAX; i++) {
         int dup = 0;
         for (int j = 0; j < n_bases; j++) {
+            // cppcheck-suppress uninitvar
             if (strcmp(bases[j], hardcoded[i]) == 0) {
                 dup = 1;
                 break;
