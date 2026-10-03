@@ -155,7 +155,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.19"
+#define KICONFD_VERSION "0.2.20"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -1337,6 +1337,71 @@ static int apply_screens_layout(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* Power (kiconfd-power.conf)                                          */
+/* ------------------------------------------------------------------ */
+
+/* Written by kiconf's Outras tab (DPMS + screensaver). Same separate-file
+ * reason as kiconfd-input.conf. The server forgets xset's values on
+ * every restart, so this replays them once per session and on SIGHUP. */
+static void apply_power_settings(void)
+{
+    char path[PATH_MAX];
+    path_in_config(path, sizeof(path), "kiconfd-power.conf");
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        fprintf(stderr, "kiconfd: power: no '%s', nothing to apply\n", path);
+        return;
+    }
+    int dpms_enabled = 1, standby = 0, suspend = 0, off = 0;
+    int saver_timeout = 0, saver_cycle = 600, prefer_blanking = 1;
+    char line[LINE_MAX_LEN];
+    while (fgets(line, sizeof(line), f)) {
+        char *l = trim(line);
+        char *eq = strchr(l, '=');
+        if (!*l || *l == '#' || !eq) {
+            continue;
+        }
+        *eq = '\0';
+        char *key = trim(l);
+        int v = atoi(trim(eq + 1));
+        if (!strcmp(key, "dpms_enabled")) {
+            dpms_enabled = v != 0;
+        } else if (!strcmp(key, "dpms_standby")) {
+            standby = v;
+        } else if (!strcmp(key, "dpms_suspend")) {
+            suspend = v;
+        } else if (!strcmp(key, "dpms_off")) {
+            off = v;
+        } else if (!strcmp(key, "saver_timeout")) {
+            saver_timeout = v;
+        } else if (!strcmp(key, "saver_cycle")) {
+            saver_cycle = v;
+        } else if (!strcmp(key, "prefer_blanking")) {
+            prefer_blanking = v != 0;
+        }
+    }
+    fclose(f);
+    fprintf(stderr, "kiconfd: power: loaded '%s' (dpms=%d %d/%d/%d saver=%d/%d blank=%d)\n", path,
+             dpms_enabled, standby, suspend, off, saver_timeout, saver_cycle, prefer_blanking);
+
+    char a[16], b[16], c[16];
+    snprintf(a, sizeof(a), "%d", standby);
+    snprintf(b, sizeof(b), "%d", suspend);
+    snprintf(c, sizeof(c), "%d", off);
+    char *dpms_times[] = {"xset", "dpms", a, b, c, NULL};
+    run_fire(dpms_times);
+    char *dpms_onoff[] = {"xset", dpms_enabled ? "+dpms" : "-dpms", NULL};
+    run_fire(dpms_onoff);
+
+    snprintf(a, sizeof(a), "%d", saver_timeout);
+    snprintf(b, sizeof(b), "%d", saver_cycle);
+    char *saver[] = {"xset", "s", a, b, NULL};
+    run_fire(saver);
+    char *blank[] = {"xset", "s", prefer_blanking ? "blank" : "noblank", NULL};
+    run_fire(blank);
+}
+
+/* ------------------------------------------------------------------ */
 /* Input (kiconfd-input.conf)                                          */
 /* ------------------------------------------------------------------ */
 
@@ -2148,6 +2213,7 @@ static void reload_config(void)
     load_config();
     apply_and_persist_defaults();
     apply_input_settings();
+    apply_power_settings();
 }
 
 int main(int argc, char **argv)
@@ -2256,6 +2322,7 @@ int main(int argc, char **argv)
     load_config();
     apply_and_persist_defaults();
     apply_input_settings();
+    apply_power_settings();
     apply_nightlight();
 
     /* sleep() rather than pause(): the loop now also has to wake up on

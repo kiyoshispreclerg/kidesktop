@@ -56,7 +56,7 @@ export_to_other_desktops = 0|1   # off by default, see below
 Any key missing the first time is filled with a default and saved back.
 
 Screens and input settings live in their own separate files
-(`kiconfd-screens.conf`, `kiconfd-input.conf`) written by `kiconf`, since
+(`kiconfd-screens.conf`, `kiconfd-input.conf`, `kiconfd-power.conf`) written by `kiconf`, since
 those tabs rewrite their own file rather than the whole config.
 
 `kiconfd-a11y.conf` (kiconf's Acessibilidade tab) holds the XKB AccessX
