@@ -555,6 +555,11 @@ static const WidgetField CLIPBOARD_FIELDS[] = {
     WF_STR("cmd", "Comando ao clicar (xisserve)", ""),
     WF_BOOL("for_active", "Abrir filtrado pelo app da janela ativa", "no"),
 };
+static const WidgetField LOCKKEYS_FIELDS[] = {
+    WF_STR("keys", "Teclas mostradas (caps,num)", "caps,num"),
+    WF_STR("urgent", "Teclas que sobem pra barra via inline=urgent (caps,num ou none)", "caps"),
+    WF_INT("interval", "Intervalo de leitura (ms)", "250", 50, 5000),
+};
 static const WidgetField NOTIF_FIELDS[] = {
     WF_ENUM("corner", "Canto dos alertas (toast)", "bottom-right", NOTIF_CORNER_OPTS),
     WF_INT("timeout", "Duracao do alerta (ms)", "5000", 500, 60000),
@@ -619,6 +624,7 @@ static const WidgetSchema WIDGET_SCHEMAS[] = {
     WSCHEMA("network", NETWORK_FIELDS),
     WSCHEMA("storage", STORAGE_FIELDS),
     WSCHEMA("clipboard", CLIPBOARD_FIELDS),
+    WSCHEMA("lockkeys", LOCKKEYS_FIELDS),
     WSCHEMA("notif", NOTIF_FIELDS),
     WSCHEMA("globalmenu", GLOBALMENU_FIELDS),
     WSCHEMA("folder", FOLDER_FIELDS),
@@ -631,14 +637,15 @@ static const WidgetSchema WIDGET_SCHEMAS[] = {
 
 static const char *const WIDGET_TYPE_NAMES[] = {
     "spacer", "clock", "tasklist", "pager", "monitor", "winctl", "tray", "launcher",
-    "volume", "energy", "network", "storage", "clipboard", "notif", "globalmenu", "folder", "xisserve", "container",
+    "volume", "energy", "network", "storage", "clipboard", "lockkeys", "notif", "globalmenu", "folder", "xisserve",
+    "container",
     NULL,
 };
 /* The only types xispanel accepts on a mode=container panel (its
  * `embeddable` PanelWidgetOps flag -- keep in sync with the widget files
  * under xispanel/widgets/). Deliberately no `container`: they don't nest. */
 static const char *const EMBEDDABLE_TYPE_NAMES[] = {
-    "monitor", "tray", "launcher", "volume", "energy", "network", "storage", "clipboard", "notif", "folder", NULL,
+    "monitor", "tray", "launcher", "volume", "energy", "network", "storage", "clipboard", "lockkeys", "notif", "folder", NULL,
 };
 
 

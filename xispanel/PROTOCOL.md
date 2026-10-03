@@ -578,6 +578,14 @@ Widget types implemented so far:
   timer -- see "Energy" below for the full behavior (icon states,
   low-battery toasts, `interval=`). `cmd=` overrides the binary launched
   on click (default `xisserve`), same as `volume`/`network`/`storage`.
+- `lockkeys`: one small keycap per watched lock key (`A` = Caps Lock,
+  `1` = Num Lock), filled while locked and outlined/dimmed while not.
+  `keys=caps,num` (default) picks which keycaps are drawn; `urgent=caps`
+  (default) lists the keys whose being locked counts as urgent, i.e.
+  what `inline=urgent` inside a `container` reacts to (`urgent=none`
+  never surfaces on its own; keys in `urgent=` are always drawn).
+  `interval=<ms>` (default `250`) is the poll rate. Meant for a
+  container so it only shows on the bar while e.g. Caps Lock is on.
 - `network`: single icon reflecting connectivity, backed by shelling out
   to `nmcli` (see `../network.c`) -- no toasts of its own, since
   NetworkManager's own DBus notifications already flow through
@@ -1093,7 +1101,7 @@ own bg/fg, spacing, bitmap theme, `border_radius` from the theme's
   grab over for as long as it's up and hands it back on close. An
   autohide owner bar stays out while its popup is open.
 - **Only embeddable widgets** may live inside: `monitor`, `tray`,
-  `volume`, `notif`, `folder`, `launcher`, `energy` (types marked
+  `volume`, `notif`, `folder`, `launcher`, `energy`, `lockkeys` (types marked
   `embeddable` in their `PanelWidgetOps`). Anything else on a
   `mode=container` panel is logged and ignored -- including `container`
   itself, so containers never nest.
@@ -1103,7 +1111,7 @@ own bg/fg, spacing, bitmap theme, `border_radius` from the theme's
   container's chevron, instead of in the popup) or `inline=urgent`
   (shown there only while the widget reports something worth seeing:
   `notif` with unread notifications, `monitor` at or over its `high=`,
-  `energy` discharging at 20% or below -- the same conditions their own
+  `energy` discharging at 20% or below, `lockkeys` with a key from its `urgent=` locked -- the same conditions their own
   badge/color/toast already react to; `tray`, `volume`, `folder`,
   `launcher` have no such state and never surface on their own). While
   inlined the widget is laid out, painted and clicked on the bar, in the
