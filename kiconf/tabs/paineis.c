@@ -422,6 +422,8 @@ typedef struct {
 #define WF_COLOR_OPT(k, l) {k, l, WT_COLOR_OPT, "", 0, 0, NULL}
 
 static const char *const TASKLIST_MODE_OPTS[] = {"wide", "compact", NULL};
+static const char *const RUNNING_INDICATOR_OPTS[] = {"none", "dot", "line", NULL};
+static const char *const RUNNING_INDICATOR_SIDE_OPTS[] = {"near", "far", NULL};
 static const char *const MONITOR_METRIC_OPTS[] = {"cpu", "ram", "swap", "gpu", "vram", "cpu_temp", "gpu_temp", NULL};
 static const char *const MONITOR_STYLE_OPTS[] = {"text", "bar", "both", NULL};
 static const char *const ORIENTATION_OPTS[] = {"vertical", "horizontal", NULL};
@@ -457,6 +459,9 @@ static const WidgetField CLOCK_FIELDS[] = {
 static const WidgetField TASKLIST_FIELDS[] = {
     WF_ENUM("mode", "Modo", "wide", TASKLIST_MODE_OPTS),
     WF_BOOL("show_desktop_badge", "Emblema de area de trabalho", "no"),
+    WF_ENUM("running_indicator", "Indicador de janela aberta", "none", RUNNING_INDICATOR_OPTS),
+    WF_INT("running_indicator_size", "Espessura/diametro do indicador (px)", "3", 1, 32),
+    WF_ENUM("running_indicator_side", "Lado do indicador", "near", RUNNING_INDICATOR_SIDE_OPTS),
     WF_BOOL("same_desktop", "So a area de trabalho atual", "no"),
     WF_BOOL("same_output", "So esta tela", "no"),
     WF_BOOL("minimized_only", "So janelas minimizadas", "no"),
@@ -622,7 +627,7 @@ static const WidgetSchema WIDGET_SCHEMAS[] = {
 };
 #undef WSCHEMA
 #define N_WIDGET_SCHEMAS ((int)(sizeof(WIDGET_SCHEMAS) / sizeof(WIDGET_SCHEMAS[0])))
-#define WIDGET_MAX_FIELDS 18 /* tasklist has the most, at 17, plus the inline row */
+#define WIDGET_MAX_FIELDS 21 /* tasklist has the most, at 20, plus the inline row */
 
 static const char *const WIDGET_TYPE_NAMES[] = {
     "spacer", "clock", "tasklist", "pager", "monitor", "winctl", "tray", "launcher",

@@ -28,6 +28,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -116,6 +117,8 @@ typedef struct {
 
 #define MAX_PINNED 24
 
+enum { RUNNING_INDICATOR_NONE = 0, RUNNING_INDICATOR_DOT, RUNNING_INDICATOR_LINE };
+
 typedef struct {
     int compact; /* 0 = wide (icon+label), 1 = compact (icon only) */
     int auto_compact; /* auto_compact= (default 1): a wide row that doesn't fit even with its titles
@@ -163,6 +166,22 @@ typedef struct {
      * setting needed, just how big the box itself is allowed to get. */
     int thumb_w, thumb_h;
     int show_desktop_badge; /* 1 = draw the task's virtual-desktop number on its icon; 0 (default) = don't. */
+    /* running_indicator=none (default) |dot|line: a small permanent mark
+     * on every *real, running* task's icon -- is_placeholder ones never
+     * get one. Needed mainly in compact/icon-only mode: a running-but-
+     * unfocused-and-unminimized window and a pinned-not-running launcher
+     * otherwise draw completely identically there, since the active-task
+     * tint only shows while focused (tasklist_paint()'s is_active rect)
+     * and the alpha dim only shows while minimized (cairo_paint_with_alpha
+     * below) -- neither cue fires for the plain "running, unfocused, not
+     * minimized" case. Drawn after cairo_paint_with_alpha(), not inside
+     * the dimmed group, so it stays fully visible (if drawn at all) even
+     * on a minimized task -- it answers "is this running", which stays
+     * true either way. */
+    int running_indicator;
+    int running_indicator_size; /* px thickness (line) or diameter (dot); running_indicator_size= (default 3) */
+    int running_indicator_near; /* running_indicator_side= near (default) | far -- see
+                                  * tasklist_indicator_at_start()'s doc comment for what "near" means per edge. */
     int launch_feedback; /* 1 = a clicked launcher icon (pinned placeholder) zooms+fades via launchfx.c;
                            * 0 (default) = don't. Purely cosmetic -- never gates whether the launch itself
                            * happens. */
@@ -570,6 +589,20 @@ static int tasklist_init(PanelWidget *w)
         tp->thumb_h = 0;
     }
     tp->show_desktop_badge = kv_get(w->config_kv, "show_desktop_badge", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
+    tp->running_indicator = RUNNING_INDICATOR_NONE;
+    if (kv_get(w->config_kv, "running_indicator", buf, sizeof(buf))) {
+        if (!strcmp(buf, "dot")) {
+            tp->running_indicator = RUNNING_INDICATOR_DOT;
+        } else if (!strcmp(buf, "line")) {
+            tp->running_indicator = RUNNING_INDICATOR_LINE;
+        }
+    }
+    tp->running_indicator_size = kv_get_int(w->config_kv, "running_indicator_size", 3);
+    if (tp->running_indicator_size < 1) {
+        tp->running_indicator_size = 1;
+    }
+    tp->running_indicator_near =
+        !(kv_get(w->config_kv, "running_indicator_side", buf, sizeof(buf)) && !strcmp(buf, "far"));
     tp->launch_feedback = kv_get(w->config_kv, "launch_feedback", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
     tp->launch_feedback_zoom = kv_get(w->config_kv, "launch_feedback_zoom", buf, sizeof(buf)) ? atof(buf) : 2.0;
     if (tp->launch_feedback_zoom < 1.05) {
@@ -1514,6 +1547,25 @@ static int tasklist_get_tooltip_group(PanelWidget *w, int local_x, TooltipGroupI
  * so there's no "exhausted" look to draw any more. icons/scroll-back.png
  * / scroll-forward.png replace the vector triangle when the theme ships
  * them. */
+/* Whether this panel's own cross-axis (thickness) coordinate 0 -- i.e. the
+ * "oy" edge every button paints from, see tasklist_paint() -- is the side
+ * that actually touches the output's own screen border, as opposed to the
+ * side that faces into the desktop. EDGE_TOP and EDGE_LEFT dock flush
+ * against the output's own (x0,y0) corner with no inset (xispanel.c's
+ * panel_update_geometry()), so their local 0 *is* that border; EDGE_BOTTOM
+ * and EDGE_RIGHT dock at the far corner instead, so it's local 0+thickness
+ * that touches it. Used by running_indicator_side= to turn "near"/"far"
+ * into an actual top-or-bottom (left-or-right) pixel offset. Ignores
+ * rotate= -- exact for the common rotate=0 top/bottom case this feature
+ * targets; on a rotate=0 left/right panel (already a cramped, not really
+ * usable layout for a multi-button tasklist -- see PROTOCOL.md's rotate=
+ * doc) it's only an approximation, corrected the same way that layout
+ * itself is: by setting rotate=90/270. */
+static int tasklist_indicator_at_start(Panel *p)
+{
+    return p->edge == EDGE_TOP || p->edge == EDGE_LEFT;
+}
+
 static void tasklist_draw_arrow(cairo_t *cr, Panel *p, int slot_x, int slot_y, int thickness, int dir)
 {
     double cx = slot_x + TASKLIST_ARROW_W / 2.0;
@@ -1685,6 +1737,22 @@ static void tasklist_paint(PanelWidget *w, cairo_t *cr)
         }
         cairo_pop_group_to_source(cr);
         cairo_paint_with_alpha(cr, e->minimized ? 0.55 : 1.0);
+        if (tp->running_indicator != RUNNING_INDICATOR_NONE && !e->is_placeholder) {
+            int at_start = tasklist_indicator_at_start(p);
+            if (!tp->running_indicator_near) {
+                at_start = !at_start;
+            }
+            int sz = tp->running_indicator_size;
+            double mid = at_start ? (oy + sz / 2.0) : (oy + w->thickness - sz / 2.0);
+            cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.9);
+            if (tp->running_indicator == RUNNING_INDICATOR_DOT) {
+                cairo_arc(cr, bx + icon_x_off + icon_px / 2.0, mid, sz / 2.0, 0, 2 * M_PI);
+                cairo_fill(cr);
+            } else {
+                cairo_rectangle(cr, bx + icon_x_off, mid - sz / 2.0, icon_px, sz);
+                cairo_fill(cr);
+            }
+        }
         cairo_restore(cr);
     }
 

@@ -258,6 +258,17 @@ Widget types implemented so far:
   (Windows 7 style). `show_desktop_badge=yes|no` (default `no`) draws a
   small desktop-number badge on a task's icon when the session has more
   than one virtual desktop; off by default to keep icons uncluttered.
+  `running_indicator=none|dot|line` (default `none`) draws a small mark on
+  every *real, running* task's icon -- a pinned-but-not-running launcher
+  placeholder never gets one. Mainly useful in `compact` mode, where a
+  running-but-unfocused-and-unminimized window and a launcher placeholder
+  otherwise look identical (the focused-task tint and the minimized-task
+  dim each cover only their own state). `running_indicator_size=<px>`
+  (default `3`) sets the dot's diameter or the line's thickness.
+  `running_indicator_side=near|far` (default `near`) picks which side of
+  the icon it hugs: `near` the panel's own screen edge (e.g. the bottom of
+  the icon on a `bottom` panel), `far` the opposite side, facing the
+  desktop.
   Every visible
   task's on-screen button rectangle is also written to its window's
   `_NET_WM_ICON_GEOMETRY` on every repaint -- the same property KWin/
