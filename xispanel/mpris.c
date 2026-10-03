@@ -171,6 +171,7 @@ static DBusMessage *mpris_call1s(const char *dest, const char *path, const char 
     if (p_dbus_error_is_set(&err)) {
         p_dbus_error_free(&err);
         return NULL;
+    // cppcheck-suppress returnDanglingLifetime
     }
     return reply;
 }

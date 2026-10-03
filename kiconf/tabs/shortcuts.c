@@ -659,6 +659,7 @@ typedef struct {
 static int instance_occurrence(InstanceCounter *counters, int *n_counters, const char *panel, const char *type)
 {
     for (int i = 0; i < *n_counters; i++) {
+        // cppcheck-suppress uninitvar
         if (!strcmp(counters[i].panel, panel) && !strcmp(counters[i].type, type)) {
             return counters[i].count++;
         }

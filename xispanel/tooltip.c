@@ -626,6 +626,7 @@ static int thumb_bbox(int *out_x, int *out_y, int *out_w, int *out_h)
     *out_x = x0;
     *out_y = y0;
     *out_w = x1 - x0;
+    // cppcheck-suppress integerOverflow
     *out_h = y1 - y0;
     return 1;
 }

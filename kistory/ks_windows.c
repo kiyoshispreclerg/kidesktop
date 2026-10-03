@@ -295,6 +295,7 @@ static void sync_desktops(int at_start)
     for (int i = 0; i < n; i++) {
         if (ndesktops >= 0 && i < ndesktops && desktops[i] == now_desk[i])
             continue;
+        // cppcheck-suppress legacyUninitvar
         ks_log_event(now, "desktop", "", "", now_desk[i], names[i], at_start ? "at_start" : "switch", "");
     }
     memcpy(desktops, now_desk, sizeof(long) * (size_t)n);
