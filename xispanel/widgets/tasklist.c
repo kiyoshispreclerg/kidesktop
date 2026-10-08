@@ -117,6 +117,21 @@ typedef struct {
 
 #define MAX_PINNED 24
 
+/* The application a grouped button (display_count > 1) stands for -- its
+ * .desktop Name= and Icon=, resolved once per WM_CLASS the first time a
+ * group of it forms (see tasklist_group_app()), so the collapsed button
+ * shows "Firefox" and Firefox's icon rather than whichever member window
+ * happens to represent the group. icon is owned here; NULL means no
+ * .desktop icon resolved, and the representative window's own icon is
+ * drawn instead. */
+typedef struct {
+    char wm_class[64];
+    char name[128];
+    cairo_surface_t *icon;
+} GroupApp;
+
+#define MAX_GROUP_APPS 32
+
 enum { RUNNING_INDICATOR_NONE = 0, RUNNING_INDICATOR_DOT, RUNNING_INDICATOR_LINE };
 
 typedef struct {
@@ -214,7 +229,10 @@ typedef struct {
      * between ticks). */
     int display_repr[MAX_TASKS]; /* tasks[] index of the slot's representative window */
     int display_count[MAX_TASKS]; /* how many tasks[] windows this slot represents (>=1) */
+    int display_app[MAX_TASKS]; /* group_apps_cache[] index for a grouped slot, -1 for a single window */
     int n_display;
+    GroupApp group_apps_cache[MAX_GROUP_APPS];
+    int n_group_apps_cache;
 
     /* Visible window into `tasks`, recomputed by tasklist_layout_visible()
      * from the widget's *actual* allotted w->len (which panel_layout() may
@@ -673,6 +691,11 @@ static void tasklist_destroy(PanelWidget *w)
             cairo_surface_destroy(tp->pinned[i].icon);
         }
     }
+    for (int i = 0; i < tp->n_group_apps_cache; i++) {
+        if (tp->group_apps_cache[i].icon) {
+            cairo_surface_destroy(tp->group_apps_cache[i].icon);
+        }
+    }
 }
 
 static int tasklist_on_tick(PanelWidget *w, uint64_t now)
@@ -910,12 +933,90 @@ static int tasklist_on_tick(PanelWidget *w, uint64_t now)
  * launcher-phase territory), so WM_CLASS is both the fallback and, for
  * now, the whole story.
  *
- * The group's representative (whose icon/title the collapsed button
- * shows) is the group's currently-active window if it has one, else
- * simply the first member found -- so focusing a different window of an
- * already-grouped app updates what the button displays. */
-static void tasklist_build_display(TasklistPriv *tp, const char *output_name)
+ * The group's representative (the window a click/drag/thumbnail acts on)
+ * is the group's currently-active window if it has one, else simply the
+ * first member found. What the collapsed button *shows*, though, is the
+ * application itself -- see tasklist_group_app()/tasklist_slot_title(). */
+
+/* The cached GroupApp for wm_class, resolving it on first use. Same
+ * two-pass .desktop match tasklist_launch_class() uses (whole class, then
+ * its first word -- "VirtualBox Manager"). A full cache first drops every
+ * entry no current task still has, which is the only place entries ever
+ * leave it, so display_app[] indices (rebuilt right after, every measure)
+ * never point at a freed slot. -1 only if even that leaves no room. */
+static int tasklist_group_app(PanelWidget *w, const char *wm_class)
 {
+    TasklistPriv *tp = w->priv;
+    for (int i = 0; i < tp->n_group_apps_cache; i++) {
+        if (strcmp(tp->group_apps_cache[i].wm_class, wm_class) == 0) {
+            return i;
+        }
+    }
+    if (tp->n_group_apps_cache >= MAX_GROUP_APPS) {
+        int kept = 0;
+        for (int i = 0; i < tp->n_group_apps_cache; i++) {
+            GroupApp *ga = &tp->group_apps_cache[i];
+            int live = 0;
+            for (int t = 0; t < tp->n_tasks && !live; t++) {
+                live = strcmp(tp->tasks[t].wm_class, ga->wm_class) == 0;
+            }
+            if (live) {
+                tp->group_apps_cache[kept++] = *ga;
+            } else if (ga->icon) {
+                cairo_surface_destroy(ga->icon);
+            }
+        }
+        tp->n_group_apps_cache = kept;
+        if (kept >= MAX_GROUP_APPS) {
+            return -1;
+        }
+    }
+    GroupApp *ga = &tp->group_apps_cache[tp->n_group_apps_cache];
+    memset(ga, 0, sizeof(*ga));
+    snprintf(ga->wm_class, sizeof(ga->wm_class), "%s", wm_class);
+
+    char icon_name[256] = "";
+    if (!desktop_entry_find_by_wm_class(wm_class, ga->name, sizeof(ga->name), NULL, 0, icon_name, sizeof(icon_name),
+                                        NULL, 0)) {
+        char first_word[64];
+        snprintf(first_word, sizeof(first_word), "%s", wm_class);
+        char *sp = strchr(first_word, ' ');
+        if (sp) {
+            *sp = '\0';
+            desktop_entry_find_by_wm_class(first_word, ga->name, sizeof(ga->name), NULL, 0, icon_name,
+                                            sizeof(icon_name), NULL, 0);
+        }
+    }
+    if (!ga->name[0]) {
+        snprintf(ga->name, sizeof(ga->name), "%s", wm_class);
+    }
+    if (icon_name[0]) {
+        int thickness = w->thickness > 0 ? w->thickness : w->panel->thickness_cfg;
+        ga->icon = resolve_icon_theme_name(icon_name, icon_fetch_size_for(icon_size_for(thickness, tp->icon_padding)));
+    }
+    return tp->n_group_apps_cache++;
+}
+
+/* What display slot d's button shows: the application's name/icon for a
+ * group, the window's own title/icon otherwise. */
+static const char *tasklist_slot_title(const TasklistPriv *tp, int d)
+{
+    int a = tp->display_app[d];
+    return a >= 0 ? tp->group_apps_cache[a].name : tp->tasks[tp->display_repr[d]].title;
+}
+
+static cairo_surface_t *tasklist_slot_icon(const TasklistPriv *tp, int d)
+{
+    int a = tp->display_app[d];
+    if (a >= 0 && tp->group_apps_cache[a].icon) {
+        return tp->group_apps_cache[a].icon;
+    }
+    return tp->tasks[tp->display_repr[d]].icon;
+}
+
+static void tasklist_build_display(PanelWidget *w, const char *output_name)
+{
+    TasklistPriv *tp = w->priv;
     Window active = tp->group_apps ? ewmh_resolve_active_for_output(output_name, NULL, NULL) : None;
     int assigned[MAX_TASKS] = {0};
     tp->n_display = 0;
@@ -940,6 +1041,7 @@ static void tasklist_build_display(TasklistPriv *tp, const char *output_name)
         }
         tp->display_repr[tp->n_display] = repr;
         tp->display_count[tp->n_display] = count;
+        tp->display_app[tp->n_display] = count > 1 ? tasklist_group_app(w, tp->tasks[i].wm_class) : -1;
         tp->n_display++;
     }
 }
@@ -966,7 +1068,7 @@ static void tasklist_measure(PanelWidget *w, int cross_axis, int *out_len, int *
     TasklistPriv *tp = w->priv;
     Panel *p = w->panel;
     int icon_px = icon_size_for(cross_axis, tp->icon_padding);
-    tasklist_build_display(tp, p->output);
+    tasklist_build_display(w, p->output);
     int cursor = 0;
     for (int d = 0; d < tp->n_display; d++) {
         TaskEntry *e = &tp->tasks[tp->display_repr[d]];
@@ -986,7 +1088,7 @@ static void tasklist_measure(PanelWidget *w, int cross_axis, int *out_len, int *
             bw = cross_axis;
         } else {
             double tw;
-            pango_text_extents_ellipsized(p->cr, e->title, panel_text_size(p), 0, &tw, NULL);
+            pango_text_extents_panel(p->cr, tasklist_slot_title(tp, d), panel_text_size(p), 0, &tw, NULL, p);
             bw = icon_px + 8 + (int)tw + 8;
             if (bw > TASKLIST_WIDE_MAXW) {
                 bw = TASKLIST_WIDE_MAXW;
@@ -1229,9 +1331,8 @@ static int tasklist_in_arrow_zone(const TasklistPriv *tp, int w_len, int local_x
 /* Lists the display slots a scroll arrow hides -- [0, scroll_offset) for
  * the left arrow, [vis_idx[n_visible-1]+1, n_display) for the right one --
  * one title per line, in the same order they'd scroll into view. A slot
- * collapsed into a group (display_count > 1) gets its representative's
- * title plus a "(+N)" count for the rest, same idea as the button itself
- * showing one icon/title for the whole group. Returns the number of lines
+ * collapsed into a group (display_count > 1) gets the application's name
+ * plus its window count, same as the button itself shows. Returns the number of lines
  * written (0 if the arrow, despite being hovered, currently hides
  * nothing -- shouldn't happen since tasklist_in_arrow_zone() only answers
  * yes for a direction can_left/can_right already say has something). */
@@ -1248,13 +1349,12 @@ static int tasklist_list_overflow(const TasklistPriv *tp, int left, char *buf, s
     size_t used = 0;
     int n = 0;
     for (int d = from; d < to && used < bufsz; d++) {
-        int repr = tp->display_repr[d];
-        int extra = tp->display_count[d] - 1;
+        int count = tp->display_count[d];
         int wrote;
-        if (extra > 0) {
-            wrote = snprintf(buf + used, bufsz - used, "%s%s (+%d)", n > 0 ? "\n" : "", tp->tasks[repr].title, extra);
+        if (count > 1) {
+            wrote = snprintf(buf + used, bufsz - used, "%s%s (%d)", n > 0 ? "\n" : "", tasklist_slot_title(tp, d), count);
         } else {
-            wrote = snprintf(buf + used, bufsz - used, "%s%s", n > 0 ? "\n" : "", tp->tasks[repr].title);
+            wrote = snprintf(buf + used, bufsz - used, "%s%s", n > 0 ? "\n" : "", tasklist_slot_title(tp, d));
         }
         if (wrote < 0) {
             break;
@@ -1681,10 +1781,12 @@ static void tasklist_paint(PanelWidget *w, cairo_t *cr)
         cairo_rectangle(cr, bx, oy, bw, w->thickness);
         cairo_clip(cr);
         cairo_push_group(cr);
-        if (e->icon) {
-            draw_icon_scaled(cr, e->icon, bx + icon_x_off, icon_y, icon_px);
+        const char *slot_title = tasklist_slot_title(tp, d);
+        cairo_surface_t *slot_icon = tasklist_slot_icon(tp, d);
+        if (slot_icon) {
+            draw_icon_scaled(cr, slot_icon, bx + icon_x_off, icon_y, icon_px);
         } else {
-            draw_fallback_icon(cr, bx + icon_x_off, icon_y, icon_px, e->title, p->fg_r, p->fg_g, p->fg_b,
+            draw_fallback_icon(cr, bx + icon_x_off, icon_y, icon_px, slot_title, p->fg_r, p->fg_g, p->fg_b,
                                 panel_text_size(p));
         }
         if (!tp->compact_now && !e->is_placeholder) {
@@ -1696,7 +1798,7 @@ static void tasklist_paint(PanelWidget *w, cairo_t *cr)
              * boxes. See pango_text.c. */
             cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.95);
             pango_show_text_boxed_bold(cr, bx + icon_px + 10, oy, w->thickness, bw - icon_px - 16, panel_text_size(p),
-                                        e->title, e->urgent, NULL, p);
+                                        slot_title, e->urgent, NULL, p);
         }
         if (tp->show_desktop_badge && tp->n_desktops > 1 && e->desktop >= 0) {
             char badge[16];

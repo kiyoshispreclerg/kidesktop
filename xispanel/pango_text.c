@@ -157,7 +157,17 @@ static PangoLayout *build_layout(cairo_t *cr, const char *text, double size_px, 
 void pango_text_extents_ellipsized(cairo_t *cr, const char *text, double size_px, double max_width_px, double *out_w,
                                     double *out_h)
 {
-    PangoLayout *layout = build_layout(cr, text, size_px, max_width_px, PANGO_WEIGHT_NORMAL);
+    pango_text_extents_panel(cr, text, size_px, max_width_px, out_w, out_h, NULL);
+}
+
+/* The same measurement at `p`'s theme font_weight= -- what
+ * pango_show_text_boxed() with that `p` will actually draw, so a bold
+ * theme's text isn't ellipsized in a box sized for the normal weight. */
+void pango_text_extents_panel(cairo_t *cr, const char *text, double size_px, double max_width_px, double *out_w,
+                               double *out_h, const Panel *p)
+{
+    int weight = p && p->font_weight ? p->font_weight : PANGO_WEIGHT_NORMAL;
+    PangoLayout *layout = build_layout(cr, text, size_px, max_width_px, weight);
     int lw, lh;
     pango_layout_get_pixel_size(layout, &lw, &lh);
     if (out_w) {

@@ -554,6 +554,9 @@ void pango_text_init(const char *family); /* call once at startup, after g_font_
  * pixel size is needed to position the text itself (e.g. centering). */
 void pango_text_extents_ellipsized(cairo_t *cr, const char *text, double size_px, double max_width_px, double *out_w,
                                     double *out_h);
+/* The same at `p`'s theme font_weight= (NULL = normal weight). */
+void pango_text_extents_panel(cairo_t *cr, const char *text, double size_px, double max_width_px, double *out_w,
+                               double *out_h, const Panel *p);
 /* `p` supplies the theme's font_weight=, title_shadow=/title_shadow_offset=
  * and title_outline=/title_outline_width= (NULL is fine -- just the plain
  * weight and no shadow/outline, e.g. notif.c's little unread-count badge,
