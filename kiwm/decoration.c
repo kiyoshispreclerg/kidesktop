@@ -1406,13 +1406,13 @@ static void paint_titlebar(Client *c, cairo_t *cr, int w, bool focused, bool arg
              * alignment already balances the space on both sides. */
             if (wm.title_center)
                 pango_show_title_text(cr, s->x, 0, TITLEBAR_H, s->width, wm.title_font_size,
-                                      c->title, true, tr, tg, tb);
+                                      c->title, true, tr, tg, tb, 1.0, NULL);
             else if (xis_direction_is_rtl())
                 pango_show_title_text(cr, s->x, 0, TITLEBAR_H, s->width - 8.0, wm.title_font_size,
-                                      c->title, false, tr, tg, tb);
+                                      c->title, false, tr, tg, tb, 1.0, NULL);
             else
                 pango_show_title_text(cr, s->x + 8.0, 0, TITLEBAR_H, s->width - 8.0, wm.title_font_size,
-                                      c->title, false, tr, tg, tb);
+                                      c->title, false, tr, tg, tb, 1.0, NULL);
             break;
         }
         case DECO_ICON:

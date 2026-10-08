@@ -103,7 +103,7 @@ void pango_show_text_boxed(cairo_t *cr, double x, double top_y, double box_h, do
  * fill goes over both. */
 void pango_show_title_text(cairo_t *cr, double x, double top_y, double box_h, double max_width_px,
                            double size_px, const char *text, bool center,
-                           double fr, double fg, double fb)
+                           double fr, double fg, double fb, double fa, double *out_w)
 {
     PangoWeight prev_weight = pango_font_description_get_weight(g_desc);
     PangoStyle prev_style = pango_font_description_get_style(g_desc);
@@ -112,20 +112,21 @@ void pango_show_title_text(cairo_t *cr, double x, double top_y, double box_h, do
 
     PangoLayout *layout = build_layout(cr, text, size_px, max_width_px, center);
     int lw, lh;
-    (void)lw;
     pango_layout_get_pixel_size(layout, &lw, &lh);
+    if (out_w)
+        *out_w = lw;
     double y = top_y + (box_h - lh) / 2.0;
 
     if (wm.title_shadow) {
         cairo_set_source_rgba(cr, wm.title_shadow_r, wm.title_shadow_g, wm.title_shadow_b,
-                              wm.title_shadow_a);
+                              wm.title_shadow_a * fa);
         cairo_move_to(cr, x + wm.title_shadow_dx, y + wm.title_shadow_dy);
         pango_cairo_show_layout(cr, layout);
     }
 
     if (wm.title_outline && wm.title_outline_width > 0.0) {
         cairo_set_source_rgba(cr, wm.title_outline_r, wm.title_outline_g, wm.title_outline_b,
-                              wm.title_outline_a);
+                              wm.title_outline_a * fa);
         cairo_set_line_width(cr, wm.title_outline_width);
         /* Round joins/caps: a miter join on a glyph's sharp corners (the
          * apex of an A, the ends of a serif) spikes out well past the
@@ -137,7 +138,7 @@ void pango_show_title_text(cairo_t *cr, double x, double top_y, double box_h, do
         cairo_stroke(cr);
     }
 
-    cairo_set_source_rgb(cr, fr, fg, fb);
+    cairo_set_source_rgba(cr, fr, fg, fb, fa);
     cairo_move_to(cr, x, y);
     pango_cairo_show_layout(cr, layout);
     g_object_unref(layout);

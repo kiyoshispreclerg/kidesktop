@@ -106,9 +106,11 @@ void pango_show_text_boxed(cairo_t *cr, double x, double top_y, double box_h, do
  * (see wm.h's title_* fields), and takes the fill color itself rather than
  * inheriting whatever cairo's source happens to be, since it has two other
  * colors of its own to set first. With every effect left at its default
- * this is pango_show_text_boxed() with an explicit color. */
+ * this is pango_show_text_boxed() with an explicit color. `fa` scales the
+ * fill, shadow and outline alike (the menu's dimmed rows); *out_w as in
+ * pango_show_text_boxed(). */
 void pango_show_title_text(cairo_t *cr, double x, double top_y, double box_h, double max_width_px,
                            double size_px, const char *text, bool center,
-                           double fr, double fg, double fb);
+                           double fr, double fg, double fb, double fa, double *out_w);
 
 #endif /* KIWM_DECORATION_H */

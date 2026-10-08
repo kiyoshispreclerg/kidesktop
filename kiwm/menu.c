@@ -2,12 +2,14 @@
  * the window icon).
  *
  * Same look as everything else kiwm draws itself: an override-redirect
- * window with the decoration's own background/border colors and corner
- * radius, clipped with XCB SHAPE since there's no compositor, painted
- * off-screen and blitted in one go -- the pattern osd.c and
- * decoration.c already use. The row styling (hover wash, separator line,
- * disabled dimming, submenu arrow) mirrors xispanel's menu.c so the two
- * programs' menus read as the same widget.
+ * window (depth 32 where available, like osd.c's) with the decoration's own
+ * background color -- alpha included while a compositor runs -- and
+ * corner radius, clipped with XCB SHAPE, painted off-screen and blitted in
+ * one go -- the pattern osd.c and decoration.c already use. Labels use the
+ * titlebar's text style (font_weight=/font_style=, title_shadow=,
+ * title_outline=). The row styling (hover wash, separator line, disabled
+ * dimming, submenu arrow, the fg-at-30% outline) mirrors xispanel's menu.c
+ * so the two programs' menus read as the same widget.
  *
  * **Adding an action** is meant to be one row in `entries[]` below plus
  * one case in run_action(). An entry carries its label (and an optional
@@ -37,6 +39,7 @@
 #include "decoration.h"
 #include "keybind.h"
 #include "output.h"
+#include "selection.h"
 
 #include "../shared/xis_i18n.h"
 #include "../shared/xis_direction.h"
@@ -51,6 +54,7 @@
 #include <string.h>
 
 #define MENU_ROW_H        26
+#define MENU_BORDER_W      1.5  /* outer outline, same as xispanel's MENU_FRAME_BORDER_W */
 #define MENU_SEP_H         9
 #define MENU_PAD_Y         4    /* chrome padding above the first row / below the last */
 #define MENU_TEXT_X       10    /* left inset of a row's label */
@@ -151,19 +155,21 @@ static char desktop_labels[MAX_DESKTOPS][32];
 
 /* ---- theme ---- */
 
-static void menu_colors(double *bg_r, double *bg_g, double *bg_b,
-                        double *fg_r, double *fg_g, double *fg_b,
-                        double *br_r, double *br_g, double *br_b)
+/* The background's alpha only where a compositor will blend it -- same
+ * reason as osd.c's draw_chrome_and_content(): without one, X shows the
+ * premultiplied color, i.e. a darker one, not a translucent one. */
+static void menu_colors(double *bg_r, double *bg_g, double *bg_b, double *bg_a,
+                        double *fg_r, double *fg_g, double *fg_b)
 {
     if (wm.have_theme_colors) {
-        *bg_r = wm.bg_active_r; *bg_g = wm.bg_active_g; *bg_b = wm.bg_active_b;
+        *bg_r = wm.bg_active_r; *bg_g = wm.bg_active_g; *bg_b = wm.bg_active_b; *bg_a = wm.bg_active_a;
         *fg_r = wm.fg_active_r; *fg_g = wm.fg_active_g; *fg_b = wm.fg_active_b;
-        *br_r = wm.border_active_r; *br_g = wm.border_active_g; *br_b = wm.border_active_b;
     } else {
-        *bg_r = wm.deco_bg_r; *bg_g = wm.deco_bg_g; *bg_b = wm.deco_bg_b;
+        *bg_r = wm.deco_bg_r; *bg_g = wm.deco_bg_g; *bg_b = wm.deco_bg_b; *bg_a = wm.deco_bg_a;
         *fg_r = wm.deco_fg_r; *fg_g = wm.deco_fg_g; *fg_b = wm.deco_fg_b;
-        *br_r = wm.deco_fg_r; *br_g = wm.deco_fg_g; *br_b = wm.deco_fg_b;
     }
+    if (!wm.argb_visual || !compositor_running())
+        *bg_a = 1.0;
 }
 
 static double menu_font_size(void)
@@ -235,7 +241,8 @@ static void layout_frame(MenuFrame *f)
         if (f->items[i].separator)
             continue;
         double w = 0;
-        pango_show_text_boxed(cr, 0, -1000, MENU_ROW_H, 0, menu_font_size(), f->items[i].label, false, &w);
+        pango_show_title_text(cr, 0, -1000, MENU_ROW_H, 0, menu_font_size(), f->items[i].label, false,
+                              0, 0, 0, 1.0, &w);
         if (w > widest)
             widest = w;
         if (f->items[i].submenu != SUB_NONE)
@@ -296,21 +303,23 @@ static void clamp_to_output(MenuFrame *f, int anchor_x, int anchor_y, int flip_w
 
 static void paint_frame(MenuFrame *f)
 {
-    double bg_r, bg_g, bg_b, fg_r, fg_g, fg_b, br_r, br_g, br_b;
-    menu_colors(&bg_r, &bg_g, &bg_b, &fg_r, &fg_g, &fg_b, &br_r, &br_g, &br_b);
+    double bg_r, bg_g, bg_b, bg_a, fg_r, fg_g, fg_b;
+    menu_colors(&bg_r, &bg_g, &bg_b, &bg_a, &fg_r, &fg_g, &fg_b);
 
+    bool argb = wm.argb_visual != NULL;
     xcb_pixmap_t pixmap = xcb_generate_id(wm.conn);
-    xcb_create_pixmap(wm.conn, wm.screen->root_depth, pixmap, f->win, (uint16_t)f->w, (uint16_t)f->h);
-    cairo_surface_t *surface = cairo_xcb_surface_create(wm.conn, pixmap, wm.visual, f->w, f->h);
+    xcb_create_pixmap(wm.conn, argb ? 32 : wm.screen->root_depth, pixmap, f->win,
+                      (uint16_t)f->w, (uint16_t)f->h);
+    cairo_surface_t *surface = cairo_xcb_surface_create(wm.conn, pixmap, argb ? wm.argb_visual : wm.visual,
+                                                        f->w, f->h);
     cairo_t *cr = cairo_create(surface);
 
-    cairo_set_source_rgb(cr, bg_r, bg_g, bg_b);
+    /* SOURCE: a depth-32 pixmap starts with undefined alpha (osd.c). */
+    cairo_save(cr);
+    cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_rgba(cr, bg_r, bg_g, bg_b, bg_a);
     cairo_paint(cr);
-
-    cairo_set_source_rgb(cr, br_r, br_g, br_b);
-    cairo_set_line_width(cr, 1.5);
-    cairo_rectangle(cr, 0.75, 0.75, f->w - 1.5, f->h - 1.5);
-    cairo_stroke(cr);
+    cairo_restore(cr);
 
     /* RTL: check column on the right, submenu arrow on the left pointing
      * left, text right-aligned between them (pango_text.c does that). */
@@ -354,14 +363,14 @@ static void paint_frame(MenuFrame *f)
         double arrow_w = it->submenu != SUB_NONE ? MENU_ARROW_W : 0;
         double text_x = rtl ? MENU_TEXT_X + arrow_w : MENU_TEXT_X + MENU_CHECK_W;
         double text_max = f->w - MENU_TEXT_X - MENU_CHECK_W - MENU_TEXT_X - arrow_w;
-        cairo_set_source_rgba(cr, fg_r, fg_g, fg_b, alpha);
-        pango_show_text_boxed(cr, text_x, it->y, it->h, text_max, menu_font_size(),
-                              it->label, false, NULL);
+        pango_show_title_text(cr, text_x, it->y, it->h, text_max, menu_font_size(),
+                              it->label, false, fg_r, fg_g, fg_b, alpha, NULL);
 
         if (it->submenu != SUB_NONE) {
             double ax = rtl ? MENU_ARROW_W : f->w - MENU_ARROW_W;
             double tip = rtl ? -5 : 5;
             double ay = it->y + it->h / 2.0;
+            cairo_set_source_rgba(cr, fg_r, fg_g, fg_b, alpha);
             cairo_set_line_width(cr, 1.4);
             cairo_move_to(cr, ax, ay - 4);
             cairo_line_to(cr, ax + tip, ay);
@@ -370,10 +379,20 @@ static void paint_frame(MenuFrame *f)
         }
     }
 
+    /* Outline last, over the hover wash: the text color at 30%, exactly
+     * xispanel's menu frame. A plain rectangle even with rounded corners --
+     * SHAPE already trims the corner pixels. */
+    cairo_set_source_rgba(cr, fg_r, fg_g, fg_b, 0.3);
+    cairo_set_line_width(cr, MENU_BORDER_W);
+    cairo_rectangle(cr, MENU_BORDER_W / 2.0, MENU_BORDER_W / 2.0, f->w - MENU_BORDER_W, f->h - MENU_BORDER_W);
+    cairo_stroke(cr);
+
     cairo_destroy(cr);
     cairo_surface_destroy(surface);
 
-    xcb_copy_area(wm.conn, pixmap, f->win, wm.deco_gc, 0, 0, 0, 0, (uint16_t)f->w, (uint16_t)f->h);
+    /* CopyArea needs matching depths: the depth-32 GC for an ARGB frame. */
+    xcb_gcontext_t gc = (argb && wm.deco_gc_argb) ? wm.deco_gc_argb : wm.deco_gc;
+    xcb_copy_area(wm.conn, pixmap, f->win, gc, 0, 0, 0, 0, (uint16_t)f->w, (uint16_t)f->h);
     xcb_free_pixmap(wm.conn, pixmap);
 }
 
@@ -396,11 +415,23 @@ static void shape_frame(MenuFrame *f)
 static void map_frame(MenuFrame *f)
 {
     f->win = xcb_generate_id(wm.conn);
-    uint32_t values[] = { wm.screen->black_pixel, 1, XCB_EVENT_MASK_EXPOSURE };
-    xcb_create_window(wm.conn, wm.screen->root_depth, f->win, wm.root,
-                      (int16_t)f->x, (int16_t)f->y, (uint16_t)f->w, (uint16_t)f->h, 0,
-                      XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.screen->root_visual,
-                      XCB_CW_BACK_PIXEL | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK, values);
+    /* Depth 32 where the screen has it, so the theme's alpha can show
+     * through under a compositor -- see osd.c's ensure_osd_window() for
+     * the value-list order and why BORDER_PIXEL is required. */
+    if (wm.argb_visual) {
+        uint32_t values[] = { 0, 0, 1, XCB_EVENT_MASK_EXPOSURE, wm.argb_colormap };
+        xcb_create_window(wm.conn, 32, f->win, wm.root,
+                          (int16_t)f->x, (int16_t)f->y, (uint16_t)f->w, (uint16_t)f->h, 0,
+                          XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.argb_visual->visual_id,
+                          XCB_CW_BACK_PIXEL | XCB_CW_BORDER_PIXEL | XCB_CW_OVERRIDE_REDIRECT |
+                          XCB_CW_EVENT_MASK | XCB_CW_COLORMAP, values);
+    } else {
+        uint32_t values[] = { wm.screen->black_pixel, 1, XCB_EVENT_MASK_EXPOSURE };
+        xcb_create_window(wm.conn, wm.screen->root_depth, f->win, wm.root,
+                          (int16_t)f->x, (int16_t)f->y, (uint16_t)f->w, (uint16_t)f->h, 0,
+                          XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.screen->root_visual,
+                          XCB_CW_BACK_PIXEL | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK, values);
+    }
     shape_frame(f);
     xcb_map_window(wm.conn, f->win);
     /* Mapping doesn't restack: one explicit raise, and from then on
