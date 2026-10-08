@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiwm\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-02 19:10-0300\n"
+"POT-Creation-Date: 2026-10-08 11:12-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -30,43 +30,47 @@ msgstr ""
 msgid "usage: kiwm [--replace] [--version]\n"
 msgstr ""
 
-#: menu.c:108
+#: menu.c:114
 msgid "Minimize"
 msgstr ""
 
-#: menu.c:109
+#: menu.c:115
 msgid "Maximize"
 msgstr ""
 
-#: menu.c:109
+#: menu.c:115
 msgid "Restore"
 msgstr ""
 
-#: menu.c:111
+#: menu.c:117
 msgid "Shade"
 msgstr ""
 
-#: menu.c:111
+#: menu.c:117
 msgid "Unshade"
 msgstr ""
 
-#: menu.c:114
+#: menu.c:120
 msgid "Move to desktop"
 msgstr ""
 
-#: menu.c:115
+#: menu.c:121
 msgid "All desktops"
 msgstr ""
 
-#: menu.c:116
+#: menu.c:122
 msgid "Keep above"
 msgstr ""
 
-#: menu.c:118
+#: menu.c:124
+msgid "Configure windows..."
+msgstr ""
+
+#: menu.c:126
 msgid "Close"
 msgstr ""
 
-#: menu.c:208
+#: menu.c:218
 #, c-format
 msgid "Desktop %d"
 msgstr ""

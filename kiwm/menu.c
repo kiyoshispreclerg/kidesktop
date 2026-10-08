@@ -43,6 +43,7 @@
 
 #include "../shared/xis_i18n.h"
 #include "../shared/xis_direction.h"
+#include "../shared/xis_spawn.h"
 
 #include <cairo/cairo-xcb.h>
 #include <xcb/shape.h>
@@ -76,6 +77,7 @@ typedef enum {
     ACT_KEEP_ABOVE,
     ACT_CLOSE,
     ACT_TO_DESKTOP,    /* built at open time, one per desktop -- see build_desktop_frame() */
+    ACT_CONFIGURE,     /* kiconf on its window-management tab; not about this window */
 } MenuAct;
 
 typedef enum { SUB_NONE = 0, SUB_DESKTOPS } SubmenuKind;
@@ -118,6 +120,8 @@ static const MenuEntry entries[] = {
     { .label = N_("Move to desktop"), .submenu = SUB_DESKTOPS, .allowed = can_pick_desktop },
     { .label = N_("All desktops"),   .action = ACT_STICKY,     .on = is_sticky },
     { .label = N_("Keep above"),     .action = ACT_KEEP_ABOVE, .on = is_kept_above },
+    { .separator = true },
+    { .label = N_("Configure windows..."), .action = ACT_CONFIGURE },
     { .separator = true },
     { .label = N_("Close"),          .action = ACT_CLOSE,      .allowed = can_close },
 };
@@ -543,6 +547,9 @@ static void run_action(Client *c, const MenuItem *it)
     case ACT_KEEP_ABOVE: toggle_keep_above(c, -1); break;
     case ACT_CLOSE:      close_client(c); break;
     case ACT_TO_DESKTOP: set_client_desktop(c, it->arg); break;
+    /* kiconf matches --tab on the untranslated label (kiconf.c's
+     * resolve_tab_index()), so this works in any locale. */
+    case ACT_CONFIGURE:  xis_spawn_detached("kiconf --tab 'Gerenciamento de janelas'"); break;
     case ACT_NONE:       break;
     }
 }

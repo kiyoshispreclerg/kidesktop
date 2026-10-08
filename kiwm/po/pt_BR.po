@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiwm\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-02 19:10-0300\n"
+"POT-Creation-Date: 2026-10-08 11:12-0300\n"
 "PO-Revision-Date: 2026-10-01 14:20-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -30,43 +30,47 @@ msgstr "Janela sem título"
 msgid "usage: kiwm [--replace] [--version]\n"
 msgstr "uso: kiwm [--replace] [--version]\n"
 
-#: menu.c:108
+#: menu.c:114
 msgid "Minimize"
 msgstr "Minimizar"
 
-#: menu.c:109
+#: menu.c:115
 msgid "Maximize"
 msgstr "Maximizar"
 
-#: menu.c:109
+#: menu.c:115
 msgid "Restore"
 msgstr "Restaurar"
 
-#: menu.c:111
+#: menu.c:117
 msgid "Shade"
 msgstr "Enrolar"
 
-#: menu.c:111
+#: menu.c:117
 msgid "Unshade"
 msgstr "Desenrolar"
 
-#: menu.c:114
+#: menu.c:120
 msgid "Move to desktop"
 msgstr "Mover para a área de trabalho"
 
-#: menu.c:115
+#: menu.c:121
 msgid "All desktops"
 msgstr "Todas as áreas de trabalho"
 
-#: menu.c:116
+#: menu.c:122
 msgid "Keep above"
 msgstr "Manter no topo"
 
-#: menu.c:118
+#: menu.c:124
+msgid "Configure windows..."
+msgstr "Configurar janelas…"
+
+#: menu.c:126
 msgid "Close"
 msgstr "Fechar"
 
-#: menu.c:208
+#: menu.c:218
 #, c-format
 msgid "Desktop %d"
 msgstr "Área de trabalho %d"
