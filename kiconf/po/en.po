@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-08 12:53-0300\n"
+"POT-Creation-Date: 2026-10-08 18:08-0300\n"
 "PO-Revision-Date: 2026-10-01 13:53-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -213,7 +213,7 @@ msgstr "Assistive technology"
 #: tabs/acessibilidade.c:514 tabs/appearance.c:703 tabs/autostart.c:414
 #: tabs/energia.c:221 tabs/entrada.c:544 tabs/historico.c:379
 #: tabs/historico.c:446 tabs/outras.c:244 tabs/programas.c:305
-#: tabs/shortcuts.c:1063 tabs/sistema.c:809 tabs/telas.c:1780
+#: tabs/shortcuts.c:1063 tabs/sistema.c:809 tabs/telas.c:1911
 msgid "Aplicar"
 msgstr "Apply"
 
@@ -237,12 +237,12 @@ msgstr "Apply services (reloads kisession right away)"
 msgid "Adicionar..."
 msgstr "Add..."
 
-#: tabs/autostart.c:413 tabs/eventos.c:227 tabs/shortcuts.c:1027
-#: tabs/sistema.c:794
+#: tabs/autostart.c:413 tabs/eventos.c:227 tabs/paineis.c:1524
+#: tabs/shortcuts.c:1027 tabs/sistema.c:794
 msgid "Remover"
 msgstr "Remove"
 
-#: tabs/efeitos.c:655 tabs/paineis.c:842
+#: tabs/efeitos.c:655 tabs/paineis.c:867
 msgid "?"
 msgstr "?"
 
@@ -504,7 +504,7 @@ msgid "Titulo privado (regex):"
 msgstr "Private title (regex):"
 
 #: tabs/historico.c:385 tabs/historico.c:452 tabs/permissoes.c:632
-#: tabs/telas.c:1665 tabs/wallpaper.c:358
+#: tabs/telas.c:1777 tabs/wallpaper.c:358
 msgid "-"
 msgstr "-"
 
@@ -621,14 +621,22 @@ msgid ""
 "separadas por espaco; os argumentos entram antes dos arquivos abertos. "
 "Alterar os campos de cima de um programa do sistema cria uma copia pessoal "
 "dele, que tem prioridade sobre estas opcoes."
-msgstr "Applied only when the program is opened inside the KiDesktop session (panel, launcher, file manager...). Variables as NAME=value separated by spaces; the arguments go before any opened files. Changing the fields above for a system program creates a personal copy of it, which takes precedence over these options."
+msgstr ""
+"Applied only when the program is opened inside the KiDesktop session (panel, "
+"launcher, file manager...). Variables as NAME=value separated by spaces; the "
+"arguments go before any opened files. Changing the fields above for a system "
+"program creates a personal copy of it, which takes precedence over these "
+"options."
 
 #: tabs/menu.c:485
 msgid ""
 "Atencao: este programa tem uma copia pessoal em ~/.local/share/applications, "
 "que tem prioridade sobre estas opcoes. Elas so valem se essa copia deixar de "
 "existir."
-msgstr "Warning: this program has a personal copy in ~/.local/share/applications, which takes precedence over these options. They only apply once that copy no longer exists."
+msgstr ""
+"Warning: this program has a personal copy in ~/.local/share/applications, "
+"which takes precedence over these options. They only apply once that copy no "
+"longer exists."
 
 #: tabs/menu.c:492
 msgid "Somente no KiDesktop"
@@ -657,7 +665,11 @@ msgid ""
 "applications -- o arquivo original nunca e alterado. \"Excluir\" so funciona "
 "em entradas ja criadas pelo usuario. As opcoes \"Somente no KiDesktop\" "
 "ficam em ~/.local/share/kidesktop."
-msgstr "Hiding/editing a system entry creates a copy in ~/.local/share/applications -- the original file is never changed. \"Delete\" only works on entries already created by the user. The \"KiDesktop only\" options live in ~/.local/share/kidesktop."
+msgstr ""
+"Hiding/editing a system entry creates a copy in ~/.local/share/applications "
+"-- the original file is never changed. \"Delete\" only works on entries "
+"already created by the user. The \"KiDesktop only\" options live in ~/.local/"
+"share/kidesktop."
 
 #: tabs/menu.c:710
 msgid "Novo..."
@@ -679,44 +691,114 @@ msgstr "DPMS enabled"
 msgid "Preferir apagar a tela (blank)"
 msgstr "Prefer blanking the screen"
 
-#: tabs/paineis.c:819
+#: tabs/paineis.c:462
+msgid ""
+"Familia da fonte, ex: Noto Sans. Vazio = sans-serif do Fontconfig. Vale pro "
+"xispanel inteiro: o primeiro painel que definir ganha."
+msgstr ""
+"Font family, e.g. Noto Sans. Empty = Fontconfig's sans-serif. Applies to all "
+"of xispanel: the first panel that sets it wins."
+
+#: tabs/paineis.c:463
+msgid "Tamanho do texto em pixels. Vazio = cada widget usa o seu."
+msgstr "Text size in pixels. Empty = each widget uses its own."
+
+#: tabs/paineis.c:464
+msgid ""
+"Nome do tema de icones, ex: breeze. Vale pro xispanel inteiro: o primeiro "
+"painel que definir ganha."
+msgstr ""
+"Icon theme name, e.g. breeze. Applies to all of xispanel: the first panel "
+"that sets it wins."
+
+#: tabs/paineis.c:465
+msgid "Cor do destaque ao passar o mouse. Vazio = cor do texto translucida."
+msgstr "Hover highlight color. Empty = translucent text color."
+
+#: tabs/paineis.c:466
+msgid ""
+"Pasta com bg.png/btns.png (mesmo formato dos temas do kiwm). Vazio = so "
+"cores."
+msgstr ""
+"Folder with bg.png/btns.png (same format as kiwm themes). Empty = colors "
+"only."
+
+#: tabs/paineis.c:467
+msgid ""
+"Arredondar cantos com XShape mesmo com compositor. Vale pro xispanel "
+"inteiro: o primeiro painel que definir ganha."
+msgstr ""
+"Round corners with XShape even with a compositor. Applies to all of "
+"xispanel: the first panel that sets it wins."
+
+#: tabs/paineis.c:844
 msgid "Definir:"
 msgstr "Set:"
 
-#: tabs/paineis.c:1285 tabs/paineis.c:1445 tabs/paineis.c:1593
+#: tabs/paineis.c:1327 tabs/paineis.c:1718 tabs/paineis.c:1871
 #, c-format
 msgid "Outras opcoes de '%s':"
 msgstr "Other options for '%s':"
 
-#: tabs/paineis.c:1506
+#: tabs/paineis.c:1470
+#, c-format
+msgid "%s (container)"
+msgstr "%s (container)"
+
+#: tabs/paineis.c:1479
+msgid ""
+"Um container so aceita monitor, tray, launcher, volume, energy, network, "
+"storage, clipboard, lockkeys, notif e folder"
+msgstr ""
+"A container only takes monitor, tray, launcher, volume, energy, network, "
+"storage, clipboard, lockkeys, notif and folder"
+
+#: tabs/paineis.c:1489
+#, fuzzy
+msgid "(nenhum outro painel)"
+msgstr "Remove panel"
+
+#: tabs/paineis.c:1517
+msgid "Copiar para..."
+msgstr "Copy to..."
+
+#: tabs/paineis.c:1520
+msgid "Enviar para..."
+msgstr "Move to..."
+
+#: tabs/paineis.c:1781
 msgid "Adicionar painel"
 msgstr "Add panel"
 
-#: tabs/paineis.c:1507
+#: tabs/paineis.c:1782
 msgid "Remover painel"
 msgstr "Remove panel"
 
-#: tabs/paineis.c:1559
+#: tabs/paineis.c:1834
 msgid "Adicionar widget"
 msgstr "Add widget"
 
-#: tabs/paineis.c:1560
+#: tabs/paineis.c:1835
 msgid "Remover widget"
 msgstr "Remove widget"
 
-#: tabs/paineis.c:1575
+#: tabs/paineis.c:1841
+msgid ""
+"Ctrl+clique seleciona varios; clique direito copia ou envia os selecionados "
+"pra outro painel"
+msgstr ""
+"Ctrl+click selects several; right-click copies or moves the selected ones to "
+"another panel"
+
+#: tabs/paineis.c:1852
 msgid "Cor de fundo:"
 msgstr "Background color:"
 
-#: tabs/paineis.c:1581
+#: tabs/paineis.c:1858
 msgid "Cor do texto:"
 msgstr "Text color:"
 
-#: tabs/paineis.c:1599
-msgid "Outras opcoes do tema"
-msgstr "Other theme options"
-
-#: tabs/paineis.c:1617
+#: tabs/paineis.c:1899
 msgid "Salvar e recarregar xispanel"
 msgstr "Save and reload xispanel"
 
@@ -946,28 +1028,36 @@ msgstr "Now"
 msgid "Mostrados na aba Calendario do xisserve"
 msgstr "Shown in xisserve's Calendar tab"
 
-#: tabs/telas.c:1609 tabs/telas.c:1628 tabs/telas.c:1670
+#: tabs/telas.c:1669 tabs/telas.c:1689 tabs/telas.c:1782
 #, c-format
 msgid "%d saida(s) detectada(s)."
 msgstr "%d output(s) detected."
 
-#: tabs/telas.c:1705
+#: tabs/telas.c:1798
+msgid "Saida"
+msgstr "Output"
+
+#: tabs/telas.c:1799
+msgid "Clique pra configurar; duplo clique liga a saida"
+msgstr "Click to configure; double-click turns the output on"
+
+#: tabs/telas.c:1836
 msgid "Saida ligada"
 msgstr "Output on"
 
-#: tabs/telas.c:1708
+#: tabs/telas.c:1839
 msgid "Saida primaria"
 msgstr "Primary output"
 
-#: tabs/telas.c:1761
+#: tabs/telas.c:1892
 msgid "Propriedades avancadas"
 msgstr "Advanced properties"
 
-#: tabs/telas.c:1773
+#: tabs/telas.c:1904
 msgid "Outras propriedades"
 msgstr "Other properties"
 
-#: tabs/telas.c:1779
+#: tabs/telas.c:1910
 msgid "Detectar novamente"
 msgstr "Detect again"
 
@@ -1027,6 +1117,9 @@ msgstr "Set layer"
 #: tabs/wallpaper.c:465
 msgid "Salvar acoes de clique"
 msgstr "Save click actions"
+
+#~ msgid "Outras opcoes do tema"
+#~ msgstr "Other theme options"
 
 #~ msgid ""
 #~ "Vale a partir do proximo login. Ctrl+Alt+Tab foca o painel para usa-lo "

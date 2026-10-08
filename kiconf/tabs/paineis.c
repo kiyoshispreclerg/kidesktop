@@ -38,6 +38,7 @@
  * g_themes[] already does for the theme entry below it. */
 static GtkListStore *g_panels_store;
 static GtkListStore *g_widgets_store;
+static GtkWidget *g_widgets_view;
 static GtkWidget *g_theme_label;
 /* bg/fg/spacing dedicated controls -- see THEME_BG_FIELD et al. below.
  * g_theme_bg_box/g_theme_fg_box are fixed table cells; the WT_COLOR_OPT
@@ -1350,15 +1351,213 @@ static void add_widget_cb(GtkWidget *widget, gpointer data)
     open_widget_dialog(NULL);
 }
 
+/* The widgets list is multi-select (Ctrl/Shift+click): selected rows as
+ * GtkTreeRowReferences, so removing one doesn't invalidate the others. */
+static GList *selected_widget_refs(void)
+{
+    GtkTreeSelection *sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(g_widgets_view));
+    GList *paths = gtk_tree_selection_get_selected_rows(sel, NULL);
+    GList *refs = NULL;
+    for (GList *l = paths; l; l = l->next) {
+        refs = g_list_append(refs, gtk_tree_row_reference_new(GTK_TREE_MODEL(g_widgets_store), l->data));
+        gtk_tree_path_free(l->data);
+    }
+    g_list_free(paths);
+    return refs;
+}
+
+static void remove_widget_refs(GList *refs)
+{
+    for (GList *l = refs; l; l = l->next) {
+        GtkTreePath *path = gtk_tree_row_reference_get_path(l->data);
+        GtkTreeIter it;
+        if (path && gtk_tree_model_get_iter(GTK_TREE_MODEL(g_widgets_store), &it, path)) {
+            gtk_list_store_remove(g_widgets_store, &it);
+        }
+        gtk_tree_path_free(path);
+    }
+}
+
+static void free_widget_refs(GList *refs)
+{
+    g_list_free_full(refs, (GDestroyNotify)gtk_tree_row_reference_free);
+}
+
 static void remove_widget_cb(GtkWidget *widget, gpointer data)
 {
-    GtkTreeView *view = GTK_TREE_VIEW(data);
     (void)widget;
-    GtkTreeSelection *sel = gtk_tree_view_get_selection(view);
-    GtkTreeIter it;
-    if (gtk_tree_selection_get_selected(sel, NULL, &it)) {
-        gtk_list_store_remove(g_widgets_store, &it);
+    (void)data;
+    GList *refs = selected_widget_refs();
+    remove_widget_refs(refs);
+    free_widget_refs(refs);
+}
+
+static int is_embeddable_type(const char *type)
+{
+    for (int i = 0; EMBEDDABLE_TYPE_NAMES[i]; i++) {
+        if (!strcmp(EMBEDDABLE_TYPE_NAMES[i], type)) {
+            return 1;
+        }
     }
+    return 0;
+}
+
+/* "Copiar para"/"Enviar para" <panel>: appends the selected widgets to
+ * that panel's shelf (every non-selected panel lives there, see the file
+ * doc comment), and for Enviar also drops them from this one. inline= only
+ * means something inside a container panel, so it's left behind when
+ * leaving one. A container target only takes embeddable types -- the
+ * submenu greys it out otherwise (see on_widgets_button_press()). */
+static void transfer_widgets(const char *target, int move)
+{
+    PanelShelf *sh = shelf_find_or_add(target);
+    if (!sh) {
+        return;
+    }
+    int to_container = is_container_panel(target);
+    GList *refs = selected_widget_refs();
+    for (GList *l = refs; l && sh->n_entries < MAX_WIDGETS; l = l->next) {
+        GtkTreePath *path = gtk_tree_row_reference_get_path(l->data);
+        GtkTreeIter it;
+        if (path && gtk_tree_model_get_iter(GTK_TREE_MODEL(g_widgets_store), &it, path)) {
+            gchar *type, *opts;
+            gtk_tree_model_get(GTK_TREE_MODEL(g_widgets_store), &it, COL_WIDGET_TYPE, &type, COL_WIDGET_OPTIONS,
+                                &opts, -1);
+            WidgetEntry *e = &sh->entries[sh->n_entries++];
+            snprintf(e->type, sizeof(e->type), "%s", type ? type : "");
+            e->options[0] = '\0';
+            WOptToken toks[MAX_WOPT_TOKENS];
+            int n = parse_wopts_tokens(opts, toks, MAX_WOPT_TOKENS);
+            for (int i = 0; i < n; i++) {
+                if (to_container || strcmp(toks[i].key, CONTAINER_INLINE_FIELD.key) != 0) {
+                    wopts_append(e->options, sizeof(e->options), toks[i].key, toks[i].val);
+                }
+            }
+            g_free(type);
+            g_free(opts);
+        }
+        gtk_tree_path_free(path);
+    }
+    if (move) {
+        remove_widget_refs(refs);
+    }
+    free_widget_refs(refs);
+}
+
+static void on_transfer_item_activate(GtkMenuItem *item, gpointer data)
+{
+    const char *target = g_object_get_data(G_OBJECT(item), "panel");
+    if (target) {
+        transfer_widgets(target, GPOINTER_TO_INT(data));
+    }
+}
+
+/* Submenu of every panel except the selected one; a container panel is
+ * insensitive when the selection holds a type it can't take. */
+static GtkWidget *build_transfer_submenu(int move, int all_embeddable)
+{
+    GtkWidget *menu = gtk_menu_new();
+    int any = 0;
+    GtkTreeIter it;
+    gboolean valid = gtk_tree_model_get_iter_first(GTK_TREE_MODEL(g_panels_store), &it);
+    while (valid) {
+        gchar *name;
+        gtk_tree_model_get(GTK_TREE_MODEL(g_panels_store), &it, COL_PANEL_NAME, &name, -1);
+        if (name && name[0] && strcmp(name, g_selected_panel) != 0) {
+            int container = is_container_panel(name);
+            char label[NAME_LEN + 32];
+            if (container) {
+                snprintf(label, sizeof(label), _("%s (container)"), name);
+            } else {
+                snprintf(label, sizeof(label), "%s", name);
+            }
+            GtkWidget *mi = gtk_menu_item_new_with_label(label);
+            g_object_set_data_full(G_OBJECT(mi), "panel", g_strdup(name), g_free);
+            g_signal_connect(mi, "activate", G_CALLBACK(on_transfer_item_activate), GINT_TO_POINTER(move));
+            if (container && !all_embeddable) {
+                gtk_widget_set_sensitive(mi, FALSE);
+                gtk_widget_set_tooltip_text(mi, _("Um container so aceita monitor, tray, launcher, volume, energy, "
+                                                  "network, storage, clipboard, lockkeys, notif e folder"));
+            }
+            gtk_menu_shell_append(GTK_MENU_SHELL(menu), mi);
+            any = 1;
+        }
+        g_free(name);
+        valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(g_panels_store), &it);
+    }
+    if (!any) {
+        GtkWidget *mi = gtk_menu_item_new_with_label(_("(nenhum outro painel)"));
+        gtk_widget_set_sensitive(mi, FALSE);
+        gtk_menu_shell_append(GTK_MENU_SHELL(menu), mi);
+    }
+    return menu;
+}
+
+static void popup_widgets_menu(guint button, guint32 time)
+{
+    GList *refs = selected_widget_refs();
+    if (!refs) {
+        return;
+    }
+    int all_embeddable = 1;
+    for (GList *l = refs; l; l = l->next) {
+        GtkTreePath *path = gtk_tree_row_reference_get_path(l->data);
+        GtkTreeIter it;
+        if (path && gtk_tree_model_get_iter(GTK_TREE_MODEL(g_widgets_store), &it, path)) {
+            gchar *type;
+            gtk_tree_model_get(GTK_TREE_MODEL(g_widgets_store), &it, COL_WIDGET_TYPE, &type, -1);
+            all_embeddable = all_embeddable && type && is_embeddable_type(type);
+            g_free(type);
+        }
+        gtk_tree_path_free(path);
+    }
+    free_widget_refs(refs);
+
+    GtkWidget *menu = gtk_menu_new();
+    GtkWidget *copy = gtk_menu_item_new_with_label(_("Copiar para..."));
+    gtk_menu_item_set_submenu(GTK_MENU_ITEM(copy), build_transfer_submenu(0, all_embeddable));
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), copy);
+    GtkWidget *send = gtk_menu_item_new_with_label(_("Enviar para..."));
+    gtk_menu_item_set_submenu(GTK_MENU_ITEM(send), build_transfer_submenu(1, all_embeddable));
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), send);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
+    GtkWidget *rem = gtk_menu_item_new_with_label(_("Remover"));
+    g_signal_connect(rem, "activate", G_CALLBACK(remove_widget_cb), NULL);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), rem);
+    gtk_widget_show_all(menu);
+    g_signal_connect(menu, "selection-done", G_CALLBACK(gtk_widget_destroy), NULL);
+    gtk_menu_popup(GTK_MENU(menu), NULL, NULL, NULL, NULL, button, time);
+}
+
+/* Right-click on a row that's part of the selection keeps the whole
+ * selection (GtkTreeView's default would collapse it to that one row);
+ * on any other row it selects just that row first. */
+static gboolean on_widgets_button_press(GtkWidget *view, GdkEventButton *ev, gpointer data)
+{
+    (void)data;
+    if (ev->type != GDK_BUTTON_PRESS || ev->button != 3) {
+        return FALSE;
+    }
+    GtkTreePath *path = NULL;
+    if (!gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(view), (gint)ev->x, (gint)ev->y, &path, NULL, NULL, NULL)) {
+        return FALSE;
+    }
+    GtkTreeSelection *sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(view));
+    if (!gtk_tree_selection_path_is_selected(sel, path)) {
+        gtk_tree_selection_unselect_all(sel);
+        gtk_tree_selection_select_path(sel, path);
+    }
+    gtk_tree_path_free(path);
+    popup_widgets_menu(ev->button, ev->time);
+    return TRUE;
+}
+
+static gboolean on_widgets_popup_menu(GtkWidget *view, gpointer data)
+{
+    (void)view;
+    (void)data;
+    popup_widgets_menu(0, gtk_get_current_event_time());
+    return TRUE;
 }
 
 /* Double-clicking (or Enter-activating) a widget row opens the same
@@ -1456,7 +1655,11 @@ static GtkWidget *build_widgets_view(void)
 {
     GtkWidget *view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_widgets_store));
     gtk_tree_view_set_reorderable(GTK_TREE_VIEW(view), TRUE);
+    gtk_tree_selection_set_mode(gtk_tree_view_get_selection(GTK_TREE_VIEW(view)), GTK_SELECTION_MULTIPLE);
     g_signal_connect(view, "row-activated", G_CALLBACK(widget_row_activated), NULL);
+    g_signal_connect(view, "button-press-event", G_CALLBACK(on_widgets_button_press), NULL);
+    g_signal_connect(view, "popup-menu", G_CALLBACK(on_widgets_popup_menu), NULL);
+    g_widgets_view = view;
 
     GtkCellRenderer *type_r = gtk_cell_renderer_text_new();
     gtk_tree_view_append_column(GTK_TREE_VIEW(view),
@@ -1635,6 +1838,8 @@ GtkWidget *build_paineis_tab(void)
     gtk_box_pack_start(GTK_BOX(widgets_btnbox), wadd, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(widgets_btnbox), wrem, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(widgets_box), widgets_btnbox, FALSE, FALSE, 0);
+    gtk_widget_set_tooltip_text(widgets_view, _("Ctrl+clique seleciona varios; clique direito copia ou envia "
+                                                "os selecionados pra outro painel"));
     GtkWidget *widgets_frame = frame_with("Widgets do painel selecionado", widgets_box);
 
     /* Theme now follows whichever panel is selected above (see

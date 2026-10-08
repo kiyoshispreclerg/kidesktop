@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-08 12:53-0300\n"
+"POT-Creation-Date: 2026-10-08 18:08-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -209,7 +209,7 @@ msgstr ""
 #: tabs/acessibilidade.c:514 tabs/appearance.c:703 tabs/autostart.c:414
 #: tabs/energia.c:221 tabs/entrada.c:544 tabs/historico.c:379
 #: tabs/historico.c:446 tabs/outras.c:244 tabs/programas.c:305
-#: tabs/shortcuts.c:1063 tabs/sistema.c:809 tabs/telas.c:1780
+#: tabs/shortcuts.c:1063 tabs/sistema.c:809 tabs/telas.c:1911
 msgid "Aplicar"
 msgstr ""
 
@@ -233,12 +233,12 @@ msgstr ""
 msgid "Adicionar..."
 msgstr ""
 
-#: tabs/autostart.c:413 tabs/eventos.c:227 tabs/shortcuts.c:1027
-#: tabs/sistema.c:794
+#: tabs/autostart.c:413 tabs/eventos.c:227 tabs/paineis.c:1524
+#: tabs/shortcuts.c:1027 tabs/sistema.c:794
 msgid "Remover"
 msgstr ""
 
-#: tabs/efeitos.c:655 tabs/paineis.c:842
+#: tabs/efeitos.c:655 tabs/paineis.c:867
 msgid "?"
 msgstr ""
 
@@ -488,7 +488,7 @@ msgid "Titulo privado (regex):"
 msgstr ""
 
 #: tabs/historico.c:385 tabs/historico.c:452 tabs/permissoes.c:632
-#: tabs/telas.c:1665 tabs/wallpaper.c:358
+#: tabs/telas.c:1777 tabs/wallpaper.c:358
 msgid "-"
 msgstr ""
 
@@ -657,44 +657,101 @@ msgstr ""
 msgid "Preferir apagar a tela (blank)"
 msgstr ""
 
-#: tabs/paineis.c:819
+#: tabs/paineis.c:462
+msgid ""
+"Familia da fonte, ex: Noto Sans. Vazio = sans-serif do Fontconfig. Vale pro "
+"xispanel inteiro: o primeiro painel que definir ganha."
+msgstr ""
+
+#: tabs/paineis.c:463
+msgid "Tamanho do texto em pixels. Vazio = cada widget usa o seu."
+msgstr ""
+
+#: tabs/paineis.c:464
+msgid ""
+"Nome do tema de icones, ex: breeze. Vale pro xispanel inteiro: o primeiro "
+"painel que definir ganha."
+msgstr ""
+
+#: tabs/paineis.c:465
+msgid "Cor do destaque ao passar o mouse. Vazio = cor do texto translucida."
+msgstr ""
+
+#: tabs/paineis.c:466
+msgid ""
+"Pasta com bg.png/btns.png (mesmo formato dos temas do kiwm). Vazio = so "
+"cores."
+msgstr ""
+
+#: tabs/paineis.c:467
+msgid ""
+"Arredondar cantos com XShape mesmo com compositor. Vale pro xispanel "
+"inteiro: o primeiro painel que definir ganha."
+msgstr ""
+
+#: tabs/paineis.c:844
 msgid "Definir:"
 msgstr ""
 
-#: tabs/paineis.c:1285 tabs/paineis.c:1445 tabs/paineis.c:1593
+#: tabs/paineis.c:1327 tabs/paineis.c:1718 tabs/paineis.c:1871
 #, c-format
 msgid "Outras opcoes de '%s':"
 msgstr ""
 
-#: tabs/paineis.c:1506
+#: tabs/paineis.c:1470
+#, c-format
+msgid "%s (container)"
+msgstr ""
+
+#: tabs/paineis.c:1479
+msgid ""
+"Um container so aceita monitor, tray, launcher, volume, energy, network, "
+"storage, clipboard, lockkeys, notif e folder"
+msgstr ""
+
+#: tabs/paineis.c:1489
+msgid "(nenhum outro painel)"
+msgstr ""
+
+#: tabs/paineis.c:1517
+msgid "Copiar para..."
+msgstr ""
+
+#: tabs/paineis.c:1520
+msgid "Enviar para..."
+msgstr ""
+
+#: tabs/paineis.c:1781
 msgid "Adicionar painel"
 msgstr ""
 
-#: tabs/paineis.c:1507
+#: tabs/paineis.c:1782
 msgid "Remover painel"
 msgstr ""
 
-#: tabs/paineis.c:1559
+#: tabs/paineis.c:1834
 msgid "Adicionar widget"
 msgstr ""
 
-#: tabs/paineis.c:1560
+#: tabs/paineis.c:1835
 msgid "Remover widget"
 msgstr ""
 
-#: tabs/paineis.c:1575
+#: tabs/paineis.c:1841
+msgid ""
+"Ctrl+clique seleciona varios; clique direito copia ou envia os selecionados "
+"pra outro painel"
+msgstr ""
+
+#: tabs/paineis.c:1852
 msgid "Cor de fundo:"
 msgstr ""
 
-#: tabs/paineis.c:1581
+#: tabs/paineis.c:1858
 msgid "Cor do texto:"
 msgstr ""
 
-#: tabs/paineis.c:1599
-msgid "Outras opcoes do tema"
-msgstr ""
-
-#: tabs/paineis.c:1617
+#: tabs/paineis.c:1899
 msgid "Salvar e recarregar xispanel"
 msgstr ""
 
@@ -922,28 +979,36 @@ msgstr ""
 msgid "Mostrados na aba Calendario do xisserve"
 msgstr ""
 
-#: tabs/telas.c:1609 tabs/telas.c:1628 tabs/telas.c:1670
+#: tabs/telas.c:1669 tabs/telas.c:1689 tabs/telas.c:1782
 #, c-format
 msgid "%d saida(s) detectada(s)."
 msgstr ""
 
-#: tabs/telas.c:1705
+#: tabs/telas.c:1798
+msgid "Saida"
+msgstr ""
+
+#: tabs/telas.c:1799
+msgid "Clique pra configurar; duplo clique liga a saida"
+msgstr ""
+
+#: tabs/telas.c:1836
 msgid "Saida ligada"
 msgstr ""
 
-#: tabs/telas.c:1708
+#: tabs/telas.c:1839
 msgid "Saida primaria"
 msgstr ""
 
-#: tabs/telas.c:1761
+#: tabs/telas.c:1892
 msgid "Propriedades avancadas"
 msgstr ""
 
-#: tabs/telas.c:1773
+#: tabs/telas.c:1904
 msgid "Outras propriedades"
 msgstr ""
 
-#: tabs/telas.c:1779
+#: tabs/telas.c:1910
 msgid "Detectar novamente"
 msgstr ""
 
