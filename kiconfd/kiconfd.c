@@ -16,6 +16,12 @@
  * `OSD` command (see xispanel/PROTOCOL.md) that silently does nothing if
  * xispanel isn't running.
  *
+ * And the one that rings alarms and countdown timers (xisserve's
+ * --calendar page edits them in ki-clock.conf, see shared/xis_clock.h):
+ * the main loop sleeps until the next one is due -- woken early by
+ * inotify when that file changes -- and starts `xisserve --ring` for it.
+ * See the "clock" section below.
+ *
  * Log: off by default (stdout/stderr behave normally, i.e. whatever
  * kisession/startx/the display manager's Xsession script already does
  * with an inherited child's fds). Pass --log, or set KICONFD_LOG=1 in
@@ -136,7 +142,9 @@
 #include "../shared/xis_i18n.h"
 #include <X11/keysym.h>
 
+#include "../shared/xis_clock.h"
 #include "../shared/xis_outputs.h"
+#include "../shared/xis_spawn.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -148,6 +156,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/file.h>
+#include <sys/inotify.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -155,7 +165,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.20"
+#define KICONFD_VERSION "0.2.21"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -1981,6 +1991,92 @@ static void apply_nightlight(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* clock: alarms and countdown timers                                   */
+/* ------------------------------------------------------------------ */
+
+/* Anything due in (g_clock_checked, now] rings. Starts at kiconfd's own
+ * startup time, so what came due while nothing was running (logged out,
+ * kiconfd restarted) doesn't all ring at once on login -- xisserve's
+ * page still shows a finished timer as finished. */
+static long long g_clock_checked_ms;
+
+/* An alarm more than this late (the machine was suspended through it)
+ * is skipped rather than rung hours afterwards; a countdown timer always
+ * rings, however late, since "it finished" is still news. */
+#define ALARM_LATE_MAX_SEC (10 * 60)
+
+static void clock_ring(const char *kind, int id)
+{
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "xisserve --ring %s %d", kind, id);
+    fprintf(stderr, "kiconfd: ringing %s %d\n", kind, id);
+    xis_spawn_detached(cmd);
+}
+
+/* Rings whatever came due since the last call, and returns how many ms
+ * until the next thing is due (-1 if nothing is pending). */
+static long long clock_check(void)
+{
+    XisClock c;
+    xis_clock_load(&c);
+    long long now_ms = xis_clock_now_ms();
+    long long now_s = now_ms / 1000;
+    long long checked_s = g_clock_checked_ms / 1000;
+    long long next_ms = -1;
+
+    for (int i = 0; i < c.nalarms; i++) {
+        long long due = xis_alarm_next(&c.alarms[i], checked_s);
+        if (due && due <= now_s && now_s - due <= ALARM_LATE_MAX_SEC) {
+            clock_ring("alarm", c.alarms[i].id);
+        }
+        long long upcoming = xis_alarm_next(&c.alarms[i], now_s);
+        if (upcoming) {
+            long long in_ms = upcoming * 1000 - now_ms;
+            if (next_ms < 0 || in_ms < next_ms) next_ms = in_ms;
+        }
+    }
+    for (int i = 0; i < c.ntimers; i++) {
+        long long end = c.timers[i].end_ms;
+        if (end <= 0) continue;
+        if (end > g_clock_checked_ms && end <= now_ms) {
+            clock_ring("timer", c.timers[i].id);
+        } else if (end > now_ms && (next_ms < 0 || end - now_ms < next_ms)) {
+            next_ms = end - now_ms;
+        }
+    }
+    g_clock_checked_ms = now_ms;
+    return next_ms;
+}
+
+/* inotify on ki-clock.conf's directory (the file itself is replaced by
+ * rename on every save, so watching it directly would lose the watch
+ * after the first edit). -1 if unavailable: the loop then just notices
+ * changes on its next regular wakeup. */
+static int clock_watch_init(void)
+{
+    char path[PATH_MAX];
+    xis_clock_path(path, sizeof(path));
+    char *slash = strrchr(path, '/');
+    if (!slash) return -1;
+    *slash = 0;
+    mkdir(path, 0700);
+    int fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+    if (fd < 0) return -1;
+    if (inotify_add_watch(fd, path, IN_CLOSE_WRITE | IN_MOVED_TO | IN_DELETE) < 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+static void clock_watch_drain(int fd)
+{
+    char buf[4096];
+    while (read(fd, buf, sizeof(buf)) > 0) {
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* config persistence                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -2238,6 +2334,7 @@ int main(int argc, char **argv)
                 "applied at startup and on SIGHUP"));
         printf(_("Night light: $XDG_CONFIG_HOME/kiconfd-nightlight.conf, applied via xsct every %ds "
                 "(if installed)\n"), NIGHTLIGHT_POLL_SEC);
+        printf("%s\n", _("Clock: rings the alarms and timers in $XDG_CONFIG_HOME/ki-clock.conf via `xisserve --ring`"));
         printf("%s\n", _("Log: off by default (inherits stdout/stderr as usual). --log, or KICONFD_LOG=1 in "
                 "the environment, redirects them to $XDG_CONFIG_HOME/kiconfd.log instead."));
         printf("%s\n", _("SIGHUP reloads the config and reapplies settings."));
@@ -2325,20 +2422,41 @@ int main(int argc, char **argv)
     apply_power_settings();
     apply_nightlight();
 
-    /* sleep() rather than pause(): the loop now also has to wake up on
+    /* A timed wait rather than pause(): the loop also has to wake up on
      * its own, without any signal, for the night light schedule (see
-     * apply_nightlight()'s own comment) -- a plain signal wait has
-     * nothing to wake it for that. Any of the three signals below still
-     * cuts the sleep short (EINTR), so SIGHUP still reloads/reapplies
-     * immediately instead of waiting up to NIGHTLIGHT_POLL_SEC. */
+     * apply_nightlight()'s own comment) and for the next alarm/timer
+     * (clock_check()) -- whichever is sooner -- plus whenever
+     * ki-clock.conf changes (a timer just started may be due before the
+     * wait would otherwise end). Any of the three signals still cuts the
+     * wait short (EINTR), so SIGHUP still reloads/reapplies immediately. */
+    int clock_fd = clock_watch_init();
+    g_clock_checked_ms = xis_clock_now_ms();
+    time_t nightlight_at = 0;
     while (!g_quit) {
         if (g_reload) {
             g_reload = 0;
             reload_config();
+            nightlight_at = 0;
         }
-        apply_nightlight();
-        sleep(NIGHTLIGHT_POLL_SEC);
+        time_t now = time(NULL);
+        if (now - nightlight_at >= NIGHTLIGHT_POLL_SEC || now < nightlight_at) {
+            apply_nightlight();
+            nightlight_at = now;
+        }
+        long long wait_ms = clock_check();
+        long long nl_ms = ((long long)nightlight_at + NIGHTLIGHT_POLL_SEC - (long long)time(NULL)) * 1000;
+        if (wait_ms < 0 || wait_ms > nl_ms) wait_ms = nl_ms;
+        if (wait_ms < 10) wait_ms = 10;
+
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        if (clock_fd >= 0) FD_SET(clock_fd, &rfds);
+        struct timeval tv = {(time_t)(wait_ms / 1000), (suseconds_t)(wait_ms % 1000) * 1000};
+        if (select(clock_fd + 1, &rfds, NULL, NULL, &tv) > 0 && clock_fd >= 0 && FD_ISSET(clock_fd, &rfds)) {
+            clock_watch_drain(clock_fd);
+        }
     }
+    if (clock_fd >= 0) close(clock_fd);
 
     XCloseDisplay(g_dpy);
     fprintf(stderr, "kiconfd: shutting down\n");

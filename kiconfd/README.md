@@ -10,6 +10,12 @@ It's also the one thing in the session that runs the night-light schedule
 (set from `kiconf`'s Energia tab) on a timer, popping an OSD toast on
 `xispanel` whenever it actually flips the tint on or off.
 
+And the one that rings alarms and countdown timers from `ki-clock.conf`
+(edited in `xisserve --calendar`): it sleeps until the next one is due,
+wakes early via inotify when the file changes, and starts
+`xisserve --ring` for it. An alarm more than 10 minutes late (suspend)
+is skipped; a timer always rings.
+
 ## What it applies
 
 - **XSETTINGS** -- theme/icon theme/font/cursor, live, reaching every

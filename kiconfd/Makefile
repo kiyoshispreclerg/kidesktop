@@ -24,7 +24,10 @@ MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 # to depend on at runtime). This is also what pulls in the xrandr lib
 # above -- kiconfd otherwise only ever drives layout changes through the
 # `xrandr` CLI, never linking against libXrandr itself before now.
-SHARED_SRC := ../shared/xis_outputs.c
+# shared/xis_clock.c: ki-clock.conf's format (alarms/timers, rung via
+# `xisserve --ring`), shared with xisserve; xis_spawn.c starts that popup
+# as an independent process, same as every other daemon launching one.
+SHARED_SRC := ../shared/xis_outputs.c ../shared/xis_clock.c ../shared/xis_spawn.c
 
 all: kiconfd
 
