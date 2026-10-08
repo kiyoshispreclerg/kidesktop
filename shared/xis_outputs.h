@@ -126,4 +126,25 @@ int xis_build_output_rename_map(Display *dpy, const char *const *saved_ids, int 
 
 const char *xis_apply_output_rename(const XisOutputRename *map, int n_map, const char *saved_id);
 
+/* Whether a saved id ("edid:..." or a connector name) names `o` exactly. */
+int xis_output_matches(const XisOutput *o, const char *saved_id);
+
+/* Pairs a config's saved screens with the real ones, for a program that
+ * would rather draw a saved entry on *some* screen than on none: exact
+ * matches (connector name or EDID id) first, then whatever is left on
+ * both sides by order -- saved ids in the order given, real outputs in
+ * the order xis_list_outputs() returned them. With fewer real screens
+ * than saved ones, the extra saved ids get none; with more, the extra
+ * real screens get none, for the caller to give its own default.
+ *
+ * Unlike xis_build_output_rename_map() this pairs "edid:..." ids too and
+ * doesn't need the counts to agree; it is meant for deciding where to
+ * draw right now, never for rewriting the config with the result.
+ * Duplicate saved ids share their first occurrence's pairing; "*" and ""
+ * never pair. Fills saved_to_real[n_saved] (index into real, or -1) and
+ * real_to_saved[n_real] (first saved index paired with it, or -1). Pure:
+ * no X calls, `real` comes from xis_list_outputs(). */
+void xis_match_outputs(const char *const *saved_ids, int n_saved, const XisOutput *real, int n_real,
+                       int *saved_to_real, int *real_to_saved);
+
 #endif /* XIS_OUTPUTS_H */

@@ -179,3 +179,72 @@ const char *xis_apply_output_rename(const XisOutputRename *map, int n_map, const
     }
     return saved_id;
 }
+
+int xis_output_matches(const XisOutput *o, const char *saved_id)
+{
+    return strcmp(o->name, saved_id) == 0 || (o->id[0] && strcmp(o->id, saved_id) == 0);
+}
+
+/* Index of the first saved id equal to saved_ids[i] (i itself when it is
+ * the first), or -1 for one that never pairs. */
+static int first_saved(const char *const *saved_ids, int i)
+{
+    const char *id = saved_ids[i];
+    if (!id || !*id || strcmp(id, "*") == 0) {
+        return -1;
+    }
+    for (int k = 0; k < i; k++) {
+        if (saved_ids[k] && strcmp(saved_ids[k], id) == 0) {
+            return k;
+        }
+    }
+    return i;
+}
+
+void xis_match_outputs(const char *const *saved_ids, int n_saved, const XisOutput *real, int n_real,
+                       int *saved_to_real, int *real_to_saved)
+{
+    for (int j = 0; j < n_real; j++) {
+        real_to_saved[j] = -1;
+    }
+    for (int i = 0; i < n_saved; i++) {
+        saved_to_real[i] = -1;
+    }
+
+    /* exact matches */
+    for (int i = 0; i < n_saved; i++) {
+        if (first_saved(saved_ids, i) != i) {
+            continue;
+        }
+        for (int j = 0; j < n_real; j++) {
+            if (real_to_saved[j] < 0 && xis_output_matches(&real[j], saved_ids[i])) {
+                real_to_saved[j] = i;
+                saved_to_real[i] = j;
+                break;
+            }
+        }
+    }
+
+    /* the rest by order, until either side runs out */
+    int j = 0;
+    for (int i = 0; i < n_saved; i++) {
+        if (first_saved(saved_ids, i) != i || saved_to_real[i] >= 0) {
+            continue;
+        }
+        while (j < n_real && real_to_saved[j] >= 0) {
+            j++;
+        }
+        if (j >= n_real) {
+            break;
+        }
+        real_to_saved[j] = i;
+        saved_to_real[i] = j;
+    }
+
+    for (int i = 0; i < n_saved; i++) {
+        int f = first_saved(saved_ids, i);
+        if (f >= 0 && f != i) {
+            saved_to_real[i] = saved_to_real[f];
+        }
+    }
+}
