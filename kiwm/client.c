@@ -2370,9 +2370,15 @@ void unmanage(Client *c)
     if (was_focused)
         wm.focused = NULL;
     if (wm.drag_client == c) {
+        /* The drag's pointer grab (events.c's begin_drag_at()) too: with
+         * drag_client cleared, the coming ButtonRelease finds no drag to
+         * finish and would leave the grab -- and its move/resize cursor --
+         * holding the pointer. */
+        xcb_ungrab_pointer(wm.conn, XCB_CURRENT_TIME);
         wm.drag_client = NULL;
         wm.drag_mode = DRAG_NONE;
         wm.drag_snap_side = SNAP_NONE;
+        wm.drag_detile_pending = false;
         wm.drag_fullscreen_move = false;
         wm.resize_neighbors_x_count = 0;
         wm.resize_neighbors_y_count = 0;
