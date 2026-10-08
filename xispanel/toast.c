@@ -143,6 +143,11 @@ static int g_pad_extra = 0;
  * radius(). 0 = square, the original look. */
 static int g_border_radius = 0;
 
+/* The owning panel itself, borrowed under the same rules as g_skin, for
+ * its theme's text look -- font_weight=, title_shadow= and title_outline=
+ * (see pango_show_text_boxed()). NULL = plain text, no notif widget yet. */
+static const Panel *g_text_panel = NULL;
+
 static Visual *g_visual = NULL;
 static int g_depth = 0;
 static Colormap g_cmap = None;
@@ -305,11 +310,11 @@ static void draw_toast(cairo_t *cr, Toast *t)
     cairo_set_source_rgba(cr, g_fg_r, g_fg_g, g_fg_b, g_fg_a);
     const char *summary = t->summary[0] ? t->summary : t->app_name;
     pango_show_text_boxed(cr, text_x, pad - 2, TOAST_SUMMARY_SIZE + 6, text_w, TOAST_SUMMARY_SIZE, summary, NULL,
-                           NULL);
+                           g_text_panel);
     if (t->body[0]) {
         cairo_set_source_rgba(cr, g_fg_r, g_fg_g, g_fg_b, g_fg_a * 0.75);
         pango_show_text_boxed(cr, text_x, pad - 2 + TOAST_SUMMARY_SIZE + 6, TOAST_BODY_SIZE + 6, text_w,
-                               TOAST_BODY_SIZE, t->body, NULL, NULL);
+                               TOAST_BODY_SIZE, t->body, NULL, g_text_panel);
     }
 
     /* Level bar (volume/brightness-style OSD only -- see toast_show_osd()).
@@ -602,6 +607,20 @@ void toast_set_skin(const PanelSkin *skin)
         return;
     }
     g_skin = skin;
+    for (int i = 0; i < g_n; i++) {
+        paint_toast(&g_toasts[i]);
+    }
+    if (g_n > 0) {
+        XFlush(g_dpy);
+    }
+}
+
+void toast_set_text_panel(const Panel *p)
+{
+    if (g_text_panel == p) {
+        return;
+    }
+    g_text_panel = p;
     for (int i = 0; i < g_n; i++) {
         paint_toast(&g_toasts[i]);
     }

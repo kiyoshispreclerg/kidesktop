@@ -1651,6 +1651,9 @@ void toast_set_bg_image(cairo_surface_t *surface, int slice_l, int slice_t, int 
 /* Same borrowing rules, for a theme's menu.png popup frame -- preferred
  * over the panel background image when the theme ships one. */
 void toast_set_skin(const PanelSkin *skin);
+/* Same borrowing rules, for the panel's theme text look (font_weight=,
+ * title_shadow=, title_outline=) on the toast's summary/body. */
+void toast_set_text_panel(const Panel *p);
 /* Mirrors a panel's tooltip_toast_padding_extra onto the toast popups --
  * same on_tick re-sync pattern as toast_set_colors() above. */
 void toast_set_padding_extra(int extra);
