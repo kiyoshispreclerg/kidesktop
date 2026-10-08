@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-08 12:46-0300\n"
+"POT-Creation-Date: 2026-10-08 12:53-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -88,7 +88,7 @@ msgstr ""
 msgid "Associacoes de arquivos"
 msgstr ""
 
-#: kiconf.c:166 tabs/menu.c:461
+#: kiconf.c:166 tabs/menu.c:682
 msgid "Menu de programas"
 msgstr ""
 
@@ -584,30 +584,68 @@ msgstr ""
 msgid "Aplicar (grava kiwm.conf)"
 msgstr ""
 
-#: tabs/menu.c:451
-msgid "Filtrar programas"
+#: tabs/menu.c:472
+msgid "Variaveis de ambiente:"
 msgstr ""
 
-#: tabs/menu.c:453
-msgid "Filtrar:"
+#: tabs/menu.c:473
+msgid "Argumentos extras:"
 msgstr ""
 
-#: tabs/menu.c:480
+#: tabs/menu.c:476
 msgid ""
-"Ocultar/editar uma entrada do sistema cria uma copia em ~/.local/share/"
-"applications -- o arquivo original nunca e alterado. \"Excluir\" so funciona "
-"em entradas ja criadas pelo usuario."
+"Aplicados so ao abrir o programa dentro da sessao KiDesktop (painel, "
+"lancador, gerenciador de arquivos...). Variaveis no formato NOME=valor "
+"separadas por espaco; os argumentos entram antes dos arquivos abertos. "
+"Alterar os campos de cima de um programa do sistema cria uma copia pessoal "
+"dele, que tem prioridade sobre estas opcoes."
 msgstr ""
 
-#: tabs/menu.c:488
-msgid "Novo..."
-msgstr ""
-
-#: tabs/menu.c:490
-msgid "Editar..."
+#: tabs/menu.c:485
+msgid ""
+"Atencao: este programa tem uma copia pessoal em ~/.local/share/applications, "
+"que tem prioridade sobre estas opcoes. Elas so valem se essa copia deixar de "
+"existir."
 msgstr ""
 
 #: tabs/menu.c:492
+msgid "Somente no KiDesktop"
+msgstr ""
+
+#: tabs/menu.c:506
+#, c-format
+msgid "Variavel de ambiente invalida: %s"
+msgstr ""
+
+#: tabs/menu.c:507
+msgid "Use NOME=valor, separadas por espaco."
+msgstr ""
+
+#: tabs/menu.c:672
+msgid "Filtrar programas"
+msgstr ""
+
+#: tabs/menu.c:674
+msgid "Filtrar:"
+msgstr ""
+
+#: tabs/menu.c:701
+msgid ""
+"Ocultar/editar uma entrada do sistema cria uma copia em ~/.local/share/"
+"applications -- o arquivo original nunca e alterado. \"Excluir\" so funciona "
+"em entradas ja criadas pelo usuario. As opcoes \"Somente no KiDesktop\" "
+"ficam em ~/.local/share/kidesktop."
+msgstr ""
+
+#: tabs/menu.c:710
+msgid "Novo..."
+msgstr ""
+
+#: tabs/menu.c:712
+msgid "Editar..."
+msgstr ""
+
+#: tabs/menu.c:714
 msgid "Excluir"
 msgstr ""
 

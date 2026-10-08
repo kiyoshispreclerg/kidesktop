@@ -155,6 +155,12 @@ typedef struct {
  * written to `out` (capped at `max`). */
 int scan_all_apps(DesktopApp *out, int max);
 
+/* $XDG_DATA_HOME/kidesktop/applications (fallback ~/.local/share/...):
+ * the session-only layer kisession prepends to XDG_DATA_DIRS, where Menu
+ * de programas writes per-app extra env vars/args. scan_all_apps() skips
+ * it, so it always reports the entry those copies are generated from. */
+void session_apps_dir(char *out, size_t outsz);
+
 /* Current default app id for `mimetype` ("" if none/unknown), via
  * `xdg-mime query default`. Shared by Programas padrao and Associacoes
  * de arquivos. */

@@ -29,7 +29,7 @@ and switching tabs doesn't grow the window.
 | Energia | night-light schedule and other power settings, applied by `kiconfd` |
 | Programas padrao | default browser/file manager/editor/e-mail client (`xdg-mime`) |
 | Associacoes de arquivos | per-extension default application, wider than Programas Padrao |
-| Menu de programas | the `.desktop` entries `xispanel`'s launcher and `xismenu`'s global menu pull from |
+| Menu de programas | the `.desktop` entries `xispanel`'s launcher and `xismenu`'s global menu pull from; per-app extra env vars/args applied only inside the KiDesktop session (see `../kisession/README.md`) |
 | Iniciar automaticamente | `kisession`'s own services plus XDG autostart entries |
 | Eventos | `ki-events.conf`, read by `xisserve --calendar` |
 

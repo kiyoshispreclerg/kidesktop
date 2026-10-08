@@ -18,7 +18,19 @@
  * An entry already under the user's own applications dir (is_user) is
  * edited/deleted in place -- that's the only case "Excluir" ever acts on:
  * a system entry has nothing of the user's to remove, so the button is a
- * silent no-op for it (same guard as autostart.c's remove_custom_cb()). */
+ * silent no-op for it (same guard as autostart.c's remove_custom_cb()).
+ *
+ * "Somente no KiDesktop" (extra env vars/args, like kmenuedit's) never
+ * touches either of those: it writes a copy of the winning entry to
+ * session_apps_dir(), with Exec= rewritten and the raw values kept in
+ * X-KiDesktop-Env=/X-KiDesktop-Args= to read back and regenerate from.
+ * kisession puts that dir in XDG_DATA_DIRS ahead of /usr/share, so every
+ * XDG launcher in the session (pcmanfm and gio included) picks it up, and
+ * nothing outside the session does. The one thing it can't beat is a
+ * copy in $XDG_DATA_HOME/applications (the spec searches that first) --
+ * the dialog says so when the app has one. Every copy is regenerated
+ * from its base on each refill, so a package update or an edit above
+ * isn't left behind by a stale snapshot. */
 #include "../common.h"
 #include "../tabs.h"
 
@@ -100,10 +112,21 @@ static int app_cmp(const void *pa, const void *pb)
     return strcmp(((const DesktopApp *)pa)->name, ((const DesktopApp *)pb)->name);
 }
 
+#define SESSION_VAL_LEN 512
+static void session_get(const DesktopApp *app, char *env, char *args);
+static void session_write(const DesktopApp *app, const char *env, const char *args);
+
 static void refill_menu_store(void)
 {
     g_n_apps = scan_all_apps(g_apps, MAX_DESKTOP_APPS);
     qsort(g_apps, (size_t)g_n_apps, sizeof(DesktopApp), app_cmp);
+    for (int i = 0; i < g_n_apps; i++) {
+        char env[SESSION_VAL_LEN], args[SESSION_VAL_LEN];
+        session_get(&g_apps[i], env, args);
+        if (env[0] || args[0]) {
+            session_write(&g_apps[i], env, args);
+        }
+    }
 
     gtk_tree_store_clear(g_menu_store);
     GtkTreeIter cat_iters[N_MENU_CATEGORIES + 1]; /* last slot: "Outros" */
@@ -230,6 +253,124 @@ static void write_full_override(const char *path, const DesktopApp *app)
     fclose(f);
 }
 
+static int session_path(const DesktopApp *app, char *out, size_t outsz)
+{
+    char dir[512];
+    session_apps_dir(dir, sizeof(dir));
+    return fmt_fits(out, outsz, "%s/%s", dir, app->id);
+}
+
+/* Reads the env/args an app's session copy was generated from ("" if it
+ * has none). */
+static void session_get(const DesktopApp *app, char *env, char *args)
+{
+    env[0] = args[0] = '\0';
+    char path[512];
+    if (session_path(app, path, sizeof(path))) {
+        desktop_entry_get(path, "X-KiDesktop-Env", env, SESSION_VAL_LEN);
+        desktop_entry_get(path, "X-KiDesktop-Args", args, SESSION_VAL_LEN);
+    }
+}
+
+/* `args` goes before the first field code (%f %F %u %U ...), so files
+ * passed in by a launcher still come last; at the end if there's none. */
+static void exec_insert_args(const char *exec, const char *args, char *out, size_t outsz)
+{
+    const char *at = NULL;
+    for (const char *p = exec; (p = strchr(p, '%'));) {
+        if (p[1] && strchr("fFuUick", p[1]) && (p == exec || isspace((unsigned char)p[-1])) &&
+            (!p[2] || isspace((unsigned char)p[2]))) {
+            at = p;
+            break;
+        }
+        p += p[1] ? 2 : 1; /* also skips a literal "%%" */
+    }
+    if (!args[0]) {
+        snprintf(out, outsz, "%s", exec);
+    } else if (at) {
+        snprintf(out, outsz, "%.*s%s %s", (int)(at - exec), exec, args, at);
+    } else {
+        snprintf(out, outsz, "%s %s", exec, args);
+    }
+}
+
+/* (Re)writes the session copy of `app` from its current base entry, or
+ * removes it when both values are empty. The copy is the base file
+ * verbatim (translations, actions, MimeType= all kept) plus a new Exec=.
+ * DBusActivatable= is dropped: with it, gio activates the app over D-Bus
+ * and never looks at Exec=. */
+static void session_write(const DesktopApp *app, const char *env, const char *args)
+{
+    char path[512];
+    if (!session_path(app, path, sizeof(path))) {
+        return;
+    }
+    if (!env[0] && !args[0]) {
+        unlink(path);
+        return;
+    }
+    char dir[512];
+    session_apps_dir(dir, sizeof(dir));
+    g_mkdir_with_parents(dir, 0700);
+
+    gchar *contents = NULL;
+    gsize len = 0;
+    if (!g_file_get_contents(app->path, &contents, &len, NULL) || !g_file_set_contents(path, contents, (gssize)len, NULL)) {
+        g_warning("kiconf: could not copy '%s' to '%s'", app->path, path);
+        g_free(contents);
+        return;
+    }
+    g_free(contents);
+
+    char with_args[1100], exec[1700];
+    exec_insert_args(app->exec, args, with_args, sizeof(with_args));
+    if (env[0]) {
+        snprintf(exec, sizeof(exec), "env %s %s", env, with_args);
+    } else {
+        snprintf(exec, sizeof(exec), "%s", with_args);
+    }
+    desktop_entry_set_key(path, "Exec", exec);
+    desktop_entry_set_key(path, "DBusActivatable", NULL);
+    desktop_entry_set_key(path, "X-KiDesktop-Env", env[0] ? env : NULL);
+    desktop_entry_set_key(path, "X-KiDesktop-Args", args[0] ? args : NULL);
+}
+
+/* Splits `s` like Exec= does (whitespace, "double quotes" with \
+ * escapes) and checks each word is NAME=VALUE with a valid NAME.
+ * Returns the first offending word in `bad` (0) or 1 if all are fine. */
+static int env_valid(const char *s, char *bad, size_t badsz)
+{
+    const char *p = s;
+    while (*p) {
+        while (isspace((unsigned char)*p)) {
+            p++;
+        }
+        if (!*p) {
+            break;
+        }
+        const char *start = p;
+        int inq = 0;
+        while (*p && (inq || !isspace((unsigned char)*p))) {
+            if (*p == '\\' && p[1]) {
+                p++;
+            } else if (*p == '"') {
+                inq = !inq;
+            }
+            p++;
+        }
+        const char *n = start + (*start == '"');
+        int ok = isalpha((unsigned char)*n) || *n == '_';
+        while (ok && (isalnum((unsigned char)*n) || *n == '_')) {
+            n++;
+        }
+        if (!ok || *n != '=') {
+            snprintf(bad, badsz, "%.*s", (int)(p - start), start);
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static void toggle_visible_cb(GtkCellRendererToggle *cell, gchar *path_str, gpointer data)
 {
     (void)cell;
@@ -270,8 +411,14 @@ static void toggle_visible_cb(GtkCellRendererToggle *cell, gchar *path_str, gpoi
 
 /* Nome/Comentario/Comando/Icone/Categoria/Terminal dialog, shared by
  * "Novo..." (fields start blank) and "Editar..." (fields pre-filled from
- * `seed`, may be NULL). Returns TRUE and fills `out` if the user hit OK. */
-static gboolean run_entry_dialog(GtkWidget *window, const char *title, const DesktopApp *seed, DesktopApp *out)
+ * `seed`, may be NULL). Returns TRUE and fills `out` if the user hit OK.
+ *
+ * With `env`/`args` non-NULL (Editar only -- a brand-new entry is a user
+ * copy, which a session copy could never shadow) it also shows the
+ * "Somente no KiDesktop" fields, pre-filled from and written back to
+ * those SESSION_VAL_LEN buffers. */
+static gboolean run_entry_dialog(GtkWidget *window, const char *title, const DesktopApp *seed, DesktopApp *out,
+                                 char *env, char *args)
 {
     memset(out, 0, sizeof(*out));
 
@@ -313,8 +460,55 @@ static gboolean run_entry_dialog(GtkWidget *window, const char *title, const Des
     gtk_box_pack_start(GTK_BOX(GTK_DIALOG(dialog)->vbox), table, TRUE, TRUE, 0);
     gtk_widget_show_all(table);
 
+    GtkWidget *env_entry = NULL, *args_entry = NULL;
+    if (env && args) {
+        GtkWidget *sbox = gtk_vbox_new(FALSE, 6);
+        gtk_container_set_border_width(GTK_CONTAINER(sbox), 8);
+        GtkWidget *stable = gtk_table_new(2, 2, FALSE);
+        env_entry = gtk_entry_new();
+        args_entry = gtk_entry_new();
+        gtk_entry_set_text(GTK_ENTRY(env_entry), env);
+        gtk_entry_set_text(GTK_ENTRY(args_entry), args);
+        labeled_row(stable, 0, _("Variaveis de ambiente:"), env_entry);
+        labeled_row(stable, 1, _("Argumentos extras:"), args_entry);
+        gtk_box_pack_start(GTK_BOX(sbox), stable, FALSE, FALSE, 0);
+
+        GtkWidget *hint = gtk_label_new(_("Aplicados so ao abrir o programa dentro da sessao KiDesktop "
+                                          "(painel, lancador, gerenciador de arquivos...). Variaveis no formato "
+                                          "NOME=valor separadas por espaco; os argumentos entram antes dos "
+                                          "arquivos abertos. Alterar os campos de cima de um programa do sistema cria uma "
+                                          "copia pessoal dele, que tem prioridade sobre estas opcoes."));
+        gtk_label_set_line_wrap(GTK_LABEL(hint), TRUE);
+        gtk_misc_set_alignment(GTK_MISC(hint), 0.0, 0.5);
+        gtk_box_pack_start(GTK_BOX(sbox), hint, FALSE, FALSE, 0);
+        if (seed && seed->is_user) {
+            GtkWidget *warn = gtk_label_new(_("Atencao: este programa tem uma copia pessoal em "
+                                              "~/.local/share/applications, que tem prioridade sobre estas "
+                                              "opcoes. Elas so valem se essa copia deixar de existir."));
+            gtk_label_set_line_wrap(GTK_LABEL(warn), TRUE);
+            gtk_misc_set_alignment(GTK_MISC(warn), 0.0, 0.5);
+            gtk_box_pack_start(GTK_BOX(sbox), warn, FALSE, FALSE, 0);
+        }
+        GtkWidget *frame = frame_with(_("Somente no KiDesktop"), sbox);
+        gtk_container_set_border_width(GTK_CONTAINER(frame), 8);
+        gtk_box_pack_start(GTK_BOX(GTK_DIALOG(dialog)->vbox), frame, FALSE, FALSE, 0);
+        gtk_widget_show_all(frame);
+    }
+
     gboolean ok = FALSE;
-    if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_OK) {
+    gint resp;
+    while ((resp = gtk_dialog_run(GTK_DIALOG(dialog))) == GTK_RESPONSE_OK && env_entry) {
+        char bad[256];
+        if (env_valid(gtk_entry_get_text(GTK_ENTRY(env_entry)), bad, sizeof(bad))) {
+            break;
+        }
+        GtkWidget *msg = gtk_message_dialog_new(GTK_WINDOW(dialog), GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR,
+                                                GTK_BUTTONS_OK, _("Variavel de ambiente invalida: %s"), bad);
+        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(msg), "%s", _("Use NOME=valor, separadas por espaco."));
+        gtk_dialog_run(GTK_DIALOG(msg));
+        gtk_widget_destroy(msg);
+    }
+    if (resp == GTK_RESPONSE_OK) {
         const gchar *name = gtk_entry_get_text(GTK_ENTRY(name_entry));
         const gchar *exec = gtk_entry_get_text(GTK_ENTRY(exec_entry));
         if (name && *name && exec && *exec) {
@@ -324,8 +518,19 @@ static gboolean run_entry_dialog(GtkWidget *window, const char *title, const Des
             snprintf(out->icon, sizeof(out->icon), "%s", gtk_entry_get_text(GTK_ENTRY(icon_entry)));
             out->terminal = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(terminal_chk));
             int cidx = gtk_combo_box_get_active(GTK_COMBO_BOX(cat_combo));
-            if (cidx >= 0 && cidx < N_MENU_CATEGORIES) {
+            int seed_cat = seed ? app_category_index(seed) : -1;
+            if (seed && cidx == (seed_cat < 0 ? N_MENU_CATEGORIES : seed_cat)) {
+                /* Unchanged: keep the full list (sub-categories too), so
+                 * it doesn't read as an edit of a system entry. */
+                snprintf(out->categories, sizeof(out->categories), "%s", seed->categories);
+            } else if (cidx >= 0 && cidx < N_MENU_CATEGORIES) {
                 snprintf(out->categories, sizeof(out->categories), "%s", MENU_CATEGORIES[cidx].xdg_name);
+            }
+            if (env_entry) {
+                snprintf(env, SESSION_VAL_LEN, "%s", gtk_entry_get_text(GTK_ENTRY(env_entry)));
+                snprintf(args, SESSION_VAL_LEN, "%s", gtk_entry_get_text(GTK_ENTRY(args_entry)));
+                g_strstrip(env);
+                g_strstrip(args);
             }
             ok = TRUE;
         }
@@ -356,7 +561,7 @@ static void new_entry_cb(GtkWidget *widget, gpointer data)
     (void)data;
     GtkWidget *window = gtk_widget_get_toplevel(widget);
     DesktopApp entry;
-    if (!run_entry_dialog(window, "Novo programa", NULL, &entry)) {
+    if (!run_entry_dialog(window, "Novo programa", NULL, &entry, NULL, NULL)) {
         return;
     }
 
@@ -404,11 +609,20 @@ static void edit_entry_cb(GtkWidget *widget, gpointer data)
     DesktopApp *app = &g_apps[row];
 
     DesktopApp edited;
-    if (!run_entry_dialog(window, "Editar programa", app, &edited)) {
+    char env[SESSION_VAL_LEN], args[SESSION_VAL_LEN];
+    session_get(app, env, args);
+    if (!run_entry_dialog(window, "Editar programa", app, &edited, env, args)) {
         return;
     }
+    session_write(app, env, args);
 
-    if (app->is_user) {
+    int global_changed = strcmp(edited.name, app->name) || strcmp(edited.comment, app->comment) ||
+                         strcmp(edited.exec, app->exec) || strcmp(edited.icon, app->icon) ||
+                         strcmp(edited.categories, app->categories) || edited.terminal != app->terminal;
+    if (!global_changed) {
+        /* Only the session fields changed: no user copy, which would
+         * shadow the session one it was just asked for. */
+    } else if (app->is_user) {
         desktop_entry_set_key(app->path, "Name", edited.name);
         desktop_entry_set_key(app->path, "Comment", edited.comment[0] ? edited.comment : NULL);
         desktop_entry_set_key(app->path, "Exec", edited.exec);
@@ -438,8 +652,15 @@ static void delete_entry_cb(GtkWidget *widget, gpointer data)
     if (!g_apps[row].is_user) {
         return; /* nothing of ours to remove -- it's a plain system entry */
     }
-    unlink(g_apps[row].path);
+    DesktopApp gone = g_apps[row];
+    unlink(gone.path);
     refill_menu_store();
+    for (int i = 0; i < g_n_apps; i++) {
+        if (!strcmp(g_apps[i].id, gone.id)) {
+            return; /* a system entry is back underneath; refill regenerated its session copy */
+        }
+    }
+    session_write(&gone, "", ""); /* nothing left to generate it from */
 }
 
 GtkWidget *build_menu_tab(void)
@@ -479,7 +700,8 @@ GtkWidget *build_menu_tab(void)
 
     GtkWidget *note = gtk_label_new(_("Ocultar/editar uma entrada do sistema cria uma copia em "
                                        "~/.local/share/applications -- o arquivo original nunca e alterado. "
-                                       "\"Excluir\" so funciona em entradas ja criadas pelo usuario."));
+                                       "\"Excluir\" so funciona em entradas ja criadas pelo usuario. "
+                                       "As opcoes \"Somente no KiDesktop\" ficam em ~/.local/share/kidesktop."));
     gtk_label_set_line_wrap(GTK_LABEL(note), TRUE);
     gtk_misc_set_alignment(GTK_MISC(note), 0.0, 0.5);
     gtk_box_pack_start(GTK_BOX(outer), note, FALSE, FALSE, 0);

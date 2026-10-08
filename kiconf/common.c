@@ -654,6 +654,16 @@ static void scan_all_apps_dir(const char *dir, int is_user_dir, DesktopApp *out,
     closedir(d);
 }
 
+void session_apps_dir(char *out, size_t outsz)
+{
+    const char *xdg = getenv("XDG_DATA_HOME");
+    if (xdg && *xdg) {
+        snprintf(out, outsz, "%s/kidesktop/applications", xdg);
+    } else {
+        snprintf(out, outsz, "%s/.local/share/kidesktop/applications", getenv("HOME") ? getenv("HOME") : "/tmp");
+    }
+}
+
 int scan_all_apps(DesktopApp *out, int max)
 {
     int n = 0;
@@ -669,10 +679,15 @@ int scan_all_apps(DesktopApp *out, int max)
     char dirs[2048];
     const char *xdg_dirs = getenv("XDG_DATA_DIRS");
     snprintf(dirs, sizeof(dirs), "%s", (xdg_dirs && *xdg_dirs) ? xdg_dirs : "/usr/local/share:/usr/share");
+    char sessdir[512];
+    session_apps_dir(sessdir, sizeof(sessdir));
     char *save = NULL;
     for (char *tok = strtok_r(dirs, ":", &save); tok; tok = strtok_r(NULL, ":", &save)) {
         char path[512];
         snprintf(path, sizeof(path), "%s/applications", tok);
+        if (!strcmp(path, sessdir)) {
+            continue;
+        }
         scan_all_apps_dir(path, 0, out, &n, max);
     }
     return n;

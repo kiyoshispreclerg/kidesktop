@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-08 12:46-0300\n"
+"POT-Creation-Date: 2026-10-08 12:53-0300\n"
 "PO-Revision-Date: 2026-10-01 13:53-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -88,7 +88,7 @@ msgstr "Programas padrão"
 msgid "Associacoes de arquivos"
 msgstr "Associações de arquivos"
 
-#: kiconf.c:166 tabs/menu.c:461
+#: kiconf.c:166 tabs/menu.c:682
 msgid "Menu de programas"
 msgstr "Menu de programas"
 
@@ -616,33 +616,68 @@ msgstr "Reiniciar o kiwm agora"
 msgid "Aplicar (grava kiwm.conf)"
 msgstr "Aplicar (grava kiwm.conf)"
 
-#: tabs/menu.c:451
+#: tabs/menu.c:472
+msgid "Variaveis de ambiente:"
+msgstr "Variáveis de ambiente:"
+
+#: tabs/menu.c:473
+msgid "Argumentos extras:"
+msgstr "Argumentos extras:"
+
+#: tabs/menu.c:476
+msgid ""
+"Aplicados so ao abrir o programa dentro da sessao KiDesktop (painel, "
+"lancador, gerenciador de arquivos...). Variaveis no formato NOME=valor "
+"separadas por espaco; os argumentos entram antes dos arquivos abertos. "
+"Alterar os campos de cima de um programa do sistema cria uma copia pessoal "
+"dele, que tem prioridade sobre estas opcoes."
+msgstr "Aplicados só ao abrir o programa dentro da sessão KiDesktop (painel, lançador, gerenciador de arquivos...). Variáveis no formato NOME=valor separadas por espaço; os argumentos entram antes dos arquivos abertos. Alterar os campos de cima de um programa do sistema cria uma cópia pessoal dele, que tem prioridade sobre estas opções."
+
+#: tabs/menu.c:485
+msgid ""
+"Atencao: este programa tem uma copia pessoal em ~/.local/share/applications, "
+"que tem prioridade sobre estas opcoes. Elas so valem se essa copia deixar de "
+"existir."
+msgstr "Atenção: este programa tem uma cópia pessoal em ~/.local/share/applications, que tem prioridade sobre estas opções. Elas só valem se essa cópia deixar de existir."
+
+#: tabs/menu.c:492
+msgid "Somente no KiDesktop"
+msgstr "Somente no KiDesktop"
+
+#: tabs/menu.c:506
+#, c-format
+msgid "Variavel de ambiente invalida: %s"
+msgstr "Variável de ambiente inválida: %s"
+
+#: tabs/menu.c:507
+msgid "Use NOME=valor, separadas por espaco."
+msgstr "Use NOME=valor, separadas por espaço."
+
+#: tabs/menu.c:672
 msgid "Filtrar programas"
 msgstr "Filtrar programas"
 
-#: tabs/menu.c:453
+#: tabs/menu.c:674
 msgid "Filtrar:"
 msgstr "Filtrar:"
 
-#: tabs/menu.c:480
+#: tabs/menu.c:701
 msgid ""
 "Ocultar/editar uma entrada do sistema cria uma copia em ~/.local/share/"
 "applications -- o arquivo original nunca e alterado. \"Excluir\" so funciona "
-"em entradas ja criadas pelo usuario."
-msgstr ""
-"Ocultar/editar uma entrada do sistema cria uma cópia em ~/.local/share/"
-"applications -- o arquivo original nunca é alterado. \"Excluir\" só funciona "
-"em entradas já criadas pelo usuário."
+"em entradas ja criadas pelo usuario. As opcoes \"Somente no KiDesktop\" "
+"ficam em ~/.local/share/kidesktop."
+msgstr "Ocultar/editar uma entrada do sistema cria uma cópia em ~/.local/share/applications -- o arquivo original nunca é alterado. \"Excluir\" só funciona em entradas já criadas pelo usuário. As opções \"Somente no KiDesktop\" ficam em ~/.local/share/kidesktop."
 
-#: tabs/menu.c:488
+#: tabs/menu.c:710
 msgid "Novo..."
 msgstr "Novo..."
 
-#: tabs/menu.c:490
+#: tabs/menu.c:712
 msgid "Editar..."
 msgstr "Editar..."
 
-#: tabs/menu.c:492
+#: tabs/menu.c:714
 msgid "Excluir"
 msgstr "Excluir"
 
