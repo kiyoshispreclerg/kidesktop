@@ -2147,6 +2147,14 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
             }
         }
 
+        /* Events Xlib already read off the socket (during any round trip
+         * since the last drain) are in its queue, not on the fd: select()
+         * would sleep on them until something else arrived. */
+        int x_queued = XEventsQueued(g_dpy, QueuedAlready) > 0;
+        if (x_queued) {
+            timeout_ms = 0;
+        }
+
         struct timeval tv;
         struct timeval *tvp = NULL;
         if (timeout_ms >= 0) {
@@ -2184,7 +2192,7 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
             }
         }
 
-        if (r > 0 && FD_ISSET(xfd, &rfds)) {
+        if (x_queued || (r > 0 && FD_ISSET(xfd, &rfds))) {
             while (XPending(g_dpy)) {
                 XEvent ev;
                 XNextEvent(g_dpy, &ev);
