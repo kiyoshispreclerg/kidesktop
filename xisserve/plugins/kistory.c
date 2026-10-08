@@ -336,6 +336,30 @@ static void when_string(time_t ts, char *out, size_t outsz)
     strftime(out, outsz, a.tm_yday == b.tm_yday && a.tm_year == b.tm_year ? _("hoje %H:%M") : "%d/%m %H:%M", &a);
 }
 
+/* Long names lose their middle, not their end: "relatorio-mensal-de-ve…ndas-2026.pdf"
+ * still shows which file it is and its extension. Counted in characters
+ * (UTF-8), up to `max` of them including the ellipsis; the kept tail is
+ * at least the extension (if it has a short one) and about a third of
+ * the room. */
+static void middle_truncate(const char *in, int max, char *out, size_t outsz)
+{
+    glong len = g_utf8_strlen(in, -1);
+    if (max < 8 || len <= max) {
+        snprintf(out, outsz, "%s", in);
+        return;
+    }
+    glong tail = max / 3;
+    const char *dot = strrchr(in, '.');
+    if (dot && dot != in) {
+        glong ext = g_utf8_strlen(dot, -1);
+        if (ext <= 10 && ext > tail) tail = ext;
+    }
+    glong head = max - 1 - tail;
+    const char *head_end = g_utf8_offset_to_pointer(in, head);
+    const char *tail_start = g_utf8_offset_to_pointer(in, len - tail);
+    snprintf(out, outsz, "%.*s\xe2\x80\xa6%s", (int)(head_end - in), in, tail_start);
+}
+
 static GdkPixbuf *app_icon(const char *app, const char *exe)
 {
     char *lower = g_ascii_strdown(app, -1);
@@ -352,6 +376,7 @@ static GdkPixbuf *app_icon(const char *app, const char *exe)
 void plugin_kistory_search(const char *query, GPtrArray *results)
 {
     int max_results = xisserve_config_get_int("KISTORY", "search_max", 6);
+    int name_max = xisserve_config_get_int("KISTORY", "name_max", 48);
     if (max_results <= 0 || g_utf8_strlen(query, -1) < MIN_QUERY_CHARS)
         return;
     reload_if_stale();
@@ -377,7 +402,7 @@ void plugin_kistory_search(const char *query, GPtrArray *results)
             }
             char *base = g_path_get_basename(h->text);
             char *dir = g_path_get_dirname(h->text);
-            snprintf(e->name, sizeof(e->name), "%s", base);
+            middle_truncate(base, name_max, e->name, sizeof(e->name));
             snprintf(e->subtitle, sizeof(e->subtitle), _("Hist\xc3\xb3rico \xc2\xb7 %s \xc2\xb7 %s \xc2\xb7 %s"),
                      h->app[0] ? h->app : _("arquivo"), when, dir);
             char quoted[1200];
@@ -391,7 +416,7 @@ void plugin_kistory_search(const char *query, GPtrArray *results)
             if (!wins)
                 wins = open_windows();
             Window open = find_open_window(wins, h->text, h->app);
-            snprintf(e->name, sizeof(e->name), "%s", h->text);
+            middle_truncate(h->text, name_max, e->name, sizeof(e->name));
             snprintf(e->subtitle, sizeof(e->subtitle), _("Hist\xc3\xb3rico \xc2\xb7 %s \xc2\xb7 %s%s"),
                      h->app[0] ? h->app : _("janela"), when, open ? _(" \xc2\xb7 aberta") : "");
             if (open) {

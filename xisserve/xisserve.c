@@ -55,7 +55,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.1.56"
+#define XISSERVE_VERSION "0.1.57"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -196,11 +196,12 @@ static GtkWidget *g_result_list_scroll; /* wraps g_treeview */
 static GtkWidget *g_iconview;
 static GtkWidget *g_result_grid_scroll; /* wraps g_iconview */
 static GtkWidget *g_grid_toggle_btn;
-/* "LAUNCHER\tgrid"/"LAUNCHER\tgrid_columns" in xisserve.conf -- reloaded
- * (along with everything else load_config() owns) on every show_launcher(),
- * so an edit takes effect on next open without restarting the daemon. The
- * toggle button flips g_grid_mode for the rest of the session without
- * touching the file (see on_grid_toggle()). */
+/* "LAUNCHER\tgrid_columns" in xisserve.conf -- reloaded (along with
+ * everything else load_config() owns) on every show_launcher(), so an
+ * edit takes effect on next open without restarting the daemon. The
+ * toggle button's last choice is remembered in xisserve-state.conf (see
+ * on_grid_toggle()); "LAUNCHER\tgrid" is only the default before the
+ * first click ever. */
 static gboolean g_grid_mode;
 static int g_grid_columns = 4;
 static GtkWidget *g_content_box;  /* cat_scroll + results scroll; launcher view only */
@@ -227,6 +228,10 @@ static GPtrArray *g_plugin_results; /* ResultEntry*, rebuilt every search, owned
  * hide_launcher() (nobody's looking any more). */
 static XisserveIconJob *g_row_icon_job;
 static GHashTable *g_favorites;     /* set of .desktop basenames (key owned, value unused) */
+/* The same basenames in the user's chosen order (borrowed from
+ * g_favorites' keys) -- xisserve-favorites.conf's line order, which is
+ * also the order "Favoritos" lists them in. See move_favorite(). */
+static GPtrArray *g_favorites_order;
 static char g_selected_category[32] = "favorites";
 static GtkTreePath *g_hovered_cat_path;
 static GtkTreePath *g_hovered_result_path;
@@ -764,6 +769,8 @@ static void favorites_path(char *out, size_t outsz)
 
 static void load_favorites(void)
 {
+    if (g_favorites_order) g_ptr_array_free(g_favorites_order, TRUE);
+    g_favorites_order = g_ptr_array_new();
     if (g_favorites) g_hash_table_destroy(g_favorites);
     g_favorites = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
 
@@ -775,7 +782,10 @@ static void load_favorites(void)
     while (fgets(line, sizeof(line), f)) {
         size_t l = strlen(line);
         while (l > 0 && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = 0;
-        if (line[0]) g_hash_table_add(g_favorites, g_strdup(line));
+        if (!line[0] || g_hash_table_contains(g_favorites, line)) continue;
+        char *id = g_strdup(line);
+        g_hash_table_add(g_favorites, id);
+        g_ptr_array_add(g_favorites_order, id);
     }
     fclose(f);
 }
@@ -789,14 +799,18 @@ static void save_favorites(void)
         perror("xisserve: save favorites");
         return;
     }
-    GHashTableIter it;
-    gpointer key, value;
-    g_hash_table_iter_init(&it, g_favorites);
-    while (g_hash_table_iter_next(&it, &key, &value)) {
-        (void)value;
-        fprintf(f, "%s\n", (const char *)key);
+    for (guint i = 0; i < g_favorites_order->len; i++) {
+        fprintf(f, "%s\n", (const char *)g_ptr_array_index(g_favorites_order, i));
     }
     fclose(f);
+}
+
+static int favorite_index(const char *id)
+{
+    for (guint i = 0; i < g_favorites_order->len; i++) {
+        if (strcmp(g_ptr_array_index(g_favorites_order, i), id) == 0) return (int)i;
+    }
+    return -1;
 }
 
 /* Toggles id's favorite status both in the persisted set and in its
@@ -807,9 +821,13 @@ static void toggle_favorite(const char *id)
     if (!id || !id[0]) return;
     gboolean now_favorite = !g_hash_table_contains(g_favorites, id);
     if (now_favorite) {
-        g_hash_table_add(g_favorites, g_strdup(id));
+        char *key = g_strdup(id);
+        g_hash_table_add(g_favorites, key);
+        g_ptr_array_add(g_favorites_order, key); /* new favorites go last */
     } else {
-        g_hash_table_remove(g_favorites, id);
+        int idx = favorite_index(id);
+        if (idx >= 0) g_ptr_array_remove_index(g_favorites_order, (guint)idx);
+        g_hash_table_remove(g_favorites, id); /* frees the key -- after it left the order array */
     }
     for (guint i = 0; i < g_apps->len; i++) {
         ResultEntry *e = g_ptr_array_index(g_apps, i);
@@ -819,6 +837,25 @@ static void toggle_favorite(const char *id)
         }
     }
     save_favorites();
+}
+
+/* Moves favorite id `delta` places along g_favorites_order (clamped to
+ * the ends, so a huge delta means "first"/"last"), then saves. Returns
+ * the new index, or -1 when id isn't a favorite. */
+static int move_favorite(const char *id, int delta)
+{
+    int from = favorite_index(id);
+    if (from < 0) return -1;
+    int n = (int)g_favorites_order->len;
+    long to = (long)from + delta;
+    if (to < 0) to = 0;
+    if (to > n - 1) to = n - 1;
+    if (to == from) return from;
+    gpointer key = g_ptr_array_index(g_favorites_order, from);
+    g_ptr_array_remove_index(g_favorites_order, (guint)from);
+    g_ptr_array_insert(g_favorites_order, (gint)to, key);
+    save_favorites();
+    return (int)to;
 }
 
 /* ---- plugin config -------------------------------------------------------- */
@@ -861,6 +898,77 @@ static void config_path(char *out, size_t outsz)
     snprintf(configdir, sizeof(configdir), "%s/.config", home ? home : "");
     mkdir(configdir, 0700);
     snprintf(out, outsz, "%s/xisserve.conf", configdir);
+}
+
+/* ---- UI state ------------------------------------------------------------
+ *
+ * Small choices made from the UI itself (list vs. grid) that should
+ * survive a restart: "xisserve-state.conf" next to xisserve.conf, one
+ * "key\tvalue" line each. Written by xisserve, like
+ * xisserve-favorites.conf -- never mixed into the hand-edited
+ * xisserve.conf, whose comments a rewrite would lose. */
+static GHashTable *g_state; /* key -> value, both owned */
+
+static void state_path(char *out, size_t outsz)
+{
+    const char *xdg_config = getenv("XDG_CONFIG_HOME");
+    if (xdg_config && *xdg_config) {
+        mkdir(xdg_config, 0700);
+        snprintf(out, outsz, "%s/xisserve-state.conf", xdg_config);
+        return;
+    }
+    const char *home = getenv("HOME");
+    char configdir[PATH_MAX - 64]; /* room for "/<name>.conf" after it */
+    snprintf(configdir, sizeof(configdir), "%s/.config", home ? home : "");
+    mkdir(configdir, 0700);
+    snprintf(out, outsz, "%s/xisserve-state.conf", configdir);
+}
+
+static void ensure_state_loaded(void)
+{
+    if (g_state) return;
+    g_state = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+    char path[PATH_MAX];
+    state_path(path, sizeof(path));
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        size_t l = strlen(line);
+        while (l > 0 && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = 0;
+        char *tab = strchr(line, '\t');
+        if (!tab) continue;
+        *tab = 0;
+        g_hash_table_insert(g_state, g_strdup(line), g_strdup(tab + 1));
+    }
+    fclose(f);
+}
+
+static int state_get_int(const char *key, int fallback)
+{
+    ensure_state_loaded();
+    const char *val = g_hash_table_lookup(g_state, key);
+    char *end = NULL;
+    long n = val ? strtol(val, &end, 10) : 0;
+    return val && end != val ? (int)n : fallback;
+}
+
+static void state_set_int(const char *key, int value)
+{
+    ensure_state_loaded();
+    g_hash_table_insert(g_state, g_strdup(key), g_strdup_printf("%d", value));
+    char path[PATH_MAX];
+    state_path(path, sizeof(path));
+    FILE *f = fopen(path, "w");
+    if (!f) {
+        perror("xisserve: save state");
+        return;
+    }
+    GHashTableIter it;
+    gpointer k, v;
+    g_hash_table_iter_init(&it, g_state);
+    while (g_hash_table_iter_next(&it, &k, &v)) fprintf(f, "%s\t%s\n", (const char *)k, (const char *)v);
+    fclose(f);
 }
 
 /* Every line of xisserve.conf is "<SECTION>\t<key>\t<value>" -- the same
@@ -924,7 +1032,8 @@ static void load_config(void)
     g_grid_columns = cols >= 1 ? cols : 1;
     static gboolean initial_mode_applied;
     if (!initial_mode_applied) {
-        g_grid_mode = xisserve_config_get_int("LAUNCHER", "grid", 0) != 0;
+        int saved = state_get_int("launcher_grid", -1);
+        g_grid_mode = saved >= 0 ? saved != 0 : xisserve_config_get_int("LAUNCHER", "grid", 0) != 0;
         initial_mode_applied = TRUE;
     }
 }
@@ -1998,8 +2107,20 @@ static void rebuild_results(void)
         for (guint i = 0; i < g_apps->len; i++) {
             ResultEntry *e = g_ptr_array_index(g_apps, i);
             gboolean include;
+    } else if (strcmp(g_selected_category, "favorites") == 0) {
+        /* The user's own order (see move_favorite()), not scan order. */
+        gtk_widget_show(g_cat_scroll);
+        for (guint f = 0; f < g_favorites_order->len; f++) {
+            const char *id = g_ptr_array_index(g_favorites_order, f);
+            for (guint i = 0; i < g_apps->len; i++) {
+                ResultEntry *e = g_ptr_array_index(g_apps, i);
+                if (strcmp(e->id, id) == 0) {
+                    append_result_row(g_view_store, e);
+                    break;
+                }
+            }
+        }
             if (strcmp(g_selected_category, "all") == 0) include = TRUE;
-            else if (strcmp(g_selected_category, "favorites") == 0) include = e->is_favorite;
             else include = strcmp(e->category_key, g_selected_category) == 0;
             if (include) append_result_row(g_view_store, e);
         }
@@ -2050,6 +2171,7 @@ static void on_grid_toggle(GtkToggleButton *btn, gpointer data)
      * focusable widget -- without this, Up/Down/Left/Right (and typing)
      * silently stop reaching g_entry until the user clicks back into it,
      * which looks exactly like "the grid doesn't respond to the arrow
+    state_set_int("launcher_grid", g_grid_mode ? 1 : 0);
      * keys" right after switching view modes. */
     gtk_widget_grab_focus(g_entry);
 }
@@ -2576,6 +2698,9 @@ static gboolean on_entry_key_press(GtkWidget *w, GdkEventKey *ev, gpointer data)
     (void)w;
     (void)data;
     if (ev->keyval == GDK_Escape) {
+static gboolean favorites_reorderable_now(void);          /* defined below, by the context menu */
+static void move_favorite_and_show(const char *id, int delta);
+
         hide_launcher();
         return TRUE;
     }
@@ -2584,6 +2709,25 @@ static gboolean on_entry_key_press(GtkWidget *w, GdkEventKey *ev, gpointer data)
      * they're left alone so they keep moving the text cursor while
      * typing a query, same as always. Up/Down already gave up that
      * behaviour (in both modes) long before grid mode existed, so
+    /* Alt+arrows move the selected favorite (Alt+Left/Right too in grid
+     * mode, matching how plain arrows navigate there). */
+    if ((ev->state & GDK_MOD1_MASK) && favorites_reorderable_now()) {
+        int delta = 0;
+        guint next_col_key = xis_direction_is_rtl() ? GDK_Left : GDK_Right;
+        if (ev->keyval == GDK_Up) delta = g_grid_mode ? -g_grid_columns : -1;
+        else if (ev->keyval == GDK_Down) delta = g_grid_mode ? g_grid_columns : 1;
+        else if (g_grid_mode && (ev->keyval == GDK_Left || ev->keyval == GDK_Right))
+            delta = ev->keyval == next_col_key ? 1 : -1;
+        if (delta) {
+            GtkTreeIter iter;
+            ResultEntry *e = NULL;
+            if (gtk_tree_selection_get_selected(gtk_tree_view_get_selection(GTK_TREE_VIEW(g_treeview)), NULL, &iter)) {
+                gtk_tree_model_get(GTK_TREE_MODEL(g_view_store), &iter, VCOL_ENTRY, &e, -1);
+            }
+            if (e && e->is_favorite) move_favorite_and_show(e->id, delta);
+            return TRUE;
+        }
+    }
      * extending the same trade to Left/Right for grid mode is
      * consistent rather than a new regression. */
     gboolean nav_col = g_grid_mode && (ev->keyval == GDK_Left || ev->keyval == GDK_Right);
@@ -2632,6 +2776,41 @@ static void on_favorite_menu_item(GtkWidget *item, gpointer user_data)
  * GArray of DesktopAction it came from is freed once the menu is built. */
 static void on_jumplist_action_activate(GtkWidget *item, gpointer user_data)
 {
+/* Reordering only makes sense where the order is visible: the
+ * "Favoritos" category with no search query. */
+static gboolean favorites_reorderable_now(void)
+{
+    const char *query = gtk_entry_get_text(GTK_ENTRY(g_entry));
+    return !(query && *query) && strcmp(g_selected_category, "favorites") == 0;
+}
+
+/* move_favorite() plus the visible side: relist and keep the moved
+ * entry selected where it landed. */
+static void move_favorite_and_show(const char *id, int delta)
+{
+    char saved_id[sizeof(((ResultEntry *)0)->id)];
+    snprintf(saved_id, sizeof(saved_id), "%s", id); /* rebuild_results() may free what id points into */
+    int to = move_favorite(saved_id, delta);
+    if (to < 0) return;
+    rebuild_results();
+    GtkTreePath *path = gtk_tree_path_new_from_indices(to, -1);
+    select_result_path(path);
+    if (g_grid_mode) {
+        gtk_icon_view_scroll_to_path(GTK_ICON_VIEW(g_iconview), path, FALSE, 0, 0);
+    } else {
+        gtk_tree_view_scroll_to_cell(GTK_TREE_VIEW(g_treeview), path, NULL, FALSE, 0, 0);
+    }
+    gtk_tree_path_free(path);
+}
+
+/* The context menu's "Mover ..." items carry their delta as the item's
+ * own data; the entry comes in as user_data like on_favorite_menu_item(). */
+static void on_move_favorite_menu_item(GtkWidget *item, gpointer user_data)
+{
+    ResultEntry *e = (ResultEntry *)user_data;
+    move_favorite_and_show(e->id, GPOINTER_TO_INT(g_object_get_data(G_OBJECT(item), "delta")));
+}
+
     (void)item;
     run_detached((const char *)user_data);
     hide_launcher();
@@ -2737,6 +2916,28 @@ static void show_result_context_menu(GtkTreeModel *model, GtkTreeIter *iter, gui
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
     g_signal_connect(menu, "selection-done", G_CALLBACK(on_context_menu_selection_done), NULL);
     gtk_widget_show_all(menu);
+    if (e->is_favorite && favorites_reorderable_now() && g_favorites_order->len > 1) {
+        static const struct {
+            const char *label;
+            int delta;
+        } kMoves[] = {
+            {N_("Mover para o in\xc3\xad" "cio"), -G_MAXINT / 2},
+            {N_("Mover para cima"), -1},
+            {N_("Mover para baixo"), 1},
+            {N_("Mover para o final"), G_MAXINT / 2},
+        };
+        int idx = favorite_index(e->id);
+        int last = (int)g_favorites_order->len - 1;
+        for (size_t i = 0; i < G_N_ELEMENTS(kMoves); i++) {
+            GtkWidget *mitem = gtk_menu_item_new_with_label(_(kMoves[i].label));
+            g_object_set_data(G_OBJECT(mitem), "delta", GINT_TO_POINTER(kMoves[i].delta));
+            gtk_widget_set_sensitive(mitem, kMoves[i].delta < 0 ? idx > 0 : idx < last);
+            g_signal_connect(mitem, "activate", G_CALLBACK(on_move_favorite_menu_item), e);
+            gtk_menu_shell_append(GTK_MENU_SHELL(menu), mitem);
+        }
+        gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
+    }
+
     xisserve_transient_popup_begin();
     gtk_menu_popup(GTK_MENU(menu), NULL, NULL, NULL, NULL, button, time);
 }

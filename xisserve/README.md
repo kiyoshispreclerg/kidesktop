@@ -19,9 +19,13 @@ flat full-width search across every app while typing, favorites
 of confirm-before-running power actions (shutdown/reboot/suspend/logout/
 switch-user/lock) each shown only if its backend is actually installed,
 and a results view that toggles between list and icon-grid ("Grade"/
-"Lista" button in the header; `LAUNCHER grid`/`LAUNCHER grid_columns` in
-`xisserve.conf` set the starting mode and column count, see "Search
-plugins" below for the config file's shape).
+"Lista" button in the header; the last choice is remembered in
+`xisserve-state.conf`, `LAUNCHER grid` in `xisserve.conf` is only the
+default before the first toggle, and `LAUNCHER grid_columns` sets the
+column count, see "Search plugins" below for the config file's shape).
+Favorites are listed in the user's own order: right-click one under
+"Favoritos" for "Mover para cima/baixo/...", or Alt+arrows on the
+selected one; `xisserve-favorites.conf` keeps that order.
 
 ## Why a separate process
 
@@ -78,7 +82,8 @@ and can append its own results, each with its own icon, subtitle
   first. A title whose window is still open ("· aberta") activates it;
   otherwise its program is started again. Reads the day files directly,
   cached in memory until one changes; `KISTORY search_max` (default 6)
-  caps the results.
+  caps the results. Names longer than `KISTORY name_max` characters
+  (default 48) lose their middle, keeping the start and the extension.
 - **process** (`plugins/process.c`) -- if the query (2+ chars) names a
   running process owned by the current user, offers Finalizar (SIGTERM),
   Matar (SIGKILL), and Matar forcado/arvore (SIGKILL to the whole process
