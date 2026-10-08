@@ -131,8 +131,11 @@ PANEL	top	*	edge=top	pct=100	thickness=32	mode=dock
   an XRandR output name (e.g. `HDMI-1`, `DP-1`), same convention as
   xisback's `--output`.
 - `edge`: `top` | `bottom` | `left` | `right` (default `top`).
-- `pct`: 1-100, percentage of that edge's length the panel occupies,
-  centered (default `100`).
+- `pct`: 1-100, percentage of that edge's length the panel occupies
+  (default `100`).
+- `align`: `start` | `center` | `end` -- where a `pct` below 100 places
+  the panel along its edge: `start` is the left end of a top/bottom edge
+  and the top end of a left/right one (default `center`).
 - `thickness`: panel thickness in pixels along the cross axis (default
   `32`).
 - `mode`: `dock` (reserves screen space via `_NET_WM_STRUT_PARTIAL`) |

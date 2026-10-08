@@ -1156,6 +1156,7 @@ static void rename_panel_everywhere(const char *old_name, const char *new_name)
  * "PANEL" reference, kept in sync with that, not the other way around),
  * so writing them all is exactly the same as leaving them unset. */
 static const char *const PANEL_EDGE_OPTS[] = {"top", "bottom", "left", "right", NULL};
+static const char *const PANEL_ALIGN_OPTS[] = {"center", "start", "end", NULL};
 static const char *const PANEL_MODE_OPTS[] = {"dock", "overlay", "autohide", "container", NULL};
 static const char *const PANEL_LAYOUT_OPTS[] = {"row", "grid", NULL};
 static const char *const PANEL_ROTATE_OPTS[] = {"0", "90", "180", "270", NULL};
@@ -1163,6 +1164,7 @@ static const char *const PANEL_ROTATE_OPTS[] = {"0", "90", "180", "270", NULL};
 static const WidgetField PANEL_FIELDS[] = {
     WF_ENUM("edge", "Borda", "top", PANEL_EDGE_OPTS),
     WF_INT("pct", "Percentual da borda ocupado (1-100)", "100", 1, 100),
+    WF_ENUM("align", "Alinhamento na borda (start = esquerda/topo)", "center", PANEL_ALIGN_OPTS),
     WF_INT("thickness", "Espessura (px)", "32", 4, 500),
     WF_ENUM("mode", "Modo (container = popup de um widget container)", "dock", PANEL_MODE_OPTS),
     WF_ENUM("layout", "Disposicao (so mode=container)", "row", PANEL_LAYOUT_OPTS),

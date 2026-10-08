@@ -100,7 +100,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.87"
+#define XISPANEL_VERSION "0.6.88"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -769,6 +769,20 @@ static void write_default_config_if_missing(void)
     fprintf(stderr, "xispanel: no config found, wrote a default panel to %s\n", g_configpath);
 }
 
+/* Offset along the edge for align=, given the room the panel leaves free
+ * on it (edge length minus the panel's own length). */
+static int panel_align_offset(const Panel *p, int slack)
+{
+    switch (p->align) {
+    case PANEL_ALIGN_START:
+        return 0;
+    case PANEL_ALIGN_END:
+        return slack;
+    default:
+        return slack / 2;
+    }
+}
+
 static void panel_resolve_geometry(Panel *p)
 {
     /* A container popup lives on whatever output its owner widget's
@@ -814,14 +828,14 @@ static void panel_resolve_geometry(Panel *p)
     if (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) {
         p->w = p->out_w * p->pct / 100;
         p->h = p->thickness;
-        p->x = p->out_x + (p->out_w - p->w) / 2;
+        p->x = p->out_x + panel_align_offset(p, p->out_w - p->w);
         p->y = (p->edge == EDGE_TOP) ? p->out_y : (p->out_y + p->out_h - p->thickness);
         p->hidden_x = p->x;
         p->hidden_y = (p->edge == EDGE_TOP) ? (p->out_y - p->thickness) : (p->out_y + p->out_h);
     } else {
         p->h = p->out_h * p->pct / 100;
         p->w = p->thickness;
-        p->y = p->out_y + (p->out_h - p->h) / 2;
+        p->y = p->out_y + panel_align_offset(p, p->out_h - p->h);
         p->x = (p->edge == EDGE_LEFT) ? p->out_x : (p->out_x + p->out_w - p->thickness);
         p->hidden_y = p->y;
         p->hidden_x = (p->edge == EDGE_LEFT) ? (p->out_x - p->thickness) : (p->out_x + p->out_w);
@@ -2991,6 +3005,11 @@ static void apply_panel_kv(Panel *p, const char *kvline)
     }
     if (p->pct > 100) {
         p->pct = 100;
+    }
+    if (kv_get(kvline, "align", buf, sizeof(buf))) {
+        p->align = strcmp(buf, "start") == 0 ? PANEL_ALIGN_START
+                   : strcmp(buf, "end") == 0 ? PANEL_ALIGN_END
+                                             : PANEL_ALIGN_CENTER;
     }
     p->thickness_cfg = kv_get_int(kvline, "thickness", p->thickness_cfg);
     if (kv_get(kvline, "mode", buf, sizeof(buf))) {

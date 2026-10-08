@@ -266,6 +266,7 @@ struct PanelWidget {
 };
 
 enum { INLINE_NO = 0, INLINE_URGENT = 1, INLINE_ALWAYS = 2 };
+enum { PANEL_ALIGN_CENTER = 0, PANEL_ALIGN_START, PANEL_ALIGN_END };
 
 struct Panel {
     int in_use;
@@ -273,6 +274,10 @@ struct Panel {
     char output[64]; /* "*" or an XRandR output name */
     enum edge edge;
     int pct; /* 0-100 */
+    /* align=start|center|end: where a pct<100 panel sits along its edge --
+     * start is the left end of a top/bottom edge and the top of a
+     * left/right one. Center (0) is the default. */
+    int align;
     int thickness_cfg;
     enum panel_mode mode;
     /* 0/90/180/270: rotates every widget's content as a rigid whole
