@@ -97,7 +97,7 @@ int xis_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int 
 int xis_fd(void);
 int xis_poll_change(void);
 
-#define XISBACK_VERSION "0.4.14"
+#define XISBACK_VERSION "0.4.15"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -147,6 +147,14 @@ typedef struct {
     char source[PATH_MAX]; /* image file or directory; "" = no image, color only */
     char color[COLOR_STR_LEN]; /* "#RRGGBB" fallback color, used when source is empty
                                  * or fails to load; "" itself falls back to black */
+
+    /* The real connector this layer is drawn on right now, decided by
+     * place_layers() from `output` and the screens actually present; ""
+     * = none (no window). Never saved: `output` is what the config keeps. */
+    char place[XIS_OUTPUT_STR_LEN];
+    /* Created by place_layers() for a screen nothing in the config went
+     * to; not saved, not listed, replaced by any SET for that screen. */
+    int auto_default;
 
     Window win;
     Pixmap cur_pixmap;
@@ -200,6 +208,8 @@ static Atom g_atom_stowed_pixmap;
 /* LAZY: hidden layers the compositor kept no picture of drop their image
  * too, and decode it again when shown (see layer_unload()). */
 static int g_lazy;
+/* load_config() in progress: placement waits until every layer is in. */
+static int g_loading;
 
 /* WM_S<screen>/_NET_WM_CM_S<screen> manager-selection tracking (ICCCM
  * 4.3 and the EWMH compositing-manager convention respectively): whichever
@@ -725,40 +735,18 @@ static int resolve_output_geometry(const char *name, int *ox, int *oy, int *ow, 
     return found;
 }
 
-/* l->output can be "*", a literal XRandR connector name, or an
- * "edid:..." stable-monitor id (see shared/xis_outputs.h) -- the latter
- * is re-resolved against live XRandR state on every call, so a connector
- * rename between two calls (a reboot, a replug) never needs any
- * persisted fix-up for these the way a plain name does (see
- * reconcile_layer_outputs()/build_output_rename_map() below, which only
- * ever touch plain-name layers). */
-static void layer_geometry(Layer *l, int *x, int *y, int *w, int *h)
+/* A "*" layer spans the whole virtual screen; any other is drawn on its
+ * l->place. Returns 0 when it has no screen to be drawn on. */
+static int layer_geometry(Layer *l, int *x, int *y, int *w, int *h)
 {
-    char resolved[XIS_OUTPUT_STR_LEN];
-    const char *name = l->output;
-    int found = strcmp(l->output, "*") != 0;
-    if (found && strncmp(l->output, "edid:", 5) == 0) {
-        /* forced=0: this runs on every render (slideshow tick, RandR
-         * event, crossfade step), a real hot path -- see
-         * xis_list_outputs()'s own doc comment on `forced`. Correct
-         * without ever forcing here because main() forces one poll at
-         * startup before the first layer_apply_set() (see its own
-         * comment), which is enough to make every later cached read,
-         * from any client, see fresh EDID for the rest of the session --
-         * the RandR-change events refresh_all_layer_geometries() already
-         * reacts to keep the cache itself current after that. */
-        found = xis_resolve_output(g_dpy, l->output, resolved, sizeof(resolved), 0);
-        name = resolved;
-    }
-    if (!found || !resolve_output_geometry(name, x, y, w, h)) {
-        if (strcmp(l->output, "*") != 0) {
-            fprintf(stderr, "xisback: output '%s' not found, falling back to full screen\n", l->output);
-        }
+    if (strcmp(l->output, "*") == 0) {
         *x = 0;
         *y = 0;
         *w = DisplayWidth(g_dpy, g_screen);
         *h = DisplayHeight(g_dpy, g_screen);
+        return 1;
     }
+    return l->place[0] && resolve_output_geometry(l->place, x, y, w, h);
 }
 
 static Window create_layer_window(Layer *l, int x, int y, int w, int h)
@@ -816,10 +804,29 @@ static Window create_layer_window(Layer *l, int x, int y, int w, int h)
     return win;
 }
 
+static void layer_finish_fade(Layer *l);
+
+/* A layer with no screen keeps its settings but no window or image. */
+static void layer_drop_window(Layer *l)
+{
+    layer_finish_fade(l);
+    if (l->win != None) {
+        XDestroyWindow(g_dpy, l->win);
+        l->win = None;
+    }
+    layer_release_pixmap(l);
+    l->mapped = 0;
+    l->content_stale = 0;
+    l->unloaded = 0;
+}
+
 static void layer_ensure_window(Layer *l)
 {
     int x, y, w, h;
-    layer_geometry(l, &x, &y, &w, &h);
+    if (!layer_geometry(l, &x, &y, &w, &h)) {
+        layer_drop_window(l);
+        return;
+    }
 
     if (l->win == None) {
         l->win = create_layer_window(l, x, y, w, h);
@@ -1065,7 +1072,10 @@ static void layer_draw_fade_frame(Layer *l, double alpha)
  * make sense. A hidden window just swaps. */
 static void layer_render(Layer *l, int use_fade)
 {
-    if (g_lazy && !l->mapped && l->win != None) {
+    if (l->win == None) {
+        return; /* no screen to be drawn on */
+    }
+    if (g_lazy && !l->mapped) {
         /* Nobody can see it: whatever it would show now gets decoded when
          * it is mapped. A kept picture of it would be an older image. */
         layer_finish_fade(l);
@@ -1231,14 +1241,14 @@ static int rects_overlap(int x1, int y1, int w1, int h1, int x2, int y2, int w2,
 static void check_layer_overlap(void)
 {
     for (int i = 0; i < MAX_LAYERS; i++) {
-        if (!g_layers[i].in_use || strcmp(g_layers[i].output, "*") == 0) {
+        if (!g_layers[i].in_use || g_layers[i].win == None || strcmp(g_layers[i].output, "*") == 0) {
             continue;
         }
         for (int j = i + 1; j < MAX_LAYERS; j++) {
-            if (!g_layers[j].in_use || strcmp(g_layers[j].output, "*") == 0) {
+            if (!g_layers[j].in_use || g_layers[j].win == None || strcmp(g_layers[j].output, "*") == 0) {
                 continue;
             }
-            if (strcmp(g_layers[i].output, g_layers[j].output) == 0) {
+            if (strcmp(g_layers[i].place, g_layers[j].place) == 0) {
                 continue;
             }
             if (rects_overlap(g_layers[i].x, g_layers[i].y, g_layers[i].width, g_layers[i].height,
@@ -1269,6 +1279,8 @@ static void check_layer_overlap(void)
  * falls back to `color` (or black) either way, so a SET only ever fails on
  * running out of layer slots. A missing/unreadable path is still logged
  * (by layer_load_sources()/render_pixmap()), just not rejected. */
+static void place_layers(int forced, Layer *skip);
+
 static int layer_apply_set(const char *output, int desktop, enum mode mode, int interval, int shuffle, int fade_ms, const char *path, const char *color, char *errbuf, size_t errbufsz)
 {
     int idx = find_layer(output, desktop);
@@ -1282,6 +1294,7 @@ static int layer_apply_set(const char *output, int desktop, enum mode mode, int 
 
     Layer *l = &g_layers[idx];
     snprintf(l->output, sizeof(l->output), "%s", output);
+    l->auto_default = 0;
     l->desktop = desktop;
     l->mode = mode;
     l->interval = interval;
@@ -1291,6 +1304,7 @@ static int layer_apply_set(const char *output, int desktop, enum mode mode, int 
     snprintf(l->color, sizeof(l->color), "%s", color ? color : "");
     l->in_use = 1;
 
+    place_layers(0, l);
     layer_ensure_window(l);
     if (l->source[0]) {
         layer_load_sources(l);
@@ -1320,7 +1334,7 @@ static void save_config(void)
         return;
     }
     for (int i = 0; i < MAX_LAYERS; i++) {
-        if (!g_layers[i].in_use) {
+        if (!g_layers[i].in_use || g_layers[i].auto_default) {
             continue;
         }
         Layer *l = &g_layers[i];
@@ -1342,79 +1356,13 @@ static void save_config(void)
     }
 }
 
-/* This LAYER (or legacy-format) line's output field, or NULL if the line
- * isn't one at all (ACTIONS, blank, malformed). Used identically by both
- * collect_saved_output_ids()'s survey pass and load_config()'s real
- * pass, factored out so they can never again disagree about which lines
- * are LAYER lines the way they briefly did -- an "ACTIONS\t..." line
- * also happens to split into 7 tab-separated fields (ACTIONS + 6 action
- * commands), same as a legacy-format LAYER line, and used to get misread
- * as one with output="ACTIONS" here while load_config() correctly ruled
- * it out, inflating the survey's output count by one bogus entry and
- * silently breaking every config with a saved ACTIONS line (i.e. nearly
- * all of them). */
-static const char *layer_line_output_field(char *const *fields, int nf)
-{
-    if (strcmp(fields[0], "LAYER") == 0 && nf >= 2) {
-        return fields[1];
-    }
-    if (strcmp(fields[0], "ACTIONS") == 0) {
-        return NULL;
-    }
-    if (nf == 7) {
-        return fields[0];
-    }
-    return NULL;
-}
-
-/* Surveys every LAYER line's output field (edid: id or literal name
- * alike -- xis_build_output_rename_map() sorts out which apply to it) for
- * feeding into that shared rename-map builder. Returns the count written
- * to `ids` (capped at `max`, duplicates included -- the shared builder
- * dedups on its own). */
-static int collect_saved_output_ids(const char *path, char ids[][XIS_OUTPUT_STR_LEN], int max)
-{
-    FILE *f = fopen(path, "r");
-    if (!f) {
-        return 0;
-    }
-    int n = 0;
-    char line[LINE_MAX_LEN];
-    while (n < max && fgets(line, sizeof(line), f)) {
-        size_t len = strlen(line);
-        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
-            line[--len] = 0;
-        }
-        if (len == 0) {
-            continue;
-        }
-        char *fields[9];
-        int nf = 0;
-        char *p = line;
-        fields[nf++] = p;
-        while (nf < 9 && (p = strchr(p, '\t'))) {
-            *p = 0;
-            p++;
-            fields[nf++] = p;
-        }
-        const char *output = layer_line_output_field(fields, nf);
-        if (output) {
-            snprintf(ids[n], XIS_OUTPUT_STR_LEN, "%s", output);
-            n++;
-        }
-    }
-    fclose(f);
-    return n;
-}
-
 /* No wallpaper layers configured at all (first run, or a hand-edited/
  * corrupted config with no LAYER lines) -- auto-provision one black,
  * all-desktops layer per currently connected output instead of leaving
  * the desktop showing whatever the compositor paints behind an unmanaged
  * desktop-type window. Prefers each output's stable EDID id over its bare
- * connector name for the same reason load_config()'s rename map does: it
- * keeps matching the same physical monitor across a reboot/replug that
- * renames connectors, without needing any reconcile step of its own. Falls
+ * connector name: it keeps matching the same physical monitor across a
+ * reboot/replug that renames connectors. Falls
  * back to a single "*" (whole virtual screen) layer if RandR reports no
  * connected outputs at all (or the extension isn't available). */
 static void create_default_layers(void)
@@ -1434,20 +1382,8 @@ static void create_default_layers(void)
     }
 }
 
-static void load_config(void)
+static void load_config_file(void)
 {
-    char saved_ids[MAX_LAYERS][XIS_OUTPUT_STR_LEN];
-    int n_saved = collect_saved_output_ids(g_configpath, saved_ids, MAX_LAYERS);
-    const char *saved_ptrs[MAX_LAYERS];
-    for (int i = 0; i < n_saved; i++) {
-        saved_ptrs[i] = saved_ids[i];
-    }
-    XisOutputRename rename_map[MAX_LAYERS];
-    int n_rename = xis_build_output_rename_map(g_dpy, saved_ptrs, n_saved, rename_map, MAX_LAYERS);
-    for (int i = 0; i < n_rename; i++) {
-        fprintf(stderr, "xisback: config: output '%s' not found but screen count still matches, using '%s' instead (by screen order)\n", rename_map[i].from, rename_map[i].to);
-    }
-
     /* Tracks whether the file held any wallpaper layer at all (LAYER or
      * legacy-format lines), regardless of whether applying each one
      * actually succeeded -- an empty/missing config (first run, or one a
@@ -1490,7 +1426,7 @@ static void load_config(void)
                 continue;
             }
             enum mode mode = (strcmp(fields[3], "stretch") == 0) ? MODE_STRETCH : MODE_FILL;
-            const char *output = xis_apply_output_rename(rename_map, n_rename, fields[1]);
+            const char *output = fields[1];
             const char *color = (nf >= 9) ? fields[8] : "";
             char errbuf[256];
             if (layer_apply_set(output, parse_desktop(fields[2]), mode, atoi(fields[4]), atoi(fields[5]), atoi(fields[6]), fields[7], color, errbuf, sizeof(errbuf)) != 0) {
@@ -1521,7 +1457,7 @@ static void load_config(void)
              * wallpaper was already configured. */
             layer_lines_seen++;
             enum mode mode = (strcmp(fields[2], "stretch") == 0) ? MODE_STRETCH : MODE_FILL;
-            const char *output = xis_apply_output_rename(rename_map, n_rename, fields[0]);
+            const char *output = fields[0];
             char errbuf[256];
             if (layer_apply_set(output, parse_desktop(fields[1]), mode, atoi(fields[3]), atoi(fields[4]), atoi(fields[5]), fields[6], "", errbuf, sizeof(errbuf)) != 0) {
                 fprintf(stderr, "xisback: config: %s\n", errbuf);
@@ -1544,52 +1480,133 @@ static void load_config(void)
     }
 }
 
-/* Reconcile already-loaded layers after RandR changes.
- *
- * At startup load_config() does this once, but a second monitor may not
- * have appeared / received a CRTC yet.  In that case the screen counts
- * don't match and no rename map is created.  When RandR later reports
- * the completed configuration, try the same positional reconciliation
- * again and update the live layers.
- *
- * Only ever touches plain-name layers (xis_build_output_rename_map()
- * skips "edid:..." ones by design -- those are already re-resolved fresh
- * on every layer_geometry() call, live, with nothing here to reconcile). */
-static int reconcile_layer_outputs(void)
+/* Puts a color-only, all-desktops layer on a screen the config gave
+ * nothing (see place_layers()). */
+static void create_auto_layer(const XisOutput *o)
 {
-    char saved_ids[MAX_LAYERS][XIS_OUTPUT_STR_LEN];
-    int n_saved = collect_saved_output_ids(g_configpath, saved_ids, MAX_LAYERS);
-    const char *saved_ptrs[MAX_LAYERS];
-    for (int i = 0; i < n_saved; i++) {
-        saved_ptrs[i] = saved_ids[i];
+    int idx = alloc_layer();
+    if (idx < 0) {
+        return;
     }
-    XisOutputRename rename_map[MAX_LAYERS];
-    int n_rename = xis_build_output_rename_map(g_dpy, saved_ptrs, n_saved, rename_map, MAX_LAYERS);
-    if (n_rename <= 0) {
-        return 0;
+    Layer *l = &g_layers[idx];
+    snprintf(l->output, sizeof(l->output), "%s", o->id[0] ? o->id : o->name);
+    snprintf(l->place, sizeof(l->place), "%s", o->name);
+    l->desktop = -1;
+    l->mode = MODE_FILL;
+    l->interval = 300;
+    l->fade_ms = 1000;
+    l->auto_default = 1;
+    l->in_use = 1;
+    fprintf(stderr, "xisback: nothing configured for screen '%s', using a default layer\n", o->name);
+    layer_ensure_window(l);
+    layer_show_current(l, time(NULL));
+}
+
+/* Whether l is on its own saved screen, not one given by order. */
+static int placed_exactly(const XisOutput *real, int n_real, const Layer *l)
+{
+    for (int j = 0; j < n_real; j++) {
+        if (strcmp(real[j].name, l->place) == 0) {
+            return xis_output_matches(&real[j], l->output);
+        }
+    }
+    return 0;
+}
+
+/* Decides which real screen each layer is drawn on (l->place), with
+ * xis_match_outputs(): a saved screen that is present gets its own, the
+ * rest go to the remaining screens by order, saved screens left over get
+ * none (their layers keep no window), and screens left over get an
+ * auto_default layer -- unless a "*" layer already covers them all. The config itself is never rewritten here, so the
+ * original screens find their layers again once they are back. Layers
+ * whose screen changed are redrawn, except `skip` (its caller does). */
+static void place_layers(int forced, Layer *skip)
+{
+    if (g_loading) {
+        return;
+    }
+    XisOutput real[XIS_MAX_OUTPUTS];
+    int n_real = xis_list_outputs(g_dpy, real, XIS_MAX_OUTPUTS, forced);
+
+    const char *saved[MAX_LAYERS];
+    int layer_of[MAX_LAYERS];
+    int n_saved = 0;
+    int whole_screen = 0; /* a "*" layer already covers every screen */
+    for (int i = 0; i < MAX_LAYERS; i++) {
+        if (g_layers[i].in_use && !g_layers[i].auto_default) {
+            saved[n_saved] = g_layers[i].output;
+            layer_of[n_saved++] = i;
+            whole_screen |= strcmp(g_layers[i].output, "*") == 0;
+        }
+    }
+    int saved_to_real[MAX_LAYERS];
+    int real_to_saved[XIS_MAX_OUTPUTS];
+    xis_match_outputs(saved, n_saved, real, n_real, saved_to_real, real_to_saved);
+
+    char old_place[MAX_LAYERS][XIS_OUTPUT_STR_LEN];
+    for (int i = 0; i < MAX_LAYERS; i++) {
+        snprintf(old_place[i], sizeof(old_place[i]), "%s", g_layers[i].place);
+    }
+    for (int k = 0; k < n_saved; k++) {
+        Layer *l = &g_layers[layer_of[k]];
+        int r = saved_to_real[k];
+        snprintf(l->place, sizeof(l->place), "%s", r >= 0 ? real[r].name : "");
     }
 
-    int changed = 0;
+    /* auto layers stay only on screens still present and still unclaimed */
+    int covered[XIS_MAX_OUTPUTS] = {0};
     for (int i = 0; i < MAX_LAYERS; i++) {
         Layer *l = &g_layers[i];
-        if (!l->in_use || strcmp(l->output, "*") == 0) {
+        if (!l->in_use || !l->auto_default) {
             continue;
         }
-
-        const char *new_output = xis_apply_output_rename(rename_map, n_rename, l->output);
-        if (strcmp(new_output, l->output) != 0) {
-            fprintf(stderr,
-                    "xisback: RandR: output '%s' is now '%s' (by screen order)\n",
-                    l->output, new_output);
-            snprintf(l->output, sizeof(l->output), "%s", new_output);
-            changed = 1;
+        int keep = 0;
+        for (int j = 0; j < n_real; j++) {
+            if (!whole_screen && real_to_saved[j] < 0 && !covered[j] && xis_output_matches(&real[j], l->output)) {
+                snprintf(l->place, sizeof(l->place), "%s", real[j].name);
+                covered[j] = 1;
+                keep = 1;
+                break;
+            }
+        }
+        if (!keep) {
+            destroy_layer(l);
         }
     }
 
-    if (changed) {
-        save_config();
+    for (int i = 0; i < MAX_LAYERS; i++) {
+        Layer *l = &g_layers[i];
+        if (!l->in_use || l == skip || strcmp(l->output, "*") == 0 || strcmp(old_place[i], l->place) == 0) {
+            continue;
+        }
+        int logged = 0; /* once per saved screen, not per layer */
+        for (int k = 0; k < i && !logged; k++) {
+            logged = g_layers[k].in_use && strcmp(g_layers[k].output, l->output) == 0 && strcmp(old_place[k], g_layers[k].place) != 0;
+        }
+        if (!logged && !l->auto_default && !placed_exactly(real, n_real, l)) {
+            if (l->place[0]) {
+                fprintf(stderr, "xisback: screen '%s' not found, drawing its layers on '%s' (by screen order)\n", l->output, l->place);
+            } else {
+                fprintf(stderr, "xisback: screen '%s' not found and no screen left for it, its layers stay hidden\n", l->output);
+            }
+        }
+        layer_ensure_window(l);
+        layer_render(l, 0);
     }
-    return changed;
+
+    for (int j = 0; j < n_real; j++) {
+        if (!whole_screen && real_to_saved[j] < 0 && !covered[j]) {
+            create_auto_layer(&real[j]);
+        }
+    }
+}
+
+static void load_config(void)
+{
+    g_loading = 1;
+    load_config_file();
+    g_loading = 0;
+    place_layers(1, NULL);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1645,7 +1662,7 @@ static void handle_line(char *line, FILE *out)
     }
     if (strcmp(fields[0], "LIST") == 0) {
         for (int i = 0; i < MAX_LAYERS; i++) {
-            if (!g_layers[i].in_use) {
+            if (!g_layers[i].in_use || g_layers[i].auto_default) {
                 continue;
             }
             Layer *l = &g_layers[i];
@@ -1665,6 +1682,7 @@ static void handle_line(char *line, FILE *out)
                 destroy_layer(&g_layers[i]);
             }
         }
+        place_layers(0, NULL);
         save_config();
         fprintf(out, "OK\n");
         return;
@@ -1680,6 +1698,7 @@ static void handle_line(char *line, FILE *out)
             return;
         }
         destroy_layer(&g_layers[idx]);
+        place_layers(0, NULL);
         save_config();
         fprintf(out, "OK\n");
         return;
@@ -2026,23 +2045,6 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
         fcntl(xis_fd(), F_SETFD, FD_CLOEXEC);
     }
 
-    /* One forced poll before the very first layer_geometry() call
-     * (inside load_config() below): the X server's own RandR cache can
-     * still be missing/stale EDID data this early in a fresh session (a
-     * monitor's DDC read simply not finished yet at output-enumeration
-     * time), with no CRTC/topology change ever generated to say so --
-     * see xis_list_outputs()'s own doc comment on `forced`. One forced
-     * read here is enough for the rest of the session: it updates the
-     * server-wide cache (not per-client), and every actual RandR change
-     * after this point keeps it current on its own via the event this
-     * program already reacts to (see XRRSelectInput() above). Cheap
-     * enough to eat once at startup; layer_geometry()'s own per-render
-     * xis_resolve_output() call deliberately stays uncached-forcing. */
-    {
-        XisOutput warm[XIS_MAX_OUTPUTS];
-        xis_list_outputs(g_dpy, warm, XIS_MAX_OUTPUTS, 1);
-    }
-
     snprintf(g_configpath, sizeof(g_configpath), "%s", configpath);
     load_config();
     XFlush(g_dpy);
@@ -2172,14 +2174,14 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                 XNextEvent(g_dpy, &ev);
                 if (g_rr_event_base >= 0 && ev.type == g_rr_event_base + RRScreenChangeNotify) {
                     XRRUpdateConfiguration(&ev);
-                    reconcile_layer_outputs();
+                    place_layers(1, NULL);
                     refresh_all_layer_geometries();
                 } else if (g_xfixes_available && ev.type == g_xfixes_event_base + XFixesSelectionNotify) {
                     XFixesSelectionNotifyEvent *sn = (XFixesSelectionNotifyEvent *)&ev;
                     if (sn->selection == g_atom_wm_sn || sn->selection == g_atom_cm_sn) {
                         fprintf(stderr, "xisback: %s changed, re-checking layers\n",
                                 sn->selection == g_atom_wm_sn ? "window manager" : "compositor");
-                        reconcile_layer_outputs();
+                        place_layers(1, NULL);
                         refresh_all_layer_geometries();
                         check_layer_overlap();
                     }

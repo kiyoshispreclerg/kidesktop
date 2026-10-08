@@ -35,9 +35,10 @@ PING\n
 QUIT\n
 ```
 
-- `<output>`: `*` (spans the whole virtual screen) or the name of an xrandr
-  output (e.g. `HDMI-1`, `DP-1`). Invalid names fall back to full screen
-  (with a warning on the daemon's stderr).
+- `<output>`: `*` (spans the whole virtual screen), the name of an xrandr
+  output (e.g. `HDMI-1`, `DP-1`) or a stable `edid:...` id. One that isn't
+  connected is drawn on another screen or not at all, see "Screens that
+  don't match" below.
 - `<desktop>`: `*` (sticky, shown on every virtual desktop) or a 0-based
   integer (KWin/NETWM desktop index).
 - `<mode>`: `fill` (fills the window, cropping the excess, keeps aspect
@@ -208,6 +209,20 @@ outputs at all, it falls back to a single `(output=*, desktop=*)` layer.
 This only ever happens on an empty config -- a config with layers that
 merely fail to apply (e.g. a saved output that's no longer connected) is
 left as-is, not replaced.
+
+### Screens that don't match
+
+Each layer's `<output>` is paired with a connected screen
+(`xis_match_outputs()` in `../shared/xis_outputs.h`): exact matches (name
+or EDID id) first, then the remaining saved outputs with the remaining
+screens, in order (saved outputs in the order their layers were created,
+screens in RandR's order). With fewer screens than saved outputs, the
+extra outputs' layers get no window; with more, each extra screen gets an
+automatic black, all-desktops layer, which `LIST` doesn't show, the
+config doesn't keep, and any `SET` for that screen replaces. No extra
+screen gets one while a `*` layer exists. The pairing is redone on every
+RandR change and every `SET`/`CLEAR`, and never written to the config, so
+the original screens get their own layers back as soon as they return.
 
 ## Python example
 
