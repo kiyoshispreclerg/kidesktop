@@ -1291,8 +1291,12 @@ void tooltip_notice_motion(Panel *p, int axis_pos, int cross_pos)
      * leave a currently-shown popup's window up (still showing the old
      * item's content) instead of destroying it here -- once the new
      * item's delay elapses, show_popup() will move/resize/repaint that
-     * same window rather than recreating one from scratch. */
-    if (!(p->tooltip_reuse_window && g_shown)) {
+     * same window rather than recreating one from scratch. Keyed on the
+     * window still existing, not on g_shown: the first item crossed
+     * already cleared g_shown, so sweeping over several items before the
+     * delay elapses used to destroy it on the second one -- and a
+     * compositor then saw a close+open instead of one geometry change. */
+    if (!(p->tooltip_reuse_window && g_popup && g_panel == p)) {
         destroy_popup();
     }
     g_shown = 0;
