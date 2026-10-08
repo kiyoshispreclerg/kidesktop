@@ -14,6 +14,15 @@ It owns two things:
   starts before `xispanel` owns the StatusNotifierWatcher bus name gets no
   tray icon for the rest of its run).
 
+## Session data dir
+
+`$XDG_DATA_HOME/kidesktop` (fallback `~/.local/share/kidesktop`) is
+prepended to `XDG_DATA_DIRS`. `kiconf`'s Menu de programas writes
+session-only `.desktop` copies (extra env vars/args) to its
+`applications/` subdir, so they apply to every XDG launcher inside the
+session and to nothing outside it. A copy in `~/.local/share/applications`
+still takes precedence over them (XDG_DATA_HOME comes first).
+
 ## Services (start order)
 
 | service | kind | default | notes |

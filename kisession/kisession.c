@@ -67,7 +67,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KISESSION_VERSION "0.1.11"
+#define KISESSION_VERSION "0.1.12"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -1629,12 +1629,63 @@ static void setup_qt_platformtheme(void)
     fprintf(stderr, "kisession: QT_QPA_PLATFORMTHEME=%s\n", choice);
 }
 
+/* Prepends $XDG_DATA_HOME/kidesktop (fallback ~/.local/share/kidesktop)
+ * to $XDG_DATA_DIRS. kiconf's Menu de programas writes session-only
+ * copies of .desktop entries (extra env vars/args in Exec=) under its
+ * applications/ subdir; being in XDG_DATA_DIRS ahead of /usr/share, they
+ * shadow the system entry for every XDG-following launcher in this
+ * session (xispanel, xisserve, pcmanfm, gio/xdg-open) and for nothing
+ * outside it. A copy in $XDG_DATA_HOME/applications still wins over them
+ * -- the spec puts XDG_DATA_HOME first -- which kiconf warns about.
+ *
+ * The dir is created even when empty so a launcher's directory monitor
+ * can see the first override appear mid-session. Skipped if already
+ * present (the dbus-run-session re-exec inherits it). */
+static void setup_data_dirs(void)
+{
+    char dir[PATH_MAX];
+    const char *xdg = getenv("XDG_DATA_HOME");
+    if (xdg && *xdg) {
+        snprintf(dir, sizeof(dir), "%.*s/kidesktop", (int)(sizeof(dir) - sizeof("/kidesktop") - 1), xdg);
+    } else {
+        snprintf(dir, sizeof(dir), "%.*s/.local/share/kidesktop",
+                 (int)(sizeof(dir) - sizeof("/.local/share/kidesktop") - 1), env_or("HOME", "/tmp"));
+    }
+    char apps[PATH_MAX + 16];
+    snprintf(apps, sizeof(apps), "%s/applications", dir);
+    mkdir(dir, 0700);
+    mkdir(apps, 0700);
+
+    const char *cur = env_or("XDG_DATA_DIRS", "/usr/local/share:/usr/share");
+    size_t dlen = strlen(dir);
+    for (const char *p = cur; *p;) {
+        const char *colon = strchr(p, ':');
+        size_t len = colon ? (size_t)(colon - p) : strlen(p);
+        if (len == dlen && !strncmp(p, dir, len)) {
+            return;
+        }
+        if (!colon) {
+            break;
+        }
+        p = colon + 1;
+    }
+    size_t sz = dlen + 1 + strlen(cur) + 1;
+    char *joined = malloc(sz);
+    if (!joined) {
+        return;
+    }
+    snprintf(joined, sz, "%s:%s", dir, cur);
+    setenv("XDG_DATA_DIRS", joined, 1);
+    free(joined);
+}
+
 static void setup_environment(char **argv)
 {
     setenv("XDG_CURRENT_DESKTOP", "KiDesktop", 1);
     setenv("XDG_SESSION_DESKTOP", "kidesktop", 1);
     setenv("XDG_MENU_PREFIX", "kidesktop-", 1);
     setenv("XDG_SESSION_TYPE", "x11", 1);
+    setup_data_dirs();
     setup_qt_platformtheme();
     setup_gtk_modules();
     setup_a11y_env();
@@ -1687,7 +1738,7 @@ static void setup_environment(char **argv)
 
     static const char *const upd[] = {
         "dbus-update-activation-environment", "--systemd", "DISPLAY", "XAUTHORITY",
-        "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE",
+        "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", "XDG_DATA_DIRS",
         "QT_QPA_PLATFORMTHEME", "GTK_MODULES", "QT_ACCESSIBILITY", "QT_LINUX_ACCESSIBILITY_ALWAYS_ON", NULL,
     };
     char found[PATH_MAX];
