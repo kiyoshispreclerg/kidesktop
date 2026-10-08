@@ -99,15 +99,16 @@ layers" below); it is saved as a `LAZY\t1` line in the config file.
 
 ## Crossfade
 
-When `<fade_ms>` is greater than 0 and the layer already had a window
+When `<fade_ms>` is greater than 0 and the layer's window is on screen
 showing something, the switch to the new image is animated instead of
-instant: the daemon draws the new image into a second window stacked above
-the current one and animates its `_NET_WM_WINDOW_OPACITY` property from 0 to
-full opacity over `<fade_ms>` milliseconds (~30 steps/second), then destroys
-the old window. The actual alpha blending is done by the compositor (KWin)
-on the GPU — the daemon never touches pixel data for the animation, it just
-decodes the new image once (same cost as an instant switch) and nudges a
-window property periodically. A geometry change forced by a monitor
+instant: over `<fade_ms>` milliseconds (~30 steps/second) the daemon has
+the X server blend the new image over the old one (XRender, a solid alpha
+mask going from 0 to 1) into a frame pixmap that is the window's background
+meanwhile, then makes the new image the background and frees the frame.
+Everything happens in the layer's one window, so it does not depend on how
+the WM stacks windows or on a compositor being present; with glamor the
+blend runs on the GPU. A hidden layer switches instantly.
+A geometry change forced by a monitor
 reconfiguration (RandR) snaps any in-flight crossfade to its final state
 immediately rather than animating, since there's no "old" content to fade
 from in that case. `<fade_ms>` is clamped to `[0, 5000]` by the daemon

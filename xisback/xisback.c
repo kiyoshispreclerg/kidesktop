@@ -24,7 +24,7 @@
  * switching between "single wallpaper" and "per-output" mode.
  *
  * A source can be a single image file (static) or a directory (slideshow,
- * cycled every --interval seconds, no fade/effects; sorted alphabetically
+ * cycled every --interval seconds, crossfaded per --fade; sorted alphabetically
  * by default or, with --shuffle, in random order that reshuffles every
  * time it wraps around) -- or left empty for a solid-color layer with no
  * image at all. Every layer also has a --color: it's what gets shown
@@ -65,6 +65,7 @@
 #include <X11/Xutil.h>
 #include <X11/extensions/Xfixes.h>
 #include <X11/extensions/Xrandr.h>
+#include <X11/extensions/Xrender.h>
 
 #include "../shared/xis_fmt.h"
 #include "../shared/xis_outputs.h"
@@ -96,7 +97,7 @@ int xis_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int 
 int xis_fd(void);
 int xis_poll_change(void);
 
-#define XISBACK_VERSION "0.4.13"
+#define XISBACK_VERSION "0.4.14"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -165,11 +166,12 @@ typedef struct {
     int unloaded;
 
     /* in-flight crossfade transition (only meaningful while fading != 0):
-     * fade_win sits on top of win, showing next_pixmap at increasing
-     * opacity; the compositor does the actual blending. Once the fade
-     * completes, fade_win/next_pixmap are promoted into win/cur_pixmap. */
+     * fade_frame is win's background for the duration, redrawn every tick
+     * as cur_pixmap with fade_pixmap blended over it (XRender) at
+     * increasing alpha. Once the fade completes, fade_pixmap becomes
+     * win's background and cur_pixmap, and fade_frame is freed. */
     int fading;
-    Window fade_win;
+    Pixmap fade_frame;
     Pixmap fade_pixmap;
     struct timespec fade_start;
 
@@ -190,7 +192,10 @@ static int g_rr_event_base;
 static volatile sig_atomic_t g_quit = 0;
 static Layer g_layers[MAX_LAYERS];
 static char g_configpath[PATH_MAX];
-static Atom g_atom_opacity;
+/* XRender, for the crossfade: absent (or no format for the visual) just
+ * means image switches are instant. */
+static int g_render_ok;
+static XRenderPictFormat *g_render_fmt;
 static Atom g_atom_stowed_pixmap;
 /* LAZY: hidden layers the compositor kept no picture of drop their image
  * too, and decode it again when shown (see layer_unload()). */
@@ -595,7 +600,7 @@ static void layer_try_borrow(Layer *l)
 static int find_layer_by_window(Window w)
 {
     for (int i = 0; i < MAX_LAYERS; i++) {
-        if (g_layers[i].in_use && (g_layers[i].win == w || (g_layers[i].fading && g_layers[i].fade_win == w))) {
+        if (g_layers[i].in_use && g_layers[i].win == w) {
             return i;
         }
     }
@@ -615,8 +620,8 @@ static int alloc_layer(void)
 static void destroy_layer(Layer *l)
 {
     if (l->fading) {
-        if (l->fade_win != None) {
-            XDestroyWindow(g_dpy, l->fade_win);
+        if (l->fade_frame != None) {
+            XFreePixmap(g_dpy, l->fade_frame);
         }
         if (l->fade_pixmap != None) {
             XFreePixmap(g_dpy, l->fade_pixmap);
@@ -756,12 +761,7 @@ static void layer_geometry(Layer *l, int *x, int *y, int *w, int *h)
     }
 }
 
-/* focusable: whether this window advertises itself as willing to take the
- * keyboard focus (ICCCM InputHint). The layer's own window does -- a left
- * click on the wallpaper focuses it (see ButtonPress handling in main()) --
- * while the throwaway fade overlay never does, so mapping it in front for
- * the duration of a crossfade can't pull focus off anything. */
-static Window create_layer_window(Layer *l, int x, int y, int w, int h, int focusable)
+static Window create_layer_window(Layer *l, int x, int y, int w, int h)
 {
     Window win = XCreateSimpleWindow(g_dpy, g_root, x, y, (unsigned)w, (unsigned)h, 0, 0, BlackPixel(g_dpy, g_screen));
 
@@ -786,10 +786,9 @@ static Window create_layer_window(Layer *l, int x, int y, int w, int h, int focu
      * fullscreen windows" optimization (a real thing in compiz, among
      * others -- skip compositing a window that fills the screen and paint
      * it straight to the framebuffer instead, for performance) can kick in
-     * and take it out of compositing entirely. Once that happens
-     * _NET_WM_WINDOW_OPACITY has no effect at all -- there's no composited
-     * texture left for the property to blend -- so the crossfade silently
-     * turns into an instant swap. _NET_WM_BYPASS_COMPOSITOR (originally a
+     * and take it out of compositing entirely, and a wallpaper gains
+     * nothing from that but a handover on every window that opens over it.
+     * _NET_WM_BYPASS_COMPOSITOR (originally a
      * KDE convention, also honored by mutter/xfwm/compiz) with value 2
      * ("prefer NOT to bypass") tells a compositor that does this opt-out
      * heuristic to leave this window composited anyway; compositors that
@@ -804,65 +803,17 @@ static Window create_layer_window(Layer *l, int x, int y, int w, int h, int focu
      * click-to-focus policy either way (that would focus the wallpaper on
      * any button, and we only want Button1 to) -- the ButtonPress handler
      * calls XSetInputFocus() itself; the hint just keeps a compliant WM
-     * from refusing/reverting that focus on the layer window, and keeps it
-     * from ever focusing the fade overlay. */
+     * from refusing/reverting that focus on the layer window. */
     XWMHints hints;
     hints.flags = InputHint;
-    hints.input = focusable ? True : False;
+    hints.input = True;
     XSetWMHints(g_dpy, win, &hints);
 
-    /* The main window also reports being shown/hidden and the compositor
-     * publishing its kept picture (layer_try_borrow()); the fade overlay
-     * only ever needs clicks. */
-    XSelectInput(g_dpy, win, ButtonPressMask | (focusable ? StructureNotifyMask | PropertyChangeMask : 0));
+    /* Clicks, plus being shown/hidden and the compositor publishing its
+     * kept picture (layer_try_borrow()). */
+    XSelectInput(g_dpy, win, ButtonPressMask | StructureNotifyMask | PropertyChangeMask);
 
     return win;
-}
-
-/* The fade overlay used to be a plain child window of l->win (to dodge a
- * BadMatch, see below) but a plain child isn't its own top-level window as
- * far as a compositor is concerned, so it never gets individually redirected
- * for compositing -- _NET_WM_WINDOW_OPACITY on it did nothing, the "fade"
- * was just an instant swap. Composited opacity needs a real top-level
- * window, so this is create_layer_window() again: another root-level
- * _NET_WM_WINDOW_TYPE_DESKTOP window, exactly like l->win itself.
- *
- * That reopens the original question of how to stack it above l->win
- * without an explicit XRaiseWindow() (which jumps to the top of the *whole*
- * screen, above every real window/panel -- the very bug this was fixing).
- * The tempting fix, XConfigureWindow(..., CWSibling|CWStackMode) with
- * l->win as the sibling, turned out to BadMatch under composition: some
- * compositing WMs reparent a window into a frame of their own once they
- * start redirecting it for compositing, and at that point l->win's real X
- * parent is that frame, not root -- so it and a freshly created root-level
- * fade_win are no longer actually siblings, and the server rejects the
- * "make these two siblings" request outright.
- *
- * So: no explicit stacking call at all. A freshly mapped window is placed
- * above its existing siblings by X's own default behavior, which is all
- * "above the old wallpaper" needs here (there's nothing else already
- * sharing this bottom slab at the moment it's created) -- and since it
- * carries the same _NET_WM_WINDOW_TYPE_DESKTOP hint as l->win, a compliant
- * WM keeps it grouped with the other desktop-type windows at the bottom of
- * the whole stack regardless, same as it already does for l->win. */
-static Window create_fade_window(Layer *l, int w, int h)
-{
-    return create_layer_window(l, l->x, l->y, w, h, 0);
-}
-
-/* _NET_WM_WINDOW_OPACITY (the xcompmgr/compton/picom/KWin convention): a
- * CARDINAL fraction of 0xFFFFFFFF, so the compositor cross-fades the window
- * on the GPU -- we never touch pixel data ourselves for the animation. */
-static void set_window_opacity(Window win, double opacity)
-{
-    if (opacity < 0.0) {
-        opacity = 0.0;
-    }
-    if (opacity > 1.0) {
-        opacity = 1.0;
-    }
-    uint32_t val = (uint32_t)(opacity * (double)UINT32_MAX);
-    XChangeProperty(g_dpy, win, g_atom_opacity, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&val, 1);
 }
 
 static void layer_ensure_window(Layer *l)
@@ -871,7 +822,7 @@ static void layer_ensure_window(Layer *l)
     layer_geometry(l, &x, &y, &w, &h);
 
     if (l->win == None) {
-        l->win = create_layer_window(l, x, y, w, h, 1);
+        l->win = create_layer_window(l, x, y, w, h);
         XMapWindow(g_dpy, l->win);
         XLowerWindow(g_dpy, l->win);
         l->x = x;
@@ -1055,26 +1006,16 @@ static Pixmap render_pixmap(int w, int h, const char *path, enum mode mode, unsi
 }
 
 /* Ends an in-flight crossfade: the faded-in image becomes the layer
- * window's own background and the throwaway overlay goes away -- used both
- * when a fade completes naturally and when it needs to be cut short (a new
- * switch arrives, or the layer is being resized/destroyed).
- *
- * Note the direction: the *overlay* is destroyed and l->win survives, not
- * the other way around. Promoting fade_win into l->win (what this used to
- * do) meant every image switch destroyed the window that had been on screen
- * -- and if the user had clicked the wallpaper, that was the focused
- * window, so the focus fell back to some other client the moment the fade
- * ended. Repainting the window that already exists keeps the layer's window
- * identity stable across a switch, so whatever had the focus (the wallpaper
- * included) still has it afterwards. */
+ * window's own background and the blend frame goes away -- used both when
+ * a fade completes naturally and when it needs to be cut short (a new
+ * switch arrives, or the layer is being resized/destroyed). The window
+ * itself never changes across a switch, so whatever had the focus (the
+ * wallpaper included) still has it afterwards. */
 static void layer_finish_fade(Layer *l)
 {
     if (!l->fading) {
         return;
     }
-    /* Paint the new image into the window underneath *before* dropping the
-     * overlay: at this instant both show the same pixels, so the destroy
-     * below reveals identical content and there's no flash. */
     if (l->win != None && l->fade_pixmap != None) {
         XSetWindowBackgroundPixmap(g_dpy, l->win, l->fade_pixmap);
         XClearWindow(g_dpy, l->win);
@@ -1082,25 +1023,46 @@ static void layer_finish_fade(Layer *l)
             l->content_stale = 1;
         }
     }
-    if (l->fade_win != None) {
-        XDestroyWindow(g_dpy, l->fade_win);
+    if (l->fade_frame != None) {
+        XFreePixmap(g_dpy, l->fade_frame);
     }
     layer_release_pixmap(l);
     l->cur_pixmap = l->fade_pixmap;
     l->unloaded = 0;
-    l->fade_win = None;
+    l->fade_frame = None;
     l->fade_pixmap = None;
     l->fading = 0;
 }
 
+/* One crossfade frame: fade_frame = cur_pixmap, then fade_pixmap OVER it
+ * through a solid mask of the given alpha -- the old image fading out and
+ * the new one fading in, within the one window. */
+static void layer_draw_fade_frame(Layer *l, double alpha)
+{
+    Picture old_pic = XRenderCreatePicture(g_dpy, l->cur_pixmap, g_render_fmt, 0, NULL);
+    Picture new_pic = XRenderCreatePicture(g_dpy, l->fade_pixmap, g_render_fmt, 0, NULL);
+    Picture dst_pic = XRenderCreatePicture(g_dpy, l->fade_frame, g_render_fmt, 0, NULL);
+    XRenderColor c = {0, 0, 0, (unsigned short)(alpha * 0xffff)};
+    Picture mask = XRenderCreateSolidFill(g_dpy, &c);
+
+    XRenderComposite(g_dpy, PictOpSrc, old_pic, None, dst_pic, 0, 0, 0, 0, 0, 0, (unsigned)l->width, (unsigned)l->height);
+    XRenderComposite(g_dpy, PictOpOver, new_pic, mask, dst_pic, 0, 0, 0, 0, 0, 0, (unsigned)l->width, (unsigned)l->height);
+
+    XRenderFreePicture(g_dpy, mask);
+    XRenderFreePicture(g_dpy, dst_pic);
+    XRenderFreePicture(g_dpy, new_pic);
+    XRenderFreePicture(g_dpy, old_pic);
+    XClearWindow(g_dpy, l->win);
+}
+
 /* Renders the current slide into the layer's window. With use_fade and a
- * configured fade_ms, the new image is drawn into a second window stacked
- * above the current one and cross-faded in via _NET_WM_WINDOW_OPACITY
- * (animated from layer_fade_tick()) instead of swapping instantly -- the
- * compositor does the actual blending, so this costs us nothing beyond one
- * extra window and a property change per frame. use_fade is turned off for
- * geometry-driven re-renders (e.g. an output resize), where an animated
- * transition doesn't make sense. */
+ * configured fade_ms, the switch is a crossfade (animated from
+ * layer_fade_tick()) blended by the X server into a frame pixmap that
+ * serves as the window's background meanwhile -- no second window, so
+ * nothing depends on how the WM stacks one, and it looks the same with or
+ * without a compositor. use_fade is turned off for geometry-driven
+ * re-renders (e.g. an output resize), where an animated transition doesn't
+ * make sense. A hidden window just swaps. */
 static void layer_render(Layer *l, int use_fade)
 {
     if (g_lazy && !l->mapped && l->win != None) {
@@ -1122,7 +1084,17 @@ static void layer_render(Layer *l, int use_fade)
     }
 
     l->unloaded = 0;
-    if (!use_fade || l->fade_ms <= 0) {
+    int fade = use_fade && l->fade_ms > 0 && g_render_ok && l->mapped && l->cur_pixmap != None;
+    if (fade && l->borrowed) {
+        /* The compositor's kept picture may be freed under us now that the
+         * window is shown again, so fade from a copy of what the window
+         * shows -- complete, as the compositor that lent it redirects it. */
+        Pixmap copy = XCreatePixmap(g_dpy, g_root, (unsigned)l->width, (unsigned)l->height, (unsigned)g_depth);
+        XCopyArea(g_dpy, l->win, copy, g_gc, 0, 0, (unsigned)l->width, (unsigned)l->height, 0, 0);
+        layer_release_pixmap(l);
+        l->cur_pixmap = copy;
+    }
+    if (!fade) {
         XSetWindowBackgroundPixmap(g_dpy, l->win, next);
         XClearWindow(g_dpy, l->win);
         if (!l->mapped) {
@@ -1133,14 +1105,12 @@ static void layer_render(Layer *l, int use_fade)
         return;
     }
 
-    l->fade_win = create_fade_window(l, l->width, l->height);
-    XSetWindowBackgroundPixmap(g_dpy, l->fade_win, next);
-    XClearWindow(g_dpy, l->fade_win);
-    set_window_opacity(l->fade_win, 0.0);
-    XMapWindow(g_dpy, l->fade_win);
+    l->fade_frame = XCreatePixmap(g_dpy, g_root, (unsigned)l->width, (unsigned)l->height, (unsigned)g_depth);
     l->fade_pixmap = next;
     l->fading = 1;
     clock_gettime(CLOCK_MONOTONIC, &l->fade_start);
+    XSetWindowBackgroundPixmap(g_dpy, l->win, l->fade_frame);
+    layer_draw_fade_frame(l, 0.0);
 }
 
 static void layer_render_current(Layer *l)
@@ -1162,7 +1132,7 @@ static int layer_fade_tick(Layer *l, const struct timespec *now)
         layer_finish_fade(l);
         return 0;
     }
-    set_window_opacity(l->fade_win, progress);
+    layer_draw_fade_frame(l, progress);
     return 1;
 }
 
@@ -1997,7 +1967,11 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
      * memory between switches for no benefit here. Keep footprint minimal. */
     imlib_set_cache_size(0);
 
-    g_atom_opacity = XInternAtom(g_dpy, "_NET_WM_WINDOW_OPACITY", False);
+    int render_ev, render_err;
+    if (XRenderQueryExtension(g_dpy, &render_ev, &render_err)) {
+        g_render_fmt = XRenderFindVisualFormat(g_dpy, g_visual);
+        g_render_ok = g_render_fmt != NULL;
+    }
     g_atom_stowed_pixmap = XInternAtom(g_dpy, "_KICOMP_STOWED_PIXMAP", False);
 
     int rr_error_base;
@@ -2223,6 +2197,9 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                                 malloc_trim(0);
                             }
                         } else {
+                            /* nobody sees the rest of it; and the lazy
+                             * unload below would free what it blends from */
+                            layer_finish_fade(l);
                             if (g_lazy) {
                                 layer_unload(l);
                             }
@@ -2256,10 +2233,7 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                          * middle/right menus (and their actions) leave it
                          * wherever it was. We do this ourselves rather than
                          * leaving it to the WM's click-to-focus, which has
-                         * no notion of "this button but not that one".
-                         * The press may have landed on the fade overlay
-                         * mid-switch -- focus l->win regardless, it's the
-                         * window that outlives the transition. */
+                         * no notion of "this button but not that one". */
                         if (button == Button1 && l->win != None) {
                             XSetInputFocus(g_dpy, l->win, RevertToPointerRoot, ev.xbutton.time);
                         }

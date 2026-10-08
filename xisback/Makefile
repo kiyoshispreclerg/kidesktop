@@ -1,5 +1,5 @@
 CFLAGS ?= -Wall -Wextra -O2
-LIBS := $(shell pkg-config --cflags --libs x11 xrandr xfixes imlib2) -lm
+LIBS := $(shell pkg-config --cflags --libs x11 xrandr xfixes xrender imlib2) -lm
 
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
