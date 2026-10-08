@@ -904,10 +904,14 @@ static void ex_apply(CompEffect *e, CompScene *s, CompOutput *o)
                                                               : d->current_desktop;
 
         /* Anything else that is not ours keeps its place at the bottom:
-         * the WM's own overlays, and windows off this output. */
+         * the WM's own overlays, and windows off this output. Not a
+         * minimized window: it is in the scene only because the grid
+         * asked for the kept pictures (show_stowed_output), and left
+         * here it is drawn whole, behind the cells, on no desktop. */
         for (int i = 0; i < s->count && n < MAX_SCENE_NODES; i++)
             if (!item_for(d, s->nodes[i].win) &&
-                !late_arrival(o, &s->nodes[i]))
+                !late_arrival(o, &s->nodes[i]) &&
+                !(s->nodes[i].win->state & COMP_STATE_MINIMIZED))
                 rebuilt[n++] = s->nodes[i];
 
         /* Cell order, with one cell moved to the end: the desktop you are
