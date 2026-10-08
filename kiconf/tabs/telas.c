@@ -124,6 +124,12 @@ static GtkWidget *g_screens_dpi_spin, *g_screens_scale_spin;
  * own comment) so it knows whether to snap down to 0 (Auto) or up to 96. */
 static int g_screens_dpi_last = 0;
 static GtkWidget *g_screens_status_label;
+/* Connected-but-off outputs, beside the canvas (which only draws enabled
+ * ones) -- selecting a row selects that output for the form below, so it
+ * can be configured and switched on. See rebuild_screens_off_list(). */
+enum { COL_OFF_NAME = 0, COL_OFF_INDEX, N_OFF_COLS };
+static GtkListStore *g_screens_off_store;
+static GtkWidget *g_screens_off_view;
 /* Advanced/other driver properties (xrandr --verbose) -- the *_box is
  * what gets torn down and rebuilt (a fresh GtkTable each time, same
  * "destroy and recreate" approach paineis.c's widget dialogs use) on
@@ -285,7 +291,9 @@ static void parse_rate_tokens(ScreenOutput *o, const char *modename, char *rest)
             rate[k++] = *p;
         }
         rate[k] = '\0';
-        if (m->n_rates < MAX_RATES) {
+        /* A mode that's preferred but not current prints as "59.95 +":
+         * the lone "+" is a marker, not a rate. */
+        if (k > 0 && m->n_rates < MAX_RATES) {
             snprintf(m->rates[m->n_rates].rate, sizeof(m->rates[0].rate), "%s", rate);
             m->rates[m->n_rates].is_current = is_cur;
             m->n_rates++;
@@ -995,6 +1003,7 @@ static void screens_dock(int idx, int *x, int *y, int w, int h, double scale)
 }
 
 static void sync_screens_form(void);
+static void rebuild_screens_off_list(void);
 
 /* ---- Telas tab: advanced/other properties widgets ---------------------
  * Each ExtraProp* handed to these callbacks points directly into
@@ -1199,6 +1208,7 @@ static gboolean screens_canvas_press(GtkWidget *widget, GdkEventButton *event, g
         g_screens_drag_oy = oy;
         g_screens_drag_scale = scale;
         sync_screens_form();
+        rebuild_screens_off_list();
         gtk_widget_queue_draw(widget);
     }
     return TRUE;
@@ -1336,6 +1346,7 @@ static void on_screens_res_changed(GtkWidget *widget, gpointer data)
     ScreenOutput *o = &g_outputs[g_screens_selected];
     if (mode) {
         snprintf(o->current_mode, sizeof(o->current_mode), "%s", mode);
+        sscanf(mode, "%dx%d", &o->width, &o->height);
     }
     if (rate) {
         snprintf(o->current_rate, sizeof(o->current_rate), "%s", rate);
@@ -1374,13 +1385,62 @@ static void on_screens_rot_changed(GtkWidget *widget, gpointer data)
     gtk_widget_queue_draw(g_screens_canvas);
 }
 
+/* An output just switched on from the off list has no mode (xrandr marks
+ * none current while it's off) and a stale position: give it its first
+ * (preferred) mode unless one was already picked in the form, and put
+ * it to the right of everything already on, top-aligned. */
+static void screens_place_enabled(int idx)
+{
+    ScreenOutput *o = &g_outputs[idx];
+    /* The form shows modes[0] for a mode-less output, so a rate picked
+     * there already belongs to it. */
+    if (!o->current_mode[0] && o->n_modes > 0) {
+        snprintf(o->current_mode, sizeof(o->current_mode), "%s", o->modes[0].name);
+        if (!o->current_rate[0] && o->modes[0].n_rates > 0) {
+            snprintf(o->current_rate, sizeof(o->current_rate), "%s", o->modes[0].rates[0].rate);
+        }
+    }
+    sscanf(o->current_mode, "%dx%d", &o->width, &o->height);
+    /* Switched off and back on without Aplicar in between: it still has
+     * its real place. */
+    if (g_outputs_baseline[idx].enabled && !strcmp(g_outputs_baseline[idx].name, o->name)) {
+        o->x = g_outputs_baseline[idx].x;
+        o->y = g_outputs_baseline[idx].y;
+        return;
+    }
+    int any = 0, right = 0, top = 0;
+    for (int i = 0; i < g_n_outputs; i++) {
+        ScreenOutput *p = &g_outputs[i];
+        if (i == idx || !p->connected || !p->enabled) {
+            continue;
+        }
+        int w, h;
+        output_visual_size(p, &w, &h);
+        if (!any || p->x + w > right) {
+            right = p->x + w;
+        }
+        if (!any || p->y < top) {
+            top = p->y;
+        }
+        any = 1;
+    }
+    o->x = any ? right : 0;
+    o->y = any ? top : 0;
+}
+
 static void on_screens_enabled_toggled(GtkWidget *widget, gpointer data)
 {
     (void)data;
     if (g_screens_syncing || g_screens_selected < 0) {
         return;
     }
-    g_outputs[g_screens_selected].enabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget));
+    ScreenOutput *o = &g_outputs[g_screens_selected];
+    o->enabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget));
+    if (o->enabled && !o->mirror_of[0]) {
+        screens_place_enabled(g_screens_selected);
+        sync_screens_form();
+    }
+    rebuild_screens_off_list();
     gtk_widget_queue_draw(g_screens_canvas);
 }
 
@@ -1613,6 +1673,7 @@ static void on_screens_apply(GtkWidget *widget, gpointer data)
     } else {
         rebuild_extra_props_ui();
     }
+    rebuild_screens_off_list();
     gtk_widget_queue_draw(g_screens_canvas);
 }
 
@@ -1632,7 +1693,58 @@ static void on_screens_refresh(GtkWidget *widget, gpointer data)
     } else {
         rebuild_extra_props_ui();
     }
+    rebuild_screens_off_list();
     gtk_widget_queue_draw(g_screens_canvas);
+}
+
+static void rebuild_screens_off_list(void)
+{
+    GtkTreeSelection *sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(g_screens_off_view));
+    g_screens_syncing = 1;
+    gtk_list_store_clear(g_screens_off_store);
+    for (int i = 0; i < g_n_outputs; i++) {
+        if (!g_outputs[i].connected || g_outputs[i].enabled) {
+            continue;
+        }
+        GtkTreeIter it;
+        gtk_list_store_append(g_screens_off_store, &it);
+        gtk_list_store_set(g_screens_off_store, &it, COL_OFF_NAME, g_outputs[i].name, COL_OFF_INDEX, i, -1);
+        if (i == g_screens_selected) {
+            gtk_tree_selection_select_iter(sel, &it);
+        }
+    }
+    g_screens_syncing = 0;
+}
+
+static void on_screens_off_selection_changed(GtkTreeSelection *sel, gpointer data)
+{
+    (void)data;
+    if (g_screens_syncing) {
+        return;
+    }
+    GtkTreeModel *model;
+    GtkTreeIter it;
+    if (!gtk_tree_selection_get_selected(sel, &model, &it)) {
+        return;
+    }
+    gint idx;
+    gtk_tree_model_get(model, &it, COL_OFF_INDEX, &idx, -1);
+    if (idx >= 0 && idx < g_n_outputs) {
+        g_screens_selected = idx;
+        sync_screens_form();
+        gtk_widget_queue_draw(g_screens_canvas);
+    }
+}
+
+/* Double-click/Enter on an off output switches it on (same as ticking
+ * Saida ligada, which then moves it from this list onto the canvas). */
+static void on_screens_off_row_activated(GtkTreeView *view, GtkTreePath *path, GtkTreeViewColumn *col, gpointer data)
+{
+    (void)view;
+    (void)path;
+    (void)col;
+    (void)data;
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_screens_enabled_chk), TRUE);
 }
 
 GtkWidget *build_telas_tab(void)
@@ -1678,7 +1790,26 @@ GtkWidget *build_telas_tab(void)
     g_signal_connect(g_screens_canvas, "button-press-event", G_CALLBACK(screens_canvas_press), NULL);
     g_signal_connect(g_screens_canvas, "motion-notify-event", G_CALLBACK(screens_canvas_motion), NULL);
     g_signal_connect(g_screens_canvas, "button-release-event", G_CALLBACK(screens_canvas_release), NULL);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Layout (arraste pra mover)", g_screens_canvas), TRUE, TRUE, 0);
+
+    g_screens_off_store = gtk_list_store_new(N_OFF_COLS, G_TYPE_STRING, G_TYPE_INT);
+    g_screens_off_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_screens_off_store));
+    gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(g_screens_off_view), FALSE);
+    gtk_tree_view_append_column(GTK_TREE_VIEW(g_screens_off_view),
+        gtk_tree_view_column_new_with_attributes(_("Saida"), gtk_cell_renderer_text_new(), "text", COL_OFF_NAME, NULL));
+    gtk_widget_set_tooltip_text(g_screens_off_view, _("Clique pra configurar; duplo clique liga a saida"));
+    g_signal_connect(gtk_tree_view_get_selection(GTK_TREE_VIEW(g_screens_off_view)), "changed",
+                     G_CALLBACK(on_screens_off_selection_changed), NULL);
+    g_signal_connect(g_screens_off_view, "row-activated", G_CALLBACK(on_screens_off_row_activated), NULL);
+    GtkWidget *off_scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(off_scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(off_scroll), GTK_SHADOW_IN);
+    gtk_container_add(GTK_CONTAINER(off_scroll), g_screens_off_view);
+    gtk_widget_set_size_request(off_scroll, 140, -1);
+
+    GtkWidget *layout_row = gtk_hbox_new(FALSE, 8);
+    gtk_box_pack_start(GTK_BOX(layout_row), frame_with("Layout (arraste pra mover)", g_screens_canvas), TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(layout_row), frame_with("Desativadas", off_scroll), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), layout_row, TRUE, TRUE, 0);
 
     /* 2 columns of 4 rows instead of 1 column of 8 -- same reasoning as
      * "Outras propriedades" below: a single 8-row table forced this frame
@@ -1789,6 +1920,7 @@ GtkWidget *build_telas_tab(void)
     } else {
         rebuild_extra_props_ui();
     }
+    rebuild_screens_off_list();
 
     return outer;
 }
