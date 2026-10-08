@@ -189,6 +189,11 @@ gboolean xisserve_resolve_active_output(Display *dpy, Window root, int *ox, int 
  * code. See session.c and PROTOCOL.md. */
 int session_run(void);
 
+/* --ring alarm|timer <id>: the popup that rings an alarm or countdown
+ * timer from ki-clock.conf (../shared/xis_clock.h), started by kiconfd
+ * when one comes due. One-shot like --session. See ring.c. */
+int ring_run(int argc, char **argv);
+
 /* The launcher's own power-action table (Desligar/Reiniciar/Suspender/
  * Sair/Trocar usuario/Bloquear tela) -- shared with session.c's
  * --session picker so both draw the same buttons from the same source
@@ -305,6 +310,9 @@ void xisserve_get_bg_rgba(double *r, double *g, double *b, double *a);
  * required. Reloaded on each open, so an edit takes effect on the next
  * toggle without restarting the daemon. */
 int xisserve_config_get_int(const char *section, const char *key, int fallback);
+/* (Re)reads xisserve.conf -- for the one-shot popups (--ring), which
+ * run before the launcher would have loaded it. */
+void xisserve_config_load(void);
 
 /* ---- pages -------------------------------------------------------------
  *

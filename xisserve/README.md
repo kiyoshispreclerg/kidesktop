@@ -112,9 +112,20 @@ that page's mode flag (see `PROTOCOL.md` for who passes what). Sources
 live under `pages/`, one file per page, plugged in through a single
 table in `xisserve.c`:
 
-- **`--calendar`** (`pages/calendar.c`) -- month view, current month,
-  today highlighted, prev/next month and direct year entry. Opened by
-  xispanel's `clock` widget.
+- **`--calendar`** (`pages/calendar.c` + `pages/clock.c`) -- tabs:
+  Calendário (month view, local time, other zones, the day's events),
+  Alarmes (one-time or per-weekday, with snooze), Cronômetro (with laps)
+  and Temporizador (several countdowns at once). Opened by xispanel's
+  `clock` widget.
+
+  Alarms, timers and the stopwatch live in `ki-clock.conf` as absolute
+  timestamps (format in `../shared/xis_clock.h`), so they keep counting
+  with the page or xisserve closed. **kiconfd** rings them: it starts
+  `xisserve --ring alarm|timer <id>` (`ring.c`), a popup that loops the
+  freedesktop alarm sound (paplay/pw-play/ogg123/mpv, else the X bell)
+  with Parar and Soneca / +1 min. The tabs warn when kiconfd isn't
+  running. `CLOCK snooze_minutes` (10) and `CLOCK ring_minutes` (5) in
+  `xisserve.conf`.
 - **`--audio`** (`pages/audio.c` + `pages/pulse.c`) -- a mixer: the
   streams currently playing/recording with per-application level and
   mute, plus output and input devices with level, mute, default, and

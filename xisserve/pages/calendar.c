@@ -21,6 +21,9 @@
  *     which is also where "Abrir eventos" below sends the user --
  *     this page only ever reads the file.
  *
+ * Since 0.1.57 the page is a notebook: this calendar tab, then the
+ * Alarmes/Cronometro/Temporizador tabs, which live in clock.c.
+ *
  * National holidays are a separate, built-in table (holidays_br(),
  * below) rather than something read from either file: they don't
  * change from one user/session to the next, so there's nothing to
@@ -28,6 +31,7 @@
  * for now -- see holidays_br()'s own comment.
  */
 #include "../xisserve.h"
+#include "clock.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -39,6 +43,7 @@ static GtkWidget *g_now_label;
 static GtkWidget *g_zones_label;
 static GtkWidget *g_events_label;
 static guint g_tick_id;
+static GtkWidget *g_notebook;
 
 /* ---- ki-zones.conf / ki-events.conf: same "$XDG_CONFIG_HOME (or
  * ~/.config)/<name>" resolution xisserve.c's own config_path()/
@@ -377,7 +382,22 @@ static void on_open_events_clicked(GtkWidget *widget, gpointer data)
     run_detached("kiconf --tab Eventos");
 }
 
-GtkWidget *page_calendar_build(void)
+/* Notebook page index -> which clock tab that is (0 is the calendar). */
+static ClockTab clock_tab_for_page(int page)
+{
+    static const ClockTab tabs[] = {CLOCK_TAB_NONE, CLOCK_TAB_ALARMS, CLOCK_TAB_STOPWATCH, CLOCK_TAB_TIMERS};
+    return page >= 0 && page < (int)G_N_ELEMENTS(tabs) ? tabs[page] : CLOCK_TAB_NONE;
+}
+
+static void on_switch_page(GtkNotebook *nb, gpointer page, guint num, gpointer data)
+{
+    (void)nb;
+    (void)page;
+    (void)data;
+    clock_set_visible_tab(clock_tab_for_page((int)num));
+}
+
+static GtkWidget *build_calendar_tab(void)
 {
     GtkWidget *outer = gtk_hbox_new(FALSE, 12);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 8);
@@ -422,6 +442,19 @@ GtkWidget *page_calendar_build(void)
     return outer;
 }
 
+/* The calendar (whose left panel is also the world clock) plus the
+ * Android-clock-style tabs from clock.c. */
+GtkWidget *page_calendar_build(void)
+{
+    g_notebook = gtk_notebook_new();
+    gtk_notebook_append_page(GTK_NOTEBOOK(g_notebook), build_calendar_tab(), gtk_label_new(_("Calend\xc3\xa1rio")));
+    gtk_notebook_append_page(GTK_NOTEBOOK(g_notebook), clock_alarms_build(), gtk_label_new(_("Alarmes")));
+    gtk_notebook_append_page(GTK_NOTEBOOK(g_notebook), clock_stopwatch_build(), gtk_label_new(_("Cron\xc3\xb4metro")));
+    gtk_notebook_append_page(GTK_NOTEBOOK(g_notebook), clock_timers_build(), gtk_label_new(_("Temporizador")));
+    g_signal_connect(g_notebook, "switch-page", G_CALLBACK(on_switch_page), NULL);
+    return g_notebook;
+}
+
 void page_calendar_on_show(void)
 {
     time_t now = time(NULL);
@@ -435,6 +468,8 @@ void page_calendar_on_show(void)
     if (!g_tick_id) {
         g_tick_id = g_timeout_add_seconds(1, on_tick, NULL);
     }
+    clock_on_show();
+    clock_set_visible_tab(clock_tab_for_page(gtk_notebook_get_current_page(GTK_NOTEBOOK(g_notebook))));
 }
 
 void page_calendar_on_hide(void)
@@ -443,4 +478,5 @@ void page_calendar_on_hide(void)
         g_source_remove(g_tick_id);
         g_tick_id = 0;
     }
+    clock_on_hide();
 }

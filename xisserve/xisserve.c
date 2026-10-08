@@ -55,7 +55,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.1.57"
+#define XISSERVE_VERSION "0.1.58"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -1036,6 +1036,11 @@ static void load_config(void)
         g_grid_mode = saved >= 0 ? saved != 0 : xisserve_config_get_int("LAUNCHER", "grid", 0) != 0;
         initial_mode_applied = TRUE;
     }
+}
+
+void xisserve_config_load(void)
+{
+    load_config();
 }
 
 int xisserve_config_get_int(const char *section, const char *key, int fallback)
@@ -2102,11 +2107,6 @@ static void rebuild_results(void)
         for (guint i = 0; i < g_plugin_results->len; i++) {
             append_result_row(g_view_store, g_ptr_array_index(g_plugin_results, i));
         }
-    } else {
-        gtk_widget_show(g_cat_scroll);
-        for (guint i = 0; i < g_apps->len; i++) {
-            ResultEntry *e = g_ptr_array_index(g_apps, i);
-            gboolean include;
     } else if (strcmp(g_selected_category, "favorites") == 0) {
         /* The user's own order (see move_favorite()), not scan order. */
         gtk_widget_show(g_cat_scroll);
@@ -2120,6 +2120,11 @@ static void rebuild_results(void)
                 }
             }
         }
+    } else {
+        gtk_widget_show(g_cat_scroll);
+        for (guint i = 0; i < g_apps->len; i++) {
+            ResultEntry *e = g_ptr_array_index(g_apps, i);
+            gboolean include;
             if (strcmp(g_selected_category, "all") == 0) include = TRUE;
             else include = strcmp(e->category_key, g_selected_category) == 0;
             if (include) append_result_row(g_view_store, e);
@@ -2166,12 +2171,12 @@ static void on_grid_toggle(GtkToggleButton *btn, gpointer data)
 {
     (void)data;
     g_grid_mode = gtk_toggle_button_get_active(btn);
+    state_set_int("launcher_grid", g_grid_mode ? 1 : 0);
     apply_grid_mode();
     /* Clicking a GtkButton grabs keyboard focus onto it like any other
      * focusable widget -- without this, Up/Down/Left/Right (and typing)
      * silently stop reaching g_entry until the user clicks back into it,
      * which looks exactly like "the grid doesn't respond to the arrow
-    state_set_int("launcher_grid", g_grid_mode ? 1 : 0);
      * keys" right after switching view modes. */
     gtk_widget_grab_focus(g_entry);
 }
@@ -2693,22 +2698,17 @@ static void on_entry_activate(GtkEntry *entry, gpointer data)
     if (gtk_tree_model_get_iter_first(model, &iter)) launch_iter(model, &iter);
 }
 
+static gboolean favorites_reorderable_now(void);          /* defined below, by the context menu */
+static void move_favorite_and_show(const char *id, int delta);
+
 static gboolean on_entry_key_press(GtkWidget *w, GdkEventKey *ev, gpointer data)
 {
     (void)w;
     (void)data;
     if (ev->keyval == GDK_Escape) {
-static gboolean favorites_reorderable_now(void);          /* defined below, by the context menu */
-static void move_favorite_and_show(const char *id, int delta);
-
         hide_launcher();
         return TRUE;
     }
-    gboolean nav_row = (ev->keyval == GDK_Up || ev->keyval == GDK_Down);
-    /* Left/Right only drive grid navigation in grid mode -- in list mode
-     * they're left alone so they keep moving the text cursor while
-     * typing a query, same as always. Up/Down already gave up that
-     * behaviour (in both modes) long before grid mode existed, so
     /* Alt+arrows move the selected favorite (Alt+Left/Right too in grid
      * mode, matching how plain arrows navigate there). */
     if ((ev->state & GDK_MOD1_MASK) && favorites_reorderable_now()) {
@@ -2728,6 +2728,11 @@ static void move_favorite_and_show(const char *id, int delta);
             return TRUE;
         }
     }
+    gboolean nav_row = (ev->keyval == GDK_Up || ev->keyval == GDK_Down);
+    /* Left/Right only drive grid navigation in grid mode -- in list mode
+     * they're left alone so they keep moving the text cursor while
+     * typing a query, same as always. Up/Down already gave up that
+     * behaviour (in both modes) long before grid mode existed, so
      * extending the same trade to Left/Right for grid mode is
      * consistent rather than a new regression. */
     gboolean nav_col = g_grid_mode && (ev->keyval == GDK_Left || ev->keyval == GDK_Right);
@@ -2771,11 +2776,6 @@ static void on_favorite_menu_item(GtkWidget *item, gpointer user_data)
     rebuild_results();
 }
 
-/* One jumplist entry's own Exec, handed over as the signal's own owned
- * copy (via g_signal_connect_data's GClosureNotify below) since the
- * GArray of DesktopAction it came from is freed once the menu is built. */
-static void on_jumplist_action_activate(GtkWidget *item, gpointer user_data)
-{
 /* Reordering only makes sense where the order is visible: the
  * "Favoritos" category with no search query. */
 static gboolean favorites_reorderable_now(void)
@@ -2811,6 +2811,11 @@ static void on_move_favorite_menu_item(GtkWidget *item, gpointer user_data)
     move_favorite_and_show(e->id, GPOINTER_TO_INT(g_object_get_data(G_OBJECT(item), "delta")));
 }
 
+/* One jumplist entry's own Exec, handed over as the signal's own owned
+ * copy (via g_signal_connect_data's GClosureNotify below) since the
+ * GArray of DesktopAction it came from is freed once the menu is built. */
+static void on_jumplist_action_activate(GtkWidget *item, gpointer user_data)
+{
     (void)item;
     run_detached((const char *)user_data);
     hide_launcher();
@@ -2911,11 +2916,6 @@ static void show_result_context_menu(GtkTreeModel *model, GtkTreeIter *iter, gui
         g_array_free(actions, TRUE);
     }
 
-    GtkWidget *item = gtk_menu_item_new_with_label(e->is_favorite ? _("Remover dos Favoritos") : _("Adicionar aos Favoritos"));
-    g_signal_connect(item, "activate", G_CALLBACK(on_favorite_menu_item), e);
-    gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
-    g_signal_connect(menu, "selection-done", G_CALLBACK(on_context_menu_selection_done), NULL);
-    gtk_widget_show_all(menu);
     if (e->is_favorite && favorites_reorderable_now() && g_favorites_order->len > 1) {
         static const struct {
             const char *label;
@@ -2938,6 +2938,11 @@ static void show_result_context_menu(GtkTreeModel *model, GtkTreeIter *iter, gui
         gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
     }
 
+    GtkWidget *item = gtk_menu_item_new_with_label(e->is_favorite ? _("Remover dos Favoritos") : _("Adicionar aos Favoritos"));
+    g_signal_connect(item, "activate", G_CALLBACK(on_favorite_menu_item), e);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+    g_signal_connect(menu, "selection-done", G_CALLBACK(on_context_menu_selection_done), NULL);
+    gtk_widget_show_all(menu);
     xisserve_transient_popup_begin();
     gtk_menu_popup(GTK_MENU(menu), NULL, NULL, NULL, NULL, button, time);
 }
@@ -3486,6 +3491,9 @@ int main(int argc, char **argv)
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--question") == 0)
             return question_run(argc, argv);
+        /* --ring: same raw-scan deal, its alarm|timer <id> are positional. */
+        if (strcmp(argv[i], "--ring") == 0)
+            return ring_run(argc, argv);
     }
 
     if (args.page >= 0 && args.page == page_index("clipboard"))
