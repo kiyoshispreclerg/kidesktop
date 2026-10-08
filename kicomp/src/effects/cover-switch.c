@@ -172,6 +172,7 @@ typedef struct {
     double phase_time;
 
     bool closing;
+    bool chose;           /* closed on a choice, not Esc / a click away */
 
     /* Driven by the window manager rather than by our own hotkey: it
      * holds the keyboard, so this mode took no grab, releases none, and
@@ -387,19 +388,54 @@ static bool row_wraps(const CsData *d)
  * CsData::pos_target) -- so this brings it back into range with a
  * proper modulo first, not the single +-n nudge that was enough while
  * pos stayed within one length of 0. */
+/* The middle of the row's resting slots. With an odd count they sit
+ * evenly either side of the front one; with an even count the one left
+ * over goes to the right (+n/2), so the middle is half a slot that way.
+ * Wrapping and the crossfade (wrap_weight) are both measured from here,
+ * which is what keeps every resting cover fully on one side. */
+static float row_centre(const CsData *d)
+{
+    return (d->count % 2 == 0) ? 0.5f : 0.0f;
+}
+
 static float slot_of(const CsData *d, int i)
 {
     float raw = (float)i - d->pos;
     float n = (float)d->count;
 
     if (row_wraps(d)) {
-        raw = fmodf(raw, n);
+        float c = row_centre(d);
+        raw = fmodf(raw - c, n);
         if (raw > n * 0.5f)
             raw -= n;
         else if (raw <= -n * 0.5f)
             raw += n;
+        raw += c;
     }
     return raw;
+}
+
+/* How much of a cover is drawn at `slot` for the wrap alone.
+ *
+ * A cover being carried from one end of the row to the other is not cut
+ * there and pasted here: across the one step that carries it, it fades
+ * out travelling off one end while a second copy of it (the ghost,
+ * ghost_slot) fades in arriving at the other, the two always adding up
+ * to one. 1 everywhere a resting cover can be, so this only ever shows
+ * while the row is gliding. */
+static float wrap_weight(const CsData *d, float slot)
+{
+    if (!row_wraps(d))
+        return 1.0f;
+    float w = ((float)d->count + 1.0f) * 0.5f - fabsf(slot - row_centre(d));
+    return w < 0.0f ? 0.0f : (w > 1.0f ? 1.0f : w);
+}
+
+/* The same cover's place on the other side of the wrap. */
+static float ghost_slot(const CsData *d, float slot)
+{
+    float n = (float)d->count;
+    return slot - row_centre(d) > 0.0f ? slot - n : slot + n;
 }
 
 /* The front cover's rectangle on this output: the window scaled to fit
@@ -728,6 +764,7 @@ static void close_mode(CompEffect *e, bool activate_it)
         CompWindow *w = d->items[d->selected].win;
         if (w && !w->zombie) {
             double cover = comp.claim_ms;
+            d->chose = true;
 
             /* The user picked this window out of a row of them: they
              * looked at the lot and pointed. Dodge answering to the
@@ -1040,22 +1077,38 @@ static void cs_apply(CompEffect *e, CompScene *s, CompOutput *o)
         scene_set_backdrop(s, &o->rect, 0.0f, 0.0f, 0.0f,
                            cfg->background * alive);
 
-    bool done[MAX_ITEMS];
-    memset(done, 0, sizeof(done));
-
-    /* Which items belong to a desktop that is about to stop showing:
-     * everything whose desktop is neither the chosen window's nor "all".
-     * Worked out once rather than per node, since the answer is the same
-     * for the whole frame. */
+    /* Which items will not be on screen once the row has gone: everything
+     * whose desktop is neither the chosen window's nor "all" -- and every
+     * minimized one, except the window that was just chosen, which the
+     * window manager is restoring. Worked out once rather than per node,
+     * since the answer is the same for the whole frame. */
     bool leaving[MAX_ITEMS];
     memset(leaving, 0, sizeof(leaving));
     if (d->closing && d->selected >= 0 && d->selected < d->count) {
         int landing = d->items[d->selected].desktop;
-        for (int i = 0; i < d->count; i++)
-            leaving[i] = d->items[i].desktop >= 0 &&
-                         d->items[i].desktop != landing &&
-                         d->items[i].desktop != COMP_DESKTOP_ALL;
+        for (int i = 0; i < d->count; i++) {
+            const CompWindow *w = d->items[i].win;
+            bool minimized = w && (w->state & COMP_STATE_MINIMIZED);
+            leaving[i] = (d->items[i].desktop >= 0 &&
+                          d->items[i].desktop != landing &&
+                          d->items[i].desktop != COMP_DESKTOP_ALL) ||
+                         (minimized && !(d->chose && i == d->selected));
+        }
     }
+
+    /* Each node's place in the row, for the back-to-front pass below;
+     * NAN for a node that is not a cover. Kept beside the node array
+     * rather than worked out again from the window, because a cover
+     * crossing the wrap is two nodes of the same window in two places. */
+    float row_slot[MAX_SCENE_NODES];
+    for (int n = 0; n < s->count; n++)
+        row_slot[n] = NAN;
+
+    /* The second copies of covers crossing the wrap, added once the walk
+     * over the scene is done so it does not walk over them too. */
+    CompSceneNode ghosts[MAX_ITEMS];
+    float ghost_slots[MAX_ITEMS];
+    int ghost_count = 0;
 
     /* Two passes over the scene: place every cover, then put the nodes
      * in back-to-front order. There is no depth buffer -- the renderers
@@ -1123,52 +1176,90 @@ static void cs_apply(CompEffect *e, CompScene *s, CompOutput *o)
             continue;
         }
 
+        /* Where it is drawn: its slot, and while it is being carried
+         * across the wrap its ghost on the other side as well (see
+         * wrap_weight). Either can be off the end of the row; whichever
+         * is drawn first is this node, a second is a copy of it. */
         float slot = slot_of(d, i);
-        if (fabsf(slot) > (float)cfg->visible + 1.0f) {
-            node->visible_rect = (CompRect){ 0, 0, 0, 0 };
-            continue;
+        float places[2] = { slot, ghost_slot(d, slot) };
+        float weights[2] = { wrap_weight(d, slot), 0.0f };
+        weights[1] = 1.0f - weights[0];
+
+        CompSceneNode original = *node;
+        bool drawn = false;
+
+        for (int p = 0; p < 2; p++) {
+            if (weights[p] <= 0.0f ||
+                fabsf(places[p]) > (float)cfg->visible + 1.0f)
+                continue;
+
+            CompSceneNode *dst = node;
+            if (drawn) {
+                if (ghost_count >= MAX_ITEMS ||
+                    s->count + ghost_count >= MAX_SCENE_NODES)
+                    break;
+                dst = &ghosts[ghost_count];
+                *dst = original;
+                ghost_slots[ghost_count++] = places[p];
+            } else {
+                row_slot[n] = places[p];
+            }
+            drawn = true;
+
+            CompRect geo = placed_rect(&d->items[i], o, cfg, d->phase);
+            CompTransform t;
+            cover_transform(&t, &geo, o, cfg, places[p], d->phase);
+
+            /* The geometry travels from the window's own rectangle to its
+             * cover; the transform turns it in place about wherever it has
+             * got to. Together that is a window that visibly flies into
+             * the row and tilts as it goes. */
+            dst->geometry = geo;
+            dst->transform = t;
+            comp_transform_bbox(&t, &geo, &dst->visible_rect);
+
+            /* A cover is never dimmed for being unselected -- every window
+             * in the row is a real window and the user is reading them, not
+             * being told which one is chosen; the one in front is already
+             * marked out by facing them. The only opacity in the row is at
+             * its two ends, where the outermost cover fades: with more
+             * windows than the row shows, that is what lets one travel off
+             * one end while another arrives at the other instead of both
+             * appearing and vanishing outright -- and, with fewer, the
+             * crossfade of a cover carried across the wrap (wrap_weight).
+             *
+             * And nothing fades on the way in or out. At phase 0 a window
+             * has to look exactly as it does on the desktop, because that
+             * is where it still is -- the movement is the whole effect and
+             * a fade would hide it. */
+            dst->opacity *= edge_alpha(cfg, places[p]) * weights[p];
+
+            /* On the way out, the windows that are not going to be on
+             * screen are seen off rather than simply cut.
+             *
+             * The row can hold windows from several desktops
+             * (other_desktops); when it closes, only the chosen window's
+             * desktop stays -- and a minimized one goes back to being put
+             * away unless it was the choice. Letting them simply stop
+             * being drawn at the end of the animation is a row that half
+             * vanishes, so they fade as they fly home -- which is also the
+             * truth about them: they are going away.
+             *
+             * A sticky window is on whichever desktop you land on, so it
+             * never fades. */
+            if (d->closing && leaving[i])
+                dst->opacity *= alive;
         }
 
-        CompRect geo = placed_rect(&d->items[i], o, cfg, d->phase);
-        CompTransform t;
-        cover_transform(&t, &geo, o, cfg, slot, d->phase);
+        if (!drawn)
+            node->visible_rect = (CompRect){ 0, 0, 0, 0 };
+    }
 
-        /* The geometry travels from the window's own rectangle to its
-         * cover; the transform turns it in place about wherever it has
-         * got to. Together that is a window that visibly flies into the
-         * row and tilts as it goes. */
-        node->geometry = geo;
-        node->transform = t;
-        comp_transform_bbox(&t, &geo, &node->visible_rect);
-
-        /* A cover is never dimmed for being unselected -- every window in
-         * the row is a real window and the user is reading them, not
-         * being told which one is chosen; the one in front is already
-         * marked out by facing them. The only opacity in the row is at
-         * its two ends, where the outermost cover fades: with more
-         * windows than the row shows, that is what lets one travel off
-         * one end while another arrives at the other instead of both
-         * appearing and vanishing outright.
-         *
-         * And nothing fades on the way in or out. At phase 0 a window
-         * has to look exactly as it does on the desktop, because that
-         * is where it still is -- the movement is the whole effect and
-         * a fade would hide it. */
-        node->opacity *= edge_alpha(cfg, slot);
-
-        /* On the way out, the windows that are not going to be on screen
-         * are seen off rather than simply cut.
-         *
-         * The row can hold windows from several desktops (other_desktops);
-         * when it closes, only the chosen window's desktop stays. Letting
-         * the rest simply stop being drawn at the end of the animation is
-         * a row that half vanishes, so they fade as they fly home --
-         * which is also the truth about them: they are going away.
-         *
-         * A sticky window is on whichever desktop you land on, so it
-         * never fades. */
-        if (d->closing && leaving[i])
-            node->opacity *= alive;
+    for (int g = 0; g < ghost_count; g++) {
+        s->nodes[s->count] = ghosts[g];
+        s->nodes[s->count].z = s->count;
+        row_slot[s->count] = ghost_slots[g];
+        s->count++;
     }
 
     /* Back to front, and the whole row above everything else.
@@ -1185,16 +1276,20 @@ static void cs_apply(CompEffect *e, CompScene *s, CompOutput *o)
      * past a node that is not one, so a dock or a window that opened
      * mid-mode sitting between two covers would pin them where they
      * were. This way the row ends up above those too, which is also
-     * where a mode belongs. */
-    for (int pass = 0; pass < d->count; pass++) {
+     * where a mode belongs.
+     *
+     * Each pass moves one cover to the very end, so the ones already
+     * placed are always the last `pass` nodes and the search stops short
+     * of them. */
+    for (int pass = 0; pass < s->count; pass++) {
         int pick = -1;
         float pick_slot = -1.0f;
+        int limit = s->count - pass;
 
-        for (int a = 0; a < s->count; a++) {
-            int i = index_of(d, s->nodes[a].win);
-            if (i < 0 || done[i])
+        for (int a = 0; a < limit; a++) {
+            if (isnan(row_slot[a]))
                 continue;
-            float dist = fabsf(slot_of(d, i));
+            float dist = fabsf(row_slot[a]);
             if (pick < 0 || dist > pick_slot) {
                 pick = a;
                 pick_slot = dist;
@@ -1203,7 +1298,10 @@ static void cs_apply(CompEffect *e, CompScene *s, CompOutput *o)
         if (pick < 0)
             break;
 
-        done[index_of(d, s->nodes[pick].win)] = true;
+        float moved = row_slot[pick];
+        memmove(&row_slot[pick], &row_slot[pick + 1],
+                sizeof(float) * (size_t)(s->count - 1 - pick));
+        row_slot[s->count - 1] = moved;
         scene_move_node(s, pick, s->count - 1);
     }
 
@@ -1355,10 +1453,11 @@ static CompEffect *open_mode(const CompEffectInstance *self, CompOutput *o,
         }
     }
 
-    if (d->count < 2) {
-        for (int i = 0; i < d->count; i++)
-            if (d->items[i].label)
-                text_free(d->items[i].label);
+    /* One window is still a row: it comes up to face the user and goes
+     * back, with nothing to walk. A switcher that does nothing at all for
+     * a lone window reads as a key that is broken -- and a minimized one
+     * is only reachable from here. */
+    if (d->count < 1) {
         free(d);
         free(e);
         return NULL;
