@@ -52,7 +52,9 @@ static DesktopApp g_apps[MAX_DESKTOP_APPS];
 static int g_n_apps = 0;
 
 static GtkTreeStore *g_menu_store;
+static GtkTreeModel *g_menu_filter; /* what g_menu_view actually shows */
 static GtkWidget *g_menu_view;
+static char *g_filter_folded; /* NULL/"" = show everything */
 enum { COL_M_VISIBLE = 0, COL_M_NAME, COL_M_ROW, N_M_COLS };
 
 static void user_apps_dir(char *out, size_t outsz)
@@ -122,6 +124,79 @@ static void refill_menu_store(void)
         gtk_tree_store_set(g_menu_store, &child, COL_M_VISIBLE, !g_apps[i].nodisplay, COL_M_NAME, g_apps[i].name,
                             COL_M_ROW, i, -1);
     }
+    /* A heading is filtered when inserted, before it has any children --
+     * re-run the filter now that they're all in. */
+    gtk_tree_model_filter_refilter(GTK_TREE_MODEL_FILTER(g_menu_filter));
+    gtk_tree_view_expand_all(GTK_TREE_VIEW(g_menu_view));
+}
+
+/* Lowercased and accent-stripped ("Configuracoes" matches "configurações"),
+ * so the filter works however the user types pt_BR names. Caller frees. */
+static char *fold_text(const char *s)
+{
+    char *nfd = g_utf8_normalize(s, -1, G_NORMALIZE_NFKD);
+    if (!nfd) {
+        return g_utf8_casefold(s, -1);
+    }
+    GString *bare = g_string_sized_new(strlen(nfd));
+    for (const char *p = nfd; *p; p = g_utf8_next_char(p)) {
+        gunichar c = g_utf8_get_char(p);
+        GUnicodeType t = g_unichar_type(c);
+        if (t != G_UNICODE_NON_SPACING_MARK && t != G_UNICODE_COMBINING_MARK && t != G_UNICODE_ENCLOSING_MARK) {
+            g_string_append_unichar(bare, c);
+        }
+    }
+    g_free(nfd);
+    char *folded = g_utf8_casefold(bare->str, -1);
+    g_string_free(bare, TRUE);
+    return folded;
+}
+
+static gboolean app_matches_filter(const DesktopApp *app)
+{
+    const char *fields[] = {app->name, app->comment, app->id};
+    for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); i++) {
+        char *f = fold_text(fields[i]);
+        gboolean hit = strstr(f, g_filter_folded) != NULL;
+        g_free(f);
+        if (hit) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+/* An app row is shown if it matches; a category heading if any of its
+ * apps does, so a match never ends up orphaned or under an empty group. */
+static gboolean menu_row_visible(GtkTreeModel *model, GtkTreeIter *it, gpointer data)
+{
+    (void)data;
+    if (!g_filter_folded || !*g_filter_folded) {
+        return TRUE;
+    }
+    gint row;
+    gtk_tree_model_get(model, it, COL_M_ROW, &row, -1);
+    if (row >= 0 && row < g_n_apps) {
+        return app_matches_filter(&g_apps[row]);
+    }
+    GtkTreeIter child;
+    gboolean ok = gtk_tree_model_iter_children(model, &child, it);
+    while (ok) {
+        gtk_tree_model_get(model, &child, COL_M_ROW, &row, -1);
+        if (row >= 0 && row < g_n_apps && app_matches_filter(&g_apps[row])) {
+            return TRUE;
+        }
+        ok = gtk_tree_model_iter_next(model, &child);
+    }
+    return FALSE;
+}
+
+static void filter_changed_cb(GtkEditable *editable, gpointer data)
+{
+    (void)data;
+    g_free(g_filter_folded);
+    g_filter_folded = fold_text(gtk_entry_get_text(GTK_ENTRY(editable)));
+    gtk_tree_model_filter_refilter(GTK_TREE_MODEL_FILTER(g_menu_filter));
     gtk_tree_view_expand_all(GTK_TREE_VIEW(g_menu_view));
 }
 
@@ -161,14 +236,14 @@ static void toggle_visible_cb(GtkCellRendererToggle *cell, gchar *path_str, gpoi
     (void)data;
     GtkTreePath *path = gtk_tree_path_new_from_string(path_str);
     GtkTreeIter it;
-    if (!gtk_tree_model_get_iter(GTK_TREE_MODEL(g_menu_store), &it, path)) {
+    if (!gtk_tree_model_get_iter(g_menu_filter, &it, path)) {
         gtk_tree_path_free(path);
         return;
     }
     gtk_tree_path_free(path);
 
     gint row;
-    gtk_tree_model_get(GTK_TREE_MODEL(g_menu_store), &it, COL_M_ROW, &row, -1);
+    gtk_tree_model_get(g_menu_filter, &it, COL_M_ROW, &row, -1);
     if (row < 0 || row >= g_n_apps) {
         return; /* a category heading, not an app */
     }
@@ -262,12 +337,13 @@ static gboolean run_entry_dialog(GtkWidget *window, const char *title, const Des
 static gboolean selected_app_row(GtkTreeView *view, gint *row_out)
 {
     GtkTreeSelection *sel = gtk_tree_view_get_selection(view);
+    GtkTreeModel *model;
     GtkTreeIter it;
-    if (!gtk_tree_selection_get_selected(sel, NULL, &it)) {
+    if (!gtk_tree_selection_get_selected(sel, &model, &it)) {
         return FALSE;
     }
     gint row;
-    gtk_tree_model_get(GTK_TREE_MODEL(g_menu_store), &it, COL_M_ROW, &row, -1);
+    gtk_tree_model_get(model, &it, COL_M_ROW, &row, -1);
     if (row < 0 || row >= g_n_apps) {
         return FALSE; /* a category heading */
     }
@@ -371,10 +447,20 @@ GtkWidget *build_menu_tab(void)
     GtkWidget *outer = gtk_vbox_new(FALSE, 8);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
 
+    GtkWidget *filter_entry = gtk_entry_new();
+    a11y_name(filter_entry, _("Filtrar programas"));
+    GtkWidget *filter_row = gtk_hbox_new(FALSE, 6);
+    gtk_box_pack_start(GTK_BOX(filter_row), gtk_label_new(_("Filtrar:")), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(filter_row), filter_entry, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), filter_row, FALSE, FALSE, 0);
+
     g_menu_store = gtk_tree_store_new(N_M_COLS, G_TYPE_BOOLEAN, G_TYPE_STRING, G_TYPE_INT);
-    g_menu_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_menu_store));
+    g_menu_filter = gtk_tree_model_filter_new(GTK_TREE_MODEL(g_menu_store), NULL);
+    gtk_tree_model_filter_set_visible_func(GTK_TREE_MODEL_FILTER(g_menu_filter), menu_row_visible, NULL, NULL);
+    g_menu_view = gtk_tree_view_new_with_model(g_menu_filter);
     a11y_name(g_menu_view, _("Menu de programas"));
     refill_menu_store();
+    g_signal_connect(filter_entry, "changed", G_CALLBACK(filter_changed_cb), NULL);
 
     GtkCellRenderer *vis_r = gtk_cell_renderer_toggle_new();
     g_signal_connect(vis_r, "toggled", G_CALLBACK(toggle_visible_cb), NULL);

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-02 19:12-0300\n"
+"POT-Creation-Date: 2026-10-08 12:46-0300\n"
 "PO-Revision-Date: 2026-10-01 13:53-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -17,17 +17,17 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
-#: common.c:393
+#: common.c:403
 #, c-format
 msgid "%s (nao conectado agora)"
 msgstr "%s (não conectado agora)"
 
-#: common.c:428
+#: common.c:438
 #, c-format
 msgid "%s (%s)"
 msgstr "%s (%s)"
 
-#: common.c:430
+#: common.c:440
 #, c-format
 msgid "%s (sem EDID)"
 msgstr "%s (sem EDID)"
@@ -88,7 +88,7 @@ msgstr "Programas padrão"
 msgid "Associacoes de arquivos"
 msgstr "Associações de arquivos"
 
-#: kiconf.c:166 tabs/menu.c:369
+#: kiconf.c:166 tabs/menu.c:461
 msgid "Menu de programas"
 msgstr "Menu de programas"
 
@@ -120,11 +120,11 @@ msgstr ""
 msgid "Alteracoes pendentes"
 msgstr "Alterações pendentes"
 
-#: kiconf.c:727 kiconf.c:739
+#: kiconf.c:735 kiconf.c:747
 msgid "Inicio"
 msgstr "Início"
 
-#: sysinfo.c:250
+#: sysinfo.c:257
 msgid "Sobre este computador"
 msgstr "Sobre este computador"
 
@@ -168,7 +168,9 @@ msgstr ""
 msgid ""
 "Atalho que leva o foco do teclado ao painel (setas, Enter, Esc). \"none\" "
 "desativa."
-msgstr "Atalho que leva o foco do teclado ao painel (setas, Enter, Esc). \"none\" desativa."
+msgstr ""
+"Atalho que leva o foco do teclado ao painel (setas, Enter, Esc). \"none\" "
+"desativa."
 
 #: tabs/acessibilidade.c:478
 msgid "Atalho para focar o painel:"
@@ -210,10 +212,10 @@ msgstr "Vale a partir do próximo login."
 msgid "Tecnologias assistivas"
 msgstr "Tecnologias assistivas"
 
-#: tabs/acessibilidade.c:514 tabs/appearance.c:703 tabs/autostart.c:410
+#: tabs/acessibilidade.c:514 tabs/appearance.c:703 tabs/autostart.c:414
 #: tabs/energia.c:221 tabs/entrada.c:544 tabs/historico.c:379
-#: tabs/historico.c:446 tabs/outras.c:215 tabs/programas.c:305
-#: tabs/shortcuts.c:1062 tabs/sistema.c:809 tabs/telas.c:1780
+#: tabs/historico.c:446 tabs/outras.c:244 tabs/programas.c:305
+#: tabs/shortcuts.c:1063 tabs/sistema.c:809 tabs/telas.c:1780
 msgid "Aplicar"
 msgstr "Aplicar"
 
@@ -229,20 +231,20 @@ msgstr "Buscar:"
 msgid "Alterar programa..."
 msgstr "Alterar programa..."
 
-#: tabs/autostart.c:371
+#: tabs/autostart.c:375
 msgid "Aplicar servicos (recarrega kisession na hora)"
 msgstr "Aplicar serviços (recarrega o kisession na hora)"
 
-#: tabs/autostart.c:408
+#: tabs/autostart.c:412
 msgid "Adicionar..."
 msgstr "Adicionar..."
 
-#: tabs/autostart.c:409 tabs/eventos.c:227 tabs/shortcuts.c:1026
+#: tabs/autostart.c:413 tabs/eventos.c:227 tabs/shortcuts.c:1027
 #: tabs/sistema.c:794
 msgid "Remover"
 msgstr "Remover"
 
-#: tabs/efeitos.c:655 tabs/paineis.c:830
+#: tabs/efeitos.c:655 tabs/paineis.c:842
 msgid "?"
 msgstr "?"
 
@@ -410,7 +412,7 @@ msgstr "Ativar NumLock ao iniciar a sessão"
 msgid "Gravado."
 msgstr "Gravado."
 
-#: tabs/eventos.c:226 tabs/shortcuts.c:1025 tabs/sistema.c:793
+#: tabs/eventos.c:226 tabs/shortcuts.c:1026 tabs/sistema.c:793
 msgid "Adicionar"
 msgstr "Adicionar"
 
@@ -510,7 +512,7 @@ msgid "Titulo privado (regex):"
 msgstr "Título privado (regex):"
 
 #: tabs/historico.c:385 tabs/historico.c:452 tabs/permissoes.c:632
-#: tabs/telas.c:1665 tabs/wallpaper.c:355
+#: tabs/telas.c:1665 tabs/wallpaper.c:358
 msgid "-"
 msgstr "-"
 
@@ -614,7 +616,15 @@ msgstr "Reiniciar o kiwm agora"
 msgid "Aplicar (grava kiwm.conf)"
 msgstr "Aplicar (grava kiwm.conf)"
 
-#: tabs/menu.c:387
+#: tabs/menu.c:451
+msgid "Filtrar programas"
+msgstr "Filtrar programas"
+
+#: tabs/menu.c:453
+msgid "Filtrar:"
+msgstr "Filtrar:"
+
+#: tabs/menu.c:480
 msgid ""
 "Ocultar/editar uma entrada do sistema cria uma copia em ~/.local/share/"
 "applications -- o arquivo original nunca e alterado. \"Excluir\" so funciona "
@@ -624,64 +634,64 @@ msgstr ""
 "applications -- o arquivo original nunca é alterado. \"Excluir\" só funciona "
 "em entradas já criadas pelo usuário."
 
-#: tabs/menu.c:395
+#: tabs/menu.c:488
 msgid "Novo..."
 msgstr "Novo..."
 
-#: tabs/menu.c:397
+#: tabs/menu.c:490
 msgid "Editar..."
 msgstr "Editar..."
 
-#: tabs/menu.c:399
+#: tabs/menu.c:492
 msgid "Excluir"
 msgstr "Excluir"
 
-#: tabs/outras.c:183
+#: tabs/outras.c:212
 msgid "DPMS habilitado"
 msgstr "DPMS habilitado"
 
-#: tabs/outras.c:204
+#: tabs/outras.c:233
 msgid "Preferir apagar a tela (blank)"
 msgstr "Preferir apagar a tela (blank)"
 
-#: tabs/paineis.c:807
+#: tabs/paineis.c:819
 msgid "Definir:"
 msgstr "Definir:"
 
-#: tabs/paineis.c:1271 tabs/paineis.c:1431 tabs/paineis.c:1579
+#: tabs/paineis.c:1285 tabs/paineis.c:1445 tabs/paineis.c:1593
 #, c-format
 msgid "Outras opcoes de '%s':"
 msgstr "Outras opções de '%s':"
 
-#: tabs/paineis.c:1492
+#: tabs/paineis.c:1506
 msgid "Adicionar painel"
 msgstr "Adicionar painel"
 
-#: tabs/paineis.c:1493
+#: tabs/paineis.c:1507
 msgid "Remover painel"
 msgstr "Remover painel"
 
-#: tabs/paineis.c:1545
+#: tabs/paineis.c:1559
 msgid "Adicionar widget"
 msgstr "Adicionar widget"
 
-#: tabs/paineis.c:1546
+#: tabs/paineis.c:1560
 msgid "Remover widget"
 msgstr "Remover widget"
 
-#: tabs/paineis.c:1561
+#: tabs/paineis.c:1575
 msgid "Cor de fundo:"
 msgstr "Cor de fundo:"
 
-#: tabs/paineis.c:1567
+#: tabs/paineis.c:1581
 msgid "Cor do texto:"
 msgstr "Cor do texto:"
 
-#: tabs/paineis.c:1585
+#: tabs/paineis.c:1599
 msgid "Outras opcoes do tema"
 msgstr "Outras opções do tema"
 
-#: tabs/paineis.c:1603
+#: tabs/paineis.c:1617
 msgid "Salvar e recarregar xispanel"
 msgstr "Salvar e recarregar o xispanel"
 
@@ -837,35 +847,35 @@ msgstr "Recarregar"
 msgid "Regras de sistema"
 msgstr "Regras de sistema"
 
-#: tabs/shortcuts.c:937
+#: tabs/shortcuts.c:938
 #, c-format
 msgid "kiwm: %s"
 msgstr "kiwm: %s"
 
-#: tabs/shortcuts.c:961
+#: tabs/shortcuts.c:962
 #, c-format
 msgid "kicomp (%s): %s"
 msgstr "kicomp (%s): %s"
 
-#: tabs/shortcuts.c:975
+#: tabs/shortcuts.c:976
 #, c-format
 msgid "xispanel (%s em '%s', #%d): atalho do widget"
 msgstr "xispanel (%s em '%s', #%d): atalho do widget"
 
-#: tabs/shortcuts.c:978
+#: tabs/shortcuts.c:979
 #, c-format
 msgid "xispanel (%s em '%s'): atalho do widget"
 msgstr "xispanel (%s em '%s'): atalho do widget"
 
-#: tabs/shortcuts.c:1027
+#: tabs/shortcuts.c:1028
 msgid "Salvar e recarregar xiskeys"
 msgstr "Salvar e recarregar o xiskeys"
 
-#: tabs/shortcuts.c:1041
+#: tabs/shortcuts.c:1042
 msgid "xiskeys.conf, crie/edite/remova a vontade"
 msgstr "xiskeys.conf, crie/edite/remova à vontade"
 
-#: tabs/shortcuts.c:1063
+#: tabs/shortcuts.c:1064
 msgid "Grava kiwm.conf, kicomp.conf e xispanel.conf"
 msgstr "Grava kiwm.conf, kicomp.conf e xispanel.conf"
 
@@ -938,60 +948,60 @@ msgstr "Outras propriedades"
 msgid "Detectar novamente"
 msgstr "Detectar novamente"
 
-#: tabs/wallpaper.c:158
+#: tabs/wallpaper.c:161
 #, c-format
 msgid "%d camada(s) ativa(s)."
 msgstr "%d camada(s) ativa(s)."
 
-#: tabs/wallpaper.c:379
+#: tabs/wallpaper.c:382
 msgid "Avancar slide"
 msgstr "Avançar slide"
 
-#: tabs/wallpaper.c:380
+#: tabs/wallpaper.c:383
 msgid "Limpar selecionada"
 msgstr "Limpar selecionada"
 
-#: tabs/wallpaper.c:381
+#: tabs/wallpaper.c:384
 msgid "Limpar todas"
 msgstr "Limpar todas"
 
-#: tabs/wallpaper.c:382
+#: tabs/wallpaper.c:385
 msgid "Atualizar"
 msgstr "Atualizar"
 
-#: tabs/wallpaper.c:386
+#: tabs/wallpaper.c:389
 msgid "Igualar todas"
 msgstr "Igualar todas"
 
-#: tabs/wallpaper.c:387
+#: tabs/wallpaper.c:390
 msgid "Mesmo papel de parede pra tudo"
 msgstr "Mesmo papel de parede pra tudo"
 
-#: tabs/wallpaper.c:400
+#: tabs/wallpaper.c:403
 msgid "Clique numa linha pra editar"
 msgstr "Clique numa linha pra editar"
 
-#: tabs/wallpaper.c:417
+#: tabs/wallpaper.c:420
 msgid "Ordem aleatoria (em vez de alfabetica)"
 msgstr "Ordem aleatória (em vez de alfabética)"
 
-#: tabs/wallpaper.c:427
+#: tabs/wallpaper.c:430
 msgid "Arquivo..."
 msgstr "Arquivo..."
 
-#: tabs/wallpaper.c:428
+#: tabs/wallpaper.c:431
 msgid "Pasta..."
 msgstr "Pasta..."
 
-#: tabs/wallpaper.c:436
+#: tabs/wallpaper.c:439
 msgid "Imagem ou pasta:"
 msgstr "Imagem ou pasta:"
 
-#: tabs/wallpaper.c:440
+#: tabs/wallpaper.c:443
 msgid "Definir camada"
 msgstr "Definir camada"
 
-#: tabs/wallpaper.c:462
+#: tabs/wallpaper.c:465
 msgid "Salvar acoes de clique"
 msgstr "Salvar ações de clique"
 
