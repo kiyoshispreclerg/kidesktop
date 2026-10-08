@@ -497,8 +497,8 @@ read once at startup (kiwm never watches kiconfd.conf for changes, same as kiwm.
   fg_inactive=#a0a0a0
   border_active=#3a6ea5
   border_inactive=#202020
-  button_bg_active=#000000
-  button_bg_inactive=#000000
+  button_bg_active=none
+  button_bg_inactive=none
   button_fg_active=#ffffff
   button_fg_inactive=#a0a0a0
   ```
@@ -507,14 +507,16 @@ read once at startup (kiwm never watches kiconfd.conf for changes, same as kiwm.
   regardless of focus, just a white/black opacity tint layered on top to hint which window is
   active.
 
-  `button_bg_active=`/`button_bg_inactive=` (both default `#000000`, i.e. plain black) only matter
+  `button_bg_active=`/`button_bg_inactive=` (both default `none`: no fill, just the glyph over the
+  titlebar; also settable in kiwm.conf, which the theme's colors file overrides) only matter
   when there's no `btns.png` covering a given button -- they're the flat block's fill color, so a
   colors-only theme (no button sprites at all, e.g. greenkiyo) can still give focused and
   unfocused windows visibly different buttons instead of the identical black block kiwm always
   drew before these keys existed. The alpha in each color is the button's resting-state opacity
-  (`#00000000` through `#000000ff`, `30%` before this existed); hovering/pressing it scales that
+  (`#00000000` through `#000000ff`); hovering/pressing it scales that
   alpha up (x1.5/x2, capped at fully opaque) rather than taking their own keys, so "hover reads
-  brighter" keeps working for free. This is layered *under* the per-button hover tint below (a
+  brighter" keeps working for free. With `none` there's no alpha to scale, so hover/pressed wash
+  the button in the glyph color at 15%/30% instead. This is layered *under* the per-button hover tint below (a
   theme can have both: a base color that differs by focus, and one specific button -- close, say
   -- washed a different color only while the pointer is on it).
 

@@ -37,6 +37,10 @@ static void apply_builtin_defaults(void)
 {
     wm.deco_bg_r = 0.0; wm.deco_bg_g = 0.0; wm.deco_bg_b = 0.0; wm.deco_bg_a = 1.0;
     wm.deco_fg_r = 1.0; wm.deco_fg_g = 1.0; wm.deco_fg_b = 1.0; wm.deco_fg_a = 1.0;
+    /* No button fill by default: the glyphs sit straight on the titlebar.
+     * A theme's colors file can still override these. */
+    wm.btn_bg_active_r = wm.btn_bg_active_g = wm.btn_bg_active_b = wm.btn_bg_active_a = 0.0;
+    wm.btn_bg_inactive_r = wm.btn_bg_inactive_g = wm.btn_bg_inactive_b = wm.btn_bg_inactive_a = 0.0;
     wm.hide_deco_on_maximize = false;
     wm.num_desktops = DEFAULT_NUM_DESKTOPS;
     wm.desktop_columns = 0;
@@ -150,6 +154,17 @@ static bool parse_hex_color(const char *s, double *r, double *g, double *b, doub
     return true;
 }
 
+/* parse_hex_color(), plus "none" (or an empty value) for fully
+ * transparent. */
+static bool parse_color_or_none(const char *s, double *r, double *g, double *b, double *a)
+{
+    if (!s[0] || strcasecmp(s, "none") == 0) {
+        *r = *g = *b = *a = 0.0;
+        return true;
+    }
+    return parse_hex_color(s, r, g, b, a);
+}
+
 static uint16_t parse_mod(const char *s, uint16_t fallback)
 {
     if (strcasecmp(s, "alt") == 0)
@@ -224,6 +239,12 @@ static void write_default_config(const char *path)
         "# an ARGB window, i.e. once a compositor is running.\n"
         "deco_bg=#000000\n"
         "deco_fg=#ffffff\n"
+        "\n"
+        "# Fill behind the titlebar buttons drawn without a btns.png sprite,\n"
+        "# for focused and unfocused windows. none (the default) shows just\n"
+        "# the glyphs over the titlebar. A theme's colors file overrides these.\n"
+        "button_bg_active=none\n"
+        "button_bg_inactive=none\n"
         "\n"
         "# Keep window decoration visible while maximized (0 = hidden, 1 = visible).\n"
         "hide_deco_on_maximize=0\n"
@@ -513,6 +534,14 @@ static void load_config_file(void)
         } else if (strcmp(key, "deco_fg") == 0) {
             if (!parse_hex_color(val, &wm.deco_fg_r, &wm.deco_fg_g, &wm.deco_fg_b, &wm.deco_fg_a))
                 fprintf(stderr, "kiwm: config: invalid deco_fg '%s' (expected #rrggbb or #rrggbbaa)\n", val);
+        } else if (strcmp(key, "button_bg_active") == 0) {
+            if (!parse_color_or_none(val, &wm.btn_bg_active_r, &wm.btn_bg_active_g,
+                                     &wm.btn_bg_active_b, &wm.btn_bg_active_a))
+                fprintf(stderr, "kiwm: config: invalid button_bg_active '%s' (expected #rrggbb, #rrggbbaa or none)\n", val);
+        } else if (strcmp(key, "button_bg_inactive") == 0) {
+            if (!parse_color_or_none(val, &wm.btn_bg_inactive_r, &wm.btn_bg_inactive_g,
+                                     &wm.btn_bg_inactive_b, &wm.btn_bg_inactive_a))
+                fprintf(stderr, "kiwm: config: invalid button_bg_inactive '%s' (expected #rrggbb, #rrggbbaa or none)\n", val);
         } else if (strcmp(key, "hide_deco_on_maximize") == 0) {
             wm.hide_deco_on_maximize = atoi(val) != 0;
         } else if (strcmp(key, "num_desktops") == 0) {

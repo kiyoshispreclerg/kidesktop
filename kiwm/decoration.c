@@ -443,10 +443,17 @@ static void load_colors_theme(void)
             parse_hex_color(val, &wm.border_active_r, &wm.border_active_g, &wm.border_active_b, &wm.border_active_a);
         else if (strcmp(key, "border_inactive") == 0)
             parse_hex_color(val, &wm.border_inactive_r, &wm.border_inactive_g, &wm.border_inactive_b, &wm.border_inactive_a);
-        else if (strcmp(key, "button_bg_active") == 0)
-            parse_hex_color(val, &wm.btn_bg_active_r, &wm.btn_bg_active_g, &wm.btn_bg_active_b, &wm.btn_bg_active_a);
-        else if (strcmp(key, "button_bg_inactive") == 0)
-            parse_hex_color(val, &wm.btn_bg_inactive_r, &wm.btn_bg_inactive_g, &wm.btn_bg_inactive_b, &wm.btn_bg_inactive_a);
+        else if (strcmp(key, "button_bg_active") == 0) {
+            /* "none" clears a fill kiwm.conf set; button_bg_* default to
+             * none there (config.c), not here. */
+            if (!parse_effect_color(val, &wm.btn_bg_active_r, &wm.btn_bg_active_g,
+                                    &wm.btn_bg_active_b, &wm.btn_bg_active_a))
+                wm.btn_bg_active_a = 0.0;
+        } else if (strcmp(key, "button_bg_inactive") == 0) {
+            if (!parse_effect_color(val, &wm.btn_bg_inactive_r, &wm.btn_bg_inactive_g,
+                                    &wm.btn_bg_inactive_b, &wm.btn_bg_inactive_a))
+                wm.btn_bg_inactive_a = 0.0;
+        }
         else if (strcmp(key, "button_fg_active") == 0)
             wm.btn_fg_active_set = parse_hex_color(val, &wm.btn_fg_active_r, &wm.btn_fg_active_g,
                                                    &wm.btn_fg_active_b, &wm.btn_fg_active_a);
@@ -646,10 +653,6 @@ void load_decoration(void)
     wm.btn_tinting = BTN_TINT_OVER;
     wm.btn_tint_scope = BTN_SCOPE_BUTTON;
     wm.hover_btn = -1;
-    wm.btn_bg_active_r = wm.btn_bg_active_g = wm.btn_bg_active_b = 0.0;
-    wm.btn_bg_active_a = 0.30;
-    wm.btn_bg_inactive_r = wm.btn_bg_inactive_g = wm.btn_bg_inactive_b = 0.0;
-    wm.btn_bg_inactive_a = 0.30;
     wm.btn_fg_active_set = wm.btn_fg_inactive_set = false;
 
     load_bg_theme();
@@ -1064,24 +1067,48 @@ static void draw_button(cairo_t *cr, double x, DecoElemKind kind, int col, char 
         return;
     }
 
-fallback_glyph:
+fallback_glyph:;
+    /* button_fg_active=/button_fg_inactive= if the theme set one, else the
+     * titlebar's own fg_active_/fg_inactive_ (title text color) at full
+     * opacity -- fg_*'s own alpha is about the *titlebar's* translucency,
+     * same reason DECO_TITLE above ignores it for the title text itself. */
+    double fr, fgc, fb, fa;
+    if (focused && wm.btn_fg_active_set) {
+        fr = wm.btn_fg_active_r; fgc = wm.btn_fg_active_g; fb = wm.btn_fg_active_b; fa = wm.btn_fg_active_a;
+    } else if (focused) {
+        fr = wm.fg_active_r; fgc = wm.fg_active_g; fb = wm.fg_active_b; fa = 1.0;
+    } else if (wm.btn_fg_inactive_set) {
+        fr = wm.btn_fg_inactive_r; fgc = wm.btn_fg_inactive_g; fb = wm.btn_fg_inactive_b; fa = wm.btn_fg_inactive_a;
+    } else {
+        fr = wm.fg_inactive_r; fgc = wm.fg_inactive_g; fb = wm.fg_inactive_b; fa = 1.0;
+    }
+
     /* No sprite sheet (or none covering this button): the button is a flat
-     * block in the theme's button_bg_active=/button_bg_inactive= color
-     * (colors file; black at 30% by default, unchanged from before those
-     * keys existed) -- the tint is just layered over that, or instead of
+     * block in button_bg_active=/button_bg_inactive= (theme colors file
+     * or kiwm.conf) -- the tint is just layered over that, or instead of
      * it. Hover/pressed scale the base alpha up rather than picking their
-     * own color, same "brighter on hover" feel a theme gets for free. */
+     * own color, same "brighter on hover" feel a theme gets for free. With
+     * no base fill (none, the default) there's nothing to scale, so
+     * hover/pressed wash the button in the glyph's own color instead --
+     * only the resting state is bare. */
     if (!tint_only) {
         double br = focused ? wm.btn_bg_active_r : wm.btn_bg_inactive_r;
         double bg = focused ? wm.btn_bg_active_g : wm.btn_bg_inactive_g;
         double bb = focused ? wm.btn_bg_active_b : wm.btn_bg_inactive_b;
         double ba = focused ? wm.btn_bg_active_a : wm.btn_bg_inactive_a;
-        ba *= pressed ? 2.0 : ((hovered || active) ? 1.5 : 1.0);
+        if (ba > 0.0) {
+            ba *= pressed ? 2.0 : ((hovered || active) ? 1.5 : 1.0);
+        } else {
+            br = fr; bg = fgc; bb = fb;
+            ba = pressed ? 0.30 : ((hovered || active) ? 0.15 : 0.0);
+        }
         if (ba > 1.0)
             ba = 1.0;
-        cairo_set_source_rgba(cr, br, bg, bb, ba);
-        cairo_rectangle(cr, x, 0, BUTTON_W, TITLEBAR_H);
-        cairo_fill(cr);
+        if (ba > 0.0) {
+            cairo_set_source_rgba(cr, br, bg, bb, ba);
+            cairo_rectangle(cr, x, 0, BUTTON_W, TITLEBAR_H);
+            cairo_fill(cr);
+        }
     }
     if (tint) {
         cairo_set_source_rgba(cr, wm.btn_tint_r[k], wm.btn_tint_g[k],
@@ -1090,21 +1117,7 @@ fallback_glyph:
         cairo_fill(cr);
     }
 
-    /* button_fg_active=/button_fg_inactive= if the theme set one, else the
-     * titlebar's own fg_active_/fg_inactive_ (title text color) at full
-     * opacity -- fg_*'s own alpha is about the *titlebar's* translucency,
-     * same reason DECO_TITLE above ignores it for the title text itself. */
-    if (focused) {
-        if (wm.btn_fg_active_set)
-            cairo_set_source_rgba(cr, wm.btn_fg_active_r, wm.btn_fg_active_g, wm.btn_fg_active_b, wm.btn_fg_active_a);
-        else
-            cairo_set_source_rgba(cr, wm.fg_active_r, wm.fg_active_g, wm.fg_active_b, 1.0);
-    } else {
-        if (wm.btn_fg_inactive_set)
-            cairo_set_source_rgba(cr, wm.btn_fg_inactive_r, wm.btn_fg_inactive_g, wm.btn_fg_inactive_b, wm.btn_fg_inactive_a);
-        else
-            cairo_set_source_rgba(cr, wm.fg_inactive_r, wm.fg_inactive_g, wm.fg_inactive_b, 1.0);
-    }
+    cairo_set_source_rgba(cr, fr, fgc, fb, fa);
     cairo_set_line_width(cr, 1.5);
 
     double cx = x + BUTTON_W / 2.0;
