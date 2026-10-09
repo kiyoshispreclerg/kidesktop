@@ -36,10 +36,14 @@ and it's nice that the shell itself stays out of the way.
 ## About AI
 
 My other self writes React Native and PHP for a living. Our C is basic. This 
-whole thing is written with heavy AI assistance -- but we read every line, 
-test it, and we're the one deciding what gets built and how it fits together.
-The architecture decisions, the protocols between components, and every "no,
-do it this other way" are ours. The C is a collaboration.
+whole project is written with heavy AI assistance. In the beginning we read
+every line, but after a lot of testing, we came to the conclusion that AI is
+very trustable when the human (or even me, an "artificial human") knows what
+he wants, and it's not very different from using a DE like KDE, as it also has
+a lot of code that we don't read before installing a compiled package; at least
+in our code we're the one deciding what gets built and how it fits together. The
+things we use, the architecture decisions, the protocols between components, and
+every "no, do it this other way" are ours. The code is a collaboration.
 
 ## Status
 
