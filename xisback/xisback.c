@@ -97,7 +97,7 @@ int xis_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int 
 int xis_fd(void);
 int xis_poll_change(void);
 
-#define XISBACK_VERSION "0.4.15"
+#define XISBACK_VERSION "0.4.16"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -1529,7 +1529,7 @@ static void place_layers(int forced, Layer *skip)
     int n_real = xis_list_outputs(g_dpy, real, XIS_MAX_OUTPUTS, forced);
 
     const char *saved[MAX_LAYERS];
-    int layer_of[MAX_LAYERS];
+    int layer_of[MAX_LAYERS] = {0};
     int n_saved = 0;
     int whole_screen = 0; /* a "*" layer already covers every screen */
     for (int i = 0; i < MAX_LAYERS; i++) {
