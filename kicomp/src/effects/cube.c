@@ -1015,6 +1015,7 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
      * order the window manager stacked them in overall. */
     static CompSceneNode rebuilt[MAX_SCENE_NODES];
     static CompSceneNode faceset[MAX_SCENE_NODES];
+    static bool faceaway[MAX_SCENE_NODES];
     int n = 0;
 
     /* Pass -1 is a turned-away face's own windows -- drawn before even
@@ -1105,6 +1106,7 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
                     continue;       /* this window's own plane, not just its face's, has been reached */
                 node.transform = t;
                 comp_transform_bbox(&t, &node.geometry, &node.visible_rect);
+                faceaway[fn] = !face_faces_us(&t, &node.geometry);
                 faceset[fn++] = node;
             }
 
@@ -1123,14 +1125,27 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
              * still draw it over the others. Run the same list back
              * to front instead: farthest (top of stack) first, then
              * nearer ones over it, which is the occlusion a viewer on
-             * this side of the shell actually sees. */
-            if (vis[k].front) {
-                for (int j = 0; j < fn && n < MAX_SCENE_NODES; j++)
+             * this side of the shell actually sees.
+             *
+             * Asked of each window's own plane, not of the face's: a
+             * window stands `off` out from its face, and the eye passes
+             * behind that plane before it passes behind the face. As a
+             * face turns edge-on, the windows highest in its stack (the
+             * biggest off) are already seen from behind while the face
+             * and the low ones are still seen from the front -- with a
+             * handful of windows the difference is a few frames, with
+             * many it is most of the turn. So the ones turned away go
+             * first, top of stack first, and the ones still facing us
+             * after, bottom first. The two groups lie on opposite sides
+             * of the eye and never overlap on screen, so which group
+             * goes first does not matter; only the order inside each
+             * does. */
+            for (int j = fn - 1; j >= 0 && n < MAX_SCENE_NODES; j--)
+                if (faceaway[j])
                     rebuilt[n++] = faceset[j];
-            } else {
-                for (int j = fn - 1; j >= 0 && n < MAX_SCENE_NODES; j--)
+            for (int j = 0; j < fn && n < MAX_SCENE_NODES; j++)
+                if (!faceaway[j])
                     rebuilt[n++] = faceset[j];
-            }
         }
     }
 
