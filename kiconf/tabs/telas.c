@@ -1395,9 +1395,9 @@ static void screens_place_enabled(int idx)
     /* The form shows modes[0] for a mode-less output, so a rate picked
      * there already belongs to it. */
     if (!o->current_mode[0] && o->n_modes > 0) {
-        snprintf(o->current_mode, sizeof(o->current_mode), "%s", o->modes[0].name);
+        g_strlcpy(o->current_mode, o->modes[0].name, sizeof(o->current_mode));
         if (!o->current_rate[0] && o->modes[0].n_rates > 0) {
-            snprintf(o->current_rate, sizeof(o->current_rate), "%s", o->modes[0].rates[0].rate);
+            g_strlcpy(o->current_rate, o->modes[0].rates[0].rate, sizeof(o->current_rate));
         }
     }
     sscanf(o->current_mode, "%dx%d", &o->width, &o->height);
