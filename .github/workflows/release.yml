@@ -1,5 +1,5 @@
-# Source .zip and kidesktop .deb packages for Ubuntu 22.04, Ubuntu 24.04
-# and Debian 12 (also what Devuan 5 installs).
+# Source .zip and kidesktop .deb packages for Ubuntu 22.04, Ubuntu 24.04,
+# Debian 12 (what Devuan 5 installs) and Debian 13 (Devuan 6 "excalibur").
 #
 #   stable tag push / published release   -> built and attached to that
 #     (v1.0.0 and up, no -suffix)            release automatically
@@ -108,6 +108,8 @@ jobs:
             name: ubuntu-24.04
           - image: "debian:12"
             name: debian-12
+          - image: "debian:13"
+            name: debian-13
     steps:
       - name: Install git
         run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git ca-certificates

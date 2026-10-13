@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: ["ubuntu:22.04", "ubuntu:24.04", "debian:12"]
+        image: ["ubuntu:22.04", "ubuntu:24.04", "debian:12", "debian:13"]
     steps:
       - name: Install git
         run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git ca-certificates

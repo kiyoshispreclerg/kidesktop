@@ -145,15 +145,15 @@ make lint   # todos os componentes com -Werror, cppcheck, verificações de .po/
 make deb    # dist/kidesktop_<versão>~<distro><release>_<arch>.deb para esta distro
 ```
 
-O GitHub Actions roda `make lint` no Ubuntu 22.04, Ubuntu 24.04 e Debian 12 a
+O GitHub Actions roda `make lint` no Ubuntu 22.04, Ubuntu 24.04, Debian 12 e Debian 13 a
 cada push e pull request (`.github/workflows/ci.yml`).
 Os *pacotes de release* (`.github/workflows/release.yml`) geram o `.zip` do
-código-fonte e o `.deb` para essas três distros: automaticamente para uma tag
+código-fonte e o `.deb` para essas quatro distros: automaticamente para uma tag
 ou release estável (`v1.0.0` em diante, sem `-sufixo`), anexados àquela
 release; para uma pré-release (`v0.x.y`, `v1.2.0-rc1`) apenas sob demanda --
 "Run workflow" com a tag, anexados a uma release marcada como pré-release;
 "Run workflow" sem tag mantém os arquivos como artefatos do workflow. O pacote
-do Debian 12 também instala no Devuan 5.
+do Debian 12 também instala no Devuan 5, e o do Debian 13 no Devuan 6 (excalibur).
 
 ## Licença
 

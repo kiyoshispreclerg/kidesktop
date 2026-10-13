@@ -141,15 +141,15 @@ make lint   # every component with -Werror, cppcheck, .po/.desktop/script checks
 make deb    # dist/kidesktop_<version>~<distro><release>_<arch>.deb for this distro
 ```
 
-GitHub Actions runs `make lint` on Ubuntu 22.04, Ubuntu 24.04 and Debian 12
+GitHub Actions runs `make lint` on Ubuntu 22.04, Ubuntu 24.04, Debian 12 and Debian 13
 for every push and pull request (`.github/workflows/ci.yml`).
 *Release packages* (`.github/workflows/release.yml`) builds the source
-`.zip` and the `.deb` for those three distros: automatically for a stable
+`.zip` and the `.deb` for those four distros: automatically for a stable
 tag or release (`v1.0.0` and up, no `-suffix`), attached to that release;
 for a pre-release (`v0.x.y`, `v1.2.0-rc1`) only on demand -- "Run
 workflow" with the tag, attached to a release marked pre-release; "Run
 workflow" without a tag keeps the files as workflow artifacts. The Debian 12 package also installs on
-Devuan 5.
+Devuan 5, and the Debian 13 one on Devuan 6 (excalibur).
 
 ## License
 
