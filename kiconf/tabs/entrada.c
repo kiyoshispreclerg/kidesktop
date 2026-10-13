@@ -25,6 +25,8 @@ static GtkWidget *g_pointer_natural_chk, *g_pointer_lefth_chk, *g_pointer_tap_ch
 static GtkWidget *g_pointer_middle_chk;
 static GtkWidget *g_kbd_repeat_chk, *g_kbd_delay_spin, *g_kbd_rate_spin;
 static GtkWidget *g_bell_percent_spin, *g_bell_pitch_spin, *g_bell_dur_spin;
+static GtkWidget *g_disable_primsel_chk;
+static int g_disable_primsel_baseline;
 static GtkWidget *g_toggle_mods_chk, *g_kick_hotkeys_chk, *g_numlock_start_chk;
 
 typedef struct {
@@ -267,7 +269,7 @@ static void detect_pointer_props(const char *device, PointerProps *pp)
     }
     char val[64];
     if (xinput_get_prop_line(out, "libinput Accel Speed", val, sizeof(val))) {
-        pp->accel_speed = atof(val);
+        pp->accel_speed = g_ascii_strtod(val, NULL);
         pp->has_accel = 1;
     }
     if (xinput_get_prop_line(out, "libinput Natural Scrolling Enabled", val, sizeof(val))) {
@@ -385,6 +387,24 @@ static void on_pointer_device_changed(GtkComboBox *combo, gpointer data)
     gtk_widget_set_sensitive(g_pointer_tap_chk, g_pointer_baseline.has_tap);
 }
 
+static int detect_disable_primsel(void)
+{
+    char *argv[] = {"xprop", "-root", "_DisablePrimarySelection", NULL};
+    char out[256];
+    if (!run_capture(argv, out, sizeof(out))) {
+        return 0;
+    }
+    char *eq = strchr(out, '=');
+    return eq ? atoi(eq + 1) != 0 : 0;
+}
+
+static void set_disable_primsel(int enable)
+{
+    char *argv[] = {"xprop", "-root", "-f", "_DisablePrimarySelection", "8i",
+                     "-set", "_DisablePrimarySelection", enable ? "1" : "0", NULL};
+    run_fire(argv);
+}
+
 static void apply_entrada_cb(GtkWidget *widget, gpointer data)
 {
     (void)widget;
@@ -447,6 +467,12 @@ static void apply_entrada_cb(GtkWidget *widget, gpointer data)
     g_toggle_mods_baseline = toggle_mods;
     g_kick_hotkeys_baseline = kick_hotkeys;
 
+    int primsel = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_disable_primsel_chk));
+    if (primsel != g_disable_primsel_baseline) {
+        set_disable_primsel(primsel);
+        g_disable_primsel_baseline = primsel;
+    }
+
     InputSessionConfig ic;
     ic.numlock_on_start = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_numlock_start_chk));
     ic.toggle_mods_on_press = toggle_mods;
@@ -462,6 +488,7 @@ GtkWidget *build_entrada_tab(void)
     master_keyboard_name(g_master_kbd, sizeof(g_master_kbd));
     detect_special_kbd(g_master_kbd, &g_toggle_mods_baseline, &g_kick_hotkeys_baseline);
     detect_kbd_xset(&g_kbd_baseline);
+    g_disable_primsel_baseline = detect_disable_primsel();
     InputSessionConfig ic;
     input_config_load(&ic);
 
@@ -534,6 +561,13 @@ GtkWidget *build_entrada_tab(void)
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_kick_hotkeys_chk), g_kick_hotkeys_baseline);
     gtk_box_pack_start(GTK_BOX(special_box), g_kick_hotkeys_chk, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Opcoes especiais de teclado (XiS)", special_box), FALSE, FALSE, 0);
+
+    GtkWidget *primsel_box = gtk_vbox_new(FALSE, 2);
+    g_disable_primsel_chk = gtk_check_button_new_with_label(
+        "DisablePrimarySelection -- desativa colar com o botao do meio");
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_disable_primsel_chk), g_disable_primsel_baseline);
+    gtk_box_pack_start(GTK_BOX(primsel_box), g_disable_primsel_chk, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with("Selecao primaria (XiS)", primsel_box), FALSE, FALSE, 0);
 
     GtkWidget *session_box = gtk_vbox_new(FALSE, 2);
     g_numlock_start_chk = gtk_check_button_new_with_label(_("Ativar NumLock ao iniciar a sessao"));

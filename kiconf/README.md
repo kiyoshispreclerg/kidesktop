@@ -20,7 +20,6 @@ and switching tabs doesn't grow the window.
 | Telas | screen layout via `xrandr`, draggable canvas, persisted for `kiconfd` to replay at next login |
 | Entrada | pointer/touchpad, key repeat/bell, and XiS keyboard flags |
 | Wallpaper | `xisback`'s active wallpaper layers, over its control socket |
-| Outras | the remaining XiS flag (DisablePrimarySelection), DPMS/screensaver, virtual desktop count |
 | Paineis | `xispanel.conf`'s `PANEL`/`WIDGET`/`THEME` records |
 | Permissoes | `xisguard`'s runtime mode and rules, over its control socket |
 | Gerenciamento de janelas | `kiwm.conf` |

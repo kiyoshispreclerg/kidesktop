@@ -9,7 +9,6 @@
 GtkWidget *build_appearance_tab(void);
 GtkWidget *build_shortcuts_tab(void);
 GtkWidget *build_entrada_tab(void);
-GtkWidget *build_outras_tab(void);
 GtkWidget *build_permissoes_tab(void);
 GtkWidget *build_paineis_tab(void);
 GtkWidget *build_wallpaper_tab(void);

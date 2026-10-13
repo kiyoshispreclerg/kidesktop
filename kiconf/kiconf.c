@@ -31,9 +31,6 @@
  *     keyboard), same subprocess-driven detect/diff/apply as xisconf.py's
  *     Pointer/Keyboard tab: only fields that actually changed since the
  *     last detect get a command sent, on Aplicar.
- *   Outras -- the 3rd XiS flag (DisablePrimarySelection, via xprop),
- *     DPMS + screensaver (xset), and virtual desktop count (wmctrl/EWMH),
- *     same detect/diff/apply pattern.
  *   Paineis -- plain editor for xispanel.conf (PANEL/WIDGET/THEME
  *     records, see xispanel/PROTOCOL.md), mirroring xisconf.py's Panels
  *     tab in spirit but not in UI depth: instead of a per-widget-type
@@ -114,7 +111,7 @@
 #include "sysinfo.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.55"
+#define KICONF_VERSION "0.2.56"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -154,7 +151,6 @@ static LazyTab g_tabs[] = {
     {N_("Telas"), GTK_STOCK_FULLSCREEN, build_telas_tab, NULL, 0, 0},
     {N_("Entrada"), GTK_STOCK_EDIT, build_entrada_tab, NULL, 0, 0},
     {N_("Wallpaper"), GTK_STOCK_FILE, build_wallpaper_tab, NULL, 0, 0},
-    {N_("Outras"), GTK_STOCK_PREFERENCES, build_outras_tab, NULL, 0, 0},
     {N_("Paineis"), GTK_STOCK_JUSTIFY_FILL, build_paineis_tab, NULL, 0, 0},
     {N_("Permissoes"), GTK_STOCK_DIALOG_AUTHENTICATION, build_permissoes_tab, NULL, 0, 0},
     {N_("Gerenciamento de janelas"), GTK_STOCK_DND_MULTIPLE, build_janelas_tab, NULL, 0, 0},
