@@ -402,6 +402,9 @@ static unsigned int handle_notify(DBusMessage *msg)
     if (!p_dbus_message_iter_next(&it)) { /* hints a{sv} */
         goto done;
     }
+    if (!p_dbus_message_iter_next(&it)) { /* expire_timeout */
+        goto done;
+    }
     if (p_dbus_message_iter_get_arg_type(&it) == DBUS_TYPE_INT32) {
         p_dbus_message_iter_get_basic(&it, &expire_timeout);
     }
