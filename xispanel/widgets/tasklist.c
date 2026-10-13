@@ -1070,6 +1070,7 @@ static void tasklist_measure(PanelWidget *w, int cross_axis, int *out_len, int *
     int icon_px = icon_size_for(cross_axis, tp->icon_padding);
     tasklist_build_display(w, p->output);
     int cursor = 0;
+    int floor_total = 0; /* same floor tasklist_pick_compact() checks, from nat_w[] */
     for (int d = 0; d < tp->n_display; d++) {
         TaskEntry *e = &tp->tasks[tp->display_repr[d]];
         int bw;
@@ -1097,8 +1098,17 @@ static void tasklist_measure(PanelWidget *w, int cross_axis, int *out_len, int *
         tp->nat_w[d] = bw;
         tp->btn_w[d] = bw;
         cursor += bw + TASKLIST_BTN_GAP;
+        floor_total += (tp->compact || e->is_placeholder || bw < TASKLIST_SHRINK_MIN_WIDE ? bw : TASKLIST_SHRINK_MIN_WIDE) +
+                       (d > 0 ? TASKLIST_BTN_GAP : 0);
     }
     *out_len = tp->n_display > 0 ? cursor - TASKLIST_BTN_GAP : 0;
+    /* Won't fit wide even at the most room the panel could ever give it
+     * (w->room, from the last layout): auto_compact will draw it icon-
+     * only, so ask for just that -- a min_pct= bar then shrinks to it
+     * instead of staying at full length around a short icon row. */
+    if (!tp->compact && tp->auto_compact && w->room > 0 && floor_total > w->room) {
+        *out_len = tp->n_display * (cross_axis + TASKLIST_BTN_GAP) - TASKLIST_BTN_GAP;
+    }
 
     /* Minimum: room for exactly one task button (a square, cross_axis wide,
      * since that's the smallest a button can usefully be) plus both end

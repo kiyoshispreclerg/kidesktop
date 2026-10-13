@@ -250,6 +250,13 @@ struct PanelWidget {
      * row this widget landed in -- always 0 on a normal one-row panel,
      * only a container panel with layout=grid ever stacks rows. */
     int x, y, len, thickness;
+    /* Also from panel_layout(), for the *next* measure(): the most main-
+     * axis length this widget could get -- bar at its full pct= length,
+     * spacers squeezed out, every other widget at its desired size. Lets
+     * a widget that can pick a shorter form (tasklist's auto_compact)
+     * report that form's length, so a min_pct= bar shrinks with it. 0 =
+     * not laid out yet; always 0 inside a container popup. */
+    int room;
 
     /* 0 = no pending tick. Folded into the main loop's "soonest timeout"
      * computation so widgets don't need their own timerfd. */

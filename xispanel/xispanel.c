@@ -100,7 +100,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.89"
+#define XISPANEL_VERSION "0.6.90"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -2489,6 +2489,8 @@ static void panel_layout(Panel *p)
         }
     }
 
+    int full_len = ((p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? p->out_w : p->out_h) * p->pct / 100;
+    int others_base = full_len - spacing_total - (fixed_total - spacer_total);
     int cursor = 0;
     for (int i = 0; i < p->n_layout; i++) {
         PanelWidget *w = p->layout[i];
@@ -2497,6 +2499,10 @@ static void panel_layout(Panel *p)
         w->y = 0;
         w->len = len;
         w->thickness = p->thickness;
+        w->room = others_base + (lens[i] > 0 && !spacer[i] ? lens[i] : 0);
+        if (w->room < 1) {
+            w->room = 1;
+        }
         cursor += len + p->spacing;
     }
     panel_mirror_rtl(p);
