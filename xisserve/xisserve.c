@@ -55,7 +55,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.1.63"
+#define XISSERVE_VERSION "0.1.64"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -563,7 +563,7 @@ static int send_to_running(const char *sockpath, const LaunchArgs *a)
 static int open_listen_socket(const char *sockpath)
 {
     unlink(sockpath);
-    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0) {
         perror("xisserve: socket");
         return -1;
@@ -3637,7 +3637,7 @@ int main(int argc, char **argv)
     snprintf(lockpath, sizeof(lockpath), "%s/xisserve%s.lock", rundir, kind_suffix);
     snprintf(sockpath, sizeof(sockpath), "%s/xisserve%s.sock", rundir, kind_suffix);
 
-    int lockfd = open(lockpath, O_CREAT | O_RDWR, 0600);
+    int lockfd = open(lockpath, O_CREAT | O_RDWR | O_CLOEXEC, 0600);
     if (lockfd < 0) {
         perror("xisserve: open lock");
         return 1;

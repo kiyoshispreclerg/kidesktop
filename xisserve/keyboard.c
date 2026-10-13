@@ -815,7 +815,7 @@ int keyboard_run(int output_x, int output_y, int output_w, int output_h)
     char lockpath[512];
     keyboard_lock_path(lockpath, sizeof(lockpath));
 
-    int lockfd = open(lockpath, O_CREAT | O_RDWR, 0600);
+    int lockfd = open(lockpath, O_CREAT | O_RDWR | O_CLOEXEC, 0600);
     if (lockfd < 0) {
         perror("xisserve --keyboard: open lock");
         return 1;

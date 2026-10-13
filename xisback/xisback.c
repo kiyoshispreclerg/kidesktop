@@ -2018,7 +2018,7 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
     xis_init(g_dpy, g_root);
 
     unlink(sockpath);
-    int listenfd = socket(AF_UNIX, SOCK_STREAM, 0);
+    int listenfd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     struct sockaddr_un addr;
     if (!xis_sun_path(&addr, sockpath)) {
         fprintf(stderr, "xisback: socket path too long: %s\n", sockpath);

@@ -4288,7 +4288,7 @@ static int run_as_daemon(const char *sockpath)
     }
 
     unlink(sockpath);
-    int listenfd = socket(AF_UNIX, SOCK_STREAM, 0);
+    int listenfd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     struct sockaddr_un addr;
     if (build_sockaddr_un(&addr, sockpath) != 0) {
         return 1;

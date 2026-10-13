@@ -2356,7 +2356,7 @@ int main(int argc, char **argv)
     }
     char lockpath[PATH_MAX];
     snprintf(lockpath, sizeof(lockpath), "%s/kiconfd.lock", rundir);
-    int lockfd = open(lockpath, O_CREAT | O_RDWR, 0600);
+    int lockfd = open(lockpath, O_CREAT | O_RDWR | O_CLOEXEC, 0600);
     if (lockfd >= 0 && flock(lockfd, LOCK_EX | LOCK_NB) != 0) {
         fprintf(stderr, "kiconfd: already running (lock held on '%s')\n", lockpath);
         return 1;

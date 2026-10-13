@@ -2086,7 +2086,7 @@ void* file_monitor_loop(void *arg) {
 /* ====================== LOCK & CLEANUP ====================== */
 
 int acquire_lock() {
-    lock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    lock_fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (lock_fd < 0) {
         log_msg("Failed to create lock socket: %s", strerror(errno));
         return 0;
@@ -2318,7 +2318,7 @@ int main(int argc, char *argv[]) {
     send_heartbeat();
 
     /* === Server socket setup === */
-    server_fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+    server_fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
     if (server_fd == -1) {
         log_msg("Failed to create server socket: %s", strerror(errno));
         release_lock();
@@ -2347,7 +2347,7 @@ int main(int argc, char *argv[]) {
     log_msg("XisGuard ready - listening on %s", SOCKET_PATH_BUF);
 
     /* === Control socket setup (local IPC, e.g. xisconf) === */
-    ctl_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    ctl_fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (ctl_fd == -1) {
         log_msg("Failed to create control socket: %s", strerror(errno));
         close(server_fd);
