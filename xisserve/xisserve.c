@@ -55,7 +55,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.1.62"
+#define XISSERVE_VERSION "0.1.63"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -2370,6 +2370,10 @@ static void save_current_page_size(void)
     set_saved_size(page_size_key(g_shown_page), w, h);
 }
 
+/* Where a page swapped in place still has to be grown to -- see
+ * on_window_configure(). */
+static int g_want_w, g_want_h, g_resize_retries;
+
 static void apply_view_mode(void)
 {
     update_header_title();
@@ -2430,6 +2434,9 @@ static void apply_view_mode(void)
     g_applied_w = want_w;
     g_applied_h = want_h;
     gtk_window_resize(GTK_WINDOW(g_window), want_w, want_h);
+    g_want_w = want_w;
+    g_want_h = want_h;
+    g_resize_retries = GTK_WIDGET_MAPPED(g_window) ? 3 : 0;
 }
 
 static void leave_current_page(void)
@@ -2451,6 +2458,16 @@ static gboolean on_window_configure(GtkWidget *w, GdkEventConfigure *ev, gpointe
 {
     (void)w;
     (void)data;
+    /* A page swapped in place on an already-mapped window: GTK folds the
+     * new minimum into the pending configure and can drop the *grow* to
+     * the page's saved size, leaving whatever the previous page had
+     * (racy). Ask again whenever a configure lands short of the wanted
+     * size, a few times at most so a later user resize isn't fought. */
+    if (g_resize_retries > 0 && (ev->width < g_want_w || ev->height < g_want_h)) {
+        g_resize_retries--;
+        gtk_window_resize(GTK_WINDOW(g_window), g_want_w, g_want_h);
+        return FALSE;
+    }
     if (g_get_monotonic_time() - g_shown_at_us > 1000000)
         return FALSE;
     if (ev->width == g_applied_w && ev->height == g_applied_h)
