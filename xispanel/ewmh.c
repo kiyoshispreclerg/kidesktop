@@ -796,20 +796,25 @@ int ewmh_kiwm_get_num_output_desktops(void)
     return n;
 }
 
-/* kiwm's window_gap= (kiwm/PROTOCOL.md) -- what follow_wm_gap= panels
- * float themselves by. 0 if absent: no kiwm, or kiwm with no gap. */
-int ewmh_kiwm_get_window_gap(void)
+/* The window_gap kiwm currently has in effect on `output_idx` (an index
+ * into ewmh_kiwm_get_outputs()'s order; _KIWM_WINDOW_GAP is one CARDINAL
+ * per output, see kiwm/PROTOCOL.md) -- what follow_wm_gap= panels float
+ * themselves by. 0 if absent (no kiwm, or no gap) or out of range. */
+int ewmh_kiwm_get_window_gap(int output_idx)
 {
     Atom actual_type;
     int actual_format;
     unsigned long n_items, bytes_after;
     unsigned char *prop = NULL;
     int n = 0;
-    if (XGetWindowProperty(g_dpy, g_root, g_atom_kiwm_window_gap, 0, 1, False, XA_CARDINAL, &actual_type,
+    if (output_idx < 0) {
+        return 0;
+    }
+    if (XGetWindowProperty(g_dpy, g_root, g_atom_kiwm_window_gap, 0, 64, False, XA_CARDINAL, &actual_type,
                            &actual_format, &n_items, &bytes_after, &prop) == Success &&
         prop) {
-        if (n_items > 0) {
-            n = (int)*(long *)(void *)prop;
+        if ((unsigned long)output_idx < n_items) {
+            n = (int)((long *)(void *)prop)[output_idx];
         }
         XFree(prop);
     }

@@ -304,8 +304,11 @@ struct Panel {
     /* follow_wm_gap=1: float the bar kiwm's window_gap= away from its
      * screen edge and both ends (kiwm/PROTOCOL.md's _KIWM_WINDOW_GAP), so
      * it gets the same spacing as maximized/tiled windows. 0 (default) =
-     * flush, whatever the WM says. See panel_resolve_geometry(). */
+     * flush, whatever the WM says. gap_now is the gap read for this panel's
+     * own output the last time it was (re)placed -- kiwm changes it as
+     * windows maximize (gap_off_when_maximized=), see panel_update_gap(). */
     int follow_wm_gap;
+    int gap_now;
     enum panel_mode mode;
     /* 0/90/180/270: rotates every widget's content as a rigid whole
      * around the center of its on-panel slot. Works on any edge (not
@@ -922,7 +925,7 @@ void ewmh_set_current_desktop(int desktop);
 int ewmh_kiwm_get_outputs(char out_names[][64], int max, int *out_n); /* 1 if kiwm detected, out_n set either way */
 int ewmh_kiwm_get_output_desktops(int *out, int max); /* returns count read, one CARDINAL per output */
 int ewmh_kiwm_get_num_output_desktops(void);          /* -1 if absent */
-int ewmh_kiwm_get_window_gap(void);                   /* 0 if absent */
+int ewmh_kiwm_get_window_gap(int output_idx);         /* 0 if absent */
 int ewmh_is_kiwm_window_gap_event(const XPropertyEvent *ev);
 int ewmh_kiwm_get_wm_output(Window w);                /* -1 if unset */
 void ewmh_kiwm_set_output_desktop(int output_idx, int desktop_idx);

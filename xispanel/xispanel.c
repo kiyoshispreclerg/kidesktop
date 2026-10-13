@@ -783,16 +783,30 @@ static int panel_align_offset(const Panel *p, int slack)
     }
 }
 
-/* _KIWM_WINDOW_GAP as last read -- see panel_edge_margin() and the
- * PropertyNotify handling in main(). */
-static int g_wm_gap;
-
 /* follow_wm_gap=: how far the bar floats off its screen edge and off both
  * ends of it. The strut (panel_apply_strut()) is measured to the bar's far
  * side, so it includes this and the WM's own gap starts past it. */
 static int panel_edge_margin(const Panel *p)
 {
-    return p->follow_wm_gap ? g_wm_gap : 0;
+    return p->follow_wm_gap ? p->gap_now : 0;
+}
+
+/* kiwm's current window_gap on the output this panel sits on (output "*"
+ * or one kiwm doesn't list counts as the first). */
+static int panel_read_wm_gap(const Panel *p)
+{
+    char names[16][64];
+    int n = 0;
+    int idx = 0;
+    if (ewmh_kiwm_get_outputs(names, 16, &n)) {
+        for (int i = 0; i < n; i++) {
+            if (strcmp(names[i], p->output) == 0) {
+                idx = i;
+                break;
+            }
+        }
+    }
+    return ewmh_kiwm_get_window_gap(idx);
 }
 
 /* The room along the panel's edge that pct=/align= divide up: the output's
@@ -2279,6 +2293,55 @@ static void panel_autosize_set_len(Panel *p, int len)
     panel_resize_buffers(p);
 }
 
+/* follow_wm_gap= just changed what panel_edge_margin() says: re-place the
+ * bar the way panel_resolve_geometry() would, move/resize the live window
+ * and re-publish the strut (dock mode) -- everything a reload would redo,
+ * minus tearing the window down. An autosize panel gets its length back
+ * from the next layout pass. */
+static void panel_refloat(Panel *p)
+{
+    panel_resolve_geometry(p);
+    if (!p->win) {
+        return;
+    }
+    if (p->mode == MODE_AUTOHIDE && p->ah_state != AH_SHOWN) {
+        /* mid-slide: panel_autohide_tick() moves it to the new x/y */
+        XResizeWindow(g_dpy, p->win, (unsigned)p->w, (unsigned)p->h);
+    } else {
+        XMoveResizeWindow(g_dpy, p->win, p->x, p->y, (unsigned)p->w, (unsigned)p->h);
+    }
+    if (p->sensor_win != None) {
+        if (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) {
+            XMoveResizeWindow(g_dpy, p->sensor_win, p->x, p->edge == EDGE_TOP ? p->out_y : p->out_y + p->out_h - 1,
+                              (unsigned)p->w, 1);
+        } else {
+            XMoveResizeWindow(g_dpy, p->sensor_win, p->edge == EDGE_LEFT ? p->out_x : p->out_x + p->out_w - 1, p->y,
+                              1, (unsigned)p->h);
+        }
+    }
+    panel_apply_strut(p);
+    panel_resize_buffers(p);
+    p->dirty = 1;
+}
+
+/* _KIWM_WINDOW_GAP changed (kiwm started, quit, or a window was maximized
+ * with gap_off_when_maximized=): float/flatten every follow_wm_gap= panel
+ * whose own output's value moved. */
+static void panels_update_wm_gap(void)
+{
+    for (int i = 0; i < MAX_PANELS; i++) {
+        Panel *p = &g_panels[i];
+        if (!p->in_use || !p->follow_wm_gap || p->mode == MODE_CONTAINER) {
+            continue;
+        }
+        int gap = panel_read_wm_gap(p);
+        if (gap != p->gap_now) {
+            p->gap_now = gap;
+            panel_refloat(p);
+        }
+    }
+}
+
 /* The length an autosize panel wants for `content` px of real widgets, or
  * 0 if this panel isn't autosize (min_pct unset, or not below pct).
  * Rounded up to whole multiples of the thickness, so a window title or
@@ -2934,6 +2997,7 @@ static void panel_deactivate(Panel *p)
 
 static void panel_activate(Panel *p)
 {
+    p->gap_now = p->follow_wm_gap && p->mode != MODE_CONTAINER ? panel_read_wm_gap(p) : 0;
     panel_resolve_geometry(p);
     panel_pick_visual(p);
     panel_load_bg_image(p);
@@ -4452,7 +4516,6 @@ static int run_as_daemon(const char *sockpath)
         xis_list_outputs(g_dpy, warm, XIS_MAX_OUTPUTS, 1);
     }
 
-    g_wm_gap = ewmh_kiwm_get_window_gap(); /* follow_wm_gap= panels need it from the start */
     reload_all_panels();
     a11y_init(); /* after the panels exist: the bridge may query them right away */
     /* Watch the root + every client window for the properties the polling
@@ -4741,18 +4804,7 @@ static int run_as_daemon(const char *sockpath)
                     /* consumed: _X_DENSITY_REQUESTED on one of our own panel
                      * windows -- see density.c/TESTS/X-DENSITY.md */
                 } else if (ev.type == PropertyNotify && ewmh_is_kiwm_window_gap_event(&ev.xproperty)) {
-                    /* kiwm (re)started or quit: follow_wm_gap= panels move.
-                     * A full reload, same tradeoff as an output change. */
-                    int gap = ewmh_kiwm_get_window_gap();
-                    if (gap != g_wm_gap) {
-                        g_wm_gap = gap;
-                        for (int pi = 0; pi < MAX_PANELS; pi++) {
-                            if (g_panels[pi].in_use && g_panels[pi].follow_wm_gap) {
-                                reload_all_panels();
-                                break;
-                            }
-                        }
-                    }
+                    panels_update_wm_gap();
                 } else if (ev.type == PropertyNotify) {
                     /* A WM property the polling widgets depend on changed
                      * (active window, client list, current desktop, or a

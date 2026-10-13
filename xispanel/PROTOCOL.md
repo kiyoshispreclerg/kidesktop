@@ -148,8 +148,10 @@ PANEL	top	*	edge=top	pct=100	thickness=32	mode=dock
   `window_gap=` away from its screen edge and from both ends of it (read
   from `_KIWM_WINDOW_GAP`, see kiwm/PROTOCOL.md), so it gets the same
   spacing as maximized and tiled windows; `pct`/`align` divide what's left.
-  A dock's strut includes the offset. The panels move by themselves when
-  kiwm starts or quits; `0`, or no kiwm, keeps the panel flush. Pair it
+  A dock's strut includes the offset. The panel follows the value for
+  its own output as kiwm changes it (kiwm's `gap_off_when_maximized=`
+  flattens it while a window is maximized there), and moves by itself
+  when kiwm starts or quits; `0`, or no kiwm, keeps the panel flush. Pair it
   with the theme's `border_radius=` for the rounded floating look.
 - `mode`: `dock` (reserves screen space via `_NET_WM_STRUT_PARTIAL`) |
   `overlay` (floats on top, no reserved space) | `autohide` (overlay,
