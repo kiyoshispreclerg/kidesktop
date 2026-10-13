@@ -118,6 +118,9 @@ typedef struct {
     int desktop;
     char title[TITLE_MAX];
     CompTextImage *label;
+    /* "Desktop N", only for a window that is on another desktop than the
+     * one this output is showing; drawn under the title. */
+    CompTextImage *desk_label;
 } CsItem;
 
 typedef struct {
@@ -542,6 +545,29 @@ static void mark_dirty(const CsData *d)
     output_damage_all();
 }
 
+/* The title image, and under it which desktop the window is on when that
+ * is not the one showing. */
+static void make_labels(CsItem *it, const CsConfig *cfg, int output_id)
+{
+    it->label = text_render(it->title, text_theme_style(), cfg->label_width);
+
+    int cur = desktop_current_for_output(output_by_id(output_id));
+    if (it->desktop >= 0 && it->desktop != COMP_DESKTOP_ALL && it->desktop != cur) {
+        char buf[48];
+        snprintf(buf, sizeof(buf), "Desktop %d", it->desktop + 1);
+        it->desk_label = text_render(buf, text_theme_style(), cfg->label_width);
+    }
+}
+
+static void free_labels(CsItem *it)
+{
+    if (it->label)
+        text_free(it->label);
+    if (it->desk_label)
+        text_free(it->desk_label);
+    it->label = it->desk_label = NULL;
+}
+
 /* Drop a window the compositor is forgetting (effect.h). The row goes on
  * without it rather than closing: a window closing itself while the user
  * is walking the list is an ordinary thing, and throwing them out of the
@@ -556,8 +582,7 @@ static void cs_window_gone(CompEffect *e, CompWindow *w)
         if (d->items[i].win != w)
             continue;
 
-        if (d->items[i].label)
-            text_free(d->items[i].label);
+        free_labels(&d->items[i]);
 
         memmove(&d->items[i], &d->items[i + 1],
                 sizeof(CsItem) * (size_t)(d->count - i - 1));
@@ -675,7 +700,7 @@ static void refresh_items(CompEffect *e)
         it->desktop = desktop_of(w);
         read_title(w, it->title, sizeof(it->title));
         if (cfg->labels)
-            it->label = text_render(it->title, text_theme_style(), cfg->label_width);
+            make_labels(it, cfg, d->output_id);
         added = true;
     }
 
@@ -1316,6 +1341,14 @@ static void cs_apply(CompEffect *e, CompScene *s, CompOutput *o)
                 tw, th
             };
             scene_add_chrome(s, img, &where, alive);
+
+            CompTextImage *dl = d->items[d->selected].desk_label;
+            if (dl) {
+                int dw = text_width(dl), dh = text_height(dl);
+                CompRect below = { o->rect.x + (o->rect.w - dw) / 2,
+                                   where.y + th, dw, dh };
+                scene_add_chrome(s, dl, &below, alive * 0.7f);
+            }
         }
     }
 }
@@ -1332,8 +1365,7 @@ static void cs_destroy(CompEffect *e)
     if (d->took_stowed)
         effects_show_stowed(d->output_id, false);
     for (int i = 0; i < d->count; i++)
-        if (d->items[i].label)
-            text_free(d->items[i].label);
+        free_labels(&d->items[i]);
     free(d);
     e->data = NULL;
 }
@@ -1425,8 +1457,7 @@ static CompEffect *open_mode(const CompEffectInstance *self, CompOutput *o,
             it->desktop = desktop_of(w);
             read_title(w, it->title, sizeof(it->title));
             if (cfg->labels)
-                it->label = text_render(it->title, text_theme_style(),
-                                        cfg->label_width);
+                make_labels(it, cfg, d->output_id);
         }
     } else {
         /* Top of the stack first: the row reads the way the user's own
@@ -1440,8 +1471,7 @@ static CompEffect *open_mode(const CompEffectInstance *self, CompOutput *o,
             it->desktop = desktop_of(w);
             read_title(w, it->title, sizeof(it->title));
             if (cfg->labels)
-                it->label = text_render(it->title, text_theme_style(),
-                                        cfg->label_width);
+                make_labels(it, cfg, d->output_id);
         }
 
         /* comp.stack runs bottom to top, so the list came out that way:
