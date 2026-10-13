@@ -51,6 +51,7 @@ struct ResultEntry {
     char name[256];
     char exec[1300];        /* shell command; used by the default activate when activate_fn is NULL */
     char category_key[32];  /* bucket key, e.g. "Development"; "" for plugin results */
+    char keywords[512];     /* GenericName/Comment/Keywords (all locales), space-joined; search-only, "" for plugin results */
     char subtitle[128];     /* small text shown under the name: category label, or the plugin's name */
     gboolean is_favorite;
     gboolean from_desktop;

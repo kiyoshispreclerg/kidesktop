@@ -55,7 +55,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.1.59"
+#define XISSERVE_VERSION "0.1.60"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -67,7 +67,7 @@
  * click/Enter and to resolve "Adicionar/Remover Favorito" on
  * right-click. ResultEntry itself is defined in xisserve.h -- plugins
  * build it directly. */
-enum { VCOL_ICON = 0, VCOL_MARKUP, VCOL_ENTRY, N_VCOLS };
+enum { VCOL_ICON = 0, VCOL_MARKUP, VCOL_ENTRY, VCOL_GRIDMARKUP, N_VCOLS }; /* GRIDMARKUP: name only, no subtitle */
 
 /* Category list (left pane): "favorites" and "all" are synthetic,
  * xisserve-only categories (see build_category_store()); everything
@@ -1068,6 +1068,7 @@ static void parse_desktop_file(const char *path, const char *basename, GPtrArray
     char try_exec[512] = "";
     char categories_raw[512] = "";
     char icon_raw[256] = "";
+    char keywords[512] = "";
     int is_application = 1;
     int no_display = 0;
     int hidden = 0;
@@ -1105,6 +1106,12 @@ static void parse_desktop_file(const char *path, const char *basename, GPtrArray
         else if (strcmp(key, "TryExec") == 0) snprintf(try_exec, sizeof(try_exec), "%s", val);
         else if (strcmp(key, "Categories") == 0) snprintf(categories_raw, sizeof(categories_raw), "%s", val);
         else if (strcmp(key, "Icon") == 0) snprintf(icon_raw, sizeof(icon_raw), "%s", val);
+        else if (!strncmp(key, "Comment", 7) || !strncmp(key, "GenericName", 11) || !strncmp(key, "Keywords", 8)) {
+            size_t kl = strlen(keywords);
+            for (const char *c = val; *c && kl + 2 < sizeof(keywords); c++) keywords[kl++] = *c == ';' ? ' ' : *c;
+            if (kl + 2 < sizeof(keywords)) keywords[kl++] = ' ';
+            keywords[kl] = 0;
+        }
     }
     fclose(f);
 
@@ -1126,6 +1133,7 @@ static void parse_desktop_file(const char *path, const char *basename, GPtrArray
     } else {
         snprintf(e->exec, sizeof(e->exec), "%s", exec_clean);
     }
+    snprintf(e->keywords, sizeof(e->keywords), "%s", keywords);
     bucket_categories(categories_raw, e->category_key, sizeof(e->category_key));
     snprintf(e->subtitle, sizeof(e->subtitle), "%s", xisserve_category_label(e->category_key));
     e->is_favorite = g_favorites && g_hash_table_contains(g_favorites, e->id);
@@ -1542,7 +1550,7 @@ static void apps_cache_path(char *out, size_t outsz)
     snprintf(out, outsz, "%s/xisserve-apps.cache", cachedir);
 }
 
-#define APPS_CACHE_MAGIC "XISSERVE-APPS-CACHE 1"
+#define APPS_CACHE_MAGIC "XISSERVE-APPS-CACHE 2"
 
 /* Written after every real scan (both the daemon's and a one-shot
  * process's) so whichever runs next -- daemon or one-shot, either one --
@@ -1566,7 +1574,8 @@ static void write_apps_cache(const GArray *dirs, const GPtrArray *apps)
     fprintf(f, "%u\n", apps->len);
     for (guint i = 0; i < apps->len; i++) {
         const ResultEntry *e = g_ptr_array_index(apps, i);
-        fprintf(f, "%s\x1f%s\x1f%s\x1f%s\x1f%s\n", e->id, e->name, e->exec, e->category_key, e->icon_spec);
+        fprintf(f, "%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n", e->id, e->name, e->exec, e->category_key, e->icon_spec,
+                e->keywords);
     }
     fclose(f);
     rename(tmp, path); /* atomic: a reader never sees a half-written cache */
@@ -1617,15 +1626,15 @@ static gboolean load_apps_cache_if_fresh(const GArray *current_dirs, GPtrArray *
         size_t l = strlen(line);
         while (l > 0 && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = 0;
 
-        char *fields[5];
+        char *fields[6];
         int nf = 0;
         char *p = line;
         fields[nf++] = p;
-        while (nf < 5 && (p = strchr(p, '\x1f')) != NULL) {
+        while (nf < 6 && (p = strchr(p, '\x1f')) != NULL) {
             *p++ = 0;
             fields[nf++] = p;
         }
-        if (nf != 5) continue; /* corrupt line -- skip this one app, not the whole cache */
+        if (nf != 6) continue; /* corrupt line -- skip this one app, not the whole cache */
 
         ResultEntry *e = g_new0(ResultEntry, 1);
         snprintf(e->id, sizeof(e->id), "%s", fields[0]);
@@ -1633,6 +1642,7 @@ static gboolean load_apps_cache_if_fresh(const GArray *current_dirs, GPtrArray *
         snprintf(e->exec, sizeof(e->exec), "%s", fields[2]);
         snprintf(e->category_key, sizeof(e->category_key), "%s", fields[3]);
         snprintf(e->icon_spec, sizeof(e->icon_spec), "%s", fields[4]);
+        snprintf(e->keywords, sizeof(e->keywords), "%s", fields[5]);
         snprintf(e->subtitle, sizeof(e->subtitle), "%s", xisserve_category_label(e->category_key));
         e->from_desktop = TRUE;
         e->is_favorite = g_favorites && g_hash_table_contains(g_favorites, e->id);
@@ -2050,6 +2060,7 @@ static void apply_row_icon(gpointer target, GdkPixbuf *icon, gpointer user_data)
 static void append_result_row(GtkListStore *store, ResultEntry *e)
 {
     gchar *markup = result_markup(e);
+    gchar *grid_markup = g_markup_escape_text(e->name, -1);
     GtkTreeIter it;
     gtk_list_store_append(store, &it);
 
@@ -2060,8 +2071,9 @@ static void append_result_row(GtkListStore *store, ResultEntry *e)
         gint row = gtk_tree_model_iter_n_children(GTK_TREE_MODEL(store), NULL) - 1;
         xisserve_icon_job_add(g_row_icon_job, e, GINT_TO_POINTER(row));
     }
-    gtk_list_store_set(store, &it, VCOL_ICON, e->icon, VCOL_MARKUP, markup, VCOL_ENTRY, e, -1);
+    gtk_list_store_set(store, &it, VCOL_ICON, e->icon, VCOL_MARKUP, markup, VCOL_ENTRY, e, VCOL_GRIDMARKUP, grid_markup, -1);
     g_free(markup);
+    g_free(grid_markup);
 }
 
 /* The single source of truth for what the right pane shows: search mode
@@ -2094,11 +2106,22 @@ static void rebuild_results(void)
     if (searching) {
         gtk_widget_hide(g_cat_scroll);
         gchar *ql = g_utf8_casefold(query, -1);
-        for (guint i = 0; i < g_apps->len; i++) {
-            ResultEntry *e = g_ptr_array_index(g_apps, i);
-            gchar *nl = g_utf8_casefold(e->name, -1);
-            if (strstr(nl, ql)) append_result_row(g_view_store, e);
-            g_free(nl);
+        /* Name matches first, then apps matching only by description/keywords
+         * (typing "piano" finds VMPK, as in kickoff). */
+        for (int pass = 0; pass < 2; pass++) {
+            for (guint i = 0; i < g_apps->len; i++) {
+                ResultEntry *e = g_ptr_array_index(g_apps, i);
+                gchar *nl = g_utf8_casefold(e->name, -1);
+                gboolean by_name = strstr(nl, ql) != NULL;
+                g_free(nl);
+                if (pass == 0) {
+                    if (by_name) append_result_row(g_view_store, e);
+                } else if (!by_name && e->keywords[0]) {
+                    gchar *kl = g_utf8_casefold(e->keywords, -1);
+                    if (strstr(kl, ql)) append_result_row(g_view_store, e);
+                    g_free(kl);
+                }
+            }
         }
         g_free(ql);
         for (int i = 0; i < N_SEARCH_PLUGINS; i++) {
@@ -3301,7 +3324,7 @@ static void build_ui(void)
      * ResultEntry::icon) beside a markup renderer for "Name" plus a
      * smaller subtitle line (category, or the plugin name for a
      * plugin-synthetic row) -- see result_markup(). */
-    g_view_store = gtk_list_store_new(N_VCOLS, GDK_TYPE_PIXBUF, G_TYPE_STRING, G_TYPE_POINTER);
+    g_view_store = gtk_list_store_new(N_VCOLS, GDK_TYPE_PIXBUF, G_TYPE_STRING, G_TYPE_POINTER, G_TYPE_STRING);
 
     g_treeview = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_view_store));
     gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(g_treeview), FALSE);
@@ -3331,7 +3354,7 @@ static void build_ui(void)
      * scrolled windows is visible. */
     g_iconview = gtk_icon_view_new_with_model(GTK_TREE_MODEL(g_view_store));
     gtk_icon_view_set_pixbuf_column(GTK_ICON_VIEW(g_iconview), VCOL_ICON);
-    gtk_icon_view_set_markup_column(GTK_ICON_VIEW(g_iconview), VCOL_MARKUP);
+    gtk_icon_view_set_markup_column(GTK_ICON_VIEW(g_iconview), VCOL_GRIDMARKUP);
     gtk_icon_view_set_selection_mode(GTK_ICON_VIEW(g_iconview), GTK_SELECTION_SINGLE);
     gtk_icon_view_set_columns(GTK_ICON_VIEW(g_iconview), g_grid_columns);
     gtk_icon_view_set_item_width(GTK_ICON_VIEW(g_iconview), 84);
