@@ -361,6 +361,14 @@ static void magic_lamp_apply(CompEffect *e, CompScene *s, CompOutput *o)
 
         if (!rect_intersect(&d->bbox, &o->rect, &n->visible_rect))
             n->visible_rect = (CompRect){ 0, 0, 0, 0 };
+
+        /* Minimizing drops the window to the bottom of the stack and
+         * hands focus to the next one in the same instant, so drawn at
+         * its real depth the lamp would shrink behind the window that
+         * just took over. Keep it where it was -- in front -- for as
+         * long as it runs. Drawing order only; the stack is untouched. */
+        if (d->going_away)
+            scene_move_node(s, i, s->count - 1);
         return;
     }
 }
