@@ -79,6 +79,13 @@ typedef struct CompEffectOps {
      * of effect rather than about any effect at all. */
     int (*owns_output)(const CompEffect *e);
 
+    /* For an owns_output effect: is it on its way out? A mode that is
+     * closing has already given the screen back as far as the user is
+     * concerned, so a trigger that arrives meanwhile is worth keeping
+     * (effects_defer_start). NULL means "always on its way out" -- the
+     * desktop wall, which is a transition and nothing more. */
+    bool (*closing)(const CompEffect *e);
+
     /* And this one draws it alone: it replaces the scene's node list
      * rather than adjusting it, so nothing else may apply to that
      * output. Effects are applied newest first, so an older one still
@@ -337,8 +344,30 @@ void effects_window_event(CompWindow *w, const CompEvent *ev);
  * window -- does not refuse itself. */
 bool effects_mode_running(int output_id, const CompEffectOps *self);
 
+/* A mode's trigger arrived while another mode still holds `output_id`.
+ * When every one holding it is closing (not up and in use), remembers
+ * `fn(data)` -- the latest one only -- and runs it as soon as the output
+ * is free, instead of the key doing nothing. Returns true if it was
+ * kept; false means the caller should just give up as before. A trigger
+ * is dropped if the output stays busy for more than a couple of seconds,
+ * and one that is itself running from this queue is never queued again. */
+/* Is `output_id` held by other modes, every one of them on its way out?
+ * (The desktop wall asks, to wait for them rather than give up.) */
+bool effects_modes_closing(int output_id, const CompEffectOps *self);
+
+bool effects_defer_start(int output_id, const CompEffectOps *self,
+                         void (*fn)(void *), void *data);
+
 
 void effects_claim(CompEventKind kind, int output_id, double ms);
+
+/* The same, for a desktop change the caller itself asked the window
+ * manager for: it stands only while `desktop` is the one the output is
+ * showing. A different switch arriving inside the window -- the user
+ * changing desktop right after leaving the cube -- is not the one that
+ * was shown, and must still animate. */
+void effects_claim_desktop(CompEventKind kind, int output_id, double ms,
+                           int desktop);
 
 /* The same, for one window rather than a whole output.
  *

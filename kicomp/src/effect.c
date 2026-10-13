@@ -5,6 +5,7 @@
 #include "animation.h"
 #include "output.h"
 #include "window.h"
+#include "desktop.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -382,6 +383,60 @@ bool effects_active(void)
     return running != NULL;
 }
 
+static struct {
+    void (*fn)(void *);
+    void *data;
+    int output;
+    const CompEffectOps *self;
+    double deadline;
+    bool firing;
+} deferred;
+
+#define DEFER_MS 2500.0
+
+bool effects_modes_closing(int output_id, const CompEffectOps *self)
+{
+    bool blocked = false;
+    for (CompEffect *e = running; e; e = e->next) {
+        if (!e->ops->owns_output || e->ops == self)
+            continue;
+        if (e->ops->owns_output(e) != output_id)
+            continue;
+        if (e->ops->closing && !e->ops->closing(e))
+            return false;
+        blocked = true;
+    }
+    return blocked;
+}
+
+bool effects_defer_start(int output_id, const CompEffectOps *self,
+                         void (*fn)(void *), void *data)
+{
+    if (!enabled || !fn || deferred.firing)
+        return false;
+
+    bool blocked = false;
+    for (CompEffect *e = running; e; e = e->next) {
+        if (!e->ops->owns_output || e->ops == self)
+            continue;
+        if (e->ops->owns_output(e) != output_id)
+            continue;
+        /* Up and in use: the key stays what it was, a no-op. */
+        if (e->ops->closing && !e->ops->closing(e))
+            return false;
+        blocked = true;
+    }
+    if (!blocked)
+        return false;
+
+    deferred.fn = fn;
+    deferred.data = data;
+    deferred.output = output_id;
+    deferred.self = self;
+    deferred.deadline = comp_now_ms() + DEFER_MS;
+    return true;
+}
+
 void effects_update(double now)
 {
     CompEffect **pp = &running;
@@ -404,6 +459,21 @@ void effects_update(double now)
         }
 
         pp = &e->next;
+    }
+
+    /* A trigger that arrived while the screen was still being given back:
+     * now that the loop is done changing the list, see if it is free. */
+    if (deferred.fn) {
+        if (now >= deferred.deadline) {
+            deferred.fn = NULL;
+        } else if (!effects_mode_running(deferred.output, NULL)) {
+            void (*fn)(void *) = deferred.fn;
+            void *data = deferred.data;
+            deferred.fn = NULL;
+            deferred.firing = true;
+            fn(data);
+            deferred.firing = false;
+        }
     }
 }
 
@@ -449,9 +519,10 @@ overlays:
 static struct {
     double until;
     int output;
+    int desktop;        /* the desktop it was made for, or -1 for any */
 } claims[COMP_EVENT_COUNT];
 
-void effects_claim(CompEventKind kind, int output_id, double ms)
+static void claim_impl(CompEventKind kind, int output_id, double ms, int desktop)
 {
     if (kind < 0 || kind >= COMP_EVENT_COUNT || ms <= 0.0)
         return;
@@ -464,9 +535,25 @@ void effects_claim(CompEventKind kind, int output_id, double ms)
     if (until > claims[kind].until || claims[kind].until < comp_now_ms()) {
         claims[kind].until = until;
         claims[kind].output = output_id;
+        claims[kind].desktop = desktop;
     } else if (output_id == COMP_NO_OUTPUT) {
         claims[kind].output = COMP_NO_OUTPUT;
+        claims[kind].desktop = -1;
+    } else if (desktop != claims[kind].desktop) {
+        /* Two claims for different desktops stand for neither. */
+        claims[kind].desktop = -1;
     }
+}
+
+void effects_claim(CompEventKind kind, int output_id, double ms)
+{
+    claim_impl(kind, output_id, ms, -1);
+}
+
+void effects_claim_desktop(CompEventKind kind, int output_id, double ms,
+                           int desktop)
+{
+    claim_impl(kind, output_id, ms, desktop);
 }
 
 /* And the same for single windows. A handful of slots: a claim is a
@@ -554,9 +641,20 @@ static bool claimed(CompEventKind kind, const CompWindow *w)
 
     if (now >= claims[kind].until)
         return false;
-    if (claims[kind].output == COMP_NO_OUTPUT)
-        return true;
-    return output_id_of(w) == claims[kind].output;
+    int out = output_id_of(w);
+    if (claims[kind].output != COMP_NO_OUTPUT && out != claims[kind].output)
+        return false;
+
+    /* Made for one particular desktop: only the change that landed on it
+     * is the one that was shown. */
+    if (claims[kind].desktop >= 0 &&
+        (kind == COMP_EVENT_DESKTOP_ENTER || kind == COMP_EVENT_DESKTOP_LEAVE)) {
+        for (int i = 0; i < comp.output_count; i++)
+            if (comp.outputs[i].id == out &&
+                desktop_current_for_output(&comp.outputs[i]) != claims[kind].desktop)
+                return false;
+    }
+    return true;
 }
 
 void effects_window_event(CompWindow *w, const CompEvent *ev)

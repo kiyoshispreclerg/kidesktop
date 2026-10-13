@@ -404,8 +404,10 @@ static void close_mode(CompEffect *e, int enter_desktop, CompWindow *pick)
          * not slide the same desktop in a second time behind the grid
          * closing over it (effect.h's effects_claim). */
         double cover = comp.claim_ms;
-        effects_claim(COMP_EVENT_DESKTOP_LEAVE, d->output_id, cover);
-        effects_claim(COMP_EVENT_DESKTOP_ENTER, d->output_id, cover);
+        effects_claim_desktop(COMP_EVENT_DESKTOP_LEAVE, d->output_id, cover,
+                              enter_desktop);
+        effects_claim_desktop(COMP_EVENT_DESKTOP_ENTER, d->output_id, cover,
+                              enter_desktop);
 
         desktop_request_switch(output_by_id(d->output_id), enter_desktop);
     }
@@ -1049,6 +1051,12 @@ static bool ex_finished(const CompEffect *e, double now)
     return now >= d->leg_start + d->leg_ms;
 }
 
+static bool ex_closing(const CompEffect *e)
+{
+    const ExData *d = e->data;
+    return !d || d->closing;
+}
+
 static void ex_destroy(CompEffect *e)
 {
     ExData *d = e->data;
@@ -1107,6 +1115,7 @@ static const CompEffectOps ex_ops = {
     .update     = ex_update,
     .apply      = ex_apply,
     .finished   = ex_finished,
+    .closing    = ex_closing,
     .destroy    = ex_destroy,
     .damage_map = ex_damage_map,
 };
@@ -1147,8 +1156,10 @@ static void ex_toggle(void *data)
     /* One thing at a time takes the screen over: a cube, an expo grid, a
      * row of covers, a wall. Two of those at once is not a picture of
      * anything, so this simply does not open (effect.h). */
-    if (effects_mode_running(o->id, &ex_ops))
+    if (effects_mode_running(o->id, &ex_ops)) {
+        effects_defer_start(o->id, &ex_ops, ex_toggle, data);
         return;
+    }
 
 
     CompEffect *e = calloc(1, sizeof(*e));

@@ -122,6 +122,12 @@ typedef struct {
     int off_x, off_y;
 
     CompRect covered;     /* what the last frame drew, for damage */
+
+    /* Started while a cube or a grid was still closing on this output:
+     * the effect stands at its first frame until that is over, then runs
+     * its `hold_ms` (the parallax delay) and its course as usual. */
+    bool held;
+    double hold_ms;
 } WallData;
 
 static void config_defaults(void *config)
@@ -371,9 +377,20 @@ static CompRect rect_for(CompEffect *e, float p)
     return r;
 }
 
+static const CompEffectOps wall_ops;
+
 static void wall_update(CompEffect *e, double now)
 {
     WallData *d = e->data;
+
+    if (d->held) {
+        if (effects_mode_running(d->output_id, &wall_ops)) {
+            e->start_time = now + d->hold_ms;
+        } else {
+            d->held = false;
+            e->start_time = now + d->hold_ms;
+        }
+    }
 
     CompRect previous = d->covered;
     d->covered = rect_for(e, effect_ease(e, comp_progress(now, e->start_time, e->duration)));
@@ -515,8 +532,15 @@ static void on_event(CompWindow *w, const CompEvent *event,
      * underneath it would be a second answer to one question. A wall's
      * own other windows are not "something else" -- one wall is many
      * effects (effect.h). */
-    if (effects_mode_running(o->id, &wall_ops))
-        return;
+    bool held = false;
+    if (effects_mode_running(o->id, &wall_ops)) {
+        /* One on its way out is not a reason to lose the animation of a
+         * switch the user made after it: wait for it (see `held`). One
+         * that is up and in use is still a reason to stay out. */
+        if (!effects_modes_closing(o->id, &wall_ops))
+            return;
+        held = true;
+    }
 
     CompEffect *e = calloc(1, sizeof(*e));
     WallData *d = calloc(1, sizeof(*d));
@@ -548,6 +572,8 @@ static void on_event(CompWindow *w, const CompEvent *event,
     e->start_time = comp_now_ms() + (double)rank * d->cfg->parallax_ms;
     e->duration = duration;
     e->data = d;
+    d->held = held;
+    d->hold_ms = (double)rank * d->cfg->parallax_ms;
 
     d->covered = rect_for(e, 0.0f);
 

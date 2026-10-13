@@ -813,8 +813,14 @@ static void close_mode(CompEffect *e, bool activate_it)
              * alone. A wall that ran for every window *except* the
              * chosen one would be exactly the half-animation this is
              * meant to avoid. */
-            effects_claim(COMP_EVENT_DESKTOP_ENTER, d->output_id, cover);
-            effects_claim(COMP_EVENT_DESKTOP_LEAVE, d->output_id, cover);
+            /* For the desktop the chosen window is on -- or the one
+             * showing, when it is on all of them and nothing switches --
+             * so that a switch the user makes right after still slides. */
+            int target = d->items[d->selected].desktop;
+            if (target < 0)
+                target = desktop_current_for_output(output_by_id(d->output_id));
+            effects_claim_desktop(COMP_EVENT_DESKTOP_ENTER, d->output_id, cover, target);
+            effects_claim_desktop(COMP_EVENT_DESKTOP_LEAVE, d->output_id, cover, target);
 
             /* The claims are made either way; the activation only when
              * this mode is its own. Driven from the window manager it is
@@ -1353,6 +1359,12 @@ static void cs_apply(CompEffect *e, CompScene *s, CompOutput *o)
     }
 }
 
+static bool cs_closing(const CompEffect *e)
+{
+    const CsData *d = e->data;
+    return !d || d->closing;
+}
+
 static void cs_destroy(CompEffect *e)
 {
     CsData *d = e->data;
@@ -1385,6 +1397,7 @@ static const CompEffectOps cs_ops = {
     .update     = cs_update,
     .apply      = cs_apply,
     .finished   = cs_finished,
+    .closing    = cs_closing,
     .window_gone = cs_window_gone,
     .destroy    = cs_destroy,
     .damage_map = cs_damage_map,
@@ -1546,6 +1559,11 @@ static void cs_toggle(void *data)
 
     /* One in, so the row opens on the window behind the active one --
      * which is what a switcher is for. */
+    if (effects_mode_running(o->id, &cs_ops)) {
+        effects_defer_start(o->id, &cs_ops, cs_toggle, data);
+        return;
+    }
+
     CompEffect *e = open_mode(self, o, NULL, 0, 1);
     if (!e)
         return;

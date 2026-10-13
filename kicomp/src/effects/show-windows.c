@@ -1146,6 +1146,12 @@ static bool sw_finished(const CompEffect *e, double now)
     return now >= d->leg_start + d->leg_ms;
 }
 
+static bool sw_closing(const CompEffect *e)
+{
+    const SwData *d = e->data;
+    return !d || d->closing;
+}
+
 static void sw_destroy(CompEffect *e)
 {
     SwData *d = e->data;
@@ -1186,6 +1192,7 @@ static const CompEffectOps sw_ops = {
     .update     = sw_update,
     .apply      = sw_apply,
     .finished   = sw_finished,
+    .closing    = sw_closing,
     .destroy    = sw_destroy,
     .damage_map = sw_damage_map,
 };
@@ -1220,8 +1227,10 @@ static void sw_toggle(void *data)
     /* One thing at a time takes the screen over: a cube, an expo grid, a
      * row of covers, a wall. Two of those at once is not a picture of
      * anything, so this simply does not open (effect.h). */
-    if (effects_mode_running(o->id, &sw_ops))
+    if (effects_mode_running(o->id, &sw_ops)) {
+        effects_defer_start(o->id, &sw_ops, sw_toggle, data);
         return;
+    }
 
     CompEffect *e = calloc(1, sizeof(*e));
     SwData *d = calloc(1, sizeof(*d));

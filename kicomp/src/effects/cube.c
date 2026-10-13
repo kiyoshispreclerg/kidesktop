@@ -526,8 +526,8 @@ static void close_mode(CompEffect *e)
  * the cube lying back down. Long enough to cover the way out and the
  * round trip the events take to come back through the window manager. */
         double cover = comp.claim_ms;
-        effects_claim(COMP_EVENT_DESKTOP_LEAVE, o->id, cover);
-        effects_claim(COMP_EVENT_DESKTOP_ENTER, o->id, cover);
+        effects_claim_desktop(COMP_EVENT_DESKTOP_LEAVE, o->id, cover, want);
+        effects_claim_desktop(COMP_EVENT_DESKTOP_ENTER, o->id, cover, want);
 
         desktop_request_switch(o, want);
     }
@@ -1156,6 +1156,12 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
     s->count = n;
 }
 
+static bool cube_closing(const CompEffect *e)
+{
+    const CubeData *d = e->data;
+    return !d || d->closing;
+}
+
 static void cube_destroy(CompEffect *e)
 {
     /* The other desktops go back to being invisible the moment this
@@ -1182,6 +1188,7 @@ static const CompEffectOps cube_ops = {
     .update   = cube_update,
     .apply    = cube_apply,
     .finished = cube_finished,
+    .closing  = cube_closing,
     .destroy  = cube_destroy,
 };
 
