@@ -62,6 +62,7 @@ static void apply_builtin_defaults(void)
     wm.live_resize = true;
     wm.magnet_threshold = 10;
     wm.window_gap = 0;
+    wm.gap_off_when_maximized = false;
     wm.link_resize_neighbors = false;
     wm.focus_follows_mouse = false;
     wm.focus_raise_on_release = false;
@@ -350,6 +351,11 @@ static void write_default_config(const char *path)
         "# 0 (the default) keeps them flush against everything.\n"
         "window_gap=0\n"
         "\n"
+        "# 1 turns window_gap off (as if it were 0) on an output while a window\n"
+        "# is maximized there: tiles, maximized windows and a panel that\n"
+        "# floats by it all go flush. 0 (default) keeps the gap regardless.\n"
+        "gap_off_when_maximized=0\n"
+        "\n"
         "# While resizing a window, also resize whatever's touching the edge\n"
         "# being dragged (within 1px), oppositely, so both stay touching --\n"
         "# shrinking one grows its neighbor and vice versa. Same-output only.\n"
@@ -626,6 +632,8 @@ static void load_config_file(void)
             if (n < 0) n = 0;
             if (n > MAX_WINDOW_GAP) n = MAX_WINDOW_GAP;
             wm.window_gap = n;
+        } else if (strcmp(key, "gap_off_when_maximized") == 0) {
+            wm.gap_off_when_maximized = atoi(val) != 0;
         } else if (strcmp(key, "link_resize_neighbors") == 0) {
             wm.link_resize_neighbors = atoi(val) != 0;
         } else if (strcmp(key, "auto_switch_argb") == 0) {

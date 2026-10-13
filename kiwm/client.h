@@ -86,7 +86,7 @@ void toggle_sticky(Client *c, int want /* -1=toggle 0=off 1=on */);
 void snap_client_to_side(Client *c, SnapSide side /* SNAP_LEFT or SNAP_RIGHT */);
 /* One tiling cell's frame rect inside an already gap-inset tile area --
  * shared with events.c's drag preview. See client.c. */
-void snap_cell_rect(SnapSide side, int zone, int zones, int vsb,
+void snap_cell_rect(SnapSide side, int zone, int zones, int vsb, int gap,
                     int wx, int wy, int ww, int wh,
                     int *out_x, int *out_y, int *out_w, int *out_h);
 /* Keyboard half-screen tiling: snaps c to `side`, or restores it if it's

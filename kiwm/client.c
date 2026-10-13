@@ -1711,7 +1711,7 @@ static void apply_maximized_geometry(Client *c)
 {
     int wx, wy, ww, wh;
     compute_output_workarea(c->output >= 0 ? c->output : 0, &wx, &wy, &ww, &wh);
-    inset_tile_area(&wx, &wy, &ww, &wh);
+    inset_tile_area(maximized_window_gap(), &wx, &wy, &ww, &wh);
 
     int bt, th;
     deco_insets(c, &bt, &th);
@@ -1985,7 +1985,7 @@ void toggle_fullscreen(Client *c, int want /* -1=toggle 0=unfullscreen 1=fullscr
 
 /* The frame rect of one tiling cell: column LEFT (leftmost) or RIGHT
  * (rightmost) of `vsb`, row `zone` of `zones`, inside a tile area already
- * shrunk by window_gap= (output.c's inset_tile_area()). Shared by the real
+ * shrunk by `gap` (output.c's inset_tile_area()). Shared by the real
  * snap below and events.c's drag preview outline, so the two can't drift.
  *
  * Only the leftmost and rightmost column are ever reachable, and both get
@@ -1994,11 +1994,11 @@ void toggle_fullscreen(Client *c, int want /* -1=toggle 0=unfullscreen 1=fullscr
  * against the true edge. The last row absorbs the remainder for the same
  * reason. window_gap= also separates neighboring columns and rows, so two
  * tiles sit exactly one gap apart, same as from the area's edges. */
-void snap_cell_rect(SnapSide side, int zone, int zones, int vsb,
+void snap_cell_rect(SnapSide side, int zone, int zones, int vsb, int gap,
                     int wx, int wy, int ww, int wh,
                     int *out_x, int *out_y, int *out_w, int *out_h)
 {
-    int g = wm.window_gap;
+    int g = gap;
     if (vsb < 1) vsb = 1;
     if (zones < 1) zones = 1;
     if (zone < 0) zone = 0;
@@ -2038,7 +2038,8 @@ void snap_client_to_side(Client *c, SnapSide side)
 
     int wx, wy, ww, wh;
     compute_output_workarea(c->output >= 0 ? c->output : 0, &wx, &wy, &ww, &wh);
-    inset_tile_area(&wx, &wy, &ww, &wh);
+    int gap = output_window_gap(c->output >= 0 ? c->output : 0);
+    inset_tile_area(gap, &wx, &wy, &ww, &wh);
 
     int bt, th;
     deco_insets(c, &bt, &th);
@@ -2051,7 +2052,7 @@ void snap_client_to_side(Client *c, SnapSide side)
     int vsb = c->snap_vsb > 0 ? c->snap_vsb : (wm.vertical_snap_by > 0 ? wm.vertical_snap_by : 1);
     int zones = c->snap_zone_count > 0 ? c->snap_zone_count : 1;
     int win_x, zone_y, win_w, zone_h;
-    snap_cell_rect(side, c->snap_zone, zones, vsb, wx, wy, ww, wh,
+    snap_cell_rect(side, c->snap_zone, zones, vsb, gap, wx, wy, ww, wh,
                    &win_x, &zone_y, &win_w, &zone_h);
 
     c->max_horz = false;

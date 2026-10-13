@@ -229,13 +229,14 @@ static void handle_configure_request(xcb_configure_request_event_t *ev)
  * flush, or exactly window_gap= away on the side the drag faces -- which
  * is how two tiles sit once window_gap= is set. The linked resize then
  * moves both edges by the same delta, so the gap stays as it was. */
-static bool neighbor_edge_adjacent(int d, bool towards_positive)
+static bool neighbor_edge_adjacent(int output_idx, int d, bool towards_positive)
 {
     if ((d < 0 ? -d : d) <= RESIZE_NEIGHBOR_EPSILON_PX)
         return true;
-    if (wm.window_gap <= 0)
+    int gap = output_window_gap(output_idx);
+    if (gap <= 0)
         return false;
-    int off = d - (towards_positive ? wm.window_gap : -wm.window_gap);
+    int off = d - (towards_positive ? gap : -gap);
     return (off < 0 ? -off : off) <= RESIZE_NEIGHBOR_EPSILON_PX;
 }
 
@@ -289,7 +290,7 @@ static void detect_resize_neighbors(Client *c)
         if (y_overlap && wm.resize_neighbors_x_count < MAX_RESIZE_NEIGHBORS) {
             int edge = wm.resize_right ? rl : rr;
             int d = edge - moving_x;
-            if (neighbor_edge_adjacent(d, wm.resize_right)) {
+            if (neighbor_edge_adjacent(c->output, d, wm.resize_right)) {
                 ResizeNeighbor *n = &wm.resize_neighbors_x[wm.resize_neighbors_x_count++];
                 n->client = o2;
                 n->orig_x = o2->x; n->orig_y = o2->y;
@@ -301,7 +302,7 @@ static void detect_resize_neighbors(Client *c)
         if (x_overlap && wm.resize_neighbors_y_count < MAX_RESIZE_NEIGHBORS) {
             int edge = wm.resize_bottom ? rt : rb;
             int d = edge - moving_y;
-            if (neighbor_edge_adjacent(d, wm.resize_bottom)) {
+            if (neighbor_edge_adjacent(c->output, d, wm.resize_bottom)) {
                 ResizeNeighbor *n = &wm.resize_neighbors_y[wm.resize_neighbors_y_count++];
                 n->client = o2;
                 n->orig_x = o2->x; n->orig_y = o2->y;
@@ -351,7 +352,7 @@ static bool should_preserve_snap_resize(Client *c, int root_x)
         if (!y_overlap)
             continue;
         int other_edge = resize_right ? o2->x : (o2->x + o2->frame_width);
-        if (neighbor_edge_adjacent(other_edge - edge, resize_right))
+        if (neighbor_edge_adjacent(c->output, other_edge - edge, resize_right))
             return true;
     }
     return false;
@@ -772,13 +773,14 @@ static void handle_button_press(xcb_button_press_event_t *ev)
  * window whose minimum size doesn't fit half a screen is rare enough that
  * a few pixels of difference between the outline and the final size is a
  * better trade than duplicating the clamping in two places. */
-static void snap_target_rect(Client *c, SnapSide side, int zone, int zones, int vsb,
+static void snap_target_rect(Client *c, int output_idx, SnapSide side, int zone, int zones, int vsb,
                              int wx, int wy, int ww, int wh,
                              int *out_x, int *out_y, int *out_w, int *out_h)
 {
     (void)c;
 
-    inset_tile_area(&wx, &wy, &ww, &wh);
+    int gap = side == SNAP_TOP ? maximized_window_gap() : output_window_gap(output_idx);
+    inset_tile_area(gap, &wx, &wy, &ww, &wh);
 
     switch (side) {
     case SNAP_LEFT:
@@ -786,7 +788,7 @@ static void snap_target_rect(Client *c, SnapSide side, int zone, int zones, int 
         /* `zones`/`vsb` are already resolved by the caller (try_edge_snap)
          * against whichever of side_zones/vertical_snap_by or their
          * snap_mod= counterparts applies to this drag right now. */
-        snap_cell_rect(side, zone, zones, vsb, wx, wy, ww, wh, out_x, out_y, out_w, out_h);
+        snap_cell_rect(side, zone, zones, vsb, gap, wx, wy, ww, wh, out_x, out_y, out_w, out_h);
         break;
     case SNAP_TOP:
     default:
@@ -847,7 +849,7 @@ static void apply_drag_snap(Client *c, SnapSide side, int wx, int wy, int ww, in
         bool deco = client_deco_visible(c);
         th = deco ? TITLEBAR_H : 0;
         bt = deco ? wm.border_thickness : 0;
-        inset_tile_area(&wx, &wy, &ww, &wh);
+        inset_tile_area(maximized_window_gap(), &wx, &wy, &ww, &wh);
         c->x = wx;
         c->y = wy;
         c->width = ww - bt * 2;
@@ -963,7 +965,7 @@ static bool try_edge_snap(Client *c, xcb_motion_notify_event_t *ev, int dx, int 
             outline_hide();
         } else {
             int x, y, w, h;
-            snap_target_rect(c, want, want_zone, want_zones, want_vsb, wx, wy, ww, wh, &x, &y, &w, &h);
+            snap_target_rect(c, output_idx, want, want_zone, want_zones, want_vsb, wx, wy, ww, wh, &x, &y, &w, &h);
             outline_show(x, y, w, h);
         }
         return false; /* nothing applied -- the caller still moves the window */

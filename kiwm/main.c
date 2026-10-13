@@ -398,11 +398,9 @@ static void setup_wm(bool replace)
 
     ewmh_init_supported();
     ewmh_init_supporting_wm_check();
-    /* window_gap= for panels that float themselves to match (PROTOCOL.md).
-     * Config is only read at startup, so once is enough. */
-    uint32_t gap = (uint32_t)wm.window_gap;
-    xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, wm.root,
-                        wm.atoms.kiwm_window_gap, XCB_ATOM_CARDINAL, 32, 1, &gap);
+    /* window_gap= for panels that float themselves to match (PROTOCOL.md):
+     * published from the first moment, and again whenever it changes. */
+    gap_state_update();
     focus_init_nofocus_window();
     manage_existing_windows();
     /* After a --replace the old WM's own focus window is gone with it. */
@@ -577,6 +575,10 @@ int main(int argc, char **argv)
         }
         if (!wm.running || xcb_connection_has_error(wm.conn))
             break;
+
+        /* A window may just have been maximized, unmapped, moved to another
+         * desktop or output: gap_off_when_maximized= follows. */
+        gap_state_update();
 
         /* A compositor came or went (selection.c). Every frame's depth
          * may now be wrong for it; done here, between event batches, so

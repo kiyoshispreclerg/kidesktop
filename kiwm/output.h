@@ -111,8 +111,18 @@ void desktop_layers_prime(void);
 int  desktop_layers_prime_timeout_ms(void);
 void desktop_layers_run_prime(void);
 void compute_output_workarea(int output_idx, int *x, int *y, int *w, int *h);
-/* A workarea rect shrunk by window_gap= on every side -- the space
- * maximized/tiled windows actually fill. Identity when the gap is 0. */
-void inset_tile_area(int *x, int *y, int *w, int *h);
+/* The window_gap= in effect on an output right now (0 while
+ * gap_off_when_maximized= and a window is maximized there), and the gap a
+ * maximized window itself uses. */
+int output_window_gap(int output_idx);
+int maximized_window_gap(void);
+/* A workarea rect shrunk by `gap` on every side -- the space maximized/
+ * tiled windows actually fill. Identity when the gap is 0. */
+void inset_tile_area(int gap, int *x, int *y, int *w, int *h);
+/* Re-derives output_window_gap() for every output from the current
+ * windows; when anything changed, republishes _KIWM_WINDOW_GAP and refits
+ * the tiled/maximized windows. Cheap enough to call after every event
+ * batch -- a no-op unless gap_off_when_maximized= is set. */
+void gap_state_update(void);
 
 #endif /* KIWM_OUTPUT_H */

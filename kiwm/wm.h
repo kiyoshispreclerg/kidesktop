@@ -1452,6 +1452,15 @@ typedef struct {
      * (PROTOCOL.md). See output.c's compute_output_tile_area() and
      * client.c's snap_cell_rect(). */
     int window_gap;
+    /* kiwm.conf's gap_off_when_maximized= (default off): while a window is
+     * maximized on an output, window_gap= is treated as 0 everywhere on
+     * that output -- tiles, other maximized windows and, through the
+     * published property, a panel floating by it. output_gap[] is the gap
+     * actually in effect per output (output.c's gap_state_update()), and
+     * the last value published as _KIWM_WINDOW_GAP. */
+    bool gap_off_when_maximized;
+    int output_gap[MAX_OUTPUTS];
+    int output_gap_count;
 
     /* The one modifier kiwm claims for its mouse gestures (mod+drag to
      * move, mod+right-drag to resize, from anywhere on a window) and for

@@ -608,10 +608,10 @@ void compute_output_workarea(int output_idx, int *x, int *y, int *w, int *h)
 /* Not folded into compute_output_workarea(): the workarea itself is still
  * what _NET_WORKAREA publishes, what centred placement uses and what the
  * edge-snap zones are measured from -- only the geometry kiwm hands
- * maximized and tiled windows keeps window_gap= clear of it. */
-void inset_tile_area(int *x, int *y, int *w, int *h)
+ * maximized and tiled windows keeps `gap` clear of it. */
+void inset_tile_area(int gap, int *x, int *y, int *w, int *h)
 {
-    int g = wm.window_gap;
+    int g = gap;
     if (g <= 0)
         return;
     /* Never inset a tiny workarea down to nothing. */
@@ -621,6 +621,64 @@ void inset_tile_area(int *x, int *y, int *w, int *h)
     *y += g;
     *w -= 2 * g;
     *h -= 2 * g;
+}
+
+int output_window_gap(int output_idx)
+{
+    if (output_idx >= 0 && output_idx < wm.output_gap_count)
+        return wm.output_gap[output_idx];
+    return wm.window_gap;
+}
+
+/* A maximized window is what turns the gap off, so its own geometry never
+ * waits for gap_state_update() to notice it. */
+int maximized_window_gap(void)
+{
+    return wm.gap_off_when_maximized ? 0 : wm.window_gap;
+}
+
+static void gap_publish(void)
+{
+    uint32_t v[MAX_OUTPUTS];
+    for (int i = 0; i < wm.output_gap_count; i++)
+        v[i] = (uint32_t)wm.output_gap[i];
+    xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, wm.root,
+                        wm.atoms.kiwm_window_gap, XCB_ATOM_CARDINAL, 32,
+                        (uint32_t)wm.output_gap_count, v);
+}
+
+void gap_state_update(void)
+{
+    int gaps[MAX_OUTPUTS];
+    int n = wm.output_count < MAX_OUTPUTS ? wm.output_count : MAX_OUTPUTS;
+
+    for (int i = 0; i < n; i++)
+        gaps[i] = wm.window_gap;
+
+    if (wm.gap_off_when_maximized && wm.window_gap > 0) {
+        for (Client *c = wm.clients; c; c = c->next) {
+            if (!client_maximized(c) || c->fullscreen || !c->mapped || c->minimized)
+                continue;
+            if (c->output < 0 || c->output >= n)
+                continue;
+            if (!c->sticky && wm.outputs[c->output].desktop != c->desktop)
+                continue;
+            gaps[c->output] = 0;
+        }
+    }
+
+    bool changed = n != wm.output_gap_count;
+    for (int i = 0; i < n && !changed; i++)
+        changed = gaps[i] != wm.output_gap[i];
+    if (!changed)
+        return;
+
+    for (int i = 0; i < n; i++)
+        wm.output_gap[i] = gaps[i];
+    wm.output_gap_count = n;
+    gap_publish();
+    refit_tiled_clients();
+    xcb_flush(wm.conn);
 }
 
 /* _NET_WORKAREA, plus _NET_DESKTOP_GEOMETRY/_NET_DESKTOP_VIEWPORT.
