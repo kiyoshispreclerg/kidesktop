@@ -100,7 +100,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.7.0"
+#define XISPANEL_VERSION "0.7.1"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -3413,7 +3413,7 @@ static void load_config(void)
 {
     char saved_ids[MAX_PANELS][XIS_OUTPUT_STR_LEN];
     int n_saved = collect_saved_output_ids(g_configpath, saved_ids, MAX_PANELS);
-    const char *saved_ptrs[MAX_PANELS];
+    const char *saved_ptrs[MAX_PANELS] = { NULL };
     for (int i = 0; i < n_saved; i++) {
         saved_ptrs[i] = saved_ids[i];
     }

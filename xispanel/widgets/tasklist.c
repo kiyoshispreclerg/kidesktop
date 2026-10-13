@@ -2371,7 +2371,7 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
          * panel_menu_open_tree()'s items[]/depth[] doc comment in
          * xispanel.h for how that flat pair encodes the tree. */
         MenuItem items[TASKLIST_GROUP_MENU_ITEM_CAP];
-        int depth[TASKLIST_GROUP_MENU_ITEM_CAP];
+        int depth[TASKLIST_GROUP_MENU_ITEM_CAP] = { 0 };
         memset(items, 0, sizeof(items));
         int n = 0;
         for (int i = 0; i < nm && n < TASKLIST_GROUP_MENU_ITEM_CAP; i++) {

@@ -165,7 +165,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.21"
+#define KICONFD_VERSION "0.2.22"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -1258,7 +1258,7 @@ static int apply_screens_layout(void)
         return 0;
     }
 
-    const char *saved_ptrs[MAX_SCREENS];
+    const char *saved_ptrs[MAX_SCREENS] = { NULL };
     for (int i = 0; i < n; i++) {
         saved_ptrs[i] = screens[i].name;
     }
