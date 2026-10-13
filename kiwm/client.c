@@ -1711,6 +1711,7 @@ static void apply_maximized_geometry(Client *c)
 {
     int wx, wy, ww, wh;
     compute_output_workarea(c->output >= 0 ? c->output : 0, &wx, &wy, &ww, &wh);
+    inset_tile_area(&wx, &wy, &ww, &wh);
 
     int bt, th;
     deco_insets(c, &bt, &th);
@@ -1982,6 +1983,42 @@ void toggle_fullscreen(Client *c, int want /* -1=toggle 0=unfullscreen 1=fullscr
     xcb_flush(wm.conn);
 }
 
+/* The frame rect of one tiling cell: column LEFT (leftmost) or RIGHT
+ * (rightmost) of `vsb`, row `zone` of `zones`, inside a tile area already
+ * shrunk by window_gap= (output.c's inset_tile_area()). Shared by the real
+ * snap below and events.c's drag preview outline, so the two can't drift.
+ *
+ * Only the leftmost and rightmost column are ever reachable, and both get
+ * the same width, the right one flush against the area's right edge -- any
+ * remainder pixel ends up in the middle instead of as a rounding error
+ * against the true edge. The last row absorbs the remainder for the same
+ * reason. window_gap= also separates neighboring columns and rows, so two
+ * tiles sit exactly one gap apart, same as from the area's edges. */
+void snap_cell_rect(SnapSide side, int zone, int zones, int vsb,
+                    int wx, int wy, int ww, int wh,
+                    int *out_x, int *out_y, int *out_w, int *out_h)
+{
+    int g = wm.window_gap;
+    if (vsb < 1) vsb = 1;
+    if (zones < 1) zones = 1;
+    if (zone < 0) zone = 0;
+    if (zone >= zones) zone = zones - 1;
+
+    int unit_w = (ww - (vsb - 1) * g) / vsb;
+    int unit_h = (wh - (zones - 1) * g) / zones;
+    /* A gap too big to fit leaves the cells flush instead of negative. */
+    if (unit_w < 1 || unit_h < 1) {
+        g = 0;
+        unit_w = ww / vsb;
+        unit_h = wh / zones;
+    }
+
+    *out_x = (side == SNAP_LEFT) ? wx : wx + ww - unit_w;
+    *out_w = unit_w;
+    *out_y = wy + zone * (unit_h + g);
+    *out_h = (zone == zones - 1) ? (wh - zone * (unit_h + g)) : unit_h;
+}
+
 /* Windows7/kwin-style edge snap: fills exactly the left or right half of
  * the client's output workarea. A separate concept from toggle_maximize's
  * full-area fill (which Client::maximized already models and which the
@@ -2001,39 +2038,21 @@ void snap_client_to_side(Client *c, SnapSide side)
 
     int wx, wy, ww, wh;
     compute_output_workarea(c->output >= 0 ? c->output : 0, &wx, &wy, &ww, &wh);
+    inset_tile_area(&wx, &wy, &ww, &wh);
 
     int bt, th;
     deco_insets(c, &bt, &th);
 
-    /* Width: c->snap_vsb (wm.h) says how many columns to divide the
-     * workarea into -- side_zones=/vertical_snap_by=, or their snap_mod=
-     * counterparts if that modifier was held for this particular snap,
-     * frozen at snap time by whichever caller got us here, same reasoning
-     * as snap_zone/snap_zone_count below. Only the leftmost and rightmost
-     * column are ever actually reachable this way -- both get the same
-     * width (floor(ww/vsb), matching the original ww/2 for both halves
-     * when vsb=2), and the right one is positioned flush against the
-     * workarea's right edge rather than one column-width in, so any
-     * remainder pixel ends up as an untouched gap in the middle instead of
-     * a rounding error against the true edge. */
+    /* c->snap_vsb/snap_zone/snap_zone_count (wm.h) are frozen at snap time
+     * by whichever caller got us here -- side_zones=/vertical_snap_by=, or
+     * their snap_mod= counterparts if that modifier was held, or a flat
+     * 1-of-1 row for a keyboard tile (toggle_snap_side() below, events.c's
+     * apply_drag_snap()). */
     int vsb = c->snap_vsb > 0 ? c->snap_vsb : (wm.vertical_snap_by > 0 ? wm.vertical_snap_by : 1);
-    int unit_w = ww / vsb;
-    int win_x = (side == SNAP_LEFT) ? wx : wx + ww - unit_w;
-    int win_w = unit_w;
-
-    /* Height: c->snap_zone/snap_zone_count (wm.h) say which row of how
-     * many this particular snap uses -- side_zones= for a drag-picked row,
-     * or a flat 1-of-1 (the whole height) for a keyboard tile, set by
-     * whichever caller got us here (toggle_snap_side() below, or events.c's
-     * apply_drag_snap()). The last row absorbs the remainder, same
-     * reasoning as the right column above. */
     int zones = c->snap_zone_count > 0 ? c->snap_zone_count : 1;
-    int zone = c->snap_zone;
-    if (zone < 0) zone = 0;
-    if (zone >= zones) zone = zones - 1;
-    int unit_h = wh / zones;
-    int zone_y = wy + zone * unit_h;
-    int zone_h = (zone == zones - 1) ? (wh - zone * unit_h) : unit_h;
+    int win_x, zone_y, win_w, zone_h;
+    snap_cell_rect(side, c->snap_zone, zones, vsb, wx, wy, ww, wh,
+                   &win_x, &zone_y, &win_w, &zone_h);
 
     c->max_horz = false;
     c->max_vert = false;

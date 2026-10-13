@@ -42,6 +42,15 @@ refresh if a same-named output was already known; otherwise it starts at `0`).
 How many virtual desktops each output has (kiwm.conf's `num_desktops=`, default `4`, identical
 for every output). Set once at startup; not expected to change at runtime.
 
+### `_KIWM_WINDOW_GAP` (`CARDINAL`, format 32, single value)
+
+kiwm.conf's `window_gap=` (default `0`): the empty space, in pixels, kiwm leaves around maximized
+and tiled windows -- against each output's workarea edges and between neighboring tiles. Set once
+at startup, deleted on exit. A dock that wants the matching "floating panel" look offsets itself
+this far from the screen edge (and shortens itself by the same amount on both ends) and includes
+the offset in its `_NET_WM_STRUT_PARTIAL`; kiwm's own gap then separates windows from the panel.
+Absent means `0`.
+
 ### `_KIWM_WM_OUTPUT` (`CARDINAL`, format 32, single value, per client window)
 
 Companion to `_NET_WM_DESKTOP`: the index (per `_KIWM_OUTPUTS` order) of the output this window

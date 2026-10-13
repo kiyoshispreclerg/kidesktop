@@ -224,6 +224,21 @@ static void handle_configure_request(xcb_configure_request_event_t *ev)
     xcb_flush(wm.conn);
 }
 
+/* Whether a neighbor's facing edge, `d` pixels from the edge being
+ * dragged (positive = further along the axis), counts as touching it:
+ * flush, or exactly window_gap= away on the side the drag faces -- which
+ * is how two tiles sit once window_gap= is set. The linked resize then
+ * moves both edges by the same delta, so the gap stays as it was. */
+static bool neighbor_edge_adjacent(int d, bool towards_positive)
+{
+    if ((d < 0 ? -d : d) <= RESIZE_NEIGHBOR_EPSILON_PX)
+        return true;
+    if (wm.window_gap <= 0)
+        return false;
+    int off = d - (towards_positive ? wm.window_gap : -wm.window_gap);
+    return (off < 0 ? -off : off) <= RESIZE_NEIGHBOR_EPSILON_PX;
+}
+
 /* Populates wm.resize_neighbors_x/y and wm.resize_edge_x/y_start for a
  * DRAG_RESIZE about to start on `c`, once wm.resize_right/resize_bottom
  * are already decided (see begin_drag(), which calls this right after) --
@@ -274,7 +289,7 @@ static void detect_resize_neighbors(Client *c)
         if (y_overlap && wm.resize_neighbors_x_count < MAX_RESIZE_NEIGHBORS) {
             int edge = wm.resize_right ? rl : rr;
             int d = edge - moving_x;
-            if ((d < 0 ? -d : d) <= RESIZE_NEIGHBOR_EPSILON_PX) {
+            if (neighbor_edge_adjacent(d, wm.resize_right)) {
                 ResizeNeighbor *n = &wm.resize_neighbors_x[wm.resize_neighbors_x_count++];
                 n->client = o2;
                 n->orig_x = o2->x; n->orig_y = o2->y;
@@ -286,7 +301,7 @@ static void detect_resize_neighbors(Client *c)
         if (x_overlap && wm.resize_neighbors_y_count < MAX_RESIZE_NEIGHBORS) {
             int edge = wm.resize_bottom ? rt : rb;
             int d = edge - moving_y;
-            if ((d < 0 ? -d : d) <= RESIZE_NEIGHBOR_EPSILON_PX) {
+            if (neighbor_edge_adjacent(d, wm.resize_bottom)) {
                 ResizeNeighbor *n = &wm.resize_neighbors_y[wm.resize_neighbors_y_count++];
                 n->client = o2;
                 n->orig_x = o2->x; n->orig_y = o2->y;
@@ -336,8 +351,7 @@ static bool should_preserve_snap_resize(Client *c, int root_x)
         if (!y_overlap)
             continue;
         int other_edge = resize_right ? o2->x : (o2->x + o2->frame_width);
-        int d = other_edge - edge;
-        if ((d < 0 ? -d : d) <= RESIZE_NEIGHBOR_EPSILON_PX)
+        if (neighbor_edge_adjacent(other_edge - edge, resize_right))
             return true;
     }
     return false;
@@ -764,28 +778,16 @@ static void snap_target_rect(Client *c, SnapSide side, int zone, int zones, int 
 {
     (void)c;
 
+    inset_tile_area(&wx, &wy, &ww, &wh);
+
     switch (side) {
     case SNAP_LEFT:
-    case SNAP_RIGHT: {
-        /* Same column/row math as client.c's snap_client_to_side() --
-         * kept in sync by hand since this is a preview-only rect (see the
-         * comment above), not something that could just call it. `zones`/
-         * `vsb` are already resolved by the caller (try_edge_snap) against
-         * whichever of side_zones/vertical_snap_by or their snap_mod=
-         * counterparts applies to this drag right now. */
-        if (vsb < 1) vsb = 1;
-        int unit_w = ww / vsb;
-        *out_x = (side == SNAP_LEFT) ? wx : wx + ww - unit_w;
-        *out_w = unit_w;
-
-        if (zones < 1) zones = 1;
-        if (zone < 0) zone = 0;
-        if (zone >= zones) zone = zones - 1;
-        int unit_h = wh / zones;
-        *out_y = wy + zone * unit_h;
-        *out_h = (zone == zones - 1) ? (wh - zone * unit_h) : unit_h;
+    case SNAP_RIGHT:
+        /* `zones`/`vsb` are already resolved by the caller (try_edge_snap)
+         * against whichever of side_zones/vertical_snap_by or their
+         * snap_mod= counterparts applies to this drag right now. */
+        snap_cell_rect(side, zone, zones, vsb, wx, wy, ww, wh, out_x, out_y, out_w, out_h);
         break;
-    }
     case SNAP_TOP:
     default:
         *out_x = wx;
@@ -845,6 +847,7 @@ static void apply_drag_snap(Client *c, SnapSide side, int wx, int wy, int ww, in
         bool deco = client_deco_visible(c);
         th = deco ? TITLEBAR_H : 0;
         bt = deco ? wm.border_thickness : 0;
+        inset_tile_area(&wx, &wy, &ww, &wh);
         c->x = wx;
         c->y = wy;
         c->width = ww - bt * 2;

@@ -398,6 +398,11 @@ static void setup_wm(bool replace)
 
     ewmh_init_supported();
     ewmh_init_supporting_wm_check();
+    /* window_gap= for panels that float themselves to match (PROTOCOL.md).
+     * Config is only read at startup, so once is enough. */
+    uint32_t gap = (uint32_t)wm.window_gap;
+    xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, wm.root,
+                        wm.atoms.kiwm_window_gap, XCB_ATOM_CARDINAL, 32, 1, &gap);
     focus_init_nofocus_window();
     manage_existing_windows();
     /* After a --replace the old WM's own focus window is gone with it. */
@@ -456,6 +461,7 @@ static void cleanup(void)
         xcb_delete_property(wm.conn, wm.root, wm.atoms.kiwm_outputs);
         xcb_delete_property(wm.conn, wm.root, wm.atoms.kiwm_output_desktop);
         xcb_delete_property(wm.conn, wm.root, wm.atoms.kiwm_num_output_desktops);
+        xcb_delete_property(wm.conn, wm.root, wm.atoms.kiwm_window_gap);
     }
 
     if (wm.conn) {

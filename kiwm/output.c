@@ -605,6 +605,24 @@ void compute_output_workarea(int output_idx, int *x, int *y, int *w, int *h)
     *h = ory > uy ? ory - uy : 0;
 }
 
+/* Not folded into compute_output_workarea(): the workarea itself is still
+ * what _NET_WORKAREA publishes, what centred placement uses and what the
+ * edge-snap zones are measured from -- only the geometry kiwm hands
+ * maximized and tiled windows keeps window_gap= clear of it. */
+void inset_tile_area(int *x, int *y, int *w, int *h)
+{
+    int g = wm.window_gap;
+    if (g <= 0)
+        return;
+    /* Never inset a tiny workarea down to nothing. */
+    if (*w <= 4 * g || *h <= 4 * g)
+        return;
+    *x += g;
+    *y += g;
+    *w -= 2 * g;
+    *h -= 2 * g;
+}
+
 /* _NET_WORKAREA, plus _NET_DESKTOP_GEOMETRY/_NET_DESKTOP_VIEWPORT.
  *
  * EWMH has room for exactly one work-area rectangle per desktop covering

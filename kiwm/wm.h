@@ -34,6 +34,10 @@
  * a serious amount of the application's own window. */
 #define MAX_RESIZE_GRIP 32
 
+/* Upper bound on kiwm.conf's window_gap= -- past this a half-tiled window
+ * on a small screen is more gap than window. */
+#define MAX_WINDOW_GAP 64
+
 /* How far (pixels, either axis) the pointer must travel from where a
  * move-drag started before a maximized or half-tiled window actually
  * leaves that state and starts following the cursor -- see events.c's
@@ -906,6 +910,7 @@ typedef struct {
     xcb_atom_t kiwm_outputs;
     xcb_atom_t kiwm_output_desktop;
     xcb_atom_t kiwm_num_output_desktops;
+    xcb_atom_t kiwm_window_gap;
     xcb_atom_t kiwm_set_output_desktop;
     xcb_atom_t kiwm_prime_desktop_layers;
     xcb_atom_t kiwm_hold_window;
@@ -1438,6 +1443,15 @@ typedef struct {
      * end up touching with no gap instead of a near-miss. See events.c's
      * magnet_snap_move()/magnet_snap_resize(). */
     int magnet_threshold;
+
+    /* Empty space (pixels) kiwm leaves around every window whose geometry
+     * it decides -- maximized and tiled ones -- against the workarea edges
+     * (so docks/panels too) and between neighboring tiles -- kiwm.conf's
+     * window_gap= (default 0, flush as before). Fullscreen ignores it.
+     * Published as _KIWM_WINDOW_GAP so a panel can float itself to match
+     * (PROTOCOL.md). See output.c's compute_output_tile_area() and
+     * client.c's snap_cell_rect(). */
+    int window_gap;
 
     /* The one modifier kiwm claims for its mouse gestures (mod+drag to
      * move, mod+right-drag to resize, from anywhere on a window) and for

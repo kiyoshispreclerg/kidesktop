@@ -61,6 +61,7 @@ static void apply_builtin_defaults(void)
     wm.resize_grip = 12;
     wm.live_resize = true;
     wm.magnet_threshold = 10;
+    wm.window_gap = 0;
     wm.link_resize_neighbors = false;
     wm.focus_follows_mouse = false;
     wm.focus_raise_on_release = false;
@@ -344,6 +345,11 @@ static void write_default_config(const char *path)
         "# tiling snap like snap_threshold above. 0 disables it.\n"
         "magnet_threshold=10\n"
         "\n"
+        "# Empty space (in pixels) left around maximized and tiled windows:\n"
+        "# from the screen edges, from docks/panels and between tiles.\n"
+        "# 0 (the default) keeps them flush against everything.\n"
+        "window_gap=0\n"
+        "\n"
         "# While resizing a window, also resize whatever's touching the edge\n"
         "# being dragged (within 1px), oppositely, so both stay touching --\n"
         "# shrinking one grows its neighbor and vice versa. Same-output only.\n"
@@ -615,6 +621,11 @@ static void load_config_file(void)
         } else if (strcmp(key, "magnet_threshold") == 0) {
             int n = atoi(val);
             wm.magnet_threshold = n < 0 ? 0 : n;
+        } else if (strcmp(key, "window_gap") == 0) {
+            int n = atoi(val);
+            if (n < 0) n = 0;
+            if (n > MAX_WINDOW_GAP) n = MAX_WINDOW_GAP;
+            wm.window_gap = n;
         } else if (strcmp(key, "link_resize_neighbors") == 0) {
             wm.link_resize_neighbors = atoi(val) != 0;
         } else if (strcmp(key, "auto_switch_argb") == 0) {
