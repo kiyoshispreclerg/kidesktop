@@ -275,13 +275,24 @@ static void close_entry(NotifEntry *e, int reason)
     emit_closed(e->id, reason);
 }
 
-static void ring_append(const char *app_name, const char *app_icon, const char *summary, const char *body,
-                         const NotifAction *actions, int n_actions, int expire_timeout_ms)
+/* Returns the entry's id. A replaces_id still held is updated in place
+ * (same id, same spot in the history, unread again, toast refreshed --
+ * no NotificationClosed for the old content); an unknown one is just a
+ * new notification, as the spec asks. */
+static unsigned int ring_append(unsigned int replaces_id, const char *app_name, const char *app_icon,
+                                const char *summary, const char *body, const NotifAction *actions, int n_actions,
+                                int expire_timeout_ms)
 {
-    NotifEntry *dst;
-    if (g_count < NOTIFD_MAX) {
+    NotifEntry *dst = find_entry(replaces_id);
+    unsigned int id = replaces_id;
+    if (dst) {
+        if (dst->icon) {
+            cairo_surface_destroy(dst->icon); /* toast.c re-borrows the new one in g_arrived_fn below */
+        }
+    } else if (g_count < NOTIFD_MAX) {
         dst = &g_ring[(g_head + g_count) % NOTIFD_MAX];
         g_count++;
+        id = g_next_id++;
     } else {
         /* Full -- evict the oldest, freeing its icon before overwrite. */
         dst = &g_ring[g_head];
@@ -291,9 +302,10 @@ static void ring_append(const char *app_name, const char *app_icon, const char *
         }
         g_head = (g_head + 1) % NOTIFD_MAX;
         dst = &g_ring[(g_head + NOTIFD_MAX - 1) % NOTIFD_MAX];
+        id = g_next_id++;
     }
     memset(dst, 0, sizeof(*dst));
-    dst->id = g_next_id++;
+    dst->id = id;
     snprintf(dst->app_name, sizeof(dst->app_name), "%s", app_name);
     snprintf(dst->summary, sizeof(dst->summary), "%s", summary);
     snprintf(dst->body, sizeof(dst->body), "%s", body);
@@ -314,6 +326,7 @@ static void ring_append(const char *app_name, const char *app_icon, const char *
     if (g_arrived_fn) {
         g_arrived_fn(dst, expire_timeout_ms);
     }
+    return id;
 }
 
 /* actions[] is a flat as: key, label, key, label... A trailing key with
@@ -344,7 +357,7 @@ static int parse_actions(DBusMessageIter *it, NotifAction *out)
 }
 
 /* Parses Notify()'s args in order, skipping (via a bare iter_next(), no
- * recursing needed) the ones nothing here uses -- replaces_id, hints
+ * recursing needed) the ones nothing here uses -- hints
  * (a{sv}) -- since libdbus-1's iterator can step over a whole
  * compound argument without the caller decoding it. Returns the new
  * entry's id (>=1), or 0 if the message was malformed. */
@@ -359,6 +372,7 @@ static unsigned int handle_notify(DBusMessage *msg)
     char summary[NOTIFD_SUMMARY_MAX] = "";
     char body[NOTIFD_BODY_MAX] = "";
     dbus_int32_t expire_timeout = -1;
+    dbus_uint32_t replaces_id = 0;
     NotifAction actions[NOTIFD_ACTIONS_MAX];
     int n_actions = 0;
 
@@ -367,8 +381,11 @@ static unsigned int handle_notify(DBusMessage *msg)
         p_dbus_message_iter_get_basic(&it, &s);
         snprintf(app_name, sizeof(app_name), "%s", s ? s : "");
     }
-    if (!p_dbus_message_iter_next(&it)) { /* replaces_id, ignored -- v1 never replaces, always appends */
+    if (!p_dbus_message_iter_next(&it)) {
         goto done;
+    }
+    if (p_dbus_message_iter_get_arg_type(&it) == DBUS_TYPE_UINT32) {
+        p_dbus_message_iter_get_basic(&it, &replaces_id);
     }
     if (!p_dbus_message_iter_next(&it)) {
         goto done;
@@ -412,9 +429,7 @@ done:
         return 0; /* nothing worth showing */
     }
     int expire_ms = expire_timeout >= 0 ? expire_timeout : g_default_expire_ms;
-    unsigned int id_before = g_next_id;
-    ring_append(app_name, app_icon, summary, body, actions, n_actions, expire_ms);
-    return id_before;
+    return ring_append(replaces_id, app_name, app_icon, summary, body, actions, n_actions, expire_ms);
 }
 
 static void handle_close_notification(DBusMessage *msg)

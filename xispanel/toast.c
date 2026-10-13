@@ -497,15 +497,23 @@ static void drop_toast(int idx, int reason)
     remove_toast(idx);
 }
 
+static int find_toast_by_notif(unsigned int id)
+{
+    for (int i = 0; id && i < g_n; i++) {
+        if (g_toasts[i].notif_id == id) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 /* notifd asking for its popup to go (CloseNotification(), an entry
  * removed from the history) -- it reports the reason itself. */
 static void toast_close_notif(unsigned int id)
 {
-    for (int i = 0; id && i < g_n; i++) {
-        if (g_toasts[i].notif_id == id) {
-            remove_toast(i);
-            return;
-        }
+    int i = find_toast_by_notif(id);
+    if (i >= 0) {
+        remove_toast(i);
     }
 }
 
@@ -581,8 +589,13 @@ static void toast_on_arrived(const NotifEntry *e, int expire_timeout_ms)
     for (int i = 0; i < e->n_actions; i++) {
         buttons += strcmp(e->actions[i].key, "default") != 0;
     }
-    Toast *t = claim_toast_slot(buttons ? TOAST_H + TOAST_BTN_ROW : TOAST_H);
+    int h = buttons ? TOAST_H + TOAST_BTN_ROW : TOAST_H;
+    /* replaces_id (see notifd.c's ring_append()): same id, still showing
+     * -- refresh that toast in place instead of stacking a new one. */
+    int existing = find_toast_by_notif(e->id);
+    Toast *t = existing >= 0 ? &g_toasts[existing] : claim_toast_slot(h);
     t->notif_id = e->id;
+    t->hover_btn = -1;
     memcpy(t->actions, e->actions, sizeof(t->actions));
     t->n_actions = e->n_actions;
     snprintf(t->app_name, sizeof(t->app_name), "%s", e->app_name);
@@ -598,7 +611,19 @@ static void toast_on_arrived(const NotifEntry *e, int expire_timeout_ms)
      * default) rather than trust it blindly. */
     t->timeout_ms = expire_timeout_ms > 0 ? (uint64_t)expire_timeout_ms : 0;
     t->expire_ms = t->timeout_ms != 0 ? now_ms() + t->timeout_ms : 0;
-    map_and_show_toast(t);
+    if (existing < 0) {
+        map_and_show_toast(t);
+        return;
+    }
+    if (t->h != h) {
+        t->h = h;
+        XResizeWindow(g_dpy, t->win, TOAST_W, (unsigned)h);
+        cairo_xlib_surface_set_size(t->surface, TOAST_W, h);
+        t->alpha_clip = panel_round_corners(t->win, TOAST_W, h, g_border_radius, g_depth, &t->shaped);
+        reposition_all();
+    }
+    paint_toast(t);
+    XFlush(g_dpy);
 }
 
 /* Finds an already-showing OSD toast with this exact tag, or -1 -- "" (no
