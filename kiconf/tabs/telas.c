@@ -1066,7 +1066,7 @@ static GtkWidget *build_extra_prop_widget(ExtraProp *p)
             return w;
         }
         GtkWidget *w = gtk_spin_button_new_with_range((double)p->range_lo, (double)p->range_hi, 1);
-        gtk_spin_button_set_value(GTK_SPIN_BUTTON(w), atof(p->value));
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(w), g_ascii_strtod(p->value, NULL));
         g_signal_connect(w, "value-changed", G_CALLBACK(on_extra_prop_spin_changed), p);
         return w;
     }

@@ -166,7 +166,7 @@ static void load_kiwm_config(KiwmConfig *c)
         else if (!strcmp(key, "vertical_snap_by_mod")) c->vertical_snap_by_mod = atoi(val);
         else if (!strcmp(key, "live_snap_resize")) c->live_snap_resize = atoi(val) != 0;
         else if (!strcmp(key, "outline_width")) c->outline_width = atoi(val);
-        else if (!strcmp(key, "outline_alpha")) c->outline_alpha = atof(val);
+        else if (!strcmp(key, "outline_alpha")) c->outline_alpha = g_ascii_strtod(val, NULL);
         else if (!strcmp(key, "resize_grip")) c->resize_grip = atoi(val);
         else if (!strcmp(key, "live_resize")) c->live_resize = atoi(val) != 0;
         else if (!strcmp(key, "magnet_threshold")) c->magnet_threshold = atoi(val);

@@ -193,12 +193,12 @@ static void load_kicomp_conf(KicompGlobals *g, ShadowConfig *sh, EffectRow *rows
             if (!strcmp(key, "enabled")) sh->enabled = atoi(val) != 0;
             else if (!strcmp(key, "windows")) SETS(windows);
             else if (!strcmp(key, "radius")) sh->radius = atoi(val);
-            else if (!strcmp(key, "opacity")) sh->opacity = atof(val);
+            else if (!strcmp(key, "opacity")) sh->opacity = g_ascii_strtod(val, NULL);
             else if (!strcmp(key, "offset_x")) sh->offset_x = atoi(val);
             else if (!strcmp(key, "offset_y")) sh->offset_y = atoi(val);
             else if (!strcmp(key, "color")) SETS(color);
             else if (!strcmp(key, "radius_inactive")) { sh->radius_i = atoi(val); sh->custom_inactive = 1; }
-            else if (!strcmp(key, "opacity_inactive")) { sh->opacity_i = atof(val); sh->custom_inactive = 1; }
+            else if (!strcmp(key, "opacity_inactive")) { sh->opacity_i = g_ascii_strtod(val, NULL); sh->custom_inactive = 1; }
             else if (!strcmp(key, "offset_x_inactive")) { sh->offset_x_i = atoi(val); sh->custom_inactive = 1; }
             else if (!strcmp(key, "offset_y_inactive")) { sh->offset_y_i = atoi(val); sh->custom_inactive = 1; }
             else if (!strcmp(key, "color_inactive")) { SETS(color_i); sh->custom_inactive = 1; }
@@ -209,14 +209,14 @@ static void load_kicomp_conf(KicompGlobals *g, ShadowConfig *sh, EffectRow *rows
         if (section == SEC_NONE) {
 #define SETS(field) snprintf(g->field, sizeof(g->field), "%s", val)
             if (!strcmp(key, "effects")) g->effects = atoi(val) != 0;
-            else if (!strcmp(key, "animation_duration")) g->animation_duration = atof(val);
+            else if (!strcmp(key, "animation_duration")) g->animation_duration = g_ascii_strtod(val, NULL);
             else if (!strcmp(key, "renderer")) SETS(renderer);
             else if (!strcmp(key, "presenter")) SETS(presenter);
             else if (!strcmp(key, "single_drawable")) g->single_drawable = atoi(val) != 0;
             else if (!strcmp(key, "skip_wm_layers")) g->skip_wm_layers = atoi(val) != 0;
             else if (!strcmp(key, "unredirect_fullscreen")) g->unredirect_fullscreen = atoi(val) != 0;
             else if (!strcmp(key, "density")) g->density = atoi(val) != 0;
-            else if (!strcmp(key, "claim_ms")) g->claim_ms = atof(val);
+            else if (!strcmp(key, "claim_ms")) g->claim_ms = g_ascii_strtod(val, NULL);
             else if (!strcmp(key, "keep_hidden_contents")) g->keep_hidden_contents = atoi(val) != 0;
             else if (!strcmp(key, "live_windows")) SETS(live_windows);
 #undef SETS
