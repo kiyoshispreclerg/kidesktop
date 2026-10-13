@@ -33,6 +33,8 @@
 #include "../xisserve.h"
 #include "clock.h"
 
+#include <langinfo.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -307,6 +309,90 @@ static void load_events_for_day(int year, int month, int day, GString *buf)
     fclose(f);
 }
 
+/* ---- event marks under the day numbers ----------------------------------
+ *
+ * GtkCalendar's own detail rows draw a separator line between the number
+ * and the detail, so the marks are painted by hand instead: an expose
+ * handler (after GTK's) draws a short bar at the bottom of each marked
+ * day's cell. The day grid is the calendar's biggest child GdkWindow,
+ * split 7x6; a day's cell comes from the weekday of the 1st and the
+ * locale's week start (the same rule GtkCalendar applies). One month's
+ * worth of marks is cached as a bitmask since the handler runs on every
+ * redraw. Colour is the theme's text colour for now; once events carry a
+ * type, this is where each type's colour goes. Days of the neighbouring
+ * months shown greyed out in the grid are not marked. */
+
+static int g_marks_year, g_marks_month; /* 1-based month; 0 = nothing cached */
+static guint32 g_marks;
+
+static void compute_marks(int year, int month)
+{
+    g_marks_year = year;
+    g_marks_month = month;
+    g_marks = 0;
+    for (int d = 1; d <= 31; d++) {
+        GString *buf = g_string_new(NULL);
+        holidays_br(year, month, d, buf);
+        load_events_for_day(year, month, d, buf);
+        if (buf->len) g_marks |= 1u << (d - 1);
+        g_string_free(buf, TRUE);
+    }
+}
+
+/* Column (0 = Sunday-based weekday) the calendar puts first. */
+static int calendar_week_start(void)
+{
+    int first = nl_langinfo(_NL_TIME_FIRST_WEEKDAY)[0];
+    int origin_date = (int)(intptr_t)nl_langinfo(_NL_TIME_WEEK_1STDAY);
+    int origin = origin_date == 19971201 ? 1 : origin_date == 19971202 ? 2 : 0;
+    return (origin + first - 1) % 7;
+}
+
+static gboolean on_calendar_expose(GtkWidget *w, GdkEventExpose *ev, gpointer data)
+{
+    (void)data;
+    GdkWindow *grid = NULL;
+    int grid_h = 0;
+    GList *children = gdk_window_get_children(w->window);
+    for (GList *l = children; l; l = l->next) {
+        int h;
+        gdk_window_get_geometry(l->data, NULL, NULL, NULL, &h, NULL);
+        if (h > grid_h) {
+            grid_h = h;
+            grid = l->data;
+        }
+    }
+    g_list_free(children);
+    if (!grid || ev->window != grid) return FALSE;
+
+    guint year, month, sel;
+    gtk_calendar_get_date(GTK_CALENDAR(w), &year, &month, &sel);
+    if (g_marks_year != (int)year || g_marks_month != (int)month + 1) compute_marks((int)year, (int)month + 1);
+    if (!g_marks) return FALSE;
+
+    int grid_w;
+    gdk_window_get_geometry(grid, NULL, NULL, &grid_w, NULL, NULL);
+    struct tm first = {0};
+    first.tm_year = (int)year - 1900;
+    first.tm_mon = (int)month;
+    first.tm_mday = 1;
+    mktime(&first);
+    int col0 = (first.tm_wday - calendar_week_start() + 7) % 7;
+    double cw = (double)grid_w / 7, ch = (double)grid_h / 6;
+
+    cairo_t *cr = gdk_cairo_create(grid);
+    for (int d = 1; d <= 31; d++) {
+        int idx = col0 + d - 1;
+        if (idx >= 42) break;
+        if (!(g_marks & (1u << (d - 1)))) continue;
+        gdk_cairo_set_source_color(cr, &w->style->fg[d == (int)sel ? GTK_STATE_SELECTED : GTK_STATE_NORMAL]);
+        cairo_rectangle(cr, (idx % 7) * cw + cw / 2 - 5, (idx / 7) * ch + ch - 4, 10, 2);
+        cairo_fill(cr);
+    }
+    cairo_destroy(cr);
+    return FALSE;
+}
+
 /* ---- left panel refresh ------------------------------------------------ */
 
 static void refresh_now_and_zones(void)
@@ -433,8 +519,27 @@ static GtkWidget *build_calendar_tab(void)
     gtk_box_pack_start(GTK_BOX(outer), left, TRUE, TRUE, 0);
 
     /* Right panel: the calendar itself. */
+    /* The day cells are sized from the focus padding/line width, which
+     * themes set to anything (Numix: padding 0, so the rows come out ~2px
+     * tighter than with the default theme). Pin them to GTK's defaults so
+     * the spacing -- and the marks drawn into it -- looks the same
+     * everywhere. */
+    gtk_rc_parse_string("style \"xisserve-calendar\" {\n"
+                        "  GtkWidget::focus-padding = 1\n"
+                        "  GtkWidget::focus-line-width = 1\n"
+                        "}\n"
+                        "widget \"*xisserve-calendar\" style \"xisserve-calendar\"");
     g_calendar = gtk_calendar_new();
+    gtk_widget_set_name(g_calendar, "xisserve-calendar");
     xisserve_a11y(g_calendar, _("Calend\xc3\xa1rio"), NULL);
+    g_signal_connect_after(g_calendar, "expose-event", G_CALLBACK(on_calendar_expose), NULL);
+    /* GtkCalendar has no row-spacing property (vertical-separation only
+     * spaces the day names), so its row height follows the font: a bit
+     * larger text gives the rows -- and the marks -- room to breathe. */
+    PangoFontDescription *fd = pango_font_description_copy(gtk_widget_get_style(g_calendar)->font_desc);
+    pango_font_description_set_size(fd, (int)(pango_font_description_get_size(fd) * 1.15));
+    gtk_widget_modify_font(g_calendar, fd);
+    pango_font_description_free(fd);
     g_signal_connect(g_calendar, "day-selected", G_CALLBACK(on_day_selected), NULL);
     g_signal_connect(g_calendar, "month-changed", G_CALLBACK(on_day_selected), NULL);
     gtk_box_pack_start(GTK_BOX(outer), g_calendar, FALSE, FALSE, 0);
@@ -463,6 +568,8 @@ void page_calendar_on_show(void)
     gtk_calendar_select_month(GTK_CALENDAR(g_calendar), (guint)tmv.tm_mon, (guint)(tmv.tm_year + 1900));
     gtk_calendar_select_day(GTK_CALENDAR(g_calendar), (guint)tmv.tm_mday);
 
+    g_marks_month = 0; /* events may have changed while hidden */
+    gtk_widget_queue_draw(g_calendar);
     refresh_now_and_zones();
     refresh_events();
     if (!g_tick_id) {

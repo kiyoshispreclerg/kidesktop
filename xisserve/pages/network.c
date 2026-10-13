@@ -129,6 +129,8 @@ static GPtrArray *fetch_wifi(void)
 /* ---- actions -------------------------------------------------------------- */
 
 static void rebuild(void);
+static void render_loading(void);
+static void start_job(gboolean rescan);
 
 static void on_device_toggle(GtkWidget *btn, gpointer data)
 {
@@ -145,9 +147,8 @@ static void on_device_toggle(GtkWidget *btn, gpointer data)
 static void on_rescan_clicked(GtkWidget *btn, gpointer data)
 {
     (void)btn; (void)data;
-    FILE *f = run("nmcli dev wifi rescan 2>/dev/null");
-    if (f) pclose(f);
-    rebuild();
+    render_loading();
+    start_job(TRUE);
 }
 
 static void do_connect(const char *ssid, const char *password)
@@ -288,10 +289,9 @@ static void clear_rows(void)
     g_list_free(children);
 }
 
-static void rebuild(void)
+/* Header (title + "Atualizar") shared by the loading and the loaded view. */
+static void build_header(void)
 {
-    clear_rows();
-
     GtkWidget *top = gtk_hbox_new(FALSE, 4);
     GtkWidget *title = gtk_label_new(NULL);
     gtk_label_set_markup(GTK_LABEL(title), "<b>Rede</b>");
@@ -303,8 +303,27 @@ static void rebuild(void)
     gtk_box_pack_start(GTK_BOX(top), rescan_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(g_box), top, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(g_box), gtk_hseparator_new(), FALSE, FALSE, 2);
+}
 
-    GPtrArray *devices = fetch_devices();
+/* What the page shows until the first (or a rescan-requested) nmcli
+ * round trip lands -- nmcli can take seconds, and a blank page looks like
+ * xisserve hung. */
+static void render_loading(void)
+{
+    clear_rows();
+    build_header();
+    GtkWidget *l = gtk_label_new(_("Buscando redes\xe2\x80\xa6"));
+    gtk_misc_set_alignment(GTK_MISC(l), 0.0f, 0.5f);
+    style_fg(l);
+    gtk_box_pack_start(GTK_BOX(g_box), l, FALSE, FALSE, 4);
+    gtk_widget_show_all(g_box);
+}
+
+static void render_result(GPtrArray *devices, GPtrArray *wifi)
+{
+    clear_rows();
+    build_header();
+
     g_has_wifi_device = FALSE;
     for (guint i = 0; i < devices->len; i++) {
         NetDevice *d = g_ptr_array_index(devices, i);
@@ -320,7 +339,6 @@ static void rebuild(void)
         style_fg(wifi_title);
         gtk_box_pack_start(GTK_BOX(g_box), wifi_title, FALSE, FALSE, 0);
 
-        GPtrArray *wifi = fetch_wifi();
         if (wifi->len == 0) {
             GtkWidget *empty = gtk_label_new(_("Nenhuma rede encontrada."));
             gtk_misc_set_alignment(GTK_MISC(empty), 0.0f, 0.5f);
@@ -331,11 +349,75 @@ static void rebuild(void)
                 gtk_box_pack_start(GTK_BOX(g_box), build_wifi_row(g_ptr_array_index(wifi, i)), FALSE, FALSE, 0);
             }
         }
-        g_ptr_array_free(wifi, TRUE);
     }
-
-    g_ptr_array_free(devices, TRUE);
     gtk_widget_show_all(g_box);
+}
+
+/* nmcli runs on a worker thread so a slow wifi scan never blocks the GTK
+ * main loop (which also serves every other page and the control socket). */
+typedef struct {
+    gboolean rescan;
+    GPtrArray *devices, *wifi;
+} NetJob;
+
+static gboolean g_job_running;
+static gboolean g_job_again;        /* a request arrived while one was running */
+static gboolean g_job_again_rescan;
+static gboolean g_have_data;
+
+static void start_job(gboolean rescan);
+
+static gboolean job_done(gpointer data)
+{
+    NetJob *job = data;
+    render_result(job->devices, job->wifi);
+    g_have_data = TRUE;
+    g_ptr_array_free(job->devices, TRUE);
+    g_ptr_array_free(job->wifi, TRUE);
+    g_free(job);
+    g_job_running = FALSE;
+    if (g_job_again) {
+        g_job_again = FALSE;
+        start_job(g_job_again_rescan);
+        g_job_again_rescan = FALSE;
+    }
+    return FALSE;
+}
+
+static gpointer job_thread(gpointer data)
+{
+    NetJob *job = data;
+    if (job->rescan) {
+        FILE *f = run("nmcli dev wifi rescan 2>/dev/null");
+        if (f) pclose(f);
+    }
+    job->devices = fetch_devices();
+    gboolean has_wifi = FALSE;
+    for (guint i = 0; i < job->devices->len; i++) {
+        if (strcmp(((NetDevice *)g_ptr_array_index(job->devices, i))->type, "wifi") == 0) has_wifi = TRUE;
+    }
+    job->wifi = has_wifi ? fetch_wifi() : g_ptr_array_new_with_free_func(g_free);
+    g_idle_add(job_done, job);
+    return NULL;
+}
+
+static void start_job(gboolean rescan)
+{
+    if (g_job_running) {
+        g_job_again = TRUE;
+        g_job_again_rescan = g_job_again_rescan || rescan;
+        return;
+    }
+    g_job_running = TRUE;
+    NetJob *job = g_new0(NetJob, 1);
+    job->rescan = rescan;
+    GThread *t = g_thread_new("xisserve-net", job_thread, job);
+    g_thread_unref(t);
+}
+
+static void rebuild(void)
+{
+    start_job(FALSE);
 }
 
 static gboolean on_poll(gpointer data)
@@ -367,6 +449,7 @@ GtkWidget *page_network_build(void)
 
 void page_network_on_show(void)
 {
+    if (!g_have_data) render_loading();
     rebuild();
     if (!g_poll_id) {
         g_poll_id = g_timeout_add(NET_POLL_MS, on_poll, NULL);
