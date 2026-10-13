@@ -34,7 +34,7 @@ static const char *const MANAGED_KEYS[] = {
     "snap_threshold", "side_zones", "vertical_snap_by",
     "snap_mod", "side_zones_mod", "vertical_snap_by_mod",
     "live_snap_resize", "outline_width", "outline_alpha",
-    "resize_grip", "live_resize", "magnet_threshold", "link_resize_neighbors",
+    "resize_grip", "live_resize", "magnet_threshold", "link_resize_neighbors", "window_gap",
     "auto_switch_argb", "focus_follows_mouse", "appmenu_command",
     "focus_stealing_prevention", "force_unflip",
     "osd_enabled", "osd_live_preview_windows", "osd_live_preview_desktops",
@@ -68,7 +68,7 @@ typedef struct {
     int outline_width;
     double outline_alpha;
     int resize_grip, live_resize;
-    int magnet_threshold, link_resize_neighbors;
+    int magnet_threshold, link_resize_neighbors, window_gap;
     int auto_switch_argb, focus_follows_mouse;
     char appmenu_command[256];
     char focus_stealing_prevention[16];
@@ -107,6 +107,7 @@ static void kiwm_defaults(KiwmConfig *c)
     c->resize_grip = 12;
     c->live_resize = 1;
     c->magnet_threshold = 10;
+    c->window_gap = 0;
     c->auto_switch_argb = 1;
     snprintf(c->focus_stealing_prevention, sizeof(c->focus_stealing_prevention), "none");
     snprintf(c->force_unflip, sizeof(c->force_unflip), "auto");
@@ -169,6 +170,7 @@ static void load_kiwm_config(KiwmConfig *c)
         else if (!strcmp(key, "live_resize")) c->live_resize = atoi(val) != 0;
         else if (!strcmp(key, "magnet_threshold")) c->magnet_threshold = atoi(val);
         else if (!strcmp(key, "link_resize_neighbors")) c->link_resize_neighbors = atoi(val) != 0;
+        else if (!strcmp(key, "window_gap")) c->window_gap = atoi(val);
         else if (!strcmp(key, "auto_switch_argb")) c->auto_switch_argb = atoi(val) != 0;
         else if (!strcmp(key, "focus_follows_mouse")) c->focus_follows_mouse = atoi(val) != 0;
         else if (!strcmp(key, "appmenu_command")) SETS(appmenu_command);
@@ -198,7 +200,7 @@ static GtkWidget *g_border_thick_spin, *g_border_color_btn, *g_grip_spin, *g_liv
 static GtkWidget *g_snap_spin, *g_live_snap_chk, *g_outline_w_spin, *g_outline_a_spin;
 static GtkWidget *g_side_zones_spin, *g_vsb_spin;
 static GtkWidget *g_snap_mod_combo, *g_side_zones_mod_spin, *g_vsb_mod_spin;
-static GtkWidget *g_magnet_spin, *g_link_resize_chk;
+static GtkWidget *g_magnet_spin, *g_link_resize_chk, *g_gap_spin;
 static GtkWidget *g_modkey_combo, *g_ffm_chk, *g_fsp_combo, *g_force_unflip_combo;
 static GtkWidget *g_auto_argb_chk, *g_new_win_combo, *g_appmenu_entry;
 static GtkWidget *g_ndesk_spin, *g_dcols_spin, *g_drows_spin;
@@ -255,6 +257,7 @@ static void save_janelas_cb(GtkWidget *widget, gpointer data)
     c.outline_alpha = gtk_spin_button_get_value(GTK_SPIN_BUTTON(g_outline_a_spin));
     c.magnet_threshold = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_magnet_spin));
     c.link_resize_neighbors = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_link_resize_chk));
+    c.window_gap = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_gap_spin));
 
     snprintf(c.mod_key, sizeof(c.mod_key), "%s", combo_text(g_modkey_combo, MOD_KEY_OPTS));
     c.focus_follows_mouse = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_ffm_chk));
@@ -312,6 +315,7 @@ static void save_janelas_cb(GtkWidget *widget, gpointer data)
     fprintf(out, "live_resize=%d\n", c.live_resize);
     fprintf(out, "magnet_threshold=%d\n", c.magnet_threshold);
     fprintf(out, "link_resize_neighbors=%d\n", c.link_resize_neighbors);
+    fprintf(out, "window_gap=%d\n", c.window_gap);
     fprintf(out, "auto_switch_argb=%d\n", c.auto_switch_argb);
     fprintf(out, "focus_follows_mouse=%d\n", c.focus_follows_mouse);
     fprintf(out, "appmenu_command=%s\n", c.appmenu_command);
@@ -429,7 +433,7 @@ GtkWidget *build_janelas_tab(void)
     gtk_box_pack_start(GTK_BOX(content), frame_with("Borda e redimensionamento", border_table), FALSE, FALSE, 0);
 
     /* Encaixe (snap) */
-    GtkWidget *snap_table = gtk_table_new(11, 2, FALSE);
+    GtkWidget *snap_table = gtk_table_new(12, 2, FALSE);
     g_snap_spin = gtk_spin_button_new_with_range(0, 200, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_snap_spin), c.snap_threshold);
     labeled_row(snap_table, 0, "Distancia para encaixar na borda da tela (px):", g_snap_spin);
@@ -463,6 +467,9 @@ GtkWidget *build_janelas_tab(void)
     g_link_resize_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_link_resize_chk), c.link_resize_neighbors);
     labeled_row(snap_table, 10, "Redimensionar vizinhas junto:", g_link_resize_chk);
+    g_gap_spin = gtk_spin_button_new_with_range(0, 64, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_gap_spin), c.window_gap);
+    labeled_row(snap_table, 11, "Espacamento em janelas maximizadas/lado a lado (px):", g_gap_spin);
     gtk_box_pack_start(GTK_BOX(content), frame_with("Encaixe (snap)", snap_table), FALSE, FALSE, 0);
 
     /* Comportamento */

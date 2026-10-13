@@ -1209,6 +1209,7 @@ static const WidgetField PANEL_FIELDS[] = {
     WF_INT("min_pct", "Percentual minimo (0 = tamanho fixo; abaixo de pct = autoredimensionavel)", "0", 0, 100),
     WF_ENUM("align", "Alinhamento na borda (start = esquerda/topo)", "center", PANEL_ALIGN_OPTS),
     WF_INT("thickness", "Espessura (px)", "32", 4, 500),
+    WF_BOOL01("follow_wm_gap", "Flutuar com o espacamento do kiwm", "0"),
     WF_ENUM("mode", "Modo (container = popup de um widget container)", "dock", PANEL_MODE_OPTS),
     WF_ENUM("layout", "Disposicao (so mode=container)", "row", PANEL_LAYOUT_OPTS),
     WF_ENUM("rotate", "Rotacao do conteudo (graus)", "0", PANEL_ROTATE_OPTS),
