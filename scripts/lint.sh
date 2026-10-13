@@ -39,9 +39,12 @@ echo "==> cppcheck"
 if have cppcheck; then
 	# arrayIndexOutOfBoundsCond: cppcheck assumes counters can exceed
 	# their arrays; every flagged access is already bounds-checked.
+	# normalCheckLevelMaxBranches: newer cppcheck's note that big functions
+	# get a shallower analysis; it is informational and counts as an error.
 	# unknownMacro in a11y.c: GObject type-definition macros.
 	if ! cppcheck -q -j"$(nproc 2>/dev/null || echo 2)" --enable=warning,portability --inline-suppr \
-		--suppress=arrayIndexOutOfBoundsCond --suppress='unknownMacro:*/a11y.c' \
+		--suppress=arrayIndexOutOfBoundsCond --suppress=normalCheckLevelMaxBranches \
+		--suppress='unknownMacro:*/a11y.c' \
 		--error-exitcode=1 -D__linux__ -I shared \
 		kisession kiwm kicomp/src xispanel xisserve xisback kiconf kiconfd xiskeys xismenu xisguard \
 		kimemory kistory shared; then

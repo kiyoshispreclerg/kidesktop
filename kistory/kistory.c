@@ -12,7 +12,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KISTORY_VERSION "0.1.1"
+#define KISTORY_VERSION "0.1.2"
 #define NF 8   /* ts kind app exe desktop output subject detail */
 
 static char events_dir[600];
@@ -215,6 +215,8 @@ static int cmd_search(int argc, char **argv)
             if (!ok)
                 continue;
             char *copy = strdup(line), *f[NF];
+            if (!copy)
+                continue;
             split(copy, f);
             if ((kind && strcasecmp(f[1], kind)) || (app && !strcasestr(f[2], app))) {
                 free(copy);
@@ -229,9 +231,11 @@ static int cmd_search(int argc, char **argv)
         fclose(fp);
     }
     long shown = limit > 0 && nring > limit ? limit : nring;
-    for (long i = nring - shown; i < nring; i++) {
+    for (long i = nring - shown; ring && i < nring; i++) {
         char *f[NF];
         char *l = ring[limit > 0 ? i % limit : 0];
+        if (!l)
+            continue;
         split(l, f);
         print_fields(f);
     }
@@ -332,6 +336,8 @@ static int cmd_at(int argc, char **argv)
             continue;
         while (getline(&line, &cap, fp) > 0) {
             char *copy = strdup(line), *f[NF];
+            if (!copy)
+                continue;
             split(copy, f);
             time_t start = parse_iso(f[0]);
             time_t end = period_end(f, start);
@@ -476,6 +482,8 @@ static int cmd_purge(int argc, char **argv)
         fchmod(fileno(out), 0600);
         while (getline(&line, &cap, in) > 0) {
             char *copy = strdup(line), *f[NF];
+            if (!copy)
+                continue;
             split(copy, f);
             int match = (!kind || !strcasecmp(f[1], kind)) && (!app || !strcasecmp(f[2], app));
             free(copy);
