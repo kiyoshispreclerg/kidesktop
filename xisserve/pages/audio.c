@@ -43,8 +43,9 @@
 #define AUDIO_SETTLE_US (900 * 1000)
 #define AUDIO_VOLUME_MAX 150
 
-static GtkWidget *g_root;      /* scrolled window handed to xisserve.c */
-static GtkWidget *g_rows_box;  /* vbox rebuilt in place; everything below lives here */
+static GtkWidget *g_root;      /* notebook handed to xisserve.c */
+static GtkWidget *g_apps_box;  /* "Aplicativos" tab: playing/recording streams; rebuilt in place */
+static GtkWidget *g_devs_box;  /* "Dispositivos" tab: sinks/sources; rebuilt in place */
 static guint g_poll_id;
 static gboolean g_dragging;    /* a slider is held down right now */
 static gint64 g_last_action_us;
@@ -523,7 +524,7 @@ static GtkWidget *unavailable_placeholder(void)
     return label;
 }
 
-static void add_section(const char *title, GPtrArray *entries, PulseKind kind, gboolean *any)
+static void add_section(GtkWidget *box, const char *title, GPtrArray *entries, PulseKind kind, gboolean *any)
 {
     gboolean header_done = FALSE;
     for (guint i = 0; i < entries->len; i++) {
@@ -533,28 +534,37 @@ static void add_section(const char *title, GPtrArray *entries, PulseKind kind, g
         }
         if (!header_done) {
             if (*any) {
-                gtk_box_pack_start(GTK_BOX(g_rows_box), gtk_hseparator_new(), FALSE, FALSE, 4);
+                gtk_box_pack_start(GTK_BOX(box), gtk_hseparator_new(), FALSE, FALSE, 4);
             }
-            gtk_box_pack_start(GTK_BOX(g_rows_box), section_header(title), FALSE, FALSE, 0);
+            gtk_box_pack_start(GTK_BOX(box), section_header(title), FALSE, FALSE, 0);
             header_done = TRUE;
             *any = TRUE;
         }
-        gtk_box_pack_start(GTK_BOX(g_rows_box), build_row(e, entries), FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(box), build_row(e, entries), FALSE, FALSE, 0);
     }
 }
 
-static void clear_rows(void)
+static void clear_box(GtkWidget *box)
 {
-    GList *children = gtk_container_get_children(GTK_CONTAINER(g_rows_box));
+    GList *children = gtk_container_get_children(GTK_CONTAINER(box));
     for (GList *l = children; l; l = l->next) {
         gtk_widget_destroy(GTK_WIDGET(l->data));
     }
     g_list_free(children);
 }
 
+static void add_empty_label(GtkWidget *box, const char *text)
+{
+    GtkWidget *label = gtk_label_new(text);
+    gtk_misc_set_alignment(GTK_MISC(label), 0.0f, 0.0f);
+    style_fg(label);
+    gtk_box_pack_start(GTK_BOX(box), label, FALSE, FALSE, 0);
+}
+
 static void rebuild(void)
 {
-    clear_rows();
+    clear_box(g_apps_box);
+    clear_box(g_devs_box);
 
     /* Re-probed rather than trusted from startup, so a server started
      * after xisserve was already running is picked up on the next open
@@ -565,26 +575,24 @@ static void rebuild(void)
     snapshot_signature(entries, g_signature, sizeof(g_signature));
 
     if (!pulse_available()) {
-        gtk_box_pack_start(GTK_BOX(g_rows_box), unavailable_placeholder(), FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(g_apps_box), unavailable_placeholder(), FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(g_devs_box), unavailable_placeholder(), FALSE, FALSE, 0);
     } else {
         g_updating = TRUE;
-        gboolean any = FALSE;
-        add_section(_("Reproduzindo"), entries, PULSE_SINK_INPUT, &any);
-        add_section(_("Gravando"), entries, PULSE_SOURCE_OUTPUT, &any);
-        add_section(_("Saída"), entries, PULSE_SINK, &any);
-        add_section(_("Entrada"), entries, PULSE_SOURCE, &any);
+        gboolean any_apps = FALSE, any_devs = FALSE;
+        add_section(g_apps_box, _("Reproduzindo"), entries, PULSE_SINK_INPUT, &any_apps);
+        add_section(g_apps_box, _("Gravando"), entries, PULSE_SOURCE_OUTPUT, &any_apps);
+        add_section(g_devs_box, _("Saída"), entries, PULSE_SINK, &any_devs);
+        add_section(g_devs_box, _("Entrada"), entries, PULSE_SOURCE, &any_devs);
         g_updating = FALSE;
 
-        if (!any) {
-            GtkWidget *label = gtk_label_new(_("Nenhum dispositivo de áudio encontrado."));
-            gtk_misc_set_alignment(GTK_MISC(label), 0.0f, 0.0f);
-            style_fg(label);
-            gtk_box_pack_start(GTK_BOX(g_rows_box), label, FALSE, FALSE, 0);
-        }
+        if (!any_apps) add_empty_label(g_apps_box, _("Nenhum aplicativo reproduzindo ou gravando."));
+        if (!any_devs) add_empty_label(g_devs_box, _("Nenhum dispositivo de áudio encontrado."));
     }
 
     pulse_entries_free(entries);
-    gtk_widget_show_all(g_rows_box);
+    gtk_widget_show_all(g_apps_box);
+    gtk_widget_show_all(g_devs_box);
 }
 
 /* Value-only refresh: walks the rows already on screen and re-syncs each
@@ -593,7 +601,8 @@ static void rebuild(void)
  * the signature changes. */
 static void refresh_values(GPtrArray *entries)
 {
-    GList *children = gtk_container_get_children(GTK_CONTAINER(g_rows_box));
+    GList *children = gtk_container_get_children(GTK_CONTAINER(g_apps_box));
+    children = g_list_concat(children, gtk_container_get_children(GTK_CONTAINER(g_devs_box)));
     g_updating = TRUE;
     for (GList *l = children; l; l = l->next) {
         AudioRow *row = g_object_get_data(G_OBJECT(l->data), "audio-row");
@@ -652,25 +661,34 @@ static gboolean on_poll(gpointer data)
 
 /* ---- page interface ------------------------------------------------------ */
 
-GtkWidget *page_audio_build(void)
+/* One tab's scrolled window around `box`. */
+static GtkWidget *build_tab(GtkWidget *box)
 {
-    g_rows_box = gtk_vbox_new(FALSE, 6);
-
-    g_root = gtk_scrolled_window_new(NULL, NULL);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(g_root), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-    gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(g_root), g_rows_box);
+    GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(scroll), box);
 
     /* The window paints its own --bg (xisserve.c's on_window_expose) and
      * most widgets are windowless, so they inherit it -- but a viewport
      * has a real GdkWindow of its own and would otherwise paint the GTK
      * theme's background over it, framing the page in a foreign color. */
-    GtkWidget *viewport = gtk_bin_get_child(GTK_BIN(g_root));
+    GtkWidget *viewport = gtk_bin_get_child(GTK_BIN(scroll));
     gtk_viewport_set_shadow_type(GTK_VIEWPORT(viewport), GTK_SHADOW_NONE);
     double r, g, b, a;
     xisserve_get_bg_rgba(&r, &g, &b, &a);
     GdkColor bg = {0, (guint16)(r * 65535), (guint16)(g * 65535), (guint16)(b * 65535)};
     gtk_widget_modify_bg(viewport, GTK_STATE_NORMAL, &bg);
+    return scroll;
+}
 
+GtkWidget *page_audio_build(void)
+{
+    g_apps_box = gtk_vbox_new(FALSE, 6);
+    g_devs_box = gtk_vbox_new(FALSE, 6);
+
+    g_root = gtk_notebook_new();
+    gtk_notebook_append_page(GTK_NOTEBOOK(g_root), build_tab(g_apps_box), gtk_label_new(_("Aplicativos")));
+    gtk_notebook_append_page(GTK_NOTEBOOK(g_root), build_tab(g_devs_box), gtk_label_new(_("Dispositivos")));
     return g_root;
 }
 

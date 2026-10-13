@@ -507,3 +507,15 @@ msgstr "Categorias"
 #: xisserve.c:3028 xisserve.c:3048
 msgid "Programas"
 msgstr "Programas"
+
+#: pages/audio.c
+msgid "Aplicativos"
+msgstr "Aplicativos"
+
+#: pages/audio.c
+msgid "Dispositivos"
+msgstr "Dispositivos"
+
+#: pages/audio.c
+msgid "Nenhum aplicativo reproduzindo ou gravando."
+msgstr "Nenhum aplicativo reproduzindo ou gravando."
