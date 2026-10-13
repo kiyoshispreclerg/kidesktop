@@ -480,7 +480,7 @@ void effects_update(double now)
 bool effects_mode_running(int output_id, const CompEffectOps *self)
 {
     for (CompEffect *e = running; e; e = e->next) {
-        if (!e->ops->owns_output || e->ops == self)
+        if (e->ops == self || !e->ops->owns_output)
             continue;
         if (e->ops->owns_output(e) == output_id)
             return true;

@@ -2494,9 +2494,9 @@ static void panel_layout(Panel *p)
         panel_mirror_rtl(p);
         return;
     }
-    int lens[MAX_WIDGETS * 2];
-    int mins[MAX_WIDGETS * 2];
-    char spacer[MAX_WIDGETS * 2];
+    int lens[MAX_WIDGETS * 2] = { 0 };
+    int mins[MAX_WIDGETS * 2] = { 0 };
+    char spacer[MAX_WIDGETS * 2] = { 0 };
     int n_greedy = 0;
     int fixed_total = 0;
     int min_total = 0;
