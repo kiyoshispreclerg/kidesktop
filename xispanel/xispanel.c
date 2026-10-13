@@ -783,6 +783,26 @@ static int panel_align_offset(const Panel *p, int slack)
     }
 }
 
+/* _KIWM_WINDOW_GAP as last read -- see panel_edge_margin() and the
+ * PropertyNotify handling in main(). */
+static int g_wm_gap;
+
+/* follow_wm_gap=: how far the bar floats off its screen edge and off both
+ * ends of it. The strut (panel_apply_strut()) is measured to the bar's far
+ * side, so it includes this and the WM's own gap starts past it. */
+static int panel_edge_margin(const Panel *p)
+{
+    return p->follow_wm_gap ? g_wm_gap : 0;
+}
+
+/* The room along the panel's edge that pct=/align= divide up: the output's
+ * width (top/bottom) or height (left/right), minus the margin at each end. */
+static int panel_edge_len(const Panel *p)
+{
+    int full = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? p->out_w : p->out_h;
+    return full - 2 * panel_edge_margin(p);
+}
+
 static void panel_resolve_geometry(Panel *p)
 {
     /* A container popup lives on whatever output its owner widget's
@@ -825,18 +845,21 @@ static void panel_resolve_geometry(Panel *p)
         return;
     }
 
+    int m = panel_edge_margin(p);
+    int len = panel_edge_len(p);
+
     if (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) {
-        p->w = p->out_w * p->pct / 100;
+        p->w = len * p->pct / 100;
         p->h = p->thickness;
-        p->x = p->out_x + panel_align_offset(p, p->out_w - p->w);
-        p->y = (p->edge == EDGE_TOP) ? p->out_y : (p->out_y + p->out_h - p->thickness);
+        p->x = p->out_x + m + panel_align_offset(p, len - p->w);
+        p->y = (p->edge == EDGE_TOP) ? p->out_y + m : (p->out_y + p->out_h - p->thickness - m);
         p->hidden_x = p->x;
         p->hidden_y = (p->edge == EDGE_TOP) ? (p->out_y - p->thickness) : (p->out_y + p->out_h);
     } else {
-        p->h = p->out_h * p->pct / 100;
+        p->h = len * p->pct / 100;
         p->w = p->thickness;
-        p->y = p->out_y + panel_align_offset(p, p->out_h - p->h);
-        p->x = (p->edge == EDGE_LEFT) ? p->out_x : (p->out_x + p->out_w - p->thickness);
+        p->y = p->out_y + m + panel_align_offset(p, len - p->h);
+        p->x = (p->edge == EDGE_LEFT) ? p->out_x + m : (p->out_x + p->out_w - p->thickness - m);
         p->hidden_y = p->y;
         p->hidden_x = (p->edge == EDGE_LEFT) ? (p->out_x - p->thickness) : (p->out_x + p->out_w);
     }
@@ -2228,11 +2251,11 @@ static void panel_autosize_set_len(Panel *p, int len)
     int horizontal = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM);
     if (horizontal) {
         p->w = len;
-        p->x = p->out_x + panel_align_offset(p, p->out_w - len);
+        p->x = p->out_x + panel_edge_margin(p) + panel_align_offset(p, panel_edge_len(p) - len);
         p->hidden_x = p->x;
     } else {
         p->h = len;
-        p->y = p->out_y + panel_align_offset(p, p->out_h - len);
+        p->y = p->out_y + panel_edge_margin(p) + panel_align_offset(p, panel_edge_len(p) - len);
         p->hidden_y = p->y;
     }
     if (!p->win) {
@@ -2266,7 +2289,7 @@ static int panel_autosize_len(const Panel *p, int content)
     if (p->mode == MODE_CONTAINER || p->min_pct <= 0 || p->min_pct >= p->pct) {
         return 0;
     }
-    int edge_len = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? p->out_w : p->out_h;
+    int edge_len = panel_edge_len(p);
     int min_len = edge_len * p->min_pct / 100;
     int max_len = edge_len * p->pct / 100;
     int step = p->thickness > 0 ? p->thickness : 1;
@@ -2489,7 +2512,7 @@ static void panel_layout(Panel *p)
         }
     }
 
-    int full_len = ((p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? p->out_w : p->out_h) * p->pct / 100;
+    int full_len = panel_edge_len(p) * p->pct / 100;
     int others_base = full_len - spacing_total - (fixed_total - spacer_total);
     int cursor = 0;
     for (int i = 0; i < p->n_layout; i++) {
@@ -3102,6 +3125,7 @@ static void apply_panel_kv(Panel *p, const char *kvline)
                                              : PANEL_ALIGN_CENTER;
     }
     p->thickness_cfg = kv_get_int(kvline, "thickness", p->thickness_cfg);
+    p->follow_wm_gap = kv_get_int(kvline, "follow_wm_gap", p->follow_wm_gap) != 0;
     if (kv_get(kvline, "mode", buf, sizeof(buf))) {
         p->mode = parse_mode(buf);
     }
@@ -4428,6 +4452,7 @@ static int run_as_daemon(const char *sockpath)
         xis_list_outputs(g_dpy, warm, XIS_MAX_OUTPUTS, 1);
     }
 
+    g_wm_gap = ewmh_kiwm_get_window_gap(); /* follow_wm_gap= panels need it from the start */
     reload_all_panels();
     a11y_init(); /* after the panels exist: the bridge may query them right away */
     /* Watch the root + every client window for the properties the polling
@@ -4715,6 +4740,19 @@ static int run_as_daemon(const char *sockpath)
                 } else if (ev.type == PropertyNotify && density_property_dispatch(&ev.xproperty)) {
                     /* consumed: _X_DENSITY_REQUESTED on one of our own panel
                      * windows -- see density.c/TESTS/X-DENSITY.md */
+                } else if (ev.type == PropertyNotify && ewmh_is_kiwm_window_gap_event(&ev.xproperty)) {
+                    /* kiwm (re)started or quit: follow_wm_gap= panels move.
+                     * A full reload, same tradeoff as an output change. */
+                    int gap = ewmh_kiwm_get_window_gap();
+                    if (gap != g_wm_gap) {
+                        g_wm_gap = gap;
+                        for (int pi = 0; pi < MAX_PANELS; pi++) {
+                            if (g_panels[pi].in_use && g_panels[pi].follow_wm_gap) {
+                                reload_all_panels();
+                                break;
+                            }
+                        }
+                    }
                 } else if (ev.type == PropertyNotify) {
                     /* A WM property the polling widgets depend on changed
                      * (active window, client list, current desktop, or a

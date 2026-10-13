@@ -64,6 +64,7 @@ static Atom g_atom_net_wm_icon_geometry;
 static Atom g_atom_kiwm_outputs;
 static Atom g_atom_kiwm_output_desktop;
 static Atom g_atom_kiwm_num_output_desktops;
+static Atom g_atom_kiwm_window_gap;
 static Atom g_atom_kiwm_wm_output;
 static Atom g_atom_kiwm_set_output_desktop;
 
@@ -105,6 +106,7 @@ void ewmh_init_atoms(void)
     g_atom_kiwm_outputs = XInternAtom(g_dpy, "_KIWM_OUTPUTS", False);
     g_atom_kiwm_output_desktop = XInternAtom(g_dpy, "_KIWM_OUTPUT_DESKTOP", False);
     g_atom_kiwm_num_output_desktops = XInternAtom(g_dpy, "_KIWM_NUM_OUTPUT_DESKTOPS", False);
+    g_atom_kiwm_window_gap = XInternAtom(g_dpy, "_KIWM_WINDOW_GAP", False);
     g_atom_kiwm_wm_output = XInternAtom(g_dpy, "_KIWM_WM_OUTPUT", False);
     g_atom_kiwm_set_output_desktop = XInternAtom(g_dpy, "_KIWM_SET_OUTPUT_DESKTOP", False);
 }
@@ -792,6 +794,31 @@ int ewmh_kiwm_get_num_output_desktops(void)
         XFree(prop);
     }
     return n;
+}
+
+/* kiwm's window_gap= (kiwm/PROTOCOL.md) -- what follow_wm_gap= panels
+ * float themselves by. 0 if absent: no kiwm, or kiwm with no gap. */
+int ewmh_kiwm_get_window_gap(void)
+{
+    Atom actual_type;
+    int actual_format;
+    unsigned long n_items, bytes_after;
+    unsigned char *prop = NULL;
+    int n = 0;
+    if (XGetWindowProperty(g_dpy, g_root, g_atom_kiwm_window_gap, 0, 1, False, XA_CARDINAL, &actual_type,
+                           &actual_format, &n_items, &bytes_after, &prop) == Success &&
+        prop) {
+        if (n_items > 0) {
+            n = (int)*(long *)(void *)prop;
+        }
+        XFree(prop);
+    }
+    return n < 0 ? 0 : n;
+}
+
+int ewmh_is_kiwm_window_gap_event(const XPropertyEvent *ev)
+{
+    return ev->window == g_root && ev->atom == g_atom_kiwm_window_gap;
 }
 
 /* Which output (index into ewmh_kiwm_get_outputs()'s order) `w` currently
