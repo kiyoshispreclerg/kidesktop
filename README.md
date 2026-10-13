@@ -1,3 +1,5 @@
+**English** · **[Português (Brasil)](README.pt-BR.md)**
+
 # KiDesktop
 
 A complete X11 desktop environment for Linux, built from small independent
