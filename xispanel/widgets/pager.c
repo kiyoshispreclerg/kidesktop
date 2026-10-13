@@ -707,8 +707,14 @@ static int pager_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t bufs
     return 1;
 }
 
+static const WidgetConfigEntry pager_config[] = {
+    {"Gerenciamento de janelas", N_("Configurações de janelas…")},
+    {NULL, NULL},
+};
+
 const PanelWidgetOps pager_ops = {
     .type_name = "pager",
+    .config_entries = pager_config,
     .priv_size = sizeof(PagerPriv),
     .init = pager_init,
     .destroy = pager_destroy,

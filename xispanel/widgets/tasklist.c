@@ -2547,8 +2547,14 @@ static int tasklist_key_item_label(PanelWidget *w, int i, char *buf, size_t bufs
     return 0;
 }
 
+static const WidgetConfigEntry tasklist_config[] = {
+    {"Gerenciamento de janelas", N_("Configurações de janelas…")},
+    {NULL, NULL},
+};
+
 const PanelWidgetOps tasklist_ops = {
     .type_name = "tasklist",
+    .config_entries = tasklist_config,
     .priv_size = sizeof(TasklistPriv),
     .init = tasklist_init,
     .destroy = tasklist_destroy,

@@ -256,8 +256,14 @@ static int xisserve_on_button(PanelWidget *w, int button, int local_x, int local
     return 1;
 }
 
+static const WidgetConfigEntry xisserve_config[] = {
+    {"Menu de programas", N_("Configurações do menu de programas…")},
+    {NULL, NULL},
+};
+
 const PanelWidgetOps xisserve_ops = {
     .type_name = "xisserve",
+    .config_entries = xisserve_config,
     .priv_size = sizeof(XisservePriv),
     .init = xisserve_init,
     .destroy = xisserve_destroy,

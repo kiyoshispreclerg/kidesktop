@@ -308,3 +308,19 @@ msgstr ""
 #, c-format
 msgid "xispanel: already running\n"
 msgstr ""
+
+#: widgets
+msgid "Configurações de data e hora…"
+msgstr ""
+
+#: widgets
+msgid "Configurações do menu de programas…"
+msgstr ""
+
+#: widgets
+msgid "Configurações de janelas…"
+msgstr ""
+
+#: widgets
+msgid "Configurações de eventos…"
+msgstr ""

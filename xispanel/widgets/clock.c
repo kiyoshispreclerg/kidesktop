@@ -325,8 +325,15 @@ static int clock_on_button(PanelWidget *w, int button, int local_x, int local_y,
     return 1;
 }
 
+static const WidgetConfigEntry clock_config[] = {
+    {"Sistema", N_("Configurações de data e hora…")},
+    {"Eventos", N_("Configurações de eventos…")},
+    {NULL, NULL},
+};
+
 const PanelWidgetOps clock_ops = {
     .type_name = "clock",
+    .config_entries = clock_config,
     .priv_size = sizeof(ClockPriv),
     .init = clock_init,
     .destroy = NULL,

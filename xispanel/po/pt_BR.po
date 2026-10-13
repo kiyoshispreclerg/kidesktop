@@ -318,3 +318,19 @@ msgstr "xispanel: opção desconhecida '%s'\n"
 #, c-format
 msgid "xispanel: already running\n"
 msgstr "xispanel: já está em execução\n"
+
+#: widgets
+msgid "Configurações de data e hora…"
+msgstr "Configurações de data e hora…"
+
+#: widgets
+msgid "Configurações do menu de programas…"
+msgstr "Configurações do menu de programas…"
+
+#: widgets
+msgid "Configurações de janelas…"
+msgstr "Configurações de janelas…"
+
+#: widgets
+msgid "Configurações de eventos…"
+msgstr "Configurações de eventos…"

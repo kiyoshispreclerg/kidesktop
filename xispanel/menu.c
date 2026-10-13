@@ -165,6 +165,8 @@ typedef struct {
      * supplied. -1 only if there was no room left to append it
      * (MENU_TREE_MAX_ITEMS already exhausted by the caller's own items). */
     int tail_action_idx;
+    int config_action_first; /* flat index of the owner widget's first config_entries item */
+    int n_config_actions;
 
 } PanelMenu;
 
@@ -707,6 +709,16 @@ static int open_submenu(PanelMenu *m, int parent_frame, int parent_pos)
 static void select_and_close(int idx)
 {
     PanelMenu *m = g_menu;
+    if (m->n_config_actions > 0 && idx >= m->config_action_first && idx < m->config_action_first + m->n_config_actions) {
+        char cmd[128];
+        snprintf(cmd, sizeof(cmd), "kiconf --tab '%s'",
+                 m->owner_widget->ops->config_entries[idx - m->config_action_first].tab);
+        g_closing_by_selection = 1;
+        panel_menu_close();
+        g_closing_by_selection = 0;
+        run_detached(cmd);
+        return;
+    }
     if (idx == m->tail_action_idx) {
         g_closing_by_selection = 1;
         panel_menu_close();
@@ -1002,9 +1014,9 @@ void panel_menu_open_tree_lazy(Panel *owner_panel, PanelWidget *owner_widget, in
     /* n_items == 0 is allowed on purpose: an empty right-click (nothing but
      * blank panel space under the pointer) still opens a menu, made up of
      * nothing but the tail action appended below -- see xispanel.c's
-     * empty-space Button3 handler. Two slots short of the cap, not one:
-     * room for both the tail item and the separator in front of it. */
-    if (n_items < 0 || n_items > MENU_TREE_MAX_ITEMS - 2) {
+     * empty-space Button3 handler. Short of the cap by the tail item, the separator and
+     * the owner widget's config entries. */
+    if (n_items < 0 || n_items > MENU_TREE_MAX_ITEMS - (2 + WIDGET_CONFIG_MAX)) {
         return;
     }
 
@@ -1034,11 +1046,26 @@ void panel_menu_open_tree_lazy(Panel *owner_panel, PanelWidget *owner_widget, in
      * select_and_close()'s tail_action_idx check for where the click on
      * it actually goes. */
     m->tail_action_idx = -1;
+    m->config_action_first = -1;
+    m->n_config_actions = 0;
     if (n_items > 0) {
         MenuItem *sep = &m->items[m->n_items];
         memset(sep, 0, sizeof(*sep));
         sep->is_separator = 1;
         m->parent[m->n_items] = -1;
+        m->n_items++;
+    }
+    const WidgetConfigEntry *ce = owner_widget ? owner_widget->ops->config_entries : NULL;
+    for (int i = 0; ce && ce[i].tab && i < WIDGET_CONFIG_MAX; i++) {
+        MenuItem *cfg = &m->items[m->n_items];
+        memset(cfg, 0, sizeof(*cfg));
+        snprintf(cfg->label, sizeof(cfg->label), "%s", _(ce[i].label));
+        cfg->enabled = 1;
+        m->parent[m->n_items] = -1;
+        if (i == 0) {
+            m->config_action_first = m->n_items;
+        }
+        m->n_config_actions++;
         m->n_items++;
     }
     MenuItem *tail = &m->items[m->n_items];
@@ -1125,7 +1152,7 @@ void panel_menu_open_tree(Panel *owner_panel, PanelWidget *owner_widget, int anc
     /* n_items == 0 is valid -- see panel_menu_open_tree_lazy()'s doc
      * comment (an empty-panel-space right-click's menu is nothing but the
      * appended "Configurar paineis" tail item). */
-    if (n_items < 0 || n_items > MENU_TREE_MAX_ITEMS - 2) {
+    if (n_items < 0 || n_items > MENU_TREE_MAX_ITEMS - (2 + WIDGET_CONFIG_MAX)) {
         return;
     }
     int lazy[MENU_TREE_MAX_ITEMS];
@@ -1139,7 +1166,7 @@ void panel_menu_open_tree(Panel *owner_panel, PanelWidget *owner_widget, int anc
 void panel_menu_open(Panel *owner_panel, PanelWidget *owner_widget, int anchor_x, int anchor_w, const MenuItem *items,
                       int n_items, void *ctx, MenuSelectFn on_select)
 {
-    if (n_items < 0 || n_items > MENU_TREE_MAX_ITEMS - 2) {
+    if (n_items < 0 || n_items > MENU_TREE_MAX_ITEMS - (2 + WIDGET_CONFIG_MAX)) {
         return;
     }
     int depth[MENU_TREE_MAX_ITEMS];

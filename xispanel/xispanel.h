@@ -58,6 +58,11 @@ typedef struct {
 } TooltipGroupItem;
 
 typedef struct {
+    const char *tab, *label;
+} WidgetConfigEntry;
+#define WIDGET_CONFIG_MAX 4
+
+typedef struct {
     const char *type_name; /* "spacer", "clock", "tasklist", ... -- used in config */
     size_t priv_size; /* per-instance state, zeroed on creation */
     /* 1 if this type may be placed inside a `container` popup panel
@@ -66,6 +71,12 @@ typedef struct {
      * type itself (no nesting) leave this 0 -- panel_add_widget() refuses
      * them on a container panel. */
     int embeddable;
+    /* Optional, NULL-terminated: kiconf tabs (untranslated label, see
+     * `kiconf --list-tabs`) that configure this widget type, each with
+     * its context-menu text (N_() literal). Every context menu opened
+     * over the widget gets these entries ahead of "Configurar paineis"
+     * -- see menu.c. */
+    const WidgetConfigEntry *config_entries;
 
     int (*init)(PanelWidget *w);
     void (*destroy)(PanelWidget *w);

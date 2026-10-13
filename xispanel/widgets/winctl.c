@@ -809,8 +809,14 @@ static int winctl_key_item_label(PanelWidget *w, int i, char *buf, size_t bufsz)
     }
 }
 
+static const WidgetConfigEntry winctl_config[] = {
+    {"Gerenciamento de janelas", N_("Configurações de janelas…")},
+    {NULL, NULL},
+};
+
 const PanelWidgetOps winctl_ops = {
     .type_name = "winctl",
+    .config_entries = winctl_config,
     .priv_size = sizeof(WinctlPriv),
     .init = winctl_init,
     .destroy = winctl_destroy,
