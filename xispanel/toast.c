@@ -5,7 +5,8 @@
  * tooltip.c/menu.c's popups: XMatchVisualInfo for a 32-bit ARGB visual if
  * one's available, falling back to the default visual/opaque background
  * otherwise), stacked bottom-up in the bottom-right corner of the default
- * screen. Fixed compact layout (icon + two ellipsized text lines) rather
+ * screen. Fixed compact layout (icon + two ellipsized text lines, plus a
+ * row of action buttons when the sender gave any) rather
  * than word-wrapping the body -- keeps sizing/positioning trivial, matches
  * how tooltip.c already treats a window title (one ellipsized line, not a
  * paragraph layout).
@@ -26,7 +27,7 @@
 
 /* Hard upper bound on the array itself -- the *actual* number shown at
  * once is computed dynamically from the usable screen height (see
- * toast_capacity() below), never a fixed count. This is just generous
+ * toast_fits() below), never a fixed count. This is just generous
  * headroom no real screen height could plausibly exceed. */
 #define TOAST_ARRAY_CAP 32
 #define TOAST_W 320
@@ -37,6 +38,12 @@
 #define TOAST_MARGIN 16
 #define TOAST_SUMMARY_SIZE 14.0
 #define TOAST_BODY_SIZE 12.0
+/* Action buttons (Notify()'s actions[], minus "default"): one row under
+ * the text, which grows the toast by TOAST_BTN_ROW. */
+#define TOAST_BTN_H 26
+#define TOAST_BTN_GAP 6
+#define TOAST_BTN_SIZE 12.0
+#define TOAST_BTN_ROW (TOAST_BTN_H + TOAST_GAP)
 
 /* Default lifetime for an OSD toast (toast_show_osd()) that doesn't pass
  * its own timeout_ms -- shorter than a DBus notification's own ~5s
@@ -102,6 +109,12 @@ typedef struct {
      * three times in a second from a scroll wheel should update one
      * popup, not stack three. */
     char tag[32];
+    int h; /* TOAST_H, plus TOAST_BTN_ROW when it has action buttons */
+    /* Copied from the NotifEntry (DBus arrivals only); buttons are every
+     * action but "default", which is the click on the body instead. */
+    NotifAction actions[NOTIFD_ACTIONS_MAX];
+    int n_actions;
+    int hover_btn; /* index into actions[] under the pointer, -1 = none */
 } Toast;
 
 static Toast g_toasts[TOAST_ARRAY_CAP];
@@ -133,7 +146,7 @@ static int g_bg_slice_l = 0, g_bg_slice_t = 0, g_bg_slice_r = 0, g_bg_slice_b = 
 
 /* Mirrors the owning panel's tooltip_toast_padding_extra (see that field's
  * doc comment in xispanel.h) -- added on top of TOAST_PAD when positioning
- * the icon/text inside the fixed TOAST_W x TOAST_H box, so a toast's
+ * the icon/text inside the TOAST_W x Toast::h box, so a toast's
  * content can be pulled in from the box's edges independently of the
  * panel's own spacing. */
 static int g_pad_extra = 0;
@@ -191,25 +204,29 @@ static void toast_area(int *out_x, int *out_y, int *out_w, int *out_h)
     }
 }
 
-/* How many toasts fit stacked in the current toast_area() without any of
- * them spilling past its far edge -- see the file comment on why this
- * replaces a fixed count. Always >= 1: a single toast is let through even
- * if it technically overflows a tiny/unusual area, same "never just
- * silently show nothing" spirit as the rest of xispanel's degrade-
- * gracefully helpers. */
-static int toast_capacity(void)
+/* Whether one more toast `h` tall fits stacked in the current
+ * toast_area() alongside every toast already showing -- see the file
+ * comment on why this replaces a fixed count. A lone toast always fits,
+ * even in a tiny/unusual area, same "never just silently show nothing"
+ * spirit as the rest of xispanel's degrade-gracefully helpers. */
+static int toast_fits(int h)
 {
+    if (g_n == 0) {
+        return 1;
+    }
+    if (g_n >= TOAST_ARRAY_CAP) {
+        return 0;
+    }
     int ax, ay, aw, ah;
     toast_area(&ax, &ay, &aw, &ah);
     (void)ax;
     (void)ay;
     (void)aw;
-    int usable = ah - 2 * TOAST_MARGIN;
-    if (usable < TOAST_H) {
-        return 1;
+    int used = h;
+    for (int i = 0; i < g_n; i++) {
+        used += g_toasts[i].h + TOAST_GAP;
     }
-    int cap = 1 + (usable - TOAST_H) / (TOAST_H + TOAST_GAP);
-    return cap < 1 ? 1 : cap;
+    return used <= ah - 2 * TOAST_MARGIN;
 }
 
 /* Screen position for the toast currently at array index `idx` (0 =
@@ -223,7 +240,11 @@ static int toast_capacity(void)
  * unambiguous default, same as top's). */
 static void toast_screen_pos(int idx, int *out_x, int *out_y)
 {
-    int from_corner = g_n - 1 - idx;
+    int step = 0; /* room taken by the newer toasts, closer to the corner */
+    for (int i = idx + 1; i < g_n; i++) {
+        step += g_toasts[i].h + TOAST_GAP;
+    }
+    int h = g_toasts[idx].h;
     int ax, ay, aw, ah;
     toast_area(&ax, &ay, &aw, &ah);
 
@@ -244,9 +265,55 @@ static void toast_screen_pos(int idx, int *out_x, int *out_y)
         *out_x = ax + (aw - TOAST_W) / 2;
     }
 
-    int base_y = at_top ? ay + TOAST_MARGIN : at_bottom ? ay + ah - TOAST_MARGIN - TOAST_H : ay + (ah - TOAST_H) / 2;
-    int step = from_corner * (TOAST_H + TOAST_GAP);
+    int base_y = at_top      ? ay + TOAST_MARGIN
+                 : at_bottom ? ay + ah - TOAST_MARGIN - h
+                             : ay + (ah - g_toasts[g_n - 1].h) / 2;
     *out_y = at_bottom ? base_y - step : base_y + step;
+}
+
+/* Left edge of the text column -- also where the button row starts. */
+static double toast_text_x(const Toast *t)
+{
+    int pad = TOAST_PAD + g_pad_extra;
+    return t->icon ? pad * 2 + TOAST_ICON : pad;
+}
+
+/* Rect of the action button for actions[k], 0 if actions[k] has none
+ * ("default", or out of range). Buttons split the text column's width
+ * evenly, in actions[] order. */
+static int toast_button_rect(const Toast *t, int k, double *x, double *y, double *w, double *h)
+{
+    if (k < 0 || k >= t->n_actions || !strcmp(t->actions[k].key, "default")) {
+        return 0;
+    }
+    int n = 0, pos = 0;
+    for (int i = 0; i < t->n_actions; i++) {
+        if (strcmp(t->actions[i].key, "default") != 0) {
+            if (i == k) {
+                pos = n;
+            }
+            n++;
+        }
+    }
+    int pad = TOAST_PAD + g_pad_extra;
+    double x0 = toast_text_x(t);
+    double bw = (TOAST_W - pad - x0 - TOAST_BTN_GAP * (n - 1)) / n;
+    *x = x0 + pos * (bw + TOAST_BTN_GAP);
+    *y = TOAST_H - TOAST_GAP / 2.0;
+    *w = bw;
+    *h = TOAST_BTN_H;
+    return 1;
+}
+
+static int toast_button_at(const Toast *t, int px, int py)
+{
+    for (int k = 0; k < t->n_actions; k++) {
+        double x, y, w, h;
+        if (toast_button_rect(t, k, &x, &y, &w, &h) && px >= x && px < x + w && py >= y && py < y + h) {
+            return k;
+        }
+    }
+    return -1;
 }
 
 /* The actual content draw, parameterized on `cr` so it can target either
@@ -273,21 +340,21 @@ static void draw_toast(cairo_t *cr, Toast *t)
      * it into a corner that's supposed to be transparent. */
     if (t->alpha_clip && g_border_radius > 0) {
         int r = g_border_radius;
-        int max_r = (TOAST_W < TOAST_H ? TOAST_W : TOAST_H) / 2;
+        int max_r = (TOAST_W < t->h ? TOAST_W : t->h) / 2;
         if (r > max_r) {
             r = max_r;
         }
-        panel_trace_rounded_rect(cr, TOAST_W, TOAST_H, r);
+        panel_trace_rounded_rect(cr, TOAST_W, t->h, r);
         cairo_clip(cr);
     }
 
-    if (g_skin && panel_draw_skin(g_skin, cr, SKIN_NORMAL, 0, 0, TOAST_W, TOAST_H)) {
+    if (g_skin && panel_draw_skin(g_skin, cr, SKIN_NORMAL, 0, 0, TOAST_W, t->h)) {
         /* themed popup frame -- see g_skin */
     } else if (g_bg_image) {
         int sw = cairo_image_surface_get_width(g_bg_image);
         int sh = cairo_image_surface_get_height(g_bg_image);
         panel_draw_9slice(cr, g_bg_image, sw, sh, g_bg_slice_l, g_bg_slice_t, g_bg_slice_r, g_bg_slice_b, TOAST_W,
-                           TOAST_H);
+                           t->h);
     } else {
         cairo_set_source_rgba(cr, g_bg_r, g_bg_g, g_bg_b, g_bg_a);
         cairo_paint(cr);
@@ -295,7 +362,7 @@ static void draw_toast(cairo_t *cr, Toast *t)
 
     cairo_set_source_rgba(cr, g_fg_r, g_fg_g, g_fg_b, 0.15);
     cairo_set_line_width(cr, 1);
-    cairo_rectangle(cr, 0.5, 0.5, TOAST_W - 1, TOAST_H - 1);
+    cairo_rectangle(cr, 0.5, 0.5, TOAST_W - 1, t->h - 1);
     cairo_stroke(cr);
 
     int pad = TOAST_PAD + g_pad_extra;
@@ -323,7 +390,7 @@ static void draw_toast(cairo_t *cr, Toast *t)
      * combination isn't worth a layout special case for. */
     if (t->level >= 0) {
         double bar_h = 4;
-        double bar_y = TOAST_H - pad - bar_h;
+        double bar_y = t->h - pad - bar_h;
         int level = t->level > 100 ? 100 : t->level;
         cairo_set_source_rgba(cr, g_fg_r, g_fg_g, g_fg_b, 0.25);
         cairo_rectangle(cr, text_x, bar_y, text_w, bar_h);
@@ -331,6 +398,24 @@ static void draw_toast(cairo_t *cr, Toast *t)
         cairo_set_source_rgba(cr, g_fg_r, g_fg_g, g_fg_b, 0.95);
         cairo_rectangle(cr, text_x, bar_y, text_w * (level / 100.0), bar_h);
         cairo_fill(cr);
+    }
+
+    for (int k = 0; k < t->n_actions; k++) {
+        double bx, by, bw, bh;
+        if (!toast_button_rect(t, k, &bx, &by, &bw, &bh)) {
+            continue;
+        }
+        cairo_set_source_rgba(cr, g_fg_r, g_fg_g, g_fg_b, k == t->hover_btn ? 0.28 : 0.12);
+        cairo_save(cr);
+        cairo_translate(cr, bx, by);
+        panel_trace_rounded_rect(cr, (int)bw, (int)bh, 4);
+        cairo_fill(cr);
+        cairo_restore(cr);
+        double tw;
+        pango_text_extents_panel(cr, t->actions[k].label, TOAST_BTN_SIZE, bw - 8, &tw, NULL, g_text_panel);
+        cairo_set_source_rgba(cr, g_fg_r, g_fg_g, g_fg_b, g_fg_a);
+        pango_show_text_boxed(cr, bx + (bw - tw) / 2.0, by, bh, bw - 8, TOAST_BTN_SIZE, t->actions[k].label, NULL,
+                               g_text_panel);
     }
 
     cairo_restore(cr);
@@ -359,7 +444,7 @@ static void paint_toast(Toast *t)
 {
     draw_toast(t->cr, t);
     g_density_toast = t;
-    density_layer_render(t->density, TOAST_W, TOAST_H, TOAST_SUMMARY_SIZE);
+    density_layer_render(t->density, TOAST_W, t->h, TOAST_SUMMARY_SIZE);
     g_density_toast = NULL;
 }
 
@@ -430,19 +515,17 @@ static void toast_close_notif(unsigned int id)
  * window itself -- see map_and_show_toast() below -- since the two
  * callers fill different fields (notif_id/app_name for a real
  * notification vs. level/urgency for an OSD) before that part runs. */
-static Toast *claim_toast_slot(void)
+static Toast *claim_toast_slot(int h)
 {
     ensure_visual();
-    int cap = toast_capacity();
-    if (cap > TOAST_ARRAY_CAP) {
-        cap = TOAST_ARRAY_CAP;
-    }
-    while (g_n >= cap && g_n > 0) {
+    while (!toast_fits(h)) {
         drop_toast(0, NOTIF_CLOSED_EXPIRED); /* drop the oldest visible toast to make room */
     }
     Toast *t = &g_toasts[g_n];
     memset(t, 0, sizeof(*t));
     t->level = -1; /* caller overrides for an OSD with a level bar */
+    t->h = h;
+    t->hover_btn = -1;
     return t;
 }
 
@@ -467,14 +550,15 @@ static void map_and_show_toast(Toast *t)
     attrs.border_pixel = 0;
     attrs.background_pixel = 0;
     /* PropertyChangeMask: needed for _X_DENSITY_REQUESTED (density.c). */
-    attrs.event_mask = ExposureMask | ButtonPressMask | EnterWindowMask | LeaveWindowMask | PropertyChangeMask;
+    attrs.event_mask =
+        ExposureMask | ButtonPressMask | EnterWindowMask | LeaveWindowMask | PropertyChangeMask | PointerMotionMask;
 
-    t->win = XCreateWindow(g_dpy, g_root, x, y, TOAST_W, TOAST_H, 0, g_depth, InputOutput, g_visual,
+    t->win = XCreateWindow(g_dpy, g_root, x, y, TOAST_W, (unsigned)t->h, 0, g_depth, InputOutput, g_visual,
                             CWOverrideRedirect | CWColormap | CWBorderPixel | CWBackPixel | CWEventMask, &attrs);
     XChangeProperty(g_dpy, t->win, g_atom_wm_window_type, XA_ATOM, 32, PropModeReplace,
                      (unsigned char *)&g_atom_wm_window_type_tooltip, 1);
-    t->alpha_clip = panel_round_corners(t->win, TOAST_W, TOAST_H, g_border_radius, g_depth, &t->shaped);
-    t->surface = cairo_xlib_surface_create(g_dpy, t->win, g_visual, TOAST_W, TOAST_H);
+    t->alpha_clip = panel_round_corners(t->win, TOAST_W, t->h, g_border_radius, g_depth, &t->shaped);
+    t->surface = cairo_xlib_surface_create(g_dpy, t->win, g_visual, TOAST_W, t->h);
     t->cr = cairo_create(t->surface);
     t->density = density_layer_register(t->win, g_visual, g_depth, toast_density_paint, NULL);
 
@@ -493,8 +577,14 @@ static void map_and_show_toast(Toast *t)
 
 static void toast_on_arrived(const NotifEntry *e, int expire_timeout_ms)
 {
-    Toast *t = claim_toast_slot();
+    int buttons = 0;
+    for (int i = 0; i < e->n_actions; i++) {
+        buttons += strcmp(e->actions[i].key, "default") != 0;
+    }
+    Toast *t = claim_toast_slot(buttons ? TOAST_H + TOAST_BTN_ROW : TOAST_H);
     t->notif_id = e->id;
+    memcpy(t->actions, e->actions, sizeof(t->actions));
+    t->n_actions = e->n_actions;
     snprintf(t->app_name, sizeof(t->app_name), "%s", e->app_name);
     snprintf(t->summary, sizeof(t->summary), "%s", e->summary);
     snprintf(t->body, sizeof(t->body), "%s", e->body);
@@ -534,7 +624,7 @@ void toast_show_osd(cairo_surface_t *icon, const char *summary, const char *body
     int existing = find_toast_by_tag(tag);
     /* Same field-filling either branch takes -- only what happens
      * around it differs (reuse the window in place vs. create one). */
-    Toast *t = existing >= 0 ? &g_toasts[existing] : claim_toast_slot();
+    Toast *t = existing >= 0 ? &g_toasts[existing] : claim_toast_slot(TOAST_H);
     /* t->notif_id stays 0 -- see its own doc comment on the Toast struct. */
     snprintf(t->summary, sizeof(t->summary), "%s", summary ? summary : "");
     snprintf(t->body, sizeof(t->body), "%s", body ? body : "");
@@ -692,7 +782,7 @@ void toast_set_padding_extra(int extra)
  * re-sync pattern as toast_set_colors()/toast_set_padding_extra() -- see
  * panel_round_corners()'s doc comment for how a toast picks between
  * XShape and a real alpha clip, same rule as the panel bar itself. Every
- * toast is the same fixed TOAST_W x TOAST_H, so one call covers them
+ * toast is TOAST_W wide (heights differ, see Toast::h), so one call covers them
  * all. Re-applied (and repainted) immediately rather than waiting for
  * the next paint_toast(): a plain XShape change alone would dirty
  * nothing further, but the alpha-clip case rounds through the painted
@@ -708,7 +798,7 @@ void toast_set_border_radius(int r)
     g_border_radius = r;
     for (int i = 0; i < g_n; i++) {
         Toast *t = &g_toasts[i];
-        t->alpha_clip = panel_round_corners(t->win, TOAST_W, TOAST_H, g_border_radius, g_depth, &t->shaped);
+        t->alpha_clip = panel_round_corners(t->win, TOAST_W, t->h, g_border_radius, g_depth, &t->shaped);
         paint_toast(t);
     }
     if (g_n > 0) {
@@ -751,7 +841,20 @@ int toast_handle_event(const XEvent *ev)
     if (ev->type == ButtonPress) {
         for (int i = 0; i < g_n; i++) {
             if (g_toasts[i].win == ev->xbutton.window) {
-                notifd_mark_read(g_toasts[i].notif_id);
+                Toast *t = &g_toasts[i];
+                int k = toast_button_at(t, ev->xbutton.x, ev->xbutton.y);
+                if (k < 0) {
+                    for (int j = 0; j < t->n_actions; j++) {
+                        if (!strcmp(t->actions[j].key, "default")) {
+                            k = j;
+                        }
+                    }
+                }
+                /* ActionInvoked before NotificationClosed, like other servers */
+                if (k >= 0 && ev->xbutton.button == Button1) {
+                    notifd_action_invoked(t->notif_id, t->actions[k].key);
+                }
+                notifd_mark_read(t->notif_id);
                 drop_toast(i, NOTIF_CLOSED_DISMISSED);
                 return 1;
             }
@@ -761,6 +864,19 @@ int toast_handle_event(const XEvent *ev)
             if (g_toasts[i].win == ev->xexpose.window) {
                 paint_toast(&g_toasts[i]);
                 XFlush(g_dpy);
+                return 1;
+            }
+        }
+    } else if (ev->type == MotionNotify) {
+        for (int i = 0; i < g_n; i++) {
+            Toast *t = &g_toasts[i];
+            if (t->win == ev->xmotion.window) {
+                int k = toast_button_at(t, ev->xmotion.x, ev->xmotion.y);
+                if (k != t->hover_btn) {
+                    t->hover_btn = k;
+                    paint_toast(t);
+                    XFlush(g_dpy);
+                }
                 return 1;
             }
         }
@@ -775,6 +891,11 @@ int toast_handle_event(const XEvent *ev)
         for (int i = 0; i < g_n; i++) {
             if (g_toasts[i].win == ev->xcrossing.window) {
                 g_toasts[i].hovered = 0;
+                if (g_toasts[i].hover_btn >= 0) {
+                    g_toasts[i].hover_btn = -1;
+                    paint_toast(&g_toasts[i]);
+                    XFlush(g_dpy);
+                }
                 /* Restart the full countdown rather than resuming --
                  * see the `hovered`/`timeout_ms` doc comment on Toast. */
                 if (g_toasts[i].timeout_ms != 0) {

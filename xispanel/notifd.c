@@ -24,12 +24,11 @@
  * CloseNotification, GetCapabilities, GetServerInformation).
  *
  * Storage (the capped ring buffer) lives here, not in any widget -- see
- * the NotifEntry API doc comment in xispanel.h. NotificationClosed
- * (the signal senders can listen for to know a notification went away)
- * is deliberately not emitted -- a real compliance gap, but nothing
- * inside xispanel depends on it, and no widget here supports the
- * closable-with-actions notifications where a well-behaved sender would
- * actually care.
+ * the NotifEntry API doc comment in xispanel.h. Advertises the "actions"
+ * capability: toast.c draws them as buttons and reports clicks back via
+ * notifd_action_invoked() (ActionInvoked), and every way a popup goes
+ * away ends in one NotificationClosed with its reason (notifd_closed()/
+ * close_entry()).
  */
 #include "xispanel.h"
 
@@ -461,8 +460,10 @@ static void notifd_handle_incoming(void)
             DBusMessageIter rit, arr;
             p_dbus_message_iter_init_append(reply, &rit);
             p_dbus_message_iter_open_container(&rit, DBUS_TYPE_ARRAY, "s", &arr);
-            const char *cap = "body";
-            p_dbus_message_iter_append_basic(&arr, DBUS_TYPE_STRING, &cap);
+            const char *caps[] = {"body", "actions"};
+            for (size_t c = 0; c < sizeof(caps) / sizeof(caps[0]); c++) {
+                p_dbus_message_iter_append_basic(&arr, DBUS_TYPE_STRING, &caps[c]);
+            }
             p_dbus_message_iter_close_container(&rit, &arr);
         } else if (iface && member && !strcmp(iface, NOTIFD_IFACE) && !strcmp(member, "GetServerInformation")) {
             reply = p_dbus_message_new_method_return(msg);
@@ -596,6 +597,25 @@ void notifd_set_arrived_callback(NotifArrivedFn fn)
 void notifd_set_close_callback(NotifCloseFn fn)
 {
     g_close_fn = fn;
+}
+
+void notifd_action_invoked(unsigned int id, const char *key)
+{
+    if (!find_entry(id) || !g_conn || !g_is_owner) {
+        return;
+    }
+    DBusMessage *sig = p_dbus_message_new_signal(NOTIFD_PATH, NOTIFD_IFACE, "ActionInvoked");
+    if (!sig) {
+        return;
+    }
+    DBusMessageIter it;
+    p_dbus_message_iter_init_append(sig, &it);
+    dbus_uint32_t uid = id;
+    p_dbus_message_iter_append_basic(&it, DBUS_TYPE_UINT32, &uid);
+    p_dbus_message_iter_append_basic(&it, DBUS_TYPE_STRING, &key);
+    p_dbus_connection_send(g_conn, sig, NULL);
+    p_dbus_message_unref(sig);
+    p_dbus_connection_flush(g_conn);
 }
 
 void notifd_closed(unsigned int id, int reason)

@@ -52,6 +52,12 @@ void notifd_set_default_expire_ms(int ms)
     (void)ms;
 }
 
+void notifd_action_invoked(unsigned int id, const char *key)
+{
+    (void)id;
+    (void)key;
+}
+
 void notifd_closed(unsigned int id, int reason)
 {
     (void)id;

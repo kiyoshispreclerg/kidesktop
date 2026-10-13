@@ -1560,6 +1560,9 @@ enum { NOTIF_CLOSED_EXPIRED = 1, NOTIF_CLOSED_DISMISSED = 2, NOTIF_CLOSED_BY_CAL
 /* The toast for `id` went away on its own (expired, clicked, pushed out):
  * emits NotificationClosed once. The entry stays in the history. */
 void notifd_closed(unsigned int id, int reason);
+/* A toast's action button (or its body, for the "default" action) was
+ * clicked: emits ActionInvoked so the sender can act on it. */
+void notifd_action_invoked(unsigned int id, const char *key);
 /* The other direction: notifd asks the popup for `id` to go away without
  * reporting back (CloseNotification(), a removed/evicted entry) --
  * notifd emits the signal itself. toast.c's toast_init() sets it. */
