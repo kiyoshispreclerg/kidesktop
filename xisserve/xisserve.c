@@ -55,7 +55,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.1.58"
+#define XISSERVE_VERSION "0.1.59"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -2961,6 +2961,79 @@ static void select_result_path(GtkTreePath *path)
     if (g_iconview) gtk_icon_view_select_path(GTK_ICON_VIEW(g_iconview), path);
 }
 
+/* Left button on a result: launching waits for the release so a press
+ * on a favorite can instead become a drag that reorders it (see
+ * favorites_reorderable_now()). g_press_idx is -1 when no press is
+ * pending; g_press_id is only set for a draggable favorite, and
+ * g_drag_active once the pointer moved past the threshold. */
+static int g_press_idx = -1;
+static char g_press_id[sizeof(((ResultEntry *)0)->id)];
+static int g_press_x, g_press_y;
+static gboolean g_drag_active;
+
+static GtkTreePath *result_path_at(int x, int y)
+{
+    if (g_grid_mode) return gtk_icon_view_get_path_at_pos(GTK_ICON_VIEW(g_iconview), x, y);
+    GtkTreePath *path = NULL;
+    if (!gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(g_treeview), x, y, &path, NULL, NULL, NULL)) return NULL;
+    return path;
+}
+
+static void press_begin(GtkTreeModel *model, GtkTreeIter *iter, GtkTreePath *path, GdkEventButton *ev)
+{
+    ResultEntry *e = NULL;
+    gtk_tree_model_get(model, iter, VCOL_ENTRY, &e, -1);
+    g_press_idx = gtk_tree_path_get_indices(path)[0];
+    g_press_id[0] = 0;
+    g_drag_active = FALSE;
+    g_press_x = (int)ev->x;
+    g_press_y = (int)ev->y;
+    if (e && e->is_favorite && favorites_reorderable_now()) snprintf(g_press_id, sizeof(g_press_id), "%s", e->id);
+}
+
+/* Called from the motion handlers: once a favorite is being dragged,
+ * moving over another slot swaps it there live. Returns TRUE while a
+ * press is pending (the hover-select must stay out of its way). */
+static gboolean drag_motion(GdkEventMotion *ev)
+{
+    if (g_press_idx < 0 || !(ev->state & GDK_BUTTON1_MASK)) return FALSE;
+    if (!g_press_id[0]) return TRUE;
+    if (!g_drag_active) {
+        if (abs((int)ev->x - g_press_x) < 6 && abs((int)ev->y - g_press_y) < 6) return TRUE;
+        g_drag_active = TRUE;
+    }
+    GtkTreePath *path = result_path_at((int)ev->x, (int)ev->y);
+    if (!path) return TRUE;
+    int to = gtk_tree_path_get_indices(path)[0];
+    gtk_tree_path_free(path);
+    int from = favorite_index(g_press_id);
+    if (from >= 0 && to != from) move_favorite_and_show(g_press_id, to - from);
+    return TRUE;
+}
+
+static gboolean on_result_button_release(GtkWidget *w, GdkEventButton *ev, gpointer data)
+{
+    (void)w;
+    (void)data;
+    if (ev->button != 1 || g_press_idx < 0) return FALSE;
+    int pressed = g_press_idx;
+    gboolean dragged = g_drag_active;
+    g_press_idx = -1;
+    g_press_id[0] = 0;
+    g_drag_active = FALSE;
+    if (dragged) return FALSE;
+    /* Plain click: launch only if released on the row it was pressed on. */
+    GtkTreePath *path = result_path_at((int)ev->x, (int)ev->y);
+    if (!path) return FALSE;
+    GtkTreeIter iter;
+    if (gtk_tree_path_get_indices(path)[0] == pressed &&
+        gtk_tree_model_get_iter(GTK_TREE_MODEL(g_view_store), &iter, path)) {
+        launch_iter(GTK_TREE_MODEL(g_view_store), &iter);
+    }
+    gtk_tree_path_free(path);
+    return FALSE;
+}
+
 static gboolean on_tree_button_press(GtkWidget *tv, GdkEventButton *ev, gpointer data)
 {
     (void)data;
@@ -2977,7 +3050,7 @@ static gboolean on_tree_button_press(GtkWidget *tv, GdkEventButton *ev, gpointer
     }
 
     if (ev->button == 1) {
-        launch_iter(model, &iter);
+        press_begin(model, &iter, path, ev);
         gtk_tree_path_free(path);
         return FALSE;
     }
@@ -3005,7 +3078,7 @@ static gboolean on_icon_button_press(GtkWidget *iv, GdkEventButton *ev, gpointer
     }
 
     if (ev->button == 1) {
-        launch_iter(model, &iter);
+        press_begin(model, &iter, path, ev);
         gtk_tree_path_free(path);
         return FALSE;
     }
@@ -3097,6 +3170,7 @@ static gboolean on_category_motion(GtkWidget *tv, GdkEventMotion *ev, gpointer d
 static gboolean on_result_motion(GtkWidget *tv, GdkEventMotion *ev, gpointer data)
 {
     (void)data;
+    if (drag_motion(ev)) return FALSE;
     GtkTreePath *path = NULL;
     if (!gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(tv), (int)ev->x, (int)ev->y, &path, NULL, NULL, NULL)) {
         return FALSE;
@@ -3117,6 +3191,7 @@ static gboolean on_result_motion(GtkWidget *tv, GdkEventMotion *ev, gpointer dat
 static gboolean on_icon_motion(GtkWidget *iv, GdkEventMotion *ev, gpointer data)
 {
     (void)data;
+    if (drag_motion(ev)) return FALSE;
     GtkTreePath *path = gtk_icon_view_get_path_at_pos(GTK_ICON_VIEW(iv), (int)ev->x, (int)ev->y);
     if (!path) return FALSE;
     if (g_hovered_result_path && gtk_tree_path_compare(g_hovered_result_path, path) == 0) {
@@ -3241,6 +3316,7 @@ static void build_ui(void)
     gtk_tree_view_append_column(GTK_TREE_VIEW(g_treeview), col);
     xisserve_a11y(g_treeview, _("Programas"), NULL);
     g_signal_connect(g_treeview, "button-press-event", G_CALLBACK(on_tree_button_press), NULL);
+    g_signal_connect(g_treeview, "button-release-event", G_CALLBACK(on_result_button_release), NULL);
     gtk_widget_add_events(g_treeview, GDK_POINTER_MOTION_MASK);
     g_signal_connect(g_treeview, "motion-notify-event", G_CALLBACK(on_result_motion), NULL);
 
@@ -3261,6 +3337,7 @@ static void build_ui(void)
     gtk_icon_view_set_item_width(GTK_ICON_VIEW(g_iconview), 84);
     xisserve_a11y(g_iconview, _("Programas"), NULL);
     g_signal_connect(g_iconview, "button-press-event", G_CALLBACK(on_icon_button_press), NULL);
+    g_signal_connect(g_iconview, "button-release-event", G_CALLBACK(on_result_button_release), NULL);
     gtk_widget_add_events(g_iconview, GDK_POINTER_MOTION_MASK);
     g_signal_connect(g_iconview, "motion-notify-event", G_CALLBACK(on_icon_motion), NULL);
 
