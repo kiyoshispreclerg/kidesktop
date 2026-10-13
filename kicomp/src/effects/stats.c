@@ -224,6 +224,7 @@ static const CompEffectOps stats_ops = {
     .name     = "stats",
     .update   = stats_update,
     .apply    = stats_apply,
+    .overlay  = true,
     .finished = stats_finished,
     .destroy  = stats_destroy,
 };

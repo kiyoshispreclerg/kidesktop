@@ -91,6 +91,13 @@ typedef struct CompEffectOps {
      * out as it goes. */
     bool rebuilds_scene;
 
+    /* Only adds chrome (scene.h), touching no node, so it is safe next to
+     * a rebuilds_scene mode -- which would otherwise shut it out -- and
+     * is applied last so its chrome is drawn over everything else's.
+     * What the stats panel needs to stay put under the cube, the grids
+     * and the covers. */
+    bool overlay;
+
     /* This window is being forgotten: drop every reference to it now.
      *
      * For the effects that are *modes* -- a grid, a row of covers --

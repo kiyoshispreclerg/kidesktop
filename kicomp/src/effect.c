@@ -430,11 +430,17 @@ void effects_apply(CompScene *s, CompOutput *o)
         if (e->ops->owns_output(e) != o->id)
             continue;
         e->ops->apply(e, s, o);
-        return;
+        goto overlays;
     }
 
     for (CompEffect *e = running; e; e = e->next)
-        if (e->ops->apply)
+        if (e->ops->apply && !e->ops->overlay)
+            e->ops->apply(e, s, o);
+
+overlays:
+    /* Last, so what they add to the chrome lands over every other label. */
+    for (CompEffect *e = running; e; e = e->next)
+        if (e->ops->apply && e->ops->overlay)
             e->ops->apply(e, s, o);
 }
 
