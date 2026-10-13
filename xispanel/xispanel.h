@@ -1509,12 +1509,22 @@ void dbusmenu_free_item_icons(MenuItem *items, int n);
 #define NOTIFD_SUMMARY_MAX 128
 #define NOTIFD_BODY_MAX 256
 #define NOTIFD_APP_NAME_MAX 64
+/* Notify()'s actions[] (key, label) pairs, past the first
+ * NOTIFD_ACTIONS_MAX dropped. Key "default" is the click on the toast
+ * body itself, never drawn as a button. */
+#define NOTIFD_ACTIONS_MAX 4
+typedef struct {
+    char key[48];
+    char label[48];
+} NotifAction;
 typedef struct {
     unsigned int id;
     char app_name[NOTIFD_APP_NAME_MAX];
     char summary[NOTIFD_SUMMARY_MAX];
     char body[NOTIFD_BODY_MAX];
     cairo_surface_t *icon; /* NULL if none/unresolved -- never freed by the caller, owned by notifd.c */
+    NotifAction actions[NOTIFD_ACTIONS_MAX];
+    int n_actions;
     int read; /* 0 = unread, counts toward notifd_unread_count() */
     uint64_t received_ms; /* wall-clock (CLOCK_REALTIME) ms since epoch -- NOT now_ms()'s
                             * CLOCK_MONOTONIC, which is meaningless once turned back into a

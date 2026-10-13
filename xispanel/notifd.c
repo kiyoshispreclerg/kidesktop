@@ -79,6 +79,7 @@ static dbus_bool_t (*p_dbus_connection_read_write)(DBusConnection *, int);
 static DBusMessage *(*p_dbus_connection_pop_message)(DBusConnection *);
 static dbus_bool_t (*p_dbus_message_iter_init)(DBusMessage *, DBusMessageIter *);
 static dbus_bool_t (*p_dbus_message_iter_next)(DBusMessageIter *);
+static void (*p_dbus_message_iter_recurse)(DBusMessageIter *, DBusMessageIter *);
 static int (*p_dbus_message_iter_get_arg_type)(DBusMessageIter *);
 static void (*p_dbus_message_iter_get_basic)(DBusMessageIter *, void *);
 static void (*p_dbus_message_iter_init_append)(DBusMessage *, DBusMessageIter *);
@@ -116,6 +117,7 @@ static int notifd_load_symbols(void)
     LOAD_SYM(dbus_connection_pop_message);
     LOAD_SYM(dbus_message_iter_init);
     LOAD_SYM(dbus_message_iter_next);
+    LOAD_SYM(dbus_message_iter_recurse);
     LOAD_SYM(dbus_message_iter_get_arg_type);
     LOAD_SYM(dbus_message_iter_get_basic);
     LOAD_SYM(dbus_message_iter_init_append);
@@ -226,7 +228,7 @@ static cairo_surface_t *resolve_notif_icon(const char *app_icon)
 }
 
 static void ring_append(const char *app_name, const char *app_icon, const char *summary, const char *body,
-                         int expire_timeout_ms)
+                         const NotifAction *actions, int n_actions, int expire_timeout_ms)
 {
     NotifEntry *dst;
     if (g_count < NOTIFD_MAX) {
@@ -247,6 +249,8 @@ static void ring_append(const char *app_name, const char *app_icon, const char *
     snprintf(dst->summary, sizeof(dst->summary), "%s", summary);
     snprintf(dst->body, sizeof(dst->body), "%s", body);
     dst->icon = resolve_notif_icon(app_icon);
+    memcpy(dst->actions, actions, sizeof(NotifAction) * (size_t)n_actions);
+    dst->n_actions = n_actions;
     dst->read = 0;
     /* Wall-clock, not now_ms()'s CLOCK_MONOTONIC -- this is a calendar
      * timestamp meant to be shown back as a date/time (see xisserve's
@@ -263,9 +267,36 @@ static void ring_append(const char *app_name, const char *app_icon, const char *
     }
 }
 
+/* actions[] is a flat as: key, label, key, label... A trailing key with
+ * no label (malformed) is dropped. */
+static int parse_actions(DBusMessageIter *it, NotifAction *out)
+{
+    if (p_dbus_message_iter_get_arg_type(it) != DBUS_TYPE_ARRAY) {
+        return 0;
+    }
+    DBusMessageIter arr;
+    p_dbus_message_iter_recurse(it, &arr);
+    int n = 0;
+    while (n < NOTIFD_ACTIONS_MAX && p_dbus_message_iter_get_arg_type(&arr) == DBUS_TYPE_STRING) {
+        const char *key = NULL, *label = NULL;
+        p_dbus_message_iter_get_basic(&arr, &key);
+        if (!p_dbus_message_iter_next(&arr) || p_dbus_message_iter_get_arg_type(&arr) != DBUS_TYPE_STRING) {
+            break;
+        }
+        p_dbus_message_iter_get_basic(&arr, &label);
+        snprintf(out[n].key, sizeof(out[n].key), "%s", key ? key : "");
+        snprintf(out[n].label, sizeof(out[n].label), "%s", label ? label : "");
+        n++;
+        if (!p_dbus_message_iter_next(&arr)) {
+            break;
+        }
+    }
+    return n;
+}
+
 /* Parses Notify()'s args in order, skipping (via a bare iter_next(), no
- * recursing needed) the ones nothing here uses -- replaces_id, actions[],
- * hints (a{sv}) -- since libdbus-1's iterator can step over a whole
+ * recursing needed) the ones nothing here uses -- replaces_id, hints
+ * (a{sv}) -- since libdbus-1's iterator can step over a whole
  * compound argument without the caller decoding it. Returns the new
  * entry's id (>=1), or 0 if the message was malformed. */
 static unsigned int handle_notify(DBusMessage *msg)
@@ -279,6 +310,8 @@ static unsigned int handle_notify(DBusMessage *msg)
     char summary[NOTIFD_SUMMARY_MAX] = "";
     char body[NOTIFD_BODY_MAX] = "";
     dbus_int32_t expire_timeout = -1;
+    NotifAction actions[NOTIFD_ACTIONS_MAX];
+    int n_actions = 0;
 
     if (p_dbus_message_iter_get_arg_type(&it) == DBUS_TYPE_STRING) {
         const char *s = NULL;
@@ -312,9 +345,10 @@ static unsigned int handle_notify(DBusMessage *msg)
         p_dbus_message_iter_get_basic(&it, &s);
         snprintf(body, sizeof(body), "%s", s ? s : "");
     }
-    if (!p_dbus_message_iter_next(&it)) { /* actions[] */
+    if (!p_dbus_message_iter_next(&it)) {
         goto done;
     }
+    n_actions = parse_actions(&it, actions);
     if (!p_dbus_message_iter_next(&it)) { /* hints a{sv} */
         goto done;
     }
@@ -327,7 +361,7 @@ done:
     }
     int expire_ms = expire_timeout >= 0 ? expire_timeout : g_default_expire_ms;
     unsigned int id_before = g_next_id;
-    ring_append(app_name, app_icon, summary, body, expire_ms);
+    ring_append(app_name, app_icon, summary, body, actions, n_actions, expire_ms);
     return id_before;
 }
 
