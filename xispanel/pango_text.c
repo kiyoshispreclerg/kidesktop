@@ -170,8 +170,17 @@ void pango_text_extents_panel(cairo_t *cr, const char *text, double size_px, dou
     PangoLayout *layout = build_layout(cr, text, size_px, max_width_px, weight);
     int lw, lh;
     pango_layout_get_pixel_size(layout, &lw, &lh);
+    /* Shadow and outline are drawn outside the glyph box: count them, or a
+     * box sized from this clips them. */
+    int extra_w = 0;
+    if (p && p->text_shadow) {
+        extra_w += (int)(p->text_shadow_dx < 0 ? -p->text_shadow_dx : p->text_shadow_dx + 0.999);
+    }
+    if (p && p->text_outline && p->text_outline_width > 0.0) {
+        extra_w += (int)(p->text_outline_width * 2 + 0.999);
+    }
     if (out_w) {
-        *out_w = lw;
+        *out_w = lw + extra_w;
     }
     if (out_h) {
         *out_h = lh;

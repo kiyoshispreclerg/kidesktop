@@ -433,7 +433,7 @@ static int measure_lines(cairo_t *cr, double font_size, char lines[TOOLTIP_MAX_L
     int max_w = 0;
     for (int i = 0; i < n; i++) {
         double lw;
-        pango_text_extents_ellipsized(cr, lines[i], font_size, TOOLTIP_MAX_LINE_W, &lw, NULL);
+        pango_text_extents_panel(cr, lines[i], font_size, TOOLTIP_MAX_LINE_W, &lw, NULL, g_panel);
         if ((int)lw > max_w) {
             max_w = (int)lw;
         }
@@ -494,7 +494,7 @@ static void paint_popup_group(cairo_t *cr)
         int ix = g_popup->group_item_x[i], iy = g_popup->group_item_y[i];
         int iw = g_popup->group_item_w[i], ih = g_popup->group_item_h[i];
         double tw;
-        pango_text_extents_ellipsized(cr, more, tooltip_font_size(), 0, &tw, NULL);
+        pango_text_extents_panel(cr, more, tooltip_font_size(), 0, &tw, NULL, p);
         double tx = ix + (iw - tw) / 2.0;
         pango_show_text_boxed(cr, tx, iy, ih, 0, tooltip_font_size(), more, NULL, p);
     }
@@ -947,8 +947,8 @@ static void show_popup_group_layout(TooltipPopup *pop)
         int max_tw = 0;
         for (int i = 0; i < g_group_n; i++) {
             double tw;
-            pango_text_extents_ellipsized(probe_cr, g_group_items[i].title, tooltip_font_size(), GROUP_TITLE_MAXW,
-                                           &tw, NULL);
+            pango_text_extents_panel(probe_cr, g_group_items[i].title, tooltip_font_size(), GROUP_TITLE_MAXW, &tw,
+                                      NULL, g_panel);
             if ((int)tw > max_tw) {
                 max_tw = (int)tw;
             }

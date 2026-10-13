@@ -376,7 +376,7 @@ static void draw_frame(cairo_t *cr, PanelMenu *m, MenuFrame *f)
         }
         if (rtl) {
             double tw = 0;
-            pango_text_extents_ellipsized(cr, it->label, m->font_size, 0, &tw, NULL);
+            pango_text_extents_panel(cr, it->label, m->font_size, 0, &tw, NULL, p);
             text_x = (int)(f->width - text_x - tw);
         }
         cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, it->enabled ? 0.95 : 0.4);
@@ -547,7 +547,7 @@ static int measure_frame_width(PanelMenu *m, const int *idx, int n, int *out_has
             any_icon = 1;
         }
         double tw;
-        pango_text_extents_ellipsized(probe_cr, m->items[fi].label, m->font_size, 0, &tw, NULL);
+        pango_text_extents_panel(probe_cr, m->items[fi].label, m->font_size, 0, &tw, NULL, m->owner_panel);
         int w = (int)tw + 20;
         if (w > max_w) {
             max_w = w;
