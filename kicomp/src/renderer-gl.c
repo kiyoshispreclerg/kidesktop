@@ -30,10 +30,14 @@
 
 #include <xcb/shape.h>
 
+#include <errno.h>
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 /* The platform's ops, from gl_setup(). */
 static const GlPlatform *platform;
@@ -272,31 +276,197 @@ static GLuint compile(GLenum type, const char *source, const char *what)
     return shader;
 }
 
-static bool program_build(void)
+/* Linked programs are kept on disk as program binaries, because Mesa's
+ * GLSL front end never gives back what it builds the first time anything
+ * is compiled: the IR of every GLSL builtin function, ~6.5 MB of heap for
+ * the rest of the process, even when its own shader cache already knows
+ * the shader. A program loaded with glProgramBinary never goes near that
+ * front end. It is the same linked program, so nothing draws differently;
+ * the driver turns down a binary from another driver build, and then
+ * this compiles from source as before and writes a fresh one. The source
+ * pays the 6.5 MB once, on the first start after a kicomp or Mesa
+ * update. */
+static bool program_cache_dir(char *out, size_t outsz)
 {
-    GLuint vs = compile(GL_VERTEX_SHADER, vertex_source, "vertex");
-    GLuint fs = compile(GL_FRAGMENT_SHADER, fragment_source, "fragment");
-    if (!vs || !fs)
+    const char *xdg = getenv("XDG_CACHE_HOME");
+    const char *home = getenv("HOME");
+    char base[3584];
+    if (xdg && *xdg)
+        snprintf(base, sizeof(base), "%s", xdg);
+    else if (home && *home)
+        snprintf(base, sizeof(base), "%s/.cache", home);
+    else
         return false;
+    snprintf(out, outsz, "%s/kicomp", base);
+    if (mkdir(base, 0700) < 0 && errno != EEXIST)
+        return false;
+    if (mkdir(out, 0700) < 0 && errno != EEXIST)
+        return false;
+    return true;
+}
 
-    program = glCreateProgram();
-    glAttachShader(program, vs);
-    glAttachShader(program, fs);
-    glBindAttribLocation(program, 0, "position");
-    glBindAttribLocation(program, 1, "uv");
-    glLinkProgram(program);
+static uint64_t fnv1a(uint64_t h, const char *s)
+{
+    for (; s && *s; s++)
+        h = (h ^ (unsigned char)*s) * 0x100000001b3ull;
+    return (h ^ 0xff) * 0x100000001b3ull;
+}
 
+/* Named after everything that makes up the program, the driver included,
+ * so an edited shader or another GPU never even tries a stale file. */
+static void program_cache_path(char *out, size_t outsz, const char *what,
+                               const char *vsrc, const char *fsrc,
+                               const char *const *attribs)
+{
+    char dir[3600];
+    if (!program_cache_dir(dir, sizeof(dir))) {
+        out[0] = '\0';
+        return;
+    }
+    uint64_t h = 0xcbf29ce484222325ull;
+    h = fnv1a(h, vsrc);
+    h = fnv1a(h, fsrc);
+    for (int i = 0; attribs[i]; i++)
+        h = fnv1a(h, attribs[i]);
+    h = fnv1a(h, (const char *)glGetString(GL_VENDOR));
+    h = fnv1a(h, (const char *)glGetString(GL_RENDERER));
+    h = fnv1a(h, (const char *)glGetString(GL_VERSION));
+    snprintf(out, outsz, "%s/%s-%016llx.bin", dir, what, (unsigned long long)h);
+}
+
+static bool program_binary_supported(void)
+{
+    if (epoxy_gl_version() < 41 &&
+        !epoxy_has_gl_extension("GL_ARB_get_program_binary"))
+        return false;
+    GLint formats = 0;
+    glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &formats);
+    return formats > 0;
+}
+
+static GLuint program_load_binary(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return 0;
+
+    GLuint prog = 0;
+    uint32_t format = 0;
+    long size = 0;
+    void *data = NULL;
+    if (fread(&format, sizeof(format), 1, f) != 1 ||
+        fseek(f, 0, SEEK_END) < 0 || (size = ftell(f)) <= (long)sizeof(format) ||
+        fseek(f, sizeof(format), SEEK_SET) < 0)
+        goto out;
+    size -= (long)sizeof(format);
+    data = malloc((size_t)size);
+    if (!data || fread(data, 1, (size_t)size, f) != (size_t)size)
+        goto out;
+
+    prog = glCreateProgram();
+    glProgramBinary(prog, format, data, (GLsizei)size);
+    GLint ok = 0;
+    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        glDeleteProgram(prog);
+        prog = 0;
+    }
+out:
+    free(data);
+    fclose(f);
+    return prog;
+}
+
+static void program_save_binary(GLuint prog, const char *path)
+{
+    GLint size = 0;
+    glGetProgramiv(prog, GL_PROGRAM_BINARY_LENGTH, &size);
+    if (size <= 0)
+        return;
+    void *data = malloc((size_t)size);
+    if (!data)
+        return;
+    GLenum format = 0;
+    GLsizei got = 0;
+    glGetProgramBinary(prog, size, &got, &format, data);
+
+    /* Written beside and renamed over, so a kicomp killed halfway never
+     * leaves a short file for the next start to trip on. */
+    char tmp[4200];
+    snprintf(tmp, sizeof(tmp), "%s.%ld.tmp", path, (long)getpid());
+    FILE *f = got > 0 ? fopen(tmp, "wb") : NULL;
+    if (f) {
+        uint32_t fmt = format;
+        bool ok = fwrite(&fmt, sizeof(fmt), 1, f) == 1 &&
+                  fwrite(data, 1, (size_t)got, f) == (size_t)got;
+        if (fclose(f) != 0)
+            ok = false;
+        if (!ok || rename(tmp, path) < 0)
+            unlink(tmp);
+    }
+    free(data);
+}
+
+/* A linked program from the two sources, with attribs[i] bound to
+ * location i; 0 (and a log line) when it does not compile or link. */
+static GLuint program_get(const char *what, const char *vsrc, const char *fsrc,
+                          const char *const *attribs)
+{
+    bool cache = program_binary_supported();
+    char path[4096] = "";
+    if (cache) {
+        program_cache_path(path, sizeof(path), what, vsrc, fsrc, attribs);
+        if (path[0]) {
+            GLuint prog = program_load_binary(path);
+            if (prog)
+                return prog;
+        }
+    }
+
+    char label[64];
+    snprintf(label, sizeof(label), "%s vertex", what);
+    GLuint vs = compile(GL_VERTEX_SHADER, vsrc, label);
+    snprintf(label, sizeof(label), "%s fragment", what);
+    GLuint fs = compile(GL_FRAGMENT_SHADER, fsrc, label);
+    if (!vs || !fs) {
+        if (vs)
+            glDeleteShader(vs);
+        if (fs)
+            glDeleteShader(fs);
+        return 0;
+    }
+
+    GLuint prog = glCreateProgram();
+    glAttachShader(prog, vs);
+    glAttachShader(prog, fs);
+    for (int i = 0; attribs[i]; i++)
+        glBindAttribLocation(prog, (GLuint)i, attribs[i]);
+    if (path[0])
+        glProgramParameteri(prog, GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GL_TRUE);
+    glLinkProgram(prog);
     glDeleteShader(vs);
     glDeleteShader(fs);
 
     GLint ok = 0;
-    glGetProgramiv(program, GL_LINK_STATUS, &ok);
+    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
     if (!ok) {
         char log[512];
-        glGetProgramInfoLog(program, sizeof(log), NULL, log);
-        fprintf(stderr, "kicomp: glx: link: %s\n", log);
-        return false;
+        glGetProgramInfoLog(prog, sizeof(log), NULL, log);
+        fprintf(stderr, "kicomp: glx: %s link: %s\n", what, log);
+        glDeleteProgram(prog);
+        return 0;
     }
+    if (path[0])
+        program_save_binary(prog, path);
+    return prog;
+}
+
+static bool program_build(void)
+{
+    static const char *const attribs[] = { "position", "uv", NULL };
+    program = program_get("window", vertex_source, fragment_source, attribs);
+    if (!program)
+        return false;
 
     u_projection = glGetUniformLocation(program, "projection");
     u_transform = glGetUniformLocation(program, "transform");
@@ -325,39 +495,20 @@ static bool program_build(void)
 
     /* The shadow program is optional in the sense that failing to build
      * it costs shadows, not the session: everything else still draws. */
-    vs = compile(GL_VERTEX_SHADER, shadow_vertex_source, "shadow vertex");
-    fs = compile(GL_FRAGMENT_SHADER, shadow_fragment_source, "shadow fragment");
-    if (vs && fs) {
-        shadow_program = glCreateProgram();
-        glAttachShader(shadow_program, vs);
-        glAttachShader(shadow_program, fs);
-        glBindAttribLocation(shadow_program, 0, "position");
-        glBindAttribLocation(shadow_program, 1, "uv");
-        glBindAttribLocation(shadow_program, 2, "maskuv");
-        glLinkProgram(shadow_program);
-        glDeleteShader(vs);
-        glDeleteShader(fs);
-
-        ok = 0;
-        glGetProgramiv(shadow_program, GL_LINK_STATUS, &ok);
-        if (!ok) {
-            char log[512];
-            glGetProgramInfoLog(shadow_program, sizeof(log), NULL, log);
-            fprintf(stderr, "kicomp: glx: shadow link: %s\n", log);
-            glDeleteProgram(shadow_program);
-            shadow_program = 0;
-        } else {
-            su_projection = glGetUniformLocation(shadow_program, "projection");
-            su_transform = glGetUniformLocation(shadow_program, "transform");
-            su_color = glGetUniformLocation(shadow_program, "color");
-            su_size = glGetUniformLocation(shadow_program, "size");
-            su_span = glGetUniformLocation(shadow_program, "span");
-            su_hole = glGetUniformLocation(shadow_program, "hole");
-            su_use_uv = glGetUniformLocation(shadow_program, "use_uv");
-            su_profile = glGetUniformLocation(shadow_program, "profile");
-            su_mask = glGetUniformLocation(shadow_program, "mask");
-            su_use_mask = glGetUniformLocation(shadow_program, "use_mask");
-        }
+    static const char *const shadow_attribs[] = { "position", "uv", "maskuv", NULL };
+    shadow_program = program_get("shadow", shadow_vertex_source,
+                                 shadow_fragment_source, shadow_attribs);
+    if (shadow_program) {
+        su_projection = glGetUniformLocation(shadow_program, "projection");
+        su_transform = glGetUniformLocation(shadow_program, "transform");
+        su_color = glGetUniformLocation(shadow_program, "color");
+        su_size = glGetUniformLocation(shadow_program, "size");
+        su_span = glGetUniformLocation(shadow_program, "span");
+        su_hole = glGetUniformLocation(shadow_program, "hole");
+        su_use_uv = glGetUniformLocation(shadow_program, "use_uv");
+        su_profile = glGetUniformLocation(shadow_program, "profile");
+        su_mask = glGetUniformLocation(shadow_program, "mask");
+        su_use_mask = glGetUniformLocation(shadow_program, "use_mask");
     }
 
     return true;
