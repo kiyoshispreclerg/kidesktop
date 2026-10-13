@@ -51,3 +51,14 @@ void notifd_set_default_expire_ms(int ms)
 {
     (void)ms;
 }
+
+void notifd_closed(unsigned int id, int reason)
+{
+    (void)id;
+    (void)reason;
+}
+
+void notifd_set_close_callback(NotifCloseFn fn)
+{
+    (void)fn;
+}

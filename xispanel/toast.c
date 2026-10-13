@@ -404,6 +404,26 @@ static void remove_toast(int idx)
     reposition_all();
 }
 
+/* A toast going away on its own (expired, clicked, pushed out): tells
+ * notifd, which emits NotificationClosed -- a no-op for an OSD (id 0). */
+static void drop_toast(int idx, int reason)
+{
+    notifd_closed(g_toasts[idx].notif_id, reason);
+    remove_toast(idx);
+}
+
+/* notifd asking for its popup to go (CloseNotification(), an entry
+ * removed from the history) -- it reports the reason itself. */
+static void toast_close_notif(unsigned int id)
+{
+    for (int i = 0; id && i < g_n; i++) {
+        if (g_toasts[i].notif_id == id) {
+            remove_toast(i);
+            return;
+        }
+    }
+}
+
 /* Common half of showing any toast, DBus-arrived or OSD: evicts enough
  * oldest-first room for one more (see the loop's own comment) and hands
  * back a zeroed slot for the caller to fill in. Doesn't map/paint the
@@ -418,7 +438,7 @@ static Toast *claim_toast_slot(void)
         cap = TOAST_ARRAY_CAP;
     }
     while (g_n >= cap && g_n > 0) {
-        remove_toast(0); /* drop the oldest visible toast to make room */
+        drop_toast(0, NOTIF_CLOSED_EXPIRED); /* drop the oldest visible toast to make room */
     }
     Toast *t = &g_toasts[g_n];
     memset(t, 0, sizeof(*t));
@@ -540,6 +560,7 @@ void toast_show_osd(cairo_surface_t *icon, const char *summary, const char *body
 void toast_init(void)
 {
     notifd_set_arrived_callback(toast_on_arrived);
+    notifd_set_close_callback(toast_close_notif);
 }
 
 /* Changing corners while toasts are already showing (a config RELOAD)
@@ -705,7 +726,7 @@ void toast_tick(uint64_t now)
      * entirely -- see the `hovered` doc comment on Toast. */
     for (int i = 0; i < g_n; i++) {
         if (!g_toasts[i].hovered && g_toasts[i].expire_ms != 0 && now >= g_toasts[i].expire_ms) {
-            remove_toast(i);
+            drop_toast(i, NOTIF_CLOSED_EXPIRED);
             return;
         }
     }
@@ -731,7 +752,7 @@ int toast_handle_event(const XEvent *ev)
         for (int i = 0; i < g_n; i++) {
             if (g_toasts[i].win == ev->xbutton.window) {
                 notifd_mark_read(g_toasts[i].notif_id);
-                remove_toast(i);
+                drop_toast(i, NOTIF_CLOSED_DISMISSED);
                 return 1;
             }
         }

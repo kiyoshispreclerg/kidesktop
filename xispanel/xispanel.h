@@ -1525,6 +1525,7 @@ typedef struct {
     cairo_surface_t *icon; /* NULL if none/unresolved -- never freed by the caller, owned by notifd.c */
     NotifAction actions[NOTIFD_ACTIONS_MAX];
     int n_actions;
+    int closed; /* NotificationClosed already emitted for it -- see notifd_closed() */
     int read; /* 0 = unread, counts toward notifd_unread_count() */
     uint64_t received_ms; /* wall-clock (CLOCK_REALTIME) ms since epoch -- NOT now_ms()'s
                             * CLOCK_MONOTONIC, which is meaningless once turned back into a
@@ -1554,6 +1555,16 @@ void notifd_set_arrived_callback(NotifArrivedFn fn);
  * widgets/notif.c's timeout= config key. No-op for ms <= 0. Never affects
  * a sender's own explicit expire_timeout request. */
 void notifd_set_default_expire_ms(int ms);
+/* NotificationClosed reasons, per the spec. */
+enum { NOTIF_CLOSED_EXPIRED = 1, NOTIF_CLOSED_DISMISSED = 2, NOTIF_CLOSED_BY_CALL = 3, NOTIF_CLOSED_UNDEFINED = 4 };
+/* The toast for `id` went away on its own (expired, clicked, pushed out):
+ * emits NotificationClosed once. The entry stays in the history. */
+void notifd_closed(unsigned int id, int reason);
+/* The other direction: notifd asks the popup for `id` to go away without
+ * reporting back (CloseNotification(), a removed/evicted entry) --
+ * notifd emits the signal itself. toast.c's toast_init() sets it. */
+typedef void (*NotifCloseFn)(unsigned int id);
+void notifd_set_close_callback(NotifCloseFn fn);
 
 /* ---- notification toast popups (toast.c) ----
  *

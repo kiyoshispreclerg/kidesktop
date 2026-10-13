@@ -52,6 +52,7 @@ static int g_head = 0; /* index of the oldest held entry */
 static int g_count = 0;
 static unsigned int g_next_id = 1;
 static NotifArrivedFn g_arrived_fn = NULL;
+static NotifCloseFn g_close_fn = NULL;
 /* Overridable via notifd_set_default_expire_ms() (widgets/notif.c's
  * timeout= config) -- only applies to a Notify() call that didn't request
  * its own expire_timeout (the < 0 "server picks a default" case per the
@@ -73,6 +74,8 @@ static int (*p_dbus_bus_request_name)(DBusConnection *, const char *, unsigned i
 static dbus_bool_t (*p_dbus_bus_name_has_owner)(DBusConnection *, const char *, DBusError *);
 static DBusMessage *(*p_dbus_message_new_method_return)(DBusMessage *);
 static DBusMessage *(*p_dbus_message_new_error)(DBusMessage *, const char *, const char *);
+static DBusMessage *(*p_dbus_message_new_signal)(const char *, const char *, const char *);
+static void (*p_dbus_connection_flush)(DBusConnection *);
 static void (*p_dbus_message_unref)(DBusMessage *);
 static dbus_bool_t (*p_dbus_connection_send)(DBusConnection *, DBusMessage *, dbus_uint32_t *);
 static dbus_bool_t (*p_dbus_connection_read_write)(DBusConnection *, int);
@@ -111,6 +114,8 @@ static int notifd_load_symbols(void)
     LOAD_SYM(dbus_bus_name_has_owner);
     LOAD_SYM(dbus_message_new_method_return);
     LOAD_SYM(dbus_message_new_error);
+    LOAD_SYM(dbus_message_new_signal);
+    LOAD_SYM(dbus_connection_flush);
     LOAD_SYM(dbus_message_unref);
     LOAD_SYM(dbus_connection_send);
     LOAD_SYM(dbus_connection_read_write);
@@ -227,6 +232,50 @@ static cairo_surface_t *resolve_notif_icon(const char *app_icon)
     return resolve_icon_theme_name(app_icon, icon_fetch_size_for(NOTIFD_ICON_TARGET_PX));
 }
 
+static NotifEntry *find_entry(unsigned int id)
+{
+    for (int i = 0; id && i < g_count; i++) {
+        NotifEntry *e = &g_ring[(g_head + i) % NOTIFD_MAX];
+        if (e->id == id) {
+            return e;
+        }
+    }
+    return NULL;
+}
+
+static void emit_closed(unsigned int id, int reason)
+{
+    if (!g_conn || !g_is_owner) {
+        return;
+    }
+    DBusMessage *sig = p_dbus_message_new_signal(NOTIFD_PATH, NOTIFD_IFACE, "NotificationClosed");
+    if (!sig) {
+        return;
+    }
+    DBusMessageIter it;
+    p_dbus_message_iter_init_append(sig, &it);
+    dbus_uint32_t uid = id, ureason = (dbus_uint32_t)reason;
+    p_dbus_message_iter_append_basic(&it, DBUS_TYPE_UINT32, &uid);
+    p_dbus_message_iter_append_basic(&it, DBUS_TYPE_UINT32, &ureason);
+    p_dbus_connection_send(g_conn, sig, NULL);
+    p_dbus_message_unref(sig);
+    p_dbus_connection_flush(g_conn);
+}
+
+/* notifd-initiated close: takes the popup down (if still showing) and
+ * emits NotificationClosed, once per entry. */
+static void close_entry(NotifEntry *e, int reason)
+{
+    if (e->closed) {
+        return;
+    }
+    e->closed = 1;
+    if (g_close_fn) {
+        g_close_fn(e->id);
+    }
+    emit_closed(e->id, reason);
+}
+
 static void ring_append(const char *app_name, const char *app_icon, const char *summary, const char *body,
                          const NotifAction *actions, int n_actions, int expire_timeout_ms)
 {
@@ -237,6 +286,7 @@ static void ring_append(const char *app_name, const char *app_icon, const char *
     } else {
         /* Full -- evict the oldest, freeing its icon before overwrite. */
         dst = &g_ring[g_head];
+        close_entry(dst, NOTIF_CLOSED_UNDEFINED);
         if (dst->icon) {
             cairo_surface_destroy(dst->icon);
         }
@@ -373,7 +423,11 @@ static void handle_close_notification(DBusMessage *msg)
     }
     dbus_uint32_t id = 0;
     p_dbus_message_iter_get_basic(&it, &id);
-    notifd_mark_read(id);
+    NotifEntry *e = find_entry(id);
+    if (e) {
+        e->read = 1;
+        close_entry(e, NOTIF_CLOSED_BY_CALL);
+    }
 }
 
 static void notifd_handle_incoming(void)
@@ -506,6 +560,7 @@ void notifd_remove(unsigned int id)
         return;
     }
     NotifEntry *fe = &g_ring[(g_head + found) % NOTIFD_MAX];
+    close_entry(fe, NOTIF_CLOSED_DISMISSED);
     if (fe->icon) {
         cairo_surface_destroy(fe->icon);
     }
@@ -521,6 +576,7 @@ void notifd_clear(void)
 {
     for (int i = 0; i < g_count; i++) {
         NotifEntry *e = &g_ring[(g_head + i) % NOTIFD_MAX];
+        close_entry(e, NOTIF_CLOSED_DISMISSED);
         if (e->icon) {
             cairo_surface_destroy(e->icon);
         }
@@ -532,6 +588,20 @@ void notifd_clear(void)
 void notifd_set_arrived_callback(NotifArrivedFn fn)
 {
     g_arrived_fn = fn;
+}
+
+void notifd_set_close_callback(NotifCloseFn fn)
+{
+    g_close_fn = fn;
+}
+
+void notifd_closed(unsigned int id, int reason)
+{
+    NotifEntry *e = find_entry(id);
+    if (e && !e->closed) {
+        e->closed = 1;
+        emit_closed(id, reason);
+    }
 }
 
 void notifd_set_default_expire_ms(int ms)
