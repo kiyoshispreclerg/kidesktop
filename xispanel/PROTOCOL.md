@@ -133,6 +133,12 @@ PANEL	top	*	edge=top	pct=100	thickness=32	mode=dock
 - `edge`: `top` | `bottom` | `left` | `right` (default `top`).
 - `pct`: 1-100, percentage of that edge's length the panel occupies
   (default `100`).
+- `min_pct`: 0-100 (default `0`, off). Set below `pct`, the panel
+  autosizes: its length follows its real widgets, with spacers squeezed
+  out (they only get whatever is left), never shorter than `min_pct` nor
+  longer than `pct`. Rounded up to whole multiples of `thickness` so small
+  text changes don't resize it. `align` places it as usual; a dock's
+  strut keeps the full `pct` extent.
 - `align`: `start` | `center` | `end` -- where a `pct` below 100 places
   the panel along its edge: `start` is the left end of a top/bottom edge
   and the top end of a left/right one (default `center`).

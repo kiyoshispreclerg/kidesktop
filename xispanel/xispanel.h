@@ -274,6 +274,10 @@ struct Panel {
     char output[64]; /* "*" or an XRandR output name */
     enum edge edge;
     int pct; /* 0-100 */
+    /* min_pct=: 0 (default) = fixed at pct. 1..pct-1 = autosize: the bar
+     * shrinks to its real widgets' length (spacers squeezed out first),
+     * never below min_pct nor above pct -- see panel_autosize_len(). */
+    int min_pct;
     /* align=start|center|end: where a pct<100 panel sits along its edge --
      * start is the left end of a top/bottom edge and the top of a
      * left/right one. Center (0) is the default. */

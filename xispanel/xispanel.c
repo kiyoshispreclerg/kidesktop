@@ -100,7 +100,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.6.88"
+#define XISPANEL_VERSION "0.6.89"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -2193,11 +2193,20 @@ static void panel_create_surface(Panel *p)
     panel_create_buf(p);
 }
 
+static void panel_apply_shape(Panel *p);
+static void panel_resize_buffers(Panel *p)
+{
+    cairo_xlib_surface_set_size(p->surface, p->w, p->h);
+    cairo_destroy(p->buf_cr);
+    cairo_surface_destroy(p->buf_surface);
+    panel_create_buf(p);
+    panel_apply_shape(p);
+}
+
 /* Container popups only: their size follows their content, so a widget
  * appearing/growing (a new tray icon, say) resizes the window in place.
- * Every edge-anchored panel keeps the fixed size panel_resolve_geometry()
- * gave it. */
-static void panel_apply_shape(Panel *p);
+ * Edge-anchored panels keep the size panel_resolve_geometry() gave them,
+ * unless min_pct= makes them autosize (panel_autosize_set_len()). */
 static void panel_set_size(Panel *p, int w, int h)
 {
     p->w = w;
@@ -2206,11 +2215,66 @@ static void panel_set_size(Panel *p, int w, int h)
         return;
     }
     XResizeWindow(g_dpy, p->win, (unsigned)w, (unsigned)h);
-    cairo_xlib_surface_set_size(p->surface, w, h);
-    cairo_destroy(p->buf_cr);
-    cairo_surface_destroy(p->buf_surface);
-    panel_create_buf(p);
-    panel_apply_shape(p);
+    panel_resize_buffers(p);
+}
+
+/* min_pct= (autosize): an edge panel's length along its edge, re-placed
+ * by align= exactly like panel_resolve_geometry() places a fixed one. The
+ * strut stays the full pct= extent it was set at -- rewriting it on every
+ * size change would make the WM recompute its workarea each time for no
+ * real gain. */
+static void panel_autosize_set_len(Panel *p, int len)
+{
+    int horizontal = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM);
+    if (horizontal) {
+        p->w = len;
+        p->x = p->out_x + panel_align_offset(p, p->out_w - len);
+        p->hidden_x = p->x;
+    } else {
+        p->h = len;
+        p->y = p->out_y + panel_align_offset(p, p->out_h - len);
+        p->hidden_y = p->y;
+    }
+    if (!p->win) {
+        return;
+    }
+    if (p->mode == MODE_AUTOHIDE && p->ah_state != AH_SHOWN) {
+        /* mid-slide: panel_autohide_tick() moves it to the new x/y */
+        XResizeWindow(g_dpy, p->win, (unsigned)p->w, (unsigned)p->h);
+    } else {
+        XMoveResizeWindow(g_dpy, p->win, p->x, p->y, (unsigned)p->w, (unsigned)p->h);
+    }
+    if (p->sensor_win != None) {
+        if (horizontal) {
+            XMoveResizeWindow(g_dpy, p->sensor_win, p->x, p->edge == EDGE_TOP ? p->out_y : p->out_y + p->out_h - 1,
+                              (unsigned)p->w, 1);
+        } else {
+            XMoveResizeWindow(g_dpy, p->sensor_win, p->edge == EDGE_LEFT ? p->out_x : p->out_x + p->out_w - 1, p->y,
+                              1, (unsigned)p->h);
+        }
+    }
+    panel_resize_buffers(p);
+}
+
+/* The length an autosize panel wants for `content` px of real widgets, or
+ * 0 if this panel isn't autosize (min_pct unset, or not below pct).
+ * Rounded up to whole multiples of the thickness, so a window title or
+ * clock text changing by a few pixels doesn't resize the window (and make
+ * a compositor rebind its pixmap) every time. */
+static int panel_autosize_len(const Panel *p, int content)
+{
+    if (p->mode == MODE_CONTAINER || p->min_pct <= 0 || p->min_pct >= p->pct) {
+        return 0;
+    }
+    int edge_len = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? p->out_w : p->out_h;
+    int min_len = edge_len * p->min_pct / 100;
+    int max_len = edge_len * p->pct / 100;
+    int step = p->thickness > 0 ? p->thickness : 1;
+    int len = (content + step - 1) / step * step;
+    if (len < min_len) {
+        len = min_len;
+    }
+    return len > max_len ? max_len : len;
 }
 
 /* ------------------------------------------------------------------ */
@@ -2344,12 +2408,13 @@ static void panel_layout(Panel *p)
         panel_mirror_rtl(p);
         return;
     }
-    int axis_len = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? p->w : p->h;
     int lens[MAX_WIDGETS * 2];
     int mins[MAX_WIDGETS * 2];
+    char spacer[MAX_WIDGETS * 2];
     int n_greedy = 0;
     int fixed_total = 0;
     int min_total = 0;
+    int spacer_total = 0; /* fixed-size spacers only; greedy ones are 0 here anyway */
 
     for (int i = 0; i < p->n_layout; i++) {
         PanelWidget *w = p->layout[i];
@@ -2359,6 +2424,7 @@ static void panel_layout(Panel *p)
             w->ops->measure(w, p->thickness, &out_len, &out_min);
         }
         lens[i] = out_len;
+        spacer[i] = strcmp(w->ops->type_name, "spacer") == 0;
         if (out_len < 0) {
             n_greedy++;
             mins[i] = 0;
@@ -2366,10 +2432,19 @@ static void panel_layout(Panel *p)
             fixed_total += out_len;
             mins[i] = out_min < 0 ? 0 : (out_min > out_len ? out_len : out_min);
             min_total += mins[i];
+            if (spacer[i]) {
+                spacer_total += out_len;
+            }
         }
     }
 
     int spacing_total = p->spacing * (p->n_layout > 0 ? p->n_layout - 1 : 0);
+    int auto_len = panel_autosize_len(p, fixed_total - spacer_total + spacing_total);
+    int axis_len = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? p->w : p->h;
+    if (auto_len > 0 && auto_len != axis_len) {
+        panel_autosize_set_len(p, auto_len);
+        axis_len = auto_len;
+    }
     int available = axis_len - spacing_total;
     if (available < 0) {
         available = 0;
@@ -2392,20 +2467,25 @@ static void panel_layout(Panel *p)
          * squeeze. If even every widget's minimum doesn't fit, this is a
          * panel too small for its content -- everyone just gets their
          * minimum and the last one(s) get slightly clipped, which is the
-         * best any layout can do here. */
-        int shrinkable = fixed_total - min_total;
+         * best any layout can do here. Spacers go first, all the way to
+         * 0, before any real widget gives up a pixel. */
         int deficit = fixed_total - available;
+        int from_spacers = deficit < spacer_total ? deficit : spacer_total;
+        deficit -= from_spacers;
+        int shrinkable = fixed_total - spacer_total - min_total; /* spacers' mins are 0 */
         if (deficit > shrinkable) {
             deficit = shrinkable;
         }
         for (int i = 0; i < p->n_layout; i++) {
             if (lens[i] < 0) {
                 final_lens[i] = 0;
-                continue;
+            } else if (spacer[i]) {
+                final_lens[i] = lens[i] - (int)((int64_t)from_spacers * lens[i] / spacer_total);
+            } else {
+                int slack = lens[i] - mins[i];
+                int shrink = (shrinkable > 0) ? (int)((int64_t)deficit * slack / shrinkable) : 0;
+                final_lens[i] = lens[i] - shrink;
             }
-            int slack = lens[i] - mins[i];
-            int shrink = (shrinkable > 0) ? (int)((int64_t)deficit * slack / shrinkable) : 0;
-            final_lens[i] = lens[i] - shrink;
         }
     }
 
@@ -3005,6 +3085,10 @@ static void apply_panel_kv(Panel *p, const char *kvline)
     }
     if (p->pct > 100) {
         p->pct = 100;
+    }
+    p->min_pct = kv_get_int(kvline, "min_pct", p->min_pct);
+    if (p->min_pct < 0 || p->min_pct > 100) {
+        p->min_pct = 0;
     }
     if (kv_get(kvline, "align", buf, sizeof(buf))) {
         p->align = strcmp(buf, "start") == 0 ? PANEL_ALIGN_START
@@ -4744,8 +4828,9 @@ static int run_as_daemon(const char *sockpath)
                         geo[k][2] = p->layout[k]->len;
                         geo[k][3] = p->layout[k]->thickness;
                     }
+                    int old_w = p->w, old_h = p->h;
                     panel_layout(p);
-                    partial = p->n_layout == n;
+                    partial = p->n_layout == n && p->w == old_w && p->h == old_h; /* min_pct= autosize */
                     for (int k = 0; partial && k < n; k++) {
                         partial = geo[k][0] == p->layout[k]->x && geo[k][1] == p->layout[k]->y &&
                                   geo[k][2] == p->layout[k]->len && geo[k][3] == p->layout[k]->thickness;
