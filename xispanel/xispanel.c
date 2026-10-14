@@ -100,7 +100,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.7.3"
+#define XISPANEL_VERSION "0.7.4"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -1984,17 +1984,8 @@ static void panel_apply_shape(Panel *p)
  * same_desktop_only+same_output_only combination uses, since "is there a
  * maximized window on this panel's own view" is that same filter with an
  * early-out on the first match instead of collecting every task. */
-static void panel_update_squared_for_maximized(Panel *p)
+static int panel_has_maximized(const Panel *p)
 {
-    if (!p->square_when_maximized) {
-        if (p->squared_now) {
-            p->squared_now = 0;
-            panel_apply_shape(p);
-            p->dirty = 1;
-        }
-        return;
-    }
-
     int kiwm_output_idx = -1;
     int current_desktop = -1;
     ewmh_resolve_active_for_output(p->output, &kiwm_output_idx, &current_desktop);
@@ -2033,10 +2024,31 @@ static void panel_update_squared_for_maximized(Panel *p)
         }
         XFree(list);
     }
+    return squared;
+}
 
+static void panel_update_squared_for_maximized(Panel *p)
+{
+    if (!p->square_when_maximized && !p->max_when_maximized) {
+        if (p->squared_now || p->maxed_now) {
+            p->squared_now = 0;
+            p->maxed_now = 0;
+            panel_apply_shape(p);
+            p->dirty = 1;
+        }
+        return;
+    }
+
+    int has = panel_has_maximized(p);
+    int squared = p->square_when_maximized && has;
+    int maxed = p->max_when_maximized && has;
     if (squared != p->squared_now) {
         p->squared_now = squared;
         panel_apply_shape(p);
+        p->dirty = 1;
+    }
+    if (maxed != p->maxed_now) {
+        p->maxed_now = maxed; /* panel_autosize_len() picks it up on the next layout */
         p->dirty = 1;
     }
 }
@@ -2370,6 +2382,9 @@ static int panel_autosize_len(const Panel *p, int content)
     int edge_len = panel_edge_len(p);
     int min_len = edge_len * p->min_pct / 100;
     int max_len = edge_len * p->pct / 100;
+    if (p->maxed_now) {
+        return max_len; /* max_when_maximized= */
+    }
     int step = p->thickness > 0 ? p->thickness : 1;
     int len = (content + step - 1) / step * step;
     if (len < min_len) {
@@ -3231,6 +3246,7 @@ static void apply_panel_kv(Panel *p, const char *kvline)
         p->tooltip_toast_padding_extra = 0;
     }
     p->square_when_maximized = kv_get_int(kvline, "square_when_maximized", p->square_when_maximized) != 0;
+    p->max_when_maximized = kv_get_int(kvline, "max_when_maximized", p->max_when_maximized) != 0;
 }
 
 static void apply_theme_kv(Panel *p, const char *kvline)

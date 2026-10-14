@@ -211,6 +211,10 @@ PANEL	top	*	edge=top	pct=100	thickness=32	mode=dock
   as normal either way. Re-checked live on every relevant window-manager
   property change (maximize/minimize, client list, active window,
   current desktop) -- same events `tasklist`/`winctl` already re-poll on.
+- `max_when_maximized`: `0` (default) or `1`. On a `min_pct=` (autosize)
+  bar, keeps it at its full `pct=` length while a window is maximized on
+  its own output+desktop, instead of shrinking to its content. Same
+  live re-check as `square_when_maximized`.
 
 - `focus_key`: keyboard-navigation hotkey, same `<spec>` grammar as
   widget `hotkey=` (see "Global hotkeys"). One binding for the whole

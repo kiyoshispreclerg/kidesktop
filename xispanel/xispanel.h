@@ -421,6 +421,10 @@ struct Panel {
      * when the feature is off. */
     int square_when_maximized;
     int squared_now;
+    /* max_when_maximized=yes: an autosize (min_pct=) bar stays at pct= while
+     * a window is maximized on its output (same check as squared_now). */
+    int max_when_maximized;
+    int maxed_now;
     int shaped; /* 1 once a rounded-corner shape mask has been applied */
     /* 1 if the last panel_apply_shape() found an ARGB visual *and* an
      * actual compositor holding _NET_WM_CM_S<screen> -- panel_paint_
@@ -697,11 +701,11 @@ int panel_lookup_output_rect(const char *name, int *out_x, int *out_y, int *out_
  * round trip every call) -- resolve_output_geometry() (xispanel.c) and
  * ewmh_kiwm_current_desktop_for_output() (ewmh.c) special-case only the
  * edid: prefix internally instead, for exactly that reason. */
+int panel_full_len(const Panel *p);
 int panel_resolve_output_name(const char *name, char *out, size_t outsz);
 /* panel_resolve_output_name(p->output, ...) -- convenience for a caller
  * that already has the Panel* in hand (pager.c) rather than just the
  * bare string (ewmh_kiwm_current_desktop_for_output() and its own
-int panel_full_len(const Panel *p);
  * callers, which only ever see w->panel->output as a string). */
 int panel_resolve_own_output(const Panel *p, char *out, size_t outsz);
 /* Decodes any format Imlib2 understands (PNG, SVG if librsvg's loader is

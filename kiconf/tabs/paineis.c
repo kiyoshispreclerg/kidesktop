@@ -1207,6 +1207,7 @@ static const WidgetField PANEL_FIELDS[] = {
     WF_ENUM("edge", "Borda", "top", PANEL_EDGE_OPTS),
     WF_INT("pct", "Percentual da borda ocupado (1-100)", "100", 1, 100),
     WF_INT("min_pct", "Percentual minimo (0 = tamanho fixo; abaixo de pct = autoredimensionavel)", "0", 0, 100),
+    WF_BOOL01("max_when_maximized", "Manter no tamanho maximo com janela maximizada (so com min_pct)", "0"),
     WF_ENUM("align", "Alinhamento na borda (start = esquerda/topo)", "center", PANEL_ALIGN_OPTS),
     WF_INT("thickness", "Espessura (px)", "32", 4, 500),
     WF_BOOL01("follow_wm_gap", "Flutuar com o espacamento do kiwm", "0"),
