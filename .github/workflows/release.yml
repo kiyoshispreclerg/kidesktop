@@ -8,6 +8,10 @@
 #                                            to a release marked pre-release
 #   "Run workflow" without a tag           -> built from the chosen branch,
 #                                            kept as workflow artifacts only
+#
+# Before anything is published, every .deb is installed in a clean image of
+# its own distro and a KiDesktop session is started on Xvfb (see
+# scripts/smoke-test-session.sh); a failing smoke test blocks the release.
 name: Release packages
 
 on:
@@ -128,9 +132,46 @@ jobs:
           name: deb-${{ matrix.name }}
           path: dist/*.deb
 
+  smoke:
+    name: smoke test (${{ matrix.image }})
+    needs: [gate, deb]
+    if: needs.gate.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: "ubuntu:22.04"
+            name: ubuntu-22.04
+          - image: "ubuntu:24.04"
+            name: ubuntu-24.04
+          - image: "debian:12"
+            name: debian-12
+          - image: "debian:13"
+            name: debian-13
+    steps:
+      # A clean image on purpose: none of the -dev packages the build used,
+      # so a missing Depends in the .deb shows up here.
+      - name: Install git
+        run: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git ca-certificates
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate.outputs.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: deb-${{ matrix.name }}
+          path: pkg
+      - name: Install the .deb and test tools
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get install -y ./pkg/*.deb xvfb x11-utils procps
+      - name: Start a KiDesktop session
+        run: ./scripts/smoke-test-session.sh
+
   publish:
     name: attach to release
-    needs: [gate, source, deb]
+    needs: [gate, source, deb, smoke]
     if: needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
     steps:
