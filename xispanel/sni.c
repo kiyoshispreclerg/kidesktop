@@ -599,6 +599,9 @@ static void sni_send2i(const char *dest, const char *path, const char *iface, co
     p_dbus_message_iter_append_basic(&it, DBUS_TYPE_INT32, &y);
     p_dbus_connection_send(g_conn, msg, NULL);
     p_dbus_message_unref(msg);
+    /* Without this the call sits in the output queue until some later
+     * flush, so ContextMenu/Activate would reach the app seconds late. */
+    p_dbus_connection_flush(g_conn);
 }
 
 /* Reads a Properties.Get reply's single top-level variant<string>, into
@@ -1043,7 +1046,14 @@ static void sni_handle_incoming(void)
              * anyway -- we just use whatever sender gave us. Fall back to
              * the message sender's own unique name if the argument is
              * empty (seen from at least one real client). */
+            char combined[256];
             const char *registered = arg && arg[0] ? arg : (sender ? sender : "");
+            if (registered[0] == '/' && sender) {
+                /* libappindicator/Ayatana (GTK apps, e.g. stardict) pass
+                 * only the object path; the owner is the sender. */
+                snprintf(combined, sizeof(combined), "%s%s", sender, registered);
+                registered = combined;
+            }
             sni_register_item(registered);
             reply = p_dbus_message_new_method_return(msg);
             /* Only from here, where *we* are the watcher -- sni_register_item()
@@ -1451,6 +1461,27 @@ void sni_secondary_activate(int idx, int x, int y)
         return;
     }
     sni_send2i(g_items[idx].busname, g_items[idx].path, SNI_ITEM_IFACE, "SecondaryActivate", x, y);
+}
+
+/* Scroll(delta, orientation): KDE convention, 120 per wheel notch, positive
+ * for up/left. */
+void sni_scroll(int idx, int delta, int horizontal)
+{
+    if (idx < 0 || idx >= g_n_items || !sni_ensure_connected()) {
+        return;
+    }
+    DBusMessage *msg = p_dbus_message_new_method_call(g_items[idx].busname, g_items[idx].path, SNI_ITEM_IFACE, "Scroll");
+    if (!msg) {
+        return;
+    }
+    const char *orient = horizontal ? "horizontal" : "vertical";
+    DBusMessageIter it;
+    p_dbus_message_iter_init_append(msg, &it);
+    p_dbus_message_iter_append_basic(&it, DBUS_TYPE_INT32, &delta);
+    p_dbus_message_iter_append_basic(&it, DBUS_TYPE_STRING, &orient);
+    p_dbus_connection_send(g_conn, msg, NULL);
+    p_dbus_message_unref(msg);
+    p_dbus_connection_flush(g_conn);
 }
 
 void sni_context_menu(int idx, int x, int y)

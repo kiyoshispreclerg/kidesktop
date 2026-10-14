@@ -44,6 +44,13 @@ void sni_secondary_activate(int idx, int x, int y)
     (void)y;
 }
 
+void sni_scroll(int idx, int delta, int horizontal)
+{
+    (void)idx;
+    (void)delta;
+    (void)horizontal;
+}
+
 void sni_context_menu(int idx, int x, int y)
 {
     (void)idx;

@@ -32,6 +32,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 typedef struct {
     /* px of empty space around the whole widget's icon grid, *and*
@@ -225,6 +226,27 @@ static int tray_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t bufsz
     return 1;
 }
 
+/* Every SNI call here waits for the physical button to come up (at most
+ * ~400 ms): an app popping its own menu while the button is still down has
+ * it dismissed by the release, and xembedsniproxy (the bridge for XEmbed
+ * icons -- GtkStatusIcon apps like stardict) answers Activate/ContextMenu
+ * by faking an XTest click on the real icon, which is lost while the real
+ * button is still held. */
+static void tray_wait_button_release(int button)
+{
+    unsigned int mask_bit = button == Button3 ? Button3Mask : button == Button2 ? Button2Mask : Button1Mask;
+    for (int i = 0; i < 80; i++) {
+        Window r, c;
+        int rx, ry, wx, wy;
+        unsigned int mask;
+        if (!XQueryPointer(g_dpy, DefaultRootWindow(g_dpy), &r, &c, &rx, &ry, &wx, &wy, &mask) ||
+            !(mask & mask_bit)) {
+            return;
+        }
+        usleep(5000);
+    }
+}
+
 static int tray_on_button(PanelWidget *w, int button, int local_x, int local_y, int root_x, int root_y)
 {
     int icon_px, slot, pad, rows;
@@ -236,15 +258,30 @@ static int tray_on_button(PanelWidget *w, int button, int local_x, int local_y, 
     int anchor_x = pad + (idx / rows) * slot;
     switch (button) {
     case Button1:
+        tray_wait_button_release(Button1);
         sni_activate(idx, root_x, root_y);
         return 1;
     case Button2:
+        tray_wait_button_release(Button2);
         sni_secondary_activate(idx, root_x, root_y);
         return 1;
     case Button3:
+        tray_wait_button_release(Button3);
         if (!sni_menu_open(idx, w->panel, w, anchor_x, icon_px)) {
             sni_context_menu(idx, root_x, root_y);
         }
+        return 1;
+    case Button4:
+        sni_scroll(idx, 120, 0);
+        return 1;
+    case Button5:
+        sni_scroll(idx, -120, 0);
+        return 1;
+    case 6:
+        sni_scroll(idx, 120, 1);
+        return 1;
+    case 7:
+        sni_scroll(idx, -120, 1);
         return 1;
     default:
         return 0;

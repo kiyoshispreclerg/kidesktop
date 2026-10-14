@@ -1449,6 +1449,7 @@ const char *sni_title(int idx); /* "" if idx out of range */
 cairo_surface_t *sni_icon(int idx); /* NULL if unknown/idx out of range */
 void sni_activate(int idx, int x, int y); /* left click */
 void sni_secondary_activate(int idx, int x, int y); /* middle click */
+void sni_scroll(int idx, int delta, int horizontal); /* wheel */
 void sni_context_menu(int idx, int x, int y); /* right click */
 /* If the item has a Menu (DBusMenu) property, fetches+flattens its layout
  * and opens it via panel_menu_open(), returning 1 -- the item's own
