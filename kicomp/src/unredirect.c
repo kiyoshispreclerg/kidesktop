@@ -263,6 +263,13 @@ static CompWindow *candidate_for(CompOutput *o)
     if (top->type == COMP_WINDOW_DESKTOP || top->type == COMP_WINDOW_DOCK)
         return NULL;
 
+    /* And not a window that asked to stay composited
+     * (_NET_WM_BYPASS_COMPOSITOR = 2): it knows something the geometry
+     * doesn't, such as the part that draws at the display's rate being a
+     * child window that covers only some of the output. */
+    if (top->bypass_compositor == 2)
+        return NULL;
+
     return top;
 }
 

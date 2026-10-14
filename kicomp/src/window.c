@@ -254,6 +254,26 @@ void window_update_opacity(CompWindow *w)
     }
 }
 
+void window_update_bypass(CompWindow *w)
+{
+    w->bypass_compositor = 0;
+    xcb_window_t client = w->client != XCB_NONE ? w->client : w->id;
+    if (comp.atoms.net_wm_bypass_compositor == XCB_NONE)
+        return;
+
+    xcb_get_property_reply_t *r = xcb_get_property_reply(comp.conn,
+        xcb_get_property(comp.conn, 0, client, comp.atoms.net_wm_bypass_compositor,
+                         XCB_ATOM_CARDINAL, 0, 1), NULL);
+    if (!r)
+        return;
+    if (r->type == XCB_ATOM_CARDINAL && r->format == 32 &&
+        xcb_get_property_value_length(r) >= 4) {
+        uint32_t v = *(uint32_t *)xcb_get_property_value(r);
+        w->bypass_compositor = v <= 2 ? (uint8_t)v : 0;
+    }
+    free(r);
+}
+
 void window_update_corner_radii(CompWindow *w)
 {
     bool was_known = w->corner_radii_known;
@@ -620,6 +640,7 @@ void window_client_reparented(xcb_window_t frame_id, xcb_window_t client)
     xcb_change_window_attributes(comp.conn, client, XCB_CW_EVENT_MASK, &mask);
 
     read_window_kind(w);
+    window_update_bypass(w);
     w->state = w->state_before = read_window_state(w);
     comp_log("window 0x%x framed client 0x%x (%s, state 0x%x)",
              w->id, client, comp_window_type_name(w->type), w->state);
@@ -1359,6 +1380,7 @@ static void window_add_at(xcb_window_t id, xcb_window_t above, bool on_top)
         xcb_shape_select_input(comp.conn, id, 1);
 
     window_update_opacity(w);
+    window_update_bypass(w);
     window_update_corner_radii(w);
     read_wm_layer(w);
     read_window_kind(w);

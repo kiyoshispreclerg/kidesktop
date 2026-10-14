@@ -33,6 +33,8 @@ void window_configure(xcb_window_t id, int x, int y, int w, int h, int border,
                       xcb_window_t above);
 void window_restack(xcb_window_t id, xcb_window_t above);
 void window_update_opacity(CompWindow *w);
+/* Re-reads _NET_WM_BYPASS_COMPOSITOR from the client window. */
+void window_update_bypass(CompWindow *w);
 
 /* _KIWM_CORNER_RADIUS on the frame (comp.h's corner_radii_known/corner_*):
  * kiwm's own answer for what its rounded corners actually are, so a

@@ -33,7 +33,7 @@
 
 #define _GNU_SOURCE             /* ppoll */
 
-#define KICOMP_VERSION "0.3.57"
+#define KICOMP_VERSION "0.3.58"
 
 #include "../../shared/xis_i18n.h"
 
@@ -223,6 +223,7 @@ static void atoms_init(void)
     comp.atoms.net_wm_cm              = intern(cm);
     comp.atoms.manager                = intern("MANAGER");
     comp.atoms.net_wm_window_opacity  = intern("_NET_WM_WINDOW_OPACITY");
+    comp.atoms.net_wm_bypass_compositor = intern("_NET_WM_BYPASS_COMPOSITOR");
     comp.atoms.xrootpmap_id           = intern("_XROOTPMAP_ID");
     comp.atoms.esetroot_pmap_id       = intern("ESETROOT_PMAP_ID");
     comp.atoms.kiwm_layer             = intern("_KIWM_LAYER");
@@ -970,6 +971,13 @@ static void handle_event(xcb_generic_event_t *ev)
                 w = window_find(e->window);
             if (w)
                 window_state_changed(w);
+        } else if (e->atom == comp.atoms.net_wm_bypass_compositor) {
+            /* On the client, like the state above. */
+            CompWindow *w = window_find_by_client(e->window);
+            if (!w)
+                w = window_find(e->window);
+            if (w)
+                window_update_bypass(w);
         } else if (e->atom == comp.atoms.net_wm_desktop ||
                    e->atom == comp.atoms.kiwm_wm_output) {
             /* Same split: whichever the WM published this on. */

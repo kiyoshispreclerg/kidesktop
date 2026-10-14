@@ -262,6 +262,13 @@ typedef struct CompWindow {
 
     double opacity;            /* _NET_WM_WINDOW_OPACITY, 1.0 when unset */
 
+    /* _NET_WM_BYPASS_COMPOSITOR on the client: 0 no preference, 1 asks to
+     * be unredirected, 2 asks never to be (unredirect.c). A window can
+     * cover its output and still be a poor fit for scanout -- a video
+     * player whose video is a child window covering only part of it,
+     * next to a panel it draws itself -- and only the client knows. */
+    uint8_t bypass_compositor;
+
     /* _KIWM_LAYER: kiwm marks its own overlay windows ("osd", "outline")
      * so the compositor can recognize them. Empty for everything else.
      * Whether they get composited at all is kicomp's call
@@ -609,6 +616,7 @@ typedef struct KiComp {
     struct {
         xcb_atom_t net_wm_cm;
         xcb_atom_t net_wm_window_opacity;
+        xcb_atom_t net_wm_bypass_compositor;
         xcb_atom_t xrootpmap_id;
         xcb_atom_t esetroot_pmap_id;
         xcb_atom_t kiwm_layer;
