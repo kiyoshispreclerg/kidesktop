@@ -414,10 +414,11 @@ static void winctl_measure(PanelWidget *w, int cross_axis, int *out_len, int *ou
     int fixed = wp->fixed_width;
     if (wp->fixed_width_pct > 0) {
         /* Resolved fresh every measure() (not cached) against the panel's
-         * current main-axis length, so a RandR/output geometry change
-         * that resizes the panel keeps the percentage accurate instead of
-         * freezing it at whatever it resolved to at startup. */
-        int main_axis_len = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? p->w : p->h;
+         * full (pct=) length, so a RandR/output geometry change keeps the
+         * percentage accurate. Not p->w: on a min_pct= bar that is the
+         * autosized length, which this very width feeds back into -- the
+         * bar and the tasklist's wide/icon choice then flip-flopped. */
+        int main_axis_len = panel_full_len(p);
         fixed = (main_axis_len * wp->fixed_width_pct) / 100;
     }
 

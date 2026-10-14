@@ -825,6 +825,13 @@ static int panel_edge_len(const Panel *p)
     return full - 2 * panel_edge_margin(p);
 }
 
+/* The longest the bar can ever be along its edge (pct=), regardless of
+ * where min_pct= autosize has it right now. */
+int panel_full_len(const Panel *p)
+{
+    return panel_edge_len(p) * p->pct / 100;
+}
+
 static void panel_resolve_geometry(Panel *p)
 {
     /* A container popup lives on whatever output its owner widget's

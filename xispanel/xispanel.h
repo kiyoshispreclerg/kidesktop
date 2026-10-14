@@ -701,6 +701,7 @@ int panel_resolve_output_name(const char *name, char *out, size_t outsz);
 /* panel_resolve_output_name(p->output, ...) -- convenience for a caller
  * that already has the Panel* in hand (pager.c) rather than just the
  * bare string (ewmh_kiwm_current_desktop_for_output() and its own
+int panel_full_len(const Panel *p);
  * callers, which only ever see w->panel->output as a string). */
 int panel_resolve_own_output(const Panel *p, char *out, size_t outsz);
 /* Decodes any format Imlib2 understands (PNG, SVG if librsvg's loader is
