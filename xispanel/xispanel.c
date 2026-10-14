@@ -100,7 +100,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.7.2"
+#define XISPANEL_VERSION "0.7.3"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -798,9 +798,17 @@ static int panel_read_wm_gap(const Panel *p)
     char names[16][64];
     int n = 0;
     int idx = 0;
+    /* output= may be an "edid:..." stable id; _KIWM_OUTPUTS is connector
+     * names only, so without resolving it every such panel read output 0's
+     * gap. */
+    char resolved[XIS_OUTPUT_STR_LEN];
+    const char *want = p->output;
+    if (strncmp(want, "edid:", 5) == 0 && panel_resolve_output_name(want, resolved, sizeof(resolved))) {
+        want = resolved;
+    }
     if (ewmh_kiwm_get_outputs(names, 16, &n)) {
         for (int i = 0; i < n; i++) {
-            if (strcmp(names[i], p->output) == 0) {
+            if (strcmp(names[i], want) == 0) {
                 idx = i;
                 break;
             }
