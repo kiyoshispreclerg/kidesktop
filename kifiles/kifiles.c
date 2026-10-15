@@ -686,6 +686,35 @@ static gboolean on_delete(GtkWidget *w, GdkEvent *e, gpointer d)
 
 static void a_properties(GtkAction *a, gpointer d);
 
+/* The places panel may take up to half of the window: GtkPaned has no maximum
+ * of its own, so a position past that is pulled back. */
+static void clamp_places(KfApp *app)
+{
+    static gboolean busy;
+    GtkAllocation a;
+    gtk_widget_get_allocation(app->main_paned, &a);
+    if (busy || a.width <= 1)
+        return;
+    int max = a.width / 2;
+    if (gtk_paned_get_position(GTK_PANED(app->main_paned)) > max) {
+        busy = TRUE;
+        gtk_paned_set_position(GTK_PANED(app->main_paned), max);
+        busy = FALSE;
+    }
+}
+
+static void on_places_position(GObject *o, GParamSpec *ps, gpointer d)
+{
+    (void)o; (void)ps;
+    clamp_places(d);
+}
+
+static void on_main_allocate(GtkWidget *w, GtkAllocation *a, gpointer d)
+{
+    (void)w; (void)a;
+    clamp_places(d);       /* the window got narrower under the panel */
+}
+
 /* ---- context menu -------------------------------------------------------------- */
 
 static void on_open_with(GtkMenuItem *mi, gpointer d)
@@ -1146,8 +1175,10 @@ int main(int argc, char **argv)
     app->places = kf_places_new(app);
     gtk_paned_pack1(GTK_PANED(app->main_paned), app->places, FALSE, FALSE);
     gtk_paned_set_position(GTK_PANED(app->main_paned), app->cfg.places_w);
+    g_signal_connect(app->main_paned, "notify::position", G_CALLBACK(on_places_position), app);
+    g_signal_connect(app->main_paned, "size-allocate", G_CALLBACK(on_main_allocate), app);
     app->panes_paned = gtk_hpaned_new();
-    gtk_paned_pack2(GTK_PANED(app->main_paned), app->panes_paned, TRUE, FALSE);
+    gtk_paned_pack2(GTK_PANED(app->main_paned), app->panes_paned, TRUE, TRUE);
 
     /* status bar */
     GtkWidget *sb = gtk_hbox_new(FALSE, 8);

@@ -9,7 +9,7 @@ are used when installed).
 - Breadcrumb location bar (click the empty part, or `Ctrl+L`, to type a path;
   folders complete as you type), back / forward / up, mouse buttons 8 and 9
 - Split view (`F3`): two folders side by side, drag between them
-- Places sidebar: standard folders, bookmarks (shared with GTK3's
+- Places sidebar (resizable, up to half the window): standard folders, bookmarks (shared with GTK3's
   `~/.config/gtk-3.0/bookmarks`) and devices with a usage bar. The eject button
   unmounts and powers the drive off when it can, and says when it is safe to
   unplug. Unmounted volumes are listed; a click mounts them
