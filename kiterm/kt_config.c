@@ -50,7 +50,9 @@ void kt_config_defaults(KtConfig *c)
     c->opacity = 1.0;
     c->cursor_shape = VTE_CURSOR_SHAPE_BLOCK;
     c->cursor_blink = TRUE;
-    c->audible_bell = FALSE;
+    c->audible_bell = TRUE;      /* plays the sound theme's "bell"; the theme decides if it is heard */
+    c->notify_done = TRUE;
+    c->notify_done_secs = 10;
     c->urgent_on_bell = TRUE;
     c->scroll_on_output = FALSE;
     c->scroll_on_keystroke = TRUE;
@@ -128,6 +130,8 @@ void kt_config_load(KtConfig *c)
         else if (!strcmp(k, "cursor_shape")) c->cursor_shape = index_of(kShapes, 3, v, 0);
         else if (!strcmp(k, "cursor_blink")) c->cursor_blink = parse_bool(v);
         else if (!strcmp(k, "audible_bell")) c->audible_bell = parse_bool(v);
+        else if (!strcmp(k, "notify_done")) c->notify_done = parse_bool(v);
+        else if (!strcmp(k, "notify_done_secs")) c->notify_done_secs = CLAMP(atoi(v), 1, 3600);
         else if (!strcmp(k, "urgent_on_bell")) c->urgent_on_bell = parse_bool(v);
         else if (!strcmp(k, "scroll_on_output")) c->scroll_on_output = parse_bool(v);
         else if (!strcmp(k, "scroll_on_keystroke")) c->scroll_on_keystroke = parse_bool(v);
@@ -171,6 +175,7 @@ gboolean kt_config_save(const KtConfig *c)
     }
     fprintf(f, "cursor_shape=%s\ncursor_blink=%d\naudible_bell=%d\nurgent_on_bell=%d\n",
             kShapes[CLAMP(c->cursor_shape, 0, 2)], c->cursor_blink, c->audible_bell, c->urgent_on_bell);
+    fprintf(f, "notify_done=%d\nnotify_done_secs=%d\n", c->notify_done, c->notify_done_secs);
     fprintf(f, "scroll_on_output=%d\nscroll_on_keystroke=%d\nconfirm_close=%d\n",
             c->scroll_on_output, c->scroll_on_keystroke, c->confirm_close);
     fprintf(f, "tabs=%s\nshell=%s\nword_chars=%s\ncolumns=%d\nrows=%d\n",

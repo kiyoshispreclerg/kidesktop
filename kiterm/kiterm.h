@@ -21,6 +21,8 @@ typedef struct KtWindow {
     char *title_override;       /* --title */
     gboolean argb;              /* window got an RGBA colormap */
     double zoom;                /* font scale, 1.0 = configured size */
+    gboolean focused;           /* the window has the input focus */
+    guint poll_id;              /* background-job poll (kiterm.c), 0 = stopped */
 } KtWindow;
 
 /* kiterm.c */
@@ -39,6 +41,10 @@ void kt_tab_apply_config(KtWindow *w, VteTerminal *t);
 char *kt_tab_cwd(VteTerminal *t);
 gboolean kt_tab_busy(VteTerminal *t);
 const char *kt_tab_title(VteTerminal *t);
+void kt_tab_set_attention(VteTerminal *t, gboolean on);
+void kt_tab_job_done(KtWindow *w, VteTerminal *t);
+gint64 kt_tab_age_us(VteTerminal *t);
+void kt_window_poll_update(KtWindow *w);
 void kt_tab_rename(KtWindow *w, VteTerminal *t);
 void kt_tab_popup_menu(KtWindow *w, VteTerminal *t, GdkEventButton *ev);
 

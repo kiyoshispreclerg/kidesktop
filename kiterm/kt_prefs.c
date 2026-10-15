@@ -78,6 +78,13 @@ static void on_spin_rows(GtkSpinButton *s, gpointer d)
     kt_config_save(&w->cfg);
 }
 
+static void on_spin_secs(GtkSpinButton *s, gpointer d)
+{
+    KtWindow *w = d;
+    w->cfg.notify_done_secs = gtk_spin_button_get_value_as_int(s);
+    kt_config_save(&w->cfg);
+}
+
 static void on_toggle(GtkToggleButton *b, gpointer d)
 {
     KtWindow *w = d;
@@ -241,7 +248,7 @@ static GtkWidget *page_colors(KtWindow *w)
 static GtkWidget *page_behavior(KtWindow *w)
 {
     GtkWidget *t = new_table();
-    gtk_table_resize(GTK_TABLE(t), 8, 2);
+    gtk_table_resize(GTK_TABLE(t), 9, 2);
     int r = 0;
 
     GtkWidget *shape = gtk_combo_box_new_text();
@@ -254,12 +261,18 @@ static GtkWidget *page_behavior(KtWindow *w)
     row(t, r++, _("Cursor _shape:"), shape);
 
     gboolean *flags[] = { &w->cfg.cursor_blink, &w->cfg.scroll_on_output, &w->cfg.scroll_on_keystroke,
-                          &w->cfg.audible_bell, &w->cfg.urgent_on_bell };
+                          &w->cfg.audible_bell, &w->cfg.urgent_on_bell, &w->cfg.notify_done };
     const char *labels[] = { _("Blinking cursor"), _("Scroll to the bottom on output"),
-                             _("Scroll to the bottom on keystroke"), _("Audible bell"),
-                             _("Flag the window when the bell rings in the background") };
-    for (int i = 0; i < 5; i++, r++)
+                             _("Scroll to the bottom on keystroke"), _("Play the bell sound"),
+                             _("Flag the window when the bell rings in the background"),
+                             _("Notify when a program finishes in another tab or an unfocused window") };
+    for (int i = 0; i < 6; i++, r++)
         gtk_table_attach(GTK_TABLE(t), check(w, labels[i], flags[i]), 0, 2, r, r + 1, GTK_FILL, 0, 0, 0);
+
+    GtkWidget *secs = gtk_spin_button_new_with_range(1, 3600, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(secs), w->cfg.notify_done_secs);
+    g_signal_connect(secs, "value-changed", G_CALLBACK(on_spin_secs), w);
+    row(t, r++, _("...only if it ran for at least (seconds):"), secs);
     return t;
 }
 

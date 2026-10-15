@@ -16,6 +16,8 @@ typedef struct {
     gboolean cursor_blink;
     gboolean audible_bell;
     gboolean urgent_on_bell;
+    gboolean notify_done;       /* sound + tab marker when a background job ends */
+    int notify_done_secs;       /* ... but only if it ran at least this long */
     gboolean scroll_on_output;
     gboolean scroll_on_keystroke;
     gboolean confirm_close;     /* ask before closing a tab with a running job */

@@ -4,6 +4,7 @@
 #include "kiterm.h"
 #include "../shared/xis_i18n.h"
 #include <limits.h>
+#include "../shared/xis_sound.h"
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,6 +13,8 @@
 #define KEY_PID   "kt-child-pid"
 #define KEY_LABEL "kt-tab-label"
 #define KEY_CUSTOM "kt-custom-title"
+#define KEY_ATTN  "kt-attention"
+#define KEY_BORN  "kt-born-us"
 
 static GRegex *url_regex;
 
@@ -34,7 +37,9 @@ void kt_tab_apply_config(KtWindow *w, VteTerminal *t)
     vte_terminal_set_scrollback_lines(t, c->scrollback);
     vte_terminal_set_cursor_shape(t, c->cursor_shape);
     vte_terminal_set_cursor_blink_mode(t, c->cursor_blink ? VTE_CURSOR_BLINK_ON : VTE_CURSOR_BLINK_OFF);
-    vte_terminal_set_audible_bell(t, c->audible_bell);
+    /* VTE's own beep is always off: the bell goes through the sound theme
+     * (on_beep), so one setting controls it for the whole desktop. */
+    vte_terminal_set_audible_bell(t, FALSE);
     vte_terminal_set_scroll_on_output(t, c->scroll_on_output);
     vte_terminal_set_scroll_on_keystroke(t, c->scroll_on_keystroke);
     vte_terminal_set_word_chars(t, c->word_chars);
@@ -81,8 +86,34 @@ static void tab_label_refresh(VteTerminal *t)
     if (!label)
         return;
     const char *title = kt_tab_title(t);
-    gtk_label_set_text(GTK_LABEL(label), title);
+    /* A dot marks a tab that rang the bell or finished a job unseen. */
+    char *txt = g_object_get_data(G_OBJECT(t), KEY_ATTN) ? g_strconcat("\xe2\x97\x8f ", title, NULL) : g_strdup(title);
+    gtk_label_set_text(GTK_LABEL(label), txt);
+    g_free(txt);
     gtk_widget_set_tooltip_text(label, title);
+}
+
+void kt_tab_set_attention(VteTerminal *t, gboolean on)
+{
+    if ((g_object_get_data(G_OBJECT(t), KEY_ATTN) != NULL) == on)
+        return;
+    g_object_set_data(G_OBJECT(t), KEY_ATTN, on ? GINT_TO_POINTER(1) : NULL);
+    tab_label_refresh(t);
+}
+
+gint64 kt_tab_age_us(VteTerminal *t)
+{
+    gint64 born = (gint64)GPOINTER_TO_SIZE(g_object_get_data(G_OBJECT(t), KEY_BORN));
+    return g_get_monotonic_time() - born;
+}
+
+/* A program that was running in a tab nobody was looking at is done. */
+void kt_tab_job_done(KtWindow *w, VteTerminal *t)
+{
+    xis_sound_play("complete");
+    kt_tab_set_attention(t, TRUE);
+    if (w->cfg.urgent_on_bell && !w->focused)
+        gtk_window_set_urgency_hint(GTK_WINDOW(w->win), TRUE);
 }
 
 static void on_title_changed(VteTerminal *t, gpointer data)
@@ -94,16 +125,25 @@ static void on_title_changed(VteTerminal *t, gpointer data)
 
 static void on_child_exited(VteTerminal *t, gpointer data)
 {
-    kt_window_close_tab(data, GTK_WIDGET(t));
+    KtWindow *w = data;
+    /* A `-e` command ending in a tab or window nobody is watching. */
+    if (w->cfg.notify_done && w->cmd_argv && (!w->focused || t != kt_window_current(w)) &&
+        kt_tab_age_us(t) >= (gint64)w->cfg.notify_done_secs * G_USEC_PER_SEC)
+        kt_tab_job_done(w, t);
+    kt_window_close_tab(w, GTK_WIDGET(t));
 }
 
 static void on_beep(VteTerminal *t, gpointer data)
 {
-    (void)t;
     KtWindow *w = data;
-    if (w->cfg.urgent_on_bell && !gtk_window_has_toplevel_focus(GTK_WINDOW(w->win)))
+    if (w->cfg.audible_bell)
+        xis_sound_play("bell");
+    if (!w->focused || t != kt_window_current(w))
+        kt_tab_set_attention(t, TRUE);
+    if (w->cfg.urgent_on_bell && !w->focused)
         gtk_window_set_urgency_hint(GTK_WINDOW(w->win), TRUE);
 }
+
 
 static void open_url(const char *url)
 {
@@ -240,6 +280,7 @@ GtkWidget *kt_tab_create(KtWindow *w, const char *cwd, char **argv)
         g_clear_error(&err);
     }
     g_object_set_data(G_OBJECT(t), KEY_PID, GINT_TO_POINTER((int)pid));
+    g_object_set_data(G_OBJECT(t), KEY_BORN, GSIZE_TO_POINTER((gsize)g_get_monotonic_time()));
     return wd;
 }
 

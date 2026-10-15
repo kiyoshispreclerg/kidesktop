@@ -59,6 +59,7 @@ void kt_window_apply_config(KtWindow *w)
     int n = gtk_notebook_get_n_pages(nb);
     for (int i = 0; i < n; i++)
         kt_tab_apply_config(w, VTE_TERMINAL(gtk_notebook_get_nth_page(nb, i)));
+    kt_window_poll_update(w);
 }
 
 void kt_window_zoom(KtWindow *w, int dir)
@@ -91,6 +92,7 @@ void kt_window_new_tab(KtWindow *w, const char *cwd, char **argv)
     gtk_widget_show(term);
     gtk_notebook_set_current_page(nb, idx);
     update_tab_bar(w);
+    kt_window_poll_update(w);
     gtk_widget_grab_focus(term);
     kt_window_update_title(w);
 }
@@ -123,6 +125,7 @@ static void remove_tab(KtWindow *w, GtkWidget *term)
         return;
     }
     update_tab_bar(w);
+    kt_window_poll_update(w);
     kt_window_update_title(w);
 }
 
@@ -230,7 +233,11 @@ static gboolean on_key(GtkWidget *win, GdkEventKey *ev, gpointer data)
 
 static gboolean title_idle(gpointer data)
 {
-    kt_window_update_title(data);
+    KtWindow *w = data;
+    kt_window_update_title(w);
+    VteTerminal *t = kt_window_current(w);
+    if (t && w->focused)
+        kt_tab_set_attention(t, FALSE);     /* seen now */
     return FALSE;
 }
 
@@ -241,10 +248,62 @@ static void on_switch_page(GtkNotebook *nb, gpointer page, guint n, gpointer dat
     g_idle_add(title_idle, data);
 }
 
+/* Background-job watch: while the window is unfocused or has several tabs, look
+ * every 2 s for a foreground program that has returned to the shell. With one
+ * focused tab there is nothing to watch and the timer isn't running at all. */
+static gboolean poll_jobs(gpointer data)
+{
+    KtWindow *w = data;
+    GtkNotebook *nb = GTK_NOTEBOOK(w->notebook);
+    gint64 now = g_get_monotonic_time();
+    VteTerminal *cur = kt_window_current(w);
+    for (int i = 0; i < gtk_notebook_get_n_pages(nb); i++) {
+        VteTerminal *t = VTE_TERMINAL(gtk_notebook_get_nth_page(nb, i));
+        gint64 since = (gint64)GPOINTER_TO_SIZE(g_object_get_data(G_OBJECT(t), "kt-busy-since"));
+        gboolean busy = kt_tab_busy(t);
+        if (busy && !since) {
+            g_object_set_data(G_OBJECT(t), "kt-busy-since", GSIZE_TO_POINTER((gsize)now));
+        } else if (!busy && since) {
+            g_object_set_data(G_OBJECT(t), "kt-busy-since", NULL);
+            if (w->cfg.notify_done && (!w->focused || t != cur) &&
+                now - since >= (gint64)w->cfg.notify_done_secs * G_USEC_PER_SEC)
+                kt_tab_job_done(w, t);
+        }
+    }
+    return TRUE;
+}
+
+void kt_window_poll_update(KtWindow *w)
+{
+    gboolean need = w->cfg.notify_done &&
+        (!w->focused || gtk_notebook_get_n_pages(GTK_NOTEBOOK(w->notebook)) > 1);
+    if (need && !w->poll_id)
+        w->poll_id = g_timeout_add_seconds(2, poll_jobs, w);
+    else if (!need && w->poll_id) {
+        g_source_remove(w->poll_id);
+        w->poll_id = 0;
+    }
+}
+
 static gboolean on_focus_in(GtkWidget *win, GdkEvent *ev, gpointer data)
 {
-    (void)ev; (void)data;
+    (void)ev;
+    KtWindow *w = data;
+    w->focused = TRUE;
     gtk_window_set_urgency_hint(GTK_WINDOW(win), FALSE);
+    VteTerminal *t = kt_window_current(w);
+    if (t)
+        kt_tab_set_attention(t, FALSE);
+    kt_window_poll_update(w);
+    return FALSE;
+}
+
+static gboolean on_focus_out(GtkWidget *win, GdkEvent *ev, gpointer data)
+{
+    (void)win; (void)ev;
+    KtWindow *w = data;
+    w->focused = FALSE;
+    kt_window_poll_update(w);
     return FALSE;
 }
 
@@ -360,7 +419,9 @@ int main(int argc, char **argv)
 
     g_signal_connect(w->win, "key-press-event", G_CALLBACK(on_key), w);
     g_signal_connect(w->win, "delete-event", G_CALLBACK(on_delete), w);
-    g_signal_connect(w->win, "focus-in-event", G_CALLBACK(on_focus_in), NULL);
+    g_signal_connect(w->win, "focus-in-event", G_CALLBACK(on_focus_in), w);
+    g_signal_connect(w->win, "focus-out-event", G_CALLBACK(on_focus_out), w);
+    w->focused = TRUE;
     g_signal_connect(w->notebook, "switch-page", G_CALLBACK(on_switch_page), w);
     g_signal_connect(w->notebook, "button-press-event", G_CALLBACK(on_tab_click), w);
     g_signal_connect(w->win, "destroy", G_CALLBACK(gtk_main_quit), NULL);
