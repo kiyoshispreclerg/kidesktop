@@ -88,6 +88,62 @@ static void set_rect(KfPane *p, GtkWidget *w, gboolean has, const GdkRectangle *
     }
 }
 
+/* The box GTK paints for a selected icon: the item's cells plus the theme's
+ * item padding on every side, as wide as the cell and as tall as the *row*
+ * (the tallest item in it, so a one-line name sits in a box as tall as its
+ * neighbour's four-line one). Hit-testing only covers the cells, so the rest is
+ * derived: the cell hull from a search around the pointer, the row's height by
+ * probing the other items of the row, found one column pitch apart. The pitch
+ * and the gap between rows are the spacing properties plus the 2 px GTK adds
+ * (measured on screenshots of selected items). */
+static void icon_box(KfPane *p, GtkWidget *w, GtkTreePath *path, int x, int y, GdkRectangle *r)
+{
+    GtkIconView *iv = GTK_ICON_VIEW(w);
+    GtkAllocation a;
+    gtk_widget_get_allocation(w, &a);
+    (void)a;
+    int y0 = edge(p, w, path, x, y, FALSE, -1, 600), y1 = edge(p, w, path, x, y, FALSE, +1, 600);
+    int pad = 6;
+    gtk_widget_style_get(w, "item-padding", &pad, NULL);
+    /* Hit-testing covers only what the cells draw, so the horizontal extent
+     * comes from the regular grid instead: every cell is as wide as the text
+     * cell we fixed, columns are one pitch apart, starting at the margin. */
+    int cell_w = 0, cell_h = 0;
+    gtk_cell_renderer_get_fixed_size(p->icon_text_r, &cell_w, &cell_h);
+    int bw = cell_w + 2 * pad;
+    int bx = gtk_icon_view_get_margin(iv) + gtk_icon_view_get_item_column(iv, path) *
+             (bw + gtk_icon_view_get_column_spacing(iv) + 2);
+    int row = gtk_icon_view_get_item_row(iv, path);
+    if (p->hover_row != row) {
+        int pitch = bw + gtk_icon_view_get_column_spacing(iv) + 2;
+        int bottom = y1;
+        for (int dir = -1; dir <= 1; dir += 2) {
+            for (int k = 1; k < 64; k++) {
+                int px = bx + bw / 2 + dir * k * pitch, py = y0 + 2;
+                GtkTreePath *other = path_at(p, w, px, py);
+                if (!other)
+                    break;
+                gboolean same_row = gtk_icon_view_get_item_row(iv, other) == row;
+                if (same_row) {
+                    int ob = edge(p, w, other, px, py, FALSE, +1, 600);
+                    if (ob > bottom)
+                        bottom = ob;
+                }
+                gtk_tree_path_free(other);
+                if (!same_row)
+                    break;
+            }
+        }
+        p->hover_row = row;
+        p->hover_row_y0 = y0;
+        p->hover_row_y1 = bottom;
+    }
+    r->x = bx;
+    r->width = bw;
+    r->y = p->hover_row_y0 - pad - 1;      /* hit-testing starts 1 px inside the cell */
+    r->height = p->hover_row_y1 - p->hover_row_y0 + 1 + 2 * pad;
+}
+
 static void track(KfPane *p, GtkWidget *w, int x, int y)
 {
     if (!p->app->cfg.hover) {
@@ -112,17 +168,7 @@ static void track(KfPane *p, GtkWidget *w, int x, int y)
         gtk_tree_path_free(path);
         return;                          /* still inside the same box: nothing to do */
     } else {
-        GtkAllocation a;
-        gtk_widget_get_allocation(w, &a);
-        int hmax = a.width, vmax = 600;
-        int x0 = edge(p, w, path, x, y, TRUE, -1, hmax < 400 ? hmax : 400);
-        int x1 = edge(p, w, path, x, y, TRUE, +1, hmax < 400 ? hmax : 400);
-        int y0 = edge(p, w, path, x, y, FALSE, -1, vmax);
-        int y1 = edge(p, w, path, x, y, FALSE, +1, vmax);
-        r.x = x0;
-        r.y = y0;
-        r.width = x1 - x0 + 1;
-        r.height = y1 - y0 + 1;
+        icon_box(p, w, path, x, y, &r);
     }
     gtk_tree_path_free(path);
     set_rect(p, w, TRUE, &r);
@@ -135,6 +181,13 @@ static gboolean on_motion(GtkWidget *w, GdkEventMotion *ev, gpointer data)
         return FALSE;
     track(p, w, (int)ev->x, (int)ev->y);
     return FALSE;
+}
+
+/* Items reflow when the view changes width: what was measured is stale. */
+static void on_resize(GtkWidget *w, GtkAllocation *a, gpointer data)
+{
+    (void)w; (void)a;
+    kf_hover_clear(data);
 }
 
 static gboolean on_leave(GtkWidget *w, GdkEventCrossing *ev, gpointer data)
@@ -173,6 +226,7 @@ static gboolean on_expose(GtkWidget *w, GdkEventExpose *ev, gpointer data)
 
 void kf_hover_clear(KfPane *p)
 {
+    p->hover_row = -1;
     GtkWidget *w = p->view == KF_VIEW_ICONS ? p->iconview : p->treeview;
     set_rect(p, w, FALSE, NULL);
 }
@@ -195,6 +249,7 @@ void kf_hover_refresh(KfPane *p)
         set_rect(p, w, FALSE, NULL);
         return;
     }
+    p->hover_row = -1;
     p->hover_has = FALSE;               /* the old box is stale after a scroll/reload */
     track(p, w, x, y);
 }
@@ -212,6 +267,7 @@ void kf_hover_setup(KfPane *p)
         gtk_widget_add_events(views[i], GDK_POINTER_MOTION_MASK | GDK_LEAVE_NOTIFY_MASK);
         g_signal_connect(views[i], "motion-notify-event", G_CALLBACK(on_motion), p);
         g_signal_connect(views[i], "leave-notify-event", G_CALLBACK(on_leave), p);
+        g_signal_connect(views[i], "size-allocate", G_CALLBACK(on_resize), p);
         /* Icon view: before it paints (its expose handler returns TRUE, which
          * would keep an "after" handler from running), so the box ends up behind
          * the icons as in KDE4. Tree view: after, because it paints opaque row

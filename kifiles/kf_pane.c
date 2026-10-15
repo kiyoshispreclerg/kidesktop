@@ -1205,6 +1205,7 @@ KfPane *kf_pane_new(KfApp *app)
 {
     KfPane *p = g_new0(KfPane, 1);
     p->app = app;
+    p->hover_row = -1;
     p->rows = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, (GDestroyNotify)gtk_tree_row_reference_free);
     p->typedescs = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
     p->store = gtk_list_store_new(KF_N_COLS, G_TYPE_OBJECT, G_TYPE_STRING, GDK_TYPE_PIXBUF, GDK_TYPE_PIXBUF,
