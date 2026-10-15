@@ -15,6 +15,10 @@ GtkWidget *build_wallpaper_tab(void);
 GtkWidget *build_telas_tab(void);
 GtkWidget *build_janelas_tab(void);
 GtkWidget *build_efeitos_tab(void);
+/* Hot corners frame inside the Efeitos tab (tabs/cantos.c): built once,
+ * and asked for the text of its kicomp.conf sections on every Aplicar. */
+GtkWidget *cantos_build(void);
+void cantos_write(FILE *out);
 GtkWidget *build_sistema_tab(void);
 GtkWidget *build_energia_tab(void);
 GtkWidget *build_programas_tab(void);

@@ -923,6 +923,7 @@ static void save_efeitos_cb(GtkWidget *widget, gpointer data)
 
     fprintf(out, "# kicomp configuration -- effects/renderer settings written by kiconf.\n");
     fprintf(out, "# [output:...] sections (per-monitor scale) are kept as they were.\n");
+    fprintf(out, "# [hotcorners*] sections are the hot corners table.\n");
     fprintf(out, "# See kicomp/README.md for the full key/section reference.\n\n");
     fprintf(out, "effects=%d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_effects_chk)));
     fprintf_double(out, "animation_duration", gtk_spin_button_get_value(GTK_SPIN_BUTTON(g_anim_spin)), 1);
@@ -982,6 +983,8 @@ static void save_efeitos_cb(GtkWidget *widget, gpointer data)
         g_free(opts);
         valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(g_fx_store), &it);
     }
+
+    cantos_write(out);
 
     FILE *in = fopen(path, "r");
     if (in) {
@@ -1178,6 +1181,7 @@ GtkWidget *build_efeitos_tab(void)
     gtk_box_pack_start(GTK_BOX(fx_btnbox), fx_rem, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(fx_box), fx_btnbox, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(content), frame_with("Efeitos", fx_box), TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(content), cantos_build(), FALSE, FALSE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 6);
     GtkWidget *restart_btn = gtk_button_new_with_label(_("Reiniciar kicomp agora"));

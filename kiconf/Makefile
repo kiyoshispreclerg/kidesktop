@@ -34,7 +34,7 @@ LIBS := $(shell pkg-config --cflags --libs gtk+-2.0 x11 xrandr) -lm -lcrypt $(LI
 # installable on its own (no shared library to depend on at runtime).
 SRCS := kiconf.c common.c sysinfo.c tabs/appearance.c tabs/shortcuts.c tabs/entrada.c \
         tabs/permissoes.c tabs/paineis.c tabs/wallpaper.c \
-        tabs/telas.c tabs/janelas.c tabs/efeitos.c tabs/sistema.c \
+        tabs/telas.c tabs/janelas.c tabs/efeitos.c tabs/cantos.c tabs/sistema.c \
         tabs/programas.c tabs/associacoes.c tabs/menu.c tabs/autostart.c tabs/energia.c tabs/eventos.c \
         tabs/historico.c tabs/acessibilidade.c tabs/sons.c tabs/usuarios.c tabs/servicos.c tabs/login.c \
         ../shared/xis_outputs.c ../shared/xis_direction.c ../shared/xis_sound.c
