@@ -33,7 +33,7 @@
 
 #define _GNU_SOURCE             /* ppoll */
 
-#define KICOMP_VERSION "0.3.59"
+#define KICOMP_VERSION "0.3.60"
 
 #include "../../shared/xis_i18n.h"
 
@@ -56,6 +56,7 @@
 #include "inputscale.h"
 #include "density.h"
 #include "input.h"
+#include "hotcorner.h"
 
 #include <xcb/randr.h>
 #include <xcb/shape.h>
@@ -770,6 +771,17 @@ static void handle_event(xcb_generic_event_t *ev)
     if (input_handle_event(ev))
         return;
 
+    if (hotcorner_handle_event(ev))
+        return;
+
+    /* Anything restacked may have been put over the corners. */
+    if (type == XCB_MAP_NOTIFY)
+        hotcorner_note_restack(((xcb_map_notify_event_t *)ev)->window);
+    else if (type == XCB_CONFIGURE_NOTIFY)
+        hotcorner_note_restack(((xcb_configure_notify_event_t *)ev)->window);
+    else if (type == XCB_CIRCULATE_NOTIFY)
+        hotcorner_note_restack(((xcb_circulate_notify_event_t *)ev)->window);
+
     /* The presenter gets first refusal: Present's completions arrive as
      * XGE generic events, and nothing else here knows what those are. */
     if (presenter && presenter->handle_event && presenter->handle_event(ev))
@@ -837,6 +849,7 @@ static void handle_event(xcb_generic_event_t *ev)
     if (comp.caps.randr && type == comp.randr_event + XCB_RANDR_SCREEN_CHANGE_NOTIFY) {
         comp_log("RandR screen change");
         outputs_refresh();
+        hotcorner_relayout();
         renderer_background_invalidate();
         output_damage_all();
         return;
@@ -884,6 +897,7 @@ static void handle_event(xcb_generic_event_t *ev)
         if (e->window == comp.root) {
             comp_log("root resized to %ux%u", e->width, e->height);
             outputs_refresh();
+            hotcorner_relayout();
             output_damage_all();
         } else if (e->event == comp.root) {
             window_configure(e->window, e->x, e->y, e->width, e->height,
@@ -1087,6 +1101,7 @@ static void shutdown_compositor(void)
      * be compositing either. */
     unredirect_release_all();
 
+    hotcorner_shutdown();
     input_shutdown();
     effects_shutdown();
     density_shutdown();
@@ -1389,6 +1404,10 @@ int main(int argc, char **argv)
      * output change. */
     outputs_refresh();
 
+    /* Needs the outputs: a corner belongs to one. */
+    if (comp.effects)
+        hotcorner_init();
+
     /* The scan has to be a snapshot nothing else touches. The root's
      * event mask was selected at the top of main(), and everything that
      * happened on the screen between then and now -- the WM reacting to
@@ -1526,6 +1545,8 @@ int main(int argc, char **argv)
          * it, and one taken back must be. */
         unredirect_update();
 
+        hotcorner_tick(now);
+
         paint_dirty_outputs(now);
         xcb_flush(comp.conn);
 
@@ -1580,6 +1601,10 @@ int main(int argc, char **argv)
         int live = desktop_live_timeout_ms(comp_now_ms());
         if (live >= 0 && (timeout < 0 || live < timeout))
             timeout = live;
+
+        int dwell = hotcorner_timeout_ms(comp_now_ms());
+        if (dwell >= 0 && (timeout < 0 || dwell < timeout))
+            timeout = dwell;
 
         /* ppoll, not poll: the frame deadline is not on a millisecond
          * boundary, and poll() rounding the last fraction of one down to

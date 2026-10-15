@@ -275,6 +275,11 @@ struct CompEffectModule {
      * them but one. */
     void (*init)(const CompEffectInstance *self);
 
+    /* Do what this module's hotkey does, without the key: what a hot
+     * corner (hotcorner.h) calls. NULL for an effect that has no such
+     * thing as "start now" -- most of them answer to window events. */
+    void (*activate)(const CompEffectInstance *self);
+
     /* Something happened to a window. The core calls this only for events
      * in this instance's event mask, on a window in its type mask, so a
      * module never checks either -- `self` is the instance that matched,

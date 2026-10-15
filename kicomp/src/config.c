@@ -6,6 +6,7 @@
 #include "comp.h"
 #include "effect.h"
 #include "shadow.h"
+#include "hotcorner.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -135,6 +136,8 @@ static void config_pass(FILE *f, bool instances_pass)
     CompEffectInstance *section = NULL;
     char output_section[32] = { 0 };
     bool shadow_section = false;
+    bool hotcorner_section = false;
+    char hotcorner_output[32] = { 0 };
     bool section_unknown = false;
     bool section_skipped = false;
 
@@ -163,6 +166,8 @@ static void config_pass(FILE *f, bool instances_pass)
             section = NULL;
             output_section[0] = '\0';
             shadow_section = false;
+            hotcorner_section = false;
+            hotcorner_output[0] = '\0';
             section_unknown = false;
             section_skipped = false;
 
@@ -186,6 +191,15 @@ static void config_pass(FILE *f, bool instances_pass)
                 /* Not an effect: shadows don't animate, so they are a
                  * section of their own (shadow.h). */
                 shadow_section = !instances_pass;
+                section_skipped = instances_pass;
+                continue;
+            }
+
+            if (strcmp(name, "hotcorners") == 0 ||
+                strncmp(name, "hotcorners:", 11) == 0) {
+                if (name[10] == ':')
+                    snprintf(hotcorner_output, sizeof(hotcorner_output), "%s", name + 11);
+                hotcorner_section = !instances_pass;
                 section_skipped = instances_pass;
                 continue;
             }
@@ -284,6 +298,12 @@ static void config_pass(FILE *f, bool instances_pass)
             continue;
         }
 
+        if (hotcorner_section) {
+            if (!hotcorner_config_key(hotcorner_output[0] ? hotcorner_output : NULL, key, val))
+                fprintf(stderr, "kicomp: config: unknown key '%s' in [hotcorners]\n", key);
+            continue;
+        }
+
         if (shadow_section) {
             if (!shadow_config_key(key, val))
                 fprintf(stderr, "kicomp: config: unknown key '%s' in [shadow]\n", key);
@@ -367,6 +387,7 @@ static void config_pass(FILE *f, bool instances_pass)
 void config_load(void)
 {
     apply_builtin_defaults();
+    hotcorner_config_defaults();
 
     char path[512];
     config_path(path, sizeof(path));

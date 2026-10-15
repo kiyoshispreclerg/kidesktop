@@ -461,6 +461,42 @@ effect itself understands; each module parses its own (`config_key` in
 `effect.h`), and a key it doesn't know becomes a warning on the terminal
 rather than silence.
 
+## Hot corners
+
+Touching a corner of a monitor with the pointer can start an effect, the
+way KWin's screen edges do. Off by default; each corner is opt-in. The
+corners belong to the *monitors*, not to the root window, so a smaller
+second screen has all four of its own reachable:
+
+```ini
+[hotcorners]                  # the default, for every monitor
+top-left     = expo           # expo, show-windows or cover-switch
+bottom-right = show-windows
+delay        = 150            # ms the pointer must stay in the corner
+size         = 1              # px; the corner is a square this big
+
+[hotcorners:HDMI-1]           # one monitor (its RandR name)
+top-right    = expo           # only the corners named here differ;
+bottom-right = none           # `none` turns off one the default set
+```
+
+`kiconf` (Efeitos tab, "Cantos ativos") edits both.
+
+It costs nothing while the pointer is elsewhere: there is no polling and
+no motion stream. Each corner is a tiny InputOnly window kept at the top of
+the stack, and the X server sends an `EnterNotify` when the pointer reaches
+it. A corner fires once per visit and must be left before it fires again;
+leaving before `delay` runs out cancels it (so crossing a corner on the way
+somewhere else does nothing). Corners between two monitors are real
+corners too: set them only if you don't mind them firing on the way across.
+The corner pixel itself no longer reaches the window under it (the close
+button of a maximised window in the top-right corner, for instance) --
+raise `delay` or leave that corner unused if that matters.
+
+A module takes part by providing `activate` in its `CompEffectModule`
+(effect.h): the same thing its hotkey does. The corner windows are rebuilt
+whenever the outputs change (src/hotcorner.c).
+
 ## Events
 
 The core doesn't hand effects X transitions (mapped, unmapped,

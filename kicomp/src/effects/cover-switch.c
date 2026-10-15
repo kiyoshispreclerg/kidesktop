@@ -1691,6 +1691,11 @@ bool cover_switch_available(void)
     return bound_instance != NULL;
 }
 
+static void cs_activate(const CompEffectInstance *self)
+{
+    cs_toggle((void *)self);
+}
+
 static void cs_init(const CompEffectInstance *self)
 {
     const CsConfig *cfg = self->config;
@@ -1791,6 +1796,7 @@ const CompEffectModule effect_cover_switch = {
                         COMP_WINDOW_BIT(COMP_WINDOW_UTILITY),
 
     .init             = cs_init,
+    .activate         = cs_activate,
     .config_size      = sizeof(CsConfig),
     .config_defaults  = cs_defaults,
     .config_key       = cs_config_key,

@@ -1293,6 +1293,11 @@ static void ex_toggle(void *data)
     layout(e, comp_now_ms());
 }
 
+static void ex_activate(const CompEffectInstance *self)
+{
+    ex_toggle((void *)self);
+}
+
 static void ex_init(const CompEffectInstance *self)
 {
     const ExConfig *cfg = self->config;
@@ -1406,6 +1411,7 @@ const CompEffectModule effect_expo = {
                         COMP_WINDOW_BIT(COMP_WINDOW_TOOLBAR),
 
     .init             = ex_init,
+    .activate         = ex_activate,
     .config_size      = sizeof(ExConfig),
     .config_defaults  = ex_defaults,
     .config_key       = ex_config_key,

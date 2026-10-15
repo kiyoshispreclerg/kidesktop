@@ -7,6 +7,7 @@
  * the mirror itself stays exactly as it is here.
  */
 #include "window.h"
+#include "hotcorner.h"
 #include "stowpix.h"
 #include "output.h"
 #include "renderer.h"
@@ -1370,7 +1371,7 @@ static void window_add_at(xcb_window_t id, xcb_window_t above, bool on_top)
     /* PropertyChange so _NET_WM_WINDOW_OPACITY changes reach us. Event
      * masks are per-client, so this never disturbs the WM's or the app's
      * own selections on the same window. */
-    uint32_t mask = XCB_EVENT_MASK_PROPERTY_CHANGE;
+    uint32_t mask = XCB_EVENT_MASK_PROPERTY_CHANGE | hotcorner_event_mask(id);
     xcb_change_window_attributes(comp.conn, id, XCB_CW_EVENT_MASK, &mask);
 
     /* ShapeNotify, so the cached bounding region can be dropped when the

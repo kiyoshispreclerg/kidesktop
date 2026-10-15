@@ -1335,6 +1335,11 @@ static void sw_toggle(void *data)
     on_motion(e, px, py);     /* whatever is already under the pointer */
 }
 
+static void sw_activate(const CompEffectInstance *self)
+{
+    sw_toggle((void *)self);
+}
+
 static void sw_init(const CompEffectInstance *self)
 {
     const SwConfig *cfg = self->config;
@@ -1457,6 +1462,7 @@ const CompEffectModule effect_show_windows = {
                         COMP_WINDOW_BIT(COMP_WINDOW_TOOLBAR),
 
     .init             = sw_init,
+    .activate         = sw_activate,
     .config_size      = sizeof(SwConfig),
     .config_defaults  = sw_defaults,
     .config_key       = sw_config_key,
