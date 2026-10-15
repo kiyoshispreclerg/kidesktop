@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+# kiterm answers `x-terminal-emulator -e ...`; priority below the big
+# terminals, so installing one of those still wins automatically.
+if [ "$1" = configure ]; then
+	update-alternatives --install /usr/bin/x-terminal-emulator x-terminal-emulator /usr/bin/kiterm 30
+fi
+
+#DEBHELPER#
