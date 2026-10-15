@@ -1548,6 +1548,8 @@ typedef struct {
                             * calendar date/time (see xisserve's --notifications page). */
 } NotifEntry;
 void notifd_poll(uint64_t now); /* call periodically from the main loop, e.g. alongside sni_poll() */
+int notifd_fd(void);   /* bus fd for select(), -1 until owning the name */
+void notifd_wake(void); /* lifts the poll throttle; call when notifd_fd() is readable */
 int notifd_count(void); /* currently held, oldest first */
 const NotifEntry *notifd_get(int idx); /* NULL if idx out of range */
 int notifd_unread_count(void);

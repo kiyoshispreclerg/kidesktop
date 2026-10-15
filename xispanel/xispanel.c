@@ -100,7 +100,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.7.4"
+#define XISPANEL_VERSION "0.7.5"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -4589,6 +4589,13 @@ static int run_as_daemon(const char *sockpath)
                 maxfd = snifd;
             }
         }
+        int notifdfd = disable_notifd ? -1 : notifd_fd();
+        if (notifdfd >= 0) {
+            FD_SET(notifdfd, &rfds);
+            if (notifdfd > maxfd) {
+                maxfd = notifdfd;
+            }
+        }
         /* Same "re-read every iteration" reasoning as snifd above: -1
          * until pactl subscribe is actually running, which only happens
          * lazily (and gets re-tried on its own backoff after a crash --
@@ -4909,6 +4916,9 @@ static int run_as_daemon(const char *sockpath)
         }
         int tray_changed = disable_sni ? 0 : sni_poll(now);
         if (!disable_notifd) {
+            if (notifdfd >= 0 && r > 0 && FD_ISSET(notifdfd, &rfds)) {
+                notifd_wake();
+            }
             notifd_poll(now);
         }
         /* Before the widget ticks below, so a command that finished this

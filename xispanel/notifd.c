@@ -78,6 +78,7 @@ static void (*p_dbus_connection_flush)(DBusConnection *);
 static void (*p_dbus_message_unref)(DBusMessage *);
 static dbus_bool_t (*p_dbus_connection_send)(DBusConnection *, DBusMessage *, dbus_uint32_t *);
 static dbus_bool_t (*p_dbus_connection_read_write)(DBusConnection *, int);
+static dbus_bool_t (*p_dbus_connection_get_unix_fd)(DBusConnection *, int *);
 static DBusMessage *(*p_dbus_connection_pop_message)(DBusConnection *);
 static dbus_bool_t (*p_dbus_message_iter_init)(DBusMessage *, DBusMessageIter *);
 static dbus_bool_t (*p_dbus_message_iter_next)(DBusMessageIter *);
@@ -118,6 +119,7 @@ static int notifd_load_symbols(void)
     LOAD_SYM(dbus_message_unref);
     LOAD_SYM(dbus_connection_send);
     LOAD_SYM(dbus_connection_read_write);
+    LOAD_SYM(dbus_connection_get_unix_fd);
     LOAD_SYM(dbus_connection_pop_message);
     LOAD_SYM(dbus_message_iter_init);
     LOAD_SYM(dbus_message_iter_next);
@@ -506,6 +508,23 @@ static void notifd_handle_incoming(void)
         }
         p_dbus_message_unref(msg);
     }
+}
+
+/* Bus fd for the main loop's select(): Notify() is a synchronous call, so
+ * answering it only on the next unrelated wake (plus the NOTIFD_POLL_MS
+ * throttle) left the sender -- a browser, say -- blocked for ~1s. */
+int notifd_fd(void)
+{
+    int fd = -1;
+    if (!g_conn || !g_is_owner || !p_dbus_connection_get_unix_fd || !p_dbus_connection_get_unix_fd(g_conn, &fd)) {
+        return -1;
+    }
+    return fd;
+}
+
+void notifd_wake(void)
+{
+    g_next_poll_ms = 0;
 }
 
 void notifd_poll(uint64_t now)

@@ -7,6 +7,15 @@
  */
 #include "xispanel.h"
 
+int notifd_fd(void)
+{
+    return -1;
+}
+
+void notifd_wake(void)
+{
+}
+
 void notifd_poll(uint64_t now)
 {
     (void)now;
