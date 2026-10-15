@@ -22,6 +22,8 @@
  *   [shadow]
  *   enabled  = 1
  *   windows  = windows,menus     # which window types get one
+ *   windows_passive =            # types that get one too, but always the
+ *                                # unfocused style (off by default)
  *   radius   = 12                # blur radius in pixels
  *   opacity  = 0.45
  *   offset_x = 0
@@ -50,6 +52,10 @@ typedef struct CompShadowStyle {
 typedef struct CompShadowConfig {
     bool enabled;
     uint32_t windows;              /* CompWindowType mask */
+    /* Types that cast a shadow regardless of `windows`, and never switch
+     * to the focused style. Reuses the inactive style, so it adds no tile
+     * set, no margin and no damage beyond what shadows already cost. */
+    uint32_t passive;
     CompShadowStyle active;
     CompShadowStyle inactive;
 

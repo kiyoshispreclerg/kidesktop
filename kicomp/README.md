@@ -151,6 +151,9 @@ scale = auto               # auto (the DPI property) | a number like 2.0
 # ---- shadows ----
 [shadow]
 enabled  = 1
+# types that cast a shadow too, but always the unfocused style (default:
+# none). Docks and panels next to another output bleed onto it.
+#windows_passive = dock,tooltip,notification
 windows  = windows,menus     # which window types get one
 radius   = 14                # blur radius, in pixels
 opacity  = 0.45

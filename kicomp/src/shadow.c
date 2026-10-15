@@ -61,6 +61,8 @@ bool shadow_config_key(const char *key, const char *value)
         comp_shadow.enabled = atoi(value) != 0;
     } else if (strcmp(key, "windows") == 0) {
         comp_shadow.windows = comp_window_type_mask_parse(value);
+    } else if (strcmp(key, "windows_passive") == 0) {
+        comp_shadow.passive = comp_window_type_mask_parse(value);
     } else if (strcmp(key, "radius") == 0) {
         int n = atoi(value);
         /* Past a point the blur is wider than the gap between windows and
@@ -140,7 +142,9 @@ bool shadow_for_window(const CompWindow *w, CompShadowStyle *out)
         return false;
     if (w->input_only || w->wm_layer[0])
         return false;
-    if (!(comp_shadow.windows & COMP_WINDOW_BIT(w->type)))
+    uint32_t bit = COMP_WINDOW_BIT(w->type);
+    bool passive = (comp_shadow.passive & bit) != 0;
+    if (!passive && !(comp_shadow.windows & bit))
         return false;
 
     /* A window filling its screen has nothing to cast a shadow onto: its
@@ -163,7 +167,7 @@ bool shadow_for_window(const CompWindow *w, CompShadowStyle *out)
             return false;
     }
 
-    *out = w->focused ? comp_shadow.active : comp_shadow.inactive;
+    *out = (w->focused && !passive) ? comp_shadow.active : comp_shadow.inactive;
     return out->opacity > 0.0f && out->radius > 0;
 }
 
