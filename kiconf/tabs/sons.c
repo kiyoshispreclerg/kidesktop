@@ -253,6 +253,7 @@ static void on_save(GtkWidget *w, gpointer data)
         ok = gtk_tree_model_iter_next(GTK_TREE_MODEL(g_store), &it);
     }
     fclose(f);
+    signal_daemon("kiconfd"); /* republishes the theme over XSETTINGS */
     gtk_label_set_text(GTK_LABEL(g_status), _("Salvo. Os programas aplicam em ate 2 segundos."));
 }
 

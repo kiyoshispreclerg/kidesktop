@@ -165,7 +165,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.22"
+#define KICONFD_VERSION "0.2.23"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -914,6 +914,45 @@ static int init_xsettings(void)
     return 1;
 }
 
+/* kidesktop-sound.conf (written by kiconf's Sons tab, read by every
+ * program that plays sounds -- shared/xis_sound.h): the theme name and
+ * on/off switch, so libcanberra-based GTK apps follow the same theme.
+ * A theme that exists only as KDE-style files (Oxygen) has no
+ * freedesktop index.theme for canberra to find; it falls back to
+ * "freedesktop" then. */
+static void read_sound_settings(char *theme, size_t sz, int *enabled)
+{
+    const char *xdg = getenv("XDG_CONFIG_HOME"), *home = getenv("HOME");
+    char path[PATH_MAX];
+    if (xdg && *xdg)
+        snprintf(path, sizeof(path), "%s/kidesktop-sound.conf", xdg);
+    else
+        snprintf(path, sizeof(path), "%s/.config/kidesktop-sound.conf", home ? home : "/tmp");
+    snprintf(theme, sz, "freedesktop");
+    *enabled = 0;
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return;
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        char *eq = strchr(line, '=');
+        if (line[0] == '#' || !eq)
+            continue;
+        *eq = '\0';
+        char *v = eq + 1;
+        v[strcspn(v, "\r\n")] = '\0';
+        if (!strcmp(line, "theme") && *v) {
+            char idx[PATH_MAX + 64];
+            snprintf(idx, sizeof(idx), "/usr/share/sounds/%s/index.theme", v);
+            if (access(idx, R_OK) == 0)
+                snprintf(theme, sz, "%s", v);
+        } else if (!strcmp(line, "enabled")) {
+            *enabled = atoi(v) != 0;
+        }
+    }
+    fclose(f);
+}
+
 static void apply_xsettings(void)
 {
     if (g_xs_win == None) {
@@ -934,6 +973,15 @@ static void apply_xsettings(void)
     xs_string("Gtk/FontName", g_font_general);
     xs_string("Gtk/CursorThemeName", g_cursor_theme);
     xs_int("Gtk/CursorThemeSize", g_cursor_size);
+    {
+        char sound_theme[64];
+        int sound_on;
+        read_sound_settings(sound_theme, sizeof(sound_theme), &sound_on);
+        xs_string("Net/SoundThemeName", sound_theme);
+        xs_int("Net/EnableEventSounds", sound_on);
+        /* Click/keypress feedback sounds are never turned on from here. */
+        xs_int("Net/EnableInputFeedbackSounds", 0);
+    }
     if (a11y_text_dpi()) {
         xs_int("Xft/DPI", (long)a11y_text_dpi() * 1024); /* XSETTINGS DPI is in 1/1024ths */
     }
