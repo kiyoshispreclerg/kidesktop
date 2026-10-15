@@ -2,6 +2,7 @@
  * and the map/move/resize/maximize/minimize state transitions. */
 #include "client.h"
 #include "wm.h"
+#include "../shared/xis_sound.h"
 #include "output.h"
 #include "decoration.h"
 #include "density.h"
@@ -1295,6 +1296,7 @@ void close_client(Client *c)
     if (!c->allow_close)
         return;
 
+    xis_sound_play("window-close");
     if (client_supports_protocol(c->window, wm.atoms.wm_delete_window))
         send_delete(c);
     else
@@ -1682,6 +1684,7 @@ void toggle_shade(Client *c, int want /* -1=toggle 0=unshade 1=shade */)
         return;
 
     c->shaded = target;
+    xis_sound_play(target ? "window-shade" : "window-unshade");
 
     /* State first, then the geometry that carries it out -- see the note
      * above ewmh_update_wm_state()'s other callers in this file. */
@@ -1874,6 +1877,8 @@ void toggle_maximize(Client *c, int want /* -1=toggle 0=unmax 1=max */)
      * back to the geometry from before any of it, since that's what
      * saved_x/y/w/h has held all along. */
     bool target = (want == -1) ? !client_maximized(c) : (want == 1);
+    if (target != client_maximized(c))
+        xis_sound_play("window-maximize");
     client_set_maximized(c, target, target);
 }
 
@@ -2194,6 +2199,7 @@ void minimize_client(Client *c)
                         wm.atoms.kiwm_minimized_geometry, XCB_ATOM_CARDINAL, 32, 4, geo);
 
     c->minimized = true;
+    xis_sound_play("window-minimize");
 
     /* Before the unmap, so anything watching learns this disappearance is
      * a minimize rather than a close -- same reason as everywhere else in
