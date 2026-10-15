@@ -681,6 +681,29 @@ void gap_state_update(void)
     xcb_flush(wm.conn);
 }
 
+/* A panel that follows window_gap= sits that far off its screen edge, so its
+ * strut -- and with it the rectangle below -- changes every time the gap
+ * flips (gap_off_when_maximized=). Qt's own work-area handler answers any
+ * change of _NET_WORKAREA by re-applying its window's geometry, and
+ * VirtualBox's does it with the content rect passed as a frame position:
+ * each flip walked its windows down by the decoration insets. The published
+ * rectangle therefore leaves the gap out; maximize and tiling read
+ * compute_output_workarea() directly and are unaffected. */
+static void publish_without_gap(int output_idx, int *x, int *y, int *w, int *h)
+{
+    int gap = output_window_gap(output_idx);
+    if (gap <= 0)
+        return;
+
+    int sl, sr, st, sb;
+    struts_for_output(output_idx, &sl, &sr, &st, &sb);
+    /* Only a side that actually carries a strut can have a panel offset. */
+    if (sl > 0 && *x - gap >= wm.outputs[output_idx].x) { *x -= gap; *w += gap; }
+    if (sr > 0) *w += gap;
+    if (st > 0 && *y - gap >= wm.outputs[output_idx].y) { *y -= gap; *h += gap; }
+    if (sb > 0) *h += gap;
+}
+
 /* _NET_WORKAREA, plus _NET_DESKTOP_GEOMETRY/_NET_DESKTOP_VIEWPORT.
  *
  * EWMH has room for exactly one work-area rectangle per desktop covering
@@ -710,6 +733,7 @@ static void ewmh_set_workarea(void)
         compute_output_workarea(i, &ox, &oy, &ow, &oh);
         if (ow <= 0 || oh <= 0)
             continue;
+        publish_without_gap(i, &ox, &oy, &ow, &oh);
         if (first) {
             x = ox; y = oy; right = ox + ow; bottom = oy + oh;
             first = false;
