@@ -1,13 +1,8 @@
-# Portuguese translations for kiconf package.
-# Copyright (C) 2026 THE kiconf'S COPYRIGHT HOLDER
-# This file is distributed under the same license as the kiconf package.
-# Automatically generated, 2026.
-#
 msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-08 18:08-0300\n"
+"POT-Creation-Date: 2026-10-15 16:22-0300\n"
 "PO-Revision-Date: 2026-10-01 13:53-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -32,83 +27,95 @@ msgstr "%s (%s)"
 msgid "%s (sem EDID)"
 msgstr "%s (sem EDID)"
 
-#: kiconf.c:152
+#: kiconf.c:160
 msgid "Aparencia"
 msgstr "Aparência"
 
-#: kiconf.c:153
+#: kiconf.c:161
 msgid "Atalhos"
 msgstr "Atalhos"
 
-#: kiconf.c:154
+#: kiconf.c:162
 msgid "Telas"
 msgstr "Telas"
 
-#: kiconf.c:155
+#: kiconf.c:163
 msgid "Entrada"
 msgstr "Entrada"
 
-#: kiconf.c:156
+#: kiconf.c:164
 msgid "Wallpaper"
 msgstr "Papel de parede"
 
-#: kiconf.c:157
-msgid "Outras"
-msgstr "Outras"
-
-#: kiconf.c:158
+#: kiconf.c:165
 msgid "Paineis"
 msgstr "Painéis"
 
-#: kiconf.c:159
+#: kiconf.c:166
 msgid "Permissoes"
 msgstr "Permissões"
 
-#: kiconf.c:160
+#: kiconf.c:167
 msgid "Gerenciamento de janelas"
 msgstr "Gerenciamento de janelas"
 
-#: kiconf.c:161
+#: kiconf.c:168
 msgid "Efeitos do compositor"
 msgstr "Efeitos do compositor"
 
-#: kiconf.c:162
+#: kiconf.c:169
 msgid "Sistema"
 msgstr "Sistema"
 
-#: kiconf.c:163
+#: kiconf.c:170
 msgid "Energia"
 msgstr "Energia"
 
-#: kiconf.c:164
+#: kiconf.c:171
 msgid "Programas padrao"
 msgstr "Programas padrão"
 
-#: kiconf.c:165
+#: kiconf.c:172
 msgid "Associacoes de arquivos"
 msgstr "Associações de arquivos"
 
-#: kiconf.c:166 tabs/menu.c:682
+#: kiconf.c:173 tabs/menu.c:682
 msgid "Menu de programas"
 msgstr "Menu de programas"
 
-#: kiconf.c:167
+#: kiconf.c:174
 msgid "Iniciar automaticamente"
 msgstr "Iniciar automaticamente"
 
-#: kiconf.c:168 tabs/eventos.c:191
+#: kiconf.c:175 tabs/eventos.c:191
 msgid "Eventos"
 msgstr "Eventos"
 
-#: kiconf.c:169
+#: kiconf.c:176
 msgid "Historico"
 msgstr "Histórico"
 
-#: kiconf.c:170
+#: kiconf.c:177
+msgid "Sons"
+msgstr "Sons"
+
+#: kiconf.c:178 tabs/usuarios.c:529
+msgid "Usuarios"
+msgstr "Usuários"
+
+#: kiconf.c:179 tabs/servicos.c:410
+msgid "Servicos"
+msgstr "Serviços"
+
+#: kiconf.c:180
+msgid "Login"
+msgstr "Login"
+
+#: kiconf.c:181
 msgid "Acessibilidade"
 msgstr "Acessibilidade"
 
-#: kiconf.c:306
+#: kiconf.c:317
 msgid ""
 "Ha alteracoes nao aplicadas nesta aba. Tem certeza que deseja sair sem "
 "aplica-las?"
@@ -116,11 +123,11 @@ msgstr ""
 "Há alterações não aplicadas nesta aba. Tem certeza que deseja sair sem "
 "aplicá-las?"
 
-#: kiconf.c:308
+#: kiconf.c:319 tabs/usuarios.c:557 tabs/usuarios.c:559
 msgid "Alteracoes pendentes"
 msgstr "Alterações pendentes"
 
-#: kiconf.c:735 kiconf.c:747
+#: kiconf.c:746 kiconf.c:758
 msgid "Inicio"
 msgstr "Início"
 
@@ -213,9 +220,10 @@ msgid "Tecnologias assistivas"
 msgstr "Tecnologias assistivas"
 
 #: tabs/acessibilidade.c:514 tabs/appearance.c:703 tabs/autostart.c:414
-#: tabs/energia.c:221 tabs/entrada.c:544 tabs/historico.c:379
-#: tabs/historico.c:446 tabs/outras.c:244 tabs/programas.c:305
+#: tabs/energia.c:359 tabs/entrada.c:578 tabs/historico.c:379
+#: tabs/historico.c:446 tabs/login.c:705 tabs/programas.c:305
 #: tabs/shortcuts.c:1063 tabs/sistema.c:809 tabs/telas.c:1911
+#: tabs/usuarios.c:568
 msgid "Aplicar"
 msgstr "Aplicar"
 
@@ -235,16 +243,16 @@ msgstr "Alterar programa..."
 msgid "Aplicar servicos (recarrega kisession na hora)"
 msgstr "Aplicar serviços (recarrega o kisession na hora)"
 
-#: tabs/autostart.c:412
+#: tabs/autostart.c:412 tabs/usuarios.c:544
 msgid "Adicionar..."
 msgstr "Adicionar..."
 
-#: tabs/autostart.c:413 tabs/eventos.c:227 tabs/paineis.c:1524
+#: tabs/autostart.c:413 tabs/eventos.c:227 tabs/paineis.c:1527
 #: tabs/shortcuts.c:1027 tabs/sistema.c:794
 msgid "Remover"
 msgstr "Remover"
 
-#: tabs/efeitos.c:655 tabs/paineis.c:867
+#: tabs/efeitos.c:655 tabs/paineis.c:867 tabs/servicos.c:267
 msgid "?"
 msgstr "?"
 
@@ -324,11 +332,11 @@ msgstr "Reiniciar o kicomp agora"
 msgid "Aplicar (grava kicomp.conf)"
 msgstr "Aplicar (grava kicomp.conf)"
 
-#: tabs/energia.c:154
-msgid "Horario de luz noturna salvo."
-msgstr "Horário de luz noturna salvo."
+#: tabs/energia.c:263
+msgid "Configuracoes de energia salvas."
+msgstr "Configurações de energia salvas."
 
-#: tabs/energia.c:165
+#: tabs/energia.c:276
 msgid ""
 "xsct nao encontrado -- instale-o (https://github.com/faf0/sct) para a luz "
 "noturna automatica funcionar. O horario ainda pode ser configurado e salvo "
@@ -338,47 +346,55 @@ msgstr ""
 "noturna automática funcionar. O horário ainda pode ser configurado e salvo "
 "aqui."
 
-#: tabs/energia.c:177
+#: tabs/energia.c:288
 msgid "Ativar luz noturna automatica"
 msgstr "Ativar luz noturna automática"
 
-#: tabs/energia.c:182
+#: tabs/energia.c:293
 msgid "Ligar as:"
 msgstr "Ligar às:"
 
-#: tabs/energia.c:186 tabs/energia.c:193
+#: tabs/energia.c:297 tabs/energia.c:304
 msgid ":"
 msgstr ":"
 
-#: tabs/energia.c:189
+#: tabs/energia.c:300
 msgid "   Desligar as:"
 msgstr "   Desligar às:"
 
-#: tabs/energia.c:196
+#: tabs/energia.c:307
 msgid "Ligar: hora"
 msgstr "Ligar: hora"
 
-#: tabs/energia.c:197
+#: tabs/energia.c:308
 msgid "Ligar: minuto"
 msgstr "Ligar: minuto"
 
-#: tabs/energia.c:198
+#: tabs/energia.c:309
 msgid "Desligar: hora"
 msgstr "Desligar: hora"
 
-#: tabs/energia.c:199
+#: tabs/energia.c:310
 msgid "Desligar: minuto"
 msgstr "Desligar: minuto"
 
-#: tabs/energia.c:206
+#: tabs/energia.c:317
 msgid "Temperatura durante o periodo (K):"
 msgstr "Temperatura durante o período (K):"
 
-#: tabs/energia.c:210
+#: tabs/energia.c:321
 msgid "Luz noturna (xsct)"
 msgstr "Luz noturna (xsct)"
 
-#: tabs/energia.c:213
+#: tabs/energia.c:324
+msgid "DPMS habilitado"
+msgstr "DPMS habilitado"
+
+#: tabs/energia.c:345
+msgid "Preferir apagar a tela (blank)"
+msgstr "Preferir apagar a tela (blank)"
+
+#: tabs/energia.c:351
 msgid ""
 "Fora do horario configurado, a tela volta a temperatura normal. Um horario "
 "de desligar menor que o de ligar cruza a meia-noite (ex.: ligar 20:00, "
@@ -388,23 +404,23 @@ msgstr ""
 "de desligar menor que o de ligar cruza a meia-noite (ex.: ligar 20:00, "
 "desligar 06:00)."
 
-#: tabs/entrada.c:482
+#: tabs/entrada.c:509
 msgid "Rolagem natural"
 msgstr "Rolagem natural"
 
-#: tabs/entrada.c:484
+#: tabs/entrada.c:511
 msgid "Canhoto (inverter botoes)"
 msgstr "Canhoto (inverter botões)"
 
-#: tabs/entrada.c:486
+#: tabs/entrada.c:513
 msgid "Tocar para clicar (touchpad)"
 msgstr "Tocar para clicar (touchpad)"
 
-#: tabs/entrada.c:504
+#: tabs/entrada.c:531
 msgid "Repeticao automatica"
 msgstr "Repetição automática"
 
-#: tabs/entrada.c:539
+#: tabs/entrada.c:573
 msgid "Ativar NumLock ao iniciar a sessao"
 msgstr "Ativar NumLock ao iniciar a sessão"
 
@@ -416,7 +432,7 @@ msgstr "Gravado."
 msgid "Adicionar"
 msgstr "Adicionar"
 
-#: tabs/eventos.c:228 tabs/sistema.c:795
+#: tabs/eventos.c:228 tabs/sistema.c:795 tabs/sons.c:370
 msgid "Salvar"
 msgstr "Salvar"
 
@@ -608,13 +624,113 @@ msgstr "Ver estado"
 msgid "kimemory (area de transferencia)"
 msgstr "kimemory (área de transferência)"
 
-#: tabs/janelas.c:530
+#: tabs/janelas.c:544
 msgid "Reiniciar kiwm agora"
 msgstr "Reiniciar o kiwm agora"
 
-#: tabs/janelas.c:531
+#: tabs/janelas.c:545
 msgid "Aplicar (grava kiwm.conf)"
 msgstr "Aplicar (grava kiwm.conf)"
+
+#: tabs/login.c:46 tabs/login.c:48
+msgid "Tema:"
+msgstr "Tema:"
+
+#: tabs/login.c:47
+msgid "Greeter:"
+msgstr "Greeter:"
+
+#: tabs/login.c:550
+#, c-format
+msgid ""
+"Alteracoes vao para %s e valem no proximo login (o gerenciador nao e "
+"reiniciado, para nao encerrar a sessao atual)."
+msgstr ""
+"As alterações vão para %s e valem no próximo login (o gerenciador não é "
+"reiniciado, para não encerrar a sessão atual)."
+
+#: tabs/login.c:580
+msgid "Valor invalido: sem caracteres de controle, '\\' ou '`'."
+msgstr "Valor inválido: sem caracteres de controle, '\\' ou '`'."
+
+#: tabs/login.c:584
+msgid "Escolha um usuario existente para o login automatico."
+msgstr "Escolha um usuário existente para o login automático."
+
+#: tabs/login.c:593
+#, c-format
+msgid ""
+"Com o login automatico, qualquer pessoa que ligar este computador entra como "
+"%s sem senha. Ativar?"
+msgstr ""
+"Com o login automático, qualquer pessoa que ligar este computador entra como "
+"%s sem senha. Ativar?"
+
+#: tabs/login.c:607 tabs/login.c:609
+msgid "Aplicado. Vale a partir do proximo login."
+msgstr "Aplicado. Vale a partir do próximo login."
+
+#: tabs/login.c:611 tabs/servicos.c:364
+msgid "Autorizacao negada ou cancelada."
+msgstr "Autorização negada ou cancelada."
+
+#: tabs/login.c:613
+msgid "Falha ao gravar a configuracao."
+msgstr "Falha ao gravar a configuração."
+
+#: tabs/login.c:635
+msgid ""
+"Gerenciador de login (SDDM, LightDM ou SLiM). Ver as configuracoes nao exige "
+"senha; gravar pede a senha de administrador."
+msgstr ""
+"Gerenciador de login (SDDM, LightDM ou SLiM). Ver as configurações não exige "
+"senha; gravar pede a senha de administrador."
+
+#: tabs/login.c:670
+msgid " (em uso)"
+msgstr " (em uso)"
+
+#: tabs/login.c:677
+msgid "Gerenciador:"
+msgstr "Gerenciador:"
+
+#: tabs/login.c:679
+msgid "Login automatico"
+msgstr "Login automático"
+
+#: tabs/login.c:684 tabs/usuarios.c:268
+msgid "Usuario:"
+msgstr "Usuário:"
+
+#: tabs/login.c:687
+msgid "Sessao:"
+msgstr "Sessão:"
+
+#: tabs/login.c:690
+msgid "Nao alterar"
+msgstr "Não alterar"
+
+#: tabs/login.c:691
+msgid "Ligar"
+msgstr "Ligar"
+
+#: tabs/login.c:692
+msgid "Desligar"
+msgstr "Desligar"
+
+#: tabs/login.c:693
+msgid "Num Lock:"
+msgstr "Num Lock:"
+
+#: tabs/login.c:696
+msgid "Tema / greeter:"
+msgstr "Tema / greeter:"
+
+#: tabs/login.c:716
+msgid ""
+"Nenhum gerenciador de login suportado (SDDM, LightDM, SLiM) foi encontrado."
+msgstr ""
+"Nenhum gerenciador de login suportado (SDDM, LightDM, SLiM) foi encontrado."
 
 #: tabs/menu.c:472
 msgid "Variaveis de ambiente:"
@@ -665,7 +781,7 @@ msgstr "Use NOME=valor, separadas por espaço."
 msgid "Filtrar programas"
 msgstr "Filtrar programas"
 
-#: tabs/menu.c:674
+#: tabs/menu.c:674 tabs/servicos.c:399
 msgid "Filtrar:"
 msgstr "Filtrar:"
 
@@ -685,21 +801,13 @@ msgstr ""
 msgid "Novo..."
 msgstr "Novo..."
 
-#: tabs/menu.c:712
+#: tabs/menu.c:712 tabs/usuarios.c:545
 msgid "Editar..."
 msgstr "Editar..."
 
 #: tabs/menu.c:714
 msgid "Excluir"
 msgstr "Excluir"
-
-#: tabs/outras.c:212
-msgid "DPMS habilitado"
-msgstr "DPMS habilitado"
-
-#: tabs/outras.c:233
-msgid "Preferir apagar a tela (blank)"
-msgstr "Preferir apagar a tela (blank)"
 
 #: tabs/paineis.c:462
 msgid ""
@@ -745,17 +853,17 @@ msgstr ""
 msgid "Definir:"
 msgstr "Definir:"
 
-#: tabs/paineis.c:1327 tabs/paineis.c:1718 tabs/paineis.c:1871
+#: tabs/paineis.c:1330 tabs/paineis.c:1721 tabs/paineis.c:1874
 #, c-format
 msgid "Outras opcoes de '%s':"
 msgstr "Outras opções de '%s':"
 
-#: tabs/paineis.c:1470
+#: tabs/paineis.c:1473
 #, c-format
 msgid "%s (container)"
 msgstr "%s (container)"
 
-#: tabs/paineis.c:1479
+#: tabs/paineis.c:1482
 msgid ""
 "Um container so aceita monitor, tray, launcher, volume, energy, network, "
 "storage, clipboard, lockkeys, notif e folder"
@@ -763,36 +871,35 @@ msgstr ""
 "Um container só aceita monitor, tray, launcher, volume, energy, network, "
 "storage, clipboard, lockkeys, notif e folder"
 
-#: tabs/paineis.c:1489
-#, fuzzy
+#: tabs/paineis.c:1492
 msgid "(nenhum outro painel)"
-msgstr "Remover painel"
+msgstr "(nenhum outro painel)"
 
-#: tabs/paineis.c:1517
+#: tabs/paineis.c:1520
 msgid "Copiar para..."
 msgstr "Copiar para..."
 
-#: tabs/paineis.c:1520
+#: tabs/paineis.c:1523
 msgid "Enviar para..."
 msgstr "Enviar para..."
 
-#: tabs/paineis.c:1781
+#: tabs/paineis.c:1784
 msgid "Adicionar painel"
 msgstr "Adicionar painel"
 
-#: tabs/paineis.c:1782
+#: tabs/paineis.c:1785
 msgid "Remover painel"
 msgstr "Remover painel"
 
-#: tabs/paineis.c:1834
+#: tabs/paineis.c:1837
 msgid "Adicionar widget"
 msgstr "Adicionar widget"
 
-#: tabs/paineis.c:1835
+#: tabs/paineis.c:1838
 msgid "Remover widget"
 msgstr "Remover widget"
 
-#: tabs/paineis.c:1841
+#: tabs/paineis.c:1844
 msgid ""
 "Ctrl+clique seleciona varios; clique direito copia ou envia os selecionados "
 "pra outro painel"
@@ -800,15 +907,15 @@ msgstr ""
 "Ctrl+clique seleciona vários; clique direito copia ou envia os selecionados "
 "pra outro painel"
 
-#: tabs/paineis.c:1852
+#: tabs/paineis.c:1855
 msgid "Cor de fundo:"
 msgstr "Cor de fundo:"
 
-#: tabs/paineis.c:1858
+#: tabs/paineis.c:1861
 msgid "Cor do texto:"
 msgstr "Cor do texto:"
 
-#: tabs/paineis.c:1899
+#: tabs/paineis.c:1902
 msgid "Salvar e recarregar xispanel"
 msgstr "Salvar e recarregar o xispanel"
 
@@ -964,6 +1071,94 @@ msgstr "Recarregar"
 msgid "Regras de sistema"
 msgstr "Regras de sistema"
 
+#: tabs/servicos.c:267
+msgid "Em execucao"
+msgstr "Em execução"
+
+#: tabs/servicos.c:267
+msgid "Parado"
+msgstr "Parado"
+
+#: tabs/servicos.c:272
+msgid "Ativado"
+msgstr "Ativado"
+
+#: tabs/servicos.c:272
+msgid "Desativado"
+msgstr "Desativado"
+
+#: tabs/servicos.c:272
+msgid "Fixo/?"
+msgstr "Fixo/?"
+
+#: tabs/servicos.c:332
+msgid "Selecione um servico na lista."
+msgstr "Selecione um serviço na lista."
+
+#: tabs/servicos.c:350
+#, c-format
+msgid "Confirma (%s) o servico %s?"
+msgstr "Confirma (%s) no serviço %s?"
+
+#: tabs/servicos.c:362
+#, c-format
+msgid "%s: %s executado."
+msgstr "%s: %s executado."
+
+#: tabs/servicos.c:366
+#, c-format
+msgid "%s: %s falhou (codigo %d)."
+msgstr "%s: %s falhou (código %d)."
+
+#: tabs/servicos.c:391
+#, c-format
+msgid ""
+"Servicos do sistema (%s). Ver o estado nao exige senha; iniciar, parar, "
+"reiniciar, ativar ou desativar pede a senha de administrador."
+msgstr ""
+"Serviços do sistema (%s). Ver o estado não exige senha; iniciar, parar, "
+"reiniciar, ativar ou desativar pede a senha de administrador."
+
+#: tabs/servicos.c:401
+msgid "Filtrar servicos"
+msgstr "Filtrar serviços"
+
+#: tabs/servicos.c:411
+msgid "Descricao"
+msgstr "Descrição"
+
+#: tabs/servicos.c:411
+msgid "Estado"
+msgstr "Estado"
+
+#: tabs/servicos.c:411
+msgid "Na inicializacao"
+msgstr "Na inicialização"
+
+#: tabs/servicos.c:411
+msgid "Servico"
+msgstr "Serviço"
+
+#: tabs/servicos.c:428
+msgid "Iniciar"
+msgstr "Iniciar"
+
+#: tabs/servicos.c:429
+msgid "Parar"
+msgstr "Parar"
+
+#: tabs/servicos.c:430
+msgid "Reiniciar"
+msgstr "Reiniciar"
+
+#: tabs/servicos.c:431
+msgid "Ativar na inicializacao"
+msgstr "Ativar na inicialização"
+
+#: tabs/servicos.c:432
+msgid "Desativar na inicializacao"
+msgstr "Desativar na inicialização"
+
 #: tabs/shortcuts.c:938
 #, c-format
 msgid "kiwm: %s"
@@ -1040,6 +1235,134 @@ msgstr "Agora"
 msgid "Mostrados na aba Calendario do xisserve"
 msgstr "Mostrados na aba Calendário do xisserve"
 
+#: tabs/sons.c:27
+msgid "Minimizar janela"
+msgstr "Minimizar janela"
+
+#: tabs/sons.c:28
+msgid "Fechar janela"
+msgstr "Fechar janela"
+
+#: tabs/sons.c:29
+msgid "Maximizar janela"
+msgstr "Maximizar janela"
+
+#: tabs/sons.c:30
+msgid "Enrolar janela"
+msgstr "Enrolar janela"
+
+#: tabs/sons.c:31
+msgid "Desenrolar janela"
+msgstr "Desenrolar janela"
+
+#: tabs/sons.c:32
+msgid "Janela em todas as areas de trabalho"
+msgstr "Janela em todas as áreas de trabalho"
+
+#: tabs/sons.c:33
+msgid "Janela so nesta area de trabalho"
+msgstr "Janela só nesta área de trabalho"
+
+#: tabs/sons.c:34
+msgid "Comecar a mover janela"
+msgstr "Começar a mover janela"
+
+#: tabs/sons.c:35
+msgid "Terminar de mover janela"
+msgstr "Terminar de mover janela"
+
+#: tabs/sons.c:36
+msgid "Entrar na sessao"
+msgstr "Entrar na sessão"
+
+#: tabs/sons.c:37
+msgid "Sair da sessao"
+msgstr "Sair da sessão"
+
+#: tabs/sons.c:38
+msgid "Campainha do sistema"
+msgstr "Campainha do sistema"
+
+#: tabs/sons.c:39
+msgid "Esvaziar a lixeira"
+msgstr "Esvaziar a lixeira"
+
+#: tabs/sons.c:129
+msgid "Silencioso"
+msgstr "Silencioso"
+
+#: tabs/sons.c:131
+msgid "Arquivo"
+msgstr "Arquivo"
+
+#: tabs/sons.c:135
+msgid "(o tema nao define)"
+msgstr "(o tema não define)"
+
+#: tabs/sons.c:207
+msgid "Escolher som"
+msgstr "Escolher som"
+
+#: tabs/sons.c:211
+msgid "Audio (ogg, oga, wav)"
+msgstr "Áudio (ogg, oga, wav)"
+
+#: tabs/sons.c:237
+msgid "Nao foi possivel gravar o arquivo de sons."
+msgstr "Não foi possível gravar o arquivo de sons."
+
+#: tabs/sons.c:257
+msgid "Salvo. Os programas aplicam em ate 2 segundos."
+msgstr "Salvo. Os programas aplicam em até 2 segundos."
+
+#: tabs/sons.c:316
+msgid ""
+"Sons dos eventos do desktop. Escolher um tema muda todos de uma vez; na "
+"lista abaixo cada evento pode ter um arquivo proprio ou ficar silencioso."
+msgstr ""
+"Sons dos eventos do desktop. Escolher um tema muda todos de uma vez; na "
+"lista abaixo cada evento pode ter um arquivo próprio ou ficar silencioso."
+
+#: tabs/sons.c:328
+msgid "Ativar sons"
+msgstr "Ativar sons"
+
+#: tabs/sons.c:335
+msgid "Tema sonoro:"
+msgstr "Tema sonoro:"
+
+#: tabs/sons.c:339
+msgid "Volume:"
+msgstr "Volume:"
+
+#: tabs/sons.c:344
+msgid "Eventos sonoros"
+msgstr "Eventos sonoros"
+
+#: tabs/sons.c:346
+msgid "Evento"
+msgstr "Evento"
+
+#: tabs/sons.c:348
+msgid "Som"
+msgstr "Som"
+
+#: tabs/sons.c:360
+msgid "Testar"
+msgstr "Testar"
+
+#: tabs/sons.c:361
+msgid "Escolher arquivo..."
+msgstr "Escolher arquivo..."
+
+#: tabs/sons.c:362
+msgid "Silenciar"
+msgstr "Silenciar"
+
+#: tabs/sons.c:363
+msgid "Usar o do tema"
+msgstr "Usar o do tema"
+
 #: tabs/telas.c:1669 tabs/telas.c:1689 tabs/telas.c:1782
 #, c-format
 msgid "%d saida(s) detectada(s)."
@@ -1072,6 +1395,223 @@ msgstr "Outras propriedades"
 #: tabs/telas.c:1910
 msgid "Detectar novamente"
 msgstr "Detectar novamente"
+
+#: tabs/usuarios.c:178
+#, c-format
+msgid "Definir nova senha de %s"
+msgstr "Definir nova senha de %s"
+
+#: tabs/usuarios.c:203
+msgid "Nao"
+msgstr "Não"
+
+#: tabs/usuarios.c:203
+msgid "Sim"
+msgstr "Sim"
+
+#: tabs/usuarios.c:219
+msgid "Selecione um usuario na lista."
+msgstr "Selecione um usuário na lista."
+
+#: tabs/usuarios.c:272
+msgid "Nome completo:"
+msgstr "Nome completo:"
+
+#: tabs/usuarios.c:283
+msgid "Shell:"
+msgstr "Shell:"
+
+#: tabs/usuarios.c:285
+msgid "Administrador (pode usar sudo)"
+msgstr "Administrador (pode usar sudo)"
+
+#: tabs/usuarios.c:292
+msgid "Manter como esta"
+msgstr "Manter como está"
+
+#: tabs/usuarios.c:293
+msgid "Bloquear conta"
+msgstr "Bloquear conta"
+
+#: tabs/usuarios.c:294
+msgid "Desbloquear conta"
+msgstr "Desbloquear conta"
+
+#: tabs/usuarios.c:296
+msgid "Conta:"
+msgstr "Conta:"
+
+#: tabs/usuarios.c:301
+msgid "Nova senha (vazio = manter):"
+msgstr "Nova senha (vazio = manter):"
+
+#: tabs/usuarios.c:301
+msgid "Senha:"
+msgstr "Senha:"
+
+#: tabs/usuarios.c:304
+msgid "Repetir senha:"
+msgstr "Repetir senha:"
+
+#: tabs/usuarios.c:316
+msgid "As senhas nao conferem."
+msgstr "As senhas não conferem."
+
+#: tabs/usuarios.c:318
+msgid "Informe uma senha."
+msgstr "Informe uma senha."
+
+#: tabs/usuarios.c:336
+msgid "Adicionar usuario"
+msgstr "Adicionar usuário"
+
+#: tabs/usuarios.c:347
+msgid ""
+"Nome de usuario invalido: use letras minusculas, numeros, '_' e '-', "
+"comecando por letra."
+msgstr ""
+"Nome de usuário inválido: use letras minúsculas, números, '_' e '-', "
+"começando por letra."
+
+#: tabs/usuarios.c:349
+msgid "Ja existe um usuario com esse nome."
+msgstr "Já existe um usuário com esse nome."
+
+#: tabs/usuarios.c:351 tabs/usuarios.c:412
+msgid "O nome completo nao pode ter ':' nem ','."
+msgstr "O nome completo não pode ter ':' nem ','."
+
+#: tabs/usuarios.c:353
+msgid "Nenhum shell disponivel."
+msgstr "Nenhum shell disponível."
+
+#: tabs/usuarios.c:366
+#, c-format
+msgid "Criar usuario %s"
+msgstr "Criar usuário %s"
+
+#: tabs/usuarios.c:371 tabs/usuarios.c:432
+#, c-format
+msgid "Tornar %s administrador"
+msgstr "Tornar %s administrador"
+
+#: tabs/usuarios.c:374 tabs/usuarios.c:444 tabs/usuarios.c:474
+msgid "Alteracao na fila. Clique em Aplicar para executar."
+msgstr "Alteração na fila. Clique em Aplicar para executar."
+
+#: tabs/usuarios.c:403
+msgid "Editar usuario"
+msgstr "Editar usuário"
+
+#: tabs/usuarios.c:422
+#, c-format
+msgid "Mudar nome completo de %s"
+msgstr "Mudar nome completo de %s"
+
+#: tabs/usuarios.c:427
+#, c-format
+msgid "Mudar shell de %s para %s"
+msgstr "Mudar shell de %s para %s"
+
+#: tabs/usuarios.c:432
+#, c-format
+msgid "Tirar %s de administrador"
+msgstr "Tirar %s de administrador"
+
+#: tabs/usuarios.c:437
+#, c-format
+msgid "Bloquear a conta de %s"
+msgstr "Bloquear a conta de %s"
+
+#: tabs/usuarios.c:437
+#, c-format
+msgid "Desbloquear a conta de %s"
+msgstr "Desbloquear a conta de %s"
+
+#: tabs/usuarios.c:460
+msgid "Nao e possivel remover o root nem o usuario desta sessao."
+msgstr "Não é possível remover o root nem o usuário desta sessão."
+
+#: tabs/usuarios.c:464
+#, c-format
+msgid "Remover o usuario %s?"
+msgstr "Remover o usuário %s?"
+
+#: tabs/usuarios.c:466
+msgid "Apagar tambem a pasta pessoal e os arquivos"
+msgstr "Apagar também a pasta pessoal e os arquivos"
+
+#: tabs/usuarios.c:472
+#, c-format
+msgid "Remover %s (mantendo a pasta pessoal)"
+msgstr "Remover %s (mantendo a pasta pessoal)"
+
+#: tabs/usuarios.c:472
+#, c-format
+msgid "Remover %s e a pasta pessoal"
+msgstr "Remover %s e a pasta pessoal"
+
+#: tabs/usuarios.c:484
+msgid "Fila descartada."
+msgstr "Fila descartada."
+
+#: tabs/usuarios.c:492
+msgid "Nada para aplicar."
+msgstr "Nada para aplicar."
+
+#: tabs/usuarios.c:506
+msgid "Alteracoes aplicadas."
+msgstr "Alterações aplicadas."
+
+#: tabs/usuarios.c:508
+msgid "Autorizacao negada ou cancelada. A fila foi mantida."
+msgstr "Autorização negada ou cancelada. A fila foi mantida."
+
+#: tabs/usuarios.c:510
+msgid ""
+"Falha ao aplicar (alguma operacao nao pode ser executada). A fila foi "
+"mantida."
+msgstr ""
+"Falha ao aplicar (alguma operação não pôde ser executada). A fila foi "
+"mantida."
+
+#: tabs/usuarios.c:521
+msgid ""
+"Contas de usuario do sistema. As alteracoes ficam numa fila e so sao "
+"executadas ao clicar em Aplicar, quando a senha de administrador e pedida "
+"uma unica vez."
+msgstr ""
+"Contas de usuário do sistema. As alterações ficam numa fila e só são "
+"executadas ao clicar em Aplicar, quando a senha de administrador é pedida "
+"uma única vez."
+
+#: tabs/usuarios.c:530
+msgid "Administrador"
+msgstr "Administrador"
+
+#: tabs/usuarios.c:530
+msgid "Nome completo"
+msgstr "Nome completo"
+
+#: tabs/usuarios.c:530
+msgid "Shell"
+msgstr "Shell"
+
+#: tabs/usuarios.c:530
+msgid "UID"
+msgstr "UID"
+
+#: tabs/usuarios.c:530
+msgid "Usuario"
+msgstr "Usuário"
+
+#: tabs/usuarios.c:546
+msgid "Remover..."
+msgstr "Remover..."
+
+#: tabs/usuarios.c:567
+msgid "Descartar fila"
+msgstr "Descartar fila"
 
 #: tabs/wallpaper.c:161
 #, c-format
@@ -1130,8 +1670,11 @@ msgstr "Definir camada"
 msgid "Salvar acoes de clique"
 msgstr "Salvar ações de clique"
 
-#~ msgid "Outras opcoes do tema"
-#~ msgstr "Outras opções do tema"
+#~ msgid "Outras"
+#~ msgstr "Outras"
+
+#~ msgid "Horario de luz noturna salvo."
+#~ msgstr "Horário de luz noturna salvo."
 
 #~ msgid ""
 #~ "Vale a partir do proximo login. Ctrl+Alt+Tab foca o painel para usa-lo "
