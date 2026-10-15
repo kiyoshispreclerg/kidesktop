@@ -1082,6 +1082,21 @@ static gboolean on_view_button(GtkWidget *w, GdkEventButton *ev, gpointer data)
     return FALSE;
 }
 
+/* Ctrl+wheel zooms (icon size), like most file managers and browsers; a plain
+ * wheel keeps scrolling. */
+static gboolean on_view_scroll(GtkWidget *w, GdkEventScroll *ev, gpointer data)
+{
+    (void)w;
+    KfPane *p = data;
+    if (!(ev->state & GDK_CONTROL_MASK))
+        return FALSE;
+    if (ev->direction == GDK_SCROLL_UP)
+        kf_app_zoom_step(p->app, +1);
+    else if (ev->direction == GDK_SCROLL_DOWN)
+        kf_app_zoom_step(p->app, -1);
+    return TRUE;
+}
+
 static gboolean on_view_focus(GtkWidget *w, GdkEventFocus *ev, gpointer data)
 {
     (void)w; (void)ev;
@@ -1265,6 +1280,7 @@ KfPane *kf_pane_new(KfApp *app)
     g_signal_connect(iv, "selection-changed", G_CALLBACK(on_selection), p);
     g_signal_connect(iv, "button-press-event", G_CALLBACK(on_view_button), p);
     g_signal_connect(iv, "focus-in-event", G_CALLBACK(on_view_focus), p);
+    g_signal_connect(iv, "scroll-event", G_CALLBACK(on_view_scroll), p);
     p->sw_icons = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(p->sw_icons), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(p->sw_icons), GTK_SHADOW_IN);
@@ -1302,6 +1318,7 @@ KfPane *kf_pane_new(KfApp *app)
     g_signal_connect(gtk_tree_view_get_selection(tv), "changed", G_CALLBACK(on_selection), p);
     g_signal_connect(tv, "button-press-event", G_CALLBACK(on_view_button), p);
     g_signal_connect(tv, "focus-in-event", G_CALLBACK(on_view_focus), p);
+    g_signal_connect(tv, "scroll-event", G_CALLBACK(on_view_scroll), p);
     p->sw_list = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(p->sw_list), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(p->sw_list), GTK_SHADOW_IN);

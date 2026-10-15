@@ -3,7 +3,7 @@
 File manager for KiDesktop: GTK2 + GIO (no other dependencies; GVfs and udisks2
 are used when installed).
 
-- Icon and list views, zoom slider (16-256 px), sort by name / size / modified /
+- Icon and list views, zoom slider (16-256 px) or Ctrl+mouse wheel, sort by name / size / modified /
   type / extension (ascending or descending, folders first optional); in the
   list the column headers sort too
 - Breadcrumb location bar (click the empty part, or `Ctrl+L`, to type a path;

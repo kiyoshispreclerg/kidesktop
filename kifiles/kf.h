@@ -199,6 +199,7 @@ void kf_app_open(KfApp *app, KfPane *p, GFile *f);
 void kf_app_popup_context(KfApp *app, KfPane *p, GdkEventButton *ev, gboolean on_item);
 void kf_app_message(KfApp *app, GtkMessageType type, const char *primary, const char *secondary);
 GFile *kf_app_dir(KfApp *app);                              /* active pane's folder */
+void kf_app_zoom_step(KfApp *app, int dir);                /* +1 bigger icons, -1 smaller */
 void kf_app_sort_by(KfApp *app, KfSortKey key);            /* same key flips the direction */
 void kf_app_status_free(KfApp *app, guint64 free_b, guint64 total_b);
 

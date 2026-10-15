@@ -607,27 +607,25 @@ static void set_zoom(KfApp *app, int z)
             kf_pane_apply_zoom(app->panes[i]);
 }
 
-static void a_zoom_in(GtkAction *a, gpointer d)
+void kf_app_zoom_step(KfApp *app, int dir)
 {
-    (void)a;
-    KfApp *app = d;
-    for (guint i = 0; i < G_N_ELEMENTS(kZoomSteps); i++)
-        if (kZoomSteps[i] > app->cfg.zoom) {
-            set_zoom(app, kZoomSteps[i]);
-            return;
-        }
+    if (dir > 0) {
+        for (guint i = 0; i < G_N_ELEMENTS(kZoomSteps); i++)
+            if (kZoomSteps[i] > app->cfg.zoom) {
+                set_zoom(app, kZoomSteps[i]);
+                return;
+            }
+    } else {
+        for (int i = G_N_ELEMENTS(kZoomSteps) - 1; i >= 0; i--)
+            if (kZoomSteps[i] < app->cfg.zoom) {
+                set_zoom(app, kZoomSteps[i]);
+                return;
+            }
+    }
 }
 
-static void a_zoom_out(GtkAction *a, gpointer d)
-{
-    (void)a;
-    KfApp *app = d;
-    for (int i = G_N_ELEMENTS(kZoomSteps) - 1; i >= 0; i--)
-        if (kZoomSteps[i] < app->cfg.zoom) {
-            set_zoom(app, kZoomSteps[i]);
-            return;
-        }
-}
+static void a_zoom_in(GtkAction *a, gpointer d) { (void)a; kf_app_zoom_step(d, +1); }
+static void a_zoom_out(GtkAction *a, gpointer d) { (void)a; kf_app_zoom_step(d, -1); }
 
 static void a_zoom_reset(GtkAction *a, gpointer d) { (void)a; set_zoom(d, 64); }
 
