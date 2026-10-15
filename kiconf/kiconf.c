@@ -60,6 +60,9 @@
  *     chpasswd; passwords hashed here, passed on stdin).
  *   Servicos -- service status and start/stop/enable/disable on systemd,
  *     OpenRC or sysvinit; each action runs through pkexec.
+ *   Login -- display manager (SDDM/LightDM/SLiM) session, autologin, numlock
+ *     and theme behind one form; read unprivileged, written as root via
+ *     one pkexec (content on stdin), applies at next login.
  *   Sons -- the desktop-wide sound theme: kidesktop-sound.conf (theme,
  *     enabled, volume, per-event sound.<event>= overrides), read live by
  *     every program via shared/xis_sound.c; nothing to signal on save.
@@ -119,7 +122,7 @@
 #include "sysinfo.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.58"
+#define KICONF_VERSION "0.2.59"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -174,6 +177,7 @@ static LazyTab g_tabs[] = {
     {N_("Sons"), GTK_STOCK_MEDIA_PLAY, build_sons_tab, NULL, 0, 0},
     {N_("Usuarios"), GTK_STOCK_ORIENTATION_PORTRAIT, build_usuarios_tab, NULL, 0, 0},
     {N_("Servicos"), GTK_STOCK_EXECUTE, build_servicos_tab, NULL, 0, 0},
+    {N_("Login"), GTK_STOCK_DIALOG_AUTHENTICATION, build_login_tab, NULL, 0, 0},
     {N_("Acessibilidade"), GTK_STOCK_ZOOM_IN, build_acessibilidade_tab, NULL, 0, 0},
 };
 #define N_TABS ((int)(sizeof(g_tabs) / sizeof(g_tabs[0])))

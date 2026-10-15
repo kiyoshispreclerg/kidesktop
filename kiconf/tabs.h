@@ -27,5 +27,6 @@ GtkWidget *build_acessibilidade_tab(void);
 GtkWidget *build_sons_tab(void);
 GtkWidget *build_usuarios_tab(void);
 GtkWidget *build_servicos_tab(void);
+GtkWidget *build_login_tab(void);
 
 #endif /* KICONF_TABS_H */

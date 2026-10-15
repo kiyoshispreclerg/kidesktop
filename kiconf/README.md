@@ -32,6 +32,7 @@ and switching tabs doesn't grow the window.
 | Iniciar automaticamente | `kisession`'s own services plus XDG autostart entries |
 | Usuarios | local accounts; changes queued and applied as root under one `pkexec` prompt |
 | Servicos | status/start/stop/enable/disable on systemd, OpenRC or sysvinit, via `pkexec` |
+| Login | display manager (SDDM, LightDM, SLiM): autologin, session, Num Lock, theme; written as root under `pkexec` |
 | Sons | `kidesktop-sound.conf` (theme, volume, per-event files), read live by every program playing sounds |
 | Eventos | `ki-events.conf`, read by `xisserve --calendar` |
 
