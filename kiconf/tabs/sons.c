@@ -37,6 +37,14 @@ static const struct { const char *id, *label; } EVENTS[] = {
     { "logout",                  N_("Sair da sessao") },
     { "bell",                    N_("Campainha do sistema") },
     { "trash-empty",             N_("Esvaziar a lixeira") },
+    { "folder-open",             N_("Abrir pasta no gerenciador de arquivos") },
+    { "folder-back",             N_("Voltar no gerenciador de arquivos") },
+    { "folder-forward",          N_("Avancar no gerenciador de arquivos") },
+    { "folder-up",               N_("Subir para a pasta acima") },
+    { "file-trash",              N_("Mover arquivos para a lixeira") },
+    { "complete",                N_("Operacao concluida / programa terminou no terminal") },
+    { "dialog-error",            N_("Erro numa operacao de arquivos") },
+    { "device-removed",          N_("Dispositivo removido com seguranca") },
 };
 #define N_EVENTS ((int)(sizeof(EVENTS) / sizeof(EVENTS[0])))
 

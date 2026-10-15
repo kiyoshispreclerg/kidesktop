@@ -1682,3 +1682,35 @@ msgstr "Salvar ações de clique"
 #~ msgstr ""
 #~ "Vale a partir do próximo login. Ctrl+Alt+Tab foca o painel para usá-lo "
 #~ "pelo teclado (focus_key= no xispanel.conf)."
+
+#: tabs/sons.c
+msgid "Abrir pasta no gerenciador de arquivos"
+msgstr "Abrir pasta no gerenciador de arquivos"
+
+#: tabs/sons.c
+msgid "Voltar no gerenciador de arquivos"
+msgstr "Voltar no gerenciador de arquivos"
+
+#: tabs/sons.c
+msgid "Avancar no gerenciador de arquivos"
+msgstr "Avancar no gerenciador de arquivos"
+
+#: tabs/sons.c
+msgid "Subir para a pasta acima"
+msgstr "Subir para a pasta acima"
+
+#: tabs/sons.c
+msgid "Mover arquivos para a lixeira"
+msgstr "Mover arquivos para a lixeira"
+
+#: tabs/sons.c
+msgid "Operacao concluida / programa terminou no terminal"
+msgstr "Operacao concluida / programa terminou no terminal"
+
+#: tabs/sons.c
+msgid "Erro numa operacao de arquivos"
+msgstr "Erro numa operacao de arquivos"
+
+#: tabs/sons.c
+msgid "Dispositivo removido com seguranca"
+msgstr "Dispositivo removido com seguranca"

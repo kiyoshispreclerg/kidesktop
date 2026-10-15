@@ -1667,3 +1667,35 @@ msgstr "Save click actions"
 #~ msgstr ""
 #~ "Takes effect at the next login. Ctrl+Alt+Tab focuses the panel for "
 #~ "keyboard use (focus_key= in xispanel.conf)."
+
+#: tabs/sons.c
+msgid "Abrir pasta no gerenciador de arquivos"
+msgstr "Open a folder in the file manager"
+
+#: tabs/sons.c
+msgid "Voltar no gerenciador de arquivos"
+msgstr "Go back in the file manager"
+
+#: tabs/sons.c
+msgid "Avancar no gerenciador de arquivos"
+msgstr "Go forward in the file manager"
+
+#: tabs/sons.c
+msgid "Subir para a pasta acima"
+msgstr "Go up to the parent folder"
+
+#: tabs/sons.c
+msgid "Mover arquivos para a lixeira"
+msgstr "Move files to the trash"
+
+#: tabs/sons.c
+msgid "Operacao concluida / programa terminou no terminal"
+msgstr "Operation finished / program finished in the terminal"
+
+#: tabs/sons.c
+msgid "Erro numa operacao de arquivos"
+msgstr "File operation error"
+
+#: tabs/sons.c
+msgid "Dispositivo removido com seguranca"
+msgstr "Device safely removed"

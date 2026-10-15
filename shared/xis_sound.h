@@ -23,6 +23,10 @@
  * emits them: window-minimize, window-close, window-maximize,
  * window-shade, window-unshade, window-all-desktops,
  * window-all-desktops-not, window-move, window-move-stop, login, logout.
+ * kifiles emits folder-open, folder-back, folder-forward, folder-up,
+ * file-trash, trash-empty, complete (a long copy/move finished),
+ * dialog-error and device-removed (safe to unplug); kiterm emits bell and
+ * complete (a program finished in a tab or window nobody was watching).
  *
  * Where an event's file comes from, first match wins:
  *   1. the KiDesktop theme <name>/sounds.conf under
