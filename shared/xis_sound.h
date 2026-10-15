@@ -10,6 +10,7 @@
  *     theme=Oxygen       # empty = silent
  *     enabled=1
  *     volume=80          # 0-100
+ *     sound.window-close=/path/x.ogg   # per-event file; "none" = silent
  *
  * It is re-checked (a stat) at most every 2 seconds, so a change applies
  * to running programs with no reload plumbing, and the first play loads
@@ -41,11 +42,20 @@
 #ifndef XIS_SOUND_H
 #define XIS_SOUND_H
 
+#include <stdbool.h>
+#include <stddef.h>
+
 /* Plays `event` from the active theme; no-op if there is nothing to play. */
 void xis_sound_play(const char *event);
 
 /* Forces the next play to re-read the settings and theme now, instead of
  * waiting out the 2 s check. */
 void xis_sound_reload(void);
+
+/* For a settings UI: the file `theme` would give `event` (ignoring the
+ * per-event overrides), and an unconditional play of a file at a volume,
+ * bypassing the enabled/theme settings, to preview before saving. */
+bool xis_sound_theme_file(const char *theme, const char *event, char *out, size_t sz);
+void xis_sound_play_file(const char *path, int volume_pct);
 
 #endif

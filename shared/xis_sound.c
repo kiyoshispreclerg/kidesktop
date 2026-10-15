@@ -34,6 +34,11 @@ static const struct { const char *event, *kde; } kde_names[] = {
     { "trash-empty",             "Sys-Trash-Emptied" },
 };
 
+struct xs_map {
+    struct { char event[48]; char path[PATH_MAX]; } e[MAX_MAPPED];
+    int n;
+};
+
 static struct {
     bool loaded, enabled;
     char theme[64];
@@ -41,8 +46,11 @@ static struct {
     const char *player;
     long long checked_ms;
     time_t conf_mtime;
-    struct { char event[48]; char path[PATH_MAX]; } map[MAX_MAPPED];
-    int nmap;
+    struct xs_map map;
+    /* sound.<event>= lines of the settings file: a per-event file chosen
+     * over the theme's, or "none" for silence. */
+    struct { char event[48]; char path[PATH_MAX]; } over[MAX_MAPPED];
+    int nover;
     struct { char event[48]; long long ms; } last[MAX_MAPPED];
 } S;
 
@@ -104,19 +112,19 @@ static int data_roots(char roots[3][PATH_MAX])
     return n;
 }
 
-static void load_kidesktop_theme(void)
+static void load_kidesktop_theme(const char *theme, struct xs_map *m)
 {
     char roots[3][PATH_MAX];
     int nr = data_roots(roots);
     for (int r = 0; r < nr; r++) {
         char dir[PATHBUF], path[PATHBUF + 16];
-        snprintf(dir, sizeof(dir), "%s/kidesktop/sounds/%s", roots[r], S.theme);
+        snprintf(dir, sizeof(dir), "%s/kidesktop/sounds/%s", roots[r], theme);
         snprintf(path, sizeof(path), "%s/sounds.conf", dir);
         FILE *f = fopen(path, "r");
         if (!f)
             continue;
         char line[PATHBUF];
-        while (fgets(line, sizeof(line), f) && S.nmap < MAX_MAPPED) {
+        while (fgets(line, sizeof(line), f) && m->n < MAX_MAPPED) {
             char *s = trim(line);
             if (*s == '#' || !*s)
                 continue;
@@ -125,14 +133,14 @@ static void load_kidesktop_theme(void)
                 continue;
             *eq = '\0';
             char *key = trim(s), *val = trim(eq + 1);
-            if (!*key || !*val || strlen(key) >= sizeof(S.map[0].event))
+            if (!*key || !*val || strlen(key) >= sizeof(m->e[0].event))
                 continue;
-            int n = S.nmap++;
-            snprintf(S.map[n].event, sizeof(S.map[n].event), "%s", key);
+            int n = m->n++;
+            snprintf(m->e[n].event, sizeof(m->e[n].event), "%s", key);
             if (val[0] == '/')
-                snprintf(S.map[n].path, sizeof(S.map[n].path), "%s", val);
+                snprintf(m->e[n].path, sizeof(m->e[n].path), "%s", val);
             else
-                snprintf(S.map[n].path, sizeof(S.map[n].path), "%.*s/%s",
+                snprintf(m->e[n].path, sizeof(m->e[n].path), "%.*s/%s",
                          PATH_MAX / 2, dir, val);
         }
         fclose(f);
@@ -142,7 +150,8 @@ static void load_kidesktop_theme(void)
 
 static void load_config(void)
 {
-    S.nmap = 0;
+    S.map.n = 0;
+    S.nover = 0;
     S.theme[0] = '\0';
     S.enabled = false;
     S.volume = 80;
@@ -163,7 +172,13 @@ static void load_config(void)
                 continue;
             *eq = '\0';
             char *key = trim(s), *val = trim(eq + 1);
-            if (strcmp(key, "theme") == 0)
+            if (strncmp(key, "sound.", 6) == 0) {
+                if (S.nover < MAX_MAPPED && key[6] && strlen(key + 6) < sizeof(S.over[0].event)) {
+                    snprintf(S.over[S.nover].event, sizeof(S.over[0].event), "%s", key + 6);
+                    snprintf(S.over[S.nover].path, sizeof(S.over[0].path), "%s", val);
+                    S.nover++;
+                }
+            } else if (strcmp(key, "theme") == 0)
                 snprintf(S.theme, sizeof(S.theme), "%s", val);
             else if (strcmp(key, "enabled") == 0)
                 S.enabled = atoi(val) != 0;
@@ -177,7 +192,7 @@ static void load_config(void)
 
     S.player = in_path("pw-play") ? "pw-play" : in_path("paplay") ? "paplay" : NULL;
     if (S.enabled && S.theme[0] && !strchr(S.theme, '/'))
-        load_kidesktop_theme();
+        load_kidesktop_theme(S.theme, &S.map);
     S.loaded = true;
 }
 
@@ -251,23 +266,39 @@ static bool find_in_fd_theme(const char *theme, const char *event, int depth,
     return false;
 }
 
-static bool resolve(const char *event, char *out, size_t sz)
+/* The file `theme` gives `event` (map = that theme's sounds.conf, already
+ * loaded), ignoring per-event overrides. */
+static bool resolve_theme(const struct xs_map *map, const char *theme, const char *event,
+                          char *out, size_t sz)
 {
-    for (int i = 0; i < S.nmap; i++) {
-        if (strcmp(S.map[i].event, event) == 0) {
-            snprintf(out, sz, "%s", S.map[i].path);
+    for (int i = 0; i < map->n; i++) {
+        if (strcmp(map->e[i].event, event) == 0) {
+            snprintf(out, sz, "%s", map->e[i].path);
             return access(out, R_OK) == 0;
         }
     }
-    if (find_in_fd_theme(S.theme, event, 0, out, sz))
+    if (find_in_fd_theme(theme, event, 0, out, sz))
         return true;
     for (size_t i = 0; i < sizeof(kde_names) / sizeof(kde_names[0]); i++) {
         if (strcmp(kde_names[i].event, event) == 0) {
-            snprintf(out, sz, "/usr/share/sounds/%s-%s.ogg", S.theme, kde_names[i].kde);
+            snprintf(out, sz, "/usr/share/sounds/%s-%s.ogg", theme, kde_names[i].kde);
             return access(out, R_OK) == 0;
         }
     }
     return false;
+}
+
+static bool resolve(const char *event, char *out, size_t sz)
+{
+    for (int i = 0; i < S.nover; i++) {
+        if (strcmp(S.over[i].event, event) == 0) {
+            if (strcmp(S.over[i].path, "none") == 0)
+                return false;
+            snprintf(out, sz, "%s", S.over[i].path);
+            return access(out, R_OK) == 0;
+        }
+    }
+    return resolve_theme(&S.map, S.theme, event, out, sz);
 }
 
 /* True if `event` already played within DEBOUNCE_MS; otherwise records it. */
@@ -293,23 +324,13 @@ static bool debounced(const char *event)
     return false;
 }
 
-void xis_sound_play(const char *event)
+static void spawn_player(const char *file, int volume)
 {
-    if (!event || !*event)
-        return;
-    maybe_reload();
-    if (!S.enabled || !S.theme[0] || !S.player || S.volume == 0)
-        return;
-
-    char file[PATHBUF];
-    if (!resolve(event, file, sizeof(file)) || debounced(event))
-        return;
-
     char vol[32];
     if (strcmp(S.player, "pw-play") == 0)
-        snprintf(vol, sizeof(vol), "--volume=%.2f", S.volume / 100.0);
+        snprintf(vol, sizeof(vol), "--volume=%.2f", volume / 100.0);
     else
-        snprintf(vol, sizeof(vol), "--volume=%d", S.volume * 65536 / 100);
+        snprintf(vol, sizeof(vol), "--volume=%d", volume * 65536 / 100);
 
     pid_t pid = fork();
     if (pid < 0)
@@ -332,4 +353,37 @@ void xis_sound_play(const char *event)
         _exit(127);
     }
     waitpid(pid, NULL, 0);
+}
+
+void xis_sound_play(const char *event)
+{
+    if (!event || !*event)
+        return;
+    maybe_reload();
+    if (!S.enabled || !S.theme[0] || !S.player || S.volume == 0)
+        return;
+
+    char file[PATHBUF];
+    if (!resolve(event, file, sizeof(file)) || debounced(event))
+        return;
+    spawn_player(file, S.volume);
+}
+
+bool xis_sound_theme_file(const char *theme, const char *event, char *out, size_t sz)
+{
+    if (!theme || !*theme || !event || !*event)
+        return false;
+    static struct xs_map map;
+    map.n = 0;
+    if (!strchr(theme, '/'))
+        load_kidesktop_theme(theme, &map);
+    return resolve_theme(&map, theme, event, out, sz);
+}
+
+void xis_sound_play_file(const char *path, int volume_pct)
+{
+    maybe_reload();
+    if (!S.player || !path || !*path)
+        return;
+    spawn_player(path, volume_pct < 0 ? 0 : volume_pct > 100 ? 100 : volume_pct);
 }

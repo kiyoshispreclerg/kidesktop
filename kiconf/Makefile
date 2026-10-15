@@ -36,8 +36,8 @@ SRCS := kiconf.c common.c sysinfo.c tabs/appearance.c tabs/shortcuts.c tabs/entr
         tabs/permissoes.c tabs/paineis.c tabs/wallpaper.c \
         tabs/telas.c tabs/janelas.c tabs/efeitos.c tabs/sistema.c \
         tabs/programas.c tabs/associacoes.c tabs/menu.c tabs/autostart.c tabs/energia.c tabs/eventos.c \
-        tabs/historico.c tabs/acessibilidade.c \
-        ../shared/xis_outputs.c ../shared/xis_direction.c
+        tabs/historico.c tabs/acessibilidade.c tabs/sons.c \
+        ../shared/xis_outputs.c ../shared/xis_direction.c ../shared/xis_sound.c
 
 # po/LINGUAS: one language code per line ("pt_BR", "es", ...), '#' comments.
 # Empty/missing until the first translation actually exists (see po/README.md).

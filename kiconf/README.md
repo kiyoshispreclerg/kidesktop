@@ -30,6 +30,7 @@ and switching tabs doesn't grow the window.
 | Associacoes de arquivos | per-extension default application, wider than Programas Padrao |
 | Menu de programas | the `.desktop` entries `xispanel`'s launcher and `xismenu`'s global menu pull from; per-app extra env vars/args applied only inside the KiDesktop session (see `../kisession/README.md`) |
 | Iniciar automaticamente | `kisession`'s own services plus XDG autostart entries |
+| Sons | `kidesktop-sound.conf` (theme, volume, per-event files), read live by every program playing sounds |
 | Eventos | `ki-events.conf`, read by `xisserve --calendar` |
 
 ## Usage

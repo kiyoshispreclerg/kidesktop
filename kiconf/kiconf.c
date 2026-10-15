@@ -55,6 +55,9 @@
  * few dozen lines of substring scanning (json_get_str/int/bool below)
  * covers it without adding a dependency for it.
  *
+ *   Sons -- the desktop-wide sound theme: kidesktop-sound.conf (theme,
+ *     enabled, volume, per-event sound.<event>= overrides), read live by
+ *     every program via shared/xis_sound.c; nothing to signal on save.
  *   Eventos -- full-rewrite editor for ki-events.conf (date, recurrence,
  *     name, description), same list-store-plus-Adicionar/Remover/Salvar
  *     pattern as Atalhos' xiskeys.conf editor. The only writer of that
@@ -163,6 +166,7 @@ static LazyTab g_tabs[] = {
     {N_("Iniciar automaticamente"), GTK_STOCK_MEDIA_PLAY, build_autostart_tab, NULL, 0, 0},
     {N_("Eventos"), GTK_STOCK_INDEX, build_eventos_tab, NULL, 0, 0},
     {N_("Historico"), GTK_STOCK_FIND, build_historico_tab, NULL, 0, 0},
+    {N_("Sons"), GTK_STOCK_MEDIA_PLAY, build_sons_tab, NULL, 0, 0},
     {N_("Acessibilidade"), GTK_STOCK_ZOOM_IN, build_acessibilidade_tab, NULL, 0, 0},
 };
 #define N_TABS ((int)(sizeof(g_tabs) / sizeof(g_tabs[0])))
