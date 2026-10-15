@@ -1238,6 +1238,10 @@ KfPane *kf_pane_new(KfApp *app)
     /* icon view */
     p->iconview = gtk_icon_view_new_with_model(p->sort);
     GtkIconView *iv = GTK_ICON_VIEW(p->iconview);
+    /* The icon view requests the width of its last layout, which would make the
+     * window unable to shrink once it has been wide; it wraps to whatever
+     * width it is given, so ask for next to nothing. */
+    gtk_widget_set_size_request(p->iconview, 1, -1);
     gtk_icon_view_set_selection_mode(iv, GTK_SELECTION_MULTIPLE);
     gtk_icon_view_set_spacing(iv, 2);
     gtk_icon_view_set_row_spacing(iv, 4);

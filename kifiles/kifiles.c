@@ -1159,9 +1159,14 @@ int main(int argc, char **argv)
     gtk_label_set_ellipsize(GTK_LABEL(app->status_left), PANGO_ELLIPSIZE_END);
     gtk_box_pack_start(GTK_BOX(sb), app->status_left, TRUE, TRUE, 4);
     app->status_free = gtk_label_new("");
-    gtk_box_pack_start(GTK_BOX(sb), app->status_free, FALSE, FALSE, 0);
+    /* Everything in the status bar has to be able to shrink, or its natural
+     * width becomes the window's minimum: the free-space text ellipsizes, and
+     * the bar and zoom slider are small. */
+    gtk_label_set_ellipsize(GTK_LABEL(app->status_free), PANGO_ELLIPSIZE_END);
+    gtk_misc_set_alignment(GTK_MISC(app->status_free), 1, 0.5);
+    gtk_box_pack_start(GTK_BOX(sb), app->status_free, FALSE, TRUE, 0);
     app->free_bar = gtk_progress_bar_new();
-    gtk_widget_set_size_request(app->free_bar, 70, 10);
+    gtk_widget_set_size_request(app->free_bar, 48, 10);
     gtk_widget_set_no_show_all(app->free_bar, TRUE);
     GtkWidget *bar_box = gtk_vbox_new(FALSE, 0);
     gtk_box_pack_start(GTK_BOX(bar_box), app->free_bar, TRUE, FALSE, 0);
@@ -1170,7 +1175,7 @@ int main(int argc, char **argv)
     gtk_box_pack_start(GTK_BOX(sb), gtk_image_new_from_stock(GTK_STOCK_ZOOM_OUT, GTK_ICON_SIZE_MENU), FALSE, FALSE, 0);
     app->zoom_scale = gtk_hscale_new_with_range(KF_ZOOM_MIN, KF_ZOOM_MAX, 8);
     gtk_scale_set_draw_value(GTK_SCALE(app->zoom_scale), FALSE);
-    gtk_widget_set_size_request(app->zoom_scale, 130, -1);
+    gtk_widget_set_size_request(app->zoom_scale, 90, -1);
     gtk_range_set_value(GTK_RANGE(app->zoom_scale), app->cfg.zoom);
     gtk_widget_set_tooltip_text(app->zoom_scale, _("Zoom (Ctrl+Plus / Ctrl+Minus)"));
     g_signal_connect(app->zoom_scale, "value-changed", G_CALLBACK(on_zoom_scale), app);
