@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Name=Terminal
+GenericName=Terminal Emulator
+Comment=Tabbed terminal emulator
+Exec=@BINDIR@/kiterm
+Icon=utilities-terminal
+Terminal=false
+Categories=System;TerminalEmulator;
+Keywords=shell;prompt;command;commandline;cmd;
+StartupNotify=false
+Actions=NewWindow;
+
+[Desktop Action NewWindow]
+Name=New Window
+Exec=@BINDIR@/kiterm

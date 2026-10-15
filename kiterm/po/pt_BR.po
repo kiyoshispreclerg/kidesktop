@@ -1,0 +1,271 @@
+# Portuguese translations for kiterm package.
+# Copyright (C) 2026 THE kiterm'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the kiterm package.
+# Automatically generated, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: kiterm\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-15 17:05-0300\n"
+"PO-Revision-Date: 2026-10-15 17:05-0300\n"
+"Last-Translator: Automatically generated\n"
+"Language-Team: none\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#: kiterm.c:136
+msgid "A program is still running in this tab. Close it anyway?"
+msgstr "Há um programa em execução nesta aba. Fechar mesmo assim?"
+
+#: kiterm.c:148
+msgid "Programs are still running in this window. Close it anyway?"
+msgstr "Há programas em execução nesta janela. Fechar mesmo assim?"
+
+#: kiterm.c:354
+msgid "New tab (Ctrl+Shift+T)"
+msgstr "Nova aba (Ctrl+Shift+T)"
+
+#: kt_config.c:15
+msgid "Dark"
+msgstr "Escuro"
+
+#: kt_config.c:18
+msgid "Light"
+msgstr "Claro"
+
+#: kt_config.c:21
+msgid "Solarized dark"
+msgstr "Solarized escuro"
+
+#: kt_config.c:24
+msgid "Solarized light"
+msgstr "Solarized claro"
+
+#: kt_config.c:27
+msgid "Linux console"
+msgstr "Console do Linux"
+
+#: kt_config.c:30
+msgid "Green on black"
+msgstr "Verde sobre preto"
+
+#: kt_prefs.c:155
+msgid "_Font:"
+msgstr "_Fonte:"
+
+#: kt_prefs.c:160
+msgid "_Scrollback lines:"
+msgstr "Linhas de _histórico:"
+
+#: kt_prefs.c:165
+msgid "Initial _columns:"
+msgstr "_Colunas iniciais:"
+
+#: kt_prefs.c:169
+msgid "Initial _rows:"
+msgstr "Lin_has iniciais:"
+
+#: kt_prefs.c:174
+msgid "Empty uses $SHELL. Applies to new tabs."
+msgstr "Vazio usa $SHELL. Vale para novas abas."
+
+#: kt_prefs.c:175
+msgid "S_hell:"
+msgstr "_Shell:"
+
+#: kt_prefs.c:180
+msgid "Characters that count as part of a word when double-clicking."
+msgstr "Caracteres considerados parte de uma palavra no clique duplo."
+
+#: kt_prefs.c:181
+msgid "_Word characters:"
+msgstr "Caracteres de _palavra:"
+
+#: kt_prefs.c:184
+msgid "Top"
+msgstr "Topo"
+
+#: kt_prefs.c:185
+msgid "Bottom"
+msgstr "Base"
+
+#: kt_prefs.c:186
+msgid "Left"
+msgstr "Esquerda"
+
+#: kt_prefs.c:187
+msgid "Right"
+msgstr "Direita"
+
+#: kt_prefs.c:191
+msgid "_Tab bar:"
+msgstr "Barra de _abas:"
+
+#: kt_prefs.c:193
+msgid "Ask before closing a tab that is running a program"
+msgstr "Perguntar antes de fechar uma aba com programa em execução"
+
+#: kt_prefs.c:206
+msgid "Choose a preset..."
+msgstr "Escolha um esquema..."
+
+#: kt_prefs.c:210
+msgid "_Color scheme:"
+msgstr "Esquema de _cores:"
+
+#: kt_prefs.c:212
+msgid "_Text:"
+msgstr "_Texto:"
+
+#: kt_prefs.c:213
+msgid "_Background:"
+msgstr "_Fundo:"
+
+#: kt_prefs.c:214
+msgid "C_ursor:"
+msgstr "C_ursor:"
+
+#: kt_prefs.c:222
+msgid "_Palette:"
+msgstr "_Paleta:"
+
+#: kt_prefs.c:227
+msgid "Transparency starts working in new windows."
+msgstr "A transparência passa a valer em novas janelas."
+
+#: kt_prefs.c:231
+msgid "_Opacity (%):"
+msgstr "_Opacidade (%):"
+
+#: kt_prefs.c:248
+msgid "Block"
+msgstr "Bloco"
+
+#: kt_prefs.c:249
+msgid "I-beam"
+msgstr "Barra vertical"
+
+#: kt_prefs.c:250
+msgid "Underline"
+msgstr "Sublinhado"
+
+#: kt_prefs.c:254
+msgid "Cursor _shape:"
+msgstr "_Formato do cursor:"
+
+#: kt_prefs.c:258
+msgid "Blinking cursor"
+msgstr "Cursor piscante"
+
+#: kt_prefs.c:258
+msgid "Scroll to the bottom on output"
+msgstr "Rolar até o fim ao receber saída"
+
+#: kt_prefs.c:259
+msgid "Audible bell"
+msgstr "Sinal sonoro"
+
+#: kt_prefs.c:259
+msgid "Scroll to the bottom on keystroke"
+msgstr "Rolar até o fim ao digitar"
+
+#: kt_prefs.c:260
+msgid "Flag the window when the bell rings in the background"
+msgstr "Sinalizar a janela quando o sinal tocar em segundo plano"
+
+#: kt_prefs.c:284
+msgid "kiterm preferences"
+msgstr "Preferências do kiterm"
+
+#: kt_prefs.c:287
+msgid "General"
+msgstr "Geral"
+
+#: kt_prefs.c:288
+msgid "Appearance"
+msgstr "Aparência"
+
+#: kt_prefs.c:289
+msgid "Behavior"
+msgstr "Comportamento"
+
+#: kt_search.c:79
+msgid "Close the search bar"
+msgstr "Fechar a barra de busca"
+
+#: kt_search.c:83
+msgid "Find:"
+msgstr "Buscar:"
+
+#: kt_search.c:91
+msgid "Previous match (Shift+Enter)"
+msgstr "Ocorrência anterior (Shift+Enter)"
+
+#: kt_search.c:95
+msgid "Next match (Enter)"
+msgstr "Próxima ocorrência (Enter)"
+
+#: kt_search.c:100
+msgid "Match _case"
+msgstr "Diferenciar _maiúsculas"
+
+#: kt_search.c:101
+msgid "_Regular expression"
+msgstr "Expressão _regular"
+
+#: kt_tab.c:192
+msgid "Close tab"
+msgstr "Fechar aba"
+
+#: kt_tab.c:236
+#, c-format
+msgid "Could not start \"%s\": %s"
+msgstr "Não foi possível iniciar \"%s\": %s"
+
+#: kt_tab.c:250
+msgid "Rename tab"
+msgstr "Renomear aba"
+
+#: kt_tab.c:324
+msgid "_Copy"
+msgstr "_Copiar"
+
+#: kt_tab.c:325
+msgid "_Paste"
+msgstr "C_olar"
+
+#: kt_tab.c:326
+msgid "Select _all"
+msgstr "Selecionar _tudo"
+
+#: kt_tab.c:328
+msgid "_Find..."
+msgstr "_Buscar..."
+
+#: kt_tab.c:330
+msgid "New _tab"
+msgstr "Nova _aba"
+
+#: kt_tab.c:331
+msgid "New _window"
+msgstr "Nova _janela"
+
+#: kt_tab.c:332
+msgid "_Rename tab..."
+msgstr "_Renomear aba..."
+
+#: kt_tab.c:333
+msgid "C_lose tab"
+msgstr "_Fechar aba"
+
+#: kt_tab.c:335
+msgid "Reset terminal"
+msgstr "Reiniciar terminal"
+
+#: kt_tab.c:336
+msgid "Pre_ferences..."
+msgstr "Pre_ferências..."

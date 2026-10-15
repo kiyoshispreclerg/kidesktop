@@ -1,0 +1,271 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the kiterm package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: kiterm\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-15 17:05-0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: kiterm.c:136
+msgid "A program is still running in this tab. Close it anyway?"
+msgstr ""
+
+#: kiterm.c:148
+msgid "Programs are still running in this window. Close it anyway?"
+msgstr ""
+
+#: kiterm.c:354
+msgid "New tab (Ctrl+Shift+T)"
+msgstr ""
+
+#: kt_config.c:15
+msgid "Dark"
+msgstr ""
+
+#: kt_config.c:18
+msgid "Light"
+msgstr ""
+
+#: kt_config.c:21
+msgid "Solarized dark"
+msgstr ""
+
+#: kt_config.c:24
+msgid "Solarized light"
+msgstr ""
+
+#: kt_config.c:27
+msgid "Linux console"
+msgstr ""
+
+#: kt_config.c:30
+msgid "Green on black"
+msgstr ""
+
+#: kt_prefs.c:155
+msgid "_Font:"
+msgstr ""
+
+#: kt_prefs.c:160
+msgid "_Scrollback lines:"
+msgstr ""
+
+#: kt_prefs.c:165
+msgid "Initial _columns:"
+msgstr ""
+
+#: kt_prefs.c:169
+msgid "Initial _rows:"
+msgstr ""
+
+#: kt_prefs.c:174
+msgid "Empty uses $SHELL. Applies to new tabs."
+msgstr ""
+
+#: kt_prefs.c:175
+msgid "S_hell:"
+msgstr ""
+
+#: kt_prefs.c:180
+msgid "Characters that count as part of a word when double-clicking."
+msgstr ""
+
+#: kt_prefs.c:181
+msgid "_Word characters:"
+msgstr ""
+
+#: kt_prefs.c:184
+msgid "Top"
+msgstr ""
+
+#: kt_prefs.c:185
+msgid "Bottom"
+msgstr ""
+
+#: kt_prefs.c:186
+msgid "Left"
+msgstr ""
+
+#: kt_prefs.c:187
+msgid "Right"
+msgstr ""
+
+#: kt_prefs.c:191
+msgid "_Tab bar:"
+msgstr ""
+
+#: kt_prefs.c:193
+msgid "Ask before closing a tab that is running a program"
+msgstr ""
+
+#: kt_prefs.c:206
+msgid "Choose a preset..."
+msgstr ""
+
+#: kt_prefs.c:210
+msgid "_Color scheme:"
+msgstr ""
+
+#: kt_prefs.c:212
+msgid "_Text:"
+msgstr ""
+
+#: kt_prefs.c:213
+msgid "_Background:"
+msgstr ""
+
+#: kt_prefs.c:214
+msgid "C_ursor:"
+msgstr ""
+
+#: kt_prefs.c:222
+msgid "_Palette:"
+msgstr ""
+
+#: kt_prefs.c:227
+msgid "Transparency starts working in new windows."
+msgstr ""
+
+#: kt_prefs.c:231
+msgid "_Opacity (%):"
+msgstr ""
+
+#: kt_prefs.c:248
+msgid "Block"
+msgstr ""
+
+#: kt_prefs.c:249
+msgid "I-beam"
+msgstr ""
+
+#: kt_prefs.c:250
+msgid "Underline"
+msgstr ""
+
+#: kt_prefs.c:254
+msgid "Cursor _shape:"
+msgstr ""
+
+#: kt_prefs.c:258
+msgid "Blinking cursor"
+msgstr ""
+
+#: kt_prefs.c:258
+msgid "Scroll to the bottom on output"
+msgstr ""
+
+#: kt_prefs.c:259
+msgid "Audible bell"
+msgstr ""
+
+#: kt_prefs.c:259
+msgid "Scroll to the bottom on keystroke"
+msgstr ""
+
+#: kt_prefs.c:260
+msgid "Flag the window when the bell rings in the background"
+msgstr ""
+
+#: kt_prefs.c:284
+msgid "kiterm preferences"
+msgstr ""
+
+#: kt_prefs.c:287
+msgid "General"
+msgstr ""
+
+#: kt_prefs.c:288
+msgid "Appearance"
+msgstr ""
+
+#: kt_prefs.c:289
+msgid "Behavior"
+msgstr ""
+
+#: kt_search.c:79
+msgid "Close the search bar"
+msgstr ""
+
+#: kt_search.c:83
+msgid "Find:"
+msgstr ""
+
+#: kt_search.c:91
+msgid "Previous match (Shift+Enter)"
+msgstr ""
+
+#: kt_search.c:95
+msgid "Next match (Enter)"
+msgstr ""
+
+#: kt_search.c:100
+msgid "Match _case"
+msgstr ""
+
+#: kt_search.c:101
+msgid "_Regular expression"
+msgstr ""
+
+#: kt_tab.c:192
+msgid "Close tab"
+msgstr ""
+
+#: kt_tab.c:236
+#, c-format
+msgid "Could not start \"%s\": %s"
+msgstr ""
+
+#: kt_tab.c:250
+msgid "Rename tab"
+msgstr ""
+
+#: kt_tab.c:324
+msgid "_Copy"
+msgstr ""
+
+#: kt_tab.c:325
+msgid "_Paste"
+msgstr ""
+
+#: kt_tab.c:326
+msgid "Select _all"
+msgstr ""
+
+#: kt_tab.c:328
+msgid "_Find..."
+msgstr ""
+
+#: kt_tab.c:330
+msgid "New _tab"
+msgstr ""
+
+#: kt_tab.c:331
+msgid "New _window"
+msgstr ""
+
+#: kt_tab.c:332
+msgid "_Rename tab..."
+msgstr ""
+
+#: kt_tab.c:333
+msgid "C_lose tab"
+msgstr ""
+
+#: kt_tab.c:335
+msgid "Reset terminal"
+msgstr ""
+
+#: kt_tab.c:336
+msgid "Pre_ferences..."
+msgstr ""
