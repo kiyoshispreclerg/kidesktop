@@ -41,6 +41,7 @@ typedef struct {
 typedef struct {
     int enabled;
     char windows[128];
+    char passive[128];
     int radius;
     double opacity;
     int offset_x, offset_y;
@@ -192,6 +193,7 @@ static void load_kicomp_conf(KicompGlobals *g, ShadowConfig *sh, EffectRow *rows
 #define SETS(field) snprintf(sh->field, sizeof(sh->field), "%s", val)
             if (!strcmp(key, "enabled")) sh->enabled = atoi(val) != 0;
             else if (!strcmp(key, "windows")) SETS(windows);
+            else if (!strcmp(key, "windows_passive")) SETS(passive);
             else if (!strcmp(key, "radius")) sh->radius = atoi(val);
             else if (!strcmp(key, "opacity")) sh->opacity = g_ascii_strtod(val, NULL);
             else if (!strcmp(key, "offset_x")) sh->offset_x = atoi(val);
@@ -267,7 +269,7 @@ static GtkWidget *g_status_label;
 static GtkWidget *g_effects_chk, *g_anim_spin, *g_renderer_combo, *g_presenter_combo;
 static GtkWidget *g_single_drawable_chk, *g_skip_wm_layers_chk, *g_unredirect_chk;
 static GtkWidget *g_claim_spin, *g_keep_hidden_chk, *g_live_windows_combo, *g_density_chk;
-static GtkWidget *g_sh_enabled_chk, *g_sh_windows_entry, *g_sh_radius_spin, *g_sh_opacity_spin;
+static GtkWidget *g_sh_enabled_chk, *g_sh_windows_entry, *g_sh_passive_entry, *g_sh_radius_spin, *g_sh_opacity_spin;
 static GtkWidget *g_sh_offx_spin, *g_sh_offy_spin, *g_sh_color_btn;
 static GtkWidget *g_sh_custom_i_chk, *g_sh_radius_i_spin, *g_sh_opacity_i_spin;
 static GtkWidget *g_sh_offx_i_spin, *g_sh_offy_i_spin, *g_sh_color_i_btn, *g_sh_inactive_frame;
@@ -937,6 +939,8 @@ static void save_efeitos_cb(GtkWidget *widget, gpointer data)
     fprintf(out, "\n[shadow]\n");
     fprintf(out, "enabled=%d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_sh_enabled_chk)));
     fprintf(out, "windows=%s\n", gtk_entry_get_text(GTK_ENTRY(g_sh_windows_entry)));
+    if (*gtk_entry_get_text(GTK_ENTRY(g_sh_passive_entry)))
+        fprintf(out, "windows_passive=%s\n", gtk_entry_get_text(GTK_ENTRY(g_sh_passive_entry)));
     fprintf(out, "radius=%d\n", gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_sh_radius_spin)));
     fprintf_double(out, "opacity", gtk_spin_button_get_value(GTK_SPIN_BUTTON(g_sh_opacity_spin)), 2);
     fprintf(out, "offset_x=%d\n", gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_sh_offx_spin)));
@@ -1081,7 +1085,7 @@ GtkWidget *build_efeitos_tab(void)
      * top-level frame. */
     GtkWidget *shadow_outer = gtk_vbox_new(FALSE, 8);
 
-    GtkWidget *shadow_table = gtk_table_new(6, 2, FALSE);
+    GtkWidget *shadow_table = gtk_table_new(7, 2, FALSE);
     g_sh_enabled_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_sh_enabled_chk), sh.enabled);
     labeled_row(shadow_table, 0, "Sombra habilitada:", g_sh_enabled_chk);
@@ -1109,6 +1113,11 @@ GtkWidget *build_efeitos_tab(void)
     gtk_box_pack_start(GTK_BOX(offset_box), g_sh_offy_spin, TRUE, TRUE, 0);
     labeled_row(shadow_table, 4, "Deslocamento (px):", offset_box);
     g_sh_color_btn = labeled_row(shadow_table, 5, "Cor:", make_color_button(sh.color));
+    g_sh_passive_entry = gtk_entry_new();
+    gtk_entry_set_text(GTK_ENTRY(g_sh_passive_entry), sh.passive);
+    labeled_row(shadow_table, 6, "Sempre sem foco:", g_sh_passive_entry);
+    gtk_widget_set_tooltip_text(g_sh_passive_entry,
+        _("Tipos que tambem recebem sombra, sempre com o estilo de janela sem foco (ex.: dock,tooltip,notification). Vazio = desligado. Paineis junto a outra saida projetam sombra nela."));
     gtk_box_pack_start(GTK_BOX(shadow_outer), shadow_table, FALSE, FALSE, 0);
 
     GtkWidget *shadow_i_outer = gtk_vbox_new(FALSE, 4);
