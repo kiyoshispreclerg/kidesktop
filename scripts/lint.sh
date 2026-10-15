@@ -11,7 +11,7 @@
 # also runs on a machine with only the build dependencies.
 set -u
 
-COMPONENTS="kisession kiwm kicomp xispanel xisserve xisback kiconf kiconfd xiskeys xismenu xisguard kimemory kistory kiterm"
+COMPONENTS="kisession kiwm kicomp xispanel xisserve xisback kiconf kiconfd xiskeys xismenu xisguard kimemory kistory kiterm kifiles"
 STRICT_CFLAGS="-Wall -Wextra -O2 -Werror"
 FAILED=""
 
@@ -47,7 +47,7 @@ if have cppcheck; then
 		--suppress='unknownMacro:*/a11y.c' \
 		--error-exitcode=1 -D__linux__ -I shared \
 		kisession kiwm kicomp/src xispanel xisserve xisback kiconf kiconfd xiskeys xismenu xisguard \
-		kimemory kistory kiterm shared; then
+		kimemory kistory kiterm kifiles shared; then
 		fail cppcheck
 	fi
 else

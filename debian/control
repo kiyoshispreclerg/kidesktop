@@ -56,6 +56,8 @@ Depends: ${shlibs:Depends},
          x11-xserver-utils,
          xinput
 Recommends: librsvg2-2,
+            gvfs,
+            ffmpegthumbnailer,
             pulseaudio-utils,
             network-manager,
             udisks2,
@@ -77,6 +79,8 @@ Description: lightweight X11 desktop: window manager, compositor, panel and tool
   * xisserve - launcher and pages (audio, network, storage, calendar...)
   * xisback, kiconfd, xiskeys, xismenu - wallpaper, settings daemon,
     global hotkeys, global menu registrar
+  * kiterm / kifiles - terminal emulator (tabs, search, colors, transparency)
+    and file manager (split view, thumbnails, devices, undo)
   * kiconf - settings application
   * xisguard - permission daemon for the XLibre XNOTIFY extension
   * kimemory / kistory - clipboard and activity history
