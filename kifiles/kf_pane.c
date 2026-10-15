@@ -302,6 +302,7 @@ static void load_finished(KfPane *p)
         show_message(p, GTK_MESSAGE_INFO, _("This folder is empty."));
     kf_app_pane_changed(p->app, p, KF_CHANGE_LOADED);
     kf_pane_request_thumbs(p);
+    kf_hover_refresh(p);
 }
 
 static void on_next_files(GObject *src, GAsyncResult *res, gpointer data)
@@ -533,8 +534,17 @@ static void history_push(GList **list, GFile *f)
     }
 }
 
+/* Event for the next kf_pane_navigate(): back/forward/up say which one they
+ * are, a plain user navigation (crumb, sidebar, double-click) is "folder-open",
+ * and startup/split-view navigations (push_history FALSE) are silent. */
+static const char *nav_sound;
+
 void kf_pane_navigate(KfPane *p, GFile *dir, gboolean push_history, GFile *select_after)
 {
+    const char *snd = nav_sound ? nav_sound : (push_history ? "folder-open" : NULL);
+    nav_sound = NULL;
+    if (snd && !(p->dir && g_file_equal(p->dir, dir)))
+        xis_sound_play(snd);
     if (p->dir && g_file_equal(p->dir, dir)) {
         kf_pane_reload(p);
         return;
@@ -565,6 +575,7 @@ void kf_pane_go_back(KfPane *p)
     p->back = g_list_delete_link(p->back, p->back);
     GFile *from = g_object_ref(p->dir);
     history_push(&p->fwd, from);
+    nav_sound = "folder-back";
     kf_pane_navigate(p, to, FALSE, from);
     g_object_unref(from);
     g_object_unref(to);
@@ -577,6 +588,7 @@ void kf_pane_go_forward(KfPane *p)
     GFile *to = p->fwd->data;
     p->fwd = g_list_delete_link(p->fwd, p->fwd);
     history_push(&p->back, p->dir);
+    nav_sound = "folder-forward";
     kf_pane_navigate(p, to, FALSE, NULL);
     g_object_unref(to);
 }
@@ -587,6 +599,7 @@ void kf_pane_go_up(KfPane *p)
     if (!par)
         return;
     GFile *from = g_object_ref(p->dir);
+    nav_sound = "folder-up";
     kf_pane_navigate(p, par, TRUE, from);
     g_object_unref(from);
     g_object_unref(par);
@@ -930,6 +943,7 @@ static void on_scrolled(GtkAdjustment *adj, gpointer data)
 {
     (void)adj;
     kf_pane_request_thumbs(data);
+    kf_hover_refresh(data);
 }
 
 /* ---- zoom / view mode ---------------------------------------------------- */
@@ -968,11 +982,13 @@ void kf_pane_apply_zoom(KfPane *p)
     gtk_widget_queue_resize(p->iconview);
     gtk_widget_queue_resize(p->treeview);
     kf_pane_request_thumbs(p);
+    kf_hover_clear(p);              /* item sizes changed; the next motion recomputes */
 }
 
 void kf_pane_set_view(KfPane *p, KfViewMode m)
 {
     p->view = m;
+    kf_hover_clear(p);
     if (m == KF_VIEW_LIST) {
         gtk_widget_hide(p->sw_icons);
         gtk_widget_show(p->sw_list);
@@ -1313,6 +1329,7 @@ KfPane *kf_pane_new(KfApp *app)
     gtk_widget_show_all(p->box);
     gtk_widget_hide(p->msg_bar);
     kf_dnd_setup_pane(p);
+    kf_hover_setup(p);
     return p;
 }
 

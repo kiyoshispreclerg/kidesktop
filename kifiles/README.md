@@ -19,6 +19,15 @@ are used when installed).
   **undo** (`Ctrl+Z`: move, copy, rename, trash, create)
 - Name conflicts: replace / merge / keep both / skip, with "apply to all"
 - Copy and move run in a worker thread with a progress dialog and cancel
+- Hover highlight: the item under the pointer gets a translucent box in the
+  GTK theme's selection color, without selecting it (View menu toggle,
+  `hover_highlight=` in the config). GTK2 views have no such thing, so it is
+  drawn by `kf_hover.c`; the xisserve launcher's hover *selects* instead
+- Sounds through the KiDesktop sound theme (`shared/xis_sound.h`, set up in
+  kiconf's Sons tab): `folder-open`, `folder-back`, `folder-forward`,
+  `folder-up`, `file-trash`, `trash-empty`, `complete` (a copy/move that was
+  long enough to show a progress dialog), `dialog-error`, `device-removed`.
+  Whether anything is heard depends on the theme; no theme, no sound
 - Thumbnails (see below), quick filter (`Ctrl+F`), hidden files (`Ctrl+H`)
 - Status bar: folder / file counts and total size (of the selection when there
   is one), free space of the current device with a bar

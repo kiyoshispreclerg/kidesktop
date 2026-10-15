@@ -45,6 +45,7 @@ typedef struct {
     gint64 started;
     GtkWidget *dialog, *bar, *label;
     GFile *dest_dir;
+    gboolean empty_trash;   /* a delete job that is "Empty Trash" */
 } Job;
 
 #define UNDO_MAX 50
@@ -401,6 +402,7 @@ static void on_job_cancel(GtkWidget *w, gpointer data)
 
 static void show_errors(KfApp *app, GList *errors)
 {
+    xis_sound_play("dialog-error");
     GString *s = g_string_new(NULL);
     int n = 0;
     for (GList *l = errors; l && n < 12; l = l->next, n++)
@@ -465,7 +467,7 @@ static void job_start(Job *j)
     j->timer = g_timeout_add(100, job_poll, j);
 }
 
-static void start_delete_job(KfApp *app, GList *files);
+static void start_delete_job(KfApp *app, GList *files, gboolean empty_trash);
 
 static void job_done(Job *j)
 {
@@ -474,6 +476,10 @@ static void job_done(Job *j)
         gtk_widget_destroy(j->dialog);
     if (j->errors)
         show_errors(app, j->errors);
+    else if (j->empty_trash)
+        xis_sound_play("trash-empty");
+    else if ((j->type == JOB_COPY || j->type == JOB_MOVE) && j->dialog && !g_cancellable_is_cancelled(j->cancel))
+        xis_sound_play("complete");        /* only long jobs: the ones with a progress dialog */
 
     switch (j->type) {
     case JOB_COPY:
@@ -495,6 +501,8 @@ static void job_done(Job *j)
         break;
     }
     case JOB_TRASH:
+        if (j->results)
+            xis_sound_play("file-trash");
         undo_push(app, U_TRASH, j->results);
         j->results = NULL;
         if (j->untrashable) {
@@ -508,7 +516,7 @@ static void job_done(Job *j)
                 GList *copy = NULL;
                 for (GList *l = j->untrashable; l; l = l->next)
                     copy = g_list_append(copy, g_object_ref(l->data));
-                start_delete_job(app, copy);
+                start_delete_job(app, copy, FALSE);
             }
             gtk_widget_destroy(d);
         }
@@ -528,9 +536,10 @@ static Job *job_new(KfApp *app, JobType t)
     return j;
 }
 
-static void start_delete_job(KfApp *app, GList *files)
+static void start_delete_job(KfApp *app, GList *files, gboolean empty_trash)
 {
     Job *j = job_new(app, JOB_DELETE);
+    j->empty_trash = empty_trash;
     for (GList *l = files; l; l = l->next) {
         Item *it = g_new0(Item, 1);
         it->src = g_object_ref(l->data);
@@ -604,7 +613,7 @@ void kf_ops_empty_trash(KfApp *app)
     }
     g_object_unref(trash);
     if (all)
-        start_delete_job(app, all);
+        start_delete_job(app, all, TRUE);
 }
 
 /* ---- transfer with conflict resolution ----------------------------------- */

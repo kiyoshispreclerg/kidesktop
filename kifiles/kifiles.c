@@ -503,6 +503,13 @@ static void a_hidden(GtkToggleAction *a, gpointer d)
     each_pane(app, kf_pane_apply_filter);
 }
 
+static void a_hover(GtkToggleAction *a, gpointer d)
+{
+    KfApp *app = d;
+    app->cfg.hover = gtk_toggle_action_get_active(a);
+    each_pane(app, kf_hover_apply);
+}
+
 static void a_thumbs(GtkToggleAction *a, gpointer d)
 {
     KfApp *app = d;
@@ -930,6 +937,7 @@ static const GtkToggleActionEntry kToggles[] = {
     { "Thumbnails", NULL, N_("_Thumbnails"), NULL, NULL, G_CALLBACK(a_thumbs), TRUE },
     { "Split", GTK_STOCK_DND_MULTIPLE, N_("S_plit View"), "F3", N_("Show two folders side by side"), G_CALLBACK(a_split), FALSE },
     { "PlacesPanel", NULL, N_("_Places Panel"), "F9", NULL, G_CALLBACK(a_places_toggle), TRUE },
+    { "HoverHighlight", NULL, N_("Highlight Item Under _Pointer"), NULL, NULL, G_CALLBACK(a_hover), TRUE },
 };
 
 static const GtkRadioActionEntry kViewRadio[] = {
@@ -967,7 +975,7 @@ static const char *kUI =
 "    <menuitem action='SortType'/><menuitem action='SortExt'/><separator/>"
 "    <menuitem action='SortDesc'/><menuitem action='FoldersFirst'/>"
 "   </menu>"
-"   <menuitem action='ShowHidden'/><menuitem action='Thumbnails'/><separator/>"
+"   <menuitem action='ShowHidden'/><menuitem action='Thumbnails'/><menuitem action='HoverHighlight'/><separator/>"
 "   <menuitem action='Split'/><menuitem action='PlacesPanel'/><separator/>"
 "   <menuitem action='ZoomIn'/><menuitem action='ZoomOut'/><menuitem action='ZoomReset'/><separator/>"
 "   <menuitem action='Reload'/>"
@@ -1187,6 +1195,7 @@ int main(int argc, char **argv)
     sync_toggle(app, "Thumbnails", app->cfg.thumbnails);
     sync_toggle(app, "FoldersFirst", app->cfg.folders_first);
     sync_toggle(app, "PlacesPanel", app->cfg.show_places);
+    sync_toggle(app, "HoverHighlight", app->cfg.hover);
     sync_sort_actions(app);
     gtk_toggle_tool_button_set_active(GTK_TOGGLE_TOOL_BUTTON(app->cfg.view == KF_VIEW_LIST ? app->view_toggle_list : app->view_toggle_icons), TRUE);
     app->updating_ui = FALSE;

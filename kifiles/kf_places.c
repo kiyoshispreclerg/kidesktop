@@ -416,6 +416,8 @@ static void on_unmounted(GObject *src, GAsyncResult *res, gpointer data)
     gboolean ok = c->eject ? g_mount_eject_with_operation_finish(G_MOUNT(src), res, &err)
                            : g_mount_unmount_with_operation_finish(G_MOUNT(src), res, &err);
     if (ok) {
+        if (c->eject)
+            xis_sound_play("device-removed");
         char *msg = c->eject ? g_strdup_printf(_("\"%s\" can now be safely removed."), c->name)
                              : g_strdup_printf(_("\"%s\" was unmounted."), c->name);
         kf_app_message(c->pl->app, GTK_MESSAGE_INFO, msg, NULL);
@@ -434,6 +436,7 @@ static void on_volume_ejected(GObject *src, GAsyncResult *res, gpointer data)
     RemoveCtx *c = data;
     GError *err = NULL;
     if (g_volume_eject_with_operation_finish(G_VOLUME(src), res, &err)) {
+        xis_sound_play("device-removed");
         char *msg = g_strdup_printf(_("\"%s\" can now be safely removed."), c->name);
         kf_app_message(c->pl->app, GTK_MESSAGE_INFO, msg, NULL);
         g_free(msg);

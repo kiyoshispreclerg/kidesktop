@@ -5,6 +5,7 @@
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
 #include <gio/gio.h>
+#include "../shared/xis_sound.h"
 
 #define KIFILES_VERSION "0.1.0"
 
@@ -21,6 +22,7 @@ typedef struct {
     gboolean thumbnails;
     gboolean split;
     gboolean show_places;
+    gboolean hover;             /* highlight the item under the pointer */
     int win_w, win_h, places_w;
 } KfConfig;
 
@@ -76,6 +78,8 @@ struct KfPane {
     guint stats_idle;
     int view;                   /* KfViewMode currently shown */
     int icon_px;                /* size the ICON column was built for */
+    GdkRectangle hover_rect;    /* item under the pointer, in view bin-window coordinates */
+    gboolean hover_has;
 };
 
 struct KfApp {
@@ -138,6 +142,12 @@ gboolean kf_pane_file_info(KfPane *p, GFile *f, gboolean *is_dir, char **ctype);
 void kf_pane_request_thumbs(KfPane *p);
 
 void kf_files_free(GList *files);
+
+/* kf_hover.c -- pointer-over highlight (GTK2 views have none of their own) */
+void kf_hover_setup(KfPane *p);
+void kf_hover_apply(KfPane *p);         /* after the setting changed */
+void kf_hover_clear(KfPane *p);
+void kf_hover_refresh(KfPane *p);       /* the content moved under a still pointer */
 
 /* kf_dnd.c */
 void kf_dnd_setup_pane(KfPane *p);

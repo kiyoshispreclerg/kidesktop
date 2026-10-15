@@ -186,6 +186,7 @@ static void on_drag_end(GtkWidget *w, GdkDragContext *ctx, gpointer data)
     kf_files_free(drag_files);
     drag_files = NULL;
     stop_autoscroll();
+    kf_hover_clear(data);
 }
 
 static void on_drag_data_get(GtkWidget *w, GdkDragContext *ctx, GtkSelectionData *sel, guint info, guint time, gpointer data)
