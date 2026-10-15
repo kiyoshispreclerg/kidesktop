@@ -55,7 +55,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.1.64"
+#define XISSERVE_VERSION "0.1.65"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -2518,7 +2518,16 @@ static void show_launcher(void)
         g_shown_page = g_args.page;
     }
 
-    gtk_widget_show_all(g_window);
+    /* Not show_all(g_window) while it is unmapped: that maps the window
+     * before it has its size or position, and the WM places it centred at
+     * the default size -- the flash in the middle of the screen before it
+     * jumps to the anchor. Showing only the children lets size_request()
+     * measure them; the window itself is mapped by present() below, already
+     * sized and moved. */
+    if (GTK_WIDGET_MAPPED(g_window))
+        gtk_widget_show_all(g_window);
+    else
+        gtk_widget_show_all(gtk_bin_get_child(GTK_BIN(g_window)));
     apply_view_mode();
     apply_grid_mode(); /* after show_all(), which would otherwise re-show the losing one; grid_columns (and, once, grid) can change out from under a running daemon */
     reposition_window(); /* after apply_view_mode() -- needs its real, now-settled size */
