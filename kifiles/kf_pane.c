@@ -956,10 +956,13 @@ void kf_pane_apply_zoom(KfPane *p)
     p->icon_px = px;
 
     int item_w = z + 40;
-    gtk_cell_renderer_set_fixed_size(p->icon_pix_r, z, z);
+    gtk_cell_renderer_set_fixed_size(p->icon_pix_r, item_w - 8, z);   /* as wide as the text, icon centered in it */
     gtk_cell_renderer_set_fixed_size(p->list_pix_r, list_icon_px(p), list_icon_px(p));
+    /* A fixed text width makes every item the same width: without it, names that
+     * wrap are wider than names that don't, and the grid loses its columns. */
     g_object_set(p->icon_text_r, "wrap-width", item_w - 8, NULL);
-    gtk_icon_view_set_item_width(GTK_ICON_VIEW(p->iconview), item_w);
+    gtk_cell_renderer_set_fixed_size(p->icon_text_r, item_w - 8, -1);
+    gtk_icon_view_set_item_width(GTK_ICON_VIEW(p->iconview), -1);
 
     GtkTreeIter it;
     gboolean ok = gtk_tree_model_get_iter_first(GTK_TREE_MODEL(p->store), &it);
@@ -1252,7 +1255,9 @@ KfPane *kf_pane_new(KfApp *app)
     gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(iv), p->icon_pix_r, FALSE);
     gtk_cell_layout_add_attribute(GTK_CELL_LAYOUT(iv), p->icon_pix_r, "pixbuf", KF_COL_ICON);
     p->icon_text_r = gtk_cell_renderer_text_new();
-    g_object_set(p->icon_text_r, "xalign", 0.5, "alignment", PANGO_ALIGN_CENTER, "wrap-mode", PANGO_WRAP_WORD_CHAR, NULL);
+    /* Centered by Pango inside the fixed wrap width; xalign 0.5 on top of that
+     * would shift it by the same amount again. */
+    g_object_set(p->icon_text_r, "xalign", 0.0, "alignment", PANGO_ALIGN_CENTER, "wrap-mode", PANGO_WRAP_WORD_CHAR, NULL);
     gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(iv), p->icon_text_r, FALSE);
     gtk_cell_layout_add_attribute(GTK_CELL_LAYOUT(iv), p->icon_text_r, "text", KF_COL_NAME);
     g_signal_connect(iv, "item-activated", G_CALLBACK(on_item_activated), p);
