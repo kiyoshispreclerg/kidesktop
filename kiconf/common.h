@@ -54,6 +54,15 @@ int fmt_fits(char *out, size_t outsz, const char *fmt, ...) __attribute__((forma
 void resolve_path(const char *filename, char *out, size_t outsz);
 char *trim(char *s);
 
+/* Runs `script` (a constant sh program, never built from user input) as
+ * root through ONE pkexec prompt: `pkexec sh -c script sh args...`. Every
+ * variable value travels in `args` (read as "$1", "$2"... by the script,
+ * so quoting never matters) or on the script's stdin (`stdin_data`, NULL
+ * = empty; for secrets, which must stay out of the process list).
+ * Returns the script's exit status; 126/127 mean polkit refused or the
+ * user dismissed the prompt. */
+int run_privileged_script(const char *script, char *const args[], const char *stdin_data);
+
 /* Sends SIGHUP to every process named `procname` (exact match, not -f). */
 void signal_daemon(const char *procname);
 

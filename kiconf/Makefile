@@ -26,7 +26,7 @@ LIBINTL := $(shell echo 'int main(void){return 0;}' | $(CC) -x c - -o /dev/null 
 # an explicit -lX11 here (only reachable transitively through
 # gdk-x11-2.0.so, not from any symbol on this command line directly) the
 # linker refuses -lXrandr with "DSO missing from command line".
-LIBS := $(shell pkg-config --cflags --libs gtk+-2.0 x11 xrandr) -lm $(LIBINTL)
+LIBS := $(shell pkg-config --cflags --libs gtk+-2.0 x11 xrandr) -lm -lcrypt $(LIBINTL)
 
 # shared/xis_outputs.c: stable EDID-based output identity, also used by
 # xisback/xispanel/kiconfd -- compiled directly in, same as every other
@@ -36,7 +36,7 @@ SRCS := kiconf.c common.c sysinfo.c tabs/appearance.c tabs/shortcuts.c tabs/entr
         tabs/permissoes.c tabs/paineis.c tabs/wallpaper.c \
         tabs/telas.c tabs/janelas.c tabs/efeitos.c tabs/sistema.c \
         tabs/programas.c tabs/associacoes.c tabs/menu.c tabs/autostart.c tabs/energia.c tabs/eventos.c \
-        tabs/historico.c tabs/acessibilidade.c tabs/sons.c \
+        tabs/historico.c tabs/acessibilidade.c tabs/sons.c tabs/usuarios.c tabs/servicos.c \
         ../shared/xis_outputs.c ../shared/xis_direction.c ../shared/xis_sound.c
 
 # po/LINGUAS: one language code per line ("pt_BR", "es", ...), '#' comments.

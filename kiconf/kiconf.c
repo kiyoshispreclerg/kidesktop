@@ -55,6 +55,11 @@
  * few dozen lines of substring scanning (json_get_str/int/bool below)
  * covers it without adding a dependency for it.
  *
+ *   Usuarios -- local accounts: list unprivileged, changes queued and run
+ *     as root in one pkexec prompt on Aplicar (useradd/usermod/userdel/
+ *     chpasswd; passwords hashed here, passed on stdin).
+ *   Servicos -- service status and start/stop/enable/disable on systemd,
+ *     OpenRC or sysvinit; each action runs through pkexec.
  *   Sons -- the desktop-wide sound theme: kidesktop-sound.conf (theme,
  *     enabled, volume, per-event sound.<event>= overrides), read live by
  *     every program via shared/xis_sound.c; nothing to signal on save.
@@ -114,7 +119,7 @@
 #include "sysinfo.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.57"
+#define KICONF_VERSION "0.2.58"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -167,6 +172,8 @@ static LazyTab g_tabs[] = {
     {N_("Eventos"), GTK_STOCK_INDEX, build_eventos_tab, NULL, 0, 0},
     {N_("Historico"), GTK_STOCK_FIND, build_historico_tab, NULL, 0, 0},
     {N_("Sons"), GTK_STOCK_MEDIA_PLAY, build_sons_tab, NULL, 0, 0},
+    {N_("Usuarios"), GTK_STOCK_ORIENTATION_PORTRAIT, build_usuarios_tab, NULL, 0, 0},
+    {N_("Servicos"), GTK_STOCK_EXECUTE, build_servicos_tab, NULL, 0, 0},
     {N_("Acessibilidade"), GTK_STOCK_ZOOM_IN, build_acessibilidade_tab, NULL, 0, 0},
 };
 #define N_TABS ((int)(sizeof(g_tabs) / sizeof(g_tabs[0])))

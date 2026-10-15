@@ -800,3 +800,52 @@ void kisession_save(const KisessionConfig *c)
     signal_daemon("kisession");
 }
 
+
+int run_privileged_script(const char *script, char *const args[], const char *stdin_data)
+{
+    char *argv[64];
+    int n = 0;
+    argv[n++] = (char *)"pkexec";
+    argv[n++] = (char *)"sh";
+    argv[n++] = (char *)"-c";
+    argv[n++] = (char *)script;
+    argv[n++] = (char *)"sh";
+    for (int i = 0; args && args[i] && n < 63; i++) {
+        argv[n++] = args[i];
+    }
+    argv[n] = NULL;
+
+    int pipefd[2];
+    if (pipe(pipefd) != 0) {
+        return -1;
+    }
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return -1;
+    }
+    if (pid == 0) {
+        dup2(pipefd[0], STDIN_FILENO);
+        close(pipefd[0]);
+        close(pipefd[1]);
+        execvp(argv[0], argv);
+        _exit(127);
+    }
+    close(pipefd[0]);
+    signal(SIGPIPE, SIG_IGN);
+    if (stdin_data) {
+        size_t len = strlen(stdin_data), off = 0;
+        while (off < len) {
+            ssize_t w = write(pipefd[1], stdin_data + off, len - off);
+            if (w <= 0) {
+                break;
+            }
+            off += (size_t)w;
+        }
+    }
+    close(pipefd[1]);
+    int status;
+    waitpid(pid, &status, 0);
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
