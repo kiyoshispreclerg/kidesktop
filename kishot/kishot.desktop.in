@@ -1,0 +1,20 @@
+[Desktop Entry]
+Type=Application
+Name=Screenshot
+GenericName=Screenshot and Screen Recorder
+Comment=Take screenshots and record the screen
+Exec=@BINDIR@/kishot
+Icon=applets-screenshooter
+Terminal=false
+Categories=Utility;
+Keywords=screenshot;print;capture;record;video;screencast;
+StartupNotify=false
+Actions=Region;Record;
+
+[Desktop Action Region]
+Name=Capture a Region
+Exec=@BINDIR@/kishot -r
+
+[Desktop Action Record]
+Name=Start or Stop Recording
+Exec=@BINDIR@/kishot --record
