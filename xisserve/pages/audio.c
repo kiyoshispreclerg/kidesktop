@@ -603,7 +603,18 @@ static void apply_devs_expanded(void)
     for (GList *l = children; l; l = l->next) {
         int sec = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(l->data), "audio-extra"));
         if (sec) {
-            gtk_widget_set_visible(GTK_WIDGET(l->data), g_devs_expanded[sec - 1]);
+            /* no_show_all: xisserve.c's gtk_widget_show_all() on the window
+             * would otherwise re-show these every time the page is displayed. */
+            GtkWidget *row = GTK_WIDGET(l->data);
+            if (g_devs_expanded[sec - 1]) {
+                /* The row's own children were skipped by every show_all()
+                 * while it was no_show_all, so show them explicitly. */
+                gtk_widget_set_no_show_all(row, FALSE);
+                gtk_widget_show_all(row);
+            } else {
+                gtk_widget_hide(row);
+            }
+            gtk_widget_set_no_show_all(row, TRUE);
         }
     }
     g_list_free(children);
@@ -644,6 +655,7 @@ static void add_section(GtkWidget *box, const char *title, GPtrArray *entries, P
         GtkWidget *row = build_row(e, entries);
         if (collapsible_section && has_default && !e->is_default) {
             g_object_set_data(G_OBJECT(row), "audio-extra", GINT_TO_POINTER(collapsible_section));
+            gtk_widget_set_no_show_all(row, TRUE);
             any_extra = TRUE;
         }
         gtk_box_pack_start(GTK_BOX(box), row, FALSE, FALSE, 0);
