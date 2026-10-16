@@ -123,7 +123,7 @@
 #include "plugins.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.62"
+#define KICONF_VERSION "0.2.63"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -474,14 +474,17 @@ static GtkWidget *make_tab_icon(const LazyTab *tab)
     return gtk_image_new_from_icon_name(p->icon ? p->icon : "preferences-system", GTK_ICON_SIZE_BUTTON);
 }
 
+#define MODULE_BTN_W 210
+#define MODULE_BTN_GAP 6
+
 static GtkWidget *make_module_button(const LazyTab *tab, int page_num)
 {
     GtkWidget *btn = gtk_button_new();
     gtk_container_set_border_width(GTK_CONTAINER(btn), 2);
 
     /* Horizontal layout -- small icon on the left, label on the right,
-     * left-aligned. Wide buttons (3 per row instead of 5) give each label
-     * enough room to read comfortably on one or two lines. */
+     * left-aligned. Fixed-width buttons; the home grid fits as many per
+     * row as the window allows. */
     GtkWidget *box = gtk_hbox_new(FALSE, 6);
     GtkWidget *icon = make_tab_icon(tab);
     char *wrapped = wrap_label_text(tab_title(tab));
@@ -489,16 +492,21 @@ static GtkWidget *make_module_button(const LazyTab *tab, int page_num)
     g_free(wrapped);
     gtk_label_set_justify(GTK_LABEL(label), GTK_JUSTIFY_LEFT);
     gtk_misc_set_alignment(GTK_MISC(label), 0.0, 0.5);
+    /* Fixed width regardless of theme/font: the label ellipsizes instead
+     * of widening the button, so the column count computed from
+     * MODULE_BTN_W always matches what is drawn. */
+    gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
     gtk_box_pack_start(GTK_BOX(box), icon, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box), label, TRUE, TRUE, 0);
     gtk_container_add(GTK_CONTAINER(btn), box);
+    gtk_widget_set_size_request(btn, MODULE_BTN_W, -1);
 
     g_signal_connect(btn, "clicked", G_CALLBACK(on_module_icon_clicked), GINT_TO_POINTER(page_num));
     return btn;
 }
 
 /* ---- home page: search box + one section per category ----------------
- * Icon grid, 3 per row -- wide horizontal buttons (icon + left-aligned
+ * Icon grid, N per row (fits the window width) -- wide horizontal buttons (icon + left-aligned
  * label) instead of GNOME-style stacked icon-over-centered-label, so labels
  * never need mid-word wrapping. No state of its own, so unlike the module
  * tabs it stays built for the whole session instead of going through
@@ -507,6 +515,8 @@ static GtkWidget *make_module_button(const LazyTab *tab, int page_num)
  * reflowing a GtkTable by hiding cells). */
 static GtkWidget *g_home_sections;
 static GtkWidget *g_home_search;
+static int g_home_cols = 2;
+static guint g_home_reflow_id;
 
 static const struct {
     const char *id;
@@ -560,7 +570,7 @@ static int category_known(const char *cat)
  * returns the first matching tab index, or -1 if the section is empty. */
 static int add_section(const char *cat, const char *needle)
 {
-    const int cols = 3;
+    const int cols = g_home_cols;
     int match[256], n = 0;
     for (int i = 0; i < N_TABS && n < 256; i++) {
         if (!strcmp(g_tabs[i].category ? g_tabs[i].category : "other", cat) && tab_matches(&g_tabs[i], needle)) {
@@ -577,18 +587,20 @@ static int add_section(const char *cat, const char *needle)
     gtk_misc_set_alignment(GTK_MISC(head), 0.0, 0.5);
     gtk_box_pack_start(GTK_BOX(g_home_sections), head, FALSE, FALSE, 2);
 
-    GtkWidget *grid = gtk_table_new((n + cols - 1) / cols, cols, TRUE);
+    GtkWidget *grid = gtk_table_new((n + cols - 1) / cols, cols, FALSE);
     gtk_table_set_row_spacings(GTK_TABLE(grid), 6);
-    gtk_table_set_col_spacings(GTK_TABLE(grid), 6);
+    gtk_table_set_col_spacings(GTK_TABLE(grid), MODULE_BTN_GAP);
     for (int k = 0; k < n; k++) {
         GtkWidget *btn = make_module_button(&g_tabs[match[k]], match[k] + 1);
         if (g_tabs[match[k]].plugin && g_tabs[match[k]].plugin->comment) {
             gtk_widget_set_tooltip_text(btn, g_tabs[match[k]].plugin->comment);
         }
         gtk_table_attach(GTK_TABLE(grid), btn, k % cols, k % cols + 1, k / cols, k / cols + 1,
-                          GTK_EXPAND | GTK_FILL, GTK_EXPAND | GTK_FILL, 0, 0);
+                          GTK_FILL, GTK_FILL, 0, 0);
     }
-    gtk_box_pack_start(GTK_BOX(g_home_sections), grid, FALSE, FALSE, 4);
+    GtkWidget *left = gtk_alignment_new(0.0, 0.0, 0.0, 0.0);
+    gtk_container_add(GTK_CONTAINER(left), grid);
+    gtk_box_pack_start(GTK_BOX(g_home_sections), left, FALSE, FALSE, 4);
     return match[0];
 }
 
@@ -649,6 +661,31 @@ static void populate_home(const char *text)
     g_free(needle);
 }
 
+/* Column count follows the window width: as many fixed-width buttons as fit,
+ * rebuilt (from an idle, never inside size-allocate) only when it changes. */
+static gboolean home_reflow_idle(gpointer data)
+{
+    (void)data;
+    g_home_reflow_id = 0;
+    populate_home(gtk_entry_get_text(GTK_ENTRY(g_home_search)));
+    return FALSE;
+}
+
+static void on_home_size_allocate(GtkWidget *w, GtkAllocation *a, gpointer data)
+{
+    (void)w;
+    (void)data;
+    int avail = a->width - 24; /* vertical scrollbar + viewport margins */
+    int cols = (avail + MODULE_BTN_GAP) / (MODULE_BTN_W + MODULE_BTN_GAP);
+    if (cols < 1) {
+        cols = 1;
+    }
+    if (cols != g_home_cols && !g_home_reflow_id) {
+        g_home_cols = cols;
+        g_home_reflow_id = g_idle_add(home_reflow_idle, NULL);
+    }
+}
+
 static void on_search_changed(GtkEditable *entry, gpointer data)
 {
     (void)data;
@@ -683,9 +720,12 @@ static GtkWidget *build_home_page(void)
     g_home_sections = gtk_vbox_new(FALSE, 2);
     populate_home(NULL);
     GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    /* AUTOMATIC (not NEVER) horizontally so the buttons' fixed width never
+     * becomes the window's minimum width; the reflow keeps it from showing. */
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(scroll), GTK_SHADOW_NONE);
     gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(scroll), g_home_sections);
+    g_signal_connect(scroll, "size-allocate", G_CALLBACK(on_home_size_allocate), NULL);
     gtk_viewport_set_shadow_type(GTK_VIEWPORT(gtk_bin_get_child(GTK_BIN(scroll))), GTK_SHADOW_NONE);
 
     GtkWidget *right = gtk_vbox_new(FALSE, 6);
