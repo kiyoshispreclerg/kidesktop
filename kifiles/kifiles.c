@@ -102,6 +102,14 @@ void kf_app_status_free(KfApp *app, guint64 free_b, guint64 total_b)
     char *t = g_format_size_full(total_b, G_FORMAT_SIZE_IEC_UNITS);
     char *txt = g_strdup_printf(_("%s free of %s"), f, t);
     gtk_label_set_text(GTK_LABEL(app->status_free), txt);
+    /* An ellipsizing label asks for almost nothing and the left one takes the
+     * slack: size this one by its text so it is never cut to "6...". */
+    PangoLayout *layout = gtk_widget_create_pango_layout(app->status_free, txt);
+    int w;
+    pango_layout_get_pixel_size(layout, &w, NULL);
+    g_object_unref(layout);
+    gtk_widget_set_size_request(app->status_free, w, -1);
+    gtk_widget_set_tooltip_text(app->status_free, txt);
     gtk_widget_show(app->free_bar);
     gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(app->free_bar),
                                   (double)(total_b - (free_b > total_b ? total_b : free_b)) / (double)total_b);
