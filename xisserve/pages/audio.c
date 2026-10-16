@@ -51,6 +51,7 @@ static gboolean g_dragging;    /* a slider is held down right now */
 static gint64 g_last_action_us;
 static gboolean g_updating;    /* set while populating widgets, so their own signals don't echo back to pactl */
 static char g_signature[4096];
+static gboolean g_devs_expanded; /* "Dispositivos": non-default devices shown */
 
 static void rebuild(void);
 
@@ -492,7 +493,8 @@ static void snapshot_signature(GPtrArray *entries, char *out, size_t outsz)
     out[0] = 0;
     for (guint i = 0; i < entries->len && o + 1 < outsz; i++) {
         const PulseEntry *e = g_ptr_array_index(entries, i);
-        int n = snprintf(out + o, outsz - o, "%d:%d:%s:%s;", (int)e->kind, e->index, e->name, e->label);
+        int n = snprintf(out + o, outsz - o, "%d:%d:%s:%s:%d;", (int)e->kind, e->index, e->name, e->label,
+                         (e->kind == PULSE_SINK || e->kind == PULSE_SOURCE) ? e->is_default : 0);
         if (n < 0) {
             break;
         }
@@ -524,9 +526,20 @@ static GtkWidget *unavailable_placeholder(void)
     return label;
 }
 
-static void add_section(GtkWidget *box, const char *title, GPtrArray *entries, PulseKind kind, gboolean *any)
+/* collapsible: non-default entries get an "audio-extra" mark so the
+ * "mostrar mais/menos" toggle can hide them (a section with no default
+ * has nothing to collapse to, so it stays fully shown). */
+static void add_section(GtkWidget *box, const char *title, GPtrArray *entries, PulseKind kind, gboolean *any,
+                        gboolean collapsible)
 {
     gboolean header_done = FALSE;
+    gboolean has_default = FALSE;
+    for (guint i = 0; i < entries->len; i++) {
+        PulseEntry *e = g_ptr_array_index(entries, i);
+        if (e->kind == kind && e->is_default) {
+            has_default = TRUE;
+        }
+    }
     for (guint i = 0; i < entries->len; i++) {
         PulseEntry *e = g_ptr_array_index(entries, i);
         if (e->kind != kind) {
@@ -540,8 +553,31 @@ static void add_section(GtkWidget *box, const char *title, GPtrArray *entries, P
             header_done = TRUE;
             *any = TRUE;
         }
-        gtk_box_pack_start(GTK_BOX(box), build_row(e, entries), FALSE, FALSE, 0);
+        GtkWidget *row = build_row(e, entries);
+        if (collapsible && has_default && !e->is_default) {
+            g_object_set_data(G_OBJECT(row), "audio-extra", GINT_TO_POINTER(1));
+        }
+        gtk_box_pack_start(GTK_BOX(box), row, FALSE, FALSE, 0);
     }
+}
+
+static void apply_devs_expanded(void)
+{
+    GList *children = gtk_container_get_children(GTK_CONTAINER(g_devs_box));
+    for (GList *l = children; l; l = l->next) {
+        if (g_object_get_data(G_OBJECT(l->data), "audio-extra")) {
+            gtk_widget_set_visible(GTK_WIDGET(l->data), g_devs_expanded);
+        }
+    }
+    g_list_free(children);
+}
+
+static void on_devs_more_clicked(GtkButton *btn, gpointer data)
+{
+    (void)data;
+    g_devs_expanded = !g_devs_expanded;
+    gtk_button_set_label(btn, g_devs_expanded ? _("Mostrar menos") : _("Mostrar mais"));
+    apply_devs_expanded();
 }
 
 static void clear_box(GtkWidget *box)
@@ -580,11 +616,27 @@ static void rebuild(void)
     } else {
         g_updating = TRUE;
         gboolean any_apps = FALSE, any_devs = FALSE;
-        add_section(g_apps_box, _("Reproduzindo"), entries, PULSE_SINK_INPUT, &any_apps);
-        add_section(g_apps_box, _("Gravando"), entries, PULSE_SOURCE_OUTPUT, &any_apps);
-        add_section(g_devs_box, _("Saída"), entries, PULSE_SINK, &any_devs);
-        add_section(g_devs_box, _("Entrada"), entries, PULSE_SOURCE, &any_devs);
+        add_section(g_apps_box, _("Reproduzindo"), entries, PULSE_SINK_INPUT, &any_apps, FALSE);
+        add_section(g_apps_box, _("Gravando"), entries, PULSE_SOURCE_OUTPUT, &any_apps, FALSE);
+        add_section(g_devs_box, _("Saída"), entries, PULSE_SINK, &any_devs, TRUE);
+        add_section(g_devs_box, _("Entrada"), entries, PULSE_SOURCE, &any_devs, TRUE);
         g_updating = FALSE;
+
+        gboolean any_extra = FALSE;
+        GList *dc = gtk_container_get_children(GTK_CONTAINER(g_devs_box));
+        for (GList *l = dc; l; l = l->next) {
+            if (g_object_get_data(G_OBJECT(l->data), "audio-extra")) {
+                any_extra = TRUE;
+            }
+        }
+        g_list_free(dc);
+        if (any_extra) {
+            GtkWidget *more = gtk_button_new_with_label(g_devs_expanded ? _("Mostrar menos") : _("Mostrar mais"));
+            g_signal_connect(more, "clicked", G_CALLBACK(on_devs_more_clicked), NULL);
+            GtkWidget *hb = gtk_hbox_new(FALSE, 0);
+            gtk_box_pack_start(GTK_BOX(hb), more, FALSE, FALSE, 0);
+            gtk_box_pack_start(GTK_BOX(g_devs_box), hb, FALSE, FALSE, 4);
+        }
 
         if (!any_apps) add_empty_label(g_apps_box, _("Nenhum aplicativo reproduzindo ou gravando."));
         if (!any_devs) add_empty_label(g_devs_box, _("Nenhum dispositivo de áudio encontrado."));
@@ -593,6 +645,7 @@ static void rebuild(void)
     pulse_entries_free(entries);
     gtk_widget_show_all(g_apps_box);
     gtk_widget_show_all(g_devs_box);
+    apply_devs_expanded();
 }
 
 /* Value-only refresh: walks the rows already on screen and re-syncs each

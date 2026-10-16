@@ -519,3 +519,11 @@ msgstr "Dispositivos"
 #: pages/audio.c
 msgid "Nenhum aplicativo reproduzindo ou gravando."
 msgstr "Nenhum aplicativo reproduzindo ou gravando."
+
+#: pages/audio.c
+msgid "Mostrar mais"
+msgstr "Mostrar mais"
+
+#: pages/audio.c
+msgid "Mostrar menos"
+msgstr "Mostrar menos"
