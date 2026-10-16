@@ -1,0 +1,354 @@
+/* kiconf - KiTheme tab: every key of kitheme.conf, with a live preview.
+ *
+ * The preview is libkitheme's own kt_draw_sample() fed from the widgets,
+ * so edits show up before anything is written. "Aplicar" saves
+ * ~/.config/kitheme/kitheme.conf, runs `kitheme-export --notify` (theme
+ * dir for GTK2/3/4, running GTK2 apps reload) and SIGHUPs kiconfd, which
+ * makes running GTK3/4 apps reload too. Qt apps watch the file
+ * themselves. Choosing the theme per toolkit stays in the Aparencia tab;
+ * see kitheme/README.md. */
+#include "../common.h"
+#include "../tabs.h"
+
+#include "../../kitheme/core/kitheme.h"
+
+#include <limits.h>
+#include <string.h>
+
+static GtkWidget *g_preset_combo, *g_style_combo, *g_focus_combo, *g_ptext_combo;
+static GtkWidget *g_preview, *g_status;
+static GtkWidget *g_radius, *g_relief, *g_gradient, *g_shadow;
+static GtkWidget *g_hover_glow, *g_stripes, *g_animation, *g_arrows;
+static GtkWidget *g_pthick, *g_sbwidth, *g_checksize;
+static char g_preset[64];
+static int g_loading;
+
+static const char *const style_labels[] = {N_("Suave (Oxygen)"), N_("Classico (Windows 9x)"), N_("Plano"), NULL};
+static const char *const focus_labels[] = {N_("Brilho"), N_("Pontilhado"), N_("Nenhum"), NULL};
+static const char *const ptext_labels[] = {N_("Quando o programa pedir"), N_("Sempre"), NULL};
+
+typedef struct {
+    const char *label;
+    size_t off;
+    GtkWidget *btn;
+} ColorRow;
+
+#define C(l, f) {l, offsetof(KtTheme, f), NULL}
+static ColorRow g_colors[] = {
+    C(N_("Fundo da janela"), window_bg), C(N_("Texto da janela"), window_fg),
+    C(N_("Fundo de campos"), base_bg), C(N_("Texto de campos"), base_fg),
+    C(N_("Botoes"), button_bg), C(N_("Texto dos botoes"), button_fg),
+    C(N_("Selecao"), selection_bg), C(N_("Texto selecionado"), selection_fg),
+    C(N_("Destaque (foco/hover)"), accent), C(N_("Barra de progresso"), progress),
+    C(N_("Fundo dos menus"), menu_bg), C(N_("Texto dos menus"), menu_fg),
+    C(N_("Fundo das dicas"), tooltip_bg), C(N_("Texto das dicas"), tooltip_fg),
+};
+#undef C
+#define NCOLORS (sizeof(g_colors) / sizeof(g_colors[0]))
+
+static KtColor *color_field(KtTheme *t, size_t off)
+{
+    return (KtColor *)((char *)t + off);
+}
+
+/* Widgets -> KtTheme. */
+static void collect(KtTheme *t)
+{
+    kt_theme_defaults(t);
+    snprintf(t->preset, sizeof(t->preset), "%s", g_preset);
+    int s = gtk_combo_box_get_active(GTK_COMBO_BOX(g_style_combo));
+    t->style = s < 0 ? KT_STYLE_SOFT : (KtStyle)s;
+    for (size_t i = 0; i < NCOLORS; i++) {
+        char hex[16];
+        color_button_hex(g_colors[i].btn, hex, sizeof(hex));
+        kt_color_parse(hex, color_field(t, g_colors[i].off));
+    }
+    t->radius = gtk_spin_button_get_value(GTK_SPIN_BUTTON(g_radius));
+    t->relief = gtk_range_get_value(GTK_RANGE(g_relief));
+    t->gradient = gtk_range_get_value(GTK_RANGE(g_gradient));
+    t->shadow = gtk_range_get_value(GTK_RANGE(g_shadow));
+    int f = gtk_combo_box_get_active(GTK_COMBO_BOX(g_focus_combo));
+    t->focus = f < 0 ? KT_FOCUS_GLOW : (KtFocus)f;
+    t->hover_glow = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_hover_glow));
+    t->progress_thickness = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_pthick));
+    int p = gtk_combo_box_get_active(GTK_COMBO_BOX(g_ptext_combo));
+    t->progress_text = p < 0 ? KT_PTEXT_AUTO : (KtProgressText)p;
+    t->progress_stripes = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_stripes));
+    t->progress_animation = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_animation));
+    t->scrollbar_width = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_sbwidth));
+    t->scrollbar_arrows = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_arrows));
+    t->check_size = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_checksize));
+}
+
+/* KtTheme -> widgets. */
+static void fill(const KtTheme *t)
+{
+    g_loading = 1;
+    snprintf(g_preset, sizeof(g_preset), "%s", t->preset);
+    gtk_combo_box_set_active(GTK_COMBO_BOX(g_style_combo), (int)t->style);
+    for (size_t i = 0; i < NCOLORS; i++) {
+        KtColor c = *color_field((KtTheme *)t, g_colors[i].off);
+        GdkColor g = {0, (guint16)(c.r * 65535), (guint16)(c.g * 65535), (guint16)(c.b * 65535)};
+        gtk_color_button_set_color(GTK_COLOR_BUTTON(g_colors[i].btn), &g);
+    }
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_radius), t->radius);
+    gtk_range_set_value(GTK_RANGE(g_relief), t->relief);
+    gtk_range_set_value(GTK_RANGE(g_gradient), t->gradient);
+    gtk_range_set_value(GTK_RANGE(g_shadow), t->shadow);
+    gtk_combo_box_set_active(GTK_COMBO_BOX(g_focus_combo), (int)t->focus);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_hover_glow), t->hover_glow);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_pthick), t->progress_thickness);
+    gtk_combo_box_set_active(GTK_COMBO_BOX(g_ptext_combo), (int)t->progress_text);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_stripes), t->progress_stripes);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_animation), t->progress_animation);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sbwidth), t->scrollbar_width);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_arrows), t->scrollbar_arrows);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_checksize), t->check_size);
+    g_loading = 0;
+    gtk_widget_queue_draw(g_preview);
+}
+
+static void changed_cb(GtkWidget *w, gpointer data)
+{
+    (void)w;
+    (void)data;
+    if (g_loading)
+        return;
+    gtk_label_set_text(GTK_LABEL(g_status), "");
+    gtk_widget_queue_draw(g_preview);
+}
+
+static gboolean preview_expose(GtkWidget *w, GdkEventExpose *ev, gpointer data)
+{
+    (void)data;
+    KtTheme t;
+    collect(&t);
+    cairo_t *cr = gdk_cairo_create(gtk_widget_get_window(w));
+    gdk_cairo_region(cr, ev->region);
+    cairo_clip(cr);
+    GtkAllocation a;
+    gtk_widget_get_allocation(w, &a);
+    kt_draw_sample(&t, cr, a.width, a.height);
+    cairo_destroy(cr);
+    return TRUE;
+}
+
+static void preset_cb(GtkWidget *w, gpointer data)
+{
+    (void)data;
+    if (g_loading)
+        return;
+    gchar *name = gtk_combo_box_get_active_text(GTK_COMBO_BOX(w));
+    if (!name)
+        return;
+    KtTheme t;
+    if (kt_theme_load_preset(&t, name))
+        fill(&t);
+    g_free(name);
+    gtk_label_set_text(GTK_LABEL(g_status), "");
+}
+
+/* kitheme-export from PATH, or the source tree's when kiconf runs from
+ * its own directory there. */
+static gchar *exporter_path(void)
+{
+    gchar *p = g_find_program_in_path("kitheme-export");
+    if (p)
+        return p;
+    if (g_file_test("../kitheme/export/kitheme-export", G_FILE_TEST_IS_EXECUTABLE))
+        return g_strdup("../kitheme/export/kitheme-export");
+    return NULL;
+}
+
+static void apply_cb(GtkWidget *w, gpointer data)
+{
+    (void)w;
+    (void)data;
+    KtTheme t;
+    collect(&t);
+    char path[PATH_MAX];
+    kt_user_conf_path(path, sizeof(path));
+    if (!kt_theme_save(&t, path)) {
+        gtk_label_set_text(GTK_LABEL(g_status), _("Nao foi possivel salvar kitheme.conf"));
+        return;
+    }
+    gchar *exporter = exporter_path();
+    if (!exporter) {
+        gtk_label_set_text(GTK_LABEL(g_status), _("Salvo, mas kitheme-export nao foi encontrado"));
+        return;
+    }
+    gchar *argv[] = {exporter, (gchar *)"--notify", NULL};
+    gint status = 0;
+    GError *err = NULL;
+    gboolean ran = g_spawn_sync(NULL, argv, NULL, G_SPAWN_STDOUT_TO_DEV_NULL, NULL, NULL, NULL, NULL, &status, &err);
+    g_free(exporter);
+    if (!ran || status != 0) {
+        gtk_label_set_text(GTK_LABEL(g_status), _("kitheme-export falhou"));
+        if (err)
+            g_error_free(err);
+        return;
+    }
+    /* GTK3/GTK4 reload when kiconfd republishes the theme name. */
+    signal_daemon("kiconfd");
+    gtk_label_set_text(GTK_LABEL(g_status), _("Aplicado"));
+}
+
+static GtkWidget *scale01(void)
+{
+    GtkWidget *s = gtk_hscale_new_with_range(0, 1, 0.05);
+    gtk_scale_set_digits(GTK_SCALE(s), 2);
+    gtk_widget_set_size_request(s, 140, -1);
+    g_signal_connect(s, "value-changed", G_CALLBACK(changed_cb), NULL);
+    return s;
+}
+
+static GtkWidget *spin(double lo, double hi, double step)
+{
+    GtkWidget *s = gtk_spin_button_new_with_range(lo, hi, step);
+    g_signal_connect(s, "value-changed", G_CALLBACK(changed_cb), NULL);
+    return s;
+}
+
+static GtkWidget *check(const char *label)
+{
+    GtkWidget *c = gtk_check_button_new_with_label(label);
+    g_signal_connect(c, "toggled", G_CALLBACK(changed_cb), NULL);
+    return c;
+}
+
+static GtkWidget *labels_combo(const char *const *labels)
+{
+    GtkWidget *c = gtk_combo_box_new_text();
+    for (int i = 0; labels[i]; i++)
+        gtk_combo_box_append_text(GTK_COMBO_BOX(c), _(labels[i]));
+    g_signal_connect(c, "changed", G_CALLBACK(changed_cb), NULL);
+    return c;
+}
+
+/* kiconf's window keeps its size across tabs; this one needs the room for
+ * the preview beside the settings, so grow the window to fit (never
+ * shrink it). */
+static void grow_window_cb(GtkWidget *w, gpointer data)
+{
+    (void)data;
+    GtkWidget *top = gtk_widget_get_toplevel(w);
+    if (!GTK_IS_WINDOW(top))
+        return;
+    GtkRequisition req;
+    gtk_widget_size_request(top, &req);
+    int cw, ch;
+    gtk_window_get_size(GTK_WINDOW(top), &cw, &ch);
+    if (req.width > cw || req.height > ch)
+        gtk_window_resize(GTK_WINDOW(top), MAX(req.width, cw), MAX(req.height, ch));
+}
+
+GtkWidget *build_kitheme_tab(void)
+{
+    KtTheme cur;
+    kt_theme_load_user(&cur);
+
+    GtkWidget *outer = gtk_hbox_new(FALSE, 12);
+    gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
+    GtkWidget *left = gtk_vbox_new(FALSE, 8);
+
+    /* Preset and overall style */
+    GtkWidget *base = gtk_table_new(2, 2, FALSE);
+    g_preset_combo = gtk_combo_box_new_text();
+    char names[32][64];
+    int n = kt_list_presets(names, 32), active = -1;
+    for (int i = 0; i < n; i++) {
+        gtk_combo_box_append_text(GTK_COMBO_BOX(g_preset_combo), names[i]);
+        if (!strcmp(names[i], cur.preset))
+            active = i;
+    }
+    g_loading = 1;
+    gtk_combo_box_set_active(GTK_COMBO_BOX(g_preset_combo), active);
+    g_loading = 0;
+    g_signal_connect(g_preset_combo, "changed", G_CALLBACK(preset_cb), NULL);
+    labeled_row(base, 0, _("Partir do preset:"), g_preset_combo);
+    gtk_widget_set_tooltip_text(g_preset_combo, _("Carrega todos os valores do preset; os ajustes abaixo ficam por cima dele."));
+    g_style_combo = labels_combo(style_labels);
+    labeled_row(base, 1, _("Estilo:"), g_style_combo);
+    gtk_box_pack_start(GTK_BOX(left), frame_with(_("Base"), base), FALSE, FALSE, 0);
+
+    /* Colors, two per row */
+    GtkWidget *colors = gtk_table_new((NCOLORS + 1) / 2, 4, FALSE);
+    gtk_table_set_col_spacings(GTK_TABLE(colors), 6);
+    gtk_table_set_row_spacings(GTK_TABLE(colors), 4);
+    for (size_t i = 0; i < NCOLORS; i++) {
+        int row = (int)i / 2, col = (int)(i % 2) * 2;
+        GtkWidget *l = gtk_label_new(_(g_colors[i].label));
+        gtk_misc_set_alignment(GTK_MISC(l), 0, 0.5);
+        g_colors[i].btn = make_color_button("#000000");
+        a11y_name(g_colors[i].btn, _(g_colors[i].label));
+        g_signal_connect(g_colors[i].btn, "color-set", G_CALLBACK(changed_cb), NULL);
+        gtk_table_attach(GTK_TABLE(colors), l, col, col + 1, row, row + 1, GTK_FILL, 0, 0, 0);
+        gtk_table_attach(GTK_TABLE(colors), g_colors[i].btn, col + 1, col + 2, row, row + 1, 0, 0, 0, 0);
+    }
+    gtk_box_pack_start(GTK_BOX(left), frame_with(_("Cores"), colors), FALSE, FALSE, 0);
+
+    /* Shape */
+    GtkWidget *shape = gtk_table_new(6, 2, FALSE);
+    g_radius = spin(0, 12, 0.5);
+    labeled_row(shape, 0, _("Arredondamento (px):"), g_radius);
+    g_relief = scale01();
+    labeled_row(shape, 1, _("Relevo:"), g_relief);
+    g_gradient = scale01();
+    labeled_row(shape, 2, _("Gradiente:"), g_gradient);
+    g_shadow = scale01();
+    labeled_row(shape, 3, _("Sombra:"), g_shadow);
+    g_focus_combo = labels_combo(focus_labels);
+    labeled_row(shape, 4, _("Indicador de foco:"), g_focus_combo);
+    g_hover_glow = check(_("Brilho ao passar o mouse"));
+    gtk_table_attach(GTK_TABLE(shape), g_hover_glow, 0, 2, 5, 6, GTK_FILL, 0, 0, 0);
+    gtk_box_pack_start(GTK_BOX(left), frame_with(_("Forma"), shape), FALSE, FALSE, 0);
+
+    /* Progress bars and sizes */
+    GtkWidget *sizes = gtk_table_new(7, 2, FALSE);
+    g_pthick = spin(4, 40, 1);
+    labeled_row(sizes, 0, _("Espessura da barra de progresso:"), g_pthick);
+    g_ptext_combo = labels_combo(ptext_labels);
+    labeled_row(sizes, 1, _("Porcentagem dentro da barra:"), g_ptext_combo);
+    g_stripes = check(_("Listras na barra (blocos no estilo classico)"));
+    gtk_table_attach(GTK_TABLE(sizes), g_stripes, 0, 2, 2, 3, GTK_FILL, 0, 0, 0);
+    g_animation = check(_("Animar as listras (redesenha a barra a cada 50 ms)"));
+    gtk_table_attach(GTK_TABLE(sizes), g_animation, 0, 2, 3, 4, GTK_FILL, 0, 0, 0);
+    g_sbwidth = spin(6, 30, 1);
+    labeled_row(sizes, 4, _("Largura da barra de rolagem:"), g_sbwidth);
+    g_arrows = check(_("Setas nas barras de rolagem"));
+    gtk_table_attach(GTK_TABLE(sizes), g_arrows, 0, 2, 5, 6, GTK_FILL, 0, 0, 0);
+    g_checksize = spin(10, 24, 1);
+    labeled_row(sizes, 6, _("Tamanho de caixas de selecao:"), g_checksize);
+    gtk_box_pack_start(GTK_BOX(left), frame_with(_("Barras e tamanhos"), sizes), FALSE, FALSE, 0);
+
+    GtkWidget *btnbox = gtk_hbox_new(FALSE, 6);
+    g_status = gtk_label_new("");
+    GtkWidget *apply = gtk_button_new_with_label(_("Aplicar"));
+    g_signal_connect(apply, "clicked", G_CALLBACK(apply_cb), NULL);
+    gtk_box_pack_start(GTK_BOX(btnbox), g_status, FALSE, FALSE, 0);
+    gtk_box_pack_end(GTK_BOX(btnbox), apply, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left), btnbox, FALSE, FALSE, 0);
+
+    GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(scroll), left);
+    /* Wide enough for two color columns; only vertical scrolling. */
+    gtk_widget_set_size_request(scroll, 430, -1);
+    gtk_box_pack_start(GTK_BOX(outer), scroll, TRUE, TRUE, 0);
+
+    /* Preview */
+    GtkWidget *pv = gtk_vbox_new(FALSE, 4);
+    g_preview = gtk_drawing_area_new();
+    gtk_widget_set_size_request(g_preview, 480, 400);
+    g_signal_connect(g_preview, "expose-event", G_CALLBACK(preview_expose), NULL);
+    gtk_box_pack_start(GTK_BOX(pv), g_preview, FALSE, FALSE, 0);
+    GtkWidget *note = gtk_label_new(_("Previa desenhada pelo proprio KiTheme. Para usa-lo, escolha \"KiTheme\"\n"
+                                      "nos temas GTK e no estilo Qt da aba Aparencia."));
+    gtk_misc_set_alignment(GTK_MISC(note), 0, 0);
+    gtk_box_pack_start(GTK_BOX(pv), note, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Previa"), pv), FALSE, FALSE, 0);
+
+    fill(&cur);
+    g_signal_connect(outer, "map", G_CALLBACK(grow_window_cb), NULL);
+    return outer;
+}

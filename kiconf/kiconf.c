@@ -162,6 +162,7 @@ typedef struct {
 
 static LazyTab g_builtin_tabs[] = {
     {N_("Aparencia"), GTK_STOCK_SELECT_COLOR, build_appearance_tab, NULL, 0, 0, "appearance", "tema theme cores colors fonte font icones cursor", NULL},
+    {N_("KiTheme"), GTK_STOCK_SELECT_COLOR, build_kitheme_tab, NULL, 0, 0, "appearance", "tema theme estilo style gtk qt oxygen classico relevo progresso", NULL},
     {N_("Atalhos"), GTK_STOCK_JUMP_TO, build_shortcuts_tab, NULL, 0, 0, "hardware", "teclas keys hotkeys shortcuts", NULL},
     {N_("Telas"), GTK_STOCK_FULLSCREEN, build_telas_tab, NULL, 0, 0, "hardware", "monitor resolucao display screen xrandr", NULL},
     {N_("Entrada"), GTK_STOCK_EDIT, build_entrada_tab, NULL, 0, 0, "hardware", "mouse teclado keyboard touchpad pointer", NULL},

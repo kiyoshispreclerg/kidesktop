@@ -7,6 +7,7 @@
 #include <gtk/gtk.h>
 
 GtkWidget *build_appearance_tab(void);
+GtkWidget *build_kitheme_tab(void);
 GtkWidget *build_shortcuts_tab(void);
 GtkWidget *build_entrada_tab(void);
 GtkWidget *build_permissoes_tab(void);

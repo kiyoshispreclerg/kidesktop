@@ -11,6 +11,9 @@ ICONDIR ?= /usr/share/icons/hicolor/scalable/apps
 
 CFLAGS ?= -Wall -Wextra -O2
 CFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"' -DDATADIR='"$(DATADIR)"'
+# The KiTheme tab compiles libkitheme in (its preview draws with it), and
+# finds the presets where kitheme installs them.
+CFLAGS += -DKITHEME_DATADIR='"$(DATADIR)/kitheme"'
 # KiDesktop's single version source of truth: ../VERSION (also read by
 # scripts/build-deb.sh). Edit that file, not this Makefile.
 KIDESKTOP_VERSION := $(shell cat ../VERSION 2>/dev/null | tr -d ' \t\r\n')
@@ -34,12 +37,13 @@ LIBS := $(shell pkg-config --cflags --libs gtk+-2.0 x11 xrandr gmodule-2.0) -lm 
 # xisback/xispanel/kiconfd -- compiled directly in, same as every other
 # source file here, so kiconf stays independently buildable and
 # installable on its own (no shared library to depend on at runtime).
-SRCS := kiconf.c plugins.c common.c sysinfo.c tabs/appearance.c tabs/shortcuts.c tabs/entrada.c \
+SRCS := kiconf.c plugins.c common.c sysinfo.c tabs/appearance.c tabs/kitheme.c tabs/shortcuts.c tabs/entrada.c \
         tabs/permissoes.c tabs/paineis.c tabs/wallpaper.c \
         tabs/telas.c tabs/janelas.c tabs/efeitos.c tabs/cantos.c tabs/sistema.c \
         tabs/programas.c tabs/associacoes.c tabs/menu.c tabs/autostart.c tabs/energia.c tabs/eventos.c \
         tabs/historico.c tabs/acessibilidade.c tabs/sons.c tabs/usuarios.c tabs/servicos.c tabs/login.c \
-        ../shared/xis_outputs.c ../shared/xis_direction.c ../shared/xis_sound.c
+        ../shared/xis_outputs.c ../shared/xis_direction.c ../shared/xis_sound.c \
+        ../kitheme/core/kt_color.c ../kitheme/core/kt_config.c ../kitheme/core/kt_draw.c ../kitheme/core/kt_sample.c
 
 # po/LINGUAS: one language code per line ("pt_BR", "es", ...), '#' comments.
 # Empty/missing until the first translation actually exists (see po/README.md).
