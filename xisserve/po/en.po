@@ -554,3 +554,48 @@ msgstr "<b>Available Wi-Fi networks</b>"
 
 msgid "<b>Dispositivos inativos</b>"
 msgstr "<b>Inactive devices</b>"
+
+#: pages/network.c
+msgid "Interface"
+msgstr "Interface"
+
+
+#: pages/network.c
+msgid "Sinal"
+msgstr "Signal"
+
+#: pages/network.c
+msgid "Frequência"
+msgstr "Frequency"
+
+#: pages/network.c
+msgid "Velocidade"
+msgstr "Speed"
+
+#: pages/network.c
+msgid "Segurança"
+msgstr "Security"
+
+#: pages/network.c
+msgid "Aberta"
+msgstr "Open"
+
+#: pages/network.c
+msgid "Endereço IP"
+msgstr "IP address"
+
+#: pages/network.c
+msgid "Gateway"
+msgstr "Gateway"
+
+#: pages/network.c
+msgid "MAC"
+msgstr "MAC"
+
+#: pages/network.c
+msgid "ocultar detalhes"
+msgstr "hide details"
+
+#: pages/network.c
+msgid "mostrar detalhes"
+msgstr "show details"

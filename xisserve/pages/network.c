@@ -27,6 +27,10 @@ typedef struct {
     char type[32];
     char state[64];
     char connection[128];
+    /* connected devices only, filled by fetch_device_details() */
+    char mac[32], ip4[64], gateway[64], ip6[96];
+    char ssid[128], freq[24], rate[24], security[64];
+    int signal;
 } NetDevice;
 
 typedef struct {
@@ -41,6 +45,8 @@ static GtkWidget *g_root;
 static GtkWidget *g_box;
 static guint g_poll_id;
 static gboolean g_has_wifi_device;
+static char g_expanded_dev[64]; /* device whose info box is open ("" = none) */
+static GPtrArray *g_cur_devices, *g_cur_wifi; /* rows' callbacks point into these; replaced on each render */
 static gboolean g_show_more; /* "Mostrar mais": available Wi-Fi networks + inactive devices */
 
 /* ---- nmcli -t parsing ---------------------------------------------------- */
@@ -136,6 +142,47 @@ static gint wifi_cmp(gconstpointer a, gconstpointer b)
 
 /* One entry per SSID (several access points share one), strongest
  * first; the in-use flag survives if any of the duplicates had it. */
+/* IP/gateway/MAC from `nmcli device show`, plus frequency/rate/signal
+ * of the access point in use for a Wi-Fi device. */
+static void fetch_device_details(NetDevice *d)
+{
+    char dq[128], cmd[384];
+    shell_quote(d->device, dq, sizeof(dq));
+    snprintf(cmd, sizeof(cmd),
+             "LC_ALL=C nmcli -t -f GENERAL.HWADDR,IP4.ADDRESS,IP4.GATEWAY,IP6.ADDRESS device show %s 2>/dev/null", dq);
+    FILE *f = run(cmd);
+    if (f) {
+        char line[512];
+        char fields[MAX_FIELDS][160];
+        while (fgets(line, sizeof(line), f)) {
+            line[strcspn(line, "\n")] = 0;
+            if (split_terse(line, fields, 2) < 2 || !fields[1][0]) continue;
+            if (strcmp(fields[0], "GENERAL.HWADDR") == 0) g_strlcpy(d->mac, fields[1], sizeof(d->mac));
+            else if (strncmp(fields[0], "IP4.ADDRESS", 11) == 0 && !d->ip4[0]) g_strlcpy(d->ip4, fields[1], sizeof(d->ip4));
+            else if (strcmp(fields[0], "IP4.GATEWAY") == 0) g_strlcpy(d->gateway, fields[1], sizeof(d->gateway));
+            else if (strncmp(fields[0], "IP6.ADDRESS", 11) == 0 && !d->ip6[0]) g_strlcpy(d->ip6, fields[1], sizeof(d->ip6));
+        }
+        pclose(f);
+    }
+    if (strcmp(d->type, "wifi") != 0) return;
+    snprintf(cmd, sizeof(cmd), "LC_ALL=C nmcli -t -f IN-USE,SSID,FREQ,SIGNAL,SECURITY,RATE dev wifi list ifname %s 2>/dev/null", dq);
+    f = run(cmd);
+    if (!f) return;
+    char line[512];
+    char fields[MAX_FIELDS][160];
+    while (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\n")] = 0;
+        if (split_terse(line, fields, MAX_FIELDS) < 6 || fields[0][0] != '*') continue;
+        g_strlcpy(d->ssid, fields[1], sizeof(d->ssid));
+        g_strlcpy(d->freq, fields[2], sizeof(d->freq));
+        d->signal = atoi(fields[3]);
+        g_strlcpy(d->security, fields[4], sizeof(d->security));
+        g_strlcpy(d->rate, fields[5], sizeof(d->rate));
+        break;
+    }
+    pclose(f);
+}
+
 static GPtrArray *fetch_wifi(void)
 {
     GPtrArray *rows = g_ptr_array_new_with_free_func(g_free);
@@ -263,9 +310,61 @@ static const char *device_type_label(const char *type)
     return type;
 }
 
+static void info_line(GtkWidget *table, guint *row, const char *key, const char *val)
+{
+    if (!val[0]) return;
+    GtkWidget *k = gtk_label_new(key), *v = gtk_label_new(val);
+    gtk_misc_set_alignment(GTK_MISC(k), 0.0f, 0.5f);
+    gtk_misc_set_alignment(GTK_MISC(v), 0.0f, 0.5f);
+    gtk_label_set_selectable(GTK_LABEL(v), TRUE);
+    style_fg(k);
+    style_fg(v);
+    gtk_table_attach(GTK_TABLE(table), k, 0, 1, *row, *row + 1, GTK_FILL, GTK_FILL, 0, 0);
+    gtk_table_attach(GTK_TABLE(table), v, 1, 2, *row, *row + 1, GTK_FILL | GTK_EXPAND, GTK_FILL, 0, 0);
+    (*row)++;
+}
+
+/* Details box shown under an expanded connected device. */
+static GtkWidget *build_info(NetDevice *d)
+{
+    GtkWidget *table = gtk_table_new(1, 2, FALSE);
+    gtk_table_set_col_spacings(GTK_TABLE(table), 12);
+    gtk_table_set_row_spacings(GTK_TABLE(table), 2);
+    guint row = 0;
+    char buf[64];
+    info_line(table, &row, _("Interface"), d->device);
+    if (d->ssid[0]) {
+        info_line(table, &row, _("Rede"), d->ssid);
+        snprintf(buf, sizeof(buf), "%d%%", d->signal);
+        info_line(table, &row, _("Sinal"), buf);
+        info_line(table, &row, _("Frequência"), d->freq);
+        info_line(table, &row, _("Velocidade"), d->rate);
+        info_line(table, &row, _("Segurança"), d->security[0] ? d->security : _("Aberta"));
+    }
+    info_line(table, &row, _("Endereço IP"), d->ip4);
+    info_line(table, &row, _("Gateway"), d->gateway);
+    info_line(table, &row, "IPv6", d->ip6);
+    info_line(table, &row, _("MAC"), d->mac);
+    GtkWidget *box = gtk_hbox_new(FALSE, 0);
+    gtk_container_set_border_width(GTK_CONTAINER(box), 6);
+    gtk_box_pack_start(GTK_BOX(box), table, TRUE, TRUE, 0);
+    return box;
+}
+
+static void on_info_toggle(GtkWidget *btn, gpointer data)
+{
+    (void)btn;
+    NetDevice *d = data;
+    if (strcmp(g_expanded_dev, d->device) == 0) g_expanded_dev[0] = 0;
+    else g_strlcpy(g_expanded_dev, d->device, sizeof(g_expanded_dev));
+    rebuild();
+}
+
 static GtkWidget *build_device_row(NetDevice *d)
 {
+    GtkWidget *outer = gtk_vbox_new(FALSE, 2);
     GtkWidget *hbox = gtk_hbox_new(FALSE, 6);
+    gtk_box_pack_start(GTK_BOX(outer), hbox, FALSE, FALSE, 0);
     gboolean connected = is_connected_state(d->state);
     gboolean can_toggle = strcmp(d->type, "wifi") == 0 || strcmp(d->type, "ethernet") == 0;
 
@@ -284,7 +383,18 @@ static GtkWidget *build_device_row(NetDevice *d)
     style_fg(sub);
     gtk_box_pack_start(GTK_BOX(vbox), sub, FALSE, FALSE, 0);
 
-    gtk_box_pack_start(GTK_BOX(hbox), vbox, TRUE, TRUE, 0);
+    gboolean open = connected && strcmp(g_expanded_dev, d->device) == 0;
+    if (connected) {
+        /* The whole label block is a flat button: click to show/hide the details. */
+        GtkWidget *info_btn = gtk_button_new();
+        gtk_button_set_relief(GTK_BUTTON(info_btn), GTK_RELIEF_NONE);
+        gtk_container_add(GTK_CONTAINER(info_btn), vbox);
+        g_signal_connect(info_btn, "clicked", G_CALLBACK(on_info_toggle), d);
+        xisserve_a11y(info_btn, gtk_label_get_text(GTK_LABEL(header)), open ? _("ocultar detalhes") : _("mostrar detalhes"));
+        gtk_box_pack_start(GTK_BOX(hbox), info_btn, TRUE, TRUE, 0);
+    } else {
+        gtk_box_pack_start(GTK_BOX(hbox), vbox, TRUE, TRUE, 0);
+    }
 
     if (can_toggle) {
         GtkWidget *btn = gtk_button_new_with_label(connected ? _("Desativar") : _("Ativar"));
@@ -292,7 +402,8 @@ static GtkWidget *build_device_row(NetDevice *d)
         xisserve_a11y(btn, NULL, gtk_label_get_text(GTK_LABEL(header)));
         gtk_box_pack_start(GTK_BOX(hbox), btn, FALSE, FALSE, 0);
     }
-    return hbox;
+    if (open) gtk_box_pack_start(GTK_BOX(outer), build_info(d), FALSE, FALSE, 0);
+    return outer;
 }
 
 static GtkWidget *build_wifi_row(WifiNet *w)
@@ -465,8 +576,13 @@ static gboolean job_done(gpointer data)
     NetJob *job = data;
     render_result(job->devices, job->wifi);
     g_have_data = TRUE;
-    g_ptr_array_free(job->devices, TRUE);
-    g_ptr_array_free(job->wifi, TRUE);
+    /* The rows' callbacks hold pointers into these, so they live until the
+     * next render replaces them (which also destroys those rows). */
+    GPtrArray *old_dev = g_cur_devices, *old_wifi = g_cur_wifi;
+    g_cur_devices = job->devices;
+    g_cur_wifi = job->wifi;
+    if (old_dev) g_ptr_array_free(old_dev, TRUE);
+    if (old_wifi) g_ptr_array_free(old_wifi, TRUE);
     g_free(job);
     g_job_running = FALSE;
     if (g_job_again) {
@@ -485,6 +601,10 @@ static gpointer job_thread(gpointer data)
         if (f) pclose(f);
     }
     job->devices = fetch_devices();
+    for (guint i = 0; i < job->devices->len; i++) {
+        NetDevice *d = g_ptr_array_index(job->devices, i);
+        if (is_connected_state(d->state)) fetch_device_details(d);
+    }
     gboolean has_wifi = FALSE;
     for (guint i = 0; i < job->devices->len; i++) {
         if (strcmp(((NetDevice *)g_ptr_array_index(job->devices, i))->type, "wifi") == 0) has_wifi = TRUE;
