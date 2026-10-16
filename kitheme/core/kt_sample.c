@@ -33,6 +33,8 @@ static void progress(const KtTheme *t, cairo_t *cr, double x, double y, double w
     kt_draw_progress_trough(t, cr, x, y, w, h, 0);
     double fw = (w - 2) * frac;
     kt_draw_progress_bar(t, cr, x + 1, y + 1, fw, h - 2, 0, 0);
+    if (t->progress_text != KT_PTEXT_ALWAYS)
+        return;
     char txt[16];
     snprintf(txt, sizeof(txt), "%d%%", (int)(frac * 100 + 0.5));
     cairo_save(cr);
