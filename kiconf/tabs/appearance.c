@@ -3,6 +3,8 @@
 #include "../common.h"
 #include "../tabs.h"
 
+#include "../../kitheme/core/kitheme.h"
+
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -27,12 +29,7 @@ static GtkWidget *g_gtk4_combo;
 static GtkWidget *g_icon_combo;
 static GtkWidget *g_qt_style_combo;
 static GtkWidget *g_kidesktop_theme_combo;
-static GtkWidget *g_color_bg_btn;
-static GtkWidget *g_color_fg_btn;
-static GtkWidget *g_color_base_btn;
-static GtkWidget *g_color_accent_btn;
-static GtkWidget *g_color_selbg_btn;
-static GtkWidget *g_color_selfg_btn;
+static GtkWidget *g_color_scheme_combo;
 static GtkWidget *g_font_general_btn;
 static GtkWidget *g_font_mono_btn;
 static GtkWidget *g_export_other_check;
@@ -253,6 +250,7 @@ static gchar *combo_active_text_or(GtkWidget *combo, const char *fallback)
 typedef struct {
     char cursor_theme[NAME_LEN];
     int cursor_size;
+    char color_scheme[64]; /* empty: no custom colors, themes keep their own */
     char color_bg[16], color_fg[16], color_base[16];
     char color_accent[16], color_selection_bg[16], color_selection_fg[16];
     char font_general[NAME_LEN], font_monospace[NAME_LEN];
@@ -272,12 +270,8 @@ static void appearance_defaults(Appearance *a)
 {
     snprintf(a->cursor_theme, sizeof(a->cursor_theme), "default");
     a->cursor_size = 24;
-    snprintf(a->color_bg, sizeof(a->color_bg), "#e0e0e0");
-    snprintf(a->color_fg, sizeof(a->color_fg), "#202020");
-    snprintf(a->color_base, sizeof(a->color_base), "#ffffff");
-    snprintf(a->color_accent, sizeof(a->color_accent), "#3584e4");
-    snprintf(a->color_selection_bg, sizeof(a->color_selection_bg), "#3584e4");
-    snprintf(a->color_selection_fg, sizeof(a->color_selection_fg), "#ffffff");
+    a->color_scheme[0] = a->color_bg[0] = a->color_fg[0] = a->color_base[0] = '\0';
+    a->color_accent[0] = a->color_selection_bg[0] = a->color_selection_fg[0] = '\0';
     snprintf(a->font_general, sizeof(a->font_general), "Sans 10");
     snprintf(a->font_monospace, sizeof(a->font_monospace), "Monospace 10");
     /* KiTheme when installed, same check as kiconfd's kitheme_installed(). */
@@ -319,6 +313,7 @@ static void load_appearance(Appearance *a)
 #define SET(k, field) if (!strcmp(key, k)) snprintf(a->field, sizeof(a->field), "%s", val)
         SET("cursor_theme", cursor_theme);
         else if (!strcmp(key, "cursor_size")) a->cursor_size = atoi(val);
+        else SET("color_scheme", color_scheme);
         else SET("color_bg", color_bg);
         else SET("color_fg", color_fg);
         else SET("color_base", color_base);
@@ -339,6 +334,62 @@ static void load_appearance(Appearance *a)
     fclose(f);
 }
 
+/* "Sem cores personalizadas" plus every scheme on disk; `select` is
+ * chosen, and kept as an entry of its own when it is not on disk (high
+ * contrast), so applying does not lose it. */
+static void fill_scheme_combo(const char *select)
+{
+    GtkComboBox *cb = GTK_COMBO_BOX(g_color_scheme_combo);
+    gtk_list_store_clear(GTK_LIST_STORE(gtk_combo_box_get_model(cb)));
+    gtk_combo_box_append_text(cb, _("Sem cores personalizadas"));
+    char schemes[64][64];
+    int ns = kt_list_colorschemes(schemes, 64), sel = (select && *select) ? -1 : 0;
+    for (int i = 0; i < ns; i++) {
+        gtk_combo_box_append_text(cb, schemes[i]);
+        if (select && !strcmp(schemes[i], select))
+            sel = i + 1;
+    }
+    if (sel < 0) {
+        gtk_combo_box_append_text(cb, select);
+        sel = ns + 1;
+    }
+    gtk_combo_box_set_active(cb, sel);
+}
+
+/* The Appearance as loaded: a scheme kiconf cannot resolve (high contrast)
+ * keeps the six colors the file had. */
+static Appearance g_loaded;
+
+/* Fills the six color_* fields from the scheme chosen in the combo. */
+static void scheme_colors(Appearance *a)
+{
+    a->color_scheme[0] = a->color_bg[0] = a->color_fg[0] = a->color_base[0] = '\0';
+    a->color_accent[0] = a->color_selection_bg[0] = a->color_selection_fg[0] = '\0';
+    if (gtk_combo_box_get_active(GTK_COMBO_BOX(g_color_scheme_combo)) <= 0)
+        return;
+    gchar *name = gtk_combo_box_get_active_text(GTK_COMBO_BOX(g_color_scheme_combo));
+    KtTheme t;
+    kt_theme_defaults(&t);
+    if (name && kt_theme_load_colors(&t, name)) {
+        snprintf(a->color_scheme, sizeof(a->color_scheme), "%s", name);
+        kt_color_hex(t.window_bg, a->color_bg);
+        kt_color_hex(t.window_fg, a->color_fg);
+        kt_color_hex(t.base_bg, a->color_base);
+        kt_color_hex(t.accent, a->color_accent);
+        kt_color_hex(t.selection_bg, a->color_selection_bg);
+        kt_color_hex(t.selection_fg, a->color_selection_fg);
+    } else if (name && !strcmp(name, g_loaded.color_scheme)) {
+        snprintf(a->color_scheme, sizeof(a->color_scheme), "%s", name);
+        memcpy(a->color_bg, g_loaded.color_bg, sizeof(a->color_bg));
+        memcpy(a->color_fg, g_loaded.color_fg, sizeof(a->color_fg));
+        memcpy(a->color_base, g_loaded.color_base, sizeof(a->color_base));
+        memcpy(a->color_accent, g_loaded.color_accent, sizeof(a->color_accent));
+        memcpy(a->color_selection_bg, g_loaded.color_selection_bg, sizeof(a->color_selection_bg));
+        memcpy(a->color_selection_fg, g_loaded.color_selection_fg, sizeof(a->color_selection_fg));
+    }
+    g_free(name);
+}
+
 static void save_appearance_cb(GtkWidget *widget, gpointer data)
 {
     (void)widget;
@@ -350,12 +401,7 @@ static void save_appearance_cb(GtkWidget *widget, gpointer data)
     g_free(cursor);
     a.cursor_size = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_cursor_size_spin));
 
-    color_button_hex(g_color_bg_btn, a.color_bg, sizeof(a.color_bg));
-    color_button_hex(g_color_fg_btn, a.color_fg, sizeof(a.color_fg));
-    color_button_hex(g_color_base_btn, a.color_base, sizeof(a.color_base));
-    color_button_hex(g_color_accent_btn, a.color_accent, sizeof(a.color_accent));
-    color_button_hex(g_color_selbg_btn, a.color_selection_bg, sizeof(a.color_selection_bg));
-    color_button_hex(g_color_selfg_btn, a.color_selection_fg, sizeof(a.color_selection_fg));
+    scheme_colors(&a);
 
     const gchar *fg = gtk_font_button_get_font_name(GTK_FONT_BUTTON(g_font_general_btn));
     snprintf(a.font_general, sizeof(a.font_general), "%s", fg ? fg : "Sans 10");
@@ -395,6 +441,7 @@ static void save_appearance_cb(GtkWidget *widget, gpointer data)
     fprintf(f, "# kiconfd config\n");
     fprintf(f, "cursor_theme = %s\n", a.cursor_theme);
     fprintf(f, "cursor_size = %d\n", a.cursor_size);
+    fprintf(f, "color_scheme = %s\n", a.color_scheme);
     fprintf(f, "color_bg = %s\n", a.color_bg);
     fprintf(f, "color_fg = %s\n", a.color_fg);
     fprintf(f, "color_base = %s\n", a.color_base);
@@ -695,15 +742,18 @@ GtkWidget *build_appearance_tab(void)
     gtk_box_pack_start(GTK_BOX(themes_box), kitheme_row, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Temas dos toolkits", themes_box), FALSE, FALSE, 0);
 
-    /* Color palette */
-    GtkWidget *colors_table = gtk_table_new(6, 2, FALSE);
-    g_color_bg_btn = labeled_row(colors_table, 0, "Fundo:", make_color_button(a.color_bg));
-    g_color_fg_btn = labeled_row(colors_table, 1, "Texto:", make_color_button(a.color_fg));
-    g_color_base_btn = labeled_row(colors_table, 2, "Fundo de campos:", make_color_button(a.color_base));
-    g_color_accent_btn = labeled_row(colors_table, 3, "Destaque (accent):", make_color_button(a.color_accent));
-    g_color_selbg_btn = labeled_row(colors_table, 4, "Selecao (fundo):", make_color_button(a.color_selection_bg));
-    g_color_selfg_btn = labeled_row(colors_table, 5, "Selecao (texto):", make_color_button(a.color_selection_fg));
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Paleta de cores", colors_table), FALSE, FALSE, 0);
+    /* Color scheme: opt-in, "none" leaves every theme's own colors alone.
+     * Schemes are edited in the KiTheme tab. */
+    GtkWidget *colors_table = gtk_table_new(1, 2, FALSE);
+    g_color_scheme_combo = gtk_combo_box_new_text();
+    fill_scheme_combo(a.color_scheme);
+    gtk_widget_set_tooltip_text(g_color_scheme_combo,
+                                _("Recolore os temas GTK e Qt que nao sejam o KiTheme. \"Sem cores personalizadas\" deixa cada tema com as proprias cores. "
+                                  "Para criar, editar ou excluir esquemas, use a aba KiTheme."));
+    a11y_name(g_color_scheme_combo, _("Esquema de cores"));
+    labeled_row(colors_table, 0, _("Esquema:"), g_color_scheme_combo);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Cores"), colors_table), FALSE, FALSE, 0);
+    memcpy(&g_loaded, &a, sizeof(a));
 
     /* Fonts */
     GtkWidget *fonts_table = gtk_table_new(2, 2, FALSE);

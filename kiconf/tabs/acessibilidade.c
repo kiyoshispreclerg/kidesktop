@@ -31,11 +31,11 @@ static char g_focus_key_loaded[64];
 
 /* kiconfd.conf keys high contrast replaces, and what it sets them to. */
 static const char *const HC_KEYS[] = {
-    "gtk2_theme", "gtk3_theme", "gtk4_theme", "theme", "color_bg", "color_fg",
+    "gtk2_theme", "gtk3_theme", "gtk4_theme", "theme", "color_scheme", "color_bg", "color_fg",
     "color_base", "color_accent", "color_selection_bg", "color_selection_fg", NULL,
 };
 static const char *const HC_VALUES[] = {
-    "HighContrast", "HighContrast", "HighContrast", "highcontrast", "#000000", "#ffffff",
+    "HighContrast", "HighContrast", "HighContrast", "highcontrast", "highcontrast", "#000000", "#ffffff",
     "#000000", "#ffff00", "#ffff00", "#000000", NULL,
 };
 

@@ -15,12 +15,12 @@
 #include <limits.h>
 #include <string.h>
 
-static GtkWidget *g_preset_combo, *g_style_combo, *g_focus_combo, *g_ptext_combo;
+static GtkWidget *g_preset_combo, *g_scheme_combo, *g_style_combo, *g_focus_combo, *g_ptext_combo;
 static GtkWidget *g_preview, *g_status;
 static GtkWidget *g_radius, *g_relief, *g_gradient, *g_shadow;
 static GtkWidget *g_hover_glow, *g_stripes, *g_animation, *g_arrows;
 static GtkWidget *g_pthick, *g_sbwidth, *g_checksize;
-static char g_preset[64];
+static char g_preset[64], g_scheme[64];
 static int g_loading;
 
 static const char *const style_labels[] = {N_("Suave (Oxygen)"), N_("Classico (Windows 9x)"), N_("Plano"), NULL};
@@ -51,11 +51,36 @@ static KtColor *color_field(KtTheme *t, size_t off)
     return (KtColor *)((char *)t + off);
 }
 
+/* Rebuilds the scheme combo from disk and selects `select` (none when it
+ * is not a scheme on disk: the colors were edited by hand). */
+static void refresh_schemes(const char *select)
+{
+    char names[64][64];
+    int n = kt_list_colorschemes(names, 64), active = -1;
+    int was_loading = g_loading;
+    g_loading = 1;
+    gtk_list_store_clear(GTK_LIST_STORE(gtk_combo_box_get_model(GTK_COMBO_BOX(g_scheme_combo))));
+    for (int i = 0; i < n; i++) {
+        gtk_combo_box_append_text(GTK_COMBO_BOX(g_scheme_combo), names[i]);
+        if (select && !strcmp(names[i], select))
+            active = i;
+    }
+    gtk_combo_box_set_active(GTK_COMBO_BOX(g_scheme_combo), active);
+    g_loading = was_loading;
+}
+
+static void select_scheme(const char *name)
+{
+    if (g_scheme_combo)
+        refresh_schemes(name);
+}
+
 /* Widgets -> KtTheme. */
 static void collect(KtTheme *t)
 {
     kt_theme_defaults(t);
     snprintf(t->preset, sizeof(t->preset), "%s", g_preset);
+    snprintf(t->colors, sizeof(t->colors), "%s", g_scheme);
     int s = gtk_combo_box_get_active(GTK_COMBO_BOX(g_style_combo));
     t->style = s < 0 ? KT_STYLE_SOFT : (KtStyle)s;
     for (size_t i = 0; i < NCOLORS; i++) {
@@ -85,6 +110,8 @@ static void fill(const KtTheme *t)
 {
     g_loading = 1;
     snprintf(g_preset, sizeof(g_preset), "%s", t->preset);
+    snprintf(g_scheme, sizeof(g_scheme), "%s", t->colors);
+    select_scheme(g_scheme);
     gtk_combo_box_set_active(GTK_COMBO_BOX(g_style_combo), (int)t->style);
     for (size_t i = 0; i < NCOLORS; i++) {
         KtColor c = *color_field((KtTheme *)t, g_colors[i].off);
@@ -106,6 +133,19 @@ static void fill(const KtTheme *t)
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_checksize), t->check_size);
     g_loading = 0;
     gtk_widget_queue_draw(g_preview);
+}
+
+static void changed_cb(GtkWidget *w, gpointer data);
+
+/* A color edited by hand no longer matches the scheme in the combo. */
+static void color_changed_cb(GtkWidget *w, gpointer data)
+{
+    if (!g_loading) {
+        g_loading = 1;
+        gtk_combo_box_set_active(GTK_COMBO_BOX(g_scheme_combo), -1);
+        g_loading = 0;
+    }
+    changed_cb(w, data);
 }
 
 static void changed_cb(GtkWidget *w, gpointer data)
@@ -141,11 +181,81 @@ static void preset_cb(GtkWidget *w, gpointer data)
     gchar *name = gtk_combo_box_get_active_text(GTK_COMBO_BOX(w));
     if (!name)
         return;
+    KtTheme cur, t;
+    collect(&cur);
+    if (kt_theme_load_preset(&t, name)) {
+        /* A preset is only a shape: the colors stay as they are. */
+        for (size_t i = 0; i < NCOLORS; i++)
+            *color_field(&t, g_colors[i].off) = *color_field(&cur, g_colors[i].off);
+        snprintf(t.colors, sizeof(t.colors), "%s", cur.colors);
+        fill(&t);
+    }
+    g_free(name);
+    gtk_label_set_text(GTK_LABEL(g_status), "");
+}
+
+static void scheme_cb(GtkWidget *w, gpointer data)
+{
+    (void)data;
+    if (g_loading)
+        return;
+    gchar *name = gtk_combo_box_get_active_text(GTK_COMBO_BOX(w));
+    if (!name)
+        return;
     KtTheme t;
-    if (kt_theme_load_preset(&t, name))
+    collect(&t);
+    if (kt_theme_load_colors(&t, name))
         fill(&t);
     g_free(name);
     gtk_label_set_text(GTK_LABEL(g_status), "");
+}
+
+static void scheme_save_cb(GtkWidget *w, gpointer data)
+{
+    (void)data;
+    GtkWidget *dlg = gtk_dialog_new_with_buttons(_("Salvar esquema de cores"), GTK_WINDOW(gtk_widget_get_toplevel(w)),
+                                                 GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                 GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL, GTK_STOCK_SAVE, GTK_RESPONSE_OK, NULL);
+    gtk_dialog_set_default_response(GTK_DIALOG(dlg), GTK_RESPONSE_OK);
+    GtkWidget *entry = gtk_entry_new();
+    gtk_entry_set_activates_default(GTK_ENTRY(entry), TRUE);
+    gtk_entry_set_max_length(GTK_ENTRY(entry), 40);
+    GtkWidget *box = gtk_vbox_new(FALSE, 6);
+    gtk_container_set_border_width(GTK_CONTAINER(box), 8);
+    gtk_box_pack_start(GTK_BOX(box), gtk_label_new(_("Nome do esquema:")), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), entry, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(gtk_dialog_get_content_area(GTK_DIALOG(dlg))), box, FALSE, FALSE, 0);
+    gtk_widget_show_all(box);
+    if (gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_OK) {
+        gchar *name = g_strstrip(g_strdup(gtk_entry_get_text(GTK_ENTRY(entry))));
+        KtTheme t;
+        collect(&t);
+        if (*name && kt_theme_save_colors(&t, name)) {
+            snprintf(g_scheme, sizeof(g_scheme), "%s", name);
+            refresh_schemes(name);
+            gtk_label_set_text(GTK_LABEL(g_status), _("Esquema salvo"));
+        } else {
+            gtk_label_set_text(GTK_LABEL(g_status), _("Nome invalido ou nao foi possivel salvar"));
+        }
+        g_free(name);
+    }
+    gtk_widget_destroy(dlg);
+}
+
+static void scheme_delete_cb(GtkWidget *w, gpointer data)
+{
+    (void)w;
+    (void)data;
+    gchar *name = gtk_combo_box_get_active_text(GTK_COMBO_BOX(g_scheme_combo));
+    if (!name)
+        return;
+    if (!kt_colors_is_user(name)) {
+        gtk_label_set_text(GTK_LABEL(g_status), _("Os esquemas que vem com o KiDesktop nao podem ser excluidos"));
+    } else if (kt_colors_delete(name)) {
+        refresh_schemes(NULL);
+        gtk_label_set_text(GTK_LABEL(g_status), _("Esquema excluido"));
+    }
+    g_free(name);
 }
 
 /* kitheme-export from PATH, or the source tree's when kiconf runs from
@@ -282,10 +392,28 @@ GtkWidget *build_kitheme_tab(void)
     g_loading = 0;
     g_signal_connect(g_preset_combo, "changed", G_CALLBACK(preset_cb), NULL);
     labeled_row(base, 0, _("Partir do preset:"), g_preset_combo);
-    gtk_widget_set_tooltip_text(g_preset_combo, _("Carrega todos os valores do preset; os ajustes abaixo ficam por cima dele."));
+    gtk_widget_set_tooltip_text(g_preset_combo, _("Carrega a forma e os tamanhos do preset (as cores ficam como estao); os ajustes abaixo ficam por cima dele."));
     g_style_combo = labels_combo(style_labels);
     labeled_row(base, 1, _("Estilo:"), g_style_combo);
     gtk_box_pack_start(GTK_BOX(left), frame_with(_("Base"), base), FALSE, FALSE, 0);
+
+    /* Color scheme: schemes are separate files, the buttons below edit a copy */
+    GtkWidget *cbox = gtk_vbox_new(FALSE, 6);
+    GtkWidget *srow = gtk_hbox_new(FALSE, 6);
+    g_scheme_combo = gtk_combo_box_new_text();
+    refresh_schemes(cur.colors);
+    g_signal_connect(g_scheme_combo, "changed", G_CALLBACK(scheme_cb), NULL);
+    gtk_widget_set_tooltip_text(g_scheme_combo, _("Esquemas de cores: os instalados com o KiDesktop e os seus. Mudar uma cor abaixo deixa a lista em branco (personalizado)."));
+    a11y_name(g_scheme_combo, _("Esquema de cores"));
+    GtkWidget *sbtn = gtk_button_new_with_label(_("Salvar como..."));
+    g_signal_connect(sbtn, "clicked", G_CALLBACK(scheme_save_cb), NULL);
+    GtkWidget *dbtn = gtk_button_new_with_label(_("Excluir"));
+    g_signal_connect(dbtn, "clicked", G_CALLBACK(scheme_delete_cb), NULL);
+    gtk_box_pack_start(GTK_BOX(srow), gtk_label_new(_("Esquema:")), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(srow), g_scheme_combo, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(srow), sbtn, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(srow), dbtn, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(cbox), srow, FALSE, FALSE, 0);
 
     /* Colors, two per row */
     GtkWidget *colors = gtk_table_new((NCOLORS + 1) / 2, 4, FALSE);
@@ -297,11 +425,12 @@ GtkWidget *build_kitheme_tab(void)
         gtk_misc_set_alignment(GTK_MISC(l), 0, 0.5);
         g_colors[i].btn = make_color_button("#000000");
         a11y_name(g_colors[i].btn, _(g_colors[i].label));
-        g_signal_connect(g_colors[i].btn, "color-set", G_CALLBACK(changed_cb), NULL);
+        g_signal_connect(g_colors[i].btn, "color-set", G_CALLBACK(color_changed_cb), NULL);
         gtk_table_attach(GTK_TABLE(colors), l, col, col + 1, row, row + 1, GTK_FILL, 0, 0, 0);
         gtk_table_attach(GTK_TABLE(colors), g_colors[i].btn, col + 1, col + 2, row, row + 1, 0, 0, 0, 0);
     }
-    gtk_box_pack_start(GTK_BOX(left), frame_with(_("Cores"), colors), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(cbox), colors, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left), frame_with(_("Cores"), cbox), FALSE, FALSE, 0);
 
     /* Shape */
     GtkWidget *shape = gtk_table_new(6, 2, FALSE);
