@@ -53,8 +53,7 @@ check-deps:
 lint:
 	@./scripts/lint.sh
 
-# kidesktop-core, kidesktop-base and the kidesktop metapackage, as
-# <name>_<version>_<arch>.deb for this distro, into dist/ (see
+# kidesktop-core and kidesktop-base, as <name>_<version>_<arch>.deb for this distro, into dist/ (see
 # debian/README.source).
 deb:
 	@./scripts/build-deb.sh

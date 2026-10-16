@@ -68,7 +68,8 @@ O KiDesktop é distribuído em dois grupos, compilados e empacotados à parte:
   recomendadas: cada app roda sem elas, com as funções correspondentes
   desativadas.
 
-O pacote `kidesktop` é um metapacote que instala os dois.
+O `kidesktop-core` também substitui o antigo pacote único `kidesktop`.
+`apt install ./kidesktop-core_*.deb ./kidesktop-base_*.deb` instala os dois.
 
 ### Sessão e janelas
 
@@ -185,7 +186,7 @@ as instala.
 
 ```sh
 make lint   # todos os componentes com -Werror, cppcheck, verificações de .po/.desktop/scripts
-make deb    # dist/: .debs kidesktop-core, kidesktop-base e o metapacote kidesktop para esta distro
+make deb    # dist/: .debs kidesktop-core e kidesktop-base para esta distro
 ```
 
 O GitHub Actions roda `make lint` no Ubuntu 22.04, Ubuntu 24.04, Debian 12 e Debian 13 a

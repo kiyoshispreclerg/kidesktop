@@ -1,6 +1,5 @@
 #!/bin/sh
-# build-deb.sh - builds the kidesktop-core, kidesktop-base and kidesktop
-# (metapackage) .debs into dist/ for the distro it runs on (see
+# build-deb.sh - builds the kidesktop-core and kidesktop-base .debs into dist/ for the distro it runs on (see
 # debian/README.source). Needs debhelper, dpkg-dev and the Build-Depends of
 # debian/control installed.
 #
@@ -40,6 +39,4 @@ for pkg in kidesktop-core kidesktop-base; do
 	rm -f "../${pkg}-dbgsym_${version}_${arch}.ddeb" "../${pkg}-dbgsym_${version}_${arch}.deb"
 	echo "build-deb: dist/${pkg}_${version}_${arch}.deb"
 done
-mv "../kidesktop_${version}_all.deb" dist/
 rm -f "../kidesktop_${version}_${arch}.buildinfo" "../kidesktop_${version}_${arch}.changes"
-echo "build-deb: dist/kidesktop_${version}_all.deb"

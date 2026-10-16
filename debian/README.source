@@ -1,11 +1,11 @@
 kidesktop Debian packaging
 ==========================
 
-Three binary packages from one build of the top-level Makefile:
+Two binary packages from one build of the top-level Makefile:
 
-    kidesktop-core   the desktop (session, WM, compositor, panel, settings...)
-    kidesktop-base   the applications (kiterm, kifiles, ...)
-    kidesktop        empty metapackage depending on both
+    kidesktop-core   the desktop (session, WM, compositor, panel, settings...);
+                     Provides/Conflicts/Replaces the old single "kidesktop"
+    kidesktop-base   the applications (kiterm, kifiles, ...); depends on the core
 
 `make install-core` / `make install-base` fill each package's directory.
 
@@ -15,5 +15,4 @@ each build, with the version taken from the git tag (v1.2.3 -> 1.2.3, or
 (~ubuntu22.04, ~debian12) so the per-distro builds of one release can
 sit side by side in a release's assets.
 
-    make deb            # -> dist/kidesktop-core_*.deb, kidesktop-base_*.deb,
-                        #    kidesktop_*_all.deb
+    make deb            # -> dist/kidesktop-core_*.deb, kidesktop-base_*.deb

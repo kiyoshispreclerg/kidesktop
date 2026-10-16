@@ -65,7 +65,8 @@ KiDesktop ships as two groups, built and packaged separately:
   `kidesktop-base`, which depends on the core. Heavy libraries are only
   recommended: each app runs without them, with the matching features off.
 
-The `kidesktop` package is a metapackage that installs both.
+`kidesktop-core` also stands in for the old single `kidesktop` package.
+`apt install ./kidesktop-core_*.deb ./kidesktop-base_*.deb` installs both.
 
 ### Session and windows
 
@@ -179,7 +180,7 @@ installs them.
 
 ```sh
 make lint   # every component with -Werror, cppcheck, .po/.desktop/script checks
-make deb    # dist/ kidesktop-core, kidesktop-base and the kidesktop metapackage .debs for this distro
+make deb    # dist/ kidesktop-core and kidesktop-base .debs for this distro
 ```
 
 GitHub Actions runs `make lint` on Ubuntu 22.04, Ubuntu 24.04, Debian 12 and Debian 13

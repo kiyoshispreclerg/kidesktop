@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 # kidesktop-core and kidesktop-base both come from the top-level Makefile,
 # which builds every component (see ../Makefile) and installs each group
-# into its own package; kidesktop is an empty metapackage.
+# into its own package.
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 

@@ -67,12 +67,14 @@ Recommends: librsvg2-2,
             lxpolkit | policykit-1-gnome | mate-polkit
 Suggests: orca,
           xsct
-Breaks: kidesktop (<< ${binary:Version})
-Replaces: kidesktop (<< ${binary:Version})
+Provides: kidesktop
+Conflicts: kidesktop
+Replaces: kidesktop
 Description: lightweight X11 desktop: window manager, compositor, panel and tools
  KiDesktop is a small desktop environment for X11 (and the XLibre fork),
  built as separate programs that each work on their own. This package is
- the desktop itself; the everyday applications are in kidesktop-base.
+ the desktop itself (it also stands in for the old single "kidesktop"
+ package); the everyday applications are in kidesktop-base.
  .
   * kisession - session leader and service supervisor
   * kiwm / kicomp - window manager and compositor (XRender, GLX, EGL)
@@ -107,13 +109,3 @@ Description: KiDesktop applications: terminal, file manager and more
  .
  More applications (image and document viewer, screenshots and screen
  recording, system monitor, text editor, paint) are planned for this package.
-
-Package: kidesktop
-Architecture: all
-Depends: ${misc:Depends},
-         kidesktop-core (>= ${source:Version}),
-         kidesktop-base (>= ${source:Version})
-Description: KiDesktop environment (metapackage)
- Installs the whole KiDesktop environment: kidesktop-core, the desktop
- itself, and kidesktop-base, its applications. Install kidesktop-core alone
- for the desktop without the applications.
