@@ -660,6 +660,13 @@ static void a_split(GtkToggleAction *a, gpointer d)
     set_split(d, gtk_toggle_action_get_active(a));
 }
 
+static void zoom_tooltip(KfApp *app)
+{
+    char *tip = g_strdup_printf(_("Icon size: %d px (Ctrl+Plus / Ctrl+Minus)"), app->cfg.zoom);
+    gtk_widget_set_tooltip_text(app->zoom_scale, tip);
+    g_free(tip);
+}
+
 static const int kZoomSteps[] = { 16, 24, 32, 48, 64, 80, 96, 128, 160, 192, 256 };
 
 static void set_zoom(KfApp *app, int z)
@@ -668,6 +675,7 @@ static void set_zoom(KfApp *app, int z)
     if (z == app->cfg.zoom)
         return;
     app->cfg.zoom = z;
+    zoom_tooltip(app);
     gtk_range_set_value(GTK_RANGE(app->zoom_scale), z);
     each_pane(app, kf_pane_apply_zoom);
 }
@@ -712,6 +720,7 @@ static void on_zoom_scale(GtkRange *r, gpointer d)
     if (v == app->cfg.zoom)
         return;
     app->cfg.zoom = v;
+    zoom_tooltip(app);
     if (zoom_timer)
         g_source_remove(zoom_timer);
     zoom_timer = g_timeout_add(90, zoom_apply, app);   /* coalesce while dragging */
@@ -1301,7 +1310,7 @@ int main(int argc, char **argv)
     gtk_scale_set_draw_value(GTK_SCALE(app->zoom_scale), FALSE);
     gtk_widget_set_size_request(app->zoom_scale, 90, -1);
     gtk_range_set_value(GTK_RANGE(app->zoom_scale), app->cfg.zoom);
-    gtk_widget_set_tooltip_text(app->zoom_scale, _("Zoom (Ctrl+Plus / Ctrl+Minus)"));
+    zoom_tooltip(app);
     g_signal_connect(app->zoom_scale, "value-changed", G_CALLBACK(on_zoom_scale), app);
     gtk_box_pack_start(GTK_BOX(sb), app->zoom_scale, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(sb), gtk_image_new_from_stock(GTK_STOCK_ZOOM_IN, GTK_ICON_SIZE_MENU), FALSE, FALSE, 0);
