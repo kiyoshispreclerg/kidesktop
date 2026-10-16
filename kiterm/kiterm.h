@@ -7,7 +7,7 @@
 #include <vte/vte.h>
 #include "kt_config.h"
 
-#define KITERM_VERSION "0.1.1"
+#define KITERM_VERSION "0.1.2"
 
 typedef struct KtWindow {
     GtkWidget *win;

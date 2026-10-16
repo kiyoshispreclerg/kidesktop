@@ -292,6 +292,17 @@ GtkWidget *kt_tab_create(KtWindow *w, const char *cwd, char **argv)
         shell_argv[0] = (char *)(sh && *sh ? sh : "/bin/sh");
         run = shell_argv;
     }
+    /* VTE forces TERM=xterm, which stock bashrc files (Debian/Ubuntu) don't
+     * treat as a color terminal: no colored prompt, no ls colors. env(1)
+     * execs in place, so the pid stays the child's. */
+    int nrun = 0;
+    while (run[nrun])
+        nrun++;
+    char **wrapped = g_new0(char *, nrun + 3);
+    wrapped[0] = (char *)"env";
+    wrapped[1] = (char *)"TERM=xterm-256color";
+    memcpy(&wrapped[2], run, (nrun + 1) * sizeof(char *));
+    run = wrapped;
     GPid pid = 0;
     GError *err = NULL;
     /* Login shells are not wanted (a terminal inherits the session's
@@ -299,12 +310,13 @@ GtkWidget *kt_tab_create(KtWindow *w, const char *cwd, char **argv)
     if (!vte_terminal_fork_command_full(t, VTE_PTY_DEFAULT, cwd, run, NULL,
                                         G_SPAWN_SEARCH_PATH,
                                         NULL, NULL, &pid, &err)) {
-        char *msg = g_strdup_printf(_("Could not start \"%s\": %s"), run[0], err ? err->message : "?");
+        char *msg = g_strdup_printf(_("Could not start \"%s\": %s"), run[2], err ? err->message : "?");
         vte_terminal_feed(t, msg, -1);
         vte_terminal_feed(t, "\r\n", 2);
         g_free(msg);
         g_clear_error(&err);
     }
+    g_free(wrapped);
     g_object_set_data(G_OBJECT(t), KEY_PID, GINT_TO_POINTER((int)pid));
     g_object_set_data(G_OBJECT(t), KEY_BORN, GSIZE_TO_POINTER((gsize)g_get_monotonic_time()));
     return wd;
