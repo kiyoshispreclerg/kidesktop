@@ -125,6 +125,7 @@ static int notif_on_tick(PanelWidget *w, uint64_t now)
     int ox, oy, ow, oh;
     panel_free_area(p, &ox, &oy, &ow, &oh);
     toast_set_output_rect(ox, oy, ow, oh);
+    toast_avoid_refresh();
     toast_set_colors(p->bg_r, p->bg_g, p->bg_b, p->bg_a, p->fg_r, p->fg_g, p->fg_b, p->fg_a);
     toast_set_bg_image(p->bg_image_surface, p->bg_slice_l, p->bg_slice_t, p->bg_slice_r, p->bg_slice_b);
     toast_set_skin(&p->menu_skin);

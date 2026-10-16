@@ -24,6 +24,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 /* Hard upper bound on the array itself -- the *actual* number shown at
  * once is computed dynamically from the usable screen height (see
@@ -131,6 +132,17 @@ static ToastCorner g_corner = TOAST_CORNER_BOTTOM_RIGHT;
  * in which case toast_area() falls back to the whole default screen. */
 static int g_area_x = 0, g_area_y = 0, g_area_w = 0, g_area_h = 0;
 
+/* The xisserve window (launcher / network / audio / ... pages -- one
+ * toplevel for all of them) while it's on screen, so toasts can stay out
+ * of its way like they do a panel. Cached: toast_area() only reads these;
+ * toast_avoid_refresh() is the one place that talks to the server, and
+ * only while a toast is showing (or one is arriving). g_av_sig is a hash
+ * of the last client list scanned, so an absent window isn't re-searched
+ * (a class-hint round trip per client) until the list actually changes. */
+static Window g_av_win = None;
+static int g_av_x, g_av_y, g_av_w, g_av_h;
+static unsigned long g_av_sig;
+
 /* Panel theme colors, mirrored from widgets/notif.c's own panel via
  * toast_set_colors() -- defaults match the original hardcoded look
  * (dark, near-opaque background / white text) until a notif widget
@@ -188,6 +200,77 @@ static void ensure_visual(void)
     }
 }
 
+static int av_find_window(void)
+{
+    Window *list = NULL;
+    int n = 0;
+    if (!ewmh_get_client_list(&list, &n)) {
+        return 0;
+    }
+    unsigned long sig = (unsigned long)n;
+    for (int i = 0; i < n; i++) {
+        sig = sig * 31 + (unsigned long)list[i];
+    }
+    if (sig == g_av_sig) {
+        XFree(list);
+        return 0;
+    }
+    g_av_sig = sig;
+    for (int i = 0; i < n; i++) {
+        XClassHint ch;
+        if (!XGetClassHint(g_dpy, list[i], &ch)) {
+            continue;
+        }
+        int hit = (ch.res_name && !strcasecmp(ch.res_name, "xisserve")) ||
+                  (ch.res_class && !strcasecmp(ch.res_class, "xisserve"));
+        if (ch.res_name) {
+            XFree(ch.res_name);
+        }
+        if (ch.res_class) {
+            XFree(ch.res_class);
+        }
+        if (hit) {
+            g_av_win = list[i];
+            break;
+        }
+    }
+    XFree(list);
+    return g_av_win != None;
+}
+
+/* Re-reads the xisserve window's on-screen rect into the cache; returns
+ * whether it changed. */
+static int av_refresh(void)
+{
+    int x = 0, y = 0, w = 0, h = 0;
+    XWindowAttributes wa = {0};
+    wa.map_state = IsUnmapped;
+    if (g_av_win == None && !av_find_window()) {
+        goto done;
+    }
+    if (!XGetWindowAttributes(g_dpy, g_av_win, &wa)) {
+        g_av_win = None; /* gone */
+        g_av_sig = 0;
+        goto done;
+    }
+    if (wa.map_state != IsViewable) {
+        goto done; /* hidden: keep the id, it comes back */
+    }
+    Window child;
+    XTranslateCoordinates(g_dpy, g_av_win, DefaultRootWindow(g_dpy), 0, 0, &x, &y, &child);
+    w = wa.width;
+    h = wa.height;
+done:
+    if (x == g_av_x && y == g_av_y && w == g_av_w && h == g_av_h) {
+        return 0;
+    }
+    g_av_x = x;
+    g_av_y = y;
+    g_av_w = w;
+    g_av_h = h;
+    return 1;
+}
+
 /* The rect toasts are confined to: whatever widgets/notif.c last set via
  * toast_set_output_rect() (its own panel's *output*, not the whole
  * possibly-multi-monitor screen -- see that function's doc comment),
@@ -205,6 +288,42 @@ static void toast_area(int *out_x, int *out_y, int *out_w, int *out_h)
         *out_y = 0;
         *out_w = DisplayWidth(g_dpy, g_screen);
         *out_h = DisplayHeight(g_dpy, g_screen);
+    }
+    /* Keep clear of the xisserve window when it's docked against one
+     * side of the area (the usual popup-from-a-panel spot): shrink the
+     * area from whichever side it hugs. A floating/dragged window away
+     * from every edge is left to the user. */
+    if (g_av_w > 0 && g_av_h > 0) {
+        int ax = *out_x, ay = *out_y, aw = *out_w, ah = *out_h;
+        int rx = g_av_x, ry = g_av_y, rr = g_av_x + g_av_w, rb = g_av_y + g_av_h;
+        if (rr > ax && rx < ax + aw && rb > ay && ry < ay + ah) {
+            int gap[4] = {rx - ax, ax + aw - rr, ry - ay, ay + ah - rb}; /* L R T B */
+            int e = 0;
+            for (int i = 1; i < 4; i++) {
+                if (gap[i] < gap[e]) {
+                    e = i;
+                }
+            }
+            if (gap[e] <= 24) {
+                if (e == 0) {
+                    *out_x = rr;
+                    *out_w = ax + aw - rr;
+                } else if (e == 1) {
+                    *out_w = rx - ax;
+                } else if (e == 2) {
+                    *out_y = rb;
+                    *out_h = ay + ah - rb;
+                } else {
+                    *out_h = ry - ay;
+                }
+                if (*out_w < 1 || *out_h < 1) {
+                    *out_x = ax;
+                    *out_y = ay;
+                    *out_w = aw;
+                    *out_h = ah;
+                }
+            }
+        }
     }
 }
 
@@ -569,6 +688,7 @@ static void toast_close_notif(unsigned int id)
 static Toast *claim_toast_slot(int h)
 {
     ensure_visual();
+    av_refresh();
     while (!toast_fits(h)) {
         drop_toast(0, NOTIF_CLOSED_EXPIRED); /* drop the oldest visible toast to make room */
     }
@@ -747,6 +867,13 @@ void toast_set_output_rect(int x, int y, int w, int h)
     g_area_w = w;
     g_area_h = h;
     reposition_all();
+}
+
+void toast_avoid_refresh(void)
+{
+    if (g_n > 0 && av_refresh()) {
+        reposition_all();
+    }
 }
 
 void toast_set_colors(double bg_r, double bg_g, double bg_b, double bg_a, double fg_r, double fg_g, double fg_b,

@@ -1703,6 +1703,11 @@ void toast_set_corner(ToastCorner corner);
  * and never sit under its own panel. One global rect, same "last
  * `notif` widget to init() wins" rule as toast_set_corner(). */
 void toast_set_output_rect(int x, int y, int w, int h);
+
+/* Re-checks where the xisserve window is (toasts keep out of its way);
+ * no-op, and no X traffic, while no toast is showing. Called from the
+ * notif widget's event-driven tick. */
+void toast_avoid_refresh(void);
 /* Mirrors a panel's own theme (bg/fg, including alpha) onto the toast
  * popups -- widgets/notif.c calls this from its own init() with its
  * panel's bg_r/g/b/a and fg_r/g/b/a (see struct Panel in this header).
