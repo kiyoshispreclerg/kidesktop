@@ -55,7 +55,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.1.65"
+#define XISSERVE_VERSION "0.1.66"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -2607,8 +2607,9 @@ typedef struct {
     const char *confirm_msg;
 } PowerAction;
 
-/* systemd-logind's `loginctl`/`systemctl` cover shutdown/reboot/suspend/
- * lock on any systemd system without needing a desktop-specific tool;
+/* systemd-logind's `systemctl` covers shutdown/reboot/suspend on any
+ * systemd system without needing a desktop-specific tool; "Bloquear tela"
+ * runs kilock (i3lock) directly, so it works without logind too;
  * "Trocar usuario" only has a real answer under LightDM's `dm-tool`. Both
  * are hidden unless their tool is actually installed.
  *
@@ -2630,7 +2631,7 @@ static const PowerAction kPowerActions[] = {
      "kill -TERM \"$(cat \"${XDG_RUNTIME_DIR:-/tmp}/kisession.pid\" 2>/dev/null)\" 2>/dev/null",
      N_("Encerrar a sessao atual?")},
     {N_("Trocar usuario"), "dm-tool", "dm-tool switch-to-greeter", N_("Trocar de usuario agora?")},
-    {N_("Bloquear tela"), "loginctl", "loginctl lock-session", N_("Bloquear a tela agora?")},
+    {N_("Bloquear tela"), "kilock", "kilock", N_("Bloquear a tela agora?")},
 };
 #define N_POWER_ACTIONS ((int)(sizeof(kPowerActions) / sizeof(kPowerActions[0])))
 

@@ -67,7 +67,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KISESSION_VERSION "0.1.14"
+#define KISESSION_VERSION "0.1.15"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -146,7 +146,7 @@ static const char *const ARGV_XISKEYS[] = {"xiskeys", NULL};
 static const char *const ARGV_KICOMP[] = {"kicomp", NULL};
 static const char *const ARGV_KIMEMORYD[] = {"kimemoryd", NULL};
 static const char *const ARGV_KISTORYD[] = {"kistoryd", NULL};
-static const char *const ARGV_LOCKER[] = {"xss-lock", "--", "i3lock", NULL};
+static const char *const ARGV_LOCKER[] = {"xss-lock", "--", "kilock", NULL};
 static const char *const ARGV_ORCA[] = {"orca", NULL};
 
 /* Start order is table order. xisguard first so the XNOTIFY permission
@@ -178,7 +178,7 @@ static const SvcDef SERVICES[] = {
     {"kimemoryd", SVC_SUPERVISED, ARGV_KIMEMORYD, 1, "clipboard history", 0},
     {"kistoryd", SVC_SUPERVISED, ARGV_KISTORYD, 1, "desktop activity history", 0},
     {"audio", SVC_ONESHOT, NULL, 1, "pipewire/pulseaudio, only if nothing already started one", 0},
-    {"locker", SVC_SUPERVISED, ARGV_LOCKER, 1, "xss-lock + i3lock screen locking", 0},
+    {"locker", SVC_SUPERVISED, ARGV_LOCKER, 1, "xss-lock + kilock (i3lock) screen locking", 0},
     {"polkit", SVC_SUPERVISED, NULL, 1, "polkit authentication agent (needed by kiconf's Sistema tab)", 0},
     {"wm", SVC_WM, NULL, 1, "window manager, see 'wm =' above", 0},
     /* After the WM, because a compositor coming up into a session that
@@ -703,9 +703,14 @@ static void start_service(int idx)
             return;
         }
         if (def->argv) {
-            /* Every element must exist: the locker is xss-lock *and*
-             * i3lock, and half of it is worse than none. */
+            /* Every element must exist: the locker is xss-lock, kilock *and*
+             * the i3lock kilock runs, and half of it is worse than none. */
             char found[PATH_MAX];
+            if (strcmp(def->name, "locker") == 0 && !find_in_path("i3lock", found, sizeof(found))) {
+                fprintf(stderr, "kisession: %s not available (i3lock missing); skipping\n", def->name);
+                st->enabled = 0;
+                return;
+            }
             for (int i = 0; def->argv[i]; i++) {
                 if (def->argv[i][0] == '-') {
                     continue;

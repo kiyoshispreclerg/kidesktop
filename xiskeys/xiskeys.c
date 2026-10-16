@@ -65,7 +65,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define XISKEYS_VERSION "0.2.7"
+#define XISKEYS_VERSION "0.2.8"
 #define MAX_BINDINGS 128
 #define LINE_MAX_LEN 768
 #define CMD_MAX_LEN 512
@@ -447,8 +447,8 @@ static void write_default_config(const char *path)
     fprintf(f, "BIND\tsuspend\tXF86Sleep\txisserve --session\n");
     fprintf(f, "BIND\tpoweroff\tCtrl+Alt+End\txisserve --session\n");
     fprintf(f, "BIND\treboot\tCtrl+Alt+Delete\txisserve --session\n");
-    fprintf(f, "\n# --- session (i3lock per XISDESKTOP_PLAN.md's screen-locker choice) ------\n");
-    fprintf(f, "BIND\tlock-session\tMeta+L\ti3lock\n");
+    fprintf(f, "\n# --- session (kilock runs i3lock with kiconf's lock screen options) ------\n");
+    fprintf(f, "BIND\tlock-session\tMeta+L\tkilock\n");
     fprintf(f, "BIND\tlogout\tMeta+Shift+L\txisserve --session\n");
     fprintf(f, "BIND\tkill-window\tCtrl+Alt+Escape\txkill\n");
     fprintf(f, "# Fast user switching depends on whichever display manager/greeter\n");
@@ -534,6 +534,45 @@ static void migrate_to_kishot(const char *path)
         unlink(tmp);
 }
 
+/* The default lock key used to run i3lock directly, which ignores the lock
+ * screen options; point the untouched default at kilock instead. */
+static void migrate_to_kilock(const char *path)
+{
+    static const char from[] = "BIND\tlock-session\tMeta+L\ti3lock", to[] = "BIND\tlock-session\tMeta+L\tkilock";
+    if (!in_path("kilock"))
+        return;
+    FILE *in = fopen(path, "r");
+    if (!in)
+        return;
+    char line[LINE_MAX_LEN];
+    int found = 0;
+    while (!found && fgets(line, sizeof(line), in))
+        found = strcspn(line, "\r\n") == sizeof(from) - 1 && !strncmp(line, from, sizeof(from) - 1);
+    if (!found) {
+        fclose(in);
+        return;
+    }
+    char tmp[PATH_MAX + 8];
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    FILE *out = fopen(tmp, "w");
+    if (!out) {
+        fclose(in);
+        return;
+    }
+    rewind(in);
+    while (fgets(line, sizeof(line), in)) {
+        if (strcspn(line, "\r\n") == sizeof(from) - 1 && !strncmp(line, from, sizeof(from) - 1))
+            fprintf(out, "%s\n", to);
+        else
+            fputs(line, out);
+    }
+    fclose(in);
+    if (fclose(out) == 0 && rename(tmp, path) == 0)
+        fprintf(stderr, "xiskeys: lock key now runs kilock\n");
+    else
+        unlink(tmp);
+}
+
 static void load_config(void)
 {
     if (access(g_configpath, F_OK) != 0) {
@@ -541,6 +580,7 @@ static void load_config(void)
         write_default_config(g_configpath);
     }
     migrate_to_kishot(g_configpath);
+    migrate_to_kilock(g_configpath);
 
     FILE *f = fopen(g_configpath, "r");
     if (!f) {
