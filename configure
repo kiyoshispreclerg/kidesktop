@@ -1,5 +1,12 @@
 #!/bin/sh
-# configure - dependency check for a full KiDesktop build.
+# configure - dependency check for a KiDesktop build.
+#
+#   ./configure               core + base applications (the default)
+#   ./configure --core-only   core only (no kiterm, kifiles, ...)
+#   ./configure --with-base   core + base, explicitly
+#
+# The choice is written to config.mk, which the Makefile reads; a plain
+# `make install` then builds just what was asked for.
 #
 # Run this before `make install` (from the project root, it runs
 # automatically as a prerequisite -- see Makefile). It only checks that the
@@ -11,6 +18,17 @@
 # does not need this script: that component's Makefile only pulls in what
 # it personally links against.
 set -e
+
+WITH_BASE=1
+for arg in "$@"; do
+	case "$arg" in
+	--core-only|--without-base) WITH_BASE=0 ;;
+	--with-base) WITH_BASE=1 ;;
+	-h|--help) sed -n '3,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+	*) echo "configure: unknown option '$arg' (try --help)" >&2; exit 2 ;;
+	esac
+done
+printf 'WITH_BASE = %s\n' "$WITH_BASE" > config.mk
 
 MISSING=0
 
@@ -25,7 +43,11 @@ check() {
 	fi
 }
 
-echo "Checking dependencies for a full KiDesktop build..."
+if [ "$WITH_BASE" = 1 ]; then
+	echo "Checking dependencies for KiDesktop core + base..."
+else
+	echo "Checking dependencies for KiDesktop core only..."
+fi
 echo
 
 check cairo
@@ -35,13 +57,15 @@ check dbus-1 dbus
 check gtk+-2.0 gtk2
 check xres XRes
 
-# kiterm is the only component that needs VTE; without it the full build
+# kiterm is the only component that needs VTE; without it the build
 # skips kiterm instead of failing (see Makefile).
-if pkg-config --exists vte 2>/dev/null; then
-	printf '  [ok]      %-10s (%s)\n' vte2.0 "$(pkg-config --modversion vte)"
-else
-	printf '  [skipped] %-10s (pkg-config: vte) -- kiterm will NOT be built\n' vte2.0
-	echo "  warning: install libvte-dev (the GTK2 one) to build kiterm"
+if [ "$WITH_BASE" = 1 ]; then
+	if pkg-config --exists vte 2>/dev/null; then
+		printf '  [ok]      %-10s (%s)\n' vte2.0 "$(pkg-config --modversion vte)"
+	else
+		printf '  [skipped] %-10s (pkg-config: vte) -- kiterm will NOT be built\n' vte2.0
+		echo "  warning: install libvte-dev (the GTK2 one) to build kiterm"
+	fi
 fi
 
 echo
@@ -55,4 +79,8 @@ if [ "$MISSING" -ne 0 ]; then
 	exit 1
 fi
 
-echo "All dependencies found. Run 'make install' to build and install KiDesktop."
+if [ "$WITH_BASE" = 1 ]; then
+	echo "All dependencies found. Run 'make install' to build and install KiDesktop (core + base)."
+else
+	echo "All dependencies found. Run 'make install' to build and install KiDesktop core."
+fi
