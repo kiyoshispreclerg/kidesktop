@@ -488,9 +488,10 @@ static void job_done(Job *j)
         j->results = NULL;
         undo_push(app, j->type == JOB_MOVE ? U_MOVE : U_COPY, pairs);
         /* Show what arrived. */
-        for (int i = 0; i < 2; i++) {
-            KfPane *p = app->panes[i];
-            if (p && p->dir && j->dest_dir && g_file_equal(p->dir, j->dest_dir)) {
+        GList *panes = kf_app_panes(app);
+        for (GList *pl = panes; pl; pl = pl->next) {
+            KfPane *p = pl->data;
+            if (p->dir && j->dest_dir && g_file_equal(p->dir, j->dest_dir)) {
                 for (GList *l = pairs; l; l = l->next) {
                     char *b = g_file_get_basename(((Pair *)l->data)->b);
                     kf_pane_select_when_added(p, b);
@@ -498,6 +499,7 @@ static void job_done(Job *j)
                 }
             }
         }
+        g_list_free(panes);
         break;
     }
     case JOB_TRASH:

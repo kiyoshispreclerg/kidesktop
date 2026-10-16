@@ -1,10 +1,10 @@
 /* kifiles - file manager for KiDesktop (GTK2 + GIO).
  *
- * The window: menu bar, toolbar, places sidebar, one or two panes (split
- * view), status bar with totals, free space and the zoom slider. The panes
- * (kf_pane.c) report back through kf_app_pane_changed(); file operations live
- * in kf_ops.c / kf_clip.c, the sidebar in kf_places.c, thumbnails in
- * kf_thumbs.c. */
+ * The window: menu bar, tabs (kf_tabs.c) holding the toolbar, places sidebar
+ * and one or two panes (split view), status bar with totals, free space and
+ * the zoom slider. The panes (kf_pane.c) report back through
+ * kf_app_pane_changed(); file operations live in kf_ops.c / kf_clip.c, the
+ * sidebar in kf_places.c, thumbnails in kf_thumbs.c. */
 #include "kf.h"
 #include "../shared/xis_i18n.h"
 #include <string.h>
@@ -145,14 +145,15 @@ static void update_actions(KfApp *app)
     gtk_action_set_sensitive(act(app, "Restore"), trash && sel > 0);
     gtk_action_set_sensitive(act(app, "EmptyTrash"), trash);
     gtk_action_set_sensitive(act(app, "Properties"), TRUE);
+    gboolean tabs = kf_tabs_count(app) > 1;
+    gtk_action_set_sensitive(act(app, "NextTab"), tabs);
+    gtk_action_set_sensitive(act(app, "PrevTab"), tabs);
+    gtk_action_set_sensitive(act(app, "DetachTab"), tabs);
 }
 
-static void update_title(KfApp *app)
+char *kf_app_dir_name(GFile *dir)
 {
-    KfPane *p = active(app);
-    if (!p || !p->dir)
-        return;
-    GFileInfo *info = g_file_query_info(p->dir, "standard::display-name", G_FILE_QUERY_INFO_NONE, NULL, NULL);
+    GFileInfo *info = g_file_query_info(dir, "standard::display-name", G_FILE_QUERY_INFO_NONE, NULL, NULL);
     char *name = NULL;
     if (info) {
         name = g_strdup(g_file_info_get_display_name(info));
@@ -160,8 +161,17 @@ static void update_title(KfApp *app)
     }
     if (!name || !*name) {
         g_free(name);
-        name = g_file_get_parse_name(p->dir);
+        name = g_file_get_parse_name(dir);
     }
+    return name;
+}
+
+static void update_title(KfApp *app)
+{
+    KfPane *p = active(app);
+    if (!p || !p->dir)
+        return;
+    char *name = kf_app_dir_name(p->dir);
     char *title = g_strdup_printf("%s - kifiles", name);
     gtk_window_set_title(GTK_WINDOW(app->win), title);
     g_free(name);
@@ -172,11 +182,13 @@ static void set_active(KfApp *app, KfPane *p)
 {
     if (app->active == p)
         return;
-    app->active = p;
-    gboolean split = app->panes[1] != NULL;
+    KfTab *t = app->tab;
+    app->active = t->active = p;
+    gboolean split = t->panes[1] != NULL;
     for (int i = 0; i < 2; i++)
-        if (app->panes[i])
-            kf_pane_set_active(app->panes[i], app->panes[i] == p, split);
+        if (t->panes[i])
+            kf_pane_set_active(t->panes[i], t->panes[i] == p, split);
+    kf_tabs_update_label(t);
     update_title(app);
     update_actions(app);
     update_status(app);
@@ -189,8 +201,11 @@ void kf_app_pane_changed(KfApp *app, KfPane *p, KfChange what)
 {
     if (!app->win)
         return;
+    if (what == KF_CHANGE_DIR && p == p->tab->active)
+        kf_tabs_update_label(p->tab);
     if (what == KF_CHANGE_FOCUS) {
-        set_active(app, p);
+        if (p->tab == app->tab)
+            set_active(app, p);
         return;
     }
     if (p != active(app))
@@ -275,7 +290,7 @@ static void open_terminal_in(GFile *dir)
     g_free(path);
 }
 
-static void open_new_window(GFile *dir)
+void kf_app_open_window(GFile *dir)
 {
     char self[4096];
     ssize_t n = readlink("/proc/self/exe", self, sizeof(self) - 1);
@@ -339,8 +354,19 @@ static void a_open_terminal(GtkAction *a, gpointer d)
 static void a_new_window(GtkAction *a, gpointer d)
 {
     (void)a;
-    open_new_window(active(d)->dir);
+    kf_app_open_window(active(d)->dir);
 }
+
+static void a_new_tab(GtkAction *a, gpointer d)
+{
+    (void)a;
+    kf_tabs_open(d, active(d)->dir, TRUE);
+}
+
+static void a_close_tab(GtkAction *a, gpointer d) { (void)a; kf_tabs_close(((KfApp *)d)->tab); }
+static void a_detach_tab(GtkAction *a, gpointer d) { (void)a; kf_tabs_detach(((KfApp *)d)->tab); }
+static void a_next_tab(GtkAction *a, gpointer d) { (void)a; kf_tabs_step(d, +1); }
+static void a_prev_tab(GtkAction *a, gpointer d) { (void)a; kf_tabs_step(d, -1); }
 
 static void a_new_folder(GtkAction *a, gpointer d) { (void)a; kf_ops_new_folder(d, active(d)->dir); }
 static void a_new_file(GtkAction *a, gpointer d) { (void)a; kf_ops_new_file(d, active(d)->dir); }
@@ -443,11 +469,23 @@ static void a_add_bookmark(GtkAction *a, gpointer d)
     kf_files_free(sel);
 }
 
+GList *kf_app_panes(KfApp *app)
+{
+    GList *out = NULL, *tabs = kf_tabs_all(app);
+    for (GList *l = tabs; l; l = l->next)
+        for (int i = 0; i < 2; i++)
+            if (((KfTab *)l->data)->panes[i])
+                out = g_list_append(out, ((KfTab *)l->data)->panes[i]);
+    g_list_free(tabs);
+    return out;
+}
+
 static void each_pane(KfApp *app, void (*fn)(KfPane *))
 {
-    for (int i = 0; i < 2; i++)
-        if (app->panes[i])
-            fn(app->panes[i]);
+    GList *panes = kf_app_panes(app);
+    for (GList *l = panes; l; l = l->next)
+        fn(l->data);
+    g_list_free(panes);
 }
 
 static void sync_sort_actions(KfApp *app)
@@ -517,11 +555,17 @@ static void a_thumbs(GtkToggleAction *a, gpointer d)
     each_pane(app, kf_pane_reload);
 }
 
+static void pane_view(KfPane *p) { kf_pane_set_view(p, p->app->cfg.view); }
+
+void kf_app_setup_pane(KfApp *app, KfPane *p)
+{
+    kf_pane_set_view(p, app->cfg.view);
+    kf_pane_apply_sort(p);
+}
+
 static void apply_view(KfApp *app)
 {
-    for (int i = 0; i < 2; i++)
-        if (app->panes[i])
-            kf_pane_set_view(app->panes[i], app->cfg.view);
+    each_pane(app, pane_view);
     if (active(app))
         kf_pane_focus_view(active(app));
 }
@@ -557,33 +601,48 @@ static void a_places_toggle(GtkToggleAction *a, gpointer d)
 
 static void set_split(KfApp *app, gboolean on)
 {
-    if (on && !app->panes[1]) {
+    KfTab *t = app->tab;
+    if (on && !t->panes[1]) {
         KfPane *p = kf_pane_new(app);
-        app->panes[1] = p;
-        gtk_paned_pack2(GTK_PANED(app->panes_paned), p->box, TRUE, FALSE);
-        kf_pane_set_view(p, app->cfg.view);
-        kf_pane_apply_sort(p);
-        GFile *dir = app->panes[0]->dir ? g_object_ref(app->panes[0]->dir) : g_file_new_for_path(g_get_home_dir());
+        p->tab = t;
+        t->panes[1] = p;
+        gtk_paned_pack2(GTK_PANED(t->panes_paned), p->box, TRUE, FALSE);
+        kf_app_setup_pane(app, p);
+        GFile *dir = t->panes[0]->dir ? g_object_ref(t->panes[0]->dir) : g_file_new_for_path(g_get_home_dir());
         kf_pane_navigate(p, dir, FALSE, NULL);
         g_object_unref(dir);
         GtkAllocation al;
-        gtk_widget_get_allocation(app->panes_paned, &al);
-        gtk_paned_set_position(GTK_PANED(app->panes_paned), al.width > 1 ? al.width / 2 : 400);
+        gtk_widget_get_allocation(t->panes_paned, &al);
+        gtk_paned_set_position(GTK_PANED(t->panes_paned), al.width > 1 ? al.width / 2 : 400);
         for (int i = 0; i < 2; i++)
-            kf_pane_set_active(app->panes[i], app->panes[i] == app->active, TRUE);
-    } else if (!on && app->panes[1]) {
-        KfPane *gone = app->panes[1];
-        app->panes[1] = NULL;
-        if (app->active == gone)
-            app->active = app->panes[0];
-        gtk_container_remove(GTK_CONTAINER(app->panes_paned), gone->box);
-        kf_pane_destroy(gone);
-        kf_pane_set_active(app->panes[0], TRUE, FALSE);
-        kf_pane_focus_view(app->panes[0]);
+            kf_pane_set_active(t->panes[i], t->panes[i] == app->active, TRUE);
+    } else if (!on && t->panes[1]) {
+        KfPane *gone = t->panes[1];
+        t->panes[1] = NULL;
+        if (app->active == gone) {
+            app->active = NULL;
+            set_active(app, t->panes[0]);
+        } else {
+            kf_pane_set_active(t->panes[0], TRUE, FALSE);
+        }
+        kf_pane_destroy(gone);      /* also takes its box out of the paned */
+        kf_pane_focus_view(t->panes[0]);
         update_actions(app);
         update_status(app);
     }
-    app->cfg.split = app->panes[1] != NULL;
+    app->cfg.split = t->panes[1] != NULL;
+}
+
+void kf_app_tab_switched(KfApp *app)
+{
+    KfTab *t = app->tab;
+    app->active = NULL;
+    set_active(app, t->active);
+    app->updating_ui = TRUE;
+    sync_toggle(app, "Split", t->panes[1] != NULL);
+    app->updating_ui = FALSE;
+    app->cfg.split = t->panes[1] != NULL;
+    kf_pane_focus_view(t->active);
 }
 
 static void a_split(GtkToggleAction *a, gpointer d)
@@ -602,9 +661,7 @@ static void set_zoom(KfApp *app, int z)
         return;
     app->cfg.zoom = z;
     gtk_range_set_value(GTK_RANGE(app->zoom_scale), z);
-    for (int i = 0; i < 2; i++)
-        if (app->panes[i])
-            kf_pane_apply_zoom(app->panes[i]);
+    each_pane(app, kf_pane_apply_zoom);
 }
 
 void kf_app_zoom_step(KfApp *app, int dir)
@@ -636,9 +693,7 @@ static gboolean zoom_apply(gpointer d)
 {
     KfApp *app = d;
     zoom_timer = 0;
-    for (int i = 0; i < 2; i++)
-        if (app->panes[i])
-            kf_pane_apply_zoom(app->panes[i]);
+    each_pane(app, kf_pane_apply_zoom);
     return FALSE;
 }
 
@@ -663,7 +718,7 @@ static void a_about(GtkAction *a, gpointer d)
                           "website", "https://github.com/kiyoshispreclerg/kidesktop", NULL);
 }
 
-static void quit_app(KfApp *app)
+void kf_app_quit(KfApp *app)
 {
     int w, h;
     gtk_window_get_size(GTK_WINDOW(app->win), &w, &h);
@@ -675,12 +730,12 @@ static void quit_app(KfApp *app)
     gtk_main_quit();
 }
 
-static void a_quit(GtkAction *a, gpointer d) { (void)a; quit_app(d); }
+static void a_quit(GtkAction *a, gpointer d) { (void)a; kf_app_quit(d); }
 
 static gboolean on_delete(GtkWidget *w, GdkEvent *e, gpointer d)
 {
     (void)w; (void)e;
-    quit_app(d);
+    kf_app_quit(d);
     return TRUE;
 }
 
@@ -738,7 +793,20 @@ static void a_open_new_window_sel(GtkAction *a, gpointer d)
     (void)a;
     GList *sel = kf_pane_selected(active(d));
     for (GList *l = sel; l; l = l->next)
-        open_new_window(l->data);
+        kf_app_open_window(l->data);
+    kf_files_free(sel);
+}
+
+static void a_open_new_tab_sel(GtkAction *a, gpointer d)
+{
+    (void)a;
+    KfApp *app = d;
+    GList *sel = kf_pane_selected(active(app));
+    for (GList *l = sel; l; l = l->next) {
+        gboolean is_dir = FALSE;
+        if (kf_pane_file_info(active(app), l->data, &is_dir, NULL) && is_dir)
+            kf_tabs_open(app, l->data, FALSE);
+    }
     kf_files_free(sel);
 }
 
@@ -769,9 +837,9 @@ void kf_app_popup_context(KfApp *app, KfPane *p, GdkEventButton *ev, gboolean on
             kf_pane_file_info(p, sel->data, NULL, &ctype);
         }
         add_action_item(app, menu, "Open");
-        if (sel && !sel->next && !one_dir == FALSE) {
-            GtkWidget *mi = gtk_action_create_menu_item(act(app, "OpenNewWindowSel"));
-            gtk_menu_shell_append(GTK_MENU_SHELL(menu), mi);
+        if (sel && !sel->next && one_dir) {
+            add_action_item(app, menu, "OpenNewTabSel");
+            add_action_item(app, menu, "OpenNewWindowSel");
         }
         if (ctype && !one_dir) {
             GList *apps = g_app_info_get_all_for_type(ctype);
@@ -894,7 +962,12 @@ static void a_properties(GtkAction *a, gpointer d)
  * widgets first refusal. */
 static gboolean on_key_press(GtkWidget *win, GdkEventKey *ev, gpointer d)
 {
-    (void)d;
+    /* Ctrl+Tab cycles the tabs; GTK won't take Tab as an accelerator. */
+    if ((ev->state & GDK_CONTROL_MASK) &&
+        (ev->keyval == GDK_KEY_Tab || ev->keyval == GDK_KEY_ISO_Left_Tab || ev->keyval == GDK_KEY_KP_Tab)) {
+        kf_tabs_step(d, (ev->state & GDK_SHIFT_MASK) ? -1 : +1);
+        return TRUE;
+    }
     GtkWidget *focus = gtk_window_get_focus(GTK_WINDOW(win));
     if (focus && GTK_IS_EDITABLE(focus) && gtk_window_propagate_key_event(GTK_WINDOW(win), ev))
         return TRUE;
@@ -916,10 +989,16 @@ static const GtkActionEntry kEntries[] = {
     { "HelpMenu", NULL, N_("_Help"), NULL, NULL, NULL }, { "SortMenu", NULL, N_("_Sort By"), NULL, NULL, NULL },
 
     { "NewWindow", GTK_STOCK_NEW, N_("New _Window"), "<control>N", NULL, G_CALLBACK(a_new_window) },
+    { "NewTab", NULL, N_("New _Tab"), "<control>T", NULL, G_CALLBACK(a_new_tab) },
+    { "CloseTab", GTK_STOCK_CLOSE, N_("_Close Tab"), "<control>W", NULL, G_CALLBACK(a_close_tab) },
+    { "DetachTab", NULL, N_("_Detach Tab"), NULL, N_("Move the tab to a new window"), G_CALLBACK(a_detach_tab) },
+    { "NextTab", NULL, N_("_Next Tab"), "<control>Page_Down", NULL, G_CALLBACK(a_next_tab) },
+    { "PrevTab", NULL, N_("_Previous Tab"), "<control>Page_Up", NULL, G_CALLBACK(a_prev_tab) },
     { "NewFolder", "folder-new", N_("New _Folder..."), "<control><shift>N", N_("Create a new folder"), G_CALLBACK(a_new_folder) },
     { "NewFile", GTK_STOCK_FILE, N_("New _File..."), "<control><alt>N", NULL, G_CALLBACK(a_new_file) },
     { "Open", GTK_STOCK_OPEN, N_("_Open"), "<control>O", NULL, G_CALLBACK(a_open) },
     { "OpenNewWindowSel", NULL, N_("Open in New _Window"), NULL, NULL, G_CALLBACK(a_open_new_window_sel) },
+    { "OpenNewTabSel", NULL, N_("Open in New _Tab"), NULL, NULL, G_CALLBACK(a_open_new_tab_sel) },
     { "OpenTerminal", "utilities-terminal", N_("Open _Terminal Here"), "F4", NULL, G_CALLBACK(a_open_terminal) },
     { "Rename", NULL, N_("_Rename..."), "F2", NULL, G_CALLBACK(a_rename) },
     { "Trash", "user-trash", N_("Move to _Trash"), "Delete", NULL, G_CALLBACK(a_trash) },
@@ -984,11 +1063,12 @@ static const char *kUI =
 "<ui>"
 " <menubar name='MenuBar'>"
 "  <menu action='FileMenu'>"
-"   <menuitem action='NewWindow'/><menuitem action='NewFolder'/><menuitem action='NewFile'/><separator/>"
+"   <menuitem action='NewWindow'/><menuitem action='NewTab'/><menuitem action='NewFolder'/><menuitem action='NewFile'/><separator/>"
 "   <menuitem action='Open'/><menuitem action='OpenTerminal'/><separator/>"
 "   <menuitem action='Rename'/><menuitem action='Trash'/><menuitem action='Delete'/><separator/>"
 "   <menuitem action='Restore'/><menuitem action='EmptyTrash'/><separator/>"
-"   <menuitem action='Properties'/><menuitem action='Quit'/>"
+"   <menuitem action='Properties'/><separator/>"
+"   <menuitem action='DetachTab'/><menuitem action='CloseTab'/><menuitem action='Quit'/>"
 "  </menu>"
 "  <menu action='EditMenu'>"
 "   <menuitem action='Undo'/><separator/>"
@@ -1009,7 +1089,8 @@ static const char *kUI =
 "  </menu>"
 "  <menu action='GoMenu'>"
 "   <menuitem action='Back'/><menuitem action='Forward'/><menuitem action='Up'/><menuitem action='Home'/>"
-"   <menuitem action='GoTrash'/><separator/><menuitem action='Location'/><menuitem action='AddBookmark'/>"
+"   <menuitem action='GoTrash'/><separator/><menuitem action='Location'/><menuitem action='AddBookmark'/><separator/>"
+"   <menuitem action='NextTab'/><menuitem action='PrevTab'/>"
 "  </menu>"
 "  <menu action='HelpMenu'><menuitem action='About'/></menu>"
 " </menubar>"
@@ -1036,7 +1117,7 @@ static void translate_entries(GtkActionGroup *g)
     gtk_action_group_set_translate_func(g, translate_label, NULL, NULL);
 }
 
-static void build_ui(KfApp *app, GtkWidget *vbox)
+static void build_ui(KfApp *app, GtkWidget *vbox, GtkWidget *body)
 {
     app->actions = gtk_action_group_new("kifiles");
     translate_entries(app->actions);
@@ -1059,12 +1140,11 @@ static void build_ui(KfApp *app, GtkWidget *vbox)
     /* The extra accelerators nothing displays: Ctrl+1/2 for the view buttons,
      * Backspace for "up". Registered on the same group. */
     GtkAccelGroup *ag = gtk_ui_manager_get_accel_group(app->ui);
-    gtk_action_set_accel_group(act(app, "ViewIconsBtn"), ag);
-    gtk_action_set_accel_group(act(app, "ViewListBtn"), ag);
-    gtk_action_set_accel_group(act(app, "UpBackspace"), ag);
-    gtk_action_connect_accelerator(act(app, "ViewIconsBtn"));
-    gtk_action_connect_accelerator(act(app, "ViewListBtn"));
-    gtk_action_connect_accelerator(act(app, "UpBackspace"));
+    static const char *hidden[] = { "ViewIconsBtn", "ViewListBtn", "UpBackspace" };
+    for (guint i = 0; i < G_N_ELEMENTS(hidden); i++) {
+        gtk_action_set_accel_group(act(app, hidden[i]), ag);
+        gtk_action_connect_accelerator(act(app, hidden[i]));
+    }
 
     GtkWidget *tb = gtk_ui_manager_get_widget(app->ui, "/ToolBar");
     gtk_toolbar_set_style(GTK_TOOLBAR(tb), GTK_TOOLBAR_BOTH_HORIZ);   /* only "important" items keep a label */
@@ -1104,7 +1184,7 @@ static void build_ui(KfApp *app, GtkWidget *vbox)
     gtk_widget_set_tooltip_text(GTK_WIDGET(sortb), _("Sort by..."));
     g_signal_connect(sortb, "clicked", G_CALLBACK(on_sort_button), app);
     gtk_toolbar_insert(GTK_TOOLBAR(tb), sortb, 8);
-    gtk_box_pack_start(GTK_BOX(vbox), tb, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(body), tb, FALSE, FALSE, 0);
 }
 
 static void on_toolbar_view(GtkToggleToolButton *b, gpointer d)
@@ -1168,17 +1248,24 @@ int main(int argc, char **argv)
     gtk_window_set_role(GTK_WINDOW(app->win), "kifiles");
     GtkWidget *vbox = gtk_vbox_new(FALSE, 0);
     gtk_container_add(GTK_CONTAINER(app->win), vbox);
-    build_ui(app, vbox);
+    /* Its own window: moving it between tab pages then moves just that one,
+     * instead of every view window of every tab inside it. */
+    app->body = gtk_event_box_new();
+    GtkWidget *body = gtk_vbox_new(FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(app->body), body);
+    build_ui(app, vbox, body);
+    kf_tabs_setup(app);
+    gtk_box_pack_start(GTK_BOX(vbox), app->notebook, TRUE, TRUE, 0);
 
     app->main_paned = gtk_hpaned_new();
-    gtk_box_pack_start(GTK_BOX(vbox), app->main_paned, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(body), app->main_paned, TRUE, TRUE, 0);
     app->places = kf_places_new(app);
     gtk_paned_pack1(GTK_PANED(app->main_paned), app->places, FALSE, FALSE);
     gtk_paned_set_position(GTK_PANED(app->main_paned), app->cfg.places_w);
     g_signal_connect(app->main_paned, "notify::position", G_CALLBACK(on_places_position), app);
     g_signal_connect(app->main_paned, "size-allocate", G_CALLBACK(on_main_allocate), app);
-    app->panes_paned = gtk_hpaned_new();
-    gtk_paned_pack2(GTK_PANED(app->main_paned), app->panes_paned, TRUE, TRUE);
+    app->panes_box = gtk_hbox_new(FALSE, 0);
+    gtk_paned_pack2(GTK_PANED(app->main_paned), app->panes_box, TRUE, TRUE);
 
     /* status bar */
     GtkWidget *sb = gtk_hbox_new(FALSE, 8);
@@ -1213,11 +1300,6 @@ int main(int argc, char **argv)
     gtk_box_pack_end(GTK_BOX(vbox), sb, FALSE, FALSE, 0);
     gtk_box_pack_end(GTK_BOX(vbox), gtk_hseparator_new(), FALSE, FALSE, 0);
 
-    /* first pane */
-    app->panes[0] = kf_pane_new(app);
-    app->active = app->panes[0];
-    gtk_paned_pack1(GTK_PANED(app->panes_paned), app->panes[0]->box, TRUE, FALSE);
-
     g_signal_connect(app->win, "delete-event", G_CALLBACK(on_delete), app);
     g_signal_connect(app->win, "key-press-event", G_CALLBACK(on_key_press), app);
     g_signal_connect(act(app, "ViewIcons"), "changed", G_CALLBACK(on_view_action_changed), app);
@@ -1234,21 +1316,19 @@ int main(int argc, char **argv)
     gtk_toggle_tool_button_set_active(GTK_TOGGLE_TOOL_BUTTON(app->cfg.view == KF_VIEW_LIST ? app->view_toggle_list : app->view_toggle_icons), TRUE);
     app->updating_ui = FALSE;
 
-    gtk_widget_show_all(app->win);
-    gtk_widget_set_visible(app->places, app->cfg.show_places);
-    kf_pane_set_view(app->panes[0], app->cfg.view);
-    kf_pane_apply_sort(app->panes[0]);
     if (!start)
         start = g_file_new_for_path(g_get_home_dir());
-    kf_pane_navigate(app->panes[0], start, FALSE, NULL);
+    kf_tabs_open(app, start, TRUE);
     g_object_unref(start);
+    gtk_widget_show_all(app->win);
+    gtk_widget_set_visible(app->places, app->cfg.show_places);
     if (app->cfg.split) {
         app->updating_ui = TRUE;
         sync_toggle(app, "Split", TRUE);
         app->updating_ui = FALSE;
         set_split(app, TRUE);
     }
-    kf_pane_focus_view(app->panes[0]);
+    kf_pane_focus_view(app->active);
     update_actions(app);
     gtk_main();
     return 0;

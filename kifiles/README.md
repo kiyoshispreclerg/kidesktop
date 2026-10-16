@@ -8,6 +8,14 @@ are used when installed).
   list the column headers sort too
 - Breadcrumb location bar (click the empty part, or `Ctrl+L`, to type a path;
   folders complete as you type), back / forward / up, mouse buttons 8 and 9
+- Tabs (`Ctrl+T` new, `Ctrl+W` close, `Ctrl+Tab` / `Ctrl+PgDn` and
+  `Ctrl+Shift+Tab` / `Ctrl+PgUp` to switch), between the menu bar and the
+  toolbar. Drag to reorder; middle click closes. The tab menu has new tab,
+  detach (closes it and opens its folder in a new window), close the others
+  and close. Middle click on a folder, or "Open in New Tab", opens it in a
+  background tab. Each tab has its own panes and split view; the toolbar and
+  places sidebar are shared and follow the current tab. Closing the last tab
+  closes the window
 - Split view (`F3`): two folders side by side, drag between them
 - Places sidebar (resizable, up to half the window): standard folders, bookmarks (shared with GTK3's
   `~/.config/gtk-3.0/bookmarks`) and devices with a usage bar. The eject button
@@ -59,6 +67,6 @@ xdg-mime default kifiles.desktop inode/directory
 
 ## Not in 0.1.0
 
-Tabs, an editable permissions dialog, folder sizes in Properties, a places
+An editable permissions dialog, folder sizes in Properties, a places
 entry for network locations, `udisksctl` fallback when GVfs is missing,
 X-DENSITY scaling, a kiconf tab.

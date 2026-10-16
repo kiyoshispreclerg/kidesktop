@@ -50,9 +50,11 @@ enum {
 
 typedef struct KfApp KfApp;
 typedef struct KfPane KfPane;
+typedef struct KfTab KfTab;
 
 struct KfPane {
     KfApp *app;
+    KfTab *tab;
     GtkWidget *box;             /* the pane's top-level widget */
     GtkWidget *crumbs;
     GtkWidget *active_bar;      /* thin strip marking the active pane in split view */
@@ -86,16 +88,29 @@ struct KfPane {
     GArray *hl_rows;            /* GdkRectangle per row: y and height */
 };
 
+/* A tab owns one or two panes (split view); the toolbar and places panel are
+ * shared and follow the current tab (kf_tabs.c). */
+struct KfTab {
+    KfApp *app;
+    GtkWidget *page;            /* notebook page; holds app->body while current */
+    GtkWidget *panes_paned;     /* in app->panes_box, shown only while current */
+    GtkWidget *label;
+    KfPane *panes[2];
+    KfPane *active;             /* the active pane, kept while in the background */
+};
+
 struct KfApp {
     KfConfig cfg;
     GtkWidget *win;
     GtkUIManager *ui;
     GtkActionGroup *actions;
-    GtkWidget *main_paned, *places, *panes_paned;
+    GtkWidget *notebook;        /* the tabs */
+    GtkWidget *body;            /* toolbar + places + panes, moved into the current page */
+    GtkWidget *main_paned, *places, *panes_box;
     GtkWidget *status_left, *status_free, *free_bar, *zoom_scale;
     GtkWidget *view_toggle_icons, *view_toggle_list;
-    KfPane *panes[2];
-    KfPane *active;
+    KfTab *tab;                 /* current tab */
+    KfPane *active;             /* active pane of the current tab */
     GQueue *undo;               /* KfUndo* (kf_ops.c) */
     GtkWidget *op_box;          /* running-operations area of the status bar */
     gboolean updating_ui;       /* suppress action callbacks while syncing */
@@ -193,6 +208,17 @@ GtkWidget *kf_places_new(KfApp *app);
 void kf_places_set_current(GtkWidget *places, GFile *dir);   /* highlight the matching entry */
 void kf_places_add_bookmark(GtkWidget *places, GFile *dir);
 
+/* kf_tabs.c */
+void kf_tabs_setup(KfApp *app);                     /* creates app->notebook */
+KfTab *kf_tabs_open(KfApp *app, GFile *dir, gboolean switch_to);    /* after the current tab */
+void kf_tabs_close(KfTab *t);                       /* the last one closes the window */
+void kf_tabs_close_others(KfTab *keep);
+void kf_tabs_detach(KfTab *t);                      /* into a new window */
+void kf_tabs_step(KfApp *app, int dir);             /* +1 next, -1 previous, wrapping */
+void kf_tabs_update_label(KfTab *t);
+int kf_tabs_count(KfApp *app);
+GList *kf_tabs_all(KfApp *app);                     /* KfTab*, in order; g_list_free() */
+
 /* kifiles.c (called by panes and the other modules) */
 typedef enum { KF_CHANGE_DIR, KF_CHANGE_SELECTION, KF_CHANGE_CONTENT, KF_CHANGE_FOCUS, KF_CHANGE_LOADED } KfChange;
 void kf_app_pane_changed(KfApp *app, KfPane *p, KfChange what);
@@ -204,5 +230,11 @@ GFile *kf_app_dir(KfApp *app);                              /* active pane's fol
 void kf_app_zoom_step(KfApp *app, int dir);                /* +1 bigger icons, -1 smaller */
 void kf_app_sort_by(KfApp *app, KfSortKey key);            /* same key flips the direction */
 void kf_app_status_free(KfApp *app, guint64 free_b, guint64 total_b);
+GList *kf_app_panes(KfApp *app);                            /* every tab's panes; g_list_free() */
+void kf_app_setup_pane(KfApp *app, KfPane *p);              /* view/sort from the settings */
+void kf_app_tab_switched(KfApp *app);                       /* app->tab changed */
+void kf_app_open_window(GFile *dir);                        /* a new kifiles process */
+char *kf_app_dir_name(GFile *dir);                          /* display name for titles */
+void kf_app_quit(KfApp *app);
 
 #endif

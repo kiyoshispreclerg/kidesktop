@@ -16,7 +16,7 @@ PKG_LIBS += $(LIBINTL)
 LINGUAS := $(shell test -f po/LINGUAS && grep -v '^\#' po/LINGUAS)
 MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
-SRCS := kifiles.c kf_config.c kf_icons.c kf_pane.c kf_crumbs.c kf_places.c kf_hover.c kf_dnd.c kf_clip.c kf_ops.c kf_thumbs.c ../shared/xis_sound.c
+SRCS := kifiles.c kf_config.c kf_icons.c kf_pane.c kf_crumbs.c kf_places.c kf_tabs.c kf_hover.c kf_dnd.c kf_clip.c kf_ops.c kf_thumbs.c ../shared/xis_sound.c
 OBJS := $(SRCS:.c=.o)
 HDRS := kf.h ../shared/xis_i18n.h
 

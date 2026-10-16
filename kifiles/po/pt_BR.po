@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kifiles\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-15 18:17-0300\n"
+"POT-Creation-Date: 2026-10-16 11:16-0300\n"
 "PO-Revision-Date: 2026-10-15 17:32-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -70,45 +70,45 @@ msgstr "Apagando"
 msgid "Moving to the trash"
 msgstr "Movendo para a lixeira"
 
-#: kf_ops.c:511
+#: kf_ops.c:513
 msgid "These items cannot be moved to the trash. Delete them permanently?"
 msgstr ""
 "Estes itens não podem ser movidos para a lixeira. Apagá-los permanentemente?"
 
-#: kf_ops.c:512 kf_ops.c:574
+#: kf_ops.c:514 kf_ops.c:576
 msgid "This cannot be undone."
 msgstr "Isso não pode ser desfeito."
 
-#: kf_ops.c:570
+#: kf_ops.c:572
 #, c-format
 msgid "Delete %u item permanently?"
 msgid_plural "Delete %u items permanently?"
 msgstr[0] "Apagar %u item permanentemente?"
 msgstr[1] "Apagar %u itens permanentemente?"
 
-#: kf_ops.c:594
+#: kf_ops.c:596
 msgid "Empty the trash?"
 msgstr "Esvaziar a lixeira?"
 
-#: kf_ops.c:596
+#: kf_ops.c:598
 msgid "All items in the trash will be deleted permanently."
 msgstr "Todos os itens da lixeira serão apagados permanentemente."
 
-#: kf_ops.c:597
+#: kf_ops.c:599
 msgid "_Empty Trash"
 msgstr "_Esvaziar lixeira"
 
-#: kf_ops.c:628
+#: kf_ops.c:630
 #, c-format
 msgid "\"%s\" already exists here."
 msgstr "\"%s\" já existe aqui."
 
-#: kf_ops.c:628
+#: kf_ops.c:630
 #, c-format
 msgid "A folder named \"%s\" already exists here."
 msgstr "Já existe aqui uma pasta chamada \"%s\"."
 
-#: kf_ops.c:631
+#: kf_ops.c:633
 msgid ""
 "Merging copies the contents into the existing folder; files with the same "
 "name are replaced."
@@ -116,80 +116,80 @@ msgstr ""
 "Mesclar copia o conteúdo para a pasta existente; arquivos com o mesmo nome "
 "são substituídos."
 
-#: kf_ops.c:632
+#: kf_ops.c:634
 msgid "Do you want to replace it, keep both files, or skip this one?"
 msgstr "Deseja substituí-lo, manter os dois arquivos ou ignorar este?"
 
-#: kf_ops.c:633
+#: kf_ops.c:635
 msgid "_Skip"
 msgstr "_Ignorar"
 
-#: kf_ops.c:634
+#: kf_ops.c:636
 msgid "Keep _Both"
 msgstr "Manter _ambos"
 
-#: kf_ops.c:634
+#: kf_ops.c:636
 msgid "_Merge"
 msgstr "_Mesclar"
 
-#: kf_ops.c:634
+#: kf_ops.c:636
 msgid "_Replace"
 msgstr "_Substituir"
 
-#: kf_ops.c:637
+#: kf_ops.c:639
 msgid "_Apply to all"
 msgstr "_Aplicar a todos"
 
-#: kf_ops.c:671
+#: kf_ops.c:673
 #, c-format
 msgid "\"%s\" cannot be copied into itself.\n"
 msgstr "\"%s\" não pode ser copiada para dentro de si mesma.\n"
 
-#: kf_ops.c:714
+#: kf_ops.c:716
 msgid "Cannot copy a folder into itself"
 msgstr "Não é possível copiar uma pasta para dentro dela mesma"
 
-#: kf_ops.c:772
+#: kf_ops.c:774
 msgid "New name:"
 msgstr "Novo nome:"
 
-#: kf_ops.c:772
+#: kf_ops.c:774
 msgid "Rename"
 msgstr "Renomear"
 
-#: kf_ops.c:782
+#: kf_ops.c:784
 msgid "Could not rename"
 msgstr "Não foi possível renomear"
 
-#: kf_ops.c:796 kf_ops.c:808
+#: kf_ops.c:798 kf_ops.c:810
 msgid "New File"
 msgstr "Novo arquivo"
 
-#: kf_ops.c:796 kf_ops.c:808
+#: kf_ops.c:798 kf_ops.c:810
 msgid "New Folder"
 msgstr "Nova pasta"
 
-#: kf_ops.c:808
+#: kf_ops.c:810
 msgid "File name:"
 msgstr "Nome do arquivo:"
 
-#: kf_ops.c:808
+#: kf_ops.c:810
 msgid "Folder name:"
 msgstr "Nome da pasta:"
 
-#: kf_ops.c:828
+#: kf_ops.c:830
 msgid "Could not create the file"
 msgstr "Não foi possível criar o arquivo"
 
-#: kf_ops.c:828
+#: kf_ops.c:830
 msgid "Could not create the folder"
 msgstr "Não foi possível criar a pasta"
 
-#: kf_ops.c:898
+#: kf_ops.c:900
 msgid "original location unknown"
 msgstr "local original desconhecido"
 
-#: kf_ops.c:967
+#: kf_ops.c:969
 msgid "not found in the trash"
 msgstr "não encontrado na lixeira"
 
@@ -201,23 +201,23 @@ msgstr "Esta pasta está vazia."
 msgid "Could not mount this location."
 msgstr "Não foi possível montar este local."
 
-#: kf_pane.c:1273
+#: kf_pane.c:1313
 msgid "Name"
 msgstr "Nome"
 
-#: kf_pane.c:1288
+#: kf_pane.c:1328
 msgid "Size"
 msgstr "Tamanho"
 
-#: kf_pane.c:1289
+#: kf_pane.c:1329
 msgid "Modified"
 msgstr "Modificado"
 
-#: kf_pane.c:1290
+#: kf_pane.c:1330
 msgid "Type"
 msgstr "Tipo"
 
-#: kf_pane.c:1319
+#: kf_pane.c:1360
 msgid "Filter:"
 msgstr "Filtro:"
 
@@ -277,7 +277,7 @@ msgstr "Não foi possível remover o dispositivo"
 msgid "_Mount"
 msgstr "_Montar"
 
-#: kf_places.c:559 kifiles.c:894
+#: kf_places.c:559 kifiles.c:999
 msgid "_Open"
 msgstr "_Abrir"
 
@@ -292,6 +292,26 @@ msgstr "_Remover com segurança"
 #: kf_places.c:579
 msgid "Remove _Bookmark"
 msgstr "Remover _favorito"
+
+#: kf_tabs.c:94
+msgid "Close tab (Ctrl+W)"
+msgstr "Fechar aba (Ctrl+W)"
+
+#: kf_tabs.c:227 kifiles.c:992
+msgid "New _Tab"
+msgstr "Nova _aba"
+
+#: kf_tabs.c:229 kifiles.c:994
+msgid "_Detach Tab"
+msgstr "_Separar aba"
+
+#: kf_tabs.c:231
+msgid "Close _Other Tabs"
+msgstr "Fechar as _outras abas"
+
+#: kf_tabs.c:232 kifiles.c:993
+msgid "_Close Tab"
+msgstr "_Fechar aba"
 
 #: kifiles.c:25
 #, c-format
@@ -323,281 +343,297 @@ msgstr "Carregando..."
 msgid "%s free of %s"
 msgstr "%s livres de %s"
 
-#: kifiles.c:243 kifiles.c:702
+#: kifiles.c:258 kifiles.c:784
 msgid "Could not open the file"
 msgstr "Não foi possível abrir o arquivo"
 
-#: kifiles.c:664
+#: kifiles.c:717
 msgid "File manager for KiDesktop"
 msgstr "Gerenciador de arquivos do KiDesktop"
 
-#: kifiles.c:761
+#: kifiles.c:856
 msgid "Open _With"
 msgstr "Abrir _com"
 
-#: kifiles.c:834
+#: kifiles.c:929
 #, c-format
 msgid "Name: %s\n"
 msgstr "Nome: %s\n"
 
-#: kifiles.c:835
+#: kifiles.c:930
 #, c-format
 msgid "Location: %s\n"
 msgstr "Local: %s\n"
 
-#: kifiles.c:836
+#: kifiles.c:931
 #, c-format
 msgid "Type: %s\n"
 msgstr "Tipo: %s\n"
 
-#: kifiles.c:838
+#: kifiles.c:933
 #, c-format
 msgid "Size: %s\n"
 msgstr "Tamanho: %s\n"
 
-#: kifiles.c:843
+#: kifiles.c:938
 #, c-format
 msgid "Modified: %s\n"
 msgstr "Modificado: %s\n"
 
-#: kifiles.c:849
+#: kifiles.c:944
 #, c-format
 msgid "Owner: %s\n"
 msgstr "Dono: %s\n"
 
-#: kifiles.c:851
+#: kifiles.c:946
 #, c-format
 msgid "Permissions: %04o\n"
 msgstr "Permissões: %04o\n"
 
-#: kifiles.c:858
+#: kifiles.c:953
 msgid "Properties"
 msgstr "Propriedades"
 
-#: kifiles.c:887
+#: kifiles.c:987
 msgid "_Edit"
 msgstr "_Editar"
 
-#: kifiles.c:887
+#: kifiles.c:987
 msgid "_File"
 msgstr "_Arquivo"
 
-#: kifiles.c:888
+#: kifiles.c:988
 msgid "_Go"
 msgstr "_Ir"
 
-#: kifiles.c:888
+#: kifiles.c:988
 msgid "_View"
 msgstr "E_xibir"
 
-#: kifiles.c:889
+#: kifiles.c:989
 msgid "_Help"
 msgstr "A_juda"
 
-#: kifiles.c:889
+#: kifiles.c:989
 msgid "_Sort By"
 msgstr "_Ordenar por"
 
-#: kifiles.c:891
+#: kifiles.c:991
 msgid "New _Window"
 msgstr "Nova _janela"
 
-#: kifiles.c:892
+#: kifiles.c:994
+msgid "Move the tab to a new window"
+msgstr "Move a aba para uma nova janela"
+
+#: kifiles.c:995
+msgid "_Next Tab"
+msgstr "_Próxima aba"
+
+#: kifiles.c:996
+msgid "_Previous Tab"
+msgstr "Aba _anterior"
+
+#: kifiles.c:997
 msgid "Create a new folder"
 msgstr "Criar uma nova pasta"
 
-#: kifiles.c:892
+#: kifiles.c:997
 msgid "New _Folder..."
 msgstr "Nova _pasta..."
 
-#: kifiles.c:893
+#: kifiles.c:998
 msgid "New _File..."
 msgstr "Novo _arquivo..."
 
-#: kifiles.c:895
+#: kifiles.c:1000
 msgid "Open in New _Window"
 msgstr "Abrir em nova _janela"
 
-#: kifiles.c:896
+#: kifiles.c:1001
+msgid "Open in New _Tab"
+msgstr "Abrir em nova _aba"
+
+#: kifiles.c:1002
 msgid "Open _Terminal Here"
 msgstr "Abrir _terminal aqui"
 
-#: kifiles.c:897
+#: kifiles.c:1003
 msgid "_Rename..."
 msgstr "_Renomear..."
 
-#: kifiles.c:898
+#: kifiles.c:1004
 msgid "Move to _Trash"
 msgstr "Mover para a _lixeira"
 
-#: kifiles.c:899
+#: kifiles.c:1005
 msgid "Delete permanently"
 msgstr "Apagar permanentemente"
 
-#: kifiles.c:899
+#: kifiles.c:1005
 msgid "_Delete"
 msgstr "_Apagar"
 
-#: kifiles.c:900
+#: kifiles.c:1006
 msgid "_Restore"
 msgstr "_Restaurar"
 
-#: kifiles.c:901
+#: kifiles.c:1007
 msgid "E_mpty Trash"
 msgstr "_Esvaziar lixeira"
 
-#: kifiles.c:902
+#: kifiles.c:1008
 msgid "_Properties"
 msgstr "_Propriedades"
 
-#: kifiles.c:909
+#: kifiles.c:1015
 msgid "Paste Into _Folder"
 msgstr "Colar _dentro da pasta"
 
-#: kifiles.c:910
+#: kifiles.c:1016
 msgid "Copy _Path"
 msgstr "Copiar _caminho"
 
-#: kifiles.c:912
+#: kifiles.c:1018
 msgid "_Invert Selection"
 msgstr "_Inverter seleção"
 
-#: kifiles.c:913
+#: kifiles.c:1019
 msgid "Filter the files by name"
 msgstr "Filtrar os arquivos pelo nome"
 
-#: kifiles.c:913
+#: kifiles.c:1019
 msgid "_Filter..."
 msgstr "_Filtrar..."
 
-#: kifiles.c:915 kifiles.c:1055
+#: kifiles.c:1021 kifiles.c:1162
 msgid "Icons"
 msgstr "Ícones"
 
-#: kifiles.c:916 kifiles.c:1064
+#: kifiles.c:1022 kifiles.c:1171
 msgid "List"
 msgstr "Lista"
 
-#: kifiles.c:917
+#: kifiles.c:1023
 msgid "Zoom _In"
 msgstr "Aumentar _zoom"
 
-#: kifiles.c:918
+#: kifiles.c:1024
 msgid "Zoom _Out"
 msgstr "Diminuir _zoom"
 
-#: kifiles.c:919
+#: kifiles.c:1025
 msgid "_Reset Zoom"
 msgstr "_Restaurar zoom"
 
-#: kifiles.c:920
+#: kifiles.c:1026
 msgid "_Reload"
 msgstr "_Recarregar"
 
-#: kifiles.c:922
+#: kifiles.c:1028
 msgid "_Back"
 msgstr "_Voltar"
 
-#: kifiles.c:923
+#: kifiles.c:1029
 msgid "_Forward"
 msgstr "A_vançar"
 
-#: kifiles.c:924
+#: kifiles.c:1030
 msgid "_Up"
 msgstr "_Acima"
 
-#: kifiles.c:926
+#: kifiles.c:1032
 msgid "_Home"
 msgstr "_Pasta pessoal"
 
-#: kifiles.c:927
+#: kifiles.c:1033
 msgid "_Trash"
 msgstr "_Lixeira"
 
-#: kifiles.c:928
+#: kifiles.c:1034
 msgid "_Location..."
 msgstr "_Local..."
 
-#: kifiles.c:929
+#: kifiles.c:1035
 msgid "Add to _Places"
 msgstr "Adicionar aos _locais"
 
-#: kifiles.c:934
+#: kifiles.c:1040
 msgid "_Descending"
 msgstr "_Decrescente"
 
-#: kifiles.c:935
+#: kifiles.c:1041
 msgid "_Folders First"
 msgstr "_Pastas primeiro"
 
-#: kifiles.c:936
+#: kifiles.c:1042
 msgid "Show _Hidden Files"
 msgstr "Mostrar arquivos _ocultos"
 
-#: kifiles.c:937
+#: kifiles.c:1043
 msgid "_Thumbnails"
 msgstr "_Miniaturas"
 
-#: kifiles.c:938
+#: kifiles.c:1044
 msgid "S_plit View"
 msgstr "_Dividir visualização"
 
-#: kifiles.c:938
+#: kifiles.c:1044
 msgid "Show two folders side by side"
 msgstr "Mostrar duas pastas lado a lado"
 
-#: kifiles.c:939
+#: kifiles.c:1045
 msgid "_Places Panel"
 msgstr "Painel de _locais"
 
-#: kifiles.c:940
+#: kifiles.c:1046
 msgid "Highlight Item Under _Pointer"
 msgstr "Destacar item sob o _cursor"
 
-#: kifiles.c:944
+#: kifiles.c:1050
 msgid "_Icons"
 msgstr "_Ícones"
 
-#: kifiles.c:945
+#: kifiles.c:1051
 msgid "_List"
 msgstr "_Lista"
 
-#: kifiles.c:949
+#: kifiles.c:1055
 msgid "By _Name"
 msgstr "Por _nome"
 
-#: kifiles.c:950
+#: kifiles.c:1056
 msgid "By _Size"
 msgstr "Por _tamanho"
 
-#: kifiles.c:951
+#: kifiles.c:1057
 msgid "By _Modified"
 msgstr "Por _modificação"
 
-#: kifiles.c:952
+#: kifiles.c:1058
 msgid "By _Type"
 msgstr "Por _tipo"
 
-#: kifiles.c:953
+#: kifiles.c:1059
 msgid "By _Extension"
 msgstr "Por _extensão"
 
-#: kifiles.c:1058
+#: kifiles.c:1165
 msgid "Icons (Ctrl+1)"
 msgstr "Ícones (Ctrl+1)"
 
-#: kifiles.c:1067
+#: kifiles.c:1174
 msgid "List (Ctrl+2)"
 msgstr "Lista (Ctrl+2)"
 
-#: kifiles.c:1072
+#: kifiles.c:1179
 msgid "Sort"
 msgstr "Ordenar"
 
-#: kifiles.c:1077
+#: kifiles.c:1184
 msgid "Sort by..."
 msgstr "Ordenar por..."
 
-#: kifiles.c:1175
+#: kifiles.c:1296
 msgid "Zoom (Ctrl+Plus / Ctrl+Minus)"
 msgstr "Zoom (Ctrl+Mais / Ctrl+Menos)"

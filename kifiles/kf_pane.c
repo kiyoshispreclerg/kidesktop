@@ -1077,6 +1077,21 @@ static gboolean on_view_button(GtkWidget *w, GdkEventButton *ev, gpointer data)
         kf_app_popup_context(p->app, p, ev, path != NULL);
         return TRUE;
     }
+    if (ev->button == 2) {      /* middle click on a folder: open it in a new tab */
+        GtkTreePath *path = path_at(p, ev);
+        GtkTreeIter it;
+        GFile *f = NULL;
+        gboolean is_dir = FALSE;
+        if (path && gtk_tree_model_get_iter(p->sort, &it, path))
+            gtk_tree_model_get(p->sort, &it, KF_COL_FILE, &f, KF_COL_ISDIR, &is_dir, -1);
+        if (f && is_dir)
+            kf_tabs_open(p->app, f, FALSE);
+        if (f)
+            g_object_unref(f);
+        if (path)
+            gtk_tree_path_free(path);
+        return f != NULL;
+    }
     if (ev->button == 8) { kf_pane_go_back(p); return TRUE; }
     if (ev->button == 9) { kf_pane_go_forward(p); return TRUE; }
     return FALSE;
