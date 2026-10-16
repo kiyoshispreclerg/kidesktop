@@ -46,6 +46,15 @@ void kt_tab_apply_config(KtWindow *w, VteTerminal *t)
     vte_terminal_set_mouse_autohide(t, TRUE);
 }
 
+/* VTE requests the size of its current grid, so a window could only ever
+ * grow. Once the initial size is fixed the request drops to a few cells and
+ * the window manager's size is what counts. */
+void kt_tab_allow_shrink(VteTerminal *t)
+{
+    glong cw = vte_terminal_get_char_width(t), ch = vte_terminal_get_char_height(t);
+    gtk_widget_set_size_request(GTK_WIDGET(t), (gint)(cw * 4), (gint)(ch * 2));
+}
+
 char *kt_tab_cwd(VteTerminal *t)
 {
     GPid pid = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(t), KEY_PID));
@@ -247,6 +256,8 @@ GtkWidget *kt_tab_create(KtWindow *w, const char *cwd, char **argv)
     VteTerminal *t = VTE_TERMINAL(wd);
     kt_tab_apply_config(w, t);
     vte_terminal_set_size(t, w->cfg.cols, w->cfg.rows);
+    if (w->shrinkable)
+        kt_tab_allow_shrink(t);
     if (url_regex) {
         int tag = vte_terminal_match_add_gregex(t, url_regex, 0);
         vte_terminal_match_set_cursor_type(t, tag, GDK_HAND2);

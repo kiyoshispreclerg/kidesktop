@@ -22,6 +22,7 @@ typedef struct KtWindow {
     gboolean argb;              /* window got an RGBA colormap */
     double zoom;                /* font scale, 1.0 = configured size */
     gboolean focused;           /* the window has the input focus */
+    gboolean shrinkable;        /* initial size fixed: terminals may request less */
     guint poll_id;              /* background-job poll (kiterm.c), 0 = stopped */
 } KtWindow;
 
@@ -38,6 +39,7 @@ void kt_window_spawn_self(const char *cwd);
 GtkWidget *kt_tab_create(KtWindow *w, const char *cwd, char **argv);
 GtkWidget *kt_tab_make_label(KtWindow *w, VteTerminal *t);
 void kt_tab_apply_config(KtWindow *w, VteTerminal *t);
+void kt_tab_allow_shrink(VteTerminal *t);
 char *kt_tab_cwd(VteTerminal *t);
 gboolean kt_tab_busy(VteTerminal *t);
 const char *kt_tab_title(VteTerminal *t);

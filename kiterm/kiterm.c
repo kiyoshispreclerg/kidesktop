@@ -431,6 +431,13 @@ int main(int argc, char **argv)
     g_free(workdir);
     gtk_widget_show_all(vbox);
     gtk_widget_hide(w->search_bar);
+    /* The window opens at the grid's size, then stops asking for it. */
+    GtkRequisition req;
+    gtk_widget_size_request(w->win, &req);
+    gtk_window_set_default_size(GTK_WINDOW(w->win), req.width, req.height);
+    w->shrinkable = TRUE;
+    for (int i = 0; i < gtk_notebook_get_n_pages(nb); i++)
+        kt_tab_allow_shrink(VTE_TERMINAL(gtk_notebook_get_nth_page(nb, i)));
     gtk_widget_show(w->win);
     gtk_main();
     return 0;
