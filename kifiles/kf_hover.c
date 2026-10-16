@@ -110,11 +110,30 @@ static void icon_box(KfPane *p, GtkWidget *w, GtkTreePath *path, int x, int y, G
     int cell_w = 0, cell_h = 0;
     gtk_cell_renderer_get_fixed_size(p->icon_text_r, &cell_w, &cell_h);
     int bw = cell_w + 2 * pad;
-    int bx = gtk_icon_view_get_margin(iv) + gtk_icon_view_get_item_column(iv, path) *
-             (bw + gtk_icon_view_get_column_spacing(iv) + 2);
+    int col = gtk_icon_view_get_item_column(iv, path);
+    int pitch = bw + gtk_icon_view_get_column_spacing(iv) + 2;
+    if (col > 0) {
+        /* The gap between columns varies with the theme: measure it as the distance
+         * between this item's left edge and the previous column's. */
+        int xl = edge(p, w, path, x, y, TRUE, -1, 600);
+        for (int k = 1; k < 64; k++) {
+            GtkTreePath *prev = path_at(p, w, xl - k, y);
+            if (!prev)
+                continue;
+            if (gtk_icon_view_get_item_column(iv, prev) == col - 1 && gtk_icon_view_get_item_row(iv, prev) == gtk_icon_view_get_item_row(iv, path)) {
+                pitch = xl - edge(p, w, prev, xl - k, y, TRUE, -1, 600);
+                gtk_tree_path_free(prev);
+                break;
+            }
+            gtk_tree_path_free(prev);
+            break;
+        }
+    }
+    /* The hit-test hull starts a constant 23 px inside the drawn box (measured at zooms 32-128), and
+     * where the first column sits varies by a pixel with the theme, so anchor on the hull. */
+    int bx = edge(p, w, path, x, y, TRUE, -1, 600) - 23;
     int row = gtk_icon_view_get_item_row(iv, path);
     if (p->hover_row != row) {
-        int pitch = bw + gtk_icon_view_get_column_spacing(iv) + 2;
         int bottom = y1;
         for (int dir = -1; dir <= 1; dir += 2) {
             for (int k = 1; k < 64; k++) {
