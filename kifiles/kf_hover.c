@@ -7,10 +7,14 @@
  * the theme's selection color is drawn at the item before the view paints its items (behind them).
  * Colors come from the GTK theme, so it follows it.
  *
- * Finding the item's rectangle: the tree view reports row areas, the icon view
- * does not (get_cell_rect is GTK3), so the box is found by hit-testing around
- * the pointer -- a binary search per side, done only when the item under the
- * pointer changes. */
+ * Finding the item's rectangle: the tree view reports row areas. The icon view
+ * does not, and its hit-testing only covers what each cell drew (an icon
+ * smaller than its cell, a short name), so anything derived from it changes
+ * from file to file. The box GTK paints for a selected item is the item's
+ * layout rectangle instead, so that layout is redone here with the same
+ * inputs -- gtk_icon_view_layout_single_row() and calculate_item_size2() in
+ * gtkiconview.c, vertical orientation, left-to-right, no colspan (our cells
+ * have fixed widths) -- and both the box and what is "under the pointer" come from it. */
 #include "kf.h"
 
 /* The scrolling window the items are drawn in. GTK2 exposes it for the tree
@@ -24,62 +28,6 @@ static GdkWindow *bin_of(KfPane *p, GtkWidget *w)
     GdkWindow *bin = kids ? kids->data : NULL;
     g_list_free(kids);
     return bin;
-}
-
-static GtkTreePath *path_at(KfPane *p, GtkWidget *w, int x, int y)
-{
-    if (w == p->iconview)
-        return gtk_icon_view_get_path_at_pos(GTK_ICON_VIEW(w), x, y);
-    GtkTreePath *path = NULL;
-    gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(w), x, y, &path, NULL, NULL, NULL);
-    return path;
-}
-
-static gboolean same_item(KfPane *p, GtkWidget *w, GtkTreePath *want, int x, int y)
-{
-    GtkTreePath *at = path_at(p, w, x, y);
-    gboolean same = at && gtk_tree_path_compare(at, want) == 0;
-    if (at)
-        gtk_tree_path_free(at);
-    return same;
-}
-
-/* Last coordinate along one axis (from `inside`, known to be in the item) that
- * still belongs to the item; dir is +1 or -1, `limit` how far to look. */
-static int edge(KfPane *p, GtkWidget *w, GtkTreePath *path, int px, int py, gboolean horizontal, int dir, int limit)
-{
-    int base = horizontal ? px : py;
-    int lo = 0, hi = limit;             /* offsets from the pointer: lo inside, hi outside */
-    gboolean far_in = horizontal ? same_item(p, w, path, px + dir * hi, py) : same_item(p, w, path, px, py + dir * hi);
-    if (far_in)
-        return base + dir * hi;         /* bigger than we looked for: clamp */
-    while (hi - lo > 1) {
-        int mid = (lo + hi) / 2;
-        gboolean in = horizontal ? same_item(p, w, path, px + dir * mid, py)
-                                 : same_item(p, w, path, px, py + dir * mid);
-        if (in)
-            lo = mid;
-        else
-            hi = mid;
-    }
-    return base + dir * lo;
-}
-
-/* Like edge() along y, but stepping through the gap between an item's icon and
- * name cells (hit-testing misses there, so a bisection would stop at the first
- * cell). Gives up after `gap` consecutive misses. */
-static int edge_y(KfPane *p, GtkWidget *w, GtkTreePath *path, int px, int py, int dir, int limit, int gap)
-{
-    int last = py, miss = 0;
-    for (int k = 1; k <= limit && miss <= gap; k++) {
-        if (same_item(p, w, path, px, py + dir * k)) {
-            last = py + dir * k;
-            miss = 0;
-        } else {
-            miss++;
-        }
-    }
-    return last;
 }
 
 static void invalidate(KfPane *p, GtkWidget *w, const GdkRectangle *r)
@@ -105,80 +53,115 @@ static void set_rect(KfPane *p, GtkWidget *w, gboolean has, const GdkRectangle *
     }
 }
 
-/* The box GTK paints for a selected icon: the item's cells plus the theme's
- * item padding on every side, as wide as the cell and as tall as the *row*
- * (the tallest item in it, so a one-line name sits in a box as tall as its
- * neighbour's four-line one). Hit-testing only covers the cells, so the rest is
- * derived: the cell hull from a search around the pointer, the row's height by
- * probing the other items of the row, found one column pitch apart. The pitch
- * and the gap between rows are the spacing properties plus the 2 px GTK adds
- * (measured on screenshots of selected items). */
-static void icon_box(KfPane *p, GtkWidget *w, GtkTreePath *path, int x, int y, GdkRectangle *r)
+/* Size of one cell for the item at `it`, asked the way GTK asks it: the cell's
+ * attributes set from the model, then get_size() with no area. GTK sets the
+ * attributes again before it next uses the renderers, so borrowing them is safe. */
+static void cell_size(GtkCellRenderer *cell, GtkWidget *w, const char *prop, GtkTreeModel *m, GtkTreeIter *it,
+                      int col, int *cw, int *ch)
+{
+    GValue v = G_VALUE_INIT;
+    gtk_tree_model_get_value(m, it, col, &v);
+    g_object_set_property(G_OBJECT(cell), prop, &v);
+    g_value_unset(&v);
+    gtk_cell_renderer_get_size(cell, w, NULL, NULL, NULL, cw, ch);
+}
+
+/* Redo the icon view's layout: item width, columns and each row's top and height. */
+static void layout(KfPane *p, GtkWidget *w)
 {
     GtkIconView *iv = GTK_ICON_VIEW(w);
+    GtkTreeModel *m = gtk_icon_view_get_model(iv);
+    if (!p->hl_rows)
+        p->hl_rows = g_array_new(FALSE, FALSE, sizeof(GdkRectangle));
+    g_array_set_size(p->hl_rows, 0);
+    p->hl_valid = TRUE;
+    p->hl_cols = 0;
+    if (!m)
+        return;
+    int fw = 1;
+    gtk_widget_style_get(w, "focus-line-width", &fw, NULL);
+    int pad = gtk_icon_view_get_item_padding(iv), margin = gtk_icon_view_get_margin(iv);
+    int cs = gtk_icon_view_get_column_spacing(iv), rs = gtk_icon_view_get_row_spacing(iv);
+    int spacing = gtk_icon_view_get_spacing(iv);
+    gboolean pix_on = gtk_cell_renderer_get_visible(p->icon_pix_r), txt_on = gtk_cell_renderer_get_visible(p->icon_text_r);
+
+    int n = gtk_tree_model_iter_n_children(m, NULL);
+    int *ph = g_new0(int, n ? n : 1), *th = g_new0(int, n ? n : 1);
+    int item_w = 0;
+    GtkTreeIter it;
+    gboolean ok = gtk_tree_model_get_iter_first(m, &it);
+    for (int i = 0; ok && i < n; i++, ok = gtk_tree_model_iter_next(m, &it)) {
+        int pw = 0, tw = 0;
+        if (pix_on)
+            cell_size(p->icon_pix_r, w, "pixbuf", m, &it, KF_COL_ICON, &pw, &ph[i]);
+        if (txt_on)
+            cell_size(p->icon_text_r, w, "text", m, &it, KF_COL_NAME, &tw, &th[i]);
+        item_w = MAX(item_w, MAX(pw, tw) + 2 * pad);
+    }
+
+    /* As many columns as fit the allocation, at least one. */
     GtkAllocation a;
     gtk_widget_get_allocation(w, &a);
-    (void)a;
-    int y0 = edge_y(p, w, path, x, y, -1, 600, 12), y1 = edge_y(p, w, path, x, y, +1, 600, 12);
-    int pad = gtk_icon_view_get_item_padding(iv);
-    /* Horizontal edges are read on the icon's row: the name below is narrower than the icon cell. */
-    int iy = y0 + 2;
-    /* Hit-testing covers only what the cells draw, so the horizontal extent
-     * comes from the regular grid instead: every cell is as wide as the text
-     * cell we fixed, columns are one pitch apart, starting at the margin. */
-    int cell_w = 0, cell_h = 0;
-    gtk_cell_renderer_get_fixed_size(p->icon_text_r, &cell_w, &cell_h);
-    int bw = cell_w + 2 * pad;
-    int col = gtk_icon_view_get_item_column(iv, path);
-    int pitch = bw + gtk_icon_view_get_column_spacing(iv) + 2;
-    if (col > 0) {
-        /* The gap between columns varies with the theme: measure it as the distance
-         * between this item's left edge and the previous column's. */
-        int xl = edge(p, w, path, x, iy, TRUE, -1, 600);
-        for (int k = 1; k < 64; k++) {
-            GtkTreePath *prev = path_at(p, w, xl - k, iy);
-            if (!prev)
-                continue;
-            if (gtk_icon_view_get_item_column(iv, prev) == col - 1 && gtk_icon_view_get_item_row(iv, prev) == gtk_icon_view_get_item_row(iv, path)) {
-                pitch = xl - edge(p, w, prev, xl - k, iy, TRUE, -1, 600);
-                gtk_tree_path_free(prev);
-                break;
-            }
-            gtk_tree_path_free(prev);
+    int cur = 2 * (margin + fw), cols = 0;
+    for (;;) {
+        cur += item_w;
+        if (cols > 0 && cur > a.width)
             break;
-        }
+        cur += cs + 2 * fw;
+        cols++;
+        if (cols >= n)
+            break;
     }
-    /* The hit-test hull starts a constant 23 px inside the drawn box (measured at zooms 32-128), and
-     * where the first column sits varies by a pixel with the theme, so anchor on the hull. */
-    int bx = edge(p, w, path, x, iy, TRUE, -1, 600) - 23;
-    int row = gtk_icon_view_get_item_row(iv, path);
-    if (p->hover_row != row) {
-        int bottom = y1;
-        for (int dir = -1; dir <= 1; dir += 2) {
-            for (int k = 1; k < 64; k++) {
-                int px = bx + bw / 2 + dir * k * pitch, py = y0 + 2;
-                GtkTreePath *other = path_at(p, w, px, py);
-                if (!other)
-                    break;
-                gboolean same_row = gtk_icon_view_get_item_row(iv, other) == row;
-                if (same_row) {
-                    int ob = edge_y(p, w, other, px, py, +1, 600, 12);
-                    if (ob > bottom)
-                        bottom = ob;
-                }
-                gtk_tree_path_free(other);
-                if (!same_row)
-                    break;
-            }
+    p->hl_cols = MAX(cols, 1);
+    p->hl_item_w = item_w;
+    p->hl_x0 = margin + fw;
+    p->hl_pitch = item_w + cs + 2 * fw;
+
+    /* Every item of a row gets the row's tallest icon and name cells. */
+    int y = margin;
+    for (int first = 0; first < n; first += p->hl_cols) {
+        int mp = 0, mt = 0;
+        for (int i = first; i < n && i < first + p->hl_cols; i++) {
+            mp = MAX(mp, ph[i]);
+            mt = MAX(mt, th[i]);
         }
-        p->hover_row = row;
-        p->hover_row_y0 = y0;
-        p->hover_row_y1 = bottom;
+        GdkRectangle r = { 0, y + fw, 0, 2 * pad };
+        if (pix_on)
+            r.height += mp;
+        if (txt_on)
+            r.height += mt + (pix_on ? spacing : 0);
+        g_array_append_val(p->hl_rows, r);
+        y = r.y + r.height + fw + rs;
     }
-    r->x = bx;
-    r->width = bw + 2;                      /* GTK's box is 2 px wider than cells + padding... */
-    r->y = p->hover_row_y0 - pad - 1;      /* hit-testing starts 1 px inside the cell */
-    r->height = p->hover_row_y1 - p->hover_row_y0 + 2 + 2 * pad;   /* ...and 1 px taller */
+    g_free(ph);
+    g_free(th);
+}
+
+/* The item whose layout rectangle contains (x, y), as GTK would paint it. */
+static gboolean icon_item_at(KfPane *p, GtkWidget *w, int x, int y, GdkRectangle *r)
+{
+    if (!p->hl_valid)
+        layout(p, w);
+    if (p->hl_cols <= 0 || x < p->hl_x0)
+        return FALSE;
+    int col = (x - p->hl_x0) / p->hl_pitch;
+    int cx = p->hl_x0 + col * p->hl_pitch;
+    if (col >= p->hl_cols || x >= cx + p->hl_item_w)
+        return FALSE;                    /* past the last column or in the gap after one */
+    for (guint row = 0; row < p->hl_rows->len; row++) {
+        GdkRectangle *rr = &g_array_index(p->hl_rows, GdkRectangle, row);
+        if (y < rr->y)
+            return FALSE;                /* in the gap above this row */
+        if (y >= rr->y + rr->height)
+            continue;
+        GtkTreeModel *m = gtk_icon_view_get_model(GTK_ICON_VIEW(w));
+        int index = (int)row * p->hl_cols + col;
+        if (!m || index >= gtk_tree_model_iter_n_children(m, NULL))
+            return FALSE;                /* the short last row */
+        *r = (GdkRectangle){ cx, rr->y, p->hl_item_w, rr->height };
+        return TRUE;
+    }
+    return FALSE;
 }
 
 static void track(KfPane *p, GtkWidget *w, int x, int y)
@@ -187,26 +170,23 @@ static void track(KfPane *p, GtkWidget *w, int x, int y)
         set_rect(p, w, FALSE, NULL);
         return;
     }
-    GtkTreePath *path = path_at(p, w, x, y);
+    GdkRectangle r;
+    if (w == p->iconview) {
+        set_rect(p, w, icon_item_at(p, w, x, y, &r), &r);
+        return;
+    }
+    GtkTreePath *path = NULL;
+    gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(w), x, y, &path, NULL, NULL, NULL);
     if (!path) {
         set_rect(p, w, FALSE, NULL);
         return;
     }
-    GdkRectangle r;
-    if (w == p->treeview) {
-        gtk_tree_view_get_background_area(GTK_TREE_VIEW(w), path, NULL, &r);
-        /* With no column the area comes back 0 wide: the box spans the view. */
-        GtkAllocation va;
-        gtk_widget_get_allocation(w, &va);
-        r.x = 0;
-        r.width = va.width;
-    } else if (p->hover_has && x >= p->hover_rect.x && x < p->hover_rect.x + p->hover_rect.width &&
-               y >= p->hover_rect.y && y < p->hover_rect.y + p->hover_rect.height) {
-        gtk_tree_path_free(path);
-        return;                          /* still inside the same box: nothing to do */
-    } else {
-        icon_box(p, w, path, x, y, &r);
-    }
+    gtk_tree_view_get_background_area(GTK_TREE_VIEW(w), path, NULL, &r);
+    /* With no column the area comes back 0 wide: the box spans the view. */
+    GtkAllocation va;
+    gtk_widget_get_allocation(w, &va);
+    r.x = 0;
+    r.width = va.width;
     gtk_tree_path_free(path);
     set_rect(p, w, TRUE, &r);
 }
@@ -245,7 +225,8 @@ static gboolean on_expose(GtkWidget *w, GdkEventExpose *ev, gpointer data)
     gdk_cairo_region(cr, ev->region);
     cairo_clip(cr);
     const GdkRectangle *h = &p->hover_rect;
-    double x = h->x + 1.5, y = h->y + 1.5, ww = h->width - 3, hh = h->height - 3, rad = 4;
+    /* The 1 px outline runs along the rectangle's own edge pixels, as GTK's selection box fills them. */
+    double x = h->x + 0.5, y = h->y + 0.5, ww = h->width - 1, hh = h->height - 1, rad = 4;
     cairo_new_sub_path(cr);
     cairo_arc(cr, x + ww - rad, y + rad, rad, -G_PI / 2, 0);
     cairo_arc(cr, x + ww - rad, y + hh - rad, rad, 0, G_PI / 2);
@@ -261,9 +242,15 @@ static gboolean on_expose(GtkWidget *w, GdkEventExpose *ev, gpointer data)
     return FALSE;
 }
 
+/* Names, icons, the number of items or the font changed: lay out again. */
+static void stale(KfPane *p)
+{
+    p->hl_valid = FALSE;
+}
+
 void kf_hover_clear(KfPane *p)
 {
-    p->hover_row = -1;
+    p->hl_valid = FALSE;
     GtkWidget *w = p->view == KF_VIEW_ICONS ? p->iconview : p->treeview;
     set_rect(p, w, FALSE, NULL);
 }
@@ -286,7 +273,6 @@ void kf_hover_refresh(KfPane *p)
         set_rect(p, w, FALSE, NULL);
         return;
     }
-    p->hover_row = -1;
     p->hover_has = FALSE;               /* the old box is stale after a scroll/reload */
     track(p, w, x, y);
 }
@@ -314,4 +300,9 @@ void kf_hover_setup(KfPane *p)
         else
             g_signal_connect_after(views[i], "expose-event", G_CALLBACK(on_expose), p);
     }
+    static const char *const model_sigs[] = { "row-inserted", "row-deleted", "row-changed", "rows-reordered" };
+    GtkTreeModel *m = gtk_icon_view_get_model(GTK_ICON_VIEW(p->iconview));
+    for (guint i = 0; m && i < G_N_ELEMENTS(model_sigs); i++)
+        g_signal_connect_swapped(m, model_sigs[i], G_CALLBACK(stale), p);
+    g_signal_connect_swapped(p->iconview, "style-set", G_CALLBACK(stale), p);
 }

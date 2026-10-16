@@ -7,7 +7,7 @@
 #include <gio/gio.h>
 #include "../shared/xis_sound.h"
 
-#define KIFILES_VERSION "0.1.5"
+#define KIFILES_VERSION "0.1.6"
 
 typedef enum { KF_VIEW_ICONS, KF_VIEW_LIST } KfViewMode;
 typedef enum { KF_SORT_NAME, KF_SORT_SIZE, KF_SORT_MTIME, KF_SORT_TYPE, KF_SORT_EXT, KF_SORT_N } KfSortKey;
@@ -80,8 +80,10 @@ struct KfPane {
     int icon_px;                /* size the ICON column was built for */
     GdkRectangle hover_rect;    /* item under the pointer, in view bin-window coordinates */
     gboolean hover_has;
-    int hover_row;              /* icon view: row whose extent is cached below, -1 = none */
-    int hover_row_y0, hover_row_y1;
+    /* icon view's layout as GTK computes it (kf_hover.c), redone when !hl_valid */
+    gboolean hl_valid;
+    int hl_cols, hl_x0, hl_pitch, hl_item_w;
+    GArray *hl_rows;            /* GdkRectangle per row: y and height */
 };
 
 struct KfApp {

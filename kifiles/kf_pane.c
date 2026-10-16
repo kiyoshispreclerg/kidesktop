@@ -1220,7 +1220,6 @@ KfPane *kf_pane_new(KfApp *app)
 {
     KfPane *p = g_new0(KfPane, 1);
     p->app = app;
-    p->hover_row = -1;
     p->rows = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, (GDestroyNotify)gtk_tree_row_reference_free);
     p->typedescs = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
     p->store = gtk_list_store_new(KF_N_COLS, G_TYPE_OBJECT, G_TYPE_STRING, GDK_TYPE_PIXBUF, GDK_TYPE_PIXBUF,
@@ -1383,6 +1382,8 @@ void kf_pane_destroy(KfPane *p)
     gtk_widget_destroy(p->box);
     g_hash_table_destroy(p->rows);
     g_hash_table_destroy(p->typedescs);
+    if (p->hl_rows)
+        g_array_free(p->hl_rows, TRUE);
     g_object_unref(p->sort);
     g_object_unref(p->filter);
     g_object_unref(p->store);
