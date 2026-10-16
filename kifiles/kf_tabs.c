@@ -20,6 +20,12 @@ static int bg_run;
 
 int kf_tabs_count(KfApp *app) { return gtk_notebook_get_n_pages(nb(app)); }
 
+/* A lone tab has nothing to switch to: hide the strip. */
+static void sync_tab_bar(KfApp *app)
+{
+    gtk_notebook_set_show_tabs(nb(app), kf_tabs_count(app) > 1);
+}
+
 GList *kf_tabs_all(KfApp *app)
 {
     GList *out = NULL;
@@ -117,6 +123,7 @@ KfTab *kf_tabs_open(KfApp *app, GFile *dir, gboolean switch_to)
     gtk_widget_show(t->page);
     int n = gtk_notebook_insert_page(nb(app), t->page, make_label(t), pos);
     gtk_notebook_set_tab_reorderable(nb(app), t->page, TRUE);
+    sync_tab_bar(app);
     kf_pane_navigate(p, dir, FALSE, NULL);
     if (switch_to)
         gtk_notebook_set_current_page(nb(app), n);
@@ -140,6 +147,7 @@ void kf_tabs_close(KfTab *t)
             kf_pane_destroy(t->panes[i]);
     gtk_widget_destroy(t->panes_paned);
     gtk_notebook_remove_page(nb(app), gtk_notebook_page_num(nb(app), t->page));   /* frees t */
+    sync_tab_bar(app);
     kf_app_pane_changed(app, app->active, KF_CHANGE_SELECTION);
 }
 
