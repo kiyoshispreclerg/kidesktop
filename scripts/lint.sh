@@ -70,7 +70,7 @@ if have desktop-file-validate; then
 	tmp=$(mktemp -d)
 	# Application entries only: kisession.desktop is an xsessions file,
 	# whose DesktopNames= key (read by GDM/LightDM) the validator rejects.
-	for f in kiconf/kiconf.desktop.in; do
+	for f in kiconf/kiconf.desktop.in kiterm/kiterm.desktop.in kifiles/kifiles.desktop.in; do
 		out="$tmp/$(basename "$f" .in)"
 		sed 's|@BINDIR@|/usr/bin|' "$f" > "$out"
 		desktop-file-validate "$out" || fail "desktop:$f"
