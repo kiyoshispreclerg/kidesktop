@@ -33,5 +33,8 @@ GtkWidget *build_sons_tab(void);
 GtkWidget *build_usuarios_tab(void);
 GtkWidget *build_servicos_tab(void);
 GtkWidget *build_login_tab(void);
+GtkWidget *build_bloqueio_tab(void);
+/* Tab shown only when i3lock and kilock are installed. */
+int bloqueio_available(void);
 
 #endif /* KICONF_TABS_H */

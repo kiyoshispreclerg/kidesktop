@@ -41,7 +41,7 @@ SRCS := kiconf.c plugins.c common.c sysinfo.c tabs/appearance.c tabs/kitheme.c t
         tabs/permissoes.c tabs/paineis.c tabs/wallpaper.c \
         tabs/telas.c tabs/janelas.c tabs/efeitos.c tabs/cantos.c tabs/sistema.c \
         tabs/programas.c tabs/associacoes.c tabs/menu.c tabs/autostart.c tabs/energia.c tabs/eventos.c \
-        tabs/historico.c tabs/acessibilidade.c tabs/sons.c tabs/usuarios.c tabs/servicos.c tabs/login.c \
+        tabs/historico.c tabs/acessibilidade.c tabs/sons.c tabs/usuarios.c tabs/servicos.c tabs/login.c tabs/bloqueio.c \
         ../shared/xis_outputs.c ../shared/xis_direction.c ../shared/xis_sound.c \
         ../kitheme/core/kt_color.c ../kitheme/core/kt_config.c ../kitheme/core/kt_draw.c ../kitheme/core/kt_sample.c
 

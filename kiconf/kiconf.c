@@ -123,7 +123,7 @@
 #include "plugins.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.66"
+#define KICONF_VERSION "0.2.67"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -158,32 +158,34 @@ typedef struct {
     const char *category;   /* appearance|hardware|programs|system|<custom> */
     const char *keywords;   /* extra search words */
     KiconfPlugin *plugin;   /* non-NULL: label is the id, title/icon from it */
+    int (*available)(void); /* NULL or returns 0: the module is not listed */
 } LazyTab;
 
 static LazyTab g_builtin_tabs[] = {
-    {N_("Aparencia"), GTK_STOCK_SELECT_COLOR, build_appearance_tab, NULL, 0, 0, "appearance", "tema theme cores colors fonte font icones cursor", NULL},
-    {N_("KiTheme"), GTK_STOCK_SELECT_COLOR, build_kitheme_tab, NULL, 0, 0, "appearance", "tema theme estilo style gtk qt oxygen classico relevo progresso", NULL},
-    {N_("Atalhos"), GTK_STOCK_JUMP_TO, build_shortcuts_tab, NULL, 0, 0, "hardware", "teclas keys hotkeys shortcuts", NULL},
-    {N_("Telas"), GTK_STOCK_FULLSCREEN, build_telas_tab, NULL, 0, 0, "hardware", "monitor resolucao display screen xrandr", NULL},
-    {N_("Entrada"), GTK_STOCK_EDIT, build_entrada_tab, NULL, 0, 0, "hardware", "mouse teclado keyboard touchpad pointer", NULL},
-    {N_("Wallpaper"), GTK_STOCK_FILE, build_wallpaper_tab, NULL, 0, 0, "appearance", "papel de parede background fundo", NULL},
-    {N_("Paineis"), GTK_STOCK_JUSTIFY_FILL, build_paineis_tab, NULL, 0, 0, "appearance", "painel panel barra bar taskbar", NULL},
-    {N_("Permissoes"), GTK_STOCK_DIALOG_AUTHENTICATION, build_permissoes_tab, NULL, 0, 0, "system", "xisguard seguranca security privacy", NULL},
-    {N_("Gerenciamento de janelas"), GTK_STOCK_DND_MULTIPLE, build_janelas_tab, NULL, 0, 0, "appearance", "windows kiwm foco focus", NULL},
-    {N_("Efeitos do compositor"), GTK_STOCK_CONVERT, build_efeitos_tab, NULL, 0, 0, "appearance", "kicomp animacao animation compositor wobbly cubo", NULL},
-    {N_("Sistema"), GTK_STOCK_HARDDISK, build_sistema_tab, NULL, 0, 0, "system", "sobre about hardware info", NULL},
-    {N_("Energia"), GTK_STOCK_QUIT, build_energia_tab, NULL, 0, 0, "hardware", "bateria battery suspender power luz noturna night light", NULL},
-    {N_("Programas padrao"), GTK_STOCK_EXECUTE, build_programas_tab, NULL, 0, 0, "programs", "navegador browser default", NULL},
-    {N_("Associacoes de arquivos"), GTK_STOCK_OPEN, build_associacoes_tab, NULL, 0, 0, "programs", "mime tipos types", NULL},
-    {N_("Menu de programas"), GTK_STOCK_DND, build_menu_tab, NULL, 0, 0, "programs", "menu applications launcher", NULL},
-    {N_("Iniciar automaticamente"), GTK_STOCK_MEDIA_PLAY, build_autostart_tab, NULL, 0, 0, "programs", "autostart startup sessao", NULL},
-    {N_("Eventos"), GTK_STOCK_INDEX, build_eventos_tab, NULL, 0, 0, "system", "notificacoes notifications", NULL},
-    {N_("Historico"), GTK_STOCK_FIND, build_historico_tab, NULL, 0, 0, "system", "history log", NULL},
-    {N_("Sons"), GTK_STOCK_MEDIA_PLAY, build_sons_tab, NULL, 0, 0, "hardware", "audio som sound", NULL},
-    {N_("Usuarios"), GTK_STOCK_ORIENTATION_PORTRAIT, build_usuarios_tab, NULL, 0, 0, "system", "users contas accounts", NULL},
-    {N_("Servicos"), GTK_STOCK_EXECUTE, build_servicos_tab, NULL, 0, 0, "system", "services daemon", NULL},
-    {N_("Login"), GTK_STOCK_DIALOG_AUTHENTICATION, build_login_tab, NULL, 0, 0, "system", "lightdm gerenciador de login", NULL},
-    {N_("Acessibilidade"), GTK_STOCK_ZOOM_IN, build_acessibilidade_tab, NULL, 0, 0, "appearance", "a11y lupa magnifier leitor screen reader", NULL},
+    {N_("Aparencia"), GTK_STOCK_SELECT_COLOR, build_appearance_tab, NULL, 0, 0, "appearance", "tema theme cores colors fonte font icones cursor", NULL, NULL},
+    {N_("KiTheme"), GTK_STOCK_SELECT_COLOR, build_kitheme_tab, NULL, 0, 0, "appearance", "tema theme estilo style gtk qt oxygen classico relevo progresso", NULL, NULL},
+    {N_("Atalhos"), GTK_STOCK_JUMP_TO, build_shortcuts_tab, NULL, 0, 0, "hardware", "teclas keys hotkeys shortcuts", NULL, NULL},
+    {N_("Telas"), GTK_STOCK_FULLSCREEN, build_telas_tab, NULL, 0, 0, "hardware", "monitor resolucao display screen xrandr", NULL, NULL},
+    {N_("Entrada"), GTK_STOCK_EDIT, build_entrada_tab, NULL, 0, 0, "hardware", "mouse teclado keyboard touchpad pointer", NULL, NULL},
+    {N_("Wallpaper"), GTK_STOCK_FILE, build_wallpaper_tab, NULL, 0, 0, "appearance", "papel de parede background fundo", NULL, NULL},
+    {N_("Paineis"), GTK_STOCK_JUSTIFY_FILL, build_paineis_tab, NULL, 0, 0, "appearance", "painel panel barra bar taskbar", NULL, NULL},
+    {N_("Permissoes"), GTK_STOCK_DIALOG_AUTHENTICATION, build_permissoes_tab, NULL, 0, 0, "system", "xisguard seguranca security privacy", NULL, NULL},
+    {N_("Gerenciamento de janelas"), GTK_STOCK_DND_MULTIPLE, build_janelas_tab, NULL, 0, 0, "appearance", "windows kiwm foco focus", NULL, NULL},
+    {N_("Efeitos do compositor"), GTK_STOCK_CONVERT, build_efeitos_tab, NULL, 0, 0, "appearance", "kicomp animacao animation compositor wobbly cubo", NULL, NULL},
+    {N_("Sistema"), GTK_STOCK_HARDDISK, build_sistema_tab, NULL, 0, 0, "system", "sobre about hardware info", NULL, NULL},
+    {N_("Energia"), GTK_STOCK_QUIT, build_energia_tab, NULL, 0, 0, "hardware", "bateria battery suspender power luz noturna night light", NULL, NULL},
+    {N_("Programas padrao"), GTK_STOCK_EXECUTE, build_programas_tab, NULL, 0, 0, "programs", "navegador browser default", NULL, NULL},
+    {N_("Associacoes de arquivos"), GTK_STOCK_OPEN, build_associacoes_tab, NULL, 0, 0, "programs", "mime tipos types", NULL, NULL},
+    {N_("Menu de programas"), GTK_STOCK_DND, build_menu_tab, NULL, 0, 0, "programs", "menu applications launcher", NULL, NULL},
+    {N_("Iniciar automaticamente"), GTK_STOCK_MEDIA_PLAY, build_autostart_tab, NULL, 0, 0, "programs", "autostart startup sessao", NULL, NULL},
+    {N_("Eventos"), GTK_STOCK_INDEX, build_eventos_tab, NULL, 0, 0, "system", "notificacoes notifications", NULL, NULL},
+    {N_("Historico"), GTK_STOCK_FIND, build_historico_tab, NULL, 0, 0, "system", "history log", NULL, NULL},
+    {N_("Sons"), GTK_STOCK_MEDIA_PLAY, build_sons_tab, NULL, 0, 0, "hardware", "audio som sound", NULL, NULL},
+    {N_("Usuarios"), GTK_STOCK_ORIENTATION_PORTRAIT, build_usuarios_tab, NULL, 0, 0, "system", "users contas accounts", NULL, NULL},
+    {N_("Servicos"), GTK_STOCK_EXECUTE, build_servicos_tab, NULL, 0, 0, "system", "services daemon", NULL, NULL},
+    {N_("Login"), GTK_STOCK_DIALOG_AUTHENTICATION, build_login_tab, NULL, 0, 0, "system", "lightdm gerenciador de login", NULL, NULL},
+    {N_("Acessibilidade"), GTK_STOCK_ZOOM_IN, build_acessibilidade_tab, NULL, 0, 0, "appearance", "a11y lupa magnifier leitor screen reader", NULL, NULL},
+    {N_("Bloqueio de tela"), GTK_STOCK_DIALOG_AUTHENTICATION, build_bloqueio_tab, NULL, 0, 0, "system", "lock i3lock bloquear tela screen locker protetor senha", NULL, bloqueio_available},
 };
 /* Built-in tabs followed by the plugins found by plugins_scan(). */
 static LazyTab *g_tabs;
@@ -531,6 +533,9 @@ static const struct {
 
 static int tab_matches(const LazyTab *tab, const char *needle)
 {
+    if (tab->available && !tab->available()) {
+        return 0;
+    }
     if (!needle || !*needle) {
         return 1;
     }
