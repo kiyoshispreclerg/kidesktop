@@ -318,6 +318,44 @@ static void style_fg(GtkWidget *w)
     }
 }
 
+/* The GTK theme's prelight is a near-opaque fill, which fights this
+ * popup's own --bg. Flat buttons here paint nothing at rest and a faint
+ * translucent wash plus hairline outline (in the popup's fg colour) under
+ * the pointer or keyboard focus instead. */
+static gboolean on_subtle_expose(GtkWidget *w, GdkEventExpose *ev, gpointer data)
+{
+    (void)data;
+    GtkStateType st = GTK_WIDGET_STATE(w);
+    gboolean hot = st == GTK_STATE_PRELIGHT || st == GTK_STATE_ACTIVE;
+    gboolean focus = GTK_WIDGET_HAS_FOCUS(w);
+    if (hot || focus) {
+        double r, g, b, a;
+        xisserve_get_fg_rgba(&r, &g, &b, &a);
+        cairo_t *cr = gdk_cairo_create(ev->window);
+        gdk_cairo_rectangle(cr, &ev->area);
+        cairo_clip(cr);
+        cairo_rectangle(cr, w->allocation.x + 0.5, w->allocation.y + 0.5, w->allocation.width - 1,
+                        w->allocation.height - 1);
+        if (hot) {
+            cairo_set_source_rgba(cr, r, g, b, st == GTK_STATE_ACTIVE ? 0.14 : 0.08);
+            cairo_fill_preserve(cr);
+        }
+        cairo_set_source_rgba(cr, r, g, b, hot ? 0.25 : 0.4);
+        cairo_set_line_width(cr, 1.0);
+        cairo_stroke(cr);
+        cairo_destroy(cr);
+    }
+    gtk_container_propagate_expose(GTK_CONTAINER(w), gtk_bin_get_child(GTK_BIN(w)), ev);
+    return TRUE;
+}
+
+static void make_subtle_button(GtkWidget *btn)
+{
+    gtk_button_set_relief(GTK_BUTTON(btn), GTK_RELIEF_NONE);
+    gtk_widget_set_app_paintable(btn, TRUE);
+    g_signal_connect(btn, "expose-event", G_CALLBACK(on_subtle_expose), NULL);
+}
+
 static const char *device_type_label(const char *type)
 {
     if (strcmp(type, "wifi") == 0) return "Wi-Fi";
@@ -467,7 +505,7 @@ static GtkWidget *build_device_row(NetDevice *d)
     if (connected) {
         /* The whole label block is a flat button: click to show/hide the details. */
         GtkWidget *info_btn = gtk_button_new();
-        gtk_button_set_relief(GTK_BUTTON(info_btn), GTK_RELIEF_NONE);
+        make_subtle_button(info_btn);
         gtk_container_add(GTK_CONTAINER(info_btn), vbox);
         g_signal_connect(info_btn, "clicked", G_CALLBACK(on_info_toggle), d);
         xisserve_a11y(info_btn, gtk_label_get_text(GTK_LABEL(header)), open ? _("ocultar detalhes") : _("mostrar detalhes"));
@@ -489,6 +527,7 @@ static GtkWidget *build_device_row(NetDevice *d)
 static GtkWidget *build_wifi_row(WifiNet *w)
 {
     GtkWidget *btn = gtk_button_new();
+    make_subtle_button(btn);
     GtkWidget *hbox = gtk_hbox_new(FALSE, 6);
     gtk_container_add(GTK_CONTAINER(btn), hbox);
     if (w->in_use) gtk_widget_set_sensitive(btn, FALSE);
