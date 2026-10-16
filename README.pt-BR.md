@@ -58,6 +58,18 @@ embora eu preferisse outros idiomas :)
 
 ## Componentes
 
+O KiDesktop é distribuído em dois grupos, compilados e empacotados à parte:
+
+- **core** -- o desktop em si (tudo em *Sessão e janelas*, *Shell*,
+  *Configurações*, *Histórico e área de transferência* e *Específico do XiS*
+  abaixo). Pacote `kidesktop-core`.
+- **base** -- os aplicativos do dia a dia (*Aplicativos* abaixo). Pacote
+  `kidesktop-base`, que depende do core. Bibliotecas pesadas são apenas
+  recomendadas: cada app roda sem elas, com as funções correspondentes
+  desativadas.
+
+O pacote `kidesktop` é um metapacote que instala os dois.
+
 ### Sessão e janelas
 
 **[kisession](kisession/)** -- líder da sessão e supervisor de serviços. Inicia
@@ -101,14 +113,6 @@ do gerenciador de janelas.
 executar um comando, teclas de mídia, brilho, captura de tela, bloqueio,
 energia.
 
-### Aplicativos
-
-**[kiterm](kiterm/)** -- emulador de terminal com abas (GTK2 + VTE): barra de
-busca, cores, transparência, zoom da fonte com Ctrl+roda, sino pelo tema de
-sons e um menu de contexto para enviar sinais ao programa em execução.
-Precisa do `libvte-dev` da série GTK2; sem ele a compilação completa pula o
-kiterm (o `./configure` avisa).
-
 ### Histórico e área de transferência
 
 **[kimemory](kimemory/)** -- histórico da área de transferência. Registra cada
@@ -127,14 +131,45 @@ exige o XiS. Conversa com a extensão X **Xnotify** para arbitrar em tempo real
 as requisições privilegiadas de clientes -- permitindo, perguntando, negando ou
 matando conforme as suas regras.
 
+## Aplicativos (base)
+
+**[kiterm](kiterm/)** -- emulador de terminal com abas (GTK2 + VTE): barra de
+busca, cores, transparência, zoom da fonte com Ctrl+roda, sino pelo tema de
+sons e um menu de contexto para enviar sinais ao programa em execução.
+Precisa do `libvte-dev` da série GTK2; sem ele a compilação pula o kiterm (o
+`./configure` avisa).
+
+**[kifiles](kifiles/)** -- gerenciador de arquivos (GTK2 + GIO): visão
+dividida, miniaturas, dispositivos, desfazer.
+
+Planejados, ainda sem código:
+
+- **[kiview](kiview/)** -- visualizador de imagens e documentos.
+- **[kishot](kishot/)** -- capturas de tela e gravador de tela.
+- **[kitask](kitask/)** -- monitor de sistema, no estilo do qps.
+- **[kipad](kipad/)** -- editor de texto, no estilo do Kate.
+- **[kipaint](kipaint/)** -- programa de pintura.
+
 ## Compilação
 
-Para a suíte completa, a partir da raiz do repositório:
+Para a suíte completa (core + base), a partir da raiz do repositório:
 
 ```sh
 ./configure   # verifica as dependências compartilhadas (cairo, pango, imlib2, dbus-1, gtk2)
 make install
 ```
+
+O `./configure` também escolhe o que um `make` simples compila e guarda isso
+em `config.mk`:
+
+```sh
+./configure --core-only   # só o desktop: sem kiterm, kifiles, ...
+./configure --with-base   # core + base (o padrão)
+```
+
+Cada grupo também pode ser compilado ou instalado sozinho, seja qual for a
+escolha do `./configure`: `make core`, `make base`, `make install-core`,
+`make install-base`. Apps do base que ainda não têm código são ignorados.
 
 Cada componente também compila sozinho, pulando o `./configure`:
 
@@ -150,7 +185,7 @@ as instala.
 
 ```sh
 make lint   # todos os componentes com -Werror, cppcheck, verificações de .po/.desktop/scripts
-make deb    # dist/kidesktop_<versão>~<distro><release>_<arch>.deb para esta distro
+make deb    # dist/: .debs kidesktop-core, kidesktop-base e o metapacote kidesktop para esta distro
 ```
 
 O GitHub Actions roda `make lint` no Ubuntu 22.04, Ubuntu 24.04, Debian 12 e Debian 13 a
