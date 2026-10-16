@@ -225,21 +225,35 @@ static GtkWidget *labels_combo(const char *const *labels)
     return c;
 }
 
-/* kiconf's window keeps its size across tabs; this one needs the room for
- * the preview beside the settings, so grow the window to fit (never
- * shrink it). */
-static void grow_window_cb(GtkWidget *w, gpointer data)
+/* The preview starts hidden so the tab fits kiconf's default window size;
+ * showing it widens the window by the panel's width, hiding it gives the
+ * width back. */
+static void preview_toggle_cb(GtkWidget *btn, gpointer data)
 {
-    (void)data;
-    GtkWidget *top = gtk_widget_get_toplevel(w);
-    if (!GTK_IS_WINDOW(top))
-        return;
-    GtkRequisition req;
-    gtk_widget_size_request(top, &req);
-    int cw, ch;
-    gtk_window_get_size(GTK_WINDOW(top), &cw, &ch);
-    if (req.width > cw || req.height > ch)
-        gtk_window_resize(GTK_WINDOW(top), MAX(req.width, cw), MAX(req.height, ch));
+    GtkWidget *panel = data;
+    GtkWidget *top = gtk_widget_get_toplevel(btn);
+    int cw = 0, ch = 0;
+    gboolean have_win = GTK_IS_WINDOW(top);
+    if (have_win)
+        gtk_window_get_size(GTK_WINDOW(top), &cw, &ch);
+    if (GTK_WIDGET_VISIBLE(panel)) {
+        int aw = panel->allocation.width + 12;
+        gtk_widget_hide(panel);
+        if (have_win)
+            gtk_window_resize(GTK_WINDOW(top), MAX(1, cw - aw), ch);
+    } else {
+        /* no_show_all keeps it hidden at startup but would also make
+         * show_all skip it, so clear the flag first. */
+        gtk_widget_set_no_show_all(panel, FALSE);
+        gtk_widget_show_all(panel);
+        if (have_win) {
+            GtkRequisition req;
+            gtk_widget_size_request(panel, &req);
+            GtkRequisition treq;
+            gtk_widget_size_request(top, &treq);
+            gtk_window_resize(GTK_WINDOW(top), cw + req.width + 12, MAX(ch, treq.height));
+        }
+    }
 }
 
 GtkWidget *build_kitheme_tab(void)
@@ -247,8 +261,10 @@ GtkWidget *build_kitheme_tab(void)
     KtTheme cur;
     kt_theme_load_user(&cur);
 
-    GtkWidget *outer = gtk_hbox_new(FALSE, 12);
+    GtkWidget *outer = gtk_vbox_new(FALSE, 8);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
+    GtkWidget *body = gtk_hbox_new(FALSE, 12);
+    gtk_box_pack_start(GTK_BOX(outer), body, TRUE, TRUE, 0);
     GtkWidget *left = gtk_vbox_new(FALSE, 8);
 
     /* Preset and overall style */
@@ -321,20 +337,13 @@ GtkWidget *build_kitheme_tab(void)
     labeled_row(sizes, 6, _("Tamanho de caixas de selecao:"), g_checksize);
     gtk_box_pack_start(GTK_BOX(left), frame_with(_("Barras e tamanhos"), sizes), FALSE, FALSE, 0);
 
-    GtkWidget *btnbox = gtk_hbox_new(FALSE, 6);
-    g_status = gtk_label_new("");
-    GtkWidget *apply = gtk_button_new_with_label(_("Aplicar"));
-    g_signal_connect(apply, "clicked", G_CALLBACK(apply_cb), NULL);
-    gtk_box_pack_start(GTK_BOX(btnbox), g_status, FALSE, FALSE, 0);
-    gtk_box_pack_end(GTK_BOX(btnbox), apply, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(left), btnbox, FALSE, FALSE, 0);
-
     GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(scroll), left);
-    /* Wide enough for two color columns; only vertical scrolling. */
-    gtk_widget_set_size_request(scroll, 430, -1);
-    gtk_box_pack_start(GTK_BOX(outer), scroll, TRUE, TRUE, 0);
+    /* Wide enough for two color columns; only vertical scrolling. The
+     * Apply row below stays visible whatever the scroll position. */
+    gtk_widget_set_size_request(scroll, 430, 200);
+    gtk_box_pack_start(GTK_BOX(body), scroll, TRUE, TRUE, 0);
 
     /* Preview */
     GtkWidget *pv = gtk_vbox_new(FALSE, 4);
@@ -346,9 +355,21 @@ GtkWidget *build_kitheme_tab(void)
                                       "nos temas GTK e no estilo Qt da aba Aparencia."));
     gtk_misc_set_alignment(GTK_MISC(note), 0, 0);
     gtk_box_pack_start(GTK_BOX(pv), note, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Previa"), pv), FALSE, FALSE, 0);
+    GtkWidget *panel = frame_with(_("Previa"), pv);
+    gtk_box_pack_start(GTK_BOX(body), panel, FALSE, FALSE, 0);
+    gtk_widget_set_no_show_all(panel, TRUE);
+
+    GtkWidget *btnbox = gtk_hbox_new(FALSE, 6);
+    g_status = gtk_label_new("");
+    GtkWidget *apply = gtk_button_new_with_label(_("Aplicar"));
+    g_signal_connect(apply, "clicked", G_CALLBACK(apply_cb), NULL);
+    GtkWidget *toggle = gtk_button_new_with_label(_("Visualizar/ocultar preview"));
+    g_signal_connect(toggle, "clicked", G_CALLBACK(preview_toggle_cb), panel);
+    gtk_box_pack_start(GTK_BOX(btnbox), g_status, FALSE, FALSE, 0);
+    gtk_box_pack_end(GTK_BOX(btnbox), apply, FALSE, FALSE, 0);
+    gtk_box_pack_end(GTK_BOX(btnbox), toggle, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), btnbox, FALSE, FALSE, 0);
 
     fill(&cur);
-    g_signal_connect(outer, "map", G_CALLBACK(grow_window_cb), NULL);
     return outer;
 }
