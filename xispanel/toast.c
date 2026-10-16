@@ -44,6 +44,9 @@
 #define TOAST_BTN_GAP 6
 #define TOAST_BTN_SIZE 12.0
 #define TOAST_BTN_ROW (TOAST_BTN_H + TOAST_GAP)
+/* Close "X" in the top-right corner: square hit box, dismisses without
+ * invoking the default action. */
+#define TOAST_CLOSE 18
 
 /* Default lifetime for an OSD toast (toast_show_osd()) that doesn't pass
  * its own timeout_ms -- shorter than a DBus notification's own ~5s
@@ -115,6 +118,7 @@ typedef struct {
     NotifAction actions[NOTIFD_ACTIONS_MAX];
     int n_actions;
     int hover_btn; /* index into actions[] under the pointer, -1 = none */
+    int hover_close; /* pointer over the close X */
 } Toast;
 
 static Toast g_toasts[TOAST_ARRAY_CAP];
@@ -305,6 +309,23 @@ static int toast_button_rect(const Toast *t, int k, double *x, double *y, double
     return 1;
 }
 
+/* Close X rect; 0 for level-bar OSD toasts, which have nothing to dismiss. */
+static int toast_close_rect(const Toast *t, double *x, double *y)
+{
+    if (t->level >= 0) {
+        return 0;
+    }
+    *x = TOAST_W - TOAST_CLOSE - 4;
+    *y = 4;
+    return 1;
+}
+
+static int toast_close_at(const Toast *t, int px, int py)
+{
+    double x, y;
+    return toast_close_rect(t, &x, &y) && px >= x && px < x + TOAST_CLOSE && py >= y && py < y + TOAST_CLOSE;
+}
+
 static int toast_button_at(const Toast *t, int px, int py)
 {
     for (int k = 0; k < t->n_actions; k++) {
@@ -373,10 +394,13 @@ static void draw_toast(cairo_t *cr, Toast *t)
         text_x = pad * 2 + TOAST_ICON;
         text_w = TOAST_W - text_x - pad;
     }
+    double cx, cy;
+    int has_close = toast_close_rect(t, &cx, &cy);
+    double title_w = has_close ? text_w - TOAST_CLOSE : text_w;
 
     cairo_set_source_rgba(cr, g_fg_r, g_fg_g, g_fg_b, g_fg_a);
     const char *summary = t->summary[0] ? t->summary : t->app_name;
-    pango_show_text_boxed(cr, text_x, pad - 2, TOAST_SUMMARY_SIZE + 6, text_w, TOAST_SUMMARY_SIZE, summary, NULL,
+    pango_show_text_boxed(cr, text_x, pad - 2, TOAST_SUMMARY_SIZE + 6, title_w, TOAST_SUMMARY_SIZE, summary, NULL,
                            g_text_panel);
     if (t->body[0]) {
         cairo_set_source_rgba(cr, g_fg_r, g_fg_g, g_fg_b, g_fg_a * 0.75);
@@ -398,6 +422,25 @@ static void draw_toast(cairo_t *cr, Toast *t)
         cairo_set_source_rgba(cr, g_fg_r, g_fg_g, g_fg_b, 0.95);
         cairo_rectangle(cr, text_x, bar_y, text_w * (level / 100.0), bar_h);
         cairo_fill(cr);
+    }
+
+    if (has_close) {
+        if (t->hover_close) {
+            cairo_set_source_rgba(cr, g_fg_r, g_fg_g, g_fg_b, 0.2);
+            cairo_save(cr);
+            cairo_translate(cr, cx, cy);
+            panel_trace_rounded_rect(cr, TOAST_CLOSE, TOAST_CLOSE, 4);
+            cairo_fill(cr);
+            cairo_restore(cr);
+        }
+        cairo_set_source_rgba(cr, g_fg_r, g_fg_g, g_fg_b, t->hover_close ? 0.95 : 0.55);
+        cairo_set_line_width(cr, 1.5);
+        double m = 5.5;
+        cairo_move_to(cr, cx + m, cy + m);
+        cairo_line_to(cr, cx + TOAST_CLOSE - m, cy + TOAST_CLOSE - m);
+        cairo_move_to(cr, cx + TOAST_CLOSE - m, cy + m);
+        cairo_line_to(cr, cx + m, cy + TOAST_CLOSE - m);
+        cairo_stroke(cr);
     }
 
     for (int k = 0; k < t->n_actions; k++) {
@@ -867,6 +910,12 @@ int toast_handle_event(const XEvent *ev)
         for (int i = 0; i < g_n; i++) {
             if (g_toasts[i].win == ev->xbutton.window) {
                 Toast *t = &g_toasts[i];
+                if (toast_close_at(t, ev->xbutton.x, ev->xbutton.y)) {
+                    /* just clear it: no action, but it counts as seen */
+                    notifd_mark_read(t->notif_id);
+                    drop_toast(i, NOTIF_CLOSED_DISMISSED);
+                    return 1;
+                }
                 int k = toast_button_at(t, ev->xbutton.x, ev->xbutton.y);
                 if (k < 0) {
                     for (int j = 0; j < t->n_actions; j++) {
@@ -897,8 +946,10 @@ int toast_handle_event(const XEvent *ev)
             Toast *t = &g_toasts[i];
             if (t->win == ev->xmotion.window) {
                 int k = toast_button_at(t, ev->xmotion.x, ev->xmotion.y);
-                if (k != t->hover_btn) {
+                int hc = toast_close_at(t, ev->xmotion.x, ev->xmotion.y);
+                if (k != t->hover_btn || hc != t->hover_close) {
                     t->hover_btn = k;
+                    t->hover_close = hc;
                     paint_toast(t);
                     XFlush(g_dpy);
                 }
@@ -916,8 +967,9 @@ int toast_handle_event(const XEvent *ev)
         for (int i = 0; i < g_n; i++) {
             if (g_toasts[i].win == ev->xcrossing.window) {
                 g_toasts[i].hovered = 0;
-                if (g_toasts[i].hover_btn >= 0) {
+                if (g_toasts[i].hover_btn >= 0 || g_toasts[i].hover_close) {
                     g_toasts[i].hover_btn = -1;
+                    g_toasts[i].hover_close = 0;
                     paint_toast(&g_toasts[i]);
                     XFlush(g_dpy);
                 }
