@@ -759,7 +759,7 @@ static int write_sample(const KtTheme *t, const char *png)
 static void usage(void)
 {
     fprintf(stderr, "usage: kitheme-export [--conf FILE | --preset NAME] [--dest DIR] [--name NAME]\n"
-                    "                      [--sample FILE.png] [--notify]\n");
+                    "                      [--sample FILE.png] [--notify] [--version]\n");
 }
 
 int main(int argc, char **argv)
@@ -781,6 +781,10 @@ int main(int argc, char **argv)
             sample = argv[++i];
         else if (!strcmp(a, "--notify"))
             notify = 1;
+        else if (!strcmp(a, "--version")) {
+            printf("kitheme-export %s\n", KITHEME_VERSION);
+            return 0;
+        }
         else {
             usage();
             return 2;

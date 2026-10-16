@@ -88,6 +88,8 @@ enum {
 
 typedef enum { KT_UP, KT_DOWN, KT_LEFT, KT_RIGHT } KtDir;
 
+#define KITHEME_VERSION "0.1.0"
+
 /* ---- theme loading (kt_config.c) ---- */
 
 /* The built-in defaults (the "oxygen" preset's values), no files read. */

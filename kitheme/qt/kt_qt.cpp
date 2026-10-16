@@ -147,42 +147,12 @@ public:
 
     QPalette standardPalette() const override
     {
-        const KtTheme &t = g_theme;
-        QPalette p;
-        auto set = [&](QPalette::ColorRole role, KtColor c, KtColor disabled) {
-            p.setColor(QPalette::Active, role, qc(c));
-            p.setColor(QPalette::Inactive, role, qc(c));
-            p.setColor(QPalette::Disabled, role, qc(disabled));
-        };
-        KtColor dimw = kt_mix(t.window_fg, t.window_bg, 0.55);
-        set(QPalette::Window, t.window_bg, t.window_bg);
-        set(QPalette::WindowText, t.window_fg, dimw);
-        set(QPalette::Base, t.base_bg, t.window_bg);
-        set(QPalette::AlternateBase, kt_shade(t.base_bg, 0.96), t.window_bg);
-        set(QPalette::Text, t.base_fg, kt_mix(t.base_fg, t.base_bg, 0.55));
-        set(QPalette::Button, t.button_bg, kt_mix(t.button_bg, t.window_bg, 0.5));
-        set(QPalette::ButtonText, t.button_fg, kt_mix(t.button_fg, t.button_bg, 0.55));
-        set(QPalette::BrightText, KtColor{1, 1, 1, 1}, KtColor{1, 1, 1, 1});
-        set(QPalette::Highlight, t.selection_bg, kt_mix(t.selection_bg, t.window_bg, 0.5));
-        set(QPalette::HighlightedText, t.selection_fg, t.selection_fg);
-        set(QPalette::ToolTipBase, t.tooltip_bg, t.tooltip_bg);
-        set(QPalette::ToolTipText, t.tooltip_fg, t.tooltip_fg);
-        set(QPalette::Link, t.accent, t.accent);
-        set(QPalette::LinkVisited, kt_shade(t.accent, 0.8), kt_shade(t.accent, 0.8));
-        set(QPalette::Light, kt_shade(t.button_bg, 1.3), kt_shade(t.button_bg, 1.3));
-        set(QPalette::Midlight, kt_shade(t.button_bg, 1.1), kt_shade(t.button_bg, 1.1));
-        set(QPalette::Mid, kt_shade(t.button_bg, 0.8), kt_shade(t.button_bg, 0.8));
-        set(QPalette::Dark, kt_shade(t.button_bg, 0.6), kt_shade(t.button_bg, 0.6));
-        set(QPalette::Shadow, KtColor{0, 0, 0, 1}, KtColor{0, 0, 0, 1});
-        set(QPalette::PlaceholderText, dimw, dimw);
-        // An unfocused window keeps its selection visible, just softer.
-        p.setColor(QPalette::Inactive, QPalette::Highlight, qc(kt_mix(t.selection_bg, t.base_bg, 0.45)));
-        return p;
+        return themePalette();
     }
 
     void polish(QPalette &pal) override
     {
-        pal = standardPalette();
+        pal = themePalette();
     }
 
     void polish(QWidget *w) override
@@ -736,7 +706,7 @@ private Q_SLOTS:
         if (m == m_mtime)
             return;
         reload();
-        QApplication::setPalette(standardPalette());
+        QApplication::setPalette(themePalette());
         // Metrics may have changed too (scrollbar width, check size).
         const auto widgets = QApplication::allWidgets();
         for (QWidget *w : widgets) {
@@ -764,6 +734,42 @@ private Q_SLOTS:
     }
 
 private:
+    // Not virtual: also called from the reload slot.
+    QPalette themePalette() const
+    {
+        const KtTheme &t = g_theme;
+        QPalette p;
+        auto set = [&](QPalette::ColorRole role, KtColor c, KtColor disabled) {
+            p.setColor(QPalette::Active, role, qc(c));
+            p.setColor(QPalette::Inactive, role, qc(c));
+            p.setColor(QPalette::Disabled, role, qc(disabled));
+        };
+        KtColor dimw = kt_mix(t.window_fg, t.window_bg, 0.55);
+        set(QPalette::Window, t.window_bg, t.window_bg);
+        set(QPalette::WindowText, t.window_fg, dimw);
+        set(QPalette::Base, t.base_bg, t.window_bg);
+        set(QPalette::AlternateBase, kt_shade(t.base_bg, 0.96), t.window_bg);
+        set(QPalette::Text, t.base_fg, kt_mix(t.base_fg, t.base_bg, 0.55));
+        set(QPalette::Button, t.button_bg, kt_mix(t.button_bg, t.window_bg, 0.5));
+        set(QPalette::ButtonText, t.button_fg, kt_mix(t.button_fg, t.button_bg, 0.55));
+        set(QPalette::BrightText, KtColor{1, 1, 1, 1}, KtColor{1, 1, 1, 1});
+        set(QPalette::Highlight, t.selection_bg, kt_mix(t.selection_bg, t.window_bg, 0.5));
+        set(QPalette::HighlightedText, t.selection_fg, t.selection_fg);
+        set(QPalette::ToolTipBase, t.tooltip_bg, t.tooltip_bg);
+        set(QPalette::ToolTipText, t.tooltip_fg, t.tooltip_fg);
+        set(QPalette::Link, t.accent, t.accent);
+        set(QPalette::LinkVisited, kt_shade(t.accent, 0.8), kt_shade(t.accent, 0.8));
+        set(QPalette::Light, kt_shade(t.button_bg, 1.3), kt_shade(t.button_bg, 1.3));
+        set(QPalette::Midlight, kt_shade(t.button_bg, 1.1), kt_shade(t.button_bg, 1.1));
+        set(QPalette::Mid, kt_shade(t.button_bg, 0.8), kt_shade(t.button_bg, 0.8));
+        set(QPalette::Dark, kt_shade(t.button_bg, 0.6), kt_shade(t.button_bg, 0.6));
+        set(QPalette::Shadow, KtColor{0, 0, 0, 1}, KtColor{0, 0, 0, 1});
+        set(QPalette::PlaceholderText, dimw, dimw);
+        // An unfocused window keeps its selection visible, just softer.
+        p.setColor(QPalette::Inactive, QPalette::Highlight, qc(kt_mix(t.selection_bg, t.base_bg, 0.45)));
+        return p;
+    }
+
     void reload()
     {
         kt_theme_load_user(&g_theme);
