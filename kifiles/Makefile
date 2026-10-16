@@ -7,6 +7,10 @@ PKG_LIBS := $(shell pkg-config --libs $(PKGS)) -lpthread
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 DATADIR := $(PREFIX)/share
+# Independent of PREFIX like kiconf's: these are the standard freedesktop
+# locations app launchers scan, whatever the binary's own prefix.
+DESKTOPDIR ?= /usr/share/applications
+ICONDIR ?= /usr/share/icons/hicolor/scalable/apps
 LOCALEDIR := $(DATADIR)/locale
 PKG_CFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"' -DGLIB_DISABLE_DEPRECATION_WARNINGS
 # gettext is in glibc; only musl/BSD need a separate -lintl.
@@ -48,14 +52,16 @@ po/%.mo: po/%.po
 install: kifiles mo
 	install -Dm755 kifiles $(DESTDIR)$(BINDIR)/kifiles
 	sed 's|@BINDIR@|$(BINDIR)|' kifiles.desktop.in > kifiles.desktop
-	install -Dm644 kifiles.desktop $(DESTDIR)$(DATADIR)/applications/kifiles.desktop
+	install -Dm644 kifiles.desktop $(DESTDIR)$(DESKTOPDIR)/kifiles.desktop
 	rm -f kifiles.desktop
+	install -Dm644 kifiles.svg $(DESTDIR)$(ICONDIR)/kifiles.svg
+	if [ -z "$(DESTDIR)" ]; then update-desktop-database $(DESKTOPDIR) 2>/dev/null; gtk-update-icon-cache -f -t $(dir $(patsubst %/,%,$(dir $(patsubst %/,%,$(ICONDIR))))) 2>/dev/null; fi; true
 	for lang in $(LINGUAS); do \
 		install -Dm644 po/$$lang.mo $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/kifiles.mo; \
 	done
 
 uninstall:
-	rm -f $(DESTDIR)$(BINDIR)/kifiles $(DESTDIR)$(DATADIR)/applications/kifiles.desktop
+	rm -f $(DESTDIR)$(BINDIR)/kifiles $(DESTDIR)$(DESKTOPDIR)/kifiles.desktop $(DESTDIR)$(ICONDIR)/kifiles.svg
 	for lang in $(LINGUAS); do \
 		rm -f $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/kifiles.mo; \
 	done

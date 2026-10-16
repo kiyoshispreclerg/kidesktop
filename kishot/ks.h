@@ -5,7 +5,7 @@
 #include <gtk/gtk.h>
 #include <stdint.h>
 
-#define KISHOT_VERSION "0.1.0"
+#define KISHOT_VERSION "0.1.1"
 
 typedef enum {
     KS_AREA_FULL,       /* every monitor */

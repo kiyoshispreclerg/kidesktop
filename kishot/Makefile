@@ -15,6 +15,10 @@ BINDIR := $(PREFIX)/bin
 LIBDIR ?= $(PREFIX)/lib
 PLUGINDIR := $(LIBDIR)/kishot
 DATADIR := $(PREFIX)/share
+# Independent of PREFIX like kiconf's: these are the standard freedesktop
+# locations app launchers scan, whatever the binary's own prefix.
+DESKTOPDIR ?= /usr/share/applications
+ICONDIR ?= /usr/share/icons/hicolor/scalable/apps
 LOCALEDIR := $(DATADIR)/locale
 PKG_CFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"' -DKISHOT_PLUGINDIR='"$(PLUGINDIR)"' -DGLIB_DISABLE_DEPRECATION_WARNINGS
 # gettext is in glibc; only musl/BSD need a separate -lintl.
@@ -74,14 +78,16 @@ install: all mo
 		install -Dm644 plugin/kishot-rec-av.so $(DESTDIR)$(PLUGINDIR)/kishot-rec-av.so; \
 	fi
 	sed 's|@BINDIR@|$(BINDIR)|' kishot.desktop.in > kishot.desktop
-	install -Dm644 kishot.desktop $(DESTDIR)$(DATADIR)/applications/kishot.desktop
+	install -Dm644 kishot.desktop $(DESTDIR)$(DESKTOPDIR)/kishot.desktop
 	rm -f kishot.desktop
+	install -Dm644 kishot.svg $(DESTDIR)$(ICONDIR)/kishot.svg
+	if [ -z "$(DESTDIR)" ]; then update-desktop-database $(DESKTOPDIR) 2>/dev/null; gtk-update-icon-cache -f -t $(dir $(patsubst %/,%,$(dir $(patsubst %/,%,$(ICONDIR))))) 2>/dev/null; fi; true
 	for lang in $(LINGUAS); do \
 		install -Dm644 po/$$lang.mo $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/kishot.mo; \
 	done
 
 uninstall:
-	rm -f $(DESTDIR)$(BINDIR)/kishot $(DESTDIR)$(DATADIR)/applications/kishot.desktop
+	rm -f $(DESTDIR)$(BINDIR)/kishot $(DESTDIR)$(DESKTOPDIR)/kishot.desktop $(DESTDIR)$(ICONDIR)/kishot.svg
 	rm -rf $(DESTDIR)$(PLUGINDIR)
 	for lang in $(LINGUAS); do \
 		rm -f $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/kishot.mo; \

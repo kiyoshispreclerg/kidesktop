@@ -7,6 +7,10 @@ PKG_LIBS := $(shell pkg-config --libs $(PKGS))
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 DATADIR := $(PREFIX)/share
+# Independent of PREFIX like kiconf's: these are the standard freedesktop
+# locations app launchers scan, whatever the binary's own prefix.
+DESKTOPDIR ?= /usr/share/applications
+ICONDIR ?= /usr/share/icons/hicolor/scalable/apps
 LOCALEDIR := $(DATADIR)/locale
 PKG_CFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"' -DGLIB_DISABLE_DEPRECATION_WARNINGS
 # gettext is in glibc; only musl/BSD need a separate -lintl.
@@ -52,14 +56,16 @@ po/%.mo: po/%.po
 install: kiterm mo
 	install -Dm755 kiterm $(DESTDIR)$(BINDIR)/kiterm
 	sed 's|@BINDIR@|$(BINDIR)|' kiterm.desktop.in > kiterm.desktop
-	install -Dm644 kiterm.desktop $(DESTDIR)$(DATADIR)/applications/kiterm.desktop
+	install -Dm644 kiterm.desktop $(DESTDIR)$(DESKTOPDIR)/kiterm.desktop
 	rm -f kiterm.desktop
+	install -Dm644 kiterm.svg $(DESTDIR)$(ICONDIR)/kiterm.svg
+	if [ -z "$(DESTDIR)" ]; then update-desktop-database $(DESKTOPDIR) 2>/dev/null; gtk-update-icon-cache -f -t $(dir $(patsubst %/,%,$(dir $(patsubst %/,%,$(ICONDIR))))) 2>/dev/null; fi; true
 	for lang in $(LINGUAS); do \
 		install -Dm644 po/$$lang.mo $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/kiterm.mo; \
 	done
 
 uninstall:
-	rm -f $(DESTDIR)$(BINDIR)/kiterm $(DESTDIR)$(DATADIR)/applications/kiterm.desktop
+	rm -f $(DESTDIR)$(BINDIR)/kiterm $(DESTDIR)$(DESKTOPDIR)/kiterm.desktop $(DESTDIR)$(ICONDIR)/kiterm.svg
 	for lang in $(LINGUAS); do \
 		rm -f $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/kiterm.mo; \
 	done
