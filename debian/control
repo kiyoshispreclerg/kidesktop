@@ -29,6 +29,7 @@ Build-Depends: debhelper-compat (= 13),
                libxcb-render0-dev,
                libxcb-present-dev,
                libxcb-dri3-dev,
+               libxcb-shm0-dev,
                libxcb-xkb-dev,
                libcairo2-dev,
                libpango1.0-dev,
@@ -43,7 +44,12 @@ Build-Depends: debhelper-compat (= 13),
                libgbm-dev,
                libdrm-dev,
                libatk1.0-dev,
-               libatk-bridge2.0-dev
+               libatk-bridge2.0-dev,
+               libxext-dev,
+               libavcodec-dev,
+               libavformat-dev,
+               libavfilter-dev,
+               libavutil-dev
 Standards-Version: 4.6.0
 Homepage: https://github.com/kiyoshispreclerg/kidesktop
 Rules-Requires-Root: no
@@ -94,9 +100,12 @@ Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
          kidesktop-core (= ${binary:Version})
-Recommends: librsvg2-2,
+Recommends: ${shlibs:Recommends},
+            librsvg2-2,
             gvfs,
-            ffmpegthumbnailer
+            ffmpegthumbnailer,
+            libpulse0
+Suggests: ffmpeg
 Breaks: kidesktop (<< ${binary:Version})
 Replaces: kidesktop (<< ${binary:Version})
 Description: KiDesktop applications: terminal, file manager and more
@@ -106,6 +115,9 @@ Description: KiDesktop applications: terminal, file manager and more
  .
   * kiterm - tabbed terminal emulator (answers x-terminal-emulator)
   * kifiles - file manager (split view, thumbnails, devices, undo)
+  * kishot - screenshots and screen recording; records through its libav
+    plugin (zero-copy VAAPI on XLibre/XiS servers) when the FFmpeg
+    libraries are installed, else through the ffmpeg command
  .
- More applications (image and document viewer, screenshots and screen
- recording, system monitor, text editor, paint) are planned for this package.
+ More applications (image and document viewer, system monitor, text
+ editor, paint) are planned for this package.

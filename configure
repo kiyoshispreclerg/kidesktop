@@ -68,6 +68,16 @@ if [ "$WITH_BASE" = 1 ]; then
 	fi
 fi
 
+# kishot records through a plugin built only with the FFmpeg libraries;
+# without them it falls back to the ffmpeg command at runtime.
+if [ "$WITH_BASE" = 1 ]; then
+	if pkg-config --exists libavcodec libavformat libavfilter libavutil 2>/dev/null; then
+		printf '  [ok]      %-10s (%s)\n' libav "$(pkg-config --modversion libavcodec)"
+	else
+		printf '  [skipped] %-10s (pkg-config: libavcodec libavformat libavfilter libavutil) -- kishot without its recording plugin\n' libav
+	fi
+fi
+
 echo
 
 if [ "$MISSING" -ne 0 ]; then

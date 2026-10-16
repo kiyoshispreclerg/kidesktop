@@ -143,10 +143,16 @@ Precisa do `libvte-dev` da série GTK2; sem ele a compilação pula o kiterm (o
 **[kifiles](kifiles/)** -- gerenciador de arquivos (GTK2 + GIO): visão
 dividida, miniaturas, dispositivos, desfazer.
 
+**[kishot](kishot/)** -- capturas e gravação de tela, no estilo do Spectacle:
+tela inteira, monitor, janela ativa ou região; grava com som e pode cobrir de
+preto as janelas escolhidas. No XLibre/XiS grava com uma cópia na GPU que o
+VAAPI codifica sem nenhuma leitura de volta. As bibliotecas do FFmpeg (do
+plugin de gravação) e a libpulse são opcionais: sem elas grava pelo comando
+`ffmpeg`, ou só tira capturas.
+
 Planejados, ainda sem código:
 
 - **[kiview](kiview/)** -- visualizador de imagens e documentos.
-- **[kishot](kishot/)** -- capturas de tela e gravador de tela.
 - **[kitask](kitask/)** -- monitor de sistema, no estilo do qps.
 - **[kipad](kipad/)** -- editor de texto, no estilo do Kate.
 - **[kipaint](kipaint/)** -- programa de pintura.

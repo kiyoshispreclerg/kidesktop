@@ -137,10 +137,16 @@ without it the build skips kiterm (`./configure` warns).
 **[kifiles](kifiles/)** -- file manager (GTK2 + GIO): split view, thumbnails,
 devices, undo.
 
+**[kishot](kishot/)** -- screenshots and screen recording, Spectacle-style:
+full screen, monitor, active window or region; records with sound, and can
+black out chosen windows. On XLibre/XiS it records with a GPU copy that
+VAAPI encodes without any readback. The FFmpeg libraries (for its recording
+plugin) and libpulse are optional: without them it records through the
+`ffmpeg` command, or only takes screenshots.
+
 Planned, not started yet:
 
 - **[kiview](kiview/)** -- image and document viewer.
-- **[kishot](kishot/)** -- screenshots and screen recorder.
 - **[kitask](kitask/)** -- system monitor, in the spirit of qps.
 - **[kipad](kipad/)** -- text editor, in the spirit of Kate.
 - **[kipaint](kipaint/)** -- paint program.

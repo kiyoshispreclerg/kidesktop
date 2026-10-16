@@ -20,6 +20,14 @@ override_dh_auto_install:
 	$(MAKE) install-core PREFIX=/usr DESTDIR=$(CURDIR)/debian/kidesktop-core
 	$(MAKE) install-base PREFIX=/usr DESTDIR=$(CURDIR)/debian/kidesktop-base
 
+# kishot's libav plugin is optional (dlopen()ed, kishot falls back to the
+# ffmpeg command or only takes screenshots): its libraries go to Recommends,
+# not Depends.
+override_dh_shlibdeps:
+	dh_shlibdeps -Nkidesktop-base
+	dh_shlibdeps -pkidesktop-base -Xkishot-rec-av.so -- \
+		-dRecommends debian/kidesktop-base/usr/lib/kishot/kishot-rec-av.so -dDepends
+
 override_dh_auto_test:
 
 override_dh_auto_clean:
