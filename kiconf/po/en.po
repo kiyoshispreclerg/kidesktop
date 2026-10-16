@@ -1781,3 +1781,43 @@ msgstr "Save click actions"
 #~ msgstr ""
 #~ "Takes effect at the next login. Ctrl+Alt+Tab focuses the panel for "
 #~ "keyboard use (focus_key= in xispanel.conf)."
+
+#: tabs/energia.c
+msgid "Padrao do sistema"
+msgstr "System default"
+
+#: tabs/energia.c
+msgid "Suspender"
+msgstr "Suspend"
+
+#: tabs/energia.c
+msgid "Bloquear a tela"
+msgstr "Lock the screen"
+
+#: tabs/energia.c
+msgid "Nao fazer nada"
+msgstr "Do nothing"
+
+#: tabs/energia.c
+msgid "Perguntar o que fazer"
+msgstr "Ask what to do"
+
+#: tabs/energia.c
+msgid "Desligar direto"
+msgstr "Power off immediately"
+
+#: tabs/energia.c
+msgid "Ao fechar a tampa:"
+msgstr "When the lid is closed:"
+
+#: tabs/energia.c
+msgid "Ao apertar o botao de energia:"
+msgstr "When the power button is pressed:"
+
+#: tabs/energia.c
+msgid "Tampa e botao de energia"
+msgstr "Lid and power button"
+
+#: tabs/energia.c
+msgid "\"Padrao do sistema\" nao mexe em nada (logind/acpid decidem). Qualquer outra opcao e tratada pelo kiconfd, que tambem impede o logind de agir em duplicidade. A tampa depende do UPower; o botao precisa que o servidor X entregue a tecla de energia."
+msgstr "\"System default\" changes nothing (logind/acpid decide). Any other option is handled by kiconfd, which also stops logind from acting a second time. The lid needs UPower; the button needs the X server to deliver the power key."

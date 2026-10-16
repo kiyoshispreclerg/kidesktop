@@ -1796,3 +1796,43 @@ msgstr "Salvar ações de clique"
 #~ msgstr ""
 #~ "Vale a partir do próximo login. Ctrl+Alt+Tab foca o painel para usá-lo "
 #~ "pelo teclado (focus_key= no xispanel.conf)."
+
+#: tabs/energia.c
+msgid "Padrao do sistema"
+msgstr "Padrao do sistema"
+
+#: tabs/energia.c
+msgid "Suspender"
+msgstr "Suspender"
+
+#: tabs/energia.c
+msgid "Bloquear a tela"
+msgstr "Bloquear a tela"
+
+#: tabs/energia.c
+msgid "Nao fazer nada"
+msgstr "Nao fazer nada"
+
+#: tabs/energia.c
+msgid "Perguntar o que fazer"
+msgstr "Perguntar o que fazer"
+
+#: tabs/energia.c
+msgid "Desligar direto"
+msgstr "Desligar direto"
+
+#: tabs/energia.c
+msgid "Ao fechar a tampa:"
+msgstr "Ao fechar a tampa:"
+
+#: tabs/energia.c
+msgid "Ao apertar o botao de energia:"
+msgstr "Ao apertar o botao de energia:"
+
+#: tabs/energia.c
+msgid "Tampa e botao de energia"
+msgstr "Tampa e botao de energia"
+
+#: tabs/energia.c
+msgid "\"Padrao do sistema\" nao mexe em nada (logind/acpid decidem). Qualquer outra opcao e tratada pelo kiconfd, que tambem impede o logind de agir em duplicidade. A tampa depende do UPower; o botao precisa que o servidor X entregue a tecla de energia."
+msgstr "\"Padrao do sistema\" nao mexe em nada (logind/acpid decidem). Qualquer outra opcao e tratada pelo kiconfd, que tambem impede o logind de agir em duplicidade. A tampa depende do UPower; o botao precisa que o servidor X entregue a tecla de energia."
