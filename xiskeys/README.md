@@ -28,6 +28,14 @@ manager, screenshot, media keys, volume, brightness, and power/session
 actions (the last routed through `xisserve --session` so a stray tap
 always asks before it acts).
 
+Screenshot keys run `kishot` when it is installed (Print, Shift+Print for a
+region, Meta+Shift+Print for the active window; Meta+Alt+R and Meta+Shift+R
+start or stop a recording), else `spectacle`. A config written before kishot
+was installed is switched over once, at load: only lines still holding the
+old spectacle defaults change, the recording keys are appended, and a
+`# kishot binds added by xiskeys` line marks it done, so binds you delete
+stay deleted.
+
 `kiconf`'s Atalhos tab edits this file directly and signals `xiskeys` with
 `SIGHUP` to reload -- ungrabs everything, re-reads, re-grabs.
 

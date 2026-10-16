@@ -65,7 +65,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define XISKEYS_VERSION "0.2.6"
+#define XISKEYS_VERSION "0.2.7"
 #define MAX_BINDINGS 128
 #define LINE_MAX_LEN 768
 #define CMD_MAX_LEN 512
@@ -351,6 +351,42 @@ static void ungrab_all(void)
     }
 }
 
+#define KISHOT_MARK "# kishot binds added by xiskeys"
+
+static int in_path(const char *prog)
+{
+    const char *path = getenv("PATH");
+    if (!path || !*path)
+        path = "/usr/local/bin:/usr/bin:/bin";
+    char buf[PATH_MAX];
+    for (const char *p = path; *p;) {
+        const char *end = strchr(p, ':');
+        size_t n = end ? (size_t)(end - p) : strlen(p);
+        if (n && n + strlen(prog) + 2 < sizeof(buf)) {
+            snprintf(buf, sizeof(buf), "%.*s/%s", (int)n, p, prog);
+            if (access(buf, X_OK) == 0)
+                return 1;
+        }
+        p += n;
+        if (*p == ':')
+            p++;
+    }
+    return 0;
+}
+
+/* `kishot` alone repeats the area chosen last (full screen, monitor or
+ * window); the area options also become that "last" choice. */
+static void write_kishot_binds(FILE *f)
+{
+    fprintf(f, "\n# --- screenshot and screen recording (kishot) ---------------------------\n");
+    fprintf(f, "BIND\tscreenshot\tPrint\tkishot\n");
+    fprintf(f, "BIND\tscreenshot-region\tShift+Print\tkishot -r\n");
+    fprintf(f, "BIND\tscreenshot-window\tMeta+Shift+Print\tkishot -a\n");
+    fprintf(f, "# start recording, or stop the recording in progress\n");
+    fprintf(f, "BIND\tscreen-record\tMeta+Alt+R\tkishot --record\n");
+    fprintf(f, "BIND\tscreen-record-region\tMeta+Shift+R\tkishot --record --region\n");
+}
+
 static void write_default_config(const char *path)
 {
     FILE *f = fopen(path, "w");
@@ -370,11 +406,16 @@ static void write_default_config(const char *path)
     fprintf(f, "# see this file's top comment for why.\n");
     fprintf(f, "\n# --- system monitor / task manager -------------------------------------\n");
     fprintf(f, "BIND\ttask-manager\tCtrl+Escape\tqps\n");
-    fprintf(f, "\n# --- screenshot (spectacle for now; a X-Density-aware xisshot is a\n");
-    fprintf(f, "# planned future replacement, see XISDESKTOP_PLAN.md) -------------------\n");
-    fprintf(f, "BIND\tscreenshot-full\tPrint\tspectacle\n");
-    fprintf(f, "BIND\tscreenshot-region\tShift+Print\tspectacle -r\n");
-    fprintf(f, "BIND\tscreenshot-window\tMeta+Shift+Print\tspectacle -a\n");
+    if (in_path("kishot")) {
+        write_kishot_binds(f);
+        fprintf(f, "%s\n", KISHOT_MARK);
+    } else {
+        fprintf(f, "\n# --- screenshot (spectacle until kishot is installed: xiskeys switches\n");
+        fprintf(f, "# these lines over by itself once it finds kishot) ---------------------\n");
+        fprintf(f, "BIND\tscreenshot-full\tPrint\tspectacle\n");
+        fprintf(f, "BIND\tscreenshot-region\tShift+Print\tspectacle -r\n");
+        fprintf(f, "BIND\tscreenshot-window\tMeta+Shift+Print\tspectacle -a\n");
+    }
     fprintf(f, "\n# --- emoji picker / on-screen keyboard -----------------------------------\n");
     fprintf(f, "# No lightweight tool for either is installed/chosen yet -- left unbound on\n");
     fprintf(f, "# purpose (a dead hotkey is worse than no hotkey). Uncomment and point at a\n");
@@ -432,12 +473,74 @@ static void write_default_config(const char *path)
     fclose(f);
 }
 
+/* Configs written before kishot existed point the screenshot keys at
+ * spectacle. Once kishot is installed, swap the lines still holding those
+ * exact defaults (edited ones are left alone) and add the recording keys,
+ * once: KISHOT_MARK records that it happened, so a deleted bind stays
+ * deleted. */
+static void migrate_to_kishot(const char *path)
+{
+    static const struct { const char *from, *to; } swaps[] = {
+        {"BIND\tscreenshot-full\tPrint\tspectacle", "BIND\tscreenshot\tPrint\tkishot"},
+        {"BIND\tscreenshot-region\tShift+Print\tspectacle -r", "BIND\tscreenshot-region\tShift+Print\tkishot -r"},
+        {"BIND\tscreenshot-window\tMeta+Shift+Print\tspectacle -a", "BIND\tscreenshot-window\tMeta+Shift+Print\tkishot -a"},
+    };
+    if (!in_path("kishot"))
+        return;
+    FILE *in = fopen(path, "r");
+    if (!in)
+        return;
+    char tmp[PATH_MAX + 8];
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    char line[LINE_MAX_LEN];
+    int has_record = 0, done = 0;
+    while (fgets(line, sizeof(line), in)) {
+        if (strstr(line, KISHOT_MARK))
+            done = 1;
+        if (!strncmp(line, "BIND\tscreen-record\t", 20) || strstr(line, "kishot --record"))
+            has_record = 1;
+    }
+    if (done) {
+        fclose(in);
+        return;
+    }
+    FILE *out = fopen(tmp, "w");
+    if (!out) {
+        fclose(in);
+        return;
+    }
+    rewind(in);
+    while (fgets(line, sizeof(line), in)) {
+        size_t len = strcspn(line, "\r\n");
+        const char *to = NULL;
+        for (size_t i = 0; i < sizeof(swaps) / sizeof(swaps[0]); i++)
+            if (len == strlen(swaps[i].from) && !strncmp(line, swaps[i].from, len))
+                to = swaps[i].to;
+        if (to)
+            fprintf(out, "%s\n", to);
+        else
+            fputs(line, out);
+    }
+    if (!has_record) {
+        fprintf(out, "\n# start recording, or stop the recording in progress\n");
+        fprintf(out, "BIND\tscreen-record\tMeta+Alt+R\tkishot --record\n");
+        fprintf(out, "BIND\tscreen-record-region\tMeta+Shift+R\tkishot --record --region\n");
+    }
+    fprintf(out, "%s\n", KISHOT_MARK);
+    fclose(in);
+    if (fclose(out) == 0 && rename(tmp, path) == 0)
+        fprintf(stderr, "xiskeys: screenshot keys now run kishot\n");
+    else
+        unlink(tmp);
+}
+
 static void load_config(void)
 {
     if (access(g_configpath, F_OK) != 0) {
         fprintf(stderr, "xiskeys: no config at '%s', writing default\n", g_configpath);
         write_default_config(g_configpath);
     }
+    migrate_to_kishot(g_configpath);
 
     FILE *f = fopen(g_configpath, "r");
     if (!f) {
