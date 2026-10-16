@@ -67,7 +67,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KISESSION_VERSION "0.1.12"
+#define KISESSION_VERSION "0.1.14"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -1587,6 +1587,32 @@ static void setup_a11y_env(void)
     setenv("QT_LINUX_ACCESSIBILITY_ALWAYS_ON", "1", 1);
 }
 
+/* True when some installed Qt (5 or 6) has the KiTheme style plugin. It is
+ * built per Qt version and only when that Qt's development files existed,
+ * so it can be missing without anything else being wrong. */
+static int kitheme_qt_style_available(void)
+{
+    static const char *const patterns[] = {
+        "/usr/lib/*/qt5/plugins/styles/kitheme.so",
+        "/usr/lib/*/qt6/plugins/styles/kitheme.so",
+        "/usr/lib/qt5/plugins/styles/kitheme.so",
+        "/usr/lib/qt6/plugins/styles/kitheme.so",
+        "/usr/local/lib/*/qt5/plugins/styles/kitheme.so",
+        "/usr/local/lib/*/qt6/plugins/styles/kitheme.so",
+        NULL,
+    };
+    for (int i = 0; patterns[i]; i++) {
+        glob_t g;
+        memset(&g, 0, sizeof(g));
+        int hit = (glob(patterns[i], 0, NULL, &g) == 0 && g.gl_pathc > 0);
+        globfree(&g);
+        if (hit) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* The QStyle Qt applications use. The platform theme chosen below decides
  * colors and fonts but not the style (the gtk3 one always says Fusion), so
  * kiconfd.conf's qt_style goes out as QT_STYLE_OVERRIDE -- for this
@@ -1629,6 +1655,12 @@ static void setup_qt_style(void)
         snprintf(style, sizeof(style), "KiTheme");
     if (!style[0])
         return;
+    /* Without the plugin Qt would warn and fall back to Fusion anyway; do
+     * not export a name nothing can load. */
+    if (!strcasecmp(style, "KiTheme") && !kitheme_qt_style_available()) {
+        fprintf(stderr, "kisession: qt_style is KiTheme but no Qt has the plugin; leaving Qt's style alone\n");
+        return;
+    }
     setenv("QT_STYLE_OVERRIDE", style, 1);
     fprintf(stderr, "kisession: QT_STYLE_OVERRIDE=%s\n", style);
 }
