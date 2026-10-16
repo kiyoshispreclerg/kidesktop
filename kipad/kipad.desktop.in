@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Text Editor
+GenericName=Text Editor
+Comment=Edit text files in tabs
+Exec=@BINDIR@/kipad %F
+Icon=kipad
+Terminal=false
+Categories=Utility;TextEditor;
+MimeType=text/plain;
+Keywords=text;editor;notepad;write;
+StartupNotify=false

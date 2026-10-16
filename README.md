@@ -148,11 +148,13 @@ VAAPI encodes without any readback. The FFmpeg libraries (for its recording
 plugin) and libpulse are optional: without them it records through the
 `ffmpeg` command, or only takes screenshots.
 
+**[kipad](kipad/)** -- simple text editor (GTK2): tabs, font and Ctrl+wheel
+zoom, optional line numbers, cursor line/column in the status bar.
+
 Planned, not started yet:
 
 - **[kiview](kiview/)** -- image and document viewer.
 - **[kitask](kitask/)** -- system monitor, in the spirit of qps.
-- **[kipad](kipad/)** -- text editor, in the spirit of Kate.
 - **[kipaint](kipaint/)** -- paint program.
 
 ## Building

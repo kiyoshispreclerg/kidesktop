@@ -155,11 +155,14 @@ VAAPI codifica sem nenhuma leitura de volta. As bibliotecas do FFmpeg (do
 plugin de gravação) e a libpulse são opcionais: sem elas grava pelo comando
 `ffmpeg`, ou só tira capturas.
 
+**[kipad](kipad/)** -- editor de texto simples (GTK2): abas, fonte e zoom com
+Ctrl+roda, números de linha opcionais, linha/coluna do cursor na barra de
+status.
+
 Planejados, ainda sem código:
 
 - **[kiview](kiview/)** -- visualizador de imagens e documentos.
 - **[kitask](kitask/)** -- monitor de sistema, no estilo do qps.
-- **[kipad](kipad/)** -- editor de texto, no estilo do Kate.
 - **[kipaint](kipaint/)** -- programa de pintura.
 
 ## Compilação
