@@ -19,7 +19,7 @@ and switching tabs doesn't grow the window.
 | Atalhos | `xiskeys.conf`'s `BIND` lines (global hotkeys) |
 | Telas | screen layout via `xrandr`, draggable canvas, persisted for `kiconfd` to replay at next login |
 | Entrada | pointer/touchpad, key repeat/bell, and XiS keyboard flags |
-| Wallpaper | `xisback`'s active wallpaper layers, over its control socket |
+| Wallpaper | screens drawn to scale with the wallpaper each one shows (slideshows cycle), per-screen/stretched and same/per-desktop modes applied on click; `xisback`'s raw layers under "Avancado" |
 | Paineis | `xispanel.conf`'s `PANEL`/`WIDGET`/`THEME` records |
 | Permissoes | `xisguard`'s runtime mode and rules, over its control socket |
 | Gerenciamento de janelas | `kiwm.conf` |
