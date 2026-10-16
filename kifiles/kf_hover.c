@@ -65,6 +65,23 @@ static int edge(KfPane *p, GtkWidget *w, GtkTreePath *path, int px, int py, gboo
     return base + dir * lo;
 }
 
+/* Like edge() along y, but stepping through the gap between an item's icon and
+ * name cells (hit-testing misses there, so a bisection would stop at the first
+ * cell). Gives up after `gap` consecutive misses. */
+static int edge_y(KfPane *p, GtkWidget *w, GtkTreePath *path, int px, int py, int dir, int limit, int gap)
+{
+    int last = py, miss = 0;
+    for (int k = 1; k <= limit && miss <= gap; k++) {
+        if (same_item(p, w, path, px, py + dir * k)) {
+            last = py + dir * k;
+            miss = 0;
+        } else {
+            miss++;
+        }
+    }
+    return last;
+}
+
 static void invalidate(KfPane *p, GtkWidget *w, const GdkRectangle *r)
 {
     GdkWindow *bin = bin_of(p, w);
@@ -102,8 +119,10 @@ static void icon_box(KfPane *p, GtkWidget *w, GtkTreePath *path, int x, int y, G
     GtkAllocation a;
     gtk_widget_get_allocation(w, &a);
     (void)a;
-    int y0 = edge(p, w, path, x, y, FALSE, -1, 600), y1 = edge(p, w, path, x, y, FALSE, +1, 600);
+    int y0 = edge_y(p, w, path, x, y, -1, 600, 12), y1 = edge_y(p, w, path, x, y, +1, 600, 12);
     int pad = gtk_icon_view_get_item_padding(iv);
+    /* Horizontal edges are read on the icon's row: the name below is narrower than the icon cell. */
+    int iy = y0 + 2;
     /* Hit-testing covers only what the cells draw, so the horizontal extent
      * comes from the regular grid instead: every cell is as wide as the text
      * cell we fixed, columns are one pitch apart, starting at the margin. */
@@ -115,13 +134,13 @@ static void icon_box(KfPane *p, GtkWidget *w, GtkTreePath *path, int x, int y, G
     if (col > 0) {
         /* The gap between columns varies with the theme: measure it as the distance
          * between this item's left edge and the previous column's. */
-        int xl = edge(p, w, path, x, y, TRUE, -1, 600);
+        int xl = edge(p, w, path, x, iy, TRUE, -1, 600);
         for (int k = 1; k < 64; k++) {
-            GtkTreePath *prev = path_at(p, w, xl - k, y);
+            GtkTreePath *prev = path_at(p, w, xl - k, iy);
             if (!prev)
                 continue;
             if (gtk_icon_view_get_item_column(iv, prev) == col - 1 && gtk_icon_view_get_item_row(iv, prev) == gtk_icon_view_get_item_row(iv, path)) {
-                pitch = xl - edge(p, w, prev, xl - k, y, TRUE, -1, 600);
+                pitch = xl - edge(p, w, prev, xl - k, iy, TRUE, -1, 600);
                 gtk_tree_path_free(prev);
                 break;
             }
@@ -131,7 +150,7 @@ static void icon_box(KfPane *p, GtkWidget *w, GtkTreePath *path, int x, int y, G
     }
     /* The hit-test hull starts a constant 23 px inside the drawn box (measured at zooms 32-128), and
      * where the first column sits varies by a pixel with the theme, so anchor on the hull. */
-    int bx = edge(p, w, path, x, y, TRUE, -1, 600) - 23;
+    int bx = edge(p, w, path, x, iy, TRUE, -1, 600) - 23;
     int row = gtk_icon_view_get_item_row(iv, path);
     if (p->hover_row != row) {
         int bottom = y1;
@@ -143,7 +162,7 @@ static void icon_box(KfPane *p, GtkWidget *w, GtkTreePath *path, int x, int y, G
                     break;
                 gboolean same_row = gtk_icon_view_get_item_row(iv, other) == row;
                 if (same_row) {
-                    int ob = edge(p, w, other, px, py, FALSE, +1, 600);
+                    int ob = edge_y(p, w, other, px, py, +1, 600, 12);
                     if (ob > bottom)
                         bottom = ob;
                 }
