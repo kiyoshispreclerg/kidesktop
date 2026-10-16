@@ -1,15 +1,16 @@
 /* kf_places.c - the sidebar: places, bookmarks and devices.
  *
  * Devices come from GIO's volume monitor (GVfs/udisks when present, plain
- * /proc/mounts otherwise). Mounted ones get a usage bar; their context menu
- * unmounts -- and powers the drive off when it can -- reporting when it is
- * safe to unplug. Unmounted volumes are listed too; a click mounts them. */
+ * /proc/mounts otherwise). Mounted ones get a usage bar under the name; their
+ * context menu unmounts -- and powers the drive off when it can -- reporting
+ * when it is safe to unplug. Unmounted volumes are listed too; a click mounts
+ * them. */
 #include "kf.h"
 #include "../shared/xis_i18n.h"
 #include <string.h>
 #include <glib/gstdio.h>
 
-enum { P_ICON, P_NAME, P_KIND, P_FILE, P_BAR, P_OBJ, P_TIP, P_N };
+enum { P_ICON, P_NAME, P_KIND, P_FILE, P_USAGE, P_OBJ, P_TIP, P_N };
 enum { K_HEADER, K_PLACE, K_BOOKMARK, K_MOUNT, K_VOLUME };
 
 #define ICON_PX 22
@@ -50,41 +51,13 @@ static void places_free(gpointer data)
     g_free(pl);
 }
 
-/* A small usage bar drawn straight into a pixbuf: a progress renderer can't
- * be made shorter than a line of text. Red when nearly full. */
-static GdkPixbuf *make_bar(int pct)
-{
-    enum { W = 48, H = 8 };
-    GdkPixbuf *pb = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, W, H);
-    if (!pb)
-        return NULL;
-    guchar *px = gdk_pixbuf_get_pixels(pb);
-    int rs = gdk_pixbuf_get_rowstride(pb);
-    int fill = (W - 2) * CLAMP(pct, 0, 100) / 100;
-    guchar fr = 0x35, fg = 0x84, fb = 0xe4;
-    if (pct >= 90) { fr = 0xe0; fg = 0x1b; fb = 0x24; }
-    for (int y = 0; y < H; y++) {
-        for (int x = 0; x < W; x++) {
-            guchar *q = px + y * rs + x * 4;
-            if (x == 0 || y == 0 || x == W - 1 || y == H - 1) {
-                q[0] = q[1] = q[2] = 0x80; q[3] = 0xff;
-            } else if (x - 1 < fill) {
-                q[0] = fr; q[1] = fg; q[2] = fb; q[3] = 0xff;
-            } else {
-                q[0] = q[1] = q[2] = 0xdd; q[3] = 0xff;
-            }
-        }
-    }
-    return pb;
-}
-
 static void add_row(Places *pl, int kind, const char *markup, GdkPixbuf *icon, GFile *file, GObject *obj,
                     const char *tip)
 {
     GtkTreeIter it;
     gtk_list_store_append(pl->store, &it);
     gtk_list_store_set(pl->store, &it, P_ICON, icon, P_NAME, markup, P_KIND, kind, P_FILE, file,
-                       P_OBJ, obj, P_TIP, tip, -1);
+                       P_USAGE, -1, P_OBJ, obj, P_TIP, tip, -1);
 }
 
 static void add_header(Places *pl, const char *title)
@@ -293,10 +266,7 @@ static void on_usage(GObject *src, GAsyncResult *res, gpointer data)
                 if (nl)
                     *nl = 0;
                 char *tip = g_strdup_printf(_("%s\n%s free of %s"), base, f, t);
-                GdkPixbuf *bar = make_bar(pct);
-                gtk_list_store_set(c->pl->store, &it, P_BAR, bar, P_TIP, tip, -1);
-                if (bar)
-                    g_object_unref(bar);
+                gtk_list_store_set(c->pl->store, &it, P_USAGE, pct, P_TIP, tip, -1);
                 g_free(tip);
                 g_free(base);
                 g_free(where);
@@ -764,7 +734,7 @@ GtkWidget *kf_places_new(KfApp *app)
     Places *pl = g_new0(Places, 1);
     pl->app = app;
     pl->cancel = g_cancellable_new();
-    pl->store = gtk_list_store_new(P_N, GDK_TYPE_PIXBUF, G_TYPE_STRING, G_TYPE_INT, G_TYPE_OBJECT, GDK_TYPE_PIXBUF,
+    pl->store = gtk_list_store_new(P_N, GDK_TYPE_PIXBUF, G_TYPE_STRING, G_TYPE_INT, G_TYPE_OBJECT, G_TYPE_INT,
                                    G_TYPE_OBJECT, G_TYPE_STRING);
     pl->tree = gtk_tree_view_new_with_model(GTK_TREE_MODEL(pl->store));
     g_object_unref(pl->store);
@@ -778,18 +748,13 @@ GtkWidget *kf_places_new(KfApp *app)
     GtkCellRenderer *ir = gtk_cell_renderer_pixbuf_new();
     gtk_tree_view_column_pack_start(c1, ir, FALSE);
     gtk_tree_view_column_add_attribute(c1, ir, "pixbuf", P_ICON);
-    GtkCellRenderer *tr = gtk_cell_renderer_text_new();
+    GtkCellRenderer *tr = kf_usage_cell_new();        /* the name, and the usage bar under it */
     g_object_set(tr, "ellipsize", PANGO_ELLIPSIZE_END, NULL);
     gtk_tree_view_column_pack_start(c1, tr, TRUE);
     gtk_tree_view_column_add_attribute(c1, tr, "markup", P_NAME);
+    gtk_tree_view_column_add_attribute(c1, tr, "usage", P_USAGE);
     gtk_tree_view_column_set_expand(c1, TRUE);
     gtk_tree_view_append_column(tv, c1);
-
-    GtkTreeViewColumn *c2 = gtk_tree_view_column_new();
-    GtkCellRenderer *pr = gtk_cell_renderer_pixbuf_new();
-    gtk_tree_view_column_pack_start(c2, pr, FALSE);
-    gtk_tree_view_column_add_attribute(c2, pr, "pixbuf", P_BAR);
-    gtk_tree_view_append_column(tv, c2);
 
     gtk_tree_selection_set_select_function(gtk_tree_view_get_selection(tv), select_func, NULL, NULL);
     static const GtkTargetEntry dst[] = { { (gchar *)"text/uri-list", 0, 0 } };

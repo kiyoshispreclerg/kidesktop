@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kifiles\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 11:16-0300\n"
+"POT-Creation-Date: 2026-10-16 11:19-0300\n"
 "PO-Revision-Date: 2026-10-15 17:32-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -17,11 +17,11 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
-#: kf_crumbs.c:54 kf_places.c:193
+#: kf_crumbs.c:54 kf_places.c:156
 msgid "Home"
 msgstr "Pasta pessoal"
 
-#: kf_crumbs.c:58 kf_places.c:202
+#: kf_crumbs.c:58 kf_places.c:165
 msgid "Trash"
 msgstr "Lixeira"
 
@@ -221,27 +221,27 @@ msgstr "Tipo"
 msgid "Filter:"
 msgstr "Filtro:"
 
-#: kf_places.c:179
+#: kf_places.c:142
 msgid "Not mounted -- click to mount"
 msgstr "Não montado -- clique para montar"
 
-#: kf_places.c:192
+#: kf_places.c:155
 msgid "Places"
 msgstr "Locais"
 
-#: kf_places.c:207
+#: kf_places.c:170
 msgid "Bookmarks"
 msgstr "Favoritos"
 
-#: kf_places.c:218
+#: kf_places.c:181
 msgid "Devices"
 msgstr "Dispositivos"
 
-#: kf_places.c:221
+#: kf_places.c:184
 msgid "File System"
 msgstr "Sistema de arquivos"
 
-#: kf_places.c:305
+#: kf_places.c:268
 #, c-format
 msgid ""
 "%s\n"
@@ -250,46 +250,46 @@ msgstr ""
 "%s\n"
 "%s livres de %s"
 
-#: kf_places.c:388
+#: kf_places.c:348
 msgid "Could not mount the device"
 msgstr "Não foi possível montar o dispositivo"
 
-#: kf_places.c:421 kf_places.c:440
+#: kf_places.c:381 kf_places.c:400
 #, c-format
 msgid "\"%s\" can now be safely removed."
 msgstr "\"%s\" já pode ser removido com segurança."
 
-#: kf_places.c:422
+#: kf_places.c:382
 #, c-format
 msgid "\"%s\" was unmounted."
 msgstr "\"%s\" foi desmontado."
 
-#: kf_places.c:426
+#: kf_places.c:386
 #, c-format
 msgid "Could not remove \"%s\""
 msgstr "Não foi possível remover \"%s\""
 
-#: kf_places.c:444
+#: kf_places.c:404
 msgid "Could not remove the device"
 msgstr "Não foi possível remover o dispositivo"
 
-#: kf_places.c:559
+#: kf_places.c:519
 msgid "_Mount"
 msgstr "_Montar"
 
-#: kf_places.c:559 kifiles.c:999
+#: kf_places.c:519 kifiles.c:999
 msgid "_Open"
 msgstr "_Abrir"
 
-#: kf_places.c:565
+#: kf_places.c:525
 msgid "_Unmount"
 msgstr "_Desmontar"
 
-#: kf_places.c:570 kf_places.c:575
+#: kf_places.c:530 kf_places.c:535
 msgid "Safely _Remove"
 msgstr "_Remover com segurança"
 
-#: kf_places.c:579
+#: kf_places.c:539
 msgid "Remove _Bookmark"
 msgstr "Remover _favorito"
 

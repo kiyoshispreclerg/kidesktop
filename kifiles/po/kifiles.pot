@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kifiles\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 11:16-0300\n"
+"POT-Creation-Date: 2026-10-16 11:19-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -18,11 +18,11 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
 
-#: kf_crumbs.c:54 kf_places.c:193
+#: kf_crumbs.c:54 kf_places.c:156
 msgid "Home"
 msgstr ""
 
-#: kf_crumbs.c:58 kf_places.c:202
+#: kf_crumbs.c:58 kf_places.c:165
 msgid "Trash"
 msgstr ""
 
@@ -219,73 +219,73 @@ msgstr ""
 msgid "Filter:"
 msgstr ""
 
-#: kf_places.c:179
+#: kf_places.c:142
 msgid "Not mounted -- click to mount"
 msgstr ""
 
-#: kf_places.c:192
+#: kf_places.c:155
 msgid "Places"
 msgstr ""
 
-#: kf_places.c:207
+#: kf_places.c:170
 msgid "Bookmarks"
 msgstr ""
 
-#: kf_places.c:218
+#: kf_places.c:181
 msgid "Devices"
 msgstr ""
 
-#: kf_places.c:221
+#: kf_places.c:184
 msgid "File System"
 msgstr ""
 
-#: kf_places.c:305
+#: kf_places.c:268
 #, c-format
 msgid ""
 "%s\n"
 "%s free of %s"
 msgstr ""
 
-#: kf_places.c:388
+#: kf_places.c:348
 msgid "Could not mount the device"
 msgstr ""
 
-#: kf_places.c:421 kf_places.c:440
+#: kf_places.c:381 kf_places.c:400
 #, c-format
 msgid "\"%s\" can now be safely removed."
 msgstr ""
 
-#: kf_places.c:422
+#: kf_places.c:382
 #, c-format
 msgid "\"%s\" was unmounted."
 msgstr ""
 
-#: kf_places.c:426
+#: kf_places.c:386
 #, c-format
 msgid "Could not remove \"%s\""
 msgstr ""
 
-#: kf_places.c:444
+#: kf_places.c:404
 msgid "Could not remove the device"
 msgstr ""
 
-#: kf_places.c:559
+#: kf_places.c:519
 msgid "_Mount"
 msgstr ""
 
-#: kf_places.c:559 kifiles.c:999
+#: kf_places.c:519 kifiles.c:999
 msgid "_Open"
 msgstr ""
 
-#: kf_places.c:565
+#: kf_places.c:525
 msgid "_Unmount"
 msgstr ""
 
-#: kf_places.c:570 kf_places.c:575
+#: kf_places.c:530 kf_places.c:535
 msgid "Safely _Remove"
 msgstr ""
 
-#: kf_places.c:579
+#: kf_places.c:539
 msgid "Remove _Bookmark"
 msgstr ""
 
