@@ -1,4 +1,5 @@
-# Source .zip and kidesktop .deb packages for Ubuntu 22.04, Ubuntu 24.04,
+# Source .zip and kidesktop-core / kidesktop-base / kidesktop (metapackage)
+# .deb packages for Ubuntu 22.04, Ubuntu 24.04,
 # Debian 12 (what Devuan 5 installs) and Debian 13 (Devuan 6 "excalibur").
 #
 #   stable tag push / published release   -> built and attached to that
@@ -133,15 +134,18 @@ jobs:
           path: dist/*.deb
 
   smoke:
-    name: smoke test (${{ matrix.image }})
+    name: smoke test (${{ matrix.dist.image }}, ${{ matrix.set }})
     needs: [gate, deb]
     if: needs.gate.outputs.build == 'true'
     runs-on: ubuntu-latest
-    container: ${{ matrix.image }}
+    container: ${{ matrix.dist.image }}
     strategy:
       fail-fast: false
+      # "full" installs every .deb (core + base); "core" only
+      # kidesktop-core, which must start a session without the applications.
       matrix:
-        include:
+        set: [full, core]
+        dist:
           - image: "ubuntu:22.04"
             name: ubuntu-22.04
           - image: "ubuntu:24.04"
@@ -160,12 +164,17 @@ jobs:
           ref: ${{ needs.gate.outputs.ref }}
       - uses: actions/download-artifact@v4
         with:
-          name: deb-${{ matrix.name }}
+          name: deb-${{ matrix.dist.name }}
           path: pkg
-      - name: Install the .deb and test tools
+      - name: Install the .debs and test tools
         run: |
           export DEBIAN_FRONTEND=noninteractive
-          apt-get install -y ./pkg/*.deb xvfb x11-utils procps
+          if [ "${{ matrix.set }}" = core ]; then
+            debs=$(ls ./pkg/kidesktop-core_*.deb)
+          else
+            debs=$(ls ./pkg/*.deb)
+          fi
+          apt-get install -y $debs xvfb x11-utils procps
       - name: Start a KiDesktop session
         run: ./scripts/smoke-test-session.sh
 

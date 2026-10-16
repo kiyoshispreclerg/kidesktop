@@ -11,7 +11,10 @@
 # also runs on a machine with only the build dependencies.
 set -u
 
-COMPONENTS="kisession kiwm kicomp xispanel xisserve xisback kiconf kiconfd xiskeys xismenu xisguard kimemory kistory kiterm kifiles"
+# Core, then base; planned base applications are skipped until they have a
+# Makefile.
+COMPONENTS="kisession kiwm kicomp xispanel xisserve xisback kiconf kiconfd xiskeys xismenu xisguard kimemory kistory"
+COMPONENTS="$COMPONENTS kiterm kifiles kiview kishot kitask kipad kipaint"
 STRICT_CFLAGS="-Wall -Wextra -O2 -Werror"
 FAILED=""
 
@@ -25,7 +28,10 @@ have() {
 }
 
 echo "==> build with -Werror"
+BUILT=""
 for c in $COMPONENTS; do
+	[ -f "$c/Makefile" ] || continue
+	BUILT="$BUILT $c"
 	make -s -C "$c" clean >/dev/null 2>&1
 	# CFLAGS through the environment, not the command line: the Makefiles
 	# append to CFLAGS (LOCALEDIR, ...), which a command-line value would
@@ -46,8 +52,7 @@ if have cppcheck; then
 		--suppress=arrayIndexOutOfBoundsCond --suppress=normalCheckLevelMaxBranches \
 		--suppress='unknownMacro:*/a11y.c' \
 		--error-exitcode=1 -D__linux__ -I shared \
-		kisession kiwm kicomp/src xispanel xisserve xisback kiconf kiconfd xiskeys xismenu xisguard \
-		kimemory kistory kiterm kifiles shared; then
+		$(echo "$BUILT" | sed 's|\bkicomp\b|kicomp/src|') shared; then
 		fail cppcheck
 	fi
 else
