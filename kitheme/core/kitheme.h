@@ -44,7 +44,8 @@ typedef enum {
 } KtProgressText;
 
 typedef struct {
-    char preset[64];
+    char preset[64];   /* shape preset: everything but the colors */
+    char colors[64];   /* color scheme the colors came from (informational) */
     KtStyle style;
 
     KtColor window_bg, window_fg;
@@ -88,18 +89,32 @@ enum {
 
 typedef enum { KT_UP, KT_DOWN, KT_LEFT, KT_RIGHT } KtDir;
 
-#define KITHEME_VERSION "0.1.0"
+#define KITHEME_VERSION "0.1.1"
 
 /* ---- theme loading (kt_config.c) ---- */
 
 /* The built-in defaults (the "oxygen" preset's values), no files read. */
 void kt_theme_defaults(KtTheme *t);
-/* Loads `path` (a kitheme.conf): its `preset =` file first, then its own
- * keys on top. Returns 0 when the file could not be read (t still holds
+/* Loads `path` (a kitheme.conf): its `preset =` file first, then its
+ * `colors =` scheme, then its own keys on top. Returns 0 when the file could not be read (t still holds
  * the defaults). */
 int kt_theme_load_file(KtTheme *t, const char *path);
-/* Loads preset `name` from the presets directories. */
+/* Loads preset `name` (shape and sizes; presets carry no colors) from the
+ * presets directories. */
 int kt_theme_load_preset(KtTheme *t, const char *name);
+/* Applies color scheme `name` (colors/NAME.conf in the same search order
+ * as presets) on top of `t`, leaving the shape alone. Returns 0 when it is
+ * not found. */
+int kt_theme_load_colors(KtTheme *t, const char *name);
+/* Writes the 14 colors of `t` as user scheme `name` in
+ * ~/.local/share/kitheme/colors. Returns 0 on failure. */
+int kt_theme_save_colors(const KtTheme *t, const char *name);
+/* Removes user scheme `name` (the installed ones cannot be removed). */
+int kt_colors_delete(const char *name);
+/* True when `name` exists in the user's own directory. */
+int kt_colors_is_user(const char *name);
+/* Same as kt_list_presets() for the color schemes. */
+int kt_list_colorschemes(char names[][64], int max);
 /* The user's theme: $XDG_CONFIG_HOME/kitheme/kitheme.conf, or the default
  * preset when there is none. */
 void kt_theme_load_user(KtTheme *t);

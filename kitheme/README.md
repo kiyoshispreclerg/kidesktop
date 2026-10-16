@@ -39,8 +39,11 @@ shared library or ABI to maintain.
 ## Configuration
 
 `$XDG_CONFIG_HOME/kitheme/kitheme.conf` (default `~/.config/kitheme/`) uses
-`key = value` lines. `preset = NAME` loads `presets/NAME.conf` first, and
-the keys that follow override it. With no file, the `oxygen` preset is used.
+`key = value` lines. `preset = NAME` loads `presets/NAME.conf` (the shape:
+style, radius, sizes) first, `colors = NAME` then loads the color scheme
+`colors/NAME.conf`, and the keys that follow override both. With no file,
+the `oxygen` preset and the `claro` scheme are used. Presets carry no
+colors, so any preset combines with any scheme.
 
 | key | values |
 |---|---|
@@ -58,8 +61,14 @@ the keys that follow override it. With no file, the `oxygen` preset is used.
 | `scrollbar_arrows` | `0`/`1` |
 
 Presets are looked up in `$KITHEME_PRESETS`, then
-`~/.local/share/kitheme/presets`, then `<prefix>/share/kitheme/presets`.
-A new preset is just a new file, with no rebuild needed.
+`~/.local/share/kitheme/presets`, then `<prefix>/share/kitheme/presets`;
+color schemes the same way in `$KITHEME_COLORS` and the `colors`
+directories. A new preset or scheme is just a new file, with no rebuild
+needed. Installed schemes: `claro`, `escuro`, `classico`. kiconf's KiTheme
+tab lists them, edits a copy and saves your own with *Salvar como...*; the
+**Aparência** tab offers the same list to recolor third-party GTK/Qt
+themes, with *Sem cores personalizadas* (the default) leaving every theme,
+KiTheme included, with its own colors.
 
 ## Choosing and applying it
 
@@ -128,7 +137,7 @@ All of this runs in a nested Xephyr with a throwaway `HOME`:
 
 ```sh
 export HOME=/tmp/kt-home XDG_CONFIG_HOME=/tmp/kt-home/.config DISPLAY=:37
-export KITHEME_PRESETS=$PWD/presets GTK_PATH=/tmp/kt-gtkpath   # 2.10.0/engines/libkitheme.so -> gtk2/libkitheme.so
+export KITHEME_PRESETS=$PWD/presets KITHEME_COLORS=$PWD/colors GTK_PATH=/tmp/kt-gtkpath   # 2.10.0/engines/libkitheme.so -> gtk2/libkitheme.so
 unset XDG_CURRENT_DESKTOP KDE_FULL_SESSION                       # keep Plasma's platform theme out
 ./export/kitheme-export                                          # -> $HOME/.themes/KiTheme
 QT_PLUGIN_PATH=/tmp/kt-qtplug QT_STYLE_OVERRIDE=KiTheme some-qt-app   # styles/kitheme.so -> qt/qt5/kitheme.so

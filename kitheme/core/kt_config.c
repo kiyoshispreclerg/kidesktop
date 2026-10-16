@@ -2,11 +2,14 @@
  *
  * Format: "key = value" lines, '#' comments. A file may start from a
  * preset ("preset = oxygen"): that preset's file is read first and the
- * file's own keys override it. Presets are the same format, looked up in
- *   $KITHEME_PRESETS (one directory; the source tree when testing)
- *   $XDG_DATA_HOME/kitheme/presets   (~/.local/share/kitheme/presets)
- *   KITHEME_DATADIR/presets          (the install prefix)
- *   /usr/share/kitheme/presets
+ * file's own keys override it. Presets hold the shape only (style,
+ * radius, sizes); the colors live in separate schemes ("colors = claro"),
+ * same format, applied after the preset. Both are looked up in
+ *   $KITHEME_PRESETS / $KITHEME_COLORS (one directory; the source tree
+ *                                       when testing)
+ *   $XDG_DATA_HOME/kitheme/presets|colors  (~/.local/share/kitheme/...)
+ *   KITHEME_DATADIR/presets|colors         (the install prefix)
+ *   /usr/share/kitheme/presets|colors
  * Numbers are parsed by hand rather than with strtod(), which follows
  * LC_NUMERIC: under pt_BR "0.6" would read as 0. */
 #include "kitheme.h"
@@ -19,12 +22,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #ifndef KITHEME_DATADIR
 #define KITHEME_DATADIR "/usr/local/share/kitheme"
 #endif
 
 #define DEFAULT_PRESET "oxygen"
+#define DEFAULT_COLORS "claro"
 
 typedef enum { K_COLOR, K_DOUBLE, K_INT, K_BOOL, K_STYLE, K_FOCUS, K_PTEXT } KeyType;
 
@@ -78,12 +83,13 @@ static KtColor rgb(int r, int g, int b)
     return c;
 }
 
-/* Must match presets/oxygen.conf: it is what a missing preset falls back
- * to. */
+/* Shape must match presets/oxygen.conf and colors colors/claro.conf: it is
+ * what a missing preset or scheme falls back to. */
 void kt_theme_defaults(KtTheme *t)
 {
     memset(t, 0, sizeof(*t));
     snprintf(t->preset, sizeof(t->preset), DEFAULT_PRESET);
+    snprintf(t->colors, sizeof(t->colors), DEFAULT_COLORS);
     t->style = KT_STYLE_SOFT;
     t->window_bg = rgb(0xe0, 0xdf, 0xde);
     t->window_fg = rgb(0x14, 0x13, 0x12);
@@ -205,9 +211,10 @@ static void set_key(KtTheme *t, const char *key, const char *val)
     }
 }
 
-/* Reads `path`; with `preset_only`, returns after finding the preset key
- * (copied to `preset`) without applying anything. */
-static int read_file(KtTheme *t, const char *path, int preset_only, char *preset, size_t psz)
+/* Reads `path`; with `preset_only`, only copies the `preset` and `colors`
+ * keys (to `preset` and `colors`, either may be NULL) without applying
+ * anything. */
+static int read_file(KtTheme *t, const char *path, int preset_only, char *preset, size_t psz, char *colors, size_t csz)
 {
     FILE *f = fopen(path, "r");
     if (!f)
@@ -227,6 +234,11 @@ static int read_file(KtTheme *t, const char *path, int preset_only, char *preset
                 snprintf(preset, psz, "%s", val);
             continue;
         }
+        if (!strcmp(key, "colors")) {
+            if (colors)
+                snprintf(colors, csz, "%s", val);
+            continue;
+        }
         if (!preset_only)
             set_key(t, key, val);
     }
@@ -234,19 +246,20 @@ static int read_file(KtTheme *t, const char *path, int preset_only, char *preset
     return 1;
 }
 
-static int preset_dirs(char dirs[4][PATH_MAX])
+/* `sub` is "presets" or "colors"; `envvar` overrides everything. */
+static int data_dirs(const char *sub, const char *envvar, char dirs[4][PATH_MAX])
 {
     int n = 0;
-    const char *env = getenv("KITHEME_PRESETS");
+    const char *env = getenv(envvar);
     if (env && *env)
         snprintf(dirs[n++], PATH_MAX, "%s", env);
     const char *xdg = getenv("XDG_DATA_HOME"), *home = getenv("HOME");
     if (xdg && *xdg)
-        snprintf(dirs[n++], PATH_MAX, "%s/kitheme/presets", xdg);
+        snprintf(dirs[n++], PATH_MAX, "%s/kitheme/%s", xdg, sub);
     else if (home)
-        snprintf(dirs[n++], PATH_MAX, "%s/.local/share/kitheme/presets", home);
-    snprintf(dirs[n++], PATH_MAX, "%s/presets", KITHEME_DATADIR);
-    snprintf(dirs[n++], PATH_MAX, "/usr/share/kitheme/presets");
+        snprintf(dirs[n++], PATH_MAX, "%s/.local/share/kitheme/%s", home, sub);
+    snprintf(dirs[n++], PATH_MAX, "%s/%s", KITHEME_DATADIR, sub);
+    snprintf(dirs[n++], PATH_MAX, "/usr/share/kitheme/%s", sub);
     return n;
 }
 
@@ -255,35 +268,52 @@ static int valid_name(const char *name)
     return name[0] && name[0] != '.' && !strchr(name, '/');
 }
 
-int kt_theme_load_preset(KtTheme *t, const char *name)
+/* Reads the first `NAME.conf` found in the `sub` directories onto `t`. */
+static int load_named(KtTheme *t, const char *sub, const char *envvar, const char *name)
 {
-    kt_theme_defaults(t);
     if (!valid_name(name))
         return 0;
     char dirs[4][PATH_MAX];
-    int n = preset_dirs(dirs);
+    int n = data_dirs(sub, envvar, dirs);
     for (int i = 0; i < n; i++) {
         char path[PATH_MAX + 80];
         if (strlen(dirs[i]) + strlen(name) + 7 > sizeof(path))
             continue;
         snprintf(path, sizeof(path), "%.4000s/%.60s.conf", dirs[i], name);
-        if (read_file(t, path, 0, NULL, 0)) {
-            snprintf(t->preset, sizeof(t->preset), "%s", name);
+        if (read_file(t, path, 0, NULL, 0, NULL, 0))
             return 1;
-        }
     }
     return 0;
 }
 
+int kt_theme_load_preset(KtTheme *t, const char *name)
+{
+    kt_theme_defaults(t);
+    if (!load_named(t, "presets", "KITHEME_PRESETS", name))
+        return 0;
+    snprintf(t->preset, sizeof(t->preset), "%s", name);
+    return 1;
+}
+
+int kt_theme_load_colors(KtTheme *t, const char *name)
+{
+    if (!load_named(t, "colors", "KITHEME_COLORS", name))
+        return 0;
+    snprintf(t->colors, sizeof(t->colors), "%s", name);
+    return 1;
+}
+
 int kt_theme_load_file(KtTheme *t, const char *path)
 {
-    char preset[64] = DEFAULT_PRESET;
+    char preset[64] = DEFAULT_PRESET, colors[64] = DEFAULT_COLORS;
     kt_theme_defaults(t);
-    if (!read_file(t, path, 1, preset, sizeof(preset)))
+    if (!read_file(t, path, 1, preset, sizeof(preset), colors, sizeof(colors)))
         return 0;
     kt_theme_load_preset(t, preset);
+    kt_theme_load_colors(t, colors);
     snprintf(t->preset, sizeof(t->preset), "%s", preset);
-    read_file(t, path, 0, NULL, 0);
+    snprintf(t->colors, sizeof(t->colors), "%s", colors);
+    read_file(t, path, 0, NULL, 0, NULL, 0);
     return 1;
 }
 
@@ -302,6 +332,7 @@ void kt_theme_load_user(KtTheme *t)
     kt_user_conf_path(path, sizeof(path));
     if (!kt_theme_load_file(t, path))
         kt_theme_load_preset(t, DEFAULT_PRESET);
+    kt_theme_load_colors(t, DEFAULT_COLORS);
 }
 
 /* "0.60" -- again without the locale's decimal separator. */
@@ -337,6 +368,7 @@ int kt_theme_save(const KtTheme *t, const char *path)
         return 0;
     fprintf(f, "# KiTheme -- written by kiconf, see kitheme/README.md\n");
     fprintf(f, "preset = %s\n", t->preset);
+    fprintf(f, "colors = %s\n", t->colors);
     for (size_t i = 0; i < NKEYS; i++) {
         const void *p = (const char *)t + keys[i].off;
         char buf[32];
@@ -379,10 +411,10 @@ static int cmp_name(const void *a, const void *b)
     return strcmp((const char *)a, (const char *)b);
 }
 
-int kt_list_presets(char names[][64], int max)
+static int list_names(const char *sub, const char *envvar, char names[][64], int max)
 {
     char dirs[4][PATH_MAX];
-    int nd = preset_dirs(dirs), n = 0;
+    int nd = data_dirs(sub, envvar, dirs), n = 0;
     for (int i = 0; i < nd; i++) {
         DIR *d = opendir(dirs[i]);
         if (!d)
@@ -404,4 +436,65 @@ int kt_list_presets(char names[][64], int max)
     }
     qsort(names, (size_t)n, 64, cmp_name);
     return n;
+}
+
+int kt_list_presets(char names[][64], int max)
+{
+    return list_names("presets", "KITHEME_PRESETS", names, max);
+}
+
+int kt_list_colorschemes(char names[][64], int max)
+{
+    return list_names("colors", "KITHEME_COLORS", names, max);
+}
+
+/* The user's own scheme file: ~/.local/share/kitheme/colors/NAME.conf. */
+static int user_colors_path(const char *name, char *out, size_t sz)
+{
+    if (!valid_name(name) || strlen(name) >= 60)
+        return 0;
+    const char *xdg = getenv("XDG_DATA_HOME"), *home = getenv("HOME");
+    if (xdg && *xdg)
+        snprintf(out, sz, "%.3000s/kitheme/colors/%s.conf", xdg, name);
+    else if (home)
+        snprintf(out, sz, "%.3000s/.local/share/kitheme/colors/%s.conf", home, name);
+    else
+        return 0;
+    return 1;
+}
+
+int kt_colors_is_user(const char *name)
+{
+    char path[PATH_MAX];
+    return user_colors_path(name, path, sizeof(path)) && access(path, F_OK) == 0;
+}
+
+int kt_colors_delete(const char *name)
+{
+    char path[PATH_MAX];
+    return user_colors_path(name, path, sizeof(path)) && remove(path) == 0;
+}
+
+int kt_theme_save_colors(const KtTheme *t, const char *name)
+{
+    char path[PATH_MAX], tmp[PATH_MAX + 8];
+    if (!user_colors_path(name, path, sizeof(path)) || !mkdir_parents(path))
+        return 0;
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    FILE *f = fopen(tmp, "w");
+    if (!f)
+        return 0;
+    fprintf(f, "# KiTheme color scheme -- written by kiconf\n");
+    for (size_t i = 0; i < NKEYS; i++) {
+        if (keys[i].type != K_COLOR)
+            continue;
+        char buf[8];
+        kt_color_hex(*(const KtColor *)((const char *)t + keys[i].off), buf);
+        fprintf(f, "%s = %s\n", keys[i].name, buf);
+    }
+    if (fclose(f) != 0) {
+        remove(tmp);
+        return 0;
+    }
+    return rename(tmp, path) == 0;
 }

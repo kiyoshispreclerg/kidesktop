@@ -4,7 +4,8 @@
 #   gtk2/      libkitheme.so, the GTK2 engine
 #   export/    kitheme-export: GTK2 gtkrc + GTK3/GTK4 CSS + PNG assets
 #   qt/        kitheme.so, the QStyle plugin, built for Qt5 and Qt6 when found
-#   presets/   oxygen, classic, flat
+#   presets/   oxygen, classic, flat (shape only)
+#   colors/    claro, escuro, classico (color schemes)
 # `make` also generates build/KiTheme (the oxygen preset), the copy that
 # gets installed system-wide so the theme is listed before anyone exports.
 CFLAGS ?= -Wall -Wextra -O2
@@ -78,13 +79,13 @@ qt/qt6/kitheme.so: qt/kt_qt.cpp qt/qt6/kt_qt.moc qt/kitheme.json core/libkitheme
 	$(CXX) $(CXXFLAGS) $(QT_CXXFLAGS) $(QT6_CFLAGS) -Iqt -Iqt/qt6 -shared -Wl,--no-undefined -o $@ qt/kt_qt.cpp \
 		core/libkitheme.a $(QT6_LIBS) $(shell pkg-config --libs cairo) -lm
 
-build/KiTheme/index.theme: export/kitheme-export presets/oxygen.conf
-	KITHEME_PRESETS=presets ./export/kitheme-export --preset oxygen --dest build/KiTheme
+build/KiTheme/index.theme: export/kitheme-export presets/oxygen.conf colors/claro.conf
+	KITHEME_PRESETS=presets KITHEME_COLORS=colors ./export/kitheme-export --preset oxygen --dest build/KiTheme
 
 install: all
 	install -Dm755 export/kitheme-export $(DESTDIR)$(BINDIR)/kitheme-export
 	install -Dm644 gtk2/libkitheme.so $(DESTDIR)$(GTK2_ENGINEDIR)/libkitheme.so
-	for p in presets/*.conf; do install -Dm644 $$p $(DESTDIR)$(KITHEME_DATADIR)/$$p; done
+	for p in presets/*.conf colors/*.conf; do install -Dm644 $$p $(DESTDIR)$(KITHEME_DATADIR)/$$p; done
 	$(if $(HAVE_QT5),install -Dm644 qt/qt5/kitheme.so $(DESTDIR)$(QT5_PLUGINDIR)/styles/kitheme.so)
 	$(if $(HAVE_QT6),install -Dm644 qt/qt6/kitheme.so $(DESTDIR)$(QT6_PLUGINDIR)/styles/kitheme.so)
 	cd build/KiTheme && find . -type f | while read f; do \
