@@ -527,7 +527,14 @@ GtkWidget *build_janelas_tab(void)
     g_osd_pointer_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_osd_pointer_chk), c.osd_output_follows_pointer);
     labeled_row(osd_table, 3, "Abrir sempre na saida do ponteiro:", g_osd_pointer_chk);
-    g_osd_order_combo = make_options_combo(OSD_ORDER_OPTS, c.osd_order);
+    /* Plain-language labels; combo_text() still maps the row index to the
+     * "list"/"mru" value kiwm.conf wants. */
+    g_osd_order_combo = gtk_combo_box_new_text();
+    gtk_combo_box_append_text(GTK_COMBO_BOX(g_osd_order_combo), _("Ordem de abertura das janelas"));
+    gtk_combo_box_append_text(GTK_COMBO_BOX(g_osd_order_combo), _("Usadas mais recentemente primeiro"));
+    gtk_combo_box_set_active(GTK_COMBO_BOX(g_osd_order_combo), strcmp(c.osd_order, "mru") == 0 ? 1 : 0);
+    gtk_widget_set_tooltip_text(g_osd_order_combo, _("Com \"usadas mais recentemente primeiro\", um unico Tab "
+                                                     "volta pra janela anterior"));
     labeled_row(osd_table, 4, "Ordem da lista de janelas:", g_osd_order_combo);
     g_osd_deskwin_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_osd_deskwin_chk), c.osd_desktop_windows);

@@ -17,8 +17,10 @@
  * here at all and are carried over from the existing file untouched. */
 #include "../common.h"
 #include "../tabs.h"
+#include "../../shared/xis_outputs.h"
 
 #include <errno.h>
+#include <gdk/gdkx.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -267,6 +269,7 @@ static void write_opts(FILE *out, const char *opts)
 /* Widgets */
 static GtkWidget *g_status_label;
 static GtkWidget *g_effects_chk, *g_anim_spin, *g_renderer_combo, *g_presenter_combo;
+static GtkWidget *g_single_drawable_warn;
 static GtkWidget *g_single_drawable_chk, *g_skip_wm_layers_chk, *g_unredirect_chk;
 static GtkWidget *g_claim_spin, *g_keep_hidden_chk, *g_live_windows_combo, *g_density_chk;
 static GtkWidget *g_sh_enabled_chk, *g_sh_windows_entry, *g_sh_passive_entry, *g_sh_radius_spin, *g_sh_opacity_spin;
@@ -343,6 +346,22 @@ static const char *const ORIGIN2_OPTS[] = {"window", "pointer", NULL};
 static const char *const CROSSING_OPTS[] = {"fade", "hide", NULL};
 static const char *const ARRANGE_OPTS[] = {"stack", "grid", NULL};
 static const char *const CORNER_OPTS[] = {"top-left", "top-right", "bottom-left", "bottom-right", NULL};
+/* One drawable for every screen means one frame clock and one present for
+ * all of them, so a faster monitor is held to the slowest one's rate (the
+ * classic X compositing limit; kicomp's default of one drawable per output
+ * avoids it). Only worth saying when there is more than one screen. */
+static void sync_single_drawable_warn(void)
+{
+    Display *dpy = GDK_DISPLAY_XDISPLAY(gdk_display_get_default());
+    XisOutput outs[XIS_MAX_OUTPUTS];
+    int multi = xis_list_outputs(dpy, outs, XIS_MAX_OUTPUTS, 0) > 1;
+    if (multi && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_single_drawable_chk))) {
+        gtk_widget_show(g_single_drawable_warn);
+    } else {
+        gtk_widget_hide(g_single_drawable_warn);
+    }
+}
+
 static const char *const ORDER_OPTS[] = {"stack", "alpha", "mru", NULL};
 
 static const EffectField GEOMETRY_FIELDS[] = {
@@ -1056,8 +1075,26 @@ GtkWidget *build_efeitos_tab(void)
     gtk_widget_set_tooltip_text(g_presenter_combo, _("present/copy"));
     g_single_drawable_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_single_drawable_chk), g.single_drawable);
-    labeled_row(general_table, 4, "Unico drawable:", g_single_drawable_chk);
+    a11y_name(g_single_drawable_chk, _("Unico drawable"));
+    GtkWidget *single_box = gtk_vbox_new(FALSE, 2);
+    gtk_box_pack_start(GTK_BOX(single_box), g_single_drawable_chk, FALSE, FALSE, 0);
+    g_single_drawable_warn = gtk_label_new(_("Com mais de uma tela, todas sao atualizadas juntas: uma tela "
+                                             "mais rapida fica limitada ao ritmo da mais lenta."));
+    gtk_label_set_line_wrap(GTK_LABEL(g_single_drawable_warn), TRUE);
+    gtk_misc_set_alignment(GTK_MISC(g_single_drawable_warn), 0.0, 0.5);
+    gtk_widget_set_size_request(g_single_drawable_warn, 260, -1);
+    {
+        PangoAttrList *attrs = pango_attr_list_new();
+        pango_attr_list_insert(attrs, pango_attr_scale_new(PANGO_SCALE_SMALL));
+        gtk_label_set_attributes(GTK_LABEL(g_single_drawable_warn), attrs);
+        pango_attr_list_unref(attrs);
+    }
+    gtk_widget_set_no_show_all(g_single_drawable_warn, TRUE);
+    gtk_box_pack_start(GTK_BOX(single_box), g_single_drawable_warn, FALSE, FALSE, 0);
+    labeled_row(general_table, 4, "Unico drawable:", single_box);
     gtk_widget_set_tooltip_text(g_single_drawable_chk, _("Compor tudo em um unico drawable"));
+    g_signal_connect(g_single_drawable_chk, "toggled", G_CALLBACK(sync_single_drawable_warn), NULL);
+    sync_single_drawable_warn();
     g_skip_wm_layers_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_skip_wm_layers_chk), g.skip_wm_layers);
     labeled_row(general_table, 5, "Ignorar decoracao WM:", g_skip_wm_layers_chk);
