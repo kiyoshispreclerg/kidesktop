@@ -1587,6 +1587,52 @@ static void setup_a11y_env(void)
     setenv("QT_LINUX_ACCESSIBILITY_ALWAYS_ON", "1", 1);
 }
 
+/* The QStyle Qt applications use. The platform theme chosen below decides
+ * colors and fonts but not the style (the gtk3 one always says Fusion), so
+ * kiconfd.conf's qt_style goes out as QT_STYLE_OVERRIDE -- for this
+ * session only, like the rest. Before kiconfd has ever written the file
+ * this follows its default: KiTheme when installed. Read once at login: a
+ * new choice reaches Qt applications from the next session on. Never
+ * overrides a value the user set themselves. */
+static void setup_qt_style(void)
+{
+    const char *existing = getenv("QT_STYLE_OVERRIDE");
+    if (existing && *existing)
+        return;
+    char path[PATH_MAX], style[128] = "";
+    const char *xdg = getenv("XDG_CONFIG_HOME");
+    if (xdg && *xdg)
+        snprintf(path, sizeof(path), "%s/kiconfd.conf", xdg);
+    else
+        snprintf(path, sizeof(path), "%s/.config/kiconfd.conf", env_or("HOME", "/tmp"));
+    FILE *f = fopen(path, "r");
+    if (f) {
+        char line[LINE_LEN];
+        while (fgets(line, sizeof(line), f)) {
+            char *k = line;
+            while (*k == ' ' || *k == '\t')
+                k++;
+            if (strncmp(k, "qt_style", 8) != 0)
+                continue;
+            char *eq = strchr(k + 8, '=');
+            if (!eq)
+                continue;
+            char *v = eq + 1;
+            while (*v == ' ' || *v == '\t')
+                v++;
+            v[strcspn(v, " \t\r\n")] = '\0';
+            snprintf(style, sizeof(style), "%s", v);
+        }
+        fclose(f);
+    }
+    if (!style[0] && access("/usr/share/themes/KiTheme/gtk-2.0/gtkrc", R_OK) == 0)
+        snprintf(style, sizeof(style), "KiTheme");
+    if (!style[0])
+        return;
+    setenv("QT_STYLE_OVERRIDE", style, 1);
+    fprintf(stderr, "kisession: QT_STYLE_OVERRIDE=%s\n", style);
+}
+
 /* Qt reads its appearance from whatever QT_QPA_PLATFORMTHEME names, and
  * nothing else sets it -- so without this everything kiconfd writes for Qt
  * is inert, which is exactly what "the session doesn't start with my
@@ -1687,6 +1733,7 @@ static void setup_environment(char **argv)
     setenv("XDG_SESSION_TYPE", "x11", 1);
     setup_data_dirs();
     setup_qt_platformtheme();
+    setup_qt_style();
     setup_gtk_modules();
     setup_a11y_env();
     if (getenv("GTK_MODULES")) {
@@ -1739,7 +1786,7 @@ static void setup_environment(char **argv)
     static const char *const upd[] = {
         "dbus-update-activation-environment", "--systemd", "DISPLAY", "XAUTHORITY",
         "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", "XDG_DATA_DIRS",
-        "QT_QPA_PLATFORMTHEME", "GTK_MODULES", "QT_ACCESSIBILITY", "QT_LINUX_ACCESSIBILITY_ALWAYS_ON", NULL,
+        "QT_QPA_PLATFORMTHEME", "QT_STYLE_OVERRIDE", "GTK_MODULES", "QT_ACCESSIBILITY", "QT_LINUX_ACCESSIBILITY_ALWAYS_ON", NULL,
     };
     char found[PATH_MAX];
     if (find_in_path(upd[0], found, sizeof(found))) {
