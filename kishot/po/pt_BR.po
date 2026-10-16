@@ -1,0 +1,428 @@
+# Portuguese (Brazil) translations for kishot.
+# This file is distributed under the same license as the kishot package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: kishot\n"
+"Report-Msgid-Bugs-To: \n"
+"PO-Revision-Date: 2026-10-16 13:10-0300\n"
+"Last-Translator: Automatically generated\n"
+"Language-Team: none\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#: kishot.c:20
+#, c-format
+msgid ""
+"kishot %s - screenshots and screen recording\n"
+"\n"
+"Usage: kishot [OPTION]...\n"
+"With no area option, the area used last time is captured.\n"
+"\n"
+"  -f, --fullscreen     every monitor\n"
+"  -m, --current        the monitor under the pointer\n"
+"  -a, --activewindow   the active window\n"
+"  -r, --region         a rectangle selected with the mouse\n"
+"  -b, --background     save without showing the window\n"
+"  -R, --record         start recording the area, or stop the recording\n"
+"  -h, --help           show this help\n"
+"  -v, --version        show the version\n"
+msgstr "kishot %s - capturas e gravação de tela\n\nUso: kishot [OPÇÃO]...\nSem opção de área, é capturada a área usada da última vez.\n\n  -f, --fullscreen     todos os monitores\n  -m, --current        o monitor sob o ponteiro\n  -a, --activewindow   a janela ativa\n  -r, --region         um retângulo selecionado com o mouse\n  -b, --background     salva sem mostrar a janela\n  -R, --record         começa a gravar a área, ou para a gravação\n  -h, --help           mostra esta ajuda\n  -v, --version        mostra a versão\n"
+
+#: kishot.c:147
+#, c-format
+msgid "kishot: unknown option '%s' (try --help)\n"
+msgstr "kishot: opção desconhecida '%s' (tente --help)\n"
+
+#: ks_prefs.c:98 ks_prefs.c:174
+msgid "libav plugin"
+msgstr "Plugin libav"
+
+#: ks_prefs.c:98
+msgid "loaded"
+msgstr "carregado"
+
+#: ks_prefs.c:98 ks_prefs.c:100 ks_prefs.c:101
+msgid "not available"
+msgstr "indisponível"
+
+#: ks_prefs.c:99 ks_prefs.c:174
+msgid "ffmpeg command"
+msgstr "Comando ffmpeg"
+
+#: ks_prefs.c:99
+msgid "found"
+msgstr "encontrado"
+
+#: ks_prefs.c:99
+msgid "not found"
+msgstr "não encontrado"
+
+#: ks_prefs.c:100
+msgid "VAAPI (GPU encoding)"
+msgstr "VAAPI (codificação na GPU)"
+
+#: ks_prefs.c:100 ks_prefs.c:101
+msgid "available"
+msgstr "disponível"
+
+#: ks_prefs.c:101
+msgid "Sound (libpulse)"
+msgstr "Som (libpulse)"
+
+#: ks_prefs.c:119 ks_prefs.c:157
+msgid "Save _in:"
+msgstr "Salvar _em:"
+
+#: ks_prefs.c:134
+msgid "Image _format:"
+msgstr "_Formato da imagem:"
+
+#: ks_prefs.c:136
+msgid "_JPEG quality:"
+msgstr "Qualidade do _JPEG:"
+
+#: ks_prefs.c:138
+msgid "File _name:"
+msgstr "_Nome do arquivo:"
+
+#: ks_prefs.c:140
+msgid ""
+"strftime() pattern: %Y year, %m month, %d day, %H%M%S time. The extension is "
+"added automatically."
+msgstr "Padrão do strftime(): %Y ano, %m mês, %d dia, %H%M%S hora. A extensão é acrescentada automaticamente."
+
+#: ks_prefs.c:142
+msgid "Save _automatically after taking a screenshot"
+msgstr "Salvar _automaticamente depois de capturar"
+
+#: ks_prefs.c:146
+msgid "Copy to the _clipboard automatically"
+msgstr "Copiar para a área de _transferência automaticamente"
+
+#: ks_prefs.c:159
+msgid "Con_tainer:"
+msgstr "Con_têiner:"
+
+#: ks_prefs.c:160
+msgid "mkv survives a crash mid-recording; webm needs VP8/VP9/AV1"
+msgstr "mkv sobrevive a uma queda no meio da gravação; webm exige VP8/VP9/AV1"
+
+#: ks_prefs.c:161
+msgid "Video _codec:"
+msgstr "_Codec de vídeo:"
+
+#: ks_prefs.c:162
+msgid "auto: the GPU (VAAPI) when available, else x264"
+msgstr "auto: a GPU (VAAPI) quando disponível, senão x264"
+
+#: ks_prefs.c:163
+msgid "_Quality (0 best, 51 worst):"
+msgstr "_Qualidade (0 melhor, 51 pior):"
+
+#: ks_prefs.c:165
+msgid "_Frames per second:"
+msgstr "_Quadros por segundo:"
+
+#: ks_prefs.c:167 ks_prefs.c:174
+msgid "Automatic"
+msgstr "Automático"
+
+#: ks_prefs.c:167 ks_rec.c:992
+msgid "GPU copy"
+msgstr "Cópia na GPU"
+
+#: ks_prefs.c:167
+msgid "SHM (classic)"
+msgstr "SHM (clássico)"
+
+#: ks_prefs.c:168
+msgid "Screen c_opy method:"
+msgstr "Método de c_ópia da tela:"
+
+#: ks_prefs.c:171
+msgid ""
+"GPU copy has the X server copy the screen into a buffer the GPU encodes "
+"directly, without reading it back. Automatic uses it only when the server "
+"guarantees it (XiS); forcing it on another server can freeze the video."
+msgstr "A cópia na GPU faz o servidor X copiar a tela para um buffer que a GPU codifica direto, sem ler de volta. O automático só a usa quando o servidor garante que funciona (XiS); forçá-la em outro servidor pode congelar o vídeo."
+
+#: ks_prefs.c:175
+msgid "_Encoder:"
+msgstr "Codifi_cador:"
+
+#: ks_prefs.c:177
+msgid "Record the mouse _pointer"
+msgstr "Gravar o _ponteiro do mouse"
+
+#: ks_prefs.c:195
+msgid ""
+"Windows listed here are painted black in every screenshot and recording "
+"kishot makes; parts covered by other windows stay visible. The screen itself "
+"is not changed, and other capture programs still see them. Windows can also "
+"be hidden for this session from the main window."
+msgstr "As janelas listadas aqui saem pintadas de preto em toda captura e gravação do kishot; as partes cobertas por outras janelas continuam visíveis. A tela em si não muda, e outros programas de captura ainda as veem. Também dá para ocultar janelas só nesta sessão, pela janela principal."
+
+#: ks_prefs.c:201
+msgid "Always hide window _classes:"
+msgstr "Sempre ocultar as _classes de janela:"
+
+#: ks_prefs.c:205
+msgid "Comma-separated WM_CLASS names, e.g. KeePassXC, Signal"
+msgstr "Nomes de WM_CLASS separados por vírgula, por exemplo KeePassXC, Signal"
+
+#: ks_prefs.c:206
+msgid "Also hide their _menus and tooltips"
+msgstr "Ocultar também os _menus e dicas delas"
+
+#: ks_prefs.c:221
+msgid "kishot Settings"
+msgstr "Configurações do kishot"
+
+#: ks_prefs.c:226
+msgid "Screenshots"
+msgstr "Capturas"
+
+#: ks_prefs.c:227 ks_window.c:648
+msgid "Recording"
+msgstr "Gravação"
+
+#: ks_prefs.c:228
+msgid "Hidden Windows"
+msgstr "Janelas ocultas"
+
+#: ks_rec.c:171
+msgid "the libav plugin (kishot-rec-av.so) could not be loaded"
+msgstr "não foi possível carregar o plugin libav (kishot-rec-av.so)"
+
+#: ks_rec.c:173
+msgid "install ffmpeg to record the screen"
+msgstr "instale o ffmpeg para gravar a tela"
+
+#: ks_rec.c:175
+msgid "no usable video encoder was found"
+msgstr "nenhum codificador de vídeo utilizável foi encontrado"
+
+#: ks_rec.c:703
+#, c-format
+msgid "ffmpeg failed: %s"
+msgstr "o ffmpeg falhou: %s"
+
+#: ks_rec.c:703
+msgid "unknown error"
+msgstr "erro desconhecido"
+
+#: ks_rec.c:818 ks_rec.c:835
+msgid "the video encoder failed"
+msgstr "o codificador de vídeo falhou"
+
+#: ks_rec.c:826
+msgid "could not read the screen"
+msgstr "não foi possível ler a tela"
+
+#: ks_rec.c:842
+msgid "ffmpeg stopped accepting frames"
+msgstr "o ffmpeg parou de aceitar quadros"
+
+#: ks_rec.c:895
+msgid "already recording"
+msgstr "já está gravando"
+
+#: ks_rec.c:905
+#, c-format
+msgid "the encoder \"%s\" is not available for %s files"
+msgstr "o codificador \"%s\" não está disponível para arquivos %s"
+
+#: ks_rec.c:925
+msgid "could not connect to the X server"
+msgstr "não foi possível conectar ao servidor X"
+
+#: ks_rec.c:945
+msgid "SHM (the server does not guarantee root copies)"
+msgstr "SHM (o servidor não garante cópias da raiz)"
+
+#: ks_rec.c:947
+msgid "SHM (GPU copy unavailable: no DRI3)"
+msgstr "SHM (cópia na GPU indisponível: sem DRI3)"
+
+#: ks_rec.c:950
+msgid "MIT-SHM is not available"
+msgstr "MIT-SHM não está disponível"
+
+#: ks_rec.c:982
+msgid "SHM (the dma-buf import failed)"
+msgstr "SHM (a importação do dma-buf falhou)"
+
+#: ks_rec.c:994
+msgid " (no audio: libpulse missing)"
+msgstr " (sem áudio: falta a libpulse)"
+
+#: ks_rec.c:998
+#, c-format
+msgid "%s → ffmpeg %s%s"
+msgstr "%s → ffmpeg %s%s"
+
+#: ks_rec.c:999
+msgid " (no audio: ffmpeg lacks pulse)"
+msgstr " (sem áudio: o ffmpeg não tem pulse)"
+
+#: ks_region.c:64
+msgid "Drag to select a region. Esc cancels."
+msgstr "Arraste para selecionar uma região. Esc cancela."
+
+#: ks_window.c:151 ks_window.c:198
+#, c-format
+msgid "Saved to %s"
+msgstr "Salvo em %s"
+
+#: ks_window.c:152 ks_window.c:199
+#, c-format
+msgid "Could not save: %s"
+msgstr "Não foi possível salvar: %s"
+
+#: ks_window.c:155
+msgid "Screenshot failed"
+msgstr "A captura falhou"
+
+#: ks_window.c:155
+msgid "Screenshot saved"
+msgstr "Captura salva"
+
+#: ks_window.c:173
+msgid "Save Screenshot"
+msgstr "Salvar captura"
+
+#: ks_window.c:215
+msgid "Copied to the clipboard"
+msgstr "Copiado para a área de transferência"
+
+#: ks_window.c:242
+msgid "The screen could not be read"
+msgstr "Não foi possível ler a tela"
+
+#: ks_window.c:356
+#, c-format
+msgid "Stop (%d:%02d)"
+msgstr "Parar (%d:%02d)"
+
+#: ks_window.c:359
+#, c-format
+msgid ""
+"Recording %d:%02d -- click to stop\n"
+"%s"
+msgstr "Gravando %d:%02d -- clique para parar\n%s"
+
+#: ks_window.c:366 ks_window.c:657
+msgid "Record"
+msgstr "Gravar"
+
+#: ks_window.c:395
+#, c-format
+msgid "Recording saved to %s"
+msgstr "Gravação salva em %s"
+
+#: ks_window.c:396 ks_window.c:425
+#, c-format
+msgid "Recording failed: %s"
+msgstr "A gravação falhou: %s"
+
+#: ks_window.c:399 ks_window.c:428
+msgid "Recording failed"
+msgstr "A gravação falhou"
+
+#: ks_window.c:399
+msgid "Recording saved"
+msgstr "Gravação salva"
+
+#: ks_window.c:480
+msgid "Recording sound needs libpulse (or ffmpeg built with pulse)"
+msgstr "Gravar som exige a libpulse (ou um ffmpeg compilado com pulse)"
+
+#: ks_window.c:611
+msgid "Capture"
+msgstr "Captura"
+
+#: ks_window.c:615
+msgid "_Area:"
+msgstr "_Área:"
+
+#: ks_window.c:619
+msgid "Full screen (all monitors)"
+msgstr "Tela inteira (todos os monitores)"
+
+#: ks_window.c:620
+msgid "Current monitor"
+msgstr "Monitor atual"
+
+#: ks_window.c:621
+msgid "Active window"
+msgstr "Janela ativa"
+
+#: ks_window.c:622
+msgid "Rectangular region"
+msgstr "Região retangular"
+
+#: ks_window.c:627
+msgid "_Delay:"
+msgstr "_Atraso:"
+
+#: ks_window.c:637
+msgid "Include the mouse _pointer"
+msgstr "Incluir o _ponteiro do mouse"
+
+#: ks_window.c:641
+msgid "Include window _borders"
+msgstr "Incluir as _bordas da janela"
+
+#: ks_window.c:645
+msgid "_New Screenshot"
+msgstr "_Nova captura"
+
+#: ks_window.c:649
+msgid "_System sound"
+msgstr "Som do _sistema"
+
+#: ks_window.c:653
+msgid "_Microphone"
+msgstr "_Microfone"
+
+#: ks_window.c:660
+msgid "Hidden windows"
+msgstr "Janelas ocultas"
+
+#: ks_window.c:669
+msgid ""
+"These windows are painted black in screenshots and recordings. The screen "
+"itself is not changed."
+msgstr "Estas janelas saem pintadas de preto nas capturas e gravações. A tela em si não muda."
+
+#: ks_window.c:678
+msgid "_Hide a Window..."
+msgstr "_Ocultar janela..."
+
+#: ks_window.c:680
+msgid "Remo_ve"
+msgstr "Remo_ver"
+
+#: ks_window.c:687
+msgid "Settings"
+msgstr "Configurações"
+
+#: ks_window.c:693
+msgid "_Open Folder"
+msgstr "A_brir pasta"
+
+#: ks_window.c:695
+msgid "_Copy"
+msgstr "_Copiar"
+
+#: ks_window.c:697
+msgid "Save _As..."
+msgstr "Salvar _como..."
+
+#: ks_window.c:699
+msgid "_Save"
+msgstr "_Salvar"
