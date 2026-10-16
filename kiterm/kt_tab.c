@@ -187,6 +187,19 @@ static gboolean on_button_press(GtkWidget *wd, GdkEventButton *ev, gpointer data
     return FALSE;
 }
 
+/* Ctrl+wheel zooms the font, like Ctrl+Plus / Ctrl+Minus. */
+static gboolean on_scroll(GtkWidget *wd, GdkEventScroll *ev, gpointer data)
+{
+    (void)wd;
+    if ((ev->state & gtk_accelerator_get_default_mod_mask()) != GDK_CONTROL_MASK)
+        return FALSE;
+    if (ev->direction == GDK_SCROLL_UP)
+        kt_window_zoom(data, 1);
+    else if (ev->direction == GDK_SCROLL_DOWN)
+        kt_window_zoom(data, -1);
+    return TRUE;
+}
+
 /* Dropped files become shell-quoted paths, not the file:// URIs VTE's own
  * handler would type. */
 static void on_drag_data(GtkWidget *wd, GdkDragContext *ctx, gint x, gint y, GtkSelectionData *sel,
@@ -267,6 +280,7 @@ GtkWidget *kt_tab_create(KtWindow *w, const char *cwd, char **argv)
     g_signal_connect(t, "child-exited", G_CALLBACK(on_child_exited), w);
     g_signal_connect(t, "beep", G_CALLBACK(on_beep), w);
     g_signal_connect(t, "button-press-event", G_CALLBACK(on_button_press), w);
+    g_signal_connect(t, "scroll-event", G_CALLBACK(on_scroll), w);
     g_signal_connect(t, "drag-data-received", G_CALLBACK(on_drag_data), w);
 
     /* Command: the -e argv, else the configured shell, else $SHELL. */

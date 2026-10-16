@@ -13,7 +13,8 @@ GTK2 series -- present on Ubuntu 22.04/24.04, Debian 12/13 and Devuan 5/6).
   window (only if it ran at least `notify_done_secs`, default 10 s; the
   background watch only runs while the window is unfocused or has several tabs)
 - Ctrl+click opens URLs, dropped files are pasted as quoted paths
-- Zoom with `Ctrl+Plus` / `Ctrl+Minus` / `Ctrl+0`
+- Zoom with `Ctrl+Plus` / `Ctrl+Minus` / `Ctrl+0` or `Ctrl`+mouse wheel; font
+  family and size are in Preferences
 
 Shortcuts: `Ctrl+Shift+T` new tab, `+N` new window, `+W` close tab, `+C`/`+V`
 copy/paste, `+R` rename tab, `+,` preferences, `Ctrl+PgUp/PgDn` switch tab,
