@@ -426,6 +426,17 @@ static void m_reset(GtkMenuItem *i, gpointer d)
     vte_terminal_reset(VTE_TERMINAL(d), TRUE, TRUE);
 }
 
+static void lm_rename(GtkMenuItem *i, gpointer d)
+{
+    KtWindow *w = g_object_get_data(G_OBJECT(i), "kt-window");
+    kt_tab_rename(w, VTE_TERMINAL(d));
+}
+static void lm_close(GtkMenuItem *i, gpointer d)
+{
+    KtWindow *w = g_object_get_data(G_OBJECT(i), "kt-window");
+    kt_window_close_tab(w, GTK_WIDGET(d));
+}
+
 static void add_item(GtkWidget *menu, const char *label, GCallback cb, gpointer data, gboolean sens)
 {
     GtkWidget *mi = gtk_menu_item_new_with_mnemonic(label);
@@ -462,4 +473,21 @@ void kt_tab_popup_menu(KtWindow *w, VteTerminal *t, GdkEventButton *ev)
     g_signal_connect(menu, "selection-done", G_CALLBACK(gtk_widget_destroy), NULL);
     gtk_menu_popup(GTK_MENU(menu), NULL, NULL, NULL, NULL, ev ? ev->button : 0,
                    ev ? ev->time : gtk_get_current_event_time());
+}
+
+/* Context menu of a tab label: acts on that tab, not the current one. */
+void kt_tab_label_menu(KtWindow *w, VteTerminal *t, GdkEventButton *ev)
+{
+    GtkWidget *menu = gtk_menu_new();
+    GtkWidget *mi = gtk_menu_item_new_with_mnemonic(_("_Rename tab..."));
+    g_object_set_data(G_OBJECT(mi), "kt-window", w);
+    g_signal_connect(mi, "activate", G_CALLBACK(lm_rename), t);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), mi);
+    mi = gtk_menu_item_new_with_mnemonic(_("C_lose tab"));
+    g_object_set_data(G_OBJECT(mi), "kt-window", w);
+    g_signal_connect(mi, "activate", G_CALLBACK(lm_close), t);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), mi);
+    gtk_widget_show_all(menu);
+    g_signal_connect(menu, "selection-done", G_CALLBACK(gtk_widget_destroy), NULL);
+    gtk_menu_popup(GTK_MENU(menu), NULL, NULL, NULL, NULL, ev->button, ev->time);
 }

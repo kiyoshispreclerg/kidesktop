@@ -334,12 +334,9 @@ static gboolean on_expose_clear(GtkWidget *win, GdkEventExpose *ev, gpointer dat
     return FALSE;
 }
 
-static gboolean on_tab_click(GtkWidget *nb, GdkEventButton *ev, gpointer data)
+/* The terminal whose tab label is under the pointer, or NULL. */
+static GtkWidget *tab_at(GtkWidget *nb, GdkEventButton *ev)
 {
-    KtWindow *w = data;
-    /* Middle click on the empty tab-bar area opens a tab; on a tab, closes. */
-    if (ev->type != GDK_BUTTON_PRESS || ev->button != 2)
-        return FALSE;
     GtkNotebook *n = GTK_NOTEBOOK(nb);
     for (int i = 0; i < gtk_notebook_get_n_pages(n); i++) {
         GtkWidget *page = gtk_notebook_get_nth_page(n, i);
@@ -348,8 +345,31 @@ static gboolean on_tab_click(GtkWidget *nb, GdkEventButton *ev, gpointer data)
         gtk_widget_get_allocation(lab, &a);
         gint x, y;
         gtk_widget_translate_coordinates(nb, lab, (gint)ev->x, (gint)ev->y, &x, &y);
-        if (x >= 0 && y >= 0 && x < a.width && y < a.height) {
+        if (x >= 0 && y >= 0 && x < a.width && y < a.height)
+            return page;
+    }
+    return NULL;
+}
+
+static gboolean on_tab_click(GtkWidget *nb, GdkEventButton *ev, gpointer data)
+{
+    KtWindow *w = data;
+    /* Middle click on a tab closes it, double click renames it, right click
+     * opens its menu. */
+    GtkWidget *page;
+    if (ev->button == 2 && ev->type == GDK_BUTTON_PRESS) {
+        if ((page = tab_at(nb, ev))) {
             kt_window_close_tab(w, page);
+            return TRUE;
+        }
+    } else if (ev->button == 1 && ev->type == GDK_2BUTTON_PRESS) {
+        if ((page = tab_at(nb, ev))) {
+            kt_tab_rename(w, VTE_TERMINAL(page));
+            return TRUE;
+        }
+    } else if (ev->button == 3 && ev->type == GDK_BUTTON_PRESS) {
+        if ((page = tab_at(nb, ev))) {
+            kt_tab_label_menu(w, VTE_TERMINAL(page), ev);
             return TRUE;
         }
     }

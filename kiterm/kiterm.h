@@ -7,7 +7,7 @@
 #include <vte/vte.h>
 #include "kt_config.h"
 
-#define KITERM_VERSION "0.1.2"
+#define KITERM_VERSION "0.1.3"
 
 typedef struct KtWindow {
     GtkWidget *win;
@@ -48,6 +48,7 @@ void kt_tab_job_done(KtWindow *w, VteTerminal *t);
 gint64 kt_tab_age_us(VteTerminal *t);
 void kt_window_poll_update(KtWindow *w);
 void kt_tab_rename(KtWindow *w, VteTerminal *t);
+void kt_tab_label_menu(KtWindow *w, VteTerminal *t, GdkEventButton *ev);
 void kt_tab_popup_menu(KtWindow *w, VteTerminal *t, GdkEventButton *ev);
 
 /* kt_search.c */
