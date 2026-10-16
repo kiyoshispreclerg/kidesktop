@@ -106,6 +106,11 @@ entrada, energia e permissões.
 Aplica a configuração central a todos os toolkits que o desktop considera e
 recarrega com SIGHUP.
 
+**[kitheme](kitheme/)** -- um único tema de widgets para GTK2, GTK3, GTK4, Qt5 e
+Qt6, configurado no `kiconf`. Um renderizador pequeno em C por trás de uma
+engine GTK2, um plugin de estilo Qt e CSS gerado para GTK3/4; presets como
+Oxygen, Windows clássico e plano.
+
 **[xismenu](xismenu/)** -- registrador do menu de aplicativos, para que os menus
 globais de Qt/KF5 funcionem sem uma implementação completa de DBusMenu no lado
 do gerenciador de janelas.
