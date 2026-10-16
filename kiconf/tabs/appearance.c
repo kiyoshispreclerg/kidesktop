@@ -280,11 +280,15 @@ static void appearance_defaults(Appearance *a)
     snprintf(a->color_selection_fg, sizeof(a->color_selection_fg), "#ffffff");
     snprintf(a->font_general, sizeof(a->font_general), "Sans 10");
     snprintf(a->font_monospace, sizeof(a->font_monospace), "Monospace 10");
-    snprintf(a->gtk2_theme, sizeof(a->gtk2_theme), "Default");
-    snprintf(a->gtk3_theme, sizeof(a->gtk3_theme), "Adwaita");
-    snprintf(a->gtk4_theme, sizeof(a->gtk4_theme), "Adwaita");
+    /* KiTheme when installed, same check as kiconfd's kitheme_installed(). */
+    char user_kt[PATH_MAX];
+    snprintf(user_kt, sizeof(user_kt), "%s/.themes/KiTheme/gtk-2.0/gtkrc", g_get_home_dir());
+    int kt = access("/usr/share/themes/KiTheme/gtk-2.0/gtkrc", R_OK) == 0 || access(user_kt, R_OK) == 0;
+    snprintf(a->gtk2_theme, sizeof(a->gtk2_theme), "%s", kt ? "KiTheme" : "Default");
+    snprintf(a->gtk3_theme, sizeof(a->gtk3_theme), "%s", kt ? "KiTheme" : "Adwaita");
+    snprintf(a->gtk4_theme, sizeof(a->gtk4_theme), "%s", kt ? "KiTheme" : "Adwaita");
     snprintf(a->icon_theme, sizeof(a->icon_theme), "Adwaita");
-    snprintf(a->qt_style, sizeof(a->qt_style), "Fusion");
+    snprintf(a->qt_style, sizeof(a->qt_style), "%s", kt ? "KiTheme" : "Fusion");
     a->export_other_desktops = 0;
     a->kidesktop_theme[0] = '\0';
 }
@@ -541,6 +545,18 @@ static void combo_select_or_append(GtkWidget *combo, const char *name)
     gtk_combo_box_set_active(GTK_COMBO_BOX(combo), found);
 }
 
+/* KiTheme for every toolkit at once (fill only; Aplicar saves). Its own
+ * look is set in the KiTheme tab. */
+static void use_kitheme_cb(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    (void)data;
+    combo_select_or_append(g_gtk2_combo, "KiTheme");
+    combo_select_or_append(g_gtk3_combo, "KiTheme");
+    combo_select_or_append(g_gtk4_combo, "KiTheme");
+    combo_select_or_append(g_qt_style_combo, "KiTheme");
+}
+
 static void import_appearance_cb(GtkWidget *widget, gpointer data)
 {
     (void)widget;
@@ -653,7 +669,7 @@ GtkWidget *build_appearance_tab(void)
     labeled_row(themes_table, 3, "Tema de icones:", g_icon_combo);
     g_qt_style_combo = gtk_combo_box_new_text();
     {
-        static const char *qt_styles[] = {"Fusion", "Windows", "gtk2", NULL};
+        static const char *qt_styles[] = {"Fusion", "Windows", "gtk2", "KiTheme", NULL};
         int idx = -1;
         for (int i = 0; qt_styles[i]; i++) {
             gtk_combo_box_append_text(GTK_COMBO_BOX(g_qt_style_combo), qt_styles[i]);
@@ -663,12 +679,21 @@ GtkWidget *build_appearance_tab(void)
         }
         if (idx < 0) {
             gtk_combo_box_append_text(GTK_COMBO_BOX(g_qt_style_combo), a.qt_style);
-            idx = 3;
+            idx = 4;
         }
         gtk_combo_box_set_active(GTK_COMBO_BOX(g_qt_style_combo), idx);
     }
     labeled_row(themes_table, 4, "Estilo Qt (aprox.):", g_qt_style_combo);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Temas dos toolkits", themes_table), FALSE, FALSE, 0);
+    GtkWidget *kitheme_btn = gtk_button_new_with_label(_("Usar KiTheme em tudo"));
+    gtk_widget_set_tooltip_text(kitheme_btn, _("Escolhe KiTheme para GTK2, GTK3, GTK4 e Qt (depois clique em Aplicar).\n"
+                                               "A aparencia do KiTheme se ajusta na aba KiTheme."));
+    g_signal_connect(kitheme_btn, "clicked", G_CALLBACK(use_kitheme_cb), NULL);
+    GtkWidget *kitheme_row = gtk_hbox_new(FALSE, 0);
+    gtk_box_pack_end(GTK_BOX(kitheme_row), kitheme_btn, FALSE, FALSE, 0);
+    GtkWidget *themes_box = gtk_vbox_new(FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(themes_box), themes_table, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(themes_box), kitheme_row, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with("Temas dos toolkits", themes_box), FALSE, FALSE, 0);
 
     /* Color palette */
     GtkWidget *colors_table = gtk_table_new(6, 2, FALSE);
