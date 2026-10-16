@@ -26,4 +26,4 @@ Settings are in `~/.config/kiterm.conf` (flat `key=value`, written by the
 preferences dialog). Command line: `kiterm [--working-directory=DIR]
 [--title=T] [--geometry=COLSxROWS] [-e COMMAND ARGS...]`.
 
-Not in 0.1.0: split panes, profiles, X-DENSITY scaling, kiconf tab.
+Not in 0.1.x: split panes, profiles, X-DENSITY scaling, kiconf tab.

@@ -308,16 +308,28 @@ static gboolean on_focus_out(GtkWidget *win, GdkEvent *ev, gpointer data)
 }
 
 /* With an RGBA colormap GTK would paint the theme background opaquely over
- * everything; clear the window to transparent so VTE's own (translucent)
- * background is what shows. */
+ * everything; the window is cleared to transparent only under the terminal
+ * (VTE paints its own translucent background there) and keeps the theme
+ * background everywhere else: tab bar, find bar, borders. */
 static gboolean on_expose_clear(GtkWidget *win, GdkEventExpose *ev, gpointer data)
 {
-    (void)data;
+    KtWindow *w = data;
     cairo_t *cr = gdk_cairo_create(gtk_widget_get_window(win));
     gdk_cairo_region(cr, ev->region);
     cairo_clip(cr);
-    cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
+    gdk_cairo_set_source_color(cr, &gtk_widget_get_style(win)->bg[GTK_STATE_NORMAL]);
     cairo_paint(cr);
+    VteTerminal *t = kt_window_current(w);
+    if (t && gtk_widget_get_mapped(GTK_WIDGET(t))) {
+        GtkAllocation a;
+        gint x, y;
+        gtk_widget_get_allocation(GTK_WIDGET(t), &a);
+        if (gtk_widget_translate_coordinates(GTK_WIDGET(t), win, 0, 0, &x, &y)) {
+            cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
+            cairo_rectangle(cr, x, y, a.width, a.height);
+            cairo_fill(cr);
+        }
+    }
     cairo_destroy(cr);
     return FALSE;
 }
@@ -394,7 +406,7 @@ int main(int argc, char **argv)
         if (rgba && gdk_screen_is_composited(scr)) {
             gtk_widget_set_colormap(w->win, rgba);
             gtk_widget_set_app_paintable(w->win, TRUE);
-            g_signal_connect(w->win, "expose-event", G_CALLBACK(on_expose_clear), NULL);
+            g_signal_connect(w->win, "expose-event", G_CALLBACK(on_expose_clear), w);
             w->argb = TRUE;
         }
     }
