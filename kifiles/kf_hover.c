@@ -103,8 +103,7 @@ static void icon_box(KfPane *p, GtkWidget *w, GtkTreePath *path, int x, int y, G
     gtk_widget_get_allocation(w, &a);
     (void)a;
     int y0 = edge(p, w, path, x, y, FALSE, -1, 600), y1 = edge(p, w, path, x, y, FALSE, +1, 600);
-    int pad = 6;
-    gtk_widget_style_get(w, "item-padding", &pad, NULL);
+    int pad = gtk_icon_view_get_item_padding(iv);
     /* Hit-testing covers only what the cells draw, so the horizontal extent
      * comes from the regular grid instead: every cell is as wide as the text
      * cell we fixed, columns are one pitch apart, starting at the margin. */
@@ -139,9 +138,9 @@ static void icon_box(KfPane *p, GtkWidget *w, GtkTreePath *path, int x, int y, G
         p->hover_row_y1 = bottom;
     }
     r->x = bx;
-    r->width = bw;
+    r->width = bw + 2;                      /* GTK's box is 2 px wider than cells + padding... */
     r->y = p->hover_row_y0 - pad - 1;      /* hit-testing starts 1 px inside the cell */
-    r->height = p->hover_row_y1 - p->hover_row_y0 + 1 + 2 * pad;
+    r->height = p->hover_row_y1 - p->hover_row_y0 + 2 + 2 * pad;   /* ...and 1 px taller */
 }
 
 static void track(KfPane *p, GtkWidget *w, int x, int y)
