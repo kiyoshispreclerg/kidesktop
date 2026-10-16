@@ -53,7 +53,7 @@ static gint64 g_last_action_us;
 static gboolean g_updating;    /* set while populating widgets, so their own signals don't echo back to pactl */
 static char g_signature[4096];
 static GPtrArray *g_players;   /* MPRIS players, refreshed with each pulse snapshot */
-static gboolean g_devs_expanded; /* "Dispositivos": non-default devices shown */
+static gboolean g_devs_expanded[2]; /* "Dispositivos": non-default devices shown, [0] Saída [1] Entrada */
 
 static void rebuild(void);
 
@@ -593,14 +593,35 @@ static GtkWidget *unavailable_placeholder(void)
     return label;
 }
 
-/* collapsible: non-default entries get an "audio-extra" mark so the
- * "mostrar mais/menos" toggle can hide them (a section with no default
- * has nothing to collapse to, so it stays fully shown). */
+/* collapsible: non-default entries get an "audio-extra" mark (section
+ * index + 1) so that section's "mostrar mais/menos" toggle can hide them
+ * (a section with no default has nothing to collapse to, so it stays
+ * fully shown). */
+static void apply_devs_expanded(void)
+{
+    GList *children = gtk_container_get_children(GTK_CONTAINER(g_devs_box));
+    for (GList *l = children; l; l = l->next) {
+        int sec = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(l->data), "audio-extra"));
+        if (sec) {
+            gtk_widget_set_visible(GTK_WIDGET(l->data), g_devs_expanded[sec - 1]);
+        }
+    }
+    g_list_free(children);
+}
+
+static void on_devs_more_clicked(GtkButton *btn, gpointer data)
+{
+    int sec = GPOINTER_TO_INT(data);
+    g_devs_expanded[sec] = !g_devs_expanded[sec];
+    gtk_button_set_label(btn, g_devs_expanded[sec] ? _("Mostrar menos") : _("Mostrar mais"));
+    apply_devs_expanded();
+}
+
 static void add_section(GtkWidget *box, const char *title, GPtrArray *entries, PulseKind kind, gboolean *any,
-                        gboolean collapsible)
+                        int collapsible_section)
 {
     gboolean header_done = FALSE;
-    gboolean has_default = FALSE;
+    gboolean has_default = FALSE, any_extra = FALSE;
     for (guint i = 0; i < entries->len; i++) {
         PulseEntry *e = g_ptr_array_index(entries, i);
         if (e->kind == kind && e->is_default) {
@@ -621,30 +642,20 @@ static void add_section(GtkWidget *box, const char *title, GPtrArray *entries, P
             *any = TRUE;
         }
         GtkWidget *row = build_row(e, entries);
-        if (collapsible && has_default && !e->is_default) {
-            g_object_set_data(G_OBJECT(row), "audio-extra", GINT_TO_POINTER(1));
+        if (collapsible_section && has_default && !e->is_default) {
+            g_object_set_data(G_OBJECT(row), "audio-extra", GINT_TO_POINTER(collapsible_section));
+            any_extra = TRUE;
         }
         gtk_box_pack_start(GTK_BOX(box), row, FALSE, FALSE, 0);
     }
-}
-
-static void apply_devs_expanded(void)
-{
-    GList *children = gtk_container_get_children(GTK_CONTAINER(g_devs_box));
-    for (GList *l = children; l; l = l->next) {
-        if (g_object_get_data(G_OBJECT(l->data), "audio-extra")) {
-            gtk_widget_set_visible(GTK_WIDGET(l->data), g_devs_expanded);
-        }
+    if (any_extra) {
+        gboolean open = g_devs_expanded[collapsible_section - 1];
+        GtkWidget *more = gtk_button_new_with_label(open ? _("Mostrar menos") : _("Mostrar mais"));
+        g_signal_connect(more, "clicked", G_CALLBACK(on_devs_more_clicked), GINT_TO_POINTER(collapsible_section - 1));
+        GtkWidget *hb = gtk_hbox_new(FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(hb), more, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(box), hb, FALSE, FALSE, 4);
     }
-    g_list_free(children);
-}
-
-static void on_devs_more_clicked(GtkButton *btn, gpointer data)
-{
-    (void)data;
-    g_devs_expanded = !g_devs_expanded;
-    gtk_button_set_label(btn, g_devs_expanded ? _("Mostrar menos") : _("Mostrar mais"));
-    apply_devs_expanded();
 }
 
 static void clear_box(GtkWidget *box)
@@ -684,27 +695,11 @@ static void rebuild(void)
     } else {
         g_updating = TRUE;
         gboolean any_apps = FALSE, any_devs = FALSE;
-        add_section(g_apps_box, _("Reproduzindo"), entries, PULSE_SINK_INPUT, &any_apps, FALSE);
-        add_section(g_apps_box, _("Gravando"), entries, PULSE_SOURCE_OUTPUT, &any_apps, FALSE);
-        add_section(g_devs_box, _("Saída"), entries, PULSE_SINK, &any_devs, TRUE);
-        add_section(g_devs_box, _("Entrada"), entries, PULSE_SOURCE, &any_devs, TRUE);
+        add_section(g_apps_box, _("Reproduzindo"), entries, PULSE_SINK_INPUT, &any_apps, 0);
+        add_section(g_apps_box, _("Gravando"), entries, PULSE_SOURCE_OUTPUT, &any_apps, 0);
+        add_section(g_devs_box, _("Saída"), entries, PULSE_SINK, &any_devs, 1);
+        add_section(g_devs_box, _("Entrada"), entries, PULSE_SOURCE, &any_devs, 2);
         g_updating = FALSE;
-
-        gboolean any_extra = FALSE;
-        GList *dc = gtk_container_get_children(GTK_CONTAINER(g_devs_box));
-        for (GList *l = dc; l; l = l->next) {
-            if (g_object_get_data(G_OBJECT(l->data), "audio-extra")) {
-                any_extra = TRUE;
-            }
-        }
-        g_list_free(dc);
-        if (any_extra) {
-            GtkWidget *more = gtk_button_new_with_label(g_devs_expanded ? _("Mostrar menos") : _("Mostrar mais"));
-            g_signal_connect(more, "clicked", G_CALLBACK(on_devs_more_clicked), NULL);
-            GtkWidget *hb = gtk_hbox_new(FALSE, 0);
-            gtk_box_pack_start(GTK_BOX(hb), more, FALSE, FALSE, 0);
-            gtk_box_pack_start(GTK_BOX(g_devs_box), hb, FALSE, FALSE, 4);
-        }
 
         if (!any_apps) add_empty_label(g_apps_box, _("Nenhum aplicativo reproduzindo ou gravando."));
         if (!any_devs) add_empty_label(g_devs_box, _("Nenhum dispositivo de áudio encontrado."));
