@@ -18,9 +18,9 @@ are used when installed).
   closes the window
 - Split view (`F3`): two folders side by side, drag between them
 - Places sidebar (resizable, up to half the window): standard folders, bookmarks (shared with GTK3's
-  `~/.config/gtk-3.0/bookmarks`) and devices with a usage bar. The eject button
-  unmounts and powers the drive off when it can, and says when it is safe to
-  unplug. Unmounted volumes are listed; a click mounts them
+  `~/.config/gtk-3.0/bookmarks`) and devices with a usage bar. Their context menu
+  unmounts, or powers the drive off when it can ("Safely Remove") and says when
+  it is safe to unplug. Unmounted volumes are listed; a click mounts them
 - Copy / cut / paste (interoperable with GNOME/KDE/Thunar file managers),
   drag and drop (also to and from other applications, onto the sidebar and
   onto the Trash), move to trash, restore, delete, rename, new folder / file,

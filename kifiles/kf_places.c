@@ -1,15 +1,15 @@
 /* kf_places.c - the sidebar: places, bookmarks and devices.
  *
  * Devices come from GIO's volume monitor (GVfs/udisks when present, plain
- * /proc/mounts otherwise). Mounted ones get a usage bar and an eject button
- * that unmounts -- and powers the drive off when it can -- reporting when it
- * is safe to unplug. Unmounted volumes are listed too; a click mounts them. */
+ * /proc/mounts otherwise). Mounted ones get a usage bar; their context menu
+ * unmounts -- and powers the drive off when it can -- reporting when it is
+ * safe to unplug. Unmounted volumes are listed too; a click mounts them. */
 #include "kf.h"
 #include "../shared/xis_i18n.h"
 #include <string.h>
 #include <glib/gstdio.h>
 
-enum { P_ICON, P_NAME, P_KIND, P_FILE, P_BAR, P_EJECT, P_HASEJECT, P_OBJ, P_TIP, P_N };
+enum { P_ICON, P_NAME, P_KIND, P_FILE, P_BAR, P_OBJ, P_TIP, P_N };
 enum { K_HEADER, K_PLACE, K_BOOKMARK, K_MOUNT, K_VOLUME };
 
 #define ICON_PX 22
@@ -50,12 +50,6 @@ static void places_free(gpointer data)
     g_free(pl);
 }
 
-static GdkPixbuf *themed(const char *name, int px)
-{
-    GdkPixbuf *pb = gtk_icon_theme_load_icon(gtk_icon_theme_get_default(), name, px, GTK_ICON_LOOKUP_FORCE_SIZE, NULL);
-    return pb;
-}
-
 /* A small usage bar drawn straight into a pixbuf: a progress renderer can't
  * be made shorter than a line of text. Red when nearly full. */
 static GdkPixbuf *make_bar(int pct)
@@ -85,22 +79,19 @@ static GdkPixbuf *make_bar(int pct)
 }
 
 static void add_row(Places *pl, int kind, const char *markup, GdkPixbuf *icon, GFile *file, GObject *obj,
-                    gboolean can_eject, const char *tip)
+                    const char *tip)
 {
     GtkTreeIter it;
-    GdkPixbuf *eject = can_eject ? themed("media-eject", 16) : NULL;
     gtk_list_store_append(pl->store, &it);
     gtk_list_store_set(pl->store, &it, P_ICON, icon, P_NAME, markup, P_KIND, kind, P_FILE, file,
-                       P_EJECT, eject, P_HASEJECT, eject != NULL, P_OBJ, obj, P_TIP, tip, -1);
-    if (eject)
-        g_object_unref(eject);
+                       P_OBJ, obj, P_TIP, tip, -1);
 }
 
 static void add_header(Places *pl, const char *title)
 {
     char *esc = g_markup_escape_text(title, -1);
     char *mk = g_strdup_printf("<b><small>%s</small></b>", esc);
-    add_row(pl, K_HEADER, mk, NULL, NULL, NULL, FALSE, NULL);
+    add_row(pl, K_HEADER, mk, NULL, NULL, NULL, NULL);
     g_free(mk);
     g_free(esc);
 }
@@ -113,7 +104,7 @@ static void add_location(Places *pl, int kind, GFile *f, const char *label_overr
     char *esc = g_markup_escape_text(name ? name : fallback, -1);
     GdkPixbuf *icon = kf_icon_lookup_gicon(info ? g_file_info_get_icon(info) : NULL, ICON_PX);
     char *tip = g_file_is_native(f) ? g_file_get_path(f) : g_file_get_uri(f);
-    add_row(pl, kind, esc, icon, f, NULL, FALSE, tip);
+    add_row(pl, kind, esc, icon, f, NULL, tip);
     g_free(tip);
     g_free(esc);
     g_free(fallback);
@@ -171,13 +162,12 @@ static GList *read_bookmarks(void)
 
 static void queue_usage(Places *pl);
 
-static void add_device_row(Places *pl, int kind, const char *name, GIcon *gicon, GFile *root, GObject *obj,
-                           gboolean can_remove)
+static void add_device_row(Places *pl, int kind, const char *name, GIcon *gicon, GFile *root, GObject *obj)
 {
     char *esc = g_markup_escape_text(name, -1);
     GdkPixbuf *icon = kf_icon_lookup_gicon(gicon, ICON_PX);
     char *tip = root ? (g_file_is_native(root) ? g_file_get_path(root) : g_file_get_uri(root)) : g_strdup(_("Not mounted -- click to mount"));
-    add_row(pl, kind, esc, icon, root, obj, can_remove, tip);
+    add_row(pl, kind, esc, icon, root, obj, tip);
     g_free(tip);
     g_free(esc);
 }
@@ -218,7 +208,7 @@ static gboolean do_rebuild(gpointer data)
     add_header(pl, _("Devices"));
     GFile *root = g_file_new_for_path("/");
     GIcon *hd = g_themed_icon_new("drive-harddisk");
-    add_device_row(pl, K_PLACE, _("File System"), hd, root, NULL, FALSE);
+    add_device_row(pl, K_PLACE, _("File System"), hd, root, NULL);
     g_object_unref(hd);
     g_object_unref(root);
 
@@ -230,7 +220,7 @@ static gboolean do_rebuild(gpointer data)
         char *name = g_mount_get_name(m);
         GIcon *ic = g_mount_get_icon(m);
         GFile *r = g_mount_get_root(m);
-        add_device_row(pl, K_MOUNT, name, ic, r, G_OBJECT(m), g_mount_can_unmount(m) || g_mount_can_eject(m));
+        add_device_row(pl, K_MOUNT, name, ic, r, G_OBJECT(m));
         g_free(name);
         if (ic)
             g_object_unref(ic);
@@ -248,7 +238,7 @@ static gboolean do_rebuild(gpointer data)
         }
         char *name = g_volume_get_name(v);
         GIcon *ic = g_volume_get_icon(v);
-        add_device_row(pl, K_VOLUME, name, ic, NULL, G_OBJECT(v), g_volume_can_eject(v));
+        add_device_row(pl, K_VOLUME, name, ic, NULL, G_OBJECT(v));
         g_free(name);
         if (ic)
             g_object_unref(ic);
@@ -471,9 +461,9 @@ static void remove_device(Places *pl, GObject *obj, gboolean prefer_eject)
     g_object_unref(mo);
 }
 
-static gboolean path_row(Places *pl, int x, int y, GtkTreePath **path, GtkTreeViewColumn **col)
+static gboolean path_row(Places *pl, int x, int y, GtkTreePath **path)
 {
-    return gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(pl->tree), x, y, path, col, NULL, NULL);
+    return gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(pl->tree), x, y, path, NULL, NULL, NULL);
 }
 
 static void activate_row(Places *pl, GtkTreeIter *it)
@@ -594,23 +584,14 @@ static gboolean on_button_release(GtkWidget *w, GdkEventButton *ev, gpointer dat
     (void)w;
     Places *pl = data;
     GtkTreePath *path = NULL;
-    GtkTreeViewColumn *col = NULL;
-    if (ev->button != 1 || !path_row(pl, (gint)ev->x, (gint)ev->y, &path, &col))
+    if (ev->button != 1 || !path_row(pl, (gint)ev->x, (gint)ev->y, &path))
         return FALSE;
     GtkTreeIter it;
     if (gtk_tree_model_get_iter(GTK_TREE_MODEL(pl->store), &it, path)) {
         int kind;
-        GObject *obj = NULL;
-        gboolean has_eject;
-        gtk_tree_model_get(GTK_TREE_MODEL(pl->store), &it, P_KIND, &kind, P_OBJ, &obj, P_HASEJECT, &has_eject, -1);
-        if (kind != K_HEADER) {
-            if (col == g_object_get_data(G_OBJECT(pl->tree), "kf-eject-col") && has_eject && obj)
-                remove_device(pl, obj, TRUE);
-            else
-                activate_row(pl, &it);
-        }
-        if (obj)
-            g_object_unref(obj);
+        gtk_tree_model_get(GTK_TREE_MODEL(pl->store), &it, P_KIND, &kind, -1);
+        if (kind != K_HEADER)
+            activate_row(pl, &it);
     }
     gtk_tree_path_free(path);
     return FALSE;
@@ -623,7 +604,7 @@ static gboolean on_button_press(GtkWidget *w, GdkEventButton *ev, gpointer data)
     if (ev->button != 3)
         return FALSE;
     GtkTreePath *path = NULL;
-    if (path_row(pl, (gint)ev->x, (gint)ev->y, &path, NULL)) {
+    if (path_row(pl, (gint)ev->x, (gint)ev->y, &path)) {
         popup_menu(pl, path, ev);
         gtk_tree_path_free(path);
         return TRUE;
@@ -784,7 +765,7 @@ GtkWidget *kf_places_new(KfApp *app)
     pl->app = app;
     pl->cancel = g_cancellable_new();
     pl->store = gtk_list_store_new(P_N, GDK_TYPE_PIXBUF, G_TYPE_STRING, G_TYPE_INT, G_TYPE_OBJECT, GDK_TYPE_PIXBUF,
-                                   GDK_TYPE_PIXBUF, G_TYPE_BOOLEAN, G_TYPE_OBJECT, G_TYPE_STRING);
+                                   G_TYPE_OBJECT, G_TYPE_STRING);
     pl->tree = gtk_tree_view_new_with_model(GTK_TREE_MODEL(pl->store));
     g_object_unref(pl->store);
     GtkTreeView *tv = GTK_TREE_VIEW(pl->tree);
@@ -809,14 +790,6 @@ GtkWidget *kf_places_new(KfApp *app)
     gtk_tree_view_column_pack_start(c2, pr, FALSE);
     gtk_tree_view_column_add_attribute(c2, pr, "pixbuf", P_BAR);
     gtk_tree_view_append_column(tv, c2);
-
-    GtkTreeViewColumn *c3 = gtk_tree_view_column_new();
-    GtkCellRenderer *er = gtk_cell_renderer_pixbuf_new();
-    gtk_tree_view_column_pack_start(c3, er, FALSE);
-    gtk_tree_view_column_add_attribute(c3, er, "pixbuf", P_EJECT);
-    gtk_tree_view_column_add_attribute(c3, er, "visible", P_HASEJECT);
-    gtk_tree_view_append_column(tv, c3);
-    g_object_set_data(G_OBJECT(pl->tree), "kf-eject-col", c3);
 
     gtk_tree_selection_set_select_function(gtk_tree_view_get_selection(tv), select_func, NULL, NULL);
     static const GtkTargetEntry dst[] = { { (gchar *)"text/uri-list", 0, 0 } };
