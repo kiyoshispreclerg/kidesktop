@@ -8,13 +8,13 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiterm\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-15 18:13-0300\n"
+"POT-Creation-Date: 2026-10-16 08:40-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "Language: \n"
 "MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Type: text/plain; charset=CHARSET\n"
 "Content-Transfer-Encoding: 8bit\n"
 
 #: kiterm.c:139
@@ -225,55 +225,107 @@ msgstr ""
 msgid "_Regular expression"
 msgstr ""
 
-#: kt_tab.c:232
+#: kt_tab.c:255
 msgid "Close tab"
 msgstr ""
 
-#: kt_tab.c:276
+#: kt_tab.c:302
 #, c-format
 msgid "Could not start \"%s\": %s"
 msgstr ""
 
-#: kt_tab.c:291
+#: kt_tab.c:317
 msgid "Rename tab"
 msgstr ""
 
-#: kt_tab.c:365
-msgid "_Copy"
-msgstr ""
-
-#: kt_tab.c:366
-msgid "_Paste"
-msgstr ""
-
-#: kt_tab.c:367
-msgid "Select _all"
-msgstr ""
-
-#: kt_tab.c:369
-msgid "_Find..."
-msgstr ""
-
-#: kt_tab.c:371
-msgid "New _tab"
-msgstr ""
-
 #: kt_tab.c:372
-msgid "New _window"
+msgid "interrupt"
 msgstr ""
 
 #: kt_tab.c:373
-msgid "_Rename tab..."
+msgid "terminate"
 msgstr ""
 
 #: kt_tab.c:374
-msgid "C_lose tab"
+msgid "kill"
+msgstr ""
+
+#: kt_tab.c:375
+msgid "hang up"
 msgstr ""
 
 #: kt_tab.c:376
-msgid "Reset terminal"
+msgid "quit"
 msgstr ""
 
 #: kt_tab.c:377
+msgid "stop"
+msgstr ""
+
+#: kt_tab.c:378
+msgid "suspend"
+msgstr ""
+
+#: kt_tab.c:379
+msgid "continue"
+msgstr ""
+
+#: kt_tab.c:380
+msgid "user-defined 1"
+msgstr ""
+
+#: kt_tab.c:381
+msgid "user-defined 2"
+msgstr ""
+
+#: kt_tab.c:382
+msgid "alarm"
+msgstr ""
+
+#: kt_tab.c:383
+msgid "window size change"
+msgstr ""
+
+#: kt_tab.c:433
+msgid "_Copy"
+msgstr ""
+
+#: kt_tab.c:434
+msgid "_Paste"
+msgstr ""
+
+#: kt_tab.c:435
+msgid "Select _all"
+msgstr ""
+
+#: kt_tab.c:437
+msgid "_Find..."
+msgstr ""
+
+#: kt_tab.c:439
+msgid "New _tab"
+msgstr ""
+
+#: kt_tab.c:440
+msgid "New _window"
+msgstr ""
+
+#: kt_tab.c:441
+msgid "_Rename tab..."
+msgstr ""
+
+#: kt_tab.c:442
+msgid "C_lose tab"
+msgstr ""
+
+#: kt_tab.c:444
+msgid "Send _signal"
+msgstr ""
+
+#: kt_tab.c:447
+msgid "Reset terminal"
+msgstr ""
+
+#: kt_tab.c:448
 msgid "Pre_ferences..."
 msgstr ""

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiterm\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-15 18:13-0300\n"
+"POT-Creation-Date: 2026-10-16 08:40-0300\n"
 "PO-Revision-Date: 2026-10-15 17:05-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -225,56 +225,107 @@ msgstr "Diferenciar _maiúsculas"
 msgid "_Regular expression"
 msgstr "Expressão _regular"
 
-#: kt_tab.c:232
+#: kt_tab.c:255
 msgid "Close tab"
 msgstr "Fechar aba"
 
-#: kt_tab.c:276
+#: kt_tab.c:302
 #, c-format
 msgid "Could not start \"%s\": %s"
 msgstr "Não foi possível iniciar \"%s\": %s"
 
-#: kt_tab.c:291
+#: kt_tab.c:317
 msgid "Rename tab"
 msgstr "Renomear aba"
 
-#: kt_tab.c:365
+#: kt_tab.c:372
+msgid "interrupt"
+msgstr "interromper"
+
+#: kt_tab.c:373
+msgid "terminate"
+msgstr "terminar"
+
+#: kt_tab.c:374
+msgid "kill"
+msgstr "matar"
+
+#: kt_tab.c:375
+msgid "hang up"
+msgstr "desligar (hangup)"
+
+#: kt_tab.c:376
+msgid "quit"
+msgstr "sair"
+
+#: kt_tab.c:377
+msgid "stop"
+msgstr "parar"
+
+#: kt_tab.c:378
+msgid "suspend"
+msgstr "suspender"
+
+#: kt_tab.c:379
+msgid "continue"
+msgstr "continuar"
+
+#: kt_tab.c:380
+msgid "user-defined 1"
+msgstr "definido pelo usuário 1"
+
+#: kt_tab.c:381
+msgid "user-defined 2"
+msgstr "definido pelo usuário 2"
+
+#: kt_tab.c:382
+msgid "alarm"
+msgstr "alarme"
+
+#: kt_tab.c:383
+msgid "window size change"
+msgstr "mudança de tamanho da janela"
+
+#: kt_tab.c:433
 msgid "_Copy"
 msgstr "_Copiar"
 
-#: kt_tab.c:366
+#: kt_tab.c:434
 msgid "_Paste"
 msgstr "C_olar"
 
-#: kt_tab.c:367
+#: kt_tab.c:435
 msgid "Select _all"
 msgstr "Selecionar _tudo"
 
-#: kt_tab.c:369
+#: kt_tab.c:437
 msgid "_Find..."
 msgstr "_Buscar..."
 
-#: kt_tab.c:371
+#: kt_tab.c:439
 msgid "New _tab"
 msgstr "Nova _aba"
 
-#: kt_tab.c:372
+#: kt_tab.c:440
 msgid "New _window"
 msgstr "Nova _janela"
 
-#: kt_tab.c:373
+#: kt_tab.c:441
 msgid "_Rename tab..."
 msgstr "_Renomear aba..."
 
-#: kt_tab.c:374
+#: kt_tab.c:442
 msgid "C_lose tab"
 msgstr "_Fechar aba"
 
-#: kt_tab.c:376
+#: kt_tab.c:444
+msgid "Send _signal"
+msgstr "Enviar _sinal"
+
+#: kt_tab.c:447
 msgid "Reset terminal"
 msgstr "Reiniciar terminal"
 
-#: kt_tab.c:377
+#: kt_tab.c:448
 msgid "Pre_ferences..."
 msgstr "Pre_ferências..."
-

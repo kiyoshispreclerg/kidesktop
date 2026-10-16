@@ -6,6 +6,7 @@
 #include <limits.h>
 #include "../shared/xis_sound.h"
 #include <unistd.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -365,6 +366,48 @@ static void m_close(GtkMenuItem *i, gpointer d)
     KtWindow *w = d;
     kt_window_close_tab(w, GTK_WIDGET(kt_window_current(w)));
 }
+/* Signals offered in the menu, to the terminal's foreground process group
+ * (the running program, or the shell when idle). */
+static const struct { int num; const char *name; const char *desc; } kSignals[] = {
+    { SIGINT,  "SIGINT",  N_("interrupt") },
+    { SIGTERM, "SIGTERM", N_("terminate") },
+    { SIGKILL, "SIGKILL", N_("kill") },
+    { SIGHUP,  "SIGHUP",  N_("hang up") },
+    { SIGQUIT, "SIGQUIT", N_("quit") },
+    { SIGSTOP, "SIGSTOP", N_("stop") },
+    { SIGTSTP, "SIGTSTP", N_("suspend") },
+    { SIGCONT, "SIGCONT", N_("continue") },
+    { SIGUSR1, "SIGUSR1", N_("user-defined 1") },
+    { SIGUSR2, "SIGUSR2", N_("user-defined 2") },
+    { SIGALRM, "SIGALRM", N_("alarm") },
+    { SIGWINCH, "SIGWINCH", N_("window size change") },
+};
+
+static void m_signal(GtkMenuItem *i, gpointer d)
+{
+    VteTerminal *t = d;
+    int fd = vte_terminal_get_pty(t);
+    pid_t pg = fd >= 0 ? tcgetpgrp(fd) : -1;
+    if (pg <= 0)
+        pg = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(t), KEY_PID));
+    if (pg > 0)
+        killpg(pg, GPOINTER_TO_INT(g_object_get_data(G_OBJECT(i), "kt-signal")));
+}
+
+static GtkWidget *signal_menu(VteTerminal *t)
+{
+    GtkWidget *sub = gtk_menu_new();
+    for (size_t n = 0; n < G_N_ELEMENTS(kSignals); n++) {
+        char *label = g_strdup_printf("%s (%d) - %s", kSignals[n].name, kSignals[n].num, _(kSignals[n].desc));
+        GtkWidget *mi = gtk_menu_item_new_with_label(label);
+        g_free(label);
+        g_object_set_data(G_OBJECT(mi), "kt-signal", GINT_TO_POINTER(kSignals[n].num));
+        g_signal_connect(mi, "activate", G_CALLBACK(m_signal), t);
+        gtk_menu_shell_append(GTK_MENU_SHELL(sub), mi);
+    }
+    return sub;
+}
+
 static void m_reset(GtkMenuItem *i, gpointer d)
 {
     (void)i;
@@ -398,6 +441,9 @@ void kt_tab_popup_menu(KtWindow *w, VteTerminal *t, GdkEventButton *ev)
     add_item(menu, _("_Rename tab..."), G_CALLBACK(m_rename), w, TRUE);
     add_item(menu, _("C_lose tab"), G_CALLBACK(m_close), w, TRUE);
     add_sep(menu);
+    GtkWidget *sig = gtk_menu_item_new_with_mnemonic(_("Send _signal"));
+    gtk_menu_item_set_submenu(GTK_MENU_ITEM(sig), signal_menu(t));
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), sig);
     add_item(menu, _("Reset terminal"), G_CALLBACK(m_reset), t, TRUE);
     add_item(menu, _("Pre_ferences..."), G_CALLBACK(m_prefs), w, TRUE);
     gtk_widget_show_all(menu);
