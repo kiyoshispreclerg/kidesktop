@@ -467,5 +467,11 @@ GtkWidget *build_historico_tab(void)
 
     gtk_box_pack_start(GTK_BOX(outer), cols, TRUE, TRUE, 0);
 
-    return outer;
+    /* The space-used readouts grow with the history: scroll the tab instead
+     * of letting them run past the bottom of the window. */
+    GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(scroll), outer);
+    gtk_viewport_set_shadow_type(GTK_VIEWPORT(gtk_bin_get_child(GTK_BIN(scroll))), GTK_SHADOW_NONE);
+    return scroll;
 }
