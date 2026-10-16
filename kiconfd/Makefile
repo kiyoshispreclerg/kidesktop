@@ -31,8 +31,8 @@ SHARED_SRC := ../shared/xis_outputs.c ../shared/xis_clock.c ../shared/xis_spawn.
 
 all: kiconfd
 
-kiconfd: kiconfd.c $(SHARED_SRC)
-	$(CC) $(CFLAGS) -o $@ kiconfd.c $(SHARED_SRC) $(LIBS)
+kiconfd: kiconfd.c lidpower.c lidpower.h $(SHARED_SRC)
+	$(CC) $(CFLAGS) -o $@ kiconfd.c lidpower.c $(SHARED_SRC) $(LIBS)
 
 # ---- translations (see po/README.md for the day-to-day workflow) ----------
 

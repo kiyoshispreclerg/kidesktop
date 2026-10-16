@@ -91,3 +91,13 @@ once-at-startup screens layout, which Telas already applies live itself).
 
 Off by default. Pass `--log`, or set `KICONFD_LOG=1` in the environment,
 to redirect stdout/stderr to `$XDG_CONFIG_HOME/kiconfd.log` instead.
+
+## Lid and power button
+
+`kiconfd-power.conf` (written by kiconf's Energia tab) also carries
+`lid_action` (`system|suspend|lock|nothing`) and `power_button_action`
+(`system|ask|poweroff|suspend|nothing`). Anything but `system` is handled by
+`lidpower.c`: the lid through UPower's `LidIsClosed` (followed with
+`gdbus monitor`), the button through a root grab on `XF86PowerOff`, and
+`ask` opens `xisserve --session`. A `systemd-inhibit` lock stops logind from
+acting a second time; without logind there is nothing to inhibit.

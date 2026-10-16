@@ -148,6 +148,7 @@
 #include <X11/keysym.h>
 
 #include "../shared/xis_clock.h"
+#include "lidpower.h"
 #include "../shared/xis_outputs.h"
 #include "../shared/xis_spawn.h"
 
@@ -1479,8 +1480,10 @@ static void apply_power_settings(void)
     FILE *f = fopen(path, "r");
     if (!f) {
         fprintf(stderr, "kiconfd: power: no '%s', nothing to apply\n", path);
+        lidpower_configure(g_dpy, g_root, NULL, NULL);
         return;
     }
+    char lid_action[16] = "system", power_action[16] = "system";
     int dpms_enabled = 1, standby = 0, suspend = 0, off = 0;
     int saver_timeout = 0, saver_cycle = 600, prefer_blanking = 1;
     char line[LINE_MAX_LEN];
@@ -1493,7 +1496,11 @@ static void apply_power_settings(void)
         *eq = '\0';
         char *key = trim(l);
         int v = atoi(trim(eq + 1));
-        if (!strcmp(key, "dpms_enabled")) {
+        if (!strcmp(key, "lid_action")) {
+            snprintf(lid_action, sizeof(lid_action), "%s", trim(eq + 1));
+        } else if (!strcmp(key, "power_button_action")) {
+            snprintf(power_action, sizeof(power_action), "%s", trim(eq + 1));
+        } else if (!strcmp(key, "dpms_enabled")) {
             dpms_enabled = v != 0;
         } else if (!strcmp(key, "dpms_standby")) {
             standby = v;
@@ -1510,6 +1517,8 @@ static void apply_power_settings(void)
         }
     }
     fclose(f);
+    lidpower_configure(g_dpy, g_root, lid_action, power_action);
+    fprintf(stderr, "kiconfd: power: lid=%s power-button=%s\n", lid_action, power_action);
     fprintf(stderr, "kiconfd: power: loaded '%s' (dpms=%d %d/%d/%d saver=%d/%d blank=%d)\n", path,
              dpms_enabled, standby, suspend, off, saver_timeout, saver_cycle, prefer_blanking);
 
@@ -2562,6 +2571,7 @@ int main(int argc, char **argv)
             apply_nightlight();
             nightlight_at = now;
         }
+        lidpower_tick();
         long long wait_ms = clock_check();
         long long nl_ms = ((long long)nightlight_at + NIGHTLIGHT_POLL_SEC - (long long)time(NULL)) * 1000;
         if (wait_ms < 0 || wait_ms > nl_ms) wait_ms = nl_ms;
@@ -2569,13 +2579,27 @@ int main(int argc, char **argv)
 
         fd_set rfds;
         FD_ZERO(&rfds);
+        int x_fd = ConnectionNumber(g_dpy);
+        int lid_fd = lidpower_fd();
+        int maxfd = x_fd;
+        FD_SET(x_fd, &rfds);
         if (clock_fd >= 0) FD_SET(clock_fd, &rfds);
+        if (clock_fd > maxfd) maxfd = clock_fd;
+        if (lid_fd >= 0) FD_SET(lid_fd, &rfds);
+        if (lid_fd > maxfd) maxfd = lid_fd;
         struct timeval tv = {(time_t)(wait_ms / 1000), (suseconds_t)(wait_ms % 1000) * 1000};
-        if (select(clock_fd + 1, &rfds, NULL, NULL, &tv) > 0 && clock_fd >= 0 && FD_ISSET(clock_fd, &rfds)) {
-            clock_watch_drain(clock_fd);
+        if (!XPending(g_dpy) && select(maxfd + 1, &rfds, NULL, NULL, &tv) > 0) {
+            if (clock_fd >= 0 && FD_ISSET(clock_fd, &rfds)) clock_watch_drain(clock_fd);
+            if (lid_fd >= 0 && FD_ISSET(lid_fd, &rfds)) lidpower_on_readable();
+        }
+        while (XPending(g_dpy)) {
+            XEvent ev;
+            XNextEvent(g_dpy, &ev);
+            if (ev.type == KeyPress) lidpower_handle_key(&ev.xkey);
         }
     }
     if (clock_fd >= 0) close(clock_fd);
+    lidpower_shutdown();
 
     XCloseDisplay(g_dpy);
     fprintf(stderr, "kiconfd: shutting down\n");
