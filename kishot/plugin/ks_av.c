@@ -430,6 +430,10 @@ static void *api_open(const KsEncParams *p, char *err, size_t errlen)
         return NULL;
     }
     Enc *e = calloc(1, sizeof(*e));
+    if (!e) {
+        errf(err, errlen, "out of memory", 0);
+        return NULL;
+    }
     pthread_mutex_init(&e->lock, NULL);
     e->width = p->width;
     e->height = p->height;

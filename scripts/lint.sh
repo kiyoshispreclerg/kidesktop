@@ -47,10 +47,12 @@ if have cppcheck; then
 	# their arrays; every flagged access is already bounds-checked.
 	# normalCheckLevelMaxBranches: newer cppcheck's note that big functions
 	# get a shallower analysis; it is informational and counts as an error.
-	# unknownMacro in a11y.c: GObject type-definition macros.
+	# unknownMacro in a11y.c: GObject type-definition macros; the Qt
+	# macros are defined away for kitheme/qt.
 	if ! cppcheck -q -j"$(nproc 2>/dev/null || echo 2)" --enable=warning,portability --inline-suppr \
 		--suppress=arrayIndexOutOfBoundsCond --suppress=normalCheckLevelMaxBranches \
 		--suppress='unknownMacro:*/a11y.c' \
+		-DQ_SLOTS= -DQ_SIGNALS=public -DQ_OBJECT= \
 		--error-exitcode=1 -D__linux__ -I shared \
 		$(echo "$BUILT" | sed 's|\bkicomp\b|kicomp/src|') shared; then
 		fail cppcheck
