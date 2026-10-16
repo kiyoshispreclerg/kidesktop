@@ -171,12 +171,17 @@ static void list_kind(const char *listing, PulseKind kind, const char *header, G
                 snprintf(e->sublabel, sizeof(e->sublabel), "%s", val);
             } else if (strcmp(key, "application.icon_name") == 0) {
                 snprintf(e->icon_name, sizeof(e->icon_name), "%s", val);
-            } else if (strcmp(key, "application.process.binary") == 0 && !e->icon_name[0]) {
+            } else if (strcmp(key, "application.process.id") == 0) {
+                e->pid = (unsigned)strtoul(val, NULL, 10);
+            } else if (strcmp(key, "application.process.binary") == 0) {
+                snprintf(e->binary, sizeof(e->binary), "%s", val);
                 /* Not an icon name as such, but a binary name resolves
                  * against the icon theme often enough (firefox, mpv,
                  * vlc...) to be a decent fallback when the app didn't
                  * set application.icon_name itself. */
-                snprintf(e->icon_name, sizeof(e->icon_name), "%s", val);
+                if (!e->icon_name[0]) {
+                    snprintf(e->icon_name, sizeof(e->icon_name), "%s", val);
+                }
             }
             continue;
         }

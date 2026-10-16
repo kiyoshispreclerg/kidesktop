@@ -40,6 +40,8 @@ typedef struct {
     char name[256];     /* sink/source name -- how devices are addressed (stable across restarts, unlike index) */
     char label[256];    /* human-readable: Description for devices, application.name for streams */
     char sublabel[256]; /* smaller second line: media.name for streams, "" for devices */
+    char binary[128];   /* application.process.binary, streams only */
+    unsigned pid;       /* application.process.id, streams only, 0 if absent */
     char icon_name[128];/* application.icon_name, when the stream provides one */
     int volume_pct;
     gboolean muted;

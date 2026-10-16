@@ -527,3 +527,19 @@ msgstr "Mostrar mais"
 #: pages/audio.c
 msgid "Mostrar menos"
 msgstr "Mostrar menos"
+
+#: pages/audio.c
+msgid "Anterior"
+msgstr "Anterior"
+
+#: pages/audio.c
+msgid "Pausar"
+msgstr "Pausar"
+
+#: pages/audio.c
+msgid "Reproduzir"
+msgstr "Reproduzir"
+
+#: pages/audio.c
+msgid "Próxima"
+msgstr "Próxima"

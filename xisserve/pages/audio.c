@@ -24,6 +24,7 @@
  */
 #include "../xisserve.h"
 #include "pulse.h"
+#include "mpris.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -51,6 +52,7 @@ static gboolean g_dragging;    /* a slider is held down right now */
 static gint64 g_last_action_us;
 static gboolean g_updating;    /* set while populating widgets, so their own signals don't echo back to pactl */
 static char g_signature[4096];
+static GPtrArray *g_players;   /* MPRIS players, refreshed with each pulse snapshot */
 static gboolean g_devs_expanded; /* "Dispositivos": non-default devices shown */
 
 static void rebuild(void);
@@ -378,6 +380,48 @@ static void sync_device_combo(AudioRow *row, GPtrArray *all_entries)
     } while (gtk_tree_model_iter_next(model, &iter));
 }
 
+static void on_mpris_clicked(GtkButton *btn, gpointer data)
+{
+    const char *bus = g_object_get_data(G_OBJECT(btn), "mpris-bus");
+    if (bus) {
+        mpris_command(bus, data);
+        note_user_action();
+    }
+}
+
+static GtkWidget *mpris_button(const MprisPlayer *p, const char *stock, const char *method, const char *tip,
+                               gboolean sensitive)
+{
+    GtkWidget *b = gtk_button_new();
+    gtk_container_add(GTK_CONTAINER(b), gtk_image_new_from_stock(stock, GTK_ICON_SIZE_MENU));
+    g_object_set_data_full(G_OBJECT(b), "mpris-bus", g_strdup(p->bus), g_free);
+    gtk_widget_set_tooltip_text(b, tip);
+    xisserve_a11y(b, NULL, tip);
+    gtk_widget_set_sensitive(b, sensitive);
+    g_signal_connect(b, "clicked", G_CALLBACK(on_mpris_clicked), (gpointer)method);
+    return b;
+}
+
+/* Previous / play-pause / next for the player owning this stream, when
+ * there is one. */
+static GtkWidget *build_media_controls(const PulseEntry *e)
+{
+    const MprisPlayer *p = g_players ? mpris_match(g_players, e->pid, e->label, e->binary, e->icon_name) : NULL;
+    if (!p) {
+        return NULL;
+    }
+    GtkWidget *hb = gtk_hbox_new(FALSE, 2);
+    gtk_box_pack_start(GTK_BOX(hb), mpris_button(p, GTK_STOCK_MEDIA_PREVIOUS, "Previous", _("Anterior"), p->can_prev),
+                       FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(hb),
+                       mpris_button(p, p->playing ? GTK_STOCK_MEDIA_PAUSE : GTK_STOCK_MEDIA_PLAY, "PlayPause",
+                                    p->playing ? _("Pausar") : _("Reproduzir"), TRUE),
+                       FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(hb), mpris_button(p, GTK_STOCK_MEDIA_NEXT, "Next", _("Próxima"), p->can_next), FALSE,
+                       FALSE, 0);
+    return hb;
+}
+
 /* Rows are structurally the same for every kind -- name/icon and mute on
  * top, slider below -- with devices growing one extra line of
  * device-only controls (default/active). Keeping one builder rather than
@@ -423,6 +467,13 @@ static GtkWidget *build_row(const PulseEntry *e, GPtrArray *all_entries)
     if (e->kind == PULSE_SINK_INPUT || e->kind == PULSE_SOURCE_OUTPUT) {
         row->device_combo = build_device_combo(e, all_entries);
         gtk_box_pack_start(GTK_BOX(top), row->device_combo, FALSE, FALSE, 0);
+    }
+
+    if (e->kind == PULSE_SINK_INPUT) {
+        GtkWidget *media = build_media_controls(e);
+        if (media) {
+            gtk_box_pack_start(GTK_BOX(top), media, FALSE, FALSE, 0);
+        }
     }
 
     row->mute = gtk_toggle_button_new_with_label(_("Mudo"));
@@ -500,6 +551,22 @@ static void snapshot_signature(GPtrArray *entries, char *out, size_t outsz)
         }
         o += (size_t)n;
     }
+    for (guint i = 0; g_players && i < g_players->len && o + 1 < outsz; i++) {
+        const MprisPlayer *p = g_ptr_array_index(g_players, i);
+        int n = snprintf(out + o, outsz - o, "m:%s:%d%d%d;", p->bus, p->playing, p->can_next, p->can_prev);
+        if (n < 0) {
+            break;
+        }
+        o += (size_t)n;
+    }
+}
+
+static void refresh_players(void)
+{
+    if (g_players) {
+        g_ptr_array_free(g_players, TRUE);
+    }
+    g_players = mpris_list();
 }
 
 /* Placeholder shown when there's no sound server to talk to. ALSA-only
@@ -608,6 +675,7 @@ static void rebuild(void)
     pulse_invalidate_available();
 
     GPtrArray *entries = pulse_list();
+    refresh_players();
     snapshot_signature(entries, g_signature, sizeof(g_signature));
 
     if (!pulse_available()) {
@@ -700,6 +768,7 @@ static gboolean on_poll(gpointer data)
     }
 
     GPtrArray *entries = pulse_list();
+    refresh_players();
     char sig[sizeof(g_signature)];
     snapshot_signature(entries, sig, sizeof(sig));
     if (strcmp(sig, g_signature) != 0) {
