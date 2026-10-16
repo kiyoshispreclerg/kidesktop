@@ -6,8 +6,12 @@ COMPONENTS = kisession kiwm kicomp xispanel xisserve xisback \
 # ./configure). Building a single component directly, e.g.
 # `make -C kiconf install`, skips this and only needs that component's own
 # dependencies.
+# kiterm needs VTE; without it the suite builds without kiterm.
+SKIP := $(if $(shell pkg-config --exists vte 2>/dev/null && echo y),,kiterm)
+BUILD_COMPONENTS = $(filter-out $(SKIP),$(COMPONENTS))
+
 all install: check-deps
-	@for c in $(COMPONENTS); do \
+	@for c in $(BUILD_COMPONENTS); do \
 		echo "==> $$c: $@"; \
 		$(MAKE) -C $$c $@ || exit 1; \
 	done

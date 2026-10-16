@@ -97,6 +97,13 @@ work without a full DBusMenu implementation on the window manager's side.
 **[xiskeys](xiskeys/)** -- global hotkey daemon for stateless actions: run a
 command, media keys, brightness, screenshot, lock, power.
 
+### Applications
+
+**[kiterm](kiterm/)** -- tabbed terminal emulator (GTK2 + VTE): find bar,
+colors, transparency, Ctrl+wheel font zoom, sound-theme bell, and a context
+menu to send signals to the running program. Needs the GTK2 `libvte-dev`;
+without it the full build skips kiterm (`./configure` warns).
+
 ### History and clipboard
 
 **[kimemory](kimemory/)** -- clipboard history. Records every copy with its

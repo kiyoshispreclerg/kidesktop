@@ -101,6 +101,14 @@ do gerenciador de janelas.
 executar um comando, teclas de mídia, brilho, captura de tela, bloqueio,
 energia.
 
+### Aplicativos
+
+**[kiterm](kiterm/)** -- emulador de terminal com abas (GTK2 + VTE): barra de
+busca, cores, transparência, zoom da fonte com Ctrl+roda, sino pelo tema de
+sons e um menu de contexto para enviar sinais ao programa em execução.
+Precisa do `libvte-dev` da série GTK2; sem ele a compilação completa pula o
+kiterm (o `./configure` avisa).
+
 ### Histórico e área de transferência
 
 **[kimemory](kimemory/)** -- histórico da área de transferência. Registra cada
