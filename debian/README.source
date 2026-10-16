@@ -1,7 +1,13 @@
 kidesktop Debian packaging
 ==========================
 
-One binary package, kidesktop, built from the top-level Makefile.
+Three binary packages from one build of the top-level Makefile:
+
+    kidesktop-core   the desktop (session, WM, compositor, panel, settings...)
+    kidesktop-base   the applications (kiterm, kifiles, ...)
+    kidesktop        empty metapackage depending on both
+
+`make install-core` / `make install-base` fill each package's directory.
 
 debian/changelog is not kept in git: scripts/build-deb.sh writes it for
 each build, with the version taken from the git tag (v1.2.3 -> 1.2.3, or
@@ -9,4 +15,5 @@ each build, with the version taken from the git tag (v1.2.3 -> 1.2.3, or
 (~ubuntu22.04, ~debian12) so the per-distro builds of one release can
 sit side by side in a release's assets.
 
-    make deb            # -> dist/kidesktop_<version>_<arch>.deb
+    make deb            # -> dist/kidesktop-core_*.deb, kidesktop-base_*.deb,
+                        #    kidesktop_*_all.deb

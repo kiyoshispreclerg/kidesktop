@@ -48,7 +48,7 @@ Standards-Version: 4.6.0
 Homepage: https://github.com/kiyoshispreclerg/kidesktop
 Rules-Requires-Root: no
 
-Package: kidesktop
+Package: kidesktop-core
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
@@ -56,8 +56,6 @@ Depends: ${shlibs:Depends},
          x11-xserver-utils,
          xinput
 Recommends: librsvg2-2,
-            gvfs,
-            ffmpegthumbnailer,
             pulseaudio-utils,
             network-manager,
             udisks2,
@@ -69,9 +67,12 @@ Recommends: librsvg2-2,
             lxpolkit | policykit-1-gnome | mate-polkit
 Suggests: orca,
           xsct
+Breaks: kidesktop (<< ${binary:Version})
+Replaces: kidesktop (<< ${binary:Version})
 Description: lightweight X11 desktop: window manager, compositor, panel and tools
  KiDesktop is a small desktop environment for X11 (and the XLibre fork),
- built as separate programs that each work on their own:
+ built as separate programs that each work on their own. This package is
+ the desktop itself; the everyday applications are in kidesktop-base.
  .
   * kisession - session leader and service supervisor
   * kiwm / kicomp - window manager and compositor (XRender, GLX, EGL)
@@ -79,11 +80,40 @@ Description: lightweight X11 desktop: window manager, compositor, panel and tool
   * xisserve - launcher and pages (audio, network, storage, calendar...)
   * xisback, kiconfd, xiskeys, xismenu - wallpaper, settings daemon,
     global hotkeys, global menu registrar
-  * kiterm / kifiles - terminal emulator (tabs, search, colors, transparency)
-    and file manager (split view, thumbnails, devices, undo)
   * kiconf - settings application
   * xisguard - permission daemon for the XLibre XNOTIFY extension
   * kimemory / kistory - clipboard and activity history
  .
  The panel, the Alt+Tab switcher and the GTK programs are reachable by
  screen readers over AT-SPI when the session enables accessibility.
+
+Package: kidesktop-base
+Architecture: any
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+         kidesktop-core (= ${binary:Version})
+Recommends: librsvg2-2,
+            gvfs,
+            ffmpegthumbnailer
+Breaks: kidesktop (<< ${binary:Version})
+Replaces: kidesktop (<< ${binary:Version})
+Description: KiDesktop applications: terminal, file manager and more
+ The everyday applications of the KiDesktop environment. Each one works
+ without the optional libraries and tools it recommends, with the matching
+ features turned off.
+ .
+  * kiterm - tabbed terminal emulator (answers x-terminal-emulator)
+  * kifiles - file manager (split view, thumbnails, devices, undo)
+ .
+ More applications (image and document viewer, screenshots and screen
+ recording, system monitor, text editor, paint) are planned for this package.
+
+Package: kidesktop
+Architecture: all
+Depends: ${misc:Depends},
+         kidesktop-core (>= ${source:Version}),
+         kidesktop-base (>= ${source:Version})
+Description: KiDesktop environment (metapackage)
+ Installs the whole KiDesktop environment: kidesktop-core, the desktop
+ itself, and kidesktop-base, its applications. Install kidesktop-core alone
+ for the desktop without the applications.

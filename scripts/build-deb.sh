@@ -1,7 +1,8 @@
 #!/bin/sh
-# build-deb.sh - builds dist/kidesktop_<version>_<arch>.deb for the distro
-# it runs on (see debian/README.source). Needs debhelper, dpkg-dev and the
-# Build-Depends of debian/control installed.
+# build-deb.sh - builds the kidesktop-core, kidesktop-base and kidesktop
+# (metapackage) .debs into dist/ for the distro it runs on (see
+# debian/README.source). Needs debhelper, dpkg-dev and the Build-Depends of
+# debian/control installed.
 #
 # Version: KIDESKTOP_VERSION if set, else the exact git tag (v1.2.3 ->
 # 1.2.3), else <VERSION file>+git<commit date>.<commit>; always followed by
@@ -34,7 +35,11 @@ dpkg-buildpackage -b -us -uc
 
 mkdir -p dist
 arch=$(dpkg --print-architecture)
-mv "../kidesktop_${version}_${arch}.deb" dist/
-rm -f "../kidesktop_${version}_${arch}.buildinfo" "../kidesktop_${version}_${arch}.changes" \
-	"../kidesktop-dbgsym_${version}_${arch}.ddeb" "../kidesktop-dbgsym_${version}_${arch}.deb"
-echo "build-deb: dist/kidesktop_${version}_${arch}.deb"
+for pkg in kidesktop-core kidesktop-base; do
+	mv "../${pkg}_${version}_${arch}.deb" dist/
+	rm -f "../${pkg}-dbgsym_${version}_${arch}.ddeb" "../${pkg}-dbgsym_${version}_${arch}.deb"
+	echo "build-deb: dist/${pkg}_${version}_${arch}.deb"
+done
+mv "../kidesktop_${version}_all.deb" dist/
+rm -f "../kidesktop_${version}_${arch}.buildinfo" "../kidesktop_${version}_${arch}.changes"
+echo "build-deb: dist/kidesktop_${version}_all.deb"
