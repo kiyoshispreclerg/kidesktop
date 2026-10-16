@@ -23,8 +23,11 @@ override_dh_auto_install:
 # kishot's libav plugin is optional (dlopen()ed, kishot falls back to the
 # ffmpeg command or only takes screenshots): its libraries go to Recommends,
 # not Depends.
+# kitheme's Qt style plugins link Qt, but only Qt applications ever load
+# them (and those have Qt), so they must not make the core depend on it:
+# excluded from kidesktop-core's dependency scan.
 override_dh_shlibdeps:
-	dh_shlibdeps -Nkidesktop-base
+	dh_shlibdeps -Nkidesktop-base -Xqt5/plugins/styles -Xqt6/plugins/styles
 	dh_shlibdeps -pkidesktop-base -Xkishot-rec-av.so -- \
 		-dRecommends debian/kidesktop-base/usr/lib/kishot/kishot-rec-av.so -dDepends
 

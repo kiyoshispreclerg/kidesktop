@@ -106,6 +106,14 @@ already do.
 - **libadwaita** applications ignore GTK themes.
 - **Qt4** is not supported.
 
+## Packaging
+
+The Qt plugins link Qt, but only Qt applications load them, so
+`debian/rules` leaves them out of `kidesktop-core`'s dependency scan: Qt is
+never a dependency of KiDesktop. On a machine without Qt they are a few
+hundred kB of unused files. The packages that build them are build
+dependencies only.
+
 ## Building
 
 `make` builds the static library, the GTK2 engine, `kitheme-export`,
