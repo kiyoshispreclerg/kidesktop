@@ -97,6 +97,7 @@ Description: lightweight X11 desktop: window manager, compositor, panel and tool
     (Oxygen-like, classic and flat presets)
   * xisguard - permission daemon for the XLibre XNOTIFY extension
   * kimemory / kistory - clipboard and activity history
+  * kilock - runs i3lock (recommended) with the options set in kiconf
  .
  The panel, the Alt+Tab switcher and the GTK programs are reachable by
  screen readers over AT-SPI when the session enables accessibility.
