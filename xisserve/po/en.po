@@ -543,3 +543,14 @@ msgstr "Play"
 #: pages/audio.c
 msgid "Próxima"
 msgstr "Next"
+
+#: pages/network.c
+msgid "Nenhuma rede conectada."
+msgstr "No network connected."
+
+#: pages/network.c
+msgid "<b>Redes Wi-Fi disponíveis</b>"
+msgstr "<b>Available Wi-Fi networks</b>"
+
+msgid "<b>Dispositivos inativos</b>"
+msgstr "<b>Inactive devices</b>"

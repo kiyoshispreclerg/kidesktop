@@ -543,3 +543,14 @@ msgstr "Reproduzir"
 #: pages/audio.c
 msgid "Próxima"
 msgstr "Próxima"
+
+#: pages/network.c
+msgid "Nenhuma rede conectada."
+msgstr "Nenhuma rede conectada."
+
+#: pages/network.c
+msgid "<b>Redes Wi-Fi disponíveis</b>"
+msgstr "<b>Redes Wi-Fi disponíveis</b>"
+
+msgid "<b>Dispositivos inativos</b>"
+msgstr "<b>Dispositivos inativos</b>"

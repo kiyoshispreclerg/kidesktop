@@ -34,12 +34,14 @@ typedef struct {
     char ssid[128];
     int signal;
     char security[64];
+    gboolean known; /* a saved connection profile with this SSID exists */
 } WifiNet;
 
 static GtkWidget *g_root;
 static GtkWidget *g_box;
 static guint g_poll_id;
 static gboolean g_has_wifi_device;
+static gboolean g_show_more; /* "Mostrar mais": available Wi-Fi networks + inactive devices */
 
 /* ---- nmcli -t parsing ---------------------------------------------------- */
 
@@ -103,11 +105,43 @@ static GPtrArray *fetch_devices(void)
     return rows;
 }
 
+static gboolean is_connected_state(const char *state)
+{
+    return strncmp(state, "connected", 9) == 0;
+}
+
+/* SSIDs with a saved profile ("connection show" lists profile names,
+ * which NetworkManager defaults to the SSID). */
+static GHashTable *fetch_known_wifi(void)
+{
+    GHashTable *known = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+    FILE *f = run("LC_ALL=C nmcli -t -f NAME,TYPE connection show 2>/dev/null");
+    if (!f) return known;
+    char line[512];
+    char fields[MAX_FIELDS][160];
+    while (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\n")] = 0;
+        if (split_terse(line, fields, MAX_FIELDS) >= 2 && strcmp(fields[1], "802-11-wireless") == 0)
+            g_hash_table_add(known, g_strdup(fields[0]));
+    }
+    pclose(f);
+    return known;
+}
+
+static gint wifi_cmp(gconstpointer a, gconstpointer b)
+{
+    const WifiNet *x = *(WifiNet *const *)a, *y = *(WifiNet *const *)b;
+    return y->signal - x->signal;
+}
+
+/* One entry per SSID (several access points share one), strongest
+ * first; the in-use flag survives if any of the duplicates had it. */
 static GPtrArray *fetch_wifi(void)
 {
     GPtrArray *rows = g_ptr_array_new_with_free_func(g_free);
     FILE *f = run("LC_ALL=C nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY dev wifi list 2>/dev/null");
     if (!f) return rows;
+    GHashTable *known = fetch_known_wifi();
     char line[512];
     char fields[MAX_FIELDS][160];
     while (fgets(line, sizeof(line), f)) {
@@ -115,14 +149,25 @@ static GPtrArray *fetch_wifi(void)
         if (!line[0]) continue;
         int n = split_terse(line, fields, MAX_FIELDS);
         if (n < 2 || !fields[1][0]) continue; /* hidden/blank SSID: nothing to connect to by name */
-        WifiNet *w = g_new0(WifiNet, 1);
-        w->in_use = (fields[0][0] == '*');
-        g_strlcpy(w->ssid, fields[1], sizeof(w->ssid));
-        w->signal = n > 2 ? atoi(fields[2]) : 0;
-        g_strlcpy(w->security, n > 3 ? fields[3] : "", sizeof(w->security));
-        g_ptr_array_add(rows, w);
+        WifiNet *w = NULL;
+        for (guint i = 0; i < rows->len; i++) {
+            WifiNet *o = g_ptr_array_index(rows, i);
+            if (strcmp(o->ssid, fields[1]) == 0) { w = o; break; }
+        }
+        int sig = n > 2 ? atoi(fields[2]) : 0;
+        if (!w) {
+            w = g_new0(WifiNet, 1);
+            g_strlcpy(w->ssid, fields[1], sizeof(w->ssid));
+            g_strlcpy(w->security, n > 3 ? fields[3] : "", sizeof(w->security));
+            w->known = g_hash_table_contains(known, w->ssid);
+            g_ptr_array_add(rows, w);
+        }
+        if (sig > w->signal) w->signal = sig;
+        if (fields[0][0] == '*') w->in_use = TRUE;
     }
     pclose(f);
+    g_hash_table_destroy(known);
+    g_ptr_array_sort(rows, wifi_cmp);
     return rows;
 }
 
@@ -172,7 +217,7 @@ static void on_wifi_row_clicked(GtkWidget *btn, gpointer data)
     if (w->in_use) {
         return; /* already the active network -- nothing to do on click */
     }
-    if (open_net) {
+    if (open_net || w->known) {
         do_connect(w->ssid, NULL);
         rebuild();
         return;
@@ -221,7 +266,7 @@ static const char *device_type_label(const char *type)
 static GtkWidget *build_device_row(NetDevice *d)
 {
     GtkWidget *hbox = gtk_hbox_new(FALSE, 6);
-    gboolean connected = strstr(d->state, "connected") == d->state || strstr(d->state, "connected") != NULL;
+    gboolean connected = is_connected_state(d->state);
     gboolean can_toggle = strcmp(d->type, "wifi") == 0 || strcmp(d->type, "ethernet") == 0;
 
     GtkWidget *vbox = gtk_vbox_new(FALSE, 1);
@@ -319,34 +364,82 @@ static void render_loading(void)
     gtk_widget_show_all(g_box);
 }
 
+static void section_title(const char *markup)
+{
+    GtkWidget *l = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(l), markup);
+    gtk_misc_set_alignment(GTK_MISC(l), 0.0f, 0.5f);
+    style_fg(l);
+    gtk_box_pack_start(GTK_BOX(g_box), l, FALSE, FALSE, 0);
+}
+
+static void on_more_clicked(GtkButton *btn, gpointer data)
+{
+    (void)btn; (void)data;
+    g_show_more = !g_show_more;
+    rebuild();
+}
+
+/* Connected devices first, like the KDE applet; everything else (the
+ * other Wi-Fi networks in range, devices that are down) hides behind
+ * "Mostrar mais". */
 static void render_result(GPtrArray *devices, GPtrArray *wifi)
 {
     clear_rows();
     build_header();
 
     g_has_wifi_device = FALSE;
+    guint n_active = 0, n_inactive = 0, n_avail = 0;
     for (guint i = 0; i < devices->len; i++) {
         NetDevice *d = g_ptr_array_index(devices, i);
         if (strcmp(d->type, "wifi") == 0) g_has_wifi_device = TRUE;
-        gtk_box_pack_start(GTK_BOX(g_box), build_device_row(d), FALSE, FALSE, 0);
+        if (is_connected_state(d->state)) {
+            n_active++;
+            gtk_box_pack_start(GTK_BOX(g_box), build_device_row(d), FALSE, FALSE, 0);
+        } else if (strcmp(d->state, "unmanaged") != 0) {
+            n_inactive++;
+        }
+    }
+    for (guint i = 0; i < wifi->len; i++) {
+        if (!((WifiNet *)g_ptr_array_index(wifi, i))->in_use) n_avail++;
+    }
+    if (!n_active) {
+        GtkWidget *none = gtk_label_new(_("Nenhuma rede conectada."));
+        gtk_misc_set_alignment(GTK_MISC(none), 0.0f, 0.5f);
+        style_fg(none);
+        gtk_box_pack_start(GTK_BOX(g_box), none, FALSE, FALSE, 0);
     }
 
-    if (g_has_wifi_device) {
-        gtk_box_pack_start(GTK_BOX(g_box), gtk_hseparator_new(), FALSE, FALSE, 4);
-        GtkWidget *wifi_title = gtk_label_new(NULL);
-        gtk_label_set_markup(GTK_LABEL(wifi_title), "<b>Redes dispon\xc3\xadveis</b>");
-        gtk_misc_set_alignment(GTK_MISC(wifi_title), 0.0f, 0.5f);
-        style_fg(wifi_title);
-        gtk_box_pack_start(GTK_BOX(g_box), wifi_title, FALSE, FALSE, 0);
+    if (n_avail || n_inactive) {
+        GtkWidget *more = gtk_button_new_with_label(g_show_more ? _("Mostrar menos") : _("Mostrar mais"));
+        g_signal_connect(more, "clicked", G_CALLBACK(on_more_clicked), NULL);
+        GtkWidget *hb = gtk_hbox_new(FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(hb), more, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(g_box), hb, FALSE, FALSE, 4);
+    }
 
-        if (wifi->len == 0) {
-            GtkWidget *empty = gtk_label_new(_("Nenhuma rede encontrada."));
-            gtk_misc_set_alignment(GTK_MISC(empty), 0.0f, 0.5f);
-            style_fg(empty);
-            gtk_box_pack_start(GTK_BOX(g_box), empty, FALSE, FALSE, 0);
-        } else {
+    if (g_show_more) {
+        if (g_has_wifi_device) {
+            gtk_box_pack_start(GTK_BOX(g_box), gtk_hseparator_new(), FALSE, FALSE, 4);
+            section_title(_("<b>Redes Wi-Fi dispon\xc3\xadveis</b>"));
+            if (!n_avail) {
+                GtkWidget *empty = gtk_label_new(_("Nenhuma rede encontrada."));
+                gtk_misc_set_alignment(GTK_MISC(empty), 0.0f, 0.5f);
+                style_fg(empty);
+                gtk_box_pack_start(GTK_BOX(g_box), empty, FALSE, FALSE, 0);
+            }
             for (guint i = 0; i < wifi->len; i++) {
-                gtk_box_pack_start(GTK_BOX(g_box), build_wifi_row(g_ptr_array_index(wifi, i)), FALSE, FALSE, 0);
+                WifiNet *w = g_ptr_array_index(wifi, i);
+                if (!w->in_use) gtk_box_pack_start(GTK_BOX(g_box), build_wifi_row(w), FALSE, FALSE, 0);
+            }
+        }
+        if (n_inactive) {
+            gtk_box_pack_start(GTK_BOX(g_box), gtk_hseparator_new(), FALSE, FALSE, 4);
+            section_title(_("<b>Dispositivos inativos</b>"));
+            for (guint i = 0; i < devices->len; i++) {
+                NetDevice *d = g_ptr_array_index(devices, i);
+                if (!is_connected_state(d->state) && strcmp(d->state, "unmanaged") != 0)
+                    gtk_box_pack_start(GTK_BOX(g_box), build_device_row(d), FALSE, FALSE, 0);
             }
         }
     }
