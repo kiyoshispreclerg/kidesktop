@@ -13,7 +13,7 @@ set -u
 
 # Core, then base; planned base applications are skipped until they have a
 # Makefile.
-COMPONENTS="kisession kiwm kicomp xispanel xisserve xisback kiconf kiconfd xiskeys xismenu xisguard kimemory kistory"
+COMPONENTS="kisession kiwm kicomp xispanel xisserve xisback kitheme kiconf kiconfd xiskeys xismenu xisguard kimemory kistory"
 COMPONENTS="$COMPONENTS kiterm kifiles kiview kishot kitask kipad kipaint"
 STRICT_CFLAGS="-Wall -Wextra -O2 -Werror"
 FAILED=""
@@ -36,7 +36,7 @@ for c in $COMPONENTS; do
 	# CFLAGS through the environment, not the command line: the Makefiles
 	# append to CFLAGS (LOCALEDIR, ...), which a command-line value would
 	# override.
-	if ! CFLAGS="$STRICT_CFLAGS" make -s -C "$c" >/dev/null; then
+	if ! CFLAGS="$STRICT_CFLAGS" CXXFLAGS="$STRICT_CFLAGS" make -s -C "$c" >/dev/null; then
 		fail "build:$c"
 	fi
 done

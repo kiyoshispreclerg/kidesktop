@@ -57,6 +57,19 @@ check dbus-1 dbus
 check gtk+-2.0 gtk2
 check xres XRes
 
+# kitheme's Qt style plugin is built per Qt version found; without Qt
+# development files GTK still gets the theme.
+if pkg-config --exists Qt5Widgets 2>/dev/null; then
+	printf '  [ok]      %-10s (%s)\n' qt5 "$(pkg-config --modversion Qt5Widgets)"
+else
+	printf '  [skipped] %-10s (pkg-config: Qt5Widgets) -- no KiTheme style for Qt5 apps\n' qt5
+fi
+if [ -f "$(qmake6 -query QT_INSTALL_HEADERS 2>/dev/null)/QtWidgets/QStylePlugin" ]; then
+	printf '  [ok]      %-10s (%s)\n' qt6 "$(qmake6 -query QT_VERSION)"
+else
+	printf '  [skipped] %-10s (qmake6, qt6-base-dev) -- no KiTheme style for Qt6 apps\n' qt6
+fi
+
 # kiterm is the only component that needs VTE; without it the build
 # skips kiterm instead of failing (see Makefile).
 if [ "$WITH_BASE" = 1 ]; then
