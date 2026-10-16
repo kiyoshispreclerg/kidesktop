@@ -327,7 +327,7 @@ typedef struct {
 
 static void css_button(FILE *f, const KtTheme *t, const Css *s, const Nodes *n)
 {
-    const char *btn = "button:not(.flat):not(.titlebutton):not(.image-button.close)";
+    const char *btn = "button:not(.flat):not(.titlebutton)";
     if (t->style == KT_STYLE_CLASSIC) {
         fprintf(f,
                 "%s, combobox button.combo {\n"
@@ -438,10 +438,10 @@ static void css_entry(FILE *f, const KtTheme *t, const Css *s)
                 "  background-image: none; background-color: %s; color: %s; border-radius: 0;\n"
                 "  border: 1px solid; border-color: %s %s %s %s; box-shadow: inset 1px 1px %s, inset -1px -1px %s;\n}\n"
                 "spinbutton:not(.vertical) entry { border: none; box-shadow: none; }\n"
-                "entry:focus { box-shadow: inset 1px 1px %s, inset -1px -1px %s; }\n"
+                "entry:focus { border-color: %s %s %s %s; box-shadow: inset 1px 1px %s, inset -1px -1px %s; }\n"
                 "frame > border, scrolledwindow.frame { border: 1px solid; border-color: %s %s %s %s; border-radius: 0; }\n",
                 s->base_bg, s->base_fg, s->shadow, s->hl, s->hl, s->shadow, s->dark, s->light,
-                s->dark, s->light,
+                s->shadow, s->hl, s->hl, s->shadow, s->dark, s->light,
                 s->shadow, s->hl, s->hl, s->shadow);
         return;
     }
@@ -468,7 +468,7 @@ static void css_progress(FILE *f, const KtTheme *t, const Css *s, int v4)
                    " box-shadow: none; }\n",
                 trough, pt - 2, s->window_bg, s->shadow, s->hl, s->hl, s->shadow);
         fprintf(f, "progressbar.vertical > trough { min-width: %dpx; border-radius: 0; }\n", pt - 2);
-        fprintf(f, "progressbar > trough > progress { min-height: %dpx; min-width: %dpx; border-radius: 0; border: none; margin: 1px;"
+        fprintf(f, "progressbar.horizontal > trough > progress, progressbar.vertical > trough > progress { min-height: %dpx; min-width: %dpx; border-radius: 0; border: none; margin: 1px;"
                    " box-shadow: none; background-color: %s; background-image: none; }\n",
                 pt - 4, pt - 4, s->progress);
         if (t->progress_stripes)
@@ -482,7 +482,7 @@ static void css_progress(FILE *f, const KtTheme *t, const Css *s, int v4)
         fprintf(f, "%s { min-height: %dpx; border-radius: %dpx; background-color: %s; border: none; box-shadow: none; }\n",
                 trough, pt, s->r, s->trough);
         fprintf(f, "progressbar.vertical > trough { min-width: %dpx; }\n", pt);
-        fprintf(f, "progressbar > trough > progress { min-height: %dpx; min-width: %dpx; border-radius: %dpx; border: none;"
+        fprintf(f, "progressbar.horizontal > trough > progress, progressbar.vertical > trough > progress { min-height: %dpx; min-width: %dpx; border-radius: %dpx; border: none;"
                    " background-image: none; background-color: %s; box-shadow: none; }\n",
                 pt, pt, s->r, s->progress);
     } else {
@@ -490,7 +490,7 @@ static void css_progress(FILE *f, const KtTheme *t, const Css *s, int v4)
                    " border: 1px solid %s; box-shadow: inset 0 1px 2px %s; }\n",
                 trough, pt - 2, s->r + 1, s->trough, s->border, s->inner_shadow);
         fprintf(f, "progressbar.vertical > trough { min-width: %dpx; }\n", pt - 2);
-        fprintf(f, "progressbar > trough > progress { min-height: %dpx; min-width: %dpx; border-radius: %dpx;"
+        fprintf(f, "progressbar.horizontal > trough > progress, progressbar.vertical > trough > progress { min-height: %dpx; min-width: %dpx; border-radius: %dpx;"
                    " border: 1px solid %s; background-color: %s;"
                    " background-image: linear-gradient(to bottom, %s, %s); box-shadow: inset 0 1px rgba(255,255,255,0.35); }\n",
                 pt - 4, pt - 4, s->r, s->prog_border, s->progress, s->prog_top, s->prog_bot);
@@ -502,16 +502,34 @@ static void css_progress(FILE *f, const KtTheme *t, const Css *s, int v4)
                  " transparent %dpx, transparent %dpx)",
                  pt * 4 / 5, pt * 4 / 5, pt * 8 / 5);
         if (t->style == KT_STYLE_SOFT)
-            fprintf(f, "progressbar > trough > progress { background-image: %s, linear-gradient(to bottom, %s, %s); }\n",
+            fprintf(f, "progressbar.horizontal > trough > progress, progressbar.vertical > trough > progress { background-image: %s, linear-gradient(to bottom, %s, %s); }\n",
                     stripes, s->prog_top, s->prog_bot);
         else
-            fprintf(f, "progressbar > trough > progress { background-image: %s; }\n", stripes);
+            fprintf(f, "progressbar.horizontal > trough > progress, progressbar.vertical > trough > progress { background-image: %s; }\n", stripes);
         if (t->progress_animation) {
             fprintf(f, "@keyframes kt-stripes { from { background-position: 0 0; } to { background-position: %dpx 0; } }\n"
-                       "progressbar > trough > progress { animation: kt-stripes 1s linear infinite; }\n",
+                       "progressbar.horizontal > trough > progress, progressbar.vertical > trough > progress { animation: kt-stripes 1s linear infinite; }\n",
                     (int)(pt * 8 / 5 * 1.4142 + 0.5));
         }
     }
+}
+
+/* GTK3/GTK4 lay the text out above the trough; pulling it down by its
+ * own (forced) height puts it over the bar, centered like the GTK2/Qt
+ * look. One color only: CSS cannot split it at the bar's edge. */
+static void css_progress_text(FILE *f, const KtTheme *t, const Css *s)
+{
+    int pt = t->progress_thickness;
+    if (pt < 14)
+        return;
+    /* The color that contrasts with the bar, with a halo of the opposite
+     * one so it stays readable over the empty part too. */
+    int dark_bar = kt_luma(t->progress) < 0.5;
+    char halo[32];
+    kt_color_css(dark_bar ? kt_shade(t->progress, 0.6) : t->window_bg, halo, sizeof(halo));
+    fprintf(f, "progressbar.horizontal > text { min-height: %dpx; margin-bottom: -%dpx; color: %s;"
+               " text-shadow: 0 0 2px %s, 0 0 2px %s, 0 0 1px %s; }\n",
+            pt, pt, dark_bar ? s->sel_fg : s->window_fg, halo, halo, halo);
 }
 
 static void css_scrollbar(FILE *f, const KtTheme *t, const Css *s, int v4)
@@ -561,25 +579,19 @@ static void css_misc(FILE *f, const KtTheme *t, const Css *s, const Nodes *n)
     /* Selection. */
     fprintf(f, ".view:selected, treeview.view:selected, iconview:selected, row:selected, flowboxchild:selected,"
                " textview text selection, entry selection, label selection, *:selected {\n"
-               "  background-color: %s; color: %s;%s%s%s%s\n}\n",
-            s->sel_bg, s->sel_fg,
-            soft ? " background-image: linear-gradient(to bottom, " : "", soft ? s->sel_top : "", soft ? ", " : "",
-            soft ? s->sel_bot : "");
+               "  background-color: %s; color: %s;\n}\n",
+            s->sel_bg, s->sel_fg);
     if (soft)
         fprintf(f, "textview text selection, entry selection, label selection { background-image: none; }\n");
 
     /* Menus. */
-    fprintf(f, "%s { background-color: %s; color: %s; border: 1px solid %s; border-radius: 0; box-shadow: none;%s%s%s%s }\n",
-            n->menu, s->menu_bg, s->menu_fg, classic ? s->dark : s->border,
-            soft ? " background-image: linear-gradient(to bottom, " : "", soft ? s->menu_top : "", soft ? ", " : "",
-            soft ? s->menu_bot : "");
+    fprintf(f, "%s { background-color: %s; color: %s; border: 1px solid %s; border-radius: 0; box-shadow: none; }\n",
+            n->menu, s->menu_bg, s->menu_fg, classic ? s->dark : s->border);
     if (soft)
         fprintf(f, "%s { background-image: linear-gradient(to bottom, %s, %s); }\n", n->menu, s->menu_top, s->menu_bot);
     fprintf(f, "%s { color: %s; }\n", n->menuitem, s->menu_fg);
-    fprintf(f, "%s:hover { background-color: %s; color: %s; border-radius: %dpx;%s%s%s%s }\n",
-            n->menuitem, s->sel_bg, s->sel_fg, s->r,
-            soft ? " background-image: linear-gradient(to bottom, " : "", soft ? s->sel_top : "", soft ? ", " : "",
-            soft ? s->sel_bot : "");
+    fprintf(f, "%s:hover { background-color: %s; color: %s; border-radius: %dpx; }\n",
+            n->menuitem, s->sel_bg, s->sel_fg, s->r);
     if (soft)
         fprintf(f, "%s:hover { background-image: linear-gradient(to bottom, %s, %s); }\n", n->menuitem, s->sel_top, s->sel_bot);
     if (!n->v4)
@@ -598,8 +610,11 @@ static void css_misc(FILE *f, const KtTheme *t, const Css *s, const Nodes *n)
     fprintf(f, "notebook > header { background-color: %s; border-color: %s; }\n"
                "notebook > header > tabs > tab { background-color: %s; color: %s; border: 1px solid %s; box-shadow: none;"
                " margin: 0 -1px; }\n"
-               "notebook > header > tabs > tab:hover { background-color: %s; box-shadow: none; }\n"
-               "notebook > header > tabs > tab:checked { background-color: %s; box-shadow: %s; }\n"
+               "notebook > header > tabs > tab:hover, notebook > header.top > tabs > tab:hover,"
+               " notebook > header.bottom > tabs > tab:hover { background-color: %s; box-shadow: none; }\n"
+               "notebook > header > tabs > tab:checked, notebook > header.top > tabs > tab:checked,"
+               " notebook > header.bottom > tabs > tab:checked, notebook > header.left > tabs > tab:checked,"
+               " notebook > header.right > tabs > tab:checked { background-color: %s; box-shadow: %s; }\n"
                "notebook > header.top > tabs > tab { border-bottom: none; border-radius: %dpx %dpx 0 0; }\n"
                "notebook > header.bottom > tabs > tab { border-top: none; border-radius: 0 0 %dpx %dpx; }\n"
                "notebook > header.left > tabs > tab { border-right: none; border-radius: %dpx 0 0 %dpx; }\n"
@@ -608,7 +623,7 @@ static void css_misc(FILE *f, const KtTheme *t, const Css *s, const Nodes *n)
             s->window_bg, s->border,
             s->tab_bg, s->window_fg, s->border,
             s->tab_hover,
-            s->window_bg, t->style == KT_STYLE_FLAT ? "inset 0 2px " : "none", s->r + 1, s->r + 1, s->r + 1, s->r + 1,
+            s->window_bg, "none", s->r + 1, s->r + 1, s->r + 1, s->r + 1,
             s->r + 1, s->r + 1, s->r + 1, s->r + 1, s->window_bg);
     if (t->style == KT_STYLE_FLAT)
         fprintf(f, "notebook > header.top > tabs > tab:checked { box-shadow: inset 0 2px %s; }\n", s->accent);
@@ -618,29 +633,23 @@ static void css_misc(FILE *f, const KtTheme *t, const Css *s, const Nodes *n)
                " background-color: %s; box-shadow: none; }\n"
                "scale highlight { background-color: %s; background-image: none; border: none; border-radius: 3px; }\n"
                "scale slider { min-width: 16px; min-height: 16px; margin: -7px; border-radius: %s; border: 1px solid %s;"
-               " background-color: %s; %s%s%s%s box-shadow: inset 0 1px %s; }\n"
+               " background-color: %s; box-shadow: inset 0 1px %s; }\n"
                "scale slider:hover { border-color: %s; }\n",
-            s->border, s->trough, s->progress, classic ? "0" : "50%", s->border, t->style == KT_STYLE_FLAT ? s->progress : s->button_bg,
-            soft ? "background-image: linear-gradient(to bottom, " : "", soft ? s->btn_top : "", soft ? ", " : "",
-            soft ? s->btn_bot : "", s->hilite, t->hover_glow ? s->accent : s->border);
+            s->border, s->trough, s->progress, classic ? "0" : "50%", s->border, t->style == KT_STYLE_FLAT ? s->progress : s->button_bg, s->hilite, t->hover_glow ? s->accent : s->border);
     if (soft)
         fprintf(f, "scale slider { background-image: linear-gradient(to bottom, %s, %s); }\n", s->btn_top, s->btn_bot);
 
     /* Column headers. */
     fprintf(f, "treeview.view header button, columnview > header > button { background-color: %s; color: %s;"
-               " border-radius: 0; border-width: 0 1px 1px 0; border-style: solid; border-color: %s; box-shadow: none;%s%s%s%s }\n",
-            s->window_bg, s->window_fg, s->border,
-            soft ? " background-image: linear-gradient(to bottom, " : "", soft ? s->btn_top : "", soft ? ", " : "",
-            soft ? s->btn_bot : "");
+               " border-radius: 0; border-width: 0 1px 1px 0; border-style: solid; border-color: %s; box-shadow: none; }\n",
+            s->window_bg, s->window_fg, s->border);
     if (soft)
         fprintf(f, "treeview.view header button { background-image: linear-gradient(to bottom, %s, %s); }\n", s->btn_top, s->btn_bot);
 
     /* Header bars follow the window, without Adwaita's own gradient. */
-    fprintf(f, "headerbar, .titlebar:not(headerbar) { background-color: %s; color: %s; border-color: %s;%s%s%s%s"
-               " box-shadow: inset 0 1px %s; }\n",
-            s->window_bg, s->window_fg, s->border,
-            soft ? " background-image: linear-gradient(to bottom, " : " background-image: none;", soft ? s->btn_top : "",
-            soft ? ", " : "", soft ? s->window_bg : "", s->hilite);
+    fprintf(f, "headerbar, .titlebar:not(headerbar) { background-color: %s; color: %s; border-color: %s;"
+               " background-image: none; box-shadow: inset 0 1px %s; }\n",
+            s->window_bg, s->window_fg, s->border, s->hilite);
     if (soft)
         fprintf(f, "headerbar, .titlebar:not(headerbar) { background-image: linear-gradient(to bottom, %s, %s); }\n",
                 s->btn_top, s->window_bg);
@@ -688,6 +697,8 @@ static int write_css(const char *dir, const KtTheme *t, int v4)
     css_entry(f, t, &s);
     css_checks(f, t, n);
     css_progress(f, t, &s, v4);
+    if (!v4) /* GTK4 draws the text before the trough: it would be hidden */
+        css_progress_text(f, t, &s);
     css_scrollbar(f, t, &s, v4);
     css_misc(f, t, &s, n);
     return close_out(f, path);
