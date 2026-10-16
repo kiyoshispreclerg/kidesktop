@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Hello
+Name[pt_BR]=Ola
+Comment=Example plugin tab
+Icon=help-about
+X-KiConf-Category=system
+X-KiConf-Keywords=example;demo
+X-KiConf-Module=hello.so

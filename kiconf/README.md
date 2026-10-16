@@ -36,6 +36,34 @@ and switching tabs doesn't grow the window.
 | Sons | `kidesktop-sound.conf` (theme, volume, per-event files), read live by every program playing sounds |
 | Eventos | `ki-events.conf`, read by `xisserve --calendar` |
 
+## Plugin tabs
+
+Extra tabs are dropped in `<datadir>/kiconf/tabs/` (`~/.local/share/kiconf/tabs/`
+first, then each `XDG_DATA_DIRS` entry, then `$(PREFIX)/share`; the first file
+with a given id wins; `KICONF_TABS_DIR` adds a dir at the front for testing).
+Each plugin is a `<id>.desktop` file:
+
+```
+[Desktop Entry]
+Name=Hello
+Name[pt_BR]=Ola
+Comment=Shown as tooltip, also searched
+Icon=help-about                 # icon-theme name or absolute path
+X-KiConf-Category=system        # appearance|hardware|programs|system, or any text
+X-KiConf-Keywords=example;demo
+X-KiConf-Module=hello.so        # in-process: exports GtkWidget *kiconf_tab_build(void)
+# or, instead of Module:
+Exec=my-settings-page           # separate process, embedded via XEmbed:
+                                # "%x" -> socket window id, else "--plug=<id>" is appended
+```
+
+Modules are loaded lazily on first visit; `--tab <id>` and `--list-tabs`
+include plugins. A working example is in `examples/hello/`.
+
+The home page has a search box (matches title, comment and keywords; Enter
+opens the first match) and one section per category. Plugin tabs are not part
+of the unsaved-edits tracking built-in tabs get.
+
 ## Usage
 
 ```sh

@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-15 16:22-0300\n"
+"POT-Creation-Date: 2026-10-16 08:04-0300\n"
 "PO-Revision-Date: 2026-10-01 13:53-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -27,95 +27,95 @@ msgstr "%s (%s)"
 msgid "%s (sem EDID)"
 msgstr "%s (no EDID)"
 
-#: kiconf.c:160
+#: kiconf.c:164
 msgid "Aparencia"
 msgstr "Appearance"
 
-#: kiconf.c:161
+#: kiconf.c:165
 msgid "Atalhos"
 msgstr "Shortcuts"
 
-#: kiconf.c:162
+#: kiconf.c:166
 msgid "Telas"
 msgstr "Displays"
 
-#: kiconf.c:163
+#: kiconf.c:167
 msgid "Entrada"
 msgstr "Input"
 
-#: kiconf.c:164
+#: kiconf.c:168
 msgid "Wallpaper"
 msgstr "Wallpaper"
 
-#: kiconf.c:165
+#: kiconf.c:169
 msgid "Paineis"
 msgstr "Panels"
 
-#: kiconf.c:166
+#: kiconf.c:170
 msgid "Permissoes"
 msgstr "Permissions"
 
-#: kiconf.c:167
+#: kiconf.c:171
 msgid "Gerenciamento de janelas"
 msgstr "Window management"
 
-#: kiconf.c:168
+#: kiconf.c:172
 msgid "Efeitos do compositor"
 msgstr "Compositor effects"
 
-#: kiconf.c:169
+#: kiconf.c:173
 msgid "Sistema"
 msgstr "System"
 
-#: kiconf.c:170
+#: kiconf.c:174
 msgid "Energia"
 msgstr "Power"
 
-#: kiconf.c:171
+#: kiconf.c:175
 msgid "Programas padrao"
 msgstr "Default programs"
 
-#: kiconf.c:172
+#: kiconf.c:176
 msgid "Associacoes de arquivos"
 msgstr "File associations"
 
-#: kiconf.c:173 tabs/menu.c:682
+#: kiconf.c:177 tabs/menu.c:682
 msgid "Menu de programas"
 msgstr "Application menu"
 
-#: kiconf.c:174
+#: kiconf.c:178
 msgid "Iniciar automaticamente"
 msgstr "Autostart"
 
-#: kiconf.c:175 tabs/eventos.c:191
+#: kiconf.c:179 tabs/eventos.c:191
 msgid "Eventos"
 msgstr "Events"
 
-#: kiconf.c:176
+#: kiconf.c:180
 msgid "Historico"
 msgstr "History"
 
-#: kiconf.c:177
+#: kiconf.c:181
 msgid "Sons"
 msgstr "Sounds"
 
-#: kiconf.c:178 tabs/usuarios.c:529
+#: kiconf.c:182 tabs/usuarios.c:529
 msgid "Usuarios"
 msgstr "Users"
 
-#: kiconf.c:179 tabs/servicos.c:410
+#: kiconf.c:183 tabs/servicos.c:410
 msgid "Servicos"
 msgstr "Services"
 
-#: kiconf.c:180
+#: kiconf.c:184
 msgid "Login"
 msgstr "Login"
 
-#: kiconf.c:181
+#: kiconf.c:185
 msgid "Acessibilidade"
 msgstr "Accessibility"
 
-#: kiconf.c:317
+#: kiconf.c:347
 msgid ""
 "Ha alteracoes nao aplicadas nesta aba. Tem certeza que deseja sair sem "
 "aplica-las?"
@@ -123,13 +123,61 @@ msgstr ""
 "There are unapplied changes in this tab. Are you sure you want to quit "
 "without applying them?"
 
-#: kiconf.c:319 tabs/usuarios.c:557 tabs/usuarios.c:559
+#: kiconf.c:349 tabs/usuarios.c:557 tabs/usuarios.c:559
 msgid "Alteracoes pendentes"
 msgstr "Pending changes"
 
-#: kiconf.c:746 kiconf.c:758
+#: kiconf.c:514
+#, fuzzy
+msgid "Personalizacao"
+msgstr "At startup"
+
+#: kiconf.c:515
+msgid "Hardware e entrada"
+msgstr "Hardware and input"
+
+#: kiconf.c:516
+#, fuzzy
+msgid "Programas"
+msgstr "Default programs"
+
+#: kiconf.c:517
+#, fuzzy
+msgid "Sistema e seguranca"
+msgstr "Device safely removed"
+
+#: kiconf.c:545
+#, fuzzy
+msgid "Outros"
+msgstr "Other"
+
+#: kiconf.c:643
+msgid "Nenhum modulo encontrado."
+msgstr "No modules found."
+
+#: kiconf.c:678
+#, fuzzy
+msgid "Filtrar modulos"
+msgstr "Filter services"
+
+#: kiconf.c:965 kiconf.c:977
 msgid "Inicio"
 msgstr "Home"
+
+#: plugins.c:158
+#, fuzzy, c-format
+msgid "Nao foi possivel carregar o modulo: %s"
+msgstr "Could not write the sounds file."
+
+#: plugins.c:165
+#, c-format
+msgid "O modulo %s nao exporta kiconf_tab_build()"
+msgstr "Module %s does not export kiconf_tab_build()"
+
+#: plugins.c:168
+#, c-format
+msgid "O modulo %s nao criou nenhuma pagina"
+msgstr "Module %s did not create a page"
 
 #: sysinfo.c:257
 msgid "Sobre este computador"
@@ -250,83 +298,120 @@ msgstr "Add..."
 msgid "Remover"
 msgstr "Remove"
 
-#: tabs/efeitos.c:655 tabs/paineis.c:867 tabs/servicos.c:267
+#: tabs/cantos.c:177
+#, fuzzy
+msgid "Todas as telas"
+msgstr "All actions"
+
+#: tabs/cantos.c:200
+#, fuzzy
+msgid "Tela"
+msgstr "Displays"
+
+#: tabs/cantos.c:211
+msgid "Cantos ativos por tela"
+msgstr ""
+
+#: tabs/cantos.c:214
+msgid ""
+"Encostar o mouse no canto da tela dispara o efeito. \"(padrao)\" segue a "
+"linha \"Todas as telas\"."
+msgstr ""
+
+#: tabs/cantos.c:226
+msgid "Tempo que o mouse precisa ficar no canto. Passar de raspao nao dispara."
+msgstr ""
+
+#: tabs/cantos.c:231
+msgid ""
+"O pixel do canto deixa de chegar a janela embaixo (botao fechar de janela "
+"maximizada)."
+msgstr ""
+
+#: tabs/efeitos.c:657 tabs/paineis.c:867 tabs/servicos.c:267
 msgid "?"
 msgstr "?"
 
-#: tabs/efeitos.c:1041
+#: tabs/efeitos.c:1048
 msgid "Duracao base das animacoes"
 msgstr "Base duration of the animations"
 
-#: tabs/efeitos.c:1049
+#: tabs/efeitos.c:1056
 msgid "present/copy"
 msgstr "present/copy"
 
-#: tabs/efeitos.c:1053
+#: tabs/efeitos.c:1060
 msgid "Compor tudo em um unico drawable"
 msgstr "Composite everything into a single drawable"
 
-#: tabs/efeitos.c:1057
+#: tabs/efeitos.c:1064
 msgid "Ignorar camadas de decoracao do WM"
 msgstr "Ignore the WM's decoration layers"
 
-#: tabs/efeitos.c:1061
+#: tabs/efeitos.c:1068
 msgid "Desviar (unredirect) janela em tela cheia"
 msgstr "Unredirect a fullscreen window"
 
-#: tabs/efeitos.c:1065
+#: tabs/efeitos.c:1072
 msgid "Tempo para reivindicar janelas ja abertas"
 msgstr "Time to claim already-open windows"
 
-#: tabs/efeitos.c:1069
+#: tabs/efeitos.c:1076
 msgid "Manter conteudo de janelas ocultas (expo/wall)"
 msgstr "Keep hidden windows content (expo/wall)"
 
-#: tabs/efeitos.c:1072
+#: tabs/efeitos.c:1079
 msgid "Janelas ao vivo em efeitos (expo/wall/cube)"
 msgstr "Live windows in effects (expo/wall/cube)"
 
-#: tabs/efeitos.c:1076
+#: tabs/efeitos.c:1083
 msgid "Decoracao/conteudo nitidos sob zoom"
 msgstr "Sharp decoration/content under zoom"
 
-#: tabs/efeitos.c:1091
+#: tabs/efeitos.c:1098
 msgid "ex.: windows,menus"
 msgstr "e.g.: windows,menus"
 
-#: tabs/efeitos.c:1102 tabs/efeitos.c:1129
+#: tabs/efeitos.c:1109 tabs/efeitos.c:1141
 msgid "Deslocamento X"
 msgstr "X offset"
 
-#: tabs/efeitos.c:1105 tabs/efeitos.c:1132
+#: tabs/efeitos.c:1112 tabs/efeitos.c:1144
 msgid "Deslocamento Y"
 msgstr "Y offset"
 
-#: tabs/efeitos.c:1106 tabs/efeitos.c:1133
+#: tabs/efeitos.c:1113 tabs/efeitos.c:1145
 msgid "X:"
 msgstr "X:"
 
-#: tabs/efeitos.c:1108 tabs/efeitos.c:1135
+#: tabs/efeitos.c:1115 tabs/efeitos.c:1147
 msgid "Y:"
 msgstr "Y:"
 
-#: tabs/efeitos.c:1115
+#: tabs/efeitos.c:1123
+msgid ""
+"Tipos que tambem recebem sombra, sempre com o estilo de janela sem foco "
+"(ex.: dock,tooltip,notification). Vazio = desligado. Paineis junto a outra "
+"saida projetam sombra nela."
+msgstr ""
+
+#: tabs/efeitos.c:1127
 msgid "Usar valores proprios para janelas sem foco"
 msgstr "Use separate values for unfocused windows"
 
-#: tabs/efeitos.c:1164
+#: tabs/efeitos.c:1176
 msgid "Adicionar efeito"
 msgstr "Add effect"
 
-#: tabs/efeitos.c:1165
+#: tabs/efeitos.c:1177
 msgid "Remover efeito"
 msgstr "Remove effect"
 
-#: tabs/efeitos.c:1174
+#: tabs/efeitos.c:1187
 msgid "Reiniciar kicomp agora"
 msgstr "Restart kicomp now"
 
-#: tabs/efeitos.c:1175
+#: tabs/efeitos.c:1188
 msgid "Aplicar (grava kicomp.conf)"
 msgstr "Apply (writes kicomp.conf)"
 
@@ -429,7 +514,7 @@ msgstr "Saved."
 msgid "Adicionar"
 msgstr "Add"
 
-#: tabs/eventos.c:228 tabs/sistema.c:795 tabs/sons.c:370
+#: tabs/eventos.c:228 tabs/sistema.c:795 tabs/sons.c:378
 msgid "Salvar"
 msgstr "Save"
 
@@ -1275,35 +1360,67 @@ msgstr "System bell"
 msgid "Esvaziar a lixeira"
 msgstr "Empty the trash"
 
-#: tabs/sons.c:129
+#: tabs/sons.c:40
+msgid "Abrir pasta no gerenciador de arquivos"
+msgstr "Open a folder in the file manager"
+
+#: tabs/sons.c:41
+msgid "Voltar no gerenciador de arquivos"
+msgstr "Go back in the file manager"
+
+#: tabs/sons.c:42
+msgid "Avancar no gerenciador de arquivos"
+msgstr "Go forward in the file manager"
+
+#: tabs/sons.c:43
+msgid "Subir para a pasta acima"
+msgstr "Go up to the parent folder"
+
+#: tabs/sons.c:44
+msgid "Mover arquivos para a lixeira"
+msgstr "Move files to the trash"
+
+#: tabs/sons.c:45
+msgid "Operacao concluida / programa terminou no terminal"
+msgstr "Operation finished / program finished in the terminal"
+
+#: tabs/sons.c:46
+msgid "Erro numa operacao de arquivos"
+msgstr "File operation error"
+
+#: tabs/sons.c:47
+msgid "Dispositivo removido com seguranca"
+msgstr "Device safely removed"
+
+#: tabs/sons.c:137
 msgid "Silencioso"
 msgstr "Silent"
 
-#: tabs/sons.c:131
+#: tabs/sons.c:139
 msgid "Arquivo"
 msgstr "File"
 
-#: tabs/sons.c:135
+#: tabs/sons.c:143
 msgid "(o tema nao define)"
 msgstr "(not defined by the theme)"
 
-#: tabs/sons.c:207
+#: tabs/sons.c:215
 msgid "Escolher som"
 msgstr "Choose sound"
 
-#: tabs/sons.c:211
+#: tabs/sons.c:219
 msgid "Audio (ogg, oga, wav)"
 msgstr "Audio (ogg, oga, wav)"
 
-#: tabs/sons.c:237
+#: tabs/sons.c:245
 msgid "Nao foi possivel gravar o arquivo de sons."
 msgstr "Could not write the sounds file."
 
-#: tabs/sons.c:257
+#: tabs/sons.c:265
 msgid "Salvo. Os programas aplicam em ate 2 segundos."
 msgstr "Saved. Programs pick it up within 2 seconds."
 
-#: tabs/sons.c:316
+#: tabs/sons.c:324
 msgid ""
 "Sons dos eventos do desktop. Escolher um tema muda todos de uma vez; na "
 "lista abaixo cada evento pode ter um arquivo proprio ou ficar silencioso."
@@ -1311,43 +1428,43 @@ msgstr ""
 "Desktop event sounds. Picking a theme changes them all at once; in the list "
 "below each event can have its own file or be silent."
 
-#: tabs/sons.c:328
+#: tabs/sons.c:336
 msgid "Ativar sons"
 msgstr "Enable sounds"
 
-#: tabs/sons.c:335
+#: tabs/sons.c:343
 msgid "Tema sonoro:"
 msgstr "Sound theme:"
 
-#: tabs/sons.c:339
+#: tabs/sons.c:347
 msgid "Volume:"
 msgstr "Volume:"
 
-#: tabs/sons.c:344
+#: tabs/sons.c:352
 msgid "Eventos sonoros"
 msgstr "Sound events"
 
-#: tabs/sons.c:346
+#: tabs/sons.c:354
 msgid "Evento"
 msgstr "Event"
 
-#: tabs/sons.c:348
+#: tabs/sons.c:356
 msgid "Som"
 msgstr "Sound"
 
-#: tabs/sons.c:360
+#: tabs/sons.c:368
 msgid "Testar"
 msgstr "Test"
 
-#: tabs/sons.c:361
+#: tabs/sons.c:369
 msgid "Escolher arquivo..."
 msgstr "Choose file..."
 
-#: tabs/sons.c:362
+#: tabs/sons.c:370
 msgid "Silenciar"
 msgstr "Mute"
 
-#: tabs/sons.c:363
+#: tabs/sons.c:371
 msgid "Usar o do tema"
 msgstr "Use the theme's"
 
@@ -1655,9 +1772,6 @@ msgstr "Set layer"
 msgid "Salvar acoes de clique"
 msgstr "Save click actions"
 
-#~ msgid "Outras"
-#~ msgstr "Other"
-
 #~ msgid "Horario de luz noturna salvo."
 #~ msgstr "Night light schedule saved."
 
@@ -1667,35 +1781,3 @@ msgstr "Save click actions"
 #~ msgstr ""
 #~ "Takes effect at the next login. Ctrl+Alt+Tab focuses the panel for "
 #~ "keyboard use (focus_key= in xispanel.conf)."
-
-#: tabs/sons.c
-msgid "Abrir pasta no gerenciador de arquivos"
-msgstr "Open a folder in the file manager"
-
-#: tabs/sons.c
-msgid "Voltar no gerenciador de arquivos"
-msgstr "Go back in the file manager"
-
-#: tabs/sons.c
-msgid "Avancar no gerenciador de arquivos"
-msgstr "Go forward in the file manager"
-
-#: tabs/sons.c
-msgid "Subir para a pasta acima"
-msgstr "Go up to the parent folder"
-
-#: tabs/sons.c
-msgid "Mover arquivos para a lixeira"
-msgstr "Move files to the trash"
-
-#: tabs/sons.c
-msgid "Operacao concluida / programa terminou no terminal"
-msgstr "Operation finished / program finished in the terminal"
-
-#: tabs/sons.c
-msgid "Erro numa operacao de arquivos"
-msgstr "File operation error"
-
-#: tabs/sons.c
-msgid "Dispositivo removido com seguranca"
-msgstr "Device safely removed"

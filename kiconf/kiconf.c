@@ -120,9 +120,10 @@
 #include "../shared/xis_i18n.h"
 #include "../shared/xis_direction.h"
 #include "sysinfo.h"
+#include "plugins.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.61"
+#define KICONF_VERSION "0.2.62"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -154,33 +155,62 @@ typedef struct {
     GtkWidget *placeholder;
     int built;
     int dirty;
+    const char *category;   /* appearance|hardware|programs|system|<custom> */
+    const char *keywords;   /* extra search words */
+    KiconfPlugin *plugin;   /* non-NULL: label is the id, title/icon from it */
 } LazyTab;
 
-static LazyTab g_tabs[] = {
-    {N_("Aparencia"), GTK_STOCK_SELECT_COLOR, build_appearance_tab, NULL, 0, 0},
-    {N_("Atalhos"), GTK_STOCK_JUMP_TO, build_shortcuts_tab, NULL, 0, 0},
-    {N_("Telas"), GTK_STOCK_FULLSCREEN, build_telas_tab, NULL, 0, 0},
-    {N_("Entrada"), GTK_STOCK_EDIT, build_entrada_tab, NULL, 0, 0},
-    {N_("Wallpaper"), GTK_STOCK_FILE, build_wallpaper_tab, NULL, 0, 0},
-    {N_("Paineis"), GTK_STOCK_JUSTIFY_FILL, build_paineis_tab, NULL, 0, 0},
-    {N_("Permissoes"), GTK_STOCK_DIALOG_AUTHENTICATION, build_permissoes_tab, NULL, 0, 0},
-    {N_("Gerenciamento de janelas"), GTK_STOCK_DND_MULTIPLE, build_janelas_tab, NULL, 0, 0},
-    {N_("Efeitos do compositor"), GTK_STOCK_CONVERT, build_efeitos_tab, NULL, 0, 0},
-    {N_("Sistema"), GTK_STOCK_HARDDISK, build_sistema_tab, NULL, 0, 0},
-    {N_("Energia"), GTK_STOCK_QUIT, build_energia_tab, NULL, 0, 0},
-    {N_("Programas padrao"), GTK_STOCK_EXECUTE, build_programas_tab, NULL, 0, 0},
-    {N_("Associacoes de arquivos"), GTK_STOCK_OPEN, build_associacoes_tab, NULL, 0, 0},
-    {N_("Menu de programas"), GTK_STOCK_DND, build_menu_tab, NULL, 0, 0},
-    {N_("Iniciar automaticamente"), GTK_STOCK_MEDIA_PLAY, build_autostart_tab, NULL, 0, 0},
-    {N_("Eventos"), GTK_STOCK_INDEX, build_eventos_tab, NULL, 0, 0},
-    {N_("Historico"), GTK_STOCK_FIND, build_historico_tab, NULL, 0, 0},
-    {N_("Sons"), GTK_STOCK_MEDIA_PLAY, build_sons_tab, NULL, 0, 0},
-    {N_("Usuarios"), GTK_STOCK_ORIENTATION_PORTRAIT, build_usuarios_tab, NULL, 0, 0},
-    {N_("Servicos"), GTK_STOCK_EXECUTE, build_servicos_tab, NULL, 0, 0},
-    {N_("Login"), GTK_STOCK_DIALOG_AUTHENTICATION, build_login_tab, NULL, 0, 0},
-    {N_("Acessibilidade"), GTK_STOCK_ZOOM_IN, build_acessibilidade_tab, NULL, 0, 0},
+static LazyTab g_builtin_tabs[] = {
+    {N_("Aparencia"), GTK_STOCK_SELECT_COLOR, build_appearance_tab, NULL, 0, 0, "appearance", "tema theme cores colors fonte font icones cursor", NULL},
+    {N_("Atalhos"), GTK_STOCK_JUMP_TO, build_shortcuts_tab, NULL, 0, 0, "hardware", "teclas keys hotkeys shortcuts", NULL},
+    {N_("Telas"), GTK_STOCK_FULLSCREEN, build_telas_tab, NULL, 0, 0, "hardware", "monitor resolucao display screen xrandr", NULL},
+    {N_("Entrada"), GTK_STOCK_EDIT, build_entrada_tab, NULL, 0, 0, "hardware", "mouse teclado keyboard touchpad pointer", NULL},
+    {N_("Wallpaper"), GTK_STOCK_FILE, build_wallpaper_tab, NULL, 0, 0, "appearance", "papel de parede background fundo", NULL},
+    {N_("Paineis"), GTK_STOCK_JUSTIFY_FILL, build_paineis_tab, NULL, 0, 0, "appearance", "painel panel barra bar taskbar", NULL},
+    {N_("Permissoes"), GTK_STOCK_DIALOG_AUTHENTICATION, build_permissoes_tab, NULL, 0, 0, "system", "xisguard seguranca security privacy", NULL},
+    {N_("Gerenciamento de janelas"), GTK_STOCK_DND_MULTIPLE, build_janelas_tab, NULL, 0, 0, "appearance", "windows kiwm foco focus", NULL},
+    {N_("Efeitos do compositor"), GTK_STOCK_CONVERT, build_efeitos_tab, NULL, 0, 0, "appearance", "kicomp animacao animation compositor wobbly cubo", NULL},
+    {N_("Sistema"), GTK_STOCK_HARDDISK, build_sistema_tab, NULL, 0, 0, "system", "sobre about hardware info", NULL},
+    {N_("Energia"), GTK_STOCK_QUIT, build_energia_tab, NULL, 0, 0, "hardware", "bateria battery suspender power luz noturna night light", NULL},
+    {N_("Programas padrao"), GTK_STOCK_EXECUTE, build_programas_tab, NULL, 0, 0, "programs", "navegador browser default", NULL},
+    {N_("Associacoes de arquivos"), GTK_STOCK_OPEN, build_associacoes_tab, NULL, 0, 0, "programs", "mime tipos types", NULL},
+    {N_("Menu de programas"), GTK_STOCK_DND, build_menu_tab, NULL, 0, 0, "programs", "menu applications launcher", NULL},
+    {N_("Iniciar automaticamente"), GTK_STOCK_MEDIA_PLAY, build_autostart_tab, NULL, 0, 0, "programs", "autostart startup sessao", NULL},
+    {N_("Eventos"), GTK_STOCK_INDEX, build_eventos_tab, NULL, 0, 0, "system", "notificacoes notifications", NULL},
+    {N_("Historico"), GTK_STOCK_FIND, build_historico_tab, NULL, 0, 0, "system", "history log", NULL},
+    {N_("Sons"), GTK_STOCK_MEDIA_PLAY, build_sons_tab, NULL, 0, 0, "hardware", "audio som sound", NULL},
+    {N_("Usuarios"), GTK_STOCK_ORIENTATION_PORTRAIT, build_usuarios_tab, NULL, 0, 0, "system", "users contas accounts", NULL},
+    {N_("Servicos"), GTK_STOCK_EXECUTE, build_servicos_tab, NULL, 0, 0, "system", "services daemon", NULL},
+    {N_("Login"), GTK_STOCK_DIALOG_AUTHENTICATION, build_login_tab, NULL, 0, 0, "system", "lightdm gerenciador de login", NULL},
+    {N_("Acessibilidade"), GTK_STOCK_ZOOM_IN, build_acessibilidade_tab, NULL, 0, 0, "appearance", "a11y lupa magnifier leitor screen reader", NULL},
 };
-#define N_TABS ((int)(sizeof(g_tabs) / sizeof(g_tabs[0])))
+/* Built-in tabs followed by the plugins found by plugins_scan(). */
+static LazyTab *g_tabs;
+static int g_n_tabs;
+#define N_TABS g_n_tabs
+
+static const char *tab_title(const LazyTab *tab)
+{
+    return tab->plugin ? tab->plugin->name : _(tab->label);
+}
+
+/* Fills g_tabs[]: the built-in tabs, then every plugin found on disk. */
+static void init_tabs(void)
+{
+    int nb = (int)(sizeof(g_builtin_tabs) / sizeof(g_builtin_tabs[0]));
+    int np = 0;
+    KiconfPlugin **plugins = plugins_scan(&np);
+    g_n_tabs = nb + np;
+    g_tabs = g_new0(LazyTab, g_n_tabs);
+    memcpy(g_tabs, g_builtin_tabs, sizeof(g_builtin_tabs));
+    for (int i = 0; i < np; i++) {
+        LazyTab *t = &g_tabs[nb + i];
+        t->label = plugins[i]->id;
+        t->category = plugins[i]->category ? plugins[i]->category : "other";
+        t->keywords = plugins[i]->keywords;
+        t->plugin = plugins[i];
+    }
+}
 
 /* Page 0 is the icon-grid home page (see build_home_page()); module i
  * (0-based, into g_tabs[]) lives at notebook page i + 1. */
@@ -338,8 +368,8 @@ static void ensure_tab_built(int idx)
     if (idx < 0 || idx >= N_TABS || g_tabs[idx].built) {
         return;
     }
-    GtkWidget *content = g_tabs[idx].build();
-    gtk_box_pack_start(GTK_BOX(g_tabs[idx].placeholder), make_back_button(_(g_tabs[idx].label)), FALSE, FALSE, 4);
+    GtkWidget *content = g_tabs[idx].plugin ? plugin_build(g_tabs[idx].plugin) : g_tabs[idx].build();
+    gtk_box_pack_start(GTK_BOX(g_tabs[idx].placeholder), make_back_button(tab_title(&g_tabs[idx])), FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(g_tabs[idx].placeholder), content, TRUE, TRUE, 0);
     gtk_widget_show_all(g_tabs[idx].placeholder);
     g_tabs[idx].built = 1;
@@ -425,6 +455,24 @@ static char *wrap_label_text(const char *text)
     return out;
 }
 
+/* Built-in tabs use a stock id; plugins an icon-theme name or a file. */
+static GtkWidget *make_tab_icon(const LazyTab *tab)
+{
+    const KiconfPlugin *p = tab->plugin;
+    if (!p) {
+        return gtk_image_new_from_stock(tab->stock_icon, GTK_ICON_SIZE_BUTTON);
+    }
+    if (p->icon && g_path_is_absolute(p->icon)) {
+        GdkPixbuf *pb = gdk_pixbuf_new_from_file_at_size(p->icon, 20, 20, NULL);
+        if (pb) {
+            GtkWidget *img = gtk_image_new_from_pixbuf(pb);
+            g_object_unref(pb);
+            return img;
+        }
+    }
+    return gtk_image_new_from_icon_name(p->icon ? p->icon : "preferences-system", GTK_ICON_SIZE_BUTTON);
+}
+
 static GtkWidget *make_module_button(const LazyTab *tab, int page_num)
 {
     GtkWidget *btn = gtk_button_new();
@@ -434,8 +482,8 @@ static GtkWidget *make_module_button(const LazyTab *tab, int page_num)
      * left-aligned. Wide buttons (3 per row instead of 5) give each label
      * enough room to read comfortably on one or two lines. */
     GtkWidget *box = gtk_hbox_new(FALSE, 6);
-    GtkWidget *icon = gtk_image_new_from_stock(tab->stock_icon, GTK_ICON_SIZE_BUTTON);
-    char *wrapped = wrap_label_text(_(tab->label));
+    GtkWidget *icon = make_tab_icon(tab);
+    char *wrapped = wrap_label_text(tab_title(tab));
     GtkWidget *label = gtk_label_new(wrapped);
     g_free(wrapped);
     gtk_label_set_justify(GTK_LABEL(label), GTK_JUSTIFY_LEFT);
@@ -448,37 +496,207 @@ static GtkWidget *make_module_button(const LazyTab *tab, int page_num)
     return btn;
 }
 
-/* Plain icon grid, 3 per row -- wide horizontal buttons (icon + left-aligned
+/* ---- home page: search box + one section per category ----------------
+ * Icon grid, 3 per row -- wide horizontal buttons (icon + left-aligned
  * label) instead of GNOME-style stacked icon-over-centered-label, so labels
  * never need mid-word wrapping. No state of its own, so unlike the module
  * tabs it stays built for the whole session instead of going through
- * ensure_tab_built()/unbuild_tab(). */
-/* Two-column row: a narrower "about this computer" summary (see
- * sysinfo.c) on the left, the module icon grid -- unchanged -- taking the
- * rest of the width on the right. The sysinfo side gets a fixed-ish
- * request via FALSE/FALSE packing (sized to its own content) while the
- * grid side is TRUE/TRUE so it's the one that grows when the window is
- * resized, same as before this split existed. */
-static GtkWidget *build_home_page(void)
+ * ensure_tab_built()/unbuild_tab(); only the sections box is rebuilt, each
+ * time the search text changes (a handful of buttons -- cheaper than
+ * reflowing a GtkTable by hiding cells). */
+static GtkWidget *g_home_sections;
+static GtkWidget *g_home_search;
+
+static const struct {
+    const char *id;
+    const char *title;
+} g_categories[] = {
+    {"appearance", N_("Personalizacao")},
+    {"hardware", N_("Hardware e entrada")},
+    {"programs", N_("Programas")},
+    {"system", N_("Sistema e seguranca")},
+};
+#define N_CATEGORIES ((int)(sizeof(g_categories) / sizeof(g_categories[0])))
+
+static int tab_matches(const LazyTab *tab, const char *needle)
+{
+    if (!needle || !*needle) {
+        return 1;
+    }
+    const char *parts[] = {tab_title(tab), tab->keywords, tab->plugin ? tab->plugin->comment : NULL};
+    int found = 0;
+    for (int i = 0; i < 3 && !found; i++) {
+        if (parts[i]) {
+            char *hay = g_utf8_casefold(parts[i], -1);
+            found = strstr(hay, needle) != NULL;
+            g_free(hay);
+        }
+    }
+    return found;
+}
+
+static const char *category_title(const char *cat)
+{
+    for (int i = 0; i < N_CATEGORIES; i++) {
+        if (!strcmp(cat, g_categories[i].id)) {
+            return _(g_categories[i].title);
+        }
+    }
+    return !strcmp(cat, "other") ? _("Outros") : cat;
+}
+
+static int category_known(const char *cat)
+{
+    for (int i = 0; i < N_CATEGORIES; i++) {
+        if (!strcmp(cat, g_categories[i].id)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Adds the section for `cat` (header + grid of the matching tabs) and
+ * returns the first matching tab index, or -1 if the section is empty. */
+static int add_section(const char *cat, const char *needle)
 {
     const int cols = 3;
-    const int rows = (N_TABS + cols - 1) / cols;
-    GtkWidget *grid = gtk_table_new(rows, cols, TRUE);
+    int match[256], n = 0;
+    for (int i = 0; i < N_TABS && n < 256; i++) {
+        if (!strcmp(g_tabs[i].category ? g_tabs[i].category : "other", cat) && tab_matches(&g_tabs[i], needle)) {
+            match[n++] = i;
+        }
+    }
+    if (!n) {
+        return -1;
+    }
+    char *markup = g_markup_printf_escaped("<b>%s</b>", category_title(cat));
+    GtkWidget *head = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(head), markup);
+    g_free(markup);
+    gtk_misc_set_alignment(GTK_MISC(head), 0.0, 0.5);
+    gtk_box_pack_start(GTK_BOX(g_home_sections), head, FALSE, FALSE, 2);
+
+    GtkWidget *grid = gtk_table_new((n + cols - 1) / cols, cols, TRUE);
     gtk_table_set_row_spacings(GTK_TABLE(grid), 6);
     gtk_table_set_col_spacings(GTK_TABLE(grid), 6);
-    for (int i = 0; i < N_TABS; i++) {
-        int r = i / cols, c = i % cols;
-        GtkWidget *btn = make_module_button(&g_tabs[i], i + 1);
-        gtk_table_attach(GTK_TABLE(grid), btn, c, c + 1, r, r + 1,
+    for (int k = 0; k < n; k++) {
+        GtkWidget *btn = make_module_button(&g_tabs[match[k]], match[k] + 1);
+        if (g_tabs[match[k]].plugin && g_tabs[match[k]].plugin->comment) {
+            gtk_widget_set_tooltip_text(btn, g_tabs[match[k]].plugin->comment);
+        }
+        gtk_table_attach(GTK_TABLE(grid), btn, k % cols, k % cols + 1, k / cols, k / cols + 1,
                           GTK_EXPAND | GTK_FILL, GTK_EXPAND | GTK_FILL, 0, 0);
     }
+    gtk_box_pack_start(GTK_BOX(g_home_sections), grid, FALSE, FALSE, 4);
+    return match[0];
+}
+
+static int g_home_first_match = -1;
+
+static void on_search_icon_press(GtkEntry *entry, GtkEntryIconPosition pos, GdkEvent *ev, gpointer data)
+{
+    (void)ev;
+    (void)data;
+    if (pos == GTK_ENTRY_ICON_SECONDARY) {
+        gtk_entry_set_text(entry, "");
+    }
+}
+
+static void populate_home(const char *text)
+{
+    GList *old = gtk_container_get_children(GTK_CONTAINER(g_home_sections));
+    for (GList *l = old; l; l = l->next) {
+        gtk_widget_destroy(GTK_WIDGET(l->data));
+    }
+    g_list_free(old);
+
+    char *needle = (text && *text) ? g_utf8_casefold(text, -1) : NULL;
+    g_home_first_match = -1;
+    for (int i = 0; i < N_CATEGORIES; i++) {
+        int f = add_section(g_categories[i].id, needle);
+        if (g_home_first_match < 0) {
+            g_home_first_match = f;
+        }
+    }
+    /* Plugin categories nobody predefined, in first-seen order. */
+    for (int i = 0; i < N_TABS; i++) {
+        const char *c = g_tabs[i].category ? g_tabs[i].category : "other";
+        if (category_known(c) || !strcmp(c, "other")) {
+            continue;
+        }
+        int seen = 0;
+        for (int j = 0; j < i; j++) {
+            seen |= g_tabs[j].category && !strcmp(g_tabs[j].category, c);
+        }
+        if (!seen) {
+            int f = add_section(c, needle);
+            if (g_home_first_match < 0) {
+                g_home_first_match = f;
+            }
+        }
+    }
+    int f = add_section("other", needle);
+    if (g_home_first_match < 0) {
+        g_home_first_match = f;
+    }
+    if (g_home_first_match < 0) {
+        GtkWidget *none = gtk_label_new(_("Nenhum modulo encontrado."));
+        gtk_misc_set_padding(GTK_MISC(none), 0, 20);
+        gtk_box_pack_start(GTK_BOX(g_home_sections), none, FALSE, FALSE, 0);
+    }
+    gtk_widget_show_all(g_home_sections);
+    g_free(needle);
+}
+
+static void on_search_changed(GtkEditable *entry, gpointer data)
+{
+    (void)data;
+    populate_home(gtk_entry_get_text(GTK_ENTRY(entry)));
+}
+
+/* Enter opens the first match, so "type, Enter" reaches a module. */
+static void on_search_activate(GtkEntry *entry, gpointer data)
+{
+    (void)entry;
+    (void)data;
+    if (g_home_first_match >= 0 && confirm_leave_current_tab()) {
+        gtk_notebook_set_current_page(GTK_NOTEBOOK(g_notebook), g_home_first_match + 1);
+    }
+}
+
+/* Two-column row: a narrower "about this computer" summary (see
+ * sysinfo.c) on the left, search + module sections taking the rest of
+ * the width on the right. The sysinfo side gets a fixed-ish request via
+ * FALSE/FALSE packing (sized to its own content) while the other side is
+ * TRUE/TRUE so it's the one that grows when the window is resized. */
+static GtkWidget *build_home_page(void)
+{
+    g_home_search = gtk_entry_new();
+    gtk_entry_set_icon_from_stock(GTK_ENTRY(g_home_search), GTK_ENTRY_ICON_PRIMARY, GTK_STOCK_FIND);
+    gtk_entry_set_icon_from_stock(GTK_ENTRY(g_home_search), GTK_ENTRY_ICON_SECONDARY, GTK_STOCK_CLEAR);
+    g_signal_connect(g_home_search, "icon-press", G_CALLBACK(on_search_icon_press), NULL);
+    gtk_widget_set_tooltip_text(g_home_search, _("Filtrar modulos"));
+    g_signal_connect(g_home_search, "changed", G_CALLBACK(on_search_changed), NULL);
+    g_signal_connect(g_home_search, "activate", G_CALLBACK(on_search_activate), NULL);
+
+    g_home_sections = gtk_vbox_new(FALSE, 2);
+    populate_home(NULL);
+    GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(scroll), GTK_SHADOW_NONE);
+    gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(scroll), g_home_sections);
+    gtk_viewport_set_shadow_type(GTK_VIEWPORT(gtk_bin_get_child(GTK_BIN(scroll))), GTK_SHADOW_NONE);
+
+    GtkWidget *right = gtk_vbox_new(FALSE, 6);
+    gtk_box_pack_start(GTK_BOX(right), g_home_search, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(right), scroll, TRUE, TRUE, 0);
 
     GtkWidget *sysinfo = build_sysinfo_panel();
     gtk_widget_set_size_request(sysinfo, 190, -1);
 
     GtkWidget *row = gtk_hbox_new(FALSE, 8);
     gtk_box_pack_start(GTK_BOX(row), sysinfo, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(row), grid, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(row), right, TRUE, TRUE, 0);
 
     GtkWidget *outer = gtk_vbox_new(FALSE, 0);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 10);
@@ -675,6 +893,7 @@ int main(int argc, char **argv)
      * runtime rather than a compiled-in value). Translations live in
      * po/ -- see po/README.md. */
     xis_i18n_init("kiconf");
+    init_tabs();
 
     /* Checked before gtk_init() so `kiconf --version`/`--list-tabs` work
      * even without a display (X connection), same as most CLI-invokable
@@ -746,7 +965,7 @@ int main(int argc, char **argv)
     gtk_notebook_append_page(GTK_NOTEBOOK(notebook), build_home_page(), gtk_label_new(_("Inicio")));
     for (int i = 0; i < N_TABS; i++) {
         g_tabs[i].placeholder = gtk_vbox_new(FALSE, 0);
-        gtk_notebook_append_page(GTK_NOTEBOOK(notebook), g_tabs[i].placeholder, gtk_label_new(_(g_tabs[i].label)));
+        gtk_notebook_append_page(GTK_NOTEBOOK(notebook), g_tabs[i].placeholder, gtk_label_new(tab_title(&g_tabs[i])));
     }
     g_signal_connect(notebook, "switch-page", G_CALLBACK(on_switch_page), NULL);
     /* GAIL names a page after its tab label only while tabs are shown, so
@@ -755,7 +974,7 @@ int main(int argc, char **argv)
     for (int i = 0; i <= N_TABS; i++) {
         AtkObject *page = atk_object_ref_accessible_child(nb_acc, i);
         if (page) {
-            char *name = g_strdup(i == 0 ? _("Inicio") : _(g_tabs[i - 1].label));
+            char *name = g_strdup(i == 0 ? _("Inicio") : tab_title(&g_tabs[i - 1]));
             g_strdelimit(name, "\n", ' ');
             atk_object_set_name(page, name);
             g_free(name);
@@ -768,6 +987,8 @@ int main(int argc, char **argv)
 
     if (tab_idx >= 0) {
         gtk_notebook_set_current_page(GTK_NOTEBOOK(notebook), tab_idx + 1);
+    } else {
+        gtk_widget_grab_focus(g_home_search);
     }
 
     /* Now that we hold the lock and have a window to focus/switch on

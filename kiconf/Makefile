@@ -1,6 +1,8 @@
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 LOCALEDIR := $(PREFIX)/share/locale
+DATADIR := $(PREFIX)/share
+TABSDIR := $(DATADIR)/kiconf/tabs
 # Independent of PREFIX like kisession's XSESSIONSDIR: these are the
 # standard freedesktop locations app launchers scan, regardless of where
 # the binary itself gets installed.
@@ -8,7 +10,7 @@ DESKTOPDIR ?= /usr/share/applications
 ICONDIR ?= /usr/share/icons/hicolor/scalable/apps
 
 CFLAGS ?= -Wall -Wextra -O2
-CFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"'
+CFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"' -DDATADIR='"$(DATADIR)"'
 # KiDesktop's single version source of truth: ../VERSION (also read by
 # scripts/build-deb.sh). Edit that file, not this Makefile.
 KIDESKTOP_VERSION := $(shell cat ../VERSION 2>/dev/null | tr -d ' \t\r\n')
@@ -26,13 +28,13 @@ LIBINTL := $(shell echo 'int main(void){return 0;}' | $(CC) -x c - -o /dev/null 
 # an explicit -lX11 here (only reachable transitively through
 # gdk-x11-2.0.so, not from any symbol on this command line directly) the
 # linker refuses -lXrandr with "DSO missing from command line".
-LIBS := $(shell pkg-config --cflags --libs gtk+-2.0 x11 xrandr) -lm -lcrypt $(LIBINTL)
+LIBS := $(shell pkg-config --cflags --libs gtk+-2.0 x11 xrandr gmodule-2.0) -lm -lcrypt $(LIBINTL)
 
 # shared/xis_outputs.c: stable EDID-based output identity, also used by
 # xisback/xispanel/kiconfd -- compiled directly in, same as every other
 # source file here, so kiconf stays independently buildable and
 # installable on its own (no shared library to depend on at runtime).
-SRCS := kiconf.c common.c sysinfo.c tabs/appearance.c tabs/shortcuts.c tabs/entrada.c \
+SRCS := kiconf.c plugins.c common.c sysinfo.c tabs/appearance.c tabs/shortcuts.c tabs/entrada.c \
         tabs/permissoes.c tabs/paineis.c tabs/wallpaper.c \
         tabs/telas.c tabs/janelas.c tabs/efeitos.c tabs/cantos.c tabs/sistema.c \
         tabs/programas.c tabs/associacoes.c tabs/menu.c tabs/autostart.c tabs/energia.c tabs/eventos.c \
@@ -93,6 +95,7 @@ install: kiconf mo
 	install -Dm644 kiconf.desktop $(DESTDIR)$(DESKTOPDIR)/kiconf.desktop
 	rm -f kiconf.desktop
 	install -Dm644 kiconf.svg $(DESTDIR)$(ICONDIR)/kiconf.svg
+	install -d $(DESTDIR)$(TABSDIR)
 	$(UPDATE_CACHES)
 
 uninstall:
