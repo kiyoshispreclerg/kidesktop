@@ -13,6 +13,7 @@
  * desync the column count.
  */
 #include "../xisserve.h"
+#include "qrcode.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -30,6 +31,7 @@ typedef struct {
     /* connected devices only, filled by fetch_device_details() */
     char mac[32], ip4[64], gateway[64], ip6[96];
     char ssid[128], freq[24], rate[24], security[64];
+    char psk[128]; /* only fetched for the expanded device, to build the QR */
     int signal;
 } NetDevice;
 
@@ -183,6 +185,20 @@ static void fetch_device_details(NetDevice *d)
     pclose(f);
 }
 
+/* The saved passphrase of the active Wi-Fi profile, for the QR code.
+ * Empty for open networks or when NetworkManager won't hand it over. */
+static void fetch_psk(NetDevice *d)
+{
+    if (strcmp(d->type, "wifi") != 0 || !d->connection[0]) return;
+    char cq[256], cmd[400];
+    shell_quote(d->connection, cq, sizeof(cq));
+    snprintf(cmd, sizeof(cmd), "LC_ALL=C nmcli -s -g 802-11-wireless-security.psk connection show %s 2>/dev/null", cq);
+    FILE *f = run(cmd);
+    if (!f) return;
+    if (fgets(d->psk, sizeof(d->psk), f)) d->psk[strcspn(d->psk, "\n")] = 0;
+    pclose(f);
+}
+
 static GPtrArray *fetch_wifi(void)
 {
     GPtrArray *rows = g_ptr_array_new_with_free_func(g_free);
@@ -324,6 +340,68 @@ static void info_line(GtkWidget *table, guint *row, const char *key, const char 
     (*row)++;
 }
 
+/* Backslash-escapes the characters the WIFI: URI treats specially. */
+static void wifi_escape(const char *in, GString *out)
+{
+    for (; *in; in++) {
+        if (strchr("\\;,:\"", *in)) g_string_append_c(out, '\\');
+        g_string_append_c(out, *in);
+    }
+}
+
+static gboolean on_qr_expose(GtkWidget *w, GdkEventExpose *ev, gpointer data)
+{
+    (void)ev;
+    const QrMatrix *m = data;
+    const int quiet = 4;
+    int cells = m->width + 2 * quiet;
+    int px = MAX(2, MIN(w->allocation.width, w->allocation.height) / cells);
+    cairo_t *cr = gdk_cairo_create(w->window);
+    int x0 = (w->allocation.width - px * cells) / 2;
+    int y0 = (w->allocation.height - px * cells) / 2;
+    cairo_set_source_rgb(cr, 1, 1, 1);
+    cairo_rectangle(cr, x0, y0, px * cells, px * cells);
+    cairo_fill(cr);
+    cairo_set_source_rgb(cr, 0, 0, 0);
+    for (int y = 0; y < m->width; y++)
+        for (int x = 0; x < m->width; x++)
+            if (m->modules[y * m->width + x] & 1)
+                cairo_rectangle(cr, x0 + (x + quiet) * px, y0 + (y + quiet) * px, px, px);
+    cairo_fill(cr);
+    cairo_destroy(cr);
+    return TRUE;
+}
+
+/* A scannable "join this network" code, or NULL when it can't be made
+ * (no libqrencode, or a secured network whose password we couldn't read). */
+static GtkWidget *build_wifi_qr(NetDevice *d)
+{
+    gboolean open_net = !d->security[0] || strcmp(d->security, "--") == 0;
+    if (!d->ssid[0] || (!open_net && !d->psk[0])) return NULL;
+    GString *s = g_string_new("WIFI:T:");
+    if (open_net) g_string_append(s, "nopass");
+    else if (strstr(d->security, "WEP")) g_string_append(s, "WEP");
+    else if (strstr(d->security, "WPA3") && !strstr(d->security, "WPA2") && !strstr(d->security, "WPA1")) g_string_append(s, "SAE");
+    else g_string_append(s, "WPA");
+    g_string_append(s, ";S:");
+    wifi_escape(d->ssid, s);
+    if (!open_net) {
+        g_string_append(s, ";P:");
+        wifi_escape(d->psk, s);
+    }
+    g_string_append(s, ";;");
+    QrMatrix *m = qr_encode(s->str);
+    memset(s->str, 0, s->len); /* the passphrase was in there */
+    g_string_free(s, TRUE);
+    if (!m) return NULL;
+    GtkWidget *area = gtk_drawing_area_new();
+    gtk_widget_set_size_request(area, 168, 168);
+    g_signal_connect(area, "expose-event", G_CALLBACK(on_qr_expose), m);
+    g_object_set_data_full(G_OBJECT(area), "qr", m, (GDestroyNotify)qr_free);
+    xisserve_a11y(area, _("QR code da rede"), _("Escaneie para conectar outro aparelho a esta rede"));
+    return area;
+}
+
 /* Details box shown under an expanded connected device. */
 static GtkWidget *build_info(NetDevice *d)
 {
@@ -348,6 +426,8 @@ static GtkWidget *build_info(NetDevice *d)
     GtkWidget *box = gtk_hbox_new(FALSE, 0);
     gtk_container_set_border_width(GTK_CONTAINER(box), 6);
     gtk_box_pack_start(GTK_BOX(box), table, TRUE, TRUE, 0);
+    GtkWidget *qr = build_wifi_qr(d);
+    if (qr) gtk_box_pack_end(GTK_BOX(box), qr, FALSE, FALSE, 0);
     return box;
 }
 
@@ -603,7 +683,10 @@ static gpointer job_thread(gpointer data)
     job->devices = fetch_devices();
     for (guint i = 0; i < job->devices->len; i++) {
         NetDevice *d = g_ptr_array_index(job->devices, i);
-        if (is_connected_state(d->state)) fetch_device_details(d);
+        if (is_connected_state(d->state)) {
+            fetch_device_details(d);
+            if (strcmp(d->device, g_expanded_dev) == 0) fetch_psk(d);
+        }
     }
     gboolean has_wifi = FALSE;
     for (guint i = 0; i < job->devices->len; i++) {

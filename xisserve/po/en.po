@@ -599,3 +599,11 @@ msgstr "hide details"
 #: pages/network.c
 msgid "mostrar detalhes"
 msgstr "show details"
+
+#: pages/network.c
+msgid "QR code da rede"
+msgstr "Network QR code"
+
+#: pages/network.c
+msgid "Escaneie para conectar outro aparelho a esta rede"
+msgstr "Scan to connect another device to this network"
