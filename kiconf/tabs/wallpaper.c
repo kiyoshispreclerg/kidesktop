@@ -294,12 +294,12 @@ static void wp_scan_screens(void)
      * does (exact name/EDID first, the rest by order), so a config saved
      * under old connector names shows -- and is edited -- under those
      * same names instead of looking empty. */
-    const char *saved[MAX_WP_LAYERS];
+    const char *saved[MAX_WP_LAYERS] = { NULL };
     for (int i = 0; i < g_n_wp_layers; i++) {
         saved[i] = g_wp_layers[i].output;
     }
-    int saved_to_real[MAX_WP_LAYERS];
-    int real_to_saved[XIS_MAX_OUTPUTS];
+    int saved_to_real[MAX_WP_LAYERS] = {0};
+    int real_to_saved[XIS_MAX_OUTPUTS] = {0};
     xis_match_outputs(saved, g_n_wp_layers, outs, no, saved_to_real, real_to_saved);
     for (int i = 0; i < g_n_screens; i++) {
         for (int k = 0; k < no; k++) {
