@@ -3819,6 +3819,48 @@ static void handle_ipc_message(const char *req, char *resp, size_t resp_sz)
     } else if (strcmp(cmd, "CLEAR_NOTIFICATIONS") == 0) {
         notifd_clear();
         snprintf(resp, resp_sz, "{\"ok\":true}\n");
+    } else if (strcmp(cmd, "GET_JOBS") == 0) {
+        /* Running jobs (jobviewd.c) for xisserve's --notifications page;
+         * small and changing fast, so it's its own query, polled often
+         * only while there are any. */
+        int n = jobviewd_count();
+        size_t o = (size_t)snprintf(resp, resp_sz, "{\"ok\":true,\"count\":%d,\"jobs\":[", n);
+        for (int i = 0; i < n && o < resp_sz; i++) {
+            const JobEntry *e = jobviewd_get(i);
+            if (!e) {
+                continue;
+            }
+            char app[NOTIFD_APP_NAME_MAX * 2], icon[256], title[NOTIFD_SUMMARY_MAX * 2], info[NOTIFD_SUMMARY_MAX * 2];
+            char l1[128], v1[512], l2[128], v2[512];
+            json_escape(e->app_name, app, sizeof(app));
+            json_escape(e->app_icon, icon, sizeof(icon));
+            json_escape(e->title, title, sizeof(title));
+            json_escape(e->info, info, sizeof(info));
+            json_escape(e->label1, l1, sizeof(l1));
+            json_escape(e->value1, v1, sizeof(v1));
+            json_escape(e->label2, l2, sizeof(l2));
+            json_escape(e->value2, v2, sizeof(v2));
+            o += (size_t)snprintf(resp + o, o < resp_sz ? resp_sz - o : 0,
+                                   "%s{\"id\":%u,\"app_name\":\"%s\",\"app_icon\":\"%s\",\"title\":\"%s\","
+                                   "\"info\":\"%s\",\"label1\":\"%s\",\"value1\":\"%s\",\"label2\":\"%s\","
+                                   "\"value2\":\"%s\",\"percent\":%d,\"speed\":%llu,\"processed_bytes\":%llu,"
+                                   "\"total_bytes\":%llu,\"processed_files\":%llu,\"total_files\":%llu,"
+                                   "\"killable\":%s,\"suspendable\":%s,\"suspended\":%s}",
+                                   i ? "," : "", e->id, app, icon, title, info, l1, v1, l2, v2, e->percent,
+                                   (unsigned long long)e->speed, (unsigned long long)e->processed_bytes,
+                                   (unsigned long long)e->total_bytes, (unsigned long long)e->processed_files,
+                                   (unsigned long long)e->total_files, e->killable ? "true" : "false",
+                                   e->suspendable ? "true" : "false", e->suspended ? "true" : "false");
+        }
+        if (o < resp_sz) {
+            o += (size_t)snprintf(resp + o, resp_sz - o, "]}\n");
+        }
+    } else if (strcmp(cmd, "JOB_ACTION") == 0) {
+        int id = 0;
+        char action[16] = "";
+        json_get_int(req, "id", &id);
+        json_get_str(req, "action", action, sizeof(action));
+        snprintf(resp, resp_sz, "{\"ok\":%s}\n", jobviewd_action((unsigned int)id, action) ? "true" : "false");
     } else if (strcmp(cmd, "FOCUS") == 0) {
         keynav_start(NULL);
         snprintf(resp, resp_sz, "{\"ok\":%s}\n", keynav_active() ? "true" : "false");
@@ -4596,6 +4638,14 @@ static int run_as_daemon(const char *sockpath)
                 maxfd = notifdfd;
             }
         }
+        /* Job progress is part of the notification side: same flag. */
+        int jobfd = disable_notifd ? -1 : jobviewd_fd();
+        if (jobfd >= 0) {
+            FD_SET(jobfd, &rfds);
+            if (jobfd > maxfd) {
+                maxfd = jobfd;
+            }
+        }
         /* Same "re-read every iteration" reasoning as snifd above: -1
          * until pactl subscribe is actually running, which only happens
          * lazily (and gets re-tried on its own backoff after a crash --
@@ -4920,6 +4970,10 @@ static int run_as_daemon(const char *sockpath)
                 notifd_wake();
             }
             notifd_poll(now);
+            if (jobfd >= 0 && r > 0 && FD_ISSET(jobfd, &rfds)) {
+                jobviewd_wake();
+            }
+            jobviewd_poll(now);
         }
         /* Before the widget ticks below, so a command that finished this
          * iteration is already published when they ask for it. A

@@ -34,6 +34,8 @@ socket rather than xisback's `SET`-style protocol.
 {"cmd":"GET_NOTIFICATIONS"}
 {"cmd":"DELETE_NOTIFICATION","id":<id>}
 {"cmd":"CLEAR_NOTIFICATIONS"}
+{"cmd":"GET_JOBS"}
+{"cmd":"JOB_ACTION","id":<id>,"action":"cancel"|"suspend"|"resume"}
 {"cmd":"FOCUS"}
 {"cmd":"QUIT"}
 ```
@@ -76,6 +78,23 @@ socket rather than xisback's `SET`-style protocol.
 - `DELETE_NOTIFICATION` -> removes one entry by `id` (no-op if it isn't
   currently held). `{"ok":true}`
 - `CLEAR_NOTIFICATIONS` -> drops every held entry. `{"ok":true}`
+- `GET_JOBS` -> the operations currently running that apps reported over
+  `org.kde.JobViewServerV2` (`jobviewd.c`; see `xispanel.h`'s `JobEntry`)
+  -- `{"ok":true,"count":N,"jobs":[{"id":1,"app_name":"...","app_icon":
+  "...","title":"Copying","info":"...","label1":"Source","value1":"...",
+  "label2":"Destination","value2":"...","percent":40,"speed":1048576,
+  "processed_bytes":0,"total_bytes":0,"processed_files":0,"total_files":0,
+  "killable":true,"suspendable":true,"suspended":false}, ...]}`.
+  `percent` is -1 until the app sends one, `speed` 0 when unknown. Empty
+  when xispanel doesn't own `org.kde.JobViewServer` (plasmashell or
+  kuiserver does). Separate from `GET_NOTIFICATIONS`: jobs are live state,
+  not history, and a client polls this one quickly only while it's
+  non-empty.
+- `JOB_ACTION` -> asks the job's app to cancel, suspend or resume it (the
+  job's `cancelRequested`/`suspendRequested`/`resumeRequested` signal).
+  `{"ok":false}` if there's no such job or it doesn't support that action
+  (`killable`/`suspendable`). A cancelled job that its app doesn't end
+  within 2 s is dropped anyway.
 - `FOCUS` -> starts keyboard navigation on the bar under the pointer, as
   `focus_key=` does (see "Keyboard navigation"); `xispanel --focus` sends
   it. `{"ok":true}` if navigation is now active, `{"ok":false}` if the

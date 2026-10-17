@@ -1587,6 +1587,37 @@ void notifd_action_invoked(unsigned int id, const char *key);
 typedef void (*NotifCloseFn)(unsigned int id);
 void notifd_set_close_callback(NotifCloseFn fn);
 
+/* ---- job progress: org.kde.JobViewServerV2 server (jobviewd.c) ----
+ *
+ * Long operations an app hands to the desktop (kifiles/KIO copies) instead
+ * of showing its own progress dialog. Same single-owner rule as notifd.c:
+ * dormant if something else already owns org.kde.JobViewServer. Jobs are
+ * live state, separate from the notification history; one disappears when
+ * its app calls terminate(), leaves the bus, or ignores a cancel. */
+#define JOBVIEWD_MAX 16
+typedef struct {
+    unsigned int id;
+    char desktop_entry[96];
+    char app_name[NOTIFD_APP_NAME_MAX];
+    char app_icon[128];
+    char title[NOTIFD_SUMMARY_MAX];  /* "Copying", ... */
+    char info[NOTIFD_SUMMARY_MAX];   /* what it is doing right now */
+    char label1[64], value1[256];    /* usually source ... */
+    char label2[64], value2[256];    /* ... and destination */
+    int percent;                     /* -1 until the app sends one */
+    uint64_t speed;                  /* bytes per second, 0 = unknown */
+    uint64_t processed_bytes, total_bytes, processed_files, total_files;
+    int killable, suspendable, suspended;
+} JobEntry;
+void jobviewd_poll(uint64_t now); /* call periodically from the main loop, like notifd_poll() */
+int jobviewd_fd(void);   /* bus fd for select(), -1 until owning the name */
+void jobviewd_wake(void); /* lifts the poll throttle; call when jobviewd_fd() is readable */
+int jobviewd_count(void);
+const JobEntry *jobviewd_get(int idx); /* NULL if idx out of range; order is not meaningful */
+/* "cancel", "suspend" or "resume": asks the app via the job's signal. 0 if
+ * there's no such job or it doesn't support that. */
+int jobviewd_action(unsigned int id, const char *action);
+
 /* ---- notification toast popups (toast.c) ----
  *
  * Own floating override-redirect windows, one per visible toast, stacked
