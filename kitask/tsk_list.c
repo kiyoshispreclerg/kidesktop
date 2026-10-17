@@ -228,7 +228,11 @@ static GdkPixbuf *icon_for(const char *name)
 
 /* ---- filter ------------------------------------------------------------------------ */
 
-static char *filter_text;   /* casefolded */
+/* The filter is a list of terms separated by '|' or ',' ("kiplay|kitask"):
+ * a process shows when any term matches. Plain substrings, not regexps: no
+ * syntax to get wrong while typing, and `.` or `+` in a command line just
+ * match themselves. Empty terms are dropped, so "kitask|" doesn't match all. */
+static char **filter_terms;     /* casefolded, NULL-terminated; NULL: no filter */
 
 static gboolean contains(const char *hay, const char *needle)
 {
@@ -238,6 +242,12 @@ static gboolean contains(const char *hay, const char *needle)
     gboolean r = strstr(f, needle) != NULL;
     g_free(f);
     return r;
+}
+
+static gboolean matches_term(TskProc *p, const char *pidbuf, const char *term)
+{
+    return !strcmp(pidbuf, term) || contains(p->name, term) || contains(p->cmdline, term) ||
+           contains(tsk_user_name(p->uid), term) || contains(p->title, term);
 }
 
 static gboolean visible_func(GtkTreeModel *m, GtkTreeIter *it, gpointer data)
@@ -254,19 +264,36 @@ static gboolean visible_func(GtkTreeModel *m, GtkTreeIter *it, gpointer data)
         return FALSE;
     if (app->cfg.scope == TSK_SCOPE_WINDOWS && !p->window)
         return FALSE;
-    if (!filter_text || !*filter_text)
+    if (!filter_terms)
         return TRUE;
     char pidbuf[16];
     g_snprintf(pidbuf, sizeof(pidbuf), "%d", pid);
-    return !strcmp(pidbuf, filter_text) || contains(p->name, filter_text) || contains(p->cmdline, filter_text) ||
-           contains(tsk_user_name(p->uid), filter_text) || contains(p->title, filter_text);
+    for (char **t = filter_terms; *t; t++)
+        if (matches_term(p, pidbuf, *t))
+            return TRUE;
+    return FALSE;
 }
 
 void tsk_list_refilter(TskApp *app)
 {
-    g_free(filter_text);
-    filter_text = g_utf8_casefold(gtk_entry_get_text(GTK_ENTRY(app->filter)), -1);
-    g_strstrip(filter_text);
+    g_strfreev(filter_terms);
+    filter_terms = NULL;
+    char *folded = g_utf8_casefold(gtk_entry_get_text(GTK_ENTRY(app->filter)), -1);
+    char **parts = g_strsplit_set(folded, "|,", -1);
+    GPtrArray *terms = g_ptr_array_new();
+    for (char **p = parts; *p; p++) {
+        g_strstrip(*p);
+        if (**p)
+            g_ptr_array_add(terms, g_strdup(*p));
+    }
+    if (terms->len) {
+        g_ptr_array_add(terms, NULL);
+        filter_terms = (char **)g_ptr_array_free(terms, FALSE);
+    } else {
+        g_ptr_array_free(terms, TRUE);
+    }
+    g_strfreev(parts);
+    g_free(folded);
     gtk_tree_model_filter_refilter(GTK_TREE_MODEL_FILTER(app->filter_model));
 }
 
@@ -409,9 +436,25 @@ void tsk_list_update(TskApp *app)
 
 /* ---- columns ----------------------------------------------------------------------- */
 
+/* The view removes its columns one by one when the window is destroyed, and
+ * each removal fires columns-changed and sort-column-changed: acting on
+ * those would save a shrinking list, ending with no columns at all. */
+static gboolean view_closing;
+
+static void on_view_destroy(GtkWidget *w, gpointer data)
+{
+    (void)w;
+    (void)data;
+    view_closing = TRUE;
+}
+
 static void save_columns(TskApp *app)
 {
+    if (view_closing)
+        return;
     GList *cols = gtk_tree_view_get_columns(GTK_TREE_VIEW(app->list));
+    if (!cols)
+        return;     /* never save an empty list: it would load back as only "Process" */
     g_array_set_size(app->cfg.columns, 0);
     for (GList *l = cols; l; l = l->next) {
         const char *key = g_object_get_data(G_OBJECT(l->data), "key");
@@ -494,7 +537,7 @@ static void on_sort_changed(GtkTreeSortable *s, TskApp *app)
 {
     int id;
     GtkSortType order;
-    if (!gtk_tree_sortable_get_sort_column_id(s, &id, &order) || id < COL_FIRST || rebuilding)
+    if (view_closing || !gtk_tree_sortable_get_sort_column_id(s, &id, &order) || id < COL_FIRST || rebuilding)
         return;
     g_strlcpy(app->cfg.sort_key, columns[id - COL_FIRST].d.key, sizeof(app->cfg.sort_key));
     app->cfg.sort_desc = order == GTK_SORT_DESCENDING;
@@ -691,6 +734,7 @@ GtkWidget *tsk_list_new(TskApp *app)
     gtk_widget_set_has_tooltip(app->list, TRUE);
     atk_object_set_name(gtk_widget_get_accessible(app->list), _("Processes"));
     tsk_list_rebuild_columns(app);
+    g_signal_connect(tv, "destroy", G_CALLBACK(on_view_destroy), NULL);
     g_signal_connect(tv, "columns-changed", G_CALLBACK(on_columns_changed), app);
     g_signal_connect(tv, "button-press-event", G_CALLBACK(on_list_button), app);
     g_signal_connect(tv, "key-press-event", G_CALLBACK(on_list_key), app);

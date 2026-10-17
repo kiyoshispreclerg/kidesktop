@@ -10,7 +10,9 @@ status line (process count, CPU, RAM).
 ## Process list
 
 - **Filter** (`Ctrl+F`) by name, command line, user, window title or exact
-  PID; `Esc` clears it. The combo next to it shows all processes, only
+  PID; `Esc` clears it. Several terms separated by `|` or `,` show the
+  processes matching any of them (`kiplay|kitask`). They are plain
+  case-insensitive substrings, not regular expressions. The combo next to it shows all processes, only
   yours, or only those with a window.
 - **Columns** are picked from *View > Columns*, by right-clicking any header,
   or in *Settings > Columns*; drag headers to reorder, drag their edges to

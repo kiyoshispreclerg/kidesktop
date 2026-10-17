@@ -177,9 +177,9 @@ void tsk_config_load(TskConfig *c)
         g_free(data);
     }
     g_free(path);
-    if (!have_columns || !c->columns->len)
-        parse_columns(c, "name");
-    if (!have_columns) {
+    /* no line, or an empty/unusable one (an older build saved "columns = "
+     * when the window closed): the defaults */
+    if (!have_columns || !c->columns->len) {
         char *joined = g_strjoinv(",", (char **)default_columns);
         parse_columns(c, joined);
         g_free(joined);

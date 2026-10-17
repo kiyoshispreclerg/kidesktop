@@ -300,10 +300,17 @@ static void on_scope(GtkComboBox *c, TskApp *app)
     tsk_app_save_soon(app);
 }
 
-static void on_focus_filter(GtkWidget *w, TskApp *app)
+/* Ctrl+F: through the window's key handler, which runs before the list's
+ * own Ctrl+F (its interactive search popup) and needs no accelerator closure */
+static gboolean on_window_key(GtkWidget *w, GdkEventKey *ev, TskApp *app)
 {
     (void)w;
-    gtk_widget_grab_focus(app->filter);
+    if ((ev->keyval == GDK_f || ev->keyval == GDK_F) && (ev->state & GDK_CONTROL_MASK)) {
+        gtk_widget_grab_focus(app->filter);
+        gtk_editable_select_region(GTK_EDITABLE(app->filter), 0, -1);
+        return TRUE;
+    }
+    return FALSE;
 }
 
 static GtkWidget *build_filter_bar(TskApp *app, GtkAccelGroup *ag)
@@ -314,13 +321,13 @@ static GtkWidget *build_filter_bar(TskApp *app, GtkAccelGroup *ag)
     gtk_entry_set_icon_from_icon_name(GTK_ENTRY(app->filter), GTK_ENTRY_ICON_PRIMARY, "edit-find");
     gtk_entry_set_icon_from_icon_name(GTK_ENTRY(app->filter), GTK_ENTRY_ICON_SECONDARY, "edit-clear");
     gtk_entry_set_icon_tooltip_text(GTK_ENTRY(app->filter), GTK_ENTRY_ICON_SECONDARY, _("Clear"));
-    gtk_widget_set_tooltip_text(app->filter, _("Filter by name, command line, user, window title or PID (Ctrl+F)"));
+    gtk_widget_set_tooltip_text(app->filter, _("Filter by name, command line, user, window title or PID (Ctrl+F).\n"
+                                               "Separate several with | or , to show any of them: kiplay|kitask"));
     atk_object_set_name(gtk_widget_get_accessible(app->filter), _("Filter processes"));
     g_signal_connect(app->filter, "changed", G_CALLBACK(on_filter_changed), app);
     g_signal_connect(app->filter, "icon-press", G_CALLBACK(on_filter_icon), app);
     g_signal_connect(app->filter, "key-press-event", G_CALLBACK(on_filter_key), app);
-    GClosure *cl = g_cclosure_new(G_CALLBACK(on_focus_filter), app, NULL);
-    gtk_accel_group_connect(ag, GDK_f, GDK_CONTROL_MASK, 0, cl);
+    (void)ag;
     gtk_box_pack_start(GTK_BOX(box), app->filter, TRUE, TRUE, 0);
 
     app->scope = gtk_combo_box_new_text();
@@ -411,6 +418,7 @@ int main(int argc, char **argv)
     gtk_container_add(GTK_CONTAINER(app->win), vbox);
 
     g_signal_connect(app->win, "destroy", G_CALLBACK(on_quit), app);
+    g_signal_connect(app->win, "key-press-event", G_CALLBACK(on_window_key), app);
     g_signal_connect(app->win, "configure-event", G_CALLBACK(on_configure), app);
     g_signal_connect(app->win, "window-state-event", G_CALLBACK(on_window_state), app);
 

@@ -5,8 +5,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kitask\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-17 09:25-0300\n"
-"PO-Revision-Date: 2026-10-17 09:30-0300\n"
+"POT-Creation-Date: 2026-10-17 10:02-0300\n"
+"PO-Revision-Date: 2026-10-17 10:30-0300\n"
 "Last-Translator: Kiyoshi Spreclerg\n"
 "Language-Team: none\n"
 "Language: pt_BR\n"
@@ -114,40 +114,40 @@ msgstr "Aj_uda"
 msgid "_About"
 msgstr "_Sobre"
 
-#: kitask.c:316
+#: kitask.c:323
 msgid "Clear"
 msgstr "Limpar"
 
-#: kitask.c:317
-msgid "Filter by name, command line, user, window title or PID (Ctrl+F)"
-msgstr "Filtrar por nome, linha de comando, usuário, título da janela ou PID (Ctrl+F)"
+#: kitask.c:324
+msgid "Filter by name, command line, user, window title or PID (Ctrl+F).\nSeparate several with | or , to show any of them: kiplay|kitask"
+msgstr "Filtrar por nome, linha de comando, usuário, título da janela ou PID (Ctrl+F).\nSepare vários com | ou , para mostrar qualquer um deles: kiplay|kitask"
 
-#: kitask.c:318
+#: kitask.c:326
 msgid "Filter processes"
 msgstr "Filtrar processos"
 
-#: kitask.c:327
+#: kitask.c:334
 msgid "All processes"
 msgstr "Todos os processos"
 
-#: kitask.c:328
+#: kitask.c:335
 msgid "My processes"
 msgstr "Meus processos"
 
-#: kitask.c:329
+#: kitask.c:336
 msgid "With windows"
 msgstr "Com janelas"
 
-#: kitask.c:331
+#: kitask.c:338
 msgid "Which processes"
 msgstr "Quais processos"
 
-#: kitask.c:361
+#: kitask.c:368
 #, c-format
 msgid "kitask %s - process list and system monitor\n\nUsage: kitask [OPTION]...\n  -f, --filter TEXT    start with TEXT in the filter\n  -h, --help           show this help\n  -v, --version        show the version\n"
 msgstr "kitask %s - lista de processos e monitor do sistema\n\nUso: kitask [OPÇÃO]...\n  -f, --filter TEXTO   começa com TEXTO no filtro\n  -h, --help           mostra esta ajuda\n  -v, --version        mostra a versão\n"
 
-#: kitask.c:395
+#: kitask.c:402
 msgid "Processes - kitask"
 msgstr "Processos - kitask"
 
@@ -830,7 +830,7 @@ msgstr "Ocioso"
 msgid "Dead"
 msgstr "Morto"
 
-#: tsk_list.c:692
+#: tsk_list.c:735
 msgid "Processes"
 msgstr "Processos"
 
