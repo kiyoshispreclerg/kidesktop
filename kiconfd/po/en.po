@@ -66,3 +66,11 @@ msgstr "Log: off by default (inherits stdout/stderr as usual). --log, or KICONFD
 #: kiconfd.c:2023
 msgid "SIGHUP reloads the config and reapplies settings."
 msgstr "SIGHUP reloads the config and reapplies settings."
+
+#: kiconfd.c:2465
+msgid ""
+"Clock: rings the alarms and timers in $XDG_CONFIG_HOME/ki-clock.conf via "
+"`xisserve --ring`"
+msgstr ""
+"Clock: rings the alarms and timers in $XDG_CONFIG_HOME/ki-clock.conf via "
+"`xisserve --ring`"

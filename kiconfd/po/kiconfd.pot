@@ -66,3 +66,9 @@ msgstr ""
 #: kiconfd.c:2023
 msgid "SIGHUP reloads the config and reapplies settings."
 msgstr ""
+
+#: kiconfd.c:2465
+msgid ""
+"Clock: rings the alarms and timers in $XDG_CONFIG_HOME/ki-clock.conf via "
+"`xisserve --ring`"
+msgstr ""

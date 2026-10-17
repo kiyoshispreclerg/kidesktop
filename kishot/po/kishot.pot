@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kishot\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 13:08-0300\n"
+"POT-Creation-Date: 2026-10-17 11:48-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -134,7 +134,7 @@ msgstr ""
 msgid "Automatic"
 msgstr ""
 
-#: ks_prefs.c:167 ks_rec.c:992
+#: ks_prefs.c:167 ks_rec.c:1037
 msgid "GPU copy"
 msgstr ""
 
@@ -189,7 +189,7 @@ msgstr ""
 msgid "Screenshots"
 msgstr ""
 
-#: ks_prefs.c:227 ks_window.c:648
+#: ks_prefs.c:227 ks_window.c:651
 msgid "Recording"
 msgstr ""
 
@@ -197,79 +197,75 @@ msgstr ""
 msgid "Hidden Windows"
 msgstr ""
 
-#: ks_rec.c:171
+#: ks_rec.c:167
 msgid "the libav plugin (kishot-rec-av.so) could not be loaded"
 msgstr ""
 
-#: ks_rec.c:173
+#: ks_rec.c:169
 msgid "install ffmpeg to record the screen"
 msgstr ""
 
-#: ks_rec.c:175
+#: ks_rec.c:171
 msgid "no usable video encoder was found"
 msgstr ""
 
-#: ks_rec.c:703
+#: ks_rec.c:723
 #, c-format
 msgid "ffmpeg failed: %s"
 msgstr ""
 
-#: ks_rec.c:703
+#: ks_rec.c:723
 msgid "unknown error"
 msgstr ""
 
-#: ks_rec.c:818 ks_rec.c:835
+#: ks_rec.c:854 ks_rec.c:871
 msgid "the video encoder failed"
 msgstr ""
 
-#: ks_rec.c:826
+#: ks_rec.c:862
 msgid "could not read the screen"
 msgstr ""
 
-#: ks_rec.c:842
+#: ks_rec.c:878
 msgid "ffmpeg stopped accepting frames"
 msgstr ""
 
-#: ks_rec.c:895
+#: ks_rec.c:939
 msgid "already recording"
 msgstr ""
 
-#: ks_rec.c:905
+#: ks_rec.c:949
 #, c-format
 msgid "the encoder \"%s\" is not available for %s files"
 msgstr ""
 
-#: ks_rec.c:925
+#: ks_rec.c:970
 msgid "could not connect to the X server"
 msgstr ""
 
-#: ks_rec.c:945
+#: ks_rec.c:990
 msgid "SHM (the server does not guarantee root copies)"
 msgstr ""
 
-#: ks_rec.c:947
+#: ks_rec.c:992
 msgid "SHM (GPU copy unavailable: no DRI3)"
 msgstr ""
 
-#: ks_rec.c:950
+#: ks_rec.c:995
 msgid "MIT-SHM is not available"
 msgstr ""
 
-#: ks_rec.c:982
+#: ks_rec.c:1027
 msgid "SHM (the dma-buf import failed)"
 msgstr ""
 
-#: ks_rec.c:994
+#: ks_rec.c:1039 ks_rec.c:1044
 msgid " (no audio: libpulse missing)"
 msgstr ""
 
-#: ks_rec.c:998
+#: ks_rec.c:1043
 #, c-format
 msgid "%s → ffmpeg %s%s"
-msgstr ""
-
-#: ks_rec.c:999
-msgid " (no audio: ffmpeg lacks pulse)"
 msgstr ""
 
 #: ks_region.c:64
@@ -306,126 +302,126 @@ msgstr ""
 msgid "The screen could not be read"
 msgstr ""
 
-#: ks_window.c:356
+#: ks_window.c:358
 #, c-format
 msgid "Stop (%d:%02d)"
 msgstr ""
 
-#: ks_window.c:359
+#: ks_window.c:361
 #, c-format
 msgid ""
 "Recording %d:%02d -- click to stop\n"
 "%s"
 msgstr ""
 
-#: ks_window.c:366 ks_window.c:657
+#: ks_window.c:368 ks_window.c:660
 msgid "Record"
 msgstr ""
 
-#: ks_window.c:395
+#: ks_window.c:397
 #, c-format
 msgid "Recording saved to %s"
 msgstr ""
 
-#: ks_window.c:396 ks_window.c:425
+#: ks_window.c:398 ks_window.c:428
 #, c-format
 msgid "Recording failed: %s"
 msgstr ""
 
-#: ks_window.c:399 ks_window.c:428
+#: ks_window.c:401 ks_window.c:431
 msgid "Recording failed"
 msgstr ""
 
-#: ks_window.c:399
+#: ks_window.c:401
 msgid "Recording saved"
 msgstr ""
 
-#: ks_window.c:480
-msgid "Recording sound needs libpulse (or ffmpeg built with pulse)"
+#: ks_window.c:483
+msgid "Recording sound needs libpulse"
 msgstr ""
 
-#: ks_window.c:611
+#: ks_window.c:614
 msgid "Capture"
 msgstr ""
 
-#: ks_window.c:615
+#: ks_window.c:618
 msgid "_Area:"
 msgstr ""
 
-#: ks_window.c:619
+#: ks_window.c:622
 msgid "Full screen (all monitors)"
 msgstr ""
 
-#: ks_window.c:620
+#: ks_window.c:623
 msgid "Current monitor"
 msgstr ""
 
-#: ks_window.c:621
+#: ks_window.c:624
 msgid "Active window"
 msgstr ""
 
-#: ks_window.c:622
+#: ks_window.c:625
 msgid "Rectangular region"
 msgstr ""
 
-#: ks_window.c:627
+#: ks_window.c:630
 msgid "_Delay:"
 msgstr ""
 
-#: ks_window.c:637
+#: ks_window.c:640
 msgid "Include the mouse _pointer"
 msgstr ""
 
-#: ks_window.c:641
+#: ks_window.c:644
 msgid "Include window _borders"
 msgstr ""
 
-#: ks_window.c:645
+#: ks_window.c:648
 msgid "_New Screenshot"
 msgstr ""
 
-#: ks_window.c:649
+#: ks_window.c:652
 msgid "_System sound"
 msgstr ""
 
-#: ks_window.c:653
+#: ks_window.c:656
 msgid "_Microphone"
 msgstr ""
 
-#: ks_window.c:660
+#: ks_window.c:663
 msgid "Hidden windows"
 msgstr ""
 
-#: ks_window.c:669
+#: ks_window.c:672
 msgid ""
 "These windows are painted black in screenshots and recordings. The screen "
 "itself is not changed."
 msgstr ""
 
-#: ks_window.c:678
+#: ks_window.c:681
 msgid "_Hide a Window..."
 msgstr ""
 
-#: ks_window.c:680
+#: ks_window.c:683
 msgid "Remo_ve"
 msgstr ""
 
-#: ks_window.c:687
+#: ks_window.c:690
 msgid "Settings"
 msgstr ""
 
-#: ks_window.c:693
+#: ks_window.c:696
 msgid "_Open Folder"
 msgstr ""
 
-#: ks_window.c:695
+#: ks_window.c:698
 msgid "_Copy"
 msgstr ""
 
-#: ks_window.c:697
+#: ks_window.c:700
 msgid "Save _As..."
 msgstr ""
 
-#: ks_window.c:699
+#: ks_window.c:702
 msgid "_Save"
 msgstr ""

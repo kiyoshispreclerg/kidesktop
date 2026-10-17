@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 08:04-0300\n"
+"POT-Creation-Date: 2026-10-17 11:48-0300\n"
 "PO-Revision-Date: 2026-10-01 13:53-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -27,95 +27,103 @@ msgstr "%s (%s)"
 msgid "%s (sem EDID)"
 msgstr "%s (no EDID)"
 
-#: kiconf.c:164
+#: kiconf.c:165 tabs/bloqueio.c:171
 msgid "Aparencia"
 msgstr "Appearance"
 
-#: kiconf.c:165
+#: kiconf.c:166
+msgid "KiTheme"
+msgstr "KiTheme"
+
+#: kiconf.c:167
 msgid "Atalhos"
 msgstr "Shortcuts"
 
-#: kiconf.c:166
+#: kiconf.c:168
 msgid "Telas"
 msgstr "Displays"
 
-#: kiconf.c:167
+#: kiconf.c:169
 msgid "Entrada"
 msgstr "Input"
 
-#: kiconf.c:168
+#: kiconf.c:170 tabs/wallpaper.c:1355
 msgid "Wallpaper"
 msgstr "Wallpaper"
 
-#: kiconf.c:169
+#: kiconf.c:171
 msgid "Paineis"
 msgstr "Panels"
 
-#: kiconf.c:170
+#: kiconf.c:172
 msgid "Permissoes"
 msgstr "Permissions"
 
-#: kiconf.c:171
+#: kiconf.c:173
 msgid "Gerenciamento de janelas"
 msgstr "Window management"
 
-#: kiconf.c:172
+#: kiconf.c:174
 msgid "Efeitos do compositor"
 msgstr "Compositor effects"
 
-#: kiconf.c:173
+#: kiconf.c:175
 msgid "Sistema"
 msgstr "System"
 
-#: kiconf.c:174
+#: kiconf.c:176
 msgid "Energia"
 msgstr "Power"
 
-#: kiconf.c:175
+#: kiconf.c:177
 msgid "Programas padrao"
 msgstr "Default programs"
 
-#: kiconf.c:176
+#: kiconf.c:178
 msgid "Associacoes de arquivos"
 msgstr "File associations"
 
-#: kiconf.c:177 tabs/menu.c:682
+#: kiconf.c:179 tabs/menu.c:682
 msgid "Menu de programas"
 msgstr "Application menu"
 
-#: kiconf.c:178
+#: kiconf.c:180
 msgid "Iniciar automaticamente"
 msgstr "Autostart"
 
-#: kiconf.c:179 tabs/eventos.c:191
+#: kiconf.c:181 tabs/eventos.c:191
 msgid "Eventos"
 msgstr "Events"
 
-#: kiconf.c:180
+#: kiconf.c:182
 msgid "Historico"
 msgstr "History"
 
-#: kiconf.c:181
+#: kiconf.c:183
 msgid "Sons"
 msgstr "Sounds"
 
-#: kiconf.c:182 tabs/usuarios.c:529
+#: kiconf.c:184 tabs/usuarios.c:529
 msgid "Usuarios"
 msgstr "Users"
 
-#: kiconf.c:183 tabs/servicos.c:410
+#: kiconf.c:185 tabs/servicos.c:410
 msgid "Servicos"
 msgstr "Services"
 
-#: kiconf.c:184
+#: kiconf.c:186
 msgid "Login"
 msgstr "Login"
 
-#: kiconf.c:185
+#: kiconf.c:187
 msgid "Acessibilidade"
 msgstr "Accessibility"
 
-#: kiconf.c:347
+#: kiconf.c:188
+msgid "Bloqueio de tela"
+msgstr "Screen lock"
+
+#: kiconf.c:350
 msgid ""
 "Ha alteracoes nao aplicadas nesta aba. Tem certeza que deseja sair sem "
 "aplica-las?"
@@ -123,51 +131,46 @@ msgstr ""
 "There are unapplied changes in this tab. Are you sure you want to quit "
 "without applying them?"
 
-#: kiconf.c:349 tabs/usuarios.c:557 tabs/usuarios.c:559
+#: kiconf.c:352 tabs/usuarios.c:557 tabs/usuarios.c:559
 msgid "Alteracoes pendentes"
 msgstr "Pending changes"
 
-#: kiconf.c:514
-#, fuzzy
+#: kiconf.c:527
 msgid "Personalizacao"
-msgstr "At startup"
+msgstr "Personalization"
 
-#: kiconf.c:515
+#: kiconf.c:528
 msgid "Hardware e entrada"
 msgstr "Hardware and input"
 
-#: kiconf.c:516
-#, fuzzy
+#: kiconf.c:529
 msgid "Programas"
-msgstr "Default programs"
+msgstr "Programs"
 
-#: kiconf.c:517
-#, fuzzy
+#: kiconf.c:530
 msgid "Sistema e seguranca"
-msgstr "Device safely removed"
+msgstr "System and security"
 
-#: kiconf.c:545
-#, fuzzy
+#: kiconf.c:561
 msgid "Outros"
 msgstr "Other"
 
-#: kiconf.c:643
+#: kiconf.c:661
 msgid "Nenhum modulo encontrado."
 msgstr "No modules found."
 
-#: kiconf.c:678
-#, fuzzy
+#: kiconf.c:721
 msgid "Filtrar modulos"
-msgstr "Filter services"
+msgstr "Filter modules"
 
-#: kiconf.c:965 kiconf.c:977
+#: kiconf.c:1011 kiconf.c:1023
 msgid "Inicio"
 msgstr "Home"
 
 #: plugins.c:158
-#, fuzzy, c-format
+#, c-format
 msgid "Nao foi possivel carregar o modulo: %s"
-msgstr "Could not write the sounds file."
+msgstr "Could not load the module: %s"
 
 #: plugins.c:165
 #, c-format
@@ -265,15 +268,53 @@ msgstr "Takes effect at the next login."
 msgid "Tecnologias assistivas"
 msgstr "Assistive technology"
 
-#: tabs/acessibilidade.c:514 tabs/appearance.c:703 tabs/autostart.c:414
-#: tabs/energia.c:359 tabs/entrada.c:578 tabs/historico.c:379
-#: tabs/historico.c:446 tabs/login.c:705 tabs/programas.c:305
-#: tabs/shortcuts.c:1063 tabs/sistema.c:809 tabs/telas.c:1911
-#: tabs/usuarios.c:568
+#: tabs/acessibilidade.c:514 tabs/appearance.c:778 tabs/autostart.c:414
+#: tabs/bloqueio.c:195 tabs/energia.c:453 tabs/entrada.c:578
+#: tabs/historico.c:379 tabs/historico.c:446 tabs/kitheme.c:493
+#: tabs/login.c:705 tabs/programas.c:305 tabs/shortcuts.c:1063
+#: tabs/sistema.c:809 tabs/telas.c:1911 tabs/usuarios.c:568
 msgid "Aplicar"
 msgstr "Apply"
 
-#: tabs/appearance.c:701
+#: tabs/appearance.c:344
+msgid "Sem cores personalizadas"
+msgstr "No custom colors"
+
+#: tabs/appearance.c:734
+msgid "Usar KiTheme em tudo"
+msgstr "Use KiTheme everywhere"
+
+#: tabs/appearance.c:735
+msgid ""
+"Escolhe KiTheme para GTK2, GTK3, GTK4 e Qt (depois clique em Aplicar).\n"
+"A aparencia do KiTheme se ajusta na aba KiTheme."
+msgstr ""
+"Selects KiTheme for GTK2, GTK3, GTK4 and Qt (then click Apply).\n"
+"KiTheme's look is adjusted in the KiTheme tab."
+
+#: tabs/appearance.c:751
+msgid ""
+"Recolore os temas GTK e Qt que nao sejam o KiTheme. \"Sem cores "
+"personalizadas\" deixa cada tema com as proprias cores. Para criar, editar "
+"ou excluir esquemas, use a aba KiTheme."
+msgstr ""
+"Recolors the GTK and Qt themes other than KiTheme. \"No custom colors\" "
+"leaves each theme with its own colors. To create, edit or delete schemes, "
+"use the KiTheme tab."
+
+#: tabs/appearance.c:753 tabs/kitheme.c:407
+msgid "Esquema de cores"
+msgstr "Color scheme"
+
+#: tabs/appearance.c:754 tabs/kitheme.c:412
+msgid "Esquema:"
+msgstr "Scheme:"
+
+#: tabs/appearance.c:755 tabs/kitheme.c:433
+msgid "Cores"
+msgstr "Colors"
+
+#: tabs/appearance.c:776
 msgid "Importar da sessao atual"
 msgstr "Import from the current session"
 
@@ -298,128 +339,250 @@ msgstr "Add..."
 msgid "Remover"
 msgstr "Remove"
 
+#: tabs/bloqueio.c:96 tabs/bloqueio.c:112
+msgid "Nao foi possivel salvar kilock.conf"
+msgstr "Could not save kilock.conf"
+
+#: tabs/bloqueio.c:115
+msgid "Aplicado (vale no proximo bloqueio)"
+msgstr "Applied (takes effect on the next lock)"
+
+#: tabs/bloqueio.c:134
+msgid "Nao foi possivel executar o kilock"
+msgstr "Could not run kilock"
+
+#: tabs/bloqueio.c:147
+msgid ""
+"O bloqueio de tela usa o i3lock, que so aceita opcoes de linha de comando; "
+"aqui elas ficam guardadas em ~/.config/kilock.conf. O tempo parado ate "
+"bloquear e o do protetor de tela, na aba Energia."
+msgstr ""
+"Screen lock uses i3lock, which only accepts command-line options; here they "
+"are stored in ~/.config/kilock.conf. The idle time before locking is the "
+"screensaver's, in the Energy tab."
+
+#: tabs/bloqueio.c:155 tabs/paineis.c:1855
+msgid "Cor de fundo:"
+msgstr "Background color:"
+
+#: tabs/bloqueio.c:157
+msgid "Imagem de fundo"
+msgstr "Background image"
+
+#: tabs/bloqueio.c:164
+msgid "Somente PNG. Sem imagem, a tela fica com a cor de fundo."
+msgstr "PNG only. With no image, the screen uses the background color."
+
+#: tabs/bloqueio.c:165
+msgid "Sem imagem"
+msgstr "No image"
+
+#: tabs/bloqueio.c:170
+msgid "Imagem:"
+msgstr "Image:"
+
+#: tabs/bloqueio.c:179
+msgid "Repetir a imagem lado a lado"
+msgstr "Tile the image"
+
+#: tabs/bloqueio.c:180
+msgid "Mostrar o indicador de senha ao digitar"
+msgstr "Show the password indicator while typing"
+
+#: tabs/bloqueio.c:181
+msgid "Mostrar o numero de tentativas erradas"
+msgstr "Show the number of wrong attempts"
+
+#: tabs/bloqueio.c:182
+msgid "Apitar quando a senha estiver errada"
+msgstr "Beep when the password is wrong"
+
+#: tabs/bloqueio.c:183
+msgid "Ignorar senha vazia (evita espera apos apertar Enter sem querer)"
+msgstr ""
+"Ignore an empty password (avoids a wait after pressing Enter by accident)"
+
+#: tabs/bloqueio.c:184
+msgid "Manter o ponteiro do mouse visivel"
+msgstr "Keep the mouse pointer visible"
+
+#: tabs/bloqueio.c:191
+msgid "Comportamento"
+msgstr "Behavior"
+
+#: tabs/bloqueio.c:197
+msgid "Testar bloqueio"
+msgstr "Test lock"
+
+#: tabs/bloqueio.c:198
+msgid "Salva e bloqueia a tela agora; volte com a sua senha."
+msgstr "Saves and locks the screen now; come back with your password."
+
 #: tabs/cantos.c:177
-#, fuzzy
 msgid "Todas as telas"
-msgstr "All actions"
+msgstr "All displays"
 
 #: tabs/cantos.c:200
-#, fuzzy
 msgid "Tela"
-msgstr "Displays"
+msgstr "Display"
 
 #: tabs/cantos.c:211
 msgid "Cantos ativos por tela"
-msgstr ""
+msgstr "Hot corners per display"
 
 #: tabs/cantos.c:214
 msgid ""
 "Encostar o mouse no canto da tela dispara o efeito. \"(padrao)\" segue a "
 "linha \"Todas as telas\"."
 msgstr ""
+"Moving the mouse to the corner of the display triggers the effect. "
+"\"(default)\" follows the \"All displays\" row."
 
 #: tabs/cantos.c:226
 msgid "Tempo que o mouse precisa ficar no canto. Passar de raspao nao dispara."
 msgstr ""
+"How long the mouse must stay in the corner. Brushing past it does not "
+"trigger."
 
 #: tabs/cantos.c:231
 msgid ""
 "O pixel do canto deixa de chegar a janela embaixo (botao fechar de janela "
 "maximizada)."
 msgstr ""
+"The corner pixel no longer reaches the window underneath (the close button "
+"of a maximized window)."
 
-#: tabs/efeitos.c:657 tabs/paineis.c:867 tabs/servicos.c:267
+#: tabs/efeitos.c:676 tabs/paineis.c:867 tabs/servicos.c:267
 msgid "?"
 msgstr "?"
 
-#: tabs/efeitos.c:1048
+#: tabs/efeitos.c:1067
 msgid "Duracao base das animacoes"
 msgstr "Base duration of the animations"
 
-#: tabs/efeitos.c:1056
+#: tabs/efeitos.c:1075
 msgid "present/copy"
 msgstr "present/copy"
 
-#: tabs/efeitos.c:1060
+#: tabs/efeitos.c:1078
+msgid "Unico drawable"
+msgstr "Single drawable"
+
+#: tabs/efeitos.c:1081
+msgid ""
+"Com mais de uma tela, todas sao atualizadas juntas: uma tela mais rapida "
+"fica limitada ao ritmo da mais lenta."
+msgstr ""
+"With more than one display, all are updated together: a faster display is "
+"limited to the pace of the slowest."
+
+#: tabs/efeitos.c:1095
 msgid "Compor tudo em um unico drawable"
 msgstr "Composite everything into a single drawable"
 
-#: tabs/efeitos.c:1064
+#: tabs/efeitos.c:1101
 msgid "Ignorar camadas de decoracao do WM"
 msgstr "Ignore the WM's decoration layers"
 
-#: tabs/efeitos.c:1068
+#: tabs/efeitos.c:1105
 msgid "Desviar (unredirect) janela em tela cheia"
 msgstr "Unredirect a fullscreen window"
 
-#: tabs/efeitos.c:1072
+#: tabs/efeitos.c:1109
 msgid "Tempo para reivindicar janelas ja abertas"
 msgstr "Time to claim already-open windows"
 
-#: tabs/efeitos.c:1076
+#: tabs/efeitos.c:1113
 msgid "Manter conteudo de janelas ocultas (expo/wall)"
 msgstr "Keep hidden windows content (expo/wall)"
 
-#: tabs/efeitos.c:1079
+#: tabs/efeitos.c:1116
 msgid "Janelas ao vivo em efeitos (expo/wall/cube)"
 msgstr "Live windows in effects (expo/wall/cube)"
 
-#: tabs/efeitos.c:1083
+#: tabs/efeitos.c:1120
 msgid "Decoracao/conteudo nitidos sob zoom"
 msgstr "Sharp decoration/content under zoom"
 
-#: tabs/efeitos.c:1098
+#: tabs/efeitos.c:1135
 msgid "ex.: windows,menus"
 msgstr "e.g.: windows,menus"
 
-#: tabs/efeitos.c:1109 tabs/efeitos.c:1141
+#: tabs/efeitos.c:1146 tabs/efeitos.c:1178
 msgid "Deslocamento X"
 msgstr "X offset"
 
-#: tabs/efeitos.c:1112 tabs/efeitos.c:1144
+#: tabs/efeitos.c:1149 tabs/efeitos.c:1181
 msgid "Deslocamento Y"
 msgstr "Y offset"
 
-#: tabs/efeitos.c:1113 tabs/efeitos.c:1145
+#: tabs/efeitos.c:1150 tabs/efeitos.c:1182
 msgid "X:"
 msgstr "X:"
 
-#: tabs/efeitos.c:1115 tabs/efeitos.c:1147
+#: tabs/efeitos.c:1152 tabs/efeitos.c:1184
 msgid "Y:"
 msgstr "Y:"
 
-#: tabs/efeitos.c:1123
+#: tabs/efeitos.c:1160
 msgid ""
 "Tipos que tambem recebem sombra, sempre com o estilo de janela sem foco "
 "(ex.: dock,tooltip,notification). Vazio = desligado. Paineis junto a outra "
 "saida projetam sombra nela."
 msgstr ""
+"Types that also get a shadow, always with the unfocused window style (e.g. "
+"dock,tooltip,notification). Empty = off. Panels next to another output cast "
+"a shadow on it."
 
-#: tabs/efeitos.c:1127
+#: tabs/efeitos.c:1164
 msgid "Usar valores proprios para janelas sem foco"
 msgstr "Use separate values for unfocused windows"
 
-#: tabs/efeitos.c:1176
+#: tabs/efeitos.c:1213
 msgid "Adicionar efeito"
 msgstr "Add effect"
 
-#: tabs/efeitos.c:1177
+#: tabs/efeitos.c:1214
 msgid "Remover efeito"
 msgstr "Remove effect"
 
-#: tabs/efeitos.c:1187
+#: tabs/efeitos.c:1224
 msgid "Reiniciar kicomp agora"
 msgstr "Restart kicomp now"
 
-#: tabs/efeitos.c:1188
+#: tabs/efeitos.c:1225
 msgid "Aplicar (grava kicomp.conf)"
 msgstr "Apply (writes kicomp.conf)"
 
-#: tabs/energia.c:263
+#: tabs/energia.c:49 tabs/energia.c:55
+msgid "Padrao do sistema"
+msgstr "System default"
+
+#: tabs/energia.c:50 tabs/energia.c:58
+msgid "Suspender"
+msgstr "Suspend"
+
+#: tabs/energia.c:51
+msgid "Bloquear a tela"
+msgstr "Lock the screen"
+
+#: tabs/energia.c:52 tabs/energia.c:59
+msgid "Nao fazer nada"
+msgstr "Do nothing"
+
+#: tabs/energia.c:56
+msgid "Perguntar o que fazer"
+msgstr "Ask what to do"
+
+#: tabs/energia.c:57
+msgid "Desligar direto"
+msgstr "Power off immediately"
+
+#: tabs/energia.c:326
 msgid "Configuracoes de energia salvas."
 msgstr "Power settings saved."
 
-#: tabs/energia.c:276
+#: tabs/energia.c:339
 msgid ""
 "xsct nao encontrado -- instale-o (https://github.com/faf0/sct) para a luz "
 "noturna automatica funcionar. O horario ainda pode ser configurado e salvo "
@@ -428,55 +591,78 @@ msgstr ""
 "xsct not found -- install it (https://github.com/faf0/sct) for automatic "
 "night light to work. The schedule can still be configured and saved here."
 
-#: tabs/energia.c:288
+#: tabs/energia.c:351
 msgid "Ativar luz noturna automatica"
 msgstr "Enable automatic night light"
 
-#: tabs/energia.c:293
+#: tabs/energia.c:356
 msgid "Ligar as:"
 msgstr "Turn on at:"
 
-#: tabs/energia.c:297 tabs/energia.c:304
+#: tabs/energia.c:360 tabs/energia.c:367
 msgid ":"
 msgstr ":"
 
-#: tabs/energia.c:300
+#: tabs/energia.c:363
 msgid "   Desligar as:"
 msgstr "   Turn off at:"
 
-#: tabs/energia.c:307
+#: tabs/energia.c:370
 msgid "Ligar: hora"
 msgstr "Turn on: hour"
 
-#: tabs/energia.c:308
+#: tabs/energia.c:371
 msgid "Ligar: minuto"
 msgstr "Turn on: minute"
 
-#: tabs/energia.c:309
+#: tabs/energia.c:372
 msgid "Desligar: hora"
 msgstr "Turn off: hour"
 
-#: tabs/energia.c:310
+#: tabs/energia.c:373
 msgid "Desligar: minuto"
 msgstr "Turn off: minute"
 
-#: tabs/energia.c:317
+#: tabs/energia.c:380
 msgid "Temperatura durante o periodo (K):"
 msgstr "Temperature during the period (K):"
 
-#: tabs/energia.c:321
+#: tabs/energia.c:384
 msgid "Luz noturna (xsct)"
 msgstr "Night light (xsct)"
 
-#: tabs/energia.c:324
+#: tabs/energia.c:396
+msgid "Ao fechar a tampa:"
+msgstr "When the lid is closed:"
+
+#: tabs/energia.c:406
+msgid "Ao apertar o botao de energia:"
+msgstr "When the power button is pressed:"
+
+#: tabs/energia.c:407
+msgid "Tampa e botao de energia"
+msgstr "Lid and power button"
+
+#: tabs/energia.c:410
+msgid ""
+"\"Padrao do sistema\" nao mexe em nada (logind/acpid decidem). Qualquer "
+"outra opcao e tratada pelo kiconfd, que tambem impede o logind de agir em "
+"duplicidade. A tampa depende do UPower; o botao precisa que o servidor X "
+"entregue a tecla de energia."
+msgstr ""
+"\"System default\" changes nothing (logind/acpid decide). Any other option "
+"is handled by kiconfd, which also stops logind from acting a second time. "
+"The lid needs UPower; the button needs the X server to deliver the power key."
+
+#: tabs/energia.c:418
 msgid "DPMS habilitado"
 msgstr "DPMS enabled"
 
-#: tabs/energia.c:345
+#: tabs/energia.c:439
 msgid "Preferir apagar a tela (blank)"
 msgstr "Prefer blanking the screen"
 
-#: tabs/energia.c:351
+#: tabs/energia.c:445
 msgid ""
 "Fora do horario configurado, a tela volta a temperatura normal. Um horario "
 "de desligar menor que o de ligar cruza a meia-noite (ex.: ligar 20:00, "
@@ -605,7 +791,7 @@ msgid "Titulo privado (regex):"
 msgstr "Private title (regex):"
 
 #: tabs/historico.c:385 tabs/historico.c:452 tabs/permissoes.c:632
-#: tabs/telas.c:1777 tabs/wallpaper.c:358
+#: tabs/telas.c:1777
 msgid "-"
 msgstr "-"
 
@@ -699,13 +885,269 @@ msgstr "View status"
 msgid "kimemory (area de transferencia)"
 msgstr "kimemory (clipboard)"
 
-#: tabs/janelas.c:544
+#: tabs/janelas.c:533
+msgid "Ordem de abertura das janelas"
+msgstr "Window opening order"
+
+#: tabs/janelas.c:534
+msgid "Usadas mais recentemente primeiro"
+msgstr "Most recently used first"
+
+#: tabs/janelas.c:536
+msgid ""
+"Com \"usadas mais recentemente primeiro\", um unico Tab volta pra janela "
+"anterior"
+msgstr ""
+"With \"most recently used first\", a single Tab goes back to the previous "
+"window"
+
+#: tabs/janelas.c:551
 msgid "Reiniciar kiwm agora"
 msgstr "Restart kiwm now"
 
-#: tabs/janelas.c:545
+#: tabs/janelas.c:552
 msgid "Aplicar (grava kiwm.conf)"
 msgstr "Apply (writes kiwm.conf)"
+
+#: tabs/kitheme.c:26
+msgid "Classico (Windows 9x)"
+msgstr "Classic (Windows 9x)"
+
+#: tabs/kitheme.c:26
+msgid "Plano"
+msgstr "Flat"
+
+#: tabs/kitheme.c:26
+msgid "Suave (Oxygen)"
+msgstr "Soft (Oxygen)"
+
+#: tabs/kitheme.c:27
+msgid "Brilho"
+msgstr "Glow"
+
+#: tabs/kitheme.c:27
+msgid "Nenhum"
+msgstr "None"
+
+#: tabs/kitheme.c:27
+msgid "Pontilhado"
+msgstr "Dotted"
+
+#: tabs/kitheme.c:28
+msgid "Quando o programa pedir"
+msgstr "When the program asks"
+
+#: tabs/kitheme.c:28
+msgid "Sempre"
+msgstr "Always"
+
+#: tabs/kitheme.c:38
+msgid "Fundo da janela"
+msgstr "Window background"
+
+#: tabs/kitheme.c:38
+msgid "Texto da janela"
+msgstr "Window text"
+
+#: tabs/kitheme.c:39
+msgid "Fundo de campos"
+msgstr "Field background"
+
+#: tabs/kitheme.c:39
+msgid "Texto de campos"
+msgstr "Field text"
+
+#: tabs/kitheme.c:40
+msgid "Botoes"
+msgstr "Buttons"
+
+#: tabs/kitheme.c:40
+msgid "Texto dos botoes"
+msgstr "Button text"
+
+#: tabs/kitheme.c:41
+msgid "Selecao"
+msgstr "Selection"
+
+#: tabs/kitheme.c:41
+msgid "Texto selecionado"
+msgstr "Selected text"
+
+#: tabs/kitheme.c:42
+msgid "Barra de progresso"
+msgstr "Progress bar"
+
+#: tabs/kitheme.c:42
+msgid "Destaque (foco/hover)"
+msgstr "Highlight (focus/hover)"
+
+#: tabs/kitheme.c:43
+msgid "Fundo dos menus"
+msgstr "Menu background"
+
+#: tabs/kitheme.c:43
+msgid "Texto dos menus"
+msgstr "Menu text"
+
+#: tabs/kitheme.c:44
+msgid "Fundo das dicas"
+msgstr "Tooltip background"
+
+#: tabs/kitheme.c:44
+msgid "Texto das dicas"
+msgstr "Tooltip text"
+
+#: tabs/kitheme.c:216
+msgid "Salvar esquema de cores"
+msgstr "Save color scheme"
+
+#: tabs/kitheme.c:225
+msgid "Nome do esquema:"
+msgstr "Scheme name:"
+
+#: tabs/kitheme.c:236
+msgid "Esquema salvo"
+msgstr "Scheme saved"
+
+#: tabs/kitheme.c:238
+msgid "Nome invalido ou nao foi possivel salvar"
+msgstr "Invalid name or could not save"
+
+#: tabs/kitheme.c:253
+msgid "Os esquemas que vem com o KiDesktop nao podem ser excluidos"
+msgstr "The schemes that come with KiDesktop cannot be deleted"
+
+#: tabs/kitheme.c:256
+msgid "Esquema excluido"
+msgstr "Scheme deleted"
+
+#: tabs/kitheme.c:282
+msgid "Nao foi possivel salvar kitheme.conf"
+msgstr "Could not save kitheme.conf"
+
+#: tabs/kitheme.c:287
+msgid "Salvo, mas kitheme-export nao foi encontrado"
+msgstr "Saved, but kitheme-export was not found"
+
+#: tabs/kitheme.c:296
+msgid "kitheme-export falhou"
+msgstr "kitheme-export failed"
+
+#: tabs/kitheme.c:303
+msgid "Aplicado"
+msgstr "Applied"
+
+#: tabs/kitheme.c:394
+msgid "Partir do preset:"
+msgstr "Start from preset:"
+
+#: tabs/kitheme.c:395
+msgid ""
+"Carrega a forma e os tamanhos do preset (as cores ficam como estao); os "
+"ajustes abaixo ficam por cima dele."
+msgstr ""
+"Loads the preset's shape and sizes (colors stay as they are); the settings "
+"below apply on top of it."
+
+#: tabs/kitheme.c:397
+msgid "Estilo:"
+msgstr "Style:"
+
+#: tabs/kitheme.c:398
+msgid "Base"
+msgstr "Base"
+
+#: tabs/kitheme.c:406
+msgid ""
+"Esquemas de cores: os instalados com o KiDesktop e os seus. Mudar uma cor "
+"abaixo deixa a lista em branco (personalizado)."
+msgstr ""
+"Color schemes: those installed with KiDesktop and your own. Changing a color "
+"below blanks the list (custom)."
+
+#: tabs/kitheme.c:408
+msgid "Salvar como..."
+msgstr "Save as..."
+
+#: tabs/kitheme.c:410 tabs/menu.c:714
+msgid "Excluir"
+msgstr "Delete"
+
+#: tabs/kitheme.c:438
+msgid "Arredondamento (px):"
+msgstr "Corner radius (px):"
+
+#: tabs/kitheme.c:440
+msgid "Relevo:"
+msgstr "Relief:"
+
+#: tabs/kitheme.c:442
+msgid "Gradiente:"
+msgstr "Gradient:"
+
+#: tabs/kitheme.c:444
+msgid "Sombra:"
+msgstr "Shadow:"
+
+#: tabs/kitheme.c:446
+msgid "Indicador de foco:"
+msgstr "Focus indicator:"
+
+#: tabs/kitheme.c:447
+msgid "Brilho ao passar o mouse"
+msgstr "Glow on hover"
+
+#: tabs/kitheme.c:449
+msgid "Forma"
+msgstr "Shape"
+
+#: tabs/kitheme.c:454
+msgid "Espessura da barra de progresso:"
+msgstr "Progress bar thickness:"
+
+#: tabs/kitheme.c:456
+msgid "Porcentagem dentro da barra:"
+msgstr "Percentage inside the bar:"
+
+#: tabs/kitheme.c:457
+msgid "Listras na barra (blocos no estilo classico)"
+msgstr "Stripes on the bar (blocks in the classic style)"
+
+#: tabs/kitheme.c:459
+msgid "Animar as listras (redesenha a barra a cada 50 ms)"
+msgstr "Animate the stripes (redraws the bar every 50 ms)"
+
+#: tabs/kitheme.c:462
+msgid "Largura da barra de rolagem:"
+msgstr "Scrollbar width:"
+
+#: tabs/kitheme.c:463
+msgid "Setas nas barras de rolagem"
+msgstr "Arrows on scrollbars"
+
+#: tabs/kitheme.c:466
+msgid "Tamanho de caixas de selecao:"
+msgstr "Checkbox size:"
+
+#: tabs/kitheme.c:467
+msgid "Barras e tamanhos"
+msgstr "Bars and sizes"
+
+#: tabs/kitheme.c:483
+msgid ""
+"Previa desenhada pelo proprio KiTheme. Para usa-lo, escolha \"KiTheme\"\n"
+"nos temas GTK e no estilo Qt da aba Aparencia."
+msgstr ""
+"Preview drawn by KiTheme itself. To use it, choose \"KiTheme\"\n"
+"in the GTK themes and the Qt style in the Appearance tab."
+
+#: tabs/kitheme.c:487
+msgid "Previa"
+msgstr "Preview"
+
+#: tabs/kitheme.c:495
+msgid "Visualizar/ocultar preview"
+msgstr "Show/hide preview"
 
 #: tabs/login.c:46 tabs/login.c:48
 msgid "Tema:"
@@ -879,10 +1321,6 @@ msgstr "New..."
 msgid "Editar..."
 msgstr "Edit..."
 
-#: tabs/menu.c:714
-msgid "Excluir"
-msgstr "Delete"
-
 #: tabs/paineis.c:462
 msgid ""
 "Familia da fonte, ex: Noto Sans. Vazio = sans-serif do Fontconfig. Vale pro "
@@ -980,10 +1418,6 @@ msgid ""
 msgstr ""
 "Ctrl+click selects several; right-click copies or moves the selected ones to "
 "another panel"
-
-#: tabs/paineis.c:1855
-msgid "Cor de fundo:"
-msgstr "Background color:"
 
 #: tabs/paineis.c:1861
 msgid "Cor do texto:"
@@ -1715,62 +2149,182 @@ msgstr "Remove..."
 msgid "Descartar fila"
 msgstr "Discard queue"
 
-#: tabs/wallpaper.c:161
+#: tabs/wallpaper.c:779
+#, c-format
+msgid "Desktop %d"
+msgstr "Desktop %d"
+
+#: tabs/wallpaper.c:864
+#, c-format
+msgid "Editando: todas as telas"
+msgstr "Editing: all displays"
+
+#: tabs/wallpaper.c:866
+#, c-format
+msgid "Editando: %s"
+msgstr "Editing: %s"
+
+#: tabs/wallpaper.c:870
+#, c-format
+msgid " - Desktop %d"
+msgstr " - Desktop %d"
+
+#: tabs/wallpaper.c:980
+msgid "Escolher imagem"
+msgstr "Choose image"
+
+#: tabs/wallpaper.c:987
+msgid "Escolher pasta de slideshow"
+msgstr "Choose slideshow folder"
+
+#: tabs/wallpaper.c:994
+msgid "Cor solida"
+msgstr "Solid color"
+
+#: tabs/wallpaper.c:1080
+msgid ""
+"Ha papeis de parede diferentes que serao descartados; fica so o da selecao "
+"atual. Continuar?"
+msgstr ""
+"There are different wallpapers that will be discarded; only the current "
+"selection's stays. Continue?"
+
+#: tabs/wallpaper.c:1144
+msgid "nao"
+msgstr "no"
+
+#: tabs/wallpaper.c:1144
+msgid "sim"
+msgstr "yes"
+
+#: tabs/wallpaper.c:1150
 #, c-format
 msgid "%d camada(s) ativa(s)."
 msgstr "%d layer(s) active."
 
-#: tabs/wallpaper.c:382
-msgid "Avancar slide"
-msgstr "Advance slide"
+#: tabs/wallpaper.c:1279
+msgid "Cada tela com o seu"
+msgstr "Each display with its own"
 
-#: tabs/wallpaper.c:383
+#: tabs/wallpaper.c:1279
+msgid "Telas:"
+msgstr "Displays:"
+
+#: tabs/wallpaper.c:1280
+msgid "Uma imagem esticada por todas as telas"
+msgstr "One image stretched across all displays"
+
+#: tabs/wallpaper.c:1282
+msgid "Desktops:"
+msgstr "Desktops:"
+
+#: tabs/wallpaper.c:1283
+msgid "Mesmo em todos os desktops"
+msgstr "Same on all desktops"
+
+#: tabs/wallpaper.c:1283
+msgid "Um por desktop"
+msgstr "One per desktop"
+
+#: tabs/wallpaper.c:1316
+msgid "Imagem..."
+msgstr "Image..."
+
+#: tabs/wallpaper.c:1317
+msgid "Pasta (slideshow)..."
+msgstr "Folder (slideshow)..."
+
+#: tabs/wallpaper.c:1318
+msgid "Cor solida..."
+msgstr "Solid color..."
+
+#: tabs/wallpaper.c:1329
+msgid "Preencher"
+msgstr "Fill"
+
+#: tabs/wallpaper.c:1330
+msgid "Esticar"
+msgstr "Stretch"
+
+#: tabs/wallpaper.c:1334
+msgid "Aleatorio"
+msgstr "Random"
+
+#: tabs/wallpaper.c:1338
+msgid "Proxima"
+msgstr "Next"
+
+#: tabs/wallpaper.c:1339
+msgid "Ajuste da imagem"
+msgstr "Image fit"
+
+#: tabs/wallpaper.c:1340
+msgid "Intervalo do slideshow em segundos"
+msgstr "Slideshow interval in seconds"
+
+#: tabs/wallpaper.c:1341
+msgid "Crossfade em segundos"
+msgstr "Crossfade in seconds"
+
+#: tabs/wallpaper.c:1343
+msgid "Trocar a cada (s):"
+msgstr "Change every (s):"
+
+#: tabs/wallpaper.c:1346
+msgid "Fade (s):"
+msgstr "Fade (s):"
+
+#: tabs/wallpaper.c:1356
+msgid ""
+"Clique numa tela pra escolher qual editar; arraste uma imagem ou pasta pra "
+"cima dela pra defini-la"
+msgstr ""
+"Click a display to choose which one to edit; drag an image or folder onto it "
+"to set it"
+
+#: tabs/wallpaper.c:1378
 msgid "Limpar selecionada"
 msgstr "Clear selected"
 
-#: tabs/wallpaper.c:384
+#: tabs/wallpaper.c:1379
 msgid "Limpar todas"
 msgstr "Clear all"
 
-#: tabs/wallpaper.c:385
+#: tabs/wallpaper.c:1380
 msgid "Atualizar"
 msgstr "Refresh"
 
-#: tabs/wallpaper.c:389
-msgid "Igualar todas"
-msgstr "Make all the same"
+#: tabs/wallpaper.c:1388
+msgid "Avancado: camadas do xisback"
+msgstr "Advanced: xisback layers"
 
-#: tabs/wallpaper.c:390
-msgid "Mesmo papel de parede pra tudo"
-msgstr "Same wallpaper for everything"
-
-#: tabs/wallpaper.c:403
-msgid "Clique numa linha pra editar"
-msgstr "Click a row to edit it"
-
-#: tabs/wallpaper.c:420
-msgid "Ordem aleatoria (em vez de alfabetica)"
-msgstr "Random order (instead of alphabetical)"
-
-#: tabs/wallpaper.c:430
-msgid "Arquivo..."
-msgstr "File..."
-
-#: tabs/wallpaper.c:431
-msgid "Pasta..."
-msgstr "Folder..."
-
-#: tabs/wallpaper.c:439
-msgid "Imagem ou pasta:"
-msgstr "Image or folder:"
-
-#: tabs/wallpaper.c:443
-msgid "Definir camada"
-msgstr "Set layer"
-
-#: tabs/wallpaper.c:465
+#: tabs/wallpaper.c:1407
 msgid "Salvar acoes de clique"
 msgstr "Save click actions"
+
+#~ msgid "Avancar slide"
+#~ msgstr "Advance slide"
+
+#~ msgid "Igualar todas"
+#~ msgstr "Make all the same"
+
+#~ msgid "Mesmo papel de parede pra tudo"
+#~ msgstr "Same wallpaper for everything"
+
+#~ msgid "Clique numa linha pra editar"
+#~ msgstr "Click a row to edit it"
+
+#~ msgid "Ordem aleatoria (em vez de alfabetica)"
+#~ msgstr "Random order (instead of alphabetical)"
+
+#~ msgid "Arquivo..."
+#~ msgstr "File..."
+
+#~ msgid "Pasta..."
+#~ msgstr "Folder..."
+
+#~ msgid "Definir camada"
+#~ msgstr "Set layer"
 
 #~ msgid "Horario de luz noturna salvo."
 #~ msgstr "Night light schedule saved."
@@ -1781,43 +2335,3 @@ msgstr "Save click actions"
 #~ msgstr ""
 #~ "Takes effect at the next login. Ctrl+Alt+Tab focuses the panel for "
 #~ "keyboard use (focus_key= in xispanel.conf)."
-
-#: tabs/energia.c
-msgid "Padrao do sistema"
-msgstr "System default"
-
-#: tabs/energia.c
-msgid "Suspender"
-msgstr "Suspend"
-
-#: tabs/energia.c
-msgid "Bloquear a tela"
-msgstr "Lock the screen"
-
-#: tabs/energia.c
-msgid "Nao fazer nada"
-msgstr "Do nothing"
-
-#: tabs/energia.c
-msgid "Perguntar o que fazer"
-msgstr "Ask what to do"
-
-#: tabs/energia.c
-msgid "Desligar direto"
-msgstr "Power off immediately"
-
-#: tabs/energia.c
-msgid "Ao fechar a tampa:"
-msgstr "When the lid is closed:"
-
-#: tabs/energia.c
-msgid "Ao apertar o botao de energia:"
-msgstr "When the power button is pressed:"
-
-#: tabs/energia.c
-msgid "Tampa e botao de energia"
-msgstr "Lid and power button"
-
-#: tabs/energia.c
-msgid "\"Padrao do sistema\" nao mexe em nada (logind/acpid decidem). Qualquer outra opcao e tratada pelo kiconfd, que tambem impede o logind de agir em duplicidade. A tampa depende do UPower; o botao precisa que o servidor X entregue a tecla de energia."
-msgstr "\"System default\" changes nothing (logind/acpid decide). Any other option is handled by kiconfd, which also stops logind from acting a second time. The lid needs UPower; the button needs the X server to deliver the power key."
