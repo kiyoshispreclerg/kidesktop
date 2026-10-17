@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: xispanel\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-02 19:07-0300\n"
+"POT-Creation-Date: 2026-10-17 11:24-0300\n"
 "PO-Revision-Date: 2026-10-01 17:50-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -114,7 +114,7 @@ msgstr "Energia"
 msgid "Monitor"
 msgstr "Monitor"
 
-#: menu.c:1046
+#: menu.c:1073
 #, c-format
 msgid "Configurar painéis"
 msgstr "Configurar painéis"
@@ -128,6 +128,14 @@ msgstr "Novo dispositivo: %s (%s)"
 #, c-format
 msgid "%s desmontado — pode remover com segurança"
 msgstr "%s desmontado — pode remover com segurança"
+
+#: widgets/clock.c:329
+msgid "Configurações de data e hora…"
+msgstr "Configurações de data e hora…"
+
+#: widgets/clock.c:330
+msgid "Configurações de eventos…"
+msgstr "Configurações de eventos…"
 
 #: widgets/energy.c:190
 #, c-format
@@ -185,6 +193,22 @@ msgstr "%s de %s"
 msgid "Menu"
 msgstr "Menu"
 
+#: widgets/lockkeys.c:189
+msgid "Caps Lock"
+msgstr "Caps Lock"
+
+#: widgets/lockkeys.c:189
+msgid "Num Lock"
+msgstr "Num Lock"
+
+#: widgets/lockkeys.c:190
+msgid "desligado"
+msgstr "desligado"
+
+#: widgets/lockkeys.c:190
+msgid "ligado"
+msgstr "ligado"
+
 #: widgets/monitor.c:554
 #, c-format
 msgid "n/d"
@@ -198,84 +222,88 @@ msgstr "Temperatura da CPU"
 msgid "Temperatura da GPU"
 msgstr "Temperatura da GPU"
 
-#: widgets/notif.c:276
+#: widgets/notif.c:278
 #, c-format
 msgid "Sem notificações não lidas"
 msgstr "Sem notificações não lidas"
 
-#: widgets/notif.c:278
+#: widgets/notif.c:280
 #, c-format
 msgid "1 notificação não lida"
 msgstr "1 notificação não lida"
 
-#: widgets/notif.c:280
+#: widgets/notif.c:282
 #, c-format
 msgid "%d notificações não lidas"
 msgstr "%d notificações não lidas"
 
-#: widgets/notif.c:316
+#: widgets/notif.c:318
 #, c-format
 msgid "Sem notificações"
 msgstr "Sem notificações"
 
-#: widgets/tasklist.c:1858 widgets/winctl.c:696 widgets/winctl.c:799
+#: widgets/pager.c:711 widgets/tasklist.c:2551 widgets/winctl.c:814
+msgid "Configurações de janelas…"
+msgstr "Configurações de janelas…"
+
+#: widgets/tasklist.c:2055 widgets/winctl.c:697 widgets/winctl.c:800
 msgid "Minimizar"
 msgstr "Minimizar"
 
-#: widgets/tasklist.c:1858 widgets/winctl.c:696 widgets/winctl.c:799
+#: widgets/tasklist.c:2055 widgets/winctl.c:697 widgets/winctl.c:800
 msgid "Restaurar"
 msgstr "Restaurar"
 
-#: widgets/tasklist.c:1861 widgets/winctl.c:699 widgets/winctl.c:802
+#: widgets/tasklist.c:2058 widgets/winctl.c:700 widgets/winctl.c:803
 msgid "Maximizar"
 msgstr "Maximizar"
 
-#: widgets/tasklist.c:1861 widgets/winctl.c:699 widgets/winctl.c:802
+#: widgets/tasklist.c:2058 widgets/winctl.c:700 widgets/winctl.c:803
 msgid "Restaurar tamanho"
 msgstr "Restaurar tamanho"
 
-#: widgets/tasklist.c:1864
+#: widgets/tasklist.c:2061
 #, c-format
 msgid "Mover"
 msgstr "Mover"
 
-#: widgets/tasklist.c:1867 widgets/winctl.c:707 widgets/winctl.c:805
+#: widgets/tasklist.c:2064 widgets/winctl.c:708 widgets/winctl.c:806
 #, c-format
 msgid "Fechar"
 msgstr "Fechar"
 
-#: widgets/tasklist.c:1872 widgets/tasklist.c:2254
+#: widgets/tasklist.c:2069 widgets/tasklist.c:2451
 #, c-format
 msgid "Desafixar"
 msgstr "Desafixar"
 
-#: widgets/tasklist.c:1872
+#: widgets/tasklist.c:2069
 msgid "Fixar"
 msgstr "Fixar"
 
-#: widgets/tasklist.c:1875
+#: widgets/tasklist.c:2072
 #, c-format
 msgid "Abrir nova instância"
 msgstr "Abrir nova instância"
 
-#: widgets/tasklist.c:2251
+#: widgets/tasklist.c:2448
 #, c-format
 msgid "Abrir"
 msgstr "Abrir"
 
-#: widgets/tasklist.c:2343
+#: widgets/tasklist.c:2540
 msgid "Rolar para a esquerda"
 msgstr "Rolar para a esquerda"
 
-#: widgets/tasklist.c:2347
+#: widgets/tasklist.c:2544
 msgid "Rolar para a direita"
 msgstr "Rolar para a direita"
 
-#: widgets/winctl.c:703
+#: widgets/winctl.c:704
 msgid "Remover de todas as áreas de trabalho"
 msgstr "Remover de todas as áreas de trabalho"
 
-#: widgets/winctl.c:704
+#: widgets/winctl.c:705
 msgid "Fixar em todas as áreas de trabalho"
 msgstr "Fixar em todas as áreas de trabalho"
 
@@ -284,7 +312,11 @@ msgstr "Fixar em todas as áreas de trabalho"
 msgid "Applications"
 msgstr "Aplicativos"
 
-#: xispanel.c:4779
+#: widgets/xisserve.c:260
+msgid "Configurações do menu de programas…"
+msgstr "Configurações do menu de programas…"
+
+#: xispanel.c:5075
 #, c-format
 msgid ""
 "usage: %s [options]\n"
@@ -309,28 +341,12 @@ msgstr ""
 "um já estiver ativo). Painéis/widgets/tema são configurados em\n"
 "$XDG_CONFIG_HOME/xispanel.conf -- veja PROTOCOL.md.\n"
 
-#: xispanel.c:4850
+#: xispanel.c:5146
 #, c-format
 msgid "xispanel: unknown option '%s'\n"
 msgstr "xispanel: opção desconhecida '%s'\n"
 
-#: xispanel.c:4870
+#: xispanel.c:5166
 #, c-format
 msgid "xispanel: already running\n"
 msgstr "xispanel: já está em execução\n"
-
-#: widgets
-msgid "Configurações de data e hora…"
-msgstr "Configurações de data e hora…"
-
-#: widgets
-msgid "Configurações do menu de programas…"
-msgstr "Configurações do menu de programas…"
-
-#: widgets
-msgid "Configurações de janelas…"
-msgstr "Configurações de janelas…"
-
-#: widgets
-msgid "Configurações de eventos…"
-msgstr "Configurações de eventos…"

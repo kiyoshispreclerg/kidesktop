@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: xispanel\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-02 19:07-0300\n"
+"POT-Creation-Date: 2026-10-17 11:24-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -114,7 +114,7 @@ msgstr ""
 msgid "Monitor"
 msgstr ""
 
-#: menu.c:1046
+#: menu.c:1073
 #, c-format
 msgid "Configurar painéis"
 msgstr ""
@@ -127,6 +127,14 @@ msgstr ""
 #: storage_events.c:122
 #, c-format
 msgid "%s desmontado — pode remover com segurança"
+msgstr ""
+
+#: widgets/clock.c:329
+msgid "Configurações de data e hora…"
+msgstr ""
+
+#: widgets/clock.c:330
+msgid "Configurações de eventos…"
 msgstr ""
 
 #: widgets/energy.c:190
@@ -185,6 +193,22 @@ msgstr ""
 msgid "Menu"
 msgstr ""
 
+#: widgets/lockkeys.c:189
+msgid "Caps Lock"
+msgstr ""
+
+#: widgets/lockkeys.c:189
+msgid "Num Lock"
+msgstr ""
+
+#: widgets/lockkeys.c:190
+msgid "desligado"
+msgstr ""
+
+#: widgets/lockkeys.c:190
+msgid "ligado"
+msgstr ""
+
 #: widgets/monitor.c:554
 #, c-format
 msgid "n/d"
@@ -198,84 +222,88 @@ msgstr ""
 msgid "Temperatura da GPU"
 msgstr ""
 
-#: widgets/notif.c:276
+#: widgets/notif.c:278
 #, c-format
 msgid "Sem notificações não lidas"
 msgstr ""
 
-#: widgets/notif.c:278
+#: widgets/notif.c:280
 #, c-format
 msgid "1 notificação não lida"
 msgstr ""
 
-#: widgets/notif.c:280
+#: widgets/notif.c:282
 #, c-format
 msgid "%d notificações não lidas"
 msgstr ""
 
-#: widgets/notif.c:316
+#: widgets/notif.c:318
 #, c-format
 msgid "Sem notificações"
 msgstr ""
 
-#: widgets/tasklist.c:1858 widgets/winctl.c:696 widgets/winctl.c:799
+#: widgets/pager.c:711 widgets/tasklist.c:2551 widgets/winctl.c:814
+msgid "Configurações de janelas…"
+msgstr ""
+
+#: widgets/tasklist.c:2055 widgets/winctl.c:697 widgets/winctl.c:800
 msgid "Minimizar"
 msgstr ""
 
-#: widgets/tasklist.c:1858 widgets/winctl.c:696 widgets/winctl.c:799
+#: widgets/tasklist.c:2055 widgets/winctl.c:697 widgets/winctl.c:800
 msgid "Restaurar"
 msgstr ""
 
-#: widgets/tasklist.c:1861 widgets/winctl.c:699 widgets/winctl.c:802
+#: widgets/tasklist.c:2058 widgets/winctl.c:700 widgets/winctl.c:803
 msgid "Maximizar"
 msgstr ""
 
-#: widgets/tasklist.c:1861 widgets/winctl.c:699 widgets/winctl.c:802
+#: widgets/tasklist.c:2058 widgets/winctl.c:700 widgets/winctl.c:803
 msgid "Restaurar tamanho"
 msgstr ""
 
-#: widgets/tasklist.c:1864
+#: widgets/tasklist.c:2061
 #, c-format
 msgid "Mover"
 msgstr ""
 
-#: widgets/tasklist.c:1867 widgets/winctl.c:707 widgets/winctl.c:805
+#: widgets/tasklist.c:2064 widgets/winctl.c:708 widgets/winctl.c:806
 #, c-format
 msgid "Fechar"
 msgstr ""
 
-#: widgets/tasklist.c:1872 widgets/tasklist.c:2254
+#: widgets/tasklist.c:2069 widgets/tasklist.c:2451
 #, c-format
 msgid "Desafixar"
 msgstr ""
 
-#: widgets/tasklist.c:1872
+#: widgets/tasklist.c:2069
 msgid "Fixar"
 msgstr ""
 
-#: widgets/tasklist.c:1875
+#: widgets/tasklist.c:2072
 #, c-format
 msgid "Abrir nova instância"
 msgstr ""
 
-#: widgets/tasklist.c:2251
+#: widgets/tasklist.c:2448
 #, c-format
 msgid "Abrir"
 msgstr ""
 
-#: widgets/tasklist.c:2343
+#: widgets/tasklist.c:2540
 msgid "Rolar para a esquerda"
 msgstr ""
 
-#: widgets/tasklist.c:2347
+#: widgets/tasklist.c:2544
 msgid "Rolar para a direita"
 msgstr ""
 
-#: widgets/winctl.c:703
+#: widgets/winctl.c:704
 msgid "Remover de todas as áreas de trabalho"
 msgstr ""
 
-#: widgets/winctl.c:704
+#: widgets/winctl.c:705
 msgid "Fixar em todas as áreas de trabalho"
 msgstr ""
 
@@ -284,7 +312,11 @@ msgstr ""
 msgid "Applications"
 msgstr ""
 
-#: xispanel.c:4779
+#: widgets/xisserve.c:260
+msgid "Configurações do menu de programas…"
+msgstr ""
+
+#: xispanel.c:5075
 #, c-format
 msgid ""
 "usage: %s [options]\n"
@@ -299,28 +331,12 @@ msgid ""
 "configured in $XDG_CONFIG_HOME/xispanel.conf -- see PROTOCOL.md.\n"
 msgstr ""
 
-#: xispanel.c:4850
+#: xispanel.c:5146
 #, c-format
 msgid "xispanel: unknown option '%s'\n"
 msgstr ""
 
-#: xispanel.c:4870
+#: xispanel.c:5166
 #, c-format
 msgid "xispanel: already running\n"
-msgstr ""
-
-#: widgets
-msgid "Configurações de data e hora…"
-msgstr ""
-
-#: widgets
-msgid "Configurações do menu de programas…"
-msgstr ""
-
-#: widgets
-msgid "Configurações de janelas…"
-msgstr ""
-
-#: widgets
-msgid "Configurações de eventos…"
 msgstr ""
