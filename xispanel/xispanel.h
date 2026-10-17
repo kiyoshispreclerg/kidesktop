@@ -1995,4 +1995,11 @@ extern const PanelWidgetOps storage_ops;
 extern const PanelWidgetOps clipboard_ops;
 extern const PanelWidgetOps lockkeys_ops;
 
+/* ---- installable widget modules (modules.c, xispanel_widget.h) ---- */
+
+/* The ops for a widget type provided by an installed <type>.so, loaded on
+ * first use; NULL when there is no such module (or it can't be loaded --
+ * logged once). Tried after the built-in registry. */
+const PanelWidgetOps *widget_module_find(const char *type_name);
+
 #endif

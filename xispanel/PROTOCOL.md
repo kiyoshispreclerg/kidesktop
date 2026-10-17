@@ -1690,6 +1690,97 @@ failures without the generic log line firing for the very common
 "window isn't the redirected one" case), always restoring the process
 handler afterward.
 
+## Widget modules: installable widget types
+
+Widgets of programs outside kidesktop-core (kiremote, third-party apps)
+ship as a shared object named after their type: `kiremote.so` answers
+`WIDGET <panel> <order> kiremote key=value ...`. Directories, first match
+wins:
+
+1. `$XISPANEL_WIDGET_PATH` (colon-separated; for testing from a build tree)
+2. `~/.local/lib/xispanel/widgets`
+3. `$(LIBDIR)/xispanel/widgets` (`/usr/lib/xispanel/widgets` in the .deb)
+
+The built-in widgets above are compiled in and always win over a module of
+the same name; a module name is `[a-z0-9_-]`, up to 31 characters. xispanel
+only lists the directories (no `dlopen`) and loads a `.so` the first time a
+panel uses its type, so an installed module nobody uses costs nothing. A
+type it doesn't know rescans the directories before giving up, so a module
+installed while xispanel runs is picked up by the next config reload. One
+that fails to load or was built for another ABI is logged once and its
+`WIDGET` lines are skipped like any unknown type.
+
+A module includes `xispanel_widget.h` (installed to
+`$(PREFIX)/include/xispanel/`), builds with `-fPIC -shared` against
+`cairo`, and exports `xispanel_widget_entry()` returning a static
+`XispanelWidgetModule`: `abi = XISPANEL_WIDGET_ABI`, an optional
+`priv_size` and `embeddable`, and optional `init`/`destroy`/`measure`/
+`paint`/`on_button`/`on_tick`/`is_urgent`/`get_tooltip`. It sees none of
+xispanel's own structs, only the `xpw_*()` functions that header declares
+(options of its `WIDGET` line, geometry, colors, text and icon drawing,
+tick scheduling, running a command, opening an xisserve page anchored to
+itself, and `xpw_async()` for anything that waits on another program --
+modules run in xispanel's single event loop and must never block). The
+binary exports exactly those through `widgets-api.sym`. Tooltips, hover,
+inline-in-container and the context menu work as for built-ins; keyboard
+navigation of the bar and drag-and-drop do not.
+
+A module runs inside the panel's process: a crash in it takes the panel
+down. For a status indicator that only needs an icon, a text and a
+tooltip, the `launcher` widget's `cmd_icon=`/`cmd_text=`/`cmd_tooltip=`
+(a separate process, no ABI) is the safer choice.
+
+```c
+#include <xispanel/xispanel_widget.h>
+
+static void paint(XpwWidget *w, cairo_t *cr)
+{
+    int x, y, width, height;
+    xpw_geometry(w, &x, &y, &width, &height);
+    xpw_paint_hover_bg(w, cr);
+    xpw_draw_fallback_icon(w, cr, x + 4, y + 4, height - 8, "R");
+}
+
+static int on_button(XpwWidget *w, int button, int lx, int ly)
+{
+    if (button != 1) return 0;
+    xpw_open_xisserve(w, NULL, "--kiremote");
+    return 1;
+}
+
+static const XispanelWidgetModule mod = {
+    .abi = XISPANEL_WIDGET_ABI, .embeddable = 1, .paint = paint, .on_button = on_button,
+};
+const XispanelWidgetModule *xispanel_widget_entry(void) { return &mod; }
+```
+
+For kiconf's Paineis tab to offer the type and its options, install a
+`kiremote.widget` next to the `.so` -- a key file read by kiconf only
+(kiconf never opens the `.so`; `Embeddable` must agree with the module's
+own flag):
+
+```
+[Widget]
+Embeddable=true
+
+[Field cmd]
+Type=string
+Name=Command
+Name[pt_BR]=Comando
+Default=kiremote
+
+[Field interval]
+Type=int
+Name=Interval (s)
+Default=30
+Min=5
+Max=3600
+```
+
+Field `Type` is `string`, `int`, `bool` (`yes`/`no`) or `enum` (with
+`Options=a;b;c`); `Name` localizes the usual `Name[xx]` way. A `.widget`
+file without its `.so` beside it is ignored.
+
 ## Source layout
 
 Following the plan's "widgets can be added/removed/reordered, each is its

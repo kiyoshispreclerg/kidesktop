@@ -132,6 +132,13 @@ PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 LOCALEDIR := $(PREFIX)/share/locale
 CPPFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"'
+# Installable widget modules (<type>.so, see xispanel_widget.h), looked up
+# here after ~/.local/lib/xispanel/widgets. widgets-api.sym exports to
+# them only the functions xispanel_widget.h declares.
+LIBDIR ?= $(PREFIX)/lib
+WIDGETDIR := $(LIBDIR)/xispanel/widgets
+INCLUDEDIR := $(PREFIX)/include
+CPPFLAGS += -DXISPANEL_WIDGETDIR='"$(WIDGETDIR)"'
 # gettext is part of glibc, so -lintl there would just fail to link (no
 # separate library to find) -- only add it where it's actually a separate
 # lib (musl, *BSD): try linking a trivial program against it and see.
@@ -155,15 +162,15 @@ MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 # directly in, same as every other source file here, so each program
 # stays independently buildable and installable on its own (no shared
 # library to depend on at runtime).
-SRCS := xispanel.c ewmh.c menu.c tooltip.c toast.c launchfx.c xdnd.c hotkey.c keynav.c $(A11Y_SRCS) $(MODTAP_SRCS) asyncmd.c pulse.c audio_events.c network.c storage.c storage_events.c pango_text.c $(DBUS_SRCS) $(THUMB_SRCS) $(DENSITY_SRCS) $(INPUTSCALE_SRCS) widgets/spacer.c widgets/clock.c widgets/tasklist.c widgets/winctl.c widgets/tray.c widgets/launcher.c widgets/volume.c widgets/globalmenu.c widgets/folder.c widgets/xisserve.c widgets/notif.c widgets/pager.c widgets/monitor.c widgets/energy.c widgets/container.c widgets/network.c widgets/storage.c widgets/clipboard.c widgets/lockkeys.c ../shared/xis_outputs.c ../shared/xis_spawn.c ../shared/xis_desktop_actions.c ../shared/xis_pactl_subscribe.c ../shared/xis_icon_cache.c ../shared/xis_direction.c
+SRCS := xispanel.c modules.c ewmh.c menu.c tooltip.c toast.c launchfx.c xdnd.c hotkey.c keynav.c $(A11Y_SRCS) $(MODTAP_SRCS) asyncmd.c pulse.c audio_events.c network.c storage.c storage_events.c pango_text.c $(DBUS_SRCS) $(THUMB_SRCS) $(DENSITY_SRCS) $(INPUTSCALE_SRCS) widgets/spacer.c widgets/clock.c widgets/tasklist.c widgets/winctl.c widgets/tray.c widgets/launcher.c widgets/volume.c widgets/globalmenu.c widgets/folder.c widgets/xisserve.c widgets/notif.c widgets/pager.c widgets/monitor.c widgets/energy.c widgets/container.c widgets/network.c widgets/storage.c widgets/clipboard.c widgets/lockkeys.c ../shared/xis_outputs.c ../shared/xis_spawn.c ../shared/xis_desktop_actions.c ../shared/xis_pactl_subscribe.c ../shared/xis_icon_cache.c ../shared/xis_direction.c
 OBJS := $(SRCS:.c=.o)
 
 all: xispanel
 
-xispanel: $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDLIBS)
+xispanel: $(OBJS) widgets-api.sym
+	$(CC) $(CFLAGS) -Wl,--dynamic-list=widgets-api.sym -o $@ $(OBJS) $(LDLIBS)
 
-%.o: %.c xispanel.h
+%.o: %.c xispanel.h xispanel_widget.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o $@ $<
 
 # ---- translations (see po/README.md for the day-to-day workflow) ----------
@@ -188,12 +195,14 @@ po/%.mo: po/%.po
 
 install: xispanel mo
 	install -Dm755 xispanel $(DESTDIR)$(BINDIR)/xispanel
+	install -Dm644 xispanel_widget.h $(DESTDIR)$(INCLUDEDIR)/xispanel/xispanel_widget.h
+	install -d $(DESTDIR)$(WIDGETDIR)
 	for lang in $(LINGUAS); do \
 		install -Dm644 po/$$lang.mo $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/xispanel.mo; \
 	done
 
 uninstall:
-	rm -f $(DESTDIR)$(BINDIR)/xispanel
+	rm -f $(DESTDIR)$(BINDIR)/xispanel $(DESTDIR)$(INCLUDEDIR)/xispanel/xispanel_widget.h
 	for lang in $(LINGUAS); do \
 		rm -f $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/xispanel.mo; \
 	done

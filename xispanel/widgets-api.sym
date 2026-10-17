@@ -1,0 +1,23 @@
+/* What installable widget modules may call -- exactly the functions
+ * xispanel_widget.h declares (keep the two in sync). */
+{
+    xpw_priv;
+    xpw_option;
+    xpw_option_int;
+    xpw_geometry;
+    xpw_is_vertical;
+    xpw_colors;
+    xpw_tick_at;
+    xpw_redraw;
+    xpw_now_ms;
+    xpw_paint_hover_bg;
+    xpw_text_size;
+    xpw_text_width;
+    xpw_draw_text;
+    xpw_load_icon;
+    xpw_draw_icon;
+    xpw_draw_fallback_icon;
+    xpw_run;
+    xpw_open_xisserve;
+    xpw_async;
+};

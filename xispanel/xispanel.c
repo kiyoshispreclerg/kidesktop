@@ -100,7 +100,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.7.10"
+#define XISPANEL_VERSION "0.7.11"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -426,7 +426,7 @@ static const PanelWidgetOps *find_widget_ops(const char *type_name)
             return g_widget_registry[i];
         }
     }
-    return NULL;
+    return widget_module_find(type_name);
 }
 
 /* ------------------------------------------------------------------ */
