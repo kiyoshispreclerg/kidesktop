@@ -135,6 +135,11 @@ implemented pages now, see below.)
   `../xispanel/PROTOCOL.md`): `GET_NOTIFICATIONS` on every show/poll,
   `DELETE_NOTIFICATION`/`CLEAR_NOTIFICATIONS` from the per-row/"Limpar
   tudo" buttons -- xispanel grew those three commands for exactly this.
+  Running jobs (file copies reported over `org.kde.JobViewServerV2`) get
+  an "Em andamento" section above the history, from `GET_JOBS` (every
+  500 ms while there are any, 2 s otherwise) with pause/cancel through
+  `JOB_ACTION`; a job ending refreshes the history at once, since its
+  "Concluído" lands there.
   The widget's right click still opens the same history inline as a
   panel menu too, which needs no second process at all.
 - `--network`: passed by xispanel's `network` widget on left click,

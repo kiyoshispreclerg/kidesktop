@@ -153,6 +153,8 @@ table in `xisserve.c`:
   page is a plain client of xispanel's control socket
   (`GET_NOTIFICATIONS`/`DELETE_NOTIFICATION`/`CLEAR_NOTIFICATIONS`, see
   `../xispanel/PROTOCOL.md`) rather than a second notification store.
+  Running jobs (file copies) show above the history with progress and
+  pause/cancel buttons (`GET_JOBS`/`JOB_ACTION`).
 - **`--network`** (`pages/network.c`) -- device status (wifi/ethernet,
   up/down) plus a wifi scan/connect list, driven by `nmcli -t` rather
   than a linked libnm/D-Bus client. Opened by xispanel's `network`
