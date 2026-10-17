@@ -405,9 +405,9 @@ static void job_free(Job *j)
     g_free(j);
 }
 
-static void on_job_cancel(GtkWidget *w, gpointer data)
+static void on_job_cancel(GtkDialog *d, gint response, gpointer data)
 {
-    (void)w;
+    (void)d; (void)response;
     g_cancellable_cancel(((Job *)data)->cancel);
 }
 
@@ -450,6 +450,9 @@ static gboolean job_poll(gpointer data)
         gtk_box_pack_start(GTK_BOX(GTK_DIALOG(j->dialog)->vbox), j->label, FALSE, FALSE, 4);
         gtk_box_pack_start(GTK_BOX(GTK_DIALOG(j->dialog)->vbox), j->bar, FALSE, FALSE, 4);
         g_signal_connect(j->dialog, "response", G_CALLBACK(on_job_cancel), j);
+        /* Closing it (X, Escape) only cancels via "response": the dialog must
+         * live until the worker stops, since this poll keeps updating it. */
+        g_signal_connect(j->dialog, "delete-event", G_CALLBACK(gtk_true), NULL);
         gtk_widget_show_all(j->dialog);
     }
     if (j->dialog) {
