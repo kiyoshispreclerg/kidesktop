@@ -151,10 +151,16 @@ plugin) and libpulse are optional: without them it records through the
 **[kipad](kipad/)** -- simple text editor (GTK2): tabs, font and Ctrl+wheel
 zoom, optional line numbers, cursor line/column in the status bar.
 
+**[kitask](kitask/)** -- process list and system monitor, in the spirit of
+qps: filter, pick from ~30 columns (exclusive memory, X11 pixmaps, GPU use
+and memory, TCP traffic, disk I/O...), send signals, change priority; on top,
+the graphs you choose (CPU or one core, RAM from several points of view,
+VRAM and busy % per GPU, network, disk) with their own limits. Lighter than
+qps and plasma-systemmonitor in both CPU and RAM.
+
 Planned, not started yet:
 
 - **[kiview](kiview/)** -- image and document viewer.
-- **[kitask](kitask/)** -- system monitor, in the spirit of qps.
 - **[kipaint](kipaint/)** -- paint program.
 
 ## Building

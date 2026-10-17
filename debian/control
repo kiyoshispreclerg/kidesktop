@@ -125,6 +125,8 @@ Description: KiDesktop applications: terminal, file manager and more
   * kishot - screenshots and screen recording; records through its libav
     plugin (zero-copy VAAPI on XLibre/XiS servers) when the FFmpeg
     libraries are installed, else through the ffmpeg command
+  * kitask - process list and system monitor with configurable graphs;
+    reads NVIDIA GPUs through NVML when the driver provides it
  .
- More applications (image and document viewer, system monitor, text
- editor, paint) are planned for this package.
+ More applications (image and document viewer, text editor, paint) are
+ planned for this package.

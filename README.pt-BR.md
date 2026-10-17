@@ -159,10 +159,17 @@ plugin de gravação) e a libpulse são opcionais: sem elas grava pelo comando
 Ctrl+roda, números de linha opcionais, linha/coluna do cursor na barra de
 status.
 
+**[kitask](kitask/)** -- lista de processos e monitor do sistema, no estilo
+do qps: filtro, cerca de 30 colunas à escolha (memória exclusiva, pixmaps do
+X11, uso e memória de GPU, tráfego TCP, E/S de disco...), envio de sinais,
+mudança de prioridade; em cima, os gráficos que você escolher (CPU ou um
+núcleo, RAM de vários pontos de vista, VRAM e uso de cada GPU, rede, disco),
+cada um com seus limites. Mais leve que o qps e o plasma-systemmonitor em CPU
+e em RAM.
+
 Planejados, ainda sem código:
 
 - **[kiview](kiview/)** -- visualizador de imagens e documentos.
-- **[kitask](kitask/)** -- monitor de sistema, no estilo do qps.
 - **[kipaint](kipaint/)** -- programa de pintura.
 
 ## Compilação
