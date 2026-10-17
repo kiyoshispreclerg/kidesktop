@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kifiles\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-17 11:10-0300\n"
+"POT-Creation-Date: 2026-10-17 11:43-0300\n"
 "PO-Revision-Date: 2026-10-15 17:32-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -37,104 +37,112 @@ msgstr "Pastas acima"
 msgid "Click to type a location"
 msgstr "Clique para digitar um local"
 
-#: kf_ops.c:112
+#: kf_jobview.c:147
+msgid "Source"
+msgstr "Origem"
+
+#: kf_jobview.c:151
+msgid "Destination"
+msgstr "Destino"
+
+#: kf_ops.c:114
 msgid "unknown error"
 msgstr "erro desconhecido"
 
-#: kf_ops.c:144 kf_ops.c:145
+#: kf_ops.c:146 kf_ops.c:147
 msgid "copy"
 msgstr "cópia"
 
-#: kf_ops.c:486 kf_ops.c:570
+#: kf_ops.c:492 kf_ops.c:653
 msgid "_Pause"
 msgstr "_Pausar"
 
-#: kf_ops.c:486
+#: kf_ops.c:492
 msgid "_Resume"
 msgstr "_Retomar"
 
-#: kf_ops.c:516
+#: kf_ops.c:542
 #, c-format
 msgid "There may not be enough free space in \"%s\""
 msgstr "Pode não haver espaço livre suficiente em \"%s\""
 
-#: kf_ops.c:517
+#: kf_ops.c:543
 #, c-format
 msgid "%s needed, %s free."
 msgstr "São necessários %s, há %s livres."
 
-#: kf_ops.c:519
+#: kf_ops.c:545
 msgid "Continue anyway"
 msgstr "Continuar mesmo assim"
 
-#: kf_ops.c:540
+#: kf_ops.c:566
 #, c-format
 msgid "... and %u more.\n"
 msgstr "... e mais %u.\n"
 
-#: kf_ops.c:541
+#: kf_ops.c:567 kf_ops.c:709
 msgid "Some items could not be processed"
 msgstr "Alguns itens não puderam ser processados"
 
-#: kf_ops.c:567
+#: kf_ops.c:576
 msgid "Copying"
 msgstr "Copiando"
 
-#: kf_ops.c:567
+#: kf_ops.c:576
 msgid "Moving"
 msgstr "Movendo"
 
-#: kf_ops.c:568
+#: kf_ops.c:577
 msgid "Deleting"
 msgstr "Apagando"
 
-#: kf_ops.c:568
+#: kf_ops.c:577
 msgid "Moving to the trash"
 msgstr "Movendo para a lixeira"
 
-#: kf_ops.c:596
+#: kf_ops.c:640
 msgid "Paused"
 msgstr "Pausado"
 
-#: kf_ops.c:672
+#: kf_ops.c:748
 msgid "These items cannot be moved to the trash. Delete them permanently?"
 msgstr ""
 "Estes itens não podem ser movidos para a lixeira. Apagá-los permanentemente?"
 
-#: kf_ops.c:673 kf_ops.c:737
+#: kf_ops.c:749 kf_ops.c:813
 msgid "This cannot be undone."
 msgstr "Isso não pode ser desfeito."
 
-#: kf_ops.c:733
+#: kf_ops.c:809
 #, c-format
 msgid "Delete %u item permanently?"
 msgid_plural "Delete %u items permanently?"
 msgstr[0] "Apagar %u item permanentemente?"
 msgstr[1] "Apagar %u itens permanentemente?"
 
-#: kf_ops.c:757
+#: kf_ops.c:833
 msgid "Empty the trash?"
 msgstr "Esvaziar a lixeira?"
 
-#: kf_ops.c:759
+#: kf_ops.c:835
 msgid "All items in the trash will be deleted permanently."
 msgstr "Todos os itens da lixeira serão apagados permanentemente."
 
-#: kf_ops.c:760
+#: kf_ops.c:836
 msgid "_Empty Trash"
 msgstr "_Esvaziar lixeira"
 
-#: kf_ops.c:791
+#: kf_ops.c:867
 #, c-format
 msgid "\"%s\" already exists here."
 msgstr "\"%s\" já existe aqui."
 
-#: kf_ops.c:791
+#: kf_ops.c:867
 #, c-format
 msgid "A folder named \"%s\" already exists here."
 msgstr "Já existe aqui uma pasta chamada \"%s\"."
 
-#: kf_ops.c:794
+#: kf_ops.c:870
 msgid ""
 "Merging copies the contents into the existing folder; files with the same "
 "name are replaced."
@@ -142,80 +150,80 @@ msgstr ""
 "Mesclar copia o conteúdo para a pasta existente; arquivos com o mesmo nome "
 "são substituídos."
 
-#: kf_ops.c:795
+#: kf_ops.c:871
 msgid "Do you want to replace it, keep both files, or skip this one?"
 msgstr "Deseja substituí-lo, manter os dois arquivos ou ignorar este?"
 
-#: kf_ops.c:796
+#: kf_ops.c:872
 msgid "_Skip"
 msgstr "_Ignorar"
 
-#: kf_ops.c:797
+#: kf_ops.c:873
 msgid "Keep _Both"
 msgstr "Manter _ambos"
 
-#: kf_ops.c:797
+#: kf_ops.c:873
 msgid "_Merge"
 msgstr "_Mesclar"
 
-#: kf_ops.c:797
+#: kf_ops.c:873
 msgid "_Replace"
 msgstr "_Substituir"
 
-#: kf_ops.c:800
+#: kf_ops.c:876
 msgid "_Apply to all"
 msgstr "_Aplicar a todos"
 
-#: kf_ops.c:834
+#: kf_ops.c:910
 #, c-format
 msgid "\"%s\" cannot be copied into itself.\n"
 msgstr "\"%s\" não pode ser copiada para dentro de si mesma.\n"
 
-#: kf_ops.c:877
+#: kf_ops.c:953
 msgid "Cannot copy a folder into itself"
 msgstr "Não é possível copiar uma pasta para dentro dela mesma"
 
-#: kf_ops.c:935
+#: kf_ops.c:1011
 msgid "New name:"
 msgstr "Novo nome:"
 
-#: kf_ops.c:935
+#: kf_ops.c:1011
 msgid "Rename"
 msgstr "Renomear"
 
-#: kf_ops.c:945
+#: kf_ops.c:1021
 msgid "Could not rename"
 msgstr "Não foi possível renomear"
 
-#: kf_ops.c:959 kf_ops.c:971
+#: kf_ops.c:1035 kf_ops.c:1047
 msgid "New File"
 msgstr "Novo arquivo"
 
-#: kf_ops.c:959 kf_ops.c:971
+#: kf_ops.c:1035 kf_ops.c:1047
 msgid "New Folder"
 msgstr "Nova pasta"
 
-#: kf_ops.c:971
+#: kf_ops.c:1047
 msgid "File name:"
 msgstr "Nome do arquivo:"
 
-#: kf_ops.c:971
+#: kf_ops.c:1047
 msgid "Folder name:"
 msgstr "Nome da pasta:"
 
-#: kf_ops.c:991
+#: kf_ops.c:1067
 msgid "Could not create the file"
 msgstr "Não foi possível criar o arquivo"
 
-#: kf_ops.c:991
+#: kf_ops.c:1067
 msgid "Could not create the folder"
 msgstr "Não foi possível criar a pasta"
 
-#: kf_ops.c:1061
+#: kf_ops.c:1137
 msgid "original location unknown"
 msgstr "local original desconhecido"
 
-#: kf_ops.c:1130
+#: kf_ops.c:1206
 msgid "not found in the trash"
 msgstr "não encontrado na lixeira"
 

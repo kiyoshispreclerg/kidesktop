@@ -26,7 +26,11 @@ are used when installed).
   onto the Trash), move to trash, restore, delete, rename, new folder / file,
   **undo** (`Ctrl+Z`: move, copy, rename, trash, create)
 - Name conflicts: replace / merge / keep both / skip, with "apply to all"
-- Copy and move run in a worker thread with a progress dialog and cancel
+- Copy and move run in a worker thread, with pause and cancel. Progress goes
+  to the desktop's job server (`org.kde.JobViewServerV2`: xispanel's toast,
+  or Plasma's) like Dolphin's; kifiles' own dialog is the fallback when
+  there's none. Closing the window lets running operations finish, and a
+  copy that may not fit asks first
 - Hover highlight: the item under the pointer gets a translucent box in the
   GTK theme's selection color, without selecting it (View menu toggle,
   `hover_highlight=` in the config). GTK2 views have no such thing, so it is

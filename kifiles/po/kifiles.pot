@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kifiles\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-17 11:10-0300\n"
+"POT-Creation-Date: 2026-10-17 11:43-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -38,182 +38,190 @@ msgstr ""
 msgid "Click to type a location"
 msgstr ""
 
-#: kf_ops.c:112
+#: kf_jobview.c:147
+msgid "Source"
+msgstr ""
+
+#: kf_jobview.c:151
+msgid "Destination"
+msgstr ""
+
+#: kf_ops.c:114
 msgid "unknown error"
 msgstr ""
 
-#: kf_ops.c:144 kf_ops.c:145
+#: kf_ops.c:146 kf_ops.c:147
 msgid "copy"
 msgstr ""
 
-#: kf_ops.c:486 kf_ops.c:570
+#: kf_ops.c:492 kf_ops.c:653
 msgid "_Pause"
 msgstr ""
 
-#: kf_ops.c:486
+#: kf_ops.c:492
 msgid "_Resume"
 msgstr ""
 
-#: kf_ops.c:516
+#: kf_ops.c:542
 #, c-format
 msgid "There may not be enough free space in \"%s\""
 msgstr ""
 
-#: kf_ops.c:517
+#: kf_ops.c:543
 #, c-format
 msgid "%s needed, %s free."
 msgstr ""
 
-#: kf_ops.c:519
+#: kf_ops.c:545
 msgid "Continue anyway"
 msgstr ""
 
-#: kf_ops.c:540
+#: kf_ops.c:566
 #, c-format
 msgid "... and %u more.\n"
 msgstr ""
 
-#: kf_ops.c:541
+#: kf_ops.c:567 kf_ops.c:709
 msgid "Some items could not be processed"
 msgstr ""
 
-#: kf_ops.c:567
+#: kf_ops.c:576
 msgid "Copying"
 msgstr ""
 
-#: kf_ops.c:567
+#: kf_ops.c:576
 msgid "Moving"
 msgstr ""
 
-#: kf_ops.c:568
+#: kf_ops.c:577
 msgid "Deleting"
 msgstr ""
 
-#: kf_ops.c:568
+#: kf_ops.c:577
 msgid "Moving to the trash"
 msgstr ""
 
-#: kf_ops.c:596
+#: kf_ops.c:640
 msgid "Paused"
 msgstr ""
 
-#: kf_ops.c:672
+#: kf_ops.c:748
 msgid "These items cannot be moved to the trash. Delete them permanently?"
 msgstr ""
 
-#: kf_ops.c:673 kf_ops.c:737
+#: kf_ops.c:749 kf_ops.c:813
 msgid "This cannot be undone."
 msgstr ""
 
-#: kf_ops.c:733
+#: kf_ops.c:809
 #, c-format
 msgid "Delete %u item permanently?"
 msgid_plural "Delete %u items permanently?"
 msgstr[0] ""
 msgstr[1] ""
 
-#: kf_ops.c:757
+#: kf_ops.c:833
 msgid "Empty the trash?"
 msgstr ""
 
-#: kf_ops.c:759
+#: kf_ops.c:835
 msgid "All items in the trash will be deleted permanently."
 msgstr ""
 
-#: kf_ops.c:760
+#: kf_ops.c:836
 msgid "_Empty Trash"
 msgstr ""
 
-#: kf_ops.c:791
+#: kf_ops.c:867
 #, c-format
 msgid "\"%s\" already exists here."
 msgstr ""
 
-#: kf_ops.c:791
+#: kf_ops.c:867
 #, c-format
 msgid "A folder named \"%s\" already exists here."
 msgstr ""
 
-#: kf_ops.c:794
+#: kf_ops.c:870
 msgid ""
 "Merging copies the contents into the existing folder; files with the same "
 "name are replaced."
 msgstr ""
 
-#: kf_ops.c:795
+#: kf_ops.c:871
 msgid "Do you want to replace it, keep both files, or skip this one?"
 msgstr ""
 
-#: kf_ops.c:796
+#: kf_ops.c:872
 msgid "_Skip"
 msgstr ""
 
-#: kf_ops.c:797
+#: kf_ops.c:873
 msgid "Keep _Both"
 msgstr ""
 
-#: kf_ops.c:797
+#: kf_ops.c:873
 msgid "_Merge"
 msgstr ""
 
-#: kf_ops.c:797
+#: kf_ops.c:873
 msgid "_Replace"
 msgstr ""
 
-#: kf_ops.c:800
+#: kf_ops.c:876
 msgid "_Apply to all"
 msgstr ""
 
-#: kf_ops.c:834
+#: kf_ops.c:910
 #, c-format
 msgid "\"%s\" cannot be copied into itself.\n"
 msgstr ""
 
-#: kf_ops.c:877
+#: kf_ops.c:953
 msgid "Cannot copy a folder into itself"
 msgstr ""
 
-#: kf_ops.c:935
+#: kf_ops.c:1011
 msgid "New name:"
 msgstr ""
 
-#: kf_ops.c:935
+#: kf_ops.c:1011
 msgid "Rename"
 msgstr ""
 
-#: kf_ops.c:945
+#: kf_ops.c:1021
 msgid "Could not rename"
 msgstr ""
 
-#: kf_ops.c:959 kf_ops.c:971
+#: kf_ops.c:1035 kf_ops.c:1047
 msgid "New File"
 msgstr ""
 
-#: kf_ops.c:959 kf_ops.c:971
+#: kf_ops.c:1035 kf_ops.c:1047
 msgid "New Folder"
 msgstr ""
 
-#: kf_ops.c:971
+#: kf_ops.c:1047
 msgid "File name:"
 msgstr ""
 
-#: kf_ops.c:971
+#: kf_ops.c:1047
 msgid "Folder name:"
 msgstr ""
 
-#: kf_ops.c:991
+#: kf_ops.c:1067
 msgid "Could not create the file"
 msgstr ""
 
-#: kf_ops.c:991
+#: kf_ops.c:1067
 msgid "Could not create the folder"
 msgstr ""
 
-#: kf_ops.c:1061
+#: kf_ops.c:1137
 msgid "original location unknown"
 msgstr ""
 
-#: kf_ops.c:1130
+#: kf_ops.c:1206
 msgid "not found in the trash"
 msgstr ""
 

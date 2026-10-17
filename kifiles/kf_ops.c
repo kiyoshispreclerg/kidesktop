@@ -50,6 +50,8 @@ typedef struct {
     gint64 started;
     gboolean paused;
     GtkWidget *dialog, *bar, *label, *pause_btn;
+    KfJobView *view;        /* progress shown by the desktop instead of the dialog */
+    char *src_desc, *dst_desc;  /* folders named in the view */
     GFile *dest_dir;
     gboolean empty_trash;   /* a delete job that is "Empty Trash" */
 } Job;
@@ -476,6 +478,8 @@ static void job_free(Job *j)
     g_free(j->current);
     if (j->dest_dir)
         g_object_unref(j->dest_dir);
+    g_free(j->src_desc);
+    g_free(j->dst_desc);
     g_free(j);
 }
 
@@ -483,28 +487,50 @@ static void job_free(Job *j)
 
 static void set_pause_button(Job *j, gboolean paused)
 {
+    if (!j->pause_btn)
+        return;
     gtk_button_set_label(GTK_BUTTON(j->pause_btn), paused ? _("_Resume") : _("_Pause"));
     gtk_button_set_image(GTK_BUTTON(j->pause_btn),
                          gtk_image_new_from_stock(paused ? GTK_STOCK_MEDIA_PLAY : GTK_STOCK_MEDIA_PAUSE,
                                                   GTK_ICON_SIZE_BUTTON));
 }
 
-/* Pause toggles; anything else (Cancel, X, Escape) cancels. Either way a
- * waiting worker is woken to look again. */
+/* Both wake a waiting worker so it looks again. */
+static void job_cancel(Job *j)
+{
+    g_cancellable_cancel(j->cancel);
+    g_mutex_lock(&j->lock);
+    g_cond_broadcast(&j->cond);
+    g_mutex_unlock(&j->lock);
+}
+
+static void job_set_paused(Job *j, gboolean paused)
+{
+    g_mutex_lock(&j->lock);
+    j->paused = paused;
+    g_cond_broadcast(&j->cond);
+    g_mutex_unlock(&j->lock);
+    set_pause_button(j, paused);
+}
+
+/* Pause toggles; anything else (Cancel, X, Escape) cancels. */
 static void on_job_response(GtkDialog *d, gint response, gpointer data)
 {
     (void)d;
     Job *j = data;
-    if (response != RESPONSE_PAUSE)
-        g_cancellable_cancel(j->cancel);
-    g_mutex_lock(&j->lock);
     if (response == RESPONSE_PAUSE)
-        j->paused = !j->paused;
-    gboolean paused = j->paused;
-    g_cond_broadcast(&j->cond);
-    g_mutex_unlock(&j->lock);
-    if (response == RESPONSE_PAUSE)
-        set_pause_button(j, paused);
+        job_set_paused(j, !j->paused);
+    else
+        job_cancel(j);
+}
+
+static void on_view_request(KfJobViewRequest what, gpointer data)
+{
+    Job *j = data;
+    if (what == KF_JOBVIEW_CANCEL)
+        job_cancel(j);
+    else
+        job_set_paused(j, what == KF_JOBVIEW_SUSPEND);
 }
 
 static void ask_space(Job *j)
@@ -543,6 +569,26 @@ static void show_errors(KfApp *app, GList *errors)
 }
 
 static void job_done(Job *j);
+static void create_dialog(Job *j);
+
+static const char *job_title(Job *j)
+{
+    return j->type == JOB_COPY ? _("Copying") : j->type == JOB_MOVE ? _("Moving") :
+           j->type == JOB_TRASH ? _("Moving to the trash") : _("Deleting");
+}
+
+/* Where from and where to, for the desktop's view. */
+static void describe_job(Job *j)
+{
+    Item *first = j->items ? j->items->data : NULL;
+    GFile *src_dir = first ? g_file_get_parent(first->src) : NULL;
+    if (src_dir) {
+        j->src_desc = g_file_get_parse_name(src_dir);
+        g_object_unref(src_dir);
+    }
+    if (j->dest_dir)
+        j->dst_desc = g_file_get_parse_name(j->dest_dir);
+}
 
 static gboolean job_poll(gpointer data)
 {
@@ -562,44 +608,65 @@ static gboolean job_poll(gpointer data)
         ask_space(j);       /* nested loop: this source is not re-entered meanwhile */
         return TRUE;
     }
+    /* Only operations that last get a progress display at all, so a quick
+     * copy leaves nothing behind (not even a "finished" notification). The
+     * desktop's job server is preferred; the dialog is the fallback, also
+     * when the server goes away mid-job. */
     gint64 elapsed = g_get_monotonic_time() - j->started;
-    if (!j->dialog && (elapsed > 600 * 1000 || j->app->quitting)) {
-        const char *title = j->type == JOB_COPY ? _("Copying") : j->type == JOB_MOVE ? _("Moving") :
-                            j->type == JOB_TRASH ? _("Moving to the trash") : _("Deleting");
-        j->dialog = gtk_dialog_new_with_buttons(title, kf_app_parent(j->app), 0, NULL);
-        j->pause_btn = gtk_dialog_add_button(GTK_DIALOG(j->dialog), _("_Pause"), RESPONSE_PAUSE);
-        set_pause_button(j, FALSE);
-        gtk_dialog_add_button(GTK_DIALOG(j->dialog), GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL);
-        gtk_window_set_icon_name(GTK_WINDOW(j->dialog), "system-file-manager");
-        gtk_window_set_default_size(GTK_WINDOW(j->dialog), 380, -1);
-        j->label = gtk_label_new("");
-        gtk_label_set_ellipsize(GTK_LABEL(j->label), PANGO_ELLIPSIZE_MIDDLE);
-        gtk_misc_set_alignment(GTK_MISC(j->label), 0, 0.5);
-        j->bar = gtk_progress_bar_new();
-        gtk_container_set_border_width(GTK_CONTAINER(GTK_DIALOG(j->dialog)->vbox), 10);
-        gtk_box_pack_start(GTK_BOX(GTK_DIALOG(j->dialog)->vbox), j->label, FALSE, FALSE, 4);
-        gtk_box_pack_start(GTK_BOX(GTK_DIALOG(j->dialog)->vbox), j->bar, FALSE, FALSE, 4);
-        g_signal_connect(j->dialog, "response", G_CALLBACK(on_job_response), j);
-        /* Closing it (X, Escape) only cancels via "response": the dialog must
-         * live until the worker stops, since this poll keeps updating it. */
-        g_signal_connect(j->dialog, "delete-event", G_CALLBACK(gtk_true), NULL);
-        gtk_widget_show_all(j->dialog);
+    if (!j->dialog && !j->view && (elapsed > 600 * 1000 || j->app->quitting)) {
+        j->view = kf_jobview_new(job_title(j), on_view_request, j);
+        if (j->view)
+            describe_job(j);
+        else
+            create_dialog(j);
+    }
+    if (j->view && kf_jobview_lost(j->view)) {
+        kf_jobview_free(j->view);
+        j->view = NULL;
+        create_dialog(j);
+    }
+    g_mutex_lock(&j->lock);
+    char *cur = g_strdup(j->current ? j->current : "");
+    guint64 done = j->done, total = j->total;
+    gboolean prep = j->preparing, paused = j->paused;
+    g_mutex_unlock(&j->lock);
+    if (j->view) {
+        int percent = prep || total == 0 ? -1 : (int)MIN(done * 100 / total, 100);
+        kf_jobview_update(j->view, cur, percent, done, total, j->type == JOB_COPY || j->type == JOB_MOVE, paused,
+                          j->src_desc, j->dst_desc);
     }
     if (j->dialog) {
-        g_mutex_lock(&j->lock);
-        char *cur = g_strdup(j->current ? j->current : "");
-        guint64 done = j->done, total = j->total;
-        gboolean prep = j->preparing, paused = j->paused;
-        g_mutex_unlock(&j->lock);
         gtk_label_set_text(GTK_LABEL(j->label), cur);
-        g_free(cur);
         gtk_progress_bar_set_text(GTK_PROGRESS_BAR(j->bar), paused ? _("Paused") : NULL);
         if (prep || total == 0)
             gtk_progress_bar_pulse(GTK_PROGRESS_BAR(j->bar));
         else
             gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(j->bar), CLAMP((double)done / (double)total, 0.0, 1.0));
     }
+    g_free(cur);
     return TRUE;
+}
+
+static void create_dialog(Job *j)
+{
+    j->dialog = gtk_dialog_new_with_buttons(job_title(j), kf_app_parent(j->app), 0, NULL);
+    j->pause_btn = gtk_dialog_add_button(GTK_DIALOG(j->dialog), _("_Pause"), RESPONSE_PAUSE);
+    gtk_dialog_add_button(GTK_DIALOG(j->dialog), GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL);
+    gtk_window_set_icon_name(GTK_WINDOW(j->dialog), "system-file-manager");
+    gtk_window_set_default_size(GTK_WINDOW(j->dialog), 380, -1);
+    j->label = gtk_label_new("");
+    gtk_label_set_ellipsize(GTK_LABEL(j->label), PANGO_ELLIPSIZE_MIDDLE);
+    gtk_misc_set_alignment(GTK_MISC(j->label), 0, 0.5);
+    j->bar = gtk_progress_bar_new();
+    gtk_container_set_border_width(GTK_CONTAINER(GTK_DIALOG(j->dialog)->vbox), 10);
+    gtk_box_pack_start(GTK_BOX(GTK_DIALOG(j->dialog)->vbox), j->label, FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(GTK_DIALOG(j->dialog)->vbox), j->bar, FALSE, FALSE, 4);
+    g_signal_connect(j->dialog, "response", G_CALLBACK(on_job_response), j);
+    /* Closing it (X, Escape) only cancels via "response": the dialog must
+     * live until the worker stops, since this poll keeps updating it. */
+    g_signal_connect(j->dialog, "delete-event", G_CALLBACK(gtk_true), NULL);
+    gtk_widget_show_all(j->dialog);
+    set_pause_button(j, j->paused);     /* a fallback mid-job may start paused */
 }
 
 static void job_start(Job *j)
@@ -631,13 +698,22 @@ static void job_done(Job *j)
 {
     KfApp *app = j->app;
     app->jobs = g_list_remove(app->jobs, j);
+    gboolean shown = j->dialog || j->view;
     if (j->dialog)
         gtk_widget_destroy(j->dialog);
+    if (j->view) {
+        /* KJob's codes: 1 = cancelled by the user (no notification), 100 =
+         * the app's own error. */
+        gboolean cancelled = g_cancellable_is_cancelled(j->cancel);
+        kf_jobview_finish(j->view, cancelled ? 1 : j->errors ? 100 : 0,
+                          j->errors ? _("Some items could not be processed") : NULL);
+        j->view = NULL;
+    }
     if (j->errors)
         show_errors(app, j->errors);
     else if (j->empty_trash)
         xis_sound_play("trash-empty");
-    else if ((j->type == JOB_COPY || j->type == JOB_MOVE) && j->dialog && !g_cancellable_is_cancelled(j->cancel))
+    else if ((j->type == JOB_COPY || j->type == JOB_MOVE) && shown && !g_cancellable_is_cancelled(j->cancel))
         xis_sound_play("complete");        /* only long jobs: the ones with a progress dialog */
 
     switch (j->type) {

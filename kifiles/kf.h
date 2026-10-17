@@ -198,6 +198,17 @@ gboolean kf_ops_can_undo(KfApp *app);
 void kf_ops_init(KfApp *app);
 void kf_ops_detach(KfApp *app);         /* the window is going away: unparent the job dialogs */
 
+/* kf_jobview.c: a job's progress shown by the desktop's job server */
+typedef struct KfJobView KfJobView;
+typedef enum { KF_JOBVIEW_CANCEL, KF_JOBVIEW_SUSPEND, KF_JOBVIEW_RESUME } KfJobViewRequest;
+typedef void (*KfJobViewSignal)(KfJobViewRequest what, gpointer data);
+KfJobView *kf_jobview_new(const char *title, KfJobViewSignal on_signal, gpointer data);  /* NULL: no server */
+void kf_jobview_update(KfJobView *v, const char *info, int percent, guint64 done, guint64 total, gboolean bytes,
+                       gboolean suspended, const char *source, const char *dest);
+gboolean kf_jobview_lost(KfJobView *v);         /* the server went away */
+void kf_jobview_finish(KfJobView *v, guint error, const char *message);    /* also frees */
+void kf_jobview_free(KfJobView *v);
+
 /* kf_thumbs.c */
 typedef void (*KfThumbDone)(GFile *file, GdkPixbuf *pb, gpointer data);
 void kf_thumbs_init(void);
