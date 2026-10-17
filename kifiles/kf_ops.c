@@ -34,6 +34,10 @@ typedef struct {
     GCancellable *cancel;
     GThread *thread;
     GMutex lock;
+    GCond cond;             /* the worker waits here for an answer from the user */
+    int space_q;            /* not enough space: 0 no question, 1 to ask, 2 being asked */
+    guint64 need, avail;
+    gboolean go_on;         /* the answer */
     char *current;
     guint64 total, done;
     gboolean preparing;
@@ -356,18 +360,67 @@ static void run_item(Job *j, Item *it)
     }
 }
 
+static gboolean same_fs(GFile *a, GFile *b, GCancellable *cancel)
+{
+    GFileInfo *ia = g_file_query_info(a, G_FILE_ATTRIBUTE_ID_FILESYSTEM, G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, cancel, NULL);
+    GFileInfo *ib = g_file_query_info(b, G_FILE_ATTRIBUTE_ID_FILESYSTEM, G_FILE_QUERY_INFO_NONE, cancel, NULL);
+    const char *x = ia ? g_file_info_get_attribute_string(ia, G_FILE_ATTRIBUTE_ID_FILESYSTEM) : NULL;
+    const char *y = ib ? g_file_info_get_attribute_string(ib, G_FILE_ATTRIBUTE_ID_FILESYSTEM) : NULL;
+    gboolean same = x && y && !strcmp(x, y);
+    if (ia)
+        g_object_unref(ia);
+    if (ib)
+        g_object_unref(ib);
+    return same;
+}
+
+/* FALSE when the user chose not to go on. Free space is only an estimate
+ * (block rounding, compression, quotas), so this asks instead of refusing. */
+static gboolean enough_space(Job *j, guint64 need)
+{
+    GFileInfo *info = g_file_query_filesystem_info(j->dest_dir, G_FILE_ATTRIBUTE_FILESYSTEM_FREE, j->cancel, NULL);
+    if (!info)
+        return TRUE;
+    gboolean known = g_file_info_has_attribute(info, G_FILE_ATTRIBUTE_FILESYSTEM_FREE);
+    guint64 avail = g_file_info_get_attribute_uint64(info, G_FILE_ATTRIBUTE_FILESYSTEM_FREE);
+    g_object_unref(info);
+    if (!known || need <= avail)
+        return TRUE;
+    g_mutex_lock(&j->lock);
+    j->need = need;
+    j->avail = avail;
+    j->space_q = 1;
+    while (j->space_q && !g_cancellable_is_cancelled(j->cancel))
+        g_cond_wait(&j->cond, &j->lock);
+    gboolean go_on = j->go_on;
+    g_mutex_unlock(&j->lock);
+    return go_on;
+}
+
 static gpointer job_thread(gpointer data)
 {
     Job *j = data;
-    /* Size first, so the progress bar means something. */
+    /* Size first, so the progress bar means something. A move within one
+     * file system is a rename: no scan, no space needed (a folder merge is
+     * a copy). */
     if (j->type == JOB_COPY || j->type == JOB_MOVE) {
-        guint64 total = 0;
-        for (GList *l = j->items; l && !g_cancellable_is_cancelled(j->cancel); l = l->next)
-            total += scan_size(((Item *)l->data)->src, j->cancel);
+        guint64 total = 0, need = 0;
+        for (GList *l = j->items; l && !g_cancellable_is_cancelled(j->cancel); l = l->next) {
+            Item *it = l->data;
+            if (j->type == JOB_MOVE && !it->replace && same_fs(it->src, j->dest_dir, j->cancel)) {
+                total += 1;
+            } else {
+                guint64 sz = scan_size(it->src, j->cancel);
+                total += sz;
+                need += sz;
+            }
+        }
         g_mutex_lock(&j->lock);
         j->total = total;
         j->preparing = FALSE;
         g_mutex_unlock(&j->lock);
+        if (need && !g_cancellable_is_cancelled(j->cancel) && !enough_space(j, need))
+            g_cancellable_cancel(j->cancel);
     } else {
         g_mutex_lock(&j->lock);
         j->total = g_list_length(j->items);
@@ -399,6 +452,7 @@ static void job_free(Job *j)
     kf_files_free(j->untrashable);
     g_object_unref(j->cancel);
     g_mutex_clear(&j->lock);
+    g_cond_clear(&j->cond);
     g_free(j->current);
     if (j->dest_dir)
         g_object_unref(j->dest_dir);
@@ -408,7 +462,33 @@ static void job_free(Job *j)
 static void on_job_cancel(GtkDialog *d, gint response, gpointer data)
 {
     (void)d; (void)response;
-    g_cancellable_cancel(((Job *)data)->cancel);
+    Job *j = data;
+    g_cancellable_cancel(j->cancel);
+    g_mutex_lock(&j->lock);
+    g_cond_broadcast(&j->cond);     /* a waiting worker sees the cancel */
+    g_mutex_unlock(&j->lock);
+}
+
+static void ask_space(Job *j)
+{
+    char *dest = display_name(j->dest_dir);
+    char *need = g_format_size_full(j->need, G_FORMAT_SIZE_IEC_UNITS);
+    char *avail = g_format_size_full(j->avail, G_FORMAT_SIZE_IEC_UNITS);
+    GtkWidget *d = gtk_message_dialog_new(kf_app_parent(j->app), GTK_DIALOG_MODAL, GTK_MESSAGE_WARNING,
+                                          GTK_BUTTONS_NONE, _("There may not be enough free space in \"%s\""), dest);
+    gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(d), _("%s needed, %s free."), need, avail);
+    gtk_dialog_add_buttons(GTK_DIALOG(d), GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
+                           _("Continue anyway"), GTK_RESPONSE_ACCEPT, NULL);
+    gboolean go_on = gtk_dialog_run(GTK_DIALOG(d)) == GTK_RESPONSE_ACCEPT;
+    gtk_widget_destroy(d);
+    g_free(dest);
+    g_free(need);
+    g_free(avail);
+    g_mutex_lock(&j->lock);
+    j->go_on = go_on;
+    j->space_q = 0;
+    g_cond_broadcast(&j->cond);
+    g_mutex_unlock(&j->lock);
 }
 
 static void show_errors(KfApp *app, GList *errors)
@@ -434,6 +514,15 @@ static gboolean job_poll(gpointer data)
         j->timer = 0;
         job_done(j);
         return FALSE;
+    }
+    g_mutex_lock(&j->lock);
+    gboolean ask = j->space_q == 1;
+    if (ask)
+        j->space_q = 2;
+    g_mutex_unlock(&j->lock);
+    if (ask) {
+        ask_space(j);       /* nested loop: this source is not re-entered meanwhile */
+        return TRUE;
     }
     gint64 elapsed = g_get_monotonic_time() - j->started;
     if (!j->dialog && (elapsed > 600 * 1000 || j->app->quitting)) {
@@ -476,6 +565,7 @@ static void job_start(Job *j)
 {
     j->cancel = g_cancellable_new();
     g_mutex_init(&j->lock);
+    g_cond_init(&j->cond);
     j->preparing = TRUE;
     j->started = g_get_monotonic_time();
     j->thread = g_thread_new("kifiles-job", job_thread, j);
