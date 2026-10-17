@@ -505,7 +505,7 @@ static WpSlides *wp_slides_get(const char *dir)
     s->dir = g_strdup(dir);
     GDir *d = g_dir_open(dir, 0, NULL);
     if (d) {
-        char *names[512];
+        char *names[512] = { NULL };
         int nn = 0;
         const char *name;
         while ((name = g_dir_read_name(d)) && nn < 512) {
