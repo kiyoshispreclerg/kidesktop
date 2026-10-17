@@ -100,7 +100,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.7.8"
+#define XISPANEL_VERSION "0.7.9"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -1917,6 +1917,30 @@ int panel_wants_alpha_clip(int depth)
     return !g_force_shape_corners && depth == 32 && panel_compositor_present();
 }
 
+/* Tells the compositor how round this window's corners are, in the
+ * _KIWM_CORNER_RADIUS format kiwm already publishes on its frames (tl, tr,
+ * br, bl). Only needed for alpha-clipped corners: the window stays a full
+ * rectangle as far as the server knows, so a compositor drawing a shadow
+ * has no other way to learn that the corners are cut away. r <= 0 removes
+ * the property again. Without a compositor that reads it, it is ignored. */
+static void panel_publish_corner_radius(Window win, int w, int h, int r)
+{
+    static Atom atom = None;
+    if (!atom) {
+        atom = XInternAtom(g_dpy, "_KIWM_CORNER_RADIUS", False);
+    }
+    int max_r = (w < h ? w : h) / 2;
+    if (r > max_r) {
+        r = max_r;
+    }
+    if (r <= 0) {
+        XDeleteProperty(g_dpy, win, atom);
+        return;
+    }
+    long v[4] = { r, r, r, r };
+    XChangeProperty(g_dpy, win, atom, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)v, 4);
+}
+
 /* The generic form of panel_apply_shape() below: rounds `win` (w x h) to
  * `radius`, choosing between a real per-pixel-alpha clip the caller
  * applies in its own paint code (see panel_paint_content()'s own use of
@@ -1942,6 +1966,7 @@ int panel_wants_alpha_clip(int depth)
 int panel_round_corners(Window win, int w, int h, int radius, int depth, int *shaped)
 {
     int alpha_clip = panel_wants_alpha_clip(depth);
+    panel_publish_corner_radius(win, w, h, alpha_clip ? radius : 0);
     int r = alpha_clip ? 0 : radius;
     if (r <= 0 && !*shaped) {
         return alpha_clip;
