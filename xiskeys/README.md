@@ -36,6 +36,11 @@ old spectacle defaults change, the recording keys are appended, and a
 `# kishot binds added by xiskeys` line marks it done, so binds you delete
 stay deleted.
 
+Task manager (`Ctrl+Escape`) runs `kitask` when it is installed, else `qps`.
+An older config still holding the `qps` default is switched once at load
+(a `# task-manager bind switched to kitask by xiskeys` line marks it done,
+so changing it back to qps by hand sticks).
+
 `kiconf`'s Atalhos tab edits this file directly and signals `xiskeys` with
 `SIGHUP` to reload -- ungrabs everything, re-reads, re-grabs.
 

@@ -65,7 +65,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define XISKEYS_VERSION "0.2.8"
+#define XISKEYS_VERSION "0.2.9"
 #define MAX_BINDINGS 128
 #define LINE_MAX_LEN 768
 #define CMD_MAX_LEN 512
@@ -352,6 +352,7 @@ static void ungrab_all(void)
 }
 
 #define KISHOT_MARK "# kishot binds added by xiskeys"
+#define KITASK_MARK "# task-manager bind switched to kitask by xiskeys"
 
 static int in_path(const char *prog)
 {
@@ -405,7 +406,12 @@ static void write_default_config(const char *path)
     fprintf(f, "# and skips (with a log line) any binding here that collides with one there --\n");
     fprintf(f, "# see this file's top comment for why.\n");
     fprintf(f, "\n# --- system monitor / task manager -------------------------------------\n");
-    fprintf(f, "BIND\ttask-manager\tCtrl+Escape\tqps\n");
+    if (in_path("kitask")) {
+        fprintf(f, "BIND\ttask-manager\tCtrl+Escape\tkitask\n");
+        fprintf(f, "%s\n", KITASK_MARK);
+    } else {
+        fprintf(f, "BIND\ttask-manager\tCtrl+Escape\tqps\n");
+    }
     if (in_path("kishot")) {
         write_kishot_binds(f);
         fprintf(f, "%s\n", KISHOT_MARK);
@@ -534,6 +540,51 @@ static void migrate_to_kishot(const char *path)
         unlink(tmp);
 }
 
+/* Configs written before kitask existed run qps on Ctrl+Escape. Once kitask
+ * is installed, switch the line if it still holds that exact default (an
+ * edited one is left alone), once: KITASK_MARK records it, so going back to
+ * qps by hand sticks. */
+static void migrate_to_kitask(const char *path)
+{
+    static const char from[] = "BIND\ttask-manager\tCtrl+Escape\tqps", to[] = "BIND\ttask-manager\tCtrl+Escape\tkitask";
+    if (!in_path("kitask"))
+        return;
+    FILE *in = fopen(path, "r");
+    if (!in)
+        return;
+    char line[LINE_MAX_LEN];
+    int found = 0, done = 0;
+    while (fgets(line, sizeof(line), in)) {
+        if (strstr(line, KITASK_MARK))
+            done = 1;
+        if (strcspn(line, "\r\n") == sizeof(from) - 1 && !strncmp(line, from, sizeof(from) - 1))
+            found = 1;
+    }
+    if (done || !found) {
+        fclose(in);
+        return;
+    }
+    char tmp[PATH_MAX + 8];
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    FILE *out = fopen(tmp, "w");
+    if (!out) {
+        fclose(in);
+        return;
+    }
+    rewind(in);
+    while (fgets(line, sizeof(line), in)) {
+        if (strcspn(line, "\r\n") == sizeof(from) - 1 && !strncmp(line, from, sizeof(from) - 1))
+            fprintf(out, "%s\n%s\n", to, KITASK_MARK);
+        else
+            fputs(line, out);
+    }
+    fclose(in);
+    if (fclose(out) == 0 && rename(tmp, path) == 0)
+        fprintf(stderr, "xiskeys: Ctrl+Escape now runs kitask\n");
+    else
+        unlink(tmp);
+}
+
 /* The default lock key used to run i3lock directly, which ignores the lock
  * screen options; point the untouched default at kilock instead. */
 static void migrate_to_kilock(const char *path)
@@ -581,6 +632,7 @@ static void load_config(void)
     }
     migrate_to_kishot(g_configpath);
     migrate_to_kilock(g_configpath);
+    migrate_to_kitask(g_configpath);
 
     FILE *f = fopen(g_configpath, "r");
     if (!f) {
