@@ -74,7 +74,8 @@ static int shadow_cache_vcount;
  * its tiles from). */
 static GLuint shadow_program;
 static GLint su_projection, su_transform, su_color, su_size, su_span,
-             su_hole, su_profile, su_use_uv, su_mask, su_use_mask;
+             su_hole, su_profile, su_use_uv, su_mask, su_use_mask,
+             su_radii, su_use_round;
 static GLuint shadow_texture;
 static int shadow_texture_radius;
 
@@ -224,8 +225,22 @@ static const char *shadow_fragment_source =
     "uniform vec2 size;\n"
     "uniform float span;\n"
     "uniform vec4 hole;\n"
+    /* Rounded corners (tl, tr, br, bl) for a window whose corners are cut
+     * away in its own alpha (xispanel): the shadow follows the curve
+     * instead of a rectangle. Both the blurred body and the hole are
+     * rounded rectangles of these radii. */
+    "uniform vec4 radii;\n"
+    "uniform float use_round;\n"
     "varying vec2 local;\n"
     "varying vec2 v_maskuv;\n"
+    "float rrect(vec2 p, vec4 rect) {\n"
+    "    vec2 half_size = rect.zw * 0.5;\n"
+    "    vec2 q = p - (rect.xy + half_size);\n"
+    "    float rad = q.x > 0.0 ? (q.y > 0.0 ? radii.z : radii.y)\n"
+    "                          : (q.y > 0.0 ? radii.w : radii.x);\n"
+    "    vec2 d = abs(q) - half_size + rad;\n"
+    "    return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - rad;\n"
+    "}\n"
     "float edge(float d) {\n"
     "    return texture2D(profile, vec2(clamp(d / span, 0.0, 1.0), 0.5)).a;\n"
     "}\n"
@@ -253,6 +268,16 @@ static const char *shadow_fragment_source =
     "        cut = (local.x >= hole.x && local.x < hole.x + hole.z &&\n"
     "               local.y >= hole.y && local.y < hole.y + hole.w)\n"
     "              ? 1.0 : 0.0;\n"
+    "    }\n"
+    "    if (use_round > 0.5) {\n"
+    "        float span2 = span * 0.5;\n"
+    "        float body = rrect(local, vec4(span2, span2, size.x - span, size.y - span));\n"
+    "        float win = rrect(local, hole);\n"
+    "        float aa = max(fwidth(win), 0.0001);\n"
+    "        cut = 1.0 - smoothstep(-aa, aa, win);\n"
+    "        float a = edge(span2 - body) * (1.0 - cut);\n"
+    "        gl_FragColor = vec4(color.rgb * color.a * a, color.a * a);\n"
+    "        return;\n"
     "    }\n"
     "    float a = band(local.x, size.x) * band(local.y, size.y) * (1.0 - cut);\n"
     "    gl_FragColor = vec4(color.rgb * color.a * a, color.a * a);\n"
@@ -509,6 +534,8 @@ static bool program_build(void)
         su_profile = glGetUniformLocation(shadow_program, "profile");
         su_mask = glGetUniformLocation(shadow_program, "mask");
         su_use_mask = glGetUniformLocation(shadow_program, "use_mask");
+        su_radii = glGetUniformLocation(shadow_program, "radii");
+        su_use_round = glGetUniformLocation(shadow_program, "use_round");
     }
 
     return true;
@@ -1106,6 +1133,22 @@ static void draw_shadow(const CompOutput *o, const CompSceneNode *n,
      * its uniforms are shared. */
     glUniform1f(su_use_mask, 0.0f);
     glBindTexture(GL_TEXTURE_2D, shadow_texture);
+
+    /* A window that cuts its own corners in its alpha (not in a SHAPE: a
+     * shaped one has its silhouette from the scissor boxes below) says so
+     * with _KIWM_CORNER_RADIUS, and its shadow follows the curve. */
+    bool round_shadow = w->corner_radii_known && !w->shaped &&
+                        (w->corner_tl | w->corner_tr | w->corner_br | w->corner_bl) > 0;
+    glUniform1f(su_use_round, round_shadow ? 1.0f : 0.0f);
+    if (round_shadow) {
+        float cap = (float)(base.w < base.h ? base.w : base.h) * 0.5f;
+        float rd[4] = { (float)w->corner_tl, (float)w->corner_tr,
+                        (float)w->corner_br, (float)w->corner_bl };
+        for (int i = 0; i < 4; i++)
+            if (rd[i] > cap)
+                rd[i] = cap;
+        glUniform4f(su_radii, rd[0], rd[1], rd[2], rd[3]);
+    }
 
     /* The silhouette, where the window has one and is where it says it
      * is -- a scissor box lives in screen pixels, so it can follow a
@@ -1800,6 +1843,7 @@ static void draw_shadow_mesh(const CompOutput *o, const CompSceneNode *n,
     glUniform1f(su_span, (float)(r * 2));
     glUniform1i(su_profile, 0);
     glUniform1f(su_use_uv, 1.0f);
+    glUniform1f(su_use_round, 0.0f);
 
     if (mask) {
         glUniform1i(su_mask, 1);
