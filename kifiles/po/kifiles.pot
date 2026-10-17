@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kifiles\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-17 11:08-0300\n"
+"POT-Creation-Date: 2026-10-17 11:10-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -38,170 +38,182 @@ msgstr ""
 msgid "Click to type a location"
 msgstr ""
 
-#: kf_ops.c:110
+#: kf_ops.c:112
 msgid "unknown error"
 msgstr ""
 
-#: kf_ops.c:142 kf_ops.c:143
+#: kf_ops.c:144 kf_ops.c:145
 msgid "copy"
 msgstr ""
 
-#: kf_ops.c:477
+#: kf_ops.c:486 kf_ops.c:570
+msgid "_Pause"
+msgstr ""
+
+#: kf_ops.c:486
+msgid "_Resume"
+msgstr ""
+
+#: kf_ops.c:516
 #, c-format
 msgid "There may not be enough free space in \"%s\""
 msgstr ""
 
-#: kf_ops.c:478
+#: kf_ops.c:517
 #, c-format
 msgid "%s needed, %s free."
 msgstr ""
 
-#: kf_ops.c:480
+#: kf_ops.c:519
 msgid "Continue anyway"
 msgstr ""
 
-#: kf_ops.c:501
+#: kf_ops.c:540
 #, c-format
 msgid "... and %u more.\n"
 msgstr ""
 
-#: kf_ops.c:502
+#: kf_ops.c:541
 msgid "Some items could not be processed"
 msgstr ""
 
-#: kf_ops.c:528
+#: kf_ops.c:567
 msgid "Copying"
 msgstr ""
 
-#: kf_ops.c:528
+#: kf_ops.c:567
 msgid "Moving"
 msgstr ""
 
-#: kf_ops.c:529
+#: kf_ops.c:568
 msgid "Deleting"
 msgstr ""
 
-#: kf_ops.c:529
+#: kf_ops.c:568
 msgid "Moving to the trash"
 msgstr ""
 
-#: kf_ops.c:630
+#: kf_ops.c:596
+msgid "Paused"
+msgstr ""
+
+#: kf_ops.c:672
 msgid "These items cannot be moved to the trash. Delete them permanently?"
 msgstr ""
 
-#: kf_ops.c:631 kf_ops.c:695
+#: kf_ops.c:673 kf_ops.c:737
 msgid "This cannot be undone."
 msgstr ""
 
-#: kf_ops.c:691
+#: kf_ops.c:733
 #, c-format
 msgid "Delete %u item permanently?"
 msgid_plural "Delete %u items permanently?"
 msgstr[0] ""
 msgstr[1] ""
 
-#: kf_ops.c:715
+#: kf_ops.c:757
 msgid "Empty the trash?"
 msgstr ""
 
-#: kf_ops.c:717
+#: kf_ops.c:759
 msgid "All items in the trash will be deleted permanently."
 msgstr ""
 
-#: kf_ops.c:718
+#: kf_ops.c:760
 msgid "_Empty Trash"
 msgstr ""
 
-#: kf_ops.c:749
+#: kf_ops.c:791
 #, c-format
 msgid "\"%s\" already exists here."
 msgstr ""
 
-#: kf_ops.c:749
+#: kf_ops.c:791
 #, c-format
 msgid "A folder named \"%s\" already exists here."
 msgstr ""
 
-#: kf_ops.c:752
+#: kf_ops.c:794
 msgid ""
 "Merging copies the contents into the existing folder; files with the same "
 "name are replaced."
 msgstr ""
 
-#: kf_ops.c:753
+#: kf_ops.c:795
 msgid "Do you want to replace it, keep both files, or skip this one?"
 msgstr ""
 
-#: kf_ops.c:754
+#: kf_ops.c:796
 msgid "_Skip"
 msgstr ""
 
-#: kf_ops.c:755
+#: kf_ops.c:797
 msgid "Keep _Both"
 msgstr ""
 
-#: kf_ops.c:755
+#: kf_ops.c:797
 msgid "_Merge"
 msgstr ""
 
-#: kf_ops.c:755
+#: kf_ops.c:797
 msgid "_Replace"
 msgstr ""
 
-#: kf_ops.c:758
+#: kf_ops.c:800
 msgid "_Apply to all"
 msgstr ""
 
-#: kf_ops.c:792
+#: kf_ops.c:834
 #, c-format
 msgid "\"%s\" cannot be copied into itself.\n"
 msgstr ""
 
-#: kf_ops.c:835
+#: kf_ops.c:877
 msgid "Cannot copy a folder into itself"
 msgstr ""
 
-#: kf_ops.c:893
+#: kf_ops.c:935
 msgid "New name:"
 msgstr ""
 
-#: kf_ops.c:893
+#: kf_ops.c:935
 msgid "Rename"
 msgstr ""
 
-#: kf_ops.c:903
+#: kf_ops.c:945
 msgid "Could not rename"
 msgstr ""
 
-#: kf_ops.c:917 kf_ops.c:929
+#: kf_ops.c:959 kf_ops.c:971
 msgid "New File"
 msgstr ""
 
-#: kf_ops.c:917 kf_ops.c:929
+#: kf_ops.c:959 kf_ops.c:971
 msgid "New Folder"
 msgstr ""
 
-#: kf_ops.c:929
+#: kf_ops.c:971
 msgid "File name:"
 msgstr ""
 
-#: kf_ops.c:929
+#: kf_ops.c:971
 msgid "Folder name:"
 msgstr ""
 
-#: kf_ops.c:949
+#: kf_ops.c:991
 msgid "Could not create the file"
 msgstr ""
 
-#: kf_ops.c:949
+#: kf_ops.c:991
 msgid "Could not create the folder"
 msgstr ""
 
-#: kf_ops.c:1019
+#: kf_ops.c:1061
 msgid "original location unknown"
 msgstr ""
 
-#: kf_ops.c:1088
+#: kf_ops.c:1130
 msgid "not found in the trash"
 msgstr ""
 

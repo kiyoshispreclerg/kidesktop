@@ -48,7 +48,8 @@ typedef struct {
     GList *untrashable;     /* GFile* that could not be trashed */
     guint timer;
     gint64 started;
-    GtkWidget *dialog, *bar, *label;
+    gboolean paused;
+    GtkWidget *dialog, *bar, *label, *pause_btn;
     GFile *dest_dir;
     gboolean empty_trash;   /* a delete job that is "Empty Trash" */
 } Job;
@@ -160,6 +161,16 @@ typedef struct {
     goffset last;
 } Prog;
 
+/* Called between files and between a file's chunks (via on_progress), so a
+ * single big file pauses too; a rename or a delete is one call and doesn't. */
+static void wait_if_paused(Job *j)
+{
+    g_mutex_lock(&j->lock);
+    while (j->paused && !g_cancellable_is_cancelled(j->cancel))
+        g_cond_wait(&j->cond, &j->lock);
+    g_mutex_unlock(&j->lock);
+}
+
 static void on_progress(goffset cur, goffset total, gpointer data)
 {
     (void)total;
@@ -167,6 +178,7 @@ static void on_progress(goffset cur, goffset total, gpointer data)
     if (cur > p->last)
         add_done(p->job, cur - p->last);
     p->last = cur;
+    wait_if_paused(p->job);
 }
 
 static guint64 scan_size(GFile *f, GCancellable *cancel)
@@ -198,6 +210,7 @@ static guint64 scan_size(GFile *f, GCancellable *cancel)
 
 static gboolean delete_recursive(Job *j, GFile *f)
 {
+    wait_if_paused(j);
     if (g_cancellable_is_cancelled(j->cancel))
         return FALSE;
     GFileInfo *info = g_file_query_info(f, "standard::type", G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, j->cancel, NULL);
@@ -244,6 +257,7 @@ static void drop_partial(GFile *dst, gboolean replace, const GError *err)
 
 static gboolean copy_recursive(Job *j, GFile *src, GFile *dst, gboolean replace)
 {
+    wait_if_paused(j);
     if (g_cancellable_is_cancelled(j->cancel))
         return FALSE;
     GError *err = NULL;
@@ -312,6 +326,9 @@ static gboolean copy_recursive(Job *j, GFile *src, GFile *dst, gboolean replace)
 static void run_item(Job *j, Item *it)
 {
     GError *err = NULL;
+    wait_if_paused(j);
+    if (g_cancellable_is_cancelled(j->cancel))
+        return;
     switch (j->type) {
     case JOB_COPY:
         if (copy_recursive(j, it->src, it->dst, it->replace))
@@ -462,14 +479,32 @@ static void job_free(Job *j)
     g_free(j);
 }
 
-static void on_job_cancel(GtkDialog *d, gint response, gpointer data)
+#define RESPONSE_PAUSE 1
+
+static void set_pause_button(Job *j, gboolean paused)
 {
-    (void)d; (void)response;
+    gtk_button_set_label(GTK_BUTTON(j->pause_btn), paused ? _("_Resume") : _("_Pause"));
+    gtk_button_set_image(GTK_BUTTON(j->pause_btn),
+                         gtk_image_new_from_stock(paused ? GTK_STOCK_MEDIA_PLAY : GTK_STOCK_MEDIA_PAUSE,
+                                                  GTK_ICON_SIZE_BUTTON));
+}
+
+/* Pause toggles; anything else (Cancel, X, Escape) cancels. Either way a
+ * waiting worker is woken to look again. */
+static void on_job_response(GtkDialog *d, gint response, gpointer data)
+{
+    (void)d;
     Job *j = data;
-    g_cancellable_cancel(j->cancel);
+    if (response != RESPONSE_PAUSE)
+        g_cancellable_cancel(j->cancel);
     g_mutex_lock(&j->lock);
-    g_cond_broadcast(&j->cond);     /* a waiting worker sees the cancel */
+    if (response == RESPONSE_PAUSE)
+        j->paused = !j->paused;
+    gboolean paused = j->paused;
+    g_cond_broadcast(&j->cond);
     g_mutex_unlock(&j->lock);
+    if (response == RESPONSE_PAUSE)
+        set_pause_button(j, paused);
 }
 
 static void ask_space(Job *j)
@@ -531,8 +566,10 @@ static gboolean job_poll(gpointer data)
     if (!j->dialog && (elapsed > 600 * 1000 || j->app->quitting)) {
         const char *title = j->type == JOB_COPY ? _("Copying") : j->type == JOB_MOVE ? _("Moving") :
                             j->type == JOB_TRASH ? _("Moving to the trash") : _("Deleting");
-        j->dialog = gtk_dialog_new_with_buttons(title, kf_app_parent(j->app), 0, GTK_STOCK_CANCEL,
-                                                GTK_RESPONSE_CANCEL, NULL);
+        j->dialog = gtk_dialog_new_with_buttons(title, kf_app_parent(j->app), 0, NULL);
+        j->pause_btn = gtk_dialog_add_button(GTK_DIALOG(j->dialog), _("_Pause"), RESPONSE_PAUSE);
+        set_pause_button(j, FALSE);
+        gtk_dialog_add_button(GTK_DIALOG(j->dialog), GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL);
         gtk_window_set_icon_name(GTK_WINDOW(j->dialog), "system-file-manager");
         gtk_window_set_default_size(GTK_WINDOW(j->dialog), 380, -1);
         j->label = gtk_label_new("");
@@ -542,7 +579,7 @@ static gboolean job_poll(gpointer data)
         gtk_container_set_border_width(GTK_CONTAINER(GTK_DIALOG(j->dialog)->vbox), 10);
         gtk_box_pack_start(GTK_BOX(GTK_DIALOG(j->dialog)->vbox), j->label, FALSE, FALSE, 4);
         gtk_box_pack_start(GTK_BOX(GTK_DIALOG(j->dialog)->vbox), j->bar, FALSE, FALSE, 4);
-        g_signal_connect(j->dialog, "response", G_CALLBACK(on_job_cancel), j);
+        g_signal_connect(j->dialog, "response", G_CALLBACK(on_job_response), j);
         /* Closing it (X, Escape) only cancels via "response": the dialog must
          * live until the worker stops, since this poll keeps updating it. */
         g_signal_connect(j->dialog, "delete-event", G_CALLBACK(gtk_true), NULL);
@@ -552,10 +589,11 @@ static gboolean job_poll(gpointer data)
         g_mutex_lock(&j->lock);
         char *cur = g_strdup(j->current ? j->current : "");
         guint64 done = j->done, total = j->total;
-        gboolean prep = j->preparing;
+        gboolean prep = j->preparing, paused = j->paused;
         g_mutex_unlock(&j->lock);
         gtk_label_set_text(GTK_LABEL(j->label), cur);
         g_free(cur);
+        gtk_progress_bar_set_text(GTK_PROGRESS_BAR(j->bar), paused ? _("Paused") : NULL);
         if (prep || total == 0)
             gtk_progress_bar_pulse(GTK_PROGRESS_BAR(j->bar));
         else
