@@ -16,6 +16,7 @@ typedef enum { JOB_COPY, JOB_MOVE, JOB_TRASH, JOB_DELETE } JobType;
 typedef struct {
     GFile *src, *dst;
     gboolean replace;       /* overwrite / merge into an existing dst */
+    gboolean rename;        /* a move within one file system (set by the worker) */
 } Item;
 
 typedef struct { GFile *a, *b; } Pair;
@@ -321,7 +322,8 @@ static void run_item(Job *j, Item *it)
         GFileCopyFlags fl = G_FILE_COPY_NOFOLLOW_SYMLINKS | G_FILE_COPY_ALL_METADATA;
         if (it->replace)
             fl |= G_FILE_COPY_OVERWRITE;
-        if (g_file_move(it->src, it->dst, fl, j->cancel, NULL, NULL, &err)) {
+        Prog pr = { j, 0 };
+        if (g_file_move(it->src, it->dst, fl, j->cancel, it->rename ? NULL : on_progress, &pr, &err)) {
             add_done(j, 1);
             j->results = g_list_append(j->results, pair_new(it->src, it->dst));
             break;
@@ -407,7 +409,8 @@ static gpointer job_thread(gpointer data)
         guint64 total = 0, need = 0;
         for (GList *l = j->items; l && !g_cancellable_is_cancelled(j->cancel); l = l->next) {
             Item *it = l->data;
-            if (j->type == JOB_MOVE && !it->replace && same_fs(it->src, j->dest_dir, j->cancel)) {
+            it->rename = j->type == JOB_MOVE && !it->replace && same_fs(it->src, j->dest_dir, j->cancel);
+            if (it->rename) {
                 total += 1;
             } else {
                 guint64 sz = scan_size(it->src, j->cancel);
