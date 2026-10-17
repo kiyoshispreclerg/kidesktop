@@ -20,7 +20,7 @@ and switching tabs doesn't grow the window.
 | Telas | screen layout via `xrandr`, draggable canvas, persisted for `kiconfd` to replay at next login |
 | Entrada | pointer/touchpad, key repeat/bell, and XiS keyboard flags |
 | Wallpaper | screens drawn to scale with the wallpaper each one shows (slideshows cycle), per-screen/stretched and same/per-desktop modes applied on click; `xisback`'s raw layers under "Avancado" |
-| Paineis | `xispanel.conf`'s `PANEL`/`WIDGET`/`THEME` records |
+| Paineis | `xispanel.conf`'s `PANEL`/`WIDGET`/`THEME` records; also lists installed xispanel widget modules (`<type>.widget` next to the `.so`, see `xispanel/PROTOCOL.md`'s "Widget modules") |
 | Permissoes | `xisguard`'s runtime mode and rules, over its control socket |
 | Gerenciamento de janelas | `kiwm.conf` |
 | Efeitos do compositor | `kicomp.conf` |

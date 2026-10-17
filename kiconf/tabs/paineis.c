@@ -2,6 +2,7 @@
  * See kiconf.c's top doc comment for the overall design. */
 #include "../common.h"
 #include "../tabs.h"
+#include "../widgetmods.h"
 #include "../../shared/xis_outputs.h"
 
 #include <ctype.h>
@@ -678,11 +679,68 @@ static const char *const EMBEDDABLE_TYPE_NAMES[] = {
 };
 
 
+/* The built-in tables above plus whatever xispanel widget modules are
+ * installed (<type>.so with a <type>.widget beside it, see ../widgetmods.h),
+ * assembled once on first use: what the "Adicionar widget" dialog lists,
+ * which fields each type shows, and which types a container accepts. */
+static WidgetSchema *g_schemas;
+static int g_n_schemas;
+static const char **g_type_names;
+static const char **g_embeddable_names;
+
+static void widget_registry_init(void)
+{
+    if (g_schemas) {
+        return;
+    }
+    int n_types = 0, n_embeddable = 0, n_mods = 0;
+    while (WIDGET_TYPE_NAMES[n_types]) {
+        n_types++;
+    }
+    while (EMBEDDABLE_TYPE_NAMES[n_embeddable]) {
+        n_embeddable++;
+    }
+    KiconfWidgetMod **mods = widgetmods_scan(WIDGET_TYPE_NAMES, &n_mods);
+
+    g_schemas = g_new0(WidgetSchema, N_WIDGET_SCHEMAS + n_mods);
+    memcpy(g_schemas, WIDGET_SCHEMAS, sizeof(WIDGET_SCHEMAS));
+    g_n_schemas = N_WIDGET_SCHEMAS;
+    g_type_names = g_new0(const char *, n_types + n_mods + 1);
+    memcpy(g_type_names, WIDGET_TYPE_NAMES, n_types * sizeof(char *));
+    g_embeddable_names = g_new0(const char *, n_embeddable + n_mods + 1);
+    memcpy(g_embeddable_names, EMBEDDABLE_TYPE_NAMES, n_embeddable * sizeof(char *));
+
+    for (int i = 0; i < n_mods; i++) {
+        const KiconfWidgetMod *m = mods[i];
+        WidgetField *fields = g_new0(WidgetField, m->n_fields > 0 ? m->n_fields : 1);
+        for (int j = 0; j < m->n_fields; j++) {
+            const KiconfWidgetModField *mf = &m->fields[j];
+            fields[j].key = mf->key;
+            fields[j].label = mf->label;
+            fields[j].type = mf->type == KWM_INT ? WT_INT : mf->type == KWM_BOOL ? WT_BOOL
+                             : mf->type == KWM_ENUM ? WT_ENUM : WT_STRING;
+            fields[j].def = mf->def;
+            fields[j].min = mf->min;
+            fields[j].max = mf->max;
+            fields[j].opts = (const char *const *)mf->opts;
+        }
+        g_schemas[g_n_schemas].name = m->type;
+        g_schemas[g_n_schemas].fields = fields;
+        g_schemas[g_n_schemas].n_fields = m->n_fields;
+        g_n_schemas++;
+        g_type_names[n_types++] = m->type;
+        if (m->embeddable) {
+            g_embeddable_names[n_embeddable++] = m->type;
+        }
+    }
+}
+
 static const WidgetSchema *find_widget_schema(const char *name)
 {
-    for (int i = 0; i < N_WIDGET_SCHEMAS; i++) {
-        if (!strcmp(WIDGET_SCHEMAS[i].name, name)) {
-            return &WIDGET_SCHEMAS[i];
+    widget_registry_init();
+    for (int i = 0; i < g_n_schemas; i++) {
+        if (!strcmp(g_schemas[i].name, name)) {
+            return &g_schemas[i];
         }
     }
     return NULL;
@@ -1020,7 +1078,7 @@ static void rebuild_widget_fields(WidgetDialogState *st, const WOptToken *toks, 
     gchar *name = gtk_combo_box_get_active_text(GTK_COMBO_BOX(st->type_combo));
     st->schema = name ? find_widget_schema(name) : NULL;
     if (!st->schema) {
-        st->schema = &WIDGET_SCHEMAS[0];
+        st->schema = &g_schemas[0];
     }
     g_free(name);
 
@@ -1070,7 +1128,8 @@ static void open_widget_dialog(GtkTreeIter *iter)
     /* A container panel only takes embeddable types (xispanel logs and
      * drops anything else), so don't even offer the rest there. */
     int in_container = is_container_panel(g_selected_panel);
-    const char *const *type_names = in_container ? EMBEDDABLE_TYPE_NAMES : WIDGET_TYPE_NAMES;
+    widget_registry_init();
+    const char *const *type_names = (const char *const *)(in_container ? g_embeddable_names : g_type_names);
     const char *initial_type = (cur_type && find_widget_schema(cur_type)) ? cur_type : type_names[0];
 
     WOptToken toks[MAX_WOPT_TOKENS];
@@ -1401,8 +1460,9 @@ static void remove_widget_cb(GtkWidget *widget, gpointer data)
 
 static int is_embeddable_type(const char *type)
 {
-    for (int i = 0; EMBEDDABLE_TYPE_NAMES[i]; i++) {
-        if (!strcmp(EMBEDDABLE_TYPE_NAMES[i], type)) {
+    widget_registry_init();
+    for (int i = 0; g_embeddable_names[i]; i++) {
+        if (!strcmp(g_embeddable_names[i], type)) {
             return 1;
         }
     }

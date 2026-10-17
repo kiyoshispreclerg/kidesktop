@@ -11,6 +11,10 @@ ICONDIR ?= /usr/share/icons/hicolor/scalable/apps
 
 CFLAGS ?= -Wall -Wextra -O2
 CFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"' -DDATADIR='"$(DATADIR)"'
+# Where xispanel's installable widget modules live: the Paineis tab reads
+# the <type>.widget files there (see widgetmods.h).
+LIBDIR ?= $(PREFIX)/lib
+CFLAGS += -DXISPANEL_WIDGETDIR='"$(LIBDIR)/xispanel/widgets"'
 # The KiTheme tab compiles libkitheme in (its preview draws with it), and
 # finds the presets where kitheme installs them.
 CFLAGS += -DKITHEME_DATADIR='"$(DATADIR)/kitheme"'
@@ -37,7 +41,7 @@ LIBS := $(shell pkg-config --cflags --libs gtk+-2.0 x11 xrandr gmodule-2.0) -lm 
 # xisback/xispanel/kiconfd -- compiled directly in, same as every other
 # source file here, so kiconf stays independently buildable and
 # installable on its own (no shared library to depend on at runtime).
-SRCS := kiconf.c plugins.c common.c sysinfo.c tabs/appearance.c tabs/kitheme.c tabs/shortcuts.c tabs/entrada.c \
+SRCS := kiconf.c plugins.c widgetmods.c common.c sysinfo.c tabs/appearance.c tabs/kitheme.c tabs/shortcuts.c tabs/entrada.c \
         tabs/permissoes.c tabs/paineis.c tabs/wallpaper.c \
         tabs/telas.c tabs/janelas.c tabs/efeitos.c tabs/cantos.c tabs/sistema.c \
         tabs/programas.c tabs/associacoes.c tabs/menu.c tabs/autostart.c tabs/energia.c tabs/eventos.c \
