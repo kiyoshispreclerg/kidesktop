@@ -48,6 +48,7 @@
 
 typedef struct {
     unsigned int last_shown_count; /* just to know when to re-dirty, see on_tick */
+    int last_jobs;                 /* jobs_progress() last painted, same purpose */
     char cmd[192];                 /* xisserve binary opened on left click */
 } NotifPriv;
 
@@ -108,6 +109,20 @@ static int notif_init(PanelWidget *w)
     return 0;
 }
 
+/* Average percent of the running jobs that report one; -1 if none does. */
+static int jobs_progress(void)
+{
+    int sum = 0, n = 0;
+    for (int i = 0; i < jobviewd_count(); i++) {
+        const JobEntry *e = jobviewd_get(i);
+        if (e && e->percent >= 0) {
+            sum += e->percent;
+            n++;
+        }
+    }
+    return n ? sum / n : -1;
+}
+
 static int notif_on_tick(PanelWidget *w, uint64_t now)
 {
     NotifPriv *np = w->priv;
@@ -137,10 +152,12 @@ static int notif_on_tick(PanelWidget *w, uint64_t now)
      * Notify() arriving, or a toast/menu marking one read) is the unread
      * badge -- repaint only when that count changes. */
     unsigned int unread = (unsigned int)notifd_unread_count();
-    if (unread == np->last_shown_count) {
+    int jobs = jobviewd_count() ? jobviewd_count() * 1000 + jobs_progress() : -1;
+    if (unread == np->last_shown_count && jobs == np->last_jobs) {
         return 0;
     }
     np->last_shown_count = unread;
+    np->last_jobs = jobs;
     return 1;
 }
 
@@ -212,6 +229,26 @@ static void draw_badge(cairo_t *cr, double icon_x, double icon_y, double icon_px
     cairo_restore(cr);
 }
 
+/* Something is running (jobviewd.c): a small ring at the bell's
+ * bottom-right, filled as far as the jobs' average progress, so a closed
+ * job toast still leaves a trace of where to look. */
+static void draw_jobs_ring(cairo_t *cr, double icon_x, double icon_y, double icon_px, double r, double g, double b)
+{
+    int pct = jobs_progress();
+    double rad = icon_px * 0.2;
+    double cx = icon_x + icon_px - rad, cy = icon_y + icon_px - rad;
+    cairo_save(cr);
+    cairo_set_line_width(cr, icon_px * 0.09);
+    cairo_set_source_rgba(cr, r, g, b, 0.3);
+    cairo_arc(cr, cx, cy, rad, 0, 2 * 3.14159265);
+    cairo_stroke(cr);
+    cairo_set_source_rgba(cr, 0.2, 0.6, 1.0, 0.95);
+    double end = pct >= 0 ? pct / 100.0 : 0.25; /* unknown progress: a fixed quarter */
+    cairo_arc(cr, cx, cy, rad, -3.14159265 / 2, -3.14159265 / 2 + end * 2 * 3.14159265);
+    cairo_stroke(cr);
+    cairo_restore(cr);
+}
+
 static void notif_paint(PanelWidget *w, cairo_t *cr)
 {
     int ox, oy, owidth, oheight;
@@ -238,6 +275,9 @@ static void notif_paint(PanelWidget *w, cairo_t *cr)
         draw_bell(cr, ox, icon_y, icon_px, p->fg_r, p->fg_g, p->fg_b);
     }
 
+    if (jobviewd_count() > 0) {
+        draw_jobs_ring(cr, ox, icon_y, icon_px, p->fg_r, p->fg_g, p->fg_b);
+    }
     int unread = notifd_unread_count();
     if (unread > 0) {
         draw_badge(cr, ox, icon_y, icon_px, unread);
@@ -280,6 +320,17 @@ static int notif_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t bufs
         snprintf(buf, bufsz, _("1 notifica\xc3\xa7\xc3\xa3o n\xc3\xa3o lida"));
     } else {
         snprintf(buf, bufsz, _("%d notifica\xc3\xa7\xc3\xb5""es n\xc3\xa3o lidas"), unread);
+    }
+    int jobs = jobviewd_count();
+    if (jobs > 0) {
+        size_t o = strlen(buf);
+        snprintf(buf + o, bufsz - o, "\n");
+        o = strlen(buf);
+        if (jobs == 1) {
+            snprintf(buf + o, bufsz - o, _("1 opera\xc3\xa7\xc3\xa3o em andamento"));
+        } else {
+            snprintf(buf + o, bufsz - o, _("%d opera\xc3\xa7\xc3\xb5""es em andamento"), jobs);
+        }
     }
     *anchor_x = 0;
     *anchor_w = w->len;

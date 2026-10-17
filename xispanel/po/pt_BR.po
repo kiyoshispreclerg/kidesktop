@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: xispanel\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-17 11:27-0300\n"
+"POT-Creation-Date: 2026-10-17 11:28-0300\n"
 "PO-Revision-Date: 2026-10-01 17:50-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -250,22 +250,32 @@ msgstr "Temperatura da CPU"
 msgid "Temperatura da GPU"
 msgstr "Temperatura da GPU"
 
-#: widgets/notif.c:278
+#: widgets/notif.c:318
 #, c-format
 msgid "Sem notificações não lidas"
 msgstr "Sem notificações não lidas"
 
-#: widgets/notif.c:280
+#: widgets/notif.c:320
 #, c-format
 msgid "1 notificação não lida"
 msgstr "1 notificação não lida"
 
-#: widgets/notif.c:282
+#: widgets/notif.c:322
 #, c-format
 msgid "%d notificações não lidas"
 msgstr "%d notificações não lidas"
 
-#: widgets/notif.c:318
+#: widgets/notif.c:330
+#, c-format
+msgid "1 operação em andamento"
+msgstr "1 operação em andamento"
+
+#: widgets/notif.c:332
+#, c-format
+msgid "%d operações em andamento"
+msgstr "%d operações em andamento"
+
+#: widgets/notif.c:369
 #, c-format
 msgid "Sem notificações"
 msgstr "Sem notificações"
