@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=System Monitor
+Name[pt_BR]=Monitor do Sistema
+GenericName=Task Manager
+GenericName[pt_BR]=Gerenciador de Tarefas
+Comment=See and manage running processes, CPU, memory and GPU use
+Comment[pt_BR]=Veja e gerencie processos em execução e o uso de CPU, memória e GPU
+Exec=@BINDIR@/kitask
+Icon=kitask
+Terminal=false
+Categories=System;Monitor;
+Keywords=process;task;manager;monitor;cpu;memory;gpu;kill;top;
+StartupNotify=false
