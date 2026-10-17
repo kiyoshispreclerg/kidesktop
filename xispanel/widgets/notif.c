@@ -195,7 +195,8 @@ static void draw_bell(cairo_t *cr, double x, double y, double size, double r, do
     cairo_restore(cr);
 }
 
-static void draw_badge(cairo_t *cr, double icon_x, double icon_y, double icon_px, int count)
+/* Centered over the bell; *out_r gets the radius a ring needs to enclose it. */
+static void draw_badge(cairo_t *cr, double icon_x, double icon_y, double icon_px, int count, double *out_r)
 {
     char label[8];
     if (count > 99) {
@@ -212,8 +213,11 @@ static void draw_badge(cairo_t *cr, double icon_x, double icon_y, double icon_px
     if (bw < bh) {
         bw = bh; /* keep single-digit counts circular, not a thin pill */
     }
-    double bx = icon_x + icon_px - bw * 0.7;
-    double by = icon_y - bh * 0.3;
+    double bx = icon_x + (icon_px - bw) / 2.0;
+    double by = icon_y + (icon_px - bh) / 2.0;
+    if (out_r) {
+        *out_r = (bw > bh ? bw : bh) / 2.0;
+    }
 
     cairo_save(cr);
     cairo_set_source_rgba(cr, 0.85, 0.15, 0.15, 0.95);
@@ -229,16 +233,18 @@ static void draw_badge(cairo_t *cr, double icon_x, double icon_y, double icon_px
     cairo_restore(cr);
 }
 
-/* Something is running (jobviewd.c): a small ring at the bell's
- * bottom-right, filled as far as the jobs' average progress, so a closed
- * job toast still leaves a trace of where to look. */
-static void draw_jobs_ring(cairo_t *cr, double icon_x, double icon_y, double icon_px, double r, double g, double b)
+/* Something is running (jobviewd.c): a ring around the centered count
+ * badge (inner_r = the badge's radius), filled as far as the jobs'
+ * average progress, so a closed job toast still leaves a trace of where
+ * to look. */
+static void draw_jobs_ring(cairo_t *cr, double icon_x, double icon_y, double icon_px, double inner_r, double r, double g, double b)
 {
     int pct = jobs_progress();
-    double rad = icon_px * 0.2;
-    double cx = icon_x + icon_px - rad, cy = icon_y + icon_px - rad;
+    double lw = icon_px * 0.07;
+    double rad = inner_r + lw * 0.9;
+    double cx = icon_x + icon_px / 2.0, cy = icon_y + icon_px / 2.0;
     cairo_save(cr);
-    cairo_set_line_width(cr, icon_px * 0.09);
+    cairo_set_line_width(cr, lw);
     cairo_set_source_rgba(cr, r, g, b, 0.3);
     cairo_arc(cr, cx, cy, rad, 0, 2 * 3.14159265);
     cairo_stroke(cr);
@@ -275,12 +281,13 @@ static void notif_paint(PanelWidget *w, cairo_t *cr)
         draw_bell(cr, ox, icon_y, icon_px, p->fg_r, p->fg_g, p->fg_b);
     }
 
-    if (jobviewd_count() > 0) {
-        draw_jobs_ring(cr, ox, icon_y, icon_px, p->fg_r, p->fg_g, p->fg_b);
-    }
     int unread = notifd_unread_count();
+    double badge_r = icon_px * 0.2;
     if (unread > 0) {
-        draw_badge(cr, ox, icon_y, icon_px, unread);
+        draw_badge(cr, ox, icon_y, icon_px, unread, &badge_r);
+    }
+    if (jobviewd_count() > 0) {
+        draw_jobs_ring(cr, ox, icon_y, icon_px, badge_r, p->fg_r, p->fg_g, p->fg_b);
     }
 }
 
