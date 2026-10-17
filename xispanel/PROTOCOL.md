@@ -598,6 +598,17 @@ Widget types implemented so far:
   application launcher (no parsing, no icon-theme lookup, no search) --
   multiple `launcher` widgets is how the user pins individual shortcuts
   today; that's future launcher-phase territory.
+
+  Icon, text and tooltip can also come from commands, which turns a
+  `launcher` into a live status indicator driven by a script:
+  `cmd_icon=<cmd>` (first stdout line, an icon theme name or a path;
+  empty output keeps `icon=`), `cmd_text=<cmd>` (first stdout line, drawn
+  to the right of the icon -- or alone when there is no icon; horizontal
+  panels only) and `cmd_tooltip=<cmd>` (all of stdout, empty keeps
+  `name=`). `interval=<ms>` (default `5000`, minimum `500`) is how often
+  they re-run. They go through the non-blocking `asyncmd` runner, so a
+  slow script never stalls the panel, and identical command strings share
+  one child. With none of the three set the widget never polls.
 - `volume`: a speaker icon reflecting the default PulseAudio/PipeWire
   sink's level/mute state, backed by shelling out to `pactl` (see
   "Volume control" below) -- no libpulse linked, and no dependency at
