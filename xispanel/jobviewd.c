@@ -414,7 +414,10 @@ static DBusMessage *handle_request_view(DBusMessage *msg)
         }
     }
     if (!j->e.app_name[0]) {
-        snprintf(j->e.app_name, sizeof(j->e.app_name), "%s", j->e.desktop_entry);
+        char entry[sizeof(j->e.desktop_entry)];
+        snprintf(entry, sizeof(entry), "%s", j->e.desktop_entry);
+        snprintf(j->e.app_name, sizeof(j->e.app_name), "%.*s",
+                 (int)sizeof(j->e.app_name) - 1, entry);
     }
 
     DBusMessage *reply = p_dbus_message_new_method_return(msg);
