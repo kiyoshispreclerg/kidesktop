@@ -170,6 +170,10 @@ table in `xisserve.c`:
   Meant for a hotkey: `xisserve --clipboard [--for-active]` opens in the
   corner of the window that was active, and Enter pastes into it.
 
+Pages of programs outside kidesktop-core are installed as modules
+instead (`<flag>.so`, built against `xisserve_page.h`, loaded only when
+first opened) -- see `PROTOCOL.md`'s "Page modules".
+
 ## `--menu`: the decoration's application menu
 
 `appmenu.c` is a mode rather than a page: no launcher window, no

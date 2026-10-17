@@ -18,16 +18,7 @@
 #include <gtk/gtk.h>
 #include <X11/Xlib.h>
 
-/* Accessible name/description for a screen reader, for widgets whose
- * visible text alone doesn't say what they are (an entry with no label,
- * an icon-only or "×" button, a slider under a section header, several
- * identical "Ativar" buttons in a list). Either may be NULL. */
-static inline void xisserve_a11y(GtkWidget *w, const char *name, const char *desc)
-{
-    AtkObject *acc = gtk_widget_get_accessible(w);
-    if (name) atk_object_set_name(acc, name);
-    if (desc) atk_object_set_description(acc, desc);
-}
+#include "xisserve_page.h"
 
 /* Every result row's icon (app icon, or a plugin's own) is resolved to
  * this fixed square size -- see xisserve_resolve_icon(). */
@@ -229,47 +220,6 @@ GPtrArray *xisserve_scan_apps(void);
  * "Outros" for an unrecognized key. Never returns NULL. */
 const char *xisserve_category_label(const char *key);
 
-/* Launches `cmd` as an independent user application: double-forked,
- * setsid()'d, never waited on, and -- on a systemd session -- inside its
- * own transient scope, so the launched app isn't a member of xisserve's
- * (i.e. xispanel's) cgroup and doesn't die with it. One shared
- * implementation, shared/xis_spawn.h, which has the full reasoning;
- * exported here so plugins that launch something don't duplicate it. */
-void run_detached(const char *cmd);
-
-/* Single-quotes `in` for safe use inside an `sh -c` command string. */
-void shell_quote(const char *in, char *out, size_t outsz);
-
-/* A page's own widget (GtkComboBox's dropdown, most commonly) is about
- * to take the X grab away from g_window, the same way the launcher's
- * own right-click context menu already does -- see xisserve.c's
- * on_window_grab_broken(). Call _begin() right before showing that
- * widget's popup and _end() once it closes (e.g. a GtkComboBox's
- * "notify::popup-shown" going FALSE), so on_window_grab_broken() knows
- * this is our own popup stealing the grab, not something to hide the
- * window over, and _end() reclaims the grab afterwards. Nest freely
- * (paired begin/end calls only, not meant to overlap two different
- * popups at once). */
-void xisserve_transient_popup_begin(void);
-void xisserve_transient_popup_end(void);
-
-/* Wraps `cmd` in the session's terminal-exec fallback chain (xdg-
- * terminal-exec, then $TERMINAL, then x-terminal-emulator, then xterm),
- * routed through `sh -c` so a multi-word cmd is split by the shell
- * rather than handed to the terminal's `-e` as one literal argv word. */
-void build_terminal_exec(const char *cmd, char *out, size_t outsz);
-
-/* Icon resolution shared by app icons (.desktop Icon=) and any plugin
- * that wants one (e.g. globalmenu's per-item icon-name): `spec` starting
- * with '/' is loaded as a path to an image file, anything else is
- * looked up as a themed icon name via GtkIconTheme. Cached process-wide
- * by spec (including failed lookups, so a plugin can call this on every
- * keystroke without worrying about repeat theme lookups). Returns a
- * reference the caller owns (g_object_unref when done), or NULL if
- * `spec` is empty or nothing resolves it -- never a broken-image
- * placeholder. */
-GdkPixbuf *xisserve_resolve_icon(const char *spec, int size);
-
 /* Non-blocking peek at the same cache: TRUE (with *out set to an owned
  * reference, or NULL) when `spec` has already been resolved in this
  * process or is empty, FALSE when resolving it would mean a theme
@@ -296,21 +246,6 @@ void xisserve_icon_job_add(XisserveIconJob *job, ResultEntry *entry, gpointer ta
 void xisserve_icon_job_start(XisserveIconJob **job);
 void xisserve_icon_job_cancel(XisserveIconJob **job);
 
-/* The launcher's current --fg color (already parsed from argv/the
- * control socket), 0..1 components -- for a plugin's own generated
- * fallback icon (e.g. globalmenu's hamburger) to stay legible against
- * whatever theme is active instead of a fixed color. */
-void xisserve_get_fg_rgba(double *r, double *g, double *b, double *a);
-void xisserve_get_bg_rgba(double *r, double *g, double *b, double *a);
-
-/* One integer setting from xisserve.conf, whose lines are all
- * "<SECTION>\t<key>\t<value>" (the same tab-delimited shape the PLUGIN
- * lines already use, and that xisback.conf uses for its own). Returns
- * `fallback` when the file, the line, or a parseable number is missing,
- * so every caller has a working default and no config file is ever
- * required. Reloaded on each open, so an edit takes effect on the next
- * toggle without restarting the daemon. */
-int xisserve_config_get_int(const char *section, const char *key, int fallback);
 /* (Re)reads xisserve.conf -- for the one-shot popups (--ring), which
  * run before the launcher would have loaded it. */
 void xisserve_config_load(void);
@@ -324,10 +259,12 @@ void xisserve_config_load(void);
  * shown/hidden by apply_view_mode(); a page never touches the window,
  * the grab, positioning, or the singleton/toggle machinery.
  *
- * Adding a page is: write pages/<name>.c exposing the three functions
- * below, declare them here, add one row to xisserve.c's kPages table,
- * and one line to the Makefile's SRCS. The flag name, window sizing,
- * and everything else comes from that table row.
+ * Adding a built-in page is: write pages/<name>.c exposing the three
+ * functions below, declare them here, add one row to xisserve.c's
+ * kBuiltinPages table, and one line to the Makefile's SRCS. The flag
+ * name, window sizing, and everything else comes from that table row.
+ * A page shipped outside kidesktop-core is an installable module
+ * instead, built against xisserve_page.h alone -- see there.
  */
 typedef struct {
     const char *flag;      /* long-option name, e.g. "audio" -- also the JSON/control-socket value */
@@ -366,16 +303,5 @@ void page_storage_on_hide(void);
 GtkWidget *page_clipboard_build(void);
 void page_clipboard_on_show(void);
 void page_clipboard_on_hide(void);
-
-/* For pages that act on another window (--clipboard): the invocation's
- * target window (--for-window=<id>, else whatever was active when
- * xisserve was called, before the popup took focus; 0 if none), whether
- * the page was asked to open filtered to it (--for-active/--for-window),
- * and closing the popup the same way Escape does. */
-unsigned long xisserve_target_window(void);
-gboolean xisserve_target_filter(void);
-/* --filter=: "all"/"app"/"window"/"doc"/"auto", or "" when not given. */
-const char *xisserve_target_scope(void);
-void xisserve_hide(void);
 
 #endif

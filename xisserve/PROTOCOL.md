@@ -386,6 +386,44 @@ directly -- xiskeys' shipped defaults point `Ctrl+Alt+Delete`,
 straight away, so a stray tap always asks first through one shared
 picker.
 
+## Page modules: installable pages
+
+Pages outside kidesktop-core (kiremote, third-party apps) ship as a
+shared object named after their mode flag -- `kiremote.so` answers
+`xisserve --kiremote`. Directories, first match wins:
+
+1. `$XISSERVE_PAGE_PATH` (colon-separated; for testing from a build tree)
+2. `~/.local/lib/xisserve/pages`
+3. `$(LIBDIR)/xisserve/pages` (`/usr/local/lib/xisserve/pages` by default)
+
+A built-in page always wins over a module of the same name, and a name
+that is already a flag (`menu`, `session`, ...) or isn't `[a-z0-9-]`,
+up to 31 characters, is ignored. xisserve only lists these directories
+at startup; a module is `dlopen()`ed the first time its page opens, and
+a running daemon asked for an unknown flag rescans them, so installing
+a module needs no restart. Module pages share the pages singleton like
+the built-in ones.
+
+A module includes `xisserve_page.h` (installed to
+`$(PREFIX)/include/xisserve/`), builds with `-fPIC -shared` against
+`gtk+-2.0`, and exports `xisserve_page_entry()` returning a static
+`XisservePageModule` with `abi = XISSERVE_PAGE_ABI`. It may call the
+functions that header declares (exported by the binary through
+`pages-api.sym`) and nothing else of xisserve's. A module that fails to
+load, or was built for another ABI, opens as a page saying why.
+
+```c
+#include <xisserve/xisserve_page.h>
+
+static GtkWidget *build(void) { return gtk_label_new("..."); }
+
+static const XisservePageModule mod = {
+    .abi = XISSERVE_PAGE_ABI, .title = "Remoto", .gettext_domain = "kiremote",
+    .min_width = 380, .min_height = 480, .build = build,
+};
+const XisservePageModule *xisserve_page_entry(void) { return &mod; }
+```
+
 ## Singleton / toggle behavior (xisserve's own responsibility)
 
 xispanel does **not** track whether xisserve is already running, hold a

@@ -1,0 +1,17 @@
+/* What installable page modules may call -- exactly the functions
+ * xisserve_page.h declares (keep the two in sync). */
+{
+    run_detached;
+    shell_quote;
+    build_terminal_exec;
+    xisserve_transient_popup_begin;
+    xisserve_transient_popup_end;
+    xisserve_resolve_icon;
+    xisserve_get_fg_rgba;
+    xisserve_get_bg_rgba;
+    xisserve_config_get_int;
+    xisserve_target_window;
+    xisserve_target_filter;
+    xisserve_target_scope;
+    xisserve_hide;
+};

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: xisserve\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-17 11:53-0300\n"
+"POT-Creation-Date: 2026-10-17 17:51-0300\n"
 "PO-Revision-Date: 2026-10-02 14:10-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -21,7 +21,7 @@ msgstr ""
 msgid "×"
 msgstr "×"
 
-#: keyboard.c:928 session.c:114 xisserve.c:1936
+#: keyboard.c:928 session.c:114 xisserve.c:2085
 msgid "Fechar"
 msgstr "Close"
 
@@ -134,7 +134,7 @@ msgstr "No holiday or event on this day."
 msgid "Abrir eventos..."
 msgstr "Open events..."
 
-#: pages/calendar.c:534 pages/calendar.c:555 xisserve.c:91
+#: pages/calendar.c:534 pages/calendar.c:555 xisserve.c:92
 msgid "Calendário"
 msgstr "Calendar"
 
@@ -408,7 +408,7 @@ msgstr "Discharging"
 msgid "Completa"
 msgstr "Full"
 
-#: pages/energy.c:346 xisserve.c:93
+#: pages/energy.c:346 xisserve.c:94
 msgid "Energia"
 msgstr "Power"
 
@@ -474,7 +474,7 @@ msgstr "Network QR code"
 msgid "Interface"
 msgstr "Interface"
 
-#: pages/network.c:453 xisserve.c:96
+#: pages/network.c:453 xisserve.c:97
 msgid "Rede"
 msgstr "Network"
 
@@ -698,182 +698,198 @@ msgstr "Session"
 msgid "O que voce deseja fazer?"
 msgstr "What do you want to do?"
 
-#: xisserve.c:92
+#: xisserve.c:93
 msgid "Áudio"
 msgstr "Audio"
 
-#: xisserve.c:94
+#: xisserve.c:95
 msgid "Notificações"
 msgstr "Notifications"
 
-#: xisserve.c:97
+#: xisserve.c:98
 msgid "Armazenamento"
 msgstr "Storage"
 
-#: xisserve.c:98
+#: xisserve.c:99
 msgid "Área de transferência"
 msgstr "Clipboard"
 
-#: xisserve.c:703 xisserve.c:704 xisserve.c:705
+#: xisserve.c:413
+#, c-format
+msgid "interface incompatível (esperado ABI %d)"
+msgstr "incompatible interface (expected ABI %d)"
+
+#: xisserve.c:420
+#, c-format
+msgid ""
+"Não foi possível carregar esta página.\n"
+"\n"
+"%s"
+msgstr ""
+"This page could not be loaded.\n"
+"\n"
+"%s"
+
+#: xisserve.c:852 xisserve.c:853 xisserve.c:854
 msgid "Áudio e Vídeo"
 msgstr "Audio & Video"
 
-#: xisserve.c:706
+#: xisserve.c:855
 msgid "Desenvolvimento"
 msgstr "Development"
 
-#: xisserve.c:707
+#: xisserve.c:856
 msgid "Educação"
 msgstr "Education"
 
-#: xisserve.c:708
+#: xisserve.c:857
 msgid "Jogos"
 msgstr "Games"
 
-#: xisserve.c:709
+#: xisserve.c:858
 msgid "Gráficos"
 msgstr "Graphics"
 
-#: xisserve.c:710
+#: xisserve.c:859
 msgid "Internet"
 msgstr "Internet"
 
-#: xisserve.c:711
+#: xisserve.c:860
 msgid "Escritório"
 msgstr "Office"
 
-#: xisserve.c:712
+#: xisserve.c:861
 msgid "Ciência"
 msgstr "Science"
 
-#: xisserve.c:713
+#: xisserve.c:862
 msgid "Configurações"
 msgstr "Settings"
 
-#: xisserve.c:714
+#: xisserve.c:863
 msgid "Sistema"
 msgstr "System"
 
-#: xisserve.c:715
+#: xisserve.c:864
 msgid "Acessórios"
 msgstr "Accessories"
 
-#: xisserve.c:721
+#: xisserve.c:870
 msgid "Favoritos"
 msgstr "Favorites"
 
-#: xisserve.c:722
+#: xisserve.c:871
 msgid "Todos os Programas"
 msgstr "All Programs"
 
-#: xisserve.c:726
+#: xisserve.c:875
 msgid "Outros"
 msgstr "Other"
 
-#: xisserve.c:1908 xisserve.c:3303
+#: xisserve.c:2057 xisserve.c:3452
 msgid "Manter aberto ao clicar fora"
 msgstr "Keep open when clicking outside"
 
-#: xisserve.c:1937
+#: xisserve.c:2086
 msgid "Fechar o xisserve"
 msgstr "Close xisserve"
 
-#: xisserve.c:2267
+#: xisserve.c:2416
 msgid "Menu de programas"
 msgstr "Applications menu"
 
-#: xisserve.c:2627
+#: xisserve.c:2776
 msgid "Desligar"
 msgstr "Shut down"
 
-#: xisserve.c:2627
+#: xisserve.c:2776
 msgid "Desligar o computador agora?"
 msgstr "Shut down the computer now?"
 
-#: xisserve.c:2628
+#: xisserve.c:2777
 msgid "Reiniciar"
 msgstr "Restart"
 
-#: xisserve.c:2628
+#: xisserve.c:2777
 msgid "Reiniciar o computador agora?"
 msgstr "Restart the computer now?"
 
-#: xisserve.c:2629
+#: xisserve.c:2778
 msgid "Suspender"
 msgstr "Suspend"
 
-#: xisserve.c:2629
+#: xisserve.c:2778
 msgid "Suspender o computador agora?"
 msgstr "Suspend the computer now?"
 
-#: xisserve.c:2630
+#: xisserve.c:2779
 msgid "Sair"
 msgstr "Log out"
 
-#: xisserve.c:2632
+#: xisserve.c:2781
 msgid "Encerrar a sessao atual?"
 msgstr "End the current session?"
 
-#: xisserve.c:2633
+#: xisserve.c:2782
 msgid "Trocar de usuario agora?"
 msgstr "Switch user now?"
 
-#: xisserve.c:2633
+#: xisserve.c:2782
 msgid "Trocar usuario"
 msgstr "Switch user"
 
-#: xisserve.c:2634
+#: xisserve.c:2783
 msgid "Bloquear a tela agora?"
 msgstr "Lock the screen now?"
 
-#: xisserve.c:2634
+#: xisserve.c:2783
 msgid "Bloquear tela"
 msgstr "Lock screen"
 
-#: xisserve.c:2974
+#: xisserve.c:3123
 msgid "Mover para o início"
 msgstr "Move to the start"
 
-#: xisserve.c:2975
+#: xisserve.c:3124
 msgid "Mover para cima"
 msgstr "Move up"
 
-#: xisserve.c:2976
+#: xisserve.c:3125
 msgid "Mover para baixo"
 msgstr "Move down"
 
-#: xisserve.c:2977
+#: xisserve.c:3126
 msgid "Mover para o final"
 msgstr "Move to the end"
 
-#: xisserve.c:2991
+#: xisserve.c:3140
 msgid "Adicionar aos Favoritos"
 msgstr "Add to Favorites"
 
-#: xisserve.c:2991
+#: xisserve.c:3140
 msgid "Remover dos Favoritos"
 msgstr "Remove from Favorites"
 
-#: xisserve.c:3302
+#: xisserve.c:3451
 msgid "Fixar"
 msgstr "Pin"
 
-#: xisserve.c:3312
+#: xisserve.c:3461
 msgid "Grade"
 msgstr "Grid"
 
-#: xisserve.c:3313
+#: xisserve.c:3462
 msgid "Alternar entre lista e grade de icones"
 msgstr "Toggle between list and grid of icons"
 
-#: xisserve.c:3321
+#: xisserve.c:3470
 msgid "Pesquisar programas"
 msgstr "Search applications"
 
-#: xisserve.c:3337
+#: xisserve.c:3486
 msgid "Categorias"
 msgstr "Categories"
 
-#: xisserve.c:3367 xisserve.c:3388
+#: xisserve.c:3516 xisserve.c:3537
 msgid "Programas"
 msgstr "Applications"

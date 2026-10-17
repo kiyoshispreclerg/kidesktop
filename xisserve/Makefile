@@ -12,6 +12,13 @@ PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 LOCALEDIR := $(PREFIX)/share/locale
 PKG_CFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"'
+# Installable page modules (<flag>.so, see xisserve_page.h): looked up
+# here after ~/.local/lib/xisserve/pages. pages-api.sym exports to them
+# only the functions xisserve_page.h declares.
+LIBDIR ?= $(PREFIX)/lib
+PAGEDIR := $(LIBDIR)/xisserve/pages
+INCLUDEDIR := $(PREFIX)/include
+PKG_CFLAGS += -DXISSERVE_PAGEDIR='"$(PAGEDIR)"'
 # GTK2's own headers use GLib types GLib has since deprecated (GTimeVal,
 # GTypeDebugFlags); those warnings say nothing about this code.
 PKG_CFLAGS += -DGLIB_DISABLE_DEPRECATION_WARNINGS
@@ -59,12 +66,12 @@ SRCS := xisserve.c icons.c appmenu.c question.c applications.c keyboard.c sessio
         pages/calendar.c pages/audio.c pages/pulse.c pages/mpris.c pages/qrcode.c pages/energy.c pages/power.c pages/notifications.c \
         pages/network.c pages/storage.c pages/clipboard.c pages/clock.c ../shared/xis_clock.c ../shared/xis_spawn.c ../shared/xis_desktop_actions.c ../shared/xis_pactl_subscribe.c ../shared/xis_icon_cache.c ../shared/xis_direction.c
 OBJS := $(SRCS:.c=.o)
-HDRS := xisserve.h plugins/dbusmenu.h pages/pulse.h pages/mpris.h pages/qrcode.h pages/power.h pages/clock.h ../shared/xis_clock.h
+HDRS := xisserve.h xisserve_page.h plugins/dbusmenu.h pages/pulse.h pages/mpris.h pages/qrcode.h pages/power.h pages/clock.h ../shared/xis_clock.h
 
 all: xisserve
 
-xisserve: $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $(OBJS) $(PKG_LIBS)
+xisserve: $(OBJS) pages-api.sym
+	$(CC) $(CFLAGS) -Wl,--dynamic-list=pages-api.sym -o $@ $(OBJS) $(PKG_LIBS)
 
 %.o: %.c $(HDRS)
 	$(CC) $(CFLAGS) $(PKG_CFLAGS) $(DBUS_CPPFLAGS) -c -o $@ $<
@@ -91,12 +98,14 @@ po/%.mo: po/%.po
 
 install: xisserve mo
 	install -Dm755 xisserve $(DESTDIR)$(BINDIR)/xisserve
+	install -Dm644 xisserve_page.h $(DESTDIR)$(INCLUDEDIR)/xisserve/xisserve_page.h
+	install -d $(DESTDIR)$(PAGEDIR)
 	for lang in $(LINGUAS); do \
 		install -Dm644 po/$$lang.mo $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/xisserve.mo; \
 	done
 
 uninstall:
-	rm -f $(DESTDIR)$(BINDIR)/xisserve
+	rm -f $(DESTDIR)$(BINDIR)/xisserve $(DESTDIR)$(INCLUDEDIR)/xisserve/xisserve_page.h
 	for lang in $(LINGUAS); do \
 		rm -f $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/xisserve.mo; \
 	done

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: xisserve\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-17 11:53-0300\n"
+"POT-Creation-Date: 2026-10-17 17:51-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -21,7 +21,7 @@ msgstr ""
 msgid "×"
 msgstr ""
 
-#: keyboard.c:928 session.c:114 xisserve.c:1936
+#: keyboard.c:928 session.c:114 xisserve.c:2085
 msgid "Fechar"
 msgstr ""
 
@@ -124,7 +124,7 @@ msgstr ""
 msgid "Abrir eventos..."
 msgstr ""
 
-#: pages/calendar.c:534 pages/calendar.c:555 xisserve.c:91
+#: pages/calendar.c:534 pages/calendar.c:555 xisserve.c:92
 msgid "Calendário"
 msgstr ""
 
@@ -396,7 +396,7 @@ msgstr ""
 msgid "Completa"
 msgstr ""
 
-#: pages/energy.c:346 xisserve.c:93
+#: pages/energy.c:346 xisserve.c:94
 msgid "Energia"
 msgstr ""
 
@@ -462,7 +462,7 @@ msgstr ""
 msgid "Interface"
 msgstr ""
 
-#: pages/network.c:453 xisserve.c:96
+#: pages/network.c:453 xisserve.c:97
 msgid "Rede"
 msgstr ""
 
@@ -686,182 +686,195 @@ msgstr ""
 msgid "O que voce deseja fazer?"
 msgstr ""
 
-#: xisserve.c:92
+#: xisserve.c:93
 msgid "Áudio"
 msgstr ""
 
-#: xisserve.c:94
+#: xisserve.c:95
 msgid "Notificações"
 msgstr ""
 
-#: xisserve.c:97
+#: xisserve.c:98
 msgid "Armazenamento"
 msgstr ""
 
-#: xisserve.c:98
+#: xisserve.c:99
 msgid "Área de transferência"
 msgstr ""
 
-#: xisserve.c:703 xisserve.c:704 xisserve.c:705
+#: xisserve.c:413
+#, c-format
+msgid "interface incompatível (esperado ABI %d)"
+msgstr ""
+
+#: xisserve.c:420
+#, c-format
+msgid ""
+"Não foi possível carregar esta página.\n"
+"\n"
+"%s"
+msgstr ""
+
+#: xisserve.c:852 xisserve.c:853 xisserve.c:854
 msgid "Áudio e Vídeo"
 msgstr ""
 
-#: xisserve.c:706
+#: xisserve.c:855
 msgid "Desenvolvimento"
 msgstr ""
 
-#: xisserve.c:707
+#: xisserve.c:856
 msgid "Educação"
 msgstr ""
 
-#: xisserve.c:708
+#: xisserve.c:857
 msgid "Jogos"
 msgstr ""
 
-#: xisserve.c:709
+#: xisserve.c:858
 msgid "Gráficos"
 msgstr ""
 
-#: xisserve.c:710
+#: xisserve.c:859
 msgid "Internet"
 msgstr ""
 
-#: xisserve.c:711
+#: xisserve.c:860
 msgid "Escritório"
 msgstr ""
 
-#: xisserve.c:712
+#: xisserve.c:861
 msgid "Ciência"
 msgstr ""
 
-#: xisserve.c:713
+#: xisserve.c:862
 msgid "Configurações"
 msgstr ""
 
-#: xisserve.c:714
+#: xisserve.c:863
 msgid "Sistema"
 msgstr ""
 
-#: xisserve.c:715
+#: xisserve.c:864
 msgid "Acessórios"
 msgstr ""
 
-#: xisserve.c:721
+#: xisserve.c:870
 msgid "Favoritos"
 msgstr ""
 
-#: xisserve.c:722
+#: xisserve.c:871
 msgid "Todos os Programas"
 msgstr ""
 
-#: xisserve.c:726
+#: xisserve.c:875
 msgid "Outros"
 msgstr ""
 
-#: xisserve.c:1908 xisserve.c:3303
+#: xisserve.c:2057 xisserve.c:3452
 msgid "Manter aberto ao clicar fora"
 msgstr ""
 
-#: xisserve.c:1937
+#: xisserve.c:2086
 msgid "Fechar o xisserve"
 msgstr ""
 
-#: xisserve.c:2267
+#: xisserve.c:2416
 msgid "Menu de programas"
 msgstr ""
 
-#: xisserve.c:2627
+#: xisserve.c:2776
 msgid "Desligar"
 msgstr ""
 
-#: xisserve.c:2627
+#: xisserve.c:2776
 msgid "Desligar o computador agora?"
 msgstr ""
 
-#: xisserve.c:2628
+#: xisserve.c:2777
 msgid "Reiniciar"
 msgstr ""
 
-#: xisserve.c:2628
+#: xisserve.c:2777
 msgid "Reiniciar o computador agora?"
 msgstr ""
 
-#: xisserve.c:2629
+#: xisserve.c:2778
 msgid "Suspender"
 msgstr ""
 
-#: xisserve.c:2629
+#: xisserve.c:2778
 msgid "Suspender o computador agora?"
 msgstr ""
 
-#: xisserve.c:2630
+#: xisserve.c:2779
 msgid "Sair"
 msgstr ""
 
-#: xisserve.c:2632
+#: xisserve.c:2781
 msgid "Encerrar a sessao atual?"
 msgstr ""
 
-#: xisserve.c:2633
+#: xisserve.c:2782
 msgid "Trocar de usuario agora?"
 msgstr ""
 
-#: xisserve.c:2633
+#: xisserve.c:2782
 msgid "Trocar usuario"
 msgstr ""
 
-#: xisserve.c:2634
+#: xisserve.c:2783
 msgid "Bloquear a tela agora?"
 msgstr ""
 
-#: xisserve.c:2634
+#: xisserve.c:2783
 msgid "Bloquear tela"
 msgstr ""
 
-#: xisserve.c:2974
+#: xisserve.c:3123
 msgid "Mover para o início"
 msgstr ""
 
-#: xisserve.c:2975
+#: xisserve.c:3124
 msgid "Mover para cima"
 msgstr ""
 
-#: xisserve.c:2976
+#: xisserve.c:3125
 msgid "Mover para baixo"
 msgstr ""
 
-#: xisserve.c:2977
+#: xisserve.c:3126
 msgid "Mover para o final"
 msgstr ""
 
-#: xisserve.c:2991
+#: xisserve.c:3140
 msgid "Adicionar aos Favoritos"
 msgstr ""
 
-#: xisserve.c:2991
+#: xisserve.c:3140
 msgid "Remover dos Favoritos"
 msgstr ""
 
-#: xisserve.c:3302
+#: xisserve.c:3451
 msgid "Fixar"
 msgstr ""
 
-#: xisserve.c:3312
+#: xisserve.c:3461
 msgid "Grade"
 msgstr ""
 
-#: xisserve.c:3313
+#: xisserve.c:3462
 msgid "Alternar entre lista e grade de icones"
 msgstr ""
 
-#: xisserve.c:3321
+#: xisserve.c:3470
 msgid "Pesquisar programas"
 msgstr ""
 
-#: xisserve.c:3337
+#: xisserve.c:3486
 msgid "Categorias"
 msgstr ""
 
-#: xisserve.c:3367 xisserve.c:3388
+#: xisserve.c:3516 xisserve.c:3537
 msgid "Programas"
 msgstr ""

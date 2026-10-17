@@ -40,6 +40,7 @@
 #include <sys/stat.h>
 
 #include <dirent.h>
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
@@ -55,7 +56,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.1.68"
+#define XISSERVE_VERSION "0.2.0"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -75,7 +76,7 @@ enum { VCOL_ICON = 0, VCOL_MARKUP, VCOL_ENTRY, VCOL_GRIDMARKUP, N_VCOLS }; /* GR
 enum { CCOL_KEY = 0, CCOL_LABEL, N_CCOLS };
 
 /* LaunchArgs::page when no mode flag was passed -- the default search/
- * list view, which isn't a page in kPages (it's the launcher's own
+ * list view, which isn't a page in g_pages (it's the launcher's own
  * widgets, not a swappable root). */
 #define PAGE_LAUNCHER (-1)
 
@@ -87,7 +88,7 @@ enum { CCOL_KEY = 0, CCOL_LABEL, N_CCOLS };
  * minimum width to keep that panel from being squeezed to nothing; the
  * audio mixer's own min size is for the same reason (its rows only
  * make sense at a usable slider width). */
-static const XisservePage kPages[] = {
+static const XisservePage kBuiltinPages[] = {
     {"calendar", N_("Calend\xc3\xa1rio"), 460, 360, page_calendar_build, page_calendar_on_show, page_calendar_on_hide},
     {"audio", N_("\xc3\x81udio"), 380, 480, page_audio_build, page_audio_on_show, page_audio_on_hide},
     {"energy", N_("Energia"), 380, 480, page_energy_build, page_energy_on_show, page_energy_on_hide},
@@ -98,12 +99,24 @@ static const XisservePage kPages[] = {
     {"clipboard", N_("\xc3\x81rea de transfer\xc3\xaancia"), 420, 480, page_clipboard_build, page_clipboard_on_show,
      page_clipboard_on_hide},
 };
-#define N_PAGES ((int)(sizeof(kPages) / sizeof(kPages[0])))
+#define N_BUILTIN_PAGES ((int)(sizeof(kBuiltinPages) / sizeof(kBuiltinPages[0])))
+
+/* Upper bound on built-in pages plus installed page modules together. */
+#define MAX_PAGES 64
+
+/* Every page a mode flag can select: kBuiltinPages first, then the page
+ * modules scan_page_modules() found. A module's row holds only its flag
+ * (and the flag as a stand-in title) until load_page_module() fills in
+ * the rest on its first open -- see xisserve_page.h. */
+static XisservePage g_pages[MAX_PAGES];
+static char *g_page_module[MAX_PAGES];      /* the module's .so path; NULL for a built-in */
+static const char *g_page_domain[MAX_PAGES]; /* a module's gettext domain for its title */
+static int g_n_pages;
 
 /* NULL until a page is actually requested for the first time -- see
  * ensure_page_built() and build_ui()'s comment on why pages are no
  * longer built eagerly. */
-static GtkWidget *g_page_roots[N_PAGES];
+static GtkWidget *g_page_roots[MAX_PAGES];
 static GtkWidget *g_main_vbox; /* what ensure_page_built() packs a freshly-built root into */
 
 /* Which page's on_hide() still owes a call -- a page is "left" both by
@@ -137,7 +150,7 @@ typedef struct {
     char fg[10];
     char font[128];
     int font_size;
-    int page; /* index into kPages, or PAGE_LAUNCHER for the default view -- see PROTOCOL.md's mode flags */
+    int page; /* index into g_pages, or PAGE_LAUNCHER for the default view -- see PROTOCOL.md's mode flags */
 
     /* --menu: not a page and not the launcher at all, but a one-shot
      * application-menu popup for one window (see appmenu.c). Handled in
@@ -250,8 +263,8 @@ enum {
     OPT_FOR_ACTIVE,
     OPT_FOR_WINDOW,
     OPT_FILTER,
-    /* Page mode flags occupy OPT_PAGE_BASE + <index into kPages>, so
-     * kPages stays the single place a page's flag name is written. */
+    /* Page mode flags occupy OPT_PAGE_BASE + <index into g_pages>, so
+     * g_pages stays the single place a page's flag name is written. */
     OPT_PAGE_BASE = 2000,
 };
 
@@ -295,6 +308,146 @@ static const struct option kFixedOpts[] = {
 };
 #define N_FIXED_OPTS ((int)(sizeof(kFixedOpts) / sizeof(kFixedOpts[0])))
 
+/* ---- page modules ------------------------------------------------------ */
+
+#ifndef XISSERVE_PAGEDIR
+#define XISSERVE_PAGEDIR "/usr/local/lib/xisserve/pages"
+#endif
+
+/* A module's flag is its file name, so it has to be a usable long option
+ * that fits LaunchArgs' JSON "page" field and isn't already a flag. */
+static gboolean page_flag_usable(const char *flag)
+{
+    static const char *const kRawFlags[] = {"question", "ring", "watch-pid", "version", "help"};
+    size_t n = strlen(flag);
+    if (n == 0 || n > 31 || flag[0] == '-') return FALSE;
+    for (size_t i = 0; i < n; i++)
+        if (!((flag[i] >= 'a' && flag[i] <= 'z') || (flag[i] >= '0' && flag[i] <= '9') || flag[i] == '-'))
+            return FALSE;
+    for (int i = 0; i < N_FIXED_OPTS; i++)
+        if (strcmp(kFixedOpts[i].name, flag) == 0) return FALSE;
+    for (size_t i = 0; i < G_N_ELEMENTS(kRawFlags); i++)
+        if (strcmp(kRawFlags[i], flag) == 0) return FALSE;
+    for (int i = 0; i < g_n_pages; i++)
+        if (strcmp(g_pages[i].flag, flag) == 0) return FALSE;
+    return TRUE;
+}
+
+/* Lists `<flag>.so` in each module directory -- without opening any of
+ * them -- and appends the ones not seen yet. Directories in priority
+ * order: $XISSERVE_PAGE_PATH (colon-separated, for testing a module out
+ * of its build tree), ~/.local/lib/xisserve/pages, XISSERVE_PAGEDIR; the
+ * first one to provide a flag wins, and a built-in page always beats a
+ * module of the same name. Run again when a running daemon is asked for
+ * a flag it doesn't know, so installing a module needs no restart. */
+static void scan_page_modules(void)
+{
+    GPtrArray *dirs = g_ptr_array_new_with_free_func(g_free);
+    const char *env = g_getenv("XISSERVE_PAGE_PATH");
+    if (env && *env) {
+        char **parts = g_strsplit(env, ":", -1);
+        for (char **d = parts; *d; d++)
+            if (**d) g_ptr_array_add(dirs, g_strdup(*d));
+        g_strfreev(parts);
+    }
+    g_ptr_array_add(dirs, g_build_filename(g_get_home_dir(), ".local", "lib", "xisserve", "pages", NULL));
+    g_ptr_array_add(dirs, g_strdup(XISSERVE_PAGEDIR));
+
+    for (guint d = 0; d < dirs->len; d++) {
+        const char *dir = g_ptr_array_index(dirs, d);
+        GDir *gd = g_dir_open(dir, 0, NULL);
+        if (!gd) continue;
+        const char *name;
+        while ((name = g_dir_read_name(gd)) && g_n_pages < MAX_PAGES) {
+            if (!g_str_has_suffix(name, ".so")) continue;
+            char *flag = g_strndup(name, strlen(name) - 3);
+            if (!page_flag_usable(flag)) {
+                g_free(flag);
+                continue;
+            }
+            int i = g_n_pages++;
+            g_pages[i].flag = flag;
+            g_pages[i].title = flag;
+            g_page_module[i] = g_build_filename(dir, name, NULL);
+        }
+        g_dir_close(gd);
+    }
+    g_ptr_array_free(dirs, TRUE);
+}
+
+static void init_pages(void)
+{
+    memcpy(g_pages, kBuiltinPages, sizeof(kBuiltinPages));
+    g_n_pages = N_BUILTIN_PAGES;
+    scan_page_modules();
+}
+
+/* The flag's index in g_pages, rescanning the module directories once
+ * when it isn't there; PAGE_LAUNCHER if it still isn't. */
+static int find_page(const char *flag, gboolean rescan)
+{
+    for (int i = 0; i < g_n_pages; i++)
+        if (strcmp(g_pages[i].flag, flag) == 0)
+            return i;
+    if (!rescan || !*flag) return PAGE_LAUNCHER;
+    scan_page_modules();
+    return find_page(flag, FALSE);
+}
+
+/* dlopen()s page `idx`'s module, fills in the rest of its g_pages row and
+ * builds its root. The module is never unloaded: its widgets and
+ * callbacks live as long as the daemon. On any failure the page becomes
+ * a label saying why, so the popup still opens. */
+static GtkWidget *load_page_module(int idx)
+{
+    const char *path = g_page_module[idx];
+    char *err = NULL;
+    void *h = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+    const XisservePageModule *mod = NULL;
+    if (!h) {
+        err = g_strdup(dlerror());
+    } else {
+        XisservePageEntryFn entry = (XisservePageEntryFn)dlsym(h, XISSERVE_PAGE_ENTRY);
+        mod = entry ? entry() : NULL;
+        if (!mod || mod->abi != XISSERVE_PAGE_ABI || !mod->build) {
+            err = g_strdup_printf(_("interface incompat\xc3\xadvel (esperado ABI %d)"), XISSERVE_PAGE_ABI);
+            dlclose(h);
+            mod = NULL;
+        }
+    }
+    if (!mod) {
+        fprintf(stderr, "xisserve: page module %s not loaded: %s\n", path, err);
+        char *text = g_strdup_printf(_("N\xc3\xa3o foi poss\xc3\xadvel carregar esta p\xc3\xa1gina.\n\n%s"), err);
+        GtkWidget *label = gtk_label_new(text);
+        gtk_label_set_line_wrap(GTK_LABEL(label), TRUE);
+        gtk_misc_set_padding(GTK_MISC(label), 16, 16);
+        gtk_widget_set_size_request(label, 360, -1);
+        double r, g, b, a;
+        xisserve_get_fg_rgba(&r, &g, &b, &a);
+        GdkColor fg = {0, (guint16)(r * 65535), (guint16)(g * 65535), (guint16)(b * 65535)};
+        gtk_widget_modify_fg(label, GTK_STATE_NORMAL, &fg);
+        g_free(text);
+        g_free(err);
+        return label;
+    }
+    XisservePage *p = &g_pages[idx];
+    if (mod->title) p->title = mod->title;
+    g_page_domain[idx] = mod->gettext_domain;
+    p->min_width = mod->min_width;
+    p->min_height = mod->min_height;
+    p->on_show = mod->on_show;
+    p->on_hide = mod->on_hide;
+    p->build = mod->build;
+    return p->build();
+}
+
+/* The header/accessible title of page `idx`, in the catalog it belongs to. */
+static const char *page_title(int idx)
+{
+    if (!g_page_module[idx]) return _(g_pages[idx].title);
+    return g_page_domain[idx] ? dgettext(g_page_domain[idx], g_pages[idx].title) : g_pages[idx].title;
+}
+
 static void usage(const char *argv0)
 {
     fprintf(stderr,
@@ -303,8 +456,8 @@ static void usage(const char *argv0)
             "--output-h=<px> --bg=#RRGGBBAA --fg=#RRGGBBAA --font=<family> --font-size=<px> "
             "[--watch-pid=<pid>]",
             argv0);
-    for (int i = 0; i < N_PAGES; i++) {
-        fprintf(stderr, " [--%s]", kPages[i].flag);
+    for (int i = 0; i < g_n_pages; i++) {
+        fprintf(stderr, " [--%s]", g_pages[i].flag);
     }
     fprintf(stderr, "\n       %s --menu [<window> <x> <y>] "
                     "[--window=<id>] [--menu-x=<px>] [--menu-y=<px>]\n", argv0);
@@ -334,17 +487,17 @@ static int parse_argv(int argc, char **argv, LaunchArgs *a)
 
     /* kFixedOpts plus one no_argument entry per page, plus getopt's
      * terminator -- assembled here rather than written out statically so
-     * a new kPages row needs no second edit. */
-    struct option opts[N_FIXED_OPTS + N_PAGES + 1];
+     * a new g_pages row needs no second edit. */
+    struct option opts[N_FIXED_OPTS + MAX_PAGES + 1];
     memcpy(opts, kFixedOpts, sizeof(kFixedOpts));
-    for (int i = 0; i < N_PAGES; i++) {
+    for (int i = 0; i < g_n_pages; i++) {
         struct option *o = &opts[N_FIXED_OPTS + i];
-        o->name = kPages[i].flag;
+        o->name = g_pages[i].flag;
         o->has_arg = no_argument;
         o->flag = NULL;
         o->val = OPT_PAGE_BASE + i;
     }
-    memset(&opts[N_FIXED_OPTS + N_PAGES], 0, sizeof(struct option));
+    memset(&opts[N_FIXED_OPTS + g_n_pages], 0, sizeof(struct option));
 
     int c;
     optind = 1;
@@ -357,7 +510,7 @@ static int parse_argv(int argc, char **argv, LaunchArgs *a)
      * no page here yet. */
     opterr = 0;
     while ((c = getopt_long(argc, argv, "", opts, NULL)) != -1) {
-        if (c >= OPT_PAGE_BASE && c < OPT_PAGE_BASE + N_PAGES) {
+        if (c >= OPT_PAGE_BASE && c < OPT_PAGE_BASE + g_n_pages) {
             a->page = c - OPT_PAGE_BASE;
             continue;
         }
@@ -498,18 +651,14 @@ static int parse_json_args(const char *msg, LaunchArgs *a)
     ok &= json_get_str(msg, "fg", a->fg, sizeof(a->fg));
     json_get_str(msg, "font", a->font, sizeof(a->font));
     json_get_int(msg, "font_size", &a->font_size);
-    /* Carried by flag name rather than kPages index: the wire format
+    /* Carried by flag name rather than g_pages index: the wire format
      * stays readable in a socket dump, and an unknown name degrades to
      * the launcher view the same way an unknown argv flag does. */
     char page[32] = "";
     json_get_str(msg, "page", page, sizeof(page));
-    a->page = PAGE_LAUNCHER;
-    for (int i = 0; i < N_PAGES; i++) {
-        if (strcmp(kPages[i].flag, page) == 0) {
-            a->page = i;
-            break;
-        }
-    }
+    /* A flag this daemon doesn't know may be a page module installed
+     * after it started. */
+    a->page = find_page(page, TRUE);
     /* Optional: only --clipboard invocations carry these (as a string,
      * since a window id doesn't fit json_get_int's int). */
     char target[32] = "";
@@ -550,7 +699,7 @@ static int send_to_running(const char *sockpath, const LaunchArgs *a)
                       "\"target_window\":\"%lu\",\"target_filter\":%d,\"target_scope\":\"%s\"}\n",
                       a->anchor_x, a->anchor_y, a->anchor_w, a->anchor_h, a->edge, a->output_x, a->output_y,
                       a->output_w, a->output_h, a->bg, a->fg, font_esc, a->font_size,
-                      a->page >= 0 ? kPages[a->page].flag : "", a->target_window, a->target_filter,
+                      a->page >= 0 ? g_pages[a->page].flag : "", a->target_window, a->target_filter,
                       a->target_scope);
     if (n > 0) {
         ssize_t written = write(fd, msg, (size_t)n);
@@ -1821,7 +1970,7 @@ static void apply_theme(void)
     /* Only pages built so far -- see apply_theme_to_root()'s comment;
      * one not yet requested gets themed the moment ensure_page_built()
      * constructs it instead. */
-    for (int i = 0; i < N_PAGES; i++) {
+    for (int i = 0; i < g_n_pages; i++) {
         if (!g_page_roots[i]) continue;
         apply_theme_to_root(g_page_roots[i]);
     }
@@ -1829,7 +1978,7 @@ static void apply_theme(void)
     gtk_widget_queue_draw(g_window);
 }
 
-/* Constructs kPages[idx]'s root widget on first use and packs it into
+/* Constructs g_pages[idx]'s root widget on first use and packs it into
  * g_main_vbox -- see build_ui()'s comment on why this now happens here
  * instead of eagerly for every page at startup. A no-op past the first
  * call for a given page (its root, once built, is kept for the rest of
@@ -1839,7 +1988,7 @@ static void apply_theme(void)
 static void ensure_page_built(int idx)
 {
     if (g_page_roots[idx]) return;
-    g_page_roots[idx] = kPages[idx].build();
+    g_page_roots[idx] = g_page_module[idx] && !g_pages[idx].build ? load_page_module(idx) : g_pages[idx].build();
     gtk_box_pack_start(GTK_BOX(g_main_vbox), g_page_roots[idx], TRUE, TRUE, 0);
     apply_theme_to_root(g_page_roots[idx]);
 }
@@ -2206,10 +2355,10 @@ static void on_grid_toggle(GtkToggleButton *btn, gpointer data)
 
 /* Shows exactly one of the mutually-exclusive widget groups build_ui()
  * packed into the same vbox: the launcher's entry+content+footer, or a
- * single page's root (see kPages / PROTOCOL.md's mode flags). The
+ * single page's root (see g_pages / PROTOCOL.md's mode flags). The
  * launcher keeps its own fixed WIN_WIDTH/WIN_HEIGHT floor (the
  * split-pane layout is designed around it); a page gets whatever floor
- * its kPages row asks for, or none at all (0/0 -- the calendar), in
+ * its g_pages row asks for, or none at all (0/0 -- the calendar), in
  * which case the window ends up exactly that widget's natural size for
  * the active font/locale. This function is also what sets g_applied_w/h
  * to the real size just asked for (natural/floor, or a saved size grown
@@ -2257,14 +2406,14 @@ static const char *launcher_display_name(void)
 /* Left of g_pin_btn in the shared header -- the empty space there
  * otherwise says nothing about which screen is open. The user's own name
  * on the default launcher view (there's no other natural title for it),
- * or the active page's own title (kPages[].title) on any page. */
+ * or the active page's own title (g_pages[].title) on any page. */
 static void update_header_title(void)
 {
-    const char *text = g_args.page == PAGE_LAUNCHER ? launcher_display_name() : _(kPages[g_args.page].title);
+    const char *text = g_args.page == PAGE_LAUNCHER ? launcher_display_name() : page_title(g_args.page);
     gtk_label_set_text(GTK_LABEL(g_header_title), text);
     /* The window has no title of its own (it's a popup), so without this
      * a screen reader announces an unnamed frame. */
-    xisserve_a11y(g_window, g_args.page == PAGE_LAUNCHER ? _("Menu de programas") : _(kPages[g_args.page].title), NULL);
+    xisserve_a11y(g_window, g_args.page == PAGE_LAUNCHER ? _("Menu de programas") : page_title(g_args.page), NULL);
 }
 
 /* ---- per-page window size persistence -------------------------------------
@@ -2340,7 +2489,7 @@ static void save_sizes(void)
 
 static const char *page_size_key(int page)
 {
-    return page == PAGE_LAUNCHER ? "launcher" : kPages[page].flag;
+    return page == PAGE_LAUNCHER ? "launcher" : g_pages[page].flag;
 }
 
 static gboolean get_saved_size(const char *key, int *w, int *h)
@@ -2380,7 +2529,7 @@ static void apply_view_mode(void)
 
     gboolean launcher = g_args.page == PAGE_LAUNCHER;
 
-    for (int i = 0; i < N_PAGES; i++) {
+    for (int i = 0; i < g_n_pages; i++) {
         if (!g_page_roots[i]) continue;
         gboolean active = !launcher && i == g_args.page;
         if (active) {
@@ -2393,7 +2542,7 @@ static void apply_view_mode(void)
     if (launcher) {
         gtk_widget_set_size_request(g_window, WIN_WIDTH, WIN_HEIGHT);
     } else {
-        const XisservePage *p = &kPages[g_args.page];
+        const XisservePage *p = &g_pages[g_args.page];
         gtk_widget_set_size_request(g_window, p->min_width ? p->min_width : -1, p->min_height ? p->min_height : -1);
     }
     if (launcher) {
@@ -2441,8 +2590,8 @@ static void apply_view_mode(void)
 
 static void leave_current_page(void)
 {
-    if (g_shown_page >= 0 && kPages[g_shown_page].on_hide) {
-        kPages[g_shown_page].on_hide();
+    if (g_shown_page >= 0 && g_pages[g_shown_page].on_hide) {
+        g_pages[g_shown_page].on_hide();
     }
     g_shown_page = PAGE_LAUNCHER;
 }
@@ -2514,7 +2663,7 @@ static void show_launcher(void)
         ensure_page_built(g_args.page);
         /* Before apply_view_mode(): a page's on_show() is what fills it
          * with current data, and the window is sized from the result. */
-        if (kPages[g_args.page].on_show) kPages[g_args.page].on_show();
+        if (g_pages[g_args.page].on_show) g_pages[g_args.page].on_show();
         g_shown_page = g_args.page;
     }
 
@@ -3412,7 +3561,7 @@ static void build_ui(void)
     /* Every page's root eventually goes into this same vbox as the
      * launcher's own widgets, all of them normally hidden --
      * apply_view_mode() shows exactly one group. Not built here, though:
-     * each kPages[i].build() only runs the first time that page is
+     * each g_pages[i].build() only runs the first time that page is
      * actually requested (ensure_page_built(), called from
      * show_launcher()), so a session that only ever opens one or two
      * pages never pays to construct the others. g_page_roots therefore
@@ -3423,15 +3572,12 @@ static void build_ui(void)
 /* ---- --clipboard target / placement ------------------------------------ */
 
 /* Width the clipboard page is placed for when no anchor was given; its
- * kPages minimum, so the popup lands inside the target window's corner. */
+ * g_pages minimum, so the popup lands inside the target window's corner. */
 #define CLIPBOARD_PLACE_W 420
 
 static int page_index(const char *flag)
 {
-    for (int i = 0; i < N_PAGES; i++)
-        if (strcmp(kPages[i].flag, flag) == 0)
-            return i;
-    return PAGE_LAUNCHER;
+    return find_page(flag, FALSE);
 }
 
 static Window active_window(Display *dpy, Window root)
@@ -3543,6 +3689,8 @@ static void clipboard_resolve_target(LaunchArgs *a)
 int main(int argc, char **argv)
 {
     xis_i18n_init("xisserve");
+    /* Before --help, so its usage lists installed page modules too. */
+    init_pages();
 
     /* Checked before gtk_init() -- same reason most CLI tools handle
      * these first: they should work even with no display to connect to,
