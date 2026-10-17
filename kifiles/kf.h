@@ -78,6 +78,7 @@ struct KfPane {
     GList *pending_select;      /* basenames to select once they show up */
     guint thumbs_idle;
     guint stats_idle;
+    guint sel_idle;
     int view;                   /* KfViewMode currently shown */
     int icon_px;                /* size the ICON column was built for */
     GdkRectangle hover_rect;    /* item under the pointer, in view bin-window coordinates */

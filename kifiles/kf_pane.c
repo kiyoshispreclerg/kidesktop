@@ -1004,11 +1004,22 @@ void kf_pane_set_view(KfPane *p, KfViewMode m)
 
 /* ---- view events -------------------------------------------------------- */
 
+static gboolean sel_idle_cb(gpointer data)
+{
+    KfPane *p = data;
+    p->sel_idle = 0;
+    kf_app_pane_changed(p->app, p, KF_CHANGE_SELECTION);
+    return FALSE;
+}
+
+/* Deferred: removing a selected row emits this while the filter and sort
+ * models are still catching up, and reading the selection then crashes. */
 static void on_selection(gpointer a, gpointer data)
 {
     (void)a;
     KfPane *p = data;
-    kf_app_pane_changed(p->app, p, KF_CHANGE_SELECTION);
+    if (!p->sel_idle)
+        p->sel_idle = g_idle_add(sel_idle_cb, p);
 }
 
 static void open_path(KfPane *p, GtkTreePath *path)
@@ -1395,6 +1406,8 @@ void kf_pane_destroy(KfPane *p)
     if (p->dir)
         g_object_unref(p->dir);
     gtk_widget_destroy(p->box);
+    if (p->sel_idle)                    /* destroying the views can still queue it */
+        g_source_remove(p->sel_idle);
     g_hash_table_destroy(p->rows);
     g_hash_table_destroy(p->typedescs);
     if (p->hl_rows)
