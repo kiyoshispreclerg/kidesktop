@@ -124,7 +124,6 @@ static void format_stopwatch(long long ms, char *out, size_t outsz)
 }
 
 static const char *const kDayShort[7] = {N_("Dom"), N_("Seg"), N_("Ter"), N_("Qua"), N_("Qui"), N_("Sex"), N_("S\xc3\xa1" "b")};
-static const char *const kDayLetter[7] = {N_("D"), N_("S"), N_("T"), N_("Q"), N_("Q"), N_("S"), N_("S")};
 static const char *const kDayLong[7] = {N_("Domingo"), N_("Segunda-feira"), N_("Ter\xc3\xa7" "a-feira"), N_("Quarta-feira"),
                                         N_("Quinta-feira"), N_("Sexta-feira"), N_("S\xc3\xa1" "bado")};
 
@@ -375,7 +374,12 @@ GtkWidget *clock_alarms_build(void)
     /* Repeat days; none = rings once. */
     GtkWidget *line2 = gtk_hbox_new(TRUE, 2);
     for (int d = 0; d < 7; d++) {
-        g_alarm_days[d] = gtk_toggle_button_new_with_label(_(kDayLetter[d]));
+        /* The initial of the translated abbreviation: one letter per msgid
+         * can't be right (Q is both Wed and Thu in Portuguese), this is in
+         * any language (S M T W T F S in English). */
+        char letter[8];
+        g_utf8_strncpy(letter, _(kDayShort[d]), 1);
+        g_alarm_days[d] = gtk_toggle_button_new_with_label(letter);
         gtk_widget_set_tooltip_text(g_alarm_days[d], _(kDayLong[d]));
         xisserve_a11y(g_alarm_days[d], _(kDayLong[d]), NULL);
         gtk_box_pack_start(GTK_BOX(line2), g_alarm_days[d], TRUE, TRUE, 0);
