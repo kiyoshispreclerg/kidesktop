@@ -661,6 +661,13 @@ void notifd_closed(unsigned int id, int reason)
     }
 }
 
+void notifd_post(const char *app_name, const char *app_icon, const char *summary, const char *body)
+{
+    NotifAction none[1] = {{"", ""}};
+    ring_append(0, app_name ? app_name : "", app_icon ? app_icon : "", summary ? summary : "", body ? body : "",
+                none, 0, g_default_expire_ms);
+}
+
 void notifd_set_default_expire_ms(int ms)
 {
     if (ms > 0) {

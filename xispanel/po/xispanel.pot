@@ -46,6 +46,18 @@ msgstr ""
 msgid "Entrada de audio: %s"
 msgstr ""
 
+#: jobviewd.c:233
+msgid "Concluído"
+msgstr ""
+
+#: jobviewd.c:233
+msgid "Falhou"
+msgstr ""
+
+#: jobviewd.c:520
+msgid "O aplicativo fechou inesperadamente"
+msgstr ""
+
 #: keynav.c:159
 msgid "Area de trabalho"
 msgstr ""

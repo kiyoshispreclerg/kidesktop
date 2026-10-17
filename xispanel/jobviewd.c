@@ -220,6 +220,20 @@ static void job_drop(Job *j)
     memset(j, 0, sizeof(*j));
 }
 
+/* KJob::KilledJobError: the user cancelled it, nothing to report. */
+#define JOB_ERR_CANCELLED 1
+
+/* What a finished job leaves in the history. */
+static void job_finished(Job *j, unsigned int error, const char *message)
+{
+    if (error == JOB_ERR_CANCELLED) {
+        return;
+    }
+    const char *summary = j->e.title[0] ? j->e.title : j->e.app_name;
+    const char *body = !error ? _("Concluído") : message && message[0] ? message : _("Falhou");
+    notifd_post(j->e.app_name, j->e.app_icon, summary, body);
+}
+
 static void emit(Job *j, const char *signal)
 {
     DBusMessage *sig = p_dbus_message_new_signal(j->path, JOBVIEW_IFACE, signal);
@@ -453,6 +467,16 @@ static void handle_method_call(DBusMessage *msg)
             reply = p_dbus_message_new_method_return(msg);
         }
     } else if ((j = job_by_path(path)) && (!iface || is(iface, JOBVIEW_IFACE)) && is(member, "terminate")) {
+        DBusMessageIter it;
+        dbus_uint32_t error = 0;
+        const char *message = NULL;
+        if (p_dbus_message_iter_init(msg, &it) && p_dbus_message_iter_get_arg_type(&it) == DBUS_TYPE_UINT32) {
+            p_dbus_message_iter_get_basic(&it, &error);
+            if (p_dbus_message_iter_next(&it) && p_dbus_message_iter_get_arg_type(&it) == DBUS_TYPE_STRING) {
+                p_dbus_message_iter_get_basic(&it, &message);
+            }
+        }
+        job_finished(j, error, message);
         job_drop(j);
         if (!p_dbus_message_get_no_reply(msg)) {
             reply = p_dbus_message_new_method_return(msg);
@@ -493,6 +517,7 @@ static void handle_name_owner_changed(DBusMessage *msg)
     }
     for (int i = 0; i < JOBVIEWD_MAX; i++) {
         if (g_jobs[i].in_use && !strcmp(g_jobs[i].sender, name)) {
+            job_finished(&g_jobs[i], 2, _("O aplicativo fechou inesperadamente"));
             job_drop(&g_jobs[i]);
         }
     }

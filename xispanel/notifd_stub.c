@@ -56,6 +56,14 @@ void notifd_set_arrived_callback(NotifArrivedFn fn)
     (void)fn;
 }
 
+void notifd_post(const char *app_name, const char *app_icon, const char *summary, const char *body)
+{
+    (void)app_name;
+    (void)app_icon;
+    (void)summary;
+    (void)body;
+}
+
 void notifd_set_default_expire_ms(int ms)
 {
     (void)ms;

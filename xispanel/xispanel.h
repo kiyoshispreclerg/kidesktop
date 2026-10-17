@@ -1586,6 +1586,9 @@ void notifd_action_invoked(unsigned int id, const char *key);
  * notifd emits the signal itself. toast.c's toast_init() sets it. */
 typedef void (*NotifCloseFn)(unsigned int id);
 void notifd_set_close_callback(NotifCloseFn fn);
+/* A notification from xispanel itself (a finished job, say): goes into the
+ * history and shows a toast exactly like a Notify() call would. */
+void notifd_post(const char *app_name, const char *app_icon, const char *summary, const char *body);
 
 /* ---- job progress: org.kde.JobViewServerV2 server (jobviewd.c) ----
  *
@@ -1593,7 +1596,8 @@ void notifd_set_close_callback(NotifCloseFn fn);
  * of showing its own progress dialog. Same single-owner rule as notifd.c:
  * dormant if something else already owns org.kde.JobViewServer. Jobs are
  * live state, separate from the notification history; one disappears when
- * its app calls terminate(), leaves the bus, or ignores a cancel. */
+ * its app calls terminate(), leaves the bus, or ignores a cancel, leaving a
+ * notifd_post() behind unless the user cancelled it. */
 #define JOBVIEWD_MAX 16
 typedef struct {
     unsigned int id;
