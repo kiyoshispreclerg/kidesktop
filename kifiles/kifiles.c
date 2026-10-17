@@ -246,7 +246,7 @@ void kf_app_navigate(KfApp *app, GFile *dir)
 
 void kf_app_message(KfApp *app, GtkMessageType type, const char *primary, const char *secondary)
 {
-    GtkWidget *d = gtk_message_dialog_new(GTK_WINDOW(app->win), GTK_DIALOG_MODAL, type, GTK_BUTTONS_CLOSE, "%s", primary);
+    GtkWidget *d = gtk_message_dialog_new(kf_app_parent(app), GTK_DIALOG_MODAL, type, GTK_BUTTONS_CLOSE, "%s", primary);
     if (secondary && *secondary)
         gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(d), "%s", secondary);
     gtk_dialog_run(GTK_DIALOG(d));
@@ -744,7 +744,20 @@ void kf_app_quit(KfApp *app)
     if (app->cfg.show_places)
         app->cfg.places_w = gtk_paned_get_position(GTK_PANED(app->main_paned));
     kf_config_save(&app->cfg);
+    /* Running copies/moves finish on their own, with their progress
+     * dialogs standing alone; the last one to end quits (kf_ops.c). */
+    if (app->jobs) {
+        app->quitting = TRUE;
+        gtk_widget_hide(app->win);
+        kf_ops_detach(app);
+        return;
+    }
     gtk_main_quit();
+}
+
+GtkWindow *kf_app_parent(KfApp *app)
+{
+    return app->quitting ? NULL : GTK_WINDOW(app->win);
 }
 
 static void a_quit(GtkAction *a, gpointer d) { (void)a; kf_app_quit(d); }

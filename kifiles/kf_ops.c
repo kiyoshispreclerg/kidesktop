@@ -436,11 +436,12 @@ static gboolean job_poll(gpointer data)
         return FALSE;
     }
     gint64 elapsed = g_get_monotonic_time() - j->started;
-    if (!j->dialog && elapsed > 600 * 1000) {
+    if (!j->dialog && (elapsed > 600 * 1000 || j->app->quitting)) {
         const char *title = j->type == JOB_COPY ? _("Copying") : j->type == JOB_MOVE ? _("Moving") :
                             j->type == JOB_TRASH ? _("Moving to the trash") : _("Deleting");
-        j->dialog = gtk_dialog_new_with_buttons(title, GTK_WINDOW(j->app->win), 0, GTK_STOCK_CANCEL,
+        j->dialog = gtk_dialog_new_with_buttons(title, kf_app_parent(j->app), 0, GTK_STOCK_CANCEL,
                                                 GTK_RESPONSE_CANCEL, NULL);
+        gtk_window_set_icon_name(GTK_WINDOW(j->dialog), "system-file-manager");
         gtk_window_set_default_size(GTK_WINDOW(j->dialog), 380, -1);
         j->label = gtk_label_new("");
         gtk_label_set_ellipsize(GTK_LABEL(j->label), PANGO_ELLIPSIZE_MIDDLE);
@@ -479,6 +480,18 @@ static void job_start(Job *j)
     j->started = g_get_monotonic_time();
     j->thread = g_thread_new("kifiles-job", job_thread, j);
     j->timer = g_timeout_add(100, job_poll, j);
+    j->app->jobs = g_list_append(j->app->jobs, j);
+}
+
+/* With no parent the dialog stands alone (own taskbar entry) instead of
+ * following the hidden window; jobs without one yet get it on the next poll. */
+void kf_ops_detach(KfApp *app)
+{
+    for (GList *l = app->jobs; l; l = l->next) {
+        Job *j = l->data;
+        if (j->dialog)
+            gtk_window_set_transient_for(GTK_WINDOW(j->dialog), NULL);
+    }
 }
 
 static void start_delete_job(KfApp *app, GList *files, gboolean empty_trash);
@@ -486,6 +499,7 @@ static void start_delete_job(KfApp *app, GList *files, gboolean empty_trash);
 static void job_done(Job *j)
 {
     KfApp *app = j->app;
+    app->jobs = g_list_remove(app->jobs, j);
     if (j->dialog)
         gtk_widget_destroy(j->dialog);
     if (j->errors)
@@ -522,7 +536,7 @@ static void job_done(Job *j)
         undo_push(app, U_TRASH, j->results);
         j->results = NULL;
         if (j->untrashable) {
-            GtkWidget *d = gtk_message_dialog_new(GTK_WINDOW(app->win), GTK_DIALOG_MODAL, GTK_MESSAGE_QUESTION,
+            GtkWidget *d = gtk_message_dialog_new(kf_app_parent(app), GTK_DIALOG_MODAL, GTK_MESSAGE_QUESTION,
                                                   GTK_BUTTONS_NONE, "%s",
                                                   _("These items cannot be moved to the trash. Delete them permanently?"));
             gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(d), _("This cannot be undone."));
@@ -542,6 +556,8 @@ static void job_done(Job *j)
     }
     kf_app_status_free(app, 0, 0);      /* free space changed */
     job_free(j);
+    if (app->quitting && !app->jobs)
+        gtk_main_quit();
 }
 
 static Job *job_new(KfApp *app, JobType t)

@@ -114,6 +114,8 @@ struct KfApp {
     KfPane *active;             /* active pane of the current tab */
     GQueue *undo;               /* KfUndo* (kf_ops.c) */
     GtkWidget *op_box;          /* running-operations area of the status bar */
+    GList *jobs;                /* running operations (kf_ops.c) */
+    gboolean quitting;          /* window closed, waiting for the jobs to finish */
     gboolean updating_ui;       /* suppress action callbacks while syncing */
 };
 
@@ -194,6 +196,7 @@ void kf_ops_new_file(KfApp *app, GFile *dir);
 void kf_ops_undo(KfApp *app);
 gboolean kf_ops_can_undo(KfApp *app);
 void kf_ops_init(KfApp *app);
+void kf_ops_detach(KfApp *app);         /* the window is going away: unparent the job dialogs */
 
 /* kf_thumbs.c */
 typedef void (*KfThumbDone)(GFile *file, GdkPixbuf *pb, gpointer data);
@@ -238,6 +241,7 @@ void kf_app_setup_pane(KfApp *app, KfPane *p);              /* view/sort from th
 void kf_app_tab_switched(KfApp *app);                       /* app->tab changed */
 void kf_app_open_window(GFile *dir);                        /* a new kifiles process */
 char *kf_app_dir_name(GFile *dir);                          /* display name for titles */
-void kf_app_quit(KfApp *app);
+void kf_app_quit(KfApp *app);                               /* waits for running jobs */
+GtkWindow *kf_app_parent(KfApp *app);                       /* for dialogs; NULL once closed */
 
 #endif
