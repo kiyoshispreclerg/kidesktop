@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: xispanel\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-17 11:24-0300\n"
+"POT-Creation-Date: 2026-10-17 11:27-0300\n"
 "PO-Revision-Date: 2026-10-01 17:50-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -54,7 +54,7 @@ msgstr "Finished"
 msgid "Falhou"
 msgstr "Failed"
 
-#: jobviewd.c:520
+#: jobviewd.c:523
 msgid "O aplicativo fechou inesperadamente"
 msgstr "The application closed unexpectedly"
 
@@ -140,6 +140,22 @@ msgstr "New device: %s (%s)"
 #, c-format
 msgid "%s desmontado — pode remover com segurança"
 msgstr "%s unmounted — safe to remove"
+
+#: toast.c:913
+msgid "Pausado"
+msgstr "Paused"
+
+#: toast.c:932
+msgid "Pausar"
+msgstr "Pause"
+
+#: toast.c:932
+msgid "Retomar"
+msgstr "Resume"
+
+#: toast.c:937
+msgid "Cancelar"
+msgstr "Cancel"
 
 #: widgets/clock.c:329
 msgid "Configurações de data e hora…"

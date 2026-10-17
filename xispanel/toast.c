@@ -57,6 +57,10 @@
  * someone else sent. */
 #define TOAST_OSD_DEFAULT_MS 2500
 
+/* A job only gets a toast once it has run this long, so a quick copy
+ * doesn't flash one (kifiles waits about as long for its own dialog). */
+#define TOAST_JOB_DELAY_MS 1000
+
 typedef struct {
     /* 0 for an OSD toast (toast_show_osd()) -- notifd.c's own ids start
      * at 1 (see g_next_id in notifd.c), so 0 doubles as "not a real
@@ -120,6 +124,12 @@ typedef struct {
     int n_actions;
     int hover_btn; /* index into actions[] under the pointer, -1 = none */
     int hover_close; /* pointer over the close X */
+    /* A running job's progress (jobviewd.c), 0 otherwise: never expires,
+     * follows the job (see sync_jobs()), and its buttons act on the job
+     * instead of dismissing anything. */
+    unsigned int job_id;
+    unsigned int job_serial; /* JobEntry::serial last painted */
+    cairo_surface_t *own_icon; /* job toasts resolve their own icon: freed with the toast */
 } Toast;
 
 static Toast g_toasts[TOAST_ARRAY_CAP];
@@ -431,7 +441,7 @@ static int toast_button_rect(const Toast *t, int k, double *x, double *y, double
 /* Close X rect; 0 for level-bar OSD toasts, which have nothing to dismiss. */
 static int toast_close_rect(const Toast *t, double *x, double *y)
 {
-    if (t->level >= 0) {
+    if (t->level >= 0 && !t->job_id) {
         return 0;
     }
     *x = TOAST_W - TOAST_CLOSE - 4;
@@ -533,7 +543,7 @@ static void draw_toast(cairo_t *cr, Toast *t)
      * combination isn't worth a layout special case for. */
     if (t->level >= 0) {
         double bar_h = 4;
-        double bar_y = t->h - pad - bar_h;
+        double bar_y = TOAST_H - pad - bar_h; /* above a job toast's buttons */
         int level = t->level > 100 ? 100 : t->level;
         cairo_set_source_rgba(cr, g_fg_r, g_fg_g, g_fg_b, 0.25);
         cairo_rectangle(cr, text_x, bar_y, text_w, bar_h);
@@ -612,6 +622,9 @@ static void paint_toast(Toast *t)
 
 static void destroy_toast_window(Toast *t)
 {
+    if (t->own_icon) {
+        cairo_surface_destroy(t->own_icon);
+    }
     if (t->cr) {
         cairo_destroy(t->cr);
     }
@@ -635,12 +648,32 @@ static void reposition_all(void)
     XFlush(g_dpy);
 }
 
+/* Jobs whose toast went away (closed, or pushed out by newer toasts): their
+ * progress stays in xisserve's --notifications page instead of coming back
+ * here on the next update. Job ids only grow, so a small ring is enough. */
+static unsigned int g_hidden_jobs[JOBVIEWD_MAX];
+static int g_hidden_next = 0;
+
+static int job_hidden(unsigned int id)
+{
+    for (int i = 0; i < JOBVIEWD_MAX; i++) {
+        if (g_hidden_jobs[i] == id) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Removes the toast at array index `idx`, shifting the tail down and
  * restacking everyone still visible. */
 static void remove_toast(int idx)
 {
     if (idx < 0 || idx >= g_n) {
         return;
+    }
+    if (g_toasts[idx].job_id && !job_hidden(g_toasts[idx].job_id)) {
+        g_hidden_jobs[g_hidden_next] = g_toasts[idx].job_id;
+        g_hidden_next = (g_hidden_next + 1) % JOBVIEWD_MAX;
     }
     destroy_toast_window(&g_toasts[idx]);
     for (int i = idx; i < g_n - 1; i++) {
@@ -835,6 +868,119 @@ void toast_show_osd(cairo_surface_t *icon, const char *summary, const char *body
     map_and_show_toast(t);
 }
 
+/* ---- job progress (jobviewd.c) ------------------------------------------ */
+
+static int find_toast_by_job(unsigned int id)
+{
+    for (int i = 0; id && i < g_n; i++) {
+        if (g_toasts[i].job_id == id) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static const JobEntry *find_job(unsigned int id)
+{
+    for (int i = 0; i < jobviewd_count(); i++) {
+        const JobEntry *e = jobviewd_get(i);
+        if (e && e->id == id) {
+            return e;
+        }
+    }
+    return NULL;
+}
+
+static void format_rate(uint64_t bps, char *out, size_t out_sz)
+{
+    const char *units[] = {"B/s", "KiB/s", "MiB/s", "GiB/s"};
+    double v = (double)bps;
+    int u = 0;
+    while (v >= 1024.0 && u < 3) {
+        v /= 1024.0;
+        u++;
+    }
+    snprintf(out, out_sz, u ? "%.1f %s" : "%.0f %s", v, units[u]);
+}
+
+static void fill_job_toast(Toast *t, const JobEntry *e)
+{
+    t->job_serial = e->serial;
+    snprintf(t->app_name, sizeof(t->app_name), "%s", e->app_name);
+    snprintf(t->summary, sizeof(t->summary), "%s", e->title[0] ? e->title : e->app_name);
+    const char *what = e->info[0] ? e->info : e->value1;
+    if (e->suspended) {
+        snprintf(t->body, sizeof(t->body), "%s", _("Pausado"));
+    } else if (e->speed) {
+        char rate[32];
+        format_rate(e->speed, rate, sizeof(rate));
+        snprintf(t->body, sizeof(t->body), "%.200s%s%s", what, what[0] ? "  \xc2\xb7  " : "", rate);
+    } else {
+        snprintf(t->body, sizeof(t->body), "%s", what);
+    }
+    if (e->percent >= 0) {
+        t->level = e->percent;
+    } else if (e->total_bytes) {
+        t->level = (int)(e->processed_bytes * 100 / e->total_bytes);
+    } else {
+        t->level = -1;
+    }
+    t->n_actions = 0;
+    if (e->suspendable) {
+        NotifAction *a = &t->actions[t->n_actions++];
+        snprintf(a->key, sizeof(a->key), "%s", e->suspended ? "resume" : "suspend");
+        snprintf(a->label, sizeof(a->label), "%s", e->suspended ? _("Retomar") : _("Pausar"));
+    }
+    if (e->killable) {
+        NotifAction *a = &t->actions[t->n_actions++];
+        snprintf(a->key, sizeof(a->key), "cancel");
+        snprintf(a->label, sizeof(a->label), "%s", _("Cancelar"));
+    }
+}
+
+static cairo_surface_t *job_icon(const JobEntry *e)
+{
+    const char *name = e->app_icon[0] ? e->app_icon : e->desktop_entry;
+    if (!name[0]) {
+        return NULL;
+    }
+    int size = icon_fetch_size_for(TOAST_ICON);
+    return name[0] == '/' ? load_icon_argb(name, size) : resolve_icon_theme_name(name, size);
+}
+
+/* Toasts follow jobviewd.c's list: one per job that has run for a while
+ * and wasn't closed, repainted when it changes, gone when it ends. */
+static void sync_jobs(uint64_t now)
+{
+    for (int i = g_n - 1; i >= 0; i--) {
+        if (g_toasts[i].job_id && !find_job(g_toasts[i].job_id)) {
+            remove_toast(i);
+        }
+    }
+    for (int k = 0; k < jobviewd_count(); k++) {
+        const JobEntry *e = jobviewd_get(k);
+        if (!e) {
+            continue;
+        }
+        int i = find_toast_by_job(e->id);
+        if (i >= 0) {
+            if (g_toasts[i].job_serial != e->serial) {
+                fill_job_toast(&g_toasts[i], e);
+                paint_toast(&g_toasts[i]);
+                XFlush(g_dpy);
+            }
+        } else if (now >= e->created_ms + TOAST_JOB_DELAY_MS && !job_hidden(e->id)) {
+            int h = e->killable || e->suspendable ? TOAST_H + TOAST_BTN_ROW : TOAST_H;
+            Toast *t = claim_toast_slot(h);
+            t->job_id = e->id;
+            t->own_icon = job_icon(e);
+            t->icon = t->own_icon;
+            fill_job_toast(t, e);
+            map_and_show_toast(t);
+        }
+    }
+}
+
 void toast_init(void)
 {
     notifd_set_arrived_callback(toast_on_arrived);
@@ -1003,6 +1149,7 @@ void toast_set_border_radius(int r)
 
 void toast_tick(uint64_t now)
 {
+    sync_jobs(now);
     /* Walk front-to-back and only ever remove one per call -- remove_toast()
      * already restacks everyone else, and another expiry (if any) gets
      * caught on the very next tick, which is cheap enough (main loop ticks
@@ -1020,6 +1167,15 @@ void toast_tick(uint64_t now)
 uint64_t toast_next_wake_ms(void)
 {
     uint64_t soonest = 0;
+    for (int k = 0; k < jobviewd_count(); k++) {
+        const JobEntry *e = jobviewd_get(k);
+        if (e && find_toast_by_job(e->id) < 0 && !job_hidden(e->id)) {
+            uint64_t due = e->created_ms + TOAST_JOB_DELAY_MS;
+            if (soonest == 0 || due < soonest) {
+                soonest = due;
+            }
+        }
+    }
     for (int i = 0; i < g_n; i++) {
         if (g_toasts[i].hovered || g_toasts[i].expire_ms == 0) {
             continue;
@@ -1037,6 +1193,17 @@ int toast_handle_event(const XEvent *ev)
         for (int i = 0; i < g_n; i++) {
             if (g_toasts[i].win == ev->xbutton.window) {
                 Toast *t = &g_toasts[i];
+                if (t->job_id) {
+                    /* The X hides it, a button asks the app, the body does
+                     * nothing: the job runs on either way. */
+                    int k = toast_button_at(t, ev->xbutton.x, ev->xbutton.y);
+                    if (toast_close_at(t, ev->xbutton.x, ev->xbutton.y)) {
+                        remove_toast(i);
+                    } else if (k >= 0 && ev->xbutton.button == Button1) {
+                        jobviewd_action(t->job_id, t->actions[k].key);
+                    }
+                    return 1;
+                }
                 if (toast_close_at(t, ev->xbutton.x, ev->xbutton.y)) {
                     /* just clear it: no action, but it counts as seen */
                     notifd_mark_read(t->notif_id);

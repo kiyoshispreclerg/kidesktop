@@ -1612,6 +1612,8 @@ typedef struct {
     uint64_t speed;                  /* bytes per second, 0 = unknown */
     uint64_t processed_bytes, total_bytes, processed_files, total_files;
     int killable, suspendable, suspended;
+    uint64_t created_ms;             /* now_ms() when the app asked for it */
+    unsigned int serial;             /* bumped on every change, for cheap "did it change" checks */
 } JobEntry;
 void jobviewd_poll(uint64_t now); /* call periodically from the main loop, like notifd_poll() */
 int jobviewd_fd(void);   /* bus fd for select(), -1 until owning the name */

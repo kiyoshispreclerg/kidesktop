@@ -390,6 +390,8 @@ static DBusMessage *handle_request_view(DBusMessage *msg)
     j->in_use = 1;
     j->e.id = g_next_id++;
     j->e.percent = -1;
+    j->e.created_ms = now_ms();
+    j->e.serial = 1;
     snprintf(j->path, sizeof(j->path), JOBVIEW_PATH_FMT, j->e.id);
     const char *sender = p_dbus_message_get_sender(msg);
     snprintf(j->sender, sizeof(j->sender), "%s", sender ? sender : "");
@@ -431,6 +433,7 @@ static void handle_update(Job *j, DBusMessage *msg)
     if (p_dbus_message_iter_init(msg, &it)) {
         for_each_property(&it, apply_property, &j->e);
     }
+    j->e.serial++;
 }
 
 static const char *const g_server_xml =
