@@ -560,6 +560,10 @@ static const WidgetField LAUNCHER_FIELDS[] = {
     WF_STR("cmd_right", "Comando (clique direito)", ""),
     WF_STR("cmd_scroll_up", "Comando (rolar para cima)", ""),
     WF_STR("cmd_scroll_down", "Comando (rolar para baixo)", ""),
+    WF_STR("cmd_icon", "Comando que informa o icone (nome ou caminho)", ""),
+    WF_STR("cmd_text", "Comando que informa o texto ao lado do icone", ""),
+    WF_STR("cmd_tooltip", "Comando que informa a dica", ""),
+    WF_INT("interval", "Intervalo dos comandos acima (ms)", "5000", 500, 3600000),
 };
 static const WidgetField VOLUME_FIELDS[] = {
     WF_INT("step", "Passo do volume (%)", "5", 1, 50),
