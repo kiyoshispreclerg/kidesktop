@@ -228,6 +228,15 @@ static gboolean delete_recursive(Job *j, GFile *f)
     return TRUE;
 }
 
+/* A copy that failed or was cancelled midway leaves a truncated file at dst
+ * that looks like a finished one. Overwrites are safe (GIO writes a temporary
+ * and keeps the old file), and EXISTS means dst was never ours. */
+static void drop_partial(GFile *dst, gboolean replace, const GError *err)
+{
+    if (!replace && !g_error_matches(err, G_IO_ERROR, G_IO_ERROR_EXISTS))
+        g_file_delete(dst, NULL, NULL);
+}
+
 static gboolean copy_recursive(Job *j, GFile *src, GFile *dst, gboolean replace)
 {
     if (g_cancellable_is_cancelled(j->cancel))
@@ -285,6 +294,7 @@ static gboolean copy_recursive(Job *j, GFile *src, GFile *dst, gboolean replace)
     if (replace)
         fl |= G_FILE_COPY_OVERWRITE;
     if (!g_file_copy(src, dst, fl, j->cancel, on_progress, &pr, &err)) {
+        drop_partial(dst, replace, err);
         if (!g_error_matches(err, G_IO_ERROR, G_IO_ERROR_CANCELLED))
             add_error(j, src, err);
         g_clear_error(&err);
@@ -320,6 +330,7 @@ static void run_item(Job *j, Item *it)
             if (copy_recursive(j, it->src, it->dst, it->replace) && delete_recursive(j, it->src))
                 j->results = g_list_append(j->results, pair_new(it->src, it->dst));
         } else {
+            drop_partial(it->dst, it->replace, err);    /* across file systems it copied first */
             if (!g_error_matches(err, G_IO_ERROR, G_IO_ERROR_CANCELLED))
                 add_error(j, it->src, err);
             g_clear_error(&err);
