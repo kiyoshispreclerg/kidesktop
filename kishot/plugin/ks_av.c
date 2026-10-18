@@ -135,7 +135,10 @@ typedef struct {
     AVDRMFrameDescriptor desc[KS_MAX_DMABUF];
     int ndesc;
     AVFrame *filt;
-    AVPacket *pkt;
+    /* One packet per encoder: video is written from the capture thread and
+     * audio from the sound thread, each receiving into its own packet. The
+     * lock below only covers the muxer. */
+    AVPacket *vpkt, *apkt;
     pthread_mutex_t lock;
     int64_t last_vpts;
     int width, height, fps;
@@ -228,17 +231,18 @@ static int mux(Enc *e, AVPacket *pkt)
 
 static int write_packets(Enc *e, AVCodecContext *enc, AVStream *st)
 {
+    AVPacket *pkt = enc == e->venc ? e->vpkt : e->apkt;
     for (;;) {
-        int ret = avcodec_receive_packet(enc, e->pkt);
+        int ret = avcodec_receive_packet(enc, pkt);
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
             return 0;
         if (ret < 0)
             return ret;
-        e->pkt->stream_index = st->index;
+        pkt->stream_index = st->index;
         pthread_mutex_lock(&e->lock);
-        ret = mux(e, e->pkt);
+        ret = mux(e, pkt);
         pthread_mutex_unlock(&e->lock);
-        av_packet_unref(e->pkt);
+        av_packet_unref(pkt);
         if (ret < 0)
             return ret;
     }
@@ -440,7 +444,8 @@ static void *api_open(const KsEncParams *p, char *err, size_t errlen)
     e->height = p->height;
     e->fps = p->fps;
     e->last_vpts = -1;
-    e->pkt = av_packet_alloc();
+    e->vpkt = av_packet_alloc();
+    e->apkt = av_packet_alloc();
     e->filt = av_frame_alloc();
 
     const char *fmtname = !strcmp(p->container, "mkv") ? "matroska" : p->container;
@@ -700,7 +705,8 @@ static int api_close(void *h, char *err, size_t errlen)
             close(e->desc[i].objects[0].fd);
     av_frame_free(&e->filt);
     av_frame_free(&e->aframe);
-    av_packet_free(&e->pkt);
+    av_packet_free(&e->vpkt);
+    av_packet_free(&e->apkt);
     free(e->abuf);
     pthread_mutex_destroy(&e->lock);
     free(e);
