@@ -50,7 +50,9 @@ always hide.
 
 ## How recording works
 
-Capture, cheapest first:
+Capture, cheapest first (GPU copy uses a ring of three buffers and encodes the frame
+copied one capture earlier, so the encoder never reads a buffer the server may still be
+writing or about to overwrite):
 
 - **GPU copy** -- the X server `CopyArea`s the root window into a pixmap of
   kishot's, which DRI3 exports once as a dma-buf. The libav plugin maps it

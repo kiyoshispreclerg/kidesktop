@@ -11,12 +11,13 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define KS_PLUGIN_ABI 1
+#define KS_PLUGIN_ABI 2
+#define KS_MAX_DMABUF 4
 #define KS_PLUGIN_ENTRY "ks_plugin_entry"
 
 typedef enum {
     KS_INPUT_CPU,       /* BGRX frames in memory */
-    KS_INPUT_DMABUF,    /* one dma-buf (XRGB8888, implicit modifier) reused for every frame */
+    KS_INPUT_DMABUF,    /* a ring of dma-bufs (XRGB8888, implicit modifier), frames pick one by index */
 } KsInput;
 
 typedef struct {
@@ -28,8 +29,10 @@ typedef struct {
     int audio;                  /* expect ks_plugin_api.audio() calls */
     int sample_rate, channels;  /* S16 interleaved */
     KsInput input;
-    /* KS_INPUT_DMABUF only; the plugin dups the fd */
-    int dmabuf_fd;
+    /* KS_INPUT_DMABUF only; the plugin dups the fds. All buffers have the
+     * same size and stride. */
+    int dmabuf_n;
+    int dmabuf_fd[KS_MAX_DMABUF];
     int dmabuf_stride;
     uint64_t dmabuf_size;
 } KsEncParams;
@@ -50,7 +53,8 @@ typedef struct {
     const char *(*describe)(void *h);
     /* pts in microseconds since the start of the recording */
     int (*video_cpu)(void *h, const uint8_t *bgrx, int stride, int64_t pts_us);
-    int (*video_dmabuf)(void *h, int64_t pts_us);
+    /* encode the dma-buf `index` (0..dmabuf_n-1) */
+    int (*video_dmabuf)(void *h, int index, int64_t pts_us);
     int (*audio)(void *h, const int16_t *pcm, int frames, int64_t pts_us);
     /* flushes, writes the trailer and frees; 0 on success */
     int (*close)(void *h, char *err, size_t errlen);

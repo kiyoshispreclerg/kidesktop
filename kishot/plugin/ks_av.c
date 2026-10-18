@@ -132,7 +132,8 @@ typedef struct {
     AVFilterGraph *graph;
     AVFilterContext *src, *sink;
     AVBufferRef *drm_device, *drm_frames;
-    AVDRMFrameDescriptor desc;
+    AVDRMFrameDescriptor desc[KS_MAX_DMABUF];
+    int ndesc;
     AVFrame *filt;
     AVPacket *pkt;
     pthread_mutex_t lock;
@@ -462,16 +463,20 @@ static void *api_open(const KsEncParams *p, char *err, size_t errlen)
             errf(err, errlen, "DRM frames", ret);
             goto fail;
         }
-        e->desc.nb_objects = 1;
-        e->desc.objects[0].fd = dup(p->dmabuf_fd);
-        e->desc.objects[0].size = p->dmabuf_size;
-        e->desc.objects[0].format_modifier = DRM_MOD_INVALID;
-        e->desc.nb_layers = 1;
-        e->desc.layers[0].format = DRM_XRGB8888;
-        e->desc.layers[0].nb_planes = 1;
-        e->desc.layers[0].planes[0].object_index = 0;
-        e->desc.layers[0].planes[0].offset = 0;
-        e->desc.layers[0].planes[0].pitch = p->dmabuf_stride;
+        e->ndesc = p->dmabuf_n < KS_MAX_DMABUF ? p->dmabuf_n : KS_MAX_DMABUF;
+        for (int i = 0; i < e->ndesc; i++) {
+            AVDRMFrameDescriptor *d = &e->desc[i];
+            d->nb_objects = 1;
+            d->objects[0].fd = dup(p->dmabuf_fd[i]);
+            d->objects[0].size = p->dmabuf_size;
+            d->objects[0].format_modifier = DRM_MOD_INVALID;
+            d->nb_layers = 1;
+            d->layers[0].format = DRM_XRGB8888;
+            d->layers[0].nb_planes = 1;
+            d->layers[0].planes[0].object_index = 0;
+            d->layers[0].planes[0].offset = 0;
+            d->layers[0].planes[0].pitch = p->dmabuf_stride;
+        }
     }
 
     if (build_graph(e, p, codec, err, errlen) < 0)
@@ -568,15 +573,18 @@ static int api_video_cpu(void *h, const uint8_t *bgrx, int stride, int64_t pts_u
     return ret < 0 ? -1 : 0;
 }
 
-static int api_video_dmabuf(void *h, int64_t pts_us)
+static int api_video_dmabuf(void *h, int index, int64_t pts_us)
 {
     Enc *e = h;
+    if (index < 0 || index >= e->ndesc)
+        return -1;
     AVFrame *f = av_frame_alloc();
     f->format = AV_PIX_FMT_DRM_PRIME;
     f->width = e->width;
     f->height = e->height;
-    f->data[0] = (uint8_t *)&e->desc;
-    f->buf[0] = av_buffer_create((uint8_t *)&e->desc, sizeof(e->desc), noop_free, NULL, AV_BUFFER_FLAG_READONLY);
+    f->data[0] = (uint8_t *)&e->desc[index];
+    f->buf[0] = av_buffer_create((uint8_t *)&e->desc[index], sizeof(e->desc[index]), noop_free, NULL,
+                                 AV_BUFFER_FLAG_READONLY);
     f->hw_frames_ctx = av_buffer_ref(e->drm_frames);
     f->pts = pts_us;
     int ret = push_video(e, f);
@@ -687,8 +695,9 @@ static int api_close(void *h, char *err, size_t errlen)
     avfilter_graph_free(&e->graph);
     av_buffer_unref(&e->drm_frames);
     av_buffer_unref(&e->drm_device);
-    if (e->desc.nb_objects && e->desc.objects[0].fd >= 0)
-        close(e->desc.objects[0].fd);
+    for (int i = 0; i < e->ndesc; i++)
+        if (e->desc[i].nb_objects && e->desc[i].objects[0].fd >= 0)
+            close(e->desc[i].objects[0].fd);
     av_frame_free(&e->filt);
     av_frame_free(&e->aframe);
     av_packet_free(&e->pkt);

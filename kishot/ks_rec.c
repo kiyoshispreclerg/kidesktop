@@ -343,6 +343,8 @@ static int render_format(xcb_connection_t *c, int depth, gboolean alpha, xcb_ren
 
 /* ---- recording state ----------------------------------------------------- */
 
+#define KS_RING 3
+
 typedef struct {
     KsRect area;
     int fps;
@@ -363,10 +365,12 @@ typedef struct {
     /* X */
     xcb_connection_t *c;
     xcb_window_t root;
-    xcb_pixmap_t pixmap;
+    /* GPU copy: a ring, so the encoder reads a frame the server finished
+     * copying one capture ago while the next copy goes to another buffer */
+    xcb_pixmap_t pixmap[KS_RING];
+    xcb_render_picture_t pic[KS_RING];
+    int dmabuf[KS_RING];
     xcb_gcontext_t gc_copy, gc_black;
-    xcb_render_picture_t pic;
-    int dmabuf;
     int stride;
     uint64_t dsize;
     int shmid;
@@ -481,45 +485,56 @@ static void blend_cursor_cpu(Rec *r, uint8_t *buf, int stride, int px, int py)
 
 static gboolean setup_gpu(Rec *r, const xcb_screen_t *scr)
 {
-    r->pixmap = xcb_generate_id(r->c);
-    xcb_generic_error_t *e = xcb_request_check(r->c,
-        xcb_create_pixmap_checked(r->c, scr->root_depth, r->pixmap, r->root, r->area.w, r->area.h));
-    if (e) {
-        free(e);
-        r->pixmap = 0;
-        return FALSE;
+    for (int i = 0; i < KS_RING; i++) {
+        r->dmabuf[i] = -1;
+        r->pixmap[i] = xcb_generate_id(r->c);
+        xcb_generic_error_t *e = xcb_request_check(r->c,
+            xcb_create_pixmap_checked(r->c, scr->root_depth, r->pixmap[i], r->root, r->area.w, r->area.h));
+        if (e) {
+            free(e);
+            r->pixmap[i] = 0;
+            return FALSE;
+        }
     }
     /* IncludeInferiors, or the copy skips every top level window; no
      * graphics exposures, or each copy queues a NoExpose nobody reads */
     uint32_t v[] = { XCB_SUBWINDOW_MODE_INCLUDE_INFERIORS, 0 };
     r->gc_copy = xcb_generate_id(r->c);
-    xcb_create_gc(r->c, r->gc_copy, r->pixmap, XCB_GC_SUBWINDOW_MODE | XCB_GC_GRAPHICS_EXPOSURES, v);
+    xcb_create_gc(r->c, r->gc_copy, r->pixmap[0], XCB_GC_SUBWINDOW_MODE | XCB_GC_GRAPHICS_EXPOSURES, v);
     uint32_t black[] = { 0 };
     r->gc_black = xcb_generate_id(r->c);
-    xcb_create_gc(r->c, r->gc_black, r->pixmap, XCB_GC_FOREGROUND, black);
+    xcb_create_gc(r->c, r->gc_black, r->pixmap[0], XCB_GC_FOREGROUND, black);
     xcb_render_pictformat_t fmt;
-    if (render_format(r->c, scr->root_depth, FALSE, &fmt)) {
-        r->pic = xcb_generate_id(r->c);
-        xcb_render_create_picture(r->c, r->pic, r->pixmap, fmt, 0, NULL);
+    gboolean have_fmt = render_format(r->c, scr->root_depth, FALSE, &fmt);
+    for (int i = 0; i < KS_RING; i++) {
+        if (have_fmt) {
+            r->pic[i] = xcb_generate_id(r->c);
+            xcb_render_create_picture(r->c, r->pic[i], r->pixmap[i], fmt, 0, NULL);
+        }
+        r->dmabuf[i] = pixmap_dmabuf(r->c, r->pixmap[i], &r->stride, &r->dsize);
+        if (r->dmabuf[i] < 0)
+            return FALSE;
     }
-    r->dmabuf = pixmap_dmabuf(r->c, r->pixmap, &r->stride, &r->dsize);
-    return r->dmabuf >= 0;
+    return TRUE;
 }
 
 static void free_gpu(Rec *r)
 {
-    if (r->dmabuf >= 0)
-        close(r->dmabuf);
-    r->dmabuf = -1;
-    if (r->pic)
-        xcb_render_free_picture(r->c, r->pic);
+    for (int i = 0; i < KS_RING; i++) {
+        if (r->dmabuf[i] >= 0)
+            close(r->dmabuf[i]);
+        r->dmabuf[i] = -1;
+        if (r->pic[i])
+            xcb_render_free_picture(r->c, r->pic[i]);
+        if (r->pixmap[i])
+            xcb_free_pixmap(r->c, r->pixmap[i]);
+        r->pic[i] = r->pixmap[i] = 0;
+    }
     if (r->gc_copy)
         xcb_free_gc(r->c, r->gc_copy);
     if (r->gc_black)
         xcb_free_gc(r->c, r->gc_black);
-    if (r->pixmap)
-        xcb_free_pixmap(r->c, r->pixmap);
-    r->pic = r->gc_copy = r->gc_black = r->pixmap = 0;
+    r->gc_copy = r->gc_black = 0;
 }
 
 static gboolean setup_shm(Rec *r)
@@ -761,7 +776,7 @@ static void audio_cb(const int16_t *pcm, int frames, void *data)
 
 /* ---- capture thread ------------------------------------------------------ */
 
-static void paint_censor_gpu(Rec *r)
+static void paint_censor_gpu(Rec *r, int slot)
 {
     int n;
     KsRect *rs = ks_censor_rects(&n);
@@ -770,7 +785,7 @@ static void paint_censor_gpu(Rec *r)
     xcb_rectangle_t *xr = g_new(xcb_rectangle_t, n);
     for (int i = 0; i < n; i++)
         xr[i] = (xcb_rectangle_t){ rs[i].x - r->area.x, rs[i].y - r->area.y, rs[i].w, rs[i].h };
-    xcb_poly_fill_rectangle(r->c, r->pixmap, r->gc_black, n, xr);
+    xcb_poly_fill_rectangle(r->c, r->pixmap[slot], r->gc_black, n, xr);
     g_free(xr);
     g_free(rs);
 }
@@ -813,6 +828,8 @@ static gpointer capture_thread(gpointer data)
     const gint64 frame_us = 1000000 / r->fps;
     gint64 next = r->start_us;
     gint64 last_index = -1;
+    int ring_next = 0, pend_slot = -1;
+    gint64 pend_index = 0;
 
     while (!g_atomic_int_get(&r->stop) && !r->error) {
         gint64 now = g_get_monotonic_time();
@@ -839,19 +856,24 @@ static gpointer capture_thread(gpointer data)
         }
 
         if (r->use_gpu) {
-            xcb_copy_area(r->c, r->root, r->pixmap, r->gc_copy, r->area.x, r->area.y, 0, 0,
+            int slot = ring_next++ % KS_RING;
+            xcb_copy_area(r->c, r->root, r->pixmap[slot], r->gc_copy, r->area.x, r->area.y, 0, 0,
                           r->area.w, r->area.h);
-            paint_censor_gpu(r);
-            if (ptr_ok && r->cur_pic && r->pic)
-                xcb_render_composite(r->c, XCB_RENDER_PICT_OP_OVER, r->cur_pic, XCB_NONE, r->pic, 0, 0, 0, 0,
+            paint_censor_gpu(r, slot);
+            if (ptr_ok && r->cur_pic && r->pic[slot])
+                xcb_render_composite(r->c, XCB_RENDER_PICT_OP_OVER, r->cur_pic, XCB_NONE, r->pic[slot], 0, 0, 0, 0,
                                      px - r->cur_xhot - r->area.x, py - r->cur_yhot - r->area.y,
                                      r->cur_w, r->cur_h);
-            /* a round trip: once the reply is here the server has run the
-             * copy and flushed it to the GPU; the dma-buf's implicit fence
-             * orders the encoder's read after it */
+            /* a round trip: the server has at least started the copy */
             free(xcb_get_input_focus_reply(r->c, xcb_get_input_focus(r->c), NULL));
-            if (plugin->video_dmabuf(r->ph, index * 1000000 / r->fps) < 0)
+            /* Encode the frame copied one capture ago, not this one: the
+             * encoder reads a buffer the GPU finished long since, and the
+             * next copy lands in a third buffer nobody is reading. The
+             * same one-frame lag is what makes OBS's reads safe. */
+            if (pend_slot >= 0 && plugin->video_dmabuf(r->ph, pend_slot, pend_index * 1000000 / r->fps) < 0)
                 set_error(r, _("the video encoder failed"));
+            pend_slot = slot;
+            pend_index = index;
         } else {
             xcb_generic_error_t *e = NULL;
             xcb_shm_get_image_reply_t *img = xcb_shm_get_image_reply(r->c,
@@ -883,6 +905,10 @@ static gpointer capture_thread(gpointer data)
 
     if (ks_audio_available())
         ks_audio_stop();
+    /* the last frame is still waiting for its turn */
+    if (r->ph && pend_slot >= 0 && !r->error &&
+        plugin->video_dmabuf(r->ph, pend_slot, pend_index * 1000000 / r->fps) < 0)
+        set_error(r, _("the video encoder failed"));
     if (r->ph) {
         char err[256] = "";
         if (plugin->close(r->ph, err, sizeof(err)) != 0)
@@ -959,7 +985,8 @@ gboolean ks_rec_start(const KsConfig *cfg, const KsRect *area, const char *path,
     r->path = g_strdup(path);
     r->done = done;
     r->done_data = data;
-    r->dmabuf = -1;
+    for (int i = 0; i < KS_RING; i++)
+        r->dmabuf[i] = -1;
     r->cli_in = -1;
     r->cli_audio = -1;
     r->shmid = -1;
@@ -1015,8 +1042,10 @@ gboolean ks_rec_start(const KsConfig *cfg, const KsRect *area, const char *path,
             .container = cfg->container, .vcodec = enc, .quality = cfg->quality,
             .audio = want_audio && caps.audio, .sample_rate = KS_AUDIO_RATE, .channels = KS_AUDIO_CHANNELS,
             .input = r->use_gpu ? KS_INPUT_DMABUF : KS_INPUT_CPU,
-            .dmabuf_fd = r->dmabuf, .dmabuf_stride = r->stride, .dmabuf_size = r->dsize,
+            .dmabuf_n = r->use_gpu ? KS_RING : 0, .dmabuf_stride = r->stride, .dmabuf_size = r->dsize,
         };
+        for (int i = 0; r->use_gpu && i < KS_RING; i++)
+            p.dmabuf_fd[i] = r->dmabuf[i];
         char err[256] = "";
         r->ph = plugin->open(&p, err, sizeof(err));
         if (!r->ph && r->use_gpu) {
