@@ -561,7 +561,7 @@ static const EffectSchema EFFECT_SCHEMAS[] = {
 };
 #undef SCHEMA
 #define N_EFFECT_SCHEMAS ((int)(sizeof(EFFECT_SCHEMAS) / sizeof(EFFECT_SCHEMAS[0])))
-#define EFFECT_MAX_FIELDS 20 /* cube has the most, at 19 */
+#define EFFECT_MAX_FIELDS 40 /* cube has the most, at 22 */
 
 static const char *const EFFECT_NAMES[] = {
     "geometry", "fade-in", "fade-out", "scale-in", "scale-out", "shade", "minimize", "magic-lamp",
@@ -744,7 +744,7 @@ static void rebuild_fields(EffectDialogState *st, const OptToken *toks, int n_to
     g_free(name);
 
     GtkWidget *table = gtk_table_new(st->schema->n_fields > 0 ? st->schema->n_fields : 1, 2, FALSE);
-    for (int i = 0; i < st->schema->n_fields; i++) {
+    for (int i = 0; i < st->schema->n_fields && i < EFFECT_MAX_FIELDS; i++) {
         const EffectField *f = &st->schema->fields[i];
         const char *val = n_toks > 0 ? opts_tokens_find(toks, n_toks, f->key) : NULL;
         st->field_widgets[i] = build_field_widget(f, val);
@@ -821,7 +821,7 @@ static void open_effect_dialog(GtkTreeIter *iter)
     gint resp = gtk_dialog_run(GTK_DIALOG(dialog));
     if (resp == GTK_RESPONSE_OK) {
         char opts[1536] = "";
-        for (int i = 0; i < st.schema->n_fields; i++) {
+        for (int i = 0; i < st.schema->n_fields && i < EFFECT_MAX_FIELDS; i++) {
             char valbuf[512];
             field_widget_value(&st.schema->fields[i], st.field_widgets[i], valbuf, sizeof(valbuf));
             opts_append(opts, sizeof(opts), st.schema->fields[i].key, valbuf);
