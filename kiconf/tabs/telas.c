@@ -136,7 +136,6 @@ static GtkWidget *g_screens_off_view;
  * every selection change or re-detect; the *_frame wrapping it is hidden
  * entirely when the selected output has none of that kind. */
 static GtkWidget *g_screens_extra_editable_frame, *g_screens_extra_editable_box;
-static GtkWidget *g_screens_extra_readonly_frame, *g_screens_extra_readonly_box;
 
 /* ---- Telas tab: xrandr layout, draggable canvas ----------------------- */
 /*
@@ -1089,10 +1088,8 @@ static void clear_container(GtkWidget *box)
 static void rebuild_extra_props_ui(void)
 {
     clear_container(g_screens_extra_editable_box);
-    clear_container(g_screens_extra_readonly_box);
     if (g_screens_selected < 0) {
         gtk_widget_hide(g_screens_extra_editable_frame);
-        gtk_widget_hide(g_screens_extra_readonly_frame);
         return;
     }
     ScreenOutput *o = &g_outputs[g_screens_selected];
@@ -1106,40 +1103,25 @@ static void rebuild_extra_props_ui(void)
             labeled_row(table, i, label, w);
         }
         gtk_box_pack_start(GTK_BOX(g_screens_extra_editable_box), table, FALSE, FALSE, 0);
-        gtk_widget_show_all(g_screens_extra_editable_box);
-        gtk_widget_show(g_screens_extra_editable_frame);
-    } else {
-        gtk_widget_hide(g_screens_extra_editable_frame);
     }
 
     if (o->n_extra_readonly > 0) {
-        /* 2 side-by-side label:value columns instead of one long single
-         * column list -- read-only properties can pile up (a dozen+ on
-         * some drivers), same split xisconf.py's own form_extra_readonly/
-         * form_extra_readonly2 does. */
-        int half = (o->n_extra_readonly + 1) / 2;
-        int n2 = o->n_extra_readonly - half;
-        GtkWidget *hbox = gtk_hbox_new(FALSE, 12);
-        GtkWidget *t1 = gtk_table_new(half > 0 ? half : 1, 2, FALSE);
-        GtkWidget *t2 = gtk_table_new(n2 > 0 ? n2 : 1, 2, FALSE);
+        GtkWidget *t = gtk_table_new(o->n_extra_readonly, 2, FALSE);
         for (int i = 0; i < o->n_extra_readonly; i++) {
             char label[64];
             snprintf(label, sizeof(label), "%s:", o->extra_readonly[i].name);
             GtkWidget *val = gtk_label_new(o->extra_readonly[i].value);
             gtk_misc_set_alignment(GTK_MISC(val), 0.0, 0.5);
-            if (i < half) {
-                labeled_row(t1, i, label, val);
-            } else {
-                labeled_row(t2, i - half, label, val);
-            }
+            labeled_row(t, i, label, val);
         }
-        gtk_box_pack_start(GTK_BOX(hbox), t1, TRUE, TRUE, 0);
-        gtk_box_pack_start(GTK_BOX(hbox), t2, TRUE, TRUE, 0);
-        gtk_box_pack_start(GTK_BOX(g_screens_extra_readonly_box), hbox, FALSE, FALSE, 0);
-        gtk_widget_show_all(g_screens_extra_readonly_box);
-        gtk_widget_show(g_screens_extra_readonly_frame);
+        gtk_box_pack_start(GTK_BOX(g_screens_extra_editable_box), t, FALSE, FALSE, 0);
+    }
+
+    if (o->n_extra_props > 0 || o->n_extra_readonly > 0) {
+        gtk_widget_show_all(g_screens_extra_editable_box);
+        gtk_widget_show(g_screens_extra_editable_frame);
     } else {
-        gtk_widget_hide(g_screens_extra_readonly_frame);
+        gtk_widget_hide(g_screens_extra_editable_frame);
     }
 }
 
@@ -1868,10 +1850,11 @@ GtkWidget *build_telas_tab(void)
      * rows on some drivers, which made the tab very tall stacked
      * vertically; each of the 2 property sections scrolls internally
      * (fixed height) instead of growing the tab further. */
-    GtkWidget *sections_row = gtk_hbox_new(FALSE, 8);
-    gtk_box_pack_start(GTK_BOX(sections_row), frame_with("Saida selecionada", form_cols), TRUE, TRUE, 0);
+    GtkWidget *sections_row = gtk_hpaned_new();
+    gtk_paned_pack1(GTK_PANED(sections_row), frame_with("Saida selecionada", form_cols), FALSE, FALSE);
 
-    /* Advanced (editable) driver properties -- TearFree, underscan,
+    /* Advanced driver properties (editable ones first, then the read-only
+     * ones below them in the same scroll) -- TearFree, underscan,
      * scaling mode, PRIME Synchronization, HDCP, max bpc, non-desktop,
      * etc., whatever `xrandr --verbose` exposes for the selected output.
      * Hidden entirely when it has none (see rebuild_extra_props_ui()). */
@@ -1884,25 +1867,13 @@ GtkWidget *build_telas_tab(void)
      * 700px minimum. */
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(extra_editable_scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(extra_editable_scroll), g_screens_extra_editable_box);
-    gtk_widget_set_size_request(extra_editable_scroll, 90, 90);
+    gtk_widget_set_size_request(extra_editable_scroll, 90, 140);
     /* Short title -- GtkFrame never shrinks narrower than its own label
      * text, and with 3 of these panels side by side a longer title alone
      * was keeping this tab wider than the 700px minimum. */
     g_screens_extra_editable_frame = frame_with("Avancado", extra_editable_scroll);
     gtk_widget_set_tooltip_text(g_screens_extra_editable_frame, _("Propriedades avancadas"));
-    gtk_box_pack_start(GTK_BOX(sections_row), g_screens_extra_editable_frame, TRUE, TRUE, 0);
-
-    /* Other (read-only) properties -- same source, but forced read-only
-     * (LUTs, identifiers, timestamps, ...) or with no editable shape at
-     * all (no "supported:"/"range:" sub-line). */
-    g_screens_extra_readonly_box = gtk_vbox_new(FALSE, 4);
-    GtkWidget *extra_readonly_scroll = gtk_scrolled_window_new(NULL, NULL);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(extra_readonly_scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-    gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(extra_readonly_scroll), g_screens_extra_readonly_box);
-    gtk_widget_set_size_request(extra_readonly_scroll, 90, 90);
-    g_screens_extra_readonly_frame = frame_with("Outras", extra_readonly_scroll);
-    gtk_widget_set_tooltip_text(g_screens_extra_readonly_frame, _("Outras propriedades"));
-    gtk_box_pack_start(GTK_BOX(sections_row), g_screens_extra_readonly_frame, TRUE, TRUE, 0);
+    gtk_paned_pack2(GTK_PANED(sections_row), g_screens_extra_editable_frame, TRUE, FALSE);
 
     gtk_box_pack_start(GTK_BOX(outer), sections_row, FALSE, FALSE, 0);
 
