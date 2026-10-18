@@ -1,6 +1,7 @@
 /* ks_config.c - $XDG_CONFIG_HOME/kishot.conf (fallback ~/.config/kishot.conf),
  * flat key=value like the rest of KiDesktop. Unknown keys are ignored. The
- * area last used is saved too, so a plain `kishot` repeats it. */
+ * areas last used (one for screenshots, one for recordings) are saved too,
+ * so a plain `kishot` or `kishot --record` repeats them. */
 #include "ks.h"
 #include <stdio.h>
 #include <string.h>
@@ -19,6 +20,7 @@ static void defaults(KsConfig *c)
 {
     memset(c, 0, sizeof(*c));
     c->area = KS_AREA_FULL;
+    c->rec_area = KS_AREA_FULL;
     c->pointer = FALSE;
     c->decorations = TRUE;
     c->shot_dir = g_strdup("$PICTURES/Screenshots");
@@ -33,6 +35,7 @@ static void defaults(KsConfig *c)
     c->rec_pointer = TRUE;
     c->audio_system = TRUE;
     c->audio_mic = FALSE;
+    c->rec_preview = TRUE;
     c->censor_popups = TRUE;
     c->censor_classes = g_new0(char *, 1);
     c->win_w = 760;
@@ -76,6 +79,7 @@ void ks_config_load(KsConfig *c)
     if (!f)
         return;
     char line[1024];
+    gboolean have_rec_area = FALSE;
     while (fgets(line, sizeof(line), f)) {
         char *s = g_strstrip(line);
         char *eq = strchr(s, '=');
@@ -84,6 +88,10 @@ void ks_config_load(KsConfig *c)
         *eq = 0;
         char *k = g_strstrip(s), *v = g_strstrip(eq + 1);
         if (!strcmp(k, "area")) c->area = lookup(kAreaKeys, KS_AREA_N, v, KS_AREA_FULL);
+        else if (!strcmp(k, "record_area")) {
+            c->rec_area = lookup(kAreaKeys, KS_AREA_N, v, KS_AREA_FULL);
+            have_rec_area = TRUE;
+        }
         else if (!strcmp(k, "delay")) c->delay = CLAMP(atoi(v), 0, 60);
         else if (!strcmp(k, "pointer")) c->pointer = truth(v);
         else if (!strcmp(k, "decorations")) c->decorations = truth(v);
@@ -101,6 +109,7 @@ void ks_config_load(KsConfig *c)
         else if (!strcmp(k, "record_pointer")) c->rec_pointer = truth(v);
         else if (!strcmp(k, "audio_system")) c->audio_system = truth(v);
         else if (!strcmp(k, "audio_mic")) c->audio_mic = truth(v);
+        else if (!strcmp(k, "record_preview")) c->rec_preview = truth(v);
         else if (!strcmp(k, "copy_method")) c->copy_mode = lookup(kCopyKeys, 3, v, KS_COPY_AUTO);
         else if (!strcmp(k, "backend")) c->backend = lookup(kBackendKeys, 3, v, KS_BACKEND_AUTO);
         else if (!strcmp(k, "censor_popups")) c->censor_popups = truth(v);
@@ -112,8 +121,12 @@ void ks_config_load(KsConfig *c)
         }
         else if (!strcmp(k, "window_width")) c->win_w = CLAMP(atoi(v), 300, 10000);
         else if (!strcmp(k, "window_height")) c->win_h = CLAMP(atoi(v), 200, 10000);
+        else if (!strcmp(k, "pane_position")) c->pane_pos = CLAMP(atoi(v), 0, 10000);
     }
     fclose(f);
+    /* before 0.2 one area served both */
+    if (!have_rec_area)
+        c->rec_area = c->area;
 }
 
 void ks_config_save(const KsConfig *c)
@@ -129,6 +142,7 @@ void ks_config_save(const KsConfig *c)
     char *classes = g_strjoinv(",", c->censor_classes);
     fprintf(f, "# kishot settings (written by kishot)\n");
     fprintf(f, "area=%s\n", ks_area_key(c->area));
+    fprintf(f, "record_area=%s\n", ks_area_key(c->rec_area));
     fprintf(f, "delay=%d\n", c->delay);
     fprintf(f, "pointer=%d\n", c->pointer);
     fprintf(f, "decorations=%d\n", c->decorations);
@@ -148,6 +162,7 @@ void ks_config_save(const KsConfig *c)
     fprintf(f, "record_pointer=%d\n", c->rec_pointer);
     fprintf(f, "audio_system=%d\n", c->audio_system);
     fprintf(f, "audio_mic=%d\n", c->audio_mic);
+    fprintf(f, "record_preview=%d\n", c->rec_preview);
     fprintf(f, "# auto: GPU copy only when the server sets the XiS root-copy bit\n");
     fprintf(f, "copy_method=%s\n", kCopyKeys[c->copy_mode]);
     fprintf(f, "# auto: the libav plugin when it loads, else the ffmpeg command\n");
@@ -156,6 +171,7 @@ void ks_config_save(const KsConfig *c)
     fprintf(f, "censor_popups=%d\n", c->censor_popups);
     fprintf(f, "window_width=%d\n", c->win_w);
     fprintf(f, "window_height=%d\n", c->win_h);
+    fprintf(f, "pane_position=%d\n", c->pane_pos);
     fclose(f);
     g_free(classes);
 }

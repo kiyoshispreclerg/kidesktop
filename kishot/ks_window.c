@@ -1,21 +1,26 @@
 /* ks_window.c - the kishot window and what its commands do.
  *
  * Like Spectacle: launching takes a shot of the area used last time and
- * shows it here, with Save / Copy / New screenshot. Recording uses the same
- * area choice; while it runs the window hides itself (so it is not in the
- * video) and a tray icon stops it -- as does running `kishot --record`
- * again, which is what the hotkey does. */
+ * shows it here, with Save / Copy / New screenshot. The options are in two
+ * tabs, Screenshot and Recording, each with its own area; the Recording tab
+ * can show a live preview of what would be recorded. While a recording runs
+ * the window hides itself (so it is not in the video) and a tray icon stops
+ * it -- as does running `kishot --record` again, which is what the hotkey
+ * does. Whatever a launch asks for picks the tab the window shows. */
 #include "ks.h"
 #include "../shared/xis_i18n.h"
+#include <gdk/gdkx.h>
 #include <string.h>
 #include <time.h>
 
 struct KsApp {
     KsConfig *cfg;
     GtkWidget *win;
-    GtkWidget *preview;
+    GtkWidget *paned, *notebook;
+    GtkWidget *preview, *preview_hint;
     GtkWidget *area_combo, *delay_spin, *pointer_check, *deco_check;
-    GtkWidget *sys_check, *mic_check;
+    GtkWidget *rec_area_combo, *rec_deco_check, *rec_pointer_check;
+    GtkWidget *sys_check, *mic_check, *rec_preview_check;
     GtkWidget *rec_button, *save_button, *saveas_button, *copy_button;
     GtkWidget *status;
     GtkListStore *censor_store;
@@ -23,10 +28,13 @@ struct KsApp {
     GtkStatusIcon *tray;
     GdkPixbuf *shot;
     char *shot_path;            /* where the current shot was saved, if it was */
-    char *last_dir;             /* folder of the last saved file */
+    char *last_dir;             /* folder of the last saved screenshot */
+    char *last_video_dir;       /* ... and recording */
+    KsTab tab;                  /* the tab shown */
     gboolean background;        /* launched with -b: no window, quit when done */
     gboolean busy;              /* a shot is being taken */
     guint rec_timer;
+    guint live_timer;           /* live recording preview */
 };
 
 static void set_status(KsApp *app, const char *text)
@@ -36,16 +44,85 @@ static void set_status(KsApp *app, const char *text)
 
 /* ---- preview ------------------------------------------------------------- */
 
+/* the space the preview has, minus a small margin */
+static void preview_room(KsApp *app, int *mw, int *mh)
+{
+    GtkAllocation a;
+    gtk_widget_get_allocation(app->preview, &a);
+    *mw = MAX(a.width - 8, 32);
+    *mh = MAX(a.height - 8, 32);
+}
+
+static void live_frame(KsApp *app)
+{
+    GdkWindow *gw = gtk_widget_get_window(app->win);
+    if (!gw || (gdk_window_get_state(gw) & GDK_WINDOW_STATE_ICONIFIED))
+        return;
+    KsRect r;
+    /* "active window" while kishot itself is active falls back to the monitor */
+    ks_area_rect_except(app->cfg->rec_area, app->cfg->decorations, GDK_WINDOW_XID(gw), &r);
+    int mw, mh;
+    preview_room(app, &mw, &mh);
+    double sc = MIN(1.0, MIN((double)mw / r.w, (double)mh / r.h));
+    GdkPixbuf *pb = ks_grab_scaled(&r, MAX(1, (int)(r.w * sc)), MAX(1, (int)(r.h * sc)), app->cfg->rec_pointer);
+    if (!pb)
+        return;
+    gtk_image_set_from_pixbuf(GTK_IMAGE(app->preview), pb);
+    g_object_unref(pb);
+}
+
+static gboolean live_tick(gpointer data)
+{
+    live_frame(data);
+    return TRUE;
+}
+
+/* The live preview runs only while it can be seen and nothing is captured. */
+static void live_sync(KsApp *app)
+{
+    gboolean want = app->tab == KS_TAB_RECORD && app->cfg->rec_preview && !app->busy &&
+                    !ks_rec_active() && gtk_widget_get_mapped(app->win);
+    if (want && !app->live_timer) {
+        app->live_timer = g_timeout_add(66, live_tick, app);
+        live_frame(app);
+    } else if (!want && app->live_timer) {
+        g_source_remove(app->live_timer);
+        app->live_timer = 0;
+    }
+}
+
+static void update_hint(KsApp *app)
+{
+    const char *hint = NULL;
+    if (app->tab == KS_TAB_RECORD && app->cfg->rec_preview) {
+        if (app->cfg->rec_area == KS_AREA_REGION)
+            hint = _("The region is selected when the recording starts.");
+        else if (app->cfg->rec_area == KS_AREA_WINDOW)
+            hint = _("The window active when the recording starts is recorded.");
+    }
+    gtk_label_set_text(GTK_LABEL(app->preview_hint), hint ? hint : "");
+    gtk_widget_set_visible(app->preview_hint, hint != NULL);
+}
+
 static void update_preview(KsApp *app)
 {
+    update_hint(app);
+    if (app->tab == KS_TAB_RECORD) {
+        if (!app->cfg->rec_preview)
+            gtk_image_set_from_icon_name(GTK_IMAGE(app->preview), "camera-video", GTK_ICON_SIZE_DIALOG);
+        else if (app->live_timer)
+            live_frame(app);
+        live_sync(app);
+        return;
+    }
+    live_sync(app);
     if (!app->shot) {
         gtk_image_set_from_icon_name(GTK_IMAGE(app->preview), "camera-photo", GTK_ICON_SIZE_DIALOG);
         return;
     }
-    GtkAllocation a;
-    gtk_widget_get_allocation(app->preview, &a);
     int W = gdk_pixbuf_get_width(app->shot), H = gdk_pixbuf_get_height(app->shot);
-    int mw = MAX(a.width - 8, 32), mh = MAX(a.height - 8, 32);
+    int mw, mh;
+    preview_room(app, &mw, &mh);
     double s = MIN(1.0, MIN((double)mw / W, (double)mh / H));
     GdkPixbuf *scaled = gdk_pixbuf_scale_simple(app->shot, MAX(1, (int)(W * s)), MAX(1, (int)(H * s)),
                                                 GDK_INTERP_BILINEAR);
@@ -67,11 +144,16 @@ static void on_preview_alloc(GtkWidget *w, GtkAllocation *a, KsApp *app)
 static void update_sensitivity(KsApp *app)
 {
     gboolean have = app->shot != NULL;
+    /* Save / Copy are about the screenshot */
+    gboolean shot_tab = app->tab == KS_TAB_SHOT;
+    gtk_widget_set_visible(app->save_button, shot_tab);
+    gtk_widget_set_visible(app->saveas_button, shot_tab);
+    gtk_widget_set_visible(app->copy_button, shot_tab);
     gtk_widget_set_sensitive(app->save_button, have);
     gtk_widget_set_sensitive(app->saveas_button, have);
     gtk_widget_set_sensitive(app->copy_button, have);
-    gtk_widget_set_sensitive(app->deco_check,
-                             gtk_combo_box_get_active(GTK_COMBO_BOX(app->area_combo)) == KS_AREA_WINDOW);
+    gtk_widget_set_sensitive(app->deco_check, app->cfg->area == KS_AREA_WINDOW);
+    gtk_widget_set_sensitive(app->rec_deco_check, app->cfg->rec_area == KS_AREA_WINDOW);
 }
 
 /* ---- saving -------------------------------------------------------------- */
@@ -218,7 +300,11 @@ static void on_copy(GtkWidget *w, KsApp *app)
 static void on_open_folder(GtkWidget *w, KsApp *app)
 {
     (void)w;
-    char *dir = app->last_dir ? g_strdup(app->last_dir) : ks_config_expand_dir(app->cfg->shot_dir);
+    char *dir;
+    if (app->tab == KS_TAB_RECORD)
+        dir = app->last_video_dir ? g_strdup(app->last_video_dir) : ks_config_expand_dir(app->cfg->video_dir);
+    else
+        dir = app->last_dir ? g_strdup(app->last_dir) : ks_config_expand_dir(app->cfg->shot_dir);
     g_mkdir_with_parents(dir, 0755);
     char *uri = g_filename_to_uri(dir, NULL, NULL);
     if (uri)
@@ -266,6 +352,7 @@ static void region_done(gboolean ok, const KsRect *r, void *data)
     KsRect rr = *r;
     if (!ok || !ks_rect_clip_to_screen(&rr)) {
         app->busy = FALSE;
+        live_sync(app);
         if (app->background && !ks_rec_active())
             gtk_main_quit();
         else if (!ks_rec_active())
@@ -320,21 +407,25 @@ void ks_app_command(KsApp *app, KsCmdKind kind, int area, gboolean background)
     }
     if (app->busy)
         return;
+    gboolean record = kind == KS_CMD_RECORD;
+    /* the window comes back on the tab of what was asked for */
+    gtk_notebook_set_current_page(GTK_NOTEBOOK(app->notebook), record ? KS_TAB_RECORD : KS_TAB_SHOT);
     if (area >= 0 && area < KS_AREA_N) {
-        app->cfg->area = area;
-        gtk_combo_box_set_active(GTK_COMBO_BOX(app->area_combo), area);
+        *(record ? &app->cfg->rec_area : &app->cfg->area) = area;
+        gtk_combo_box_set_active(GTK_COMBO_BOX(record ? app->rec_area_combo : app->area_combo), area);
         ks_config_save(app->cfg);
     }
     /* a second `kishot -b` while the window is open still shows it */
     app->background = background && !gtk_widget_get_visible(app->win);
     app->busy = TRUE;
+    live_sync(app);
     gboolean was_visible = gtk_widget_get_visible(app->win);
     gtk_widget_hide(app->win);
     gdk_flush();
     Pending *p = g_new0(Pending, 1);
     p->app = app;
-    p->area = app->cfg->area;
-    p->record = kind == KS_CMD_RECORD;
+    p->area = record ? app->cfg->rec_area : app->cfg->area;
+    p->record = record;
     /* give the compositor time to repaint without our window, plus the delay */
     int ms = (was_visible ? 300 : 0) + (p->record ? 0 : app->cfg->delay * 1000);
     if (ms)
@@ -402,9 +493,10 @@ static void rec_finished(const char *path, const char *error, void *data)
            path ? "video-x-generic" : "dialog-error");
     g_free(msg);
     if (path) {
-        g_free(app->last_dir);
-        app->last_dir = g_path_get_dirname(path);
+        g_free(app->last_video_dir);
+        app->last_video_dir = g_path_get_dirname(path);
     }
+    live_sync(app);
     if (app->background) {
         /* started with -b: no window, before or after */
         if (gtk_main_level())
@@ -432,6 +524,7 @@ static void start_recording(KsApp *app, const KsRect *r)
         g_free(msg);
         g_free(error);
         g_free(path);
+        live_sync(app);
         if (app->background)
             gtk_main_quit();
         else
@@ -460,6 +553,43 @@ static void on_area_changed(GtkComboBox *c, KsApp *app)
     app->cfg->area = gtk_combo_box_get_active(c);
     update_sensitivity(app);
     ks_config_save(app->cfg);
+}
+
+static void on_rec_area_changed(GtkComboBox *c, KsApp *app)
+{
+    app->cfg->rec_area = gtk_combo_box_get_active(c);
+    update_sensitivity(app);
+    update_preview(app);
+    ks_config_save(app->cfg);
+}
+
+/* one setting, a checkbox in each tab */
+static void on_deco(GtkToggleButton *b, KsApp *app)
+{
+    app->cfg->decorations = gtk_toggle_button_get_active(b);
+    GtkWidget *other = (GtkWidget *)b == app->deco_check ? app->rec_deco_check : app->deco_check;
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(other), app->cfg->decorations);
+}
+
+static void on_rec_preview(GtkToggleButton *b, KsApp *app)
+{
+    app->cfg->rec_preview = gtk_toggle_button_get_active(b);
+    update_preview(app);
+}
+
+static void on_switch_page(GtkNotebook *nb, gpointer page, guint num, KsApp *app)
+{
+    (void)nb;
+    (void)page;
+    app->tab = num == 1 ? KS_TAB_RECORD : KS_TAB_SHOT;
+    update_preview(app);
+    update_sensitivity(app);
+}
+
+static void on_map_changed(GtkWidget *w, KsApp *app)
+{
+    (void)w;
+    live_sync(app);
 }
 
 static void on_toggle(GtkToggleButton *b, gboolean *field)
@@ -496,7 +626,7 @@ static gboolean probe_idle(gpointer data)
 static void on_prefs(GtkWidget *w, KsApp *app)
 {
     (void)w;
-    ks_prefs_run(GTK_WINDOW(app->win), app->cfg);
+    ks_prefs_run(GTK_WINDOW(app->win), app->cfg, app->tab);
     ks_config_save(app->cfg);
     ks_censor_set_classes(app->cfg->censor_classes);
     refresh_caps(app);
@@ -551,6 +681,7 @@ static gboolean on_delete(GtkWidget *w, GdkEvent *ev, KsApp *app)
     gtk_window_get_size(GTK_WINDOW(w), &ww, &hh);
     app->cfg->win_w = ww;
     app->cfg->win_h = hh;
+    app->cfg->pane_pos = gtk_paned_get_position(GTK_PANED(app->paned));
     ks_config_save(app->cfg);
     if (ks_rec_active()) {
         /* keep recording; the tray icon (or kishot --record) stops it */
@@ -568,6 +699,30 @@ static GtkWidget *button(const char *label, const char *icon, GCallback cb, KsAp
         gtk_button_set_image(GTK_BUTTON(b), gtk_image_new_from_icon_name(icon, GTK_ICON_SIZE_BUTTON));
     g_signal_connect(b, "clicked", cb, app);
     return b;
+}
+
+static GtkWidget *check(GtkWidget *box, const char *label, gboolean active)
+{
+    GtkWidget *c = gtk_check_button_new_with_mnemonic(label);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(c), active);
+    gtk_box_pack_start(GTK_BOX(box), c, FALSE, FALSE, 0);
+    return c;
+}
+
+static GtkWidget *area_combo(GtkWidget *tbl, int row, KsArea active)
+{
+    GtkWidget *l = gtk_label_new_with_mnemonic(_("_Area:"));
+    gtk_misc_set_alignment(GTK_MISC(l), 0, 0.5);
+    gtk_table_attach(GTK_TABLE(tbl), l, 0, 1, row, row + 1, GTK_FILL, 0, 0, 0);
+    GtkWidget *c = gtk_combo_box_new_text();
+    gtk_combo_box_append_text(GTK_COMBO_BOX(c), _("Full screen (all monitors)"));
+    gtk_combo_box_append_text(GTK_COMBO_BOX(c), _("Current monitor"));
+    gtk_combo_box_append_text(GTK_COMBO_BOX(c), _("Active window"));
+    gtk_combo_box_append_text(GTK_COMBO_BOX(c), _("Rectangular region"));
+    gtk_combo_box_set_active(GTK_COMBO_BOX(c), active);
+    gtk_label_set_mnemonic_widget(GTK_LABEL(l), c);
+    gtk_table_attach(GTK_TABLE(tbl), c, 1, 2, row, row + 1, GTK_FILL | GTK_EXPAND, 0, 0, 0);
+    return c;
 }
 
 static GtkWidget *section(const char *title)
@@ -591,43 +746,50 @@ KsApp *ks_app_new(KsConfig *cfg)
     gtk_window_set_default_size(GTK_WINDOW(app->win), cfg->win_w, cfg->win_h);
     g_signal_connect(app->win, "delete-event", G_CALLBACK(on_delete), app);
 
+    /* after the default handlers, so gtk_widget_get_mapped() is up to date */
+    g_signal_connect_after(app->win, "map", G_CALLBACK(on_map_changed), app);
+    g_signal_connect_after(app->win, "unmap", G_CALLBACK(on_map_changed), app);
+
     GtkWidget *outer = gtk_vbox_new(FALSE, 6);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 8);
     gtk_container_add(GTK_CONTAINER(app->win), outer);
-    GtkWidget *hbox = gtk_hbox_new(FALSE, 10);
-    gtk_box_pack_start(GTK_BOX(outer), hbox, TRUE, TRUE, 0);
+    app->paned = gtk_hpaned_new();
+    gtk_box_pack_start(GTK_BOX(outer), app->paned, TRUE, TRUE, 0);
 
-    /* preview */
+    /* preview: growing the window grows it, not the options */
+    GtkWidget *left = gtk_vbox_new(FALSE, 4);
     GtkWidget *frame = gtk_frame_new(NULL);
     gtk_frame_set_shadow_type(GTK_FRAME(frame), GTK_SHADOW_IN);
     app->preview = gtk_image_new();
     gtk_widget_set_size_request(app->preview, 240, 160);
     g_signal_connect(app->preview, "size-allocate", G_CALLBACK(on_preview_alloc), app);
     gtk_container_add(GTK_CONTAINER(frame), app->preview);
-    gtk_box_pack_start(GTK_BOX(hbox), frame, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(left), frame, TRUE, TRUE, 0);
+    app->preview_hint = gtk_label_new(NULL);
+    gtk_label_set_line_wrap(GTK_LABEL(app->preview_hint), TRUE);
+    gtk_box_pack_start(GTK_BOX(left), app->preview_hint, FALSE, FALSE, 0);
+    gtk_paned_pack1(GTK_PANED(app->paned), left, TRUE, FALSE);
 
     /* side panel */
     GtkWidget *side = gtk_vbox_new(FALSE, 6);
     gtk_widget_set_size_request(side, 250, -1);
-    gtk_box_pack_start(GTK_BOX(hbox), side, FALSE, FALSE, 0);
+    gtk_paned_pack2(GTK_PANED(app->paned), side, FALSE, FALSE);
+    if (cfg->pane_pos > 0)
+        gtk_paned_set_position(GTK_PANED(app->paned), cfg->pane_pos);
 
-    gtk_box_pack_start(GTK_BOX(side), section(_("Capture")), FALSE, FALSE, 0);
+    app->notebook = gtk_notebook_new();
+    gtk_box_pack_start(GTK_BOX(side), app->notebook, FALSE, FALSE, 0);
+
+    /* Screenshot tab */
+    GtkWidget *page = gtk_vbox_new(FALSE, 6);
+    gtk_container_set_border_width(GTK_CONTAINER(page), 6);
+    gtk_notebook_append_page(GTK_NOTEBOOK(app->notebook), page, gtk_label_new_with_mnemonic(_("Scr_eenshot")));
     GtkWidget *tbl = gtk_table_new(2, 2, FALSE);
     gtk_table_set_row_spacings(GTK_TABLE(tbl), 4);
     gtk_table_set_col_spacings(GTK_TABLE(tbl), 6);
-    GtkWidget *l = gtk_label_new_with_mnemonic(_("_Area:"));
-    gtk_misc_set_alignment(GTK_MISC(l), 0, 0.5);
-    gtk_table_attach(GTK_TABLE(tbl), l, 0, 1, 0, 1, GTK_FILL, 0, 0, 0);
-    app->area_combo = gtk_combo_box_new_text();
-    gtk_combo_box_append_text(GTK_COMBO_BOX(app->area_combo), _("Full screen (all monitors)"));
-    gtk_combo_box_append_text(GTK_COMBO_BOX(app->area_combo), _("Current monitor"));
-    gtk_combo_box_append_text(GTK_COMBO_BOX(app->area_combo), _("Active window"));
-    gtk_combo_box_append_text(GTK_COMBO_BOX(app->area_combo), _("Rectangular region"));
-    gtk_combo_box_set_active(GTK_COMBO_BOX(app->area_combo), cfg->area);
-    gtk_label_set_mnemonic_widget(GTK_LABEL(l), app->area_combo);
+    app->area_combo = area_combo(tbl, 0, cfg->area);
     g_signal_connect(app->area_combo, "changed", G_CALLBACK(on_area_changed), app);
-    gtk_table_attach(GTK_TABLE(tbl), app->area_combo, 1, 2, 0, 1, GTK_FILL | GTK_EXPAND, 0, 0, 0);
-    l = gtk_label_new_with_mnemonic(_("_Delay:"));
+    GtkWidget *l = gtk_label_new_with_mnemonic(_("_Delay:"));
     gtk_misc_set_alignment(GTK_MISC(l), 0, 0.5);
     gtk_table_attach(GTK_TABLE(tbl), l, 0, 1, 1, 2, GTK_FILL, 0, 0, 0);
     app->delay_spin = gtk_spin_button_new_with_range(0, 60, 1);
@@ -635,30 +797,36 @@ KsApp *ks_app_new(KsConfig *cfg)
     gtk_label_set_mnemonic_widget(GTK_LABEL(l), app->delay_spin);
     g_signal_connect(app->delay_spin, "value-changed", G_CALLBACK(on_delay), app);
     gtk_table_attach(GTK_TABLE(tbl), app->delay_spin, 1, 2, 1, 2, GTK_FILL | GTK_EXPAND, 0, 0, 0);
-    gtk_box_pack_start(GTK_BOX(side), tbl, FALSE, FALSE, 0);
-
-    app->pointer_check = gtk_check_button_new_with_mnemonic(_("Include the mouse _pointer"));
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(app->pointer_check), cfg->pointer);
+    gtk_box_pack_start(GTK_BOX(page), tbl, FALSE, FALSE, 0);
+    app->pointer_check = check(page, _("Include the mouse _pointer"), cfg->pointer);
     g_signal_connect(app->pointer_check, "toggled", G_CALLBACK(on_toggle), &cfg->pointer);
-    gtk_box_pack_start(GTK_BOX(side), app->pointer_check, FALSE, FALSE, 0);
-    app->deco_check = gtk_check_button_new_with_mnemonic(_("Include window _borders"));
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(app->deco_check), cfg->decorations);
-    g_signal_connect(app->deco_check, "toggled", G_CALLBACK(on_toggle), &cfg->decorations);
-    gtk_box_pack_start(GTK_BOX(side), app->deco_check, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(side), button(_("_New Screenshot"), "camera-photo", G_CALLBACK(on_new_shot), app),
-                       FALSE, FALSE, 0);
+    app->deco_check = check(page, _("Include window _borders"), cfg->decorations);
+    g_signal_connect(app->deco_check, "toggled", G_CALLBACK(on_deco), app);
+    gtk_box_pack_end(GTK_BOX(page), button(_("_New Screenshot"), "camera-photo", G_CALLBACK(on_new_shot), app),
+                     FALSE, FALSE, 0);
 
-    gtk_box_pack_start(GTK_BOX(side), section(_("Recording")), FALSE, FALSE, 4);
-    app->sys_check = gtk_check_button_new_with_mnemonic(_("_System sound"));
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(app->sys_check), cfg->audio_system);
+    /* Recording tab */
+    page = gtk_vbox_new(FALSE, 6);
+    gtk_container_set_border_width(GTK_CONTAINER(page), 6);
+    gtk_notebook_append_page(GTK_NOTEBOOK(app->notebook), page, gtk_label_new_with_mnemonic(_("Reco_rding")));
+    tbl = gtk_table_new(1, 2, FALSE);
+    gtk_table_set_col_spacings(GTK_TABLE(tbl), 6);
+    app->rec_area_combo = area_combo(tbl, 0, cfg->rec_area);
+    g_signal_connect(app->rec_area_combo, "changed", G_CALLBACK(on_rec_area_changed), app);
+    gtk_box_pack_start(GTK_BOX(page), tbl, FALSE, FALSE, 0);
+    app->rec_pointer_check = check(page, _("Record the mouse _pointer"), cfg->rec_pointer);
+    g_signal_connect(app->rec_pointer_check, "toggled", G_CALLBACK(on_toggle), &cfg->rec_pointer);
+    app->rec_deco_check = check(page, _("Include window _borders"), cfg->decorations);
+    g_signal_connect(app->rec_deco_check, "toggled", G_CALLBACK(on_deco), app);
+    app->sys_check = check(page, _("_System sound"), cfg->audio_system);
     g_signal_connect(app->sys_check, "toggled", G_CALLBACK(on_toggle), &cfg->audio_system);
-    gtk_box_pack_start(GTK_BOX(side), app->sys_check, FALSE, FALSE, 0);
-    app->mic_check = gtk_check_button_new_with_mnemonic(_("_Microphone"));
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(app->mic_check), cfg->audio_mic);
+    app->mic_check = check(page, _("_Microphone"), cfg->audio_mic);
     g_signal_connect(app->mic_check, "toggled", G_CALLBACK(on_toggle), &cfg->audio_mic);
-    gtk_box_pack_start(GTK_BOX(side), app->mic_check, FALSE, FALSE, 0);
+    app->rec_preview_check = check(page, _("Show a _live preview"), cfg->rec_preview);
+    g_signal_connect(app->rec_preview_check, "toggled", G_CALLBACK(on_rec_preview), app);
     app->rec_button = button(_("Record"), "media-record", G_CALLBACK(on_record), app);
-    gtk_box_pack_start(GTK_BOX(side), app->rec_button, FALSE, FALSE, 0);
+    gtk_box_pack_end(GTK_BOX(page), app->rec_button, FALSE, FALSE, 0);
+    g_signal_connect(app->notebook, "switch-page", G_CALLBACK(on_switch_page), app);
 
     gtk_box_pack_start(GTK_BOX(side), section(_("Hidden windows")), FALSE, FALSE, 4);
     app->censor_store = gtk_list_store_new(2, G_TYPE_STRING, G_TYPE_ULONG);

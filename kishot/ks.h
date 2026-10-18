@@ -5,7 +5,7 @@
 #include <gtk/gtk.h>
 #include <stdint.h>
 
-#define KISHOT_VERSION "0.1.1"
+#define KISHOT_VERSION "0.1.2"
 
 typedef enum {
     KS_AREA_FULL,       /* every monitor */
@@ -18,8 +18,12 @@ typedef enum {
 typedef enum { KS_COPY_AUTO, KS_COPY_GPU, KS_COPY_SHM } KsCopyMode;
 typedef enum { KS_BACKEND_AUTO, KS_BACKEND_PLUGIN, KS_BACKEND_CLI } KsBackend;
 
+/* tabs of the main window, and the matching Settings pages */
+typedef enum { KS_TAB_SHOT, KS_TAB_RECORD } KsTab;
+
 typedef struct {
-    KsArea area;
+    KsArea area;                /* screenshots */
+    KsArea rec_area;            /* recordings */
     int delay;                  /* seconds before a screenshot */
     gboolean pointer;           /* draw the mouse pointer */
     gboolean decorations;       /* window mode: include the frame */
@@ -38,6 +42,7 @@ typedef struct {
     gboolean rec_pointer;
     gboolean audio_system;
     gboolean audio_mic;
+    gboolean rec_preview;       /* live preview in the Recording tab */
     KsCopyMode copy_mode;
     KsBackend backend;
 
@@ -45,6 +50,7 @@ typedef struct {
     gboolean censor_popups;     /* also menus/tooltips of a censored app */
 
     int win_w, win_h;
+    int pane_pos;               /* preview | options divider, 0 = default */
 } KsConfig;
 
 void ks_config_load(KsConfig *c);
@@ -57,7 +63,11 @@ char *ks_config_expand_dir(const char *dir);
 typedef struct { int x, y, w, h; } KsRect;
 
 gboolean ks_area_rect(KsArea area, gboolean decorations, KsRect *out);
+/* Same, but an active window equal to `except` (ours) falls back to the monitor. */
+gboolean ks_area_rect_except(KsArea area, gboolean decorations, unsigned long except, KsRect *out);
 GdkPixbuf *ks_grab_rect(const KsRect *r, gboolean pointer);
+/* r scaled to dw x dh on the server, for the live recording preview */
+GdkPixbuf *ks_grab_scaled(const KsRect *r, int dw, int dh, gboolean pointer);
 gboolean ks_rect_clip_to_screen(KsRect *r);
 
 /* ---- censoring (ks_censor.c) --------------------------------------------- */
@@ -73,6 +83,7 @@ void ks_censor_set_classes(char **classes);
 /* Rectangles to black out, in root coordinates. Thread-safe copy. */
 KsRect *ks_censor_rects(int *n);
 void ks_censor_paint(GdkPixbuf *pb, const KsRect *origin);
+void ks_censor_paint_scaled(GdkPixbuf *pb, const KsRect *origin, double scale);
 /* Lets the user click a window (xkill-style); returns its toplevel or 0. */
 unsigned long ks_censor_pick(void);
 
@@ -119,6 +130,6 @@ KsApp *ks_app_new(KsConfig *cfg);
 /* What a launch (or a second instance) asks for. */
 typedef enum { KS_CMD_SHOT, KS_CMD_RECORD } KsCmdKind;
 void ks_app_command(KsApp *app, KsCmdKind kind, int area /* -1 = last */, gboolean background);
-void ks_prefs_run(GtkWindow *parent, KsConfig *cfg);
+void ks_prefs_run(GtkWindow *parent, KsConfig *cfg, KsTab page);
 
 #endif /* KS_H */

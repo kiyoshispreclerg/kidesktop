@@ -15,6 +15,7 @@
  * recorder thread takes a copy under the mutex. Only the copy is affected:
  * the screen itself is never touched. */
 #include "ks.h"
+#include <math.h>
 #include <gdk/gdkx.h>
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
@@ -352,7 +353,7 @@ KsRect *ks_censor_rects(int *n)
     return copy;
 }
 
-void ks_censor_paint(GdkPixbuf *pb, const KsRect *origin)
+void ks_censor_paint_scaled(GdkPixbuf *pb, const KsRect *origin, double scale)
 {
     int n;
     KsRect *rs = ks_censor_rects(&n);
@@ -360,8 +361,11 @@ void ks_censor_paint(GdkPixbuf *pb, const KsRect *origin)
     int nch = gdk_pixbuf_get_n_channels(pb), stride = gdk_pixbuf_get_rowstride(pb);
     guchar *px = gdk_pixbuf_get_pixels(pb);
     for (int i = 0; i < n; i++) {
-        int x1 = MAX(rs[i].x - origin->x, 0), y1 = MAX(rs[i].y - origin->y, 0);
-        int x2 = MIN(rs[i].x + rs[i].w - origin->x, W), y2 = MIN(rs[i].y + rs[i].h - origin->y, H);
+        /* rounded outwards: a scaled-down preview never shows a sliver */
+        int x1 = MAX((int)floor((rs[i].x - origin->x) * scale), 0);
+        int y1 = MAX((int)floor((rs[i].y - origin->y) * scale), 0);
+        int x2 = MIN((int)ceil((rs[i].x + rs[i].w - origin->x) * scale), W);
+        int y2 = MIN((int)ceil((rs[i].y + rs[i].h - origin->y) * scale), H);
         for (int y = y1; y < y2; y++)
             for (int x = x1; x < x2; x++) {
                 guchar *d = px + y * stride + x * nch;
@@ -371,6 +375,11 @@ void ks_censor_paint(GdkPixbuf *pb, const KsRect *origin)
             }
     }
     g_free(rs);
+}
+
+void ks_censor_paint(GdkPixbuf *pb, const KsRect *origin)
+{
+    ks_censor_paint_scaled(pb, origin, 1.0);
 }
 
 /* ---- picking a window by clicking it ------------------------------------- */

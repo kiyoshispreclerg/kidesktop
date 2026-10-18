@@ -9,7 +9,7 @@
 typedef struct {
     KsConfig *cfg;
     GtkWidget *shot_dir, *format, *jpeg_q, *pattern, *auto_save, *auto_copy;
-    GtkWidget *video_dir, *container, *codec, *quality, *fps, *rec_pointer, *copy, *backend;
+    GtkWidget *video_dir, *container, *codec, *quality, *fps, *copy, *backend;
     GtkWidget *classes, *popups;
     GtkWidget *caps_label;
     GPtrArray *formats;     /* writable gdk-pixbuf format names */
@@ -174,10 +174,6 @@ static GtkWidget *page_recording(Prefs *p)
     const char *backends[] = { _("Automatic"), _("libav plugin"), _("ffmpeg command") };
     p->backend = row(t, r++, _("_Encoder:"), combo_with(backends, 3, NULL));
     gtk_combo_box_set_active(GTK_COMBO_BOX(p->backend), c->backend);
-    p->rec_pointer = gtk_check_button_new_with_mnemonic(_("Record the mouse _pointer"));
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->rec_pointer), c->rec_pointer);
-    gtk_table_attach(GTK_TABLE(t), p->rec_pointer, 0, 2, r, r + 1, GTK_FILL, 0, 0, 0);
-    r++;
     p->caps_label = gtk_label_new(NULL);
     gtk_misc_set_alignment(GTK_MISC(p->caps_label), 0, 0);
     gtk_label_set_line_wrap(GTK_LABEL(p->caps_label), TRUE);
@@ -214,7 +210,7 @@ static char *combo_text(GtkWidget *c)
     return gtk_combo_box_get_active_text(GTK_COMBO_BOX(c));
 }
 
-void ks_prefs_run(GtkWindow *parent, KsConfig *cfg)
+void ks_prefs_run(GtkWindow *parent, KsConfig *cfg, KsTab page)
 {
     Prefs p = { .cfg = cfg };
     KsBackend old_backend = cfg->backend;
@@ -228,6 +224,8 @@ void ks_prefs_run(GtkWindow *parent, KsConfig *cfg)
     gtk_notebook_append_page(GTK_NOTEBOOK(nb), page_hidden(&p), gtk_label_new(_("Hidden Windows")));
     gtk_box_pack_start(GTK_BOX(gtk_dialog_get_content_area(GTK_DIALOG(dlg))), nb, TRUE, TRUE, 0);
     gtk_widget_show_all(dlg);
+    /* the page of the tab the main window is on (pages only switch once shown) */
+    gtk_notebook_set_current_page(GTK_NOTEBOOK(nb), page == KS_TAB_RECORD ? 1 : 0);
 
     if (gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_OK) {
         read_folder(p.shot_dir, &cfg->shot_dir);
@@ -258,7 +256,6 @@ void ks_prefs_run(GtkWindow *parent, KsConfig *cfg)
         cfg->fps = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(p.fps));
         cfg->copy_mode = gtk_combo_box_get_active(GTK_COMBO_BOX(p.copy));
         cfg->backend = gtk_combo_box_get_active(GTK_COMBO_BOX(p.backend));
-        cfg->rec_pointer = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(p.rec_pointer));
 
         char **cls = g_strsplit_set(gtk_entry_get_text(GTK_ENTRY(p.classes)), ",;", -1);
         for (char **c = cls; *c; c++)

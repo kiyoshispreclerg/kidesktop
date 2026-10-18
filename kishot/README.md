@@ -5,8 +5,14 @@ Spectacle. Part of **kidesktop-base**.
 
 Launching it takes a screenshot of the area used last time -- full screen,
 the monitor under the pointer, the active window, or a rectangular region --
-and shows it with Save, Save As, Copy and Open Folder. Recording uses the
-same area choice, with system sound and/or the microphone.
+and shows it with Save, Save As, Copy and Open Folder. The options are in
+two tabs, Screenshot and Recording, each with its own area; the Recording
+tab adds the pointer, system sound and/or microphone, and an optional live
+preview of what would be recorded (copied on the X server and scaled down with Render,
+so it stays cheap on big screens). The divider between the preview and the
+options can be dragged, and its position is kept. Settings opens on the
+page of the tab shown, and each launch picks the tab of what it asks for:
+`kishot` the Screenshot tab, `kishot --record` the Recording one.
 
 ## Usage
 
@@ -20,7 +26,8 @@ kishot [-f|-m|-a|-r] [-b] [-R]
   -R, --record         start recording the area, or stop the recording
 ```
 
-An area option also becomes the "last used" one. There is one kishot per
+An area option also becomes the "last used" one, for screenshots or, with
+`-R`, for recordings. There is one kishot per
 display: a second `kishot ...` hands its command to the running one (over an
 abstract Unix socket) and exits -- that is how `kishot --record` stops a
 recording. While recording, the window hides itself and a tray icon (click
@@ -38,7 +45,7 @@ screenshots and videos (`$PICTURES`/`$VIDEOS` follow the XDG folders), image
 format (whatever gdk-pixbuf can write: png, jpeg, webp, bmp, tiff), JPEG
 quality, file name pattern (strftime), save/copy automatically; container
 (mkv, mp4, webm), video codec, quality (0..51, used as CRF or QP), frame
-rate, pointer, screen copy method and encoder backend; window classes to
+rate, screen copy method and encoder backend; window classes to
 always hide.
 
 ## How recording works

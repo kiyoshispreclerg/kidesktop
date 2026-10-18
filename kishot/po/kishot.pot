@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kishot\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-17 11:48-0300\n"
+"POT-Creation-Date: 2026-10-18 16:40-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -157,11 +157,7 @@ msgstr ""
 msgid "_Encoder:"
 msgstr ""
 
-#: ks_prefs.c:177
-msgid "Record the mouse _pointer"
-msgstr ""
-
-#: ks_prefs.c:195
+#: ks_prefs.c:191
 msgid ""
 "Windows listed here are painted black in every screenshot and recording "
 "kishot makes; parts covered by other windows stay visible. The screen itself "
@@ -169,31 +165,31 @@ msgid ""
 "be hidden for this session from the main window."
 msgstr ""
 
-#: ks_prefs.c:201
+#: ks_prefs.c:197
 msgid "Always hide window _classes:"
 msgstr ""
 
-#: ks_prefs.c:205
+#: ks_prefs.c:201
 msgid "Comma-separated WM_CLASS names, e.g. KeePassXC, Signal"
 msgstr ""
 
-#: ks_prefs.c:206
+#: ks_prefs.c:202
 msgid "Also hide their _menus and tooltips"
 msgstr ""
 
-#: ks_prefs.c:221
+#: ks_prefs.c:217
 msgid "kishot Settings"
 msgstr ""
 
-#: ks_prefs.c:226
+#: ks_prefs.c:222
 msgid "Screenshots"
 msgstr ""
 
-#: ks_prefs.c:227 ks_window.c:651
+#: ks_prefs.c:223
 msgid "Recording"
 msgstr ""
 
-#: ks_prefs.c:228
+#: ks_prefs.c:224
 msgid "Hidden Windows"
 msgstr ""
 
@@ -272,156 +268,176 @@ msgstr ""
 msgid "Drag to select a region. Esc cancels."
 msgstr ""
 
-#: ks_window.c:151 ks_window.c:198
+#: ks_window.c:99
+msgid "The region is selected when the recording starts."
+msgstr ""
+
+#: ks_window.c:101
+msgid "The window active when the recording starts is recorded."
+msgstr ""
+
+#: ks_window.c:233 ks_window.c:280
 #, c-format
 msgid "Saved to %s"
 msgstr ""
 
-#: ks_window.c:152 ks_window.c:199
+#: ks_window.c:234 ks_window.c:281
 #, c-format
 msgid "Could not save: %s"
 msgstr ""
 
-#: ks_window.c:155
+#: ks_window.c:237
 msgid "Screenshot failed"
 msgstr ""
 
-#: ks_window.c:155
+#: ks_window.c:237
 msgid "Screenshot saved"
 msgstr ""
 
-#: ks_window.c:173
+#: ks_window.c:255
 msgid "Save Screenshot"
 msgstr ""
 
-#: ks_window.c:215
+#: ks_window.c:297
 msgid "Copied to the clipboard"
 msgstr ""
 
-#: ks_window.c:242
+#: ks_window.c:328
 msgid "The screen could not be read"
 msgstr ""
 
-#: ks_window.c:358
+#: ks_window.c:449
 #, c-format
 msgid "Stop (%d:%02d)"
 msgstr ""
 
-#: ks_window.c:361
+#: ks_window.c:452
 #, c-format
 msgid ""
 "Recording %d:%02d -- click to stop\n"
 "%s"
 msgstr ""
 
-#: ks_window.c:368 ks_window.c:660
+#: ks_window.c:459 ks_window.c:827
 msgid "Record"
 msgstr ""
 
-#: ks_window.c:397
+#: ks_window.c:488
 #, c-format
 msgid "Recording saved to %s"
 msgstr ""
 
-#: ks_window.c:398 ks_window.c:428
+#: ks_window.c:489 ks_window.c:520
 #, c-format
 msgid "Recording failed: %s"
 msgstr ""
 
-#: ks_window.c:401 ks_window.c:431
+#: ks_window.c:492 ks_window.c:523
 msgid "Recording failed"
 msgstr ""
 
-#: ks_window.c:401
+#: ks_window.c:492
 msgid "Recording saved"
 msgstr ""
 
-#: ks_window.c:483
+#: ks_window.c:613
 msgid "Recording sound needs libpulse"
 msgstr ""
 
-#: ks_window.c:614
-msgid "Capture"
-msgstr ""
-
-#: ks_window.c:618
+#: ks_window.c:714
 msgid "_Area:"
 msgstr ""
 
-#: ks_window.c:622
+#: ks_window.c:718
 msgid "Full screen (all monitors)"
 msgstr ""
 
-#: ks_window.c:623
+#: ks_window.c:719
 msgid "Current monitor"
 msgstr ""
 
-#: ks_window.c:624
+#: ks_window.c:720
 msgid "Active window"
 msgstr ""
 
-#: ks_window.c:625
+#: ks_window.c:721
 msgid "Rectangular region"
 msgstr ""
 
-#: ks_window.c:630
+#: ks_window.c:786
+msgid "Scr_eenshot"
+msgstr ""
+
+#: ks_window.c:792
 msgid "_Delay:"
 msgstr ""
 
-#: ks_window.c:640
+#: ks_window.c:801
 msgid "Include the mouse _pointer"
 msgstr ""
 
-#: ks_window.c:644
+#: ks_window.c:803 ks_window.c:819
 msgid "Include window _borders"
 msgstr ""
 
-#: ks_window.c:648
+#: ks_window.c:805
 msgid "_New Screenshot"
 msgstr ""
 
-#: ks_window.c:652
+#: ks_window.c:811
+msgid "Reco_rding"
+msgstr ""
+
+#: ks_window.c:817
+msgid "Record the mouse _pointer"
+msgstr ""
+
+#: ks_window.c:821
 msgid "_System sound"
 msgstr ""
 
-#: ks_window.c:656
+#: ks_window.c:823
 msgid "_Microphone"
 msgstr ""
 
-#: ks_window.c:663
+#: ks_window.c:825
+msgid "Show a _live preview"
+msgstr ""
+
+#: ks_window.c:831
 msgid "Hidden windows"
 msgstr ""
 
-#: ks_window.c:672
+#: ks_window.c:840
 msgid ""
 "These windows are painted black in screenshots and recordings. The screen "
 "itself is not changed."
 msgstr ""
 
-#: ks_window.c:681
+#: ks_window.c:849
 msgid "_Hide a Window..."
 msgstr ""
 
-#: ks_window.c:683
+#: ks_window.c:851
 msgid "Remo_ve"
 msgstr ""
 
-#: ks_window.c:690
+#: ks_window.c:858
 msgid "Settings"
 msgstr ""
 
-#: ks_window.c:696
+#: ks_window.c:864
 msgid "_Open Folder"
 msgstr ""
 
-#: ks_window.c:698
+#: ks_window.c:866
 msgid "_Copy"
 msgstr ""
 
-#: ks_window.c:700
+#: ks_window.c:868
 msgid "Save _As..."
 msgstr ""
 
-#: ks_window.c:702
+#: ks_window.c:870
 msgid "_Save"
 msgstr ""
