@@ -1453,6 +1453,8 @@ static void cube_press(void *data)
     cube_open(data, false);
 }
 
+static CompTextImage *sky_image(const CubeConfig *cfg, int out_h, int *width);
+
 static void cube_init(const CompEffectInstance *self)
 {
     const CubeConfig *cfg = self->config;
@@ -1461,6 +1463,17 @@ static void cube_init(const CompEffectInstance *self)
     bind_keys(cfg->hotkey, cube_press, self);
     bind_keys(cfg->hotkey_next, cube_next, self);
     bind_keys(cfg->hotkey_prev, cube_prev, self);
+
+    /* Decoded now rather than on the first frame of the first opening:
+     * a large PNG is a noticeable pause there, and the cube is the one
+     * effect where the user is watching the very first frame. The
+     * outputs do not exist yet (effects come up first), so the screen's
+     * height stands in for theirs -- right for the usual side-by-side
+     * layout, and merely reloaded on first use for any other. */
+    if (cfg->skybox[0] && comp.root_h > 0) {
+        int w;
+        sky_image(cfg, comp.root_h, &w);
+    }
 }
 
 /* ------------------------------------------------------------------ */

@@ -517,7 +517,9 @@ CompTextImage *text_load_png(const char *path, int height, int *out_width)
     cairo_t *cr = cairo_create(dst);
     cairo_scale(cr, (double)w / sw, (double)height / sh);
     cairo_set_source_surface(cr, src, 0, 0);
-    cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_BEST);
+    /* Bilinear: BEST costs ~10x as much and the picture is mostly being
+     * enlarged, where it buys nothing a panorama's backdrop would show. */
+    cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_BILINEAR);
     cairo_pattern_set_extend(cairo_get_source(cr), CAIRO_EXTEND_PAD);   /* no faded border */
     cairo_paint(cr);
     cairo_destroy(cr);
