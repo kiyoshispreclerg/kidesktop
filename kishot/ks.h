@@ -5,13 +5,14 @@
 #include <gtk/gtk.h>
 #include <stdint.h>
 
-#define KISHOT_VERSION "0.1.2"
+#define KISHOT_VERSION "0.1.3"
 
 typedef enum {
     KS_AREA_FULL,       /* every monitor */
     KS_AREA_MONITOR,    /* the monitor under the pointer */
     KS_AREA_WINDOW,     /* the active window */
     KS_AREA_REGION,     /* a rectangle the user drags */
+    KS_AREA_OUTPUT,     /* one named monitor (KsConfig.output) */
     KS_AREA_N
 } KsArea;
 
@@ -24,6 +25,8 @@ typedef enum { KS_TAB_SHOT, KS_TAB_RECORD } KsTab;
 typedef struct {
     KsArea area;                /* screenshots */
     KsArea rec_area;            /* recordings */
+    char *output;               /* connector name for KS_AREA_OUTPUT, screenshots */
+    char *rec_output;           /* ... and recordings */
     int delay;                  /* seconds before a screenshot */
     gboolean pointer;           /* draw the mouse pointer */
     gboolean decorations;       /* window mode: include the frame */
@@ -69,6 +72,11 @@ GdkPixbuf *ks_grab_rect(const KsRect *r, gboolean pointer);
 /* r scaled to dw x dh on the server, for the live recording preview */
 GdkPixbuf *ks_grab_scaled(const KsRect *r, int dw, int dh, gboolean pointer);
 gboolean ks_rect_clip_to_screen(KsRect *r);
+int ks_monitor_count(void);
+/* connector name of monitor i ("DP-1"), or "Monitor N"; g_free() it */
+char *ks_monitor_name(int i);
+/* geometry of the monitor with that name; FALSE when it is not connected */
+gboolean ks_monitor_rect_by_name(const char *name, KsRect *out);
 
 /* ---- censoring (ks_censor.c) --------------------------------------------- */
 

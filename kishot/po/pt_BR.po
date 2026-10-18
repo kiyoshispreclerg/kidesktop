@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kishot\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-18 16:40-0300\n"
+"POT-Creation-Date: 2026-10-18 16:57-0300\n"
 "PO-Revision-Date: 2026-10-16 13:10-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -288,50 +288,50 @@ msgstr "%s → ffmpeg %s%s"
 msgid "Drag to select a region. Esc cancels."
 msgstr "Arraste para selecionar uma região. Esc cancela."
 
-#: ks_window.c:99
+#: ks_window.c:115
 msgid "The region is selected when the recording starts."
 msgstr "A região é escolhida quando a gravação começa."
 
-#: ks_window.c:101
+#: ks_window.c:117
 msgid "The window active when the recording starts is recorded."
 msgstr "É gravada a janela ativa quando a gravação começa."
 
-#: ks_window.c:233 ks_window.c:280
+#: ks_window.c:249 ks_window.c:296
 #, c-format
 msgid "Saved to %s"
 msgstr "Salvo em %s"
 
-#: ks_window.c:234 ks_window.c:281
+#: ks_window.c:250 ks_window.c:297
 #, c-format
 msgid "Could not save: %s"
 msgstr "Não foi possível salvar: %s"
 
-#: ks_window.c:237
+#: ks_window.c:253
 msgid "Screenshot failed"
 msgstr "A captura falhou"
 
-#: ks_window.c:237
+#: ks_window.c:253
 msgid "Screenshot saved"
 msgstr "Captura salva"
 
-#: ks_window.c:255
+#: ks_window.c:271
 msgid "Save Screenshot"
 msgstr "Salvar captura"
 
-#: ks_window.c:297
+#: ks_window.c:313
 msgid "Copied to the clipboard"
 msgstr "Copiado para a área de transferência"
 
-#: ks_window.c:328
+#: ks_window.c:344
 msgid "The screen could not be read"
 msgstr "Não foi possível ler a tela"
 
-#: ks_window.c:449
+#: ks_window.c:469
 #, c-format
 msgid "Stop (%d:%02d)"
 msgstr "Parar (%d:%02d)"
 
-#: ks_window.c:452
+#: ks_window.c:472
 #, c-format
 msgid ""
 "Recording %d:%02d -- click to stop\n"
@@ -340,97 +340,107 @@ msgstr ""
 "Gravando %d:%02d -- clique para parar\n"
 "%s"
 
-#: ks_window.c:459 ks_window.c:827
+#: ks_window.c:479 ks_window.c:913
 msgid "Record"
 msgstr "Gravar"
 
-#: ks_window.c:488
+#: ks_window.c:508
 #, c-format
 msgid "Recording saved to %s"
 msgstr "Gravação salva em %s"
 
-#: ks_window.c:489 ks_window.c:520
+#: ks_window.c:509 ks_window.c:540
 #, c-format
 msgid "Recording failed: %s"
 msgstr "A gravação falhou: %s"
 
-#: ks_window.c:492 ks_window.c:523
+#: ks_window.c:512 ks_window.c:543
 msgid "Recording failed"
 msgstr "A gravação falhou"
 
-#: ks_window.c:492
+#: ks_window.c:512
 msgid "Recording saved"
 msgstr "Gravação salva"
 
-#: ks_window.c:613
-msgid "Recording sound needs libpulse"
-msgstr "Gravar som exige a libpulse"
-
-#: ks_window.c:714
-msgid "_Area:"
-msgstr "_Área:"
-
-#: ks_window.c:718
+#: ks_window.c:600
 msgid "Full screen (all monitors)"
 msgstr "Tela inteira (todos os monitores)"
 
-#: ks_window.c:719
+#: ks_window.c:601
 msgid "Current monitor"
 msgstr "Monitor atual"
 
-#: ks_window.c:720
+#: ks_window.c:608
+#, c-format
+msgid "Monitor %d (%dx%d)"
+msgstr "Monitor %d (%dx%d)"
+
+#: ks_window.c:609
+#, c-format
+msgid "Monitor %d: %s (%dx%d)"
+msgstr "Monitor %d: %s (%dx%d)"
+
+#: ks_window.c:616
 msgid "Active window"
 msgstr "Janela ativa"
 
-#: ks_window.c:721
+#: ks_window.c:617
 msgid "Rectangular region"
 msgstr "Região retangular"
 
-#: ks_window.c:786
+#: ks_window.c:701
+msgid "Recording sound needs libpulse"
+msgstr "Gravar som exige a libpulse"
+
+#: ks_window.c:802
+msgid "_Area:"
+msgstr "_Área:"
+
+#: ks_window.c:870
 msgid "Scr_eenshot"
 msgstr "Cap_tura"
 
-#: ks_window.c:792
+#: ks_window.c:877
 msgid "_Delay:"
 msgstr "_Atraso:"
 
-#: ks_window.c:801
+#: ks_window.c:886
 msgid "Include the mouse _pointer"
 msgstr "Incluir o _ponteiro do mouse"
 
-#: ks_window.c:803 ks_window.c:819
+#: ks_window.c:888 ks_window.c:905
 msgid "Include window _borders"
 msgstr "Incluir as _bordas da janela"
 
-#: ks_window.c:805
+#: ks_window.c:890
 msgid "_New Screenshot"
 msgstr "_Nova captura"
 
-#: ks_window.c:811
+#: ks_window.c:896
 msgid "Reco_rding"
 msgstr "_Gravação"
 
-#: ks_window.c:817
+#: ks_window.c:903
 msgid "Record the mouse _pointer"
 msgstr "Gravar o _ponteiro do mouse"
 
-#: ks_window.c:821
+#: ks_window.c:907
 msgid "_System sound"
 msgstr "Som do _sistema"
 
-#: ks_window.c:823
+#: ks_window.c:909
 msgid "_Microphone"
 msgstr "_Microfone"
 
-#: ks_window.c:825
+#: ks_window.c:911
 msgid "Show a _live preview"
 msgstr "Mostrar p_révia ao vivo"
 
-#: ks_window.c:831
+#: ks_window.c:917
 msgid "Hidden windows"
 msgstr "Janelas ocultas"
 
-#: ks_window.c:840
+#: ks_window.c:926
 msgid ""
 "These windows are painted black in screenshots and recordings. The screen "
 "itself is not changed."
@@ -438,31 +448,31 @@ msgstr ""
 "Estas janelas saem pintadas de preto nas capturas e gravações. A tela em si "
 "não muda."
 
-#: ks_window.c:849
+#: ks_window.c:935
 msgid "_Hide a Window..."
 msgstr "_Ocultar janela..."
 
-#: ks_window.c:851
+#: ks_window.c:937
 msgid "Remo_ve"
 msgstr "Remo_ver"
 
-#: ks_window.c:858
+#: ks_window.c:944
 msgid "Settings"
 msgstr "Configurações"
 
-#: ks_window.c:864
+#: ks_window.c:950
 msgid "_Open Folder"
 msgstr "A_brir pasta"
 
-#: ks_window.c:866
+#: ks_window.c:952
 msgid "_Copy"
 msgstr "_Copiar"
 
-#: ks_window.c:868
+#: ks_window.c:954
 msgid "Save _As..."
 msgstr "Salvar _como..."
 
-#: ks_window.c:870
+#: ks_window.c:956
 msgid "_Save"
 msgstr "_Salvar"
 

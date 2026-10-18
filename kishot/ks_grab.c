@@ -76,6 +76,36 @@ static gboolean window_rect(Display *dpy, Window w, KsRect *out)
     return TRUE;
 }
 
+int ks_monitor_count(void)
+{
+    return gdk_screen_get_n_monitors(gdk_screen_get_default());
+}
+
+char *ks_monitor_name(int i)
+{
+    char *n = gdk_screen_get_monitor_plug_name(gdk_screen_get_default(), i);
+    return n ? n : g_strdup_printf("Monitor %d", i + 1);
+}
+
+gboolean ks_monitor_rect_by_name(const char *name, KsRect *out)
+{
+    GdkScreen *scr = gdk_screen_get_default();
+    if (!name)
+        return FALSE;
+    for (int i = 0; i < gdk_screen_get_n_monitors(scr); i++) {
+        char *n = ks_monitor_name(i);
+        gboolean hit = !strcmp(n, name);
+        g_free(n);
+        if (hit) {
+            GdkRectangle g;
+            gdk_screen_get_monitor_geometry(scr, i, &g);
+            *out = (KsRect){ g.x, g.y, g.width, g.height };
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
 gboolean ks_area_rect(KsArea area, gboolean decorations, KsRect *out)
 {
     return ks_area_rect_except(area, decorations, 0, out);

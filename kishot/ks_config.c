@@ -7,7 +7,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-static const char *const kAreaKeys[KS_AREA_N] = { "full", "monitor", "window", "region" };
+static const char *const kAreaKeys[KS_AREA_N] = { "full", "monitor", "window", "region", "output" };
 static const char *const kCopyKeys[] = { "auto", "gpu", "shm" };
 static const char *const kBackendKeys[] = { "auto", "plugin", "ffmpeg" };
 
@@ -88,6 +88,8 @@ void ks_config_load(KsConfig *c)
         *eq = 0;
         char *k = g_strstrip(s), *v = g_strstrip(eq + 1);
         if (!strcmp(k, "area")) c->area = lookup(kAreaKeys, KS_AREA_N, v, KS_AREA_FULL);
+        else if (!strcmp(k, "area_output") && *v) set_str(&c->output, v);
+        else if (!strcmp(k, "record_area_output") && *v) set_str(&c->rec_output, v);
         else if (!strcmp(k, "record_area")) {
             c->rec_area = lookup(kAreaKeys, KS_AREA_N, v, KS_AREA_FULL);
             have_rec_area = TRUE;
@@ -125,8 +127,10 @@ void ks_config_load(KsConfig *c)
     }
     fclose(f);
     /* before 0.2 one area served both */
-    if (!have_rec_area)
+    if (!have_rec_area) {
         c->rec_area = c->area;
+        set_str(&c->rec_output, c->output);
+    }
 }
 
 void ks_config_save(const KsConfig *c)
@@ -143,6 +147,11 @@ void ks_config_save(const KsConfig *c)
     fprintf(f, "# kishot settings (written by kishot)\n");
     fprintf(f, "area=%s\n", ks_area_key(c->area));
     fprintf(f, "record_area=%s\n", ks_area_key(c->rec_area));
+    fprintf(f, "# connector names for area=output / record_area=output\n");
+    if (c->output)
+        fprintf(f, "area_output=%s\n", c->output);
+    if (c->rec_output)
+        fprintf(f, "record_area_output=%s\n", c->rec_output);
     fprintf(f, "delay=%d\n", c->delay);
     fprintf(f, "pointer=%d\n", c->pointer);
     fprintf(f, "decorations=%d\n", c->decorations);

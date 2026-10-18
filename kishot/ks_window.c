@@ -37,12 +37,28 @@ struct KsApp {
     guint live_timer;           /* live recording preview */
 };
 
+static void fill_area_combo(KsApp *app, gboolean record);
+static void on_area_changed(GtkComboBox *c, KsApp *app);
+static void on_rec_area_changed(GtkComboBox *c, KsApp *app);
+
 static void set_status(KsApp *app, const char *text)
 {
     gtk_label_set_text(GTK_LABEL(app->status), text ? text : "");
 }
 
 /* ---- preview ------------------------------------------------------------- */
+
+/* ks_area_rect() plus a named monitor, which falls back to the one under the
+ * pointer when it is not connected any more */
+static void area_rect(KsArea area, const char *output, gboolean deco, unsigned long except, KsRect *r)
+{
+    if (area == KS_AREA_OUTPUT) {
+        if (ks_monitor_rect_by_name(output, r))
+            return;
+        area = KS_AREA_MONITOR;
+    }
+    ks_area_rect_except(area, deco, except, r);
+}
 
 /* the space the preview has, minus a small margin */
 static void preview_room(KsApp *app, int *mw, int *mh)
@@ -60,7 +76,7 @@ static void live_frame(KsApp *app)
         return;
     KsRect r;
     /* "active window" while kishot itself is active falls back to the monitor */
-    ks_area_rect_except(app->cfg->rec_area, app->cfg->decorations, GDK_WINDOW_XID(gw), &r);
+    area_rect(app->cfg->rec_area, app->cfg->rec_output, app->cfg->decorations, GDK_WINDOW_XID(gw), &r);
     int mw, mh;
     preview_room(app, &mw, &mh);
     double sc = MIN(1.0, MIN((double)mw / r.w, (double)mh / r.h));
@@ -315,7 +331,7 @@ static void on_open_folder(GtkWidget *w, KsApp *app)
 
 /* ---- taking a shot ------------------------------------------------------- */
 
-typedef struct { KsApp *app; KsArea area; gboolean record; GdkPixbuf *frozen; } Pending;
+typedef struct { KsApp *app; KsArea area; char *output; gboolean record; GdkPixbuf *frozen; } Pending;
 
 static void shot_ready(KsApp *app, GdkPixbuf *pb)
 {
@@ -367,6 +383,7 @@ static void region_done(gboolean ok, const KsRect *r, void *data)
         g_object_unref(sub);
     }
     g_object_unref(p->frozen);
+    g_free(p->output);
     g_free(p);
 }
 
@@ -379,6 +396,7 @@ static gboolean do_capture(gpointer data)
         ks_area_rect(KS_AREA_FULL, FALSE, &full);
         GdkPixbuf *frozen = ks_grab_rect(&full, p->record ? FALSE : app->cfg->pointer);
         if (!frozen) {
+            g_free(p->output);
             g_free(p);
             shot_ready(app, NULL);
             return FALSE;
@@ -388,7 +406,8 @@ static gboolean do_capture(gpointer data)
         return FALSE;
     }
     KsRect r;
-    ks_area_rect(p->area, app->cfg->decorations, &r);
+    area_rect(p->area, p->output, app->cfg->decorations, 0, &r);
+    g_free(p->output);
     if (p->record) {
         app->busy = FALSE;
         start_recording(app, &r);
@@ -412,7 +431,7 @@ void ks_app_command(KsApp *app, KsCmdKind kind, int area, gboolean background)
     gtk_notebook_set_current_page(GTK_NOTEBOOK(app->notebook), record ? KS_TAB_RECORD : KS_TAB_SHOT);
     if (area >= 0 && area < KS_AREA_N) {
         *(record ? &app->cfg->rec_area : &app->cfg->area) = area;
-        gtk_combo_box_set_active(GTK_COMBO_BOX(record ? app->rec_area_combo : app->area_combo), area);
+        fill_area_combo(app, record);
         ks_config_save(app->cfg);
     }
     /* a second `kishot -b` while the window is open still shows it */
@@ -425,6 +444,7 @@ void ks_app_command(KsApp *app, KsCmdKind kind, int area, gboolean background)
     Pending *p = g_new0(Pending, 1);
     p->app = app;
     p->area = record ? app->cfg->rec_area : app->cfg->area;
+    p->output = g_strdup(record ? app->cfg->rec_output : app->cfg->output);
     p->record = record;
     /* give the compositor time to repaint without our window, plus the delay */
     int ms = (was_visible ? 300 : 0) + (p->record ? 0 : app->cfg->delay * 1000);
@@ -548,16 +568,84 @@ static void on_record(GtkWidget *w, KsApp *app)
 
 /* ---- option widgets ------------------------------------------------------ */
 
+/* The Area list: Full screen, Current monitor, one row per connected monitor,
+ * Active window, Rectangular region. Combo row <-> (area, output name): */
+static void combo_to_area(KsApp *app, int idx, KsArea *area, char **output)
+{
+    int n = ks_monitor_count();
+    if (idx < 0)
+        return;
+    if (idx >= 2 && idx < 2 + n) {
+        char *name = ks_monitor_name(idx - 2);
+        g_free(*output);
+        *output = name;
+        *area = KS_AREA_OUTPUT;
+    } else {
+        *area = idx < 2 ? (KsArea)idx : (KsArea)(idx - n);
+    }
+    (void)app;
+}
+
+static void fill_area_combo(KsApp *app, gboolean record)
+{
+    GtkComboBox *c = GTK_COMBO_BOX(record ? app->rec_area_combo : app->area_combo);
+    KsArea area = record ? app->cfg->rec_area : app->cfg->area;
+    const char *output = record ? app->cfg->rec_output : app->cfg->output;
+    int n = ks_monitor_count(), active = 0;
+    GtkTreeModel *m = gtk_combo_box_get_model(c);
+    /* rebuilding must not look like the user picking rows */
+    g_signal_handlers_block_matched(c, G_SIGNAL_MATCH_FUNC, 0, 0, NULL,
+                                    record ? (gpointer)on_rec_area_changed : (gpointer)on_area_changed, NULL);
+    gtk_list_store_clear(GTK_LIST_STORE(m));
+    gtk_combo_box_append_text(c, _("Full screen (all monitors)"));
+    gtk_combo_box_append_text(c, _("Current monitor"));
+    for (int i = 0; i < n; i++) {
+        GdkRectangle g;
+        gdk_screen_get_monitor_geometry(gdk_screen_get_default(), i, &g);
+        char *name = ks_monitor_name(i);
+        /* "Monitor N" is the stand-in for a monitor without a connector name */
+        char *label = g_str_has_prefix(name, "Monitor ")
+            ? g_strdup_printf(_("Monitor %d (%dx%d)"), i + 1, g.width, g.height)
+            : g_strdup_printf(_("Monitor %d: %s (%dx%d)"), i + 1, name, g.width, g.height);
+        gtk_combo_box_append_text(c, label);
+        if (area == KS_AREA_OUTPUT && output && !strcmp(output, name))
+            active = 2 + i;
+        g_free(label);
+        g_free(name);
+    }
+    gtk_combo_box_append_text(c, _("Active window"));
+    gtk_combo_box_append_text(c, _("Rectangular region"));
+    if (area == KS_AREA_WINDOW || area == KS_AREA_REGION)
+        active = area + n;
+    else if (area == KS_AREA_FULL || area == KS_AREA_MONITOR)
+        active = area;
+    /* a monitor that is not connected: shown as the current one, which is
+     * what a capture falls back to */
+    else if (!active)
+        active = KS_AREA_MONITOR;
+    gtk_combo_box_set_active(c, active);
+    g_signal_handlers_unblock_matched(c, G_SIGNAL_MATCH_FUNC, 0, 0, NULL,
+                                      record ? (gpointer)on_rec_area_changed : (gpointer)on_area_changed, NULL);
+}
+
+static void on_monitors_changed(GdkScreen *scr, KsApp *app)
+{
+    (void)scr;
+    fill_area_combo(app, FALSE);
+    fill_area_combo(app, TRUE);
+    update_preview(app);
+}
+
 static void on_area_changed(GtkComboBox *c, KsApp *app)
 {
-    app->cfg->area = gtk_combo_box_get_active(c);
+    combo_to_area(app, gtk_combo_box_get_active(c), &app->cfg->area, &app->cfg->output);
     update_sensitivity(app);
     ks_config_save(app->cfg);
 }
 
 static void on_rec_area_changed(GtkComboBox *c, KsApp *app)
 {
-    app->cfg->rec_area = gtk_combo_box_get_active(c);
+    combo_to_area(app, gtk_combo_box_get_active(c), &app->cfg->rec_area, &app->cfg->rec_output);
     update_sensitivity(app);
     update_preview(app);
     ks_config_save(app->cfg);
@@ -709,17 +797,12 @@ static GtkWidget *check(GtkWidget *box, const char *label, gboolean active)
     return c;
 }
 
-static GtkWidget *area_combo(GtkWidget *tbl, int row, KsArea active)
+static GtkWidget *area_combo(GtkWidget *tbl, int row)
 {
     GtkWidget *l = gtk_label_new_with_mnemonic(_("_Area:"));
     gtk_misc_set_alignment(GTK_MISC(l), 0, 0.5);
     gtk_table_attach(GTK_TABLE(tbl), l, 0, 1, row, row + 1, GTK_FILL, 0, 0, 0);
     GtkWidget *c = gtk_combo_box_new_text();
-    gtk_combo_box_append_text(GTK_COMBO_BOX(c), _("Full screen (all monitors)"));
-    gtk_combo_box_append_text(GTK_COMBO_BOX(c), _("Current monitor"));
-    gtk_combo_box_append_text(GTK_COMBO_BOX(c), _("Active window"));
-    gtk_combo_box_append_text(GTK_COMBO_BOX(c), _("Rectangular region"));
-    gtk_combo_box_set_active(GTK_COMBO_BOX(c), active);
     gtk_label_set_mnemonic_widget(GTK_LABEL(l), c);
     gtk_table_attach(GTK_TABLE(tbl), c, 1, 2, row, row + 1, GTK_FILL | GTK_EXPAND, 0, 0, 0);
     return c;
@@ -745,6 +828,7 @@ KsApp *ks_app_new(KsConfig *cfg)
     gtk_window_set_role(GTK_WINDOW(app->win), "kishot");
     gtk_window_set_default_size(GTK_WINDOW(app->win), cfg->win_w, cfg->win_h);
     g_signal_connect(app->win, "delete-event", G_CALLBACK(on_delete), app);
+    g_signal_connect(gdk_screen_get_default(), "monitors-changed", G_CALLBACK(on_monitors_changed), app);
 
     /* after the default handlers, so gtk_widget_get_mapped() is up to date */
     g_signal_connect_after(app->win, "map", G_CALLBACK(on_map_changed), app);
@@ -787,7 +871,8 @@ KsApp *ks_app_new(KsConfig *cfg)
     GtkWidget *tbl = gtk_table_new(2, 2, FALSE);
     gtk_table_set_row_spacings(GTK_TABLE(tbl), 4);
     gtk_table_set_col_spacings(GTK_TABLE(tbl), 6);
-    app->area_combo = area_combo(tbl, 0, cfg->area);
+    app->area_combo = area_combo(tbl, 0);
+    fill_area_combo(app, FALSE);
     g_signal_connect(app->area_combo, "changed", G_CALLBACK(on_area_changed), app);
     GtkWidget *l = gtk_label_new_with_mnemonic(_("_Delay:"));
     gtk_misc_set_alignment(GTK_MISC(l), 0, 0.5);
@@ -811,7 +896,8 @@ KsApp *ks_app_new(KsConfig *cfg)
     gtk_notebook_append_page(GTK_NOTEBOOK(app->notebook), page, gtk_label_new_with_mnemonic(_("Reco_rding")));
     tbl = gtk_table_new(1, 2, FALSE);
     gtk_table_set_col_spacings(GTK_TABLE(tbl), 6);
-    app->rec_area_combo = area_combo(tbl, 0, cfg->rec_area);
+    app->rec_area_combo = area_combo(tbl, 0);
+    fill_area_combo(app, TRUE);
     g_signal_connect(app->rec_area_combo, "changed", G_CALLBACK(on_rec_area_changed), app);
     gtk_box_pack_start(GTK_BOX(page), tbl, FALSE, FALSE, 0);
     app->rec_pointer_check = check(page, _("Record the mouse _pointer"), cfg->rec_pointer);
