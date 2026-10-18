@@ -10,6 +10,7 @@
 #include <X11/Xatom.h>
 #include <X11/extensions/Xfixes.h>
 #include <X11/extensions/Xrender.h>
+#include <X11/extensions/Xrandr.h>
 #include <string.h>
 
 gboolean ks_rect_clip_to_screen(KsRect *r)
@@ -81,10 +82,30 @@ int ks_monitor_count(void)
     return gdk_screen_get_n_monitors(gdk_screen_get_default());
 }
 
+/* Monitor names come from RandR 1.5 ("DP-1", "HDMI-1", or what
+ * `xrandr --setmonitor` named them): GDK2 gives no connector names. The
+ * GDK monitor is matched to its RandR one by geometry; without RandR 1.5 a
+ * monitor is "Monitor N", N counting from 1 in GDK's order. */
 char *ks_monitor_name(int i)
 {
-    char *n = gdk_screen_get_monitor_plug_name(gdk_screen_get_default(), i);
-    return n ? n : g_strdup_printf("Monitor %d", i + 1);
+    GdkScreen *scr = gdk_screen_get_default();
+    Display *dpy = GDK_DISPLAY_XDISPLAY(gdk_display_get_default());
+    GdkRectangle g;
+    char *name = NULL;
+    gdk_screen_get_monitor_geometry(scr, i, &g);
+    int n = 0;
+    XRRMonitorInfo *mi = XRRGetMonitors(dpy, DefaultRootWindow(dpy), True, &n);
+    for (int k = 0; mi && k < n && !name; k++)
+        if (mi[k].x == g.x && mi[k].y == g.y && mi[k].width == g.width && mi[k].height == g.height) {
+            char *an = XGetAtomName(dpy, mi[k].name);
+            if (an) {
+                name = g_strdup(an);
+                XFree(an);
+            }
+        }
+    if (mi)
+        XRRFreeMonitors(mi);
+    return name ? name : g_strdup_printf("Monitor %d", i + 1);
 }
 
 gboolean ks_monitor_rect_by_name(const char *name, KsRect *out)
@@ -94,8 +115,11 @@ gboolean ks_monitor_rect_by_name(const char *name, KsRect *out)
         return FALSE;
     for (int i = 0; i < gdk_screen_get_n_monitors(scr); i++) {
         char *n = ks_monitor_name(i);
-        gboolean hit = !strcmp(n, name);
+        /* "Monitor N" also matches by position: what older configs saved */
+        char *legacy = g_strdup_printf("Monitor %d", i + 1);
+        gboolean hit = !strcmp(n, name) || !strcmp(legacy, name);
         g_free(n);
+        g_free(legacy);
         if (hit) {
             GdkRectangle g;
             gdk_screen_get_monitor_geometry(scr, i, &g);

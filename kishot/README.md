@@ -10,7 +10,7 @@ two tabs, Screenshot and Recording, each with its own area; the Recording
 tab adds the pointer, system sound and/or microphone, and an optional live
 preview of what would be recorded (copied on the X server and scaled down with Render,
 so it stays cheap on big screens). The divider between the preview and the
-options can be dragged, and its position is kept. The Area list also has one row per connected monitor (kept by connector name, `area_output=` in the config). Settings opens on the
+options can be dragged, and its position is kept. The Area list also has one row per connected monitor (kept by RandR name such as `DP-1`, `area_output=` in the config). Settings opens on the
 page of the tab shown, and each launch picks the tab of what it asks for:
 `kishot` the Screenshot tab, `kishot --record` the Recording one.
 

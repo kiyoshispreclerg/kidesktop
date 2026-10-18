@@ -6,7 +6,7 @@
 # it kishot pipes frames into the ffmpeg command, and without that too it
 # only takes screenshots. Sound comes from libpulse-simple, also dlopen()ed.
 CFLAGS ?= -Wall -Wextra -O2
-PKGS := gtk+-2.0 x11 xext xfixes xcb xcb-shm xcb-randr xcb-xfixes xcb-render xrender
+PKGS := gtk+-2.0 x11 xext xfixes xcb xcb-shm xcb-randr xcb-xfixes xcb-render xrender xrandr
 PKG_CFLAGS := $(shell pkg-config --cflags $(PKGS))
 PKG_LIBS := $(shell pkg-config --libs $(PKGS)) -ldl -lpthread -lm
 

@@ -608,8 +608,11 @@ static void fill_area_combo(KsApp *app, gboolean record)
             ? g_strdup_printf(_("Monitor %d (%dx%d)"), i + 1, g.width, g.height)
             : g_strdup_printf(_("Monitor %d: %s (%dx%d)"), i + 1, name, g.width, g.height);
         gtk_combo_box_append_text(c, label);
-        if (area == KS_AREA_OUTPUT && output && !strcmp(output, name))
+        /* a config from before RandR names saved "Monitor N" */
+        char *legacy = g_strdup_printf("Monitor %d", i + 1);
+        if (area == KS_AREA_OUTPUT && output && (!strcmp(output, name) || !strcmp(output, legacy)))
             active = 2 + i;
+        g_free(legacy);
         g_free(label);
         g_free(name);
     }
