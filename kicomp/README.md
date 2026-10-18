@@ -391,6 +391,7 @@ background      = 0.9         # how solid that is
 flat_docks      = 1           # panels lie on their face over the wallpaper,
                               # rather than floating with the windows: they
                               # are part of the desktop, not things on it
+skybox =                     # PNG panorama behind the cube (skybox_opacity, skybox_parallax)
 spin_transparency = 0         # 0..1: how see-through the shell (faces,
                               # their wallpaper and panels, the caps) goes
                               # while a *mouse* drag turns it, so the
@@ -1433,6 +1434,9 @@ to open on XRender.
 | `flat_docks` | panels lie on their face over the wallpaper (on) |
 | `spin_transparency` | `0`..`1` (default `0`): how see-through the shell — the faces, their wallpaper and panels, and the caps — goes while a **mouse** drag turns the cube, so the wallpaper and windows on the faces turned away show through it and a drag becomes a way to see every desktop at once. The windows stay solid, the wallpaper fades with the shell; a keyed turn (`hotkey_next`/`prev`) is never affected. Fades in and out with the cube's own open/close animation rather than snapping on and off |
 | `shell` | whether a face draws its own backing quad (`cap_color`) at all, sides and caps alike (on). `spin_transparency` already fades a face's own wallpaper, so off tries the cube as nothing but a prism of wallpapers, no shell of its own; the caps simply vanish, having no wallpaper to fall back on |
+| `skybox` | path of a PNG (`~/` accepted) drawn behind the cube instead of just the plain `background_color`. Meant as a wide panorama: it is scaled to the output's height, tiled sideways and slides as the cube turns, and shifts a little vertically with the tilt. Empty (default) for none |
+| `skybox_opacity` | `0`..`1` (default `1`): how solid the picture is over `background_color`; fades with the cube's open/close |
+| `skybox_parallax` | default `1`: image widths the picture slides per full revolution of the cube (`0` keeps it still, negative reverses) |
 | `live_windows` | `desktop` / `active` / `all`: how much of the other desktops is kept alive; the global `live_windows` when left out. Minimized windows are never on a face, held or otherwise — they are not on their desktop |
 
 ### One mode at a time

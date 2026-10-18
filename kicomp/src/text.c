@@ -277,6 +277,57 @@ static void set_source(cairo_t *cr, const float c[4])
     cairo_set_source_rgba(cr, c[0], c[1], c[2], c[3]);
 }
 
+/* The image the renderers draw from, made of a finished ARGB32 surface:
+ * the pixels for the GL backend, and the same pixels as an X picture
+ * for the XRender one. The surface stays the caller's. */
+static CompTextImage *image_from_surface(cairo_surface_t *surface)
+{
+    cairo_surface_flush(surface);
+
+    CompTextImage *img = calloc(1, sizeof(*img));
+    if (!img)
+        return NULL;
+
+    int w = cairo_image_surface_get_width(surface);
+    int h = cairo_image_surface_get_height(surface);
+    img->w = w;
+    img->h = h;
+
+    size_t stride = (size_t)cairo_image_surface_get_stride(surface);
+    const unsigned char *src = cairo_image_surface_get_data(surface);
+    img->pixels = malloc((size_t)w * (size_t)h * 4);
+    if (img->pixels) {
+        for (int y = 0; y < h; y++)
+            memcpy(img->pixels + (size_t)y * (size_t)w * 4,
+                   src + (size_t)y * stride, (size_t)w * 4);
+    }
+
+    /* And the same pixels as an X pixmap, for the XRender backend.
+     * Cairo's ARGB32 is premultiplied in native byte order, which is
+     * exactly what a 32-bit XRender picture wants on the same machine. */
+    if (img->pixels && comp.caps.render) {
+        img->pixmap = xcb_generate_id(comp.conn);
+        xcb_create_pixmap(comp.conn, 32, img->pixmap, comp.root,
+                          (uint16_t)w, (uint16_t)h);
+
+        /* One row at a time: a single PutImage can exceed the server's
+         * maximum request length for a wide label. */
+        xcb_gcontext_t g = text_gc_for(img->pixmap);
+        for (int y = 0; y < h; y++)
+            xcb_put_image(comp.conn, XCB_IMAGE_FORMAT_Z_PIXMAP, img->pixmap,
+                          g, (uint16_t)w, 1, 0, (int16_t)y, 0, 32,
+                          (uint32_t)w * 4, img->pixels + (size_t)y * (size_t)w * 4);
+
+        xcb_render_pictformat_t fmt = text_argb_format();
+        if (fmt != 0) {
+            img->picture = xcb_generate_id(comp.conn);
+            xcb_render_create_picture(comp.conn, img->picture, img->pixmap, fmt, 0, NULL);
+        }
+    }
+
+    return img;
+}
+
 CompTextImage *text_render(const char *utf8, const CompTextStyle *style,
                            int max_width)
 {
@@ -385,50 +436,7 @@ CompTextImage *text_render(const char *utf8, const CompTextStyle *style,
     set_source(cr, style->fg);
     pango_cairo_show_layout(cr, final);
 
-    cairo_surface_flush(surface);
-
-    CompTextImage *img = calloc(1, sizeof(*img));
-    if (!img) {
-        g_object_unref(final);
-        cairo_destroy(cr);
-        cairo_surface_destroy(surface);
-        return NULL;
-    }
-
-    img->w = w;
-    img->h = h;
-
-    size_t stride = (size_t)cairo_image_surface_get_stride(surface);
-    const unsigned char *src = cairo_image_surface_get_data(surface);
-    img->pixels = malloc((size_t)w * (size_t)h * 4);
-    if (img->pixels) {
-        for (int y = 0; y < h; y++)
-            memcpy(img->pixels + (size_t)y * (size_t)w * 4,
-                   src + (size_t)y * stride, (size_t)w * 4);
-    }
-
-    /* And the same pixels as an X pixmap, for the XRender backend.
-     * Cairo's ARGB32 is premultiplied in native byte order, which is
-     * exactly what a 32-bit XRender picture wants on the same machine. */
-    if (img->pixels && comp.caps.render) {
-        img->pixmap = xcb_generate_id(comp.conn);
-        xcb_create_pixmap(comp.conn, 32, img->pixmap, comp.root,
-                          (uint16_t)w, (uint16_t)h);
-
-        /* One row at a time: a single PutImage can exceed the server's
-         * maximum request length for a wide label. */
-        xcb_gcontext_t g = text_gc_for(img->pixmap);
-        for (int y = 0; y < h; y++)
-            xcb_put_image(comp.conn, XCB_IMAGE_FORMAT_Z_PIXMAP, img->pixmap,
-                          g, (uint16_t)w, 1, 0, (int16_t)y, 0, 32,
-                          (uint32_t)w * 4, img->pixels + (size_t)y * (size_t)w * 4);
-
-        xcb_render_pictformat_t fmt = text_argb_format();
-        if (fmt != 0) {
-            img->picture = xcb_generate_id(comp.conn);
-            xcb_render_create_picture(comp.conn, img->picture, img->pixmap, fmt, 0, NULL);
-        }
-    }
+    CompTextImage *img = image_from_surface(surface);
 
     g_object_unref(final);
     cairo_destroy(cr);
@@ -479,4 +487,45 @@ void text_shutdown(void)
         gc = 0;
         gc_owner = 0;
     }
+}
+
+CompTextImage *text_load_png(const char *path, int height, int *out_width)
+{
+    if (!path || !*path || height <= 0)
+        return NULL;
+
+    cairo_surface_t *src = cairo_image_surface_create_from_png(path);
+    if (cairo_surface_status(src) != CAIRO_STATUS_SUCCESS) {
+        cairo_surface_destroy(src);
+        return NULL;
+    }
+
+    int sw = cairo_image_surface_get_width(src);
+    int sh = cairo_image_surface_get_height(src);
+    if (sw <= 0 || sh <= 0) {
+        cairo_surface_destroy(src);
+        return NULL;
+    }
+
+    /* Scaled once, here, so the renderers draw it 1:1 -- a skybox panned
+     * every frame must not also be resampled every frame. */
+    double k = (double)height / (double)sh;
+    int w = (int)(sw * k + 0.5);
+    if (w < 1) w = 1;
+
+    cairo_surface_t *dst = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w, height);
+    cairo_t *cr = cairo_create(dst);
+    cairo_scale(cr, (double)w / sw, (double)height / sh);
+    cairo_set_source_surface(cr, src, 0, 0);
+    cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_BEST);
+    cairo_pattern_set_extend(cairo_get_source(cr), CAIRO_EXTEND_PAD);   /* no faded border */
+    cairo_paint(cr);
+    cairo_destroy(cr);
+    cairo_surface_destroy(src);
+
+    CompTextImage *img = image_from_surface(dst);
+    cairo_surface_destroy(dst);
+    if (img && out_width)
+        *out_width = w;
+    return img;
 }

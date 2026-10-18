@@ -58,7 +58,7 @@ typedef struct {
 typedef struct {
     char name[32], instance[32];
     int enabled;
-    char opts[384];
+    char opts[1536];
 } EffectRow;
 
 static void globals_defaults(KicompGlobals *g)
@@ -255,7 +255,7 @@ static void copy_output_sections(FILE *out, FILE *in)
  * Opcoes column holds it) as one "k=v\n" line per token. */
 static void write_opts(FILE *out, const char *opts)
 {
-    char buf[384];
+    char buf[1536];
     snprintf(buf, sizeof(buf), "%s", opts);
     char *save = NULL;
     for (char *tok = strtok_r(buf, " \t", &save); tok; tok = strtok_r(NULL, " \t", &save)) {
@@ -531,6 +531,9 @@ static const EffectField CUBE_FIELDS[] = {
     FLD_BOOL("flat_docks", "Paineis fixos na face", "1"),
     FLD_DBL("spin_transparency", "Transparencia ao girar (mouse)", "0", 0, 1, 0.05, 2),
     FLD_BOOL("shell", "Desenhar as tampas/lados", "1"),
+    FLD_STR("skybox", "Skybox (imagem PNG panoramica)", ""),
+    FLD_DBL("skybox_opacity", "Opacidade do skybox", "1.0", 0, 1, 0.05, 2),
+    FLD_DBL("skybox_parallax", "Skybox: giros da imagem por volta do cubo", "1.0", -4, 4, 0.1, 2),
     FLD_ENUM("live_windows", "Janelas ao vivo", "all", LIVE_WINDOWS_OPTS),
 };
 
@@ -583,12 +586,12 @@ static const EffectSchema *find_schema(const char *name)
 #define MAX_OPT_TOKENS 40
 typedef struct {
     char key[32];
-    char val[160];
+    char val[512];
 } OptToken;
 
 static int parse_opts_tokens(const char *opts, OptToken *toks, int max)
 {
-    char buf[384];
+    char buf[1536];
     snprintf(buf, sizeof(buf), "%s", opts ? opts : "");
     int n = 0;
     char *save = NULL;
@@ -817,9 +820,9 @@ static void open_effect_dialog(GtkTreeIter *iter)
     gtk_widget_show_all(dialog);
     gint resp = gtk_dialog_run(GTK_DIALOG(dialog));
     if (resp == GTK_RESPONSE_OK) {
-        char opts[384] = "";
+        char opts[1536] = "";
         for (int i = 0; i < st.schema->n_fields; i++) {
-            char valbuf[160];
+            char valbuf[512];
             field_widget_value(&st.schema->fields[i], st.field_widgets[i], valbuf, sizeof(valbuf));
             opts_append(opts, sizeof(opts), st.schema->fields[i].key, valbuf);
         }

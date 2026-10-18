@@ -120,6 +120,19 @@ typedef struct CompSceneChrome {
     float opacity;
 } CompSceneChrome;
 
+/* A picture an effect wants drawn under every window, over its backdrop:
+ * the cube's skybox. Like chrome it is an image drawn 1:1 (the effect
+ * sizes it), but at the bottom of the scene instead of the top, and it
+ * may hang over the edge of the output -- the renderers clip it. A few
+ * tiles side by side make a panorama that wraps. */
+#define MAX_SCENE_SKY 4
+
+typedef struct CompSceneSky {
+    struct CompTextImage *image;
+    CompRect rect;          /* root coordinates; the image's own size */
+    float opacity;
+} CompSceneSky;
+
 /* An effect's own ground: a rectangle of colour under every window it is
  * drawing.
  *
@@ -178,6 +191,9 @@ typedef struct CompScene {
     int solid_count;
 
     CompSceneBackdrop backdrop;
+
+    CompSceneSky sky[MAX_SCENE_SKY];
+    int sky_count;
 } CompScene;
 
 /* Adds one, ignoring the request when the scene is full or the image
@@ -191,6 +207,10 @@ void scene_add_chrome(CompScene *s, struct CompTextImage *image,
 void scene_add_solid(CompScene *s, const CompRect *rect,
                      const CompTransform *transform,
                      float r, float g, float b, float opacity, float z);
+
+/* Adds one sky tile, drawn after the backdrop. Ignored when full. */
+void scene_add_sky(CompScene *s, struct CompTextImage *image,
+                   const CompRect *rect, float opacity);
 
 /* Sets the ground for this frame. Cleared again by the next
  * scene_build(), like everything else an effect puts here. */

@@ -32,6 +32,7 @@ void scene_build(CompScene *s, CompOutput *o)
     s->chrome_count = 0;
     s->solid_count = 0;
     s->backdrop.rect = (CompRect){ 0, 0, 0, 0 };
+    s->sky_count = 0;
 
     for (CompWindow *w = comp.stack; w; w = w->next) {
         /* An unmapped window is still drawn while an effect holds it --
@@ -145,6 +146,20 @@ void scene_add_chrome(CompScene *s, struct CompTextImage *image,
     c->image = image;
     c->rect = *rect;
     c->opacity = opacity;
+}
+
+void scene_add_sky(CompScene *s, struct CompTextImage *image,
+                   const CompRect *rect, float opacity)
+{
+    if (!s || !image || !rect || s->sky_count >= MAX_SCENE_SKY)
+        return;
+    if (rect->w <= 0 || rect->h <= 0 || opacity <= 0.0f)
+        return;
+
+    CompSceneSky *k = &s->sky[s->sky_count++];
+    k->image = image;
+    k->rect = *rect;
+    k->opacity = opacity > 1.0f ? 1.0f : opacity;
 }
 
 void scene_add_solid(CompScene *s, const CompRect *rect,

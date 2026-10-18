@@ -60,6 +60,12 @@ CompTextImage *text_render(const char *utf8, const CompTextStyle *style,
                            int max_width);
 void text_free(CompTextImage *img);
 
+/* A PNG, scaled to `height` pixels tall (width follows its aspect) and
+ * made into an image the renderers can draw 1:1. NULL when it cannot be
+ * read. For the cube's skybox; not text, but it needs the same two
+ * forms (picture and texture) and the same lifetime rules. */
+CompTextImage *text_load_png(const char *path, int height, int *out_width);
+
 int text_width(const CompTextImage *img);
 int text_height(const CompTextImage *img);
 

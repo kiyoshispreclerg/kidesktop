@@ -37,6 +37,7 @@
 #include "../animation.h"
 #include "../renderer.h"
 #include "../desktop.h"
+#include "../text.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -166,7 +167,18 @@ typedef struct {
      * on, so turning this off simply removes them too. On by default,
      * matching how the cube always looked before this existed. */
     bool shell;
+
+    /* A picture behind the cube, in place of the plain colour: PNG, wide
+     * enough to be a panorama. It is tiled sideways and slides as the
+     * cube turns, one image width per `skybox_parallax` revolutions of
+     * the cube, so turning the cube looks like turning in a place. Empty
+     * for none. The colour behind it still shows through where the
+     * picture is faded (skybox_opacity). */
+    char skybox[512];
+    float skybox_opacity;
+    float skybox_parallax;
 } CubeConfig;
+
 
 typedef struct {
     int output_id;
@@ -868,6 +880,62 @@ static int face_of_window(const CubeData *d, const CompOutput *o, CompWindow *w)
     return (desktop - d->first_desktop + d->faces) % d->faces;
 }
 
+/* The skybox picture, loaded at the output's height plus room to slide
+ * vertically with the tilt, and kept between openings: decoding a PNG
+ * is far more than the cube should cost every time it opens. Replaced
+ * when the file or the output's height changes. */
+#define SKY_VMARGIN 0.25f           /* extra height, fraction of the output's */
+
+static CompTextImage *sky_image(const CubeConfig *cfg, int out_h, int *width)
+{
+    static CompTextImage *img;
+    static char path[512];
+    static int height, w;
+
+    if (!cfg->skybox[0])
+        return NULL;
+    int want = (int)((float)out_h * (1.0f + SKY_VMARGIN) + 0.5f);
+    if (!img || height != want || strcmp(path, cfg->skybox) != 0) {
+        text_free(img);
+        img = text_load_png(cfg->skybox, want, &w);
+        snprintf(path, sizeof(path), "%s", cfg->skybox);
+        height = want;
+        if (!img)
+            fprintf(stderr, "kicomp: cube: cannot read skybox '%s'\n", path);
+    }
+    *width = w;
+    return img;
+}
+
+/* Tiles the picture across the output, offset by how far the cube has
+ * turned (and tilted), so it wraps. */
+static void add_skybox(CompScene *s, const CompOutput *o, const CubeConfig *cfg,
+                       const CubeData *d)
+{
+    int iw = 0;
+    CompTextImage *img = sky_image(cfg, o->rect.h, &iw);
+    if (!img || iw <= 0)
+        return;
+
+    float turn = d->angle / (2.0f * (float)M_PI) * cfg->skybox_parallax;
+    float frac = turn - floorf(turn);           /* 0..1, wraps */
+    int shift = (int)(frac * (float)iw);
+
+    float margin = (float)o->rect.h * SKY_VMARGIN;
+    float lim = (float)M_PI / 2.0f;
+    float t = d->tilt / lim;
+    if (t < -1.0f) t = -1.0f;
+    if (t > 1.0f) t = 1.0f;
+    int y = o->rect.y - (int)(margin * 0.5f) + (int)(t * margin * 0.5f);
+
+    /* The first tile starts at or left of the output's edge. */
+    int x = o->rect.x + shift - iw;
+    for (int n = 0; x < o->rect.x + o->rect.w && n < MAX_SCENE_SKY; n++, x += iw) {
+        CompRect r = { x, y, iw, text_height(img) };
+        scene_add_sky(s, img, &r, cfg->skybox_opacity * d->phase);
+    }
+}
+
 static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
 {
     CubeData *d = e->data;
@@ -898,6 +966,8 @@ static void cube_apply(CompEffect *e, CompScene *s, CompOutput *o)
     if (cfg->background > 0.0f)
         scene_set_backdrop(s, &o->rect, cfg->back_r, cfg->back_g, cfg->back_b,
                            cfg->background * d->phase);
+
+    add_skybox(s, o, cfg, d);
 
     /* See-through while a *mouse* mode turns the cube: the shell fades
      * (veil is what its opacity is multiplied by, 1 solid, 0 gone), and
@@ -1436,6 +1506,9 @@ static void cube_defaults(void *config)
     c->flat_docks = true;
     c->spin_transparency = 0.0f;
     c->shell = true;
+    c->skybox[0] = '\0';
+    c->skybox_opacity = 1.0f;
+    c->skybox_parallax = 1.0f;
 }
 
 static bool cube_config_key(void *config, const char *key, const char *value)
@@ -1480,6 +1553,20 @@ static bool cube_config_key(void *config, const char *key, const char *value)
         return true;
     }
     if (!strcmp(key, "flat_docks")) { c->flat_docks = atoi(value) != 0; return true; }
+    if (!strcmp(key, "skybox")) {
+        const char *home = getenv("HOME");
+        if (value[0] == '~' && value[1] == '/' && home)
+            snprintf(c->skybox, sizeof(c->skybox), "%s%s", home, value + 1);
+        else
+            snprintf(c->skybox, sizeof(c->skybox), "%s", value);
+        return true;
+    }
+    if (!strcmp(key, "skybox_opacity")) {
+        float t = (float)atof(value);
+        c->skybox_opacity = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+        return true;
+    }
+    if (!strcmp(key, "skybox_parallax")) { c->skybox_parallax = (float)atof(value); return true; }
     if (!strcmp(key, "shell"))      { c->shell = atoi(value) != 0; return true; }
     if (!strcmp(key, "cap_color"))
         return parse_colour(value, &c->cap_r, &c->cap_g, &c->cap_b, &c->cap_a);

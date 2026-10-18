@@ -2282,9 +2282,13 @@ static void draw_solid(const CompOutput *o, const CompSceneSolid *q,
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
+static void draw_sky(CompOutput *o, const CompScene *s,
+                     const float projection[16]);
+
 static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
 {
     draw_backdrop(o, s, projection);
+    draw_sky(o, s, projection);
 
     /* The rectangle this pass is repainting; each node narrows it to the
      * pieces of itself that are not under an opaque window, and puts it
@@ -2339,12 +2343,49 @@ static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
  * image is uploaded once and remembered in the image itself, because a
  * label outlives the frame that first drew it -- a filter box redrawn
  * every frame would be a Pango layout every frame. */
-static void draw_chrome(CompOutput *o, const CompScene *s,
-                        const float projection[16])
+static void draw_image_quad(CompOutput *o, struct CompTextImage *image,
+                            const CompRect *rect, float opacity)
 {
-    if (s->chrome_count == 0)
+    const unsigned char *pixels = text_pixels(image);
+    unsigned int *tex = text_gl_texture(image);
+    if (!pixels || !tex)
         return;
 
+    if (*tex == 0) {
+        glGenTextures(1, tex);
+        glBindTexture(GL_TEXTURE_2D, *tex);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        /* Cairo's ARGB32 is native-endian premultiplied, which on a
+         * little-endian machine is B,G,R,A in memory -- hence BGRA
+         * rather than RGBA, and the same premultiplied blend the
+         * windows use. */
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
+                     text_width(image), text_height(image), 0,
+                     GL_BGRA, GL_UNSIGNED_BYTE, pixels);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    } else {
+        glBindTexture(GL_TEXTURE_2D, *tex);
+    }
+
+    CompTransform identity;
+    comp_transform_identity(&identity);
+    float m[16];
+    rect_matrix(rect, &identity, m);
+
+    glUniformMatrix4fv(u_transform, 1, GL_FALSE, m);
+    glUniform1f(u_opacity, opacity);
+
+    scissor_for(o, repaint_rect.x, repaint_rect.y,
+                repaint_rect.w, repaint_rect.h);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+/* Sets up the window shader for a run of image quads. */
+static void begin_image_quads(const float projection[16])
+{
     glUseProgram(program);
     glUniform1f(u_use_mask, 0.0f);
     glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
@@ -2352,44 +2393,35 @@ static void draw_chrome(CompOutput *o, const CompScene *s,
     /* The pixels came from Cairo, which lays out a row top-first, the
      * same way the texture coordinates here run. */
     glUniform1f(u_y_flip, 0.0f);
+}
 
+/* The effect's skybox (scene.h), under every window. */
+static void draw_sky(CompOutput *o, const CompScene *s,
+                     const float projection[16])
+{
+    if (s->sky_count == 0)
+        return;
+
+    begin_image_quads(projection);
+    for (int i = 0; i < s->sky_count; i++) {
+        const CompSceneSky *k = &s->sky[i];
+        CompRect ignored;
+        if (!rect_intersect(&k->rect, &repaint_rect, &ignored))
+            continue;
+        draw_image_quad(o, k->image, &k->rect, k->opacity);
+    }
+}
+
+static void draw_chrome(CompOutput *o, const CompScene *s,
+                        const float projection[16])
+{
+    if (s->chrome_count == 0)
+        return;
+
+    begin_image_quads(projection);
     for (int i = 0; i < s->chrome_count; i++) {
         const CompSceneChrome *c = &s->chrome[i];
-        const unsigned char *pixels = text_pixels(c->image);
-        unsigned int *tex = text_gl_texture(c->image);
-        if (!pixels || !tex)
-            continue;
-
-        if (*tex == 0) {
-            glGenTextures(1, tex);
-            glBindTexture(GL_TEXTURE_2D, *tex);
-            glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-            /* Cairo's ARGB32 is native-endian premultiplied, which on a
-             * little-endian machine is B,G,R,A in memory -- hence BGRA
-             * rather than RGBA, and the same premultiplied blend the
-             * windows use. */
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
-                         text_width(c->image), text_height(c->image), 0,
-                         GL_BGRA, GL_UNSIGNED_BYTE, pixels);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        } else {
-            glBindTexture(GL_TEXTURE_2D, *tex);
-        }
-
-        CompTransform identity;
-        comp_transform_identity(&identity);
-        float m[16];
-        rect_matrix(&c->rect, &identity, m);
-
-        glUniformMatrix4fv(u_transform, 1, GL_FALSE, m);
-        glUniform1f(u_opacity, c->opacity);
-
-        scissor_for(o, repaint_rect.x, repaint_rect.y,
-                    repaint_rect.w, repaint_rect.h);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        draw_image_quad(o, c->image, &c->rect, c->opacity);
     }
 }
 
