@@ -206,6 +206,10 @@ typedef enum {
     COMP_STATE_FULLSCREEN = 1 << 2,
     COMP_STATE_MINIMIZED  = 1 << 3,   /* _NET_WM_STATE_HIDDEN or WM_STATE=Iconic */
     COMP_STATE_ABOVE      = 1 << 4,   /* _NET_WM_STATE_ABOVE: always on top */
+    /* Maximized on *both* axes. COMP_STATE_MAXIMIZED is set by either one
+     * (a panel that spans the output's width carries one of the two), so
+     * "a window covering the work area" needs this one. */
+    COMP_STATE_MAXIMIZED_BOTH = 1 << 5,
 } CompWindowState;
 
 /* Window types, straight from _NET_WM_WINDOW_TYPE and one per EWMH

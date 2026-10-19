@@ -10,6 +10,7 @@
 #include "hotcorner.h"
 #include "stowpix.h"
 #include "output.h"
+#include "shadow.h"
 #include "renderer.h"
 #include "effect.h"
 #include "animation.h"
@@ -676,6 +677,7 @@ void window_client_reparented(xcb_window_t frame_id, xcb_window_t client)
 static uint32_t read_window_state(CompWindow *w)
 {
     uint32_t state = 0;
+    bool max_h = false, max_v = false;
 
     xcb_window_t client = resolve_client(w);
     if (client == XCB_NONE)
@@ -690,9 +692,13 @@ static uint32_t read_window_state(CompWindow *w)
             int n = xcb_get_property_value_length(r) / 4;
             for (int i = 0; i < n; i++) {
                 if (v[i] == comp.atoms.state_maximized_horz ||
-                    v[i] == comp.atoms.state_maximized_vert)
+                    v[i] == comp.atoms.state_maximized_vert) {
                     state |= COMP_STATE_MAXIMIZED;
-                else if (v[i] == comp.atoms.state_shaded)
+                    if (v[i] == comp.atoms.state_maximized_horz)
+                        max_h = true;
+                    else
+                        max_v = true;
+                } else if (v[i] == comp.atoms.state_shaded)
                     state |= COMP_STATE_SHADED;
                 else if (v[i] == comp.atoms.state_fullscreen)
                     state |= COMP_STATE_FULLSCREEN;
@@ -719,6 +725,9 @@ static uint32_t read_window_state(CompWindow *w)
         }
         free(r);
     }
+
+    if (max_h && max_v)
+        state |= COMP_STATE_MAXIMIZED_BOTH;
 
     return state;
 }
@@ -1094,6 +1103,15 @@ void windows_flush_events(void)
         uint32_t now = w->state;
         if (needs_state)
             now = w->state = read_window_state(w);
+
+        /* A window covering the work area comes, goes or is put away:
+         * what the shadow_over_maximized rule keys on. Nothing else
+         * damages the panel's shadow, which is not part of any of those
+         * windows' own damage. */
+        if (needs_state && ((before | now) & (COMP_STATE_MAXIMIZED_BOTH | COMP_STATE_FULLSCREEN)) &&
+            (((before ^ now) & (COMP_STATE_MAXIMIZED_BOTH | COMP_STATE_FULLSCREEN | COMP_STATE_MINIMIZED)) ||
+             w->pending_appear || w->pending_disappear))
+            shadow_context_changed();
 
         if (w->pending_disappear) {
             w->pending_disappear = false;

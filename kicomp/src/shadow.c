@@ -6,6 +6,7 @@
 #include <math.h>
 #include "effect.h"   /* comp_window_type_mask_parse */
 #include "window.h"   /* window_rect */
+#include "output.h"   /* output_damage_rect */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,6 +62,11 @@ bool shadow_config_key(const char *key, const char *value)
         comp_shadow.enabled = atoi(value) != 0;
     } else if (strcmp(key, "windows") == 0) {
         comp_window_match_parse(&comp_shadow.windows, value);
+    } else if (strcmp(key, "no_shadow_over_maximized") == 0) {
+        comp_window_match_parse(&comp_shadow.no_over_maximized, value);
+        XisMatch *n = &comp_shadow.no_over_maximized;
+        comp_shadow.has_no_over_maximized = n->npos || n->nneg || n->neg_types ||
+                                            (n->types && strcmp(value, "none") != 0);
     } else if (strcmp(key, "windows_passive") == 0) {
         comp_window_match_parse(&comp_shadow.passive, value);
     } else if (strcmp(key, "radius") == 0) {
@@ -136,6 +142,50 @@ void shadow_config_finish(void)
     }
 }
 
+/* Index of the output holding the window's centre, or -1. */
+static int output_of(const CompWindow *w)
+{
+    int cx = w->x + w->w / 2, cy = w->y + w->h / 2;
+    for (int i = 0; i < comp.output_count; i++) {
+        const CompRect *o = &comp.outputs[i].rect;
+        if (cx >= o->x && cy >= o->y && cx < o->x + o->w && cy < o->y + o->h)
+            return i;
+    }
+    return -1;
+}
+
+/* Is some other window covering the work area of `w`'s output? */
+static bool output_has_covering_window(const CompWindow *w)
+{
+    int out = output_of(w);
+    if (out < 0)
+        return false;
+    for (const CompWindow *o = comp.stack; o; o = o->next) {
+        if (o == w || !o->mapped || o->zombie || o->input_only || o->wm_layer[0])
+            continue;
+        if (!(o->state & (COMP_STATE_MAXIMIZED_BOTH | COMP_STATE_FULLSCREEN)) ||
+            (o->state & COMP_STATE_MINIMIZED))
+            continue;
+        if (output_of(o) == out)
+            return true;
+    }
+    return false;
+}
+
+void shadow_context_changed(void)
+{
+    if (!comp_shadow.enabled || !comp_shadow.has_no_over_maximized)
+        return;
+    for (CompWindow *w = comp.stack; w; w = w->next) {
+        if (!w->mapped || w->zombie || w->input_only || w->wm_layer[0])
+            continue;
+        if (!comp_window_match(&comp_shadow.no_over_maximized, w))
+            continue;
+        CompRect r = window_rect(w);
+        output_damage_rect(&r);   /* grown by the worst-case margin */
+    }
+}
+
 bool shadow_for_window(const CompWindow *w, CompShadowStyle *out)
 {
     if (!comp_shadow.enabled)
@@ -157,6 +207,9 @@ bool shadow_for_window(const CompWindow *w, CompShadowStyle *out)
      * state (browsers and toolkit "kiosk" windows do), and the two are
      * the same window as far as a shadow is concerned. */
     if (w->state & (COMP_STATE_MAXIMIZED | COMP_STATE_FULLSCREEN))
+        return false;
+    if (comp_shadow.has_no_over_maximized &&
+        comp_window_match(&comp_shadow.no_over_maximized, w) && output_has_covering_window(w))
         return false;
     CompRect r = window_rect((CompWindow *)w);
     for (int i = 0; i < comp.output_count; i++) {

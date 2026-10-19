@@ -57,6 +57,11 @@ typedef struct CompShadowConfig {
      * to the focused style. Reuses the inactive style, so it adds no tile
      * set, no margin and no damage beyond what shadows already cost. */
     XisMatch passive;
+    /* Windows that lose their shadow while a window covering the work area
+     * (maximized both ways, or fullscreen) is on the same output -- a
+     * panel's shadow falling on a maximized window is just a dark band. */
+    XisMatch no_over_maximized;
+    bool has_no_over_maximized;
     CompShadowStyle active;
     CompShadowStyle inactive;
 
@@ -82,6 +87,10 @@ void shadow_config_finish(void);
 /* Whether this window gets a shadow at all, and what it looks like right
  * now (focused windows and unfocused ones may differ in every value). */
 bool shadow_for_window(const CompWindow *w, CompShadowStyle *out);
+
+/* A window covering its output appeared, went away or changed: repaints
+ * the windows whose shadow depends on it (no_shadow_over_maximized). */
+void shadow_context_changed(void);
 
 /* The 1-D edge profile a blurred rectangle has: how the shadow fades from
  * nothing to solid across 2*radius pixels, as 2*radius alpha bytes.
