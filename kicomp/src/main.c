@@ -33,7 +33,7 @@
 
 #define _GNU_SOURCE             /* ppoll */
 
-#define KICOMP_VERSION "0.3.65"
+#define KICOMP_VERSION "0.3.66"
 
 #include "../../shared/xis_i18n.h"
 
@@ -57,6 +57,7 @@
 #include "density.h"
 #include "input.h"
 #include "hotcorner.h"
+#include "capture.h"
 
 #include <xcb/randr.h>
 #include <xcb/shape.h>
@@ -242,6 +243,7 @@ static void atoms_init(void)
     comp.atoms.kicomp_switcher        = intern("_KICOMP_SWITCHER");
     comp.atoms.kicomp_effects         = intern("_KICOMP_EFFECTS");
     comp.atoms.kicomp_stowed_pixmap   = intern("_KICOMP_STOWED_PIXMAP");
+    capture_init();
 
     comp.atoms.net_wm_window_type     = intern("_NET_WM_WINDOW_TYPE");
     comp.atoms.type_normal            = intern("_NET_WM_WINDOW_TYPE_NORMAL");
@@ -865,6 +867,7 @@ static void handle_event(xcb_generic_event_t *ev)
     case XCB_DESTROY_NOTIFY: {
         xcb_destroy_notify_event_t *e = (xcb_destroy_notify_event_t *)ev;
         window_remove(e->window);
+        capture_window_destroyed(e->window);
         break;
     }
     case XCB_MAP_NOTIFY: {
@@ -950,7 +953,9 @@ static void handle_event(xcb_generic_event_t *ev)
             break;
         }
 
-        if (e->atom == comp.atoms.kiwm_held) {
+        if (capture_property_notify(e->window, e->atom)) {
+            /* _KIWM_CAPTURE_EXCLUDE set or removed on a client */
+        } else if (e->atom == comp.atoms.kiwm_held) {
             /* The WM saying this window is (or is no longer) on screen
              * only to be looked at -- window.h. It lives on the frame,
              * which is the window tracked here. */
@@ -1011,6 +1016,8 @@ static void handle_event(xcb_generic_event_t *ev)
         if (e->type == comp.atoms.kicomp_quit && comp.atoms.kicomp_quit != XCB_NONE) {
             comp_info("asked to quit; compositing off");
             comp.running = false;
+        } else {
+            capture_client_message(e);
         }
         break;
     }
@@ -1101,6 +1108,7 @@ static void shutdown_compositor(void)
      * be compositing either. */
     unredirect_release_all();
 
+    capture_shutdown();
     hotcorner_shutdown();
     input_shutdown();
     effects_shutdown();
@@ -1396,6 +1404,9 @@ int main(int argc, char **argv)
                                 (uint32_t)n, offer);
     }
 
+    /* The censored-capture offer (capture.h), absent when switched off. */
+    capture_publish();
+
     /* Before the outputs are built: whether an output may be scaled at
      * all depends on this extension being there (inputscale.h). */
     density_init();
@@ -1543,6 +1554,7 @@ int main(int argc, char **argv)
         /* Before the paint, and after the events that decide it: an
          * output handed over in this frame must not also be painted in
          * it, and one taken back must be. */
+        capture_update();
         unredirect_update();
 
         hotcorner_tick(now);

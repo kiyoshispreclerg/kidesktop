@@ -11,6 +11,7 @@
 #include "stowpix.h"
 #include "output.h"
 #include "shadow.h"
+#include "capture.h"
 #include "renderer.h"
 #include "effect.h"
 #include "animation.h"
@@ -580,6 +581,7 @@ static void read_window_group(CompWindow *w)
         comp.atoms.net_wm_pid, XCB_ATOM_CARDINAL, 0, 1);
     xcb_get_property_cookie_t cc = xcb_get_property(comp.conn, 0, w->client,
         XCB_ATOM_WM_CLASS, XCB_ATOM_STRING, 0, 32);
+    xcb_get_property_cookie_t mc = capture_mark_request(w->client);
 
     xcb_get_property_reply_t *r = xcb_get_property_reply(comp.conn, lc, NULL);
     if (r) {
@@ -599,6 +601,8 @@ static void read_window_group(CompWindow *w)
             w->pid = *(uint32_t *)xcb_get_property_value(r);
         free(r);
     }
+
+    w->capture_marked = capture_mark_reply(mc);
 
     /* WM_CLASS: "instance\0Class\0" */
     w->wm_class[0] = w->wm_instance[0] = '\0';
@@ -1602,6 +1606,12 @@ void window_map(xcb_window_t id)
      * before mapping, but the CreateNotify reached us first. */
     if (w->type == COMP_WINDOW_UNKNOWN)
         read_window_kind(w);
+    /* An override-redirect window's properties are set after it is created
+     * and before it is mapped, so the read made at CreateNotify may have
+     * found nothing: its _NET_WM_PID is what ties a menu to the marked
+     * window it belongs to (capture.c). */
+    if (w->override_redirect && w->pid == 0)
+        read_window_group(w);
 
     /* What kind of appearance this is (opening, restoring, arriving with
      * a desktop) is decided at flush time, once the properties that say

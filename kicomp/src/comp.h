@@ -308,6 +308,12 @@ typedef struct CompWindow {
     xcb_window_t transient_for;
     uint32_t pid;
 
+    /* The capture protocol (capture.h): the client carries
+     * _KIWM_CAPTURE_EXCLUDE, and whether the window is excluded from
+     * captures -- marked, or a popup of a marked window. */
+    bool capture_marked;
+    bool capture_excluded;
+
     /* desktop_of_window()'s answer (desktop.c), memoized: two GetProperty
      * round trips (_NET_WM_DESKTOP, _KIWM_WM_OUTPUT) is fine for the rare,
      * one-off callers it was written for, but an effect like the cube asks

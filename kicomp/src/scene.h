@@ -222,6 +222,10 @@ void scene_set_backdrop(CompScene *s, const CompRect *rect,
  * incremental updates are a later optimization (section 47.7). */
 void scene_build(CompScene *s, CompOutput *o);
 
+/* Whether `w` is drawn on `o` at all (mapped or retained, not merely
+ * stowed, not a hidden WM layer...), ignoring where it is. */
+bool scene_wants_window(const CompWindow *w, const CompOutput *o);
+
 /* Drops the nodes that something opaque completely covers, gives each
  * surviving node its `clip` (the part of it not under anything opaque),
  * records on each window what covers it (comp.h's cover/occluded) and on

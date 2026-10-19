@@ -21,6 +21,60 @@ static bool rect_contains(const CompRect *outer, const CompRect *inner)
            inner->y + inner->h <= outer->y + outer->h;
 }
 
+/* The rules for whether a window belongs in an output's scene at all,
+ * before any question of where it is. A function of its own because the
+ * capture protocol asks the same thing -- which excluded windows
+ * contribute pixels to an output -- and must not answer it differently. */
+bool scene_wants_window(const CompWindow *w, const CompOutput *o)
+{
+    /* An unmapped window is still drawn while an effect holds it --
+     * that is the whole point of the retain (window.h): a fade-out
+     * has to keep painting something X has already taken away. */
+    if ((!w->mapped && w->retain_count == 0 && !w->pending_disappear) ||
+        w->input_only)
+        return false;
+
+    /* A window whose picture is merely being *kept* (comp.h's
+     * keep_stowed: minimized, or on a desktop that isn't showing) is
+     * not on screen and must not be drawn as though it were. It
+     * joins the scene only while an effect is showing what isn't
+     * there -- the expo grid -- and leaves it again the moment that
+     * effect is done.
+     *
+     * "Merely" is the whole condition, and retain_count is what says
+     * so: stowing takes exactly one retain of its own, so anything
+     * above that is an effect still animating the window -- the
+     * minimize shrinking it towards its taskbar button, a fade-out
+     * seeing it off. Those have to keep being drawn, and leaving
+     * this test at "is it stowed" is what stopped the minimize
+     * animation from appearing at all: the window was marked the
+     * instant it went, and the effect was left with nothing on
+     * screen to animate. */
+    if (w->stowed && comp.show_stowed_output != o->id &&
+        w->retain_count <= 1)
+        return false;
+
+    /* And a window that is on screen *only* to be photographed
+     * (comp.h's held) is the same case seen from the other side: X
+     * has it mapped, but it belongs to a desktop nobody is showing
+     * and it is up for the sake of whoever asked. Drawn outside that
+     * -- in the second or so a hold outlives the grid that wanted it
+     * -- it is a window from another desktop appearing on this one
+     * and disappearing again. */
+    if (w->held && comp.show_stowed_output != o->id &&
+        w->retain_count <= (w->stowed ? 1 : 0))
+        return false;
+    if (w->opacity <= 0.0)
+        return false;
+    /* kiwm's own overlay layers (switcher, wireframe), left out when
+     * the compositor means to draw its own version of them. kiwm is
+     * never told: it keeps drawing them exactly as it does with no
+     * compositor at all, they just never reach the scene. */
+    if (comp.skip_wm_layers && w->wm_layer[0])
+        return false;
+    return true;
+}
+
 void scene_build(CompScene *s, CompOutput *o)
 {
     s->output = o;
@@ -35,50 +89,7 @@ void scene_build(CompScene *s, CompOutput *o)
     s->sky_count = 0;
 
     for (CompWindow *w = comp.stack; w; w = w->next) {
-        /* An unmapped window is still drawn while an effect holds it --
-         * that is the whole point of the retain (window.h): a fade-out
-         * has to keep painting something X has already taken away. */
-        if ((!w->mapped && w->retain_count == 0 && !w->pending_disappear) ||
-            w->input_only)
-            continue;
-
-        /* A window whose picture is merely being *kept* (comp.h's
-         * keep_stowed: minimized, or on a desktop that isn't showing) is
-         * not on screen and must not be drawn as though it were. It
-         * joins the scene only while an effect is showing what isn't
-         * there -- the expo grid -- and leaves it again the moment that
-         * effect is done.
-         *
-         * "Merely" is the whole condition, and retain_count is what says
-         * so: stowing takes exactly one retain of its own, so anything
-         * above that is an effect still animating the window -- the
-         * minimize shrinking it towards its taskbar button, a fade-out
-         * seeing it off. Those have to keep being drawn, and leaving
-         * this test at "is it stowed" is what stopped the minimize
-         * animation from appearing at all: the window was marked the
-         * instant it went, and the effect was left with nothing on
-         * screen to animate. */
-        if (w->stowed && comp.show_stowed_output != o->id &&
-            w->retain_count <= 1)
-            continue;
-
-        /* And a window that is on screen *only* to be photographed
-         * (comp.h's held) is the same case seen from the other side: X
-         * has it mapped, but it belongs to a desktop nobody is showing
-         * and it is up for the sake of whoever asked. Drawn outside that
-         * -- in the second or so a hold outlives the grid that wanted it
-         * -- it is a window from another desktop appearing on this one
-         * and disappearing again. */
-        if (w->held && comp.show_stowed_output != o->id &&
-            w->retain_count <= (w->stowed ? 1 : 0))
-            continue;
-        if (w->opacity <= 0.0)
-            continue;
-        /* kiwm's own overlay layers (switcher, wireframe), left out when
-         * the compositor means to draw its own version of them. kiwm is
-         * never told: it keeps drawing them exactly as it does with no
-         * compositor at all, they just never reach the scene. */
-        if (comp.skip_wm_layers && w->wm_layer[0])
+        if (!scene_wants_window(w, o))
             continue;
 
         CompRect geom = window_rect(w);

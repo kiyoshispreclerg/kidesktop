@@ -5,6 +5,7 @@
 #include "config.h"
 #include "comp.h"
 #include "effect.h"
+#include "capture.h"
 #include "shadow.h"
 #include "hotcorner.h"
 
@@ -374,6 +375,8 @@ static void config_pass(FILE *f, bool instances_pass)
                 fprintf(stderr, "kicomp: config: unknown live_windows '%s'\n", val);
             else
                 comp.live_windows = (CompLiveWindows)live;
+        } else if (capture_config_key(key, val)) {
+            /* capture_censor, capture_sessions */
         } else if (strcmp(key, "renderer") == 0) {
             snprintf(comp.renderer_name, sizeof(comp.renderer_name), "%s", val);
         } else if (strcmp(key, "presenter") == 0) {

@@ -6,6 +6,7 @@
 #include "effect.h"
 #include "input.h"
 #include "transform.h"
+#include "capture.h"
 
 #include <xcb/composite.h>
 #include <xcb/xfixes.h>
@@ -226,6 +227,8 @@ static CompWindow *candidate_for(CompOutput *o)
         return NULL;    /* the compositor is magnifying this output */
     if (!comp_transform_is_identity(&o->view))
         return NULL;    /* ...or a lens is (zoom) */
+    if (capture_blocks_unredirect(o))
+        return NULL;    /* a recorder is watching for excluded windows here */
 
     CompWindow *top = NULL;
     for (CompWindow *w = comp.stack; w; w = w->next) {

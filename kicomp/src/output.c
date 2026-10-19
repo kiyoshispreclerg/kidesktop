@@ -1,6 +1,7 @@
 /* RandR outputs, each with its own render target and its own dirty state.
  * See kiwm-kicomp-projeto.md sections 4, 18 and 39. */
 #include "output.h"
+#include "capture.h"
 #include "animation.h"
 #include "region.h"
 #include "renderer.h"
@@ -339,6 +340,9 @@ void outputs_refresh(void)
                       o->id, o->name, o->rect.w, o->rect.h, o->rect.x, o->rect.y,
                       o->refresh_hz, o->render_data ? "" : "  (no target!)");
     }
+
+    /* Open capture sessions describe outputs by index into this list. */
+    capture_outputs_changed();
 }
 
 static void damage_rect_grown(const CompRect *r, int margin)
