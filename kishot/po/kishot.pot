@@ -421,15 +421,12 @@ msgstr ""
 #: ks_window.c:926
 msgid ""
 "These windows are painted black in screenshots and recordings. The screen "
-"itself is not changed."
+"itself is not changed. To stop hiding one, untick \"Hide from screen "
+"capture\" in its title-bar menu."
 msgstr ""
 
 #: ks_window.c:935
 msgid "_Hide a Window..."
-msgstr ""
-
-#: ks_window.c:937
-msgid "Remo_ve"
 msgstr ""
 
 #: ks_window.c:944
@@ -450,4 +447,12 @@ msgstr ""
 
 #: ks_window.c:956
 msgid "_Save"
+msgstr ""
+
+#: ks_window.c
+msgid "Compositor running: black rectangles"
+msgstr ""
+
+#: ks_window.c
+msgid "No compositor: black rectangles"
 msgstr ""

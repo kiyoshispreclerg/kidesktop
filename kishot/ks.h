@@ -81,11 +81,15 @@ gboolean ks_monitor_rect_by_name(const char *name, KsRect *out);
 /* ---- censoring (ks_censor.c) --------------------------------------------- */
 
 void ks_censor_init(KsConfig *cfg, void (*changed)(void *), void *data);
+/* marks the window (a toplevel as returned by ks_censor_pick()) */
 void ks_censor_add(unsigned long toplevel);
-void ks_censor_remove(unsigned long toplevel);
-void ks_censor_clear(void);
-/* toplevel windows picked by hand (not by class), for the list in the UI */
-GArray *ks_censor_picked(void);
+/* re-reads the marks and the stacking now, instead of waiting for the idle */
+void ks_censor_refresh(void);
+/* whether a compositing manager owns _NET_WM_CM_Sn */
+gboolean ks_censor_compositor(void);
+/* client windows carrying _KIWM_CAPTURE_EXCLUDE, for the list in the UI. The
+ * list only grows from here: unmarking is done in the window's own menu. */
+GArray *ks_censor_marked(void);
 char *ks_censor_title(unsigned long toplevel);
 void ks_censor_set_classes(char **classes);
 /* Rectangles to black out, in root coordinates. Thread-safe copy. */

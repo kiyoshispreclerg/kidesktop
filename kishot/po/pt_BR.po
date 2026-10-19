@@ -443,18 +443,16 @@ msgstr "Janelas ocultas"
 #: ks_window.c:926
 msgid ""
 "These windows are painted black in screenshots and recordings. The screen "
-"itself is not changed."
+"itself is not changed. To stop hiding one, untick \"Hide from screen "
+"capture\" in its title-bar menu."
 msgstr ""
 "Estas janelas saem pintadas de preto nas capturas e gravações. A tela em si "
-"não muda."
+"não muda. Para parar de ocultar uma, desmarque \"Ocultar da captura de "
+"tela\" no menu da barra de título dela."
 
 #: ks_window.c:935
 msgid "_Hide a Window..."
 msgstr "_Ocultar janela..."
-
-#: ks_window.c:937
-msgid "Remo_ve"
-msgstr "Remo_ver"
 
 #: ks_window.c:944
 msgid "Settings"
@@ -481,3 +479,11 @@ msgstr "_Salvar"
 
 #~ msgid " (no audio: ffmpeg lacks pulse)"
 #~ msgstr " (sem áudio: o ffmpeg não tem pulse)"
+
+#: ks_window.c
+msgid "Compositor running: black rectangles"
+msgstr "Compositor ativo: retângulos pretos"
+
+#: ks_window.c
+msgid "No compositor: black rectangles"
+msgstr "Sem compositor: retângulos pretos"

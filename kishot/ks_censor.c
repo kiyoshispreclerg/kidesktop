@@ -1,7 +1,9 @@
 /* ks_censor.c - windows to black out in screenshots and recordings.
  *
- * A window is censored when the user picked it (by clicking it) or when its
- * WM_CLASS is in censor_classes; with censor_popups its menus and tooltips
+ * A window is censored when it carries the mark _KIWM_CAPTURE_EXCLUDE (set
+ * from kiwm's or xispanel's window menu, or by "Hide a Window..." here --
+ * kishot keeps no list of its own; the mark is the list, and only the
+ * window's menu removes it) or when its WM_CLASS is in censor_classes; with censor_popups its menus and tooltips
  * (override-redirect windows of the same _NET_WM_PID) go too. What gets
  * painted black is only the part of it that is visible: managed windows
  * stacked above it are cut out, so a window lying on top of a censored one
@@ -27,7 +29,7 @@
 #define INFLATE 2   /* px around each window, against a frame of lag while it moves */
 
 static KsConfig *cfg;
-static GArray *picked;              /* Window */
+static GArray *marked;              /* client Windows carrying the mark, main thread only */
 static GMutex lock;
 static KsRect *rects;
 static int n_rects;
@@ -37,9 +39,36 @@ static void *on_changed_data;
 
 static Display *xdpy(void) { return GDK_DISPLAY_XDISPLAY(gdk_display_get_default()); }
 
-static gboolean has_targets(void)
+static Atom mark_atom(Display *dpy)
 {
-    return picked->len > 0 || (cfg->censor_classes && cfg->censor_classes[0] && *cfg->censor_classes[0]);
+    static Atom a;
+    if (!a)
+        a = XInternAtom(dpy, "_KIWM_CAPTURE_EXCLUDE", False);
+    return a;
+}
+
+static gboolean has_mark(Display *dpy, Window w)
+{
+    Atom type;
+    int fmt;
+    unsigned long n, after;
+    unsigned char *data = NULL;
+    gboolean set = FALSE;
+    if (XGetWindowProperty(dpy, w, mark_atom(dpy), 0, 1, False, XA_CARDINAL, &type, &fmt, &n,
+                           &after, &data) == Success) {
+        set = type == XA_CARDINAL && fmt == 32 && n > 0;
+        if (data)
+            XFree(data);
+    }
+    return set;
+}
+
+gboolean ks_censor_compositor(void)
+{
+    Display *dpy = xdpy();
+    char name[32];
+    g_snprintf(name, sizeof name, "_NET_WM_CM_S%d", DefaultScreen(dpy));
+    return XGetSelectionOwner(dpy, XInternAtom(dpy, name, False)) != None;
 }
 
 /* the client window inside a WM frame: the first one with WM_STATE */
@@ -113,14 +142,6 @@ static gboolean class_listed(Display *dpy, Window w)
     return hit;
 }
 
-static gboolean is_picked(Window w)
-{
-    for (guint i = 0; i < picked->len; i++)
-        if (g_array_index(picked, Window, i) == w)
-            return TRUE;
-    return FALSE;
-}
-
 typedef struct {
     Window w;
     GdkRectangle r;
@@ -130,13 +151,15 @@ typedef struct {
     long pid;
 } Top;
 
-static void recompute(void)
+/* Returns whether the set of marked windows changed. */
+static gboolean recompute(void)
 {
     Display *dpy = xdpy();
     KsRect *out = NULL;
     int nout = 0;
+    GArray *now = g_array_new(FALSE, FALSE, sizeof(Window));
 
-    if (has_targets()) {
+    {
         gdk_error_trap_push();
         Window r, p, *kids = NULL;
         unsigned int nk = 0;
@@ -160,7 +183,15 @@ static void recompute(void)
                 XShapeQueryExtents(dpy, kids[i], &bshaped, &xb, &yb, &wb, &hb, &cshaped, &xc, &yc, &wc, &hc))
                 t->see_through = bshaped;
             Window client = t->override ? kids[i] : find_client(dpy, kids[i], 0);
-            t->censored = is_picked(kids[i]) || class_listed(dpy, client ? client : kids[i]);
+            gboolean mark = FALSE;
+            if (client && !t->override) {
+                /* the mark can come and go while the window stays: watch it */
+                XSelectInput(dpy, client, PropertyChangeMask);
+                mark = has_mark(dpy, client);
+                if (mark)
+                    g_array_append_val(now, client);
+            }
+            t->censored = mark || class_listed(dpy, client ? client : kids[i]);
             t->pid = client ? window_pid(dpy, client) : 0;
             if (t->censored && t->pid)
                 g_array_append_val(pids, t->pid);
@@ -214,13 +245,20 @@ static void recompute(void)
     rects = out;
     n_rects = nout;
     g_mutex_unlock(&lock);
+
+    gboolean differs = now->len != marked->len ||
+        memcmp(now->data, marked->data, now->len * sizeof(Window)) != 0;
+    g_array_free(marked, TRUE);
+    marked = now;
+    return differs;
 }
 
 static gboolean recompute_idle(gpointer data)
 {
     (void)data;
     idle_id = 0;
-    recompute();
+    if (recompute() && on_changed)
+        on_changed(on_changed_data);
     return FALSE;
 }
 
@@ -238,16 +276,22 @@ static GdkFilterReturn root_filter(GdkXEvent *xev, GdkEvent *ev, gpointer data)
     switch (e->type) {
     case ConfigureNotify: case MapNotify: case UnmapNotify: case DestroyNotify:
     case ReparentNotify: case CirculateNotify:
-        if (e->type == DestroyNotify && is_picked(e->xdestroywindow.window)) {
-            ks_censor_remove(e->xdestroywindow.window);
-            break;
-        }
-        if (has_targets())
-            schedule();
+        schedule();
         break;
     default:
         break;
     }
+    return GDK_FILTER_CONTINUE;
+}
+
+/* the mark set or deleted on a client window */
+static GdkFilterReturn mark_filter(GdkXEvent *xev, GdkEvent *ev, gpointer data)
+{
+    (void)ev;
+    (void)data;
+    XEvent *e = xev;
+    if (e->type == PropertyNotify && e->xproperty.atom == mark_atom(xdpy()))
+        schedule();
     return GDK_FILTER_CONTINUE;
 }
 
@@ -256,11 +300,13 @@ void ks_censor_init(KsConfig *c, void (*changed)(void *), void *data)
     cfg = c;
     on_changed = changed;
     on_changed_data = data;
-    picked = g_array_new(FALSE, FALSE, sizeof(Window));
+    marked = g_array_new(FALSE, FALSE, sizeof(Window));
+    gdk_window_add_filter(NULL, mark_filter, NULL);
     GdkWindow *root = gdk_get_default_root_window();
     gdk_window_set_events(root, gdk_window_get_events(root) | GDK_SUBSTRUCTURE_MASK);
     gdk_window_add_filter(root, root_filter, NULL);
-    recompute();
+    if (recompute() && on_changed)
+        on_changed(on_changed_data);
 }
 
 static void changed(void)
@@ -270,34 +316,32 @@ static void changed(void)
         on_changed(on_changed_data);
 }
 
+/* Marks the client inside `w` (what a click on the screen returns: a
+ * top-level frame). Marking is all kishot does: it never unmarks. */
 void ks_censor_add(unsigned long w)
 {
-    if (!w || is_picked(w))
-        return;
-    Window win = w;
-    g_array_append_val(picked, win);
+    Display *dpy = xdpy();
+    gdk_error_trap_push();
+    Window client = find_client(dpy, w, 0);
+    if (!client)
+        client = w;
+    unsigned long one = 1;
+    XChangeProperty(dpy, client, mark_atom(dpy), XA_CARDINAL, 32, PropModeReplace,
+                    (unsigned char *)&one, 1);
+    gdk_flush();
+    gdk_error_trap_pop();
     changed();
 }
 
-void ks_censor_remove(unsigned long w)
+void ks_censor_refresh(void)
 {
-    for (guint i = 0; i < picked->len; i++)
-        if (g_array_index(picked, Window, i) == w) {
-            g_array_remove_index(picked, i);
-            break;
-        }
-    changed();
+    recompute();
 }
 
-void ks_censor_clear(void)
+/* the client windows carrying the mark right now */
+GArray *ks_censor_marked(void)
 {
-    g_array_set_size(picked, 0);
-    changed();
-}
-
-GArray *ks_censor_picked(void)
-{
-    return picked;
+    return marked;
 }
 
 void ks_censor_set_classes(char **classes)

@@ -220,6 +220,7 @@ GdkPixbuf *ks_grab_rect(const KsRect *r, gboolean pointer)
         return NULL;
     if (pointer)
         draw_pointer(pb, r, 1.0);
+    ks_censor_refresh();
     ks_censor_paint(pb, r);
     return pb;
 }
@@ -300,6 +301,7 @@ GdkPixbuf *ks_grab_scaled(const KsRect *r, int dw, int dh, gboolean pointer)
     double scale = (double)dw / r->w;
     if (pointer)
         draw_pointer(pb, r, scale);
+    ks_censor_refresh();
     ks_censor_paint_scaled(pb, r, scale);
     return pb;
 }

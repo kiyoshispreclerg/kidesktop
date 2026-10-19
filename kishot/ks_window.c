@@ -25,6 +25,7 @@ struct KsApp {
     GtkWidget *status;
     GtkListStore *censor_store;
     GtkWidget *censor_view;
+    GtkWidget *censor_note;
     GtkStatusIcon *tray;
     GdkPixbuf *shot;
     char *shot_path;            /* where the current shot was saved, if it was */
@@ -729,7 +730,7 @@ static void censor_refresh(void *data)
 {
     KsApp *app = data;
     gtk_list_store_clear(app->censor_store);
-    GArray *a = ks_censor_picked();
+    GArray *a = ks_censor_marked();
     for (guint i = 0; i < a->len; i++) {
         unsigned long w = g_array_index(a, unsigned long, i);
         char *title = ks_censor_title(w);
@@ -738,6 +739,11 @@ static void censor_refresh(void *data)
         gtk_list_store_set(app->censor_store, &it, 0, title, 1, w, -1);
         g_free(title);
     }
+    /* no compositor to leave the windows out of the picture: kishot paints
+     * black over the marked ones itself */
+    gtk_label_set_text(GTK_LABEL(app->censor_note),
+                       ks_censor_compositor() ? _("Compositor running: black rectangles")
+                                              : _("No compositor: black rectangles"));
 }
 
 static void on_censor_add(GtkWidget *w, KsApp *app)
@@ -749,18 +755,6 @@ static void on_censor_add(GtkWidget *w, KsApp *app)
     gtk_window_present(GTK_WINDOW(app->win));
     if (picked)
         ks_censor_add(picked);
-}
-
-static void on_censor_remove(GtkWidget *w, KsApp *app)
-{
-    (void)w;
-    GtkTreeIter it;
-    GtkTreeModel *m;
-    if (!gtk_tree_selection_get_selected(gtk_tree_view_get_selection(GTK_TREE_VIEW(app->censor_view)), &m, &it))
-        return;
-    gulong win;
-    gtk_tree_model_get(m, &it, 1, &win, -1);
-    ks_censor_remove(win);
 }
 
 /* ---- window -------------------------------------------------------------- */
@@ -927,7 +921,8 @@ KsApp *ks_app_new(KsConfig *cfg)
                                 gtk_tree_view_column_new_with_attributes(NULL, cr, "text", 0, NULL));
     gtk_widget_set_tooltip_text(app->censor_view,
                                 _("These windows are painted black in screenshots and recordings. "
-                                  "The screen itself is not changed."));
+                                  "The screen itself is not changed. To stop hiding one, untick "
+                                  "\"Hide from screen capture\" in its title-bar menu."));
     GtkWidget *sw = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(sw), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(sw), GTK_SHADOW_IN);
@@ -937,9 +932,11 @@ KsApp *ks_app_new(KsConfig *cfg)
     GtkWidget *cb = gtk_hbox_new(TRUE, 4);
     gtk_box_pack_start(GTK_BOX(cb), button(_("_Hide a Window..."), "list-add", G_CALLBACK(on_censor_add), app),
                        TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(cb), button(_("Remo_ve"), "list-remove", G_CALLBACK(on_censor_remove), app),
-                       TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(side), cb, FALSE, FALSE, 0);
+    app->censor_note = gtk_label_new(NULL);
+    gtk_misc_set_alignment(GTK_MISC(app->censor_note), 0, 0.5);
+    gtk_label_set_ellipsize(GTK_LABEL(app->censor_note), PANGO_ELLIPSIZE_END);
+    gtk_box_pack_start(GTK_BOX(side), app->censor_note, FALSE, FALSE, 0);
 
     /* bottom bar */
     GtkWidget *bar = gtk_hbox_new(FALSE, 6);
