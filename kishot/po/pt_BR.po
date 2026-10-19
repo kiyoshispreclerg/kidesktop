@@ -480,10 +480,18 @@ msgstr "_Salvar"
 #~ msgid " (no audio: ffmpeg lacks pulse)"
 #~ msgstr " (sem áudio: o ffmpeg não tem pulse)"
 
-#: ks_window.c
-msgid "Compositor running: black rectangles"
-msgstr "Compositor ativo: retângulos pretos"
+#: ks_capture.c
+msgid "Compositor without capture support: black rectangles"
+msgstr "Compositor sem suporte a captura: retângulos pretos"
 
-#: ks_window.c
+#: ks_capture.c
 msgid "No compositor: black rectangles"
 msgstr "Sem compositor: retângulos pretos"
+
+#: ks_capture.c
+msgid "Compositor (fill): black rectangles"
+msgstr "Compositor (preencher): retângulos pretos"
+
+#: ks_capture.c
+msgid "Compositor (hide): black rectangles"
+msgstr "Compositor (ocultar): retângulos pretos"

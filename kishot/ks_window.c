@@ -741,9 +741,9 @@ static void censor_refresh(void *data)
     }
     /* no compositor to leave the windows out of the picture: kishot paints
      * black over the marked ones itself */
-    gtk_label_set_text(GTK_LABEL(app->censor_note),
-                       ks_censor_compositor() ? _("Compositor running: black rectangles")
-                                              : _("No compositor: black rectangles"));
+    char *note = ks_capture_status();
+    gtk_label_set_text(GTK_LABEL(app->censor_note), note);
+    g_free(note);
 }
 
 static void on_censor_add(GtkWidget *w, KsApp *app)

@@ -449,10 +449,18 @@ msgstr ""
 msgid "_Save"
 msgstr ""
 
-#: ks_window.c
-msgid "Compositor running: black rectangles"
+#: ks_capture.c
+msgid "Compositor without capture support: black rectangles"
 msgstr ""
 
-#: ks_window.c
+#: ks_capture.c
 msgid "No compositor: black rectangles"
+msgstr ""
+
+#: ks_capture.c
+msgid "Compositor (fill): black rectangles"
+msgstr ""
+
+#: ks_capture.c
+msgid "Compositor (hide): black rectangles"
 msgstr ""

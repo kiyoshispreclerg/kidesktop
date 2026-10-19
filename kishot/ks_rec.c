@@ -813,6 +813,7 @@ static gboolean finished_idle(gpointer data)
     g_mutex_lock(&rec_lock);
     rec = NULL;
     g_mutex_unlock(&rec_lock);
+    ks_capture_release();
     r->done(r->error ? NULL : r->path, r->error, r->done_data);
     g_free(r->path);
     g_free(r->method);
@@ -857,9 +858,15 @@ static gpointer capture_thread(gpointer data)
 
         if (r->use_gpu) {
             int slot = ring_next++ % KS_RING;
+            KsCapView cv;
+            ks_capture_view(r->c, &r->area, &cv);
             xcb_copy_area(r->c, r->root, r->pixmap[slot], r->gc_copy, r->area.x, r->area.y, 0, 0,
                           r->area.w, r->area.h);
-            paint_censor_gpu(r, slot);
+            /* the compositor's word that nothing hidden was showing, still
+             * true after the copy (read over this same connection, so the
+             * server handled the copy first): no rectangles needed */
+            if (!ks_capture_unchanged(r->c, &cv))
+                paint_censor_gpu(r, slot);
             if (ptr_ok && r->cur_pic && r->pic[slot])
                 xcb_render_composite(r->c, XCB_RENDER_PICT_OP_OVER, r->cur_pic, XCB_NONE, r->pic[slot], 0, 0, 0, 0,
                                      px - r->cur_xhot - r->area.x, py - r->cur_yhot - r->area.y,
@@ -876,6 +883,8 @@ static gpointer capture_thread(gpointer data)
             pend_index = index;
         } else {
             xcb_generic_error_t *e = NULL;
+            KsCapView cv;
+            ks_capture_view(r->c, &r->area, &cv);
             xcb_shm_get_image_reply_t *img = xcb_shm_get_image_reply(r->c,
                 xcb_shm_get_image(r->c, r->root, r->area.x, r->area.y, r->area.w, r->area.h, ~0u,
                                   XCB_IMAGE_FORMAT_Z_PIXMAP, r->seg, 0), &e);
@@ -885,7 +894,8 @@ static gpointer capture_thread(gpointer data)
                 break;
             }
             free(img);
-            paint_censor_cpu(r, r->shm);
+            if (!ks_capture_unchanged(r->c, &cv))
+                paint_censor_cpu(r, r->shm);
             if (ptr_ok && r->cur_img)
                 blend_cursor_cpu(r, r->shm, r->stride, px, py);
             if (r->ph) {
@@ -1079,6 +1089,7 @@ gboolean ks_rec_start(const KsConfig *cfg, const KsRect *area, const char *path,
     g_mutex_lock(&rec_lock);
     rec = r;
     g_mutex_unlock(&rec_lock);
+    ks_capture_acquire();
     r->thread = g_thread_new("kishot-capture", capture_thread, r);
     return TRUE;
 

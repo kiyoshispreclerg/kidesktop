@@ -215,13 +215,24 @@ static void draw_pointer(GdkPixbuf *pb, const KsRect *r, double scale)
 GdkPixbuf *ks_grab_rect(const KsRect *r, gboolean pointer)
 {
     GdkWindow *root = gdk_get_default_root_window();
+    xcb_connection_t *xc = ks_capture_gdk_connection();
+    KsCapView cv = { 0 };
+    if (ks_capture_acquire())
+        ks_capture_view(xc, r, &cv);
     GdkPixbuf *pb = gdk_pixbuf_get_from_drawable(NULL, root, NULL, r->x, r->y, 0, 0, r->w, r->h);
+    /* the compositor's word that nothing hidden was showing, still true
+     * after the copy: the screen is the censored picture */
+    gboolean clear = pb && ks_capture_unchanged(xc, &cv);
+    ks_capture_note(clear);
+    ks_capture_release();
     if (!pb)
         return NULL;
     if (pointer)
         draw_pointer(pb, r, 1.0);
-    ks_censor_refresh();
-    ks_censor_paint(pb, r);
+    if (!clear) {
+        ks_censor_refresh();
+        ks_censor_paint(pb, r);
+    }
     return pb;
 }
 
@@ -257,6 +268,10 @@ GdkPixbuf *ks_grab_scaled(const KsRect *r, int dw, int dh, gboolean pointer)
         full_w = r->w;
         full_h = r->h;
     }
+    xcb_connection_t *xc = ks_capture_gdk_connection();
+    KsCapView cv = { 0 };
+    if (ks_capture_acquire())
+        ks_capture_view(xc, r, &cv);
     XCopyArea(dpy, root, full, gc, r->x, r->y, r->w, r->h, 0, 0);
     Picture src = XRenderCreatePicture(dpy, full, fmt, 0, NULL);
     Pixmap pm = XCreatePixmap(dpy, root, dw, dh, 24);
@@ -271,6 +286,8 @@ GdkPixbuf *ks_grab_scaled(const KsRect *r, int dw, int dh, gboolean pointer)
     XRenderSetPictureFilter(dpy, src, FilterBilinear, NULL, 0);
     XRenderComposite(dpy, PictOpSrc, src, None, dst, 0, 0, 0, 0, 0, 0, dw, dh);
     XImage *img = XGetImage(dpy, pm, 0, 0, dw, dh, AllPlanes, ZPixmap);
+    gboolean clear = img && ks_capture_unchanged(xc, &cv);
+    ks_capture_release();
     XRenderFreePicture(dpy, dst);
     XRenderFreePicture(dpy, src);
     XFreePixmap(dpy, pm);
@@ -301,7 +318,9 @@ GdkPixbuf *ks_grab_scaled(const KsRect *r, int dw, int dh, gboolean pointer)
     double scale = (double)dw / r->w;
     if (pointer)
         draw_pointer(pb, r, scale);
-    ks_censor_refresh();
-    ks_censor_paint_scaled(pb, r, scale);
+    if (!clear) {
+        ks_censor_refresh();
+        ks_censor_paint_scaled(pb, r, scale);
+    }
     return pb;
 }

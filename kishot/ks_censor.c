@@ -63,6 +63,11 @@ static gboolean has_mark(Display *dpy, Window w)
     return set;
 }
 
+gboolean ks_censor_marks_only(void)
+{
+    return !(cfg->censor_classes && cfg->censor_classes[0] && *cfg->censor_classes[0]);
+}
+
 gboolean ks_censor_compositor(void)
 {
     Display *dpy = xdpy();

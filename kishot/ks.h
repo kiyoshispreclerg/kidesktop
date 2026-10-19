@@ -4,6 +4,7 @@
 
 #include <gtk/gtk.h>
 #include <stdint.h>
+#include <xcb/xcb.h>
 
 #define KISHOT_VERSION "0.1.5"
 
@@ -87,6 +88,8 @@ void ks_censor_add(unsigned long toplevel);
 void ks_censor_refresh(void);
 /* whether a compositing manager owns _NET_WM_CM_Sn */
 gboolean ks_censor_compositor(void);
+/* FALSE when kishot censors something the marks do not say (censor_classes) */
+gboolean ks_censor_marks_only(void);
 /* client windows carrying _KIWM_CAPTURE_EXCLUDE, for the list in the UI. The
  * list only grows from here: unmarking is done in the window's own menu. */
 GArray *ks_censor_marked(void);
@@ -98,6 +101,41 @@ void ks_censor_paint(GdkPixbuf *pb, const KsRect *origin);
 void ks_censor_paint_scaled(GdkPixbuf *pb, const KsRect *origin, double scale);
 /* Lets the user click a window (xkill-style); returns its toplevel or 0. */
 unsigned long ks_censor_pick(void);
+
+/* ---- the compositor's capture protocol (ks_capture.c) --------------------- */
+
+#define KS_CAP_MAX_OUT 8
+
+/* What the compositor said about the outputs under an area, before a copy
+ * of it. `clear` means the screen itself is the censored picture: nothing
+ * that should be hidden contributes pixels there (and kishot has no targets
+ * of its own the compositor cannot know). Anything else -- no compositor, no
+ * offer, no session, a window showing, UNAVAILABLE -- is not clear, and the
+ * caller censors the way it always has. */
+typedef struct {
+    gboolean clear;
+    int n;
+    int out[KS_CAP_MAX_OUT];
+    uint32_t epoch[KS_CAP_MAX_OUT];
+} KsCapView;
+
+/* Main thread: opens (or keeps) a session when the compositor offers one.
+ * Balanced by ks_capture_release(), which closes it a few seconds later. */
+gboolean ks_capture_acquire(void);
+void ks_capture_release(void);
+/* The seqlock, over the connection that does the copy -- the server handles
+ * one connection's requests in order, which is what makes it sound:
+ *     view(c, area, &v);  ...copy over c...;  if (unchanged(c, &v)) skip own censoring */
+void ks_capture_view(xcb_connection_t *c, const KsRect *area, KsCapView *v);
+gboolean ks_capture_unchanged(xcb_connection_t *c, const KsCapView *v);
+/* with KISHOT_DEBUG set, says on stderr which way a frame was censored */
+void ks_capture_note(gboolean clear);
+/* GDK's own X connection, for the copies GDK/Xlib make */
+xcb_connection_t *ks_capture_gdk_connection(void);
+/* Does the compositor offer the protocol; its censor mode (0 hide, 1 fill) */
+gboolean ks_capture_offered(int *mode, uint32_t *color);
+/* One line for the main window; g_free() it */
+char *ks_capture_status(void);
 
 /* ---- region selection (ks_region.c) -------------------------------------- */
 

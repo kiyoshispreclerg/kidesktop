@@ -6,7 +6,7 @@
 # it kishot pipes frames into the ffmpeg command, and without that too it
 # only takes screenshots. Sound comes from libpulse-simple, also dlopen()ed.
 CFLAGS ?= -Wall -Wextra -O2
-PKGS := gtk+-2.0 x11 xext xfixes xcb xcb-shm xcb-randr xcb-xfixes xcb-render xrender xrandr
+PKGS := gtk+-2.0 x11 x11-xcb xext xfixes xcb xcb-shm xcb-randr xcb-xfixes xcb-render xrender xrandr
 PKG_CFLAGS := $(shell pkg-config --cflags $(PKGS))
 PKG_LIBS := $(shell pkg-config --libs $(PKGS)) -ldl -lpthread -lm
 
@@ -37,7 +37,7 @@ endif
 LINGUAS := $(shell test -f po/LINGUAS && grep -v '^\#' po/LINGUAS)
 MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
-SRCS := kishot.c ks_config.c ks_grab.c ks_censor.c ks_region.c ks_rec.c ks_audio.c ks_window.c ks_prefs.c
+SRCS := kishot.c ks_config.c ks_grab.c ks_censor.c ks_capture.c ks_region.c ks_rec.c ks_audio.c ks_window.c ks_prefs.c
 OBJS := $(SRCS:.c=.o)
 HDRS := ks.h ks_plugin.h ../shared/xis_i18n.h
 
