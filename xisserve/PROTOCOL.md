@@ -123,7 +123,10 @@ implemented pages now, see below.)
   anchored to the bell icon. Shows the notification history: every held
   entry newest-first (app name, date/time, summary/body), each with its
   own "Remover" button plus a "Limpar tudo" (with a Yes/No confirmation)
-  for the whole list. **Implemented in `pages/notifications.c`.**
+  for the whole list. An entry the sender still considers open (its toast
+  timed out but it had actions) keeps its action buttons, and a click on
+  its text runs `"default"` -- both through `INVOKE_NOTIFICATION_ACTION`,
+  after which the popup hides. **Implemented in `pages/notifications.c`.**
 
   Storage stays where it already was: xispanel is the
   `org.freedesktop.Notifications` DBus service itself (`notifd.c`'s ring

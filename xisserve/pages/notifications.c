@@ -18,7 +18,10 @@
  * (`$XDG_RUNTIME_DIR/xispanel-ctl.sock`, line-JSON -- see
  * `../../xispanel/PROTOCOL.md`): GET_NOTIFICATIONS on every show/poll,
  * DELETE_NOTIFICATION/CLEAR_NOTIFICATIONS from the per-row and "Limpar
- * tudo" buttons. Same "already have the plumbing" reasoning xisconf uses
+ * tudo" buttons. An entry still open (its toast expired but the sender
+ * hasn't been told it's closed -- see xispanel's notifd_closed()) keeps
+ * its action buttons here, and a click on its text runs "default", both
+ * through INVOKE_NOTIFICATION_ACTION, same as on the toast. Same "already have the plumbing" reasoning xisconf uses
  * to drive xisback/xisguard over their own control sockets.
  *
  * Running jobs (GET_JOBS, xispanel's jobviewd.c) sit above the history in
@@ -48,12 +51,21 @@
 #define JOBS_POLL_MS 500
 #define JOBS_IDLE_POLL_MS 2000
 
+#define NOTIF_ACTIONS_MAX 4 /* xispanel's NOTIFD_ACTIONS_MAX */
+
+typedef struct {
+    char key[96];
+    char label[96];
+} NotifRowAction;
+
 typedef struct {
     unsigned int id;
     char app_name[96];
     char summary[160];
     char body[320];
     unsigned long long received_ms;
+    NotifRowAction actions[NOTIF_ACTIONS_MAX]; /* only filled while the entry is open */
+    int n_actions;
 } NotifRow;
 
 typedef struct {
@@ -331,6 +343,22 @@ static GPtrArray *fetch_notifications(void)
             jget_str(obj, "summary", row->summary, sizeof(row->summary));
             jget_str(obj, "body", row->body, sizeof(row->body));
             jget_ull(obj, "received_ms", &row->received_ms);
+            /* "actions" is the object's last field, so walking objects from
+             * there only ever sees the action objects. */
+            const char *acts = jget_bool(obj, "closed") ? NULL : strstr(obj, "\"actions\":[");
+            if (acts) {
+                const char *acur = acts + strlen("\"actions\":[");
+                char *aobj;
+                while ((aobj = next_json_object(&acur)) != NULL) {
+                    if (row->n_actions < NOTIF_ACTIONS_MAX) {
+                        NotifRowAction *a = &row->actions[row->n_actions];
+                        jget_str(aobj, "key", a->key, sizeof(a->key));
+                        jget_str(aobj, "label", a->label, sizeof(a->label));
+                        row->n_actions += a->key[0] != 0;
+                    }
+                    free(aobj);
+                }
+            }
             g_ptr_array_add(rows, row);
             free(obj);
         }
@@ -395,6 +423,30 @@ static void delete_notification(unsigned int id)
     free(resp);
 }
 
+/* Escapes `in` into a JSON string body: just '"' and '\\' -- an action
+ * key is a short identifier, control bytes would be dropped by xispanel's
+ * own json_escape() long before it got here. */
+static void json_escape_min(const char *in, char *out, size_t out_sz)
+{
+    size_t o = 0;
+    for (; *in && o + 2 < out_sz; in++) {
+        if (*in == '"' || *in == '\\') {
+            out[o++] = '\\';
+        }
+        out[o++] = *in;
+    }
+    out[o] = 0;
+}
+
+static void invoke_action(unsigned int id, const char *key)
+{
+    char key_esc[200], req[300];
+    json_escape_min(key, key_esc, sizeof(key_esc));
+    snprintf(req, sizeof(req), "{\"cmd\":\"INVOKE_NOTIFICATION_ACTION\",\"id\":%u,\"key\":\"%s\"}\n", id, key_esc);
+    char *resp = ctl_request(req);
+    free(resp);
+}
+
 static void clear_notifications(void)
 {
     char *resp = ctl_request("{\"cmd\":\"CLEAR_NOTIFICATIONS\"}\n");
@@ -423,6 +475,29 @@ static void on_remove_clicked(GtkWidget *btn, gpointer data)
     unsigned int id = GPOINTER_TO_UINT(data);
     delete_notification(id);
     rebuild();
+}
+
+/* An action ran: the app takes over (often raising a window of its own),
+ * so the popup goes away, just like the toast does. */
+static void run_action(unsigned int id, const char *key)
+{
+    invoke_action(id, key);
+    xisserve_hide();
+}
+
+static void on_action_clicked(GtkWidget *btn, gpointer data)
+{
+    run_action(GPOINTER_TO_UINT(data), g_object_get_data(G_OBJECT(btn), "notif-action-key"));
+}
+
+static gboolean on_text_pressed(GtkWidget *w, GdkEventButton *ev, gpointer data)
+{
+    (void)w;
+    if (ev->type != GDK_BUTTON_PRESS || ev->button != 1) {
+        return FALSE;
+    }
+    run_action(GPOINTER_TO_UINT(data), "default");
+    return TRUE;
 }
 
 static void on_clear_all_clicked(GtkWidget *btn, gpointer data)
@@ -475,7 +550,37 @@ static GtkWidget *build_row(const NotifRow *n)
         gtk_box_pack_start(GTK_BOX(vbox), body, FALSE, FALSE, 0);
     }
 
-    gtk_box_pack_start(GTK_BOX(hbox), vbox, TRUE, TRUE, 0);
+    int has_default = 0;
+    GtkWidget *actions = NULL;
+    for (int i = 0; i < n->n_actions; i++) {
+        const NotifRowAction *a = &n->actions[i];
+        int is_default = !strcmp(a->key, "default");
+        has_default |= is_default;
+        /* "default" is the text click on the toast, never a button there;
+         * here it also gets one (labelled, if the app gave it a real
+         * label) so it's reachable from the keyboard. */
+        const char *label = a->label[0] && strcmp(a->label, "default") != 0 ? a->label
+                            : is_default                                    ? _("Abrir")
+                                                                            : a->key;
+        if (!actions) {
+            actions = gtk_hbox_new(FALSE, 4);
+            gtk_box_pack_start(GTK_BOX(vbox), actions, FALSE, FALSE, 2);
+        }
+        GtkWidget *btn = gtk_button_new_with_label(label);
+        g_object_set_data_full(G_OBJECT(btn), "notif-action-key", g_strdup(a->key), g_free);
+        g_signal_connect(btn, "clicked", G_CALLBACK(on_action_clicked), GUINT_TO_POINTER(n->id));
+        gtk_box_pack_start(GTK_BOX(actions), btn, FALSE, FALSE, 0);
+    }
+
+    if (has_default) {
+        GtkWidget *ev = gtk_event_box_new();
+        gtk_event_box_set_visible_window(GTK_EVENT_BOX(ev), FALSE);
+        gtk_container_add(GTK_CONTAINER(ev), vbox);
+        g_signal_connect(ev, "button-press-event", G_CALLBACK(on_text_pressed), GUINT_TO_POINTER(n->id));
+        gtk_box_pack_start(GTK_BOX(hbox), ev, TRUE, TRUE, 0);
+    } else {
+        gtk_box_pack_start(GTK_BOX(hbox), vbox, TRUE, TRUE, 0);
+    }
 
     GtkWidget *remove_btn = gtk_button_new_with_label(_("Remover"));
     g_signal_connect(remove_btn, "clicked", G_CALLBACK(on_remove_clicked), GUINT_TO_POINTER(n->id));

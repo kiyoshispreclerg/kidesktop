@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: xisserve\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-17 17:51-0300\n"
+"POT-Creation-Date: 2026-10-19 14:34-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -30,7 +30,7 @@ msgid "Anterior"
 msgstr ""
 
 #: pages/audio.c:418 pages/clock.c:416 pages/clock.c:528
-#: pages/notifications.c:648
+#: pages/notifications.c:753
 msgid "Pausar"
 msgstr ""
 
@@ -316,7 +316,7 @@ msgstr ""
 msgid "Nome do alarme (opcional)"
 msgstr ""
 
-#: pages/clock.c:392 pages/notifications.c:597 session.c:133
+#: pages/clock.c:392 pages/notifications.c:702 session.c:133
 msgid "Cancelar"
 msgstr ""
 
@@ -550,32 +550,36 @@ msgstr ""
 msgid "<b>Dispositivos inativos</b>"
 msgstr ""
 
-#: pages/notifications.c:480
+#: pages/notifications.c:563
+msgid "Abrir"
+msgstr ""
+
+#: pages/notifications.c:585
 msgid "Remover"
 msgstr ""
 
-#: pages/notifications.c:507
+#: pages/notifications.c:612
 msgid "Limpar tudo"
 msgstr ""
 
-#: pages/notifications.c:515
+#: pages/notifications.c:620
 msgid "Nenhuma notificação."
 msgstr ""
 
-#: pages/notifications.c:618
+#: pages/notifications.c:723
 msgid "Pausado"
 msgstr ""
 
-#: pages/notifications.c:623
+#: pages/notifications.c:728
 #, c-format
 msgid "%s de %s"
 msgstr ""
 
-#: pages/notifications.c:648
+#: pages/notifications.c:753
 msgid "Retomar"
 msgstr ""
 
-#: pages/notifications.c:721
+#: pages/notifications.c:826
 msgid "Em andamento"
 msgstr ""
 

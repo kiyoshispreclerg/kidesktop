@@ -144,7 +144,8 @@ table in `xisserve.c`:
 - **`--notifications`** (`pages/notifications.c`) -- the notification
   history: every held entry newest-first (app name, date/time, summary/
   body), each with its own "Remover" button plus a "Limpar tudo" for the
-  whole list. Opened by xispanel's `notif` widget on left click (right
+  whole list; entries still open keep their action buttons (and a click
+  on the text runs the default action), like the toast. Opened by xispanel's `notif` widget on left click (right
   click still opens the same history inline as a panel menu).
 
   The ring buffer itself lives in xispanel's process, not here --

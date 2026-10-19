@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: xisserve\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-17 17:51-0300\n"
+"POT-Creation-Date: 2026-10-19 14:34-0300\n"
 "PO-Revision-Date: 2026-10-02 14:10-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -30,7 +30,7 @@ msgid "Anterior"
 msgstr "Previous"
 
 #: pages/audio.c:418 pages/clock.c:416 pages/clock.c:528
-#: pages/notifications.c:648
+#: pages/notifications.c:753
 msgid "Pausar"
 msgstr "Pause"
 
@@ -328,7 +328,7 @@ msgstr "Alarm name"
 msgid "Nome do alarme (opcional)"
 msgstr "Alarm name (optional)"
 
-#: pages/clock.c:392 pages/notifications.c:597 session.c:133
+#: pages/clock.c:392 pages/notifications.c:702 session.c:133
 msgid "Cancelar"
 msgstr "Cancel"
 
@@ -562,32 +562,36 @@ msgstr "No network found."
 msgid "<b>Dispositivos inativos</b>"
 msgstr "<b>Inactive devices</b>"
 
-#: pages/notifications.c:480
+#: pages/notifications.c:563
+msgid "Abrir"
+msgstr "Open"
+
+#: pages/notifications.c:585
 msgid "Remover"
 msgstr "Remove"
 
-#: pages/notifications.c:507
+#: pages/notifications.c:612
 msgid "Limpar tudo"
 msgstr "Clear all"
 
-#: pages/notifications.c:515
+#: pages/notifications.c:620
 msgid "Nenhuma notificação."
 msgstr "No notifications."
 
-#: pages/notifications.c:618
+#: pages/notifications.c:723
 msgid "Pausado"
 msgstr "Paused"
 
-#: pages/notifications.c:623
+#: pages/notifications.c:728
 #, c-format
 msgid "%s de %s"
 msgstr "%s of %s"
 
-#: pages/notifications.c:648
+#: pages/notifications.c:753
 msgid "Retomar"
 msgstr "Resume"
 
-#: pages/notifications.c:721
+#: pages/notifications.c:826
 msgid "Em andamento"
 msgstr "In progress"
 
