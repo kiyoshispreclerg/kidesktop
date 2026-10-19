@@ -366,6 +366,7 @@ static void damage_rect_grown(const CompRect *r, int margin)
             continue;
 
         o->dirty = true;
+        o->damage_serial++;
         region_add(&o->damage, &hit);
     }
 }
@@ -397,8 +398,20 @@ void output_damage_all(void)
 {
     for (int i = 0; i < comp.output_count; i++) {
         comp.outputs[i].dirty = true;
+        comp.outputs[i].damage_serial++;
         region_set_full(&comp.outputs[i].damage);
     }
+}
+
+void output_request_frame(CompOutput *o)
+{
+    if (o->dirty)
+        return;
+    /* One pixel, not nothing: a dirty output with no region is repainted
+     * whole (output_paint_region), and the point is the opposite. */
+    CompRect px = { o->rect.x, o->rect.y, 1, 1 };
+    o->dirty = true;
+    region_add(&o->damage, &px);
 }
 
 void output_paint_region(CompOutput *o, CompRegion *out)

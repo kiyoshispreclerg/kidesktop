@@ -3,6 +3,11 @@
 #include "scene.h"
 #include "window.h"
 #include "effect.h"
+#include "renderer.h"
+#include "output.h"
+#include "unredirect.h"
+#include "shadow.h"
+#include "region.h"
 
 #include "../../shared/xis_capture.h"
 
@@ -11,6 +16,8 @@
 #include <string.h>
 
 #define MAX_SESSIONS 8
+#define MAX_SLOTS 4
+#define SLOT_NONE 0xFFFFFFFFu
 #define PROTOCOL_VERSION 1
 
 /* STATE flags */
@@ -18,6 +25,8 @@
 /* TARGETS flags */
 #define TARGET_AVAILABLE  (1u << 0)
 /* FRAME flags */
+#define FRAME_UNCHANGED   (1u << 0)
+#define FRAME_BUSY        (1u << 1)
 #define FRAME_UNAVAILABLE (1u << 2)
 /* STATUS errors */
 enum { ERR_NONE, ERR_VERSION, ERR_DISABLED, ERR_OUTPUT, ERR_RESOURCES, ERR_DENIED };
@@ -46,7 +55,29 @@ typedef struct {
     uint32_t epoch[MAX_OUTPUTS];
     uint32_t visible[MAX_OUTPUTS];
     uint32_t flags[MAX_OUTPUTS];
+
+    /* Per session output: the slots (pixmaps of the output's physical
+     * size, ours; the recorder only reads them), how many times each is
+     * held by the recorder (FRAME delivered, RELEASE not yet), when it was
+     * last delivered (the least recently delivered free one is rendered
+     * into next), and the picture last made: which slot, and what the
+     * output and the excluded set looked like then (for UNCHANGED). */
+    int nslot;
+    xcb_pixmap_t slot[MAX_OUTPUTS][MAX_SLOTS];
+    uint32_t held[MAX_OUTPUTS][MAX_SLOTS];
+    uint64_t delivered[MAX_OUTPUTS][MAX_SLOTS];
+    bool pending[MAX_OUTPUTS];         /* a REQUEST waits for the next paint */
+    uint32_t pending_id[MAX_OUTPUTS];
+    bool have_pic[MAX_OUTPUTS];
+    int pic_slot[MAX_OUTPUTS];
+    uint64_t pic_serial[MAX_OUTPUTS];
+    uint64_t pic_gen[MAX_OUTPUTS];
 } Session;
+
+/* Bumped whenever the set of excluded windows changes, so a picture made
+ * before is never called UNCHANGED after. */
+static uint64_t excluded_gen = 1;
+static uint64_t delivery_stamp;
 
 static Session sessions[MAX_SESSIONS];
 static int session_count;
@@ -182,17 +213,26 @@ bool capture_property_notify(xcb_window_t window, xcb_atom_t atom)
 }
 
 /* Marked, or a popup of a marked window (shared/xis_capture.h). */
-static void recompute_excluded(void)
+static bool recompute_excluded(void)
 {
+    bool changed = false;
     uint32_t pids[64];
     size_t n = 0;
     for (CompWindow *w = comp.stack; w; w = w->next)
         if (w->capture_marked && !w->zombie && w->pid && n < 64)
             pids[n++] = w->pid;
 
-    for (CompWindow *w = comp.stack; w; w = w->next)
-        w->capture_excluded = w->capture_marked ||
+    for (CompWindow *w = comp.stack; w; w = w->next) {
+        bool ex = w->capture_marked ||
             xis_capture_popup_excluded(w->override_redirect, w->pid, pids, n);
+        if (ex != w->capture_excluded) {
+            w->capture_excluded = ex;
+            changed = true;
+        }
+    }
+    if (changed)
+        excluded_gen++;
+    return changed;
 }
 
 /* ------------------------------------------------------------------ */
@@ -226,12 +266,12 @@ static uint32_t count_visible(const Session *s, const CompOutput *o)
     return n;
 }
 
-/* Whether a censored picture of this output could be rendered right now.
- * The renderers do not do the second assembly yet (REQUEST/FRAME), so no. */
-static bool can_render_censored(const CompOutput *o)
+/* Whether a censored picture of session output `i` could be rendered right
+ * now: the renderer does the second assembly, and the slots exist. */
+static bool can_render_censored(const Session *s, int i, const CompOutput *o)
 {
-    (void)o;
-    return false;
+    return o && renderer && renderer->capture_render && o->render_data &&
+           s->nslot > 0 && s->slot[i][0] != XCB_NONE;
 }
 
 static void write_targets(const Session *s)
@@ -243,15 +283,17 @@ static void write_targets(const Session *s)
         uint32_t *r = &rec[i * 13];
         if (!o)
             continue;      /* gone: all zero, not AVAILABLE */
-        r[0] = can_render_censored(o) ? TARGET_AVAILABLE : 0;
+        r[0] = can_render_censored(s, i, o) ? TARGET_AVAILABLE : 0;
         r[1] = (uint32_t)o->rect.x;
         r[2] = (uint32_t)o->rect.y;
         r[3] = (uint32_t)o->rect.w;
         r[4] = (uint32_t)o->rect.h;
         r[5] = (uint32_t)o->physical.w;
         r[6] = (uint32_t)o->physical.h;
-        r[7] = 24;
-        r[8] = 0;          /* slot count: none allocated until the renderers can fill them */
+        r[7] = comp.screen->root_depth;
+        r[8] = (uint32_t)(can_render_censored(s, i, o) ? s->nslot : 0);
+        for (int k = 0; k < s->nslot && can_render_censored(s, i, o); k++)
+            r[9 + k] = s->slot[i][k];
     }
     set_cardinals(s->win, A.targets, rec, (uint32_t)s->nout * 13);
 }
@@ -276,7 +318,7 @@ static bool update_session(Session *s, bool force)
         const CompOutput *o = output_by_id(s->out_id[i]);
         uint32_t v = o ? count_visible(s, o) : 0;
         uint32_t f = 0;
-        if (!o || (v > 0 && !can_render_censored(o)))
+        if (!o || (v > 0 && !can_render_censored(s, i, o)))
             f |= STATE_UNAVAILABLE;
 
         if ((v != 0) != (s->visible[i] != 0)) {
@@ -334,15 +376,56 @@ static Session *session_for(xcb_window_t win)
     return NULL;
 }
 
+static void free_slot_set(xcb_pixmap_t set[][MAX_SLOTS], int nout)
+{
+    for (int i = 0; i < nout; i++)
+        for (int k = 0; k < MAX_SLOTS; k++)
+            if (set[i][k] != XCB_NONE) {
+                xcb_free_pixmap(comp.conn, set[i][k]);
+                set[i][k] = XCB_NONE;
+            }
+}
+
+/* One pixmap per slot and output, at the output's final (physical) size.
+ * All or nothing: a refused allocation frees what was made. */
+static bool alloc_slot_set(const Session *s, xcb_pixmap_t set[][MAX_SLOTS])
+{
+    for (int i = 0; i < MAX_OUTPUTS; i++)
+        for (int k = 0; k < MAX_SLOTS; k++)
+            set[i][k] = XCB_NONE;
+    if (s->nslot == 0)
+        return true;
+    for (int i = 0; i < s->nout; i++) {
+        const CompOutput *o = output_by_id(s->out_id[i]);
+        if (!o || o->physical.w <= 0 || o->physical.h <= 0 || !o->render_data)
+            continue;
+        for (int k = 0; k < s->nslot; k++) {
+            xcb_pixmap_t pm = xcb_generate_id(comp.conn);
+            xcb_void_cookie_t ck = xcb_create_pixmap_checked(comp.conn, comp.screen->root_depth, pm,
+                comp.root, (uint16_t)o->physical.w, (uint16_t)o->physical.h);
+            xcb_generic_error_t *err = xcb_request_check(comp.conn, ck);
+            if (err) {
+                free(err);
+                free_slot_set(set, s->nout);
+                return false;
+            }
+            set[i][k] = pm;
+        }
+    }
+    return true;
+}
+
 /* Properties first, then (when asked) the message that says it is over;
- * the pixmaps would be freed after the properties go, for the reason
- * _KICOMP_STOWED_PIXMAP gives (there are none yet). */
+ * the pixmaps go after the properties that name them, for the reason
+ * _KICOMP_STOWED_PIXMAP gives: a reader that re-reads the property per use
+ * can never hold an XID already freed. */
 static void end_session(Session *s, bool tell)
 {
     xcb_delete_property(comp.conn, s->win, A.targets);
     xcb_delete_property(comp.conn, s->win, A.state);
     if (tell)
         send_status(s->win, 0, ERR_NONE, 0);
+    free_slot_set(s->slot, s->nout);
     uint32_t none = 0;
     xcb_change_window_attributes(comp.conn, s->win, XCB_CW_EVENT_MASK, &none);
     memset(s, 0, sizeof *s);
@@ -436,6 +519,13 @@ static void handle_open(xcb_window_t win, uint32_t version)
         sessions[i].used = true;
         for (int k = 0; k < s.nout; k++)
             sessions[i].epoch[k] = 1;
+        /* Slots only where the renderer can fill them. */
+        sessions[i].nslot = renderer && renderer->capture_render ? s.slots : 0;
+        if (!alloc_slot_set(&sessions[i], sessions[i].slot)) {
+            memset(&sessions[i], 0, sizeof sessions[i]);
+            send_status(win, 0, ERR_RESOURCES, 0);
+            return;
+        }
         session_count++;
         recompute_excluded();
         /* Properties first, then the message that points at them. */
@@ -446,6 +536,59 @@ static void handle_open(xcb_window_t win, uint32_t version)
         comp_log("capture: session on 0x%x, %d output(s)", win, s.nout);
         return;
     }
+}
+
+static void send_frame(Session *s, uint32_t out, uint32_t slot, uint32_t id, uint32_t flags)
+{
+    uint32_t d[5] = { out, slot, id, flags, 0 };
+    send_message(s->win, A.frame, d);
+    xcb_flush(comp.conn);
+}
+
+/* A slot handed to the recorder: held until its RELEASE. */
+static void deliver(Session *s, int out, int slot, uint32_t id, uint32_t flags)
+{
+    s->held[out][slot]++;
+    s->delivered[out][slot] = ++delivery_stamp;
+    send_frame(s, (uint32_t)out, (uint32_t)slot, id, flags);
+}
+
+/* Every REQUEST gets exactly one FRAME with its id. A censored picture is
+ * only made in a paint pass (capture_output_painted), where the scene is at
+ * hand; here it is either answered at once or left waiting for the next
+ * one -- which this asks for. */
+static void handle_request(Session *s, uint32_t out, uint32_t id)
+{
+    if (out >= (uint32_t)s->nout) {
+        send_frame(s, out, SLOT_NONE, id, FRAME_UNAVAILABLE);
+        return;
+    }
+    const CompOutput *co = output_by_id(s->out_id[out]);
+    if (!can_render_censored(s, (int)out, co)) {
+        send_frame(s, out, SLOT_NONE, id, FRAME_UNAVAILABLE);
+        return;
+    }
+    if (s->pending[out]) {            /* one at a time per output */
+        send_frame(s, out, SLOT_NONE, id, FRAME_BUSY);
+        return;
+    }
+    /* Nothing changed since the last picture for this session: the same
+     * slot again (held again, released again). */
+    if (s->have_pic[out] && !co->dirty && s->pic_serial[out] == co->damage_serial &&
+        s->pic_gen[out] == excluded_gen) {
+        deliver(s, (int)out, s->pic_slot[out], id, FRAME_UNCHANGED);
+        return;
+    }
+    bool free_slot = false;
+    for (int k = 0; k < s->nslot; k++)
+        free_slot |= s->held[out][k] == 0;
+    if (!free_slot) {
+        send_frame(s, out, SLOT_NONE, id, FRAME_BUSY);
+        return;
+    }
+    s->pending[out] = true;
+    s->pending_id[out] = id;
+    output_request_frame((CompOutput *)co);
 }
 
 bool capture_client_message(const xcb_client_message_event_t *e)
@@ -467,15 +610,12 @@ bool capture_client_message(const xcb_client_message_event_t *e)
     if (e->type == A.close) {
         end_session(s, false);
     } else if (e->type == A.request) {
-        /* Nothing renders the second picture yet: answer, as the protocol
-         * requires, with the failure that sends the recorder to its own
-         * censoring. */
-        uint32_t d[5] = { e->data.data32[1], 0xFFFFFFFFu, e->data.data32[2],
-                          FRAME_UNAVAILABLE, 0 };
-        send_message(win, A.frame, d);
-        xcb_flush(comp.conn);
+        handle_request(s, e->data.data32[1], e->data.data32[2]);
+    } else if (e->type == A.release) {
+        uint32_t out = e->data.data32[1], slot = e->data.data32[2];
+        if (out < (uint32_t)s->nout && slot < MAX_SLOTS && s->held[out][slot] > 0)
+            s->held[out][slot]--;
     }
-    /* RELEASE: no slots are ever held. */
     return true;
 }
 
@@ -484,6 +624,7 @@ void capture_window_destroyed(xcb_window_t window)
     Session *s = session_for(window);
     if (s) {
         comp_log("capture: session window 0x%x gone", window);
+        free_slot_set(s->slot, s->nout);
         memset(s, 0, sizeof *s);
         session_count--;
     }
@@ -492,10 +633,28 @@ void capture_window_destroyed(xcb_window_t window)
 void capture_outputs_changed(void)
 {
     for (int i = 0; i < MAX_SESSIONS; i++) {
-        if (!sessions[i].used)
+        Session *s = &sessions[i];
+        if (!s->used)
             continue;
-        write_targets(&sessions[i]);
-        update_session(&sessions[i], true);
+        /* The outputs may have changed size: new slots, announced, then
+         * the old ones freed. A request waiting on the old ones fails. */
+        xcb_pixmap_t fresh[MAX_OUTPUTS][MAX_SLOTS];
+        xcb_pixmap_t old[MAX_OUTPUTS][MAX_SLOTS];
+        memcpy(old, s->slot, sizeof old);
+        if (alloc_slot_set(s, fresh))
+            memcpy(s->slot, fresh, sizeof fresh);
+        else
+            memset(s->slot, 0, sizeof s->slot);     /* AVAILABLE clears: censored pictures off */
+        for (int k = 0; k < s->nout; k++) {
+            if (s->pending[k])
+                send_frame(s, (uint32_t)k, SLOT_NONE, s->pending_id[k], FRAME_UNAVAILABLE);
+            s->pending[k] = false;
+            s->have_pic[k] = false;
+            memset(s->held[k], 0, sizeof s->held[k]);
+        }
+        write_targets(s);
+        update_session(s, true);
+        free_slot_set(old, s->nout);
     }
     xcb_flush(comp.conn);
 }
@@ -521,4 +680,78 @@ void capture_shutdown(void)
             end_session(&sessions[i], true);
     if (comp.cm_window != XCB_NONE && A.capture != XCB_NONE)
         xcb_delete_property(comp.conn, comp.cm_window, A.capture);
+}
+
+/* ------------------------------------------------------------------ */
+/* the second assembly                                                  */
+/* ------------------------------------------------------------------ */
+
+/* Not the frame's scene: that one has had its fully covered windows culled
+ * (they are not drawn, so a hidden window that covered them would leave a
+ * hole), and keeps state the next real frame depends on. This one is built
+ * and run through the effects the same way, then drawn whole. */
+static CompScene cap_scene;
+
+static void assemble(Session *s, int out, CompOutput *o)
+{
+    uint32_t id = s->pending_id[out];
+    s->pending[out] = false;
+
+    /* The least recently delivered slot nobody holds. */
+    int pick = -1;
+    for (int k = 0; k < s->nslot; k++)
+        if (s->held[out][k] == 0 && s->slot[out][k] != XCB_NONE &&
+            (pick < 0 || s->delivered[out][k] < s->delivered[out][pick]))
+            pick = k;
+    if (pick < 0) {
+        send_frame(s, (uint32_t)out, SLOT_NONE, id, FRAME_BUSY);
+        return;
+    }
+
+    scene_build(&cap_scene, o);
+    effects_apply(&cap_scene, o);
+    int reach = shadow_margin();
+    for (int i = 0; i < cap_scene.count; i++) {
+        CompSceneNode *n = &cap_scene.nodes[i];
+        CompRect probe = n->visible_rect;
+        probe.x -= reach;
+        probe.y -= reach;
+        probe.w += reach * 2;
+        probe.h += reach * 2;
+        region_clear(&n->clip);
+        region_add(&n->clip, &probe);
+    }
+
+    CompCaptureStyle st = {
+        .hide = cfg.mode == MODE_HIDE,
+        .color = cfg.color,
+        .hide_pid = s->hide_pid,
+    };
+    if (!renderer->capture_render(o, &cap_scene, s->slot[out][pick], &st)) {
+        send_frame(s, (uint32_t)out, SLOT_NONE, id, FRAME_UNAVAILABLE);
+        return;
+    }
+
+    s->have_pic[out] = true;
+    s->pic_slot[out] = pick;
+    s->pic_serial[out] = o->damage_serial;
+    s->pic_gen[out] = excluded_gen;
+    /* The requests above were sent on our connection, so the server has
+     * them before the SendEvent behind this FRAME, and handles them in
+     * that order. */
+    deliver(s, out, pick, id, 0);
+}
+
+void capture_output_painted(CompOutput *o)
+{
+    if (session_count == 0)
+        return;
+    for (int i = 0; i < MAX_SESSIONS; i++) {
+        Session *s = &sessions[i];
+        if (!s->used)
+            continue;
+        for (int k = 0; k < s->nout; k++)
+            if (s->pending[k] && s->out_id[k] == o->id)
+                assemble(s, k, o);
+    }
 }

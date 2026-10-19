@@ -10,6 +10,24 @@
 #include "comp.h"
 #include "scene.h"
 
+/* What a censored picture is made of (capture.h). */
+typedef struct CompCaptureStyle {
+    bool hide;             /* excluded windows are not drawn at all (else filled) */
+    uint32_t color;        /* the fill, 0x00RRGGBB */
+    uint32_t hide_pid;     /* windows of this process are never drawn; 0 = none */
+} CompCaptureStyle;
+
+/* 0: draw the window; 1: draw it as a flat shape of the fill colour;
+ * 2: do not draw it, nor its shadow. */
+static inline int comp_capture_kind(const CompCaptureStyle *st, const CompWindow *w)
+{
+    if (st->hide_pid && w->pid == st->hide_pid)
+        return 2;
+    if (w->capture_excluded)
+        return st->hide ? 2 : 1;
+    return 0;
+}
+
 typedef struct CompRenderer {
     const char *name;
 
@@ -75,6 +93,15 @@ typedef struct CompRenderer {
     void (*output_pixmap_idle)(CompOutput *o, xcb_pixmap_t pixmap);
     bool (*output_has_free_buffer)(const CompOutput *o);
     void (*shutdown)(void);
+
+    /* The capture protocol's second assembly: draws `s` -- a complete
+     * scene, no occlusion culling -- for the whole of `o` into `slot`
+     * (a pixmap of the output's physical size) with the excluded windows
+     * substituted as `style` says. Leaves the output's own target and its
+     * covered region as they were. Optional: a backend without it cannot
+     * offer censored pictures (its outputs are UNAVAILABLE). */
+    bool (*capture_render)(CompOutput *o, CompScene *s, xcb_pixmap_t slot,
+                           const CompCaptureStyle *style);
 } CompRenderer;
 
 const CompRenderer *renderer_xrender(void);

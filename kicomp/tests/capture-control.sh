@@ -1,5 +1,5 @@
 #!/bin/bash
-# Acceptance test for the capture protocol's control plane (kicomp 0.3.66):
+# Acceptance test for the capture protocol's control plane (kicomp 0.3.66+):
 # offer, sessions, the exclusion mark, STATE/epoch, hide_pid, session limits,
 # a recorder that dies. Runs a nested Xephyr with kiwm + kicomp; needs
 # $DISPLAY (the host X server), Xephyr, xterm, xprop, xdotool.
@@ -40,7 +40,7 @@ start_stack() { # start_stack <kicomp.conf body>
     export DISPLAY=$D
     "$ROOT/kiwm/kiwm" >"$TMP/kiwm.log" 2>&1 & KP=$!; PIDS+=($KP)
     sleep 0.8
-    "$ROOT/kicomp/kicomp" -v >"$TMP/kicomp.log" 2>&1 & CP=$!; PIDS+=($CP)
+    "$ROOT/kicomp/kicomp" --renderer=xrender -v >"$TMP/kicomp.log" 2>&1 & CP=$!; PIDS+=($CP)
     sleep 1.5
 }
 stop_stack() {
@@ -68,7 +68,7 @@ capture_sessions = 1"
 "$PROBE" --seconds 2 > "$TMP/on.out"
 check "offer published with the fill colour" "$TMP/on.out" '^OFFER version=1 features=0x1 mode=1 colour=0x204060'
 check "session accepted" "$TMP/on.out" '^STATUS state=1 error=0 outputs=1 version=1'
-check "TARGETS: one 13-word record, no slots yet" "$TMP/on.out" '^TARGET 0 flags=0x0 pos=0,0 size=800x600 pixels=800x600 depth=24 slots=0'
+check "TARGETS: one 13-word record, available, 3 slots" "$TMP/on.out" '^TARGET 0 flags=0x1 pos=0,0 size=800x600 pixels=800x600 depth=24 slots=3'
 check "STATE starts with nothing visible" "$TMP/on.out" '^STATE 0 epoch=1 visible=0 flags=0x0'
 check "CLOSE is processed" "$TMP/on.out" '^CLOSED'
 
@@ -82,10 +82,10 @@ wait_for "$TMP/live.out" '^STATE 0' 3 || fail "session did not start"
 absent "unmarked window: not visible" "$TMP/live.out" 'visible=[1-9]'
 mark "$XC"
 wait_for "$TMP/live.out" 'visible=1' 3 && ok "marking the window makes it visible" || fail "mark not seen"
-check "epoch moved on 0 -> 1" "$TMP/live.out" 'epoch=2 visible=1 flags=0x1'
+check "epoch moved on 0 -> 1, the output can still be rendered censored" "$TMP/live.out" 'epoch=2 visible=1 flags=0x0'
 unmark "$XC"
 wait_for "$TMP/live.out" 'epoch=3 visible=0' 3 && ok "unmarking: back to visible=0, epoch 3" || fail "unmark not seen"
-check "REQUEST is answered with the failure FRAME" "$TMP/live.out" '^FRAME output=0 slot=0xffffffff request=[0-9]+ flags=0x4'
+check "REQUEST is answered with a slot" "$TMP/live.out" '^FRAME output=0 slot=0x[0-3] request=[0-9]+ flags=0x0'
 
 # second session while the first runs: capture_sessions = 1
 "$PROBE" --seconds 1 > "$TMP/second.out"

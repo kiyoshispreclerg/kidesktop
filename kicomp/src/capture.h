@@ -49,6 +49,11 @@ void capture_outputs_changed(void);
  * (the one-sided ordering the recorder's seqlock depends on). */
 void capture_update(void);
 
+/* After an output was painted and presented: makes the censored pictures
+ * recorders asked for (REQUEST) -- a second assembly of the scene with the
+ * excluded windows substituted, through the renderer -- and answers them. */
+void capture_output_painted(CompOutput *o);
+
 /* An output a session watches must not be handed to a fullscreen window
  * while an excluded window shows on it: there would be no scene to
  * assemble the censored picture from. */

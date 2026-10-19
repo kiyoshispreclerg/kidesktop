@@ -33,7 +33,7 @@
 
 #define _GNU_SOURCE             /* ppoll */
 
-#define KICOMP_VERSION "0.3.66"
+#define KICOMP_VERSION "0.3.67"
 
 #include "../../shared/xis_i18n.h"
 
@@ -752,6 +752,7 @@ static void paint_dirty_outputs(double now)
         presenter->present(o, COMP_PRESENT_COPY, &region);
 
         output_painted(o);
+        capture_output_painted(o);
         painted = true;
     }
 

@@ -1,7 +1,8 @@
 /* capture-probe - a minimal recorder for kicomp's capture protocol
  * (CAPTURE-PROTOCOL.md), for testing the compositor's side of it.
  *
- *   capture-probe [--output NAME] [--hide-pid PID] [--request] [--seconds N]
+ *   capture-probe [--output NAME] [--hide-pid PID] [--request] [--copy X,Y] [--again]
+ *                 [--seconds N]
  *
  * Prints one line per thing it learns, flushing each, so a script can wait
  * for them:
@@ -10,6 +11,9 @@
  *   TARGET i flags=0x0 pos=0,0 size=800x600 pixels=800x600 depth=24 slots=0
  *   STATE i epoch=1 visible=0 flags=0x0
  *   FRAME output=0 slot=0xffffffff request=7 flags=0x4
+ *   PIXEL slot=1 10,10=204060     (--copy: the slot's pixel at X,Y once a FRAME arrives)
+ *   ROOT 10,10=204060             ... and the screen's, to compare
+ *   --again asks a second time at once: the answer should be UNCHANGED.
  * Exits after N seconds (default 10) or on SIGTERM, sending CLOSE first.
  *
  * Build: cc -o capture-probe capture-probe.c -lX11 -lXrandr */
@@ -59,11 +63,13 @@ int main(int argc, char **argv)
 {
     const char *output = NULL;
     long hide_pid = 0;
-    int request = 0, seconds = 10;
+    int request = 0, seconds = 10, copy_on = 0, again = 0, again_done = 0, cx = 0, cy = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--output") && i + 1 < argc) output = argv[++i];
         else if (!strcmp(argv[i], "--hide-pid") && i + 1 < argc) hide_pid = atol(argv[++i]);
         else if (!strcmp(argv[i], "--request")) request = 1;
+        else if (!strcmp(argv[i], "--copy") && i + 1 < argc) { copy_on = 1; request = 1; sscanf(argv[++i], "%d,%d", &cx, &cy); }
+        else if (!strcmp(argv[i], "--again")) again = 1;
         else if (!strcmp(argv[i], "--seconds") && i + 1 < argc) seconds = atoi(argv[++i]);
     }
     setvbuf(stdout, NULL, _IOLBF, 0);
@@ -153,6 +159,48 @@ int main(int argc, char **argv)
                     printf("FRAME output=%ld slot=0x%lx request=%ld flags=0x%lx\n",
                            ev.xclient.data.l[0], (unsigned long)ev.xclient.data.l[1] & 0xffffffffu,
                            ev.xclient.data.l[2], (unsigned long)ev.xclient.data.l[3]);
+                    long slot = ev.xclient.data.l[1];
+                    if ((unsigned long)slot < 4 && ev.xclient.data.l[2] >= 0) {
+                        if (copy_on) {
+                            unsigned long tn;
+                            long *t = cardinals(s, atom("_KICOMP_CAPTURE_TARGETS"), &tn);
+                            if (t && tn >= 13 && t[9 + slot]) {
+                                XImage *im = XGetImage(dpy, (Drawable)t[9 + slot], cx, cy, 1, 1, AllPlanes, ZPixmap);
+                                XImage *rm = XGetImage(dpy, root, cx, cy, 1, 1, AllPlanes, ZPixmap);
+                                if (im)
+                                    printf("PIXEL slot=%ld %d,%d=%06lx\n", slot, cx, cy, XGetPixel(im, 0, 0) & 0xffffff);
+                                if (rm)
+                                    printf("ROOT %d,%d=%06lx\n", cx, cy, XGetPixel(rm, 0, 0) & 0xffffff);
+                                if (im) XDestroyImage(im);
+                                if (rm) XDestroyImage(rm);
+                            }
+                            if (t) XFree(t);
+                        }
+                        if (again && !again_done) {
+                            again_done = 1;
+                            XEvent rq;
+                            memset(&rq, 0, sizeof rq);
+                            rq.xclient.type = ClientMessage;
+                            rq.xclient.window = cm;
+                            rq.xclient.message_type = atom("_KICOMP_CAPTURE_REQUEST");
+                            rq.xclient.format = 32;
+                            rq.xclient.data.l[0] = s;
+                            rq.xclient.data.l[1] = 0;
+                            rq.xclient.data.l[2] = ++req_id;
+                            XSendEvent(dpy, cm, False, NoEventMask, &rq);
+                        }
+                        XEvent rl;
+                        memset(&rl, 0, sizeof rl);
+                        rl.xclient.type = ClientMessage;
+                        rl.xclient.window = cm;
+                        rl.xclient.message_type = atom("_KICOMP_CAPTURE_RELEASE");
+                        rl.xclient.format = 32;
+                        rl.xclient.data.l[0] = s;
+                        rl.xclient.data.l[1] = ev.xclient.data.l[0];
+                        rl.xclient.data.l[2] = slot;
+                        XSendEvent(dpy, cm, False, NoEventMask, &rl);
+                        XFlush(dpy);
+                    }
                     fflush(stdout);
                 }
             } else if (ev.type == PropertyNotify &&

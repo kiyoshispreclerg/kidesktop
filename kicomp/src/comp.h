@@ -145,6 +145,12 @@ typedef struct CompOutput {
 
     bool dirty;          /* section 39: never repaint an output "just in case" */
 
+    /* Counts every post of real damage on this output (not the nudge
+     * output_request_frame() gives a repaint). The capture protocol
+     * answers a second REQUEST with UNCHANGED while this has not moved
+     * since the last picture it made (capture.c). */
+    uint64_t damage_serial;
+
     /* *What* changed on it, in root coordinates, since it was last
      * painted. `dirty` says whether to paint at all; this says how much
      * of it to paint. A dirty output whose region is empty is repainted

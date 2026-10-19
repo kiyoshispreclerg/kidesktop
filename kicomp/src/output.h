@@ -37,6 +37,11 @@ void output_damage_window_rect(const CompWindow *w, const CompRect *r);
 
 void output_damage_all(void);
 
+/* Gets `o` repainted at its next frame without saying anything changed
+ * (cheaply: a one-pixel damage). For whoever needs a paint pass to hang
+ * its own work on -- the capture protocol's second assembly. */
+void output_request_frame(CompOutput *o);
+
 /* What to repaint on this output, for the renderer and the presenter. A
  * dirty output that nobody said anything specific about comes back as a
  * full region -- being told to paint and not being told where means

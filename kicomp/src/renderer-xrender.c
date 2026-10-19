@@ -1617,6 +1617,12 @@ static void draw_solid(CompOutput *o, const CompSceneSolid *q)
 static void draw_sky(CompOutput *o, const CompScene *s,
                      const CompRegion *damage);
 
+/* Set only while capture_render() is drawing a censored picture: how the
+ * excluded windows are substituted, and the solid colour that stands in
+ * for their contents. */
+static const CompCaptureStyle *cap_style;
+static xcb_render_picture_t cap_fill;
+
 static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
 {
     if (!o->target)
@@ -1655,12 +1661,21 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
         if (!touched && !region_is_full(&n->clip))
             continue;
 
+        /* A censored picture (capture.h): an excluded window is either not
+         * drawn at all -- nor its shadow -- or drawn as the same shape in
+         * a flat colour. Every place this function draws the window's
+         * contents below goes through `source`, `from_stash` and the
+         * dense draws, and all three are made to not read it. */
+        int subst = cap_style ? comp_capture_kind(cap_style, w) : 0;
+        if (subst == 2)
+            continue;
+
         /* An effect drawing what the window looked like before its last
          * resize (shade). The node's geometry describes those contents,
          * not the window's current ones. */
-        bool from_stash = n->use_stash && w->prev_picture;
+        bool from_stash = !subst && n->use_stash && w->prev_picture;
 
-        if (!from_stash && !window_bind(w)) {
+        if (!subst && !from_stash && !window_bind(w)) {
             /* The window has no usable contents this frame, so it's
              * simply missing from the output -- worth saying, because
              * that is exactly what a one-frame "the window vanished"
@@ -1685,7 +1700,7 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
         if (comp_transform_is_identity(&n->transform))
             draw_shadow(o, w, &n->geometry, n->opacity);
 
-        xcb_render_picture_t source = from_stash ? w->prev_picture : w->picture;
+        xcb_render_picture_t source = subst ? cap_fill : from_stash ? w->prev_picture : w->picture;
 
         /* A node an effect is transforming (section 22): XRender wants
          * the inverse mapping, and a matrix that isn't invertible as an
@@ -1930,7 +1945,7 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
          * below assume the window is where it says it is, and a window
          * mid-animation is worth exactly as much sharpness as it has
          * milliseconds left. */
-        if (!transformed && !from_stash) {
+        if (!transformed && !from_stash && !subst) {
             /* The decoration first, then the contents inside it -- the
              * same order they sit in, and the same order they were drawn
              * in at logical size. Each is a separate drawable published by
@@ -2138,6 +2153,52 @@ static void xr_end(CompOutput *o)
     frame_clip_destroy();
 }
 
+static bool xr_capture_render(CompOutput *o, CompScene *s, xcb_pixmap_t slot,
+                              const CompCaptureStyle *style)
+{
+    if (!o->target || !o->render_data)
+        return false;
+    xcb_render_pictformat_t fmt = format_for_visual(comp.screen->root_visual);
+    if (!fmt)
+        return false;
+
+    xcb_render_picture_t pic = xcb_generate_id(comp.conn);
+    xcb_render_create_picture(comp.conn, pic, slot, fmt, 0, NULL);
+
+    uint32_t rgb = style->color;
+    xcb_render_color_t c = {
+        (uint16_t)(((rgb >> 16) & 0xff) * 0x0101), (uint16_t)(((rgb >> 8) & 0xff) * 0x0101),
+        (uint16_t)((rgb & 0xff) * 0x0101), 0xffff
+    };
+    cap_fill = xcb_generate_id(comp.conn);
+    xcb_render_create_solid_fill(comp.conn, cap_fill, c);
+    cap_style = style;
+
+    /* The same code that draws the real frame, pointed at the slot. The
+     * real frame's "covered" region says where the background need not be
+     * painted because an opaque window will be -- true of that scene and
+     * not of this one, where that window may not be drawn. */
+    xcb_render_picture_t real = o->target;
+    CompRegion covered = o->covered;
+    region_clear(&o->covered);
+    CompRegion whole;
+    region_clear(&whole);
+    region_set_full(&whole);
+
+    o->target = pic;
+    xr_begin(o, &whole);
+    xr_draw_scene(o, s, &whole);
+    xr_end(o);
+    o->target = real;
+    o->covered = covered;
+
+    cap_style = NULL;
+    xcb_render_free_picture(comp.conn, cap_fill);
+    xcb_render_free_picture(comp.conn, pic);
+    cap_fill = XCB_NONE;
+    return true;
+}
+
 static xcb_pixmap_t xr_output_pixmap(const CompOutput *o)
 {
     const XrOutput *xo = o->render_data;
@@ -2179,6 +2240,8 @@ static const CompRenderer xrender_renderer = {
     .background_invalidate     = xr_background_invalidate,
     .output_pixmap             = xr_output_pixmap,
     .shutdown                  = xr_shutdown,
+
+    .capture_render            = xr_capture_render,
 };
 
 const CompRenderer *renderer_xrender(void)
