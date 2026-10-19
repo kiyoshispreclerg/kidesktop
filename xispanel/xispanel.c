@@ -100,15 +100,16 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.7.11"
+#define XISPANEL_VERSION "0.7.12"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
-/* 64KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
+/* 128KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
  * full-size entries (app_name/summary/body near their NOTIFD_*_MAX caps,
- * JSON-escaped to up to 2x) in one response -- worst case runs past 50KB.
- * Every other command's request/response stays tiny; this only costs a
- * bigger stack buffer per accepted connection, never held long-term. */
-#define IPC_MAX_LEN 65536
+ * plus up to NOTIFD_ACTIONS_MAX key/label pairs, JSON-escaped to up to 2x)
+ * in one response -- worst case runs past 90KB. Every other command's
+ * request/response stays tiny; this only costs a bigger stack buffer per
+ * accepted connection, never held long-term. */
+#define IPC_MAX_LEN 131072
 #define AUTOHIDE_ANIM_MS 150
 #define AUTOHIDE_DELAY_MS 400
 
@@ -3829,9 +3830,18 @@ static void handle_ipc_message(const char *req, char *resp, size_t resp_sz)
             json_escape(e->body, body_esc, sizeof(body_esc));
             o += (size_t)snprintf(resp + o, o < resp_sz ? resp_sz - o : 0,
                                    "%s{\"id\":%u,\"app_name\":\"%s\",\"summary\":\"%s\",\"body\":\"%s\","
-                                   "\"received_ms\":%llu,\"read\":%s}",
+                                   "\"received_ms\":%llu,\"read\":%s,\"closed\":%s,\"actions\":[",
                                    i == n - 1 ? "" : ",", e->id, app_esc, sum_esc, body_esc,
-                                   (unsigned long long)e->received_ms, e->read ? "true" : "false");
+                                   (unsigned long long)e->received_ms, e->read ? "true" : "false",
+                                   e->closed ? "true" : "false");
+            for (int k = 0; k < e->n_actions; k++) {
+                char key_esc[sizeof(e->actions[k].key) * 2], label_esc[sizeof(e->actions[k].label) * 2];
+                json_escape(e->actions[k].key, key_esc, sizeof(key_esc));
+                json_escape(e->actions[k].label, label_esc, sizeof(label_esc));
+                o += (size_t)snprintf(resp + o, o < resp_sz ? resp_sz - o : 0, "%s{\"key\":\"%s\",\"label\":\"%s\"}",
+                                       k ? "," : "", key_esc, label_esc);
+            }
+            o += (size_t)snprintf(resp + o, o < resp_sz ? resp_sz - o : 0, "]}");
         }
         if (o < resp_sz) {
             o += (size_t)snprintf(resp + o, resp_sz - o, "]}\n");
@@ -3841,6 +3851,12 @@ static void handle_ipc_message(const char *req, char *resp, size_t resp_sz)
         json_get_int(req, "id", &id);
         notifd_remove((unsigned int)id);
         snprintf(resp, resp_sz, "{\"ok\":true}\n");
+    } else if (strcmp(cmd, "INVOKE_NOTIFICATION_ACTION") == 0) {
+        int id = 0;
+        char key[sizeof(((NotifAction *)0)->key)] = "";
+        json_get_int(req, "id", &id);
+        json_get_str(req, "key", key, sizeof(key));
+        snprintf(resp, resp_sz, "{\"ok\":%s}\n", notifd_invoke_action((unsigned int)id, key) ? "true" : "false");
     } else if (strcmp(cmd, "CLEAR_NOTIFICATIONS") == 0) {
         notifd_clear();
         snprintf(resp, resp_sz, "{\"ok\":true}\n");

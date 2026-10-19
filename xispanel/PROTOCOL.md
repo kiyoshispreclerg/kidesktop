@@ -33,6 +33,7 @@ socket rather than xisback's `SET`-style protocol.
 {"cmd":"OSD","summary":"Volume","level":65,"icon":"volume-high"}
 {"cmd":"GET_NOTIFICATIONS"}
 {"cmd":"DELETE_NOTIFICATION","id":<id>}
+{"cmd":"INVOKE_NOTIFICATION_ACTION","id":<id>,"key":"<action key>"}
 {"cmd":"CLEAR_NOTIFICATIONS"}
 {"cmd":"GET_JOBS"}
 {"cmd":"JOB_ACTION","id":<id>,"action":"cancel"|"suspend"|"resume"}
@@ -67,7 +68,11 @@ socket rather than xisback's `SET`-style protocol.
 - `GET_NOTIFICATIONS` -> the whole notification history held by `notifd.c`
   (see `xispanel.h`'s `NotifEntry`), newest first -- `{"ok":true,
   "count":N,"notifications":[{"id":1,"app_name":"...","summary":"...",
-  "body":"...","received_ms":1234567890,"read":false}, ...]}`. Exists for
+  "body":"...","received_ms":1234567890,"read":false,"closed":false,
+  "actions":[{"key":"default","label":"..."}, ...]}, ...]}`. `closed` is
+  true once `NotificationClosed` went out for it -- its `actions` are then
+  dead (the sender stopped listening). An entry whose toast merely timed
+  out keeps `closed:false` while it has actions (see `notifd_closed()`). Exists for
   `xisserve`'s `--notifications` page (see `../xisserve/PROTOCOL.md`):
   the ring buffer lives here, in xispanel's process (it's the
   `org.freedesktop.Notifications` DBus service itself), not in
@@ -77,6 +82,11 @@ socket rather than xisback's `SET`-style protocol.
   `OSD`/`GET_STATUS`-sized replies).
 - `DELETE_NOTIFICATION` -> removes one entry by `id` (no-op if it isn't
   currently held). `{"ok":true}`
+- `INVOKE_NOTIFICATION_ACTION` -> emits `ActionInvoked(id, key)` for an
+  open entry (`"default"` for a body click), then closes it -- unless the
+  sender set the `resident` hint. `{"ok":false}` if the entry is closed,
+  gone, or has no such action. `key` is matched verbatim (no JSON
+  unescaping), so a key containing `"` or `\` can't be invoked this way.
 - `CLEAR_NOTIFICATIONS` -> drops every held entry. `{"ok":true}`
 - `GET_JOBS` -> the operations currently running that apps reported over
   `org.kde.JobViewServerV2` (`jobviewd.c`; see `xispanel.h`'s `JobEntry`)
