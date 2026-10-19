@@ -320,7 +320,7 @@ static bool eligible(const CompWindow *w, const CompEffectInstance *self, int ou
         return false;
     if (w->type == COMP_WINDOW_DOCK || w->type == COMP_WINDOW_DESKTOP)
         return false;
-    if (!(self->windows & COMP_WINDOW_BIT(w->type)))
+    if (!comp_window_match(&self->windows, w))
         return false;
 
     CompRect r = window_rect(w);

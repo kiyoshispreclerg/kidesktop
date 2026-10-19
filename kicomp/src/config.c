@@ -321,7 +321,7 @@ static void config_pass(FILE *f, bool instances_pass)
             } else if (strcmp(key, "events") == 0) {
                 section->events = comp_event_mask_parse(val);
             } else if (strcmp(key, "windows") == 0) {
-                section->windows = comp_window_type_mask_parse(val);
+                comp_window_match_parse(&section->windows, val);
             } else if (strcmp(key, "easing") == 0) {
                 int curve = comp_easing_parse(val);
                 if (curve < 0)

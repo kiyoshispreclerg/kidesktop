@@ -517,7 +517,7 @@ static void on_event(CompWindow *w, const CompEvent *event,
             continue;
         if (other->wm_layer[0] || other->zombie)
             continue;
-        if (!(self->windows & COMP_WINDOW_BIT(other->type)))
+        if (!comp_window_match(&self->windows, other))
             continue;
 
         /* Always-on-top windows don't dodge: they are in front by the

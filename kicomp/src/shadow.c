@@ -41,7 +41,7 @@ void shadow_config_defaults(void)
 
     /* Ordinary windows and menus. Not docks (a panel flush against a
      * screen edge casts its shadow onto nothing) and not the desktop. */
-    comp_shadow.windows = comp_window_type_mask_parse("windows,menus");
+    comp_window_match_parse(&comp_shadow.windows, "windows,menus");
 
     comp_shadow.active.radius = 12;
     comp_shadow.active.opacity = 0.45f;
@@ -60,9 +60,9 @@ bool shadow_config_key(const char *key, const char *value)
     if (strcmp(key, "enabled") == 0) {
         comp_shadow.enabled = atoi(value) != 0;
     } else if (strcmp(key, "windows") == 0) {
-        comp_shadow.windows = comp_window_type_mask_parse(value);
+        comp_window_match_parse(&comp_shadow.windows, value);
     } else if (strcmp(key, "windows_passive") == 0) {
-        comp_shadow.passive = comp_window_type_mask_parse(value);
+        comp_window_match_parse(&comp_shadow.passive, value);
     } else if (strcmp(key, "radius") == 0) {
         int n = atoi(value);
         /* Past a point the blur is wider than the gap between windows and
@@ -142,9 +142,8 @@ bool shadow_for_window(const CompWindow *w, CompShadowStyle *out)
         return false;
     if (w->input_only || w->wm_layer[0])
         return false;
-    uint32_t bit = COMP_WINDOW_BIT(w->type);
-    bool passive = (comp_shadow.passive & bit) != 0;
-    if (!passive && !(comp_shadow.windows & bit))
+    bool passive = comp_window_match(&comp_shadow.passive, w);
+    if (!passive && !comp_window_match(&comp_shadow.windows, w))
         return false;
 
     /* A window filling its screen has nothing to cast a shadow onto: its

@@ -20,6 +20,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 /* How long after a desktop switch a window vanishing (or appearing) is
  * credited to that switch rather than to being closed (or opened). The
@@ -576,6 +577,8 @@ static void read_window_group(CompWindow *w)
         XCB_ATOM_WM_TRANSIENT_FOR, XCB_ATOM_WINDOW, 0, 1);
     xcb_get_property_cookie_t pc = xcb_get_property(comp.conn, 0, w->client,
         comp.atoms.net_wm_pid, XCB_ATOM_CARDINAL, 0, 1);
+    xcb_get_property_cookie_t cc = xcb_get_property(comp.conn, 0, w->client,
+        XCB_ATOM_WM_CLASS, XCB_ATOM_STRING, 0, 32);
 
     xcb_get_property_reply_t *r = xcb_get_property_reply(comp.conn, lc, NULL);
     if (r) {
@@ -593,6 +596,22 @@ static void read_window_group(CompWindow *w)
     if (r) {
         if (r->type == XCB_ATOM_CARDINAL && xcb_get_property_value_length(r) >= 4)
             w->pid = *(uint32_t *)xcb_get_property_value(r);
+        free(r);
+    }
+
+    /* WM_CLASS: "instance\0Class\0" */
+    w->wm_class[0] = w->wm_instance[0] = '\0';
+    r = xcb_get_property_reply(comp.conn, cc, NULL);
+    if (r) {
+        int len = xcb_get_property_value_length(r);
+        const char *v = xcb_get_property_value(r);
+        if (r->type == XCB_ATOM_STRING && len > 0) {
+            size_t il = strnlen(v, (size_t)len);
+            snprintf(w->wm_instance, sizeof(w->wm_instance), "%.*s", (int)il, v);
+            if ((int)il + 1 < len)
+                snprintf(w->wm_class, sizeof(w->wm_class), "%.*s",
+                         (int)strnlen(v + il + 1, (size_t)len - il - 1), v + il + 1);
+        }
         free(r);
     }
 }

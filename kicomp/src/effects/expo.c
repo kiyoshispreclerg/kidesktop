@@ -1203,7 +1203,7 @@ static void ex_toggle(void *data)
          * the wallpaper. */
         bool scenery = (w->type == COMP_WINDOW_DOCK ||
                         w->type == COMP_WINDOW_DESKTOP);
-        if (!scenery && !(self->windows & COMP_WINDOW_BIT(w->type)))
+        if (!scenery && !comp_window_match(&self->windows, w))
             continue;
 
         int desk = -1, wout = -1;

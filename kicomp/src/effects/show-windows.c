@@ -361,7 +361,7 @@ static bool eligible(const CompWindow *w, const SwConfig *cfg,
             !desktop_of_window(w, &desk, NULL) || desk < 0)
             return false;
     }
-    if (!(self->windows & COMP_WINDOW_BIT(w->type)))
+    if (!comp_window_match(&self->windows, w))
         return false;
     if (w->wm_layer[0])   /* kiwm's own OSD and outlines are not windows */
         return false;

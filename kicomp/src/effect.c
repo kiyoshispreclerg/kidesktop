@@ -169,6 +169,22 @@ uint32_t comp_window_type_mask_parse(const char *list)
     return mask_parse(list, "window type", window_type_lookup);
 }
 
+static uint32_t match_type_lookup(const char *name, size_t len, void *ud)
+{
+    (void)ud;
+    return window_type_lookup(name, len);
+}
+
+void comp_window_match_parse(XisMatch *m, const char *list)
+{
+    xis_match_parse(m, list, match_type_lookup, NULL, "kicomp: config: unknown window type");
+}
+
+bool comp_window_match(const XisMatch *m, const CompWindow *w)
+{
+    return xis_match_test(m, COMP_WINDOW_BIT(w->type), w->wm_class, w->wm_instance);
+}
+
 uint32_t comp_event_mask_parse(const char *list)
 {
     return mask_parse(list, "event", event_lookup);
@@ -246,7 +262,7 @@ static CompEffectInstance *instance_new(const CompEffectModule *m, const char *n
     inst->enabled = m->default_enabled;
     inst->duration = m->default_duration;
     inst->events = m->default_events;
-    inst->windows = m->default_windows;
+    xis_match_from_mask(&inst->windows, m->default_windows);
     inst->easing = m->default_easing;
 
     if (m->config_size) {
@@ -353,8 +369,20 @@ void effects_init(void)
     for (CompEffectInstance *i = instances; i; i = i->next) {
         char events[512], windows[512];
         mask_string(i->events, COMP_EVENT_COUNT, event_names, events, sizeof(events));
-        mask_string(i->windows, COMP_WINDOW_TYPE_COUNT, window_type_names,
+        mask_string(i->windows.types, COMP_WINDOW_TYPE_COUNT, window_type_names,
                     windows, sizeof(windows));
+        if (xis_match_uses_classes(&i->windows) || i->windows.neg_types) {
+            size_t o = strlen(windows);
+            for (int k = 0; k < i->windows.npos; k++)
+                o += (size_t)snprintf(windows + o, sizeof(windows) - o, ",class:%s", i->windows.pos[k]);
+            for (int k = 0; k < i->windows.nneg && o < sizeof(windows); k++)
+                o += (size_t)snprintf(windows + o, sizeof(windows) - o, ",!class:%s", i->windows.neg[k]);
+            if (i->windows.neg_types && o < sizeof(windows)) {
+                char neg[256];
+                mask_string(i->windows.neg_types, COMP_WINDOW_TYPE_COUNT, window_type_names, neg, sizeof(neg));
+                snprintf(windows + o, sizeof(windows) - o, ",!{%s}", neg);
+            }
+        }
         comp_info("  %-22s %s %4.0f ms %-7s on: %s  for: %s", i->name,
                   i->enabled ? "on " : "off",
                   effect_instance_duration(i), comp_easing_name(i->easing),
@@ -696,7 +724,7 @@ void effects_window_event(CompWindow *w, const CompEvent *ev)
          * config lines rather than rules inside an effect. */
         if (!(i->events & COMP_EVENT_BIT(ev->kind)))
             continue;
-        if (!(i->windows & COMP_WINDOW_BIT(w->type)))
+        if (!comp_window_match(&i->windows, w))
             continue;
         i->module->window_event(w, ev, i);
     }

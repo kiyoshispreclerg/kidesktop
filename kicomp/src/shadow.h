@@ -39,6 +39,7 @@
 #ifndef KICOMP_SHADOW_H
 #define KICOMP_SHADOW_H
 
+#include "../../shared/xis_match.h"
 #include "comp.h"
 
 /* One shadow's appearance, already resolved for a particular window. */
@@ -51,11 +52,11 @@ typedef struct CompShadowStyle {
 
 typedef struct CompShadowConfig {
     bool enabled;
-    uint32_t windows;              /* CompWindowType mask */
+    XisMatch windows;              /* types and classes */
     /* Types that cast a shadow regardless of `windows`, and never switch
      * to the focused style. Reuses the inactive style, so it adds no tile
      * set, no margin and no damage beyond what shadows already cost. */
-    uint32_t passive;
+    XisMatch passive;
     CompShadowStyle active;
     CompShadowStyle inactive;
 

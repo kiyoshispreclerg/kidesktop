@@ -283,6 +283,12 @@ typedef struct CompWindow {
     CompWindowType type;
     xcb_window_t client;       /* XCB_NONE until resolved */
 
+    /* WM_CLASS of the client (class:NAME in a windows= filter), read with
+     * the rest of its identity when it is resolved. Empty when the client
+     * sets none. */
+    char wm_class[48];
+    char wm_instance[48];
+
     /* Who this window belongs with. An application is often several
      * windows -- a main window, its dialogs, a tool palette, VirtualBox's
      * detached mini-toolbar -- and an effect that moves windows out of

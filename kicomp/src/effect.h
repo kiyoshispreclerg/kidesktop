@@ -26,6 +26,7 @@
 #ifndef KICOMP_EFFECT_H
 #define KICOMP_EFFECT_H
 
+#include "../../shared/xis_match.h"
 #include "comp.h"
 #include "scene.h"
 #include "animation.h"
@@ -202,6 +203,11 @@ uint32_t comp_event_mask_parse(const char *list);
 const char *comp_window_type_name(CompWindowType type);
 uint32_t comp_window_type_mask_parse(const char *list);
 
+/* A windows= value: types, groups, `class:NAME`, each optionally `!`-negated
+ * (shared/xis_match.h). */
+void comp_window_match_parse(XisMatch *m, const char *list);
+bool comp_window_match(const XisMatch *m, const CompWindow *w);
+
 #define COMP_WINDOW_BIT(type) (1u << (type))
 #define COMP_WINDOWS_ALL      0xffffffffu
 
@@ -226,7 +232,7 @@ struct CompEffectInstance {
     bool enabled;
     double duration;      /* multiple of the global animation unit */
     uint32_t events;      /* CompEventKind mask */
-    uint32_t windows;     /* CompWindowType mask */
+    XisMatch windows;     /* types and classes, see xis_match.h */
     CompEasing easing;    /* how the movement is weighted between its ends */
 
     void *config;         /* module-private, module->config_size bytes */
