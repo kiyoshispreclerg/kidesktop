@@ -173,6 +173,22 @@ void gl_begin(CompOutput *o, GlOutput *go, const CompRegion *damage,
 void gl_draw_scene(CompOutput *o, GlOutput *go, CompScene *s);
 void gl_end(GlOutput *go);
 
+/* One complete, censored picture of `o` from `s` (renderer.h's
+ * capture_render), drawn into whatever target the platform made current
+ * before calling. */
+void gl_capture_draw(CompOutput *o, CompScene *s, const CompCaptureStyle *style);
+
+/* The whole of capture_render for a GL platform, with its context current:
+ * draws the censored picture into an off-screen buffer, reads it back and
+ * writes it into the slot pixmap. A readback rather than rendering into the
+ * pixmap through the platform (a GLX pixmap, an EGLImage), because that
+ * depends on the driver sharing the pixmap's buffer and was not found to
+ * work on every server; this works on all of them, at the price of two
+ * copies of the picture through system memory while a recorder is looking at
+ * a hidden window. */
+bool gl_capture_render(CompOutput *o, CompScene *s, xcb_pixmap_t slot,
+                       const CompCaptureStyle *style);
+
 GLuint gl_window_texture(GlWindow *g);
 
 /* The CompRenderer window ops, the same for every platform. */

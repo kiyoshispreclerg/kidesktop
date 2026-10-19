@@ -728,6 +728,21 @@ static void glx_shutdown(void)
     }
 }
 
+/* The capture protocol's second assembly. The drawing and the readback are
+ * renderer-gl.c's; this only makes the context current on the output's own
+ * drawable first (the pass renders into an off-screen buffer of its own,
+ * whatever drawable that is), and puts it back as it found it. */
+static bool glx_capture_render(CompOutput *o, CompScene *s, xcb_pixmap_t slot,
+                               const CompCaptureStyle *style)
+{
+    GlxOutput *go = o->render_data;
+    if (!go || !context)
+        return false;
+    if (!glXMakeContextCurrent(dpy, go->drawable, go->drawable, context))
+        return false;
+    return gl_capture_render(o, s, slot, style);
+}
+
 static const CompRenderer glx_renderer = {
     .name       = "glx",
     .projective         = true,
@@ -751,6 +766,8 @@ static const CompRenderer glx_renderer = {
     .stash_release      = gl_stash_release,
     .stash_drop_unheld  = gl_stash_drop_unheld,
     .shutdown           = glx_shutdown,
+
+    .capture_render     = glx_capture_render,
 };
 
 const CompRenderer *renderer_glx(void)

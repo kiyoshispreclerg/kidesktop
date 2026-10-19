@@ -165,7 +165,7 @@ int main(int argc, char **argv)
                             unsigned long tn;
                             long *t = cardinals(s, atom("_KICOMP_CAPTURE_TARGETS"), &tn);
                             if (t && tn >= 13 && t[9 + slot]) {
-                                XImage *im = XGetImage(dpy, (Drawable)t[9 + slot], cx, cy, 1, 1, AllPlanes, ZPixmap);
+                                XImage *im = XGetImage(dpy, (Drawable)t[9 + slot], cx - (int32_t)t[1], cy - (int32_t)t[2], 1, 1, AllPlanes, ZPixmap);
                                 XImage *rm = XGetImage(dpy, root, cx, cy, 1, 1, AllPlanes, ZPixmap);
                                 if (im)
                                     printf("PIXEL slot=%ld %d,%d=%06lx\n", slot, cx, cy, XGetPixel(im, 0, 0) & 0xffffff);

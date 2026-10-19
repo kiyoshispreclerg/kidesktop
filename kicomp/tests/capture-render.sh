@@ -24,7 +24,7 @@ start_stack() { # start_stack <mode>
     DISPLAY=$HOST_DISPLAY Xephyr "$D" -screen 800x600 >"$TMP/xephyr.log" 2>&1 & XP=$!; PIDS+=($XP)
     sleep 1.5; export DISPLAY=$D
     "$ROOT/kiwm/kiwm" >"$TMP/kiwm.log" 2>&1 & KP=$!; PIDS+=($KP); sleep 0.8
-    "$ROOT/kicomp/kicomp" --renderer=xrender -v >"$TMP/kicomp.log" 2>&1 & CP=$!; PIDS+=($CP); sleep 1.5
+    "$ROOT/kicomp/kicomp" --renderer=${RENDERER:-xrender} -v >"$TMP/kicomp.log" 2>&1 & CP=$!; PIDS+=($CP); sleep 1.5
     xsetroot -solid '#303030'
     # B underneath (green), A above it (white), overlapping
     xterm -bg '#00ff00' -geometry 30x8+100+100 -e sleep 120 & XB=$!; PIDS+=($XB); sleep 1

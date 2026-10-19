@@ -90,6 +90,42 @@ static CompRect repaint_rect;
  * and the scissor boxes need to know which way up its target is. */
 static const GlOutput *frame_target;
 
+/* Only while gl_capture_draw() is drawing a censored picture (capture.h):
+ * how the excluded windows are substituted, and, for the node being drawn,
+ * whether it is one to draw flat. The flat colour is a one-texel texture
+ * through the very same shader, like the backdrop and the solids: shape,
+ * clip, transform, mesh and opacity are the window's own, only the pixels
+ * are not. */
+static const CompCaptureStyle *cap_style;
+static bool cap_flat;
+static GLuint flat_tex;
+static uint32_t flat_rgb = 0xFFFFFFFFu;
+
+static void bind_flat(void)
+{
+    if (!flat_tex) {
+        glGenTextures(1, &flat_tex);
+        glBindTexture(GL_TEXTURE_2D, flat_tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    } else {
+        glBindTexture(GL_TEXTURE_2D, flat_tex);
+    }
+    if (flat_rgb != cap_style->color) {
+        unsigned char px[4] = {
+            (unsigned char)((cap_style->color >> 16) & 0xff),
+            (unsigned char)((cap_style->color >> 8) & 0xff),
+            (unsigned char)(cap_style->color & 0xff),
+            255,
+        };
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
+        flat_rgb = cap_style->color;
+    }
+}
+
 static GlWindow *windows;
 
 /* ------------------------------------------------------------------ */
@@ -1916,9 +1952,12 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * reading back black -- which matters more here than anywhere else,
      * since a wobbling window keeps repainting every frame while the net
      * settles, long past the single repaint a plain resize step gets. */
-    bool from_stash = !w->content_ready && g->stash_platform && g->stash_texture;
+    bool flat = cap_flat;
+    bool from_stash = !flat && !w->content_ready && g->stash_platform && g->stash_texture;
 
-    if (from_stash) {
+    if (flat) {
+        bind_flat();
+    } else if (from_stash) {
         glBindTexture(GL_TEXTURE_2D, g->stash_texture);
     } else if (!platform->window_bind(w, g)) {
         return;
@@ -2039,10 +2078,13 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * whose pixel size doesn't match it. Either way there is nothing to
      * bind and nothing to read back: the texture is already bound to the
      * pixmap that was named then. */
-    bool from_stash = (n->use_stash || !w->content_ready) &&
+    bool flat = cap_flat;
+    bool from_stash = !flat && (n->use_stash || !w->content_ready) &&
                        g->stash_platform && g->stash_texture;
 
-    if (from_stash) {
+    if (flat) {
+        bind_flat();
+    } else if (from_stash) {
         glBindTexture(GL_TEXTURE_2D, g->stash_texture);
     } else if (!platform->window_bind(w, g)) {
         return;
@@ -2199,7 +2241,7 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * client shape, or a frame that isn't kiwm's). The client's dense
      * content skips masking entirely: it only ever covers the area inside
      * the frame, away from the corners the shape is about. */
-    if (!from_stash && move_only) {
+    if (!from_stash && move_only && !flat) {
         float density;
         if (deco_density_active(w, &density)) {
             GlWindow *d = dense_layer(w, g, true);
@@ -2311,9 +2353,18 @@ static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
         if (n->visible_rect.w <= 0 || n->visible_rect.h <= 0)
             continue;
 
-        GlWindow *g = gl_window_get(w);
-        if (!g)
+        /* A censored picture: an excluded window is not drawn at all (nor
+         * its shadow), or drawn flat. */
+        int subst = cap_style ? comp_capture_kind(cap_style, w) : 0;
+        if (subst == 2)
             continue;
+        cap_flat = subst == 1;
+
+        GlWindow *g = gl_window_get(w);
+        if (!g) {
+            cap_flat = false;
+            continue;
+        }
 
         /* Only where the node shows *and* the pass is repainting. This
          * test is where the saving actually comes from: the scissor
@@ -2323,6 +2374,7 @@ static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
          * for a frame whose damage is all inside the one on top. */
         if (region_is_full(&n->clip)) {
             draw_node(o, n, w, g, projection);
+            cap_flat = false;
             continue;
         }
         for (int k = 0; k < n->clip.count; k++) {
@@ -2333,6 +2385,7 @@ static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
             draw_node(o, n, w, g, projection);
         }
         repaint_rect = damaged;
+        cap_flat = false;
     }
 
     while (si < s->solid_count)
@@ -2502,6 +2555,110 @@ void gl_end(GlOutput *go)
         go->history_len++;
 }
 
+/* Whether the target the capture pass draws into has its first row at the
+ * top (the off-screen buffer of gl_capture_render does). */
+static bool capture_y_down;
+
+/* The capture protocol's second assembly, into whatever the platform has
+ * made current (a slot): the whole output, no history, no damage. A
+ * GlOutput of its own, so the real output's buffer-age bookkeeping does not
+ * see this pass. */
+void gl_capture_draw(CompOutput *o, CompScene *s, const CompCaptureStyle *style)
+{
+    GlOutput tmp;
+    memset(&tmp, 0, sizeof tmp);
+    tmp.y_down = capture_y_down;
+    CompRegion whole;
+    region_clear(&whole);
+    region_set_full(&whole);
+
+    cap_style = style;
+    gl_begin(o, &tmp, &whole, 0);
+    gl_draw_scene(o, &tmp, s);
+    gl_end(&tmp);
+    cap_style = NULL;
+    cap_flat = false;
+}
+
+static GLuint cap_fbo, cap_tex;
+static int cap_w, cap_h;
+static uint8_t *cap_pixels;
+
+static void capture_buffer_free(void)
+{
+    if (cap_fbo)
+        glDeleteFramebuffers(1, &cap_fbo);
+    if (cap_tex)
+        glDeleteTextures(1, &cap_tex);
+    cap_fbo = cap_tex = 0;
+    cap_w = cap_h = 0;
+    free(cap_pixels);
+    cap_pixels = NULL;
+}
+
+static bool capture_buffer(int w, int h)
+{
+    if (cap_fbo && cap_w == w && cap_h == h)
+        return true;
+    capture_buffer_free();
+
+    glGenTextures(1, &cap_tex);
+    glBindTexture(GL_TEXTURE_2D, cap_tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glGenFramebuffers(1, &cap_fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, cap_fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, cap_tex, 0);
+    bool ok = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    cap_pixels = malloc((size_t)w * (size_t)h * 4);
+    if (!ok || !cap_pixels) {
+        capture_buffer_free();
+        return false;
+    }
+    cap_w = w;
+    cap_h = h;
+    return true;
+}
+
+bool gl_capture_render(CompOutput *o, CompScene *s, xcb_pixmap_t slot,
+                       const CompCaptureStyle *style)
+{
+    int w = o->physical.w, h = o->physical.h;
+    if (w <= 0 || h <= 0 || !program)
+        return false;
+    if (!capture_buffer(w, h))
+        return false;
+
+    glBindFramebuffer(GL_FRAMEBUFFER, cap_fbo);
+    capture_y_down = true;        /* row 0 is the top, as the X pixmap's is */
+    gl_capture_draw(o, s, style);
+    capture_y_down = false;
+
+    /* B, G, R, A bytes: a 32-bit ZPixmap of a depth-24 pixmap on a
+     * little-endian server. glReadPixels waits for the drawing. */
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glReadPixels(0, 0, w, h, GL_BGRA, GL_UNSIGNED_BYTE, cap_pixels);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    xcb_gcontext_t gc = xcb_generate_id(comp.conn);
+    xcb_create_gc(comp.conn, gc, slot, 0, NULL);
+    size_t stride = (size_t)w * 4;
+    size_t max_bytes = (size_t)xcb_get_maximum_request_length(comp.conn) * 4 - 64;
+    int band = (int)(max_bytes / stride);
+    if (band < 1)
+        band = 1;
+    for (int y = 0; y < h; y += band) {
+        int rows = h - y < band ? h - y : band;
+        xcb_put_image(comp.conn, XCB_IMAGE_FORMAT_Z_PIXMAP, slot, gc, (uint16_t)w, (uint16_t)rows,
+                      0, (int16_t)y, 0, comp.screen->root_depth,
+                      (uint32_t)(stride * (size_t)rows), cap_pixels + stride * (size_t)y);
+    }
+    xcb_free_gc(comp.conn, gc);
+    return true;
+}
+
 bool gl_window_has_content(const CompWindow *w)
 {
     GlWindow *g = gl_window_find(w->id);
@@ -2556,6 +2713,12 @@ void gl_teardown(void)
     if (program) {
         glDeleteProgram(program);
         program = 0;
+    }
+    capture_buffer_free();
+    if (flat_tex) {
+        glDeleteTextures(1, &flat_tex);
+        flat_tex = 0;
+        flat_rgb = 0xFFFFFFFFu;
     }
     if (quad_vbo) {
         glDeleteBuffers(1, &quad_vbo);
