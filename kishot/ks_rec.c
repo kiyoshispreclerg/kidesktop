@@ -860,8 +860,12 @@ static gpointer capture_thread(gpointer data)
             int slot = ring_next++ % KS_RING;
             KsCapView cv;
             ks_capture_view(r->c, &r->area, &cv);
-            xcb_copy_area(r->c, r->root, r->pixmap[slot], r->gc_copy, r->area.x, r->area.y, 0, 0,
-                          r->area.w, r->area.h);
+            /* Not when every output under the area comes from the
+             * compositor's picture anyway: that copy would be overwritten
+             * whole. */
+            if (!(cv.ok && cv.n_slot == cv.n))
+                xcb_copy_area(r->c, r->root, r->pixmap[slot], r->gc_copy, r->area.x, r->area.y, 0, 0,
+                              r->area.w, r->area.h);
             /* Where something hidden shows, the compositor's censored
              * picture goes over the copy; where nothing does, its word that
              * the screen is clean, still true after the copy (read over this
