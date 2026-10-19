@@ -1218,11 +1218,17 @@ int toast_handle_event(const XEvent *ev)
                         }
                     }
                 }
-                /* ActionInvoked before NotificationClosed, like other servers */
-                if (k >= 0 && ev->xbutton.button == Button1) {
-                    notifd_action_invoked(t->notif_id, t->actions[k].key);
-                }
                 notifd_mark_read(t->notif_id);
+                if (k >= 0 && ev->xbutton.button == Button1) {
+                    /* closes the entry (and with it this toast) unless resident */
+                    unsigned int id = t->notif_id;
+                    notifd_invoke_action(id, t->actions[k].key);
+                    int j = find_toast_by_notif(id);
+                    if (j >= 0) {
+                        remove_toast(j);
+                    }
+                    return 1;
+                }
                 drop_toast(i, NOTIF_CLOSED_DISMISSED);
                 return 1;
             }

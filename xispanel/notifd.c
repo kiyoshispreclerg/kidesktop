@@ -283,7 +283,7 @@ static void close_entry(NotifEntry *e, int reason)
  * new notification, as the spec asks. */
 static unsigned int ring_append(unsigned int replaces_id, const char *app_name, const char *app_icon,
                                 const char *summary, const char *body, const NotifAction *actions, int n_actions,
-                                int expire_timeout_ms)
+                                int resident, int transient, int expire_timeout_ms)
 {
     NotifEntry *dst = find_entry(replaces_id);
     unsigned int id = replaces_id;
@@ -298,7 +298,7 @@ static unsigned int ring_append(unsigned int replaces_id, const char *app_name, 
     } else {
         /* Full -- evict the oldest, freeing its icon before overwrite. */
         dst = &g_ring[g_head];
-        close_entry(dst, NOTIF_CLOSED_UNDEFINED);
+        close_entry(dst, NOTIF_CLOSED_EXPIRED);
         if (dst->icon) {
             cairo_surface_destroy(dst->icon);
         }
@@ -314,6 +314,8 @@ static unsigned int ring_append(unsigned int replaces_id, const char *app_name, 
     dst->icon = resolve_notif_icon(app_icon);
     memcpy(dst->actions, actions, sizeof(NotifAction) * (size_t)n_actions);
     dst->n_actions = n_actions;
+    dst->resident = resident;
+    dst->transient = transient;
     dst->read = 0;
     /* Wall-clock, not now_ms()'s CLOCK_MONOTONIC -- this is a calendar
      * timestamp meant to be shown back as a date/time (see xisserve's
@@ -358,11 +360,41 @@ static int parse_actions(DBusMessageIter *it, NotifAction *out)
     return n;
 }
 
-/* Parses Notify()'s args in order, skipping (via a bare iter_next(), no
- * recursing needed) the ones nothing here uses -- hints
- * (a{sv}) -- since libdbus-1's iterator can step over a whole
- * compound argument without the caller decoding it. Returns the new
- * entry's id (>=1), or 0 if the message was malformed. */
+/* hints a{sv}: only the two booleans that change how long an entry stays
+ * open -- "resident" (an action doesn't close it) and "transient" (no
+ * history, so its actions die with the toast). Every other hint is
+ * stepped over. */
+static void parse_hints(DBusMessageIter *it, int *resident, int *transient)
+{
+    if (p_dbus_message_iter_get_arg_type(it) != DBUS_TYPE_ARRAY) {
+        return;
+    }
+    DBusMessageIter arr;
+    p_dbus_message_iter_recurse(it, &arr);
+    while (p_dbus_message_iter_get_arg_type(&arr) == DBUS_TYPE_DICT_ENTRY) {
+        DBusMessageIter ent, var;
+        const char *key = NULL;
+        p_dbus_message_iter_recurse(&arr, &ent);
+        if (p_dbus_message_iter_get_arg_type(&ent) == DBUS_TYPE_STRING) {
+            p_dbus_message_iter_get_basic(&ent, &key);
+        }
+        int *dst = !key ? NULL : !strcmp(key, "resident") ? resident : !strcmp(key, "transient") ? transient : NULL;
+        if (dst && p_dbus_message_iter_next(&ent) && p_dbus_message_iter_get_arg_type(&ent) == DBUS_TYPE_VARIANT) {
+            p_dbus_message_iter_recurse(&ent, &var);
+            if (p_dbus_message_iter_get_arg_type(&var) == DBUS_TYPE_BOOLEAN) {
+                dbus_bool_t b = FALSE;
+                p_dbus_message_iter_get_basic(&var, &b);
+                *dst = b ? 1 : 0;
+            }
+        }
+        if (!p_dbus_message_iter_next(&arr)) {
+            break;
+        }
+    }
+}
+
+/* Parses Notify()'s args in order. Returns the new entry's id (>=1), or
+ * 0 if the message was malformed. */
 static unsigned int handle_notify(DBusMessage *msg)
 {
     DBusMessageIter it;
@@ -377,6 +409,7 @@ static unsigned int handle_notify(DBusMessage *msg)
     dbus_uint32_t replaces_id = 0;
     NotifAction actions[NOTIFD_ACTIONS_MAX];
     int n_actions = 0;
+    int resident = 0, transient = 0;
 
     if (p_dbus_message_iter_get_arg_type(&it) == DBUS_TYPE_STRING) {
         const char *s = NULL;
@@ -420,6 +453,7 @@ static unsigned int handle_notify(DBusMessage *msg)
     if (!p_dbus_message_iter_next(&it)) { /* hints a{sv} */
         goto done;
     }
+    parse_hints(&it, &resident, &transient);
     if (!p_dbus_message_iter_next(&it)) { /* expire_timeout */
         goto done;
     }
@@ -431,7 +465,8 @@ done:
         return 0; /* nothing worth showing */
     }
     int expire_ms = expire_timeout >= 0 ? expire_timeout : g_default_expire_ms;
-    return ring_append(replaces_id, app_name, app_icon, summary, body, actions, n_actions, expire_ms);
+    return ring_append(replaces_id, app_name, app_icon, summary, body, actions, n_actions, resident, transient,
+                       expire_ms);
 }
 
 static void handle_close_notification(DBusMessage *msg)
@@ -655,9 +690,51 @@ void notifd_action_invoked(unsigned int id, const char *key)
 void notifd_closed(unsigned int id, int reason)
 {
     NotifEntry *e = find_entry(id);
-    if (e && !e->closed) {
-        e->closed = 1;
-        emit_closed(id, reason);
+    if (!e || e->closed) {
+        return;
+    }
+    /* A toast timing out (or pushed out by a newer one) with actions still
+     * on it: the entry stays open in the history, where xisserve's
+     * --notifications page can still invoke them -- NotificationClosed
+     * waits until it leaves the history (removed, cleared, evicted, or
+     * xispanel quitting). Sending it now would make the sender drop its
+     * action handler, as Plasma/GNOME servers avoid too. */
+    if (reason == NOTIF_CLOSED_EXPIRED && e->n_actions > 0 && !e->transient) {
+        return;
+    }
+    e->closed = 1;
+    emit_closed(id, reason);
+}
+
+int notifd_invoke_action(unsigned int id, const char *key)
+{
+    NotifEntry *e = find_entry(id);
+    if (!e || e->closed || !key) {
+        return 0;
+    }
+    int found = 0;
+    for (int i = 0; i < e->n_actions; i++) {
+        found |= !strcmp(e->actions[i].key, key);
+    }
+    if (!found) {
+        return 0;
+    }
+    e->read = 1;
+    notifd_action_invoked(id, key);
+    if (!e->resident) {
+        close_entry(e, NOTIF_CLOSED_DISMISSED);
+    }
+    return 1;
+}
+
+void notifd_shutdown(void)
+{
+    for (int i = 0; i < g_count; i++) {
+        NotifEntry *e = &g_ring[(g_head + i) % NOTIFD_MAX];
+        if (!e->closed) {
+            e->closed = 1;
+            emit_closed(e->id, NOTIF_CLOSED_EXPIRED);
+        }
     }
 }
 
@@ -665,7 +742,7 @@ void notifd_post(const char *app_name, const char *app_icon, const char *summary
 {
     NotifAction none[1] = {{"", ""}};
     ring_append(0, app_name ? app_name : "", app_icon ? app_icon : "", summary ? summary : "", body ? body : "",
-                none, 0, g_default_expire_ms);
+                none, 0, 0, 0, g_default_expire_ms);
 }
 
 void notifd_set_default_expire_ms(int ms)

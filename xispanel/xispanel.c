@@ -5068,6 +5068,7 @@ static int run_as_daemon(const char *sockpath)
         XFlush(g_dpy);
     }
 
+    notifd_shutdown();
     panel_container_close_all();
     panel_menu_close();
     tooltip_close();

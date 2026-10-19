@@ -75,6 +75,17 @@ void notifd_action_invoked(unsigned int id, const char *key)
     (void)key;
 }
 
+int notifd_invoke_action(unsigned int id, const char *key)
+{
+    (void)id;
+    (void)key;
+    return 0;
+}
+
+void notifd_shutdown(void)
+{
+}
+
 void notifd_closed(unsigned int id, int reason)
 {
     (void)id;

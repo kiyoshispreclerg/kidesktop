@@ -1542,6 +1542,8 @@ typedef struct {
     NotifAction actions[NOTIFD_ACTIONS_MAX];
     int n_actions;
     int closed; /* NotificationClosed already emitted for it -- see notifd_closed() */
+    int resident; /* "resident" hint: invoking an action doesn't close it */
+    int transient; /* "transient" hint: its actions don't outlive the toast */
     int read; /* 0 = unread, counts toward notifd_unread_count() */
     uint64_t received_ms; /* wall-clock (CLOCK_REALTIME) ms since epoch -- NOT now_ms()'s
                             * CLOCK_MONOTONIC, which is meaningless once turned back into a
@@ -1576,11 +1578,21 @@ void notifd_set_default_expire_ms(int ms);
 /* NotificationClosed reasons, per the spec. */
 enum { NOTIF_CLOSED_EXPIRED = 1, NOTIF_CLOSED_DISMISSED = 2, NOTIF_CLOSED_BY_CALL = 3, NOTIF_CLOSED_UNDEFINED = 4 };
 /* The toast for `id` went away on its own (expired, clicked, pushed out):
- * emits NotificationClosed once. The entry stays in the history. */
+ * emits NotificationClosed once. The entry stays in the history. An
+ * EXPIRED one with actions (and not transient) stays *open* instead --
+ * no signal yet, so its actions still work from the history. */
 void notifd_closed(unsigned int id, int reason);
-/* A toast's action button (or its body, for the "default" action) was
- * clicked: emits ActionInvoked so the sender can act on it. */
+/* Emits ActionInvoked for `id`, unconditionally -- the low-level half of
+ * notifd_invoke_action(). */
 void notifd_action_invoked(unsigned int id, const char *key);
+/* An action button (toast or xisserve's history page) or a body click
+ * ("default") was used: ActionInvoked, then -- unless resident -- the
+ * entry closes (NotificationClosed, popup taken down). 0 if `id` isn't
+ * open or has no action `key`. */
+int notifd_invoke_action(unsigned int id, const char *key);
+/* On exit: NotificationClosed for every entry still open, so no sender
+ * keeps waiting on one that can no longer be acted on. */
+void notifd_shutdown(void);
 /* The other direction: notifd asks the popup for `id` to go away without
  * reporting back (CloseNotification(), a removed/evicted entry) --
  * notifd emits the signal itself. toast.c's toast_init() sets it. */
