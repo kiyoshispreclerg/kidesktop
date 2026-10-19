@@ -20,6 +20,7 @@
  * and nothing else.
  */
 #include "renderer-gl.h"
+#include "animation.h"
 #include "region.h"
 #include "output.h"
 #include "window.h"
@@ -2555,29 +2556,62 @@ void gl_end(GlOutput *go)
         go->history_len++;
 }
 
-/* Whether the target the capture pass draws into has its first row at the
- * top (the off-screen buffer of gl_capture_render does). */
-static bool capture_y_down;
-
 /* The capture protocol's second assembly, into whatever the platform has
  * made current (a slot): the whole output, no history, no damage. A
  * GlOutput of its own, so the real output's buffer-age bookkeeping does not
  * see this pass. */
-void gl_capture_draw(CompOutput *o, CompScene *s, const CompCaptureStyle *style)
+void gl_capture_draw(CompOutput *o, CompScene *s, const CompCaptureStyle *style,
+                     const CompRegion *region, bool y_down)
 {
+    /* A one-frame history with nothing in it and an age of 1: gl_begin then
+     * repaints exactly `region` -- what changed in this slot since it was
+     * last brought up to date -- and leaves the rest of the target alone. */
     GlOutput tmp;
     memset(&tmp, 0, sizeof tmp);
-    tmp.y_down = capture_y_down;
-    CompRegion whole;
-    region_clear(&whole);
-    region_set_full(&whole);
+    tmp.y_down = y_down;
+    tmp.history_len = 1;
+    region_clear(&tmp.history[0]);
+
+    /* The real frame's "covered" says where the ground need not be cleared
+     * because an opaque window will be drawn there -- true of that scene,
+     * not of this one, where that window may not be drawn (hide). */
+    CompRegion covered = o->covered;
+    region_clear(&o->covered);
 
     cap_style = style;
-    gl_begin(o, &tmp, &whole, 0);
+    gl_begin(o, &tmp, region, 1);
     gl_draw_scene(o, &tmp, s);
     gl_end(&tmp);
     cap_style = NULL;
     cap_flat = false;
+    o->covered = covered;
+}
+
+/* The pieces of `region` on `o`, in the output's physical pixels (rounded
+ * outwards), top-left origin. Returns how many; a full region is the whole
+ * output. */
+static int capture_pieces(const CompOutput *o, const CompRegion *region, CompRect *out, int max)
+{
+    if (region_is_full(region)) {
+        out[0] = (CompRect){ 0, 0, o->physical.w, o->physical.h };
+        return 1;
+    }
+    float k = o->scale > 0.0f ? o->scale : 1.0f;
+    int n = 0;
+    for (int i = 0; i < region->count && n < max; i++) {
+        CompRect hit;
+        if (!rect_intersect(&region->rects[i], &o->rect, &hit))
+            continue;
+        int x0 = (int)((float)(hit.x - o->rect.x) * k);
+        int y0 = (int)((float)(hit.y - o->rect.y) * k);
+        int x1 = (int)((float)(hit.x + hit.w - o->rect.x) * k + 0.999f);
+        int y1 = (int)((float)(hit.y + hit.h - o->rect.y) * k + 0.999f);
+        if (x1 > o->physical.w) x1 = o->physical.w;
+        if (y1 > o->physical.h) y1 = o->physical.h;
+        if (x1 > x0 && y1 > y0)
+            out[n++] = (CompRect){ x0, y0, x1 - x0, y1 - y0 };
+    }
+    return n;
 }
 
 static GLuint cap_fbo, cap_tex;
@@ -2623,7 +2657,7 @@ static bool capture_buffer(int w, int h)
 }
 
 bool gl_capture_render(CompOutput *o, CompScene *s, xcb_pixmap_t slot,
-                       const CompCaptureStyle *style)
+                       const CompCaptureStyle *style, const CompRegion *region)
 {
     int w = o->physical.w, h = o->physical.h;
     if (w <= 0 || h <= 0 || !program)
@@ -2631,31 +2665,51 @@ bool gl_capture_render(CompOutput *o, CompScene *s, xcb_pixmap_t slot,
     if (!capture_buffer(w, h))
         return false;
 
+    double t0 = comp_now_ms();
     glBindFramebuffer(GL_FRAMEBUFFER, cap_fbo);
-    capture_y_down = true;        /* row 0 is the top, as the X pixmap's is */
-    gl_capture_draw(o, s, style);
-    capture_y_down = false;
+    gl_capture_draw(o, s, style, region, true);   /* row 0 is the top, as the X pixmap's is */
+    double t1 = comp_now_ms();
 
-    /* B, G, R, A bytes: a 32-bit ZPixmap of a depth-24 pixmap on a
-     * little-endian server. glReadPixels waits for the drawing. */
+    /* Only what was redrawn goes back: the slot keeps the rest. B, G, R, A
+     * bytes: a 32-bit ZPixmap of a depth-24 pixmap on a little-endian
+     * server. glReadPixels waits for the drawing. */
+    CompRect pieces[COMP_REGION_MAX];
+    int np = capture_pieces(o, region, pieces, COMP_REGION_MAX);
     glPixelStorei(GL_PACK_ALIGNMENT, 4);
-    glReadPixels(0, 0, w, h, GL_BGRA, GL_UNSIGNED_BYTE, cap_pixels);
+    size_t off = 0;
+    for (int i = 0; i < np; i++) {
+        glReadPixels(pieces[i].x, pieces[i].y, pieces[i].w, pieces[i].h, GL_BGRA, GL_UNSIGNED_BYTE,
+                     cap_pixels + off);
+        off += (size_t)pieces[i].w * (size_t)pieces[i].h * 4;
+        if (off > (size_t)w * (size_t)h * 4)
+            break;
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    double t2 = comp_now_ms();
 
     xcb_gcontext_t gc = xcb_generate_id(comp.conn);
     xcb_create_gc(comp.conn, gc, slot, 0, NULL);
-    size_t stride = (size_t)w * 4;
     size_t max_bytes = (size_t)xcb_get_maximum_request_length(comp.conn) * 4 - 64;
-    int band = (int)(max_bytes / stride);
-    if (band < 1)
-        band = 1;
-    for (int y = 0; y < h; y += band) {
-        int rows = h - y < band ? h - y : band;
-        xcb_put_image(comp.conn, XCB_IMAGE_FORMAT_Z_PIXMAP, slot, gc, (uint16_t)w, (uint16_t)rows,
-                      0, (int16_t)y, 0, comp.screen->root_depth,
-                      (uint32_t)(stride * (size_t)rows), cap_pixels + stride * (size_t)y);
+    off = 0;
+    for (int i = 0; i < np; i++) {
+        const CompRect *p = &pieces[i];
+        size_t stride = (size_t)p->w * 4;
+        int band = (int)(max_bytes / stride);
+        if (band < 1)
+            band = 1;
+        for (int y = 0; y < p->h; y += band) {
+            int rows = p->h - y < band ? p->h - y : band;
+            xcb_put_image(comp.conn, XCB_IMAGE_FORMAT_Z_PIXMAP, slot, gc, (uint16_t)p->w, (uint16_t)rows,
+                          (int16_t)p->x, (int16_t)(p->y + y), 0, comp.screen->root_depth,
+                          (uint32_t)(stride * (size_t)rows), cap_pixels + off + stride * (size_t)y);
+        }
+        off += stride * (size_t)p->h;
     }
     xcb_free_gc(comp.conn, gc);
+    xcb_flush(comp.conn);
+    comp_capture_timing[0] = t1 - t0;
+    comp_capture_timing[1] = t2 - t1;
+    comp_capture_timing[2] = comp_now_ms() - t2;
     return true;
 }
 

@@ -1,5 +1,6 @@
 /* See damage.h -- X Damage in, the core's per-output regions out. */
 #include "damage.h"
+#include "capture.h"
 #include "output.h"
 #include "window.h"
 #include "effect.h"
@@ -98,6 +99,7 @@ void damage_collect(void)
              * rectangle, since the pieces were never fetched. */
             CompRect whole = window_rect(w);
             effects_damage_window(w, &whole);
+            capture_damage_unseen(&whole);
 
             xcb_discard_reply(comp.conn,
                 xcb_damage_subtract_checked(comp.conn, w->damage,
@@ -212,8 +214,10 @@ void damage_collect(void)
              * hidden there (effect.h's damage_map). */
             effects_damage_window(w, &d);
 
-            if (unseen)
+            if (unseen) {
+                capture_damage_unseen(&d);
                 continue;
+            }
 
             output_damage_window_rect(w, &d);
         }

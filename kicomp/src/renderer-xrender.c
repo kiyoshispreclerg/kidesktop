@@ -2154,7 +2154,7 @@ static void xr_end(CompOutput *o)
 }
 
 static bool xr_capture_render(CompOutput *o, CompScene *s, xcb_pixmap_t slot,
-                              const CompCaptureStyle *style)
+                              const CompCaptureStyle *style, const CompRegion *region)
 {
     if (!o->target || !o->render_data)
         return false;
@@ -2181,13 +2181,9 @@ static bool xr_capture_render(CompOutput *o, CompScene *s, xcb_pixmap_t slot,
     xcb_render_picture_t real = o->target;
     CompRegion covered = o->covered;
     region_clear(&o->covered);
-    CompRegion whole;
-    region_clear(&whole);
-    region_set_full(&whole);
-
     o->target = pic;
-    xr_begin(o, &whole);
-    xr_draw_scene(o, s, &whole);
+    xr_begin(o, region);
+    xr_draw_scene(o, s, region);
     xr_end(o);
     o->target = real;
     o->covered = covered;

@@ -14,6 +14,7 @@
  *   PIXEL slot=1 10,10=204060     (--copy: the slot's pixel at X,Y once a FRAME arrives)
  *   ROOT 10,10=204060             ... and the screen's, to compare
  *   --again asks a second time at once: the answer should be UNCHANGED.
+ *   --every MS keeps asking, MS after each FRAME (with --copy: a PIXEL line each time).
  * Exits after N seconds (default 10) or on SIGTERM, sending CLOSE first.
  *
  * Build: cc -o capture-probe capture-probe.c -lX11 -lXrandr */
@@ -63,13 +64,15 @@ int main(int argc, char **argv)
 {
     const char *output = NULL;
     long hide_pid = 0;
-    int request = 0, seconds = 10, copy_on = 0, again = 0, again_done = 0, cx = 0, cy = 0;
+    int request = 0, seconds = 10, copy_on = 0, again = 0, again_done = 0, cx = 0, cy = 0, every = 0;
+    struct timespec next_req = { 0, 0 };
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--output") && i + 1 < argc) output = argv[++i];
         else if (!strcmp(argv[i], "--hide-pid") && i + 1 < argc) hide_pid = atol(argv[++i]);
         else if (!strcmp(argv[i], "--request")) request = 1;
         else if (!strcmp(argv[i], "--copy") && i + 1 < argc) { copy_on = 1; request = 1; sscanf(argv[++i], "%d,%d", &cx, &cy); }
         else if (!strcmp(argv[i], "--again")) again = 1;
+        else if (!strcmp(argv[i], "--every") && i + 1 < argc) { every = atoi(argv[++i]); request = 1; }
         else if (!strcmp(argv[i], "--seconds") && i + 1 < argc) seconds = atoi(argv[++i]);
     }
     setvbuf(stdout, NULL, _IOLBF, 0);
@@ -200,6 +203,12 @@ int main(int argc, char **argv)
                         rl.xclient.data.l[2] = slot;
                         XSendEvent(dpy, cm, False, NoEventMask, &rl);
                         XFlush(dpy);
+                        if (every) {
+                            clock_gettime(CLOCK_MONOTONIC, &next_req);
+                            next_req.tv_nsec += (long)every * 1000000L;
+                            next_req.tv_sec += next_req.tv_nsec / 1000000000L;
+                            next_req.tv_nsec %= 1000000000L;
+                        }
                     }
                     fflush(stdout);
                 }
@@ -222,7 +231,26 @@ int main(int argc, char **argv)
                 }
             }
         }
-        struct timeval tv = { 0, 100000 };
+        if (every && next_req.tv_sec) {
+            struct timespec now;
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            if (now.tv_sec > next_req.tv_sec ||
+                (now.tv_sec == next_req.tv_sec && now.tv_nsec >= next_req.tv_nsec)) {
+                next_req.tv_sec = 0;
+                XEvent rq;
+                memset(&rq, 0, sizeof rq);
+                rq.xclient.type = ClientMessage;
+                rq.xclient.window = cm;
+                rq.xclient.message_type = atom("_KICOMP_CAPTURE_REQUEST");
+                rq.xclient.format = 32;
+                rq.xclient.data.l[0] = s;
+                rq.xclient.data.l[1] = 0;
+                rq.xclient.data.l[2] = ++req_id;
+                XSendEvent(dpy, cm, False, NoEventMask, &rq);
+                XFlush(dpy);
+            }
+        }
+        struct timeval tv = { 0, 20000 };
         fd_set fds;
         FD_ZERO(&fds);
         FD_SET(ConnectionNumber(dpy), &fds);

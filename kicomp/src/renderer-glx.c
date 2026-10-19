@@ -48,6 +48,8 @@
  */
 #include "renderer-gl.h"
 #include "window.h"
+#include "animation.h"
+#include "region.h"
 
 #include <epoxy/gl.h>
 #include <epoxy/glx.h>
@@ -728,19 +730,311 @@ static void glx_shutdown(void)
     }
 }
 
-/* The capture protocol's second assembly. The drawing and the readback are
- * renderer-gl.c's; this only makes the context current on the output's own
- * drawable first (the pass renders into an off-screen buffer of its own,
- * whatever drawable that is), and puts it back as it found it. */
+/* The capture protocol's second assembly.
+ *
+ * Best: draw straight into the slot through a GLX pixmap over it -- with
+ * DRI3 the pixmap's own buffer, so there is no copy at all and the picture
+ * costs what its drawing costs. That depends on the driver actually
+ * sharing that buffer with the server (a nested Xephyr does not: the GL
+ * side has the picture and the server never sees it), so the first picture
+ * is checked by reading a few pixels back from both sides, and a mismatch
+ * switches to drawing off-screen and copying the result into the slot
+ * (gl_capture_render) for good. KICOMP_CAPTURE_READBACK=1 forces that. */
+static int capture_direct;        /* 0 untested, 1 works, -1 does not */
+
+static GLXFBConfig pixmap_config(uint8_t depth, bool *found)
+{
+    static GLXFBConfig cfg;
+    static uint8_t cfg_depth;
+    static bool have;
+    if (have && cfg_depth == depth) {
+        *found = true;
+        return cfg;
+    }
+    *found = false;
+    int attrs[] = {
+        GLX_RENDER_TYPE, GLX_RGBA_BIT,
+        GLX_DRAWABLE_TYPE, GLX_PIXMAP_BIT,
+        GLX_RED_SIZE, 8, GLX_GREEN_SIZE, 8, GLX_BLUE_SIZE, 8,
+        GLX_DEPTH_SIZE, 0, GLX_STENCIL_SIZE, 0,
+        None
+    };
+    int count = 0;
+    GLXFBConfig *configs = glXChooseFBConfig(dpy, DefaultScreen(dpy), attrs, &count);
+    for (int i = 0; configs && i < count && !*found; i++) {
+        XVisualInfo *vi = glXGetVisualFromFBConfig(dpy, configs[i]);
+        if (vi && vi->depth == depth) {
+            cfg = configs[i];
+            cfg_depth = depth;
+            have = true;
+            *found = true;
+        }
+        if (vi)
+            XFree(vi);
+    }
+    if (configs)
+        XFree(configs);
+    return cfg;
+}
+
+/* Does what GL drew into the pixmap read back the same from the server? */
+static bool direct_check(CompOutput *o, xcb_pixmap_t slot)
+{
+    int pts[3][2] = {
+        { o->physical.w / 4, o->physical.h / 4 },
+        { o->physical.w / 2, o->physical.h / 2 },
+        { 3 * o->physical.w / 4, 3 * o->physical.h / 4 },
+    };
+    glReadBuffer(GL_FRONT);
+    for (int i = 0; i < 3; i++) {
+        unsigned char gl[4] = { 0 };
+        glReadPixels(pts[i][0], o->physical.h - 1 - pts[i][1], 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, gl);
+        xcb_get_image_reply_t *im = xcb_get_image_reply(comp.conn,
+            xcb_get_image(comp.conn, XCB_IMAGE_FORMAT_Z_PIXMAP, slot, (int16_t)pts[i][0],
+                          (int16_t)pts[i][1], 1, 1, ~0u), NULL);
+        if (!im)
+            return false;
+        const uint8_t *x = xcb_get_image_data(im);      /* B G R X */
+        bool same = abs(x[2] - gl[0]) <= 2 && abs(x[1] - gl[1]) <= 2 && abs(x[0] - gl[2]) <= 2;
+        free(im);
+        if (!same)
+            return false;
+    }
+    return true;
+}
+
+/* GLX pixmaps over the slots, made once per slot and kept: making one is a
+ * round trip to import the buffer, and a recording asks for a picture every
+ * frame. Dropped when capture.c frees the slot. */
+#define GLX_SLOT_CACHE 16
+static struct { xcb_pixmap_t slot; GLXPixmap glx; } slot_cache[GLX_SLOT_CACHE];
+
+static GLXPixmap slot_glx_pixmap(GLXFBConfig cfg, xcb_pixmap_t slot)
+{
+    int free_i = -1;
+    for (int i = 0; i < GLX_SLOT_CACHE; i++) {
+        if (slot_cache[i].slot == slot)
+            return slot_cache[i].glx;
+        if (!slot_cache[i].slot && free_i < 0)
+            free_i = i;
+    }
+    GLXPixmap p = glXCreatePixmap(dpy, cfg, (Pixmap)slot, NULL);
+    if (p && free_i >= 0) {
+        slot_cache[free_i].slot = slot;
+        slot_cache[free_i].glx = p;
+    }
+    return p;
+}
+
+static void tfp_forget(xcb_pixmap_t slot);
+
+static void glx_capture_slot_freed(xcb_pixmap_t slot)
+{
+    tfp_forget(slot);
+    for (int i = 0; i < GLX_SLOT_CACHE; i++)
+        if (slot_cache[i].slot == slot) {
+            /* Not current on it: the context is put back on the output's
+             * drawable after every picture. */
+            glXDestroyPixmap(dpy, slot_cache[i].glx);
+            slot_cache[i].slot = XCB_NONE;
+            slot_cache[i].glx = None;
+        }
+}
+
+/* The other direct method: the slot bound as a texture (texture-from-pixmap,
+ * the same import the windows go through) and drawn into through a
+ * framebuffer object -- an ordinary context flush, none of the front-buffer
+ * handshake a GLX pixmap *drawable* gets. The default. */
+static struct { xcb_pixmap_t slot; GLXPixmap glx; GLuint tex, fbo; } tfp_cache[GLX_SLOT_CACHE];
+static int tfp_state;          /* 0 untested, 1 works, -1 does not */
+
+static int tfp_entry(xcb_pixmap_t slot)
+{
+    int free_i = -1;
+    for (int i = 0; i < GLX_SLOT_CACHE; i++) {
+        if (tfp_cache[i].slot == slot)
+            return i;
+        if (!tfp_cache[i].slot && free_i < 0)
+            free_i = i;
+    }
+    if (free_i < 0)
+        return -1;
+    TfpConfig *cfg = tfp_config_for_visual(comp.screen->root_visual, false);
+    if (!cfg || !cfg->usable)
+        return -1;
+    const int attrs[] = {
+        GLX_TEXTURE_TARGET_EXT, GLX_TEXTURE_2D_EXT,
+        GLX_TEXTURE_FORMAT_EXT, cfg->rgba ? GLX_TEXTURE_FORMAT_RGBA_EXT : GLX_TEXTURE_FORMAT_RGB_EXT,
+        None
+    };
+    GLXPixmap p = glXCreatePixmap(dpy, cfg->config, (Pixmap)slot, attrs);
+    if (!p)
+        return -1;
+    tfp_cache[free_i].slot = slot;
+    tfp_cache[free_i].glx = p;
+    glGenTextures(1, &tfp_cache[free_i].tex);
+    glBindTexture(GL_TEXTURE_2D, tfp_cache[free_i].tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glGenFramebuffers(1, &tfp_cache[free_i].fbo);
+    return free_i;
+}
+
+static void tfp_forget(xcb_pixmap_t slot)
+{
+    for (int i = 0; i < GLX_SLOT_CACHE; i++)
+        if (tfp_cache[i].slot == slot) {
+            glDeleteFramebuffers(1, &tfp_cache[i].fbo);
+            glDeleteTextures(1, &tfp_cache[i].tex);
+            glXDestroyPixmap(dpy, tfp_cache[i].glx);
+            memset(&tfp_cache[i], 0, sizeof tfp_cache[i]);
+        }
+}
+
+static bool tfp_check(CompOutput *o, xcb_pixmap_t slot, bool y_down)
+{
+    int pts[3][2] = {
+        { o->physical.w / 4, o->physical.h / 4 },
+        { o->physical.w / 2, o->physical.h / 2 },
+        { 3 * o->physical.w / 4, 3 * o->physical.h / 4 },
+    };
+    for (int i = 0; i < 3; i++) {
+        unsigned char gl[4] = { 0 };
+        int gy = y_down ? pts[i][1] : o->physical.h - 1 - pts[i][1];
+        glReadPixels(pts[i][0], gy, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, gl);
+        xcb_get_image_reply_t *im = xcb_get_image_reply(comp.conn,
+            xcb_get_image(comp.conn, XCB_IMAGE_FORMAT_Z_PIXMAP, slot, (int16_t)pts[i][0],
+                          (int16_t)pts[i][1], 1, 1, ~0u), NULL);
+        if (!im)
+            return false;
+        const uint8_t *x = xcb_get_image_data(im);
+        bool same = abs(x[2] - gl[0]) <= 2 && abs(x[1] - gl[1]) <= 2 && abs(x[0] - gl[2]) <= 2;
+        free(im);
+        if (!same)
+            return false;
+    }
+    return true;
+}
+
+static bool tfp_render(CompOutput *o, CompScene *s, xcb_pixmap_t slot,
+                       const CompCaptureStyle *style, const CompRegion *region)
+{
+    int e = tfp_entry(slot);
+    if (e < 0)
+        return false;
+    TfpConfig *cfg = tfp_config_for_visual(comp.screen->root_visual, false);
+    bool y_down = cfg->y_inverted;     /* the texture's first row is the pixmap's top one */
+    glx_error_seen = false;
+    double t0 = comp_now_ms();
+    glBindTexture(GL_TEXTURE_2D, tfp_cache[e].tex);
+    glXBindTexImageEXT(dpy, tfp_cache[e].glx, GLX_FRONT_LEFT_EXT, NULL);
+    glBindFramebuffer(GL_FRAMEBUFFER, tfp_cache[e].fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tfp_cache[e].tex, 0);
+    bool ok = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    if (ok) {
+        CompRegion whole;
+        region_clear(&whole);
+        region_set_full(&whole);
+        gl_capture_draw(o, s, style, tfp_state == 0 ? &whole : region, y_down);
+    }
+    double t1 = comp_now_ms();
+    if (ok && tfp_state == 0) {
+        glFinish();
+        tfp_state = tfp_check(o, slot, y_down) ? 1 : -1;
+        fprintf(stderr, "kicomp: capture: drawing into the slots through texture-from-pixmap %s\n",
+                tfp_state > 0 ? "works" : "is not seen by the server here");
+    } else if (ok) {
+        glFlush();
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glXReleaseTexImageEXT(dpy, tfp_cache[e].glx, GLX_FRONT_LEFT_EXT);
+    comp_capture_timing[0] = t1 - t0;
+    comp_capture_timing[1] = comp_now_ms() - t1;
+    return ok && tfp_state > 0 && !glx_error_seen;
+}
+
 static bool glx_capture_render(CompOutput *o, CompScene *s, xcb_pixmap_t slot,
-                               const CompCaptureStyle *style)
+                               const CompCaptureStyle *style, const CompRegion *region)
 {
     GlxOutput *go = o->render_data;
     if (!go || !context)
         return false;
+
+    /* texture-from-pixmap first (measured: the picture is ready in under a
+     * millisecond), then the GLX pixmap drawable (same pixels, but ~6 ms in
+     * the front-buffer flush), then the readback. KICOMP_CAPTURE_PATH=pixmap
+     * skips the first. */
+    static int path = -1;     /* 0 pixmap drawable, 1 tfp */
+    if (path < 0) {
+        const char *p = getenv("KICOMP_CAPTURE_PATH");
+        path = p && !strcmp(p, "pixmap") ? 0 : 1;
+    }
+    if (path == 1 && tfp_state >= 0) {
+        if (!glXMakeContextCurrent(dpy, go->drawable, go->drawable, context))
+            return false;
+        if (tfp_render(o, s, slot, style, region))
+            return true;
+        if (tfp_state < 0)
+            path = 0;
+    }
+
+    static int use_flush = -1;
+    if (use_flush < 0)
+        use_flush = getenv("KICOMP_CAPTURE_FINISH") == NULL;
+    if (capture_direct == 0 && getenv("KICOMP_CAPTURE_READBACK"))
+        capture_direct = -1;
+
+    if (capture_direct >= 0) {
+        bool found;
+        GLXFBConfig cfg = pixmap_config(comp.screen->root_depth, &found);
+        if (!found) {
+            capture_direct = -1;
+        } else {
+            glx_error_seen = false;
+            double t0 = comp_now_ms();
+            GLXPixmap target = slot_glx_pixmap(cfg, slot);
+            double t1 = comp_now_ms(), t2 = t1;
+            bool drawn = false;
+            if (target && glXMakeContextCurrent(dpy, target, target, context)) {
+                /* The first picture ever is drawn whole, so it can be checked. */
+                CompRegion whole;
+                region_clear(&whole);
+                region_set_full(&whole);
+                gl_capture_draw(o, s, style, capture_direct == 0 ? &whole : region, false);
+                t2 = comp_now_ms();
+                /* Before FRAME says it is there: the server reads this buffer
+                 * through another connection. A flush is enough where the
+                 * kernel orders work on a shared buffer (implicit sync, as
+                 * DRI3 drivers do); KICOMP_CAPTURE_FINISH=1 waits for the GPU
+                 * instead. The very first picture always waits: it is the
+                 * one checked. */
+                if (use_flush && capture_direct > 0)
+                    glFlush();
+                else
+                    glFinish();
+                drawn = true;
+                if (capture_direct == 0) {
+                    capture_direct = direct_check(o, slot) ? 1 : -1;
+                    fprintf(stderr, "kicomp: capture: drawing into the slots %s\n",
+                            capture_direct > 0 ? "directly (GLX pixmap)"
+                                               : "off-screen, copied in (the server does not see GLX pixmaps here)");
+                }
+            }
+            glXMakeContextCurrent(dpy, go->drawable, go->drawable, context);
+            comp_capture_timing[0] = t2 - t1;               /* draw (submit) */
+            comp_capture_timing[1] = comp_now_ms() - t2;    /* flush/finish */
+            comp_capture_timing[2] = t1 - t0;               /* GLX pixmap */
+            if (drawn && capture_direct > 0 && !glx_error_seen)
+                return true;
+            if (glx_error_seen)
+                capture_direct = -1;
+        }
+    }
+
+    /* Drawn off-screen and copied in. */
     if (!glXMakeContextCurrent(dpy, go->drawable, go->drawable, context))
         return false;
-    return gl_capture_render(o, s, slot, style);
+    return gl_capture_render(o, s, slot, style, region);
 }
 
 static const CompRenderer glx_renderer = {
@@ -768,6 +1062,7 @@ static const CompRenderer glx_renderer = {
     .shutdown           = glx_shutdown,
 
     .capture_render     = glx_capture_render,
+    .capture_slot_freed = glx_capture_slot_freed,
 };
 
 const CompRenderer *renderer_glx(void)

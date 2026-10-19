@@ -176,7 +176,8 @@ void gl_end(GlOutput *go);
 /* One complete, censored picture of `o` from `s` (renderer.h's
  * capture_render), drawn into whatever target the platform made current
  * before calling. */
-void gl_capture_draw(CompOutput *o, CompScene *s, const CompCaptureStyle *style);
+void gl_capture_draw(CompOutput *o, CompScene *s, const CompCaptureStyle *style,
+                     const CompRegion *region, bool y_down);
 
 /* The whole of capture_render for a GL platform, with its context current:
  * draws the censored picture into an off-screen buffer, reads it back and
@@ -187,7 +188,7 @@ void gl_capture_draw(CompOutput *o, CompScene *s, const CompCaptureStyle *style)
  * copies of the picture through system memory while a recorder is looking at
  * a hidden window. */
 bool gl_capture_render(CompOutput *o, CompScene *s, xcb_pixmap_t slot,
-                       const CompCaptureStyle *style);
+                       const CompCaptureStyle *style, const CompRegion *region);
 
 GLuint gl_window_texture(GlWindow *g);
 

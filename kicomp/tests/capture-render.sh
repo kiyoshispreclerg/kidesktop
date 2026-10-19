@@ -60,6 +60,30 @@ grep -Eq '^FRAME .* flags=0x1' "$TMP/f4" && ok "a second request with nothing ch
 # hide_pid: windows of that process are not drawn at all, mark or no mark
 probe "$TMP/f5" 190,190 --hide-pid "$XA"
 expect "HIDE_PID: the process's window is not drawn (what is behind it shows)" "$(pix "$TMP/f5")" 00ff00
+# The slots are redrawn only where something changed since each was last
+# drawn: a window moved between two pictures has to be where it went in every
+# slot after that, and gone from where it was.
+"$PROBE" --copy 600,450 --every 250 --seconds 5 > "$TMP/f6" &
+P6=$!; sleep 1.6
+CB=$(xdotool search --pid $XB | head -1)
+xdotool windowmove "$CB" 520 380; sleep 0.3
+xdotool windowraise "$CB" 2>/dev/null
+wait $P6
+first=$(grep -E '^PIXEL' "$TMP/f6" | head -1 | sed -E 's/.*=//')
+last=$(grep -E '^PIXEL' "$TMP/f6" | tail -3 | sed -E 's/.*=//' | sort -u | tr '\n' ' ')
+expect "partial redraw: before the move, the desktop is there" "$first" 1c1c1c
+expect "partial redraw: after it, every slot shows the window that moved in" "$last" "00ff00 "
+# ...and a change of contents alone, which damages only that window (a
+# terminal switching its background colour by itself, 2 s in)
+xterm -bg '#00ff00' -geometry 20x4+40+520 -e sh -c "sleep 2.5; printf '\\033]11;#ff0000\\007'; sleep 60" & XC2=$!; PIDS+=($XC2)
+sleep 1
+eval "$(xdotool getwindowgeometry --shell "$(xdotool search --pid $XC2 | head -1)")"
+"$PROBE" --copy $((X + 20)),$((Y + 20)) --every 250 --seconds 5 > "$TMP/f7"
+first=$(grep -E '^PIXEL' "$TMP/f7" | head -1 | sed -E 's/.*=//')
+last=$(grep -E '^PIXEL' "$TMP/f7" | tail -3 | sed -E 's/.*=//' | sort -u | tr '\n' ' ')
+expect "partial redraw: contents before the change" "$first" 00ff00
+expect "partial redraw: every slot picks up a change of contents" "$last" "ff0000 "
+kill $XC2 2>/dev/null
 stop_stack
 
 # ---- hide ---------------------------------------------------------------------

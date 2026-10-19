@@ -36,6 +36,13 @@ void capture_shutdown(void);
 xcb_get_property_cookie_t capture_mark_request(xcb_window_t client);
 bool capture_mark_reply(xcb_get_property_cookie_t cookie);
 
+/* Damage, as the real frame gets it (output.c), plus the damage the real
+ * frame does not want because nobody sees it there (damage.c): kept per
+ * slot, so a censored picture redraws only what changed in it. */
+void capture_damage(const CompOutput *o, const CompRect *r);
+void capture_damage_all(void);
+void capture_damage_unseen(const CompRect *r);
+
 /* Event hooks (main.c). Each returns true when it consumed the event. */
 bool capture_property_notify(xcb_window_t window, xcb_atom_t atom);
 bool capture_client_message(const xcb_client_message_event_t *e);
@@ -49,10 +56,11 @@ void capture_outputs_changed(void);
  * (the one-sided ordering the recorder's seqlock depends on). */
 void capture_update(void);
 
-/* After an output was painted and presented: makes the censored pictures
- * recorders asked for (REQUEST) -- a second assembly of the scene with the
- * excluded windows substituted, through the renderer -- and answers them. */
-void capture_output_painted(CompOutput *o);
+/* Makes the censored pictures recorders asked for (REQUEST) -- a second
+ * assembly of the scene with the excluded windows substituted, through the
+ * renderer -- and answers them. Once per loop iteration, after
+ * capture_update() and the effects, independent of any output's paint. */
+void capture_serve(void);
 
 /* An output a session watches must not be handed to a fullscreen window
  * while an excluded window shows on it: there would be no scene to

@@ -28,6 +28,11 @@ static inline int comp_capture_kind(const CompCaptureStyle *st, const CompWindow
     return 0;
 }
 
+/* Where a censored picture's time went, filled in by capture_render when
+ * the backend can tell (draw, readback, upload, in ms) -- for capture.c's
+ * KICOMP_CAPDBG statistics. */
+extern double comp_capture_timing[3];
+
 typedef struct CompRenderer {
     const char *name;
 
@@ -95,13 +100,19 @@ typedef struct CompRenderer {
     void (*shutdown)(void);
 
     /* The capture protocol's second assembly: draws `s` -- a complete
-     * scene, no occlusion culling -- for the whole of `o` into `slot`
-     * (a pixmap of the output's physical size) with the excluded windows
-     * substituted as `style` says. Leaves the output's own target and its
-     * covered region as they were. Optional: a backend without it cannot
-     * offer censored pictures (its outputs are UNAVAILABLE). */
+     * scene, no occlusion culling -- into `slot` (a pixmap of the output's
+     * physical size) with the excluded windows substituted as `style`
+     * says, but only inside `region` (root coordinates; full = all of it):
+     * the slot keeps its pixels from the last time, and the region is what
+     * changed since -- the same partial repaint the real frame does.
+     * Leaves the output's own target and its covered region as they were.
+     * Optional: a backend without it cannot offer censored pictures (its
+     * outputs are UNAVAILABLE). */
     bool (*capture_render)(CompOutput *o, CompScene *s, xcb_pixmap_t slot,
-                           const CompCaptureStyle *style);
+                           const CompCaptureStyle *style, const CompRegion *region);
+    /* A slot pixmap is about to be freed: drop whatever the backend keeps
+     * bound to it (a GLX pixmap). Optional. */
+    void (*capture_slot_freed)(xcb_pixmap_t slot);
 } CompRenderer;
 
 const CompRenderer *renderer_xrender(void);

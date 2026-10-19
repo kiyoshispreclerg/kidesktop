@@ -4,6 +4,7 @@
 #include "window.h"
 #include "effect.h"
 #include "renderer.h"
+#include "animation.h"
 #include "output.h"
 #include "unredirect.h"
 #include "shadow.h"
@@ -72,12 +73,25 @@ typedef struct {
     int pic_slot[MAX_OUTPUTS];
     uint64_t pic_serial[MAX_OUTPUTS];
     uint64_t pic_gen[MAX_OUTPUTS];
+    double req_ms[MAX_OUTPUTS];        /* when the pending REQUEST came in */
+    /* What changed on the output since each slot was last brought up to
+     * date: the next picture into that slot redraws only this, the slot
+     * keeping the rest -- the real frame's partial repaint, per slot. Full
+     * for a slot never drawn. */
+    CompRegion stale[MAX_OUTPUTS][MAX_SLOTS];
 } Session;
 
 /* Bumped whenever the set of excluded windows changes, so a picture made
  * before is never called UNCHANGED after. */
 static uint64_t excluded_gen = 1;
 static uint64_t delivery_stamp;
+
+double comp_capture_timing[3];
+
+/* KICOMP_CAPDBG=1: averages of where a censored picture's time goes, every
+ * 120 pictures. */
+static struct { int n; double wait, build, draw, read, put, total, area; } stat;
+static int capdbg = -1;
 
 static Session sessions[MAX_SESSIONS];
 static int session_count;
@@ -212,6 +226,8 @@ bool capture_property_notify(xcb_window_t window, xcb_atom_t atom)
     return true;
 }
 
+static void damage_window_everywhere(const CompWindow *w);
+
 /* Marked, or a popup of a marked window (shared/xis_capture.h). */
 static bool recompute_excluded(void)
 {
@@ -228,6 +244,7 @@ static bool recompute_excluded(void)
         if (ex != w->capture_excluded) {
             w->capture_excluded = ex;
             changed = true;
+            damage_window_everywhere(w);
         }
     }
     if (changed)
@@ -381,6 +398,8 @@ static void free_slot_set(xcb_pixmap_t set[][MAX_SLOTS], int nout)
     for (int i = 0; i < nout; i++)
         for (int k = 0; k < MAX_SLOTS; k++)
             if (set[i][k] != XCB_NONE) {
+                if (renderer && renderer->capture_slot_freed)
+                    renderer->capture_slot_freed(set[i][k]);
                 xcb_free_pixmap(comp.conn, set[i][k]);
                 set[i][k] = XCB_NONE;
             }
@@ -413,6 +432,70 @@ static bool alloc_slot_set(const Session *s, xcb_pixmap_t set[][MAX_SLOTS])
         }
     }
     return true;
+}
+
+static void all_stale(Session *s)
+{
+    for (int i = 0; i < MAX_OUTPUTS; i++)
+        for (int k = 0; k < MAX_SLOTS; k++)
+            region_set_full(&s->stale[i][k]);
+}
+
+void capture_damage(const CompOutput *o, const CompRect *r)
+{
+    if (session_count == 0)
+        return;
+    for (int i = 0; i < MAX_SESSIONS; i++) {
+        Session *s = &sessions[i];
+        if (!s->used || s->nslot == 0)
+            continue;
+        for (int k = 0; k < s->nout; k++)
+            if (s->out_id[k] == o->id)
+                for (int j = 0; j < s->nslot; j++)
+                    region_add(&s->stale[k][j], r);
+    }
+}
+
+void capture_damage_all(void)
+{
+    if (session_count == 0)
+        return;
+    for (int i = 0; i < MAX_SESSIONS; i++)
+        if (sessions[i].used)
+            all_stale(&sessions[i]);
+}
+
+/* Somewhere on the screen nobody sees (under an opaque window), so the real
+ * frame ignores it. A censored picture that hides the window on top shows
+ * it, though: only then does it matter. */
+static bool hides_anything(void);
+
+void capture_damage_unseen(const CompRect *r)
+{
+    if (session_count == 0 || !hides_anything())
+        return;
+    for (int i = 0; i < comp.output_count; i++) {
+        CompRect hit;
+        if (rect_intersect(r, &comp.outputs[i].rect, &hit))
+            capture_damage(&comp.outputs[i], &hit);
+    }
+}
+
+/* A window that became (or stopped being) excluded looks different in the
+ * pictures and the same on the screen, so nothing else damages it. */
+static void damage_window_everywhere(const CompWindow *w)
+{
+    CompRect r = window_rect((CompWindow *)w);
+    int m = shadow_margin();
+    r.x -= m;
+    r.y -= m;
+    r.w += 2 * m;
+    r.h += 2 * m;
+    for (int i = 0; i < comp.output_count; i++) {
+        CompRect hit;
+        if (rect_intersect(&r, &comp.outputs[i].rect, &hit))
+            capture_damage(&comp.outputs[i], &hit);
+    }
 }
 
 /* Properties first, then (when asked) the message that says it is over;
@@ -526,6 +609,7 @@ static void handle_open(xcb_window_t win, uint32_t version)
             send_status(win, 0, ERR_RESOURCES, 0);
             return;
         }
+        all_stale(&sessions[i]);
         session_count++;
         recompute_excluded();
         /* Properties first, then the message that points at them. */
@@ -553,10 +637,11 @@ static void deliver(Session *s, int out, int slot, uint32_t id, uint32_t flags)
     send_frame(s, (uint32_t)out, (uint32_t)slot, id, flags);
 }
 
-/* Every REQUEST gets exactly one FRAME with its id. A censored picture is
- * only made in a paint pass (capture_output_painted), where the scene is at
- * hand; here it is either answered at once or left waiting for the next
- * one -- which this asks for. */
+/* Every REQUEST gets exactly one FRAME with its id: either answered here at
+ * once, or left pending for capture_serve() later in the same loop
+ * iteration. Not tied to the output's paint: the picture has its own scene,
+ * so waiting for a repaint (and its vblank) bought nothing but latency --
+ * 16 ms of a 22 ms request, measured. */
 static void handle_request(Session *s, uint32_t out, uint32_t id)
 {
     if (out >= (uint32_t)s->nout) {
@@ -588,7 +673,7 @@ static void handle_request(Session *s, uint32_t out, uint32_t id)
     }
     s->pending[out] = true;
     s->pending_id[out] = id;
-    output_request_frame((CompOutput *)co);
+    s->req_ms[out] = comp_now_ms();
 }
 
 bool capture_client_message(const xcb_client_message_event_t *e)
@@ -652,6 +737,7 @@ void capture_outputs_changed(void)
             s->have_pic[k] = false;
             memset(s->held[k], 0, sizeof s->held[k]);
         }
+        all_stale(s);
         write_targets(s);
         update_session(s, true);
         free_slot_set(old, s->nout);
@@ -708,6 +794,7 @@ static void assemble(Session *s, int out, CompOutput *o)
         return;
     }
 
+    double t0 = comp_now_ms();
     scene_build(&cap_scene, o);
     effects_apply(&cap_scene, o);
     int reach = shadow_margin();
@@ -727,9 +814,43 @@ static void assemble(Session *s, int out, CompOutput *o)
         .color = cfg.color,
         .hide_pid = s->hide_pid,
     };
-    if (!renderer->capture_render(o, &cap_scene, s->slot[out][pick], &st)) {
+    double t1 = comp_now_ms();
+    memset(comp_capture_timing, 0, sizeof comp_capture_timing);
+    CompRegion *stale = &s->stale[out][pick];
+    if (capdbg > 0) {
+        double a = 0;
+        if (region_is_full(stale))
+            a = (double)o->rect.w * o->rect.h;
+        else
+            for (int k = 0; k < stale->count; k++)
+                a += (double)stale->rects[k].w * stale->rects[k].h;
+        stat.area += a;
+    }
+    if (!region_is_empty(stale) &&
+        !renderer->capture_render(o, &cap_scene, s->slot[out][pick], &st, stale)) {
+        region_set_full(stale);
         send_frame(s, (uint32_t)out, SLOT_NONE, id, FRAME_UNAVAILABLE);
         return;
+    }
+    region_clear(stale);
+    if (capdbg < 0)
+        capdbg = getenv("KICOMP_CAPDBG") != NULL;
+    if (capdbg) {
+        double t2 = comp_now_ms();
+        stat.n++;
+        stat.wait += t0 - s->req_ms[out];
+        stat.build += t1 - t0;
+        stat.draw += comp_capture_timing[0];
+        stat.read += comp_capture_timing[1];
+        stat.put += comp_capture_timing[2];
+        stat.total += t2 - s->req_ms[out];
+        if (stat.n == 120) {
+            fprintf(stderr, "kicomp: capdbg avg over 120: wait %.2f build %.2f draw %.2f read %.2f "
+                    "upload %.2f | request->frame %.2f ms | redrawn %.0f%% of the output\n",
+                    stat.wait / 120, stat.build / 120, stat.draw / 120, stat.read / 120, stat.put / 120,
+                    stat.total / 120, 100.0 * stat.area / 120 / ((double)o->rect.w * o->rect.h));
+            memset(&stat, 0, sizeof stat);
+        }
     }
 
     s->have_pic[out] = true;
@@ -742,7 +863,7 @@ static void assemble(Session *s, int out, CompOutput *o)
     deliver(s, out, pick, id, 0);
 }
 
-void capture_output_painted(CompOutput *o)
+void capture_serve(void)
 {
     if (session_count == 0)
         return;
@@ -750,8 +871,26 @@ void capture_output_painted(CompOutput *o)
         Session *s = &sessions[i];
         if (!s->used)
             continue;
-        for (int k = 0; k < s->nout; k++)
-            if (s->pending[k] && s->out_id[k] == o->id)
+        for (int k = 0; k < s->nout; k++) {
+            if (!s->pending[k])
+                continue;
+            CompOutput *o = (CompOutput *)output_by_id(s->out_id[k]);
+            if (o)
                 assemble(s, k, o);
+            else {
+                s->pending[k] = false;
+                send_frame(s, (uint32_t)k, SLOT_NONE, s->pending_id[k], FRAME_UNAVAILABLE);
+            }
+        }
     }
+}
+
+static bool hides_anything(void)
+{
+    if (cfg.mode == MODE_HIDE)
+        return true;
+    for (int i = 0; i < MAX_SESSIONS; i++)
+        if (sessions[i].used && sessions[i].hide_pid)
+            return true;
+    return false;
 }

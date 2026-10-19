@@ -368,6 +368,7 @@ static void damage_rect_grown(const CompRect *r, int margin)
         o->dirty = true;
         o->damage_serial++;
         region_add(&o->damage, &hit);
+        capture_damage(o, &hit);
     }
 }
 
@@ -401,6 +402,7 @@ void output_damage_all(void)
         comp.outputs[i].damage_serial++;
         region_set_full(&comp.outputs[i].damage);
     }
+    capture_damage_all();
 }
 
 void output_request_frame(CompOutput *o)

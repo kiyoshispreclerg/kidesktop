@@ -33,7 +33,7 @@
 
 #define _GNU_SOURCE             /* ppoll */
 
-#define KICOMP_VERSION "0.3.68"
+#define KICOMP_VERSION "0.3.69"
 
 #include "../../shared/xis_i18n.h"
 
@@ -752,7 +752,6 @@ static void paint_dirty_outputs(double now)
         presenter->present(o, COMP_PRESENT_COPY, &region);
 
         output_painted(o);
-        capture_output_painted(o);
         painted = true;
     }
 
@@ -1556,6 +1555,7 @@ int main(int argc, char **argv)
          * output handed over in this frame must not also be painted in
          * it, and one taken back must be. */
         capture_update();
+        capture_serve();
         unredirect_update();
 
         hotcorner_tick(now);
