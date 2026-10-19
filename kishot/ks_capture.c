@@ -539,6 +539,9 @@ gboolean ks_capture_fetch(const KsCapView *v, KsCapSlot *slots, int *n)
             poll(&p, 1, (int)(left / 1000) + 1);
             g_mutex_lock(&cap.lock);
         }
+        if (g_getenv("KISHOT_DEBUG"))
+            fprintf(stderr, "kishot: capture: FRAME %s after %.1f ms\n", cap.wait.got ? "arrived" : "timed out",
+                    (FRAME_TIMEOUT_MS * 1000 - (end - g_get_monotonic_time())) / 1000.0);
         gboolean got = cap.wait.got && cap.active;
         uint32_t out = cap.wait.out, slot = cap.wait.slot, flags = cap.wait.flags;
         cap.wait.id = 0;

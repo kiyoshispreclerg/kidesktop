@@ -20,7 +20,7 @@ export HOME=$TMP; mkdir -p "$HOME/.config"
 
 start_stack() { # start_stack <kicomp.conf body>
     printf '%s\n' "$1" > "$HOME/.config/kicomp.conf"
-    DISPLAY=$HOST_DISPLAY Xephyr "$D" -screen 800x600 >"$TMP/xephyr.log" 2>&1 & XP=$!; PIDS+=($XP)
+    DISPLAY=$HOST_DISPLAY Xephyr "$D" -screen 1600x900 >"$TMP/xephyr.log" 2>&1 & XP=$!; PIDS+=($XP)
     sleep 1.5; export DISPLAY=$D
     "$ROOT/kiwm/kiwm" >"$TMP/kiwm.log" 2>&1 & KP=$!; PIDS+=($KP); sleep 0.8
     "$ROOT/kicomp/kicomp" --renderer=xrender -v >"$TMP/kicomp.log" 2>&1 & CP=$!; PIDS+=($CP); sleep 1.5
@@ -60,6 +60,29 @@ stop_stack
 
 # ---- the compositor offers it -------------------------------------------------
 start_stack "capture_censor = black"
+
+# ---- the window must keep hearing its input -----------------------------------
+# (watching the marks once replaced the event mask GDK chose for kishot's own
+# window, which froze it: no clicks, no keys)
+"$ROOT/kishot/kishot" >"$TMP/gui.log" 2>&1 & GUI=$!; PIDS+=($GUI); sleep 3
+GW=$(xdotool search --pid $GUI --onlyvisible | tail -1)
+xdotool windowactivate --sync "$GW"; sleep 0.5
+panel() { # the options panel only: the preview changes by itself
+    xwd -silent -id "$GW" -out "$TMP/g.xwd"
+    python3 - "$TMP/g.xwd" <<'PY'
+import struct, sys, hashlib
+d = open(sys.argv[1], "rb").read()
+hs = struct.unpack(">I", d[:4])[0]; w, h = struct.unpack(">II", d[16:24])
+bpl = struct.unpack(">I", d[48:52])[0]; nc = struct.unpack(">I", d[76:80])[0]
+off = hs + nc * 12
+rows = [d[off + y * bpl + (w - 340) * 4: off + y * bpl + w * 4] for y in range(30, 400)]
+print(hashlib.md5(b"".join(rows)).hexdigest())
+PY
+}
+p1=$(panel); xdotool key Tab; sleep 0.3; xdotool key ctrl+Next; sleep 1; p2=$(panel)   # focus into the page, then the next tab
+if [ "$p1" = "$p2" ]; then fail "kishot's window ignores the keyboard (no tab switch)"; else ok "kishot's window still switches tabs from the keyboard"; fi
+kill $GUI 2>/dev/null; sleep 0.5
+
 expect "offer: an unmarked window shows" "$(shot)" white
 grep -q "capture: session" "$TMP/kicomp.log" && ok "a session was opened" || fail "no session opened"
 grep -q "the screen is the censored picture" "$TMP/kishot.log" && ok "nothing hidden showing: the screen is used as is" || fail "the compositor's word was not used"

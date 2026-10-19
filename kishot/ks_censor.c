@@ -190,8 +190,12 @@ static gboolean recompute(void)
             Window client = t->override ? kids[i] : find_client(dpy, kids[i], 0);
             gboolean mark = FALSE;
             if (client && !t->override) {
-                /* the mark can come and go while the window stays: watch it */
-                XSelectInput(dpy, client, PropertyChangeMask);
+                /* the mark can come and go while the window stays: watch it.
+                 * Never on our own windows: XSelectInput *replaces* the mask
+                 * GDK chose for them, and a window that no longer hears the
+                 * pointer and the keyboard is a frozen window. */
+                if (!gdk_x11_window_lookup_for_display(gdk_display_get_default(), client))
+                    XSelectInput(dpy, client, PropertyChangeMask);
                 mark = has_mark(dpy, client);
                 if (mark)
                     g_array_append_val(now, client);
