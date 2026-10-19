@@ -62,6 +62,10 @@ msgstr ""
 msgid "Keep above"
 msgstr ""
 
+#: menu.c
+msgid "Hide from screen capture"
+msgstr ""
+
 #: menu.c:124
 msgid "Configure windows..."
 msgstr ""

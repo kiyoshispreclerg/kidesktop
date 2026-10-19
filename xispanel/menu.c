@@ -371,6 +371,17 @@ static void draw_frame(cairo_t *cr, PanelMenu *m, MenuFrame *f)
             if (it->icon) {
                 double icon_y = y + (m->item_h - icon_size) / 2.0;
                 draw_icon_scaled(cr, it->icon, rtl ? f->width - 10 - icon_size : 10, icon_y, icon_size);
+            } else if (it->checked) {
+                /* Two-stroke check mark centered in the icon column. */
+                double cx = (rtl ? f->width - 10 - icon_size : 10) + icon_size / 2.0;
+                double cy = y + m->item_h / 2.0;
+                double u = icon_size / 4.0;
+                cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, it->enabled ? 0.95 : 0.4);
+                cairo_set_line_width(cr, 1.6);
+                cairo_move_to(cr, cx - u, cy);
+                cairo_line_to(cr, cx - u / 3.0, cy + u * 0.8);
+                cairo_line_to(cr, cx + u, cy - u * 0.8);
+                cairo_stroke(cr);
             }
             text_x = 10 + menu_icon_column_w(m);
         }
@@ -543,7 +554,7 @@ static int measure_frame_width(PanelMenu *m, const int *idx, int n, int *out_has
         if (m->has_children[fi]) {
             any_children = 1;
         }
-        if (m->items[fi].icon) {
+        if (m->items[fi].icon || m->items[fi].checked) {
             any_icon = 1;
         }
         double tw;

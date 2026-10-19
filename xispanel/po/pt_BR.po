@@ -324,6 +324,10 @@ msgstr "Fixar"
 msgid "Abrir nova instância"
 msgstr "Abrir nova instância"
 
+#: widgets/tasklist.c
+msgid "Ocultar da captura de tela"
+msgstr "Ocultar da captura de tela"
+
 #: widgets/tasklist.c:2448
 #, c-format
 msgid "Abrir"

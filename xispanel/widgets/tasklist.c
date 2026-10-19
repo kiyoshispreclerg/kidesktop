@@ -24,6 +24,7 @@
 #include "../../shared/xis_desktop_actions.h"
 
 #include <X11/Xlib.h>
+#include <X11/Xatom.h>
 
 #include <ctype.h>
 #include <errno.h>
@@ -2013,7 +2014,7 @@ static void tasklist_jumplist_append_items(const TasklistJumplist *jl, MenuItem 
 /* Maps an absolute `index` into the items[] tasklist_jumplist_append_
  * items() built back to which jumplist-or-recent entry it is --
  * `fixed_count` is how many ordinary (non-jumplist) items came before
- * it in that same menu (7 for a real window, 2 for a placeholder).
+ * it in that same menu (8 for a real window, 2 for a placeholder).
  * Returns 0 for a separator or out-of-range index (nothing to do),
  * 1 with *is_recent and *item_i set otherwise. */
 static int tasklist_jumplist_index_lookup(const TasklistJumplist *jl, int fixed_count, int index, int *is_recent,
@@ -2041,10 +2042,54 @@ static int tasklist_jumplist_index_lookup(const TasklistJumplist *jl, int fixed_
     return 0;
 }
 
+/* Number of fixed items before the jumplist section of a real window's menu. */
+#define TASKLIST_FIXED_ITEMS 8
+
+/* _KIWM_CAPTURE_EXCLUDE on the client window (kiwm/PROTOCOL.md): present
+ * means "keep this window out of screen captures". The menu entry sets or
+ * deletes it and its check mark just asks whether it exists -- nothing is
+ * cached here. */
+static Atom tasklist_capture_atom(void)
+{
+    static Atom a;
+    if (!a) {
+        a = XInternAtom(g_dpy, "_KIWM_CAPTURE_EXCLUDE", False);
+    }
+    return a;
+}
+
+static int tasklist_capture_excluded(Window win)
+{
+    Atom type;
+    int fmt;
+    unsigned long n, after;
+    unsigned char *data = NULL;
+    int set = 0;
+    if (XGetWindowProperty(g_dpy, win, tasklist_capture_atom(), 0, 1, False, XA_CARDINAL, &type, &fmt, &n, &after,
+                           &data) == Success) {
+        set = (type == XA_CARDINAL && fmt == 32 && n > 0);
+        if (data) {
+            XFree(data);
+        }
+    }
+    return set;
+}
+
+static void tasklist_toggle_capture_excluded(Window win)
+{
+    if (tasklist_capture_excluded(win)) {
+        XDeleteProperty(g_dpy, win, tasklist_capture_atom());
+    } else {
+        unsigned long one = 1;
+        XChangeProperty(g_dpy, win, tasklist_capture_atom(), XA_CARDINAL, 32, PropModeReplace,
+                        (unsigned char *)&one, 1);
+    }
+}
+
 /* Builds the standard real-window context-menu items (0=minimize/restore,
  * 1=maximize/restore, 2=move, 3=close, [4]=separator, 5=pin/unpin,
- * 6=open another instance, 7..=jumplist actions/recent files) for `e`
- * into `items` (caller-zeroed, sized >= 7 + 2 + MAX_JUMPLIST_ACTIONS +
+ * 6=open another instance, 7=hide from screen capture, 8..=jumplist actions/recent files) for `e`
+ * into `items` (caller-zeroed, sized >= TASKLIST_FIXED_ITEMS + 2 + MAX_JUMPLIST_ACTIONS +
  * MAX_RECENT_ITEMS). Shared by the plain per-window Button3 menu and, per
  * group member, a grouped button's Button3 submenu (see
  * tasklist_on_button()) -- tasklist_apply_action() below is the exact
@@ -2072,6 +2117,10 @@ static int tasklist_build_action_items(TasklistPriv *tp, const TaskEntry *e, Men
     snprintf(items[n].label, sizeof(items[n].label), _("Abrir nova instância"));
     items[n].enabled = 1;
     n++;
+    snprintf(items[n].label, sizeof(items[n].label), _("Ocultar da captura de tela"));
+    items[n].enabled = 1;
+    items[n].checked = tasklist_capture_excluded(e->win);
+    n++;
 
     TasklistJumplist jl;
     tasklist_resolve_jumplist(e->wm_class, tp->recent_max, &jl);
@@ -2093,8 +2142,8 @@ static void tasklist_apply_action(PanelWidget *w, Window win, int local_idx)
     TasklistPriv *tp = w->priv;
     int idx = tasklist_find(tp, win);
 
-    if (local_idx >= 7) {
-        /* index 7.. is the jumplist section (actions, then recent files)
+    if (local_idx >= TASKLIST_FIXED_ITEMS) {
+        /* index TASKLIST_FIXED_ITEMS.. is the jumplist section (actions, then recent files)
          * -- re-resolved from wm_class rather than kept around from when
          * the menu was built, same "re-read rather than cache" call
          * xisserve's own launcher makes for this identical feature. */
@@ -2102,7 +2151,7 @@ static void tasklist_apply_action(PanelWidget *w, Window win, int local_idx)
             TasklistJumplist jl;
             tasklist_resolve_jumplist(tp->tasks[idx].wm_class, tp->recent_max, &jl);
             int is_recent = 0, item_i = 0;
-            if (tasklist_jumplist_index_lookup(&jl, 7, local_idx, &is_recent, &item_i)) {
+            if (tasklist_jumplist_index_lookup(&jl, TASKLIST_FIXED_ITEMS, local_idx, &is_recent, &item_i)) {
                 if (is_recent) {
                     char exec_cmd[600];
                     if (xis_desktop_build_exec_with_file(jl.desktop_path, jl.recent_paths[item_i], exec_cmd,
@@ -2144,6 +2193,9 @@ static void tasklist_apply_action(PanelWidget *w, Window win, int local_idx)
         if (idx >= 0) {
             tasklist_launch_class(tp, tp->tasks[idx].wm_class, tp->tasks[idx].win);
         }
+        break;
+    case 7: /* Ocultar da captura de tela -- the property is the state */
+        tasklist_toggle_capture_excluded(win);
         break;
     case 5:
         if (idx >= 0) {
@@ -2383,7 +2435,7 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
             tp->menu_group_local_idx[n] = -1;
             n++;
 
-            MenuItem sub[7 + 2 + MAX_JUMPLIST_ACTIONS + MAX_RECENT_ITEMS];
+            MenuItem sub[TASKLIST_FIXED_ITEMS + 2 + MAX_JUMPLIST_ACTIONS + MAX_RECENT_ITEMS];
             memset(sub, 0, sizeof(sub));
             int sn = tasklist_build_action_items(tp, me, sub);
             for (int k = 0; k < sn && n < TASKLIST_GROUP_MENU_ITEM_CAP; k++) {
@@ -2493,7 +2545,7 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
     }
 
     if (button == Button3) {
-        MenuItem items[7 + 2 + MAX_JUMPLIST_ACTIONS + MAX_RECENT_ITEMS];
+        MenuItem items[TASKLIST_FIXED_ITEMS + 2 + MAX_JUMPLIST_ACTIONS + MAX_RECENT_ITEMS];
         memset(items, 0, sizeof(items));
         int n = tasklist_build_action_items(tp, e, items);
         panel_menu_open(w->panel, w, anchor_x, anchor_w, items, n, (void *)(uintptr_t)e->win, tasklist_menu_select);

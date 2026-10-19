@@ -118,4 +118,5 @@ void ewmh_init_atoms(void)
     wm.atoms.kiwm_wm_output = intern_atom("_KIWM_WM_OUTPUT");
     wm.atoms.kiwm_minimized_geometry = intern_atom("_KIWM_MINIMIZED_GEOMETRY");
     wm.atoms.kiwm_layer = intern_atom("_KIWM_LAYER");
+    wm.atoms.kiwm_capture_exclude = intern_atom("_KIWM_CAPTURE_EXCLUDE");
 }

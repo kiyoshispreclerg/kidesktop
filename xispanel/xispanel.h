@@ -1141,6 +1141,9 @@ typedef struct {
      * be open, then free it once done (see dbusmenu_free_item_icons() for
      * the DBusMenu-backed case, which is the only current source of these). */
     cairo_surface_t *icon;
+    /* 1 = draw a check mark in the icon column (a checkbox-style entry).
+     * Zero for every caller that doesn't know about it. */
+    int checked;
 } MenuItem;
 
 typedef void (*MenuSelectFn)(Panel *panel, PanelWidget *widget, void *ctx, int index);

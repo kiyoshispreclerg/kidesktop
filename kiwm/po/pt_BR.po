@@ -62,6 +62,10 @@ msgstr "Todas as áreas de trabalho"
 msgid "Keep above"
 msgstr "Manter no topo"
 
+#: menu.c
+msgid "Hide from screen capture"
+msgstr "Ocultar da captura de tela"
+
 #: menu.c:124
 msgid "Configure windows..."
 msgstr "Configurar janelas…"

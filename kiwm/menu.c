@@ -75,6 +75,7 @@ typedef enum {
     ACT_SHADE,
     ACT_STICKY,
     ACT_KEEP_ABOVE,
+    ACT_CAPTURE_EXCLUDE,
     ACT_CLOSE,
     ACT_TO_DESKTOP,    /* built at open time, one per desktop -- see build_desktop_frame() */
     ACT_CONFIGURE,     /* kiconf on its window-management tab; not about this window */
@@ -105,6 +106,31 @@ static bool is_shaded(const Client *c)     { return c->shaded; }
 static bool is_sticky(const Client *c)     { return c->sticky; }
 static bool is_kept_above(const Client *c) { return c->keep_above; }
 
+/* The mark is the state: nothing is cached on the Client, so a tool that sets
+ * or deletes _KIWM_CAPTURE_EXCLUDE behind kiwm's back is reflected the next
+ * time the menu opens. One round trip, only when the menu is built. */
+static bool is_capture_excluded(const Client *c)
+{
+    xcb_get_property_reply_t *r = xcb_get_property_reply(
+        wm.conn, xcb_get_property(wm.conn, 0, c->window, wm.atoms.kiwm_capture_exclude,
+                                  XCB_ATOM_CARDINAL, 0, 1), NULL);
+    bool set = r && r->type == XCB_ATOM_CARDINAL && r->format == 32 && r->length > 0;
+    free(r);
+    return set;
+}
+
+static void toggle_capture_exclude(Client *c)
+{
+    if (is_capture_excluded(c)) {
+        xcb_delete_property(wm.conn, c->window, wm.atoms.kiwm_capture_exclude);
+    } else {
+        uint32_t one = 1;
+        xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, c->window, wm.atoms.kiwm_capture_exclude,
+                            XCB_ATOM_CARDINAL, 32, 1, &one);
+    }
+    xcb_flush(wm.conn);
+}
+
 /* Display-only -- read into a MenuItem.label by build_root_items() below,
  * which calls _() on its way out, so N_() here just marks each literal
  * for extraction (same convention as kiconf's XNOTIFY_ACTIONS table).
@@ -120,6 +146,7 @@ static const MenuEntry entries[] = {
     { .label = N_("Move to desktop"), .submenu = SUB_DESKTOPS, .allowed = can_pick_desktop },
     { .label = N_("All desktops"),   .action = ACT_STICKY,     .on = is_sticky },
     { .label = N_("Keep above"),     .action = ACT_KEEP_ABOVE, .on = is_kept_above },
+    { .label = N_("Hide from screen capture"), .action = ACT_CAPTURE_EXCLUDE, .on = is_capture_excluded },
     { .separator = true },
     { .label = N_("Configure windows..."), .action = ACT_CONFIGURE },
     { .separator = true },
@@ -545,6 +572,7 @@ static void run_action(Client *c, const MenuItem *it)
     case ACT_SHADE:      toggle_shade(c, -1); break;
     case ACT_STICKY:     toggle_sticky(c, -1); break;
     case ACT_KEEP_ABOVE: toggle_keep_above(c, -1); break;
+    case ACT_CAPTURE_EXCLUDE: toggle_capture_exclude(c); break;
     case ACT_CLOSE:      close_client(c); break;
     case ACT_TO_DESKTOP: set_client_desktop(c, it->arg); break;
     /* kiconf matches --tab on the untranslated label (kiconf.c's

@@ -928,6 +928,7 @@ typedef struct {
      * kiwm's behavior is identical whether anything reads it or not.
      * See PROTOCOL.md. */
     xcb_atom_t kiwm_layer;
+    xcb_atom_t kiwm_capture_exclude;  /* _KIWM_CAPTURE_EXCLUDE, see PROTOCOL.md */
 
     /* Published by a compositor doing per-output HiDPI scaling: the parts
      * of the screen that are actually usable desktop (output.c). */
