@@ -220,10 +220,18 @@ GdkPixbuf *ks_grab_rect(const KsRect *r, gboolean pointer)
     if (ks_capture_acquire())
         ks_capture_view(xc, r, &cv);
     GdkPixbuf *pb = gdk_pixbuf_get_from_drawable(NULL, root, NULL, r->x, r->y, 0, 0, r->w, r->h);
-    /* the compositor's word that nothing hidden was showing, still true
-     * after the copy: the screen is the censored picture */
-    gboolean clear = pb && ks_capture_unchanged(xc, &cv);
-    ks_capture_note(clear);
+    /* Where something hidden shows, the compositor's censored picture is
+     * read instead of the screen. Where nothing does, the screen is the
+     * censored picture -- its word, checked again after the copy. */
+    KsCapSlot slots[KS_CAP_MAX_OUT];
+    int nslots = 0;
+    gboolean slots_ok = TRUE;
+    if (pb && cv.ok && cv.n_slot)
+        slots_ok = ks_capture_fetch(&cv, slots, &nslots) &&
+                   ks_capture_copy_pixbuf(slots, nslots, r, pb);
+    ks_capture_return(slots, nslots);        /* the read above was synchronous */
+    gboolean clear = pb && slots_ok && ks_capture_unchanged(xc, &cv);
+    ks_capture_note(&cv, clear, cv.n_slot > 0);
     ks_capture_release();
     if (!pb)
         return NULL;
@@ -273,6 +281,11 @@ GdkPixbuf *ks_grab_scaled(const KsRect *r, int dw, int dh, gboolean pointer)
     if (ks_capture_acquire())
         ks_capture_view(xc, r, &cv);
     XCopyArea(dpy, root, full, gc, r->x, r->y, r->w, r->h, 0, 0);
+    KsCapSlot slots[KS_CAP_MAX_OUT];
+    int nslots = 0;
+    gboolean slots_ok = TRUE;
+    if (cv.ok && cv.n_slot && (slots_ok = ks_capture_fetch(&cv, slots, &nslots)))
+        ks_capture_copy_xlib(dpy, slots, nslots, r, full, gc);
     Picture src = XRenderCreatePicture(dpy, full, fmt, 0, NULL);
     Pixmap pm = XCreatePixmap(dpy, root, dw, dh, 24);
     Picture dst = XRenderCreatePicture(dpy, pm, fmt24, 0, NULL);
@@ -286,7 +299,9 @@ GdkPixbuf *ks_grab_scaled(const KsRect *r, int dw, int dh, gboolean pointer)
     XRenderSetPictureFilter(dpy, src, FilterBilinear, NULL, 0);
     XRenderComposite(dpy, PictOpSrc, src, None, dst, 0, 0, 0, 0, 0, 0, dw, dh);
     XImage *img = XGetImage(dpy, pm, 0, 0, dw, dh, AllPlanes, ZPixmap);
-    gboolean clear = img && ks_capture_unchanged(xc, &cv);
+    ks_capture_return(slots, nslots);        /* after the synchronous read above */
+    gboolean clear = img && slots_ok && ks_capture_unchanged(xc, &cv);
+    ks_capture_note(&cv, clear, cv.n_slot > 0);
     ks_capture_release();
     XRenderFreePicture(dpy, dst);
     XRenderFreePicture(dpy, src);

@@ -23,7 +23,7 @@ start_stack() { # start_stack <kicomp.conf body>
     DISPLAY=$HOST_DISPLAY Xephyr "$D" -screen 800x600 >"$TMP/xephyr.log" 2>&1 & XP=$!; PIDS+=($XP)
     sleep 1.5; export DISPLAY=$D
     "$ROOT/kiwm/kiwm" >"$TMP/kiwm.log" 2>&1 & KP=$!; PIDS+=($KP); sleep 0.8
-    "$ROOT/kicomp/kicomp" -v >"$TMP/kicomp.log" 2>&1 & CP=$!; PIDS+=($CP); sleep 1.5
+    "$ROOT/kicomp/kicomp" --renderer=xrender -v >"$TMP/kicomp.log" 2>&1 & CP=$!; PIDS+=($CP); sleep 1.5
     xsetroot -solid '#303030'
     xterm -bg white -fg black -geometry 30x8+100+100 -e sleep 120 & XT=$!; PIDS+=($XT); sleep 1.5
     XC=$(xdotool search --pid $XT | head -1)
@@ -40,7 +40,8 @@ import sys
 from PIL import Image
 im = Image.open(sys.argv[1]).convert('RGB')
 p = im.getpixel((160, 160))
-print('white' if p[0] > 200 and p[1] > 200 else 'black' if sum(p) < 30 else 'other:%s' % (p,))
+print('white' if p[0] > 200 and p[1] > 200 else 'black' if sum(p) < 30
+      else 'gray' if p == (28, 28, 28) else 'other:%s' % (p,))
 PY
 }
 expect() { # expect <name> <got> <want>
@@ -58,13 +59,13 @@ grep -q "capture: session" "$TMP/kicomp.log" && fail "a session was opened witho
 stop_stack
 
 # ---- the compositor offers it -------------------------------------------------
-start_stack "capture_censor = hide"
+start_stack "capture_censor = black"
 expect "offer: an unmarked window shows" "$(shot)" white
 grep -q "capture: session" "$TMP/kicomp.log" && ok "a session was opened" || fail "no session opened"
 grep -q "the screen is the censored picture" "$TMP/kishot.log" && ok "nothing hidden showing: the screen is used as is" || fail "the compositor's word was not used"
 mark "$XC"; sleep 0.7
-expect "offer: a marked window is hidden (visible>0, UNAVAILABLE -> rectangles)" "$(shot)" black
-grep -q "own black rectangles" "$TMP/kishot.log" && ok "something hidden showing: own rectangles" || fail "rectangles were not used"
+expect "offer: a marked window is hidden" "$(shot)" black
+grep -q "the compositor's censored picture (slot)" "$TMP/kishot.log" && ok "something hidden showing: read from the compositor's slot" || { fail "the slot was not used"; cat "$TMP/kishot.log"; }
 unmark "$XC"; sleep 0.7
 expect "offer: unmarked again, it shows" "$(shot)" white
 
@@ -78,6 +79,15 @@ for i in 1 2 3 4 5 6; do
 done
 [ $bad -eq 0 ] && ok "6 mark/shot cycles: never leaked" || fail "$bad of 6 shots leaked a marked window"
 
+# hide mode: what is behind the window shows (the compositor's default ground, 0x1c1c1c), not black
+kill $CP; wait $CP 2>/dev/null; sleep 0.5
+printf 'capture_censor = hide\n' > "$HOME/.config/kicomp.conf"
+"$ROOT/kicomp/kicomp" --renderer=xrender -v >"$TMP/kicomp.log" 2>&1 & CP=$!; PIDS+=($CP); sleep 1.5
+mark "$XC"; sleep 0.7
+expect "hide mode: the desktop shows where the window was" "$(shot)" gray
+grep -q "the compositor's censored picture (slot)" "$TMP/kishot.log" && ok "... read from the slot" || fail "hide: the slot was not used"
+unmark "$XC"; sleep 0.7
+
 # kishot has a target of its own (censor_classes): the compositor's "nothing
 # hidden shows" cannot be trusted to mean the shot is clean
 printf 'censor_classes=XTerm\n' > "$HOME/.config/kishot.conf"
@@ -89,5 +99,29 @@ kill -9 $CP; wait $CP 2>/dev/null; sleep 0.5
 mark "$XC"; sleep 0.5
 expect "compositor gone: a marked window is still hidden" "$(shot)" black
 stop_stack
+
+# ---- a recording (the SHM path in a nested server): the compositor's colour --
+if command -v ffmpeg >/dev/null; then
+    start_stack "capture_censor = #204060"
+    mark "$XC"; sleep 0.7
+    mkdir -p "$HOME/Videos"
+    "$ROOT/kishot/kishot" -fbR >"$TMP/rec1.log" 2>&1 &
+    sleep 3
+    "$ROOT/kishot/kishot" -fbR >"$TMP/rec2.log" 2>&1; sleep 3
+    V=$(ls "$HOME"/Videos/*.mkv "$HOME"/*.mkv 2>/dev/null | head -1)
+    if [ -n "$V" ] && ffmpeg -loglevel error -y -ss 1 -i "$V" -frames:v 1 "$TMP/frame.png"; then
+        got=$(python3 - "$TMP/frame.png" <<'PY'
+import sys
+from PIL import Image
+p = Image.open(sys.argv[1]).convert('RGB').getpixel((160, 160))
+print('fill' if all(abs(a - b) <= 8 for a, b in zip(p, (0x20, 0x40, 0x60))) else 'black' if sum(p) < 30 else 'other:%s' % (p,))
+PY
+)
+        expect "recording: the marked window is the compositor's fill colour, not black" "$got" fill
+    else
+        fail "no recording was made"; cat "$TMP/rec1.log" "$TMP/rec2.log"
+    fi
+    stop_stack
+fi
 
 echo; if [ $fails -eq 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi

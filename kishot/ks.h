@@ -107,17 +107,30 @@ unsigned long ks_censor_pick(void);
 #define KS_CAP_MAX_OUT 8
 
 /* What the compositor said about the outputs under an area, before a copy
- * of it. `clear` means the screen itself is the censored picture: nothing
- * that should be hidden contributes pixels there (and kishot has no targets
- * of its own the compositor cannot know). Anything else -- no compositor, no
- * offer, no session, a window showing, UNAVAILABLE -- is not clear, and the
- * caller censors the way it always has. */
+ * of it. `ok` means the compositor can make everything under the area
+ * censored: an output with nothing hidden showing is the screen as it is
+ * (read it as always, then check it with ks_capture_unchanged()), and an
+ * output where something hidden shows is read from a slot of the
+ * compositor's censored picture (ks_capture_fetch()). Anything else -- no
+ * compositor, no offer, no session, UNAVAILABLE, kishot targets of its own
+ * (censor_classes) -- is not ok, and the caller censors with its own
+ * rectangles as it always has. */
 typedef struct {
-    gboolean clear;
-    int n;
-    int out[KS_CAP_MAX_OUT];
+    gboolean ok;
+    int n;                              /* outputs under the area */
+    int out[KS_CAP_MAX_OUT];            /* their index in the session */
     uint32_t epoch[KS_CAP_MAX_OUT];
+    gboolean via_slot[KS_CAP_MAX_OUT];  /* something hidden shows: read a slot */
+    KsRect orect[KS_CAP_MAX_OUT];       /* the output, in root coordinates */
+    int n_slot;
 } KsCapView;
+
+/* A slot of the compositor's picture of one output, held for us. */
+typedef struct {
+    int out, slot;
+    xcb_pixmap_t pixmap;
+    KsRect orect;
+} KsCapSlot;
 
 /* Main thread: opens (or keeps) a session when the compositor offers one.
  * Balanced by ks_capture_release(), which closes it a few seconds later. */
@@ -125,11 +138,28 @@ gboolean ks_capture_acquire(void);
 void ks_capture_release(void);
 /* The seqlock, over the connection that does the copy -- the server handles
  * one connection's requests in order, which is what makes it sound:
- *     view(c, area, &v);  ...copy over c...;  if (unchanged(c, &v)) skip own censoring */
+ *     view(c, area, &v);  ...copy the screen over c...;  [fetch + copy the slots];
+ *     if (ok && unchanged(c, &v) && slots read) skip own censoring */
 void ks_capture_view(xcb_connection_t *c, const KsRect *area, KsCapView *v);
 gboolean ks_capture_unchanged(xcb_connection_t *c, const KsCapView *v);
+/* Asks for the picture of each output that needs one and waits (a short
+ * deadline) for the slots. FALSE if any could not be had -- nothing is held
+ * then. Otherwise the caller reads them with one of the copies below and
+ * gives them back with ks_capture_return() *after a round trip* following
+ * its last read. */
+gboolean ks_capture_fetch(const KsCapView *v, KsCapSlot *slots, int *n);
+void ks_capture_return(const KsCapSlot *slots, int n);
+/* The copies: the slots' pixels for the part of `area` each covers, onto
+ * a pixmap (xcb, then Xlib), into a 4-byte-per-pixel buffer, or into a pixbuf. */
+void ks_capture_copy_xcb(xcb_connection_t *c, const KsCapSlot *s, int n, const KsRect *area,
+                         xcb_drawable_t dst, xcb_gcontext_t gc);
+void ks_capture_copy_xlib(void *display, const KsCapSlot *s, int n, const KsRect *area,
+                          unsigned long dst, void *gc);
+gboolean ks_capture_copy_buffer(xcb_connection_t *c, const KsCapSlot *s, int n, const KsRect *area,
+                                uint8_t *buf, int stride);
+gboolean ks_capture_copy_pixbuf(const KsCapSlot *s, int n, const KsRect *area, GdkPixbuf *pb);
 /* with KISHOT_DEBUG set, says on stderr which way a frame was censored */
-void ks_capture_note(gboolean clear);
+void ks_capture_note(const KsCapView *v, gboolean censored, gboolean slots);
 /* GDK's own X connection, for the copies GDK/Xlib make */
 xcb_connection_t *ks_capture_gdk_connection(void);
 /* Does the compositor offer the protocol; its censor mode (0 hide, 1 fill) */

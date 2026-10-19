@@ -862,10 +862,22 @@ static gpointer capture_thread(gpointer data)
             ks_capture_view(r->c, &r->area, &cv);
             xcb_copy_area(r->c, r->root, r->pixmap[slot], r->gc_copy, r->area.x, r->area.y, 0, 0,
                           r->area.w, r->area.h);
-            /* the compositor's word that nothing hidden was showing, still
-             * true after the copy (read over this same connection, so the
-             * server handled the copy first): no rectangles needed */
-            if (!ks_capture_unchanged(r->c, &cv))
+            /* Where something hidden shows, the compositor's censored
+             * picture goes over the copy; where nothing does, its word that
+             * the screen is clean, still true after the copy (read over this
+             * same connection, so the server handled the copy first), is
+             * what lets the rectangles go. */
+            KsCapSlot cs[KS_CAP_MAX_OUT];
+            int ncs = 0;
+            gboolean slots_ok = TRUE;
+            if (cv.ok && cv.n_slot && (slots_ok = ks_capture_fetch(&cv, cs, &ncs))) {
+                ks_capture_copy_xcb(r->c, cs, ncs, &r->area, r->pixmap[slot], r->gc_copy);
+                /* the slots are ours to give back only once the server has
+                 * started the copy */
+                free(xcb_get_input_focus_reply(r->c, xcb_get_input_focus(r->c), NULL));
+                ks_capture_return(cs, ncs);
+            }
+            if (!(slots_ok && ks_capture_unchanged(r->c, &cv)))
                 paint_censor_gpu(r, slot);
             if (ptr_ok && r->cur_pic && r->pic[slot])
                 xcb_render_composite(r->c, XCB_RENDER_PICT_OP_OVER, r->cur_pic, XCB_NONE, r->pic[slot], 0, 0, 0, 0,
@@ -894,7 +906,15 @@ static gpointer capture_thread(gpointer data)
                 break;
             }
             free(img);
-            if (!ks_capture_unchanged(r->c, &cv))
+            KsCapSlot cs[KS_CAP_MAX_OUT];
+            int ncs = 0;
+            gboolean slots_ok = TRUE;
+            if (cv.ok && cv.n_slot) {
+                slots_ok = ks_capture_fetch(&cv, cs, &ncs) &&
+                           ks_capture_copy_buffer(r->c, cs, ncs, &r->area, r->shm, r->stride);
+                ks_capture_return(cs, ncs);      /* the read above was synchronous */
+            }
+            if (!(slots_ok && ks_capture_unchanged(r->c, &cv)))
                 paint_censor_cpu(r, r->shm);
             if (ptr_ok && r->cur_img)
                 blend_cursor_cpu(r, r->shm, r->stride, px, py);
