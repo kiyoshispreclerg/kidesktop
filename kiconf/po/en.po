@@ -2335,3 +2335,13 @@ msgstr "Save click actions"
 #~ msgstr ""
 #~ "Takes effect at the next login. Ctrl+Alt+Tab focuses the panel for "
 #~ "keyboard use (focus_key= in xispanel.conf)."
+
+#: tabs/efeitos.c
+msgid ""
+"Janelas que perdem a sombra enquanto outra janela maximizada (nos dois"
+" eixos) ou em tela cheia estiver na mesma saida (ex.: dock ou class:xi"
+"spanel; aceita ! para excluir). Vazio = desligado."
+msgstr ""
+"Windows that lose their shadow while another window maximized on both "
+"axes or fullscreen is on the same output (e.g. dock or class:xispanel;"
+" ! excludes). Empty = off."
