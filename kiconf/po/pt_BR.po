@@ -2356,3 +2356,21 @@ msgid ""
 " eixos) ou em tela cheia estiver na mesma saida (ex.: dock ou class:xi"
 "spanel; aceita ! para excluir). Vazio = desligado."
 msgstr ""
+
+#: tabs/efeitos.c
+msgid ""
+"Oferece a gravadores de tela (kishot) uma imagem em que as janelas m"
+"arcadas com \"Ocultar da captura de tela\" aparecem como uma cor cha"
+"pada (fill) ou nem aparecem (hide). off = desligado: o gravador pint"
+"a retangulos pretos por conta propria."
+msgstr ""
+
+#: tabs/efeitos.c
+msgid ""
+"Cor das janelas censuradas no modo fill"
+msgstr ""
+
+#: tabs/efeitos.c
+msgid ""
+"Quantos gravadores a captura censurada atende ao mesmo tempo"
+msgstr ""

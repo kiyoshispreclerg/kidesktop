@@ -2345,3 +2345,27 @@ msgstr ""
 "Windows that lose their shadow while another window maximized on both "
 "axes or fullscreen is on the same output (e.g. dock or class:xispanel;"
 " ! excludes). Empty = off."
+
+#: tabs/efeitos.c
+msgid ""
+"Oferece a gravadores de tela (kishot) uma imagem em que as janelas m"
+"arcadas com \"Ocultar da captura de tela\" aparecem como uma cor cha"
+"pada (fill) ou nem aparecem (hide). off = desligado: o gravador pint"
+"a retangulos pretos por conta propria."
+msgstr ""
+"Offers screen recorders (kishot) a picture where windows marked \"Hi"
+"de from screen capture\" are a flat colour (fill) or not there at al"
+"l (hide). off = disabled: the recorder paints black rectangles itsel"
+"f."
+
+#: tabs/efeitos.c
+msgid ""
+"Cor das janelas censuradas no modo fill"
+msgstr ""
+"Colour of the censored windows in fill mode"
+
+#: tabs/efeitos.c
+msgid ""
+"Quantos gravadores a captura censurada atende ao mesmo tempo"
+msgstr ""
+"How many recorders the censored capture serves at once"

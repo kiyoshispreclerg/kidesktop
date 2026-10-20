@@ -38,6 +38,10 @@ typedef struct {
     int keep_hidden_contents;
     int density;
     char live_windows[16];
+    /* capture_censor: off | hide | fill (a colour, "black" included) */
+    char capture_mode[8];
+    char capture_color[16];
+    int capture_sessions;
 } KicompGlobals;
 
 typedef struct {
@@ -74,6 +78,9 @@ static void globals_defaults(KicompGlobals *g)
     g->keep_hidden_contents = 1;
     g->density = 1;
     snprintf(g->live_windows, sizeof(g->live_windows), "desktop");
+    snprintf(g->capture_mode, sizeof(g->capture_mode), "off");
+    snprintf(g->capture_color, sizeof(g->capture_color), "#000000");
+    g->capture_sessions = 2;
 }
 
 static void shadow_defaults(ShadowConfig *s)
@@ -225,6 +232,18 @@ static void load_kicomp_conf(KicompGlobals *g, ShadowConfig *sh, EffectRow *rows
             else if (!strcmp(key, "claim_ms")) g->claim_ms = g_ascii_strtod(val, NULL);
             else if (!strcmp(key, "keep_hidden_contents")) g->keep_hidden_contents = atoi(val) != 0;
             else if (!strcmp(key, "live_windows")) SETS(live_windows);
+            else if (!strcmp(key, "capture_sessions")) g->capture_sessions = atoi(val);
+            else if (!strcmp(key, "capture_censor")) {
+                if (!strcmp(val, "off") || !strcmp(val, "hide")) {
+                    snprintf(g->capture_mode, sizeof(g->capture_mode), "%s", val);
+                } else if (!strcmp(val, "black")) {
+                    snprintf(g->capture_mode, sizeof(g->capture_mode), "fill");
+                    snprintf(g->capture_color, sizeof(g->capture_color), "#000000");
+                } else if (val[0] == '#' && strlen(val) == 7) {
+                    snprintf(g->capture_mode, sizeof(g->capture_mode), "fill");
+                    snprintf(g->capture_color, sizeof(g->capture_color), "%s", val);
+                }
+            }
 #undef SETS
         }
     }
@@ -293,6 +312,24 @@ static void refresh_status(void)
 static const char *const RENDERER_OPTS[] = {"auto", "xrender", "glx", "egl", NULL};
 static const char *const PRESENTER_OPTS[] = {"auto", "present", "copy", NULL};
 static const char *const LIVE_WINDOWS_OPTS[] = {"desktop", "active", "all", NULL};
+static const char *const CAPTURE_OPTS[] = {"off", "hide", "fill", NULL};
+static GtkWidget *g_capture_combo, *g_capture_color_btn, *g_capture_sessions_spin;
+
+/* The colour and the session count mean something only while captures are
+ * censored by the compositor, and the colour only for a fill. */
+static void sync_capture_widgets(void)
+{
+    const char *mode = combo_text(g_capture_combo, CAPTURE_OPTS);
+    gtk_widget_set_sensitive(g_capture_color_btn, !strcmp(mode, "fill"));
+    gtk_widget_set_sensitive(g_capture_sessions_spin, strcmp(mode, "off") != 0);
+}
+
+static void capture_combo_changed_cb(GtkWidget *w, gpointer data)
+{
+    (void)w;
+    (void)data;
+    sync_capture_widgets();
+}
 
 static void toggle_inactive_frame_cb(GtkWidget *widget, gpointer data)
 {
@@ -960,6 +997,17 @@ static void save_efeitos_cb(GtkWidget *widget, gpointer data)
     fprintf_double(out, "claim_ms", gtk_spin_button_get_value(GTK_SPIN_BUTTON(g_claim_spin)), 1);
     fprintf(out, "keep_hidden_contents=%d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_keep_hidden_chk)));
     fprintf(out, "live_windows=%s\n", combo_text(g_live_windows_combo, LIVE_WINDOWS_OPTS));
+    {
+        const char *cm = combo_text(g_capture_combo, CAPTURE_OPTS);
+        if (!strcmp(cm, "fill")) {
+            char cc[16];
+            color_button_hex(g_capture_color_btn, cc, sizeof(cc));
+            fprintf(out, "capture_censor=%s\n", cc);
+        } else {
+            fprintf(out, "capture_censor=%s\n", cm);
+        }
+        fprintf(out, "capture_sessions=%d\n", gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_capture_sessions_spin)));
+    }
 
     fprintf(out, "\n[shadow]\n");
     fprintf(out, "enabled=%d\n", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_sh_enabled_chk)));
@@ -1064,7 +1112,7 @@ GtkWidget *build_efeitos_tab(void)
     gtk_box_pack_start(GTK_BOX(content), top_row, FALSE, FALSE, 0);
 
     /* Geral */
-    GtkWidget *general_table = gtk_table_new(11, 2, FALSE);
+    GtkWidget *general_table = gtk_table_new(14, 2, FALSE);
     g_effects_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_effects_chk), g.effects);
     labeled_row(general_table, 0, "Efeitos habilitados:", g_effects_chk);
@@ -1125,6 +1173,19 @@ GtkWidget *build_efeitos_tab(void)
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_density_chk), g.density);
     labeled_row(general_table, 10, "X-DENSITY:", g_density_chk);
     gtk_widget_set_tooltip_text(g_density_chk, _("Decoracao/conteudo nitidos sob zoom"));
+    g_capture_combo = make_options_combo(CAPTURE_OPTS, g.capture_mode);
+    labeled_row(general_table, 11, "Captura censurada:", g_capture_combo);
+    gtk_widget_set_tooltip_text(g_capture_combo,
+        _("Oferece a gravadores de tela (kishot) uma imagem em que as janelas marcadas com \"Ocultar da captura de tela\" aparecem como uma cor chapada (fill) ou nem aparecem (hide). off = desligado: o gravador pinta retangulos pretos por conta propria."));
+    g_capture_color_btn = make_color_button(g.capture_color);
+    labeled_row(general_table, 12, "Cor da censura:", g_capture_color_btn);
+    gtk_widget_set_tooltip_text(g_capture_color_btn, _("Cor das janelas censuradas no modo fill"));
+    g_capture_sessions_spin = gtk_spin_button_new_with_range(1, 8, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_capture_sessions_spin), g.capture_sessions < 1 ? 2 : g.capture_sessions);
+    labeled_row(general_table, 13, "Gravadores simultaneos:", g_capture_sessions_spin);
+    gtk_widget_set_tooltip_text(g_capture_sessions_spin, _("Quantos gravadores a captura censurada atende ao mesmo tempo"));
+    g_signal_connect(g_capture_combo, "changed", G_CALLBACK(capture_combo_changed_cb), NULL);
+    sync_capture_widgets();
     gtk_box_pack_start(GTK_BOX(top_row), frame_with("Geral", general_table), TRUE, TRUE, 0);
 
     /* Sombra -- focused fields directly in the frame, unfocused override

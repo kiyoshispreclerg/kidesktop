@@ -79,6 +79,10 @@ typedef struct {
      * keeping the rest -- the real frame's partial repaint, per slot. Full
      * for a slot never drawn. */
     CompRegion stale[MAX_OUTPUTS][MAX_SLOTS];
+    /* The slot holds the flat picture of an output handed to an excluded
+     * fullscreen window: that picture does not depend on the window's
+     * contents, so its damage (a game redrawing every frame) is not stale. */
+    bool flat[MAX_OUTPUTS][MAX_SLOTS];
 } Session;
 
 /* Bumped whenever the set of excluded windows changes, so a picture made
@@ -271,6 +275,14 @@ static const CompOutput *output_by_id(int id)
  * anywhere. */
 static uint32_t count_visible(const Session *s, const CompOutput *o)
 {
+    /* An output handed to one fullscreen window (unredirect.c) shows that
+     * window and nothing else: whatever is behind it is not in the picture,
+     * marked or not. So what is excluded on this output is exactly whether
+     * that window is. */
+    const CompWindow *held = unredirect_holder(o);
+    if (held)
+        return (held->capture_excluded || (s->hide_pid && held->pid == s->hide_pid)) ? 1 : 0;
+
     uint32_t n = 0;
     for (const CompWindow *w = comp.stack; w; w = w->next) {
         bool ex = w->capture_excluded || (s->hide_pid && w->pid == s->hide_pid);
@@ -366,21 +378,6 @@ void capture_update(void)
         xcb_flush(comp.conn);
 }
 
-bool capture_blocks_unredirect(const CompOutput *o)
-{
-    if (session_count == 0)
-        return false;
-    for (int i = 0; i < MAX_SESSIONS; i++) {
-        const Session *s = &sessions[i];
-        if (!s->used)
-            continue;
-        for (int k = 0; k < s->nout; k++)
-            if (s->out_id[k] == o->id && s->visible[k] > 0)
-                return true;
-    }
-    return false;
-}
-
 /* ------------------------------------------------------------------ */
 /* sessions                                                             */
 /* ------------------------------------------------------------------ */
@@ -444,6 +441,10 @@ static void all_stale(Session *s)
 void capture_damage(const CompOutput *o, const CompRect *r)
 {
     if (session_count == 0)
+        return;
+    /* Nothing on this output is in the pictures but one flat colour. */
+    const CompWindow *held = unredirect_holder(o);
+    if (held && held->capture_excluded)
         return;
     for (int i = 0; i < MAX_SESSIONS; i++) {
         Session *s = &sessions[i];
@@ -797,6 +798,28 @@ static void assemble(Session *s, int out, CompOutput *o)
     double t0 = comp_now_ms();
     scene_build(&cap_scene, o);
     effects_apply(&cap_scene, o);
+
+    /* The output is handed to a fullscreen window that is excluded: the
+     * screen is that window and nothing else, so the picture is one flat
+     * colour -- the fill colour, or black in hide mode, where there is no
+     * "what was behind it" to show (nothing behind an unredirected window
+     * is being composited). Only that window's node is kept: it covers the
+     * output, and nothing else would be seen. */
+    const CompWindow *held = unredirect_holder(o);
+    bool flat_all = held && held->capture_excluded;
+    if (flat_all) {
+        int keep = -1;
+        for (int i = 0; i < cap_scene.count; i++)
+            if (cap_scene.nodes[i].win == held)
+                keep = i;
+        if (keep > 0)
+            cap_scene.nodes[0] = cap_scene.nodes[keep];
+        cap_scene.count = keep >= 0 ? 1 : 0;
+        cap_scene.solid_count = 0;
+        cap_scene.chrome_count = 0;
+        cap_scene.sky_count = 0;
+        cap_scene.backdrop.rect = (CompRect){ 0, 0, 0, 0 };
+    }
     int reach = shadow_margin();
     for (int i = 0; i < cap_scene.count; i++) {
         CompSceneNode *n = &cap_scene.nodes[i];
@@ -810,13 +833,15 @@ static void assemble(Session *s, int out, CompOutput *o)
     }
 
     CompCaptureStyle st = {
-        .hide = cfg.mode == MODE_HIDE,
-        .color = cfg.color,
-        .hide_pid = s->hide_pid,
+        .hide = flat_all ? false : cfg.mode == MODE_HIDE,
+        .color = (flat_all && cfg.mode == MODE_HIDE) ? 0 : cfg.color,
+        .hide_pid = flat_all ? 0 : s->hide_pid,
     };
     double t1 = comp_now_ms();
     memset(comp_capture_timing, 0, sizeof comp_capture_timing);
     CompRegion *stale = &s->stale[out][pick];
+    if (flat_all != s->flat[out][pick])
+        region_set_full(stale);     /* the slot holds the other kind of picture */
     if (capdbg > 0) {
         double a = 0;
         if (region_is_full(stale))
@@ -833,6 +858,7 @@ static void assemble(Session *s, int out, CompOutput *o)
         return;
     }
     region_clear(stale);
+    s->flat[out][pick] = flat_all;
     if (capdbg < 0)
         capdbg = getenv("KICOMP_CAPDBG") != NULL;
     if (capdbg) {

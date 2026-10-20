@@ -62,9 +62,4 @@ void capture_update(void);
  * capture_update() and the effects, independent of any output's paint. */
 void capture_serve(void);
 
-/* An output a session watches must not be handed to a fullscreen window
- * while an excluded window shows on it: there would be no scene to
- * assemble the censored picture from. */
-bool capture_blocks_unredirect(const CompOutput *o);
-
 #endif /* KICOMP_CAPTURE_H */
