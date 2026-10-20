@@ -167,8 +167,25 @@ void pulse_set_sink_volume_relative(const char *sink, int delta_pct)
     if (!pulse_available()) {
         return;
     }
+    /* The panel never pushes a sink above 100% (boosting is opt-in in
+     * xisserve --audio), so a relative "+N%" is turned into an absolute,
+     * clamped value. */
+    int pct, muted;
+    if (!pulse_get_sink_state(sink, &pct, &muted)) {
+        return;
+    }
+    int target = pct + delta_pct;
+    if (delta_pct > 0 && pct >= 100) {
+        return;
+    }
+    if (target > 100) {
+        target = 100;
+    }
+    if (target < 0) {
+        target = 0;
+    }
     char args[128];
-    snprintf(args, sizeof(args), "set-sink-volume %s %+d%%", sink, delta_pct);
+    snprintf(args, sizeof(args), "set-sink-volume %s %d%%", sink, target);
     pactl_run_fire(args);
 }
 

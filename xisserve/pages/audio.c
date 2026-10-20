@@ -42,20 +42,27 @@
 /* How long after a user-initiated change to leave the poll alone -- see
  * the file comment. */
 #define AUDIO_SETTLE_US (900 * 1000)
-#define AUDIO_VOLUME_MAX 150
+#define AUDIO_VOLUME_NORMAL 100
+#define AUDIO_VOLUME_BOOST 200
 
-static GtkWidget *g_root;      /* notebook handed to xisserve.c */
+static GtkWidget *g_root;      /* boost checkbox + notebook, handed to xisserve.c */
 static GtkWidget *g_apps_box;  /* "Aplicativos" tab: playing/recording streams; rebuilt in place */
 static GtkWidget *g_devs_box;  /* "Dispositivos" tab: sinks/sources; rebuilt in place */
 static guint g_poll_id;
 static gboolean g_dragging;    /* a slider is held down right now */
 static gint64 g_last_action_us;
+static gboolean g_boost;       /* "permitir volume acima de 100%": sliders go to AUDIO_VOLUME_BOOST instead of AUDIO_VOLUME_NORMAL */
 static gboolean g_updating;    /* set while populating widgets, so their own signals don't echo back to pactl */
 static char g_signature[4096];
 static GPtrArray *g_players;   /* MPRIS players, refreshed with each pulse snapshot */
 static gboolean g_devs_expanded[2]; /* "Dispositivos": non-default devices shown, [0] Saída [1] Entrada */
 
 static void rebuild(void);
+
+static int volume_max(void)
+{
+    return g_boost ? AUDIO_VOLUME_BOOST : AUDIO_VOLUME_NORMAL;
+}
 
 /* One built row, kept alive alongside its widgets so the callbacks know
  * which object they act on. The PulseEntry is a copy, not a pointer
@@ -110,8 +117,8 @@ static int scroll_step(void)
     if (step < 1) {
         step = 1;
     }
-    if (step > AUDIO_VOLUME_MAX) {
-        step = AUDIO_VOLUME_MAX;
+    if (step > volume_max()) {
+        step = volume_max();
     }
     return step;
 }
@@ -142,8 +149,8 @@ static gboolean on_scale_scroll(GtkWidget *w, GdkEventScroll *ev, gpointer data)
     if (v < 0) {
         v = 0;
     }
-    if (v > AUDIO_VOLUME_MAX) {
-        v = AUDIO_VOLUME_MAX;
+    if (v > volume_max()) {
+        v = volume_max();
     }
     note_user_action();
     gtk_range_set_value(GTK_RANGE(w), v);
@@ -480,7 +487,7 @@ static GtkWidget *build_row(const PulseEntry *e, GPtrArray *all_entries)
     xisserve_a11y(row->mute, NULL, e->label);
     gtk_box_pack_start(GTK_BOX(top), row->mute, FALSE, FALSE, 0);
 
-    row->scale = gtk_hscale_new_with_range(0, AUDIO_VOLUME_MAX, 1);
+    row->scale = gtk_hscale_new_with_range(0, volume_max(), 1);
     gtk_scale_set_digits(GTK_SCALE(row->scale), 0);
     gtk_scale_set_value_pos(GTK_SCALE(row->scale), GTK_POS_RIGHT);
     /* Arrow keys and clicks in the trough move by the same configured
@@ -810,14 +817,49 @@ static GtkWidget *build_tab(GtkWidget *box)
     return scroll;
 }
 
+/* Raising or dropping the ceiling re-ranges every slider in place. A
+ * slider above the new ceiling gets clamped by GTK, which would emit
+ * "value-changed" -- g_updating keeps that from reaching pactl; the next
+ * poll shows the real value again. */
+static void apply_boost_range(GtkWidget *box)
+{
+    GList *children = gtk_container_get_children(GTK_CONTAINER(box));
+    for (GList *l = children; l; l = l->next) {
+        AudioRow *row = g_object_get_data(G_OBJECT(l->data), "audio-row");
+        if (row) {
+            gtk_range_set_range(GTK_RANGE(row->scale), 0, volume_max());
+        }
+    }
+    g_list_free(children);
+}
+
+static void on_boost_toggled(GtkToggleButton *btn, gpointer data)
+{
+    (void)data;
+    g_boost = gtk_toggle_button_get_active(btn);
+    g_updating = TRUE;
+    apply_boost_range(g_apps_box);
+    apply_boost_range(g_devs_box);
+    g_updating = FALSE;
+}
+
 GtkWidget *page_audio_build(void)
 {
     g_apps_box = gtk_vbox_new(FALSE, 6);
     g_devs_box = gtk_vbox_new(FALSE, 6);
 
-    g_root = gtk_notebook_new();
-    gtk_notebook_append_page(GTK_NOTEBOOK(g_root), build_tab(g_apps_box), gtk_label_new(_("Aplicativos")));
-    gtk_notebook_append_page(GTK_NOTEBOOK(g_root), build_tab(g_devs_box), gtk_label_new(_("Dispositivos")));
+    GtkWidget *nb = gtk_notebook_new();
+    gtk_notebook_append_page(GTK_NOTEBOOK(nb), build_tab(g_apps_box), gtk_label_new(_("Aplicativos")));
+    gtk_notebook_append_page(GTK_NOTEBOOK(nb), build_tab(g_devs_box), gtk_label_new(_("Dispositivos")));
+
+    GtkWidget *boost = gtk_check_button_new_with_label(_("Permitir volume acima de 100%"));
+    style_fg(boost);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(boost), g_boost);
+    g_signal_connect(boost, "toggled", G_CALLBACK(on_boost_toggled), NULL);
+
+    g_root = gtk_vbox_new(FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(g_root), boost, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(g_root), nb, TRUE, TRUE, 0);
     return g_root;
 }
 

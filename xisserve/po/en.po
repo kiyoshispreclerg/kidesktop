@@ -897,3 +897,7 @@ msgstr "Categories"
 #: xisserve.c:3516 xisserve.c:3537
 msgid "Programas"
 msgstr "Applications"
+
+#: pages/audio.c
+msgid "Permitir volume acima de 100%"
+msgstr "Allow volume above 100%"

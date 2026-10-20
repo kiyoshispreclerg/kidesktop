@@ -882,3 +882,7 @@ msgstr ""
 #: xisserve.c:3516 xisserve.c:3537
 msgid "Programas"
 msgstr ""
+
+#: pages/audio.c
+msgid "Permitir volume acima de 100%"
+msgstr ""
