@@ -292,6 +292,21 @@ static void parse_rate_tokens(ScreenOutput *o, const char *modename, char *rest)
         rate[k] = '\0';
         /* A mode that's preferred but not current prints as "59.95 +":
          * the lone "+" is a marker, not a rate. */
+        int dup = 0;
+        for (int i = 0; i < m->n_rates; i++) {
+            if (!strcmp(m->rates[i].rate, rate)) {
+                dup = 1;
+            }
+        }
+        if (dup) {
+            /* same label from a second mode of this size (e.g. 59.89 twice) */
+            if (is_cur) {
+                snprintf(o->current_mode, sizeof(o->current_mode), "%s", modename);
+                snprintf(o->current_rate, sizeof(o->current_rate), "%s", rate);
+            }
+            tok = strtok_r(NULL, " \t", &save);
+            continue;
+        }
         if (k > 0 && m->n_rates < MAX_RATES) {
             snprintf(m->rates[m->n_rates].rate, sizeof(m->rates[0].rate), "%s", rate);
             m->rates[m->n_rates].is_current = is_cur;
@@ -707,13 +722,15 @@ static void apply_output_diff(const ScreenOutput *o, const ScreenOutput *base)
         }
         changed = 1;
     } else if (!o->mirror_of[0]) {
-        if (strcmp(o->current_mode, base->current_mode)) {
+        int rate_changed = strcmp(o->current_rate, base->current_rate) != 0;
+        /* xrandr silently ignores a lone --rate: it must come with --mode. */
+        if (strcmp(o->current_mode, base->current_mode) || (rate_changed && o->current_mode[0])) {
             argv[ac++] = "--mode";
             snprintf(modebuf, sizeof(modebuf), "%s", o->current_mode);
             argv[ac++] = modebuf;
             changed = 1;
         }
-        if (strcmp(o->current_rate, base->current_rate)) {
+        if (rate_changed) {
             argv[ac++] = "--rate";
             snprintf(ratebuf, sizeof(ratebuf), "%s", o->current_rate);
             argv[ac++] = ratebuf;
