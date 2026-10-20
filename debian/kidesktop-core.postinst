@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+
+# KiDesktop as an x-session-manager candidate, for display managers that
+# start whatever Xsession picks (slim autologin on Devuan); same priority
+# as the other desktops.
+if [ "$1" = configure ]; then
+	update-alternatives --install /usr/bin/x-session-manager x-session-manager /usr/bin/kisession 50
+fi
+
+#DEBHELPER#

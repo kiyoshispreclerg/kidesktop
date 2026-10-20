@@ -54,6 +54,7 @@ install: kifiles mo
 	sed 's|@BINDIR@|$(BINDIR)|' kifiles.desktop.in > kifiles.desktop
 	install -Dm644 kifiles.desktop $(DESTDIR)$(DESKTOPDIR)/kifiles.desktop
 	rm -f kifiles.desktop
+	install -Dm644 kidesktop-mimeapps.list $(DESTDIR)$(DESKTOPDIR)/kidesktop-mimeapps.list
 	install -Dm644 kifiles.svg $(DESTDIR)$(ICONDIR)/kifiles.svg
 	if [ -z "$(DESTDIR)" ]; then update-desktop-database $(DESKTOPDIR) 2>/dev/null; gtk-update-icon-cache -f -t $(dir $(patsubst %/,%,$(dir $(patsubst %/,%,$(ICONDIR))))) 2>/dev/null; fi; true
 	for lang in $(LINGUAS); do \
@@ -61,7 +62,7 @@ install: kifiles mo
 	done
 
 uninstall:
-	rm -f $(DESTDIR)$(BINDIR)/kifiles $(DESTDIR)$(DESKTOPDIR)/kifiles.desktop $(DESTDIR)$(ICONDIR)/kifiles.svg
+	rm -f $(DESTDIR)$(BINDIR)/kifiles $(DESTDIR)$(DESKTOPDIR)/kifiles.desktop $(DESTDIR)$(DESKTOPDIR)/kidesktop-mimeapps.list $(DESTDIR)$(ICONDIR)/kifiles.svg
 	for lang in $(LINGUAS); do \
 		rm -f $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/kifiles.mo; \
 	done
