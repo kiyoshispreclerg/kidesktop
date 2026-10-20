@@ -58,7 +58,11 @@ and only local files are thumbnailed.
 
 `~/.config/kifiles.conf` (flat `key=value`, written on exit; `view` is the default view mode for every folder): `view`, `zoom`,
 `sort`, `sort_desc`, `folders_first`, `show_hidden`, `thumbnails`, `split`,
-`show_places`, `window_width`, `window_height`, `places_width`.
+`show_places`, `drop_menu`, `window_width`, `window_height`, `places_width`.
+
+`drop_menu` (default on, View menu): after a drag and drop kifiles asks Move /
+Copy / Create Link / Cancel, as Dolphin does. Holding Ctrl/Shift skips the menu
+and acts at once; with it off every drop acts at once. Drops on the trash never ask.
 
 Started with no folder argument, kifiles reopens the tabs it had (and the two
 folders of each split tab) and goes back to the tab that was showing. They are

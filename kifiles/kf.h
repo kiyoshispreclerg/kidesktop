@@ -23,6 +23,7 @@ typedef struct {
     gboolean split;
     gboolean show_places;
     gboolean hover;             /* highlight the item under the pointer */
+    gboolean drop_menu;         /* ask Move/Copy/Link/Cancel after a drop instead of acting at once */
     int win_w, win_h, places_w;
     char **tabs;                /* saved session, NULL-terminated: per tab "URI" or "URI URI" (split view) */
     int cur_tab;                /* index into tabs of the tab that was shown */

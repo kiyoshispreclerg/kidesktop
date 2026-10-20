@@ -58,6 +58,92 @@ GdkDragAction kf_dnd_default_action(KfApp *app, GFile *dest, GdkDragContext *ctx
     return sug;
 }
 
+/* ---- what to do with a drop ------------------------------------------------- */
+
+typedef struct {
+    KfApp *app;
+    GList *files;       /* GFile* */
+    GFile *dest;
+} DropJob;
+
+static void drop_job_free(DropJob *j)
+{
+    kf_files_free(j->files);
+    g_object_unref(j->dest);
+    g_free(j);
+}
+
+/* "name", then "Link to name", "Link to name (2)", ... until it is free. */
+static void make_links(DropJob *j)
+{
+    for (GList *l = j->files; l; l = l->next) {
+        char *base = g_file_get_basename(l->data);
+        char *target = g_file_get_path(l->data);
+        if (!target) {          /* a link needs a local path to point at */
+            g_free(base);
+            continue;
+        }
+        for (int n = 1; n < 1000; n++) {
+            char *name = n == 1 ? g_strdup_printf(_("Link to %s"), base)
+                                : g_strdup_printf(_("Link to %s (%d)"), base, n);
+            GFile *link = g_file_get_child(j->dest, name);
+            g_free(name);
+            GError *err = NULL;
+            gboolean ok = g_file_make_symbolic_link(link, target, NULL, &err);
+            g_object_unref(link);
+            if (ok)
+                break;
+            gboolean exists = err && err->code == G_IO_ERROR_EXISTS;
+            if (err)
+                g_error_free(err);
+            if (!exists)
+                break;
+        }
+        g_free(target);
+        g_free(base);
+    }
+}
+
+static void on_drop_move(GtkMenuItem *mi, gpointer d) { (void)mi; DropJob *j = d; kf_ops_transfer(j->app, j->files, j->dest, TRUE); }
+static void on_drop_copy(GtkMenuItem *mi, gpointer d) { (void)mi; DropJob *j = d; kf_ops_transfer(j->app, j->files, j->dest, FALSE); }
+static void on_drop_link(GtkMenuItem *mi, gpointer d) { (void)mi; make_links(d); }
+
+static gboolean destroy_idle(gpointer menu)
+{
+    gtk_widget_destroy(menu);
+    return G_SOURCE_REMOVE;
+}
+
+/* The menu owns the job; activation runs right after "selection-done", so
+ * the menu is only destroyed (and the job freed) from an idle. */
+static void on_drop_menu_done(GtkMenuShell *menu, gpointer d)
+{
+    (void)d;
+    g_idle_add(destroy_idle, menu);
+}
+
+static void drop_menu_popup(DropJob *j, gboolean can_move, gboolean can_link)
+{
+    GtkWidget *menu = gtk_menu_new();
+    g_object_set_data_full(G_OBJECT(menu), "kf-drop-job", j, (GDestroyNotify)drop_job_free);
+    struct { const char *label; GCallback cb; gboolean on; } items[] = {
+        { _("_Move Here"), G_CALLBACK(on_drop_move), can_move },
+        { _("_Copy Here"), G_CALLBACK(on_drop_copy), TRUE },
+        { _("Create _Link Here"), G_CALLBACK(on_drop_link), can_link },
+    };
+    for (guint i = 0; i < G_N_ELEMENTS(items); i++) {
+        GtkWidget *mi = gtk_menu_item_new_with_mnemonic(items[i].label);
+        gtk_widget_set_sensitive(mi, items[i].on);
+        g_signal_connect(mi, "activate", items[i].cb, j);
+        gtk_menu_shell_append(GTK_MENU_SHELL(menu), mi);
+    }
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_menu_item_new_with_mnemonic(_("C_ancel")));
+    g_signal_connect(menu, "selection-done", G_CALLBACK(on_drop_menu_done), NULL);
+    gtk_widget_show_all(menu);
+    gtk_menu_popup(GTK_MENU(menu), NULL, NULL, NULL, NULL, 0, gtk_get_current_event_time());
+}
+
 gboolean kf_dnd_drop_uris(KfApp *app, GtkSelectionData *sel, GdkDragContext *ctx, GFile *dest)
 {
     char **uris = gtk_selection_data_get_uris(sel);
@@ -67,8 +153,27 @@ gboolean kf_dnd_drop_uris(KfApp *app, GtkSelectionData *sel, GdkDragContext *ctx
     for (char **u = uris; *u; u++)
         files = g_list_append(files, g_file_new_for_uri(*u));
     g_strfreev(uris);
-    gboolean move = gdk_drag_context_get_selected_action(ctx) == GDK_ACTION_MOVE;
-    kf_ops_transfer(app, files, dest, move);
+
+    GdkDragAction action = gdk_drag_context_get_selected_action(ctx);
+    GdkDragAction avail = gdk_drag_context_get_actions(ctx);
+    GdkModifierType mods = 0;
+    gdk_window_get_pointer(NULL, NULL, NULL, &mods);
+    gboolean explicit_choice = mods & (GDK_CONTROL_MASK | GDK_SHIFT_MASK | GDK_MOD1_MASK);
+    /* The trash only ever takes a move: nothing to ask. */
+    if (app->cfg.drop_menu && !explicit_choice && !g_file_has_uri_scheme(dest, "trash")) {
+        DropJob *j = g_new0(DropJob, 1);
+        j->app = app;
+        j->files = files;
+        j->dest = g_object_ref(dest);
+        gboolean local = g_file_is_native(dest);
+        drop_menu_popup(j, !!(avail & GDK_ACTION_MOVE), local && (avail & GDK_ACTION_LINK));
+        return TRUE;
+    }
+    DropJob j = { app, files, dest };
+    if (action == GDK_ACTION_LINK)
+        make_links(&j);
+    else
+        kf_ops_transfer(app, files, dest, action == GDK_ACTION_MOVE);
     kf_files_free(files);
     return TRUE;
 }

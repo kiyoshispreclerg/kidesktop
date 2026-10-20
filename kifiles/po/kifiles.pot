@@ -668,3 +668,35 @@ msgstr ""
 #: kifiles.c:1214
 msgid "Sort by..."
 msgstr ""
+
+#: kf_dnd.c
+msgid "_Ask What to Do on Drop"
+msgstr ""
+
+#: kf_dnd.c
+msgid "After a drag and drop, ask whether to move, copy or link instead of acting at once (hold Ctrl/Shift to skip the menu)"
+msgstr ""
+
+#: kf_dnd.c
+msgid "Link to %s"
+msgstr ""
+
+#: kf_dnd.c
+msgid "Link to %s (%d)"
+msgstr ""
+
+#: kf_dnd.c
+msgid "_Move Here"
+msgstr ""
+
+#: kf_dnd.c
+msgid "_Copy Here"
+msgstr ""
+
+#: kf_dnd.c
+msgid "Create _Link Here"
+msgstr ""
+
+#: kf_dnd.c
+msgid "C_ancel"
+msgstr ""

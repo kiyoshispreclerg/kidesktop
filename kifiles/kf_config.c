@@ -15,6 +15,7 @@ void kf_config_defaults(KfConfig *c)
     c->thumbnails = TRUE;
     c->show_places = TRUE;
     c->hover = TRUE;
+    c->drop_menu = TRUE;
     c->win_w = 1000;
     c->win_h = 640;
     c->places_w = 210;
@@ -67,6 +68,7 @@ void kf_config_load(KfConfig *c)
         else if (!strcmp(k, "split")) c->split = truth(v);
         else if (!strcmp(k, "show_places")) c->show_places = truth(v);
         else if (!strcmp(k, "hover_highlight")) c->hover = truth(v);
+        else if (!strcmp(k, "drop_menu")) c->drop_menu = truth(v);
         else if (!strcmp(k, "window_width")) c->win_w = CLAMP(atoi(v), 300, 10000);
         else if (!strcmp(k, "window_height")) c->win_h = CLAMP(atoi(v), 200, 10000);
         else if (!strcmp(k, "places_width")) c->places_w = CLAMP(atoi(v), 80, 600);
@@ -92,7 +94,7 @@ void kf_config_save(const KfConfig *c)
     fprintf(f, "view=%s\nzoom=%d\nsort=%s\nsort_desc=%d\nfolders_first=%d\nshow_hidden=%d\n",
             c->view == KF_VIEW_LIST ? "list" : "icons", c->zoom, kSortNames[CLAMP(c->sort, 0, KF_SORT_N - 1)],
             c->sort_desc, c->folders_first, c->show_hidden);
-    fprintf(f, "hover_highlight=%d\n", c->hover);
+    fprintf(f, "hover_highlight=%d\ndrop_menu=%d\n", c->hover, c->drop_menu);
     fprintf(f, "thumbnails=%d\nsplit=%d\nshow_places=%d\nwindow_width=%d\nwindow_height=%d\nplaces_width=%d\n",
             c->thumbnails, c->split, c->show_places, c->win_w, c->win_h, c->places_w);
     if (c->tabs && c->tabs[0]) {

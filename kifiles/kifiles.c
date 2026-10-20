@@ -558,6 +558,11 @@ static void a_hover(GtkToggleAction *a, gpointer d)
     each_pane(app, kf_hover_apply);
 }
 
+static void a_drop_menu(GtkToggleAction *a, gpointer d)
+{
+    ((KfApp *)d)->cfg.drop_menu = gtk_toggle_action_get_active(a);
+}
+
 static void a_thumbs(GtkToggleAction *a, gpointer d)
 {
     KfApp *app = d;
@@ -1199,6 +1204,7 @@ static const GtkToggleActionEntry kToggles[] = {
     { "Split", GTK_STOCK_DND_MULTIPLE, N_("S_plit View"), "F3", N_("Show two folders side by side"), G_CALLBACK(a_split), FALSE },
     { "PlacesPanel", NULL, N_("_Places Panel"), "F9", NULL, G_CALLBACK(a_places_toggle), TRUE },
     { "HoverHighlight", NULL, N_("Highlight Item Under _Pointer"), NULL, NULL, G_CALLBACK(a_hover), TRUE },
+    { "DropMenu", NULL, N_("_Ask What to Do on Drop"), NULL, N_("After a drag and drop, ask whether to move, copy or link instead of acting at once (hold Ctrl/Shift to skip the menu)"), G_CALLBACK(a_drop_menu), TRUE },
 };
 
 static const GtkRadioActionEntry kViewRadio[] = {
@@ -1237,7 +1243,7 @@ static const char *kUI =
 "    <menuitem action='SortType'/><menuitem action='SortExt'/><separator/>"
 "    <menuitem action='SortDesc'/><menuitem action='FoldersFirst'/>"
 "   </menu>"
-"   <menuitem action='ShowHidden'/><menuitem action='Thumbnails'/><menuitem action='HoverHighlight'/><separator/>"
+"   <menuitem action='ShowHidden'/><menuitem action='Thumbnails'/><menuitem action='HoverHighlight'/><menuitem action='DropMenu'/><separator/>"
 "   <menuitem action='Split'/><menuitem action='PlacesPanel'/><separator/>"
 "   <menuitem action='ZoomIn'/><menuitem action='ZoomOut'/><menuitem action='ZoomReset'/><separator/>"
 "   <menuitem action='Reload'/>"
@@ -1470,6 +1476,7 @@ int main(int argc, char **argv)
     sync_toggle(app, "FoldersFirst", app->cfg.folders_first);
     sync_toggle(app, "PlacesPanel", app->cfg.show_places);
     sync_toggle(app, "HoverHighlight", app->cfg.hover);
+    sync_toggle(app, "DropMenu", app->cfg.drop_menu);
     sync_sort_actions(app);
     gtk_toggle_tool_button_set_active(GTK_TOGGLE_TOOL_BUTTON(app->cfg.view == KF_VIEW_LIST ? app->view_toggle_list : app->view_toggle_icons), TRUE);
     app->updating_ui = FALSE;

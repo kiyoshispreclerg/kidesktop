@@ -672,3 +672,35 @@ msgstr "Ordenar"
 #: kifiles.c:1214
 msgid "Sort by..."
 msgstr "Ordenar por..."
+
+#: kf_dnd.c
+msgid "_Ask What to Do on Drop"
+msgstr "_Perguntar o que fazer ao soltar"
+
+#: kf_dnd.c
+msgid "After a drag and drop, ask whether to move, copy or link instead of acting at once (hold Ctrl/Shift to skip the menu)"
+msgstr "Após arrastar e soltar, perguntar se é para mover, copiar ou criar atalho em vez de agir direto (segure Ctrl/Shift para pular o menu)"
+
+#: kf_dnd.c
+msgid "Link to %s"
+msgstr "Atalho para %s"
+
+#: kf_dnd.c
+msgid "Link to %s (%d)"
+msgstr "Atalho para %s (%d)"
+
+#: kf_dnd.c
+msgid "_Move Here"
+msgstr "_Mover para cá"
+
+#: kf_dnd.c
+msgid "_Copy Here"
+msgstr "_Copiar para cá"
+
+#: kf_dnd.c
+msgid "Create _Link Here"
+msgstr "Criar a_talho aqui"
+
+#: kf_dnd.c
+msgid "C_ancel"
+msgstr "C_ancelar"
