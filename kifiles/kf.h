@@ -24,6 +24,8 @@ typedef struct {
     gboolean show_places;
     gboolean hover;             /* highlight the item under the pointer */
     int win_w, win_h, places_w;
+    char **tabs;                /* saved session, NULL-terminated: per tab "URI" or "URI URI" (split view) */
+    int cur_tab;                /* index into tabs of the tab that was shown */
 } KfConfig;
 
 #define KF_ZOOM_MIN 16

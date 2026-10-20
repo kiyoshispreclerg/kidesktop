@@ -11,6 +11,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <signal.h>
+#include <glib-unix.h>
 
 static KfApp *the_app;
 
@@ -735,15 +737,124 @@ static void a_about(GtkAction *a, gpointer d)
                           "website", "https://github.com/kiyoshispreclerg/kidesktop", NULL);
 }
 
-void kf_app_quit(KfApp *app)
+/* ---- session: open tabs and split panes ---------------------------------------
+ * Only a window started without a folder argument restores the saved tabs
+ * and records its own; one opened on a specific folder (from another
+ * program, "New Window", a detached tab) leaves the saved session alone. */
+
+#define KF_MAX_TABS 64
+
+static gboolean owns_session;
+static gboolean state_saved;
+
+static void session_collect(KfApp *app)
 {
+    GPtrArray *out = g_ptr_array_new();
+    GList *all = kf_tabs_all(app);
+    for (GList *l = all; l; l = l->next) {
+        KfTab *t = l->data;
+        GString *entry = g_string_new(NULL);
+        for (int i = 0; i < 2; i++) {
+            if (!t->panes[i] || !t->panes[i]->dir)
+                continue;
+            char *uri = g_file_get_uri(t->panes[i]->dir);
+            g_string_append_printf(entry, "%s%s", entry->len ? " " : "", uri);
+            g_free(uri);
+        }
+        if (entry->len)
+            g_ptr_array_add(out, g_string_free(entry, FALSE));
+        else
+            g_string_free(entry, TRUE);
+    }
+    g_list_free(all);
+    g_ptr_array_add(out, NULL);
+    g_strfreev(app->cfg.tabs);
+    app->cfg.tabs = (char **)g_ptr_array_free(out, FALSE);
+    app->cfg.cur_tab = gtk_notebook_get_current_page(GTK_NOTEBOOK(app->notebook));
+}
+
+/* Idempotent and free of X round trips, so it is also safe from a signal
+ * handler and from atexit() after the X connection is gone. */
+static void save_state(KfApp *app)
+{
+    if (state_saved)
+        return;
+    state_saved = TRUE;
     int w, h;
     gtk_window_get_size(GTK_WINDOW(app->win), &w, &h);
     app->cfg.win_w = w;
     app->cfg.win_h = h;
     if (app->cfg.show_places)
         app->cfg.places_w = gtk_paned_get_position(GTK_PANED(app->main_paned));
+    if (owns_session)
+        session_collect(app);
     kf_config_save(&app->cfg);
+}
+
+/* A saved directory is usable when it is remote (not worth blocking to
+ * check) or a local folder that still exists. */
+static GFile *session_dir(const char *uri)
+{
+    GFile *f = g_file_new_for_uri(uri);
+    if (g_file_is_native(f) && g_file_query_file_type(f, G_FILE_QUERY_INFO_NONE, NULL) != G_FILE_TYPE_DIRECTORY) {
+        g_object_unref(f);
+        return NULL;
+    }
+    return f;
+}
+
+/* Directories of saved tab `n`: [0] left/only pane, [1] right pane or NULL. */
+static void session_entry(KfApp *app, int n, GFile *dirs[2])
+{
+    dirs[0] = dirs[1] = NULL;
+    char **uris = g_strsplit(app->cfg.tabs[n], " ", 2);
+    for (int i = 0; i < 2 && uris[i]; i++)
+        dirs[i] = session_dir(uris[i]);
+    g_strfreev(uris);
+}
+
+static gboolean have_session(KfApp *app)
+{
+    return app->cfg.tabs && app->cfg.tabs[0];
+}
+
+/* The first tab is already open (on entry 0's left folder); this opens the
+ * rest, re-splits the tabs that were split, and goes back to the one that
+ * was showing. */
+static void session_restore(KfApp *app)
+{
+    int shown = app->cfg.cur_tab;
+    for (int i = 0; app->cfg.tabs[i] && i < KF_MAX_TABS; i++) {
+        GFile *dirs[2];
+        session_entry(app, i, dirs);
+        if (i > 0) {
+            if (!dirs[0]) {
+                if (dirs[1])
+                    g_object_unref(dirs[1]);
+                if (i < shown)
+                    shown--;
+                continue;
+            }
+            kf_tabs_open(app, dirs[0], TRUE);
+        }
+        if (dirs[1]) {
+            app->updating_ui = TRUE;
+            sync_toggle(app, "Split", TRUE);
+            app->updating_ui = FALSE;
+            set_split(app, TRUE);
+            kf_pane_navigate(app->tab->panes[1], dirs[1], FALSE, NULL);
+        }
+        for (int k = 0; k < 2; k++)
+            if (dirs[k])
+                g_object_unref(dirs[k]);
+    }
+    int count = kf_tabs_count(app);
+    gtk_notebook_set_current_page(GTK_NOTEBOOK(app->notebook), CLAMP(shown, 0, count - 1));
+}
+
+void kf_app_quit(KfApp *app)
+{
+    save_state(app);
     /* Running copies/moves finish on their own, with their progress
      * dialogs standing alone; the last one to end quits (kf_ops.c). */
     if (app->jobs) {
@@ -753,6 +864,20 @@ void kf_app_quit(KfApp *app)
         return;
     }
     gtk_main_quit();
+}
+
+/* Logging out or killing the program still records the session. */
+static gboolean on_term_signal(gpointer d)
+{
+    save_state(d);
+    exit(0);
+    return G_SOURCE_REMOVE;
+}
+
+static void save_at_exit(void)
+{
+    if (the_app)
+        save_state(the_app);
 }
 
 GtkWindow *kf_app_parent(KfApp *app)
@@ -1330,6 +1455,9 @@ int main(int argc, char **argv)
     gtk_box_pack_end(GTK_BOX(vbox), sb, FALSE, FALSE, 0);
     gtk_box_pack_end(GTK_BOX(vbox), gtk_hseparator_new(), FALSE, FALSE, 0);
 
+    g_unix_signal_add(SIGTERM, on_term_signal, app);
+    g_unix_signal_add(SIGHUP, on_term_signal, app);
+    atexit(save_at_exit);
     g_signal_connect(app->win, "delete-event", G_CALLBACK(on_delete), app);
     g_signal_connect(app->win, "key-press-event", G_CALLBACK(on_key_press), app);
     g_signal_connect(act(app, "ViewIcons"), "changed", G_CALLBACK(on_view_action_changed), app);
@@ -1346,13 +1474,24 @@ int main(int argc, char **argv)
     gtk_toggle_tool_button_set_active(GTK_TOGGLE_TOOL_BUTTON(app->cfg.view == KF_VIEW_LIST ? app->view_toggle_list : app->view_toggle_icons), TRUE);
     app->updating_ui = FALSE;
 
+    owns_session = !start;
+    gboolean restoring = owns_session && have_session(app);
+    if (restoring) {
+        GFile *dirs[2];
+        session_entry(app, 0, dirs);
+        start = dirs[0];
+        if (dirs[1])
+            g_object_unref(dirs[1]);
+    }
     if (!start)
         start = g_file_new_for_path(g_get_home_dir());
     kf_tabs_open(app, start, TRUE);
     g_object_unref(start);
     gtk_widget_show_all(app->win);
     gtk_widget_set_visible(app->places, app->cfg.show_places);
-    if (app->cfg.split) {
+    if (restoring) {
+        session_restore(app);
+    } else if (app->cfg.split) {
         app->updating_ui = TRUE;
         sync_toggle(app, "Split", TRUE);
         app->updating_ui = FALSE;

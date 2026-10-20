@@ -44,7 +44,8 @@ void kf_config_load(KfConfig *c)
     g_free(path);
     if (!f)
         return;
-    char line[256];
+    GPtrArray *tabs = g_ptr_array_new();
+    char line[8192];
     while (fgets(line, sizeof(line), f)) {
         char *s = g_strstrip(line);
         char *eq = strchr(s, '=');
@@ -69,8 +70,12 @@ void kf_config_load(KfConfig *c)
         else if (!strcmp(k, "window_width")) c->win_w = CLAMP(atoi(v), 300, 10000);
         else if (!strcmp(k, "window_height")) c->win_h = CLAMP(atoi(v), 200, 10000);
         else if (!strcmp(k, "places_width")) c->places_w = CLAMP(atoi(v), 80, 600);
+        else if (!strcmp(k, "tab") && *v) g_ptr_array_add(tabs, g_strdup(v));
+        else if (!strcmp(k, "current_tab")) c->cur_tab = MAX(atoi(v), 0);
     }
     fclose(f);
+    g_ptr_array_add(tabs, NULL);
+    c->tabs = (char **)g_ptr_array_free(tabs, FALSE);
 }
 
 void kf_config_save(const KfConfig *c)
@@ -90,5 +95,10 @@ void kf_config_save(const KfConfig *c)
     fprintf(f, "hover_highlight=%d\n", c->hover);
     fprintf(f, "thumbnails=%d\nsplit=%d\nshow_places=%d\nwindow_width=%d\nwindow_height=%d\nplaces_width=%d\n",
             c->thumbnails, c->split, c->show_places, c->win_w, c->win_h, c->places_w);
+    if (c->tabs && c->tabs[0]) {
+        for (int i = 0; c->tabs[i]; i++)
+            fprintf(f, "tab=%s\n", c->tabs[i]);
+        fprintf(f, "current_tab=%d\n", c->cur_tab);
+    }
     fclose(f);
 }

@@ -56,9 +56,15 @@ and only local files are thumbnailed.
 
 ## Settings
 
-`~/.config/kifiles.conf` (flat `key=value`, written on exit): `view`, `zoom`,
+`~/.config/kifiles.conf` (flat `key=value`, written on exit; `view` is the default view mode for every folder): `view`, `zoom`,
 `sort`, `sort_desc`, `folders_first`, `show_hidden`, `thumbnails`, `split`,
 `show_places`, `window_width`, `window_height`, `places_width`.
+
+Started with no folder argument, kifiles reopens the tabs it had (and the two
+folders of each split tab) and goes back to the tab that was showing. They are
+the repeated `tab=URI` / `tab=URI URI` lines plus `current_tab`. The file is
+also written on SIGTERM/SIGHUP and when the X connection drops, so logging out
+keeps it. A window opened on a given folder leaves the saved tabs alone.
 
 ## Using it as the default
 
