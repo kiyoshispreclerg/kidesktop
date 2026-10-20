@@ -834,7 +834,7 @@ static gboolean have_session(KfApp *app)
 static void session_restore(KfApp *app)
 {
     int shown = app->cfg.cur_tab;
-    for (int i = 0; app->cfg.tabs[i] && i < KF_MAX_TABS; i++) {
+    for (int i = 0; i < KF_MAX_TABS && app->cfg.tabs[i]; i++) {
         GFile *dirs[2];
         session_entry(app, i, dirs);
         if (i > 0) {
