@@ -151,6 +151,10 @@ msgstr "_Exibir"
 msgid "_Line numbers"
 msgstr "_Números das linhas"
 
+#: kipad.c
+msgid "_Word wrap"
+msgstr "_Quebra automática de linha"
+
 #: kipad.c:855
 msgid "_Font..."
 msgstr "_Fonte..."

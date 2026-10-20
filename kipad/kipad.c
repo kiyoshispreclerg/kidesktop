@@ -13,7 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define KIPAD_VERSION "0.1.0"
+#define KIPAD_VERSION "0.1.1"
 #define DEFAULT_FONT "Monospace 11"
 #define MIN_FONT_PT 6
 #define MAX_FONT_PT 72
@@ -23,6 +23,7 @@
 
 static char g_font[128] = DEFAULT_FONT;
 static gboolean g_line_numbers = TRUE;
+static gboolean g_word_wrap = FALSE;
 
 static char *conf_path(void)
 {
@@ -47,6 +48,8 @@ static void config_load(void)
                 g_strlcpy(g_font, val, sizeof(g_font));
             else if (!strcmp(key, "line_numbers"))
                 g_line_numbers = atoi(val) != 0;
+            else if (!strcmp(key, "word_wrap"))
+                g_word_wrap = atoi(val) != 0;
         }
         g_strfreev(lines);
         g_free(data);
@@ -58,8 +61,8 @@ static void config_save(void)
 {
     char *path = conf_path(), *dir = g_path_get_dirname(path);
     g_mkdir_with_parents(dir, 0755);
-    char *text = g_strdup_printf("# kipad settings, written by kipad\nfont = %s\nline_numbers = %d\n", g_font,
-                                 g_line_numbers);
+    char *text = g_strdup_printf("# kipad settings, written by kipad\nfont = %s\nline_numbers = %d\nword_wrap = %d\n",
+                                 g_font, g_line_numbers, g_word_wrap);
     g_file_set_contents(path, text, -1, NULL);
     g_free(text);
     g_free(dir);
@@ -86,7 +89,7 @@ typedef struct {
 } Doc;
 
 static GtkWidget *g_win, *g_notebook, *g_status, *g_pos_label;
-static GtkWidget *g_linenum_item;
+static GtkWidget *g_linenum_item, *g_wrap_item;
 static int g_untitled_count;
 
 static Doc *doc_of(GtkWidget *scroll)
@@ -401,6 +404,24 @@ static void linenum_toggle_cb(GtkCheckMenuItem *item, gpointer data)
         set_line_numbers(gtk_check_menu_item_get_active(item));
 }
 
+static void apply_wrap_to(Doc *d)
+{
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(d->view), g_word_wrap ? GTK_WRAP_WORD_CHAR : GTK_WRAP_NONE);
+}
+
+static void wrap_toggle_cb(GtkCheckMenuItem *item, gpointer data)
+{
+    (void)data;
+    gboolean on = gtk_check_menu_item_get_active(item);
+    if (on == g_word_wrap)
+        return;
+    g_word_wrap = on;
+    int n = gtk_notebook_get_n_pages(GTK_NOTEBOOK(g_notebook));
+    for (int i = 0; i < n; i++)
+        apply_wrap_to(doc_of(gtk_notebook_get_nth_page(GTK_NOTEBOOK(g_notebook), i)));
+    config_save();
+}
+
 /* ---- buffer signals -------------------------------------------------- */
 
 static void on_changed(GtkTextBuffer *buf, Doc *d)
@@ -468,6 +489,7 @@ static Doc *doc_new(void)
     gtk_container_add(GTK_CONTAINER(d->scroll), d->view);
     g_object_set_data_full(G_OBJECT(d->scroll), "doc", d, (GDestroyNotify)doc_free);
     apply_font_to(d);
+    apply_wrap_to(d);
     linenum_resize(d);
 
     g_signal_connect(d->buf, "insert-text", G_CALLBACK(on_insert_text), d);
@@ -851,6 +873,10 @@ static GtkWidget *build_menubar(GtkAccelGroup *ag)
     gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(g_linenum_item), g_line_numbers);
     g_signal_connect(g_linenum_item, "toggled", G_CALLBACK(linenum_toggle_cb), NULL);
     gtk_menu_shell_append(GTK_MENU_SHELL(m), g_linenum_item);
+    g_wrap_item = gtk_check_menu_item_new_with_mnemonic(_("_Word wrap"));
+    gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(g_wrap_item), g_word_wrap);
+    g_signal_connect(g_wrap_item, "toggled", G_CALLBACK(wrap_toggle_cb), NULL);
+    gtk_menu_shell_append(GTK_MENU_SHELL(m), g_wrap_item);
     separator(m);
     menu_item(m, ag, _("_Font..."), 0, 0, G_CALLBACK(font_cb));
     menu_item(m, ag, _("Zoom _in"), GDK_plus, C, G_CALLBACK(zoom_in_cb));

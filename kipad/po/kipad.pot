@@ -145,6 +145,10 @@ msgstr ""
 msgid "_Line numbers"
 msgstr ""
 
+#: kipad.c
+msgid "_Word wrap"
+msgstr ""
+
 #: kipad.c:843
 msgid "_Font..."
 msgstr ""
