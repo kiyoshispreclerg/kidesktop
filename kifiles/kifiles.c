@@ -1107,17 +1107,21 @@ static void a_properties(GtkAction *a, gpointer d)
             const char *owner = g_file_info_get_attribute_string(info, "owner::user");
             if (owner)
                 g_string_append_printf(s, _("Owner: %s\n"), owner);
-            if (g_file_info_has_attribute(info, "unix::mode"))
-                g_string_append_printf(s, _("Permissions: %04o\n"), g_file_info_get_attribute_uint32(info, "unix::mode") & 07777);
             g_free(path);
             g_free(desc);
             g_free(size);
             g_object_unref(info);
         }
     }
-    kf_app_message(app, GTK_MESSAGE_INFO, _("Properties"), s->str);
+    GList *targets = sel;
+    if (!sel)
+        targets = g_list_append(NULL, g_object_ref(p->dir));
+    gboolean native = TRUE;
+    for (GList *l = targets; l; l = l->next)
+        native = native && g_file_is_native(l->data);
+    kf_props_show(app, s->str, targets, native);
     g_string_free(s, TRUE);
-    kf_files_free(sel);
+    kf_files_free(targets);
 }
 
 /* ---- window / keyboard ---------------------------------------------------------- */

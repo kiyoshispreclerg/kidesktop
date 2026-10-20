@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kifiles\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-17 11:43-0300\n"
+"POT-Creation-Date: 2026-10-20 18:24-0300\n"
 "PO-Revision-Date: 2026-10-15 17:32-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -36,6 +36,32 @@ msgstr "Pastas acima"
 #: kf_crumbs.c:381
 msgid "Click to type a location"
 msgstr "Clique para digitar um local"
+
+#: kf_dnd.c:87
+#, c-format
+msgid "Link to %s"
+msgstr "Atalho para %s"
+
+#: kf_dnd.c:88
+#, c-format
+msgid "Link to %s (%d)"
+msgstr "Atalho para %s (%d)"
+
+#: kf_dnd.c:130
+msgid "_Move Here"
+msgstr "_Mover para cá"
+
+#: kf_dnd.c:131
+msgid "_Copy Here"
+msgstr "_Copiar para cá"
+
+#: kf_dnd.c:132
+msgid "Create _Link Here"
+msgstr "Criar a_talho aqui"
+
+#: kf_dnd.c:141
+msgid "C_ancel"
+msgstr "C_ancelar"
 
 #: kf_jobview.c:147
 msgid "Source"
@@ -235,23 +261,23 @@ msgstr "Esta pasta está vazia."
 msgid "Could not mount this location."
 msgstr "Não foi possível montar este local."
 
-#: kf_pane.c:1324
+#: kf_pane.c:1376
 msgid "Name"
 msgstr "Nome"
 
-#: kf_pane.c:1339
+#: kf_pane.c:1391
 msgid "Size"
 msgstr "Tamanho"
 
-#: kf_pane.c:1340
+#: kf_pane.c:1392
 msgid "Modified"
 msgstr "Modificado"
 
-#: kf_pane.c:1341
+#: kf_pane.c:1393
 msgid "Type"
 msgstr "Tipo"
 
-#: kf_pane.c:1371
+#: kf_pane.c:1423
 msgid "Filter:"
 msgstr "Filtro:"
 
@@ -311,7 +337,7 @@ msgstr "Não foi possível remover o dispositivo"
 msgid "_Mount"
 msgstr "_Montar"
 
-#: kf_places.c:519 kifiles.c:1029
+#: kf_places.c:519 kifiles.c:1168
 msgid "_Open"
 msgstr "_Abrir"
 
@@ -327,15 +353,124 @@ msgstr "_Remover com segurança"
 msgid "Remove _Bookmark"
 msgstr "Remover _favorito"
 
+#: kf_props.c:19
+msgid "(varied)"
+msgstr "(variado)"
+
+#: kf_props.c:167
+msgid "Group:"
+msgstr "Grupo:"
+
+#: kf_props.c:167
+msgid "Owner:"
+msgstr "Dono:"
+
+#: kf_props.c:178
+msgid "Owner (%s)"
+msgstr "Dono (%s)"
+
+#: kf_props.c:179
+#, c-format
+msgid "Group (%s)"
+msgstr "Grupo (%s)"
+
+#: kf_props.c:180
+msgid "Everyone else"
+msgstr "Todos os outros"
+
+#: kf_props.c:181
+msgid "Allow running as a program / entering the folder"
+msgstr "Permitir executar como programa / entrar na pasta"
+
+#: kf_props.c:182
+msgid "Allow entering the folder and listing its contents"
+msgstr "Permitir entrar na pasta e listar o conteúdo"
+
+#: kf_props.c:183
+msgid "Allow running as a program"
+msgstr "Permitir executar como programa"
+
+#: kf_props.c:184
+msgid "No access"
+msgstr "Sem acesso"
+
+#: kf_props.c:184
+msgid "Read and write"
+msgstr "Leitura e escrita"
+
+#: kf_props.c:184
+msgid "Read only"
+msgstr "Somente leitura"
+
+#: kf_props.c:184
+msgid "Write only"
+msgstr "Somente escrita"
+
+#: kf_props.c:219
+msgid ""
+"\"(varied)\" means the selected items differ. Leave it alone to keep each "
+"item's current value, or pick one to set it on all of them."
+msgstr "\"(variado)\" significa que os itens selecionados diferem. Deixe como está para manter o valor atual de cada item, ou escolha um para aplicá-lo a todos."
+
+#: kf_props.c:226
+msgid ""
+"You are not the owner of some of these items. The administrator password "
+"will be asked to apply changes."
+msgstr "Você não é o dono de alguns desses itens. A senha de administrador será pedida para aplicar as alterações."
+
+#: kf_props.c:266
+msgid "Could not change the permissions"
+msgstr "Não foi possível alterar as permissões"
+
+#: kf_props.c:268
+msgid "The administrator command failed."
+msgstr "O comando de administrador falhou."
+
+#: kf_props.c:288
+#, c-format
+msgid "There is no user called \"%s\"."
+msgstr "Não existe usuário chamado \"%s\"."
+
+#: kf_props.c:298
+#, c-format
+msgid "There is no group called \"%s\"."
+msgstr "Não existe grupo chamado \"%s\"."
+
+#: kf_props.c:328
+msgid "Administrator access is needed"
+msgstr "É necessário acesso de administrador"
+
+#: kf_props.c:330
+msgid ""
+"Some of these changes need permissions you do not have. Apply them as "
+"administrator? You will be asked for the password."
+msgstr "Algumas dessas alterações exigem permissões que você não tem. Aplicá-las como administrador? A senha será solicitada."
+
+#: kf_props.c:332
+msgid "Apply as administrator"
+msgstr "Aplicar como administrador"
+
+#: kf_props.c:347
+msgid "Properties"
+msgstr "Propriedades"
+
+#: kf_props.c:360
+msgid "General"
+msgstr "Geral"
+
+#: kf_props.c:362
+msgid "Permissions"
+msgstr "Permissões"
+
 #: kf_tabs.c:100
 msgid "Close tab (Ctrl+W)"
 msgstr "Fechar aba (Ctrl+W)"
 
-#: kf_tabs.c:235 kifiles.c:1022
+#: kf_tabs.c:235 kifiles.c:1161
 msgid "New _Tab"
 msgstr "Nova _aba"
 
-#: kf_tabs.c:237 kifiles.c:1024
+#: kf_tabs.c:237 kifiles.c:1163
 msgid "_Detach Tab"
 msgstr "_Separar aba"
 
@@ -343,376 +478,347 @@ msgstr "_Separar aba"
 msgid "Close _Other Tabs"
 msgstr "Fechar as _outras abas"
 
-#: kf_tabs.c:240 kifiles.c:1023
+#: kf_tabs.c:240 kifiles.c:1162
 msgid "_Close Tab"
 msgstr "_Fechar aba"
 
-#: kifiles.c:25
+#: kifiles.c:27
 #, c-format
 msgid "%u folder"
 msgid_plural "%u folders"
 msgstr[0] "%u pasta"
 msgstr[1] "%u pastas"
 
-#: kifiles.c:26
+#: kifiles.c:28
 #, c-format
 msgid "%u file"
 msgid_plural "%u files"
 msgstr[0] "%u arquivo"
 msgstr[1] "%u arquivos"
 
-#: kifiles.c:47
+#: kifiles.c:49
 #, c-format
 msgid "%u item selected"
 msgid_plural "%u items selected"
 msgstr[0] "%u item selecionado"
 msgstr[1] "%u itens selecionados"
 
-#: kifiles.c:53
+#: kifiles.c:55
 msgid "Loading..."
 msgstr "Carregando..."
 
-#: kifiles.c:103
+#: kifiles.c:105
 #, c-format
 msgid "%s free of %s"
 msgstr "%s livres de %s"
 
-#: kifiles.c:266 kifiles.c:814
+#: kifiles.c:268 kifiles.c:949
 msgid "Could not open the file"
 msgstr "Não foi possível abrir o arquivo"
 
-#: kifiles.c:665
+#: kifiles.c:677
 #, c-format
 msgid "Icon size: %d px (Ctrl+Plus / Ctrl+Minus)"
 msgstr "Tamanho dos ícones: %d px (Ctrl+Mais / Ctrl+Menos)"
 
-#: kifiles.c:734
+#: kifiles.c:746
 msgid "File manager for KiDesktop"
 msgstr "Gerenciador de arquivos do KiDesktop"
 
-#: kifiles.c:886
+#: kifiles.c:1021
 msgid "Open _With"
 msgstr "Abrir _com"
 
-#: kifiles.c:959
+#: kifiles.c:1094
 #, c-format
 msgid "Name: %s\n"
 msgstr "Nome: %s\n"
 
-#: kifiles.c:960
+#: kifiles.c:1095
 #, c-format
 msgid "Location: %s\n"
 msgstr "Local: %s\n"
 
-#: kifiles.c:961
+#: kifiles.c:1096
 #, c-format
 msgid "Type: %s\n"
 msgstr "Tipo: %s\n"
 
-#: kifiles.c:963
+#: kifiles.c:1098
 #, c-format
 msgid "Size: %s\n"
 msgstr "Tamanho: %s\n"
 
-#: kifiles.c:968
+#: kifiles.c:1103
 #, c-format
 msgid "Modified: %s\n"
 msgstr "Modificado: %s\n"
 
-#: kifiles.c:974
+#: kifiles.c:1109
 #, c-format
 msgid "Owner: %s\n"
 msgstr "Dono: %s\n"
 
-#: kifiles.c:976
-#, c-format
-msgid "Permissions: %04o\n"
-msgstr "Permissões: %04o\n"
-
-#: kifiles.c:983
-msgid "Properties"
-msgstr "Propriedades"
-
-#: kifiles.c:1017
+#: kifiles.c:1156
 msgid "_Edit"
 msgstr "_Editar"
 
-#: kifiles.c:1017
+#: kifiles.c:1156
 msgid "_File"
 msgstr "_Arquivo"
 
-#: kifiles.c:1018
+#: kifiles.c:1157
 msgid "_Go"
 msgstr "_Ir"
 
-#: kifiles.c:1018
+#: kifiles.c:1157
 msgid "_View"
 msgstr "E_xibir"
 
-#: kifiles.c:1019
+#: kifiles.c:1158
 msgid "_Help"
 msgstr "A_juda"
 
-#: kifiles.c:1019
+#: kifiles.c:1158
 msgid "_Sort By"
 msgstr "_Ordenar por"
 
-#: kifiles.c:1021
+#: kifiles.c:1160
 msgid "New _Window"
 msgstr "Nova _janela"
 
-#: kifiles.c:1024
+#: kifiles.c:1163
 msgid "Move the tab to a new window"
 msgstr "Move a aba para uma nova janela"
 
-#: kifiles.c:1025
+#: kifiles.c:1164
 msgid "_Next Tab"
 msgstr "_Próxima aba"
 
-#: kifiles.c:1026
+#: kifiles.c:1165
 msgid "_Previous Tab"
 msgstr "Aba _anterior"
 
-#: kifiles.c:1027
+#: kifiles.c:1166
 msgid "Create a new folder"
 msgstr "Criar uma nova pasta"
 
-#: kifiles.c:1027
+#: kifiles.c:1166
 msgid "New _Folder..."
 msgstr "Nova _pasta..."
 
-#: kifiles.c:1028
+#: kifiles.c:1167
 msgid "New _File..."
 msgstr "Novo _arquivo..."
 
-#: kifiles.c:1030
+#: kifiles.c:1169
 msgid "Open in New _Window"
 msgstr "Abrir em nova _janela"
 
-#: kifiles.c:1031
+#: kifiles.c:1170
 msgid "Open in New _Tab"
 msgstr "Abrir em nova _aba"
 
-#: kifiles.c:1032
+#: kifiles.c:1171
 msgid "Open _Terminal Here"
 msgstr "Abrir _terminal aqui"
 
-#: kifiles.c:1033
+#: kifiles.c:1172
 msgid "_Rename..."
 msgstr "_Renomear..."
 
-#: kifiles.c:1034
+#: kifiles.c:1173
 msgid "Move to _Trash"
 msgstr "Mover para a _lixeira"
 
-#: kifiles.c:1035
+#: kifiles.c:1174
 msgid "Delete permanently"
 msgstr "Apagar permanentemente"
 
-#: kifiles.c:1035
+#: kifiles.c:1174
 msgid "_Delete"
 msgstr "_Apagar"
 
-#: kifiles.c:1036
+#: kifiles.c:1175
 msgid "_Restore"
 msgstr "_Restaurar"
 
-#: kifiles.c:1037
+#: kifiles.c:1176
 msgid "E_mpty Trash"
 msgstr "_Esvaziar lixeira"
 
-#: kifiles.c:1038
+#: kifiles.c:1177
 msgid "_Properties"
 msgstr "_Propriedades"
 
-#: kifiles.c:1045
+#: kifiles.c:1184
 msgid "Paste Into _Folder"
 msgstr "Colar _dentro da pasta"
 
-#: kifiles.c:1046
+#: kifiles.c:1185
 msgid "Copy _Path"
 msgstr "Copiar _caminho"
 
-#: kifiles.c:1048
+#: kifiles.c:1187
 msgid "_Invert Selection"
 msgstr "_Inverter seleção"
 
-#: kifiles.c:1049
+#: kifiles.c:1188
 msgid "Filter the files by name"
 msgstr "Filtrar os arquivos pelo nome"
 
-#: kifiles.c:1049
+#: kifiles.c:1188
 msgid "_Filter..."
 msgstr "_Filtrar..."
 
-#: kifiles.c:1051 kifiles.c:1192
+#: kifiles.c:1190 kifiles.c:1332
 msgid "Icons"
 msgstr "Ícones"
 
-#: kifiles.c:1052 kifiles.c:1201
+#: kifiles.c:1191 kifiles.c:1341
 msgid "List"
 msgstr "Lista"
 
-#: kifiles.c:1053
+#: kifiles.c:1192
 msgid "Zoom _In"
 msgstr "Aumentar _zoom"
 
-#: kifiles.c:1054
+#: kifiles.c:1193
 msgid "Zoom _Out"
 msgstr "Diminuir _zoom"
 
-#: kifiles.c:1055
+#: kifiles.c:1194
 msgid "_Reset Zoom"
 msgstr "_Restaurar zoom"
 
-#: kifiles.c:1056
+#: kifiles.c:1195
 msgid "_Reload"
 msgstr "_Recarregar"
 
-#: kifiles.c:1058
+#: kifiles.c:1197
 msgid "_Back"
 msgstr "_Voltar"
 
-#: kifiles.c:1059
+#: kifiles.c:1198
 msgid "_Forward"
 msgstr "A_vançar"
 
-#: kifiles.c:1060
+#: kifiles.c:1199
 msgid "_Up"
 msgstr "_Acima"
 
-#: kifiles.c:1062
+#: kifiles.c:1201
 msgid "_Home"
 msgstr "_Pasta pessoal"
 
-#: kifiles.c:1063
+#: kifiles.c:1202
 msgid "_Trash"
 msgstr "_Lixeira"
 
-#: kifiles.c:1064
+#: kifiles.c:1203
 msgid "_Location..."
 msgstr "_Local..."
 
-#: kifiles.c:1065
+#: kifiles.c:1204
 msgid "Add to _Places"
 msgstr "Adicionar aos _locais"
 
-#: kifiles.c:1070
+#: kifiles.c:1209
 msgid "_Descending"
 msgstr "_Decrescente"
 
-#: kifiles.c:1071
+#: kifiles.c:1210
 msgid "_Folders First"
 msgstr "_Pastas primeiro"
 
-#: kifiles.c:1072
+#: kifiles.c:1211
 msgid "Show _Hidden Files"
 msgstr "Mostrar arquivos _ocultos"
 
-#: kifiles.c:1073
+#: kifiles.c:1212
+msgid "Show or hide thumbnails (hidden, they use no memory)"
+msgstr "Mostrar ou ocultar miniaturas (ocultas, não ocupam memória)"
+
+#: kifiles.c:1212
 msgid "_Thumbnails"
 msgstr "_Miniaturas"
 
-#: kifiles.c:1074
+#: kifiles.c:1213
 msgid "S_plit View"
 msgstr "_Dividir visualização"
 
-#: kifiles.c:1074
+#: kifiles.c:1213
 msgid "Show two folders side by side"
 msgstr "Mostrar duas pastas lado a lado"
 
-#: kifiles.c:1075
+#: kifiles.c:1214
 msgid "_Places Panel"
 msgstr "Painel de _locais"
 
-#: kifiles.c:1076
+#: kifiles.c:1215
 msgid "Highlight Item Under _Pointer"
 msgstr "Destacar item sob o _cursor"
 
-#: kifiles.c:1080
-msgid "_Icons"
-msgstr "_Ícones"
+#: kifiles.c:1216
+msgid ""
+"After a drag and drop, ask whether to move, copy or link instead of acting "
+"at once (hold Ctrl/Shift to skip the menu)"
+msgstr ""
+"Após arrastar e soltar, perguntar se é para mover, copiar ou criar atalho em "
+"vez de agir direto (segure Ctrl/Shift para pular o menu)"
 
-#: kifiles.c:1081
-msgid "_List"
-msgstr "_Lista"
-
-#: kifiles.c:1085
-msgid "By _Name"
-msgstr "Por _nome"
-
-#: kifiles.c:1086
-msgid "By _Size"
-msgstr "Por _tamanho"
-
-#: kifiles.c:1087
-msgid "By _Modified"
-msgstr "Por _modificação"
-
-#: kifiles.c:1088
-msgid "By _Type"
-msgstr "Por _tipo"
-
-#: kifiles.c:1089
-msgid "By _Extension"
-msgstr "Por _extensão"
-
-#: kifiles.c:1195
-msgid "Icons (Ctrl+1)"
-msgstr "Ícones (Ctrl+1)"
-
-#: kifiles.c:1204
-msgid "List (Ctrl+2)"
-msgstr "Lista (Ctrl+2)"
-
-#: kifiles.c:1209
-msgid "Sort"
-msgstr "Ordenar"
-
-#: kifiles.c:1214
-msgid "Sort by..."
-msgstr "Ordenar por..."
-
-#: kf_dnd.c
+#: kifiles.c:1216
 msgid "_Ask What to Do on Drop"
 msgstr "_Perguntar o que fazer ao soltar"
 
-#: kf_dnd.c
-msgid "After a drag and drop, ask whether to move, copy or link instead of acting at once (hold Ctrl/Shift to skip the menu)"
-msgstr "Após arrastar e soltar, perguntar se é para mover, copiar ou criar atalho em vez de agir direto (segure Ctrl/Shift para pular o menu)"
+#: kifiles.c:1220
+msgid "_Icons"
+msgstr "_Ícones"
 
-#: kf_dnd.c
-msgid "Link to %s"
-msgstr "Atalho para %s"
+#: kifiles.c:1221
+msgid "_List"
+msgstr "_Lista"
 
-#: kf_dnd.c
-msgid "Link to %s (%d)"
-msgstr "Atalho para %s (%d)"
+#: kifiles.c:1225
+msgid "By _Name"
+msgstr "Por _nome"
 
-#: kf_dnd.c
-msgid "_Move Here"
-msgstr "_Mover para cá"
+#: kifiles.c:1226
+msgid "By _Size"
+msgstr "Por _tamanho"
 
-#: kf_dnd.c
-msgid "_Copy Here"
-msgstr "_Copiar para cá"
+#: kifiles.c:1227
+msgid "By _Modified"
+msgstr "Por _modificação"
 
-#: kf_dnd.c
-msgid "Create _Link Here"
-msgstr "Criar a_talho aqui"
+#: kifiles.c:1228
+msgid "By _Type"
+msgstr "Por _tipo"
 
-#: kf_dnd.c
-msgid "C_ancel"
-msgstr "C_ancelar"
+#: kifiles.c:1229
+msgid "By _Extension"
+msgstr "Por _extensão"
 
-#: kifiles.c
+#: kifiles.c:1335
+msgid "Icons (Ctrl+1)"
+msgstr "Ícones (Ctrl+1)"
+
+#: kifiles.c:1344
+msgid "List (Ctrl+2)"
+msgstr "Lista (Ctrl+2)"
+
+#: kifiles.c:1349
+msgid "Sort"
+msgstr "Ordenar"
+
+#: kifiles.c:1354
+msgid "Sort by..."
+msgstr "Ordenar por..."
+
+#: kifiles.c:1361
 msgid "Thumbnails"
 msgstr "Miniaturas"
 
-#: kifiles.c
+#: kifiles.c:1368
 msgid "Show or hide thumbnails"
 msgstr "Mostrar/ocultar miniaturas"
-
-#: kifiles.c
-msgid "Show or hide thumbnails (hidden, they use no memory)"
-msgstr "Mostrar ou ocultar miniaturas (ocultas, não ocupam memória)"

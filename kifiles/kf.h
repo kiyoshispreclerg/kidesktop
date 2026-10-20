@@ -7,7 +7,7 @@
 #include <gio/gio.h>
 #include "../shared/xis_sound.h"
 
-#define KIFILES_VERSION "0.1.11"
+#define KIFILES_VERSION "0.1.12"
 
 typedef enum { KF_VIEW_ICONS, KF_VIEW_LIST } KfViewMode;
 typedef enum { KF_SORT_NAME, KF_SORT_SIZE, KF_SORT_MTIME, KF_SORT_TYPE, KF_SORT_EXT, KF_SORT_N } KfSortKey;
@@ -232,6 +232,9 @@ void kf_places_set_current(GtkWidget *places, GFile *dir);   /* highlight the ma
 void kf_places_add_bookmark(GtkWidget *places, GFile *dir);
 /* kf_usagecell.c -- text cell with a usage bar under it ("usage": 0..100, -1 none) */
 GtkCellRenderer *kf_usage_cell_new(void);
+
+/* kf_props.c -- Properties dialog: General text + Permissions tab (native files only) */
+void kf_props_show(KfApp *app, const char *general_text, GList *files, gboolean permissions);
 
 /* kf_tabs.c */
 void kf_tabs_setup(KfApp *app);                     /* creates app->notebook */

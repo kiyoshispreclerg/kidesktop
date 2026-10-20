@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kifiles\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-17 11:43-0300\n"
+"POT-Creation-Date: 2026-10-20 18:24-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -36,6 +36,32 @@ msgstr ""
 
 #: kf_crumbs.c:381
 msgid "Click to type a location"
+msgstr ""
+
+#: kf_dnd.c:87
+#, c-format
+msgid "Link to %s"
+msgstr ""
+
+#: kf_dnd.c:88
+#, c-format
+msgid "Link to %s (%d)"
+msgstr ""
+
+#: kf_dnd.c:130
+msgid "_Move Here"
+msgstr ""
+
+#: kf_dnd.c:131
+msgid "_Copy Here"
+msgstr ""
+
+#: kf_dnd.c:132
+msgid "Create _Link Here"
+msgstr ""
+
+#: kf_dnd.c:141
+msgid "C_ancel"
 msgstr ""
 
 #: kf_jobview.c:147
@@ -233,23 +259,23 @@ msgstr ""
 msgid "Could not mount this location."
 msgstr ""
 
-#: kf_pane.c:1324
+#: kf_pane.c:1376
 msgid "Name"
 msgstr ""
 
-#: kf_pane.c:1339
+#: kf_pane.c:1391
 msgid "Size"
 msgstr ""
 
-#: kf_pane.c:1340
+#: kf_pane.c:1392
 msgid "Modified"
 msgstr ""
 
-#: kf_pane.c:1341
+#: kf_pane.c:1393
 msgid "Type"
 msgstr ""
 
-#: kf_pane.c:1371
+#: kf_pane.c:1423
 msgid "Filter:"
 msgstr ""
 
@@ -307,7 +333,7 @@ msgstr ""
 msgid "_Mount"
 msgstr ""
 
-#: kf_places.c:519 kifiles.c:1029
+#: kf_places.c:519 kifiles.c:1168
 msgid "_Open"
 msgstr ""
 
@@ -323,15 +349,125 @@ msgstr ""
 msgid "Remove _Bookmark"
 msgstr ""
 
+#: kf_props.c:19
+msgid "(varied)"
+msgstr ""
+
+#: kf_props.c:167
+msgid "Group:"
+msgstr ""
+
+#: kf_props.c:167
+msgid "Owner:"
+msgstr ""
+
+#: kf_props.c:178
+#, c-format
+msgid "Owner (%s)"
+msgstr ""
+
+#: kf_props.c:179
+#, c-format
+msgid "Group (%s)"
+msgstr ""
+
+#: kf_props.c:180
+msgid "Everyone else"
+msgstr ""
+
+#: kf_props.c:181
+msgid "Allow running as a program / entering the folder"
+msgstr ""
+
+#: kf_props.c:182
+msgid "Allow entering the folder and listing its contents"
+msgstr ""
+
+#: kf_props.c:183
+msgid "Allow running as a program"
+msgstr ""
+
+#: kf_props.c:184
+msgid "No access"
+msgstr ""
+
+#: kf_props.c:184
+msgid "Read and write"
+msgstr ""
+
+#: kf_props.c:184
+msgid "Read only"
+msgstr ""
+
+#: kf_props.c:184
+msgid "Write only"
+msgstr ""
+
+#: kf_props.c:219
+msgid ""
+"\"(varied)\" means the selected items differ. Leave it alone to keep each "
+"item's current value, or pick one to set it on all of them."
+msgstr ""
+
+#: kf_props.c:226
+msgid ""
+"You are not the owner of some of these items. The administrator password "
+"will be asked to apply changes."
+msgstr ""
+
+#: kf_props.c:266
+msgid "Could not change the permissions"
+msgstr ""
+
+#: kf_props.c:268
+msgid "The administrator command failed."
+msgstr ""
+
+#: kf_props.c:288
+#, c-format
+msgid "There is no user called \"%s\"."
+msgstr ""
+
+#: kf_props.c:298
+#, c-format
+msgid "There is no group called \"%s\"."
+msgstr ""
+
+#: kf_props.c:328
+msgid "Administrator access is needed"
+msgstr ""
+
+#: kf_props.c:330
+msgid ""
+"Some of these changes need permissions you do not have. Apply them as "
+"administrator? You will be asked for the password."
+msgstr ""
+
+#: kf_props.c:332
+msgid "Apply as administrator"
+msgstr ""
+
+#: kf_props.c:347
+msgid "Properties"
+msgstr ""
+
+#: kf_props.c:360
+msgid "General"
+msgstr ""
+
+#: kf_props.c:362
+msgid "Permissions"
+msgstr ""
+
 #: kf_tabs.c:100
 msgid "Close tab (Ctrl+W)"
 msgstr ""
 
-#: kf_tabs.c:235 kifiles.c:1022
+#: kf_tabs.c:235 kifiles.c:1161
 msgid "New _Tab"
 msgstr ""
 
-#: kf_tabs.c:237 kifiles.c:1024
+#: kf_tabs.c:237 kifiles.c:1163
 msgid "_Detach Tab"
 msgstr ""
 
@@ -339,376 +475,345 @@ msgstr ""
 msgid "Close _Other Tabs"
 msgstr ""
 
-#: kf_tabs.c:240 kifiles.c:1023
+#: kf_tabs.c:240 kifiles.c:1162
 msgid "_Close Tab"
 msgstr ""
 
-#: kifiles.c:25
+#: kifiles.c:27
 #, c-format
 msgid "%u folder"
 msgid_plural "%u folders"
 msgstr[0] ""
 msgstr[1] ""
 
-#: kifiles.c:26
+#: kifiles.c:28
 #, c-format
 msgid "%u file"
 msgid_plural "%u files"
 msgstr[0] ""
 msgstr[1] ""
 
-#: kifiles.c:47
+#: kifiles.c:49
 #, c-format
 msgid "%u item selected"
 msgid_plural "%u items selected"
 msgstr[0] ""
 msgstr[1] ""
 
-#: kifiles.c:53
+#: kifiles.c:55
 msgid "Loading..."
 msgstr ""
 
-#: kifiles.c:103
+#: kifiles.c:105
 #, c-format
 msgid "%s free of %s"
 msgstr ""
 
-#: kifiles.c:266 kifiles.c:814
+#: kifiles.c:268 kifiles.c:949
 msgid "Could not open the file"
 msgstr ""
 
-#: kifiles.c:665
+#: kifiles.c:677
 #, c-format
 msgid "Icon size: %d px (Ctrl+Plus / Ctrl+Minus)"
 msgstr ""
 
-#: kifiles.c:734
+#: kifiles.c:746
 msgid "File manager for KiDesktop"
 msgstr ""
 
-#: kifiles.c:886
+#: kifiles.c:1021
 msgid "Open _With"
 msgstr ""
 
-#: kifiles.c:959
+#: kifiles.c:1094
 #, c-format
 msgid "Name: %s\n"
 msgstr ""
 
-#: kifiles.c:960
+#: kifiles.c:1095
 #, c-format
 msgid "Location: %s\n"
 msgstr ""
 
-#: kifiles.c:961
+#: kifiles.c:1096
 #, c-format
 msgid "Type: %s\n"
 msgstr ""
 
-#: kifiles.c:963
+#: kifiles.c:1098
 #, c-format
 msgid "Size: %s\n"
 msgstr ""
 
-#: kifiles.c:968
+#: kifiles.c:1103
 #, c-format
 msgid "Modified: %s\n"
 msgstr ""
 
-#: kifiles.c:974
+#: kifiles.c:1109
 #, c-format
 msgid "Owner: %s\n"
 msgstr ""
 
-#: kifiles.c:976
-#, c-format
-msgid "Permissions: %04o\n"
-msgstr ""
-
-#: kifiles.c:983
-msgid "Properties"
-msgstr ""
-
-#: kifiles.c:1017
+#: kifiles.c:1156
 msgid "_Edit"
 msgstr ""
 
-#: kifiles.c:1017
+#: kifiles.c:1156
 msgid "_File"
 msgstr ""
 
-#: kifiles.c:1018
+#: kifiles.c:1157
 msgid "_Go"
 msgstr ""
 
-#: kifiles.c:1018
+#: kifiles.c:1157
 msgid "_View"
 msgstr ""
 
-#: kifiles.c:1019
+#: kifiles.c:1158
 msgid "_Help"
 msgstr ""
 
-#: kifiles.c:1019
+#: kifiles.c:1158
 msgid "_Sort By"
 msgstr ""
 
-#: kifiles.c:1021
+#: kifiles.c:1160
 msgid "New _Window"
 msgstr ""
 
-#: kifiles.c:1024
+#: kifiles.c:1163
 msgid "Move the tab to a new window"
 msgstr ""
 
-#: kifiles.c:1025
+#: kifiles.c:1164
 msgid "_Next Tab"
 msgstr ""
 
-#: kifiles.c:1026
+#: kifiles.c:1165
 msgid "_Previous Tab"
 msgstr ""
 
-#: kifiles.c:1027
+#: kifiles.c:1166
 msgid "Create a new folder"
 msgstr ""
 
-#: kifiles.c:1027
+#: kifiles.c:1166
 msgid "New _Folder..."
 msgstr ""
 
-#: kifiles.c:1028
+#: kifiles.c:1167
 msgid "New _File..."
 msgstr ""
 
-#: kifiles.c:1030
+#: kifiles.c:1169
 msgid "Open in New _Window"
 msgstr ""
 
-#: kifiles.c:1031
+#: kifiles.c:1170
 msgid "Open in New _Tab"
 msgstr ""
 
-#: kifiles.c:1032
+#: kifiles.c:1171
 msgid "Open _Terminal Here"
 msgstr ""
 
-#: kifiles.c:1033
+#: kifiles.c:1172
 msgid "_Rename..."
 msgstr ""
 
-#: kifiles.c:1034
+#: kifiles.c:1173
 msgid "Move to _Trash"
 msgstr ""
 
-#: kifiles.c:1035
+#: kifiles.c:1174
 msgid "Delete permanently"
 msgstr ""
 
-#: kifiles.c:1035
+#: kifiles.c:1174
 msgid "_Delete"
 msgstr ""
 
-#: kifiles.c:1036
+#: kifiles.c:1175
 msgid "_Restore"
 msgstr ""
 
-#: kifiles.c:1037
+#: kifiles.c:1176
 msgid "E_mpty Trash"
 msgstr ""
 
-#: kifiles.c:1038
+#: kifiles.c:1177
 msgid "_Properties"
 msgstr ""
 
-#: kifiles.c:1045
+#: kifiles.c:1184
 msgid "Paste Into _Folder"
 msgstr ""
 
-#: kifiles.c:1046
+#: kifiles.c:1185
 msgid "Copy _Path"
 msgstr ""
 
-#: kifiles.c:1048
+#: kifiles.c:1187
 msgid "_Invert Selection"
 msgstr ""
 
-#: kifiles.c:1049
+#: kifiles.c:1188
 msgid "Filter the files by name"
 msgstr ""
 
-#: kifiles.c:1049
+#: kifiles.c:1188
 msgid "_Filter..."
 msgstr ""
 
-#: kifiles.c:1051 kifiles.c:1192
+#: kifiles.c:1190 kifiles.c:1332
 msgid "Icons"
 msgstr ""
 
-#: kifiles.c:1052 kifiles.c:1201
+#: kifiles.c:1191 kifiles.c:1341
 msgid "List"
 msgstr ""
 
-#: kifiles.c:1053
+#: kifiles.c:1192
 msgid "Zoom _In"
 msgstr ""
 
-#: kifiles.c:1054
+#: kifiles.c:1193
 msgid "Zoom _Out"
 msgstr ""
 
-#: kifiles.c:1055
+#: kifiles.c:1194
 msgid "_Reset Zoom"
 msgstr ""
 
-#: kifiles.c:1056
+#: kifiles.c:1195
 msgid "_Reload"
 msgstr ""
 
-#: kifiles.c:1058
+#: kifiles.c:1197
 msgid "_Back"
 msgstr ""
 
-#: kifiles.c:1059
+#: kifiles.c:1198
 msgid "_Forward"
 msgstr ""
 
-#: kifiles.c:1060
+#: kifiles.c:1199
 msgid "_Up"
 msgstr ""
 
-#: kifiles.c:1062
+#: kifiles.c:1201
 msgid "_Home"
 msgstr ""
 
-#: kifiles.c:1063
+#: kifiles.c:1202
 msgid "_Trash"
 msgstr ""
 
-#: kifiles.c:1064
+#: kifiles.c:1203
 msgid "_Location..."
 msgstr ""
 
-#: kifiles.c:1065
+#: kifiles.c:1204
 msgid "Add to _Places"
 msgstr ""
 
-#: kifiles.c:1070
+#: kifiles.c:1209
 msgid "_Descending"
 msgstr ""
 
-#: kifiles.c:1071
+#: kifiles.c:1210
 msgid "_Folders First"
 msgstr ""
 
-#: kifiles.c:1072
+#: kifiles.c:1211
 msgid "Show _Hidden Files"
 msgstr ""
 
-#: kifiles.c:1073
+#: kifiles.c:1212
+msgid "Show or hide thumbnails (hidden, they use no memory)"
+msgstr ""
+
+#: kifiles.c:1212
 msgid "_Thumbnails"
 msgstr ""
 
-#: kifiles.c:1074
+#: kifiles.c:1213
 msgid "S_plit View"
 msgstr ""
 
-#: kifiles.c:1074
+#: kifiles.c:1213
 msgid "Show two folders side by side"
 msgstr ""
 
-#: kifiles.c:1075
+#: kifiles.c:1214
 msgid "_Places Panel"
 msgstr ""
 
-#: kifiles.c:1076
+#: kifiles.c:1215
 msgid "Highlight Item Under _Pointer"
 msgstr ""
 
-#: kifiles.c:1080
-msgid "_Icons"
+#: kifiles.c:1216
+msgid ""
+"After a drag and drop, ask whether to move, copy or link instead of acting "
+"at once (hold Ctrl/Shift to skip the menu)"
 msgstr ""
 
-#: kifiles.c:1081
-msgid "_List"
-msgstr ""
-
-#: kifiles.c:1085
-msgid "By _Name"
-msgstr ""
-
-#: kifiles.c:1086
-msgid "By _Size"
-msgstr ""
-
-#: kifiles.c:1087
-msgid "By _Modified"
-msgstr ""
-
-#: kifiles.c:1088
-msgid "By _Type"
-msgstr ""
-
-#: kifiles.c:1089
-msgid "By _Extension"
-msgstr ""
-
-#: kifiles.c:1195
-msgid "Icons (Ctrl+1)"
-msgstr ""
-
-#: kifiles.c:1204
-msgid "List (Ctrl+2)"
-msgstr ""
-
-#: kifiles.c:1209
-msgid "Sort"
-msgstr ""
-
-#: kifiles.c:1214
-msgid "Sort by..."
-msgstr ""
-
-#: kf_dnd.c
+#: kifiles.c:1216
 msgid "_Ask What to Do on Drop"
 msgstr ""
 
-#: kf_dnd.c
-msgid "After a drag and drop, ask whether to move, copy or link instead of acting at once (hold Ctrl/Shift to skip the menu)"
+#: kifiles.c:1220
+msgid "_Icons"
 msgstr ""
 
-#: kf_dnd.c
-msgid "Link to %s"
+#: kifiles.c:1221
+msgid "_List"
 msgstr ""
 
-#: kf_dnd.c
-msgid "Link to %s (%d)"
+#: kifiles.c:1225
+msgid "By _Name"
 msgstr ""
 
-#: kf_dnd.c
-msgid "_Move Here"
+#: kifiles.c:1226
+msgid "By _Size"
 msgstr ""
 
-#: kf_dnd.c
-msgid "_Copy Here"
+#: kifiles.c:1227
+msgid "By _Modified"
 msgstr ""
 
-#: kf_dnd.c
-msgid "Create _Link Here"
+#: kifiles.c:1228
+msgid "By _Type"
 msgstr ""
 
-#: kf_dnd.c
-msgid "C_ancel"
+#: kifiles.c:1229
+msgid "By _Extension"
 msgstr ""
 
-#: kifiles.c
+#: kifiles.c:1335
+msgid "Icons (Ctrl+1)"
+msgstr ""
+
+#: kifiles.c:1344
+msgid "List (Ctrl+2)"
+msgstr ""
+
+#: kifiles.c:1349
+msgid "Sort"
+msgstr ""
+
+#: kifiles.c:1354
+msgid "Sort by..."
+msgstr ""
+
+#: kifiles.c:1361
 msgid "Thumbnails"
 msgstr ""
 
-#: kifiles.c
+#: kifiles.c:1368
 msgid "Show or hide thumbnails"
-msgstr ""
-
-#: kifiles.c
-msgid "Show or hide thumbnails (hidden, they use no memory)"
 msgstr ""
