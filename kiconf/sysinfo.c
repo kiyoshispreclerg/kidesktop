@@ -1,8 +1,9 @@
-/* kiconf - home page "system info" panel. See sysinfo.h. */
+/* kiconf - "Sobre" module: system info panel. See sysinfo.h. */
 #include "common.h"
 #include "sysinfo.h"
 
 #include <ctype.h>
+#include <dirent.h>
 #include <limits.h>
 #include <pwd.h>
 #include <stdio.h>
@@ -160,56 +161,111 @@ static void get_cpu(char *out, size_t outsz)
     }
 }
 
-/* One line per VGA/3D/display PCI controller lspci finds, vendor+model
- * text only (drops the leading "NN:NN.N " bus address and the trailing
- * " (rev NN)" -- neither means anything to whoever's reading this
- * panel). Multiple GPUs (the common discrete+integrated laptop/desktop
- * case) all get listed, newline-separated. */
+/* True when the PCI device `slot` ("0000:00:02.0") is bound to a DRM
+ * card, i.e. it really drives graphics. Some integrated GPUs expose a
+ * second display-class function (or a render-only twin) that lspci lists
+ * as a controller too, which showed up as a phantom second GPU. */
+static int pci_has_drm_card(const char *slot)
+{
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "/sys/bus/pci/devices/%s/drm", slot);
+    return access(path, F_OK) == 0;
+}
+
+static int any_drm_card_on_pci(void)
+{
+    DIR *d = opendir("/sys/bus/pci/devices");
+    if (!d) {
+        return 0;
+    }
+    int found = 0;
+    struct dirent *e;
+    while (!found && (e = readdir(d))) {
+        if (e->d_name[0] != '.' && pci_has_drm_card(e->d_name)) {
+            found = 1;
+        }
+    }
+    closedir(d);
+    return found;
+}
+
+/* Next double-quoted field of an `lspci -mm` line; NULL at end of line. */
+static char *next_quoted(char **cursor)
+{
+    char *start = strchr(*cursor, '"');
+    if (!start) {
+        return NULL;
+    }
+    char *end = strchr(start + 1, '"');
+    if (!end) {
+        return NULL;
+    }
+    *end = '\0';
+    *cursor = end + 1;
+    return start + 1;
+}
+
+/* One line per graphics adapter: PCI class 03xx entries from
+ * `lspci -mm -D` that are bound to a DRM card (all of them when sysfs
+ * shows no DRM cards at all, e.g. a bare VM), as "vendor model", with
+ * identical lines collapsed. Discrete+integrated machines list both. */
 static void get_gpu(char *out, size_t outsz)
 {
     out[0] = '\0';
     char raw[16384];
-    char *argv[] = {"lspci", NULL};
+    char *argv[] = {"lspci", "-mm", "-D", NULL};
     if (!run_capture(argv, raw, sizeof(raw))) {
         snprintf(out, outsz, "?");
         return;
     }
-    static const char *const kinds[] = {"VGA compatible controller: ", "3D controller: ", "Display controller: ", NULL};
+    int filter_drm = any_drm_card_on_pci();
     char *save = NULL;
     for (char *line = strtok_r(raw, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
-        for (int k = 0; kinds[k]; k++) {
-            char *p = strstr(line, kinds[k]);
-            if (!p) {
-                continue;
-            }
-            char model[256];
-            snprintf(model, sizeof(model), "%s", p + strlen(kinds[k]));
-            size_t n = strlen(model);
-            while (n > 0 && (model[n - 1] == '\n' || model[n - 1] == '\r')) {
-                model[--n] = '\0';
-            }
-            char *rev = strstr(model, " (rev ");
-            if (rev) {
-                *rev = '\0';
-            }
-            size_t used = strlen(out);
-            snprintf(out + used, outsz - used, "%s%s", used ? "\n" : "", model);
-            break;
+        char *sp = strchr(line, ' ');
+        if (!sp) {
+            continue;
         }
+        *sp = '\0';
+        const char *slot = line;
+        char *cursor = sp + 1;
+        const char *class_name = next_quoted(&cursor);
+        const char *vendor = next_quoted(&cursor);
+        const char *device = next_quoted(&cursor);
+        if (!class_name || !vendor || !device) {
+            continue;
+        }
+        if (strcmp(class_name, "VGA compatible controller") && strcmp(class_name, "3D controller") &&
+            strcmp(class_name, "Display controller")) {
+            continue;
+        }
+        if (filter_drm && !pci_has_drm_card(slot)) {
+            continue;
+        }
+        char model[320];
+        snprintf(model, sizeof(model), "%s %s", vendor, device);
+        /* Whole-line match, so one model name never hides inside another. */
+        char padded_out[1100], padded_model[330];
+        snprintf(padded_out, sizeof(padded_out), "\n%s\n", out);
+        snprintf(padded_model, sizeof(padded_model), "\n%s\n", model);
+        if (strstr(padded_out, padded_model)) {
+            continue;
+        }
+        size_t used = strlen(out);
+        snprintf(out + used, outsz - used, "%s%s", used ? "\n" : "", model);
     }
     if (!out[0]) {
         snprintf(out, outsz, "?");
     }
 }
 
-/* One left-aligned "Campo: valor" label per fact, packed tight -- this
- * panel is read-only display, not a form, so it doesn't need
+/* One left-aligned label per fact, the name in bold with the value on the
+ * line below -- this is read-only display, not a form, so it doesn't need
  * labeled_row()'s two-column table (that exists for label+editable-widget
  * pairs elsewhere). GPU/CPU values can wrap or span multiple lines
  * (multi-GPU machines), so line-wrap is on for every value. */
 static void add_fact(GtkWidget *box, const char *label, const char *value)
 {
-    char *markup = g_markup_printf_escaped("<b>%s</b> %s", label, value);
+    char *markup = g_markup_printf_escaped("<b>%s</b>\n%s", label, value);
     GtkWidget *lbl = gtk_label_new(NULL);
     gtk_label_set_markup(GTK_LABEL(lbl), markup);
     g_free(markup);
@@ -219,7 +275,8 @@ static void add_fact(GtkWidget *box, const char *label, const char *value)
      * against -- left to negotiate its own size inside a plain vbox, it
      * requests one unbroken line and gets clipped instead by whatever
      * width the sysinfo panel ends up with. */
-    gtk_widget_set_size_request(lbl, 170, -1);
+    gtk_widget_set_size_request(lbl, 460, -1);
+    gtk_label_set_selectable(GTK_LABEL(lbl), TRUE);
     gtk_box_pack_start(GTK_BOX(box), lbl, FALSE, FALSE, 0);
 }
 
@@ -229,9 +286,10 @@ static void add_fact(GtkWidget *box, const char *label, const char *value)
 #define KIDESKTOP_VERSION "?"
 #endif
 
-GtkWidget *build_sysinfo_panel(void)
+GtkWidget *build_sobre_tab(void)
 {
-    GtkWidget *box = gtk_vbox_new(FALSE, 4);
+    GtkWidget *box = gtk_vbox_new(FALSE, 8);
+    gtk_container_set_border_width(GTK_CONTAINER(box), 12);
 
     char user[NAME_LEN], host[NAME_LEN], distro[256], kernel[256];
     char xserver[256], ram[64], cpu[320], gpu[512];
@@ -254,5 +312,5 @@ GtkWidget *build_sysinfo_panel(void)
     add_fact(box, "Memoria RAM:", ram);
     add_fact(box, "GPU:", gpu);
 
-    return frame_with(_("Sobre este computador"), box);
+    return box;
 }

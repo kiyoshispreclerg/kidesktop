@@ -182,10 +182,6 @@ msgstr "O módulo %s não exporta kiconf_tab_build()"
 msgid "O modulo %s nao criou nenhuma pagina"
 msgstr "O módulo %s não criou nenhuma página"
 
-#: sysinfo.c:257
-msgid "Sobre este computador"
-msgstr "Sobre este computador"
-
 #: tabs/acessibilidade.c:452
 msgid ""
 "Teclas de aderencia: Shift, Ctrl e Alt ficam pressionados ate a proxima tecla"
@@ -2374,3 +2370,7 @@ msgstr ""
 msgid ""
 "Quantos gravadores a captura censurada atende ao mesmo tempo"
 msgstr ""
+
+#: kiconf.c
+msgid "Sobre"
+msgstr "Sobre"

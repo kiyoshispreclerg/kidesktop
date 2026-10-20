@@ -185,10 +185,6 @@ msgstr ""
 msgid "O modulo %s nao criou nenhuma pagina"
 msgstr ""
 
-#: sysinfo.c:257
-msgid "Sobre este computador"
-msgstr ""
-
 #: tabs/acessibilidade.c:452
 msgid ""
 "Teclas de aderencia: Shift, Ctrl e Alt ficam pressionados ate a proxima tecla"
@@ -2232,4 +2228,8 @@ msgstr ""
 #: tabs/efeitos.c
 msgid ""
 "Quantos gravadores a captura censurada atende ao mesmo tempo"
+msgstr ""
+
+#: kiconf.c
+msgid "Sobre"
 msgstr ""

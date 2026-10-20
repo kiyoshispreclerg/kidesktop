@@ -172,7 +172,8 @@ static LazyTab g_builtin_tabs[] = {
     {N_("Permissoes"), GTK_STOCK_DIALOG_AUTHENTICATION, build_permissoes_tab, NULL, 0, 0, "system", "xisguard seguranca security privacy", NULL, NULL},
     {N_("Gerenciamento de janelas"), GTK_STOCK_DND_MULTIPLE, build_janelas_tab, NULL, 0, 0, "appearance", "windows kiwm foco focus", NULL, NULL},
     {N_("Efeitos do compositor"), GTK_STOCK_CONVERT, build_efeitos_tab, NULL, 0, 0, "appearance", "kicomp animacao animation compositor wobbly cubo", NULL, NULL},
-    {N_("Sistema"), GTK_STOCK_HARDDISK, build_sistema_tab, NULL, 0, 0, "system", "sobre about hardware info", NULL, NULL},
+    {N_("Sistema"), GTK_STOCK_HARDDISK, build_sistema_tab, NULL, 0, 0, "system", "idioma language data hora timezone fuso", NULL, NULL},
+    {N_("Sobre"), GTK_STOCK_ABOUT, build_sobre_tab, NULL, 0, 0, "system", "about sobre hardware info computador cpu gpu ram kernel versao", NULL, NULL},
     {N_("Energia"), GTK_STOCK_QUIT, build_energia_tab, NULL, 0, 0, "hardware", "bateria battery suspender power luz noturna night light", NULL, NULL},
     {N_("Programas padrao"), GTK_STOCK_EXECUTE, build_programas_tab, NULL, 0, 0, "programs", "navegador browser default", NULL, NULL},
     {N_("Associacoes de arquivos"), GTK_STOCK_OPEN, build_associacoes_tab, NULL, 0, 0, "programs", "mime tipos types", NULL, NULL},
@@ -707,11 +708,7 @@ static void on_search_activate(GtkEntry *entry, gpointer data)
     }
 }
 
-/* Two-column row: a narrower "about this computer" summary (see
- * sysinfo.c) on the left, search + module sections taking the rest of
- * the width on the right. The sysinfo side gets a fixed-ish request via
- * FALSE/FALSE packing (sized to its own content) while the other side is
- * TRUE/TRUE so it's the one that grows when the window is resized. */
+/* Search box on top, module sections below. */
 static GtkWidget *build_home_page(void)
 {
     g_home_search = gtk_entry_new();
@@ -737,16 +734,9 @@ static GtkWidget *build_home_page(void)
     gtk_box_pack_start(GTK_BOX(right), g_home_search, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(right), scroll, TRUE, TRUE, 0);
 
-    GtkWidget *sysinfo = build_sysinfo_panel();
-    gtk_widget_set_size_request(sysinfo, 190, -1);
-
-    GtkWidget *row = gtk_hbox_new(FALSE, 8);
-    gtk_box_pack_start(GTK_BOX(row), sysinfo, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(row), right, TRUE, TRUE, 0);
-
     GtkWidget *outer = gtk_vbox_new(FALSE, 0);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 10);
-    gtk_box_pack_start(GTK_BOX(outer), row, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), right, TRUE, TRUE, 0);
     return outer;
 }
 
