@@ -10,8 +10,59 @@
 #include <gdk/gdkkeysyms.h>
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <sys/file.h>
+#include <glib-unix.h>
+#include <unistd.h>
 
 static TskApp the_app;
+
+/* ---- single instance ---------------------------------------------------------------- */
+
+/* One kitask per display: the first holds an flock'd file with its pid; a later
+ * one sends it SIGUSR1 (raise the window) and exits. Returns TRUE if we are the
+ * first. The fd stays open for the process lifetime to keep the lock. */
+static gboolean single_instance_acquire(void)
+{
+    const char *rt = getenv("XDG_RUNTIME_DIR");
+    const char *disp = getenv("DISPLAY");
+    char name[64] = { 0 };
+    snprintf(name, sizeof(name), "%s", disp ? disp : "");
+    for (char *p = name; *p; p++)
+        if (*p == ':' || *p == '/')
+            *p = '_';
+    char path[512] = { 0 };
+    snprintf(path, sizeof(path), "%s/kitask%s.lock", rt && *rt ? rt : "/tmp", name);
+
+    int fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    if (fd < 0)
+        return TRUE;   /* can't coordinate; better to open than to fail */
+    if (flock(fd, LOCK_EX | LOCK_NB) == 0) {
+        char buf[32] = { 0 };
+        int n = snprintf(buf, sizeof(buf), "%d\n", (int)getpid());
+        if (ftruncate(fd, 0) == 0 && write(fd, buf, (size_t)n) < 0)
+            perror("kitask: lock write");
+        return TRUE;
+    }
+    char buf[32] = { 0 };
+    ssize_t r = pread(fd, buf, sizeof(buf) - 1, 0);
+    long pid = r > 0 ? atol(buf) : 0;
+    if (pid > 1)
+        kill((pid_t)pid, SIGUSR1);
+    close(fd);
+    return FALSE;
+}
+
+static gboolean on_raise_signal(gpointer data)
+{
+    TskApp *app = data;
+    gtk_window_deiconify(GTK_WINDOW(app->win));
+    gtk_window_present(GTK_WINDOW(app->win));
+    return TRUE;
+}
 
 
 /* ---- refresh ---------------------------------------------------------------------- */
@@ -389,6 +440,8 @@ int main(int argc, char **argv)
         if ((!strcmp(argv[i], "-f") || !strcmp(argv[i], "--filter")) && i + 1 < argc)
             filter = argv[++i];
     }
+    if (!single_instance_acquire())
+        return 0;
     gtk_init(&argc, &argv);
     setlocale(LC_NUMERIC, "C");   /* gtk_init() reset it; the config has '.' decimals */
 
@@ -430,6 +483,7 @@ int main(int argc, char **argv)
     gtk_widget_show_all(app->win);
     tsk_app_apply_graphs_visible(app);
     gtk_widget_grab_focus(app->list);
+    g_unix_signal_add(SIGUSR1, on_raise_signal, app);
     tsk_app_restart_timers(app);
     gtk_main();
 
