@@ -36,8 +36,6 @@ static void defaults(KsConfig *c)
     c->audio_system = TRUE;
     c->audio_mic = FALSE;
     c->rec_preview = TRUE;
-    c->censor_popups = TRUE;
-    c->censor_classes = g_new0(char *, 1);
     c->win_w = 760;
     c->win_h = 480;
 }
@@ -114,13 +112,6 @@ void ks_config_load(KsConfig *c)
         else if (!strcmp(k, "record_preview")) c->rec_preview = truth(v);
         else if (!strcmp(k, "copy_method")) c->copy_mode = lookup(kCopyKeys, 3, v, KS_COPY_AUTO);
         else if (!strcmp(k, "backend")) c->backend = lookup(kBackendKeys, 3, v, KS_BACKEND_AUTO);
-        else if (!strcmp(k, "censor_popups")) c->censor_popups = truth(v);
-        else if (!strcmp(k, "censor_classes")) {
-            g_strfreev(c->censor_classes);
-            c->censor_classes = g_strsplit_set(v, ",;", -1);
-            for (char **p = c->censor_classes; *p; p++)
-                g_strstrip(*p);
-        }
         else if (!strcmp(k, "window_width")) c->win_w = CLAMP(atoi(v), 300, 10000);
         else if (!strcmp(k, "window_height")) c->win_h = CLAMP(atoi(v), 200, 10000);
         else if (!strcmp(k, "pane_position")) c->pane_pos = CLAMP(atoi(v), 0, 10000);
@@ -143,7 +134,6 @@ void ks_config_save(const KsConfig *c)
     g_free(path);
     if (!f)
         return;
-    char *classes = g_strjoinv(",", c->censor_classes);
     fprintf(f, "# kishot settings (written by kishot)\n");
     fprintf(f, "area=%s\n", ks_area_key(c->area));
     fprintf(f, "record_area=%s\n", ks_area_key(c->rec_area));
@@ -176,13 +166,10 @@ void ks_config_save(const KsConfig *c)
     fprintf(f, "copy_method=%s\n", kCopyKeys[c->copy_mode]);
     fprintf(f, "# auto: the libav plugin when it loads, else the ffmpeg command\n");
     fprintf(f, "backend=%s\n", kBackendKeys[c->backend]);
-    fprintf(f, "censor_classes=%s\n", classes);
-    fprintf(f, "censor_popups=%d\n", c->censor_popups);
     fprintf(f, "window_width=%d\n", c->win_w);
     fprintf(f, "window_height=%d\n", c->win_h);
     fprintf(f, "pane_position=%d\n", c->pane_pos);
     fclose(f);
-    g_free(classes);
 }
 
 /* "$PICTURES/Screenshots" -> "/home/u/Pictures/Screenshots" */

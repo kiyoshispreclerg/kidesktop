@@ -111,11 +111,32 @@ expect "hide mode: the desktop shows where the window was" "$(shot)" gray
 grep -q "the compositor's censored picture (slot)" "$TMP/kishot.log" && ok "... read from the slot" || fail "hide: the slot was not used"
 unmark "$XC"; sleep 0.7
 
-# kishot has a target of its own (censor_classes): the compositor's "nothing
-# hidden shows" cannot be trusted to mean the shot is clean
-printf 'censor_classes=XTerm\n' > "$HOME/.config/kishot.conf"
-expect "offer + censor_classes: an unmarked listed window is still hidden" "$(shot)" black
-rm -f "$HOME/.config/kishot.conf"
+# kishot's own window, with a session open (HIDE_PID): not hidden around the
+# capture, and not in the picture either
+unmark "$XC"; sleep 0.5
+printf 'capture_censor = black\n' > "$HOME/.config/kicomp.conf"
+printf 'auto_save=1\n' > "$HOME/.config/kishot.conf"
+"$ROOT/kishot/kishot" >"$TMP/gui2.log" 2>&1 & GUI2=$!; PIDS+=($GUI2); sleep 3
+G2=$(xdotool search --pid $GUI2 --onlyvisible | tail -1)
+eval "$(xdotool getwindowgeometry --shell "$G2")"
+rm -rf "$HOME/Screenshots"
+KISHOT_DEBUG=1 "$ROOT/kishot/kishot" -f -b >"$TMP/own.log" 2>&1; sleep 4; cat "$TMP/gui2.log" | grep -v WARN | head -5
+f=$(ls "$HOME"/Screenshots/*.png 2>/dev/null | head -1)
+if [ -n "$f" ]; then
+    got=$(python3 - "$f" $((X + WIDTH - 12)) $((Y + HEIGHT / 2)) <<'PY'
+import sys
+from PIL import Image
+p = Image.open(sys.argv[1]).convert('RGB').getpixel((int(sys.argv[2]), int(sys.argv[3])))
+print('ground' if p == (28, 28, 28) else 'other:%s' % (p,))
+PY
+)
+    expect "HIDE_PID: kishot's own window is not in the compositor's picture" "$got" ground
+else
+    fail "no screenshot was taken"
+fi
+xdotool search --pid $GUI2 --onlyvisible | grep -q . && ok "...and its window was not hidden for the shot" \
+    || fail "the window was hidden anyway"
+kill $GUI2 2>/dev/null; rm -f "$HOME/.config/kishot.conf"
 
 # a compositor that disappears: kishot must not trust a stale STATE
 kill -9 $CP; wait $CP 2>/dev/null; sleep 0.5

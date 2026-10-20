@@ -1,5 +1,5 @@
 /* ks_prefs.c - the Settings dialog: where files go, formats, codec, how
- * recordings are captured, and which window classes are always hidden.
+ * recordings are captured.
  * Options for something that isn't available here (no plugin, no ffmpeg,
  * no VAAPI) are listed but explained, never silently missing. */
 #include "ks.h"
@@ -10,7 +10,6 @@ typedef struct {
     KsConfig *cfg;
     GtkWidget *shot_dir, *format, *jpeg_q, *pattern, *auto_save, *auto_copy;
     GtkWidget *video_dir, *container, *codec, *quality, *fps, *copy, *backend;
-    GtkWidget *classes, *popups;
     GtkWidget *caps_label;
     GPtrArray *formats;     /* writable gdk-pixbuf format names */
 } Prefs;
@@ -183,28 +182,6 @@ static GtkWidget *page_recording(Prefs *p)
     return t;
 }
 
-static GtkWidget *page_hidden(Prefs *p)
-{
-    KsConfig *c = p->cfg;
-    GtkWidget *t = table();
-    GtkWidget *info = gtk_label_new(
-        _("Windows listed here are painted black in every screenshot and recording kishot makes; parts "
-          "covered by other windows stay visible. The screen itself is not changed, and other capture "
-          "programs still see them. Windows can also be hidden for this session from the main window."));
-    gtk_label_set_line_wrap(GTK_LABEL(info), TRUE);
-    gtk_misc_set_alignment(GTK_MISC(info), 0, 0);
-    gtk_table_attach(GTK_TABLE(t), info, 0, 2, 0, 1, GTK_FILL, 0, 0, 0);
-    p->classes = row(t, 1, _("Always hide window _classes:"), gtk_entry_new());
-    char *joined = g_strjoinv(", ", c->censor_classes);
-    gtk_entry_set_text(GTK_ENTRY(p->classes), joined);
-    g_free(joined);
-    gtk_widget_set_tooltip_text(p->classes, _("Comma-separated WM_CLASS names, e.g. KeePassXC, Signal"));
-    p->popups = gtk_check_button_new_with_mnemonic(_("Also hide their _menus and tooltips"));
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->popups), c->censor_popups);
-    gtk_table_attach(GTK_TABLE(t), p->popups, 0, 2, 2, 3, GTK_FILL, 0, 0, 0);
-    return t;
-}
-
 static char *combo_text(GtkWidget *c)
 {
     return gtk_combo_box_get_active_text(GTK_COMBO_BOX(c));
@@ -221,7 +198,6 @@ void ks_prefs_run(GtkWindow *parent, KsConfig *cfg, KsTab page)
     GtkWidget *nb = gtk_notebook_new();
     gtk_notebook_append_page(GTK_NOTEBOOK(nb), page_screenshots(&p), gtk_label_new(_("Screenshots")));
     gtk_notebook_append_page(GTK_NOTEBOOK(nb), page_recording(&p), gtk_label_new(_("Recording")));
-    gtk_notebook_append_page(GTK_NOTEBOOK(nb), page_hidden(&p), gtk_label_new(_("Hidden Windows")));
     gtk_box_pack_start(GTK_BOX(gtk_dialog_get_content_area(GTK_DIALOG(dlg))), nb, TRUE, TRUE, 0);
     gtk_widget_show_all(dlg);
     /* the page of the tab the main window is on (pages only switch once shown) */
@@ -256,13 +232,6 @@ void ks_prefs_run(GtkWindow *parent, KsConfig *cfg, KsTab page)
         cfg->fps = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(p.fps));
         cfg->copy_mode = gtk_combo_box_get_active(GTK_COMBO_BOX(p.copy));
         cfg->backend = gtk_combo_box_get_active(GTK_COMBO_BOX(p.backend));
-
-        char **cls = g_strsplit_set(gtk_entry_get_text(GTK_ENTRY(p.classes)), ",;", -1);
-        for (char **c = cls; *c; c++)
-            g_strstrip(*c);
-        g_strfreev(cfg->censor_classes);
-        cfg->censor_classes = cls;
-        cfg->censor_popups = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(p.popups));
     } else {
         cfg->backend = old_backend;
     }

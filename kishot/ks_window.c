@@ -440,15 +440,25 @@ void ks_app_command(KsApp *app, KsCmdKind kind, int area, gboolean background)
     app->busy = TRUE;
     live_sync(app);
     gboolean was_visible = gtk_widget_get_visible(app->win);
-    gtk_widget_hide(app->win);
-    gdk_flush();
+    /* With the compositor drawing pictures that leave our windows out
+     * (HIDE_PID), there is nothing to hide and nothing to wait for. */
+    gboolean ours_hidden = ks_capture_hides_own_windows();
+    if (g_getenv("KISHOT_DEBUG"))
+        fprintf(stderr, "kishot: capture: own windows %s\n", ours_hidden ? "left out by the compositor" : "hidden around the shot");
+    if (!ours_hidden) {
+        gtk_widget_hide(app->win);
+        gdk_flush();
+    } else if (app->background) {
+        gtk_widget_hide(app->win);      /* -b: it was not on screen to begin with */
+        gdk_flush();
+    }
     Pending *p = g_new0(Pending, 1);
     p->app = app;
     p->area = record ? app->cfg->rec_area : app->cfg->area;
     p->output = g_strdup(record ? app->cfg->rec_output : app->cfg->output);
     p->record = record;
     /* give the compositor time to repaint without our window, plus the delay */
-    int ms = (was_visible ? 300 : 0) + (p->record ? 0 : app->cfg->delay * 1000);
+    int ms = (was_visible && !ours_hidden ? 300 : 0) + (p->record ? 0 : app->cfg->delay * 1000);
     if (ms)
         g_timeout_add(ms, do_capture, p);
     else
@@ -720,7 +730,6 @@ static void on_prefs(GtkWidget *w, KsApp *app)
     (void)w;
     ks_prefs_run(GTK_WINDOW(app->win), app->cfg, app->tab);
     ks_config_save(app->cfg);
-    ks_censor_set_classes(app->cfg->censor_classes);
     refresh_caps(app);
 }
 
@@ -959,7 +968,7 @@ KsApp *ks_app_new(KsConfig *cfg)
     gtk_widget_show_all(outer);
     update_preview(app);
     update_sensitivity(app);
-    ks_censor_init(cfg, censor_refresh, app);
+    ks_censor_init(censor_refresh, app);
     /* loading the plugin and asking ffmpeg/VAAPI what they can do takes a
      * moment; never before the first shot */
     g_timeout_add(400, probe_idle, app);

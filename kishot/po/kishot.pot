@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kishot\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-18 16:57-0300\n"
+"POT-Creation-Date: 2026-10-19 21:58-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -40,157 +40,149 @@ msgstr ""
 msgid "kishot: unknown option '%s' (try --help)\n"
 msgstr ""
 
-#: ks_prefs.c:98 ks_prefs.c:174
+#: ks_capture.c:696
+msgid "Compositor without capture support: black rectangles"
+msgstr ""
+
+#: ks_capture.c:697
+msgid "No compositor: black rectangles"
+msgstr ""
+
+#: ks_capture.c:699
+msgid "Compositor (fill): black rectangles"
+msgstr ""
+
+#: ks_capture.c:700
+msgid "Compositor (hide): black rectangles"
+msgstr ""
+
+#: ks_prefs.c:97 ks_prefs.c:173
 msgid "libav plugin"
 msgstr ""
 
-#: ks_prefs.c:98
+#: ks_prefs.c:97
 msgid "loaded"
 msgstr ""
 
-#: ks_prefs.c:98 ks_prefs.c:100 ks_prefs.c:101
+#: ks_prefs.c:97 ks_prefs.c:99 ks_prefs.c:100
 msgid "not available"
 msgstr ""
 
-#: ks_prefs.c:99 ks_prefs.c:174
+#: ks_prefs.c:98 ks_prefs.c:173
 msgid "ffmpeg command"
 msgstr ""
 
-#: ks_prefs.c:99
+#: ks_prefs.c:98
 msgid "found"
 msgstr ""
 
-#: ks_prefs.c:99
+#: ks_prefs.c:98
 msgid "not found"
 msgstr ""
 
-#: ks_prefs.c:100
+#: ks_prefs.c:99
 msgid "VAAPI (GPU encoding)"
 msgstr ""
 
-#: ks_prefs.c:100 ks_prefs.c:101
+#: ks_prefs.c:99 ks_prefs.c:100
 msgid "available"
 msgstr ""
 
-#: ks_prefs.c:101
+#: ks_prefs.c:100
 msgid "Sound (libpulse)"
 msgstr ""
 
-#: ks_prefs.c:119 ks_prefs.c:157
+#: ks_prefs.c:118 ks_prefs.c:156
 msgid "Save _in:"
 msgstr ""
 
-#: ks_prefs.c:134
+#: ks_prefs.c:133
 msgid "Image _format:"
 msgstr ""
 
-#: ks_prefs.c:136
+#: ks_prefs.c:135
 msgid "_JPEG quality:"
 msgstr ""
 
-#: ks_prefs.c:138
+#: ks_prefs.c:137
 msgid "File _name:"
 msgstr ""
 
-#: ks_prefs.c:140
+#: ks_prefs.c:139
 msgid ""
 "strftime() pattern: %Y year, %m month, %d day, %H%M%S time. The extension is "
 "added automatically."
 msgstr ""
 
-#: ks_prefs.c:142
+#: ks_prefs.c:141
 msgid "Save _automatically after taking a screenshot"
 msgstr ""
 
-#: ks_prefs.c:146
+#: ks_prefs.c:145
 msgid "Copy to the _clipboard automatically"
 msgstr ""
 
-#: ks_prefs.c:159
+#: ks_prefs.c:158
 msgid "Con_tainer:"
 msgstr ""
 
-#: ks_prefs.c:160
+#: ks_prefs.c:159
 msgid "mkv survives a crash mid-recording; webm needs VP8/VP9/AV1"
 msgstr ""
 
-#: ks_prefs.c:161
+#: ks_prefs.c:160
 msgid "Video _codec:"
 msgstr ""
 
-#: ks_prefs.c:162
+#: ks_prefs.c:161
 msgid "auto: the GPU (VAAPI) when available, else x264"
 msgstr ""
 
-#: ks_prefs.c:163
+#: ks_prefs.c:162
 msgid "_Quality (0 best, 51 worst):"
 msgstr ""
 
-#: ks_prefs.c:165
+#: ks_prefs.c:164
 msgid "_Frames per second:"
 msgstr ""
 
-#: ks_prefs.c:167 ks_prefs.c:174
+#: ks_prefs.c:166 ks_prefs.c:173
 msgid "Automatic"
 msgstr ""
 
-#: ks_prefs.c:167 ks_rec.c:1037
+#: ks_prefs.c:166 ks_rec.c:1100
 msgid "GPU copy"
 msgstr ""
 
-#: ks_prefs.c:167
+#: ks_prefs.c:166
 msgid "SHM (classic)"
 msgstr ""
 
-#: ks_prefs.c:168
+#: ks_prefs.c:167
 msgid "Screen c_opy method:"
 msgstr ""
 
-#: ks_prefs.c:171
+#: ks_prefs.c:170
 msgid ""
 "GPU copy has the X server copy the screen into a buffer the GPU encodes "
 "directly, without reading it back. Automatic uses it only when the server "
 "guarantees it (XiS); forcing it on another server can freeze the video."
 msgstr ""
 
-#: ks_prefs.c:175
+#: ks_prefs.c:174
 msgid "_Encoder:"
 msgstr ""
 
-#: ks_prefs.c:191
-msgid ""
-"Windows listed here are painted black in every screenshot and recording "
-"kishot makes; parts covered by other windows stay visible. The screen itself "
-"is not changed, and other capture programs still see them. Windows can also "
-"be hidden for this session from the main window."
-msgstr ""
-
-#: ks_prefs.c:197
-msgid "Always hide window _classes:"
-msgstr ""
-
-#: ks_prefs.c:201
-msgid "Comma-separated WM_CLASS names, e.g. KeePassXC, Signal"
-msgstr ""
-
-#: ks_prefs.c:202
-msgid "Also hide their _menus and tooltips"
-msgstr ""
-
-#: ks_prefs.c:217
+#: ks_prefs.c:194
 msgid "kishot Settings"
 msgstr ""
 
-#: ks_prefs.c:222
+#: ks_prefs.c:199
 msgid "Screenshots"
 msgstr ""
 
-#: ks_prefs.c:223
+#: ks_prefs.c:200
 msgid "Recording"
-msgstr ""
-
-#: ks_prefs.c:224
-msgid "Hidden Windows"
 msgstr ""
 
 #: ks_rec.c:167
@@ -205,61 +197,61 @@ msgstr ""
 msgid "no usable video encoder was found"
 msgstr ""
 
-#: ks_rec.c:723
+#: ks_rec.c:738
 #, c-format
 msgid "ffmpeg failed: %s"
 msgstr ""
 
-#: ks_rec.c:723
+#: ks_rec.c:738
 msgid "unknown error"
 msgstr ""
 
-#: ks_rec.c:854 ks_rec.c:871
+#: ks_rec.c:897 ks_rec.c:927 ks_rec.c:945
 msgid "the video encoder failed"
 msgstr ""
 
-#: ks_rec.c:862
+#: ks_rec.c:909
 msgid "could not read the screen"
 msgstr ""
 
-#: ks_rec.c:878
+#: ks_rec.c:934
 msgid "ffmpeg stopped accepting frames"
 msgstr ""
 
-#: ks_rec.c:939
+#: ks_rec.c:999
 msgid "already recording"
 msgstr ""
 
-#: ks_rec.c:949
+#: ks_rec.c:1009
 #, c-format
 msgid "the encoder \"%s\" is not available for %s files"
 msgstr ""
 
-#: ks_rec.c:970
+#: ks_rec.c:1031
 msgid "could not connect to the X server"
 msgstr ""
 
-#: ks_rec.c:990
+#: ks_rec.c:1051
 msgid "SHM (the server does not guarantee root copies)"
 msgstr ""
 
-#: ks_rec.c:992
+#: ks_rec.c:1053
 msgid "SHM (GPU copy unavailable: no DRI3)"
 msgstr ""
 
-#: ks_rec.c:995
+#: ks_rec.c:1056
 msgid "MIT-SHM is not available"
 msgstr ""
 
-#: ks_rec.c:1027
+#: ks_rec.c:1090
 msgid "SHM (the dma-buf import failed)"
 msgstr ""
 
-#: ks_rec.c:1039 ks_rec.c:1044
+#: ks_rec.c:1102 ks_rec.c:1107
 msgid " (no audio: libpulse missing)"
 msgstr ""
 
-#: ks_rec.c:1043
+#: ks_rec.c:1106
 #, c-format
 msgid "%s → ffmpeg %s%s"
 msgstr ""
@@ -268,199 +260,183 @@ msgstr ""
 msgid "Drag to select a region. Esc cancels."
 msgstr ""
 
-#: ks_window.c:115
+#: ks_window.c:116
 msgid "The region is selected when the recording starts."
 msgstr ""
 
-#: ks_window.c:117
+#: ks_window.c:118
 msgid "The window active when the recording starts is recorded."
-msgstr ""
-
-#: ks_window.c:249 ks_window.c:296
-#, c-format
-msgid "Saved to %s"
 msgstr ""
 
 #: ks_window.c:250 ks_window.c:297
 #, c-format
+msgid "Saved to %s"
+msgstr ""
+
+#: ks_window.c:251 ks_window.c:298
+#, c-format
 msgid "Could not save: %s"
 msgstr ""
 
-#: ks_window.c:253
+#: ks_window.c:254
 msgid "Screenshot failed"
 msgstr ""
 
-#: ks_window.c:253
+#: ks_window.c:254
 msgid "Screenshot saved"
 msgstr ""
 
-#: ks_window.c:271
+#: ks_window.c:272
 msgid "Save Screenshot"
 msgstr ""
 
-#: ks_window.c:313
+#: ks_window.c:314
 msgid "Copied to the clipboard"
 msgstr ""
 
-#: ks_window.c:344
+#: ks_window.c:345
 msgid "The screen could not be read"
 msgstr ""
 
-#: ks_window.c:469
+#: ks_window.c:478
 #, c-format
 msgid "Stop (%d:%02d)"
 msgstr ""
 
-#: ks_window.c:472
+#: ks_window.c:481
 #, c-format
 msgid ""
 "Recording %d:%02d -- click to stop\n"
 "%s"
 msgstr ""
 
-#: ks_window.c:479 ks_window.c:913
+#: ks_window.c:488 ks_window.c:917
 msgid "Record"
 msgstr ""
 
-#: ks_window.c:508
+#: ks_window.c:517
 #, c-format
 msgid "Recording saved to %s"
 msgstr ""
 
-#: ks_window.c:509 ks_window.c:540
+#: ks_window.c:518 ks_window.c:549
 #, c-format
 msgid "Recording failed: %s"
 msgstr ""
 
-#: ks_window.c:512 ks_window.c:543
+#: ks_window.c:521 ks_window.c:552
 msgid "Recording failed"
 msgstr ""
 
-#: ks_window.c:512
+#: ks_window.c:521
 msgid "Recording saved"
 msgstr ""
 
-#: ks_window.c:600
+#: ks_window.c:609
 msgid "Full screen (all monitors)"
 msgstr ""
 
-#: ks_window.c:601
+#: ks_window.c:610
 msgid "Current monitor"
 msgstr ""
 
-#: ks_window.c:608
+#: ks_window.c:617
 #, c-format
 msgid "Monitor %d (%dx%d)"
 msgstr ""
 
-#: ks_window.c:609
+#: ks_window.c:618
 #, c-format
 msgid "Monitor %d: %s (%dx%d)"
 msgstr ""
 
-#: ks_window.c:616
+#: ks_window.c:628
 msgid "Active window"
 msgstr ""
 
-#: ks_window.c:617
+#: ks_window.c:629
 msgid "Rectangular region"
 msgstr ""
 
-#: ks_window.c:701
+#: ks_window.c:713
 msgid "Recording sound needs libpulse"
 msgstr ""
 
-#: ks_window.c:802
+#: ks_window.c:806
 msgid "_Area:"
 msgstr ""
 
-#: ks_window.c:870
+#: ks_window.c:874
 msgid "Scr_eenshot"
 msgstr ""
 
-#: ks_window.c:877
+#: ks_window.c:881
 msgid "_Delay:"
 msgstr ""
 
-#: ks_window.c:886
+#: ks_window.c:890
 msgid "Include the mouse _pointer"
 msgstr ""
 
-#: ks_window.c:888 ks_window.c:905
+#: ks_window.c:892 ks_window.c:909
 msgid "Include window _borders"
 msgstr ""
 
-#: ks_window.c:890
+#: ks_window.c:894
 msgid "_New Screenshot"
 msgstr ""
 
-#: ks_window.c:896
+#: ks_window.c:900
 msgid "Reco_rding"
 msgstr ""
 
-#: ks_window.c:903
+#: ks_window.c:907
 msgid "Record the mouse _pointer"
 msgstr ""
 
-#: ks_window.c:907
+#: ks_window.c:911
 msgid "_System sound"
 msgstr ""
 
-#: ks_window.c:909
+#: ks_window.c:913
 msgid "_Microphone"
 msgstr ""
 
-#: ks_window.c:911
+#: ks_window.c:915
 msgid "Show a _live preview"
 msgstr ""
 
-#: ks_window.c:917
+#: ks_window.c:921
 msgid "Hidden windows"
 msgstr ""
 
-#: ks_window.c:926
+#: ks_window.c:930
 msgid ""
 "These windows are painted black in screenshots and recordings. The screen "
 "itself is not changed. To stop hiding one, untick \"Hide from screen "
 "capture\" in its title-bar menu."
 msgstr ""
 
-#: ks_window.c:935
+#: ks_window.c:940
 msgid "_Hide a Window..."
 msgstr ""
 
-#: ks_window.c:944
+#: ks_window.c:951
 msgid "Settings"
 msgstr ""
 
-#: ks_window.c:950
+#: ks_window.c:957
 msgid "_Open Folder"
 msgstr ""
 
-#: ks_window.c:952
+#: ks_window.c:959
 msgid "_Copy"
 msgstr ""
 
-#: ks_window.c:954
+#: ks_window.c:961
 msgid "Save _As..."
 msgstr ""
 
-#: ks_window.c:956
+#: ks_window.c:963
 msgid "_Save"
-msgstr ""
-
-#: ks_capture.c
-msgid "Compositor without capture support: black rectangles"
-msgstr ""
-
-#: ks_capture.c
-msgid "No compositor: black rectangles"
-msgstr ""
-
-#: ks_capture.c
-msgid "Compositor (fill): black rectangles"
-msgstr ""
-
-#: ks_capture.c
-msgid "Compositor (hide): black rectangles"
 msgstr ""

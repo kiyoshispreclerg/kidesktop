@@ -1,22 +1,25 @@
-/* ks_censor.c - windows to black out in screenshots and recordings.
+/* ks_censor.c - windows to black out in screenshots and recordings, when the
+ * compositor does not do it (kicomp's censored picture is the better way; this
+ * is the fallback and the only path with no compositor).
  *
  * A window is censored when it carries the mark _KIWM_CAPTURE_EXCLUDE (set
- * from kiwm's or xispanel's window menu, or by "Hide a Window..." here --
- * kishot keeps no list of its own; the mark is the list, and only the
- * window's menu removes it) or when its WM_CLASS is in censor_classes; with censor_popups its menus and tooltips
- * (override-redirect windows of the same _NET_WM_PID) go too. What gets
- * painted black is only the part of it that is visible: managed windows
- * stacked above it are cut out, so a window lying on top of a censored one
- * still shows. Only opaque rectangles cut: override-redirect windows never
- * do (that is also what keeps a compositor's full-screen overlay from
- * hiding everything), nor do shaped or ARGB windows, which can be seen
- * through.
+ * from kiwm's or xispanel's window menu, from kiwm.conf's
+ * capture_exclude_classes, or by "Hide a Window..." here) -- kishot keeps no
+ * list of windows or classes of its own; the mark is the list, and only the
+ * window's menu removes it. Its menus and tooltips (override-redirect windows
+ * of the same _NET_WM_PID, shared/xis_capture.h) go too. What gets painted
+ * black is only the part of it that is visible: managed windows stacked above
+ * it are cut out, so a window lying on top of a censored one still shows.
+ * Only opaque rectangles cut: override-redirect windows never do (that is
+ * also what keeps a compositor's full-screen overlay from hiding
+ * everything), nor do shaped or ARGB windows, which can be seen through.
  *
  * The list is recomputed from SubstructureNotify on the root, coalesced in
  * an idle -- never per frame, since every query is a round trip to X. The
  * recorder thread takes a copy under the mutex. Only the copy is affected:
  * the screen itself is never touched. */
 #include "ks.h"
+#include "../shared/xis_capture.h"
 #include <math.h>
 #include <gdk/gdkx.h>
 #include <X11/Xlib.h>
@@ -28,7 +31,6 @@
 
 #define INFLATE 2   /* px around each window, against a frame of lag while it moves */
 
-static KsConfig *cfg;
 static GArray *marked;              /* client Windows carrying the mark, main thread only */
 static GMutex lock;
 static KsRect *rects;
@@ -61,11 +63,6 @@ static gboolean has_mark(Display *dpy, Window w)
             XFree(data);
     }
     return set;
-}
-
-gboolean ks_censor_marks_only(void)
-{
-    return !(cfg->censor_classes && cfg->censor_classes[0] && *cfg->censor_classes[0]);
 }
 
 gboolean ks_censor_compositor(void)
@@ -126,27 +123,6 @@ static long window_pid(Display *dpy, Window w)
     return pid;
 }
 
-static gboolean class_listed(Display *dpy, Window w)
-{
-    if (!cfg->censor_classes || !cfg->censor_classes[0])
-        return FALSE;
-    XClassHint ch = { 0 };
-    if (!w || !XGetClassHint(dpy, w, &ch))
-        return FALSE;
-    gboolean hit = FALSE;
-    for (char **c = cfg->censor_classes; *c && !hit; c++) {
-        if (!**c)
-            continue;
-        hit = (ch.res_class && !g_ascii_strcasecmp(*c, ch.res_class)) ||
-              (ch.res_name && !g_ascii_strcasecmp(*c, ch.res_name));
-    }
-    if (ch.res_name)
-        XFree(ch.res_name);
-    if (ch.res_class)
-        XFree(ch.res_class);
-    return hit;
-}
-
 typedef struct {
     Window w;
     GdkRectangle r;
@@ -171,7 +147,7 @@ static gboolean recompute(void)
         XQueryTree(dpy, DefaultRootWindow(dpy), &r, &p, &kids, &nk);
         Top *tops = g_new0(Top, nk ? nk : 1);
         int nt = 0;
-        GArray *pids = g_array_new(FALSE, FALSE, sizeof(long));
+        GArray *pids = g_array_new(FALSE, FALSE, sizeof(uint32_t));
         for (unsigned int i = 0; i < nk; i++) {     /* bottom to top */
             XWindowAttributes a;
             if (!XGetWindowAttributes(dpy, kids[i], &a) || a.map_state != IsViewable ||
@@ -200,17 +176,22 @@ static gboolean recompute(void)
                 if (mark)
                     g_array_append_val(now, client);
             }
-            t->censored = mark || class_listed(dpy, client ? client : kids[i]);
+            t->censored = mark;
             t->pid = client ? window_pid(dpy, client) : 0;
-            if (t->censored && t->pid)
-                g_array_append_val(pids, t->pid);
+            if (t->censored && t->pid) {
+                uint32_t pid32 = (uint32_t)t->pid;
+                g_array_append_val(pids, pid32);
+            }
         }
-        if (cfg->censor_popups)
-            for (int i = 0; i < nt; i++)
-                if (tops[i].override && !tops[i].censored && tops[i].pid)
-                    for (guint k = 0; k < pids->len; k++)
-                        if (g_array_index(pids, long, k) == tops[i].pid)
-                            tops[i].censored = TRUE;
+        /* the popup rule, the same one the compositor applies */
+        for (int i = 0; i < nt; i++) {
+            if (tops[i].censored)
+                continue;
+            for (guint k = 0; k < pids->len; k++)
+                if (xis_capture_popup_excluded(tops[i].override, (uint32_t)tops[i].pid,
+                                               &g_array_index(pids, uint32_t, k), 1))
+                    tops[i].censored = TRUE;
+        }
 
         GdkRegion *all = gdk_region_new();
         for (int i = 0; i < nt; i++) {
@@ -285,8 +266,7 @@ static void schedule(void)
  * it may be the one that carries the mark. */
 static gboolean has_targets(void)
 {
-    return (marked && marked->len > 0) ||
-           (cfg->censor_classes && cfg->censor_classes[0] && *cfg->censor_classes[0]);
+    return marked && marked->len > 0;
 }
 
 static GdkFilterReturn root_filter(GdkXEvent *xev, GdkEvent *ev, gpointer data)
@@ -319,9 +299,8 @@ static GdkFilterReturn mark_filter(GdkXEvent *xev, GdkEvent *ev, gpointer data)
     return GDK_FILTER_CONTINUE;
 }
 
-void ks_censor_init(KsConfig *c, void (*changed)(void *), void *data)
+void ks_censor_init(void (*changed)(void *), void *data)
 {
-    cfg = c;
     on_changed = changed;
     on_changed_data = data;
     marked = g_array_new(FALSE, FALSE, sizeof(Window));
@@ -366,16 +345,6 @@ void ks_censor_refresh(void)
 GArray *ks_censor_marked(void)
 {
     return marked;
-}
-
-void ks_censor_set_classes(char **classes)
-{
-    if (classes != cfg->censor_classes) {
-        char **copy = g_strdupv(classes);
-        g_strfreev(cfg->censor_classes);
-        cfg->censor_classes = copy;
-    }
-    changed();
 }
 
 char *ks_censor_title(unsigned long w)

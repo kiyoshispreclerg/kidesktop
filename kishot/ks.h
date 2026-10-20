@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <xcb/xcb.h>
 
-#define KISHOT_VERSION "0.1.5"
+#define KISHOT_VERSION "0.1.6"
 
 typedef enum {
     KS_AREA_FULL,       /* every monitor */
@@ -50,9 +50,6 @@ typedef struct {
     KsCopyMode copy_mode;
     KsBackend backend;
 
-    char **censor_classes;      /* WM_CLASS names always blacked out */
-    gboolean censor_popups;     /* also menus/tooltips of a censored app */
-
     int win_w, win_h;
     int pane_pos;               /* preview | options divider, 0 = default */
 } KsConfig;
@@ -81,20 +78,17 @@ gboolean ks_monitor_rect_by_name(const char *name, KsRect *out);
 
 /* ---- censoring (ks_censor.c) --------------------------------------------- */
 
-void ks_censor_init(KsConfig *cfg, void (*changed)(void *), void *data);
+void ks_censor_init(void (*changed)(void *), void *data);
 /* marks the window (a toplevel as returned by ks_censor_pick()) */
 void ks_censor_add(unsigned long toplevel);
 /* re-reads the marks and the stacking now, instead of waiting for the idle */
 void ks_censor_refresh(void);
 /* whether a compositing manager owns _NET_WM_CM_Sn */
 gboolean ks_censor_compositor(void);
-/* FALSE when kishot censors something the marks do not say (censor_classes) */
-gboolean ks_censor_marks_only(void);
 /* client windows carrying _KIWM_CAPTURE_EXCLUDE, for the list in the UI. The
  * list only grows from here: unmarking is done in the window's own menu. */
 GArray *ks_censor_marked(void);
 char *ks_censor_title(unsigned long toplevel);
-void ks_censor_set_classes(char **classes);
 /* Rectangles to black out, in root coordinates. Thread-safe copy. */
 KsRect *ks_censor_rects(int *n);
 void ks_censor_paint(GdkPixbuf *pb, const KsRect *origin);
@@ -112,8 +106,7 @@ unsigned long ks_censor_pick(void);
  * (read it as always, then check it with ks_capture_unchanged()), and an
  * output where something hidden shows is read from a slot of the
  * compositor's censored picture (ks_capture_fetch()). Anything else -- no
- * compositor, no offer, no session, UNAVAILABLE, kishot targets of its own
- * (censor_classes) -- is not ok, and the caller censors with its own
+ * compositor, no offer, no session, UNAVAILABLE -- is not ok, and the caller censors with its own
  * rectangles as it always has. */
 typedef struct {
     gboolean ok;
@@ -162,6 +155,10 @@ gboolean ks_capture_copy_pixbuf(const KsCapSlot *s, int n, const KsRect *area, G
 void ks_capture_note(const KsCapView *v, gboolean censored, gboolean slots);
 /* GDK's own X connection, for the copies GDK/Xlib make */
 xcb_connection_t *ks_capture_gdk_connection(void);
+/* True when a session is open and the compositor can render every output
+ * censored with kishot's own windows left out of the pictures (HIDE_PID): the
+ * main window then need not be hidden around a capture. */
+gboolean ks_capture_hides_own_windows(void);
 /* Does the compositor offer the protocol; its censor mode (0 hide, 1 fill) */
 gboolean ks_capture_offered(int *mode, uint32_t *color);
 /* One line for the main window; g_free() it */

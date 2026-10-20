@@ -26,6 +26,7 @@
 #include <gdk/gdkx.h>
 #include <X11/Xlib-xcb.h>
 #include <poll.h>
+#include <unistd.h>
 #include <X11/Xlib.h>
 #include <string.h>
 
@@ -38,7 +39,7 @@ static struct {
     xcb_window_t root;
     int screen;
     xcb_atom_t cm_sel, capture, utf8, outputs, slots, client, targets, state, open, close, status;
-    xcb_atom_t request, release, frame;
+    xcb_atom_t request, release, frame, hide_pid;
     xcb_window_t cm, s;          /* 0 = none */
     gboolean active;             /* the session is open and the compositor still there */
     int nout;
@@ -96,6 +97,7 @@ static gboolean connect_locked(void)
     cap.open     = intern("_KICOMP_CAPTURE_OPEN");
     cap.close    = intern("_KICOMP_CAPTURE_CLOSE");
     cap.status   = intern("_KICOMP_CAPTURE_STATUS");
+    cap.hide_pid = intern("_KICOMP_CAPTURE_HIDE_PID");
     cap.request  = intern("_KICOMP_CAPTURE_REQUEST");
     cap.release  = intern("_KICOMP_CAPTURE_RELEASE");
     cap.frame    = intern("_KICOMP_CAPTURE_FRAME");
@@ -288,6 +290,10 @@ static gboolean open_locked(void)
      * asked for, so two slots leave the compositor one to render into. */
     uint32_t two = 2;
     xcb_change_property(cap.c, XCB_PROP_MODE_REPLACE, cap.s, cap.slots, XCB_ATOM_CARDINAL, 32, 1, &two);
+    /* Our own windows are never in the pictures: no hiding the main window
+     * and waiting for a repaint around a capture. */
+    uint32_t pid = (uint32_t)getpid();
+    xcb_change_property(cap.c, XCB_PROP_MODE_REPLACE, cap.s, cap.hide_pid, XCB_ATOM_CARDINAL, 32, 1, &pid);
     g_string_free(names, TRUE);
 
     /* the compositor going away, or switching the protocol off */
@@ -381,6 +387,19 @@ void ks_capture_release(void)
     g_mutex_unlock(&cap.lock);
 }
 
+gboolean ks_capture_hides_own_windows(void)
+{
+    gboolean ok = ks_capture_acquire();
+    g_mutex_lock(&cap.lock);
+    pump_locked();
+    ok = ok && cap.active && cap.nout > 0;
+    for (int i = 0; ok && i < cap.nout; i++)
+        ok = cap.avail[i] && cap.nslots[i] > 0 && cap.pw[i] == cap.rect[i].w && cap.ph[i] == cap.rect[i].h;
+    g_mutex_unlock(&cap.lock);
+    ks_capture_release();
+    return ok;
+}
+
 /* ---- the per-frame question ------------------------------------------------ */
 
 typedef struct { xcb_window_t s; int nout; KsRect rect[KS_CAP_MAX_OUT]; gboolean ok; } Snap;
@@ -422,8 +441,6 @@ static uint32_t *read_state(xcb_connection_t *c, const Snap *sn)
 void ks_capture_view(xcb_connection_t *c, const KsRect *area, KsCapView *v)
 {
     memset(v, 0, sizeof *v);
-    if (!ks_censor_marks_only())
-        return;                     /* kishot has targets the compositor does not know */
     Snap sn = snapshot();
     if (!sn.ok)
         return;
