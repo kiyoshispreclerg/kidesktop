@@ -567,7 +567,12 @@ static void a_thumbs(GtkToggleAction *a, gpointer d)
 {
     KfApp *app = d;
     app->cfg.thumbnails = gtk_toggle_action_get_active(a);
-    each_pane(app, kf_pane_reload);
+    if (app->cfg.thumbnails) {
+        each_pane(app, kf_pane_request_thumbs);
+    } else {
+        each_pane(app, kf_pane_drop_thumbs);
+        kf_thumbs_trim_soon();
+    }
 }
 
 static void pane_view(KfPane *p) { kf_pane_set_view(p, p->app->cfg.view); }
@@ -1200,7 +1205,7 @@ static const GtkToggleActionEntry kToggles[] = {
     { "SortDesc", NULL, N_("_Descending"), NULL, NULL, G_CALLBACK(a_sort_desc), FALSE },
     { "FoldersFirst", NULL, N_("_Folders First"), NULL, NULL, G_CALLBACK(a_folders_first), TRUE },
     { "ShowHidden", NULL, N_("Show _Hidden Files"), "<control>H", NULL, G_CALLBACK(a_hidden), FALSE },
-    { "Thumbnails", NULL, N_("_Thumbnails"), NULL, NULL, G_CALLBACK(a_thumbs), TRUE },
+    { "Thumbnails", NULL, N_("_Thumbnails"), NULL, N_("Show or hide thumbnails (hidden, they use no memory)"), G_CALLBACK(a_thumbs), TRUE },
     { "Split", GTK_STOCK_DND_MULTIPLE, N_("S_plit View"), "F3", N_("Show two folders side by side"), G_CALLBACK(a_split), FALSE },
     { "PlacesPanel", NULL, N_("_Places Panel"), "F9", NULL, G_CALLBACK(a_places_toggle), TRUE },
     { "HoverHighlight", NULL, N_("Highlight Item Under _Pointer"), NULL, NULL, G_CALLBACK(a_hover), TRUE },
@@ -1345,6 +1350,19 @@ static void build_ui(KfApp *app, GtkWidget *vbox, GtkWidget *body)
     gtk_widget_set_tooltip_text(GTK_WIDGET(sortb), _("Sort by..."));
     g_signal_connect(sortb, "clicked", G_CALLBACK(on_sort_button), app);
     gtk_toolbar_insert(GTK_TOOLBAR(tb), sortb, 8);
+    /* Bound to the menu's Thumbnails action, so both stay in step. */
+    GtkToolItem *thb = gtk_toggle_tool_button_new();
+    gtk_activatable_set_use_action_appearance(GTK_ACTIVATABLE(thb), FALSE);   /* keep its own icon */
+    gtk_activatable_set_related_action(GTK_ACTIVATABLE(thb), act(app, "Thumbnails"));
+    gtk_tool_button_set_label(GTK_TOOL_BUTTON(thb), _("Thumbnails"));
+    const char *thicon = gtk_icon_theme_has_icon(th, "view-preview") ? "view-preview"
+                       : gtk_icon_theme_has_icon(th, "image-x-generic") ? "image-x-generic" : NULL;
+    if (thicon)
+        gtk_tool_button_set_icon_name(GTK_TOOL_BUTTON(thb), thicon);
+    else
+        gtk_tool_item_set_is_important(thb, TRUE);
+    gtk_widget_set_tooltip_text(GTK_WIDGET(thb), _("Show or hide thumbnails"));
+    gtk_toolbar_insert(GTK_TOOLBAR(tb), thb, 9);
     gtk_box_pack_start(GTK_BOX(body), tb, FALSE, FALSE, 0);
 }
 

@@ -700,3 +700,15 @@ msgstr ""
 #: kf_dnd.c
 msgid "C_ancel"
 msgstr ""
+
+#: kifiles.c
+msgid "Thumbnails"
+msgstr ""
+
+#: kifiles.c
+msgid "Show or hide thumbnails"
+msgstr ""
+
+#: kifiles.c
+msgid "Show or hide thumbnails (hidden, they use no memory)"
+msgstr ""

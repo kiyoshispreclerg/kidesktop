@@ -853,7 +853,10 @@ static void on_thumb(GFile *file, GdkPixbuf *pb, gpointer data)
     KfPane *p = data;
     char *name = g_file_get_basename(file);
     GtkTreeIter it;
-    if (row_iter(p, name, &it)) {
+    if (!p->app->cfg.thumbnails) {
+        if (row_iter(p, name, &it))
+            gtk_list_store_set(p->store, &it, KF_COL_THSTATE, KF_TH_NONE, -1);
+    } else if (row_iter(p, name, &it)) {
         if (pb) {
             GdkPixbuf *fit = kf_icon_fit(pb, cur_icon_px(p));
             gtk_list_store_set(p->store, &it, KF_COL_ICON, fit, KF_COL_THSTATE, KF_TH_SHOWN, -1);
@@ -863,6 +866,33 @@ static void on_thumb(GFile *file, GdkPixbuf *pb, gpointer data)
         }
     }
     g_free(name);
+}
+
+/* Back to the theme icon; the next request asks for the thumbnail again. */
+static void row_drop_thumb(KfPane *p, GtkTreeIter *row)
+{
+    char *iconstr = NULL;
+    gtk_tree_model_get(GTK_TREE_MODEL(p->store), row, KF_COL_ICONSTR, &iconstr, -1);
+    gtk_list_store_set(p->store, row, KF_COL_ICON, kf_icon_lookup(iconstr, cur_icon_px(p)),
+                       KF_COL_THSTATE, KF_TH_NONE, -1);
+    g_free(iconstr);
+}
+
+/* Thumbnails turned off: every row shows its theme icon again, in place
+ * (no directory reload). */
+void kf_pane_drop_thumbs(KfPane *p)
+{
+    GtkTreeIter it;
+    gboolean ok = gtk_tree_model_get_iter_first(GTK_TREE_MODEL(p->store), &it);
+    while (ok) {
+        int st = 0;
+        gtk_tree_model_get(GTK_TREE_MODEL(p->store), &it, KF_COL_THSTATE, &st, -1);
+        if (st == KF_TH_SHOWN)
+            row_drop_thumb(p, &it);
+        else if (st == KF_TH_PENDING)
+            gtk_list_store_set(p->store, &it, KF_COL_THSTATE, KF_TH_NONE, -1);
+        ok = gtk_tree_model_iter_next(GTK_TREE_MODEL(p->store), &it);
+    }
 }
 
 static gboolean thumbs_idle_cb(gpointer data)
@@ -924,13 +954,8 @@ static gboolean thumbs_idle_cb(gpointer data)
     for (GList *l = evict; l; l = l->next) {
         char *name = g_file_get_basename(l->data);
         GtkTreeIter row;
-        if (row_iter(p, name, &row)) {
-            char *iconstr = NULL;
-            gtk_tree_model_get(GTK_TREE_MODEL(p->store), &row, KF_COL_ICONSTR, &iconstr, -1);
-            gtk_list_store_set(p->store, &row, KF_COL_ICON, kf_icon_lookup(iconstr, cur_icon_px(p)),
-                               KF_COL_THSTATE, KF_TH_NONE, -1);
-            g_free(iconstr);
-        }
+        if (row_iter(p, name, &row))
+            row_drop_thumb(p, &row);
         g_free(name);
     }
     g_list_free_full(evict, g_object_unref);

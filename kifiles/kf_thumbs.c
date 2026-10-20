@@ -315,6 +315,15 @@ static gboolean deliver(gpointer data)
     return FALSE;
 }
 
+void kf_thumbs_trim_soon(void)
+{
+    if (pending)
+        return;                 /* the last delivery schedules it */
+    if (trim_timer)
+        g_source_remove(trim_timer);
+    trim_timer = g_timeout_add_seconds(2, trim_cb, NULL);
+}
+
 static void worker(gpointer data, gpointer user)
 {
     (void)user;

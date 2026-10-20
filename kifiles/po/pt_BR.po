@@ -704,3 +704,15 @@ msgstr "Criar a_talho aqui"
 #: kf_dnd.c
 msgid "C_ancel"
 msgstr "C_ancelar"
+
+#: kifiles.c
+msgid "Thumbnails"
+msgstr "Miniaturas"
+
+#: kifiles.c
+msgid "Show or hide thumbnails"
+msgstr "Mostrar/ocultar miniaturas"
+
+#: kifiles.c
+msgid "Show or hide thumbnails (hidden, they use no memory)"
+msgstr "Mostrar ou ocultar miniaturas (ocultas, não ocupam memória)"

@@ -168,6 +168,7 @@ void kf_pane_set_active(KfPane *p, gboolean active, gboolean show_marker);
 void kf_pane_stats(KfPane *p, gboolean selection_only, guint *folders, guint *files, guint64 *bytes);
 gboolean kf_pane_file_info(KfPane *p, GFile *f, gboolean *is_dir, char **ctype);
 void kf_pane_request_thumbs(KfPane *p);
+void kf_pane_drop_thumbs(KfPane *p);       /* thumbnails turned off */
 
 void kf_files_free(GList *files);
 
@@ -218,6 +219,7 @@ void kf_jobview_free(KfJobView *v);
 /* kf_thumbs.c */
 typedef void (*KfThumbDone)(GFile *file, GdkPixbuf *pb, gpointer data);
 void kf_thumbs_init(void);
+void kf_thumbs_trim_soon(void);          /* return freed memory once no request is pending */
 gboolean kf_thumbs_supported(const char *ctype);
 /* cb runs on the main loop unless `cancel` was cancelled first; pb is NULL when
  * no thumbnail could be made. */
