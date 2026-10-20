@@ -35,7 +35,7 @@ MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 # xisback/xiskeys (see its header) -- compiled straight in, no shared
 # library to depend on at runtime. ../shared/xis_direction.c: the shared
 # LTR/RTL decision (titlebar order, title/menu alignment, OSD order).
-SRCS := main.c config.c atoms.c output.c decoration.c density.c pango_text.c ewmh.c client.c events.c selection.c osd.c tabbox-cover.c menu.c outline.c findcursor.c keybind.c shape.c grip.c sync.c clickraise.c $(A11Y_SRCS) ../shared/xis_spawn.c ../shared/xis_direction.c ../shared/xis_sound.c
+SRCS := main.c config.c atoms.c output.c decoration.c density.c pango_text.c ewmh.c client.c events.c selection.c osd.c tabbox-cover.c menu.c outline.c findcursor.c keybind.c shape.c grip.c sync.c clickraise.c capture.c $(A11Y_SRCS) ../shared/xis_spawn.c ../shared/xis_direction.c ../shared/xis_sound.c
 OBJS := $(SRCS:.c=.o)
 HDRS := $(wildcard *.h)
 

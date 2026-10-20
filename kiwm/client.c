@@ -17,6 +17,7 @@
 #include "selection.h"
 #include "grip.h"
 #include "atoms.h"
+#include "capture.h"
 
 #include <xcb/shape.h>
 
@@ -422,6 +423,7 @@ void client_refresh_transient_for(Client *c)
     if (parent == c->transient_for)
         return;
     c->transient_for = parent;
+    capture_refresh_inherited(c);
     restack_all();
     xcb_flush(wm.conn);
 }
@@ -3115,6 +3117,9 @@ void manage(xcb_window_t window, bool map_requested)
      * exactly its content size, with no titlebar row to reparent below. */
     c->undecorated = window_wants_no_decoration(window);
     c->transient_for = window_transient_for(window);
+    /* Before the frame exists, never mind the map: the mark has to be there
+     * for the window's first frame (capture.h). */
+    capture_mark_new_client(c);
     c->group_leader = window_group_leader(window);
     c->skip_taskbar = window_has_state(window, wm.atoms.net_wm_state_skip_taskbar);
     c->takes_focus = client_supports_protocol(window, wm.atoms.wm_take_focus);

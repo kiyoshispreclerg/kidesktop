@@ -1283,6 +1283,11 @@ typedef struct {
      * button. */
     char clipboard_command[512];
 
+    /* kiwm.conf's capture_exclude_classes= (comma-separated WM_CLASS names,
+     * instance or class, case-insensitive): windows marked as excluded from
+     * screen captures when they are managed -- capture.h. Empty by default. */
+    char capture_exclude_classes[512];
+
     bool focus_follows_mouse;
 
     /* kiwm.conf's focus_raise_on_release= (default off): a click on an

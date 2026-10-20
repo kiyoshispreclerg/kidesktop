@@ -62,6 +62,7 @@ static void apply_builtin_defaults(void)
     wm.live_resize = true;
     wm.magnet_threshold = 10;
     wm.window_gap = 0;
+    wm.capture_exclude_classes[0] = '\0';
     wm.gap_off_when_maximized = false;
     wm.link_resize_neighbors = false;
     wm.focus_follows_mouse = false;
@@ -351,6 +352,13 @@ static void write_default_config(const char *path)
         "# 0 (the default) keeps them flush against everything.\n"
         "window_gap=0\n"
         "\n"
+        "# Windows kept out of screen captures from the moment they appear:\n"
+        "# comma-separated WM_CLASS names (instance or class, any case). The\n"
+        "# mark (_KIWM_CAPTURE_EXCLUDE) is set before the window is mapped, so\n"
+        "# it is there for its first frame; its dialogs inherit it. The window\n"
+        "# menu's \"Hide from screen capture\" sets and clears the same mark.\n"
+        "#capture_exclude_classes=keepassxc,Signal\n"
+        "\n"
         "# 1 turns window_gap off (as if it were 0) on an output while a window\n"
         "# is maximized there: tiles, maximized windows and a panel that\n"
         "# floats by it all go flush. 0 (default) keeps the gap regardless.\n"
@@ -632,6 +640,8 @@ static void load_config_file(void)
             if (n < 0) n = 0;
             if (n > MAX_WINDOW_GAP) n = MAX_WINDOW_GAP;
             wm.window_gap = n;
+        } else if (strcmp(key, "capture_exclude_classes") == 0) {
+            snprintf(wm.capture_exclude_classes, sizeof(wm.capture_exclude_classes), "%s", val);
         } else if (strcmp(key, "gap_off_when_maximized") == 0) {
             wm.gap_off_when_maximized = atoi(val) != 0;
         } else if (strcmp(key, "link_resize_neighbors") == 0) {
