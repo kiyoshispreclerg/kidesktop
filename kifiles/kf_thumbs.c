@@ -20,6 +20,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <glib/gstdio.h>
+#ifdef __GLIBC__
+#include <malloc.h>
+#endif
 
 #define MAX_IMAGE_BYTES (128u * 1024 * 1024)
 #define FAIL_DIR "kifiles"
@@ -272,6 +275,27 @@ out:
 
 /* ---- pool ---------------------------------------------------------------- */
 
+/* Decoding a picture to thumbnail it allocates its full-size pixels in a
+ * worker thread. glibc raises its mmap threshold after such a buffer is
+ * freed, so the next ones come from the worker's malloc arena instead, and
+ * arena memory stays resident after free: a few hundred thumbnails left
+ * the process with hundreds of MB it no longer used. A fixed threshold
+ * keeps big buffers in mmap (returned on free), and once the queue drains
+ * whatever the arenas still hold free goes back too. */
+
+static guint pending;           /* requests not delivered yet, main thread only */
+static guint trim_timer;
+
+static gboolean trim_cb(gpointer data)
+{
+    (void)data;
+    trim_timer = 0;
+#ifdef __GLIBC__
+    malloc_trim(0);
+#endif
+    return G_SOURCE_REMOVE;
+}
+
 static gboolean deliver(gpointer data)
 {
     Task *t = data;
@@ -283,6 +307,11 @@ static gboolean deliver(gpointer data)
     g_object_unref(t->cancel);
     g_free(t->ctype);
     g_free(t);
+    if (--pending == 0) {
+        if (trim_timer)
+            g_source_remove(trim_timer);
+        trim_timer = g_timeout_add_seconds(2, trim_cb, NULL);
+    }
     return FALSE;
 }
 
@@ -297,6 +326,9 @@ static void worker(gpointer data, gpointer user)
 
 void kf_thumbs_init(void)
 {
+#ifdef __GLIBC__
+    mallopt(M_MMAP_THRESHOLD, 128 * 1024);
+#endif
     gdk_mimes = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
     GSList *fmts = gdk_pixbuf_get_formats();
     for (GSList *l = fmts; l; l = l->next) {
@@ -334,5 +366,6 @@ void kf_thumbs_request(GFile *file, const char *ctype, gint64 mtime, int px, GCa
     t->cancel = g_object_ref(cancel);
     t->cb = cb;
     t->data = data;
+    pending++;
     g_thread_pool_push(pool, t, NULL);
 }
