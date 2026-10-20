@@ -1,11 +1,9 @@
 # Source .zip and kidesktop-core / kidesktop-base .deb packages for Ubuntu 22.04, Ubuntu 24.04,
 # Debian 12 (what Devuan 5 installs) and Debian 13 (Devuan 6 "excalibur").
 #
-#   stable tag push / published release   -> built and attached to that
-#     (v1.0.0 and up, no -suffix)            release automatically
-#   pre-release tag (v0.x.y, v1.2.0-rc1)   -> nothing on push; build it with
-#                                            "Run workflow" + tag, attached
-#                                            to a release marked pre-release
+#   any v* tag push / published release   -> built and attached to that
+#     v1.0.0 and up, no -suffix: stable release
+#     v0.x.y, v1.2.0-rc1: marked pre-release
 #   "Run workflow" without a tag           -> built from the chosen branch,
 #                                            kept as workflow artifacts only
 #
@@ -65,8 +63,8 @@ jobs:
             build=true
             if [ -n "$tag" ]; then publish=true; ref="refs/tags/$tag"; else publish=false; ref="$REF"; fi
           else
-            build=$stable
-            publish=$stable
+            build=true
+            publish=true
             ref="$REF"
           fi
           prerelease=true
