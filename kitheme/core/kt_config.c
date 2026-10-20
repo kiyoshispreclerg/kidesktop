@@ -330,9 +330,10 @@ void kt_theme_load_user(KtTheme *t)
 {
     char path[PATH_MAX];
     kt_user_conf_path(path, sizeof(path));
-    if (!kt_theme_load_file(t, path))
+    if (!kt_theme_load_file(t, path)) {
         kt_theme_load_preset(t, DEFAULT_PRESET);
-    kt_theme_load_colors(t, DEFAULT_COLORS);
+        kt_theme_load_colors(t, DEFAULT_COLORS);
+    }
 }
 
 /* "0.60" -- again without the locale's decimal separator. */
