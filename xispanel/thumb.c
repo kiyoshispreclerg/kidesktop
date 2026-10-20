@@ -873,10 +873,99 @@ static void paint_scaled(cairo_t *cr, cairo_surface_t *surf, int sw, int sh, dou
     cairo_restore(cr);
 }
 
+/* _KIWM_CAPTURE_EXCLUDE (kiwm/PROTOCOL.md): a window the user keeps out of
+ * screen captures must not be in a thumbnail either -- the thumbnail is
+ * pixels of *this* window, the panel's, and the panel is on screen. Nothing
+ * to configure: it is the same property the window menu's "Hide from screen
+ * capture" check mark reads. Asked of the window and remembered for a moment,
+ * so a thumbnail repainted at the window's damage rate is not a round trip
+ * per frame. */
+#define EXCL_CACHE 8
+#define EXCL_TTL_MS 400
+static struct { Window win; uint64_t until; int excluded, w, h; } g_excl[EXCL_CACHE];
+
+static int thumb_excluded(Window win, int *out_w, int *out_h)
+{
+    uint64_t now = now_ms();
+    int slot = -1, oldest = 0;
+    for (int i = 0; i < EXCL_CACHE; i++) {
+        if (g_excl[i].win == win && g_excl[i].until > now) {
+            *out_w = g_excl[i].w;
+            *out_h = g_excl[i].h;
+            return g_excl[i].excluded;
+        }
+        if (g_excl[i].win == win) {
+            slot = i;
+        }
+        if (g_excl[i].until < g_excl[oldest].until) {
+            oldest = i;
+        }
+    }
+    if (slot < 0) {
+        slot = oldest;
+    }
+
+    static Atom atom;
+    if (!atom) {
+        atom = XInternAtom(g_dpy, "_KIWM_CAPTURE_EXCLUDE", False);
+    }
+    Atom type;
+    int fmt;
+    unsigned long n, after;
+    unsigned char *data = NULL;
+    int excluded = 0;
+    if (XGetWindowProperty(g_dpy, win, atom, 0, 1, False, XA_CARDINAL, &type, &fmt, &n, &after, &data) == Success) {
+        excluded = type == XA_CARDINAL && fmt == 32 && n > 0 && *(unsigned long *)data != 0;
+        if (data) {
+            XFree(data);
+        }
+    }
+    XWindowAttributes wa = { 0 };
+    if (excluded && !XGetWindowAttributes(g_dpy, win, &wa)) {
+        wa.width = wa.height = 0;
+    }
+    g_excl[slot].win = win;
+    g_excl[slot].until = now + EXCL_TTL_MS;
+    g_excl[slot].excluded = excluded;
+    g_excl[slot].w = *out_w = wa.width;
+    g_excl[slot].h = *out_h = wa.height;
+    return excluded;
+}
+
+/* What stands in for an excluded window's picture: the same box the picture
+ * would have had (aspect ratio kept, never upscaled, centred), flat. */
+static void paint_excluded(cairo_t *cr, int sw, int sh, double x, double y, double max_w, double max_h)
+{
+    if (sw <= 0 || sh <= 0) {
+        sw = (int)max_w;
+        sh = (int)max_h;
+    }
+    double scale = max_w / sw < max_h / sh ? max_w / sw : max_h / sh;
+    if (scale > 1.0) {
+        scale = 1.0;
+    }
+    double dw = sw * scale, dh = sh * scale;
+    double dx = x + (max_w - dw) / 2.0, dy = y + (max_h - dh) / 2.0;
+    cairo_save(cr);
+    cairo_rectangle(cr, dx, dy, dw, dh);
+    cairo_set_source_rgb(cr, 0.12, 0.12, 0.12);
+    cairo_fill_preserve(cr);
+    cairo_set_source_rgba(cr, 1, 1, 1, 0.25);
+    cairo_set_line_width(cr, 1.0);
+    cairo_stroke(cr);
+    cairo_restore(cr);
+}
+
 int thumb_paint(cairo_t *cr, Window win, double x, double y, double max_w, double max_h)
 {
     if (!thumb_available()) {
         return 0;
+    }
+
+    int ex_w = 0, ex_h = 0;
+    if (thumb_excluded(win, &ex_w, &ex_h)) {
+        paint_excluded(cr, ex_w, ex_h, x, y, max_w, max_h);
+        return 1;
     }
 
     XErrorHandler prev = XSetErrorHandler(thumb_error_handler);
