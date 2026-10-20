@@ -277,14 +277,29 @@ static void schedule(void)
         idle_id = g_idle_add_full(G_PRIORITY_HIGH_IDLE, recompute_idle, NULL, NULL);
 }
 
+/* Is there anything to black out right now (a marked window, a listed class)?
+ * Without it a window moving or restacking changes nothing, and answering
+ * every such event with a walk over every top-level window -- a round trip
+ * or several each -- is a cost kishot would pay for nothing, all the time it
+ * sits open. A window being *mapped* or reparented still schedules the walk:
+ * it may be the one that carries the mark. */
+static gboolean has_targets(void)
+{
+    return (marked && marked->len > 0) ||
+           (cfg->censor_classes && cfg->censor_classes[0] && *cfg->censor_classes[0]);
+}
+
 static GdkFilterReturn root_filter(GdkXEvent *xev, GdkEvent *ev, gpointer data)
 {
     (void)ev;
     (void)data;
     XEvent *e = xev;
     switch (e->type) {
-    case ConfigureNotify: case MapNotify: case UnmapNotify: case DestroyNotify:
-    case ReparentNotify: case CirculateNotify:
+    case ConfigureNotify: case CirculateNotify:
+        if (has_targets())
+            schedule();
+        break;
+    case MapNotify: case UnmapNotify: case DestroyNotify: case ReparentNotify:
         schedule();
         break;
     default:
