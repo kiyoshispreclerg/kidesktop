@@ -114,6 +114,9 @@ renderer           = auto  # auto | xrender | glx | egl
 presenter          = auto  # auto | present | copy
 single_drawable    = 0     # 1 = legacy mode, one drawable for the screen
 skip_wm_layers     = 0     # 1 = don't composite kiwm's OSD/wireframe
+capture_censor     = off   # off | black | hide | #rrggbb: offer censored
+                           # capture to screen recorders (see below)
+capture_sessions   = 2     # recorders served at once
 keep_hidden_contents = 1   # keep the last picture of a window the WM put
                            # away (minimized, another desktop), so effects
                            # like expo can draw it. One pixmap each
@@ -154,6 +157,11 @@ enabled  = 1
 # types that cast a shadow too, but always the unfocused style (default:
 # none). Docks and panels next to another output bleed onto it.
 #windows_passive = dock,tooltip,notification
+# windows (same list syntax as windows=) that lose their shadow while another
+# window covers the work area of their output -- maximized both ways, or
+# fullscreen. A panel's shadow falling on a maximized window is only a dark
+# band. A window maximized on one axis only (the panel itself) doesn't count.
+#no_shadow_over_maximized = dock
 windows  = windows,menus     # which window types get one
 radius   = 14                # blur radius, in pixels
 opacity  = 0.45
@@ -461,6 +469,22 @@ Every effect section takes the five universal keys — `enabled`,
 effect itself understands; each module parses its own (`config_key` in
 `effect.h`), and a key it doesn't know becomes a warning on the terminal
 rather than silence.
+
+### Which windows: types and classes
+
+`windows` (here and in `[shadow]`) is a comma-separated list of window
+types or groups (`normal`, `dialog`, `dock`, `windows`, `menus`, `popups`,
+…) and `class:NAME` terms matching the window's `WM_CLASS` (instance or
+class, case-insensitive). Any term can be negated with `!`:
+
+```
+windows = normal,dialog,!class:firefox   # those types, except Firefox
+windows = class:kitty,class:xterm        # only these programs
+windows = !dialog                        # everything but dialogs
+```
+
+Positive terms add up; a negative term always wins; a list with no positive
+term starts from every window. The matcher is `shared/xis_match.c`.
 
 ## Hot corners
 
@@ -1611,6 +1635,34 @@ cube and the cover switcher — take this as the default for their own
 `live_windows`, and each may still say otherwise in its section. With the
 global one at `all` their holds change nothing: the windows are already
 live when they open.
+
+### Censored capture for screen recorders
+
+The user marks windows (kiwm's window menu, or a class in `kiwm.conf`) to
+be left out of screen captures, and a recorder (kishot) asks for a picture of
+an output in which they are drawn black or in a colour, or not drawn at all —
+assembled here, where the cube, expo, the magic lamp and wobbly windows are
+known, so the censoring follows what is actually on screen. Off by default;
+the protocol, the policy key (`capture_censor`) and what each side must publish
+are specified in [CAPTURE-PROTOCOL.md](CAPTURE-PROTOCOL.md)
+([português](CAPTURE-PROTOCOL.pt_BR.md)).
+
+**Built so far:** `capture_censor` and `capture_sessions`, the offer on the CM
+window, sessions (`OPEN`/`CLOSE`, `TARGETS`, `STATUS`), and per output the
+`STATE` that says whether an excluded window is on it — the mark, the popup
+rule and `HIDE_PID` included — and, for an output handed to a fullscreen window
+(`unredirect_fullscreen`), leaving it unredirected: the screen is that window, so
+`visible` is whether *it* is excluded (marked windows behind it do not count) and
+the picture is one flat colour (0.3.70); and, **on the XRender (0.3.67) and GLX (0.3.68) renderers**,
+the censored picture: slots, `REQUEST`/`FRAME`/`RELEASE`, `UNCHANGED`, and a
+second assembly of the scene with the excluded windows drawn flat in the fill
+colour or not drawn. The GL one draws into an off-screen buffer, reads it back
+and writes it into the slot (two copies through system memory, but it does not
+depend on the driver sharing the pixmap's buffer); the EGL renderer has no such
+assembly yet, so on it an output with an excluded window is declared
+`UNAVAILABLE` and the recorder censors it itself. Tests against a nested X server:
+`kicomp/tests/capture-control.sh` (protocol) and `capture-render.sh` (the
+pictures). The work is on the `capture-censor` branch.
 
 ### `stats`
 

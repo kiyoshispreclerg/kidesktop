@@ -61,7 +61,11 @@ defaults (Fontconfig's `sans-serif`, dark panel colors). See
   `show_thumbs=yes` adds a live window thumbnail (XComposite -- no
   dependency at all if `libxcomposite-dev` isn't installed; works with or
   without a compositor running, self-redirecting the window when nothing
-  else has already). A window on another desktop, or minimized, has no
+  else has already). A window the user keeps out of screen captures
+  (`_KIWM_CAPTURE_EXCLUDE`, the window menu's "Hide from screen capture")
+  gets a flat box of the same shape instead of its picture: the thumbnail is
+  pixels of the panel, and the panel is on screen -- nothing to configure. A
+  window on another desktop, or minimized, has no
   contents to show -- X keeps none for a window that is off screen -- so
   by default (`live_thumbs=no`) the tooltip draws the last picture the
   compositor kept of it instead (`_KICOMP_STOWED_PIXMAP`), with no hold

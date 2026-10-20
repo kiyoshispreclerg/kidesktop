@@ -116,6 +116,40 @@ a real switcher effect on the composited scene rather than a flat window on top 
 kicomp's `--skip-wm-layers`. The decision belongs entirely to the compositor: kiwm is never told
 about it, has no setting for it, and changes no behavior because of it.
 
+### `_KIWM_CAPTURE_EXCLUDE` (`CARDINAL`, format 32, per client window)
+
+The user does not want this window in screen captures. kiwm sets it; screen recorders and the
+compositor read it (the protocol they use between them is `kicomp/CAPTURE-PROTOCOL.md`; this is
+only the mark). Set on the **client window**, not on the frame.
+
+| value | meaning |
+|---|---|
+| `1` | the window was marked itself: from its window menu entry "Hide from screen capture", from `capture_exclude_classes` in kiwm.conf, or by a tool (kishot's "Hide a Window...") |
+| `2` | inherited: the window is a dialog (`WM_TRANSIENT_FOR`, directly or through a chain) of a window marked `1` |
+
+Any non-zero value means "exclude"; the difference is only so that un-marking a window clears what
+it handed down to its dialogs and nothing else. The property is deleted to un-mark.
+
+kiwm's own part:
+
+- the checkable window-menu entry (set `1` and mark the dialogs `2` / delete and clear what no
+  other marked-`1` window still hands down). A dialog that only *inherits* (`2`) shows the entry
+  checked but not changeable: it follows its parent, whose entry is the one to untick. A dialog's
+  own `1` survives its parent being unmarked;
+- `capture_exclude_classes` (kiwm.conf, comma-separated `WM_CLASS` names, instance or class,
+  case-insensitive): a matching window is marked `1` **when kiwm handles its `MapRequest`, before
+  it maps it**, so the mark exists before the window's first frame. A dialog opening later from a
+  marked window is marked `2` the same way (a dialog of a dialog too, up the `WM_TRANSIENT_FOR`
+  chain), and one that gains a marked parent after it is mapped (`WM_TRANSIENT_FOR` set late, as Qt
+  does) inherits then. Tested by `kiwm/tests/capture-exclude.sh`, menu clicks included.
+
+Nothing here needs a compositor: with none running, a recorder paints black over the marked
+windows. Menus and tooltips (override-redirect windows) are **not** marked: kiwm is never offered
+them, so a mark would come after they are on screen. Whoever reads the marks treats an
+override-redirect window with the same `_NET_WM_PID` as a marked window as marked as well.
+
+The marks last as long as their windows. Only the class list persists.
+
 ## `_XIS_CONFINED_AREA`: kiwm as a consumer
 
 Not a kiwm property -- kiwm **reads** this one. A compositor doing

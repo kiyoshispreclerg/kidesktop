@@ -45,8 +45,8 @@ screenshots and videos (`$PICTURES`/`$VIDEOS` follow the XDG folders), image
 format (whatever gdk-pixbuf can write: png, jpeg, webp, bmp, tiff), JPEG
 quality, file name pattern (strftime), save/copy automatically; container
 (mkv, mp4, webm), video codec, quality (0..51, used as CRF or QP), frame
-rate, screen copy method and encoder backend; window classes to
-always hide.
+rate, screen copy method and encoder backend. (Windows to hide are not a
+setting here: they carry a mark -- see "Hiding windows".)
 
 ## How recording works
 
@@ -86,19 +86,59 @@ the monitor of the default sink and/or the default source, mixed.
 
 ## Hiding windows
 
-Windows picked with "Hide a Window..." (for this session) or whose WM_CLASS
-is listed in the settings are painted black in screenshots and recordings,
-optionally with their menus and tooltips (override-redirect windows of the
-same `_NET_WM_PID`). Only their visible part is blacked out: opaque managed
-windows on top cut it, while shaped and ARGB windows -- which can be seen
-through -- don't. The list is kept up to date from `SubstructureNotify` on
-the root, never polled per frame.
+A window is hidden when it carries the mark `_KIWM_CAPTURE_EXCLUDE`: from the
+window menu ("Hide from screen capture", in kiwm and in xispanel's tasklist),
+from `capture_exclude_classes` in `kiwm.conf`, or from "Hide a Window..." here.
+kishot keeps no list of windows or classes of its own: the list in the main
+window is the windows carrying the mark, and to stop hiding one the user
+unticks the entry in its title-bar menu. (An older `censor_classes=` in
+`kishot.conf` is ignored; the same names go in `capture_exclude_classes`.)
+Without a compositor's picture the marked windows are painted black in
+screenshots and recordings, with their menus and tooltips (override-redirect
+windows of the same `_NET_WM_PID`). Only their visible part is blacked out:
+opaque managed windows on top cut it, while shaped and ARGB windows -- which
+can be seen through -- don't. The list is kept up to date from
+`SubstructureNotify` on the root and `PropertyNotify` on the mark, never polled
+per frame.
 
 This happens only in kishot's copy: the screen is unchanged and other capture
 programs still see those windows. Showing what is *behind* a hidden window
 instead of black would need the compositor (kicomp) to render a second frame
 without it; protecting a window from every capture program would be a server
 feature (XiS/xisguard), and even there only as black.
+
+The black rectangles follow the window's X geometry, so under a compositor
+they miss it wherever the compositor draws it elsewhere (cube, expo, magic
+lamp, wobbly windows). The planned fix moves the exclusion into the compositor,
+as kwin_wayland does: the user marks a window (kiwm's window menu, or "Hide a
+Window..." here, which sets a property on it), and kicomp renders a second
+picture of the output with those windows black, a colour or not drawn at all,
+for kishot to read instead of copying the output. kishot would keep the
+rectangles as the fallback. The protocol is specified in
+[kicomp/CAPTURE-PROTOCOL.md](../kicomp/CAPTURE-PROTOCOL.md)
+([em português](../kicomp/CAPTURE-PROTOCOL.pt_BR.md)); the work is on the
+`capture-censor` branch.
+
+**Done so far:** the mark is the list (the window menu entry in kiwm and in
+xispanel's tasklist, and "Hide a Window..." here, add and remove it); when the
+compositor offers the protocol, kishot opens a session and, per frame, asks it
+whether anything hidden is showing under the area (`_KICOMP_CAPTURE_STATE`,
+read over the same connection that copies, with the seqlock the protocol
+describes). If not, the screen already is the censored picture and no
+rectangles are painted. Where a hidden window shows and the compositor can
+render the output (today: kicomp's XRender renderer, unscaled outputs), kishot
+asks for the censored picture (`REQUEST`), waits up to 150 ms for the slot
+(`FRAME`), copies the area out of it and gives it back (`RELEASE`) -- in a
+screenshot, in the live preview and in a recording (GPU copy, or the SHM path
+through `GetImage`). Everything else -- an output the compositor cannot render,
+a scaled output, a slot that did not come in time, a changed epoch, no
+compositor -- paints the rectangles as before. With a session open kishot also
+sends `HIDE_PID` (its own PID) and, when every output can be rendered censored,
+no longer hides its main window around a capture: the compositor leaves it out
+of the picture. Not done: the zero-copy dma-buf read of a slot. `KISHOT_DEBUG=1` says on stderr which way a
+screenshot went; `kishot/tests/capture-session.sh` tests screenshots and a
+recording (SHM path) against a nested X server; the GPU-copy recording path is
+compiled but not exercised there.
 
 ## Dependencies
 
