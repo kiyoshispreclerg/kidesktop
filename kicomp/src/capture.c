@@ -236,7 +236,7 @@ static void damage_window_everywhere(const CompWindow *w);
 static bool recompute_excluded(void)
 {
     bool changed = false;
-    uint32_t pids[64];
+    uint32_t pids[64] = { 0 };
     size_t n = 0;
     for (CompWindow *w = comp.stack; w; w = w->next)
         if (w->capture_marked && !w->zombie && w->pid && n < 64)
@@ -329,7 +329,7 @@ static void write_targets(const Session *s)
 
 static void write_state(const Session *s)
 {
-    uint32_t words[MAX_OUTPUTS * 3];
+    uint32_t words[MAX_OUTPUTS * 3] = { 0 };
     for (int i = 0; i < s->nout; i++) {
         words[i * 3 + 0] = s->epoch[i];
         words[i * 3 + 1] = s->visible[i];
