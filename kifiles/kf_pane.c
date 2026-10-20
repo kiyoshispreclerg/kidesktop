@@ -433,7 +433,7 @@ static void on_info_updated(GObject *src, GAsyncResult *res, gpointer data)
             GFile *child = g_file_get_child(p->dir, name);
             fill_row(p, &it, child, info);
             /* The content changed: any thumbnail is stale. */
-            gtk_list_store_set(p->store, &it, KF_COL_THUMB, NULL, KF_COL_THSTATE, 0, -1);
+            gtk_list_store_set(p->store, &it, KF_COL_THSTATE, KF_TH_NONE, -1);
             g_object_unref(child);
             queue_stats(p);
             kf_pane_request_thumbs(p);
@@ -846,17 +846,20 @@ static void queue_stats(KfPane *p)
 
 /* ---- thumbnails --------------------------------------------------------- */
 
+#define THUMB_KEEP 200      /* rows past the requested range that keep their thumbnail */
+
 static void on_thumb(GFile *file, GdkPixbuf *pb, gpointer data)
 {
     KfPane *p = data;
     char *name = g_file_get_basename(file);
     GtkTreeIter it;
     if (row_iter(p, name, &it)) {
-        gtk_list_store_set(p->store, &it, KF_COL_THSTATE, 2, -1);
         if (pb) {
             GdkPixbuf *fit = kf_icon_fit(pb, cur_icon_px(p));
-            gtk_list_store_set(p->store, &it, KF_COL_THUMB, pb, KF_COL_ICON, fit, -1);
+            gtk_list_store_set(p->store, &it, KF_COL_ICON, fit, KF_COL_THSTATE, KF_TH_SHOWN, -1);
             g_object_unref(fit);
+        } else {
+            gtk_list_store_set(p->store, &it, KF_COL_THSTATE, KF_TH_NOTHUMB, -1);
         }
     }
     g_free(name);
@@ -890,37 +893,57 @@ static gboolean thumbs_idle_cb(gpointer data)
 
     int px = p->app->cfg.zoom <= 128 ? 128 : 256;
 
+    /* Thumbnails of rows far from the view go back to the theme icon, so a
+     * long folder scrolled to the end doesn't keep one image per file. */
+    int keep0 = i0 > THUMB_KEEP ? i0 - THUMB_KEEP : 0, keep1 = i1 + THUMB_KEEP;
+
     /* Collect first, mark/request after: changing the store while iterating
      * the sort model would invalidate the iterators. */
     typedef struct { GFile *f; char *ct; gint64 mt; } Want;
-    GList *wants = NULL;
+    GList *wants = NULL, *evict = NULL;
     GtkTreeIter it;
     int idx = 0;
     gboolean ok = gtk_tree_model_get_iter_first(p->sort, &it);
-    while (ok && idx <= i1) {
-        if (idx >= i0) {
-            int st = 0;
-            gboolean d = FALSE;
-            gtk_tree_model_get(p->sort, &it, KF_COL_THSTATE, &st, KF_COL_ISDIR, &d, -1);
-            if (st == 0 && !d) {
-                Want *w = g_new0(Want, 1);
-                gtk_tree_model_get(p->sort, &it, KF_COL_CTYPE, &w->ct, KF_COL_FILE, &w->f, KF_COL_MTIME, &w->mt, -1);
-                wants = g_list_prepend(wants, w);
-            }
+    while (ok) {
+        int st = 0;
+        gboolean d = FALSE;
+        gtk_tree_model_get(p->sort, &it, KF_COL_THSTATE, &st, KF_COL_ISDIR, &d, -1);
+        if (idx >= i0 && idx <= i1 && st == KF_TH_NONE && !d) {
+            Want *w = g_new0(Want, 1);
+            gtk_tree_model_get(p->sort, &it, KF_COL_CTYPE, &w->ct, KF_COL_FILE, &w->f, KF_COL_MTIME, &w->mt, -1);
+            wants = g_list_prepend(wants, w);
+        } else if ((idx < keep0 || idx > keep1) && st == KF_TH_SHOWN) {
+            GFile *f = NULL;
+            gtk_tree_model_get(p->sort, &it, KF_COL_FILE, &f, -1);
+            if (f)
+                evict = g_list_prepend(evict, f);
         }
         idx++;
         ok = gtk_tree_model_iter_next(p->sort, &it);
     }
+    for (GList *l = evict; l; l = l->next) {
+        char *name = g_file_get_basename(l->data);
+        GtkTreeIter row;
+        if (row_iter(p, name, &row)) {
+            char *iconstr = NULL;
+            gtk_tree_model_get(GTK_TREE_MODEL(p->store), &row, KF_COL_ICONSTR, &iconstr, -1);
+            gtk_list_store_set(p->store, &row, KF_COL_ICON, kf_icon_lookup(iconstr, cur_icon_px(p)),
+                               KF_COL_THSTATE, KF_TH_NONE, -1);
+            g_free(iconstr);
+        }
+        g_free(name);
+    }
+    g_list_free_full(evict, g_object_unref);
     for (GList *l = g_list_reverse(wants); l; l = l->next) {
         Want *w = l->data;
         char *name = w->f ? g_file_get_basename(w->f) : NULL;
         GtkTreeIter row;
         if (name && row_iter(p, name, &row)) {
             if (w->ct && kf_thumbs_supported(w->ct)) {
-                gtk_list_store_set(p->store, &row, KF_COL_THSTATE, 1, -1);
+                gtk_list_store_set(p->store, &row, KF_COL_THSTATE, KF_TH_PENDING, -1);
                 kf_thumbs_request(w->f, w->ct, w->mt, px, p->cancel, on_thumb, p);
             } else {
-                gtk_list_store_set(p->store, &row, KF_COL_THSTATE, 2, -1);
+                gtk_list_store_set(p->store, &row, KF_COL_THSTATE, KF_TH_NOTHUMB, -1);
             }
         }
         g_free(name);
@@ -952,8 +975,6 @@ void kf_pane_apply_zoom(KfPane *p)
 {
     int z = p->app->cfg.zoom;
     int px = cur_icon_px(p);
-    gboolean crossed = (p->icon_px <= 128) != (px <= 128) && p->icon_px != 0;
-    p->icon_px = px;
 
     int item_w = z + 40;
     gtk_cell_renderer_set_fixed_size(p->icon_pix_r, item_w - 8, z);   /* as wide as the text, icon centered in it */
@@ -964,21 +985,27 @@ void kf_pane_apply_zoom(KfPane *p)
     gtk_cell_renderer_set_fixed_size(p->icon_text_r, item_w - 8, -1);
     gtk_icon_view_set_item_width(GTK_ICON_VIEW(p->iconview), -1);
 
+    /* A shown thumbnail keeps its current picture (shrunk if it is now too
+     * big) until the request below brings one at the new size. */
     GtkTreeIter it;
     gboolean ok = gtk_tree_model_get_iter_first(GTK_TREE_MODEL(p->store), &it);
     while (ok) {
-        GdkPixbuf *thumb = NULL;
+        GdkPixbuf *icon = NULL;
         char *iconstr = NULL;
-        gtk_tree_model_get(GTK_TREE_MODEL(p->store), &it, KF_COL_THUMB, &thumb, KF_COL_ICONSTR, &iconstr, -1);
-        GdkPixbuf *base = thumb && !crossed ? NULL : kf_icon_lookup(iconstr, px);
-        GdkPixbuf *pb = base ? g_object_ref(base) : (thumb ? kf_icon_fit(thumb, px) : NULL);
-        gtk_list_store_set(p->store, &it, KF_COL_ICON, pb, -1);
-        if (crossed)
-            gtk_list_store_set(p->store, &it, KF_COL_THUMB, NULL, KF_COL_THSTATE, 0, -1);
-        if (pb)
+        int st = 0;
+        gtk_tree_model_get(GTK_TREE_MODEL(p->store), &it, KF_COL_ICON, &icon, KF_COL_ICONSTR, &iconstr,
+                           KF_COL_THSTATE, &st, -1);
+        if (st == KF_TH_SHOWN && icon) {
+            GdkPixbuf *pb = kf_icon_fit(icon, px);
+            gtk_list_store_set(p->store, &it, KF_COL_ICON, pb, KF_COL_THSTATE, KF_TH_NONE, -1);
             g_object_unref(pb);
-        if (thumb)
-            g_object_unref(thumb);
+        } else {
+            gtk_list_store_set(p->store, &it, KF_COL_ICON, kf_icon_lookup(iconstr, px), -1);
+            if (st == KF_TH_PENDING)
+                gtk_list_store_set(p->store, &it, KF_COL_THSTATE, KF_TH_NONE, -1);
+        }
+        if (icon)
+            g_object_unref(icon);
         g_free(iconstr);
         ok = gtk_tree_model_iter_next(GTK_TREE_MODEL(p->store), &it);
     }
@@ -1248,7 +1275,7 @@ KfPane *kf_pane_new(KfApp *app)
     p->app = app;
     p->rows = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, (GDestroyNotify)gtk_tree_row_reference_free);
     p->typedescs = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
-    p->store = gtk_list_store_new(KF_N_COLS, G_TYPE_OBJECT, G_TYPE_STRING, GDK_TYPE_PIXBUF, GDK_TYPE_PIXBUF,
+    p->store = gtk_list_store_new(KF_N_COLS, G_TYPE_OBJECT, G_TYPE_STRING, GDK_TYPE_PIXBUF,
                                   G_TYPE_UINT64, G_TYPE_INT64, G_TYPE_STRING, G_TYPE_BOOLEAN, G_TYPE_BOOLEAN,
                                   G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_INT);
     p->filter = gtk_tree_model_filter_new(GTK_TREE_MODEL(p->store), NULL);

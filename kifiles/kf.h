@@ -36,8 +36,7 @@ typedef struct {
 enum {
     KF_COL_FILE,        /* GFile* */
     KF_COL_NAME,        /* display name */
-    KF_COL_ICON,        /* GdkPixbuf shown (themed icon or thumbnail) */
-    KF_COL_THUMB,       /* GdkPixbuf thumbnail, or NULL */
+    KF_COL_ICON,        /* GdkPixbuf shown (themed icon or thumbnail at the shown size) */
     KF_COL_SIZE,        /* guint64 */
     KF_COL_MTIME,       /* gint64 */
     KF_COL_TYPEDESC,    /* "JPEG image" */
@@ -47,9 +46,14 @@ enum {
     KF_COL_CTYPE,       /* content type */
     KF_COL_ICONSTR,     /* g_icon_to_string() */
     KF_COL_EXT,         /* lowercase extension, "" if none */
-    KF_COL_THSTATE,     /* 0 = not requested, 1 = requested, 2 = settled */
+    KF_COL_THSTATE,     /* KfThumbState */
     KF_N_COLS
 };
+
+/* Per-row thumbnail state. Only the scaled copy in KF_COL_ICON is kept, so
+ * a zoom change or an evicted row goes back to KF_TH_NONE and asks again
+ * (a disk-cache hit). */
+enum { KF_TH_NONE, KF_TH_PENDING, KF_TH_NOTHUMB, KF_TH_SHOWN };
 
 typedef struct KfApp KfApp;
 typedef struct KfPane KfPane;
@@ -83,7 +87,6 @@ struct KfPane {
     guint stats_idle;
     guint sel_idle;
     int view;                   /* KfViewMode currently shown */
-    int icon_px;                /* size the ICON column was built for */
     GdkRectangle hover_rect;    /* item under the pointer, in view bin-window coordinates */
     gboolean hover_has;
     /* icon view's layout as GTK computes it (kf_hover.c), redone when !hl_valid */
