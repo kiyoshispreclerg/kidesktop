@@ -35,7 +35,7 @@ static const char *const MANAGED_KEYS[] = {
     "snap_mod", "side_zones_mod", "vertical_snap_by_mod",
     "live_snap_resize", "outline_width", "outline_alpha",
     "resize_grip", "live_resize", "magnet_threshold", "link_resize_neighbors", "window_gap", "gap_off_when_maximized",
-    "auto_switch_argb", "focus_follows_mouse", "appmenu_command",
+    "auto_switch_argb", "focus_follows_mouse", "shade_peek", "shade_peek_delay", "appmenu_command",
     "focus_stealing_prevention", "force_unflip",
     "osd_enabled", "osd_live_preview_windows", "osd_live_preview_desktops",
     "osd_cover_switch", "osd_other_desktops", "osd_order",
@@ -70,6 +70,7 @@ typedef struct {
     int resize_grip, live_resize;
     int magnet_threshold, link_resize_neighbors, window_gap, gap_off_when_maximized;
     int auto_switch_argb, focus_follows_mouse;
+    int shade_peek, shade_peek_delay;
     char appmenu_command[256];
     char focus_stealing_prevention[16];
     char force_unflip[8];
@@ -108,6 +109,8 @@ static void kiwm_defaults(KiwmConfig *c)
     c->live_resize = 1;
     c->magnet_threshold = 10;
     c->window_gap = 0;
+    c->shade_peek = 0;
+    c->shade_peek_delay = 400;
     c->gap_off_when_maximized = 0;
     c->auto_switch_argb = 1;
     snprintf(c->focus_stealing_prevention, sizeof(c->focus_stealing_prevention), "none");
@@ -175,6 +178,8 @@ static void load_kiwm_config(KiwmConfig *c)
         else if (!strcmp(key, "gap_off_when_maximized")) c->gap_off_when_maximized = atoi(val) != 0;
         else if (!strcmp(key, "auto_switch_argb")) c->auto_switch_argb = atoi(val) != 0;
         else if (!strcmp(key, "focus_follows_mouse")) c->focus_follows_mouse = atoi(val) != 0;
+        else if (!strcmp(key, "shade_peek")) c->shade_peek = atoi(val) != 0;
+        else if (!strcmp(key, "shade_peek_delay")) c->shade_peek_delay = atoi(val);
         else if (!strcmp(key, "appmenu_command")) SETS(appmenu_command);
         else if (!strcmp(key, "focus_stealing_prevention")) SETS(focus_stealing_prevention);
         else if (!strcmp(key, "force_unflip")) SETS(force_unflip);
@@ -203,6 +208,7 @@ static GtkWidget *g_snap_spin, *g_live_snap_chk, *g_outline_w_spin, *g_outline_a
 static GtkWidget *g_side_zones_spin, *g_vsb_spin;
 static GtkWidget *g_snap_mod_combo, *g_side_zones_mod_spin, *g_vsb_mod_spin;
 static GtkWidget *g_magnet_spin, *g_link_resize_chk, *g_gap_spin, *g_gap_off_chk;
+static GtkWidget *g_peek_chk, *g_peek_spin;
 static GtkWidget *g_modkey_combo, *g_ffm_chk, *g_fsp_combo, *g_force_unflip_combo;
 static GtkWidget *g_auto_argb_chk, *g_new_win_combo, *g_appmenu_entry;
 static GtkWidget *g_ndesk_spin, *g_dcols_spin, *g_drows_spin;
@@ -264,6 +270,8 @@ static void save_janelas_cb(GtkWidget *widget, gpointer data)
 
     snprintf(c.mod_key, sizeof(c.mod_key), "%s", combo_text(g_modkey_combo, MOD_KEY_OPTS));
     c.focus_follows_mouse = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_ffm_chk));
+    c.shade_peek = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_peek_chk));
+    c.shade_peek_delay = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_peek_spin));
     snprintf(c.focus_stealing_prevention, sizeof(c.focus_stealing_prevention), "%s", combo_text(g_fsp_combo, FSP_OPTS));
     snprintf(c.force_unflip, sizeof(c.force_unflip), "%s", combo_text(g_force_unflip_combo, FORCE_UNFLIP_OPTS));
     c.auto_switch_argb = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_auto_argb_chk));
@@ -322,6 +330,8 @@ static void save_janelas_cb(GtkWidget *widget, gpointer data)
     fprintf(out, "gap_off_when_maximized=%d\n", c.gap_off_when_maximized);
     fprintf(out, "auto_switch_argb=%d\n", c.auto_switch_argb);
     fprintf(out, "focus_follows_mouse=%d\n", c.focus_follows_mouse);
+    fprintf(out, "shade_peek=%d\n", c.shade_peek);
+    fprintf(out, "shade_peek_delay=%d\n", c.shade_peek_delay);
     fprintf(out, "appmenu_command=%s\n", c.appmenu_command);
     fprintf(out, "focus_stealing_prevention=%s\n", c.focus_stealing_prevention);
     fprintf(out, "force_unflip=%s\n", c.force_unflip);
@@ -480,24 +490,32 @@ GtkWidget *build_janelas_tab(void)
     gtk_box_pack_start(GTK_BOX(content), frame_with("Encaixe (snap)", snap_table), FALSE, FALSE, 0);
 
     /* Comportamento */
-    GtkWidget *behavior_table = gtk_table_new(7, 2, FALSE);
+    GtkWidget *behavior_table = gtk_table_new(9, 2, FALSE);
     g_modkey_combo = make_options_combo(MOD_KEY_OPTS, c.mod_key);
     labeled_row(behavior_table, 0, "Modificador (mover/redimensionar):", g_modkey_combo);
     g_ffm_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_ffm_chk), c.focus_follows_mouse);
     labeled_row(behavior_table, 1, "Foco segue o mouse:", g_ffm_chk);
+    g_peek_chk = gtk_check_button_new();
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_peek_chk), c.shade_peek);
+    gtk_widget_set_tooltip_text(g_peek_chk, _("Uma janela enrolada desenrola enquanto o mouse esta sobre a "
+                                              "barra de titulo e enrola de novo assim que o mouse sai da janela."));
+    labeled_row(behavior_table, 2, "Janela enrolada desenrola sob o mouse:", g_peek_chk);
+    g_peek_spin = gtk_spin_button_new_with_range(0, 5000, 50);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_peek_spin), c.shade_peek_delay);
+    labeled_row(behavior_table, 3, "Atraso para desenrolar (ms):", g_peek_spin);
     g_fsp_combo = make_options_combo(FSP_OPTS, c.focus_stealing_prevention);
-    labeled_row(behavior_table, 2, "Prevencao de roubo de foco:", g_fsp_combo);
+    labeled_row(behavior_table, 4, "Prevencao de roubo de foco:", g_fsp_combo);
     g_force_unflip_combo = make_options_combo(FORCE_UNFLIP_OPTS, c.force_unflip);
-    labeled_row(behavior_table, 3, "Repintar apos tela cheia:", g_force_unflip_combo);
+    labeled_row(behavior_table, 5, "Repintar apos tela cheia:", g_force_unflip_combo);
     g_auto_argb_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_auto_argb_chk), c.auto_switch_argb);
-    labeled_row(behavior_table, 4, "Trocar para ARGB automaticamente com compositor:", g_auto_argb_chk);
+    labeled_row(behavior_table, 6, "Trocar para ARGB automaticamente com compositor:", g_auto_argb_chk);
     g_new_win_combo = make_options_combo(NEW_WIN_OPTS, c.new_window_output);
-    labeled_row(behavior_table, 5, "Saida para novas janelas:", g_new_win_combo);
+    labeled_row(behavior_table, 7, "Saida para novas janelas:", g_new_win_combo);
     g_appmenu_entry = gtk_entry_new();
     gtk_entry_set_text(GTK_ENTRY(g_appmenu_entry), c.appmenu_command);
-    labeled_row(behavior_table, 6, "Comando do botao de menu (appmenu):", g_appmenu_entry);
+    labeled_row(behavior_table, 8, "Comando do botao de menu (appmenu):", g_appmenu_entry);
     gtk_box_pack_start(GTK_BOX(content), frame_with("Comportamento", behavior_table), FALSE, FALSE, 0);
 
     /* Areas de trabalho */

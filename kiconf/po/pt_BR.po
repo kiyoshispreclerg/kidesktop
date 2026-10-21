@@ -2378,3 +2378,11 @@ msgstr ""
 #: kiconf.c
 msgid "Sobre"
 msgstr "Sobre"
+
+#: tabs/janelas.c:501
+msgid ""
+"Uma janela enrolada desenrola enquanto o mouse esta sobre a barra de titulo "
+"e enrola de novo assim que o mouse sai da janela."
+msgstr ""
+"Uma janela enrolada desenrola enquanto o mouse está sobre a barra de título "
+"e enrola de novo assim que o mouse sai da janela."
