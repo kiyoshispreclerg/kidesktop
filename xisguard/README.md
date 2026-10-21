@@ -121,12 +121,16 @@ back per connection:
 
 `PING`, `GET_STATUS`, `SET_STATUS` (toggles the same runtime flags as the
 CLI options above), `LIST_RULES`, `ADD_RULE`, `REMOVE_RULE`, `RELOAD`,
-`GET_SYSTEM_RULES_PATH`.
+`GET_SYSTEM_RULES_PATH` (the server's `xnotify.conf.d` directory and its
+`xnotify.conf` file), `LIST_IGNORED`, `ADD_IGNORED`, `REMOVE_IGNORED`
+(the programs of `ignore.conf`, by `pattern`).
 
 `SUBSCRIBE` is the exception: `{"cmd":"SUBSCRIBE","actions":"SCREEN,RECORD"}`
 (`actions` optional, all by default) keeps the connection open, and every
 REPORT/REQUEST from the X server is then written to it as one line:
-`{"ev":"REPORT","action":"RECORD","pid":N,"exe":"...","ts":N}`. Only
+`{"ev":"REPORT","action":"RECORD","pid":N,"exe":"...","ts":N}`, with
+`"ignored":true` added when the program is in `ignore.conf` (subscribers
+decide what to do with those). Only
 some programs may subscribe: KiDesktop's own (`kistoryd`, `kimemoryd`,
 `xispanel`) always, plus any executable name listed in `subscribers=` in
 `xnotify.conf` (empty by default, for third-party trays).

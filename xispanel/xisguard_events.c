@@ -221,6 +221,8 @@ static void handle_line(const char *line)
     if (jstr(line, "ev", ev, sizeof(ev))) {
         if (strcmp(ev, "STATE") == 0) {
             set_enabled(jbool(line, "enabled", 1), 1);
+        } else if (jbool(line, "ignored", 0)) {
+            return; /* in the guard's ignore.conf: not shown here either */
         } else {
             char action[16] = "", exe[96] = "";
             jstr(line, "action", action, sizeof(action));

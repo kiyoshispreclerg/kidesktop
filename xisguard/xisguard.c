@@ -28,7 +28,7 @@
 #define REPORT_THROTTLE_S   1
 #define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.10"
+#define XISGUARD_VERSION    "0.4.11"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -209,6 +209,7 @@ static const char *const subscribers_builtin[] = { "kistoryd", "kimemoryd", "xis
  * compile-time constant of the server, not of xisguard. Filled in by
  * handle_message() on a "CONFIG_PATH" reply, see request_config_path(). */
 static char secure_conf_dir[512] = {0};
+static char secure_conf_file[512] = {0}; /* the server's SYSCONFDIR/xnotify.conf, read next to the .d directory */
 static pthread_mutex_t secure_conf_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  secure_conf_cond = PTHREAD_COND_INITIALIZER;
 
@@ -711,6 +712,49 @@ void load_ignore_reports(void) {
     last_ignore_mtime = time(NULL);
     log_filtered(3, "Loaded %d entries to ignore reports from %s", ignored_reports_count, ignore_file);
     pthread_mutex_unlock(&report_ignore_lock);
+}
+
+/* Adds `pattern` to (or removes every line equal to it from) ignore.conf,
+ * keeping comments and blank lines. Returns 1 if the file changed, 0 if
+ * there was nothing to do, -1 on a write error. */
+static int ignore_file_edit(int add, const char *pattern) {
+    char *lines[MAX_IGNORED * 4];
+    int n = 0, found = 0, changed = 0;
+    FILE *f = fopen(ignore_file, "r");
+    if (f) {
+        char line[BUF_SIZE];
+        while (n < (int)(sizeof(lines) / sizeof(lines[0])) && fgets(line, sizeof(line), f)) {
+            line[strcspn(line, "\r\n")] = '\0';
+            int same = (strcmp(trim(line), pattern) == 0);
+            if (same) {
+                found = 1;
+                if (!add) {
+                    changed = 1;
+                    continue;
+                }
+            }
+            lines[n++] = strdup(line);
+        }
+        fclose(f);
+    }
+    if (add && !found && n < (int)(sizeof(lines) / sizeof(lines[0]))) {
+        lines[n++] = strdup(pattern);
+        changed = 1;
+    }
+    int rc = changed ? 1 : 0;
+    if (changed) {
+        f = fopen(ignore_file, "w");
+        if (!f) {
+            rc = -1;
+        } else {
+            for (int i = 0; i < n; i++)
+                fprintf(f, "%s\n", lines[i]);
+            fclose(f);
+        }
+    }
+    for (int i = 0; i < n; i++)
+        free(lines[i]);
+    return rc;
 }
 
 int file_has_changed() {
@@ -1662,7 +1706,7 @@ void send_permission(int action, const char *exe, pid_t pid, int command_type) {
     }
 }
 
-static void subscribers_broadcast(const char *ev, int action, pid_t pid, const char *exe);
+static void subscribers_broadcast(const char *ev, int action, pid_t pid, const char *exe, int ignored);
 
 void handle_message(const char *msg) {
     int action = 0;
@@ -1690,6 +1734,7 @@ void handle_message(const char *msg) {
         if (json_get_str(msg, "dir", dir, sizeof(dir))) {
             pthread_mutex_lock(&secure_conf_lock);
             snprintf(secure_conf_dir, sizeof(secure_conf_dir), "%s", dir);
+            json_get_str(msg, "file", secure_conf_file, sizeof(secure_conf_file));
             pthread_cond_broadcast(&secure_conf_cond);
             pthread_mutex_unlock(&secure_conf_lock);
             log_filtered(2, "Secure mode: server config directory is %s", dir);
@@ -1760,10 +1805,12 @@ void handle_message(const char *msg) {
     const char *action_str = action_to_string(action);
 
     if (strcmp(command, "REPORT") == 0) {
-        /* Before ignore.conf: that list only quiets this daemon's own log,
-         * subscribers (kistoryd) keep their own filters. */
-        subscribers_broadcast("REPORT", action, pid, exe);
-        if (is_report_ignored(exe)) {
+        /* Still sent when ignore.conf matches, flagged "ignored":true:
+         * subscribers decide for themselves (kistoryd logs everything, the
+         * panel widget skips them). */
+        int ignored = is_report_ignored(exe);
+        subscribers_broadcast("REPORT", action, pid, exe, ignored);
+        if (ignored) {
             // Silencioso - não loga nada
             return;
         }
@@ -1780,7 +1827,7 @@ void handle_message(const char *msg) {
     }
 
     log_msg("X server requested %s for %s", action_str, trim_exe_for_log(exe));
-    subscribers_broadcast("REQUEST", action, pid, exe);
+    subscribers_broadcast("REQUEST", action, pid, exe, 0);
 
     /* CLI global overrides: checked before perms.conf; deny wins over allow */
     if (action > 0 && action <= 16) {
@@ -2077,6 +2124,42 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
         return;
     }
 
+    /* ignore.conf: programs whose REPORTs are not shown. One pattern per
+     * line (same glob matching as rules); comments and blank lines are kept
+     * when rewriting. */
+    if (strcasecmp(cmd, "LIST_IGNORED") == 0) {
+        size_t off = 0;
+        off += snprintf(resp + off, resp_sz - off, "{\"ok\":true,\"ignored\":[");
+        pthread_mutex_lock(&report_ignore_lock);
+        for (int i = 0; i < ignored_reports_count && off < resp_sz; i++) {
+            char esc[PATH_MAX * 2];
+            json_escape_str(esc, sizeof(esc), ignored_reports[i].exe);
+            off += snprintf(resp + off, resp_sz - off, "%s\"%s\"", i == 0 ? "" : ",", esc);
+        }
+        pthread_mutex_unlock(&report_ignore_lock);
+        if (off < resp_sz) off += snprintf(resp + off, resp_sz - off, "]}\n");
+        return;
+    }
+
+    if (strcasecmp(cmd, "ADD_IGNORED") == 0 || strcasecmp(cmd, "REMOVE_IGNORED") == 0) {
+        int add = (strcasecmp(cmd, "ADD_IGNORED") == 0);
+        char pattern[PATH_MAX] = {0};
+        json_get_str(req, "pattern", pattern, sizeof(pattern));
+        char *pat = trim(pattern);
+        if (*pat == '\0' || strchr(pat, '\n')) {
+            snprintf(resp, resp_sz, "{\"ok\":false,\"error\":\"missing pattern\"}\n");
+            return;
+        }
+        int changed = ignore_file_edit(add, pat);
+        if (changed < 0) {
+            snprintf(resp, resp_sz, "{\"ok\":false,\"error\":\"cannot write ignore.conf\"}\n");
+            return;
+        }
+        load_ignore_reports();
+        snprintf(resp, resp_sz, "{\"ok\":true,\"changed\":%s}\n", changed ? "true" : "false");
+        return;
+    }
+
     if (strcasecmp(cmd, "RELOAD") == 0) {
         load_user_config();
         load_ignore_reports();
@@ -2096,7 +2179,9 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
         if (wait_for_secure_conf_dir(dir, sizeof(dir), 2000)) {
             char edir[1024];
             json_escape_str(edir, sizeof(edir), dir);
-            snprintf(resp, resp_sz, "{\"ok\":true,\"dir\":\"%s\"}\n", edir);
+            char efile[1024];
+            json_escape_str(efile, sizeof(efile), secure_conf_file);
+            snprintf(resp, resp_sz, "{\"ok\":true,\"dir\":\"%s\",\"file\":\"%s\"}\n", edir, efile);
         } else {
             snprintf(resp, resp_sz, "{\"ok\":false,\"error\":\"timeout\"}\n");
         }
@@ -2124,7 +2209,7 @@ static void subscriber_remove_locked(int i) {
     subscribers[i] = subscribers[--subscriber_count];
 }
 
-static void subscribers_broadcast(const char *ev, int action, pid_t pid, const char *exe) {
+static void subscribers_broadcast(const char *ev, int action, pid_t pid, const char *exe, int ignored) {
     if (action <= 0 || action > 16)
         return;
     pthread_mutex_lock(&subscribers_lock);
@@ -2136,8 +2221,9 @@ static void subscribers_broadcast(const char *ev, int action, pid_t pid, const c
     json_escape_str(exe_esc, sizeof(exe_esc), exe);
     char line[PATH_MAX * 2 + 128];
     int len = snprintf(line, sizeof(line),
-                       "{\"ev\":\"%s\",\"action\":\"%s\",\"pid\":%d,\"exe\":\"%s\",\"ts\":%ld}\n",
-                       ev, action_to_string(action), (int)pid, exe_esc, (long)time(NULL));
+                       "{\"ev\":\"%s\",\"action\":\"%s\",\"pid\":%d,\"exe\":\"%s\",\"ts\":%ld%s}\n",
+                       ev, action_to_string(action), (int)pid, exe_esc, (long)time(NULL),
+                       ignored ? ",\"ignored\":true" : "");
     if (len >= (int)sizeof(line))
         len = (int)sizeof(line) - 1;
     uint32_t bit = 1u << (action - 1);
