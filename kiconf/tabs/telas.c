@@ -127,7 +127,7 @@ static GtkWidget *g_screens_status_label;
 /* Connected-but-off outputs, beside the canvas (which only draws enabled
  * ones) -- selecting a row selects that output for the form below, so it
  * can be configured and switched on. See rebuild_screens_off_list(). */
-enum { COL_OFF_NAME = 0, COL_OFF_INDEX, N_OFF_COLS };
+enum { COL_OFF_NAME = 0, COL_OFF_INDEX, COL_OFF_CONNECTED, N_OFF_COLS };
 static GtkListStore *g_screens_off_store;
 static GtkWidget *g_screens_off_view;
 /* Advanced/other driver properties (xrandr --verbose) -- the *_box is
@@ -1702,17 +1702,34 @@ static void rebuild_screens_off_list(void)
     g_screens_syncing = 1;
     gtk_list_store_clear(g_screens_off_store);
     for (int i = 0; i < g_n_outputs; i++) {
-        if (!g_outputs[i].connected || g_outputs[i].enabled) {
+        if (g_outputs[i].connected && g_outputs[i].enabled) {
             continue;
         }
         GtkTreeIter it;
         gtk_list_store_append(g_screens_off_store, &it);
-        gtk_list_store_set(g_screens_off_store, &it, COL_OFF_NAME, g_outputs[i].name, COL_OFF_INDEX, i, -1);
-        if (i == g_screens_selected) {
+        gtk_list_store_set(g_screens_off_store, &it, COL_OFF_NAME, g_outputs[i].name, COL_OFF_INDEX, i,
+                           COL_OFF_CONNECTED, g_outputs[i].connected, -1);
+        if (i == g_screens_selected && g_outputs[i].connected) {
             gtk_tree_selection_select_iter(sel, &it);
         }
     }
     g_screens_syncing = 0;
+}
+
+/* Connectors with no monitor behind them are listed (dimmed) but can't be
+ * selected. */
+static gboolean screens_off_can_select(GtkTreeSelection *sel, GtkTreeModel *model, GtkTreePath *path,
+                                       gboolean currently_selected, gpointer data)
+{
+    (void)sel;
+    (void)data;
+    (void)currently_selected;
+    GtkTreeIter it;
+    gint connected = 0;
+    if (gtk_tree_model_get_iter(model, &it, path)) {
+        gtk_tree_model_get(model, &it, COL_OFF_CONNECTED, &connected, -1);
+    }
+    return connected;
 }
 
 static void on_screens_off_selection_changed(GtkTreeSelection *sel, gpointer data)
@@ -1743,7 +1760,9 @@ static void on_screens_off_row_activated(GtkTreeView *view, GtkTreePath *path, G
     (void)path;
     (void)col;
     (void)data;
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_screens_enabled_chk), TRUE);
+    if (g_screens_selected >= 0 && g_screens_selected < g_n_outputs && g_outputs[g_screens_selected].connected) {
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_screens_enabled_chk), TRUE);
+    }
 }
 
 GtkWidget *build_telas_tab(void)
@@ -1790,11 +1809,14 @@ GtkWidget *build_telas_tab(void)
     g_signal_connect(g_screens_canvas, "motion-notify-event", G_CALLBACK(screens_canvas_motion), NULL);
     g_signal_connect(g_screens_canvas, "button-release-event", G_CALLBACK(screens_canvas_release), NULL);
 
-    g_screens_off_store = gtk_list_store_new(N_OFF_COLS, G_TYPE_STRING, G_TYPE_INT);
+    g_screens_off_store = gtk_list_store_new(N_OFF_COLS, G_TYPE_STRING, G_TYPE_INT, G_TYPE_BOOLEAN);
     g_screens_off_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_screens_off_store));
     gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(g_screens_off_view), FALSE);
     gtk_tree_view_append_column(GTK_TREE_VIEW(g_screens_off_view),
-        gtk_tree_view_column_new_with_attributes(_("Saida"), gtk_cell_renderer_text_new(), "text", COL_OFF_NAME, NULL));
+        gtk_tree_view_column_new_with_attributes(_("Saida"), gtk_cell_renderer_text_new(), "text", COL_OFF_NAME,
+                                                 "sensitive", COL_OFF_CONNECTED, NULL));
+    gtk_tree_selection_set_select_function(gtk_tree_view_get_selection(GTK_TREE_VIEW(g_screens_off_view)),
+                                           screens_off_can_select, NULL, NULL);
     gtk_widget_set_tooltip_text(g_screens_off_view, _("Clique pra configurar; duplo clique liga a saida"));
     g_signal_connect(gtk_tree_view_get_selection(GTK_TREE_VIEW(g_screens_off_view)), "changed",
                      G_CALLBACK(on_screens_off_selection_changed), NULL);
