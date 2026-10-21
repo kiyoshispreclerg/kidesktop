@@ -210,6 +210,10 @@ static void xg_menu_select(Panel *panel, PanelWidget *widget, void *ctx, int ind
     (void)panel;
     (void)widget;
     (void)ctx;
+    if (index == 1) {
+        run_detached("kiconf --tab Permissoes");
+        return;
+    }
     if (index != 0) {
         return;
     }
@@ -227,7 +231,7 @@ static int xg_on_button(PanelWidget *w, int button, int local_x, int local_y, in
         return 0;
     }
     const XisguardEvents *ev = xisguard_events_get();
-    MenuItem items[2 + XISGUARD_HISTORY_MAX];
+    MenuItem items[3 + XISGUARD_HISTORY_MAX];
     memset(items, 0, sizeof(items));
     int n = 0;
 
@@ -235,12 +239,15 @@ static int xg_on_button(PanelWidget *w, int button, int local_x, int local_y, in
              ev->enabled ? _("Desativar temporariamente") : _("Reativar prote\xc3\xa7\xc3\xa3o"));
     items[n].enabled = ev->connected;
     n++;
+    snprintf(items[n].label, sizeof(items[n].label), "%s", _("Configurar XisGuard\xe2\x80\xa6"));
+    items[n].enabled = 1;
+    n++;
     if (ev->history_count > 0) {
         items[n].is_separator = 1;
         n++;
     }
     const XisguardHistoryEntry *h;
-    for (int i = xg_next_unique(ev, 0, &h); i >= 0 && n < 2 + XISGUARD_HISTORY_MAX;
+    for (int i = xg_next_unique(ev, 0, &h); i >= 0 && n < 3 + XISGUARD_HISTORY_MAX;
          i = xg_next_unique(ev, i + 1, &h)) {
         xg_hist_label(items[n].label, sizeof(items[n].label), h);
         items[n].enabled = 0; /* informational only */

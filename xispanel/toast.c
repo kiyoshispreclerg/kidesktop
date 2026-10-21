@@ -130,6 +130,10 @@ typedef struct {
     unsigned int job_id;
     unsigned int job_serial; /* JobEntry::serial last painted */
     cairo_surface_t *own_icon; /* job toasts resolve their own icon: freed with the toast */
+    /* toast_show_action(): one button that calls this instead of anything
+     * D-Bus; the body and the X just dismiss. NULL for every other toast. */
+    void (*action_fn)(void *ctx);
+    void *action_ctx;
 } Toast;
 
 static Toast g_toasts[TOAST_ARRAY_CAP];
@@ -868,6 +872,24 @@ void toast_show_osd(cairo_surface_t *icon, const char *summary, const char *body
     map_and_show_toast(t);
 }
 
+void toast_show_action(cairo_surface_t *icon, const char *summary, const char *body, int timeout_ms,
+                        const char *action_label, void (*action_fn)(void *ctx), void *action_ctx)
+{
+    Toast *t = claim_toast_slot(TOAST_H + TOAST_BTN_ROW);
+    snprintf(t->summary, sizeof(t->summary), "%s", summary ? summary : "");
+    snprintf(t->body, sizeof(t->body), "%s", body ? body : "");
+    t->icon = icon;
+    t->urgency = TOAST_URGENCY_NORMAL;
+    t->timeout_ms = (uint64_t)(timeout_ms > 0 ? timeout_ms : TOAST_OSD_DEFAULT_MS);
+    t->expire_ms = now_ms() + t->timeout_ms;
+    snprintf(t->actions[0].key, sizeof(t->actions[0].key), "act");
+    snprintf(t->actions[0].label, sizeof(t->actions[0].label), "%s", action_label ? action_label : "");
+    t->n_actions = 1;
+    t->action_fn = action_fn;
+    t->action_ctx = action_ctx;
+    map_and_show_toast(t);
+}
+
 /* ---- job progress (jobviewd.c) ------------------------------------------ */
 
 static int find_toast_by_job(unsigned int id)
@@ -1202,6 +1224,14 @@ int toast_handle_event(const XEvent *ev)
                     } else if (k >= 0 && ev->xbutton.button == Button1) {
                         jobviewd_action(t->job_id, t->actions[k].key);
                     }
+                    return 1;
+                }
+                if (t->action_fn) {
+                    int k = toast_button_at(t, ev->xbutton.x, ev->xbutton.y);
+                    if (k >= 0 && ev->xbutton.button == Button1 && !toast_close_at(t, ev->xbutton.x, ev->xbutton.y)) {
+                        t->action_fn(t->action_ctx);
+                    }
+                    remove_toast(i);
                     return 1;
                 }
                 if (toast_close_at(t, ev->xbutton.x, ev->xbutton.y)) {

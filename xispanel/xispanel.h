@@ -1703,6 +1703,14 @@ typedef enum {
 void toast_show_osd(cairo_surface_t *icon, const char *summary, const char *body, int level, ToastUrgency urgency,
                      int timeout_ms, const char *tag);
 
+/* A toast with one button: clicking it calls action_fn(action_ctx) and
+ * dismisses the toast; the body and the X just dismiss. Not a D-Bus
+ * notification (no notifd entry, no history), for a widget that offers a
+ * follow-up to something it just showed. timeout_ms <= 0 uses the OSD
+ * default. icon is borrowed, as in toast_show_osd(). */
+void toast_show_action(cairo_surface_t *icon, const char *summary, const char *body, int timeout_ms,
+                        const char *action_label, void (*action_fn)(void *ctx), void *action_ctx);
+
 /* launchfx.c: optional zoom+fade "launch feedback" popup over a clicked
  * launcher icon -- compositor-only, see that file's comment for why
  * there's no no-compositor fallback (no-ops silently if none is
@@ -1860,6 +1868,8 @@ void xisguard_events_poll(void);
 const XisguardEvents *xisguard_events_get(void);
 /* "DISABLE" or "ENABLE" (one short connection; the answer arrives as a STATE event). */
 void xisguard_send_command(const char *cmd);
+/* {"cmd":cmd,"pattern":pattern}, e.g. ADD_IGNORED (fire and forget). */
+void xisguard_send_json_arg(const char *cmd, const char *pattern);
 
 /* ---- non-blocking external commands (asyncmd.c) ----
  *

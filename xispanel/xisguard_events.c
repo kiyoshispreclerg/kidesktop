@@ -161,11 +161,37 @@ const char *xisguard_action_text(const char *action)
 }
 
 typedef struct {
-    char exe[96], action[16];
+    char exe[512], action[16];
     int count;
     time_t window_start, last_toast;
 } BurstKey;
 static BurstKey g_burst[XG_BURST_KEYS];
+
+/* The toast's button: adds the program to the guard's ignore.conf. The exe
+ * as the guard reports it is "path" or "path|args" and ignore.conf patterns
+ * are plain globs over that whole string, so a program that was seen with
+ * arguments gets both "path" and "path|*". */
+static void ignore_program(void *ctx)
+{
+    const BurstKey *k = ctx;
+    char path[512];
+    snprintf(path, sizeof(path), "%s", k->exe);
+    char *bar = strchr(path, '|');
+    if (bar) {
+        *bar = '\0';
+    }
+    if (!path[0]) {
+        return;
+    }
+    xisguard_send_json_arg("ADD_IGNORED", path);
+    if (bar) {
+        char with_args[520];
+        snprintf(with_args, sizeof(with_args), "%s|*", path);
+        xisguard_send_json_arg("ADD_IGNORED", with_args);
+    }
+    toast_show_osd(xispanel_first_panel_icon("security-high", 32), _("XisGuard"), _("Programa ignorado"), -1,
+                   TOAST_URGENCY_NORMAL, 0, "xisguard-ignore");
+}
 
 /* Toasts once when `exe` keeps using `action` (see XG_BURST_*). */
 static void burst_check(const char *action, const char *exe, time_t ts)
@@ -195,10 +221,11 @@ static void burst_check(const char *action, const char *exe, time_t ts)
     }
     k->last_toast = ts;
     k->count = 0;
+    const char *base = strrchr(exe, '/');
     char body[200];
-    snprintf(body, sizeof(body), _("%s: %s"), exe[0] ? exe : "?", xisguard_action_text(action));
-    toast_show_osd(xispanel_first_panel_icon("security-medium", 32), _("Uso constante detectado"), body, -1,
-                   TOAST_URGENCY_NORMAL, 6000, NULL);
+    snprintf(body, sizeof(body), _("%s: %s"), base ? base + 1 : (exe[0] ? exe : "?"), xisguard_action_text(action));
+    toast_show_action(xispanel_first_panel_icon("security-medium", 32), _("Uso constante detectado"), body, 10000,
+                      _("Ignorar este programa"), ignore_program, k);
 }
 
 static void history_add(const char *ev, const char *action, const char *exe, long ts)
@@ -224,7 +251,7 @@ static void handle_line(const char *line)
         } else if (jbool(line, "ignored", 0)) {
             return; /* in the guard's ignore.conf: not shown here either */
         } else {
-            char action[16] = "", exe[96] = "";
+            char action[16] = "", exe[512] = "";
             jstr(line, "action", action, sizeof(action));
             jstr(line, "exe", exe, sizeof(exe));
             const char *t = strstr(line, "\"ts\":");
@@ -320,6 +347,27 @@ void xisguard_events_poll(void)
 const XisguardEvents *xisguard_events_get(void)
 {
     return &g_state;
+}
+
+void xisguard_send_json_arg(const char *cmd, const char *pattern)
+{
+    char esc[1100] = "";
+    size_t o = 0;
+    for (const char *p = pattern; *p && o + 2 < sizeof(esc); p++) {
+        if (*p == '"' || *p == '\\') {
+            esc[o++] = '\\';
+        }
+        esc[o++] = *p;
+    }
+    esc[o] = '\0';
+    int fd = ctl_connect();
+    if (fd < 0) {
+        return;
+    }
+    char req[1300];
+    int len = snprintf(req, sizeof(req), "{\"cmd\":\"%s\",\"pattern\":\"%s\"}\n", cmd, esc);
+    (void)!write(fd, req, (size_t)len);
+    close(fd);
 }
 
 void xisguard_send_command(const char *cmd)
