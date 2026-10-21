@@ -495,9 +495,8 @@ msgstr ""
 "Aplicar a tudo que está dentro?"
 
 #: kf_props.c:396
-#, fuzzy
 msgid "Continue"
-msgstr "Continuar mesmo assim"
+msgstr "Continuar"
 
 #: kf_props.c:441
 #, c-format
