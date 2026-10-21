@@ -1550,6 +1550,9 @@ static int tasklist_get_tooltip_mpris(PanelWidget *w, int local_x, char *out_bus
             if (tp->display_count[d] > 1) {
                 return 0; /* which member's player? -- ambiguous while grouped */
             }
+            if (tp->tasks[tp->display_repr[d]].is_placeholder) {
+                return 0; /* pinned, not running -- no window to ask for a pid */
+            }
             Window win = tp->tasks[tp->display_repr[d]].win;
             unsigned long pid = ewmh_get_pid(win);
             return mpris_find_for_pid(pid, out_busname, bufsz, out_playing);
