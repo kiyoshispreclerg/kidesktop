@@ -76,6 +76,8 @@
 
 #define KB_HEIGHT 224
 #define KEY_H 38
+#define KEY_MIN_H 20 /* keys stretch with the window; this is only their floor */
+#define KB_MIN_H 185
 #define KEY_GAP 3
 #define BASE_KEY_W 40
 
@@ -121,6 +123,12 @@ static int g_layout_idx;
 static GtkWidget *g_rows_container; /* rebuilt from scratch on every layout switch */
 static GtkWidget *g_layout_btn;
 static int g_win_w;
+static GtkWidget *g_win;
+static int g_out_x, g_out_y, g_out_h; /* output the dock sits on */
+static int g_pref_h = KB_HEIGHT;      /* user's chosen height, persisted */
+static int g_applied_h;               /* height the window/strut currently has */
+static gboolean g_grip_dragging;
+static void apply_height(int h);
 
 #ifndef XISSERVE_KBDIR_DEFAULT
 #define XISSERVE_KBDIR_DEFAULT "/usr/local/share/xisserve/keyboard"
@@ -679,7 +687,7 @@ static GtkWidget *make_key_button(const KbKeySpec *spec)
         break;
     }
 
-    gtk_widget_set_size_request(btn, (int)(BASE_KEY_W * spec->weight), KEY_H);
+    gtk_widget_set_size_request(btn, (int)(BASE_KEY_W * spec->weight), KEY_MIN_H);
     return btn;
 }
 
@@ -702,7 +710,7 @@ static GtkWidget *build_row(const KbRow *row)
  * takes focus, so a GtkEntry couldn't receive typing: search mode swaps
  * the grid for a one-row result strip plus a small on-screen letter pad
  * that feeds the query, and the bottom control row is hidden to make
- * room (KB_HEIGHT is fixed). */
+ * room (the window is only as tall as the user dragged it). */
 #define EMOJI_SEARCH_MAX 300
 
 static int g_emoji_group;
@@ -887,7 +895,7 @@ static void build_emoji_layout(const KbLayout *layout)
                 if (e->group == (int)i) { glyph = e->glyph; break; }
             }
             GtkWidget *t = gtk_toggle_button_new_with_label(glyph);
-            gtk_widget_set_size_request(t, BASE_KEY_W, KEY_H);
+            gtk_widget_set_size_request(t, BASE_KEY_W, KEY_MIN_H);
             gtk_widget_set_tooltip_text(t, g_ptr_array_index(g_emoji_groups, i));
             gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(t), (int)i == g_emoji_group);
             g_signal_connect(t, "toggled", G_CALLBACK(on_emoji_tab), GINT_TO_POINTER((int)i));
@@ -895,7 +903,7 @@ static void build_emoji_layout(const KbLayout *layout)
             g_emoji_tabs[g_emoji_ntabs++] = t;
         }
         GtkWidget *s = gtk_button_new_with_label(_("Buscar"));
-        gtk_widget_set_size_request(s, BASE_KEY_W * 2, KEY_H);
+        gtk_widget_set_size_request(s, BASE_KEY_W * 2, KEY_MIN_H);
         g_signal_connect(s, "clicked", G_CALLBACK(on_emoji_search_toggle), GINT_TO_POINTER(TRUE));
         gtk_box_pack_start(GTK_BOX(top), s, FALSE, FALSE, 0);
     }
@@ -955,6 +963,9 @@ static void rebuild_rows(void)
             gtk_box_pack_start(GTK_BOX(g_rows_container), build_row(&layout->rows[i]), TRUE, TRUE, 0);
     }
     gtk_widget_show_all(g_rows_container);
+
+    /* e.g. leaving emoji search, which can have grown the window */
+    if (g_win && !g_grip_dragging) apply_height(g_pref_h);
 
     if (g_layout_btn) {
         char *label = g_strdup_printf("%s \xe2\x96\xbe", layout->name); /* U+25BE */
@@ -1016,6 +1027,99 @@ static void reserve_strut(GdkWindow *gw, int x, int y, int w, int h)
 
     long all_desktops = -1;
     XChangeProperty(g_dpy, xwin, a_desktop, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&all_desktops, 1);
+}
+
+/* Resizes the dock to h (clamped), keeps it on the output's bottom edge
+ * and updates how much of the work area it reserves. */
+static void apply_height(int h)
+{
+    int max_h = g_out_h * 7 / 10;
+    if (h > max_h) h = max_h;
+    if (h < KB_MIN_H) h = KB_MIN_H;
+    g_applied_h = h;
+    gtk_widget_set_size_request(g_win, g_win_w, h);
+    gtk_window_move(GTK_WINDOW(g_win), g_out_x, g_out_y + g_out_h - h);
+    if (GTK_WIDGET_REALIZED(g_win)) reserve_strut(g_win->window, g_out_x, 0, g_win_w, h);
+}
+
+/* The children can force the window taller than asked (emoji search needs
+ * room for its letter pad): follow the real height so the strut and the
+ * bottom anchoring stay truthful. */
+static gboolean on_win_size_allocate(GtkWidget *w, GtkAllocation *a, gpointer data)
+{
+    (void)w;
+    (void)data;
+    if (a->height > 1 && a->height != g_applied_h && GTK_WIDGET_MAPPED(g_win)) {
+        g_applied_h = a->height;
+        gtk_window_move(GTK_WINDOW(g_win), g_out_x, g_out_y + g_out_h - g_applied_h);
+        reserve_strut(g_win->window, g_out_x, 0, g_win_w, g_applied_h);
+    }
+    return FALSE;
+}
+
+static char *kb_conf_path(void) { return g_build_filename(g_get_user_config_dir(), "xisserve", "keyboard.conf", NULL); }
+
+static void load_height_pref(void)
+{
+    char *path = kb_conf_path();
+    GKeyFile *kf = g_key_file_new();
+    if (g_key_file_load_from_file(kf, path, G_KEY_FILE_NONE, NULL)) {
+        int h = g_key_file_get_integer(kf, "keyboard", "height", NULL);
+        if (h > 0) g_pref_h = h;
+    }
+    g_key_file_free(kf);
+    g_free(path);
+}
+
+static void save_height_pref(void)
+{
+    char *path = kb_conf_path();
+    char *dir = g_path_get_dirname(path);
+    g_mkdir_with_parents(dir, 0755);
+    GKeyFile *kf = g_key_file_new();
+    g_key_file_load_from_file(kf, path, G_KEY_FILE_NONE, NULL); /* keep unknown keys */
+    g_key_file_set_integer(kf, "keyboard", "height", g_pref_h);
+    g_key_file_save_to_file(kf, path, NULL);
+    g_key_file_free(kf);
+    g_free(dir);
+    g_free(path);
+}
+
+/* Drag handle on the top edge: the bottom stays put, the top follows the
+ * pointer. Live-resized; saved when the button is released. */
+
+static gboolean on_grip_event(GtkWidget *w, GdkEvent *ev, gpointer data)
+{
+    (void)w;
+    (void)data;
+    switch (ev->type) {
+    case GDK_BUTTON_PRESS:
+        if (ev->button.button == 1) g_grip_dragging = TRUE;
+        return TRUE;
+    case GDK_MOTION_NOTIFY:
+        if (g_grip_dragging) {
+            g_pref_h = g_out_y + g_out_h - (int)ev->motion.y_root;
+            apply_height(g_pref_h);
+            g_pref_h = g_applied_h; /* clamped */
+        }
+        return TRUE;
+    case GDK_BUTTON_RELEASE:
+        if (g_grip_dragging) {
+            g_grip_dragging = FALSE;
+            save_height_pref();
+        }
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
+
+static void on_grip_realize(GtkWidget *w, gpointer data)
+{
+    (void)data;
+    GdkCursor *c = gdk_cursor_new(GDK_SB_V_DOUBLE_ARROW);
+    gdk_window_set_cursor(w->window, c);
+    gdk_cursor_unref(c);
 }
 
 /* ---- follow the active window's own output on a multi-monitor session --
@@ -1225,8 +1329,11 @@ int keyboard_run(int output_x, int output_y, int output_w, int output_h)
 
     if (output_w <= 0) output_w = gdk_screen_get_width(gdk_screen_get_default());
     if (output_h <= 0) output_h = gdk_screen_get_height(gdk_screen_get_default());
-    int win_x = output_x, win_y = output_y + output_h - KB_HEIGHT, win_w = output_w, win_h = KB_HEIGHT;
-    g_win_w = win_w;
+    g_win_w = output_w;
+    g_out_x = output_x;
+    g_out_y = output_y;
+    g_out_h = output_h;
+    load_height_pref();
 
     GtkWidget *win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(win), "xisserve-keyboard");
@@ -1250,12 +1357,23 @@ int keyboard_run(int output_x, int output_y, int output_w, int output_h)
      * with resizable(FALSE) above, GTK instead shrink-wraps to the
      * children's natural size unless the window itself is given an
      * explicit minimum, which set_size_request() does. */
-    gtk_widget_set_size_request(win, win_w, win_h);
-    gtk_window_move(GTK_WINDOW(win), win_x, win_y);
+    g_win = win;
+    g_signal_connect(win, "size-allocate", G_CALLBACK(on_win_size_allocate), NULL);
+    apply_height(g_pref_h);
+    g_pref_h = g_applied_h;
 
     GtkWidget *vbox = gtk_vbox_new(FALSE, KEY_GAP);
     gtk_container_set_border_width(GTK_CONTAINER(vbox), KEY_GAP);
     gtk_container_add(GTK_CONTAINER(win), vbox);
+
+    GtkWidget *grip = gtk_event_box_new();
+    gtk_widget_set_size_request(grip, -1, 10);
+    gtk_widget_add_events(grip, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_POINTER_MOTION_MASK);
+    gtk_container_add(GTK_CONTAINER(grip), gtk_hseparator_new());
+    g_signal_connect(grip, "realize", G_CALLBACK(on_grip_realize), NULL);
+    g_signal_connect(grip, "event", G_CALLBACK(on_grip_event), NULL);
+    gtk_widget_set_tooltip_text(grip, _("Arraste para ajustar a altura"));
+    gtk_box_pack_start(GTK_BOX(vbox), grip, FALSE, FALSE, 0);
 
     GtkWidget *header = gtk_hbox_new(FALSE, 8);
     GtkWidget *lamp_caps_box = build_lamp("Caps");
@@ -1289,10 +1407,10 @@ int keyboard_run(int output_x, int output_y, int output_w, int output_h)
     rebuild_rows();
 
     gtk_widget_realize(win);
-    reserve_strut(win->window, win_x, win_y, win_w, win_h);
+    apply_height(g_pref_h); /* realized now: also sets the strut */
 
     gtk_widget_show_all(win);
-    gtk_window_move(GTK_WINDOW(win), win_x, win_y); /* some WMs only honor this once mapped */
+    gtk_window_move(GTK_WINDOW(win), g_out_x, g_out_y + g_out_h - g_applied_h); /* some WMs only honor this once mapped */
 
     poll_indicators(NULL);
     g_timeout_add(400, poll_indicators, NULL);

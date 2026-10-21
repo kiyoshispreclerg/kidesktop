@@ -57,7 +57,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.2.4"
+#define XISSERVE_VERSION "0.2.5"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
