@@ -31,6 +31,9 @@ static GtkWidget *g_xg_action_combo, *g_xg_type_combo, *g_xg_pattern_entry;
 static GtkWidget *g_xg_sys_rules_view;
 static GtkListStore *g_xg_sys_rules_store;
 static GtkWidget *g_xg_sys_rules_status_label;
+/* ignore.conf: programs whose REPORTs are not shown (LIST/ADD/REMOVE_IGNORED) */
+static GtkWidget *g_xg_ignored_view, *g_xg_ignored_entry;
+static GtkListStore *g_xg_ignored_store;
 
 typedef struct {
     int online;
@@ -39,6 +42,8 @@ typedef struct {
 static XgStatus g_xg_baseline;
 
 enum { COL_XG_TYPE = 0, COL_XG_ACTION, COL_XG_PATTERN, N_XG_COLS };
+/* the system rules list has one more column: which file the rule is from */
+enum { COL_XG_SOURCE = N_XG_COLS, N_XG_SYS_COLS };
 
 /* XNOTIFY_ACTIONS[i][0] is the protocol token (goes into perms.conf
  * verbatim, never translated); [i][1] is only ever read into a label
@@ -181,7 +186,7 @@ static void xisguard_get_status(XgStatus *st)
 
 #define MAX_XG_RULES 256
 typedef struct {
-    char type[16], action[32], pattern[192];
+    char type[16], action[32], pattern[192], source[64];
 } XgRule;
 
 static int xisguard_list_rules(XgRule *rules, int max)
@@ -231,9 +236,11 @@ static int xisguard_list_rules(XgRule *rules, int max)
  * XISGUARD.md's GET_SYSTEM_RULES_PATH) -- SYSCONFDIR is a compile-time
  * constant of the server, not of kiconf, so this can't just be guessed;
  * xisguard itself learns it the same way (wait_for_secure_conf_dir() in
- * xisguard.c, used to write secure-mode rules via polkit). Returns 1 and
- * fills `out` on success. */
-static int xisguard_get_system_rules_dir(char *out, size_t outsz)
+ * xisguard.c, used to write secure-mode rules via polkit). The server reads
+ * two things: the xnotify.conf.d directory (*.conf) and the single
+ * xnotify.conf next to it. Returns 1 and fills `dir` (and `file`, which is
+ * derived from `dir` if an older xisguard does not report it). */
+static int xisguard_get_system_rules_paths(char *dir, size_t dirsz, char *file, size_t filesz)
 {
     char path[PATH_MAX];
     xisguard_ctl_path(path, sizeof(path));
@@ -241,8 +248,20 @@ static int xisguard_get_system_rules_dir(char *out, size_t outsz)
     if (!json_line_send(path, "{\"cmd\":\"GET_SYSTEM_RULES_PATH\"}", resp, sizeof(resp)) || !json_ok(resp)) {
         return 0;
     }
-    json_get_str(resp, "dir", out, outsz);
-    return out[0] != '\0';
+    json_get_str(resp, "dir", dir, dirsz);
+    if (file) {
+        json_get_str(resp, "file", file, filesz);
+        size_t n = strlen(dir);
+        if (!file[0] && n > 2 && !strcmp(dir + n - 2, ".d")) {
+            snprintf(file, filesz, "%.*s", (int)(n - 2), dir);
+        }
+    }
+    return dir[0] != '\0';
+}
+
+static int xisguard_get_system_rules_dir(char *out, size_t outsz)
+{
+    return xisguard_get_system_rules_paths(out, outsz, NULL, 0);
 }
 
 static int rule_conf_name_filter(const struct dirent *e)
@@ -251,57 +270,147 @@ static int rule_conf_name_filter(const struct dirent *e)
     return n > 5 && !strcmp(e->d_name + n - 5, ".conf");
 }
 
-/* Reads every *.conf file in the system rules directory (in the same
- * numeric-prefix order the X server itself applies them, e.g.
- * "10-foo.conf" before "50-xisguard.conf" -- see secure_save_rule() in
- * xisguard.c for the one file kiconf's own polkit-gated rules end up in),
- * parsing each non-comment, non-empty line as "TYPE ACTION PATTERN" --
- * the exact same 3-whitespace-token grammar as perms.conf/LIST_RULES
- * (see load_user_config() in xisguard.c). Read-only for now: writing here
- * needs a polkit prompt per file, same as secure_save_rule() -- see
- * kiconf.c's own doc comment on this tab for what's deliberately not
- * ported yet. */
-static int xisguard_list_system_rules(XgRule *rules, int max)
+/* One line of a server rule file, in the grammar the X server itself reads
+ * (XnotifyLoadFile() in xnotify.c):
+ *   ALLOW|DENY ACTION /path[|args]   rule for one program and action
+ *   ALLOW|DENY /path[|args]          every action ("ALL")
+ *   ALLOW|DENY ACTION                the action for everyone ("*")
+ *   ALLOW_ACTION ACTION              same as "ALLOW ACTION"
+ * Returns 1 and fills `r` (except source) for a rule, 0 for anything else. */
+static int parse_system_rule_line(char *line, XgRule *r)
 {
-    char dir[512];
-    if (!xisguard_get_system_rules_dir(dir, sizeof(dir))) {
+    line[strcspn(line, "\r\n")] = '\0';
+    char *save = NULL;
+    char *cmd = strtok_r(line, " \t", &save);
+    if (!cmd || cmd[0] == '#') {
         return 0;
     }
-    struct dirent **names;
-    int n_files = scandir(dir, &names, rule_conf_name_filter, alphasort);
-    if (n_files < 0) {
+    int allow_action = !strcasecmp(cmd, "ALLOW_ACTION");
+    if (!allow_action && strcasecmp(cmd, "ALLOW") && strcasecmp(cmd, "DENY")) {
+        return 0;
+    }
+    snprintf(r->type, sizeof(r->type), "%s", allow_action ? "ALLOW" : (toupper((unsigned char)cmd[0]) == 'A' ? "ALLOW" : "DENY"));
+    char *tok = strtok_r(NULL, " \t", &save);
+    if (!tok) {
+        return 0;
+    }
+    if (tok[0] == '/') { /* no action: every one */
+        snprintf(r->action, sizeof(r->action), "ALL");
+        snprintf(r->pattern, sizeof(r->pattern), "%s", tok);
+        return 1;
+    }
+    snprintf(r->action, sizeof(r->action), "%s", tok);
+    /* the pattern runs to the end of the line and may contain spaces */
+    char *rest = save ? save : (char *)"";
+    while (*rest == ' ' || *rest == '\t') {
+        rest++;
+    }
+    size_t rl = strlen(rest);
+    while (rl > 0 && (rest[rl - 1] == ' ' || rest[rl - 1] == '\t')) {
+        rest[--rl] = '\0';
+    }
+    snprintf(r->pattern, sizeof(r->pattern), "%s", rl ? rest : "*");
+    return 1;
+}
+
+static int read_system_rule_file(const char *filepath, const char *source, XgRule *rules, int n, int max)
+{
+    FILE *f = fopen(filepath, "r");
+    if (!f) {
+        return n;
+    }
+    char line[512];
+    while (n < max && fgets(line, sizeof(line), f)) {
+        if (parse_system_rule_line(line, &rules[n])) {
+            snprintf(rules[n].source, sizeof(rules[n].source), "%s", source);
+            n++;
+        }
+    }
+    fclose(f);
+    return n;
+}
+
+/* Reads the system rules the way the X server loads them: every *.conf in
+ * the xnotify.conf.d directory in name order ("10-foo.conf" before
+ * "50-xisguard.conf" -- see secure_save_rule() in xisguard.c for the one
+ * file kiconf's own polkit-gated rules end up in), then the xnotify.conf
+ * file itself. Read-only for now: writing here needs a polkit prompt per
+ * file, same as secure_save_rule(). */
+static int xisguard_list_system_rules(XgRule *rules, int max)
+{
+    char dir[512], file[512] = "";
+    if (!xisguard_get_system_rules_paths(dir, sizeof(dir), file, sizeof(file))) {
         return 0;
     }
     int n = 0;
-    for (int fi = 0; fi < n_files && n < max; fi++) {
+    struct dirent **names;
+    int n_files = scandir(dir, &names, rule_conf_name_filter, alphasort);
+    for (int fi = 0; fi < n_files; fi++) {
         char filepath[PATH_MAX];
         snprintf(filepath, sizeof(filepath), "%s/%s", dir, names[fi]->d_name);
-        FILE *f = fopen(filepath, "r");
-        if (f) {
-            char line[512];
-            while (n < max && fgets(line, sizeof(line), f)) {
-                line[strcspn(line, "\r\n")] = '\0';
-                char *save = NULL;
-                char *tok1 = strtok_r(line, " \t", &save);
-                if (!tok1 || tok1[0] == '#') {
-                    continue;
-                }
-                char *tok2 = strtok_r(NULL, " \t", &save);
-                char *tok3 = strtok_r(NULL, " \t", &save);
-                if (!tok2 || !tok3) {
-                    continue;
-                }
-                snprintf(rules[n].type, sizeof(rules[n].type), "%s", tok1);
-                snprintf(rules[n].action, sizeof(rules[n].action), "%s", tok2);
-                snprintf(rules[n].pattern, sizeof(rules[n].pattern), "%s", tok3);
-                n++;
-            }
-            fclose(f);
-        }
+        n = read_system_rule_file(filepath, names[fi]->d_name, rules, n, max);
         free(names[fi]);
     }
-    free(names);
+    if (n_files >= 0) {
+        free(names);
+    }
+    if (file[0]) {
+        const char *base = strrchr(file, '/');
+        n = read_system_rule_file(file, base ? base + 1 : file, rules, n, max);
+    }
     return n;
+}
+
+/* ---- ignore.conf (programs whose REPORTs are hidden) ---- */
+
+static int xisguard_list_ignored(char (*out)[192], int max)
+{
+    char path[PATH_MAX];
+    xisguard_ctl_path(path, sizeof(path));
+    char resp[JSON_BUF_LEN];
+    if (!json_line_send(path, "{\"cmd\":\"LIST_IGNORED\"}", resp, sizeof(resp)) || !json_ok(resp)) {
+        return 0;
+    }
+    const char *p = strstr(resp, "\"ignored\"");
+    p = p ? strchr(p, '[') : NULL;
+    int n = 0;
+    while (p && n < max) {
+        p = strchr(p, '"');
+        if (!p) {
+            break;
+        }
+        p++;
+        size_t i = 0;
+        while (*p && *p != '"' && i + 1 < sizeof(out[0])) {
+            if (*p == '\\' && p[1]) {
+                p++;
+            }
+            out[n][i++] = *p++;
+        }
+        out[n][i] = '\0';
+        while (*p && *p != '"') { /* skip the rest of an over-long entry */
+            if (*p == '\\' && p[1]) {
+                p++;
+            }
+            p++;
+        }
+        if (*p == '"') {
+            p++;
+        }
+        n++;
+    }
+    return n;
+}
+
+static int xisguard_send_ignored_cmd(const char *cmd, const char *pattern)
+{
+    char path[PATH_MAX];
+    xisguard_ctl_path(path, sizeof(path));
+    char esc[512];
+    json_escape(pattern, esc, sizeof(esc));
+    char req[640], resp[JSON_BUF_LEN];
+    snprintf(req, sizeof(req), "{\"cmd\":\"%s\",\"pattern\":\"%s\"}", cmd, esc);
+    return json_line_send(path, req, resp, sizeof(resp)) && json_ok(resp);
 }
 
 static int xisguard_send_rule_cmd(const char *cmd, const char *action, const char *pattern, const char *type)
@@ -408,7 +517,7 @@ static void refresh_xg_sys_rules(void)
         gtk_list_store_append(g_xg_sys_rules_store, &it);
         gtk_list_store_set(g_xg_sys_rules_store, &it,
                             COL_XG_TYPE, rules[i].type, COL_XG_ACTION, rules[i].action,
-                            COL_XG_PATTERN, rules[i].pattern, -1);
+                            COL_XG_PATTERN, rules[i].pattern, COL_XG_SOURCE, rules[i].source, -1);
     }
     if (g_xg_sys_rules_status_label) {
         char status[600];
@@ -417,10 +526,52 @@ static void refresh_xg_sys_rules(void)
         } else if (!have_dir) {
             snprintf(status, sizeof(status), _("Nao foi possivel descobrir o diretorio de regras de sistema (timeout do X server)."));
         } else {
-            snprintf(status, sizeof(status), _("%s -- %d regra(s). Somente leitura por enquanto."), dir, n);
+            snprintf(status, sizeof(status), _("%s (e xnotify.conf) -- %d regra(s). Somente leitura por enquanto."), dir, n);
         }
         gtk_label_set_text(GTK_LABEL(g_xg_sys_rules_status_label), status);
     }
+}
+
+static void refresh_xg_ignored(void)
+{
+    gtk_list_store_clear(g_xg_ignored_store);
+    static char items[MAX_XG_RULES][192];
+    int n = g_xg_baseline.online ? xisguard_list_ignored(items, MAX_XG_RULES) : 0;
+    for (int i = 0; i < n; i++) {
+        GtkTreeIter it;
+        gtk_list_store_append(g_xg_ignored_store, &it);
+        gtk_list_store_set(g_xg_ignored_store, &it, 0, items[i], -1);
+    }
+}
+
+static void on_xg_add_ignored(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    (void)data;
+    const gchar *pattern = gtk_entry_get_text(GTK_ENTRY(g_xg_ignored_entry));
+    if (!g_xg_baseline.online || !pattern[0]) {
+        return;
+    }
+    if (xisguard_send_ignored_cmd("ADD_IGNORED", pattern)) {
+        gtk_entry_set_text(GTK_ENTRY(g_xg_ignored_entry), "");
+        refresh_xg_ignored();
+    }
+}
+
+static void on_xg_remove_ignored(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    (void)data;
+    GtkTreeIter it;
+    if (!gtk_tree_selection_get_selected(gtk_tree_view_get_selection(GTK_TREE_VIEW(g_xg_ignored_view)), NULL, &it)) {
+        return;
+    }
+    gchar *pattern;
+    gtk_tree_model_get(GTK_TREE_MODEL(g_xg_ignored_store), &it, 0, &pattern, -1);
+    if (xisguard_send_ignored_cmd("REMOVE_IGNORED", pattern)) {
+        refresh_xg_ignored();
+    }
+    g_free(pattern);
 }
 
 static void apply_xg_status_cb(GtkWidget *widget, gpointer data)
@@ -495,6 +646,7 @@ static void on_xg_reload(GtkWidget *widget, gpointer data)
     xisguard_reload();
     refresh_xg_rules();
     refresh_xg_sys_rules();
+    refresh_xg_ignored();
 }
 
 GtkWidget *build_permissoes_tab(void)
@@ -607,16 +759,17 @@ GtkWidget *build_permissoes_tab(void)
     gtk_notebook_append_page(GTK_NOTEBOOK(rules_notebook), rules_box, gtk_label_new(_("Regras de usuario")));
 
     /* ---- "Regras de sistema" page: SYSCONFDIR's xnotify.conf.d directory
-     * (*.conf files), read directly by kiconf once xisguard tells it where that is (see
-     * xisguard_get_system_rules_dir()) -- read-only for now, a future
+     * (*.conf files) plus the xnotify.conf next to it, read directly by kiconf once xisguard tells it where that is (see
+     * xisguard_get_system_rules_paths()) -- read-only for now, a future
      * pass can make double-click editable the same way the user rules
      * list could, gated behind a polkit prompt to save (same mechanism
      * secure_save_rule() in xisguard.c already uses). */
-    g_xg_sys_rules_store = gtk_list_store_new(N_XG_COLS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
+    g_xg_sys_rules_store = gtk_list_store_new(N_XG_SYS_COLS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
     g_xg_sys_rules_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_xg_sys_rules_store));
-    for (int col = 0; col < N_XG_COLS; col++) {
+    const char *xg_sys_titles[N_XG_SYS_COLS] = {"Tipo", "Acao", "Padrao", "Arquivo"};
+    for (int col = 0; col < N_XG_SYS_COLS; col++) {
         GtkCellRenderer *renderer = gtk_cell_renderer_text_new();
-        GtkTreeViewColumn *tvcol = gtk_tree_view_column_new_with_attributes(xg_titles[col], renderer, "text", col, NULL);
+        GtkTreeViewColumn *tvcol = gtk_tree_view_column_new_with_attributes(xg_sys_titles[col], renderer, "text", col, NULL);
         gtk_tree_view_column_set_expand(tvcol, TRUE);
         gtk_tree_view_append_column(GTK_TREE_VIEW(g_xg_sys_rules_view), tvcol);
     }
@@ -643,9 +796,44 @@ GtkWidget *build_permissoes_tab(void)
     gtk_widget_set_sensitive(sys_rules_box, g_xg_baseline.online);
     gtk_notebook_append_page(GTK_NOTEBOOK(rules_notebook), sys_rules_box, gtk_label_new(_("Regras de sistema")));
 
+    /* ---- "Ignorados" page: ignore.conf, programs whose REPORTs are not
+     * shown (by the guard's own log, nor by the panel's xisguard widget). */
+    g_xg_ignored_store = gtk_list_store_new(1, G_TYPE_STRING);
+    g_xg_ignored_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_xg_ignored_store));
+    gtk_tree_view_append_column(GTK_TREE_VIEW(g_xg_ignored_view),
+                                gtk_tree_view_column_new_with_attributes(_("Programa (caminho ou padrao)"),
+                                                                         gtk_cell_renderer_text_new(), "text", 0, NULL));
+    GtkWidget *ign_scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(ign_scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_widget_set_size_request(ign_scroll, -1, 50);
+    gtk_container_add(GTK_CONTAINER(ign_scroll), g_xg_ignored_view);
+    GtkWidget *ign_box = gtk_vbox_new(FALSE, 2);
+    gtk_container_set_border_width(GTK_CONTAINER(ign_box), 2);
+    GtkWidget *ign_hint = gtk_label_new(_("REPORTs destes programas nao aparecem (programas sempre necessarios na "
+                                          "sessao, como gerenciadores de janela, area de transferencia e teclado)."));
+    gtk_misc_set_alignment(GTK_MISC(ign_hint), 0.0, 0.5);
+    gtk_label_set_line_wrap(GTK_LABEL(ign_hint), TRUE);
+    gtk_box_pack_start(GTK_BOX(ign_box), ign_hint, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(ign_box), ign_scroll, TRUE, TRUE, 0);
+    GtkWidget *ign_row = gtk_hbox_new(FALSE, 4);
+    g_xg_ignored_entry = gtk_entry_new();
+    a11y_name(g_xg_ignored_entry, _("Programa ignorado"));
+    g_signal_connect(g_xg_ignored_entry, "activate", G_CALLBACK(on_xg_add_ignored), NULL);
+    GtkWidget *ign_add_btn = gtk_button_new_with_label(_("Adicionar"));
+    GtkWidget *ign_remove_btn = gtk_button_new_with_label(_("Remover selecionado"));
+    g_signal_connect(ign_add_btn, "clicked", G_CALLBACK(on_xg_add_ignored), NULL);
+    g_signal_connect(ign_remove_btn, "clicked", G_CALLBACK(on_xg_remove_ignored), NULL);
+    gtk_box_pack_start(GTK_BOX(ign_row), g_xg_ignored_entry, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(ign_row), ign_add_btn, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(ign_row), ign_remove_btn, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(ign_box), ign_row, FALSE, FALSE, 0);
+    gtk_widget_set_sensitive(ign_box, g_xg_baseline.online);
+    gtk_notebook_append_page(GTK_NOTEBOOK(rules_notebook), ign_box, gtk_label_new(_("Ignorados")));
+
     gtk_box_pack_start(GTK_BOX(outer), frame_with("Regras XNOTIFY", rules_notebook), TRUE, TRUE, 0);
 
     refresh_xg_rules();
     refresh_xg_sys_rules();
+    refresh_xg_ignored();
     return outer;
 }
