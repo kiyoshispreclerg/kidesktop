@@ -1830,6 +1830,34 @@ int pulse_get_default_source_name(char *out, size_t outsz);
 int audio_events_fd(void);
 void audio_events_poll(void);
 
+/* ---- xisguard state/report stream (xisguard_events.c) ----
+ *
+ * One SUBSCRIBE connection to xisguard's control socket (see xisguard/
+ * README.md -- the contract any other desktop's tray can use too). Same
+ * main-loop plumbing as audio_events_fd()/audio_events_poll(). Toasts when
+ * the protection is switched off/on; the `xisguard` widget reads the state.
+ * `generation` changes whenever anything in it does. */
+#define XISGUARD_HISTORY_MAX 8
+typedef struct {
+    char ev[16];     /* "REPORT" or "REQUEST" */
+    char action[16]; /* "SCREEN", "RECORD", ... */
+    char exe[96];
+    time_t ts;
+} XisguardHistoryEntry;
+typedef struct {
+    int connected; /* the guard is running and we are subscribed */
+    int enabled;   /* Xnotify enforcement is on (1 while the guard is absent: the server re-enables itself) */
+    uint64_t generation;
+    XisguardHistoryEntry history[XISGUARD_HISTORY_MAX]; /* ring, newest at history_head - 1 */
+    int history_head;
+    int history_count;
+} XisguardEvents;
+int xisguard_events_fd(void);
+void xisguard_events_poll(void);
+const XisguardEvents *xisguard_events_get(void);
+/* "DISABLE" or "ENABLE" (one short connection; the answer arrives as a STATE event). */
+void xisguard_send_command(const char *cmd);
+
 /* ---- non-blocking external commands (asyncmd.c) ----
  *
  * The one way anything in xispanel may read a shell command's output. A
@@ -2013,6 +2041,7 @@ extern const PanelWidgetOps network_ops;
 extern const PanelWidgetOps storage_ops;
 extern const PanelWidgetOps clipboard_ops;
 extern const PanelWidgetOps lockkeys_ops;
+extern const PanelWidgetOps xisguard_ops;
 
 /* ---- installable widget modules (modules.c, xispanel_widget.h) ---- */
 

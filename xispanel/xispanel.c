@@ -100,7 +100,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.7.16"
+#define XISPANEL_VERSION "0.7.17"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 128KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -417,6 +417,7 @@ static const PanelWidgetOps *g_widget_registry[] = {
     &storage_ops,
     &clipboard_ops,
     &lockkeys_ops,
+    &xisguard_ops,
     NULL,
 };
 
@@ -4698,6 +4699,13 @@ static int run_as_daemon(const char *sockpath)
                 maxfd = audiofd;
             }
         }
+        int xgfd = xisguard_events_fd();
+        if (xgfd >= 0) {
+            FD_SET(xgfd, &rfds);
+            if (xgfd > maxfd) {
+                maxfd = xgfd;
+            }
+        }
         /* Whatever external commands the widgets currently have in
          * flight (asyncmd.c) -- a varying set each iteration, so this
          * adds them wholesale rather than tracking individual fds here. */
@@ -5004,6 +5012,13 @@ static int run_as_daemon(const char *sockpath)
         }
         if (audiofd >= 0 && r > 0 && FD_ISSET(audiofd, &rfds)) {
             audio_events_poll();
+        }
+        if (xgfd >= 0 && r > 0 && FD_ISSET(xgfd, &rfds)) {
+            uint64_t xg_gen = xisguard_events_get()->generation;
+            xisguard_events_poll();
+            if (xisguard_events_get()->generation != xg_gen) {
+                schedule_widget_repoll(now);
+            }
         }
         int tray_changed = disable_sni ? 0 : sni_poll(now);
         if (!disable_notifd) {
