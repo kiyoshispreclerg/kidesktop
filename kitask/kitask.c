@@ -97,7 +97,7 @@ static gboolean on_list_timer(gpointer data)
     TskApp *app = data;
     GdkWindow *w = gtk_widget_get_window(app->win);
     gboolean iconified = w && (gdk_window_get_state(w) & GDK_WINDOW_STATE_ICONIFIED);
-    if (!app->list_paused && !iconified)
+    if (!app->list_paused && !iconified && !app->pie_open)
         refresh_list(app);
     return TRUE;
 }
@@ -179,6 +179,29 @@ static void on_refresh(GtkWidget *w, TskApp *app)
 {
     (void)w;
     tsk_app_refresh_now(app);
+}
+
+static void on_pie(GtkWidget *w, TskApp *app)
+{
+    tsk_pie_show(app, GPOINTER_TO_INT(g_object_get_data(G_OBJECT(w), "kind")));
+}
+
+/* double-click on the CPU or RAM figures of the status line */
+static gboolean on_status_press(GtkWidget *w, GdkEventButton *ev, TskApp *app)
+{
+    (void)w;
+    if (ev->button != 1 || ev->type != GDK_2BUTTON_PRESS)
+        return FALSE;
+    PangoLayout *lay = gtk_label_get_layout(GTK_LABEL(app->status));
+    int lx = 0, ly = 0, idx = 0, trail = 0;
+    gtk_label_get_layout_offsets(GTK_LABEL(app->status), &lx, &ly);
+    pango_layout_xy_to_index(lay, ((int)ev->x - lx) * PANGO_SCALE, ((int)ev->y - ly) * PANGO_SCALE, &idx, &trail);
+    /* the status is "<processes>    CPU ..%    RAM ..": the RAM part is after the last gap */
+    const char *text = gtk_label_get_text(GTK_LABEL(app->status));
+    const char *gap = strstr(text, "    ");
+    const char *ram = gap ? strstr(gap + 4, "    ") : NULL;
+    tsk_pie_show(app, ram && idx >= ram - text ? TSK_PIE_RAM : TSK_PIE_CPU);
+    return TRUE;
 }
 
 static void on_settings(GtkWidget *w, TskApp *app)
@@ -286,6 +309,11 @@ static GtkWidget *build_menubar(TskApp *app, GtkAccelGroup *ag)
     gtk_widget_add_accelerator(pause, "activate", ag, GDK_p, GDK_CONTROL_MASK, GTK_ACCEL_VISIBLE);
     g_signal_connect(pause, "toggled", G_CALLBACK(on_pause), app);
     gtk_menu_shell_append(GTK_MENU_SHELL(m), pause);
+    gtk_menu_shell_append(GTK_MENU_SHELL(m), gtk_separator_menu_item_new());
+    GtkWidget *pi = menu_item(m, _("CPU Usage _Chart..."), G_CALLBACK(on_pie), app, NULL, 0, 0);
+    g_object_set_data(G_OBJECT(pi), "kind", GINT_TO_POINTER(TSK_PIE_CPU));
+    pi = menu_item(m, _("_RAM Usage Chart..."), G_CALLBACK(on_pie), app, NULL, 0, 0);
+    g_object_set_data(G_OBJECT(pi), "kind", GINT_TO_POINTER(TSK_PIE_RAM));
     gtk_menu_shell_append(GTK_MENU_SHELL(m), gtk_separator_menu_item_new());
     menu_item(m, _("_Settings..."), G_CALLBACK(on_settings), app, ag, GDK_comma, GDK_CONTROL_MASK);
 
@@ -467,7 +495,12 @@ int main(int argc, char **argv)
     app->status = gtk_label_new("");
     gtk_misc_set_alignment(GTK_MISC(app->status), 0, 0.5);
     gtk_misc_set_padding(GTK_MISC(app->status), 6, 3);
-    gtk_box_pack_start(GTK_BOX(vbox), app->status, FALSE, FALSE, 0);
+    GtkWidget *status_box = gtk_event_box_new();
+    gtk_event_box_set_visible_window(GTK_EVENT_BOX(status_box), FALSE);
+    gtk_container_add(GTK_CONTAINER(status_box), app->status);
+    gtk_widget_set_tooltip_text(status_box, _("Double-click for a chart of what uses the CPU or the RAM"));
+    g_signal_connect(status_box, "button-press-event", G_CALLBACK(on_status_press), app);
+    gtk_box_pack_start(GTK_BOX(vbox), status_box, FALSE, FALSE, 0);
     gtk_container_add(GTK_CONTAINER(app->win), vbox);
 
     g_signal_connect(app->win, "destroy", G_CALLBACK(on_quit), app);

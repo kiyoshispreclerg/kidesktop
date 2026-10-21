@@ -68,6 +68,17 @@ maximum (or automatic) and color:
 - network receive/send (all interfaces but loopback), disk read/write (whole
   physical disks)
 
+## Usage pie chart
+
+Double-click the CPU or RAM figure in the status line (or *View > CPU/RAM
+Usage Chart*) for a donut whose full circle is 100% of that resource, one slice
+per program (or per process, with *Group by program* off), hover for details.
+RAM slices use the proportional size, so they add up to what the processes
+really hold; the rest is shown as available and kernel/other. It has its own
+refresh interval. Nothing is allocated until it is opened: the window, its
+timer and its data are freed on close, and while open its timer drives the
+sampler in place of the list's.
+
 ## Cost
 
 The list and the graphs refresh on separate intervals (default 2 s and 1 s,

@@ -5,7 +5,7 @@
 #include <gtk/gtk.h>
 #include <sys/types.h>
 
-#define KITASK_VERSION "0.1.2"
+#define KITASK_VERSION "0.1.3"
 
 /* ---- what a refresh has to read (tsk_proc.c) -------------------------------
  * The cheap /proc files are always read; each flag below costs extra work per
@@ -225,6 +225,11 @@ void tsk_details(TskApp *app, pid_t pid);
 
 void tsk_prefs_show(TskApp *app, int page);
 
+/* ---- usage pie chart (tsk_pie.c) ---------------------------------------------- */
+
+enum { TSK_PIE_CPU, TSK_PIE_RAM };
+void tsk_pie_show(TskApp *app, int kind);
+
 /* ---- the app (kitask.c) ------------------------------------------------------- */
 
 struct TskApp {
@@ -238,6 +243,8 @@ struct TskApp {
     GHashTable *rows;           /* pid -> its row in store (tsk_list.c) */
     guint list_timer, graph_timer, save_timer;
     gboolean list_paused;
+    unsigned extra_need;        /* sampler needs of an open pie chart, on top of the columns' */
+    gboolean pie_open;          /* its timer drives the sampler: the list's stands aside */
 };
 
 void tsk_app_restart_timers(TskApp *app);

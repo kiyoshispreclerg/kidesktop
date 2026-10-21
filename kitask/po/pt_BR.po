@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kitask\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-17 10:02-0300\n"
+"POT-Creation-Date: 2026-10-21 08:16-0300\n"
 "PO-Revision-Date: 2026-10-17 10:30-0300\n"
 "Last-Translator: Kiyoshi Spreclerg\n"
 "Language-Team: none\n"
@@ -15,141 +15,170 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
-#: kitask.c:25
+#: kitask.c:76 tsk_pie.c:307
 #, c-format
 msgid "%d process"
 msgid_plural "%d processes"
 msgstr[0] "%d processo"
 msgstr[1] "%d processos"
 
-#: kitask.c:26
+#: kitask.c:77
 #, c-format
 msgid "%d of %d process"
 msgid_plural "%d of %d processes"
 msgstr[0] "%d de %d processo"
 msgstr[1] "%d de %d processos"
 
-#: kitask.c:28
+#: kitask.c:79
 #, c-format
 msgid "%s    CPU %.0f%%    RAM %s of %s%s"
 msgstr "%s    CPU %.0f%%    RAM %s de %s%s"
 
-#: kitask.c:29
+#: kitask.c:80
 msgid "    (updates paused)"
 msgstr "    (atualização pausada)"
 
-#: kitask.c:193
+#: kitask.c:267
 msgid "Process list and system monitor for KiDesktop"
 msgstr "Lista de processos e monitor do sistema do KiDesktop"
 
-#: kitask.c:220
+#: kitask.c:294
 msgid "_File"
 msgstr "_Arquivo"
 
-#: kitask.c:221
+#: kitask.c:295
 msgid "_Quit"
 msgstr "_Sair"
 
-#: kitask.c:223
+#: kitask.c:297
 msgid "_View"
 msgstr "_Exibir"
 
-#: kitask.c:224
+#: kitask.c:298
 msgid "Show _Graphs"
 msgstr "Mostrar _gráficos"
 
-#: kitask.c:229 tsk_prefs.c:553
+#: kitask.c:303 tsk_prefs.c:553
 msgid "_Columns"
 msgstr "_Colunas"
 
-#: kitask.c:233
+#: kitask.c:307
 msgid "_Refresh Now"
 msgstr "_Atualizar agora"
 
-#: kitask.c:234
+#: kitask.c:308
 msgid "_Pause Updates"
 msgstr "_Pausar atualização"
 
-#: kitask.c:239
+#: kitask.c:313
+msgid "CPU Usage _Chart..."
+msgstr "Gráfico de uso de _CPU..."
+
+#: kitask.c:315
+msgid "_RAM Usage Chart..."
+msgstr "Gráfico de uso de _RAM..."
+
+#: kitask.c:318
 msgid "_Settings..."
 msgstr "_Configurações..."
 
-#: kitask.c:241
+#: kitask.c:320
 msgid "_Process"
 msgstr "_Processo"
 
-#: kitask.c:244 tsk_actions.c:290
+#: kitask.c:323 tsk_actions.c:290
 msgid "_Details"
 msgstr "_Detalhes"
 
-#: kitask.c:245 tsk_actions.c:291
+#: kitask.c:324 tsk_actions.c:291
 msgid "_Switch to Window"
 msgstr "_Ir para a janela"
 
-#: kitask.c:249 tsk_actions.c:295
+#: kitask.c:328 tsk_actions.c:295
 msgid "_End (SIGTERM)"
 msgstr "_Terminar (SIGTERM)"
 
-#: kitask.c:249 tsk_actions.c:296
+#: kitask.c:328 tsk_actions.c:296
 msgid "_Kill (SIGKILL)"
 msgstr "_Matar (SIGKILL)"
 
-#: kitask.c:249 tsk_actions.c:297
+#: kitask.c:328 tsk_actions.c:297
 msgid "_Pause (SIGSTOP)"
 msgstr "_Pausar (SIGSTOP)"
 
-#: kitask.c:250 tsk_actions.c:298
+#: kitask.c:329 tsk_actions.c:298
 msgid "Co_ntinue (SIGCONT)"
 msgstr "Co_ntinuar (SIGCONT)"
 
-#: kitask.c:256 tsk_actions.c:312
+#: kitask.c:335 tsk_actions.c:312
 msgid "Change _Priority..."
 msgstr "Alterar _prioridade..."
 
-#: kitask.c:258
+#: kitask.c:337
 msgid "_Help"
 msgstr "Aj_uda"
 
-#: kitask.c:259
+#: kitask.c:338
 msgid "_About"
 msgstr "_Sobre"
 
-#: kitask.c:323
+#: kitask.c:402
 msgid "Clear"
 msgstr "Limpar"
 
-#: kitask.c:324
-msgid "Filter by name, command line, user, window title or PID (Ctrl+F).\nSeparate several with | or , to show any of them: kiplay|kitask"
-msgstr "Filtrar por nome, linha de comando, usuário, título da janela ou PID (Ctrl+F).\nSepare vários com | ou , para mostrar qualquer um deles: kiplay|kitask"
+#: kitask.c:403
+msgid ""
+"Filter by name, command line, user, window title or PID (Ctrl+F).\n"
+"Separate several with | or , to show any of them: kiplay|kitask"
+msgstr ""
+"Filtrar por nome, linha de comando, usuário, título da janela ou PID "
+"(Ctrl+F).\n"
+"Separe vários com | ou , para mostrar qualquer um deles: kiplay|kitask"
 
-#: kitask.c:326
+#: kitask.c:405
 msgid "Filter processes"
 msgstr "Filtrar processos"
 
-#: kitask.c:334
+#: kitask.c:413
 msgid "All processes"
 msgstr "Todos os processos"
 
-#: kitask.c:335
+#: kitask.c:414
 msgid "My processes"
 msgstr "Meus processos"
 
-#: kitask.c:336
+#: kitask.c:415
 msgid "With windows"
 msgstr "Com janelas"
 
-#: kitask.c:338
+#: kitask.c:417
 msgid "Which processes"
 msgstr "Quais processos"
 
-#: kitask.c:368
+#: kitask.c:447
 #, c-format
-msgid "kitask %s - process list and system monitor\n\nUsage: kitask [OPTION]...\n  -f, --filter TEXT    start with TEXT in the filter\n  -h, --help           show this help\n  -v, --version        show the version\n"
-msgstr "kitask %s - lista de processos e monitor do sistema\n\nUso: kitask [OPÇÃO]...\n  -f, --filter TEXTO   começa com TEXTO no filtro\n  -h, --help           mostra esta ajuda\n  -v, --version        mostra a versão\n"
+msgid ""
+"kitask %s - process list and system monitor\n"
+"\n"
+"Usage: kitask [OPTION]...\n"
+"  -f, --filter TEXT    start with TEXT in the filter\n"
+"  -h, --help           show this help\n"
+"  -v, --version        show the version\n"
+msgstr ""
+"kitask %s - lista de processos e monitor do sistema\n"
+"\n"
+"Uso: kitask [OPÇÃO]...\n"
+"  -f, --filter TEXTO   começa com TEXTO no filtro\n"
+"  -h, --help           mostra esta ajuda\n"
+"  -v, --version        mostra a versão\n"
 
-#: kitask.c:402
+#: kitask.c:483
 msgid "Processes - kitask"
 msgstr "Processos - kitask"
+
+#: kitask.c:501
+msgid "Double-click for a chart of what uses the CPU or the RAM"
+msgstr "Clique duplo para ver um gráfico do que usa a CPU ou a RAM"
 
 #: tsk_actions.c:41
 msgid "End"
@@ -205,7 +234,8 @@ msgstr "O processo para na hora e não consegue salvar nada."
 
 #: tsk_actions.c:61
 msgid "The process is asked to quit; most programs save and exit."
-msgstr "O processo recebe um pedido para sair; a maioria dos programas salva e fecha."
+msgstr ""
+"O processo recebe um pedido para sair; a maioria dos programas salva e fecha."
 
 #: tsk_actions.c:62
 msgid "The process stops running until it gets Continue."
@@ -255,8 +285,12 @@ msgid "Nice value of the %u selected processes:"
 msgstr "Valor nice dos %u processos selecionados:"
 
 #: tsk_actions.c:181
-msgid "-20 runs first, 19 yields to everything else. Going below the current value needs administrator rights."
-msgstr "-20 executa primeiro, 19 cede a vez a todos os outros. Baixar do valor atual exige direitos de administrador."
+msgid ""
+"-20 runs first, 19 yields to everything else. Going below the current value "
+"needs administrator rights."
+msgstr ""
+"-20 executa primeiro, 19 cede a vez a todos os outros. Baixar do valor atual "
+"exige direitos de administrador."
 
 #: tsk_actions.c:206
 msgid "Couldn't change the priority"
@@ -449,7 +483,7 @@ msgstr "Arquivos abertos"
 msgid "This process has ended."
 msgstr "Este processo terminou."
 
-#: tsk_graph.c:65 tsk_list.c:38
+#: tsk_graph.c:65 tsk_list.c:38 tsk_pie.c:269
 msgid "CPU"
 msgstr "CPU"
 
@@ -515,20 +549,31 @@ msgid "GPU system memory (GTT): %s"
 msgstr "Memória do sistema da GPU (GTT): %s"
 
 #: tsk_graph.c:100
-msgid "Memory held by programs, without any cache: total - free - buffers - page cache - reclaimable slab"
-msgstr "Memória ocupada pelos programas, sem nenhum cache: total - livre - buffers - cache de páginas - slab recuperável"
+msgid ""
+"Memory held by programs, without any cache: total - free - buffers - page "
+"cache - reclaimable slab"
+msgstr ""
+"Memória ocupada pelos programas, sem nenhum cache: total - livre - buffers - "
+"cache de páginas - slab recuperável"
 
 #: tsk_graph.c:102
-msgid "Memory that can't be freed quickly, as the kernel estimates it: total - available"
-msgstr "Memória que não pode ser liberada rápido, na estimativa do kernel: total - disponível"
+msgid ""
+"Memory that can't be freed quickly, as the kernel estimates it: total - "
+"available"
+msgstr ""
+"Memória que não pode ser liberada rápido, na estimativa do kernel: total - "
+"disponível"
 
 #: tsk_graph.c:104
 msgid "Everything that isn't free, caches included: total - free"
 msgstr "Tudo o que não está livre, caches incluídos: total - livre"
 
 #: tsk_graph.c:106
-msgid "Page cache, buffers and reclaimable slab: freed when programs need the memory"
-msgstr "Cache de páginas, buffers e slab recuperável: liberados quando os programas precisam da memória"
+msgid ""
+"Page cache, buffers and reclaimable slab: freed when programs need the memory"
+msgstr ""
+"Cache de páginas, buffers e slab recuperável: liberados quando os programas "
+"precisam da memória"
 
 #: tsk_graph.c:108
 msgid "All network interfaces except loopback"
@@ -540,8 +585,12 @@ msgstr "Discos físicos inteiros"
 
 #: tsk_graph.c:327
 #, c-format
-msgid "%s: %s\nScale: %s to %s%s%s"
-msgstr "%s: %s\nEscala: %s a %s%s%s"
+msgid ""
+"%s: %s\n"
+"Scale: %s to %s%s%s"
+msgstr ""
+"%s: %s\n"
+"Escala: %s a %s%s%s"
 
 #: tsk_graph.c:371
 msgid "_Configure Graphs..."
@@ -556,8 +605,11 @@ msgid "_Hide Graphs"
 msgstr "_Ocultar gráficos"
 
 #: tsk_graph.c:436
-msgid "No graphs selected. Right-click here or use View > Settings to add some."
-msgstr "Nenhum gráfico escolhido. Clique aqui com o botão direito ou use Exibir > Configurações para adicionar."
+msgid ""
+"No graphs selected. Right-click here or use View > Settings to add some."
+msgstr ""
+"Nenhum gráfico escolhido. Clique aqui com o botão direito ou use Exibir > "
+"Configurações para adicionar."
 
 #: tsk_list.c:30
 msgid "Program name"
@@ -614,7 +666,9 @@ msgstr "Threads"
 #: tsk_list.c:40
 #, no-c-format
 msgid "CPU use as a share of all cores: 100% means every core is busy"
-msgstr "Uso de CPU dividido entre todos os núcleos: 100% significa todos os núcleos ocupados"
+msgstr ""
+"Uso de CPU dividido entre todos os núcleos: 100% significa todos os núcleos "
+"ocupados"
 
 #: tsk_list.c:42
 msgid "CPU (core)"
@@ -622,8 +676,12 @@ msgstr "CPU (núcleo)"
 
 #: tsk_list.c:44
 #, no-c-format
-msgid "CPU use relative to one core: 100% is one core fully busy, multi-threaded programs go past it"
-msgstr "Uso de CPU relativo a um núcleo: 100% é um núcleo inteiro ocupado; programas com várias threads passam disso"
+msgid ""
+"CPU use relative to one core: 100% is one core fully busy, multi-threaded "
+"programs go past it"
+msgstr ""
+"Uso de CPU relativo a um núcleo: 100% é um núcleo inteiro ocupado; programas "
+"com várias threads passam disso"
 
 #: tsk_list.c:47
 msgid "CPU Time"
@@ -650,8 +708,12 @@ msgid "Resident memory (RSS): pages in RAM, including shared ones"
 msgstr "Memória residente (RSS): páginas na RAM, incluindo as compartilhadas"
 
 #: tsk_list.c:51
-msgid "Resident pages that may be shared with other processes: files, libraries, shared memory"
-msgstr "Páginas residentes que podem ser compartilhadas com outros processos: arquivos, bibliotecas, memória compartilhada"
+msgid ""
+"Resident pages that may be shared with other processes: files, libraries, "
+"shared memory"
+msgstr ""
+"Páginas residentes que podem ser compartilhadas com outros processos: "
+"arquivos, bibliotecas, memória compartilhada"
 
 #: tsk_list.c:51
 msgid "Shared"
@@ -662,8 +724,12 @@ msgid "Exclusive"
 msgstr "Exclusiva"
 
 #: tsk_list.c:55
-msgid "Memory only this process uses (private pages): roughly what ending it gives back"
-msgstr "Memória que só este processo usa (páginas privadas): mais ou menos o que encerrá-lo devolve"
+msgid ""
+"Memory only this process uses (private pages): roughly what ending it gives "
+"back"
+msgstr ""
+"Memória que só este processo usa (páginas privadas): mais ou menos o que "
+"encerrá-lo devolve"
 
 #: tsk_list.c:58
 msgid "Proportional"
@@ -671,7 +737,9 @@ msgstr "Proporcional"
 
 #: tsk_list.c:58
 msgid "Proportional set size: private pages plus a fair share of shared ones"
-msgstr "Tamanho proporcional (PSS): páginas privadas mais uma parte justa das compartilhadas"
+msgstr ""
+"Tamanho proporcional (PSS): páginas privadas mais uma parte justa das "
+"compartilhadas"
 
 #: tsk_list.c:61
 msgid "Pages of this process moved to swap"
@@ -698,8 +766,11 @@ msgid "GPU"
 msgstr "GPU"
 
 #: tsk_list.c:68
-msgid "GPU use of the busiest engine; NVIDIA through NVML, others through DRM fdinfo"
-msgstr "Uso de GPU do motor mais ocupado; NVIDIA pela NVML, as outras pelo fdinfo do DRM"
+msgid ""
+"GPU use of the busiest engine; NVIDIA through NVML, others through DRM fdinfo"
+msgstr ""
+"Uso de GPU do motor mais ocupado; NVIDIA pela NVML, as outras pelo fdinfo do "
+"DRM"
 
 #: tsk_list.c:71
 msgid "GPU Memory"
@@ -710,16 +781,21 @@ msgid "Video memory (VRAM) the process holds"
 msgstr "Memória de vídeo (VRAM) que o processo ocupa"
 
 #: tsk_list.c:73
-msgid "Data received per second over TCP (UDP isn't counted); only your own processes"
-msgstr "Dados recebidos por segundo via TCP (UDP não é contado); só os seus processos"
+msgid ""
+"Data received per second over TCP (UDP isn't counted); only your own "
+"processes"
+msgstr ""
+"Dados recebidos por segundo via TCP (UDP não é contado); só os seus processos"
 
 #: tsk_list.c:73
 msgid "Net In"
 msgstr "Rede entrada"
 
 #: tsk_list.c:76
-msgid "Data sent per second over TCP (UDP isn't counted); only your own processes"
-msgstr "Dados enviados por segundo via TCP (UDP não é contado); só os seus processos"
+msgid ""
+"Data sent per second over TCP (UDP isn't counted); only your own processes"
+msgstr ""
+"Dados enviados por segundo via TCP (UDP não é contado); só os seus processos"
 
 #: tsk_list.c:76
 msgid "Net Out"
@@ -822,7 +898,7 @@ msgstr "Parado"
 msgid "Traced"
 msgstr "Rastreado"
 
-#: tsk_list.c:145
+#: tsk_list.c:145 tsk_pie.c:165
 msgid "Idle"
 msgstr "Ocioso"
 
@@ -833,6 +909,61 @@ msgstr "Morto"
 #: tsk_list.c:735
 msgid "Processes"
 msgstr "Processos"
+
+#: tsk_pie.c:157
+msgid "Others"
+msgstr "Outros"
+
+#: tsk_pie.c:172
+msgid "Available (free and cache)"
+msgstr "Disponível (livre e cache)"
+
+#: tsk_pie.c:177
+msgid "Kernel and other"
+msgstr "Kernel e outros"
+
+#: tsk_pie.c:273
+#, c-format
+msgid "of %s RAM"
+msgstr "de %s de RAM"
+
+#: tsk_pie.c:305
+#, c-format
+msgid "%s (%.1f%% of the RAM)"
+msgstr "%s (%.1f%% da RAM)"
+
+#: tsk_pie.c:306
+#, c-format
+msgid "%.1f%% of the CPU"
+msgstr "%.1f%% da CPU"
+
+#: tsk_pie.c:399
+msgid "Resource usage - kitask"
+msgstr "Uso de recursos - kitask"
+
+#: tsk_pie.c:409
+msgid "Total CPU"
+msgstr "CPU total"
+
+#: tsk_pie.c:410
+msgid "RAM"
+msgstr "RAM"
+
+#: tsk_pie.c:412
+msgid "Resource"
+msgstr "Recurso"
+
+#: tsk_pie.c:416
+msgid "_Group by program"
+msgstr "_Agrupar por programa"
+
+#: tsk_pie.c:418
+msgid "Add up every process with the same name into one slice"
+msgstr "Soma todos os processos com o mesmo nome em uma única fatia"
+
+#: tsk_pie.c:422
+msgid "_Refresh every (s):"
+msgstr "A_tualizar a cada (s):"
 
 #: tsk_prefs.c:115
 msgid "_Process list refresh:"
@@ -871,8 +1002,14 @@ msgid "_Ask before ending, killing or pausing a process"
 msgstr "_Perguntar antes de terminar, matar ou pausar um processo"
 
 #: tsk_prefs.c:130
-msgid "Columns that cost more to read (exclusive memory, GPU, network, disk, X11) are only read while they are shown, and only for processes that ran since the last refresh."
-msgstr "As colunas mais caras de ler (memória exclusiva, GPU, rede, disco, X11) só são lidas enquanto estão visíveis, e só para os processos que executaram desde a última atualização."
+msgid ""
+"Columns that cost more to read (exclusive memory, GPU, network, disk, X11) "
+"are only read while they are shown, and only for processes that ran since "
+"the last refresh."
+msgstr ""
+"As colunas mais caras de ler (memória exclusiva, GPU, rede, disco, X11) só "
+"são lidas enquanto estão visíveis, e só para os processos que executaram "
+"desde a última atualização."
 
 #: tsk_prefs.c:161
 #, c-format
@@ -909,8 +1046,11 @@ msgstr "A_utomático"
 
 #: tsk_prefs.c:356
 #, no-c-format
-msgid "The total there is (RAM, VRAM, 100%), or the highest value on screen for traffic"
-msgstr "O total existente (RAM, VRAM, 100%), ou o maior valor na tela para tráfego"
+msgid ""
+"The total there is (RAM, VRAM, 100%), or the highest value on screen for "
+"traffic"
+msgstr ""
+"O total existente (RAM, VRAM, 100%), ou o maior valor na tela para tráfego"
 
 #: tsk_prefs.c:361
 msgid "_Minimum:"
@@ -929,8 +1069,12 @@ msgid "Columns"
 msgstr "Colunas"
 
 #: tsk_prefs.c:514
-msgid "Columns can also be dragged by their header in the list, and right-clicking a header shows or hides them."
-msgstr "As colunas também podem ser arrastadas pelo cabeçalho na lista, e o botão direito num cabeçalho mostra ou oculta colunas."
+msgid ""
+"Columns can also be dragged by their header in the list, and right-clicking "
+"a header shows or hides them."
+msgstr ""
+"As colunas também podem ser arrastadas pelo cabeçalho na lista, e o botão "
+"direito num cabeçalho mostra ou oculta colunas."
 
 #: tsk_prefs.c:546
 msgid "kitask Settings"

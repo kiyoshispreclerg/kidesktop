@@ -309,7 +309,7 @@ unsigned tsk_list_need(TskApp *app)
     }
     /* who has a window: the "with windows" scope and Switch to Window need it,
      * and it's a handful of round trips */
-    return need | TSK_NEED_TITLE;
+    return need | TSK_NEED_TITLE | app->extra_need;
 }
 
 typedef struct {

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kitask\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-17 10:02-0300\n"
+"POT-Creation-Date: 2026-10-21 08:16-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -18,136 +18,144 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
 
-#: kitask.c:25
+#: kitask.c:76 tsk_pie.c:307
 #, c-format
 msgid "%d process"
 msgid_plural "%d processes"
 msgstr[0] ""
 msgstr[1] ""
 
-#: kitask.c:26
+#: kitask.c:77
 #, c-format
 msgid "%d of %d process"
 msgid_plural "%d of %d processes"
 msgstr[0] ""
 msgstr[1] ""
 
-#: kitask.c:28
+#: kitask.c:79
 #, c-format
 msgid "%s    CPU %.0f%%    RAM %s of %s%s"
 msgstr ""
 
-#: kitask.c:29
+#: kitask.c:80
 msgid "    (updates paused)"
 msgstr ""
 
-#: kitask.c:193
+#: kitask.c:267
 msgid "Process list and system monitor for KiDesktop"
 msgstr ""
 
-#: kitask.c:220
+#: kitask.c:294
 msgid "_File"
 msgstr ""
 
-#: kitask.c:221
+#: kitask.c:295
 msgid "_Quit"
 msgstr ""
 
-#: kitask.c:223
+#: kitask.c:297
 msgid "_View"
 msgstr ""
 
-#: kitask.c:224
+#: kitask.c:298
 msgid "Show _Graphs"
 msgstr ""
 
-#: kitask.c:229 tsk_prefs.c:553
+#: kitask.c:303 tsk_prefs.c:553
 msgid "_Columns"
 msgstr ""
 
-#: kitask.c:233
+#: kitask.c:307
 msgid "_Refresh Now"
 msgstr ""
 
-#: kitask.c:234
+#: kitask.c:308
 msgid "_Pause Updates"
 msgstr ""
 
-#: kitask.c:239
+#: kitask.c:313
+msgid "CPU Usage _Chart..."
+msgstr ""
+
+#: kitask.c:315
+msgid "_RAM Usage Chart..."
+msgstr ""
+
+#: kitask.c:318
 msgid "_Settings..."
 msgstr ""
 
-#: kitask.c:241
+#: kitask.c:320
 msgid "_Process"
 msgstr ""
 
-#: kitask.c:244 tsk_actions.c:290
+#: kitask.c:323 tsk_actions.c:290
 msgid "_Details"
 msgstr ""
 
-#: kitask.c:245 tsk_actions.c:291
+#: kitask.c:324 tsk_actions.c:291
 msgid "_Switch to Window"
 msgstr ""
 
-#: kitask.c:249 tsk_actions.c:295
+#: kitask.c:328 tsk_actions.c:295
 msgid "_End (SIGTERM)"
 msgstr ""
 
-#: kitask.c:249 tsk_actions.c:296
+#: kitask.c:328 tsk_actions.c:296
 msgid "_Kill (SIGKILL)"
 msgstr ""
 
-#: kitask.c:249 tsk_actions.c:297
+#: kitask.c:328 tsk_actions.c:297
 msgid "_Pause (SIGSTOP)"
 msgstr ""
 
-#: kitask.c:250 tsk_actions.c:298
+#: kitask.c:329 tsk_actions.c:298
 msgid "Co_ntinue (SIGCONT)"
 msgstr ""
 
-#: kitask.c:256 tsk_actions.c:312
+#: kitask.c:335 tsk_actions.c:312
 msgid "Change _Priority..."
 msgstr ""
 
-#: kitask.c:258
+#: kitask.c:337
 msgid "_Help"
 msgstr ""
 
-#: kitask.c:259
+#: kitask.c:338
 msgid "_About"
 msgstr ""
 
-#: kitask.c:323
+#: kitask.c:402
 msgid "Clear"
 msgstr ""
 
-#: kitask.c:324
+#: kitask.c:403
 msgid ""
 "Filter by name, command line, user, window title or PID (Ctrl+F).\n"
 "Separate several with | or , to show any of them: kiplay|kitask"
 msgstr ""
 
-#: kitask.c:326
+#: kitask.c:405
 msgid "Filter processes"
 msgstr ""
 
-#: kitask.c:334
+#: kitask.c:413
 msgid "All processes"
 msgstr ""
 
-#: kitask.c:335
+#: kitask.c:414
 msgid "My processes"
 msgstr ""
 
-#: kitask.c:336
+#: kitask.c:415
 msgid "With windows"
 msgstr ""
 
-#: kitask.c:338
+#: kitask.c:417
 msgid "Which processes"
 msgstr ""
 
-#: kitask.c:368
+#: kitask.c:447
 #, c-format
 msgid ""
 "kitask %s - process list and system monitor\n"
@@ -158,8 +166,12 @@ msgid ""
 "  -v, --version        show the version\n"
 msgstr ""
 
-#: kitask.c:402
+#: kitask.c:483
 msgid "Processes - kitask"
+msgstr ""
+
+#: kitask.c:501
+msgid "Double-click for a chart of what uses the CPU or the RAM"
 msgstr ""
 
 #: tsk_actions.c:41
@@ -462,7 +474,7 @@ msgstr ""
 msgid "This process has ended."
 msgstr ""
 
-#: tsk_graph.c:65 tsk_list.c:38
+#: tsk_graph.c:65 tsk_list.c:38 tsk_pie.c:269
 msgid "CPU"
 msgstr ""
 
@@ -853,7 +865,7 @@ msgstr ""
 msgid "Traced"
 msgstr ""
 
-#: tsk_list.c:145
+#: tsk_list.c:145 tsk_pie.c:165
 msgid "Idle"
 msgstr ""
 
@@ -863,6 +875,61 @@ msgstr ""
 
 #: tsk_list.c:735
 msgid "Processes"
+msgstr ""
+
+#: tsk_pie.c:157
+msgid "Others"
+msgstr ""
+
+#: tsk_pie.c:172
+msgid "Available (free and cache)"
+msgstr ""
+
+#: tsk_pie.c:177
+msgid "Kernel and other"
+msgstr ""
+
+#: tsk_pie.c:273
+#, c-format
+msgid "of %s RAM"
+msgstr ""
+
+#: tsk_pie.c:305
+#, c-format
+msgid "%s (%.1f%% of the RAM)"
+msgstr ""
+
+#: tsk_pie.c:306
+#, c-format
+msgid "%.1f%% of the CPU"
+msgstr ""
+
+#: tsk_pie.c:399
+msgid "Resource usage - kitask"
+msgstr ""
+
+#: tsk_pie.c:409
+msgid "Total CPU"
+msgstr ""
+
+#: tsk_pie.c:410
+msgid "RAM"
+msgstr ""
+
+#: tsk_pie.c:412
+msgid "Resource"
+msgstr ""
+
+#: tsk_pie.c:416
+msgid "_Group by program"
+msgstr ""
+
+#: tsk_pie.c:418
+msgid "Add up every process with the same name into one slice"
+msgstr ""
+
+#: tsk_pie.c:422
+msgid "_Refresh every (s):"
 msgstr ""
 
 #: tsk_prefs.c:115
