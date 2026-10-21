@@ -21,7 +21,6 @@
 #include <string.h>
 #include <time.h>
 
-#define XG_RECENT_S 60
 #define XG_TICK_MS 5000 /* only to age the "recent" dot; events repoll the widget themselves */
 
 typedef struct {
@@ -35,7 +34,7 @@ static int xg_recent(const XisguardEvents *ev)
         return 0;
     }
     int newest = (ev->history_head + XISGUARD_HISTORY_MAX - 1) % XISGUARD_HISTORY_MAX;
-    return time(NULL) - ev->history[newest].ts < XG_RECENT_S;
+    return time(NULL) - ev->history[newest].ts < XISGUARD_ACTIVE_S;
 }
 
 static int xg_init(PanelWidget *w)
@@ -180,6 +179,17 @@ static int xg_next_unique(const XisguardEvents *ev, int from, const XisguardHist
     return -1;
 }
 
+/* "2 programas ignorados usando": only a count, the programs are not listed. */
+static int xg_ignored_text(char *out, size_t outsz)
+{
+    int n = xisguard_events_ignored_active();
+    if (n <= 0) {
+        return 0;
+    }
+    snprintf(out, outsz, n == 1 ? _("%d programa ignorado usando") : _("%d programas ignorados usando"), n);
+    return 1;
+}
+
 static int xg_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t bufsz, int *anchor_x, int *anchor_w,
                            int *out_closable, void **out_ctx)
 {
@@ -199,6 +209,10 @@ static int xg_get_tooltip(PanelWidget *w, int local_x, char *buf, size_t bufsz, 
             break;
         }
         o += (size_t)n;
+    }
+    char ign[96];
+    if (xg_ignored_text(ign, sizeof(ign)) && o + 1 < bufsz) {
+        snprintf(buf + o, bufsz - o, "\n%s", ign);
     }
     *anchor_x = 0;
     *anchor_w = w->len;
@@ -231,7 +245,7 @@ static int xg_on_button(PanelWidget *w, int button, int local_x, int local_y, in
         return 0;
     }
     const XisguardEvents *ev = xisguard_events_get();
-    MenuItem items[3 + XISGUARD_HISTORY_MAX];
+    MenuItem items[4 + XISGUARD_HISTORY_MAX];
     memset(items, 0, sizeof(items));
     int n = 0;
 
@@ -253,6 +267,11 @@ static int xg_on_button(PanelWidget *w, int button, int local_x, int local_y, in
         items[n].enabled = 0; /* informational only */
         n++;
     }
+    if (xg_ignored_text(items[n].label, sizeof(items[n].label))) {
+        items[n].is_separator = 0;
+        items[n].enabled = 0;
+        n++;
+    }
     panel_menu_open(w->panel, w, 0, w->len, items, n, NULL, xg_menu_select);
     w->panel->dirty = 1;
     return 1;
@@ -262,7 +281,9 @@ static int xg_is_urgent(PanelWidget *w)
 {
     (void)w;
     const XisguardEvents *ev = xisguard_events_get();
-    return ev->connected && !ev->enabled;
+    /* Switched off, or a program that is not ignored is acting right now
+     * (ignored ones only show up as a count in the tooltip/menu). */
+    return ev->connected && (!ev->enabled || xg_recent(ev));
 }
 
 const PanelWidgetOps xisguard_ops = {

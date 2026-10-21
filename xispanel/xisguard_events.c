@@ -160,10 +160,16 @@ const char *xisguard_action_text(const char *action)
     return action;
 }
 
+/* One entry per program (not per program+action): its recent REPORT burst
+ * and the distinct actions seen, shown together in one toast. */
+#define XG_BURST_ACTIONS 8
 typedef struct {
-    char exe[512], action[16];
+    char exe[512];
+    char acts[XG_BURST_ACTIONS][16];
+    int n_acts;
     int count;
     time_t window_start, last_toast;
+    char tag[32]; /* the toast's tag, so a later action updates it in place */
 } BurstKey;
 static BurstKey g_burst[XG_BURST_KEYS];
 
@@ -193,12 +199,29 @@ static void ignore_program(void *ctx)
                    TOAST_URGENCY_NORMAL, 0, "xisguard-ignore");
 }
 
-/* Toasts once when `exe` keeps using `action` (see XG_BURST_*). */
+/* "firefox: captura a tela, grava eventos (teclas)" */
+static void burst_text(const BurstKey *k, char *out, size_t outsz)
+{
+    const char *base = strrchr(k->exe, '/');
+    size_t o = (size_t)snprintf(out, outsz, "%s: ", base ? base + 1 : (k->exe[0] ? k->exe : "?"));
+    for (int i = 0; i < k->n_acts && o + 1 < outsz; i++) {
+        int n = snprintf(out + o, outsz - o, "%s%s", i ? ", " : "", xisguard_action_text(k->acts[i]));
+        if (n < 0) {
+            break;
+        }
+        o += (size_t)n;
+    }
+}
+
+/* One toast per program when it keeps using things (XG_BURST_COUNT REPORTs
+ * of any action within XG_BURST_WINDOW_S). Another action from the same
+ * program while that toast is still up rewrites it in place; once it is
+ * gone, the program stays quiet for XG_BURST_COOLDOWN_S. */
 static void burst_check(const char *action, const char *exe, time_t ts)
 {
     BurstKey *k = NULL, *oldest = &g_burst[0];
     for (int i = 0; i < XG_BURST_KEYS; i++) {
-        if (!strcmp(g_burst[i].exe, exe) && !strcmp(g_burst[i].action, action)) {
+        if (!strcmp(g_burst[i].exe, exe)) {
             k = &g_burst[i];
             break;
         }
@@ -210,22 +233,77 @@ static void burst_check(const char *action, const char *exe, time_t ts)
         k = oldest;
         memset(k, 0, sizeof(*k));
         snprintf(k->exe, sizeof(k->exe), "%s", exe);
-        snprintf(k->action, sizeof(k->action), "%s", action);
+        snprintf(k->tag, sizeof(k->tag), "xisguard-use-%d", (int)(k - g_burst));
     }
+    int showing = toast_has_tag(k->tag);
     if (k->count == 0 || ts - k->window_start > XG_BURST_WINDOW_S) {
         k->window_start = ts;
         k->count = 0;
+        if (!showing) {
+            k->n_acts = 0;
+        }
     }
-    if (++k->count < XG_BURST_COUNT || (k->last_toast && ts - k->last_toast < XG_BURST_COOLDOWN_S)) {
+    k->count++;
+
+    int known = 0;
+    for (int i = 0; i < k->n_acts; i++) {
+        known |= !strcmp(k->acts[i], action);
+    }
+    if (!known && k->n_acts < XG_BURST_ACTIONS) {
+        snprintf(k->acts[k->n_acts++], sizeof(k->acts[0]), "%s", action);
+    }
+
+    char body[300];
+    burst_text(k, body, sizeof(body));
+    cairo_surface_t *icon = xispanel_first_panel_icon("security-medium", 32);
+    if (showing) {
+        if (!known) {
+            toast_show_action(icon, _("Uso constante detectado"), body, 10000, _("Ignorar este programa"),
+                              ignore_program, k, k->tag);
+        }
+        return;
+    }
+    if (k->count < XG_BURST_COUNT || (k->last_toast && ts - k->last_toast < XG_BURST_COOLDOWN_S)) {
         return;
     }
     k->last_toast = ts;
     k->count = 0;
-    const char *base = strrchr(exe, '/');
-    char body[200];
-    snprintf(body, sizeof(body), _("%s: %s"), base ? base + 1 : (exe[0] ? exe : "?"), xisguard_action_text(action));
-    toast_show_action(xispanel_first_panel_icon("security-medium", 32), _("Uso constante detectado"), body, 10000,
-                      _("Ignorar este programa"), ignore_program, k);
+    toast_show_action(icon, _("Uso constante detectado"), body, 10000, _("Ignorar este programa"), ignore_program, k,
+                      k->tag);
+}
+
+/* ---- programs in the guard's ignore.conf that are acting ---- */
+
+#define XG_IGNORED_KEYS 16
+static struct {
+    char exe[512];
+    time_t ts;
+} g_ignored[XG_IGNORED_KEYS];
+
+static void ignored_seen(const char *exe, time_t ts)
+{
+    int slot = 0;
+    for (int i = 0; i < XG_IGNORED_KEYS; i++) {
+        if (!strcmp(g_ignored[i].exe, exe)) {
+            slot = i;
+            break;
+        }
+        if (g_ignored[i].ts < g_ignored[slot].ts) {
+            slot = i;
+        }
+    }
+    snprintf(g_ignored[slot].exe, sizeof(g_ignored[slot].exe), "%s", exe);
+    g_ignored[slot].ts = ts;
+}
+
+int xisguard_events_ignored_active(void)
+{
+    int n = 0;
+    time_t now = time(NULL);
+    for (int i = 0; i < XG_IGNORED_KEYS; i++) {
+        n += g_ignored[i].exe[0] && now - g_ignored[i].ts < XISGUARD_ACTIVE_S;
+    }
+    return n;
 }
 
 static void history_add(const char *ev, const char *action, const char *exe, long ts)
@@ -249,7 +327,11 @@ static void handle_line(const char *line)
         if (strcmp(ev, "STATE") == 0) {
             set_enabled(jbool(line, "enabled", 1), 1);
         } else if (jbool(line, "ignored", 0)) {
-            return; /* in the guard's ignore.conf: not shown here either */
+            /* In the guard's ignore.conf: only counted, never listed. */
+            char exe[512] = "";
+            jstr(line, "exe", exe, sizeof(exe));
+            const char *t = strstr(line, "\"ts\":");
+            ignored_seen(exe, t ? (time_t)atol(t + 5) : time(NULL));
         } else {
             char action[16] = "", exe[512] = "";
             jstr(line, "action", action, sizeof(action));

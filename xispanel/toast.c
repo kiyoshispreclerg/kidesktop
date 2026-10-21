@@ -872,10 +872,16 @@ void toast_show_osd(cairo_surface_t *icon, const char *summary, const char *body
     map_and_show_toast(t);
 }
 
-void toast_show_action(cairo_surface_t *icon, const char *summary, const char *body, int timeout_ms,
-                        const char *action_label, void (*action_fn)(void *ctx), void *action_ctx)
+int toast_has_tag(const char *tag)
 {
-    Toast *t = claim_toast_slot(TOAST_H + TOAST_BTN_ROW);
+    return find_toast_by_tag(tag) >= 0;
+}
+
+void toast_show_action(cairo_surface_t *icon, const char *summary, const char *body, int timeout_ms,
+                        const char *action_label, void (*action_fn)(void *ctx), void *action_ctx, const char *tag)
+{
+    int existing = find_toast_by_tag(tag);
+    Toast *t = existing >= 0 ? &g_toasts[existing] : claim_toast_slot(TOAST_H + TOAST_BTN_ROW);
     snprintf(t->summary, sizeof(t->summary), "%s", summary ? summary : "");
     snprintf(t->body, sizeof(t->body), "%s", body ? body : "");
     t->icon = icon;
@@ -887,6 +893,12 @@ void toast_show_action(cairo_surface_t *icon, const char *summary, const char *b
     t->n_actions = 1;
     t->action_fn = action_fn;
     t->action_ctx = action_ctx;
+    if (existing >= 0) {
+        paint_toast(t);
+        XFlush(g_dpy);
+        return;
+    }
+    snprintf(t->tag, sizeof(t->tag), "%s", tag ? tag : "");
     map_and_show_toast(t);
 }
 

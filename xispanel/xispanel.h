@@ -1707,9 +1707,13 @@ void toast_show_osd(cairo_surface_t *icon, const char *summary, const char *body
  * dismisses the toast; the body and the X just dismiss. Not a D-Bus
  * notification (no notifd entry, no history), for a widget that offers a
  * follow-up to something it just showed. timeout_ms <= 0 uses the OSD
- * default. icon is borrowed, as in toast_show_osd(). */
+ * default. icon is borrowed, as in toast_show_osd(). `tag` (may be NULL)
+ * works as in toast_show_osd(): a toast already up with it is rewritten in
+ * place (text, button, countdown) instead of stacking a second one. */
 void toast_show_action(cairo_surface_t *icon, const char *summary, const char *body, int timeout_ms,
-                        const char *action_label, void (*action_fn)(void *ctx), void *action_ctx);
+                        const char *action_label, void (*action_fn)(void *ctx), void *action_ctx, const char *tag);
+/* 1 if a toast with this tag (toast_show_osd()/toast_show_action()) is up. */
+int toast_has_tag(const char *tag);
 
 /* launchfx.c: optional zoom+fade "launch feedback" popup over a clicked
  * launcher icon -- compositor-only, see that file's comment for why
@@ -1861,6 +1865,10 @@ typedef struct {
     int history_head;
     int history_count;
 } XisguardEvents;
+/* A report/request seen "recently" (dot on the icon, urgent hint, ignored count) is one this young. */
+#define XISGUARD_ACTIVE_S 30
+/* Programs from the guard's ignore.conf that did something in the last XISGUARD_ACTIVE_S. */
+int xisguard_events_ignored_active(void);
 /* Verb phrase for a guard action name ("SCREEN" -> "captura a tela"). */
 const char *xisguard_action_text(const char *action);
 int xisguard_events_fd(void);
