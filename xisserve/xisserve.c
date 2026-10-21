@@ -45,6 +45,7 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <limits.h>
+#include <malloc.h>
 #include <pwd.h>
 #include <signal.h>
 #include <stdio.h>
@@ -56,7 +57,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.2.2"
+#define XISSERVE_VERSION "0.2.3"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -2154,6 +2155,20 @@ const char *xisserve_target_scope(void)
     return g_args.target_scope;
 }
 
+/* What building and showing the popup freed stays resident in glibc's
+ * heap (~4 MB after browsing "Todos os Programas"); hand it back once
+ * the popup has been closed a moment -- not during the close itself,
+ * and not at all if it is reopened first. */
+static guint g_trim_id;
+
+static gboolean trim_heap(gpointer data)
+{
+    (void)data;
+    g_trim_id = 0;
+    malloc_trim(0);
+    return G_SOURCE_REMOVE;
+}
+
 static void hide_launcher(void)
 {
     /* Before leave_current_page() moves g_shown_page off whatever this
@@ -2168,6 +2183,8 @@ static void hide_launcher(void)
      * from scratch anyway. */
     xisserve_icon_job_cancel(&g_row_icon_job);
     gtk_widget_hide(g_window);
+    if (!g_trim_id)
+        g_trim_id = g_timeout_add_seconds(2, trim_heap, NULL);
     /* Every close returns the pin to its default, whichever way the
      * close happened -- the "Fechar" button, Escape, a focus loss, or the
      * panel button. So the next open is always a plain, non-keep-above
@@ -2693,6 +2710,10 @@ static void show_launcher(void)
     apply_grid_mode(); /* after show_all(), which would otherwise re-show the losing one; grid_columns (and, once, grid) can change out from under a running daemon */
     reposition_window(); /* after apply_view_mode() -- needs its real, now-settled size */
     g_shown_at_us = g_get_monotonic_time();
+    if (g_trim_id) {
+        g_source_remove(g_trim_id);
+        g_trim_id = 0;
+    }
     gtk_window_present(GTK_WINDOW(g_window));
     gdk_window_raise(g_window->window);
     gdk_window_focus(g_window->window, GDK_CURRENT_TIME);
