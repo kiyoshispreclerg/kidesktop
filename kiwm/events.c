@@ -656,6 +656,10 @@ static void handle_button_press(xcb_button_press_event_t *ev)
     if (!c)
         return;
 
+    /* A click is no longer a pointer resting: shade_peek='s pending unroll
+     * would open the window under a drag or a menu. */
+    client_peek_cancel(c);
+
     /* A plain click on an unfocused window's content, with
      * focus_raise_on_release=: replayed below without raising, and
      * decided on release (clickraise.c). */
@@ -1663,6 +1667,9 @@ static void finish_drag(int root_x, int root_y)
          * along were never skipped, so only this one is owed. */
         grip_sync(c);
         xcb_flush(wm.conn);
+        /* The grab hid where the pointer went; shade_peek= needs to know
+         * whether it is still on this window. */
+        client_peek_recheck(c);
     }
 }
 
@@ -1802,6 +1809,14 @@ static void handle_property_notify(xcb_property_notify_event_t *ev)
 
 static void handle_enter_notify(xcb_enter_notify_event_t *ev)
 {
+    /* shade_peek=: the pointer arriving on a frame from outside it (not
+     * from its own content, and not as a grab starting or ending). */
+    if (ev->mode == XCB_NOTIFY_MODE_NORMAL && ev->detail != XCB_NOTIFY_DETAIL_INFERIOR) {
+        Client *pc = find_client_window(ev->event);
+        if (pc && ev->event == pc->frame)
+            client_peek_enter(pc);
+    }
+
     if (!wm.focus_follows_mouse)
         return;
     Client *c = find_client_window(ev->event);
@@ -2228,6 +2243,14 @@ void handle_event(xcb_generic_event_t *event)
          * clear here or it'd stay stuck highlighted after the pointer
          * moves away. */
         xcb_leave_notify_event_t *ev = (xcb_leave_notify_event_t *)event;
+        /* shade_peek=: off the frame for real -- not into its own content
+         * (Inferior), and not just because a grab began. */
+        if (ev->detail != XCB_NOTIFY_DETAIL_INFERIOR && ev->mode != XCB_NOTIFY_MODE_GRAB &&
+            !window_menu_active()) { /* the menu mapping under the pointer is a "leave" too; its close rechecks */
+            Client *pc = find_client_window(ev->event);
+            if (pc && ev->event == pc->frame)
+                client_peek_leave(pc);
+        }
         if (wm.hover_client && ev->event == wm.hover_client->frame) {
             Client *old = wm.hover_client;
             wm.hover_client = NULL;

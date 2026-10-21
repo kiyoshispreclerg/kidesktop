@@ -540,6 +540,11 @@ struct Client {
                      * see client.c's toggle_shade(). Orthogonal to
                      * maximized/snap_side (tiling always unshades first,
                      * see client.c's unshade_now()). */
+    bool peeked;    /* shade_peek=: a shaded window the pointer has been on
+                     * long enough, unrolled for as long as the pointer stays
+                     * on it. `shaded` is false meanwhile (the window really
+                     * is open); this says it goes back when the pointer
+                     * leaves -- see client.c's client_peek_*(). */
     bool keep_above;  /* _NET_WM_STATE_ABOVE -- see client.c's client_layer()/
                        * restack_all(). Mutually exclusive with keep_below. */
     bool keep_below;  /* _NET_WM_STATE_BELOW, ditto. */
@@ -1289,6 +1294,16 @@ typedef struct {
     char capture_exclude_classes[512];
 
     bool focus_follows_mouse;
+
+    /* kiwm.conf's shade_peek= (default off) and shade_peek_delay= (ms):
+     * a shaded window unrolls while the pointer rests on its decoration,
+     * and rolls back up as soon as the pointer leaves it. peek_client/
+     * peek_due are the one pending unroll (the pointer is in one place),
+     * its deadline in monotonic_ms(): main.c's poll() timeout, no tick. */
+    bool shade_peek;
+    int shade_peek_delay;
+    Client *peek_client;
+    double peek_due;
 
     /* kiwm.conf's focus_raise_on_release= (default off): a click on an
      * unfocused window's content raises+focuses it on release instead of

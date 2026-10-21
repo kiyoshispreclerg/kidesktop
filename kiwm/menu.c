@@ -672,8 +672,11 @@ void window_menu_close(void)
         xcb_ungrab_keyboard(wm.conn, XCB_CURRENT_TIME);
         keyboard_grabbed = false;
     }
+    Client *closed = menu_client;
     menu_client = NULL;
     xcb_flush(wm.conn);
+    /* The menu's grab swallowed the crossing events (shade_peek=). */
+    client_peek_recheck(closed);
 }
 
 void window_menu_client_destroyed(Client *c)

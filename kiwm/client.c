@@ -1312,6 +1312,8 @@ void close_client(Client *c)
  * events.c's SNAP_TOP handling in try_edge_snap() needs it too. */
 void unshade_now(Client *c)
 {
+    client_peek_cancel(c);
+    c->peeked = false;
     if (!c->shaded)
         return;
     c->shaded = false;
@@ -1679,14 +1681,12 @@ void toggle_sticky(Client *c, int want /* -1=toggle 0=off 1=on */)
     xcb_flush(wm.conn);
 }
 
-void toggle_shade(Client *c, int want /* -1=toggle 0=unshade 1=shade */)
+/* Rolls the frame up (target) or out, without deciding why. */
+static void shade_apply(Client *c, bool target, bool sound)
 {
-    bool target = (want == -1) ? !c->shaded : (want == 1);
-    if (target == c->shaded)
-        return;
-
     c->shaded = target;
-    xis_sound_play(target ? "window-shade" : "window-unshade");
+    if (sound)
+        xis_sound_play(target ? "window-shade" : "window-unshade");
 
     /* State first, then the geometry that carries it out -- see the note
      * above ewmh_update_wm_state()'s other callers in this file. */
@@ -1701,6 +1701,102 @@ void toggle_shade(Client *c, int want /* -1=toggle 0=unshade 1=shade */)
 
     configure_frame(c);
     xcb_flush(wm.conn);
+}
+
+void toggle_shade(Client *c, int want /* -1=toggle 0=unshade 1=shade */)
+{
+    /* A window unrolled by shade_peek= is shaded as far as the user is
+     * concerned, just on loan: asking it to shade rolls it back up now,
+     * and asking it to unshade (the button, the wheel) makes the loan
+     * permanent. */
+    bool peeked = c->peeked;
+    c->peeked = false;
+    client_peek_cancel(c);
+
+    bool target = (want == -1) ? !(c->shaded || peeked) : (want == 1);
+    if (peeked && !target)
+        return;
+    if (target == c->shaded)
+        return;
+
+    shade_apply(c, target, true);
+}
+
+/* ---- shade_peek= ------------------------------------------------------
+ *
+ * Driven by crossing events on the frame (events.c) and one poll()
+ * deadline -- nothing is sampled. Only the frame is watched: a shaded
+ * window is its titlebar, so the pointer entering it is the pointer being
+ * on the decoration, and once unrolled, leaving the frame (not merely the
+ * titlebar) is what rolls it back. */
+
+void client_peek_cancel(Client *c)
+{
+    if (wm.peek_client == c)
+        wm.peek_client = NULL;
+}
+
+void client_peek_enter(Client *c)
+{
+    wm.peek_client = NULL;
+    if (!wm.shade_peek || !c->shaded || !c->mapped || c->minimized)
+        return;
+    /* Mid-gesture: a drag or an armed button is about the titlebar, not
+     * about what is under it. */
+    if (wm.drag_client || wm.pressed_client)
+        return;
+
+    wm.peek_client = c;
+    wm.peek_due = monotonic_ms() + wm.shade_peek_delay;
+    client_run_peek();
+}
+
+void client_run_peek(void)
+{
+    Client *c = wm.peek_client;
+    if (!c || monotonic_ms() < wm.peek_due)
+        return;
+
+    wm.peek_client = NULL;
+    if (!c->shaded)
+        return;
+    c->peeked = true;
+    shade_apply(c, false, false);
+}
+
+void client_peek_leave(Client *c)
+{
+    client_peek_cancel(c);
+    if (!c->peeked)
+        return;
+    c->peeked = false;
+    if (!c->shaded)
+        shade_apply(c, true, false);
+}
+
+/* After a grab ends the crossing events that would say whether the
+ * pointer is still on the window may not come. One query, once. */
+void client_peek_recheck(Client *c)
+{
+    if (!c || !c->peeked)
+        return;
+    xcb_query_pointer_reply_t *r =
+        xcb_query_pointer_reply(wm.conn, xcb_query_pointer(wm.conn, wm.root), NULL);
+    if (!r)
+        return;
+    bool inside = r->root_x >= c->x && r->root_x < c->x + c->frame_width &&
+                  r->root_y >= c->y && r->root_y < c->y + c->frame_height;
+    free(r);
+    if (!inside)
+        client_peek_leave(c);
+}
+
+int client_peek_timeout_ms(void)
+{
+    if (!wm.peek_client)
+        return -1;
+    double left = wm.peek_due - monotonic_ms();
+    return left <= 0.0 ? 0 : (int)(left + 0.5);
 }
 
 /* The geometry a maximized client should have *right now*: the output's
@@ -2439,6 +2535,7 @@ void unmanage(Client *c)
         wm.hover_client = NULL;
         wm.hover_btn = -1;
     }
+    client_peek_cancel(c);
     if (wm.pressed_client == c) {
         /* An armed titlebar button on a window that's going away can't
          * fire on release any more (events.c's handle_button_release()). */

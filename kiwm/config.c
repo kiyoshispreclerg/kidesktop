@@ -66,6 +66,8 @@ static void apply_builtin_defaults(void)
     wm.gap_off_when_maximized = false;
     wm.link_resize_neighbors = false;
     wm.focus_follows_mouse = false;
+    wm.shade_peek = false;
+    wm.shade_peek_delay = 400;
     wm.focus_raise_on_release = false;
     wm.focus_stealing_prevention = FSP_NONE;
     wm.force_unflip = FORCE_UNFLIP_AUTO;
@@ -426,6 +428,15 @@ static void write_default_config(const char *path)
         "# focus-follows-mouse/\"sloppy focus\").\n"
         "focus_follows_mouse=0\n"
         "\n"
+        "# A shaded (rolled-up) window unrolls while the pointer rests on its\n"
+        "# titlebar and rolls back up the moment the pointer leaves the\n"
+        "# window. shade_peek_delay is how long the pointer must rest first\n"
+        "# (milliseconds, 0-5000). Shading or unshading it yourself while it\n"
+        "# is unrolled this way settles it: the shade button/wheel down keeps\n"
+        "# it open, wheel up rolls it up at once.\n"
+        "shade_peek=0\n"
+        "shade_peek_delay=400\n"
+        "\n"
         "# Raise+focus a window clicked on its content only when the button\n"
         "# is released, not when it is pressed -- and not at all if that\n"
         "# press started a drag-and-drop, so something can be dragged out of\n"
@@ -650,6 +661,11 @@ static void load_config_file(void)
             wm.auto_switch_argb = atoi(val) != 0;
         } else if (strcmp(key, "focus_follows_mouse") == 0) {
             wm.focus_follows_mouse = atoi(val) != 0;
+        } else if (strcmp(key, "shade_peek") == 0) {
+            wm.shade_peek = atoi(val) != 0;
+        } else if (strcmp(key, "shade_peek_delay") == 0) {
+            int n = atoi(val);
+            wm.shade_peek_delay = n < 0 ? 0 : n > 5000 ? 5000 : n;
         } else if (strcmp(key, "focus_raise_on_release") == 0) {
             wm.focus_raise_on_release = atoi(val) != 0;
         } else if (strcmp(key, "appmenu_command") == 0) {

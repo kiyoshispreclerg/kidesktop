@@ -41,7 +41,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KIWM_VERSION "0.6.3"
+#define KIWM_VERSION "0.6.4"
 
 #include "../shared/xis_i18n.h"
 
@@ -641,6 +641,13 @@ int main(int argc, char **argv)
         if (findcursor_in >= 0 && (timeout < 0 || findcursor_in < timeout))
             timeout = findcursor_in;
 
+        /* ...and while a shaded window waits for the pointer to have rested
+         * on it long enough to unroll (client.c's client_peek_*). */
+        client_run_peek();
+        int peek_in = client_peek_timeout_ms();
+        if (peek_in >= 0 && (timeout < 0 || peek_in < timeout))
+            timeout = peek_in;
+
         int n_a11y = a11y_pollfds(fds + 2, 32, &timeout);
         int ready = poll(fds, (nfds_t)(2 + n_a11y), timeout);
         a11y_dispatch(ready > 0 ? fds + 2 : NULL, n_a11y);
@@ -658,6 +665,7 @@ int main(int argc, char **argv)
             client_run_pending_expose();
             desktop_layers_run_prime();
             client_run_holds();
+            client_run_peek();
             deco_density_run_retired();
             findcursor_run();
             continue;

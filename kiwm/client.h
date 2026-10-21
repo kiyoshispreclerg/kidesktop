@@ -56,6 +56,18 @@ void client_set_maximized(Client *c, bool horz, bool vert);
 void toggle_fullscreen(Client *c, int want /* -1=toggle 0=unfullscreen 1=fullscreen */);
 void toggle_shade(Client *c, int want /* -1=toggle 0=unshade 1=shade */);
 void unshade_now(Client *c);
+
+/* shade_peek= (wm.h): a shaded window unrolls while the pointer rests on
+ * its decoration. enter arms the delay, leave cancels it or rolls the
+ * window back up, recheck asks where the pointer is once (after a grab
+ * ended, when no crossing event says), and the timeout/run pair is the
+ * deadline, folded into main.c's poll() timeout. */
+void client_peek_enter(Client *c);
+void client_peek_leave(Client *c);
+void client_peek_cancel(Client *c);
+void client_peek_recheck(Client *c);
+int  client_peek_timeout_ms(void);
+void client_run_peek(void);
 void toggle_keep_above(Client *c, int want /* -1=toggle 0=off 1=on */);
 void toggle_keep_below(Client *c, int want /* -1=toggle 0=off 1=on */);
 /* Rebuilds the real X stacking order from every managed client's current
