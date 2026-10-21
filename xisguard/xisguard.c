@@ -28,7 +28,7 @@
 #define REPORT_THROTTLE_S   1
 #define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.9"
+#define XISGUARD_VERSION    "0.4.10"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -198,7 +198,11 @@ static int secure_mode = 0;
  * executable basename (comma-separated, persisted in xnotify.conf as
  * `subscribers=`). The socket is already owner-only; this also keeps any
  * other same-user process from quietly reading activity metadata. */
-static char subscribers_allow[256] = "kistoryd,kimemoryd,xispanel";
+static char subscribers_allow[256] = "";
+/* KiDesktop's own components are always allowed. They are not in the saved
+ * list on purpose: xnotify.conf persists `subscribers=` on first run, so a
+ * component added later would be refused by every existing install. */
+static const char *const subscribers_builtin[] = { "kistoryd", "kimemoryd", "xispanel", NULL };
 
 /* Server's real drop-in rules directory (SYSCONFDIR "/xnotify.conf.d"),
  * learned on demand from the X server itself since SYSCONFDIR is a
@@ -2197,6 +2201,10 @@ static int subscriber_peer_allowed(int conn, char *exe_out, size_t exe_sz) {
     memcpy(exe_out, base, bl);
     exe_out[bl] = '\0';
 
+    for (int i = 0; subscribers_builtin[i]; i++) {
+        if (strcmp(subscribers_builtin[i], base) == 0)
+            return 1;
+    }
     char list[sizeof(subscribers_allow)];
     snprintf(list, sizeof(list), "%s", subscribers_allow);
     char *save = NULL;

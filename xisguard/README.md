@@ -127,8 +127,9 @@ CLI options above), `LIST_RULES`, `ADD_RULE`, `REMOVE_RULE`, `RELOAD`,
 (`actions` optional, all by default) keeps the connection open, and every
 REPORT/REQUEST from the X server is then written to it as one line:
 `{"ev":"REPORT","action":"RECORD","pid":N,"exe":"...","ts":N}`. Only
-programs whose executable name is listed in `subscribers=` in
-`xnotify.conf` (default `kistoryd,kimemoryd,xispanel`) may subscribe.
+programs may subscribe: KiDesktop's own (`kistoryd`, `kimemoryd`,
+`xispanel`) always, plus any executable name listed in `subscribers=` in
+`xnotify.conf` (empty by default, for third-party trays).
 
 The subscribe reply carries the current protection state
 (`{"ok":true,"subscribed":true,"enabled":true}`), and every change of it
