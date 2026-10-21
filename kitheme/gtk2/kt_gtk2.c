@@ -299,6 +299,41 @@ static int in_tree_header(GtkWidget *w)
     return p && GTK_IS_TREE_VIEW(p);
 }
 
+/* A menu is a rectangular X window: clip its toplevel to the rounded
+ * shape kt_draw_menu() draws. Redone only when the size changes. */
+static void shape_menu(GtkWidget *widget)
+{
+    double r = kt_menu_radius(&g_theme);
+    if (r <= 0 || !widget || !GTK_IS_MENU(widget))
+        return;
+    GtkWidget *top = gtk_widget_get_toplevel(widget);
+    if (!top || !gtk_widget_get_realized(top))
+        return;
+    GdkWindow *win = top->window;
+    int w = top->allocation.width, h = top->allocation.height;
+    if (w < 2 * r || h < 2 * r)
+        return;
+    if (GPOINTER_TO_INT(g_object_get_data(G_OBJECT(win), "kt-menu-size")) == (w << 16 | h))
+        return;
+    g_object_set_data(G_OBJECT(win), "kt-menu-size", GINT_TO_POINTER(w << 16 | h));
+    GdkBitmap *mask = gdk_pixmap_new(NULL, w, h, 1);
+    cairo_t *cr = gdk_cairo_create(mask);
+    cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
+    cairo_paint(cr);
+    cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+    cairo_set_source_rgba(cr, 1, 1, 1, 1);
+    cairo_new_sub_path(cr);
+    cairo_arc(cr, w - r, r, r, -M_PI / 2, 0);
+    cairo_arc(cr, w - r, h - r, r, 0, M_PI / 2);
+    cairo_arc(cr, r, h - r, r, M_PI / 2, M_PI);
+    cairo_arc(cr, r, r, r, M_PI, 3 * M_PI / 2);
+    cairo_close_path(cr);
+    cairo_fill(cr);
+    cairo_destroy(cr);
+    gdk_window_shape_combine_mask(win, mask, 0, 0);
+    g_object_unref(mask);
+}
+
 static void ki_draw_box(GtkStyle *style, GdkWindow *window, GtkStateType state, GtkShadowType shadow,
                         GdkRectangle *area, GtkWidget *widget, const gchar *detail,
                         gint x, gint y, gint width, gint height)
@@ -352,6 +387,7 @@ static void ki_draw_box(GtkStyle *style, GdkWindow *window, GtkStateType state, 
         kt_draw_scroll_trough(&t, cr, x, y, width, height, vertical);
     } else if (is(detail, "menu")) {
         kt_draw_menu(&t, cr, x, y, width, height);
+        shape_menu(widget);
     } else if (is(detail, "menuitem")) {
         if (state == GTK_STATE_PRELIGHT || state == GTK_STATE_SELECTED) {
             GtkWidget *p = widget ? gtk_widget_get_parent(widget) : NULL;

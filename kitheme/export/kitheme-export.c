@@ -260,7 +260,7 @@ typedef struct {
     char sel_top[32], sel_bot[32], menu_top[32], menu_bot[32];
     /* classic bevel */
     char hl[32], light[32], shadow[32], dark[32];
-    int r;
+    int r, mr;
 } Css;
 
 static void c(char *out, KtColor col)
@@ -317,6 +317,7 @@ static void css_colors(const KtTheme *t, Css *s)
     c(s->shadow, kt_mix(t->window_bg, B, 0.33 * k));
     c(s->dark, kt_mix(t->window_bg, B, 1.0 * k));
     s->r = t->style == KT_STYLE_CLASSIC ? 0 : (int)(t->radius + 0.5);
+    s->mr = (int)(kt_menu_radius(t) + 0.5);
 }
 
 /* Selectors that differ between GTK3 and GTK4. */
@@ -585,8 +586,8 @@ static void css_misc(FILE *f, const KtTheme *t, const Css *s, const Nodes *n)
         fprintf(f, "textview text selection, entry selection, label selection { background-image: none; }\n");
 
     /* Menus. */
-    fprintf(f, "%s { background-color: %s; color: %s; border: 1px solid %s; border-radius: 0; box-shadow: none; }\n",
-            n->menu, s->menu_bg, s->menu_fg, classic ? s->dark : s->border);
+    fprintf(f, "%s { background-color: %s; color: %s; border: 1px solid %s; border-radius: %dpx; box-shadow: none; }\n",
+            n->menu, s->menu_bg, s->menu_fg, classic ? s->dark : s->border, s->mr);
     if (soft)
         fprintf(f, "%s { background-image: linear-gradient(to bottom, %s, %s); }\n", n->menu, s->menu_top, s->menu_bot);
     fprintf(f, "%s { color: %s; }\n", n->menuitem, s->menu_fg);

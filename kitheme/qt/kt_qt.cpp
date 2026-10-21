@@ -14,6 +14,7 @@
 #include <QAbstractButton>
 #include <QApplication>
 #include <QCheckBox>
+#include <QBitmap>
 #include <QCommonStyle>
 #include <QDateTime>
 #include <QDir>
@@ -22,6 +23,7 @@
 #include <QFileInfo>
 #include <QFileSystemWatcher>
 #include <QHash>
+#include <QMenu>
 #include <QPainter>
 #include <QPixmapCache>
 #include <QProgressBar>
@@ -162,6 +164,42 @@ public:
             w->inherits("QScrollBar") || w->inherits("QSlider") || w->inherits("QTabBar") || w->inherits("QLineEdit") ||
             w->inherits("QHeaderView"))
             w->setAttribute(Qt::WA_Hover, true);
+        if (qobject_cast<QMenu *>(w))
+            w->installEventFilter(this);
+    }
+
+    void unpolish(QWidget *w) override
+    {
+        if (qobject_cast<QMenu *>(w)) {
+            w->removeEventFilter(this);
+            w->clearMask();
+        }
+        QProxyStyle::unpolish(w);
+    }
+
+    // A popup menu is a rectangular window: clip it to the radius
+    // kt_draw_menu() draws (a 1-bit mask, so the edge is not antialiased).
+    bool eventFilter(QObject *o, QEvent *e) override
+    {
+        if (e->type() == QEvent::Show || e->type() == QEvent::Resize) {
+            if (auto *m = qobject_cast<QMenu *>(o)) {
+                const int r = int(kt_menu_radius(&g_theme) + 0.5);
+                if (r <= 0) {
+                    if (!m->mask().isEmpty())
+                        m->clearMask();
+                } else if (m->width() > 2 * r && m->height() > 2 * r) {
+                    QBitmap bm(m->size());
+                    bm.fill(Qt::color0);
+                    QPainter p(&bm);
+                    p.setPen(Qt::NoPen);
+                    p.setBrush(Qt::color1);
+                    p.drawRoundedRect(QRect(QPoint(0, 0), m->size()), r, r);
+                    p.end();
+                    m->setMask(bm);
+                }
+            }
+        }
+        return QProxyStyle::eventFilter(o, e);
     }
 
     void polish(QApplication *app) override

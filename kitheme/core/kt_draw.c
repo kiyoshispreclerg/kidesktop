@@ -752,23 +752,40 @@ void kt_draw_tab_pane(const KtTheme *t, cairo_t *cr, double x, double y, double 
     cairo_restore(cr);
 }
 
+double kt_menu_radius(const KtTheme *t)
+{
+    if (t->style == KT_STYLE_CLASSIC || t->menu_radius < 1)
+        return 0;
+    return t->menu_radius > 16 ? 16 : t->menu_radius;
+}
+
 void kt_draw_menu(const KtTheme *t, cairo_t *cr, double x, double y, double w, double h)
 {
     cairo_save(cr);
     if (t->style == KT_STYLE_CLASSIC) {
         classic_box(t, cr, x, y, w, h, t->menu_bg, 0, 1);
     } else {
-        /* Menus are rectangular windows: no rounding here, or the corners
-         * would show whatever is under them. */
+        /* A menu is a rectangular window: the adapters clip it to the same
+         * radius (kt_menu_radius), so what is outside the curve is never
+         * shown. */
+        double r = kt_menu_radius(t);
         if (t->style == KT_STYLE_SOFT && t->gradient > 0)
             gradient(cr, x, y, w, h, 0, kt_shade(t->menu_bg, 1 + 0.05 * t->gradient), kt_shade(t->menu_bg, 1 - 0.04 * t->gradient));
         else
             set(cr, t->menu_bg);
-        cairo_rectangle(cr, x, y, w, h);
-        cairo_fill(cr);
+        if (r > 0) {
+            rrect(cr, x, y, w, h, r);
+            cairo_fill(cr);
+        } else {
+            cairo_rectangle(cr, x, y, w, h);
+            cairo_fill(cr);
+        }
         cairo_set_line_width(cr, 1);
         set(cr, kt_shade(t->menu_bg, 0.6));
-        cairo_rectangle(cr, x + 0.5, y + 0.5, w - 1, h - 1);
+        if (r > 0)
+            rrect(cr, x + 0.5, y + 0.5, w - 1, h - 1, r - 0.5);
+        else
+            cairo_rectangle(cr, x + 0.5, y + 0.5, w - 1, h - 1);
         cairo_stroke(cr);
     }
     cairo_restore(cr);

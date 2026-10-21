@@ -57,6 +57,7 @@ static const Key keys[] = {
     {"tooltip_bg", K_COLOR, F(tooltip_bg)},
     {"tooltip_fg", K_COLOR, F(tooltip_fg)},
     {"radius", K_DOUBLE, F(radius)},
+    {"menu_radius", K_DOUBLE, F(menu_radius)},
     {"relief", K_DOUBLE, F(relief)},
     {"gradient", K_DOUBLE, F(gradient)},
     {"shadow", K_DOUBLE, F(shadow)},
@@ -106,6 +107,7 @@ void kt_theme_defaults(KtTheme *t)
     t->tooltip_bg = rgb(0x18, 0x15, 0x13);
     t->tooltip_fg = rgb(0xe7, 0xfd, 0xff);
     t->radius = 3.5;
+    t->menu_radius = 4;
     t->relief = 0.7;
     t->gradient = 0.6;
     t->shadow = 0.6;

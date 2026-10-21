@@ -58,6 +58,7 @@ typedef struct {
     KtColor tooltip_bg, tooltip_fg;
 
     double radius;     /* corner radius in px (classic ignores it) */
+    double menu_radius; /* popup menu corner radius in px (0 = square; classic ignores it) */
     double relief;     /* 0..1 strength of highlights and shadows */
     double gradient;   /* 0..1 strength of the vertical gradients */
     double shadow;     /* 0..1 drop shadow under raised elements */
@@ -89,7 +90,7 @@ enum {
 
 typedef enum { KT_UP, KT_DOWN, KT_LEFT, KT_RIGHT } KtDir;
 
-#define KITHEME_VERSION "0.1.1"
+#define KITHEME_VERSION "0.1.2"
 
 /* ---- theme loading (kt_config.c) ---- */
 
@@ -162,6 +163,10 @@ void kt_draw_scale_handle(const KtTheme *t, cairo_t *cr, double x, double y, dou
 void kt_draw_tab(const KtTheme *t, cairo_t *cr, double x, double y, double w, double h, KtDir gap, unsigned st);
 void kt_draw_tab_pane(const KtTheme *t, cairo_t *cr, double x, double y, double w, double h);
 void kt_draw_menu(const KtTheme *t, cairo_t *cr, double x, double y, double w, double h);
+/* Effective popup menu corner radius: 0 for square menus. The toolkit
+ * adapters clip the menu window to this (SHAPE mask) because a menu is a
+ * rectangular X window. */
+double kt_menu_radius(const KtTheme *t);
 void kt_draw_menuitem(const KtTheme *t, cairo_t *cr, double x, double y, double w, double h, int in_menubar);
 void kt_draw_tooltip(const KtTheme *t, cairo_t *cr, double x, double y, double w, double h);
 void kt_draw_header(const KtTheme *t, cairo_t *cr, double x, double y, double w, double h, unsigned st);
