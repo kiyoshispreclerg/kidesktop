@@ -3,11 +3,11 @@
  * bottom of the screen, driven entirely by mouse clicks, that can switch
  * between several independent layouts (QWERTY, QWERTY ABNT2, Emoji, ...)
  * the same way an Android keyboard switches between ABC/123/emoji boards --
- * a tap on the globe-ish "Layout" key cycles kLayouts[] and rebuilds the
- * key rows from that layout's own data table. Adding a layout (AZERTY, a
- * 12-key kana board, a math-symbol board, ...) is just one more KbRow[]
- * array and one more kLayouts[] entry -- everything below this comment
- * block is layout-agnostic engine, nothing in it names a specific layout.
+ * a menu on the header's layout button picks one and rebuilds the key rows
+ * from that layout's own data file. Layouts are *.layout files loaded at
+ * startup (see "layouts are data, not code" below), so adding one (AZERTY,
+ * a math-symbol board, ...) never needs a rebuild -- nothing in the engine
+ * names a specific layout.
  *
  * Every button synthesizes the real character via XTest, so whatever
  * window last had input focus keeps it and receives the keystrokes -- this
@@ -84,7 +84,6 @@ typedef enum {
     KK_ACTION,   /* action_keysym sent as-is (Tab/Enter/BackSpace/Esc/arrows/Space) */
     KK_MODIFIER, /* one-shot latch (Shift/Ctrl/Alt/Super) */
     KK_CAPSLOCK, /* real toggle, own lamp */
-    KK_LAYOUT,   /* switches to the next registered layout, see kLayouts[] */
 } KbKeyType;
 
 typedef struct {
@@ -99,203 +98,281 @@ typedef struct {
     double weight;       /* relative width, 1.0 = one normal key */
 } KbKeySpec;
 
+/* ---- layouts are data, not code ---------------------------------------
+ *
+ * Every layout is a *.layout text file (see layouts/10-qwerty.layout for
+ * the format) loaded at startup from, in this order: $XISSERVE_KBDIR (if
+ * set), ~/.config/xisserve/keyboard, XISSERVE_KBDIR_DEFAULT, <exe>/layouts.
+ * A file of the same name in an earlier directory shadows a later one, so
+ * installing or overriding a layout never needs a rebuild. Layouts are
+ * listed sorted by file name.
+ */
 typedef struct { const KbKeySpec *keys; int n; } KbRow;
-#define ROW(arr) {arr, (int)(sizeof(arr) / sizeof((arr)[0]))}
 
-/* ---- QWERTY (also the base every other Latin-alphabet layout below
- * reuses rows from -- only the row that actually differs needs its own
- * copy, e.g. ABNT2 below only replaces row 2). ------------------------- */
-
-static const KbKeySpec kQwertyRow0[] = {
-    {.type = KK_ACTION, .action_keysym = XK_Escape, .label = "Esc", .weight = 1.3},
-    {.type = KK_CHAR, .lo = "1", .hi = "!", .weight = 1},
-    {.type = KK_CHAR, .lo = "2", .hi = "@", .weight = 1},
-    {.type = KK_CHAR, .lo = "3", .hi = "#", .weight = 1},
-    {.type = KK_CHAR, .lo = "4", .hi = "$", .weight = 1},
-    {.type = KK_CHAR, .lo = "5", .hi = "%", .weight = 1},
-    {.type = KK_CHAR, .lo = "6", .hi = "^", .weight = 1},
-    {.type = KK_CHAR, .lo = "7", .hi = "&", .weight = 1},
-    {.type = KK_CHAR, .lo = "8", .hi = "*", .weight = 1},
-    {.type = KK_CHAR, .lo = "9", .hi = "(", .weight = 1},
-    {.type = KK_CHAR, .lo = "0", .hi = ")", .weight = 1},
-    {.type = KK_CHAR, .lo = "-", .hi = "_", .weight = 1},
-    {.type = KK_CHAR, .lo = "=", .hi = "+", .weight = 1},
-    {.type = KK_ACTION, .action_keysym = XK_BackSpace, .label = "\xe2\x8c\xab", .weight = 2.0}, /* U+232B */
-};
-
-static const KbKeySpec kQwertyRow1[] = {
-    {.type = KK_ACTION, .action_keysym = XK_Tab, .label = "Tab", .weight = 1.6},
-    {.type = KK_CHAR, .lo = "q", .hi = "Q", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "w", .hi = "W", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "e", .hi = "E", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "r", .hi = "R", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "t", .hi = "T", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "y", .hi = "Y", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "u", .hi = "U", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "i", .hi = "I", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "o", .hi = "O", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "p", .hi = "P", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "[", .hi = "{", .weight = 1},
-    {.type = KK_CHAR, .lo = "]", .hi = "}", .weight = 1},
-    {.type = KK_CHAR, .lo = "\\", .hi = "|", .weight = 1.3},
-};
-
-static const KbKeySpec kQwertyRow2[] = {
-    {.type = KK_CAPSLOCK, .label = "Caps", .weight = 1.9},
-    {.type = KK_CHAR, .lo = "a", .hi = "A", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "s", .hi = "S", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "d", .hi = "D", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "f", .hi = "F", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "g", .hi = "G", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "h", .hi = "H", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "j", .hi = "J", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "k", .hi = "K", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "l", .hi = "L", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = ";", .hi = ":", .weight = 1},
-    {.type = KK_CHAR, .lo = "'", .hi = "\"", .weight = 1},
-    {.type = KK_ACTION, .action_keysym = XK_Return, .label = "Enter", .weight = 2.3},
-};
-
-static const KbKeySpec kQwertyRow3[] = {
-    {.type = KK_MODIFIER, .action_keysym = XK_Shift_L, .label = "Shift", .weight = 2.4},
-    {.type = KK_CHAR, .lo = "z", .hi = "Z", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "x", .hi = "X", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "c", .hi = "C", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "v", .hi = "V", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "b", .hi = "B", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "n", .hi = "N", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "m", .hi = "M", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = ",", .hi = "<", .weight = 1},
-    {.type = KK_CHAR, .lo = ".", .hi = ">", .weight = 1},
-    {.type = KK_CHAR, .lo = "/", .hi = "?", .weight = 1},
-    {.type = KK_MODIFIER, .action_keysym = XK_Shift_R, .label = "Shift", .weight = 2.4},
-};
-
-static const KbKeySpec kQwertyRow4[] = {
-    {.type = KK_MODIFIER, .action_keysym = XK_Control_L, .label = "Ctrl", .weight = 1.3},
-    {.type = KK_MODIFIER, .action_keysym = XK_Super_L, .label = "Super", .weight = 1.1},
-    {.type = KK_MODIFIER, .action_keysym = XK_Alt_L, .label = "Alt", .weight = 1.1},
-    {.type = KK_ACTION, .action_keysym = XK_space, .label = "", .weight = 5.0},
-    {.type = KK_MODIFIER, .action_keysym = XK_Alt_R, .label = "Alt", .weight = 1.1},
-    {.type = KK_LAYOUT, .label = "Layout", .weight = 1.4},
-    {.type = KK_ACTION, .action_keysym = XK_Left, .label = "\xe2\x86\x90", .weight = 1},
-    {.type = KK_ACTION, .action_keysym = XK_Down, .label = "\xe2\x86\x93", .weight = 1},
-    {.type = KK_ACTION, .action_keysym = XK_Up, .label = "\xe2\x86\x91", .weight = 1},
-    {.type = KK_ACTION, .action_keysym = XK_Right, .label = "\xe2\x86\x92", .weight = 1},
-};
-
-static const KbRow kQwertyRows[] = {
-    ROW(kQwertyRow0), ROW(kQwertyRow1), ROW(kQwertyRow2), ROW(kQwertyRow3), ROW(kQwertyRow4),
-};
-
-/* ---- QWERTY ABNT2: same board, only the home row differs -- the
- * Brazilian ABNT2 keyboard's most-missed key by far is Ç, sitting where
- * US QWERTY has `;`. Full ABNT2 fidelity would also mean dead keys for
- * ´ ` ^ ~ (a separate press-then-press-vowel step to compose á/à/â/ã) --
- * skipped here: a virtual keyboard can just offer each precomposed
- * accented letter directly on its own key far more easily than a real
- * keyboard's dead-key dance, but that's a bigger per-key data-entry job
- * than this pass covers. Cedilla was the specific ask, so that's what's
- * here; everything else stays byte-for-byte the QWERTY row above. */
-static const KbKeySpec kAbnt2Row2[] = {
-    {.type = KK_CAPSLOCK, .label = "Caps", .weight = 1.9},
-    {.type = KK_CHAR, .lo = "a", .hi = "A", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "s", .hi = "S", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "d", .hi = "D", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "f", .hi = "F", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "g", .hi = "G", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "h", .hi = "H", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "j", .hi = "J", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "k", .hi = "K", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "l", .hi = "L", .is_letter = TRUE, .weight = 1},
-    {.type = KK_CHAR, .lo = "\xc3\xa7", .hi = "\xc3\x87", .is_letter = TRUE, .weight = 1}, /* ç / Ç */
-    {.type = KK_CHAR, .lo = "'", .hi = "\"", .weight = 1},
-    {.type = KK_ACTION, .action_keysym = XK_Return, .label = "Enter", .weight = 2.3},
-};
-
-static const KbRow kAbnt2Rows[] = {
-    ROW(kQwertyRow0), ROW(kQwertyRow1), ROW(kAbnt2Row2), ROW(kQwertyRow3), ROW(kQwertyRow4),
-};
-
-/* ---- Emoji: no case, no modifiers -- just five rows of common emoji
- * plus a small control row. Each is sent as a single Unicode codepoint
- * (see kb_send_utf8()), so entries needing a combining/ZWJ sequence
- * (skin-tone modifiers, family emoji, flags) are left out on purpose --
- * only the base character would be sent otherwise. */
-static const KbKeySpec kEmojiRow0[] = {
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x98\x80", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x98\x82", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x98\x85", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x98\x8a", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x98\x8d", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x98\x98", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x98\x9c", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\xa4\x94", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x98\x8e", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x98\xa2", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x98\xa1", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x98\xb1", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\xa5\xb3", .weight = 1},
-};
-static const KbKeySpec kEmojiRow1[] = {
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x91\x8d", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x91\x8e", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x91\x8f", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x99\x8f", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x92\xaa", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x91\x8b", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xe2\x9c\x8c", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\xa4\x9d", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xe2\x9d\xa4", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x92\x94", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x92\x95", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x94\xa5", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xe2\x9c\xa8", .weight = 1},
-};
-static const KbKeySpec kEmojiRow2[] = {
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x90\xb6", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x90\xb1", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x90\xad", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x90\xb9", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x90\xb0", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\xa6\x8a", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x90\xbb", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x90\xbc", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x90\xb8", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x90\xb5", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x8c\xb8", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x8c\x9e", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x8c\x99", .weight = 1},
-};
-static const KbKeySpec kEmojiRow3[] = {
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\x8e", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\x95", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\x94", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\x9f", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\xa9", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\xa6", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\xba", .weight = 1}, {.type = KK_CHAR, .lo = "\xe2\x98\x95", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\xab", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\x87", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\x89", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\xa5\x91", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x8d\x93", .weight = 1},
-};
-static const KbKeySpec kEmojiRow4[] = {
-    {.type = KK_CHAR, .lo = "\xe2\xad\x90", .weight = 1}, {.type = KK_CHAR, .lo = "\xe2\x9a\xa1", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x8e\x89", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x8e\x81", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x93\xb1", .weight = 1}, {.type = KK_CHAR, .lo = "\xf0\x9f\x92\xa1", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x94\x92", .weight = 1}, {.type = KK_CHAR, .lo = "\xe2\x8f\xb0", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xf0\x9f\x93\x8c", .weight = 1}, {.type = KK_CHAR, .lo = "\xe2\x9c\x85", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xe2\x9d\x8c", .weight = 1}, {.type = KK_CHAR, .lo = "\xe2\x9d\x93", .weight = 1},
-    {.type = KK_CHAR, .lo = "\xe2\x9d\x97", .weight = 1},
-};
-static const KbKeySpec kEmojiControlRow[] = {
-    {.type = KK_LAYOUT, .label = "Layout", .weight = 2.0},
-    {.type = KK_ACTION, .action_keysym = XK_space, .label = "", .weight = 5.0},
-    {.type = KK_ACTION, .action_keysym = XK_BackSpace, .label = "\xe2\x8c\xab", .weight = 2.0},
-    {.type = KK_ACTION, .action_keysym = XK_Return, .label = "Enter", .weight = 2.0},
-};
-
-static const KbRow kEmojiRows[] = {
-    ROW(kEmojiRow0), ROW(kEmojiRow1), ROW(kEmojiRow2), ROW(kEmojiRow3), ROW(kEmojiRow4), ROW(kEmojiControlRow),
-};
-
-/* ---- layout registry: add a layout by adding one more KbRow[] table
- * above and one more entry here -- nothing else in this file needs to
- * know it exists. */
 typedef struct {
-    const char *name;
-    const KbRow *rows;
+    char *name;
+    gboolean emoji; /* kind = emoji: the picker UI, rows are only its bottom row */
+    KbRow *rows;
     int n_rows;
 } KbLayout;
 
-static const KbLayout kLayouts[] = {
-    {"QWERTY", kQwertyRows, (int)(sizeof(kQwertyRows) / sizeof(kQwertyRows[0]))},
-    {"ABNT2", kAbnt2Rows, (int)(sizeof(kAbnt2Rows) / sizeof(kAbnt2Rows[0]))},
-    {"Emoji", kEmojiRows, (int)(sizeof(kEmojiRows) / sizeof(kEmojiRows[0]))},
-};
-#define N_LAYOUTS ((int)(sizeof(kLayouts) / sizeof(kLayouts[0])))
+static GPtrArray *g_layouts; /* KbLayout* */
 static int g_layout_idx;
 static GtkWidget *g_rows_container; /* rebuilt from scratch on every layout switch */
+static GtkWidget *g_layout_btn;
+static int g_win_w;
 
+#ifndef XISSERVE_KBDIR_DEFAULT
+#define XISSERVE_KBDIR_DEFAULT "/usr/local/share/xisserve/keyboard"
+#endif
+#ifndef XISSERVE_EMOJI_DEFAULT
+#define XISSERVE_EMOJI_DEFAULT "/usr/local/share/xisserve/emoji-test.txt"
+#endif
+
+static const struct {
+    const char *tok;
+    KbKeyType type;
+    KeySym ks;
+    const char *label;
+    double w;
+} kSpecialKeys[] = {
+    {"esc", KK_ACTION, XK_Escape, "Esc", 1.3},
+    {"tab", KK_ACTION, XK_Tab, "Tab", 1.6},
+    {"bksp", KK_ACTION, XK_BackSpace, "\xe2\x8c\xab", 2.0}, /* U+232B */
+    {"enter", KK_ACTION, XK_Return, "Enter", 2.0},
+    {"space", KK_ACTION, XK_space, "", 5.0},
+    {"left", KK_ACTION, XK_Left, "\xe2\x86\x90", 1},
+    {"down", KK_ACTION, XK_Down, "\xe2\x86\x93", 1},
+    {"up", KK_ACTION, XK_Up, "\xe2\x86\x91", 1},
+    {"right", KK_ACTION, XK_Right, "\xe2\x86\x92", 1},
+    {"caps", KK_CAPSLOCK, 0, "Caps", 1.9},
+    {"shiftL", KK_MODIFIER, XK_Shift_L, "Shift", 2.4},
+    {"shiftR", KK_MODIFIER, XK_Shift_R, "Shift", 2.4},
+    {"ctrl", KK_MODIFIER, XK_Control_L, "Ctrl", 1.3},
+    {"super", KK_MODIFIER, XK_Super_L, "Super", 1.1},
+    {"altL", KK_MODIFIER, XK_Alt_L, "Alt", 1.1},
+    {"altR", KK_MODIFIER, XK_Alt_R, "Alt", 1.1},
+};
+
+/* "tok" or "tok=1.5" -> key spec; FALSE (and a warning) when unusable. A
+ * trailing =W is a width only when the '=' isn't the token's first char
+ * and what follows is a number, so the "=+" key still parses as a key. */
+static gboolean parse_key_token(const char *file, const char *tok, KbKeySpec *out)
+{
+    char *t = g_strdup(tok);
+    double weight = 0;
+    char *eq = strrchr(t, '=');
+    if (eq && eq != t && eq[1]) {
+        char *endp = NULL;
+        double w = g_ascii_strtod(eq + 1, &endp);
+        if (endp && !*endp && w > 0) {
+            weight = w;
+            *eq = 0;
+        }
+    }
+    memset(out, 0, sizeof(*out));
+    gboolean ok = FALSE;
+    if (t[0] == '@') {
+        for (size_t i = 0; i < sizeof(kSpecialKeys) / sizeof(kSpecialKeys[0]); i++) {
+            if (strcmp(t + 1, kSpecialKeys[i].tok) != 0) continue;
+            out->type = kSpecialKeys[i].type;
+            out->action_keysym = kSpecialKeys[i].ks;
+            out->label = kSpecialKeys[i].label;
+            out->weight = weight > 0 ? weight : kSpecialKeys[i].w;
+            ok = TRUE;
+            break;
+        }
+    }
+    if (!ok && g_utf8_validate(t, -1, NULL)) {
+        glong n = g_utf8_strlen(t, -1);
+        if (n == 1 || n == 2) {
+            out->type = KK_CHAR;
+            out->lo = g_strndup(t, (gsize)(g_utf8_offset_to_pointer(t, 1) - t));
+            if (n == 2) {
+                out->hi = g_strdup(g_utf8_offset_to_pointer(t, 1));
+                out->is_letter = g_unichar_isalpha(g_utf8_get_char(out->lo)) &&
+                                 g_unichar_toupper(g_utf8_get_char(out->lo)) == g_utf8_get_char(out->hi);
+            }
+            out->weight = weight > 0 ? weight : 1;
+            ok = TRUE;
+        }
+    }
+    if (!ok) fprintf(stderr, "xisserve --keyboard: %s: bad key '%s'\n", file, tok);
+    g_free(t);
+    return ok;
+}
+
+static KbLayout *load_layout_file(const char *path)
+{
+    gchar *text = NULL;
+    if (!g_file_get_contents(path, &text, NULL, NULL)) return NULL;
+
+    KbLayout *l = g_new0(KbLayout, 1);
+    GArray *rows = g_array_new(FALSE, TRUE, sizeof(KbRow));
+    gchar **lines = g_strsplit(text, "\n", -1);
+    for (int i = 0; lines[i]; i++) {
+        char *line = g_strstrip(lines[i]);
+        if (!*line || *line == '#') continue;
+        char *eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = 0;
+        char *key = g_strstrip(line), *val = g_strstrip(eq + 1);
+        if (!strcmp(key, "name")) {
+            g_free(l->name);
+            l->name = g_strdup(val);
+        } else if (!strcmp(key, "kind")) {
+            l->emoji = !strcmp(val, "emoji");
+        } else if (!strcmp(key, "row")) {
+            gchar **toks = g_strsplit_set(val, " \t", -1);
+            GArray *keys = g_array_new(FALSE, TRUE, sizeof(KbKeySpec));
+            for (int j = 0; toks[j]; j++) {
+                KbKeySpec spec;
+                if (toks[j][0] && parse_key_token(path, toks[j], &spec)) g_array_append_val(keys, spec);
+            }
+            g_strfreev(toks);
+            KbRow row = {.n = (int)keys->len};
+            row.keys = (KbKeySpec *)g_array_free(keys, FALSE);
+            if (row.n) g_array_append_val(rows, row);
+        }
+    }
+    g_strfreev(lines);
+    g_free(text);
+    l->n_rows = (int)rows->len;
+    l->rows = (KbRow *)g_array_free(rows, FALSE);
+    if (!l->name) {
+        char *base = g_path_get_basename(path);
+        l->name = g_strdup(base);
+        g_free(base);
+    }
+    if (!l->n_rows && !l->emoji) {
+        fprintf(stderr, "xisserve --keyboard: %s: no rows, ignored\n", path);
+        g_free(l->name);
+        g_free(l);
+        return NULL;
+    }
+    return l;
+}
+
+static void load_layouts(void)
+{
+    g_layouts = g_ptr_array_new();
+    GPtrArray *dirs = g_ptr_array_new_with_free_func(g_free);
+    const char *env = g_getenv("XISSERVE_KBDIR");
+    if (env && *env) g_ptr_array_add(dirs, g_strdup(env));
+    g_ptr_array_add(dirs, g_build_filename(g_get_user_config_dir(), "xisserve", "keyboard", NULL));
+    g_ptr_array_add(dirs, g_strdup(XISSERVE_KBDIR_DEFAULT));
+    char *exe = g_file_read_link("/proc/self/exe", NULL);
+    if (exe) {
+        char *d = g_path_get_dirname(exe);
+        g_ptr_array_add(dirs, g_build_filename(d, "layouts", NULL));
+        g_free(d);
+        g_free(exe);
+    }
+
+    /* file name -> full path, first directory wins */
+    GHashTable *seen = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+    for (guint i = 0; i < dirs->len; i++) {
+        GDir *d = g_dir_open(dirs->pdata[i], 0, NULL);
+        if (!d) continue;
+        const char *fn;
+        while ((fn = g_dir_read_name(d))) {
+            if (!g_str_has_suffix(fn, ".layout") || g_hash_table_contains(seen, fn)) continue;
+            g_hash_table_insert(seen, g_strdup(fn), g_build_filename(dirs->pdata[i], fn, NULL));
+        }
+        g_dir_close(d);
+    }
+    GList *names = g_list_sort(g_hash_table_get_keys(seen), (GCompareFunc)strcmp);
+    for (GList *n = names; n; n = n->next) {
+        KbLayout *l = load_layout_file(g_hash_table_lookup(seen, n->data));
+        if (l) g_ptr_array_add(g_layouts, l);
+    }
+    g_list_free(names);
+    g_hash_table_destroy(seen);
+    g_ptr_array_free(dirs, TRUE);
+}
+
+/* ---- emoji data (emoji-test.txt) ---------------------------------------
+ *
+ * The full Unicode emoji list, so the picker shows everything rather than
+ * a hand-picked subset. Read from the system's unicode-data copy when
+ * present, else the one this package installs. Only fully-qualified
+ * entries without a skin-tone modifier are listed (the tone variants would
+ * multiply the grid ~5x for no browsing value).
+ */
+typedef struct {
+    char *glyph;
+    char *name;
+    int group;
+} EmojiEntry;
+
+static GArray *g_emoji;       /* EmojiEntry */
+static GPtrArray *g_emoji_groups; /* char* names */
+
+static gboolean emoji_has_skin_tone(const char *s)
+{
+    for (const char *p = s; *p; p = g_utf8_next_char(p)) {
+        gunichar c = g_utf8_get_char(p);
+        if (c >= 0x1F3FB && c <= 0x1F3FF) return TRUE;
+    }
+    return FALSE;
+}
+
+static void load_emoji(void)
+{
+    if (g_emoji) return;
+    g_emoji = g_array_new(FALSE, TRUE, sizeof(EmojiEntry));
+    g_emoji_groups = g_ptr_array_new();
+
+    const char *paths[] = {"/usr/share/unicode/emoji/emoji-test.txt", XISSERVE_EMOJI_DEFAULT, NULL, NULL};
+    char *local = g_build_filename(g_get_user_data_dir(), "xisserve", "emoji-test.txt", NULL);
+    char *exe = g_file_read_link("/proc/self/exe", NULL), *exe_dir = exe ? g_path_get_dirname(exe) : NULL;
+    char *beside = exe_dir ? g_build_filename(exe_dir, "data", "emoji-test.txt", NULL) : NULL;
+    paths[2] = local;
+    paths[3] = beside;
+    /* user copy wins, so a newer emoji-test.txt can be dropped in */
+    gchar *text = NULL;
+    if (!g_file_get_contents(local, &text, NULL, NULL)) {
+        for (int i = 0; i < 4 && !text; i++)
+            if (paths[i]) g_file_get_contents(paths[i], &text, NULL, NULL);
+    }
+    g_free(local);
+    g_free(beside);
+    g_free(exe_dir);
+    g_free(exe);
+    if (!text) {
+        fprintf(stderr, "xisserve --keyboard: emoji-test.txt not found, emoji list is empty\n");
+        return;
+    }
+
+    int group = -1;
+    gboolean skip_group = FALSE;
+    gchar **lines = g_strsplit(text, "\n", -1);
+    for (int i = 0; lines[i]; i++) {
+        const char *ln = lines[i];
+        if (g_str_has_prefix(ln, "# group: ")) {
+            const char *name = ln + 9;
+            skip_group = !strcmp(name, "Component");
+            if (!skip_group) {
+                g_ptr_array_add(g_emoji_groups, g_strdup(name));
+                group = (int)g_emoji_groups->len - 1;
+            }
+            continue;
+        }
+        if (*ln == '#' || !*ln || skip_group || group < 0) continue;
+        if (!strstr(ln, "; fully-qualified")) continue;
+        /* "1F600 ; fully-qualified # 😀 E1.0 grinning face" */
+        const char *hash = strchr(ln, '#');
+        if (!hash) continue;
+        gchar **f = g_strsplit(hash + 2, " ", 3); /* glyph, version, name */
+        if (f[0] && f[1] && f[2] && !emoji_has_skin_tone(f[0])) {
+            EmojiEntry e = {g_strdup(f[0]), g_strdup(f[2]), group};
+            g_array_append_val(g_emoji, e);
+        }
+        g_strfreev(f);
+    }
+    g_strfreev(lines);
+    g_free(text);
+}
 /* One-shot latches -- cleared after the next non-modifier key. Widget
  * pointers are re-resolved on every rebuild_rows() (a layout is free to
  * not offer a given modifier at all -- the Emoji layout offers none of
@@ -549,15 +626,7 @@ static void on_close_clicked(GtkWidget *btn, gpointer data)
     gtk_main_quit();
 }
 
-static void rebuild_rows(void); /* forward -- on_layout_clicked needs it below */
-
-static void on_layout_clicked(GtkWidget *btn, gpointer data)
-{
-    (void)btn;
-    (void)data;
-    g_layout_idx = (g_layout_idx + 1) % N_LAYOUTS;
-    rebuild_rows();
-}
+static void rebuild_rows(void);
 
 static GtkWidget *make_key_button(const KbKeySpec *spec)
 {
@@ -605,10 +674,8 @@ static GtkWidget *make_key_button(const KbKeySpec *spec)
         btn = gtk_button_new_with_label(spec->label);
         g_signal_connect(btn, "clicked", G_CALLBACK(on_capslock_clicked), NULL);
         break;
-    case KK_LAYOUT:
     default:
         btn = gtk_button_new_with_label(spec->label);
-        g_signal_connect(btn, "clicked", G_CALLBACK(on_layout_clicked), NULL);
         break;
     }
 
@@ -629,6 +696,241 @@ static GtkWidget *build_row(const KbRow *row)
     return hbox;
 }
 
+/* ---- emoji picker UI -----------------------------------------------------
+ *
+ * Category tabs over a scrollable grid of every emoji. This window never
+ * takes focus, so a GtkEntry couldn't receive typing: search mode swaps
+ * the grid for a one-row result strip plus a small on-screen letter pad
+ * that feeds the query, and the bottom control row is hidden to make
+ * room (KB_HEIGHT is fixed). */
+#define EMOJI_SEARCH_MAX 300
+
+static int g_emoji_group;
+static gboolean g_emoji_search;
+static GString *g_emoji_query;
+static GtkWidget *g_emoji_scroller, *g_emoji_query_label;
+static GtkWidget *g_emoji_tabs[16];
+static int g_emoji_ntabs;
+
+static void on_emoji_clicked(GtkWidget *btn, gpointer data)
+{
+    (void)btn;
+    /* a ZWJ/flag/keycap sequence is several codepoints; type them one
+     * after another. The pause lets clients re-read a remapped scratch
+     * keycode before the next one lands. */
+    const char *s = data;
+    for (const char *p = s; *p; p = g_utf8_next_char(p)) {
+        char one[8] = { 0 };
+        g_utf8_strncpy(one, p, 1);
+        kb_send_utf8(one);
+        if (*(g_utf8_next_char(p))) g_usleep(12000);
+    }
+}
+
+static gboolean emoji_matches(const EmojiEntry *e, gchar **words)
+{
+    for (int i = 0; words[i]; i++)
+        if (words[i][0] && !strstr(e->name, words[i])) return FALSE;
+    return TRUE;
+}
+
+static GtkWidget *make_emoji_button(const EmojiEntry *e)
+{
+    GtkWidget *b = gtk_button_new_with_label(e->glyph);
+    gtk_widget_set_size_request(b, BASE_KEY_W, KEY_H);
+    gtk_widget_set_tooltip_text(b, e->name);
+    g_signal_connect(b, "clicked", G_CALLBACK(on_emoji_clicked), e->glyph);
+    return b;
+}
+
+/* (Re)fills the scroller for the current tab, or the current query. */
+static void emoji_refill(void)
+{
+    GtkWidget *old = gtk_bin_get_child(GTK_BIN(g_emoji_scroller));
+    if (old) gtk_widget_destroy(old);
+
+    GtkWidget *content;
+    if (g_emoji_search) {
+        content = gtk_hbox_new(FALSE, KEY_GAP);
+        gtk_widget_set_direction(content, GTK_TEXT_DIR_LTR);
+        gchar *q = g_utf8_strdown(g_emoji_query->str, -1);
+        gchar **words = g_strsplit(q, " ", -1);
+        int shown = 0;
+        if (q[0]) {
+            for (guint i = 0; i < g_emoji->len && shown < EMOJI_SEARCH_MAX; i++) {
+                const EmojiEntry *e = &g_array_index(g_emoji, EmojiEntry, i);
+                if (!emoji_matches(e, words)) continue;
+                gtk_box_pack_start(GTK_BOX(content), make_emoji_button(e), FALSE, FALSE, 0);
+                shown++;
+            }
+        }
+        g_strfreev(words);
+        g_free(q);
+    } else {
+        int cols = (g_win_w - 24) / (BASE_KEY_W + KEY_GAP);
+        if (cols < 4) cols = 4;
+        content = gtk_table_new(1, cols, TRUE);
+        gtk_table_set_row_spacings(GTK_TABLE(content), KEY_GAP);
+        gtk_table_set_col_spacings(GTK_TABLE(content), KEY_GAP);
+        gtk_widget_set_direction(content, GTK_TEXT_DIR_LTR);
+        int n = 0;
+        for (guint i = 0; i < g_emoji->len; i++) {
+            const EmojiEntry *e = &g_array_index(g_emoji, EmojiEntry, i);
+            if (e->group != g_emoji_group) continue;
+            gtk_table_attach(GTK_TABLE(content), make_emoji_button(e), (guint)(n % cols), (guint)(n % cols) + 1,
+                             (guint)(n / cols), (guint)(n / cols) + 1, GTK_FILL, GTK_FILL, 0, 0);
+            n++;
+        }
+    }
+    gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(g_emoji_scroller), content);
+    gtk_widget_show_all(g_emoji_scroller);
+    GtkAdjustment *adj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(g_emoji_scroller));
+    gtk_adjustment_set_value(adj, 0);
+    adj = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(g_emoji_scroller));
+    gtk_adjustment_set_value(adj, 0);
+}
+
+static gboolean idle_rebuild(gpointer data)
+{
+    (void)data;
+    rebuild_rows();
+    return FALSE;
+}
+
+static void on_emoji_tab(GtkToggleButton *btn, gpointer data)
+{
+    static gboolean busy;
+    if (busy || !gtk_toggle_button_get_active(btn)) {
+        /* a click on the already-active tab would untoggle it */
+        if (!busy && !gtk_toggle_button_get_active(btn)) {
+            busy = TRUE;
+            gtk_toggle_button_set_active(btn, TRUE);
+            busy = FALSE;
+        }
+        return;
+    }
+    busy = TRUE;
+    g_emoji_group = GPOINTER_TO_INT(data);
+    for (int i = 0; i < g_emoji_ntabs; i++)
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_emoji_tabs[i]), i == g_emoji_group);
+    busy = FALSE;
+    emoji_refill();
+}
+
+static void on_emoji_search_toggle(GtkWidget *btn, gpointer data)
+{
+    (void)btn;
+    g_emoji_search = GPOINTER_TO_INT(data);
+    if (!g_emoji_search) g_string_truncate(g_emoji_query, 0);
+    g_idle_add(idle_rebuild, NULL);
+}
+
+static void emoji_query_changed(void)
+{
+    gtk_label_set_text(GTK_LABEL(g_emoji_query_label), g_emoji_query->len ? g_emoji_query->str : _("Buscar emoji (em inglês)..."));
+    emoji_refill();
+}
+
+static void free_glyph_closure(gpointer data, GClosure *c)
+{
+    (void)c;
+    g_free(data);
+}
+
+static void on_search_char(GtkWidget *btn, gpointer data)
+{
+    (void)btn;
+    g_string_append(g_emoji_query, (const char *)data);
+    emoji_query_changed();
+}
+
+static void on_search_bksp(GtkWidget *btn, gpointer data)
+{
+    (void)btn;
+    (void)data;
+    if (!g_emoji_query->len) return;
+    char *prev = g_utf8_prev_char(g_emoji_query->str + g_emoji_query->len);
+    g_string_truncate(g_emoji_query, (gsize)(prev - g_emoji_query->str));
+    emoji_query_changed();
+}
+
+static void build_emoji_layout(const KbLayout *layout)
+{
+    load_emoji();
+    if (!g_emoji_query) g_emoji_query = g_string_new("");
+    if (g_emoji_group >= (int)g_emoji_groups->len) g_emoji_group = 0;
+
+    GtkWidget *top = gtk_hbox_new(FALSE, KEY_GAP);
+    gtk_widget_set_direction(top, GTK_TEXT_DIR_LTR);
+    g_emoji_ntabs = 0;
+    g_emoji_query_label = NULL;
+
+    if (g_emoji_search) {
+        g_emoji_query_label = gtk_label_new(NULL);
+        gtk_misc_set_alignment(GTK_MISC(g_emoji_query_label), 0, 0.5);
+        gtk_misc_set_padding(GTK_MISC(g_emoji_query_label), 8, 0);
+        gtk_box_pack_start(GTK_BOX(top), g_emoji_query_label, TRUE, TRUE, 0);
+        GtkWidget *bk = gtk_button_new_with_label("\xe2\x8c\xab");
+        gtk_widget_set_size_request(bk, BASE_KEY_W * 2, 28);
+        g_signal_connect(bk, "clicked", G_CALLBACK(on_search_bksp), NULL);
+        gtk_box_pack_start(GTK_BOX(top), bk, FALSE, FALSE, 0);
+        GtkWidget *done = gtk_button_new_with_label(_("Voltar"));
+        gtk_widget_set_size_request(done, BASE_KEY_W * 2, 28);
+        g_signal_connect(done, "clicked", G_CALLBACK(on_emoji_search_toggle), GINT_TO_POINTER(FALSE));
+        gtk_box_pack_start(GTK_BOX(top), done, FALSE, FALSE, 0);
+    } else {
+        for (guint i = 0; i < g_emoji_groups->len && i < 16; i++) {
+            /* a group's tab shows its first emoji; the name is the tooltip */
+            const char *glyph = "?";
+            for (guint j = 0; j < g_emoji->len; j++) {
+                const EmojiEntry *e = &g_array_index(g_emoji, EmojiEntry, j);
+                if (e->group == (int)i) { glyph = e->glyph; break; }
+            }
+            GtkWidget *t = gtk_toggle_button_new_with_label(glyph);
+            gtk_widget_set_size_request(t, BASE_KEY_W, KEY_H);
+            gtk_widget_set_tooltip_text(t, g_ptr_array_index(g_emoji_groups, i));
+            gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(t), (int)i == g_emoji_group);
+            g_signal_connect(t, "toggled", G_CALLBACK(on_emoji_tab), GINT_TO_POINTER((int)i));
+            gtk_box_pack_start(GTK_BOX(top), t, TRUE, TRUE, 0);
+            g_emoji_tabs[g_emoji_ntabs++] = t;
+        }
+        GtkWidget *s = gtk_button_new_with_label(_("Buscar"));
+        gtk_widget_set_size_request(s, BASE_KEY_W * 2, KEY_H);
+        g_signal_connect(s, "clicked", G_CALLBACK(on_emoji_search_toggle), GINT_TO_POINTER(TRUE));
+        gtk_box_pack_start(GTK_BOX(top), s, FALSE, FALSE, 0);
+    }
+    gtk_box_pack_start(GTK_BOX(g_rows_container), top, FALSE, FALSE, 0);
+
+    g_emoji_scroller = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(g_emoji_scroller),
+                                   g_emoji_search ? GTK_POLICY_AUTOMATIC : GTK_POLICY_NEVER,
+                                   g_emoji_search ? GTK_POLICY_NEVER : GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(g_emoji_scroller), GTK_SHADOW_NONE);
+    gtk_box_pack_start(GTK_BOX(g_rows_container), g_emoji_scroller, TRUE, TRUE, 0);
+    if (g_emoji_search) gtk_widget_set_size_request(g_emoji_scroller, -1, KEY_H + 8);
+
+    if (g_emoji_search) {
+        static const char *pad[] = {"qwertyuiop", "asdfghjkl", "zxcvbnm "};
+        for (int r = 0; r < 3; r++) {
+            GtkWidget *hb = gtk_hbox_new(FALSE, KEY_GAP);
+            gtk_widget_set_direction(hb, GTK_TEXT_DIR_LTR);
+            for (const char *c = pad[r]; *c; c++) {
+                char *glyph = g_strndup(c, 1);
+                GtkWidget *b = gtk_button_new_with_label(*c == ' ' ? "\xe2\x90\xa3" : glyph); /* U+2423 */
+                gtk_widget_set_size_request(b, *c == ' ' ? BASE_KEY_W * 3 : BASE_KEY_W, 28);
+                g_signal_connect_data(b, "clicked", G_CALLBACK(on_search_char), glyph, free_glyph_closure, 0);
+                gtk_box_pack_start(GTK_BOX(hb), b, TRUE, TRUE, 0);
+            }
+            gtk_box_pack_start(GTK_BOX(g_rows_container), hb, FALSE, FALSE, 0);
+        }
+        emoji_query_changed();
+    } else {
+        for (int i = 0; i < layout->n_rows; i++)
+            gtk_box_pack_start(GTK_BOX(g_rows_container), build_row(&layout->rows[i]), FALSE, FALSE, 0);
+        emoji_refill();
+    }
+}
+
 /* Tears down the previous layout's row widgets and builds the new one's
  * from scratch -- every per-layout widget pointer (modifier buttons,
  * char-key list) is invalid the moment this starts, so they're all reset
@@ -645,11 +947,45 @@ static void rebuild_rows(void)
     g_ctrl_btn = g_super_btn = NULL;
     g_shift_latched = g_ctrl_latched = g_alt_latched = g_super_latched = FALSE;
 
-    const KbLayout *layout = &kLayouts[g_layout_idx];
-    for (int i = 0; i < layout->n_rows; i++) {
-        gtk_box_pack_start(GTK_BOX(g_rows_container), build_row(&layout->rows[i]), TRUE, TRUE, 0);
+    const KbLayout *layout = g_ptr_array_index(g_layouts, g_layout_idx);
+    if (layout->emoji) {
+        build_emoji_layout(layout);
+    } else {
+        for (int i = 0; i < layout->n_rows; i++)
+            gtk_box_pack_start(GTK_BOX(g_rows_container), build_row(&layout->rows[i]), TRUE, TRUE, 0);
     }
     gtk_widget_show_all(g_rows_container);
+
+    if (g_layout_btn) {
+        char *label = g_strdup_printf("%s \xe2\x96\xbe", layout->name); /* U+25BE */
+        gtk_button_set_label(GTK_BUTTON(g_layout_btn), label);
+        g_free(label);
+    }
+}
+
+static void on_layout_picked(GtkWidget *item, gpointer data)
+{
+    (void)item;
+    g_layout_idx = GPOINTER_TO_INT(data);
+    g_emoji_search = FALSE;
+    g_idle_add(idle_rebuild, NULL);
+}
+
+static void on_layout_clicked(GtkWidget *btn, gpointer data)
+{
+    (void)data;
+    GtkWidget *menu = gtk_menu_new();
+    for (guint i = 0; i < g_layouts->len; i++) {
+        const KbLayout *l = g_ptr_array_index(g_layouts, i);
+        GtkWidget *item = gtk_check_menu_item_new_with_label(l->name);
+        gtk_check_menu_item_set_draw_as_radio(GTK_CHECK_MENU_ITEM(item), TRUE);
+        gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(item), (int)i == g_layout_idx);
+        g_signal_connect(item, "activate", G_CALLBACK(on_layout_picked), GINT_TO_POINTER((int)i));
+        gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+    }
+    gtk_widget_show_all(menu);
+    gtk_menu_popup(GTK_MENU(menu), NULL, NULL, NULL, NULL, 1, gtk_get_current_event_time());
+    (void)btn;
 }
 
 static GtkWidget *build_lamp(const char *label_text)
@@ -863,6 +1199,16 @@ int keyboard_run(int output_x, int output_y, int output_w, int output_h)
     g_kc_capslock = XKeysymToKeycode(g_dpy, XK_Caps_Lock);
     g_scratch_kc = claim_scratch_keycode();
 
+    load_layouts();
+    if (!g_layouts->len) {
+        fprintf(stderr, "xisserve --keyboard: no *.layout files found (looked in $XISSERVE_KBDIR, "
+                        "~/.config/xisserve/keyboard, %s)\n", XISSERVE_KBDIR_DEFAULT);
+        flock(lockfd, LOCK_UN);
+        close(lockfd);
+        unlink(lockpath);
+        return 1;
+    }
+
     /* Whatever --output-x/-y/-w/-h (or parse_argv()'s own defaults for
      * them) handed us, prefer the RandR output the currently focused
      * window (or failing that, the pointer) actually sits on -- see
@@ -880,6 +1226,7 @@ int keyboard_run(int output_x, int output_y, int output_w, int output_h)
     if (output_w <= 0) output_w = gdk_screen_get_width(gdk_screen_get_default());
     if (output_h <= 0) output_h = gdk_screen_get_height(gdk_screen_get_default());
     int win_x = output_x, win_y = output_y + output_h - KB_HEIGHT, win_w = output_w, win_h = KB_HEIGHT;
+    g_win_w = win_w;
 
     GtkWidget *win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(win), "xisserve-keyboard");
@@ -927,6 +1274,13 @@ int keyboard_run(int output_x, int output_y, int output_w, int output_h)
     g_signal_connect(close_btn, "clicked", G_CALLBACK(on_close_clicked), NULL);
     xisserve_a11y(close_btn, _("Fechar"), NULL);
     gtk_box_pack_end(GTK_BOX(header), close_btn, FALSE, FALSE, 0);
+    /* layout picker: left of Close with a gap so the two can't be mis-hit */
+    g_layout_btn = gtk_button_new_with_label("");
+    gtk_widget_set_size_request(g_layout_btn, -1, 22);
+    g_signal_connect(g_layout_btn, "clicked", G_CALLBACK(on_layout_clicked), NULL);
+    xisserve_a11y(g_layout_btn, _("Alterar layout do teclado"), NULL);
+    gtk_widget_set_tooltip_text(g_layout_btn, _("Alterar layout"));
+    gtk_box_pack_end(GTK_BOX(header), g_layout_btn, FALSE, FALSE, 14);
     gtk_box_pack_start(GTK_BOX(vbox), header, FALSE, FALSE, 0);
 
     g_rows_container = gtk_vbox_new(FALSE, KEY_GAP);

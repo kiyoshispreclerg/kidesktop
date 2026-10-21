@@ -1,0 +1,5 @@
+# Emoji picker: every emoji from emoji-test.txt, by category, with search.
+# Its row lines are the bottom control row.
+name = Emoji
+kind = emoji
+row = @space=5 @bksp=2 @enter=2

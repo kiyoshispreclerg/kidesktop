@@ -12,6 +12,10 @@ PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
 LOCALEDIR := $(PREFIX)/share/locale
 PKG_CFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"'
+# --keyboard layouts are *.layout data files (see layouts/), not code.
+DATADIR := $(PREFIX)/share/xisserve
+KBDIR := $(DATADIR)/keyboard
+PKG_CFLAGS += -DXISSERVE_KBDIR_DEFAULT='"$(KBDIR)"' -DXISSERVE_EMOJI_DEFAULT='"$(DATADIR)/emoji-test.txt"'
 # Installable page modules (<flag>.so, see xisserve_page.h): looked up
 # here after ~/.local/lib/xisserve/pages. pages-api.sym exports to them
 # only the functions xisserve_page.h declares.
@@ -100,12 +104,15 @@ install: xisserve mo
 	install -Dm755 xisserve $(DESTDIR)$(BINDIR)/xisserve
 	install -Dm644 xisserve_page.h $(DESTDIR)$(INCLUDEDIR)/xisserve/xisserve_page.h
 	install -d $(DESTDIR)$(PAGEDIR)
+	install -Dm644 -t $(DESTDIR)$(KBDIR) layouts/*.layout
+	install -Dm644 data/emoji-test.txt $(DESTDIR)$(DATADIR)/emoji-test.txt
 	for lang in $(LINGUAS); do \
 		install -Dm644 po/$$lang.mo $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/xisserve.mo; \
 	done
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/xisserve $(DESTDIR)$(INCLUDEDIR)/xisserve/xisserve_page.h
+	rm -rf $(DESTDIR)$(KBDIR) $(DESTDIR)$(DATADIR)/emoji-test.txt
 	for lang in $(LINGUAS); do \
 		rm -f $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/xisserve.mo; \
 	done

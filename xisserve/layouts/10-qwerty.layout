@@ -1,0 +1,17 @@
+# xisserve --keyboard layout. Drop more *.layout files in
+# ~/.config/xisserve/keyboard/ (or the system dir) -- no rebuild needed.
+#
+# name  = label shown on the layout button
+# row   = one keyboard row, keys separated by spaces:
+#           ab   one key: lowercase "a", shifted "b" (letters: "aA")
+#           a    one key with no shifted glyph
+#           @esc @tab @bksp @enter @space @caps @shiftL @shiftR @ctrl
+#           @super @altL @altR @left @right @up @down   = special keys
+#           any key may end in =W for its relative width (@tab=1.6)
+# kind  = emoji   makes this the emoji picker (its rows are the bottom row)
+name = QWERTY
+row = @esc=1.3 1! 2@ 3# 4$ 5% 6^ 7& 8* 9( 0) -_ =+ @bksp=2
+row = @tab=1.6 qQ wW eE rR tT yY uU iI oO pP [{ ]} \|=1.3
+row = @caps=1.9 aA sS dD fF gG hH jJ kK lL ;: '" @enter=2.3
+row = @shiftL=2.4 zZ xX cC vV bB nN mM ,< .> /? @shiftR=2.4
+row = @ctrl=1.3 @super=1.1 @altL=1.1 @space=5 @altR=1.1 @left @down @up @right
