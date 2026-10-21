@@ -28,7 +28,7 @@
 #define REPORT_THROTTLE_S   1
 #define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.8"
+#define XISGUARD_VERSION    "0.4.9"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -198,7 +198,7 @@ static int secure_mode = 0;
  * executable basename (comma-separated, persisted in xnotify.conf as
  * `subscribers=`). The socket is already owner-only; this also keeps any
  * other same-user process from quietly reading activity metadata. */
-static char subscribers_allow[256] = "kistoryd,kimemoryd";
+static char subscribers_allow[256] = "kistoryd,kimemoryd,xispanel";
 
 /* Server's real drop-in rules directory (SYSCONFDIR "/xnotify.conf.d"),
  * learned on demand from the X server itself since SYSCONFDIR is a
@@ -1233,6 +1233,8 @@ static void request_server_reload(void) {
     send_raw_command("{\"command\":\"RELOAD\"}");
 }
 
+static void subscribers_broadcast_state(int enabled);
+
 /* ====================== "XNOTIFY DISABLED" NOTICE ======================
  *
  * The X server lets us switch Xnotify off at runtime ("DISABLE"). That is only
@@ -1415,15 +1417,19 @@ static void notice_request_close(void) {
 /* Handles a server STATUS datagram. Main thread (called from handle_message). */
 static void notice_on_status(int enabled) {
     if (enabled) {
-        if (server_disabled)
+        if (server_disabled) {
             log_msg("Xnotify is enabled again");
+            subscribers_broadcast_state(1);
+        }
         server_disabled = 0;
         notice_snooze_until = 0;        /* next disable should notify at once */
         notice_request_close();
         return;
     }
-    if (!server_disabled)
+    if (!server_disabled) {
         log_msg("WARNING: Xnotify is DISABLED at runtime (re-enables if XisGuard stops)");
+        subscribers_broadcast_state(0);
+    }
     server_disabled = 1;
     last_disabled_status = time(NULL);
     notice_ensure_open();
@@ -1438,6 +1444,7 @@ static void notice_tick(void) {
         log_msg("No Xnotify STATUS for %d s - assuming it re-enabled itself",
                 NOTICE_STATUS_STALE_S);
         server_disabled = 0;
+        subscribers_broadcast_state(1);
         notice_request_close();
         return;
     }
@@ -1961,8 +1968,10 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
     if (strcasecmp(cmd, "GET_STATUS") == 0) {
         snprintf(resp, resp_sz,
             "{\"ok\":true,\"version\":\"%s\",\"display\":%d,"
-            "\"no_pause\":%d,\"quiet\":%d,\"always_kill\":%d,\"log_level\":%d,\"secure_mode\":%d}\n",
-            XISGUARD_VERSION, display, no_pause_mode, quiet_mode, always_kill_mode, log_level, secure_mode);
+            "\"no_pause\":%d,\"quiet\":%d,\"always_kill\":%d,\"log_level\":%d,\"secure_mode\":%d,"
+            "\"xnotify_enabled\":%d}\n",
+            XISGUARD_VERSION, display, no_pause_mode, quiet_mode, always_kill_mode, log_level, secure_mode,
+            !server_disabled);
         return;
     }
 
@@ -2145,6 +2154,23 @@ static void subscribers_broadcast(const char *ev, int action, pid_t pid, const c
     pthread_mutex_unlock(&subscribers_lock);
 }
 
+/* {"ev":"STATE","enabled":bool,"ts":N} to every subscriber, whatever its
+ * action mask: the protection state is not an action report. */
+static void subscribers_broadcast_state(int enabled) {
+    char line[96];
+    int len = snprintf(line, sizeof(line), "{\"ev\":\"STATE\",\"enabled\":%s,\"ts\":%ld}\n",
+                       enabled ? "true" : "false", (long)time(NULL));
+    pthread_mutex_lock(&subscribers_lock);
+    for (int i = 0; i < subscriber_count; ) {
+        if (send(subscribers[i].fd, line, (size_t)len, MSG_DONTWAIT | MSG_NOSIGNAL) != len) {
+            subscriber_remove_locked(i);
+            continue;
+        }
+        i++;
+    }
+    pthread_mutex_unlock(&subscribers_lock);
+}
+
 /* Peer must be this same uid and its executable's basename must be in
  * subscribers_allow. Fills exe_out with the basename for logging. */
 static int subscriber_peer_allowed(int conn, char *exe_out, size_t exe_sz) {
@@ -2215,8 +2241,12 @@ static int try_subscribe(int conn, const char *req) {
         (void)!write(conn, full, strlen(full));
         return -1;
     }
-    const char *ok = "{\"ok\":true,\"subscribed\":true}\n";
-    (void)!write(conn, ok, strlen(ok));
+    /* The reply carries the current state, so a subscriber needs no separate
+     * query and cannot miss a change between the two. */
+    char ok[96];
+    int ok_len = snprintf(ok, sizeof(ok), "{\"ok\":true,\"subscribed\":true,\"enabled\":%s}\n",
+                          server_disabled ? "false" : "true");
+    (void)!write(conn, ok, (size_t)ok_len);
     fcntl(conn, F_SETFL, fcntl(conn, F_GETFL) | O_NONBLOCK);
     subscribers[subscriber_count].fd = conn;
     subscribers[subscriber_count].mask = mask;

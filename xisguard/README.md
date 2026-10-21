@@ -128,7 +128,14 @@ CLI options above), `LIST_RULES`, `ADD_RULE`, `REMOVE_RULE`, `RELOAD`,
 REPORT/REQUEST from the X server is then written to it as one line:
 `{"ev":"REPORT","action":"RECORD","pid":N,"exe":"...","ts":N}`. Only
 programs whose executable name is listed in `subscribers=` in
-`xnotify.conf` (default `kistoryd,kimemoryd`) may subscribe.
+`xnotify.conf` (default `kistoryd,kimemoryd,xispanel`) may subscribe.
+
+The subscribe reply carries the current protection state
+(`{"ok":true,"subscribed":true,"enabled":true}`), and every change of it
+(Xnotify disabled at runtime / re-enabled) is pushed to all subscribers,
+regardless of the `actions` filter, as `{"ev":"STATE","enabled":false,"ts":N}`.
+`GET_STATUS` also reports it as `xnotify_enabled`. `DISABLE` / `ENABLE` turn
+the enforcement off/on; a disable only lasts while the guard is alive.
 
 ### Ignore Reports
 
