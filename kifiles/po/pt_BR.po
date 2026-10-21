@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kifiles\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-21 08:05-0300\n"
+"POT-Creation-Date: 2026-10-21 08:17-0300\n"
 "PO-Revision-Date: 2026-10-15 17:32-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -409,8 +409,7 @@ msgstr "Somente escrita"
 
 #: kf_props.c:222
 msgid "Apply to all items inside the folders"
-msgstr ""
-"Aplicar a todos os itens dentro das pastas"
+msgstr "Aplicar a todos os itens dentro das pastas"
 
 #: kf_props.c:226
 msgid ""
@@ -442,7 +441,8 @@ msgid ""
 "same permissions to all of them may not be a good idea.\n"
 "\n"
 msgstr ""
-"Os itens dentro têm permissões diferentes entre si. Aplicar as mesmas permissões a todos pode não ser uma boa ideia.\n"
+"Os itens dentro têm permissões diferentes entre si. Aplicar as mesmas "
+"permissões a todos pode não ser uma boa ideia.\n"
 "\n"
 
 #: kf_props.c:372
@@ -456,10 +456,12 @@ msgid_plural ""
 "and could break things that depend on them.\n"
 "\n"
 msgstr[0] ""
-"%u item pertence a outro usuário. Alterá-lo exige acesso de administrador e pode quebrar algo que dependa dele.\n"
+"%u item pertence a outro usuário. Alterá-lo exige acesso de administrador e "
+"pode quebrar algo que dependa dele.\n"
 "\n"
 msgstr[1] ""
-"%u itens pertencem a outros usuários. Alterá-los exige acesso de administrador e pode quebrar coisas que dependam deles.\n"
+"%u itens pertencem a outros usuários. Alterá-los exige acesso de "
+"administrador e pode quebrar coisas que dependam deles.\n"
 "\n"
 
 #: kf_props.c:381
@@ -482,17 +484,16 @@ msgid ""
 "If you continue, the administrator password will be asked, and used only for "
 "the items that are not yours."
 msgstr ""
-"Se continuar, a senha de administrador será pedida e usada somente para os itens que não são seus."
+"Se continuar, a senha de administrador será pedida e usada somente para os "
+"itens que não são seus."
 
 #: kf_props.c:391
 msgid "Do you want to continue?"
-msgstr ""
-"Deseja continuar?"
+msgstr "Deseja continuar?"
 
 #: kf_props.c:393
 msgid "Apply to everything inside?"
-msgstr ""
-"Aplicar a tudo que está dentro?"
+msgstr "Aplicar a tudo que está dentro?"
 
 #: kf_props.c:396
 msgid "Continue"
@@ -524,15 +525,47 @@ msgstr ""
 msgid "Apply as administrator"
 msgstr "Aplicar como administrador"
 
-#: kf_props.c:579
+#: kf_props.c:679 kifiles.c:27
+#, c-format
+msgid "%u folder"
+msgid_plural "%u folders"
+msgstr[0] "%u pasta"
+msgstr[1] "%u pastas"
+
+#: kf_props.c:680 kifiles.c:28
+#, c-format
+msgid "%u file"
+msgid_plural "%u files"
+msgstr[0] "%u arquivo"
+msgstr[1] "%u arquivos"
+
+#: kf_props.c:681
+#, c-format
+msgid "Total size: %s (%s, %s)"
+msgstr "Tamanho total: %s (%s, %s)"
+
+#: kf_props.c:682
+#, c-format
+msgid "Calculating... (%s so far, %s, %s)"
+msgstr "Calculando... (%s até agora, %s, %s)"
+
+#: kf_props.c:719
+msgid "Calculating..."
+msgstr "Calculando..."
+
+#: kf_props.c:726
+msgid "Size unavailable"
+msgstr "Tamanho indisponível"
+
+#: kf_props.c:751
 msgid "Properties"
 msgstr "Propriedades"
 
-#: kf_props.c:592
+#: kf_props.c:770
 msgid "General"
 msgstr "Geral"
 
-#: kf_props.c:594
+#: kf_props.c:772
 msgid "Permissions"
 msgstr "Permissões"
 
@@ -555,20 +588,6 @@ msgstr "Fechar as _outras abas"
 #: kf_tabs.c:240 kifiles.c:1162
 msgid "_Close Tab"
 msgstr "_Fechar aba"
-
-#: kifiles.c:27
-#, c-format
-msgid "%u folder"
-msgid_plural "%u folders"
-msgstr[0] "%u pasta"
-msgstr[1] "%u pastas"
-
-#: kifiles.c:28
-#, c-format
-msgid "%u file"
-msgid_plural "%u files"
-msgstr[0] "%u arquivo"
-msgstr[1] "%u arquivos"
 
 #: kifiles.c:49
 #, c-format

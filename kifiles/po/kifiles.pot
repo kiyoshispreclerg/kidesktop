@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kifiles\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-21 08:05-0300\n"
+"POT-Creation-Date: 2026-10-21 08:17-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -500,15 +500,47 @@ msgstr ""
 msgid "Apply as administrator"
 msgstr ""
 
-#: kf_props.c:579
+#: kf_props.c:679 kifiles.c:27
+#, c-format
+msgid "%u folder"
+msgid_plural "%u folders"
+msgstr[0] ""
+msgstr[1] ""
+
+#: kf_props.c:680 kifiles.c:28
+#, c-format
+msgid "%u file"
+msgid_plural "%u files"
+msgstr[0] ""
+msgstr[1] ""
+
+#: kf_props.c:681
+#, c-format
+msgid "Total size: %s (%s, %s)"
+msgstr ""
+
+#: kf_props.c:682
+#, c-format
+msgid "Calculating... (%s so far, %s, %s)"
+msgstr ""
+
+#: kf_props.c:719
+msgid "Calculating..."
+msgstr ""
+
+#: kf_props.c:726
+msgid "Size unavailable"
+msgstr ""
+
+#: kf_props.c:751
 msgid "Properties"
 msgstr ""
 
-#: kf_props.c:592
+#: kf_props.c:770
 msgid "General"
 msgstr ""
 
-#: kf_props.c:594
+#: kf_props.c:772
 msgid "Permissions"
 msgstr ""
 
@@ -531,20 +563,6 @@ msgstr ""
 #: kf_tabs.c:240 kifiles.c:1162
 msgid "_Close Tab"
 msgstr ""
-
-#: kifiles.c:27
-#, c-format
-msgid "%u folder"
-msgid_plural "%u folders"
-msgstr[0] ""
-msgstr[1] ""
-
-#: kifiles.c:28
-#, c-format
-msgid "%u file"
-msgid_plural "%u files"
-msgstr[0] ""
-msgstr[1] ""
 
 #: kifiles.c:49
 #, c-format

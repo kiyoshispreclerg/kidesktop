@@ -571,6 +571,178 @@ static gboolean apply(PState *st, GtkWindow *parent)
     return ok;
 }
 
+/* ---- size, computed off the main thread -------------------------------------------- */
+
+typedef struct {
+    gint refs;                     /* the thread and the dialog each hold one */
+    GMutex lock;
+    guint64 bytes;
+    guint files, folders;
+    gboolean done;
+    volatile gint cancel;
+    GPtrArray *roots;              /* char*, owned */
+} SizeJob;
+
+static void size_job_unref(SizeJob *j)
+{
+    if (!g_atomic_int_dec_and_test(&j->refs))
+        return;
+    g_ptr_array_free(j->roots, TRUE);
+    g_mutex_clear(&j->lock);
+    g_free(j);
+}
+
+static void size_publish(SizeJob *j, guint64 b, guint fi, guint fo)
+{
+    g_mutex_lock(&j->lock);
+    j->bytes += b;
+    j->files += fi;
+    j->folders += fo;
+    g_mutex_unlock(&j->lock);
+}
+
+static gpointer size_thread(gpointer data)
+{
+    SizeJob *j = data;
+    GQueue dirs = G_QUEUE_INIT;
+    guint64 b = 0;
+    guint fi = 0, fo = 0, pending = 0;
+    for (guint i = 0; i < j->roots->len && !g_atomic_int_get(&j->cancel); i++) {
+        struct stat sb;
+        const char *r = j->roots->pdata[i];
+        if (lstat(r, &sb) != 0)
+            continue;
+        if (S_ISDIR(sb.st_mode)) {
+            fo++;
+            g_queue_push_tail(&dirs, g_strdup(r));
+        } else {
+            fi++;
+            b += (guint64)sb.st_size;
+        }
+    }
+    char *dir;
+    while (!g_atomic_int_get(&j->cancel) && (dir = g_queue_pop_head(&dirs))) {
+        DIR *d = opendir(dir);
+        if (d) {
+            for (struct dirent *e; !g_atomic_int_get(&j->cancel) && (e = readdir(d));) {
+                if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
+                    continue;
+                char *p = g_build_filename(dir, e->d_name, NULL);
+                struct stat sb;
+                if (lstat(p, &sb) != 0) {
+                    g_free(p);
+                    continue;
+                }
+                if (S_ISDIR(sb.st_mode)) {
+                    fo++;
+                    g_queue_push_tail(&dirs, p);
+                } else {
+                    fi++;
+                    b += (guint64)sb.st_size;
+                    g_free(p);
+                }
+                if (++pending >= 512) {   /* let the UI see progress */
+                    size_publish(j, b, fi, fo);
+                    b = 0;
+                    fi = fo = pending = 0;
+                }
+            }
+            closedir(d);
+        }
+        g_free(dir);
+    }
+    g_queue_free_full(&dirs, g_free);
+    size_publish(j, b, fi, fo);
+    g_mutex_lock(&j->lock);
+    j->done = TRUE;
+    g_mutex_unlock(&j->lock);
+    size_job_unref(j);
+    return NULL;
+}
+
+typedef struct {
+    SizeJob *job;
+    GtkWidget *label;
+    guint timer;
+} SizeView;
+
+static gboolean size_tick(gpointer data)
+{
+    SizeView *v = data;
+    SizeJob *j = v->job;
+    g_mutex_lock(&j->lock);
+    guint64 b = j->bytes;
+    guint fi = j->files, fo = j->folders;
+    gboolean done = j->done;
+    g_mutex_unlock(&j->lock);
+    char *sz = g_format_size_full(b, G_FORMAT_SIZE_IEC_UNITS);
+    char *fos = g_strdup_printf(ngettext("%u folder", "%u folders", fo), fo);
+    char *fis = g_strdup_printf(ngettext("%u file", "%u files", fi), fi);
+    char *t = done ? g_strdup_printf(_("Total size: %s (%s, %s)"), sz, fos, fis)
+                   : g_strdup_printf(_("Calculating... (%s so far, %s, %s)"), sz, fos, fis);
+    gtk_label_set_text(GTK_LABEL(v->label), t);
+    g_free(t);
+    g_free(sz);
+    g_free(fos);
+    g_free(fis);
+    if (done)
+        v->timer = 0;
+    return !done;
+}
+
+/* Starts counting `files` (native paths) and returns the label that shows it,
+ * or NULL when there is nothing worth counting. *view_out is freed by
+ * size_view_stop(). */
+static GtkWidget *size_view_start(GList *files, SizeView **view_out)
+{
+    gboolean any_dir = FALSE;
+    SizeJob *j = g_new0(SizeJob, 1);
+    j->refs = 2;
+    g_mutex_init(&j->lock);
+    j->roots = g_ptr_array_new_with_free_func(g_free);
+    for (GList *l = files; l; l = l->next) {
+        char *p = g_file_is_native(l->data) ? g_file_get_path(l->data) : NULL;
+        if (!p)
+            continue;
+        struct stat sb;
+        if (lstat(p, &sb) == 0 && S_ISDIR(sb.st_mode))
+            any_dir = TRUE;
+        g_ptr_array_add(j->roots, p);
+    }
+    if (!any_dir && j->roots->len < 2) {
+        size_job_unref(j);
+        size_job_unref(j);
+        return NULL;
+    }
+    SizeView *v = g_new0(SizeView, 1);
+    v->job = j;
+    v->label = gtk_label_new(_("Calculating..."));
+    gtk_label_set_selectable(GTK_LABEL(v->label), TRUE);
+    gtk_misc_set_alignment(GTK_MISC(v->label), 0, 0);
+    gtk_misc_set_padding(GTK_MISC(v->label), 10, 0);
+    GThread *t = g_thread_try_new("kifiles-size", size_thread, j, NULL);
+    if (!t) {
+        size_job_unref(j);   /* the thread's reference */
+        gtk_label_set_text(GTK_LABEL(v->label), _("Size unavailable"));
+    } else {
+        g_thread_unref(t);
+        v->timer = g_timeout_add(150, size_tick, v);
+    }
+    *view_out = v;
+    return v->label;
+}
+
+static void size_view_stop(SizeView *v)
+{
+    if (!v)
+        return;
+    g_atomic_int_set(&v->job->cancel, 1);
+    if (v->timer)
+        g_source_remove(v->timer);
+    size_job_unref(v->job);
+    g_free(v);
+}
+
 /* ---- entry point -------------------------------------------------------------------- */
 
 void kf_props_show(KfApp *app, const char *general_text, GList *files, gboolean permissions)
@@ -589,7 +761,13 @@ void kf_props_show(KfApp *app, const char *general_text, GList *files, gboolean 
     gtk_label_set_line_wrap(GTK_LABEL(gen), TRUE);
     gtk_misc_set_alignment(GTK_MISC(gen), 0, 0);
     gtk_misc_set_padding(GTK_MISC(gen), 10, 10);
-    gtk_notebook_append_page(GTK_NOTEBOOK(nb), gen, gtk_label_new(_("General")));
+    SizeView *sv = NULL;
+    GtkWidget *size_label = size_view_start(files, &sv);
+    GtkWidget *gen_box = gtk_vbox_new(FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(gen_box), gen, FALSE, FALSE, 0);
+    if (size_label)
+        gtk_box_pack_start(GTK_BOX(gen_box), size_label, FALSE, FALSE, 0);
+    gtk_notebook_append_page(GTK_NOTEBOOK(nb), gen_box, gtk_label_new(_("General")));
     if (permissions)
         gtk_notebook_append_page(GTK_NOTEBOOK(nb), build_permissions(&st), gtk_label_new(_("Permissions")));
     gtk_box_pack_start(GTK_BOX(GTK_DIALOG(dlg)->vbox), nb, TRUE, TRUE, 0);
@@ -608,6 +786,7 @@ void kf_props_show(KfApp *app, const char *general_text, GList *files, gboolean 
             break;
     }
     gtk_widget_destroy(dlg);
+    size_view_stop(sv);
     g_free(st.owner);
     g_free(st.group);
     items_free(&st);
