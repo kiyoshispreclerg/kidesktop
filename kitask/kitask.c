@@ -358,10 +358,7 @@ static void on_filter_icon(GtkEntry *e, GtkEntryIconPosition pos, GdkEvent *ev, 
 
 static gboolean on_filter_key(GtkWidget *w, GdkEventKey *ev, TskApp *app)
 {
-    if (ev->keyval == GDK_Escape) {
-        gtk_entry_set_text(GTK_ENTRY(w), "");
-        return TRUE;
-    }
+    (void)w;
     if (ev->keyval == GDK_Down || ev->keyval == GDK_Return || ev->keyval == GDK_KP_Enter) {
         gtk_widget_grab_focus(app->list);
         return TRUE;
@@ -379,11 +376,18 @@ static void on_scope(GtkComboBox *c, TskApp *app)
     tsk_app_save_soon(app);
 }
 
-/* Ctrl+F: through the window's key handler, which runs before the list's
+/* Esc clears the filter, then closes the window; Ctrl+F: through the window's key handler, which runs before the list's
  * own Ctrl+F (its interactive search popup) and needs no accelerator closure */
 static gboolean on_window_key(GtkWidget *w, GdkEventKey *ev, TskApp *app)
 {
-    (void)w;
+    if (ev->keyval == GDK_Escape && !(ev->state & (GDK_CONTROL_MASK | GDK_MOD1_MASK | GDK_SHIFT_MASK))) {
+        if (gtk_entry_get_text_length(GTK_ENTRY(app->filter)) > 0) {
+            gtk_entry_set_text(GTK_ENTRY(app->filter), "");
+            return TRUE;
+        }
+        gtk_widget_destroy(w);
+        return TRUE;
+    }
     if ((ev->keyval == GDK_f || ev->keyval == GDK_F) && (ev->state & GDK_CONTROL_MASK)) {
         gtk_widget_grab_focus(app->filter);
         gtk_editable_select_region(GTK_EDITABLE(app->filter), 0, -1);
@@ -515,7 +519,7 @@ int main(int argc, char **argv)
     tsk_graphs_push(app);
     gtk_widget_show_all(app->win);
     tsk_app_apply_graphs_visible(app);
-    gtk_widget_grab_focus(app->list);
+    gtk_widget_grab_focus(app->filter);
     g_unix_signal_add(SIGUSR1, on_raise_signal, app);
     tsk_app_restart_timers(app);
     gtk_main();
