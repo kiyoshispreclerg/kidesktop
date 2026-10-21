@@ -382,6 +382,7 @@ typedef struct {
 static const char *const EASING_OPTS[] = {"linear", "in", "out", "in-out", "spring", NULL};
 static const char *const ORIGIN3_OPTS[] = {"window", "pointer", "output", NULL};
 static const char *const ORIGIN2_OPTS[] = {"window", "pointer", NULL};
+static const char *const SLIDE_DIR_OPTS[] = {"auto", "horizontal", "vertical", NULL};
 static const char *const CROSSING_OPTS[] = {"fade", "hide", NULL};
 static const char *const ARRANGE_OPTS[] = {"stack", "grid", NULL};
 static const char *const CORNER_OPTS[] = {"top-left", "top-right", "bottom-left", "bottom-right", NULL};
@@ -430,6 +431,20 @@ static const EffectField SCALE_OUT_FIELDS[] = {
     FLD_STR("events", "Eventos", "close"),
     FLD_DBL("to", "Tamanho final (fracao)", "1.15", 0, 3, 0.05, 2),
     FLD_ENUM("origin", "Origem", "window", ORIGIN3_OPTS),
+};
+static const EffectField SLIDE_IN_FIELDS[] = {
+    FLD_DBL("duration", "Duracao (x base)", "1.0", 0, 10, 0.1, 2),
+    FLD_STR("events", "Eventos", "open,restore,desktop-enter"),
+    FLD_STR("windows", "Janelas", "popups"),
+    FLD_DBL("offset", "Deslocamento inicial (fracao)", "0.3", 0.02, 3, 0.05, 2),
+    FLD_ENUM("direction", "Direcao", "auto", SLIDE_DIR_OPTS),
+};
+static const EffectField SLIDE_OUT_FIELDS[] = {
+    FLD_DBL("duration", "Duracao (x base)", "1.0", 0, 10, 0.1, 2),
+    FLD_STR("events", "Eventos", "close"),
+    FLD_STR("windows", "Janelas", "popups"),
+    FLD_DBL("offset", "Deslocamento final (fracao)", "0.3", 0.02, 3, 0.05, 2),
+    FLD_ENUM("direction", "Direcao", "auto", SLIDE_DIR_OPTS),
 };
 static const EffectField SHADE_FIELDS[] = {
     FLD_DBL("duration", "Duracao (x base)", "1.0", 0, 10, 0.1, 2),
@@ -583,6 +598,8 @@ static const EffectSchema EFFECT_SCHEMAS[] = {
     SCHEMA("fade-out", FADE_OUT_FIELDS),
     SCHEMA("scale-in", SCALE_IN_FIELDS),
     SCHEMA("scale-out", SCALE_OUT_FIELDS),
+    SCHEMA("slide-in", SLIDE_IN_FIELDS),
+    SCHEMA("slide-out", SLIDE_OUT_FIELDS),
     SCHEMA("shade", SHADE_FIELDS),
     SCHEMA("minimize", MINIMIZE_FIELDS),
     SCHEMA("magic-lamp", MAGIC_LAMP_FIELDS),
@@ -603,7 +620,7 @@ static const EffectSchema EFFECT_SCHEMAS[] = {
 #define EFFECT_MAX_FIELDS 40 /* cube has the most, at 22 */
 
 static const char *const EFFECT_NAMES[] = {
-    "geometry", "fade-in", "fade-out", "scale-in", "scale-out", "shade", "minimize", "magic-lamp",
+    "geometry", "fade-in", "fade-out", "scale-in", "scale-out", "slide-in", "slide-out", "shade", "minimize", "magic-lamp",
     "desktop-wall", "dodge", "smooth-move", "wobbly", "expo", "stats", "zoom", "visual-bell",
     "show-windows", "cover-switch", "cube", NULL,
 };
