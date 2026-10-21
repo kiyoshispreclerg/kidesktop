@@ -8,6 +8,7 @@
  * not make (not the owner, or any chown) are retried as root through pkexec. */
 #include "kf.h"
 #include "../shared/xis_i18n.h"
+#include <dirent.h>
 #include <errno.h>
 #include <grp.h>
 #include <pwd.h>
@@ -29,6 +30,7 @@ typedef struct {
     char *path;
     guint32 mode, uid, gid;
     gboolean is_dir;
+    gboolean inherited;            /* found by recursion, not selected */
 } PItem;
 
 typedef struct {
@@ -42,6 +44,7 @@ typedef struct {
     GtkWidget *owner_combo, *group_combo;
     GtkWidget *access[3];
     GtkWidget *exec[3];
+    GtkWidget *recursive;          /* only when a folder is selected */
 } PState;
 
 static const int rw_vals[4] = { 6, 4, 2, 0 };
@@ -215,6 +218,10 @@ static GtkWidget *build_permissions(PState *st)
         g_free(who[c]);
     }
 
+    if (st->any_dir) {
+        st->recursive = gtk_check_button_new_with_label(_("Apply to all items inside the folders"));
+        gtk_box_pack_start(GTK_BOX(vb), st->recursive, FALSE, FALSE, 0);
+    }
     if (st->items->len > 1) {
         GtkWidget *l = gtk_label_new(_("\"(varied)\" means the selected items differ. Leave it alone to keep each "
                                        "item's current value, or pick one to set it on all of them."));
@@ -245,32 +252,178 @@ static guint32 wanted_mode(PState *st, const PItem *it)
         if (idx >= 0 && idx < 4)
             m = (m & ~(6u << shifts[c])) | ((guint32)rw_vals[idx] << shifts[c]);
         GtkToggleButton *ck = GTK_TOGGLE_BUTTON(st->exec[c]);
-        if (!gtk_toggle_button_get_inconsistent(ck))
+        /* The run bit chosen for a folder must not make every file inside executable. */
+        if (!gtk_toggle_button_get_inconsistent(ck) && !(it->inherited && !it->is_dir))
             m = (m & ~(1u << shifts[c])) | (gtk_toggle_button_get_active(ck) ? (1u << shifts[c]) : 0);
     }
     return m;
 }
 
+
+static void error_box(GtkWindow *parent, const char *primary, const char *secondary)
+{
+    GtkWidget *d = gtk_message_dialog_new(parent, GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE, "%s", primary);
+    if (secondary)
+        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(d), "%s", secondary);
+    gtk_dialog_run(GTK_DIALOG(d));
+    gtk_widget_destroy(d);
+}
+
+/* Runs the script as root with pkexec. It goes through stdin, not argv or a
+ * temp file: argv is capped (~128 KiB) and a file in the user's own space could
+ * be swapped while the password prompt is open. */
 static gboolean run_as_root(GtkWindow *parent, const char *script)
 {
-    char *argv[] = { "pkexec", "/bin/sh", "-c", (char *)script, NULL };
-    int status = 0;
+    char *argv[] = { "pkexec", "/bin/sh", "-s", NULL };
+    GPid pid;
+    int in_fd = -1;
     GError *err = NULL;
-    gboolean ok = g_spawn_sync(NULL, argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, &status, &err) &&
-                  g_spawn_check_exit_status(status, NULL);
-    if (!ok && status != 0 && WIFEXITED(status) && (WEXITSTATUS(status) == 126 || WEXITSTATUS(status) == 127)) {
-        /* 126: not authorized / dismissed, 127: pkexec could not run it. The
-         * user cancelling the prompt is not worth an error box. */
-    } else if (!ok) {
-        GtkWidget *d = gtk_message_dialog_new(parent, GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE, "%s",
-                                              _("Could not change the permissions"));
-        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(d), "%s",
-                                                 err ? err->message : _("The administrator command failed."));
-        gtk_dialog_run(GTK_DIALOG(d));
-        gtk_widget_destroy(d);
+    if (!g_spawn_async_with_pipes(NULL, argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_DO_NOT_REAP_CHILD, NULL, NULL, &pid,
+                                  &in_fd, NULL, NULL, &err)) {
+        error_box(parent, _("Could not change the permissions"), err ? err->message : NULL);
+        g_clear_error(&err);
+        return FALSE;
     }
-    g_clear_error(&err);
-    return ok;
+    size_t len = strlen(script), off = 0;
+    while (off < len) {
+        ssize_t n = write(in_fd, script + off, len - off);
+        if (n < 0 && errno == EINTR)
+            continue;
+        if (n <= 0)
+            break;
+        off += (size_t)n;
+    }
+    close(in_fd);
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+        ;
+    g_spawn_close_pid(pid);
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+        return TRUE;
+    /* pkexec: 126 = not authorized / prompt dismissed, 127 = could not run.
+     * Cancelling the prompt is not worth an error box. */
+    if (!(WIFEXITED(status) && (WEXITSTATUS(status) == 126 || WEXITSTATUS(status) == 127)))
+        error_box(parent, _("Could not change the permissions"), _("The administrator command failed."));
+    return FALSE;
+}
+
+/* ---- recursion ---------------------------------------------------------------------- */
+
+/* Everything below `path`, parents before children. Symlinks are listed
+ * nowhere: chmod would follow them to something outside the tree. */
+static void scan_tree(GArray *out, const char *path, guint *unreadable)
+{
+    DIR *d = opendir(path);
+    if (!d) {
+        (*unreadable)++;
+        return;
+    }
+    for (struct dirent *e; (e = readdir(d));) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
+            continue;
+        char *p = g_build_filename(path, e->d_name, NULL);
+        struct stat sb;
+        if (lstat(p, &sb) != 0 || S_ISLNK(sb.st_mode)) {
+            g_free(p);
+            continue;
+        }
+        PItem it = { p, sb.st_mode & 07777, sb.st_uid, sb.st_gid, S_ISDIR(sb.st_mode), TRUE };
+        g_array_append_val(out, it);
+        if (it.is_dir)
+            scan_tree(out, p, unreadable);
+    }
+    closedir(d);
+}
+
+static void all_free(GArray *all)
+{
+    for (guint i = 0; i < all->len; i++)
+        g_free(g_array_index(all, PItem, i).path);
+    g_array_free(all, TRUE);
+}
+
+/* Warns about what recursion would flatten or touch that is not the user's.
+ * Cancel is the default. Returns TRUE to go on. */
+static gboolean confirm_recursive(GtkWindow *parent, GArray *all, guint unreadable, gboolean *foreign_out)
+{
+    GHashTable *dm = g_hash_table_new(g_direct_hash, g_direct_equal);
+    GHashTable *fm = g_hash_table_new(g_direct_hash, g_direct_equal);
+    guint foreign = 0;
+    for (guint i = 0; i < all->len; i++) {
+        PItem *it = &g_array_index(all, PItem, i);
+        g_hash_table_add(it->is_dir ? dm : fm, GUINT_TO_POINTER(it->mode + 1));
+        if (it->uid != (guint32)geteuid() && geteuid() != 0)
+            foreign++;
+    }
+    /* Folders and files are compared apart: a tree of 755 folders and 644
+     * files is normal and not worth a warning. */
+    gboolean differ = g_hash_table_size(dm) > 1 || g_hash_table_size(fm) > 1;
+    g_hash_table_destroy(dm);
+    g_hash_table_destroy(fm);
+    *foreign_out = foreign > 0;
+    if (!differ && !foreign && !unreadable)
+        return TRUE;
+
+    GString *m = g_string_new(NULL);
+    if (differ)
+        g_string_append(m, _("The items inside have different permissions from one another. Applying the same "
+                             "permissions to all of them may not be a good idea.\n\n"));
+    if (foreign) {
+        char *t = g_strdup_printf(ngettext("%u item belongs to another user. Changing it needs administrator "
+                                           "access, and could break something that depends on it.\n\n",
+                                           "%u items belong to other users. Changing them needs administrator "
+                                           "access, and could break things that depend on them.\n\n", foreign),
+                                  foreign);
+        g_string_append(m, t);
+        g_free(t);
+    }
+    if (unreadable) {
+        char *t = g_strdup_printf(ngettext("%u folder could not be read and its contents will be skipped.\n\n",
+                                           "%u folders could not be read and their contents will be skipped.\n\n",
+                                           unreadable), unreadable);
+        g_string_append(m, t);
+        g_free(t);
+    }
+    if (foreign)
+        g_string_append(m, _("If you continue, the administrator password will be asked, and used only for the "
+                             "items that are not yours."));
+    else
+        g_string_append(m, _("Do you want to continue?"));
+    GtkWidget *d = gtk_message_dialog_new(parent, GTK_DIALOG_MODAL, GTK_MESSAGE_WARNING, GTK_BUTTONS_NONE, "%s",
+                                          _("Apply to everything inside?"));
+    gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(d), "%s", m->str);
+    g_string_free(m, TRUE);
+    gtk_dialog_add_button(GTK_DIALOG(d), _("Continue"), GTK_RESPONSE_ACCEPT);
+    GtkWidget *cancel = gtk_dialog_add_button(GTK_DIALOG(d), GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL);
+    gtk_dialog_set_default_response(GTK_DIALOG(d), GTK_RESPONSE_CANCEL);
+    gtk_widget_grab_focus(cancel);
+    int r = gtk_dialog_run(GTK_DIALOG(d));
+    gtk_widget_destroy(d);
+    return r == GTK_RESPONSE_ACCEPT;
+}
+
+/* ---- applying ----------------------------------------------------------------------- */
+
+/* Paths grouped for the root script, so a big tree is a few commands, not one
+ * process per file. */
+static void batch_add(GHashTable *h, gpointer key, const char *path)
+{
+    GPtrArray *a = g_hash_table_lookup(h, key);
+    if (!a) {
+        a = g_ptr_array_new_with_free_func(g_free);
+        g_hash_table_insert(h, key, a);
+    }
+    g_ptr_array_add(a, g_shell_quote(path));
+}
+
+static void batch_emit(GString *s, const char *cmd, GPtrArray *a)
+{
+    for (guint i = 0; i < a->len; i += 100) {
+        g_string_append_printf(s, "%s --", cmd);
+        for (guint j = i; j < a->len && j < i + 100; j++)
+            g_string_append_printf(s, " %s", (char *)a->pdata[j]);
+        g_string_append(s, " || rc=1\n");
+    }
 }
 
 /* Returns TRUE when the dialog may close. */
@@ -303,39 +456,118 @@ static gboolean apply(PState *st, GtkWindow *parent)
         ngid = gr->gr_gid;
     }
 
-    GString *script = g_string_new(NULL);
+    /* The selected items, then (when asked) everything inside the folders. */
+    GArray *all = g_array_new(FALSE, TRUE, sizeof(PItem));
     for (guint i = 0; i < st->items->len; i++) {
-        PItem *it = &g_array_index(st->items, PItem, i);
-        guint32 nm = wanted_mode(st, it);
-        char *q = g_shell_quote(it->path);
-        if ((nuid != (uid_t)-1 && nuid != it->uid) || (ngid != (gid_t)-1 && ngid != it->gid)) {
-            if (chown(it->path, nuid, ngid) != 0) {
-                /* chown first, chmod after: chown can clear setuid bits */
-                g_string_append_printf(script, "chown %s%s%s -- %s || exit 1\n",
-                                       nuid != (uid_t)-1 ? otext : "", ngid != (gid_t)-1 ? ":" : "",
-                                       ngid != (gid_t)-1 ? gtext : "", q);
-            }
-        }
-        if (nm != it->mode) {
-            if (chmod(it->path, nm) != 0)
-                g_string_append_printf(script, "chmod %04o -- %s || exit 1\n", nm, q);
-        }
-        g_free(q);
+        PItem it = g_array_index(st->items, PItem, i);
+        it.path = g_strdup(it.path);
+        g_array_append_val(all, it);
     }
+    gboolean recursive = st->recursive && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->recursive));
+    gboolean confirmed = FALSE;
+    if (recursive) {
+        GdkWindow *gw = gtk_widget_get_window(GTK_WIDGET(parent));
+        GdkCursor *busy = gdk_cursor_new(GDK_WATCH);
+        if (gw) {
+            gdk_window_set_cursor(gw, busy);
+            gdk_flush();
+        }
+        guint unreadable = 0;
+        for (guint i = 0; i < st->items->len; i++)
+            if (g_array_index(st->items, PItem, i).is_dir)
+                scan_tree(all, g_array_index(st->items, PItem, i).path, &unreadable);
+        if (gw)
+            gdk_window_set_cursor(gw, NULL);
+        gdk_cursor_unref(busy);
+        gboolean foreign = FALSE;
+        if (!confirm_recursive(parent, all, unreadable, &foreign)) {
+            all_free(all);
+            return FALSE;
+        }
+        confirmed = foreign;   /* that dialog already said the password is coming */
+    }
+
+    GHashTable *chmods = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, (GDestroyNotify)g_ptr_array_unref);
+    GPtrArray *chowns = g_ptr_array_new_with_free_func(g_free);
+    guint8 *rooted = g_malloc0(all->len);
+    guint32 *cur = g_new(guint32, all->len);
+
+    /* Ownership first: chown can clear setuid/setgid. */
+    for (guint i = 0; i < all->len; i++) {
+        PItem *it = &g_array_index(all, PItem, i);
+        cur[i] = it->mode;
+        if (((nuid != (uid_t)-1 && nuid != it->uid) || (ngid != (gid_t)-1 && ngid != it->gid)) &&
+            chown(it->path, nuid, ngid) != 0) {
+            g_ptr_array_add(chowns, g_shell_quote(it->path));
+            rooted[i] = 1;
+        }
+    }
+    /* Modes in two passes so the user never locks themselves out half-way:
+     * first only add bits, parents before children, then remove bits,
+     * children before parents. Items that need root are left to the script. */
+    for (guint i = 0; i < all->len; i++) {
+        PItem *it = &g_array_index(all, PItem, i);
+        guint32 nm = wanted_mode(st, it);
+        guint32 grow = it->mode | nm;
+        if (grow != cur[i]) {
+            if (chmod(it->path, grow) == 0)
+                cur[i] = grow;
+            else
+                rooted[i] = 1;
+        }
+    }
+    for (guint i = all->len; i-- > 0;) {
+        PItem *it = &g_array_index(all, PItem, i);
+        guint32 nm = wanted_mode(st, it);
+        if (nm != cur[i] && (rooted[i] || chmod(it->path, nm) != 0)) {
+            rooted[i] = 1;
+            batch_add(chmods, GUINT_TO_POINTER(nm + 1), it->path);
+        } else if (rooted[i] && nm != it->mode) {
+            batch_add(chmods, GUINT_TO_POINTER(nm + 1), it->path);
+        }
+    }
+
+    GString *script = g_string_new("rc=0\n");
+    if (chowns->len) {
+        char *spec = g_strdup_printf("%s%s%s", nuid != (uid_t)-1 ? otext : "", ngid != (gid_t)-1 ? ":" : "",
+                                     ngid != (gid_t)-1 ? gtext : "");
+        char *cmd = g_strdup_printf("chown %s", spec);
+        batch_emit(script, cmd, chowns);
+        g_free(cmd);
+        g_free(spec);
+    }
+    GHashTableIter hi;
+    gpointer k, v;
+    g_hash_table_iter_init(&hi, chmods);
+    while (g_hash_table_iter_next(&hi, &k, &v)) {
+        char *cmd = g_strdup_printf("chmod %04o", GPOINTER_TO_UINT(k) - 1);
+        batch_emit(script, cmd, v);
+        g_free(cmd);
+    }
+    g_string_append(script, "exit $rc\n");
+
     gboolean ok = TRUE;
-    if (script->len) {
-        GtkWidget *d = gtk_message_dialog_new(parent, GTK_DIALOG_MODAL, GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE, "%s",
-                                              _("Administrator access is needed"));
-        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(d), "%s",
-                                                 _("Some of these changes need permissions you do not have. "
-                                                   "Apply them as administrator? You will be asked for the password."));
-        gtk_dialog_add_buttons(GTK_DIALOG(d), GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL, _("Apply as administrator"),
-                               GTK_RESPONSE_ACCEPT, NULL);
-        int r = gtk_dialog_run(GTK_DIALOG(d));
-        gtk_widget_destroy(d);
+    if (chowns->len || g_hash_table_size(chmods)) {
+        int r = GTK_RESPONSE_ACCEPT;
+        if (!confirmed) {
+            GtkWidget *d = gtk_message_dialog_new(parent, GTK_DIALOG_MODAL, GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE, "%s",
+                                                  _("Administrator access is needed"));
+            gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(d), "%s",
+                                                     _("Some of these changes need permissions you do not have. "
+                                                       "Apply them as administrator? You will be asked for the password."));
+            gtk_dialog_add_buttons(GTK_DIALOG(d), GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL, _("Apply as administrator"),
+                                   GTK_RESPONSE_ACCEPT, NULL);
+            r = gtk_dialog_run(GTK_DIALOG(d));
+            gtk_widget_destroy(d);
+        }
         ok = r == GTK_RESPONSE_ACCEPT && run_as_root(parent, script->str);
     }
     g_string_free(script, TRUE);
+    g_hash_table_destroy(chmods);
+    g_ptr_array_free(chowns, TRUE);
+    g_free(rooted);
+    g_free(cur);
+    all_free(all);
     return ok;
 }
 

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kifiles\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-20 18:24-0300\n"
+"POT-Creation-Date: 2026-10-21 08:05-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -349,113 +349,166 @@ msgstr ""
 msgid "Remove _Bookmark"
 msgstr ""
 
-#: kf_props.c:19
+#: kf_props.c:20
 msgid "(varied)"
 msgstr ""
 
-#: kf_props.c:167
+#: kf_props.c:170
 msgid "Group:"
 msgstr ""
 
-#: kf_props.c:167
+#: kf_props.c:170
 msgid "Owner:"
 msgstr ""
 
-#: kf_props.c:178
+#: kf_props.c:181
 #, c-format
 msgid "Owner (%s)"
 msgstr ""
 
-#: kf_props.c:179
+#: kf_props.c:182
 #, c-format
 msgid "Group (%s)"
 msgstr ""
 
-#: kf_props.c:180
+#: kf_props.c:183
 msgid "Everyone else"
 msgstr ""
 
-#: kf_props.c:181
+#: kf_props.c:184
 msgid "Allow running as a program / entering the folder"
 msgstr ""
 
-#: kf_props.c:182
+#: kf_props.c:185
 msgid "Allow entering the folder and listing its contents"
 msgstr ""
 
-#: kf_props.c:183
+#: kf_props.c:186
 msgid "Allow running as a program"
 msgstr ""
 
-#: kf_props.c:184
+#: kf_props.c:187
 msgid "No access"
 msgstr ""
 
-#: kf_props.c:184
+#: kf_props.c:187
 msgid "Read and write"
 msgstr ""
 
-#: kf_props.c:184
+#: kf_props.c:187
 msgid "Read only"
 msgstr ""
 
-#: kf_props.c:184
+#: kf_props.c:187
 msgid "Write only"
 msgstr ""
 
-#: kf_props.c:219
+#: kf_props.c:222
+msgid "Apply to all items inside the folders"
+msgstr ""
+
+#: kf_props.c:226
 msgid ""
 "\"(varied)\" means the selected items differ. Leave it alone to keep each "
 "item's current value, or pick one to set it on all of them."
 msgstr ""
 
-#: kf_props.c:226
+#: kf_props.c:233
 msgid ""
 "You are not the owner of some of these items. The administrator password "
 "will be asked to apply changes."
 msgstr ""
 
-#: kf_props.c:266
+#: kf_props.c:283 kf_props.c:306
 msgid "Could not change the permissions"
 msgstr ""
 
-#: kf_props.c:268
+#: kf_props.c:306
 msgid "The administrator command failed."
 msgstr ""
 
-#: kf_props.c:288
+#: kf_props.c:369
+msgid ""
+"The items inside have different permissions from one another. Applying the "
+"same permissions to all of them may not be a good idea.\n"
+"\n"
+msgstr ""
+
+#: kf_props.c:372
+#, c-format
+msgid ""
+"%u item belongs to another user. Changing it needs administrator access, and "
+"could break something that depends on it.\n"
+"\n"
+msgid_plural ""
+"%u items belong to other users. Changing them needs administrator access, "
+"and could break things that depend on them.\n"
+"\n"
+msgstr[0] ""
+msgstr[1] ""
+
+#: kf_props.c:381
+#, c-format
+msgid ""
+"%u folder could not be read and its contents will be skipped.\n"
+"\n"
+msgid_plural ""
+"%u folders could not be read and their contents will be skipped.\n"
+"\n"
+msgstr[0] ""
+msgstr[1] ""
+
+#: kf_props.c:388
+msgid ""
+"If you continue, the administrator password will be asked, and used only for "
+"the items that are not yours."
+msgstr ""
+
+#: kf_props.c:391
+msgid "Do you want to continue?"
+msgstr ""
+
+#: kf_props.c:393
+msgid "Apply to everything inside?"
+msgstr ""
+
+#: kf_props.c:396
+msgid "Continue"
+msgstr ""
+
+#: kf_props.c:441
 #, c-format
 msgid "There is no user called \"%s\"."
 msgstr ""
 
-#: kf_props.c:298
+#: kf_props.c:451
 #, c-format
 msgid "There is no group called \"%s\"."
 msgstr ""
 
-#: kf_props.c:328
+#: kf_props.c:554
 msgid "Administrator access is needed"
 msgstr ""
 
-#: kf_props.c:330
+#: kf_props.c:556
 msgid ""
 "Some of these changes need permissions you do not have. Apply them as "
 "administrator? You will be asked for the password."
 msgstr ""
 
-#: kf_props.c:332
+#: kf_props.c:558
 msgid "Apply as administrator"
 msgstr ""
 
-#: kf_props.c:347
+#: kf_props.c:579
 msgid "Properties"
 msgstr ""
 
-#: kf_props.c:360
+#: kf_props.c:592
 msgid "General"
 msgstr ""
 
-#: kf_props.c:362
+#: kf_props.c:594
 msgid "Permissions"
 msgstr ""
 

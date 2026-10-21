@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kifiles\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-20 18:24-0300\n"
+"POT-Creation-Date: 2026-10-21 08:05-0300\n"
 "PO-Revision-Date: 2026-10-15 17:32-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -353,112 +353,187 @@ msgstr "_Remover com segurança"
 msgid "Remove _Bookmark"
 msgstr "Remover _favorito"
 
-#: kf_props.c:19
+#: kf_props.c:20
 msgid "(varied)"
 msgstr "(variado)"
 
-#: kf_props.c:167
+#: kf_props.c:170
 msgid "Group:"
 msgstr "Grupo:"
 
-#: kf_props.c:167
+#: kf_props.c:170
 msgid "Owner:"
 msgstr "Dono:"
 
-#: kf_props.c:178
+#: kf_props.c:181
+#, c-format
 msgid "Owner (%s)"
 msgstr "Dono (%s)"
 
-#: kf_props.c:179
+#: kf_props.c:182
 #, c-format
 msgid "Group (%s)"
 msgstr "Grupo (%s)"
 
-#: kf_props.c:180
+#: kf_props.c:183
 msgid "Everyone else"
 msgstr "Todos os outros"
 
-#: kf_props.c:181
+#: kf_props.c:184
 msgid "Allow running as a program / entering the folder"
 msgstr "Permitir executar como programa / entrar na pasta"
 
-#: kf_props.c:182
+#: kf_props.c:185
 msgid "Allow entering the folder and listing its contents"
 msgstr "Permitir entrar na pasta e listar o conteúdo"
 
-#: kf_props.c:183
+#: kf_props.c:186
 msgid "Allow running as a program"
 msgstr "Permitir executar como programa"
 
-#: kf_props.c:184
+#: kf_props.c:187
 msgid "No access"
 msgstr "Sem acesso"
 
-#: kf_props.c:184
+#: kf_props.c:187
 msgid "Read and write"
 msgstr "Leitura e escrita"
 
-#: kf_props.c:184
+#: kf_props.c:187
 msgid "Read only"
 msgstr "Somente leitura"
 
-#: kf_props.c:184
+#: kf_props.c:187
 msgid "Write only"
 msgstr "Somente escrita"
 
-#: kf_props.c:219
-msgid ""
-"\"(varied)\" means the selected items differ. Leave it alone to keep each "
-"item's current value, or pick one to set it on all of them."
-msgstr "\"(variado)\" significa que os itens selecionados diferem. Deixe como está para manter o valor atual de cada item, ou escolha um para aplicá-lo a todos."
+#: kf_props.c:222
+msgid "Apply to all items inside the folders"
+msgstr ""
+"Aplicar a todos os itens dentro das pastas"
 
 #: kf_props.c:226
 msgid ""
+"\"(varied)\" means the selected items differ. Leave it alone to keep each "
+"item's current value, or pick one to set it on all of them."
+msgstr ""
+"\"(variado)\" significa que os itens selecionados diferem. Deixe como está "
+"para manter o valor atual de cada item, ou escolha um para aplicá-lo a todos."
+
+#: kf_props.c:233
+msgid ""
 "You are not the owner of some of these items. The administrator password "
 "will be asked to apply changes."
-msgstr "Você não é o dono de alguns desses itens. A senha de administrador será pedida para aplicar as alterações."
+msgstr ""
+"Você não é o dono de alguns desses itens. A senha de administrador será "
+"pedida para aplicar as alterações."
 
-#: kf_props.c:266
+#: kf_props.c:283 kf_props.c:306
 msgid "Could not change the permissions"
 msgstr "Não foi possível alterar as permissões"
 
-#: kf_props.c:268
+#: kf_props.c:306
 msgid "The administrator command failed."
 msgstr "O comando de administrador falhou."
 
-#: kf_props.c:288
+#: kf_props.c:369
+msgid ""
+"The items inside have different permissions from one another. Applying the "
+"same permissions to all of them may not be a good idea.\n"
+"\n"
+msgstr ""
+"Os itens dentro têm permissões diferentes entre si. Aplicar as mesmas permissões a todos pode não ser uma boa ideia.\n"
+"\n"
+
+#: kf_props.c:372
+#, c-format
+msgid ""
+"%u item belongs to another user. Changing it needs administrator access, and "
+"could break something that depends on it.\n"
+"\n"
+msgid_plural ""
+"%u items belong to other users. Changing them needs administrator access, "
+"and could break things that depend on them.\n"
+"\n"
+msgstr[0] ""
+"%u item pertence a outro usuário. Alterá-lo exige acesso de administrador e pode quebrar algo que dependa dele.\n"
+"\n"
+msgstr[1] ""
+"%u itens pertencem a outros usuários. Alterá-los exige acesso de administrador e pode quebrar coisas que dependam deles.\n"
+"\n"
+
+#: kf_props.c:381
+#, c-format
+msgid ""
+"%u folder could not be read and its contents will be skipped.\n"
+"\n"
+msgid_plural ""
+"%u folders could not be read and their contents will be skipped.\n"
+"\n"
+msgstr[0] ""
+"%u pasta não pôde ser lida e seu conteúdo será ignorado.\n"
+"\n"
+msgstr[1] ""
+"%u pastas não puderam ser lidas e seu conteúdo será ignorado.\n"
+"\n"
+
+#: kf_props.c:388
+msgid ""
+"If you continue, the administrator password will be asked, and used only for "
+"the items that are not yours."
+msgstr ""
+"Se continuar, a senha de administrador será pedida e usada somente para os itens que não são seus."
+
+#: kf_props.c:391
+msgid "Do you want to continue?"
+msgstr ""
+"Deseja continuar?"
+
+#: kf_props.c:393
+msgid "Apply to everything inside?"
+msgstr ""
+"Aplicar a tudo que está dentro?"
+
+#: kf_props.c:396
+#, fuzzy
+msgid "Continue"
+msgstr "Continuar mesmo assim"
+
+#: kf_props.c:441
 #, c-format
 msgid "There is no user called \"%s\"."
 msgstr "Não existe usuário chamado \"%s\"."
 
-#: kf_props.c:298
+#: kf_props.c:451
 #, c-format
 msgid "There is no group called \"%s\"."
 msgstr "Não existe grupo chamado \"%s\"."
 
-#: kf_props.c:328
+#: kf_props.c:554
 msgid "Administrator access is needed"
 msgstr "É necessário acesso de administrador"
 
-#: kf_props.c:330
+#: kf_props.c:556
 msgid ""
 "Some of these changes need permissions you do not have. Apply them as "
 "administrator? You will be asked for the password."
-msgstr "Algumas dessas alterações exigem permissões que você não tem. Aplicá-las como administrador? A senha será solicitada."
+msgstr ""
+"Algumas dessas alterações exigem permissões que você não tem. Aplicá-las "
+"como administrador? A senha será solicitada."
 
-#: kf_props.c:332
+#: kf_props.c:558
 msgid "Apply as administrator"
 msgstr "Aplicar como administrador"
 
-#: kf_props.c:347
+#: kf_props.c:579
 msgid "Properties"
 msgstr "Propriedades"
 
-#: kf_props.c:360
+#: kf_props.c:592
 msgid "General"
 msgstr "Geral"
 
-#: kf_props.c:362
+#: kf_props.c:594
 msgid "Permissions"
 msgstr "Permissões"
 
