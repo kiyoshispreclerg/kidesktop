@@ -56,7 +56,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.2.1"
+#define XISSERVE_VERSION "0.2.2"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -209,6 +209,7 @@ static GtkWidget *g_result_list_scroll; /* wraps g_treeview */
 static GtkWidget *g_iconview;
 static GtkWidget *g_result_grid_scroll; /* wraps g_iconview */
 static GtkWidget *g_grid_toggle_btn;
+static GtkWidget *g_edit_btn; /* opens kiconf on the "Menu de programas" tab */
 /* "LAUNCHER\tgrid_columns" in xisserve.conf -- reloaded (along with
  * everything else load_config() owns) on every show_launcher(), so an
  * edit takes effect on next open without restarting the daemon. The
@@ -2175,6 +2176,15 @@ static void hide_launcher(void)
     reset_pin();
 }
 
+/* kiconf matches --tab on the untranslated tab label. */
+static void on_edit_clicked(GtkButton *btn, gpointer data)
+{
+    (void)btn;
+    (void)data;
+    xis_spawn_detached("kiconf --tab 'Menu de programas'");
+    hide_launcher();
+}
+
 /* ---- search plugins ------------------------------------------------------- */
 
 /* kSearchPlugins/g_plugin_enabled/load_config() live earlier,
@@ -2551,12 +2561,14 @@ static void apply_view_mode(void)
         gtk_widget_show(g_footer_sep);
         gtk_widget_show(g_footer);
         gtk_widget_show(g_grid_toggle_btn);
+        gtk_widget_show(g_edit_btn);
     } else {
         gtk_widget_hide(g_entry);
         gtk_widget_hide(g_content_box);
         gtk_widget_hide(g_footer_sep);
         gtk_widget_hide(g_footer);
         gtk_widget_hide(g_grid_toggle_btn);
+        gtk_widget_hide(g_edit_btn);
     }
 
     /* set_size_request() alone only changes what GTK's layout engine
@@ -3462,6 +3474,12 @@ static void build_ui(void)
     gtk_widget_set_tooltip_text(g_grid_toggle_btn, _("Alternar entre lista e grade de icones"));
     g_signal_connect(g_grid_toggle_btn, "toggled", G_CALLBACK(on_grid_toggle), NULL);
     gtk_box_pack_end(GTK_BOX(g_header), g_grid_toggle_btn, FALSE, FALSE, 0);
+
+    /* Launcher view only, like the grid toggle. */
+    g_edit_btn = gtk_button_new_with_label(_("Editar"));
+    gtk_widget_set_tooltip_text(g_edit_btn, _("Editar o menu de programas no kiconf"));
+    g_signal_connect(g_edit_btn, "clicked", G_CALLBACK(on_edit_clicked), NULL);
+    gtk_box_pack_end(GTK_BOX(g_header), g_edit_btn, FALSE, FALSE, 0);
 
     g_entry = gtk_entry_new();
     g_signal_connect(g_entry, "changed", G_CALLBACK(on_entry_changed), NULL);

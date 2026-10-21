@@ -886,3 +886,7 @@ msgstr ""
 #: pages/audio.c
 msgid "Permitir volume acima de 100%"
 msgstr ""
+
+#: xisserve.c
+msgid "Editar o menu de programas no kiconf"
+msgstr ""
