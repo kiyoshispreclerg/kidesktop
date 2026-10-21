@@ -914,7 +914,14 @@ static int thumb_excluded(Window win, int *out_w, int *out_h)
     unsigned long n, after;
     unsigned char *data = NULL;
     int excluded = 0;
-    if (XGetWindowProperty(g_dpy, win, atom, 0, 1, False, XA_CARDINAL, &type, &fmt, &n, &after, &data) == Success) {
+    /* The window being hovered can close between the tasklist listing it
+     * and this paint -- a routine race, not worth a line in the log each
+     * time the (400 ms) cache expires. Both requests are round trips, so
+     * the error is delivered before they return. */
+    XErrorHandler prev = XSetErrorHandler(thumb_error_handler);
+    g_thumb_had_error = 0;
+    if (XGetWindowProperty(g_dpy, win, atom, 0, 1, False, XA_CARDINAL, &type, &fmt, &n, &after, &data) == Success &&
+        !g_thumb_had_error) {
         excluded = type == XA_CARDINAL && fmt == 32 && n > 0 && *(unsigned long *)data != 0;
         if (data) {
             XFree(data);
@@ -924,6 +931,8 @@ static int thumb_excluded(Window win, int *out_w, int *out_h)
     if (excluded && !XGetWindowAttributes(g_dpy, win, &wa)) {
         wa.width = wa.height = 0;
     }
+    XSetErrorHandler(prev);
+    g_thumb_had_error = 0;
     g_excl[slot].win = win;
     g_excl[slot].until = now + EXCL_TTL_MS;
     g_excl[slot].excluded = excluded;
