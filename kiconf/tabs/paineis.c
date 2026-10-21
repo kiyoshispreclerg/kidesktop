@@ -660,6 +660,7 @@ static const WidgetSchema WIDGET_SCHEMAS[] = {
     WSCHEMA("folder", FOLDER_FIELDS),
     WSCHEMA("xisserve", XISSERVE_FIELDS),
     WSCHEMA("container", CONTAINER_FIELDS),
+    {"xisguard", NULL, 0}, /* no options */
 };
 #undef WSCHEMA
 #define N_WIDGET_SCHEMAS ((int)(sizeof(WIDGET_SCHEMAS) / sizeof(WIDGET_SCHEMAS[0])))
@@ -668,14 +669,14 @@ static const WidgetSchema WIDGET_SCHEMAS[] = {
 static const char *const WIDGET_TYPE_NAMES[] = {
     "spacer", "clock", "tasklist", "pager", "monitor", "winctl", "tray", "launcher",
     "volume", "energy", "network", "storage", "clipboard", "lockkeys", "notif", "globalmenu", "folder", "xisserve",
-    "container",
+    "xisguard", "container",
     NULL,
 };
 /* The only types xispanel accepts on a mode=container panel (its
  * `embeddable` PanelWidgetOps flag -- keep in sync with the widget files
  * under xispanel/widgets/). Deliberately no `container`: they don't nest. */
 static const char *const EMBEDDABLE_TYPE_NAMES[] = {
-    "monitor", "tray", "launcher", "volume", "energy", "network", "storage", "clipboard", "lockkeys", "notif", "folder", NULL,
+    "monitor", "tray", "launcher", "volume", "energy", "network", "storage", "clipboard", "lockkeys", "notif", "folder", "xisguard", NULL,
 };
 
 
@@ -1544,7 +1545,7 @@ static GtkWidget *build_transfer_submenu(int move, int all_embeddable)
             if (container && !all_embeddable) {
                 gtk_widget_set_sensitive(mi, FALSE);
                 gtk_widget_set_tooltip_text(mi, _("Um container so aceita monitor, tray, launcher, volume, energy, "
-                                                  "network, storage, clipboard, lockkeys, notif e folder"));
+                                                  "network, storage, clipboard, lockkeys, notif, folder e xisguard"));
             }
             gtk_menu_shell_append(GTK_MENU_SHELL(menu), mi);
             any = 1;
