@@ -31,6 +31,17 @@
 
 #define XG_RECONNECT_MS 3000
 #define XG_LINE_MAX 1024
+/* A program is "constantly" using something when its REPORTs for the same
+ * action keep coming: XG_BURST_COUNT within XG_BURST_WINDOW_S. One toast
+ * per program+action, then quiet for XG_BURST_COOLDOWN_S even if it goes on. */
+#define XG_BURST_COUNT 4
+#define XG_BURST_WINDOW_S 20
+#define XG_BURST_COOLDOWN_S 300
+#define XG_BURST_KEYS 16
+
+#ifndef N_
+#define N_(s) (s)
+#endif
 
 static int g_fd = -1;
 static uint64_t g_retry_at_ms = 0;
@@ -117,6 +128,79 @@ static void set_enabled(int enabled, int announce)
     }
 }
 
+/* What a guard action means, as a verb phrase after the program's name. */
+const char *xisguard_action_text(const char *action)
+{
+    static const struct {
+        const char *name;
+        const char *text;
+    } map[] = {
+        { "ATTACH", N_("usa mem\xc3\xb3ria compartilhada") },
+        { "SELECTION", N_("acessa a \xc3\xa1rea de transfer\xc3\xaancia") },
+        { "COMPOSITE", N_("acessa outras janelas") },
+        { "SCREEN", N_("captura a tela") },
+        { "RECORD", N_("grava eventos (teclas)") },
+        { "CURSOR", N_("l\xc3\xaa o cursor do mouse") },
+        { "INPUT_GRAB", N_("captura mouse/teclado") },
+        { "INPUT_INJECT", N_("insere teclas") },
+        { "HOTKEY", N_("registra atalhos globais") },
+        { "INPUT", N_("captura entrada sem foco") },
+        { "MANAGE", N_("lista outras janelas") },
+        { "GRAB_OVERRIDE", N_("toma o controle de entrada") },
+        { "WARP", N_("move o cursor do mouse") },
+        { "FOCUS", N_("rouba o foco") },
+        { "RANDR", N_("altera a configura\xc3\xa7\xc3\xa3o das telas") },
+        { "OVERLAY", N_("cria janela sobreposta") },
+    };
+    for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++) {
+        if (strcmp(map[i].name, action) == 0) {
+            return _(map[i].text);
+        }
+    }
+    return action;
+}
+
+typedef struct {
+    char exe[96], action[16];
+    int count;
+    time_t window_start, last_toast;
+} BurstKey;
+static BurstKey g_burst[XG_BURST_KEYS];
+
+/* Toasts once when `exe` keeps using `action` (see XG_BURST_*). */
+static void burst_check(const char *action, const char *exe, time_t ts)
+{
+    BurstKey *k = NULL, *oldest = &g_burst[0];
+    for (int i = 0; i < XG_BURST_KEYS; i++) {
+        if (!strcmp(g_burst[i].exe, exe) && !strcmp(g_burst[i].action, action)) {
+            k = &g_burst[i];
+            break;
+        }
+        if (g_burst[i].window_start < oldest->window_start) {
+            oldest = &g_burst[i];
+        }
+    }
+    if (!k) {
+        k = oldest;
+        memset(k, 0, sizeof(*k));
+        snprintf(k->exe, sizeof(k->exe), "%s", exe);
+        snprintf(k->action, sizeof(k->action), "%s", action);
+    }
+    if (k->count == 0 || ts - k->window_start > XG_BURST_WINDOW_S) {
+        k->window_start = ts;
+        k->count = 0;
+    }
+    if (++k->count < XG_BURST_COUNT || (k->last_toast && ts - k->last_toast < XG_BURST_COOLDOWN_S)) {
+        return;
+    }
+    k->last_toast = ts;
+    k->count = 0;
+    char body[200];
+    snprintf(body, sizeof(body), _("%s: %s"), exe[0] ? exe : "?", xisguard_action_text(action));
+    toast_show_osd(xispanel_first_panel_icon("security-medium", 32), _("Uso constante detectado"), body, -1,
+                   TOAST_URGENCY_NORMAL, 6000, NULL);
+}
+
 static void history_add(const char *ev, const char *action, const char *exe, long ts)
 {
     XisguardHistoryEntry *h = &g_state.history[g_state.history_head];
@@ -142,7 +226,11 @@ static void handle_line(const char *line)
             jstr(line, "action", action, sizeof(action));
             jstr(line, "exe", exe, sizeof(exe));
             const char *t = strstr(line, "\"ts\":");
-            history_add(ev, action, exe, t ? atol(t + 5) : (long)time(NULL));
+            long ts = t ? atol(t + 5) : (long)time(NULL);
+            history_add(ev, action, exe, ts);
+            if (strcmp(ev, "REPORT") == 0) {
+                burst_check(action, exe, (time_t)ts);
+            }
         }
         return;
     }

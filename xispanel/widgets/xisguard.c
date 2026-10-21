@@ -17,10 +17,6 @@
 
 #include <X11/Xlib.h>
 
-#ifndef N_
-#define N_(s) (s)
-#endif
-
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -152,38 +148,6 @@ static const XisguardHistoryEntry *xg_hist(const XisguardEvents *ev, int i)
     return &ev->history[(ev->history_head + XISGUARD_HISTORY_MAX - 1 - i) % XISGUARD_HISTORY_MAX];
 }
 
-/* What a guard action means, as a verb phrase after the program's name. */
-static const char *xg_action_text(const char *action)
-{
-    static const struct {
-        const char *name;
-        const char *text;
-    } map[] = {
-        { "ATTACH", N_("usa mem\xc3\xb3ria compartilhada") },
-        { "SELECTION", N_("acessa a \xc3\xa1rea de transfer\xc3\xaancia") },
-        { "COMPOSITE", N_("acessa outras janelas") },
-        { "SCREEN", N_("captura a tela") },
-        { "RECORD", N_("grava eventos (teclas)") },
-        { "CURSOR", N_("l\xc3\xaa o cursor do mouse") },
-        { "INPUT_GRAB", N_("captura mouse/teclado") },
-        { "INPUT_INJECT", N_("insere teclas") },
-        { "HOTKEY", N_("registra atalhos globais") },
-        { "INPUT", N_("captura entrada sem foco") },
-        { "MANAGE", N_("lista outras janelas") },
-        { "GRAB_OVERRIDE", N_("toma o controle de entrada") },
-        { "WARP", N_("move o cursor do mouse") },
-        { "FOCUS", N_("rouba o foco") },
-        { "RANDR", N_("altera a configura\xc3\xa7\xc3\xa3o das telas") },
-        { "OVERLAY", N_("cria janela sobreposta") },
-    };
-    for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++) {
-        if (strcmp(map[i].name, action) == 0) {
-            return _(map[i].text);
-        }
-    }
-    return action;
-}
-
 /* "firefox: captura a tela (12s)"; a REQUEST (asked, not yet using) says so. */
 static void xg_hist_label(char *out, size_t outsz, const XisguardHistoryEntry *h)
 {
@@ -191,9 +155,9 @@ static void xg_hist_label(char *out, size_t outsz, const XisguardHistoryEntry *h
     fmt_age(age, sizeof(age), h->ts);
     const char *exe = h->exe[0] ? h->exe : "?";
     if (strcmp(h->ev, "REQUEST") == 0) {
-        snprintf(out, outsz, _("%s pediu: %s (%s)"), exe, xg_action_text(h->action), age);
+        snprintf(out, outsz, _("%s pediu: %s (%s)"), exe, xisguard_action_text(h->action), age);
     } else {
-        snprintf(out, outsz, "%s: %s (%s)", exe, xg_action_text(h->action), age);
+        snprintf(out, outsz, "%s: %s (%s)", exe, xisguard_action_text(h->action), age);
     }
 }
 

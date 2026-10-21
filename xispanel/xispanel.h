@@ -1835,7 +1835,8 @@ void audio_events_poll(void);
  * One SUBSCRIBE connection to xisguard's control socket (see xisguard/
  * README.md -- the contract any other desktop's tray can use too). Same
  * main-loop plumbing as audio_events_fd()/audio_events_poll(). Toasts when
- * the protection is switched off/on; the `xisguard` widget reads the state.
+ * the protection is switched off/on, and when a program keeps using the same
+ * thing (a burst of REPORTs, once per program+action per few minutes); the `xisguard` widget reads the state.
  * `generation` changes whenever anything in it does. */
 #define XISGUARD_HISTORY_MAX 8
 typedef struct {
@@ -1852,6 +1853,8 @@ typedef struct {
     int history_head;
     int history_count;
 } XisguardEvents;
+/* Verb phrase for a guard action name ("SCREEN" -> "captura a tela"). */
+const char *xisguard_action_text(const char *action);
 int xisguard_events_fd(void);
 void xisguard_events_poll(void);
 const XisguardEvents *xisguard_events_get(void);
