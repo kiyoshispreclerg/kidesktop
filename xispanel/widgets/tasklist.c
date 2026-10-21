@@ -1090,7 +1090,8 @@ static void tasklist_measure(PanelWidget *w, int cross_axis, int *out_len, int *
             bw = cross_axis;
         } else {
             double tw;
-            pango_text_extents_panel(p->cr, tasklist_slot_title(tp, d), panel_text_size(p), 0, &tw, NULL, p);
+            pango_text_extents_panel_bold(p->cr, tasklist_slot_title(tp, d), panel_text_size(p), 0, e->urgent, &tw, NULL,
+                                           p);
             bw = icon_px + 8 + (int)tw + 8;
             if (bw > TASKLIST_WIDE_MAXW) {
                 bw = TASKLIST_WIDE_MAXW;

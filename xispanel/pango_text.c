@@ -166,7 +166,15 @@ void pango_text_extents_ellipsized(cairo_t *cr, const char *text, double size_px
 void pango_text_extents_panel(cairo_t *cr, const char *text, double size_px, double max_width_px, double *out_w,
                                double *out_h, const Panel *p)
 {
-    int weight = p && p->font_weight ? p->font_weight : PANGO_WEIGHT_NORMAL;
+    pango_text_extents_panel_bold(cr, text, size_px, max_width_px, 0, out_w, out_h, p);
+}
+
+/* pango_text_extents_panel() for text that pango_show_text_boxed_bold()
+ * will draw with `bold` set (forces bold regardless of the theme weight). */
+void pango_text_extents_panel_bold(cairo_t *cr, const char *text, double size_px, double max_width_px, int bold,
+                                    double *out_w, double *out_h, const Panel *p)
+{
+    int weight = bold ? PANGO_WEIGHT_BOLD : (p && p->font_weight ? p->font_weight : PANGO_WEIGHT_NORMAL);
     PangoLayout *layout = build_layout(cr, text, size_px, max_width_px, weight);
     int lw, lh;
     pango_layout_get_pixel_size(layout, &lw, &lh);

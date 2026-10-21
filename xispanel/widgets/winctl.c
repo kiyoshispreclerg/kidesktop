@@ -448,7 +448,7 @@ static void winctl_measure(PanelWidget *w, int cross_axis, int *out_len, int *ou
     int len = 8 + icon_px + 8;
     if (wp->title[0]) {
         double tw;
-        pango_text_extents_ellipsized(p->cr, wp->title, panel_text_size(p), 0, &tw, NULL);
+        pango_text_extents_panel(p->cr, wp->title, panel_text_size(p), 0, &tw, NULL, p);
         if (tw > 220) {
             tw = 220;
         }
@@ -532,7 +532,7 @@ static void winctl_paint(PanelWidget *w, cairo_t *cr)
         (void)oheight;
         cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.95);
         double tw;
-        pango_text_extents_ellipsized(cr, text, panel_text_size(p), owidth - 16, &tw, NULL);
+        pango_text_extents_panel(cr, text, panel_text_size(p), owidth - 16, &tw, NULL, p);
         pango_show_text_boxed(cr, ox + (owidth - tw) / 2.0, oy, w->thickness, owidth - 16, panel_text_size(p), text,
                                NULL, p);
         return;

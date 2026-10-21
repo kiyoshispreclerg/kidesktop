@@ -306,7 +306,7 @@ static void globalmenu_layout(PanelWidget *w)
     int x = 0;
     for (int i = 0; i < gp->n_top; i++) {
         double tw;
-        pango_text_extents_ellipsized(p->cr, gp->top_items[i].label, panel_text_size(p), 0, &tw, NULL);
+        pango_text_extents_panel(p->cr, gp->top_items[i].label, panel_text_size(p), 0, &tw, NULL, p);
         int bw = (int)tw + GLOBALMENU_ITEM_PAD * 2;
         gp->btn_x[i] = x;
         gp->btn_w[i] = bw;
@@ -386,7 +386,7 @@ static void globalmenu_paint(PanelWidget *w, cairo_t *cr)
             cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.95);
         }
         double tw;
-        pango_text_extents_ellipsized(cr, gp->top_items[i].label, panel_text_size(p), 0, &tw, NULL);
+        pango_text_extents_panel(cr, gp->top_items[i].label, panel_text_size(p), 0, &tw, NULL, p);
         double tx = ox + gp->btn_x[i] + (gp->btn_w[i] - tw) / 2.0;
         pango_show_text_boxed(cr, tx, oy, oheight, 0, panel_text_size(p), gp->top_items[i].label, NULL, p);
     }

@@ -621,7 +621,7 @@ static void monitor_measure(PanelWidget *w, int cross_axis, int *out_len, int *o
             snprintf(sample, sizeof(sample), "%s", metric_is_temp(mp->metric) ? "100°C" : "100%");
         }
         double tw;
-        pango_text_extents_ellipsized(p->cr, sample, monitor_text_size(mp, p), 0, &tw, NULL);
+        pango_text_extents_panel(p->cr, sample, monitor_text_size(mp, p), 0, &tw, NULL, p);
         len = (int)tw + 8;
         if (mp->style == STYLE_BOTH) {
             len += mp->vertical ? 10 : 0;
@@ -708,7 +708,7 @@ static void monitor_paint(PanelWidget *w, cairo_t *cr)
     if (mp->style != STYLE_BAR) {
         double size = monitor_text_size(mp, p);
         double tw;
-        pango_text_extents_ellipsized(cr, mp->text, size, 0, &tw, NULL);
+        pango_text_extents_panel(cr, mp->text, size, 0, &tw, NULL, p);
         int text_x = x, text_w = width, text_h = height;
         if (mp->style == STYLE_BOTH) {
             if (mp->vertical) {
