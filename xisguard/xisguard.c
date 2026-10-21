@@ -28,7 +28,7 @@
 #define REPORT_THROTTLE_S   1
 #define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.7"
+#define XISGUARD_VERSION    "0.4.8"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -1233,6 +1233,217 @@ static void request_server_reload(void) {
     send_raw_command("{\"command\":\"RELOAD\"}");
 }
 
+/* ====================== "XNOTIFY DISABLED" NOTICE ======================
+ *
+ * The X server lets us switch Xnotify off at runtime ("DISABLE"). That is only
+ * acceptable if the user cannot forget about it, so the server is built to be
+ * noisy and self-healing about it:
+ *
+ *   - while disabled, it re-sends a STATUS datagram ({"enabled":false}) to us
+ *     every ~5 s (piggybacked on its guard-liveness timer);
+ *   - the disable only lasts as long as our heartbeat (send_heartbeat()): if we
+ *     crash, are killed or exit, the server re-enables itself within ~5 s.
+ *
+ * Our half of the contract is below. Every "enabled":false STATUS is treated as
+ * "still disabled" and keeps a persistent dialog on screen that offers to
+ * re-enable. When STATUS stops arriving, or says enabled:true, the dialog is
+ * closed. Two rules to keep in mind when changing this code:
+ *
+ *   1. NEVER block the main loop here. It sends the heartbeat; if it stalls for
+ *      more than the server's GUARD_HEARTBEAT_TIMEOUT (5 s) the server will
+ *      declare us dead and re-enable. That is safe but confusing for the user.
+ *      So the dialog lives in its own thread (disabled_notice_loop()).
+ *   2. ENABLE/DISABLE must be sent from THIS process: the server authenticates
+ *      the sender by SCM_CREDENTIALS + /proc/<pid>/exe, which must match the
+ *      "ALLOW XNOTIFY" rule for xisguard. A helper child would be rejected.
+ */
+
+/* No STATUS for this long while we believe the server is disabled => assume it
+ * re-enabled itself (e.g. our heartbeat lapsed) and drop the dialog. The server
+ * sends one every ~5 s, so 12 s tolerates a lost datagram or two. */
+#define NOTICE_STATUS_STALE_S   12
+/* After the user dismisses the dialog without re-enabling, leave them alone
+ * this long before showing it again (the server is still disabled). */
+#define NOTICE_SNOOZE_S         60
+
+/* Written by the main thread (STATUS handler / notice_tick()); read by it too.
+ * The dialog thread only reads notice_close_requested. */
+static int server_disabled = 0;               /* last STATUS said enabled:false */
+static time_t last_disabled_status = 0;       /* when that STATUS arrived */
+static time_t notice_snooze_until = 0;        /* don't re-open before this */
+
+static pthread_t notice_thread;
+static int notice_thread_valid = 0;           /* notice_thread needs a join */
+static volatile int notice_active = 0;        /* dialog thread is running */
+/* volatile sig_atomic_t: also set from cleanup(), which runs in a signal handler */
+static volatile sig_atomic_t notice_close_requested = 0;
+
+/* Dialog thread: runs xisserve/zenity as a child, waits for the user's answer
+ * and, if they chose "re-enable", sends ENABLE. Polls its pipe with a short
+ * timeout so it can notice notice_close_requested and kill the dialog. */
+static void *disabled_notice_loop(void *arg) {
+    (void)arg;
+
+    char text[512];
+    snprintf(text, sizeof(text), "%s\n%s",
+        _("Xnotify protection is DISABLED."),
+        _("It is re-enabled automatically if XisGuard stops or is closed."));
+
+    char text_arg[600], b_enable[160], b_keep[160];
+    snprintf(text_arg, sizeof(text_arg), "--text=%s", text);
+
+    int is_xisserve = (dialog_backend == DIALOG_XISSERVE);
+    /* argv is built before fork(): nothing but dup2/exec happens in the child. */
+    char *argv_xisserve[] = {
+        "xisserve", "--question", text_arg, b_enable, b_keep, NULL };
+    char ok_arg[200], cancel_arg[200];
+    char *argv_zenity[] = {
+        "zenity", "--question", "--title=XisGuard", "--icon-name=dialog-warning",
+        text_arg, ok_arg, cancel_arg, "--no-wrap", NULL };
+
+    /* xisserve prints the clicked button's value ("1" = re-enable, "0" = keep
+     * disabled); zenity signals the same through its exit code (0 = OK). */
+    snprintf(b_enable, sizeof(b_enable), "--button=%s:1", _("Re-enable Xnotify"));
+    snprintf(b_keep, sizeof(b_keep), "--button=%s:0", _("Keep disabled"));
+    snprintf(ok_arg, sizeof(ok_arg), "--ok-label=%s", _("Re-enable Xnotify"));
+    snprintf(cancel_arg, sizeof(cancel_arg), "--cancel-label=%s", _("Keep disabled"));
+
+    int pfd[2];
+    if (pipe(pfd) != 0) {
+        log_msg("Disabled notice: pipe() failed: %s", strerror(errno));
+        notice_active = 0;
+        return NULL;
+    }
+
+    pid_t child = fork();
+    if (child < 0) {
+        log_msg("Disabled notice: fork() failed: %s", strerror(errno));
+        close(pfd[0]); close(pfd[1]);
+        notice_active = 0;
+        return NULL;
+    }
+    if (child == 0) {
+        dup2(pfd[1], STDOUT_FILENO);
+        close(pfd[0]); close(pfd[1]);
+        int devnull = open("/dev/null", O_WRONLY);
+        if (devnull >= 0) dup2(devnull, STDERR_FILENO);
+        if (is_xisserve) execvp("xisserve", argv_xisserve);
+        else             execvp("zenity", argv_zenity);
+        _exit(127);
+    }
+    close(pfd[1]);
+
+    log_msg("Showing 'Xnotify disabled' notice");
+
+    char out[32] = {0};
+    size_t n = 0;
+    int closed_by_us = 0;
+    for (;;) {
+        if (notice_close_requested) {   /* server re-enabled, or we are exiting */
+            kill(child, SIGTERM);
+            closed_by_us = 1;
+            break;
+        }
+        struct pollfd p = { .fd = pfd[0], .events = POLLIN };
+        int r = poll(&p, 1, 500);
+        if (r > 0) {
+            ssize_t k = read(pfd[0], out + n, sizeof(out) - 1 - n);
+            if (k <= 0) break;          /* EOF: the dialog closed */
+            n += (size_t)k;
+        } else if (r < 0 && errno != EINTR) {
+            break;
+        }
+    }
+    close(pfd[0]);
+
+    int status = 0;
+    waitpid(child, &status, 0);
+
+    int reenable = 0;
+    if (!closed_by_us) {
+        reenable = is_xisserve ? (atoi(out) == 1)
+                               : (WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    }
+
+    if (reenable) {
+        log_msg("Disabled notice: user asked to re-enable Xnotify");
+        send_raw_command("{\"command\":\"ENABLE\"}");
+        /* The server answers with STATUS enabled:true, which clears our state. */
+    } else if (!closed_by_us) {
+        /* Dismissed / "Keep disabled": still disabled, so don't nag instantly. */
+        notice_snooze_until = time(NULL) + NOTICE_SNOOZE_S;
+        log_msg("Disabled notice dismissed; snoozed for %d s", NOTICE_SNOOZE_S);
+    }
+
+    notice_active = 0;
+    return NULL;
+}
+
+/* Opens the dialog if the server is disabled and none is showing. Main thread. */
+static void notice_ensure_open(void) {
+    if (notice_active || should_exit)
+        return;
+    if (time(NULL) < notice_snooze_until)
+        return;
+    if (dialog_backend == DIALOG_NONE) {
+        /* Nothing to show it with. The log is the only trace; the periodic
+         * STATUS still reaches us, so keep it at a low-noise level. */
+        log_filtered(2, "Xnotify is disabled but no dialog backend is available to tell the user");
+        return;
+    }
+
+    /* The previous thread has finished (notice_active == 0): reap it first. */
+    if (notice_thread_valid) {
+        pthread_join(notice_thread, NULL);
+        notice_thread_valid = 0;
+    }
+    notice_close_requested = 0;
+    notice_active = 1;
+    if (pthread_create(&notice_thread, NULL, disabled_notice_loop, NULL) == 0) {
+        notice_thread_valid = 1;
+    } else {
+        notice_active = 0;
+        log_msg("Disabled notice: pthread_create failed");
+    }
+}
+
+/* Asks a running dialog to close itself. Async-signal-safe (used by cleanup()). */
+static void notice_request_close(void) {
+    notice_close_requested = 1;
+}
+
+/* Handles a server STATUS datagram. Main thread (called from handle_message). */
+static void notice_on_status(int enabled) {
+    if (enabled) {
+        if (server_disabled)
+            log_msg("Xnotify is enabled again");
+        server_disabled = 0;
+        notice_snooze_until = 0;        /* next disable should notify at once */
+        notice_request_close();
+        return;
+    }
+    if (!server_disabled)
+        log_msg("WARNING: Xnotify is DISABLED at runtime (re-enables if XisGuard stops)");
+    server_disabled = 1;
+    last_disabled_status = time(NULL);
+    notice_ensure_open();
+}
+
+/* Called every main-loop iteration: gives up on a "disabled" state whose STATUS
+ * stream has gone quiet, and re-opens the dialog after a snooze expires. */
+static void notice_tick(void) {
+    if (!server_disabled)
+        return;
+    if (time(NULL) - last_disabled_status > NOTICE_STATUS_STALE_S) {
+        log_msg("No Xnotify STATUS for %d s - assuming it re-enabled itself",
+                NOTICE_STATUS_STALE_S);
+        server_disabled = 0;
+        notice_request_close();
+        return;
+    }
+    notice_ensure_open();
+}
+
 /* Blocks (briefly) until secure_conf_dir is known, requesting it from the
  * server if needed. Returns 1 and fills out on success, 0 on timeout. */
 static int wait_for_secure_conf_dir(char *out, size_t out_sz, int timeout_ms) {
@@ -1472,6 +1683,16 @@ void handle_message(const char *msg) {
             pthread_mutex_unlock(&secure_conf_lock);
             log_filtered(2, "Secure mode: server config directory is %s", dir);
         }
+        return;
+    }
+
+    /* Server's periodic/answer STATUS ({"command":"STATUS","enabled":bool,...}).
+     * No action/pid either, so it must also be handled before the bail-out. It
+     * drives the "Xnotify disabled" notice, see notice_on_status(). */
+    if (strcmp(command, "STATUS") == 0) {
+        const char *e = strstr(msg, "\"enabled\":");
+        if (e)
+            notice_on_status(strncmp(e + 10, "true", 4) == 0);
         return;
     }
 
@@ -1768,6 +1989,19 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
         snprintf(resp, resp_sz,
             "{\"ok\":true,\"no_pause\":%d,\"quiet\":%d,\"always_kill\":%d,\"log_level\":%d,\"secure_mode\":%d}\n",
             no_pause_mode, quiet_mode, always_kill_mode, log_level, secure_mode);
+        return;
+    }
+
+    /* Runtime on/off of the server's Xnotify enforcement. We only forward the
+     * command: the server authenticates us, applies it and answers with a STATUS
+     * datagram, which (not this reply) updates the "disabled" notice. Note that
+     * a DISABLE only lasts while this guard keeps sending heartbeats. */
+    if (strcasecmp(cmd, "DISABLE") == 0 || strcasecmp(cmd, "ENABLE") == 0) {
+        int disable = (strcasecmp(cmd, "DISABLE") == 0);
+        log_msg("Control: %s Xnotify requested", disable ? "DISABLE" : "ENABLE");
+        send_raw_command(disable ? "{\"command\":\"DISABLE\"}"
+                                 : "{\"command\":\"ENABLE\"}");
+        snprintf(resp, resp_sz, "{\"ok\":true,\"sent\":true}\n");
         return;
     }
 
@@ -2122,7 +2356,15 @@ void release_lock() {
 void cleanup(int sig) {
     log_msg("Shutting down (signal %d)...", sig);
     should_exit = 1;
-    
+
+    /* If we are leaving while Xnotify is disabled, re-enable it right away
+     * instead of waiting up to ~5 s for the server's heartbeat timeout. */
+    if (server_disabled)
+        send_raw_command("{\"command\":\"ENABLE\"}");
+    notice_request_close();
+    if (notice_thread_valid)
+        pthread_join(notice_thread, NULL);
+
     pthread_join(file_monitor_thread, NULL);
     pthread_join(processor_thread, NULL);
     pthread_join(control_thread, NULL);
@@ -2393,6 +2635,8 @@ int main(int argc, char *argv[]) {
             send_heartbeat();
             last_hb = time(NULL);
         }
+
+        notice_tick();
 
         int r = poll(&pfd, 1, 400);
         if (r > 0 && (pfd.revents & POLLIN)) {
