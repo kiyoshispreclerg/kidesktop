@@ -1027,6 +1027,10 @@ msgstr ""
 msgid "Arredondamento (px):"
 msgstr ""
 
+#: tabs/kitheme.c:454
+msgid "Arredondamento dos menus (px, 0 = quadrado):"
+msgstr ""
+
 #: tabs/kitheme.c:440
 msgid "Relevo:"
 msgstr ""

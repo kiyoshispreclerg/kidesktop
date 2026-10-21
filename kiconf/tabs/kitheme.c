@@ -17,7 +17,7 @@
 
 static GtkWidget *g_preset_combo, *g_scheme_combo, *g_style_combo, *g_focus_combo, *g_ptext_combo;
 static GtkWidget *g_preview, *g_status;
-static GtkWidget *g_radius, *g_relief, *g_gradient, *g_shadow;
+static GtkWidget *g_radius, *g_menu_radius, *g_relief, *g_gradient, *g_shadow;
 static GtkWidget *g_hover_glow, *g_stripes, *g_animation, *g_arrows;
 static GtkWidget *g_pthick, *g_sbwidth, *g_checksize;
 static char g_preset[64], g_scheme[64];
@@ -89,6 +89,7 @@ static void collect(KtTheme *t)
         kt_color_parse(hex, color_field(t, g_colors[i].off));
     }
     t->radius = gtk_spin_button_get_value(GTK_SPIN_BUTTON(g_radius));
+    t->menu_radius = gtk_spin_button_get_value(GTK_SPIN_BUTTON(g_menu_radius));
     t->relief = gtk_range_get_value(GTK_RANGE(g_relief));
     t->gradient = gtk_range_get_value(GTK_RANGE(g_gradient));
     t->shadow = gtk_range_get_value(GTK_RANGE(g_shadow));
@@ -119,6 +120,7 @@ static void fill(const KtTheme *t)
         gtk_color_button_set_color(GTK_COLOR_BUTTON(g_colors[i].btn), &g);
     }
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_radius), t->radius);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_menu_radius), t->menu_radius);
     gtk_range_set_value(GTK_RANGE(g_relief), t->relief);
     gtk_range_set_value(GTK_RANGE(g_gradient), t->gradient);
     gtk_range_set_value(GTK_RANGE(g_shadow), t->shadow);
@@ -433,7 +435,7 @@ GtkWidget *build_kitheme_tab(void)
     gtk_box_pack_start(GTK_BOX(left), frame_with(_("Cores"), cbox), FALSE, FALSE, 0);
 
     /* Shape */
-    GtkWidget *shape = gtk_table_new(6, 2, FALSE);
+    GtkWidget *shape = gtk_table_new(7, 2, FALSE);
     g_radius = spin(0, 12, 0.5);
     labeled_row(shape, 0, _("Arredondamento (px):"), g_radius);
     g_relief = scale01();
@@ -444,8 +446,10 @@ GtkWidget *build_kitheme_tab(void)
     labeled_row(shape, 3, _("Sombra:"), g_shadow);
     g_focus_combo = labels_combo(focus_labels);
     labeled_row(shape, 4, _("Indicador de foco:"), g_focus_combo);
+    g_menu_radius = spin(0, 16, 1);
+    labeled_row(shape, 5, _("Arredondamento dos menus (px, 0 = quadrado):"), g_menu_radius);
     g_hover_glow = check(_("Brilho ao passar o mouse"));
-    gtk_table_attach(GTK_TABLE(shape), g_hover_glow, 0, 2, 5, 6, GTK_FILL, 0, 0, 0);
+    gtk_table_attach(GTK_TABLE(shape), g_hover_glow, 0, 2, 6, 7, GTK_FILL, 0, 0, 0);
     gtk_box_pack_start(GTK_BOX(left), frame_with(_("Forma"), shape), FALSE, FALSE, 0);
 
     /* Progress bars and sizes */

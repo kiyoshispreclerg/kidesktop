@@ -1073,6 +1073,10 @@ msgstr "Delete"
 msgid "Arredondamento (px):"
 msgstr "Corner radius (px):"
 
+#: tabs/kitheme.c:454
+msgid "Arredondamento dos menus (px, 0 = quadrado):"
+msgstr "Menu corner radius (px, 0 = square):"
+
 #: tabs/kitheme.c:440
 msgid "Relevo:"
 msgstr "Relief:"

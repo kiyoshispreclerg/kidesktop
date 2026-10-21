@@ -1082,6 +1082,10 @@ msgstr "Excluir"
 msgid "Arredondamento (px):"
 msgstr "Arredondamento (px):"
 
+#: tabs/kitheme.c:454
+msgid "Arredondamento dos menus (px, 0 = quadrado):"
+msgstr "Arredondamento dos menus (px, 0 = quadrado):"
+
 #: tabs/kitheme.c:440
 msgid "Relevo:"
 msgstr "Relevo:"
