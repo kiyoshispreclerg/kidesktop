@@ -1469,8 +1469,9 @@ static void cube_init(const CompEffectInstance *self)
      * effect where the user is watching the very first frame. The
      * outputs do not exist yet (effects come up first), so the screen's
      * height stands in for theirs -- right for the usual side-by-side
-     * layout, and merely reloaded on first use for any other. */
-    if (cfg->skybox[0] && comp.root_h > 0) {
+     * layout, and merely reloaded on first use for any other. Not for
+     * a renderer without perspective: the cube never opens there. */
+    if (cfg->skybox[0] && comp.root_h > 0 && renderer && renderer->projective) {
         int w;
         sky_image(cfg, comp.root_h, &w);
     }

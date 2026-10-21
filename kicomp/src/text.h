@@ -70,11 +70,16 @@ int text_width(const CompTextImage *img);
 int text_height(const CompTextImage *img);
 
 /* What the renderers need: the XRender backend takes the picture, the GL
- * one takes the pixels and uploads them once (the texture id lives in the
- * image, since it outlives a frame). */
+ * one the texture, uploaded on first use (the id lives in the image,
+ * since it outlives a frame). An image holds only the active backend's
+ * form, and its CPU pixels only until the upload. */
 xcb_render_picture_t text_picture(const CompTextImage *img);
-const unsigned char *text_pixels(const CompTextImage *img);
-unsigned int *text_gl_texture(CompTextImage *img);
+unsigned int text_gl_texture(CompTextImage *img);
+
+/* Uploads what was made before the context existed (the cube's skybox,
+ * decoded at init) so its pixels do not sit in RAM until first drawn.
+ * GL backend, with the context current. */
+void text_gl_upload_pending(void);
 
 void text_shutdown(void);
 

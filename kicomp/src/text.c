@@ -1,10 +1,12 @@
 /* See text.h. */
 #include "text.h"
+#include "renderer.h"
 
 #include <epoxy/gl.h>
 #include <pango/pangocairo.h>
 #include <xcb/render.h>
 
+#include <malloc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,7 +17,35 @@ struct CompTextImage {
     xcb_pixmap_t pixmap;
     xcb_render_picture_t picture;
     unsigned int texture;           /* the GL backend's, 0 until uploaded */
+    struct CompTextImage *next_pending;   /* awaiting upload (text_gl_upload_pending) */
 };
+
+/* Drops the CPU copy. A big one (a skybox) goes back to the system
+ * right away: once glibc has freed one mmapped buffer it raises its
+ * mmap threshold, the next skybox (another output's height) lands in
+ * the heap, and freeing it there would otherwise keep it resident. */
+static void drop_pixels(CompTextImage *img)
+{
+    size_t bytes = (size_t)img->w * (size_t)img->h * 4;
+    free(img->pixels);
+    img->pixels = NULL;
+    if (bytes >= 1024 * 1024)
+        malloc_trim(0);
+}
+
+/* Images made before the GL context could take them -- the cube's
+ * skybox, decoded at effect init -- wait here for the first frame. */
+static CompTextImage *pending;
+
+static void pending_remove(CompTextImage *img)
+{
+    for (CompTextImage **p = &pending; *p; p = &(*p)->next_pending) {
+        if (*p == img) {
+            *p = img->next_pending;
+            return;
+        }
+    }
+}
 
 /* ------------------------------------------------------------------ */
 /* the decoration's style                                              */
@@ -302,10 +332,17 @@ static CompTextImage *image_from_surface(cairo_surface_t *surface)
                    src + (size_t)y * stride, (size_t)w * 4);
     }
 
-    /* And the same pixels as an X pixmap, for the XRender backend.
+    /* Each backend keeps only its own form: a full-screen skybox is
+     * ~15 MB, and a copy nobody draws from was kept for the session --
+     * the pixels in kicomp, and with GL also an X pixmap in the server.
+     * No renderer chosen yet would be a bug; keep both forms then. */
+    bool xrender = !renderer || strcmp(renderer->name, "xrender") == 0;
+    bool gl = !renderer || !xrender;
+
+    /* The same pixels as an X pixmap, for the XRender backend.
      * Cairo's ARGB32 is premultiplied in native byte order, which is
      * exactly what a 32-bit XRender picture wants on the same machine. */
-    if (img->pixels && comp.caps.render) {
+    if (img->pixels && xrender && comp.caps.render) {
         img->pixmap = xcb_generate_id(comp.conn);
         xcb_create_pixmap(comp.conn, 32, img->pixmap, comp.root,
                           (uint16_t)w, (uint16_t)h);
@@ -323,6 +360,13 @@ static CompTextImage *image_from_surface(cairo_surface_t *surface)
             img->picture = xcb_generate_id(comp.conn);
             xcb_render_create_picture(comp.conn, img->picture, img->pixmap, fmt, 0, NULL);
         }
+    }
+
+    if (!gl) {
+        drop_pixels(img);
+    } else if (img->pixels) {
+        img->next_pending = pending;
+        pending = img;
     }
 
     return img;
@@ -448,6 +492,7 @@ void text_free(CompTextImage *img)
 {
     if (!img)
         return;
+    pending_remove(img);
     if (img->picture)
         xcb_render_free_picture(comp.conn, img->picture);
     if (img->pixmap)
@@ -458,7 +503,8 @@ void text_free(CompTextImage *img)
      * left a texture behind in VRAM. */
     if (img->texture)
         glDeleteTextures(1, &img->texture);
-    free(img->pixels);
+    if (img->pixels)
+        drop_pixels(img);
     free(img);
 }
 
@@ -470,14 +516,40 @@ xcb_render_picture_t text_picture(const CompTextImage *img)
     return img ? img->picture : XCB_NONE;
 }
 
-const unsigned char *text_pixels(const CompTextImage *img)
+unsigned int text_gl_texture(CompTextImage *img)
 {
-    return img ? img->pixels : NULL;
+    if (!img)
+        return 0;
+    if (img->texture || !img->pixels)
+        return img->texture;
+
+    glGenTextures(1, &img->texture);
+    glBindTexture(GL_TEXTURE_2D, img->texture);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    /* Cairo's ARGB32 is native-endian premultiplied, which on a
+     * little-endian machine is B,G,R,A in memory -- hence BGRA rather
+     * than RGBA, and the same premultiplied blend the windows use. */
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, img->w, img->h, 0,
+                 GL_BGRA, GL_UNSIGNED_BYTE, img->pixels);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    /* The one context lives as long as kicomp, so the texture is the
+     * only copy needed from here on. */
+    pending_remove(img);
+    drop_pixels(img);
+    return img->texture;
 }
 
-unsigned int *text_gl_texture(CompTextImage *img)
+void text_gl_upload_pending(void)
 {
-    return img ? &img->texture : NULL;
+    while (pending) {
+        CompTextImage *img = pending;
+        text_gl_texture(img);
+        pending_remove(img);
+    }
 }
 
 void text_shutdown(void)

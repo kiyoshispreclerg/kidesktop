@@ -1301,6 +1301,7 @@ void gl_begin(CompOutput *o, GlOutput *go, const CompRegion *damage,
               unsigned age)
 {
     frame_target = go;
+    text_gl_upload_pending();
     glViewport(0, 0, o->physical.w, o->physical.h);
 
     repaint_region_for(go, damage, age);
@@ -2400,29 +2401,10 @@ static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
 static void draw_image_quad(CompOutput *o, struct CompTextImage *image,
                             const CompRect *rect, float opacity)
 {
-    const unsigned char *pixels = text_pixels(image);
-    unsigned int *tex = text_gl_texture(image);
-    if (!pixels || !tex)
+    unsigned int tex = text_gl_texture(image);
+    if (!tex)
         return;
-
-    if (*tex == 0) {
-        glGenTextures(1, tex);
-        glBindTexture(GL_TEXTURE_2D, *tex);
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-        /* Cairo's ARGB32 is native-endian premultiplied, which on a
-         * little-endian machine is B,G,R,A in memory -- hence BGRA
-         * rather than RGBA, and the same premultiplied blend the
-         * windows use. */
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
-                     text_width(image), text_height(image), 0,
-                     GL_BGRA, GL_UNSIGNED_BYTE, pixels);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    } else {
-        glBindTexture(GL_TEXTURE_2D, *tex);
-    }
+    glBindTexture(GL_TEXTURE_2D, tex);
 
     CompTransform identity;
     comp_transform_identity(&identity);
