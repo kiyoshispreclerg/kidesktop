@@ -24,6 +24,7 @@
 #define XG_TICK_MS 5000 /* only to age the "recent" dot; events repoll the widget themselves */
 
 typedef struct {
+    char cmd[192]; /* xisserve binary opened on left click */
     uint64_t seen_generation;
     int recent;
 } XgPriv;
@@ -39,6 +40,10 @@ static int xg_recent(const XisguardEvents *ev)
 
 static int xg_init(PanelWidget *w)
 {
+    XgPriv *xp = w->priv;
+    if (!kv_get(w->config_kv, "cmd", xp->cmd, sizeof(xp->cmd)) || !xp->cmd[0]) {
+        snprintf(xp->cmd, sizeof(xp->cmd), "xisserve");
+    }
     w->next_tick_ms = now_ms();
     return 0;
 }
@@ -241,38 +246,23 @@ static int xg_on_button(PanelWidget *w, int button, int local_x, int local_y, in
     (void)local_y;
     (void)root_x;
     (void)root_y;
-    if (button != Button3) { /* context menu only */
+    if (button == Button1) { /* who is using what, and the revoke buttons, live in xisserve's page */
+        XgPriv *xp = w->priv;
+        xisserve_spawn_for_widget(w, xp->cmd, "--xisguard");
+        return 1;
+    }
+    if (button != Button3) {
         return 0;
     }
     const XisguardEvents *ev = xisguard_events_get();
-    MenuItem items[4 + XISGUARD_HISTORY_MAX];
+    MenuItem items[2];
     memset(items, 0, sizeof(items));
-    int n = 0;
-
-    snprintf(items[n].label, sizeof(items[n].label), "%s",
+    snprintf(items[0].label, sizeof(items[0].label), "%s",
              ev->enabled ? _("Desativar temporariamente") : _("Reativar prote\xc3\xa7\xc3\xa3o"));
-    items[n].enabled = ev->connected;
-    n++;
-    snprintf(items[n].label, sizeof(items[n].label), "%s", _("Configurar XisGuard\xe2\x80\xa6"));
-    items[n].enabled = 1;
-    n++;
-    if (ev->history_count > 0) {
-        items[n].is_separator = 1;
-        n++;
-    }
-    const XisguardHistoryEntry *h;
-    for (int i = xg_next_unique(ev, 0, &h); i >= 0 && n < 3 + XISGUARD_HISTORY_MAX;
-         i = xg_next_unique(ev, i + 1, &h)) {
-        xg_hist_label(items[n].label, sizeof(items[n].label), h);
-        items[n].enabled = 0; /* informational only */
-        n++;
-    }
-    if (xg_ignored_text(items[n].label, sizeof(items[n].label))) {
-        items[n].is_separator = 0;
-        items[n].enabled = 0;
-        n++;
-    }
-    panel_menu_open(w->panel, w, 0, w->len, items, n, NULL, xg_menu_select);
+    items[0].enabled = ev->connected;
+    snprintf(items[1].label, sizeof(items[1].label), "%s", _("Configurar XisGuard\xe2\x80\xa6"));
+    items[1].enabled = 1;
+    panel_menu_open(w->panel, w, 0, w->len, items, 2, NULL, xg_menu_select);
     w->panel->dirty = 1;
     return 1;
 }

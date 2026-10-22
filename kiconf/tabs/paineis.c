@@ -575,6 +575,9 @@ static const WidgetField ENERGY_FIELDS[] = {
     WF_STR("cmd", "Comando ao clicar (xisserve)", ""),
     WF_INT("interval", "Intervalo de leitura da bateria (ms)", "10000", 1000, 300000),
 };
+static const WidgetField XISGUARD_FIELDS[] = {
+    WF_STR("cmd", "Comando ao clicar (xisserve)", ""),
+};
 static const WidgetField NETWORK_FIELDS[] = {
     WF_STR("cmd", "Comando ao clicar (xisserve)", ""),
 };
@@ -660,7 +663,7 @@ static const WidgetSchema WIDGET_SCHEMAS[] = {
     WSCHEMA("folder", FOLDER_FIELDS),
     WSCHEMA("xisserve", XISSERVE_FIELDS),
     WSCHEMA("container", CONTAINER_FIELDS),
-    {"xisguard", NULL, 0}, /* no options */
+    WSCHEMA("xisguard", XISGUARD_FIELDS),
 };
 #undef WSCHEMA
 #define N_WIDGET_SCHEMAS ((int)(sizeof(WIDGET_SCHEMAS) / sizeof(WIDGET_SCHEMAS[0])))
