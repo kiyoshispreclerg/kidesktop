@@ -57,7 +57,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.2.5"
+#define XISSERVE_VERSION "0.2.6"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -99,6 +99,7 @@ static const XisservePage kBuiltinPages[] = {
     {"storage", N_("Armazenamento"), 380, 480, page_storage_build, page_storage_on_show, page_storage_on_hide},
     {"clipboard", N_("\xc3\x81rea de transfer\xc3\xaancia"), 420, 480, page_clipboard_build, page_clipboard_on_show,
      page_clipboard_on_hide},
+    {"xisguard", N_("XisGuard"), 420, 480, page_xisguard_build, page_xisguard_on_show, page_xisguard_on_hide},
 };
 #define N_BUILTIN_PAGES ((int)(sizeof(kBuiltinPages) / sizeof(kBuiltinPages[0])))
 

@@ -300,6 +300,10 @@ GtkWidget *page_storage_build(void);
 void page_storage_on_show(void);
 void page_storage_on_hide(void);
 
+GtkWidget *page_xisguard_build(void);
+void page_xisguard_on_show(void);
+void page_xisguard_on_hide(void);
+
 GtkWidget *page_clipboard_build(void);
 void page_clipboard_on_show(void);
 void page_clipboard_on_hide(void);

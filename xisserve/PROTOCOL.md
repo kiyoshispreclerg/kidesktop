@@ -153,6 +153,12 @@ implemented pages now, see below.)
   client. The widget itself covers none of this -- it only shows the
   current connection's icon/tooltip and relies on NetworkManager's own
   DBus notifications for connect/disconnect toasts.
+- `--xisguard`: passed by xispanel's `xisguard` widget on left click.
+  Programs that reported using protected things lately (the guard's
+  `LIST_ACTIVE`, memory only), grouped by program, with a "Remover acesso"
+  button per action (`REVOKE_ACCESS`: a permanent DENY rule placed first)
+  and the guard's ignored programs dimmed at the end. **Implemented in
+  `pages/xisguard.c`**, a client of xisguard's control socket.
 - `--storage`: passed by xispanel's `storage` widget on left click,
   anchored to the storage icon. Shows removable block devices (USB
   sticks, SD cards, external drives) with mount/unmount/eject.
