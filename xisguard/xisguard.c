@@ -28,7 +28,7 @@
 #define REPORT_THROTTLE_S   1
 #define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.11"
+#define XISGUARD_VERSION    "0.4.12"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -712,6 +712,29 @@ void load_ignore_reports(void) {
     last_ignore_mtime = time(NULL);
     log_filtered(3, "Loaded %d entries to ignore reports from %s", ignored_reports_count, ignore_file);
     pthread_mutex_unlock(&report_ignore_lock);
+}
+
+/* ---- who is using what: the last REPORTs, newest kept, for LIST_ACTIVE ---- */
+
+#define ACTIVE_MAX 64
+static struct { char exe[PATH_MAX]; int action; time_t ts; } active_tab[ACTIVE_MAX];
+static pthread_mutex_t active_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void active_seen(const char *exe, int action) {
+    pthread_mutex_lock(&active_lock);
+    int slot = 0;
+    for (int i = 0; i < ACTIVE_MAX; i++) {
+        if (active_tab[i].action == action && strcmp(active_tab[i].exe, exe) == 0) {
+            slot = i;
+            break;
+        }
+        if (active_tab[i].ts < active_tab[slot].ts)
+            slot = i;
+    }
+    snprintf(active_tab[slot].exe, sizeof(active_tab[slot].exe), "%s", exe);
+    active_tab[slot].action = action;
+    active_tab[slot].ts = time(NULL);
+    pthread_mutex_unlock(&active_lock);
 }
 
 /* Adds `pattern` to (or removes every line equal to it from) ignore.conf,
@@ -1809,6 +1832,7 @@ void handle_message(const char *msg) {
          * subscribers decide for themselves (kistoryd logs everything, the
          * panel widget skips them). */
         int ignored = is_report_ignored(exe);
+        active_seen(exe, action);
         subscribers_broadcast("REPORT", action, pid, exe, ignored);
         if (ignored) {
             // Silencioso - não loga nada
@@ -2138,6 +2162,87 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
         }
         pthread_mutex_unlock(&report_ignore_lock);
         if (off < resp_sz) off += snprintf(resp + off, resp_sz - off, "]}\n");
+        return;
+    }
+
+    /* The programs that reported using something lately, newest first, with
+     * whether ignore.conf hides them and whether a DENY rule already covers
+     * that action. Memory only: gone when the guard restarts. */
+    if (strcasecmp(cmd, "LIST_ACTIVE") == 0) {
+        size_t off = 0;
+        off += snprintf(resp + off, resp_sz - off, "{\"ok\":true,\"now\":%ld,\"active\":[", (long)time(NULL));
+        pthread_mutex_lock(&active_lock);
+        int order[ACTIVE_MAX], n = 0;
+        for (int i = 0; i < ACTIVE_MAX; i++)
+            if (active_tab[i].exe[0])
+                order[n++] = i;
+        for (int i = 1; i < n; i++) { /* insertion sort, newest first */
+            int v = order[i], j = i - 1;
+            while (j >= 0 && active_tab[order[j]].ts < active_tab[v].ts) {
+                order[j + 1] = order[j];
+                j--;
+            }
+            order[j + 1] = v;
+        }
+        for (int k = 0; k < n && off < resp_sz; k++) {
+            int i = order[k];
+            char esc[PATH_MAX * 2];
+            json_escape_str(esc, sizeof(esc), active_tab[i].exe);
+            off += snprintf(resp + off, resp_sz - off,
+                "%s{\"exe\":\"%s\",\"action\":\"%s\",\"ts\":%ld,\"ignored\":%s,\"denied\":%s}",
+                k == 0 ? "" : ",", esc, action_to_string(active_tab[i].action), (long)active_tab[i].ts,
+                is_report_ignored(active_tab[i].exe) ? "true" : "false",
+                is_ignored(active_tab[i].exe, active_tab[i].action) == 2 ? "true" : "false");
+        }
+        pthread_mutex_unlock(&active_lock);
+        if (off < resp_sz) off += snprintf(resp + off, resp_sz - off, "]}\n");
+        return;
+    }
+
+    /* Takes an action away from a program: drops its rules for that action
+     * and puts a DENY first, so no earlier ALLOW (even "ALLOW ... *") still
+     * wins. Permanent, like any rule: visible and removable in the rules
+     * list. `pattern` is the program path without arguments, which matches
+     * it whatever arguments it runs with. */
+    if (strcasecmp(cmd, "REVOKE_ACCESS") == 0) {
+        char action_str[64] = {0}, pattern[PATH_MAX] = {0};
+        json_get_str(req, "action", action_str, sizeof(action_str));
+        json_get_str(req, "pattern", pattern, sizeof(pattern));
+        int action_id = string_to_action(action_str);
+        if (pattern[0] == '\0' || action_id <= 0 || strchr(pattern, '|')) {
+            snprintf(resp, resp_sz, "{\"ok\":false,\"error\":\"need a program path and an action\"}\n");
+            return;
+        }
+        if (secure_mode) {
+            secure_save_rule(pattern, action_id, 0);
+        } else {
+            pthread_mutex_lock(&ignored_lock);
+            const char *an = action_to_string(action_id);
+            for (int i = 0; i < ignored_count; ) {
+                if (strcmp(ignored_cmds[i].exe_pattern, pattern) == 0 && strcasecmp(ignored_cmds[i].action, an) == 0) {
+                    for (int j = i; j < ignored_count - 1; j++)
+                        ignored_cmds[j] = ignored_cmds[j + 1];
+                    ignored_count--;
+                } else {
+                    i++;
+                }
+            }
+            if (ignored_count < MAX_IGNORED) {
+                for (int j = ignored_count; j > 0; j--)
+                    ignored_cmds[j] = ignored_cmds[j - 1];
+                memset(&ignored_cmds[0], 0, sizeof(ignored_cmds[0]));
+                snprintf(ignored_cmds[0].exe_pattern, sizeof(ignored_cmds[0].exe_pattern), "%s", pattern);
+                snprintf(ignored_cmds[0].action, sizeof(ignored_cmds[0].action), "%s", an);
+                ignored_cmds[0].rule_type = 1;
+                ignored_count++;
+            }
+            rewrite_perms_file_locked();
+            last_config_mtime = time(NULL);
+            pthread_mutex_unlock(&ignored_lock);
+        }
+        send_all_permissions_to_xserver();
+        log_msg("Control: REVOKE_ACCESS %s %s", action_str, trim_exe_for_log(pattern));
+        snprintf(resp, resp_sz, "{\"ok\":true}\n");
         return;
     }
 

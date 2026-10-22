@@ -123,7 +123,10 @@ back per connection:
 CLI options above), `LIST_RULES`, `ADD_RULE`, `REMOVE_RULE`, `RELOAD`,
 `GET_SYSTEM_RULES_PATH` (the server's `xnotify.conf.d` directory and its
 `xnotify.conf` file), `LIST_IGNORED`, `ADD_IGNORED`, `REMOVE_IGNORED`
-(the programs of `ignore.conf`, by `pattern`).
+(the programs of `ignore.conf`, by `pattern`), `LIST_ACTIVE` (programs that
+reported using something lately, newest first, with `ignored` and `denied`
+flags; memory only) and `REVOKE_ACCESS` (`pattern` = program path,
+`action`: drops its rules for that action and puts a DENY first).
 
 `SUBSCRIBE` is the exception: `{"cmd":"SUBSCRIBE","actions":"SCREEN,RECORD"}`
 (`actions` optional, all by default) keeps the connection open, and every
