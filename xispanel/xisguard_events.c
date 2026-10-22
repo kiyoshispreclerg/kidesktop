@@ -173,13 +173,11 @@ typedef struct {
 } BurstKey;
 static BurstKey g_burst[XG_BURST_KEYS];
 
-/* The toast's button: adds the program to the guard's ignore.conf. The exe
- * as the guard reports it is "path" or "path|args" and ignore.conf patterns
- * are plain globs over that whole string, so a program that was seen with
- * arguments gets both "path" and "path|*". */
-static void ignore_program(void *ctx)
+/* ignore.conf patterns are plain globs over the exe as the guard reports it,
+ * "path" or "path|args", so a program that was seen with arguments gets both
+ * "path" and "path|*". */
+static void ignore_edit(const BurstKey *k, const char *cmd)
 {
-    const BurstKey *k = ctx;
     char path[512];
     snprintf(path, sizeof(path), "%s", k->exe);
     char *bar = strchr(path, '|');
@@ -189,14 +187,34 @@ static void ignore_program(void *ctx)
     if (!path[0]) {
         return;
     }
-    xisguard_send_json_arg("ADD_IGNORED", path);
+    xisguard_send_json_arg(cmd, path);
     if (bar) {
         char with_args[520];
         snprintf(with_args, sizeof(with_args), "%s|*", path);
-        xisguard_send_json_arg("ADD_IGNORED", with_args);
+        xisguard_send_json_arg(cmd, with_args);
     }
-    toast_show_osd(xispanel_first_panel_icon("security-high", 32), _("XisGuard"), _("Programa ignorado"), -1,
-                   TOAST_URGENCY_NORMAL, 0, "xisguard-ignore");
+}
+
+static void undo_ignore(void *ctx);
+static void burst_text(const BurstKey *k, char *out, size_t outsz);
+
+/* The toast's button: ignore the program, and turn this same toast into the
+ * confirmation (with an undo) instead of stacking a second one. */
+static void ignore_program(void *ctx)
+{
+    const BurstKey *k = ctx;
+    ignore_edit(k, "ADD_IGNORED");
+    const char *base = strrchr(k->exe, '/');
+    char body[300];
+    snprintf(body, sizeof(body), _("%s n\xc3\xa3o ser\xc3\xa1 mais mostrado"), base ? base + 1 : k->exe);
+    toast_show_action(xispanel_first_panel_icon("security-high", 32), _("Programa ignorado"), body, 6000, _("Desfazer"),
+                      undo_ignore, ctx, k->tag);
+}
+
+static void undo_ignore(void *ctx)
+{
+    const BurstKey *k = ctx;
+    ignore_edit(k, "REMOVE_IGNORED");
 }
 
 /* "firefox: captura a tela, grava eventos (teclas)" */

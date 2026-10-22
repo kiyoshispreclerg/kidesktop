@@ -1241,7 +1241,13 @@ int toast_handle_event(const XEvent *ev)
                 if (t->action_fn) {
                     int k = toast_button_at(t, ev->xbutton.x, ev->xbutton.y);
                     if (k >= 0 && ev->xbutton.button == Button1 && !toast_close_at(t, ev->xbutton.x, ev->xbutton.y)) {
-                        t->action_fn(t->action_ctx);
+                        void (*fn)(void *) = t->action_fn;
+                        fn(t->action_ctx);
+                        /* The callback may have turned this very toast into
+                         * something else (same tag, new button): keep it. */
+                        if (g_toasts[i].action_fn != fn) {
+                            return 1;
+                        }
                     }
                     remove_toast(i);
                     return 1;
