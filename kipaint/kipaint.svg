@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <linearGradient id="p" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f3dcb2"/>
+      <stop offset="1" stop-color="#d9b47a"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#p)" stroke="#8a6a3a" stroke-width="1.2" stroke-linejoin="round" d="M24 6C12.5 6 4.5 13.5 4.5 23c0 8.5 6.5 15 14 15 3 0 3.5-2 3-4-.6-2.4.7-4 3.2-4H30c7.5 0 13.5-3.5 13.5-10C43.5 12 35 6 24 6z"/>
+  <circle cx="17" cy="31" r="3.4" fill="#fbf4e6" stroke="#8a6a3a" stroke-width="1"/>
+  <circle cx="13" cy="20" r="3.4" fill="#e5483b" stroke="#9c2a20" stroke-width="1"/>
+  <circle cx="21" cy="13.5" r="3.4" fill="#f2c230" stroke="#a87e10" stroke-width="1"/>
+  <circle cx="31" cy="13.5" r="3.4" fill="#3fa34d" stroke="#22672b" stroke-width="1"/>
+  <circle cx="37.5" cy="20.5" r="3.4" fill="#2f6fd6" stroke="#1b4590" stroke-width="1"/>
+  <path fill="#9a6232" stroke="#5c3818" stroke-width="1" stroke-linejoin="round" d="M44 30.5l2 2-13 13-2.5.5.5-2.5z"/>
+  <path fill="#2b2b2b" d="M31 43.5c-1.5-.2-3.5.6-4.5 2.5 2 .3 4 0 5-.5z"/>
+</svg>

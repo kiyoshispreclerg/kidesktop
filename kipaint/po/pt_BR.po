@@ -1,0 +1,252 @@
+# Portuguese translations for kipaint package.
+# Copyright (C) 2026 THE kipaint'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the kipaint package.
+# Automatically generated, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: kipaint\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-23 09:39-0300\n"
+"PO-Revision-Date: 2026-10-23 09:38-0300\n"
+"Last-Translator: Automatically generated\n"
+"Language-Team: none\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#: kipaint.c:29
+msgid "Untitled"
+msgstr "Sem título"
+
+#: kipaint.c:47
+#, c-format
+msgid "%d, %d px"
+msgstr "%d, %d px"
+
+#: kipaint.c:58
+#, c-format
+msgid "%d x %d px"
+msgstr "%d x %d px"
+
+#: kipaint.c:95
+#, c-format
+msgid ""
+"Could not open the image:\n"
+"%s"
+msgstr ""
+"Não foi possível abrir a imagem:\n"
+"%s"
+
+#: kipaint.c:113
+#, c-format
+msgid ""
+"Could not save the image:\n"
+"%s"
+msgstr ""
+"Não foi possível salvar a imagem:\n"
+"%s"
+
+#: kipaint.c:124
+msgid "Save as"
+msgstr "Salvar como"
+
+#: kipaint.c:128
+msgid ""
+"The extension picks the format: .png, .jpg, .bmp or .tiff (.png when none)."
+msgstr ""
+"A extensão escolhe o formato: .png, .jpg, .bmp ou .tiff (.png quando não "
+"houver)."
+
+#: kipaint.c:184
+#, c-format
+msgid "Save changes to \"%s\" before closing?"
+msgstr "Salvar as alterações em \"%s\" antes de fechar?"
+
+#: kipaint.c:185
+msgid "Close without saving"
+msgstr "Fechar sem salvar"
+
+#: kipaint.c:215
+msgid "New image"
+msgstr "Nova imagem"
+
+#: kipaint.c:223
+msgid "_Width (px):"
+msgstr "_Largura (px):"
+
+#: kipaint.c:224
+msgid "_Height (px):"
+msgstr "A_ltura (px):"
+
+#: kipaint.c:237
+msgid "Not enough memory for an image of that size."
+msgstr "Memória insuficiente para uma imagem desse tamanho."
+
+#: kipaint.c:247
+msgid "Open image"
+msgstr "Abrir imagem"
+
+#: kipaint.c:251
+msgid "Images"
+msgstr "Imagens"
+
+#: kipaint.c:255
+msgid "All files"
+msgstr "Todos os arquivos"
+
+#: kipaint.c:327
+msgid "A simple paint program"
+msgstr "Um programa de pintura simples"
+
+#: kipaint.c:370
+msgid "_File"
+msgstr "_Arquivo"
+
+#: kipaint.c:371
+msgid "_New..."
+msgstr "_Novo..."
+
+#: kipaint.c:372
+msgid "_Open..."
+msgstr "_Abrir..."
+
+#: kipaint.c:374
+msgid "_Save"
+msgstr "_Salvar"
+
+#: kipaint.c:375
+msgid "Save _as..."
+msgstr "Salvar _como..."
+
+#: kipaint.c:377
+msgid "_Quit"
+msgstr "Sa_ir"
+
+#: kipaint.c:379
+msgid "_Edit"
+msgstr "_Editar"
+
+#: kipaint.c:380
+msgid "_Undo"
+msgstr "_Desfazer"
+
+#: kipaint.c:381
+msgid "_Redo"
+msgstr "_Refazer"
+
+#: kipaint.c:383
+msgid "_View"
+msgstr "E_xibir"
+
+#: kipaint.c:384
+msgid "Zoom _in"
+msgstr "_Ampliar"
+
+#: kipaint.c:385
+msgid "Zoom _out"
+msgstr "_Reduzir"
+
+#: kipaint.c:386
+msgid "_Actual size"
+msgstr "_Tamanho real"
+
+#: kipaint.c:387
+msgid "_Fit to window"
+msgstr "Ajustar à _janela"
+
+#: kipaint.c:389
+msgid "Pixel _grid"
+msgstr "_Grade de pixels"
+
+#: kipaint.c:393
+#, no-c-format
+msgid "Shown from 800% zoom up"
+msgstr "Aparece a partir de 800% de zoom"
+
+#: kipaint.c:397
+msgid "_Help"
+msgstr "Aj_uda"
+
+#: kipaint.c:398
+msgid "_About"
+msgstr "_Sobre"
+
+#: kp_doc.c:17 kp_doc.c:38
+msgid "Background"
+msgstr "Fundo"
+
+#: kp_io.c:45
+#, c-format
+msgid "The image is too large (%d x %d)."
+msgstr "A imagem é grande demais (%d x %d)."
+
+#: kp_io.c:51
+msgid "Not enough memory."
+msgstr "Memória insuficiente."
+
+#: kp_io.c:104
+msgid "Unknown file type. Use .png, .jpg, .bmp or .tiff."
+msgstr "Tipo de arquivo desconhecido. Use .png, .jpg, .bmp ou .tiff."
+
+#: kp_palette.c:83
+msgid "Edit color"
+msgstr "Editar cor"
+
+#: kp_palette.c:97
+msgid "Color 1"
+msgstr "Cor 1"
+
+#: kp_palette.c:97
+msgid "Color 2"
+msgstr "Cor 2"
+
+#: kp_palette.c:108
+msgid "Left click: color 1. Right click: color 2. Double click: edit."
+msgstr "Clique esquerdo: cor 1. Clique direito: cor 2. Duplo clique: editar."
+
+#: kp_palette.c:112
+msgid ""
+"Color 1 (left button) and color 2 (right button). Click to edit, X swaps "
+"them."
+msgstr ""
+"Cor 1 (botão esquerdo) e cor 2 (botão direito). Clique para editar; X troca "
+"as duas."
+
+#: kp_toolbox.c:143
+msgid "Size"
+msgstr "Tamanho"
+
+#: kp_toolbox.c:147
+msgid "Size in pixels ([ and ] change it)"
+msgstr "Tamanho em pixels ([ e ] mudam)"
+
+#: kp_toolbox.c:152
+msgid "_Transparent"
+msgstr "_Transparente"
+
+#: kp_toolbox.c:153
+msgid "Erase to transparency instead of painting color 2"
+msgstr "Apaga para transparente em vez de pintar com a cor 2"
+
+#: tools/kp_tool_brush.c:81
+msgid "Brush"
+msgstr "Pincel"
+
+#: tools/kp_tool_eraser.c:39
+msgid "Eraser"
+msgstr "Borracha"
+
+#: tools/kp_tool_fill.c:105
+msgid "Fill with color"
+msgstr "Preencher com cor"
+
+#: tools/kp_tool_pencil.c:36
+msgid "Pencil"
+msgstr "Lápis"
+
+#: tools/kp_tool_picker.c:57
+msgid "Pick color"
+msgstr "Selecionar cor"

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Paint
+GenericName=Paint Program
+Comment=Draw and edit images
+Exec=@BINDIR@/kipaint %f
+Icon=kipaint
+Terminal=false
+Categories=Graphics;2DGraphics;RasterGraphics;
+MimeType=image/png;image/jpeg;image/bmp;image/tiff;image/gif;image/webp;
+Keywords=paint;draw;image;picture;brush;
+StartupNotify=false
