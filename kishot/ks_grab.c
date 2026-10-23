@@ -12,6 +12,8 @@
 #include <X11/extensions/Xrender.h>
 #include <X11/extensions/Xrandr.h>
 #include <string.h>
+#include <stdlib.h>
+#include <xcb/xfixes.h>
 
 gboolean ks_rect_clip_to_screen(KsRect *r)
 {
@@ -171,13 +173,56 @@ gboolean ks_area_rect_except(KsArea area, gboolean decorations, unsigned long ex
     }
 }
 
+/* Whether XFixesHideCursor has the pointer hidden. Nothing in the cursor image
+ * says so; the fork's XFixes sends a CursorNotify of subtype 1 (selected with
+ * mask bit 1) when that changes, and once on selecting. A connection of its
+ * own, opened on the first use, collects them: asking is a poll of a socket
+ * that is almost always empty, never a request. A server without the
+ * extension refuses the bit, and the pointer is then always drawn. */
+static gboolean pointer_hidden(void)
+{
+    static xcb_connection_t *c;
+    static gboolean tried, active;
+    static gboolean hidden;
+    static uint8_t first_event;
+
+    if (!tried) {
+        tried = TRUE;
+        c = xcb_connect(NULL, NULL);
+        const xcb_query_extension_reply_t *xf =
+            xcb_connection_has_error(c) ? NULL : xcb_get_extension_data(c, &xcb_xfixes_id);
+        if (xf && xf->present) {
+            free(xcb_xfixes_query_version_reply(c, xcb_xfixes_query_version(c, 4, 0), NULL));
+            xcb_screen_t *scr = xcb_setup_roots_iterator(xcb_get_setup(c)).data;
+            xcb_generic_error_t *e = xcb_request_check(c,
+                xcb_xfixes_select_cursor_input_checked(c, scr->root, 1u << 1));
+            if (e)
+                free(e);
+            else {
+                active = TRUE;
+                first_event = xf->first_event;
+                free(xcb_get_input_focus_reply(c, xcb_get_input_focus(c), NULL));   /* the state event is in by now */
+            }
+        }
+    }
+    if (!active)
+        return FALSE;
+    xcb_generic_event_t *ev;
+    while ((ev = xcb_poll_for_event(c))) {
+        if ((ev->response_type & 0x7f) == first_event + XCB_XFIXES_CURSOR_NOTIFY)
+            hidden = ((xcb_xfixes_cursor_notify_event_t *)ev)->cursor_serial != 0;
+        free(ev);
+    }
+    return hidden;
+}
+
 /* The pointer, scaled like the image (1.0 for a real shot). Sampled
  * nearest-neighbour from the cursor image, walking the destination. */
 static void draw_pointer(GdkPixbuf *pb, const KsRect *r, double scale)
 {
     Display *dpy = GDK_DISPLAY_XDISPLAY(gdk_display_get_default());
     int ev, err;
-    if (!XFixesQueryExtension(dpy, &ev, &err))
+    if (!XFixesQueryExtension(dpy, &ev, &err) || pointer_hidden())
         return;
     XFixesCursorImage *ci = XFixesGetCursorImage(dpy);
     if (!ci)
