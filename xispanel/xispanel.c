@@ -100,7 +100,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.7.26"
+#define XISPANEL_VERSION "0.7.27"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 128KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -2310,6 +2310,51 @@ static void panel_set_size(Panel *p, int w, int h)
     panel_resize_buffers(p);
 }
 
+/* Keeps the edge catcher directly beneath the bar in the root's stacking
+ * order, so whatever the WM puts above the bar (a fullscreen window) is
+ * above the catcher too. The bar's top-level is its WM frame when managed
+ * (dock mode), itself otherwise. A no-op when already adjacent, which is
+ * also what stops our own restack's ConfigureNotify from looping. */
+static void panel_restack_edge_catcher(Panel *p)
+{
+    Window root, parent, *kids = NULL, top = p->win;
+    unsigned int n = 0;
+    for (;;) {
+        Window *tmp = NULL;
+        unsigned int tn = 0;
+        if (!XQueryTree(g_dpy, top, &root, &parent, &tmp, &tn)) {
+            return;
+        }
+        if (tmp) {
+            XFree(tmp);
+        }
+        if (parent == None || parent == g_root) {
+            break;
+        }
+        top = parent;
+    }
+    if (!XQueryTree(g_dpy, g_root, &root, &parent, &kids, &n)) {
+        return;
+    }
+    unsigned int ti = n, ei = n;
+    for (unsigned int i = 0; i < n; i++) {
+        if (kids[i] == top) {
+            ti = i;
+        } else if (kids[i] == p->edge_win) {
+            ei = i;
+        }
+    }
+    XFree(kids);
+    if (ti == n || ei + 1 == ti) {
+        return;
+    }
+    XWindowChanges wc;
+    memset(&wc, 0, sizeof(wc));
+    wc.sibling = top;
+    wc.stack_mode = Below;
+    XConfigureWindow(g_dpy, p->edge_win, CWSibling | CWStackMode, &wc);
+}
+
 /* follow_wm_gap= floats the bar off its screen edge, so a click on the
  * edge itself (or, for a bar spanning to its end margins, the corner)
  * would land on whatever is behind it. An InputOnly window -- no pixels,
@@ -2361,12 +2406,36 @@ static void panel_update_edge_catcher(Panel *p)
     if (p->edge_win == None) {
         XSetWindowAttributes attrs;
         memset(&attrs, 0, sizeof(attrs));
-        attrs.override_redirect = True;
+        /* In dock mode the bar is a WM-managed dock, and the WM only keeps
+         * windows it tracks in layer order (an active fullscreen window
+         * goes above docks, and a click-to-focus restack runs *before* the
+         * click is replayed). An override-redirect catcher is left behind
+         * by that restack, ends up above the fullscreen window and eats
+         * its corner clicks -- so it's a dock too, and rides the bar's
+         * layer. Other modes' bars are override-redirect themselves. */
+        int managed = (p->mode == MODE_DOCK);
+        attrs.override_redirect = managed ? False : True;
         attrs.event_mask =
             ButtonPressMask | ButtonReleaseMask | PointerMotionMask | EnterWindowMask | LeaveWindowMask;
         p->edge_win = XCreateWindow(g_dpy, g_root, x0, y0, (unsigned)p->edge_w, (unsigned)p->edge_h, 0, 0,
                                     InputOnly, CopyFromParent, CWOverrideRedirect | CWEventMask, &attrs);
-        XMapRaised(g_dpy, p->edge_win);
+        if (managed) {
+            XChangeProperty(g_dpy, p->edge_win, g_atom_wm_window_type, XA_ATOM, 32, PropModeReplace,
+                            (unsigned char *)&g_atom_wm_window_type_dock, 1);
+            XSizeHints sh;
+            memset(&sh, 0, sizeof(sh));
+            sh.flags = PPosition | PSize;
+            sh.x = x0, sh.y = y0, sh.width = p->edge_w, sh.height = p->edge_h;
+            XSetWMNormalHints(g_dpy, p->edge_win, &sh);
+            Atom states[2] = {g_atom_net_wm_state_skip_taskbar, g_atom_net_wm_state_skip_pager};
+            XChangeProperty(g_dpy, p->edge_win, g_atom_net_wm_state, XA_ATOM, 32, PropModeReplace,
+                            (unsigned char *)states, 2);
+            long all_desktops = -1;
+            XChangeProperty(g_dpy, p->edge_win, g_atom_net_wm_desktop, XA_CARDINAL, 32, PropModeReplace,
+                            (unsigned char *)&all_desktops, 1);
+        }
+        XMapWindow(g_dpy, p->edge_win);
+        panel_restack_edge_catcher(p);
     } else {
         XMoveResizeWindow(g_dpy, p->edge_win, x0, y0, (unsigned)p->edge_w, (unsigned)p->edge_h);
     }
@@ -5138,6 +5207,16 @@ static int run_as_daemon(const char *sockpath)
                      * output matters, so coalesce into at most one re-poll
                      * per WATCH_GEOMETRY_DEBOUNCE_MS. */
                     schedule_widget_repoll(now_ms() + WATCH_GEOMETRY_DEBOUNCE_MS);
+                    /* a restack (fullscreen window raised over the bar)
+                     * arrives as this too: keep the catcher under the bar */
+                    if (ev.xconfigure.event == g_root) {
+                        for (int pi = 0; pi < MAX_PANELS; pi++) {
+                            if (g_panels[pi].in_use && g_panels[pi].edge_win != None &&
+                                ev.xconfigure.window != g_panels[pi].edge_win) {
+                                panel_restack_edge_catcher(&g_panels[pi]);
+                            }
+                        }
+                    }
                 }
             }
         }
