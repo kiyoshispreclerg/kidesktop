@@ -44,8 +44,15 @@ static int xg_init(PanelWidget *w)
     if (!kv_get(w->config_kv, "cmd", xp->cmd, sizeof(xp->cmd)) || !xp->cmd[0]) {
         snprintf(xp->cmd, sizeof(xp->cmd), "xisserve");
     }
+    xisguard_events_acquire();
     w->next_tick_ms = now_ms();
     return 0;
+}
+
+static void xg_destroy(PanelWidget *w)
+{
+    (void)w;
+    xisguard_events_release();
 }
 
 static int xg_on_tick(PanelWidget *w, uint64_t now)
@@ -281,6 +288,7 @@ const PanelWidgetOps xisguard_ops = {
     .embeddable = 1,
     .priv_size = sizeof(XgPriv),
     .init = xg_init,
+    .destroy = xg_destroy,
     .measure = xg_measure,
     .paint = xg_paint,
     .on_button = xg_on_button,

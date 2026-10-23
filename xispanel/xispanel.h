@@ -1871,6 +1871,10 @@ typedef struct {
 int xisguard_events_ignored_active(void);
 /* Verb phrase for a guard action name ("SCREEN" -> "captura a tela"). */
 const char *xisguard_action_text(const char *action);
+/* The `xisguard` widget holds the connection (and the toasts) open: with no
+ * widget on any panel there is none. */
+void xisguard_events_acquire(void);
+void xisguard_events_release(void);
 int xisguard_events_fd(void);
 void xisguard_events_poll(void);
 const XisguardEvents *xisguard_events_get(void);

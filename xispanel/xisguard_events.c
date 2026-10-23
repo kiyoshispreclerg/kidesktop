@@ -49,6 +49,10 @@ static char g_buf[XG_LINE_MAX * 2];
 static size_t g_buf_len = 0;
 
 static XisguardEvents g_state = { .enabled = 1 };
+/* How many `xisguard` widgets exist. With none there is no connection and
+ * no toast at all: whoever does not put the widget on a panel gets only the
+ * guard's own dialogs. */
+static int g_users = 0;
 
 static void ctl_path(char *out, size_t outsz)
 {
@@ -344,6 +348,8 @@ static void handle_line(const char *line)
     if (jstr(line, "ev", ev, sizeof(ev))) {
         if (strcmp(ev, "STATE") == 0) {
             set_enabled(jbool(line, "enabled", 1), 1);
+        } else if (jbool(line, "muted", 0)) {
+            return; /* an action the user chose not to be told about */
         } else if (jbool(line, "ignored", 0)) {
             /* In the guard's ignore.conf: only counted, never listed. */
             char exe[512] = "";
@@ -388,8 +394,27 @@ static void drop_connection(void)
     g_retry_at_ms = now_ms() + XG_RECONNECT_MS;
 }
 
+void xisguard_events_acquire(void)
+{
+    g_users++;
+}
+
+void xisguard_events_release(void)
+{
+    if (g_users > 0 && --g_users == 0 && g_fd >= 0) {
+        close(g_fd);
+        g_fd = -1;
+        g_buf_len = 0;
+        g_state.connected = 0;
+        g_state.enabled = 1;
+    }
+}
+
 int xisguard_events_fd(void)
 {
+    if (g_users == 0) {
+        return -1;
+    }
     if (g_fd >= 0) {
         return g_fd;
     }

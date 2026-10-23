@@ -404,7 +404,8 @@ static int notif_on_button(PanelWidget *w, int button, int local_x, int local_y,
 static int notif_is_urgent(PanelWidget *w)
 {
     (void)w;
-    return notifd_unread_count() > 0;
+    /* unread notifications, or a task with progress running (a file copy...) */
+    return notifd_unread_count() > 0 || jobviewd_count() > 0;
 }
 
 const PanelWidgetOps notif_ops = {
