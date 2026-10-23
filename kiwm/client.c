@@ -2553,6 +2553,13 @@ void unmanage(Client *c)
 
     xcb_unmap_window(wm.conn, c->frame);
 
+    /* Out of _NET_CLIENT_LIST before its _NET_WM_STATE goes (below): a
+     * taskbar reacting to that property change would otherwise still see
+     * the window listed, minus its skip-taskbar state, and flash a button
+     * for it -- visible on a slow machine, where the gap is wide. */
+    ewmh_update_client_list_without(c);
+    xcb_flush(wm.conn);
+
     /* The window stops being managed here, so the properties that say a WM
      * *is* managing it have to go with it: ICCCM says WM_STATE is removed
      * (or set to Withdrawn) when a window is withdrawn, and EWMH says the

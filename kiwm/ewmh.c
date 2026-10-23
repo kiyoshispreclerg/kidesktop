@@ -15,10 +15,19 @@
 
 void ewmh_update_client_list(void)
 {
+    ewmh_update_client_list_without(NULL);
+}
+
+/* Same, leaving `skip` out: unmanage() drops a window from the list
+ * before it strips that window's _NET_WM_STATE, so a taskbar never sees a
+ * listed window that has lost its skip-taskbar state. */
+void ewmh_update_client_list_without(const Client *skip)
+{
     xcb_window_t list[MAX_CLIENTS];
     int n = 0;
     for (Client *c = wm.clients; c && n < MAX_CLIENTS; c = c->next)
-        list[n++] = c->window;
+        if (c != skip)
+            list[n++] = c->window;
 
     xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, wm.root,
                         wm.atoms.net_client_list, XCB_ATOM_WINDOW, 32, (uint32_t)n, list);

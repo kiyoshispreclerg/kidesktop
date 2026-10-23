@@ -4,6 +4,7 @@
 #include "wm.h"
 
 void ewmh_update_client_list(void);
+void ewmh_update_client_list_without(const Client *skip);
 void ewmh_update_active_window(void);
 void set_icccm_wm_state(Client *c, uint32_t state);
 void ewmh_update_wm_state(Client *c);
