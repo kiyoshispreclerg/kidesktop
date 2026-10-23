@@ -4798,6 +4798,14 @@ static int run_as_daemon(const char *sockpath)
             timeout_ms = 1000;
         }
         maxfd = a11y_fds(&rfds, maxfd, &timeout_ms);
+        /* A round-trip made since the last drain (a property read, a
+         * widget tick) may have pulled events into Xlib's own queue,
+         * leaving the socket empty: select() would sleep on them until
+         * some unrelated event arrived (a click's release, say). */
+        int x_queued = XEventsQueued(g_dpy, QueuedAlready) > 0;
+        if (x_queued) {
+            timeout_ms = 0;
+        }
 
         struct timeval tv;
         struct timeval *tvp = NULL;
@@ -4851,7 +4859,7 @@ static int run_as_daemon(const char *sockpath)
             }
         }
 
-        if (r > 0 && FD_ISSET(xfd, &rfds)) {
+        if ((r > 0 && FD_ISSET(xfd, &rfds)) || x_queued) {
             while (XPending(g_dpy)) {
                 XEvent ev;
                 XNextEvent(g_dpy, &ev);
