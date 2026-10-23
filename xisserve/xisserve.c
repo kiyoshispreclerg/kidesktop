@@ -57,7 +57,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.2.6"
+#define XISSERVE_VERSION "0.2.7"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -1996,6 +1996,68 @@ static void ensure_page_built(int idx)
     apply_theme_to_root(g_page_roots[idx]);
 }
 
+/* kiwm's window_gap (root _KIWM_WINDOW_GAP, one value per output in
+ * _KIWM_OUTPUTS order) for the output with this rect, 0 when kiwm isn't
+ * running. The output is told apart by its RandR monitor name; an
+ * unmatched rect reads the first output's value. */
+static int kiwm_window_gap(int ox, int oy, int ow, int oh)
+{
+    GdkDisplay *gd = gdk_display_get_default();
+    if (!gd)
+        return 0;
+    Display *dpy = GDK_DISPLAY_XDISPLAY(gd);
+    Window root = DefaultRootWindow(dpy);
+    Atom a_gap = XInternAtom(dpy, "_KIWM_WINDOW_GAP", True);
+    Atom a_outs = XInternAtom(dpy, "_KIWM_OUTPUTS", True);
+    if (a_gap == None)
+        return 0;
+
+    Atom type;
+    int fmt;
+    unsigned long n = 0, left;
+    unsigned char *gaps = NULL;
+    if (XGetWindowProperty(dpy, root, a_gap, 0, 64, False, XA_CARDINAL, &type, &fmt, &n, &left, &gaps) != Success ||
+        !gaps || n == 0) {
+        if (gaps)
+            XFree(gaps);
+        return 0;
+    }
+
+    unsigned long idx = 0;
+    unsigned char *outs = NULL;
+    unsigned long outs_n = 0;
+    if (n > 1 && a_outs != None &&
+        XGetWindowProperty(dpy, root, a_outs, 0, 256, False, AnyPropertyType, &type, &fmt, &outs_n, &left, &outs) ==
+            Success &&
+        outs) {
+        int nm = 0;
+        XRRMonitorInfo *mons = XRRGetMonitors(dpy, root, True, &nm);
+        for (int i = 0; mons && i < nm; i++) {
+            if (mons[i].x != ox || mons[i].y != oy || mons[i].width != ow || mons[i].height != oh)
+                continue;
+            char *name = XGetAtomName(dpy, mons[i].name);
+            unsigned long k = 0;
+            for (unsigned long off = 0; name && off < outs_n; k++) {
+                if (!strcmp((char *)outs + off, name)) {
+                    idx = k;
+                    break;
+                }
+                off += strlen((char *)outs + off) + 1;
+            }
+            if (name)
+                XFree(name);
+            break;
+        }
+        if (mons)
+            XRRFreeMonitors(mons);
+    }
+    if (outs)
+        XFree(outs);
+    int gap = idx < n ? (int)((long *)(void *)gaps)[idx] : 0;
+    XFree(gaps);
+    return gap < 0 ? 0 : gap;
+}
+
 /* Glues the popup to the panel's outer edge aligned with the anchor
  * rect, then clamps it inside the *output* rect (the RandR CRTC
  * xispanel's own panel lives on, per PROTOCOL.md's --output-* flags --
@@ -2030,12 +2092,24 @@ static void reposition_window(void)
         y = g_args.anchor_y;
     }
 
-    int min_x = g_args.output_x, max_x = g_args.output_x + g_args.output_w - ww;
+    /* Floats like a kiwm window: window_gap away from the bar and from
+     * the output's edges. */
+    int gap = kiwm_window_gap(g_args.output_x, g_args.output_y, g_args.output_w, g_args.output_h);
+    if (strcmp(g_args.edge, "top") == 0)
+        y += gap;
+    else if (strcmp(g_args.edge, "bottom") == 0)
+        y -= gap;
+    else if (strcmp(g_args.edge, "left") == 0)
+        x += gap;
+    else
+        x -= gap;
+
+    int min_x = g_args.output_x + gap, max_x = g_args.output_x + g_args.output_w - gap - ww;
     if (max_x < min_x) max_x = min_x;
     if (x < min_x) x = min_x;
     if (x > max_x) x = max_x;
 
-    int min_y = g_args.output_y, max_y = g_args.output_y + g_args.output_h - wh;
+    int min_y = g_args.output_y + gap, max_y = g_args.output_y + g_args.output_h - gap - wh;
     if (max_y < min_y) max_y = min_y;
     if (y < min_y) y = min_y;
     if (y > max_y) y = max_y;
