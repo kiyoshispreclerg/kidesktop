@@ -28,7 +28,7 @@
 #define REPORT_THROTTLE_S   1
 #define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.12"
+#define XISGUARD_VERSION    "0.4.14"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -202,6 +202,18 @@ static char subscribers_allow[256] = "";
 /* KiDesktop's own components are always allowed. They are not in the saved
  * list on purpose: xnotify.conf persists `subscribers=` on first run, so a
  * component added later would be refused by every existing install. */
+/* Which actions are worth telling the user about (panel toast, the xisserve
+ * page): a bit per action id like the subscriber masks. Others still reach
+ * subscribers, flagged "muted". Default: screen / window capture. */
+#define NOTIFY_DEFAULT_MASK ((1u << (XNOTIFY_SCREEN - 1)) | (1u << (XNOTIFY_COMPOSITE - 1)))
+static uint32_t notify_mask = NOTIFY_DEFAULT_MASK;
+/* KiDesktop's own programs, never reported (matched on the executable's
+ * basename; not persisted, so an update can extend it). xisguard itself is
+ * not here: it is the guard and has its own special permission. */
+static const char *const ignored_builtin[] = {
+    "kiwm", "kicomp", "kiconf", "kiconfd", "xispanel", "xisserve", "xisback", "xiskeys", "xismenu",
+    "xis-sound", "kilock", "kisession", "kistoryd", "kimemoryd", NULL
+};
 static const char *const subscribers_builtin[] = { "kistoryd", "kimemoryd", "xispanel", NULL };
 
 /* Server's real drop-in rules directory (SYSCONFDIR "/xnotify.conf.d"),
@@ -792,6 +804,8 @@ int file_has_changed() {
 
 /* ====================== XNOTIFY CONF (PERSISTENT FLAGS) ====================== */
 
+static uint32_t notify_mask_parse(const char *list);
+
 static void load_xnotify_conf(void) {
     FILE *f = fopen(xnotify_conf_file, "r");
     if (!f) return;
@@ -820,11 +834,37 @@ static void load_xnotify_conf(void) {
             secure_mode = atoi(v) ? 1 : 0;
         else if (strcmp(k, "subscribers") == 0)
             snprintf(subscribers_allow, sizeof(subscribers_allow), "%s", v);
+        else if (strcmp(k, "notify_actions") == 0)
+            notify_mask = notify_mask_parse(v);
     }
     fclose(f);
     last_xnotify_conf_mtime = time(NULL);
     log_filtered(3, "Loaded xnotify.conf: no_pause=%d quiet=%d always_kill=%d log_level=%d secure_mode=%d",
                  no_pause_mode, quiet_mode, always_kill_mode, log_level, secure_mode);
+}
+
+/* "SCREEN,COMPOSITE" <-> bit mask; "NONE" or empty is no action at all. */
+static uint32_t notify_mask_parse(const char *list) {
+    uint32_t mask = 0;
+    char buf[512];
+    snprintf(buf, sizeof(buf), "%s", list);
+    char *save = NULL;
+    for (char *tok = strtok_r(buf, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
+        int a = string_to_action(trim(tok));
+        if (a > 0 && a <= 16)
+            mask |= 1u << (a - 1);
+    }
+    return mask;
+}
+
+static void notify_mask_format(char *out, size_t outsz) {
+    size_t o = 0;
+    out[0] = '\0';
+    for (int i = 0; action_names[i].name && o + 1 < outsz; i++) {
+        int id = action_names[i].id;
+        if (id > 0 && id <= 16 && (notify_mask & (1u << (id - 1))))
+            o += (size_t)snprintf(out + o, outsz - o, "%s%s", o ? "," : "", action_names[i].name);
+    }
 }
 
 static void save_xnotify_conf(void) {
@@ -841,6 +881,9 @@ static void save_xnotify_conf(void) {
     fprintf(f, "log_level=%d\n", log_level);
     fprintf(f, "secure_mode=%d\n", secure_mode);
     fprintf(f, "subscribers=%s\n", subscribers_allow);
+    char na[512];
+    notify_mask_format(na, sizeof(na));
+    fprintf(f, "notify_actions=%s\n", na[0] ? na : "NONE");
     fclose(f);
     last_xnotify_conf_mtime = time(NULL);
     log_filtered(3, "Saved xnotify.conf");
@@ -897,6 +940,17 @@ int is_ignored(const char *exe, int action_id) {
 int is_report_ignored(const char *exe) {
     if (!exe || *exe == '\0' || strcmp(exe, "?") == 0)
         return 0;
+
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s", exe);
+    char *bar = strchr(path, '|');
+    if (bar)
+        *bar = '\0';
+    const char *base = strrchr(path, '/');
+    base = base ? base + 1 : path;
+    for (int i = 0; ignored_builtin[i]; i++)
+        if (strcmp(base, ignored_builtin[i]) == 0)
+            return 1;
 
     pthread_mutex_lock(&report_ignore_lock);
     for (int i = 0; i < ignored_reports_count; i++) {
@@ -2041,12 +2095,14 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
     }
 
     if (strcasecmp(cmd, "GET_STATUS") == 0) {
+        char na_buf[512];
+        notify_mask_format(na_buf, sizeof(na_buf));
         snprintf(resp, resp_sz,
             "{\"ok\":true,\"version\":\"%s\",\"display\":%d,"
             "\"no_pause\":%d,\"quiet\":%d,\"always_kill\":%d,\"log_level\":%d,\"secure_mode\":%d,"
-            "\"xnotify_enabled\":%d}\n",
+            "\"xnotify_enabled\":%d,\"notify_actions\":\"%s\"}\n",
             XISGUARD_VERSION, display, no_pause_mode, quiet_mode, always_kill_mode, log_level, secure_mode,
-            !server_disabled);
+            !server_disabled, na_buf);
         return;
     }
 
@@ -2057,6 +2113,9 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
         if (json_get_int(req, "quiet", &v))         quiet_mode = v ? 1 : 0;
         if (json_get_int(req, "always_kill", &v))   always_kill_mode = v ? 1 : 0;
         if (json_get_int(req, "log_level", &v) && v >= 0 && v <= 4) log_level = v;
+        char na[512];
+        if (json_get_str(req, "notify_actions", na, sizeof(na)))
+            notify_mask = notify_mask_parse(na);
         if (json_get_int(req, "secure_mode", &v) && (v ? 1 : 0) != secure_mode) {
             secure_mode = v ? 1 : 0;
             secure_mode_changed = 1;
@@ -2161,6 +2220,9 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
             off += snprintf(resp + off, resp_sz - off, "%s\"%s\"", i == 0 ? "" : ",", esc);
         }
         pthread_mutex_unlock(&report_ignore_lock);
+        off += snprintf(resp + off, resp_sz - off, "],\"builtin\":[");
+        for (int i = 0; ignored_builtin[i] && off < resp_sz; i++)
+            off += snprintf(resp + off, resp_sz - off, "%s\"%s\"", i ? "," : "", ignored_builtin[i]);
         if (off < resp_sz) off += snprintf(resp + off, resp_sz - off, "]}\n");
         return;
     }
@@ -2174,7 +2236,7 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
         pthread_mutex_lock(&active_lock);
         int order[ACTIVE_MAX], n = 0;
         for (int i = 0; i < ACTIVE_MAX; i++)
-            if (active_tab[i].exe[0])
+            if (active_tab[i].exe[0] && (notify_mask & (1u << (active_tab[i].action - 1))))
                 order[n++] = i;
         for (int i = 1; i < n; i++) { /* insertion sort, newest first */
             int v = order[i], j = i - 1;
@@ -2325,10 +2387,11 @@ static void subscribers_broadcast(const char *ev, int action, pid_t pid, const c
     char exe_esc[PATH_MAX * 2];
     json_escape_str(exe_esc, sizeof(exe_esc), exe);
     char line[PATH_MAX * 2 + 128];
+    int muted = !(notify_mask & (1u << (action - 1)));
     int len = snprintf(line, sizeof(line),
-                       "{\"ev\":\"%s\",\"action\":\"%s\",\"pid\":%d,\"exe\":\"%s\",\"ts\":%ld%s}\n",
+                       "{\"ev\":\"%s\",\"action\":\"%s\",\"pid\":%d,\"exe\":\"%s\",\"ts\":%ld%s%s}\n",
                        ev, action_to_string(action), (int)pid, exe_esc, (long)time(NULL),
-                       ignored ? ",\"ignored\":true" : "");
+                       ignored ? ",\"ignored\":true" : "", muted ? ",\"muted\":true" : "");
     if (len >= (int)sizeof(line))
         len = (int)sizeof(line) - 1;
     uint32_t bit = 1u << (action - 1);

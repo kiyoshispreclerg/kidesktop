@@ -125,15 +125,16 @@ CLI options above), `LIST_RULES`, `ADD_RULE`, `REMOVE_RULE`, `RELOAD`,
 `xnotify.conf` file), `LIST_IGNORED`, `ADD_IGNORED`, `REMOVE_IGNORED`
 (the programs of `ignore.conf`, by `pattern`), `LIST_ACTIVE` (programs that
 reported using something lately, newest first, with `ignored` and `denied`
-flags; memory only) and `REVOKE_ACCESS` (`pattern` = program path,
+flags, only for the actions in `notify_actions`; memory only) and `REVOKE_ACCESS` (`pattern` = program path,
 `action`: drops its rules for that action and puts a DENY first).
 
 `SUBSCRIBE` is the exception: `{"cmd":"SUBSCRIBE","actions":"SCREEN,RECORD"}`
 (`actions` optional, all by default) keeps the connection open, and every
 REPORT/REQUEST from the X server is then written to it as one line:
 `{"ev":"REPORT","action":"RECORD","pid":N,"exe":"...","ts":N}`, with
-`"ignored":true` added when the program is in `ignore.conf` (subscribers
-decide what to do with those). Only
+`"ignored":true` added when the program is ignored and `"muted":true` when
+its action is not in `notify_actions` (subscribers decide what to do with
+those). Only
 some programs may subscribe: KiDesktop's own (`kistoryd`, `kimemoryd`,
 `xispanel`) always, plus any executable name listed in `subscribers=` in
 `xnotify.conf` (empty by default, for third-party trays).
@@ -151,3 +152,16 @@ The user can add a list of programs to the file ignore.conf (in the same path of
 reports coming from these programs will not be shown. It can be a good idea to add programs always required for the session, such as
 window, clipboard, keyboard layout and session managers.
 
+
+### Ignored programs and notified actions
+
+Besides `ignore.conf`, KiDesktop's own programs (`kiwm`, `kicomp`, `kiconf`,
+`kiconfd`, `xispanel`, `xisserve`, `xisback`, `xiskeys`, `xismenu`,
+`xis-sound`, `kilock`, `kisession`, `kistoryd`, `kimemoryd`) are always
+ignored; `LIST_IGNORED` returns them as `builtin`. `xisguard` itself is not
+among them.
+
+`notify_actions=` in `xnotify.conf` (`GET_STATUS` / `SET_STATUS`
+`notify_actions`, comma separated, `NONE` for none) selects the actions
+worth telling the user about: the panel's toasts and the xisserve page
+only cover those. Default: `SCREEN,COMPOSITE` (screen and window capture).
