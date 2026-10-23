@@ -57,7 +57,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.2.7"
+#define XISSERVE_VERSION "0.2.8"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -2199,12 +2199,21 @@ static gboolean on_window_visibility(GtkWidget *w, GdkEventVisibility *ev, gpoin
  *     remap -- the same mechanism that keeps plasmashell's panel and
  *     kickoff above ordinary windows under kwin. on_window_visibility()
  *     above is the fallback for a WM that doesn't.
+ *   - _NET_WM_STATE_STICKY (gtk_window_stick()): visible on every desktop.
  *   - skip-taskbar/skip-pager: set unconditionally at window creation now
  *     (build_ui()), not just while pinned -- an undecorated launcher
  *     popup has no business in a tasklist or pager either way. */
 static void set_pin_window_mode(gboolean pinned)
 {
     gtk_window_set_keep_above(GTK_WINDOW(g_window), pinned);
+    /* Sticky (_NET_WM_STATE_STICKY / all desktops) too: a pinned window
+     * that stayed behind on one desktop when the user switched wouldn't
+     * be "fixed" in any useful sense. */
+    if (pinned) {
+        gtk_window_stick(GTK_WINDOW(g_window));
+    } else {
+        gtk_window_unstick(GTK_WINDOW(g_window));
+    }
 }
 
 static void leave_current_page(void); /* defined below, next to the page-visibility bookkeeping it owns */
