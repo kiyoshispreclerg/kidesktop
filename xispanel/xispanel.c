@@ -982,7 +982,8 @@ static Window panel_create_window(Panel *p, int x, int y, int w, int h)
     /* PropertyChangeMask: needed for _X_DENSITY_REQUESTED (see density.c) --
      * a compositor writes that directly onto this window. */
     attrs.event_mask =
-        ButtonPressMask | EnterWindowMask | LeaveWindowMask | PointerMotionMask | ExposureMask | PropertyChangeMask;
+        ButtonPressMask | ButtonReleaseMask | EnterWindowMask | LeaveWindowMask | PointerMotionMask | ExposureMask |
+        PropertyChangeMask;
 
     Window win = XCreateWindow(g_dpy, g_root, x, y, (unsigned)w, (unsigned)h, 0, p->depth, InputOutput, p->visual,
                                 CWOverrideRedirect | CWColormap | CWBorderPixel | CWBackPixel | CWEventMask, &attrs);
@@ -4337,6 +4338,10 @@ static void containers_update_inline(void)
     }
 }
 
+/* Press awaiting its release: panel items react on release, not press. */
+static Window g_press_win = None;
+static unsigned int g_press_button = 0;
+
 static void dispatch_button(Panel *p, int button, int x, int y, int root_x, int root_y)
 {
     int axis_pos = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? x : y;
@@ -4888,7 +4893,26 @@ static int run_as_daemon(const char *sockpath)
                     Panel *p = find_panel_by_window(ev.xbutton.window, &is_sensor);
                     if (p && !is_sensor) {
                         tooltip_close();
-                        dispatch_button(p, (int)ev.xbutton.button, ev.xbutton.x, ev.xbutton.y, ev.xbutton.x_root, ev.xbutton.y_root);
+                        unsigned int b = ev.xbutton.button;
+                        if (b >= 4 && b <= 7) {
+                            /* wheel: X reports each notch as a press, there is no "release" gesture */
+                            dispatch_button(p, (int)b, ev.xbutton.x, ev.xbutton.y, ev.xbutton.x_root, ev.xbutton.y_root);
+                        } else {
+                            /* real buttons fire on release (see ButtonRelease below) */
+                            g_press_win = ev.xbutton.window;
+                            g_press_button = b;
+                        }
+                    }
+                } else if (ev.type == ButtonRelease) {
+                    Window pw = g_press_win;
+                    unsigned int pb = g_press_button;
+                    g_press_win = None;
+                    g_press_button = 0;
+                    int is_sensor = 0;
+                    Panel *p = find_panel_by_window(ev.xbutton.window, &is_sensor);
+                    if (p && !is_sensor && pw == ev.xbutton.window && pb == ev.xbutton.button &&
+                        ev.xbutton.x >= 0 && ev.xbutton.y >= 0 && ev.xbutton.x < p->w && ev.xbutton.y < p->h) {
+                        dispatch_button(p, (int)pb, ev.xbutton.x, ev.xbutton.y, ev.xbutton.x_root, ev.xbutton.y_root);
                     }
                 } else if (ev.type == MotionNotify) {
                     int is_sensor = 0;
