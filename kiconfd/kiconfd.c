@@ -171,7 +171,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.26"
+#define KICONFD_VERSION "0.2.27"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -470,6 +470,43 @@ static void update_marked_block(const char *path, const char *begin_marker, cons
     fclose(out);
     if (rename(tmp, path) != 0) {
         fprintf(stderr, "kiconfd: could not save '%s': %s\n", path, strerror(errno));
+    }
+}
+
+/* Drops the region between the markers, if the file has one; a missing
+ * file or block is left alone. The reverse of update_marked_block(). */
+static void remove_marked_block(const char *path, const char *begin_marker, const char *end_marker)
+{
+    FILE *in = fopen(path, "r");
+    if (!in) {
+        return;
+    }
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    FILE *out = fopen(tmp, "w");
+    if (!out) {
+        fclose(in);
+        return;
+    }
+    int found = 0, in_block = 0;
+    char line[1024];
+    while (fgets(line, sizeof(line), in)) {
+        if (!in_block && strncmp(line, begin_marker, strlen(begin_marker)) == 0) {
+            in_block = found = 1;
+            continue;
+        }
+        if (in_block) {
+            if (strncmp(line, end_marker, strlen(end_marker)) == 0) {
+                in_block = 0;
+            }
+            continue;
+        }
+        fputs(line, out);
+    }
+    fclose(in);
+    fclose(out);
+    if (!found || rename(tmp, path) != 0) {
+        remove(tmp);
     }
 }
 
@@ -1191,6 +1228,26 @@ static void apply_gtk_modern(const char *ver, const char *theme)
     char import_line[128];
     snprintf(import_line, sizeof(import_line), "@import url(\"kiconf-colors.css\");\n");
     update_marked_block(gtkcss_path, GTKCSS_BEGIN, GTKCSS_END, import_line);
+}
+
+/* Export off: a block written back when it was on would otherwise stay
+ * and keep applying on top of whatever XSETTINGS and KiTheme say (the
+ * user rc is read after the theme, so its palette wins). */
+static void remove_exported_files(void)
+{
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/.gtkrc-2.0", xdg_home());
+    remove_marked_block(path, GTKRC2_BEGIN, GTKRC2_END);
+    static const char *const vers[] = {"3.0", "4.0"};
+    for (size_t i = 0; i < sizeof(vers) / sizeof(vers[0]); i++) {
+        char rel[64];
+        snprintf(rel, sizeof(rel), "gtk-%s/gtk.css", vers[i]);
+        path_in_config(path, sizeof(path), rel);
+        remove_marked_block(path, GTKCSS_BEGIN, GTKCSS_END);
+        snprintf(rel, sizeof(rel), "gtk-%s/kiconf-colors.css", vers[i]);
+        path_in_config(path, sizeof(path), rel);
+        remove(path);
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -2372,6 +2429,8 @@ static void apply_all(void)
         apply_gtk_modern("4.0", g_gtk4_theme);
         apply_qt("qt5ct");
         apply_qt("qt6ct");
+    } else {
+        remove_exported_files();
     }
     XFlush(g_dpy);
     fprintf(stderr, "kiconfd: applied settings (cursor='%s' gtk2='%s' gtk3='%s' gtk4='%s' qt_style='%s' export_other_desktops=%d)\n",
