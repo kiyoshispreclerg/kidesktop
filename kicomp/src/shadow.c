@@ -7,6 +7,7 @@
 #include "effect.h"   /* comp_window_type_mask_parse */
 #include "window.h"   /* window_rect */
 #include "output.h"   /* output_damage_rect */
+#include "desktop.h"  /* desktop_of_window */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -154,7 +155,20 @@ static int output_of(const CompWindow *w)
     return -1;
 }
 
-/* Is some other window covering the work area of `w`'s output? */
+/* Is `o` showing on `out`? A window put away on another desktop is still
+ * maximized, but it covers nothing the user is looking at. Where the WM
+ * doesn't say which desktop it is on, assume the one on screen. */
+static bool on_shown_desktop(const CompWindow *o, int out)
+{
+    int desk, desk_out;
+    if (!desktop_of_window(o, &desk, &desk_out) || desk == COMP_DESKTOP_ALL)
+        return true;
+    int cur = desktop_current_for_output(&comp.outputs[desk_out >= 0 && desk_out < comp.output_count ? desk_out : out]);
+    return cur < 0 || cur == desk;
+}
+
+/* Is some other window covering the work area of `w`'s output, on the
+ * desktop that output is showing? */
 static bool output_has_covering_window(const CompWindow *w)
 {
     int out = output_of(w);
@@ -166,7 +180,7 @@ static bool output_has_covering_window(const CompWindow *w)
         if (!(o->state & (COMP_STATE_MAXIMIZED_BOTH | COMP_STATE_FULLSCREEN)) ||
             (o->state & COMP_STATE_MINIMIZED))
             continue;
-        if (output_of(o) == out)
+        if (output_of(o) == out && on_shown_desktop(o, out))
             return true;
     }
     return false;

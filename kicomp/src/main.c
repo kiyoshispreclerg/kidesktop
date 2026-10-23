@@ -33,7 +33,7 @@
 
 #define _GNU_SOURCE             /* ppoll */
 
-#define KICOMP_VERSION "0.3.72"
+#define KICOMP_VERSION "0.3.73"
 
 #include "../../shared/xis_i18n.h"
 
@@ -949,6 +949,7 @@ static void handle_event(xcb_generic_event_t *ev)
                  * direction, which is what the wall slides along. */
                 comp.desktop_changed_ms = comp_now_ms();
                 desktop_refresh();
+                shadow_context_changed();   /* what covers the panel is per desktop */
             }
             break;
         }
