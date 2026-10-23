@@ -146,6 +146,20 @@ static ToastCorner g_corner = TOAST_CORNER_BOTTOM_RIGHT;
  * in which case toast_area() falls back to the whole default screen. */
 static int g_area_x = 0, g_area_y = 0, g_area_w = 0, g_area_h = 0;
 
+/* kiwm's window_gap on that output (toast_set_wm_gap()): the margin to
+ * the area's edges and the space between stacked toasts never go below it. */
+static int g_wm_gap = 0;
+
+static int toast_margin(void)
+{
+    return g_wm_gap > TOAST_MARGIN ? g_wm_gap : TOAST_MARGIN;
+}
+
+static int toast_stack_gap(void)
+{
+    return g_wm_gap > TOAST_GAP ? g_wm_gap : TOAST_GAP;
+}
+
 /* The xisserve window (launcher / network / audio / ... pages -- one
  * toplevel for all of them) while it's on screen, so toasts can stay out
  * of its way like they do a panel. Cached: toast_area() only reads these;
@@ -361,9 +375,9 @@ static int toast_fits(int h)
     (void)aw;
     int used = h;
     for (int i = 0; i < g_n; i++) {
-        used += g_toasts[i].h + TOAST_GAP;
+        used += g_toasts[i].h + toast_stack_gap();
     }
-    return used <= ah - 2 * TOAST_MARGIN;
+    return used <= ah - 2 * toast_margin();
 }
 
 /* Screen position for the toast currently at array index `idx` (0 =
@@ -379,7 +393,7 @@ static void toast_screen_pos(int idx, int *out_x, int *out_y)
 {
     int step = 0; /* room taken by the newer toasts, closer to the corner */
     for (int i = idx + 1; i < g_n; i++) {
-        step += g_toasts[i].h + TOAST_GAP;
+        step += g_toasts[i].h + toast_stack_gap();
     }
     int h = g_toasts[idx].h;
     int ax, ay, aw, ah;
@@ -395,15 +409,15 @@ static void toast_screen_pos(int idx, int *out_x, int *out_y)
                      g_corner == TOAST_CORNER_BOTTOM_RIGHT);
 
     if (at_left) {
-        *out_x = ax + TOAST_MARGIN;
+        *out_x = ax + toast_margin();
     } else if (at_right) {
-        *out_x = ax + aw - TOAST_MARGIN - TOAST_W;
+        *out_x = ax + aw - toast_margin() - TOAST_W;
     } else {
         *out_x = ax + (aw - TOAST_W) / 2;
     }
 
-    int base_y = at_top      ? ay + TOAST_MARGIN
-                 : at_bottom ? ay + ah - TOAST_MARGIN - h
+    int base_y = at_top      ? ay + toast_margin()
+                 : at_bottom ? ay + ah - toast_margin() - h
                              : ay + (ah - g_toasts[g_n - 1].h) / 2;
     *out_y = at_bottom ? base_y - step : base_y + step;
 }
@@ -1037,6 +1051,15 @@ void toast_set_corner(ToastCorner corner)
 /* See g_area_x/y/w/h's doc comment. reposition_all() is a no-op when
  * g_n == 0 (nothing showing yet), which is the common case (this is set
  * from a widget's init(), before any toast has ever arrived). */
+void toast_set_wm_gap(int gap)
+{
+    if (gap == g_wm_gap) {
+        return;
+    }
+    g_wm_gap = gap;
+    reposition_all();
+}
+
 void toast_set_output_rect(int x, int y, int w, int h)
 {
     if (g_area_x == x && g_area_y == y && g_area_w == w && g_area_h == h) {

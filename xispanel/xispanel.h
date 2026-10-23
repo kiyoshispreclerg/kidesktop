@@ -1773,6 +1773,15 @@ void toast_set_corner(ToastCorner corner);
  * and never sit under its own panel. One global rect, same "last
  * `notif` widget to init() wins" rule as toast_set_corner(). */
 void toast_set_output_rect(int x, int y, int w, int h);
+/* kiwm's window_gap on the notif widget's output (panel_read_wm_gap()):
+ * toasts keep at least this far from the free area's edges and from each
+ * other, whether or not that panel follows the gap itself. */
+void toast_set_wm_gap(int gap);
+
+/* How far p floats off its screen edge (follow_wm_gap=), 0 when it
+ * doesn't; kiwm's window_gap on p's output, whatever follow_wm_gap= says. */
+int panel_edge_margin(const Panel *p);
+int panel_read_wm_gap(const Panel *p);
 
 /* Re-checks where the xisserve window is (toasts keep out of its way);
  * no-op, and no X traffic, while no toast is showing. Called from the

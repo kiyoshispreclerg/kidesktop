@@ -100,7 +100,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.7.25"
+#define XISPANEL_VERSION "0.7.26"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 128KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -788,14 +788,14 @@ static int panel_align_offset(const Panel *p, int slack)
 /* follow_wm_gap=: how far the bar floats off its screen edge and off both
  * ends of it. The strut (panel_apply_strut()) is measured to the bar's far
  * side, so it includes this and the WM's own gap starts past it. */
-static int panel_edge_margin(const Panel *p)
+int panel_edge_margin(const Panel *p)
 {
     return p->follow_wm_gap ? p->gap_now : 0;
 }
 
 /* kiwm's current window_gap on the output this panel sits on (output "*"
  * or one kiwm doesn't list counts as the first). */
-static int panel_read_wm_gap(const Panel *p)
+int panel_read_wm_gap(const Panel *p)
 {
     char names[16][64];
     int n = 0;

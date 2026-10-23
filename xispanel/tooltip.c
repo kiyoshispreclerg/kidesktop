@@ -1054,25 +1054,29 @@ static void show_popup(void)
     Panel *p = g_panel;
     int panel_anchor_x = g_widget->x + g_anchor_x;
     int screen_x, screen_y;
+    /* A bar floating off its edge (follow_wm_gap=) makes its tooltips
+     * float too: that far from the bar and from the output's edges. */
+    int gap = panel_edge_margin(p);
+    int away = gap > TOOLTIP_GAP ? gap : TOOLTIP_GAP;
     if (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) {
         int anchor_screen_x0 = p->x + panel_anchor_x;
         screen_x = anchor_screen_x0 + g_anchor_w / 2 - pop->width / 2;
-        screen_y = (p->edge == EDGE_TOP) ? (p->y + p->h + TOOLTIP_GAP) : (p->y - pop->height - TOOLTIP_GAP);
-        if (screen_x + pop->width > p->out_x + p->out_w) {
-            screen_x = p->out_x + p->out_w - pop->width;
+        screen_y = (p->edge == EDGE_TOP) ? (p->y + p->h + away) : (p->y - pop->height - away);
+        if (screen_x + pop->width > p->out_x + p->out_w - gap) {
+            screen_x = p->out_x + p->out_w - gap - pop->width;
         }
-        if (screen_x < p->out_x) {
-            screen_x = p->out_x;
+        if (screen_x < p->out_x + gap) {
+            screen_x = p->out_x + gap;
         }
     } else {
         int anchor_screen_y0 = p->y + panel_anchor_x;
         screen_y = anchor_screen_y0 + g_anchor_w / 2 - pop->height / 2;
-        screen_x = (p->edge == EDGE_LEFT) ? (p->x + p->w + TOOLTIP_GAP) : (p->x - pop->width - TOOLTIP_GAP);
-        if (screen_y + pop->height > p->out_y + p->out_h) {
-            screen_y = p->out_y + p->out_h - pop->height;
+        screen_x = (p->edge == EDGE_LEFT) ? (p->x + p->w + away) : (p->x - pop->width - away);
+        if (screen_y + pop->height > p->out_y + p->out_h - gap) {
+            screen_y = p->out_y + p->out_h - gap - pop->height;
         }
-        if (screen_y < p->out_y) {
-            screen_y = p->out_y;
+        if (screen_y < p->out_y + gap) {
+            screen_y = p->out_y + gap;
         }
     }
 
