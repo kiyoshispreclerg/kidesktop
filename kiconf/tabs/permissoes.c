@@ -22,6 +22,9 @@
 static GtkWidget *g_xg_status_label;
 static GtkWidget *g_xg_no_pause_chk, *g_xg_quiet_chk, *g_xg_always_kill_chk, *g_xg_log_level_spin;
 static GtkWidget *g_xg_secure_mode_chk;
+/* "Avisos": one check per action (XNOTIFY_ACTIONS[1..]) */
+static GtkWidget *g_xg_notify_chk[32];
+static int g_xg_n_notify_chk;
 static GtkWidget *g_xg_rules_view;
 static GtkListStore *g_xg_rules_store;
 static GtkWidget *g_xg_action_combo, *g_xg_type_combo, *g_xg_pattern_entry;
@@ -38,6 +41,7 @@ static GtkListStore *g_xg_ignored_store;
 typedef struct {
     int online;
     int no_pause, quiet, always_kill, log_level, secure_mode;
+    char notify[512]; /* comma list of the actions to tell the user about ("" = none) */
 } XgStatus;
 static XgStatus g_xg_baseline;
 
@@ -181,6 +185,7 @@ static void xisguard_get_status(XgStatus *st)
         st->always_kill = json_get_int(resp, "always_kill", 0) != 0;
         st->log_level = json_get_int(resp, "log_level", 0);
         st->secure_mode = json_get_int(resp, "secure_mode", 0) != 0;
+        json_get_str(resp, "notify_actions", st->notify, sizeof(st->notify));
     }
 }
 
@@ -402,6 +407,34 @@ static int xisguard_list_ignored(char (*out)[192], int max)
     return n;
 }
 
+/* The KiDesktop programs xisguard always ignores (LIST_IGNORED "builtin"). */
+static void xisguard_builtin_ignored(char *out, size_t outsz)
+{
+    out[0] = '\0';
+    char path[PATH_MAX];
+    xisguard_ctl_path(path, sizeof(path));
+    char resp[JSON_BUF_LEN];
+    if (!json_line_send(path, "{\"cmd\":\"LIST_IGNORED\"}", resp, sizeof(resp)) || !json_ok(resp)) {
+        return;
+    }
+    const char *p = strstr(resp, "\"builtin\"");
+    p = p ? strchr(p, '[') : NULL;
+    size_t o = 0;
+    while (p && (p = strchr(p, '"')) && o + 1 < outsz) {
+        p++;
+        if (o) {
+            o += (size_t)snprintf(out + o, outsz - o, ", ");
+        }
+        while (*p && *p != '"' && o + 1 < outsz) {
+            out[o++] = *p++;
+        }
+        out[o] = '\0';
+        if (*p == '"') {
+            p++;
+        }
+    }
+}
+
 static int xisguard_send_ignored_cmd(const char *cmd, const char *pattern)
 {
     char path[PATH_MAX];
@@ -441,12 +474,13 @@ static int xisguard_reload(void)
  * against baseline" rule as every other tab. */
 static void refresh_xg_rules(void);
 
-static void apply_xg_status_diff(int no_pause, int quiet, int always_kill, int log_level, int secure_mode)
+static void apply_xg_status_diff(int no_pause, int quiet, int always_kill, int log_level, int secure_mode,
+                                 const char *notify)
 {
     if (!g_xg_baseline.online) {
         return;
     }
-    char req[256];
+    char req[768];
     int pos = snprintf(req, sizeof(req), "{\"cmd\":\"SET_STATUS\"");
     int changed = 0;
     if (no_pause != g_xg_baseline.no_pause) {
@@ -469,6 +503,10 @@ static void apply_xg_status_diff(int no_pause, int quiet, int always_kill, int l
         pos += snprintf(req + pos, sizeof(req) - (size_t)pos, ",\"secure_mode\":%d", secure_mode);
         changed = 1;
     }
+    if (strcmp(notify, g_xg_baseline.notify) != 0) {
+        pos += snprintf(req + pos, sizeof(req) - (size_t)pos, ",\"notify_actions\":\"%s\"", notify[0] ? notify : "NONE");
+        changed = 1;
+    }
     snprintf(req + pos, sizeof(req) - (size_t)pos, "}");
     if (!changed) {
         return;
@@ -483,6 +521,7 @@ static void apply_xg_status_diff(int no_pause, int quiet, int always_kill, int l
     g_xg_baseline.always_kill = always_kill;
     g_xg_baseline.log_level = log_level;
     g_xg_baseline.secure_mode = secure_mode;
+    snprintf(g_xg_baseline.notify, sizeof(g_xg_baseline.notify), "%s", notify);
     /* Secure mode toggling changes which set of user rules is actually
      * live (see xisguard.c's SET_STATUS handler) -- refresh so the user
      * rules list reflects that instead of showing stale entries. */
@@ -583,7 +622,14 @@ static void apply_xg_status_cb(GtkWidget *widget, gpointer data)
     int always_kill = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_xg_always_kill_chk));
     int log_level = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_xg_log_level_spin));
     int secure_mode = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_xg_secure_mode_chk));
-    apply_xg_status_diff(no_pause, quiet, always_kill, log_level, secure_mode);
+    char notify[512] = "";
+    for (int i = 0; i < g_xg_n_notify_chk; i++) {
+        if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_xg_notify_chk[i]))) {
+            size_t o = strlen(notify);
+            snprintf(notify + o, sizeof(notify) - o, "%s%s", o ? "," : "", XNOTIFY_ACTIONS[i + 1][0]);
+        }
+    }
+    apply_xg_status_diff(no_pause, quiet, always_kill, log_level, secure_mode, notify);
 }
 
 static void on_xg_add_rule(GtkWidget *widget, gpointer data)
@@ -687,9 +733,30 @@ GtkWidget *build_permissoes_tab(void)
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_xg_log_level_spin), g_xg_baseline.log_level);
     labeled_row(status_table, 4, "log_level:", g_xg_log_level_spin);
     gtk_widget_set_sensitive(status_table, g_xg_baseline.online);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Modo de execucao", status_table), FALSE, FALSE, 0);
 
-    GtkWidget *status_apply_btn = gtk_button_new_with_label(_("Aplicar modo"));
+    /* "Avisos": which actions are worth a toast / a line on the xisserve
+     * page. Default (set by the guard): screen and window capture. */
+    GtkWidget *notify_table = gtk_table_new(8, 2, FALSE);
+    g_xg_n_notify_chk = 0;
+    for (int i = 1; XNOTIFY_ACTIONS[i][0] && g_xg_n_notify_chk < 32; i++) {
+        char *want = g_strdup_printf(",%s,", XNOTIFY_ACTIONS[i][0]);
+        char *have = g_strdup_printf(",%s,", g_xg_baseline.notify);
+        GtkWidget *chk = gtk_check_button_new_with_label(_(XNOTIFY_ACTIONS[i][1]));
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(chk), strstr(have, want) != NULL);
+        gtk_widget_set_tooltip_text(chk, XNOTIFY_ACTIONS[i][0]);
+        int idx = g_xg_n_notify_chk++;
+        g_xg_notify_chk[idx] = chk;
+        gtk_table_attach(GTK_TABLE(notify_table), chk, idx / 8, idx / 8 + 1, idx % 8, idx % 8 + 1, GTK_FILL, GTK_FILL, 4, 1);
+        g_free(want);
+        g_free(have);
+    }
+    gtk_widget_set_sensitive(notify_table, g_xg_baseline.online);
+    GtkWidget *modes_row = gtk_hbox_new(FALSE, 6);
+    gtk_box_pack_start(GTK_BOX(modes_row), frame_with("Modo de execucao", status_table), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(modes_row), frame_with("Avisos", notify_table), TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), modes_row, FALSE, FALSE, 0);
+
+    GtkWidget *status_apply_btn = gtk_button_new_with_label(_("Aplicar"));
     g_signal_connect(status_apply_btn, "clicked", G_CALLBACK(apply_xg_status_cb), NULL);
     gtk_widget_set_sensitive(status_apply_btn, g_xg_baseline.online);
     GtkWidget *status_btnbox = gtk_hbox_new(FALSE, 0);
@@ -814,6 +881,17 @@ GtkWidget *build_permissoes_tab(void)
     gtk_misc_set_alignment(GTK_MISC(ign_hint), 0.0, 0.5);
     gtk_label_set_line_wrap(GTK_LABEL(ign_hint), TRUE);
     gtk_box_pack_start(GTK_BOX(ign_box), ign_hint, FALSE, FALSE, 0);
+    char builtin[512];
+    xisguard_builtin_ignored(builtin, sizeof(builtin));
+    if (builtin[0]) {
+        char *txt = g_strdup_printf(_("Sempre ignorados (KiDesktop): %s"), builtin);
+        GtkWidget *bl = gtk_label_new(txt);
+        g_free(txt);
+        gtk_misc_set_alignment(GTK_MISC(bl), 0.0, 0.5);
+        gtk_label_set_line_wrap(GTK_LABEL(bl), TRUE);
+        gtk_widget_set_sensitive(bl, FALSE);
+        gtk_box_pack_start(GTK_BOX(ign_box), bl, FALSE, FALSE, 0);
+    }
     gtk_box_pack_start(GTK_BOX(ign_box), ign_scroll, TRUE, TRUE, 0);
     GtkWidget *ign_row = gtk_hbox_new(FALSE, 4);
     g_xg_ignored_entry = gtk_entry_new();
