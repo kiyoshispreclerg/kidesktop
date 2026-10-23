@@ -192,7 +192,10 @@ static char *unique_path(const char *dir_cfg, const char *pattern, const char *e
         g_strlcpy(name, "kishot", sizeof(name));
     char *path = NULL;
     for (int i = 0; i < 1000; i++) {
-        char *base = i ? g_strdup_printf("%s_%d.%s", name, i, ext) : g_strdup_printf("%s.%s", name, ext);
+        /* a second shot in the same second gets the milliseconds, then a counter */
+        char *base = !i ? g_strdup_printf("%s.%s", name, ext)
+                   : i == 1 ? g_strdup_printf("%s_%03d.%s", name, (int)(g_get_real_time() / 1000 % 1000), ext)
+                   : g_strdup_printf("%s_%d.%s", name, i, ext);
         g_free(path);
         path = g_build_filename(dir, base, NULL);
         g_free(base);
@@ -542,12 +545,20 @@ static void start_recording(KsApp *app, const KsRect *r)
     const char *ext = app->cfg->container;
     char *path = unique_path(app->cfg->video_dir, app->cfg->name_pattern, ext);
     /* the pattern defaults to "Screenshot_..."; recordings read better as such */
-    if (g_str_has_prefix(app->cfg->name_pattern, "Screenshot_")) {
+    if (g_str_has_prefix(app->cfg->name_pattern, "Screenshot_") ||
+        g_str_has_prefix(app->cfg->name_pattern, "Kishot_")) {
         g_free(path);
         path = unique_path(app->cfg->video_dir, "Recording_%Y%m%d_%H%M%S", ext);
     }
     char *error = NULL;
-    if (!ks_rec_start(app->cfg, r, path, rec_finished, app, &error)) {
+    KsConfig rec_cfg = *app->cfg;
+    if (rec_cfg.fps <= 0) {
+        rec_cfg.fps = ks_refresh_rate_for_rect(r);
+        if (rec_cfg.fps <= 0)
+            rec_cfg.fps = 30;
+        g_printerr("kishot: fps Auto -> %d\n", rec_cfg.fps);
+    }
+    if (!ks_rec_start(&rec_cfg, r, path, rec_finished, app, &error)) {
         char *msg = g_strdup_printf(_("Recording failed: %s"), error ? error : "?");
         g_printerr("kishot: %s\n", msg);
         set_status(app, msg);

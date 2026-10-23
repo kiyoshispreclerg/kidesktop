@@ -339,3 +339,66 @@ GdkPixbuf *ks_grab_scaled(const KsRect *r, int dw, int dh, gboolean pointer)
     }
     return pb;
 }
+
+/* ---- refresh rate --------------------------------------------------------- */
+
+static int overlap_area(const KsRect *a, int x, int y, int w, int h)
+{
+    int x0 = MAX(a->x, x), y0 = MAX(a->y, y);
+    int x1 = MIN(a->x + a->w, x + w), y1 = MIN(a->y + a->h, y + h);
+    return x1 > x0 && y1 > y0 ? (x1 - x0) * (y1 - y0) : 0;
+}
+
+/* The refresh rate (Hz, rounded) of the screen a recording of `r` follows: the
+ * one holding the most of it, or, for an area spanning several screens, the
+ * one under the pointer. 0 when RandR does not say. */
+int ks_refresh_rate_for_rect(const KsRect *r)
+{
+    Display *dpy = GDK_DISPLAY_XDISPLAY(gdk_display_get_default());
+    Window root = DefaultRootWindow(dpy);
+    XRRScreenResources *res = XRRGetScreenResourcesCurrent(dpy, root);
+    if (!res)
+        return 0;
+
+    int whole = 0;          /* CRTCs lying entirely inside the area */
+    for (int i = 0; i < res->ncrtc; i++) {
+        XRRCrtcInfo *ci = XRRGetCrtcInfo(dpy, res, res->crtcs[i]);
+        if (ci && ci->mode != None && overlap_area(r, ci->x, ci->y, ci->width, ci->height) ==
+                                          (int)(ci->width * ci->height))
+            whole++;
+        if (ci)
+            XRRFreeCrtcInfo(ci);
+    }
+    KsRect probe = *r;
+    if (whole > 1) {
+        Window rr, cw;
+        int px, py, wx, wy;
+        unsigned mask;
+        if (XQueryPointer(dpy, root, &rr, &cw, &px, &py, &wx, &wy, &mask))
+            probe = (KsRect){ px, py, 1, 1 };
+    }
+
+    int best = 0, best_area = 0;
+    for (int i = 0; i < res->ncrtc; i++) {
+        XRRCrtcInfo *ci = XRRGetCrtcInfo(dpy, res, res->crtcs[i]);
+        if (ci && ci->mode != None) {
+            int a = overlap_area(&probe, ci->x, ci->y, ci->width, ci->height);
+            for (int m = 0; a > best_area && m < res->nmode; m++) {
+                const XRRModeInfo *mi = &res->modes[m];
+                if (mi->id != ci->mode || !mi->hTotal || !mi->vTotal)
+                    continue;
+                double vt = mi->vTotal;
+                if (mi->modeFlags & RR_DoubleScan)
+                    vt *= 2;
+                if (mi->modeFlags & RR_Interlace)
+                    vt /= 2;
+                best = (int)(mi->dotClock / (mi->hTotal * vt) + 0.5);
+                best_area = a;
+            }
+        }
+        if (ci)
+            XRRFreeCrtcInfo(ci);
+    }
+    XRRFreeScreenResources(res);
+    return best;
+}

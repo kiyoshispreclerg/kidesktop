@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <xcb/xcb.h>
 
-#define KISHOT_VERSION "0.1.6"
+#define KISHOT_VERSION "0.1.7"
 
 typedef enum {
     KS_AREA_FULL,       /* every monitor */
@@ -42,7 +42,7 @@ typedef struct {
     char *container;            /* mkv, mp4, webm */
     char *vcodec;               /* encoder name or "auto" */
     int quality;                /* 0 (best) .. 51, CRF/QP-like */
-    int fps;
+    int fps;                    /* 0 = Auto: the refresh rate of the screen recorded */
     gboolean rec_pointer;
     gboolean audio_system;
     gboolean audio_mic;
@@ -70,6 +70,8 @@ GdkPixbuf *ks_grab_rect(const KsRect *r, gboolean pointer);
 /* r scaled to dw x dh on the server, for the live recording preview */
 GdkPixbuf *ks_grab_scaled(const KsRect *r, int dw, int dh, gboolean pointer);
 gboolean ks_rect_clip_to_screen(KsRect *r);
+/* refresh rate in Hz of the screen a recording of r follows, 0 if unknown */
+int ks_refresh_rate_for_rect(const KsRect *r);
 int ks_monitor_count(void);
 /* connector name of monitor i ("DP-1"), or "Monitor N"; g_free() it */
 char *ks_monitor_name(int i);

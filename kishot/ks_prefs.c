@@ -14,6 +14,26 @@ typedef struct {
     GPtrArray *formats;     /* writable gdk-pixbuf format names */
 } Prefs;
 
+/* 0 reads "Auto" */
+static gboolean fps_output(GtkSpinButton *s, gpointer d)
+{
+    (void)d;
+    if (gtk_spin_button_get_value_as_int(s) != 0)
+        return FALSE;
+    gtk_entry_set_text(GTK_ENTRY(s), _("Auto"));
+    return TRUE;
+}
+
+static gint fps_input(GtkSpinButton *s, gdouble *v, gpointer d)
+{
+    (void)d;
+    const char *t = gtk_entry_get_text(GTK_ENTRY(s));
+    *v = g_ascii_strtod(t, NULL);
+    if (!g_ascii_isdigit(*t))
+        *v = 0;
+    return TRUE;
+}
+
 static GtkWidget *row(GtkWidget *tbl, int r, const char *label, GtkWidget *w)
 {
     GtkWidget *l = gtk_label_new_with_mnemonic(label);
@@ -161,8 +181,12 @@ static GtkWidget *page_recording(Prefs *p)
     gtk_widget_set_tooltip_text(p->codec, _("auto: the GPU (VAAPI) when available, else x264"));
     p->quality = row(t, r++, _("_Quality (0 best, 51 worst):"), gtk_spin_button_new_with_range(0, 51, 1));
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(p->quality), c->quality);
-    p->fps = row(t, r++, _("_Frames per second:"), gtk_spin_button_new_with_range(1, 240, 1));
+    p->fps = row(t, r++, _("_Frames per second:"), gtk_spin_button_new_with_range(0, 240, 1));
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(p->fps), c->fps);
+    g_signal_connect(p->fps, "output", G_CALLBACK(fps_output), NULL);
+    g_signal_connect(p->fps, "input", G_CALLBACK(fps_input), NULL);
+    gtk_widget_set_tooltip_text(p->fps, _("Auto: the refresh rate of the screen being recorded -- the monitor "
+        "itself, the one the window is on, or, for all screens, the one under the pointer"));
     const char *copies[] = { _("Automatic"), _("GPU copy"), _("SHM (classic)") };
     p->copy = row(t, r++, _("Screen c_opy method:"), combo_with(copies, 3, NULL));
     gtk_combo_box_set_active(GTK_COMBO_BOX(p->copy), c->copy_mode);

@@ -22,11 +22,12 @@ static void defaults(KsConfig *c)
     c->area = KS_AREA_FULL;
     c->rec_area = KS_AREA_FULL;
     c->pointer = FALSE;
+    c->auto_save = TRUE;
     c->decorations = TRUE;
-    c->shot_dir = g_strdup("$PICTURES/Screenshots");
+    c->shot_dir = g_strdup("$PICTURES/Kishot");
     c->shot_format = g_strdup("png");
     c->jpeg_quality = 90;
-    c->name_pattern = g_strdup("Screenshot_%Y%m%d_%H%M%S");
+    c->name_pattern = g_strdup("Kishot_%Y%m%d_%H%M%S");
     c->video_dir = g_strdup("$VIDEOS");
     c->container = g_strdup("mkv");
     c->vcodec = g_strdup("auto");
@@ -105,7 +106,7 @@ void ks_config_load(KsConfig *c)
         else if (!strcmp(k, "container") && *v) set_str(&c->container, v);
         else if (!strcmp(k, "video_codec") && *v) set_str(&c->vcodec, v);
         else if (!strcmp(k, "quality")) c->quality = CLAMP(atoi(v), 0, 51);
-        else if (!strcmp(k, "fps")) c->fps = CLAMP(atoi(v), 1, 240);
+        else if (!strcmp(k, "fps")) c->fps = CLAMP(atoi(v), 0, 240);
         else if (!strcmp(k, "record_pointer")) c->rec_pointer = truth(v);
         else if (!strcmp(k, "audio_system")) c->audio_system = truth(v);
         else if (!strcmp(k, "audio_mic")) c->audio_mic = truth(v);
@@ -172,7 +173,7 @@ void ks_config_save(const KsConfig *c)
     fclose(f);
 }
 
-/* "$PICTURES/Screenshots" -> "/home/u/Pictures/Screenshots" */
+/* "$PICTURES/Kishot" -> "/home/u/Pictures/Kishot" */
 char *ks_config_expand_dir(const char *dir)
 {
     struct { const char *key; GUserDirectory ud; } vars[] = {
