@@ -379,6 +379,7 @@ typedef struct {
 
     /* pointer */
     gboolean cursor_dirty;
+    gboolean cursor_hidden;     /* XFixesHideCursor in effect (fork extension) */
     uint32_t *cur_img;
     int cur_w, cur_h, cur_xhot, cur_yhot;
     xcb_pixmap_t cur_pix;
@@ -410,6 +411,24 @@ static void set_error(Rec *r, const char *fmt, ...)
 }
 
 /* ---- pointer ------------------------------------------------------------- */
+
+/* The fork's XFixes extension: CursorNotify subtype 1 (selected with mask bit
+ * 1) says the cursor was hidden (cursor_serial 1) or shown (0) by
+ * XFixesHideCursor, which changes no cursor image and so notified nothing. A
+ * server without it refuses the bit and the cursor is drawn as before. */
+#define KS_XFIXES_CURSOR_VISIBILITY 1
+#define KS_XFIXES_CURSOR_VISIBILITY_MASK (1u << 1)
+
+static void select_cursor_visibility(Rec *r)
+{
+    xcb_generic_error_t *e = xcb_request_check(r->c,
+        xcb_xfixes_select_cursor_input_checked(r->c, r->root,
+            XCB_XFIXES_CURSOR_NOTIFY_MASK_DISPLAY_CURSOR | KS_XFIXES_CURSOR_VISIBILITY_MASK));
+    if (e) {
+        free(e);
+        xcb_xfixes_select_cursor_input(r->c, r->root, XCB_XFIXES_CURSOR_NOTIFY_MASK_DISPLAY_CURSOR);
+    }
+}
 
 static void fetch_cursor(Rec *r)
 {
@@ -452,8 +471,12 @@ static void poll_x_events(Rec *r)
     xcb_generic_event_t *ev;
     const xcb_query_extension_reply_t *xf = xcb_get_extension_data(r->c, &xcb_xfixes_id);
     while ((ev = xcb_poll_for_event(r->c))) {
-        if (xf && (ev->response_type & 0x7f) == xf->first_event + XCB_XFIXES_CURSOR_NOTIFY)
+        if (xf && (ev->response_type & 0x7f) == xf->first_event + XCB_XFIXES_CURSOR_NOTIFY &&
+            ((xcb_xfixes_cursor_notify_event_t *)ev)->subtype != KS_XFIXES_CURSOR_VISIBILITY)
             r->cursor_dirty = TRUE;
+        if (xf && (ev->response_type & 0x7f) == xf->first_event + XCB_XFIXES_CURSOR_NOTIFY &&
+            ((xcb_xfixes_cursor_notify_event_t *)ev)->subtype == KS_XFIXES_CURSOR_VISIBILITY)
+            r->cursor_hidden = ((xcb_xfixes_cursor_notify_event_t *)ev)->cursor_serial != 0;
         free(ev);
     }
 }
@@ -847,7 +870,8 @@ static gpointer capture_thread(gpointer data)
             poll_x_events(r);
             if (r->cursor_dirty)
                 fetch_cursor(r);
-            xcb_query_pointer_reply_t *qp = xcb_query_pointer_reply(r->c, xcb_query_pointer(r->c, r->root), NULL);
+            xcb_query_pointer_reply_t *qp = r->cursor_hidden ? NULL :
+                xcb_query_pointer_reply(r->c, xcb_query_pointer(r->c, r->root), NULL);
             if (qp) {
                 px = qp->root_x;
                 py = qp->root_y;
@@ -1062,7 +1086,7 @@ gboolean ks_rec_start(const KsConfig *cfg, const KsRect *area, const char *path,
             xcb_xfixes_query_version_reply_t *v =
                 xcb_xfixes_query_version_reply(r->c, xcb_xfixes_query_version(r->c, 4, 0), NULL);
             free(v);
-            xcb_xfixes_select_cursor_input(r->c, r->root, XCB_XFIXES_CURSOR_NOTIFY_MASK_DISPLAY_CURSOR);
+            select_cursor_visibility(r);
             fetch_cursor(r);
         } else {
             r->pointer = FALSE;
