@@ -461,3 +461,21 @@ msgstr "Salvar _como..."
 #: ks_window.c:963
 msgid "_Save"
 msgstr "_Salvar"
+
+msgid "_Edit"
+msgstr "_Editar"
+
+msgid "Open the screenshot in an image editor (set in Settings), to annotate it before sending"
+msgstr "Abre a captura em um editor de imagens (definido nas Configurações), para anotá-la antes de enviar"
+
+msgid "Could not open the editor: %s"
+msgstr "Não foi possível abrir o editor: %s"
+
+msgid "Opened in the editor"
+msgstr "Aberto no editor"
+
+msgid "Image edi_tor:"
+msgstr "Edi_tor de imagens:"
+
+msgid "Command the Edit button runs with the file appended (gimp, pinta, flameshot gui...). Empty: the default image application."
+msgstr "Comando que o botão Editar executa com o arquivo no final (gimp, pinta, flameshot gui...). Vazio: o aplicativo de imagens padrão."

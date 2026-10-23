@@ -21,7 +21,7 @@ struct KsApp {
     GtkWidget *area_combo, *delay_spin, *pointer_check, *deco_check;
     GtkWidget *rec_area_combo, *rec_deco_check, *rec_pointer_check;
     GtkWidget *sys_check, *mic_check, *rec_preview_check;
-    GtkWidget *rec_button, *save_button, *saveas_button, *copy_button;
+    GtkWidget *rec_button, *save_button, *saveas_button, *copy_button, *edit_button;
     GtkWidget *status;
     GtkListStore *censor_store;
     GtkWidget *censor_view;
@@ -166,9 +166,11 @@ static void update_sensitivity(KsApp *app)
     gtk_widget_set_visible(app->save_button, shot_tab);
     gtk_widget_set_visible(app->saveas_button, shot_tab);
     gtk_widget_set_visible(app->copy_button, shot_tab);
+    gtk_widget_set_visible(app->edit_button, shot_tab);
     gtk_widget_set_sensitive(app->save_button, have);
     gtk_widget_set_sensitive(app->saveas_button, have);
     gtk_widget_set_sensitive(app->copy_button, have);
+    gtk_widget_set_sensitive(app->edit_button, have);
     gtk_widget_set_sensitive(app->deco_check, app->cfg->area == KS_AREA_WINDOW);
     gtk_widget_set_sensitive(app->rec_deco_check, app->cfg->rec_area == KS_AREA_WINDOW);
 }
@@ -267,6 +269,43 @@ static void on_save(GtkWidget *w, KsApp *app)
 {
     (void)w;
     save_auto(app);
+}
+
+/* Opens the shot in the user's editor, saving it first when it has not been
+ * (the editor works on a file). The editor is a command line the file is
+ * appended to; empty, it is the default application for the image type. */
+static void on_edit(GtkWidget *w, KsApp *app)
+{
+    (void)w;
+    if (!app->shot)
+        return;
+    if (!app->shot_path && !save_auto(app))
+        return;
+    GError *err = NULL;
+    gboolean ok;
+    const char *ed = app->cfg->editor;
+    if (ed && *ed) {
+        char *quoted = g_shell_quote(app->shot_path);
+        char *full = g_strdup_printf("%s %s", ed, quoted);
+        ok = g_spawn_command_line_async(full, &err);
+        g_free(full);
+        g_free(quoted);
+    } else {
+        GFile *f = g_file_new_for_path(app->shot_path);
+        char *uri = g_file_get_uri(f);
+        ok = g_app_info_launch_default_for_uri(uri, NULL, &err);
+        g_free(uri);
+        g_object_unref(f);
+    }
+    if (!ok) {
+        char *msg = g_strdup_printf(_("Could not open the editor: %s"), err ? err->message : "?");
+        set_status(app, msg);
+        g_free(msg);
+    } else {
+        set_status(app, _("Opened in the editor"));
+    }
+    if (err)
+        g_error_free(err);
 }
 
 static void on_save_as(GtkWidget *w, KsApp *app)
@@ -971,6 +1010,10 @@ KsApp *ks_app_new(KsConfig *cfg)
                        FALSE, FALSE, 0);
     app->copy_button = button(_("_Copy"), "edit-copy", G_CALLBACK(on_copy), app);
     gtk_box_pack_start(GTK_BOX(bar), app->copy_button, FALSE, FALSE, 0);
+    app->edit_button = button(_("_Edit"), "document-edit", G_CALLBACK(on_edit), app);
+    gtk_widget_set_tooltip_text(app->edit_button, _("Open the screenshot in an image editor (set in Settings), "
+                                                    "to annotate it before sending"));
+    gtk_box_pack_start(GTK_BOX(bar), app->edit_button, FALSE, FALSE, 0);
     app->saveas_button = button(_("Save _As..."), "document-save-as", G_CALLBACK(on_save_as), app);
     gtk_box_pack_start(GTK_BOX(bar), app->saveas_button, FALSE, FALSE, 0);
     app->save_button = button(_("_Save"), "document-save", G_CALLBACK(on_save), app);

@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <xcb/xcb.h>
 
-#define KISHOT_VERSION "0.1.7"
+#define KISHOT_VERSION "0.1.8"
 
 typedef enum {
     KS_AREA_FULL,       /* every monitor */
@@ -36,6 +36,7 @@ typedef struct {
     char *shot_dir;
     char *shot_format;          /* gdk-pixbuf writer: png, jpeg, bmp, tiff, webp... */
     int jpeg_quality;
+    char *editor;               /* command to edit a shot with; "" = the default image app */
     char *name_pattern;         /* strftime() pattern without extension */
 
     char *video_dir;

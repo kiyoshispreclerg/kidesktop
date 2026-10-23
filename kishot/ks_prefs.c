@@ -8,7 +8,7 @@
 
 typedef struct {
     KsConfig *cfg;
-    GtkWidget *shot_dir, *format, *jpeg_q, *pattern, *auto_save, *auto_copy;
+    GtkWidget *editor, *shot_dir, *format, *jpeg_q, *pattern, *auto_save, *auto_copy;
     GtkWidget *video_dir, *container, *codec, *quality, *fps, *copy, *backend;
     GtkWidget *caps_label;
     GPtrArray *formats;     /* writable gdk-pixbuf format names */
@@ -158,6 +158,18 @@ static GtkWidget *page_screenshots(Prefs *p)
     gtk_entry_set_text(GTK_ENTRY(p->pattern), c->name_pattern);
     gtk_widget_set_tooltip_text(p->pattern, _("strftime() pattern: %Y year, %m month, %d day, %H%M%S time. "
                                               "The extension is added automatically."));
+    p->editor = row(t, r++, _("Image edi_tor:"), gtk_combo_box_entry_new_text());
+    gtk_combo_box_append_text(GTK_COMBO_BOX(p->editor), "");
+    GList *apps = g_app_info_get_all_for_type("image/png");
+    for (GList *a = apps; a; a = a->next) {
+        const char *exe = g_app_info_get_executable(a->data);
+        if (exe)
+            gtk_combo_box_append_text(GTK_COMBO_BOX(p->editor), exe);
+    }
+    g_list_free_full(apps, g_object_unref);
+    gtk_entry_set_text(GTK_ENTRY(gtk_bin_get_child(GTK_BIN(p->editor))), c->editor);
+    gtk_widget_set_tooltip_text(p->editor, _("Command the Edit button runs with the file appended "
+                                             "(gimp, pinta, flameshot gui...). Empty: the default image application."));
     p->auto_save = gtk_check_button_new_with_mnemonic(_("Save _automatically after taking a screenshot"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(p->auto_save), c->auto_save);
     gtk_table_attach(GTK_TABLE(t), p->auto_save, 0, 2, r, r + 1, GTK_FILL, 0, 0, 0);
@@ -240,6 +252,8 @@ void ks_prefs_run(GtkWindow *parent, KsConfig *cfg, KsTab page)
             g_free(cfg->name_pattern);
             cfg->name_pattern = g_strdup(pat);
         }
+        g_free(cfg->editor);
+        cfg->editor = g_strstrip(g_strdup(gtk_entry_get_text(GTK_ENTRY(gtk_bin_get_child(GTK_BIN(p.editor))))));
         cfg->auto_save = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(p.auto_save));
         cfg->auto_copy = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(p.auto_copy));
 

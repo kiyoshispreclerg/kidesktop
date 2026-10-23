@@ -27,6 +27,7 @@ static void defaults(KsConfig *c)
     c->shot_dir = g_strdup("$PICTURES/Kishot");
     c->shot_format = g_strdup("png");
     c->jpeg_quality = 90;
+    c->editor = g_strdup("");
     c->name_pattern = g_strdup("Kishot_%Y%m%d_%H%M%S");
     c->video_dir = g_strdup("$VIDEOS");
     c->container = g_strdup("mkv");
@@ -101,6 +102,7 @@ void ks_config_load(KsConfig *c)
         else if (!strcmp(k, "screenshot_dir") && *v) set_str(&c->shot_dir, v);
         else if (!strcmp(k, "image_format") && *v) set_str(&c->shot_format, v);
         else if (!strcmp(k, "jpeg_quality")) c->jpeg_quality = CLAMP(atoi(v), 1, 100);
+        else if (!strcmp(k, "editor")) set_str(&c->editor, v);
         else if (!strcmp(k, "name_pattern") && *v) set_str(&c->name_pattern, v);
         else if (!strcmp(k, "video_dir") && *v) set_str(&c->video_dir, v);
         else if (!strcmp(k, "container") && *v) set_str(&c->container, v);
@@ -153,6 +155,7 @@ void ks_config_save(const KsConfig *c)
     fprintf(f, "image_format=%s\n", c->shot_format);
     fprintf(f, "jpeg_quality=%d\n", c->jpeg_quality);
     fprintf(f, "# strftime() pattern, extension added automatically\n");
+    fprintf(f, "editor=%s\n", c->editor);
     fprintf(f, "name_pattern=%s\n", c->name_pattern);
     fprintf(f, "video_dir=%s\n", c->video_dir);
     fprintf(f, "container=%s\n", c->container);
