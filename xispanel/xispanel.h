@@ -481,6 +481,8 @@ struct Panel {
 
     Window win;
     Window sensor_win; /* autohide only: always-mapped 1px edge sensor */
+    Window edge_win;   /* follow_wm_gap= margin click catcher, see panel_update_edge_catcher() */
+    int edge_x, edge_y, edge_w, edge_h;
     Visual *visual;
     int depth;
     Colormap cmap;

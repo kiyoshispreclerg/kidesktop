@@ -100,7 +100,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.7.24"
+#define XISPANEL_VERSION "0.7.25"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 128KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -2310,6 +2310,72 @@ static void panel_set_size(Panel *p, int w, int h)
     panel_resize_buffers(p);
 }
 
+/* follow_wm_gap= floats the bar off its screen edge, so a click on the
+ * edge itself (or, for a bar spanning to its end margins, the corner)
+ * would land on whatever is behind it. An InputOnly window -- no pixels,
+ * nothing for a compositor to draw -- fills that margin and hands its
+ * pointer events to the bar, clamped onto it (edge_catcher_filter()). Its
+ * input shape cuts the bar's own rectangle out, so it can sit on top
+ * without stealing the bar's own events. Only exists while the gap does. */
+static void panel_update_edge_catcher(Panel *p)
+{
+    int m = panel_edge_margin(p);
+    if (m <= 0 || !p->win || p->mode == MODE_AUTOHIDE || p->mode == MODE_CONTAINER) {
+        if (p->edge_win != None) {
+            XDestroyWindow(g_dpy, p->edge_win);
+            p->edge_win = None;
+        }
+        return;
+    }
+    int x0 = p->x, y0 = p->y, x1 = p->x + p->w, y1 = p->y + p->h;
+    int ox1 = p->out_x + p->out_w, oy1 = p->out_y + p->out_h;
+    if (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) {
+        if (p->edge == EDGE_TOP) {
+            y0 = p->out_y;
+        } else {
+            y1 = oy1;
+        }
+        if (p->x - p->out_x <= m) {
+            x0 = p->out_x;
+        }
+        if (ox1 - x1 <= m) {
+            x1 = ox1;
+        }
+    } else {
+        if (p->edge == EDGE_LEFT) {
+            x0 = p->out_x;
+        } else {
+            x1 = ox1;
+        }
+        if (p->y - p->out_y <= m) {
+            y0 = p->out_y;
+        }
+        if (oy1 - y1 <= m) {
+            y1 = oy1;
+        }
+    }
+    p->edge_x = x0;
+    p->edge_y = y0;
+    p->edge_w = x1 - x0;
+    p->edge_h = y1 - y0;
+    if (p->edge_win == None) {
+        XSetWindowAttributes attrs;
+        memset(&attrs, 0, sizeof(attrs));
+        attrs.override_redirect = True;
+        attrs.event_mask =
+            ButtonPressMask | ButtonReleaseMask | PointerMotionMask | EnterWindowMask | LeaveWindowMask;
+        p->edge_win = XCreateWindow(g_dpy, g_root, x0, y0, (unsigned)p->edge_w, (unsigned)p->edge_h, 0, 0,
+                                    InputOnly, CopyFromParent, CWOverrideRedirect | CWEventMask, &attrs);
+        XMapRaised(g_dpy, p->edge_win);
+    } else {
+        XMoveResizeWindow(g_dpy, p->edge_win, x0, y0, (unsigned)p->edge_w, (unsigned)p->edge_h);
+    }
+    XRectangle full = {0, 0, (unsigned short)p->edge_w, (unsigned short)p->edge_h};
+    XRectangle bar = {(short)(p->x - x0), (short)(p->y - y0), (unsigned short)p->w, (unsigned short)p->h};
+    XShapeCombineRectangles(g_dpy, p->edge_win, ShapeInput, 0, 0, &full, 1, ShapeSet, Unsorted);
+    XShapeCombineRectangles(g_dpy, p->edge_win, ShapeInput, 0, 0, &bar, 1, ShapeSubtract, Unsorted);
+}
+
 /* min_pct= (autosize): an edge panel's length along its edge, re-placed
  * by align= exactly like panel_resolve_geometry() places a fixed one. The
  * strut stays the full pct= extent it was set at -- rewriting it on every
@@ -2345,6 +2411,7 @@ static void panel_autosize_set_len(Panel *p, int len)
                               1, (unsigned)p->h);
         }
     }
+    panel_update_edge_catcher(p);
     panel_resize_buffers(p);
 }
 
@@ -2374,6 +2441,7 @@ static void panel_refloat(Panel *p)
                               1, (unsigned)p->h);
         }
     }
+    panel_update_edge_catcher(p);
     panel_apply_strut(p);
     panel_resize_buffers(p);
     p->dirty = 1;
@@ -3043,6 +3111,10 @@ static void panel_deactivate(Panel *p)
         XDestroyWindow(g_dpy, p->sensor_win);
         p->sensor_win = None;
     }
+    if (p->edge_win != None) {
+        XDestroyWindow(g_dpy, p->edge_win);
+        p->edge_win = None;
+    }
     if (p->win != None) {
         XDestroyWindow(g_dpy, p->win);
         p->win = None;
@@ -3091,6 +3163,7 @@ static void panel_activate(Panel *p)
         XMapWindow(g_dpy, p->win);
         XRaiseWindow(g_dpy, p->win);
         p->mapped = 1;
+        panel_update_edge_catcher(p);
     }
     p->dirty = 1;
 }
@@ -3975,6 +4048,62 @@ static int x_error_handler(Display *dpy, XErrorEvent *ev)
     XGetErrorText(dpy, ev->error_code, text, sizeof(text));
     fprintf(stderr, "xispanel: ignoring X error: %s (request %d.%d, resource 0x%lx)\n", text, ev->request_code,
             ev->minor_code, ev->resourceid);
+    return 0;
+}
+
+/* Turns a pointer event on a panel's edge catcher (see
+ * panel_update_edge_catcher()) into the same event on the bar itself, its
+ * position clamped onto the bar while it's within the catcher. Returns 1
+ * to drop the event: the pointer crossing between catcher and bar is one
+ * continuous hover, not a leave + enter (which would close the tooltip). */
+static int edge_catcher_filter(XEvent *ev)
+{
+    Window *win;
+    int *x, *y, *x_root, *y_root;
+    switch (ev->type) {
+    case ButtonPress:
+    case ButtonRelease:
+        win = &ev->xbutton.window;
+        x = &ev->xbutton.x, y = &ev->xbutton.y, x_root = &ev->xbutton.x_root, y_root = &ev->xbutton.y_root;
+        break;
+    case MotionNotify:
+        win = &ev->xmotion.window;
+        x = &ev->xmotion.x, y = &ev->xmotion.y, x_root = &ev->xmotion.x_root, y_root = &ev->xmotion.y_root;
+        break;
+    case EnterNotify:
+    case LeaveNotify:
+        win = &ev->xcrossing.window;
+        x = &ev->xcrossing.x, y = &ev->xcrossing.y, x_root = &ev->xcrossing.x_root, y_root = &ev->xcrossing.y_root;
+        break;
+    default:
+        return 0;
+    }
+    for (int i = 0; i < MAX_PANELS; i++) {
+        Panel *p = &g_panels[i];
+        if (!p->in_use || p->edge_win == None) {
+            continue;
+        }
+        int rx = *x_root, ry = *y_root;
+        int in_edge = rx >= p->edge_x && ry >= p->edge_y && rx < p->edge_x + p->edge_w && ry < p->edge_y + p->edge_h;
+        int in_bar = rx >= p->x && ry >= p->y && rx < p->x + p->w && ry < p->y + p->h;
+        if (*win == p->win) {
+            return ev->type == LeaveNotify && ev->xcrossing.mode == NotifyNormal && in_edge;
+        }
+        if (*win != p->edge_win) {
+            continue;
+        }
+        if (ev->type == LeaveNotify && in_bar) {
+            return 1;
+        }
+        if (in_edge) {
+            rx = rx < p->x ? p->x : rx >= p->x + p->w ? p->x + p->w - 1 : rx;
+            ry = ry < p->y ? p->y : ry >= p->y + p->h ? p->y + p->h - 1 : ry;
+        }
+        *win = p->win;
+        *x = rx - p->x;
+        *y = ry - p->y;
+        return 0;
+    }
     return 0;
 }
 
@@ -4863,7 +4992,9 @@ static int run_as_daemon(const char *sockpath)
             while (XPending(g_dpy)) {
                 XEvent ev;
                 XNextEvent(g_dpy, &ev);
-                if (g_rr_event_base >= 0 && ev.type == g_rr_event_base + RRScreenChangeNotify) {
+                if (edge_catcher_filter(&ev)) {
+                    /* catcher <-> bar crossing -- see edge_catcher_filter() */
+                } else if (g_rr_event_base >= 0 && ev.type == g_rr_event_base + RRScreenChangeNotify) {
                     XRRUpdateConfiguration(&ev);
                     reload_all_panels();
                     XFlush(g_dpy);
