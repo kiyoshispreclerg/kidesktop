@@ -171,7 +171,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KICONFD_VERSION "0.2.27"
+#define KICONFD_VERSION "0.2.28"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -1609,6 +1609,7 @@ typedef struct {
     int toggle_mods_on_press;
     int kick_hotkeys_on_release;
     int middle_click_emulation;
+    int tap_to_click;
 } InputSessionConfig;
 
 static char g_inputpath[PATH_MAX];
@@ -1639,6 +1640,7 @@ static int load_input_config(InputSessionConfig *c)
     c->toggle_mods_on_press = 0;
     c->kick_hotkeys_on_release = 0;
     c->middle_click_emulation = 0;
+    c->tap_to_click = 0;
 
     FILE *f = fopen(g_inputpath, "r");
     if (!f) {
@@ -1665,6 +1667,8 @@ static int load_input_config(InputSessionConfig *c)
             c->kick_hotkeys_on_release = atoi(val) != 0;
         } else if (!strcmp(key, "middle_click_emulation")) {
             c->middle_click_emulation = atoi(val) != 0;
+        } else if (!strcmp(key, "tap_to_click")) {
+            c->tap_to_click = atoi(val) != 0;
         }
     }
     fclose(f);
@@ -1820,6 +1824,21 @@ static unsigned int numlock_mask(void)
     return mask;
 }
 
+/* The XiS keyboard flags exist under either the plain name or, depending
+ * on the X server build, with a "(global) " prefix. xinput_get_prop_line()
+ * matches substrings, so the prefixed name must be tried first. Writes the
+ * name actually present into `dst` and returns 1, or returns 0 (dst set to
+ * the plain name) when neither exists. */
+static int pick_xis_prop(const char *list_props_out, const char *base, char *dst, size_t dstsz)
+{
+    snprintf(dst, dstsz, "(global) %s", base);
+    if (strstr(list_props_out, dst)) {
+        return 1;
+    }
+    snprintf(dst, dstsz, "%s", base);
+    return strstr(list_props_out, base) != NULL;
+}
+
 /* Applies kiconfd-input.conf: NumLock's lock state via XkbLockModifiers
  * (no external tool needed, and the only way to set a modifier *lock*
  * rather than send a key event), the two XiS keyboard flags via `xinput
@@ -1838,9 +1857,9 @@ static void apply_input_settings(void)
         return;
     }
     fprintf(stderr, "kiconfd: input: loaded '%s' (numlock_on_start=%d toggle_mods_on_press=%d "
-                    "kick_hotkeys_on_release=%d middle_click_emulation=%d)\n",
+                    "kick_hotkeys_on_release=%d middle_click_emulation=%d tap_to_click=%d)\n",
              g_inputpath, c.numlock_on_start, c.toggle_mods_on_press, c.kick_hotkeys_on_release,
-             c.middle_click_emulation);
+             c.middle_click_emulation, c.tap_to_click);
 
     unsigned int nlmask = numlock_mask();
     if (!nlmask) {
@@ -1870,18 +1889,21 @@ static void apply_input_settings(void)
         return;
     }
     char val[64];
-    if (xinput_get_prop_line(out, "Toggle Lock Modifiers On Press", val, sizeof(val))) {
+    char tprop[64], kprop[64];
+    if (pick_xis_prop(out, "Toggle Lock Modifiers On Press", tprop, sizeof(tprop)) &&
+        xinput_get_prop_line(out, tprop, val, sizeof(val))) {
         int cur = atoi(val) != 0;
         if (cur != c.toggle_mods_on_press) {
-            char *set[] = {"xinput", "set-prop", kbd, "Toggle Lock Modifiers On Press",
+            char *set[] = {"xinput", "set-prop", kbd, tprop,
                              c.toggle_mods_on_press ? "1" : "0", NULL};
             run_fire(set);
         }
     }
-    if (xinput_get_prop_line(out, "Kick Hotkeys On Release", val, sizeof(val))) {
+    if (pick_xis_prop(out, "Kick Hotkeys On Release", kprop, sizeof(kprop)) &&
+        xinput_get_prop_line(out, kprop, val, sizeof(val))) {
         int cur = atoi(val) != 0;
         if (cur != c.kick_hotkeys_on_release) {
-            char *set[] = {"xinput", "set-prop", kbd, "Kick Hotkeys On Release",
+            char *set[] = {"xinput", "set-prop", kbd, kprop,
                              c.kick_hotkeys_on_release ? "1" : "0", NULL};
             run_fire(set);
         }
@@ -1890,16 +1912,23 @@ static void apply_input_settings(void)
     char ptrnames[32][NAME_LEN];
     int nptr = list_pointer_devices(ptrnames, 32);
     for (int i = 0; i < nptr; i++) {
-        char *pargv[] = {"xinput", "list-props", ptrnames[i], NULL};
+        /* "pointer:" because some devices also exist as a same-named keyboard */
+        char dev[sizeof(ptrnames[0]) + 16];
+        snprintf(dev, sizeof(dev), "pointer:%.127s", ptrnames[i]);
+        char *pargv[] = {"xinput", "list-props", dev, NULL};
         char pout[8192];
         if (!run_capture(pargv, pout, sizeof(pout))) {
             continue;
         }
-        if (xinput_get_prop_line(pout, "libinput Middle Emulation Enabled", val, sizeof(val))) {
-            int cur = atoi(val) != 0;
-            if (cur != c.middle_click_emulation) {
-                char *set[] = {"xinput", "set-prop", ptrnames[i], "libinput Middle Emulation Enabled",
-                                 c.middle_click_emulation ? "1" : "0", NULL};
+        static const char *const props[] = {"libinput Middle Emulation Enabled",
+                                             "libinput Tapping Enabled"};
+        const int want[] = {c.middle_click_emulation, c.tap_to_click};
+        for (int k = 0; k < 2; k++) {
+            if (!xinput_get_prop_line(pout, props[k], val, sizeof(val))) {
+                continue;
+            }
+            if ((atoi(val) != 0) != (want[k] != 0)) {
+                char *set[] = {"xinput", "set-prop", dev, (char *)props[k], want[k] ? "1" : "0", NULL};
                 run_fire(set);
             }
         }

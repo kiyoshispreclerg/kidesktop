@@ -66,6 +66,7 @@ typedef struct {
     int toggle_mods_on_press;
     int kick_hotkeys_on_release;
     int middle_click_emulation;
+    int tap_to_click;
 } InputSessionConfig;
 
 static void input_config_defaults(InputSessionConfig *c)
@@ -74,6 +75,7 @@ static void input_config_defaults(InputSessionConfig *c)
     c->toggle_mods_on_press = 0;
     c->kick_hotkeys_on_release = 0;
     c->middle_click_emulation = 0;
+    c->tap_to_click = 0;
 }
 
 static void input_config_load(InputSessionConfig *c)
@@ -106,6 +108,8 @@ static void input_config_load(InputSessionConfig *c)
             c->kick_hotkeys_on_release = atoi(val) != 0;
         } else if (!strcmp(key, "middle_click_emulation")) {
             c->middle_click_emulation = atoi(val) != 0;
+        } else if (!strcmp(key, "tap_to_click")) {
+            c->tap_to_click = atoi(val) != 0;
         }
     }
     fclose(f);
@@ -128,6 +132,7 @@ static void input_config_save(const InputSessionConfig *c)
     fprintf(f, "toggle_mods_on_press = %d\n", c->toggle_mods_on_press ? 1 : 0);
     fprintf(f, "kick_hotkeys_on_release = %d\n", c->kick_hotkeys_on_release ? 1 : 0);
     fprintf(f, "middle_click_emulation = %d\n", c->middle_click_emulation ? 1 : 0);
+    fprintf(f, "tap_to_click = %d\n", c->tap_to_click ? 1 : 0);
     fclose(f);
     if (rename(tmp, path) != 0) {
         g_warning("kiconf: could not save '%s': %s", path, strerror(errno));
@@ -286,6 +291,24 @@ static void detect_pointer_props(const char *device, PointerProps *pp)
     }
 }
 
+static char g_toggle_prop[64] = "Toggle Lock Modifiers On Press";
+static char g_kick_prop[64] = "Kick Hotkeys On Release";
+
+/* The XiS keyboard flags exist under either the plain name or, depending
+ * on the X server build, with a "(global) " prefix. xinput_get_prop_line()
+ * matches substrings, so the prefixed name must be tried first. Writes the
+ * name actually present into `dst` and returns 1, or returns 0 (dst set to
+ * the plain name) when neither exists. */
+static int pick_xis_prop(const char *list_props_out, const char *base, char *dst, size_t dstsz)
+{
+    snprintf(dst, dstsz, "(global) %s", base);
+    if (strstr(list_props_out, dst)) {
+        return 1;
+    }
+    snprintf(dst, dstsz, "%s", base);
+    return strstr(list_props_out, base) != NULL;
+}
+
 static void detect_special_kbd(const char *kbd, int *toggle_mods, int *kick_hotkeys)
 {
     *toggle_mods = 0;
@@ -296,10 +319,12 @@ static void detect_special_kbd(const char *kbd, int *toggle_mods, int *kick_hotk
         return;
     }
     char val[64];
-    if (xinput_get_prop_line(out, "Toggle Lock Modifiers On Press", val, sizeof(val))) {
+    if (pick_xis_prop(out, "Toggle Lock Modifiers On Press", g_toggle_prop, sizeof(g_toggle_prop)) &&
+        xinput_get_prop_line(out, g_toggle_prop, val, sizeof(val))) {
         *toggle_mods = atoi(val) != 0;
     }
-    if (xinput_get_prop_line(out, "Kick Hotkeys On Release", val, sizeof(val))) {
+    if (pick_xis_prop(out, "Kick Hotkeys On Release", g_kick_prop, sizeof(g_kick_prop)) &&
+        xinput_get_prop_line(out, g_kick_prop, val, sizeof(val))) {
         *kick_hotkeys = atoi(val) != 0;
     }
 }
@@ -405,6 +430,29 @@ static void set_disable_primsel(int enable)
     run_fire(argv);
 }
 
+/* Sets a boolean libinput property on every slave pointer that has it.
+ * Uses the "pointer:" prefix because some devices (e.g. Logitech
+ * receivers) also exist as a keyboard of the same name, which makes a
+ * bare name ambiguous. kiconfd replays the saved value at session start
+ * and on SIGHUP, but it is not resident in every session, so Aplicar
+ * applies live too. */
+static void set_prop_all_pointers(const char *prop, int value)
+{
+    char names[32][NAME_LEN];
+    int n = list_pointer_devices(names, 32);
+    for (int i = 0; i < n; i++) {
+        char dev[sizeof(names[0]) + 16];
+        snprintf(dev, sizeof(dev), "pointer:%.127s", names[i]);
+        char *pargv[] = {"xinput", "list-props", dev, NULL};
+        char pout[8192];
+        if (!run_capture(pargv, pout, sizeof(pout)) || !strstr(pout, prop)) {
+            continue;
+        }
+        char *set[] = {"xinput", "set-prop", dev, (char *)prop, value ? "1" : "0", NULL};
+        run_fire(set);
+    }
+}
+
 static void apply_entrada_cb(GtkWidget *widget, gpointer data)
 {
     (void)widget;
@@ -454,12 +502,12 @@ static void apply_entrada_cb(GtkWidget *widget, gpointer data)
     int kick_hotkeys = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_kick_hotkeys_chk));
     if (g_master_kbd[0]) {
         if (toggle_mods != g_toggle_mods_baseline) {
-            char *argv[] = {"xinput", "set-prop", g_master_kbd, "Toggle Lock Modifiers On Press",
+            char *argv[] = {"xinput", "set-prop", g_master_kbd, g_toggle_prop,
                              toggle_mods ? "1" : "0", NULL};
             run_fire(argv);
         }
         if (kick_hotkeys != g_kick_hotkeys_baseline) {
-            char *argv[] = {"xinput", "set-prop", g_master_kbd, "Kick Hotkeys On Release",
+            char *argv[] = {"xinput", "set-prop", g_master_kbd, g_kick_prop,
                              kick_hotkeys ? "1" : "0", NULL};
             run_fire(argv);
         }
@@ -474,11 +522,21 @@ static void apply_entrada_cb(GtkWidget *widget, gpointer data)
     }
 
     InputSessionConfig ic;
+    input_config_load(&ic);
     ic.numlock_on_start = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_numlock_start_chk));
     ic.toggle_mods_on_press = toggle_mods;
     ic.kick_hotkeys_on_release = kick_hotkeys;
     ic.middle_click_emulation = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_pointer_middle_chk));
+    /* The tap checkbox mirrors the selected device and is insensitive when
+     * it has no tapping, so only then keep what was saved before. */
+    if (gtk_widget_get_sensitive(g_pointer_tap_chk)) {
+        ic.tap_to_click = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_pointer_tap_chk));
+    }
     input_config_save(&ic);
+
+    /* Middle-click emulation is applied live on every pointer that has it,
+     * not just the one selected in the combo. */
+    set_prop_all_pointers("libinput Middle Emulation Enabled", ic.middle_click_emulation);
     signal_daemon("kiconfd");
 }
 
