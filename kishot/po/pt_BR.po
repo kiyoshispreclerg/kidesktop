@@ -479,3 +479,6 @@ msgstr "Edi_tor de imagens:"
 
 msgid "Command the Edit button runs with the file appended (gimp, pinta, flameshot gui...). Empty: the default image application."
 msgstr "Comando que o botão Editar executa com o arquivo no final (gimp, pinta, flameshot gui...). Vazio: o aplicativo de imagens padrão."
+
+msgid "Reloaded after editing"
+msgstr "Recarregada após a edição"

@@ -28,6 +28,8 @@ struct KsApp {
     GtkWidget *censor_note;
     GtkStatusIcon *tray;
     GdkPixbuf *shot;
+    GFileMonitor *edit_mon;     /* watches shot_path while an editor has it open */
+    guint edit_reload;          /* debounce timer for the reload */
     char *shot_path;            /* where the current shot was saved, if it was */
     char *last_dir;             /* folder of the last saved screenshot */
     char *last_video_dir;       /* ... and recording */
@@ -271,6 +273,64 @@ static void on_save(GtkWidget *w, KsApp *app)
     save_auto(app);
 }
 
+/* ---- watching the file while an editor has it ---------------------------- */
+
+static void edit_watch_stop(KsApp *app)
+{
+    if (app->edit_reload) {
+        g_source_remove(app->edit_reload);
+        app->edit_reload = 0;
+    }
+    if (app->edit_mon) {
+        g_file_monitor_cancel(app->edit_mon);
+        g_object_unref(app->edit_mon);
+        app->edit_mon = NULL;
+    }
+}
+
+static gboolean edit_reload_now(gpointer data)
+{
+    KsApp *app = data;
+    app->edit_reload = 0;
+    if (!app->shot_path)
+        return FALSE;
+    GdkPixbuf *pb = gdk_pixbuf_new_from_file(app->shot_path, NULL);
+    if (!pb)
+        return FALSE;     /* half written; the next change tries again */
+    if (app->shot)
+        g_object_unref(app->shot);
+    app->shot = pb;
+    update_preview(app);
+    update_sensitivity(app);
+    set_status(app, _("Reloaded after editing"));
+    return FALSE;
+}
+
+/* The editors replace the file as often as they rewrite it, so a rename or
+ * a creation counts too. Bursts of events become one reload. */
+static void on_edit_file_event(GFileMonitor *m, GFile *f, GFile *other, GFileMonitorEvent ev, KsApp *app)
+{
+    (void)m; (void)f; (void)other;
+    if (ev != G_FILE_MONITOR_EVENT_CHANGES_DONE_HINT && ev != G_FILE_MONITOR_EVENT_CREATED &&
+        ev != G_FILE_MONITOR_EVENT_RENAMED && ev != G_FILE_MONITOR_EVENT_MOVED_IN)
+        return;
+    if (app->edit_reload)
+        g_source_remove(app->edit_reload);
+    app->edit_reload = g_timeout_add(300, edit_reload_now, app);
+}
+
+/* inotify through GIO: nothing is read or polled, and it only exists from
+ * the Edit click until another shot replaces this one. */
+static void edit_watch_start(KsApp *app)
+{
+    edit_watch_stop(app);
+    GFile *f = g_file_new_for_path(app->shot_path);
+    app->edit_mon = g_file_monitor_file(f, G_FILE_MONITOR_WATCH_MOVES, NULL, NULL);
+    g_object_unref(f);
+    if (app->edit_mon)
+        g_signal_connect(app->edit_mon, "changed", G_CALLBACK(on_edit_file_event), app);
+}
+
 /* Opens the shot in the user's editor, saving it first when it has not been
  * (the editor works on a file). The editor is a command line the file is
  * appended to; empty, it is the default application for the image type. */
@@ -303,6 +363,7 @@ static void on_edit(GtkWidget *w, KsApp *app)
         g_free(msg);
     } else {
         set_status(app, _("Opened in the editor"));
+        edit_watch_start(app);
     }
     if (err)
         g_error_free(err);
@@ -382,6 +443,7 @@ static void shot_ready(KsApp *app, GdkPixbuf *pb)
     if (app->shot)
         g_object_unref(app->shot);
     app->shot = pb;
+    edit_watch_stop(app);
     g_free(app->shot_path);
     app->shot_path = NULL;
     set_status(app, pb ? NULL : _("The screen could not be read"));

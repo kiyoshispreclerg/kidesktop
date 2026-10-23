@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <xcb/xcb.h>
 
-#define KISHOT_VERSION "0.1.8"
+#define KISHOT_VERSION "0.1.9"
 
 typedef enum {
     KS_AREA_FULL,       /* every monitor */
