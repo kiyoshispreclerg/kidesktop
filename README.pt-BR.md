@@ -159,6 +159,12 @@ plugin de gravação) e a libpulse são opcionais: sem elas grava pelo comando
 Ctrl+roda, números de linha opcionais, linha/coluna do cursor na barra de
 status.
 
+**[kipaint](kipaint/)** -- programa de pintura no estilo do Paint clássico
+(GTK2): lápis, pincel, borracha, balde, conta-gotas, paleta de 28 cores com
+duas cores, zoom com Ctrl+roda até 3200% com grade de pixels. Inicial:
+camadas, o formato OpenRaster e transformações por camada vêm a seguir (veja o
+PLAN.md dele).
+
 **[kitask](kitask/)** -- lista de processos e monitor do sistema, no estilo
 do qps: filtro, cerca de 30 colunas à escolha (memória exclusiva, pixmaps do
 X11, uso e memória de GPU, tráfego TCP, E/S de disco...), envio de sinais,
@@ -170,7 +176,6 @@ e em RAM.
 Planejados, ainda sem código:
 
 - **[kiview](kiview/)** -- visualizador de imagens e documentos.
-- **[kipaint](kipaint/)** -- programa de pintura.
 
 ## Compilação
 

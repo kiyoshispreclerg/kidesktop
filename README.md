@@ -151,6 +151,11 @@ plugin) and libpulse are optional: without them it records through the
 **[kipad](kipad/)** -- simple text editor (GTK2): tabs, font and Ctrl+wheel
 zoom, optional line numbers, cursor line/column in the status bar.
 
+**[kipaint](kipaint/)** -- paint program in the spirit of the classic Paint
+(GTK2): pencil, brush, eraser, fill, color picker, 28-color palette with two
+colors, Ctrl+wheel zoom up to 3200% with a pixel grid. Early: layers, the
+OpenRaster format and per-layer transforms are next (see its PLAN.md).
+
 **[kitask](kitask/)** -- process list and system monitor, in the spirit of
 qps: filter, pick from ~30 columns (exclusive memory, X11 pixmaps, GPU use
 and memory, TCP traffic, disk I/O...), send signals, change priority; on top,
@@ -161,7 +166,6 @@ qps and plasma-systemmonitor in both CPU and RAM.
 Planned, not started yet:
 
 - **[kiview](kiview/)** -- image and document viewer.
-- **[kipaint](kipaint/)** -- paint program.
 
 ## Building
 
