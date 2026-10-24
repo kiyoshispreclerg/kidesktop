@@ -194,6 +194,13 @@ static int dialog_backend = DIALOG_NONE; /* resolved once at startup, see detect
  * is written to the server's own xnotify.conf.d instead, see save_rule(). */
 static int secure_mode = 0;
 
+/* 1 = permissive mode, runtime only (never persisted): the server's global
+ * action mask allows every action, so nothing is asked or denied, but the
+ * server still sends REPORTs. Any server RELOAD or DENY_ACTION wipes that
+ * mask, so it is re-applied after every full sync, see
+ * permissive_reapply(). */
+static int permissive_mode = 0;
+
 /* Control-socket clients allowed to SUBSCRIBE to the event stream, by
  * executable basename (comma-separated, persisted in xnotify.conf as
  * `subscribers=`). The socket is already owner-only; this also keeps any
@@ -553,6 +560,7 @@ int get_preconfig_rule(const char *exe, int action_id, char *matched_pattern, si
 /* ====================== SYNC PERMISSIONS TO X SERVER ====================== */
 
 void send_permission(int action, const char *exe, pid_t pid, int command_type);
+void permissive_reapply(void);
 static void secure_save_rule(const char *exe, int action_id, int is_allow);
 
 void send_all_permissions_to_xserver(void) {
@@ -593,6 +601,18 @@ void send_all_permissions_to_xserver(void) {
         log_filtered(2, "Full sync: sent %d permission rules to X server", sent);
     else
         log_filtered(3, "Full sync: no rules to send (perms.conf empty)");
+
+    permissive_reapply();
+}
+
+/* Sends ALLOW_ACTION for every known action while permissive mode is on.
+ * The server checks its global mask before any rule, so this beats static
+ * and user DENY rules alike. */
+void permissive_reapply(void) {
+    if (!permissive_mode)
+        return;
+    for (int i = 0; action_names[i].id > 0; i++)
+        send_permission(action_names[i].id, "", 0, COMMAND_ALLOW_ACTION);
 }
 
 /* ====================== SAVE RULES ====================== */
@@ -1356,9 +1376,11 @@ static void request_config_path(void) {
  * right after secure_save_rule() has written a new drop-in file there. */
 static void request_server_reload(void) {
     send_raw_command("{\"command\":\"RELOAD\"}");
+    permissive_reapply();   /* the reload zeroed the global mask */
 }
 
 static void subscribers_broadcast_state(int enabled);
+static void subscribers_broadcast_permissive(int enabled);
 
 /* ====================== "XNOTIFY DISABLED" NOTICE ======================
  *
@@ -2100,9 +2122,9 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
         snprintf(resp, resp_sz,
             "{\"ok\":true,\"version\":\"%s\",\"display\":%d,"
             "\"no_pause\":%d,\"quiet\":%d,\"always_kill\":%d,\"log_level\":%d,\"secure_mode\":%d,"
-            "\"xnotify_enabled\":%d,\"notify_actions\":\"%s\"}\n",
+            "\"xnotify_enabled\":%d,\"notify_actions\":\"%s\",\"permissive\":%d}\n",
             XISGUARD_VERSION, display, no_pause_mode, quiet_mode, always_kill_mode, log_level, secure_mode,
-            !server_disabled, na_buf);
+            !server_disabled, na_buf, permissive_mode);
         return;
     }
 
@@ -2145,6 +2167,30 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
         send_raw_command(disable ? "{\"command\":\"DISABLE\"}"
                                  : "{\"command\":\"ENABLE\"}");
         snprintf(resp, resp_sz, "{\"ok\":true,\"sent\":true}\n");
+        return;
+    }
+
+    /* Runtime permissive mode: ON sends ALLOW_ACTION for every action (global
+     * mask, beats every rule; REPORTs keep flowing), OFF asks the server to
+     * RELOAD, which zeroes the mask and restores the static rules. Clients
+     * that already cached a grant keep it until they reconnect. */
+    if (strcasecmp(cmd, "SET_PERMISSIVE") == 0) {
+        int v;
+        if (!json_get_int(req, "enabled", &v)) {
+            snprintf(resp, resp_sz, "{\"ok\":false,\"error\":\"missing enabled\"}\n");
+            return;
+        }
+        v = v ? 1 : 0;
+        if (v != permissive_mode) {
+            permissive_mode = v;
+            if (v)
+                permissive_reapply();
+            else
+                send_raw_command("{\"command\":\"RELOAD\"}");
+            log_msg("Control: permissive mode %s", v ? "ON" : "OFF");
+            subscribers_broadcast_permissive(v);
+        }
+        snprintf(resp, resp_sz, "{\"ok\":true,\"permissive\":%d}\n", permissive_mode);
         return;
     }
 
@@ -2429,6 +2475,23 @@ static void subscribers_broadcast_state(int enabled) {
     pthread_mutex_unlock(&subscribers_lock);
 }
 
+/* {"ev":"PERMISSIVE","enabled":bool,"ts":N} to every subscriber, whatever its
+ * action mask, like STATE. */
+static void subscribers_broadcast_permissive(int enabled) {
+    char line[96];
+    int len = snprintf(line, sizeof(line), "{\"ev\":\"PERMISSIVE\",\"enabled\":%s,\"ts\":%ld}\n",
+                       enabled ? "true" : "false", (long)time(NULL));
+    pthread_mutex_lock(&subscribers_lock);
+    for (int i = 0; i < subscriber_count; ) {
+        if (send(subscribers[i].fd, line, (size_t)len, MSG_DONTWAIT | MSG_NOSIGNAL) != len) {
+            subscriber_remove_locked(i);
+            continue;
+        }
+        i++;
+    }
+    pthread_mutex_unlock(&subscribers_lock);
+}
+
 /* Peer must be this same uid and its executable's basename must be in
  * subscribers_allow. Fills exe_out with the basename for logging. */
 static int subscriber_peer_allowed(int conn, char *exe_out, size_t exe_sz) {
@@ -2505,9 +2568,9 @@ static int try_subscribe(int conn, const char *req) {
     }
     /* The reply carries the current state, so a subscriber needs no separate
      * query and cannot miss a change between the two. */
-    char ok[96];
-    int ok_len = snprintf(ok, sizeof(ok), "{\"ok\":true,\"subscribed\":true,\"enabled\":%s}\n",
-                          server_disabled ? "false" : "true");
+    char ok[128];
+    int ok_len = snprintf(ok, sizeof(ok), "{\"ok\":true,\"subscribed\":true,\"enabled\":%s,\"permissive\":%s}\n",
+                          server_disabled ? "false" : "true", permissive_mode ? "true" : "false");
     (void)!write(conn, ok, (size_t)ok_len);
     fcntl(conn, F_SETFL, fcntl(conn, F_GETFL) | O_NONBLOCK);
     subscribers[subscriber_count].fd = conn;
@@ -2653,6 +2716,9 @@ void cleanup(int sig) {
      * instead of waiting up to ~5 s for the server's heartbeat timeout. */
     if (server_disabled)
         send_raw_command("{\"command\":\"ENABLE\"}");
+    /* The global allow-all mask lives in the server and would outlive us. */
+    if (permissive_mode)
+        send_raw_command("{\"command\":\"RELOAD\"}");
     notice_request_close();
     if (notice_thread_valid)
         pthread_join(notice_thread, NULL);
@@ -2848,6 +2914,9 @@ int main(int argc, char *argv[]) {
 
     load_user_config();
     load_ignore_reports();
+    /* Permissive mode always starts off: drop a global mask left behind by a
+     * previous guard that died while it was on. */
+    send_raw_command("{\"command\":\"RELOAD\"}");
     send_all_permissions_to_xserver();
     send_heartbeat();
 

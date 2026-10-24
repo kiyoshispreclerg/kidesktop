@@ -128,6 +128,15 @@ reported using something lately, newest first, with `ignored` and `denied`
 flags, only for the actions in `notify_actions`; memory only) and `REVOKE_ACCESS` (`pattern` = program path,
 `action`: drops its rules for that action and puts a DENY first).
 
+`SET_PERMISSIVE` (`{"cmd":"SET_PERMISSIVE","enabled":1}`) turns on the
+runtime-only permissive mode: the guard sends `ALLOW_ACTION` for every action
+(the server checks that global mask before any rule), so nothing is asked or
+denied but REPORTs keep flowing. Turning it off sends a server `RELOAD`, which
+restores the static rules; clients that already cached a grant keep it until
+they reconnect. It is never persisted, is re-applied after every rule sync, and
+is dropped when the guard starts or exits. `GET_STATUS` reports `permissive`,
+and subscribers get `{"ev":"PERMISSIVE","enabled":bool}` on every change.
+
 `SUBSCRIBE` is the exception: `{"cmd":"SUBSCRIBE","actions":"SCREEN,RECORD"}`
 (`actions` optional, all by default) keeps the connection open, and every
 REPORT/REQUEST from the X server is then written to it as one line:
