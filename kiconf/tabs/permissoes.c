@@ -21,7 +21,7 @@
 /* Permissoes tab widgets + baseline */
 static GtkWidget *g_xg_status_label;
 static GtkWidget *g_xg_no_pause_chk, *g_xg_quiet_chk, *g_xg_always_kill_chk, *g_xg_log_level_spin;
-static GtkWidget *g_xg_secure_mode_chk;
+static GtkWidget *g_xg_secure_mode_chk, *g_xg_permissive_chk;
 /* "Avisos": one check per action (XNOTIFY_ACTIONS[1..]) */
 static GtkWidget *g_xg_notify_chk[32];
 static int g_xg_n_notify_chk;
@@ -41,6 +41,7 @@ static GtkListStore *g_xg_ignored_store;
 typedef struct {
     int online;
     int no_pause, quiet, always_kill, log_level, secure_mode;
+    int permissive; /* runtime-only, never saved by the guard */
     char notify[512]; /* comma list of the actions to tell the user about ("" = none) */
 } XgStatus;
 static XgStatus g_xg_baseline;
@@ -185,6 +186,7 @@ static void xisguard_get_status(XgStatus *st)
         st->always_kill = json_get_int(resp, "always_kill", 0) != 0;
         st->log_level = json_get_int(resp, "log_level", 0);
         st->secure_mode = json_get_int(resp, "secure_mode", 0) != 0;
+        st->permissive = json_get_int(resp, "permissive", 0) != 0;
         json_get_str(resp, "notify_actions", st->notify, sizeof(st->notify));
     }
 }
@@ -630,6 +632,17 @@ static void apply_xg_status_cb(GtkWidget *widget, gpointer data)
         }
     }
     apply_xg_status_diff(no_pause, quiet, always_kill, log_level, secure_mode, notify);
+
+    int permissive = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_xg_permissive_chk));
+    if (g_xg_baseline.online && permissive != g_xg_baseline.permissive) {
+        char path[PATH_MAX];
+        xisguard_ctl_path(path, sizeof(path));
+        char resp[JSON_BUF_LEN];
+        json_line_send(path, permissive ? "{\"cmd\":\"SET_PERMISSIVE\",\"enabled\":1}"
+                                        : "{\"cmd\":\"SET_PERMISSIVE\",\"enabled\":0}",
+                       resp, sizeof(resp));
+        g_xg_baseline.permissive = permissive;
+    }
 }
 
 static void on_xg_add_rule(GtkWidget *widget, gpointer data)
@@ -715,7 +728,7 @@ GtkWidget *build_permissoes_tab(void)
     gtk_widget_set_size_request(g_xg_status_label, 660, -1);
     gtk_box_pack_start(GTK_BOX(outer), g_xg_status_label, FALSE, FALSE, 0);
 
-    GtkWidget *status_table = gtk_table_new(5, 2, FALSE);
+    GtkWidget *status_table = gtk_table_new(6, 2, FALSE);
     g_xg_no_pause_chk = gtk_check_button_new_with_label(_("no_pause (nao pausar decisao)"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_xg_no_pause_chk), g_xg_baseline.no_pause);
     gtk_table_attach(GTK_TABLE(status_table), g_xg_no_pause_chk, 0, 2, 0, 1, GTK_FILL, GTK_FILL, 4, 1);
@@ -732,6 +745,12 @@ GtkWidget *build_permissoes_tab(void)
     g_xg_log_level_spin = gtk_spin_button_new_with_range(0, 5, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_xg_log_level_spin), g_xg_baseline.log_level);
     labeled_row(status_table, 4, "log_level:", g_xg_log_level_spin);
+    g_xg_permissive_chk = gtk_check_button_new_with_label(_("Modo permissivo (libera tudo, so registra)"));
+    gtk_widget_set_tooltip_text(g_xg_permissive_chk,
+        _("Temporario: o XisGuard libera todas as acoes mas os programas continuam sendo registrados. "
+          "Nao e salvo; desliga ao parar o XisGuard. Programas que ja ganharam acesso so o perdem ao reconectar."));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_xg_permissive_chk), g_xg_baseline.permissive);
+    gtk_table_attach(GTK_TABLE(status_table), g_xg_permissive_chk, 0, 2, 5, 6, GTK_FILL, GTK_FILL, 4, 1);
     gtk_widget_set_sensitive(status_table, g_xg_baseline.online);
 
     /* "Avisos": which actions are worth a toast / a line on the xisserve
