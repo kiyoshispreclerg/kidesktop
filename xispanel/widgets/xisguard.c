@@ -121,6 +121,14 @@ static void xg_paint(PanelWidget *w, cairo_t *cr)
         cairo_arc(cr, cx, cy + size * 0.2, 1.0, 0, 6.2832);
         cairo_fill(cr);
         cairo_restore(cr);
+    } else if (ev->permissive) {
+        /* Everything allowed, but still watching: amber, open shield. */
+        draw_shield(cr, cx, cy, size, 0.95, 0.65, 0.1, 1.0, 0);
+        cairo_save(cr);
+        cairo_set_source_rgba(cr, 0.95, 0.65, 0.1, 1);
+        cairo_arc(cr, cx, cy + size * 0.02, size * 0.1, 0, 6.2832);
+        cairo_fill(cr);
+        cairo_restore(cr);
     } else {
         draw_shield(cr, cx, cy, size, p->fg_r, p->fg_g, p->fg_b, 0.9, 1);
     }
@@ -150,7 +158,10 @@ static const char *xg_state_text(const XisguardEvents *ev)
     if (!ev->connected) {
         return _("XisGuard n\xc3\xa3o est\xc3\xa1 em execu\xc3\xa7\xc3\xa3o");
     }
-    return ev->enabled ? _("Prote\xc3\xa7\xc3\xa3o ativa") : _("Prote\xc3\xa7\xc3\xa3o DESLIGADA");
+    if (!ev->enabled) {
+        return _("Prote\xc3\xa7\xc3\xa3o DESLIGADA");
+    }
+    return ev->permissive ? _("Modo permissivo (tudo liberado, s\xc3\xb3 registrando)") : _("Prote\xc3\xa7\xc3\xa3o ativa");
 }
 
 /* Newest first; i = 0 is the newest. */
@@ -236,15 +247,14 @@ static void xg_menu_select(Panel *panel, PanelWidget *widget, void *ctx, int ind
     (void)panel;
     (void)widget;
     (void)ctx;
-    if (index == 1) {
-        run_detached("kiconf --tab Permissoes");
-        return;
-    }
-    if (index != 0) {
-        return;
-    }
     const XisguardEvents *ev = xisguard_events_get();
-    xisguard_send_command(ev->enabled ? "DISABLE" : "ENABLE");
+    if (index == 2) {
+        run_detached("kiconf --tab Permissoes");
+    } else if (index == 1) {
+        xisguard_set_permissive(!ev->permissive);
+    } else if (index == 0) {
+        xisguard_send_command(ev->enabled ? "DISABLE" : "ENABLE");
+    }
 }
 
 static int xg_on_button(PanelWidget *w, int button, int local_x, int local_y, int root_x, int root_y)
@@ -262,14 +272,17 @@ static int xg_on_button(PanelWidget *w, int button, int local_x, int local_y, in
         return 0;
     }
     const XisguardEvents *ev = xisguard_events_get();
-    MenuItem items[2];
+    MenuItem items[3];
     memset(items, 0, sizeof(items));
     snprintf(items[0].label, sizeof(items[0].label), "%s",
              ev->enabled ? _("Desativar temporariamente") : _("Reativar prote\xc3\xa7\xc3\xa3o"));
     items[0].enabled = ev->connected;
-    snprintf(items[1].label, sizeof(items[1].label), "%s", _("Configurar XisGuard\xe2\x80\xa6"));
-    items[1].enabled = 1;
-    panel_menu_open(w->panel, w, 0, w->len, items, 2, NULL, xg_menu_select);
+    snprintf(items[1].label, sizeof(items[1].label), "%s",
+             ev->permissive ? _("Desligar modo permissivo") : _("Modo permissivo (liberar tudo)"));
+    items[1].enabled = ev->connected && ev->enabled;
+    snprintf(items[2].label, sizeof(items[2].label), "%s", _("Configurar XisGuard\xe2\x80\xa6"));
+    items[2].enabled = 1;
+    panel_menu_open(w->panel, w, 0, w->len, items, 3, NULL, xg_menu_select);
     w->panel->dirty = 1;
     return 1;
 }
@@ -280,7 +293,7 @@ static int xg_is_urgent(PanelWidget *w)
     const XisguardEvents *ev = xisguard_events_get();
     /* Switched off, or a program that is not ignored is acting right now
      * (ignored ones only show up as a count in the tooltip/menu). */
-    return ev->connected && (!ev->enabled || xg_recent(ev));
+    return ev->connected && (!ev->enabled || ev->permissive || xg_recent(ev));
 }
 
 const PanelWidgetOps xisguard_ops = {

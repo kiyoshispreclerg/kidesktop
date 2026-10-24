@@ -1871,6 +1871,7 @@ typedef struct {
 typedef struct {
     int connected; /* the guard is running and we are subscribed */
     int enabled;   /* Xnotify enforcement is on (1 while the guard is absent: the server re-enables itself) */
+    int permissive; /* runtime permissive mode: everything allowed, REPORTs still flow (0 while the guard is absent) */
     uint64_t generation;
     XisguardHistoryEntry history[XISGUARD_HISTORY_MAX]; /* ring, newest at history_head - 1 */
     int history_head;
@@ -1891,6 +1892,8 @@ void xisguard_events_poll(void);
 const XisguardEvents *xisguard_events_get(void);
 /* "DISABLE" or "ENABLE" (one short connection; the answer arrives as a STATE event). */
 void xisguard_send_command(const char *cmd);
+/* Turns the guard's permissive mode on/off (one short connection; the answer arrives as a PERMISSIVE event). */
+void xisguard_set_permissive(int on);
 /* {"cmd":cmd,"pattern":pattern}, e.g. ADD_IGNORED (fire and forget). */
 void xisguard_send_json_arg(const char *cmd, const char *pattern);
 

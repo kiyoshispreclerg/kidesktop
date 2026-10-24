@@ -112,6 +112,27 @@ static int jbool(const char *line, const char *key, int defval)
     return strncmp(p + strlen(pat), "true", 4) == 0;
 }
 
+static void set_permissive(int on, int announce)
+{
+    if (g_state.permissive == on) {
+        return;
+    }
+    g_state.permissive = on;
+    g_state.generation++;
+    if (!announce) {
+        return;
+    }
+    cairo_surface_t *icon = xispanel_first_panel_icon(on ? "security-low" : "security-high", 32);
+    if (on) {
+        toast_show_osd(icon, _("Modo permissivo"),
+                       _("Tudo liberado, mas o XisGuard continua registrando quem usa o qu\xc3\xaa"), -1,
+                       TOAST_URGENCY_CRITICAL, 8000, "xisguard-permissive");
+    } else {
+        toast_show_osd(icon, _("XisGuard"), _("Modo permissivo desligado"), -1, TOAST_URGENCY_NORMAL, 0,
+                       "xisguard-permissive");
+    }
+}
+
 static void set_enabled(int enabled, int announce)
 {
     if (g_state.enabled == enabled) {
@@ -348,6 +369,8 @@ static void handle_line(const char *line)
     if (jstr(line, "ev", ev, sizeof(ev))) {
         if (strcmp(ev, "STATE") == 0) {
             set_enabled(jbool(line, "enabled", 1), 1);
+        } else if (strcmp(ev, "PERMISSIVE") == 0) {
+            set_permissive(jbool(line, "enabled", 0), 1);
         } else if (jbool(line, "muted", 0)) {
             return; /* an action the user chose not to be told about */
         } else if (jbool(line, "ignored", 0)) {
@@ -375,6 +398,7 @@ static void handle_line(const char *line)
         g_state.generation++;
         /* Not announced: this is the baseline, not a change. */
         g_state.enabled = jbool(line, "enabled", 1);
+        g_state.permissive = jbool(line, "permissive", 0);
     }
 }
 
@@ -387,6 +411,7 @@ static void drop_connection(void)
     g_buf_len = 0;
     if (g_state.connected || !g_state.enabled) {
         g_state.connected = 0;
+        g_state.permissive = 0; /* the guard drops it on exit */
         /* The guard is gone, so the server re-enabled itself. */
         g_state.enabled = 1;
         g_state.generation++;
@@ -407,6 +432,7 @@ void xisguard_events_release(void)
         g_buf_len = 0;
         g_state.connected = 0;
         g_state.enabled = 1;
+        g_state.permissive = 0;
     }
 }
 
@@ -503,6 +529,18 @@ void xisguard_send_command(const char *cmd)
     }
     char req[64];
     int len = snprintf(req, sizeof(req), "{\"cmd\":\"%s\"}\n", cmd);
+    (void)!write(fd, req, (size_t)len);
+    close(fd);
+}
+
+void xisguard_set_permissive(int on)
+{
+    int fd = ctl_connect();
+    if (fd < 0) {
+        return;
+    }
+    char req[64];
+    int len = snprintf(req, sizeof(req), "{\"cmd\":\"SET_PERMISSIVE\",\"enabled\":%d}\n", on ? 1 : 0);
     (void)!write(fd, req, (size_t)len);
     close(fd);
 }
