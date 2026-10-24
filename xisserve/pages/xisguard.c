@@ -324,6 +324,16 @@ static void clear_rows(void)
     g_list_free(children);
 }
 
+static void on_permissive_toggled(GtkToggleButton *btn, gpointer data)
+{
+    (void)data;
+    /* The page refreshes on its next poll; rebuilding here would destroy the
+     * button inside its own signal. */
+    char *resp = ctl_request(gtk_toggle_button_get_active(btn) ? "{\"cmd\":\"SET_PERMISSIVE\",\"enabled\":1}"
+                                                              : "{\"cmd\":\"SET_PERMISSIVE\",\"enabled\":0}");
+    g_free(resp);
+}
+
 static void rebuild(void)
 {
     clear_rows();
@@ -337,8 +347,13 @@ static void rebuild(void)
         return;
     }
     gboolean enabled = json_long(status, "xnotify_enabled", 1) != 0;
+    gboolean permissive = json_long(status, "permissive", 0) != 0;
     g_free(status);
     add_label(enabled ? _("Prote\xc3\xa7\xc3\xa3o ativa") : _("<b>Prote\xc3\xa7\xc3\xa3o DESLIGADA</b>"), 0.9, FALSE);
+    GtkWidget *perm = gtk_check_button_new_with_label(_("Modo permissivo (libera tudo, mas continua registrando)"));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(perm), permissive);
+    g_signal_connect(perm, "toggled", G_CALLBACK(on_permissive_toggled), NULL);
+    gtk_box_pack_start(GTK_BOX(g_box), perm, FALSE, FALSE, 2);
     gtk_box_pack_start(GTK_BOX(g_box), gtk_hseparator_new(), FALSE, FALSE, 2);
 
     ActiveRow rows[XG_MAX_ROWS];
