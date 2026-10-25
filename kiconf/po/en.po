@@ -2381,3 +2381,15 @@ msgid ""
 msgstr ""
 "A shaded window unrolls while the pointer is over its titlebar and rolls up "
 "again as soon as the pointer leaves the window."
+
+#: tabs/telas.c
+msgid "Desenho responde a DPI e escala"
+msgstr "Drawing responds to DPI and scale"
+
+#: tabs/telas.c
+msgid "Escala (--scale) aumenta ou diminui a caixa; DPI >= 96 a encolhe (precisa de X-INPUT-SCALE e do X-DENSITY do compositor)."
+msgstr "Scale (--scale) grows or shrinks the box; DPI >= 96 shrinks it (needs X-INPUT-SCALE and the compositor's X-DENSITY)."
+
+#: tabs/telas.c
+msgid "DPI nao entra no desenho: falta X-INPUT-SCALE ou um compositor com X-DENSITY."
+msgstr "DPI is not drawn: X-INPUT-SCALE or a compositor with X-DENSITY is missing."

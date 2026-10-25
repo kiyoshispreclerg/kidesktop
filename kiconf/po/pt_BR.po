@@ -2386,3 +2386,15 @@ msgid ""
 msgstr ""
 "Uma janela enrolada desenrola enquanto o mouse está sobre a barra de título "
 "e enrola de novo assim que o mouse sai da janela."
+
+#: tabs/telas.c
+msgid "Desenho responde a DPI e escala"
+msgstr "Desenho responde a DPI e escala"
+
+#: tabs/telas.c
+msgid "Escala (--scale) aumenta ou diminui a caixa; DPI >= 96 a encolhe (precisa de X-INPUT-SCALE e do X-DENSITY do compositor)."
+msgstr "Escala (--scale) aumenta ou diminui a caixa; DPI >= 96 a encolhe (precisa de X-INPUT-SCALE e do X-DENSITY do compositor)."
+
+#: tabs/telas.c
+msgid "DPI nao entra no desenho: falta X-INPUT-SCALE ou um compositor com X-DENSITY."
+msgstr "DPI não entra no desenho: falta X-INPUT-SCALE ou um compositor com X-DENSITY."

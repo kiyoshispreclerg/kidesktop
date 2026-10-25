@@ -5,6 +5,7 @@
 #include "../../shared/xis_outputs.h"
 
 #include <gdk/gdkx.h>
+#include <X11/Xlib.h>
 
 #include <ctype.h>
 #include <dirent.h>
@@ -119,6 +120,8 @@ static GtkWidget *g_screens_res_combo, *g_screens_rate_combo, *g_screens_rot_com
 static GtkWidget *g_screens_enabled_chk, *g_screens_primary_chk;
 static GtkWidget *g_screens_mirror_combo;
 static GtkWidget *g_screens_dpi_spin, *g_screens_scale_spin;
+/* "Desenho responde a DPI e escala" (see screens_dpi_visual_on()). */
+static GtkWidget *g_screens_visual_chk, *g_screens_visual_note;
 /* Last value the DPI spinner settled on -- used by on_screens_dpi_changed()
  * to tell which way a step landed inside the disallowed 1..95 gap (see its
  * own comment) so it knows whether to snap down to 0 (Auto) or up to 96. */
@@ -384,6 +387,16 @@ static int detect_outputs(ScreenOutput *outs, int max)
             }
         }
         line = strtok_r(NULL, "\n", &save);
+    }
+    /* The header geometry is what the output covers on the screen: already
+     * multiplied by --scale and already swapped for rotation. The preview
+     * applies both itself (output_visual_size()), so work from the mode. */
+    for (int i = 0; i < n; i++) {
+        int mw, mh;
+        if (outs[i].enabled && sscanf(outs[i].current_mode, "%dx%d", &mw, &mh) == 2) {
+            outs[i].width = mw;
+            outs[i].height = mh;
+        }
     }
     populate_edid_ids(outs, n);
     return n;
@@ -803,15 +816,76 @@ static void apply_extra_prop_diffs(const ScreenOutput *o, const ScreenOutput *ba
     }
 }
 
+/* Can the preview honour DPI? Needs the X-INPUT-SCALE extension (the
+ * per-output confine that makes a shrunken logical box real) AND a live
+ * X-DENSITY manager (_X_DENSITY_MANAGER_S<n>, owned by the active
+ * compositor) so clients actually redraw densely. Re-queried at most
+ * every 2s -- the compositor can come and go. */
+static int screens_density_available(void)
+{
+    static int cached = 0;
+    static gint64 stamp = 0;
+    gint64 now = g_get_monotonic_time();
+    if (stamp && now - stamp < 2 * G_USEC_PER_SEC) {
+        return cached;
+    }
+    stamp = now;
+    cached = 0;
+    Display *dpy = GDK_DISPLAY_XDISPLAY(gdk_display_get_default());
+    int opcode, ev, err;
+    if (dpy && XQueryExtension(dpy, "X-INPUT-SCALE", &opcode, &ev, &err)) {
+        char name[48];
+        snprintf(name, sizeof(name), "_X_DENSITY_MANAGER_S%d", DefaultScreen(dpy));
+        Atom a = XInternAtom(dpy, name, True);
+        cached = a != None && XGetSelectionOwner(dpy, a) != None;
+    }
+    return cached;
+}
+
+static int screens_visual_on(void)
+{
+    return g_screens_visual_chk && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_screens_visual_chk));
+}
+
+/* Size the preview draws/docks an output at: the mode, times --scale
+ * (xrandr grows the desktop area it covers), divided by DPI/96 when the
+ * density path is available and DPI is a real value >= 96 (Auto/0 and
+ * unset count as 96). Off by default: the plain mode size. */
 static void output_visual_size(const ScreenOutput *o, int *w, int *h)
 {
-    *w = o->width;
-    *h = o->height;
+    double fw = o->width, fh = o->height;
+    if (screens_visual_on()) {
+        double sx = fabs(o->scale_x) > 1e-6 ? o->scale_x : 1.0;
+        double sy = fabs(o->scale_y) > 1e-6 ? o->scale_y : 1.0;
+        fw *= sx;
+        fh *= sy;
+        if (o->dpi >= 96 && screens_density_available()) {
+            fw *= 96.0 / o->dpi;
+            fh *= 96.0 / o->dpi;
+        }
+    }
+    *w = (int)lround(fw);
+    *h = (int)lround(fh);
     if (!strcmp(o->rotation, "left") || !strcmp(o->rotation, "right")) {
         int t = *w;
         *w = *h;
         *h = t;
     }
+}
+
+static void on_screens_visual_toggled(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    (void)data;
+    if (g_screens_visual_note) {
+        int show = screens_visual_on() && !screens_density_available();
+        if (show) {
+            gtk_widget_show(g_screens_visual_note);
+        } else {
+            gtk_widget_hide(g_screens_visual_note);
+        }
+    }
+    gtk_widget_queue_draw(g_screens_canvas);
 }
 
 static void compute_world(double *ox, double *oy, double *scale, int canvas_w, int canvas_h)
@@ -1180,6 +1254,20 @@ static gboolean screens_canvas_expose(GtkWidget *widget, GdkEventExpose *event, 
 
         cairo_move_to(cr, rx + 6, ry + 16);
         cairo_show_text(cr, o->name);
+        {
+            int pw = o->width;
+            if (!strcmp(o->rotation, "left") || !strcmp(o->rotation, "right")) {
+                pw = o->height;
+            }
+            char lbl[64], rate[16] = "";
+            if (o->current_rate[0]) {
+                snprintf(rate, sizeof(rate), "x%.0fHz", atof(o->current_rate));
+            }
+            snprintf(lbl, sizeof(lbl), "%dx%d%s @%d%%", w, h, rate,
+                     (int)lround(100.0 * w / (pw > 0 ? pw : 1)));
+            cairo_move_to(cr, rx + 6, ry + (o->primary ? 48 : 32));
+            cairo_show_text(cr, lbl);
+        }
         if (o->primary) {
             cairo_move_to(cr, rx + 6, ry + 32);
             cairo_show_text(cr, "(primary)");
@@ -1529,6 +1617,7 @@ static void on_screens_dpi_changed(GtkWidget *widget, gpointer data)
     }
     g_screens_dpi_last = v;
     g_outputs[g_screens_selected].dpi = v;
+    gtk_widget_queue_draw(g_screens_canvas);
 }
 
 static void on_screens_scale_changed(GtkWidget *widget, gpointer data)
@@ -1540,6 +1629,7 @@ static void on_screens_scale_changed(GtkWidget *widget, gpointer data)
     double v = gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget));
     g_outputs[g_screens_selected].scale_x = v;
     g_outputs[g_screens_selected].scale_y = v;
+    gtk_widget_queue_draw(g_screens_canvas);
 }
 
 /* mirror_of/dpi/scale aren't detected from plain `xrandr` (see
@@ -1826,6 +1916,19 @@ GtkWidget *build_telas_tab(void)
     gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(off_scroll), GTK_SHADOW_IN);
     gtk_container_add(GTK_CONTAINER(off_scroll), g_screens_off_view);
     gtk_widget_set_size_request(off_scroll, 140, -1);
+
+    g_screens_visual_chk = gtk_check_button_new_with_label(_("Desenho responde a DPI e escala"));
+    gtk_widget_set_tooltip_text(g_screens_visual_chk,
+        _("Escala (--scale) aumenta ou diminui a caixa; DPI >= 96 a encolhe "
+          "(precisa de X-INPUT-SCALE e do X-DENSITY do compositor)."));
+    g_signal_connect(g_screens_visual_chk, "toggled", G_CALLBACK(on_screens_visual_toggled), NULL);
+    gtk_box_pack_start(GTK_BOX(outer), g_screens_visual_chk, FALSE, FALSE, 0);
+    g_screens_visual_note = gtk_label_new(
+        _("DPI nao entra no desenho: falta X-INPUT-SCALE ou um compositor com X-DENSITY."));
+    gtk_misc_set_alignment(GTK_MISC(g_screens_visual_note), 0.0, 0.5);
+    gtk_label_set_line_wrap(GTK_LABEL(g_screens_visual_note), TRUE);
+    gtk_widget_set_no_show_all(g_screens_visual_note, TRUE);
+    gtk_box_pack_start(GTK_BOX(outer), g_screens_visual_note, FALSE, FALSE, 0);
 
     GtkWidget *layout_row = gtk_hbox_new(FALSE, 8);
     gtk_box_pack_start(GTK_BOX(layout_row), frame_with("Layout (arraste pra mover)", g_screens_canvas), TRUE, TRUE, 0);
