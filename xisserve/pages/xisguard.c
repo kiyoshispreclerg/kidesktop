@@ -1,6 +1,8 @@
 /*
  * xisguard.c - the --xisguard page: which programs are using what, with a
- * "Remover acesso" button per program and action. A plain client of
+ * "Remover acesso" button per program and action (in permissive mode,
+ * where a rule changes nothing, "Fechar programa": SIGTERM, then a
+ * `--question` offering SIGKILL if it is still running). A plain client of
  * xisguard's control socket (xisguard-ctl.<display>.sock): LIST_ACTIVE
  * for the list (the guard keeps the last reports in memory), GET_STATUS
  * for the protection state, REVOKE_ACCESS for the button, which puts a
@@ -11,10 +13,12 @@
 #include "../xisserve.h"
 
 #include <limits.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
@@ -27,6 +31,7 @@ typedef struct {
     char exe[PATH_MAX];
     char action[24];
     long ts;
+    int pid;
     gboolean ignored, denied;
 } ActiveRow;
 
@@ -143,6 +148,7 @@ static int parse_active(const char *resp, ActiveRow *rows, int max)
         json_str(obj, "exe", r->exe, sizeof(r->exe));
         json_str(obj, "action", r->action, sizeof(r->action));
         r->ts = json_long(obj, "ts", 0);
+        r->pid = (int)json_long(obj, "pid", 0);
         r->ignored = json_bool(obj, "ignored");
         r->denied = json_bool(obj, "denied");
         g_free(obj);
@@ -258,7 +264,102 @@ static void on_revoke(GtkWidget *btn, gpointer data)
     }
 }
 
-static GtkWidget *build_action_row(const ActiveRow *r, long now, gboolean dim)
+/* ---- "Fechar programa" (permissive mode) ---------------------------------- */
+
+#define XG_CLOSE_GRACE_MS 3000
+
+typedef struct {
+    int pid;
+    char exe[PATH_MAX];
+} CloseCtx;
+
+/* The pid was reported a while ago: only touch it if it still runs that program. */
+static gboolean pid_is_program(int pid, const char *exe)
+{
+    char link[64], target[PATH_MAX];
+    snprintf(link, sizeof(link), "/proc/%d/exe", pid);
+    ssize_t n = readlink(link, target, sizeof(target) - 1);
+    if (n <= 0)
+        return FALSE;
+    target[n] = '\0';
+    size_t len = strcspn(exe, "|");
+    return strncmp(target, exe, len) == 0 && (target[len] == '\0' || target[len] == ' ');
+}
+
+static gboolean pid_alive(int pid)
+{
+    char path[64], buf[256];
+    snprintf(path, sizeof(path), "/proc/%d/stat", pid);
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return FALSE;
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    const char *p = strrchr(buf, ')');
+    return p && p[1] == ' ' && p[2] != 'Z' && p[2] != 'X';
+}
+
+static void on_force_answer(GPid child, gint status, gpointer data)
+{
+    CloseCtx *c = data;
+    g_spawn_close_pid(child);
+    /* the answer is the exit status: 1 = kill, anything else (also a dismissed dialog) = leave it */
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 1 && pid_is_program(c->pid, c->exe))
+        kill(c->pid, SIGKILL);
+    g_free(c);
+}
+
+static void ask_force_kill(CloseCtx *c)
+{
+    const char *base = strrchr(c->exe, '/');
+    char name[PATH_MAX];
+    g_strlcpy(name, base ? base + 1 : c->exe, sizeof(name));
+    char *bar = strchr(name, '|');
+    if (bar)
+        *bar = '\0';
+    char *text = g_strdup_printf(_("%s não fechou. Deseja encerrá-lo à força? Dados não salvos serão perdidos."), name);
+    char *t_arg = g_strdup_printf("--text=%s", text);
+    char *kill_arg = g_strdup_printf("--button=%s:1", _("Encerrar à força"));
+    char *keep_arg = g_strdup_printf("--button=%s:0", _("Cancelar"));
+    char self[PATH_MAX];
+    ssize_t n = readlink("/proc/self/exe", self, sizeof(self) - 1);
+    self[n > 0 ? n : 0] = '\0';
+    char *argv[] = { n > 0 ? self : "xisserve", "--question", t_arg, kill_arg, keep_arg, NULL };
+    GPid child = 0;
+    if (g_spawn_async(NULL, argv, NULL, G_SPAWN_DO_NOT_REAP_CHILD | G_SPAWN_STDOUT_TO_DEV_NULL, NULL, NULL, &child, NULL))
+        g_child_watch_add(child, on_force_answer, c);
+    else
+        g_free(c);
+    g_free(text);
+    g_free(t_arg);
+    g_free(kill_arg);
+    g_free(keep_arg);
+}
+
+static gboolean close_grace_expired(gpointer data)
+{
+    CloseCtx *c = data;
+    if (pid_alive(c->pid) && pid_is_program(c->pid, c->exe))
+        ask_force_kill(c); /* takes over c */
+    else
+        g_free(c);
+    return FALSE;
+}
+
+static void on_close_program(GtkWidget *btn, gpointer data)
+{
+    const CloseCtx *src = data;
+    if (!pid_is_program(src->pid, src->exe))
+        return;
+    CloseCtx *c = g_new0(CloseCtx, 1);
+    *c = *src;
+    kill(c->pid, SIGTERM);
+    gtk_widget_set_sensitive(btn, FALSE);
+    g_timeout_add(XG_CLOSE_GRACE_MS, close_grace_expired, c);
+}
+
+static GtkWidget *build_action_row(const ActiveRow *r, long now, gboolean dim, gboolean permissive)
 {
     GtkWidget *hbox = gtk_hbox_new(FALSE, 6);
     char age[24], text[256];
@@ -270,9 +371,24 @@ static GtkWidget *build_action_row(const ActiveRow *r, long now, gboolean dim)
     style_fg(l, dim ? 0.55 : 0.9);
     gtk_box_pack_start(GTK_BOX(hbox), l, TRUE, TRUE, 12);
 
-    GtkWidget *btn = gtk_button_new_with_label(r->denied ? _("Acesso removido") : _("Remover acesso"));
-    gtk_widget_set_sensitive(btn, !r->denied);
-    if (!r->denied) {
+    /* Permissive mode allows everything, so a DENY rule would change nothing
+     * until it ends: the way to take the access away now is to close the program. */
+    GtkWidget *btn;
+    if (permissive) {
+        btn = gtk_button_new_with_label(_("Fechar programa"));
+        gtk_widget_set_sensitive(btn, r->pid > 0);
+        if (r->pid > 0) {
+            CloseCtx *c = g_new0(CloseCtx, 1);
+            c->pid = r->pid;
+            g_strlcpy(c->exe, r->exe, sizeof(c->exe));
+            g_object_set_data_full(G_OBJECT(btn), "ctx", c, g_free);
+            g_signal_connect(btn, "clicked", G_CALLBACK(on_close_program), c);
+        }
+    } else {
+        btn = gtk_button_new_with_label(r->denied ? _("Acesso removido") : _("Remover acesso"));
+        gtk_widget_set_sensitive(btn, !r->denied);
+    }
+    if (!permissive && !r->denied) {
         RevokeCtx *c = g_new0(RevokeCtx, 1);
         g_strlcpy(c->exe, r->exe, sizeof(c->exe));
         g_strlcpy(c->action, r->action, sizeof(c->action));
@@ -289,7 +405,7 @@ static GtkWidget *build_action_row(const ActiveRow *r, long now, gboolean dim)
 
 /* Rows come newest first; a program's rows are listed together under it, in
  * the order of its newest report. */
-static void add_group(const ActiveRow *rows, int n, gboolean ignored, long now)
+static void add_group(const ActiveRow *rows, int n, gboolean ignored, long now, gboolean permissive)
 {
     gboolean done[XG_MAX_ROWS] = { FALSE };
     gboolean any = FALSE;
@@ -321,7 +437,7 @@ static void add_group(const ActiveRow *rows, int n, gboolean ignored, long now)
                 done[j] = TRUE;
                 if (!row_visible(&rows[j], now))
                     continue;
-                gtk_box_pack_start(GTK_BOX(g_box), build_action_row(&rows[j], now, ignored), FALSE, FALSE, 1);
+                gtk_box_pack_start(GTK_BOX(g_box), build_action_row(&rows[j], now, ignored, permissive), FALSE, FALSE, 1);
             }
         }
     }
@@ -389,8 +505,8 @@ static void rebuild(void)
             n_now += now - rows[i].ts <= XG_NOW_SECS;
         if (!n_now && !g_show_past)
             add_label(_("Nenhum programa usando recursos protegidos agora."), 0.9, TRUE);
-        add_group(rows, n, FALSE, now);
-        add_group(rows, n, TRUE, now);
+        add_group(rows, n, FALSE, now, permissive);
+        add_group(rows, n, TRUE, now, permissive);
         if (n_now < n) {
             GtkWidget *more = gtk_button_new_with_label(g_show_past ? _("Mostrar menos") : _("Mostrar mais"));
             g_signal_connect(more, "clicked", G_CALLBACK(on_more_clicked), NULL);
