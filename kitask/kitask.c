@@ -7,6 +7,7 @@
  * their history going. */
 #include "tsk.h"
 #include "../shared/xis_i18n.h"
+#include "../shared/xis_winstate.h"
 #include <gdk/gdkkeysyms.h>
 #include <stdio.h>
 #include <string.h>
@@ -501,6 +502,8 @@ int main(int argc, char **argv)
     gtk_window_set_icon_name(GTK_WINDOW(app->win), "kitask");
     gtk_window_set_default_size(GTK_WINDOW(app->win), app->cfg.win_w, app->cfg.win_h);
     gtk_window_set_role(GTK_WINDOW(app->win), "kitask-main");
+    xis_winstate_restore(GTK_WINDOW(app->win), "kitask", XIS_WINSTATE_ALL);
+    xis_winstate_track(GTK_WINDOW(app->win), "kitask", XIS_WINSTATE_ALL);
     GtkAccelGroup *ag = gtk_accel_group_new();
     gtk_window_add_accel_group(GTK_WINDOW(app->win), ag);
 
