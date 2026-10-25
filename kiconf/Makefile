@@ -17,6 +17,8 @@ LIBDIR ?= $(PREFIX)/lib
 CFLAGS += -DXISPANEL_WIDGETDIR='"$(LIBDIR)/xispanel/widgets"'
 # The KiTheme tab compiles libkitheme in (its preview draws with it), and
 # finds the presets where kitheme installs them.
+# Where xisserve installs the per-country holiday lists ("Ver feriados").
+CFLAGS += -DXIS_HOLIDAYS_DIR='"$(DATADIR)/xisserve/holidays"'
 CFLAGS += -DKITHEME_DATADIR='"$(DATADIR)/kitheme"'
 # KiDesktop's single version source of truth: ../VERSION (also read by
 # scripts/build-deb.sh). Edit that file, not this Makefile.
@@ -46,7 +48,7 @@ SRCS := kiconf.c plugins.c widgetmods.c common.c sysinfo.c tabs/appearance.c tab
         tabs/screens.c tabs/windows.c tabs/effects.c tabs/corners.c tabs/system.c \
         tabs/programs.c tabs/associations.c tabs/menu.c tabs/autostart.c tabs/energy.c tabs/events.c \
         tabs/history.c tabs/accessibility.c tabs/sounds.c tabs/users.c tabs/services.c tabs/login.c tabs/lock.c \
-        ../shared/xis_outputs.c ../shared/xis_direction.c ../shared/xis_sound.c \
+        ../shared/xis_outputs.c ../shared/xis_direction.c ../shared/xis_sound.c ../shared/xis_holidays.c \
         ../kitheme/core/kt_color.c ../kitheme/core/kt_config.c ../kitheme/core/kt_draw.c ../kitheme/core/kt_sample.c
 
 # po/LINGUAS: one language code per line ("pt_BR", "es", ...), '#' comments.

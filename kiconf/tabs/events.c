@@ -14,6 +14,7 @@
  * time it's shown, there's nothing running in the background to nudge. */
 #include "../common.h"
 #include "../tabs.h"
+#include "../../shared/xis_holidays.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -173,6 +174,97 @@ static GtkTreeViewColumn *make_recur_column(void)
     return gtk_tree_view_column_new_with_attributes("Recorrencia", renderer, "text", COL_EV_RECUR, NULL);
 }
 
+/* "Ver feriados": a plain read-only list of the public holidays of the
+ * country the system timezone belongs to, for the chosen year. The lists are
+ * data files (see shared/xis_holidays.h), not part of this program. */
+static GtkListStore *g_hol_store;
+static GtkWidget *g_hol_title;
+
+static void fill_holidays(int year)
+{
+    char country[8];
+    xis_holidays_country(country, sizeof(country));
+    XisHoliday list[64];
+    int n = xis_holidays_for_year(country, year, list, 64);
+    gtk_list_store_clear(g_hol_store);
+    for (int i = 0; i < n; i++) {
+        struct tm tmv = {0};
+        tmv.tm_year = year - 1900;
+        tmv.tm_mon = list[i].month - 1;
+        tmv.tm_mday = list[i].day;
+        tmv.tm_hour = 12;
+        mktime(&tmv);
+        char date[32], wday[32];
+        strftime(date, sizeof(date), "%d/%m", &tmv);
+        strftime(wday, sizeof(wday), "%a", &tmv);
+        GtkTreeIter it;
+        gtk_list_store_append(g_hol_store, &it);
+        gtk_list_store_set(g_hol_store, &it, 0, date, 1, wday, 2, list[i].name, -1);
+    }
+    char *title;
+    if (!country[0]) {
+        title = g_strdup(_("Pais desconhecido para este fuso horario."));
+    } else if (n == 0) {
+        title = g_strdup_printf(_("Nenhuma lista de feriados instalada para %s."), country);
+    } else {
+        title = g_strdup_printf(_("Feriados de %s"), country);
+    }
+    gtk_label_set_text(GTK_LABEL(g_hol_title), title);
+    g_free(title);
+}
+
+static void holiday_year_changed(GtkSpinButton *spin, gpointer data)
+{
+    (void)data;
+    fill_holidays(gtk_spin_button_get_value_as_int(spin));
+}
+
+static void show_holidays_cb(GtkWidget *widget, gpointer data)
+{
+    (void)data;
+    GtkWidget *dlg = gtk_dialog_new_with_buttons(_("Feriados"), GTK_WINDOW(gtk_widget_get_toplevel(widget)),
+                                                 GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                 GTK_STOCK_CLOSE, GTK_RESPONSE_CLOSE, NULL);
+    gtk_window_set_default_size(GTK_WINDOW(dlg), 340, 380);
+    GtkWidget *box = GTK_DIALOG(dlg)->vbox;
+    gtk_box_set_spacing(GTK_BOX(box), 6);
+
+    time_t now = time(NULL);
+    struct tm lt;
+    localtime_r(&now, &lt);
+    GtkWidget *row = gtk_hbox_new(FALSE, 6);
+    g_hol_title = gtk_label_new("");
+    gtk_misc_set_alignment(GTK_MISC(g_hol_title), 0.0, 0.5);
+    GtkWidget *year = gtk_spin_button_new_with_range(1970, 2100, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(year), lt.tm_year + 1900);
+    a11y_name(year, _("Ano"));
+    gtk_box_pack_start(GTK_BOX(row), g_hol_title, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(row), year, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), row, FALSE, FALSE, 0);
+
+    g_hol_store = gtk_list_store_new(3, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
+    GtkWidget *view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_hol_store));
+    a11y_name(view, _("Feriados"));
+    const char *titles[3] = {_("Data"), _("Dia"), _("Feriado")};
+    for (int i = 0; i < 3; i++) {
+        GtkTreeViewColumn *col = gtk_tree_view_column_new_with_attributes(titles[i], gtk_cell_renderer_text_new(),
+                                                                          "text", i, NULL);
+        gtk_tree_view_column_set_expand(col, i == 2);
+        gtk_tree_view_append_column(GTK_TREE_VIEW(view), col);
+    }
+    GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_container_add(GTK_CONTAINER(scroll), view);
+    gtk_box_pack_start(GTK_BOX(box), scroll, TRUE, TRUE, 0);
+
+    g_signal_connect(year, "value-changed", G_CALLBACK(holiday_year_changed), NULL);
+    fill_holidays(lt.tm_year + 1900);
+    gtk_widget_show_all(dlg);
+    gtk_dialog_run(GTK_DIALOG(dlg));
+    gtk_widget_destroy(dlg);
+    g_hol_store = NULL;
+}
+
 GtkWidget *build_events_tab(void)
 {
     GtkWidget *outer = gtk_vbox_new(FALSE, 6);
@@ -226,11 +318,14 @@ GtkWidget *build_events_tab(void)
     GtkWidget *add_btn = gtk_button_new_with_label(_("Adicionar"));
     GtkWidget *remove_btn = gtk_button_new_with_label(_("Remover"));
     GtkWidget *save_btn = gtk_button_new_with_label(_("Salvar"));
+    GtkWidget *holidays_btn = gtk_button_new_with_label(_("Ver feriados..."));
+    g_signal_connect(holidays_btn, "clicked", G_CALLBACK(show_holidays_cb), NULL);
     g_signal_connect(add_btn, "clicked", G_CALLBACK(add_event_cb), NULL);
     g_signal_connect(remove_btn, "clicked", G_CALLBACK(remove_event_cb), view);
     g_signal_connect(save_btn, "clicked", G_CALLBACK(save_events_cb), NULL);
     gtk_box_pack_start(GTK_BOX(btnbox), add_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(btnbox), remove_btn, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(btnbox), holidays_btn, FALSE, FALSE, 12);
     gtk_box_pack_end(GTK_BOX(btnbox), save_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(outer), btnbox, FALSE, FALSE, 0);
 
