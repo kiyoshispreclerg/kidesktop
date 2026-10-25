@@ -10,7 +10,8 @@ com bitmaps).
 
 | Pergunta | Decisão |
 |---|---|
-| Formato nativo | **OpenRaster (.ora)** a partir da 0.0.2. Formatos planos são exportação. |
+| Formato nativo | **OpenRaster (.ora)** a partir da 0.0.2, para quem edita com camadas. |
+| Salvar imagem plana | **Ctrl+S mantém o formato** de PNG/JPG/BMP/TIFF abertos. Só vira .ora quando o usuário passa a usar camadas (seção 1.1). |
 | Rotação | **Alça de rotação sempre visível**. O ciclo de cliques do Corel (escala → rotação/inclinação) fica como opção. |
 | Painel de camadas | **Visível por padrão**, com opção de esconder (aí parece o Paint clássico). |
 | Interface | Estilo **Paint do XP** (caixa de ferramentas + paleta no rodapé), sem ribbon. |
@@ -30,10 +31,57 @@ PNG e JPG não guardam camadas. O formato nativo é o **OpenRaster (.ora)**:
   (`kipaint/…`, referenciado por atributo com namespace no `stack.xml`), e com isso o
   kipaint reabre a camada ainda editável, sem perder qualidade. Texto vivo segue a mesma
   ideia.
-- **PNG/JPG/BMP/TIFF viram "Exportar"**, que achata as camadas via gdk-pixbuf. Ao salvar
-  em formato plano com mais de uma camada, o kipaint avisa, como o GIMP faz.
-- Na 0.0.1 só existe uma camada, então "Salvar" grava direto em PNG/JPG/BMP/TIFF pela
-  extensão.
+- **PNG/JPG/BMP/TIFF continuam sendo formatos de salvar de verdade**, não só de
+  exportar: abrir uma imagem e dar Ctrl+S regrava o mesmo arquivo, no mesmo formato,
+  como na 0.0.1. O achatamento é feito via gdk-pixbuf.
+- Na 0.0.1 só existia uma camada, então "Salvar" gravava direto pela extensão.
+
+### 1.1 Modo do documento: "imagem plana" ou "projeto em camadas"
+
+O documento está sempre em um de dois modos, e o modo decide o que Ctrl+S faz.
+
+| | **Imagem plana** | **Projeto em camadas** |
+|---|---|---|
+| Como se chega | Abrir PNG/JPG/BMP/TIFF, ou Novo | Abrir .ora, ou "Salvar como..." em .ora |
+| Ctrl+S | Regrava o arquivo, no mesmo formato | Regrava o .ora |
+| Salvar como... | Qualquer formato, inclusive .ora | Qualquer formato (os planos achatam) |
+| PNG/JPG/... aparecem como | Salvar normal | **Exportar...** (o título e o Ctrl+S continuam no .ora) |
+
+- Enquanto o documento tem **uma camada só**, nada muda em relação à 0.0.1: o usuário
+  abriu uma imagem, edita e dá Ctrl+S, sem aviso nenhum. Camadas são um extra.
+- **Aviso ao achatar:** se o documento está em modo imagem plana, tem **mais de uma
+  camada** e o usuário dá Ctrl+S (ou Salvar), o kipaint pergunta antes de gravar:
+
+  > *Salvar em <formato> junta as camadas em uma só imagem. As camadas não serão
+  > guardadas nesse arquivo.*
+  > **[Continuar]** **[Salvar como...]** **[Cancelar]**
+
+  - **Continuar:** grava o arquivo achatado, como o formato pede. As camadas continuam
+    no editor, e o documento segue em modo imagem plana. A pergunta volta no próximo
+    Ctrl+S (com a opção "Não perguntar de novo nesta sessão" no próprio aviso).
+  - **Salvar como...:** abre o diálogo normal, já com o filtro de .ora sugerido. Se o
+    usuário gravar em .ora, o documento **passa a ser um projeto em camadas**, como se
+    tivesse sido aberto de um .ora: o caminho do documento vira o .ora, o título muda, e
+    o PNG/JPG de origem deixa de ser o destino do Ctrl+S e passa a ser **Exportar**.
+    Se gravar em outro formato plano, segue em modo imagem plana (com o aviso no
+    próximo Ctrl+S).
+  - **Cancelar:** não grava e não muda nada.
+- O aviso vale para qualquer caminho que grave um formato plano a partir de um
+  documento com camadas: Ctrl+S, "Salvar" e fechar a janela com "Salvar" no diálogo de
+  alterações pendentes.
+- **Achatar nunca altera o documento.** O que muda é só o arquivo gravado; as camadas e
+  o histórico de desfazer continuam intactos.
+- **Menu Arquivo** por modo:
+  - Imagem plana: *Salvar*, *Salvar como...*
+  - Projeto em camadas: *Salvar* (.ora), *Salvar como...*, **Exportar...** (diálogo com
+    PNG/JPG/BMP/TIFF, lembra a última pasta e o último formato; não muda o caminho do
+    documento nem o estado de "modificado").
+- **"Modificado":** em projeto em camadas, exportar não limpa o asterisco do título,
+  porque o .ora continua sem as últimas edições. Em imagem plana, salvar limpa, como hoje.
+- **Formatos que o kipaint abre mas não grava** (GIF, WebP, ...): Ctrl+S cai em
+  "Salvar como..." com o nome sugerido em .png, como já é na 0.0.1.
+- **JPG/BMP com camadas:** além do aviso de achatar, o achatamento é feito sobre branco,
+  como já é hoje para o alfa, e o aviso de alfa perdido é o mesmo da 0.0.1.
 
 ## 2. Arquitetura
 
@@ -137,11 +185,23 @@ kipaint/
 | Versão | Escopo |
 |---|---|
 | **0.0.1** | Esqueleto: janela, canvas com zoom Ctrl+scroll, scroll e arrasto com o botão do meio; uma camada; lápis, pincel, borracha, balde, conta-gotas; paleta com cores 1/2; Novo/Abrir/Salvar/Salvar como em PNG/JPG/BMP/TIFF; undo/redo por tiles; grade de pixels; i18n pt_BR; .desktop; integração com o Makefile principal, o lint e o `make deb` |
-| 0.0.2 | Camadas: painel, adicionar/remover/duplicar/reordenar, opacidade, visibilidade, cache de 3 superfícies; salvar/abrir .ora; formatos planos viram Exportar |
+| **0.0.2** (feito, exceto o cache de 3 superfícies, adiado: a composição atual só repinta a área exposta) | Camadas: painel, adicionar/remover/duplicar/reordenar, opacidade, visibilidade, cache de 3 superfícies; salvar/abrir .ora; **modo imagem plana x projeto em camadas** (seção 1.1): aviso de achatar com Continuar / Salvar como... / Cancelar, Exportar... no modo projeto |
 | 0.0.3 | Transformar: alças, mover, escalar, girar, ciclo de cliques estilo Corel; paste e DnD como camada nova |
 | 0.0.4 | Seleções (retângulo/livre), recortar/copiar/colar, menu Imagem |
 | 0.0.5 | Formas, linha/curva, spray, texto (camada de texto viva) |
 | depois | Lupa, réguas, modos de mistura, cores com alfa nos traços, X-DENSITY, KiTheme |
+
+## Notas da 0.0.2
+
+- "Salvar como..." com extensão plana num projeto em camadas escreve o arquivo plano,
+  sem o aviso (a escolha já foi explícita) e o documento volta ao modo imagem plana
+  com esse arquivo como destino. Quem quer manter o .ora usa Exportar.
+- Desfazer cobre as operações de camada (adicionar, excluir, duplicar, mover,
+  renomear, visibilidade, opacidade); a opacidade ao arrastar o controle vira um
+  passo só.
+- Não se pinta numa camada oculta (exceto o conta-gotas).
+- .ora: grupos aninhados viram lista plana; x/y de camadas de outros programas são
+  aplicados ao abrir (a camada vira do tamanho do documento).
 
 ## Limitações conhecidas da 0.0.1
 

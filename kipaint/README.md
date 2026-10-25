@@ -18,12 +18,22 @@ RAM with a small image, under 40 MB right after opening a 1920x1080 one.
   *View > Pixel grid* (`Ctrl+G`) shows from 800% up
 - Undo/redo (`Ctrl+Z`, `Ctrl+Y` or `Ctrl+Shift+Z`): only the 64x64 tiles a
   stroke touched are kept, up to 64 MB of history
-- Opens whatever gdk-pixbuf reads (EXIF rotation applied); saves PNG, JPEG,
-  BMP and TIFF, chosen by the extension (JPEG and BMP are flattened over
-  white)
+- Layers (panel on the right, hideable in *View*): new, duplicate, delete,
+  raise/lower, rename (double click), show/hide, opacity. All of it is in the
+  undo history. The tools paint on the active layer
+- Two document modes. A **flat image** (opened from PNG/JPEG/BMP/TIFF, or
+  new) is saved with `Ctrl+S` in its own format; with more than one layer, a
+  notice says the layers will be merged (*Continue*, *Save as...* or
+  *Cancel*). A **layered project** (opened from, or saved as, `.ora`) is saved
+  with `Ctrl+S` to the `.ora`, and *File > Export...* writes a flat copy
+  without touching the project
+- Opens whatever gdk-pixbuf reads (EXIF rotation applied) and OpenRaster
+  (`.ora`, readable by GIMP, Krita and MyPaint); saves `.ora`, PNG, JPEG, BMP
+  and TIFF, chosen by the extension (JPEG and BMP are flattened over white)
 
-Settings (palette, colors, tool sizes, grid, size of new images) are in
+Settings (palette, colors, tool sizes, grid, layers panel, size of new images) are in
 `~/.config/kipaint.conf`. Command line: `kipaint [IMAGE]`.
 
-Not in 0.0.1: layers, the OpenRaster (.ora) format, moving/rotating layers,
-selections, clipboard, shapes, text. See [PLAN.md](PLAN.md) for the roadmap.
+Not yet: moving/rotating layers, selections, clipboard, shapes, text.
+Nested groups in an `.ora` are read as a flat list of layers, and layer
+offsets are applied on load (every layer is document-sized in kipaint). See [PLAN.md](PLAN.md) for the roadmap.
