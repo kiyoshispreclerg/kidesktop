@@ -6,6 +6,7 @@
  * in kt_tab.c / kt_search.c. */
 #include "kiterm.h"
 #include "../shared/xis_i18n.h"
+#include "../shared/xis_winstate.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -457,6 +458,9 @@ int main(int argc, char **argv)
     g_signal_connect(w->notebook, "switch-page", G_CALLBACK(on_switch_page), w);
     g_signal_connect(w->notebook, "button-press-event", G_CALLBACK(on_tab_click), w);
     g_signal_connect(w->win, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+    /* Position and maximized only: the size follows the terminal grid. */
+    xis_winstate_restore(GTK_WINDOW(w->win), "kiterm", XIS_WINSTATE_POS);
+    xis_winstate_track(GTK_WINDOW(w->win), "kiterm", XIS_WINSTATE_POS);
 
     kt_window_apply_config(w);
     kt_window_new_tab(w, workdir, w->cmd_argv);

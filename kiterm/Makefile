@@ -20,9 +20,9 @@ PKG_LIBS += $(LIBINTL)
 LINGUAS := $(shell test -f po/LINGUAS && grep -v '^\#' po/LINGUAS)
 MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
-SRCS := kiterm.c kt_config.c kt_tab.c kt_search.c kt_prefs.c ../shared/xis_sound.c
+SRCS := kiterm.c kt_config.c kt_tab.c kt_search.c kt_prefs.c ../shared/xis_sound.c ../shared/xis_winstate.c
 OBJS := $(SRCS:.c=.o)
-HDRS := kiterm.h kt_config.h ../shared/xis_i18n.h
+HDRS := kiterm.h kt_config.h ../shared/xis_i18n.h ../shared/xis_winstate.h
 
 all: kiterm
 
