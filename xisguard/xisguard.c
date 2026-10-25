@@ -28,7 +28,7 @@
 #define REPORT_THROTTLE_S   1
 #define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.16"
+#define XISGUARD_VERSION    "0.4.17"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -2212,15 +2212,20 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
 
     if (strcasecmp(cmd, "LIST_RULES") == 0) {
         size_t off = 0;
-        off += snprintf(resp + off, resp_sz - off, "{\"ok\":true,\"rules\":[");
+        char file_esc[1024];
+        json_escape_str(file_esc, sizeof(file_esc), perms_file);
+        /* "file" is where these rules are read from and saved to, "order" is
+         * each rule's 1-based position there. */
+        off += snprintf(resp + off, resp_sz - off, "{\"ok\":true,\"file\":\"%s\",\"enabled\":%s,\"rules\":[",
+                        file_esc, secure_mode ? "false" : "true");
         pthread_mutex_lock(&ignored_lock);
         for (int i = 0; i < ignored_count && off < resp_sz; i++) {
             char pat_esc[PATH_MAX * 2];
             json_escape_str(pat_esc, sizeof(pat_esc), ignored_cmds[i].exe_pattern);
             const char *act = ignored_cmds[i].action[0] ? ignored_cmds[i].action : "ALL";
             off += snprintf(resp + off, resp_sz - off,
-                "%s{\"type\":\"%s\",\"action\":\"%s\",\"pattern\":\"%s\"}",
-                i == 0 ? "" : ",",
+                "%s{\"order\":%d,\"type\":\"%s\",\"action\":\"%s\",\"pattern\":\"%s\"}",
+                i == 0 ? "" : ",", i + 1,
                 ignored_cmds[i].rule_type == 0 ? "ALLOW" : "DENY",
                 act, pat_esc);
         }
