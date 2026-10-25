@@ -30,10 +30,13 @@ static GtkWidget *g_xg_rules_view;
 static GtkListStore *g_xg_rules_store;
 static GtkWidget *g_xg_action_combo, *g_xg_type_combo, *g_xg_pattern_entry;
 /* System rules (SYSCONFDIR's xnotify.conf.d directory, *.conf files) --
- * read-only for now, loaded by permissions_rules.c. */
+ * edited through permissions_rules.c. */
 static GtkWidget *g_xg_sys_rules_view;
 static GtkListStore *g_xg_sys_rules_store;
 static GtkWidget *g_xg_sys_rules_status_label;
+/* edit row of the system rules page (selecting a rule fills it) */
+static GtkWidget *g_xs_type_combo, *g_xs_action_combo, *g_xs_pattern_entry, *g_xs_name_entry, *g_xs_prio_spin;
+static char g_xg_sys_dir[512];
 /* ignore.conf: programs whose REPORTs are not shown (LIST/ADD/REMOVE_IGNORED) */
 static GtkWidget *g_xg_ignored_view, *g_xg_ignored_entry;
 static GtkListStore *g_xg_ignored_store;
@@ -458,6 +461,7 @@ static void refresh_xg_sys_rules(void)
     char dir[512] = "", file[512] = "";
     int have_dir = g_xg_baseline.online && xisguard_get_system_rules_paths(dir, sizeof(dir), file, sizeof(file));
     int n = have_dir ? xg_ruleset_load(&g_xg_sysset, dir, file) : (xg_ruleset_clear(&g_xg_sysset), 0);
+    snprintf(g_xg_sys_dir, sizeof(g_xg_sys_dir), "%s", have_dir ? dir : "");
     for (int i = 0; i < n; i++) {
         const XgFileRule *r = &g_xg_sysset.rules[i];
         char order[16], line[16];
@@ -477,7 +481,7 @@ static void refresh_xg_sys_rules(void)
         } else if (!have_dir) {
             snprintf(status, sizeof(status), _("Nao foi possivel descobrir o diretorio de regras de sistema (timeout do X server)."));
         } else {
-            snprintf(status, sizeof(status), _("%s (e xnotify.conf) -- %d regra(s) em %d arquivo(s), na ordem em que o X server as aplica. Somente leitura por enquanto."),
+            snprintf(status, sizeof(status), _("%s (e xnotify.conf) -- %d regra(s) em %d arquivo(s), na ordem em que o X server as aplica. Editar pede autorizacao (polkit) e recarrega o X server."),
                      dir, n, g_xg_sysset.n_files);
         }
         gtk_label_set_text(GTK_LABEL(g_xg_sys_rules_status_label), status);
@@ -607,6 +611,112 @@ static void on_xg_remove_rule(GtkWidget *widget, gpointer data)
     g_free(type);
     g_free(action);
     g_free(pattern);
+}
+
+/* ---- editing the system rules: every change is written back to the file it
+ * came from (see permissions_rules.c) through polkit, then the guard asks the
+ * X server to RELOAD. On any failure the list is re-read from disk. ---- */
+
+static int selected_sys_rule(void)
+{
+    GtkTreeIter it;
+    GtkTreeModel *model;
+    if (!gtk_tree_selection_get_selected(gtk_tree_view_get_selection(GTK_TREE_VIEW(g_xg_sys_rules_view)), &model, &it)) {
+        return -1;
+    }
+    GtkTreePath *path = gtk_tree_model_get_path(model, &it);
+    int idx = gtk_tree_path_get_indices(path)[0];
+    gtk_tree_path_free(path);
+    return idx;
+}
+
+static void on_xs_selection_changed(GtkTreeSelection *sel, gpointer data)
+{
+    (void)sel;
+    (void)data;
+    int idx = selected_sys_rule();
+    if (idx < 0 || idx >= g_xg_sysset.n_rules) {
+        return;
+    }
+    const XgFileRule *r = &g_xg_sysset.rules[idx];
+    gtk_combo_box_set_active(GTK_COMBO_BOX(g_xs_type_combo), strcmp(r->type, "DENY") ? 0 : 1);
+    gtk_entry_set_text(GTK_ENTRY(GTK_BIN(g_xs_action_combo)->child), r->action);
+    gtk_entry_set_text(GTK_ENTRY(g_xs_pattern_entry), r->pattern);
+}
+
+/* Saves the edited model; the guard then makes the server RELOAD. */
+static void finish_sys_change(int saved, const char *err)
+{
+    if (saved) {
+        if (!xisguard_reload()) {
+            err = _("Salvo, mas o xisguard nao respondeu ao RELOAD.");
+            saved = 0;
+        }
+    }
+    if (!saved && err) {
+        GtkWidget *dlg = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE,
+                                                "%s", err);
+        gtk_dialog_run(GTK_DIALOG(dlg));
+        gtk_widget_destroy(dlg);
+    }
+    refresh_xg_rules();
+    refresh_xg_sys_rules();
+}
+
+static int read_sys_form(char *type, size_t type_sz, char *action, size_t action_sz, const char **pattern)
+{
+    char *t = gtk_combo_box_get_active_text(GTK_COMBO_BOX(g_xs_type_combo));
+    snprintf(type, type_sz, "%s", t ? t : "");
+    g_free(t);
+    snprintf(action, action_sz, "%s", gtk_entry_get_text(GTK_ENTRY(GTK_BIN(g_xs_action_combo)->child)));
+    *pattern = gtk_entry_get_text(GTK_ENTRY(g_xs_pattern_entry));
+    return 1;
+}
+
+static void on_xs_apply(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    (void)data;
+    int idx = selected_sys_rule();
+    if (idx < 0) {
+        return;
+    }
+    char type[16], action[32], err[256] = "";
+    const char *pattern;
+    read_sys_form(type, sizeof(type), action, sizeof(action), &pattern);
+    if (!xg_ruleset_edit(&g_xg_sysset, idx, type, action, pattern, err, sizeof(err))) {
+        finish_sys_change(0, err);
+        return;
+    }
+    finish_sys_change(xg_ruleset_save(&g_xg_sysset, err, sizeof(err)), err);
+}
+
+static void on_xs_remove(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    (void)data;
+    int idx = selected_sys_rule();
+    if (idx < 0 || !xg_ruleset_remove(&g_xg_sysset, idx)) {
+        return;
+    }
+    char err[256] = "";
+    finish_sys_change(xg_ruleset_save(&g_xg_sysset, err, sizeof(err)), err);
+}
+
+static void on_xs_add(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    (void)data;
+    char type[16], action[32], err[256] = "";
+    const char *pattern;
+    read_sys_form(type, sizeof(type), action, sizeof(action), &pattern);
+    if (!g_xg_sys_dir[0] ||
+        !xg_ruleset_add(&g_xg_sysset, g_xg_sys_dir, gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_xs_prio_spin)),
+                        gtk_entry_get_text(GTK_ENTRY(g_xs_name_entry)), type, action, pattern, err, sizeof(err))) {
+        finish_sys_change(0, err[0] ? err : _("Diretorio de regras de sistema desconhecido."));
+        return;
+    }
+    finish_sys_change(xg_ruleset_save(&g_xg_sysset, err, sizeof(err)), err);
 }
 
 static void on_xg_reload(GtkWidget *widget, gpointer data)
@@ -786,9 +896,57 @@ GtkWidget *build_permissions_tab(void)
     gtk_label_set_line_wrap(GTK_LABEL(g_xg_sys_rules_status_label), TRUE);
     gtk_box_pack_start(GTK_BOX(sys_rules_box), g_xg_sys_rules_status_label, FALSE, FALSE, 0);
 
+    /* edit row: type, action (free text so any server action fits), pattern */
+    GtkWidget *sys_edit_row = gtk_hbox_new(FALSE, 4);
+    g_xs_type_combo = gtk_combo_box_new_text();
+    gtk_combo_box_append_text(GTK_COMBO_BOX(g_xs_type_combo), "ALLOW");
+    gtk_combo_box_append_text(GTK_COMBO_BOX(g_xs_type_combo), "DENY");
+    gtk_combo_box_set_active(GTK_COMBO_BOX(g_xs_type_combo), 0);
+    g_xs_action_combo = gtk_combo_box_entry_new_text();
+    for (int i = 0; XNOTIFY_ACTIONS[i][0]; i++) {
+        gtk_combo_box_append_text(GTK_COMBO_BOX(g_xs_action_combo), XNOTIFY_ACTIONS[i][0]);
+    }
+    gtk_entry_set_text(GTK_ENTRY(GTK_BIN(g_xs_action_combo)->child), "ALL");
+    gtk_widget_set_size_request(g_xs_action_combo, 130, -1);
+    a11y_name(g_xs_action_combo, _("Acao"));
+    g_xs_pattern_entry = gtk_entry_new();
+    gtk_entry_set_text(GTK_ENTRY(g_xs_pattern_entry), "*");
+    a11y_name(g_xs_pattern_entry, _("Padrao"));
+    gtk_box_pack_start(GTK_BOX(sys_edit_row), g_xs_type_combo, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(sys_edit_row), g_xs_action_combo, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(sys_edit_row), g_xs_pattern_entry, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(sys_rules_box), sys_edit_row, FALSE, FALSE, 0);
+
+    /* new rules go to a file of their own: priority = the number the server
+     * sorts the drop-ins by, so it decides where the rule falls in the order */
+    GtkWidget *sys_new_row = gtk_hbox_new(FALSE, 4);
+    g_xs_prio_spin = gtk_spin_button_new_with_range(0, 99, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_xs_prio_spin), 60);
+    a11y_name(g_xs_prio_spin, _("Prioridade"));
+    g_xs_name_entry = gtk_entry_new();
+    gtk_entry_set_text(GTK_ENTRY(g_xs_name_entry), "kiconf");
+    a11y_name(g_xs_name_entry, _("Nome do arquivo"));
+    gtk_box_pack_start(GTK_BOX(sys_new_row), gtk_label_new(_("Nova regra em:")), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(sys_new_row), g_xs_prio_spin, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(sys_new_row), gtk_label_new("-"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(sys_new_row), g_xs_name_entry, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(sys_new_row), gtk_label_new(".conf"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(sys_rules_box), sys_new_row, FALSE, FALSE, 0);
+    g_signal_connect(gtk_tree_view_get_selection(GTK_TREE_VIEW(g_xg_sys_rules_view)), "changed",
+                     G_CALLBACK(on_xs_selection_changed), NULL);
+
+    GtkWidget *sys_add_btn = gtk_button_new_with_label(_("Adicionar"));
+    GtkWidget *sys_apply_btn = gtk_button_new_with_label(_("Alterar selecionada"));
+    GtkWidget *sys_remove_btn = gtk_button_new_with_label(_("Remover selecionada"));
+    g_signal_connect(sys_add_btn, "clicked", G_CALLBACK(on_xs_add), NULL);
+    g_signal_connect(sys_apply_btn, "clicked", G_CALLBACK(on_xs_apply), NULL);
+    g_signal_connect(sys_remove_btn, "clicked", G_CALLBACK(on_xs_remove), NULL);
     GtkWidget *sys_reload_btn = gtk_button_new_with_label(_("Recarregar"));
     g_signal_connect(sys_reload_btn, "clicked", G_CALLBACK(on_xg_reload), NULL);
     GtkWidget *sys_rules_btnbox = gtk_hbox_new(FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(sys_rules_btnbox), sys_add_btn, FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(sys_rules_btnbox), sys_apply_btn, FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(sys_rules_btnbox), sys_remove_btn, FALSE, FALSE, 4);
     gtk_box_pack_end(GTK_BOX(sys_rules_btnbox), sys_reload_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(sys_rules_box), sys_rules_btnbox, FALSE, FALSE, 0);
 
