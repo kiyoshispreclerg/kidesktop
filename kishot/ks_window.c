@@ -9,6 +9,7 @@
  * does. Whatever a launch asks for picks the tab the window shows. */
 #include "ks.h"
 #include "../shared/xis_i18n.h"
+#include "../shared/xis_winstate.h"
 #include <gdk/gdkx.h>
 #include <string.h>
 #include <time.h>
@@ -945,6 +946,8 @@ KsApp *ks_app_new(KsConfig *cfg)
     gtk_window_set_icon_name(GTK_WINDOW(app->win), "applets-screenshooter");
     gtk_window_set_role(GTK_WINDOW(app->win), "kishot");
     gtk_window_set_default_size(GTK_WINDOW(app->win), cfg->win_w, cfg->win_h);
+    xis_winstate_restore(GTK_WINDOW(app->win), "kishot", XIS_WINSTATE_ALL);
+    xis_winstate_track(GTK_WINDOW(app->win), "kishot", XIS_WINSTATE_ALL);
     g_signal_connect(app->win, "delete-event", G_CALLBACK(on_delete), app);
     g_signal_connect(gdk_screen_get_default(), "monitors-changed", G_CALLBACK(on_monitors_changed), app);
 
