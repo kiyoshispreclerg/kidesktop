@@ -28,7 +28,7 @@
 #define REPORT_THROTTLE_S   1
 #define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.17"
+#define XISGUARD_VERSION    "0.4.18"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -2395,6 +2395,9 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
     }
 
     if (strcasecmp(cmd, "RELOAD") == 0) {
+        /* The server re-reads its xnotify.conf.d first (it also drops what we
+         * had sent), then our own rules go back in. */
+        request_server_reload();
         load_user_config();
         load_ignore_reports();
         send_all_permissions_to_xserver();
