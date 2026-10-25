@@ -28,7 +28,7 @@
 #define REPORT_THROTTLE_S   1
 #define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.15"
+#define XISGUARD_VERSION    "0.4.16"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -200,6 +200,11 @@ static int secure_mode = 0;
  * mask, so it is re-applied after every full sync, see
  * permissive_reapply(). */
 static int permissive_mode = 0;
+
+/* 1 = start in permissive mode. The default only for a new install (no
+ * xnotify.conf yet); an existing xnotify.conf without the key keeps 0.
+ * Changed with SET_PERMISSIVE "persist":1, saved as permissive_on_start. */
+static int permissive_on_start = 0;
 
 /* Control-socket clients allowed to SUBSCRIBE to the event stream, by
  * executable basename (comma-separated, persisted in xnotify.conf as
@@ -828,7 +833,10 @@ static uint32_t notify_mask_parse(const char *list);
 
 static void load_xnotify_conf(void) {
     FILE *f = fopen(xnotify_conf_file, "r");
-    if (!f) return;
+    if (!f) {
+        permissive_on_start = 1; /* new install */
+        return;
+    }
 
     char line[256];
     while (fgets(line, sizeof(line), f)) {
@@ -852,6 +860,8 @@ static void load_xnotify_conf(void) {
             if (lvl >= 0 && lvl <= 4) log_level = lvl;
         } else if (strcmp(k, "secure_mode") == 0)
             secure_mode = atoi(v) ? 1 : 0;
+        else if (strcmp(k, "permissive_on_start") == 0)
+            permissive_on_start = atoi(v) ? 1 : 0;
         else if (strcmp(k, "subscribers") == 0)
             snprintf(subscribers_allow, sizeof(subscribers_allow), "%s", v);
         else if (strcmp(k, "notify_actions") == 0)
@@ -900,6 +910,7 @@ static void save_xnotify_conf(void) {
     fprintf(f, "always_kill=%d\n", always_kill_mode);
     fprintf(f, "log_level=%d\n", log_level);
     fprintf(f, "secure_mode=%d\n", secure_mode);
+    fprintf(f, "permissive_on_start=%d\n", permissive_on_start);
     fprintf(f, "subscribers=%s\n", subscribers_allow);
     char na[512];
     notify_mask_format(na, sizeof(na));
@@ -2122,9 +2133,9 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
         snprintf(resp, resp_sz,
             "{\"ok\":true,\"version\":\"%s\",\"display\":%d,"
             "\"no_pause\":%d,\"quiet\":%d,\"always_kill\":%d,\"log_level\":%d,\"secure_mode\":%d,"
-            "\"xnotify_enabled\":%d,\"notify_actions\":\"%s\",\"permissive\":%d}\n",
+            "\"xnotify_enabled\":%d,\"notify_actions\":\"%s\",\"permissive\":%d,\"permissive_on_start\":%d}\n",
             XISGUARD_VERSION, display, no_pause_mode, quiet_mode, always_kill_mode, log_level, secure_mode,
-            !server_disabled, na_buf, permissive_mode);
+            !server_disabled, na_buf, permissive_mode, permissive_on_start);
         return;
     }
 
@@ -2181,6 +2192,11 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
             return;
         }
         v = v ? 1 : 0;
+        int persist;
+        if (json_get_int(req, "persist", &persist) && persist && v != permissive_on_start) {
+            permissive_on_start = v;
+            save_xnotify_conf();
+        }
         if (v != permissive_mode) {
             permissive_mode = v;
             if (v)
@@ -2962,10 +2978,16 @@ int main(int argc, char *argv[]) {
 
     load_user_config();
     load_ignore_reports();
-    /* Permissive mode always starts off: drop a global mask left behind by a
-     * previous guard that died while it was on. */
+    /* Drop a global mask left behind by a previous guard that died while
+     * permissive mode was on; it is only turned back on below when
+     * permissive_on_start says so. */
     send_raw_command("{\"command\":\"RELOAD\"}");
     send_all_permissions_to_xserver();
+    if (permissive_on_start) {
+        permissive_mode = 1;
+        permissive_reapply();
+        log_msg("Permissive mode ON at start (permissive_on_start)");
+    }
     send_heartbeat();
 
     /* === Server socket setup === */

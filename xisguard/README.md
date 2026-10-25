@@ -133,8 +133,12 @@ runtime-only permissive mode: the guard sends `ALLOW_ACTION` for every action
 (the server checks that global mask before any rule), so nothing is asked or
 denied but REPORTs keep flowing. Turning it off sends a server `RELOAD`, which
 restores the static rules; clients that already cached a grant keep it until
-they reconnect. It is never persisted, is re-applied after every rule sync, and
-is dropped when the guard starts or exits. `GET_STATUS` reports `permissive`,
+they reconnect. It is re-applied after every rule sync and dropped when the
+guard exits. At start it is on only when `xnotify.conf` has
+`permissive_on_start=1`, which is the default of a new install (no
+`xnotify.conf` yet; existing files without the key stay off). `SET_PERMISSIVE`
+with `"persist":1` also saves that key. `GET_STATUS` reports `permissive`,
+`permissive_on_start`
 and subscribers get `{"ev":"PERMISSIVE","enabled":bool}` on every change.
 
 `SUBSCRIBE` is the exception: `{"cmd":"SUBSCRIBE","actions":"SCREEN,RECORD"}`

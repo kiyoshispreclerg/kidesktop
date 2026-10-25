@@ -41,7 +41,7 @@ static GtkListStore *g_xg_ignored_store;
 typedef struct {
     int online;
     int no_pause, quiet, always_kill, log_level, secure_mode;
-    int permissive; /* runtime-only, never saved by the guard */
+    int permissive;
     char notify[512]; /* comma list of the actions to tell the user about ("" = none) */
 } XgStatus;
 static XgStatus g_xg_baseline;
@@ -638,8 +638,8 @@ static void apply_xg_status_cb(GtkWidget *widget, gpointer data)
         char path[PATH_MAX];
         xisguard_ctl_path(path, sizeof(path));
         char resp[JSON_BUF_LEN];
-        json_line_send(path, permissive ? "{\"cmd\":\"SET_PERMISSIVE\",\"enabled\":1}"
-                                        : "{\"cmd\":\"SET_PERMISSIVE\",\"enabled\":0}",
+        json_line_send(path, permissive ? "{\"cmd\":\"SET_PERMISSIVE\",\"enabled\":1,\"persist\":1}"
+                                        : "{\"cmd\":\"SET_PERMISSIVE\",\"enabled\":0,\"persist\":1}",
                        resp, sizeof(resp));
         g_xg_baseline.permissive = permissive;
     }
@@ -747,8 +747,9 @@ GtkWidget *build_permissions_tab(void)
     labeled_row(status_table, 4, "log_level:", g_xg_log_level_spin);
     g_xg_permissive_chk = gtk_check_button_new_with_label(_("Modo permissivo (libera tudo, so registra)"));
     gtk_widget_set_tooltip_text(g_xg_permissive_chk,
-        _("Temporario: o XisGuard libera todas as acoes mas os programas continuam sendo registrados. "
-          "Nao e salvo; desliga ao parar o XisGuard. Programas que ja ganharam acesso so o perdem ao reconectar."));
+        _("O XisGuard libera todas as acoes mas os programas continuam sendo registrados. "
+          "Fica salvo e vale tambem nas proximas sessoes (padrao em instalacoes novas). "
+          "Programas que ja ganharam acesso so o perdem ao reconectar."));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_xg_permissive_chk), g_xg_baseline.permissive);
     gtk_table_attach(GTK_TABLE(status_table), g_xg_permissive_chk, 0, 2, 5, 6, GTK_FILL, GTK_FILL, 4, 1);
     gtk_widget_set_sensitive(status_table, g_xg_baseline.online);
