@@ -17,10 +17,20 @@ typedef struct {
     guint32 *pix;   /* TILE*TILE, edge tiles only partly used */
 } Tile;
 
+/* Layer structure edits are operations too. The history owns a layer while
+ * it is out of the document (`holds`), so undoing an add or redoing a
+ * delete never loses pixels, and tile operations stay valid because they
+ * are only reached after the structure edits made before them. */
+typedef enum { OP_TILES, OP_ADD, OP_REMOVE, OP_MOVE, OP_PROPS } OpKind;
+
 typedef struct {
+    OpKind kind;
     KpLayer *layer;
-    GArray *tiles;  /* Tile */
+    GArray *tiles;  /* Tile, OP_TILES only */
     guint id;
+    int index, to;  /* OP_ADD/OP_REMOVE position; OP_MOVE from/to */
+    gboolean holds; /* the layer is out of the document, owned by this op */
+    KpLayerProps props;   /* OP_PROPS: the other state, swapped on each move */
 } Op;
 
 static GQueue g_undo = G_QUEUE_INIT, g_redo = G_QUEUE_INIT;   /* Op*, newest at head */
@@ -37,14 +47,21 @@ static int g_tiles_w, g_tiles_h;
 
 static size_t op_bytes(const Op *op)
 {
+    if (op->kind != OP_TILES)
+        return sizeof(Op);   /* a held layer is not counted: it is the user's data */
     return op->tiles->len * (sizeof(Tile) + TILE * TILE * 4);
 }
 
 static void op_free(Op *op)
 {
-    for (guint i = 0; i < op->tiles->len; i++)
-        g_free(g_array_index(op->tiles, Tile, i).pix);
-    g_array_free(op->tiles, TRUE);
+    if (op->tiles) {
+        for (guint i = 0; i < op->tiles->len; i++)
+            g_free(g_array_index(op->tiles, Tile, i).pix);
+        g_array_free(op->tiles, TRUE);
+    }
+    if (op->holds)
+        kp_layer_free(op->layer);
+    g_free(op->props.name);
     g_free(op);
 }
 
@@ -83,6 +100,7 @@ void kp_undo_begin(KpLayer *l)
     if (g_cur)
         kp_undo_end();
     g_cur = g_new0(Op, 1);
+    g_cur->kind = OP_TILES;
     g_cur->layer = l;
     g_cur->tiles = g_array_new(FALSE, FALSE, sizeof(Tile));
     g_tiles_w = (l->w + TILE - 1) / TILE;
@@ -113,6 +131,8 @@ void kp_undo_touch(int x, int y, int w, int h)
         }
 }
 
+static void push_op(Op *op);
+
 void kp_undo_end(void)
 {
     if (!g_cur)
@@ -125,6 +145,11 @@ void kp_undo_end(void)
         op_free(op);
         return;
     }
+    push_op(op);
+}
+
+static void push_op(Op *op)
+{
     op->id = g_next_id++;
     stack_clear(&g_redo);
     g_queue_push_head(&g_undo, op);
@@ -139,11 +164,49 @@ void kp_undo_end(void)
     kp_doc_edited();
 }
 
+/* Undoes (backwards) or redoes a structure operation. */
+static void apply_structure(Op *op, gboolean backwards)
+{
+    switch (op->kind) {
+    case OP_ADD:
+    case OP_REMOVE: {
+        gboolean insert = (op->kind == OP_ADD) != backwards;
+        if (insert) {
+            kp_doc_layer_insert(kp.doc, op->layer, op->index);
+            op->holds = FALSE;
+        } else {
+            kp_doc_layer_take(kp.doc, op->index);
+            op->holds = TRUE;
+        }
+        break;
+    }
+    case OP_MOVE:
+        if (backwards)
+            kp_doc_layer_move(kp.doc, op->to, op->index);
+        else
+            kp_doc_layer_move(kp.doc, op->index, op->to);
+        break;
+    case OP_PROPS:
+        kp_layer_props_swap(op->layer, &op->props);
+        break;
+    case OP_TILES:
+        break;
+    }
+}
+
 static gboolean move_op(GQueue *from, GQueue *to)
 {
     Op *op = g_queue_pop_head(from);
     if (!op)
         return FALSE;
+    if (op->kind != OP_TILES) {
+        apply_structure(op, from == &g_undo);
+        g_queue_push_head(to, op);
+        kp_layers_refresh();
+        kp_canvas_redraw();
+        kp_doc_edited();
+        return TRUE;
+    }
     KpLayer *l = op->layer;
     cairo_surface_flush(l->surf);
     int x0 = l->w, y0 = l->h, x1 = 0, y1 = 0;
@@ -164,14 +227,56 @@ static gboolean move_op(GQueue *from, GQueue *to)
 
 gboolean kp_undo_undo(void)
 {
+    kp_layers_flush();
     kp_undo_end();
     return move_op(&g_undo, &g_redo);
 }
 
 gboolean kp_undo_redo(void)
 {
+    kp_layers_flush();
     kp_undo_end();
     return move_op(&g_redo, &g_undo);
+}
+
+static Op *structure_op(OpKind kind, KpLayer *l)
+{
+    kp_undo_end();
+    Op *op = g_new0(Op, 1);
+    op->kind = kind;
+    op->layer = l;
+    return op;
+}
+
+void kp_undo_layer_added(int index)
+{
+    Op *op = structure_op(OP_ADD, g_ptr_array_index(kp.doc->layers, index));
+    op->index = index;
+    push_op(op);
+}
+
+void kp_undo_layer_removed(KpLayer *l, int index)
+{
+    Op *op = structure_op(OP_REMOVE, l);
+    op->index = index;
+    op->holds = TRUE;
+    push_op(op);
+}
+
+void kp_undo_layer_moved(int from, int to)
+{
+    Op *op = structure_op(OP_MOVE, NULL);
+    op->index = from;
+    op->to = to;
+    push_op(op);
+}
+
+void kp_undo_layer_props(KpLayer *l, KpLayerProps *old)
+{
+    Op *op = structure_op(OP_PROPS, l);
+    op->props = *old;
+    old->name = NULL;
+    push_op(op);
 }
 
 void kp_undo_clear(void)

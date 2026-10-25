@@ -274,7 +274,7 @@ static gboolean on_expose(GtkWidget *w, GdkEventExpose *ev, gpointer data)
             continue;
         cairo_set_source_surface(cr, l->surf, 0, 0);
         cairo_pattern_set_filter(cairo_get_source(cr), g_zoom >= 1 ? CAIRO_FILTER_NEAREST : CAIRO_FILTER_GOOD);
-        cairo_paint(cr);
+        cairo_paint_with_alpha(cr, l->opacity);
     }
     cairo_restore(cr);
 
@@ -368,6 +368,9 @@ static gboolean on_press(GtkWidget *w, GdkEventButton *ev, gpointer data)
         return TRUE;
     }
     if ((ev->button != 1 && ev->button != 3) || g_stroke_tool || g_panning)
+        return TRUE;
+    /* painting on a hidden layer would change what can't be seen */
+    if (!kp_doc_layer(kp.doc)->visible && kp.tool != &kp_tool_picker)
         return TRUE;
     double ix, iy;
     to_image(ev->x, ev->y, &ix, &iy);

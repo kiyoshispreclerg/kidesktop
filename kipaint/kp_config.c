@@ -1,5 +1,5 @@
 /* kp_config.c - ~/.config/kipaint.conf: palette, colors 1/2, tool sizes,
- * grid, size of new images. Read once at startup, written when the palette
+ * grid, layers panel, size of new images. Read once at startup, written when the palette
  * changes and on exit. */
 #include "kp.h"
 
@@ -50,6 +50,7 @@ static void set_defaults(void)
     kp.sizes = g_new(int, kp_n_tools);
     for (int i = 0; i < kp_n_tools; i++)
         kp.sizes[i] = kp_tools[i]->default_size;
+    kp.layers_panel = TRUE;
     kp.new_w = 800;
     kp.new_h = 600;
 }
@@ -78,6 +79,8 @@ void kp_config_load(void)
             parse_color(val, &kp.palette[n]);
         else if (!strcmp(key, "grid"))
             kp.grid = atoi(val) != 0;
+        else if (!strcmp(key, "layers_panel"))
+            kp.layers_panel = atoi(val) != 0;
         else if (!strcmp(key, "eraser_transparent"))
             kp.eraser_transparent = atoi(val) != 0;
         else if (!strcmp(key, "new_width"))
@@ -110,8 +113,8 @@ void kp_config_save(void)
     for (int i = 0; i < kp_n_tools; i++)
         if (kp_tools[i]->max_size)
             g_string_append_printf(s, "size_%s = %d\n", kp_tools[i]->id, kp.sizes[i]);
-    g_string_append_printf(s, "grid = %d\neraser_transparent = %d\nnew_width = %d\nnew_height = %d\n", kp.grid,
-                           kp.eraser_transparent, kp.new_w, kp.new_h);
+    g_string_append_printf(s, "grid = %d\nlayers_panel = %d\neraser_transparent = %d\nnew_width = %d\nnew_height = %d\n",
+                           kp.grid, kp.layers_panel, kp.eraser_transparent, kp.new_w, kp.new_h);
     char *path = conf_path(), *dir = g_path_get_dirname(path);
     g_mkdir_with_parents(dir, 0755);
     g_file_set_contents(path, s->str, s->len, NULL);

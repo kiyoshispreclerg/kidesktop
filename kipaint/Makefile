@@ -21,7 +21,7 @@ LINGUAS := $(shell test -f po/LINGUAS && grep -v '^\#' po/LINGUAS)
 MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
 SRCS := kipaint.c kp_canvas.c kp_config.c kp_doc.c kp_io.c kp_layer.c kp_paint.c kp_palette.c \
-        kp_toolbox.c kp_undo.c kp_ora.c \
+        kp_toolbox.c kp_undo.c kp_ora.c kp_layers_panel.c \
         tools/kp_tool_brush.c tools/kp_tool_eraser.c tools/kp_tool_fill.c tools/kp_tool_picker.c \
         tools/kp_tool_pencil.c
 OBJS := $(SRCS:.c=.o)

@@ -8,7 +8,8 @@ static KpDoc *doc_alloc(int w, int h)
     KpDoc *d = g_new0(KpDoc, 1);
     d->w = w;
     d->h = h;
-    d->layers = g_ptr_array_new_with_free_func((GDestroyNotify)kp_layer_free);
+    /* No free func: the undo history can own a layer taken out of the doc. */
+    d->layers = g_ptr_array_new();
     return d;
 }
 
@@ -37,6 +38,7 @@ KpDoc *kp_doc_new_from_surface(cairo_surface_t *surf)
     l->h = cairo_image_surface_get_height(surf);
     l->name = g_strdup(_("Background"));
     l->visible = TRUE;
+    l->opacity = 1;
     KpDoc *d = doc_alloc(l->w, l->h);
     g_ptr_array_add(d->layers, l);
     return d;
@@ -46,6 +48,8 @@ void kp_doc_free(KpDoc *d)
 {
     if (!d)
         return;
+    for (guint i = 0; i < d->layers->len; i++)
+        kp_layer_free(g_ptr_array_index(d->layers, i));
     g_ptr_array_free(d->layers, TRUE);
     g_free(d->path);
     g_free(d);
@@ -67,7 +71,7 @@ cairo_surface_t *kp_doc_flatten(KpDoc *d)
         if (!l->visible)
             continue;
         cairo_set_source_surface(cr, l->surf, 0, 0);
-        cairo_paint(cr);
+        cairo_paint_with_alpha(cr, l->opacity);
     }
     cairo_destroy(cr);
     return s;
@@ -86,8 +90,8 @@ gboolean kp_doc_pick(KpDoc *d, int x, int y, KpColor *out)
         cairo_surface_flush(l->surf);
         const unsigned char *data = cairo_image_surface_get_data(l->surf);
         guint32 px = *(const guint32 *)(data + y * cairo_image_surface_get_stride(l->surf) + x * 4);
-        double pa = (px >> 24) / 255.0, pr = ((px >> 16) & 0xff) / 255.0, pg = ((px >> 8) & 0xff) / 255.0,
-               pb = (px & 0xff) / 255.0;
+        double o = l->opacity / 255.0;
+        double pa = (px >> 24) * o, pr = ((px >> 16) & 0xff) * o, pg = ((px >> 8) & 0xff) * o, pb = (px & 0xff) * o;
         r = pr + r * (1 - pa);
         g = pg + g * (1 - pa);
         b = pb + b * (1 - pa);
@@ -102,4 +106,29 @@ gboolean kp_doc_pick(KpDoc *d, int x, int y, KpColor *out)
     }
     out->a = a;
     return TRUE;
+}
+
+void kp_doc_layer_insert(KpDoc *d, KpLayer *l, int index)
+{
+    index = CLAMP(index, 0, (int)d->layers->len);
+    g_ptr_array_insert(d->layers, index, l);
+    d->active = index;
+}
+
+KpLayer *kp_doc_layer_take(KpDoc *d, int index)
+{
+    KpLayer *l = g_ptr_array_index(d->layers, index);
+    g_ptr_array_remove_index(d->layers, index);
+    d->active = MIN(d->active, (int)d->layers->len - 1);
+    if (d->active < 0)
+        d->active = 0;
+    return l;
+}
+
+void kp_doc_layer_move(KpDoc *d, int from, int to)
+{
+    KpLayer *l = g_ptr_array_index(d->layers, from);
+    g_ptr_array_remove_index(d->layers, from);
+    g_ptr_array_insert(d->layers, to, l);
+    d->active = to;
 }
