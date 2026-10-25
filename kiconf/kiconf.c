@@ -119,11 +119,12 @@
 
 #include "../shared/xis_i18n.h"
 #include "../shared/xis_direction.h"
+#include "../shared/xis_winstate.h"
 #include "sysinfo.h"
 #include "plugins.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.91"
+#define KICONF_VERSION "0.2.92"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -987,6 +988,8 @@ int main(int argc, char **argv)
     GdkGeometry geometry = { .min_width = 700, .min_height = 500 };
     gtk_window_set_geometry_hints(GTK_WINDOW(window), NULL, &geometry, GDK_HINT_MIN_SIZE);
     gtk_window_set_default_size(GTK_WINDOW(window), 700, 600);
+    xis_winstate_restore(GTK_WINDOW(window), "kiconf", XIS_WINSTATE_ALL);
+    xis_winstate_track(GTK_WINDOW(window), "kiconf", XIS_WINSTATE_ALL);
     g_signal_connect(window, "delete-event", G_CALLBACK(on_window_delete), NULL);
     g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
