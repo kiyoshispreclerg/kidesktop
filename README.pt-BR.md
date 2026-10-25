@@ -2,35 +2,34 @@
 
 # KiDesktop
 
-Um ambiente de desktop X11 completo para Linux, feito de pequenos programas
-independentes.
+Um ambiente de desktop X11 de estilo clássico para Linux, feito de pequenos
+programas independentes.
 
 ## O que é isto
 
-Eu uso o Plasma 5 no dia a dia, e gosto dele. Isto é uma tentativa de
-reconstruir as partes desse ambiente que eu realmente uso -- gerenciador de
-janelas, painel, lançador, notificações, papel de parede, configurações,
+Eu uso o KDE Plasma 5 no dia a dia, e gosto dele desde que o conheci, na versão
+3.5. Isto é uma tentativa de reconstruir as partes desse ambiente que eu
+realmente uso -- gerenciador de janelas, painel, lançador, notificações, papel de parede, configurações,
 atalhos -- como um punhado de pequenos programas em C que iniciam rápido,
 ocupam pouca RAM e não puxam um framework de desktop inteiro só para desenhar
 uma barra de tarefas.
 
 Começou como uma única ferramenta: o **xnsguard**, um guardião de permissões
-para o [XiS](https://github.com/kiyoshispreclerg/xserver), meu fork leve do
+para o [XiS](https://github.com/kiyoshispreclerg/xserver), meu fork do
 XLibre/Xorg. Essa ferramenta virou o `xisguard`, e então fui adicionando a peça
 que me faltava em seguida, até virar um desktop. O repositório antigo do
 xnsguard está arquivado
 [aqui](https://github.com/kiyoshispreclerg/xnsguard); tudo o que veio depois
 está neste.
 
-O KiDesktop é feito pensando no XiS, mas não é exclusivo dele. Só o `xisguard`
-precisa especificamente do XiS. Todo o resto mira o X11 puro e roda em qualquer
-servidor X.
+O KiDesktop é feito pensando no XiS, mas, como mira o X11 puro, deve rodar em
+qualquer servidor X.
 
 ## Sobre o objetivo de leveza
 
 Sendo honesto: o desktop em si é leve. A maioria dos componentes usa só
-Xlib/XCB + Cairo + Imlib2, sem toolkit. A única peça em GTK2 (`xisserve`) existe
-apenas onde reimplementar certos widgets em Cairo puro não valia a pena.
+Xlib/XCB + Cairo + Imlib2, sem toolkit, e há peças em GTK2 apenas onde
+reimplementar certos widgets em Cairo puro não valia a pena.
 
 Mas no momento em que você abre um navegador, ou qualquer coisa em Electron, ou
 um app moderno em GTK3/Qt6, toda essa memória economizada some várias vezes. Ou
@@ -77,16 +76,14 @@ O `kidesktop-core` também substitui o antigo pacote único `kidesktop`.
 e reinicia os outros daemons do desktop, depois o autostart XDG.
 
 **[kiwm](kiwm/)** -- o gerenciador de janelas. Stacking, XCB, decoração em
-Cairo + Imlib2, multi-monitor com desktops por saída. O WM em que este desktop
-roda no dia a dia.
+Cairo + Imlib2, multi-monitor com desktops independentes por saída.
 
 **[kicomp](kicomp/)** -- compositor opcional para o `kiwm`. Backends XRender ou
-OpenGL (GLX/EGL), transparência real, cantos com forma, efeitos. O `kiwm` nunca
-depende dele.
+OpenGL (GLX/EGL), transparência, efeitos. O `kiwm` nunca depende dele.
 
 ### Shell
 
-**[xispanel](xispanel/)** -- daemon de painel/barra de tarefas. Sem toolkit,
+**[xispanel](xispanel/)** -- painel/barra de tarefas. Sem toolkit,
 vários painéis, qualquer borda, qualquer saída. Lista de tarefas, bandeja, menu
 global, pastas, notificações, monitor do sistema e mais widgets.
 
@@ -107,9 +104,7 @@ Aplica a configuração central a todos os toolkits que o desktop considera e
 recarrega com SIGHUP.
 
 **[kitheme](kitheme/)** -- um único tema de widgets para GTK2, GTK3, GTK4, Qt5 e
-Qt6, configurado no `kiconf`. Um renderizador pequeno em C por trás de uma
-engine GTK2, um plugin de estilo Qt e CSS gerado para GTK3/4; presets como
-Oxygen, Windows clássico e plano.
+Qt6, configurado no `kiconf`. Presets como Oxygen, Windows clássico e plano.
 
 **[xismenu](xismenu/)** -- registrador do menu de aplicativos, para que os menus
 globais de Qt/KF5 funcionem sem uma implementação completa de DBusMenu no lado
@@ -122,60 +117,41 @@ energia.
 ### Histórico e área de transferência
 
 **[kimemory](kimemory/)** -- histórico da área de transferência. Registra cada
-cópia com sua janela de origem, app e documento, servido de volta pelo
-`xisserve --clipboard` ou pela CLI `kimemory`.
+cópia com sua janela de origem, app e documento.
 
 **[kistory](kistory/)** -- histórico de atividade do desktop, em texto simples e
-pesquisável: janelas, foco, arquivos, saídas, áudio e eventos do xisguard. Sem
-capturas de tela, sem conteúdo de janelas. CLI `kistory`, ou pesquise pelo
-lançador do `xisserve`.
+pesquisável: janelas, foco, arquivos, saídas, áudio e eventos do xisguard.
+Desativado por padrão.
 
 ### Específico do XiS
 
-**[xisguard](xisguard/)** -- a ferramenta original, e o único componente que
-exige o XiS. Conversa com a extensão X **Xnotify** para arbitrar em tempo real
-as requisições privilegiadas de clientes -- permitindo, perguntando, negando ou
-matando conforme as suas regras.
+**[xisguard](xisguard/)** -- a ferramenta original. Conversa com a extensão X
+**Xnotify** para arbitrar em tempo real as requisições privilegiadas de
+clientes -- permitindo, perguntando, negando ou matando conforme as suas regras.
 
 ## Aplicativos (base)
 
-**[kiterm](kiterm/)** -- emulador de terminal com abas (GTK2 + VTE): barra de
-busca, cores, transparência, zoom da fonte com Ctrl+roda, sino pelo tema de
-sons e um menu de contexto para enviar sinais ao programa em execução.
-Precisa do `libvte-dev` da série GTK2; sem ele a compilação pula o kiterm (o
-`./configure` avisa).
+**[kiterm](kiterm/)** -- emulador de terminal com abas (GTK2 + VTE).
 
 **[kifiles](kifiles/)** -- gerenciador de arquivos (GTK2 + GIO): visão
 dividida, miniaturas, dispositivos, desfazer.
 
-**[kishot](kishot/)** -- capturas e gravação de tela, no estilo do Spectacle:
-tela inteira, monitor, janela ativa ou região; grava com som e pode cobrir de
-preto as janelas escolhidas. No XLibre/XiS grava com uma cópia na GPU que o
-VAAPI codifica sem nenhuma leitura de volta. As bibliotecas do FFmpeg (do
-plugin de gravação) e a libpulse são opcionais: sem elas grava pelo comando
-`ffmpeg`, ou só tira capturas.
+**[kishot](kishot/)** -- capturas e gravação de tela; grava com som e pode
+censurar janelas escolhidas.
 
-**[kipad](kipad/)** -- editor de texto simples (GTK2): abas, fonte e zoom com
-Ctrl+roda, números de linha opcionais, linha/coluna do cursor na barra de
-status.
+**[kipad](kipad/)** -- editor de texto simples (GTK2).
 
 **[kipaint](kipaint/)** -- programa de pintura no estilo do Paint clássico
-(GTK2): lápis, pincel, borracha, balde, conta-gotas, paleta de 28 cores com
-duas cores, zoom com Ctrl+roda até 3200% com grade de pixels. Inicial:
-camadas, o formato OpenRaster e transformações por camada vêm a seguir (veja o
-PLAN.md dele).
+(GTK2).
 
-**[kitask](kitask/)** -- lista de processos e monitor do sistema, no estilo
-do qps: filtro, cerca de 30 colunas à escolha (memória exclusiva, pixmaps do
-X11, uso e memória de GPU, tráfego TCP, E/S de disco...), envio de sinais,
-mudança de prioridade; em cima, os gráficos que você escolher (CPU ou um
-núcleo, RAM de vários pontos de vista, VRAM e uso de cada GPU, rede, disco),
-cada um com seus limites. Mais leve que o qps e o plasma-systemmonitor em CPU
-e em RAM.
+**[kitask](kitask/)** -- lista de processos e monitor do sistema; em cima, os gráficos
+que você escolher, e uma visualização extra do uso de memória em gráfico de
+pizza.
 
 Planejados, ainda sem código:
 
 - **[kiview](kiview/)** -- visualizador de imagens e documentos.
+- **[kiman](kiman/)** -- visualizador de manuais e páginas de ajuda.
 
 ## Compilação
 

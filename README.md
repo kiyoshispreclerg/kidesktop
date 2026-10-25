@@ -2,33 +2,32 @@
 
 # KiDesktop
 
-A complete X11 desktop environment for Linux, built from small independent
+A classic-style X11 desktop environment for Linux, built from small independent
 programs.
 
 ## What this is
 
-I daily-drive Plasma 5, and I like it. This is an attempt to rebuild the parts
-of that setup I actually use -- window manager, panel, launcher, notifications,
-wallpaper, settings, hotkeys -- as a handful of small C programs that start
-fast, stay small in RAM, and don't pull in a whole desktop framework to draw a
-taskbar.
+I daily-drive KDE Plasma 5, and I've liked it since I first met it, back in
+version 3.5. This is an attempt to rebuild the parts of that setup I actually
+use -- window manager, panel, launcher, notifications, wallpaper, settings,
+hotkeys -- as a handful of small C programs that start fast, stay small in RAM,
+and don't pull in a whole desktop framework to draw a taskbar.
 
 It began as a single tool: **xnsguard**, a permission guardian for
-[XiS](https://github.com/kiyoshispreclerg/xserver), my soft fork of
+[XiS](https://github.com/kiyoshispreclerg/xserver), my fork of
 XLibre/Xorg. That tool became `xisguard`, and then I kept adding the piece I
 was missing next, until it turned into a desktop. The old xnsguard repository
 is archived [here](https://github.com/kiyoshispreclerg/xnsguard); everything
 since lives in this one.
 
-KiDesktop is built with XiS in mind, but it isn't exclusive to it. Only
-`xisguard` needs XiS specifically. Everything else targets plain X11 and runs on
-any X server.
+KiDesktop is built with XiS in mind, but since it targets plain X11, it should
+run on any X server.
 
 ## About the lightness goal
 
 Being honest about it: the desktop itself is light. Most components are plain
-Xlib/XCB + Cairo + Imlib2, no toolkit. The only GTK2 piece (`xisserve`) exists
-only where reimplementing certain widgets in raw Cairo wasn't worth it.
+Xlib/XCB + Cairo + Imlib2, no toolkit, with GTK2 pieces only where
+reimplementing certain widgets in raw Cairo wasn't worth it.
 
 But the moment you open a browser, or anything Electron, or a modern GTK3/Qt6
 app, all that saved memory is gone several times over. So the lightness is not
@@ -74,16 +73,14 @@ KiDesktop ships as two groups, built and packaged separately:
 restarts the desktop's other daemons, then XDG autostart.
 
 **[kiwm](kiwm/)** -- the window manager. Stacking, XCB, Cairo + Imlib2
-decoration, multi-monitor with per-output desktops. The WM this desktop runs
-on daily.
+decoration, multi-monitor with independent per-output desktops.
 
 **[kicomp](kicomp/)** -- optional compositor for `kiwm`. XRender or OpenGL
-(GLX/EGL) backends, real transparency, shaped corners, effects. `kiwm` never
-depends on it.
+(GLX/EGL) backends, transparency, effects. `kiwm` never depends on it.
 
 ### Shell
 
-**[xispanel](xispanel/)** -- panel/taskbar daemon. No toolkit, multiple
+**[xispanel](xispanel/)** -- panel/taskbar. No toolkit, multiple
 panels, any edge, any output. Tasklist, tray, global menu, folders,
 notifications, system monitor and more widgets.
 
@@ -104,8 +101,7 @@ Applies the central config to every toolkit the desktop cares about and
 reloads on SIGHUP.
 
 **[kitheme](kitheme/)** -- one widget theme for GTK2, GTK3, GTK4, Qt5 and Qt6,
-configured in `kiconf`. A small C renderer behind a GTK2 engine, a Qt style
-plugin and generated GTK3/4 CSS; presets like Oxygen, classic Windows and flat.
+configured in `kiconf`. Presets like Oxygen, classic Windows and flat.
 
 **[xismenu](xismenu/)** -- application menu registrar, so Qt/KF5 global menus
 work without a full DBusMenu implementation on the window manager's side.
@@ -116,56 +112,40 @@ command, media keys, brightness, screenshot, lock, power.
 ### History and clipboard
 
 **[kimemory](kimemory/)** -- clipboard history. Records every copy with its
-source window, app and document, served back through `xisserve --clipboard`
-or the `kimemory` CLI.
+source window, app and document.
 
 **[kistory](kistory/)** -- desktop activity history, as plain searchable
-text: windows, focus, files, outputs, audio and xisguard events. No
-screenshots, no window contents. `kistory` CLI, or search it from
-`xisserve`'s launcher.
+text: windows, focus, files, outputs, audio and xisguard events. Off by
+default.
 
 ### XiS-specific
 
-**[xisguard](xisguard/)** -- the original tool, and the only component that
-requires XiS. Talks to the **Xnotify** X extension to arbitrate privileged
+**[xisguard](xisguard/)** -- the original tool. Talks to the **Xnotify** X extension to arbitrate privileged
 client requests in real time -- allowing, asking, denying or killing based on
 your rules.
 
 ## Applications (base)
 
-**[kiterm](kiterm/)** -- tabbed terminal emulator (GTK2 + VTE): find bar,
-colors, transparency, Ctrl+wheel font zoom, sound-theme bell, and a context
-menu to send signals to the running program. Needs the GTK2 `libvte-dev`;
-without it the build skips kiterm (`./configure` warns).
+**[kiterm](kiterm/)** -- tabbed terminal emulator (GTK2 + VTE).
 
 **[kifiles](kifiles/)** -- file manager (GTK2 + GIO): split view, thumbnails,
 devices, undo.
 
-**[kishot](kishot/)** -- screenshots and screen recording, Spectacle-style:
-full screen, monitor, active window or region; records with sound, and can
-black out chosen windows. On XLibre/XiS it records with a GPU copy that
-VAAPI encodes without any readback. The FFmpeg libraries (for its recording
-plugin) and libpulse are optional: without them it records through the
-`ffmpeg` command, or only takes screenshots.
+**[kishot](kishot/)** -- screenshots and screen recording; records with sound,
+and can black out chosen windows.
 
-**[kipad](kipad/)** -- simple text editor (GTK2): tabs, font and Ctrl+wheel
-zoom, optional line numbers, cursor line/column in the status bar.
+**[kipad](kipad/)** -- simple text editor (GTK2).
 
 **[kipaint](kipaint/)** -- paint program in the spirit of the classic Paint
-(GTK2): pencil, brush, eraser, fill, color picker, 28-color palette with two
-colors, Ctrl+wheel zoom up to 3200% with a pixel grid. Early: layers, the
-OpenRaster format and per-layer transforms are next (see its PLAN.md).
+(GTK2).
 
-**[kitask](kitask/)** -- process list and system monitor, in the spirit of
-qps: filter, pick from ~30 columns (exclusive memory, X11 pixmaps, GPU use
-and memory, TCP traffic, disk I/O...), send signals, change priority; on top,
-the graphs you choose (CPU or one core, RAM from several points of view,
-VRAM and busy % per GPU, network, disk) with their own limits. Lighter than
-qps and plasma-systemmonitor in both CPU and RAM.
+**[kitask](kitask/)** -- process list and system monitor; on top, the graphs you
+choose, plus an extra memory-usage view as a pie chart.
 
 Planned, not started yet:
 
 - **[kiview](kiview/)** -- image and document viewer.
+- **[kiman](kiman/)** -- manual and help page viewer.
 
 ## Building
 
