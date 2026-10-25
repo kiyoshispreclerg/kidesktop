@@ -265,6 +265,10 @@ void kf_hover_refresh(KfPane *p)
     if (!bin || !gtk_widget_get_mapped(w))
         return;
     int x, y, vx, vy;
+    /* Scrolling moves the already-painted pixels, box included: the old rect no
+     * longer says where the stale box is, so repaint everything visible. */
+    if (p->hover_has)
+        gdk_window_invalidate_rect(bin, NULL, FALSE);
     gdk_window_get_pointer(bin, &x, &y, NULL);
     GdkWindow *top = gtk_widget_get_window(w);
     gdk_window_get_pointer(top, &vx, &vy, NULL);
