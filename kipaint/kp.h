@@ -10,7 +10,7 @@
 
 #include <gtk/gtk.h>
 
-#define KIPAINT_VERSION "0.0.1"
+#define KIPAINT_VERSION "0.1.0"
 #define KP_PALETTE_SIZE 28
 
 /* Non-premultiplied, 0..1. */

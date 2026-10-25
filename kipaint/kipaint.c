@@ -6,6 +6,7 @@
  * toolbox each live in their own file; kp.h has the shared state. See
  * PLAN.md for where this is going. */
 #include "kp.h"
+#include "../shared/xis_winstate.h"
 
 #include <gdk/gdkkeysyms.h>
 #include <stdio.h>
@@ -623,6 +624,9 @@ int main(int argc, char **argv)
 
     kp.win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_default_size(GTK_WINDOW(kp.win), 900, 650);
+    gtk_window_set_role(GTK_WINDOW(kp.win), "kipaint");
+    xis_winstate_restore(GTK_WINDOW(kp.win), "kipaint", XIS_WINSTATE_ALL);
+    xis_winstate_track(GTK_WINDOW(kp.win), "kipaint", XIS_WINSTATE_ALL);
     g_signal_connect(kp.win, "delete-event", G_CALLBACK(on_delete_event), NULL);
     g_signal_connect(kp.win, "destroy", G_CALLBACK(gtk_main_quit), NULL);
     g_signal_connect(kp.win, "key-press-event", G_CALLBACK(on_key), NULL);
