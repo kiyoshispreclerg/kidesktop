@@ -7,7 +7,7 @@
 #include <gio/gio.h>
 #include "../shared/xis_sound.h"
 
-#define KIFILES_VERSION "0.1.19"
+#define KIFILES_VERSION "0.1.20"
 
 typedef enum { KF_VIEW_ICONS, KF_VIEW_LIST } KfViewMode;
 typedef enum { KF_SORT_NAME, KF_SORT_SIZE, KF_SORT_MTIME, KF_SORT_TYPE, KF_SORT_EXT, KF_SORT_N } KfSortKey;
@@ -104,6 +104,7 @@ struct KfTab {
     GtkWidget *label;
     KfPane *panes[2];
     KfPane *active;             /* the active pane, kept while in the background */
+    gboolean center_split;      /* keep the split at half of panes_paned until the user drags it */
 };
 
 struct KfApp {

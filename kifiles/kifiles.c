@@ -660,6 +660,28 @@ static void a_places_toggle(GtkToggleAction *a, gpointer d)
     gtk_widget_set_visible(app->places, app->cfg.show_places);
 }
 
+/* Split view is centred on the paned that holds the panes (the places panel
+ * and any future side panel sit outside it). On a cold start that paned has
+ * no size yet, so the centring follows its allocations until the user drags
+ * the handle. */
+static void on_split_allocate(GtkWidget *w, GtkAllocation *al, gpointer d)
+{
+    KfTab *t = d;
+    if (!t->center_split || !t->panes[1] || al->width <= 1)
+        return;
+    int want = al->width / 2;
+    if (gtk_paned_get_position(GTK_PANED(w)) != want)
+        gtk_paned_set_position(GTK_PANED(w), want);
+}
+
+static gboolean on_split_press(GtkWidget *w, GdkEventButton *ev, gpointer d)
+{
+    KfTab *t = d;
+    if (ev->window == GTK_PANED(w)->handle)
+        t->center_split = FALSE;
+    return FALSE;
+}
+
 static void set_split(KfApp *app, gboolean on)
 {
     KfTab *t = app->tab;
@@ -672,14 +694,22 @@ static void set_split(KfApp *app, gboolean on)
         GFile *dir = t->panes[0]->dir ? g_object_ref(t->panes[0]->dir) : g_file_new_for_path(g_get_home_dir());
         kf_pane_navigate(p, dir, FALSE, NULL);
         g_object_unref(dir);
+        if (!g_object_get_data(G_OBJECT(t->panes_paned), "kf-split-hooked")) {
+            g_object_set_data(G_OBJECT(t->panes_paned), "kf-split-hooked", GINT_TO_POINTER(1));
+            g_signal_connect(t->panes_paned, "size-allocate", G_CALLBACK(on_split_allocate), t);
+            g_signal_connect(t->panes_paned, "button-press-event", G_CALLBACK(on_split_press), t);
+        }
+        t->center_split = TRUE;
         GtkAllocation al;
         gtk_widget_get_allocation(t->panes_paned, &al);
-        gtk_paned_set_position(GTK_PANED(t->panes_paned), al.width > 1 ? al.width / 2 : 400);
+        if (al.width > 1)
+            gtk_paned_set_position(GTK_PANED(t->panes_paned), al.width / 2);
         for (int i = 0; i < 2; i++)
             kf_pane_set_active(t->panes[i], t->panes[i] == app->active, TRUE);
     } else if (!on && t->panes[1]) {
         KfPane *gone = t->panes[1];
         t->panes[1] = NULL;
+        t->center_split = FALSE;
         if (app->active == gone) {
             app->active = NULL;
             set_active(app, t->panes[0]);
