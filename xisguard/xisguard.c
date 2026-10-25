@@ -28,7 +28,7 @@
 #define REPORT_THROTTLE_S   1
 #define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.18"
+#define XISGUARD_VERSION    "0.4.19"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -754,10 +754,10 @@ void load_ignore_reports(void) {
 /* ---- who is using what: the last REPORTs, newest kept, for LIST_ACTIVE ---- */
 
 #define ACTIVE_MAX 64
-static struct { char exe[PATH_MAX]; int action; time_t ts; } active_tab[ACTIVE_MAX];
+static struct { char exe[PATH_MAX]; int action; int pid; time_t ts; } active_tab[ACTIVE_MAX];
 static pthread_mutex_t active_lock = PTHREAD_MUTEX_INITIALIZER;
 
-static void active_seen(const char *exe, int action) {
+static void active_seen(const char *exe, int action, int pid) {
     pthread_mutex_lock(&active_lock);
     int slot = 0;
     for (int i = 0; i < ACTIVE_MAX; i++) {
@@ -770,6 +770,7 @@ static void active_seen(const char *exe, int action) {
     }
     snprintf(active_tab[slot].exe, sizeof(active_tab[slot].exe), "%s", exe);
     active_tab[slot].action = action;
+    active_tab[slot].pid = pid;
     active_tab[slot].ts = time(NULL);
     pthread_mutex_unlock(&active_lock);
 }
@@ -1919,7 +1920,7 @@ void handle_message(const char *msg) {
          * subscribers decide for themselves (kistoryd logs everything, the
          * panel widget skips them). */
         int ignored = is_report_ignored(exe);
-        active_seen(exe, action);
+        active_seen(exe, action, pid);
         subscribers_broadcast("REPORT", action, pid, exe, ignored);
         if (ignored) {
             // Silencioso - não loga nada
@@ -2318,8 +2319,8 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
             char esc[PATH_MAX * 2];
             json_escape_str(esc, sizeof(esc), active_tab[i].exe);
             off += snprintf(resp + off, resp_sz - off,
-                "%s{\"exe\":\"%s\",\"action\":\"%s\",\"ts\":%ld,\"ignored\":%s,\"denied\":%s}",
-                k == 0 ? "" : ",", esc, action_to_string(active_tab[i].action), (long)active_tab[i].ts,
+                "%s{\"exe\":\"%s\",\"action\":\"%s\",\"pid\":%d,\"ts\":%ld,\"ignored\":%s,\"denied\":%s}",
+                k == 0 ? "" : ",", esc, action_to_string(active_tab[i].action), active_tab[i].pid, (long)active_tab[i].ts,
                 is_report_ignored(active_tab[i].exe) ? "true" : "false",
                 is_ignored(active_tab[i].exe, active_tab[i].action) == 2 ? "true" : "false");
         }
