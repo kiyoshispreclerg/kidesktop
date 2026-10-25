@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kitask\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-21 08:16-0300\n"
+"POT-Creation-Date: 2026-10-25 12:46-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -18,7 +18,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
 
-#: kitask.c:76 tsk_pie.c:307
+#: kitask.c:76 tsk_pie.c:316
 #, c-format
 msgid "%d process"
 msgid_plural "%d processes"
@@ -41,121 +41,132 @@ msgstr ""
 msgid "    (updates paused)"
 msgstr ""
 
-#: kitask.c:267
+#: kitask.c:85
+#, c-format
+msgid ""
+"RAM in use: %s (total - available, the kernel's estimate of what can't be "
+"freed quickly; includes kernel memory and tmpfs)\n"
+"Programs only: %s (no caches; what the graph at the top shows)\n"
+"The chart's center adds up what the processes hold, so it is lower: the "
+"kernel's own memory belongs to no process.\n"
+"Double-click for a chart of what uses the CPU or the RAM"
+msgstr ""
+
+#: kitask.c:280
 msgid "Process list and system monitor for KiDesktop"
 msgstr ""
 
-#: kitask.c:294
+#: kitask.c:307
 msgid "_File"
 msgstr ""
 
-#: kitask.c:295
+#: kitask.c:308
 msgid "_Quit"
 msgstr ""
 
-#: kitask.c:297
+#: kitask.c:310
 msgid "_View"
 msgstr ""
 
-#: kitask.c:298
+#: kitask.c:311
 msgid "Show _Graphs"
 msgstr ""
 
-#: kitask.c:303 tsk_prefs.c:553
+#: kitask.c:316 tsk_prefs.c:553
 msgid "_Columns"
 msgstr ""
 
-#: kitask.c:307
+#: kitask.c:320
 msgid "_Refresh Now"
 msgstr ""
 
-#: kitask.c:308
+#: kitask.c:321
 msgid "_Pause Updates"
 msgstr ""
 
-#: kitask.c:313
+#: kitask.c:326
 msgid "CPU Usage _Chart..."
 msgstr ""
 
-#: kitask.c:315
+#: kitask.c:328
 msgid "_RAM Usage Chart..."
 msgstr ""
 
-#: kitask.c:318
+#: kitask.c:331
 msgid "_Settings..."
 msgstr ""
 
-#: kitask.c:320
+#: kitask.c:333
 msgid "_Process"
 msgstr ""
 
-#: kitask.c:323 tsk_actions.c:290
+#: kitask.c:336 tsk_actions.c:290
 msgid "_Details"
 msgstr ""
 
-#: kitask.c:324 tsk_actions.c:291
+#: kitask.c:337 tsk_actions.c:291
 msgid "_Switch to Window"
 msgstr ""
 
-#: kitask.c:328 tsk_actions.c:295
+#: kitask.c:341 tsk_actions.c:295
 msgid "_End (SIGTERM)"
 msgstr ""
 
-#: kitask.c:328 tsk_actions.c:296
+#: kitask.c:341 tsk_actions.c:296
 msgid "_Kill (SIGKILL)"
 msgstr ""
 
-#: kitask.c:328 tsk_actions.c:297
+#: kitask.c:341 tsk_actions.c:297
 msgid "_Pause (SIGSTOP)"
 msgstr ""
 
-#: kitask.c:329 tsk_actions.c:298
+#: kitask.c:342 tsk_actions.c:298
 msgid "Co_ntinue (SIGCONT)"
 msgstr ""
 
-#: kitask.c:335 tsk_actions.c:312
+#: kitask.c:348 tsk_actions.c:312
 msgid "Change _Priority..."
 msgstr ""
 
-#: kitask.c:337
+#: kitask.c:350
 msgid "_Help"
 msgstr ""
 
-#: kitask.c:338
+#: kitask.c:351
 msgid "_About"
 msgstr ""
 
-#: kitask.c:402
+#: kitask.c:419
 msgid "Clear"
 msgstr ""
 
-#: kitask.c:403
+#: kitask.c:420
 msgid ""
 "Filter by name, command line, user, window title or PID (Ctrl+F).\n"
 "Separate several with | or , to show any of them: kiplay|kitask"
 msgstr ""
 
-#: kitask.c:405
+#: kitask.c:422
 msgid "Filter processes"
 msgstr ""
 
-#: kitask.c:413
+#: kitask.c:430
 msgid "All processes"
 msgstr ""
 
-#: kitask.c:414
+#: kitask.c:431
 msgid "My processes"
 msgstr ""
 
-#: kitask.c:415
+#: kitask.c:432
 msgid "With windows"
 msgstr ""
 
-#: kitask.c:417
+#: kitask.c:434
 msgid "Which processes"
 msgstr ""
 
-#: kitask.c:447
+#: kitask.c:464
 #, c-format
 msgid ""
 "kitask %s - process list and system monitor\n"
@@ -166,12 +177,8 @@ msgid ""
 "  -v, --version        show the version\n"
 msgstr ""
 
-#: kitask.c:483
+#: kitask.c:500
 msgid "Processes - kitask"
-msgstr ""
-
-#: kitask.c:501
-msgid "Double-click for a chart of what uses the CPU or the RAM"
 msgstr ""
 
 #: tsk_actions.c:41
@@ -474,7 +481,7 @@ msgstr ""
 msgid "This process has ended."
 msgstr ""
 
-#: tsk_graph.c:65 tsk_list.c:38 tsk_pie.c:269
+#: tsk_graph.c:65 tsk_list.c:38 tsk_pie.c:271
 msgid "CPU"
 msgstr ""
 
@@ -542,52 +549,53 @@ msgstr ""
 #: tsk_graph.c:100
 msgid ""
 "Memory held by programs, without any cache: total - free - buffers - page "
-"cache - reclaimable slab"
+"cache - reclaimable slab.\n"
+"Lower than the status bar, which also counts kernel memory and tmpfs."
 msgstr ""
 
-#: tsk_graph.c:102
+#: tsk_graph.c:103
 msgid ""
 "Memory that can't be freed quickly, as the kernel estimates it: total - "
 "available"
 msgstr ""
 
-#: tsk_graph.c:104
+#: tsk_graph.c:105
 msgid "Everything that isn't free, caches included: total - free"
 msgstr ""
 
-#: tsk_graph.c:106
+#: tsk_graph.c:107
 msgid ""
 "Page cache, buffers and reclaimable slab: freed when programs need the memory"
 msgstr ""
 
-#: tsk_graph.c:108
+#: tsk_graph.c:109
 msgid "All network interfaces except loopback"
 msgstr ""
 
-#: tsk_graph.c:110
+#: tsk_graph.c:111
 msgid "Whole physical disks"
 msgstr ""
 
-#: tsk_graph.c:327
+#: tsk_graph.c:328
 #, c-format
 msgid ""
 "%s: %s\n"
 "Scale: %s to %s%s%s"
 msgstr ""
 
-#: tsk_graph.c:371
+#: tsk_graph.c:372
 msgid "_Configure Graphs..."
 msgstr ""
 
-#: tsk_graph.c:375
+#: tsk_graph.c:376
 msgid "_Remove This Graph"
 msgstr ""
 
-#: tsk_graph.c:381
+#: tsk_graph.c:382
 msgid "_Hide Graphs"
 msgstr ""
 
-#: tsk_graph.c:436
+#: tsk_graph.c:437
 msgid ""
 "No graphs selected. Right-click here or use View > Settings to add some."
 msgstr ""
@@ -865,7 +873,7 @@ msgstr ""
 msgid "Traced"
 msgstr ""
 
-#: tsk_list.c:145 tsk_pie.c:165
+#: tsk_list.c:145 tsk_pie.c:166
 msgid "Idle"
 msgstr ""
 
@@ -877,58 +885,70 @@ msgstr ""
 msgid "Processes"
 msgstr ""
 
-#: tsk_pie.c:157
+#: tsk_pie.c:158
 msgid "Others"
 msgstr ""
 
-#: tsk_pie.c:172
+#: tsk_pie.c:173
 msgid "Available (free and cache)"
 msgstr ""
 
-#: tsk_pie.c:177
+#: tsk_pie.c:178
 msgid "Kernel and other"
 msgstr ""
 
-#: tsk_pie.c:273
+#: tsk_pie.c:275
 #, c-format
 msgid "of %s RAM"
 msgstr ""
 
-#: tsk_pie.c:305
+#: tsk_pie.c:299
+msgid ""
+"What the processes hold, with shared memory split fairly between them.\n"
+"Lower than the status bar: the kernel's own memory belongs to no process."
+msgstr ""
+
+#: tsk_pie.c:314
 #, c-format
 msgid "%s (%.1f%% of the RAM)"
 msgstr ""
 
-#: tsk_pie.c:306
+#: tsk_pie.c:315
 #, c-format
 msgid "%.1f%% of the CPU"
 msgstr ""
 
-#: tsk_pie.c:399
+#: tsk_pie.c:322
+msgid ""
+"Kernel memory (drivers, page tables, slab that can't be freed), tmpfs and "
+"GPU buffers: not owned by any process"
+msgstr ""
+
+#: tsk_pie.c:415
 msgid "Resource usage - kitask"
 msgstr ""
 
-#: tsk_pie.c:409
+#: tsk_pie.c:425
 msgid "Total CPU"
 msgstr ""
 
-#: tsk_pie.c:410
+#: tsk_pie.c:426
 msgid "RAM"
 msgstr ""
 
-#: tsk_pie.c:412
+#: tsk_pie.c:428
 msgid "Resource"
 msgstr ""
 
-#: tsk_pie.c:416
+#: tsk_pie.c:432
 msgid "_Group by program"
 msgstr ""
 
-#: tsk_pie.c:418
+#: tsk_pie.c:434
 msgid "Add up every process with the same name into one slice"
 msgstr ""
 
-#: tsk_pie.c:422
+#: tsk_pie.c:438
 msgid "_Refresh every (s):"
 msgstr ""
 

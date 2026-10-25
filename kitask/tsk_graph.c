@@ -97,7 +97,8 @@ char *tsk_graph_source_label(const char *source)
 static const char *source_tip(const char *source)
 {
     if (!strcmp(source, "ram.apps"))
-        return _("Memory held by programs, without any cache: total - free - buffers - page cache - reclaimable slab");
+        return _("Memory held by programs, without any cache: total - free - buffers - page cache - reclaimable slab.\n"
+                 "Lower than the status bar, which also counts kernel memory and tmpfs.");
     if (!strcmp(source, "ram.used"))
         return _("Memory that can't be freed quickly, as the kernel estimates it: total - available");
     if (!strcmp(source, "ram.total"))

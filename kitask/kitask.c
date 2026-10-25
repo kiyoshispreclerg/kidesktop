@@ -79,6 +79,19 @@ static void update_status(TskApp *app)
     char *text = g_strdup_printf(_("%s    CPU %.0f%%    RAM %s of %s%s"), procs, app->sys.cpu, used, all,
                                  app->list_paused ? _("    (updates paused)") : "");
     gtk_label_set_text(GTK_LABEL(app->status), text);
+    /* why the RAM figures of the graph, this line and the chart differ: only on hover */
+    const TskSys *sy = &app->sys;
+    char *apps = tsk_fmt_bytes(MAX(0, sy->mem_total - sy->mem_free - sy->buffers - sy->cached - sy->sreclaimable));
+    char *tip = g_strdup_printf(_("RAM in use: %s (total - available, the kernel's estimate of what can't be freed "
+                                  "quickly; includes kernel memory and tmpfs)\n"
+                                  "Programs only: %s (no caches; what the graph at the top shows)\n"
+                                  "The chart's center adds up what the processes hold, so it is lower: the kernel's "
+                                  "own memory belongs to no process.\n"
+                                  "Double-click for a chart of what uses the CPU or the RAM"),
+                                used, apps);
+    gtk_widget_set_tooltip_text(gtk_widget_get_parent(app->status), tip);
+    g_free(tip);
+    g_free(apps);
     g_free(text);
     g_free(procs);
     g_free(used);
@@ -502,7 +515,6 @@ int main(int argc, char **argv)
     GtkWidget *status_box = gtk_event_box_new();
     gtk_event_box_set_visible_window(GTK_EVENT_BOX(status_box), FALSE);
     gtk_container_add(GTK_CONTAINER(status_box), app->status);
-    gtk_widget_set_tooltip_text(status_box, _("Double-click for a chart of what uses the CPU or the RAM"));
     g_signal_connect(status_box, "button-press-event", G_CALLBACK(on_status_press), app);
     gtk_box_pack_start(GTK_BOX(vbox), status_box, FALSE, FALSE, 0);
     gtk_container_add(GTK_CONTAINER(app->win), vbox);

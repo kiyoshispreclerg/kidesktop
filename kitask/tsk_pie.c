@@ -20,6 +20,7 @@ typedef struct {
     double value;           /* % of all cores, or bytes of RAM */
     int count;              /* processes behind the slice, 0 when it isn't made of any */
     gboolean rest;          /* idle / available / kernel: not a process */
+    gboolean kernel;        /* the "Kernel and other" slice */
     double a0, a1;          /* radians, clockwise from 12 o'clock minus pi/2 */
     double r, g, b;
 } Slice;
@@ -176,6 +177,7 @@ static void build(Pie *p)
             Slice s = { 0 };
             add_slice(&s, g_strdup(_("Kernel and other")), left - avail, 0, TRUE);
             s.r = s.g = s.b = 0.68;
+            s.kernel = TRUE;
             g_array_append_val(p->slices, s);
         }
     }
@@ -291,7 +293,14 @@ static gboolean on_query_tooltip(GtkWidget *w, gint x, gint y, gboolean kb, GtkT
     gtk_widget_get_allocation(w, &al);
     double dx = x - al.width / 2.0, dy = y - al.height / 2.0, R = MIN(al.width, al.height) / 2.0 - 8;
     double r = hypot(dx, dy);
-    if (r < R * HOLE || r > R)
+    if (r < R * HOLE) {
+        if (p->kind != 1)
+            return FALSE;
+        gtk_tooltip_set_text(tip, _("What the processes hold, with shared memory split fairly between them.\n"
+                                    "Lower than the status bar: the kernel's own memory belongs to no process."));
+        return TRUE;
+    }
+    if (r > R)
         return FALSE;
     double a = atan2(dy, dx);
     if (a < -G_PI / 2)
@@ -308,6 +317,13 @@ static gboolean on_query_tooltip(GtkWidget *w, gint x, gint y, gboolean kb, GtkT
                                    : NULL;
         char *text = procs ? g_strdup_printf("%s\n%s\n%s", s->label, amount, procs)
                            : g_strdup_printf("%s\n%s", s->label, amount);
+        if (s->kernel) {
+            char *t2 = g_strdup_printf("%s\n%s", text,
+                                       _("Kernel memory (drivers, page tables, slab that can't be freed), tmpfs "
+                                         "and GPU buffers: not owned by any process"));
+            g_free(text);
+            text = t2;
+        }
         gtk_tooltip_set_text(tip, text);
         g_free(text);
         g_free(procs);
