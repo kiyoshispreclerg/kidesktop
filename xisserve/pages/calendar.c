@@ -24,14 +24,13 @@
  * Since 0.1.57 the page is a notebook: this calendar tab, then the
  * Alarmes/Cronometro/Temporizador tabs, which live in clock.c.
  *
- * National holidays are a separate, built-in table (holidays_br(),
- * below) rather than something read from either file: they don't
- * change from one user/session to the next, so there's nothing to
- * edit. Only pt_BR fixed dates + the Easter-derived ones are covered
- * for now -- see holidays_br()'s own comment.
+ * Public holidays are a third source: per-country data files read by
+ * shared/xis_holidays.c (see its header), picked by the system timezone.
+ * Nothing to edit from here; kiconf's Eventos tab has a "Ver feriados" list.
  */
 #include "../xisserve.h"
 #include "clock.h"
+#include "../../shared/xis_holidays.h"
 
 #include <langinfo.h>
 #include <stdint.h>
@@ -133,93 +132,25 @@ static int load_zones(ZoneEntry *out, int max)
     return n;
 }
 
-/* ---- pt_BR national holidays -----------------------------------------
- * Fixed-date ones, plus the movable ones derived from Easter (Gauss'
- * algorithm, Gregorian calendar -- accurate for any year this widget
- * will ever show). Only Brazil is covered: there's no per-user locale
- * setting anywhere else in the project this could key off yet, and a
- * general multi-country table is a bigger thing to design (which
- * country codes, where the list itself comes from) than this page
- * needs today. */
-static void easter_month_day(int year, int *month, int *day)
+/* ---- public holidays ---------------------------------------------------
+ * From shared/xis_holidays.c: the data file of the country the system
+ * timezone belongs to. The month's list is looked up per call; the library
+ * caches the parsed file (and re-reads it when it changes on disk). */
+static void holidays_for_day(int year, int month, int day, GString *buf)
 {
-    int a = year % 19;
-    int b = year / 100;
-    int c = year % 100;
-    int d = b / 4;
-    int e = b % 4;
-    int f = (b + 8) / 25;
-    int g = (b - f + 1) / 3;
-    int h = (19 * a + b - d - g + 15) % 30;
-    int i = c / 4;
-    int k = c % 4;
-    int l = (32 + 2 * e + 2 * i - h - k) % 7;
-    int m = (a + 11 * h + 22 * l) / 451;
-    int month_ = (h + l - 7 * m + 114) / 31;
-    int day_ = ((h + l - 7 * m + 114) % 31) + 1;
-    *month = month_;
-    *day = day_;
-}
-
-/* Adds `offset` days (may be negative) to a Gregorian (year,month,day)
- * via time_t/struct tm's own normalization -- simplest correct way to
- * get from Easter to Carnaval (-47 days) / Corpus Christi (+60 days)
- * without hand-rolling calendar arithmetic. */
-static void add_days(int year, int month, int day, int offset, int *out_month, int *out_day)
-{
-    struct tm tmv = {0};
-    tmv.tm_year = year - 1900;
-    tmv.tm_mon = month - 1;
-    tmv.tm_mday = day + offset;
-    tmv.tm_hour = 12; /* noon: keeps DST transitions from shifting the date */
-    time_t t = mktime(&tmv);
-    struct tm norm;
-    localtime_r(&t, &norm);
-    *out_month = norm.tm_mon + 1;
-    *out_day = norm.tm_mday;
-}
-
-/* Appends every pt_BR holiday name falling on (year,month,day) to buf,
- * one per line. */
-static void holidays_br(int year, int month, int day, GString *buf)
-{
-    static const struct {
-        int month, day;
-        const char *name;
-    } fixed[] = {
-        {1, 1, "Confraterniza\xc3\xa7\xc3\xa3o Universal"},
-        {4, 21, "Tiradentes"},
-        {5, 1, "Dia do Trabalho"},
-        {9, 7, "Independ\xc3\xaancia do Brasil"},
-        {10, 12, "Nossa Senhora Aparecida"},
-        {11, 2, "Finados"},
-        {11, 15, "Proclama\xc3\xa7\xc3\xa3o da Rep\xc3\xba""blica"},
-        {11, 20, "Consci\xc3\xaancia Negra"},
-        {12, 25, "Natal"},
-    };
-    for (size_t i = 0; i < sizeof(fixed) / sizeof(fixed[0]); i++) {
-        if (fixed[i].month == month && fixed[i].day == day) {
-            g_string_append_printf(buf, "%s\n", fixed[i].name);
+    static char country[8];
+    static time_t country_at;
+    time_t now = time(NULL);
+    if (!country_at || now - country_at > 60) { /* the timezone can change while we run */
+        xis_holidays_country(country, sizeof(country));
+        country_at = now;
+    }
+    XisHoliday list[64];
+    int n = xis_holidays_for_year(country, year, list, 64);
+    for (int i = 0; i < n; i++) {
+        if (list[i].month == month && list[i].day == day) {
+            g_string_append_printf(buf, "%s\n", list[i].name);
         }
-    }
-
-    int em, ed;
-    easter_month_day(year, &em, &ed);
-    if (em == month && ed == day) {
-        g_string_append(buf, "P\xc3\xa1scoa\n");
-    }
-    int cm, cd;
-    add_days(year, em, ed, -47, &cm, &cd);
-    if (cm == month && cd == day) {
-        g_string_append(buf, "Carnaval\n");
-    }
-    add_days(year, em, ed, -2, &cm, &cd);
-    if (cm == month && cd == day) {
-        g_string_append(buf, "Sexta-feira Santa\n");
-    }
-    add_days(year, em, ed, 60, &cm, &cd);
-    if (cm == month && cd == day) {
-        g_string_append(buf, "Corpus Christi\n");
     }
 }
 
@@ -332,7 +263,7 @@ static void compute_marks(int year, int month)
     g_marks = 0;
     for (int d = 1; d <= 31; d++) {
         GString *buf = g_string_new(NULL);
-        holidays_br(year, month, d, buf);
+        holidays_for_day(year, month, d, buf);
         load_events_for_day(year, month, d, buf);
         if (buf->len) g_marks |= 1u << (d - 1);
         g_string_free(buf, TRUE);
@@ -436,7 +367,7 @@ static void refresh_events(void)
     month += 1; /* GtkCalendar's month is 0-based */
 
     GString *buf = g_string_new(NULL);
-    holidays_br((int)year, (int)month, (int)day, buf);
+    holidays_for_day((int)year, (int)month, (int)day, buf);
     load_events_for_day((int)year, (int)month, (int)day, buf);
 
     if (buf->len == 0) {

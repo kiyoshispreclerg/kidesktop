@@ -15,6 +15,8 @@ PKG_CFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"'
 # --keyboard layouts are *.layout data files (see layouts/), not code.
 DATADIR := $(PREFIX)/share/xisserve
 KBDIR := $(DATADIR)/keyboard
+HOLIDAYSDIR := $(DATADIR)/holidays
+PKG_CFLAGS += -DXIS_HOLIDAYS_DIR='"$(HOLIDAYSDIR)"'
 PKG_CFLAGS += -DXISSERVE_KBDIR_DEFAULT='"$(KBDIR)"' -DXISSERVE_EMOJI_DEFAULT='"$(DATADIR)/emoji-test.txt"'
 # Installable page modules (<flag>.so, see xisserve_page.h): looked up
 # here after ~/.local/lib/xisserve/pages. pages-api.sym exports to them
@@ -68,9 +70,9 @@ endif
 # reimplement" call xispanel/pulse.c already made, for the same reason.
 SRCS := xisserve.c icons.c appmenu.c question.c applications.c keyboard.c session.c ring.c plugins/terminal.c plugins/globalmenu.c plugins/recent.c plugins/kistory.c plugins/process.c plugins/calculator.c $(DBUS_SRC) \
         pages/calendar.c pages/audio.c pages/pulse.c pages/mpris.c pages/qrcode.c pages/energy.c pages/power.c pages/notifications.c \
-        pages/network.c pages/storage.c pages/xisguard.c pages/clipboard.c pages/clock.c ../shared/xis_clock.c ../shared/xis_spawn.c ../shared/xis_desktop_actions.c ../shared/xis_pactl_subscribe.c ../shared/xis_icon_cache.c ../shared/xis_direction.c
+        pages/network.c pages/storage.c pages/xisguard.c pages/clipboard.c pages/clock.c ../shared/xis_clock.c ../shared/xis_spawn.c ../shared/xis_desktop_actions.c ../shared/xis_pactl_subscribe.c ../shared/xis_icon_cache.c ../shared/xis_direction.c ../shared/xis_holidays.c
 OBJS := $(SRCS:.c=.o)
-HDRS := xisserve.h xisserve_page.h plugins/dbusmenu.h pages/pulse.h pages/mpris.h pages/qrcode.h pages/power.h pages/clock.h ../shared/xis_clock.h
+HDRS := xisserve.h xisserve_page.h plugins/dbusmenu.h pages/pulse.h pages/mpris.h pages/qrcode.h pages/power.h pages/clock.h ../shared/xis_clock.h ../shared/xis_holidays.h
 
 all: xisserve
 
@@ -105,6 +107,7 @@ install: xisserve mo
 	install -Dm644 xisserve_page.h $(DESTDIR)$(INCLUDEDIR)/xisserve/xisserve_page.h
 	install -d $(DESTDIR)$(PAGEDIR)
 	install -Dm644 -t $(DESTDIR)$(KBDIR) layouts/*.layout
+	install -Dm644 -t $(DESTDIR)$(HOLIDAYSDIR) data/holidays/*.conf
 	install -Dm644 data/emoji-test.txt $(DESTDIR)$(DATADIR)/emoji-test.txt
 	for lang in $(LINGUAS); do \
 		install -Dm644 po/$$lang.mo $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/xisserve.mo; \
@@ -112,7 +115,7 @@ install: xisserve mo
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/xisserve $(DESTDIR)$(INCLUDEDIR)/xisserve/xisserve_page.h
-	rm -rf $(DESTDIR)$(KBDIR) $(DESTDIR)$(DATADIR)/emoji-test.txt
+	rm -rf $(DESTDIR)$(KBDIR) $(DESTDIR)$(HOLIDAYSDIR) $(DESTDIR)$(DATADIR)/emoji-test.txt
 	for lang in $(LINGUAS); do \
 		rm -f $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/xisserve.mo; \
 	done
