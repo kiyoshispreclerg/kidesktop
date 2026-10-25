@@ -9,18 +9,32 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/utsname.h>
 #include <unistd.h>
 
+/* "Full Name (login)" when the passwd GECOS field has a name (first
+ * comma-separated subfield), plain login otherwise. */
 static void get_user(char *out, size_t outsz)
 {
-    const char *env = getenv("USER");
-    if (env && *env) {
-        snprintf(out, outsz, "%s", env);
-        return;
-    }
     struct passwd *pw = getpwuid(getuid());
-    snprintf(out, outsz, "%s", (pw && pw->pw_name) ? pw->pw_name : "?");
+    const char *login = getenv("USER");
+    if (!login || !*login) {
+        login = (pw && pw->pw_name) ? pw->pw_name : "?";
+    }
+    char full[256] = "";
+    if (pw && pw->pw_gecos) {
+        snprintf(full, sizeof(full), "%s", pw->pw_gecos);
+        char *comma = strchr(full, ',');
+        if (comma) {
+            *comma = '\0';
+        }
+    }
+    if (full[0] && strcmp(full, login)) {
+        snprintf(out, outsz, "%s (%s)", full, login);
+    } else {
+        snprintf(out, outsz, "%s", login);
+    }
 }
 
 static void get_hostname(char *out, size_t outsz)
@@ -78,10 +92,10 @@ static void get_kernel(char *out, size_t outsz)
     }
 }
 
-/* xdpyinfo's "vendor string:"/"vendor release number:" -- the XLibre
- * fork stamps its own fork name/build number there (see
- * reference_xis_extensions in this repo's design notes), which plain
- * "X.Org version number:" alone wouldn't distinguish from upstream. */
+/* xdpyinfo's "vendor string:"/"vendor release number:". The release
+ * number packs the server version as 1|MAJOR|MM|PPP (XLibre 25.2.0 ->
+ * 12502000, X.Org 21.1.8 -> 12101008), so it decodes to the real
+ * server version; the protocol "version number:" is always 11.0. */
 static void get_xserver(char *out, size_t outsz)
 {
     char raw[16384];
@@ -90,22 +104,48 @@ static void get_xserver(char *out, size_t outsz)
         snprintf(out, outsz, "%s", getenv("DISPLAY") ? "X11" : "?");
         return;
     }
-    char vendor[128] = "", version[32] = "", release[32] = "";
+    char vendor[128] = "";
+    long release = 0;
     char *save = NULL;
     for (char *line = strtok_r(raw, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
         char *l = trim(line);
         if (!strncmp(l, "vendor string:", 14)) {
             snprintf(vendor, sizeof(vendor), "%s", trim(l + 14));
-        } else if (!strncmp(l, "version number:", 16)) {
-            snprintf(version, sizeof(version), "%s", trim(l + 16));
-        } else if (!strncmp(l, "vendor release number:", 23)) {
-            snprintf(release, sizeof(release), "%s", trim(l + 23));
+        } else if (!strncmp(l, "vendor release number:", 22)) {
+            release = atol(trim(l + 22));
         }
     }
-    snprintf(out, outsz, "%s%sX11%s%s%s%s",
-             vendor, vendor[0] ? " " : "",
-             version[0] ? " " : "", version,
-             release[0] ? ", build " : "", release);
+    char ver[48] = "";
+    if (release >= 10000000) {
+        snprintf(ver, sizeof(ver), " %ld.%ld.%ld", (release / 100000) % 100,
+                 (release / 1000) % 100, release % 1000);
+    }
+    snprintf(out, outsz, "%s%sX11%s", vendor, vendor[0] ? " " : "", ver);
+}
+
+/* Memory type ("DDR5") from the SMBIOS type-17 records. Only dmidecode
+ * can read them and it needs root, so this stays empty for a normal user
+ * unless dmidecode is set up to run unprivileged. */
+static void get_ram_type(char *out, size_t outsz)
+{
+    out[0] = '\0';
+    char raw[65536];
+    char *argv[] = {"dmidecode", "-t", "17", NULL};
+    if (!run_capture(argv, raw, sizeof(raw))) {
+        return;
+    }
+    char *save = NULL;
+    for (char *line = strtok_r(raw, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+        char *l = trim(line);
+        if (strncmp(l, "Type:", 5)) {
+            continue;
+        }
+        char *t = trim(l + 5);
+        if (!strncmp(t, "DDR", 3) || !strncmp(t, "LPDDR", 5) || !strncmp(t, "SDRAM", 5)) {
+            snprintf(out, outsz, "%s", t);
+            return;
+        }
+    }
 }
 
 static void get_ram(char *out, size_t outsz)
@@ -124,7 +164,10 @@ static void get_ram(char *out, size_t outsz)
     }
     fclose(f);
     if (kb > 0) {
-        snprintf(out, outsz, "%.1f GiB", kb / (1024.0 * 1024.0));
+        char type[32];
+        get_ram_type(type, sizeof(type));
+        snprintf(out, outsz, "%.1f GiB%s%s", kb / (1024.0 * 1024.0),
+                 type[0] ? " " : "", type);
     } else {
         snprintf(out, outsz, "?");
     }
@@ -154,10 +197,20 @@ static void get_cpu(char *out, size_t outsz)
         }
     }
     fclose(f);
+    struct utsname u;
+    char arch[96] = "";
+    if (uname(&u) == 0) {
+        int bits = strstr(u.machine, "64") ? 64 : (strstr(u.machine, "86") || !strncmp(u.machine, "arm", 3)) ? 32 : 0;
+        if (bits) {
+            snprintf(arch, sizeof(arch), "%s, %d-bit, ", u.machine, bits);
+        } else {
+            snprintf(arch, sizeof(arch), "%s, ", u.machine);
+        }
+    }
     if (model[0]) {
-        snprintf(out, outsz, "%s (%d)", model, cores);
+        snprintf(out, outsz, "%s (%s%d)", model, arch, cores);
     } else {
-        snprintf(out, outsz, "%d nucleo(s)", cores);
+        snprintf(out, outsz, "%s%d nucleo(s)", arch, cores);
     }
 }
 
@@ -304,7 +357,17 @@ GtkWidget *build_sobre_tab(void)
 
     add_fact(box, "Usuario:", user);
     add_fact(box, "Computador:", host);
-    add_fact(box, "KiDesktop:", KIDESKTOP_VERSION);
+    /* Anything but our own session shows the running desktop instead of
+     * the KiDesktop version. */
+    const char *session = getenv("XDG_CURRENT_DESKTOP");
+    if (!session || !*session) {
+        session = getenv("DESKTOP_SESSION");
+    }
+    if (session && *session && strcasecmp(session, "KiDesktop")) {
+        add_fact(box, "Sessão:", session);
+    } else {
+        add_fact(box, "KiDesktop:", KIDESKTOP_VERSION);
+    }
     add_fact(box, "Distribuicao:", distro[0] ? distro : "?");
     add_fact(box, "Kernel:", kernel);
     add_fact(box, "Servidor X:", xserver);
