@@ -429,6 +429,7 @@ static const EffectField SCALE_IN_FIELDS[] = {
 static const EffectField SCALE_OUT_FIELDS[] = {
     FLD_DBL("duration", "Duracao (x base)", "1.0", 0, 10, 0.1, 2),
     FLD_STR("events", "Eventos", "close"),
+    FLD_STR("windows", "Janelas", "windows,menus"),
     FLD_DBL("to", "Tamanho final (fracao)", "1.15", 0, 3, 0.05, 2),
     FLD_ENUM("origin", "Origem", "window", ORIGIN3_OPTS),
 };
