@@ -273,6 +273,44 @@ static void launch_uri(KfApp *app, GFile *f)
     g_free(uri);
 }
 
+/* A local regular file with the execute bit that is a program or script (not a
+ * document on a filesystem that marks everything +x). */
+static gboolean is_launchable(GFile *f)
+{
+    if (!g_file_is_native(f))
+        return FALSE;
+    GFileInfo *fi = g_file_query_info(f, "standard::type,standard::content-type,access::can-execute",
+                                      G_FILE_QUERY_INFO_NONE, NULL, NULL);
+    if (!fi)
+        return FALSE;
+    const char *ct = g_file_info_get_content_type(fi);
+    gboolean ok = g_file_info_get_file_type(fi) == G_FILE_TYPE_REGULAR &&
+                  g_file_info_get_attribute_boolean(fi, "access::can-execute") && ct &&
+                  (g_content_type_is_a(ct, "application/x-executable") ||
+                   g_content_type_is_a(ct, "application/x-sharedlib") ||
+                   g_content_type_is_a(ct, "application/x-pie-executable") ||
+                   g_content_type_is_a(ct, "application/x-shellscript") ||
+                   g_content_type_is_a(ct, "application/vnd.appimage") ||
+                   g_content_type_is_a(ct, "application/x-iso9660-appimage") ||
+                   g_content_type_is_a(ct, "text/plain"));
+    g_object_unref(fi);
+    return ok;
+}
+
+static void spawn_detached(const char *cwd, char **argv);
+
+static void run_file(KfApp *app, GFile *f, gboolean in_terminal)
+{
+    char *path = g_file_get_path(f), *dir = g_path_get_dirname(path);
+    const char *term = g_find_program_in_path("kiterm") ? "kiterm" : "x-terminal-emulator";
+    char *argv[] = { (char *)term, "-e", path, NULL };
+    char *direct[] = { path, NULL };
+    (void)app;
+    spawn_detached(dir, in_terminal ? argv : direct);
+    g_free(dir);
+    g_free(path);
+}
+
 void kf_app_open(KfApp *app, KfPane *p, GFile *f)
 {
     gboolean is_dir = FALSE;
@@ -280,6 +318,8 @@ void kf_app_open(KfApp *app, KfPane *p, GFile *f)
         is_dir = g_file_query_file_type(f, G_FILE_QUERY_INFO_NONE, NULL) == G_FILE_TYPE_DIRECTORY;
     if (is_dir)
         kf_pane_navigate(p, f, TRUE, NULL);
+    else if (is_launchable(f))
+        run_file(app, f, FALSE);
     else
         launch_uri(app, f);
 }
@@ -954,6 +994,15 @@ static void on_open_with(GtkMenuItem *mi, gpointer d)
     kf_files_free(sel);
 }
 
+static void on_run_in_terminal(GtkMenuItem *mi, gpointer d)
+{
+    (void)mi;
+    GList *sel = kf_pane_selected(active(d));
+    for (GList *l = sel; l; l = l->next)
+        run_file(d, l->data, TRUE);
+    kf_files_free(sel);
+}
+
 static void a_open_new_window_sel(GtkAction *a, gpointer d)
 {
     (void)a;
@@ -1024,6 +1073,11 @@ void kf_app_popup_context(KfApp *app, KfPane *p, GdkEventButton *ev, gboolean on
                 gtk_menu_shell_append(GTK_MENU_SHELL(menu), top);
                 g_list_free_full(apps, g_object_unref);
             }
+        }
+        if (sel && !sel->next && !one_dir && is_launchable(sel->data)) {
+            GtkWidget *mi = gtk_menu_item_new_with_mnemonic(_("Run in _Terminal"));
+            g_signal_connect(mi, "activate", G_CALLBACK(on_run_in_terminal), app);
+            gtk_menu_shell_append(GTK_MENU_SHELL(menu), mi);
         }
         if (one_dir)
             add_action_item(app, menu, "OpenTerminal");

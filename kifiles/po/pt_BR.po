@@ -619,6 +619,9 @@ msgid "File manager for KiDesktop"
 msgstr "Gerenciador de arquivos do KiDesktop"
 
 #: kifiles.c:1021
+msgid "Run in _Terminal"
+msgstr "Executar no _terminal"
+
 msgid "Open _With"
 msgstr "Abrir _com"
 
