@@ -7,6 +7,7 @@
  * sidebar in kf_places.c, thumbnails in kf_thumbs.c. */
 #include "kf.h"
 #include "../shared/xis_i18n.h"
+#include "../shared/xis_winstate.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -1429,6 +1430,8 @@ int main(int argc, char **argv)
     gtk_window_set_icon_name(GTK_WINDOW(app->win), "system-file-manager");
     gtk_window_set_default_size(GTK_WINDOW(app->win), app->cfg.win_w, app->cfg.win_h);
     gtk_window_set_role(GTK_WINDOW(app->win), "kifiles");
+    xis_winstate_restore(GTK_WINDOW(app->win), "kifiles", XIS_WINSTATE_ALL);
+    xis_winstate_track(GTK_WINDOW(app->win), "kifiles", XIS_WINSTATE_ALL);
     GtkWidget *vbox = gtk_vbox_new(FALSE, 0);
     gtk_container_add(GTK_CONTAINER(app->win), vbox);
     /* Its own window: moving it between tab pages then moves just that one,
