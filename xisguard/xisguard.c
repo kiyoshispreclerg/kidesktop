@@ -28,7 +28,7 @@
 #define REPORT_THROTTLE_S   1
 #define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.14"
+#define XISGUARD_VERSION    "0.4.15"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -2672,6 +2672,54 @@ void* file_monitor_loop(void *arg) {
     return NULL;
 }
 
+/* Watches the X server itself. The xnotify/xperms channels are datagram
+ * sockets, so they never report that the server went away. A real
+ * XOpenDisplay() is the probe: against a merely slow or overloaded server it
+ * blocks until the server answers (the connection waits in the listen
+ * backlog) and then succeeds; it only fails when the socket is gone or
+ * refuses connections. Only XDISPLAY_MAX_FAILS such failures in a row, spaced
+ * XDISPLAY_RETRY_SECS apart, make us give up and exit. If the server comes
+ * back before that, the rules are pushed to it again. */
+#define XDISPLAY_PROBE_SECS  2
+#define XDISPLAY_RETRY_SECS  3
+#define XDISPLAY_MAX_FAILS   5
+
+static int sleep_unless_exit(int secs) {
+    for (int i = 0; i < secs * 10 && !should_exit; i++)
+        usleep(100000);
+    return !should_exit;
+}
+
+void* xdisplay_watch_loop(void *arg) {
+    (void)arg;
+    char display_str[32];
+    snprintf(display_str, sizeof(display_str), ":%d", display);
+    int fails = 0;
+
+    while (sleep_unless_exit(fails ? XDISPLAY_RETRY_SECS : XDISPLAY_PROBE_SECS)) {
+        Display *dpy = XOpenDisplay(display_str);
+        if (dpy) {
+            XCloseDisplay(dpy);
+            if (fails) {
+                log_msg("X server on %s is back - re-sending rules", display_str);
+                send_raw_command("{\"command\":\"RELOAD\"}");
+                send_all_permissions_to_xserver();
+                send_heartbeat();
+            }
+            fails = 0;
+            continue;
+        }
+        fails++;
+        log_msg("Cannot reach X server on %s (attempt %d/%d)", display_str, fails, XDISPLAY_MAX_FAILS);
+        if (fails >= XDISPLAY_MAX_FAILS) {
+            log_msg("X server on %s is gone. Exiting.", display_str);
+            should_exit = 1;
+            break;
+        }
+    }
+    return NULL;
+}
+
 /* ====================== LOCK & CLEANUP ====================== */
 
 int acquire_lock() {
@@ -2983,6 +3031,13 @@ int main(int argc, char *argv[]) {
     pthread_create(&file_monitor_thread, NULL, file_monitor_loop, NULL);
     pthread_create(&processor_thread, NULL, alert_processor_loop, NULL);
     pthread_create(&control_thread, NULL, control_loop, NULL);
+    {
+        /* Detached: it may be blocked in XOpenDisplay() on a hung server and
+         * must never hold up shutdown. */
+        pthread_t xdisplay_thread;
+        if (pthread_create(&xdisplay_thread, NULL, xdisplay_watch_loop, NULL) == 0)
+            pthread_detach(xdisplay_thread);
+    }
 
     /* Main loop */
     struct pollfd pfd = {
