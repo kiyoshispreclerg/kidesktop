@@ -651,7 +651,8 @@ static gpointer size_thread(gpointer data)
         }
         g_free(dir);
     }
-    g_queue_free_full(&dirs, g_free);
+    while ((dir = g_queue_pop_head(&dirs)))   /* dirs is on the stack: g_queue_free_full() would free it */
+        g_free(dir);
     size_publish(j, b, fi, fo);
     g_mutex_lock(&j->lock);
     j->done = TRUE;
