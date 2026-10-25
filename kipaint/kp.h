@@ -23,13 +23,25 @@ typedef struct {
     int w, h;
     char *name;
     gboolean visible;
+    double opacity;      /* 0..1 */
 } KpLayer;
+
+/* The editable, undoable properties of a layer. */
+typedef struct {
+    char *name;
+    gboolean visible;
+    double opacity;
+} KpLayerProps;
 
 typedef struct {
     int w, h;
     GPtrArray *layers;   /* KpLayer, bottom first */
     int active;
     char *path;          /* NULL: never saved */
+    /* TRUE: a layered project (.ora), where Save writes the .ora and the
+     * flat formats are Export. FALSE: a flat image, where Save rewrites the
+     * file in its own format. See PLAN.md 1.1. */
+    gboolean layered;
 } KpDoc;
 
 /* A tool's handlers get image coordinates (fractional) and the button that
@@ -57,6 +69,7 @@ typedef struct {
     int *sizes;                  /* per tool, indexed like kp_tools[] */
     gboolean eraser_transparent;
     gboolean grid;
+    gboolean layers_panel;       /* shown */
     int new_w, new_h;
     GtkWidget *win;
 } KpState;
@@ -76,6 +89,12 @@ void kp_doc_free(KpDoc *d);
 KpLayer *kp_doc_layer(KpDoc *d);
 cairo_surface_t *kp_doc_flatten(KpDoc *d);
 gboolean kp_doc_pick(KpDoc *d, int x, int y, KpColor *out);
+/* Raw structure edits; the callers record them in the undo history. */
+void kp_doc_layer_insert(KpDoc *d, KpLayer *l, int index);   /* takes l, makes it active */
+KpLayer *kp_doc_layer_take(KpDoc *d, int index);              /* removes without freeing */
+void kp_doc_layer_move(KpDoc *d, int from, int to);           /* makes it active */
+void kp_layer_props_swap(KpLayer *l, KpLayerProps *p);
+KpLayer *kp_layer_duplicate(const KpLayer *src);
 
 /* kp_undo.c */
 void kp_undo_begin(KpLayer *l);
@@ -83,6 +102,10 @@ void kp_undo_touch(int x, int y, int w, int h);
 void kp_undo_end(void);
 gboolean kp_undo_undo(void);
 gboolean kp_undo_redo(void);
+void kp_undo_layer_added(int index);                 /* already inserted in the doc */
+void kp_undo_layer_removed(KpLayer *l, int index);   /* already taken out; the history owns it */
+void kp_undo_layer_moved(int from, int to);          /* already moved */
+void kp_undo_layer_props(KpLayer *l, KpLayerProps *old);   /* already changed; takes old.name */
 void kp_undo_clear(void);
 gboolean kp_undo_can_undo(void);
 gboolean kp_undo_can_redo(void);
@@ -95,6 +118,23 @@ void kp_rect_union(int r[4], int x, int y, int w, int h);
 void kp_square_stroke_begin(guint32 px, int size, double x, double y);
 void kp_square_stroke_to(double x, double y);
 void kp_square_stroke_end(void);
+
+/* kp_layers_panel.c */
+GtkWidget *kp_layers_panel_new(void);
+void kp_layers_refresh(void);          /* the document's layer list changed */
+void kp_layers_flush(void);            /* commit a pending opacity edit to the history */
+void kp_layers_add(void);
+void kp_layers_duplicate(void);
+void kp_layers_delete(void);
+void kp_layers_raise(void);
+void kp_layers_lower(void);
+void kp_layers_set_shown(gboolean shown);
+gboolean kp_layers_shown(void);
+
+/* kp_ora.c - OpenRaster */
+gboolean kp_ora_is(const char *path);
+KpDoc *kp_ora_load(const char *path, GError **err);
+gboolean kp_ora_save(KpDoc *d, const char *path, GError **err);
 
 /* kp_canvas.c */
 GtkWidget *kp_canvas_new(void);
@@ -122,7 +162,8 @@ void kp_tool_size_step(int dir);
 /* kp_io.c */
 cairo_surface_t *kp_io_load(const char *path, GError **err);
 gboolean kp_io_save(KpDoc *d, const char *path, GError **err);
-gboolean kp_io_writable(const char *path);
+gboolean kp_io_writable(const char *path);   /* a flat format we write */
+char *kp_io_format_name(const char *path);    /* "PNG", ... */
 GdkPixbuf *kp_surface_to_pixbuf(cairo_surface_t *s, gboolean over_white);
 
 /* kp_config.c */

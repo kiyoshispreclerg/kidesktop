@@ -117,3 +117,10 @@ gboolean kp_io_save(KpDoc *d, const char *path, GError **err)
     g_object_unref(pb);
     return ok;
 }
+
+/* The upper-case extension ("PNG"), for messages. */
+char *kp_io_format_name(const char *path)
+{
+    const char *dot = strrchr(path, '.');
+    return g_ascii_strup(dot && !strchr(dot, '/') ? dot + 1 : "PNG", -1);
+}
