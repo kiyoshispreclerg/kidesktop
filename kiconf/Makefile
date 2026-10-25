@@ -41,11 +41,11 @@ LIBS := $(shell pkg-config --cflags --libs gtk+-2.0 x11 xrandr gmodule-2.0) -lm 
 # xisback/xispanel/kiconfd -- compiled directly in, same as every other
 # source file here, so kiconf stays independently buildable and
 # installable on its own (no shared library to depend on at runtime).
-SRCS := kiconf.c plugins.c widgetmods.c common.c sysinfo.c tabs/appearance.c tabs/kitheme.c tabs/shortcuts.c tabs/entrada.c \
-        tabs/permissoes.c tabs/paineis.c tabs/wallpaper.c \
-        tabs/telas.c tabs/janelas.c tabs/efeitos.c tabs/cantos.c tabs/sistema.c \
-        tabs/programas.c tabs/associacoes.c tabs/menu.c tabs/autostart.c tabs/energia.c tabs/eventos.c \
-        tabs/historico.c tabs/acessibilidade.c tabs/sons.c tabs/usuarios.c tabs/servicos.c tabs/login.c tabs/bloqueio.c \
+SRCS := kiconf.c plugins.c widgetmods.c common.c sysinfo.c tabs/appearance.c tabs/kitheme.c tabs/shortcuts.c tabs/input.c \
+        tabs/permissions.c tabs/panels.c tabs/wallpaper.c \
+        tabs/screens.c tabs/windows.c tabs/effects.c tabs/corners.c tabs/system.c \
+        tabs/programs.c tabs/associations.c tabs/menu.c tabs/autostart.c tabs/energy.c tabs/events.c \
+        tabs/history.c tabs/accessibility.c tabs/sounds.c tabs/users.c tabs/services.c tabs/login.c tabs/lock.c \
         ../shared/xis_outputs.c ../shared/xis_direction.c ../shared/xis_sound.c \
         ../kitheme/core/kt_color.c ../kitheme/core/kt_config.c ../kitheme/core/kt_draw.c ../kitheme/core/kt_sample.c
 

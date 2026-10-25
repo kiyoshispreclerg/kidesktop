@@ -139,7 +139,7 @@ void desktop_entry_set_key(const char *path, const char *key, const char *value)
 
 /* One installed application (Type=Application, not Hidden=true), full
  * metadata -- used by the Associacoes de arquivos and Menu de programas
- * tabs (a superset of what tabs/programas.c's own category-filtered scan
+ * tabs (a superset of what tabs/programs.c's own category-filtered scan
  * collects). NoDisplay=true entries ARE included (Menu de programas needs
  * to list them, to let a hidden one be re-shown). */
 #define MAX_DESKTOP_APPS 768
@@ -157,7 +157,7 @@ typedef struct {
     int is_user; /* path is under $XDG_DATA_HOME/applications */
 } DesktopApp;
 
-/* Scans every installed .desktop app the same way tabs/programas.c's
+/* Scans every installed .desktop app the same way tabs/programs.c's
  * scan_apps_by_category() does ($XDG_DATA_HOME/applications first, then
  * each $XDG_DATA_DIRS/applications, first id found wins), but unfiltered
  * by category and collecting every field above. Returns the count

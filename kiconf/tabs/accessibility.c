@@ -433,7 +433,7 @@ static void sync_sensitive(GtkWidget *chk, gpointer target)
     gtk_widget_set_sensitive(GTK_WIDGET(target), active(chk));
 }
 
-GtkWidget *build_acessibilidade_tab(void)
+GtkWidget *build_accessibility_tab(void)
 {
     KvFile a11y, conf;
     kv_load("kiconfd-a11y.conf", &a11y);

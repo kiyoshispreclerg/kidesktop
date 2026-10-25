@@ -376,7 +376,7 @@ static void on_enable(GtkWidget *w, gpointer d)  { (void)w; (void)d; do_action("
 static void on_disable(GtkWidget *w, gpointer d) { (void)w; (void)d; do_action("disable"); }
 static void on_refresh(GtkWidget *w, gpointer d) { (void)w; (void)d; reload_services(); gtk_label_set_text(GTK_LABEL(g_status), ""); }
 
-GtkWidget *build_servicos_tab(void)
+GtkWidget *build_services_tab(void)
 {
     detect_init();
     if (!g_svc) {

@@ -540,7 +540,7 @@ static void apply_entrada_cb(GtkWidget *widget, gpointer data)
     signal_daemon("kiconfd");
 }
 
-GtkWidget *build_entrada_tab(void)
+GtkWidget *build_input_tab(void)
 {
     snprintf(g_pointer_baseline_device, sizeof(g_pointer_baseline_device), "%s", "");
     master_keyboard_name(g_master_kbd, sizeof(g_master_kbd));

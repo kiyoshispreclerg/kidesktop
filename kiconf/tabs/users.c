@@ -512,7 +512,7 @@ static void on_apply(GtkWidget *w, gpointer data)
     load_users();
 }
 
-GtkWidget *build_usuarios_tab(void)
+GtkWidget *build_users_tab(void)
 {
     GtkWidget *outer = gtk_vbox_new(FALSE, 6);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 8);

@@ -23,7 +23,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-/* Telas tab (xrandr) widgets + state -- see build_telas_tab()'s doc
+/* Telas tab (xrandr) widgets + state -- see build_screens_tab()'s doc
  * comment for what's deliberately NOT ported (scale/DPI read-back). */
 #define MAX_OUTPUTS 16
 #define MAX_MODES 32
@@ -135,7 +135,7 @@ static GtkListStore *g_screens_off_store;
 static GtkWidget *g_screens_off_view;
 /* Advanced/other driver properties (xrandr --verbose) -- the *_box is
  * what gets torn down and rebuilt (a fresh GtkTable each time, same
- * "destroy and recreate" approach paineis.c's widget dialogs use) on
+ * "destroy and recreate" approach panels.c's widget dialogs use) on
  * every selection change or re-detect; the *_frame wrapping it is hidden
  * entirely when the selected output has none of that kind. */
 static GtkWidget *g_screens_extra_editable_frame, *g_screens_extra_editable_box;
@@ -208,7 +208,7 @@ static void parse_output_header(char *line, ScreenOutput *o)
     /* -1 means "kiconf hasn't been told a DPI for this output" (skip
      * --set DPI entirely); 0 is now a real, explicit value meaning
      * "AutoDPI" (xrandr --set DPI 0), distinct from leaving it alone.
-     * See g_screens_dpi_spin's own comment in build_telas_tab(). */
+     * See g_screens_dpi_spin's own comment in build_screens_tab(). */
     o->dpi = -1;
     char *tokens[32];
     int n = tokenize_ws(line, tokens, 32);
@@ -1567,7 +1567,7 @@ static void on_screens_mirror_changed(GtkWidget *widget, gpointer data)
 }
 
 /* DPI spinner text: 0 reads as "Auto" (xrandr --set DPI 0, AutoDPI --
- * see g_screens_dpi_spin's own comment in build_telas_tab()), anything
+ * see g_screens_dpi_spin's own comment in build_screens_tab()), anything
  * else as the plain number. */
 static gboolean on_screens_dpi_output(GtkSpinButton *spin, gpointer data)
 {
@@ -1855,7 +1855,7 @@ static void on_screens_off_row_activated(GtkTreeView *view, GtkTreePath *path, G
     }
 }
 
-GtkWidget *build_telas_tab(void)
+GtkWidget *build_screens_tab(void)
 {
     g_n_outputs = detect_outputs(g_outputs, MAX_OUTPUTS);
     detect_verbose_props(g_outputs, g_n_outputs);

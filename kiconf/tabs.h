@@ -9,32 +9,32 @@
 GtkWidget *build_appearance_tab(void);
 GtkWidget *build_kitheme_tab(void);
 GtkWidget *build_shortcuts_tab(void);
-GtkWidget *build_entrada_tab(void);
-GtkWidget *build_permissoes_tab(void);
-GtkWidget *build_paineis_tab(void);
+GtkWidget *build_input_tab(void);
+GtkWidget *build_permissions_tab(void);
+GtkWidget *build_panels_tab(void);
 GtkWidget *build_wallpaper_tab(void);
-GtkWidget *build_telas_tab(void);
-GtkWidget *build_janelas_tab(void);
-GtkWidget *build_efeitos_tab(void);
-/* Hot corners frame inside the Efeitos tab (tabs/cantos.c): built once,
+GtkWidget *build_screens_tab(void);
+GtkWidget *build_windows_tab(void);
+GtkWidget *build_effects_tab(void);
+/* Hot corners frame inside the Efeitos tab (tabs/corners.c): built once,
  * and asked for the text of its kicomp.conf sections on every Aplicar. */
-GtkWidget *cantos_build(void);
-void cantos_write(FILE *out);
-GtkWidget *build_sistema_tab(void);
-GtkWidget *build_energia_tab(void);
-GtkWidget *build_programas_tab(void);
-GtkWidget *build_associacoes_tab(void);
+GtkWidget *corners_build(void);
+void corners_write(FILE *out);
+GtkWidget *build_system_tab(void);
+GtkWidget *build_energy_tab(void);
+GtkWidget *build_programs_tab(void);
+GtkWidget *build_associations_tab(void);
 GtkWidget *build_menu_tab(void);
 GtkWidget *build_autostart_tab(void);
-GtkWidget *build_eventos_tab(void);
-GtkWidget *build_historico_tab(void);
-GtkWidget *build_acessibilidade_tab(void);
-GtkWidget *build_sons_tab(void);
-GtkWidget *build_usuarios_tab(void);
-GtkWidget *build_servicos_tab(void);
+GtkWidget *build_events_tab(void);
+GtkWidget *build_history_tab(void);
+GtkWidget *build_accessibility_tab(void);
+GtkWidget *build_sounds_tab(void);
+GtkWidget *build_users_tab(void);
+GtkWidget *build_services_tab(void);
 GtkWidget *build_login_tab(void);
-GtkWidget *build_bloqueio_tab(void);
+GtkWidget *build_lock_tab(void);
 /* Tab shown only when i3lock and kilock are installed. */
-int bloqueio_available(void);
+int lock_available(void);
 
 #endif /* KICONF_TABS_H */

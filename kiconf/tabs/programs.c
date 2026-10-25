@@ -233,7 +233,7 @@ static void apply_programs_cb(GtkWidget *widget, gpointer data)
     kisession_save(&cfg);
 }
 
-GtkWidget *build_programas_tab(void)
+GtkWidget *build_programs_tab(void)
 {
     GtkWidget *outer = gtk_vbox_new(FALSE, 8);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 12);

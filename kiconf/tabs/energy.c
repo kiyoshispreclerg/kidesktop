@@ -11,7 +11,7 @@
  * the daemon side.
  *
  * Gated on `xsct` being installed, same have_cmd()-and-status-label
- * pattern sistema.c uses for localectl/timedatectl: the tab still opens
+ * pattern system.c uses for localectl/timedatectl: the tab still opens
  * and shows the schedule (so a config made before installing xsct isn't
  * lost), but Aplicar is disabled and a message explains why.
  */
@@ -326,7 +326,7 @@ static void apply_cb(GtkWidget *widget, gpointer data)
     gtk_label_set_text(GTK_LABEL(g_status_label), _("Configuracoes de energia salvas."));
 }
 
-GtkWidget *build_energia_tab(void)
+GtkWidget *build_energy_tab(void)
 {
     GtkWidget *outer = gtk_vbox_new(FALSE, 8);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 12);

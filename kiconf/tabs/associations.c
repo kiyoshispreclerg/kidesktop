@@ -12,7 +12,7 @@
  *
  * Reading/writing the actual default is the same standard mechanism
  * Programas Padrao uses (`xdg-mime query default` / `xdg-mime default`,
- * see common.c's mime_query_default() and programas.c's own doc comment)
+ * see common.c's mime_query_default() and programs.c's own doc comment)
  * -- nothing kiconf-specific, applies immediately, one row at a time. */
 #include "../common.h"
 #include "../tabs.h"
@@ -315,7 +315,7 @@ static void change_app_cb(GtkWidget *widget, gpointer data)
     gtk_widget_destroy(dialog);
 }
 
-GtkWidget *build_associacoes_tab(void)
+GtkWidget *build_associations_tab(void)
 {
     GtkWidget *outer = gtk_vbox_new(FALSE, 8);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 12);

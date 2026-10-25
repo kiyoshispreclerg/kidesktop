@@ -1075,7 +1075,7 @@ static void save_efeitos_cb(GtkWidget *widget, gpointer data)
         valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(g_fx_store), &it);
     }
 
-    cantos_write(out);
+    corners_write(out);
 
     FILE *in = fopen(path, "r");
     if (in) {
@@ -1098,7 +1098,7 @@ static void restart_kicomp_cb(GtkWidget *widget, gpointer data)
     refresh_status();
 }
 
-GtkWidget *build_efeitos_tab(void)
+GtkWidget *build_effects_tab(void)
 {
     KicompGlobals g;
     ShadowConfig sh;
@@ -1308,7 +1308,7 @@ GtkWidget *build_efeitos_tab(void)
     gtk_box_pack_start(GTK_BOX(fx_btnbox), fx_rem, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(fx_box), fx_btnbox, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(content), frame_with("Efeitos", fx_box), TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(content), cantos_build(), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(content), corners_build(), FALSE, FALSE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 6);
     GtkWidget *restart_btn = gtk_button_new_with_label(_("Reiniciar kicomp agora"));

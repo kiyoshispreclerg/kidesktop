@@ -367,8 +367,8 @@ static void remove_panel_cb(GtkWidget *widget, gpointer data)
  * text cell (space-separated key=value tokens, still how they're written
  * to xispanel.conf) because a schema form for 13 widget types looked like
  * too much for what this tab used to be -- same story kicomp's effects
- * had in tabs/efeitos.c, which already got this treatment; this is the
- * paineis.c side of the same idea, independently implemented (not shared
+ * had in tabs/effects.c, which already got this treatment; this is the
+ * panels.c side of the same idea, independently implemented (not shared
  * code) because the two option grammars actually differ in ways worth
  * keeping separate rather than papering over: xispanel spells its
  * booleans "yes"/"no" (kicomp uses "1"/"0"), and a xispanel value may be
@@ -1106,7 +1106,7 @@ static void rebuild_widget_fields(WidgetDialogState *st, const WOptToken *toks, 
 }
 
 /* Switching the type combo mid-dialog always rebuilds at defaults, same
- * reasoning as efeitos.c's on_effect_combo_changed(): the old row's
+ * reasoning as effects.c's on_effect_combo_changed(): the old row's
  * values belonged to a different widget type, and reusing them for a
  * same-named-by-coincidence key (e.g. "cmd" means something different on
  * every widget that has one) would be more surprising than starting
@@ -1709,7 +1709,7 @@ static GtkWidget *build_panels_view(void)
  * declaration) and neither is inline-editable any more:
  * open_widget_dialog() (Adicionar widget, or double-click/Enter on a row
  * -- widget_row_activated()) is the only way to edit a row's settings
- * now, same change efeitos.c's effects list already made for the same
+ * now, same change effects.c's effects list already made for the same
  * reason (a real schema-driven form beats a freeform "Opcoes" text cell).
  *
  * gtk_tree_view_set_reorderable() is what answers "make the list
@@ -1791,7 +1791,7 @@ static void on_panel_selection_changed(GtkTreeSelection *sel, gpointer data)
     }
 }
 
-GtkWidget *build_paineis_tab(void)
+GtkWidget *build_panels_tab(void)
 {
     /* g_shelf/g_themes/g_selected_panel are plain C statics, not GTK
      * objects -- kiconf.c tears down and fully rebuilds a tab's *widgets*

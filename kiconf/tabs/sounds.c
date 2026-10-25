@@ -315,7 +315,7 @@ static void load_settings(void)
     refresh_sources();
 }
 
-GtkWidget *build_sons_tab(void)
+GtkWidget *build_sounds_tab(void)
 {
     GtkWidget *outer = gtk_vbox_new(FALSE, 8);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 8);

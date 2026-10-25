@@ -391,7 +391,7 @@ static void restart_kiwm_cb(GtkWidget *widget, gpointer data)
     refresh_status();
 }
 
-GtkWidget *build_janelas_tab(void)
+GtkWidget *build_windows_tab(void)
 {
     KiwmConfig c;
     load_kiwm_config(&c);

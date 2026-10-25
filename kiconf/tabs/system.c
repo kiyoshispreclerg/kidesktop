@@ -653,7 +653,7 @@ static void apply_cb(GtkWidget *widget, gpointer data)
     g_string_free(msg, TRUE);
 }
 
-GtkWidget *build_sistema_tab(void)
+GtkWidget *build_system_tab(void)
 {
     GtkWidget *outer = gtk_vbox_new(FALSE, 4);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 8);

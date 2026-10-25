@@ -3,8 +3,8 @@
  * Reads and writes kicomp.conf's [hotcorners] / [hotcorners:MONITOR]
  * sections. Not a tab of its own: kicomp.conf is rewritten as a whole by
  * the Efeitos tab's "Aplicar", so this contributes a frame to that tab
- * (cantos_build) and the text of its sections to the same write
- * (cantos_write).
+ * (corners_build) and the text of its sections to the same write
+ * (corners_write).
  *
  * One row per monitor plus a "Todas as telas" row that is the default.
  * A monitor's cell left on "(padrao)" is not written at all, so it keeps
@@ -169,7 +169,7 @@ static void cell_changed(GtkCellRendererCombo *r, gchar *path, GtkTreeIter *new_
     g_object_unref(combo_model);
 }
 
-GtkWidget *cantos_build(void)
+GtkWidget *corners_build(void)
 {
     g_store = gtk_list_store_new(N_COLS, G_TYPE_STRING, G_TYPE_STRING,
                                  G_TYPE_STRING, G_TYPE_STRING,
@@ -250,7 +250,7 @@ static const char *cell_value(GtkTreeModel *m, GtkTreeIter *it, int corner, int 
 
 /* Writes the [hotcorners*] sections. Nothing at all while every cell is on
  * its default, so a config that never used the feature stays that way. */
-void cantos_write(FILE *out)
+void corners_write(FILE *out)
 {
     GtkTreeModel *m = GTK_TREE_MODEL(g_store);
     GtkTreeIter it;

@@ -173,7 +173,7 @@ static GtkTreeViewColumn *make_recur_column(void)
     return gtk_tree_view_column_new_with_attributes("Recorrencia", renderer, "text", COL_EV_RECUR, NULL);
 }
 
-GtkWidget *build_eventos_tab(void)
+GtkWidget *build_events_tab(void)
 {
     GtkWidget *outer = gtk_vbox_new(FALSE, 6);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 8);

@@ -315,7 +315,7 @@ static void on_kimemory_clear(GtkWidget *widget, gpointer data)
     on_kimemory_stats(NULL, NULL);
 }
 
-GtkWidget *build_historico_tab(void)
+GtkWidget *build_history_tab(void)
 {
     GtkWidget *outer = gtk_vbox_new(FALSE, 8);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 12);

@@ -3,7 +3,7 @@
  * i3lock has no config file, so the options live in kilock.conf and
  * `kilock` (what the session's xss-lock and the lock hotkey run) turns
  * them into i3lock arguments. The tab only exists when i3lock and kilock
- * are installed (bloqueio_available()). The idle time before locking is
+ * are installed (lock_available()). The idle time before locking is
  * the screensaver timeout of the Energia tab, not set here. */
 #include "../common.h"
 #include "../tabs.h"
@@ -22,7 +22,7 @@ typedef struct {
 static GtkWidget *g_color_btn, *g_image_btn, *g_tiling_chk, *g_indicator_chk, *g_beep_chk;
 static GtkWidget *g_empty_chk, *g_failed_chk, *g_pointer_chk, *g_status;
 
-int bloqueio_available(void)
+int lock_available(void)
 {
     gchar *a = g_find_program_in_path("i3lock"), *b = g_find_program_in_path("kilock");
     int ok = a && b;
@@ -136,7 +136,7 @@ static void test_cb(GtkWidget *w, gpointer data)
     }
 }
 
-GtkWidget *build_bloqueio_tab(void)
+GtkWidget *build_lock_tab(void)
 {
     Lock l;
     lock_load(&l);

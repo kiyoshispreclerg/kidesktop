@@ -708,7 +708,7 @@ static void on_xg_reload(GtkWidget *widget, gpointer data)
     refresh_xg_ignored();
 }
 
-GtkWidget *build_permissoes_tab(void)
+GtkWidget *build_permissions_tab(void)
 {
     xisguard_get_status(&g_xg_baseline);
 
