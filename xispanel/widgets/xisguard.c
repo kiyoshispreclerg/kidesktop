@@ -293,7 +293,7 @@ static int xg_is_urgent(PanelWidget *w)
     const XisguardEvents *ev = xisguard_events_get();
     /* Switched off, or a program that is not ignored is acting right now
      * (ignored ones only show up as a count in the tooltip/menu). */
-    return ev->connected && (!ev->enabled || ev->permissive || xg_recent(ev));
+    return ev->connected && (!ev->enabled || xg_recent(ev));
 }
 
 const PanelWidgetOps xisguard_ops = {
