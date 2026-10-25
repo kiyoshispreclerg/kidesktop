@@ -67,7 +67,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define KISESSION_VERSION "0.1.15"
+#define KISESSION_VERSION "0.1.16"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -176,7 +176,9 @@ static const SvcDef SERVICES[] = {
      * are already in the history; both just wait for _NET_CLIENT_LIST /
      * _NET_ACTIVE_WINDOW to appear once the WM is up. */
     {"kimemoryd", SVC_SUPERVISED, ARGV_KIMEMORYD, 1, "clipboard history", 0},
-    {"kistoryd", SVC_SUPERVISED, ARGV_KISTORYD, 1, "desktop activity history", 0},
+    /* Off by default: the day files hold window titles and file names
+     * unprotected, so it is opt-in until they are protected. */
+    {"kistoryd", SVC_SUPERVISED, ARGV_KISTORYD, 0, "desktop activity history", 0},
     {"audio", SVC_ONESHOT, NULL, 1, "pipewire/pulseaudio, only if nothing already started one", 0},
     {"locker", SVC_SUPERVISED, ARGV_LOCKER, 1, "xss-lock + kilock (i3lock) screen locking", 0},
     {"polkit", SVC_SUPERVISED, NULL, 1, "polkit authentication agent (needed by kiconf's Sistema tab)", 0},

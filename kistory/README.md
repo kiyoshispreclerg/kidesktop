@@ -6,6 +6,9 @@ the `kistory` CLI, `grep`, or anything else. It keeps no screenshots and
 no window contents, only names: apps, titles, files, desktops, outputs,
 sound streams.
 
+Off by default in new installs, because the day files are not protected yet;
+enable it among the session services in kiconf.
+
 ## Log format
 
 `$XDG_DATA_HOME/kistory/events/YYYY-MM-DD.tsv` (files 0600, directory

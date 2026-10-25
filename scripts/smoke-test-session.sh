@@ -88,7 +88,7 @@ sleep "$SECONDS_RUN"
 # --- processes ------------------------------------------------------------
 # xisguard is a oneshot that exits by itself without the XNOTIFY extension,
 # and polkit/locker/audio depend on optional packages: not checked.
-for n in kisession kiwm kicomp kiconfd xismenu xisback xispanel xiskeys kimemoryd kistoryd; do
+for n in kisession kiwm kicomp kiconfd xismenu xisback xispanel xiskeys kimemoryd; do
 	if alive "$n"; then say "ok: $n running"; else bad "$n is not running"; fi
 done
 
