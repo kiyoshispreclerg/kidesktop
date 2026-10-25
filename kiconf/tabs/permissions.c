@@ -2,6 +2,7 @@
  * See kiconf.c's top doc comment for the overall design. */
 #include "../common.h"
 #include "../tabs.h"
+#include "permissions_rules.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -29,8 +30,7 @@ static GtkWidget *g_xg_rules_view;
 static GtkListStore *g_xg_rules_store;
 static GtkWidget *g_xg_action_combo, *g_xg_type_combo, *g_xg_pattern_entry;
 /* System rules (SYSCONFDIR's xnotify.conf.d directory, *.conf files) --
- * read-only for now,
- * see xisguard_list_system_rules()'s own doc comment. */
+ * read-only for now, loaded by permissions_rules.c. */
 static GtkWidget *g_xg_sys_rules_view;
 static GtkListStore *g_xg_sys_rules_store;
 static GtkWidget *g_xg_sys_rules_status_label;
@@ -46,9 +46,9 @@ typedef struct {
 } XgStatus;
 static XgStatus g_xg_baseline;
 
-enum { COL_XG_TYPE = 0, COL_XG_ACTION, COL_XG_PATTERN, N_XG_COLS };
-/* the system rules list has one more column: which file the rule is from */
-enum { COL_XG_SOURCE = N_XG_COLS, N_XG_SYS_COLS };
+enum { COL_XG_ORDER = 0, COL_XG_TYPE, COL_XG_ACTION, COL_XG_PATTERN, N_XG_COLS };
+/* the system rules list: apply order, rule, file it was read from, line there */
+enum { COL_XS_ORDER = 0, COL_XS_TYPE, COL_XS_ACTION, COL_XS_PATTERN, COL_XS_FILE, COL_XS_LINE, N_XG_SYS_COLS };
 
 /* XNOTIFY_ACTIONS[i][0] is the protocol token (goes into perms.conf
  * verbatim, never translated); [i][1] is only ever read into a label
@@ -193,7 +193,8 @@ static void xisguard_get_status(XgStatus *st)
 
 #define MAX_XG_RULES 256
 typedef struct {
-    char type[16], action[32], pattern[192], source[64];
+    char type[16], action[32], pattern[192];
+    int order;
 } XgRule;
 
 static int xisguard_list_rules(XgRule *rules, int max)
@@ -227,6 +228,7 @@ static int xisguard_list_rules(XgRule *rules, int max)
         }
         memcpy(obj, obj_start, len);
         obj[len] = '\0';
+        rules[n].order = json_get_int(obj, "order", n + 1);
         json_get_str(obj, "type", rules[n].type, sizeof(rules[n].type));
         json_get_str(obj, "action", rules[n].action, sizeof(rules[n].action));
         json_get_str(obj, "pattern", rules[n].pattern, sizeof(rules[n].pattern));
@@ -266,107 +268,9 @@ static int xisguard_get_system_rules_paths(char *dir, size_t dirsz, char *file, 
     return dir[0] != '\0';
 }
 
-static int xisguard_get_system_rules_dir(char *out, size_t outsz)
-{
-    return xisguard_get_system_rules_paths(out, outsz, NULL, 0);
-}
-
-static int rule_conf_name_filter(const struct dirent *e)
-{
-    size_t n = strlen(e->d_name);
-    return n > 5 && !strcmp(e->d_name + n - 5, ".conf");
-}
-
-/* One line of a server rule file, in the grammar the X server itself reads
- * (XnotifyLoadFile() in xnotify.c):
- *   ALLOW|DENY ACTION /path[|args]   rule for one program and action
- *   ALLOW|DENY /path[|args]          every action ("ALL")
- *   ALLOW|DENY ACTION                the action for everyone ("*")
- *   ALLOW_ACTION ACTION              same as "ALLOW ACTION"
- * Returns 1 and fills `r` (except source) for a rule, 0 for anything else. */
-static int parse_system_rule_line(char *line, XgRule *r)
-{
-    line[strcspn(line, "\r\n")] = '\0';
-    char *save = NULL;
-    char *cmd = strtok_r(line, " \t", &save);
-    if (!cmd || cmd[0] == '#') {
-        return 0;
-    }
-    int allow_action = !strcasecmp(cmd, "ALLOW_ACTION");
-    if (!allow_action && strcasecmp(cmd, "ALLOW") && strcasecmp(cmd, "DENY")) {
-        return 0;
-    }
-    snprintf(r->type, sizeof(r->type), "%s", allow_action ? "ALLOW" : (toupper((unsigned char)cmd[0]) == 'A' ? "ALLOW" : "DENY"));
-    char *tok = strtok_r(NULL, " \t", &save);
-    if (!tok) {
-        return 0;
-    }
-    if (tok[0] == '/') { /* no action: every one */
-        snprintf(r->action, sizeof(r->action), "ALL");
-        snprintf(r->pattern, sizeof(r->pattern), "%s", tok);
-        return 1;
-    }
-    snprintf(r->action, sizeof(r->action), "%s", tok);
-    /* the pattern runs to the end of the line and may contain spaces */
-    char *rest = save ? save : (char *)"";
-    while (*rest == ' ' || *rest == '\t') {
-        rest++;
-    }
-    size_t rl = strlen(rest);
-    while (rl > 0 && (rest[rl - 1] == ' ' || rest[rl - 1] == '\t')) {
-        rest[--rl] = '\0';
-    }
-    snprintf(r->pattern, sizeof(r->pattern), "%s", rl ? rest : "*");
-    return 1;
-}
-
-static int read_system_rule_file(const char *filepath, const char *source, XgRule *rules, int n, int max)
-{
-    FILE *f = fopen(filepath, "r");
-    if (!f) {
-        return n;
-    }
-    char line[512];
-    while (n < max && fgets(line, sizeof(line), f)) {
-        if (parse_system_rule_line(line, &rules[n])) {
-            snprintf(rules[n].source, sizeof(rules[n].source), "%s", source);
-            n++;
-        }
-    }
-    fclose(f);
-    return n;
-}
-
-/* Reads the system rules the way the X server loads them: every *.conf in
- * the xnotify.conf.d directory in name order ("10-foo.conf" before
- * "50-xisguard.conf" -- see secure_save_rule() in xisguard.c for the one
- * file kiconf's own polkit-gated rules end up in), then the xnotify.conf
- * file itself. Read-only for now: writing here needs a polkit prompt per
- * file, same as secure_save_rule(). */
-static int xisguard_list_system_rules(XgRule *rules, int max)
-{
-    char dir[512], file[512] = "";
-    if (!xisguard_get_system_rules_paths(dir, sizeof(dir), file, sizeof(file))) {
-        return 0;
-    }
-    int n = 0;
-    struct dirent **names;
-    int n_files = scandir(dir, &names, rule_conf_name_filter, alphasort);
-    for (int fi = 0; fi < n_files; fi++) {
-        char filepath[PATH_MAX];
-        snprintf(filepath, sizeof(filepath), "%s/%s", dir, names[fi]->d_name);
-        n = read_system_rule_file(filepath, names[fi]->d_name, rules, n, max);
-        free(names[fi]);
-    }
-    if (n_files >= 0) {
-        free(names);
-    }
-    if (file[0]) {
-        const char *base = strrchr(file, '/');
-        n = read_system_rule_file(file, base ? base + 1 : file, rules, n, max);
-    }
-    return n;
-}
+/* The system rules as last read: kept (with each rule's file, line and
+ * order) so a later edit can save every rule back where it came from. */
+static XgRuleSet g_xg_sysset;
 
 /* ---- ignore.conf (programs whose REPORTs are hidden) ---- */
 
@@ -539,9 +443,11 @@ static void refresh_xg_rules(void)
     int n = g_xg_baseline.online ? xisguard_list_rules(rules, MAX_XG_RULES) : 0;
     for (int i = 0; i < n; i++) {
         GtkTreeIter it;
+        char order[16];
+        snprintf(order, sizeof(order), "%d", rules[i].order);
         gtk_list_store_append(g_xg_rules_store, &it);
         gtk_list_store_set(g_xg_rules_store, &it,
-                            COL_XG_TYPE, rules[i].type, COL_XG_ACTION, rules[i].action,
+                            COL_XG_ORDER, order, COL_XG_TYPE, rules[i].type, COL_XG_ACTION, rules[i].action,
                             COL_XG_PATTERN, rules[i].pattern, -1);
     }
 }
@@ -549,16 +455,20 @@ static void refresh_xg_rules(void)
 static void refresh_xg_sys_rules(void)
 {
     gtk_list_store_clear(g_xg_sys_rules_store);
-    XgRule rules[MAX_XG_RULES];
-    char dir[512] = "";
-    int have_dir = g_xg_baseline.online && xisguard_get_system_rules_dir(dir, sizeof(dir));
-    int n = have_dir ? xisguard_list_system_rules(rules, MAX_XG_RULES) : 0;
+    char dir[512] = "", file[512] = "";
+    int have_dir = g_xg_baseline.online && xisguard_get_system_rules_paths(dir, sizeof(dir), file, sizeof(file));
+    int n = have_dir ? xg_ruleset_load(&g_xg_sysset, dir, file) : (xg_ruleset_clear(&g_xg_sysset), 0);
     for (int i = 0; i < n; i++) {
+        const XgFileRule *r = &g_xg_sysset.rules[i];
+        char order[16], line[16];
+        snprintf(order, sizeof(order), "%d", r->order + 1);
+        snprintf(line, sizeof(line), "%d", r->line + 1);
         GtkTreeIter it;
         gtk_list_store_append(g_xg_sys_rules_store, &it);
         gtk_list_store_set(g_xg_sys_rules_store, &it,
-                            COL_XG_TYPE, rules[i].type, COL_XG_ACTION, rules[i].action,
-                            COL_XG_PATTERN, rules[i].pattern, COL_XG_SOURCE, rules[i].source, -1);
+                            COL_XS_ORDER, order, COL_XS_TYPE, r->type, COL_XS_ACTION, r->action,
+                            COL_XS_PATTERN, r->pattern, COL_XS_FILE, g_xg_sysset.files[r->file].name,
+                            COL_XS_LINE, line, -1);
     }
     if (g_xg_sys_rules_status_label) {
         char status[600];
@@ -567,7 +477,8 @@ static void refresh_xg_sys_rules(void)
         } else if (!have_dir) {
             snprintf(status, sizeof(status), _("Nao foi possivel descobrir o diretorio de regras de sistema (timeout do X server)."));
         } else {
-            snprintf(status, sizeof(status), _("%s (e xnotify.conf) -- %d regra(s). Somente leitura por enquanto."), dir, n);
+            snprintf(status, sizeof(status), _("%s (e xnotify.conf) -- %d regra(s) em %d arquivo(s), na ordem em que o X server as aplica. Somente leitura por enquanto."),
+                     dir, n, g_xg_sysset.n_files);
         }
         gtk_label_set_text(GTK_LABEL(g_xg_sys_rules_status_label), status);
     }
@@ -788,13 +699,13 @@ GtkWidget *build_permissions_tab(void)
     /* ---- "Regras de usuario" page: perms.conf, via LIST_RULES/ADD_RULE/
      * REMOVE_RULE -- everything the tab already did before the system
      * rules page below existed. */
-    g_xg_rules_store = gtk_list_store_new(N_XG_COLS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
+    g_xg_rules_store = gtk_list_store_new(N_XG_COLS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
     g_xg_rules_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_xg_rules_store));
-    const char *xg_titles[N_XG_COLS] = {"Tipo", "Acao", "Padrao"};
+    const char *xg_titles[N_XG_COLS] = {"#", "Tipo", "Acao", "Padrao"};
     for (int col = 0; col < N_XG_COLS; col++) {
         GtkCellRenderer *renderer = gtk_cell_renderer_text_new();
         GtkTreeViewColumn *tvcol = gtk_tree_view_column_new_with_attributes(xg_titles[col], renderer, "text", col, NULL);
-        gtk_tree_view_column_set_expand(tvcol, TRUE);
+        gtk_tree_view_column_set_expand(tvcol, col != COL_XG_ORDER);
         gtk_tree_view_append_column(GTK_TREE_VIEW(g_xg_rules_view), tvcol);
     }
     GtkWidget *rules_scroll = gtk_scrolled_window_new(NULL, NULL);
@@ -851,13 +762,14 @@ GtkWidget *build_permissions_tab(void)
      * pass can make double-click editable the same way the user rules
      * list could, gated behind a polkit prompt to save (same mechanism
      * secure_save_rule() in xisguard.c already uses). */
-    g_xg_sys_rules_store = gtk_list_store_new(N_XG_SYS_COLS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
+    g_xg_sys_rules_store = gtk_list_store_new(N_XG_SYS_COLS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,
+                                              G_TYPE_STRING, G_TYPE_STRING);
     g_xg_sys_rules_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_xg_sys_rules_store));
-    const char *xg_sys_titles[N_XG_SYS_COLS] = {"Tipo", "Acao", "Padrao", "Arquivo"};
+    const char *xg_sys_titles[N_XG_SYS_COLS] = {"#", "Tipo", "Acao", "Padrao", "Arquivo", "Linha"};
     for (int col = 0; col < N_XG_SYS_COLS; col++) {
         GtkCellRenderer *renderer = gtk_cell_renderer_text_new();
         GtkTreeViewColumn *tvcol = gtk_tree_view_column_new_with_attributes(xg_sys_titles[col], renderer, "text", col, NULL);
-        gtk_tree_view_column_set_expand(tvcol, TRUE);
+        gtk_tree_view_column_set_expand(tvcol, col != COL_XS_ORDER && col != COL_XS_LINE);
         gtk_tree_view_append_column(GTK_TREE_VIEW(g_xg_sys_rules_view), tvcol);
     }
     GtkWidget *sys_rules_scroll = gtk_scrolled_window_new(NULL, NULL);
