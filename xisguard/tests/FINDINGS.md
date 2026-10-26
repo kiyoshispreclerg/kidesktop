@@ -23,15 +23,15 @@ uma linha acima. O relatório fica em `--out`, copie-o se quiser guardar.
 | # | achado | onde | status |
 |---|---|---|---|
 | 1 | Perder as regras de sistema deixa o servidor em modo legado até reiniciar o X | servidor (Xnotify) | aberto |
-| 2 | Desligar o modo permissivo apaga as regras de usuário no servidor | xisguard | aberto |
+| 2 | Desligar o modo permissivo apaga as regras de usuário no servidor | xisguard | em andamento |
 | 3 | Modo seguro e `REMOVE_RULE` não retiram acesso; desligar o seguro não reativa regras | xisguard | aberto |
 | 4 | Regras de sistema adicionadas em runtime só valem após reiniciar o X, se a sessão abriu sem nenhuma | servidor | aberto |
 | 5 | Janela de ~5 s negando tudo ao remover as regras de sistema | servidor | aberto (talvez aceitável) |
 | 6 | O primeiro pedido depois que o guard reinicia se perde | servidor ou xisguard | aberto |
-| 7 | `--deny` (inclusive `--deny ALL`) não vence as regras de usuário | xisguard | aberto |
-| 8 | `--allow` nega a primeira tentativa, e só concede para aqueles argumentos exatos | xisguard (+ servidor) | aberto |
-| 9 | Regras EXACT (`exe\|args`) do `perms.conf` se perdem ao reiniciar o guard | xisguard | aberto |
-| 10 | "Deny" permanente no modo seguro continua perguntando toda vez | xisguard | aberto |
+| 7 | `--deny` (inclusive `--deny ALL`) não vence as regras de usuário | xisguard | corrigido |
+| 8 | `--allow` nega a primeira tentativa, e só concede para aqueles argumentos exatos | xisguard (+ servidor) | corrigido |
+| 9 | Regras EXACT (`exe\|args`) do `perms.conf` se perdem ao reiniciar o guard | xisguard | corrigido |
+| 10 | "Deny" permanente no modo seguro continua perguntando toda vez | xisguard | corrigido |
 
 ---
 
@@ -94,10 +94,10 @@ Passos `permissive=0` e `permissive=0 (back)`, coluna `user:*`.
 **Correção provável:** depois do `RELOAD` em `SET_PERMISSIVE` (desligar), e
 também em `request_server_reload()`, chamar `send_all_permissions_to_xserver()`.
 
-**Status:** aberto
+**Status:** em andamento
 
 **Notas / histórico:**
--
+- 2026-10-26: corrigido no xisguard.c (matriz 40→48/84 ao corrigir); falta testar na sessão real.
 
 ---
 
@@ -224,10 +224,10 @@ sistema: a suíte assume que não (`cli_deny`, primeira verificação).
 
 **Reproduzir:** cenários `cli_deny` e `cli_deny_all`.
 
-**Status:** aberto
+**Status:** corrigido
 
 **Notas / histórico:**
--
+- 2026-10-26: corrigido no xisguard.c (cenários cli_deny/cli_deny_all passam); falta testar na sessão real.
 
 ---
 
@@ -251,10 +251,10 @@ pergunta.
 
 **Reproduzir:** cenário `cli_allow`.
 
-**Status:** aberto
+**Status:** corrigido
 
 **Notas / histórico:**
--
+- 2026-10-26: corrigido no xisguard.c (cenário cli_allow passa); falta testar na sessão real.
 
 ---
 
@@ -280,10 +280,10 @@ comparam o padrão.
 **Reproduzir:** cenários `answer-allow_exact-normal` e
 `answer-trust_exact-normal`, verificação "after a guard restart".
 
-**Status:** aberto
+**Status:** corrigido
 
 **Notas / histórico:**
--
+- 2026-10-26: corrigido no xisguard.c (cenários *_exact-normal passam); falta testar na sessão real.
 
 ---
 
@@ -308,10 +308,10 @@ desconhecido.
 
 **Reproduzir:** cenário `answer-deny-secure`.
 
-**Status:** aberto
+**Status:** corrigido
 
 **Notas / histórico:**
--
+- 2026-10-26: corrigido no xisguard.c (cenário answer-deny-secure passa); falta testar na sessão real.
 
 ---
 

@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <poll.h>
+#include <dirent.h>
 #include <limits.h>
 #include <sys/wait.h>
 #include <stdint.h>
@@ -28,7 +29,7 @@
 #define REPORT_THROTTLE_S   1
 #define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.20"
+#define XISGUARD_VERSION    "0.4.21"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -476,7 +477,13 @@ void load_user_config(void) {
         if (strcasecmp(cmd, "ALLOW") == 0 || strcasecmp(cmd, "DENY") == 0) {
             int is_allow = (strcasecmp(cmd, "ALLOW") == 0);
             char *token1 = strtok(NULL, " \t\r\n");   /* action or ALL */
-            char *token2 = strtok(NULL, " \t\r\n");   /* pattern */
+            /* pattern = rest of the line: EXACT rules are "exe|args" and the
+             * args hold spaces */
+            char *token2 = strtok(NULL, "\r\n");
+            if (token2) {
+                token2 = trim(token2);
+                if (*token2 == '\0') token2 = NULL;
+            }
 
             if (!token1) continue;
 
@@ -515,6 +522,95 @@ void load_user_config(void) {
     pthread_mutex_unlock(&ignored_lock);
 }
 
+static void request_config_path(void);
+
+/* Whether a rule (pattern + action name, "" = every action) covers exe for
+ * action_name. A pattern without '|' matches any args; one with '|' needs an
+ * exact exe|args match. */
+static int rule_covers(const char *exe, const char *pattern, const char *rule_action, const char *action_name) {
+    char exe_buf[PATH_MAX];
+    const char *match_key = exe;
+    if (strchr(pattern, '|') == NULL) {
+        snprintf(exe_buf, sizeof(exe_buf), "%s", exe);
+        char *p = strchr(exe_buf, '|');
+        if (p) *p = '\0';
+        match_key = exe_buf;
+    }
+    if (!pattern_matches(match_key, pattern))
+        return 0;
+    return rule_action[0] == '\0' || strcasecmp(rule_action, action_name) == 0;
+}
+
+/* Secure mode: the guard keeps no rules in memory, but the system rule files
+ * (the server's xnotify.conf and xnotify.conf.d/ *.conf files) are readable. Returns
+ * 1 if one of them has an explicit DENY covering exe/action, so a repeat
+ * attempt is answered without a dialog. Needs the directory learned from
+ * GET_CONFIG_PATH; until then returns 0 (and asks for it). */
+static int system_rule_denies(const char *exe, int action_id) {
+    const char *action_name = action_to_string(action_id);
+    char dir[512], file[512];
+    pthread_mutex_lock(&secure_conf_lock);
+    snprintf(dir, sizeof(dir), "%s", secure_conf_dir);
+    snprintf(file, sizeof(file), "%s", secure_conf_file);
+    pthread_mutex_unlock(&secure_conf_lock);
+    if (dir[0] == '\0') {
+        request_config_path();
+        return 0;
+    }
+
+    char *paths[64];
+    int np = 0;
+    if (file[0] != '\0')
+        paths[np++] = strdup(file);
+    DIR *d = opendir(dir);
+    if (d) {
+        struct dirent *de;
+        while ((de = readdir(d)) && np < 64) {
+            size_t n = strlen(de->d_name);
+            if (n < 6 || strcmp(de->d_name + n - 5, ".conf") != 0)
+                continue;
+            char full[1100];
+            snprintf(full, sizeof(full), "%s/%s", dir, de->d_name);
+            paths[np++] = strdup(full);
+        }
+        closedir(d);
+    }
+
+    int denied = 0;
+    for (int i = 0; i < np; i++) {
+        FILE *f = paths[i] ? fopen(paths[i], "r") : NULL;
+        free(paths[i]);
+        if (!f || denied) {
+            if (f) fclose(f);
+            continue;
+        }
+        char line[BUF_SIZE];
+        while (!denied && fgets(line, sizeof(line), f)) {
+            line[strcspn(line, "\r\n")] = '\0';
+            char *t = trim(line);
+            if (strncasecmp(t, "DENY", 4) != 0 || !isspace((unsigned char)t[4]))
+                continue;
+            t = trim(t + 4);
+            char *sp = t;
+            while (*sp && !isspace((unsigned char)*sp)) sp++;
+            char act[64] = { 0 };
+            snprintf(act, sizeof(act), "%.*s", (int)(sp - t) < 63 ? (int)(sp - t) : 63, t);
+            char *pat = trim(sp);
+            if (strcasecmp(act, "ALL") == 0) {
+                if (*pat == '\0') continue;
+                act[0] = '\0';
+            } else if (string_to_action(act) <= 0) {
+                continue;
+            }
+            if (*pat == '\0') pat = "*";
+            if (rule_covers(exe, pat, act, action_name))
+                denied = 1;
+        }
+        fclose(f);
+    }
+    return denied;
+}
+
 int get_preconfig_rule(const char *exe, int action_id, char *matched_pattern, size_t max_len) {
     if (!exe || *exe == '\0' || strcmp(exe, "?") == 0)
         return 0;
@@ -528,25 +624,7 @@ int get_preconfig_rule(const char *exe, int action_id, char *matched_pattern, si
 
     pthread_mutex_lock(&ignored_lock);
     for (int i = 0; i < ignored_count; i++) {
-        /* Pattern without '|' matches any args: compare against exe only.
-         * Pattern with '|' requires exact exe|args match. */
-        char exe_buf[PATH_MAX];
-        const char *match_key;
-        if (strchr(ignored_cmds[i].exe_pattern, '|') == NULL) {
-            strncpy(exe_buf, exe, sizeof(exe_buf) - 1);
-            exe_buf[sizeof(exe_buf) - 1] = '\0';
-            char *p = strchr(exe_buf, '|');
-            if (p) *p = '\0';
-            match_key = exe_buf;
-        } else {
-            match_key = exe;
-        }
-
-        if (!pattern_matches(match_key, ignored_cmds[i].exe_pattern))
-            continue;
-
-        if (ignored_cmds[i].action[0] == '\0' ||
-            strcasecmp(ignored_cmds[i].action, action_name) == 0) {
+        if (rule_covers(exe, ignored_cmds[i].exe_pattern, ignored_cmds[i].action, action_name)) {
             int ret = (ignored_cmds[i].rule_type == 0) ? 1 : 2;
 
             if (matched_pattern && max_len > 0) {
@@ -568,6 +646,10 @@ void send_permission(int action, const char *exe, pid_t pid, int command_type);
 void permissive_reapply(void);
 static void secure_save_rule(const char *exe, int action_id, int is_allow);
 
+static int cli_action_denied(int action_id) {
+    return action_id > 0 && action_id <= 16 && (cli_deny_mask & (1u << (action_id - 1)));
+}
+
 void send_all_permissions_to_xserver(void) {
     pthread_mutex_lock(&ignored_lock);
 
@@ -578,9 +660,20 @@ void send_all_permissions_to_xserver(void) {
         int action_id = string_to_action(act_str);
         
         if (ignored_cmds[i].rule_type == 0) {   /* ALLOW */
+            /* The server grants a synced ALLOW without asking us, so it would
+             * bypass --deny: leave the actions in cli_deny_mask out. */
             if (act_str[0] == '\0') {
                 /* ALLOW ALL <pattern> */
-                send_permission(0, pat, 0, COMMAND_ALLOW_ALL);           /* command_type 2 = ALLOW_ALL */
+                if (cli_deny_mask == 0) {
+                    send_permission(0, pat, 0, COMMAND_ALLOW_ALL);       /* command_type 2 = ALLOW_ALL */
+                } else {
+                    for (int a = 0; action_names[a].id > 0; a++)
+                        if (!cli_action_denied(action_names[a].id))
+                            send_permission(action_names[a].id, pat, 0, COMMAND_ALLOW);
+                }
+            }
+            else if (cli_action_denied(action_id)) {
+                /* skipped, see above */
             }
             else if (strcmp(pat, "*") == 0) {
                 /* ALLOW <ACTION>  (sem exe → allow_all para essa ação) */
@@ -610,14 +703,17 @@ void send_all_permissions_to_xserver(void) {
     permissive_reapply();
 }
 
-/* Sends ALLOW_ACTION for every known action while permissive mode is on.
- * The server checks its global mask before any rule, so this beats static
- * and user DENY rules alike. */
+/* Sends ALLOW_ACTION for every known action while permissive mode is on, and
+ * for every action in --allow (minus --deny) so the server grants those
+ * without asking. The server checks its global mask before any rule, so this
+ * beats static and user DENY rules alike. */
 void permissive_reapply(void) {
-    if (!permissive_mode)
-        return;
-    for (int i = 0; action_names[i].id > 0; i++)
-        send_permission(action_names[i].id, "", 0, COMMAND_ALLOW_ACTION);
+    for (int i = 0; action_names[i].id > 0; i++) {
+        int id = action_names[i].id;
+        int cli_allowed = id <= 16 && (cli_allow_mask & (1u << (id - 1))) && !cli_action_denied(id);
+        if (permissive_mode || cli_allowed)
+            send_permission(id, "", 0, COMMAND_ALLOW_ACTION);
+    }
 }
 
 /* ====================== SAVE RULES ====================== */
@@ -1388,7 +1484,7 @@ static void request_config_path(void) {
  * right after secure_save_rule() has written a new drop-in file there. */
 static void request_server_reload(void) {
     send_raw_command("{\"command\":\"RELOAD\"}");
-    permissive_reapply();   /* the reload zeroed the global mask */
+    send_all_permissions_to_xserver();   /* the reload dropped the user rules and the global mask */
 }
 
 static void subscribers_broadcast_state(int enabled);
@@ -1956,6 +2052,14 @@ void handle_message(const char *msg) {
         }
     }
 
+    /* Secure mode keeps no rules here, but the server only skips asking us
+     * for a program it allows; a system DENY still reaches us. */
+    if (secure_mode && system_rule_denies(exe, action)) {
+        log_filtered(2, "System rule: DENY %s for %s", action_str, trim_exe_for_log(exe));
+        send_permission(action, exe, pid, COMMAND_DENY);
+        return;
+    }
+
     char matched_rule[PATH_MAX] = {0};
     int pre = get_preconfig_rule(exe, action, matched_rule, sizeof(matched_rule));
     const char *rule_to_send = (matched_rule[0] != '\0') ? matched_rule : exe;
@@ -2016,8 +2120,15 @@ void process_next_alert() {
     pthread_mutex_unlock(&queue_lock);
 
     int response;
+    char conf_dir_probe[512];
     if (always_kill_mode || quiet_mode) {
         response = always_kill_mode ? -1 : 99;
+    } else if (secure_mode && wait_for_secure_conf_dir(conf_dir_probe, sizeof(conf_dir_probe), 1500) &&
+               system_rule_denies(alert.exe, alert.action)) {
+        /* The directory was not known yet when the request arrived (right
+         * after a guard restart), so handle_message() could not look. */
+        log_filtered(2, "System rule: DENY %s for %s", action_to_string(alert.action), trim_exe_for_log(alert.exe));
+        response = 99;
     } else {
         response = show_dialog(&alert);
     }
@@ -2202,8 +2313,10 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
             permissive_mode = v;
             if (v)
                 permissive_reapply();
-            else
+            else {
                 send_raw_command("{\"command\":\"RELOAD\"}");
+                send_all_permissions_to_xserver();   /* the reload dropped the user rules too */
+            }
             log_msg("Control: permissive mode %s", v ? "ON" : "OFF");
             subscribers_broadcast_permissive(v);
         }
