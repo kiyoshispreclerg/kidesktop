@@ -74,7 +74,6 @@ Recommends: librsvg2-2,
             xdg-utils,
             xss-lock,
             i3lock,
-            zenity,
             at-spi2-core,
             lxpolkit | policykit-1-gnome | mate-polkit
 Suggests: orca,
