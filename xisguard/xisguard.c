@@ -28,7 +28,7 @@
 #define REPORT_THROTTLE_S   1
 #define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.19"
+#define XISGUARD_VERSION    "0.4.20"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -1193,7 +1193,7 @@ static int show_xisserve_dialog(const struct Alert *alert) {
      * already expects. */
     if (has_args) {
         snprintf(xisserve_cmd, sizeof(xisserve_cmd),
-            "xisserve --question "
+            "xisserve --question --title=XisGuard "
             "--text='%s: %s (%s)\n"
                     "%s: %s (%d)' "
             "--button='%s:0' "
@@ -1210,7 +1210,7 @@ static int show_xisserve_dialog(const struct Alert *alert) {
             _(BTN_TRUST), _(BTN_TRUST_SESSION), _(BTN_ALLOW_EXACT), _(BTN_TRUST_EXACT));
     } else {
         snprintf(xisserve_cmd, sizeof(xisserve_cmd),
-            "xisserve --question "
+            "xisserve --question --title=XisGuard "
             "--text='%s: %s (%s)\n"
                     "%s: %s (%d)' "
             "--button='%s:0' "
@@ -1456,7 +1456,7 @@ static void *disabled_notice_loop(void *arg) {
     int is_xisserve = (dialog_backend == DIALOG_XISSERVE);
     /* argv is built before fork(): nothing but dup2/exec happens in the child. */
     char *argv_xisserve[] = {
-        "xisserve", "--question", text_arg, b_enable, b_keep, NULL };
+        "xisserve", "--question", "--title=XisGuard", text_arg, b_enable, b_keep, NULL };
     char ok_arg[200], cancel_arg[200];
     char *argv_zenity[] = {
         "zenity", "--question", "--title=XisGuard", "--icon-name=dialog-warning",
