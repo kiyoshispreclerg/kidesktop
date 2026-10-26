@@ -61,13 +61,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
-#define KISESSION_VERSION "0.1.16"
+#define KISESSION_VERSION "0.1.17"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -1002,6 +1004,96 @@ static int base_services_ready(void)
         }
     }
     return 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* cache prewarm                                                       */
+/* ------------------------------------------------------------------ */
+
+#define PREWARM_MAX_BYTES (32L * 1024 * 1024)
+
+typedef struct {
+    unsigned long ino;
+    char name[96];
+} PrewarmEnt;
+#define PREWARM_MAX_FILES 4096
+
+static PrewarmEnt g_prewarm_ents[PREWARM_MAX_FILES];
+
+static int prewarm_cmp_ino(const void *a, const void *b)
+{
+    unsigned long x = ((const PrewarmEnt *)a)->ino, y = ((const PrewarmEnt *)b)->ino;
+    return (x > y) - (x < y);
+}
+
+static void prewarm_file(const char *path)
+{
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd >= 0) {
+        posix_fadvise(fd, 0, 0, POSIX_FADV_WILLNEED);
+        close(fd);
+    }
+}
+
+/* Pulls the launcher's on-disk caches (the apps list and the shrunk-icon
+ * PNGs shared with xispanel) into the kernel page cache, so the first
+ * open of xisserve doesn't pay one disk seek per icon on a spinning disk.
+ * Page cache only: no process keeps the data, and the kernel drops it
+ * under memory pressure. Runs in a forked child at idle I/O priority and
+ * nice 19, so on any disk it only ever uses time nothing else wants; the
+ * files are visited in inode order for locality. Capped, and silent when
+ * the caches don't exist yet. */
+static void prewarm_caches(void)
+{
+    pid_t pid = fork();
+    if (pid != 0) {
+        return;
+    }
+    setpriority(PRIO_PROCESS, 0, 19);
+    syscall(SYS_ioprio_set, 1 /* IOPRIO_WHO_PROCESS */, 0, 3 << 13 /* IOPRIO_CLASS_IDLE */);
+
+    char dir[PATH_MAX / 2];
+    const char *xdg = getenv("XDG_CACHE_HOME");
+    const char *home = getenv("HOME");
+    if (xdg && xdg[0] == '/') {
+        snprintf(dir, sizeof(dir), "%s", xdg);
+    } else if (home && *home) {
+        snprintf(dir, sizeof(dir), "%s/.cache", home);
+    } else {
+        _exit(0);
+    }
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/xisserve-apps.cache", dir);
+    prewarm_file(path);
+
+    snprintf(path, sizeof(path), "%s/xispanel/icons", dir);
+    DIR *d = opendir(path);
+    if (!d) {
+        _exit(0);
+    }
+    size_t n = 0;
+    struct dirent *de;
+    while (n < PREWARM_MAX_FILES && (de = readdir(d))) {
+        if (de->d_name[0] == '.' || strlen(de->d_name) >= sizeof(g_prewarm_ents[0].name)) {
+            continue;
+        }
+        g_prewarm_ents[n].ino = (unsigned long)de->d_ino;
+        snprintf(g_prewarm_ents[n].name, sizeof(g_prewarm_ents[n].name), "%s", de->d_name);
+        n++;
+    }
+    closedir(d);
+    qsort(g_prewarm_ents, n, sizeof(g_prewarm_ents[0]), prewarm_cmp_ino);
+    long total = 0;
+    for (size_t i = 0; i < n && total < PREWARM_MAX_BYTES; i++) {
+        char f[PATH_MAX];
+        struct stat st;
+        snprintf(f, sizeof(f), "%s/xispanel/icons/%s", dir, g_prewarm_ents[i].name);
+        if (stat(f, &st) == 0) {
+            total += st.st_size;
+            prewarm_file(f);
+        }
+    }
+    _exit(0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1982,6 +2074,9 @@ int main(int argc, char **argv)
         }
     }
     g_services_started_at = time(NULL);
+    if (!g_quit) {
+        prewarm_caches();
+    }
 
     while (!g_quit) {
         if (g_child) {
