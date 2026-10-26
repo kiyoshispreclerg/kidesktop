@@ -287,10 +287,11 @@ above and **not** subject to the singleton behavior below -- any number
 of `--question` instances can be up at once, each its own process:
 
 ```
-xisserve --question --text=<pergunta> --button=<rotulo>:<valor> [--button=<rotulo>:<valor> ...]
+xisserve --question --text=<pergunta> --button=<rotulo>:<valor> [--button=<rotulo>:<valor> ...] [--title=<nome>]
 ```
 
-`--text` is the question shown in the popup; each `--button` (1-8 of
+`--text` is the question shown in the popup; `--title` sets the window
+title (default `xisserve`); each `--button` (1-8 of
 them, repeatable) adds one plain GTK2 button labeled `<rotulo>` that
 closes the dialog and answers with the int `<valor>` -- split on the
 *last* `:` in the argument, so a label is free to contain its own colons.

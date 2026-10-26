@@ -76,12 +76,13 @@ static gboolean on_key_press(GtkWidget *w, GdkEventKey *ev, gpointer data)
     return FALSE;
 }
 
-enum { QOPT_QUESTION = 1, QOPT_TEXT, QOPT_BUTTON };
+enum { QOPT_QUESTION = 1, QOPT_TEXT, QOPT_BUTTON, QOPT_TITLE };
 
 static const struct option kQuestionOpts[] = {
     {"question", no_argument, 0, QOPT_QUESTION},
     {"text", required_argument, 0, QOPT_TEXT},
     {"button", required_argument, 0, QOPT_BUTTON},
+    {"title", required_argument, 0, QOPT_TITLE},
     {0, 0, 0, 0},
 };
 
@@ -89,7 +90,7 @@ static void question_usage(void)
 {
     fprintf(stderr,
             "usage: xisserve --question --text=<pergunta> "
-            "--button=<rotulo>:<valor> [--button=<rotulo>:<valor> ...] "
+            "--button=<rotulo>:<valor> [--button=<rotulo>:<valor> ...] [--title=<nome>] "
             "(1-%d buttons)\n",
             QUESTION_MAX_BUTTONS);
 }
@@ -112,6 +113,7 @@ static int parse_button_arg(const char *arg, QuestionButton *out)
 int question_run(int argc, char **argv)
 {
     char text[1024] = "";
+    char title[128] = "xisserve";
     QuestionButton buttons[QUESTION_MAX_BUTTONS];
     int n_buttons = 0;
 
@@ -122,6 +124,7 @@ int question_run(int argc, char **argv)
         switch (c) {
         case QOPT_QUESTION: break; /* how main() knew to call us; nothing to do */
         case QOPT_TEXT: snprintf(text, sizeof(text), "%s", optarg); break;
+        case QOPT_TITLE: snprintf(title, sizeof(title), "%s", optarg); break;
         case QOPT_BUTTON:
             if (n_buttons >= QUESTION_MAX_BUTTONS) {
                 fprintf(stderr, "xisserve --question: too many --button, ignoring \"%s\"\n", optarg);
@@ -143,7 +146,7 @@ int question_run(int argc, char **argv)
     }
 
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(window), "xisserve");
+    gtk_window_set_title(GTK_WINDOW(window), title);
     gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER_ALWAYS);
     gtk_window_set_keep_above(GTK_WINDOW(window), TRUE);
     gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
