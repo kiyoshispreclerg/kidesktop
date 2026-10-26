@@ -1,0 +1,15 @@
+#!/bin/sh
+# Fake pkexec for the xisguard test matrix: logs the call and runs the command
+# as the current user, as if the polkit prompt had been accepted. Only ever
+# runs inside matrix.py's bwrap, where the system rules directory is a
+# writable test copy. If $XISGUARD_TEST_DIR/pkexec_fail exists it fails like
+# a cancelled prompt (exit 126) instead.
+dir=${XISGUARD_TEST_DIR:?}
+printf '%s pkexec' "$(date +%s.%N)" >>"$dir/pkexec.log"
+for a in "$@"; do printf ' [%s]' "$a" >>"$dir/pkexec.log"; done
+if [ -f "$dir/pkexec_fail" ]; then
+	echo " -> cancelled" >>"$dir/pkexec.log"
+	exit 126
+fi
+echo >>"$dir/pkexec.log"
+exec "$@"

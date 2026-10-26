@@ -56,7 +56,12 @@ uninstall:
 		rm -f $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/xisguard.mo; \
 	done
 
-clean:
-	rm -f xisguard po/*.mo
+# Test matrix in nested headless X servers, see tests/README.md.
+# MATRIX_ARGS="--quick -j 8" etc.
+matrix: xisguard
+	python3 tests/matrix.py $(MATRIX_ARGS)
 
-.PHONY: all clean install uninstall pot update-po mo
+clean:
+	rm -f xisguard po/*.mo tests/xprobe
+
+.PHONY: all clean install uninstall pot update-po mo matrix

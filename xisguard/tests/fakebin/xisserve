@@ -1,0 +1,26 @@
+#!/bin/sh
+# Fake xisserve for the xisguard test matrix: stands in for the permission
+# dialog (xisserve --question). Every call is logged to $XISGUARD_TEST_DIR/prompts.log
+# (one line, arguments joined by " ¦ ", then " ¦ state=X" with the asking
+# program's /proc state: T means xisguard paused it), and answered with the
+# button value in $XISGUARD_TEST_DIR/answer (default 99 = deny for this session).
+#
+# The "Xnotify protection is DISABLED" notice is not answered: like a user who
+# leaves it open, it waits until xisguard closes it (SIGTERM).
+dir=${XISGUARD_TEST_DIR:?}
+line=""
+for a in "$@"; do line="$line ¦ $a"; done
+line=$(printf '%s' "$line" | tr '\n' ' ')
+# The text ends with "(<pid>)", right before the first --button.
+pid=$(printf '%s' "$line" | sed -n 's/.*(\([0-9][0-9]*\)) ¦ --button.*/\1/p')
+state=-
+if [ -n "$pid" ] && [ -r "/proc/$pid/stat" ]; then
+	state=$(sed 's/.*) //' "/proc/$pid/stat" | cut -d' ' -f1)
+fi
+printf '%s %s ¦ state=%s\n' "$(date +%s.%N)" "$line" "$state" >>"$dir/prompts.log"
+case "$line" in
+*DISABLED*) exec sleep 3600 ;;
+esac
+answer=99
+[ -f "$dir/answer" ] && answer=$(cat "$dir/answer")
+echo "$answer"
