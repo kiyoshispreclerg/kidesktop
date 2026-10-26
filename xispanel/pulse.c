@@ -209,11 +209,7 @@ static void rstrip(char *s)
 
 /* `pactl get-default-sink`/`get-default-source`'s own one-line reply --
  * the technical device name (e.g. "alsa_output.pci-0000_00_1f.3.analog-
- * stereo"), not the human-readable Description `pactl list sinks` would
- * additionally have. Good enough to notice *that* the default changed
- * and to tell two devices apart in a toast; a prettier name is a
- * possible follow-up, not done here to keep this to what audio_events.c
- * actually needs (a value to diff against the last one seen). */
+ * stereo"); the public wrappers below swap it for the Description. */
 static int pulse_get_default_name(const char *which, char *out, size_t outsz)
 {
     out[0] = 0;
@@ -234,12 +230,54 @@ static int pulse_get_default_name(const char *which, char *out, size_t outsz)
     return ok && out[0];
 }
 
+/* Human-readable "Description:" of the sink/source called `dev` (what
+ * xisserve --audio shows), or `dev` itself when it can't be found. */
+static void pulse_describe(const char *which, const char *dev, char *out, size_t outsz)
+{
+    char args[32];
+    snprintf(args, sizeof(args), "list %ss", which);
+    FILE *f = pactl_run(args);
+    if (!f) {
+        return;
+    }
+    char line[512];
+    int in_block = 0;
+    while (fgets(line, sizeof(line), f)) {
+        rstrip(line);
+        if (line[0] != '\t') {
+            in_block = 0;
+        } else if (!strncmp(line, "\tName: ", 7)) {
+            in_block = strcmp(line + 7, dev) == 0;
+        } else if (in_block && !strncmp(line, "\tDescription: ", 14)) {
+            if (line[14]) {
+                snprintf(out, outsz, "%s", line + 14);
+            }
+            break;
+        }
+    }
+    pclose(f);
+}
+
 int pulse_get_default_sink_name(char *out, size_t outsz)
 {
-    return pulse_get_default_name("sink", out, outsz);
+    char dev[256];
+    if (!pulse_get_default_name("sink", dev, sizeof(dev))) {
+        out[0] = 0;
+        return 0;
+    }
+    snprintf(out, outsz, "%s", dev);
+    pulse_describe("sink", dev, out, outsz);
+    return 1;
 }
 
 int pulse_get_default_source_name(char *out, size_t outsz)
 {
-    return pulse_get_default_name("source", out, outsz);
+    char dev[256];
+    if (!pulse_get_default_name("source", dev, sizeof(dev))) {
+        out[0] = 0;
+        return 0;
+    }
+    snprintf(out, outsz, "%s", dev);
+    pulse_describe("source", dev, out, outsz);
+    return 1;
 }
