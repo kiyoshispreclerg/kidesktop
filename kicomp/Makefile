@@ -38,6 +38,7 @@ SRCS := src/main.c src/config.c src/dri3.c src/output.c src/renderer.c src/windo
         src/effects/wobbly.c \
         src/effects/visual-bell.c \
         src/effects/zoom.c \
+        src/effects/peek.c \
         src/effects/stats.c \
         ../shared/xis_match.c
 OBJS := $(SRCS:.c=.o)

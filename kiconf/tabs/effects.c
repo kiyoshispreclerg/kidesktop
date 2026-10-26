@@ -532,6 +532,9 @@ static const EffectField VISUAL_BELL_FIELDS[] = {
     FLD_INT("pulses", "Pulsos", "1", 1, 10),
     FLD_ENUM("origin", "Origem", "window", ORIGIN2_OPTS),
 };
+static const EffectField PEEK_FIELDS[] = {
+    FLD_DBL("duration", "Duracao (x base)", "1.0", 0, 10, 0.1, 2),
+};
 static const EffectField SHOW_WINDOWS_FIELDS[] = {
     FLD_STR("hotkey", "Atalho(s)", "Meta+A, Meta+W"),
     FLD_DBL("duration", "Duracao (x base)", "1.5", 0, 10, 0.1, 2),
@@ -612,6 +615,7 @@ static const EffectSchema EFFECT_SCHEMAS[] = {
     SCHEMA("stats", STATS_FIELDS),
     SCHEMA("zoom", ZOOM_FIELDS),
     SCHEMA("visual-bell", VISUAL_BELL_FIELDS),
+    SCHEMA("peek", PEEK_FIELDS),
     SCHEMA("show-windows", SHOW_WINDOWS_FIELDS),
     SCHEMA("cover-switch", COVER_SWITCH_FIELDS),
     SCHEMA("cube", CUBE_FIELDS),
@@ -622,7 +626,7 @@ static const EffectSchema EFFECT_SCHEMAS[] = {
 
 static const char *const EFFECT_NAMES[] = {
     "geometry", "fade-in", "fade-out", "scale-in", "scale-out", "slide-in", "slide-out", "shade", "minimize", "magic-lamp",
-    "desktop-wall", "dodge", "smooth-move", "wobbly", "expo", "stats", "zoom", "visual-bell",
+    "desktop-wall", "dodge", "smooth-move", "wobbly", "expo", "stats", "zoom", "visual-bell", "peek",
     "show-windows", "cover-switch", "cube", NULL,
 };
 

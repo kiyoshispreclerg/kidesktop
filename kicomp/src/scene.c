@@ -51,7 +51,7 @@ bool scene_wants_window(const CompWindow *w, const CompOutput *o)
      * instant it went, and the effect was left with nothing on
      * screen to animate. */
     if (w->stowed && comp.show_stowed_output != o->id &&
-        w->retain_count <= 1)
+        w->retain_count <= 1 && !peek_shows_stowed(w))
         return false;
 
     /* And a window that is on screen *only* to be photographed

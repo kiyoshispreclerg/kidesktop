@@ -1752,6 +1752,34 @@ and off, and a window can be dragged by the titlebar you can see. Under
 any other anchoring the desktop becomes a picture of itself, correct to
 look at and impossible to aim at.
 
+### `peek`
+
+Hovering a window's thumbnail in the panel's tasklist tooltip makes every
+other window of that monitor dissolve, so the one being pointed at is seen
+on its own (Windows 7's Aero Peek). Off by default.
+
+```ini
+[effect:peek]
+enabled  = 1
+duration = 1.0
+```
+
+The panel and the compositor talk through one root property,
+`_KICOMP_PEEK` (`WINDOW[1]`): the client window being hovered, deleted when
+the hover ends. It is state rather than an event, so the panel rewrites it
+about once a second while the hover lasts and a peek that is not renewed
+for 3 s ends by itself — a panel that died mid-hover cannot leave the
+desktop invisible.
+
+Each window gets one opacity ramp and the fade is a pure 0↔100% at the
+global animation speed. Moving from one thumbnail to the next retargets the
+ramps from where they are, so the windows cross-fade. A window that is
+minimized is brought in from its kept picture, but only when it belongs to
+the desktop its output is showing now. Fully transparent windows leave the
+scene altogether, so a peek costs less to draw than the desktop it hides.
+Docks, menus, the wallpaper and the panel's own popup never take part, and
+a cube, expo or switcher on the output takes precedence.
+
 ### `visual-bell`
 
 A terminal with an empty input line answers a backspace by ringing the
@@ -2337,7 +2365,7 @@ src/
                       scale-in, scale-out, slide-in, slide-out, shade,
                       minimize, magic-lamp, desktop-wall, smooth-move,
                       dodge, wobbly, show-windows, expo, cover-switch,
-                      cube, visual-bell, zoom, stats
+                      cube, visual-bell, peek, zoom, stats
   dri3.c              DRI3: dma-bufs behind pixmaps, both ways
   renderer.h          renderer vtable
   renderer.c          the core's side of it: one wrapper per backend hook

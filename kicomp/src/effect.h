@@ -449,4 +449,12 @@ int zoom_density_level(int output_id);
 
 extern const CompEffectModule effect_stats;
 
+/* peek: the panel hovering a window's thumbnail (_KICOMP_PEEK on the
+ * root) makes the others dissolve. peek_request() takes the property's
+ * window, 0 for "none"; peek_shows_stowed() is scene_wants_window's
+ * question about a minimized window taking part. */
+extern const CompEffectModule effect_peek;
+void peek_request(xcb_window_t id);
+bool peek_shows_stowed(const CompWindow *w);
+
 #endif /* KICOMP_EFFECT_H */

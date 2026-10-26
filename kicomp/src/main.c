@@ -33,7 +33,7 @@
 
 #define _GNU_SOURCE             /* ppoll */
 
-#define KICOMP_VERSION "0.3.73"
+#define KICOMP_VERSION "0.3.74"
 
 #include "../../shared/xis_i18n.h"
 
@@ -116,6 +116,24 @@ static void read_switcher_request(void)
     if (len >= 2)
         cover_switch_external(xcb_get_property_value(r), len);
     free(r);
+}
+
+/* The window the panel is hovering, or none (effects/peek.c). The
+ * property is the state: whatever it holds now is what is wanted. */
+static void read_peek_request(bool deleted)
+{
+    xcb_window_t win = XCB_NONE;
+
+    if (!deleted) {
+        xcb_get_property_reply_t *r = xcb_get_property_reply(comp.conn,
+            xcb_get_property(comp.conn, 0, comp.root, comp.atoms.kicomp_peek,
+                             XCB_ATOM_WINDOW, 0, 1), NULL);
+        if (r && r->type == XCB_ATOM_WINDOW &&
+            xcb_get_property_value_length(r) >= 4)
+            win = *(xcb_window_t *)xcb_get_property_value(r);
+        free(r);
+    }
+    peek_request(win);
 }
 
 static xcb_window_t read_active_window(void)
@@ -242,6 +260,7 @@ static void atoms_init(void)
     comp.atoms.kicomp_quit            = intern("_KICOMP_QUIT");
     comp.atoms.kicomp_switcher        = intern("_KICOMP_SWITCHER");
     comp.atoms.kicomp_effects         = intern("_KICOMP_EFFECTS");
+    comp.atoms.kicomp_peek            = intern("_KICOMP_PEEK");
     comp.atoms.kicomp_stowed_pixmap   = intern("_KICOMP_STOWED_PIXMAP");
     capture_init();
 
@@ -938,6 +957,8 @@ static void handle_event(xcb_generic_event_t *ev)
                 window_focus_changed(read_active_window());
             } else if (e->atom == comp.atoms.kicomp_switcher) {
                 read_switcher_request();
+            } else if (e->atom == comp.atoms.kicomp_peek) {
+                read_peek_request(e->state == XCB_PROPERTY_DELETE);
             } else if (e->atom == comp.atoms.net_current_desktop ||
                        e->atom == comp.atoms.kiwm_output_desktop ||
                        e->atom == comp.atoms.kiwm_outputs ||

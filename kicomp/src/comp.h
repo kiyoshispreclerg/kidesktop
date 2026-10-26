@@ -637,6 +637,7 @@ typedef struct KiComp {
 
     struct {
         xcb_atom_t net_wm_cm;
+        xcb_atom_t kicomp_peek;     /* the panel hovering a window (effects/peek.c) */
         xcb_atom_t net_wm_window_opacity;
         xcb_atom_t net_wm_bypass_compositor;
         xcb_atom_t xrootpmap_id;
