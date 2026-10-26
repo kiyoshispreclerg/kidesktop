@@ -1235,6 +1235,11 @@ typedef struct {
      * run_deco_button()), so the release has to fire the action the
      * *press* was for, not whichever button happens to come up. */
     uint8_t pressed_button;
+    /* The press was on a close button and left the focus and stacking
+     * alone -- the window is about to go, and bringing it forward first
+     * only makes compositors animate a raise nobody wanted. Focused on
+     * release instead if the click is taken back. */
+    bool pressed_unfocused;
 
     /* Titlebar element order, kiwm.conf's titlebar_layout= -- see
      * DecoElemKind and decoration.h's compute_deco_layout(). Defaults (see

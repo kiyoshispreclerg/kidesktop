@@ -616,6 +616,21 @@ static void run_deco_button(Client *c, DecoElemKind kind, uint8_t button, int sl
     }
 }
 
+/* A plain left press on an enabled close button of a window's titlebar. */
+static bool press_on_close_button(Client *c, const xcb_button_press_event_t *ev)
+{
+    if (ev->detail != XCB_BUTTON_INDEX_1 || (ev->state & wm.mod_key) ||
+        ev->event != c->frame || !c->allow_close || !client_deco_visible(c))
+        return false;
+    int rel_x = ev->root_x - c->x;
+    int rel_y = ev->root_y - c->y;
+    if (rel_y < 0 || rel_y >= TITLEBAR_H)
+        return false;
+    DecoSlot slots[MAX_DECO_ELEMS];
+    int idx = deco_slot_at(c, rel_x, slots, MAX_DECO_ELEMS);
+    return idx >= 0 && slots[idx].kind == DECO_CLOSE;
+}
+
 static void handle_button_press(xcb_button_press_event_t *ev)
 {
     /* A press on one of the invisible ring windows outside a frame
@@ -668,9 +683,11 @@ static void handle_button_press(xcb_button_press_event_t *ev)
     if (ev->event == c->window && ev->detail == XCB_BUTTON_INDEX_1 &&
         !(ev->state & wm.mod_key) && clickraise_wants(c))
         clickraise_defer(c);
-    else if (!mod_drag)
+    else if (!mod_drag && !press_on_close_button(c, ev))
         /* A ModKey move/resize leaves the focus and the stacking as they
-         * are: the window is handled where it is, not brought forward. */
+         * are: the window is handled where it is, not brought forward.
+         * Neither does a press on the close button (handle_button_release()
+         * focuses after all if the click is taken back). */
         focus_client(c);
 
     int rel_x = ev->root_x - c->x;
@@ -707,6 +724,7 @@ static void handle_button_press(xcb_button_press_event_t *ev)
             wm.pressed_client = c;
             wm.pressed_btn = idx;
             wm.pressed_button = ev->detail;
+            wm.pressed_unfocused = slots[idx].kind == DECO_CLOSE && press_on_close_button(c, ev);
             draw_decoration(c);
             xcb_flush(wm.conn);
             return;
@@ -1682,6 +1700,8 @@ static void handle_button_release(xcb_button_release_event_t *ev)
         Client *c = wm.pressed_client;
         int armed = wm.pressed_btn;
         uint8_t armed_button = wm.pressed_button;
+        bool skipped_focus = wm.pressed_unfocused;
+        wm.pressed_unfocused = false;
         wm.pressed_client = NULL;
         wm.pressed_btn = -1;
         wm.pressed_button = 0;
@@ -1690,6 +1710,8 @@ static void handle_button_release(xcb_button_release_event_t *ev)
          * actions on the maximize button, a release from some *other*
          * button held at the same time must not stand in for it. */
         if (ev->detail != armed_button) {
+            if (skipped_focus)
+                focus_client(c);
             draw_decoration(c);
             xcb_flush(wm.conn);
             return;
@@ -1707,6 +1729,8 @@ static void handle_button_release(xcb_button_release_event_t *ev)
 
         if (on_titlebar && idx >= 0 && idx == armed)
             run_deco_button(c, slots[idx].kind, armed_button, slots[idx].x);
+        else if (skipped_focus)
+            focus_client(c);
         xcb_flush(wm.conn);
         return;
     }
