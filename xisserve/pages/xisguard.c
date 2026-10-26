@@ -7,8 +7,9 @@
  * for the list (the guard keeps the last reports in memory), GET_STATUS
  * for the protection state, REVOKE_ACCESS for the button, which puts a
  * permanent DENY rule first for that program and action (removable in
- * kiconf's Permissoes tab). Programs in the guard's ignore.conf are listed
- * last, dimmed. Opened by xispanel's `xisguard` widget.
+ * kiconf's Permissoes tab). Programs stay listed however long ago they
+ * last reported; those in the guard's ignore.conf are dimmed, listed last
+ * and only behind "Mostrar mais". Opened by xispanel's `xisguard` widget.
  */
 #include "../xisserve.h"
 
@@ -233,9 +234,11 @@ static void age_text(long ts, long now, char *out, size_t outsz)
         snprintf(out, outsz, d < 7200 ? _("%ld hora atr\xc3\xa1s") : _("%ld horas atr\xc3\xa1s"), d / 3600);
 }
 
-static gboolean row_visible(const ActiveRow *r, long now)
+/* Programs that are not ignored stay listed however long ago they last
+ * reported; the ignored ones are behind "Mostrar mais", whatever their age. */
+static gboolean row_visible(const ActiveRow *r)
 {
-    return g_show_past || now - r->ts <= XG_NOW_SECS;
+    return !r->ignored || g_show_past;
 }
 
 typedef struct {
@@ -410,7 +413,7 @@ static void add_group(const ActiveRow *rows, int n, gboolean ignored, long now, 
     gboolean done[XG_MAX_ROWS] = { FALSE };
     gboolean any = FALSE;
     for (int i = 0; i < n; i++) {
-        if (done[i] || rows[i].ignored != ignored || !row_visible(&rows[i], now))
+        if (done[i] || rows[i].ignored != ignored || !row_visible(&rows[i]))
             continue;
         if (!any && ignored) {
             gtk_box_pack_start(GTK_BOX(g_box), gtk_hseparator_new(), FALSE, FALSE, 4);
@@ -435,7 +438,7 @@ static void add_group(const ActiveRow *rows, int n, gboolean ignored, long now, 
         for (int j = i; j < n; j++) {
             if (!done[j] && rows[j].ignored == ignored && strcmp(rows[j].exe, rows[i].exe) == 0) {
                 done[j] = TRUE;
-                if (!row_visible(&rows[j], now))
+                if (!row_visible(&rows[j]))
                     continue;
                 gtk_box_pack_start(GTK_BOX(g_box), build_action_row(&rows[j], now, ignored, permissive), FALSE, FALSE, 1);
             }
@@ -500,14 +503,12 @@ static void rebuild(void)
     if (n == 0) {
         add_label(_("Nenhum programa usou recursos protegidos desde que o XisGuard iniciou."), 0.9, TRUE);
     } else {
-        int n_now = 0;
+        int n_ignored = 0;
         for (int i = 0; i < n; i++)
-            n_now += now - rows[i].ts <= XG_NOW_SECS;
-        if (!n_now && !g_show_past)
-            add_label(_("Nenhum programa usando recursos protegidos agora."), 0.9, TRUE);
+            n_ignored += rows[i].ignored;
         add_group(rows, n, FALSE, now, permissive);
         add_group(rows, n, TRUE, now, permissive);
-        if (n_now < n) {
+        if (n_ignored) {
             GtkWidget *more = gtk_button_new_with_label(g_show_past ? _("Mostrar menos") : _("Mostrar mais"));
             g_signal_connect(more, "clicked", G_CALLBACK(on_more_clicked), NULL);
             GtkWidget *hb = gtk_hbox_new(FALSE, 0);
