@@ -41,7 +41,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KIWM_VERSION "0.6.5"
+#define KIWM_VERSION "0.6.6"
 
 #include "../shared/xis_i18n.h"
 
@@ -648,6 +648,12 @@ int main(int argc, char **argv)
         if (peek_in >= 0 && (timeout < 0 || peek_in < timeout))
             timeout = peek_in;
 
+        /* ...and while a _NET_WORKAREA change settles (output.c). */
+        ewmh_workarea_run();
+        int wa_in = ewmh_workarea_timeout_ms();
+        if (wa_in >= 0 && (timeout < 0 || wa_in < timeout))
+            timeout = wa_in;
+
         int n_a11y = a11y_pollfds(fds + 2, 32, &timeout);
         int ready = poll(fds, (nfds_t)(2 + n_a11y), timeout);
         a11y_dispatch(ready > 0 ? fds + 2 : NULL, n_a11y);
@@ -668,6 +674,7 @@ int main(int argc, char **argv)
             client_run_peek();
             deco_density_run_retired();
             findcursor_run();
+            ewmh_workarea_run();
             continue;
         }
         if (fds[1].revents & POLLIN) {

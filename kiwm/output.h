@@ -109,6 +109,8 @@ void desktop_layers_apply(int output_idx);
  * way client.c's pending expose rounds are. */
 void desktop_layers_prime(void);
 int  desktop_layers_prime_timeout_ms(void);
+int  ewmh_workarea_timeout_ms(void);
+void ewmh_workarea_run(void);
 void desktop_layers_run_prime(void);
 void compute_output_workarea(int output_idx, int *x, int *y, int *w, int *h);
 /* The window_gap= in effect on an output right now (0 while

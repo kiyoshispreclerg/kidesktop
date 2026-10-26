@@ -723,8 +723,56 @@ static void publish_without_gap(int output_idx, int *x, int *y, int *w, int *h)
  * exact usable area per output is still what maximize actually uses
  * (compute_output_workarea()), and is still exposed losslessly through the
  * _KIWM_* protocol (PROTOCOL.md), which has no one-rectangle problem. */
+/* The property is published a beat after the last change, and only if its
+ * value differs from what is already there. A panel going floating changes
+ * _KIWM_WINDOW_GAP and its strut in two separate requests, and between them
+ * the rectangle is briefly wrong (strut still flat, gap already on: the top
+ * edge 10 px too high). Qt answers every _NET_WORKAREA write by re-applying
+ * its windows' geometry, so that transient -- and the same value rewritten
+ * five times -- walked VirtualBox's windows down by the decoration insets on
+ * each flip. Refitting kiwm's own tiled windows is not deferred. */
+#define WORKAREA_SETTLE_MS 60.0
+static bool workarea_dirty;
+static double workarea_due;
+static bool workarea_published;
+static uint32_t workarea_last[MAX_DESKTOPS * 4];
+static int workarea_last_n;
+
+int ewmh_workarea_timeout_ms(void)
+{
+    if (!workarea_dirty)
+        return -1;
+    double left = workarea_due - monotonic_ms();
+    return left <= 0 ? 0 : (int)left + 1;
+}
+
+static void ewmh_publish_workarea(void);
+
+void ewmh_workarea_run(void)
+{
+    if (workarea_dirty && monotonic_ms() >= workarea_due)
+        ewmh_publish_workarea();
+}
+
 static void ewmh_set_workarea(void)
 {
+    if (!workarea_published) {
+        ewmh_publish_workarea();
+    } else {
+        workarea_dirty = true;
+        workarea_due = monotonic_ms() + WORKAREA_SETTLE_MS;
+    }
+
+    /* The usable area just changed, so every window whose size kiwm (not
+     * the user) decided has to be recomputed against it -- a maximized
+     * window has to give a newly-arrived panel its space back, and get it
+     * back when that panel goes away. See client.c. */
+    refit_tiled_clients();
+}
+
+static void ewmh_publish_workarea(void)
+{
+    workarea_dirty = false;
     int x = 0, y = 0, right = wm.screen_w, bottom = wm.screen_h;
     bool first = true;
 
@@ -756,15 +804,17 @@ static void ewmh_set_workarea(void)
         area[i * 4 + 2] = (uint32_t)w;
         area[i * 4 + 3] = (uint32_t)h;
     }
+    int n = wm.num_desktops * 4;
+    if (workarea_published && n == workarea_last_n &&
+        memcmp(area, workarea_last, sizeof(uint32_t) * (size_t)n) == 0)
+        return;
+    memcpy(workarea_last, area, sizeof(uint32_t) * (size_t)n);
+    workarea_last_n = n;
+    workarea_published = true;
     xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, wm.root,
                         wm.atoms.net_workarea, XCB_ATOM_CARDINAL, 32,
-                        (uint32_t)(wm.num_desktops * 4), area);
-
-    /* The usable area just changed, so every window whose size kiwm (not
-     * the user) decided has to be recomputed against it -- a maximized
-     * window has to give a newly-arrived panel its space back, and get it
-     * back when that panel goes away. See client.c. */
-    refit_tiled_clients();
+                        (uint32_t)n, area);
+    xcb_flush(wm.conn);
 }
 
 /* The virtual screen's size and origin. kiwm has no viewport scrolling, so
