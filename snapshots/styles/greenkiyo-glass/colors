@@ -1,0 +1,112 @@
+# Focused/unfocused titlebar + border colors for this theme (kiwm only).
+# All "#rrggbb". Any key left out falls back to kiwm.conf's deco_bg=/
+# deco_fg=/border_color= (which in turn default to a plain black/white
+# titlebar with no focus differentiation beyond an opacity tint) -- so a
+# theme can override just the colors it cares about.
+#
+# bg_active/bg_inactive tint the titlebar (bg.png, if present, still shows
+# through underneath -- this is painted as a translucent overlay, not a
+# full replacement). fg_active/fg_inactive are the title text color.
+# border_active/border_inactive are the side/bottom border color
+# (kiwm.conf's border_thickness=), if a border is configured.
+
+bg_active=#1c931ed0
+bg_inactive=#d9e6ccd0
+fg_active=#ffffff
+fg_inactive=#505050
+border_active=#1c931ed0
+border_inactive=#d9e6ccd0
+
+# Fallback button fill color, used only for buttons a btns.png sprite
+# doesn't cover (or when this theme ships no btns.png at all -- the
+# scenario this pair of keys is really for, see greenkiyo, a colors-only
+# theme). Both #rrggbb or #rrggbbaa; the alpha is the button's plain
+# resting-state opacity, hover/pressed scale it up automatically (no
+# separate keys for those). Different active/inactive values here are
+# what let a colors-only theme's buttons visibly change with window
+# focus, the same way bg_active=/bg_inactive= already do for the
+# titlebar itself.
+#button_bg_active=#1c931e88
+#button_bg_inactive=#d9e6cc88
+
+# Fallback button *glyph* color (the X/square/pin cairo draws when no
+# btns.png sprite covers a button) -- unset by default, in which case the
+# glyph just matches fg_active=/fg_inactive= above (the title text color)
+# at full opacity, so most themes never need this pair at all. Set one
+# only to make the glyph color differ from the title text.
+#button_fg_active=#ffffff
+#button_fg_inactive=#505050
+
+# Title text: Fontconfig family name and pixel size. Both optional --
+# default is "sans-serif" at 12.5px (kiwm's old hardcoded look) if left out.
+# Rendered via Pango (pango_text.c), so any script the system's Fontconfig
+# database covers falls back correctly instead of showing blank glyphs.
+font=Comic Relief
+font_size=12.5
+
+# Weight and slant of that title text: font_weight= takes a name (thin,
+# ultralight, light, semilight, book, normal, medium, semibold, bold,
+# ultrabold, heavy/black) or a raw 100-1000 Pango weight; font_style=
+# takes normal, italic or oblique. Both default to normal, and both apply
+# to the titlebar only -- the switcher and window-menu text keep the plain
+# face.
+font_weight=bold
+#font_style=normal
+
+# Optional title text effects, both off unless given a color (or with the
+# color set to "none"). title_shadow= draws the same text again underneath,
+# offset by title_shadow_offset= ("dx dy", or one number for both axes;
+# negatives cast it up/left; default "1 1"). title_outline= strokes the
+# glyph outlines at title_outline_width= pixels (default 1, max 8), the
+# stroke straddling the letter's edge. Both take #rrggbb or #rrggbbaa, and
+# both keep their alpha -- a semi-transparent shadow is usually what you want
+# over a colored titlebar.
+title_shadow=#00000099
+title_shadow_offset=1 1
+#title_outline=#000000
+#title_outline_width=1
+
+# Center the title within its slot instead of left-aligned with an 8px pad.
+# The title element is always the greedy one in titlebar_layout= (it soaks
+# up whatever width the other elements don't use), so this is just a text
+# alignment flag -- no separate spacer element needed either way.
+title_center=1
+
+# Per-button hover tint: the color the button under the pointer is washed
+# in, one key per titlebar_layout= button (close, maximize, minimize,
+# shade, keep_above, keep_all_desktops), each #rrggbb or #rrggbbaa and
+# each off until given one ("none" turns one back off). The alpha is what
+# lets the sprite's own shading read through -- Klassy's colored hover
+# buttons are the idea. Applies only while the pointer is on the button;
+# a toggle button being *on* keeps the theme's normal active look.
+#
+# button_tinting= says what the color does: over (default) composites it
+# over the button as drawn, replace paints the button's own shape flat in
+# that color instead, none ignores every tint above without deleting them.
+#
+# button_tint_scope= says how far it reaches: button (default) tints only
+# the button under the pointer; decoration washes the whole titlebar and
+# its borders in that button's color instead (pointing at close turns the
+# frame red for as long as the pointer is there); both does the two at
+# once. With decoration/both the title and the buttons are drawn on top of
+# the wash, so the frame recolors rather than blanks.
+button_tint_scope=decoration
+button_tinting=replace
+close_button_tint=#dd2222
+#maximize_button_tint=#2288ddaa
+#minimize_button_tint=#22aa55aa
+#shade_button_tint=none
+#keep_above_button_tint=none
+#keep_all_desktops_button_tint=none
+
+# Frame corner rounding in pixels, clipped via the XCB SHAPE extension
+# (no compositor needed). 1 number = all 4 corners; 2 = top corners,
+# bottom corners; 4 = top-left, top-right, bottom-right, bottom-left
+# (CSS border-radius order). 0 (default) = square corners.
+border_radius=8
+
+# Keep rounding maximized windows' corners too (1) or square them off
+# instead (0, the default even without this line). A window that exactly
+# fills its whole output (also what a future real fullscreen state would
+# look like) is NEVER rounded either way -- not configurable.
+round_maximized=0
