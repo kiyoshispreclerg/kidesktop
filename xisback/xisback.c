@@ -97,7 +97,7 @@ int xis_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int 
 int xis_fd(void);
 int xis_poll_change(void);
 
-#define XISBACK_VERSION "0.4.17"
+#define XISBACK_VERSION "0.4.18"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -1202,9 +1202,20 @@ static void refresh_all_layer_geometries(void)
 {
     for (int i = 0; i < MAX_LAYERS; i++) {
         if (g_layers[i].in_use) {
-            layer_finish_fade(&g_layers[i]);
-            layer_ensure_window(&g_layers[i]);
-            layer_render(&g_layers[i], 0);
+            Layer *l = &g_layers[i];
+            layer_finish_fade(l);
+            Window old_win = l->win;
+            int ow = l->width, oh = l->height;
+            layer_ensure_window(l);
+            /* Same window, same size and an image already on it: the
+             * WM/compositor taking its selection at login lands here with
+             * nothing changed, and decoding every wallpaper again (big
+             * PNGs, on a slow disk) only makes the background flash. */
+            if (l->win != None && l->win == old_win && l->width == ow && l->height == oh &&
+                l->cur_pixmap != None && !l->unloaded) {
+                continue;
+            }
+            layer_render(l, 0);
         }
     }
     malloc_trim(0);
