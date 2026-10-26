@@ -110,6 +110,22 @@ INPUTSCALE_LDLIBS :=
 $(info xispanel: xcb/xcb-randr/x11-xcb not found via pkg-config -- building without X-INPUT-SCALE support)
 endif
 
+# xi (containerwatch.c: XInput2 raw button presses, how an open container
+# popup notices a click outside it without holding the pointer). Without
+# libxi-dev, containerwatch_stub.c is linked and the popup keeps an active
+# pointer grab instead.
+HAVE_XI := $(shell pkg-config --exists xi && echo yes)
+ifeq ($(HAVE_XI),yes)
+CWATCH_SRCS := containerwatch.c
+CWATCH_CPPFLAGS := $(shell pkg-config --cflags xi)
+CWATCH_LDLIBS := $(shell pkg-config --libs xi)
+else
+CWATCH_SRCS := containerwatch_stub.c
+CWATCH_CPPFLAGS :=
+CWATCH_LDLIBS :=
+$(info xispanel: xi not found via pkg-config -- container popups keep a pointer grab)
+endif
+
 # atk + atk-bridge-2.0 (a11y.c: screen reader support through AT-SPI) --
 # optional like dbus-1: without the -dev packages a11y_stub.c is linked
 # and the panels are simply invisible to screen readers.
@@ -125,8 +141,8 @@ A11Y_LDLIBS :=
 $(info xispanel: atk/atk-bridge-2.0 not found via pkg-config -- building without screen reader support)
 endif
 
-CPPFLAGS := $(shell pkg-config --cflags $(PKGS)) $(A11Y_CPPFLAGS) $(DBUS_CPPFLAGS) $(THUMB_CPPFLAGS) $(MODTAP_CPPFLAGS) $(DENSITY_CPPFLAGS) $(INPUTSCALE_CPPFLAGS)
-LDLIBS := $(shell pkg-config --libs $(PKGS)) $(THUMB_LDLIBS) $(MODTAP_LDLIBS) $(DENSITY_LDLIBS) $(INPUTSCALE_LDLIBS) $(A11Y_LDLIBS) -lm -ldl
+CPPFLAGS := $(shell pkg-config --cflags $(PKGS)) $(A11Y_CPPFLAGS) $(DBUS_CPPFLAGS) $(THUMB_CPPFLAGS) $(MODTAP_CPPFLAGS) $(DENSITY_CPPFLAGS) $(INPUTSCALE_CPPFLAGS) $(CWATCH_CPPFLAGS)
+LDLIBS := $(shell pkg-config --libs $(PKGS)) $(THUMB_LDLIBS) $(MODTAP_LDLIBS) $(DENSITY_LDLIBS) $(INPUTSCALE_LDLIBS) $(CWATCH_LDLIBS) $(A11Y_LDLIBS) -lm -ldl
 
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
@@ -162,7 +178,7 @@ MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 # directly in, same as every other source file here, so each program
 # stays independently buildable and installable on its own (no shared
 # library to depend on at runtime).
-SRCS := xispanel.c modules.c ewmh.c menu.c tooltip.c toast.c launchfx.c xdnd.c hotkey.c keynav.c $(A11Y_SRCS) $(MODTAP_SRCS) asyncmd.c pulse.c audio_events.c network.c storage.c storage_events.c xisguard_events.c pango_text.c $(DBUS_SRCS) $(THUMB_SRCS) $(DENSITY_SRCS) $(INPUTSCALE_SRCS) widgets/spacer.c widgets/clock.c widgets/tasklist.c widgets/winctl.c widgets/tray.c widgets/launcher.c widgets/volume.c widgets/globalmenu.c widgets/folder.c widgets/xisserve.c widgets/notif.c widgets/pager.c widgets/monitor.c widgets/energy.c widgets/container.c widgets/network.c widgets/storage.c widgets/clipboard.c widgets/lockkeys.c widgets/xisguard.c ../shared/xis_outputs.c ../shared/xis_spawn.c ../shared/xis_desktop_actions.c ../shared/xis_pactl_subscribe.c ../shared/xis_icon_cache.c ../shared/xis_direction.c
+SRCS := xispanel.c modules.c ewmh.c menu.c tooltip.c toast.c launchfx.c xdnd.c hotkey.c keynav.c $(CWATCH_SRCS) $(A11Y_SRCS) $(MODTAP_SRCS) asyncmd.c pulse.c audio_events.c network.c storage.c storage_events.c xisguard_events.c pango_text.c $(DBUS_SRCS) $(THUMB_SRCS) $(DENSITY_SRCS) $(INPUTSCALE_SRCS) widgets/spacer.c widgets/clock.c widgets/tasklist.c widgets/winctl.c widgets/tray.c widgets/launcher.c widgets/volume.c widgets/globalmenu.c widgets/folder.c widgets/xisserve.c widgets/notif.c widgets/pager.c widgets/monitor.c widgets/energy.c widgets/container.c widgets/network.c widgets/storage.c widgets/clipboard.c widgets/lockkeys.c widgets/xisguard.c ../shared/xis_outputs.c ../shared/xis_spawn.c ../shared/xis_desktop_actions.c ../shared/xis_pactl_subscribe.c ../shared/xis_icon_cache.c ../shared/xis_direction.c
 OBJS := $(SRCS:.c=.o)
 
 all: xispanel

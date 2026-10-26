@@ -66,6 +66,7 @@
 #include "../shared/xis_direction.h"
 
 #include <Imlib2.h>
+#include <strings.h>
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
 #include <X11/Xlib.h>
@@ -100,7 +101,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define XISPANEL_VERSION "0.7.29"
+#define XISPANEL_VERSION "0.7.30"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 128KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -4259,17 +4260,167 @@ static void container_place(Panel *q)
     XMoveWindow(g_dpy, q->win, x, y);
 }
 
-/* owner_events=True, unlike a menu's grab: events over any of our own
- * windows (the popup itself, every panel, a toast) are delivered to that
- * window normally, so the popup's widgets, the owner bar and everything
- * else keep working while it's open. Only a click that lands on nothing
- * of ours comes back reported against the popup window, with coordinates
- * outside it -- that's the "clicked outside, dismiss" signal (see
- * container_handle_event()). */
+/* How an open container popup lives with the rest of the screen.
+ *
+ * It holds no pointer grab. A grab made the popup swallow the first click
+ * on a xisserve window opened from it (and any hover before that), when
+ * the point of opening one from the popup is to use it with the popup
+ * still there. Instead the popup watches, passively:
+ *
+ *   - XInput2 raw presses (containerwatch.c): a press that lands on
+ *     neither one of our own windows nor a xisserve window closes it;
+ *   - the root's map/unmap events: a xisserve window that appeared while
+ *     the popup was open is remembered, and the popup closes when that
+ *     window goes -- xisserve dismisses itself when it loses the focus, so
+ *     the two end together.
+ *
+ * Without XInput2 (no libxi at build time) the old active pointer grab
+ * with owner_events=True is the fallback: events over our own windows are
+ * delivered normally, and a click that lands on nothing of ours comes
+ * back reported against the popup with coordinates outside it (see
+ * container_handle_event()). The keyboard grab stays (Escape closes the
+ * popup) until a xisserve window shows up, which needs the keyboard for
+ * itself. Once a xisserve window is being followed, outside clicks no
+ * longer close the popup by themselves -- the window's own focus-out
+ * does, and the popup with it. */
+static int g_cw_ok;
+static Window g_cont_xis = None;   /* the xisserve frame the popup follows */
+static long g_cont_root_mask_added;
+
 static void container_grab(Panel *q)
 {
-    XGrabPointer(g_dpy, q->win, True, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
-    XGrabKeyboard(g_dpy, q->win, True, GrabModeAsync, GrabModeAsync, CurrentTime);
+    if (!g_cw_ok) {
+        XGrabPointer(g_dpy, q->win, True, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
+    }
+    if (g_cont_xis == None) {
+        XGrabKeyboard(g_dpy, q->win, True, GrabModeAsync, GrabModeAsync, CurrentTime);
+    }
+}
+
+/* 1 = one of our own windows, 2 = a xisserve window, 0 = anything else.
+ * `top` is a child of the root, so possibly a WM frame: its own class
+ * first, then its children's. */
+static int window_kind(Window top)
+{
+    Window rw, parent, *kids = NULL;
+    unsigned int n = 0;
+    Window cand[16];
+    int nc = 0;
+    cand[nc++] = top;
+    if (XQueryTree(g_dpy, top, &rw, &parent, &kids, &n) && kids) {
+        for (unsigned int i = 0; i < n && nc < 16; i++) {
+            cand[nc++] = kids[i];
+        }
+        XFree(kids);
+    }
+    for (int i = 0; i < nc; i++) {
+        XClassHint ch = {0};
+        if (!XGetClassHint(g_dpy, cand[i], &ch)) {
+            continue;
+        }
+        int kind = 0;
+        if ((ch.res_name && !strcasecmp(ch.res_name, "xispanel")) ||
+            (ch.res_class && !strcasecmp(ch.res_class, "xispanel"))) {
+            kind = 1;
+        } else if ((ch.res_name && !strcasecmp(ch.res_name, "xisserve")) ||
+                   (ch.res_class && !strcasecmp(ch.res_class, "xisserve"))) {
+            kind = 2;
+        }
+        if (ch.res_name) XFree(ch.res_name);
+        if (ch.res_class) XFree(ch.res_class);
+        if (kind) {
+            return kind;
+        }
+    }
+    return 0;
+}
+
+static void container_follow_xisserve(Window frame)
+{
+    g_cont_xis = frame;
+    if (!keynav_active()) {
+        XUngrabKeyboard(g_dpy, CurrentTime);
+    }
+}
+
+static void container_watch_start(void)
+{
+    if (!g_cw_ok) {
+        return;
+    }
+    cwatch_select(g_dpy, g_root, 1);
+    XWindowAttributes wa;
+    if (XGetWindowAttributes(g_dpy, g_root, &wa) && !(wa.your_event_mask & SubstructureNotifyMask)) {
+        g_cont_root_mask_added = SubstructureNotifyMask;
+        XSelectInput(g_dpy, g_root, wa.your_event_mask | SubstructureNotifyMask);
+    }
+}
+
+static void container_watch_stop(void)
+{
+    g_cont_xis = None;
+    if (!g_cw_ok) {
+        return;
+    }
+    cwatch_select(g_dpy, g_root, 0);
+    if (g_cont_root_mask_added) {
+        XWindowAttributes wa;
+        if (XGetWindowAttributes(g_dpy, g_root, &wa)) {
+            XSelectInput(g_dpy, g_root, wa.your_event_mask & ~g_cont_root_mask_added);
+        }
+        g_cont_root_mask_added = 0;
+    }
+}
+
+static void container_close(Panel *q);
+
+/* The watch's half of the event loop; see the comment above. Returns 1 if
+ * the event was a raw press (its cookie is consumed here). */
+static int container_watch_event(XEvent *ev)
+{
+    if (!g_cw_ok) {
+        return 0;
+    }
+    if (cwatch_is_press(g_dpy, ev)) {
+        Panel *q = g_open_container;
+        if (!q || panel_menu_is_open()) {
+            return 1; /* a menu has its own grab and dismissal */
+        }
+        Window rw, child;
+        int rx, ry, wx, wy;
+        unsigned int mask;
+        if (!XQueryPointer(g_dpy, g_root, &rw, &child, &rx, &ry, &wx, &wy, &mask) || child == None) {
+            container_close(q);
+            return 1;
+        }
+        int kind = window_kind(child);
+        if (kind == 2) {
+            container_follow_xisserve(child);
+        } else if (kind == 0 && g_cont_xis == None) {
+            container_close(q);
+        } /* else: our own window, or the popup is following a xisserve
+           * window and goes when it does (it closes itself on focus loss);
+           * for ours -- its own handlers decide, see container_handle_event() */
+        return 1;
+    }
+    Panel *q = g_open_container;
+    if (!q) {
+        return 0;
+    }
+    if (ev->type == MapNotify && ev->xmap.event == g_root) {
+        /* (Whatever its size yet: a GTK window is mapped first and sized
+         * after. The latest one wins, which is the page, not xisserve's
+         * 10x10 helper that is mapped before it.) */
+        if (window_kind(ev->xmap.window) == 2) {
+            container_follow_xisserve(ev->xmap.window);
+        }
+    } else if (ev->type == UnmapNotify && ev->xunmap.event == g_root && ev->xunmap.window == g_cont_xis) {
+        container_close(q);
+    } else if (ev->type == DestroyNotify && ev->xdestroywindow.event == g_root &&
+               ev->xdestroywindow.window == g_cont_xis) {
+        container_close(q);
+    }
+    return 0;
 }
 
 static void container_close(Panel *q)
@@ -4284,7 +4435,10 @@ static void container_close(Panel *q)
     panel_menu_close(); /* a child widget's menu can't outlive the popup it hangs off of */
     tooltip_close();
     XUngrabKeyboard(g_dpy, CurrentTime);
-    XUngrabPointer(g_dpy, CurrentTime);
+    if (!g_cw_ok) {
+        XUngrabPointer(g_dpy, CurrentTime);
+    }
+    container_watch_stop();
     XUnmapWindow(g_dpy, q->win);
     q->mapped = 0;
     q->hover_widget = NULL;
@@ -4326,6 +4480,7 @@ static void container_open(Panel *q)
     q->mapped = 1;
     q->dirty = 1;
     panel_repaint(q); /* paint before the first Expose can show a blank frame */
+    container_watch_start();
     container_grab(q);
     q->owner->panel->dirty = 1;
     schedule_widget_repoll(now_ms()); /* notif re-reads panel_free_area() right away */
@@ -4748,6 +4903,7 @@ static int run_as_daemon(const char *sockpath)
         return 1;
     }
     XSetErrorHandler(x_error_handler);
+    g_cw_ok = cwatch_init(g_dpy);
     g_screen = DefaultScreen(g_dpy);
     g_root = RootWindow(g_dpy, g_screen);
 
@@ -5061,7 +5217,9 @@ static int run_as_daemon(const char *sockpath)
             while (XPending(g_dpy)) {
                 XEvent ev;
                 XNextEvent(g_dpy, &ev);
-                if (edge_catcher_filter(&ev)) {
+                if (container_watch_event(&ev)) {
+                    /* a raw press seen for the open container -- see container_watch_event() */
+                } else if (edge_catcher_filter(&ev)) {
                     /* catcher <-> bar crossing -- see edge_catcher_filter() */
                 } else if (g_rr_event_base >= 0 && ev.type == g_rr_event_base + RRScreenChangeNotify) {
                     XRRUpdateConfiguration(&ev);

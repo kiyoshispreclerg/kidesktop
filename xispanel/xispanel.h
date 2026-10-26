@@ -1256,6 +1256,11 @@ void panel_container_menu_closed(void);
 /* The container popup currently open, or NULL. */
 Panel *panel_open_container(void);
 
+/* containerwatch.c (XInput2 raw presses; a stub without libxi) */
+int cwatch_init(Display *dpy);
+void cwatch_select(Display *dpy, Window root, int on);
+int cwatch_is_press(Display *dpy, XEvent *ev);
+
 /* ---- core hooks for keyboard navigation (xispanel.c, used by keynav.c) ---- */
 /* Points p's hover state at (local_x, local_y) inside w, as if the
  * pointer were there; w NULL clears it. */
