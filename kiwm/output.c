@@ -797,7 +797,7 @@ static void ewmh_publish_workarea(void)
     if (w <= 0) { x = 0; w = wm.screen_w; }
     if (h <= 0) { y = 0; h = wm.screen_h; }
 
-    uint32_t area[MAX_DESKTOPS * 4];
+    uint32_t area[MAX_DESKTOPS * 4] = { 0 };
     for (int i = 0; i < wm.num_desktops; i++) {
         area[i * 4 + 0] = (uint32_t)x;
         area[i * 4 + 1] = (uint32_t)y;

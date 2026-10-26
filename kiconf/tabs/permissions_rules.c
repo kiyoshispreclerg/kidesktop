@@ -145,7 +145,9 @@ int xg_ruleset_load(XgRuleSet *set, const char *dir, const char *main_file)
             names[n++] = g_strdup_printf("%s/%s", dir, e->d_name);
         }
         closedir(d);
-        qsort(names, (size_t)n, sizeof(char *), cmp_names);
+        if (n > 1) {
+            qsort(names, (size_t)n, sizeof(char *), cmp_names);
+        }
         for (int i = 0; i < n; i++) {
             add_file(set, names[i], 0);
             g_free(names[i]);
