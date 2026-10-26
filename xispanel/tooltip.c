@@ -260,6 +260,7 @@ static void destroy_popup(void)
 
 void tooltip_close(void)
 {
+    peek_set(None);
     destroy_popup();
     g_panel = NULL;
     g_widget = NULL;
@@ -1103,7 +1104,8 @@ static void show_popup(void)
         attrs.background_pixel = 0;
         /* PropertyChangeMask: needed for _X_DENSITY_REQUESTED (density.c),
          * same reason xispanel.c's own panel windows carry it. */
-        attrs.event_mask = ExposureMask | EnterWindowMask | LeaveWindowMask | ButtonPressMask | PropertyChangeMask;
+        attrs.event_mask = ExposureMask | EnterWindowMask | LeaveWindowMask | ButtonPressMask | PointerMotionMask |
+                           PropertyChangeMask;
 
         /* A fresh window, not the one any stale g_suppress_popup_enter
          * (left over from a previous reused popup) could possibly apply
@@ -1352,6 +1354,7 @@ void tooltip_notice_leave(Panel *p)
 
 void tooltip_tick(uint64_t now)
 {
+    peek_tick(now);
     if (panel_menu_is_open()) {
         /* A menu opened (e.g. via click) while a tooltip's delay timer was
          * still running, with no further motion event to catch it in
@@ -1452,7 +1455,7 @@ void tooltip_tick(uint64_t now)
 
 uint64_t tooltip_next_wake_ms(void)
 {
-    uint64_t wake = 0;
+    uint64_t wake = peek_next_wake_ms();
     if (g_close_deadline_ms) {
         wake = g_close_deadline_ms;
     }
@@ -1568,6 +1571,26 @@ static void handle_popup_click(int local_x, int local_y)
     }
 }
 
+/* The window whose thumbnail is at popup-local (x, y), or None -- what
+ * peek.c is told. Only the picture counts, not the title row under it. */
+static Window thumb_at(int x, int y)
+{
+    if (g_has_group && g_popup && g_popup->group_thumbs) {
+        for (int i = 0; i < g_popup->group_shown_n; i++) {
+            int ix = g_popup->group_item_x[i], iy = g_popup->group_item_y[i];
+            if (x >= ix && x < ix + g_thumb_w && y >= iy && y < iy + g_thumb_h) {
+                return g_group_items[i].win;
+            }
+        }
+    } else if (g_has_thumb && g_popup) {
+        int tx = (g_popup->width - g_thumb_w) / 2;
+        if (x >= tx && x < tx + g_thumb_w && y >= pad_y() && y < pad_y() + g_thumb_h) {
+            return g_thumb_win;
+        }
+    }
+    return None;
+}
+
 int tooltip_handle_event(const XEvent *ev)
 {
     if (!g_popup) {
@@ -1596,7 +1619,20 @@ int tooltip_handle_event(const XEvent *ev)
         }
         return 1;
     }
+    if (ev->type == MotionNotify && ev->xmotion.window == g_popup->win) {
+        /* Motion is the one proof the pointer really is in the popup. If
+         * our own reposition swallowed the real EnterNotify
+         * (g_suppress_popup_enter), the close armed by the panel's
+         * LeaveNotify would still be pending and the popup would vanish
+         * under the pointer -- hopping from one tasklist button to the
+         * next and straight down into its thumbnail. */
+        g_suppress_popup_enter = 0;
+        g_close_deadline_ms = 0;
+        peek_set(thumb_at(ev->xmotion.x, ev->xmotion.y));
+        return 1;
+    }
     if (ev->type == LeaveNotify && ev->xcrossing.window == g_popup->win) {
+        peek_set(None);
         g_suppress_popup_enter = 0;
         g_close_deadline_ms = now_ms() + close_delay_ms();
         return 1;

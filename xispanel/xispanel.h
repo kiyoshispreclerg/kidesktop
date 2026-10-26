@@ -1420,6 +1420,17 @@ void tooltip_close(void); /* hide immediately -- call before invalidating any Pa
 void tooltip_show_at(Panel *p, int axis_pos, int cross_pos);
 int tooltip_handle_event(const XEvent *ev); /* 1 if `ev` belonged to the tooltip popup */
 
+/* ---- window peek (peek.c) ----
+ *
+ * Publishes _KICOMP_PEEK on the root while the pointer is on a window's
+ * thumbnail, so the compositor can fade everything else out. peek_set(None)
+ * ends it. peek_tick()/peek_next_wake_ms() drive the first-peek delay and
+ * the once-a-second renewal; tooltip_tick()/tooltip_next_wake_ms() call
+ * them, so the main loop needs nothing of its own. */
+void peek_set(Window win);
+void peek_tick(uint64_t now);
+uint64_t peek_next_wake_ms(void); /* 0 = nothing pending */
+
 /* ---- MPRIS2 media control client (mpris.c) ----
  *
  * Best-effort and entirely optional: libdbus-1 is dlopen()'d at runtime,
