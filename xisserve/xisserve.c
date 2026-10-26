@@ -30,6 +30,7 @@
 #include <X11/extensions/Xrandr.h>
 
 #include "xisserve.h"
+#include "pages/pulse.h"
 
 #include "../shared/xis_spawn.h"
 #include "../shared/xis_desktop_actions.h"
@@ -57,7 +58,7 @@
 
 #include "../shared/xis_direction.h"
 
-#define XISSERVE_VERSION "0.2.12"
+#define XISSERVE_VERSION "0.2.14"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -1096,7 +1097,7 @@ static void ensure_state_loaded(void)
     fclose(f);
 }
 
-static int state_get_int(const char *key, int fallback)
+int state_get_int(const char *key, int fallback)
 {
     ensure_state_loaded();
     const char *val = g_hash_table_lookup(g_state, key);
@@ -1105,7 +1106,7 @@ static int state_get_int(const char *key, int fallback)
     return val && end != val ? (int)n : fallback;
 }
 
-static void state_set_int(const char *key, int value)
+void state_set_int(const char *key, int value)
 {
     ensure_state_loaded();
     g_hash_table_insert(g_state, g_strdup(key), g_strdup_printf("%d", value));
@@ -1121,6 +1122,22 @@ static void state_set_int(const char *key, int value)
     g_hash_table_iter_init(&it, g_state);
     while (g_hash_table_iter_next(&it, &k, &v)) fprintf(f, "%s\t%s\n", (const char *)k, (const char *)v);
     fclose(f);
+}
+
+/* "Mover tudo ao conectar um dispositivo" (xisserve --audio): applied the
+ * first time any xisserve daemon starts in this session, not on every
+ * daemon start -- a stamp in XDG_RUNTIME_DIR (wiped at logout) marks it. */
+static void audio_apply_connect_policy_once(void)
+{
+    const char *rundir = getenv("XDG_RUNTIME_DIR");
+    char stamp[PATH_MAX];
+    snprintf(stamp, sizeof(stamp), "%s/xisserve-audio-policy.stamp", rundir && *rundir ? rundir : "/tmp");
+    int fd = open(stamp, O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC, 0600);
+    if (fd < 0) {
+        return;
+    }
+    close(fd);
+    pulse_apply_connect_policy(state_get_int("audio_move_on_connect", 0) != 0);
 }
 
 /* Every line of xisserve.conf is "<SECTION>\t<key>\t<value>" -- the same
@@ -3935,6 +3952,7 @@ int main(int argc, char **argv)
     }
 
     /* We hold the lock: this invocation becomes the singleton daemon. */
+    audio_apply_connect_policy_once();
     g_watch_pid = parse_watch_pid(argc, argv);
     if (g_watch_pid > 0) {
         g_timeout_add_seconds(2, check_parent_alive, NULL);

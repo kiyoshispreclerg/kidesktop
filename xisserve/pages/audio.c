@@ -843,6 +843,14 @@ static void on_boost_toggled(GtkToggleButton *btn, gpointer data)
     g_updating = FALSE;
 }
 
+static void on_move_on_connect_toggled(GtkToggleButton *btn, gpointer data)
+{
+    (void)data;
+    gboolean on = gtk_toggle_button_get_active(btn);
+    state_set_int("audio_move_on_connect", on ? 1 : 0);
+    pulse_apply_connect_policy(on);
+}
+
 GtkWidget *page_audio_build(void)
 {
     g_apps_box = gtk_vbox_new(FALSE, 6);
@@ -857,8 +865,14 @@ GtkWidget *page_audio_build(void)
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(boost), g_boost);
     g_signal_connect(boost, "toggled", G_CALLBACK(on_boost_toggled), NULL);
 
+    GtkWidget *move = gtk_check_button_new_with_label(_("Mover tudo para novos dispositivos ao conectar"));
+    style_fg(move);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(move), state_get_int("audio_move_on_connect", 0) != 0);
+    g_signal_connect(move, "toggled", G_CALLBACK(on_move_on_connect_toggled), NULL);
+
     g_root = gtk_vbox_new(FALSE, 4);
     gtk_box_pack_start(GTK_BOX(g_root), boost, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(g_root), move, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(g_root), nb, TRUE, TRUE, 0);
     return g_root;
 }

@@ -512,6 +512,30 @@ void pulse_set_default(const PulseEntry *e)
     ensure_sticky_watch();
 }
 
+void pulse_apply_connect_policy(gboolean move_all)
+{
+    if (!pulse_available()) {
+        return;
+    }
+    gboolean loaded = FALSE;
+    FILE *f = pactl_run("list modules short");
+    if (f) {
+        char line[1024];
+        while (fgets(line, sizeof(line), f)) {
+            if (strstr(line, "module-switch-on-connect")) {
+                loaded = TRUE;
+                break;
+            }
+        }
+        pclose(f);
+    }
+    if (move_all && !loaded) {
+        pactl_run_fire("load-module module-switch-on-connect");
+    } else if (!move_all && loaded) {
+        pactl_run_fire("unload-module module-switch-on-connect");
+    }
+}
+
 void pulse_move_stream(const PulseEntry *stream, const char *target_name)
 {
     if (!pulse_available()) {

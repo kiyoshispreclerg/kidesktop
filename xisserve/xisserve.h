@@ -281,6 +281,10 @@ void page_calendar_on_show(void);
 void page_calendar_on_hide(void);
 
 GtkWidget *page_audio_build(void);
+
+/* Small persisted UI choices (xisserve-state.conf). */
+int state_get_int(const char *key, int fallback);
+void state_set_int(const char *key, int value);
 void page_audio_on_show(void);
 void page_audio_on_hide(void);
 

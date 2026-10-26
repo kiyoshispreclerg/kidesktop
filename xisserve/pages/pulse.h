@@ -88,6 +88,10 @@ void pulse_set_mute(const PulseEntry *e, gboolean muted);
  * module-stream-restore would snap back to its previous device the next
  * time it's launched, even though a new default was picked since. */
 void pulse_set_default(const PulseEntry *e);
+/* Whether a newly connected device takes over every stream (PulseAudio's
+ * module-switch-on-connect). Off unloads that module, so current and new
+ * streams stay on the current default; on loads it back. Idempotent. */
+void pulse_apply_connect_policy(gboolean move_all);
 void pulse_set_suspended(const PulseEntry *e, gboolean suspended);
 
 /* Streams only (PULSE_SINK_INPUT/PULSE_SOURCE_OUTPUT); no-op otherwise.

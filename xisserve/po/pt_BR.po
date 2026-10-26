@@ -899,6 +899,10 @@ msgstr "Programas"
 msgid "Permitir volume acima de 100%"
 msgstr "Permitir volume acima de 100%"
 
+#: pages/audio.c
+msgid "Mover tudo para novos dispositivos ao conectar"
+msgstr "Mover tudo para novos dispositivos ao conectar"
+
 #: xisserve.c
 msgid "Editar o menu de programas no kiconf"
 msgstr "Editar o menu de programas no kiconf"
