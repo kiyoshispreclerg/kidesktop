@@ -121,6 +121,15 @@ static GtkTreeModel *g_custom_filter, *g_fixed_filter;
 static GtkWidget *g_filter_entry;
 static char *g_filter_text = NULL;      /* lowercased; NULL/empty = show all */
 static GtkWidget *g_fixed_status_label;
+/* Row identity -> Atalho text as last loaded/applied, so Aplicar can tell
+ * which programs actually had a shortcut changed and restart only those. */
+static GHashTable *g_fixed_orig;
+
+static char *fixed_row_key(gint source, const char *confkey, const char *effect, const char *panel, gint occ)
+{
+    return g_strdup_printf("%d|%s|%s|%s|%d", source, confkey ? confkey : "", effect ? effect : "",
+                           panel ? panel : "", occ);
+}
 
 
 /* ---- Atalhos tab: xiskeys.conf (BIND action spec command) ------------ */
@@ -227,8 +236,8 @@ static gboolean custom_visible(GtkTreeModel *m, GtkTreeIter *it, gpointer d)
 static gboolean fixed_visible(GtkTreeModel *m, GtkTreeIter *it, gpointer d)
 {
     (void)d;
-    static const int cols[] = {COL_FX_LABEL, COL_FX_DEFAULT, COL_FX_SPEC};
-    return row_matches(m, it, cols, 3);
+    static const int cols[] = {COL_FX_LABEL, COL_FX_SPEC};
+    return row_matches(m, it, cols, 2);
 }
 
 static void shortcut_filter_changed(GtkEditable *e, gpointer d)
@@ -331,9 +340,9 @@ static int kiwm_key_value(const char *key, char *out, size_t outsz)
     return found;
 }
 
-/* Rewrites kiwm.conf's key_* lines from `store`'s FX_KIWM rows: an empty
- * Atalho cell drops that key_* line entirely (falls back to kiwm's own
- * built-in default), a non-empty one writes key_<name>=<spec>. Every
+/* Rewrites kiwm.conf's key_* lines from `store`'s FX_KIWM rows: a cell equal
+ * to the built-in default drops that key_* line, anything else (including
+ * empty = unbound) writes key_<name>=<spec>. Every
  * other line -- including anything Gerenciamento de janelas manages -- is
  * carried over untouched, same merge-not-rewrite approach as that tab. */
 static void save_kiwm_shortcuts(void)
@@ -378,14 +387,19 @@ static void save_kiwm_shortcuts(void)
     gboolean valid = gtk_tree_model_get_iter_first(GTK_TREE_MODEL(g_fixed_store), &it);
     while (valid) {
         gint source;
-        gchar *confkey, *spec;
+        gchar *confkey, *spec, *def;
         gtk_tree_model_get(GTK_TREE_MODEL(g_fixed_store), &it,
-                            COL_FX_SOURCE, &source, COL_FX_CONFKEY, &confkey, COL_FX_SPEC, &spec, -1);
-        if (source == FX_KIWM && spec && *spec) {
-            fprintf(out, "%s=%s\n", confkey, spec);
+                            COL_FX_SOURCE, &source, COL_FX_CONFKEY, &confkey, COL_FX_SPEC, &spec,
+                            COL_FX_DEFAULT, &def, -1);
+        /* Only what differs from the built-in default is written; an empty
+         * spec over a non-empty default is "key_x=" (kiwm reads a present
+         * but empty line as explicitly unbound). */
+        if (source == FX_KIWM && strcmp(spec ? spec : "", def ? def : "") != 0) {
+            fprintf(out, "%s=%s\n", confkey, spec ? spec : "");
         }
         g_free(confkey);
         g_free(spec);
+        g_free(def);
         valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(g_fixed_store), &it);
     }
 
@@ -529,7 +543,8 @@ static int kicomp_effect_key_value(const char *effect, const char *key, char *ou
 }
 
 typedef struct {
-    const char *effect, *key, *value; /* value may be "" -- means "remove this key" */
+    const char *effect, *key, *value; /* value may be "" -- an explicit "no hotkey" */
+    int remove;                       /* drop the line: the module's default applies */
 } KicompHotkeyEdit;
 
 /* Applies `edits` to kicomp.conf's [effect:<effect>] base sections without
@@ -572,7 +587,7 @@ static void save_kicomp_hotkeys(const KicompHotkeyEdit *edits, int n_edits)
                  * (a brand new key in an existing section). */
                 if (in_target) {
                     for (int i = 0; i < n_edits; i++) {
-                        if (!done[i] && !strcmp(edits[i].effect, cur_effect) && edits[i].value[0]) {
+                        if (!done[i] && !strcmp(edits[i].effect, cur_effect) && !edits[i].remove) {
                             fprintf(out, "%s=%s\n", edits[i].key, edits[i].value);
                             done[i] = 1;
                         }
@@ -605,7 +620,7 @@ static void save_kicomp_hotkeys(const KicompHotkeyEdit *edits, int n_edits)
                         if (!strcmp(edits[i].effect, cur_effect) && !strcmp(edits[i].key, key)) {
                             matched = 1;
                             done[i] = 1;
-                            if (edits[i].value[0]) {
+                            if (!edits[i].remove) {
                                 fprintf(out, "%s=%s\n", key, edits[i].value);
                             } /* else: drop the line -- back to the module's default */
                             break;
@@ -620,7 +635,7 @@ static void save_kicomp_hotkeys(const KicompHotkeyEdit *edits, int n_edits)
         }
         if (in_target) {
             for (int i = 0; i < n_edits; i++) {
-                if (!done[i] && !strcmp(edits[i].effect, cur_effect) && edits[i].value[0]) {
+                if (!done[i] && !strcmp(edits[i].effect, cur_effect) && !edits[i].remove) {
                     fprintf(out, "%s=%s\n", edits[i].key, edits[i].value);
                     done[i] = 1;
                 }
@@ -631,7 +646,7 @@ static void save_kicomp_hotkeys(const KicompHotkeyEdit *edits, int n_edits)
 
     /* Edits for an effect that had no [effect:...] section at all yet. */
     for (int i = 0; i < n_edits; i++) {
-        if (done[i] || !edits[i].value[0]) {
+        if (done[i] || edits[i].remove) {
             continue;
         }
         fprintf(out, "\n[effect:%s]\n%s=%s\n", edits[i].effect, edits[i].key, edits[i].value);
@@ -868,6 +883,8 @@ static void save_xispanel_hotkeys(const XispanelHotkeyEdit *edits, int n_edits)
     xis_write_commit(out, tmp, path, xis_check_lines);
 }
 
+static void load_fixed_shortcuts(void);
+
 static void save_fixed_shortcuts_cb(GtkWidget *widget, gpointer data)
 {
     (void)widget;
@@ -889,15 +906,28 @@ static void save_fixed_shortcuts_cb(GtkWidget *widget, gpointer data)
     char xp_types[MAX_XISPANEL_HOTKEY_WIDGETS][64];
     char xp_values[MAX_XISPANEL_HOTKEY_WIDGETS][128];
     int n_xp = 0;
+    int kiwm_changed = 0, kicomp_changed = 0;
 
     GtkTreeIter it;
     gboolean valid = gtk_tree_model_get_iter_first(GTK_TREE_MODEL(g_fixed_store), &it);
     while (valid) {
         gint source, occurrence;
-        gchar *confkey, *effect, *panel, *spec;
+        gchar *confkey, *effect, *panel, *spec, *def;
         gtk_tree_model_get(GTK_TREE_MODEL(g_fixed_store), &it,
                             COL_FX_SOURCE, &source, COL_FX_CONFKEY, &confkey, COL_FX_EFFECT, &effect,
-                            COL_FX_PANEL, &panel, COL_FX_OCCURRENCE, &occurrence, COL_FX_SPEC, &spec, -1);
+                            COL_FX_PANEL, &panel, COL_FX_OCCURRENCE, &occurrence, COL_FX_SPEC, &spec,
+                            COL_FX_DEFAULT, &def, -1);
+        if (source == FX_KIWM || source == FX_KICOMP) {
+            char *rk = fixed_row_key(source, confkey, effect, panel, occurrence);
+            const char *orig = g_hash_table_lookup(g_fixed_orig, rk);
+            if (strcmp(orig ? orig : "", spec ? spec : "") != 0) {
+                if (source == FX_KIWM)
+                    kiwm_changed = 1;
+                else
+                    kicomp_changed = 1;
+            }
+            g_free(rk);
+        }
         if (source == FX_KICOMP && n_kc < N_KICOMP_CATALOG) {
             for (int i = 0; i < N_KICOMP_CATALOG; i++) {
                 if (!strcmp(KICOMP_CATALOG[i].conf_key, confkey) && !strcmp(KICOMP_CATALOG[i].effect, effect)) {
@@ -905,6 +935,7 @@ static void save_fixed_shortcuts_cb(GtkWidget *widget, gpointer data)
                     kc_edits[n_kc].effect = KICOMP_CATALOG[i].effect;
                     kc_edits[n_kc].key = KICOMP_CATALOG[i].conf_key;
                     kc_edits[n_kc].value = kc_values[n_kc];
+                    kc_edits[n_kc].remove = !strcmp(kc_values[n_kc], def ? def : "");
                     n_kc++;
                     break;
                 }
@@ -923,6 +954,7 @@ static void save_fixed_shortcuts_cb(GtkWidget *widget, gpointer data)
         g_free(effect);
         g_free(panel);
         g_free(spec);
+        g_free(def);
         valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(g_fixed_store), &it);
     }
     save_kicomp_hotkeys(kc_edits, n_kc);
@@ -931,10 +963,20 @@ static void save_fixed_shortcuts_cb(GtkWidget *widget, gpointer data)
         xispanel_reload();
     }
 
-    gtk_label_set_text(GTK_LABEL(g_fixed_status_label),
-                        "Gravado. kiwm e kicomp precisam ser reiniciados para aplicar (abas "
-                        "'Gerenciamento de janelas' / 'Efeitos do compositor'); atalhos de "
-                        "widgets do xispanel ja foram recarregados.");
+    /* Restart only the programs whose shortcuts changed; the snapshot is
+     * refreshed so a second Aplicar without edits restarts nothing. */
+    if (kiwm_changed)
+        spawn_replace("kiwm");
+    if (kicomp_changed)
+        spawn_replace("kicomp");
+    load_fixed_shortcuts();
+
+    char msg[256];
+    snprintf(msg, sizeof(msg), _("Gravado.%s%s%s"),
+             kiwm_changed ? _(" kiwm reiniciado.") : "",
+             kicomp_changed ? _(" kicomp reiniciado.") : "",
+             n_xp > 0 ? _(" Atalhos de widgets do xispanel recarregados.") : "");
+    gtk_label_set_text(GTK_LABEL(g_fixed_status_label), msg);
 }
 
 static void fixed_spec_edited(GtkCellRendererText *cell, gchar *path_str, gchar *new_text, gpointer data)
@@ -944,6 +986,47 @@ static void fixed_spec_edited(GtkCellRendererText *cell, gchar *path_str, gchar 
     GtkTreeIter it;
     if (store_iter_from_path(g_fixed_filter, g_fixed_store, path_str, &it))
         gtk_list_store_set(g_fixed_store, &it, COL_FX_SPEC, new_text, -1);
+}
+
+static gboolean fixed_row_is_default(GtkTreeModel *m, GtkTreeIter *it)
+{
+    gchar *spec = NULL, *def = NULL;
+    gtk_tree_model_get(m, it, COL_FX_SPEC, &spec, COL_FX_DEFAULT, &def, -1);
+    gboolean same = !strcmp(spec ? spec : "", def ? def : "");
+    g_free(spec);
+    g_free(def);
+    return same;
+}
+
+static void reset_cell_data(GtkTreeViewColumn *col, GtkCellRenderer *r, GtkTreeModel *m, GtkTreeIter *it, gpointer d)
+{
+    (void)col;
+    (void)d;
+    g_object_set(r, "visible", !fixed_row_is_default(m, it), NULL);
+}
+
+static gboolean fixed_view_clicked(GtkWidget *view, GdkEventButton *ev, gpointer d)
+{
+    (void)d;
+    GtkTreePath *path = NULL;
+    GtkTreeViewColumn *col = NULL;
+    if (ev->button != 1 || !gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(view), (gint)ev->x, (gint)ev->y, &path, &col, NULL, NULL))
+        return FALSE;
+    gboolean handled = FALSE;
+    if (col && g_object_get_data(G_OBJECT(col), "kiconf-reset")) {
+        GtkTreeModel *fm = gtk_tree_view_get_model(GTK_TREE_VIEW(view));
+        GtkTreeIter fit, it;
+        if (gtk_tree_model_get_iter(fm, &fit, path) && !fixed_row_is_default(fm, &fit)) {
+            gchar *def = NULL;
+            gtk_tree_model_get(fm, &fit, COL_FX_DEFAULT, &def, -1);
+            gtk_tree_model_filter_convert_iter_to_child_iter(GTK_TREE_MODEL_FILTER(fm), &it, &fit);
+            gtk_list_store_set(g_fixed_store, &it, COL_FX_SPEC, def ? def : "", -1);
+            g_free(def);
+            handled = TRUE;
+        }
+    }
+    gtk_tree_path_free(path);
+    return handled;
 }
 
 static GtkWidget *build_fixed_shortcuts_view(void)
@@ -962,42 +1045,46 @@ static GtkWidget *build_fixed_shortcuts_view(void)
     gtk_tree_view_column_set_fixed_width(label_col, 220);
     gtk_tree_view_append_column(GTK_TREE_VIEW(view), label_col);
 
-    GtkCellRenderer *def_r = gtk_cell_renderer_text_new();
-    g_object_set(def_r, "ellipsize", PANGO_ELLIPSIZE_END, NULL);
-    GtkTreeViewColumn *def_col =
-        gtk_tree_view_column_new_with_attributes("Padrao", def_r, "text", COL_FX_DEFAULT, NULL);
-    gtk_tree_view_column_set_sizing(def_col, GTK_TREE_VIEW_COLUMN_FIXED);
-    gtk_tree_view_column_set_fixed_width(def_col, 150);
-    gtk_tree_view_column_set_resizable(def_col, TRUE);
-    gtk_tree_view_append_column(GTK_TREE_VIEW(view), def_col);
-
     GtkCellRenderer *spec_r = gtk_cell_renderer_text_new();
     g_object_set(spec_r, "editable", TRUE, "ellipsize", PANGO_ELLIPSIZE_END, NULL);
     g_signal_connect(spec_r, "edited", G_CALLBACK(fixed_spec_edited), NULL);
     GtkTreeViewColumn *spec_col =
         gtk_tree_view_column_new_with_attributes("Atalho", spec_r, "text", COL_FX_SPEC, NULL);
     gtk_tree_view_column_set_sizing(spec_col, GTK_TREE_VIEW_COLUMN_FIXED);
-    gtk_tree_view_column_set_fixed_width(spec_col, 100);
+    gtk_tree_view_column_set_fixed_width(spec_col, 200);
     gtk_tree_view_column_set_resizable(spec_col, TRUE);
     gtk_tree_view_append_column(GTK_TREE_VIEW(view), spec_col);
+
+    /* Per-row reset icon, shown only while the row differs from its default;
+     * clicks are caught in fixed_view_clicked(). */
+    GtkCellRenderer *reset_r = gtk_cell_renderer_pixbuf_new();
+    g_object_set(reset_r, "stock-id", GTK_STOCK_UNDO, NULL);
+    GtkTreeViewColumn *reset_col = gtk_tree_view_column_new_with_attributes("", reset_r, NULL);
+    gtk_tree_view_column_set_cell_data_func(reset_col, reset_r, reset_cell_data, NULL, NULL);
+    g_object_set_data(G_OBJECT(reset_col), "kiconf-reset", GINT_TO_POINTER(1));
+    gtk_tree_view_append_column(GTK_TREE_VIEW(view), reset_col);
+    g_signal_connect(view, "button-press-event", G_CALLBACK(fixed_view_clicked), NULL);
 
     return view;
 }
 
 /* Fills g_fixed_store: every kiwm action (always available), plus every
  * kicomp effect hotkey whose effect is currently enabled (globally and by
- * its own [effect:...] enabled=/default_enabled). Atalho starts blank
- * unless kiwm.conf/kicomp.conf already has a line for it -- blank means
- * "nothing configured, that program's own built-in default (shown in
- * Padrao) applies", matching what leaving it blank on Aplicar does. */
+ * its own [effect:...] enabled=/default_enabled). Atalho shows the effective
+ * binding: the conf value if there is one, else that program's built-in
+ * default (kept in COL_FX_DEFAULT for the reset button). It's a plain,
+ * editable value -- blank means unbound. */
 static void load_fixed_shortcuts(void)
 {
     gtk_list_store_clear(g_fixed_store);
+    if (g_fixed_orig)
+        g_hash_table_remove_all(g_fixed_orig);
 
     for (int i = 0; i < N_KIWM_CATALOG; i++) {
         const FixedShortcut *e = &KIWM_CATALOG[i];
         char spec[128] = "";
-        kiwm_key_value(e->conf_key, spec, sizeof(spec));
+        if (!kiwm_key_value(e->conf_key, spec, sizeof(spec)))
+            snprintf(spec, sizeof(spec), "%s", e->default_spec);
         char label[192];
         snprintf(label, sizeof(label), _("kiwm: %s"), e->doc);
         GtkTreeIter it;
@@ -1006,6 +1093,7 @@ static void load_fixed_shortcuts(void)
                             COL_FX_LABEL, label, COL_FX_DEFAULT, e->default_spec, COL_FX_SPEC, spec,
                             COL_FX_SOURCE, (gint)FX_KIWM, COL_FX_CONFKEY, e->conf_key, COL_FX_EFFECT, "",
                             COL_FX_PANEL, "", COL_FX_OCCURRENCE, 0, -1);
+        g_hash_table_replace(g_fixed_orig, fixed_row_key(FX_KIWM, e->conf_key, "", "", 0), g_strdup(spec));
     }
 
     int effects_on = kicomp_effects_globally_enabled();
@@ -1021,7 +1109,8 @@ static void load_fixed_shortcuts(void)
             continue; /* not an active function right now -- nothing to bind */
         }
         char spec[128] = "";
-        kicomp_effect_key_value(e->effect, e->conf_key, spec, sizeof(spec));
+        if (!kicomp_effect_key_value(e->effect, e->conf_key, spec, sizeof(spec)))
+            snprintf(spec, sizeof(spec), "%s", e->default_spec);
         char label[192];
         snprintf(label, sizeof(label), _("kicomp (%s): %s"), e->effect, e->doc);
         GtkTreeIter it;
@@ -1030,6 +1119,7 @@ static void load_fixed_shortcuts(void)
                             COL_FX_LABEL, label, COL_FX_DEFAULT, e->default_spec, COL_FX_SPEC, spec,
                             COL_FX_SOURCE, (gint)FX_KICOMP, COL_FX_CONFKEY, e->conf_key, COL_FX_EFFECT, e->effect,
                             COL_FX_PANEL, "", COL_FX_OCCURRENCE, 0, -1);
+        g_hash_table_replace(g_fixed_orig, fixed_row_key(FX_KICOMP, e->conf_key, e->effect, "", 0), g_strdup(spec));
     }
 
     XispanelHotkeyWidget xwidgets[MAX_XISPANEL_HOTKEY_WIDGETS];
@@ -1046,7 +1136,7 @@ static void load_fixed_shortcuts(void)
         GtkTreeIter it;
         gtk_list_store_append(g_fixed_store, &it);
         gtk_list_store_set(g_fixed_store, &it,
-                            COL_FX_LABEL, label, COL_FX_DEFAULT, "(sem padrao -- sem hotkey= o widget so responde ao clique)",
+                            COL_FX_LABEL, label, COL_FX_DEFAULT, "",
                             COL_FX_SPEC, xwidgets[i].hotkey, COL_FX_SOURCE, (gint)FX_XISPANEL,
                             COL_FX_CONFKEY, xwidgets[i].type, COL_FX_EFFECT, "",
                             COL_FX_PANEL, xwidgets[i].panel, COL_FX_OCCURRENCE, xwidgets[i].occurrence, -1);
@@ -1115,11 +1205,14 @@ GtkWidget *build_shortcuts_tab(void)
      * the detail moved to a tooltip instead. */
     GtkWidget *custom_frame = frame_with("Atalhos personalizados", vbox);
     gtk_widget_set_tooltip_text(custom_frame, _("xiskeys.conf, crie/edite/remova a vontade"));
-    gtk_box_pack_start(GTK_BOX(outer), custom_frame, TRUE, TRUE, 0);
+    GtkWidget *paned = gtk_vpaned_new();
+    gtk_box_pack_start(GTK_BOX(outer), paned, TRUE, TRUE, 0);
+    gtk_paned_pack1(GTK_PANED(paned), custom_frame, TRUE, FALSE);
 
     /* Atalhos fixos do sistema: kiwm.conf/kicomp.conf, catalog-driven. */
     GtkWidget *fixed_vbox = gtk_vbox_new(FALSE, 6);
 
+    g_fixed_orig = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
     g_fixed_store = gtk_list_store_new(N_FIXED_COLS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,
                                         G_TYPE_INT, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_INT);
     g_fixed_filter = gtk_tree_model_filter_new(GTK_TREE_MODEL(g_fixed_store), NULL);
@@ -1128,7 +1221,7 @@ GtkWidget *build_shortcuts_tab(void)
     GtkWidget *fixed_view = build_fixed_shortcuts_view();
     GtkWidget *fixed_scroll = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(fixed_scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-    gtk_widget_set_size_request(fixed_scroll, -1, 130);
+    gtk_widget_set_size_request(fixed_scroll, -1, 90);
     gtk_container_add(GTK_CONTAINER(fixed_scroll), fixed_view);
     gtk_box_pack_start(GTK_BOX(fixed_vbox), fixed_scroll, TRUE, TRUE, 0);
 
@@ -1146,8 +1239,8 @@ GtkWidget *build_shortcuts_tab(void)
     GtkWidget *fixed_frame = frame_with("Atalhos fixos do sistema", fixed_vbox);
     gtk_widget_set_tooltip_text(fixed_frame,
         "kiwm, efeitos ativos do kicomp, widgets do xispanel que aceitam hotkey= -- "
-        "em branco = usa o padrao daquele programa, ou nenhum atalho no caso do xispanel");
-    gtk_box_pack_start(GTK_BOX(outer), fixed_frame, FALSE, FALSE, 0);
+        "o icone de desfazer restaura o padrao da linha; em branco = sem atalho");
+    gtk_paned_pack2(GTK_PANED(paned), fixed_frame, TRUE, FALSE);
 
     return outer;
 }
