@@ -1349,6 +1349,14 @@ void kf_pane_show_filter(KfPane *p, gboolean show)
 
 KfPane *kf_pane_new(KfApp *app)
 {
+    static gboolean rc_done;
+    if (!rc_done) {
+        /* Scroll bars outside the views' frame, so the right pane's bar ends at
+         * the window's edge and a maximized window's is under the screen edge. */
+        gtk_rc_parse_string("style \"kifiles-view-sw\" { GtkScrolledWindow::scrollbars-within-bevel = 0 }\n"
+                            "widget \"*.kifiles-view-sw\" style \"kifiles-view-sw\"\n");
+        rc_done = TRUE;
+    }
     KfPane *p = g_new0(KfPane, 1);
     p->app = app;
     p->rows = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, (GDestroyNotify)gtk_tree_row_reference_free);
@@ -1412,6 +1420,7 @@ KfPane *kf_pane_new(KfApp *app)
     g_signal_connect(iv, "focus-in-event", G_CALLBACK(on_view_focus), p);
     g_signal_connect(iv, "scroll-event", G_CALLBACK(on_view_scroll), p);
     p->sw_icons = gtk_scrolled_window_new(NULL, NULL);
+    gtk_widget_set_name(p->sw_icons, "kifiles-view-sw");
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(p->sw_icons), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(p->sw_icons), GTK_SHADOW_IN);
     gtk_container_add(GTK_CONTAINER(p->sw_icons), p->iconview);
@@ -1448,6 +1457,7 @@ KfPane *kf_pane_new(KfApp *app)
     g_signal_connect(tv, "focus-in-event", G_CALLBACK(on_view_focus), p);
     g_signal_connect(tv, "scroll-event", G_CALLBACK(on_view_scroll), p);
     p->sw_list = gtk_scrolled_window_new(NULL, NULL);
+    gtk_widget_set_name(p->sw_list, "kifiles-view-sw");
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(p->sw_list), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(p->sw_list), GTK_SHADOW_IN);
     gtk_container_add(GTK_CONTAINER(p->sw_list), p->treeview);

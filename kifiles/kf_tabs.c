@@ -262,15 +262,34 @@ static gboolean on_notebook_button(GtkWidget *w, GdkEventButton *ev, gpointer d)
     return TRUE;
 }
 
+/* The notebook's side frame is dropped (xthickness 0, see kf_tabs_setup) so
+ * the views reach the window's edges; the tabs get that padding back as
+ * tab-hborder, from the theme's own notebook style. */
+static void on_notebook_style(GtkWidget *w, GtkStyle *prev, gpointer d)
+{
+    (void)prev; (void)d;
+    GtkStyle *theme = gtk_rc_get_style_by_paths(gtk_widget_get_settings(w), NULL, NULL, GTK_TYPE_NOTEBOOK);
+    guint hb = 2 + (theme ? theme->xthickness : 0);
+    guint cur = 0;
+    g_object_get(w, "tab-hborder", &cur, NULL);
+    if (cur != hb)
+        g_object_set(w, "tab-hborder", hb, NULL);
+}
+
 void kf_tabs_setup(KfApp *app)
 {
-    gtk_rc_parse_string("style \"kifiles-tab-close\" {\n"
+    gtk_rc_parse_string("style \"kifiles-tabs\" { xthickness = 0 }\n"
+                        "widget \"*.kifiles-tabs\" style \"kifiles-tabs\"\n"
+                        "style \"kifiles-tab-close\" {\n"
                         "  xthickness = 0\n  ythickness = 0\n"
                         "  GtkButton::inner-border = { 0, 0, 0, 0 }\n"
                         "  GtkWidget::focus-padding = 0\n  GtkWidget::focus-line-width = 0\n"
                         "}\n"
                         "widget \"*.kifiles-tab-close\" style \"kifiles-tab-close\"\n");
     app->notebook = gtk_notebook_new();
+    gtk_widget_set_name(app->notebook, "kifiles-tabs");
+    gtk_notebook_set_show_border(nb(app), FALSE);      /* a lone tab: no frame at all */
+    g_signal_connect(app->notebook, "style-set", G_CALLBACK(on_notebook_style), NULL);
     gtk_notebook_set_scrollable(nb(app), TRUE);
     gtk_widget_set_can_focus(app->notebook, FALSE);    /* a click on a tab leaves focus in the view */
     g_signal_connect_after(app->notebook, "switch-page", G_CALLBACK(on_switch_page), app);
