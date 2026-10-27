@@ -21,8 +21,8 @@ MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
 all: xisguard
 
-xisguard: xisguard.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LDLIBS)
+xisguard: xisguard.c ../shared/xis_safefile.c ../shared/xis_safefile.h
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ xisguard.c ../shared/xis_safefile.c $(LDLIBS)
 
 # ---- translations (see po/README.md for the day-to-day workflow) ----------
 

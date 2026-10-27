@@ -21,6 +21,7 @@
 #include <X11/Xlib.h>
 
 #include "../shared/xis_i18n.h"
+#include "../shared/xis_safefile.h"
 
 #define MAX_ALERTS          100
 #define MAX_IGNORED         200
@@ -29,7 +30,7 @@
 #define REPORT_THROTTLE_S   1
 #define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.21"
+#define XISGUARD_VERSION    "0.4.22"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -453,7 +454,7 @@ void load_user_config(void) {
     pthread_mutex_lock(&ignored_lock);
     ignored_count = 0;
 
-    FILE *file = fopen(perms_file, "r");
+    FILE *file = xis_fopen_read(perms_file, xis_check_usable);
     if (!file) {
         log_filtered(2, "No user config found at %s (normal on first run)", perms_file);
         pthread_mutex_unlock(&ignored_lock);
@@ -718,6 +719,34 @@ void permissive_reapply(void) {
 
 /* ====================== SAVE RULES ====================== */
 
+/* Appends one line to perms_file the crash-safe way: the whole file is
+ * rewritten (tmp + fsync + rename) after the previous one is kept as
+ * perms.conf.backup. Caller holds ignored_lock. Returns 1 on success. */
+static int perms_append_line(const char *fmt, const char *a, const char *b, const char *c) {
+    size_t len = 0;
+    char *old = xis_read_file_or_backup(perms_file, xis_check_usable, &len);
+    size_t cap = len + strlen(a) + strlen(b) + strlen(c) + 16;
+    char *out = malloc(cap);
+    if (!out) {
+        free(old);
+        return 0;
+    }
+    size_t n = 0;
+    if (old && len) {
+        memcpy(out, old, len);
+        n = len;
+        if (out[n - 1] != '\n')
+            out[n++] = '\n';
+    }
+    n += (size_t)snprintf(out + n, cap - n, fmt, a, b, c);
+    int ok = xis_write_file(perms_file, out, n, xis_check_lines) == 0;
+    if (!ok)
+        log_msg("Warning: could not write %s: %s", perms_file, strerror(errno));
+    free(old);
+    free(out);
+    return ok;
+}
+
 void save_rule(const char *exe, int action_id, int is_allow) {
     if (!exe || *exe == '\0') return;
 
@@ -739,14 +768,10 @@ void save_rule(const char *exe, int action_id, int is_allow) {
     }
 
     /* Grava enquanto o mutex está preso — check+write atômico. */
-    FILE *file = fopen(perms_file, "a");
-    if (file) {
-        fprintf(file, "%s %s %s\n", is_allow ? "ALLOW" : "DENY", action_str, exe);
-        fclose(file);
-    }
+    int wrote = perms_append_line("%s %s %s\n", is_allow ? "ALLOW" : "DENY", action_str, exe);
     pthread_mutex_unlock(&ignored_lock);
 
-    if (file)
+    if (wrote)
         load_user_config();
 }
 
@@ -757,7 +782,9 @@ void save_denied_entry(const char *exe, int action_id) {
 /* Rewrites perms_file from the in-memory ignored_cmds array.
  * Caller must hold ignored_lock. */
 static void rewrite_perms_file_locked(void) {
-    FILE *file = fopen(perms_file, "w");
+    char tmp[sizeof(perms_file) + 8];
+    xis_write_tmpname(perms_file, tmp, sizeof(tmp));
+    FILE *file = xis_write_open(tmp, perms_file);
     if (!file) {
         log_msg("Warning: could not rewrite %s: %s", perms_file, strerror(errno));
         return;
@@ -769,7 +796,8 @@ static void rewrite_perms_file_locked(void) {
         else
             fprintf(file, "%s %s %s\n", type_str, ignored_cmds[i].action, ignored_cmds[i].exe_pattern);
     }
-    fclose(file);
+    if (xis_write_commit(file, tmp, perms_file, xis_check_lines) != 0)
+        log_msg("Warning: could not rewrite %s: %s", perms_file, strerror(errno));
 }
 
 /* Removes a rule matching pattern + action_str (NULL/""/"ALL" = the ALL-actions rule)
@@ -816,7 +844,7 @@ void load_ignore_reports(void) {
     pthread_mutex_lock(&report_ignore_lock);
     ignored_reports_count = 0;
 
-    FILE *file = fopen(ignore_file, "r");
+    FILE *file = xis_fopen_read(ignore_file, xis_check_usable);
     if (!file) {
         log_filtered(3, "No ignore.conf found at %s (normal)", ignore_file);
         pthread_mutex_unlock(&report_ignore_lock);
@@ -877,7 +905,7 @@ static void active_seen(const char *exe, int action, int pid) {
 static int ignore_file_edit(int add, const char *pattern) {
     char *lines[MAX_IGNORED * 4];
     int n = 0, found = 0, changed = 0;
-    FILE *f = fopen(ignore_file, "r");
+    FILE *f = xis_fopen_read(ignore_file, xis_check_usable);
     if (f) {
         char line[BUF_SIZE];
         while (n < (int)(sizeof(lines) / sizeof(lines[0])) && fgets(line, sizeof(line), f)) {
@@ -900,13 +928,16 @@ static int ignore_file_edit(int add, const char *pattern) {
     }
     int rc = changed ? 1 : 0;
     if (changed) {
-        f = fopen(ignore_file, "w");
+        char itmp[sizeof(ignore_file) + 8];
+        xis_write_tmpname(ignore_file, itmp, sizeof(itmp));
+        f = xis_write_open(itmp, ignore_file);
         if (!f) {
             rc = -1;
         } else {
             for (int i = 0; i < n; i++)
                 fprintf(f, "%s\n", lines[i]);
-            fclose(f);
+            if (xis_write_commit(f, itmp, ignore_file, xis_check_lines) != 0)
+                rc = -1;
         }
     }
     for (int i = 0; i < n; i++)
@@ -928,8 +959,12 @@ int file_has_changed() {
 
 static uint32_t notify_mask_parse(const char *list);
 
+static void safefile_log(const char *msg) {
+    log_msg("%s", msg);
+}
+
 static void load_xnotify_conf(void) {
-    FILE *f = fopen(xnotify_conf_file, "r");
+    FILE *f = xis_fopen_read(xnotify_conf_file, xis_check_usable);
     if (!f) {
         permissive_on_start = 1; /* new install */
         return;
@@ -996,7 +1031,9 @@ static void notify_mask_format(char *out, size_t outsz) {
 
 static void save_xnotify_conf(void) {
     if (!xnotify_conf_file[0]) return;
-    FILE *f = fopen(xnotify_conf_file, "w");
+    char tmp[sizeof(xnotify_conf_file) + 8];
+    xis_write_tmpname(xnotify_conf_file, tmp, sizeof(tmp));
+    FILE *f = xis_write_open(tmp, xnotify_conf_file);
     if (!f) {
         log_msg("Warning: could not save xnotify.conf: %s", strerror(errno));
         return;
@@ -1012,7 +1049,10 @@ static void save_xnotify_conf(void) {
     char na[512];
     notify_mask_format(na, sizeof(na));
     fprintf(f, "notify_actions=%s\n", na[0] ? na : "NONE");
-    fclose(f);
+    if (xis_write_commit(f, tmp, xnotify_conf_file, xis_check_conf_clean) != 0) {
+        log_msg("Warning: could not save xnotify.conf: %s", strerror(errno));
+        return;
+    }
     last_xnotify_conf_mtime = time(NULL);
     log_filtered(3, "Saved xnotify.conf");
 }
@@ -1387,14 +1427,10 @@ void save_ignored_entry(const char *exe, int action_id) {
     }
 
     /* Grava enquanto o mutex está preso — check+write atômico. */
-    FILE *file = fopen(perms_file, "a");
-    if (file) {
-        fprintf(file, "ALLOW %s %s\n", action_str, exe);
-        fclose(file);
-    }
+    int wrote = perms_append_line("%s %s %s\n", "ALLOW", action_str, exe);
     pthread_mutex_unlock(&ignored_lock);
 
-    if (file)
+    if (wrote)
         load_user_config();
 }
 
@@ -3009,6 +3045,7 @@ int main(int argc, char *argv[]) {
     snprintf(ignore_file, sizeof(ignore_file), "%s/ignore.conf", config_dir);
     snprintf(xnotify_conf_file, sizeof(xnotify_conf_file), "%s/xnotify.conf", config_dir);
     mkdir(config_dir, 0755);
+    xis_safefile_set_logger(safefile_log);
 
     /* Load saved runtime flags; CLI args below will override them */
     load_xnotify_conf();
