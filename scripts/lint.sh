@@ -13,7 +13,7 @@ set -u
 
 # Core, then base; planned base applications are skipped until they have a
 # Makefile.
-COMPONENTS="kisession kiwm kicomp xispanel xisserve xisback kitheme kiconf kiconfd xiskeys xismenu xisguard kimemory kistory"
+COMPONENTS="kisession kiwm kicomp xispanel xisserve xisback kitheme kiconf kiconfd xiskeys xismenu xisguard kimemory kistory kimountd"
 COMPONENTS="$COMPONENTS kiterm kifiles kiview kishot kitask kipad kipaint"
 STRICT_CFLAGS="-Wall -Wextra -O2 -Werror"
 FAILED=""

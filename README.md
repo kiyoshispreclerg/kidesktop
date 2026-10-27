@@ -100,6 +100,10 @@ input, energy and permissions.
 Applies the central config to every toolkit the desktop cares about and
 reloads on SIGHUP.
 
+**[kimountd](kimountd/)** -- mounts the disks checked in `kiconf`'s Discos tab
+when they are connected or already there at login, through udisks2 (so in
+the same place KDE and GNOME use).
+
 **[kitheme](kitheme/)** -- one widget theme for GTK2, GTK3, GTK4, Qt5 and Qt6,
 configured in `kiconf`. Presets like Oxygen, classic Windows and flat.
 

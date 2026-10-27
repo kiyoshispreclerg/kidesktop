@@ -93,6 +93,7 @@ Description: lightweight X11 desktop: window manager, compositor, panel and tool
   * xisserve - launcher and pages (audio, network, storage, calendar...)
   * xisback, kiconfd, xiskeys, xismenu - wallpaper, settings daemon,
     global hotkeys, global menu registrar
+  * kimountd - automount of the disks chosen in kiconf (udisks2)
   * kiconf - settings application
   * kitheme - one widget theme for GTK2, GTK3, GTK4, Qt5 and Qt6
     (Oxygen-like, classic and flat presets)

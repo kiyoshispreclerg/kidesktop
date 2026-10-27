@@ -6,7 +6,7 @@
 # ./configure picks which groups a plain `make` builds (--core-only /
 # --with-base) and records it in config.mk; without it, both are built.
 CORE_COMPONENTS = kisession kiwm kicomp xispanel xisserve xisback \
-                  kitheme kiconf kiconfd xiskeys xismenu xisguard kimemory kistory xissound kilock
+                  kitheme kiconf kiconfd xiskeys xismenu xisguard kimemory kistory xissound kilock kimountd
 BASE_COMPONENTS = kiterm kifiles kiview kishot kitask kipad kipaint
 
 WITH_BASE ?= 1
