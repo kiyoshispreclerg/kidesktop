@@ -9,6 +9,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
+#include "xis_safefile.h"
 
 static void config_dir(char *out, size_t outsz)
 {
@@ -64,7 +65,7 @@ int xis_clock_load(XisClock *c)
     memset(c, 0, sizeof(*c));
     char path[PATH_MAX];
     xis_clock_path(path, sizeof(path));
-    FILE *fp = fopen(path, "r");
+    FILE *fp = xis_fopen_read(path, xis_check_usable);
     if (!fp) return 0;
     char line[512];
     while (fgets(line, sizeof(line), fp)) {
@@ -118,7 +119,7 @@ int xis_clock_save(const XisClock *c)
     char path[PATH_MAX], tmp[PATH_MAX + 8];
     xis_clock_path(path, sizeof(path));
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *fp = fopen(tmp, "w");
+    FILE *fp = xis_write_open(tmp, path);
     if (!fp) return -1;
     for (int i = 0; i < c->nalarms; i++) {
         const XisAlarm *a = &c->alarms[i];
@@ -143,11 +144,11 @@ int xis_clock_save(const XisClock *c)
     fprintf(fp, "STOPWATCH\t%lld\t%lld\n", c->sw.start_ms, c->sw.accum_ms);
     for (int i = 0; i < c->sw.nlaps; i++) fprintf(fp, "LAP\t%lld\n", c->sw.laps[i]);
     int bad = ferror(fp);
-    if (fclose(fp) != 0 || bad) {
-        unlink(tmp);
+    if (bad) {
+        xis_write_abort(fp, tmp);
         return -1;
     }
-    return rename(tmp, path) == 0 ? 0 : -1;
+    return xis_write_commit(fp, tmp, path, xis_check_lines) == 0 ? 0 : -1;
 }
 
 long long xis_alarm_next_occurrence(int hour, int minute, unsigned days, long long after)

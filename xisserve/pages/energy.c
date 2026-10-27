@@ -36,6 +36,7 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include "../../shared/xis_safefile.h"
 
 #define ENERGY_POLL_MS 5000
 #define ENERGY_SETTLE_US (900 * 1000)
@@ -111,7 +112,7 @@ static void nightlight_config_load(NightlightConfig *c)
     nightlight_config_defaults(c);
     char path[PATH_MAX];
     nightlight_config_path(path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return;
     }
@@ -158,7 +159,7 @@ static void nightlight_config_save(const NightlightConfig *c)
     nightlight_config_path(path, sizeof(path));
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
+    FILE *f = xis_write_open(tmp, path);
     if (!f) {
         return;
     }
@@ -167,8 +168,7 @@ static void nightlight_config_save(const NightlightConfig *c)
     fprintf(f, "start = %s\n", c->start);
     fprintf(f, "end = %s\n", c->end);
     fprintf(f, "temp = %d\n", c->temp);
-    fclose(f);
-    rename(tmp, path);
+    xis_write_commit(f, tmp, path, xis_check_conf_clean);
 }
 
 /* Same fork+execlp("pkill", "-HUP", "-x", ...) kiconf/common.c's own

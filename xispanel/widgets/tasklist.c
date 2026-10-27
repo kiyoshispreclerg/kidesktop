@@ -34,6 +34,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "../../shared/xis_safefile.h"
 
 #define MAX_TASKS 64
 /* Cap on how many members a grouped button's Button1 pick-list or Button3
@@ -520,7 +521,7 @@ static void tasklist_unpin_class(TasklistPriv *tp, const char *cls)
 static void tasklist_load_fixed_list(PanelWidget *w)
 {
     TasklistPriv *tp = w->priv;
-    FILE *f = fopen(tp->fixed_list_path, "r");
+    FILE *f = xis_fopen_read(tp->fixed_list_path, xis_check_usable);
     if (!f) {
         return;
     }
@@ -571,7 +572,9 @@ static void tasklist_persist_pinned(PanelWidget *w)
             return;
         }
     }
-    FILE *f = fopen(tp->fixed_list_path, "w");
+    char sf_tmp[PATH_MAX + 8];
+    xis_write_tmpname(tp->fixed_list_path, sf_tmp, sizeof(sf_tmp));
+    FILE *f = xis_write_open(sf_tmp, tp->fixed_list_path);
     if (!f) {
         fprintf(stderr, "xispanel: tasklist: could not write %s: %s\n", tp->fixed_list_path, strerror(errno));
         return;
@@ -579,7 +582,7 @@ static void tasklist_persist_pinned(PanelWidget *w)
     for (int i = 0; i < tp->n_pinned; i++) {
         fprintf(f, "%s\n", tp->pinned[i].wm_class);
     }
-    fclose(f);
+    xis_write_commit(f, sf_tmp, tp->fixed_list_path, xis_check_lines);
 }
 
 static int tasklist_init(PanelWidget *w)

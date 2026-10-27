@@ -57,8 +57,9 @@
 #include <unistd.h>
 
 #include "../shared/xis_direction.h"
+#include "../shared/xis_safefile.h"
 
-#define XISSERVE_VERSION "0.2.15"
+#define XISSERVE_VERSION "0.2.16"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -929,7 +930,7 @@ static void load_favorites(void)
 
     char path[PATH_MAX];
     favorites_path(path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) return;
     char line[256];
     while (fgets(line, sizeof(line), f)) {
@@ -947,7 +948,9 @@ static void save_favorites(void)
 {
     char path[PATH_MAX];
     favorites_path(path, sizeof(path));
-    FILE *f = fopen(path, "w");
+    char sf_tmp[PATH_MAX + 8];
+    xis_write_tmpname(path, sf_tmp, sizeof(sf_tmp));
+    FILE *f = xis_write_open(sf_tmp, path);
     if (!f) {
         perror("xisserve: save favorites");
         return;
@@ -955,7 +958,7 @@ static void save_favorites(void)
     for (guint i = 0; i < g_favorites_order->len; i++) {
         fprintf(f, "%s\n", (const char *)g_ptr_array_index(g_favorites_order, i));
     }
-    fclose(f);
+    xis_write_commit(f, sf_tmp, path, xis_check_lines);
 }
 
 static int favorite_index(const char *id)
@@ -1083,7 +1086,7 @@ static void ensure_state_loaded(void)
     g_state = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
     char path[PATH_MAX];
     state_path(path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) return;
     char line[256];
     while (fgets(line, sizeof(line), f)) {
@@ -1112,7 +1115,9 @@ void state_set_int(const char *key, int value)
     g_hash_table_insert(g_state, g_strdup(key), g_strdup_printf("%d", value));
     char path[PATH_MAX];
     state_path(path, sizeof(path));
-    FILE *f = fopen(path, "w");
+    char sf_tmp[PATH_MAX + 8];
+    xis_write_tmpname(path, sf_tmp, sizeof(sf_tmp));
+    FILE *f = xis_write_open(sf_tmp, path);
     if (!f) {
         perror("xisserve: save state");
         return;
@@ -1121,7 +1126,7 @@ void state_set_int(const char *key, int value)
     gpointer k, v;
     g_hash_table_iter_init(&it, g_state);
     while (g_hash_table_iter_next(&it, &k, &v)) fprintf(f, "%s\t%s\n", (const char *)k, (const char *)v);
-    fclose(f);
+    xis_write_commit(f, sf_tmp, path, xis_check_lines);
 }
 
 /* "Mover tudo ao conectar um dispositivo" (xisserve --audio): applied the
