@@ -190,7 +190,7 @@ typedef struct {
 } KisessionServiceDef;
 
 extern const KisessionServiceDef KISESSION_SERVICES[];
-#define N_KISESSION_SERVICES 17
+#define N_KISESSION_SERVICES 18
 
 typedef struct {
     char wm[NAME_LEN];

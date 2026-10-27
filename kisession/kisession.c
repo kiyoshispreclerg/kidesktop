@@ -70,7 +70,7 @@
 #include <unistd.h>
 #include "../shared/xis_safefile.h"
 
-#define KISESSION_VERSION "0.1.18"
+#define KISESSION_VERSION "0.1.19"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -149,6 +149,7 @@ static const char *const ARGV_XISKEYS[] = {"xiskeys", NULL};
 static const char *const ARGV_KICOMP[] = {"kicomp", NULL};
 static const char *const ARGV_KIMEMORYD[] = {"kimemoryd", NULL};
 static const char *const ARGV_KISTORYD[] = {"kistoryd", NULL};
+static const char *const ARGV_KIMOUNTD[] = {"kimountd", NULL};
 static const char *const ARGV_LOCKER[] = {"xss-lock", "--", "kilock", NULL};
 static const char *const ARGV_ORCA[] = {"orca", NULL};
 
@@ -182,6 +183,10 @@ static const SvcDef SERVICES[] = {
     /* Off by default: the day files hold window titles and file names
      * unprotected, so it is opt-in until they are protected. */
     {"kistoryd", SVC_SUPERVISED, ARGV_KISTORYD, 0, "desktop activity history", 0},
+    /* Mounts only what kiconf's Discos tab marked, so on by default costs
+     * nothing until something is marked. Before the panel's file manager
+     * and autostart get to it, so marked disks are there at login. */
+    {"kimountd", SVC_SUPERVISED, ARGV_KIMOUNTD, 1, "automount of the disks marked in kiconf (udisks2)", 0},
     {"audio", SVC_ONESHOT, NULL, 1, "pipewire/pulseaudio, only if nothing already started one", 0},
     {"locker", SVC_SUPERVISED, ARGV_LOCKER, 1, "xss-lock + kilock (i3lock) screen locking", 0},
     {"polkit", SVC_SUPERVISED, NULL, 1, "polkit authentication agent (needed by kiconf's Sistema tab)", 0},
