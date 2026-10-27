@@ -15,7 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define KIPAD_VERSION "0.1.1"
+#define KIPAD_VERSION "0.1.2"
 #define DEFAULT_FONT "Monospace 11"
 #define MIN_FONT_PT 6
 #define MAX_FONT_PT 72
@@ -70,6 +70,104 @@ static void config_save(void)
     g_free(text);
     g_free(dir);
     g_free(path);
+}
+
+/* ---- state: cursor positions and open tabs ---------------------------- */
+
+#define POS_LIMIT 200
+
+typedef struct {
+    GPtrArray *pos_path;  /* char *, most recently used first */
+    GArray *pos_off;      /* int, character offset, parallel to pos_path */
+    GPtrArray *tabs;      /* char *, tabs open when the last window closed */
+    int active;
+} State;
+
+static char *state_path(void)
+{
+    const char *xdg = g_getenv("XDG_STATE_HOME");
+    if (xdg && *xdg)
+        return g_build_filename(xdg, "kipad", "state", NULL);
+    return g_build_filename(g_get_home_dir(), ".local", "state", "kipad", "state", NULL);
+}
+
+static void state_init(State *s)
+{
+    s->pos_path = g_ptr_array_new_with_free_func(g_free);
+    s->pos_off = g_array_new(FALSE, FALSE, sizeof(int));
+    s->tabs = g_ptr_array_new_with_free_func(g_free);
+    s->active = 0;
+}
+
+static void state_clear(State *s)
+{
+    g_ptr_array_free(s->pos_path, TRUE);
+    g_array_free(s->pos_off, TRUE);
+    g_ptr_array_free(s->tabs, TRUE);
+}
+
+static void state_load(State *s)
+{
+    state_init(s);
+    char *path = state_path();
+    char *data = xis_read_file_or_backup(path, xis_check_usable, NULL);
+    g_free(path);
+    if (!data)
+        return;
+    char **lines = g_strsplit(data, "\n", -1);
+    for (char **l = lines; *l; l++) {
+        if (g_str_has_prefix(*l, "pos\t")) {
+            char *p = *l + 4, *tab = strchr(p, '\t');
+            if (!tab || !tab[1])
+                continue;
+            int off = atoi(p);
+            g_ptr_array_add(s->pos_path, g_strdup(tab + 1));
+            g_array_append_val(s->pos_off, off);
+        } else if (g_str_has_prefix(*l, "tab\t") && (*l)[4]) {
+            g_ptr_array_add(s->tabs, g_strdup(*l + 4));
+        } else if (g_str_has_prefix(*l, "active\t")) {
+            s->active = atoi(*l + 7);
+        }
+    }
+    g_strfreev(lines);
+    free(data);
+}
+
+static void state_save(const State *s)
+{
+    GString *out = g_string_new("# kipad state, written by kipad\n");
+    for (guint i = 0; i < s->pos_path->len && i < POS_LIMIT; i++)
+        g_string_append_printf(out, "pos\t%d\t%s\n", g_array_index(s->pos_off, int, i),
+                               (char *)g_ptr_array_index(s->pos_path, i));
+    for (guint i = 0; i < s->tabs->len; i++)
+        g_string_append_printf(out, "tab\t%s\n", (char *)g_ptr_array_index(s->tabs, i));
+    g_string_append_printf(out, "active\t%d\n", s->active);
+    char *path = state_path(), *dir = g_path_get_dirname(path);
+    g_mkdir_with_parents(dir, 0755);
+    xis_write_file(path, out->str, out->len, NULL);
+    g_free(dir);
+    g_free(path);
+    g_string_free(out, TRUE);
+}
+
+static void state_set_pos(State *s, const char *path, int off)
+{
+    for (guint i = 0; i < s->pos_path->len; i++)
+        if (!strcmp(g_ptr_array_index(s->pos_path, i), path)) {
+            g_ptr_array_remove_index(s->pos_path, i);
+            g_array_remove_index(s->pos_off, i);
+            break;
+        }
+    g_ptr_array_insert(s->pos_path, 0, g_strdup(path));
+    g_array_insert_val(s->pos_off, 0, off);
+}
+
+static int state_get_pos(const State *s, const char *path)
+{
+    for (guint i = 0; i < s->pos_path->len; i++)
+        if (!strcmp(g_ptr_array_index(s->pos_path, i), path))
+            return g_array_index(s->pos_off, int, i);
+    return 0;
 }
 
 /* ---- documents ------------------------------------------------------- */
@@ -546,6 +644,45 @@ static void doc_set_text(Doc *d, const char *text, gsize len)
     gtk_text_buffer_set_modified(d->buf, FALSE);
 }
 
+static int doc_cursor_offset(const Doc *d)
+{
+    GtkTextIter it;
+    gtk_text_buffer_get_iter_at_mark(d->buf, &it, gtk_text_buffer_get_insert(d->buf));
+    return gtk_text_iter_get_offset(&it);
+}
+
+static void doc_remember_cursor(const Doc *d)
+{
+    if (!d->path)
+        return;
+    State s;
+    state_load(&s);
+    state_set_pos(&s, d->path, doc_cursor_offset(d));
+    state_save(&s);
+    state_clear(&s);
+}
+
+static gboolean scroll_to_cursor_idle(gpointer data)
+{
+    Doc *d = data;
+    GtkTextMark *m = gtk_text_buffer_get_insert(d->buf);
+    gtk_text_view_scroll_to_mark(GTK_TEXT_VIEW(d->view), m, 0.0, TRUE, 0.0, 0.5);
+    g_object_unref(d->scroll);
+    return FALSE;
+}
+
+static void doc_restore_cursor(Doc *d, int off)
+{
+    if (off <= 0)
+        return;
+    GtkTextIter it;
+    gtk_text_buffer_get_iter_at_offset(d->buf, &it, off); /* clamps to the end */
+    gtk_text_buffer_place_cursor(d->buf, &it);
+    /* the view has no size yet: scroll once the layout exists */
+    g_object_ref(d->scroll);
+    g_idle_add(scroll_to_cursor_idle, d);
+}
+
 static void message(GtkMessageType type, const char *fmt, const char *arg)
 {
     GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(g_win), GTK_DIALOG_MODAL, type, GTK_BUTTONS_OK, fmt, arg);
@@ -599,6 +736,10 @@ static void open_path(const char *path)
     d->path = abs;
     doc_set_text(d, utf8, len);
     g_free(utf8);
+    State st;
+    state_load(&st);
+    doc_restore_cursor(d, state_get_pos(&st, d->path));
+    state_clear(&st);
     doc_update_label(d);
     window_update_title();
     status_update();
@@ -676,9 +817,17 @@ static void close_tab(GtkWidget *scroll)
     gtk_notebook_set_current_page(GTK_NOTEBOOK(g_notebook), n);
     if (!confirm_discard(d))
         return;
+    doc_remember_cursor(d);
     gtk_notebook_remove_page(GTK_NOTEBOOK(g_notebook), n);
-    if (gtk_notebook_get_n_pages(GTK_NOTEBOOK(g_notebook)) == 0)
+    if (gtk_notebook_get_n_pages(GTK_NOTEBOOK(g_notebook)) == 0) {
+        /* closed the last tab on purpose: next start is empty */
+        State s;
+        state_load(&s);
+        g_ptr_array_set_size(s.tabs, 0);
+        state_save(&s);
+        state_clear(&s);
         gtk_main_quit();
+    }
 }
 
 static gboolean on_delete_event(GtkWidget *w, GdkEvent *ev, gpointer data)
@@ -692,6 +841,23 @@ static gboolean on_delete_event(GtkWidget *w, GdkEvent *ev, gpointer data)
         if (!confirm_discard(doc_of(gtk_notebook_get_nth_page(GTK_NOTEBOOK(g_notebook), i))))
             return TRUE;
     }
+    /* remember every cursor and the tab list, to reopen them next time */
+    State s;
+    state_load(&s);
+    g_ptr_array_set_size(s.tabs, 0);
+    int active = gtk_notebook_get_current_page(GTK_NOTEBOOK(g_notebook));
+    s.active = 0;
+    for (int i = 0; i < n; i++) {
+        Doc *d = doc_of(gtk_notebook_get_nth_page(GTK_NOTEBOOK(g_notebook), i));
+        if (!d->path)
+            continue;
+        state_set_pos(&s, d->path, doc_cursor_offset(d));
+        if (i == active)
+            s.active = (int)s.tabs->len;
+        g_ptr_array_add(s.tabs, g_strdup(d->path));
+    }
+    state_save(&s);
+    state_clear(&s);
     return FALSE;
 }
 
@@ -953,10 +1119,26 @@ int main(int argc, char **argv)
 
     gtk_widget_show_all(g_win);
 
-    if (argc > 1) {
-        for (int i = 1; i < argc; i++)
-            if (argv[i][0] != '-')
-                open_path(argv[i]);
+    int nfiles = 0;
+    for (int i = 1; i < argc; i++)
+        if (argv[i][0] != '-') {
+            open_path(argv[i]);
+            nfiles++;
+        }
+    if (!nfiles) {
+        /* no files given: reopen the tabs the last window had */
+        State s;
+        state_load(&s);
+        for (guint i = 0; i < s.tabs->len; i++) {
+            const char *p = g_ptr_array_index(s.tabs, i);
+            if (g_file_test(p, G_FILE_TEST_IS_REGULAR))
+                open_path(p);
+        }
+        int n = gtk_notebook_get_n_pages(GTK_NOTEBOOK(g_notebook));
+        /* tabs that no longer exist shift the index; clamp is good enough */
+        if (n > 0)
+            gtk_notebook_set_current_page(GTK_NOTEBOOK(g_notebook), s.active < n ? s.active : n - 1);
+        state_clear(&s);
     }
     if (gtk_notebook_get_n_pages(GTK_NOTEBOOK(g_notebook)) == 0)
         new_empty_tab();

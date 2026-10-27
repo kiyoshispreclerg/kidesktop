@@ -13,7 +13,13 @@ Simple tabbed text editor for KiDesktop (GTK2).
   cut/copy/paste, select all. Files are read as UTF-8 (ISO-8859-1 when they
   are not) and always saved as UTF-8
 
+Cursor positions (last 200 files) and the open tabs are remembered in
+`~/.local/state/kipad/state`: files reopen at the last cursor position, and
+`kipad` with no arguments reopens the tabs the last window had (closing the
+last tab on purpose starts empty next time). With several windows, the last
+one closed decides the tab list.
+
 Settings (font, line numbers, word wrap) are in `~/.config/kipad.conf`, written
 whenever they change. Command line: `kipad [FILE...]`.
 
-Not in 0.1.0: search/replace, word wrap, syntax highlighting, session restore.
+Not in 0.1.0: search/replace, syntax highlighting.
