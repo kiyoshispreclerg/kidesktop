@@ -7,7 +7,7 @@
 #include <gio/gio.h>
 #include "../shared/xis_sound.h"
 
-#define KIFILES_VERSION "0.1.22"
+#define KIFILES_VERSION "0.1.23"
 
 typedef enum { KF_VIEW_ICONS, KF_VIEW_LIST } KfViewMode;
 typedef enum { KF_SORT_NAME, KF_SORT_SIZE, KF_SORT_MTIME, KF_SORT_TYPE, KF_SORT_EXT, KF_SORT_N } KfSortKey;
@@ -95,6 +95,8 @@ struct KfPane {
     gboolean hl_valid;
     int hl_cols, hl_x0, hl_pitch, hl_item_w;
     GArray *hl_rows;            /* GdkRectangle per row: y and height */
+    GString *ta_buf;            /* name being typed (kf_typeahead.c) */
+    guint32 ta_time;            /* time of its last key */
 };
 
 /* A tab owns one or two panes (split view); the toolbar and places panel are
@@ -182,6 +184,10 @@ void kf_hover_setup(KfPane *p);
 void kf_hover_apply(KfPane *p);         /* after the setting changed */
 void kf_hover_clear(KfPane *p);
 void kf_hover_refresh(KfPane *p);       /* the content moved under a still pointer */
+
+/* kf_typeahead.c -- typing selects the first item whose name starts with it */
+void kf_typeahead_setup(KfPane *p);
+void kf_typeahead_free(KfPane *p);
 
 /* kf_dnd.c */
 void kf_dnd_setup_pane(KfPane *p);

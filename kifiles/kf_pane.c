@@ -1422,8 +1422,6 @@ KfPane *kf_pane_new(KfApp *app)
     p->treeview = gtk_tree_view_new_with_model(p->sort);
     GtkTreeView *tv = GTK_TREE_VIEW(p->treeview);
     gtk_tree_view_set_rubber_banding(tv, TRUE);
-    gtk_tree_view_set_enable_search(tv, TRUE);
-    gtk_tree_view_set_search_column(tv, KF_COL_NAME);
     gtk_tree_selection_set_mode(gtk_tree_view_get_selection(tv), GTK_SELECTION_MULTIPLE);
     GtkTreeViewColumn *ncol = gtk_tree_view_column_new();
     gtk_tree_view_column_set_title(ncol, _("Name"));
@@ -1487,6 +1485,7 @@ KfPane *kf_pane_new(KfApp *app)
     gtk_widget_hide(p->msg_bar);
     kf_dnd_setup_pane(p);
     kf_hover_setup(p);
+    kf_typeahead_setup(p);
     return p;
 }
 
@@ -1510,6 +1509,7 @@ void kf_pane_destroy(KfPane *p)
     kf_files_free(p->fwd);
     g_list_free_full(p->pending_select, g_free);
     g_free(p->filter_text);
+    kf_typeahead_free(p);
     if (p->dir)
         g_object_unref(p->dir);
     gtk_widget_destroy(p->box);
