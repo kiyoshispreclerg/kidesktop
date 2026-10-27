@@ -13,6 +13,7 @@
  * Numbers are parsed by hand rather than with strtod(), which follows
  * LC_NUMERIC: under pt_BR "0.6" would read as 0. */
 #include "kitheme.h"
+#include "../../shared/xis_safefile.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -218,7 +219,7 @@ static void set_key(KtTheme *t, const char *key, const char *val)
  * anything. */
 static int read_file(KtTheme *t, const char *path, int preset_only, char *preset, size_t psz, char *colors, size_t csz)
 {
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f)
         return 0;
     char line[512];
@@ -366,7 +367,7 @@ int kt_theme_save(const KtTheme *t, const char *path)
         return 0;
     char tmp[PATH_MAX + 8];
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
+    FILE *f = xis_write_open(tmp, path);
     if (!f)
         return 0;
     fprintf(f, "# KiTheme -- written by kiconf, see kitheme/README.md\n");
@@ -402,11 +403,7 @@ int kt_theme_save(const KtTheme *t, const char *path)
         }
         fprintf(f, "%s = %s\n", keys[i].name, buf);
     }
-    if (fclose(f) != 0) {
-        remove(tmp);
-        return 0;
-    }
-    return rename(tmp, path) == 0;
+    return xis_write_commit(f, tmp, path, xis_check_conf_clean) == 0;
 }
 
 static int cmp_name(const void *a, const void *b)
@@ -484,7 +481,7 @@ int kt_theme_save_colors(const KtTheme *t, const char *name)
     if (!user_colors_path(name, path, sizeof(path)) || !mkdir_parents(path))
         return 0;
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
+    FILE *f = xis_write_open(tmp, path);
     if (!f)
         return 0;
     fprintf(f, "# KiTheme color scheme -- written by kiconf\n");
@@ -495,9 +492,5 @@ int kt_theme_save_colors(const KtTheme *t, const char *name)
         kt_color_hex(*(const KtColor *)((const char *)t + keys[i].off), buf);
         fprintf(f, "%s = %s\n", keys[i].name, buf);
     }
-    if (fclose(f) != 0) {
-        remove(tmp);
-        return 0;
-    }
-    return rename(tmp, path) == 0;
+    return xis_write_commit(f, tmp, path, xis_check_conf_clean) == 0;
 }

@@ -21,7 +21,7 @@ GTK2_ENGINEDIR ?= $(shell pkg-config --variable=libdir gtk+-2.0)/gtk-2.0/$(shell
 
 CORE_CFLAGS := $(shell pkg-config --cflags cairo) -DKITHEME_DATADIR='"$(KITHEME_DATADIR)"' -fPIC
 CORE_SRCS := core/kt_color.c core/kt_config.c core/kt_draw.c core/kt_sample.c
-CORE_OBJS := $(CORE_SRCS:.c=.o)
+CORE_OBJS := $(CORE_SRCS:.c=.o) core/xis_safefile.o
 CORE_HDRS := core/kitheme.h
 
 GTK2_CFLAGS := $(shell pkg-config --cflags gtk+-2.0) -DGLIB_DISABLE_DEPRECATION_WARNINGS -fPIC
@@ -51,6 +51,11 @@ all: core/libkitheme.a gtk2/libkitheme.so export/kitheme-export build/KiTheme/in
 
 core/%.o: core/%.c $(CORE_HDRS)
 	$(CC) $(CFLAGS) $(CORE_CFLAGS) -c -o $@ $<
+
+# shared/xis_safefile.c, built here with -fPIC under its own object name:
+# shared/*.o are built by other components without it.
+core/xis_safefile.o: ../shared/xis_safefile.c ../shared/xis_safefile.h
+	$(CC) $(CFLAGS) $(CORE_CFLAGS) -c -o $@ ../shared/xis_safefile.c
 
 core/libkitheme.a: $(CORE_OBJS)
 	rm -f $@
