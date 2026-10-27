@@ -7,7 +7,7 @@
 #include <gio/gio.h>
 #include "../shared/xis_sound.h"
 
-#define KIFILES_VERSION "0.1.20"
+#define KIFILES_VERSION "0.1.21"
 
 typedef enum { KF_VIEW_ICONS, KF_VIEW_LIST } KfViewMode;
 typedef enum { KF_SORT_NAME, KF_SORT_SIZE, KF_SORT_MTIME, KF_SORT_TYPE, KF_SORT_EXT, KF_SORT_N } KfSortKey;
@@ -86,6 +86,8 @@ struct KfPane {
     guint thumbs_idle;
     guint stats_idle;
     guint sel_idle;
+    double pending_scroll;      /* vertical offset to restore once the folder has loaded (0 = none) */
+    guint scroll_idle;
     int view;                   /* KfViewMode currently shown */
     GdkRectangle hover_rect;    /* item under the pointer, in view bin-window coordinates */
     gboolean hover_has;
@@ -145,6 +147,8 @@ void kf_crumbs_edit(GtkWidget *crumbs);
 KfPane *kf_pane_new(KfApp *app);
 void kf_pane_destroy(KfPane *p);
 void kf_pane_navigate(KfPane *p, GFile *dir, gboolean push_history, GFile *select_after);
+double kf_pane_get_scroll(KfPane *p);
+void kf_pane_restore_scroll(KfPane *p, double value);   /* applied when the load finishes */
 void kf_pane_go_back(KfPane *p);
 void kf_pane_go_forward(KfPane *p);
 void kf_pane_go_up(KfPane *p);

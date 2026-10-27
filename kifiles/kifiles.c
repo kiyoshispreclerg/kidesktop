@@ -842,6 +842,13 @@ static void session_collect(KfApp *app)
             g_string_append_printf(entry, "%s%s", entry->len ? " " : "", uri);
             g_free(uri);
         }
+        /* Scroll offsets follow the folders: "URI URI |120 0". */
+        if (entry->len) {
+            g_string_append(entry, " |");
+            for (int i = 0; i < 2; i++)
+                if (t->panes[i] && t->panes[i]->dir)
+                    g_string_append_printf(entry, "%s%d", i ? " " : "", (int)kf_pane_get_scroll(t->panes[i]));
+        }
         if (entry->len)
             g_ptr_array_add(out, g_string_free(entry, FALSE));
         else
@@ -885,13 +892,24 @@ static GFile *session_dir(const char *uri)
 }
 
 /* Directories of saved tab `n`: [0] left/only pane, [1] right pane or NULL. */
-static void session_entry(KfApp *app, int n, GFile *dirs[2])
+static void session_entry(KfApp *app, int n, GFile *dirs[2], double scroll[2])
 {
     dirs[0] = dirs[1] = NULL;
-    char **uris = g_strsplit(app->cfg.tabs[n], " ", 2);
+    scroll[0] = scroll[1] = 0;
+    char *copy = g_strdup(app->cfg.tabs[n]);
+    char *bar = strstr(copy, " |");
+    if (bar) {
+        *bar = '\0';
+        char **nums = g_strsplit(bar + 2, " ", 2);
+        for (int i = 0; i < 2 && nums[i]; i++)
+            scroll[i] = MAX(atof(nums[i]), 0);
+        g_strfreev(nums);
+    }
+    char **uris = g_strsplit(copy, " ", 2);
     for (int i = 0; i < 2 && uris[i]; i++)
         dirs[i] = session_dir(uris[i]);
     g_strfreev(uris);
+    g_free(copy);
 }
 
 static gboolean have_session(KfApp *app)
@@ -907,7 +925,8 @@ static void session_restore(KfApp *app)
     int shown = app->cfg.cur_tab;
     for (int i = 0; i < KF_MAX_TABS && app->cfg.tabs[i]; i++) {
         GFile *dirs[2];
-        session_entry(app, i, dirs);
+        double scroll[2];
+        session_entry(app, i, dirs, scroll);
         if (i > 0) {
             if (!dirs[0]) {
                 if (dirs[1])
@@ -918,12 +937,15 @@ static void session_restore(KfApp *app)
             }
             kf_tabs_open(app, dirs[0], TRUE);
         }
+        if (dirs[0])
+            kf_pane_restore_scroll(app->tab->panes[0], scroll[0]);
         if (dirs[1]) {
             app->updating_ui = TRUE;
             sync_toggle(app, "Split", TRUE);
             app->updating_ui = FALSE;
             set_split(app, TRUE);
             kf_pane_navigate(app->tab->panes[1], dirs[1], FALSE, NULL);
+            kf_pane_restore_scroll(app->tab->panes[1], scroll[1]);
         }
         for (int k = 0; k < 2; k++)
             if (dirs[k])
@@ -1594,7 +1616,8 @@ int main(int argc, char **argv)
     gboolean restoring = owns_session && have_session(app);
     if (restoring) {
         GFile *dirs[2];
-        session_entry(app, 0, dirs);
+        double scroll[2];
+        session_entry(app, 0, dirs, scroll);
         start = dirs[0];
         if (dirs[1])
             g_object_unref(dirs[1]);

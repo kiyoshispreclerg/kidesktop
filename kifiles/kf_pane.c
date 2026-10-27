@@ -294,10 +294,62 @@ static void load_ctx_free(LoadCtx *c)
     g_free(c);
 }
 
+static GtkAdjustment *pane_vadj(KfPane *p)
+{
+    GtkWidget *sw = p->view == KF_VIEW_ICONS ? p->sw_icons : p->sw_list;
+    return gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(sw));
+}
+
+double kf_pane_get_scroll(KfPane *p)
+{
+    return p->pending_scroll > 0 ? p->pending_scroll : gtk_adjustment_get_value(pane_vadj(p));
+}
+
+/* After the resize pass, so the adjustment's range already covers the rows. */
+static void schedule_scroll(KfPane *p);
+
+/* A background tab has no allocation yet; it is applied when shown. */
+static void on_sw_map(GtkWidget *sw, gpointer data)
+{
+    g_signal_handlers_disconnect_by_func(sw, on_sw_map, data);
+    schedule_scroll(data);
+}
+
+static gboolean apply_scroll(gpointer data)
+{
+    KfPane *p = data;
+    p->scroll_idle = 0;
+    GtkWidget *sw = p->view == KF_VIEW_ICONS ? p->sw_icons : p->sw_list;
+    if (!gtk_widget_get_mapped(sw)) {
+        g_signal_connect(sw, "map", G_CALLBACK(on_sw_map), p);
+        return G_SOURCE_REMOVE;
+    }
+    GtkAdjustment *adj = pane_vadj(p);
+    double max = gtk_adjustment_get_upper(adj) - gtk_adjustment_get_page_size(adj);
+    gtk_adjustment_set_value(adj, CLAMP(p->pending_scroll, 0, MAX(max, 0)));
+    p->pending_scroll = 0;
+    return G_SOURCE_REMOVE;
+}
+
+static void schedule_scroll(KfPane *p)
+{
+    if (!p->scroll_idle)
+        p->scroll_idle = g_idle_add(apply_scroll, p);
+}
+
+void kf_pane_restore_scroll(KfPane *p, double value)
+{
+    p->pending_scroll = value;
+    if (!p->loading && value > 0)
+        schedule_scroll(p);
+}
+
 static void load_finished(KfPane *p)
 {
     p->loading = FALSE;
     kf_pane_apply_sort(p);
+    if (p->pending_scroll > 0)
+        schedule_scroll(p);
     if (gtk_tree_model_iter_n_children(p->sort, NULL) == 0 && !gtk_widget_get_visible(p->msg_bar))
         show_message(p, GTK_MESSAGE_INFO, _("This folder is empty."));
     kf_app_pane_changed(p->app, p, KF_CHANGE_LOADED);
@@ -554,6 +606,7 @@ void kf_pane_navigate(KfPane *p, GFile *dir, gboolean push_history, GFile *selec
         kf_files_free(p->fwd);
         p->fwd = NULL;
     }
+    p->pending_scroll = 0;
     g_list_free_full(p->pending_select, g_free);
     p->pending_select = NULL;
     if (select_after)
@@ -1447,6 +1500,8 @@ void kf_pane_destroy(KfPane *p)
         g_file_monitor_cancel(p->monitor);
         g_object_unref(p->monitor);
     }
+    if (p->scroll_idle)
+        g_source_remove(p->scroll_idle);
     if (p->thumbs_idle)
         g_source_remove(p->thumbs_idle);
     if (p->stats_idle)
