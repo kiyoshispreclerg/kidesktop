@@ -1,4 +1,4 @@
-# kifind - find files (GTK2).
+# kifind - file search (GTK2 + GIO).
 CFLAGS ?= -Wall -Wextra -O2
 PKGS := gtk+-2.0 gio-2.0
 PKG_CFLAGS := $(shell pkg-config --cflags $(PKGS))
@@ -19,9 +19,9 @@ PKG_LIBS += $(LIBINTL)
 LINGUAS := $(shell test -f po/LINGUAS && grep -v '^\#' po/LINGUAS)
 MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
-SRCS := kifind.c
+SRCS := kifind.c kfd_search.c kfd_multi.c kfd_date.c
 OBJS := $(SRCS:.c=.o)
-HDRS := ../shared/xis_i18n.h
+HDRS := kifind.h ../shared/xis_i18n.h
 
 all: kifind
 

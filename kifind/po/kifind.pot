@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kifind\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-27 17:17-0300\n"
+"POT-Creation-Date: 2026-10-27 18:03-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -16,40 +16,228 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=CHARSET\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
 
-#: kifind.c:22
-msgid "Searching is not implemented yet."
+#: kfd_date.c:195
+msgid "Pick a date"
 msgstr ""
 
-#: kifind.c:67
+#: kfd_multi.c:144
+msgid "Others"
+msgstr ""
+
+#: kifind.c:85
+msgid "Nothing found."
+msgstr ""
+
+#: kifind.c:85
+msgid "Search stopped. Nothing found."
+msgstr ""
+
+#: kifind.c:87
+#, c-format
+msgid "Search stopped. %u item found."
+msgid_plural "Search stopped. %u items found."
+msgstr[0] ""
+msgstr[1] ""
+
+#: kifind.c:90
+#, c-format
+msgid "%u item found."
+msgid_plural "%u items found."
+msgstr[0] ""
+msgstr[1] ""
+
+#: kifind.c:135
+#, c-format
+msgid "%u found -- searching %s"
+msgid_plural "%u found -- searching %s"
+msgstr[0] ""
+msgstr[1] ""
+
+#: kifind.c:180
+msgid "Choose a folder to search."
+msgstr ""
+
+#: kifind.c:196
+msgid "That is not a date."
+msgstr ""
+
+#: kifind.c:201
+msgid "The size must be a number."
+msgstr ""
+
+#: kifind.c:221
+msgid "Searching..."
+msgstr ""
+
+#: kifind.c:322
+msgid "_Open"
+msgstr ""
+
+#: kifind.c:323
+msgid "Open Containing _Folder"
+msgstr ""
+
+#: kifind.c:324
+msgid "Copy _Path"
+msgstr ""
+
+#: kifind.c:392
+msgid "Name"
+msgstr ""
+
+#: kifind.c:404
+msgid "In Folder"
+msgstr ""
+
+#: kifind.c:405
+msgid "Size"
+msgstr ""
+
+#: kifind.c:406
+msgid "Modified"
+msgstr ""
+
+#: kifind.c:446
+msgid "System accounts"
+msgstr ""
+
+#: kifind.c:446
+msgid "System groups"
+msgstr ""
+
+#: kifind.c:462
+msgid "From"
+msgstr ""
+
+#: kifind.c:466
+msgid "To"
+msgstr ""
+
+#: kifind.c:477
+msgid "bytes"
+msgstr ""
+
+#: kifind.c:514
+msgid "Any type"
+msgstr ""
+
+#: kifind.c:516
+msgid "Audio"
+msgstr ""
+
+#: kifind.c:516
+msgid "Folders"
+msgstr ""
+
+#: kifind.c:516
+msgid "Images"
+msgstr ""
+
+#: kifind.c:517
+msgid "Documents"
+msgstr ""
+
+#: kifind.c:517
+msgid "Text files"
+msgstr ""
+
+#: kifind.c:517
+msgid "Video"
+msgstr ""
+
+#: kifind.c:518
+msgid "Archives"
+msgstr ""
+
+#: kifind.c:518
+msgid "Executables"
+msgstr ""
+
+#: kifind.c:518
+msgid "Other files"
+msgstr ""
+
+#: kifind.c:522
+msgid "Type:"
+msgstr ""
+
+#: kifind.c:531
+msgid "Created:"
+msgstr ""
+
+#: kifind.c:532
+msgid "Modified:"
+msgstr ""
+
+#: kifind.c:533
+msgid "Size:"
+msgstr ""
+
+#: kifind.c:535
+msgid "Anyone"
+msgstr ""
+
+#: kifind.c:537
+msgid "Owner:"
+msgstr ""
+
+#: kifind.c:538
+msgid "Any group"
+msgstr ""
+
+#: kifind.c:540
+msgid "Group:"
+msgstr ""
+
+#: kifind.c:542
+msgid "_Reset"
+msgstr ""
+
+#: kifind.c:543
+msgid "Clear the advanced options"
+msgstr ""
+
+#: kifind.c:599
 #, c-format
 msgid "Usage: kifind [FOLDER]\n"
 msgstr ""
 
-#: kifind.c:78
+#: kifind.c:611
 msgid "Find Files"
 msgstr ""
 
-#: kifind.c:93
+#: kifind.c:626
+msgid ""
+"Part of the name, or a pattern where * stands for any characters (*.txt, "
+"report*2024*). Empty finds everything."
+msgstr ""
+
+#: kifind.c:628
 msgid "_Named:"
 msgstr ""
 
-#: kifind.c:95
+#: kifind.c:630
 msgid "Look In"
 msgstr ""
 
-#: kifind.c:98
+#: kifind.c:633
 msgid "_Look in:"
 msgstr ""
 
-#: kifind.c:100
+#: kifind.c:638
 msgid "Include _subfolders"
 msgstr ""
 
-#: kifind.c:112
-msgid "Name"
+#: kifind.c:640
+msgid "_Match case"
 msgstr ""
 
-#: kifind.c:113
-msgid "In Folder"
+#: kifind.c:641
+msgid "Include _hidden files and folders"
+msgstr ""
+
+#: kifind.c:647
+msgid "_Advanced"
 msgstr ""

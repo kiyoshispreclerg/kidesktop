@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kifind\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-27 17:17-0300\n"
+"POT-Creation-Date: 2026-10-27 17:59-0300\n"
 "PO-Revision-Date: 2026-10-27 17:17-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -17,39 +17,228 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
-#: kifind.c:22
-msgid "Searching is not implemented yet."
-msgstr "A busca ainda não foi implementada."
+#: kfd_date.c:195
+msgid "Pick a date"
+msgstr "Escolher uma data"
 
-#: kifind.c:67
+#: kfd_multi.c:144
+msgid "Others"
+msgstr "Outros"
+
+#: kifind.c:85
+msgid "Nothing found."
+msgstr "Nada encontrado."
+
+#: kifind.c:85
+msgid "Search stopped. Nothing found."
+msgstr "Busca interrompida. Nada encontrado."
+
+#: kifind.c:87
+#, c-format
+msgid "Search stopped. %u item found."
+msgid_plural "Search stopped. %u items found."
+msgstr[0] "Busca interrompida. %u item encontrado."
+msgstr[1] "Busca interrompida. %u itens encontrados."
+
+#: kifind.c:90
+#, c-format
+msgid "%u item found."
+msgid_plural "%u items found."
+msgstr[0] "%u item encontrado."
+msgstr[1] "%u itens encontrados."
+
+#: kifind.c:135
+#, c-format
+msgid "%u found -- searching %s"
+msgid_plural "%u found -- searching %s"
+msgstr[0] "%u encontrado -- procurando em %s"
+msgstr[1] "%u encontrados -- procurando em %s"
+
+#: kifind.c:180
+msgid "Choose a folder to search."
+msgstr "Escolha uma pasta para procurar."
+
+#: kifind.c:196
+msgid "That is not a date."
+msgstr "Isso não é uma data."
+
+#: kifind.c:201
+msgid "The size must be a number."
+msgstr "O tamanho deve ser um número."
+
+#: kifind.c:221
+msgid "Searching..."
+msgstr "Procurando..."
+
+#: kifind.c:322
+msgid "_Open"
+msgstr "_Abrir"
+
+#: kifind.c:323
+msgid "Open Containing _Folder"
+msgstr "Abrir _pasta que contém"
+
+#: kifind.c:324
+msgid "Copy _Path"
+msgstr "Copiar _caminho"
+
+#: kifind.c:392
+msgid "Name"
+msgstr "Nome"
+
+#: kifind.c:404
+msgid "In Folder"
+msgstr "Na pasta"
+
+#: kifind.c:405
+msgid "Size"
+msgstr "Tamanho"
+
+#: kifind.c:406
+msgid "Modified"
+msgstr "Modificado"
+
+#: kifind.c:446
+msgid "System accounts"
+msgstr "Contas do sistema"
+
+#: kifind.c:446
+msgid "System groups"
+msgstr "Grupos do sistema"
+
+#: kifind.c:462
+msgid "From"
+msgstr "Desde"
+
+#: kifind.c:466
+msgid "To"
+msgstr "Até"
+
+#: kifind.c:477
+msgid "bytes"
+msgstr "bytes"
+
+#: kifind.c:514
+msgid "Any type"
+msgstr "Qualquer tipo"
+
+#: kifind.c:516
+msgid "Audio"
+msgstr "Áudio"
+
+#: kifind.c:516
+msgid "Folders"
+msgstr "Pastas"
+
+#: kifind.c:516
+msgid "Images"
+msgstr "Imagens"
+
+#: kifind.c:517
+msgid "Documents"
+msgstr "Documentos"
+
+#: kifind.c:517
+msgid "Text files"
+msgstr "Arquivos de texto"
+
+#: kifind.c:517
+msgid "Video"
+msgstr "Vídeo"
+
+#: kifind.c:518
+msgid "Archives"
+msgstr "Arquivos compactados"
+
+#: kifind.c:518
+msgid "Executables"
+msgstr "Executáveis"
+
+#: kifind.c:518
+msgid "Other files"
+msgstr "Outros arquivos"
+
+#: kifind.c:522
+msgid "Type:"
+msgstr "Tipo:"
+
+#: kifind.c:531
+msgid "Created:"
+msgstr "Criado:"
+
+#: kifind.c:532
+msgid "Modified:"
+msgstr "Modificado:"
+
+#: kifind.c:533
+msgid "Size:"
+msgstr "Tamanho:"
+
+#: kifind.c:535
+msgid "Anyone"
+msgstr "Qualquer usuário"
+
+#: kifind.c:537
+msgid "Owner:"
+msgstr "Dono:"
+
+#: kifind.c:538
+msgid "Any group"
+msgstr "Qualquer grupo"
+
+#: kifind.c:540
+msgid "Group:"
+msgstr "Grupo:"
+
+#: kifind.c:542
+msgid "_Reset"
+msgstr "_Limpar"
+
+#: kifind.c:543
+msgid "Clear the advanced options"
+msgstr "Limpar as opções avançadas"
+
+#: kifind.c:599
 #, c-format
 msgid "Usage: kifind [FOLDER]\n"
 msgstr "Uso: kifind [PASTA]\n"
 
-#: kifind.c:78
+#: kifind.c:611
 msgid "Find Files"
 msgstr "Procurar arquivos"
 
-#: kifind.c:93
+#: kifind.c:626
+msgid ""
+"Part of the name, or a pattern where * stands for any characters (*.txt, "
+"report*2024*). Empty finds everything."
+msgstr ""
+"Parte do nome, ou um padrão em que * representa quaisquer caracteres "
+"(*.txt, relatorio*2024*). Vazio encontra tudo."
+
+#: kifind.c:628
 msgid "_Named:"
 msgstr "_Nome:"
 
-#: kifind.c:95
+#: kifind.c:630
 msgid "Look In"
 msgstr "Procurar em"
 
-#: kifind.c:98
+#: kifind.c:633
 msgid "_Look in:"
 msgstr "_Procurar em:"
 
-#: kifind.c:100
+#: kifind.c:638
 msgid "Include _subfolders"
 msgstr "Incluir _subpastas"
 
-#: kifind.c:112
-msgid "Name"
-msgstr "Nome"
+#: kifind.c:640
+msgid "_Match case"
+msgstr "_Diferenciar maiúsculas e minúsculas"
 
-#: kifind.c:113
-msgid "In Folder"
-msgstr "Na pasta"
+#: kifind.c:641
+msgid "Include _hidden files and folders"
+msgstr "Incluir pastas e arquivos _ocultos"
+
+#: kifind.c:647
+msgid "_Advanced"
+msgstr "_Avançado"
