@@ -793,7 +793,7 @@ or toast live.
 | key | values |
 |---|---|
 | `offset` | how far displaced at the start (or end), as a fraction of the window's own size on the slide axis (0.02–3.0, default 0.3) |
-| `direction` | `auto` (default): whichever axis points at the nearest edge of the window's output — horizontal for the left/right edge, vertical for top/bottom. `horizontal` / `vertical` pin the axis; the sign still follows the nearest edge on it. |
+| `direction` | `auto` (default): whichever axis points at the nearest edge of the window's output — horizontal for the left/right edge, vertical for top/bottom. `auto-panel`: the side of the screen the nearest dock (panel) *on the window's own output* is attached to, so the window looks like it comes out of the panel — for flyouts such as xisserve's pages; with no dock mapped on that output it falls back to `auto`. `horizontal` / `vertical` pin the axis; the sign still follows the nearest edge on it. |
 
 The direction is computed once, when the effect starts, from the
 window's own centre against its output's edges — a popup pinned to the

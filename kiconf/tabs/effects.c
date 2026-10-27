@@ -383,7 +383,7 @@ typedef struct {
 static const char *const EASING_OPTS[] = {"linear", "in", "out", "in-out", "spring", NULL};
 static const char *const ORIGIN3_OPTS[] = {"window", "pointer", "output", NULL};
 static const char *const ORIGIN2_OPTS[] = {"window", "pointer", NULL};
-static const char *const SLIDE_DIR_OPTS[] = {"auto", "horizontal", "vertical", NULL};
+static const char *const SLIDE_DIR_OPTS[] = {"auto", "auto-panel", "horizontal", "vertical", NULL};
 static const char *const CROSSING_OPTS[] = {"fade", "hide", NULL};
 static const char *const ARRANGE_OPTS[] = {"stack", "grid", NULL};
 static const char *const CORNER_OPTS[] = {"top-left", "top-right", "bottom-left", "bottom-right", NULL};

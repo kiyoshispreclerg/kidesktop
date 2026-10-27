@@ -15,6 +15,8 @@
  *              looks like it is arriving from the side of the screen it
  *              is closest to. horizontal / vertical pin the axis and
  *              still pick the sign from the nearest edge on that axis.
+ *              auto-panel: the side the nearest dock (panel) is on, so
+ *              the window seems to come out of it (see slide-dir.h).
  *
  * This is aimed at popups more than ordinary windows -- a launcher page,
  * a volume flyout, a tooltip -- which is why the default window list is
@@ -30,7 +32,7 @@
  *   events    = open,restore,desktop-enter
  *   windows   = popups
  *   offset    = 0.3      # fraction of the window's size on the slide axis
- *   direction = auto     # auto | horizontal | vertical
+ *   direction = auto     # auto | auto-panel | horizontal | vertical
  *
  * Several instances may exist, each with its own numbers -- see the
  * README: [effect:slide-in:launcher] with a different offset is a
@@ -41,16 +43,11 @@
 #include "../output.h"
 #include "../window.h"
 #include "../transform.h"
+#include "slide-dir.h"
 
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
-
-typedef enum {
-    SLIDE_AUTO,
-    SLIDE_HORIZONTAL,
-    SLIDE_VERTICAL,
-} SlideDirection;
 
 /* One of these per instance (effect.h's CompEffectModule::config_size),
  * which is what lets two [effect:slide-in:*] sections animate the same
@@ -86,63 +83,19 @@ static bool config_key(void *config, const char *key, const char *value)
         if (f > 3.0f) f = 3.0f;
         c->offset = f;
     } else if (strcmp(key, "direction") == 0) {
-        if (strcmp(value, "horizontal") == 0)   c->direction = SLIDE_HORIZONTAL;
-        else if (strcmp(value, "vertical") == 0) c->direction = SLIDE_VERTICAL;
-        else if (strcmp(value, "auto") == 0)     c->direction = SLIDE_AUTO;
-        else return false;
+        if (!slide_direction_parse(value, &c->direction))
+            return false;
     } else {
         return false;
     }
     return true;
 }
 
-/* The full displacement vector for this window, computed once when the
- * effect starts: which edge of its output is nearest its centre decides
- * both the axis (for `auto`) and the sign (always), so a popup pinned to
- * the right of the screen slides in from further right, never from the
- * left. A window that isn't over any known output falls back to sliding
- * in from the left/top, which is as good a guess as any for something
- * off-screen. */
+/* Where the slide ends up pointing is slide-dir.h's business: nearest
+ * output edge, or the nearest panel. */
 static void offset_for(CompWindow *w, const SlideConfig *cfg, float *dx, float *dy)
 {
-    CompRect r = window_rect(w);
-    float cx = r.x + r.w / 2.0f;
-    float cy = r.y + r.h / 2.0f;
-
-    CompRect out = { 0, 0, 0, 0 };
-    bool have_out = false;
-    for (int i = 0; i < comp.output_count; i++) {
-        CompRect centre = { r.x + r.w / 2, r.y + r.h / 2, 1, 1 };
-        CompRect hit;
-        if (rect_intersect(&centre, &comp.outputs[i].rect, &hit)) {
-            out = comp.outputs[i].rect;
-            have_out = true;
-            break;
-        }
-    }
-
-    /* Distances from the window's centre to each edge of its output;
-     * whichever is smallest names both the nearest edge and, for `auto`,
-     * the axis to slide along. */
-    float d_left = have_out ? cx - out.x : 1.0f;
-    float d_right = have_out ? (out.x + out.w) - cx : 0.0f;
-    float d_top = have_out ? cy - out.y : 1.0f;
-    float d_bottom = have_out ? (out.y + out.h) - cy : 0.0f;
-
-    bool horizontal;
-    if (cfg->direction == SLIDE_HORIZONTAL)
-        horizontal = true;
-    else if (cfg->direction == SLIDE_VERTICAL)
-        horizontal = false;
-    else
-        horizontal = fminf(d_left, d_right) <= fminf(d_top, d_bottom);
-
-    *dx = 0.0f;
-    *dy = 0.0f;
-    if (horizontal)
-        *dx = (d_left <= d_right ? -1.0f : 1.0f) * cfg->offset * r.w;
-    else
-        *dy = (d_top <= d_bottom ? -1.0f : 1.0f) * cfg->offset * r.h;
+    slide_offset_for(w, cfg->direction, cfg->offset, dx, dy);
 }
 
 static void slide_transform(CompEffect *e, float p, CompTransform *t)
