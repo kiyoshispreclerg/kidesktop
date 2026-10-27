@@ -5,9 +5,11 @@
  * (font, line numbers) live in ~/.config/kipad.conf and are written whenever
  * they change. */
 #include "../shared/xis_i18n.h"
+#include "../shared/xis_safefile.h"
 
 #include <gdk/gdkkeysyms.h>
 #include <gtk/gtk.h>
+#include <errno.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,8 +37,9 @@ static char *conf_path(void)
 
 static void config_load(void)
 {
-    char *path = conf_path(), *data = NULL;
-    if (g_file_get_contents(path, &data, NULL, NULL)) {
+    char *path = conf_path();
+    char *data = xis_read_file_or_backup(path, xis_check_usable, NULL);
+    if (data) {
         char **lines = g_strsplit(data, "\n", -1);
         for (char **l = lines; *l; l++) {
             char *eq = strchr(*l, '=');
@@ -52,7 +55,7 @@ static void config_load(void)
                 g_word_wrap = atoi(val) != 0;
         }
         g_strfreev(lines);
-        g_free(data);
+        free(data);
     }
     g_free(path);
 }
@@ -63,7 +66,7 @@ static void config_save(void)
     g_mkdir_with_parents(dir, 0755);
     char *text = g_strdup_printf("# kipad settings, written by kipad\nfont = %s\nline_numbers = %d\nword_wrap = %d\n",
                                  g_font, g_line_numbers, g_word_wrap);
-    g_file_set_contents(path, text, -1, NULL);
+    xis_write_file(path, text, strlen(text), xis_check_conf_clean);
     g_free(text);
     g_free(dir);
     g_free(path);
@@ -610,12 +613,11 @@ static gboolean save_doc(Doc *d)
     GtkTextIter a, b;
     gtk_text_buffer_get_bounds(d->buf, &a, &b);
     char *text = gtk_text_buffer_get_text(d->buf, &a, &b, TRUE);
-    GError *err = NULL;
-    gboolean ok = g_file_set_contents(d->path, text, -1, &err);
+    /* The user's own document: atomic and synced, but no .backup beside it. */
+    gboolean ok = xis_write_export(d->path, text, strlen(text)) == 0;
     g_free(text);
     if (!ok) {
-        message(GTK_MESSAGE_ERROR, _("Could not save the file:\n%s"), err->message);
-        g_error_free(err);
+        message(GTK_MESSAGE_ERROR, _("Could not save the file:\n%s"), g_strerror(errno));
         return FALSE;
     }
     gtk_text_buffer_set_modified(d->buf, FALSE);

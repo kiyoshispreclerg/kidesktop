@@ -7,6 +7,7 @@
  * them. */
 #include "kf.h"
 #include "../shared/xis_i18n.h"
+#include "../shared/xis_safefile.h"
 #include <string.h>
 #include <glib/gstdio.h>
 
@@ -103,8 +104,8 @@ static GList *read_bookmarks(void)
     char *files[2] = { g_build_filename(g_get_user_config_dir(), "gtk-3.0", "bookmarks", NULL),
                        g_build_filename(g_get_home_dir(), ".gtk-bookmarks", NULL) };
     for (int i = 0; i < 2; i++) {
-        char *text = NULL;
-        if (g_file_get_contents(files[i], &text, NULL, NULL)) {
+        char *text = xis_read_file_or_backup(files[i], xis_check_usable, NULL);
+        if (text) {
             char **lines = g_strsplit(text, "\n", -1);
             for (char **l = lines; *l; l++) {
                 char *line = g_strstrip(*l);
@@ -126,7 +127,7 @@ static GList *read_bookmarks(void)
                 out = g_list_append(out, pair);
             }
             g_strfreev(lines);
-            g_free(text);
+            free(text);
         }
         g_free(files[i]);
     }
@@ -476,8 +477,8 @@ static void m_unbookmark(GtkMenuItem *mi, gpointer d)
     GFile *f = g_object_get_data(G_OBJECT(mi), "kf-file");
     char *uri = g_file_get_uri(f);
     char *path = g_build_filename(g_get_user_config_dir(), "gtk-3.0", "bookmarks", NULL);
-    char *text = NULL;
-    if (g_file_get_contents(path, &text, NULL, NULL)) {
+    char *text = xis_read_file_or_backup(path, xis_check_usable, NULL);
+    if (text) {
         GString *out = g_string_new(NULL);
         char **lines = g_strsplit(text, "\n", -1);
         for (char **l = lines; *l; l++) {
@@ -485,10 +486,10 @@ static void m_unbookmark(GtkMenuItem *mi, gpointer d)
             if (!match && **l)
                 g_string_append_printf(out, "%s\n", *l);
         }
-        g_file_set_contents(path, out->str, -1, NULL);
+        xis_write_file(path, out->str, out->len, xis_check_lines);
         g_string_free(out, TRUE);
         g_strfreev(lines);
-        g_free(text);
+        free(text);
     }
     g_free(path);
     g_free(uri);
@@ -715,15 +716,14 @@ void kf_places_add_bookmark(GtkWidget *w, GFile *dir)
     g_mkdir_with_parents(d, 0755);
     g_free(d);
     char *uri = g_file_get_uri(dir);
-    char *text = NULL;
-    g_file_get_contents(path, &text, NULL, NULL);
+    char *text = xis_read_file_or_backup(path, xis_check_usable, NULL);
     GString *out = g_string_new(text ? text : "");
     if (out->len && out->str[out->len - 1] != '\n')
         g_string_append_c(out, '\n');
     g_string_append_printf(out, "%s\n", uri);
-    g_file_set_contents(path, out->str, -1, NULL);
+    xis_write_file(path, out->str, out->len, xis_check_lines);
     g_string_free(out, TRUE);
-    g_free(text);
+    free(text);
     g_free(uri);
     g_free(path);
     rebuild(pl);

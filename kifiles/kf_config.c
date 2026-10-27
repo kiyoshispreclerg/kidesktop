@@ -1,6 +1,7 @@
 /* kf_config.c - $XDG_CONFIG_HOME/kifiles.conf (fallback ~/.config/kifiles.conf),
  * flat key=value like the rest of KiDesktop. Unknown keys are ignored. */
 #include "kf.h"
+#include "../shared/xis_safefile.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -41,7 +42,7 @@ void kf_config_load(KfConfig *c)
 {
     kf_config_defaults(c);
     char *path = config_path();
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     g_free(path);
     if (!f)
         return;
@@ -86,10 +87,13 @@ void kf_config_save(const KfConfig *c)
     char *dir = g_path_get_dirname(path);
     g_mkdir_with_parents(dir, 0755);
     g_free(dir);
-    FILE *f = fopen(path, "w");
-    g_free(path);
-    if (!f)
+    char tmp[4096];
+    xis_write_tmpname(path, tmp, sizeof(tmp));
+    FILE *f = xis_write_open(tmp, path);
+    if (!f) {
+        g_free(path);
         return;
+    }
     fprintf(f, "# kifiles settings (written on exit)\n");
     fprintf(f, "view=%s\nzoom=%d\nsort=%s\nsort_desc=%d\nfolders_first=%d\nshow_hidden=%d\n",
             c->view == KF_VIEW_LIST ? "list" : "icons", c->zoom, kSortNames[CLAMP(c->sort, 0, KF_SORT_N - 1)],
@@ -102,5 +106,6 @@ void kf_config_save(const KfConfig *c)
             fprintf(f, "tab=%s\n", c->tabs[i]);
         fprintf(f, "current_tab=%d\n", c->cur_tab);
     }
-    fclose(f);
+    xis_write_commit(f, tmp, path, xis_check_conf_clean);
+    g_free(path);
 }
