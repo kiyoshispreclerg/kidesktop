@@ -61,6 +61,13 @@ else
 	echo "lint: cppcheck not installed, skipping"
 fi
 
+echo "==> shared unit tests (ASan/UBSan)"
+make -s -C shared/tests clean >/dev/null 2>&1
+if ! CFLAGS="-O1 -g -Werror" make -s -C shared/tests check SAN=1 >/dev/null; then
+	fail shared-tests
+fi
+make -s -C shared/tests clean >/dev/null 2>&1
+
 echo "==> translations"
 for po in */po/*.po; do
 	[ -f "$po" ] || continue

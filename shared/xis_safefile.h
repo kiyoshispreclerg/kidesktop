@@ -65,7 +65,8 @@ int xis_flush_sync(FILE *f);
  * xis_write_open creates it with the permissions of `path` if that exists.
  * xis_write_commit syncs and closes f, backs `path` up (unless ok is NULL),
  * renames; on failure the tmp is removed and -1 returned (errno set).
- * Use xis_write_abort to give up. */
+ * An empty result is written as a single "\n" when a backup is kept, so
+ * it is not mistaken for a power-cut leftover. Use xis_write_abort to give up. */
 void xis_write_tmpname(const char *path, char *tmp, size_t tmpsz);
 FILE *xis_write_open(const char *tmp, const char *path);
 int xis_write_commit(FILE *f, const char *tmp, const char *path, xis_check_fn ok);

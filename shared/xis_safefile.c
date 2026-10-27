@@ -347,6 +347,12 @@ int xis_write_commit(FILE *f, const char *tmp, const char *path, xis_check_fn ok
 {
     char rbuf[PATH_MAX];
     path = resolve(path, rbuf);
+    /* A list the user emptied must not be written as an empty file: that is
+     * what a power cut leaves behind, so the next read would bring the
+     * backup (and the deleted entries) back. A blank line is ignored by
+     * every line-based reader. */
+    if (ok && fflush(f) == 0 && ftello(f) == 0)
+        fputc('\n', f);
     int rc = xis_flush_sync(f);
     int e = errno;
     if (fclose(f) != 0 && rc == 0) {

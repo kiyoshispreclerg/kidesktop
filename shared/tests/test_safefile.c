@@ -140,6 +140,17 @@ static void test_read_fallback(void)
         fclose(f);
 }
 
+static void test_emptied_list_stays_empty(void)
+{
+    char *p = path_of("h.list");
+    CHECK(xis_write_file(p, "a\n", 2, xis_check_lines) == 0);
+    CHECK(xis_write_file(p, "", 0, xis_check_lines) == 0); /* user removed the last entry */
+    size_t n;
+    char *t = xis_read_file_or_backup(p, NULL, &n);
+    CHECK(t && strcmp(t, "\n") == 0); /* not "a\n" from the backup */
+    free(t);
+}
+
 static void test_lines_check(void)
 {
     char *p = path_of("d.tsv");
@@ -182,10 +193,17 @@ static void test_export_and_stream(void)
     char tmp[512];
     xis_write_tmpname(q, tmp, sizeof tmp);
     FILE *f = xis_write_open(tmp, q);
-    CHECK(f != NULL);
+    if (!f) {
+        g_fail++;
+        return;
+    }
     fputs("s1\n", f);
     CHECK(xis_write_commit(f, tmp, q, xis_check_lines) == 0);
     f = xis_write_open(tmp, q);
+    if (!f) {
+        g_fail++;
+        return;
+    }
     fputs("s2\n", f);
     CHECK(xis_write_commit(f, tmp, q, xis_check_lines) == 0);
     char *bak = slurp(path_of("g.conf.backup"));
@@ -193,6 +211,10 @@ static void test_export_and_stream(void)
     free(bak);
 
     f = xis_write_open(tmp, q);
+    if (!f) {
+        g_fail++;
+        return;
+    }
     xis_write_abort(f, tmp);
     CHECK(!plain_exists(tmp));
 }
@@ -209,6 +231,7 @@ int main(void)
     test_first_and_second_write();
     test_corrupt_main_keeps_backup();
     test_read_fallback();
+    test_emptied_list_stays_empty();
     test_lines_check();
     test_conf_clean_and_pem();
     test_export_and_stream();
