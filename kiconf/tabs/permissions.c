@@ -530,6 +530,20 @@ static void on_xg_remove_ignored(GtkWidget *widget, gpointer data)
     g_free(pattern);
 }
 
+/* Changing which rules are live makes the guard drop everything it granted
+ * the server and send the rules again, so programs without a rule lose
+ * access and may be closed. Returns 1 if the user accepts. */
+static int confirm_authorizations_reset(void)
+{
+    GtkWidget *dlg = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL, GTK_MESSAGE_WARNING, GTK_BUTTONS_OK_CANCEL,
+                                            "%s", _("Esta alteracao zera as autorizacoes ja concedidas: o xisguard "
+                                                    "recarrega as regras no servidor, e programas abertos que "
+                                                    "dependiam delas perdem o acesso e podem ser fechados."));
+    int ok = gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_OK;
+    gtk_widget_destroy(dlg);
+    return ok;
+}
+
 static void apply_xg_status_cb(GtkWidget *widget, gpointer data)
 {
     (void)widget;
@@ -545,6 +559,10 @@ static void apply_xg_status_cb(GtkWidget *widget, gpointer data)
             size_t o = strlen(notify);
             snprintf(notify + o, sizeof(notify) - o, "%s%s", o ? "," : "", XNOTIFY_ACTIONS[i + 1][0]);
         }
+    }
+    if (g_xg_baseline.online && secure_mode != g_xg_baseline.secure_mode && !confirm_authorizations_reset()) {
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_xg_secure_mode_chk), g_xg_baseline.secure_mode);
+        return;
     }
     apply_xg_status_diff(no_pause, quiet, always_kill, log_level, secure_mode, notify);
 
@@ -605,7 +623,7 @@ static void on_xg_remove_rule(GtkWidget *widget, gpointer data)
     gchar *type, *action, *pattern;
     gtk_tree_model_get(GTK_TREE_MODEL(g_xg_rules_store), &it,
                         COL_XG_TYPE, &type, COL_XG_ACTION, &action, COL_XG_PATTERN, &pattern, -1);
-    if (xisguard_send_rule_cmd("REMOVE_RULE", action, pattern, type)) {
+    if (confirm_authorizations_reset() && xisguard_send_rule_cmd("REMOVE_RULE", action, pattern, type)) {
         refresh_xg_rules();
     }
     g_free(type);
