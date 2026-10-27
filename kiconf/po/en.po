@@ -2393,3 +2393,23 @@ msgstr "Scale (--scale) grows or shrinks the box; DPI >= 96 shrinks it (needs X-
 #: tabs/screens.c
 msgid "DPI nao entra no desenho: falta X-INPUT-SCALE ou um compositor com X-DENSITY."
 msgstr "DPI is not drawn: X-INPUT-SCALE or a compositor with X-DENSITY is missing."
+
+#: tabs/kitheme.c
+msgid "Cor principal (destaque):"
+msgstr "Main color (accent):"
+
+#: tabs/kitheme.c
+msgid "Gera a selecao, o destaque, a barra de progresso e o texto das dicas."
+msgstr "Sets the selection, accent, progress bar and tooltip text colors."
+
+#: tabs/kitheme.c
+msgid "Gera o fundo das janelas, campos, botoes e menus, e as dicas no tom oposto."
+msgstr "Sets the window, field, button and menu backgrounds, and tooltips in the opposite tone."
+
+#: tabs/kitheme.c
+msgid "Avancado"
+msgstr "Advanced"
+
+#: tabs/kitheme.c
+msgid "Cada uma das cores. Mudar uma delas desliga as duas cores acima; fechar esta secao volta a usa-las."
+msgstr "Every color on its own. Changing one turns off the two colors above; closing this section goes back to them."

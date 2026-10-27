@@ -20,8 +20,12 @@ static GtkWidget *g_preview, *g_status;
 static GtkWidget *g_radius, *g_menu_radius, *g_relief, *g_gradient, *g_shadow;
 static GtkWidget *g_hover_glow, *g_stripes, *g_animation, *g_arrows;
 static GtkWidget *g_pthick, *g_sbwidth, *g_checksize;
+static GtkWidget *g_simple_accent, *g_simple_bg, *g_advanced;
 static char g_preset[64], g_scheme[64];
 static int g_loading;
+/* The two simple colors drive the 14 until one of the 14 is edited by
+ * hand in "Avancado"; closing "Avancado" goes back to them. */
+static int g_simple;
 
 static const char *const style_labels[] = {N_("Suave (Oxygen)"), N_("Classico (Windows 9x)"), N_("Plano"), NULL};
 static const char *const focus_labels[] = {N_("Brilho"), N_("Pontilhado"), N_("Nenhum"), NULL};
@@ -49,6 +53,28 @@ static ColorRow g_colors[] = {
 static KtColor *color_field(KtTheme *t, size_t off)
 {
     return (KtColor *)((char *)t + off);
+}
+
+static void button_set(GtkWidget *btn, KtColor c)
+{
+    GdkColor g = {0, (guint16)(c.r * 65535), (guint16)(c.g * 65535), (guint16)(c.b * 65535)};
+    gtk_color_button_set_color(GTK_COLOR_BUTTON(btn), &g);
+}
+
+static KtColor button_get(GtkWidget *btn)
+{
+    char hex[16];
+    KtColor c = {0, 0, 0, 1};
+    color_button_hex(btn, hex, sizeof(hex));
+    kt_color_parse(hex, &c);
+    return c;
+}
+
+static void set_simple(int on)
+{
+    g_simple = on;
+    gtk_widget_set_sensitive(g_simple_accent, on);
+    gtk_widget_set_sensitive(g_simple_bg, on);
 }
 
 /* Rebuilds the scheme combo from disk and selects `select` (none when it
@@ -83,11 +109,11 @@ static void collect(KtTheme *t)
     snprintf(t->colors, sizeof(t->colors), "%s", g_scheme);
     int s = gtk_combo_box_get_active(GTK_COMBO_BOX(g_style_combo));
     t->style = s < 0 ? KT_STYLE_SOFT : (KtStyle)s;
-    for (size_t i = 0; i < NCOLORS; i++) {
-        char hex[16];
-        color_button_hex(g_colors[i].btn, hex, sizeof(hex));
-        kt_color_parse(hex, color_field(t, g_colors[i].off));
-    }
+    for (size_t i = 0; i < NCOLORS; i++)
+        *color_field(t, g_colors[i].off) = button_get(g_colors[i].btn);
+    t->simple_accent = button_get(g_simple_accent);
+    t->simple_bg = button_get(g_simple_bg);
+    t->simple = g_simple;
     t->radius = gtk_spin_button_get_value(GTK_SPIN_BUTTON(g_radius));
     t->menu_radius = gtk_spin_button_get_value(GTK_SPIN_BUTTON(g_menu_radius));
     t->relief = gtk_range_get_value(GTK_RANGE(g_relief));
@@ -114,11 +140,14 @@ static void fill(const KtTheme *t)
     snprintf(g_scheme, sizeof(g_scheme), "%s", t->colors);
     select_scheme(g_scheme);
     gtk_combo_box_set_active(GTK_COMBO_BOX(g_style_combo), (int)t->style);
-    for (size_t i = 0; i < NCOLORS; i++) {
-        KtColor c = *color_field((KtTheme *)t, g_colors[i].off);
-        GdkColor g = {0, (guint16)(c.r * 65535), (guint16)(c.g * 65535), (guint16)(c.b * 65535)};
-        gtk_color_button_set_color(GTK_COLOR_BUTTON(g_colors[i].btn), &g);
-    }
+    for (size_t i = 0; i < NCOLORS; i++)
+        button_set(g_colors[i].btn, *color_field((KtTheme *)t, g_colors[i].off));
+    button_set(g_simple_accent, t->simple_accent);
+    button_set(g_simple_bg, t->simple_bg);
+    set_simple(t->simple);
+    /* Colors edited one by one only show up in "Avancado". */
+    if (!t->simple)
+        gtk_expander_set_expanded(GTK_EXPANDER(g_advanced), TRUE);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_radius), t->radius);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_menu_radius), t->menu_radius);
     gtk_range_set_value(GTK_RANGE(g_relief), t->relief);
@@ -148,6 +177,43 @@ static void color_changed_cb(GtkWidget *w, gpointer data)
         g_loading = 0;
     }
     changed_cb(w, data);
+}
+
+/* The 14 buttons from the two simple ones. */
+static void derive_colors(void)
+{
+    KtTheme t;
+    kt_theme_defaults(&t);
+    kt_colors_derive(&t, button_get(g_simple_accent), button_get(g_simple_bg));
+    g_loading = 1;
+    for (size_t i = 0; i < NCOLORS; i++)
+        button_set(g_colors[i].btn, *color_field(&t, g_colors[i].off));
+    g_loading = 0;
+}
+
+static void simple_changed_cb(GtkWidget *w, gpointer data)
+{
+    derive_colors();
+    color_changed_cb(w, data);
+}
+
+/* One of the 14 edited by hand: the simple colors stop driving them. */
+static void advanced_changed_cb(GtkWidget *w, gpointer data)
+{
+    if (!g_loading)
+        set_simple(0);
+    color_changed_cb(w, data);
+}
+
+/* Closing "Avancado" after editing the 14 goes back to the simple colors. */
+static void advanced_toggled_cb(GObject *obj, GParamSpec *ps, gpointer data)
+{
+    (void)ps;
+    if (g_loading || g_simple || gtk_expander_get_expanded(GTK_EXPANDER(obj)))
+        return;
+    set_simple(1);
+    derive_colors();
+    color_changed_cb(GTK_WIDGET(obj), data);
 }
 
 static void changed_cb(GtkWidget *w, gpointer data)
@@ -189,6 +255,9 @@ static void preset_cb(GtkWidget *w, gpointer data)
         /* A preset is only a shape: the colors stay as they are. */
         for (size_t i = 0; i < NCOLORS; i++)
             *color_field(&t, g_colors[i].off) = *color_field(&cur, g_colors[i].off);
+        t.simple_accent = cur.simple_accent;
+        t.simple_bg = cur.simple_bg;
+        t.simple = cur.simple;
         snprintf(t.colors, sizeof(t.colors), "%s", cur.colors);
         fill(&t);
     }
@@ -417,7 +486,31 @@ GtkWidget *build_kitheme_tab(void)
     gtk_box_pack_start(GTK_BOX(srow), dbtn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(cbox), srow, FALSE, FALSE, 0);
 
-    /* Colors, two per row */
+    /* Simple colors: the 14 below are derived from these two */
+    GtkWidget *simple = gtk_table_new(2, 2, FALSE);
+    gtk_table_set_col_spacings(GTK_TABLE(simple), 6);
+    gtk_table_set_row_spacings(GTK_TABLE(simple), 4);
+    g_simple_accent = make_color_button("#000000");
+    g_simple_bg = make_color_button("#000000");
+    struct {
+        const char *label, *tip;
+        GtkWidget *btn;
+    } srows[] = {
+        {N_("Cor principal (destaque):"), N_("Gera a selecao, o destaque, a barra de progresso e o texto das dicas."), g_simple_accent},
+        {N_("Cor de fundo:"), N_("Gera o fundo das janelas, campos, botoes e menus, e as dicas no tom oposto."), g_simple_bg},
+    };
+    for (int i = 0; i < 2; i++) {
+        GtkWidget *l = gtk_label_new(_(srows[i].label));
+        gtk_misc_set_alignment(GTK_MISC(l), 0, 0.5);
+        a11y_name(srows[i].btn, _(srows[i].label));
+        gtk_widget_set_tooltip_text(srows[i].btn, _(srows[i].tip));
+        g_signal_connect(srows[i].btn, "color-set", G_CALLBACK(simple_changed_cb), NULL);
+        gtk_table_attach(GTK_TABLE(simple), l, 0, 1, i, i + 1, GTK_FILL, 0, 0, 0);
+        gtk_table_attach(GTK_TABLE(simple), srows[i].btn, 1, 2, i, i + 1, 0, 0, 0, 0);
+    }
+    gtk_box_pack_start(GTK_BOX(cbox), simple, FALSE, FALSE, 0);
+
+    /* Every color, two per row, behind "Avancado" */
     GtkWidget *colors = gtk_table_new((NCOLORS + 1) / 2, 4, FALSE);
     gtk_table_set_col_spacings(GTK_TABLE(colors), 6);
     gtk_table_set_row_spacings(GTK_TABLE(colors), 4);
@@ -427,11 +520,19 @@ GtkWidget *build_kitheme_tab(void)
         gtk_misc_set_alignment(GTK_MISC(l), 0, 0.5);
         g_colors[i].btn = make_color_button("#000000");
         a11y_name(g_colors[i].btn, _(g_colors[i].label));
-        g_signal_connect(g_colors[i].btn, "color-set", G_CALLBACK(color_changed_cb), NULL);
+        g_signal_connect(g_colors[i].btn, "color-set", G_CALLBACK(advanced_changed_cb), NULL);
         gtk_table_attach(GTK_TABLE(colors), l, col, col + 1, row, row + 1, GTK_FILL, 0, 0, 0);
         gtk_table_attach(GTK_TABLE(colors), g_colors[i].btn, col + 1, col + 2, row, row + 1, 0, 0, 0, 0);
     }
-    gtk_box_pack_start(GTK_BOX(cbox), colors, FALSE, FALSE, 0);
+    g_advanced = gtk_expander_new(_("Avancado"));
+    /* On the label only: on the expander it would cover the 14 buttons. */
+    gtk_widget_set_tooltip_text(gtk_expander_get_label_widget(GTK_EXPANDER(g_advanced)), _("Cada uma das cores. Mudar uma delas desliga as duas cores acima; fechar esta secao volta a usa-las."));
+    GtkWidget *apad = gtk_alignment_new(0, 0, 1, 1);
+    gtk_alignment_set_padding(GTK_ALIGNMENT(apad), 4, 0, 12, 0);
+    gtk_container_add(GTK_CONTAINER(apad), colors);
+    gtk_container_add(GTK_CONTAINER(g_advanced), apad);
+    g_signal_connect(g_advanced, "notify::expanded", G_CALLBACK(advanced_toggled_cb), NULL);
+    gtk_box_pack_start(GTK_BOX(cbox), g_advanced, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(left), frame_with(_("Cores"), cbox), FALSE, FALSE, 0);
 
     /* Shape */

@@ -2398,3 +2398,23 @@ msgstr "Escala (--scale) aumenta ou diminui a caixa; DPI >= 96 a encolhe (precis
 #: tabs/screens.c
 msgid "DPI nao entra no desenho: falta X-INPUT-SCALE ou um compositor com X-DENSITY."
 msgstr "DPI não entra no desenho: falta X-INPUT-SCALE ou um compositor com X-DENSITY."
+
+#: tabs/kitheme.c
+msgid "Cor principal (destaque):"
+msgstr "Cor principal (destaque):"
+
+#: tabs/kitheme.c
+msgid "Gera a selecao, o destaque, a barra de progresso e o texto das dicas."
+msgstr "Gera a seleção, o destaque, a barra de progresso e o texto das dicas."
+
+#: tabs/kitheme.c
+msgid "Gera o fundo das janelas, campos, botoes e menus, e as dicas no tom oposto."
+msgstr "Gera o fundo das janelas, campos, botões e menus, e as dicas no tom oposto."
+
+#: tabs/kitheme.c
+msgid "Avancado"
+msgstr "Avançado"
+
+#: tabs/kitheme.c
+msgid "Cada uma das cores. Mudar uma delas desliga as duas cores acima; fechar esta secao volta a usa-las."
+msgstr "Cada uma das cores. Mudar uma delas desliga as duas cores acima; fechar esta seção volta a usá-las."
