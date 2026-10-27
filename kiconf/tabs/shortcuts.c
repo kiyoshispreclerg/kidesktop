@@ -117,6 +117,9 @@ enum {
 };
 
 static GtkListStore *g_fixed_store;
+static GtkTreeModel *g_custom_filter, *g_fixed_filter;
+static GtkWidget *g_filter_entry;
+static char *g_filter_text = NULL;      /* lowercased; NULL/empty = show all */
 static GtkWidget *g_fixed_status_label;
 
 
@@ -195,11 +198,76 @@ static void save_shortcuts_cb(GtkWidget *widget, gpointer data)
     signal_daemon("xiskeys");
 }
 
+/* The filter entry hides rows in the views only; the stores keep every row,
+ * so saving still writes them all. Edits/removals arrive as filter paths. */
+static gboolean row_matches(GtkTreeModel *m, GtkTreeIter *it, const int *cols, int n)
+{
+    if (!g_filter_text || !*g_filter_text)
+        return TRUE;
+    for (int i = 0; i < n; i++) {
+        gchar *v = NULL;
+        gtk_tree_model_get(m, it, cols[i], &v, -1);
+        gchar *low = v ? g_utf8_strdown(v, -1) : NULL;
+        gboolean hit = low && strstr(low, g_filter_text);
+        g_free(low);
+        g_free(v);
+        if (hit)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+static gboolean custom_visible(GtkTreeModel *m, GtkTreeIter *it, gpointer d)
+{
+    (void)d;
+    static const int cols[] = {COL_ACTION, COL_SPEC, COL_COMMAND};
+    return row_matches(m, it, cols, 3);
+}
+
+static gboolean fixed_visible(GtkTreeModel *m, GtkTreeIter *it, gpointer d)
+{
+    (void)d;
+    static const int cols[] = {COL_FX_LABEL, COL_FX_DEFAULT, COL_FX_SPEC};
+    return row_matches(m, it, cols, 3);
+}
+
+static void shortcut_filter_changed(GtkEditable *e, gpointer d)
+{
+    (void)d;
+    g_free(g_filter_text);
+    g_filter_text = g_utf8_strdown(gtk_entry_get_text(GTK_ENTRY(e)), -1);
+    gtk_tree_model_filter_refilter(GTK_TREE_MODEL_FILTER(g_custom_filter));
+    gtk_tree_model_filter_refilter(GTK_TREE_MODEL_FILTER(g_fixed_filter));
+}
+
+static void filter_icon_press(GtkEntry *e, GtkEntryIconPosition pos, GdkEvent *ev, gpointer d)
+{
+    (void)ev;
+    (void)d;
+    if (pos == GTK_ENTRY_ICON_SECONDARY)
+        gtk_entry_set_text(e, "");
+}
+
+/* Filter-model iter/path -> iter in the underlying store. */
+static gboolean store_iter_from_path(GtkTreeModel *filter, GtkListStore *store, const gchar *path_str, GtkTreeIter *out)
+{
+    GtkTreePath *path = gtk_tree_path_new_from_string(path_str);
+    GtkTreeIter fit;
+    gboolean ok = gtk_tree_model_get_iter(filter, &fit, path);
+    if (ok)
+        gtk_tree_model_filter_convert_iter_to_child_iter(GTK_TREE_MODEL_FILTER(filter), out, &fit);
+    gtk_tree_path_free(path);
+    (void)store;
+    return ok;
+}
+
 static void add_shortcut_cb(GtkWidget *widget, gpointer data)
 {
     (void)widget;
     (void)data;
     GtkTreeIter it;
+    if (g_filter_text && *g_filter_text && g_filter_entry)
+        gtk_entry_set_text(GTK_ENTRY(g_filter_entry), "");  /* so the new row shows */
     gtk_list_store_append(g_shortcuts_store, &it);
     gtk_list_store_set(g_shortcuts_store, &it,
                         COL_ACTION, "novo-atalho", COL_SPEC, "Ctrl+F1", COL_COMMAND, "true", -1);
@@ -211,8 +279,11 @@ static void remove_shortcut_cb(GtkWidget *widget, gpointer data)
     (void)widget;
     GtkTreeSelection *sel = gtk_tree_view_get_selection(view);
     GtkTreeIter it;
-    if (gtk_tree_selection_get_selected(sel, NULL, &it)) {
-        gtk_list_store_remove(g_shortcuts_store, &it);
+    GtkTreeModel *fm = NULL;
+    if (gtk_tree_selection_get_selected(sel, &fm, &it)) {
+        GtkTreeIter sit;
+        gtk_tree_model_filter_convert_iter_to_child_iter(GTK_TREE_MODEL_FILTER(fm), &sit, &it);
+        gtk_list_store_remove(g_shortcuts_store, &sit);
     }
 }
 
@@ -220,12 +291,9 @@ static void shortcut_cell_edited(GtkCellRendererText *cell, gchar *path_str, gch
 {
     (void)cell;
     gint col = GPOINTER_TO_INT(data);
-    GtkTreePath *path = gtk_tree_path_new_from_string(path_str);
     GtkTreeIter it;
-    if (gtk_tree_model_get_iter(GTK_TREE_MODEL(g_shortcuts_store), &it, path)) {
+    if (store_iter_from_path(g_custom_filter, g_shortcuts_store, path_str, &it))
         gtk_list_store_set(g_shortcuts_store, &it, col, new_text, -1);
-    }
-    gtk_tree_path_free(path);
 }
 
 /* ---- kiwm.conf: reading one key_* value, and the merge-write back ----- */
@@ -873,17 +941,14 @@ static void fixed_spec_edited(GtkCellRendererText *cell, gchar *path_str, gchar 
 {
     (void)cell;
     (void)data;
-    GtkTreePath *path = gtk_tree_path_new_from_string(path_str);
     GtkTreeIter it;
-    if (gtk_tree_model_get_iter(GTK_TREE_MODEL(g_fixed_store), &it, path)) {
+    if (store_iter_from_path(g_fixed_filter, g_fixed_store, path_str, &it))
         gtk_list_store_set(g_fixed_store, &it, COL_FX_SPEC, new_text, -1);
-    }
-    gtk_tree_path_free(path);
 }
 
 static GtkWidget *build_fixed_shortcuts_view(void)
 {
-    GtkWidget *view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_fixed_store));
+    GtkWidget *view = gtk_tree_view_new_with_model(g_fixed_filter);
 
     /* Fixed, capped column widths + ellipsize instead of sizing to the
      * longest cell -- both the widget-action label and the "sem hotkey=..."
@@ -892,7 +957,7 @@ static GtkWidget *build_fixed_shortcuts_view(void)
     GtkCellRenderer *label_r = gtk_cell_renderer_text_new();
     g_object_set(label_r, "ellipsize", PANGO_ELLIPSIZE_END, NULL);
     GtkTreeViewColumn *label_col = gtk_tree_view_column_new_with_attributes("Acao", label_r, "text", COL_FX_LABEL, NULL);
-    gtk_tree_view_column_set_expand(label_col, TRUE);
+    gtk_tree_view_column_set_resizable(label_col, TRUE);
     gtk_tree_view_column_set_sizing(label_col, GTK_TREE_VIEW_COLUMN_FIXED);
     gtk_tree_view_column_set_fixed_width(label_col, 220);
     gtk_tree_view_append_column(GTK_TREE_VIEW(view), label_col);
@@ -903,6 +968,7 @@ static GtkWidget *build_fixed_shortcuts_view(void)
         gtk_tree_view_column_new_with_attributes("Padrao", def_r, "text", COL_FX_DEFAULT, NULL);
     gtk_tree_view_column_set_sizing(def_col, GTK_TREE_VIEW_COLUMN_FIXED);
     gtk_tree_view_column_set_fixed_width(def_col, 150);
+    gtk_tree_view_column_set_resizable(def_col, TRUE);
     gtk_tree_view_append_column(GTK_TREE_VIEW(view), def_col);
 
     GtkCellRenderer *spec_r = gtk_cell_renderer_text_new();
@@ -912,6 +978,7 @@ static GtkWidget *build_fixed_shortcuts_view(void)
         gtk_tree_view_column_new_with_attributes("Atalho", spec_r, "text", COL_FX_SPEC, NULL);
     gtk_tree_view_column_set_sizing(spec_col, GTK_TREE_VIEW_COLUMN_FIXED);
     gtk_tree_view_column_set_fixed_width(spec_col, 100);
+    gtk_tree_view_column_set_resizable(spec_col, TRUE);
     gtk_tree_view_append_column(GTK_TREE_VIEW(view), spec_col);
 
     return view;
@@ -991,11 +1058,22 @@ GtkWidget *build_shortcuts_tab(void)
     GtkWidget *outer = gtk_vbox_new(FALSE, 6);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 8);
 
+    g_filter_entry = gtk_entry_new();
+    gtk_entry_set_icon_from_stock(GTK_ENTRY(g_filter_entry), GTK_ENTRY_ICON_PRIMARY, GTK_STOCK_FIND);
+    gtk_entry_set_icon_activatable(GTK_ENTRY(g_filter_entry), GTK_ENTRY_ICON_PRIMARY, FALSE);
+    gtk_entry_set_icon_from_stock(GTK_ENTRY(g_filter_entry), GTK_ENTRY_ICON_SECONDARY, GTK_STOCK_CLEAR);
+    gtk_widget_set_tooltip_text(g_filter_entry, _("Filtrar atalhos (acao, atalho ou comando)"));
+    g_signal_connect(g_filter_entry, "changed", G_CALLBACK(shortcut_filter_changed), NULL);
+    g_signal_connect(g_filter_entry, "icon-press", G_CALLBACK(filter_icon_press), NULL);
+    gtk_box_pack_start(GTK_BOX(outer), g_filter_entry, FALSE, FALSE, 0);
+
     /* Atalhos personalizados: xiskeys.conf, unchanged from before. */
     GtkWidget *vbox = gtk_vbox_new(FALSE, 6);
 
     g_shortcuts_store = gtk_list_store_new(N_SHORTCUT_COLS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
-    GtkWidget *view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_shortcuts_store));
+    g_custom_filter = gtk_tree_model_filter_new(GTK_TREE_MODEL(g_shortcuts_store), NULL);
+    gtk_tree_model_filter_set_visible_func(GTK_TREE_MODEL_FILTER(g_custom_filter), custom_visible, NULL, NULL);
+    GtkWidget *view = gtk_tree_view_new_with_model(g_custom_filter);
 
     const char *titles[N_SHORTCUT_COLS] = {"Acao", "Atalho", "Comando"};
     for (int col = 0; col < N_SHORTCUT_COLS; col++) {
@@ -1009,7 +1087,7 @@ GtkWidget *build_shortcuts_tab(void)
          * the 700px minimum; the cell still shows the full text on edit. */
         gtk_tree_view_column_set_sizing(tvcol, GTK_TREE_VIEW_COLUMN_FIXED);
         gtk_tree_view_column_set_fixed_width(tvcol, 150);
-        gtk_tree_view_column_set_expand(tvcol, TRUE);
+        gtk_tree_view_column_set_resizable(tvcol, TRUE);
         gtk_tree_view_append_column(GTK_TREE_VIEW(view), tvcol);
     }
 
@@ -1044,6 +1122,8 @@ GtkWidget *build_shortcuts_tab(void)
 
     g_fixed_store = gtk_list_store_new(N_FIXED_COLS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,
                                         G_TYPE_INT, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_INT);
+    g_fixed_filter = gtk_tree_model_filter_new(GTK_TREE_MODEL(g_fixed_store), NULL);
+    gtk_tree_model_filter_set_visible_func(GTK_TREE_MODEL_FILTER(g_fixed_filter), fixed_visible, NULL, NULL);
     load_fixed_shortcuts();
     GtkWidget *fixed_view = build_fixed_shortcuts_view();
     GtkWidget *fixed_scroll = gtk_scrolled_window_new(NULL, NULL);
