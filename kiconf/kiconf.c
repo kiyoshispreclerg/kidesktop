@@ -124,7 +124,7 @@
 #include "plugins.h"
 #include "tabs.h"
 
-#define KICONF_VERSION "0.2.95"
+#define KICONF_VERSION "0.2.96"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -175,6 +175,7 @@ static LazyTab g_builtin_tabs[] = {
     {N_("Efeitos do compositor"), GTK_STOCK_CONVERT, build_effects_tab, NULL, 0, 0, "appearance", "kicomp animacao animation compositor wobbly cubo", NULL, NULL},
     {N_("Sistema"), GTK_STOCK_HARDDISK, build_system_tab, NULL, 0, 0, "system", "idioma language data hora timezone fuso", NULL, NULL},
     {N_("Sobre"), GTK_STOCK_ABOUT, build_sobre_tab, NULL, 0, 0, "system", "about sobre hardware info computador cpu gpu ram kernel versao", NULL, NULL},
+    {N_("Discos"), GTK_STOCK_HARDDISK, build_disks_tab, NULL, 0, 0, "hardware", "disco disk hd ssd pendrive usb removivel montar mount automontagem automount udisks", NULL, NULL},
     {N_("Energia"), GTK_STOCK_QUIT, build_energy_tab, NULL, 0, 0, "hardware", "bateria battery suspender power luz noturna night light", NULL, NULL},
     {N_("Programas padrao"), GTK_STOCK_EXECUTE, build_programs_tab, NULL, 0, 0, "programs", "navegador browser default", NULL, NULL},
     {N_("Associacoes de arquivos"), GTK_STOCK_OPEN, build_associations_tab, NULL, 0, 0, "programs", "mime tipos types", NULL, NULL},

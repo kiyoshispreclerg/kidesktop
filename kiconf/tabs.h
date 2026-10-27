@@ -34,6 +34,7 @@ GtkWidget *build_users_tab(void);
 GtkWidget *build_services_tab(void);
 GtkWidget *build_login_tab(void);
 GtkWidget *build_lock_tab(void);
+GtkWidget *build_disks_tab(void);
 /* Tab shown only when i3lock and kilock are installed. */
 int lock_available(void);
 
