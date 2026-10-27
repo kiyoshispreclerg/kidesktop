@@ -57,6 +57,9 @@ static const Key keys[] = {
     {"menu_fg", K_COLOR, F(menu_fg)},
     {"tooltip_bg", K_COLOR, F(tooltip_bg)},
     {"tooltip_fg", K_COLOR, F(tooltip_fg)},
+    {"simple_accent", K_COLOR, F(simple_accent)},
+    {"simple_background", K_COLOR, F(simple_bg)},
+    {"simple", K_BOOL, F(simple)},
     {"radius", K_DOUBLE, F(radius)},
     {"menu_radius", K_DOUBLE, F(menu_radius)},
     {"relief", K_DOUBLE, F(relief)},
@@ -107,6 +110,9 @@ void kt_theme_defaults(KtTheme *t)
     t->menu_fg = rgb(0x14, 0x13, 0x12);
     t->tooltip_bg = rgb(0x18, 0x15, 0x13);
     t->tooltip_fg = rgb(0xe7, 0xfd, 0xff);
+    t->simple_accent = t->selection_bg;
+    t->simple_bg = t->window_bg;
+    t->simple = 1;
     t->radius = 3.5;
     t->menu_radius = 4;
     t->relief = 0.7;
@@ -300,8 +306,20 @@ int kt_theme_load_preset(KtTheme *t, const char *name)
 
 int kt_theme_load_colors(KtTheme *t, const char *name)
 {
-    if (!load_named(t, "colors", "KITHEME_COLORS", name))
+    /* A scheme without the simple_* keys (one saved by an older kiconf)
+     * gets them guessed from its own colors, and opens in the per-color
+     * editor. a < 0 marks "not in the file". */
+    KtTheme old = *t;
+    t->simple = 0;
+    t->simple_accent.a = t->simple_bg.a = -1;
+    if (!load_named(t, "colors", "KITHEME_COLORS", name)) {
+        *t = old;
         return 0;
+    }
+    if (t->simple_accent.a < 0)
+        t->simple_accent = t->selection_bg;
+    if (t->simple_bg.a < 0)
+        t->simple_bg = t->window_bg;
     snprintf(t->colors, sizeof(t->colors), "%s", name);
     return 1;
 }
@@ -492,5 +510,6 @@ int kt_theme_save_colors(const KtTheme *t, const char *name)
         kt_color_hex(*(const KtColor *)((const char *)t + keys[i].off), buf);
         fprintf(f, "%s = %s\n", keys[i].name, buf);
     }
+    fprintf(f, "simple = %d\n", t->simple ? 1 : 0);
     return xis_write_commit(f, tmp, path, xis_check_conf_clean) == 0;
 }

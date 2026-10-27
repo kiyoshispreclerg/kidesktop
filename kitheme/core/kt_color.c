@@ -164,3 +164,29 @@ double kt_luma(KtColor c)
 {
     return 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
 }
+
+void kt_colors_derive(KtTheme *t, KtColor accent, KtColor bg)
+{
+    const KtColor white = {1, 1, 1, 1}, black = {0, 0, 0, 1};
+    accent.a = bg.a = 1;
+    int dark = kt_luma(bg) < 0.5;
+    /* Text goes toward `ink`; tooltips sit on the opposite side, so their
+     * text goes toward `paper`. */
+    KtColor ink = dark ? white : black, paper = dark ? black : white;
+    t->simple_accent = accent;
+    t->simple_bg = bg;
+    t->window_bg = bg;
+    t->window_fg = kt_mix(bg, ink, 0.9);
+    t->base_bg = dark ? kt_mix(bg, black, 0.3) : kt_mix(bg, white, 0.85);
+    t->base_fg = kt_mix(t->base_bg, ink, 0.88);
+    t->button_bg = kt_mix(bg, white, dark ? 0.08 : 0.25);
+    t->button_fg = t->window_fg;
+    t->selection_bg = accent;
+    t->selection_fg = kt_luma(accent) > 0.6 ? kt_mix(accent, black, 0.85) : white;
+    t->accent = kt_mix(accent, ink, dark ? 0.15 : 0.06);
+    t->progress = accent;
+    t->menu_bg = bg;
+    t->menu_fg = t->window_fg;
+    t->tooltip_bg = kt_mix(bg, ink, 0.88);
+    t->tooltip_fg = kt_mix(accent, paper, dark ? 0.75 : 0.8);
+}

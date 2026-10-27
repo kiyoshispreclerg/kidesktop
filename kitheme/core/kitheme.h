@@ -57,6 +57,12 @@ typedef struct {
     KtColor menu_bg, menu_fg;
     KtColor tooltip_bg, tooltip_fg;
 
+    /* For kiconf's simple color editor only (no toolkit reads them): the
+     * two colors kt_colors_derive() takes, and whether that editor is in
+     * use (0: the 14 colors above were edited one by one). */
+    KtColor simple_accent, simple_bg;
+    int simple;
+
     double radius;     /* corner radius in px (classic ignores it) */
     double menu_radius; /* popup menu corner radius in px (0 = square; classic ignores it) */
     double relief;     /* 0..1 strength of highlights and shadows */
@@ -90,7 +96,7 @@ enum {
 
 typedef enum { KT_UP, KT_DOWN, KT_LEFT, KT_RIGHT } KtDir;
 
-#define KITHEME_VERSION "0.1.2"
+#define KITHEME_VERSION "0.1.3"
 
 /* ---- theme loading (kt_config.c) ---- */
 
@@ -107,7 +113,7 @@ int kt_theme_load_preset(KtTheme *t, const char *name);
  * as presets) on top of `t`, leaving the shape alone. Returns 0 when it is
  * not found. */
 int kt_theme_load_colors(KtTheme *t, const char *name);
-/* Writes the 14 colors of `t` as user scheme `name` in
+/* Writes the 14 colors of `t` (and its simple_* keys) as user scheme `name` in
  * ~/.local/share/kitheme/colors. Returns 0 on failure. */
 int kt_theme_save_colors(const KtTheme *t, const char *name);
 /* Removes user scheme `name` (the installed ones cannot be removed). */
@@ -141,6 +147,12 @@ KtColor kt_mix(KtColor a, KtColor b, double t);
 KtColor kt_alpha(KtColor c, double a);
 /* Perceived lightness, 0..1. */
 double kt_luma(KtColor c);
+/* Sets the 14 colors of `t` from two: `accent` gives the selection, focus,
+ * progress and tooltip text colors, `bg` the window background, with the
+ * rest shaded from it (fields and buttons toward white on a light
+ * background, toward black on a dark one; tooltips on the opposite side).
+ * Also stores both in simple_accent/simple_bg. */
+void kt_colors_derive(KtTheme *t, KtColor accent, KtColor bg);
 
 /* ---- drawing (kt_draw.c) ---- */
 

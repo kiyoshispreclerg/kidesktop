@@ -49,6 +49,7 @@ colors, so any preset combines with any scheme.
 |---|---|
 | `style` | `soft` (gradients and glow, Oxygen-like), `classic` (two-pixel bevels, Windows 9x), `flat` |
 | `window_bg` `window_fg` `base_bg` `base_fg` `button_bg` `button_fg` `selection_bg` `selection_fg` `accent` `progress` `menu_bg` `menu_fg` `tooltip_bg` `tooltip_fg` | `#rrggbb` |
+| `simple_accent` `simple_background` `simple` | read by kiconf only: the two colors its simple editor derives the 14 from (`kt_colors_derive()`), and `1` when that editor is in use, `0` when the 14 were edited one by one |
 | `radius` | corner radius in px (`classic` ignores it) |
 | `menu_radius` | popup menu corner radius in px, `0` = square (`classic` ignores it). Qt and GTK2 clip the menu window with a SHAPE mask (no antialiasing); GTK3/4 use CSS `border-radius` |
 | `relief` `gradient` `shadow` | `0`..`1` |
