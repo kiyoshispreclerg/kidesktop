@@ -61,6 +61,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "../../shared/xis_safefile.h"
 
 static GtkWidget *g_status_label;
 static GtkWidget *g_locale_combo;
@@ -429,7 +430,7 @@ static void load_extra_zones(void)
 
     char path[PATH_MAX];
     resolve_path("ki-zones.conf", path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return;
     }
@@ -463,7 +464,7 @@ static void save_extra_zones_cb(GtkWidget *widget, gpointer data)
     resolve_path("ki-zones.conf", path, sizeof(path));
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
+    FILE *f = xis_write_open(tmp, path);
     if (!f) {
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
         return;
@@ -484,8 +485,7 @@ static void save_extra_zones_cb(GtkWidget *widget, gpointer data)
         g_free(label);
         valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(g_zones_store), &it);
     }
-    fclose(f);
-    rename(tmp, path);
+    xis_write_commit(f, tmp, path, xis_check_lines);
 
     gtk_label_set_text(GTK_LABEL(g_zones_status_label), _("Gravado."));
 }

@@ -17,6 +17,7 @@
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include "../../shared/xis_safefile.h"
 
 enum { COL_ACTION = 0, COL_SPEC, COL_COMMAND, N_SHORTCUT_COLS };
 
@@ -128,7 +129,7 @@ static void load_shortcuts(void)
     char path[PATH_MAX];
     resolve_path("xiskeys.conf", path, sizeof(path));
 
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return;
     }
@@ -167,7 +168,7 @@ static void save_shortcuts_cb(GtkWidget *widget, gpointer data)
 
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
+    FILE *f = xis_write_open(tmp, path);
     if (!f) {
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
         return;
@@ -189,8 +190,7 @@ static void save_shortcuts_cb(GtkWidget *widget, gpointer data)
         g_free(cmd);
         valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(g_shortcuts_store), &it);
     }
-    fclose(f);
-    rename(tmp, path);
+    xis_write_commit(f, tmp, path, xis_check_lines);
 
     signal_daemon("xiskeys");
 }
@@ -238,7 +238,7 @@ static int kiwm_key_value(const char *key, char *out, size_t outsz)
 {
     char path[PATH_MAX];
     resolve_path("kiwm.conf", path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return 0;
     }
@@ -274,13 +274,13 @@ static void save_kiwm_shortcuts(void)
     resolve_path("kiwm.conf", path, sizeof(path));
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *out = fopen(tmp, "w");
+    FILE *out = xis_write_open(tmp, path);
     if (!out) {
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
         return;
     }
 
-    FILE *in = fopen(path, "r");
+    FILE *in = xis_fopen_read(path, xis_check_usable);
     if (in) {
         char line[512];
         while (fgets(line, sizeof(line), in)) {
@@ -321,8 +321,7 @@ static void save_kiwm_shortcuts(void)
         valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(g_fixed_store), &it);
     }
 
-    fclose(out);
-    rename(tmp, path);
+    xis_write_commit(out, tmp, path, xis_check_lines);
 }
 
 /* ---- kicomp.conf: per-effect enabled state, one key's value, and the
@@ -336,7 +335,7 @@ static int kicomp_effects_globally_enabled(void)
 {
     char path[PATH_MAX];
     resolve_path("kicomp.conf", path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return 1;
     }
@@ -375,7 +374,7 @@ static int kicomp_effect_enabled(const char *effect, int fallback_enabled)
 {
     char path[PATH_MAX];
     resolve_path("kicomp.conf", path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return fallback_enabled;
     }
@@ -420,7 +419,7 @@ static int kicomp_effect_key_value(const char *effect, const char *key, char *ou
 {
     char path[PATH_MAX];
     resolve_path("kicomp.conf", path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return 0;
     }
@@ -477,7 +476,7 @@ static void save_kicomp_hotkeys(const KicompHotkeyEdit *edits, int n_edits)
     resolve_path("kicomp.conf", path, sizeof(path));
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *out = fopen(tmp, "w");
+    FILE *out = xis_write_open(tmp, path);
     if (!out) {
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
         return;
@@ -487,7 +486,7 @@ static void save_kicomp_hotkeys(const KicompHotkeyEdit *edits, int n_edits)
     char cur_effect[64] = "";
     int in_target = 0;
 
-    FILE *in = fopen(path, "r");
+    FILE *in = xis_fopen_read(path, xis_check_usable);
     if (in) {
         char line[512];
         while (fgets(line, sizeof(line), in)) {
@@ -571,8 +570,7 @@ static void save_kicomp_hotkeys(const KicompHotkeyEdit *edits, int n_edits)
         done[i] = 1;
     }
 
-    fclose(out);
-    rename(tmp, path);
+    xis_write_commit(out, tmp, path, xis_check_lines);
 }
 
 /* ---- xispanel.conf: hotkey= inside a WIDGET line's option tail -------- */
@@ -680,7 +678,7 @@ static int scan_xispanel_hotkey_widgets(XispanelHotkeyWidget *out, int max)
 {
     char path[PATH_MAX];
     resolve_path("xispanel.conf", path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return 0;
     }
@@ -747,13 +745,13 @@ static void save_xispanel_hotkeys(const XispanelHotkeyEdit *edits, int n_edits)
 
     char path[PATH_MAX];
     resolve_path("xispanel.conf", path, sizeof(path));
-    FILE *in = fopen(path, "r");
+    FILE *in = xis_fopen_read(path, xis_check_usable);
     if (!in) {
         return;
     }
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *out = fopen(tmp, "w");
+    FILE *out = xis_write_open(tmp, path);
     if (!out) {
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
         fclose(in);
@@ -799,8 +797,7 @@ static void save_xispanel_hotkeys(const XispanelHotkeyEdit *edits, int n_edits)
     }
 
     fclose(in);
-    fclose(out);
-    rename(tmp, path);
+    xis_write_commit(out, tmp, path, xis_check_lines);
 }
 
 static void save_fixed_shortcuts_cb(GtkWidget *widget, gpointer data)

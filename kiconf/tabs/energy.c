@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../../shared/xis_safefile.h"
 
 #define NIGHTLIGHT_TEMP_MIN 2700
 #define NIGHTLIGHT_TEMP_MAX 6500
@@ -95,7 +96,7 @@ static void nightlight_load(NightlightConfig *c)
     nightlight_defaults(c);
     char path[PATH_MAX];
     resolve_path("kiconfd-nightlight.conf", path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return;
     }
@@ -131,7 +132,7 @@ static void nightlight_save(const NightlightConfig *c)
     resolve_path("kiconfd-nightlight.conf", path, sizeof(path));
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
+    FILE *f = xis_write_open(tmp, path);
     if (!f) {
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
         return;
@@ -143,8 +144,7 @@ static void nightlight_save(const NightlightConfig *c)
     fprintf(f, "start = %s\n", c->start);
     fprintf(f, "end = %s\n", c->end);
     fprintf(f, "temp = %d\n", c->temp);
-    fclose(f);
-    if (rename(tmp, path) != 0) {
+    if (xis_write_commit(f, tmp, path, xis_check_lines) != 0) {
         g_warning("kiconf: could not save '%s': %s", path, strerror(errno));
     }
 }
@@ -179,7 +179,7 @@ static void load_actions(PowerState *p)
     snprintf(p->power_action, sizeof(p->power_action), "system");
     char path[PATH_MAX];
     resolve_path("kiconfd-power.conf", path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return;
     }
@@ -270,7 +270,7 @@ static void power_config_save(const PowerState *p)
     resolve_path("kiconfd-power.conf", path, sizeof(path));
     char tmp[PATH_MAX + 8];
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
+    FILE *f = xis_write_open(tmp, path);
     if (!f) {
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
         return;
@@ -286,8 +286,7 @@ static void power_config_save(const PowerState *p)
     fprintf(f, "saver_timeout = %d\n", p->saver_timeout);
     fprintf(f, "saver_cycle = %d\n", p->saver_cycle);
     fprintf(f, "prefer_blanking = %d\n", p->prefer_blanking ? 1 : 0);
-    fclose(f);
-    if (rename(tmp, path) != 0) {
+    if (xis_write_commit(f, tmp, path, xis_check_lines) != 0) {
         g_warning("kiconf: could not save '%s': %s", path, strerror(errno));
     }
 }

@@ -19,6 +19,7 @@
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include "../../shared/xis_safefile.h"
 
 /* Paineis tab (xispanel.conf) widgets + state.
  *
@@ -201,7 +202,7 @@ static void load_xispanel_conf(PanelRec *panels, int *n_panels, WidgetRec *widge
     *n_panels = *n_widgets = *n_themes = 0;
     char path[PATH_MAX];
     resolve_path("xispanel.conf", path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return;
     }
@@ -261,7 +262,7 @@ static void save_xispanel_conf(void)
     resolve_path("xispanel.conf", path, sizeof(path));
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
+    FILE *f = xis_write_open(tmp, path);
     if (!f) {
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
         return;
@@ -325,8 +326,7 @@ static void save_xispanel_conf(void)
         }
     }
 
-    fclose(f);
-    rename(tmp, path);
+    xis_write_commit(f, tmp, path, xis_check_lines);
 }
 
 static void save_panels_cb(GtkWidget *widget, gpointer data)

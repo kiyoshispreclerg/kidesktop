@@ -18,6 +18,7 @@
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include "../shared/xis_safefile.h"
 
 /* ---- config path resolution (mirrors kiconfd.c/xiskeys.c exactly) ---- */
 
@@ -516,19 +517,23 @@ void desktop_entry_set_key(const char *path, const char *key, const char *value)
         if (!value) {
             return; /* nothing to remove from a file that isn't there */
         }
-        FILE *f = fopen(path, "w");
+        /* .desktop files get the atomic write but no .backup next to
+         * them (autostart and applications dirs are scanned). */
+        char dtmp[PATH_MAX + 8];
+        xis_write_tmpname(path, dtmp, sizeof(dtmp));
+        FILE *f = xis_write_open(dtmp, path);
         if (!f) {
             g_warning("kiconf: could not write '%s': %s", path, strerror(errno));
             return;
         }
         fprintf(f, "[Desktop Entry]\n%s=%s\n", key, value);
-        fclose(f);
+        xis_write_commit(f, dtmp, path, NULL);
         return;
     }
 
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *out = fopen(tmp, "w");
+    FILE *out = xis_write_open(tmp, path);
     if (!out) {
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
         fclose(in);
@@ -584,8 +589,7 @@ void desktop_entry_set_key(const char *path, const char *key, const char *value)
     }
 
     fclose(in);
-    fclose(out);
-    rename(tmp, path);
+    xis_write_commit(out, tmp, path, NULL); /* .desktop: no .backup */
 }
 
 /* ---- installed .desktop apps (Associacoes de arquivos / Menu de
@@ -736,7 +740,7 @@ void kisession_load(KisessionConfig *c)
 
     char path[PATH_MAX];
     resolve_path("kisession.conf", path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return;
     }
@@ -782,7 +786,7 @@ void kisession_save(const KisessionConfig *c)
     resolve_path("kisession.conf", path, sizeof(path));
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
+    FILE *f = xis_write_open(tmp, path);
     if (!f) {
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
         return;
@@ -795,8 +799,7 @@ void kisession_save(const KisessionConfig *c)
         fprintf(f, "SERVICE\t%s\t%d\t# %s\n", KISESSION_SERVICES[i].name,
                 c->enabled[i], KISESSION_SERVICES[i].doc);
     }
-    fclose(f);
-    rename(tmp, path);
+    xis_write_commit(f, tmp, path, xis_check_lines);
     signal_daemon("kisession");
 }
 

@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "../common.h"
+#include "../../shared/xis_safefile.h"
 
 /* One line of a server rule file, in the grammar the X server itself reads
  * (XnotifyLoadFile() in xnotify.c):
@@ -58,7 +59,7 @@ static int parse_rule_line(char *line, char *type, size_t type_sz, char *action,
 
 static void add_file(XgRuleSet *set, const char *path, int is_main)
 {
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return;
     }
@@ -280,7 +281,11 @@ static const char *const INSTALL_SCRIPT =
     "set -e\n"
     "while [ $# -ge 2 ]; do\n"
     "  mkdir -p \"$(dirname \"$2\")\"\n"
+    "  if [ -s \"$2\" ] && [ \"$(tr -d '\\000' < \"$2\" | wc -c)\" = \"$(wc -c < \"$2\")\" ]; then\n"
+    "    cp -p \"$2\" \"$2.backup.new\" && sync \"$2.backup.new\" && mv -f \"$2.backup.new\" \"$2.backup\" || true\n"
+    "  fi\n"
     "  install -m 644 \"$1\" \"$2.new\"\n"
+    "  sync \"$2.new\" || true\n"
     "  mv -f \"$2.new\" \"$2\"\n"
     "  shift 2\n"
     "done\n";
@@ -308,7 +313,7 @@ int xg_ruleset_save(XgRuleSet *set, char *err, size_t err_sz)
         }
         char *tmp = g_strdup_printf("%s/%d", tmpdir, i);
         tmps[n_tmps++] = tmp;
-        FILE *f = fopen(tmp, "w");
+        FILE *f = fopen(tmp, "w"); /* staging copy in a private tmp dir */
         if (!f) {
             snprintf(err, err_sz, "%s: %s", tmp, strerror(errno));
             ok = 0;
@@ -348,8 +353,8 @@ int xg_ruleset_save(XgRuleSet *set, char *err, size_t err_sz)
                 gsize len = 0;
                 GError *gerr = NULL;
                 if (!g_file_get_contents(args[i], &content, &len, &gerr) ||
-                    !g_file_set_contents(args[i + 1], content, (gssize)len, &gerr)) {
-                    snprintf(err, err_sz, "%s", gerr ? gerr->message : "erro");
+                    xis_write_file(args[i + 1], content, len, xis_check_lines) != 0) {
+                    snprintf(err, err_sz, "%s", gerr ? gerr->message : strerror(errno));
                     g_clear_error(&gerr);
                     ok = 0;
                 }

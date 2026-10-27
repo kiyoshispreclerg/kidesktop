@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include "../../shared/xis_safefile.h"
 
 enum { COL_EV_DATE = 0, COL_EV_RECUR, COL_EV_NAME, COL_EV_DESC, N_EV_COLS };
 
@@ -41,7 +42,7 @@ static void load_events(void)
     char path[PATH_MAX];
     resolve_path("ki-events.conf", path, sizeof(path));
 
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return;
     }
@@ -81,7 +82,7 @@ static void save_events_cb(GtkWidget *widget, gpointer data)
     resolve_path("ki-events.conf", path, sizeof(path));
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
+    FILE *f = xis_write_open(tmp, path);
     if (!f) {
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
         return;
@@ -106,8 +107,7 @@ static void save_events_cb(GtkWidget *widget, gpointer data)
         g_free(desc);
         valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(g_events_store), &it);
     }
-    fclose(f);
-    rename(tmp, path);
+    xis_write_commit(f, tmp, path, xis_check_lines);
 
     gtk_label_set_text(GTK_LABEL(g_events_status_label), _("Gravado."));
 }

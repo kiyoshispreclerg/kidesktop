@@ -17,6 +17,7 @@
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include "../../shared/xis_safefile.h"
 
 /* Entrada (pointer/keyboard) tab widgets + baselines */
 static GtkWidget *g_pointer_combo;
@@ -83,7 +84,7 @@ static void input_config_load(InputSessionConfig *c)
     input_config_defaults(c);
     char path[PATH_MAX];
     resolve_path("kiconfd-input.conf", path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return;
     }
@@ -121,7 +122,7 @@ static void input_config_save(const InputSessionConfig *c)
     resolve_path("kiconfd-input.conf", path, sizeof(path));
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
+    FILE *f = xis_write_open(tmp, path);
     if (!f) {
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
         return;
@@ -133,8 +134,7 @@ static void input_config_save(const InputSessionConfig *c)
     fprintf(f, "kick_hotkeys_on_release = %d\n", c->kick_hotkeys_on_release ? 1 : 0);
     fprintf(f, "middle_click_emulation = %d\n", c->middle_click_emulation ? 1 : 0);
     fprintf(f, "tap_to_click = %d\n", c->tap_to_click ? 1 : 0);
-    fclose(f);
-    if (rename(tmp, path) != 0) {
+    if (xis_write_commit(f, tmp, path, xis_check_lines) != 0) {
         g_warning("kiconf: could not save '%s': %s", path, strerror(errno));
     }
 }

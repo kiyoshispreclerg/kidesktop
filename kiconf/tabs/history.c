@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../../shared/xis_safefile.h"
 
 static GtkWidget *g_ks_dwell_spin, *g_ks_retention_spin, *g_ks_fd_sampling_chk;
 static GtkWidget *g_ks_exclude_entry, *g_ks_title_only_entry, *g_ks_private_regex_entry;
@@ -61,7 +62,7 @@ static void conf_load_kv(const char *filename, void (*set)(void *c, const char *
 {
     char path[PATH_MAX];
     resolve_path(filename, path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return;
     }
@@ -125,7 +126,7 @@ static void kistory_save(const KistoryConfig *c)
     resolve_path("kistory.conf", path, sizeof(path));
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
+    FILE *f = xis_write_open(tmp, path);
     if (!f) {
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
         return;
@@ -139,8 +140,7 @@ static void kistory_save(const KistoryConfig *c)
     fprintf(f, "title_only_exclude=%s\n", c->title_only_exclude);
     fprintf(f, "private_title_regex=%s\n", c->private_title_regex);
     fprintf(f, "guard_actions=%s\n", c->guard_actions);
-    fclose(f);
-    if (rename(tmp, path) != 0) {
+    if (xis_write_commit(f, tmp, path, xis_check_conf_clean) != 0) {
         g_warning("kiconf: could not save '%s': %s", path, strerror(errno));
     }
 }
@@ -193,7 +193,7 @@ static void kimemory_save(const KimemoryConfig *c)
     resolve_path("kimemory.conf", path, sizeof(path));
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
+    FILE *f = xis_write_open(tmp, path);
     if (!f) {
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
         return;
@@ -208,8 +208,7 @@ static void kimemory_save(const KimemoryConfig *c)
     fprintf(f, "max_text_kb=%d\n", c->max_text_kb);
     fprintf(f, "max_image_mb=%d\n", c->max_image_mb);
     fprintf(f, "max_mirror_mb=%d\n", c->max_mirror_mb);
-    fclose(f);
-    if (rename(tmp, path) != 0) {
+    if (xis_write_commit(f, tmp, path, xis_check_conf_clean) != 0) {
         g_warning("kiconf: could not save '%s': %s", path, strerror(errno));
     }
 }

@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../../shared/xis_safefile.h"
 
 #define KIWM_CONF "kiwm.conf"
 
@@ -131,7 +132,7 @@ static void load_kiwm_config(KiwmConfig *c)
 
     char path[PATH_MAX];
     resolve_path(KIWM_CONF, path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return;
     }
@@ -295,7 +296,7 @@ static void save_janelas_cb(GtkWidget *widget, gpointer data)
     resolve_path(KIWM_CONF, path, sizeof(path));
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *out = fopen(tmp, "w");
+    FILE *out = xis_write_open(tmp, path);
     if (!out) {
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
         return;
@@ -349,7 +350,7 @@ static void save_janelas_cb(GtkWidget *widget, gpointer data)
 
     /* Carry over every line this tab doesn't manage -- key_* shortcuts
      * above all -- from whatever kiwm.conf already had. */
-    FILE *in = fopen(path, "r");
+    FILE *in = xis_fopen_read(path, xis_check_usable);
     if (in) {
         fprintf(out, "\n");
         char line[512];
@@ -377,8 +378,7 @@ static void save_janelas_cb(GtkWidget *widget, gpointer data)
         fclose(in);
     }
 
-    fclose(out);
-    rename(tmp, path);
+    xis_write_commit(out, tmp, path, xis_check_lines);
 
     refresh_status();
 }

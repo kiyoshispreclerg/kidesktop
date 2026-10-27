@@ -19,6 +19,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "../../shared/xis_safefile.h"
 
 static GtkWidget *g_sticky_chk, *g_sticky_two_chk, *g_slow_chk, *g_slow_spin, *g_bounce_chk, *g_bounce_spin;
 static GtkWidget *g_mouse_chk, *g_gestures_chk;
@@ -58,7 +59,7 @@ static void kv_load(const char *name, KvFile *f)
     f->n = 0;
     char path[PATH_MAX];
     resolve_path(name, path, sizeof(path));
-    FILE *fp = fopen(path, "r");
+    FILE *fp = xis_fopen_read(path, xis_check_usable);
     if (!fp) {
         return;
     }
@@ -123,7 +124,7 @@ static void kv_save(const char *name, const KvFile *f, const char *header)
     char path[PATH_MAX], tmp[PATH_MAX + 8];
     resolve_path(name, path, sizeof(path));
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *fp = fopen(tmp, "w");
+    FILE *fp = xis_write_open(tmp, path);
     if (!fp) {
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
         return;
@@ -132,8 +133,7 @@ static void kv_save(const char *name, const KvFile *f, const char *header)
     for (int i = 0; i < f->n; i++) {
         fprintf(fp, "%s = %s\n", f->kv[i].key, f->kv[i].val);
     }
-    fclose(fp);
-    if (rename(tmp, path) != 0) {
+    if (xis_write_commit(fp, tmp, path, xis_check_lines) != 0) {
         g_warning("kiconf: could not save '%s': %s", path, strerror(errno));
     }
 }
@@ -236,7 +236,7 @@ static void focus_key_load(char *out, size_t outsz)
     snprintf(out, outsz, "%s", FOCUS_KEY_DEFAULT);
     char path[PATH_MAX];
     resolve_path("xispanel.conf", path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return;
     }
@@ -260,11 +260,11 @@ static void focus_key_save(const char *spec)
     char path[PATH_MAX], tmp[PATH_MAX + 8];
     resolve_path("xispanel.conf", path, sizeof(path));
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *in = fopen(path, "r");
+    FILE *in = xis_fopen_read(path, xis_check_usable);
     if (!in) {
         return; /* no panels configured: nothing to attach it to */
     }
-    FILE *out = fopen(tmp, "w");
+    FILE *out = xis_write_open(tmp, path);
     if (!out) {
         fclose(in);
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
@@ -287,8 +287,7 @@ static void focus_key_save(const char *spec)
         first = 0;
     }
     fclose(in);
-    fclose(out);
-    if (rename(tmp, path) != 0) {
+    if (xis_write_commit(out, tmp, path, xis_check_lines) != 0) {
         g_warning("kiconf: could not save '%s': %s", path, strerror(errno));
         return;
     }

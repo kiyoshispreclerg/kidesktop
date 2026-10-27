@@ -19,6 +19,7 @@
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include "../../shared/xis_safefile.h"
 
 /* Aparencia tab widgets */
 static GtkWidget *g_cursor_combo;
@@ -293,7 +294,7 @@ static void load_appearance(Appearance *a)
 
     char path[PATH_MAX];
     resolve_path("kiconfd.conf", path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return;
     }
@@ -433,7 +434,7 @@ static void save_appearance_cb(GtkWidget *widget, gpointer data)
     resolve_path("kiconfd.conf", path, sizeof(path));
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
+    FILE *f = xis_write_open(tmp, path);
     if (!f) {
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
         return;
@@ -457,8 +458,7 @@ static void save_appearance_cb(GtkWidget *widget, gpointer data)
     fprintf(f, "qt_style = %s\n", a.qt_style);
     fprintf(f, "export_to_other_desktops = %d\n", a.export_other_desktops);
     fprintf(f, "theme = %s\n", a.kidesktop_theme);
-    fclose(f);
-    rename(tmp, path);
+    xis_write_commit(f, tmp, path, xis_check_lines);
 
     signal_daemon("kiconfd");
 }
@@ -508,7 +508,7 @@ static int read_gtkrc2_value(const char *key, char *out, size_t outsz)
     const char *home = getenv("HOME");
     char path[PATH_MAX];
     snprintf(path, sizeof(path), "%s/.gtkrc-2.0", home ? home : "");
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return 0;
     }

@@ -22,6 +22,7 @@
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include "../../shared/xis_safefile.h"
 
 /* Telas tab (xrandr) widgets + state -- see build_screens_tab()'s doc
  * comment for what's deliberately NOT ported (scale/DPI read-back). */
@@ -1711,7 +1712,7 @@ static void save_screens_layout(void)
     resolve_path("kiconfd-screens.conf", path, sizeof(path));
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
+    FILE *f = xis_write_open(tmp, path);
     if (!f) {
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
         return;
@@ -1735,8 +1736,7 @@ static void save_screens_layout(void)
                  o->x, o->y, o->rotation, o->primary, sxbuf, sybuf, o->dpi,
                  o->mirror_of[0] ? screens_persist_id(o->mirror_of) : "-");
     }
-    fclose(f);
-    if (rename(tmp, path) != 0) {
+    if (xis_write_commit(f, tmp, path, xis_check_lines) != 0) {
         g_warning("kiconf: could not save '%s': %s", path, strerror(errno));
     }
 }

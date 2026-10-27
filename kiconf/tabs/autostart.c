@@ -40,6 +40,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "../../shared/xis_safefile.h"
 
 /* ---- kisession's own services ------------------------------------------ */
 
@@ -272,11 +273,10 @@ static void add_custom_cb(GtkWidget *widget, gpointer data)
                 n++;
             } while (fits && access(path, F_OK) == 0 && n < 100);
 
-            FILE *f = fits ? fopen(path, "w") : NULL;
-            if (f) {
-                fprintf(f, "[Desktop Entry]\nType=Application\nName=%s\nExec=%s\nNoDisplay=true\n", name, cmd);
-                fclose(f);
-            } else {
+            char entry[4096];
+            snprintf(entry, sizeof(entry), "[Desktop Entry]\nType=Application\nName=%s\nExec=%s\nNoDisplay=true\n", name, cmd);
+            /* a .desktop file: atomic and synced, no .backup in the autostart dir */
+            if (!fits || xis_write_export(path, entry, strlen(entry)) != 0) {
                 g_warning("kiconf: could not write '%s': %s", path, strerror(errno));
             }
             refill_autostart_store();

@@ -18,6 +18,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "../../shared/xis_safefile.h"
 
 #define SOUND_CONF "kidesktop-sound.conf"
 #define MAX_THEMES 128
@@ -240,7 +241,9 @@ static void on_save(GtkWidget *w, gpointer data)
     (void)data;
     char path[PATH_MAX];
     resolve_path(SOUND_CONF, path, sizeof(path));
-    FILE *f = fopen(path, "w");
+    char tmp[PATH_MAX + 8];
+    xis_write_tmpname(path, tmp, sizeof(tmp));
+    FILE *f = xis_write_open(tmp, path);
     if (!f) {
         gtk_label_set_text(GTK_LABEL(g_status), _("Nao foi possivel gravar o arquivo de sons."));
         return;
@@ -260,7 +263,10 @@ static void on_save(GtkWidget *w, gpointer data)
         g_free(ovr);
         ok = gtk_tree_model_iter_next(GTK_TREE_MODEL(g_store), &it);
     }
-    fclose(f);
+    if (xis_write_commit(f, tmp, path, xis_check_conf_clean) != 0) {
+        gtk_label_set_text(GTK_LABEL(g_status), _("Nao foi possivel gravar o arquivo de sons."));
+        return;
+    }
     signal_daemon("kiconfd"); /* republishes the theme over XSETTINGS */
     gtk_label_set_text(GTK_LABEL(g_status), _("Salvo. Os programas aplicam em ate 2 segundos."));
 }
@@ -274,7 +280,7 @@ static void load_settings(void)
     char over[N_EVENTS][PATH_MAX];
     memset(over, 0, sizeof(over));
 
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (f) {
         char line[PATH_MAX + 80];
         while (fgets(line, sizeof(line), f)) {

@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../../shared/xis_safefile.h"
 
 #define KICOMP_CONF "kicomp.conf"
 #define MAX_EFFECTS 128
@@ -141,7 +142,7 @@ static void load_kicomp_conf(KicompGlobals *g, ShadowConfig *sh, EffectRow *rows
 
     char path[PATH_MAX];
     resolve_path(KICOMP_CONF, path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         return;
     }
@@ -998,7 +999,7 @@ static void save_efeitos_cb(GtkWidget *widget, gpointer data)
     resolve_path(KICOMP_CONF, path, sizeof(path));
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *out = fopen(tmp, "w");
+    FILE *out = xis_write_open(tmp, path);
     if (!out) {
         g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
         return;
@@ -1082,15 +1083,14 @@ static void save_efeitos_cb(GtkWidget *widget, gpointer data)
 
     corners_write(out);
 
-    FILE *in = fopen(path, "r");
+    FILE *in = xis_fopen_read(path, xis_check_usable);
     if (in) {
         fprintf(out, "\n");
         copy_output_sections(out, in);
         fclose(in);
     }
 
-    fclose(out);
-    rename(tmp, path);
+    xis_write_commit(out, tmp, path, xis_check_lines);
 
     refresh_status();
 }

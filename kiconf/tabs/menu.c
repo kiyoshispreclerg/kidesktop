@@ -41,6 +41,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "../../shared/xis_safefile.h"
 
 typedef struct {
     const char *xdg_name; /* Categories= token */
@@ -228,7 +229,10 @@ static void filter_changed_cb(GtkEditable *editable, gpointer data)
  * depend on any field it didn't explicitly set (see file doc comment). */
 static void write_full_override(const char *path, const DesktopApp *app)
 {
-    FILE *f = fopen(path, "w");
+    /* A .desktop override: atomic and synced, but no .backup beside it. */
+    char tmp[PATH_MAX + 8];
+    xis_write_tmpname(path, tmp, sizeof(tmp));
+    FILE *f = xis_write_open(tmp, path);
     if (!f) {
         g_warning("kiconf: could not write '%s': %s", path, strerror(errno));
         return;
@@ -250,7 +254,7 @@ static void write_full_override(const char *path, const DesktopApp *app)
     if (app->nodisplay) {
         fprintf(f, "NoDisplay=true\n");
     }
-    fclose(f);
+    xis_write_commit(f, tmp, path, NULL);
 }
 
 static int session_path(const DesktopApp *app, char *out, size_t outsz)

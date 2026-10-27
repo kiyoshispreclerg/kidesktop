@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../../shared/xis_safefile.h"
 
 typedef struct {
     char color[16];
@@ -43,7 +44,7 @@ static void lock_load(Lock *l)
     lock_defaults(l);
     char path[PATH_MAX];
     resolve_path("kilock.conf", path, sizeof(path));
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f)
         return;
     char line[PATH_MAX + 64];
@@ -91,7 +92,7 @@ static void apply_cb(GtkWidget *w, gpointer data)
     char path[PATH_MAX], tmp[PATH_MAX + 8];
     resolve_path("kilock.conf", path, sizeof(path));
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
+    FILE *f = xis_write_open(tmp, path);
     if (!f) {
         gtk_label_set_text(GTK_LABEL(g_status), _("Nao foi possivel salvar kilock.conf"));
         g_free(image);
@@ -107,8 +108,7 @@ static void apply_cb(GtkWidget *w, gpointer data)
     fprintf(f, "show_failed = %d\n", active(g_failed_chk));
     fprintf(f, "pointer_default = %d\n", active(g_pointer_chk));
     g_free(image);
-    if (fclose(f) != 0 || rename(tmp, path) != 0) {
-        remove(tmp);
+    if (xis_write_commit(f, tmp, path, xis_check_conf_clean) != 0) {
         gtk_label_set_text(GTK_LABEL(g_status), _("Nao foi possivel salvar kilock.conf"));
         return;
     }

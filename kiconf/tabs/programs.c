@@ -31,6 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include "../../shared/xis_safefile.h"
 
 #define MAX_APPS 256
 
@@ -216,11 +217,9 @@ static void apply_programs_cb(GtkWidget *widget, gpointer data)
     if (tidx >= 0 && tidx < g_n_terminal_apps) {
         char path[PATH_MAX];
         terminal_list_path(path, sizeof(path));
-        FILE *f = fopen(path, "w");
-        if (f) {
-            fprintf(f, "%s\n", g_terminal_apps[tidx].id);
-            fclose(f);
-        } else {
+        char line[256];
+        snprintf(line, sizeof(line), "%s\n", g_terminal_apps[tidx].id);
+        if (xis_write_file(path, line, strlen(line), xis_check_lines) != 0) {
             g_warning("kiconf: could not write '%s': %s", path, strerror(errno));
         }
     }
@@ -249,7 +248,7 @@ GtkWidget *build_programs_tab(void)
     char term_path[PATH_MAX];
     terminal_list_path(term_path, sizeof(term_path));
     char cur_term[NAME_LEN] = "";
-    FILE *tf = fopen(term_path, "r");
+    FILE *tf = xis_fopen_read(term_path, xis_check_usable);
     if (tf) {
         if (fgets(cur_term, sizeof(cur_term), tf)) {
             size_t len = strlen(cur_term);
