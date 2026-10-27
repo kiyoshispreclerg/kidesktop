@@ -637,12 +637,14 @@ away is worse than no shadow at all.
 ## Window types
 
 In the same way, `windows=` says **which windows** an effect applies to.
-One type per `_NET_WM_WINDOW_TYPE` value, plus `unknown` for windows that
-declare no type at all (most older applications):
+One type per `_NET_WM_WINDOW_TYPE` value, plus `unknown` for override-redirect
+windows that declare no type, or a type kicomp does not know. A managed
+window with no type at all (most older applications, Xephyr) is `normal`,
+or `dialog` when transient, as EWMH says:
 
 | value | `_NET_WM_WINDOW_TYPE_…` |
 |---|---|
-| `unknown` | *(no type declared)* |
+| `unknown` | *(override-redirect with no type, or an unrecognized type)* |
 | `normal` | `NORMAL` |
 | `dialog` | `DIALOG` |
 | `utility` | `UTILITY` |

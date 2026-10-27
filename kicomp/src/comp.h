@@ -225,7 +225,7 @@ typedef enum {
  *
  * Keep in sync with window_type_names[] in effect.c. */
 typedef enum {
-    COMP_WINDOW_UNKNOWN = 0,   /* no type set: an ordinary window, said quietly */
+    COMP_WINDOW_UNKNOWN = 0,   /* override-redirect with no type, or a type nobody here knows */
     COMP_WINDOW_NORMAL,
     COMP_WINDOW_DIALOG,
     COMP_WINDOW_UTILITY,

@@ -490,9 +490,9 @@ static xcb_window_t resolve_client(CompWindow *w)
 }
 
 /* _NET_WM_WINDOW_TYPE on the client window, collapsed to a CompWindowKind
- * (see comp.h). Read once the client is known; a window that never says
- * what it is stays UNKNOWN, which effects treat as "normal" or skip
- * depending on what they're for. */
+ * (see comp.h). Read once the client is known; a managed window that
+ * never says what it is is NORMAL (EWMH), an override-redirect one stays
+ * UNKNOWN. */
 static CompWindowType type_for_atom(xcb_atom_t t)
 {
     if (t == comp.atoms.type_normal)        return COMP_WINDOW_NORMAL;
@@ -533,6 +533,22 @@ static void read_window_kind(CompWindow *w)
                          XCB_ATOM_ATOM, 0, 8), NULL);
     if (!r)
         return;
+
+    /* EWMH: a managed window that declares no type at all is NORMAL (or
+     * DIALOG when it is transient for another). Old toolkits and Xephyr
+     * never set one, and a shadow rule written as "normal" must reach
+     * them. Override-redirect windows stay UNKNOWN: without a type they
+     * are as likely a menu as anything else. A type that is present but
+     * unrecognized also stays UNKNOWN. */
+    if (r->type == XCB_ATOM_NONE && !w->override_redirect) {
+        xcb_get_property_reply_t *tr = xcb_get_property_reply(comp.conn,
+            xcb_get_property(comp.conn, 0, client, XCB_ATOM_WM_TRANSIENT_FOR,
+                             XCB_ATOM_WINDOW, 0, 1), NULL);
+        bool transient = tr && tr->type == XCB_ATOM_WINDOW &&
+                         xcb_get_property_value_length(tr) >= 4;
+        free(tr);
+        w->type = transient ? COMP_WINDOW_DIALOG : COMP_WINDOW_NORMAL;
+    }
 
     if (r->type == XCB_ATOM_ATOM && r->format == 32) {
         xcb_atom_t *types = xcb_get_property_value(r);
