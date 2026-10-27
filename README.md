@@ -147,6 +147,18 @@ Planned, not started yet:
 - **[kiview](kiview/)** -- image and document viewer.
 - **[kiman](kiman/)** -- manual and help page viewer.
 
+## Your settings and power cuts
+
+Every configuration file and user list the desktop writes (`~/.config/kiwm.conf`, `xispanel.conf`,
+`xisguard/perms.conf`, kifiles tabs and bookmarks, ...) is written atomically: the new content goes to
+`<file>.tmp`, is synced to disk, and only then replaces the old file. Before that, the previous good
+copy is saved as `<file>.backup` next to it. If a file is missing, empty or zeroed after a crash, the
+program reads the `.backup` instead and logs a warning. A file that is already corrupt never replaces a
+good `.backup`.
+
+To reset a setting by deleting its file, delete the `.backup` too, or the old copy comes back.
+Files you save somewhere of your own choosing (documents, exports) get no `.backup`.
+
 ## Building
 
 For the full suite (core + base), from the repo root:

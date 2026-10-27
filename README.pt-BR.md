@@ -153,6 +153,18 @@ Planejados, ainda sem código:
 - **[kiview](kiview/)** -- visualizador de imagens e documentos.
 - **[kiman](kiman/)** -- visualizador de manuais e páginas de ajuda.
 
+## Suas configurações e quedas de energia
+
+Todo arquivo de configuração e lista do usuário que o desktop grava (`~/.config/kiwm.conf`, `xispanel.conf`,
+`xisguard/perms.conf`, abas e favoritos do kifiles, ...) é gravado de forma atômica: o conteúdo novo vai
+para `<arquivo>.tmp`, é sincronizado no disco e só então substitui o antigo. Antes disso, a última cópia
+íntegra é guardada como `<arquivo>.backup` ao lado. Se um arquivo estiver ausente, vazio ou zerado após uma
+queda, o programa lê o `.backup` e registra um aviso. Um arquivo já corrompido nunca substitui um `.backup`
+bom.
+
+Para "resetar" apagando um arquivo, apague também o `.backup`, senão a cópia antiga volta.
+Arquivos que você salva num lugar de sua escolha (documentos, exportações) não ganham `.backup`.
+
 ## Compilação
 
 Para a suíte completa (core + base), a partir da raiz do repositório:
