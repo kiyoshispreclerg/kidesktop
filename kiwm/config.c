@@ -2,6 +2,7 @@
  * key=value lines, '#' comments, same spirit as xisback/xispanel's config
  * files but simpler since kiwm has no nested panel/widget-style objects
  * to describe, just a handful of scalar settings. */
+#include <limits.h>
 #include "config.h"
 #include "wm.h"
 #include "keybind.h"
@@ -14,6 +15,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include "../shared/xis_safefile.h"
 
 static void config_path(char *out, size_t outsz)
 {
@@ -225,7 +227,9 @@ static int parse_force_unflip(const char *s, int fallback)
 
 static void write_default_config(const char *path)
 {
-    FILE *f = fopen(path, "w");
+    char sf_tmp[PATH_MAX + 8];
+    xis_write_tmpname(path, sf_tmp, sizeof(sf_tmp));
+    FILE *f = xis_write_open(sf_tmp, path);
     if (!f) {
         fprintf(stderr, "kiwm: could not write default config to %s: %s\n", path, strerror(errno));
         return;
@@ -512,7 +516,7 @@ static void write_default_config(const char *path)
     /* Generated from keybind.c's own table, so the shipped file always
      * lists exactly the shortcuts this build actually has. */
     keybind_write_default_config(f);
-    fclose(f);
+    xis_write_commit(f, sf_tmp, path, xis_check_conf_clean);
     fprintf(stderr, "kiwm: no config found, wrote defaults to %s\n", path);
 }
 
@@ -523,10 +527,10 @@ static void load_config_file(void)
     char path[512];
     config_path(path, sizeof(path));
 
-    if (access(path, F_OK) != 0)
+    if (!xis_file_or_backup_exists(path))
         write_default_config(path);
 
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     if (!f) {
         fprintf(stderr, "kiwm: could not read config %s: %s (using built-in defaults)\n", path, strerror(errno));
         return;

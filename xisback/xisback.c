@@ -89,6 +89,7 @@
 #include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
+#include "../shared/xis_safefile.h"
 
 /* xisback_inputscale.c (or xisback_inputscale_stub.c, see Makefile) --
  * X-INPUT-SCALE per-CRTC confinement, used by resolve_output_geometry(). */
@@ -97,7 +98,7 @@ int xis_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int 
 int xis_fd(void);
 int xis_poll_change(void);
 
-#define XISBACK_VERSION "0.4.18"
+#define XISBACK_VERSION "0.4.19"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -1339,7 +1340,7 @@ static void save_config(void)
     }
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", g_configpath);
-    FILE *f = fopen(tmp, "w");
+    FILE *f = xis_write_open(tmp, g_configpath);
     if (!f) {
         fprintf(stderr, "xisback: could not write '%s': %s\n", tmp, strerror(errno));
         return;
@@ -1361,8 +1362,7 @@ static void save_config(void)
     if (g_lazy) {
         fprintf(f, "LAZY\t1\n");
     }
-    fclose(f);
-    if (rename(tmp, g_configpath) != 0) {
+    if (xis_write_commit(f, tmp, g_configpath, xis_check_lines) != 0) {
         fprintf(stderr, "xisback: could not save '%s': %s\n", g_configpath, strerror(errno));
     }
 }
@@ -1404,7 +1404,7 @@ static void load_config_file(void)
     int layer_lines_seen = 0;
     int actions_line_seen = 0;
 
-    FILE *f = fopen(g_configpath, "r");
+    FILE *f = xis_fopen_read(g_configpath, xis_check_usable);
     if (!f) {
         create_default_layers();
         save_config();

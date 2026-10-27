@@ -53,6 +53,11 @@ char *xis_read_file_or_backup(const char *path, xis_check_fn ok, size_t *len);
  * falls back to the plain fopen(path, "r") result. */
 FILE *xis_fopen_read(const char *path, xis_check_fn ok);
 
+/* True when `path` or `path`.backup exists. Use it instead of access(path)
+ * to decide "first run, write the defaults", so a lost main file does not
+ * hide a backup that the read would have used. */
+bool xis_file_or_backup_exists(const char *path);
+
 /* fflush + fsync. 0 on success. */
 int xis_flush_sync(FILE *f);
 

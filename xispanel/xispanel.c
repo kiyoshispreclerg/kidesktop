@@ -100,8 +100,9 @@
 #include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
+#include "../shared/xis_safefile.h"
 
-#define XISPANEL_VERSION "0.7.31"
+#define XISPANEL_VERSION "0.7.32"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 128KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -458,7 +459,7 @@ static void config_scan_globals(void)
     char theme_dir[PATH_MAX];
     theme_dir[0] = 0;
     int force_shape_seen = 0;
-    FILE *f = fopen(g_configpath, "r");
+    FILE *f = xis_fopen_read(g_configpath, xis_check_usable);
     if (!f) {
         return;
     }
@@ -745,14 +746,16 @@ static int get_primary_output_name(char *out, size_t outsz)
  * kiconfd, not here). */
 static void write_default_config_if_missing(void)
 {
-    if (access(g_configpath, F_OK) == 0) {
+    if (xis_file_or_backup_exists(g_configpath)) {
         return;
     }
     char output[64];
     if (!get_primary_output_name(output, sizeof(output))) {
         snprintf(output, sizeof(output), "*");
     }
-    FILE *f = fopen(g_configpath, "w");
+    char sf_tmp[PATH_MAX + 8];
+    xis_write_tmpname(g_configpath, sf_tmp, sizeof(sf_tmp));
+    FILE *f = xis_write_open(sf_tmp, g_configpath);
     if (!f) {
         fprintf(stderr, "xispanel: could not write default config to %s: %s\n", g_configpath, strerror(errno));
         return;
@@ -768,7 +771,7 @@ static void write_default_config_if_missing(void)
             "WIDGET\tmain\t6\ttray icon_padding=5\n"
             "WIDGET\tmain\t7\tclock\n",
             output);
-    fclose(f);
+    xis_write_commit(f, sf_tmp, g_configpath, xis_check_lines);
     fprintf(stderr, "xispanel: no config found, wrote a default panel to %s\n", g_configpath);
 }
 
@@ -3516,13 +3519,13 @@ static int widget_line_matches(const char *raw, const char *panel_name, int orde
 int config_widget_set_key(const char *panel_name, int order, const char *type_name, const char *key,
                            const char *value)
 {
-    FILE *in = fopen(g_configpath, "r");
+    FILE *in = xis_fopen_read(g_configpath, xis_check_usable);
     if (!in) {
         return 0;
     }
     char tmppath[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmppath, sizeof(tmppath), "%s.tmp", g_configpath);
-    FILE *out = fopen(tmppath, "w");
+    FILE *out = xis_write_open(tmppath, g_configpath);
     if (!out) {
         fclose(in);
         return 0;
@@ -3543,9 +3546,9 @@ int config_widget_set_key(const char *panel_name, int order, const char *type_na
         }
     }
     fclose(in);
-    fclose(out);
+    int sf_rc = xis_write_commit(out, tmppath, g_configpath, xis_check_lines);
 
-    if (!found || rename(tmppath, g_configpath) != 0) {
+    if (!found || sf_rc != 0) {
         if (found) {
             fprintf(stderr, "xispanel: could not update config %s: %s\n", g_configpath, strerror(errno));
         }
@@ -3622,7 +3625,7 @@ static void load_config(void)
     XisOutputRename rename_map[MAX_PANELS];
     int n_rename = xis_build_output_rename_map(g_dpy, saved_ptrs, n_saved, rename_map, MAX_PANELS);
 
-    FILE *f = fopen(g_configpath, "r");
+    FILE *f = xis_fopen_read(g_configpath, xis_check_usable);
     if (!f) {
         return;
     }
@@ -3716,7 +3719,7 @@ static void schedule_widget_repoll(uint64_t at_ms);
 static void config_focus_key(char *out, size_t outsz)
 {
     out[0] = 0;
-    FILE *f = fopen(g_configpath, "r");
+    FILE *f = xis_fopen_read(g_configpath, xis_check_usable);
     if (!f) {
         return;
     }

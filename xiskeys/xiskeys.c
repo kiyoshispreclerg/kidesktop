@@ -64,8 +64,9 @@
 #include <sys/select.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "../shared/xis_safefile.h"
 
-#define XISKEYS_VERSION "0.2.9"
+#define XISKEYS_VERSION "0.2.10"
 #define MAX_BINDINGS 128
 #define LINE_MAX_LEN 768
 #define CMD_MAX_LEN 512
@@ -390,7 +391,9 @@ static void write_kishot_binds(FILE *f)
 
 static void write_default_config(const char *path)
 {
-    FILE *f = fopen(path, "w");
+    char sf_tmp[PATH_MAX + 8];
+    xis_write_tmpname(path, sf_tmp, sizeof(sf_tmp));
+    FILE *f = xis_write_open(sf_tmp, path);
     if (!f) {
         fprintf(stderr, "xiskeys: could not write default config '%s': %s\n", path, strerror(errno));
         return;
@@ -476,7 +479,7 @@ static void write_default_config(const char *path)
     fprintf(f, "#BIND\tterminal\tMeta+Return\txterm\n");
     fprintf(f, "#BIND\tbrowser\tMeta+B\tfirefox\n");
     fprintf(f, "#BIND\tvirtual-keyboard\tMeta+.\txisserve --keyboard\n");
-    fclose(f);
+    xis_write_commit(f, sf_tmp, path, xis_check_lines);
 }
 
 /* Configs written before kishot existed point the screenshot keys at
@@ -493,7 +496,7 @@ static void migrate_to_kishot(const char *path)
     };
     if (!in_path("kishot"))
         return;
-    FILE *in = fopen(path, "r");
+    FILE *in = xis_fopen_read(path, xis_check_usable);
     if (!in)
         return;
     char tmp[PATH_MAX + 8];
@@ -510,7 +513,7 @@ static void migrate_to_kishot(const char *path)
         fclose(in);
         return;
     }
-    FILE *out = fopen(tmp, "w");
+    FILE *out = xis_write_open(tmp, path);
     if (!out) {
         fclose(in);
         return;
@@ -534,7 +537,7 @@ static void migrate_to_kishot(const char *path)
     }
     fprintf(out, "%s\n", KISHOT_MARK);
     fclose(in);
-    if (fclose(out) == 0 && rename(tmp, path) == 0)
+    if (xis_write_commit(out, tmp, path, xis_check_lines) == 0)
         fprintf(stderr, "xiskeys: screenshot keys now run kishot\n");
     else
         unlink(tmp);
@@ -549,7 +552,7 @@ static void migrate_to_kitask(const char *path)
     static const char from[] = "BIND\ttask-manager\tCtrl+Escape\tqps", to[] = "BIND\ttask-manager\tCtrl+Escape\tkitask";
     if (!in_path("kitask"))
         return;
-    FILE *in = fopen(path, "r");
+    FILE *in = xis_fopen_read(path, xis_check_usable);
     if (!in)
         return;
     char line[LINE_MAX_LEN];
@@ -566,7 +569,7 @@ static void migrate_to_kitask(const char *path)
     }
     char tmp[PATH_MAX + 8];
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *out = fopen(tmp, "w");
+    FILE *out = xis_write_open(tmp, path);
     if (!out) {
         fclose(in);
         return;
@@ -579,7 +582,7 @@ static void migrate_to_kitask(const char *path)
             fputs(line, out);
     }
     fclose(in);
-    if (fclose(out) == 0 && rename(tmp, path) == 0)
+    if (xis_write_commit(out, tmp, path, xis_check_lines) == 0)
         fprintf(stderr, "xiskeys: Ctrl+Escape now runs kitask\n");
     else
         unlink(tmp);
@@ -592,7 +595,7 @@ static void migrate_to_kilock(const char *path)
     static const char from[] = "BIND\tlock-session\tMeta+L\ti3lock", to[] = "BIND\tlock-session\tMeta+L\tkilock";
     if (!in_path("kilock"))
         return;
-    FILE *in = fopen(path, "r");
+    FILE *in = xis_fopen_read(path, xis_check_usable);
     if (!in)
         return;
     char line[LINE_MAX_LEN];
@@ -605,7 +608,7 @@ static void migrate_to_kilock(const char *path)
     }
     char tmp[PATH_MAX + 8];
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *out = fopen(tmp, "w");
+    FILE *out = xis_write_open(tmp, path);
     if (!out) {
         fclose(in);
         return;
@@ -618,7 +621,7 @@ static void migrate_to_kilock(const char *path)
             fputs(line, out);
     }
     fclose(in);
-    if (fclose(out) == 0 && rename(tmp, path) == 0)
+    if (xis_write_commit(out, tmp, path, xis_check_lines) == 0)
         fprintf(stderr, "xiskeys: lock key now runs kilock\n");
     else
         unlink(tmp);
@@ -626,7 +629,7 @@ static void migrate_to_kilock(const char *path)
 
 static void load_config(void)
 {
-    if (access(g_configpath, F_OK) != 0) {
+    if (!xis_file_or_backup_exists(g_configpath)) {
         fprintf(stderr, "xiskeys: no config at '%s', writing default\n", g_configpath);
         write_default_config(g_configpath);
     }
@@ -634,7 +637,7 @@ static void load_config(void)
     migrate_to_kilock(g_configpath);
     migrate_to_kitask(g_configpath);
 
-    FILE *f = fopen(g_configpath, "r");
+    FILE *f = xis_fopen_read(g_configpath, xis_check_usable);
     if (!f) {
         fprintf(stderr, "xiskeys: could not read '%s': %s\n", g_configpath, strerror(errno));
         return;

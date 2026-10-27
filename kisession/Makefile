@@ -19,8 +19,8 @@ MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
 all: kisession
 
-kisession: kisession.c
-	$(CC) $(CFLAGS) -o $@ kisession.c $(LDLIBS)
+kisession: kisession.c ../shared/xis_safefile.c ../shared/xis_safefile.h
+	$(CC) $(CFLAGS) -o $@ kisession.c ../shared/xis_safefile.c $(LDLIBS)
 
 # ---- translations (see po/README.md for the day-to-day workflow) ----------
 

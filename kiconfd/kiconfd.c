@@ -170,8 +170,9 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include "../shared/xis_safefile.h"
 
-#define KICONFD_VERSION "0.2.28"
+#define KICONFD_VERSION "0.2.29"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -434,7 +435,7 @@ static void update_marked_block(const char *path, const char *begin_marker, cons
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
 
     FILE *in = fopen(path, "r");
-    FILE *out = fopen(tmp, "w");
+    FILE *out = xis_write_open(tmp, path);
     if (!out) {
         fprintf(stderr, "kiconfd: could not write '%s': %s\n", tmp, strerror(errno));
         if (in) {
@@ -467,8 +468,7 @@ static void update_marked_block(const char *path, const char *begin_marker, cons
     if (!wrote_block) {
         fprintf(out, "\n%s\n%s%s\n", begin_marker, body, end_marker);
     }
-    fclose(out);
-    if (rename(tmp, path) != 0) {
+    if (xis_write_commit(out, tmp, path, NULL) != 0) {
         fprintf(stderr, "kiconfd: could not save '%s': %s\n", path, strerror(errno));
     }
 }
@@ -483,7 +483,7 @@ static void remove_marked_block(const char *path, const char *begin_marker, cons
     }
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *out = fopen(tmp, "w");
+    FILE *out = xis_write_open(tmp, path);
     if (!out) {
         fclose(in);
         return;
@@ -504,8 +504,8 @@ static void remove_marked_block(const char *path, const char *begin_marker, cons
         fputs(line, out);
     }
     fclose(in);
-    fclose(out);
-    if (!found || rename(tmp, path) != 0) {
+    int sf_rc = xis_write_commit(out, tmp, path, NULL);
+    if (!found || sf_rc != 0) {
         remove(tmp);
     }
 }
@@ -517,14 +517,13 @@ static void write_owned_file(const char *path, const char *content)
     ensure_parent_dir(path);
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
+    FILE *f = xis_write_open(tmp, path);
     if (!f) {
         fprintf(stderr, "kiconfd: could not write '%s': %s\n", tmp, strerror(errno));
         return;
     }
     fputs(content, f);
-    fclose(f);
-    if (rename(tmp, path) != 0) {
+    if (xis_write_commit(f, tmp, path, NULL) != 0) {
         fprintf(stderr, "kiconfd: could not save '%s': %s\n", path, strerror(errno));
     }
 }
@@ -563,7 +562,7 @@ static void ini_upsert(const char *path, const char *section, const char *key, c
 
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *out = fopen(tmp, "w");
+    FILE *out = xis_write_open(tmp, path);
     if (!out) {
         fprintf(stderr, "kiconfd: could not write '%s': %s\n", tmp, strerror(errno));
         for (int i = 0; i < n_lines; i++) {
@@ -615,13 +614,13 @@ static void ini_upsert(const char *path, const char *section, const char *key, c
         fprintf(out, "%s[%s]\n%s=%s\n", n_lines > 0 ? "\n" : "", section, key, value);
     }
 
-    fclose(out);
+    int sf_rc = xis_write_commit(out, tmp, path, NULL);
     for (int i = 0; i < n_lines; i++) {
         free(lines[i]);
     }
     free(lines);
 
-    if (rename(tmp, path) != 0) {
+    if (sf_rc != 0) {
         fprintf(stderr, "kiconfd: could not save '%s': %s\n", path, strerror(errno));
     }
 }
@@ -1360,7 +1359,7 @@ static void resolve_screenspath(void)
  * of outputs parsed. */
 static int load_screens_layout(ScreenLayout *outs, int max)
 {
-    FILE *f = fopen(g_screenspath, "r");
+    FILE *f = xis_fopen_read(g_screenspath, xis_check_usable);
     if (!f) {
         return 0;
     }
@@ -1642,7 +1641,7 @@ static int load_input_config(InputSessionConfig *c)
     c->middle_click_emulation = 0;
     c->tap_to_click = 0;
 
-    FILE *f = fopen(g_inputpath, "r");
+    FILE *f = xis_fopen_read(g_inputpath, xis_check_usable);
     if (!f) {
         return 0;
     }
@@ -2010,7 +2009,7 @@ static int load_nightlight_schedule(NightlightSchedule *c)
     c->end_min = 6 * 60;
     c->temp = 4000;
 
-    FILE *f = fopen(g_nightlightpath, "r");
+    FILE *f = xis_fopen_read(g_nightlightpath, xis_check_usable);
     if (!f) {
         return 0;
     }
@@ -2298,7 +2297,7 @@ static void save_config(void)
 {
     char tmp[PATH_MAX + 8]; /* path + ".tmp" */
     snprintf(tmp, sizeof(tmp), "%s.tmp", g_configpath);
-    FILE *f = fopen(tmp, "w");
+    FILE *f = xis_write_open(tmp, g_configpath);
     if (!f) {
         fprintf(stderr, "kiconfd: could not write '%s': %s\n", tmp, strerror(errno));
         return;
@@ -2321,8 +2320,7 @@ static void save_config(void)
     fprintf(f, "icon_theme = %s\n", g_icon_theme);
     fprintf(f, "qt_style = %s\n", g_qt_style);
     fprintf(f, "export_to_other_desktops = %d\n", g_export_other_desktops > 0 ? 1 : 0);
-    fclose(f);
-    if (rename(tmp, g_configpath) != 0) {
+    if (xis_write_commit(f, tmp, g_configpath, xis_check_conf_clean) != 0) {
         fprintf(stderr, "kiconfd: could not save '%s': %s\n", g_configpath, strerror(errno));
     }
 }
@@ -2331,7 +2329,7 @@ static void save_config(void)
  * Missing keys are left at whatever the caller pre-seeded (defaults). */
 static void load_config(void)
 {
-    FILE *f = fopen(g_configpath, "r");
+    FILE *f = xis_fopen_read(g_configpath, xis_check_usable);
     if (!f) {
         return;
     }

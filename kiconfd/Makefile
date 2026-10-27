@@ -27,7 +27,7 @@ MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 # shared/xis_clock.c: ki-clock.conf's format (alarms/timers, rung via
 # `xisserve --ring`), shared with xisserve; xis_spawn.c starts that popup
 # as an independent process, same as every other daemon launching one.
-SHARED_SRC := ../shared/xis_outputs.c ../shared/xis_clock.c ../shared/xis_spawn.c
+SHARED_SRC := ../shared/xis_outputs.c ../shared/xis_clock.c ../shared/xis_spawn.c ../shared/xis_safefile.c
 
 all: kiconfd
 

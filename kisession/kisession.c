@@ -68,8 +68,9 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include "../shared/xis_safefile.h"
 
-#define KISESSION_VERSION "0.1.17"
+#define KISESSION_VERSION "0.1.18"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -375,7 +376,9 @@ static void resolve_configpath(void)
 
 static void write_default_config(void)
 {
-    FILE *f = fopen(g_configpath, "w");
+    char sf_tmp[PATH_MAX + 8];
+    xis_write_tmpname(g_configpath, sf_tmp, sizeof(sf_tmp));
+    FILE *f = xis_write_open(sf_tmp, g_configpath);
     if (!f) {
         fprintf(stderr, "kisession: could not write '%s': %s\n", g_configpath, strerror(errno));
         return;
@@ -399,7 +402,7 @@ static void write_default_config(void)
     for (int i = 0; i < N_SERVICES; i++) {
         fprintf(f, "SERVICE\t%s\t%d\t# %s\n", SERVICES[i].name, SERVICES[i].default_enabled, SERVICES[i].comment);
     }
-    fclose(f);
+    xis_write_commit(f, sf_tmp, g_configpath, xis_check_lines);
 }
 
 /* Fills `enabled_out` (one entry per service) and `wm_out` from the
@@ -412,7 +415,7 @@ static void read_config(int *enabled_out, char *wm_out, size_t wm_sz)
     }
     wm_out[0] = '\0';
 
-    FILE *f = fopen(g_configpath, "r");
+    FILE *f = xis_fopen_read(g_configpath, xis_check_usable);
     if (!f) {
         return;
     }
@@ -2017,7 +2020,7 @@ int main(int argc, char **argv)
 
     resolve_configpath();
     struct stat sb;
-    if (stat(g_configpath, &sb) != 0) {
+    if (stat(g_configpath, &sb) != 0 && !xis_file_or_backup_exists(g_configpath)) {
         fprintf(stderr, "kisession: no config at '%s', writing default\n", g_configpath);
         write_default_config();
     }

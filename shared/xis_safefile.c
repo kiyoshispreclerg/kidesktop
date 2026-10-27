@@ -136,6 +136,14 @@ static void sync_dir_of(const char *path)
     }
 }
 
+bool xis_file_or_backup_exists(const char *path)
+{
+    char bak[PATH_MAX];
+    if (access(path, F_OK) == 0)
+        return true;
+    return snprintf(bak, sizeof bak, "%s.backup", path) < (int)sizeof bak && access(bak, F_OK) == 0;
+}
+
 int xis_flush_sync(FILE *f)
 {
     if (fflush(f) != 0)
