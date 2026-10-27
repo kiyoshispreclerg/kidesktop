@@ -20,7 +20,7 @@ PKG_LIBS += $(LIBINTL)
 LINGUAS := $(shell test -f po/LINGUAS && grep -v '^\#' po/LINGUAS)
 MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
-SRCS := kitask.c tsk_proc.c tsk_sys.c tsk_gpu.c tsk_net.c tsk_x11.c tsk_config.c tsk_graph.c tsk_list.c tsk_actions.c tsk_prefs.c tsk_pie.c ../shared/xis_winstate.c
+SRCS := kitask.c tsk_proc.c tsk_sys.c tsk_gpu.c tsk_net.c tsk_x11.c tsk_config.c tsk_graph.c tsk_list.c tsk_actions.c tsk_prefs.c tsk_pie.c ../shared/xis_winstate.c ../shared/xis_safefile.c
 OBJS := $(SRCS:.c=.o)
 HDRS := tsk.h ../shared/xis_i18n.h ../shared/xis_winstate.h
 

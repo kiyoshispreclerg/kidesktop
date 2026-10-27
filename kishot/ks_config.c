@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include "../shared/xis_safefile.h"
 
 static const char *const kAreaKeys[KS_AREA_N] = { "full", "monitor", "window", "region", "output" };
 static const char *const kCopyKeys[] = { "auto", "gpu", "shm" };
@@ -74,7 +75,7 @@ void ks_config_load(KsConfig *c)
 {
     defaults(c);
     char *path = config_path();
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     g_free(path);
     if (!f)
         return;
@@ -133,10 +134,13 @@ void ks_config_save(const KsConfig *c)
     char *dir = g_path_get_dirname(path);
     g_mkdir_with_parents(dir, 0755);
     g_free(dir);
-    FILE *f = fopen(path, "w");
-    g_free(path);
-    if (!f)
+    char tmp[4096];
+    xis_write_tmpname(path, tmp, sizeof(tmp));
+    FILE *f = xis_write_open(tmp, path);
+    if (!f) {
+        g_free(path);
         return;
+    }
     fprintf(f, "# kishot settings (written by kishot)\n");
     fprintf(f, "area=%s\n", ks_area_key(c->area));
     fprintf(f, "record_area=%s\n", ks_area_key(c->rec_area));
@@ -173,7 +177,8 @@ void ks_config_save(const KsConfig *c)
     fprintf(f, "window_width=%d\n", c->win_w);
     fprintf(f, "window_height=%d\n", c->win_h);
     fprintf(f, "pane_position=%d\n", c->pane_pos);
-    fclose(f);
+    xis_write_commit(f, tmp, path, xis_check_conf_clean);
+    g_free(path);
 }
 
 /* "$PICTURES/Kishot" -> "/home/u/Pictures/Kishot" */

@@ -6,6 +6,7 @@
  *
  * Graph limits are in the source's unit: % for CPU/GPU, MiB for memory and
  * KiB/s for traffic. Written whenever a setting changes (debounced). */
+#include "../shared/xis_safefile.h"
 #include "tsk.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -129,7 +130,8 @@ void tsk_config_load(TskConfig *c)
 
     gboolean have_columns = FALSE, have_graphs = FALSE;
     char *path = conf_path(), *data = NULL;
-    if (g_file_get_contents(path, &data, NULL, NULL)) {
+    data = xis_read_file_or_backup(path, xis_check_usable, NULL);
+    if (data) {
         char **lines = g_strsplit(data, "\n", -1);
         for (char **l = lines; *l; l++) {
             char *eq = strchr(*l, '=');
@@ -174,7 +176,7 @@ void tsk_config_load(TskConfig *c)
                 sscanf(val, "%dx%d", &c->details_w, &c->details_h);
         }
         g_strfreev(lines);
-        g_free(data);
+        free(data);
     }
     g_free(path);
     /* no line, or an empty/unusable one (an older build saved "columns = "
@@ -233,7 +235,7 @@ void tsk_config_save(const TskConfig *c)
 
     char *path = conf_path(), *dir = g_path_get_dirname(path);
     g_mkdir_with_parents(dir, 0755);
-    g_file_set_contents(path, s->str, -1, NULL);
+    xis_write_file(path, s->str, s->len, xis_check_conf_clean);
     g_free(dir);
     g_free(path);
     g_string_free(s, TRUE);

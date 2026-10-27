@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include "../shared/xis_safefile.h"
 
 const KtScheme kt_schemes[] = {
     { "default", N_("Dark"), "#d3d7cf", "#101114", "#d3d7cf",
@@ -100,7 +101,7 @@ void kt_config_load(KtConfig *c)
 {
     kt_config_defaults(c);
     char *path = config_path();
-    FILE *f = fopen(path, "r");
+    FILE *f = xis_fopen_read(path, xis_check_usable);
     g_free(path);
     if (!f)
         return;
@@ -156,10 +157,13 @@ gboolean kt_config_save(const KtConfig *c)
     char *dir = g_path_get_dirname(path);
     g_mkdir_with_parents(dir, 0755);
     g_free(dir);
-    FILE *f = fopen(path, "w");
-    g_free(path);
-    if (!f)
+    char tmp[4096];
+    xis_write_tmpname(path, tmp, sizeof(tmp));
+    FILE *f = xis_write_open(tmp, path);
+    if (!f) {
+        g_free(path);
         return FALSE;
+    }
     char num[G_ASCII_DTOSTR_BUF_SIZE];
     fprintf(f, "# kiterm settings (written by the preferences dialog; hand edits are kept\n"
                "# until the next save)\n");
@@ -180,6 +184,7 @@ gboolean kt_config_save(const KtConfig *c)
             c->scroll_on_output, c->scroll_on_keystroke, c->confirm_close);
     fprintf(f, "tabs=%s\nshell=%s\nword_chars=%s\ncolumns=%d\nrows=%d\n",
             kTabsPos[CLAMP(c->tabs_pos, 0, 3)], c->shell, c->word_chars, c->cols, c->rows);
-    fclose(f);
-    return TRUE;
+    gboolean ok = xis_write_commit(f, tmp, path, xis_check_conf_clean) == 0;
+    g_free(path);
+    return ok;
 }

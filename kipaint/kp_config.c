@@ -1,6 +1,7 @@
 /* kp_config.c - ~/.config/kipaint.conf: palette, colors 1/2, tool sizes,
  * grid, layers panel, size of new images. Read once at startup, written when the palette
  * changes and on exit. */
+#include "../shared/xis_safefile.h"
 #include "kp.h"
 
 #include <stdio.h>
@@ -59,7 +60,8 @@ void kp_config_load(void)
 {
     set_defaults();
     char *path = conf_path(), *data = NULL;
-    if (!g_file_get_contents(path, &data, NULL, NULL)) {
+    data = xis_read_file_or_backup(path, xis_check_usable, NULL);
+    if (!data) {
         g_free(path);
         return;
     }
@@ -94,7 +96,7 @@ void kp_config_load(void)
         }
     }
     g_strfreev(lines);
-    g_free(data);
+    free(data);
     g_free(path);
 }
 
@@ -117,7 +119,7 @@ void kp_config_save(void)
                            kp.grid, kp.layers_panel, kp.eraser_transparent, kp.new_w, kp.new_h);
     char *path = conf_path(), *dir = g_path_get_dirname(path);
     g_mkdir_with_parents(dir, 0755);
-    g_file_set_contents(path, s->str, s->len, NULL);
+    xis_write_file(path, s->str, s->len, xis_check_conf_clean);
     g_free(dir);
     g_free(path);
     g_string_free(s, TRUE);
