@@ -130,7 +130,7 @@ void xpw_run(const char *cmd);
 void xpw_open_xisserve(XpwWidget *w, const char *cmd_name, const char *extra_args);
 /* The last completed stdout of `cmd`, run in the background at most every
  * refresh_ms and never waited for: returns a generation number, 0 until
- * the first run finishes, then +1 per completed run, with *out_text that
+ * the first run finishes, then +1 per completed run whose output changed, with *out_text that
  * run's output (valid until the next xpw_async() on any command). */
 uint64_t xpw_async(const char *cmd, unsigned refresh_ms, const char **out_text);
 

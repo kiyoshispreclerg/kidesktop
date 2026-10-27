@@ -23,7 +23,8 @@
  *   uint64_t gen = asyncmd_get(cmd, refresh_ms, &text);
  *
  * returns immediately, always. `gen` is 0 until the first run finishes,
- * then increments once per completed run, so a caller detects "new data"
+ * then increments once per completed run whose output differs from the
+ * previous one, so a caller detects "new data"
  * by comparing it against the generation it last parsed -- no callbacks,
  * and therefore no pointer from a job back into a widget that a config
  * reload could free underneath it (widgets are destroyed and rebuilt
@@ -223,15 +224,25 @@ static void reap_finished(void)
 /* Publishes whatever the finished child wrote as the slot's new result.
  * Called on EOF (the child closed stdout, i.e. it is done writing) --
  * partial output from a command killed on timeout is published too, since
- * a truncated snapshot the caller can parse beats no snapshot at all. */
-static void complete(AsyncJob *j, uint64_t now)
+ * a truncated snapshot the caller can parse beats no snapshot at all.
+ * Output identical to the last run's is not new data: the generation
+ * stays, and 0 is returned so asyncmd_poll() doesn't re-tick every widget
+ * for it (storage_events' 2-second lsblk did that, doubling each
+ * widget's ticks while nothing changed). */
+static int complete(AsyncJob *j, uint64_t now)
 {
+    j->result_ms = now;
+    if (j->generation != 0 && j->pending_len == j->result_len &&
+        memcmp(j->result, j->pending, j->pending_len) == 0) {
+        j->pending_len = 0;
+        return 0;
+    }
     memcpy(j->result, j->pending, j->pending_len);
     j->result_len = j->pending_len;
     j->result[j->pending_len] = 0;
     j->pending_len = 0;
-    j->result_ms = now;
     j->generation = ++g_generation;
+    return 1;
 }
 
 static void spawn(AsyncJob *j, uint64_t now)
@@ -358,9 +369,8 @@ int asyncmd_poll(uint64_t now)
                  * consumer here parses a line-oriented listing where the
                  * head is the useful part, and a truncated listing is
                  * still parseable -- unlike a wrapped-around buffer. */
-                complete(j, now);
+                completed |= complete(j, now);
                 detach_child(j);
-                completed = 1;
                 break;
             }
             ssize_t n = read(j->fd, j->pending + j->pending_len, ASYNCMD_MAX_OUTPUT - 1 - j->pending_len);
@@ -369,9 +379,8 @@ int asyncmd_poll(uint64_t now)
                 continue;
             }
             if (n == 0) {
-                complete(j, now); /* child closed stdout: the run is done */
+                completed |= complete(j, now); /* child closed stdout: the run is done */
                 detach_child(j);
-                completed = 1;
                 break;
             }
             if (errno == EINTR) {

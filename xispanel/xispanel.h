@@ -1933,7 +1933,7 @@ void xisguard_send_json_arg(const char *cmd, const char *pattern);
  * waiting for a child process.
  *
  * asyncmd_get() returns a generation counter: 0 until the first run of
- * `cmd` has finished, then +1 per completed run, so a caller re-parses
+ * `cmd` has finished, then +1 per completed run whose output changed, so a caller re-parses
  * only when it differs from the generation it last saw. `*out_text` is
  * that run's stdout, valid until the next asyncmd_poll(). The call also
  * schedules: if the cached output is older than `refresh_ms`, the next
