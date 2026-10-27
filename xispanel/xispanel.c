@@ -102,7 +102,7 @@
 #include <unistd.h>
 #include "../shared/xis_safefile.h"
 
-#define XISPANEL_VERSION "0.7.35"
+#define XISPANEL_VERSION "0.7.36"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 128KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -2744,6 +2744,39 @@ static void panel_layout(Panel *p)
         int greedy_each = (n_greedy > 0 && remaining > 0) ? remaining / n_greedy : 0;
         for (int i = 0; i < p->n_layout; i++) {
             final_lens[i] = lens[i] < 0 ? greedy_each : lens[i];
+        }
+
+        /* Exactly two spacers (both greedy) with one or more widgets
+         * between them: shift the split so that block sits at the panel's
+         * true center, but only if both spacers can absorb the shift --
+         * every other widget keeps the position the even split gave it. */
+        int sp_idx[2] = { 0 };
+        int n_sp = 0;
+        for (int i = 0; i < p->n_layout; i++) {
+            if (spacer[i]) {
+                if (n_sp < 2) {
+                    sp_idx[n_sp] = i;
+                }
+                n_sp++;
+            }
+        }
+        if (n_sp == 2 && sp_idx[1] > sp_idx[0] + 1 && lens[sp_idx[0]] < 0 && lens[sp_idx[1]] < 0) {
+            int x_left = 0; /* where the left spacer starts */
+            for (int i = 0; i < sp_idx[0]; i++) {
+                x_left += final_lens[i] + p->spacing;
+            }
+            int blen = -p->spacing; /* the block between the spacers, gaps included */
+            for (int i = sp_idx[0] + 1; i < sp_idx[1]; i++) {
+                blen += final_lens[i] + p->spacing;
+            }
+            int want_x = (axis_len - blen) / 2;
+            int new_left = want_x - p->spacing - x_left;
+            int both = final_lens[sp_idx[0]] + final_lens[sp_idx[1]];
+            int new_right = both - new_left;
+            if (new_left >= 0 && new_right >= 0) {
+                final_lens[sp_idx[0]] = new_left;
+                final_lens[sp_idx[1]] = new_right;
+            }
         }
     } else {
         /* Doesn't fit even with every greedy widget at 0: shrink fixed
