@@ -1625,7 +1625,7 @@ static void strip_desktop_field_codes(char *s)
 
 /* Parses one .desktop file at `path`, filling out_name/out_exec/out_icon
  * (Exec= with field codes already stripped) if it looks usable (has an
- * Exec=, isn't Hidden=true) and matches `wm_class` -- see
+ * Exec=, isn't Hidden=true/NoDisplay=true) and matches `wm_class` -- see
  * desktop_entry_find_by_wm_class()'s doc comment for the match rules.
  * Returns 0 (no match/unusable), 1 (fallback match: basename or Exec
  * basename), or 2 (best match: exact StartupWMClass=). Only reads the
@@ -1669,7 +1669,10 @@ static int parse_desktop_file(const char *path, const char *wm_class, char *out_
             xis_strlcpy(icon, line + 5, sizeof(icon));
         } else if (!strncmp(line, "StartupWMClass=", 15)) {
             xis_strlcpy(startup_class, line + 15, sizeof(startup_class));
-        } else if (!strcmp(line, "Hidden=true")) {
+        } else if (!strcmp(line, "Hidden=true") || !strcmp(line, "NoDisplay=true")) {
+            /* NoDisplay entries are helpers (kiplay-enqueue.desktop's "Add
+             * to Kiplay playlist" shares the main app's Exec= binary): taking
+             * one as the app's identity names/icons a pin after the helper. */
             hidden = 1;
         }
     }
