@@ -37,6 +37,10 @@
 #include "../../shared/xis_safefile.h"
 
 #define MAX_TASKS 64
+/* Mid-drag autoscroll over an arrow: delay before the first step (so
+ * passing over an arrow does nothing), then the step period. */
+#define TASKLIST_DRAG_SCROLL_DELAY_MS 350
+#define TASKLIST_DRAG_SCROLL_MS 250
 /* Cap on how many members a grouped button's Button1 pick-list or Button3
  * per-window-submenu tree actually lists -- see tasklist_on_button()'s
  * grouped handling. TASKLIST_GROUP_MENU_ITEM_CAP sizes the flat items[]/
@@ -292,6 +296,12 @@ typedef struct {
     Window drag_win;
     char drag_class[64];
     int drag_pins_moved;
+    /* Held over a scroll arrow mid-drag: -1/+1, scrolled (carrying the
+     * dragged button along) every TASKLIST_DRAG_SCROLL_MS from on_tick
+     * while the pointer stays there; 0 otherwise. */
+    int drag_scroll;
+    uint64_t drag_scroll_due;
+    int drag_scrolled; /* a step skipped a tick's rebuild: redo it at the drag's end */
 } TasklistPriv;
 
 /* FNV-1a over the drawn task state -- see TasklistPriv::last_sig. */
@@ -788,6 +798,8 @@ static void tasklist_sort(const TasklistPriv *tp, TaskEntry *tasks, int n)
     }
 }
 
+static void tasklist_drag_scroll_step(PanelWidget *w);
+
 static int tasklist_on_tick(PanelWidget *w, uint64_t now)
 {
     TasklistPriv *tp = w->priv;
@@ -797,6 +809,18 @@ static int tasklist_on_tick(PanelWidget *w, uint64_t now)
      * xispanel.c's PropertyNotify handler), so this periodic tick just
      * backstops the event path. */
     w->next_tick_ms = now + 2000;
+
+    if (tp->drag_scroll) {
+        if (now >= tp->drag_scroll_due) {
+            /* Only the scroll: the task set can wait for the drag's end. */
+            tasklist_drag_scroll_step(w);
+            tp->drag_scrolled = 1;
+            tp->drag_scroll_due = now + TASKLIST_DRAG_SCROLL_MS;
+            w->next_tick_ms = tp->drag_scroll ? tp->drag_scroll_due : now;
+            return 1;
+        }
+        w->next_tick_ms = tp->drag_scroll_due;
+    }
 
     Window *list = NULL;
     int n = 0;
@@ -2846,16 +2870,99 @@ static void tasklist_pin_move(TasklistPriv *tp, int from, int to, int after)
     tp->pinned[at] = moved;
 }
 
+/* Moves the dragged button (display slot src) next to slot dst, before or
+ * after it, and rebuilds the row from memory (no X round trip) so the
+ * next hit-test sees the new layout. Only within its own block (pinned or
+ * not). 1 if anything moved. */
+static int tasklist_drag_move(PanelWidget *w, int src, int dst, int after)
+{
+    TasklistPriv *tp = w->priv;
+    TaskEntry *se = &tp->tasks[tp->display_repr[src]];
+    TaskEntry *de = &tp->tasks[tp->display_repr[dst]];
+    if (se->pinned != de->pinned) {
+        return 0; /* the other block */
+    }
+    if (se->pinned && strcmp(se->wm_class, de->wm_class) != 0) {
+        int from = tasklist_pin_idx(tp, se->wm_class), to = tasklist_pin_idx(tp, de->wm_class);
+        if (from >= tp->n_pinned || to >= tp->n_pinned) {
+            return 0;
+        }
+        tasklist_pin_move(tp, from, to, after);
+        tp->drag_pins_moved = 1;
+    } else {
+        Window m[MAX_TASKS], t[MAX_TASKS];
+        int nm = tasklist_slot_windows(tp, src, m, MAX_TASKS);
+        int nt = tasklist_slot_windows(tp, dst, t, MAX_TASKS);
+        if (nm == 0 || nt == 0) {
+            return 0;
+        }
+        tasklist_user_move(tp, m, nm, t, nt, after);
+    }
+
+    tasklist_sort(tp, tp->tasks, tp->n_tasks);
+    int len, min;
+    tasklist_measure(w, w->panel->thickness, &len, &min);
+    tasklist_layout_visible(w);
+    tp->last_sig = 0;
+    w->panel->dirty = 1;
+    return 1;
+}
+
+/* One autoscroll step (see TasklistPriv::drag_scroll): scroll one slot,
+ * then put the dragged button at the edge just revealed, so it travels
+ * with the view. Stops at the end of the row. */
+static void tasklist_drag_scroll_step(PanelWidget *w)
+{
+    TasklistPriv *tp = w->priv;
+    tasklist_layout_visible(w);
+    int dir = tp->drag_scroll;
+    if (dir < 0 ? !tp->can_left : !tp->can_right) {
+        tp->drag_scroll = 0;
+        return;
+    }
+    tp->scroll_offset += dir;
+    tasklist_layout_visible(w);
+    w->panel->dirty = 1;
+    int src = tasklist_drag_slot(tp);
+    if (src < 0 || tp->n_visible == 0) {
+        return;
+    }
+    int dst = tp->vis_idx[dir < 0 ? 0 : tp->n_visible - 1];
+    if (dst != src && (dir < 0 ? dst < src : dst > src)) {
+        tasklist_drag_move(w, src, dst, dir > 0);
+    }
+}
+
 /* Live reordering: the dragged button takes the place of the one under
- * the pointer, as browser tabs do. Only within its own block (pinned or
- * not), and only once the pointer is where the dragged button would then
- * be -- with buttons of different widths, swapping as soon as the pointer
- * enters a wider neighbour would leave it over that neighbour again and
- * swap straight back. */
+ * the pointer, as browser tabs do -- but only once the pointer is where
+ * the dragged button would then be: with buttons of different widths,
+ * swapping as soon as the pointer enters a wider neighbour would leave
+ * it over that neighbour again and swap straight back. Over a scroll
+ * arrow it scrolls instead, after a short hold. */
 static void tasklist_drag_motion(PanelWidget *w, int local_x)
 {
     TasklistPriv *tp = w->priv;
     tasklist_layout_visible(w);
+
+    int dir = 0;
+    if (tp->can_left && local_x < TASKLIST_ARROW_W) {
+        dir = -1;
+    } else if (tp->can_right && local_x >= w->len - TASKLIST_ARROW_W) {
+        dir = 1;
+    }
+    if (dir != tp->drag_scroll) {
+        tp->drag_scroll = dir;
+        if (dir) {
+            tp->drag_scroll_due = now_ms() + TASKLIST_DRAG_SCROLL_DELAY_MS;
+            if (w->next_tick_ms == 0 || w->next_tick_ms > tp->drag_scroll_due) {
+                w->next_tick_ms = tp->drag_scroll_due;
+            }
+        }
+    }
+    if (dir) {
+        return;
+    }
+
     int src = tasklist_drag_slot(tp);
     int vi;
     int dst = tasklist_slot_at(tp, local_x, &vi);
@@ -2872,35 +2979,7 @@ static void tasklist_drag_motion(PanelWidget *w, int local_x)
     if (after ? local_x < tp->vis_x[vi] + tp->vis_w[vi] - src_w : local_x >= tp->vis_x[vi] + src_w) {
         return;
     }
-    TaskEntry *se = &tp->tasks[tp->display_repr[src]];
-    TaskEntry *de = &tp->tasks[tp->display_repr[dst]];
-    if (se->pinned != de->pinned) {
-        return; /* the other block */
-    }
-    if (se->pinned && strcmp(se->wm_class, de->wm_class) != 0) {
-        int from = tasklist_pin_idx(tp, se->wm_class), to = tasklist_pin_idx(tp, de->wm_class);
-        if (from >= tp->n_pinned || to >= tp->n_pinned) {
-            return;
-        }
-        tasklist_pin_move(tp, from, to, after);
-        tp->drag_pins_moved = 1;
-    } else {
-        Window m[MAX_TASKS], t[MAX_TASKS];
-        int nm = tasklist_slot_windows(tp, src, m, MAX_TASKS);
-        int nt = tasklist_slot_windows(tp, dst, t, MAX_TASKS);
-        if (nm == 0 || nt == 0) {
-            return;
-        }
-        tasklist_user_move(tp, m, nm, t, nt, after);
-    }
-
-    /* Rebuild the row now, from what is already in memory (no X round
-     * trip), so the next motion hit-tests the new layout. */
-    tasklist_sort(tp, tp->tasks, tp->n_tasks);
-    int len, min;
-    tasklist_measure(w, w->panel->thickness, &len, &min);
-    tp->last_sig = 0;
-    w->panel->dirty = 1;
+    tasklist_drag_move(w, src, dst, after);
 }
 
 static void tasklist_drag_end(PanelWidget *w)
@@ -2912,6 +2991,11 @@ static void tasklist_drag_end(PanelWidget *w)
     tp->drag_win = None;
     tp->drag_class[0] = 0;
     tp->drag_pins_moved = 0;
+    tp->drag_scroll = 0;
+    if (tp->drag_scrolled) {
+        tp->drag_scrolled = 0;
+        w->next_tick_ms = now_ms(); /* catch up on the task set the scroll steps skipped */
+    }
 }
 
 static const WidgetConfigEntry tasklist_config[] = {
