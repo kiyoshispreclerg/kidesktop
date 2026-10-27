@@ -1,0 +1,55 @@
+# Portuguese translations for kifind package.
+# Copyright (C) 2026 THE kifind'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the kifind package.
+# Automatically generated, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: kifind\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-27 17:17-0300\n"
+"PO-Revision-Date: 2026-10-27 17:17-0300\n"
+"Last-Translator: Automatically generated\n"
+"Language-Team: none\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#: kifind.c:22
+msgid "Searching is not implemented yet."
+msgstr "A busca ainda não foi implementada."
+
+#: kifind.c:67
+#, c-format
+msgid "Usage: kifind [FOLDER]\n"
+msgstr "Uso: kifind [PASTA]\n"
+
+#: kifind.c:78
+msgid "Find Files"
+msgstr "Procurar arquivos"
+
+#: kifind.c:93
+msgid "_Named:"
+msgstr "_Nome:"
+
+#: kifind.c:95
+msgid "Look In"
+msgstr "Procurar em"
+
+#: kifind.c:98
+msgid "_Look in:"
+msgstr "_Procurar em:"
+
+#: kifind.c:100
+msgid "Include _subfolders"
+msgstr "Incluir _subpastas"
+
+#: kifind.c:112
+msgid "Name"
+msgstr "Nome"
+
+#: kifind.c:113
+msgid "In Folder"
+msgstr "Na pasta"

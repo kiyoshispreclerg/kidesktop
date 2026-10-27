@@ -140,6 +140,9 @@ clientes -- permitindo, perguntando, negando ou matando conforme as suas regras.
 **[kifiles](kifiles/)** -- gerenciador de arquivos (GTK2 + GIO): visão
 dividida, miniaturas, dispositivos, desfazer.
 
+**[kifind](kifind/)** -- busca de arquivos, aberta pelo kifiles com `Ctrl+F`
+(0.0.1: por enquanto só a janela, ainda sem busca).
+
 **[kishot](kishot/)** -- capturas e gravação de tela; grava com som e pode
 censurar janelas escolhidas.
 

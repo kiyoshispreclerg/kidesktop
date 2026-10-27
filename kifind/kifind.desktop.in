@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Find Files
+GenericName=File Search
+Comment=Find files by name
+Exec=@BINDIR@/kifind %f
+Icon=system-search
+Terminal=false
+Categories=Utility;FileTools;
+Keywords=find;search;files;locate;
+StartupNotify=false

@@ -135,6 +135,9 @@ your rules.
 **[kifiles](kifiles/)** -- file manager (GTK2 + GIO): split view, thumbnails,
 devices, undo.
 
+**[kifind](kifind/)** -- file search, opened from kifiles with `Ctrl+F`
+(0.0.1: only the window so far, no search yet).
+
 **[kishot](kishot/)** -- screenshots and screen recording; records with sound,
 and can black out chosen windows.
 
