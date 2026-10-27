@@ -40,7 +40,7 @@ are used when installed).
   `folder-up`, `file-trash`, `trash-empty`, `complete` (a copy/move that was
   long enough to show a progress dialog), `dialog-error`, `device-removed`.
   Whether anything is heard depends on the theme; no theme, no sound
-- Thumbnails (see below), quick filter (`Ctrl+F`), hidden files (`Ctrl+H`)
+- Thumbnails (see below), quick filter (`Ctrl+I`), type-to-select, find files with kifind (`Ctrl+F`), hidden files (`Ctrl+H`)
 - Status bar: folder / file counts and total size (of the selection when there
   is one), free space of the current device with a bar
 

@@ -507,6 +507,23 @@ static void a_select_all(GtkAction *a, gpointer d) { (void)a; kf_pane_select_all
 static void a_invert(GtkAction *a, gpointer d) { (void)a; kf_pane_select_invert(active(d)); }
 static void a_filter(GtkAction *a, gpointer d) { (void)a; kf_pane_show_filter(active(d), TRUE); }
 
+/* The search itself is a separate program, started in the current folder. */
+static void a_find(GtkAction *a, gpointer d)
+{
+    (void)a;
+    KfApp *app = d;
+    GFile *dir = active(app)->dir;
+    char *path = dir && g_file_is_native(dir) ? g_file_get_path(dir) : NULL;
+    char *argv[] = { "kifind", path, NULL };
+    GError *err = NULL;
+    if (!g_spawn_async(path, argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL,
+                       NULL, NULL, NULL, &err)) {
+        kf_app_message(app, GTK_MESSAGE_ERROR, _("Could not start the file search"), err->message);
+        g_error_free(err);
+    }
+    g_free(path);
+}
+
 static void a_add_bookmark(GtkAction *a, gpointer d)
 {
     (void)a;
@@ -1292,7 +1309,8 @@ static const GtkActionEntry kEntries[] = {
     { "CopyPath", NULL, N_("Copy _Path"), "<control><shift>C", NULL, G_CALLBACK(a_copy_path) },
     { "SelectAll", GTK_STOCK_SELECT_ALL, NULL, "<control>A", NULL, G_CALLBACK(a_select_all) },
     { "InvertSel", NULL, N_("_Invert Selection"), "<control><shift>A", NULL, G_CALLBACK(a_invert) },
-    { "Filter", GTK_STOCK_FIND, N_("_Filter..."), "<control>F", N_("Filter the files by name"), G_CALLBACK(a_filter) },
+    { "Filter", GTK_STOCK_FIND, N_("_Filter..."), "<control>I", N_("Filter the files by name"), G_CALLBACK(a_filter) },
+    { "Find", NULL, N_("Fi_nd Files..."), "<control>F", N_("Search this folder and its subfolders"), G_CALLBACK(a_find) },
 
     { "ViewIconsBtn", NULL, N_("Icons"), "<control>1", NULL, G_CALLBACK(a_view_icons) },
     { "ViewListBtn", NULL, N_("List"), "<control>2", NULL, G_CALLBACK(a_view_list) },
@@ -1350,7 +1368,7 @@ static const char *kUI =
 "  <menu action='EditMenu'>"
 "   <menuitem action='Undo'/><separator/>"
 "   <menuitem action='Cut'/><menuitem action='Copy'/><menuitem action='Paste'/><menuitem action='CopyPath'/><separator/>"
-"   <menuitem action='SelectAll'/><menuitem action='InvertSel'/><menuitem action='Filter'/>"
+"   <menuitem action='SelectAll'/><menuitem action='InvertSel'/><menuitem action='Filter'/><menuitem action='Find'/>"
 "  </menu>"
 "  <menu action='ViewMenu'>"
 "   <menuitem action='ViewIcons'/><menuitem action='ViewList'/><separator/>"
