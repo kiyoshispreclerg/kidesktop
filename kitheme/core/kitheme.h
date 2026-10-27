@@ -79,6 +79,11 @@ typedef struct {
     int scrollbar_width;       /* px */
     int scrollbar_arrows;      /* stepper buttons at the ends */
     int check_size;            /* px, check boxes and radio buttons */
+
+    /* Behavior, not looks: a left-button drag on an empty part of a menu
+     * bar or toolbar moves the window (_NET_WM_MOVERESIZE). Qt and GTK2
+     * only; GTK3/4 have no engine to do it from. */
+    int window_drag;
 } KtTheme;
 
 /* State bits, combined. */
@@ -96,7 +101,7 @@ enum {
 
 typedef enum { KT_UP, KT_DOWN, KT_LEFT, KT_RIGHT } KtDir;
 
-#define KITHEME_VERSION "0.1.3"
+#define KITHEME_VERSION "0.1.4"
 
 /* ---- theme loading (kt_config.c) ---- */
 

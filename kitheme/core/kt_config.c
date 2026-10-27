@@ -74,6 +74,7 @@ static const Key keys[] = {
     {"scrollbar_width", K_INT, F(scrollbar_width)},
     {"scrollbar_arrows", K_BOOL, F(scrollbar_arrows)},
     {"check_size", K_INT, F(check_size)},
+    {"window_drag", K_BOOL, F(window_drag)},
 };
 #undef F
 #define NKEYS (sizeof(keys) / sizeof(keys[0]))
@@ -127,6 +128,7 @@ void kt_theme_defaults(KtTheme *t)
     t->scrollbar_width = 15;
     t->scrollbar_arrows = 1;
     t->check_size = 16;
+    t->window_drag = 0;
 }
 
 /* "12", "-3", "0.6", ".25" -- '.' only, whatever the locale. */

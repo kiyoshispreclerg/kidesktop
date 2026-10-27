@@ -61,6 +61,7 @@ colors, so any preset combines with any scheme.
 | `progress_animation` | `0`/`1`: moving stripes (one redraw every 50 ms while the bar is visible) |
 | `scrollbar_width` `check_size` | px |
 | `scrollbar_arrows` | `0`/`1` |
+| `window_drag` | `0`/`1` (default `0`): a left-button drag on an empty part of a menu bar or toolbar moves the window, like Breeze/Oxygen. The WM must honor `_NET_WM_MOVERESIZE` (kiwm does). Qt and GTK2 only: GTK3/4 have no engine to do it from |
 
 Presets are looked up in `$KITHEME_PRESETS`, then
 `~/.local/share/kitheme/presets`, then `<prefix>/share/kitheme/presets`;

@@ -25,7 +25,7 @@ CORE_OBJS := $(CORE_SRCS:.c=.o) core/xis_safefile.o
 CORE_HDRS := core/kitheme.h
 
 GTK2_CFLAGS := $(shell pkg-config --cflags gtk+-2.0) -DGLIB_DISABLE_DEPRECATION_WARNINGS -fPIC
-GTK2_LIBS := $(shell pkg-config --libs gtk+-2.0)
+GTK2_LIBS := $(shell pkg-config --libs gtk+-2.0 gmodule-2.0)
 
 EXPORT_LIBS := $(shell pkg-config --libs cairo x11)
 

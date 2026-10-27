@@ -1243,6 +1243,14 @@ msgstr "Checkbox size:"
 msgid "Barras e tamanhos"
 msgstr "Bars and sizes"
 
+#: tabs/kitheme.c
+msgid "Mover a janela arrastando areas vazias de barras de menu e de ferramentas"
+msgstr "Move the window by dragging empty areas of menu bars and toolbars"
+
+#: tabs/kitheme.c
+msgid "Programas Qt e GTK2. GTK3 e GTK4 nao permitem que o tema faca isso."
+msgstr "Qt and GTK2 programs. GTK3 and GTK4 do not let the theme do this."
+
 #: tabs/kitheme.c:588
 msgid ""
 "Previa desenhada pelo proprio KiTheme. Para usa-lo, escolha \"KiTheme\"\n"

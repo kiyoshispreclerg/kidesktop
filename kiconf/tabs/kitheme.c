@@ -18,7 +18,7 @@
 static GtkWidget *g_preset_combo, *g_scheme_combo, *g_style_combo, *g_focus_combo, *g_ptext_combo;
 static GtkWidget *g_preview, *g_status;
 static GtkWidget *g_radius, *g_menu_radius, *g_relief, *g_gradient, *g_shadow;
-static GtkWidget *g_hover_glow, *g_stripes, *g_animation, *g_arrows;
+static GtkWidget *g_hover_glow, *g_stripes, *g_animation, *g_arrows, *g_window_drag;
 static GtkWidget *g_pthick, *g_sbwidth, *g_checksize;
 static GtkWidget *g_simple_accent, *g_simple_bg, *g_advanced;
 static char g_preset[64], g_scheme[64];
@@ -130,6 +130,7 @@ static void collect(KtTheme *t)
     t->scrollbar_width = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_sbwidth));
     t->scrollbar_arrows = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_arrows));
     t->check_size = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_checksize));
+    t->window_drag = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_window_drag));
 }
 
 /* KtTheme -> widgets. */
@@ -162,6 +163,7 @@ static void fill(const KtTheme *t)
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sbwidth), t->scrollbar_width);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_arrows), t->scrollbar_arrows);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_checksize), t->check_size);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_window_drag), t->window_drag);
     g_loading = 0;
     gtk_widget_queue_draw(g_preview);
 }
@@ -258,6 +260,7 @@ static void preset_cb(GtkWidget *w, gpointer data)
         t.simple_accent = cur.simple_accent;
         t.simple_bg = cur.simple_bg;
         t.simple = cur.simple;
+        t.window_drag = cur.window_drag; /* behavior, not shape */
         snprintf(t.colors, sizeof(t.colors), "%s", cur.colors);
         fill(&t);
     }
@@ -570,6 +573,13 @@ GtkWidget *build_kitheme_tab(void)
     g_checksize = spin(10, 24, 1);
     labeled_row(sizes, 6, _("Tamanho de caixas de selecao:"), g_checksize);
     gtk_box_pack_start(GTK_BOX(left), frame_with(_("Barras e tamanhos"), sizes), FALSE, FALSE, 0);
+
+    /* Behavior */
+    GtkWidget *behavior = gtk_vbox_new(FALSE, 2);
+    g_window_drag = check(_("Mover a janela arrastando areas vazias de barras de menu e de ferramentas"));
+    gtk_widget_set_tooltip_text(g_window_drag, _("Programas Qt e GTK2. GTK3 e GTK4 nao permitem que o tema faca isso."));
+    gtk_box_pack_start(GTK_BOX(behavior), g_window_drag, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left), frame_with(_("Comportamento"), behavior), FALSE, FALSE, 0);
 
     GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);

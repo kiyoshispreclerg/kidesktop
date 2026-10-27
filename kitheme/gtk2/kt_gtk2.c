@@ -25,6 +25,8 @@
 static KtTheme g_theme;
 static time_t g_theme_mtime = -1;
 
+static void drag_enabled(void);
+
 static void theme_refresh(void)
 {
     char path[4096];
@@ -34,7 +36,153 @@ static void theme_refresh(void)
     if (m == g_theme_mtime)
         return;
     g_theme_mtime = m;
+    int had_drag = g_theme.window_drag;
     kt_theme_load_user(&g_theme);
+    if (g_theme.window_drag && !had_drag)
+        drag_enabled();
+}
+
+/* ---- window_drag: moving the window from empty parts of bars ----
+ *
+ * Every GtkMenuBar and GtkToolbar realized while the option is on gets
+ * three handlers (and button-1 motion added to its window's event mask).
+ * A left press that lands on the bar's own window -- not on an item or a
+ * child with a window of its own -- is held back; once the pointer moves
+ * past the DnD threshold the WM takes over (gtk_window_begin_move_drag,
+ * i.e. _NET_WM_MOVERESIZE). Turning the option off is honored at once by
+ * the handlers; turning it on registers the bars already on screen. */
+
+static GType ki_style_type; /* defined with the style classes below */
+static GtkWidget *g_drag_bar; /* bar holding back a press (weak pointer) */
+static gint g_drag_x, g_drag_y;
+
+static void drag_set(GtkWidget *bar)
+{
+    if (g_drag_bar)
+        g_object_remove_weak_pointer(G_OBJECT(g_drag_bar), (gpointer *)&g_drag_bar);
+    g_drag_bar = bar;
+    if (bar)
+        g_object_add_weak_pointer(G_OBJECT(bar), (gpointer *)&g_drag_bar);
+}
+
+static GtkWidget *drag_window_of(GtkWidget *bar)
+{
+    GtkWidget *top = gtk_widget_get_toplevel(bar);
+    if (!GTK_IS_WINDOW(top) || !gtk_widget_is_toplevel(top) || GTK_IS_PLUG(top))
+        return NULL;
+    return top;
+}
+
+static gboolean drag_press(GtkWidget *bar, GdkEventButton *ev, gpointer data)
+{
+    (void)data;
+    gpointer owner = NULL;
+    if (!g_theme.window_drag || ev->button != 1 || (ev->state & gtk_accelerator_get_default_mod_mask()))
+        return FALSE;
+    gdk_window_get_user_data(ev->window, &owner);
+    if (owner != bar || (GTK_IS_SEPARATOR_TOOL_ITEM(bar) && !GTK_IS_TOOLBAR(gtk_widget_get_parent(bar))))
+        return FALSE;
+    /* The style check covers a switch to another theme after registering. */
+    if (!G_TYPE_CHECK_INSTANCE_TYPE(gtk_widget_get_style(bar), ki_style_type) || !drag_window_of(bar))
+        return FALSE;
+    /* Double and triple clicks are held back too: the bar would take
+     * them as presses on nothing. */
+    if (ev->type == GDK_BUTTON_PRESS) {
+        drag_set(bar);
+        g_drag_x = (gint)ev->x_root;
+        g_drag_y = (gint)ev->y_root;
+    }
+    return TRUE;
+}
+
+static gboolean drag_motion(GtkWidget *bar, GdkEventMotion *ev, gpointer data)
+{
+    (void)data;
+    if (bar != g_drag_bar)
+        return FALSE;
+    if (!g_theme.window_drag || !(ev->state & GDK_BUTTON1_MASK)) {
+        drag_set(NULL);
+        return FALSE;
+    }
+    gdk_event_request_motions(ev);
+    if (!gtk_drag_check_threshold(bar, g_drag_x, g_drag_y, (gint)ev->x_root, (gint)ev->y_root))
+        return TRUE;
+    drag_set(NULL);
+    GtkWidget *top = drag_window_of(bar);
+    if (top)
+        gtk_window_begin_move_drag(GTK_WINDOW(top), 1, g_drag_x, g_drag_y, ev->time);
+    return TRUE;
+}
+
+static gboolean drag_release(GtkWidget *bar, GdkEventButton *ev, gpointer data)
+{
+    (void)ev;
+    (void)data;
+    if (bar != g_drag_bar)
+        return FALSE;
+    drag_set(NULL);
+    return TRUE;
+}
+
+/* Toolbar separators too: they have a window of their own and take the
+ * press, yet are as empty as the toolbar around them. */
+static void drag_register(GtkWidget *w)
+{
+    if (!GTK_IS_MENU_BAR(w) && !GTK_IS_TOOLBAR(w) && !GTK_IS_SEPARATOR_TOOL_ITEM(w))
+        return;
+    if (g_object_get_data(G_OBJECT(w), "kt-drag"))
+        return;
+    g_object_set_data(G_OBJECT(w), "kt-drag", GINT_TO_POINTER(1));
+    /* On a realized widget this also updates its windows' event mask. */
+    gtk_widget_add_events(w, GDK_BUTTON1_MOTION_MASK);
+    g_signal_connect(w, "button-press-event", G_CALLBACK(drag_press), NULL);
+    g_signal_connect(w, "motion-notify-event", G_CALLBACK(drag_motion), NULL);
+    g_signal_connect(w, "button-release-event", G_CALLBACK(drag_release), NULL);
+}
+
+static gboolean drag_realize_hook(GSignalInvocationHint *hint, guint n, const GValue *params, gpointer data)
+{
+    (void)hint;
+    (void)data;
+    if (g_theme.window_drag && n > 0) {
+        GObject *o = g_value_get_object(&params[0]);
+        if (GTK_IS_WIDGET(o))
+            drag_register(GTK_WIDGET(o));
+    }
+    return TRUE;
+}
+
+static void drag_walk(GtkWidget *w, gpointer data)
+{
+    (void)data;
+    if (gtk_widget_get_realized(w))
+        drag_register(w);
+    if (GTK_IS_CONTAINER(w))
+        gtk_container_forall(GTK_CONTAINER(w), drag_walk, NULL);
+}
+
+static gboolean drag_walk_toplevels(gpointer data)
+{
+    (void)data;
+    GList *tops = gtk_window_list_toplevels();
+    for (GList *l = tops; l; l = l->next)
+        drag_walk(l->data, NULL);
+    g_list_free(tops);
+    return FALSE;
+}
+
+/* Out of the style rebuild that noticed the change. */
+static void drag_enabled(void)
+{
+    static gulong hook;
+    if (!hook) {
+        /* The engine loads before any widget exists: GtkWidget's signals
+         * are only registered once its class is. */
+        gpointer klass = g_type_class_ref(GTK_TYPE_WIDGET);
+        hook = g_signal_add_emission_hook(g_signal_lookup("realize", GTK_TYPE_WIDGET), 0, drag_realize_hook, NULL, NULL);
+        g_type_class_unref(klass);
+    }
+    g_idle_add(drag_walk_toplevels, NULL);
 }
 
 /* ---- RC style: carries the role ---- */
@@ -803,9 +951,13 @@ G_MODULE_EXPORT GtkRcStyle *theme_create_rc_style(void)
 }
 
 /* Same check every GTK2 engine makes: refuse to load into a GTK built
- * with a different ABI. */
+ * with a different ABI. Resident: window_drag leaves an emission hook and
+ * signal handlers pointing into this module, so it must outlive a theme
+ * switch. */
 G_MODULE_EXPORT const gchar *g_module_check_init(GModule *module)
 {
-    (void)module;
-    return gtk_check_version(GTK_MAJOR_VERSION, GTK_MINOR_VERSION, GTK_MICRO_VERSION - GTK_INTERFACE_AGE);
+    const gchar *err = gtk_check_version(GTK_MAJOR_VERSION, GTK_MINOR_VERSION, GTK_MICRO_VERSION - GTK_INTERFACE_AGE);
+    if (!err)
+        g_module_make_resident(module);
+    return err;
 }

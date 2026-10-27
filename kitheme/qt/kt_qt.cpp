@@ -23,7 +23,10 @@
 #include <QFileInfo>
 #include <QFileSystemWatcher>
 #include <QHash>
+#include <QLabel>
 #include <QMenu>
+#include <QMenuBar>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPixmapCache>
 #include <QProgressBar>
@@ -33,9 +36,12 @@
 #include <QStyleFactory>
 #include <QStyleOption>
 #include <QStylePlugin>
+#include <QPointer>
 #include <QTimer>
+#include <QToolBar>
 #include <QToolButton>
 #include <QWidget>
+#include <QWindow>
 
 #include <cairo.h>
 
@@ -164,7 +170,7 @@ public:
             w->inherits("QScrollBar") || w->inherits("QSlider") || w->inherits("QTabBar") || w->inherits("QLineEdit") ||
             w->inherits("QHeaderView"))
             w->setAttribute(Qt::WA_Hover, true);
-        if (qobject_cast<QMenu *>(w))
+        if (qobject_cast<QMenu *>(w) || (g_theme.window_drag && dragBar(w)))
             w->installEventFilter(this);
     }
 
@@ -173,6 +179,8 @@ public:
         if (qobject_cast<QMenu *>(w)) {
             w->removeEventFilter(this);
             w->clearMask();
+        } else if (dragBar(w)) {
+            w->removeEventFilter(this);
         }
         QProxyStyle::unpolish(w);
     }
@@ -181,6 +189,17 @@ public:
     // kt_draw_menu() draws (a 1-bit mask, so the edge is not antialiased).
     bool eventFilter(QObject *o, QEvent *e) override
     {
+        switch (e->type()) {
+        case QEvent::MouseButtonPress:
+        case QEvent::MouseButtonDblClick:
+        case QEvent::MouseMove:
+        case QEvent::MouseButtonRelease:
+            if (dragBar(o))
+                return dragEvent(static_cast<QWidget *>(o), static_cast<QMouseEvent *>(e));
+            break;
+        default:
+            break;
+        }
         if (e->type() == QEvent::Show || e->type() == QEvent::Resize) {
             if (auto *m = qobject_cast<QMenu *>(o)) {
                 const int r = int(kt_menu_radius(&g_theme) + 0.5);
@@ -751,6 +770,12 @@ private Q_SLOTS:
             QEvent e(QEvent::StyleChange);
             QApplication::sendEvent(w, &e);
             w->update();
+            if (dragBar(w) && w->style() == this) {
+                if (g_theme.window_drag)
+                    w->installEventFilter(this);
+                else
+                    w->removeEventFilter(this);
+            }
         }
     }
 
@@ -813,6 +838,98 @@ private:
         kt_theme_load_user(&g_theme);
         m_mtime = QFileInfo(m_conf).lastModified();
         g_serial++;
+    }
+
+    // ---- window_drag: moving the window from empty parts of bars ----
+
+    static bool dragBar(const QObject *o)
+    {
+        return qobject_cast<const QMenuBar *>(o) || qobject_cast<const QToolBar *>(o);
+    }
+
+    // Nothing the user could mean to click at `pos` (bar coordinates): no
+    // menu title, no tool button or field, not the toolbar's own move handle.
+    static bool emptyAt(QWidget *bar, const QPoint &pos)
+    {
+        if (bar->isWindow())
+            return false;
+        if (auto *mb = qobject_cast<QMenuBar *>(bar)) {
+            if (mb->actionAt(pos))
+                return false;
+        } else if (auto *tb = qobject_cast<QToolBar *>(bar)) {
+            if (tb->isFloating())
+                return false;
+            if (tb->isMovable()) {
+                QStyleOptionToolBar opt;
+                opt.initFrom(tb);
+                opt.features = QStyleOptionToolBar::Movable;
+                if (tb->orientation() == Qt::Horizontal)
+                    opt.state |= State_Horizontal;
+                if (tb->style()->subElementRect(SE_ToolBarHandle, &opt, tb).contains(pos))
+                    return false;
+            }
+        }
+        QWidget *c = bar->childAt(pos);
+        if (!c || c->inherits("QToolBarSeparator"))
+            return true;
+        auto *label = qobject_cast<QLabel *>(c);
+        return label && !(label->textInteractionFlags() & (Qt::TextSelectableByMouse | Qt::LinksAccessibleByMouse));
+    }
+
+    static QPoint globalPos(const QMouseEvent *me)
+    {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        return me->globalPosition().toPoint();
+#else
+        return me->globalPos();
+#endif
+    }
+
+    // A press on an empty spot is held back from the bar; once the pointer
+    // moves past the drag distance the WM takes over (startSystemMove, i.e.
+    // _NET_WM_MOVERESIZE on X11). A click that never moves just does
+    // nothing, which is what the bar would have done with it anyway.
+    bool dragEvent(QWidget *bar, QMouseEvent *me)
+    {
+        if (!g_theme.window_drag) {
+            m_dragBar = nullptr;
+            return false;
+        }
+        switch (me->type()) {
+        case QEvent::MouseButtonPress:
+        case QEvent::MouseButtonDblClick:
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            if (me->button() != Qt::LeftButton || me->modifiers() != Qt::NoModifier || !emptyAt(bar, me->position().toPoint()))
+#else
+            if (me->button() != Qt::LeftButton || me->modifiers() != Qt::NoModifier || !emptyAt(bar, me->pos()))
+#endif
+                return false;
+            m_dragBar = bar;
+            m_dragFrom = globalPos(me);
+            return true;
+        case QEvent::MouseMove:
+            if (m_dragBar != bar)
+                return false;
+            if (!(me->buttons() & Qt::LeftButton)) {
+                m_dragBar = nullptr;
+                return false;
+            }
+            if ((globalPos(me) - m_dragFrom).manhattanLength() < QApplication::startDragDistance())
+                return true;
+            m_dragBar = nullptr;
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
+            if (QWindow *win = bar->window()->windowHandle())
+                win->startSystemMove();
+#endif
+            return true;
+        case QEvent::MouseButtonRelease:
+            if (m_dragBar != bar)
+                return false;
+            m_dragBar = nullptr;
+            return true;
+        default:
+            return false;
+        }
     }
 
     // Repaint `w` every 50 ms while it keeps being painted animated.
@@ -914,6 +1031,8 @@ private:
     QTimer m_anim;
     QElapsedTimer m_clock;
     QHash<QObject *, qint64> m_animated;
+    QPointer<QWidget> m_dragBar; // bar holding back a press, until it moves or is released
+    QPoint m_dragFrom;
 };
 
 class KiThemePlugin : public QStylePlugin

@@ -1189,6 +1189,14 @@ msgstr ""
 msgid "Barras e tamanhos"
 msgstr ""
 
+#: tabs/kitheme.c
+msgid "Mover a janela arrastando areas vazias de barras de menu e de ferramentas"
+msgstr ""
+
+#: tabs/kitheme.c
+msgid "Programas Qt e GTK2. GTK3 e GTK4 nao permitem que o tema faca isso."
+msgstr ""
+
 #: tabs/kitheme.c:588
 msgid ""
 "Previa desenhada pelo proprio KiTheme. Para usa-lo, escolha \"KiTheme\"\n"
