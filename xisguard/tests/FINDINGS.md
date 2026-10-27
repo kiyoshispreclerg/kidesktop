@@ -24,7 +24,7 @@ uma linha acima. O relatório fica em `--out`, copie-o se quiser guardar.
 |---|---|---|---|
 | 1 | Perder as regras de sistema deixa o servidor em modo legado até reiniciar o X | servidor (Xnotify) | aberto |
 | 2 | Desligar o modo permissivo apaga as regras de usuário no servidor | xisguard | em andamento |
-| 3 | Modo seguro e `REMOVE_RULE` não retiram acesso; desligar o seguro não reativa regras | xisguard | aberto |
+| 3 | Modo seguro e `REMOVE_RULE` não retiram acesso; desligar o seguro não reativa regras | xisguard | corrigido |
 | 4 | Regras de sistema adicionadas em runtime só valem após reiniciar o X, se a sessão abriu sem nenhuma | servidor | aberto |
 | 5 | Janela de ~5 s negando tudo ao remover as regras de sistema | servidor | aberto (talvez aceitável) |
 | 6 | O primeiro pedido depois que o guard reinicia se perde | servidor ou xisguard | aberto |
@@ -123,10 +123,10 @@ atual? A matriz assume que sim (`Model.expect`). Se a decisão for outra
 **Reproduzir:** passos `secure=1`, `secure=0 (back)`, `usr=0`, `usr=0 (back)`,
 coluna `user:*`.
 
-**Status:** aberto
+**Status:** corrigido
 
 **Notas / histórico:**
--
+- 2026-10-27: decidido que o acesso segue a regra atual. `SET_STATUS secure_mode` e `REMOVE_RULE` agora fazem RELOAD + reenvio das regras; o kiconf avisa antes (zera autorizações, pode fechar programas). Falta testar na sessão real.
 
 ---
 

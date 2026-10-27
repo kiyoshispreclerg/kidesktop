@@ -2307,6 +2307,9 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
          * early-return branch above), turning it off reloads them. */
         if (secure_mode_changed) {
             load_user_config();
+            /* The server still holds the old mode's rules: drop them and
+             * send the ones that apply now. */
+            request_server_reload();
         }
         log_msg("Control: SET_STATUS no_pause=%d quiet=%d always_kill=%d log_level=%d secure_mode=%d",
                 no_pause_mode, quiet_mode, always_kill_mode, log_level, secure_mode);
@@ -2420,6 +2423,8 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
         }
         int rule_type = (strcasecmp(type_str, "DENY") == 0) ? 1 : 0;
         int removed = remove_rule(pattern, action_str, rule_type);
+        if (removed)
+            request_server_reload();   /* the server still has the rule until it is dropped */
         snprintf(resp, resp_sz, "{\"ok\":%s}\n", removed ? "true" : "false");
         return;
     }
@@ -2547,10 +2552,9 @@ static void handle_control_message(const char *req, char *resp, size_t resp_sz) 
     if (strcasecmp(cmd, "RELOAD") == 0) {
         /* The server re-reads its xnotify.conf.d first (it also drops what we
          * had sent), then our own rules go back in. */
-        request_server_reload();
         load_user_config();
         load_ignore_reports();
-        send_all_permissions_to_xserver();
+        request_server_reload();   /* RELOAD, then our rules */
         snprintf(resp, resp_sz, "{\"ok\":true}\n");
         return;
     }
