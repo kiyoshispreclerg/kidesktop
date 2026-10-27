@@ -280,6 +280,18 @@ typedef struct {
      * on user interaction, which repaints through the button path, so
      * they don't need to drive this. */
     unsigned long last_sig;
+
+    /* Drag reordering (tasklist_drag_*). user_order is the RAM-only order
+     * of every _NET_CLIENT_LIST window, empty (and never consulted, at no
+     * cost) until the first drag; pinned classes keep their order in
+     * pinned[] instead, which the drag rewrites and persists. The dragged
+     * item is followed by identity (drag_win, or drag_class for a pinned
+     * placeholder), since slots are rebuilt as it moves. */
+    Window user_order[MAX_TASKS];
+    int n_user_order;
+    Window drag_win;
+    char drag_class[64];
+    int drag_pins_moved;
 } TasklistPriv;
 
 /* FNV-1a over the drawn task state -- see TasklistPriv::last_sig. */
@@ -702,6 +714,80 @@ static void tasklist_destroy(PanelWidget *w)
     }
 }
 
+static int tasklist_user_idx(const TasklistPriv *tp, Window win)
+{
+    for (int i = 0; i < tp->n_user_order; i++) {
+        if (tp->user_order[i] == win) {
+            return i;
+        }
+    }
+    return MAX_TASKS;
+}
+
+/* Drops closed windows from user_order and appends new ones in client
+ * list order. Windows filtered off this panel (another desktop) keep
+ * their place, so switching back finds the same order. */
+static void tasklist_user_order_sync(TasklistPriv *tp, const Window *list, int n)
+{
+    int kept = 0;
+    for (int i = 0; i < tp->n_user_order; i++) {
+        for (int j = 0; j < n; j++) {
+            if (list[j] == tp->user_order[i]) {
+                tp->user_order[kept++] = tp->user_order[i];
+                break;
+            }
+        }
+    }
+    tp->n_user_order = kept;
+    for (int j = 0; j < n && tp->n_user_order < MAX_TASKS; j++) {
+        if (tasklist_user_idx(tp, list[j]) == MAX_TASKS) {
+            tp->user_order[tp->n_user_order++] = list[j];
+        }
+    }
+}
+
+static int tasklist_pin_idx(const TasklistPriv *tp, const char *cls)
+{
+    for (int i = 0; i < tp->n_pinned; i++) {
+        if (strcmp(tp->pinned[i].wm_class, cls) == 0) {
+            return i;
+        }
+    }
+    return MAX_PINNED;
+}
+
+/* Where entry e goes in the row: its block (see tasklist_on_tick()'s
+ * block merge), then pin order for a pinned one, then user_order. */
+static int tasklist_order_cmp(const TasklistPriv *tp, const TaskEntry *a, const TaskEntry *b)
+{
+    int ba = a->pinned == tp->fixed_first ? 0 : 1;
+    int bb = b->pinned == tp->fixed_first ? 0 : 1;
+    if (ba != bb) {
+        return ba - bb;
+    }
+    if (a->pinned) {
+        int pa = tasklist_pin_idx(tp, a->wm_class), pb = tasklist_pin_idx(tp, b->wm_class);
+        if (pa != pb) {
+            return pa - pb;
+        }
+    }
+    return tasklist_user_idx(tp, a->win) - tasklist_user_idx(tp, b->win);
+}
+
+/* Stable insertion sort of tasks[0..n) -- at most MAX_TASKS entries. */
+static void tasklist_sort(const TasklistPriv *tp, TaskEntry *tasks, int n)
+{
+    for (int i = 1; i < n; i++) {
+        TaskEntry t = tasks[i];
+        int j = i - 1;
+        while (j >= 0 && tasklist_order_cmp(tp, &tasks[j], &t) > 0) {
+            tasks[j + 1] = tasks[j];
+            j--;
+        }
+        tasks[j + 1] = t;
+    }
+}
+
 static int tasklist_on_tick(PanelWidget *w, uint64_t now)
 {
     TasklistPriv *tp = w->priv;
@@ -808,6 +894,12 @@ static int tasklist_on_tick(PanelWidget *w, uint64_t now)
                 e->icon = resolve_icon_theme_name(icon_name, icon_fetch_size_for(icon_px));
             }
         }
+    }
+    if (tp->n_user_order > 0) {
+        /* Only once something was dragged: pinned stays 0 here, so this
+         * sorts purely by user_order -- the blocks below keep it. */
+        tasklist_user_order_sync(tp, list, n);
+        tasklist_sort(tp, real_windows, n_real);
     }
     XFree(list);
 
@@ -2606,6 +2698,222 @@ static int tasklist_key_item_label(PanelWidget *w, int i, char *buf, size_t bufs
     return 0;
 }
 
+/* ---- drag reordering (PanelWidgetOps::drag_*) ---- */
+
+/* The tasks[] windows display slot d stands for, in user_order order. */
+static int tasklist_slot_windows(TasklistPriv *tp, int d, Window *out, int max)
+{
+    int repr = tp->display_repr[d];
+    if (tp->tasks[repr].is_placeholder) {
+        return 0;
+    }
+    int idx[MAX_TASKS];
+    int n = tp->display_count[d] > 1 ? tasklist_group_members(tp, repr, idx, MAX_TASKS) : 1;
+    if (n == 1) {
+        idx[0] = repr;
+    }
+    int k = 0;
+    for (int i = 0; i < n && k < max; i++) {
+        out[k++] = tp->tasks[idx[i]].win;
+    }
+    for (int i = 1; i < k; i++) {
+        Window t = out[i];
+        int j = i - 1;
+        while (j >= 0 && tasklist_user_idx(tp, out[j]) > tasklist_user_idx(tp, t)) {
+            out[j + 1] = out[j];
+            j--;
+        }
+        out[j + 1] = t;
+    }
+    return k;
+}
+
+/* The display slot the dragged item is in now, -1 if it is gone (closed,
+ * unpinned) mid-drag. */
+static int tasklist_drag_slot(TasklistPriv *tp)
+{
+    for (int d = 0; d < tp->n_display; d++) {
+        TaskEntry *e = &tp->tasks[tp->display_repr[d]];
+        if (tp->drag_win == None) {
+            if (e->is_placeholder && strcmp(e->wm_class, tp->drag_class) == 0) {
+                return d;
+            }
+            continue;
+        }
+        if (e->win == tp->drag_win) {
+            return d;
+        }
+        if (tp->display_count[d] > 1 && strcmp(e->wm_class, tp->drag_class) == 0) {
+            return d; /* grouped: the representative may have changed */
+        }
+    }
+    return -1;
+}
+
+static int tasklist_slot_at(const TasklistPriv *tp, int local_x, int *vi_out)
+{
+    for (int vi = 0; vi < tp->n_visible; vi++) {
+        if (local_x >= tp->vis_x[vi] && local_x < tp->vis_x[vi] + tp->vis_w[vi]) {
+            *vi_out = vi;
+            return tp->vis_idx[vi];
+        }
+    }
+    return -1;
+}
+
+static int tasklist_drag_begin(PanelWidget *w, int local_x)
+{
+    TasklistPriv *tp = w->priv;
+    tasklist_layout_visible(w);
+    if (tp->n_display < 2 || tasklist_in_arrow_zone(tp, w->len, local_x)) {
+        return 0;
+    }
+    int vi;
+    int d = tasklist_slot_at(tp, local_x, &vi);
+    if (d < 0) {
+        return 0;
+    }
+    TaskEntry *e = &tp->tasks[tp->display_repr[d]];
+    tp->drag_win = e->is_placeholder ? None : e->win;
+    snprintf(tp->drag_class, sizeof(tp->drag_class), "%s", e->wm_class);
+    tp->drag_pins_moved = 0;
+    if (tp->n_user_order == 0) {
+        /* First drag ever: start from the row as shown; the next tick's
+         * sync adds whatever this panel filters out. */
+        for (int i = 0; i < tp->n_tasks && tp->n_user_order < MAX_TASKS; i++) {
+            if (!tp->tasks[i].is_placeholder) {
+                tp->user_order[tp->n_user_order++] = tp->tasks[i].win;
+            }
+        }
+    }
+    return 1;
+}
+
+/* Moves windows m[0..nm) in user_order to just before (or after) the
+ * target windows t[0..nt). */
+static void tasklist_user_move(TasklistPriv *tp, const Window *m, int nm, const Window *t, int nt, int after)
+{
+    Window rest[MAX_TASKS];
+    int nr = 0;
+    for (int i = 0; i < tp->n_user_order; i++) {
+        int moving = 0;
+        for (int j = 0; j < nm && !moving; j++) {
+            moving = tp->user_order[i] == m[j];
+        }
+        if (!moving) {
+            rest[nr++] = tp->user_order[i];
+        }
+    }
+    int at = after ? 0 : nr;
+    for (int i = 0; i < nr; i++) {
+        for (int j = 0; j < nt; j++) {
+            if (rest[i] == t[j]) {
+                if (after) {
+                    at = i + 1;
+                } else if (i < at) {
+                    at = i;
+                }
+            }
+        }
+    }
+    int k = 0;
+    for (int i = 0; i < at; i++) {
+        tp->user_order[k++] = rest[i];
+    }
+    for (int j = 0; j < nm && k < MAX_TASKS; j++) {
+        tp->user_order[k++] = m[j];
+    }
+    for (int i = at; i < nr && k < MAX_TASKS; i++) {
+        tp->user_order[k++] = rest[i];
+    }
+    tp->n_user_order = k;
+}
+
+/* Moves pinned class `from` to just before (or after) class `to`. */
+static void tasklist_pin_move(TasklistPriv *tp, int from, int to, int after)
+{
+    PinnedApp moved = tp->pinned[from];
+    for (int i = from; i < tp->n_pinned - 1; i++) {
+        tp->pinned[i] = tp->pinned[i + 1];
+    }
+    if (to > from) {
+        to--;
+    }
+    int at = after ? to + 1 : to;
+    for (int i = tp->n_pinned - 1; i > at; i--) {
+        tp->pinned[i] = tp->pinned[i - 1];
+    }
+    tp->pinned[at] = moved;
+}
+
+/* Live reordering: the dragged button takes the place of the one under
+ * the pointer, as browser tabs do. Only within its own block (pinned or
+ * not), and only once the pointer is where the dragged button would then
+ * be -- with buttons of different widths, swapping as soon as the pointer
+ * enters a wider neighbour would leave it over that neighbour again and
+ * swap straight back. */
+static void tasklist_drag_motion(PanelWidget *w, int local_x)
+{
+    TasklistPriv *tp = w->priv;
+    tasklist_layout_visible(w);
+    int src = tasklist_drag_slot(tp);
+    int vi;
+    int dst = tasklist_slot_at(tp, local_x, &vi);
+    if (src < 0 || dst < 0 || dst == src) {
+        return;
+    }
+    int src_w = tp->btn_w[src];
+    for (int i = 0; i < tp->n_visible; i++) {
+        if (tp->vis_idx[i] == src) {
+            src_w = tp->vis_w[i];
+        }
+    }
+    int after = dst > src;
+    if (after ? local_x < tp->vis_x[vi] + tp->vis_w[vi] - src_w : local_x >= tp->vis_x[vi] + src_w) {
+        return;
+    }
+    TaskEntry *se = &tp->tasks[tp->display_repr[src]];
+    TaskEntry *de = &tp->tasks[tp->display_repr[dst]];
+    if (se->pinned != de->pinned) {
+        return; /* the other block */
+    }
+    if (se->pinned && strcmp(se->wm_class, de->wm_class) != 0) {
+        int from = tasklist_pin_idx(tp, se->wm_class), to = tasklist_pin_idx(tp, de->wm_class);
+        if (from >= tp->n_pinned || to >= tp->n_pinned) {
+            return;
+        }
+        tasklist_pin_move(tp, from, to, after);
+        tp->drag_pins_moved = 1;
+    } else {
+        Window m[MAX_TASKS], t[MAX_TASKS];
+        int nm = tasklist_slot_windows(tp, src, m, MAX_TASKS);
+        int nt = tasklist_slot_windows(tp, dst, t, MAX_TASKS);
+        if (nm == 0 || nt == 0) {
+            return;
+        }
+        tasklist_user_move(tp, m, nm, t, nt, after);
+    }
+
+    /* Rebuild the row now, from what is already in memory (no X round
+     * trip), so the next motion hit-tests the new layout. */
+    tasklist_sort(tp, tp->tasks, tp->n_tasks);
+    int len, min;
+    tasklist_measure(w, w->panel->thickness, &len, &min);
+    tp->last_sig = 0;
+    w->panel->dirty = 1;
+}
+
+static void tasklist_drag_end(PanelWidget *w)
+{
+    TasklistPriv *tp = w->priv;
+    if (tp->drag_pins_moved) {
+        tasklist_persist_pinned(w);
+    }
+    tp->drag_win = None;
+    tp->drag_class[0] = 0;
+    tp->drag_pins_moved = 0;
+}
+
 static const WidgetConfigEntry tasklist_config[] = {
     {"Gerenciamento de janelas", N_("Configurações de janelas…")},
     {NULL, NULL},
@@ -2634,4 +2942,7 @@ const PanelWidgetOps tasklist_ops = {
     .dnd_drop_files = tasklist_dnd_drop_files,
     .key_item = tasklist_key_item,
     .key_item_label = tasklist_key_item_label,
+    .drag_begin = tasklist_drag_begin,
+    .drag_motion = tasklist_drag_motion,
+    .drag_end = tasklist_drag_end,
 };

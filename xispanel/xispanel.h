@@ -225,6 +225,16 @@ typedef struct {
      * what a screen reader announces (a11y.c). Return 0 to fall back to
      * the tooltip. */
     int (*key_item_label)(PanelWidget *w, int i, char *buf, size_t bufsz);
+    /* Optional: reordering by dragging inside the widget (tasklist).
+     * drag_begin is asked once Button1, pressed at local_x, has moved past
+     * a small threshold; 0 leaves the press an ordinary click. After a 1,
+     * motion goes to drag_motion (local_x clamped to the widget's own
+     * span) and the release to drag_end instead of on_button. No window
+     * is created: the press's implicit grab keeps the pointer on the
+     * panel, so nothing reaches other clients. */
+    int (*drag_begin)(PanelWidget *w, int local_x);
+    void (*drag_motion)(PanelWidget *w, int local_x);
+    void (*drag_end)(PanelWidget *w);
 } PanelWidgetOps;
 
 struct PanelWidget {

@@ -102,7 +102,7 @@
 #include <unistd.h>
 #include "../shared/xis_safefile.h"
 
-#define XISPANEL_VERSION "0.7.32"
+#define XISPANEL_VERSION "0.7.33"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 128KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -4698,6 +4698,55 @@ static void containers_update_inline(void)
 static Window g_press_win = None;
 static unsigned int g_press_button = 0;
 
+/* Button1 drag inside one widget (PanelWidgetOps::drag_begin): where the
+ * press landed, and the widget once it accepted the drag. */
+#define PANEL_DRAG_THRESHOLD 6
+static int g_press_axis, g_press_cross;
+static PanelWidget *g_drag_widget = NULL;
+static int g_drag_refused; /* drag_begin said no (or there is none): stop asking until the next press */
+
+/* g_drag_widget, if it still belongs to p's layout (a reload in between
+ * frees it). */
+static PanelWidget *panel_drag_widget(Panel *p)
+{
+    for (int i = 0; p && g_drag_widget && i < p->n_layout; i++) {
+        if (p->layout[i] == g_drag_widget) {
+            return g_drag_widget;
+        }
+    }
+    return NULL;
+}
+
+static int panel_drag_local(const PanelWidget *w, int axis_pos)
+{
+    int lx = axis_pos - w->x;
+    return lx < 0 ? 0 : lx >= w->len ? w->len - 1 : lx;
+}
+
+/* Motion with Button1 held since a press on p: starts a widget drag past
+ * the threshold, or feeds the one in progress. 1 if the motion is the
+ * drag's (no hover/tooltip tracking for it). */
+static int panel_drag_motion(Panel *p, int axis_pos)
+{
+    PanelWidget *w = panel_drag_widget(p);
+    if (w) {
+        w->ops->drag_motion(w, panel_drag_local(w, axis_pos));
+        return 1;
+    }
+    if (g_drag_refused || g_press_button != Button1 || abs(axis_pos - g_press_axis) < PANEL_DRAG_THRESHOLD) {
+        return 0;
+    }
+    w = panel_widget_at(p, g_press_axis, g_press_cross);
+    if (!w || !w->ops->drag_begin || !w->ops->drag_begin(w, g_press_axis - w->x)) {
+        g_drag_refused = 1; /* the press stays an ordinary click, as before */
+        return 0;
+    }
+    g_drag_widget = w;
+    tooltip_close();
+    w->ops->drag_motion(w, panel_drag_local(w, axis_pos));
+    return 1;
+}
+
 static void dispatch_button(Panel *p, int button, int x, int y, int root_x, int root_y)
 {
     int axis_pos = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? x : y;
@@ -5270,6 +5319,11 @@ static int run_as_daemon(const char *sockpath)
                             /* real buttons fire on release (see ButtonRelease below) */
                             g_press_win = ev.xbutton.window;
                             g_press_button = b;
+                            int horiz = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM);
+                            g_press_axis = horiz ? ev.xbutton.x : ev.xbutton.y;
+                            g_press_cross = horiz ? ev.xbutton.y : ev.xbutton.x;
+                            g_drag_widget = NULL;
+                            g_drag_refused = 0;
                         }
                     }
                 } else if (ev.type == ButtonRelease) {
@@ -5279,7 +5333,11 @@ static int run_as_daemon(const char *sockpath)
                     g_press_button = 0;
                     int is_sensor = 0;
                     Panel *p = find_panel_by_window(ev.xbutton.window, &is_sensor);
-                    if (p && !is_sensor && pw == ev.xbutton.window && pb == ev.xbutton.button &&
+                    PanelWidget *dw = panel_drag_widget(p);
+                    g_drag_widget = NULL;
+                    if (dw) {
+                        dw->ops->drag_end(dw);
+                    } else if (p && !is_sensor && pw == ev.xbutton.window && pb == ev.xbutton.button &&
                         ev.xbutton.x >= 0 && ev.xbutton.y >= 0 && ev.xbutton.x < p->w && ev.xbutton.y < p->h) {
                         dispatch_button(p, (int)pb, ev.xbutton.x, ev.xbutton.y, ev.xbutton.x_root, ev.xbutton.y_root);
                     }
@@ -5289,8 +5347,11 @@ static int run_as_daemon(const char *sockpath)
                     if (p && !is_sensor) {
                         int axis_pos = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? ev.xmotion.x : ev.xmotion.y;
                         int cross_pos = (p->edge == EDGE_TOP || p->edge == EDGE_BOTTOM) ? ev.xmotion.y : ev.xmotion.x;
-                        tooltip_notice_motion(p, axis_pos, cross_pos);
-                        panel_update_hover(p, axis_pos, cross_pos);
+                        if (!((ev.xmotion.state & Button1Mask) && g_press_win == ev.xmotion.window &&
+                              panel_drag_motion(p, axis_pos))) {
+                            tooltip_notice_motion(p, axis_pos, cross_pos);
+                            panel_update_hover(p, axis_pos, cross_pos);
+                        }
                     }
                 } else if (ev.type == EnterNotify) {
                     int is_sensor = 0;

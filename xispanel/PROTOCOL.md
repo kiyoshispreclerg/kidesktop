@@ -441,6 +441,10 @@ Widget types implemented so far:
   it. `fixed_first=yes|no` (default `yes`) puts the pinned block before
   the regular-windows block; `no` swaps the order instead, without
   otherwise mixing pinned and regular buttons together.
+  Buttons can be reordered by dragging them with the left button, within
+  their own block and only over the tasklist itself (no drag window).
+  Moving a pinned button rewrites the order in `fixed_list` when the drag
+  ends; the order of regular windows is kept in memory only.
   `launch_feedback=yes|no` (default `no`) zooms+fades a pinned
   placeholder's icon when clicking it launches the app, so there's some
   visual acknowledgement while the real window hasn't appeared yet;
