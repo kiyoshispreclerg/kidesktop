@@ -62,6 +62,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "../../shared/xis_safefile.h"
+#include "../../shared/xis_rootexec.h"
 
 static GtkWidget *g_status_label;
 static GtkWidget *g_locale_combo;
@@ -208,14 +209,7 @@ static int have_systemd_timedate(void)
  * way the systemd path's own polkit check would. */
 static int run_privileged(char *const argv[])
 {
-    char *pk_argv[16];
-    int i = 0;
-    pk_argv[i++] = (char *)"pkexec";
-    for (int j = 0; argv[j] && i < 15; j++) {
-        pk_argv[i++] = argv[j];
-    }
-    pk_argv[i] = NULL;
-    return run_fire(pk_argv);
+    return xis_rootexec(argv, NULL, 0);
 }
 
 /* Only letters/digits/'/','_','+','-','.' -- every real zoneinfo/locale
