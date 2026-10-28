@@ -185,6 +185,38 @@ Para acrescentar um cenário, use o decorador `@scenario(...)` em
 `scenarios.py`, com as ferramentas de `ScenarioWorker`: `probe`,
 `expect_probe`, `check`, `new_exe`, `answer`, `restart_guard`, `ctl`, `active`.
 
+## Sessão real (`realsession.py`)
+
+A matriz usa xisserve/pkexec falsos e Xvfb. `realsession.py` roda as peças
+instaladas: o Xephyr de `/opt/xlibre-test` (veja `--xserver`), o
+`/usr/local/bin/xisguard` (`--guard`) e o popup de verdade do
+`xisserve --question`, respondido por AT-SPI (o botão é escolhido pela
+posição, então qualquer idioma serve). A janela do Xephyr abre na sua tela.
+
+```sh
+python3 xisguard/tests/realsession.py                       # ~4 min, servidor instalado
+python3 xisguard/tests/realsession.py --xserver ~/Downloads/kiyoshi-forks/xserver/build-test-debug/hw/kdrive/ephyr/Xephyr
+python3 xisguard/tests/realsession.py -k no_rules
+```
+
+Ele verifica o comportamento desejado das regras de sistema:
+
+| cenário | o que verifica |
+|---|---|
+| `rules` | com regras de sistema: sem guard só vale o sistema; com guard valem sistema + usuário e o resto pergunta; continua assim depois de ligar/desligar o permissivo duas vezes e de reiniciar o guard; o servidor nunca recusa o guard |
+| `rules_removed_at_runtime` | apagar as regras + `RELOAD` deixa tudo permissivo (só REPORTs); restaurá-las + `RELOAD` volta às regras |
+| `no_rules` | sem regras de sistema: tudo permitido, nada pergunta, regras de usuário não importam, o guard recebe REPORTs, com permissivo ligado ou não; adicionar regras + `RELOAD` passa a aplicá-las |
+| `guard_rule_only` | só `ALLOW XNOTIFY <guard>` já basta para as regras de usuário valerem |
+
+O `perms.conf` de teste tem `ALLOW ALL <xisguard>` e `ALLOW ALL <xisserve>`,
+como na sessão de quem já confiou nos dois (o primeiro é o achado 11). As
+regras de sistema são trocadas com `bwrap`, sem root; `HOME`, runtime dir e
+D-Bus (`dbus-run-session`) são próprios. Resultado em
+`/tmp/xisguard-real/<data>/report.md`, com `xserver.log` e `guard.log`.
+
+Requer, além do da matriz: `xisserve` no `PATH`, `dbus-run-session` e
+`python3-pyatspi`.
+
 ## Achados
 
 `FINDINGS.md` registra os problemas que a matriz e os cenários encontraram,
