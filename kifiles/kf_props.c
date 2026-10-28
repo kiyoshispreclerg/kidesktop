@@ -8,6 +8,7 @@
  * not make (not the owner, or any chown) are retried as root through pkexec. */
 #include "kf.h"
 #include "../shared/xis_i18n.h"
+#include "../shared/xis_rootexec.h"
 #include <dirent.h>
 #include <errno.h>
 #include <grp.h>
@@ -274,36 +275,14 @@ static void error_box(GtkWindow *parent, const char *primary, const char *second
  * be swapped while the password prompt is open. */
 static gboolean run_as_root(GtkWindow *parent, const char *script)
 {
-    char *argv[] = { "pkexec", "/bin/sh", "-s", NULL };
-    GPid pid;
-    int in_fd = -1;
-    GError *err = NULL;
-    if (!g_spawn_async_with_pipes(NULL, argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_DO_NOT_REAP_CHILD, NULL, NULL, &pid,
-                                  &in_fd, NULL, NULL, &err)) {
-        error_box(parent, _("Could not change the permissions"), err ? err->message : NULL);
-        g_clear_error(&err);
-        return FALSE;
-    }
-    size_t len = strlen(script), off = 0;
-    while (off < len) {
-        ssize_t n = write(in_fd, script + off, len - off);
-        if (n < 0 && errno == EINTR)
-            continue;
-        if (n <= 0)
-            break;
-        off += (size_t)n;
-    }
-    close(in_fd);
-    int status = 0;
-    while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
-        ;
-    g_spawn_close_pid(pid);
-    if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+    char *const argv[] = { "/bin/sh", "-s", NULL };
+    int rc = xis_rootexec(argv, script, strlen(script));
+    if (rc == 0)
         return TRUE;
-    /* pkexec: 126 = not authorized / prompt dismissed, 127 = could not run.
-     * Cancelling the prompt is not worth an error box. */
-    if (!(WIFEXITED(status) && (WEXITSTATUS(status) == 126 || WEXITSTATUS(status) == 127)))
-        error_box(parent, _("Could not change the permissions"), _("The administrator command failed."));
+    /* Cancelling the prompt is not worth an error box. */
+    if (rc != XIS_ROOTEXEC_CANCELLED)
+        error_box(parent, _("Could not change the permissions"),
+                  _("The administrator command failed."));
     return FALSE;
 }
 
