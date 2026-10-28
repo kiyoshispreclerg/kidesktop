@@ -5,7 +5,7 @@
 #include <gtk/gtk.h>
 #include <sys/types.h>
 
-#define KITASK_VERSION "0.1.7"
+#define KITASK_VERSION "0.1.8"
 
 /* ---- what a refresh has to read (tsk_proc.c) -------------------------------
  * The cheap /proc files are always read; each flag below costs extra work per

@@ -6,6 +6,7 @@
  * retry through pkexec with the kill/renice commands. */
 #include "tsk.h"
 #include "../shared/xis_i18n.h"
+#include "../shared/xis_rootexec.h"
 #include <errno.h>
 #include <stdlib.h>
 #include <signal.h>
@@ -81,7 +82,7 @@ static void error_dialog(TskApp *app, const char *primary, const char *secondary
 /* TRUE when the user wants to retry through pkexec */
 static gboolean ask_admin(TskApp *app, const char *primary)
 {
-    if (!g_find_program_in_path("pkexec")) {
+    if (!xis_rootexec_available()) {
         error_dialog(app, primary, _("You don't have permission, and pkexec isn't installed to ask for it."));
         return FALSE;
     }
@@ -96,15 +97,10 @@ static gboolean ask_admin(TskApp *app, const char *primary)
     return ok;
 }
 
-static void run_admin(TskApp *app, GPtrArray *argv)
+static void run_admin(GPtrArray *argv)
 {
     g_ptr_array_add(argv, NULL);
-    GError *err = NULL;
-    int status = 0;
-    if (!g_spawn_sync(NULL, (char **)argv->pdata, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, &status, &err)) {
-        error_dialog(app, _("Couldn't run pkexec"), err->message);
-        g_error_free(err);
-    }
+    xis_rootexec((char **)argv->pdata, NULL, 0);
 }
 
 static const char *signal_name(int sig)
@@ -139,12 +135,11 @@ void tsk_send_signal(TskApp *app, int sig)
         char *msg = g_strdup_printf(_("Couldn't send %s"), signal_name(sig));
         if (ask_admin(app, msg)) {
             GPtrArray *argv = g_ptr_array_new_with_free_func(g_free);
-            g_ptr_array_add(argv, g_strdup("pkexec"));
             g_ptr_array_add(argv, g_strdup("kill"));
             g_ptr_array_add(argv, g_strdup_printf("-%d", sig));
             for (guint i = 0; i < denied->len; i++)
                 g_ptr_array_add(argv, g_strdup(denied->pdata[i]));
-            run_admin(app, argv);
+            run_admin(argv);
             g_ptr_array_free(argv, TRUE);
         }
         g_free(msg);
@@ -191,7 +186,6 @@ void tsk_renice(TskApp *app)
     if (gtk_dialog_run(GTK_DIALOG(d)) == GTK_RESPONSE_ACCEPT) {
         int nice = (int)gtk_range_get_value(GTK_RANGE(scale));
         GPtrArray *argv = g_ptr_array_new_with_free_func(g_free);
-        g_ptr_array_add(argv, g_strdup("pkexec"));
         g_ptr_array_add(argv, g_strdup("renice"));
         g_ptr_array_add(argv, g_strdup_printf("%d", nice));
         g_ptr_array_add(argv, g_strdup("-p"));
@@ -204,7 +198,7 @@ void tsk_renice(TskApp *app)
         gtk_widget_destroy(d);
         d = NULL;
         if (argv->len > base && ask_admin(app, _("Couldn't change the priority")))
-            run_admin(app, argv);
+            run_admin(argv);
         g_ptr_array_free(argv, TRUE);
         tsk_app_refresh_now(app);
     }
