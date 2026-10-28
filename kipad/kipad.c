@@ -5,6 +5,7 @@
  * (font, line numbers) live in ~/.config/kipad.conf and are written whenever
  * they change. */
 #include "../shared/xis_i18n.h"
+#include "../shared/xis_rootexec.h"
 #include "../shared/xis_safefile.h"
 
 #include <gdk/gdkkeysyms.h>
@@ -15,7 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define KIPAD_VERSION "0.1.2"
+#define KIPAD_VERSION "0.1.3"
 #define DEFAULT_FONT "Monospace 11"
 #define MIN_FONT_PT 6
 #define MAX_FONT_PT 72
@@ -756,9 +757,23 @@ static gboolean save_doc(Doc *d)
     char *text = gtk_text_buffer_get_text(d->buf, &a, &b, TRUE);
     /* The user's own document: atomic and synced, but no .backup beside it. */
     gboolean ok = xis_write_export(d->path, text, strlen(text)) == 0;
+    int werr = errno;
+    /* No permission (a root-owned file): ask for the password, every time. */
+    if (!ok && (werr == EACCES || werr == EPERM)) {
+        char *const argv[] = { "tee", "--", d->path, NULL };
+        int rc = xis_rootexec(argv, text, strlen(text));
+        if (rc == 0)
+            ok = TRUE;
+        else if (rc == XIS_ROOTEXEC_CANCELLED) {
+            g_free(text);
+            return FALSE;
+        } else
+            werr = 0;
+    }
     g_free(text);
     if (!ok) {
-        message(GTK_MESSAGE_ERROR, _("Could not save the file:\n%s"), g_strerror(errno));
+        message(GTK_MESSAGE_ERROR, _("Could not save the file:\n%s"),
+                werr ? g_strerror(werr) : _("The administrator command failed."));
         return FALSE;
     }
     gtk_text_buffer_set_modified(d->buf, FALSE);

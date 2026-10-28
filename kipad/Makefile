@@ -20,9 +20,9 @@ PKG_LIBS += $(LIBINTL)
 LINGUAS := $(shell test -f po/LINGUAS && grep -v '^\#' po/LINGUAS)
 MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
-SRCS := kipad.c ../shared/xis_safefile.c
+SRCS := kipad.c ../shared/xis_safefile.c ../shared/xis_rootexec.c
 OBJS := $(SRCS:.c=.o)
-HDRS := ../shared/xis_i18n.h ../shared/xis_safefile.h
+HDRS := ../shared/xis_i18n.h ../shared/xis_safefile.h ../shared/xis_rootexec.h
 
 all: kipad
 

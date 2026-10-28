@@ -178,3 +178,7 @@ msgstr "A_juda"
 #: kipad.c:861
 msgid "_About"
 msgstr "_Sobre"
+
+#: kipad.c
+msgid "The administrator command failed."
+msgstr "O comando de administrador falhou."
