@@ -14,6 +14,7 @@ regressão: descreva).
 |---|---|---|---|---|---|
 | 2026-10-25 | f5fad50 + kit não commitado | deny | 40/84 | `/tmp/xisguard-matrix/20261025-primeira-rodada/report.md` | primeira rodada; 7 de 9216 células variaram entre execuções (achado 6) |
 | 2026-10-25 | f5fad50 + kit não commitado | deny | 40/84 + 18/25 cenários | `/tmp/xisguard-matrix/20261025-cenarios/report.md` | suíte de cenários adicionada (achados 7–10); matriz idêntica à rodada anterior |
+| 2026-10-28 | 05a5743 + xnotify.c não commitado | deny | 84/84 + 25/25 cenários | `/tmp/xisguard-matrix/20261028-181528/report.md` | servidor com achados 11/12 corrigidos; `realsession.py` 96/96 (servidor instalado antigo: 46/96) |
 
 Para registrar uma nova rodada: `make -C xisguard matrix MATRIX_ARGS="-j 12"` e
 uma linha acima. O relatório fica em `--out`, copie-o se quiser guardar.
@@ -22,16 +23,18 @@ uma linha acima. O relatório fica em `--out`, copie-o se quiser guardar.
 
 | # | achado | onde | status |
 |---|---|---|---|
-| 1 | Perder as regras de sistema deixa o servidor em modo legado até reiniciar o X | servidor (Xnotify) | aberto |
+| 1 | Perder as regras de sistema deixa o servidor em modo legado até reiniciar o X | servidor (Xnotify) | corrigido |
 | 2 | Desligar o modo permissivo apaga as regras de usuário no servidor | xisguard | em andamento |
 | 3 | Modo seguro e `REMOVE_RULE` não retiram acesso; desligar o seguro não reativa regras | xisguard | corrigido |
-| 4 | Regras de sistema adicionadas em runtime só valem após reiniciar o X, se a sessão abriu sem nenhuma | servidor | aberto |
+| 4 | Regras de sistema adicionadas em runtime só valem após reiniciar o X, se a sessão abriu sem nenhuma | servidor | corrigido |
 | 5 | Janela de ~5 s negando tudo ao remover as regras de sistema | servidor | aberto (talvez aceitável) |
 | 6 | O primeiro pedido depois que o guard reinicia se perde | servidor ou xisguard | aberto |
 | 7 | `--deny` (inclusive `--deny ALL`) não vence as regras de usuário | xisguard | corrigido |
 | 8 | `--allow` nega a primeira tentativa, e só concede para aqueles argumentos exatos | xisguard (+ servidor) | corrigido |
 | 9 | Regras EXACT (`exe\|args`) do `perms.conf` se perdem ao reiniciar o guard | xisguard | corrigido |
 | 10 | "Deny" permanente no modo seguro continua perguntando toda vez | xisguard | corrigido |
+| 11 | `ALLOW ALL <guard>` no perms.conf rebaixa o guard: o servidor passa a recusá-lo | servidor | corrigido |
+| 12 | Sem regras de sistema o guard não recebe REPORTs; mensagem recusada conta como heartbeat | servidor | corrigido |
 
 ---
 
@@ -65,10 +68,15 @@ Rodadas `sys=none` e as seguintes: todas `ALLOW`. Passos `sys=base (back)` e
 - documentar como limitação e fazer o xisguard avisar quando o servidor entrar
   em modo legado (ele já recebe `STATUS`).
 
-**Status:** aberto
+**Status:** corrigido
 
 **Notas / histórico:**
--
+- 2026-10-28: decidido que servidor sem regras de sistema fica permissivo
+  (é o comportamento desejado, não perda de proteção). O que estava errado era
+  não conseguir sair dele: em modo legado o servidor agora aceita do mesmo uid
+  heartbeat, `STATUS`, `GET_CONFIG_PATH` e `RELOAD` (nunca regras), então
+  restaurar os arquivos + `RELOAD` volta a aplicar as regras.
+  `realsession.py` cenário `rules_removed_at_runtime` passa.
 
 ---
 
@@ -98,6 +106,7 @@ também em `request_server_reload()`, chamar `send_all_permissions_to_xserver()`
 
 **Notas / histórico:**
 - 2026-10-26: corrigido no xisguard.c (matriz 40→48/84 ao corrigir); falta testar na sessão real.
+- 2026-10-28: `realsession.py` (Xephyr + xisguard/xisserve reais): ligar e desligar o permissivo duas vezes mantém as regras de usuário.
 
 ---
 
@@ -141,10 +150,11 @@ regras e mandando `RELOAD` pelo guard, o servidor continua permitindo tudo.
 limitação", o README deve dizer que, sem nenhum arquivo de regras de sistema no
 início, o xisguard não protege nada.
 
-**Status:** aberto
+**Status:** corrigido
 
 **Notas / histórico:**
--
+- 2026-10-28: corrigido junto com o 1 (`RELOAD` aceito em modo legado).
+  `realsession.py` cenário `no_rules`, passo "rules added at runtime".
 
 ---
 
@@ -312,6 +322,49 @@ desconhecido.
 
 **Notas / histórico:**
 - 2026-10-26: corrigido no xisguard.c (cenário answer-deny-secure passa); falta testar na sessão real.
+
+---
+
+## 11. `ALLOW ALL <guard>` no perms.conf rebaixa o guard
+
+**Sintoma:** na sessão real com regras de sistema, o xisguard para de
+perguntar e as regras de usuário deixam de valer. O log do X enche de
+`Xnotify: rejecting message - /usr/local/bin/xisguard is not an authorized guard`.
+
+**Causa:** `XnotifyAllowAll()` fazia `perm_mask = XNOTIFY_ALL_ACTIONS_MASK`
+(bits 1–16), apagando o bit 17 (`XNOTIFY_GUARD`) que veio do
+`ALLOW XNOTIFY <guard>` do sistema. Quem já respondeu "Confiar" para o
+próprio xisguard tem `ALLOW ALL /usr/local/bin/xisguard` no perms.conf, e o
+sync inicial rebaixava o guard. Daí em diante tudo o que ele mandava era
+recusado, inclusive o resto das regras de usuário. `XnotifyDenyAll()` tinha o
+mesmo problema.
+
+**Correção:** `ALLOW ALL`/`DENY ALL` só mexem nos bits de ação; o bit de
+guard só vem das regras de sistema.
+
+**Reproduzir:** `realsession.py` contra o servidor antigo: 50/96 falham,
+"guard never rejected" com centenas de recusas.
+
+**Status:** corrigido (servidor, 2026-10-28)
+
+---
+
+## 12. Sem regras de sistema o guard não recebe REPORTs; mensagem recusada conta como heartbeat
+
+**Sintoma:** servidor sem regras (permissivo): o xisguard não recebe nenhum
+`REPORT`, então o painel/notificações não mostram nada. E, com regras, uma
+rodada de mensagens toda recusada ainda mantinha o guard "vivo".
+
+**Causa:** em modo legado `XnotifyIsAllowed()` retornava antes de
+`XnotifyReport()`, e o guard nunca ficava vivo (`is_trusted_sender()` recusava
+tudo). `XnotifyPoll()` chamava `XnotifyGuardHeartbeat(0)` no fim
+incondicionalmente.
+
+**Correção:** em modo legado o servidor permite tudo e manda `REPORT` ao guard
+vivo (heartbeat do mesmo uid aceito, comandos de regra ignorados). O heartbeat
+do fim do poll só conta se alguma mensagem confiável chegou.
+
+**Status:** corrigido (servidor, 2026-10-28)
 
 ---
 
