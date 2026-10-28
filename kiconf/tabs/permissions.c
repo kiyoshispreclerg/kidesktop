@@ -535,10 +535,11 @@ static void on_xg_remove_ignored(GtkWidget *widget, gpointer data)
  * access and may be closed. Returns 1 if the user accepts. */
 static int confirm_authorizations_reset(void)
 {
-    GtkWidget *dlg = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL, GTK_MESSAGE_WARNING, GTK_BUTTONS_OK_CANCEL,
+    GtkWidget *dlg = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL, GTK_MESSAGE_WARNING, GTK_BUTTONS_NONE,
                                             "%s", _("Esta alteracao zera as autorizacoes ja concedidas: o xisguard "
                                                     "recarrega as regras no servidor, e programas abertos que "
                                                     "dependiam delas perdem o acesso e podem ser fechados."));
+    dialog_add_answers(dlg, GTK_BUTTONS_OK_CANCEL);
     int ok = gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_OK;
     gtk_widget_destroy(dlg);
     return ok;
@@ -576,6 +577,7 @@ static void apply_xg_status_cb(GtkWidget *widget, gpointer data)
                        resp, sizeof(resp));
         g_xg_baseline.permissive = permissive;
     }
+    kiconf_track_rebase(GTK_WIDGET(data));
 }
 
 static void on_xg_add_rule(GtkWidget *widget, gpointer data)
@@ -672,8 +674,9 @@ static void finish_sys_change(int saved, const char *err)
         }
     }
     if (!saved && err) {
-        GtkWidget *dlg = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE,
+        GtkWidget *dlg = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_NONE,
                                                 "%s", err);
+        dialog_add_answers(dlg, GTK_BUTTONS_CLOSE);
         gtk_dialog_run(GTK_DIALOG(dlg));
         gtk_widget_destroy(dlg);
     }
@@ -783,7 +786,7 @@ GtkWidget *build_permissions_tab(void)
     gtk_table_attach(GTK_TABLE(status_table), g_xg_secure_mode_chk, 0, 2, 3, 4, GTK_FILL, GTK_FILL, 4, 1);
     g_xg_log_level_spin = gtk_spin_button_new_with_range(0, 5, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_xg_log_level_spin), g_xg_baseline.log_level);
-    labeled_row(status_table, 4, "log_level:", g_xg_log_level_spin);
+    labeled_row(status_table, 4, _("log_level:"), g_xg_log_level_spin);
     g_xg_permissive_chk = gtk_check_button_new_with_label(_("Modo permissivo (libera tudo, so registra)"));
     gtk_widget_set_tooltip_text(g_xg_permissive_chk,
         _("O XisGuard libera todas as acoes mas os programas continuam sendo registrados. "
@@ -811,12 +814,12 @@ GtkWidget *build_permissions_tab(void)
     }
     gtk_widget_set_sensitive(notify_table, g_xg_baseline.online);
     GtkWidget *modes_row = gtk_hbox_new(FALSE, 6);
-    gtk_box_pack_start(GTK_BOX(modes_row), frame_with("Modo de execucao", status_table), FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(modes_row), frame_with("Avisos", notify_table), TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(modes_row), frame_with(_("Modo de execucao"), status_table), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(modes_row), frame_with(_("Avisos"), notify_table), TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(outer), modes_row, FALSE, FALSE, 0);
 
     GtkWidget *status_apply_btn = gtk_button_new_with_label(_("Aplicar"));
-    g_signal_connect(status_apply_btn, "clicked", G_CALLBACK(apply_xg_status_cb), NULL);
+    g_signal_connect(status_apply_btn, "clicked", G_CALLBACK(apply_xg_status_cb), modes_row);
     gtk_widget_set_sensitive(status_apply_btn, g_xg_baseline.online);
     GtkWidget *status_btnbox = gtk_hbox_new(FALSE, 0);
     gtk_box_pack_end(GTK_BOX(status_btnbox), status_apply_btn, FALSE, FALSE, 0);
@@ -829,7 +832,7 @@ GtkWidget *build_permissions_tab(void)
      * rules page below existed. */
     g_xg_rules_store = gtk_list_store_new(N_XG_COLS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
     g_xg_rules_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_xg_rules_store));
-    const char *xg_titles[N_XG_COLS] = {"#", "Tipo", "Acao", "Padrao"};
+    const char *xg_titles[N_XG_COLS] = {"#", _("Tipo"), _("Acao"), _("Padrao")};
     for (int col = 0; col < N_XG_COLS; col++) {
         GtkCellRenderer *renderer = gtk_cell_renderer_text_new();
         GtkTreeViewColumn *tvcol = gtk_tree_view_column_new_with_attributes(xg_titles[col], renderer, "text", col, NULL);
@@ -893,7 +896,7 @@ GtkWidget *build_permissions_tab(void)
     g_xg_sys_rules_store = gtk_list_store_new(N_XG_SYS_COLS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,
                                               G_TYPE_STRING, G_TYPE_STRING);
     g_xg_sys_rules_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_xg_sys_rules_store));
-    const char *xg_sys_titles[N_XG_SYS_COLS] = {"#", "Tipo", "Acao", "Padrao", "Arquivo", "Linha"};
+    const char *xg_sys_titles[N_XG_SYS_COLS] = {"#", _("Tipo"), _("Acao"), _("Padrao"), _("Arquivo"), _("Linha")};
     for (int col = 0; col < N_XG_SYS_COLS; col++) {
         GtkCellRenderer *renderer = gtk_cell_renderer_text_new();
         GtkTreeViewColumn *tvcol = gtk_tree_view_column_new_with_attributes(xg_sys_titles[col], renderer, "text", col, NULL);
@@ -948,7 +951,7 @@ GtkWidget *build_permissions_tab(void)
     gtk_box_pack_start(GTK_BOX(sys_new_row), g_xs_prio_spin, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(sys_new_row), gtk_label_new("-"), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(sys_new_row), g_xs_name_entry, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(sys_new_row), gtk_label_new(".conf"), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(sys_new_row), gtk_label_new(_(".conf")), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(sys_rules_box), sys_new_row, FALSE, FALSE, 0);
     g_signal_connect(gtk_tree_view_get_selection(GTK_TREE_VIEW(g_xg_sys_rules_view)), "changed",
                      G_CALLBACK(on_xs_selection_changed), NULL);
@@ -1016,7 +1019,10 @@ GtkWidget *build_permissions_tab(void)
     gtk_widget_set_sensitive(ign_box, g_xg_baseline.online);
     gtk_notebook_append_page(GTK_NOTEBOOK(rules_notebook), ign_box, gtk_label_new(_("Ignorados")));
 
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Regras XNOTIFY", rules_notebook), TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Regras XNOTIFY"), rules_notebook), TRUE, TRUE, 0);
+    /* Rules and ignored programs are sent to xisguard as soon as they are
+     * added or removed; the fields there only fill in the next one. */
+    kiconf_track_ignore(rules_notebook);
 
     refresh_xg_rules();
     refresh_xg_sys_rules();

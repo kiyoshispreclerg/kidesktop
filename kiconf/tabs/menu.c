@@ -52,12 +52,12 @@ typedef struct {
  * no machine-readable source to scan this from. Order matters: an app
  * lands in the first one of these its Categories= mentions. */
 static const MenuCategory MENU_CATEGORIES[] = {
-    {"AudioVideo", "Audio e video"}, {"Development", "Desenvolvimento"},
-    {"Education", "Educacao"},       {"Game", "Jogos"},
-    {"Graphics", "Graficos"},        {"Network", "Internet e rede"},
-    {"Office", "Escritorio"},        {"Science", "Ciencia"},
-    {"Settings", "Configuracoes"},   {"System", "Sistema"},
-    {"Utility", "Utilitarios"},
+    {"AudioVideo", N_("Audio e video")}, {"Development", N_("Desenvolvimento")},
+    {"Education", N_("Educacao")},       {"Game", N_("Jogos")},
+    {"Graphics", N_("Graficos")},        {"Network", N_("Internet e rede")},
+    {"Office", N_("Escritorio")},        {"Science", N_("Ciencia")},
+    {"Settings", N_("Configuracoes")},   {"System", N_("Sistema")},
+    {"Utility", N_("Utilitarios")},
 };
 #define N_MENU_CATEGORIES ((int)(sizeof(MENU_CATEGORIES) / sizeof(MENU_CATEGORIES[0])))
 
@@ -140,7 +140,7 @@ static void refill_menu_store(void)
         if (!cat_used[slot]) {
             gtk_tree_store_append(g_menu_store, &cat_iters[slot], NULL);
             gtk_tree_store_set(g_menu_store, &cat_iters[slot], COL_M_NAME,
-                                cat < 0 ? "Outros" : MENU_CATEGORIES[cat].label, COL_M_ROW, -1, -1);
+                                cat < 0 ? _("Outros") : _(MENU_CATEGORIES[cat].label), COL_M_ROW, -1, -1);
             cat_used[slot] = 1;
         }
         GtkTreeIter child;
@@ -426,8 +426,8 @@ static gboolean run_entry_dialog(GtkWidget *window, const char *title, const Des
 {
     memset(out, 0, sizeof(*out));
 
-    GtkWidget *dialog = gtk_dialog_new_with_buttons(title, GTK_WINDOW(window), GTK_DIALOG_MODAL, GTK_STOCK_CANCEL,
-                                                     GTK_RESPONSE_CANCEL, GTK_STOCK_OK, GTK_RESPONSE_OK, NULL);
+    GtkWidget *dialog = gtk_dialog_new_with_buttons(title, GTK_WINDOW(window), GTK_DIALOG_MODAL, _("_Cancelar"),
+                                                     GTK_RESPONSE_CANCEL, _("_OK"), GTK_RESPONSE_OK, NULL);
     GtkWidget *table = gtk_table_new(6, 2, FALSE);
     gtk_container_set_border_width(GTK_CONTAINER(table), 8);
 
@@ -439,9 +439,9 @@ static gboolean run_entry_dialog(GtkWidget *window, const char *title, const Des
 
     GtkWidget *cat_combo = gtk_combo_box_new_text();
     for (int i = 0; i < N_MENU_CATEGORIES; i++) {
-        gtk_combo_box_append_text(GTK_COMBO_BOX(cat_combo), MENU_CATEGORIES[i].label);
+        gtk_combo_box_append_text(GTK_COMBO_BOX(cat_combo), _(MENU_CATEGORIES[i].label));
     }
-    gtk_combo_box_append_text(GTK_COMBO_BOX(cat_combo), "Outros");
+    gtk_combo_box_append_text(GTK_COMBO_BOX(cat_combo), _("Outros"));
 
     if (seed) {
         gtk_entry_set_text(GTK_ENTRY(name_entry), seed->name);
@@ -455,12 +455,12 @@ static gboolean run_entry_dialog(GtkWidget *window, const char *title, const Des
         gtk_combo_box_set_active(GTK_COMBO_BOX(cat_combo), N_MENU_CATEGORIES);
     }
 
-    labeled_row(table, 0, "Nome:", name_entry);
-    labeled_row(table, 1, "Comentario:", comment_entry);
-    labeled_row(table, 2, "Comando:", exec_entry);
-    labeled_row(table, 3, "Icone:", icon_entry);
-    labeled_row(table, 4, "Categoria:", cat_combo);
-    labeled_row(table, 5, "Executar em terminal:", terminal_chk);
+    labeled_row(table, 0, _("Nome:"), name_entry);
+    labeled_row(table, 1, _("Comentario:"), comment_entry);
+    labeled_row(table, 2, _("Comando:"), exec_entry);
+    labeled_row(table, 3, _("Icone:"), icon_entry);
+    labeled_row(table, 4, _("Categoria:"), cat_combo);
+    labeled_row(table, 5, _("Executar em terminal:"), terminal_chk);
     gtk_box_pack_start(GTK_BOX(GTK_DIALOG(dialog)->vbox), table, TRUE, TRUE, 0);
     gtk_widget_show_all(table);
 
@@ -507,7 +507,8 @@ static gboolean run_entry_dialog(GtkWidget *window, const char *title, const Des
             break;
         }
         GtkWidget *msg = gtk_message_dialog_new(GTK_WINDOW(dialog), GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR,
-                                                GTK_BUTTONS_OK, _("Variavel de ambiente invalida: %s"), bad);
+                                                GTK_BUTTONS_NONE, _("Variavel de ambiente invalida: %s"), bad);
+        dialog_add_answers(msg, GTK_BUTTONS_OK);
         gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(msg), "%s", _("Use NOME=valor, separadas por espaco."));
         gtk_dialog_run(GTK_DIALOG(msg));
         gtk_widget_destroy(msg);
@@ -691,9 +692,9 @@ GtkWidget *build_menu_tab(void)
     g_signal_connect(vis_r, "toggled", G_CALLBACK(toggle_visible_cb), NULL);
     gtk_tree_view_append_column(
         GTK_TREE_VIEW(g_menu_view),
-        gtk_tree_view_column_new_with_attributes("Visivel", vis_r, "active", COL_M_VISIBLE, NULL));
+        gtk_tree_view_column_new_with_attributes(_("Visivel"), vis_r, "active", COL_M_VISIBLE, NULL));
     GtkTreeViewColumn *name_col = gtk_tree_view_column_new_with_attributes(
-        "Programa", gtk_cell_renderer_text_new(), "text", COL_M_NAME, NULL);
+        _("Programa"), gtk_cell_renderer_text_new(), "text", COL_M_NAME, NULL);
     gtk_tree_view_column_set_expand(name_col, TRUE);
     gtk_tree_view_append_column(GTK_TREE_VIEW(g_menu_view), name_col);
 
@@ -722,5 +723,6 @@ GtkWidget *build_menu_tab(void)
     gtk_box_pack_start(GTK_BOX(btnbox), del_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(outer), btnbox, FALSE, FALSE, 0);
 
+    kiconf_track_ignore(outer); /* every change is written right away */
     return outer;
 }

@@ -221,17 +221,17 @@ GtkWidget *corners_build(void)
     GtkWidget *table = gtk_table_new(2, 2, FALSE);
     g_delay_spin = gtk_spin_button_new_with_range(0, 2000, 10);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_delay_spin), delay);
-    labeled_row(table, 0, "Atraso (ms):", g_delay_spin);
+    labeled_row(table, 0, _("Atraso (ms):"), g_delay_spin);
     gtk_widget_set_tooltip_text(g_delay_spin,
         _("Tempo que o mouse precisa ficar no canto. Passar de raspao nao dispara."));
     g_size_spin = gtk_spin_button_new_with_range(1, 32, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_size_spin), size);
-    labeled_row(table, 1, "Tamanho do canto (px):", g_size_spin);
+    labeled_row(table, 1, _("Tamanho do canto (px):"), g_size_spin);
     gtk_widget_set_tooltip_text(g_size_spin,
         _("O pixel do canto deixa de chegar a janela embaixo (botao fechar de janela maximizada)."));
     gtk_box_pack_start(GTK_BOX(box), table, FALSE, FALSE, 0);
 
-    return frame_with("Cantos ativos", box);
+    return frame_with(_("Cantos ativos"), box);
 }
 
 /* The value a cell stands for, as it goes into the file. "" = write

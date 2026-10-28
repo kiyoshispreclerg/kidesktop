@@ -289,7 +289,7 @@ static void scheme_save_cb(GtkWidget *w, gpointer data)
     (void)data;
     GtkWidget *dlg = gtk_dialog_new_with_buttons(_("Salvar esquema de cores"), GTK_WINDOW(gtk_widget_get_toplevel(w)),
                                                  GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
-                                                 GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL, GTK_STOCK_SAVE, GTK_RESPONSE_OK, NULL);
+                                                 _("_Cancelar"), GTK_RESPONSE_CANCEL, _("_Salvar"), GTK_RESPONSE_OK, NULL);
     gtk_dialog_set_default_response(GTK_DIALOG(dlg), GTK_RESPONSE_OK);
     GtkWidget *entry = gtk_entry_new();
     gtk_entry_set_activates_default(GTK_ENTRY(entry), TRUE);
@@ -359,6 +359,7 @@ static void apply_cb(GtkWidget *w, gpointer data)
     gchar *exporter = exporter_path();
     if (!exporter) {
         gtk_label_set_text(GTK_LABEL(g_status), _("Salvo, mas kitheme-export nao foi encontrado"));
+        kiconf_track_applied(g_status);
         return;
     }
     gchar *argv[] = {exporter, (gchar *)"--notify", NULL};
@@ -375,6 +376,7 @@ static void apply_cb(GtkWidget *w, gpointer data)
     /* GTK3/GTK4 reload when kiconfd republishes the theme name. */
     signal_daemon("kiconfd");
     gtk_label_set_text(GTK_LABEL(g_status), _("Aplicado"));
+    kiconf_track_applied(g_status);
 }
 
 static GtkWidget *scale01(void)

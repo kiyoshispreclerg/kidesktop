@@ -169,6 +169,7 @@ static void apply_cb(GtkWidget *w, gpointer data)
     gtk_label_set_text(GTK_LABEL(g_status), process_running("kimountd")
                                                 ? _("Aplicado")
                                                 : _("Aplicado, mas o servico kimountd nao esta rodando (aba Servicos)"));
+    kiconf_track_applied(g_status);
 }
 
 static void toggled_cb(GtkCellRendererToggle *cell, gchar *path_str, gpointer data)
@@ -352,6 +353,7 @@ GtkWidget *build_disks_tab(void)
                                   "administradores (grupo sudo) na sessao ativa. Pede a senha uma vez para instalar."));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_nopasswd_chk), nopasswd_active());
     g_signal_connect(g_nopasswd_chk, "toggled", G_CALLBACK(nopasswd_toggled_cb), NULL);
+    kiconf_track_ignore(g_nopasswd_chk);
     gtk_box_pack_start(GTK_BOX(outer), g_nopasswd_chk, FALSE, FALSE, 0);
 
     GtkWidget *btns = gtk_hbox_new(FALSE, 6);

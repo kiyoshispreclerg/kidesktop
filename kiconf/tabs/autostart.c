@@ -56,6 +56,7 @@ static void apply_services_cb(GtkWidget *widget, gpointer data)
         cfg.enabled[i] = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_service_chk[i]));
     }
     kisession_save(&cfg);
+    kiconf_track_rebase(GTK_WIDGET(data));
 }
 
 /* ---- XDG autostart ------------------------------------------------------ */
@@ -212,6 +213,9 @@ static void as_cell_toggled(GtkCellRendererToggle *cell, gchar *path_str, gpoint
     gtk_tree_path_free(path);
 }
 
+static GtkWidget *g_autostart_view;
+
+/* Re-reads the list from disk, so whatever it shows now is what's saved. */
 static void refill_autostart_store(void)
 {
     scan_autostart_entries();
@@ -223,6 +227,7 @@ static void refill_autostart_store(void)
                             COL_AS_ENABLED, !g_entries[i].hidden, COL_AS_NAME, g_entries[i].name,
                             COL_AS_ROW, i, -1);
     }
+    kiconf_track_rebase(g_autostart_view);
 }
 
 static void add_custom_cb(GtkWidget *widget, gpointer data)
@@ -231,15 +236,15 @@ static void add_custom_cb(GtkWidget *widget, gpointer data)
     (void)data;
 
     GtkWidget *dialog = gtk_dialog_new_with_buttons(
-        "Adicionar programa de inicio automatico", GTK_WINDOW(window), GTK_DIALOG_MODAL,
-        GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL, GTK_STOCK_OK, GTK_RESPONSE_OK, NULL);
+        _("Adicionar programa de inicio automatico"), GTK_WINDOW(window), GTK_DIALOG_MODAL,
+        _("_Cancelar"), GTK_RESPONSE_CANCEL, _("_OK"), GTK_RESPONSE_OK, NULL);
 
     GtkWidget *table = gtk_table_new(2, 2, FALSE);
     gtk_container_set_border_width(GTK_CONTAINER(table), 8);
     GtkWidget *name_entry = gtk_entry_new();
-    labeled_row(table, 0, "Nome:", name_entry);
+    labeled_row(table, 0, _("Nome:"), name_entry);
     GtkWidget *cmd_entry = gtk_entry_new();
-    labeled_row(table, 1, "Comando:", cmd_entry);
+    labeled_row(table, 1, _("Comando:"), cmd_entry);
     gtk_box_pack_start(GTK_BOX(GTK_DIALOG(dialog)->vbox), table, TRUE, TRUE, 0);
     gtk_widget_show_all(table);
 
@@ -368,28 +373,30 @@ GtkWidget *build_autostart_tab(void)
     for (int i = 0; i < N_KISESSION_SERVICES; i++) {
         g_service_chk[i] = gtk_check_button_new();
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_service_chk[i]), cfg.enabled[i]);
-        labeled_row(svc_table, i, KISESSION_SERVICES[i].doc, g_service_chk[i]);
+        labeled_row(svc_table, i, _(KISESSION_SERVICES[i].doc), g_service_chk[i]);
     }
     GtkWidget *svc_box = gtk_vbox_new(FALSE, 4);
     gtk_box_pack_start(GTK_BOX(svc_box), svc_table, FALSE, FALSE, 0);
     GtkWidget *svc_apply = gtk_button_new_with_label(_("Aplicar servicos (recarrega kisession na hora)"));
-    g_signal_connect(svc_apply, "clicked", G_CALLBACK(apply_services_cb), NULL);
+    g_signal_connect(svc_apply, "clicked", G_CALLBACK(apply_services_cb), svc_box);
     GtkWidget *svc_btnbox = gtk_hbox_new(FALSE, 0);
     gtk_box_pack_end(GTK_BOX(svc_btnbox), svc_apply, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(svc_box), svc_btnbox, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(content), frame_with("Servicos do KiDesktop (kisession.conf)", svc_box), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(content), frame_with(_("Servicos do KiDesktop (kisession.conf)"), svc_box), FALSE, FALSE, 0);
 
     /* XDG autostart (installed apps) */
     g_autostart_store = gtk_list_store_new(N_AS_COLS, G_TYPE_BOOLEAN, G_TYPE_STRING, G_TYPE_INT);
+    g_autostart_view = NULL; /* the previous visit's view is gone */
     refill_autostart_store();
 
     GtkWidget *as_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_autostart_store));
+    g_autostart_view = as_view;
     GtkCellRenderer *en_r = gtk_cell_renderer_toggle_new();
     g_signal_connect(en_r, "toggled", G_CALLBACK(as_cell_toggled), NULL);
     gtk_tree_view_append_column(GTK_TREE_VIEW(as_view),
-        gtk_tree_view_column_new_with_attributes("Ativo", en_r, "active", COL_AS_ENABLED, NULL));
+        gtk_tree_view_column_new_with_attributes(_("Ativo"), en_r, "active", COL_AS_ENABLED, NULL));
     GtkCellRenderer *name_r = gtk_cell_renderer_text_new();
-    GtkTreeViewColumn *name_col = gtk_tree_view_column_new_with_attributes("Programa", name_r, "text", COL_AS_NAME, NULL);
+    GtkTreeViewColumn *name_col = gtk_tree_view_column_new_with_attributes(_("Programa"), name_r, "text", COL_AS_NAME, NULL);
     gtk_tree_view_column_set_expand(name_col, TRUE);
     gtk_tree_view_append_column(GTK_TREE_VIEW(as_view), name_col);
 
@@ -402,8 +409,8 @@ GtkWidget *build_autostart_tab(void)
     gtk_box_pack_start(GTK_BOX(as_box), as_scroll, TRUE, TRUE, 0);
 
     GtkWidget *note = gtk_label_new(
-        "Aplicativos instalados que se registram para iniciar com a sessao (fcitx, "
-        "opensnitch, ...), mais os que voce adicionar. Valem a partir do proximo login.");
+        _("Aplicativos instalados que se registram para iniciar com a sessao (fcitx, "
+        "opensnitch, ...), mais os que voce adicionar. Valem a partir do proximo login."));
     gtk_misc_set_alignment(GTK_MISC(note), 0.0, 0.5);
     gtk_label_set_line_wrap(GTK_LABEL(note), TRUE);
     gtk_box_pack_start(GTK_BOX(as_box), note, FALSE, FALSE, 0);
@@ -420,7 +427,7 @@ GtkWidget *build_autostart_tab(void)
     gtk_box_pack_end(GTK_BOX(as_btnbox), as_apply, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(as_box), as_btnbox, FALSE, FALSE, 0);
 
-    gtk_box_pack_start(GTK_BOX(content), frame_with("Inicio automatico (XDG autostart)", as_box), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(content), frame_with(_("Inicio automatico (XDG autostart)"), as_box), FALSE, FALSE, 0);
 
     return outer;
 }

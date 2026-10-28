@@ -347,7 +347,8 @@ static void do_action(const char *verb)
     }
     if (!strcmp(verb, "stop") || !strcmp(verb, "disable")) {
         GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(gtk_widget_get_toplevel(g_view)), GTK_DIALOG_MODAL,
-            GTK_MESSAGE_QUESTION, GTK_BUTTONS_YES_NO, _("Confirma (%s) o servico %s?"), verb, name);
+            GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE, _("Confirma (%s) o servico %s?"), verb, name);
+        dialog_add_answers(dlg, GTK_BUTTONS_YES_NO);
         int r = gtk_dialog_run(GTK_DIALOG(dlg));
         gtk_widget_destroy(dlg);
         if (r != GTK_RESPONSE_YES) {
@@ -436,7 +437,8 @@ GtkWidget *build_services_tab(void)
         g_signal_connect(b, "clicked", BTNS[i].cb, NULL);
         gtk_box_pack_start(GTK_BOX(row), b, FALSE, FALSE, 0);
     }
-    GtkWidget *refresh = gtk_button_new_from_stock(GTK_STOCK_REFRESH);
+    GtkWidget *refresh = gtk_button_new_with_mnemonic(_("_Atualizar"));
+    gtk_button_set_image(GTK_BUTTON(refresh), gtk_image_new_from_stock(GTK_STOCK_REFRESH, GTK_ICON_SIZE_BUTTON));
     g_signal_connect(refresh, "clicked", G_CALLBACK(on_refresh), NULL);
     gtk_box_pack_end(GTK_BOX(row), refresh, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(outer), row, FALSE, FALSE, 0);
@@ -447,5 +449,6 @@ GtkWidget *build_services_tab(void)
     gtk_box_pack_start(GTK_BOX(outer), g_status, FALSE, FALSE, 0);
 
     reload_services();
+    kiconf_track_ignore(outer); /* every button acts right away */
     return outer;
 }

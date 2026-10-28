@@ -15,6 +15,7 @@
 #include <stdio.h>
 
 #include "../shared/xis_i18n.h"
+#include "track.h"
 
 #define NAME_LEN 128
 #define JSON_BUF_LEN 65536
@@ -85,6 +86,13 @@ GtkWidget *labeled_row(GtkWidget *table, int row, const char *label_text, GtkWid
  * ':' dropped). labeled_row() and frame_with() already do this. */
 void a11y_name(GtkWidget *widget, const char *text);
 GtkWidget *frame_with(const char *title, GtkWidget *child);
+
+/* Answer buttons for a gtk_message_dialog_new(..., GTK_BUTTONS_NONE, ...):
+ * `which` is the GTK_BUTTONS_* set it stands in for. GTK's own stock
+ * labels ("Yes", "Cancel") are translated by GTK's catalog, which isn't
+ * installed everywhere; these use kiconf's. Also titles an untitled
+ * dialog, which the window manager would otherwise call "Untitled". */
+void dialog_add_answers(GtkWidget *dlg, GtkButtonsType which);
 
 /* "#rrggbb"/"#rrggbbaa" <-> GtkColorButton -- used by every tab that edits
  * a flat color setting (Aparencia, Gerenciamento de janelas, Efeitos do

@@ -221,8 +221,8 @@ static void refresh_status(void)
 {
     gtk_label_set_text(GTK_LABEL(g_status_label),
                         process_running("kiwm")
-                            ? "kiwm esta em execucao."
-                            : "kiwm nao esta em execucao -- estas configuracoes valem para a proxima vez que ele iniciar.");
+                            ? _("kiwm esta em execucao.")
+                            : _("kiwm nao esta em execucao -- estas configuracoes valem para a proxima vez que ele iniciar."));
 }
 
 static const char *const MOD_KEY_OPTS[] = {"meta", "alt", NULL};
@@ -378,7 +378,9 @@ static void save_janelas_cb(GtkWidget *widget, gpointer data)
         fclose(in);
     }
 
-    xis_write_commit(out, tmp, path, xis_check_lines);
+    if (xis_write_commit(out, tmp, path, xis_check_lines) == 0) {
+        kiconf_track_applied(widget);
+    }
 
     refresh_status();
 }
@@ -412,23 +414,23 @@ GtkWidget *build_windows_tab(void)
 
     /* Decoracao */
     GtkWidget *deco_table = gtk_table_new(4, 2, FALSE);
-    g_deco_bg_btn = labeled_row(deco_table, 0, "Cor de fundo:", make_color_button(c.deco_bg));
-    g_deco_fg_btn = labeled_row(deco_table, 1, "Cor do texto:", make_color_button(c.deco_fg));
+    g_deco_bg_btn = labeled_row(deco_table, 0, _("Cor de fundo:"), make_color_button(c.deco_bg));
+    g_deco_fg_btn = labeled_row(deco_table, 1, _("Cor do texto:"), make_color_button(c.deco_fg));
     g_hide_deco_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_hide_deco_chk), c.hide_deco_on_maximize);
-    labeled_row(deco_table, 2, "Ocultar decoracao ao maximizar:", g_hide_deco_chk);
+    labeled_row(deco_table, 2, _("Ocultar decoracao ao maximizar:"), g_hide_deco_chk);
     g_theme_entry = gtk_entry_new();
     gtk_entry_set_text(GTK_ENTRY(g_theme_entry), c.theme);
-    labeled_row(deco_table, 3, "Tema:", g_theme_entry);
-    gtk_box_pack_start(GTK_BOX(content), frame_with("Decoracao", deco_table), FALSE, FALSE, 0);
+    labeled_row(deco_table, 3, _("Tema:"), g_theme_entry);
+    gtk_box_pack_start(GTK_BOX(content), frame_with(_("Decoracao"), deco_table), FALSE, FALSE, 0);
 
     GtkWidget *titlebar_table = gtk_table_new(1, 2, FALSE);
     g_titlebar_entry = gtk_entry_new();
     gtk_entry_set_text(GTK_ENTRY(g_titlebar_entry), c.titlebar_layout);
-    labeled_row(titlebar_table, 0, "Elementos da barra de titulo:", g_titlebar_entry);
-    gtk_box_pack_start(GTK_BOX(content), frame_with("Barra de titulo (lista separada por virgulas: icon,title,"
+    labeled_row(titlebar_table, 0, _("Elementos da barra de titulo:"), g_titlebar_entry);
+    gtk_box_pack_start(GTK_BOX(content), frame_with(_("Barra de titulo (lista separada por virgulas: icon,title,"
                                                  "shade,minimize,maximize,close,keep_above,keep_all_desktops,appmenu,"
-                                                 "clipboard)",
+                                                 "clipboard)"),
                                                  titlebar_table),
                         FALSE, FALSE, 0);
 
@@ -436,115 +438,115 @@ GtkWidget *build_windows_tab(void)
     GtkWidget *border_table = gtk_table_new(4, 2, FALSE);
     g_border_thick_spin = gtk_spin_button_new_with_range(0, 64, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_border_thick_spin), c.border_thickness);
-    labeled_row(border_table, 0, "Espessura da borda:", g_border_thick_spin);
-    g_border_color_btn = labeled_row(border_table, 1, "Cor da borda:", make_color_button(c.border_color));
+    labeled_row(border_table, 0, _("Espessura da borda:"), g_border_thick_spin);
+    g_border_color_btn = labeled_row(border_table, 1, _("Cor da borda:"), make_color_button(c.border_color));
     g_grip_spin = gtk_spin_button_new_with_range(0, 128, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_grip_spin), c.resize_grip);
-    labeled_row(border_table, 2, "Faixa de redimensionamento (px):", g_grip_spin);
+    labeled_row(border_table, 2, _("Faixa de redimensionamento (px):"), g_grip_spin);
     g_live_resize_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_live_resize_chk), c.live_resize);
-    labeled_row(border_table, 3, "Redimensionar ao vivo:", g_live_resize_chk);
-    gtk_box_pack_start(GTK_BOX(content), frame_with("Borda e redimensionamento", border_table), FALSE, FALSE, 0);
+    labeled_row(border_table, 3, _("Redimensionar ao vivo:"), g_live_resize_chk);
+    gtk_box_pack_start(GTK_BOX(content), frame_with(_("Borda e redimensionamento"), border_table), FALSE, FALSE, 0);
 
     /* Encaixe (snap) */
     GtkWidget *snap_table = gtk_table_new(13, 2, FALSE);
     g_snap_spin = gtk_spin_button_new_with_range(0, 200, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_snap_spin), c.snap_threshold);
-    labeled_row(snap_table, 0, "Distancia para encaixar na borda da tela (px):", g_snap_spin);
+    labeled_row(snap_table, 0, _("Distancia para encaixar na borda da tela (px):"), g_snap_spin);
     g_side_zones_spin = gtk_spin_button_new_with_range(1, 12, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_side_zones_spin), c.side_zones);
-    labeled_row(snap_table, 1, "Linhas empilhadas ao encaixar nas laterais:", g_side_zones_spin);
+    labeled_row(snap_table, 1, _("Linhas empilhadas ao encaixar nas laterais:"), g_side_zones_spin);
     g_vsb_spin = gtk_spin_button_new_with_range(1, 12, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_vsb_spin), c.vertical_snap_by);
-    labeled_row(snap_table, 2, "Divisor de largura ao encaixar nas laterais (2 = metade):", g_vsb_spin);
+    labeled_row(snap_table, 2, _("Divisor de largura ao encaixar nas laterais (2 = metade):"), g_vsb_spin);
     g_snap_mod_combo = make_options_combo(SNAP_MOD_OPTS, c.snap_mod);
-    labeled_row(snap_table, 3, "Modificador para uma segunda grade de encaixe:", g_snap_mod_combo);
+    labeled_row(snap_table, 3, _("Modificador para uma segunda grade de encaixe:"), g_snap_mod_combo);
     g_side_zones_mod_spin = gtk_spin_button_new_with_range(1, 12, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_side_zones_mod_spin), c.side_zones_mod);
-    labeled_row(snap_table, 4, "Linhas empilhadas com o modificador segurado:", g_side_zones_mod_spin);
+    labeled_row(snap_table, 4, _("Linhas empilhadas com o modificador segurado:"), g_side_zones_mod_spin);
     g_vsb_mod_spin = gtk_spin_button_new_with_range(1, 12, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_vsb_mod_spin), c.vertical_snap_by_mod);
-    labeled_row(snap_table, 5, "Divisor de largura com o modificador segurado:", g_vsb_mod_spin);
+    labeled_row(snap_table, 5, _("Divisor de largura com o modificador segurado:"), g_vsb_mod_spin);
     g_live_snap_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_live_snap_chk), c.live_snap_resize);
-    labeled_row(snap_table, 6, "Redimensionar ao vivo durante o encaixe:", g_live_snap_chk);
+    labeled_row(snap_table, 6, _("Redimensionar ao vivo durante o encaixe:"), g_live_snap_chk);
     g_outline_w_spin = gtk_spin_button_new_with_range(1, 64, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_outline_w_spin), c.outline_width);
-    labeled_row(snap_table, 7, "Espessura do contorno de pre-visualizacao (px):", g_outline_w_spin);
+    labeled_row(snap_table, 7, _("Espessura do contorno de pre-visualizacao (px):"), g_outline_w_spin);
     g_outline_a_spin = gtk_spin_button_new_with_range(0.0, 1.0, 0.05);
     gtk_spin_button_set_digits(GTK_SPIN_BUTTON(g_outline_a_spin), 2);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_outline_a_spin), c.outline_alpha);
-    labeled_row(snap_table, 8, "Opacidade do contorno (com compositor):", g_outline_a_spin);
+    labeled_row(snap_table, 8, _("Opacidade do contorno (com compositor):"), g_outline_a_spin);
     g_magnet_spin = gtk_spin_button_new_with_range(0, 200, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_magnet_spin), c.magnet_threshold);
-    labeled_row(snap_table, 9, "Distancia para encaixar em outra janela (px):", g_magnet_spin);
+    labeled_row(snap_table, 9, _("Distancia para encaixar em outra janela (px):"), g_magnet_spin);
     g_link_resize_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_link_resize_chk), c.link_resize_neighbors);
-    labeled_row(snap_table, 10, "Redimensionar vizinhas junto:", g_link_resize_chk);
+    labeled_row(snap_table, 10, _("Redimensionar vizinhas junto:"), g_link_resize_chk);
     g_gap_spin = gtk_spin_button_new_with_range(0, 64, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_gap_spin), c.window_gap);
-    labeled_row(snap_table, 11, "Espacamento em janelas maximizadas/lado a lado (px):", g_gap_spin);
+    labeled_row(snap_table, 11, _("Espacamento em janelas maximizadas/lado a lado (px):"), g_gap_spin);
     g_gap_off_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_gap_off_chk), c.gap_off_when_maximized);
-    labeled_row(snap_table, 12, "Desligar o espacamento com janela maximizada:", g_gap_off_chk);
-    gtk_box_pack_start(GTK_BOX(content), frame_with("Encaixe (snap)", snap_table), FALSE, FALSE, 0);
+    labeled_row(snap_table, 12, _("Desligar o espacamento com janela maximizada:"), g_gap_off_chk);
+    gtk_box_pack_start(GTK_BOX(content), frame_with(_("Encaixe (snap)"), snap_table), FALSE, FALSE, 0);
 
     /* Comportamento */
     GtkWidget *behavior_table = gtk_table_new(9, 2, FALSE);
     g_modkey_combo = make_options_combo(MOD_KEY_OPTS, c.mod_key);
-    labeled_row(behavior_table, 0, "Modificador (mover/redimensionar):", g_modkey_combo);
+    labeled_row(behavior_table, 0, _("Modificador (mover/redimensionar):"), g_modkey_combo);
     g_ffm_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_ffm_chk), c.focus_follows_mouse);
-    labeled_row(behavior_table, 1, "Foco segue o mouse:", g_ffm_chk);
+    labeled_row(behavior_table, 1, _("Foco segue o mouse:"), g_ffm_chk);
     g_peek_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_peek_chk), c.shade_peek);
     gtk_widget_set_tooltip_text(g_peek_chk, _("Uma janela enrolada desenrola enquanto o mouse esta sobre a "
                                               "barra de titulo e enrola de novo assim que o mouse sai da janela."));
-    labeled_row(behavior_table, 2, "Janela enrolada desenrola sob o mouse:", g_peek_chk);
+    labeled_row(behavior_table, 2, _("Janela enrolada desenrola sob o mouse:"), g_peek_chk);
     g_peek_spin = gtk_spin_button_new_with_range(0, 5000, 50);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_peek_spin), c.shade_peek_delay);
-    labeled_row(behavior_table, 3, "Atraso para desenrolar (ms):", g_peek_spin);
+    labeled_row(behavior_table, 3, _("Atraso para desenrolar (ms):"), g_peek_spin);
     g_fsp_combo = make_options_combo(FSP_OPTS, c.focus_stealing_prevention);
-    labeled_row(behavior_table, 4, "Prevencao de roubo de foco:", g_fsp_combo);
+    labeled_row(behavior_table, 4, _("Prevencao de roubo de foco:"), g_fsp_combo);
     g_force_unflip_combo = make_options_combo(FORCE_UNFLIP_OPTS, c.force_unflip);
-    labeled_row(behavior_table, 5, "Repintar apos tela cheia:", g_force_unflip_combo);
+    labeled_row(behavior_table, 5, _("Repintar apos tela cheia:"), g_force_unflip_combo);
     g_auto_argb_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_auto_argb_chk), c.auto_switch_argb);
-    labeled_row(behavior_table, 6, "Trocar para ARGB automaticamente com compositor:", g_auto_argb_chk);
+    labeled_row(behavior_table, 6, _("Trocar para ARGB automaticamente com compositor:"), g_auto_argb_chk);
     g_new_win_combo = make_options_combo(NEW_WIN_OPTS, c.new_window_output);
-    labeled_row(behavior_table, 7, "Saida para novas janelas:", g_new_win_combo);
+    labeled_row(behavior_table, 7, _("Saida para novas janelas:"), g_new_win_combo);
     g_appmenu_entry = gtk_entry_new();
     gtk_entry_set_text(GTK_ENTRY(g_appmenu_entry), c.appmenu_command);
-    labeled_row(behavior_table, 8, "Comando do botao de menu (appmenu):", g_appmenu_entry);
-    gtk_box_pack_start(GTK_BOX(content), frame_with("Comportamento", behavior_table), FALSE, FALSE, 0);
+    labeled_row(behavior_table, 8, _("Comando do botao de menu (appmenu):"), g_appmenu_entry);
+    gtk_box_pack_start(GTK_BOX(content), frame_with(_("Comportamento"), behavior_table), FALSE, FALSE, 0);
 
     /* Areas de trabalho */
     GtkWidget *desk_table = gtk_table_new(3, 2, FALSE);
     g_ndesk_spin = gtk_spin_button_new_with_range(1, 64, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_ndesk_spin), c.num_desktops);
-    labeled_row(desk_table, 0, "Numero de areas de trabalho (por saida):", g_ndesk_spin);
+    labeled_row(desk_table, 0, _("Numero de areas de trabalho (por saida):"), g_ndesk_spin);
     g_dcols_spin = gtk_spin_button_new_with_range(0, 64, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_dcols_spin), c.desktop_columns);
-    labeled_row(desk_table, 1, "Colunas na grade (0 = automatico):", g_dcols_spin);
+    labeled_row(desk_table, 1, _("Colunas na grade (0 = automatico):"), g_dcols_spin);
     g_drows_spin = gtk_spin_button_new_with_range(0, 64, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_drows_spin), c.desktop_rows);
-    labeled_row(desk_table, 2, "Linhas na grade (0 = automatico):", g_drows_spin);
-    gtk_box_pack_start(GTK_BOX(content), frame_with("Areas de trabalho", desk_table), FALSE, FALSE, 0);
+    labeled_row(desk_table, 2, _("Linhas na grade (0 = automatico):"), g_drows_spin);
+    gtk_box_pack_start(GTK_BOX(content), frame_with(_("Areas de trabalho"), desk_table), FALSE, FALSE, 0);
 
     /* Alternador (Alt+Tab / ModKey+Tab) */
     GtkWidget *osd_table = gtk_table_new(8, 2, FALSE);
     g_osd_enabled_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_osd_enabled_chk), c.osd_enabled);
-    labeled_row(osd_table, 0, "Mostrar sobreposicao ao segurar o atalho:", g_osd_enabled_chk);
+    labeled_row(osd_table, 0, _("Mostrar sobreposicao ao segurar o atalho:"), g_osd_enabled_chk);
     g_osd_live_win_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_osd_live_win_chk), c.osd_live_preview_windows);
-    labeled_row(osd_table, 1, "Pre-visualizar janela ao vivo:", g_osd_live_win_chk);
+    labeled_row(osd_table, 1, _("Pre-visualizar janela ao vivo:"), g_osd_live_win_chk);
     g_osd_live_desk_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_osd_live_desk_chk), c.osd_live_preview_desktops);
-    labeled_row(osd_table, 2, "Pre-visualizar area de trabalho ao vivo:", g_osd_live_desk_chk);
+    labeled_row(osd_table, 2, _("Pre-visualizar area de trabalho ao vivo:"), g_osd_live_desk_chk);
     g_osd_pointer_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_osd_pointer_chk), c.osd_output_follows_pointer);
-    labeled_row(osd_table, 3, "Abrir sempre na saida do ponteiro:", g_osd_pointer_chk);
+    labeled_row(osd_table, 3, _("Abrir sempre na saida do ponteiro:"), g_osd_pointer_chk);
     /* Plain-language labels; combo_text() still maps the row index to the
      * "list"/"mru" value kiwm.conf wants. */
     g_osd_order_combo = gtk_combo_box_new_text();
@@ -553,17 +555,17 @@ GtkWidget *build_windows_tab(void)
     gtk_combo_box_set_active(GTK_COMBO_BOX(g_osd_order_combo), strcmp(c.osd_order, "mru") == 0 ? 1 : 0);
     gtk_widget_set_tooltip_text(g_osd_order_combo, _("Com \"usadas mais recentemente primeiro\", um unico Tab "
                                                      "volta pra janela anterior"));
-    labeled_row(osd_table, 4, "Ordem da lista de janelas:", g_osd_order_combo);
+    labeled_row(osd_table, 4, _("Ordem da lista de janelas:"), g_osd_order_combo);
     g_osd_deskwin_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_osd_deskwin_chk), c.osd_desktop_windows);
-    labeled_row(osd_table, 5, "Desenhar janelas dentro de cada area de trabalho:", g_osd_deskwin_chk);
+    labeled_row(osd_table, 5, _("Desenhar janelas dentro de cada area de trabalho:"), g_osd_deskwin_chk);
     g_osd_cover_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_osd_cover_chk), c.osd_cover_switch);
-    labeled_row(osd_table, 6, "Usar efeito cover-switch do compositor, se houver:", g_osd_cover_chk);
+    labeled_row(osd_table, 6, _("Usar efeito cover-switch do compositor, se houver:"), g_osd_cover_chk);
     g_osd_other_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_osd_other_chk), c.osd_other_desktops);
-    labeled_row(osd_table, 7, "Listar janelas de outras areas de trabalho:", g_osd_other_chk);
-    gtk_box_pack_start(GTK_BOX(content), frame_with("Alternador (Alt+Tab / ModKey+Tab)", osd_table), FALSE, FALSE, 0);
+    labeled_row(osd_table, 7, _("Listar janelas de outras areas de trabalho:"), g_osd_other_chk);
+    gtk_box_pack_start(GTK_BOX(content), frame_with(_("Alternador (Alt+Tab / ModKey+Tab)"), osd_table), FALSE, FALSE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 6);
     GtkWidget *restart_btn = gtk_button_new_with_label(_("Reiniciar kiwm agora"));

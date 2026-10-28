@@ -107,9 +107,12 @@ static void save_events_cb(GtkWidget *widget, gpointer data)
         g_free(desc);
         valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(g_events_store), &it);
     }
-    xis_write_commit(f, tmp, path, xis_check_lines);
+    if (xis_write_commit(f, tmp, path, xis_check_lines) != 0) {
+        return;
+    }
 
     gtk_label_set_text(GTK_LABEL(g_events_status_label), _("Gravado."));
+    kiconf_track_applied(g_events_status_label);
 }
 
 static void add_event_cb(GtkWidget *widget, gpointer data)
@@ -171,7 +174,7 @@ static GtkTreeViewColumn *make_recur_column(void)
     g_object_unref(options);
     g_signal_connect(renderer, "edited", G_CALLBACK(event_cell_edited), GINT_TO_POINTER(COL_EV_RECUR));
 
-    return gtk_tree_view_column_new_with_attributes("Recorrencia", renderer, "text", COL_EV_RECUR, NULL);
+    return gtk_tree_view_column_new_with_attributes(_("Recorrencia"), renderer, "text", COL_EV_RECUR, NULL);
 }
 
 /* "Ver feriados": a plain read-only list of the public holidays of the
@@ -224,7 +227,7 @@ static void show_holidays_cb(GtkWidget *widget, gpointer data)
     (void)data;
     GtkWidget *dlg = gtk_dialog_new_with_buttons(_("Feriados"), GTK_WINDOW(gtk_widget_get_toplevel(widget)),
                                                  GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
-                                                 GTK_STOCK_CLOSE, GTK_RESPONSE_CLOSE, NULL);
+                                                 _("_Fechar"), GTK_RESPONSE_CLOSE, NULL);
     gtk_window_set_default_size(GTK_WINDOW(dlg), 340, 380);
     GtkWidget *box = GTK_DIALOG(dlg)->vbox;
     gtk_box_set_spacing(GTK_BOX(box), 6);
@@ -271,9 +274,9 @@ GtkWidget *build_events_tab(void)
     gtk_container_set_border_width(GTK_CONTAINER(outer), 8);
 
     GtkWidget *info = gtk_label_new(
-        "Eventos e feriados pessoais mostrados na aba Calendario do xisserve. "
+        _("Eventos e feriados pessoais mostrados na aba Calendario do xisserve. "
         "Data no formato AAAA-MM-DD -- para eventos recorrentes ela e so a data "
-        "da primeira ocorrencia (o ano e ignorado exceto em NONE/YEARLY).");
+        "da primeira ocorrencia (o ano e ignorado exceto em NONE/YEARLY)."));
     gtk_misc_set_alignment(GTK_MISC(info), 0.0, 0.5);
     gtk_label_set_line_wrap(GTK_LABEL(info), TRUE);
     gtk_box_pack_start(GTK_BOX(outer), info, FALSE, FALSE, 0);
@@ -286,21 +289,21 @@ GtkWidget *build_events_tab(void)
     g_object_set(date_r, "editable", TRUE, NULL);
     g_signal_connect(date_r, "edited", G_CALLBACK(event_cell_edited), GINT_TO_POINTER(COL_EV_DATE));
     gtk_tree_view_append_column(GTK_TREE_VIEW(view),
-        gtk_tree_view_column_new_with_attributes("Data", date_r, "text", COL_EV_DATE, NULL));
+        gtk_tree_view_column_new_with_attributes(_("Data"), date_r, "text", COL_EV_DATE, NULL));
 
     gtk_tree_view_append_column(GTK_TREE_VIEW(view), make_recur_column());
 
     GtkCellRenderer *name_r = gtk_cell_renderer_text_new();
     g_object_set(name_r, "editable", TRUE, NULL);
     g_signal_connect(name_r, "edited", G_CALLBACK(event_cell_edited), GINT_TO_POINTER(COL_EV_NAME));
-    GtkTreeViewColumn *name_col = gtk_tree_view_column_new_with_attributes("Nome", name_r, "text", COL_EV_NAME, NULL);
+    GtkTreeViewColumn *name_col = gtk_tree_view_column_new_with_attributes(_("Nome"), name_r, "text", COL_EV_NAME, NULL);
     gtk_tree_view_column_set_expand(name_col, TRUE);
     gtk_tree_view_append_column(GTK_TREE_VIEW(view), name_col);
 
     GtkCellRenderer *desc_r = gtk_cell_renderer_text_new();
     g_object_set(desc_r, "editable", TRUE, NULL);
     g_signal_connect(desc_r, "edited", G_CALLBACK(event_cell_edited), GINT_TO_POINTER(COL_EV_DESC));
-    GtkTreeViewColumn *desc_col = gtk_tree_view_column_new_with_attributes("Descricao", desc_r, "text", COL_EV_DESC, NULL);
+    GtkTreeViewColumn *desc_col = gtk_tree_view_column_new_with_attributes(_("Descricao"), desc_r, "text", COL_EV_DESC, NULL);
     gtk_tree_view_column_set_expand(desc_col, TRUE);
     gtk_tree_view_append_column(GTK_TREE_VIEW(view), desc_col);
 

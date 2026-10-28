@@ -411,6 +411,7 @@ static void apply_cb(GtkWidget *widget, gpointer data)
     if (changed) {
         kisession_save(&ks);
     }
+    kiconf_track_applied(widget);
 }
 
 /* ---- tab ---------------------------------------------------------------- */

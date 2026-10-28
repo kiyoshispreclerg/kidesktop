@@ -227,9 +227,10 @@ static void apply_programs_cb(GtkWidget *widget, gpointer data)
     gchar *wm = gtk_combo_box_get_active_text(GTK_COMBO_BOX(g_wm_combo));
     KisessionConfig cfg;
     kisession_load(&cfg); /* fresh, so Iniciar automaticamente's service toggles survive */
-    snprintf(cfg.wm, sizeof(cfg.wm), "%s", (wm && strcmp(wm, "(automatico)")) ? wm : "");
+    snprintf(cfg.wm, sizeof(cfg.wm), "%s", (wm && strcmp(wm, _("(automatico)"))) ? wm : "");
     g_free(wm);
     kisession_save(&cfg);
+    kiconf_track_applied(widget);
 }
 
 GtkWidget *build_programs_tab(void)
@@ -274,15 +275,15 @@ GtkWidget *build_programs_tab(void)
         g_n_terminal_apps++;
     }
     gtk_combo_box_set_active(GTK_COMBO_BOX(g_terminal_combo), tidx >= 0 ? tidx : (g_n_terminal_apps > 0 ? 0 : -1));
-    labeled_row(apps_table, 4, "Terminal:", g_terminal_combo);
+    labeled_row(apps_table, 4, _("Terminal:"), g_terminal_combo);
 
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Aplicativos padrao", apps_table), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Aplicativos padrao"), apps_table), FALSE, FALSE, 0);
 
     GtkWidget *wm_table = gtk_table_new(1, 2, FALSE);
     KisessionConfig cfg;
     kisession_load(&cfg);
     g_wm_combo = gtk_combo_box_new_text();
-    gtk_combo_box_append_text(GTK_COMBO_BOX(g_wm_combo), "(automatico)");
+    gtk_combo_box_append_text(GTK_COMBO_BOX(g_wm_combo), _("(automatico)"));
     int widx = 0;
     for (int i = 0; WM_CANDIDATES[i]; i++) {
         gtk_combo_box_append_text(GTK_COMBO_BOX(g_wm_combo), WM_CANDIDATES[i]);
@@ -295,9 +296,9 @@ GtkWidget *build_programs_tab(void)
         widx = gtk_tree_model_iter_n_children(gtk_combo_box_get_model(GTK_COMBO_BOX(g_wm_combo)), NULL) - 1;
     }
     gtk_combo_box_set_active(GTK_COMBO_BOX(g_wm_combo), widx);
-    labeled_row(wm_table, 0, "Gerenciador de janelas a carregar:", g_wm_combo);
+    labeled_row(wm_table, 0, _("Gerenciador de janelas a carregar:"), g_wm_combo);
     gtk_box_pack_start(GTK_BOX(outer),
-                        frame_with("Sessao (kisession.conf -- \"(automatico)\" usa o primeiro instalado)", wm_table),
+                        frame_with(_("Sessao (kisession.conf -- \"(automatico)\" usa o primeiro instalado)"), wm_table),
                         FALSE, FALSE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 0);

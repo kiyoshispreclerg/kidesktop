@@ -560,6 +560,7 @@ static void on_dm_changed(GtkWidget *w, gpointer data)
     int i = gtk_combo_box_get_active(GTK_COMBO_BOX(g_dm_combo));
     if (i >= 0 && i < g_ncombo) {
         show_dm(g_combo_dm[i]);
+        kiconf_track_applied(g_dm_combo); /* that manager's saved settings */
     }
 }
 
@@ -589,8 +590,9 @@ static void on_apply(GtkWidget *w, gpointer data)
         read_cfg(g_dm, &cur);
         if (!cur.autologin) {
             GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(gtk_widget_get_toplevel(g_dm_combo)), GTK_DIALOG_MODAL,
-                GTK_MESSAGE_WARNING, GTK_BUTTONS_YES_NO,
+                GTK_MESSAGE_WARNING, GTK_BUTTONS_NONE,
                 _("Com o login automatico, qualquer pessoa que ligar este computador entra como %s sem senha. Ativar?"), c.user);
+            dialog_add_answers(dlg, GTK_BUTTONS_YES_NO);
             int r = gtk_dialog_run(GTK_DIALOG(dlg));
             gtk_widget_destroy(dlg);
             if (r != GTK_RESPONSE_YES) {
@@ -607,6 +609,7 @@ static void on_apply(GtkWidget *w, gpointer data)
         gtk_label_set_text(GTK_LABEL(g_status), _("Aplicado. Vale a partir do proximo login."));
         show_dm(g_dm);
         gtk_label_set_text(GTK_LABEL(g_status), _("Aplicado. Vale a partir do proximo login."));
+        kiconf_track_applied(g_status);
     } else if (rc == 126 || rc == 127) {
         gtk_label_set_text(GTK_LABEL(g_status), _("Autorizacao negada ou cancelada."));
     } else {

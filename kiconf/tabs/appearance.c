@@ -208,7 +208,7 @@ static GtkWidget *make_theme_combo_with_none(ThemeList *tl, const char *current)
 {
     theme_list_sort(tl);
     GtkWidget *combo = gtk_combo_box_new_text();
-    gtk_combo_box_append_text(GTK_COMBO_BOX(combo), "(nenhum)");
+    gtk_combo_box_append_text(GTK_COMBO_BOX(combo), _("(nenhum)"));
     int idx = 0;
     for (int i = 0; i < tl->n; i++) {
         gtk_combo_box_append_text(GTK_COMBO_BOX(combo), tl->names[i]);
@@ -229,7 +229,7 @@ static GtkWidget *make_theme_combo_with_none(ThemeList *tl, const char *current)
 static gchar *theme_combo_value(GtkWidget *combo)
 {
     gchar *t = gtk_combo_box_get_active_text(GTK_COMBO_BOX(combo));
-    if (!t || !strcmp(t, "(nenhum)")) {
+    if (!t || !strcmp(t, _("(nenhum)"))) {
         g_free(t);
         return g_strdup("");
     }
@@ -458,7 +458,9 @@ static void save_appearance_cb(GtkWidget *widget, gpointer data)
     fprintf(f, "qt_style = %s\n", a.qt_style);
     fprintf(f, "export_to_other_desktops = %d\n", a.export_other_desktops);
     fprintf(f, "theme = %s\n", a.kidesktop_theme);
-    xis_write_commit(f, tmp, path, xis_check_lines);
+    if (xis_write_commit(f, tmp, path, xis_check_lines) == 0) {
+        kiconf_track_applied(widget);
+    }
 
     signal_daemon("kiconfd");
 }
@@ -680,40 +682,40 @@ GtkWidget *build_appearance_tab(void)
     GtkWidget *cursor_table = gtk_table_new(2, 2, FALSE);
     ThemeList cursors = scan_cursor_themes();
     g_cursor_combo = make_theme_combo(&cursors, a.cursor_theme);
-    labeled_row(cursor_table, 0, "Tema de cursor:", g_cursor_combo);
+    labeled_row(cursor_table, 0, _("Tema de cursor:"), g_cursor_combo);
     g_cursor_size_spin = gtk_spin_button_new_with_range(8, 128, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_cursor_size_spin), a.cursor_size > 0 ? a.cursor_size : 24);
-    labeled_row(cursor_table, 1, "Tamanho:", g_cursor_size_spin);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Cursor", cursor_table), FALSE, FALSE, 0);
+    labeled_row(cursor_table, 1, _("Tamanho:"), g_cursor_size_spin);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Cursor"), cursor_table), FALSE, FALSE, 0);
 
     /* KiDesktop's own central theme (kiwm/xispanel/xisserve) */
     GtkWidget *kidesktop_table = gtk_table_new(1, 2, FALSE);
     ThemeList kithemes = scan_kidesktop_themes();
     g_kidesktop_theme_combo = make_theme_combo_with_none(&kithemes, a.kidesktop_theme);
-    labeled_row(kidesktop_table, 0, "Tema do KiDesktop:", g_kidesktop_theme_combo);
-    GtkWidget *kidesktop_frame = frame_with("Tema do KiDesktop (kiwm, xispanel)", kidesktop_table);
+    labeled_row(kidesktop_table, 0, _("Tema do KiDesktop:"), g_kidesktop_theme_combo);
+    GtkWidget *kidesktop_frame = frame_with(_("Tema do KiDesktop (kiwm, xispanel)"), kidesktop_table);
     gtk_widget_set_tooltip_text(kidesktop_frame,
-        "kiwm e xispanel leem primeiro seu proprio tema (kiwm.conf/xispanel.conf); qualquer\n"
+        _("kiwm e xispanel leem primeiro seu proprio tema (kiwm.conf/xispanel.conf); qualquer\n"
         "arquivo que faltar la (ou a ausencia de um tema proprio) cai neste tema central antes\n"
         "de usar a aparencia padrao embutida. xisserve nao usa isso -- so recebe cores via\n"
         "argumentos de quem o chama. Procurado em /usr/share/kidesktop/themes,\n"
-        "~/.local/share/kidesktop/themes e na pasta themes/ do codigo-fonte.");
+        "~/.local/share/kidesktop/themes e na pasta themes/ do codigo-fonte."));
     gtk_box_pack_start(GTK_BOX(outer), kidesktop_frame, FALSE, FALSE, 0);
 
     /* Toolkit themes */
     GtkWidget *themes_table = gtk_table_new(5, 2, FALSE);
     ThemeList gtk2t = scan_gtk_themes("gtk-2.0");
     g_gtk2_combo = make_theme_combo(&gtk2t, a.gtk2_theme);
-    labeled_row(themes_table, 0, "Tema GTK2:", g_gtk2_combo);
+    labeled_row(themes_table, 0, _("Tema GTK2:"), g_gtk2_combo);
     ThemeList gtk3t = scan_gtk_themes("gtk-3.0");
     g_gtk3_combo = make_theme_combo(&gtk3t, a.gtk3_theme);
-    labeled_row(themes_table, 1, "Tema GTK3:", g_gtk3_combo);
+    labeled_row(themes_table, 1, _("Tema GTK3:"), g_gtk3_combo);
     ThemeList gtk4t = scan_gtk_themes("gtk-4.0");
     g_gtk4_combo = make_theme_combo(&gtk4t, a.gtk4_theme);
-    labeled_row(themes_table, 2, "Tema GTK4:", g_gtk4_combo);
+    labeled_row(themes_table, 2, _("Tema GTK4:"), g_gtk4_combo);
     ThemeList icons = scan_icon_themes();
     g_icon_combo = make_theme_combo(&icons, a.icon_theme);
-    labeled_row(themes_table, 3, "Tema de icones:", g_icon_combo);
+    labeled_row(themes_table, 3, _("Tema de icones:"), g_icon_combo);
     g_qt_style_combo = gtk_combo_box_new_text();
     {
         static const char *qt_styles[] = {"Fusion", "Windows", "gtk2", "KiTheme", NULL};
@@ -730,7 +732,7 @@ GtkWidget *build_appearance_tab(void)
         }
         gtk_combo_box_set_active(GTK_COMBO_BOX(g_qt_style_combo), idx);
     }
-    labeled_row(themes_table, 4, "Estilo Qt (aprox.):", g_qt_style_combo);
+    labeled_row(themes_table, 4, _("Estilo Qt (aprox.):"), g_qt_style_combo);
     GtkWidget *kitheme_btn = gtk_button_new_with_label(_("Usar KiTheme em tudo"));
     gtk_widget_set_tooltip_text(kitheme_btn, _("Escolhe KiTheme para GTK2, GTK3, GTK4 e Qt (depois clique em Aplicar).\n"
                                                "A aparencia do KiTheme se ajusta na aba KiTheme."));
@@ -740,7 +742,7 @@ GtkWidget *build_appearance_tab(void)
     GtkWidget *themes_box = gtk_vbox_new(FALSE, 4);
     gtk_box_pack_start(GTK_BOX(themes_box), themes_table, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(themes_box), kitheme_row, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Temas dos toolkits", themes_box), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Temas dos toolkits"), themes_box), FALSE, FALSE, 0);
 
     /* Color scheme: opt-in, "none" leaves every theme's own colors alone.
      * Schemes are edited in the KiTheme tab. */
@@ -758,19 +760,19 @@ GtkWidget *build_appearance_tab(void)
     /* Fonts */
     GtkWidget *fonts_table = gtk_table_new(2, 2, FALSE);
     g_font_general_btn = gtk_font_button_new_with_font(a.font_general);
-    labeled_row(fonts_table, 0, "Fonte geral:", g_font_general_btn);
+    labeled_row(fonts_table, 0, _("Fonte geral:"), g_font_general_btn);
     g_font_mono_btn = gtk_font_button_new_with_font(a.font_monospace);
-    labeled_row(fonts_table, 1, "Fonte monoespacada:", g_font_mono_btn);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Fontes", fonts_table), FALSE, FALSE, 0);
+    labeled_row(fonts_table, 1, _("Fonte monoespacada:"), g_font_mono_btn);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Fontes"), fonts_table), FALSE, FALSE, 0);
 
     g_export_other_check = gtk_check_button_new_with_label(
-        "Exportar temas/cores/icones/cursor para outros desktops (GTK/Qt)");
+        _("Exportar temas/cores/icones/cursor para outros desktops (GTK/Qt)"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_export_other_check), a.export_other_desktops);
     gtk_widget_set_tooltip_text(g_export_other_check,
-        "Quando desligado (padrao), essa aparencia so vale para a sessao KiDesktop.\n"
+        _("Quando desligado (padrao), essa aparencia so vale para a sessao KiDesktop.\n"
         "Quando ligado, kiconfd tambem escreve em ~/.gtkrc-2.0, ~/.config/gtk-3.0 e "
         "gtk-4.0/settings.ini e ~/.config/qt5ct/qt6ct -- os mesmos arquivos que outros "
-        "desktops (ex.: KDE Plasma) usam, entao apps GTK/Qt tambem mudam de visual la.");
+        "desktops (ex.: KDE Plasma) usam, entao apps GTK/Qt tambem mudam de visual la."));
     gtk_box_pack_start(GTK_BOX(outer), g_export_other_check, FALSE, FALSE, 0);
 
     GtkWidget *import_btn = gtk_button_new_with_label(_("Importar da sessao atual"));

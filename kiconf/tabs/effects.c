@@ -306,8 +306,8 @@ static void refresh_status(void)
 {
     gtk_label_set_text(GTK_LABEL(g_status_label),
                         process_running("kicomp")
-                            ? "kicomp esta em execucao."
-                            : "kicomp nao esta em execucao -- estas configuracoes valem para a proxima vez que ele iniciar.");
+                            ? _("kicomp esta em execucao.")
+                            : _("kicomp nao esta em execucao -- estas configuracoes valem para a proxima vez que ele iniciar."));
 }
 
 static const char *const RENDERER_OPTS[] = {"auto", "xrender", "glx", "egl", NULL};
@@ -810,7 +810,7 @@ static void rebuild_fields(EffectDialogState *st, const OptToken *toks, int n_to
         const EffectField *f = &st->schema->fields[i];
         const char *val = n_toks > 0 ? opts_tokens_find(toks, n_toks, f->key) : NULL;
         st->field_widgets[i] = build_field_widget(f, val);
-        labeled_row(table, i, f->label, st->field_widgets[i]);
+        labeled_row(table, i, _(f->label), st->field_widgets[i]);
     }
     gtk_box_pack_start(GTK_BOX(st->fields_box), table, FALSE, FALSE, 0);
     gtk_widget_show_all(st->fields_box);
@@ -846,9 +846,9 @@ static void open_effect_dialog(GtkTreeIter *iter)
     EffectDialogState st;
     memset(&st, 0, sizeof(st));
 
-    GtkWidget *dialog = gtk_dialog_new_with_buttons(iter ? "Editar efeito" : "Adicionar efeito", NULL,
-                                                     GTK_DIALOG_MODAL, GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
-                                                     GTK_STOCK_OK, GTK_RESPONSE_OK, NULL);
+    GtkWidget *dialog = gtk_dialog_new_with_buttons(iter ? _("Editar efeito") : _("Adicionar efeito"), NULL,
+                                                     GTK_DIALOG_MODAL, _("_Cancelar"), GTK_RESPONSE_CANCEL,
+                                                     _("_OK"), GTK_RESPONSE_OK, NULL);
     gtk_window_set_default_size(GTK_WINDOW(dialog), 440, 380);
     GtkWidget *content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
     GtkWidget *outer = gtk_vbox_new(FALSE, 8);
@@ -857,15 +857,15 @@ static void open_effect_dialog(GtkTreeIter *iter)
 
     GtkWidget *top_table = gtk_table_new(3, 2, FALSE);
     st.effect_combo = make_options_combo(EFFECT_NAMES, initial_name);
-    labeled_row(top_table, 0, "Efeito:", st.effect_combo);
+    labeled_row(top_table, 0, _("Efeito:"), st.effect_combo);
     GtkWidget *instance_entry = gtk_entry_new();
     if (cur_instance) {
         gtk_entry_set_text(GTK_ENTRY(instance_entry), cur_instance);
     }
-    labeled_row(top_table, 1, "Instancia (opcional):", instance_entry);
+    labeled_row(top_table, 1, _("Instancia (opcional):"), instance_entry);
     GtkWidget *enabled_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(enabled_chk), cur_enabled);
-    labeled_row(top_table, 2, "Ativo:", enabled_chk);
+    labeled_row(top_table, 2, _("Ativo:"), enabled_chk);
     gtk_box_pack_start(GTK_BOX(outer), top_table, FALSE, FALSE, 0);
 
     gtk_box_pack_start(GTK_BOX(outer), gtk_hseparator_new(), FALSE, FALSE, 0);
@@ -971,19 +971,19 @@ static GtkWidget *build_effects_view(void)
 
     GtkCellRenderer *name_r = gtk_cell_renderer_text_new();
     gtk_tree_view_append_column(GTK_TREE_VIEW(view),
-        gtk_tree_view_column_new_with_attributes("Efeito", name_r, "text", COL_FX_NAME, NULL));
+        gtk_tree_view_column_new_with_attributes(_("Efeito"), name_r, "text", COL_FX_NAME, NULL));
 
     GtkCellRenderer *inst_r = gtk_cell_renderer_text_new();
     gtk_tree_view_append_column(GTK_TREE_VIEW(view),
-        gtk_tree_view_column_new_with_attributes("Instancia", inst_r, "text", COL_FX_INSTANCE, NULL));
+        gtk_tree_view_column_new_with_attributes(_("Instancia"), inst_r, "text", COL_FX_INSTANCE, NULL));
 
     GtkCellRenderer *en_r = gtk_cell_renderer_toggle_new();
     g_signal_connect(en_r, "toggled", G_CALLBACK(fx_cell_toggled), NULL);
     gtk_tree_view_append_column(GTK_TREE_VIEW(view),
-        gtk_tree_view_column_new_with_attributes("Ativo", en_r, "active", COL_FX_ENABLED, NULL));
+        gtk_tree_view_column_new_with_attributes(_("Ativo"), en_r, "active", COL_FX_ENABLED, NULL));
 
     GtkCellRenderer *opts_r = gtk_cell_renderer_text_new();
-    GtkTreeViewColumn *opts_col = gtk_tree_view_column_new_with_attributes("Opcoes", opts_r, "text", COL_FX_OPTS, NULL);
+    GtkTreeViewColumn *opts_col = gtk_tree_view_column_new_with_attributes(_("Opcoes"), opts_r, "text", COL_FX_OPTS, NULL);
     gtk_tree_view_column_set_expand(opts_col, TRUE);
     gtk_tree_view_append_column(GTK_TREE_VIEW(view), opts_col);
 
@@ -1090,7 +1090,9 @@ static void save_efeitos_cb(GtkWidget *widget, gpointer data)
         fclose(in);
     }
 
-    xis_write_commit(out, tmp, path, xis_check_lines);
+    if (xis_write_commit(out, tmp, path, xis_check_lines) == 0) {
+        kiconf_track_applied(widget);
+    }
 
     refresh_status();
 }
@@ -1137,18 +1139,18 @@ GtkWidget *build_effects_tab(void)
     GtkWidget *general_table = gtk_table_new(14, 2, FALSE);
     g_effects_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_effects_chk), g.effects);
-    labeled_row(general_table, 0, "Efeitos habilitados:", g_effects_chk);
+    labeled_row(general_table, 0, _("Efeitos habilitados:"), g_effects_chk);
     g_anim_spin = gtk_spin_button_new_with_range(0.0, 2000.0, 10.0);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_anim_spin), g.animation_duration);
-    labeled_row(general_table, 1, "Duracao animacoes (ms):", g_anim_spin);
+    labeled_row(general_table, 1, _("Duracao animacoes (ms):"), g_anim_spin);
     gtk_widget_set_tooltip_text(g_anim_spin, _("Duracao base das animacoes"));
     g_renderer_combo = make_options_combo(RENDERER_OPTS, g.renderer);
-    labeled_row(general_table, 2, "Renderizador:", g_renderer_combo);
+    labeled_row(general_table, 2, _("Renderizador:"), g_renderer_combo);
     g_presenter_combo = make_options_combo(PRESENTER_OPTS, g.presenter);
     /* Short labels + tooltips instead of the full sentence -- with "Geral"
      * and "Sombra" side by side, the longest labels here alone were
      * pushing this tab (and the window) well past the 700px minimum. */
-    labeled_row(general_table, 3, "Apresentador:", g_presenter_combo);
+    labeled_row(general_table, 3, _("Apresentador:"), g_presenter_combo);
     gtk_widget_set_tooltip_text(g_presenter_combo, _("present/copy"));
     g_single_drawable_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_single_drawable_chk), g.single_drawable);
@@ -1168,47 +1170,47 @@ GtkWidget *build_effects_tab(void)
     }
     gtk_widget_set_no_show_all(g_single_drawable_warn, TRUE);
     gtk_box_pack_start(GTK_BOX(single_box), g_single_drawable_warn, FALSE, FALSE, 0);
-    labeled_row(general_table, 4, "Unico drawable:", single_box);
+    labeled_row(general_table, 4, _("Unico drawable:"), single_box);
     gtk_widget_set_tooltip_text(g_single_drawable_chk, _("Compor tudo em um unico drawable"));
     g_signal_connect(g_single_drawable_chk, "toggled", G_CALLBACK(sync_single_drawable_warn), NULL);
     sync_single_drawable_warn();
     g_skip_wm_layers_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_skip_wm_layers_chk), g.skip_wm_layers);
-    labeled_row(general_table, 5, "Ignorar decoracao WM:", g_skip_wm_layers_chk);
+    labeled_row(general_table, 5, _("Ignorar decoracao WM:"), g_skip_wm_layers_chk);
     gtk_widget_set_tooltip_text(g_skip_wm_layers_chk, _("Ignorar camadas de decoracao do WM"));
     g_unredirect_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_unredirect_chk), g.unredirect_fullscreen);
-    labeled_row(general_table, 6, "Unredirect tela cheia:", g_unredirect_chk);
+    labeled_row(general_table, 6, _("Unredirect tela cheia:"), g_unredirect_chk);
     gtk_widget_set_tooltip_text(g_unredirect_chk, _("Desviar (unredirect) janela em tela cheia"));
     g_claim_spin = gtk_spin_button_new_with_range(0.0, 5000.0, 50.0);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_claim_spin), g.claim_ms);
-    labeled_row(general_table, 7, "Reivindicar janelas (ms):", g_claim_spin);
+    labeled_row(general_table, 7, _("Reivindicar janelas (ms):"), g_claim_spin);
     gtk_widget_set_tooltip_text(g_claim_spin, _("Tempo para reivindicar janelas ja abertas"));
     g_keep_hidden_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_keep_hidden_chk), g.keep_hidden_contents);
-    labeled_row(general_table, 8, "Manter janelas ocultas:", g_keep_hidden_chk);
+    labeled_row(general_table, 8, _("Manter janelas ocultas:"), g_keep_hidden_chk);
     gtk_widget_set_tooltip_text(g_keep_hidden_chk, _("Manter conteudo de janelas ocultas (expo/wall)"));
     g_live_windows_combo = make_options_combo(LIVE_WINDOWS_OPTS, g.live_windows);
-    labeled_row(general_table, 9, "Janelas ao vivo:", g_live_windows_combo);
+    labeled_row(general_table, 9, _("Janelas ao vivo:"), g_live_windows_combo);
     gtk_widget_set_tooltip_text(g_live_windows_combo, _("Janelas ao vivo em efeitos (expo/wall/cube)"));
     g_density_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_density_chk), g.density);
-    labeled_row(general_table, 10, "X-DENSITY:", g_density_chk);
+    labeled_row(general_table, 10, _("X-DENSITY:"), g_density_chk);
     gtk_widget_set_tooltip_text(g_density_chk, _("Decoracao/conteudo nitidos sob zoom"));
     g_capture_combo = make_options_combo(CAPTURE_OPTS, g.capture_mode);
-    labeled_row(general_table, 11, "Captura censurada:", g_capture_combo);
+    labeled_row(general_table, 11, _("Captura censurada:"), g_capture_combo);
     gtk_widget_set_tooltip_text(g_capture_combo,
         _("Oferece a gravadores de tela (kishot) uma imagem em que as janelas marcadas com \"Ocultar da captura de tela\" aparecem como uma cor chapada (fill) ou nem aparecem (hide). off = desligado: o gravador pinta retangulos pretos por conta propria."));
     g_capture_color_btn = make_color_button(g.capture_color);
-    labeled_row(general_table, 12, "Cor da censura:", g_capture_color_btn);
+    labeled_row(general_table, 12, _("Cor da censura:"), g_capture_color_btn);
     gtk_widget_set_tooltip_text(g_capture_color_btn, _("Cor das janelas censuradas no modo fill"));
     g_capture_sessions_spin = gtk_spin_button_new_with_range(1, 8, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_capture_sessions_spin), g.capture_sessions < 1 ? 2 : g.capture_sessions);
-    labeled_row(general_table, 13, "Gravadores simultaneos:", g_capture_sessions_spin);
+    labeled_row(general_table, 13, _("Gravadores simultaneos:"), g_capture_sessions_spin);
     gtk_widget_set_tooltip_text(g_capture_sessions_spin, _("Quantos gravadores a captura censurada atende ao mesmo tempo"));
     g_signal_connect(g_capture_combo, "changed", G_CALLBACK(capture_combo_changed_cb), NULL);
     sync_capture_widgets();
-    gtk_box_pack_start(GTK_BOX(top_row), frame_with("Geral", general_table), TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(top_row), frame_with(_("Geral"), general_table), TRUE, TRUE, 0);
 
     /* Sombra -- focused fields directly in the frame, unfocused override
      * nested inside it right below, instead of each being its own
@@ -1218,18 +1220,18 @@ GtkWidget *build_effects_tab(void)
     GtkWidget *shadow_table = gtk_table_new(8, 2, FALSE);
     g_sh_enabled_chk = gtk_check_button_new();
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_sh_enabled_chk), sh.enabled);
-    labeled_row(shadow_table, 0, "Sombra habilitada:", g_sh_enabled_chk);
+    labeled_row(shadow_table, 0, _("Sombra habilitada:"), g_sh_enabled_chk);
     g_sh_windows_entry = gtk_entry_new();
     gtk_entry_set_text(GTK_ENTRY(g_sh_windows_entry), sh.windows);
-    labeled_row(shadow_table, 1, "Tipos de janela:", g_sh_windows_entry);
+    labeled_row(shadow_table, 1, _("Tipos de janela:"), g_sh_windows_entry);
     gtk_widget_set_tooltip_text(g_sh_windows_entry, _("ex.: windows,menus"));
     g_sh_radius_spin = gtk_spin_button_new_with_range(1, 64, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sh_radius_spin), sh.radius);
-    labeled_row(shadow_table, 2, "Raio do desfoque (px):", g_sh_radius_spin);
+    labeled_row(shadow_table, 2, _("Raio do desfoque (px):"), g_sh_radius_spin);
     g_sh_opacity_spin = gtk_spin_button_new_with_range(0.0, 1.0, 0.05);
     gtk_spin_button_set_digits(GTK_SPIN_BUTTON(g_sh_opacity_spin), 2);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sh_opacity_spin), sh.opacity);
-    labeled_row(shadow_table, 3, "Opacidade:", g_sh_opacity_spin);
+    labeled_row(shadow_table, 3, _("Opacidade:"), g_sh_opacity_spin);
     GtkWidget *offset_box = gtk_hbox_new(FALSE, 4);
     g_sh_offx_spin = gtk_spin_button_new_with_range(-128, 128, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sh_offx_spin), sh.offset_x);
@@ -1241,16 +1243,16 @@ GtkWidget *build_effects_tab(void)
     gtk_box_pack_start(GTK_BOX(offset_box), g_sh_offx_spin, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(offset_box), gtk_label_new(_("Y:")), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(offset_box), g_sh_offy_spin, TRUE, TRUE, 0);
-    labeled_row(shadow_table, 4, "Deslocamento (px):", offset_box);
-    g_sh_color_btn = labeled_row(shadow_table, 5, "Cor:", make_color_button(sh.color));
+    labeled_row(shadow_table, 4, _("Deslocamento (px):"), offset_box);
+    g_sh_color_btn = labeled_row(shadow_table, 5, _("Cor:"), make_color_button(sh.color));
     g_sh_passive_entry = gtk_entry_new();
     gtk_entry_set_text(GTK_ENTRY(g_sh_passive_entry), sh.passive);
-    labeled_row(shadow_table, 6, "Sempre sem foco:", g_sh_passive_entry);
+    labeled_row(shadow_table, 6, _("Sempre sem foco:"), g_sh_passive_entry);
     gtk_widget_set_tooltip_text(g_sh_passive_entry,
         _("Tipos que tambem recebem sombra, sempre com o estilo de janela sem foco (ex.: dock,tooltip,notification). Vazio = desligado. Paineis junto a outra saida projetam sombra nela."));
     g_sh_nomax_entry = gtk_entry_new();
     gtk_entry_set_text(GTK_ENTRY(g_sh_nomax_entry), sh.no_over_max);
-    labeled_row(shadow_table, 7, "Sem sombra sobre maximizada:", g_sh_nomax_entry);
+    labeled_row(shadow_table, 7, _("Sem sombra sobre maximizada:"), g_sh_nomax_entry);
     gtk_widget_set_tooltip_text(g_sh_nomax_entry,
         _("Janelas que perdem a sombra enquanto outra janela maximizada (nos dois eixos) ou em tela cheia estiver na mesma saida (ex.: dock ou class:xispanel; aceita ! para excluir). Vazio = desligado."));
     gtk_box_pack_start(GTK_BOX(shadow_outer), shadow_table, FALSE, FALSE, 0);
@@ -1262,11 +1264,11 @@ GtkWidget *build_effects_tab(void)
     GtkWidget *shadow_i_table = gtk_table_new(5, 2, FALSE);
     g_sh_radius_i_spin = gtk_spin_button_new_with_range(1, 64, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sh_radius_i_spin), sh.radius_i);
-    labeled_row(shadow_i_table, 0, "Raio do desfoque (px):", g_sh_radius_i_spin);
+    labeled_row(shadow_i_table, 0, _("Raio do desfoque (px):"), g_sh_radius_i_spin);
     g_sh_opacity_i_spin = gtk_spin_button_new_with_range(0.0, 1.0, 0.05);
     gtk_spin_button_set_digits(GTK_SPIN_BUTTON(g_sh_opacity_i_spin), 2);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sh_opacity_i_spin), sh.opacity_i);
-    labeled_row(shadow_i_table, 1, "Opacidade:", g_sh_opacity_i_spin);
+    labeled_row(shadow_i_table, 1, _("Opacidade:"), g_sh_opacity_i_spin);
     GtkWidget *offset_i_box = gtk_hbox_new(FALSE, 4);
     g_sh_offx_i_spin = gtk_spin_button_new_with_range(-128, 128, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_sh_offx_i_spin), sh.offset_x_i);
@@ -1278,15 +1280,15 @@ GtkWidget *build_effects_tab(void)
     gtk_box_pack_start(GTK_BOX(offset_i_box), g_sh_offx_i_spin, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(offset_i_box), gtk_label_new(_("Y:")), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(offset_i_box), g_sh_offy_i_spin, TRUE, TRUE, 0);
-    labeled_row(shadow_i_table, 2, "Deslocamento (px):", offset_i_box);
-    g_sh_color_i_btn = labeled_row(shadow_i_table, 3, "Cor:", make_color_button(sh.color_i));
-    g_sh_inactive_frame = frame_with("Janelas sem foco", shadow_i_table);
+    labeled_row(shadow_i_table, 2, _("Deslocamento (px):"), offset_i_box);
+    g_sh_color_i_btn = labeled_row(shadow_i_table, 3, _("Cor:"), make_color_button(sh.color_i));
+    g_sh_inactive_frame = frame_with(_("Janelas sem foco"), shadow_i_table);
     gtk_widget_set_sensitive(g_sh_inactive_frame, sh.custom_inactive);
     g_signal_connect(g_sh_custom_i_chk, "toggled", G_CALLBACK(toggle_inactive_frame_cb), NULL);
     gtk_box_pack_start(GTK_BOX(shadow_i_outer), g_sh_inactive_frame, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(shadow_outer), shadow_i_outer, FALSE, FALSE, 0);
 
-    gtk_box_pack_start(GTK_BOX(top_row), frame_with("Sombra", shadow_outer), TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(top_row), frame_with(_("Sombra"), shadow_outer), TRUE, TRUE, 0);
 
     /* Efeitos (por secao [effect:nome] / [effect:nome:instancia]) */
     g_fx_store = gtk_list_store_new(N_FX_COLS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_BOOLEAN, G_TYPE_STRING);
@@ -1312,7 +1314,7 @@ GtkWidget *build_effects_tab(void)
     gtk_box_pack_start(GTK_BOX(fx_btnbox), fx_add, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(fx_btnbox), fx_rem, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(fx_box), fx_btnbox, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(content), frame_with("Efeitos", fx_box), TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(content), frame_with(_("Efeitos"), fx_box), TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(content), corners_build(), FALSE, FALSE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 6);

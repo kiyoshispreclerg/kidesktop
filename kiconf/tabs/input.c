@@ -410,6 +410,11 @@ static void on_pointer_device_changed(GtkComboBox *combo, gpointer data)
     gtk_widget_set_sensitive(g_pointer_lefth_chk, g_pointer_baseline.has_lefth);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_pointer_tap_chk), g_pointer_baseline.tapping);
     gtk_widget_set_sensitive(g_pointer_tap_chk, g_pointer_baseline.has_tap);
+    /* That device's own current values: nothing edited yet. */
+    kiconf_track_rebase(g_pointer_accel_spin);
+    kiconf_track_rebase(g_pointer_natural_chk);
+    kiconf_track_rebase(g_pointer_lefth_chk);
+    kiconf_track_rebase(g_pointer_tap_chk);
 }
 
 static int detect_disable_primsel(void)
@@ -538,6 +543,7 @@ static void apply_entrada_cb(GtkWidget *widget, gpointer data)
      * not just the one selected in the combo. */
     set_prop_all_pointers("libinput Middle Emulation Enabled", ic.middle_click_emulation);
     signal_daemon("kiconfd");
+    kiconf_track_applied(widget);
 }
 
 GtkWidget *build_input_tab(void)
@@ -560,10 +566,10 @@ GtkWidget *build_input_tab(void)
     for (int i = 0; i < ndev; i++) {
         gtk_combo_box_append_text(GTK_COMBO_BOX(g_pointer_combo), devnames[i]);
     }
-    labeled_row(ptr_table, 0, "Dispositivo:", g_pointer_combo);
+    labeled_row(ptr_table, 0, _("Dispositivo:"), g_pointer_combo);
     g_pointer_accel_spin = gtk_spin_button_new_with_range(-1.0, 1.0, 0.1);
     gtk_spin_button_set_digits(GTK_SPIN_BUTTON(g_pointer_accel_spin), 2);
-    labeled_row(ptr_table, 1, "Velocidade (Accel Speed):", g_pointer_accel_spin);
+    labeled_row(ptr_table, 1, _("Velocidade (Accel Speed):"), g_pointer_accel_spin);
     g_pointer_natural_chk = gtk_check_button_new_with_label(_("Rolagem natural"));
     gtk_table_attach(GTK_TABLE(ptr_table), g_pointer_natural_chk, 0, 2, 2, 3, GTK_FILL, GTK_FILL, 4, 2);
     g_pointer_lefth_chk = gtk_check_button_new_with_label(_("Canhoto (inverter botoes)"));
@@ -571,11 +577,12 @@ GtkWidget *build_input_tab(void)
     g_pointer_tap_chk = gtk_check_button_new_with_label(_("Tocar para clicar (touchpad)"));
     gtk_table_attach(GTK_TABLE(ptr_table), g_pointer_tap_chk, 0, 2, 4, 5, GTK_FILL, GTK_FILL, 4, 2);
     g_pointer_middle_chk = gtk_check_button_new_with_label(
-        "Emular clique do meio com clique direito e esquerdo simultaneos");
+        _("Emular clique do meio com clique direito e esquerdo simultaneos"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_pointer_middle_chk), ic.middle_click_emulation);
     gtk_table_attach(GTK_TABLE(ptr_table), g_pointer_middle_chk, 0, 2, 5, 6, GTK_FILL, GTK_FILL, 4, 2);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Ponteiro/touchpad", ptr_table), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Ponteiro/touchpad"), ptr_table), FALSE, FALSE, 0);
     g_signal_connect(g_pointer_combo, "changed", G_CALLBACK(on_pointer_device_changed), NULL);
+    kiconf_track_ignore(g_pointer_combo);
     if (ndev > 0) {
         gtk_combo_box_set_active(GTK_COMBO_BOX(g_pointer_combo), 0);
     } else {
@@ -591,47 +598,47 @@ GtkWidget *build_input_tab(void)
     gtk_table_attach(GTK_TABLE(kbd_table), g_kbd_repeat_chk, 0, 2, 0, 1, GTK_FILL, GTK_FILL, 4, 2);
     g_kbd_delay_spin = gtk_spin_button_new_with_range(100, 3000, 10);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_kbd_delay_spin), g_kbd_baseline.repeat_delay);
-    labeled_row(kbd_table, 1, "Atraso inicial (ms):", g_kbd_delay_spin);
+    labeled_row(kbd_table, 1, _("Atraso inicial (ms):"), g_kbd_delay_spin);
     g_kbd_rate_spin = gtk_spin_button_new_with_range(1, 100, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_kbd_rate_spin), g_kbd_baseline.repeat_rate);
-    labeled_row(kbd_table, 2, "Taxa (rep/s):", g_kbd_rate_spin);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Repeticao de tecla", kbd_table), FALSE, FALSE, 0);
+    labeled_row(kbd_table, 2, _("Taxa (rep/s):"), g_kbd_rate_spin);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Repeticao de tecla"), kbd_table), FALSE, FALSE, 0);
 
     GtkWidget *bell_table = gtk_table_new(3, 2, FALSE);
     g_bell_percent_spin = gtk_spin_button_new_with_range(0, 100, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_bell_percent_spin), g_kbd_baseline.bell_percent);
-    labeled_row(bell_table, 0, "Volume (%):", g_bell_percent_spin);
+    labeled_row(bell_table, 0, _("Volume (%):"), g_bell_percent_spin);
     g_bell_pitch_spin = gtk_spin_button_new_with_range(1, 5000, 10);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_bell_pitch_spin), g_kbd_baseline.bell_pitch);
-    labeled_row(bell_table, 1, "Tom (Hz):", g_bell_pitch_spin);
+    labeled_row(bell_table, 1, _("Tom (Hz):"), g_bell_pitch_spin);
     g_bell_dur_spin = gtk_spin_button_new_with_range(0, 5000, 10);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_bell_dur_spin), g_kbd_baseline.bell_duration);
-    labeled_row(bell_table, 2, "Duracao (ms):", g_bell_dur_spin);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Campainha", bell_table), FALSE, FALSE, 0);
+    labeled_row(bell_table, 2, _("Duracao (ms):"), g_bell_dur_spin);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Campainha"), bell_table), FALSE, FALSE, 0);
 
     GtkWidget *special_box = gtk_vbox_new(FALSE, 2);
     g_toggle_mods_chk = gtk_check_button_new_with_label(
-        "ToggleModifiersOnPress -- alterna trava de modificador ao pressionar");
+        _("ToggleModifiersOnPress -- alterna trava de modificador ao pressionar"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_toggle_mods_chk), g_toggle_mods_baseline);
     gtk_box_pack_start(GTK_BOX(special_box), g_toggle_mods_chk, FALSE, FALSE, 0);
     g_kick_hotkeys_chk = gtk_check_button_new_with_label(
-        "KickHotkeysOnRelease -- troca layout de teclado ao soltar o atalho");
+        _("KickHotkeysOnRelease -- troca layout de teclado ao soltar o atalho"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_kick_hotkeys_chk), g_kick_hotkeys_baseline);
     gtk_box_pack_start(GTK_BOX(special_box), g_kick_hotkeys_chk, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Opcoes especiais de teclado (XiS)", special_box), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Opcoes especiais de teclado (XiS)"), special_box), FALSE, FALSE, 0);
 
     GtkWidget *primsel_box = gtk_vbox_new(FALSE, 2);
     g_disable_primsel_chk = gtk_check_button_new_with_label(
-        "DisablePrimarySelection -- desativa colar com o botao do meio");
+        _("DisablePrimarySelection -- desativa colar com o botao do meio"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_disable_primsel_chk), g_disable_primsel_baseline);
     gtk_box_pack_start(GTK_BOX(primsel_box), g_disable_primsel_chk, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Selecao primaria (XiS)", primsel_box), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Selecao primaria (XiS)"), primsel_box), FALSE, FALSE, 0);
 
     GtkWidget *session_box = gtk_vbox_new(FALSE, 2);
     g_numlock_start_chk = gtk_check_button_new_with_label(_("Ativar NumLock ao iniciar a sessao"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_numlock_start_chk), ic.numlock_on_start);
     gtk_box_pack_start(GTK_BOX(session_box), g_numlock_start_chk, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Inicio de sessao", session_box), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Inicio de sessao"), session_box), FALSE, FALSE, 0);
 
     GtkWidget *apply_btn = gtk_button_new_with_label(_("Aplicar"));
     g_signal_connect(apply_btn, "clicked", G_CALLBACK(apply_entrada_cb), NULL);

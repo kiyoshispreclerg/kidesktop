@@ -323,6 +323,7 @@ static void apply_cb(GtkWidget *widget, gpointer data)
     signal_daemon("kiconfd");
 
     gtk_label_set_text(GTK_LABEL(g_status_label), _("Configuracoes de energia salvas."));
+    kiconf_track_applied(widget);
 }
 
 GtkWidget *build_energy_tab(void)
@@ -419,26 +420,26 @@ GtkWidget *build_energy_tab(void)
     gtk_table_attach(GTK_TABLE(dpms_table), g_dpms_enabled_chk, 0, 2, 0, 1, GTK_FILL, GTK_FILL, 4, 2);
     g_dpms_standby_spin = gtk_spin_button_new_with_range(0, 36000, 10);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_dpms_standby_spin), g_power_baseline.dpms_standby);
-    labeled_row(dpms_table, 1, "Standby, s (0=off):", g_dpms_standby_spin);
+    labeled_row(dpms_table, 1, _("Standby, s (0=off):"), g_dpms_standby_spin);
     g_dpms_suspend_spin = gtk_spin_button_new_with_range(0, 36000, 10);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_dpms_suspend_spin), g_power_baseline.dpms_suspend);
-    labeled_row(dpms_table, 2, "Suspend, s (0=off):", g_dpms_suspend_spin);
+    labeled_row(dpms_table, 2, _("Suspend, s (0=off):"), g_dpms_suspend_spin);
     g_dpms_off_spin = gtk_spin_button_new_with_range(0, 36000, 10);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_dpms_off_spin), g_power_baseline.dpms_off);
-    labeled_row(dpms_table, 3, "Off, s (0=off):", g_dpms_off_spin);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("DPMS", dpms_table), FALSE, FALSE, 0);
+    labeled_row(dpms_table, 3, _("Off, s (0=off):"), g_dpms_off_spin);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("DPMS"), dpms_table), FALSE, FALSE, 0);
 
     GtkWidget *saver_table = gtk_table_new(3, 2, FALSE);
     g_saver_timeout_spin = gtk_spin_button_new_with_range(0, 36000, 10);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_saver_timeout_spin), g_power_baseline.saver_timeout);
-    labeled_row(saver_table, 0, "Timeout, s (0=off):", g_saver_timeout_spin);
+    labeled_row(saver_table, 0, _("Timeout, s (0=off):"), g_saver_timeout_spin);
     g_saver_cycle_spin = gtk_spin_button_new_with_range(0, 36000, 10);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_saver_cycle_spin), g_power_baseline.saver_cycle);
-    labeled_row(saver_table, 1, "Ciclo, s:", g_saver_cycle_spin);
+    labeled_row(saver_table, 1, _("Ciclo, s:"), g_saver_cycle_spin);
     g_prefer_blank_chk = gtk_check_button_new_with_label(_("Preferir apagar a tela (blank)"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_prefer_blank_chk), g_power_baseline.prefer_blanking);
     gtk_table_attach(GTK_TABLE(saver_table), g_prefer_blank_chk, 0, 2, 2, 3, GTK_FILL, GTK_FILL, 4, 2);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Protetor de tela", saver_table), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Protetor de tela"), saver_table), FALSE, FALSE, 0);
 
     GtkWidget *note = gtk_label_new(
         _("Fora do horario configurado, a tela volta a temperatura normal. "

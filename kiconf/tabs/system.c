@@ -479,9 +479,12 @@ static void save_extra_zones_cb(GtkWidget *widget, gpointer data)
         g_free(label);
         valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(g_zones_store), &it);
     }
-    xis_write_commit(f, tmp, path, xis_check_lines);
+    if (xis_write_commit(f, tmp, path, xis_check_lines) != 0) {
+        return;
+    }
 
     gtk_label_set_text(GTK_LABEL(g_zones_status_label), _("Gravado."));
+    kiconf_track_rebase(GTK_WIDGET(data));
 }
 
 static void add_zone_cb(GtkWidget *widget, gpointer data)
@@ -532,7 +535,7 @@ static GtkTreeViewColumn *make_zone_iana_column(int systemd_time)
     g_object_unref(options);
     g_signal_connect(renderer, "edited", G_CALLBACK(zone_cell_edited), GINT_TO_POINTER(COL_ZONE_IANA));
 
-    return gtk_tree_view_column_new_with_attributes("Fuso (IANA)", renderer, "text", COL_ZONE_IANA, NULL);
+    return gtk_tree_view_column_new_with_attributes(_("Fuso (IANA)"), renderer, "text", COL_ZONE_IANA, NULL);
 }
 
 static void apply_cb(GtkWidget *widget, gpointer data)
@@ -560,8 +563,11 @@ static void apply_cb(GtkWidget *widget, gpointer data)
             char *argv[] = {"update-locale", arg, NULL};
             ok = have_cmd("update-locale") && run_privileged(argv) == 0;
         }
-        g_string_append(msg, ok ? "Idioma aplicado (vale para novas sessoes/aplicativos). "
-                                 : "Falha ao aplicar idioma (polkit/permissao?). ");
+        g_string_append(msg, ok ? _("Idioma aplicado (vale para novas sessoes/aplicativos). ")
+                                 : _("Falha ao aplicar idioma (polkit/permissao?). "));
+        if (ok) {
+            kiconf_track_rebase(g_locale_combo);
+        }
     }
     g_free(locale);
 
@@ -587,15 +593,22 @@ static void apply_cb(GtkWidget *widget, gpointer data)
             char *argv[] = {"sh", "-c", cmd, NULL};
             ok = run_privileged(argv) == 0;
         }
-        g_string_append(msg, ok ? "Fuso horario aplicado. " : "Falha ao aplicar fuso horario. ");
+        g_string_append(msg, ok ? _("Fuso horario aplicado. ") : _("Falha ao aplicar fuso horario. "));
+        if (ok) {
+            kiconf_track_rebase(g_tz_combo);
+        }
     }
     g_free(tz);
 
     int ntp_on = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_ntp_chk));
+    kiconf_track_rebase(g_ntp_chk);
+    if (ntp_on) {
+        kiconf_track_rebase(g_manual_box); /* not applied, and not editable either */
+    }
     if (systemd_time) {
         char *ntp_argv[] = {"timedatectl", "set-ntp", ntp_on ? "true" : "false", NULL};
         run_fire(ntp_argv);
-        g_string_append(msg, ntp_on ? "Hora sincronizada por rede. " : "Sincronizacao por rede desligada. ");
+        g_string_append(msg, ntp_on ? _("Hora sincronizada por rede. ") : _("Sincronizacao por rede desligada. "));
     } else {
         const char *svc = detect_ntp_service();
         if (svc) {
@@ -605,12 +618,12 @@ static void apply_cb(GtkWidget *widget, gpointer data)
                 char *rc_argv[] = {"update-rc.d", (char *)svc, ntp_on ? "enable" : "disable", NULL};
                 run_privileged(rc_argv);
             }
-            g_string_append(msg, ntp_on ? "Hora sincronizada por rede (" : "Sincronizacao por rede desligada (");
+            g_string_append(msg, ntp_on ? _("Hora sincronizada por rede (") : _("Sincronizacao por rede desligada ("));
             g_string_append(msg, svc);
             g_string_append(msg, "). ");
         } else {
-            g_string_append(msg, "Nenhum servico de NTP conhecido (chrony/ntp/openntpd) instalado -- "
-                                  "instale um deles para sincronizar a hora pela rede. ");
+            g_string_append(msg, _("Nenhum servico de NTP conhecido (chrony/ntp/openntpd) instalado -- "
+                                    "instale um deles para sincronizar a hora pela rede. "));
         }
     }
 
@@ -639,8 +652,11 @@ static void apply_cb(GtkWidget *widget, gpointer data)
                 run_privileged(hw_argv);
             }
         }
-        g_string_append(msg, ok ? "Data/hora ajustadas."
-                                 : "Falha ao ajustar data/hora (desligue a sincronizacao por rede antes).");
+        g_string_append(msg, ok ? _("Data/hora ajustadas.")
+                                 : _("Falha ao ajustar data/hora (desligue a sincronizacao por rede antes)."));
+        if (ok) {
+            kiconf_track_rebase(g_manual_box);
+        }
     }
 
     gtk_label_set_text(GTK_LABEL(g_status_label), msg->str);
@@ -684,8 +700,8 @@ GtkWidget *build_system_tab(void)
          * minus its own normalization of the raw glibc output. */
         fill_combo_from_lines(g_locale_combo, (char *[]){"locale", "-a", NULL}, cur_locale);
     }
-    labeled_row(lang_table, 0, "Idioma do sistema (LANG):", g_locale_combo);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Idioma", lang_table), FALSE, FALSE, 0);
+    labeled_row(lang_table, 0, _("Idioma do sistema (LANG):"), g_locale_combo);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Idioma"), lang_table), FALSE, FALSE, 0);
 
     /* Data e hora */
     GtkWidget *dt_vbox = gtk_vbox_new(FALSE, 4);
@@ -700,7 +716,7 @@ GtkWidget *build_system_tab(void)
         current_timezone_fallback(cur_tz, sizeof(cur_tz));
         fill_tz_combo_fallback(g_tz_combo, cur_tz);
     }
-    labeled_row(tz_table, 0, "Fuso horario:", g_tz_combo);
+    labeled_row(tz_table, 0, _("Fuso horario:"), g_tz_combo);
     gtk_box_pack_start(GTK_BOX(dt_vbox), tz_table, FALSE, FALSE, 0);
 
     int ntp_on;
@@ -753,7 +769,7 @@ GtkWidget *build_system_tab(void)
     gtk_widget_set_sensitive(g_manual_box, !ntp_on);
     gtk_box_pack_start(GTK_BOX(dt_vbox), g_manual_box, FALSE, FALSE, 0);
 
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Data e hora", dt_vbox), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Data e hora"), dt_vbox), FALSE, FALSE, 0);
 
     /* Fusos horarios adicionais: ki-zones.conf, plain user file -- no
      * pkexec/polkit involved, so it gets its own "Salvar" button
@@ -769,7 +785,7 @@ GtkWidget *build_system_tab(void)
     g_object_set(zone_label_r, "editable", TRUE, NULL);
     g_signal_connect(zone_label_r, "edited", G_CALLBACK(zone_cell_edited), GINT_TO_POINTER(COL_ZONE_LABEL));
     GtkTreeViewColumn *zone_label_col =
-        gtk_tree_view_column_new_with_attributes("Rotulo (opcional)", zone_label_r, "text", COL_ZONE_LABEL, NULL);
+        gtk_tree_view_column_new_with_attributes(_("Rotulo (opcional)"), zone_label_r, "text", COL_ZONE_LABEL, NULL);
     gtk_tree_view_column_set_expand(zone_label_col, TRUE);
     gtk_tree_view_append_column(GTK_TREE_VIEW(zones_view), zone_label_col);
 
@@ -789,13 +805,13 @@ GtkWidget *build_system_tab(void)
     GtkWidget *zone_save_btn = gtk_button_new_with_label(_("Salvar"));
     g_signal_connect(zone_add_btn, "clicked", G_CALLBACK(add_zone_cb), NULL);
     g_signal_connect(zone_remove_btn, "clicked", G_CALLBACK(remove_zone_cb), zones_view);
-    g_signal_connect(zone_save_btn, "clicked", G_CALLBACK(save_extra_zones_cb), NULL);
+    g_signal_connect(zone_save_btn, "clicked", G_CALLBACK(save_extra_zones_cb), zones_view);
     gtk_box_pack_start(GTK_BOX(zones_btnbox), zone_add_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(zones_btnbox), zone_remove_btn, FALSE, FALSE, 0);
     gtk_box_pack_end(GTK_BOX(zones_btnbox), zone_save_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(zones_vbox), zones_btnbox, FALSE, FALSE, 0);
 
-    GtkWidget *zones_frame = frame_with("Fusos horarios adicionais", zones_vbox);
+    GtkWidget *zones_frame = frame_with(_("Fusos horarios adicionais"), zones_vbox);
     gtk_widget_set_tooltip_text(zones_frame, _("Mostrados na aba Calendario do xisserve"));
     gtk_box_pack_start(GTK_BOX(outer), zones_frame, TRUE, TRUE, 0);
 

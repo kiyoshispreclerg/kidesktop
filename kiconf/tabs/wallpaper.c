@@ -86,6 +86,7 @@ static GHashTable *g_thumbs;  /* path -> WpThumb* */
 static GQueue g_thumb_queue = G_QUEUE_INIT;
 static guint g_thumb_idle = 0;
 static guint g_apply_timer = 0;
+static guint g_tick_timer = 0;
 
 static GtkListStore *g_wp_layers_store;
 static GtkWidget *g_wp_layers_view;
@@ -980,8 +981,8 @@ static void wp_set_path_and_apply(const char *path)
 
 static void wp_choose(GtkFileChooserAction action, const char *title)
 {
-    GtkWidget *dlg = gtk_file_chooser_dialog_new(title, NULL, action, GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
-                                                 GTK_STOCK_OPEN, GTK_RESPONSE_ACCEPT, NULL);
+    GtkWidget *dlg = gtk_file_chooser_dialog_new(title, NULL, action, _("_Cancelar"), GTK_RESPONSE_CANCEL,
+                                                 _("_Abrir"), GTK_RESPONSE_ACCEPT, NULL);
     char *picked = NULL;
     if (gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_ACCEPT) {
         picked = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dlg));
@@ -1065,8 +1066,9 @@ static void on_wp_drop(GtkWidget *widget, GdkDragContext *ctx, gint x, gint y, G
 
 static int wp_confirm(const char *msg)
 {
-    GtkWidget *dlg = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL, GTK_MESSAGE_QUESTION, GTK_BUTTONS_YES_NO, "%s",
+    GtkWidget *dlg = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL, GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE, "%s",
                                             msg);
+    dialog_add_answers(dlg, GTK_BUTTONS_YES_NO);
     int yes = gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_YES;
     gtk_widget_destroy(dlg);
     return yes;
@@ -1245,7 +1247,9 @@ static void on_wp_actions_save(GtkWidget *widget, gpointer data)
     snprintf(cmd, sizeof(cmd), "SETACTIONS\t%s\t%s\t%s\t%s\t%s\t%s",
               left, right, middle, dbl, scroll_up, scroll_down);
     char resp[256];
-    xisback_send(cmd, resp, sizeof(resp));
+    if (xisback_send(cmd, resp, sizeof(resp))) {
+        kiconf_track_rebase(GTK_WIDGET(data));
+    }
 }
 
 static void load_wp_actions(void)
@@ -1286,6 +1290,38 @@ static GtkWidget *wp_radio_row(const char *title, GtkWidget **first, GtkWidget *
     g_signal_connect(*first, "toggled", G_CALLBACK(on_wp_mode_toggled), NULL);
     g_signal_connect(*second, "toggled", G_CALLBACK(on_wp_mode_toggled), NULL);
     return row;
+}
+
+/* The tab is torn down whenever kiconf leaves it: stop everything that
+ * would still touch its widgets, applying a change that was still waiting
+ * for the user to stop clicking a spin button. */
+static void on_wp_destroy(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    (void)data;
+    if (g_apply_timer) {
+        g_source_remove(g_apply_timer);
+        g_apply_timer = 0;
+        wp_apply_form();
+    }
+    if (g_tick_timer) {
+        g_source_remove(g_tick_timer);
+        g_tick_timer = 0;
+    }
+    if (g_thumb_idle) {
+        g_source_remove(g_thumb_idle);
+        g_thumb_idle = 0;
+    }
+    /* Queued thumbnails would otherwise stay "still loading" forever. */
+    char *path;
+    while ((path = g_queue_pop_head(&g_thumb_queue))) {
+        g_free(path);
+    }
+    if (g_thumbs) {
+        g_hash_table_remove_all(g_thumbs);
+    }
+    g_canvas = NULL;
+    g_n_minis = 0;
 }
 
 GtkWidget *build_wallpaper_tab(void)
@@ -1380,7 +1416,7 @@ GtkWidget *build_wallpaper_tab(void)
     g_wp_layers_store = gtk_list_store_new(N_WP_COLS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,
                                            G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
     g_wp_layers_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_wp_layers_store));
-    const char *wp_titles[N_WP_COLS] = {"Output", "Desktop", "Modo", "Intervalo", "Shuffle", "Fade", "Caminho"};
+    const char *wp_titles[N_WP_COLS] = {_("Saida"), _("Desktop"), _("Modo"), _("Intervalo"), _("Aleatorio"), _("Fade"), _("Caminho")};
     for (int col = 0; col < N_WP_COLS; col++) {
         GtkCellRenderer *renderer = gtk_cell_renderer_text_new();
         GtkTreeViewColumn *tvcol = gtk_tree_view_column_new_with_attributes(wp_titles[col], renderer, "text", col, NULL);
@@ -1411,31 +1447,38 @@ GtkWidget *build_wallpaper_tab(void)
 
     GtkWidget *actions_table = gtk_table_new(6, 2, FALSE);
     g_wp_action_left = gtk_entry_new();
-    labeled_row(actions_table, 0, "Clique esquerdo:", g_wp_action_left);
+    labeled_row(actions_table, 0, _("Clique esquerdo:"), g_wp_action_left);
     g_wp_action_right = gtk_entry_new();
-    labeled_row(actions_table, 1, "Clique direito:", g_wp_action_right);
+    labeled_row(actions_table, 1, _("Clique direito:"), g_wp_action_right);
     g_wp_action_middle = gtk_entry_new();
-    labeled_row(actions_table, 2, "Clique do meio:", g_wp_action_middle);
+    labeled_row(actions_table, 2, _("Clique do meio:"), g_wp_action_middle);
     g_wp_action_double = gtk_entry_new();
-    labeled_row(actions_table, 3, "Clique duplo:", g_wp_action_double);
+    labeled_row(actions_table, 3, _("Clique duplo:"), g_wp_action_double);
     g_wp_action_scroll_up = gtk_entry_new();
-    labeled_row(actions_table, 4, "Rolar pra cima:", g_wp_action_scroll_up);
+    labeled_row(actions_table, 4, _("Rolar pra cima:"), g_wp_action_scroll_up);
     g_wp_action_scroll_down = gtk_entry_new();
-    labeled_row(actions_table, 5, "Rolar pra baixo:", g_wp_action_scroll_down);
+    labeled_row(actions_table, 5, _("Rolar pra baixo:"), g_wp_action_scroll_down);
     GtkWidget *actions_box = gtk_vbox_new(FALSE, 4);
     gtk_box_pack_start(GTK_BOX(actions_box), actions_table, FALSE, FALSE, 0);
     GtkWidget *actions_save_btn = gtk_button_new_with_label(_("Salvar acoes de clique"));
-    g_signal_connect(actions_save_btn, "clicked", G_CALLBACK(on_wp_actions_save), NULL);
+    g_signal_connect(actions_save_btn, "clicked", G_CALLBACK(on_wp_actions_save), actions_box);
     gtk_box_pack_start(GTK_BOX(actions_box), actions_save_btn, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with("Acoes de clique", actions_box), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Acoes de clique"), actions_box), FALSE, FALSE, 0);
 
     load_wp_actions();
     refresh_wp_layers();
-    g_timeout_add_seconds(WP_TICK_SECONDS, wp_tick, NULL);
+    g_tick_timer = g_timeout_add_seconds(WP_TICK_SECONDS, wp_tick, NULL);
+    /* Only the click actions wait for a Salvar; everything else applies
+     * right away. */
+    kiconf_track_ignore(g_row_screens);
+    kiconf_track_ignore(row_desk);
+    kiconf_track_ignore(form_frame);
+    kiconf_track_ignore(adv);
 
     GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(scroll), outer);
     g_signal_connect(scroll, "map", G_CALLBACK(on_wp_map), NULL);
+    g_signal_connect(scroll, "destroy", G_CALLBACK(on_wp_destroy), NULL);
     return scroll;
 }

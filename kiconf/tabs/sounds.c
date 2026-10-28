@@ -215,7 +215,7 @@ static void on_choose(GtkWidget *w, gpointer data)
         return;
     GtkWidget *dlg = gtk_file_chooser_dialog_new(_("Escolher som"),
         GTK_WINDOW(gtk_widget_get_toplevel(g_view)), GTK_FILE_CHOOSER_ACTION_OPEN,
-        GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL, GTK_STOCK_OPEN, GTK_RESPONSE_ACCEPT, NULL);
+        _("_Cancelar"), GTK_RESPONSE_CANCEL, _("_Abrir"), GTK_RESPONSE_ACCEPT, NULL);
     GtkFileFilter *flt = gtk_file_filter_new();
     gtk_file_filter_set_name(flt, _("Audio (ogg, oga, wav)"));
     gtk_file_filter_add_pattern(flt, "*.ogg");
@@ -269,6 +269,7 @@ static void on_save(GtkWidget *w, gpointer data)
     }
     signal_daemon("kiconfd"); /* republishes the theme over XSETTINGS */
     gtk_label_set_text(GTK_LABEL(g_status), _("Salvo. Os programas aplicam em ate 2 segundos."));
+    kiconf_track_applied(g_status);
 }
 
 static void load_settings(void)

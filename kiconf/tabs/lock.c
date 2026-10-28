@@ -113,6 +113,7 @@ static void apply_cb(GtkWidget *w, gpointer data)
         return;
     }
     gtk_label_set_text(GTK_LABEL(g_status), _("Aplicado (vale no proximo bloqueio)"));
+    kiconf_track_applied(g_status);
 }
 
 static void clear_image_cb(GtkWidget *w, gpointer data)

@@ -256,18 +256,11 @@ static void load_xispanel_conf(PanelRec *panels, int *n_panels, WidgetRec *widge
     fclose(f);
 }
 
-static void save_xispanel_conf(void)
+/* Everything Salvar writes. Also what kiconf's pending-changes check
+ * compares (panels_state()): the widget list and theme fields only ever
+ * show the selected panel, the rest lives in g_shelf[]/g_themes[]. */
+static void write_xispanel_conf(FILE *f)
 {
-    char path[PATH_MAX];
-    resolve_path("xispanel.conf", path, sizeof(path));
-    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
-    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = xis_write_open(tmp, path);
-    if (!f) {
-        g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
-        return;
-    }
-
     GtkTreeIter it;
     gboolean valid = gtk_tree_model_get_iter_first(GTK_TREE_MODEL(g_panels_store), &it);
     while (valid) {
@@ -325,15 +318,43 @@ static void save_xispanel_conf(void)
             fprintf(f, "THEME\t%s\t%s\n", g_themes[i].panel, g_themes[i].options);
         }
     }
+}
 
-    xis_write_commit(f, tmp, path, xis_check_lines);
+static int save_xispanel_conf(void)
+{
+    char path[PATH_MAX];
+    resolve_path("xispanel.conf", path, sizeof(path));
+    char tmp[PATH_MAX + 8]; /* path + ".tmp" */
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    FILE *f = xis_write_open(tmp, path);
+    if (!f) {
+        g_warning("kiconf: could not write '%s': %s", tmp, strerror(errno));
+        return -1;
+    }
+    write_xispanel_conf(f);
+    return xis_write_commit(f, tmp, path, xis_check_lines);
+}
+
+static char *panels_state(gpointer data)
+{
+    (void)data;
+    char *buf = NULL;
+    size_t len = 0;
+    FILE *f = open_memstream(&buf, &len);
+    if (!f) {
+        return NULL;
+    }
+    write_xispanel_conf(f);
+    fclose(f);
+    return buf;
 }
 
 static void save_panels_cb(GtkWidget *widget, gpointer data)
 {
-    (void)widget;
     (void)data;
-    save_xispanel_conf();
+    if (save_xispanel_conf() == 0) {
+        kiconf_track_applied(widget);
+    }
     xispanel_reload();
 }
 
@@ -947,6 +968,8 @@ static void widget_field_value(const WidgetField *f, GtkWidget *w, char *out, si
         snprintf(out, outsz, "%s", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(w)) ? "1" : "0");
         break;
     case WT_INT:
+        /* a number still being typed: clicking another panel must not drop it */
+        gtk_spin_button_update(GTK_SPIN_BUTTON(w));
         snprintf(out, outsz, "%d", gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(w)));
         break;
     case WT_STRING:
@@ -1043,6 +1066,7 @@ static void theme_opts_from_fields(char *out, size_t outsz)
     if (valbuf[0]) {
         wopts_append(out, outsz, "fg", valbuf);
     }
+    gtk_spin_button_update(GTK_SPIN_BUTTON(g_theme_spacing_spin));
     snprintf(valbuf, sizeof(valbuf), "%d", gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_theme_spacing_spin)));
     wopts_append(out, outsz, "spacing", valbuf);
 
@@ -1092,14 +1116,14 @@ static void rebuild_widget_fields(WidgetDialogState *st, const WOptToken *toks, 
         const WidgetField *f = &st->schema->fields[i];
         const char *val = n_toks > 0 ? wopts_tokens_find(toks, n_toks, f->key) : NULL;
         st->field_widgets[i] = build_widget_field(f, val);
-        labeled_row(table, i, f->label, st->field_widgets[i]);
+        labeled_row(table, i, _(f->label), st->field_widgets[i]);
     }
     st->inline_widget = NULL;
     if (st->in_container) {
         const WidgetField *f = &CONTAINER_INLINE_FIELD;
         const char *val = n_toks > 0 ? wopts_tokens_find(toks, n_toks, f->key) : NULL;
         st->inline_widget = build_widget_field(f, val);
-        labeled_row(table, st->schema->n_fields, f->label, st->inline_widget);
+        labeled_row(table, st->schema->n_fields, _(f->label), st->inline_widget);
     }
     gtk_box_pack_start(GTK_BOX(st->fields_box), table, FALSE, FALSE, 0);
     gtk_widget_show_all(st->fields_box);
@@ -1143,9 +1167,9 @@ static void open_widget_dialog(GtkTreeIter *iter)
     memset(&st, 0, sizeof(st));
     st.in_container = in_container;
 
-    GtkWidget *dialog = gtk_dialog_new_with_buttons(iter ? "Editar widget" : "Adicionar widget", NULL,
-                                                     GTK_DIALOG_MODAL, GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
-                                                     GTK_STOCK_OK, GTK_RESPONSE_OK, NULL);
+    GtkWidget *dialog = gtk_dialog_new_with_buttons(iter ? _("Editar widget") : _("Adicionar widget"), NULL,
+                                                     GTK_DIALOG_MODAL, _("_Cancelar"), GTK_RESPONSE_CANCEL,
+                                                     _("_OK"), GTK_RESPONSE_OK, NULL);
     gtk_window_set_default_size(GTK_WINDOW(dialog), 440, 380);
     GtkWidget *content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
     GtkWidget *outer = gtk_vbox_new(FALSE, 8);
@@ -1154,7 +1178,7 @@ static void open_widget_dialog(GtkTreeIter *iter)
 
     GtkWidget *top_table = gtk_table_new(1, 2, FALSE);
     st.type_combo = make_options_combo(type_names, initial_type);
-    labeled_row(top_table, 0, "Tipo de widget:", st.type_combo);
+    labeled_row(top_table, 0, _("Tipo de widget:"), st.type_combo);
     gtk_box_pack_start(GTK_BOX(outer), top_table, FALSE, FALSE, 0);
 
     gtk_box_pack_start(GTK_BOX(outer), gtk_hseparator_new(), FALSE, FALSE, 0);
@@ -1340,9 +1364,9 @@ static void open_panel_dialog(GtkTreeIter *iter)
     WOptToken toks[MAX_WOPT_TOKENS];
     int n_toks = parse_wopts_tokens(cur_opts, toks, MAX_WOPT_TOKENS);
 
-    GtkWidget *dialog = gtk_dialog_new_with_buttons(iter ? "Editar painel" : "Adicionar painel", NULL,
-                                                     GTK_DIALOG_MODAL, GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
-                                                     GTK_STOCK_OK, GTK_RESPONSE_OK, NULL);
+    GtkWidget *dialog = gtk_dialog_new_with_buttons(iter ? _("Editar painel") : _("Adicionar painel"), NULL,
+                                                     GTK_DIALOG_MODAL, _("_Cancelar"), GTK_RESPONSE_CANCEL,
+                                                     _("_OK"), GTK_RESPONSE_OK, NULL);
     gtk_window_set_default_size(GTK_WINDOW(dialog), 440, 420);
     GtkWidget *content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
     GtkWidget *outer = gtk_vbox_new(FALSE, 8);
@@ -1352,9 +1376,9 @@ static void open_panel_dialog(GtkTreeIter *iter)
     GtkWidget *top_table = gtk_table_new(2, 2, FALSE);
     GtkWidget *name_entry = gtk_entry_new();
     gtk_entry_set_text(GTK_ENTRY(name_entry), cur_name && cur_name[0] ? cur_name : "novo-painel");
-    labeled_row(top_table, 0, "Nome:", name_entry);
+    labeled_row(top_table, 0, _("Nome:"), name_entry);
     GtkWidget *output_combo = make_output_combo(1, cur_output && cur_output[0] ? cur_output : "*");
-    labeled_row(top_table, 1, "Output:", output_combo);
+    labeled_row(top_table, 1, _("Output:"), output_combo);
     gtk_box_pack_start(GTK_BOX(outer), top_table, FALSE, FALSE, 0);
 
     gtk_box_pack_start(GTK_BOX(outer), gtk_hseparator_new(), FALSE, FALSE, 0);
@@ -1370,7 +1394,7 @@ static void open_panel_dialog(GtkTreeIter *iter)
     for (int i = 0; i < N_PANEL_FIELDS; i++) {
         const char *val = n_toks > 0 ? wopts_tokens_find(toks, n_toks, PANEL_FIELDS[i].key) : NULL;
         field_widgets[i] = build_widget_field(&PANEL_FIELDS[i], val);
-        labeled_row(fields_table, i, PANEL_FIELDS[i].label, field_widgets[i]);
+        labeled_row(fields_table, i, _(PANEL_FIELDS[i].label), field_widgets[i]);
     }
     gtk_box_pack_start(GTK_BOX(fields_box), fields_table, FALSE, FALSE, 0);
 
@@ -1694,7 +1718,7 @@ static GtkWidget *build_panels_view(void)
      * dialog is where it's edited). */
     gtk_widget_set_has_tooltip(view, TRUE);
     g_signal_connect(view, "query-tooltip", G_CALLBACK(on_panels_query_tooltip), NULL);
-    const char *titles[] = {"Nome", "Output"};
+    const char *titles[] = {_("Nome"), _("Output")};
     for (int col = 0; col < (int)(sizeof(titles) / sizeof(titles[0])); col++) {
         GtkCellRenderer *renderer = gtk_cell_renderer_text_new();
         GtkTreeViewColumn *tvcol = gtk_tree_view_column_new_with_attributes(titles[col], renderer, "text", col, NULL);
@@ -1734,11 +1758,11 @@ static GtkWidget *build_widgets_view(void)
 
     GtkCellRenderer *type_r = gtk_cell_renderer_text_new();
     gtk_tree_view_append_column(GTK_TREE_VIEW(view),
-        gtk_tree_view_column_new_with_attributes("Tipo", type_r, "text", COL_WIDGET_TYPE, NULL));
+        gtk_tree_view_column_new_with_attributes(_("Tipo"), type_r, "text", COL_WIDGET_TYPE, NULL));
 
     GtkCellRenderer *opts_r = gtk_cell_renderer_text_new();
     GtkTreeViewColumn *opts_col =
-        gtk_tree_view_column_new_with_attributes("Opcoes", opts_r, "text", COL_WIDGET_OPTIONS, NULL);
+        gtk_tree_view_column_new_with_attributes(_("Opcoes"), opts_r, "text", COL_WIDGET_OPTIONS, NULL);
     gtk_tree_view_column_set_expand(opts_col, TRUE);
     gtk_tree_view_append_column(GTK_TREE_VIEW(view), opts_col);
 
@@ -1827,8 +1851,8 @@ GtkWidget *build_panels_tab(void)
     gtk_container_set_border_width(GTK_CONTAINER(outer), 8);
 
     GtkWidget *note = gtk_label_new(
-        "Editor direto de xispanel.conf (PANEL/WIDGET/THEME). Opcoes sao\n"
-        "a string key=value bruta de cada linha -- ver xispanel/PROTOCOL.md.");
+        _("Editor direto de xispanel.conf (PANEL/WIDGET/THEME). Opcoes sao\n"
+        "a string key=value bruta de cada linha -- ver xispanel/PROTOCOL.md."));
     gtk_misc_set_alignment(GTK_MISC(note), 0.0, 0.5);
     gtk_box_pack_start(GTK_BOX(outer), note, FALSE, FALSE, 0);
 
@@ -1856,7 +1880,7 @@ GtkWidget *build_panels_tab(void)
     gtk_box_pack_start(GTK_BOX(panels_btnbox), padd, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(panels_btnbox), prem, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(panels_box), panels_btnbox, FALSE, FALSE, 0);
-    GtkWidget *panels_frame = frame_with("Paineis", panels_box);
+    GtkWidget *panels_frame = frame_with(_("Paineis"), panels_box);
 
     /* g_widgets_store only ever holds one panel's widgets at a time (see
      * its own doc comment) -- every panel's widgets loaded from the file
@@ -1911,7 +1935,7 @@ GtkWidget *build_panels_tab(void)
     gtk_box_pack_start(GTK_BOX(widgets_box), widgets_btnbox, FALSE, FALSE, 0);
     gtk_widget_set_tooltip_text(widgets_view, _("Ctrl+clique seleciona varios; clique direito copia ou envia "
                                                 "os selecionados pra outro painel"));
-    GtkWidget *widgets_frame = frame_with("Widgets do painel selecionado", widgets_box);
+    GtkWidget *widgets_frame = frame_with(_("Widgets do painel selecionado"), widgets_box);
 
     /* Theme now follows whichever panel is selected above (see
      * on_panel_selection_changed()) instead of always being "the first
@@ -1933,7 +1957,7 @@ GtkWidget *build_panels_tab(void)
     gtk_table_attach(GTK_TABLE(theme_table), g_theme_fg_box, 1, 2, 1, 2, GTK_EXPAND | GTK_FILL, GTK_FILL, 4, 3);
 
     g_theme_spacing_spin = gtk_spin_button_new_with_range(THEME_SPACING_FIELD.min, THEME_SPACING_FIELD.max, 1);
-    labeled_row(theme_table, 2, "Espacamento entre widgets (px):", g_theme_spacing_spin);
+    labeled_row(theme_table, 2, _("Espacamento entre widgets (px):"), g_theme_spacing_spin);
 
     /* The rest of the THEME keys, as real fields instead of a raw
      * key=value entry -- see THEME_OTHER_FIELDS. */
@@ -1946,7 +1970,7 @@ GtkWidget *build_panels_tab(void)
     for (int i = 0; i < N_THEME_OTHER; i++) {
         g_theme_other_widgets[i] = build_widget_field(&THEME_OTHER_FIELDS[i], NULL);
         gtk_widget_set_tooltip_text(g_theme_other_widgets[i], _(THEME_OTHER_TIPS[i]));
-        labeled_row(other_table, i, THEME_OTHER_FIELDS[i].label, g_theme_other_widgets[i]);
+        labeled_row(other_table, i, _(THEME_OTHER_FIELDS[i].label), g_theme_other_widgets[i]);
     }
     GtkWidget *other_box = gtk_vbox_new(FALSE, 2);
     gtk_box_pack_start(GTK_BOX(other_box), g_theme_label, FALSE, FALSE, 0);
@@ -1955,7 +1979,7 @@ GtkWidget *build_panels_tab(void)
     GtkWidget *theme_cols = gtk_hbox_new(FALSE, 12);
     gtk_box_pack_start(GTK_BOX(theme_cols), theme_table, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(theme_cols), other_box, TRUE, TRUE, 0);
-    GtkWidget *theme_frame = frame_with("Tema (cores/fonte do painel selecionado)", theme_cols);
+    GtkWidget *theme_frame = frame_with(_("Tema (cores/fonte do painel selecionado)"), theme_cols);
     sync_theme_fields_from_opts(initial_theme ? initial_theme->options : "");
 
     /* Paineis and Widgets side by side on top, getting all the height the
@@ -1973,5 +1997,7 @@ GtkWidget *build_panels_tab(void)
     gtk_box_pack_end(GTK_BOX(save_btnbox), save_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(outer), save_btnbox, FALSE, FALSE, 0);
 
+    kiconf_track_ignore(outer);
+    kiconf_track_state(outer, panels_state, NULL);
     return outer;
 }

@@ -189,7 +189,7 @@ static void refill_assoc_row(GtkTreeIter *it, int row)
 {
     char current[NAME_LEN];
     mime_query_default(g_assoc[row].mimetype, current, sizeof(current));
-    gtk_list_store_set(g_assoc_store, it, COL_A_APP, current[0] ? app_name_by_id(current) : "(nenhum)", -1);
+    gtk_list_store_set(g_assoc_store, it, COL_A_APP, current[0] ? app_name_by_id(current) : _("(nenhum)"), -1);
 }
 
 static void refill_assoc_store(void)
@@ -269,14 +269,14 @@ static void change_app_cb(GtkWidget *widget, gpointer data)
     char current[NAME_LEN];
     mime_query_default(entry->mimetype, current, sizeof(current));
 
-    GtkWidget *dialog = gtk_dialog_new_with_buttons("Alterar programa padrao", GTK_WINDOW(window), GTK_DIALOG_MODAL,
-                                                     GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL, GTK_STOCK_OK,
+    GtkWidget *dialog = gtk_dialog_new_with_buttons(_("Alterar programa padrao"), GTK_WINDOW(window), GTK_DIALOG_MODAL,
+                                                     _("_Cancelar"), GTK_RESPONSE_CANCEL, _("_OK"),
                                                      GTK_RESPONSE_OK, NULL);
     GtkWidget *table = gtk_table_new(2, 2, FALSE);
     gtk_container_set_border_width(GTK_CONTAINER(table), 8);
     GtkWidget *info = gtk_label_new(entry->ext);
     gtk_misc_set_alignment(GTK_MISC(info), 0.0, 0.5);
-    labeled_row(table, 0, "Extensao:", info);
+    labeled_row(table, 0, _("Extensao:"), info);
 
     GtkWidget *combo = gtk_combo_box_new_text();
     char ids[MAX_DESKTOP_APPS][NAME_LEN];
@@ -300,7 +300,7 @@ static void change_app_cb(GtkWidget *widget, gpointer data)
         n_ids++;
     }
     gtk_combo_box_set_active(GTK_COMBO_BOX(combo), active >= 0 ? active : (n_ids > 0 ? 0 : -1));
-    labeled_row(table, 1, "Abrir com:", combo);
+    labeled_row(table, 1, _("Abrir com:"), combo);
     gtk_box_pack_start(GTK_BOX(GTK_DIALOG(dialog)->vbox), table, TRUE, TRUE, 0);
     gtk_widget_show_all(table);
 
@@ -337,14 +337,14 @@ GtkWidget *build_associations_tab(void)
     g_assoc_view = gtk_tree_view_new_with_model(filter);
     gtk_tree_view_append_column(
         GTK_TREE_VIEW(g_assoc_view),
-        gtk_tree_view_column_new_with_attributes("Extensao", gtk_cell_renderer_text_new(), "text", COL_A_EXT, NULL));
+        gtk_tree_view_column_new_with_attributes(_("Extensao"), gtk_cell_renderer_text_new(), "text", COL_A_EXT, NULL));
     GtkTreeViewColumn *label_col = gtk_tree_view_column_new_with_attributes(
-        "Tipo de arquivo", gtk_cell_renderer_text_new(), "text", COL_A_LABEL, NULL);
+        _("Tipo de arquivo"), gtk_cell_renderer_text_new(), "text", COL_A_LABEL, NULL);
     gtk_tree_view_column_set_expand(label_col, TRUE);
     gtk_tree_view_append_column(GTK_TREE_VIEW(g_assoc_view), label_col);
     gtk_tree_view_append_column(
         GTK_TREE_VIEW(g_assoc_view),
-        gtk_tree_view_column_new_with_attributes("Abrir com", gtk_cell_renderer_text_new(), "text", COL_A_APP, NULL));
+        gtk_tree_view_column_new_with_attributes(_("Abrir com"), gtk_cell_renderer_text_new(), "text", COL_A_APP, NULL));
 
     GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
@@ -357,5 +357,6 @@ GtkWidget *build_associations_tab(void)
     gtk_box_pack_end(GTK_BOX(btnbox), change_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(outer), btnbox, FALSE, FALSE, 0);
 
+    kiconf_track_ignore(outer); /* "Alterar programa..." applies right away */
     return outer;
 }

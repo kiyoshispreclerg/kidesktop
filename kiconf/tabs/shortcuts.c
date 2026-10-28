@@ -202,7 +202,9 @@ static void save_shortcuts_cb(GtkWidget *widget, gpointer data)
         g_free(cmd);
         valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(g_shortcuts_store), &it);
     }
-    xis_write_commit(f, tmp, path, xis_check_lines);
+    if (xis_write_commit(f, tmp, path, xis_check_lines) == 0) {
+        kiconf_track_rebase(GTK_WIDGET(data));
+    }
 
     signal_daemon("xiskeys");
 }
@@ -977,6 +979,7 @@ static void save_fixed_shortcuts_cb(GtkWidget *widget, gpointer data)
              kicomp_changed ? _(" kicomp reiniciado.") : "",
              n_xp > 0 ? _(" Atalhos de widgets do xispanel recarregados.") : "");
     gtk_label_set_text(GTK_LABEL(g_fixed_status_label), msg);
+    kiconf_track_rebase(GTK_WIDGET(data));
 }
 
 static void fixed_spec_edited(GtkCellRendererText *cell, gchar *path_str, gchar *new_text, gpointer data)
@@ -1039,7 +1042,7 @@ static GtkWidget *build_fixed_shortcuts_view(void)
      * (and the window) far wider than the 700px minimum. */
     GtkCellRenderer *label_r = gtk_cell_renderer_text_new();
     g_object_set(label_r, "ellipsize", PANGO_ELLIPSIZE_END, NULL);
-    GtkTreeViewColumn *label_col = gtk_tree_view_column_new_with_attributes("Acao", label_r, "text", COL_FX_LABEL, NULL);
+    GtkTreeViewColumn *label_col = gtk_tree_view_column_new_with_attributes(_("Acao"), label_r, "text", COL_FX_LABEL, NULL);
     gtk_tree_view_column_set_resizable(label_col, TRUE);
     gtk_tree_view_column_set_sizing(label_col, GTK_TREE_VIEW_COLUMN_FIXED);
     gtk_tree_view_column_set_fixed_width(label_col, 220);
@@ -1049,7 +1052,7 @@ static GtkWidget *build_fixed_shortcuts_view(void)
     g_object_set(spec_r, "editable", TRUE, "ellipsize", PANGO_ELLIPSIZE_END, NULL);
     g_signal_connect(spec_r, "edited", G_CALLBACK(fixed_spec_edited), NULL);
     GtkTreeViewColumn *spec_col =
-        gtk_tree_view_column_new_with_attributes("Atalho", spec_r, "text", COL_FX_SPEC, NULL);
+        gtk_tree_view_column_new_with_attributes(_("Atalho"), spec_r, "text", COL_FX_SPEC, NULL);
     gtk_tree_view_column_set_sizing(spec_col, GTK_TREE_VIEW_COLUMN_FIXED);
     gtk_tree_view_column_set_fixed_width(spec_col, 200);
     gtk_tree_view_column_set_resizable(spec_col, TRUE);
@@ -1155,6 +1158,7 @@ GtkWidget *build_shortcuts_tab(void)
     gtk_widget_set_tooltip_text(g_filter_entry, _("Filtrar atalhos (acao, atalho ou comando)"));
     g_signal_connect(g_filter_entry, "changed", G_CALLBACK(shortcut_filter_changed), NULL);
     g_signal_connect(g_filter_entry, "icon-press", G_CALLBACK(filter_icon_press), NULL);
+    kiconf_track_ignore(g_filter_entry);
     gtk_box_pack_start(GTK_BOX(outer), g_filter_entry, FALSE, FALSE, 0);
 
     /* Atalhos personalizados: xiskeys.conf, unchanged from before. */
@@ -1165,7 +1169,7 @@ GtkWidget *build_shortcuts_tab(void)
     gtk_tree_model_filter_set_visible_func(GTK_TREE_MODEL_FILTER(g_custom_filter), custom_visible, NULL, NULL);
     GtkWidget *view = gtk_tree_view_new_with_model(g_custom_filter);
 
-    const char *titles[N_SHORTCUT_COLS] = {"Acao", "Atalho", "Comando"};
+    const char *titles[N_SHORTCUT_COLS] = {_("Acao"), _("Atalho"), _("Comando")};
     for (int col = 0; col < N_SHORTCUT_COLS; col++) {
         GtkCellRenderer *renderer = gtk_cell_renderer_text_new();
         g_object_set(renderer, "editable", TRUE, "ellipsize", PANGO_ELLIPSIZE_END, NULL);
@@ -1193,7 +1197,7 @@ GtkWidget *build_shortcuts_tab(void)
     GtkWidget *save_btn = gtk_button_new_with_label(_("Salvar e recarregar xiskeys"));
     g_signal_connect(add_btn, "clicked", G_CALLBACK(add_shortcut_cb), NULL);
     g_signal_connect(remove_btn, "clicked", G_CALLBACK(remove_shortcut_cb), view);
-    g_signal_connect(save_btn, "clicked", G_CALLBACK(save_shortcuts_cb), NULL);
+    g_signal_connect(save_btn, "clicked", G_CALLBACK(save_shortcuts_cb), vbox);
     gtk_box_pack_start(GTK_BOX(btnbox), add_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(btnbox), remove_btn, FALSE, FALSE, 0);
     gtk_box_pack_end(GTK_BOX(btnbox), save_btn, FALSE, FALSE, 0);
@@ -1203,7 +1207,7 @@ GtkWidget *build_shortcuts_tab(void)
     /* Short frame titles (GtkFrame doesn't wrap them, so a long one forces
      * the whole tab -- and window -- wider than the 700px minimum) with
      * the detail moved to a tooltip instead. */
-    GtkWidget *custom_frame = frame_with("Atalhos personalizados", vbox);
+    GtkWidget *custom_frame = frame_with(_("Atalhos personalizados"), vbox);
     gtk_widget_set_tooltip_text(custom_frame, _("xiskeys.conf, crie/edite/remova a vontade"));
     GtkWidget *paned = gtk_vpaned_new();
     gtk_box_pack_start(GTK_BOX(outer), paned, TRUE, TRUE, 0);
@@ -1232,14 +1236,14 @@ GtkWidget *build_shortcuts_tab(void)
     GtkWidget *fixed_btnbox = gtk_hbox_new(FALSE, 6);
     GtkWidget *fixed_save_btn = gtk_button_new_with_label(_("Aplicar"));
     gtk_widget_set_tooltip_text(fixed_save_btn, _("Grava kiwm.conf, kicomp.conf e xispanel.conf"));
-    g_signal_connect(fixed_save_btn, "clicked", G_CALLBACK(save_fixed_shortcuts_cb), NULL);
+    g_signal_connect(fixed_save_btn, "clicked", G_CALLBACK(save_fixed_shortcuts_cb), fixed_vbox);
     gtk_box_pack_end(GTK_BOX(fixed_btnbox), fixed_save_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(fixed_vbox), fixed_btnbox, FALSE, FALSE, 0);
 
-    GtkWidget *fixed_frame = frame_with("Atalhos fixos do sistema", fixed_vbox);
+    GtkWidget *fixed_frame = frame_with(_("Atalhos fixos do sistema"), fixed_vbox);
     gtk_widget_set_tooltip_text(fixed_frame,
-        "kiwm, efeitos ativos do kicomp, widgets do xispanel que aceitam hotkey= -- "
-        "o icone de desfazer restaura o padrao da linha; em branco = sem atalho");
+        _("kiwm, efeitos ativos do kicomp, widgets do xispanel que aceitam hotkey= -- "
+        "o icone de desfazer restaura o padrao da linha; em branco = sem atalho"));
     gtk_paned_pack2(GTK_PANED(paned), fixed_frame, TRUE, FALSE);
 
     return outer;

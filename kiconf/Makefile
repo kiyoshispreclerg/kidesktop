@@ -43,7 +43,7 @@ LIBS := $(shell pkg-config --cflags --libs gtk+-2.0 x11 xrandr gmodule-2.0) -lm 
 # xisback/xispanel/kiconfd -- compiled directly in, same as every other
 # source file here, so kiconf stays independently buildable and
 # installable on its own (no shared library to depend on at runtime).
-SRCS := kiconf.c plugins.c widgetmods.c common.c sysinfo.c tabs/appearance.c tabs/kitheme.c tabs/shortcuts.c tabs/input.c \
+SRCS := kiconf.c plugins.c widgetmods.c common.c sysinfo.c track.c tabs/appearance.c tabs/kitheme.c tabs/shortcuts.c tabs/input.c \
         tabs/permissions.c tabs/permissions_rules.c tabs/panels.c tabs/wallpaper.c \
         tabs/screens.c tabs/windows.c tabs/effects.c tabs/corners.c tabs/system.c \
         tabs/programs.c tabs/associations.c tabs/menu.c tabs/autostart.c tabs/energy.c tabs/events.c \
@@ -71,6 +71,9 @@ pot: po/kiconf.pot
 
 po/kiconf.pot: $(SRCS)
 	xgettext --from-code=UTF-8 --language=C --keyword=_ --keyword=N_ \
+		--keyword=WF_BOOL:2 --keyword=WF_BOOL01:2 --keyword=WF_INT:2 --keyword=WF_STR:2 \
+		--keyword=WF_ENUM:2 --keyword=WF_COLOR_OPT:2 --keyword=FLD_BOOL:2 --keyword=FLD_INT:2 \
+		--keyword=FLD_DBL:2 --keyword=FLD_STR:2 --keyword=FLD_ENUM:2 --keyword=FLD_COLOR:2 \
 		--add-comments=TRANSLATORS: --sort-by-file \
 		--package-name=kiconf \
 		-o $@ $(SRCS)

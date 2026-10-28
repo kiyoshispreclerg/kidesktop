@@ -1398,7 +1398,7 @@ static void sync_screens_form(void)
 
     GtkTreeModel *mirmodel = gtk_combo_box_get_model(GTK_COMBO_BOX(g_screens_mirror_combo));
     gtk_list_store_clear(GTK_LIST_STORE(mirmodel));
-    gtk_combo_box_append_text(GTK_COMBO_BOX(g_screens_mirror_combo), "(nenhum)");
+    gtk_combo_box_append_text(GTK_COMBO_BOX(g_screens_mirror_combo), _("(nenhum)"));
     int mirror_idx = 0;
     for (int i = 0, pos = 1; i < g_n_outputs; i++) {
         if (i == g_screens_selected || !g_outputs[i].connected) {
@@ -1558,7 +1558,7 @@ static void on_screens_mirror_changed(GtkWidget *widget, gpointer data)
     }
     gchar *sel = gtk_combo_box_get_active_text(GTK_COMBO_BOX(g_screens_mirror_combo));
     ScreenOutput *o = &g_outputs[g_screens_selected];
-    if (!sel || !strcmp(sel, "(nenhum)")) {
+    if (!sel || !strcmp(sel, _("(nenhum)"))) {
         o->mirror_of[0] = '\0';
     } else {
         snprintf(o->mirror_of, sizeof(o->mirror_of), "%s", sel);
@@ -1741,6 +1741,26 @@ static void save_screens_layout(void)
     }
 }
 
+/* What Aplicar would act on, for kiconf's pending-changes check: the form
+ * and the canvas both edit g_outputs[] directly (dragging an output emits
+ * no widget signal at all), and the form only ever shows one output. */
+static char *screens_state(gpointer data)
+{
+    (void)data;
+    GString *s = g_string_new(NULL);
+    for (int i = 0; i < g_n_outputs; i++) {
+        const ScreenOutput *o = &g_outputs[i];
+        g_string_append_printf(s, "%s %d %d %d %d %s %s %s %s %d %g %g|", o->name, o->enabled, o->primary, o->x, o->y,
+                               o->rotation, o->current_mode, o->current_rate, o->mirror_of, o->dpi, o->scale_x,
+                               o->scale_y);
+        for (int j = 0; j < o->n_extra_props; j++) {
+            g_string_append_printf(s, "%s=%s|", o->extra_props[j].name, o->extra_props[j].value);
+        }
+        g_string_append_c(s, '\n');
+    }
+    return g_string_free(s, FALSE);
+}
+
 static void on_screens_apply(GtkWidget *widget, gpointer data)
 {
     (void)widget;
@@ -1764,6 +1784,7 @@ static void on_screens_apply(GtkWidget *widget, gpointer data)
     }
     rebuild_screens_off_list();
     gtk_widget_queue_draw(g_screens_canvas);
+    kiconf_track_applied(g_screens_canvas);
 }
 
 static void on_screens_refresh(GtkWidget *widget, gpointer data)
@@ -1784,6 +1805,7 @@ static void on_screens_refresh(GtkWidget *widget, gpointer data)
     }
     rebuild_screens_off_list();
     gtk_widget_queue_draw(g_screens_canvas);
+    kiconf_track_applied(g_screens_canvas);
 }
 
 static void rebuild_screens_off_list(void)
@@ -1871,9 +1893,9 @@ GtkWidget *build_screens_tab(void)
     gtk_container_set_border_width(GTK_CONTAINER(outer), 8);
 
     GtkWidget *note = gtk_label_new(
-        "Arraste as caixas pra reposicionar. Aplicar tambem grava o "
+        _("Arraste as caixas pra reposicionar. Aplicar tambem grava o "
         "layout pra ser reaplicado automaticamente no inicio da proxima "
-        "sessao.");
+        "sessao."));
     gtk_misc_set_alignment(GTK_MISC(note), 0.0, 0.5);
     /* Unwrapped, this single line alone was wider than the 700px minimum
      * window width -- wrap it against the tab's own content width instead
@@ -1931,8 +1953,8 @@ GtkWidget *build_screens_tab(void)
     gtk_box_pack_start(GTK_BOX(outer), g_screens_visual_note, FALSE, FALSE, 0);
 
     GtkWidget *layout_row = gtk_hbox_new(FALSE, 8);
-    gtk_box_pack_start(GTK_BOX(layout_row), frame_with("Layout (arraste pra mover)", g_screens_canvas), TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(layout_row), frame_with("Desativadas", off_scroll), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(layout_row), frame_with(_("Layout (arraste pra mover)"), g_screens_canvas), TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(layout_row), frame_with(_("Desativadas"), off_scroll), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(outer), layout_row, TRUE, TRUE, 0);
 
     /* 2 columns of 4 rows instead of 1 column of 8 -- same reasoning as
@@ -1943,20 +1965,20 @@ GtkWidget *build_screens_tab(void)
     GtkWidget *form_col2 = gtk_table_new(4, 2, FALSE);
     g_screens_res_combo = gtk_combo_box_new_text();
     g_signal_connect(g_screens_res_combo, "changed", G_CALLBACK(on_screens_res_changed), NULL);
-    labeled_row(form_col1, 0, "Resolucao:", g_screens_res_combo);
+    labeled_row(form_col1, 0, _("Resolucao:"), g_screens_res_combo);
     g_screens_rate_combo = gtk_combo_box_new_text();
     g_signal_connect(g_screens_rate_combo, "changed", G_CALLBACK(on_screens_rate_changed), NULL);
-    labeled_row(form_col1, 1, "Taxa de atualizacao:", g_screens_rate_combo);
+    labeled_row(form_col1, 1, _("Taxa de atualizacao:"), g_screens_rate_combo);
     g_screens_rot_combo = gtk_combo_box_new_text();
     gtk_combo_box_append_text(GTK_COMBO_BOX(g_screens_rot_combo), "normal");
     gtk_combo_box_append_text(GTK_COMBO_BOX(g_screens_rot_combo), "left");
     gtk_combo_box_append_text(GTK_COMBO_BOX(g_screens_rot_combo), "right");
     gtk_combo_box_append_text(GTK_COMBO_BOX(g_screens_rot_combo), "inverted");
     g_signal_connect(g_screens_rot_combo, "changed", G_CALLBACK(on_screens_rot_changed), NULL);
-    labeled_row(form_col1, 2, "Rotacao:", g_screens_rot_combo);
+    labeled_row(form_col1, 2, _("Rotacao:"), g_screens_rot_combo);
     g_screens_mirror_combo = gtk_combo_box_new_text();
     g_signal_connect(g_screens_mirror_combo, "changed", G_CALLBACK(on_screens_mirror_changed), NULL);
-    labeled_row(form_col1, 3, "Espelhar (mirror):", g_screens_mirror_combo);
+    labeled_row(form_col1, 3, _("Espelhar (mirror):"), g_screens_mirror_combo);
     g_screens_enabled_chk = gtk_check_button_new_with_label(_("Saida ligada"));
     g_signal_connect(g_screens_enabled_chk, "toggled", G_CALLBACK(on_screens_enabled_toggled), NULL);
     gtk_table_attach(GTK_TABLE(form_col2), g_screens_enabled_chk, 0, 2, 0, 1, GTK_FILL, GTK_FILL, 4, 2);
@@ -1977,11 +1999,11 @@ GtkWidget *build_screens_tab(void)
     g_signal_connect(g_screens_dpi_spin, "output", G_CALLBACK(on_screens_dpi_output), NULL);
     g_signal_connect(g_screens_dpi_spin, "input", G_CALLBACK(on_screens_dpi_input), NULL);
     g_signal_connect(g_screens_dpi_spin, "value-changed", G_CALLBACK(on_screens_dpi_changed), NULL);
-    labeled_row(form_col2, 2, "DPI:", g_screens_dpi_spin);
+    labeled_row(form_col2, 2, _("DPI:"), g_screens_dpi_spin);
     g_screens_scale_spin = gtk_spin_button_new_with_range(0.25, 4.0, 0.05);
     gtk_spin_button_set_digits(GTK_SPIN_BUTTON(g_screens_scale_spin), 2);
     g_signal_connect(g_screens_scale_spin, "value-changed", G_CALLBACK(on_screens_scale_changed), NULL);
-    labeled_row(form_col2, 3, "Escala:", g_screens_scale_spin);
+    labeled_row(form_col2, 3, _("Escala:"), g_screens_scale_spin);
 
     GtkWidget *form_cols = gtk_hbox_new(FALSE, 8);
     gtk_box_pack_start(GTK_BOX(form_cols), form_col1, TRUE, TRUE, 0);
@@ -1993,7 +2015,7 @@ GtkWidget *build_screens_tab(void)
      * vertically; each of the 2 property sections scrolls internally
      * (fixed height) instead of growing the tab further. */
     GtkWidget *sections_row = gtk_hpaned_new();
-    gtk_paned_pack1(GTK_PANED(sections_row), frame_with("Saida selecionada", form_cols), FALSE, FALSE);
+    gtk_paned_pack1(GTK_PANED(sections_row), frame_with(_("Saida selecionada"), form_cols), FALSE, FALSE);
 
     /* Advanced driver properties (editable ones first, then the read-only
      * ones below them in the same scroll) -- TearFree, underscan,
@@ -2013,7 +2035,7 @@ GtkWidget *build_screens_tab(void)
     /* Short title -- GtkFrame never shrinks narrower than its own label
      * text, and with 3 of these panels side by side a longer title alone
      * was keeping this tab wider than the 700px minimum. */
-    g_screens_extra_editable_frame = frame_with("Avancado", extra_editable_scroll);
+    g_screens_extra_editable_frame = frame_with(_("Avancado"), extra_editable_scroll);
     gtk_widget_set_tooltip_text(g_screens_extra_editable_frame, _("Propriedades avancadas"));
     gtk_paned_pack2(GTK_PANED(sections_row), g_screens_extra_editable_frame, TRUE, FALSE);
 
@@ -2035,5 +2057,7 @@ GtkWidget *build_screens_tab(void)
     }
     rebuild_screens_off_list();
 
+    kiconf_track_ignore(outer);
+    kiconf_track_state(outer, screens_state, NULL);
     return outer;
 }

@@ -319,7 +319,8 @@ static int check_passwords(UserForm *f, int required, GtkWidget *dlg)
     }
     if (err) {
         GtkWidget *m = gtk_message_dialog_new(GTK_WINDOW(dlg), GTK_DIALOG_MODAL, GTK_MESSAGE_WARNING,
-                                              GTK_BUTTONS_OK, "%s", err);
+                                              GTK_BUTTONS_NONE, "%s", err);
+        dialog_add_answers(m, GTK_BUTTONS_OK);
         gtk_dialog_run(GTK_DIALOG(m));
         gtk_widget_destroy(m);
         return 0;
@@ -335,7 +336,7 @@ static void on_add(GtkWidget *w, gpointer data)
     int nshells = load_shells(shells);
     GtkWidget *dlg = gtk_dialog_new_with_buttons(_("Adicionar usuario"),
         GTK_WINDOW(gtk_widget_get_toplevel(g_view)), GTK_DIALOG_MODAL,
-        GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL, GTK_STOCK_ADD, GTK_RESPONSE_ACCEPT, NULL);
+        _("_Cancelar"), GTK_RESPONSE_CANCEL, _("_Adicionar"), GTK_RESPONSE_ACCEPT, NULL);
     UserForm f = build_form(dlg, NULL, shells, nshells, "", "/bin/bash", 0);
 
     while (gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_ACCEPT) {
@@ -354,7 +355,8 @@ static void on_add(GtkWidget *w, gpointer data)
         }
         if (err) {
             GtkWidget *m = gtk_message_dialog_new(GTK_WINDOW(dlg), GTK_DIALOG_MODAL, GTK_MESSAGE_WARNING,
-                                                  GTK_BUTTONS_OK, "%s", err);
+                                                  GTK_BUTTONS_NONE, "%s", err);
+            dialog_add_answers(m, GTK_BUTTONS_OK);
             gtk_dialog_run(GTK_DIALOG(m));
             gtk_widget_destroy(m);
             continue;
@@ -402,14 +404,15 @@ static void on_edit(GtkWidget *w, gpointer data)
     int nshells = load_shells(shells);
     GtkWidget *dlg = gtk_dialog_new_with_buttons(_("Editar usuario"),
         GTK_WINDOW(gtk_widget_get_toplevel(g_view)), GTK_DIALOG_MODAL,
-        GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL, GTK_STOCK_OK, GTK_RESPONSE_ACCEPT, NULL);
+        _("_Cancelar"), GTK_RESPONSE_CANCEL, _("_OK"), GTK_RESPONSE_ACCEPT, NULL);
     UserForm f = build_form(dlg, user, shells, nshells, full, pw->pw_shell, was_admin);
 
     while (gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_ACCEPT) {
         const char *new_full = gtk_entry_get_text(GTK_ENTRY(f.full));
         if (!valid_gecos(new_full)) {
             GtkWidget *m = gtk_message_dialog_new(GTK_WINDOW(dlg), GTK_DIALOG_MODAL, GTK_MESSAGE_WARNING,
-                GTK_BUTTONS_OK, "%s", _("O nome completo nao pode ter ':' nem ','."));
+                GTK_BUTTONS_NONE, "%s", _("O nome completo nao pode ter ':' nem ','."));
+            dialog_add_answers(m, GTK_BUTTONS_OK);
             gtk_dialog_run(GTK_DIALOG(m));
             gtk_widget_destroy(m);
             continue;
@@ -462,7 +465,8 @@ static void on_remove(GtkWidget *w, gpointer data)
     }
     GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(gtk_widget_get_toplevel(g_view)), GTK_DIALOG_MODAL,
         GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE, _("Remover o usuario %s?"), user);
-    gtk_dialog_add_buttons(GTK_DIALOG(dlg), GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL, GTK_STOCK_REMOVE, GTK_RESPONSE_ACCEPT, NULL);
+    gtk_dialog_add_buttons(GTK_DIALOG(dlg), _("_Cancelar"), GTK_RESPONSE_CANCEL, _("_Remover"), GTK_RESPONSE_ACCEPT, NULL);
+    dialog_add_answers(dlg, GTK_BUTTONS_NONE); /* just the title */
     GtkWidget *chk = gtk_check_button_new_with_label(_("Apagar tambem a pasta pessoal e os arquivos"));
     gtk_box_pack_start(GTK_BOX(GTK_DIALOG(dlg)->vbox), chk, FALSE, FALSE, 4);
     gtk_widget_show(chk);
@@ -526,6 +530,7 @@ GtkWidget *build_users_tab(void)
 
     g_store = gtk_list_store_new(N_COLS, G_TYPE_STRING, G_TYPE_INT, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
     g_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_store));
+    kiconf_track_ignore(g_view); /* the system's accounts; g_ops_view holds what is pending */
     a11y_name(g_view, _("Usuarios"));
     static const char *const heads[] = { N_("Usuario"), N_("UID"), N_("Nome completo"), N_("Shell"), N_("Administrador") };
     for (int i = 0; i < N_COLS; i++) {

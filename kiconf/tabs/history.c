@@ -231,6 +231,7 @@ static void apply_kistory_cb(GtkWidget *widget, gpointer data)
              gtk_entry_get_text(GTK_ENTRY(g_ks_guard_actions_entry)));
     kistory_save(&c);
     signal_daemon("kistoryd");
+    kiconf_track_rebase(GTK_WIDGET(data));
 }
 
 static void apply_kimemory_cb(GtkWidget *widget, gpointer data)
@@ -250,6 +251,7 @@ static void apply_kimemory_cb(GtkWidget *widget, gpointer data)
     c.max_mirror_mb = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(g_km_max_mirror_spin));
     kimemory_save(&c);
     signal_daemon("kimemoryd");
+    kiconf_track_rebase(GTK_WIDGET(data));
 }
 
 static void on_kistory_stats(GtkWidget *widget, gpointer data)
@@ -270,8 +272,9 @@ static void on_kistory_purge(GtkWidget *widget, gpointer data)
     (void)widget;
     (void)data;
     GtkWidget *dlg = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL, GTK_MESSAGE_WARNING,
-        GTK_BUTTONS_YES_NO, "%s",
+        GTK_BUTTONS_NONE, "%s",
         _("Apagar todo o historico de atividade do kistory? Isso nao pode ser desfeito."));
+    dialog_add_answers(dlg, GTK_BUTTONS_YES_NO);
     int resp = gtk_dialog_run(GTK_DIALOG(dlg));
     gtk_widget_destroy(dlg);
     if (resp != GTK_RESPONSE_YES) {
@@ -301,8 +304,9 @@ static void on_kimemory_clear(GtkWidget *widget, gpointer data)
     (void)widget;
     (void)data;
     GtkWidget *dlg = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL, GTK_MESSAGE_WARNING,
-        GTK_BUTTONS_YES_NO, "%s",
+        GTK_BUTTONS_NONE, "%s",
         _("Apagar todo o historico de area de transferencia, inclusive favoritos? Isso nao pode ser desfeito."));
+    dialog_add_answers(dlg, GTK_BUTTONS_YES_NO);
     int resp = gtk_dialog_run(GTK_DIALOG(dlg));
     gtk_widget_destroy(dlg);
     if (resp != GTK_RESPONSE_YES) {
@@ -376,7 +380,7 @@ GtkWidget *build_history_tab(void)
 
     GtkWidget *ks_apply_row = gtk_hbox_new(FALSE, 0);
     GtkWidget *ks_apply_btn = gtk_button_new_with_label(_("Aplicar"));
-    g_signal_connect(ks_apply_btn, "clicked", G_CALLBACK(apply_kistory_cb), NULL);
+    g_signal_connect(ks_apply_btn, "clicked", G_CALLBACK(apply_kistory_cb), ks_box);
     gtk_box_pack_end(GTK_BOX(ks_apply_row), ks_apply_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(ks_box), ks_apply_row, FALSE, FALSE, 0);
 
@@ -443,7 +447,7 @@ GtkWidget *build_history_tab(void)
 
     GtkWidget *km_apply_row = gtk_hbox_new(FALSE, 0);
     GtkWidget *km_apply_btn = gtk_button_new_with_label(_("Aplicar"));
-    g_signal_connect(km_apply_btn, "clicked", G_CALLBACK(apply_kimemory_cb), NULL);
+    g_signal_connect(km_apply_btn, "clicked", G_CALLBACK(apply_kimemory_cb), km_box);
     gtk_box_pack_end(GTK_BOX(km_apply_row), km_apply_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(km_box), km_apply_row, FALSE, FALSE, 0);
 

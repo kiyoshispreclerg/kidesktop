@@ -312,6 +312,30 @@ GtkWidget *frame_with(const char *title, GtkWidget *child)
     return frame;
 }
 
+void dialog_add_answers(GtkWidget *dlg, GtkButtonsType which)
+{
+    GtkDialog *d = GTK_DIALOG(dlg);
+    switch (which) {
+    case GTK_BUTTONS_OK:
+        gtk_dialog_add_button(d, _("_OK"), GTK_RESPONSE_OK);
+        break;
+    case GTK_BUTTONS_CLOSE:
+        gtk_dialog_add_button(d, _("_Fechar"), GTK_RESPONSE_CLOSE);
+        break;
+    case GTK_BUTTONS_OK_CANCEL:
+        gtk_dialog_add_buttons(d, _("_Cancelar"), GTK_RESPONSE_CANCEL, _("_OK"), GTK_RESPONSE_OK, NULL);
+        break;
+    case GTK_BUTTONS_YES_NO:
+        gtk_dialog_add_buttons(d, _("_Nao"), GTK_RESPONSE_NO, _("_Sim"), GTK_RESPONSE_YES, NULL);
+        break;
+    default:
+        break;
+    }
+    if (!gtk_window_get_title(GTK_WINDOW(dlg))) {
+        gtk_window_set_title(GTK_WINDOW(dlg), "kiconf");
+    }
+}
+
 GtkWidget *make_color_button(const char *hex)
 {
     GdkColor c;
@@ -420,7 +444,7 @@ GtkWidget *make_output_combo(int include_wildcard, const char *current)
     g_object_set_data(G_OBJECT(combo), OUTPUT_COMBO_N_KEY, GINT_TO_POINTER(0));
 
     if (include_wildcard) {
-        gtk_combo_box_append_text(GTK_COMBO_BOX(combo), "* (todas as telas)");
+        gtk_combo_box_append_text(GTK_COMBO_BOX(combo), _("* (todas as telas)"));
         output_combo_ids_append(combo, "*");
     }
 
@@ -701,24 +725,24 @@ int scan_all_apps(DesktopApp *out, int max)
 /* ---- kisession.conf ----------------------------------------------------- */
 
 const KisessionServiceDef KISESSION_SERVICES[] = {
-    {"dbus", "Barramento de sessao (D-Bus) + ambiente de ativacao", 1},
-    {"a11y", "Acessibilidade (barramento AT-SPI; vale a partir do proximo login)", 0},
-    {"xisguard", "Permissoes XNOTIFY", 1},
-    {"kiconfd", "Daemon de tema/cursor/configuracoes", 1},
-    {"xismenu", "Registrador do menu de aplicativos (menu global)", 1},
-    {"xisback", "Papel de parede", 1},
-    {"xispanel", "Painel/barra de tarefas", 1},
-    {"xiskeys", "Atalhos globais de teclado", 1},
-    {"kimemoryd", "Historico da area de transferencia", 1},
-    {"kistoryd", "Historico de atividade da area de trabalho", 0},
-    {"kimountd", "Montagem automatica dos discos marcados na aba Discos", 1},
-    {"audio", "pipewire/pulseaudio (so se nada mais ja tiver iniciado um)", 1},
-    {"locker", "Bloqueio de tela (xss-lock + i3lock)", 1},
-    {"polkit", "Agente de autenticacao polkit", 1},
-    {"wm", "Gerenciador de janelas", 1},
-    {"kicomp", "Compositor (opcional)", 1},
-    {"screenreader", "Leitor de tela orca (precisa de Acessibilidade)", 0},
-    {"autostart", "Entradas de inicio automatico XDG (aplicativos instalados)", 1},
+    {"dbus", N_("Barramento de sessao (D-Bus) + ambiente de ativacao"), 1},
+    {"a11y", N_("Acessibilidade (barramento AT-SPI; vale a partir do proximo login)"), 0},
+    {"xisguard", N_("Permissoes XNOTIFY"), 1},
+    {"kiconfd", N_("Daemon de tema/cursor/configuracoes"), 1},
+    {"xismenu", N_("Registrador do menu de aplicativos (menu global)"), 1},
+    {"xisback", N_("Papel de parede"), 1},
+    {"xispanel", N_("Painel/barra de tarefas"), 1},
+    {"xiskeys", N_("Atalhos globais de teclado"), 1},
+    {"kimemoryd", N_("Historico da area de transferencia"), 1},
+    {"kistoryd", N_("Historico de atividade da area de trabalho"), 0},
+    {"kimountd", N_("Montagem automatica dos discos marcados na aba Discos"), 1},
+    {"audio", N_("pipewire/pulseaudio (so se nada mais ja tiver iniciado um)"), 1},
+    {"locker", N_("Bloqueio de tela (xss-lock + i3lock)"), 1},
+    {"polkit", N_("Agente de autenticacao polkit"), 1},
+    {"wm", N_("Gerenciador de janelas"), 1},
+    {"kicomp", N_("Compositor (opcional)"), 1},
+    {"screenreader", N_("Leitor de tela orca (precisa de Acessibilidade)"), 0},
+    {"autostart", N_("Entradas de inicio automatico XDG (aplicativos instalados)"), 1},
 };
 _Static_assert(sizeof(KISESSION_SERVICES) / sizeof(KISESSION_SERVICES[0]) == N_KISESSION_SERVICES,
                "N_KISESSION_SERVICES must match KISESSION_SERVICES");

@@ -61,8 +61,16 @@ Modules are loaded lazily on first visit; `--tab <id>` and `--list-tabs`
 include plugins. A working example is in `examples/hello/`.
 
 The home page has a search box (matches title, comment and keywords; Enter
-opens the first match) and one section per category. Plugin tabs are not part
-of the unsaved-edits tracking built-in tabs get.
+opens the first match) and one section per category.
+
+Leaving a tab asks for confirmation only while one of its controls differs
+from the value it had when the tab was loaded or last applied (see
+`track.h`). An in-process plugin gets the same check: by default a click on
+a button labeled "Aplicar"/"Salvar"/"Apply"/"Save" counts as having applied
+everything; for anything finer it can call `kiconf_track_applied()`,
+`kiconf_track_rebase()`, `kiconf_track_ignore()` and `kiconf_track_state()`
+itself (declared in `track.h`; kiconf exports its symbols). XEmbed plugins
+are never asked about.
 
 ## Usage
 

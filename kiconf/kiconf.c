@@ -123,8 +123,9 @@
 #include "sysinfo.h"
 #include "plugins.h"
 #include "tabs.h"
+#include "track.h"
 
-#define KICONF_VERSION "0.2.99"
+#define KICONF_VERSION "0.2.100"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -155,7 +156,6 @@ typedef struct {
     TabBuilder build;
     GtkWidget *placeholder;
     int built;
-    int dirty;
     const char *category;   /* appearance|hardware|programs|system|<custom> */
     const char *keywords;   /* extra search words */
     KiconfPlugin *plugin;   /* non-NULL: label is the id, title/icon from it */
@@ -163,32 +163,32 @@ typedef struct {
 } LazyTab;
 
 static LazyTab g_builtin_tabs[] = {
-    {N_("Aparencia"), GTK_STOCK_SELECT_COLOR, build_appearance_tab, NULL, 0, 0, "appearance", "tema theme cores colors fonte font icones cursor", NULL, NULL},
-    {N_("KiTheme"), GTK_STOCK_SELECT_COLOR, build_kitheme_tab, NULL, 0, 0, "appearance", "tema theme estilo style gtk qt oxygen classico relevo progresso", NULL, NULL},
-    {N_("Atalhos"), GTK_STOCK_JUMP_TO, build_shortcuts_tab, NULL, 0, 0, "hardware", "teclas keys hotkeys shortcuts", NULL, NULL},
-    {N_("Telas"), GTK_STOCK_FULLSCREEN, build_screens_tab, NULL, 0, 0, "hardware", "monitor resolucao display screen xrandr", NULL, NULL},
-    {N_("Entrada"), GTK_STOCK_EDIT, build_input_tab, NULL, 0, 0, "hardware", "mouse teclado keyboard touchpad pointer", NULL, NULL},
-    {N_("Wallpaper"), GTK_STOCK_FILE, build_wallpaper_tab, NULL, 0, 0, "appearance", "papel de parede background fundo", NULL, NULL},
-    {N_("Paineis"), GTK_STOCK_JUSTIFY_FILL, build_panels_tab, NULL, 0, 0, "appearance", "painel panel barra bar taskbar", NULL, NULL},
-    {N_("Permissoes"), GTK_STOCK_DIALOG_AUTHENTICATION, build_permissions_tab, NULL, 0, 0, "system", "xisguard seguranca security privacy", NULL, NULL},
-    {N_("Gerenciamento de janelas"), GTK_STOCK_DND_MULTIPLE, build_windows_tab, NULL, 0, 0, "appearance", "windows kiwm foco focus", NULL, NULL},
-    {N_("Efeitos do compositor"), GTK_STOCK_CONVERT, build_effects_tab, NULL, 0, 0, "appearance", "kicomp animacao animation compositor wobbly cubo", NULL, NULL},
-    {N_("Sistema"), GTK_STOCK_HARDDISK, build_system_tab, NULL, 0, 0, "system", "idioma language data hora timezone fuso", NULL, NULL},
-    {N_("Sobre"), GTK_STOCK_ABOUT, build_sobre_tab, NULL, 0, 0, "system", "about sobre hardware info computador cpu gpu ram kernel versao", NULL, NULL},
-    {N_("Discos"), GTK_STOCK_HARDDISK, build_disks_tab, NULL, 0, 0, "hardware", "disco disk hd ssd pendrive usb removivel montar mount automontagem automount udisks", NULL, NULL},
-    {N_("Energia"), GTK_STOCK_QUIT, build_energy_tab, NULL, 0, 0, "hardware", "bateria battery suspender power luz noturna night light", NULL, NULL},
-    {N_("Programas padrao"), GTK_STOCK_EXECUTE, build_programs_tab, NULL, 0, 0, "programs", "navegador browser default", NULL, NULL},
-    {N_("Associacoes de arquivos"), GTK_STOCK_OPEN, build_associations_tab, NULL, 0, 0, "programs", "mime tipos types", NULL, NULL},
-    {N_("Menu de programas"), GTK_STOCK_DND, build_menu_tab, NULL, 0, 0, "programs", "menu applications launcher", NULL, NULL},
-    {N_("Iniciar automaticamente"), GTK_STOCK_MEDIA_PLAY, build_autostart_tab, NULL, 0, 0, "programs", "autostart startup sessao", NULL, NULL},
-    {N_("Eventos"), GTK_STOCK_INDEX, build_events_tab, NULL, 0, 0, "system", "notificacoes notifications", NULL, NULL},
-    {N_("Historico"), GTK_STOCK_FIND, build_history_tab, NULL, 0, 0, "system", "history log", NULL, NULL},
-    {N_("Sons"), GTK_STOCK_MEDIA_PLAY, build_sounds_tab, NULL, 0, 0, "hardware", "audio som sound", NULL, NULL},
-    {N_("Usuarios"), GTK_STOCK_ORIENTATION_PORTRAIT, build_users_tab, NULL, 0, 0, "system", "users contas accounts", NULL, NULL},
-    {N_("Servicos"), GTK_STOCK_EXECUTE, build_services_tab, NULL, 0, 0, "system", "services daemon", NULL, NULL},
-    {N_("Login"), GTK_STOCK_DIALOG_AUTHENTICATION, build_login_tab, NULL, 0, 0, "system", "lightdm gerenciador de login", NULL, NULL},
-    {N_("Acessibilidade"), GTK_STOCK_ZOOM_IN, build_accessibility_tab, NULL, 0, 0, "appearance", "a11y lupa magnifier leitor screen reader", NULL, NULL},
-    {N_("Bloqueio de tela"), GTK_STOCK_DIALOG_AUTHENTICATION, build_lock_tab, NULL, 0, 0, "system", "lock i3lock bloquear tela screen locker protetor senha", NULL, lock_available},
+    {N_("Aparencia"), GTK_STOCK_SELECT_COLOR, build_appearance_tab, NULL, 0, "appearance", "tema theme cores colors fonte font icones cursor", NULL, NULL},
+    {N_("KiTheme"), GTK_STOCK_SELECT_COLOR, build_kitheme_tab, NULL, 0, "appearance", "tema theme estilo style gtk qt oxygen classico relevo progresso", NULL, NULL},
+    {N_("Atalhos"), GTK_STOCK_JUMP_TO, build_shortcuts_tab, NULL, 0, "hardware", "teclas keys hotkeys shortcuts", NULL, NULL},
+    {N_("Telas"), GTK_STOCK_FULLSCREEN, build_screens_tab, NULL, 0, "hardware", "monitor resolucao display screen xrandr", NULL, NULL},
+    {N_("Entrada"), GTK_STOCK_EDIT, build_input_tab, NULL, 0, "hardware", "mouse teclado keyboard touchpad pointer", NULL, NULL},
+    {N_("Wallpaper"), GTK_STOCK_FILE, build_wallpaper_tab, NULL, 0, "appearance", "papel de parede background fundo", NULL, NULL},
+    {N_("Paineis"), GTK_STOCK_JUSTIFY_FILL, build_panels_tab, NULL, 0, "appearance", "painel panel barra bar taskbar", NULL, NULL},
+    {N_("Permissoes"), GTK_STOCK_DIALOG_AUTHENTICATION, build_permissions_tab, NULL, 0, "system", "xisguard seguranca security privacy", NULL, NULL},
+    {N_("Gerenciamento de janelas"), GTK_STOCK_DND_MULTIPLE, build_windows_tab, NULL, 0, "appearance", "windows kiwm foco focus", NULL, NULL},
+    {N_("Efeitos do compositor"), GTK_STOCK_CONVERT, build_effects_tab, NULL, 0, "appearance", "kicomp animacao animation compositor wobbly cubo", NULL, NULL},
+    {N_("Sistema"), GTK_STOCK_HARDDISK, build_system_tab, NULL, 0, "system", "idioma language data hora timezone fuso", NULL, NULL},
+    {N_("Sobre"), GTK_STOCK_ABOUT, build_sobre_tab, NULL, 0, "system", "about sobre hardware info computador cpu gpu ram kernel versao", NULL, NULL},
+    {N_("Discos"), GTK_STOCK_HARDDISK, build_disks_tab, NULL, 0, "hardware", "disco disk hd ssd pendrive usb removivel montar mount automontagem automount udisks", NULL, NULL},
+    {N_("Energia"), GTK_STOCK_QUIT, build_energy_tab, NULL, 0, "hardware", "bateria battery suspender power luz noturna night light", NULL, NULL},
+    {N_("Programas padrao"), GTK_STOCK_EXECUTE, build_programs_tab, NULL, 0, "programs", "navegador browser default", NULL, NULL},
+    {N_("Associacoes de arquivos"), GTK_STOCK_OPEN, build_associations_tab, NULL, 0, "programs", "mime tipos types", NULL, NULL},
+    {N_("Menu de programas"), GTK_STOCK_DND, build_menu_tab, NULL, 0, "programs", "menu applications launcher", NULL, NULL},
+    {N_("Iniciar automaticamente"), GTK_STOCK_MEDIA_PLAY, build_autostart_tab, NULL, 0, "programs", "autostart startup sessao", NULL, NULL},
+    {N_("Eventos"), GTK_STOCK_INDEX, build_events_tab, NULL, 0, "system", "notificacoes notifications", NULL, NULL},
+    {N_("Historico"), GTK_STOCK_FIND, build_history_tab, NULL, 0, "system", "history log", NULL, NULL},
+    {N_("Sons"), GTK_STOCK_MEDIA_PLAY, build_sounds_tab, NULL, 0, "hardware", "audio som sound", NULL, NULL},
+    {N_("Usuarios"), GTK_STOCK_ORIENTATION_PORTRAIT, build_users_tab, NULL, 0, "system", "users contas accounts", NULL, NULL},
+    {N_("Servicos"), GTK_STOCK_EXECUTE, build_services_tab, NULL, 0, "system", "services daemon", NULL, NULL},
+    {N_("Login"), GTK_STOCK_DIALOG_AUTHENTICATION, build_login_tab, NULL, 0, "system", "lightdm gerenciador de login", NULL, NULL},
+    {N_("Acessibilidade"), GTK_STOCK_ZOOM_IN, build_accessibility_tab, NULL, 0, "appearance", "a11y lupa magnifier leitor screen reader", NULL, NULL},
+    {N_("Bloqueio de tela"), GTK_STOCK_DIALOG_AUTHENTICATION, build_lock_tab, NULL, 0, "system", "lock i3lock bloquear tela screen locker protetor senha", NULL, lock_available},
 };
 /* Built-in tabs followed by the plugins found by plugins_scan(). */
 static LazyTab *g_tabs;
@@ -245,7 +245,8 @@ static void on_back_clicked(GtkWidget *widget, gpointer data)
  * navigation itself: one shared mechanism, not a per-tab opt-in). */
 static GtkWidget *make_back_button(const char *title)
 {
-    GtkWidget *btn = gtk_button_new_from_stock(GTK_STOCK_GO_BACK);
+    GtkWidget *btn = gtk_button_new_with_mnemonic(_("_Voltar"));
+    gtk_button_set_image(GTK_BUTTON(btn), gtk_image_new_from_stock(GTK_STOCK_GO_BACK, GTK_ICON_SIZE_BUTTON));
     g_signal_connect(btn, "clicked", G_CALLBACK(on_back_clicked), NULL);
     GtkWidget *row = gtk_hbox_new(FALSE, 8);
     gtk_box_pack_start(GTK_BOX(row), btn, FALSE, FALSE, 0);
@@ -260,81 +261,41 @@ static GtkWidget *make_back_button(const char *title)
 }
 
 /* ---- pending-changes tracking -------------------------------------------
- * One shared mechanism for all 14 tabs rather than a per-tab dirty flag
- * each build_X_tab() has to remember to set/clear by hand: after a tab is
- * built, connect_dirty_tracking() walks its whole widget tree and hooks
- * the "value changed" signal of every editable widget type used anywhere
- * in tabs/ (entries, spin buttons, combo/color/font/file buttons, text
- * views, and tree view models -- which also covers list-based tabs'
- * Adicionar/Remover buttons, since those mutate the model directly) to
- * mark that tab dirty. Buttons whose label starts with "Aplicar"/"Salvar"
- * -- the actual persist-to-disk action in every tab, see the grep of
- * gtk_button_new_with_label() calls across tabs/ -- clear it again once
- * their own "clicked" handler (connected first, inside build_X_tab()) has
- * run. Connecting happens after build() returns so a tab's *initial*
- * population (loading current config into its widgets) never itself
- * counts as a pending edit. */
-static void mark_dirty_cb(GtkWidget *w, gpointer data)
+ * The comparison itself lives in track.c (see track.h): each built-in tab
+ * keeps its own baseline in step with what is really applied. Plugin tabs
+ * don't know about it unless they call it themselves, so for them a click
+ * on a button labeled like a commit ("Aplicar", "Salvar", ...) counts as
+ * having applied everything, as before. */
+static void plugin_commit_cb(GtkWidget *w, gpointer data)
 {
-    (void)w;
-    int idx = GPOINTER_TO_INT(data);
-    if (idx >= 0 && idx < N_TABS) {
-        g_tabs[idx].dirty = 1;
-    }
-}
-
-static void clear_dirty_cb(GtkWidget *w, gpointer data)
-{
-    (void)w;
-    int idx = GPOINTER_TO_INT(data);
-    if (idx >= 0 && idx < N_TABS) {
-        g_tabs[idx].dirty = 0;
-    }
+    (void)data;
+    kiconf_track_applied(w);
 }
 
 static int is_commit_label(const char *label)
 {
-    return label && (!strncmp(label, "Aplicar", 7) || !strncmp(label, "Salvar", 6));
-}
-
-static void connect_dirty_tracking(GtkWidget *w, int idx)
-{
-    gpointer d = GINT_TO_POINTER(idx);
-
-    if (GTK_IS_SPIN_BUTTON(w)) {
-        g_signal_connect(w, "value-changed", G_CALLBACK(mark_dirty_cb), d);
-    } else if (GTK_IS_ENTRY(w)) {
-        g_signal_connect(w, "changed", G_CALLBACK(mark_dirty_cb), d);
-    } else if (GTK_IS_TOGGLE_BUTTON(w)) {
-        g_signal_connect(w, "toggled", G_CALLBACK(mark_dirty_cb), d);
-    } else if (GTK_IS_COMBO_BOX(w)) {
-        g_signal_connect(w, "changed", G_CALLBACK(mark_dirty_cb), d);
-    } else if (GTK_IS_COLOR_BUTTON(w)) {
-        g_signal_connect(w, "color-set", G_CALLBACK(mark_dirty_cb), d);
-    } else if (GTK_IS_FONT_BUTTON(w)) {
-        g_signal_connect(w, "font-set", G_CALLBACK(mark_dirty_cb), d);
-    } else if (GTK_IS_FILE_CHOOSER_BUTTON(w)) {
-        g_signal_connect(w, "file-set", G_CALLBACK(mark_dirty_cb), d);
-    } else if (GTK_IS_TEXT_VIEW(w)) {
-        GtkTextBuffer *buf = gtk_text_view_get_buffer(GTK_TEXT_VIEW(w));
-        g_signal_connect(buf, "changed", G_CALLBACK(mark_dirty_cb), d);
-    } else if (GTK_IS_TREE_VIEW(w)) {
-        GtkTreeModel *model = gtk_tree_view_get_model(GTK_TREE_VIEW(w));
-        if (model) {
-            g_signal_connect(model, "row-changed", G_CALLBACK(mark_dirty_cb), d);
-            g_signal_connect(model, "row-inserted", G_CALLBACK(mark_dirty_cb), d);
-            g_signal_connect(model, "row-deleted", G_CALLBACK(mark_dirty_cb), d);
+    static const char *const prefixes[] = {"Aplicar", "Salvar", "Apply", "Save", N_("Aplicar"), N_("Salvar")};
+    if (!label) {
+        return 0;
+    }
+    for (size_t i = 0; i < G_N_ELEMENTS(prefixes); i++) {
+        const char *p = i >= 4 ? _(prefixes[i]) : prefixes[i];
+        if (!strncmp(label, p, strlen(p))) {
+            return 1;
         }
     }
+    return 0;
+}
 
+static void connect_plugin_commits(GtkWidget *w)
+{
     if (GTK_IS_BUTTON(w) && !GTK_IS_TOGGLE_BUTTON(w) && is_commit_label(gtk_button_get_label(GTK_BUTTON(w)))) {
-        g_signal_connect_after(w, "clicked", G_CALLBACK(clear_dirty_cb), d);
+        g_signal_connect_after(w, "clicked", G_CALLBACK(plugin_commit_cb), NULL);
     }
-
     if (GTK_IS_CONTAINER(w)) {
         GList *children = gtk_container_get_children(GTK_CONTAINER(w));
         for (GList *l = children; l; l = l->next) {
-            connect_dirty_tracking(GTK_WIDGET(l->data), idx);
+            connect_plugin_commits(GTK_WIDGET(l->data));
         }
         g_list_free(children);
     }
@@ -345,13 +306,17 @@ static void connect_dirty_tracking(GtkWidget *w, int idx)
  * the user confirmed), 0 if the caller must not proceed (stay put). */
 static int confirm_leave_current_tab(void)
 {
-    if (g_current_tab < 0 || !g_tabs[g_current_tab].dirty) {
+    if (g_current_tab < 0 || !g_tabs[g_current_tab].built ||
+        !kiconf_track_pending(g_tabs[g_current_tab].placeholder)) {
         return 1;
     }
     GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(g_window), GTK_DIALOG_MODAL,
-                                             GTK_MESSAGE_QUESTION, GTK_BUTTONS_YES_NO, "%s",
+                                             GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE, "%s",
                                              _("Ha alteracoes nao aplicadas nesta aba. "
                                                "Tem certeza que deseja sair sem aplica-las?"));
+    gtk_dialog_add_buttons(GTK_DIALOG(dlg), _("Continuar editando"), GTK_RESPONSE_NO,
+                           _("Sair sem aplicar"), GTK_RESPONSE_YES, NULL);
+    gtk_dialog_set_default_response(GTK_DIALOG(dlg), GTK_RESPONSE_NO);
     gtk_window_set_title(GTK_WINDOW(dlg), _("Alteracoes pendentes"));
     int response = gtk_dialog_run(GTK_DIALOG(dlg));
     gtk_widget_destroy(dlg);
@@ -379,8 +344,10 @@ static void ensure_tab_built(int idx)
     gtk_box_pack_start(GTK_BOX(g_tabs[idx].placeholder), content, TRUE, TRUE, 0);
     gtk_widget_show_all(g_tabs[idx].placeholder);
     g_tabs[idx].built = 1;
-    g_tabs[idx].dirty = 0;
-    connect_dirty_tracking(g_tabs[idx].placeholder, idx);
+    if (g_tabs[idx].plugin) {
+        connect_plugin_commits(content);
+    }
+    kiconf_track_start(g_tabs[idx].placeholder);
 }
 
 /* Destroys idx's content widget (recursively, along with everything it
@@ -397,7 +364,6 @@ static void unbuild_tab(int idx)
     }
     g_list_free(children);
     g_tabs[idx].built = 0;
-    g_tabs[idx].dirty = 0;
 }
 
 static void on_switch_page(GtkNotebook *notebook, GtkNotebookPage *page, guint page_num, gpointer data)
