@@ -9,6 +9,7 @@
  * to the answer given for that folder. */
 #include "kf.h"
 #include "../shared/xis_i18n.h"
+#include "../shared/xis_rootexec.h"
 #include <string.h>
 
 typedef enum { JOB_COPY, JOB_MOVE, JOB_TRASH, JOB_DELETE } JobType;
@@ -46,6 +47,8 @@ typedef struct {
     GList *results;         /* Pair* of what was done, for undo */
     GList *errors;          /* char* */
     GList *untrashable;     /* GFile* that could not be trashed */
+    GList *denied;          /* GFile* refused for lack of permission: offered as root */
+    gboolean saw_denied;    /* set by add_error, read by the worker per item */
     guint timer;
     gint64 started;
     gboolean paused;
@@ -115,7 +118,35 @@ static void add_error(Job *j, GFile *f, GError *err)
     g_free(n);
     g_mutex_lock(&j->lock);
     j->errors = g_list_append(j->errors, msg);
+    if (err && g_error_matches(err, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED))
+        j->saw_denied = TRUE;
     g_mutex_unlock(&j->lock);
+}
+
+/* After a delete/trash item failed: when the cause was permission, forget its
+ * error messages (since `n_before`) and queue the item for the root retry. */
+static void divert_denied(Job *j, Item *it, guint n_before)
+{
+    g_mutex_lock(&j->lock);
+    if (j->saw_denied && g_file_is_native(it->src)) {
+        while (g_list_length(j->errors) > n_before) {
+            GList *last = g_list_last(j->errors);
+            g_free(last->data);
+            j->errors = g_list_delete_link(j->errors, last);
+        }
+        j->denied = g_list_append(j->denied, g_object_ref(it->src));
+    }
+    j->saw_denied = FALSE;
+    g_mutex_unlock(&j->lock);
+}
+
+static guint errors_count(Job *j)
+{
+    g_mutex_lock(&j->lock);
+    guint n = g_list_length(j->errors);
+    j->saw_denied = FALSE;
+    g_mutex_unlock(&j->lock);
+    return n;
 }
 
 static void set_current(Job *j, GFile *f)
@@ -328,6 +359,7 @@ static gboolean copy_recursive(Job *j, GFile *src, GFile *dst, gboolean replace)
 static void run_item(Job *j, Item *it)
 {
     GError *err = NULL;
+    guint n_err = 0;
     wait_if_paused(j);
     if (g_cancellable_is_cancelled(j->cancel))
         return;
@@ -364,6 +396,7 @@ static void run_item(Job *j, Item *it)
     }
     case JOB_TRASH:
         set_current(j, it->src);
+        n_err = errors_count(j);
         if (g_file_trash(it->src, j->cancel, &err)) {
             add_done(j, 1);
             j->results = g_list_append(j->results, pair_new(it->src, NULL));
@@ -373,10 +406,13 @@ static void run_item(Job *j, Item *it)
             else if (!g_error_matches(err, G_IO_ERROR, G_IO_ERROR_CANCELLED))
                 add_error(j, it->src, err);
             g_clear_error(&err);
+            divert_denied(j, it, n_err);
         }
         break;
     case JOB_DELETE:
-        delete_recursive(j, it->src);
+        n_err = errors_count(j);
+        if (!delete_recursive(j, it->src))
+            divert_denied(j, it, n_err);
         break;
     }
 }
@@ -472,6 +508,7 @@ static void job_free(Job *j)
     g_list_free_full(j->results, pair_free);
     g_list_free_full(j->errors, g_free);
     kf_files_free(j->untrashable);
+    kf_files_free(j->denied);
     g_object_unref(j->cancel);
     g_mutex_clear(&j->lock);
     g_cond_clear(&j->cond);
@@ -570,6 +607,85 @@ static void show_errors(KfApp *app, GList *errors)
 
 static void job_done(Job *j);
 static void create_dialog(Job *j);
+
+/* ---- root fallback ------------------------------------------------------- */
+
+/* A permission refusal is retried as root through pkexec, which asks for the
+ * password on every call: nothing is remembered between operations. */
+static void root_failed(KfApp *app, int rc, const char *primary)
+{
+    if (rc == XIS_ROOTEXEC_CANCELLED)
+        return;         /* the prompt was dismissed */
+    kf_app_message(app, GTK_MESSAGE_ERROR, primary, _("The administrator command failed."));
+}
+
+/* Items the user could not delete: offer to remove them as administrator. */
+static void delete_as_root(KfApp *app, GList *files)
+{
+    GtkWidget *d = gtk_message_dialog_new(kf_app_parent(app), GTK_DIALOG_MODAL, GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE,
+                                          "%s", _("Administrator permission is required to delete these items. Delete them permanently as administrator?"));
+    gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(d), "%s", _("This cannot be undone."));
+    gtk_dialog_add_buttons(GTK_DIALOG(d), GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL, GTK_STOCK_DELETE, GTK_RESPONSE_ACCEPT,
+                           NULL);
+    gboolean go = gtk_dialog_run(GTK_DIALOG(d)) == GTK_RESPONSE_ACCEPT;
+    gtk_widget_destroy(d);
+    if (!go)
+        return;
+    guint n = g_list_length(files), i = 0;
+    char **argv = g_new0(char *, n + 4);
+    argv[i++] = "rm";
+    argv[i++] = "-rf";
+    argv[i++] = "--";
+    for (GList *l = files; l; l = l->next)
+        argv[i++] = g_file_get_path(l->data);
+    int rc = xis_rootexec(argv, NULL, 0);
+    for (guint k = 3; k < i; k++)
+        g_free(argv[k]);
+    g_free(argv);
+    if (rc != 0)
+        root_failed(app, rc, _("Could not delete"));
+}
+
+/* Creates `nf` (folder or empty file) as root. */
+static gboolean create_as_root(KfApp *app, GFile *nf, gboolean folder)
+{
+    char *path = g_file_get_path(nf);
+    if (!path)
+        return FALSE;
+    char *const argv_d[] = { "mkdir", "--", path, NULL };
+    char *const argv_f[] = { "touch", "--", path, NULL };
+    int rc = xis_rootexec(folder ? argv_d : argv_f, NULL, 0);
+    g_free(path);
+    if (rc != 0)
+        root_failed(app, rc, folder ? _("Could not create the folder") : _("Could not create the file"));
+    return rc == 0;
+}
+
+static gboolean rename_as_root(KfApp *app, GFile *f, const char *name, GFile **out)
+{
+    GFile *parent = g_file_get_parent(f);
+    GFile *nf = parent && !strchr(name, '/') ? g_file_get_child(parent, name) : NULL;
+    char *from = g_file_get_path(f), *to = nf ? g_file_get_path(nf) : NULL;
+    int rc = -1;
+    if (from && to) {
+        char *const argv[] = { "mv", "-n", "--", from, to, NULL };
+        rc = xis_rootexec(argv, NULL, 0);
+        if (rc == 0 && g_file_query_exists(f, NULL))
+            rc = 1;         /* mv -n skips an existing target and still succeeds */
+    }
+    g_free(from);
+    g_free(to);
+    if (parent)
+        g_object_unref(parent);
+    if (rc != 0) {
+        if (nf)
+            g_object_unref(nf);
+        root_failed(app, rc, _("Could not rename"));
+        return FALSE;
+    }
+    *out = nf;
+    return TRUE;
+}
 
 static const char *job_title(Job *j)
 {
@@ -715,6 +831,9 @@ static void job_done(Job *j)
         xis_sound_play("trash-empty");
     else if ((j->type == JOB_COPY || j->type == JOB_MOVE) && shown && !g_cancellable_is_cancelled(j->cancel))
         xis_sound_play("complete");        /* only long jobs: the ones with a progress dialog */
+
+    if (j->denied && !g_cancellable_is_cancelled(j->cancel))
+        delete_as_root(app, j->denied);
 
     switch (j->type) {
     case JOB_COPY:
@@ -1017,6 +1136,13 @@ void kf_ops_rename(KfApp *app, GFile *f)
         return;
     GError *err = NULL;
     GFile *nf = g_file_set_display_name(f, name, NULL, &err);
+    if (!nf && g_error_matches(err, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED) && g_file_is_native(f)) {
+        g_clear_error(&err);
+        if (!rename_as_root(app, f, name, &nf)) {
+            g_free(name);
+            return;
+        }
+    }
     if (!nf) {
         kf_app_message(app, GTK_MESSAGE_ERROR, _("Could not rename"), err->message);
         g_clear_error(&err);
@@ -1062,6 +1188,15 @@ static void make_new(KfApp *app, GFile *dir, gboolean folder)
             g_output_stream_close(G_OUTPUT_STREAM(os), NULL, NULL);
             g_object_unref(os);
         }
+    }
+    if (!ok && g_error_matches(err, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED) && g_file_is_native(nf)) {
+        g_clear_error(&err);
+        if (!create_as_root(app, nf, folder)) {
+            g_object_unref(nf);
+            g_free(name);
+            return;
+        }
+        ok = TRUE;
     }
     if (!ok) {
         kf_app_message(app, GTK_MESSAGE_ERROR, folder ? _("Could not create the folder") : _("Could not create the file"),

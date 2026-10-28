@@ -931,3 +931,11 @@ msgstr "Miniaturas"
 #: kifiles.c:1493
 msgid "Show or hide thumbnails"
 msgstr "Mostrar/ocultar miniaturas"
+
+#: kf_ops.c
+msgid "Administrator permission is required to delete these items. Delete them permanently as administrator?"
+msgstr "É necessária permissão de administrador para excluir estes itens. Excluí-los permanentemente como administrador?"
+
+#: kf_ops.c
+msgid "Could not delete"
+msgstr "Não foi possível excluir"
