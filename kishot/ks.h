@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <xcb/xcb.h>
 
-#define KISHOT_VERSION "0.1.14"
+#define KISHOT_VERSION "0.1.15"
 
 typedef enum {
     KS_AREA_FULL,       /* every monitor */
@@ -48,12 +48,20 @@ typedef struct {
     gboolean audio_system;
     gboolean audio_mic;
     gboolean rec_preview;       /* live preview in the Recording tab */
+    gboolean hide_on_record;    /* hide the window while recording (it is in the video otherwise) */
     KsCopyMode copy_mode;
     KsBackend backend;
 
     int win_w, win_h;
     int pane_pos;               /* preview | options divider, 0 = default */
 } KsConfig;
+
+/* ---- tray indicator while recording (ks_tray.c) ------------------------- */
+
+typedef void (*KsTrayActivate)(void *data);
+void ks_tray_show(KsTrayActivate cb, void *data);   /* click = cb */
+void ks_tray_set_tooltip(const char *text);
+void ks_tray_hide(void);
 
 void ks_config_load(KsConfig *c);
 void ks_config_save(const KsConfig *c);

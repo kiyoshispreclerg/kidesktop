@@ -37,7 +37,7 @@ endif
 LINGUAS := $(shell test -f po/LINGUAS && grep -v '^\#' po/LINGUAS)
 MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
-SRCS := kishot.c ks_config.c ks_grab.c ks_censor.c ks_capture.c ks_region.c ks_rec.c ks_audio.c ks_window.c ks_prefs.c ../shared/xis_winstate.c ../shared/xis_safefile.c ../shared/xis_inputscale.c
+SRCS := kishot.c ks_config.c ks_grab.c ks_censor.c ks_capture.c ks_region.c ks_rec.c ks_audio.c ks_window.c ks_tray.c ks_prefs.c ../shared/xis_winstate.c ../shared/xis_safefile.c ../shared/xis_inputscale.c
 OBJS := $(SRCS:.c=.o)
 HDRS := ks.h ks_plugin.h ../shared/xis_inputscale.h ../shared/xis_i18n.h ../shared/xis_winstate.h
 

@@ -169,3 +169,13 @@ them; the Settings dialog shows which of these were found.
 make            # kishot, plus plugin/kishot-rec-av.so when libav is found
 make install    # PREFIX=/usr/local; the plugin goes to $(LIBDIR)/kishot
 ```
+
+## Tray indicator and the window while recording
+
+While a recording runs a StatusNotifierItem (`ks_tray.c`, plain GDBus) sits in
+the tray; clicking it stops the recording. xispanel's tray is
+StatusNotifierItem-only, which is why the old `GtkStatusIcon` (XEmbed) never
+showed up there; it is still created when no StatusNotifierWatcher is on the
+bus. The window stays open while recording; `hide_on_record=1` (Recording tab,
+"Hide this window while recording") hides it, for the case where it would
+otherwise be in the video. A region is still picked over a frozen screen.

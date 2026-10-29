@@ -21,13 +21,12 @@ struct KsApp {
     GtkWidget *preview, *preview_hint;
     GtkWidget *area_combo, *delay_spin, *pointer_check, *deco_check;
     GtkWidget *rec_area_combo, *rec_deco_check, *rec_pointer_check;
-    GtkWidget *sys_check, *mic_check, *rec_preview_check;
+    GtkWidget *sys_check, *mic_check, *rec_preview_check, *rec_hide_check;
     GtkWidget *rec_button, *save_button, *saveas_button, *copy_button, *edit_button;
     GtkWidget *status;
     GtkListStore *censor_store;
     GtkWidget *censor_view;
     GtkWidget *censor_note;
-    GtkStatusIcon *tray;
     GdkPixbuf *shot;
     GFileMonitor *edit_mon;     /* watches shot_path while an editor has it open */
     guint edit_reload;          /* debounce timer for the reload */
@@ -550,7 +549,12 @@ void ks_app_command(KsApp *app, KsCmdKind kind, int area, gboolean background)
     gboolean ours_hidden = ks_capture_hides_own_windows();
     if (g_getenv("KISHOT_DEBUG"))
         fprintf(stderr, "kishot: capture: own windows %s\n", ours_hidden ? "left out by the compositor" : "hidden around the shot");
-    if (!ours_hidden) {
+    /* A recording keeps the window unless asked to hide it: the stop button
+     * is in it. Hidden or not, a region is picked over a frozen screen. */
+    gboolean keep = record && !app->cfg->hide_on_record && app->cfg->rec_area != KS_AREA_REGION;
+    if (keep) {
+        /* nothing to hide, nothing to wait for */
+    } else if (!ours_hidden) {
         gtk_widget_hide(app->win);
         gdk_flush();
     } else if (app->background) {
@@ -563,7 +567,7 @@ void ks_app_command(KsApp *app, KsCmdKind kind, int area, gboolean background)
     p->output = g_strdup(record ? app->cfg->rec_output : app->cfg->output);
     p->record = record;
     /* give the compositor time to repaint without our window, plus the delay */
-    int ms = (was_visible && !ours_hidden ? 300 : 0) + (p->record ? 0 : app->cfg->delay * 1000);
+    int ms = (was_visible && !ours_hidden && !keep ? 300 : 0) + (p->record ? 0 : app->cfg->delay * 1000);
     if (ms)
         g_timeout_add(ms, do_capture, p);
     else
@@ -584,12 +588,10 @@ static void refresh_rec_ui(KsApp *app)
         int s = (int)ks_rec_elapsed();
         char *label = g_strdup_printf(_("Stop (%d:%02d)"), s / 60, s % 60);
         gtk_button_set_label(GTK_BUTTON(app->rec_button), label);
-        if (app->tray) {
-            char *tip = g_strdup_printf(_("Recording %d:%02d -- click to stop\n%s"), s / 60, s % 60,
-                                        ks_rec_method() ? ks_rec_method() : "");
-            gtk_status_icon_set_tooltip_text(app->tray, tip);
-            g_free(tip);
-        }
+        char *tip = g_strdup_printf(_("Recording %d:%02d -- click to stop\n%s"), s / 60, s % 60,
+                                    ks_rec_method() ? ks_rec_method() : "");
+        ks_tray_set_tooltip(tip);
+        g_free(tip);
         g_free(label);
     } else {
         gtk_button_set_label(GTK_BUTTON(app->rec_button), _("Record"));
@@ -602,9 +604,8 @@ static gboolean rec_tick(gpointer data)
     return TRUE;
 }
 
-static void on_tray_activate(GtkStatusIcon *icon, KsApp *app)
+static void on_tray_activate(void *app)
 {
-    (void)icon;
     (void)app;
     ks_rec_stop();
 }
@@ -615,11 +616,7 @@ static void rec_finished(const char *path, const char *error, void *data)
     if (app->rec_timer)
         g_source_remove(app->rec_timer);
     app->rec_timer = 0;
-    if (app->tray) {
-        gtk_status_icon_set_visible(app->tray, FALSE);
-        g_object_unref(app->tray);
-        app->tray = NULL;
-    }
+    ks_tray_hide();
     refresh_rec_ui(app);
     char *msg = path ? g_strdup_printf(_("Recording saved to %s"), path)
                      : g_strdup_printf(_("Recording failed: %s"), error ? error : "?");
@@ -677,9 +674,7 @@ static void start_recording(KsApp *app, const KsRect *r)
     }
     g_free(path);
     g_printerr("kishot: recording %dx%d+%d+%d via %s\n", r->w, r->h, r->x, r->y, ks_rec_method());
-    app->tray = gtk_status_icon_new_from_icon_name("media-record");
-    g_signal_connect(app->tray, "activate", G_CALLBACK(on_tray_activate), app);
-    gtk_status_icon_set_visible(app->tray, TRUE);
+    ks_tray_show(on_tray_activate, app);
     app->rec_timer = g_timeout_add_seconds(1, rec_tick, app);
     refresh_rec_ui(app);
 }
@@ -1029,6 +1024,8 @@ KsApp *ks_app_new(KsConfig *cfg)
     g_signal_connect(app->sys_check, "toggled", G_CALLBACK(on_toggle), &cfg->audio_system);
     app->mic_check = check(page, _("_Microphone"), cfg->audio_mic);
     g_signal_connect(app->mic_check, "toggled", G_CALLBACK(on_toggle), &cfg->audio_mic);
+    app->rec_hide_check = check(page, _("_Hide this window while recording"), cfg->hide_on_record);
+    g_signal_connect(app->rec_hide_check, "toggled", G_CALLBACK(on_toggle), &cfg->hide_on_record);
     app->rec_preview_check = check(page, _("Show a _live preview"), cfg->rec_preview);
     g_signal_connect(app->rec_preview_check, "toggled", G_CALLBACK(on_rec_preview), app);
     app->rec_button = button(_("Record"), "media-record", G_CALLBACK(on_record), app);
