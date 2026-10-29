@@ -448,6 +448,12 @@ static void map_frame(MenuFrame *f)
                           XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.screen->root_visual,
                           XCB_CW_BACK_PIXEL | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK, values);
     }
+    /* The XiS server lets global hotkeys and screen lockers past a popup
+     * menu's grab, but only recognises one by this type: without it the
+     * menu's root grabs (see window_menu_open) block them all. */
+    xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, f->win,
+                        wm.atoms.net_wm_window_type, XCB_ATOM_ATOM, 32, 1,
+                        &wm.atoms.net_wm_window_type_popup_menu);
     shape_frame(f);
     xcb_map_window(wm.conn, f->win);
     /* Mapping doesn't restack: one explicit raise, and from then on
