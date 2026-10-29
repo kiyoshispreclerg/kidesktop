@@ -5,6 +5,8 @@
  * already make GetImage see per-CRTC flips. The pointer is drawn from
  * XFixes' cursor image, since GetImage never includes it. */
 #include "ks.h"
+#include "../shared/xis_inputscale.h"
+#include <X11/Xlib-xcb.h>
 #include <gdk/gdkx.h>
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
@@ -227,8 +229,20 @@ static void draw_pointer(GdkPixbuf *pb, const KsRect *r, double scale)
     XFixesCursorImage *ci = XFixesGetCursorImage(dpy);
     if (!ci)
         return;
-    int ox = (int)((ci->x - ci->xhot - r->x) * scale), oy = (int)((ci->y - ci->yhot - r->y) * scale);
-    int cw = MAX(1, (int)(ci->width * scale)), ch = MAX(1, (int)(ci->height * scale));
+    /* On a confined output the framebuffer holds the hardware cursor
+     * enlarged by physical/logical; the server already reports the position
+     * on the framebuffer (ci->x, ci->y) but not the size. */
+    double sx = scale, sy = scale;
+    XisScaleMap map;
+    if (xis_scalemap_load(XGetXCBConnection(dpy), GDK_ROOT_WINDOW(), &map)) {
+        const XisConfinedCrtc *k = xis_scalemap_find(&map, ci->x, ci->y);
+        if (k) {
+            sx *= k->sx;
+            sy *= k->sy;
+        }
+    }
+    int ox = (int)((ci->x - r->x) * scale - ci->xhot * sx), oy = (int)((ci->y - r->y) * scale - ci->yhot * sy);
+    int cw = MAX(1, (int)(ci->width * sx)), ch = MAX(1, (int)(ci->height * sy));
     int W = gdk_pixbuf_get_width(pb), H = gdk_pixbuf_get_height(pb);
     int nch = gdk_pixbuf_get_n_channels(pb), stride = gdk_pixbuf_get_rowstride(pb);
     guchar *px = gdk_pixbuf_get_pixels(pb);
@@ -236,14 +250,14 @@ static void draw_pointer(GdkPixbuf *pb, const KsRect *r, double scale)
         int dy = oy + y;
         if (dy < 0 || dy >= H)
             continue;
-        int sy = MIN((int)(y / scale), ci->height - 1);
+        int srow = MIN((int)(y / sy), ci->height - 1);
         for (int x = 0; x < cw; x++) {
             int dx = ox + x;
             if (dx < 0 || dx >= W)
                 continue;
-            int sx = MIN((int)(x / scale), ci->width - 1);
+            int scol = MIN((int)(x / sx), ci->width - 1);
             /* XFixes pixels are premultiplied ARGB in an unsigned long */
-            unsigned long p = ci->pixels[sy * ci->width + sx];
+            unsigned long p = ci->pixels[srow * ci->width + scol];
             unsigned a = (p >> 24) & 0xff;
             if (!a)
                 continue;

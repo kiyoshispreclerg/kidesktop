@@ -21,12 +21,14 @@
 #include "ks.h"
 #include "ks_plugin.h"
 #include "../shared/xis_i18n.h"
+#include "../shared/xis_inputscale.h"
 #include <xcb/xcb.h>
 #include <xcb/xcbext.h>
 #include <xcb/shm.h>
 #include <xcb/randr.h>
 #include <xcb/xfixes.h>
 #include <xcb/render.h>
+#include <math.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/uio.h>
@@ -384,6 +386,12 @@ typedef struct {
     int cur_w, cur_h, cur_xhot, cur_yhot;
     xcb_pixmap_t cur_pix;
     xcb_render_picture_t cur_pic;
+    /* X-INPUT-SCALE: on a scaled output the screen read is the physical
+     * framebuffer, where the hardware cursor is drawn bigger and further
+     * from the origin than the logical pointer says. */
+    XisScaleMap smap;
+    gboolean smap_dirty;
+    double cur_pic_scale;       /* the transform now on cur_pic (1 = none) */
 
     GThread *thread;
     volatile gint stop;
@@ -464,6 +472,7 @@ static void fetch_cursor(Rec *r)
     xcb_free_gc(r->c, gc);
     r->cur_pic = xcb_generate_id(r->c);
     xcb_render_create_picture(r->c, r->cur_pic, r->cur_pix, argb, 0, NULL);
+    r->cur_pic_scale = 1;
 }
 
 static void poll_x_events(Rec *r)
@@ -477,22 +486,46 @@ static void poll_x_events(Rec *r)
         if (xf && (ev->response_type & 0x7f) == xf->first_event + XCB_XFIXES_CURSOR_NOTIFY &&
             ((xcb_xfixes_cursor_notify_event_t *)ev)->subtype == KS_XFIXES_CURSOR_VISIBILITY)
             r->cursor_hidden = ((xcb_xfixes_cursor_notify_event_t *)ev)->cursor_serial != 0;
+        if (xis_scalemap_is_change_event(r->c, ev))
+            r->smap_dirty = TRUE;
         free(ev);
     }
 }
 
-static void blend_cursor_cpu(Rec *r, uint8_t *buf, int stride, int px, int py)
+/* Where the pointer lands on the frame and how much bigger the cursor is
+ * there: the pointer is in logical root coordinates, the frame is the
+ * physical framebuffer. Without confinement: the point itself, scale 1. */
+static void pointer_on_frame(Rec *r, int *px, int *py, double *sx, double *sy)
 {
-    int ox = px - r->cur_xhot - r->area.x, oy = py - r->cur_yhot - r->area.y;
-    for (int y = 0; y < r->cur_h; y++) {
+    *sx = *sy = 1;
+    if (r->smap_dirty) {
+        xis_scalemap_load(r->c, r->root, &r->smap);
+        r->smap_dirty = FALSE;
+    }
+    const XisConfinedCrtc *k = xis_scalemap_find(&r->smap, *px, *py);
+    if (!k)
+        return;
+    xis_scalemap_to_physical(k, *px, *py, px, py);
+    *sx = k->sx;
+    *sy = k->sy;
+}
+
+/* The cursor at (sx, sy) times its size, nearest-neighbour like the hardware
+ * cursor plane it stands in for. */
+static void blend_cursor_cpu(Rec *r, uint8_t *buf, int stride, int px, int py, double sx, double sy)
+{
+    int cw = MAX(1, (int)lround(r->cur_w * sx)), ch = MAX(1, (int)lround(r->cur_h * sy));
+    int ox = px - (int)lround(r->cur_xhot * sx) - r->area.x, oy = py - (int)lround(r->cur_yhot * sy) - r->area.y;
+    for (int y = 0; y < ch; y++) {
         int dy = oy + y;
         if (dy < 0 || dy >= r->area.h)
             continue;
-        for (int x = 0; x < r->cur_w; x++) {
+        int srow = MIN((int)(y / sy), r->cur_h - 1);
+        for (int x = 0; x < cw; x++) {
             int dx = ox + x;
             if (dx < 0 || dx >= r->area.w)
                 continue;
-            uint32_t p = r->cur_img[y * r->cur_w + x];
+            uint32_t p = r->cur_img[srow * r->cur_w + MIN((int)(x / sx), r->cur_w - 1)];
             unsigned a = p >> 24;
             if (!a)
                 continue;
@@ -502,6 +535,20 @@ static void blend_cursor_cpu(Rec *r, uint8_t *buf, int stride, int px, int py)
             d[2] = ((p >> 16) & 0xff) + d[2] * (255 - a) / 255;
         }
     }
+}
+
+/* Render's transform maps destination to source, hence 1/scale; nearest so
+ * the pixels stay as hard-edged as the hardware cursor's. */
+static void set_cursor_scale(Rec *r, double sx)
+{
+    if (!r->cur_pic || r->cur_pic_scale == sx)
+        return;
+    int32_t inv = (int32_t)lround(65536.0 / sx);
+    xcb_render_transform_t t = { inv, 0, 0, 0, inv, 0, 0, 0, 1 << 16 };
+    xcb_render_set_picture_transform(r->c, r->cur_pic, t);
+    const char nearest[] = "nearest";
+    xcb_render_set_picture_filter(r->c, r->cur_pic, sizeof(nearest) - 1, nearest, 0, NULL);
+    r->cur_pic_scale = sx;
 }
 
 /* ---- setup --------------------------------------------------------------- */
@@ -865,6 +912,7 @@ static gpointer capture_thread(gpointer data)
         next = r->start_us + (index + 1) * frame_us;
 
         int px = 0, py = 0;
+        double csx = 1, csy = 1;
         gboolean ptr_ok = FALSE;
         if (r->pointer) {
             poll_x_events(r);
@@ -878,6 +926,8 @@ static gpointer capture_thread(gpointer data)
                 ptr_ok = qp->same_screen;
                 free(qp);
             }
+            if (ptr_ok)
+                pointer_on_frame(r, &px, &py, &csx, &csy);
         }
 
         if (r->use_gpu) {
@@ -907,10 +957,13 @@ static gpointer capture_thread(gpointer data)
             }
             if (!(slots_ok && ks_capture_unchanged(r->c, &cv)))
                 paint_censor_gpu(r, slot);
-            if (ptr_ok && r->cur_pic && r->pic[slot])
+            if (ptr_ok && r->cur_pic && r->pic[slot]) {
+                set_cursor_scale(r, csx);
                 xcb_render_composite(r->c, XCB_RENDER_PICT_OP_OVER, r->cur_pic, XCB_NONE, r->pic[slot], 0, 0, 0, 0,
-                                     px - r->cur_xhot - r->area.x, py - r->cur_yhot - r->area.y,
-                                     r->cur_w, r->cur_h);
+                                     px - (int)lround(r->cur_xhot * csx) - r->area.x,
+                                     py - (int)lround(r->cur_yhot * csy) - r->area.y,
+                                     MAX(1, (int)lround(r->cur_w * csx)), MAX(1, (int)lround(r->cur_h * csy)));
+            }
             /* a round trip: the server has at least started the copy */
             free(xcb_get_input_focus_reply(r->c, xcb_get_input_focus(r->c), NULL));
             /* Encode the frame copied one capture ago, not this one: the
@@ -945,7 +998,7 @@ static gpointer capture_thread(gpointer data)
             if (!(slots_ok && ks_capture_unchanged(r->c, &cv)))
                 paint_censor_cpu(r, r->shm);
             if (ptr_ok && r->cur_img)
-                blend_cursor_cpu(r, r->shm, r->stride, px, py);
+                blend_cursor_cpu(r, r->shm, r->stride, px, py, csx, csy);
             if (r->ph) {
                 if (plugin->video_cpu(r->ph, r->shm, r->stride, index * 1000000 / r->fps) < 0)
                     set_error(r, _("the video encoder failed"));
@@ -1088,6 +1141,8 @@ gboolean ks_rec_start(const KsConfig *cfg, const KsRect *area, const char *path,
             free(v);
             select_cursor_visibility(r);
             fetch_cursor(r);
+            xis_scalemap_select_changes(r->c, r->root);
+            r->smap_dirty = TRUE;
         } else {
             r->pointer = FALSE;
         }
