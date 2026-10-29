@@ -20,6 +20,8 @@
  * the screen itself is never touched. */
 #include "ks.h"
 #include "../shared/xis_capture.h"
+#include "../shared/xis_inputscale.h"
+#include <X11/Xlib-xcb.h>
 #include <math.h>
 #include <gdk/gdkx.h>
 #include <X11/Xlib.h>
@@ -390,10 +392,34 @@ KsRect *ks_censor_rects(int *n)
     return copy;
 }
 
+/* The rectangles are windows in logical root coordinates; the frames are the
+ * physical framebuffer, where a window on a scaled output is bigger and
+ * further out. Frees `rs`. */
+KsRect *ks_censor_to_physical(KsRect *rs, int *n, const XisScaleMap *m)
+{
+    if (!*n || !m->n)
+        return rs;
+    GArray *out = g_array_new(FALSE, FALSE, sizeof(KsRect));
+    for (int i = 0; i < *n; i++) {
+        XisRect pieces[16];
+        int np = xis_scalemap_rect(m, (XisRect){ rs[i].x, rs[i].y, rs[i].w, rs[i].h }, pieces, 16);
+        for (int j = 0; j < np; j++) {
+            KsRect k = { pieces[j].x, pieces[j].y, pieces[j].w, pieces[j].h };
+            g_array_append_val(out, k);
+        }
+    }
+    g_free(rs);
+    *n = (int)out->len;
+    return (KsRect *)g_array_free(out, FALSE);
+}
+
 void ks_censor_paint_scaled(GdkPixbuf *pb, const KsRect *origin, double scale)
 {
     int n;
     KsRect *rs = ks_censor_rects(&n);
+    XisScaleMap map;
+    xis_scalemap_load(XGetXCBConnection(xdpy()), GDK_ROOT_WINDOW(), &map);
+    rs = ks_censor_to_physical(rs, &n, &map);
     int W = gdk_pixbuf_get_width(pb), H = gdk_pixbuf_get_height(pb);
     int nch = gdk_pixbuf_get_n_channels(pb), stride = gdk_pixbuf_get_rowstride(pb);
     guchar *px = gdk_pixbuf_get_pixels(pb);

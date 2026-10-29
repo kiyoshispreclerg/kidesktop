@@ -190,3 +190,59 @@ void xis_scalemap_to_physical(const XisConfinedCrtc *k, int x, int y, int *px, i
     *px = k->x + (int)lround((x - k->x) * k->sx);
     *py = k->y + (int)lround((y - k->y) * k->sy);
 }
+
+#define RECT_PIECES 32
+
+static int rect_inter(XisRect a, XisRect b, XisRect *o)
+{
+    int x1 = a.x > b.x ? a.x : b.x, y1 = a.y > b.y ? a.y : b.y;
+    int x2 = a.x + a.w < b.x + b.w ? a.x + a.w : b.x + b.w;
+    int y2 = a.y + a.h < b.y + b.h ? a.y + a.h : b.y + b.h;
+    if (x2 <= x1 || y2 <= y1)
+        return 0;
+    *o = (XisRect){ x1, y1, x2 - x1, y2 - y1 };
+    return 1;
+}
+
+int xis_scalemap_rect(const XisScaleMap *m, XisRect in, XisRect *out, int max)
+{
+    XisRect rest[RECT_PIECES] = { { 0 } }, next[RECT_PIECES] = { { 0 } };
+    int nrest = 1, nout = 0;
+    rest[0] = in;
+    for (int i = 0; i < m->n; i++) {
+        const XisConfinedCrtc *k = &m->crtc[i];
+        XisRect box = { k->cx, k->cy, k->cw, k->ch };
+        int nnext = 0;
+        for (int j = 0; j < nrest; j++) {
+            XisRect p = rest[j], in_box;
+            if (!rect_inter(p, box, &in_box)) {
+                if (nnext < RECT_PIECES)
+                    next[nnext++] = p;
+                continue;
+            }
+            if (nout < max) {
+                int x1 = k->x + (int)floor((in_box.x - k->x) * k->sx);
+                int y1 = k->y + (int)floor((in_box.y - k->y) * k->sy);
+                int x2 = k->x + (int)ceil((in_box.x + in_box.w - k->x) * k->sx);
+                int y2 = k->y + (int)ceil((in_box.y + in_box.h - k->y) * k->sy);
+                out[nout++] = (XisRect){ x1, y1, x2 - x1, y2 - y1 };
+            }
+            /* what is left of p around the box: above, below, left, right */
+            XisRect left[4] = {
+                { p.x, p.y, p.w, in_box.y - p.y },
+                { p.x, in_box.y + in_box.h, p.w, p.y + p.h - (in_box.y + in_box.h) },
+                { p.x, in_box.y, in_box.x - p.x, in_box.h },
+                { in_box.x + in_box.w, in_box.y, p.x + p.w - (in_box.x + in_box.w), in_box.h },
+            };
+            for (int s = 0; s < 4; s++)
+                if (left[s].w > 0 && left[s].h > 0 && nnext < RECT_PIECES)
+                    next[nnext++] = left[s];
+        }
+        for (int j = 0; j < nnext; j++)
+            rest[j] = next[j];
+        nrest = nnext;
+    }
+    for (int j = 0; j < nrest && nout < max; j++)
+        out[nout++] = rest[j];
+    return nout;
+}

@@ -84,4 +84,13 @@ const XisConfinedCrtc *xis_scalemap_find(const XisScaleMap *m, int x, int y);
  * the same arithmetic the server uses for the hardware cursor. */
 void xis_scalemap_to_physical(const XisConfinedCrtc *k, int x, int y, int *px, int *py);
 
+typedef struct { int x, y, w, h; } XisRect;
+
+/* Where a rectangle in logical root coordinates (a window's geometry) shows
+ * on the physical framebuffer, as up to `max` pieces: the part inside each
+ * confined logical box is scaled onto its CRTC (rounded outwards, so a
+ * censored window never leaves a sliver), the rest is left as it is. Returns
+ * the number of pieces written to `out`. */
+int xis_scalemap_rect(const XisScaleMap *m, XisRect in, XisRect *out, int max);
+
 #endif /* XIS_INPUTSCALE_H */

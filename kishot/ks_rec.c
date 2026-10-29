@@ -492,16 +492,21 @@ static void poll_x_events(Rec *r)
     }
 }
 
+static void refresh_smap(Rec *r)
+{
+    if (r->smap_dirty) {
+        xis_scalemap_load(r->c, r->root, &r->smap);
+        r->smap_dirty = FALSE;
+    }
+}
+
 /* Where the pointer lands on the frame and how much bigger the cursor is
  * there: the pointer is in logical root coordinates, the frame is the
  * physical framebuffer. Without confinement: the point itself, scale 1. */
 static void pointer_on_frame(Rec *r, int *px, int *py, double *sx, double *sy)
 {
     *sx = *sy = 1;
-    if (r->smap_dirty) {
-        xis_scalemap_load(r->c, r->root, &r->smap);
-        r->smap_dirty = FALSE;
-    }
+    refresh_smap(r);
     const XisConfinedCrtc *k = xis_scalemap_find(&r->smap, *px, *py);
     if (!k)
         return;
@@ -852,6 +857,8 @@ static void paint_censor_gpu(Rec *r, int slot)
     KsRect *rs = ks_censor_rects(&n);
     if (!n)
         return;
+    refresh_smap(r);
+    rs = ks_censor_to_physical(rs, &n, &r->smap);
     xcb_rectangle_t *xr = g_new(xcb_rectangle_t, n);
     for (int i = 0; i < n; i++)
         xr[i] = (xcb_rectangle_t){ rs[i].x - r->area.x, rs[i].y - r->area.y, rs[i].w, rs[i].h };
@@ -864,6 +871,8 @@ static void paint_censor_cpu(Rec *r, uint8_t *buf)
 {
     int n;
     KsRect *rs = ks_censor_rects(&n);
+    refresh_smap(r);
+    rs = ks_censor_to_physical(rs, &n, &r->smap);
     for (int i = 0; i < n; i++) {
         int x1 = MAX(rs[i].x - r->area.x, 0), y1 = MAX(rs[i].y - r->area.y, 0);
         int x2 = MIN(rs[i].x + rs[i].w - r->area.x, r->area.w);
@@ -914,8 +923,8 @@ static gpointer capture_thread(gpointer data)
         int px = 0, py = 0;
         double csx = 1, csy = 1;
         gboolean ptr_ok = FALSE;
+        poll_x_events(r);
         if (r->pointer) {
-            poll_x_events(r);
             if (r->cursor_dirty)
                 fetch_cursor(r);
             xcb_query_pointer_reply_t *qp = r->cursor_hidden ? NULL :
@@ -1141,12 +1150,14 @@ gboolean ks_rec_start(const KsConfig *cfg, const KsRect *area, const char *path,
             free(v);
             select_cursor_visibility(r);
             fetch_cursor(r);
-            xis_scalemap_select_changes(r->c, r->root);
-            r->smap_dirty = TRUE;
         } else {
             r->pointer = FALSE;
         }
     }
+
+    /* the censored rectangles need it too, pointer or not */
+    xis_scalemap_select_changes(r->c, r->root);
+    r->smap_dirty = TRUE;
 
     gboolean want_audio = (cfg->audio_system || cfg->audio_mic);
     if (use_plugin) {

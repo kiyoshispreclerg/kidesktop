@@ -2,11 +2,12 @@
 #ifndef KS_H
 #define KS_H
 
+#include "../shared/xis_inputscale.h"
 #include <gtk/gtk.h>
 #include <stdint.h>
 #include <xcb/xcb.h>
 
-#define KISHOT_VERSION "0.1.15"
+#define KISHOT_VERSION "0.1.16"
 
 typedef enum {
     KS_AREA_FULL,       /* every monitor */
@@ -102,6 +103,8 @@ GArray *ks_censor_marked(void);
 char *ks_censor_title(unsigned long toplevel);
 /* Rectangles to black out, in root coordinates. Thread-safe copy. */
 KsRect *ks_censor_rects(int *n);
+/* logical rectangles -> the physical framebuffer on confined outputs; frees rs */
+KsRect *ks_censor_to_physical(KsRect *rs, int *n, const XisScaleMap *m);
 void ks_censor_paint(GdkPixbuf *pb, const KsRect *origin);
 void ks_censor_paint_scaled(GdkPixbuf *pb, const KsRect *origin, double scale);
 /* Lets the user click a window (xkill-style); returns its toplevel or 0. */

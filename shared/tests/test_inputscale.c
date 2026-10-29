@@ -28,6 +28,17 @@ int main(void)
     xis_scalemap_to_physical(&m.crtc[0], 3839, 1079, &px, &py);
     CHECK(px == 5758 && py == 2158);                         /* the logical corner stays inside */
 
+    /* rectangles: inside the confined box scaled, outside kept, straddling split */
+    XisRect o[8];
+    int n = xis_scalemap_rect(&m, (XisRect){ 100, 100, 200, 200 }, o, 8);
+    CHECK(n == 1 && o[0].x == 100 && o[0].w == 200);                  /* unscaled monitor: as is */
+    n = xis_scalemap_rect(&m, (XisRect){ 2000, 100, 100, 50 }, o, 8);
+    CHECK(n == 1 && o[0].x == 2080 && o[0].y == 200 && o[0].w == 200 && o[0].h == 100);
+    n = xis_scalemap_rect(&m, (XisRect){ 1800, 0, 240, 100 }, o, 8);  /* 120 px left of the box, 120 in */
+    CHECK(n == 2);
+    CHECK(o[0].x == 1920 && o[0].w == 240 && o[0].h == 200);          /* the 120 inside become 240 */
+    CHECK(o[1].x == 1800 && o[1].w == 120 && o[1].h == 100);          /* the rest untouched */
+
     if (!fails)
         puts("test_inputscale: ok");
     return fails != 0;
