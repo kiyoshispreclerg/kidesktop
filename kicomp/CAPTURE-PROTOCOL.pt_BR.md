@@ -24,8 +24,7 @@ própria; e os interruptores (a aba do compositor no kiconf). Testado por
 `kiwm/tests/capture-exclude.sh` e `kishot/tests/capture-session.sh`, e medido na
 sessão real (GLX, dois monitores). Não implementado: a imagem no renderer
 **EGL** (as saídas ficam `UNAVAILABLE` enquanto uma janela excluída aparece, e o
-kishot as censura sozinho), `DMABUF`, slots de saídas com escala no kishot (ele
-as censura sozinho), e um teste dos efeitos que desenham uma janela várias vezes
+kishot as censura sozinho), `DMABUF`, e um teste dos efeitos que desenham uma janela várias vezes
 (expo, cubo, cover-switch, lâmpada mágica, wobbly): a substituição é no nó, então
 estão cobertos por construção, não exercitados. Foi escrito antes para que os
 dois lados fossem construídos contra o mesmo texto.
