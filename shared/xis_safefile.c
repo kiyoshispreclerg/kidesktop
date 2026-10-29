@@ -295,7 +295,9 @@ FILE *xis_fopen_read(const char *path, xis_check_fn ok)
     if (bak) {
         char b[PATH_MAX];
         char rbuf[PATH_MAX];
-        snprintf(b, sizeof b, "%s.backup", resolve(path, rbuf));
+        if (snprintf(b, sizeof b, "%s.backup", resolve(path, rbuf)) >= (int)sizeof b) {
+            return NULL;
+        }
         return fopen(b, "r");
     }
     return fopen(path, "r");
@@ -306,7 +308,9 @@ FILE *xis_fopen_read(const char *path, xis_check_fn ok)
 void xis_write_tmpname(const char *path, char *tmp, size_t tmpsz)
 {
     char rbuf[PATH_MAX];
-    snprintf(tmp, tmpsz, "%s.tmp", resolve(path, rbuf));
+    if (snprintf(tmp, tmpsz, "%s.tmp", resolve(path, rbuf)) >= (int)tmpsz && tmpsz > 0) {
+        tmp[0] = '\0';
+    }
 }
 
 FILE *xis_write_open(const char *tmp, const char *path)

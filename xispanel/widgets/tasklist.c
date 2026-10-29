@@ -2817,7 +2817,7 @@ static int tasklist_drag_begin(PanelWidget *w, int local_x)
  * target windows t[0..nt). */
 static void tasklist_user_move(TasklistPriv *tp, const Window *m, int nm, const Window *t, int nt, int after)
 {
-    Window rest[MAX_TASKS];
+    Window rest[MAX_TASKS] = { 0 };
     int nr = 0;
     for (int i = 0; i < tp->n_user_order; i++) {
         int moving = 0;
