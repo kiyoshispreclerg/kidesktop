@@ -132,12 +132,12 @@ whether anything hidden is showing under the area (`_KICOMP_CAPTURE_STATE`,
 read over the same connection that copies, with the seqlock the protocol
 describes). If not, the screen already is the censored picture and no
 rectangles are painted. Where a hidden window shows and the compositor can
-render the output (today: kicomp's XRender renderer, unscaled outputs), kishot
+render the output (kicomp's renderers, scaled outputs included: the slot is the scanout size and is cropped in framebuffer pixels), kishot
 asks for the censored picture (`REQUEST`), waits up to 150 ms for the slot
 (`FRAME`), copies the area out of it and gives it back (`RELEASE`) -- in a
 screenshot, in the live preview and in a recording (GPU copy, or the SHM path
 through `GetImage`). Everything else -- an output the compositor cannot render,
-a scaled output, a slot that did not come in time, a changed epoch, no
+a slot that did not come in time, a changed epoch, no
 compositor -- paints the rectangles as before. With a session open kishot also
 sends `HIDE_PID` (its own PID) and, when every output can be rendered censored,
 no longer hides its main window around a capture: the compositor leaves it out

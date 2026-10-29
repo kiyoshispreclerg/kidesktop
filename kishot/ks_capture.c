@@ -13,7 +13,7 @@
  *     for the censored picture (REQUEST), waits for the slot (FRAME), copies
  *     the area out of it and gives it back (RELEASE);
  *   - anything else -- no compositor, no offer, a refused session,
- *     UNAVAILABLE, a scaled output, a slot that did not come in time, a
+ *     UNAVAILABLE, a slot that did not come in time, a
  *     changed epoch -- kishot censors with its own rectangles as before.
  *
  * The control connection (OPEN, STATUS, FRAME, the CM window's fate) is ours
@@ -160,7 +160,11 @@ static void load_targets_locked(void)
         int n = xcb_get_property_value_length(r) / 4 / 13;
         for (int i = 0; i < n && i < KS_CAP_MAX_OUT; i++) {
             const uint32_t *t = &v[i * 13];
-            cap.rect[i] = (KsRect){ (int32_t)t[1], (int32_t)t[2], (int)t[3], (int)t[4] };
+            /* The slot is the output as it is scanned out (pw x ph), which is
+             * what the frames of a recording show: on a scaled output that is
+             * bigger than the logical w x h in words 3, 4. Everything here is
+             * in framebuffer pixels, so the physical size is the rectangle. */
+            cap.rect[i] = (KsRect){ (int32_t)t[1], (int32_t)t[2], (int)t[5], (int)t[6] };
             cap.avail[i] = (t[0] & 1) != 0;
             cap.pw[i] = (int)t[5];
             cap.ph[i] = (int)t[6];
@@ -394,7 +398,7 @@ gboolean ks_capture_hides_own_windows(void)
     pump_locked();
     ok = ok && cap.active && cap.nout > 0;
     for (int i = 0; ok && i < cap.nout; i++)
-        ok = cap.avail[i] && cap.nslots[i] > 0 && cap.pw[i] == cap.rect[i].w && cap.ph[i] == cap.rect[i].h;
+        ok = cap.avail[i] && cap.nslots[i] > 0 && cap.pw[i] > 0 && cap.ph[i] > 0;
     g_mutex_unlock(&cap.lock);
     ks_capture_release();
     return ok;
@@ -455,8 +459,7 @@ void ks_capture_view(xcb_connection_t *c, const KsRect *area, KsCapView *v)
         gboolean slot = st[i * 3 + 1] != 0;
         if (st[i * 3 + 2] & 1)
             ok = FALSE;                                   /* UNAVAILABLE */
-        else if (slot && !(cap.avail[i] && cap.nslots[i] > 0 && cap.pw[i] == sn.rect[i].w &&
-                           cap.ph[i] == sn.rect[i].h))    /* a scaled output is not read from a slot */
+        else if (slot && !(cap.avail[i] && cap.nslots[i] > 0 && cap.pw[i] > 0 && cap.ph[i] > 0))
             ok = FALSE;
         v->out[v->n] = i;
         v->epoch[v->n] = st[i * 3];

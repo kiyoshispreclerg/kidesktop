@@ -22,7 +22,7 @@ instead of hiding its own window, no list of its own; and the switches
 `kishot/tests/capture-session.sh`, and measured on the real session (GLX, two
 monitors). Not implemented: the picture on the **EGL** renderer (its outputs are
 `UNAVAILABLE` while an excluded window shows, and kishot censors them itself),
-`DMABUF`, slots for scaled outputs in kishot (it censors those itself), and a
+`DMABUF`, and a
 test of the effects that draw a window several times (expo, cube, cover-switch,
 magic lamp, wobbly): the substitution is at the node, so they are covered by
 construction, not exercised. It was written first so the two sides could be
