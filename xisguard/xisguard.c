@@ -30,7 +30,7 @@
 #define REPORT_THROTTLE_S   1
 #define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.23"
+#define XISGUARD_VERSION    "0.4.24"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -183,6 +183,13 @@ static pthread_t file_monitor_thread;
 static pthread_t processor_thread;
 static pthread_t control_thread;
 static volatile int should_exit = 0;
+/* Set by SIGHUP, or by file_monitor_loop() when our binary was replaced on
+ * disk: the main loop then exec()s the binary at that path again. */
+static volatile sig_atomic_t reexec_requested = 0;
+static char **saved_argv = NULL;
+/* Inodes of the socket paths we bound, so shutdown only unlinks paths that
+ * still belong to us (another instance may have bound them since). */
+static ino_t sock_path_ino = 0, ctl_path_ino = 0, lock_path_ino = 0;
 
 static int no_pause_mode = 0;      /* 1 = notify only, no SIGSTOP */
 static int quiet_mode = 0;         /* 1 = no dialog, terminal logs only */
@@ -2140,6 +2147,10 @@ void handle_message(const char *msg) {
     pthread_mutex_unlock(&queue_lock);
 }
 
+/* PID paused (SIGSTOP) for the alert whose dialog is up right now, 0 if
+ * none; guarded by queue_lock. A re-exec resumes it, see resume_paused_locked(). */
+static pid_t inflight_paused_pid = 0;
+
 void process_next_alert() {
     pthread_mutex_lock(&queue_lock);
     if (alert_count == 0) {
@@ -2153,6 +2164,7 @@ void process_next_alert() {
         alert_queue[i] = alert_queue[i + 1];
     }
     alert_count--;
+    inflight_paused_pid = alert.paused ? alert.pid : 0;
     pthread_mutex_unlock(&queue_lock);
 
     int response;
@@ -2184,6 +2196,7 @@ void process_next_alert() {
         kill(alert.pid, SIGKILL);
         remove_all_alerts_for_pid(alert.pid);
         remove_seen_for_exe(alert.exe, alert.action);
+        inflight_paused_pid = 0;
         pthread_mutex_unlock(&queue_lock);
         return;
     }
@@ -2234,6 +2247,7 @@ void process_next_alert() {
 
     if (alert.paused && !no_pause_mode)
         kill(alert.pid, SIGCONT);
+    inflight_paused_pid = 0;
 
     remove_seen_for_exe(alert.exe, alert.action);
 
@@ -2805,7 +2819,7 @@ void* control_loop(void *arg) {
         if (!(pfds[0].revents & POLLIN))
             continue;
 
-        int conn = accept(ctl_fd, NULL, NULL);
+        int conn = accept4(ctl_fd, NULL, NULL, SOCK_CLOEXEC);
         if (conn < 0)
             continue;
 
@@ -2839,12 +2853,59 @@ void* alert_processor_loop(void *arg) {
     return NULL;
 }
 
+/* Path of our own binary, without the " (deleted)" suffix the kernel adds
+ * once it was unlinked. Returns 1 if that suffix was there. */
+static int self_exe_path(char *out, size_t out_sz) {
+    ssize_t n = readlink("/proc/self/exe", out, out_sz - 1);
+    if (n <= 0) {
+        out[0] = '\0';
+        return 0;
+    }
+    out[n] = '\0';
+    static const char suffix[] = " (deleted)";
+    size_t sl = sizeof(suffix) - 1;
+    if ((size_t)n > sl && strcmp(out + n - sl, suffix) == 0) {
+        out[n - sl] = '\0';
+        return 1;
+    }
+    return 0;
+}
+
+/* `make install` / a package upgrade replaces our binary. The server
+ * identifies us by /proc/<pid>/exe, which now reads "... (deleted)", so it
+ * rejects every heartbeat and, 5 s later, resets itself to the system rules
+ * (dropping permissive mode and our rules). Re-exec the new binary once it
+ * is in place: same PID, fresh identity, full resync at startup. */
+static void check_self_replaced(void) {
+    static off_t last_size = -1;
+    static time_t last_mtime = 0;
+    char path[PATH_MAX];
+    struct stat st;
+
+    if (reexec_requested || !self_exe_path(path, sizeof(path)))
+        return;
+    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode) || access(path, X_OK) != 0) {
+        last_size = -1;   /* not installed (yet) */
+        return;
+    }
+    /* Wait one more tick with size and mtime unchanged, in case the
+     * installer is still copying it. */
+    if (st.st_size != last_size || st.st_mtime != last_mtime) {
+        last_size = st.st_size;
+        last_mtime = st.st_mtime;
+        return;
+    }
+    log_msg("%s was replaced on disk - restarting into the new binary", path);
+    reexec_requested = 1;
+}
+
 void* file_monitor_loop(void *arg) {
     (void)arg;
     log_msg("File monitor thread started");
     while (!should_exit) {
         file_has_changed();
         check_xnotify_conf_changed();
+        check_self_replaced();
         sleep(1);
     }
     return NULL;
@@ -2900,7 +2961,63 @@ void* xdisplay_watch_loop(void *arg) {
 
 /* ====================== LOCK & CLEANUP ====================== */
 
-int acquire_lock() {
+/* Records the inode of a socket path we just bound (see unlink_if_ours()). */
+static ino_t path_ino(const char *path) {
+    struct stat st;
+    return stat(path, &st) == 0 ? st.st_ino : 0;
+}
+
+/* Unlinks a socket path only if it is still the one we bound: an instance
+ * started after us may own it now, and removing it would cut that one off. */
+static void unlink_if_ours(const char *path, ino_t ino) {
+    if (ino != 0 && path_ino(path) == ino)
+        unlink(path);
+}
+
+/* PID of the instance listening on the lock socket, 0 if there is none
+ * (no socket file, or a stale one left by a crash). */
+static pid_t lock_holder_pid(void) {
+    int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fd < 0)
+        return 0;
+    struct sockaddr_un addr = {0};
+    addr.sun_family = AF_UNIX;
+    snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", LOCK_SOCKET_PATH_BUF);
+    pid_t pid = 0;
+    if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
+        struct ucred cred;
+        socklen_t len = sizeof(cred);
+        pid = (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &len) == 0 && cred.pid > 0) ? cred.pid : -1;
+    }
+    close(fd);
+    return pid;
+}
+
+/* The lock is a listening socket: a live holder accepts connections, a dead
+ * one leaves a file nobody listens on. Only that stale file is unlinked;
+ * with `replace`, a live holder is asked to quit (SIGTERM) first. */
+int acquire_lock(int replace) {
+    pid_t holder = lock_holder_pid();
+    if (holder != 0) {
+        if (!replace) {
+            log_msg("XisGuard is already running (PID %d). Use --replace to take over, "
+                    "or send it SIGHUP to make it restart and resync. Exiting.", (int)holder);
+            return 0;
+        }
+        if (holder < 0) {
+            log_msg("XisGuard is already running (unknown PID), cannot replace it. Exiting.");
+            return 0;
+        }
+        log_msg("Replacing running XisGuard (PID %d)", (int)holder);
+        kill(holder, SIGTERM);
+        for (int i = 0; i < 50 && lock_holder_pid() != 0; i++)
+            usleep(100000);
+        if (lock_holder_pid() != 0) {
+            log_msg("PID %d did not exit within 5 s. Exiting.", (int)holder);
+            return 0;
+        }
+    }
+
     lock_fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (lock_fd < 0) {
         log_msg("Failed to create lock socket: %s", strerror(errno));
@@ -2910,18 +3027,16 @@ int acquire_lock() {
     struct sockaddr_un addr = {0};
     addr.sun_family = AF_UNIX;
     snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", LOCK_SOCKET_PATH_BUF);
-    
-    unlink(LOCK_SOCKET_PATH_BUF);
+
+    unlink(LOCK_SOCKET_PATH_BUF);   /* stale: nobody answered above */
 
     if (bind(lock_fd, (struct sockaddr*)&addr, sizeof(addr)) != 0) {
-        if (errno == EADDRINUSE)
-            log_msg("XisGuard is already running. Exiting.");
-        else
-            log_msg("Failed to bind lock socket: %s", strerror(errno));
+        log_msg("Failed to bind lock socket: %s", strerror(errno));
         close(lock_fd);
         return 0;
     }
-    
+    lock_path_ino = path_ino(LOCK_SOCKET_PATH_BUF);
+
     chmod(LOCK_SOCKET_PATH_BUF, 0666);
     listen(lock_fd, 1);
     return 1;
@@ -2930,7 +3045,7 @@ int acquire_lock() {
 void release_lock() {
     if (lock_fd >= 0) {
         close(lock_fd);
-        unlink(LOCK_SOCKET_PATH_BUF);
+        unlink_if_ours(LOCK_SOCKET_PATH_BUF, lock_path_ino);
     }
 }
 
@@ -2955,16 +3070,61 @@ void cleanup(int sig) {
 
     if (server_fd >= 0) {
         close(server_fd);
-        unlink(SOCKET_PATH_BUF);
+        unlink_if_ours(SOCKET_PATH_BUF, sock_path_ino);
     }
 
     if (ctl_fd >= 0) {
         close(ctl_fd);
-        unlink(CTL_SOCKET_PATH_BUF);
+        unlink_if_ours(CTL_SOCKET_PATH_BUF, ctl_path_ino);
     }
 
     release_lock();
     exit(0);
+}
+
+/* Restarts this process in place (same PID, same argv) from the binary now
+ * at our path: after an upgrade (check_self_replaced()) or on SIGHUP. The
+ * new image resyncs everything at startup, like a fresh start. Nothing is
+ * sent to the server on the way out, so permissive mode and the rules stay
+ * in effect across the gap. The processor thread may be stuck in a dialog,
+ * so it is not joined: exec ends every thread, and the PIDs we paused are
+ * resumed here instead of waiting for an answer that will never come. */
+static void reexec_self(void) {
+    char path[PATH_MAX];
+    self_exe_path(path, sizeof(path));
+    if (path[0] == '\0' || access(path, X_OK) != 0) {
+        log_msg("Cannot restart: %s is not executable, keeping the current process", path[0] ? path : "/proc/self/exe");
+        reexec_requested = 0;
+        return;
+    }
+    log_msg("Restarting (%s)...", path);
+
+    notice_request_close();
+    if (notice_thread_valid)
+        pthread_join(notice_thread, NULL);
+
+    pthread_mutex_lock(&queue_lock);
+    if (!no_pause_mode) {
+        if (inflight_paused_pid > 0)
+            kill(inflight_paused_pid, SIGCONT);
+        for (int i = 0; i < alert_count; i++)
+            if (alert_queue[i].paused)
+                kill(alert_queue[i].pid, SIGCONT);
+    }
+    pthread_mutex_unlock(&queue_lock);
+
+    /* Every fd we own is CLOEXEC (subscribers included), so control clients
+     * see the hangup and reconnect; the new image rebinds the socket paths. */
+    char *const *argv = saved_argv;
+    char *fallback[] = { (char *)"xisguard", NULL };
+    execv(path, argv ? argv : fallback);
+    log_msg("Restart failed: execv(%s): %s", path, strerror(errno));
+    reexec_requested = 0;
+}
+
+static void on_sighup(int sig) {
+    (void)sig;
+    reexec_requested = 1;
 }
 
 /* ====================== XNOTIFY EXTENSION CHECK ====================== */
@@ -2996,8 +3156,10 @@ static int check_xnotify_extension(void) {
 int main(int argc, char *argv[]) {
     xis_i18n_init("xisguard");
 
+    saved_argv = argv;
     signal(SIGINT, cleanup);
     signal(SIGTERM, cleanup);
+    signal(SIGHUP, on_sighup);
     signal(SIGPIPE, SIG_IGN);
 
     /* --version / --help don't need anything else — handle them first */
@@ -3020,6 +3182,7 @@ int main(int argc, char *argv[]) {
             printf("                                 %s\n", _("Can be repeated. ACTION: ATTACH SELECTION COMPOSITE SCREEN"));
             printf("                                   %s\n", _("RECORD CURSOR INPUT_GRAB INPUT_INJECT HOTKEY INPUT"));
             printf("                                   %s\n", _("MANAGE GRAB_OVERRIDE WARP FOCUS RANDR OVERLAY ALL"));
+            printf("  --replace                      %s\n", _("Stop the running instance (SIGTERM) and take its place"));
             printf("  --version / -V                 %s\n", _("Print version and exit"));
             printf("  --help / -h                    %s\n", _("Show this help"));
             return 0;
@@ -3136,7 +3299,11 @@ int main(int argc, char *argv[]) {
 
     log_msg("XisGuard starting - user config: %s", perms_file);
 
-    if (!acquire_lock())
+    int replace = 0;
+    for (int i = 1; i < argc; i++)
+        if (strcmp(argv[i], "--replace") == 0)
+            replace = 1;
+    if (!acquire_lock(replace))
         return 1;
 
     load_user_config();
@@ -3175,6 +3342,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    sock_path_ino = path_ino(SOCKET_PATH_BUF);
     chmod(SOCKET_PATH_BUF, 0666);
 
     int rcvbuf = 4 * 1024 * 1024;  // 4 MB
@@ -3205,6 +3373,7 @@ int main(int argc, char *argv[]) {
     }
 
     /* Owner-only: this channel can grant permissions without a dialog prompt. */
+    ctl_path_ino = path_ino(CTL_SOCKET_PATH_BUF);
     chmod(CTL_SOCKET_PATH_BUF, 0600);
     listen(ctl_fd, 4);
 
@@ -3231,6 +3400,9 @@ int main(int argc, char *argv[]) {
     };
 
     while (!should_exit) {
+        if (reexec_requested)
+            reexec_self();   /* returns only if the exec failed */
+
         static time_t last_hb = 0;
         if (time(NULL) - last_hb >= 2) {
             send_heartbeat();
