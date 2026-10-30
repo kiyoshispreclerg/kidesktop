@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-27 15:09-0300\n"
+"POT-Creation-Date: 2026-10-30 14:32-0300\n"
 "PO-Revision-Date: 2026-10-01 13:53-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -148,7 +148,7 @@ msgstr "Telas"
 msgid "Entrada"
 msgstr "Entrada"
 
-#: kiconf.c:171 tabs/wallpaper.c:1411
+#: kiconf.c:171 tabs/wallpaper.c:1435
 msgid "Wallpaper"
 msgstr "Papel de parede"
 
@@ -2570,7 +2570,7 @@ msgstr "Fusos extras na dica (separados por vírgula)"
 msgid "Comando ao clicar"
 msgstr "Comando ao clicar"
 
-#: tabs/panels.c:507 tabs/panels.c:623 tabs/wallpaper.c:1419
+#: tabs/panels.c:507 tabs/panels.c:623 tabs/wallpaper.c:1450
 msgid "Modo"
 msgstr "Modo"
 
@@ -3329,7 +3329,7 @@ msgstr ""
 "Arraste as caixas pra reposicionar. Aplicar também grava o layout pra ser "
 "reaplicado automaticamente no início da próxima sessão."
 
-#: tabs/screens.c:1928 tabs/wallpaper.c:1419
+#: tabs/screens.c:1928 tabs/wallpaper.c:1450
 msgid "Saida"
 msgstr "Saída"
 
@@ -4118,79 +4118,79 @@ msgstr "sim"
 msgid "%d camada(s) ativa(s)."
 msgstr "%d camada(s) ativa(s)."
 
-#: tabs/wallpaper.c:1335
+#: tabs/wallpaper.c:1359
 msgid "Cada tela com o seu"
 msgstr "Cada tela com o seu"
 
-#: tabs/wallpaper.c:1335
+#: tabs/wallpaper.c:1359
 msgid "Telas:"
 msgstr "Telas:"
 
-#: tabs/wallpaper.c:1336
+#: tabs/wallpaper.c:1360
 msgid "Uma imagem esticada por todas as telas"
 msgstr "Uma imagem esticada por todas as telas"
 
-#: tabs/wallpaper.c:1338
+#: tabs/wallpaper.c:1362
 msgid "Desktops:"
 msgstr "Desktops:"
 
-#: tabs/wallpaper.c:1339
+#: tabs/wallpaper.c:1363
 msgid "Mesmo em todos os desktops"
 msgstr "Mesmo em todos os desktops"
 
-#: tabs/wallpaper.c:1339
+#: tabs/wallpaper.c:1363
 msgid "Um por desktop"
 msgstr "Um por desktop"
 
-#: tabs/wallpaper.c:1372
+#: tabs/wallpaper.c:1396
 msgid "Imagem..."
 msgstr "Imagem..."
 
-#: tabs/wallpaper.c:1373
+#: tabs/wallpaper.c:1397
 msgid "Pasta (slideshow)..."
 msgstr "Pasta (slideshow)..."
 
-#: tabs/wallpaper.c:1374
+#: tabs/wallpaper.c:1398
 msgid "Cor solida..."
 msgstr "Cor sólida..."
 
-#: tabs/wallpaper.c:1385
+#: tabs/wallpaper.c:1409
 msgid "Preencher"
 msgstr "Preencher"
 
-#: tabs/wallpaper.c:1386
+#: tabs/wallpaper.c:1410
 msgid "Esticar"
 msgstr "Esticar"
 
-#: tabs/wallpaper.c:1390 tabs/wallpaper.c:1419
+#: tabs/wallpaper.c:1414 tabs/wallpaper.c:1450
 msgid "Aleatorio"
 msgstr "Aleatório"
 
-#: tabs/wallpaper.c:1394
+#: tabs/wallpaper.c:1418
 msgid "Proxima"
 msgstr "Próxima"
 
-#: tabs/wallpaper.c:1395
+#: tabs/wallpaper.c:1419
 msgid "Ajuste da imagem"
 msgstr "Ajuste da imagem"
 
-#: tabs/wallpaper.c:1396
+#: tabs/wallpaper.c:1420
 msgid "Intervalo do slideshow em segundos"
 msgstr "Intervalo do slideshow em segundos"
 
-#: tabs/wallpaper.c:1397
+#: tabs/wallpaper.c:1421
 msgid "Crossfade em segundos"
 msgstr "Crossfade em segundos"
 
-#: tabs/wallpaper.c:1399
+#: tabs/wallpaper.c:1423
 msgid "Trocar a cada (s):"
 msgstr "Trocar a cada (s):"
 
-#: tabs/wallpaper.c:1402
+#: tabs/wallpaper.c:1426
 msgid "Fade (s):"
 msgstr "Fade (s):"
 
-#: tabs/wallpaper.c:1412
+#: tabs/wallpaper.c:1436
 msgid ""
 "Clique numa tela pra escolher qual editar; arraste uma imagem ou pasta pra "
 "cima dela pra defini-la"
@@ -4198,67 +4198,78 @@ msgstr ""
 "Clique numa tela pra escolher qual editar; arraste uma imagem ou pasta pra "
 "cima dela pra defini-la"
 
-#: tabs/wallpaper.c:1419
+#: tabs/wallpaper.c:1440
+msgid "Carregar apenas o wallpaper atual (economiza memoria)"
+msgstr "Carregar apenas o wallpaper atual (economiza memória)"
+
+#: tabs/wallpaper.c:1441
+msgid ""
+"Wallpapers de desktops ocultos nao ficam na memoria; sao recarregados ao "
+"trocar de desktop. Salvo e aplicado ao iniciar o xisback."
+msgstr ""
+"Wallpapers de desktops ocultos não ficam na memória; são recarregados ao trocar de desktop. Salvo e aplicado ao iniciar o xisback."
+
+#: tabs/wallpaper.c:1450
 msgid "Caminho"
 msgstr "Caminho"
 
-#: tabs/wallpaper.c:1419
+#: tabs/wallpaper.c:1450
 msgid "Desktop"
 msgstr "Desktop"
 
-#: tabs/wallpaper.c:1419
+#: tabs/wallpaper.c:1450
 msgid "Fade"
 msgstr "Fade"
 
-#: tabs/wallpaper.c:1419
+#: tabs/wallpaper.c:1450
 msgid "Intervalo"
 msgstr "Intervalo"
 
-#: tabs/wallpaper.c:1434
+#: tabs/wallpaper.c:1465
 msgid "Limpar selecionada"
 msgstr "Limpar selecionada"
 
-#: tabs/wallpaper.c:1435
+#: tabs/wallpaper.c:1466
 msgid "Limpar todas"
 msgstr "Limpar todas"
 
-#: tabs/wallpaper.c:1436
+#: tabs/wallpaper.c:1467
 msgid "Atualizar"
 msgstr "Atualizar"
 
-#: tabs/wallpaper.c:1444
+#: tabs/wallpaper.c:1475
 msgid "Avancado: camadas do xisback"
 msgstr "Avançado: camadas do xisback"
 
-#: tabs/wallpaper.c:1450
+#: tabs/wallpaper.c:1481
 msgid "Clique esquerdo:"
 msgstr "Clique esquerdo:"
 
-#: tabs/wallpaper.c:1452
+#: tabs/wallpaper.c:1483
 msgid "Clique direito:"
 msgstr "Clique direito:"
 
-#: tabs/wallpaper.c:1454
+#: tabs/wallpaper.c:1485
 msgid "Clique do meio:"
 msgstr "Clique do meio:"
 
-#: tabs/wallpaper.c:1456
+#: tabs/wallpaper.c:1487
 msgid "Clique duplo:"
 msgstr "Clique duplo:"
 
-#: tabs/wallpaper.c:1458
+#: tabs/wallpaper.c:1489
 msgid "Rolar pra cima:"
 msgstr "Rolar pra cima:"
 
-#: tabs/wallpaper.c:1460
+#: tabs/wallpaper.c:1491
 msgid "Rolar pra baixo:"
 msgstr "Rolar pra baixo:"
 
-#: tabs/wallpaper.c:1463
+#: tabs/wallpaper.c:1494
 msgid "Salvar acoes de clique"
 msgstr "Salvar ações de clique"
 
-#: tabs/wallpaper.c:1466
+#: tabs/wallpaper.c:1497
 msgid "Acoes de clique"
 msgstr "Ações de clique"
 

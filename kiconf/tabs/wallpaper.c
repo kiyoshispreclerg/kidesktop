@@ -1252,6 +1252,30 @@ static void on_wp_actions_save(GtkWidget *widget, gpointer data)
     }
 }
 
+static GtkWidget *g_wp_lazy_chk;
+
+static void on_wp_lazy_toggled(GtkWidget *widget, gpointer data)
+{
+    (void)data;
+    if (g_loading) {
+        return;
+    }
+    char cmd[32], resp[64];
+    snprintf(cmd, sizeof(cmd), "SETLAZY\t%d", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget)) ? 1 : 0);
+    xisback_send(cmd, resp, sizeof(resp));
+}
+
+static void load_wp_lazy(void)
+{
+    char resp[64];
+    if (!xisback_send("LAZY", resp, sizeof(resp))) {
+        return;
+    }
+    g_loading++;
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_wp_lazy_chk), atoi(resp) != 0);
+    g_loading--;
+}
+
 static void load_wp_actions(void)
 {
     char resp[1024];
@@ -1413,6 +1437,13 @@ GtkWidget *build_wallpaper_tab(void)
                                               "pra cima dela pra defini-la"));
     gtk_box_pack_start(GTK_BOX(outer), form_frame, FALSE, FALSE, 0);
 
+    g_wp_lazy_chk = gtk_check_button_new_with_label(_("Carregar apenas o wallpaper atual (economiza memoria)"));
+    gtk_widget_set_tooltip_text(g_wp_lazy_chk, _("Wallpapers de desktops ocultos nao ficam na memoria; sao "
+                                                 "recarregados ao trocar de desktop. Salvo e aplicado ao iniciar o xisback."));
+    g_signal_connect(g_wp_lazy_chk, "toggled", G_CALLBACK(on_wp_lazy_toggled), NULL);
+    gtk_box_pack_start(GTK_BOX(outer), g_wp_lazy_chk, FALSE, FALSE, 0);
+    kiconf_track_ignore(g_wp_lazy_chk);
+
     g_wp_layers_store = gtk_list_store_new(N_WP_COLS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,
                                            G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
     g_wp_layers_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_wp_layers_store));
@@ -1466,6 +1497,7 @@ GtkWidget *build_wallpaper_tab(void)
     gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Acoes de clique"), actions_box), FALSE, FALSE, 0);
 
     load_wp_actions();
+    load_wp_lazy();
     refresh_wp_layers();
     g_tick_timer = g_timeout_add_seconds(WP_TICK_SECONDS, wp_tick, NULL);
     /* Only the click actions wait for a Salvar; everything else applies
