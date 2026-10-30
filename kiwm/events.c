@@ -499,6 +499,17 @@ static void begin_drag(Client *c, DragMode mode, xcb_button_press_event_t *ev)
     begin_drag_at(c, mode, ev->root_x, ev->root_y,
                   (mode == DRAG_RESIZE) && should_preserve_snap_resize(c, ev->root_x),
                   -1, -1, true, true);
+
+    /* A mod_key press on content arrives through a GRAB_MODE_SYNC passive
+     * grab, so the pointer stays frozen until something thaws it -- the
+     * drag's own pointer grab does, but a drag that didn't start (an
+     * unresizable/unmovable window, a fullscreen resize, a refused grab)
+     * would leave every later pointer event queued forever. Swallow the
+     * press and thaw; harmless when nothing is frozen. */
+    if (wm.drag_client != c) {
+        xcb_allow_events(wm.conn, XCB_ALLOW_ASYNC_POINTER, ev->time);
+        xcb_flush(wm.conn);
+    }
 }
 
 /* Which configured titlebar element (see wm.h's DecoElemKind/
