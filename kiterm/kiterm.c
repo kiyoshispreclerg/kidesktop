@@ -25,12 +25,19 @@ static void usage(void)
            "  -v, --version        version\n", KITERM_VERSION);
 }
 
+/* Each notebook page is an hbox: the terminal plus its scrollbar. */
+VteTerminal *kt_window_nth_term(KtWindow *w, int n)
+{
+    GtkWidget *page = gtk_notebook_get_nth_page(GTK_NOTEBOOK(w->notebook), n);
+    return page ? VTE_TERMINAL(g_object_get_data(G_OBJECT(page), "kt-page-term")) : NULL;
+}
+
 VteTerminal *kt_window_current(KtWindow *w)
 {
     int n = gtk_notebook_get_current_page(GTK_NOTEBOOK(w->notebook));
     if (n < 0)
         return NULL;
-    return VTE_TERMINAL(gtk_notebook_get_nth_page(GTK_NOTEBOOK(w->notebook), n));
+    return kt_window_nth_term(w, n);
 }
 
 void kt_window_update_title(KtWindow *w)
@@ -59,7 +66,7 @@ void kt_window_apply_config(KtWindow *w)
         w->cfg.tabs_pos == KT_TABS_LEFT ? GTK_POS_LEFT : GTK_POS_RIGHT));
     int n = gtk_notebook_get_n_pages(nb);
     for (int i = 0; i < n; i++)
-        kt_tab_apply_config(w, VTE_TERMINAL(gtk_notebook_get_nth_page(nb, i)));
+        kt_tab_apply_config(w, kt_window_nth_term(w, i));
     kt_window_poll_update(w);
 }
 
@@ -88,9 +95,14 @@ void kt_window_new_tab(KtWindow *w, const char *cwd, char **argv)
     GtkWidget *term = kt_tab_create(w, cwd, argv);
     GtkNotebook *nb = GTK_NOTEBOOK(w->notebook);
     int pos = gtk_notebook_get_current_page(nb) + 1;
-    int idx = gtk_notebook_insert_page(nb, term, kt_tab_make_label(w, VTE_TERMINAL(term)), pos);
-    gtk_notebook_set_tab_reorderable(nb, term, TRUE);
-    gtk_widget_show(term);
+    GtkWidget *page = gtk_hbox_new(FALSE, 0);
+    g_object_set_data(G_OBJECT(page), "kt-page-term", term);
+    gtk_box_pack_start(GTK_BOX(page), term, TRUE, TRUE, 0);
+    GtkWidget *sb = gtk_vscrollbar_new(vte_terminal_get_adjustment(VTE_TERMINAL(term)));
+    gtk_box_pack_start(GTK_BOX(page), sb, FALSE, FALSE, 0);
+    int idx = gtk_notebook_insert_page(nb, page, kt_tab_make_label(w, VTE_TERMINAL(term)), pos);
+    gtk_notebook_set_tab_reorderable(nb, page, TRUE);
+    gtk_widget_show_all(page);
     gtk_notebook_set_current_page(nb, idx);
     update_tab_bar(w);
     kt_window_poll_update(w);
@@ -117,7 +129,7 @@ static gboolean confirm(KtWindow *w, const char *text)
 static void remove_tab(KtWindow *w, GtkWidget *term)
 {
     GtkNotebook *nb = GTK_NOTEBOOK(w->notebook);
-    int idx = gtk_notebook_page_num(nb, term);
+    int idx = gtk_notebook_page_num(nb, gtk_widget_get_parent(term));
     if (idx < 0)
         return;
     gtk_notebook_remove_page(nb, idx);
@@ -148,7 +160,7 @@ static gboolean on_delete(GtkWidget *win, GdkEvent *ev, gpointer data)
     KtWindow *w = data;
     GtkNotebook *nb = GTK_NOTEBOOK(w->notebook);
     for (int i = 0; i < gtk_notebook_get_n_pages(nb); i++) {
-        if (kt_tab_busy(VTE_TERMINAL(gtk_notebook_get_nth_page(nb, i)))) {
+        if (kt_tab_busy(kt_window_nth_term(w, i))) {
             return !confirm(w, _("Programs are still running in this window. Close it anyway?"));
         }
     }
@@ -259,7 +271,7 @@ static gboolean poll_jobs(gpointer data)
     gint64 now = g_get_monotonic_time();
     VteTerminal *cur = kt_window_current(w);
     for (int i = 0; i < gtk_notebook_get_n_pages(nb); i++) {
-        VteTerminal *t = VTE_TERMINAL(gtk_notebook_get_nth_page(nb, i));
+        VteTerminal *t = kt_window_nth_term(w, i);
         gint64 since = (gint64)GPOINTER_TO_SIZE(g_object_get_data(G_OBJECT(t), "kt-busy-since"));
         gboolean busy = kt_tab_busy(t);
         if (busy && !since) {
@@ -347,7 +359,7 @@ static GtkWidget *tab_at(GtkWidget *nb, GdkEventButton *ev)
         gint x, y;
         gtk_widget_translate_coordinates(nb, lab, (gint)ev->x, (gint)ev->y, &x, &y);
         if (x >= 0 && y >= 0 && x < a.width && y < a.height)
-            return page;
+            return GTK_WIDGET(g_object_get_data(G_OBJECT(page), "kt-page-term"));
     }
     return NULL;
 }
@@ -473,7 +485,7 @@ int main(int argc, char **argv)
     gtk_window_set_default_size(GTK_WINDOW(w->win), req.width, req.height);
     w->shrinkable = TRUE;
     for (int i = 0; i < gtk_notebook_get_n_pages(nb); i++)
-        kt_tab_allow_shrink(VTE_TERMINAL(gtk_notebook_get_nth_page(nb, i)));
+        kt_tab_allow_shrink(kt_window_nth_term(w, i));
     gtk_widget_show(w->win);
     gtk_main();
     return 0;

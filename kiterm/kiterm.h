@@ -7,7 +7,7 @@
 #include <vte/vte.h>
 #include "kt_config.h"
 
-#define KITERM_VERSION "0.1.6"
+#define KITERM_VERSION "0.1.8"
 
 typedef struct KtWindow {
     GtkWidget *win;
@@ -29,6 +29,7 @@ typedef struct KtWindow {
 /* kiterm.c */
 VteTerminal *kt_window_current(KtWindow *w);
 void kt_window_new_tab(KtWindow *w, const char *cwd, char **argv);
+VteTerminal *kt_window_nth_term(KtWindow *w, int n);
 void kt_window_close_tab(KtWindow *w, GtkWidget *term);
 void kt_window_apply_config(KtWindow *w);
 void kt_window_update_title(KtWindow *w);
