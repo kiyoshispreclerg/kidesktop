@@ -224,8 +224,14 @@ static void usage(void)
 
 int main(int argc, char **argv)
 {
-    /* SIGALRM must kill (its default): that's the hung-main-loop exit. */
+    /* SIGALRM must kill (its default): that's the hung-main-loop exit.
+     * Both an ignored disposition and a blocked mask survive exec, so
+     * neither can be inherited from whoever started us. */
     signal(SIGALRM, SIG_DFL);
+    sigset_t alrm;
+    sigemptyset(&alrm);
+    sigaddset(&alrm, SIGALRM);
+    sigprocmask(SIG_UNBLOCK, &alrm, NULL);
     alarm(WATCHDOG_SECS);
 
     xis_i18n_init("kiconf");

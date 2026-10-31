@@ -14,7 +14,7 @@ msgstr ""
 
 #: common.c:320 common.c:326 tabs/associations.c:273 tabs/autostart.c:240
 #: tabs/effects.c:851 tabs/menu.c:430 tabs/panels.c:1172 tabs/panels.c:1369
-#: tabs/users.c:407
+#: tabs/users.c:407 xiskeycapture.c:276
 msgid "_OK"
 msgstr "_OK"
 
@@ -25,7 +25,7 @@ msgstr "_Fechar"
 #: common.c:326 tabs/associations.c:273 tabs/autostart.c:240 tabs/effects.c:850
 #: tabs/kitheme.c:292 tabs/menu.c:429 tabs/panels.c:1171 tabs/panels.c:1368
 #: tabs/sounds.c:218 tabs/users.c:339 tabs/users.c:407 tabs/users.c:468
-#: tabs/wallpaper.c:984
+#: tabs/wallpaper.c:984 xiskeycapture.c:275
 msgid "_Cancelar"
 msgstr "_Cancelar"
 
@@ -244,7 +244,7 @@ msgstr "_Voltar"
 #: tabs/autostart.c:421 tabs/disks.c:364 tabs/energy.c:453 tabs/history.c:382
 #: tabs/history.c:449 tabs/input.c:643 tabs/kitheme.c:610 tabs/lock.c:196
 #: tabs/login.c:708 tabs/permissions.c:821 tabs/programs.c:305
-#: tabs/screens.c:2046 tabs/shortcuts.c:1237 tabs/system.c:819 tabs/users.c:573
+#: tabs/screens.c:2046 tabs/shortcuts.c:1471 tabs/system.c:819 tabs/users.c:573
 msgid "Aplicar"
 msgstr "Aplicar"
 
@@ -619,7 +619,7 @@ msgid "Adicionar..."
 msgstr "Adicionar..."
 
 #: tabs/autostart.c:420 tabs/events.c:322 tabs/panels.c:1619
-#: tabs/shortcuts.c:1196 tabs/system.c:804
+#: tabs/shortcuts.c:1430 tabs/system.c:804
 msgid "Remover"
 msgstr "Remover"
 
@@ -922,7 +922,7 @@ msgid "Tambem no redimensionamento"
 msgstr "Também no redimensionamento"
 
 #: tabs/effects.c:506 tabs/effects.c:517 tabs/effects.c:555
-#: tabs/shortcuts.c:1055 tabs/shortcuts.c:1172
+#: tabs/shortcuts.c:1285 tabs/shortcuts.c:1403
 msgid "Atalho"
 msgstr "Atalho"
 
@@ -1595,7 +1595,7 @@ msgid "Descricao"
 msgstr "Descrição"
 
 #: tabs/events.c:321 tabs/permissions.c:959 tabs/permissions.c:1011
-#: tabs/shortcuts.c:1195 tabs/system.c:803
+#: tabs/shortcuts.c:1429 tabs/system.c:803
 msgid "Adicionar"
 msgstr "Adicionar"
 
@@ -3202,7 +3202,7 @@ msgid "Avisos"
 msgstr "Avisos"
 
 #: tabs/permissions.c:835 tabs/permissions.c:899 tabs/permissions.c:932
-#: tabs/shortcuts.c:1045 tabs/shortcuts.c:1172
+#: tabs/shortcuts.c:1275 tabs/shortcuts.c:1403
 msgid "Acao"
 msgstr "Ação"
 
@@ -3495,72 +3495,81 @@ msgstr "Desativar na inicialização"
 msgid "_Atualizar"
 msgstr "_Atualizar"
 
-#: tabs/shortcuts.c:977
+#: tabs/shortcuts.c:980
 #, c-format
 msgid "Gravado.%s%s%s"
 msgstr "Gravado.%s%s%s"
 
-#: tabs/shortcuts.c:978
+#: tabs/shortcuts.c:981
 msgid " kiwm reiniciado."
 msgstr " kiwm reiniciado."
 
-#: tabs/shortcuts.c:979
+#: tabs/shortcuts.c:982
 msgid " kicomp reiniciado."
 msgstr " kicomp reiniciado."
 
-#: tabs/shortcuts.c:980
+#: tabs/shortcuts.c:983
 msgid " Atalhos de widgets do xispanel recarregados."
 msgstr " Atalhos de widgets do xispanel recarregados."
 
-#: tabs/shortcuts.c:1092
+#: tabs/shortcuts.c:1182
+#, c-format
+msgid "Atencao: %s ja e usado por: %s"
+msgstr "Atenção: %s já é usado por: %s"
+
+#: tabs/shortcuts.c:1262
+msgid "Clique duplo no atalho para defini-lo pelo teclado"
+msgstr "Clique duplo no atalho para defini-lo pelo teclado"
+
+#: tabs/shortcuts.c:1323
 #, c-format
 msgid "kiwm: %s"
 msgstr "kiwm: %s"
 
-#: tabs/shortcuts.c:1118
+#: tabs/shortcuts.c:1349
 #, c-format
 msgid "kicomp (%s): %s"
 msgstr "kicomp (%s): %s"
 
-#: tabs/shortcuts.c:1133
+#: tabs/shortcuts.c:1364
 #, c-format
 msgid "xispanel (%s em '%s', #%d): atalho do widget"
 msgstr "xispanel (%s em '%s', #%d): atalho do widget"
 
-#: tabs/shortcuts.c:1136
+#: tabs/shortcuts.c:1367
 #, c-format
 msgid "xispanel (%s em '%s'): atalho do widget"
 msgstr "xispanel (%s em '%s'): atalho do widget"
 
-#: tabs/shortcuts.c:1158
+#: tabs/shortcuts.c:1389
 msgid "Filtrar atalhos (acao, atalho ou comando)"
 msgstr "Filtrar atalhos (ação, atalho ou comando)"
 
-#: tabs/shortcuts.c:1172
+#: tabs/shortcuts.c:1403
 msgid "Comando"
 msgstr "Comando"
 
-#: tabs/shortcuts.c:1197
+#: tabs/shortcuts.c:1431
 msgid "Salvar e recarregar xiskeys"
 msgstr "Salvar e recarregar o xiskeys"
 
-#: tabs/shortcuts.c:1210
+#: tabs/shortcuts.c:1444
 msgid "Atalhos personalizados"
 msgstr "Atalhos personalizados"
 
-#: tabs/shortcuts.c:1211
+#: tabs/shortcuts.c:1445
 msgid "xiskeys.conf, crie/edite/remova a vontade"
 msgstr "xiskeys.conf, crie/edite/remova à vontade"
 
-#: tabs/shortcuts.c:1238
+#: tabs/shortcuts.c:1472
 msgid "Grava kiwm.conf, kicomp.conf e xispanel.conf"
 msgstr "Grava kiwm.conf, kicomp.conf e xispanel.conf"
 
-#: tabs/shortcuts.c:1243
+#: tabs/shortcuts.c:1477
 msgid "Atalhos fixos do sistema"
 msgstr "Atalhos fixos do sistema"
 
-#: tabs/shortcuts.c:1245
+#: tabs/shortcuts.c:1479
 msgid ""
 "kiwm, efeitos ativos do kicomp, widgets do xispanel que aceitam hotkey= -- o "
 "icone de desfazer restaura o padrao da linha; em branco = sem atalho"
@@ -4207,7 +4216,8 @@ msgid ""
 "Wallpapers de desktops ocultos nao ficam na memoria; sao recarregados ao "
 "trocar de desktop. Salvo e aplicado ao iniciar o xisback."
 msgstr ""
-"Wallpapers de desktops ocultos não ficam na memória; são recarregados ao trocar de desktop. Salvo e aplicado ao iniciar o xisback."
+"Wallpapers de desktops ocultos não ficam na memória; são recarregados ao "
+"trocar de desktop. Salvo e aplicado ao iniciar o xisback."
 
 #: tabs/wallpaper.c:1450
 msgid "Caminho"
@@ -4501,6 +4511,55 @@ msgstr "Reiniciar o kiwm agora"
 msgid "Aplicar (grava kiwm.conf)"
 msgstr "Aplicar (grava kiwm.conf)"
 
+#: xiskeycapture.c:107
+msgid "Pressione as teclas..."
+msgstr "Pressione as teclas..."
+
+#: xiskeycapture.c:118
+msgid "Enter ou OK confirma; Esc cancela."
+msgstr "Enter ou OK confirma; Esc cancela."
+
+#: xiskeycapture.c:151
+msgid "AltGr nao pode fazer parte de um atalho."
+msgstr "AltGr não pode fazer parte de um atalho."
+
+#: xiskeycapture.c:162
+msgid "Esc ou Enter sozinhos: use \"Editar como texto\"."
+msgstr "Esc ou Enter sozinhos: use \"Editar como texto\"."
+
+#: xiskeycapture.c:203
+msgid ""
+"Nao foi possivel capturar o teclado: atalhos ja em uso por outros programas "
+"vao disparar."
+msgstr ""
+"Não foi possível capturar o teclado: atalhos já em uso por outros programas "
+"vão disparar."
+
+#: xiskeycapture.c:266
+msgid "Definir atalho"
+msgstr "Definir atalho"
+
+#: xiskeycapture.c:272
+msgid "_Limpar"
+msgstr "_Limpar"
+
+#: xiskeycapture.c:273
+msgid "Deixar sem atalho"
+msgstr "Deixar sem atalho"
+
+#: xiskeycapture.c:274
+msgid "Editar como _texto"
+msgstr "Editar como _texto"
+
+#: xiskeycapture.c:287
+#, c-format
+msgid "Atual: %s"
+msgstr "Atual: %s"
+
+#: xiskeycapture.c:295
+msgid "Esc cancela. Uma tecla sozinha tambem vale: aperte-a e depois Enter."
+msgstr "Esc cancela. Uma tecla sozinha também vale: aperte-a e depois Enter."
+
 #, c-format
 #~ msgid "%s -- %d regra(s). Somente leitura por enquanto."
 #~ msgstr "%s -- %d regra(s). Somente leitura por enquanto."
@@ -4525,9 +4584,6 @@ msgstr "Aplicar (grava kiwm.conf)"
 
 #~ msgid "Arquivo..."
 #~ msgstr "Arquivo..."
-
-#~ msgid "Definir camada"
-#~ msgstr "Definir camada"
 
 #~ msgid "Horario de luz noturna salvo."
 #~ msgstr "Horário de luz noturna salvo."

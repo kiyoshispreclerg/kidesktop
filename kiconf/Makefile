@@ -49,6 +49,7 @@ SRCS := kiconf.c plugins.c widgetmods.c common.c sysinfo.c track.c tabs/appearan
         tabs/programs.c tabs/associations.c tabs/menu.c tabs/autostart.c tabs/energy.c tabs/events.c \
         tabs/history.c tabs/accessibility.c tabs/sounds.c tabs/users.c tabs/services.c tabs/login.c tabs/lock.c tabs/disks.c \
         ../shared/xis_outputs.c ../shared/xis_direction.c ../shared/xis_sound.c ../shared/xis_holidays.c ../shared/xis_winstate.c ../shared/xis_safefile.c ../shared/xis_rootexec.c \
+        ../shared/xis_keyspec.c ../shared/xis_keycapture.c \
         ../kitheme/core/kt_color.c ../kitheme/core/kt_config.c ../kitheme/core/kt_draw.c ../kitheme/core/kt_sample.c
 
 # po/LINGUAS: one language code per line ("pt_BR", "es", ...), '#' comments.

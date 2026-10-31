@@ -12,11 +12,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include "../../shared/xis_keycapture.h"
+#include "../../shared/xis_keyspec.h"
 #include "../../shared/xis_safefile.h"
 
 enum { COL_ACTION = 0, COL_SPEC, COL_COMMAND, N_SHORTCUT_COLS };
@@ -1032,6 +1035,233 @@ static gboolean fixed_view_clicked(GtkWidget *view, GdkEventButton *ev, gpointer
     return handled;
 }
 
+/* ---- Atalho cells: "Pressione as teclas..." via xiskeycapture --------
+ *
+ * The Atalho columns aren't plain text cells any more: double-click (or
+ * Enter) on a row runs shared/xis_keycapture.h's dialog and writes what
+ * was pressed. The text cell is still there for what the keyboard can't
+ * express (bare Esc/Enter, kicomp's buttons and "A, B" lists): the
+ * dialog's "Editar como texto", or the fallback when the helper isn't
+ * installed, turns the cell editable for that one edit. */
+
+typedef struct {
+    GtkTreeView *view;
+    GtkTreeViewColumn *col;
+    GtkCellRenderer *renderer;
+    GtkListStore *store;
+    GtkTreeModel *filter;
+    gint spec_col;
+    GtkTreeRowReference *row; /* in store, so a filter change mid-capture doesn't move it */
+} SpecCell;
+
+static SpecCell g_custom_spec, g_fixed_spec;
+
+static unsigned int kiwm_modkey_bit(void)
+{
+    char v[32] = "";
+    if (!kiwm_key_value("mod_key", v, sizeof(v)))
+        return Mod4Mask; /* kiwm's own default */
+    return !strcasecmp(v, "alt") ? Mod1Mask : Mod4Mask;
+}
+
+/* "modkey+Shift+tab" -> modifier bits + lowercased key, so specs typed
+ * in another order or case still compare equal. 0 if it doesn't parse. */
+static int spec_normalize(const char *spec, unsigned int modkey, unsigned int *mods, char *key, size_t keysz)
+{
+    char buf[128];
+    snprintf(buf, sizeof(buf), "%s", spec);
+    *mods = 0;
+    key[0] = '\0';
+    char *save = NULL;
+    for (char *tok = strtok_r(buf, "+", &save); tok; tok = strtok_r(NULL, "+", &save)) {
+        tok = trim(tok);
+        if (!*tok)
+            return 0;
+        if (key[0]) {           /* the previous token wasn't the last: a modifier */
+            unsigned int bit = !strcasecmp(key, "modkey") ? modkey : xis_keyspec_parse_modifier(key);
+            if (!bit)
+                return 0;
+            *mods |= bit;
+        }
+        snprintf(key, keysz, "%s", tok);
+        for (char *p = key; *p; p++)
+            *p = (char)tolower((unsigned char)*p);
+    }
+    return key[0] != '\0';
+}
+
+/* Does `spec` (one combination) appear in `row_spec` (possibly kicomp's
+ * comma-separated list)? */
+static int spec_in_list(const char *spec, const char *row_spec, unsigned int modkey)
+{
+    unsigned int m1, m2;
+    char k1[64], k2[64];
+    if (!row_spec || !*row_spec || !spec_normalize(spec, modkey, &m1, k1, sizeof(k1)))
+        return 0;
+    gchar **parts = g_strsplit(row_spec, ",", -1);
+    int hit = 0;
+    for (int i = 0; parts[i] && !hit; i++)
+        hit = spec_normalize(parts[i], modkey, &m2, k2, sizeof(k2)) && m1 == m2 && !strcmp(k1, k2);
+    g_strfreev(parts);
+    return hit;
+}
+
+/* Collects the labels of every other row (both tables) already bound to
+ * `spec`, into `out` as "a; b". */
+static void find_conflicts(const char *spec, GtkTreeRowReference *self, char *out, size_t outsz)
+{
+    const struct { GtkListStore *store; gint spec_col, label_col; const char *prefix; } tables[] = {
+        { g_shortcuts_store, COL_SPEC, COL_ACTION, "xiskeys: " },
+        { g_fixed_store, COL_FX_SPEC, COL_FX_LABEL, "" },
+    };
+    unsigned int modkey = kiwm_modkey_bit();
+    GtkTreePath *self_path = gtk_tree_row_reference_get_path(self);
+    GtkTreeModel *self_model = gtk_tree_row_reference_get_model(self);
+    out[0] = '\0';
+    for (size_t t = 0; t < sizeof(tables) / sizeof(tables[0]); t++) {
+        GtkTreeModel *m = GTK_TREE_MODEL(tables[t].store);
+        GtkTreeIter it;
+        for (gboolean ok = gtk_tree_model_get_iter_first(m, &it); ok; ok = gtk_tree_model_iter_next(m, &it)) {
+            if (m == self_model && self_path) {
+                GtkTreePath *p = gtk_tree_model_get_path(m, &it);
+                int same = !gtk_tree_path_compare(p, self_path);
+                gtk_tree_path_free(p);
+                if (same)
+                    continue;
+            }
+            gchar *row_spec = NULL, *label = NULL;
+            gtk_tree_model_get(m, &it, tables[t].spec_col, &row_spec, tables[t].label_col, &label, -1);
+            if (spec_in_list(spec, row_spec, modkey)) {
+                size_t len = strlen(out);
+                snprintf(out + len, outsz - len, "%s%s%s", len ? "; " : "", tables[t].prefix, label ? label : "");
+            }
+            g_free(row_spec);
+            g_free(label);
+        }
+    }
+    if (self_path)
+        gtk_tree_path_free(self_path);
+}
+
+static void spec_text_edit_done(GtkCellRenderer *r, gpointer d)
+{
+    (void)d;
+    g_object_set(r, "editable", FALSE, NULL);
+}
+
+/* One edit as plain text, then the cell goes back to capture-only. */
+static void spec_cell_edit_as_text(SpecCell *sc)
+{
+    GtkTreePath *child = gtk_tree_row_reference_get_path(sc->row);
+    GtkTreePath *path = child ? gtk_tree_model_filter_convert_child_path_to_path(GTK_TREE_MODEL_FILTER(sc->filter), child) : NULL;
+    if (path) {
+        g_object_set(sc->renderer, "editable", TRUE, NULL);
+        gtk_widget_grab_focus(GTK_WIDGET(sc->view));
+        gtk_tree_view_set_cursor(sc->view, path, sc->col, TRUE);
+        gtk_tree_path_free(path);
+    }
+    if (child)
+        gtk_tree_path_free(child);
+}
+
+static void spec_capture_done(XisKeyCaptureResult res, const char *spec, gpointer d)
+{
+    SpecCell *sc = d;
+    GtkTreePath *child = gtk_tree_row_reference_get_path(sc->row);
+    GtkTreeIter it;
+    gboolean have_row = child && gtk_tree_model_get_iter(GTK_TREE_MODEL(sc->store), &it, child);
+    if (child)
+        gtk_tree_path_free(child);
+
+    if (have_row && res == XIS_KEYCAPTURE_OK) {
+        gtk_list_store_set(sc->store, &it, sc->spec_col, spec, -1);
+        char conflicts[512];
+        find_conflicts(spec, sc->row, conflicts, sizeof(conflicts));
+        if (conflicts[0]) {
+            char msg[640];
+            snprintf(msg, sizeof(msg), _("Atencao: %s ja e usado por: %s"), spec, conflicts);
+            gtk_label_set_text(GTK_LABEL(g_fixed_status_label), msg);
+        } else {
+            gtk_label_set_text(GTK_LABEL(g_fixed_status_label), "");
+        }
+    } else if (have_row && res == XIS_KEYCAPTURE_CLEAR) {
+        gtk_list_store_set(sc->store, &it, sc->spec_col, "", -1);
+    } else if (have_row && res == XIS_KEYCAPTURE_EDIT_TEXT) {
+        spec_cell_edit_as_text(sc);
+    }
+    gtk_tree_row_reference_free(sc->row);
+    sc->row = NULL;
+}
+
+static gboolean spec_fallback_to_text(gpointer d)
+{
+    spec_capture_done(XIS_KEYCAPTURE_EDIT_TEXT, NULL, d);
+    return FALSE;
+}
+
+static void spec_row_activated(GtkTreeView *view, GtkTreePath *path, GtkTreeViewColumn *col, gpointer d)
+{
+    SpecCell *sc = d;
+    (void)view;
+    if (sc == &g_custom_spec && col != sc->col)
+        return; /* Acao/Comando there are ordinary text cells */
+    if (g_object_get_data(G_OBJECT(col), "kiconf-reset") || xis_keycapture_running())
+        return;
+
+    GtkTreePath *child = gtk_tree_model_filter_convert_path_to_child_path(GTK_TREE_MODEL_FILTER(sc->filter), path);
+    GtkTreeIter it;
+    if (!child || !gtk_tree_model_get_iter(GTK_TREE_MODEL(sc->store), &it, child)) {
+        if (child)
+            gtk_tree_path_free(child);
+        return;
+    }
+    if (sc->row)
+        gtk_tree_row_reference_free(sc->row);
+    sc->row = gtk_tree_row_reference_new(GTK_TREE_MODEL(sc->store), child);
+    gtk_tree_path_free(child);
+
+    gchar *current = NULL, *title = NULL;
+    gint source = -1;
+    char modkey[16] = "";
+    if (sc == &g_fixed_spec) {
+        gtk_tree_model_get(GTK_TREE_MODEL(sc->store), &it, COL_FX_SPEC, &current, COL_FX_LABEL, &title,
+                           COL_FX_SOURCE, &source, -1);
+        if (source == FX_KIWM)
+            snprintf(modkey, sizeof(modkey), "%s", kiwm_modkey_bit() == Mod1Mask ? "alt" : "meta");
+    } else {
+        gtk_tree_model_get(GTK_TREE_MODEL(sc->store), &it, COL_SPEC, &current, COL_ACTION, &title, -1);
+    }
+    XisKeyCaptureOpts opts = {
+        .title = title,
+        .current = current,
+        .modkey = modkey[0] ? modkey : NULL,
+        .allow_modifier_only = source == FX_XISPANEL,
+    };
+    /* xiskeycapture not installed: the old text editing -- from idle, since
+     * an edit started inside the double-click itself is cancelled by the
+     * tree view's own handling of that click. */
+    if (!xis_keycapture_start(GTK_WIDGET(sc->view), &opts, spec_capture_done, sc))
+        g_idle_add(spec_fallback_to_text, sc);
+    g_free(current);
+    g_free(title);
+}
+
+static void spec_cell_setup(SpecCell *sc, GtkTreeView *view, GtkTreeViewColumn *col, GtkCellRenderer *r,
+                            GtkListStore *store, GtkTreeModel *filter, gint spec_col)
+{
+    sc->view = view;
+    sc->col = col;
+    sc->renderer = r;
+    sc->store = store;
+    sc->filter = filter;
+    sc->spec_col = spec_col;
+    g_object_set(r, "editable", FALSE, NULL);
+    g_signal_connect(r, "edited", G_CALLBACK(spec_text_edit_done), NULL);
+    g_signal_connect(r, "editing-canceled", G_CALLBACK(spec_text_edit_done), NULL);
+    g_signal_connect(view, "row-activated", G_CALLBACK(spec_row_activated), sc);
+    gtk_widget_set_tooltip_text(GTK_WIDGET(view), _("Clique duplo no atalho para defini-lo pelo teclado"));
+}
+
 static GtkWidget *build_fixed_shortcuts_view(void)
 {
     GtkWidget *view = gtk_tree_view_new_with_model(g_fixed_filter);
@@ -1049,7 +1279,7 @@ static GtkWidget *build_fixed_shortcuts_view(void)
     gtk_tree_view_append_column(GTK_TREE_VIEW(view), label_col);
 
     GtkCellRenderer *spec_r = gtk_cell_renderer_text_new();
-    g_object_set(spec_r, "editable", TRUE, "ellipsize", PANGO_ELLIPSIZE_END, NULL);
+    g_object_set(spec_r, "ellipsize", PANGO_ELLIPSIZE_END, NULL);
     g_signal_connect(spec_r, "edited", G_CALLBACK(fixed_spec_edited), NULL);
     GtkTreeViewColumn *spec_col =
         gtk_tree_view_column_new_with_attributes(_("Atalho"), spec_r, "text", COL_FX_SPEC, NULL);
@@ -1057,6 +1287,7 @@ static GtkWidget *build_fixed_shortcuts_view(void)
     gtk_tree_view_column_set_fixed_width(spec_col, 200);
     gtk_tree_view_column_set_resizable(spec_col, TRUE);
     gtk_tree_view_append_column(GTK_TREE_VIEW(view), spec_col);
+    spec_cell_setup(&g_fixed_spec, GTK_TREE_VIEW(view), spec_col, spec_r, g_fixed_store, g_fixed_filter, COL_FX_SPEC);
 
     /* Per-row reset icon, shown only while the row differs from its default;
      * clicks are caught in fixed_view_clicked(). */
@@ -1183,6 +1414,9 @@ GtkWidget *build_shortcuts_tab(void)
         gtk_tree_view_column_set_fixed_width(tvcol, 150);
         gtk_tree_view_column_set_resizable(tvcol, TRUE);
         gtk_tree_view_append_column(GTK_TREE_VIEW(view), tvcol);
+        if (col == COL_SPEC)
+            spec_cell_setup(&g_custom_spec, GTK_TREE_VIEW(view), tvcol, renderer, g_shortcuts_store,
+                            g_custom_filter, COL_SPEC);
     }
 
     GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
