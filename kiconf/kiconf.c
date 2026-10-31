@@ -125,7 +125,7 @@
 #include "tabs.h"
 #include "track.h"
 
-#define KICONF_VERSION "0.2.101"
+#define KICONF_VERSION "0.2.102"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the

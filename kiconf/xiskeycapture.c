@@ -23,9 +23,11 @@
  * released by the X server with its connection, so:
  *   - only the keyboard is grabbed, never the pointer -- Cancelar stays
  *     clickable whatever happens to the keyboard;
- *   - a hung main loop is killed by SIGALRM's default action: alarm() is
- *     re-armed only from a main-loop timeout, so if the loop stops the
- *     process dies and the grab goes with it;
+ *   - a hung main loop is caught by a watchdog thread, which exits the
+ *     process (grab and all) when the loop stops ticking. It counts its
+ *     own wakeups rather than wall time, so being SIGSTOPped -- xisguard
+ *     pauses a client while asking about a new permission, here the
+ *     keyboard grab -- doesn't count as a hang;
  *   - the caller also kills it by PID past a deadline.
  * While open it owns the _XIS_KEYCAPTURE selection, which xispanel's
  * modtap checks so a Meta tap here doesn't open the launcher (X Record
@@ -37,7 +39,6 @@
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
 
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -49,7 +50,7 @@
 enum { EXIT_OK = 0, EXIT_CANCEL = 1, EXIT_CLEAR = 2, EXIT_EDIT_TEXT = 3, EXIT_USAGE = 64 };
 enum { RESP_CLEAR = 1, RESP_EDIT_TEXT = 2 };
 
-#define WATCHDOG_SECS 10    /* main loop stalled this long -> SIGALRM kills us */
+#define WATCHDOG_SECS 10    /* main loop stalled this long -> the watchdog exits */
 #define IDLE_SECS 60        /* no key at all this long -> cancel, giving the keyboard back */
 #define GRAB_TRIES 20       /* x 100 ms: someone else (kiwm mid-Alt+Tab) may hold it */
 
@@ -67,11 +68,28 @@ static struct {
     gboolean tap_saw_key;
 } S;
 
+static gint g_ticks; /* bumped by the main loop every second */
+
 static gboolean watchdog_feed(gpointer d)
 {
     (void)d;
-    alarm(WATCHDOG_SECS);
+    g_atomic_int_inc(&g_ticks);
     return TRUE;
+}
+
+static gpointer watchdog_thread(gpointer d)
+{
+    (void)d;
+    int last = g_atomic_int_get(&g_ticks), missed = 0;
+    for (;;) {
+        g_usleep(G_USEC_PER_SEC);
+        int now = g_atomic_int_get(&g_ticks);
+        missed = now == last ? missed + 1 : 0;
+        last = now;
+        if (missed >= WATCHDOG_SECS)
+            _exit(EXIT_CANCEL);
+    }
+    return NULL;
 }
 
 static gboolean idle_expired(gpointer d)
@@ -224,16 +242,6 @@ static void usage(void)
 
 int main(int argc, char **argv)
 {
-    /* SIGALRM must kill (its default): that's the hung-main-loop exit.
-     * Both an ignored disposition and a blocked mask survive exec, so
-     * neither can be inherited from whoever started us. */
-    signal(SIGALRM, SIG_DFL);
-    sigset_t alrm;
-    sigemptyset(&alrm);
-    sigaddset(&alrm, SIGALRM);
-    sigprocmask(SIG_UNBLOCK, &alrm, NULL);
-    alarm(WATCHDOG_SECS);
-
     xis_i18n_init("kiconf");
     gtk_init(&argc, &argv);
 
@@ -308,6 +316,7 @@ int main(int argc, char **argv)
     gtk_widget_show_all(S.dialog);
 
     g_timeout_add_seconds(1, watchdog_feed, NULL);
+    g_thread_new("watchdog", watchdog_thread, NULL);
     idle_reset();
 
     gint resp = gtk_dialog_run(GTK_DIALOG(S.dialog));
