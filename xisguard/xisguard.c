@@ -30,7 +30,7 @@
 #define REPORT_THROTTLE_S   1
 #define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.25"
+#define XISGUARD_VERSION    "0.4.26"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -228,14 +228,59 @@ static char subscribers_allow[256] = "";
  * subscribers, flagged "muted". Default: screen / window capture. */
 #define NOTIFY_DEFAULT_MASK ((1u << (XNOTIFY_SCREEN - 1)) | (1u << (XNOTIFY_COMPOSITE - 1)))
 static uint32_t notify_mask = NOTIFY_DEFAULT_MASK;
-/* KiDesktop's own programs, never reported (matched on the executable's
- * basename; not persisted, so an update can extend it). xisguard itself is
- * not here: it is the guard and has its own special permission. */
+/* KiDesktop's own programs, never reported (not persisted, so an update can
+ * extend it). Matched on basename AND directory: see is_builtin_exe().
+ * xisguard itself is not here: it is the guard and has its own special
+ * permission. */
 static const char *const ignored_builtin[] = {
     "kiwm", "kicomp", "kiconf", "kiconfd", "xispanel", "xisserve", "xisback", "xiskeys", "xismenu",
     "xis-sound", "kilock", "kisession", "kistoryd", "kimemoryd", "xiskeycapture", NULL
 };
 static const char *const subscribers_builtin[] = { "kistoryd", "kimemoryd", "xispanel", NULL };
+
+/* True if `path` (a full executable path, optionally followed by "|args")
+ * is one of `list` AND lives in the directory xisguard itself runs from --
+ * every KiDesktop program installs into the same bindir. A basename alone
+ * would let any program named "kiwm" in /tmp pass as one of ours. A path
+ * without a directory never matches. */
+static int is_builtin_exe(const char *path, const char *const *list) {
+    static char own_dir[PATH_MAX];
+    static int own_dir_known = 0;
+    if (!own_dir_known) {
+        char self[PATH_MAX];
+        ssize_t n = readlink("/proc/self/exe", self, sizeof(self) - 1);
+        if (n > 0) {
+            self[n] = '\0';
+            char *del = strstr(self, " (deleted)");
+            if (del)
+                *del = '\0';
+            char *slash = strrchr(self, '/');
+            if (slash && slash != self) {
+                *slash = '\0';
+                snprintf(own_dir, sizeof(own_dir), "%s", self);
+            }
+        }
+        own_dir_known = 1;
+    }
+    if (!own_dir[0] || !path)
+        return 0;
+
+    char buf[PATH_MAX];
+    snprintf(buf, sizeof(buf), "%s", path);
+    char *bar = strchr(buf, '|');
+    if (bar)
+        *bar = '\0';
+    char *slash = strrchr(buf, '/');
+    if (!slash || slash == buf)
+        return 0;
+    *slash = '\0';
+    if (strcmp(buf, own_dir) != 0)
+        return 0;
+    for (int i = 0; list[i]; i++)
+        if (strcmp(slash + 1, list[i]) == 0)
+            return 1;
+    return 0;
+}
 
 /* Server's real drop-in rules directory (SYSCONFDIR "/xnotify.conf.d"),
  * learned on demand from the X server itself since SYSCONFDIR is a
@@ -1116,16 +1161,8 @@ int is_report_ignored(const char *exe) {
     if (!exe || *exe == '\0' || strcmp(exe, "?") == 0)
         return 0;
 
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s", exe);
-    char *bar = strchr(path, '|');
-    if (bar)
-        *bar = '\0';
-    const char *base = strrchr(path, '/');
-    base = base ? base + 1 : path;
-    for (int i = 0; ignored_builtin[i]; i++)
-        if (strcmp(base, ignored_builtin[i]) == 0)
-            return 1;
+    if (is_builtin_exe(exe, ignored_builtin))
+        return 1;
 
     pthread_mutex_lock(&report_ignore_lock);
     for (int i = 0; i < ignored_reports_count; i++) {
@@ -2684,7 +2721,8 @@ static void subscribers_broadcast_permissive(int enabled) {
     pthread_mutex_unlock(&subscribers_lock);
 }
 
-/* Peer must be this same uid and its executable's basename must be in
+/* Peer must be this same uid and either be a KiDesktop program from
+ * xisguard's own directory (subscribers_builtin) or have a basename in
  * subscribers_allow. Fills exe_out with the basename for logging. */
 static int subscriber_peer_allowed(int conn, char *exe_out, size_t exe_sz) {
     struct ucred cred;
@@ -2710,10 +2748,8 @@ static int subscriber_peer_allowed(int conn, char *exe_out, size_t exe_sz) {
     memcpy(exe_out, base, bl);
     exe_out[bl] = '\0';
 
-    for (int i = 0; subscribers_builtin[i]; i++) {
-        if (strcmp(subscribers_builtin[i], base) == 0)
-            return 1;
-    }
+    if (is_builtin_exe(path, subscribers_builtin))
+        return 1;
     char list[sizeof(subscribers_allow)];
     snprintf(list, sizeof(list), "%s", subscribers_allow);
     char *save = NULL;
