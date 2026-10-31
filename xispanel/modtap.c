@@ -77,8 +77,22 @@ static unsigned int keycode_to_modmask(KeyCode kc)
     return result;
 }
 
+/* kiconf's xiskeycapture owns this selection while it records a hotkey:
+ * its keyboard grab stops every passive grab, but not X Record, so a
+ * Meta tap there would open the launcher too. The server drops the
+ * ownership if that process dies, so this can't get stuck. */
+static int key_capture_active(void)
+{
+    static Atom sel = None;
+    if (sel == None)
+        sel = XInternAtom(g_dpy, "_XIS_KEYCAPTURE", False);
+    return XGetSelectionOwner(g_dpy, sel) != None;
+}
+
 static void fire_taps(unsigned int modmask)
 {
+    if (key_capture_active())
+        return;
     for (int i = 0; i < g_n_taps; i++) {
         if (g_taps[i].modmask == modmask && g_taps[i].fn) {
             g_taps[i].fn(g_taps[i].w);
