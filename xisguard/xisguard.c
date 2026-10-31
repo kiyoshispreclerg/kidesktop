@@ -30,7 +30,7 @@
 #define REPORT_THROTTLE_S   1
 #define MAX_SUBSCRIBERS     8
 
-#define XISGUARD_VERSION    "0.4.24"
+#define XISGUARD_VERSION    "0.4.25"
 
 #define XNOTIFY_ATTACH           1
 #define XNOTIFY_SELECTION        2
@@ -233,7 +233,7 @@ static uint32_t notify_mask = NOTIFY_DEFAULT_MASK;
  * not here: it is the guard and has its own special permission. */
 static const char *const ignored_builtin[] = {
     "kiwm", "kicomp", "kiconf", "kiconfd", "xispanel", "xisserve", "xisback", "xiskeys", "xismenu",
-    "xis-sound", "kilock", "kisession", "kistoryd", "kimemoryd", NULL
+    "xis-sound", "kilock", "kisession", "kistoryd", "kimemoryd", "xiskeycapture", NULL
 };
 static const char *const subscribers_builtin[] = { "kistoryd", "kimemoryd", "xispanel", NULL };
 
