@@ -56,10 +56,18 @@ SRCS := kiconf.c plugins.c widgetmods.c common.c sysinfo.c track.c tabs/appearan
 LINGUAS := $(shell test -f po/LINGUAS && grep -v '^\#' po/LINGUAS)
 MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
-all: kiconf
+all: kiconf xiskeycapture
 
 kiconf: $(SRCS) ../VERSION
 	$(CC) $(CFLAGS) -o $@ $(SRCS) $(LIBS)
+
+# The "Pressione as teclas..." helper (see its top comment): a program of
+# its own so a hang can't keep the keyboard grabbed, built here because it
+# shares kiconf's translations. Any program setting a hotkey can run it.
+CAPTURE_SRCS := xiskeycapture.c ../shared/xis_keyspec.c
+
+xiskeycapture: $(CAPTURE_SRCS) ../shared/xis_keyspec.h
+	$(CC) $(CFLAGS) -o $@ $(CAPTURE_SRCS) $(shell pkg-config --cflags --libs gtk+-2.0 x11) $(LIBINTL)
 
 # ---- translations (see po/README.md for the day-to-day workflow) ----------
 
@@ -69,14 +77,14 @@ kiconf: $(SRCS) ../VERSION
 # source file -- translators work from po/kiconf.pot, not from SRCS.
 pot: po/kiconf.pot
 
-po/kiconf.pot: $(SRCS)
+po/kiconf.pot: $(SRCS) $(CAPTURE_SRCS)
 	xgettext --from-code=UTF-8 --language=C --keyword=_ --keyword=N_ \
 		--keyword=WF_BOOL:2 --keyword=WF_BOOL01:2 --keyword=WF_INT:2 --keyword=WF_STR:2 \
 		--keyword=WF_ENUM:2 --keyword=WF_COLOR_OPT:2 --keyword=FLD_BOOL:2 --keyword=FLD_INT:2 \
 		--keyword=FLD_DBL:2 --keyword=FLD_STR:2 --keyword=FLD_ENUM:2 --keyword=FLD_COLOR:2 \
 		--add-comments=TRANSLATORS: --sort-by-file \
 		--package-name=kiconf \
-		-o $@ $(SRCS)
+		-o $@ $(SRCS) xiskeycapture.c
 
 # Re-syncs every po/*.po against a freshly regenerated .pot: new strings
 # appear untranslated, removed ones are marked obsolete, everything else
@@ -99,8 +107,9 @@ UPDATE_CACHES = if [ -z "$(DESTDIR)" ]; then \
 		gtk-update-icon-cache -f -t $(PREFIX)/share/icons/hicolor 2>/dev/null; \
 	fi; true
 
-install: kiconf mo
+install: kiconf xiskeycapture mo
 	install -Dm755 kiconf $(DESTDIR)$(BINDIR)/kiconf
+	install -Dm755 xiskeycapture $(DESTDIR)$(BINDIR)/xiskeycapture
 	for lang in $(LINGUAS); do \
 		install -Dm644 po/$$lang.mo $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/kiconf.mo; \
 	done
@@ -112,7 +121,7 @@ install: kiconf mo
 	$(UPDATE_CACHES)
 
 uninstall:
-	rm -f $(DESTDIR)$(BINDIR)/kiconf
+	rm -f $(DESTDIR)$(BINDIR)/kiconf $(DESTDIR)$(BINDIR)/xiskeycapture
 	for lang in $(LINGUAS); do \
 		rm -f $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/kiconf.mo; \
 	done
@@ -121,6 +130,6 @@ uninstall:
 	$(UPDATE_CACHES)
 
 clean:
-	rm -f kiconf po/*.mo kiconf.desktop
+	rm -f kiconf xiskeycapture po/*.mo kiconf.desktop
 
 .PHONY: all clean install uninstall pot update-po mo
