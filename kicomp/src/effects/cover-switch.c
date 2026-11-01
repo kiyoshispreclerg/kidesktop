@@ -1547,6 +1547,11 @@ static void cs_toggle(void *data)
         return;
     }
 
+    if (!renderer_is_projective()) {
+        comp_log("cover-switch: this renderer cannot draw perspective; not opening");
+        return;
+    }
+
     /* The active screen is the one the pointer is on, decided once. */
     int px = 0, py = 0;
     input_pointer_position(&px, &py);
@@ -1688,7 +1693,7 @@ void cover_switch_external(const uint32_t *data, int len)
  * instance. What _KICOMP_EFFECTS answers with. */
 bool cover_switch_available(void)
 {
-    return bound_instance != NULL;
+    return bound_instance != NULL && renderer_is_projective();
 }
 
 static void cs_activate(const CompEffectInstance *self)

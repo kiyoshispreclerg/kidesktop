@@ -76,6 +76,7 @@
 #include "../input.h"
 #include "../transform.h"
 #include "../scene.h"
+#include "../renderer.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -672,6 +673,10 @@ static void on_event(CompWindow *w, const CompEvent *event,
      * under the pointer; only a resize also arms the still-side lock
      * (wobble_start/wobble_update, integrate()). */
     if (!event->interactive || !w->mapped || w->input_only)
+        return;
+
+    /* The sheet is a mesh of turned quads; XRender cannot draw one. */
+    if (!renderer_is_projective())
         return;
 
     CompRect rect = window_rect(w);
