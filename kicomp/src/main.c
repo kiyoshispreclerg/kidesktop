@@ -496,7 +496,7 @@ static bool toggle_off(void)
     /* Asked, not imposed: a ClientMessage with an empty event mask goes
      * to the client that created the window, and the running instance
      * answers it by leaving its loop -- so it unredirects, releases the
-     * overlay, drops any cursor confinement it applied and repaints
+     * overlay, gives back any scanout source it set and repaints
      * nothing half-done. */
     xcb_client_message_event_t msg;
     memset(&msg, 0, sizeof(msg));
@@ -522,7 +522,7 @@ static bool toggle_off(void)
         /* An instance too old to know the message, or one wedged: take
          * the connection out from under it. The server then reverts
          * everything that client did -- the redirection, the overlay, the
-         * confinement -- which is exactly the uncomposited session, just
+         * scanout sources -- which is exactly the uncomposited session, just
          * without the tidy exit. */
         if (waited >= 1000 && !killed) {
             fprintf(stderr, "kicomp: the running compositor did not answer, "
@@ -768,7 +768,14 @@ static void paint_dirty_outputs(double now)
         renderer->draw_scene(o, &scene, &region);
         renderer->end(o);
 
-        presenter->present(o, COMP_PRESENT_COPY, &region);
+        /* A sourced XRender output goes into its scanout source instead of
+         * onto the overlay; either way the server is handed the source
+         * after the first frame that's in it (inputscale.h). */
+        if (o->source_picture)
+            inputscale_present(o, &region);
+        else
+            presenter->present(o, COMP_PRESENT_COPY, &region);
+        inputscale_frame_done(o);
 
         output_painted(o);
         painted = true;
@@ -855,14 +862,17 @@ static void handle_event(xcb_generic_event_t *ev)
         if (e->subCode == XCB_RANDR_NOTIFY_OUTPUT_PROPERTY &&
             e->u.op.atom == comp.atoms.randr_dpi) {
             /* The DPI of some output changed. Which one hardly matters:
-             * rebuilding the outputs re-reads all of them, re-applies the
-             * cursor confinement and re-asks every window for the density
-             * its (possibly new) scale wants -- the same three things
-             * that happen on a hotplug, for the same reason. */
+             * the scale policy compares every output with what it asks
+             * for and, if that changes the layout, the RandR events it
+             * causes rebuild the outputs. Otherwise rebuild them here --
+             * the DPI also decides nothing else, but it costs nothing to
+             * be sure every window is asked for the right density. */
             comp_log("RandR: DPI changed");
-            outputs_refresh();
-            renderer_background_invalidate();
-            output_damage_all();
+            if (!outputs_apply_scale_policy(true)) {
+                outputs_refresh();
+                renderer_background_invalidate();
+                output_damage_all();
+            }
         }
         return;
     }
@@ -1429,9 +1439,14 @@ int main(int argc, char **argv)
     /* The censored-capture offer (capture.h), absent when switched off. */
     capture_publish();
 
-    /* Before the outputs are built: whether an output may be scaled at
-     * all depends on this extension being there (inputscale.h). */
+    /* Before the outputs are built: whether a scaled output is drawn
+     * sharp depends on this extension being there (inputscale.h). */
     density_init();
+
+    /* A DPI or config scale that asks for something the layout doesn't
+     * have yet (output.h). Its RandR events arrive later; the outputs built
+     * just below are rebuilt then. */
+    outputs_apply_scale_policy(false);
 
     /* Prints the drawable count/geometry itself, here and on every later
      * output change. */

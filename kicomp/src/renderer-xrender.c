@@ -2213,6 +2213,8 @@ static void xr_shutdown(void)
 
 static const CompRenderer xrender_renderer = {
     .name       = "xrender",
+    /* through a source pixmap the core composites the target into */
+    .scanout_source = true,
     .init       = xr_init,
     .destroy    = xr_destroy,
     .begin      = xr_begin,
