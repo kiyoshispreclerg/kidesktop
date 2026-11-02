@@ -1,5 +1,6 @@
 /* Client lifecycle: classification, manage/unmanage, focus/stacking,
  * and the map/move/resize/maximize/minimize state transitions. */
+#include <ctype.h>
 #include "client.h"
 #include "wm.h"
 #include "../shared/xis_sound.h"
@@ -3043,6 +3044,26 @@ int clients_reframe_all(void)
  *     nobody asked to see, at whatever stale position they were last left
  *     at, which is exactly the "Plasma windows showing up invisible and in
  *     the wrong places after kiwm --replace" symptom. */
+/* pkexec/polkit prompts: the authentication agent's dialog is the only
+ * thing on screen that says "something wants root", so its first map is
+ * the "polkit-auth" sound event (shared/xis_sound.h). */
+static bool window_is_polkit_agent(xcb_window_t window)
+{
+    xcb_icccm_get_wm_class_reply_t cls;
+    if (!xcb_icccm_get_wm_class_reply(wm.conn, xcb_icccm_get_wm_class(wm.conn, window), &cls, NULL))
+        return false;
+    const char *names[] = { cls.class_name, cls.instance_name };
+    bool hit = false;
+    for (int i = 0; i < 2 && !hit; i++) {
+        char low[64] = { 0 };
+        for (size_t k = 0; names[i] && names[i][k] && k < sizeof(low) - 1; k++)
+            low[k] = (char)tolower((unsigned char)names[i][k]);
+        hit = strstr(low, "polkit") != NULL;
+    }
+    xcb_icccm_get_wm_class_reply_wipe(&cls);
+    return hit;
+}
+
 void manage(xcb_window_t window, bool map_requested)
 {
     if (find_client_window(window))
@@ -3224,6 +3245,8 @@ void manage(xcb_window_t window, bool map_requested)
     /* Before the frame exists, never mind the map: the mark has to be there
      * for the window's first frame (capture.h). */
     capture_mark_new_client(c);
+    if (map_requested && window_is_polkit_agent(window))
+        xis_sound_play("polkit-auth");
     c->group_leader = window_group_leader(window);
     c->skip_taskbar = window_has_state(window, wm.atoms.net_wm_state_skip_taskbar);
     c->takes_focus = client_supports_protocol(window, wm.atoms.wm_take_focus);
