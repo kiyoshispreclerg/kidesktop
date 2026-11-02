@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define KIPAD_VERSION "0.1.3"
+#define KIPAD_VERSION "0.2.0"
 #define DEFAULT_FONT "Monospace 11"
 #define MIN_FONT_PT 6
 #define MAX_FONT_PT 72
@@ -559,8 +559,11 @@ static void on_mark_set(GtkTextBuffer *buf, GtkTextIter *loc, GtkTextMark *mark,
 
 static void close_tab(GtkWidget *scroll);
 
+static Doc *g_find_hl;
 static void doc_free(Doc *d)
 {
+    if (g_find_hl == d)
+        g_find_hl = NULL;
     g_array_free(d->undo, TRUE);
     g_array_free(d->redo, TRUE);
     g_free(d->path);
@@ -594,6 +597,7 @@ static Doc *doc_new(void)
     apply_wrap_to(d);
     linenum_resize(d);
 
+    gtk_text_buffer_create_tag(d->buf, "find-match", "background", "#ffd54f", "foreground", "#000000", NULL);
     g_signal_connect(d->buf, "insert-text", G_CALLBACK(on_insert_text), d);
     g_signal_connect(d->buf, "delete-range", G_CALLBACK(on_delete_range), d);
     g_signal_connect(d->buf, "changed", G_CALLBACK(on_changed), d);
@@ -999,6 +1003,431 @@ static void page_switched(GtkNotebook *nb, gpointer page, guint n, gpointer data
     g_idle_add(page_switched_idle, NULL);
 }
 
+/* ---- find ------------------------------------------------------------ */
+
+#define FIND_LIST_MAX 1000 /* occurrences listed per file */
+
+static GtkWidget *g_findbar, *g_find_entry, *g_find_msg;
+static gboolean g_find_case, g_find_all;
+static gboolean g_find_sync; /* the entry is being set by code, not typed */
+
+/* GtkTextIter's search has no case-insensitive mode in GTK2, so searches run
+ * over arrays of code points (lowercased one-to-one when ignoring case), which
+ * also keeps array indexes equal to buffer character offsets. */
+static gunichar *fold_utf8(const char *s, long *n)
+{
+    glong cnt = 0;
+    gunichar *u = g_utf8_to_ucs4_fast(s, -1, &cnt);
+    if (!g_find_case)
+        for (glong i = 0; i < cnt; i++)
+            u[i] = g_unichar_tolower(u[i]);
+    *n = cnt;
+    return u;
+}
+
+static gunichar *doc_fold(Doc *d, long *n)
+{
+    GtkTextIter a, b;
+    gtk_text_buffer_get_bounds(d->buf, &a, &b);
+    char *text = gtk_text_buffer_get_text(d->buf, &a, &b, TRUE);
+    gunichar *u = fold_utf8(text, n);
+    g_free(text);
+    return u;
+}
+
+/* Forward: first match starting at or after FROM. Backward: last match
+ * ending at or before FROM. */
+static gboolean fold_search(const gunichar *t, long n, const gunichar *q, long qn, long from, gboolean fwd, long *at)
+{
+    if (qn == 0 || qn > n)
+        return FALSE;
+    long last = n - qn;
+    long i = fwd ? (from < 0 ? 0 : from) : MIN(from - qn, last);
+    for (; fwd ? i <= last : i >= 0; i += fwd ? 1 : -1)
+        if (t[i] == q[0] && !memcmp(t + i, q, (size_t)qn * sizeof *q)) {
+            *at = i;
+            return TRUE;
+        }
+    return FALSE;
+}
+
+/* the document carrying the highlighted match */
+
+/* An unfocused GtkTextView hides its selection, so the match is also tagged. */
+static void find_unhighlight(void)
+{
+    if (!g_find_hl)
+        return;
+    GtkTextIter a, b;
+    gtk_text_buffer_get_bounds(g_find_hl->buf, &a, &b);
+    gtk_text_buffer_remove_tag_by_name(g_find_hl->buf, "find-match", &a, &b);
+    g_find_hl = NULL;
+}
+
+static void find_msg(const char *text)
+{
+    gtk_label_set_text(GTK_LABEL(g_find_msg), text ? text : "");
+}
+
+static void find_goto(Doc *d, long a, long b, gboolean fwd, gboolean focus_entry)
+{
+    GtkNotebook *nb = GTK_NOTEBOOK(g_notebook);
+    Doc *cur = doc_current();
+    if (d != cur)
+        gtk_notebook_set_current_page(nb, gtk_notebook_page_num(nb, d->scroll));
+    GtkTextIter ia, ib;
+    gtk_text_buffer_get_iter_at_offset(d->buf, &ia, (int)a);
+    gtk_text_buffer_get_iter_at_offset(d->buf, &ib, (int)b);
+    gtk_text_buffer_select_range(d->buf, fwd ? &ib : &ia, fwd ? &ia : &ib);
+    find_unhighlight();
+    gtk_text_buffer_apply_tag_by_name(d->buf, "find-match", &ia, &ib);
+    g_find_hl = d;
+    if (d == cur) {
+        gtk_text_view_scroll_to_mark(GTK_TEXT_VIEW(d->view), gtk_text_buffer_get_insert(d->buf), 0.15, FALSE, 0, 0);
+    } else {
+        /* the page has no size until it is shown */
+        g_object_ref(d->scroll);
+        g_idle_add(scroll_to_cursor_idle, d);
+    }
+    if (focus_entry && !gtk_widget_has_focus(g_find_entry))
+        gtk_widget_grab_focus(g_find_entry);
+}
+
+/* INCREMENTAL: the current match may be extended (typing), so search from the
+ * start of the selection. */
+static void find_step(gboolean fwd, gboolean incremental, gboolean focus_entry)
+{
+    Doc *cur = doc_current();
+    const char *qs = gtk_entry_get_text(GTK_ENTRY(g_find_entry));
+    find_msg(NULL);
+    if (!cur || !*qs)
+        return;
+    long qn;
+    gunichar *q = fold_utf8(qs, &qn);
+    GtkNotebook *nb = GTK_NOTEBOOK(g_notebook);
+    GtkTextIter a, b;
+    gtk_text_buffer_get_selection_bounds(cur->buf, &a, &b);
+    long from = gtk_text_iter_get_offset(fwd && !incremental ? &b : &a);
+    int n = gtk_notebook_get_n_pages(nb), idx = gtk_notebook_get_current_page(nb);
+    int count = g_find_all ? n : 1;
+    Doc *hit = NULL;
+    long at = 0;
+    /* step 0: the rest of this file; then the following files, and finally
+     * this file again from its other end (the wrap-around) */
+    for (int i = 0; i <= count && !hit; i++) {
+        Doc *o = cur;
+        if (g_find_all && i)
+            o = doc_of(gtk_notebook_get_nth_page(nb, ((idx + (fwd ? i : -i)) % n + n) % n));
+        long tn;
+        gunichar *t = doc_fold(o, &tn);
+        long start = i == 0 ? from : (fwd ? 0 : tn);
+        if (fold_search(t, tn, q, qn, start, fwd, &at))
+            hit = o;
+        g_free(t);
+    }
+    if (hit)
+        find_goto(hit, at, at + qn, fwd, focus_entry);
+    else
+        find_msg(_("Not found"));
+    g_free(q);
+}
+
+static void find_next_cb(void)
+{
+    find_step(TRUE, FALSE, TRUE);
+}
+
+static void find_prev_cb(void)
+{
+    find_step(FALSE, FALSE, TRUE);
+}
+
+static void find_close_cb(void)
+{
+    gtk_widget_hide(g_findbar);
+    find_unhighlight();
+    Doc *d = doc_current();
+    if (d)
+        gtk_widget_grab_focus(d->view);
+}
+
+static void find_entry_changed(GtkEditable *e, gpointer data)
+{
+    (void)e;
+    (void)data;
+    if (!g_find_sync)
+        find_step(TRUE, TRUE, TRUE);
+}
+
+static gboolean find_entry_key(GtkWidget *w, GdkEventKey *ev, gpointer data)
+{
+    (void)w;
+    (void)data;
+    if (ev->keyval == GDK_Return || ev->keyval == GDK_KP_Enter || ev->keyval == GDK_ISO_Enter) {
+        find_step(!(ev->state & (GDK_CONTROL_MASK | GDK_SHIFT_MASK)), FALSE, TRUE);
+        return TRUE;
+    }
+    if (ev->keyval == GDK_Escape) {
+        find_close_cb();
+        return TRUE;
+    }
+    return FALSE;
+}
+
+static void find_entry_set(const char *text)
+{
+    g_find_sync = TRUE;
+    gtk_entry_set_text(GTK_ENTRY(g_find_entry), text);
+    g_find_sync = FALSE;
+}
+
+static void find_show(void)
+{
+    Doc *d = doc_current();
+    GtkTextIter a, b;
+    /* a one-line selection becomes the search text */
+    if (d && gtk_text_buffer_get_selection_bounds(d->buf, &a, &b) && gtk_text_iter_get_line(&a) == gtk_text_iter_get_line(&b) &&
+        gtk_text_iter_get_offset(&b) - gtk_text_iter_get_offset(&a) <= 200) {
+        char *sel = gtk_text_buffer_get_text(d->buf, &a, &b, TRUE);
+        find_entry_set(sel);
+        g_free(sel);
+    }
+    find_msg(NULL);
+    gtk_widget_show(g_findbar);
+    gtk_widget_grab_focus(g_find_entry);
+    gtk_editable_select_region(GTK_EDITABLE(g_find_entry), 0, -1);
+}
+
+/* -- the "+" dialog: options and the per-file list of occurrences -- */
+
+enum { FC_TEXT, FC_PAGE, FC_OFF, FC_COLS };
+
+/* The text of the line holding OFF, trimmed and shortened for the list. */
+static char *line_snippet(Doc *d, long off, int *line)
+{
+    GtkTextIter it, s, e;
+    gtk_text_buffer_get_iter_at_offset(d->buf, &it, (int)off);
+    *line = gtk_text_iter_get_line(&it) + 1;
+    s = e = it;
+    gtk_text_iter_set_line_offset(&s, 0);
+    if (!gtk_text_iter_ends_line(&e))
+        gtk_text_iter_forward_to_line_end(&e);
+    char *text = g_strstrip(gtk_text_buffer_get_text(d->buf, &s, &e, TRUE));
+    glong len = g_utf8_strlen(text, -1);
+    *g_utf8_offset_to_pointer(text, MIN(len, 120)) = '\0';
+    return text;
+}
+
+static void find_list_fill(GtkTreeStore *st)
+{
+    gtk_tree_store_clear(st);
+    const char *qs = gtk_entry_get_text(GTK_ENTRY(g_find_entry));
+    if (!*qs)
+        return;
+    long qn;
+    gunichar *q = fold_utf8(qs, &qn);
+    GtkNotebook *nb = GTK_NOTEBOOK(g_notebook);
+    int n = gtk_notebook_get_n_pages(nb), cur = gtk_notebook_get_current_page(nb);
+    for (int p = 0; p < n; p++) {
+        if (!g_find_all && p != cur)
+            continue;
+        Doc *d = doc_of(gtk_notebook_get_nth_page(nb, p));
+        long tn, at, from = 0;
+        gunichar *t = doc_fold(d, &tn);
+        GArray *hits = g_array_new(FALSE, FALSE, sizeof(long));
+        while (hits->len < FIND_LIST_MAX && fold_search(t, tn, q, qn, from, TRUE, &at)) {
+            g_array_append_val(hits, at);
+            from = at + qn;
+        }
+        g_free(t);
+        if (hits->len) {
+            char *name = doc_name(d);
+            char *title = g_strdup_printf("%s (%u)", name, hits->len);
+            GtkTreeIter par, ch;
+            gtk_tree_store_append(st, &par, NULL);
+            gtk_tree_store_set(st, &par, FC_TEXT, title, FC_PAGE, d->scroll, FC_OFF, -1, -1);
+            g_free(title);
+            g_free(name);
+            for (guint i = 0; i < hits->len; i++) {
+                long off = g_array_index(hits, long, i);
+                int line;
+                char *snip = line_snippet(d, off, &line);
+                char *text = g_strdup_printf("%d: %s", line, snip);
+                gtk_tree_store_append(st, &ch, &par);
+                gtk_tree_store_set(st, &ch, FC_TEXT, text, FC_PAGE, d->scroll, FC_OFF, (int)off, -1);
+                g_free(text);
+                g_free(snip);
+            }
+        }
+        g_array_free(hits, TRUE);
+    }
+    g_free(q);
+    GtkWidget *tv = g_object_get_data(G_OBJECT(st), "tv");
+    if (tv)
+        gtk_tree_view_expand_all(GTK_TREE_VIEW(tv));
+}
+
+/* A file row goes to its first occurrence, an occurrence row to itself. */
+static void find_list_goto(GtkTreeView *tv, GtkTreePath *path)
+{
+    GtkTreeModel *m = gtk_tree_view_get_model(tv);
+    GtkTreeIter it, ch;
+    gpointer page;
+    int off;
+    if (!gtk_tree_model_get_iter(m, &it, path))
+        return;
+    gtk_tree_model_get(m, &it, FC_PAGE, &page, FC_OFF, &off, -1);
+    if (off < 0) {
+        if (!gtk_tree_model_iter_children(m, &ch, &it))
+            return;
+        gtk_tree_model_get(m, &ch, FC_OFF, &off, -1);
+    }
+    long qn = g_utf8_strlen(gtk_entry_get_text(GTK_ENTRY(g_find_entry)), -1);
+    find_goto(doc_of(GTK_WIDGET(page)), off, off + qn, TRUE, FALSE);
+}
+
+static gboolean find_list_release(GtkWidget *w, GdkEventButton *ev, gpointer data)
+{
+    (void)data;
+    GtkTreePath *path = NULL;
+    if (ev->button == 1 && gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(w), (int)ev->x, (int)ev->y, &path, NULL, NULL, NULL)) {
+        find_list_goto(GTK_TREE_VIEW(w), path);
+        gtk_tree_path_free(path);
+    }
+    return FALSE;
+}
+
+static void find_list_activated(GtkTreeView *tv, GtkTreePath *path, GtkTreeViewColumn *col, gpointer dlg)
+{
+    (void)col;
+    find_list_goto(tv, path);
+    gtk_dialog_response(GTK_DIALOG(dlg), GTK_RESPONSE_CLOSE);
+}
+
+static void find_dlg_entry_changed(GtkEditable *e, gpointer store)
+{
+    find_entry_set(gtk_entry_get_text(GTK_ENTRY(e)));
+    find_msg(NULL);
+    find_list_fill(store);
+}
+
+static void find_dlg_case_toggled(GtkToggleButton *b, gpointer store)
+{
+    g_find_case = gtk_toggle_button_get_active(b);
+    find_list_fill(store);
+}
+
+static void find_dlg_all_toggled(GtkToggleButton *b, gpointer store)
+{
+    g_find_all = gtk_toggle_button_get_active(b);
+    find_list_fill(store);
+}
+
+static void find_dlg_step_cb(GtkWidget *b, gpointer fwd)
+{
+    (void)b;
+    find_step(GPOINTER_TO_INT(fwd), FALSE, FALSE);
+}
+
+static void find_more_cb(void)
+{
+    gtk_widget_show(g_findbar);
+    GtkWidget *dlg = gtk_dialog_new_with_buttons(_("Find"), GTK_WINDOW(g_win), GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                 GTK_STOCK_CLOSE, GTK_RESPONSE_CLOSE, NULL);
+    gtk_window_set_default_size(GTK_WINDOW(dlg), 480, 420);
+    GtkWidget *box = GTK_DIALOG(dlg)->vbox;
+    gtk_box_set_spacing(GTK_BOX(box), 6);
+
+    GtkTreeStore *store = gtk_tree_store_new(FC_COLS, G_TYPE_STRING, G_TYPE_POINTER, G_TYPE_INT);
+
+    GtkWidget *row = gtk_hbox_new(FALSE, 4);
+    GtkWidget *entry = gtk_entry_new();
+    gtk_entry_set_text(GTK_ENTRY(entry), gtk_entry_get_text(GTK_ENTRY(g_find_entry)));
+    gtk_entry_set_activates_default(GTK_ENTRY(entry), FALSE);
+    gtk_box_pack_start(GTK_BOX(row), entry, TRUE, TRUE, 0);
+    const char *stock[2] = { GTK_STOCK_GO_DOWN, GTK_STOCK_GO_UP };
+    const char *tips[2] = { _("Next occurrence"), _("Previous occurrence") };
+    for (int i = 0; i < 2; i++) {
+        GtkWidget *btn = gtk_button_new();
+        gtk_container_add(GTK_CONTAINER(btn), gtk_image_new_from_stock(stock[i], GTK_ICON_SIZE_BUTTON));
+        gtk_widget_set_tooltip_text(btn, tips[i]);
+        g_signal_connect(btn, "clicked", G_CALLBACK(find_dlg_step_cb), GINT_TO_POINTER(i == 0));
+        gtk_box_pack_start(GTK_BOX(row), btn, FALSE, FALSE, 0);
+    }
+    gtk_box_pack_start(GTK_BOX(box), row, FALSE, FALSE, 0);
+
+    GtkWidget *cs = gtk_check_button_new_with_mnemonic(_("_Match case"));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(cs), g_find_case);
+    GtkWidget *all = gtk_check_button_new_with_mnemonic(_("Search in _all open files"));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(all), g_find_all);
+    gtk_box_pack_start(GTK_BOX(box), cs, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), all, FALSE, FALSE, 0);
+
+    GtkWidget *lbl = gtk_label_new(_("Occurrences"));
+    gtk_misc_set_alignment(GTK_MISC(lbl), 0, 0.5);
+    gtk_box_pack_start(GTK_BOX(box), lbl, FALSE, FALSE, 0);
+    GtkWidget *sw = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(sw), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(sw), GTK_SHADOW_IN);
+    GtkWidget *tv = gtk_tree_view_new_with_model(GTK_TREE_MODEL(store));
+    gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(tv), FALSE);
+    gtk_tree_view_append_column(GTK_TREE_VIEW(tv),
+                                gtk_tree_view_column_new_with_attributes("", gtk_cell_renderer_text_new(), "text", FC_TEXT, NULL));
+    gtk_container_add(GTK_CONTAINER(sw), tv);
+    gtk_box_pack_start(GTK_BOX(box), sw, TRUE, TRUE, 0);
+
+    g_signal_connect(entry, "changed", G_CALLBACK(find_dlg_entry_changed), store);
+    g_signal_connect(cs, "toggled", G_CALLBACK(find_dlg_case_toggled), store);
+    g_signal_connect(all, "toggled", G_CALLBACK(find_dlg_all_toggled), store);
+    g_signal_connect(tv, "button-release-event", G_CALLBACK(find_list_release), NULL);
+    g_signal_connect(tv, "row-activated", G_CALLBACK(find_list_activated), dlg);
+
+    g_object_set_data(G_OBJECT(store), "tv", tv);
+    find_list_fill(store);
+    gtk_widget_show_all(box);
+    gtk_widget_grab_focus(entry);
+    gtk_dialog_run(GTK_DIALOG(dlg));
+    gtk_widget_destroy(dlg);
+    g_object_unref(store);
+    gtk_widget_grab_focus(g_find_entry);
+}
+
+static GtkWidget *find_button(const char *stock, const char *tip, GCallback cb)
+{
+    GtkWidget *btn = gtk_button_new();
+    gtk_button_set_relief(GTK_BUTTON(btn), GTK_RELIEF_NONE);
+    gtk_button_set_focus_on_click(GTK_BUTTON(btn), FALSE);
+    gtk_container_add(GTK_CONTAINER(btn), gtk_image_new_from_stock(stock, GTK_ICON_SIZE_MENU));
+    gtk_widget_set_tooltip_text(btn, tip);
+    g_signal_connect(btn, "clicked", cb, NULL);
+    return btn;
+}
+
+static GtkWidget *build_findbar(void)
+{
+    g_findbar = gtk_hbox_new(FALSE, 2);
+    gtk_container_set_border_width(GTK_CONTAINER(g_findbar), 2);
+    g_find_entry = gtk_entry_new();
+    g_signal_connect(g_find_entry, "changed", G_CALLBACK(find_entry_changed), NULL);
+    g_signal_connect(g_find_entry, "key-press-event", G_CALLBACK(find_entry_key), NULL);
+    g_find_msg = gtk_label_new("");
+    gtk_misc_set_padding(GTK_MISC(g_find_msg), 6, 0);
+    gtk_box_pack_start(GTK_BOX(g_findbar), g_find_entry, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(g_findbar), find_button(GTK_STOCK_GO_DOWN, _("Next occurrence (Enter)"), G_CALLBACK(find_next_cb)),
+                       FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(g_findbar),
+                       find_button(GTK_STOCK_GO_UP, _("Previous occurrence (Ctrl+Enter)"), G_CALLBACK(find_prev_cb)), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(g_findbar), g_find_msg, FALSE, FALSE, 0);
+    gtk_box_pack_end(GTK_BOX(g_findbar), find_button(GTK_STOCK_CLOSE, _("Close search (Esc)"), G_CALLBACK(find_close_cb)), FALSE,
+                     FALSE, 0);
+    gtk_box_pack_end(GTK_BOX(g_findbar), find_button(GTK_STOCK_ADD, _("More options..."), G_CALLBACK(find_more_cb)), FALSE, FALSE,
+                     0);
+    gtk_widget_show_all(g_findbar);
+    gtk_widget_set_no_show_all(g_findbar, TRUE);
+    gtk_widget_hide(g_findbar);
+    return g_findbar;
+}
+
 /* ---- window ---------------------------------------------------------- */
 
 static GtkWidget *menu_item(GtkWidget *menu, GtkAccelGroup *ag, const char *label, guint key, GdkModifierType mods,
@@ -1050,6 +1479,8 @@ static GtkWidget *build_menubar(GtkAccelGroup *ag)
     menu_item(m, ag, _("_Paste"), GDK_v, C, G_CALLBACK(paste_cb));
     separator(m);
     menu_item(m, ag, _("Select _all"), GDK_a, C, G_CALLBACK(select_all_cb));
+    separator(m);
+    menu_item(m, ag, _("_Find..."), GDK_f, C, G_CALLBACK(find_show));
 
     m = submenu(bar, _("_View"));
     g_linenum_item = gtk_check_menu_item_new_with_mnemonic(_("_Line numbers"));
@@ -1125,6 +1556,7 @@ int main(int argc, char **argv)
     gtk_notebook_set_scrollable(GTK_NOTEBOOK(g_notebook), TRUE);
     g_signal_connect(g_notebook, "switch-page", G_CALLBACK(page_switched), NULL);
     gtk_box_pack_start(GTK_BOX(vbox), g_notebook, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(vbox), build_findbar(), FALSE, FALSE, 0);
 
     g_status = gtk_hbox_new(FALSE, 0);
     g_pos_label = gtk_label_new("");

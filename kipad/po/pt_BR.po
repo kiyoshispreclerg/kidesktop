@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kipad\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-17 11:48-0300\n"
+"POT-Creation-Date: 2026-11-02 17:14-0300\n"
 "PO-Revision-Date: 2026-10-16 18:20-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -17,29 +17,29 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
-#: kipad.c:107
+#: kipad.c:212
 msgid "Untitled"
 msgstr "Sem título"
 
-#: kipad.c:107
+#: kipad.c:212
 #, c-format
 msgid "Untitled %d"
 msgstr "Sem título %d"
 
-#: kipad.c:144
+#: kipad.c:249
 #, c-format
 msgid "Line %d, Column %d"
 msgstr "Linha %d, Coluna %d"
 
-#: kipad.c:286
+#: kipad.c:391
 msgid "Font"
 msgstr "Fonte"
 
-#: kipad.c:488
+#: kipad.c:616
 msgid "Close tab"
 msgstr "Fechar aba"
 
-#: kipad.c:550
+#: kipad.c:717
 #, c-format
 msgid ""
 "Could not open the file:\n"
@@ -48,7 +48,7 @@ msgstr ""
 "Não foi possível abrir o arquivo:\n"
 "%s"
 
-#: kipad.c:564
+#: kipad.c:731
 #, c-format
 msgid ""
 "Could not read the file:\n"
@@ -57,7 +57,7 @@ msgstr ""
 "Não foi possível ler o arquivo:\n"
 "%s"
 
-#: kipad.c:595
+#: kipad.c:779
 #, c-format
 msgid ""
 "Could not save the file:\n"
@@ -66,119 +66,167 @@ msgstr ""
 "Não foi possível salvar o arquivo:\n"
 "%s"
 
-#: kipad.c:607
+#: kipad.c:780
+msgid "The administrator command failed."
+msgstr "O comando de administrador falhou."
+
+#: kipad.c:791
 msgid "Save as"
 msgstr "Salvar como"
 
-#: kipad.c:636
+#: kipad.c:820
 #, c-format
 msgid "Save changes to \"%s\" before closing?"
 msgstr "Salvar as alterações em \"%s\" antes de fechar?"
 
-#: kipad.c:637
+#: kipad.c:821
 msgid "Close without saving"
 msgstr "Fechar sem salvar"
 
-#: kipad.c:683
+#: kipad.c:892
 msgid "Open"
 msgstr "Abrir"
 
-#: kipad.c:776
+#: kipad.c:985
 msgid "A simple tabbed text editor"
 msgstr "Um editor de texto simples, com abas"
 
-#: kipad.c:829
+#: kipad.c:1131
+msgid "Not found"
+msgstr "Não encontrado"
+
+#: kipad.c:1335
+msgid "Find"
+msgstr "Buscar"
+
+#: kipad.c:1349
+msgid "Next occurrence"
+msgstr "Próxima ocorrência"
+
+#: kipad.c:1349
+msgid "Previous occurrence"
+msgstr "Ocorrência anterior"
+
+#: kipad.c:1359
+msgid "_Match case"
+msgstr "_Diferenciar maiúsculas de minúsculas"
+
+#: kipad.c:1361
+msgid "Search in _all open files"
+msgstr "Buscar em _todos os arquivos abertos"
+
+#: kipad.c:1366
+msgid "Occurrences"
+msgstr "Ocorrências"
+
+#: kipad.c:1416
+msgid "Next occurrence (Enter)"
+msgstr "Próxima ocorrência (Enter)"
+
+#: kipad.c:1419
+msgid "Previous occurrence (Ctrl+Enter)"
+msgstr "Ocorrência anterior (Ctrl+Enter)"
+
+#: kipad.c:1421
+msgid "Close search (Esc)"
+msgstr "Fechar busca (Esc)"
+
+#: kipad.c:1423
+msgid "More options..."
+msgstr "Mais opções..."
+
+#: kipad.c:1463
 msgid "_File"
 msgstr "_Arquivo"
 
-#: kipad.c:830
+#: kipad.c:1464
 msgid "_New"
 msgstr "_Novo"
 
-#: kipad.c:831
+#: kipad.c:1465
 msgid "_Open..."
 msgstr "_Abrir..."
 
-#: kipad.c:833
+#: kipad.c:1467
 msgid "_Save"
 msgstr "_Salvar"
 
-#: kipad.c:834
+#: kipad.c:1468
 msgid "Save _as..."
 msgstr "Salvar _como..."
 
-#: kipad.c:836
+#: kipad.c:1470
 msgid "_Close tab"
 msgstr "_Fechar aba"
 
-#: kipad.c:837
+#: kipad.c:1471
 msgid "_Quit"
 msgstr "_Sair"
 
-#: kipad.c:839
+#: kipad.c:1473
 msgid "_Edit"
 msgstr "_Editar"
 
-#: kipad.c:840
+#: kipad.c:1474
 msgid "_Undo"
 msgstr "_Desfazer"
 
-#: kipad.c:841
+#: kipad.c:1475
 msgid "_Redo"
 msgstr "_Refazer"
 
-#: kipad.c:843
+#: kipad.c:1477
 msgid "Cu_t"
 msgstr "Reco_rtar"
 
-#: kipad.c:844
+#: kipad.c:1478
 msgid "_Copy"
 msgstr "_Copiar"
 
-#: kipad.c:845
+#: kipad.c:1479
 msgid "_Paste"
 msgstr "C_olar"
 
-#: kipad.c:847
+#: kipad.c:1481
 msgid "Select _all"
 msgstr "Selecionar _tudo"
 
-#: kipad.c:849
+#: kipad.c:1483
+msgid "_Find..."
+msgstr "_Buscar..."
+
+#: kipad.c:1485
 msgid "_View"
 msgstr "_Exibir"
 
-#: kipad.c:850
+#: kipad.c:1486
 msgid "_Line numbers"
 msgstr "_Números das linhas"
 
-#: kipad.c
+#: kipad.c:1490
 msgid "_Word wrap"
 msgstr "_Quebra automática de linha"
 
-#: kipad.c:855
+#: kipad.c:1495
 msgid "_Font..."
 msgstr "_Fonte..."
 
-#: kipad.c:856
+#: kipad.c:1496
 msgid "Zoom _in"
 msgstr "Aumentar _zoom"
 
-#: kipad.c:857
+#: kipad.c:1497
 msgid "Zoom _out"
 msgstr "_Diminuir zoom"
 
-#: kipad.c:858
+#: kipad.c:1498
 msgid "_Reset zoom"
 msgstr "_Restaurar zoom"
 
-#: kipad.c:860
+#: kipad.c:1500
 msgid "_Help"
 msgstr "A_juda"
 
-#: kipad.c:861
+#: kipad.c:1501
 msgid "_About"
 msgstr "_Sobre"
-
-#: kipad.c
-msgid "The administrator command failed."
-msgstr "O comando de administrador falhou."

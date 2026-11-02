@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kipad\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-16 18:19-0300\n"
+"POT-Creation-Date: 2026-11-02 17:14-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,158 +17,210 @@ msgstr ""
 "Content-Type: text/plain; charset=CHARSET\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: kipad.c:107
+#: kipad.c:212
 msgid "Untitled"
 msgstr ""
 
-#: kipad.c:107
+#: kipad.c:212
 #, c-format
 msgid "Untitled %d"
 msgstr ""
 
-#: kipad.c:144
+#: kipad.c:249
 #, c-format
 msgid "Line %d, Column %d"
 msgstr ""
 
-#: kipad.c:286
+#: kipad.c:391
 msgid "Font"
 msgstr ""
 
-#: kipad.c:484
+#: kipad.c:616
 msgid "Close tab"
 msgstr ""
 
-#: kipad.c:546
+#: kipad.c:717
 #, c-format
 msgid ""
 "Could not open the file:\n"
 "%s"
 msgstr ""
 
-#: kipad.c:560
+#: kipad.c:731
 #, c-format
 msgid ""
 "Could not read the file:\n"
 "%s"
 msgstr ""
 
-#: kipad.c:591
+#: kipad.c:779
 #, c-format
 msgid ""
 "Could not save the file:\n"
 "%s"
 msgstr ""
 
-#: kipad.c:603
+#: kipad.c:780
+msgid "The administrator command failed."
+msgstr ""
+
+#: kipad.c:791
 msgid "Save as"
 msgstr ""
 
-#: kipad.c:632
+#: kipad.c:820
 #, c-format
 msgid "Save changes to \"%s\" before closing?"
 msgstr ""
 
-#: kipad.c:633
+#: kipad.c:821
 msgid "Close without saving"
 msgstr ""
 
-#: kipad.c:679
+#: kipad.c:892
 msgid "Open"
 msgstr ""
 
-#: kipad.c:772
+#: kipad.c:985
 msgid "A simple tabbed text editor"
 msgstr ""
 
-#: kipad.c:817
+#: kipad.c:1131
+msgid "Not found"
+msgstr ""
+
+#: kipad.c:1335
+msgid "Find"
+msgstr ""
+
+#: kipad.c:1349
+msgid "Next occurrence"
+msgstr ""
+
+#: kipad.c:1349
+msgid "Previous occurrence"
+msgstr ""
+
+#: kipad.c:1359
+msgid "_Match case"
+msgstr ""
+
+#: kipad.c:1361
+msgid "Search in _all open files"
+msgstr ""
+
+#: kipad.c:1366
+msgid "Occurrences"
+msgstr ""
+
+#: kipad.c:1416
+msgid "Next occurrence (Enter)"
+msgstr ""
+
+#: kipad.c:1419
+msgid "Previous occurrence (Ctrl+Enter)"
+msgstr ""
+
+#: kipad.c:1421
+msgid "Close search (Esc)"
+msgstr ""
+
+#: kipad.c:1423
+msgid "More options..."
+msgstr ""
+
+#: kipad.c:1463
 msgid "_File"
 msgstr ""
 
-#: kipad.c:818
+#: kipad.c:1464
 msgid "_New"
 msgstr ""
 
-#: kipad.c:819
+#: kipad.c:1465
 msgid "_Open..."
 msgstr ""
 
-#: kipad.c:821
+#: kipad.c:1467
 msgid "_Save"
 msgstr ""
 
-#: kipad.c:822
+#: kipad.c:1468
 msgid "Save _as..."
 msgstr ""
 
-#: kipad.c:824
+#: kipad.c:1470
 msgid "_Close tab"
 msgstr ""
 
-#: kipad.c:825
+#: kipad.c:1471
 msgid "_Quit"
 msgstr ""
 
-#: kipad.c:827
+#: kipad.c:1473
 msgid "_Edit"
 msgstr ""
 
-#: kipad.c:828
+#: kipad.c:1474
 msgid "_Undo"
 msgstr ""
 
-#: kipad.c:829
+#: kipad.c:1475
 msgid "_Redo"
 msgstr ""
 
-#: kipad.c:831
+#: kipad.c:1477
 msgid "Cu_t"
 msgstr ""
 
-#: kipad.c:832
+#: kipad.c:1478
 msgid "_Copy"
 msgstr ""
 
-#: kipad.c:833
+#: kipad.c:1479
 msgid "_Paste"
 msgstr ""
 
-#: kipad.c:835
+#: kipad.c:1481
 msgid "Select _all"
 msgstr ""
 
-#: kipad.c:837
+#: kipad.c:1483
+msgid "_Find..."
+msgstr ""
+
+#: kipad.c:1485
 msgid "_View"
 msgstr ""
 
-#: kipad.c:838
+#: kipad.c:1486
 msgid "_Line numbers"
 msgstr ""
 
-#: kipad.c
+#: kipad.c:1490
 msgid "_Word wrap"
 msgstr ""
 
-#: kipad.c:843
+#: kipad.c:1495
 msgid "_Font..."
 msgstr ""
 
-#: kipad.c:844
+#: kipad.c:1496
 msgid "Zoom _in"
 msgstr ""
 
-#: kipad.c:845
+#: kipad.c:1497
 msgid "Zoom _out"
 msgstr ""
 
-#: kipad.c:846
+#: kipad.c:1498
 msgid "_Reset zoom"
 msgstr ""
 
-#: kipad.c:848
+#: kipad.c:1500
 msgid "_Help"
 msgstr ""
 
-#: kipad.c:849
+#: kipad.c:1501
 msgid "_About"
 msgstr ""
