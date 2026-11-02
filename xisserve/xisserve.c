@@ -59,7 +59,7 @@
 #include "../shared/xis_direction.h"
 #include "../shared/xis_safefile.h"
 
-#define XISSERVE_VERSION "0.2.16"
+#define XISSERVE_VERSION "0.2.18"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -3729,6 +3729,7 @@ static Window active_window(Display *dpy, Window root)
 {
     Atom type;
     int format;
+
     unsigned long n, after;
     unsigned char *data = NULL;
     Window w = None;
@@ -3750,11 +3751,35 @@ static void clipboard_resolve_target(LaunchArgs *a)
 {
     GdkDisplay *gd = gdk_display_get_default();
     if (!gd)
+/* The launcher's search plugins (globalmenu) act on the window the user
+ * was in, but by query time the launcher itself is _NET_ACTIVE_WINDOW.
+ * Remember the active window now, before the popup takes focus. */
+static void launcher_resolve_target(LaunchArgs *a)
+{
+    GdkDisplay *gd = gdk_display_get_default();
+    if (!gd || a->target_window)
+        return;
+    Display *dpy = GDK_DISPLAY_XDISPLAY(gd);
+    Window w = active_window(dpy, DefaultRootWindow(dpy));
+    XClassHint ch;
+    gdk_error_trap_push();
+    if (w && XGetClassHint(dpy, w, &ch)) {
+        if (ch.res_name && !strcasecmp(ch.res_name, "xisserve"))
+            w = 0;
+        if (ch.res_name) XFree(ch.res_name);
+        if (ch.res_class) XFree(ch.res_class);
+    }
+    gdk_error_trap_pop();
+    a->target_window = w;
+}
+
         return;
     Display *dpy = GDK_DISPLAY_XDISPLAY(gd);
     Window root = DefaultRootWindow(dpy);
     if (!a->target_window) {
         a->target_window = active_window(dpy, root);
+static void launcher_resolve_target(LaunchArgs *a);
+
         /* Another xisserve page has focus: that popup is no paste target. */
         XClassHint ch;
         gdk_error_trap_push();

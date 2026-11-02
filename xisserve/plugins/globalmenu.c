@@ -194,7 +194,7 @@ void plugin_globalmenu_search(const char *query, GPtrArray *results)
     if (!query || !*query) return;
 
     char busname[128] = "", objpath[128] = "";
-    if (!xisserve_window_appmenu(0, busname, sizeof(busname), objpath, sizeof(objpath))) return;
+    if (!xisserve_window_appmenu(xisserve_target_window(), busname, sizeof(busname), objpath, sizeof(objpath))) return;
 
     /* static: DBUSMENU_MAX_ITEMS DbusMenuItems (128-byte label each) is
      * a little large for a comfortable stack frame called on every
