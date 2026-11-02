@@ -70,7 +70,7 @@
 #include <unistd.h>
 #include "../shared/xis_safefile.h"
 
-#define KISESSION_VERSION "0.1.19"
+#define KISESSION_VERSION "0.1.20"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -1323,6 +1323,9 @@ static void maybe_run_autostart(void)
                 BASE_READY_TIMEOUT_SEC);
     }
     g_autostart_done = 1;
+    /* Audio is up by now (it is a base service); the child is reaped like
+     * any other. */
+    spawn_const((const char *const[]){"xis-sound", "login", NULL});
     run_autostart();
 }
 
