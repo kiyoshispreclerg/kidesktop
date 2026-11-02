@@ -50,7 +50,7 @@ typedef struct CompRenderer {
     bool projective;
 
     /* Can a scaled output drawn by this backend be handed to the server
-     * as an X-INPUT-SCALE scanout source (inputscale.h)? XRender can,
+     * as an X-SCALE scanout source (xscale.h)? XRender can,
      * through a pixmap the core composites finished frames into; a backend
      * with a drawable of its own that only ever changes by whole frames
      * says which through output_source below. A backend that can't has
@@ -107,7 +107,7 @@ typedef struct CompRenderer {
     /* For a sourced output (o->sourced): the backend's own physical-sized
      * drawable holding the finished frame, which the server is told to
      * scan out. Optional: without it the core keeps a source pixmap of
-     * its own and copies the target into it (inputscale.h). */
+     * its own and copies the target into it (xscale.h). */
     xcb_drawable_t (*output_source)(const CompOutput *o);
     void (*output_pixmap_idle)(CompOutput *o, xcb_pixmap_t pixmap);
     bool (*output_has_free_buffer)(const CompOutput *o);

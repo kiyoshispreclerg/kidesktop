@@ -10,7 +10,7 @@
 #include "hotcorner.h"
 #include "stowpix.h"
 #include "output.h"
-#include "inputscale.h"
+#include "xscale.h"
 #include "shadow.h"
 #include "capture.h"
 #include "renderer.h"
@@ -1374,7 +1374,7 @@ static void damage_forget(CompWindow *w)
 static void window_add_at(xcb_window_t id, xcb_window_t above, bool on_top)
 {
     if (id == XCB_NONE || id == comp.overlay || id == comp.cm_window ||
-        inputscale_is_own_window(id))
+        xscale_is_own_window(id))
         return;
     if (window_find(id))
         return;

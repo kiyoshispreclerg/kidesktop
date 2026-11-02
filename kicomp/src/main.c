@@ -6,7 +6,7 @@
  *
  * Summary:
  *   - Capability detection at runtime for Composite/Damage/XFixes/Render/
- *     RandR/Present/X-INPUT-SCALE/X-DENSITY. Nothing here assumes a
+ *     RandR/Present/X-SCALE/X-DENSITY. Nothing here assumes a
  *     particular server.
  *   - Manual redirection of root's children, painted onto the Composite
  *     overlay window.
@@ -53,7 +53,7 @@
 #include "desktop.h"
 #include "region.h"
 #include "damage.h"
-#include "inputscale.h"
+#include "xscale.h"
 #include "density.h"
 #include "input.h"
 #include "hotcorner.h"
@@ -770,12 +770,12 @@ static void paint_dirty_outputs(double now)
 
         /* A sourced XRender output goes into its scanout source instead of
          * onto the overlay; either way the server is handed the source
-         * after the first frame that's in it (inputscale.h). */
+         * after the first frame that's in it (xscale.h). */
         if (o->source_picture)
-            inputscale_present(o, &region);
+            xscale_present(o, &region);
         else
             presenter->present(o, COMP_PRESENT_COPY, &region);
-        inputscale_frame_done(o);
+        xscale_frame_done(o);
 
         output_painted(o);
         painted = true;
@@ -1145,7 +1145,7 @@ static void shutdown_compositor(void)
     input_shutdown();
     effects_shutdown();
     density_shutdown();
-    inputscale_shutdown();
+    xscale_shutdown();
     desktop_shutdown();
     windows_teardown();
     outputs_teardown();
@@ -1384,19 +1384,19 @@ int main(int argc, char **argv)
 
     /* Before the capability line, because it is one of the capabilities
      * that line reports -- and because whether outputs may be scaled at
-     * all depends on the answer (inputscale.h). */
-    inputscale_init();
+     * all depends on the answer (xscale.h). */
+    xscale_init();
 
     comp_info("kicomp " KICOMP_VERSION " on %s screen %d (%dx%d)",
               getenv("DISPLAY") ? getenv("DISPLAY") : "?", comp.screen_num,
               comp.root_w, comp.root_h);
     comp_info("renderer=%s presenter=%s", renderer->name, presenter->name);
     comp_info("capabilities: composite=%d overlay=%d damage=%d xfixes=%d "
-              "render=%d randr=%d present=%d dri3=%d input-scale=%d "
+              "render=%d randr=%d present=%d dri3=%d x-scale=%d "
               "flip-per-crtc=%d",
               comp.caps.composite, comp.caps.overlay, comp.caps.damage,
               comp.caps.xfixes, comp.caps.render, comp.caps.randr,
-              comp.caps.present, comp.caps.dri3, comp.caps.input_scale,
+              comp.caps.present, comp.caps.dri3, comp.caps.xscale,
               comp.caps.flip_per_crtc);
     if (comp.skip_wm_layers)
         comp_info("skipping kiwm's own layers (_KIWM_LAYER)");
@@ -1440,7 +1440,7 @@ int main(int argc, char **argv)
     capture_publish();
 
     /* Before the outputs are built: whether a scaled output is drawn
-     * sharp depends on this extension being there (inputscale.h). */
+     * sharp depends on this extension being there (xscale.h). */
     density_init();
 
     /* A DPI or config scale that asks for something the layout doesn't

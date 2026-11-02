@@ -2,7 +2,7 @@
 #include "unredirect.h"
 #include "window.h"
 #include "output.h"
-#include "inputscale.h"
+#include "xscale.h"
 #include "renderer.h"
 #include "effect.h"
 #include "input.h"
@@ -135,7 +135,7 @@ static void take(CompOutput *o, CompWindow *w)
 
     /* The window draws into the root now, so the CRTC has to show the
      * root again rather than the picture kicomp hands it. */
-    inputscale_suspend(o);
+    xscale_suspend(o);
 
     overlay_reshape();
     xcb_flush(comp.conn);
@@ -182,7 +182,7 @@ static void give_back_index(int index)
     for (int i = 0; i < comp.output_count; i++) {
         if (comp.outputs[i].id != output_id)
             continue;
-        inputscale_resume(&comp.outputs[i]);
+        xscale_resume(&comp.outputs[i]);
         output_damage_rect(&comp.outputs[i].rect);
         comp_info("%s taken back (redirected)", comp.outputs[i].name);
         break;

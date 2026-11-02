@@ -77,11 +77,11 @@ typedef struct CompCaps {
                           * XKB for BellNotify. */
     bool present;        /* Present extension: vblank-timed presentation */
     bool dri3;           /* DRI3: dma-bufs behind pixmaps, both ways (dri3.h) */
-    /* X-INPUT-SCALE 2.0: per-CRTC scanout sources (inputscale.h). What
+    /* X-SCALE: per-CRTC scanout sources (xscale.h). What
      * makes a scaled output *sharp*: without it a scaled output (a RandR
      * transform) is drawn at its logical size and magnified by the
      * server, correct but blurry. */
-    bool input_scale;
+    bool xscale;
     bool flip_per_crtc;  /* XiS per-CRTC FLIP -- not probed yet (Fase 8) */
 } CompCaps;
 
@@ -138,7 +138,7 @@ typedef struct CompOutput {
 
     /* A scaled output -- a RandR transform makes its footprint in the
      * root, `rect`, smaller than its mode -- whose CRTC takes an
-     * X-INPUT-SCALE scanout source (inputscale.h): it is drawn at
+     * X-SCALE scanout source (xscale.h): it is drawn at
      * `physical` size and handed to the server. A scaled output without
      * one is drawn at its logical size (scale 1) and magnified by the
      * server instead. `physical` keeps the logical box's origin either
@@ -703,7 +703,7 @@ typedef struct KiComp {
         xcb_atom_t kiwm_corner_radius;     /* kiwm's frame corner radii */
 
         xcb_atom_t randr_dpi;              /* the fork's per-output "DPI" */
-        xcb_atom_t xis_confined_area;      /* X-INPUT-SCALE 1.0 leftover, deleted */
+        xcb_atom_t xis_confined_area;      /* X-SCALE 1.0 leftover, deleted */
         xcb_atom_t kiwm_outputs;           /* output names, in index order */
         xcb_atom_t kiwm_output_desktop;    /* one current desktop per output */
         xcb_atom_t kiwm_num_desktops;      /* how many each output has */

@@ -72,7 +72,7 @@ why — reprinted on every output change:
 ```
 kicomp: kicomp 0.3.42 on :0 screen 0 (3840x1080)
 kicomp: renderer=xrender presenter=copy
-kicomp: capabilities: composite=1 overlay=1 damage=1 xfixes=1 render=1 randr=1 present=0 dri3=0 input-scale=0 flip-per-crtc=0
+kicomp: capabilities: composite=1 overlay=1 damage=1 xfixes=1 render=1 randr=1 present=0 dri3=0 x-scale=0 flip-per-crtc=0
 kicomp: 2 drawables (one per output)
 kicomp:   [0] DP-1         1920x1080+0+0 @ 143.98 Hz
 kicomp:   [1] HDMI-1       1920x1080+1920+0 @ 60.00 Hz
@@ -1843,7 +1843,7 @@ is always that logical box. What it adds is **sharpness**:
 | `scale` | `physical / logical`; `1.0` for every output that isn't sourced |
 
 **Sourced outputs.** A transform alone is blurry: the server fills the
-CRTC by magnifying the logical root. The XiS server's **X-INPUT-SCALE 2.0**
+CRTC by magnifying the logical root. The XiS server's **X-SCALE** extension
 lets a compositor hand the CRTC a *scanout source* instead — a drawable at
 the CRTC's physical size, which the server watches with Damage and copies
 onto the CRTC by itself. When the server has it and says a CRTC can take
@@ -1863,7 +1863,7 @@ kicomp:   [1] HDMI-1       1440x900+1280+0 @ 59.89 Hz
 server, an XiS server without the extension, a DDX that performs the
 transform on its own buffers (amdgpu with TearFree), or the EGL backend —
 kicomp draws the output at its logical size like any other and the server
-magnifies it. `input-scale=0` in the startup line means no output will be
+magnifies it. `x-scale=0` in the startup line means no output will be
 sourced on this machine. If kicomp exits or crashes, the server drops the
 source with the connection and goes back to magnifying: the output keeps
 working.
@@ -1887,12 +1887,12 @@ CRTC doesn't show: while one holds a sourced output, kicomp gives the CRTC
 back to the server (magnified, like any game at logical resolution) and
 takes it again with the next frame afterwards.
 
-**Version 1.0 of the extension** confined the pointer to the logical box of
-an *untransformed* output instead, and kicomp published those boxes as
-`_XIS_CONFINED_AREA`. That leaves a dead band between a scaled output and
-its neighbour, which no pointer trick can fix (a window dragged across loses
-its middle), so it is gone: kicomp speaks 2.0 only, ignores 1.x, and
-deletes a leftover `_XIS_CONFINED_AREA` at startup.
+**Before X-SCALE**, an experiment called X-INPUT-SCALE confined the
+pointer to the logical box of an *untransformed* output instead, and kicomp
+published those boxes as `_XIS_CONFINED_AREA`. That leaves a dead band
+between a scaled output and its neighbour, which no pointer trick can fix
+(a window dragged across loses its middle), so it is gone: kicomp speaks
+X-SCALE only and deletes a leftover `_XIS_CONFINED_AREA` at startup.
 
 ### X-DENSITY: the sharp half
 
@@ -2218,7 +2218,7 @@ arriving. Deriving it from those is a change to `scheduler.c` alone.
 ## Architecture summary
 
 - Capability detection at runtime (Composite/Damage/XFixes/Render/RandR/
-  Present/X-INPUT-SCALE/X-DENSITY); nothing assumes a particular server.
+  Present/X-SCALE/X-DENSITY); nothing assumes a particular server.
 - The output is the unit of presentation: one pixmap + picture per output,
   sized to it, with its own dirty state, damage region and frame clock —
   never one global surface. A window crossing two outputs is clipped into
@@ -2226,7 +2226,7 @@ arriving. Deriving it from those is a change to `scheduler.c` alone.
 - Per-output scaling (HiDPI) and X-DENSITY: logical vs. physical box per
   output, from the RandR transform (applied from the DPI property),
   drawn magnified into a physical target and handed to the server as an
-  X-INPUT-SCALE 2.0 scanout source where it can take one.
+  X-SCALE scanout source where it can take one.
 - Region repaint: only the part of an output that actually changed is
   redrawn — clips the background, the windows and their shadows, skips
   windows nothing touched, and bounds what the presenter copies.
@@ -2348,7 +2348,7 @@ src/
   shadow.c/.h         shadow configuration and per-window style
   desktop.c/.h        which desktop each output shows, and which way it
                       just moved (the wall's direction)
-  inputscale.c/.h     X-INPUT-SCALE 2.0: handing a scaled output's
+  xscale.c/.h         X-SCALE: handing a scaled output's
                       physical-size picture to the server (scanout source)
   density.c/.h        X-DENSITY: asking clients to redraw densely, and
                       sampling the pixmap they publish
