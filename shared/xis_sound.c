@@ -31,6 +31,7 @@ static const struct { const char *event, *kde; } kde_names[] = {
     { "window-move-stop",        "Window-Move-Stop" },
     { "login",                   "Sys-Log-In" },
     { "logout",                  "Sys-Log-Out" },
+    { "polkit-auth",             "Im-User-Auth" },
     { "trash-empty",             "Sys-Trash-Emptied" },
 };
 

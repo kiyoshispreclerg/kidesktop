@@ -36,6 +36,7 @@ static const struct { const char *id, *label; } EVENTS[] = {
     { "window-move-stop",        N_("Terminar de mover janela") },
     { "login",                   N_("Entrar na sessao") },
     { "logout",                  N_("Sair da sessao") },
+    { "polkit-auth",             N_("Pedido de senha (pkexec / polkit)") },
     { "bell",                    N_("Campainha do sistema") },
     { "trash-empty",             N_("Esvaziar a lixeira") },
     { "folder-open",             N_("Abrir pasta no gerenciador de arquivos") },

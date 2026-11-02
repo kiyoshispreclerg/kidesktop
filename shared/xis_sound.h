@@ -22,7 +22,10 @@
  * ...) are used as-is; KiDesktop-specific ones are namespaced by what
  * emits them: window-minimize, window-close, window-maximize,
  * window-shade, window-unshade, window-all-desktops,
- * window-all-desktops-not, window-move, window-move-stop, login, logout.
+ * window-all-desktops-not, window-move, window-move-stop, login (kisession,
+ * once the session is up), logout (xisserve, when the exit/shutdown/reboot
+ * dialog is confirmed) and polkit-auth (kiwm, a polkit agent's prompt --
+ * what pkexec shows -- appears).
  * kifiles emits folder-open, folder-back, folder-forward, folder-up,
  * file-trash, trash-empty, complete (a long copy/move finished),
  * dialog-error and device-removed (safe to unplug); kiterm emits bell and
