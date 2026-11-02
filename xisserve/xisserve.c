@@ -59,7 +59,7 @@
 #include "../shared/xis_direction.h"
 #include "../shared/xis_safefile.h"
 
-#define XISSERVE_VERSION "0.2.18"
+#define XISSERVE_VERSION "0.2.19"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -2957,7 +2957,16 @@ gboolean xisserve_power_action_run(int i, GtkWidget *parent)
     gtk_widget_destroy(dialog);
 
     if (resp == GTK_RESPONSE_YES && action->cmd) {
-        run_detached(action->cmd);
+        /* Ending the session (poweroff, reboot, logout); suspend, switch
+         * user and lock keep it. */
+        if (i <= 1 || !strcmp(action->label, "Sair")) {
+            /* The sleep lets the sound play before the audio server goes. */
+            char cmd[512];
+            snprintf(cmd, sizeof(cmd), "xis-sound logout; sleep 2; %s", action->cmd);
+            run_detached(cmd);
+        } else {
+            run_detached(action->cmd);
+        }
         return TRUE;
     }
     return FALSE;
@@ -3720,6 +3729,7 @@ static void build_ui(void)
  * g_pages minimum, so the popup lands inside the target window's corner. */
 #define CLIPBOARD_PLACE_W 420
 
+
 static int page_index(const char *flag)
 {
     return find_page(flag, FALSE);
@@ -3729,7 +3739,6 @@ static Window active_window(Display *dpy, Window root)
 {
     Atom type;
     int format;
-
     unsigned long n, after;
     unsigned char *data = NULL;
     Window w = None;
@@ -3742,15 +3751,6 @@ static Window active_window(Display *dpy, Window root)
     return w;
 }
 
-/* Called before the popup exists, so "active" is still the window the
- * user was in. Fills target_window, and when no panel anchor was passed
- * (a hotkey, not a panel widget) places the popup in that window's
- * top-right corner, on its monitor -- or centered on the active monitor
- * when there is no target at all. */
-static void clipboard_resolve_target(LaunchArgs *a)
-{
-    GdkDisplay *gd = gdk_display_get_default();
-    if (!gd)
 /* The launcher's search plugins (globalmenu) act on the window the user
  * was in, but by query time the launcher itself is _NET_ACTIVE_WINDOW.
  * Remember the active window now, before the popup takes focus. */
@@ -3773,13 +3773,22 @@ static void launcher_resolve_target(LaunchArgs *a)
     a->target_window = w;
 }
 
+/* Called before the popup exists, so "active" is still the window the
+ * user was in. Fills target_window, and when no panel anchor was passed
+ * (a hotkey, not a panel widget) places the popup in that window's
+ * top-right corner, on its monitor -- or centered on the active monitor
+ * when there is no target at all. */
+static void launcher_resolve_target(LaunchArgs *a);
+
+static void clipboard_resolve_target(LaunchArgs *a)
+{
+    GdkDisplay *gd = gdk_display_get_default();
+    if (!gd)
         return;
     Display *dpy = GDK_DISPLAY_XDISPLAY(gd);
     Window root = DefaultRootWindow(dpy);
     if (!a->target_window) {
         a->target_window = active_window(dpy, root);
-static void launcher_resolve_target(LaunchArgs *a);
-
         /* Another xisserve page has focus: that popup is no paste target. */
         XClassHint ch;
         gdk_error_trap_push();
@@ -3943,6 +3952,8 @@ int main(int argc, char **argv)
 
     if (args.page >= 0 && args.page == page_index("clipboard"))
         clipboard_resolve_target(&args);
+    else if (args.page == PAGE_LAUNCHER)
+        launcher_resolve_target(&args);
 
     const char *rundir = getenv("XDG_RUNTIME_DIR");
     if (!rundir || !*rundir) rundir = "/tmp";
