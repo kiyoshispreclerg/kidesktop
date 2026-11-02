@@ -1,84 +1,83 @@
 /*
- * kicomp - X-INPUT-SCALE: confining the pointer to the logical desktop.
+ * kicomp - X-INPUT-SCALE: handing a scaled output's sharp picture to the
+ * server.
  *
- * When an output is scaled (comp.h: rect vs physical), the compositor
- * draws a logical desktop that is *smaller* than the monitor's scanout and
- * magnifies it to fill the panel. Windows, clicks and RandR geometry all
- * live in that logical box; the pixels outside it exist only as the
- * magnified image. The pointer must not be able to wander out there.
+ * An output is scaled the ordinary RandR way: a CRTC transform (`xrandr
+ * --scale-from`, or kicomp applying the fork's DPI property, output.c)
+ * makes its footprint in the root -- its logical box, comp.h's `rect` --
+ * smaller than its mode. The root, the WM, input and the pointer's travel
+ * between outputs all follow from that by themselves, on any server. What
+ * a transform alone shows is a *blurry* picture: the server fills the
+ * CRTC by magnifying the logical root.
  *
- * That confinement is the one part of this that cannot be done client
- * side: cursor motion runs through the server's input pipeline on every
- * event, and a compositor reacting afterwards with a warp would be
- * visibly late. X-INPUT-SCALE is the fork's extension for exactly this
- * and nothing else -- one rectangle per CRTC, no coordinate remapping (see
- * the fork's doc/x11-per-output-scaling-extension.md).
+ * X-INPUT-SCALE 2.0 (the XiS fork's extension, doc/x11-per-output-scaling-
+ * extension.md there) lets a compositor that drew the output at physical
+ * size give that picture to the CRTC instead: a *scanout source*, any
+ * drawable of the CRTC's physical size, which the server watches with
+ * Damage and copies onto the CRTC by itself. So when the server has it and
+ * says a CRTC is capable, that output is drawn magnified into a physical-
+ * sized target (`physical`, `scale` > 1) and handed over; everywhere else
+ * -- a stock server, another DDX, a backend that can't -- the output is
+ * drawn at its logical size like any other and the server magnifies it.
+ * Correct either way, sharp where it can be. The capability decides,
+ * never a guess about which server this is (section 17/30).
  *
- * Which is why the extension gates the whole feature: without it, a scaled
- * output would be a desktop with a dead margin the pointer can enter and
- * nothing is drawn into. So when the server doesn't have it, kicomp scales
- * nothing at all, whatever the config or the DPI property say -- the
- * capability decides, never a guess about which server this is (section
- * 17/30).
+ * The source is a drawable whose every change is a finished frame, because
+ * the server copies whenever it happens to go idle: the GLX backend's own
+ * window (a swap lands whole), or, for XRender, a pixmap of our own the
+ * finished target is composited into (inputscale_present), so a half-drawn
+ * frame is never what gets copied.
  *
  * No client binding exists for this protocol yet, so the requests are
- * written on the wire directly, in the same shape xispanel's inputscale.c
- * and the server tree's own xis-smoke-test.c use.
+ * written on the wire directly, mirroring the server tree's
+ * Xext/inputscale/inputscaleproto.h and its xis-smoke-test.c.
  */
 #ifndef KICOMP_INPUTSCALE_H
 #define KICOMP_INPUTSCALE_H
 
 #include "comp.h"
 
-/* Probes the extension and sets comp.caps.input_scale. Called once, before
- * the outputs are built, because whether outputs may be scaled at all
- * depends on the answer. */
+/* Probes the extension (2.0 or later) and sets comp.caps.input_scale.
+ * Also deletes the `_XIS_CONFINED_AREA` root property an older kicomp
+ * (X-INPUT-SCALE 1.0, pointer confinement) may have left behind. */
 void inputscale_init(void);
 
-/* Confines each scaled output's CRTC to its logical box, and releases the
- * confinement on every output that isn't scaled. Called after each
- * outputs_refresh(), so a hotplug or a mode change re-asserts it.
- *
- * Also publishes `_XIS_CONFINED_AREA` on the root window: CARDINAL[4*N],
- * groups of x, y, width, height in root coordinates, one per confined
- * output, and deleted entirely when nothing is confined.
- *
- * That property exists because confining the pointer is only half of what
- * a scaled output needs. The other half is that everything laying windows
- * out -- the WM first of all -- has to treat the logical box as the whole
- * of that monitor, or a maximized window fills the scanout while only its
- * top-left corner is drawn. The compositor cannot do that itself: window
- * geometry belongs to the WM (section 27/33), and the compositor's job
- * ends at saying where the desktop actually is.
- *
- * Rectangles in root coordinates, deliberately: the same reasoning
- * X-INPUT-SCALE's own protocol gives for taking a rectangle rather than a
- * matrix. A consumer needs no agreement with kicomp about output names or
- * indices -- it intersects its own idea of each monitor with these.
- *
- * Not `_NET_WORKAREA`: that one is the WM's to publish, and EWMH defines
- * it as one box per *desktop* for the whole screen, which cannot say "this
- * monitor is smaller and that one is not". kiwm keeps writing it, from its
- * own outputs, which is where this ends up anyway. */
-void inputscale_apply(void);
+/* Can `crtc` take a source right now, and at what size? False on a server
+ * without the extension, or a CRTC without a scale-only transform its DDX
+ * can be fed for. */
+bool inputscale_crtc_capable(xcb_randr_crtc_t crtc, int *width, int *height);
 
-/* Releases every confinement, without forgetting the scales -- what
- * outputs_refresh() calls *before* re-reading RandR.
- *
- * The reason is a feature of the server, not of this file: while a CRTC is
- * confined, the fork answers XRRGetCrtcInfo and XRRGetMonitors with the
- * confined box instead of the true scanout box, deliberately, so that
- * every ordinary client (the WM included) lays out inside the logical
- * desktop without knowing this extension exists. Which means a compositor
- * that re-read RandR while its own confinement was active would see its
- * logical box as the *physical* one and divide it by the scale again --
- * shrinking the desktop a little more on every hotplug, DPI change or
- * mode set. Letting go first is what makes the two features compose. */
-void inputscale_release_all(void);
+/* Gets a sourced output ready (o->sourced, after renderer->init): the
+ * XRender path's own source pixmap. The source itself is only handed to
+ * the server after the first frame (inputscale_frame_done), so the CRTC
+ * never shows a picture nothing has been drawn into. False if it can't
+ * be set up -- the caller then draws the output unscaled. */
+bool inputscale_attach(CompOutput *o);
 
-/* Releases every confinement this compositor set. Closing the connection
- * would do it too -- the server drops a confinement with the client that
- * set it -- but shutting down cleanly says so explicitly. */
+/* Gives the CRTC back to the server and frees what attach made. */
+void inputscale_detach(CompOutput *o);
+
+/* The XRender path's present: the repainted part of the finished target
+ * into the source pixmap. Only for outputs with o->source_picture. */
+void inputscale_present(CompOutput *o, const CompRegion *damage);
+
+/* After each painted frame: hands the source over the first time. */
+void inputscale_frame_done(CompOutput *o);
+
+/* While a fullscreen window is unredirected on this output it draws into
+ * the root, so the CRTC must show the (magnified) root again: suspend
+ * gives the CRTC back without forgetting the source, resume hands it over
+ * again with the next frame. */
+void inputscale_suspend(CompOutput *o);
+void inputscale_resume(CompOutput *o);
+
+/* Is this one of the windows kicomp draws sourced outputs into (the GLX
+ * backend's)? They are top-level, so the window tracker must skip them. */
+bool inputscale_is_own_window(xcb_window_t id);
+
+/* Releases every source. Closing the connection would do it too -- the
+ * server drops a source with the client that set it -- but shutting down
+ * cleanly says so explicitly. */
 void inputscale_shutdown(void);
 
 #endif /* KICOMP_INPUTSCALE_H */

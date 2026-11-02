@@ -77,10 +77,10 @@ typedef struct CompCaps {
                           * XKB for BellNotify. */
     bool present;        /* Present extension: vblank-timed presentation */
     bool dri3;           /* DRI3: dma-bufs behind pixmaps, both ways (dri3.h) */
-    /* X-INPUT-SCALE: per-CRTC cursor confinement (inputscale.h). This is
-     * what per-output scaling depends on -- without it kicomp scales
-     * nothing, because the pointer could then reach scanout the
-     * compositor isn't drawing a desktop into. */
+    /* X-INPUT-SCALE 2.0: per-CRTC scanout sources (inputscale.h). What
+     * makes a scaled output *sharp*: without it a scaled output (a RandR
+     * transform) is drawn at its logical size and magnified by the
+     * server, correct but blurry. */
     bool input_scale;
     bool flip_per_crtc;  /* XiS per-CRTC FLIP -- not probed yet (Fase 8) */
 } CompCaps;
@@ -120,8 +120,9 @@ typedef struct CompOutput {
      *             coordinates. Everything above the renderer -- the
      *             scene, the effects, damage, the WM itself -- works in
      *             these coordinates and nothing else.
-     *   physical  the CRTC's actual scanout box. Bigger than the logical
-     *             one by `scale` when this output is being scaled.
+     *   physical  what the target is drawn at: the CRTC's mode size when
+     *             the output is scaled and sourced (below), at the logical
+     *             box's origin; bigger than `rect` by `scale`.
      *
      * At scale 1.0 they are the same rectangle, which is the whole of
      * what every output was before scaling existed.
@@ -134,6 +135,19 @@ typedef struct CompOutput {
     CompRect rect;       /* logical, root coordinates */
     CompRect physical;   /* what the CRTC actually scans out */
     float scale;         /* physical / logical; 1.0 = not scaled */
+
+    /* A scaled output -- a RandR transform makes its footprint in the
+     * root, `rect`, smaller than its mode -- whose CRTC takes an
+     * X-INPUT-SCALE scanout source (inputscale.h): it is drawn at
+     * `physical` size and handed to the server. A scaled output without
+     * one is drawn at its logical size (scale 1) and magnified by the
+     * server instead. `physical` keeps the logical box's origin either
+     * way, so only its size tells the two apart. */
+    bool sourced;
+    bool source_set;          /* the server has it */
+    bool source_suspended;    /* given back for now (unredirect, refusal) */
+    xcb_pixmap_t source_pixmap;           /* XRender's finished frames */
+    xcb_render_picture_t source_picture;
 
     double refresh_hz;   /* per-output, never a session-wide constant (section 46) */
 
@@ -689,7 +703,7 @@ typedef struct KiComp {
         xcb_atom_t kiwm_corner_radius;     /* kiwm's frame corner radii */
 
         xcb_atom_t randr_dpi;              /* the fork's per-output "DPI" */
-        xcb_atom_t xis_confined_area;      /* published: the logical boxes */
+        xcb_atom_t xis_confined_area;      /* X-INPUT-SCALE 1.0 leftover, deleted */
         xcb_atom_t kiwm_outputs;           /* output names, in index order */
         xcb_atom_t kiwm_output_desktop;    /* one current desktop per output */
         xcb_atom_t kiwm_num_desktops;      /* how many each output has */
@@ -726,6 +740,12 @@ typedef struct KiComp {
      * per-output presentation misbehaves, and it is the one place where
      * that architectural rule is deliberately switched off. */
     bool single_drawable;
+
+    /* apply_scale: turn the fork's per-output "DPI" property, and any
+     * [output:NAME] scale in the config, into a RandR transform on that
+     * output, moving its neighbours to its new logical edge (output.c).
+     * Off, kicomp only ever follows whatever transform is set. */
+    bool apply_scale;
 
     /* --skip-wm-layers: leave kiwm's own overlay windows (_KIWM_LAYER)
      * out of the scene, for when the compositor draws its own switcher/

@@ -103,6 +103,7 @@ static void apply_builtin_defaults(void)
     comp.effects = true;
     shadow_config_defaults();
     comp.single_drawable = false;
+    comp.apply_scale = true;
     comp.skip_wm_layers = false;
     /* On: it is what makes the expo grid able to show a desktop that
      * isn't on screen, and it costs one pixmap per hidden window. */
@@ -357,6 +358,8 @@ static void config_pass(FILE *f, bool instances_pass)
             comp.effects = atoi(val) != 0;
         } else if (strcmp(key, "single_drawable") == 0) {
             comp.single_drawable = atoi(val) != 0;
+        } else if (strcmp(key, "apply_scale") == 0) {
+            comp.apply_scale = atoi(val) != 0;
         } else if (strcmp(key, "skip_wm_layers") == 0) {
             comp.skip_wm_layers = atoi(val) != 0;
         } else if (strcmp(key, "unredirect_fullscreen") == 0) {

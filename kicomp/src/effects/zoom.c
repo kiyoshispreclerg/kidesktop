@@ -100,9 +100,8 @@ typedef enum {
      * cursor stays under the cursor, magnified in place.
      *
      * This is the default, and the reason is not aesthetics. X does not
-     * magnify input -- the fork's own X-INPUT-SCALE confines the pointer
-     * to a rectangle and deliberately does no coordinate remapping -- so
-     * a click lands where the pointer really is, not where the picture
+     * magnify input -- nothing remaps pointer coordinates for a picture
+     * the compositor draws bigger -- so a click lands where the pointer really is, not where the picture
      * puts it. Under any other anchoring, the window you can see under
      * the cursor is not the window you would hit: the desktop becomes a
      * picture of itself. Anchored here, the two agree everywhere except

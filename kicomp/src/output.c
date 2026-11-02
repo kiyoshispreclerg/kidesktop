@@ -152,24 +152,25 @@ static float read_output_dpi_scale(xcb_randr_output_t output_id)
     return scale;
 }
 
-/* The scale this output ends up at: what the config says, or what the
- * server's DPI property implies, or 1. Clamped to something a compositor
- * can honestly draw -- a scale below 1 would mean *growing* the desktop
- * past the panel, which is RandR's own --scale to do, not this. */
-static float resolve_output_scale(const char *name, xcb_randr_output_t output_id)
+/* The scale something asks this output to be at (the apply_scale policy,
+ * comp.h), or 0 when nothing does: the config's [output:NAME] scale when
+ * set to a number, else the DPI property -- followed whatever its value on
+ * a DPI change, but at startup only when it isn't 96, so that a transform
+ * someone set by hand survives kicomp starting. Clamped to what sharp
+ * scaling means here: a scale below 1 would be supersampling, which the
+ * server's own RandR scaling already does well. */
+static float wanted_scale(const char *name, xcb_randr_output_t output_id,
+                          bool dpi_event)
 {
-    /* No X-INPUT-SCALE, no scaling -- whatever the config or the DPI
-     * property say. A scaled output whose pointer isn't confined has a
-     * margin of scanout the cursor can enter and nothing draws into, which
-     * is worse than not scaling at all. The capability decides (section
-     * 17/30); see inputscale.h. */
-    if (!comp.caps.input_scale)
-        return 1.0f;
-
     float scale = config_output_scale(name);   /* < 0: not configured */
 
-    if (scale < 0.0f)
-        scale = read_output_dpi_scale(output_id);
+    if (scale < 0.0f) {
+        scale = read_output_dpi_scale(output_id);   /* 0: no DPI property */
+        if (scale <= 0.0f)
+            return 0.0f;
+        if (!dpi_event && scale > 0.999f && scale < 1.001f)
+            return 0.0f;
+    }
 
     if (scale < 1.0f)
         scale = 1.0f;
@@ -178,25 +179,253 @@ static float resolve_output_scale(const char *name, xcb_randr_output_t output_id
     return scale;
 }
 
-/* The logical box: the top-left part of the scanout the compositor
- * actually draws a desktop into. Shrink-only, which is the same rule
- * X-INPUT-SCALE enforces on the confinement that mirrors it. */
-static CompRect logical_box(const CompRect *physical, float scale)
-{
-    if (scale <= 1.0f)
-        return *physical;
+typedef struct {
+    xcb_randr_crtc_t crtc;
+    xcb_randr_mode_t mode;
+    uint16_t rotation;
+    int noutputs;
+    xcb_randr_output_t outputs[8];
+    int x, y;              /* current position */
+    int old_w, old_h;      /* current footprint (transformed size) */
+    int new_w, new_h;      /* footprint at the wanted scale */
+    int new_x, new_y;
+    float scale;           /* wanted (or current, when nothing asks) */
+    bool rescale;
+} ScaleCrtc;
 
-    CompRect r = *physical;
-    r.w = (int)((float)physical->w / scale + 0.5f);
-    r.h = (int)((float)physical->h / scale + 0.5f);
-    if (r.w < 1) r.w = 1;
-    if (r.h < 1) r.h = 1;
-    return r;
+/* A crtc's current scale, from its transform: crtc -> framebuffer, so the
+ * matrix's diagonal is logical/physical. 1 when there is none. */
+static float crtc_current_scale(xcb_randr_crtc_t crtc)
+{
+    xcb_randr_get_crtc_transform_reply_t *t =
+        xcb_randr_get_crtc_transform_reply(comp.conn,
+            xcb_randr_get_crtc_transform(comp.conn, crtc), NULL);
+    float scale = 1.0f;
+
+    if (t) {
+        int32_t m11 = t->current_transform.matrix11;
+        if (m11 > 0)
+            scale = 65536.0f / (float)m11;
+        free(t);
+    }
+    return scale;
+}
+
+/* Queues the transform (it takes effect with the CRTC's next config).
+ * False when the server refuses it -- one without transform support, like
+ * Xvfb -- and then nothing about the layout may change for its sake. */
+static bool set_crtc_scale(xcb_randr_crtc_t crtc, float scale)
+{
+    xcb_render_transform_t t = { 0 };
+    int32_t d = (int32_t)(65536.0f / scale + 0.5f);
+    const char *filter = scale > 1.001f ? "bilinear" : "nearest";
+
+    t.matrix11 = d;
+    t.matrix22 = d;
+    t.matrix33 = 65536;
+    xcb_generic_error_t *err = xcb_request_check(comp.conn,
+        xcb_randr_set_crtc_transform_checked(comp.conn, crtc, t,
+                                             (uint16_t)strlen(filter), filter,
+                                             0, NULL));
+    if (err) {
+        free(err);
+        return false;
+    }
+    return true;
+}
+
+static void set_screen_size(int w, int h)
+{
+    /* millimetres for 96 DPI, which is what the server would make up */
+    xcb_randr_set_screen_size(comp.conn, comp.root, (uint16_t)w, (uint16_t)h,
+                              (uint32_t)(w * 25.4 / 96.0 + 0.5),
+                              (uint32_t)(h * 25.4 / 96.0 + 0.5));
+}
+
+bool outputs_apply_scale_policy(bool dpi_event)
+{
+    if (!comp.caps.randr || !comp.apply_scale || comp.single_drawable)
+        return false;
+
+    xcb_randr_get_screen_resources_current_reply_t *res =
+        xcb_randr_get_screen_resources_current_reply(comp.conn,
+            xcb_randr_get_screen_resources_current(comp.conn, comp.root), NULL);
+    if (!res)
+        return false;
+
+    ScaleCrtc crtcs[MAX_OUTPUTS];
+    int n = 0;
+    bool any = false;
+
+    xcb_randr_crtc_t *ids = xcb_randr_get_screen_resources_current_crtcs(res);
+    int nids = xcb_randr_get_screen_resources_current_crtcs_length(res);
+    xcb_randr_mode_info_t *modes = xcb_randr_get_screen_resources_current_modes(res);
+    int nmodes = xcb_randr_get_screen_resources_current_modes_length(res);
+
+    for (int i = 0; i < nids && n < MAX_OUTPUTS; i++) {
+        xcb_randr_get_crtc_info_reply_t *ci = xcb_randr_get_crtc_info_reply(comp.conn,
+            xcb_randr_get_crtc_info(comp.conn, ids[i], res->config_timestamp), NULL);
+        if (!ci)
+            continue;
+        int nout = xcb_randr_get_crtc_info_outputs_length(ci);
+        if (ci->mode == XCB_NONE || nout == 0) {
+            free(ci);
+            continue;
+        }
+
+        ScaleCrtc *c = &crtcs[n];
+        memset(c, 0, sizeof(*c));
+        c->crtc = ids[i];
+        c->mode = ci->mode;
+        c->rotation = ci->rotation;
+        c->noutputs = nout < 8 ? nout : 8;
+        memcpy(c->outputs, xcb_randr_get_crtc_info_outputs(ci),
+               sizeof(xcb_randr_output_t) * (size_t)c->noutputs);
+        c->x = ci->x;
+        c->y = ci->y;
+        c->old_w = c->new_w = ci->width;   /* the transformed footprint */
+        c->old_h = c->new_h = ci->height;
+        free(ci);
+
+        int mw = 0, mh = 0;
+        for (int k = 0; k < nmodes; k++)
+            if (modes[k].id == c->mode) {
+                mw = modes[k].width;
+                mh = modes[k].height;
+            }
+
+        /* Only plain landscape outputs: a rotation already has a
+         * transform of its own, and scaling on top of it is xrandr's
+         * business, not a policy's. */
+        if (mw > 0 && mh > 0 && c->rotation == XCB_RANDR_ROTATION_ROTATE_0) {
+            xcb_randr_get_output_info_reply_t *oi = xcb_randr_get_output_info_reply(comp.conn,
+                xcb_randr_get_output_info(comp.conn, c->outputs[0],
+                                          res->config_timestamp), NULL);
+            char name[32] = "";
+            if (oi) {
+                int len = xcb_randr_get_output_info_name_length(oi);
+                if (len > (int)sizeof(name) - 1)
+                    len = (int)sizeof(name) - 1;
+                memcpy(name, xcb_randr_get_output_info_name(oi), (size_t)len);
+                name[len] = '\0';
+                free(oi);
+            }
+
+            float cur = crtc_current_scale(c->crtc);
+            float want = wanted_scale(name, c->outputs[0], dpi_event);
+            c->scale = want > 0.0f ? want : cur;
+            if (want > 0.0f && (want - cur > 0.01f || cur - want > 0.01f)) {
+                c->rescale = true;
+                c->new_w = (int)((float)mw / want + 0.5f);
+                c->new_h = (int)((float)mh / want + 0.5f);
+                any = true;
+                comp_info("%s: scale %.2fx -> %.2fx (logical %dx%d)", name,
+                          cur, want, c->new_w, c->new_h);
+            }
+        }
+        n++;
+    }
+
+    if (!any) {
+        free(res);
+        return false;
+    }
+
+    /* Queue the transforms before anything moves, so an output the server
+     * can't scale keeps its size and its neighbours stay where they are. */
+    xcb_grab_server(comp.conn);
+    any = false;
+    for (int i = 0; i < n; i++) {
+        ScaleCrtc *c = &crtcs[i];
+        if (!c->rescale)
+            continue;
+        if (set_crtc_scale(c->crtc, c->scale)) {
+            any = true;
+            continue;
+        }
+        fprintf(stderr, "kicomp: the server can't scale this output (no CRTC "
+                "transform support); leaving the layout as it is\n");
+        c->rescale = false;
+        c->new_w = c->old_w;
+        c->new_h = c->old_h;
+    }
+    if (!any) {
+        xcb_ungrab_server(comp.conn);
+        xcb_flush(comp.conn);
+        free(res);
+        return false;
+    }
+
+    /* Keep the arrangement: every output that started at or beyond the
+     * far edge of another moves in by however much that one shrank (or
+     * out by however much it grew). Rows and columns stay edge to edge,
+     * which is all the policy promises. */
+    int screen_w = 0, screen_h = 0;
+    for (int i = 0; i < n; i++) {
+        ScaleCrtc *p = &crtcs[i];
+        p->new_x = p->x;
+        p->new_y = p->y;
+        for (int j = 0; j < n; j++) {
+            const ScaleCrtc *o = &crtcs[j];
+            if (j == i)
+                continue;
+            if (p->x >= o->x + o->old_w)
+                p->new_x -= o->old_w - o->new_w;
+            if (p->y >= o->y + o->old_h)
+                p->new_y -= o->old_h - o->new_h;
+        }
+        if (p->new_x + p->new_w > screen_w)
+            screen_w = p->new_x + p->new_w;
+        if (p->new_y + p->new_h > screen_h)
+            screen_h = p->new_y + p->new_h;
+    }
+
+    /* Grow first, so no CRTC is ever placed outside the screen, then set
+     * every CRTC, then shrink to fit -- the order xrandr uses. Still under
+     * the grab taken above, so nobody sees the layout half done. */
+    int root_w = comp.root_w, root_h = comp.root_h;
+    xcb_get_geometry_reply_t *geo =
+        xcb_get_geometry_reply(comp.conn, xcb_get_geometry(comp.conn, comp.root), NULL);
+    if (geo) {
+        root_w = geo->width;
+        root_h = geo->height;
+        free(geo);
+    }
+    int grow_w = screen_w > root_w ? screen_w : root_w;
+    int grow_h = screen_h > root_h ? screen_h : root_h;
+
+    if (grow_w != root_w || grow_h != root_h)
+        set_screen_size(grow_w, grow_h);
+
+    for (int i = 0; i < n; i++) {
+        ScaleCrtc *c = &crtcs[i];
+        if (!c->rescale && c->new_x == c->x && c->new_y == c->y)
+            continue;
+        xcb_randr_set_crtc_config_reply_t *r = xcb_randr_set_crtc_config_reply(comp.conn,
+            xcb_randr_set_crtc_config(comp.conn, c->crtc, XCB_CURRENT_TIME,
+                                      res->config_timestamp,
+                                      (int16_t)c->new_x, (int16_t)c->new_y,
+                                      c->mode, c->rotation,
+                                      (uint32_t)c->noutputs, c->outputs), NULL);
+        if (!r || r->status != XCB_RANDR_SET_CONFIG_SUCCESS)
+            fprintf(stderr, "kicomp: RandR refused to rescale/move a CRTC "
+                    "(status %d)\n", r ? r->status : -1);
+        free(r);
+    }
+
+    if (screen_w != grow_w || screen_h != grow_h)
+        set_screen_size(screen_w, screen_h);
+    xcb_ungrab_server(comp.conn);
+    xcb_flush(comp.conn);
+
+    free(res);
+    return true;
 }
 
 void outputs_teardown(void)
 {
     for (int i = 0; i < comp.output_count; i++) {
+        inputscale_detach(&comp.outputs[i]);
         if (presenter && presenter->destroy)
             presenter->destroy(&comp.outputs[i]);
         if (renderer)
@@ -207,15 +436,6 @@ void outputs_teardown(void)
 
 void outputs_refresh(void)
 {
-    /* Before anything is read: while a CRTC is confined, the server
-     * reports the *confined* box as that output's geometry -- on purpose,
-     * so the WM and every toolkit lay out inside the logical desktop
-     * without knowing X-INPUT-SCALE exists (see inputscale.h). Reading
-     * RandR with our own confinement still in force would therefore
-     * mistake the logical box for the physical one and scale it down
-     * again. */
-    inputscale_release_all();
-
     xcb_get_geometry_reply_t *root_geo =
         xcb_get_geometry_reply(comp.conn, xcb_get_geometry(comp.conn, comp.root), NULL);
     if (root_geo) {
@@ -268,8 +488,29 @@ void outputs_refresh(void)
                     o->refresh_hz = compute_output_refresh_hz(backing[0], &o->crtc);
                 }
 
-                o->scale = resolve_output_scale(o->name, backing_output);
-                o->rect = logical_box(&o->physical, o->scale);
+                /* The monitor's box is the CRTC's transformed footprint:
+                 * the logical box, whatever scaling is in place. */
+                o->rect = o->physical;
+                o->scale = 1.0f;
+                (void)backing_output;
+
+                /* Drawn at physical size only when the server can take
+                 * the picture (inputscale.h); a scaled output it can't is
+                 * drawn at logical size for the server to magnify. */
+                int sw = 0, sh = 0;
+                if (renderer && renderer->scanout_source &&
+                    inputscale_crtc_capable(o->crtc, &sw, &sh) &&
+                    sw > o->rect.w && sh > o->rect.h) {
+                    float sx = (float)sw / (float)o->rect.w;
+                    float sy = (float)sh / (float)o->rect.h;
+                    /* one factor for both axes is all the renderers do */
+                    if (sx - sy < 0.02f && sy - sx < 0.02f) {
+                        o->sourced = true;
+                        o->scale = sx;
+                        o->physical.w = sw;
+                        o->physical.h = sh;
+                    }
+                }
 
                 n++;
             }
@@ -293,8 +534,8 @@ void outputs_refresh(void)
         o->physical.w = comp.root_w;
         o->physical.h = comp.root_h;
         o->refresh_hz = 60.0;
-        o->scale = resolve_output_scale(o->name, XCB_NONE);
-        o->rect = logical_box(&o->physical, o->scale);
+        o->scale = 1.0f;
+        o->rect = o->physical;
         n = 1;
     }
 
@@ -308,17 +549,32 @@ void outputs_refresh(void)
             fprintf(stderr, "kicomp: no render target for output %s\n", o->name);
             continue;
         }
-        if (presenter && presenter->init && !presenter->init(o))
+
+        /* A sourced output that can't get its source ready is drawn at
+         * logical size like any other, and left to the server. */
+        if (o->sourced && !inputscale_attach(o)) {
+            fprintf(stderr, "kicomp: %s: no scanout source, drawing it at "
+                    "logical size\n", o->name);
+            inputscale_detach(o);
+            renderer->destroy(o);
+            o->sourced = false;
+            o->scale = 1.0f;
+            o->physical = o->rect;
+            if (!renderer->init(o)) {
+                fprintf(stderr, "kicomp: no render target for output %s\n", o->name);
+                continue;
+            }
+        }
+
+        /* The XRender path's sourced output is presented into its source
+         * pixmap (inputscale_present), never onto the overlay: a presenter
+         * window for it would cover the next output. */
+        bool own_present = o->sourced && o->source_picture;
+        if (!own_present && presenter && presenter->init && !presenter->init(o))
             fprintf(stderr, "kicomp: no presenter for output %s\n", o->name);
         o->dirty = true;
         drawables++;
     }
-
-    /* Said out loud, not behind -v: how many drawables there are and why
-     * is the single most useful thing to know about a running compositor
-     * -- it's the difference between the per-output pipeline and the
-     * legacy one, and it's what changes on every hotplug. */
-    inputscale_apply();
 
     /* Every window may now be on a differently scaled output. */
     density_update_all();
@@ -328,12 +584,11 @@ void outputs_refresh(void)
                                    : "one per output");
     for (int i = 0; i < comp.output_count; i++) {
         CompOutput *o = &comp.outputs[i];
-        if (o->scale > 1.0f)
-            comp_info("  [%d] %-12s %dx%d+%d+%d @ %.2f Hz  scale %.2fx "
-                      "(logical %dx%d)%s",
-                      o->id, o->name, o->physical.w, o->physical.h,
-                      o->physical.x, o->physical.y, o->refresh_hz, o->scale,
-                      o->rect.w, o->rect.h,
+        if (o->sourced)
+            comp_info("  [%d] %-12s %dx%d+%d+%d @ %.2f Hz  scale %.2fx, "
+                      "drawn at %dx%d (scanout source)%s",
+                      o->id, o->name, o->rect.w, o->rect.h, o->rect.x, o->rect.y,
+                      o->refresh_hz, o->scale, o->physical.w, o->physical.h,
                       o->render_data ? "" : "  (no target!)");
         else
             comp_info("  [%d] %-12s %dx%d+%d+%d @ %.2f Hz%s",

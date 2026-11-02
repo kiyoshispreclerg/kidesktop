@@ -106,7 +106,8 @@ static bool have_oml_sync;
  * and the shared drawing's own bookkeeping embedded first. */
 typedef struct {
     GlOutput gl;
-    Window window;          /* CRTC-covering child of the overlay */
+    Window window;          /* CRTC-covering child of the overlay, or for a
+                             * sourced output a top-level of its own */
     GLXWindow drawable;
 } GlxOutput;
 
@@ -405,12 +406,28 @@ static bool glx_init(CompOutput *o)
     swa.border_pixel = 0;
     swa.event_mask = 0;
 
-    go->window = XCreateWindow(dpy, comp.overlay,
+    /* A sourced output (inputscale.h) is drawn at its CRTC's physical size
+     * while it only covers its smaller logical box in the root, so its
+     * window can't sit in the overlay: it would spill over the next
+     * output. It becomes a top-level instead, which the compositor's own
+     * redirection gives a pixmap of its own that is never put on screen
+     * by anyone but the server's scanout-source copy -- and which a swap
+     * lands on whole, so the server never copies half a frame. It is
+     * override-redirect so no WM touches it, and skipped by the window
+     * tracker (inputscale_is_own_window). */
+    Window parent = comp.overlay;
+    unsigned long mask = CWColormap | CWBackPixmap | CWBorderPixel | CWEventMask;
+    if (o->sourced) {
+        parent = RootWindow(dpy, screen);
+        swa.override_redirect = True;
+        mask |= CWOverrideRedirect;
+    }
+
+    go->window = XCreateWindow(dpy, parent,
                                o->physical.x, o->physical.y,
                                (unsigned)o->physical.w, (unsigned)o->physical.h,
                                0, vi->depth, InputOutput, vi->visual,
-                               CWColormap | CWBackPixmap | CWBorderPixel | CWEventMask,
-                               &swa);
+                               mask, &swa);
     XFree(vi);
 
     go->drawable = glXCreateWindow(dpy, window_config, go->window, NULL);
@@ -1037,9 +1054,18 @@ static bool glx_capture_render(CompOutput *o, CompScene *s, xcb_pixmap_t slot,
     return gl_capture_render(o, s, slot, style, region);
 }
 
+/* A sourced output's window is the scanout source itself. */
+static xcb_drawable_t glx_output_source(const CompOutput *o)
+{
+    const GlxOutput *go = o->render_data;
+    return (go && o->sourced) ? (xcb_drawable_t)go->window : XCB_NONE;
+}
+
 static const CompRenderer glx_renderer = {
     .name       = "glx",
     .projective         = true,
+    .scanout_source     = true,
+    .output_source      = glx_output_source,
     .init       = glx_init,
     .destroy    = glx_destroy,
     .begin      = glx_begin,

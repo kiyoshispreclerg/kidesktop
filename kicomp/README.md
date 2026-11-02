@@ -53,7 +53,7 @@ setting but an action.
 `--toggle` is meant to be one key binding, the way every desktop has one:
 it asks whoever owns `_NET_WM_CM_Sn` to shut down (a `_KICOMP_QUIT`
 client message, answered by leaving the loop, so the redirection, the
-overlay and any cursor confinement are given back properly), and starts
+overlay and any scanout sources are given back properly), and starts
 normally when nobody owns it. An instance that doesn't answer within a
 second has its connection closed instead, which the server unwinds into
 the same uncomposited session. In kiwm's config:
@@ -113,6 +113,10 @@ animation_duration = 160   # the animation unit, in ms
 renderer           = auto  # auto | xrender | glx | egl
 presenter          = auto  # auto | present | copy
 single_drawable    = 0     # 1 = legacy mode, one drawable for the screen
+apply_scale        = 1     # turn the DPI property / [output:X] scale into
+                           # a RandR transform on that output (see
+                           # "Per-output scaling" below); 0 = only follow
+                           # whatever transform is set
 skip_wm_layers     = 0     # 1 = don't composite kiwm's OSD/wireframe
 capture_censor     = off   # off | black | hide | #rrggbb: offer censored
                            # capture to screen recorders (see below)
@@ -149,7 +153,8 @@ unredirect_fullscreen = 1  # stand aside when one window fills an output and
 # One section per output, by RandR name; [output:*] is the default for the
 # ones without a section of their own.
 [output:DP-1]
-scale = auto               # auto (the DPI property) | a number like 2.0
+scale = auto               # auto (the DPI property) | a number like 2.0,
+                           # applied as a RandR transform (apply_scale)
 
 # ---- shadows ----
 [shadow]
@@ -1744,9 +1749,8 @@ The point under the pointer is the one that does not move, which is what
 makes wheel zoom feel like it is pointing at something.
 
 **`follow = pointer` is the default for a reason that is not taste.** X
-does not magnify input — the fork's own X-INPUT-SCALE confines the
-pointer to a rectangle and deliberately does no coordinate remapping — so
-a click lands where the pointer really is, not where the picture puts it.
+does not magnify input — nothing remaps pointer coordinates for a
+picture the compositor draws bigger — so a click lands where the pointer really is, not where the picture puts it.
 Anchoring the lens on the pointer solves `lens(p) = p`: whatever is under
 the cursor stays under the cursor, so what you can see is what you would
 hit. Measured: the pixel under the pointer is identical with the lens on
@@ -1822,86 +1826,73 @@ Two pieces of infrastructure the later effects are built on:
 
 ## Per-output scaling (HiDPI)
 
-An output can be *scaled*: the compositor draws a logical desktop smaller
-than the monitor's scanout and magnifies it into the panel's real pixels.
-Two rectangles per output, and the difference between them is the whole
-feature (`comp.h`):
+An output is scaled the ordinary RandR way: a **CRTC transform** — what
+`xrandr --output DP-1 --scale-from 1280x720` sets — gives it a logical box
+in the root smaller than its mode. Everything else follows from that by
+itself, on any X server: the root, the WM's idea of the monitor, window
+geometry, input, and the pointer crossing to the next output all live in
+one contiguous logical space, with the outputs edge to edge.
+
+kicomp reads each output's box from RandR's monitors, so `rect` (`comp.h`)
+is always that logical box. What it adds is **sharpness**:
 
 | | |
 |---|---|
 | `rect` | the **logical** box: where windows live, in root coordinates. The scene, the effects, the damage and the WM work in these and nothing else |
-| `physical` | what the CRTC actually scans out |
-| `scale` | `physical / logical`; `1.0` is every output that isn't scaled, and then the two rectangles are the same |
+| `physical` | what the output is drawn at: its mode size when it is *sourced* (below), otherwise the same as `rect` |
+| `scale` | `physical / logical`; `1.0` for every output that isn't sourced |
 
-`scale = auto` (the default) reads the per-output RandR property the
-XLibre fork publishes, literally called `DPI`, where **96 = 1x, 192 = 2x**
-and so on (`TESTS/DPI-PER-OUTPUT.md`). A number in the config overrides it
-per output. Below 1 is refused: this only ever *shrinks* the logical
-desktop — growing it is `xrandr --scale`'s job, and RandR already confines
-the cursor correctly for that case.
+**Sourced outputs.** A transform alone is blurry: the server fills the
+CRTC by magnifying the logical root. The XiS server's **X-INPUT-SCALE 2.0**
+lets a compositor hand the CRTC a *scanout source* instead — a drawable at
+the CRTC's physical size, which the server watches with Damage and copies
+onto the CRTC by itself. When the server has it and says a CRTC can take
+one, kicomp draws that output's logical scene **magnified into a
+physical-sized target** and hands it over: the GLX backend through a
+top-level window of its own (a swap lands whole), XRender through a pixmap
+the finished frame is composited into (so a half-drawn frame is never what
+gets copied). Shadow radii, shapes and X-DENSITY (below) all work at the
+physical size. The startup line says which outputs are sourced:
 
-**The logical box is published**, as `_XIS_CONFINED_AREA` on the root
-window: `CARDINAL[4*N]`, groups of x, y, width, height in root
-coordinates, one per confined output, deleted when nothing is confined.
+```
+kicomp:   [0] DP-1         1280x720+0+0 @ 60.00 Hz  scale 1.50x, drawn at 1920x1080 (scanout source)
+kicomp:   [1] HDMI-1       1440x900+1280+0 @ 59.89 Hz
+```
 
-Confining the pointer is only half of what a scaled output needs. The
-other half is that everything laying windows out has to treat the logical
-box as the whole of that monitor — otherwise a maximized window fills the
-scanout while only its top-left corner is drawn, which is exactly the
-symptom. kicomp cannot fix that itself: window geometry belongs to the WM,
-and the compositor's job ends at saying where the desktop actually is.
+**Everywhere else it is just correct and blurry**, never broken: a stock
+server, an XiS server without the extension, a DDX that performs the
+transform on its own buffers (amdgpu with TearFree), or the EGL backend —
+kicomp draws the output at its logical size like any other and the server
+magnifies it. `input-scale=0` in the startup line means no output will be
+sourced on this machine. If kicomp exits or crashes, the server drops the
+source with the connection and goes back to magnifying: the output keeps
+working.
 
-Rectangles in root coordinates, deliberately — the same reasoning
-X-INPUT-SCALE's own protocol gives for taking a rectangle rather than a
-matrix. A consumer needs no agreement with kicomp about output names or
-indices: it intersects its own idea of each monitor with these. kiwm reads
-it in `outputs_refresh()` and shrinks the output to it, after which
-maximize, snapping, placement, the switcher and its own `_NET_WORKAREA`
-all follow, because they already work from its output list.
+**The DPI property (apply_scale).** The XiS fork publishes a per-output
+RandR property literally called `DPI`, where **96 = 1x, 192 = 2x**
+(`TESTS/DPI-PER-OUTPUT.md`). With `apply_scale = 1` (the default) kicomp
+turns it into the transform: `xrandr --output DP-1 --set DPI 144` scales
+DP-1 to 1.5x and moves the outputs after it to its new logical edge, so the
+row stays edge to edge; setting it back to 96 undoes it. `[output:NAME]`
+`scale = 2.0` in the config does the same from the file. At startup a DPI
+of 96 is left alone, so a transform set by hand with `xrandr --scale-from`
+survives kicomp starting; only a DPI change, a DPI other than 96, or a
+configured scale moves anything. With `apply_scale = 0` kicomp never
+touches the layout and simply follows whatever transform is set. A server
+that can't do CRTC transforms (Xvfb) refuses the scale, and the layout is
+left exactly as it was.
 
-Not `_NET_WORKAREA` directly, for two independent reasons: it is the WM's
-property to publish (kiwm already does, from its outputs and the panel
-struts — two writers would flap), and EWMH defines it as one box per
-*desktop* for the whole screen, which cannot say "this monitor is smaller
-and that one is not".
+**Unredirected fullscreen windows** draw into the root, which a sourced
+CRTC doesn't show: while one holds a sourced output, kicomp gives the CRTC
+back to the server (magnified, like any game at logical resolution) and
+takes it again with the next frame afterwards.
 
-**The DPI is followed live.** kicomp subscribes to RandR's output-property
-notifications, so `xrandr --output DP-1 --set DPI 192` retimes everything
-at once: the outputs are rebuilt, the cursor confinement is re-applied to
-the new logical box, and every window is re-asked for the density that
-scale wants. No restart, and no polling.
-
-**Confinement is released even on a crash**, and not by anything kicomp
-does: the extension makes a confinement owned by the client that set it,
-so closing the connection — cleanly or otherwise — drops it. Verified by
-setting one from a throwaway client and letting it exit: the next client
-reads `active=0`. The explicit release on shutdown is for the tidy case
-and for outputs that stop being scaled while kicomp keeps running.
-
-**It requires X-INPUT-SCALE, and without it kicomp scales nothing** —
-whatever the config or the DPI property say. The reason is the pointer:
-on a scaled output the pixels outside the logical box exist only as the
-magnified image, and a cursor that can wander into them is in a part of
-the screen no desktop is being drawn into. Confinement can't be done from
-outside the server (cursor motion runs through the input pipeline on every
-event; a client warping the pointer afterwards would be visibly late),
-which is exactly what that extension exists for — one rectangle per CRTC,
-no coordinate remapping. Capability decides, never a guess about which
-server this is: `input-scale=0` in the startup line means nothing will be
-scaled on this machine.
-
-The renderer draws the logical scene **into a physical-sized target**,
-magnifying it there rather than magnifying a finished logical frame
-afterwards. That distinction is the point: it leaves room for a client
-that redrew its own contents densely (X-DENSITY) to land sharp, instead of
-being resampled down into a smaller intermediate and blown back up. Shadow
-blur radii are scaled with everything else, so a 12 px shadow is 24 real
-pixels of gradient on a 2x output rather than a stretched 12.
-
-Window shapes need one extra step there: XFixes has no scale operator, so
-on a scaled output the cached shape region is fetched and rebuilt at the
-right size (once per shape change, never per frame). At scale 1 not a
-single extra request is sent.
+**Version 1.0 of the extension** confined the pointer to the logical box of
+an *untransformed* output instead, and kicomp published those boxes as
+`_XIS_CONFINED_AREA`. That leaves a dead band between a scaled output and
+its neighbour, which no pointer trick can fix (a window dragged across loses
+its middle), so it is gone: kicomp speaks 2.0 only, ignores 1.x, and
+deletes a leftover `_XIS_CONFINED_AREA` at startup.
 
 ### X-DENSITY: the sharp half
 
@@ -2233,9 +2224,9 @@ arriving. Deriving it from those is a change to `scheduler.c` alone.
   never one global surface. A window crossing two outputs is clipped into
   each output's scene separately (`window ∩ output`).
 - Per-output scaling (HiDPI) and X-DENSITY: logical vs. physical box per
-  output, DPI-derived, drawn magnified into a physical target; gated on
-  X-INPUT-SCALE, whose per-CRTC confinement keeps the pointer inside the
-  logical desktop.
+  output, from the RandR transform (applied from the DPI property),
+  drawn magnified into a physical target and handed to the server as an
+  X-INPUT-SCALE 2.0 scanout source where it can take one.
 - Region repaint: only the part of an output that actually changed is
   redrawn — clips the background, the windows and their shadows, skips
   windows nothing touched, and bounds what the presenter copies.
@@ -2357,8 +2348,8 @@ src/
   shadow.c/.h         shadow configuration and per-window style
   desktop.c/.h        which desktop each output shows, and which way it
                       just moved (the wall's direction)
-  inputscale.c/.h     X-INPUT-SCALE: the pointer confined to the logical
-                      desktop of a scaled output
+  inputscale.c/.h     X-INPUT-SCALE 2.0: handing a scaled output's
+                      physical-size picture to the server (scanout source)
   density.c/.h        X-DENSITY: asking clients to redraw densely, and
                       sampling the pixmap they publish
   region.c/.h         the damage region: rectangles, client-side
