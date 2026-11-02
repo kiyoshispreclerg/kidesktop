@@ -406,7 +406,7 @@ static bool glx_init(CompOutput *o)
     swa.border_pixel = 0;
     swa.event_mask = 0;
 
-    /* A sourced output (inputscale.h) is drawn at its CRTC's physical size
+    /* A sourced output (xscale.h) is drawn at its CRTC's physical size
      * while it only covers its smaller logical box in the root, so its
      * window can't sit in the overlay: it would spill over the next
      * output. It becomes a top-level instead, which the compositor's own
@@ -414,7 +414,7 @@ static bool glx_init(CompOutput *o)
      * by anyone but the server's scanout-source copy -- and which a swap
      * lands on whole, so the server never copies half a frame. It is
      * override-redirect so no WM touches it, and skipped by the window
-     * tracker (inputscale_is_own_window). */
+     * tracker (xscale_is_own_window). */
     Window parent = comp.overlay;
     unsigned long mask = CWColormap | CWBackPixmap | CWBorderPixel | CWEventMask;
     if (o->sourced) {

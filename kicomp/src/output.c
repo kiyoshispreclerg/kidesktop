@@ -8,7 +8,7 @@
 #include "presenter.h"
 #include "shadow.h"
 #include "config.h"
-#include "inputscale.h"
+#include "xscale.h"
 #include "density.h"
 
 #include <xcb/randr.h>
@@ -425,7 +425,7 @@ bool outputs_apply_scale_policy(bool dpi_event)
 void outputs_teardown(void)
 {
     for (int i = 0; i < comp.output_count; i++) {
-        inputscale_detach(&comp.outputs[i]);
+        xscale_detach(&comp.outputs[i]);
         if (presenter && presenter->destroy)
             presenter->destroy(&comp.outputs[i]);
         if (renderer)
@@ -495,11 +495,11 @@ void outputs_refresh(void)
                 (void)backing_output;
 
                 /* Drawn at physical size only when the server can take
-                 * the picture (inputscale.h); a scaled output it can't is
+                 * the picture (xscale.h); a scaled output it can't is
                  * drawn at logical size for the server to magnify. */
                 int sw = 0, sh = 0;
                 if (renderer && renderer->scanout_source &&
-                    inputscale_crtc_capable(o->crtc, &sw, &sh) &&
+                    xscale_crtc_capable(o->crtc, &sw, &sh) &&
                     sw > o->rect.w && sh > o->rect.h) {
                     float sx = (float)sw / (float)o->rect.w;
                     float sy = (float)sh / (float)o->rect.h;
@@ -552,10 +552,10 @@ void outputs_refresh(void)
 
         /* A sourced output that can't get its source ready is drawn at
          * logical size like any other, and left to the server. */
-        if (o->sourced && !inputscale_attach(o)) {
+        if (o->sourced && !xscale_attach(o)) {
             fprintf(stderr, "kicomp: %s: no scanout source, drawing it at "
                     "logical size\n", o->name);
-            inputscale_detach(o);
+            xscale_detach(o);
             renderer->destroy(o);
             o->sourced = false;
             o->scale = 1.0f;
@@ -567,7 +567,7 @@ void outputs_refresh(void)
         }
 
         /* The XRender path's sourced output is presented into its source
-         * pixmap (inputscale_present), never onto the overlay: a presenter
+         * pixmap (xscale_present), never onto the overlay: a presenter
          * window for it would cover the next output. */
         bool own_present = o->sourced && o->source_picture;
         if (!own_present && presenter && presenter->init && !presenter->init(o))

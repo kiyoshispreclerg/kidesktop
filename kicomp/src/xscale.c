@@ -1,11 +1,11 @@
-/* See inputscale.h. Raw wire requests: this protocol is still a draft in
+/* See xscale.h. Raw wire requests: this protocol is still a draft in
  * the server fork and has no client binding, so the structs below are the
- * contract, copied from the fork's Xext/inputscale/inputscaleproto.h.
+ * contract, copied from the fork's Xext/xscale/xscaleproto.h.
  *
  * XCB fills in byte 0 (the major opcode) and the length field itself when
  * a request is sent with ext == NULL and opcode = major; what has to be
  * written here is the minor opcode and the payload. */
-#include "inputscale.h"
+#include "xscale.h"
 #include "presenter.h"
 #include "region.h"
 #include "renderer.h"
@@ -17,45 +17,45 @@
 #include <xcb/render.h>
 #include <sys/uio.h>
 
-#define XIS_EXTENSION_NAME          "X-INPUT-SCALE"
-#define XIS_MAJOR_VERSION           2
-#define XIS_MINOR_VERSION           0
+#define XSCALE_EXTENSION_NAME           "X-SCALE"
+#define XSCALE_MAJOR_VERSION            1
+#define XSCALE_MINOR_VERSION            0
 
-#define X_XISQueryVersion           0
-#define X_XISGetCrtcScanout         5
-#define X_XISSetCrtcScanoutSource   6
+#define X_XScaleQueryVersion            0
+#define X_XScaleGetCrtcScanout          2
+#define X_XScaleSetCrtcScanoutSource    3
 
-#define XISScanoutCapable           (1 << 0)
+#define XScaleScanoutCapable            (1 << 0)
 
-static uint8_t xis_opcode;   /* 0 = extension absent */
+static uint8_t xscale_opcode;   /* 0 = extension absent */
 
 typedef struct {
-    uint8_t reqType, xisReqType;
+    uint8_t reqType, xscaleReqType;
     uint16_t length;
     uint32_t clientMajorVersion;
     uint32_t clientMinorVersion;
-} XISQueryVersionReq;
+} XScaleQueryVersionReq;
 
 typedef struct {
-    uint8_t reqType, xisReqType;
+    uint8_t reqType, xscaleReqType;
     uint16_t length;
     uint32_t crtc;
-} XISGetCrtcScanoutReq;
+} XScaleGetCrtcScanoutReq;
 
 typedef struct {
-    uint8_t reqType, xisReqType;
+    uint8_t reqType, xscaleReqType;
     uint16_t length;
     uint32_t crtc;
     uint32_t drawable;
     int16_t srcX, srcY;
-} XISSetCrtcScanoutSourceReq;
+} XScaleSetCrtcScanoutSourceReq;
 
 /* One request out. `isvoid` is 0 for the ones with a reply. */
-static unsigned xis_send(const void *req, size_t len, int isvoid)
+static unsigned xscale_send(const void *req, size_t len, int isvoid)
 {
     struct iovec parts[4];
     xcb_protocol_request_t r = {
-        .count = 2, .ext = NULL, .opcode = xis_opcode, .isvoid = isvoid
+        .count = 2, .ext = NULL, .opcode = xscale_opcode, .isvoid = isvoid
     };
 
     parts[2].iov_base = (void *)req;
@@ -66,12 +66,13 @@ static unsigned xis_send(const void *req, size_t len, int isvoid)
     return xcb_send_request(comp.conn, 0, parts + 2, &r);
 }
 
-void inputscale_init(void)
+void xscale_init(void)
 {
-    comp.caps.input_scale = false;
-    xis_opcode = 0;
+    comp.caps.xscale = false;
+    xscale_opcode = 0;
 
-    /* An older kicomp published the confined logical boxes here, and kiwm
+    /* An older kicomp, speaking the X-INPUT-SCALE experiment this replaced,
+     * published the confined logical boxes here, and kiwm
      * shrinks its outputs to whatever it finds. Nothing is confined any
      * more -- RandR's own geometry is the logical box now -- so a leftover
      * would only squeeze the WM's idea of a monitor for nothing. */
@@ -79,8 +80,8 @@ void inputscale_init(void)
         xcb_delete_property(comp.conn, comp.root, comp.atoms.xis_confined_area);
 
     xcb_query_extension_reply_t *q = xcb_query_extension_reply(comp.conn,
-        xcb_query_extension(comp.conn, (uint16_t)strlen(XIS_EXTENSION_NAME),
-                            XIS_EXTENSION_NAME), NULL);
+        xcb_query_extension(comp.conn, (uint16_t)strlen(XSCALE_EXTENSION_NAME),
+                            XSCALE_EXTENSION_NAME), NULL);
     if (!q)
         return;
 
@@ -89,56 +90,46 @@ void inputscale_init(void)
         return;
     }
 
-    xis_opcode = q->major_opcode;
+    xscale_opcode = q->major_opcode;
     free(q);
 
     /* The version handshake is the extension's own precondition, and it
      * doubles as proof that the opcode really answers. */
-    XISQueryVersionReq req = { 0 };
-    req.xisReqType = X_XISQueryVersion;
-    req.clientMajorVersion = XIS_MAJOR_VERSION;
-    req.clientMinorVersion = XIS_MINOR_VERSION;
+    XScaleQueryVersionReq req = { 0 };
+    req.xscaleReqType = X_XScaleQueryVersion;
+    req.clientMajorVersion = XSCALE_MAJOR_VERSION;
+    req.clientMinorVersion = XSCALE_MINOR_VERSION;
 
-    unsigned seq = xis_send(&req, sizeof(req), 0);
+    unsigned seq = xscale_send(&req, sizeof(req), 0);
     xcb_generic_error_t *err = NULL;
     uint8_t *reply = xcb_wait_for_reply(comp.conn, seq, &err);
 
     if (err || !reply) {
         free(err);
         free(reply);
-        xis_opcode = 0;
+        xscale_opcode = 0;
         return;
     }
 
-    /* xXISQueryVersionReply: major at byte 8, minor at byte 12. */
+    /* xXScaleQueryVersionReply: major at byte 8, minor at byte 12. */
     uint32_t major = *(uint32_t *)(void *)(reply + 8);
     uint32_t minor = *(uint32_t *)(void *)(reply + 12);
     free(reply);
 
-    /* 1.x is the pointer-confinement protocol, which nothing here speaks
-     * any more: without scanout sources the outputs are simply left for
-     * the server to magnify. */
-    if (major < 2) {
-        comp_info("X-INPUT-SCALE %u.%u is too old (scanout sources need 2.0); "
-                  "scaled outputs will be magnified by the server", major, minor);
-        xis_opcode = 0;
-        return;
-    }
-
-    comp.caps.input_scale = true;
-    comp_log("X-INPUT-SCALE %u.%u", major, minor);
+    comp.caps.xscale = true;
+    comp_log("X-SCALE %u.%u", major, minor);
 }
 
-bool inputscale_crtc_capable(xcb_randr_crtc_t crtc, int *width, int *height)
+bool xscale_crtc_capable(xcb_randr_crtc_t crtc, int *width, int *height)
 {
-    if (!comp.caps.input_scale || crtc == XCB_NONE)
+    if (!comp.caps.xscale || crtc == XCB_NONE)
         return false;
 
-    XISGetCrtcScanoutReq req = { 0 };
-    req.xisReqType = X_XISGetCrtcScanout;
+    XScaleGetCrtcScanoutReq req = { 0 };
+    req.xscaleReqType = X_XScaleGetCrtcScanout;
     req.crtc = crtc;
 
-    unsigned seq = xis_send(&req, sizeof(req), 0);
+    unsigned seq = xscale_send(&req, sizeof(req), 0);
     xcb_generic_error_t *err = NULL;
     uint8_t *reply = xcb_wait_for_reply(comp.conn, seq, &err);
     if (err || !reply) {
@@ -147,9 +138,9 @@ bool inputscale_crtc_capable(xcb_randr_crtc_t crtc, int *width, int *height)
         return false;
     }
 
-    /* xXISGetCrtcScanoutReply: flags at byte 1, scanoutWidth/Height at 8
+    /* xXScaleGetCrtcScanoutReply: flags at byte 1, scanoutWidth/Height at 8
      * and 10 (then the logical box, which RandR's monitors already give). */
-    bool capable = (reply[1] & XISScanoutCapable) != 0;
+    bool capable = (reply[1] & XScaleScanoutCapable) != 0;
     *width = *(uint16_t *)(void *)(reply + 8);
     *height = *(uint16_t *)(void *)(reply + 10);
     free(reply);
@@ -159,16 +150,16 @@ bool inputscale_crtc_capable(xcb_randr_crtc_t crtc, int *width, int *height)
 /* Hands `drawable` (or XCB_NONE: give back) to the output's CRTC. */
 static bool set_source(const CompOutput *o, xcb_drawable_t drawable)
 {
-    XISSetCrtcScanoutSourceReq req = { 0 };
-    req.xisReqType = X_XISSetCrtcScanoutSource;
+    XScaleSetCrtcScanoutSourceReq req = { 0 };
+    req.xscaleReqType = X_XScaleSetCrtcScanoutSource;
     req.crtc = o->crtc;
     req.drawable = drawable;
 
-    unsigned seq = xis_send(&req, sizeof(req), 1);
+    unsigned seq = xscale_send(&req, sizeof(req), 1);
     xcb_generic_error_t *err = xcb_request_check(comp.conn,
                                                  (xcb_void_cookie_t){ seq });
     if (err) {
-        fprintf(stderr, "kicomp: %s: X-INPUT-SCALE refused the scanout source "
+        fprintf(stderr, "kicomp: %s: X-SCALE refused the scanout source "
                 "(error %d)\n", o->name, err->error_code);
         free(err);
         return false;
@@ -186,7 +177,7 @@ static xcb_drawable_t source_drawable(const CompOutput *o)
     return XCB_NONE;
 }
 
-bool inputscale_attach(CompOutput *o)
+bool xscale_attach(CompOutput *o)
 {
     o->source_set = false;
     o->source_suspended = false;
@@ -200,7 +191,7 @@ bool inputscale_attach(CompOutput *o)
     /* XRender draws its frame into the target in many requests, and the
      * server copies the source whenever it goes idle -- possibly between
      * two of them. So the source is a pixmap of its own, which only ever
-     * receives finished frames (inputscale_present). */
+     * receives finished frames (xscale_present). */
     if (!o->target)
         return false;
 
@@ -217,9 +208,9 @@ bool inputscale_attach(CompOutput *o)
     return true;
 }
 
-void inputscale_detach(CompOutput *o)
+void xscale_detach(CompOutput *o)
 {
-    if (o->source_set && comp.caps.input_scale)
+    if (o->source_set && comp.caps.xscale)
         set_source(o, XCB_NONE);
     o->source_set = false;
     o->source_suspended = false;
@@ -234,7 +225,7 @@ void inputscale_detach(CompOutput *o)
     }
 }
 
-void inputscale_present(CompOutput *o, const CompRegion *damage)
+void xscale_present(CompOutput *o, const CompRegion *damage)
 {
     if (!o->target || !o->source_picture)
         return;
@@ -263,7 +254,7 @@ void inputscale_present(CompOutput *o, const CompRegion *damage)
                          (uint16_t)o->physical.w, (uint16_t)o->physical.h);
 }
 
-void inputscale_frame_done(CompOutput *o)
+void xscale_frame_done(CompOutput *o)
 {
     if (!o->sourced || o->source_set || o->source_suspended)
         return;
@@ -286,7 +277,7 @@ void inputscale_frame_done(CompOutput *o)
     }
 }
 
-void inputscale_suspend(CompOutput *o)
+void xscale_suspend(CompOutput *o)
 {
     if (!o->sourced || o->source_suspended)
         return;
@@ -296,16 +287,16 @@ void inputscale_suspend(CompOutput *o)
     o->source_suspended = true;
 }
 
-void inputscale_resume(CompOutput *o)
+void xscale_resume(CompOutput *o)
 {
     if (!o->sourced)
         return;
     o->source_suspended = false;
-    /* handed over again by inputscale_frame_done after the next frame,
+    /* handed over again by xscale_frame_done after the next frame,
      * which the give-back already damaged the whole output for */
 }
 
-bool inputscale_is_own_window(xcb_window_t id)
+bool xscale_is_own_window(xcb_window_t id)
 {
     if (id == XCB_NONE || !renderer || !renderer->output_source)
         return false;
@@ -316,9 +307,9 @@ bool inputscale_is_own_window(xcb_window_t id)
     return false;
 }
 
-void inputscale_shutdown(void)
+void xscale_shutdown(void)
 {
     for (int i = 0; i < comp.output_count; i++)
-        inputscale_detach(&comp.outputs[i]);
+        xscale_detach(&comp.outputs[i]);
     xcb_flush(comp.conn);
 }
