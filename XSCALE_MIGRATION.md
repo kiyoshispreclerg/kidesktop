@@ -192,9 +192,10 @@ fazia o mesmo para os flips por CRTC (`present_flip_getimage`). O custo só
 existe durante a captura. Com isso, o kishot (e o OBS, o ffmpeg) captura
 certo em resolução lógica.
 
-Um caso continua de fora: `CopyArea` a partir do root com
-`IncludeInferiors`. Ele ainda lê a área velha. O kishot usa
-`XGetImage`/SHM, então não é afetado.
+O commit `dbaf0dcf58` faz o mesmo para `CopyArea` a partir do root com
+`IncludeInferiors`, que é o que o fork do OBS usa no modo de cópia pela
+GPU. Fica de fora só uma cópia com GC recortado, outra operação lógica ou
+plane mask, que nenhum dos programas daqui usa.
 
 ### Opcional: gravar em resolução física
 
