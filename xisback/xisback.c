@@ -91,7 +91,7 @@
 #include <unistd.h>
 #include "../shared/xis_safefile.h"
 
-#define XISBACK_VERSION "0.5.0"
+#define XISBACK_VERSION "0.5.1"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -1181,7 +1181,7 @@ static void layer_advance(Layer *l, time_t now)
  * when the WM/compositor changes and when two layers overlap. Any in-flight
  * crossfade is snapped to its final state first: an animated transition
  * doesn't make sense for a geometry change forced from outside. */
-static void refresh_all_layer_geometries(void)
+static void refresh_all_layer_geometries(int force)
 {
     for (int i = 0; i < MAX_LAYERS; i++) {
         if (g_layers[i].in_use) {
@@ -1194,7 +1194,7 @@ static void refresh_all_layer_geometries(void)
              * WM/compositor taking its selection at login lands here with
              * nothing changed, and decoding every wallpaper again (big
              * PNGs, on a slow disk) only makes the background flash. */
-            if (l->win != None && l->win == old_win && l->width == ow && l->height == oh &&
+            if (!force && l->win != None && l->win == old_win && l->width == ow && l->height == oh &&
                 l->cur_pixmap != None && !l->unloaded) {
                 continue;
             }
@@ -1203,6 +1203,27 @@ static void refresh_all_layer_geometries(void)
     }
     malloc_trim(0);
     XFlush(g_dpy);
+}
+
+/* Any RandR change (mode, DPI/scale, CRTC or output) re-resolves layers and
+ * forces a redraw now -- a resized window whose background pixmap kept the
+ * old size shows it tiled -- and once more after the burst settles, since
+ * the CRTC info can lag the first event. */
+static void place_layers(int forced, Layer *skip);
+static struct timespec g_rr_settle;
+static int g_rr_settle_pending;
+
+static void rr_changed(void)
+{
+    place_layers(1, NULL);
+    refresh_all_layer_geometries(1);
+    clock_gettime(CLOCK_MONOTONIC, &g_rr_settle);
+    g_rr_settle.tv_nsec += 250 * 1000000L;
+    if (g_rr_settle.tv_nsec >= 1000000000L) {
+        g_rr_settle.tv_sec++;
+        g_rr_settle.tv_nsec -= 1000000000L;
+    }
+    g_rr_settle_pending = 1;
 }
 
 static int rects_overlap(int x1, int y1, int w1, int h1, int x2, int y2, int w2, int h2)
@@ -1251,7 +1272,7 @@ static void check_layer_overlap(void)
                         "xisback: layers '%s' and '%s' have overlapping geometry, "
                         "re-resolving from RandR\n",
                         g_layers[i].output, g_layers[j].output);
-                refresh_all_layer_geometries();
+                refresh_all_layer_geometries(0);
                 return;
             }
         }
@@ -1991,7 +2012,7 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
         fprintf(stderr, "xisback: RandR extension unavailable, named outputs won't work\n");
         g_rr_event_base = -1;
     } else {
-        XRRSelectInput(g_dpy, g_root, RRScreenChangeNotifyMask);
+        XRRSelectInput(g_dpy, g_root, RRScreenChangeNotifyMask | RRCrtcChangeNotifyMask | RROutputChangeNotifyMask);
     }
 
     int xfixes_error_base;
@@ -2085,6 +2106,18 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                 timeout_ms = remaining;
             }
         }
+        if (g_rr_settle_pending) {
+            struct timespec mono_now;
+            clock_gettime(CLOCK_MONOTONIC, &mono_now);
+            long remaining = (long)(g_rr_settle.tv_sec - mono_now.tv_sec) * 1000 +
+                             (g_rr_settle.tv_nsec - mono_now.tv_nsec) / 1000000L;
+            if (remaining < 0) {
+                remaining = 0;
+            }
+            if (timeout_ms < 0 || remaining < timeout_ms) {
+                timeout_ms = remaining;
+            }
+        }
         if (soonest > 0) {
             long delta = (long)(soonest - now) * 1000;
             if (delta < 0) {
@@ -2149,21 +2182,33 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
             }
         }
 
+        if (g_rr_settle_pending && !x_queued) {
+            struct timespec mono_now;
+            clock_gettime(CLOCK_MONOTONIC, &mono_now);
+            if (mono_now.tv_sec > g_rr_settle.tv_sec ||
+                (mono_now.tv_sec == g_rr_settle.tv_sec && mono_now.tv_nsec >= g_rr_settle.tv_nsec)) {
+                g_rr_settle_pending = 0;
+                place_layers(1, NULL);
+                refresh_all_layer_geometries(1);
+            }
+        }
+
         if (x_queued || (r > 0 && FD_ISSET(xfd, &rfds))) {
             while (XPending(g_dpy)) {
                 XEvent ev;
                 XNextEvent(g_dpy, &ev);
                 if (g_rr_event_base >= 0 && ev.type == g_rr_event_base + RRScreenChangeNotify) {
                     XRRUpdateConfiguration(&ev);
-                    place_layers(1, NULL);
-                    refresh_all_layer_geometries();
+                    rr_changed();
+                } else if (g_rr_event_base >= 0 && ev.type == g_rr_event_base + RRNotify) {
+                    rr_changed();
                 } else if (g_xfixes_available && ev.type == g_xfixes_event_base + XFixesSelectionNotify) {
                     XFixesSelectionNotifyEvent *sn = (XFixesSelectionNotifyEvent *)&ev;
                     if (sn->selection == g_atom_wm_sn || sn->selection == g_atom_cm_sn) {
                         fprintf(stderr, "xisback: %s changed, re-checking layers\n",
                                 sn->selection == g_atom_wm_sn ? "window manager" : "compositor");
                         place_layers(1, NULL);
-                        refresh_all_layer_geometries();
+                        refresh_all_layer_geometries(0);
                         check_layer_overlap();
                     }
                 } else if (ev.type == MapNotify || ev.type == UnmapNotify) {
