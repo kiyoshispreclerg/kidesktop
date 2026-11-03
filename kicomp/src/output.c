@@ -313,6 +313,12 @@ bool outputs_apply_scale_policy(bool dpi_event)
 
             float cur = crtc_current_scale(c->crtc);
             float want = wanted_scale(name, c->outputs[0], dpi_event);
+            /* A transform that gives more desktop than the mode (xrandr
+             * --scale above 1, how kiconf applies a DPI below 96) is
+             * nothing this policy would set, so a DPI of 96 doesn't undo
+             * it either. */
+            if (want > 0.0f && want < 1.001f && cur < 0.999f)
+                want = 0.0f;
             c->scale = want > 0.0f ? want : cur;
             if (want > 0.0f && (want - cur > 0.01f || cur - want > 0.01f)) {
                 c->rescale = true;
