@@ -49,7 +49,7 @@ de presença, e agora ele é o comportamento correto.
 | `xispanel` | sim | remover código morto |
 | `xisback` | sim | remover código morto |
 | `kiconf` | **não totalmente** | corrigir a prévia de DPI da aba Telas |
-| `kishot` | **não** | geometria e captura da tela escalada |
+| `kishot` | sim, no servidor com a costura | remover código morto; slots do kicomp se quiser gravar em resolução física |
 | `shared/xis_inputscale.*` | — | remover depois do `kishot` |
 
 ## kicomp — já migrado
@@ -183,15 +183,21 @@ pelo root saía física, e tudo precisava dessa conversão.
    uma imagem congelada dessa saída. O mesmo vale para qualquer gravador
    comum (OBS, `ffmpeg -f x11grab`).
 
-### Caminhos para o item 2
+### O item 2 já está resolvido no servidor
 
-- **No servidor (recomendado, vale para todos os gravadores):** a X-SCALE
-  passaria a costurar a fonte no `GetImage` do root. O XiS já faz isso para
-  os flips por CRTC (`present_flip_getimage`, em
-  `doc/present-per-crtc-flip.md`): nas regiões de uma CRTC com fonte, o
-  servidor lê a fonte reduzida para o tamanho lógico. O custo só existe
-  durante a captura. Com isso, o kishot captura certo em resolução lógica
-  e só precisa de limpeza: apagar o `XisScaleMap` e usar a identidade.
+O commit `efb0413f60` da branch `x-scale` do xserver faz a X-SCALE costurar
+a fonte no `GetImage` do root. Nas regiões de uma CRTC com fonte, o
+servidor lê a fonte reduzida para o tamanho lógico (bilinear). O XiS já
+fazia o mesmo para os flips por CRTC (`present_flip_getimage`). O custo só
+existe durante a captura. Com isso, o kishot (e o OBS, o ffmpeg) captura
+certo em resolução lógica.
+
+Um caso continua de fora: `CopyArea` a partir do root com
+`IncludeInferiors`. Ele ainda lê a área velha. O kishot usa
+`XGetImage`/SHM, então não é afetado.
+
+### Opcional: gravar em resolução física
+
 - **No kishot (para gravar nítido, em resolução física):** usar os slots
   do protocolo de captura do kicomp (`kicomp/CAPTURE-PROTOCOL.md`) também
   para saídas com fonte, e não só quando há censura. Cada alvo de
@@ -200,17 +206,18 @@ pelo root saía física, e tudo precisava dessa conversão.
   sai daí: `físico = (lógico − origem) × físico/lógico`, sem extensão
   nenhuma. Isso substitui o `XisScaleMap`.
 
-As duas coisas podem conviver: o servidor resolve o caso geral, e o kishot
-usa os slots quando quiser a gravação em resolução física.
+As duas coisas convivem: o servidor resolve o caso geral, e o kishot pode
+usar os slots quando quiser a gravação em resolução física.
 
 **A fazer:**
 
-- decidir o caminho (o do servidor depende de um commit na branch `x-scale`
-  do xserver);
-- reescrever `pointer_on_frame()`, o trecho do cursor em `ks_grab.c` e
-  `ks_censor_to_physical()` em cima disso;
+- limpeza: apagar o `XisScaleMap` e deixar a conversão como identidade em
+  `pointer_on_frame()`, no trecho do cursor em `ks_grab.c` e em
+  `ks_censor_to_physical()`;
 - remover `XISConfineNotify` do loop de `ks_rec.c`;
-- atualizar o trecho do `kishot/README.md` sobre X-INPUT-SCALE.
+- atualizar o trecho do `kishot/README.md` sobre X-INPUT-SCALE;
+- opcional: gravação em resolução física pelos slots do kicomp, como
+  descrito acima.
 
 ## shared/xis_inputscale.c/.h — remover
 
