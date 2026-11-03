@@ -1001,32 +1001,6 @@ int density_layer_handle_property(DensityLayer *dl, const XPropertyEvent *ev); /
  * sets its own size before drawing any text. */
 void density_layer_render(DensityLayer *dl, int logical_w, int logical_h, double base_font_size);
 
-/* ---- X-INPUT-SCALE: per-CRTC cursor-confinement query (inputscale.c) ----
- *
- * See /home/kiyoshi/Downloads/kiyoshi-forks/xserver/doc/
- * x11-per-output-scaling-extension.md -- this project's own experimental
- * server extension. xispanel only ever reads confinement state, never
- * sets it (that's a compositor's job) -- used by resolve_output_geometry()
- * so a panel sizes itself to an output's actual usable desktop-space box
- * instead of its raw physical CRTC size when a compositor has confined it
- * smaller for HiDPI downscaling. */
-void inputscale_init(void); /* call once at startup */
-/* 1 (and fills *out_x/y/w/h, desktop-space pixels) if `crtc` (an RRCrtc)
- * currently has an active confine box, else 0 (extension absent, or no
- * confinement set for this CRTC right now). */
-int inputscale_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int *out_h);
-/* fd of a dedicated connection used only for XISConfineNotify events (see
- * inputscale.c's doc comment for why it's separate from xispanel's own
- * Xlib connection) -- add to the main loop's select() set. -1 if
- * unavailable (extension absent, or this server build has no event
- * support yet -- xispanel.c's polling fallback is the only signal then). */
-int inputscale_fd(void);
-/* Drains every pending event on that connection -- call when its fd is
- * readable. Returns 1 if at least one was an XISConfineNotify (any CRTC):
- * caller should just re-check every panel's output geometry and reload if
- * anything changed, same reaction the polling fallback already has. */
-int inputscale_poll_change(void);
-
 /* ---- small drawing helpers built on top of the above (ewmh.c) ---- */
 int icon_size_for(int thickness, int padding); /* shared by tasklist/tray's icon_padding= */
 /* Wraps a logical icon draw size for icon *fetch/cache* calls specifically

@@ -88,28 +88,6 @@ DENSITY_LDLIBS :=
 $(info xispanel: xfixes not found via pkg-config -- building without X-DENSITY support)
 endif
 
-# xcb/xcb-randr/x11-xcb (inputscale.c's X-INPUT-SCALE client query -- see
-# that file's doc comment) are the one place this otherwise Xlib-only
-# codebase touches XCB, needed only because no Xlib-side client binding
-# exists yet for this project's own experimental server extension --
-# hand-rolling one raw extension request is far simpler via XCB's generic
-# xcb_send_request() than via Xlib's unexported extension-request
-# internals. XGetXCBConnection() (x11-xcb) shares xispanel's existing Xlib
-# connection rather than opening a second one. Without all three -dev
-# packages, inputscale_stub.c (always reports "no confinement active") is
-# linked instead.
-HAVE_XINPUTSCALE := $(shell pkg-config --exists xcb xcb-randr x11-xcb && echo yes)
-ifeq ($(HAVE_XINPUTSCALE),yes)
-INPUTSCALE_SRCS := inputscale.c
-INPUTSCALE_CPPFLAGS := $(shell pkg-config --cflags xcb xcb-randr x11-xcb)
-INPUTSCALE_LDLIBS := $(shell pkg-config --libs xcb xcb-randr x11-xcb)
-else
-INPUTSCALE_SRCS := inputscale_stub.c
-INPUTSCALE_CPPFLAGS :=
-INPUTSCALE_LDLIBS :=
-$(info xispanel: xcb/xcb-randr/x11-xcb not found via pkg-config -- building without X-INPUT-SCALE support)
-endif
-
 # xi (containerwatch.c: XInput2 raw button presses, how an open container
 # popup notices a click outside it without holding the pointer). Without
 # libxi-dev, containerwatch_stub.c is linked and the popup keeps an active
@@ -141,8 +119,8 @@ A11Y_LDLIBS :=
 $(info xispanel: atk/atk-bridge-2.0 not found via pkg-config -- building without screen reader support)
 endif
 
-CPPFLAGS := $(shell pkg-config --cflags $(PKGS)) $(A11Y_CPPFLAGS) $(DBUS_CPPFLAGS) $(THUMB_CPPFLAGS) $(MODTAP_CPPFLAGS) $(DENSITY_CPPFLAGS) $(INPUTSCALE_CPPFLAGS) $(CWATCH_CPPFLAGS)
-LDLIBS := $(shell pkg-config --libs $(PKGS)) $(THUMB_LDLIBS) $(MODTAP_LDLIBS) $(DENSITY_LDLIBS) $(INPUTSCALE_LDLIBS) $(CWATCH_LDLIBS) $(A11Y_LDLIBS) -lm -ldl
+CPPFLAGS := $(shell pkg-config --cflags $(PKGS)) $(A11Y_CPPFLAGS) $(DBUS_CPPFLAGS) $(THUMB_CPPFLAGS) $(MODTAP_CPPFLAGS) $(DENSITY_CPPFLAGS) $(CWATCH_CPPFLAGS)
+LDLIBS := $(shell pkg-config --libs $(PKGS)) $(THUMB_LDLIBS) $(MODTAP_LDLIBS) $(DENSITY_LDLIBS) $(CWATCH_LDLIBS) $(A11Y_LDLIBS) -lm -ldl
 
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin
@@ -178,7 +156,7 @@ MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 # directly in, same as every other source file here, so each program
 # stays independently buildable and installable on its own (no shared
 # library to depend on at runtime).
-SRCS := xispanel.c modules.c ewmh.c menu.c tooltip.c peek.c toast.c launchfx.c xdnd.c hotkey.c keynav.c $(CWATCH_SRCS) $(A11Y_SRCS) $(MODTAP_SRCS) asyncmd.c pulse.c audio_events.c network.c storage.c storage_events.c xisguard_events.c pango_text.c $(DBUS_SRCS) $(THUMB_SRCS) $(DENSITY_SRCS) $(INPUTSCALE_SRCS) widgets/spacer.c widgets/clock.c widgets/tasklist.c widgets/winctl.c widgets/tray.c widgets/launcher.c widgets/volume.c widgets/globalmenu.c widgets/folder.c widgets/xisserve.c widgets/notif.c widgets/pager.c widgets/monitor.c widgets/energy.c widgets/container.c widgets/network.c widgets/storage.c widgets/clipboard.c widgets/lockkeys.c widgets/xisguard.c ../shared/xis_outputs.c ../shared/xis_spawn.c ../shared/xis_desktop_actions.c ../shared/xis_pactl_subscribe.c ../shared/xis_icon_cache.c ../shared/xis_direction.c ../shared/xis_safefile.c
+SRCS := xispanel.c modules.c ewmh.c menu.c tooltip.c peek.c toast.c launchfx.c xdnd.c hotkey.c keynav.c $(CWATCH_SRCS) $(A11Y_SRCS) $(MODTAP_SRCS) asyncmd.c pulse.c audio_events.c network.c storage.c storage_events.c xisguard_events.c pango_text.c $(DBUS_SRCS) $(THUMB_SRCS) $(DENSITY_SRCS) widgets/spacer.c widgets/clock.c widgets/tasklist.c widgets/winctl.c widgets/tray.c widgets/launcher.c widgets/volume.c widgets/globalmenu.c widgets/folder.c widgets/xisserve.c widgets/notif.c widgets/pager.c widgets/monitor.c widgets/energy.c widgets/container.c widgets/network.c widgets/storage.c widgets/clipboard.c widgets/lockkeys.c widgets/xisguard.c ../shared/xis_outputs.c ../shared/xis_spawn.c ../shared/xis_desktop_actions.c ../shared/xis_pactl_subscribe.c ../shared/xis_icon_cache.c ../shared/xis_direction.c ../shared/xis_safefile.c
 OBJS := $(SRCS:.c=.o)
 
 all: xispanel
