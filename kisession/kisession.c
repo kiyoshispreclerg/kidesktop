@@ -70,7 +70,7 @@
 #include <unistd.h>
 #include "../shared/xis_safefile.h"
 
-#define KISESSION_VERSION "0.1.20"
+#define KISESSION_VERSION "0.1.21"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -2009,6 +2009,19 @@ static int loop_timeout_ms(void)
     return timeout;
 }
 
+/* kiconf's ~/.xsessionrc block exports KISESSION_SSH_AGENT_PID only for an
+ * agent it started itself, so an agent we did not start (gnome-keyring,
+ * the Xsession wrapper) is never touched. */
+static void kill_own_ssh_agent(void)
+{
+    const char *v = getenv("KISESSION_SSH_AGENT_PID");
+    char *end = NULL;
+    long pid = v ? strtol(v, &end, 10) : 0;
+    if (pid > 1 && end && !*end) {
+        kill((pid_t)pid, SIGTERM);
+    }
+}
+
 int main(int argc, char **argv)
 {
     xis_i18n_init("kisession");
@@ -2124,6 +2137,7 @@ int main(int argc, char **argv)
     }
 
     shutdown_session();
+    kill_own_ssh_agent();
     remove_pidfile();
     if (g_dpy) {
         XCloseDisplay(g_dpy);
