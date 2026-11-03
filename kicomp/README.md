@@ -1859,9 +1859,23 @@ kicomp:   [0] DP-1         1280x720+0+0 @ 60.00 Hz  scale 1.50x, drawn at 1920x1
 kicomp:   [1] HDMI-1       1440x900+1280+0 @ 59.89 Hz
 ```
 
+**Presented frames.** With the EGL backend and the Present presenter
+(`renderer = egl`, `presenter = auto`), on a server with X-SCALE, a scaled
+output has no source drawable at all: each finished frame —
+one of the backend's own GBM buffers, allocated for scanout — is handed to
+the CRTC as it is (`XScalePresentCrtcScanout`). Where the server can, it
+page-flips the buffer onto the CRTC: no copy by kicomp, none by the
+server, and no source pixmap or window to keep, so the output costs its
+three swapchain buffers and nothing else. Where it can't (TearFree off,
+`PerCRTCFlip` off, a buffer the display can't read), the server copies
+the frame once. The startup log says which (`sharp frames presented ...
+flipped` or `copied`), and the stats effect shows `flip`/`copy` per
+frame. GLX and XRender keep the source of the paragraph above.
+
 **Everywhere else it is just correct and blurry**, never broken: a stock
 server, an XiS server without the extension, a DDX that performs the
-transform on its own buffers (amdgpu with TearFree), or the EGL backend —
+transform on its own buffers (amdgpu with TearFree), or the EGL backend
+with another presenter —
 kicomp draws the output at its logical size like any other and the server
 magnifies it. `x-scale=0` in the startup line means no output will be
 sourced on this machine. If kicomp exits or crashes, the server drops the

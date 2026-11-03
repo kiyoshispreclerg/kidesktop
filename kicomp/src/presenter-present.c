@@ -39,11 +39,20 @@
  * only hand the server's timing back to us as our own -- the XLibre
  * server reports a per-CRTC flip a vblank late every few seconds, and
  * every one of those was a frame of a video merged into the next.
+ *
+ * A scaled output presented through X-SCALE (o->source_presented)
+ * has no window: its frame is physical-sized while its box in the root
+ * is logical, so a window would spill over the next output. The pixmap
+ * goes to its CRTC directly (xscale_present_pixmap), and the server
+ * answers with the same two things Present does -- a completion with its
+ * MSC and UST, an idle per pixmap -- as X-SCALE events, which land in
+ * the same bookkeeping below. A flip there means no copy at all.
  */
 #include "presenter.h"
 #include "renderer.h"
 #include "region.h"
 #include "animation.h"
+#include "xscale.h"
 
 #include <xcb/present.h>
 #include <xcb/shape.h>
@@ -79,6 +88,12 @@ static bool present_init(CompOutput *o)
     PresentOutput *po = calloc(1, sizeof(*po));
     if (!po)
         return false;
+
+    /* Presented through X-SCALE: no window to present into (above). */
+    if (o->source_presented) {
+        o->present_data = po;
+        return true;
+    }
 
     /* Same depth and visual as the target pixmap the renderer draws into
      * (the root's), because Present refuses a pixmap whose depth differs
@@ -185,6 +200,17 @@ static bool present_present(CompOutput *o, CompPresentMode mode,
     if (pixmap == XCB_NONE)
         return false;
 
+    if (o->source_presented) {
+        if (!xscale_present_pixmap(o, pixmap, ++po->serial, damage)) {
+            /* Not sent (given back for now): nobody will say idle */
+            renderer_output_pixmap_idle(o, pixmap);
+            return false;
+        }
+        po->pending = true;
+        po->pending_since = comp_now_ms();
+        return true;
+    }
+
     xcb_xfixes_region_t update = update_region(o, damage);
 
     /* target_msc 0: at the next vblank, not at a particular frame number.
@@ -251,8 +277,46 @@ static const char *mode_name(uint8_t mode)
     }
 }
 
+/* The X-SCALE side of the same bookkeeping, for outputs presented that
+ * way: a completion says when and how a frame landed, an idle hands a
+ * buffer back to the renderer. */
+static bool xscale_handle_event(xcb_generic_event_t *ev)
+{
+    XScaleEvent x;
+    if (!xscale_decode_event(ev, &x))
+        return false;
+
+    for (int i = 0; i < comp.output_count; i++) {
+        CompOutput *o = &comp.outputs[i];
+        PresentOutput *po = o->present_data;
+        if (!po || !o->source_presented || o->crtc != x.crtc)
+            continue;
+
+        if (!x.complete) {
+            renderer_output_pixmap_idle(o, x.pixmap);
+            break;
+        }
+        if (x.serial == po->serial)
+            po->pending = false;
+        if (x.mode == XSCALE_MODE_SKIP)
+            break;      /* never shown: nothing to measure */
+        po->msc = x.msc;
+        po->ust = x.ust;
+        po->mode = x.mode == XSCALE_MODE_FLIP ? XCB_PRESENT_COMPLETE_MODE_FLIP
+                                              : XCB_PRESENT_COMPLETE_MODE_COPY;
+        comp_log("x-scale %s: msc %llu mode %s ust %llu", o->name,
+                 (unsigned long long)x.msc, mode_name(po->mode),
+                 (unsigned long long)x.ust);
+        break;
+    }
+    return true;
+}
+
 static bool present_handle_event(xcb_generic_event_t *ev)
 {
+    if (xscale_handle_event(ev))
+        return true;
+
     if ((ev->response_type & 0x7f) != XCB_GE_GENERIC)
         return false;
 
