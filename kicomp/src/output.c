@@ -453,7 +453,10 @@ void outputs_refresh(void)
                  * the picture (xscale.h); a scaled output it can't is
                  * drawn at logical size for the server to magnify. */
                 int sw = 0, sh = 0;
-                if (renderer && renderer->scanout_source &&
+                bool presents = renderer && renderer->scanout_present &&
+                                comp.caps.xscale_present &&
+                                presenter == presenter_present();
+                if (renderer && (renderer->scanout_source || presents) &&
                     xscale_crtc_capable(o->crtc, &sw, &sh) &&
                     sw > o->rect.w && sh > o->rect.h) {
                     float sx = (float)sw / (float)o->rect.w;
@@ -461,6 +464,7 @@ void outputs_refresh(void)
                     /* one factor for both axes is all the renderers do */
                     if (sx - sy < 0.02f && sy - sx < 0.02f) {
                         o->sourced = true;
+                        o->source_presented = presents;
                         o->scale = sx;
                         o->physical.w = sw;
                         o->physical.h = sh;
@@ -513,6 +517,7 @@ void outputs_refresh(void)
             xscale_detach(o);
             renderer->destroy(o);
             o->sourced = false;
+            o->source_presented = false;
             o->scale = 1.0f;
             o->physical = o->rect;
             if (!renderer->init(o)) {

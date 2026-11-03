@@ -58,6 +58,15 @@ typedef struct CompRenderer {
      * server. */
     bool scanout_source;
 
+    /* Can a scaled output drawn by this backend hand its own buffers to
+     * the server one finished frame at a time (X-SCALE 1.1,
+     * xscale_present_pixmap)? Needs a swapchain of pixmaps the server
+     * can scan out, output_pixmap and output_pixmap_idle below, and the
+     * Present presenter that drives them: the EGL backend. Where the
+     * server is new enough this replaces scanout_source, and the frames
+     * are flipped onto the CRTC instead of copied twice. */
+    bool scanout_present;
+
     bool (*init)(CompOutput *o);      /* create this output's target */
     void (*destroy)(CompOutput *o);
 
