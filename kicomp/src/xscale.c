@@ -63,7 +63,10 @@ static unsigned xscale_send(const void *req, size_t len, int isvoid)
     parts[3].iov_base = NULL;
     parts[3].iov_len = (size_t)(-(ssize_t)len & 3);
 
-    return xcb_send_request(comp.conn, 0, parts + 2, &r);
+    /* Void requests go out checked, so set_source() gets their errors
+     * through xcb_request_check() instead of the event loop. */
+    return xcb_send_request(comp.conn, isvoid ? XCB_REQUEST_CHECKED : 0,
+                            parts + 2, &r);
 }
 
 void xscale_init(void)
