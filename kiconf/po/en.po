@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-02 22:07-0300\n"
+"POT-Creation-Date: 2026-11-03 07:51-0300\n"
 "PO-Revision-Date: 2026-10-01 13:53-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -244,7 +244,7 @@ msgstr "_Back"
 #: tabs/autostart.c:421 tabs/disks.c:364 tabs/energy.c:453 tabs/history.c:382
 #: tabs/history.c:449 tabs/input.c:643 tabs/kitheme.c:610 tabs/lock.c:196
 #: tabs/login.c:708 tabs/permissions.c:821 tabs/programs.c:305
-#: tabs/screens.c:2126 tabs/shortcuts.c:1471 tabs/system.c:819 tabs/users.c:573
+#: tabs/screens.c:2265 tabs/shortcuts.c:1471 tabs/system.c:819 tabs/users.c:573
 msgid "Aplicar"
 msgstr "Apply"
 
@@ -402,7 +402,7 @@ msgid "Tecnologias assistivas"
 msgstr "Assistive technology"
 
 #: tabs/appearance.c:211 tabs/appearance.c:232 tabs/associations.c:192
-#: tabs/screens.c:1484 tabs/screens.c:1643
+#: tabs/screens.c:1565 tabs/screens.c:1733
 msgid "(nenhum)"
 msgstr "(none)"
 
@@ -1682,7 +1682,7 @@ msgid "Titulo privado (regex):"
 msgstr "Private title (regex):"
 
 #: tabs/history.c:388 tabs/history.c:455 tabs/permissions.c:915
-#: tabs/screens.c:1987
+#: tabs/screens.c:2105
 msgid "-"
 msgstr "-"
 
@@ -2047,7 +2047,7 @@ msgstr ""
 "Sets the window, field, button and menu backgrounds, and tooltips in the "
 "opposite tone."
 
-#: tabs/kitheme.c:532 tabs/screens.c:2118
+#: tabs/kitheme.c:532 tabs/screens.c:2257
 msgid "Avancado"
 msgstr "Advanced"
 
@@ -3299,12 +3299,12 @@ msgid "Sessao (kisession.conf -- \"(automatico)\" usa o primeiro instalado)"
 msgstr ""
 "Session (kisession.conf -- \"(automatic)\" uses the first one installed)"
 
-#: tabs/screens.c:1856 tabs/screens.c:1878 tabs/screens.c:1992
+#: tabs/screens.c:1974 tabs/screens.c:1996 tabs/screens.c:2110
 #, c-format
 msgid "%d saida(s) detectada(s)."
 msgstr "%d output(s) detected."
 
-#: tabs/screens.c:1976
+#: tabs/screens.c:2094
 msgid ""
 "Arraste as caixas pra reposicionar. Aplicar tambem grava o layout pra ser "
 "reaplicado automaticamente no inicio da proxima sessao."
@@ -3312,83 +3312,90 @@ msgstr ""
 "Drag the boxes to reposition them. Apply also saves the layout so it is "
 "reapplied automatically when the next session starts."
 
-#: tabs/screens.c:2008 tabs/wallpaper.c:1450
+#: tabs/screens.c:2126 tabs/wallpaper.c:1450
 msgid "Saida"
 msgstr "Output"
 
-#: tabs/screens.c:2012
+#: tabs/screens.c:2130
 msgid "Clique pra configurar; duplo clique liga a saida"
 msgstr "Click to configure; double-click turns the output on"
 
-#: tabs/screens.c:2022
-msgid "Desenho responde a DPI e escala"
-msgstr "Drawing responds to DPI and scale"
-
-#: tabs/screens.c:2024
-msgid ""
-"Cada tela aparece do tamanho que ocupa na area de trabalho, que a DPI define "
-"(DPI 144 = 2/3 do modo, DPI 72 = 4/3)."
-msgstr ""
-"Each screen is drawn at the size it takes up on the desktop, which its DPI sets (DPI 144 = 2/3 of the mode, DPI 72 = 4/3)."
-
-#: tabs/screens.c:2029
-msgid ""
-"Sem um compositor com X-DENSITY, telas com DPI acima de 96 ficam borradas."
-msgstr ""
-"Without a compositor with X-DENSITY, screens with a DPI above 96 look blurry."
-
-#: tabs/screens.c:2036
+#: tabs/screens.c:2141
 msgid "Layout (arraste pra mover)"
 msgstr "Layout (drag to move)"
 
-#: tabs/screens.c:2037
+#: tabs/screens.c:2142
 msgid "Desativadas"
 msgstr "Disabled"
 
-#: tabs/screens.c:2048
+#: tabs/screens.c:2153
 msgid "Resolucao:"
 msgstr "Resolution:"
 
-#: tabs/screens.c:2051
+#: tabs/screens.c:2156
 msgid "Taxa de atualizacao:"
 msgstr "Refresh rate:"
 
-#: tabs/screens.c:2058
+#: tabs/screens.c:2163
 msgid "Rotacao:"
 msgstr "Rotation:"
 
-#: tabs/screens.c:2061
+#: tabs/screens.c:2166
 msgid "Espelhar (mirror):"
 msgstr "Mirror:"
 
-#: tabs/screens.c:2062
+#: tabs/screens.c:2167
 msgid "Saida ligada"
 msgstr "Output on"
 
-#: tabs/screens.c:2065
+#: tabs/screens.c:2170
 msgid "Saida primaria"
 msgstr "Primary output"
 
-#: tabs/screens.c:2084
+#: tabs/screens.c:2188
 msgid ""
-"Acima de 96 a tela fica maior (HiDPI); abaixo de 96 cabe mais area de "
-"trabalho nela."
-msgstr ""
-"Above 96 everything on the screen gets bigger (HiDPI); below 96 it fits more desktop."
+"Densidade da tela, informada aos programas. Com \"Seguir DPI\", a escala "
+"acompanha: acima de 96 a tela fica maior (HiDPI); abaixo de 96 cabe mais "
+"area de trabalho nela."
+msgstr "The screen's density, told to programs. With \"Follow DPI\" the scale follows it: above 96 everything on the screen gets bigger (HiDPI); below 96 it fits more desktop."
 
-#: tabs/screens.c:2086
+#: tabs/screens.c:2191
 msgid "DPI:"
 msgstr "DPI:"
 
-#: tabs/screens.c:2098
+#: tabs/screens.c:2199
+msgid ""
+"--scale do xrandr: abaixo de 1 a tela fica maior; acima de 1 cabe mais area "
+"de trabalho nela."
+msgstr "xrandr's --scale: below 1 everything on the screen gets bigger; above 1 it fits more desktop."
+
+#: tabs/screens.c:2201
+msgid "Seguir DPI"
+msgstr "Follow DPI"
+
+#: tabs/screens.c:2203
+msgid "A escala acompanha o DPI (96/DPI)."
+msgstr "The scale follows the DPI (96/DPI)."
+
+#: tabs/screens.c:2207
+msgid "Escala:"
+msgstr "Scale:"
+
+#: tabs/screens.c:2219
+msgid ""
+"Sem um compositor com X-DENSITY, telas ampliadas (escala abaixo de 1) ficam "
+"borradas."
+msgstr "Without a compositor with X-DENSITY, magnified screens (scale below 1) look blurry."
+
+#: tabs/screens.c:2237
 msgid "Saida selecionada"
 msgstr "Selected output"
 
-#: tabs/screens.c:2119
+#: tabs/screens.c:2258
 msgid "Propriedades avancadas"
 msgstr "Advanced properties"
 
-#: tabs/screens.c:2125
+#: tabs/screens.c:2264
 msgid "Detectar novamente"
 msgstr "Detect again"
 
@@ -4545,6 +4552,16 @@ msgstr "Current: %s"
 msgid "Esc cancela. Uma tecla sozinha tambem vale: aperte-a e depois Enter."
 msgstr "Esc cancels. A single key works too: press it, then Enter."
 
+#~ msgid "Desenho responde a DPI e escala"
+#~ msgstr "Drawing responds to DPI and scale"
+
+#~ msgid ""
+#~ "Cada tela aparece do tamanho que ocupa na area de trabalho, que a DPI "
+#~ "define (DPI 144 = 2/3 do modo, DPI 72 = 4/3)."
+#~ msgstr ""
+#~ "Each screen is drawn at the size it takes up on the desktop, which its "
+#~ "DPI sets (DPI 144 = 2/3 of the mode, DPI 72 = 4/3)."
+
 #~ msgid ""
 #~ "Escala (--scale) aumenta ou diminui a caixa; DPI >= 96 a encolhe (precisa "
 #~ "de X-INPUT-SCALE e do X-DENSITY do compositor)."
@@ -4557,9 +4574,6 @@ msgstr "Esc cancels. A single key works too: press it, then Enter."
 #~ "DENSITY."
 #~ msgstr ""
 #~ "DPI is not drawn: X-INPUT-SCALE or a compositor with X-DENSITY is missing."
-
-#~ msgid "Escala:"
-#~ msgstr "Scale:"
 
 #, c-format
 #~ msgid "%s -- %d regra(s). Somente leitura por enquanto."

@@ -88,15 +88,19 @@ typedef struct {
      * screens_redetect_preserving_extras(), so its "baseline" is "what
      * kiconf last set it to", not what the hardware reports.
      *
-     * The scale is not set on its own: it follows the DPI
-     * (screens_dpi_scale()), so that kicomp, which turns a DPI into the
-     * same transform, finds it already in place. A DPI below 96 is never
-     * set as such: it is applied as DPI 96 plus a scale above 1
-     * (screens_applied_dpi()), and read back the same way. */
+     * The scale is its own control, but by default it follows the DPI
+     * (follow_dpi, "Seguir DPI"): 96/DPI, see screens_dpi_scale(). Both
+     * are set as picked; the transform is the scale, and nothing turns the
+     * DPI into one. follow_dpi isn't stored anywhere: it is read back as
+     * "the scale is the one the DPI gives" (parse_verbose_props()). */
     char mirror_of[NAME_LEN];
     int dpi;
     double scale_x, scale_y;
     int dpi_read, scale_read;
+    /* The server has the fork's DPI property on this output. Without it
+     * there is no DPI to show or follow, only the scale. */
+    int dpi_prop;
+    int follow_dpi;
     /* `xrandr --verbose`'s per-output driver properties, classified the
      * same way xisconf.py's _parse_verbose_props() does: editable (has a
      * "supported:" enum or a "range:", and isn't force-listed as
@@ -129,7 +133,7 @@ static GtkWidget *g_screens_canvas;
 static GtkWidget *g_screens_res_combo, *g_screens_rate_combo, *g_screens_rot_combo;
 static GtkWidget *g_screens_enabled_chk, *g_screens_primary_chk;
 static GtkWidget *g_screens_mirror_combo;
-static GtkWidget *g_screens_dpi_spin;
+static GtkWidget *g_screens_dpi_spin, *g_screens_scale_spin, *g_screens_follow_chk;
 /* Small note under the DPI spinner (see screens_update_note()). */
 static GtkWidget *g_screens_visual_note;
 /* Lowest DPI the spinner offers besides Auto: 96/48, twice the mode's area
@@ -140,6 +144,20 @@ static GtkWidget *g_screens_visual_note;
  * SCREENS_DPI_MIN (see its own comment) so it knows whether to snap down
  * to 0 (Auto) or up to SCREENS_DPI_MIN. */
 static int g_screens_dpi_last = 0;
+
+/* The --scale a DPI means: 96/DPI, so a 144 DPI output covers 2/3 of its
+ * mode on the root and a 72 DPI one 4/3 of it. Auto (0) and unset are 1.
+ * Bounded at 4x (DPI 384), like the scale spinner. */
+static double screens_dpi_scale(int dpi)
+{
+    if (dpi <= 0) {
+        return 1.0;
+    }
+    if (dpi < SCREENS_DPI_MIN) {
+        dpi = SCREENS_DPI_MIN;
+    }
+    return 96.0 / (dpi > 384 ? 384 : dpi);
+}
 static GtkWidget *g_screens_status_label;
 /* Connected-but-off outputs, beside the canvas (which only draws enabled
  * ones) -- selecting a row selects that output for the form below, so it
@@ -630,10 +648,12 @@ static void parse_verbose_props(char *text, ScreenOutput *outs, int n)
         }
 
         if (!strcmp(name, "DPI")) {
-            /* Only what the spin button can show: Auto (0) or 96 and up. */
+            /* Only what the spin button can show: Auto (0) or
+             * SCREENS_DPI_MIN and up. */
+            out->dpi_prop = 1;
             char *end = NULL;
             long v = strtol(val, &end, 10);
-            if (end != val && (v == 0 || (v >= 96 && v <= 960))) {
+            if (end != val && (v == 0 || (v >= SCREENS_DPI_MIN && v <= 960))) {
                 out->dpi = (int)v;
                 out->dpi_read = 1;
             }
@@ -652,13 +672,14 @@ static void parse_verbose_props(char *text, ScreenOutput *outs, int n)
         i = j;
     }
 
-    /* A DPI below 96 was applied as DPI 96 plus a scale above 1; show it
-     * as the DPI that was picked. */
+    /* "Seguir DPI" is on when the scale is the one the DPI gives, or when
+     * nothing was read that says otherwise. */
     for (int k = 0; k < n; k++) {
         ScreenOutput *o = &outs[k];
-        if (o->dpi_read && o->dpi == 96 && o->scale_read && o->scale_x > 1.001) {
-            int dpi = (int)lround(96.0 / o->scale_x);
-            o->dpi = dpi < SCREENS_DPI_MIN ? SCREENS_DPI_MIN : dpi;
+        o->follow_dpi = o->dpi_prop;
+        if (o->dpi_prop && o->dpi_read && o->scale_read) {
+            double want = screens_dpi_scale(o->dpi);
+            o->follow_dpi = fabs(o->scale_x - want) < 1e-3 && fabs(o->scale_y - want) < 1e-3;
         }
     }
 }
@@ -695,37 +716,11 @@ static const char *fmt_c_double(char *buf, size_t bufsz, double v)
     return buf;
 }
 
-/* The --scale a DPI means: 96/DPI, so a 144 DPI output covers 2/3 of its
- * mode on the root and a 72 DPI one 4/3 of it. Auto (0) and unset are 1.
- * Above 96 it is bounded to what kicomp's own DPI policy produces (up to
- * 4x), so the two never disagree. */
-static double screens_dpi_scale(int dpi)
-{
-    if (dpi <= 0) {
-        return 1.0;
-    }
-    if (dpi < SCREENS_DPI_MIN) {
-        dpi = SCREENS_DPI_MIN;
-    }
-    return 96.0 / (dpi > 384 ? 384 : dpi);
-}
-
-/* The DPI property actually set for a DPI the user picked. Below 96 the
- * desktop grows instead (the scale above 1 does that), and the property
- * stays at 96: clients keep drawing at their normal size, and kicomp,
- * which never scales below 1, leaves the transform alone. */
-static int screens_applied_dpi(int dpi)
-{
-    return (dpi > 0 && dpi < 96) ? 96 : dpi;
-}
-
-/* Sets the DPI property on its own, after the geometry. kicomp reacts to
- * a DPI change by setting the transform it implies; sent last, it finds
- * that transform already applied and has nothing to do. */
+/* Sets the DPI property in a call of its own, after the geometry. */
 static void apply_output_dpi(const ScreenOutput *o)
 {
     char dpibuf[16];
-    snprintf(dpibuf, sizeof(dpibuf), "%d", screens_applied_dpi(o->dpi));
+    snprintf(dpibuf, sizeof(dpibuf), "%d", o->dpi);
     char *argv[] = {"xrandr", "--output", (char *)o->name, "--set", "DPI", dpibuf, NULL};
     run_fire(argv);
 }
@@ -862,7 +857,7 @@ static void apply_output_diff(const ScreenOutput *o, const ScreenOutput *base)
     if (changed) {
         run_fire(argv);
     }
-    if (o->dpi >= 0 && screens_applied_dpi(o->dpi) != screens_applied_dpi(base->dpi)) {
+    if (o->dpi >= 0 && o->dpi != base->dpi) {
         apply_output_dpi(o);
     }
 }
@@ -895,8 +890,8 @@ static void apply_extra_prop_diffs(const ScreenOutput *o, const ScreenOutput *ba
 }
 
 /* Is a compositor redrawing clients densely? It owns
- * _X_DENSITY_MANAGER_S<n>; without one, an output scaled by DPI is only
- * magnified by the server, and looks blurry. Re-queried at most every
+ * _X_DENSITY_MANAGER_S<n>; without one, a magnified output (scale below
+ * 1) is only magnified by the server, and looks blurry. Re-queried at most every
  * 2s -- the compositor can come and go. */
 static int screens_density_available(void)
 {
@@ -918,8 +913,8 @@ static int screens_density_available(void)
     return cached;
 }
 
-/* Shows the "will look blurry" note while some enabled output has a DPI
- * that scales it and no compositor redraws densely. */
+/* Shows the "will look blurry" note while some enabled output is
+ * magnified and no compositor redraws densely. */
 static void screens_update_note(void)
 {
     if (!g_screens_visual_note) {
@@ -927,7 +922,7 @@ static void screens_update_note(void)
     }
     int scaled = 0;
     for (int i = 0; i < g_n_outputs; i++) {
-        if (g_outputs[i].connected && g_outputs[i].enabled && g_outputs[i].dpi > 96) {
+        if (g_outputs[i].connected && g_outputs[i].enabled && g_outputs[i].scale_x < 0.999) {
             scaled = 1;
         }
     }
@@ -939,8 +934,7 @@ static void screens_update_note(void)
 }
 
 /* Size the preview draws/docks an output at: the mode times --scale,
- * which is exactly the area the output covers on the root (the scale
- * already follows the DPI, see screens_dpi_scale()). */
+ * which is exactly the area the output covers on the root. */
 static void output_visual_size(const ScreenOutput *o, int *w, int *h)
 {
     double fw = o->width, fh = o->height;
@@ -1162,7 +1156,7 @@ static void screens_dock(int idx, int *x, int *y, int w, int h, double scale)
 }
 
 /* Output idx just changed its visual size from ow x oh (mode, rotation or
- * DPI). Keeps the layout gapless: whatever touched its right/bottom edge
+ * scale). Keeps the layout gapless: whatever touched its right/bottom edge
  * (and, chained, whatever touched that) follows the edge by the size
  * difference, so shrinking leaves no gap and growing leaves no overlap. */
 static void screens_reflow(int idx, int ow, int oh)
@@ -1225,6 +1219,46 @@ static void screens_reflow(int idx, int ow, int oh)
 
 static void sync_screens_form(void);
 static void rebuild_screens_off_list(void);
+
+/* The DPI row and "Seguir DPI" only exist on outputs with the DPI
+ * property; the scale is typed in only while it doesn't follow the DPI. */
+static void screens_update_scale_widgets(const ScreenOutput *o)
+{
+    GList *labels = gtk_widget_list_mnemonic_labels(g_screens_dpi_spin);
+    for (GList *l = labels; l; l = l->next) {
+        if (o->dpi_prop) {
+            gtk_widget_show(GTK_WIDGET(l->data));
+        } else {
+            gtk_widget_hide(GTK_WIDGET(l->data));
+        }
+    }
+    g_list_free(labels);
+    if (o->dpi_prop) {
+        gtk_widget_show(g_screens_dpi_spin);
+        gtk_widget_show(g_screens_follow_chk);
+    } else {
+        gtk_widget_hide(g_screens_dpi_spin);
+        gtk_widget_hide(g_screens_follow_chk);
+    }
+    gtk_widget_set_sensitive(g_screens_scale_spin, !(o->dpi_prop && o->follow_dpi));
+}
+
+/* Sets the selected output's scale, keeping the layout gapless and the
+ * scale spinner showing it. */
+static void screens_set_scale(double v)
+{
+    ScreenOutput *o = &g_outputs[g_screens_selected];
+    int old_w, old_h;
+    output_visual_size(o, &old_w, &old_h);
+    o->scale_x = o->scale_y = v;
+    screens_reflow(g_screens_selected, old_w, old_h);
+    int was = g_screens_syncing;
+    g_screens_syncing = 1;
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_screens_scale_spin), v);
+    g_screens_syncing = was;
+    screens_update_note();
+    gtk_widget_queue_draw(g_screens_canvas);
+}
 
 /* ---- Telas tab: advanced/other properties widgets ---------------------
  * Each ExtraProp* handed to these callbacks points directly into
@@ -1544,6 +1578,9 @@ static void sync_screens_form(void)
 
     g_screens_dpi_last = o->dpi >= 0 ? o->dpi : 96;
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_screens_dpi_spin), g_screens_dpi_last);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_screens_scale_spin), fabs(o->scale_x) > 1e-6 ? o->scale_x : 1.0);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_screens_follow_chk), o->follow_dpi);
+    screens_update_scale_widgets(o);
 
     rebuild_extra_props_ui();
 
@@ -1753,13 +1790,33 @@ static void on_screens_dpi_changed(GtkWidget *widget, gpointer data)
     }
     g_screens_dpi_last = v;
     ScreenOutput *o = &g_outputs[g_screens_selected];
-    int old_w, old_h;
-    output_visual_size(o, &old_w, &old_h);
     o->dpi = v;
-    o->scale_x = o->scale_y = screens_dpi_scale(v);
-    screens_reflow(g_screens_selected, old_w, old_h);
-    screens_update_note();
-    gtk_widget_queue_draw(g_screens_canvas);
+    if (o->follow_dpi) {
+        screens_set_scale(screens_dpi_scale(v));
+    }
+}
+
+static void on_screens_scale_changed(GtkWidget *widget, gpointer data)
+{
+    (void)data;
+    if (g_screens_syncing || g_screens_selected < 0) {
+        return;
+    }
+    screens_set_scale(gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget)));
+}
+
+static void on_screens_follow_toggled(GtkWidget *widget, gpointer data)
+{
+    (void)data;
+    if (g_screens_syncing || g_screens_selected < 0) {
+        return;
+    }
+    ScreenOutput *o = &g_outputs[g_screens_selected];
+    o->follow_dpi = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget));
+    screens_update_scale_widgets(o);
+    if (o->follow_dpi) {
+        screens_set_scale(screens_dpi_scale(o->dpi));
+    }
 }
 
 /* mirror_of/dpi/scale aren't detected from plain `xrandr` (see
@@ -1773,6 +1830,7 @@ typedef struct {
     char mirror_of[NAME_LEN];
     int dpi;
     double scale_x, scale_y;
+    int follow_dpi;
 } ScreensExtra;
 
 static void screens_redetect_preserving_extras(void)
@@ -1785,6 +1843,7 @@ static void screens_redetect_preserving_extras(void)
         snap[n_snap].dpi = g_outputs[i].dpi;
         snap[n_snap].scale_x = g_outputs[i].scale_x;
         snap[n_snap].scale_y = g_outputs[i].scale_y;
+        snap[n_snap].follow_dpi = g_outputs[i].follow_dpi;
         n_snap++;
     }
 
@@ -1801,6 +1860,9 @@ static void screens_redetect_preserving_extras(void)
                 if (!g_outputs[i].scale_read) {
                     g_outputs[i].scale_x = snap[j].scale_x;
                     g_outputs[i].scale_y = snap[j].scale_y;
+                }
+                if (g_outputs[i].dpi_prop && (!g_outputs[i].dpi_read || !g_outputs[i].scale_read)) {
+                    g_outputs[i].follow_dpi = snap[j].follow_dpi;
                 }
                 break;
             }
@@ -1867,7 +1929,7 @@ static void save_screens_layout(void)
                  o->edid_id[0] ? o->edid_id : o->name, o->enabled,
                  o->current_mode[0] ? o->current_mode : "-",
                  o->current_rate[0] ? o->current_rate : "-",
-                 o->x, o->y, o->rotation, o->primary, sxbuf, sybuf, screens_applied_dpi(o->dpi),
+                 o->x, o->y, o->rotation, o->primary, sxbuf, sybuf, o->dpi,
                  o->mirror_of[0] ? screens_persist_id(o->mirror_of) : "-");
     }
     if (xis_write_commit(f, tmp, path, xis_check_lines) != 0) {
@@ -2085,7 +2147,7 @@ GtkWidget *build_screens_tab(void)
      * (and with it the whole tab) taller than the 700x500 minimum window
      * size allows. */
     GtkWidget *form_col1 = gtk_table_new(4, 2, FALSE);
-    GtkWidget *form_col2 = gtk_table_new(4, 2, FALSE);
+    GtkWidget *form_col2 = gtk_table_new(5, 2, FALSE);
     g_screens_res_combo = gtk_combo_box_new_text();
     g_signal_connect(g_screens_res_combo, "changed", G_CALLBACK(on_screens_res_changed), NULL);
     labeled_row(form_col1, 0, _("Resolucao:"), g_screens_res_combo);
@@ -2111,9 +2173,8 @@ GtkWidget *build_screens_tab(void)
     /* 0 is a real, explicit choice here, not "unset" -- it's what
      * xrandr --set DPI 0 means with AutoDPI on in the (forked) X server:
      * pick the DPI automatically instead of forcing one. Anything else is
-     * SCREENS_DPI_MIN and up in steps of 12 -- and it also decides the
-     * scale (screens_dpi_scale()), there's no separate control for it --
-     * so the range runs 0..960 but on_screens_dpi_changed() snaps the
+     * SCREENS_DPI_MIN and up in steps of 12 -- so the range runs 0..960
+     * but on_screens_dpi_changed() snaps the
      * disallowed gap below SCREENS_DPI_MIN to whichever end a step or
      * typed value was headed towards, and the "input"/"output" signals show/accept "Auto" for
      * 0 rather than the bare number. o->dpi itself uses a separate -1
@@ -2124,18 +2185,44 @@ GtkWidget *build_screens_tab(void)
     g_signal_connect(g_screens_dpi_spin, "input", G_CALLBACK(on_screens_dpi_input), NULL);
     g_signal_connect(g_screens_dpi_spin, "value-changed", G_CALLBACK(on_screens_dpi_changed), NULL);
     gtk_widget_set_tooltip_text(g_screens_dpi_spin,
-        _("Acima de 96 a tela fica maior (HiDPI); abaixo de 96 cabe mais area "
-          "de trabalho nela."));
+        _("Densidade da tela, informada aos programas. Com \"Seguir DPI\", a "
+          "escala acompanha: acima de 96 a tela fica maior (HiDPI); abaixo de "
+          "96 cabe mais area de trabalho nela."));
     labeled_row(form_col2, 2, _("DPI:"), g_screens_dpi_spin);
+    /* --scale as xrandr takes it: below 1 the output is magnified, above
+     * 1 it covers more desktop. "Seguir DPI" sets it to 96/DPI and keeps
+     * it there while the DPI changes. */
+    g_screens_scale_spin = gtk_spin_button_new_with_range(0.25, 4.0, 0.05);
+    gtk_spin_button_set_digits(GTK_SPIN_BUTTON(g_screens_scale_spin), 2);
+    g_signal_connect(g_screens_scale_spin, "value-changed", G_CALLBACK(on_screens_scale_changed), NULL);
+    gtk_widget_set_tooltip_text(g_screens_scale_spin,
+        _("--scale do xrandr: abaixo de 1 a tela fica maior; acima de 1 cabe "
+          "mais area de trabalho nela."));
+    g_screens_follow_chk = gtk_check_button_new_with_label(_("Seguir DPI"));
+    g_signal_connect(g_screens_follow_chk, "toggled", G_CALLBACK(on_screens_follow_toggled), NULL);
+    gtk_widget_set_tooltip_text(g_screens_follow_chk, _("A escala acompanha o DPI (96/DPI)."));
+    GtkWidget *scale_box = gtk_hbox_new(FALSE, 6);
+    gtk_box_pack_start(GTK_BOX(scale_box), g_screens_scale_spin, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(scale_box), g_screens_follow_chk, FALSE, FALSE, 0);
+    labeled_row(form_col2, 3, _("Escala:"), scale_box);
+    /* Shown per output by screens_update_scale_widgets(), not by the
+     * tab's show_all. */
+    gtk_widget_set_no_show_all(g_screens_dpi_spin, TRUE);
+    gtk_widget_set_no_show_all(g_screens_follow_chk, TRUE);
+    GList *dpi_labels = gtk_widget_list_mnemonic_labels(g_screens_dpi_spin);
+    for (GList *l = dpi_labels; l; l = l->next) {
+        gtk_widget_set_no_show_all(GTK_WIDGET(l->data), TRUE);
+    }
+    g_list_free(dpi_labels);
     g_screens_visual_note = gtk_label_new(NULL);
     char *dpi_note = g_markup_printf_escaped("<small>%s</small>",
-        _("Sem um compositor com X-DENSITY, telas com DPI acima de 96 ficam borradas."));
+        _("Sem um compositor com X-DENSITY, telas ampliadas (escala abaixo de 1) ficam borradas."));
     gtk_label_set_markup(GTK_LABEL(g_screens_visual_note), dpi_note);
     g_free(dpi_note);
     gtk_misc_set_alignment(GTK_MISC(g_screens_visual_note), 0.0, 0.0);
     gtk_label_set_line_wrap(GTK_LABEL(g_screens_visual_note), TRUE);
     gtk_widget_set_no_show_all(g_screens_visual_note, TRUE);
-    gtk_table_attach(GTK_TABLE(form_col2), g_screens_visual_note, 0, 2, 3, 4, GTK_FILL | GTK_EXPAND, GTK_FILL, 4, 2);
+    gtk_table_attach(GTK_TABLE(form_col2), g_screens_visual_note, 0, 2, 4, 5, GTK_FILL | GTK_EXPAND, GTK_FILL, 4, 2);
 
     GtkWidget *form_cols = gtk_hbox_new(FALSE, 8);
     gtk_box_pack_start(GTK_BOX(form_cols), form_col1, TRUE, TRUE, 0);
