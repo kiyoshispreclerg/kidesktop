@@ -130,8 +130,8 @@ static GtkWidget *g_screens_res_combo, *g_screens_rate_combo, *g_screens_rot_com
 static GtkWidget *g_screens_enabled_chk, *g_screens_primary_chk;
 static GtkWidget *g_screens_mirror_combo;
 static GtkWidget *g_screens_dpi_spin;
-/* "Desenho responde a DPI e escala" (see screens_dpi_visual_on()). */
-static GtkWidget *g_screens_visual_chk, *g_screens_visual_note;
+/* Small note under the DPI spinner (see screens_update_note()). */
+static GtkWidget *g_screens_visual_note;
 /* Lowest DPI the spinner offers besides Auto: 96/48, twice the mode's area
  * of desktop. */
 #define SCREENS_DPI_MIN 48
@@ -938,24 +938,16 @@ static void screens_update_note(void)
     }
 }
 
-static int screens_visual_on(void)
-{
-    return g_screens_visual_chk && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_screens_visual_chk));
-}
-
 /* Size the preview draws/docks an output at: the mode times --scale,
  * which is exactly the area the output covers on the root (the scale
- * already follows the DPI, see screens_dpi_scale()). Off by default: the
- * plain mode size. */
+ * already follows the DPI, see screens_dpi_scale()). */
 static void output_visual_size(const ScreenOutput *o, int *w, int *h)
 {
     double fw = o->width, fh = o->height;
-    if (screens_visual_on()) {
-        double sx = fabs(o->scale_x) > 1e-6 ? o->scale_x : 1.0;
-        double sy = fabs(o->scale_y) > 1e-6 ? o->scale_y : 1.0;
-        fw *= sx;
-        fh *= sy;
-    }
+    double sx = fabs(o->scale_x) > 1e-6 ? o->scale_x : 1.0;
+    double sy = fabs(o->scale_y) > 1e-6 ? o->scale_y : 1.0;
+    fw *= sx;
+    fh *= sy;
     *w = (int)lround(fw);
     *h = (int)lround(fh);
     if (!strcmp(o->rotation, "left") || !strcmp(o->rotation, "right")) {
@@ -963,13 +955,6 @@ static void output_visual_size(const ScreenOutput *o, int *w, int *h)
         *w = *h;
         *h = t;
     }
-}
-
-static void on_screens_visual_toggled(GtkWidget *widget, gpointer data)
-{
-    (void)widget;
-    (void)data;
-    gtk_widget_queue_draw(g_screens_canvas);
 }
 
 static void compute_world(double *ox, double *oy, double *scale, int canvas_w, int canvas_h)
@@ -1173,6 +1158,68 @@ static void screens_dock(int idx, int *x, int *y, int w, int h, double scale)
         *x = dx >= 0 ? r->x + rw : r->x - w;
     } else {
         *y = dy >= 0 ? r->y + rh : r->y - h;
+    }
+}
+
+/* Output idx just changed its visual size from ow x oh (mode, rotation or
+ * DPI). Keeps the layout gapless: whatever touched its right/bottom edge
+ * (and, chained, whatever touched that) follows the edge by the size
+ * difference, so shrinking leaves no gap and growing leaves no overlap. */
+static void screens_reflow(int idx, int ow, int oh)
+{
+    int nw, nh;
+    output_visual_size(&g_outputs[idx], &nw, &nh);
+    for (int axis = 0; axis < 2; axis++) {
+        int delta = axis ? nh - oh : nw - ow;
+        if (!delta) {
+            continue;
+        }
+        int ox[MAX_OUTPUTS], oy[MAX_OUTPUTS], sz_w[MAX_OUTPUTS], sz_h[MAX_OUTPUTS];
+        int d[MAX_OUTPUTS] = { 0 }, seen[MAX_OUTPUTS] = { 0 }, queue[MAX_OUTPUTS];
+        int n = g_n_outputs;
+        for (int i = 0; i < n; i++) {
+            ox[i] = g_outputs[i].x;
+            oy[i] = g_outputs[i].y;
+            output_visual_size(&g_outputs[i], &sz_w[i], &sz_h[i]);
+        }
+        /* idx's old size, for the touch tests. */
+        sz_w[idx] = ow;
+        sz_h[idx] = oh;
+        int qh = 0, qt = 0;
+        queue[qt++] = idx;
+        seen[idx] = 1;
+        d[idx] = delta;
+        while (qh < qt) {
+            int m = queue[qh++];
+            for (int i = 0; i < n; i++) {
+                ScreenOutput *o = &g_outputs[i];
+                if (seen[i] || !o->connected || !o->enabled) {
+                    continue;
+                }
+                int touches, overlaps;
+                if (axis == 0) {
+                    touches = ox[i] == ox[m] + sz_w[m];
+                    overlaps = oy[i] < oy[m] + sz_h[m] && oy[m] < oy[i] + sz_h[i];
+                } else {
+                    touches = oy[i] == oy[m] + sz_h[m];
+                    overlaps = ox[i] < ox[m] + sz_w[m] && ox[m] < ox[i] + sz_w[i];
+                }
+                if (touches && overlaps) {
+                    seen[i] = 1;
+                    d[i] = delta;
+                    queue[qt++] = i;
+                }
+            }
+        }
+        for (int i = 0; i < n; i++) {
+            if (i != idx && seen[i]) {
+                if (axis == 0) {
+                    g_outputs[i].x += d[i];
+                } else {
+                    g_outputs[i].y += d[i];
+                }
+            }
+        }
     }
 }
 
@@ -1514,9 +1561,12 @@ static void on_screens_res_changed(GtkWidget *widget, gpointer data)
     gchar *rate = gtk_combo_box_get_active_text(GTK_COMBO_BOX(g_screens_rate_combo));
     gchar *mode = gtk_combo_box_get_active_text(GTK_COMBO_BOX(g_screens_res_combo));
     ScreenOutput *o = &g_outputs[g_screens_selected];
+    int old_w, old_h;
+    output_visual_size(o, &old_w, &old_h);
     if (mode) {
         snprintf(o->current_mode, sizeof(o->current_mode), "%s", mode);
         sscanf(mode, "%dx%d", &o->width, &o->height);
+        screens_reflow(g_screens_selected, old_w, old_h);
     }
     if (rate) {
         snprintf(o->current_rate, sizeof(o->current_rate), "%s", rate);
@@ -1549,7 +1599,10 @@ static void on_screens_rot_changed(GtkWidget *widget, gpointer data)
     }
     gchar *rot = gtk_combo_box_get_active_text(GTK_COMBO_BOX(g_screens_rot_combo));
     if (rot) {
+        int old_w, old_h;
+        output_visual_size(&g_outputs[g_screens_selected], &old_w, &old_h);
         snprintf(g_outputs[g_screens_selected].rotation, sizeof(g_outputs[0].rotation), "%s", rot);
+        screens_reflow(g_screens_selected, old_w, old_h);
     }
     g_free(rot);
     gtk_widget_queue_draw(g_screens_canvas);
@@ -1700,8 +1753,11 @@ static void on_screens_dpi_changed(GtkWidget *widget, gpointer data)
     }
     g_screens_dpi_last = v;
     ScreenOutput *o = &g_outputs[g_screens_selected];
+    int old_w, old_h;
+    output_visual_size(o, &old_w, &old_h);
     o->dpi = v;
     o->scale_x = o->scale_y = screens_dpi_scale(v);
+    screens_reflow(g_screens_selected, old_w, old_h);
     screens_update_note();
     gtk_widget_queue_draw(g_screens_canvas);
 }
@@ -2019,19 +2075,6 @@ GtkWidget *build_screens_tab(void)
     gtk_container_add(GTK_CONTAINER(off_scroll), g_screens_off_view);
     gtk_widget_set_size_request(off_scroll, 140, -1);
 
-    g_screens_visual_chk = gtk_check_button_new_with_label(_("Desenho responde a DPI e escala"));
-    gtk_widget_set_tooltip_text(g_screens_visual_chk,
-        _("Cada tela aparece do tamanho que ocupa na area de trabalho, que a "
-          "DPI define (DPI 144 = 2/3 do modo, DPI 72 = 4/3)."));
-    g_signal_connect(g_screens_visual_chk, "toggled", G_CALLBACK(on_screens_visual_toggled), NULL);
-    gtk_box_pack_start(GTK_BOX(outer), g_screens_visual_chk, FALSE, FALSE, 0);
-    g_screens_visual_note = gtk_label_new(
-        _("Sem um compositor com X-DENSITY, telas com DPI acima de 96 ficam borradas."));
-    gtk_misc_set_alignment(GTK_MISC(g_screens_visual_note), 0.0, 0.5);
-    gtk_label_set_line_wrap(GTK_LABEL(g_screens_visual_note), TRUE);
-    gtk_widget_set_no_show_all(g_screens_visual_note, TRUE);
-    gtk_box_pack_start(GTK_BOX(outer), g_screens_visual_note, FALSE, FALSE, 0);
-
     GtkWidget *layout_row = gtk_hbox_new(FALSE, 8);
     gtk_box_pack_start(GTK_BOX(layout_row), frame_with(_("Layout (arraste pra mover)"), g_screens_canvas), TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(layout_row), frame_with(_("Desativadas"), off_scroll), FALSE, FALSE, 0);
@@ -2084,6 +2127,15 @@ GtkWidget *build_screens_tab(void)
         _("Acima de 96 a tela fica maior (HiDPI); abaixo de 96 cabe mais area "
           "de trabalho nela."));
     labeled_row(form_col2, 2, _("DPI:"), g_screens_dpi_spin);
+    g_screens_visual_note = gtk_label_new(NULL);
+    char *dpi_note = g_markup_printf_escaped("<small>%s</small>",
+        _("Sem um compositor com X-DENSITY, telas com DPI acima de 96 ficam borradas."));
+    gtk_label_set_markup(GTK_LABEL(g_screens_visual_note), dpi_note);
+    g_free(dpi_note);
+    gtk_misc_set_alignment(GTK_MISC(g_screens_visual_note), 0.0, 0.0);
+    gtk_label_set_line_wrap(GTK_LABEL(g_screens_visual_note), TRUE);
+    gtk_widget_set_no_show_all(g_screens_visual_note, TRUE);
+    gtk_table_attach(GTK_TABLE(form_col2), g_screens_visual_note, 0, 2, 3, 4, GTK_FILL | GTK_EXPAND, GTK_FILL, 4, 2);
 
     GtkWidget *form_cols = gtk_hbox_new(FALSE, 8);
     gtk_box_pack_start(GTK_BOX(form_cols), form_col1, TRUE, TRUE, 0);
