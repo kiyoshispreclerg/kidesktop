@@ -102,7 +102,7 @@
 #include <unistd.h>
 #include "../shared/xis_safefile.h"
 
-#define XISPANEL_VERSION "0.7.38"
+#define XISPANEL_VERSION "0.8.0"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 128KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -633,15 +633,6 @@ static int resolve_output_geometry(const char *name, int *ox, int *oy, int *ow, 
                 *oy = ci->y;
                 *ow = (int)ci->width;
                 *oh = (int)ci->height;
-                /* X-INPUT-SCALE (see inputscale.c's doc comment): a
-                 * compositor doing per-output HiDPI downscaling can
-                 * confine this CRTC's cursor (and, by convention, its
-                 * actual usable desktop-space area) to a box smaller than
-                 * the raw physical scanout -- use that instead when
-                 * active, so the panel doesn't oversize itself relative
-                 * to everything else drawn at that output's logical
-                 * resolution. */
-                inputscale_get_confine((unsigned long)oi->crtc, ox, oy, ow, oh);
                 *out_hz = 0;
                 for (int m = 0; m < res->nmode; m++) {
                     if (res->modes[m].id != ci->mode) {
@@ -3791,57 +3782,6 @@ static void reload_all_panels(void)
     keynav_configure(focus_key);
 }
 
-/* Re-resolves every panel's output geometry (RandR CRTC box, or
- * X-INPUT-SCALE's confine box when active -- see resolve_output_geometry())
- * and reloads everything from config the instant any of them disagrees
- * with what's currently applied. Shared by the event-driven path
- * (inputscale_fd()/inputscale_poll_change() -- XISConfineNotify, when the
- * running server build supports it) and the polling fallback below (for
- * older server builds with no event support yet). Reuses reload_all_panels() wholesale
- * rather than a bespoke resize path, same tradeoff RandR hotplug already
- * makes. Returns 1 if it reloaded. */
-static int check_output_geometry_changed(void)
-{
-    for (int i = 0; i < MAX_PANELS; i++) {
-        Panel *p = &g_panels[i];
-        if (!p->in_use) {
-            continue;
-        }
-        int nx, ny, nw, nh;
-        double nhz;
-        if (!resolve_output_geometry(p->output, &nx, &ny, &nw, &nh, &nhz)) {
-            continue;
-        }
-        if (nx != p->out_x || ny != p->out_y || nw != p->out_w || nh != p->out_h) {
-            fprintf(stderr,
-                    "xispanel: output '%s' usable area changed (%dx%d+%d+%d -> %dx%d+%d+%d) -- reloading panels\n",
-                    p->output, p->out_w, p->out_h, p->out_x, p->out_y, nw, nh, nx, ny);
-            reload_all_panels();
-            return 1; /* reload_all_panels() already rebuilt every panel from config */
-        }
-    }
-    return 0;
-}
-
-/* Slow-poll fallback only, for a server build with no XISConfineNotify
- * event support yet (see inputscale.c's doc comment) -- setting/clearing
- * X-INPUT-SCALE confinement raises no RandR event on its own, so without
- * either this or the live event, a compositor toggling per-output HiDPI
- * confinement while xispanel is already running would go unnoticed until
- * the next unrelated reload. Deliberately slow (confinement toggling is a
- * rare, deliberate compositor action, not something worth reacting to
- * instantly) since this is the fallback path, not the primary one. */
-#define CONFINE_POLL_MS 1500
-static void poll_output_geometry_changes(uint64_t now)
-{
-    static uint64_t next_poll_ms = 0;
-    if (now < next_poll_ms) {
-        return;
-    }
-    next_poll_ms = now + CONFINE_POLL_MS;
-    check_output_geometry_changed();
-}
-
 /* ------------------------------------------------------------------ */
 /* IPC (line-JSON over $XDG_RUNTIME_DIR/xispanel-ctl.sock)              */
 /* ------------------------------------------------------------------ */
@@ -5005,7 +4945,6 @@ static int run_as_daemon(const char *sockpath)
     ewmh_init_atoms();
     density_init();     /* X-DENSITY (see TESTS/X-DENSITY.md) -- must come after g_screen/g_root are set above */
     panel_compositor_watch_init(); /* live _NET_WM_CM_S<screen> tracking, see its own doc comment */
-    inputscale_init();  /* X-INPUT-SCALE (see inputscale.c) -- same ordering requirement */
     if (!disable_modtap) {
         modtap_init(); /* bare-modifier ("tap Meta alone") hotkeys, see hotkey.c/modtap.c */
     }
@@ -5088,7 +5027,6 @@ static int run_as_daemon(const char *sockpath)
 
     int xfd = ConnectionNumber(g_dpy);
     int modtapfd = modtap_fd();
-    int xisfd = inputscale_fd();
     while (!g_quit) {
         fd_set rfds;
         FD_ZERO(&rfds);
@@ -5099,12 +5037,6 @@ static int run_as_daemon(const char *sockpath)
             FD_SET(modtapfd, &rfds);
             if (modtapfd > maxfd) {
                 maxfd = modtapfd;
-            }
-        }
-        if (xisfd >= 0) {
-            FD_SET(xisfd, &rfds);
-            if (xisfd > maxfd) {
-                maxfd = xisfd;
             }
         }
         /* Re-read each iteration, unlike the fds above: the tray's bus
@@ -5480,15 +5412,7 @@ static int run_as_daemon(const char *sockpath)
             modtap_process();
         }
 
-        if (xisfd >= 0 && r > 0 && FD_ISSET(xisfd, &rfds) && inputscale_poll_change()) {
-            /* a CRTC's X-INPUT-SCALE confine box was set/reset -- react
-             * immediately instead of waiting for
-             * poll_output_geometry_changes()'s next tick. */
-            check_output_geometry_changed();
-        }
-
         now = now_ms();
-        poll_output_geometry_changes(now);
         tooltip_tick(now);
         panel_menu_tick(now);
         toast_tick(now);
