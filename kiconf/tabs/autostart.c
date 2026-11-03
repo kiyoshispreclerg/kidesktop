@@ -59,6 +59,125 @@ static void apply_services_cb(GtkWidget *widget, gpointer data)
     kiconf_track_rebase(GTK_WIDGET(data));
 }
 
+/* ---- session ssh-agent (~/.xsessionrc) ---------------------------------- */
+
+/* Xsession wraps the session in a setgid ssh-agent when SSH_AUTH_SOCK is
+ * empty, and the kernel drops LD_LIBRARY_PATH for everything below it.
+ * ~/.xsessionrc is read before that wrapper decides, so starting our own
+ * agent there keeps the session unwrapped. Only the text between the
+ * markers is ever touched. KISESSION_SSH_AGENT_PID tells kisession which
+ * agent to end at logout (only one started here, never someone else's). */
+#define SSH_BEGIN "# >>> kiconf ssh-agent\n"
+#define SSH_END "# <<< kiconf ssh-agent\n"
+#define SSH_BLOCK \
+    SSH_BEGIN \
+    "# own agent: keeps Xsession from wrapping the session in the setgid\n" \
+    "# ssh-agent, which wipes LD_LIBRARY_PATH for everything run after it\n" \
+    "if [ -z \"$SSH_AUTH_SOCK\" ]; then\n" \
+    "  eval \"$(ssh-agent -s)\" >/dev/null\n" \
+    "  export KISESSION_SSH_AGENT_PID=$SSH_AGENT_PID\n" \
+    "fi\n" \
+    SSH_END
+
+static GtkWidget *g_ssh_chk;
+static GtkWidget *g_ssh_note;
+
+/* Splits text around the block: *has is set and the block removed from the
+ * returned copy. Caller frees. */
+static char *xsessionrc_strip(const char *text, int *has)
+{
+    GString *out = g_string_new("");
+    const char *p = text;
+    int inside = 0;
+    *has = 0;
+    while (*p) {
+        const char *nl = strchr(p, '\n');
+        size_t len = nl ? (size_t)(nl - p) + 1 : strlen(p);
+        if (!inside && strncmp(p, SSH_BEGIN, sizeof(SSH_BEGIN) - 1) == 0) {
+            inside = *has = 1;
+        }
+        if (!inside) {
+            g_string_append_len(out, p, len);
+        } else if (strncmp(p, SSH_END, sizeof(SSH_END) - 1) == 0) {
+            inside = 0;
+        }
+        p += len;
+    }
+    return g_string_free(out, FALSE);
+}
+
+static int xsessionrc_has_foreign_agent(const char *rest)
+{
+    gchar **lines = g_strsplit(rest, "\n", -1);
+    int found = 0;
+    for (int i = 0; lines[i] && !found; i++) {
+        const char *l = lines[i];
+        while (*l == ' ' || *l == '\t') {
+            l++;
+        }
+        found = *l != '#' && strstr(l, "ssh-agent") != NULL;
+    }
+    g_strfreev(lines);
+    return found;
+}
+
+static int xsessionrc_path(char *out, size_t outsz)
+{
+    return fmt_fits(out, outsz, "%s/.xsessionrc", g_get_home_dir());
+}
+
+static void ssh_agent_refresh(void)
+{
+    char path[PATH_MAX];
+    gchar *text = NULL;
+    int has = 0, foreign = 0;
+    if (xsessionrc_path(path, sizeof(path)) && g_file_get_contents(path, &text, NULL, NULL)) {
+        char *rest = xsessionrc_strip(text, &has);
+        foreign = xsessionrc_has_foreign_agent(rest);
+        g_free(rest);
+    }
+    g_free(text);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_ssh_chk), has);
+    gtk_widget_set_sensitive(g_ssh_chk, has || !foreign);
+    gtk_label_set_text(GTK_LABEL(g_ssh_note), foreign && !has
+        ? _("O ~/.xsessionrc ja inicia um ssh-agent por conta propria; nada a fazer aqui.")
+        : _("Vale a partir do proximo login. As chaves carregadas nao sobrevivem a um novo login."));
+}
+
+static void apply_ssh_agent_cb(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    (void)data;
+    char path[PATH_MAX];
+    if (!xsessionrc_path(path, sizeof(path))) {
+        return;
+    }
+    gchar *text = NULL;
+    if (!g_file_get_contents(path, &text, NULL, NULL)) {
+        text = g_strdup("");
+    }
+    int had = 0;
+    char *rest = xsessionrc_strip(text, &had);
+    g_free(text);
+    GString *out = g_string_new(rest);
+    g_free(rest);
+    if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_ssh_chk))) {
+        if (out->len && out->str[out->len - 1] != '\n') {
+            g_string_append_c(out, '\n');
+        }
+        g_string_append(out, SSH_BLOCK);
+    }
+    if (out->len == 0) {
+        unlink(path);
+    } else if (xis_write_file(path, out->str, out->len, NULL) != 0) {
+        gtk_label_set_text(GTK_LABEL(g_ssh_note), _("Nao foi possivel gravar o ~/.xsessionrc."));
+        g_string_free(out, TRUE);
+        return;
+    }
+    g_string_free(out, TRUE);
+    ssh_agent_refresh();
+}
+
 /* ---- XDG autostart ------------------------------------------------------ */
 
 #define MAX_AUTOSTART_ENTRIES 256
@@ -383,6 +502,22 @@ GtkWidget *build_autostart_tab(void)
     gtk_box_pack_end(GTK_BOX(svc_btnbox), svc_apply, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(svc_box), svc_btnbox, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(content), frame_with(_("Servicos do KiDesktop (kisession.conf)"), svc_box), FALSE, FALSE, 0);
+
+    /* session ssh-agent */
+    g_ssh_chk = gtk_check_button_new_with_label(_("Agente SSH proprio da sessao"));
+    g_ssh_note = gtk_label_new("");
+    gtk_misc_set_alignment(GTK_MISC(g_ssh_note), 0.0, 0.5);
+    gtk_label_set_line_wrap(GTK_LABEL(g_ssh_note), TRUE);
+    GtkWidget *ssh_apply = gtk_button_new_with_label(_("Aplicar"));
+    g_signal_connect(ssh_apply, "clicked", G_CALLBACK(apply_ssh_agent_cb), NULL);
+    GtkWidget *ssh_btnbox = gtk_hbox_new(FALSE, 0);
+    gtk_box_pack_end(GTK_BOX(ssh_btnbox), ssh_apply, FALSE, FALSE, 0);
+    GtkWidget *ssh_box = gtk_vbox_new(FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(ssh_box), g_ssh_chk, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(ssh_box), g_ssh_note, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(ssh_box), ssh_btnbox, FALSE, FALSE, 0);
+    ssh_agent_refresh();
+    gtk_box_pack_start(GTK_BOX(content), frame_with(_("Agente SSH (~/.xsessionrc)"), ssh_box), FALSE, FALSE, 0);
 
     /* XDG autostart (installed apps) */
     g_autostart_store = gtk_list_store_new(N_AS_COLS, G_TYPE_BOOLEAN, G_TYPE_STRING, G_TYPE_INT);
