@@ -1868,9 +1868,9 @@ page-flips the buffer onto the CRTC: no copy by kicomp, none by the
 server, and no source pixmap or window to keep, so the output costs its
 three swapchain buffers and nothing else. Where it can't (TearFree off,
 `PerCRTCFlip` off, a buffer the display can't read), the server copies
-the frame once. The startup log says which (`sharp frames presented ...
-flipped` or `copied`), and the stats effect shows `flip`/`copy` per
-frame. GLX and XRender keep the source of the paragraph above, and so
+the frame once. The log says which (`HDMI-1: frames flipped onto the
+CRTC by the server`, or `copied`) once the first frame lands and whenever
+it changes, and the stats effect shows `flip`/`copy` per frame. GLX and XRender keep the source of the paragraph above, and so
 does every backend on a 1.0 server.
 
 **Everywhere else it is just correct and blurry**, never broken: a stock

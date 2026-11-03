@@ -30,7 +30,6 @@
 #define XScaleScanoutIdle               2
 
 #define XScaleScanoutCapable            (1 << 0)
-#define XScaleScanoutFlippable          (1 << 3)
 
 static uint8_t xscale_opcode;   /* 0 = extension absent */
 static uint8_t xscale_first_event;
@@ -142,24 +141,6 @@ void xscale_init(void)
     comp_log("X-SCALE %u.%u", major, minor);
 }
 
-bool xscale_crtc_flippable(xcb_randr_crtc_t crtc)
-{
-    if (!comp.caps.xscale_present || crtc == XCB_NONE)
-        return false;
-
-    XScaleGetCrtcScanoutReq req = { 0 };
-    req.xscaleReqType = X_XScaleGetCrtcScanout;
-    req.crtc = crtc;
-
-    unsigned seq = xscale_send(&req, sizeof(req), 0);
-    xcb_generic_error_t *err = NULL;
-    uint8_t *reply = xcb_wait_for_reply(comp.conn, seq, &err);
-    bool flippable = !err && reply && (reply[1] & XScaleScanoutFlippable);
-    free(err);
-    free(reply);
-    return flippable;
-}
-
 bool xscale_present_pixmap(CompOutput *o, xcb_pixmap_t pixmap,
                            uint32_t serial, const CompRegion *damage)
 {
@@ -215,9 +196,8 @@ bool xscale_present_pixmap(CompOutput *o, xcb_pixmap_t pixmap,
     if (!o->source_set) {
         o->source_set = true;
         comp_info("%s: sharp frames presented to the server (%dx%d for a "
-                  "%dx%d logical box, %s)", o->name, o->physical.w,
-                  o->physical.h, o->rect.w, o->rect.h,
-                  xscale_crtc_flippable(o->crtc) ? "flipped" : "copied");
+                  "%dx%d logical box)", o->name, o->physical.w,
+                  o->physical.h, o->rect.w, o->rect.h);
     }
     return true;
 }
