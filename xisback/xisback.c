@@ -91,7 +91,7 @@
 #include <unistd.h>
 #include "../shared/xis_safefile.h"
 
-#define XISBACK_VERSION "0.5.1"
+#define XISBACK_VERSION "0.5.2"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -1063,7 +1063,16 @@ static void layer_render(Layer *l, int use_fade)
         /* Nobody can see it: whatever it would show now gets decoded when
          * it is mapped. A kept picture of it would be an older image. */
         layer_finish_fade(l);
-        layer_unload(l);
+        if (l->borrowed) {
+            /* The lent picture is of the old geometry (layer_unload() keeps
+             * it, as it is free): left as the background, a resized hidden
+             * window would show it tiled, and nothing would redraw it. */
+            XSetWindowBackground(g_dpy, l->win, layer_fallback_pixel(l));
+            layer_release_pixmap(l);
+            l->unloaded = 1;
+        } else {
+            layer_unload(l);
+        }
         l->content_stale = 1;
         return;
     }
