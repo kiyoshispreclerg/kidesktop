@@ -181,6 +181,22 @@ const KsRecCaps *ks_rec_probe(const KsConfig *cfg)
 static xcb_extension_t present_id = { "Present", 0 };
 static xcb_extension_t dri3_id = { "DRI3", 0 };
 
+static xcb_extension_t xscale_id = { "X-SCALE", 0 };
+
+/* A request with no reply; returns its cookie for xcb_request_check(). */
+static xcb_void_cookie_t raw_void_request(xcb_connection_t *c, xcb_extension_t *ext, uint8_t minor,
+                                          void *req, size_t len, int flags)
+{
+    struct iovec parts[4];
+    parts[2].iov_base = req;
+    parts[2].iov_len = len;
+    parts[3].iov_base = NULL;
+    parts[3].iov_len = -len & 3;
+    xcb_protocol_request_t proto = { 2, ext, minor, 1 };
+    xcb_void_cookie_t ck = { xcb_send_request(c, flags, parts + 2, &proto) };
+    return ck;
+}
+
 static void *raw_request(xcb_connection_t *c, xcb_extension_t *ext, uint8_t minor,
                          void *req, size_t len, int fds_flag, xcb_generic_error_t **err)
 {
@@ -346,8 +362,30 @@ static int render_format(xcb_connection_t *c, int depth, gboolean alpha, xcb_ren
 
 #define KS_RING 3
 
+/* One monitor's part of the area, when recording at the physical size:
+ * its logical box in the root (l*), where that is in the CRTC's scanout
+ * (s*), and where it goes in the frame (d*). A monitor less scaled than the
+ * frame is copied into `tmp` at its own size and scaled up from there. */
+#define KS_PHYS_MAX 8
+typedef struct {
+    xcb_randr_crtc_t crtc;
+    int sx, sy, sw, sh;
+    int dx, dy, dw, dh;
+    xcb_pixmap_t tmp;
+    xcb_render_picture_t tmp_pic;
+} PhysPart;
+
 typedef struct {
     KsRect area;
+    /* The frame: the area, times `scale` when recording at the screens'
+     * physical size (X-SCALE), else the area itself. */
+    int fw, fh;
+    double scale;
+    PhysPart part[KS_PHYS_MAX];
+    int nparts;
+    gboolean phys, phys_gaps;
+    xcb_pixmap_t phys_pix;      /* the SHM path composes the frame here */
+    xcb_render_picture_t phys_pic;
     int fps;
     gboolean pointer;
     char *path;
@@ -445,7 +483,7 @@ static void fetch_cursor(Rec *r)
     r->cur_yhot = ci->yhot;
     r->cur_img = g_memdup2(xcb_xfixes_get_cursor_image_cursor_image(ci), (gsize)ci->width * ci->height * 4);
     free(ci);
-    if (!r->use_gpu)
+    if (!r->use_gpu && !r->phys)
         return;
     /* upload for the server-side composite */
     if (r->cur_pic)
@@ -465,6 +503,15 @@ static void fetch_cursor(Rec *r)
     xcb_free_gc(r->c, gc);
     r->cur_pic = xcb_generate_id(r->c);
     xcb_render_create_picture(r->c, r->cur_pic, r->cur_pix, argb, 0, NULL);
+    if (r->scale > 1) {
+        /* Render maps destination to source, hence 1/scale; nearest, like
+         * the hardware cursor the server enlarges on a scaled monitor */
+        int32_t inv = (int32_t)lround(65536.0 / r->scale);
+        xcb_render_transform_t t = { inv, 0, 0, 0, inv, 0, 0, 0, 1 << 16 };
+        xcb_render_set_picture_transform(r->c, r->cur_pic, t);
+        const char nearest[] = "nearest";
+        xcb_render_set_picture_filter(r->c, r->cur_pic, sizeof(nearest) - 1, nearest, 0, NULL);
+    }
 }
 
 static void poll_x_events(Rec *r)
@@ -488,11 +535,11 @@ static void blend_cursor_cpu(Rec *r, uint8_t *buf, int stride, int px, int py)
     int ox = px - r->cur_xhot - r->area.x, oy = py - r->cur_yhot - r->area.y;
     for (int y = 0; y < r->cur_h; y++) {
         int dy = oy + y;
-        if (dy < 0 || dy >= r->area.h)
+        if (dy < 0 || dy >= r->fh)
             continue;
         for (int x = 0; x < r->cur_w; x++) {
             int dx = ox + x;
-            if (dx < 0 || dx >= r->area.w)
+            if (dx < 0 || dx >= r->fw)
                 continue;
             uint32_t p = r->cur_img[y * r->cur_w + x];
             unsigned a = p >> 24;
@@ -514,7 +561,7 @@ static gboolean setup_gpu(Rec *r, const xcb_screen_t *scr)
         r->dmabuf[i] = -1;
         r->pixmap[i] = xcb_generate_id(r->c);
         xcb_generic_error_t *e = xcb_request_check(r->c,
-            xcb_create_pixmap_checked(r->c, scr->root_depth, r->pixmap[i], r->root, r->area.w, r->area.h));
+            xcb_create_pixmap_checked(r->c, scr->root_depth, r->pixmap[i], r->root, r->fw, r->fh));
         if (e) {
             free(e);
             r->pixmap[i] = 0;
@@ -566,7 +613,7 @@ static gboolean setup_shm(Rec *r)
 {
     if (!xcb_get_extension_data(r->c, &xcb_shm_id)->present)
         return FALSE;
-    size_t size = (size_t)r->area.w * r->area.h * 4;
+    size_t size = (size_t)r->fw * r->fh * 4;
     r->shmid = shmget(IPC_PRIVATE, size, IPC_CREAT | 0600);
     if (r->shmid < 0)
         return FALSE;
@@ -582,8 +629,206 @@ static gboolean setup_shm(Rec *r)
         free(e);
         return FALSE;
     }
-    r->stride = r->area.w * 4;
+    r->stride = r->fw * 4;
     return TRUE;
+}
+
+/* ---- recording at the screens' physical size (X-SCALE) ------------------- */
+
+#define XSCALE_GET_CRTC_SCANOUT 2
+#define XSCALE_COPY_CRTC_SCANOUT 4
+
+typedef struct { uint8_t major, minor; uint16_t len; uint32_t crtc, drawable;
+                 int16_t src_x, src_y; uint16_t w, h; int16_t dst_x, dst_y; } XScaleCopyReq;
+
+static xcb_void_cookie_t xscale_copy(Rec *r, xcb_randr_crtc_t crtc, xcb_drawable_t dst, int sx, int sy,
+                                     int w, int h, int dx, int dy, int flags)
+{
+    XScaleCopyReq q = { 0, 0, 0, crtc, dst, (int16_t)sx, (int16_t)sy, (uint16_t)w, (uint16_t)h,
+                        (int16_t)dx, (int16_t)dy };
+    return raw_void_request(r->c, &xscale_id, XSCALE_COPY_CRTC_SCANOUT, &q, sizeof(q), flags);
+}
+
+static void free_phys(Rec *r)
+{
+    for (int i = 0; i < r->nparts; i++) {
+        if (r->part[i].tmp_pic)
+            xcb_render_free_picture(r->c, r->part[i].tmp_pic);
+        if (r->part[i].tmp)
+            xcb_free_pixmap(r->c, r->part[i].tmp);
+    }
+    r->nparts = 0;
+    if (r->phys_pic)
+        xcb_render_free_picture(r->c, r->phys_pic);
+    if (r->phys_pix)
+        xcb_free_pixmap(r->c, r->phys_pix);
+    r->phys_pic = r->phys_pix = 0;
+}
+
+/* Sizes the frame for recording at the screens' physical size: every
+ * monitor under the area is asked its scanout size (XScaleGetCrtcScanout),
+ * and the frame takes the largest scale among them, the others scaled up
+ * to it -- what KWin's ScreenShotNativeResolution does. Returns NULL when
+ * that applies, else why not (and the frame stays the area). */
+static const char *setup_phys(Rec *r, const xcb_screen_t *scr)
+{
+    const xcb_query_extension_reply_t *ext = xcb_get_extension_data(r->c, &xscale_id);
+    if (!ext || !ext->present || !xcb_get_extension_data(r->c, &xcb_randr_id)->present)
+        return _("the X server has no X-SCALE");
+    xcb_randr_get_screen_resources_current_reply_t *res = xcb_randr_get_screen_resources_current_reply(
+        r->c, xcb_randr_get_screen_resources_current(r->c, r->root), NULL);
+    if (!res)
+        return _("no RandR screen resources");
+    struct { int x, y, w, h; double fx, fy; xcb_randr_crtc_t crtc; } m[KS_PHYS_MAX];
+    int n = 0;
+    double scale = 1;
+    int64_t covered = 0;
+    xcb_randr_crtc_t *crtcs = xcb_randr_get_screen_resources_current_crtcs(res);
+    int ncrtc = xcb_randr_get_screen_resources_current_crtcs_length(res);
+    for (int i = 0; i < ncrtc && n < KS_PHYS_MAX; i++) {
+        struct { uint8_t major, minor; uint16_t len; uint32_t crtc; } q = { 0, 0, 0, crtcs[i] };
+        xcb_generic_error_t *err = NULL;
+        struct { uint8_t type, flags; uint16_t seq; uint32_t len; uint16_t sw, sh; int16_t x, y;
+                 uint16_t w, h; uint32_t pad[3]; } *rep =
+            raw_request(r->c, &xscale_id, XSCALE_GET_CRTC_SCANOUT, &q, sizeof(q), 0, &err);
+        free(err);
+        if (!rep)
+            continue;
+        int x1 = MAX(rep->x, r->area.x), y1 = MAX(rep->y, r->area.y);
+        int x2 = MIN(rep->x + rep->w, r->area.x + r->area.w), y2 = MIN(rep->y + rep->h, r->area.y + r->area.h);
+        if (rep->w && rep->h && rep->sw && rep->sh && x2 > x1 && y2 > y1) {
+            m[n].x = x1;
+            m[n].y = y1;
+            m[n].w = x2 - x1;
+            m[n].h = y2 - y1;
+            m[n].fx = (double)rep->sw / rep->w;
+            m[n].fy = (double)rep->sh / rep->h;
+            m[n].crtc = crtcs[i];
+            scale = MAX(scale, MAX(m[n].fx, m[n].fy));
+            covered += (int64_t)m[n].w * m[n].h;
+            /* the scanout starts at the monitor's logical origin */
+            r->part[n].sx = (int)lround((x1 - rep->x) * m[n].fx);
+            r->part[n].sy = (int)lround((y1 - rep->y) * m[n].fy);
+            r->part[n].sw = (int)lround((x2 - rep->x) * m[n].fx) - r->part[n].sx;
+            r->part[n].sh = (int)lround((y2 - rep->y) * m[n].fy) - r->part[n].sy;
+            n++;
+        }
+        free(rep);
+    }
+    free(res);
+    if (scale < 1.001)
+        return _("no screen under the area is scaled");
+
+    r->scale = scale;
+    r->fw = (int)lround(r->area.w * scale) & ~1;
+    r->fh = (int)lround(r->area.h * scale) & ~1;
+    r->phys_gaps = covered < (int64_t)r->area.w * r->area.h;
+    xcb_render_pictformat_t fmt;
+    gboolean have_fmt = render_format(r->c, scr->root_depth, FALSE, &fmt);
+    for (int i = 0; i < n; i++) {
+        PhysPart *pp = &r->part[i];
+        pp->crtc = m[i].crtc;
+        pp->dx = (int)lround((m[i].x - r->area.x) * scale);
+        pp->dy = (int)lround((m[i].y - r->area.y) * scale);
+        pp->dw = MIN((int)lround((m[i].x + m[i].w - r->area.x) * scale), r->fw) - pp->dx;
+        pp->dh = MIN((int)lround((m[i].y + m[i].h - r->area.y) * scale), r->fh) - pp->dy;
+        if (fabs(m[i].fx - scale) < 0.01 && fabs(m[i].fy - scale) < 0.01)
+            continue;                   /* copied straight into the frame */
+        if (!have_fmt || pp->sw <= 0 || pp->sh <= 0) {
+            r->nparts = i;
+            free_phys(r);
+            return _("Render can't scale a less scaled screen up");
+        }
+        pp->tmp = xcb_generate_id(r->c);
+        xcb_create_pixmap(r->c, scr->root_depth, pp->tmp, r->root, pp->sw, pp->sh);
+        pp->tmp_pic = xcb_generate_id(r->c);
+        xcb_render_create_picture(r->c, pp->tmp_pic, pp->tmp, fmt, 0, NULL);
+        xcb_render_transform_t t = { (int32_t)lround(65536.0 * pp->sw / MAX(pp->dw, 1)), 0, 0,
+                                     0, (int32_t)lround(65536.0 * pp->sh / MAX(pp->dh, 1)), 0, 0, 0, 1 << 16 };
+        xcb_render_set_picture_transform(r->c, pp->tmp_pic, t);
+        const char bilinear[] = "bilinear";
+        xcb_render_set_picture_filter(r->c, pp->tmp_pic, sizeof(bilinear) - 1, bilinear, 0, NULL);
+    }
+    r->nparts = n;
+
+    /* the screen-read permission (Xnotify) is asked here, not mid-recording */
+    xcb_pixmap_t probe = xcb_generate_id(r->c);
+    xcb_create_pixmap(r->c, scr->root_depth, probe, r->root, 1, 1);
+    xcb_generic_error_t *e = xcb_request_check(r->c,
+        xscale_copy(r, r->part[0].crtc, probe, 0, 0, 1, 1, 0, 0, XCB_REQUEST_CHECKED));
+    xcb_free_pixmap(r->c, probe);
+    if (e) {
+        free(e);
+        free_phys(r);
+        return _("reading the screen at its physical size was denied");
+    }
+    r->phys = TRUE;
+    return NULL;
+}
+
+/* The SHM path reads the frame back from a pixmap composed on the server. */
+static gboolean setup_phys_target(Rec *r, const xcb_screen_t *scr)
+{
+    r->phys_pix = xcb_generate_id(r->c);
+    xcb_generic_error_t *e = xcb_request_check(r->c,
+        xcb_create_pixmap_checked(r->c, scr->root_depth, r->phys_pix, r->root, r->fw, r->fh));
+    if (e) {
+        free(e);
+        r->phys_pix = 0;
+        return FALSE;
+    }
+    xcb_render_pictformat_t fmt;
+    if (render_format(r->c, scr->root_depth, FALSE, &fmt)) {
+        r->phys_pic = xcb_generate_id(r->c);
+        xcb_render_create_picture(r->c, r->phys_pic, r->phys_pix, fmt, 0, NULL);
+    }
+    if (!r->gc_black) {
+        uint32_t black[] = { 0 };
+        r->gc_black = xcb_generate_id(r->c);
+        xcb_create_gc(r->c, r->gc_black, r->phys_pix, XCB_GC_FOREGROUND, black);
+    }
+    return TRUE;
+}
+
+/* One frame at the physical size into `dst`, then the hidden windows and
+ * the pointer, all scaled to it. */
+static void compose_phys(Rec *r, xcb_pixmap_t dst, xcb_render_picture_t pic, gboolean ptr_ok, int px, int py)
+{
+    if (r->phys_gaps) {
+        xcb_rectangle_t all = { 0, 0, r->fw, r->fh };
+        xcb_poly_fill_rectangle(r->c, dst, r->gc_black, 1, &all);
+    }
+    for (int i = 0; i < r->nparts; i++) {
+        PhysPart *pp = &r->part[i];
+        if (!pp->tmp) {
+            xscale_copy(r, pp->crtc, dst, pp->sx, pp->sy, MIN(pp->sw, pp->dw), MIN(pp->sh, pp->dh),
+                        pp->dx, pp->dy, 0);
+        } else if (pic) {
+            xscale_copy(r, pp->crtc, pp->tmp, pp->sx, pp->sy, pp->sw, pp->sh, 0, 0, 0);
+            xcb_render_composite(r->c, XCB_RENDER_PICT_OP_SRC, pp->tmp_pic, XCB_NONE, pic, 0, 0, 0, 0,
+                                 pp->dx, pp->dy, pp->dw, pp->dh);
+        }
+    }
+    int n;
+    KsRect *rs = ks_censor_rects(&n);
+    if (n) {
+        xcb_rectangle_t *xr = g_new(xcb_rectangle_t, n);
+        for (int i = 0; i < n; i++) {
+            int x1 = (int)floor((rs[i].x - r->area.x) * r->scale), y1 = (int)floor((rs[i].y - r->area.y) * r->scale);
+            int x2 = (int)ceil((rs[i].x + rs[i].w - r->area.x) * r->scale);
+            int y2 = (int)ceil((rs[i].y + rs[i].h - r->area.y) * r->scale);
+            xr[i] = (xcb_rectangle_t){ x1, y1, x2 - x1, y2 - y1 };
+        }
+        xcb_poly_fill_rectangle(r->c, dst, r->gc_black, n, xr);
+        g_free(xr);
+    }
+    g_free(rs);
+    if (ptr_ok && r->cur_pic && pic) {
+        xcb_render_composite(r->c, XCB_RENDER_PICT_OP_OVER, r->cur_pic, XCB_NONE, pic, 0, 0, 0, 0,
+                             (int)lround((px - r->area.x - r->cur_xhot) * r->scale),
+                             (int)lround((py - r->area.y - r->cur_yhot) * r->scale),
+                             (int)lround(r->cur_w * r->scale), (int)lround(r->cur_h * r->scale));
+    }
 }
 
 /* ---- ffmpeg command sink ------------------------------------------------- */
@@ -623,7 +868,7 @@ static gboolean cli_open(Rec *r, const KsConfig *cfg, const char *enc, char **er
     }
     ARG("-thread_queue_size"); ARG("64");
     ARG("-f"); ARG("rawvideo"); ARG("-pix_fmt"); ARG("bgr0");
-    ARG("-video_size"); ARG("%dx%d", r->area.w, r->area.h);
+    ARG("-video_size"); ARG("%dx%d", r->fw, r->fh);
     ARG("-framerate"); ARG("%d", r->fps); ARG("-i"); ARG("pipe:0");
     /* sound comes from kishot itself (libpulse-simple, system and mic
      * already mixed) through a second pipe: both inputs end when we close
@@ -821,8 +1066,8 @@ static void paint_censor_cpu(Rec *r, uint8_t *buf)
     KsRect *rs = ks_censor_rects(&n);
     for (int i = 0; i < n; i++) {
         int x1 = MAX(rs[i].x - r->area.x, 0), y1 = MAX(rs[i].y - r->area.y, 0);
-        int x2 = MIN(rs[i].x + rs[i].w - r->area.x, r->area.w);
-        int y2 = MIN(rs[i].y + rs[i].h - r->area.y, r->area.h);
+        int x2 = MIN(rs[i].x + rs[i].w - r->area.x, r->fw);
+        int y2 = MIN(rs[i].y + rs[i].h - r->area.y, r->fh);
         if (x2 <= x1)
             continue;
         for (int y = y1; y < y2; y++)
@@ -882,7 +1127,15 @@ static gpointer capture_thread(gpointer data)
             }
         }
 
-        if (r->use_gpu) {
+        if (r->use_gpu && r->phys) {
+            int slot = ring_next++ % KS_RING;
+            compose_phys(r, r->pixmap[slot], r->pic[slot], ptr_ok, px, py);
+            free(xcb_get_input_focus_reply(r->c, xcb_get_input_focus(r->c), NULL));
+            if (pend_slot >= 0 && plugin->video_dmabuf(r->ph, pend_slot, pend_index * 1000000 / r->fps) < 0)
+                set_error(r, _("the video encoder failed"));
+            pend_slot = slot;
+            pend_index = index;
+        } else if (r->use_gpu) {
             int slot = ring_next++ % KS_RING;
             KsCapView cv;
             ks_capture_view(r->c, &r->area, &cv);
@@ -926,11 +1179,16 @@ static gpointer capture_thread(gpointer data)
             pend_index = index;
         } else {
             xcb_generic_error_t *e = NULL;
-            KsCapView cv;
-            ks_capture_view(r->c, &r->area, &cv);
+            KsCapView cv = { 0 };
+            if (r->phys)
+                compose_phys(r, r->phys_pix, r->phys_pic, ptr_ok, px, py);
+            else
+                ks_capture_view(r->c, &r->area, &cv);
             xcb_shm_get_image_reply_t *img = xcb_shm_get_image_reply(r->c,
-                xcb_shm_get_image(r->c, r->root, r->area.x, r->area.y, r->area.w, r->area.h, ~0u,
-                                  XCB_IMAGE_FORMAT_Z_PIXMAP, r->seg, 0), &e);
+                r->phys ? xcb_shm_get_image(r->c, r->phys_pix, 0, 0, r->fw, r->fh, ~0u,
+                                            XCB_IMAGE_FORMAT_Z_PIXMAP, r->seg, 0)
+                        : xcb_shm_get_image(r->c, r->root, r->area.x, r->area.y, r->area.w, r->area.h, ~0u,
+                                            XCB_IMAGE_FORMAT_Z_PIXMAP, r->seg, 0), &e);
             if (!img) {
                 free(e);
                 set_error(r, _("could not read the screen"));
@@ -945,9 +1203,9 @@ static gpointer capture_thread(gpointer data)
                            ks_capture_copy_buffer(r->c, cs, ncs, &r->area, r->shm, r->stride);
                 ks_capture_return(cs, ncs);      /* the read above was synchronous */
             }
-            if (!(slots_ok && ks_capture_unchanged(r->c, &cv)))
+            if (!r->phys && !(slots_ok && ks_capture_unchanged(r->c, &cv)))
                 paint_censor_cpu(r, r->shm);
-            if (ptr_ok && r->cur_img)
+            if (!r->phys && ptr_ok && r->cur_img)
                 blend_cursor_cpu(r, r->shm, r->stride, px, py);
             if (r->ph) {
                 if (plugin->video_cpu(r->ph, r->shm, r->stride, index * 1000000 / r->fps) < 0)
@@ -957,7 +1215,7 @@ static gpointer capture_thread(gpointer data)
                  * the slots we were too late for */
                 gint64 copies = last_index < 0 ? 1 : MIN(index - last_index, (gint64)r->fps);
                 for (gint64 k = 0; k < copies && !r->error; k++)
-                    if (!write_all(r->cli_in, r->shm, (size_t)r->stride * r->area.h))
+                    if (!write_all(r->cli_in, r->shm, (size_t)r->stride * r->fh))
                         set_error(r, _("ffmpeg stopped accepting frames"));
             }
         }
@@ -978,6 +1236,7 @@ static gpointer capture_thread(gpointer data)
     } else {
         cli_close(r);
     }
+    free_phys(r);
     free_gpu(r);
     if (r->cur_pic)
         xcb_render_free_picture(r->c, r->cur_pic);
@@ -1041,6 +1300,9 @@ gboolean ks_rec_start(const KsConfig *cfg, const KsRect *area, const char *path,
     r->area = *area;
     r->area.w &= ~1;            /* 4:2:0 encoders want even sizes */
     r->area.h &= ~1;
+    r->fw = r->area.w;
+    r->fh = r->area.h;
+    r->scale = 1;
     r->fps = cfg->fps;
     r->pointer = cfg->rec_pointer;
     r->path = g_strdup(path);
@@ -1064,6 +1326,13 @@ gboolean ks_rec_start(const KsConfig *cfg, const KsRect *area, const char *path,
     const xcb_screen_t *scr = si.data;
     r->root = scr->root;
 
+    const char *phys_why = cfg->rec_physical ? setup_phys(r, scr) : NULL;
+    if (!r->phys) {
+        r->fw = r->area.w;
+        r->fh = r->area.h;
+        r->scale = 1;
+    }
+
     gboolean use_plugin = plugin && cfg->backend != KS_BACKEND_CLI;
     const char *copy_note = "SHM";
     if (use_plugin && caps.vaapi && cfg->copy_mode != KS_COPY_SHM) {
@@ -1083,6 +1352,10 @@ gboolean ks_rec_start(const KsConfig *cfg, const KsRect *area, const char *path,
         *error = g_strdup(_("MIT-SHM is not available"));
         goto fail;
     }
+    if (r->phys && !r->use_gpu && !setup_phys_target(r, scr)) {
+        *error = g_strdup(_("could not allocate the frame at the physical size"));
+        goto fail;
+    }
 
     if (r->pointer) {
         if (xcb_get_extension_data(r->c, &xcb_xfixes_id)->present) {
@@ -1099,7 +1372,7 @@ gboolean ks_rec_start(const KsConfig *cfg, const KsRect *area, const char *path,
     gboolean want_audio = (cfg->audio_system || cfg->audio_mic);
     if (use_plugin) {
         KsEncParams p = {
-            .width = r->area.w, .height = r->area.h, .fps = r->fps, .path = r->path,
+            .width = r->fw, .height = r->fh, .fps = r->fps, .path = r->path,
             .container = cfg->container, .vcodec = enc, .quality = cfg->quality,
             .audio = want_audio && caps.audio, .sample_rate = KS_AUDIO_RATE, .channels = KS_AUDIO_CHANNELS,
             .input = r->use_gpu ? KS_INPUT_DMABUF : KS_INPUT_CPU,
@@ -1115,7 +1388,7 @@ gboolean ks_rec_start(const KsConfig *cfg, const KsRect *area, const char *path,
             free_gpu(r);
             r->use_gpu = FALSE;
             copy_note = _("SHM (the dma-buf import failed)");
-            if (setup_shm(r)) {
+            if (setup_shm(r) && (!r->phys || setup_phys_target(r, scr))) {
                 p.input = KS_INPUT_CPU;
                 r->ph = plugin->open(&p, err, sizeof(err));
             }
@@ -1134,6 +1407,16 @@ gboolean ks_rec_start(const KsConfig *cfg, const KsRect *area, const char *path,
                                     want_audio && !caps.audio ? _(" (no audio: libpulse missing)") : "");
     }
 
+    if (r->phys) {
+        char *m = g_strdup_printf(_("%s, physical size %dx%d"), r->method, r->fw, r->fh);
+        g_free(r->method);
+        r->method = m;
+    } else if (phys_why) {
+        char *m = g_strdup_printf(_("%s (logical size: %s)"), r->method, phys_why);
+        g_free(r->method);
+        r->method = m;
+    }
+
     r->start_us = g_get_monotonic_time();
     if ((r->ph || r->cli_audio >= 0) && want_audio && caps.audio)
         ks_audio_start(cfg->audio_system, cfg->audio_mic, audio_cb, r);
@@ -1149,6 +1432,7 @@ fail:
         plugin->close(r->ph, NULL, 0);
     cli_close(r);
     if (r->c) {
+        free_phys(r);
         free_gpu(r);
         if (r->shm) {
             shmdt(r->shm);

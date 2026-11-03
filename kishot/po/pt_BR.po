@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kishot\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 21:58-0300\n"
+"POT-Creation-Date: 2026-11-02 23:30-0300\n"
 "PO-Revision-Date: 2026-10-16 13:10-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -51,75 +51,80 @@ msgstr ""
 msgid "kishot: unknown option '%s' (try --help)\n"
 msgstr "kishot: opção desconhecida '%s' (tente --help)\n"
 
-#: ks_capture.c:696
+#: ks_capture.c:701
 msgid "Compositor without capture support: black rectangles"
 msgstr "Compositor sem suporte a captura: retângulos pretos"
 
-#: ks_capture.c:697
+#: ks_capture.c:702
 msgid "No compositor: black rectangles"
 msgstr "Sem compositor: retângulos pretos"
 
-#: ks_capture.c:699
+#: ks_capture.c:704
 msgid "Compositor (fill): black rectangles"
 msgstr "Compositor (preencher): retângulos pretos"
 
-#: ks_capture.c:700
+#: ks_capture.c:705
 msgid "Compositor (hide): black rectangles"
 msgstr "Compositor (ocultar): retângulos pretos"
 
-#: ks_prefs.c:97 ks_prefs.c:173
+#: ks_prefs.c:23
+#, fuzzy
+msgid "Auto"
+msgstr "Automático"
+
+#: ks_prefs.c:117 ks_prefs.c:209
 msgid "libav plugin"
 msgstr "Plugin libav"
 
-#: ks_prefs.c:97
+#: ks_prefs.c:117
 msgid "loaded"
 msgstr "carregado"
 
-#: ks_prefs.c:97 ks_prefs.c:99 ks_prefs.c:100
+#: ks_prefs.c:117 ks_prefs.c:119 ks_prefs.c:120
 msgid "not available"
 msgstr "indisponível"
 
-#: ks_prefs.c:98 ks_prefs.c:173
+#: ks_prefs.c:118 ks_prefs.c:209
 msgid "ffmpeg command"
 msgstr "Comando ffmpeg"
 
-#: ks_prefs.c:98
+#: ks_prefs.c:118
 msgid "found"
 msgstr "encontrado"
 
-#: ks_prefs.c:98
+#: ks_prefs.c:118
 msgid "not found"
 msgstr "não encontrado"
 
-#: ks_prefs.c:99
+#: ks_prefs.c:119
 msgid "VAAPI (GPU encoding)"
 msgstr "VAAPI (codificação na GPU)"
 
-#: ks_prefs.c:99 ks_prefs.c:100
+#: ks_prefs.c:119 ks_prefs.c:120
 msgid "available"
 msgstr "disponível"
 
-#: ks_prefs.c:100
+#: ks_prefs.c:120
 msgid "Sound (libpulse)"
 msgstr "Som (libpulse)"
 
-#: ks_prefs.c:118 ks_prefs.c:156
+#: ks_prefs.c:138 ks_prefs.c:188
 msgid "Save _in:"
 msgstr "Salvar _em:"
 
-#: ks_prefs.c:133
+#: ks_prefs.c:153
 msgid "Image _format:"
 msgstr "_Formato da imagem:"
 
-#: ks_prefs.c:135
+#: ks_prefs.c:155
 msgid "_JPEG quality:"
 msgstr "Qualidade do _JPEG:"
 
-#: ks_prefs.c:137
+#: ks_prefs.c:157
 msgid "File _name:"
 msgstr "_Nome do arquivo:"
 
-#: ks_prefs.c:139
+#: ks_prefs.c:159
 msgid ""
 "strftime() pattern: %Y year, %m month, %d day, %H%M%S time. The extension is "
 "added automatically."
@@ -127,55 +132,73 @@ msgstr ""
 "Padrão do strftime(): %Y ano, %m mês, %d dia, %H%M%S hora. A extensão é "
 "acrescentada automaticamente."
 
-#: ks_prefs.c:141
+#: ks_prefs.c:161
+msgid "Image edi_tor:"
+msgstr "Edi_tor de imagens:"
+
+#: ks_prefs.c:171
+msgid ""
+"Command the Edit button runs with the file appended (gimp, pinta, flameshot "
+"gui...). Empty: the default image application."
+msgstr ""
+"Comando que o botão Editar executa com o arquivo no final (gimp, pinta, "
+"flameshot gui...). Vazio: o aplicativo de imagens padrão."
+
+#: ks_prefs.c:173
 msgid "Save _automatically after taking a screenshot"
 msgstr "Salvar _automaticamente depois de capturar"
 
-#: ks_prefs.c:145
+#: ks_prefs.c:177
 msgid "Copy to the _clipboard automatically"
 msgstr "Copiar para a área de _transferência automaticamente"
 
-#: ks_prefs.c:158
+#: ks_prefs.c:190
 msgid "Con_tainer:"
 msgstr "Con_têiner:"
 
-#: ks_prefs.c:159
+#: ks_prefs.c:191
 msgid "mkv survives a crash mid-recording; webm needs VP8/VP9/AV1"
 msgstr "mkv sobrevive a uma queda no meio da gravação; webm exige VP8/VP9/AV1"
 
-#: ks_prefs.c:160
+#: ks_prefs.c:192
 msgid "Video _codec:"
 msgstr "_Codec de vídeo:"
 
-#: ks_prefs.c:161
+#: ks_prefs.c:193
 msgid "auto: the GPU (VAAPI) when available, else x264"
 msgstr "auto: a GPU (VAAPI) quando disponível, senão x264"
 
-#: ks_prefs.c:162
+#: ks_prefs.c:194
 msgid "_Quality (0 best, 51 worst):"
 msgstr "_Qualidade (0 melhor, 51 pior):"
 
-#: ks_prefs.c:164
+#: ks_prefs.c:196
 msgid "_Frames per second:"
 msgstr "_Quadros por segundo:"
 
-#: ks_prefs.c:166 ks_prefs.c:173
+#: ks_prefs.c:200
+msgid ""
+"Auto: the refresh rate of the screen being recorded -- the monitor itself, "
+"the one the window is on, or, for all screens, the one under the pointer"
+msgstr ""
+
+#: ks_prefs.c:202 ks_prefs.c:209
 msgid "Automatic"
 msgstr "Automático"
 
-#: ks_prefs.c:166 ks_rec.c:1100
+#: ks_prefs.c:202 ks_rec.c:1400
 msgid "GPU copy"
 msgstr "Cópia na GPU"
 
-#: ks_prefs.c:166
+#: ks_prefs.c:202
 msgid "SHM (classic)"
 msgstr "SHM (clássico)"
 
-#: ks_prefs.c:167
+#: ks_prefs.c:203
 msgid "Screen c_opy method:"
 msgstr "Método de c_ópia da tela:"
 
-#: ks_prefs.c:170
+#: ks_prefs.c:206
 msgid ""
 "GPU copy has the X server copy the screen into a buffer the GPU encodes "
 "directly, without reading it back. Automatic uses it only when the server "
@@ -185,141 +208,188 @@ msgstr ""
 "codifica direto, sem ler de volta. O automático só a usa quando o servidor "
 "garante que funciona (XiS); forçá-la em outro servidor pode congelar o vídeo."
 
-#: ks_prefs.c:174
+#: ks_prefs.c:210
 msgid "_Encoder:"
 msgstr "Codifi_cador:"
 
-#: ks_prefs.c:194
+#: ks_prefs.c:230
 msgid "kishot Settings"
 msgstr "Configurações do kishot"
 
-#: ks_prefs.c:199
+#: ks_prefs.c:235
 msgid "Screenshots"
 msgstr "Capturas"
 
-#: ks_prefs.c:200
+#: ks_prefs.c:236
 msgid "Recording"
 msgstr "Gravação"
 
-#: ks_rec.c:167
+#: ks_rec.c:168
 msgid "the libav plugin (kishot-rec-av.so) could not be loaded"
 msgstr "não foi possível carregar o plugin libav (kishot-rec-av.so)"
 
-#: ks_rec.c:169
+#: ks_rec.c:170
 msgid "install ffmpeg to record the screen"
 msgstr "instale o ffmpeg para gravar a tela"
 
-#: ks_rec.c:171
+#: ks_rec.c:172
 msgid "no usable video encoder was found"
 msgstr "nenhum codificador de vídeo utilizável foi encontrado"
 
-#: ks_rec.c:738
+#: ks_rec.c:677
+msgid "the X server has no X-SCALE"
+msgstr "o servidor X não tem X-SCALE"
+
+#: ks_rec.c:681
+msgid "no RandR screen resources"
+msgstr "sem recursos de tela do RandR"
+
+#: ks_rec.c:720
+msgid "no screen under the area is scaled"
+msgstr "nenhuma tela sob a área está escalada"
+
+#: ks_rec.c:740
+msgid "Render can't scale a less scaled screen up"
+msgstr "o Render não consegue ampliar uma tela menos escalada"
+
+#: ks_rec.c:763
+msgid "reading the screen at its physical size was denied"
+msgstr "a leitura da tela no tamanho físico foi negada"
+
+#: ks_rec.c:1008
 #, c-format
 msgid "ffmpeg failed: %s"
 msgstr "o ffmpeg falhou: %s"
 
-#: ks_rec.c:738
+#: ks_rec.c:1008
 msgid "unknown error"
 msgstr "erro desconhecido"
 
-#: ks_rec.c:897 ks_rec.c:927 ks_rec.c:945
+#: ks_rec.c:1135 ks_rec.c:1177 ks_rec.c:1212 ks_rec.c:1230
 msgid "the video encoder failed"
 msgstr "o codificador de vídeo falhou"
 
-#: ks_rec.c:909
+#: ks_rec.c:1194
 msgid "could not read the screen"
 msgstr "não foi possível ler a tela"
 
-#: ks_rec.c:934
+#: ks_rec.c:1219
 msgid "ffmpeg stopped accepting frames"
 msgstr "o ffmpeg parou de aceitar quadros"
 
-#: ks_rec.c:999
+#: ks_rec.c:1285
 msgid "already recording"
 msgstr "já está gravando"
 
-#: ks_rec.c:1009
+#: ks_rec.c:1295
 #, c-format
 msgid "the encoder \"%s\" is not available for %s files"
 msgstr "o codificador \"%s\" não está disponível para arquivos %s"
 
-#: ks_rec.c:1031
+#: ks_rec.c:1320
 msgid "could not connect to the X server"
 msgstr "não foi possível conectar ao servidor X"
 
-#: ks_rec.c:1051
+#: ks_rec.c:1347
 msgid "SHM (the server does not guarantee root copies)"
 msgstr "SHM (o servidor não garante cópias da raiz)"
 
-#: ks_rec.c:1053
+#: ks_rec.c:1349
 msgid "SHM (GPU copy unavailable: no DRI3)"
 msgstr "SHM (cópia na GPU indisponível: sem DRI3)"
 
-#: ks_rec.c:1056
+#: ks_rec.c:1352
 msgid "MIT-SHM is not available"
 msgstr "MIT-SHM não está disponível"
 
-#: ks_rec.c:1090
+#: ks_rec.c:1356
+msgid "could not allocate the frame at the physical size"
+msgstr "não foi possível alocar o quadro no tamanho físico"
+
+#: ks_rec.c:1390
 msgid "SHM (the dma-buf import failed)"
 msgstr "SHM (a importação do dma-buf falhou)"
 
-#: ks_rec.c:1102 ks_rec.c:1107
+#: ks_rec.c:1402 ks_rec.c:1407
 msgid " (no audio: libpulse missing)"
 msgstr " (sem áudio: falta a libpulse)"
 
-#: ks_rec.c:1106
+#: ks_rec.c:1406
 #, c-format
 msgid "%s → ffmpeg %s%s"
 msgstr "%s → ffmpeg %s%s"
+
+#: ks_rec.c:1411
+#, c-format
+msgid "%s, physical size %dx%d"
+msgstr "%s, tamanho físico %dx%d"
+
+#: ks_rec.c:1415
+#, c-format
+msgid "%s (logical size: %s)"
+msgstr "%s (tamanho lógico: %s)"
 
 #: ks_region.c:64
 msgid "Drag to select a region. Esc cancels."
 msgstr "Arraste para selecionar uma região. Esc cancela."
 
-#: ks_window.c:116
+#: ks_window.c:118
 msgid "The region is selected when the recording starts."
 msgstr "A região é escolhida quando a gravação começa."
 
-#: ks_window.c:118
+#: ks_window.c:120
 msgid "The window active when the recording starts is recorded."
 msgstr "É gravada a janela ativa quando a gravação começa."
 
-#: ks_window.c:250 ks_window.c:297
+#: ks_window.c:257 ks_window.c:400
 #, c-format
 msgid "Saved to %s"
 msgstr "Salvo em %s"
 
-#: ks_window.c:251 ks_window.c:298
+#: ks_window.c:258 ks_window.c:401
 #, c-format
 msgid "Could not save: %s"
 msgstr "Não foi possível salvar: %s"
 
-#: ks_window.c:254
+#: ks_window.c:261
 msgid "Screenshot failed"
 msgstr "A captura falhou"
 
-#: ks_window.c:254
+#: ks_window.c:261
 msgid "Screenshot saved"
 msgstr "Captura salva"
 
-#: ks_window.c:272
+#: ks_window.c:305
+msgid "Reloaded after editing"
+msgstr "Recarregada após a edição"
+
+#: ks_window.c:361
+#, c-format
+msgid "Could not open the editor: %s"
+msgstr "Não foi possível abrir o editor: %s"
+
+#: ks_window.c:365
+msgid "Opened in the editor"
+msgstr "Aberto no editor"
+
+#: ks_window.c:375
 msgid "Save Screenshot"
 msgstr "Salvar captura"
 
-#: ks_window.c:314
+#: ks_window.c:417
 msgid "Copied to the clipboard"
 msgstr "Copiado para a área de transferência"
 
-#: ks_window.c:345
+#: ks_window.c:449
 msgid "The screen could not be read"
 msgstr "Não foi possível ler a tela"
 
-#: ks_window.c:478
+#: ks_window.c:589
 #, c-format
 msgid "Stop (%d:%02d)"
 msgstr "Parar (%d:%02d)"
 
-#: ks_window.c:481
+#: ks_window.c:591
 #, c-format
 msgid ""
 "Recording %d:%02d -- click to stop\n"
@@ -328,107 +398,121 @@ msgstr ""
 "Gravando %d:%02d -- clique para parar\n"
 "%s"
 
-#: ks_window.c:488 ks_window.c:917
+#: ks_window.c:597 ks_window.c:1035
 msgid "Record"
 msgstr "Gravar"
 
-#: ks_window.c:517
+#: ks_window.c:621
 #, c-format
 msgid "Recording saved to %s"
 msgstr "Gravação salva em %s"
 
-#: ks_window.c:518 ks_window.c:549
+#: ks_window.c:622 ks_window.c:661
 #, c-format
 msgid "Recording failed: %s"
 msgstr "A gravação falhou: %s"
 
-#: ks_window.c:521 ks_window.c:552
+#: ks_window.c:625 ks_window.c:664
 msgid "Recording failed"
 msgstr "A gravação falhou"
 
-#: ks_window.c:521
+#: ks_window.c:625
 msgid "Recording saved"
 msgstr "Gravação salva"
 
-#: ks_window.c:609
+#: ks_window.c:719
 msgid "Full screen (all monitors)"
 msgstr "Tela inteira (todos os monitores)"
 
-#: ks_window.c:610
+#: ks_window.c:720
 msgid "Current monitor"
 msgstr "Monitor atual"
 
-#: ks_window.c:617
+#: ks_window.c:727
 #, c-format
 msgid "Monitor %d (%dx%d)"
 msgstr "Monitor %d (%dx%d)"
 
-#: ks_window.c:618
+#: ks_window.c:728
 #, c-format
 msgid "Monitor %d: %s (%dx%d)"
 msgstr "Monitor %d: %s (%dx%d)"
 
-#: ks_window.c:628
+#: ks_window.c:738
 msgid "Active window"
 msgstr "Janela ativa"
 
-#: ks_window.c:629
+#: ks_window.c:739
 msgid "Rectangular region"
 msgstr "Região retangular"
 
-#: ks_window.c:713
+#: ks_window.c:823
 msgid "Recording sound needs libpulse"
 msgstr "Gravar som exige a libpulse"
 
-#: ks_window.c:806
+#: ks_window.c:916
 msgid "_Area:"
 msgstr "_Área:"
 
-#: ks_window.c:874
+#: ks_window.c:986
 msgid "Scr_eenshot"
 msgstr "Cap_tura"
 
-#: ks_window.c:881
+#: ks_window.c:993
 msgid "_Delay:"
 msgstr "_Atraso:"
 
-#: ks_window.c:890
+#: ks_window.c:1002
 msgid "Include the mouse _pointer"
 msgstr "Incluir o _ponteiro do mouse"
 
-#: ks_window.c:892 ks_window.c:909
+#: ks_window.c:1004 ks_window.c:1021
 msgid "Include window _borders"
 msgstr "Incluir as _bordas da janela"
 
-#: ks_window.c:894
+#: ks_window.c:1006
 msgid "_New Screenshot"
 msgstr "_Nova captura"
 
-#: ks_window.c:900
+#: ks_window.c:1012
 msgid "Reco_rding"
 msgstr "_Gravação"
 
-#: ks_window.c:907
+#: ks_window.c:1019
 msgid "Record the mouse _pointer"
 msgstr "Gravar o _ponteiro do mouse"
 
-#: ks_window.c:911
+#: ks_window.c:1023
 msgid "_System sound"
 msgstr "Som do _sistema"
 
-#: ks_window.c:913
+#: ks_window.c:1025
 msgid "_Microphone"
 msgstr "_Microfone"
 
-#: ks_window.c:915
+#: ks_window.c:1027
+msgid "Record at the screens' physical si_ze"
+msgstr "Gravar no tamanho _físico das telas"
+
+#: ks_window.c:1028
+msgid ""
+"A scaled screen is recorded at the monitor's real resolution instead of its "
+"logical size. Needs X-SCALE in the X server."
+msgstr "Uma tela escalada é gravada na resolução real do monitor em vez do tamanho lógico. Precisa da X-SCALE no servidor X."
+
+#: ks_window.c:1031
+msgid "_Hide this window while recording"
+msgstr ""
+
+#: ks_window.c:1033
 msgid "Show a _live preview"
 msgstr "Mostrar p_révia ao vivo"
 
-#: ks_window.c:921
+#: ks_window.c:1039
 msgid "Hidden windows"
 msgstr "Janelas ocultas"
 
-#: ks_window.c:930
+#: ks_window.c:1048
 msgid ""
 "These windows are painted black in screenshots and recordings. The screen "
 "itself is not changed. To stop hiding one, untick \"Hide from screen "
@@ -438,47 +522,38 @@ msgstr ""
 "não muda. Para parar de ocultar uma, desmarque \"Ocultar da captura de "
 "tela\" no menu da barra de título dela."
 
-#: ks_window.c:940
+#: ks_window.c:1058
 msgid "_Hide a Window..."
 msgstr "_Ocultar janela..."
 
-#: ks_window.c:951
+#: ks_window.c:1069
 msgid "Settings"
 msgstr "Configurações"
 
-#: ks_window.c:957
+#: ks_window.c:1075
 msgid "_Open Folder"
 msgstr "A_brir pasta"
 
-#: ks_window.c:959
+#: ks_window.c:1077
 msgid "_Copy"
 msgstr "_Copiar"
 
-#: ks_window.c:961
-msgid "Save _As..."
-msgstr "Salvar _como..."
-
-#: ks_window.c:963
-msgid "_Save"
-msgstr "_Salvar"
-
+#: ks_window.c:1079
 msgid "_Edit"
 msgstr "_Editar"
 
-msgid "Open the screenshot in an image editor (set in Settings), to annotate it before sending"
-msgstr "Abre a captura em um editor de imagens (definido nas Configurações), para anotá-la antes de enviar"
+#: ks_window.c:1080
+msgid ""
+"Open the screenshot in an image editor (set in Settings), to annotate it "
+"before sending"
+msgstr ""
+"Abre a captura em um editor de imagens (definido nas Configurações), para "
+"anotá-la antes de enviar"
 
-msgid "Could not open the editor: %s"
-msgstr "Não foi possível abrir o editor: %s"
+#: ks_window.c:1083
+msgid "Save _As..."
+msgstr "Salvar _como..."
 
-msgid "Opened in the editor"
-msgstr "Aberto no editor"
-
-msgid "Image edi_tor:"
-msgstr "Edi_tor de imagens:"
-
-msgid "Command the Edit button runs with the file appended (gimp, pinta, flameshot gui...). Empty: the default image application."
-msgstr "Comando que o botão Editar executa com o arquivo no final (gimp, pinta, flameshot gui...). Vazio: o aplicativo de imagens padrão."
-
-msgid "Reloaded after editing"
-msgstr "Recarregada após a edição"
+#: ks_window.c:1085
+msgid "_Save"
+msgstr "_Salvar"

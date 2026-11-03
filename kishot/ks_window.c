@@ -1024,6 +1024,10 @@ KsApp *ks_app_new(KsConfig *cfg)
     g_signal_connect(app->sys_check, "toggled", G_CALLBACK(on_toggle), &cfg->audio_system);
     app->mic_check = check(page, _("_Microphone"), cfg->audio_mic);
     g_signal_connect(app->mic_check, "toggled", G_CALLBACK(on_toggle), &cfg->audio_mic);
+    GtkWidget *phys = check(page, _("Record at the screens' physical si_ze"), cfg->rec_physical);
+    gtk_widget_set_tooltip_text(phys, _("A scaled screen is recorded at the monitor's real resolution "
+                                        "instead of its logical size. Needs X-SCALE in the X server."));
+    g_signal_connect(phys, "toggled", G_CALLBACK(on_toggle), &cfg->rec_physical);
     app->rec_hide_check = check(page, _("_Hide this window while recording"), cfg->hide_on_record);
     g_signal_connect(app->rec_hide_check, "toggled", G_CALLBACK(on_toggle), &cfg->hide_on_record);
     app->rec_preview_check = check(page, _("Show a _live preview"), cfg->rec_preview);
