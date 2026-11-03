@@ -91,14 +91,7 @@
 #include <unistd.h>
 #include "../shared/xis_safefile.h"
 
-/* xisback_inputscale.c (or xisback_inputscale_stub.c, see Makefile) --
- * X-INPUT-SCALE per-CRTC confinement, used by resolve_output_geometry(). */
-void xis_init(Display *dpy, Window root);
-int xis_get_confine(unsigned long crtc, int *out_x, int *out_y, int *out_w, int *out_h);
-int xis_fd(void);
-int xis_poll_change(void);
-
-#define XISBACK_VERSION "0.4.19"
+#define XISBACK_VERSION "0.5.0"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -219,8 +212,7 @@ static int g_loading;
  * event-driven way to learn "the WM/compositor just changed" without
  * polling or watching PropertyNotify on anything. Used only to redo the
  * output-rename/geometry/overlap checks below in case the new WM/
- * compositor manages outputs, reparenting or per-CRTC confinement
- * differently than the old one did -- see the XFixesSelectionNotify
+ * compositor manages outputs or reparenting differently than the old one did -- see the XFixesSelectionNotify
  * handling in main()'s event loop. */
 static int g_xfixes_available;
 static int g_xfixes_event_base;
@@ -715,15 +707,6 @@ static int resolve_output_geometry(const char *name, int *ox, int *oy, int *ow, 
                 *oy = ci->y;
                 *ow = (int)ci->width;
                 *oh = (int)ci->height;
-                /* X-INPUT-SCALE: a compositor doing per-output HiDPI
-                 * downscaling can confine this CRTC's usable desktop-space
-                 * area to a box smaller than the raw physical scanout --
-                 * use that instead when active, so the wallpaper stays
-                 * inside the actually-visible area instead of spilling
-                 * past it at the CRTC's full physical size. Leaves the
-                 * CRTC geometry set above untouched when no confinement is
-                 * active. */
-                xis_get_confine((unsigned long)oi->crtc, ox, oy, ow, oh);
                 found = 1;
                 XRRFreeCrtcInfo(ci);
             }
@@ -1153,8 +1136,8 @@ static int layer_fade_tick(Layer *l, const struct timespec *now)
  * nothing to advance from yet) so that l->img_idx always means "the slide
  * presently on screen", never "the slide that's about to be shown".
  * Getting that invariant right matters beyond just this function: any
- * geometry-only re-render (layer_render(), called by RandR/X-INPUT-SCALE
- * handling on a resize) reads l->img_idx directly to redraw the same
+ * geometry-only re-render (layer_render(), called by RandR handling on a
+ * resize) reads l->img_idx directly to redraw the same
  * slide at a new size -- if img_idx ever pointed at the *next* slide
  * instead of the current one, a resize would visibly jump the slideshow
  * ahead by one without any of the bookkeeping (next_switch, shuffle-on-
@@ -1194,9 +1177,8 @@ static void layer_advance(Layer *l, time_t now)
 }
 
 /* Re-resolves every layer's geometry and redraws at its (possibly new) size
- * -- shared by the RandR handler (a monitor was reconfigured) and the
- * X-INPUT-SCALE handler (a CRTC's confinement box changed without the CRTC
- * itself changing, so no RRScreenChangeNotify fires for it). Any in-flight
+ * -- called by the RandR handler (a monitor was reconfigured or rescaled),
+ * when the WM/compositor changes and when two layers overlap. Any in-flight
  * crossfade is snapped to its final state first: an animated transition
  * doesn't make sense for a geometry change forced from outside. */
 static void refresh_all_layer_geometries(void)
@@ -2026,8 +2008,6 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
         XFixesSelectSelectionInput(g_dpy, g_root, g_atom_cm_sn, XFixesSetSelectionOwnerNotifyMask);
     }
 
-    xis_init(g_dpy, g_root);
-
     unlink(sockpath);
     int listenfd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     struct sockaddr_un addr;
@@ -2052,9 +2032,6 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
      * click action execs -- they'd otherwise inherit them across fork(). */
     fcntl(listenfd, F_SETFD, FD_CLOEXEC);
     fcntl(ConnectionNumber(g_dpy), F_SETFD, FD_CLOEXEC);
-    if (xis_fd() >= 0) {
-        fcntl(xis_fd(), F_SETFD, FD_CLOEXEC);
-    }
 
     snprintf(g_configpath, sizeof(g_configpath), "%s", configpath);
     load_config();
@@ -2067,7 +2044,6 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
     }
 
     int xfd = ConnectionNumber(g_dpy);
-    int xisfd = xis_fd();
     time_t next_overlap_check = time(NULL) + OVERLAP_CHECK_INTERVAL_SEC;
     while (!g_quit) {
         fd_set rfds;
@@ -2075,12 +2051,6 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
         FD_SET(listenfd, &rfds);
         FD_SET(xfd, &rfds);
         int maxfd = listenfd > xfd ? listenfd : xfd;
-        if (xisfd >= 0) {
-            FD_SET(xisfd, &rfds);
-            if (xisfd > maxfd) {
-                maxfd = xisfd;
-            }
-        }
 
         time_t now = time(NULL);
         time_t soonest = 0;
@@ -2295,14 +2265,6 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                     }
                 }
             }
-        }
-
-        if (xisfd >= 0 && r > 0 && FD_ISSET(xisfd, &rfds) && xis_poll_change()) {
-            /* A CRTC's X-INPUT-SCALE confinement box was set/resized/
-             * cleared -- react immediately instead of waiting for a
-             * RandR event that, for a confinement-only change, never
-             * comes. */
-            refresh_all_layer_geometries();
         }
 
         if (g_click_pending_button) {
