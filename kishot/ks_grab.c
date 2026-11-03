@@ -5,7 +5,6 @@
  * already make GetImage see per-CRTC flips. The pointer is drawn from
  * XFixes' cursor image, since GetImage never includes it. */
 #include "ks.h"
-#include "../shared/xis_inputscale.h"
 #include <X11/Xlib-xcb.h>
 #include <gdk/gdkx.h>
 #include <X11/Xlib.h>
@@ -229,18 +228,7 @@ static void draw_pointer(GdkPixbuf *pb, const KsRect *r, double scale)
     XFixesCursorImage *ci = XFixesGetCursorImage(dpy);
     if (!ci)
         return;
-    /* On a confined output the framebuffer holds the hardware cursor
-     * enlarged by physical/logical; the server already reports the position
-     * on the framebuffer (ci->x, ci->y) but not the size. */
     double sx = scale, sy = scale;
-    XisScaleMap map;
-    if (xis_scalemap_load(XGetXCBConnection(dpy), GDK_ROOT_WINDOW(), &map)) {
-        const XisConfinedCrtc *k = xis_scalemap_find(&map, ci->x, ci->y);
-        if (k) {
-            sx *= k->sx;
-            sy *= k->sy;
-        }
-    }
     int ox = (int)((ci->x - r->x) * scale - ci->xhot * sx), oy = (int)((ci->y - r->y) * scale - ci->yhot * sy);
     int cw = MAX(1, (int)(ci->width * sx)), ch = MAX(1, (int)(ci->height * sy));
     int W = gdk_pixbuf_get_width(pb), H = gdk_pixbuf_get_height(pb);
