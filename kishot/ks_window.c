@@ -113,14 +113,29 @@ static void live_sync(KsApp *app)
 static void update_hint(KsApp *app)
 {
     const char *hint = NULL;
-    if (app->tab == KS_TAB_RECORD && app->cfg->rec_preview) {
+    char *size = NULL;
+    if (app->tab == KS_TAB_RECORD) {
         if (app->cfg->rec_area == KS_AREA_REGION)
-            hint = _("The region is selected when the recording starts.");
+            hint = app->cfg->rec_preview ? _("The region is selected when the recording starts.") : NULL;
         else if (app->cfg->rec_area == KS_AREA_WINDOW)
-            hint = _("The window active when the recording starts is recorded.");
+            hint = app->cfg->rec_preview ? _("The window active when the recording starts is recorded.") : NULL;
+        else if (app->cfg->rec_physical) {
+            /* the preview is the logical screen either way: say what the
+             * option does to the video */
+            GdkWindow *gw = gtk_widget_get_window(app->win);
+            KsRect r;
+            int w, h;
+            area_rect(app->cfg->rec_area, app->cfg->rec_output, app->cfg->decorations,
+                      gw ? GDK_WINDOW_XID(gw) : 0, &r);
+            const char *why = ks_rec_physical_size(&r, &w, &h);
+            size = why ? g_strdup_printf(_("Recorded at the logical size: %s."), why)
+                       : g_strdup_printf(_("Recorded at %dx%d, the screens' physical size."), w, h);
+            hint = size;
+        }
     }
     gtk_label_set_text(GTK_LABEL(app->preview_hint), hint ? hint : "");
     gtk_widget_set_visible(app->preview_hint, hint != NULL);
+    g_free(size);
 }
 
 static void update_preview(KsApp *app)
@@ -781,6 +796,12 @@ static void on_deco(GtkToggleButton *b, KsApp *app)
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(other), app->cfg->decorations);
 }
 
+static void on_rec_physical(GtkToggleButton *b, KsApp *app)
+{
+    app->cfg->rec_physical = gtk_toggle_button_get_active(b);
+    update_hint(app);
+}
+
 static void on_rec_preview(GtkToggleButton *b, KsApp *app)
 {
     app->cfg->rec_preview = gtk_toggle_button_get_active(b);
@@ -1027,7 +1048,7 @@ KsApp *ks_app_new(KsConfig *cfg)
     GtkWidget *phys = check(page, _("Record at the screens' physical si_ze"), cfg->rec_physical);
     gtk_widget_set_tooltip_text(phys, _("A scaled screen is recorded at the monitor's real resolution "
                                         "instead of its logical size. Needs X-SCALE in the X server."));
-    g_signal_connect(phys, "toggled", G_CALLBACK(on_toggle), &cfg->rec_physical);
+    g_signal_connect(phys, "toggled", G_CALLBACK(on_rec_physical), app);
     app->rec_hide_check = check(page, _("_Hide this window while recording"), cfg->hide_on_record);
     g_signal_connect(app->rec_hide_check, "toggled", G_CALLBACK(on_toggle), &cfg->hide_on_record);
     app->rec_preview_check = check(page, _("Show a _live preview"), cfg->rec_preview);
