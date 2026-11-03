@@ -20,8 +20,8 @@ Isso deixava uma faixa morta entre a tela escalada e a vizinha, e por isso
 foi abandonado.
 
 Na **X-SCALE**, a saída é escalada do jeito normal do RandR, com um
-**transform de CRTC**: `xrandr --scale-from`, ou o kicomp aplicando a
-propriedade `DPI` (`apply_scale`). A consequência para os programas daqui é
+**transform de CRTC**: `xrandr --scale`/`--scale-from`, ou o spin de
+escala da aba Telas do kiconf. A consequência para os programas daqui é
 direta:
 
 - **a geometria do RandR já é a lógica.** `XRRGetCrtcInfo` e
@@ -58,6 +58,8 @@ Branch `x-scale` deste repositório:
 
 - **`1dd0861`:** escala por transform, saída "com fonte" (*sourced*)
   entregue ao servidor, `apply_scale` aplicando `DPI` → transform.
+- **`3e0b08a`:** o `apply_scale` deixa de ler o `DPI` e só aplica o
+  `[output:NAME] scale` do kicomp.conf. Veja "DPI e escala" abaixo.
 - **`383123e`:** fala X-SCALE, com o módulo renomeado de
   `inputscale.c/.h` para `xscale.c/.h`.
 
@@ -149,10 +151,27 @@ Em `kiconf/tabs/screens.c`, dois trechos dependem do modelo antigo:
    `_X_DENSITY_MANAGER_S<n>` (os clientes redesenham denso) e, se quiser
    mostrar isso, que a CRTC aceite fonte (X-SCALE `GetCrtcScanout`, flag
    `XScaleScanoutCapable`). Para a geometria, nada disso importa.
-3. Na hora de aplicar, o kiconf pode continuar mudando só a propriedade
-   `DPI` (`xrandr --set DPI`). O kicomp com `apply_scale = 1` transforma em
-   transform e reposiciona as vizinhas. Se o kiconf também aplicar
-   `--scale-from` por conta própria, os dois vão brigar; escolher um só.
+3. Na hora de aplicar, quem define o transform é só o kiconf, para os dois
+   não brigarem. Feito: veja "DPI e escala" abaixo.
+
+## DPI e escala
+
+O `DPI` e o `--scale` são duas coisas separadas:
+
+- **A escala é o transform.** O kiconf o define pelo spin "Escala" da aba
+  Telas, e o `xrandr --scale` também. O kicomp segue o transform e não lê o
+  `DPI` (`3e0b08a`). Por isso tudo funciona num servidor sem X-SCALE, só
+  que borrado, porque o servidor amplia.
+- **O `DPI` é informação** de cada saída, para os clientes. Com X-SCALE ele
+  é a base da escala: o "Seguir DPI" do kiconf, ligado por padrão, mantém
+  `--scale` em `96/DPI`. Com o "Seguir DPI" desligado, a escala é
+  escolhida à parte.
+- **Sem a propriedade `DPI`** (servidor que não é o fork), o kiconf mostra
+  só o spin de escala.
+
+Ainda falta escrever a convenção de como um toolkit que lê o `DPI` (os
+forks de Qt/GTK do dec05eba, o nosso patch de Qt) deve evitar escalar de
+novo uma saída que o transform já amplia.
 
 ## kishot — precisa de mudança
 
