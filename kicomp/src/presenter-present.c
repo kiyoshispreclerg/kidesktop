@@ -78,6 +78,7 @@ typedef struct {
     uint64_t msc;               /* last completed frame's counter */
     uint64_t ust;               /* ...and when it was scanned out (us) */
     uint8_t mode;               /* how it landed: copy, flip, skip */
+    uint8_t logged_mode;        /* X-SCALE: the last mode said in the log */
 } PresentOutput;
 
 static bool present_init(CompOutput *o)
@@ -304,6 +305,15 @@ static bool xscale_handle_event(xcb_generic_event_t *ev)
         po->ust = x.ust;
         po->mode = x.mode == XSCALE_MODE_FLIP ? XCB_PRESENT_COMPLETE_MODE_FLIP
                                               : XCB_PRESENT_COMPLETE_MODE_COPY;
+
+        /* What the server actually does with them, said when it starts
+         * and whenever it changes (PerCRTCFlip toggled, a VT switch): */
+        if (x.mode + 1 != po->logged_mode) {
+            po->logged_mode = (uint8_t)(x.mode + 1);
+            comp_info("%s: frames %s by the server", o->name,
+                      x.mode == XSCALE_MODE_FLIP ? "flipped onto the CRTC"
+                                                 : "copied");
+        }
         comp_log("x-scale %s: msc %llu mode %s ust %llu", o->name,
                  (unsigned long long)x.msc, mode_name(po->mode),
                  (unsigned long long)x.ust);
