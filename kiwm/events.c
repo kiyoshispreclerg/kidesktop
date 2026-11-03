@@ -1752,17 +1752,6 @@ static void handle_button_release(xcb_button_release_event_t *ev)
 
 static void handle_property_notify(xcb_property_notify_event_t *ev)
 {
-    /* On the root: a compositor saying which part of each monitor is
-     * really desktop (output.c's apply_confined_areas). Re-reading the
-     * outputs is all it takes -- everything that lays windows out works
-     * from wm.outputs[]. */
-    if (ev->window == wm.root && ev->atom == wm.atoms.xis_confined_area) {
-        fprintf(stderr, "kiwm: _XIS_CONFINED_AREA changed\n");
-        outputs_refresh();
-        xcb_flush(wm.conn);
-        return;
-    }
-
     /* A wallpaper layer saying which desktop it is for. It is not a
      * client and never will be, but which desktop it belongs to is still
      * kiwm's to act on (output.h's desktop_layer_refresh). */

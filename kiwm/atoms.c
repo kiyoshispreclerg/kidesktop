@@ -109,8 +109,6 @@ void ewmh_init_atoms(void)
     wm.atoms.kiwm_hold_window = intern_atom("_KIWM_HOLD_WINDOW");
     wm.atoms.kiwm_held = intern_atom("_KIWM_HELD");
 
-    wm.atoms.xis_confined_area   = intern_atom("_XIS_CONFINED_AREA");
-
     wm.atoms.x_density_requested = intern_atom("_X_DENSITY_REQUESTED");
     wm.atoms.x_density_scale     = intern_atom("_X_DENSITY_SCALE");
     wm.atoms.x_density_pixmap    = intern_atom("_X_DENSITY_PIXMAP");

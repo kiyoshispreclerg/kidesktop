@@ -261,22 +261,10 @@ typedef enum {
 
 typedef struct XisOutput {
     char name[64];
-    /* The *usable* box: where windows go. Normally the whole monitor, and
-     * smaller than it when a compositor is scaling this output and has
-     * confined it (output.c's apply_confined_areas). */
+    /* The monitor's box in root coordinates. On a scaled output this is
+     * already the logical box: the scale is a CRTC transform, and RandR
+     * reports the transformed footprint. */
     int x, y, width, height;
-
-    /* And the monitor's whole scanout box, which is what still *belongs*
-     * to this output even where no desktop is drawn. The two are the same
-     * rectangle unless something confined this output.
-     *
-     * Keeping both matters because "where may a window go" and "which
-     * monitor is this point on" are different questions. Answering the
-     * second one with the usable box makes everything in the discarded
-     * region homeless -- a panel there gets attributed to the primary
-     * output and its strut eats into *that* monitor's workarea, which is
-     * how confining the small screen made the big one shorter. */
-    int scan_x, scan_y, scan_width, scan_height;
 
     bool primary;
     int desktop;            /* current virtual desktop for this output, 0..wm.num_desktops-1 */
@@ -934,10 +922,6 @@ typedef struct {
      * See PROTOCOL.md. */
     xcb_atom_t kiwm_layer;
     xcb_atom_t kiwm_capture_exclude;  /* _KIWM_CAPTURE_EXCLUDE, see PROTOCOL.md */
-
-    /* Published by a compositor doing per-output HiDPI scaling: the parts
-     * of the screen that are actually usable desktop (output.c). */
-    xcb_atom_t xis_confined_area;
 
     /* X-DENSITY, for kiwm's own decorations (density.h) */
     xcb_atom_t x_density_requested;
