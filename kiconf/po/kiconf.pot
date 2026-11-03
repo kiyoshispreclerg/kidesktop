@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-02 22:07-0300\n"
+"POT-Creation-Date: 2026-11-03 07:51-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -249,7 +249,7 @@ msgstr ""
 #: tabs/autostart.c:421 tabs/disks.c:364 tabs/energy.c:453 tabs/history.c:382
 #: tabs/history.c:449 tabs/input.c:643 tabs/kitheme.c:610 tabs/lock.c:196
 #: tabs/login.c:708 tabs/permissions.c:821 tabs/programs.c:305
-#: tabs/screens.c:2126 tabs/shortcuts.c:1471 tabs/system.c:819 tabs/users.c:573
+#: tabs/screens.c:2265 tabs/shortcuts.c:1471 tabs/system.c:819 tabs/users.c:573
 msgid "Aplicar"
 msgstr ""
 
@@ -403,7 +403,7 @@ msgid "Tecnologias assistivas"
 msgstr ""
 
 #: tabs/appearance.c:211 tabs/appearance.c:232 tabs/associations.c:192
-#: tabs/screens.c:1484 tabs/screens.c:1643
+#: tabs/screens.c:1565 tabs/screens.c:1733
 msgid "(nenhum)"
 msgstr ""
 
@@ -1619,7 +1619,7 @@ msgid "Titulo privado (regex):"
 msgstr ""
 
 #: tabs/history.c:388 tabs/history.c:455 tabs/permissions.c:915
-#: tabs/screens.c:1987
+#: tabs/screens.c:2105
 msgid "-"
 msgstr ""
 
@@ -1972,7 +1972,7 @@ msgid ""
 "Gera o fundo das janelas, campos, botoes e menus, e as dicas no tom oposto."
 msgstr ""
 
-#: tabs/kitheme.c:532 tabs/screens.c:2118
+#: tabs/kitheme.c:532 tabs/screens.c:2257
 msgid "Avancado"
 msgstr ""
 
@@ -3170,91 +3170,101 @@ msgstr ""
 msgid "Sessao (kisession.conf -- \"(automatico)\" usa o primeiro instalado)"
 msgstr ""
 
-#: tabs/screens.c:1856 tabs/screens.c:1878 tabs/screens.c:1992
+#: tabs/screens.c:1974 tabs/screens.c:1996 tabs/screens.c:2110
 #, c-format
 msgid "%d saida(s) detectada(s)."
 msgstr ""
 
-#: tabs/screens.c:1976
+#: tabs/screens.c:2094
 msgid ""
 "Arraste as caixas pra reposicionar. Aplicar tambem grava o layout pra ser "
 "reaplicado automaticamente no inicio da proxima sessao."
 msgstr ""
 
-#: tabs/screens.c:2008 tabs/wallpaper.c:1450
+#: tabs/screens.c:2126 tabs/wallpaper.c:1450
 msgid "Saida"
 msgstr ""
 
-#: tabs/screens.c:2012
+#: tabs/screens.c:2130
 msgid "Clique pra configurar; duplo clique liga a saida"
 msgstr ""
 
-#: tabs/screens.c:2022
-msgid "Desenho responde a DPI e escala"
-msgstr ""
-
-#: tabs/screens.c:2024
-msgid ""
-"Cada tela aparece do tamanho que ocupa na area de trabalho, que a DPI define "
-"(DPI 144 = 2/3 do modo, DPI 72 = 4/3)."
-msgstr ""
-
-#: tabs/screens.c:2029
-msgid ""
-"Sem um compositor com X-DENSITY, telas com DPI acima de 96 ficam borradas."
-msgstr ""
-
-#: tabs/screens.c:2036
+#: tabs/screens.c:2141
 msgid "Layout (arraste pra mover)"
 msgstr ""
 
-#: tabs/screens.c:2037
+#: tabs/screens.c:2142
 msgid "Desativadas"
 msgstr ""
 
-#: tabs/screens.c:2048
+#: tabs/screens.c:2153
 msgid "Resolucao:"
 msgstr ""
 
-#: tabs/screens.c:2051
+#: tabs/screens.c:2156
 msgid "Taxa de atualizacao:"
 msgstr ""
 
-#: tabs/screens.c:2058
+#: tabs/screens.c:2163
 msgid "Rotacao:"
 msgstr ""
 
-#: tabs/screens.c:2061
+#: tabs/screens.c:2166
 msgid "Espelhar (mirror):"
 msgstr ""
 
-#: tabs/screens.c:2062
+#: tabs/screens.c:2167
 msgid "Saida ligada"
 msgstr ""
 
-#: tabs/screens.c:2065
+#: tabs/screens.c:2170
 msgid "Saida primaria"
 msgstr ""
 
-#: tabs/screens.c:2084
+#: tabs/screens.c:2188
 msgid ""
-"Acima de 96 a tela fica maior (HiDPI); abaixo de 96 cabe mais area de "
-"trabalho nela."
+"Densidade da tela, informada aos programas. Com \"Seguir DPI\", a escala "
+"acompanha: acima de 96 a tela fica maior (HiDPI); abaixo de 96 cabe mais "
+"area de trabalho nela."
 msgstr ""
 
-#: tabs/screens.c:2086
+#: tabs/screens.c:2191
 msgid "DPI:"
 msgstr ""
 
-#: tabs/screens.c:2098
+#: tabs/screens.c:2199
+msgid ""
+"--scale do xrandr: abaixo de 1 a tela fica maior; acima de 1 cabe mais area "
+"de trabalho nela."
+msgstr ""
+
+#: tabs/screens.c:2201
+msgid "Seguir DPI"
+msgstr ""
+
+#: tabs/screens.c:2203
+msgid "A escala acompanha o DPI (96/DPI)."
+msgstr ""
+
+#: tabs/screens.c:2207
+msgid "Escala:"
+msgstr ""
+
+#: tabs/screens.c:2219
+msgid ""
+"Sem um compositor com X-DENSITY, telas ampliadas (escala abaixo de 1) ficam "
+"borradas."
+msgstr ""
+
+#: tabs/screens.c:2237
 msgid "Saida selecionada"
 msgstr ""
 
-#: tabs/screens.c:2119
+#: tabs/screens.c:2258
 msgid "Propriedades avancadas"
 msgstr ""
 
-#: tabs/screens.c:2125
+#: tabs/screens.c:2264
 msgid "Detectar novamente"
 msgstr ""
 
