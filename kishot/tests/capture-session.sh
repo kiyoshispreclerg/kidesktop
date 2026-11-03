@@ -31,9 +31,9 @@ start_stack() { # start_stack <kicomp.conf body>
 stop_stack() { kill $XT $CP $KP $XP 2>/dev/null; wait $XT $CP $KP $XP 2>/dev/null; PIDS=(); sleep 0.5; }
 
 shot() { # shot <name>: prints "white" if the xterm shows, "black" if hidden
-    rm -rf "$HOME/Screenshots"
+    rm -rf "$HOME/Kishot"
     KISHOT_DEBUG=1 "$ROOT/kishot/kishot" -f -b >"$TMP/kishot.log" 2>&1
-    local f; f=$(ls "$HOME"/Screenshots/*.png 2>/dev/null | head -1)
+    local f; f=$(ls "$HOME"/Kishot/*.png 2>/dev/null | head -1)
     [ -n "$f" ] || { echo none; return; }
     python3 - "$f" <<'PY'
 import sys
@@ -119,9 +119,9 @@ printf 'auto_save=1\n' > "$HOME/.config/kishot.conf"
 "$ROOT/kishot/kishot" >"$TMP/gui2.log" 2>&1 & GUI2=$!; PIDS+=($GUI2); sleep 3
 G2=$(xdotool search --pid $GUI2 --onlyvisible | tail -1)
 eval "$(xdotool getwindowgeometry --shell "$G2")"
-rm -rf "$HOME/Screenshots"
+rm -rf "$HOME/Kishot"
 KISHOT_DEBUG=1 "$ROOT/kishot/kishot" -f -b >"$TMP/own.log" 2>&1; sleep 4; cat "$TMP/gui2.log" | grep -v WARN | head -5
-f=$(ls "$HOME"/Screenshots/*.png 2>/dev/null | head -1)
+f=$(ls "$HOME"/Kishot/*.png 2>/dev/null | head -1)
 if [ -n "$f" ]; then
     got=$(python3 - "$f" $((X + WIDTH - 12)) $((Y + HEIGHT / 2)) <<'PY'
 import sys
