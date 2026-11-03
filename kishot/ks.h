@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <xcb/xcb.h>
 
-#define KISHOT_VERSION "0.2.0"
+#define KISHOT_VERSION "0.2.1"
 
 typedef enum {
     KS_AREA_FULL,       /* every monitor */
@@ -49,6 +49,7 @@ typedef struct {
     gboolean audio_mic;
     gboolean rec_preview;       /* live preview in the Recording tab */
     gboolean hide_on_record;    /* hide the window while recording (it is in the video otherwise) */
+    gboolean rec_physical;      /* record scaled screens at their scanout size (X-SCALE) */
     KsCopyMode copy_mode;
     KsBackend backend;
 

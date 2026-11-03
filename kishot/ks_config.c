@@ -40,6 +40,7 @@ static void defaults(KsConfig *c)
     c->audio_mic = FALSE;
     c->rec_preview = TRUE;
     c->hide_on_record = FALSE;
+    c->rec_physical = FALSE;
     c->win_w = 760;
     c->win_h = 480;
 }
@@ -116,6 +117,7 @@ void ks_config_load(KsConfig *c)
         else if (!strcmp(k, "audio_mic")) c->audio_mic = truth(v);
         else if (!strcmp(k, "record_preview")) c->rec_preview = truth(v);
         else if (!strcmp(k, "hide_on_record")) c->hide_on_record = truth(v);
+        else if (!strcmp(k, "record_physical_size")) c->rec_physical = truth(v);
         else if (!strcmp(k, "copy_method")) c->copy_mode = lookup(kCopyKeys, 3, v, KS_COPY_AUTO);
         else if (!strcmp(k, "backend")) c->backend = lookup(kBackendKeys, 3, v, KS_BACKEND_AUTO);
         else if (!strcmp(k, "window_width")) c->win_w = CLAMP(atoi(v), 300, 10000);
@@ -173,6 +175,8 @@ void ks_config_save(const KsConfig *c)
     fprintf(f, "audio_mic=%d\n", c->audio_mic);
     fprintf(f, "record_preview=%d\n", c->rec_preview);
     fprintf(f, "hide_on_record=%d\n", c->hide_on_record);
+    fprintf(f, "# a scaled screen at its real resolution instead of the logical size (X-SCALE)\n");
+    fprintf(f, "record_physical_size=%d\n", c->rec_physical);
     fprintf(f, "# auto: GPU copy only when the server sets the XiS root-copy bit\n");
     fprintf(f, "copy_method=%s\n", kCopyKeys[c->copy_mode]);
     fprintf(f, "# auto: the libav plugin when it loads, else the ffmpeg command\n");
