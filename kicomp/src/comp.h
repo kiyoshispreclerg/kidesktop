@@ -80,7 +80,10 @@ typedef struct CompCaps {
     /* X-SCALE: per-CRTC scanout sources (xscale.h). What
      * makes a scaled output *sharp*: without it a scaled output (a RandR
      * transform) is drawn at its logical size and magnified by the
-     * server, correct but blurry. */
+     * server, correct but blurry. It also takes whole frames presented
+     * straight to a scaled CRTC (XScalePresentCrtcScanout), flipped onto
+     * it where the server can, instead of a source the server copies
+     * from (xscale.h). */
     bool xscale;
     bool flip_per_crtc;  /* XiS per-CRTC FLIP -- not probed yet (Fase 8) */
 } CompCaps;
@@ -146,6 +149,9 @@ typedef struct CompOutput {
     bool sourced;
     bool source_set;          /* the server has it */
     bool source_suspended;    /* given back for now (unredirect, refusal) */
+    /* Its frames go to the CRTC by X-SCALE presentation, buffer by
+     * buffer, rather than through a source drawable (xscale.h). */
+    bool source_presented;
     xcb_pixmap_t source_pixmap;           /* XRender's finished frames */
     xcb_render_picture_t source_picture;
 

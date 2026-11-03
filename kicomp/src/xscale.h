@@ -71,6 +71,37 @@ void xscale_frame_done(CompOutput *o);
 void xscale_suspend(CompOutput *o);
 void xscale_resume(CompOutput *o);
 
+/* Presents (o->source_presented): hands the server `pixmap`, a whole
+ * finished frame of the output's physical size, to show from the next
+ * vblank on -- flipped onto the CRTC where the server can, copied
+ * otherwise, and the output's source either way. `damage` is what changed
+ * (logical root coordinates; NULL or full: all of it), which the server
+ * only needs for a copy. Completion and idle come back as events
+ * (xscale_decode_event). False when nothing was sent. */
+bool xscale_present_pixmap(CompOutput *o, xcb_pixmap_t pixmap,
+                           uint32_t serial, const CompRegion *damage);
+
+/* An X-SCALE presentation event, decoded. */
+typedef struct {
+    bool complete;          /* else idle */
+    xcb_randr_crtc_t crtc;
+    uint32_t serial;
+    uint8_t mode;           /* complete: XSCALE_MODE_* */
+    uint64_t msc, ust;      /* complete: 0 when unknown */
+    xcb_pixmap_t pixmap;    /* idle */
+} XScaleEvent;
+
+#define XSCALE_MODE_COPY 0
+#define XSCALE_MODE_FLIP 1
+#define XSCALE_MODE_SKIP 2
+
+/* Is `ev` an X-SCALE completion or idle event? Fills `out` if so. */
+bool xscale_decode_event(const xcb_generic_event_t *ev, XScaleEvent *out);
+
+/* Would the server flip this CRTC's presented frames right now, rather
+ * than copy them? A hint for the log, not a promise. */
+bool xscale_crtc_flippable(xcb_randr_crtc_t crtc);
+
 /* Is this one of the windows kicomp draws sourced outputs into (the GLX
  * backend's)? They are top-level, so the window tracker must skip them. */
 bool xscale_is_own_window(xcb_window_t id);

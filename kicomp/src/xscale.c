@@ -24,10 +24,16 @@
 #define X_XScaleQueryVersion            0
 #define X_XScaleGetCrtcScanout          2
 #define X_XScaleSetCrtcScanoutSource    3
+#define X_XScalePresentCrtcScanout      5
+
+#define XScaleScanoutComplete           1
+#define XScaleScanoutIdle               2
 
 #define XScaleScanoutCapable            (1 << 0)
+#define XScaleScanoutFlippable          (1 << 3)
 
 static uint8_t xscale_opcode;   /* 0 = extension absent */
+static uint8_t xscale_first_event;
 
 typedef struct {
     uint8_t reqType, xscaleReqType;
@@ -49,6 +55,15 @@ typedef struct {
     uint32_t drawable;
     int16_t srcX, srcY;
 } XScaleSetCrtcScanoutSourceReq;
+
+typedef struct {
+    uint8_t reqType, xscaleReqType;
+    uint16_t length;
+    uint32_t crtc;
+    uint32_t pixmap;
+    uint32_t serial;
+    uint32_t update;            /* XFixes region, scanout coordinates */
+} XScalePresentCrtcScanoutReq;
 
 /* One request out. `isvoid` is 0 for the ones with a reply. */
 static unsigned xscale_send(const void *req, size_t len, int isvoid)
@@ -94,6 +109,7 @@ void xscale_init(void)
     }
 
     xscale_opcode = q->major_opcode;
+    xscale_first_event = q->first_event;
     free(q);
 
     /* The version handshake is the extension's own precondition, and it
@@ -121,6 +137,117 @@ void xscale_init(void)
 
     comp.caps.xscale = true;
     comp_log("X-SCALE %u.%u", major, minor);
+}
+
+bool xscale_crtc_flippable(xcb_randr_crtc_t crtc)
+{
+    if (!comp.caps.xscale || crtc == XCB_NONE)
+        return false;
+
+    XScaleGetCrtcScanoutReq req = { 0 };
+    req.xscaleReqType = X_XScaleGetCrtcScanout;
+    req.crtc = crtc;
+
+    unsigned seq = xscale_send(&req, sizeof(req), 0);
+    xcb_generic_error_t *err = NULL;
+    uint8_t *reply = xcb_wait_for_reply(comp.conn, seq, &err);
+    bool flippable = !err && reply && (reply[1] & XScaleScanoutFlippable);
+    free(err);
+    free(reply);
+    return flippable;
+}
+
+bool xscale_present_pixmap(CompOutput *o, xcb_pixmap_t pixmap,
+                           uint32_t serial, const CompRegion *damage)
+{
+    if (!o->source_presented || o->source_suspended || pixmap == XCB_NONE)
+        return false;
+
+    /* What changed, in the pixmap's own (scanout) coordinates. The server
+     * reads it only when it has to copy; a flip shows the whole buffer. */
+    xcb_xfixes_region_t update = XCB_NONE;
+    if (comp.caps.xfixes && damage && !region_is_full(damage) &&
+        damage->count > 0) {
+        xcb_rectangle_t rects[COMP_REGION_MAX];
+        int n = 0;
+        for (int i = 0; i < damage->count && n < COMP_REGION_MAX; i++) {
+            CompRect d;
+            if (!present_physical_rect(o, &damage->rects[i], &d))
+                continue;
+            rects[n].x = (int16_t)(d.x - o->physical.x);
+            rects[n].y = (int16_t)(d.y - o->physical.y);
+            rects[n].width = (uint16_t)d.w;
+            rects[n].height = (uint16_t)d.h;
+            n++;
+        }
+        if (n > 0) {
+            update = xcb_generate_id(comp.conn);
+            xcb_xfixes_create_region(comp.conn, update, (uint32_t)n, rects);
+        }
+    }
+
+    XScalePresentCrtcScanoutReq req = { 0 };
+    req.xscaleReqType = X_XScalePresentCrtcScanout;
+    req.crtc = o->crtc;
+    req.pixmap = pixmap;
+    req.serial = serial;
+    req.update = update;
+
+    /* Unchecked: one request per frame must not cost a round trip. A
+     * refusal (the CRTC changed under us) arrives as an error, and the
+     * RandR event behind it rebuilds the outputs. */
+    xcb_protocol_request_t r = {
+        .count = 2, .ext = NULL, .opcode = xscale_opcode, .isvoid = 1
+    };
+    struct iovec parts[4];
+    parts[2].iov_base = &req;
+    parts[2].iov_len = sizeof(req);
+    parts[3].iov_base = NULL;
+    parts[3].iov_len = 0;
+    xcb_send_request(comp.conn, 0, parts + 2, &r);
+
+    if (update != XCB_NONE)
+        xcb_xfixes_destroy_region(comp.conn, update);
+
+    if (!o->source_set) {
+        o->source_set = true;
+        comp_info("%s: sharp frames presented to the server (%dx%d for a "
+                  "%dx%d logical box, %s)", o->name, o->physical.w,
+                  o->physical.h, o->rect.w, o->rect.h,
+                  xscale_crtc_flippable(o->crtc) ? "flipped" : "copied");
+    }
+    return true;
+}
+
+bool xscale_decode_event(const xcb_generic_event_t *ev, XScaleEvent *out)
+{
+    if (!comp.caps.xscale)
+        return false;
+
+    uint8_t type = ev->response_type & 0x7f;
+    const uint8_t *b = (const uint8_t *)ev;
+    const uint32_t *w = (const uint32_t *)(const void *)ev;
+
+    if (type == (uint8_t)(xscale_first_event + XScaleScanoutComplete)) {
+        /* type, mode, seq; crtc, serial, ustLo, ustHi, mscLo, mscHi */
+        memset(out, 0, sizeof(*out));
+        out->complete = true;
+        out->mode = b[1];
+        out->crtc = w[1];
+        out->serial = w[2];
+        out->ust = (uint64_t)w[3] | ((uint64_t)w[4] << 32);
+        out->msc = (uint64_t)w[5] | ((uint64_t)w[6] << 32);
+        return true;
+    }
+    if (type == (uint8_t)(xscale_first_event + XScaleScanoutIdle)) {
+        /* type, pad, seq; crtc, serial, pixmap */
+        memset(out, 0, sizeof(*out));
+        out->crtc = w[1];
+        out->serial = w[2];
+        out->pixmap = w[3];
+        return true;
+    }
+    return false;
 }
 
 bool xscale_crtc_capable(xcb_randr_crtc_t crtc, int *width, int *height)
@@ -184,6 +311,10 @@ bool xscale_attach(CompOutput *o)
 {
     o->source_set = false;
     o->source_suspended = false;
+
+    /* Presented frames are their own source: the first one sets it. */
+    if (o->source_presented)
+        return true;
 
     /* A backend with a drawable of its own that only ever changes by a
      * whole frame (GLX: its window, which a swap lands on whole) needs
@@ -259,7 +390,8 @@ void xscale_present(CompOutput *o, const CompRegion *damage)
 
 void xscale_frame_done(CompOutput *o)
 {
-    if (!o->sourced || o->source_set || o->source_suspended)
+    if (!o->sourced || o->source_presented || o->source_set ||
+        o->source_suspended)
         return;
 
     xcb_drawable_t d = source_drawable(o);
