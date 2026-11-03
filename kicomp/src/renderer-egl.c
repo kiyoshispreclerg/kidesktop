@@ -61,6 +61,7 @@
 #include <epoxy/egl.h>
 #include <gbm.h>
 #include <drm_fourcc.h>
+#include <xf86drm.h>
 
 #include <xcb/composite.h>
 #include <xcb/render.h>
@@ -196,6 +197,39 @@ static EGLImageKHR image_from_dmabuf(uint32_t fourcc, int width, int height,
 /* startup                                                             */
 /* ------------------------------------------------------------------ */
 
+/* libglvnd loads every EGL vendor it knows about when EGL starts, and
+ * on a machine with the NVIDIA driver installed that puts its whole EGL
+ * stack (~16 MB of libnvidia-*) in this process even though the device
+ * kicomp draws on is another GPU's. Unless the server's device is
+ * NVIDIA's, or the user chose the vendors already, name Mesa's alone for
+ * the moment EGL starts. Taken back once it has, so nothing kicomp ever
+ * starts inherits the restriction. Returns whether it set it. */
+static bool egl_only_mesa(int fd)
+{
+    static const char *const mesa[] = {
+        "/etc/glvnd/egl_vendor.d/50_mesa.json",
+        "/usr/share/glvnd/egl_vendor.d/50_mesa.json",
+    };
+
+    if (getenv("__EGL_VENDOR_LIBRARY_FILENAMES") ||
+        getenv("__EGL_VENDOR_LIBRARY_DIRS"))
+        return false;
+
+    drmVersionPtr v = drmGetVersion(fd);
+    bool nvidia = v && v->name && strncmp(v->name, "nvidia", 6) == 0;
+    drmFreeVersion(v);
+    if (nvidia)
+        return false;
+
+    for (size_t i = 0; i < sizeof(mesa) / sizeof(mesa[0]); i++) {
+        if (access(mesa[i], R_OK) == 0) {
+            setenv("__EGL_VENDOR_LIBRARY_FILENAMES", mesa[i], 1);
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool egl_start(void)
 {
     if (started)
@@ -222,14 +256,21 @@ static bool egl_start(void)
         return false;
     }
 
+    bool only_mesa = egl_only_mesa(drm_fd);
+
     /* The EXT form rather than EGL 1.5's core one: which of the two the
      * loader answers is decided before any display exists, and libepoxy
      * aborts outright on a core call it can't resolve at that point. */
     if (!epoxy_has_egl_extension(EGL_NO_DISPLAY, "EGL_EXT_platform_base")) {
+        if (only_mesa)
+            unsetenv("__EGL_VENDOR_LIBRARY_FILENAMES");
         fprintf(stderr, "kicomp: egl: no EGL_EXT_platform_base\n");
         return false;
     }
     egl_display = eglGetPlatformDisplayEXT(EGL_PLATFORM_GBM_KHR, gbm, NULL);
+    /* The vendors are loaded by now (the first EGL call above) */
+    if (only_mesa)
+        unsetenv("__EGL_VENDOR_LIBRARY_FILENAMES");
     if (egl_display == EGL_NO_DISPLAY) {
         fprintf(stderr, "kicomp: egl: no EGL display on the GBM device\n");
         return false;
