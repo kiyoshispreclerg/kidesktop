@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-31 13:28-0300\n"
+"POT-Creation-Date: 2026-11-02 22:07-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -19,7 +19,7 @@ msgstr ""
 
 #: common.c:320 common.c:326 tabs/associations.c:273 tabs/autostart.c:240
 #: tabs/effects.c:851 tabs/menu.c:430 tabs/panels.c:1172 tabs/panels.c:1369
-#: tabs/users.c:407 xiskeycapture.c:276
+#: tabs/users.c:407 xiskeycapture.c:284
 msgid "_OK"
 msgstr ""
 
@@ -29,8 +29,8 @@ msgstr ""
 
 #: common.c:326 tabs/associations.c:273 tabs/autostart.c:240 tabs/effects.c:850
 #: tabs/kitheme.c:292 tabs/menu.c:429 tabs/panels.c:1171 tabs/panels.c:1368
-#: tabs/sounds.c:218 tabs/users.c:339 tabs/users.c:407 tabs/users.c:468
-#: tabs/wallpaper.c:984 xiskeycapture.c:275
+#: tabs/sounds.c:219 tabs/users.c:339 tabs/users.c:407 tabs/users.c:468
+#: tabs/wallpaper.c:984 xiskeycapture.c:283
 msgid "_Cancelar"
 msgstr ""
 
@@ -249,11 +249,11 @@ msgstr ""
 #: tabs/autostart.c:421 tabs/disks.c:364 tabs/energy.c:453 tabs/history.c:382
 #: tabs/history.c:449 tabs/input.c:643 tabs/kitheme.c:610 tabs/lock.c:196
 #: tabs/login.c:708 tabs/permissions.c:821 tabs/programs.c:305
-#: tabs/screens.c:2046 tabs/shortcuts.c:1471 tabs/system.c:819 tabs/users.c:573
+#: tabs/screens.c:2126 tabs/shortcuts.c:1471 tabs/system.c:819 tabs/users.c:573
 msgid "Aplicar"
 msgstr ""
 
-#: kiconf.c:277 tabs/events.c:323 tabs/sounds.c:385 tabs/system.c:805
+#: kiconf.c:277 tabs/events.c:323 tabs/sounds.c:386 tabs/system.c:805
 msgid "Salvar"
 msgstr ""
 
@@ -403,7 +403,7 @@ msgid "Tecnologias assistivas"
 msgstr ""
 
 #: tabs/appearance.c:211 tabs/appearance.c:232 tabs/associations.c:192
-#: tabs/screens.c:1401 tabs/screens.c:1561
+#: tabs/screens.c:1484 tabs/screens.c:1643
 msgid "(nenhum)"
 msgstr ""
 
@@ -1619,7 +1619,7 @@ msgid "Titulo privado (regex):"
 msgstr ""
 
 #: tabs/history.c:388 tabs/history.c:455 tabs/permissions.c:915
-#: tabs/screens.c:1907
+#: tabs/screens.c:1987
 msgid "-"
 msgstr ""
 
@@ -1972,7 +1972,7 @@ msgid ""
 "Gera o fundo das janelas, campos, botoes e menus, e as dicas no tom oposto."
 msgstr ""
 
-#: tabs/kitheme.c:532 tabs/screens.c:2038
+#: tabs/kitheme.c:532 tabs/screens.c:2118
 msgid "Avancado"
 msgstr ""
 
@@ -3083,7 +3083,7 @@ msgstr ""
 msgid "Regras de usuario"
 msgstr ""
 
-#: tabs/permissions.c:899 tabs/sounds.c:140
+#: tabs/permissions.c:899 tabs/sounds.c:141
 msgid "Arquivo"
 msgstr ""
 
@@ -3170,89 +3170,91 @@ msgstr ""
 msgid "Sessao (kisession.conf -- \"(automatico)\" usa o primeiro instalado)"
 msgstr ""
 
-#: tabs/screens.c:1778 tabs/screens.c:1799 tabs/screens.c:1912
+#: tabs/screens.c:1856 tabs/screens.c:1878 tabs/screens.c:1992
 #, c-format
 msgid "%d saida(s) detectada(s)."
 msgstr ""
 
-#: tabs/screens.c:1896
+#: tabs/screens.c:1976
 msgid ""
 "Arraste as caixas pra reposicionar. Aplicar tambem grava o layout pra ser "
 "reaplicado automaticamente no inicio da proxima sessao."
 msgstr ""
 
-#: tabs/screens.c:1928 tabs/wallpaper.c:1450
+#: tabs/screens.c:2008 tabs/wallpaper.c:1450
 msgid "Saida"
 msgstr ""
 
-#: tabs/screens.c:1932
+#: tabs/screens.c:2012
 msgid "Clique pra configurar; duplo clique liga a saida"
 msgstr ""
 
-#: tabs/screens.c:1942
+#: tabs/screens.c:2022
 msgid "Desenho responde a DPI e escala"
 msgstr ""
 
-#: tabs/screens.c:1944
+#: tabs/screens.c:2024
 msgid ""
-"Escala (--scale) aumenta ou diminui a caixa; DPI >= 96 a encolhe (precisa de "
-"X-INPUT-SCALE e do X-DENSITY do compositor)."
+"Cada tela aparece do tamanho que ocupa na area de trabalho, que a DPI define "
+"(DPI 144 = 2/3 do modo, DPI 72 = 4/3)."
 msgstr ""
 
-#: tabs/screens.c:1949
+#: tabs/screens.c:2029
 msgid ""
-"DPI nao entra no desenho: falta X-INPUT-SCALE ou um compositor com X-DENSITY."
+"Sem um compositor com X-DENSITY, telas com DPI acima de 96 ficam borradas."
 msgstr ""
 
-#: tabs/screens.c:1956
+#: tabs/screens.c:2036
 msgid "Layout (arraste pra mover)"
 msgstr ""
 
-#: tabs/screens.c:1957
+#: tabs/screens.c:2037
 msgid "Desativadas"
 msgstr ""
 
-#: tabs/screens.c:1968
+#: tabs/screens.c:2048
 msgid "Resolucao:"
 msgstr ""
 
-#: tabs/screens.c:1971
+#: tabs/screens.c:2051
 msgid "Taxa de atualizacao:"
 msgstr ""
 
-#: tabs/screens.c:1978
+#: tabs/screens.c:2058
 msgid "Rotacao:"
 msgstr ""
 
-#: tabs/screens.c:1981
+#: tabs/screens.c:2061
 msgid "Espelhar (mirror):"
 msgstr ""
 
-#: tabs/screens.c:1982
+#: tabs/screens.c:2062
 msgid "Saida ligada"
 msgstr ""
 
-#: tabs/screens.c:1985
+#: tabs/screens.c:2065
 msgid "Saida primaria"
 msgstr ""
 
-#: tabs/screens.c:2002
+#: tabs/screens.c:2084
+msgid ""
+"Acima de 96 a tela fica maior (HiDPI); abaixo de 96 cabe mais area de "
+"trabalho nela."
+msgstr ""
+
+#: tabs/screens.c:2086
 msgid "DPI:"
 msgstr ""
 
-#: tabs/screens.c:2006
-msgid "Escala:"
-msgstr ""
-
-#: tabs/screens.c:2018
+#: tabs/screens.c:2098
 msgid "Saida selecionada"
 msgstr ""
 
-#: tabs/screens.c:2039
+#: tabs/screens.c:2119
 msgid "Propriedades avancadas"
 msgstr ""
 
-#: tabs/screens.c:2045
+#: tabs/screens.c:2125
 msgid "Detectar novamente"
 msgstr ""
 
@@ -3467,116 +3469,120 @@ msgid "Sair da sessao"
 msgstr ""
 
 #: tabs/sounds.c:39
-msgid "Campainha do sistema"
+msgid "Pedido de senha (pkexec / polkit)"
 msgstr ""
 
 #: tabs/sounds.c:40
-msgid "Esvaziar a lixeira"
+msgid "Campainha do sistema"
 msgstr ""
 
 #: tabs/sounds.c:41
-msgid "Abrir pasta no gerenciador de arquivos"
+msgid "Esvaziar a lixeira"
 msgstr ""
 
 #: tabs/sounds.c:42
-msgid "Voltar no gerenciador de arquivos"
+msgid "Abrir pasta no gerenciador de arquivos"
 msgstr ""
 
 #: tabs/sounds.c:43
-msgid "Avancar no gerenciador de arquivos"
+msgid "Voltar no gerenciador de arquivos"
 msgstr ""
 
 #: tabs/sounds.c:44
-msgid "Subir para a pasta acima"
+msgid "Avancar no gerenciador de arquivos"
 msgstr ""
 
 #: tabs/sounds.c:45
-msgid "Mover arquivos para a lixeira"
+msgid "Subir para a pasta acima"
 msgstr ""
 
 #: tabs/sounds.c:46
-msgid "Operacao concluida / programa terminou no terminal"
+msgid "Mover arquivos para a lixeira"
 msgstr ""
 
 #: tabs/sounds.c:47
-msgid "Erro numa operacao de arquivos"
+msgid "Operacao concluida / programa terminou no terminal"
 msgstr ""
 
 #: tabs/sounds.c:48
+msgid "Erro numa operacao de arquivos"
+msgstr ""
+
+#: tabs/sounds.c:49
 msgid "Dispositivo removido com seguranca"
 msgstr ""
 
-#: tabs/sounds.c:138
+#: tabs/sounds.c:139
 msgid "Silencioso"
 msgstr ""
 
-#: tabs/sounds.c:144
+#: tabs/sounds.c:145
 msgid "(o tema nao define)"
 msgstr ""
 
-#: tabs/sounds.c:216
+#: tabs/sounds.c:217
 msgid "Escolher som"
 msgstr ""
 
-#: tabs/sounds.c:218 tabs/wallpaper.c:985
+#: tabs/sounds.c:219 tabs/wallpaper.c:985
 msgid "_Abrir"
 msgstr ""
 
-#: tabs/sounds.c:220
+#: tabs/sounds.c:221
 msgid "Audio (ogg, oga, wav)"
 msgstr ""
 
-#: tabs/sounds.c:248 tabs/sounds.c:267
+#: tabs/sounds.c:249 tabs/sounds.c:268
 msgid "Nao foi possivel gravar o arquivo de sons."
 msgstr ""
 
-#: tabs/sounds.c:271
+#: tabs/sounds.c:272
 msgid "Salvo. Os programas aplicam em ate 2 segundos."
 msgstr ""
 
-#: tabs/sounds.c:331
+#: tabs/sounds.c:332
 msgid ""
 "Sons dos eventos do desktop. Escolher um tema muda todos de uma vez; na "
 "lista abaixo cada evento pode ter um arquivo proprio ou ficar silencioso."
 msgstr ""
 
-#: tabs/sounds.c:343
+#: tabs/sounds.c:344
 msgid "Ativar sons"
 msgstr ""
 
-#: tabs/sounds.c:350
+#: tabs/sounds.c:351
 msgid "Tema sonoro:"
 msgstr ""
 
-#: tabs/sounds.c:354
+#: tabs/sounds.c:355
 msgid "Volume:"
 msgstr ""
 
-#: tabs/sounds.c:359
+#: tabs/sounds.c:360
 msgid "Eventos sonoros"
 msgstr ""
 
-#: tabs/sounds.c:361
+#: tabs/sounds.c:362
 msgid "Evento"
 msgstr ""
 
-#: tabs/sounds.c:363
+#: tabs/sounds.c:364
 msgid "Som"
 msgstr ""
 
-#: tabs/sounds.c:375
+#: tabs/sounds.c:376
 msgid "Testar"
 msgstr ""
 
-#: tabs/sounds.c:376
+#: tabs/sounds.c:377
 msgid "Escolher arquivo..."
 msgstr ""
 
-#: tabs/sounds.c:377
+#: tabs/sounds.c:378
 msgid "Silenciar"
 msgstr ""
 
-#: tabs/sounds.c:378
+#: tabs/sounds.c:379
 msgid "Usar o do tema"
 msgstr ""
 
@@ -4331,49 +4337,49 @@ msgstr ""
 msgid "Aplicar (grava kiwm.conf)"
 msgstr ""
 
-#: xiskeycapture.c:107
+#: xiskeycapture.c:125
 msgid "Pressione as teclas..."
 msgstr ""
 
-#: xiskeycapture.c:118
+#: xiskeycapture.c:136
 msgid "Enter ou OK confirma; Esc cancela."
 msgstr ""
 
-#: xiskeycapture.c:151
+#: xiskeycapture.c:169
 msgid "AltGr nao pode fazer parte de um atalho."
 msgstr ""
 
-#: xiskeycapture.c:162
+#: xiskeycapture.c:180
 msgid "Esc ou Enter sozinhos: use \"Editar como texto\"."
 msgstr ""
 
-#: xiskeycapture.c:203
+#: xiskeycapture.c:221
 msgid ""
 "Nao foi possivel capturar o teclado: atalhos ja em uso por outros programas "
 "vao disparar."
 msgstr ""
 
-#: xiskeycapture.c:266
+#: xiskeycapture.c:274
 msgid "Definir atalho"
 msgstr ""
 
-#: xiskeycapture.c:272
+#: xiskeycapture.c:280
 msgid "_Limpar"
 msgstr ""
 
-#: xiskeycapture.c:273
+#: xiskeycapture.c:281
 msgid "Deixar sem atalho"
 msgstr ""
 
-#: xiskeycapture.c:274
+#: xiskeycapture.c:282
 msgid "Editar como _texto"
 msgstr ""
 
-#: xiskeycapture.c:287
+#: xiskeycapture.c:295
 #, c-format
 msgid "Atual: %s"
 msgstr ""
 
-#: xiskeycapture.c:295
+#: xiskeycapture.c:303
 msgid "Esc cancela. Uma tecla sozinha tambem vale: aperte-a e depois Enter."
 msgstr ""
