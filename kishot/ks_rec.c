@@ -363,12 +363,16 @@ static int render_format(xcb_connection_t *c, int depth, gboolean alpha, xcb_ren
 #define KS_RING 3
 
 /* One monitor's part of the area, when recording at the physical size:
- * its logical box in the root (l*), where that is in the CRTC's scanout
- * (s*), and where it goes in the frame (d*). A monitor less scaled than the
- * frame is copied into `tmp` at its own size and scaled up from there. */
+ * where it is in the CRTC's scanout (s*) and where it goes in the frame
+ * (d*). A monitor less scaled than the frame is copied into `tmp` at its
+ * own size and scaled up from there. An unscaled one (`from_root`) is read
+ * from the root instead, s* being root coordinates: the server's own copy
+ * of such a CRTC (XScaleCopyCrtcScanout) reads the screen pixmap without
+ * what a compositor presents, and comes out black. */
 #define KS_PHYS_MAX 8
 typedef struct {
     xcb_randr_crtc_t crtc;
+    gboolean from_root;
     int sx, sy, sw, sh;
     int dx, dy, dw, dh;
     xcb_pixmap_t tmp;
@@ -385,6 +389,7 @@ typedef struct {
     int nparts;
     gboolean phys, phys_gaps;
     xcb_pixmap_t phys_pix;      /* the SHM path composes the frame here */
+    xcb_gcontext_t gc_root;     /* IncludeInferiors, for the unscaled monitors */
     xcb_render_picture_t phys_pic;
     int fps;
     gboolean pointer;
@@ -519,6 +524,10 @@ static void poll_x_events(Rec *r)
     xcb_generic_event_t *ev;
     const xcb_query_extension_reply_t *xf = xcb_get_extension_data(r->c, &xcb_xfixes_id);
     while ((ev = xcb_poll_for_event(r->c))) {
+        if (ev->response_type == 0 && g_getenv("KISHOT_DEBUG")) {
+            xcb_generic_error_t *e = (xcb_generic_error_t *)ev;
+            fprintf(stderr, "kishot: X error %d on request %d.%d\n", e->error_code, e->major_code, e->minor_code);
+        }
         if (xf && (ev->response_type & 0x7f) == xf->first_event + XCB_XFIXES_CURSOR_NOTIFY &&
             ((xcb_xfixes_cursor_notify_event_t *)ev)->subtype != KS_XFIXES_CURSOR_VISIBILITY)
             r->cursor_dirty = TRUE;
@@ -658,6 +667,9 @@ static void free_phys(Rec *r)
             xcb_free_pixmap(r->c, r->part[i].tmp);
     }
     r->nparts = 0;
+    if (r->gc_root)
+        xcb_free_gc(r->c, r->gc_root);
+    r->gc_root = 0;
     if (r->phys_pic)
         xcb_render_free_picture(r->c, r->phys_pic);
     if (r->phys_pix)
@@ -665,21 +677,31 @@ static void free_phys(Rec *r)
     r->phys_pic = r->phys_pix = 0;
 }
 
-/* Sizes the frame for recording at the screens' physical size: every
- * monitor under the area is asked its scanout size (XScaleGetCrtcScanout),
- * and the frame takes the largest scale among them, the others scaled up
- * to it -- what KWin's ScreenShotNativeResolution does. Returns NULL when
- * that applies, else why not (and the frame stays the area). */
-static const char *setup_phys(Rec *r, const xcb_screen_t *scr)
+/* The frame for recording `area` at the screens' physical size: every
+ * monitor under it is asked its scanout size (XScaleGetCrtcScanout), and
+ * the frame takes the largest scale among them, the others scaled up to it
+ * -- what KWin's ScreenShotNativeResolution does. Fills the parts' source
+ * and destination boxes; returns NULL when that applies, else why not. */
+typedef struct {
+    PhysPart part[KS_PHYS_MAX];
+    gboolean direct[KS_PHYS_MAX];   /* at the frame's scale: copied straight in */
+    int n, fw, fh;
+    double scale;
+    gboolean gaps;
+} PhysPlan;
+
+static const char *phys_plan(xcb_connection_t *c, xcb_window_t root, const KsRect *area, PhysPlan *pl)
 {
-    const xcb_query_extension_reply_t *ext = xcb_get_extension_data(r->c, &xscale_id);
-    if (!ext || !ext->present || !xcb_get_extension_data(r->c, &xcb_randr_id)->present)
+    memset(pl, 0, sizeof(*pl));
+    pl->scale = 1;
+    const xcb_query_extension_reply_t *ext = xcb_get_extension_data(c, &xscale_id);
+    if (!ext || !ext->present || !xcb_get_extension_data(c, &xcb_randr_id)->present)
         return _("the X server has no X-SCALE");
     xcb_randr_get_screen_resources_current_reply_t *res = xcb_randr_get_screen_resources_current_reply(
-        r->c, xcb_randr_get_screen_resources_current(r->c, r->root), NULL);
+        c, xcb_randr_get_screen_resources_current(c, root), NULL);
     if (!res)
         return _("no RandR screen resources");
-    struct { int x, y, w, h; double fx, fy; xcb_randr_crtc_t crtc; } m[KS_PHYS_MAX];
+    struct { int x, y, w, h; double fx, fy; } m[KS_PHYS_MAX];
     int n = 0;
     double scale = 1;
     int64_t covered = 0;
@@ -690,27 +712,36 @@ static const char *setup_phys(Rec *r, const xcb_screen_t *scr)
         xcb_generic_error_t *err = NULL;
         struct { uint8_t type, flags; uint16_t seq; uint32_t len; uint16_t sw, sh; int16_t x, y;
                  uint16_t w, h; uint32_t pad[3]; } *rep =
-            raw_request(r->c, &xscale_id, XSCALE_GET_CRTC_SCANOUT, &q, sizeof(q), 0, &err);
+            raw_request(c, &xscale_id, XSCALE_GET_CRTC_SCANOUT, &q, sizeof(q), 0, &err);
         free(err);
         if (!rep)
             continue;
-        int x1 = MAX(rep->x, r->area.x), y1 = MAX(rep->y, r->area.y);
-        int x2 = MIN(rep->x + rep->w, r->area.x + r->area.w), y2 = MIN(rep->y + rep->h, r->area.y + r->area.h);
+        int x1 = MAX(rep->x, area->x), y1 = MAX(rep->y, area->y);
+        int x2 = MIN(rep->x + rep->w, area->x + area->w), y2 = MIN(rep->y + rep->h, area->y + area->h);
         if (rep->w && rep->h && rep->sw && rep->sh && x2 > x1 && y2 > y1) {
+            PhysPart *pp = &pl->part[n];
             m[n].x = x1;
             m[n].y = y1;
             m[n].w = x2 - x1;
             m[n].h = y2 - y1;
             m[n].fx = (double)rep->sw / rep->w;
             m[n].fy = (double)rep->sh / rep->h;
-            m[n].crtc = crtcs[i];
+            pp->crtc = crtcs[i];
             scale = MAX(scale, MAX(m[n].fx, m[n].fy));
             covered += (int64_t)m[n].w * m[n].h;
-            /* the scanout starts at the monitor's logical origin */
-            r->part[n].sx = (int)lround((x1 - rep->x) * m[n].fx);
-            r->part[n].sy = (int)lround((y1 - rep->y) * m[n].fy);
-            r->part[n].sw = (int)lround((x2 - rep->x) * m[n].fx) - r->part[n].sx;
-            r->part[n].sh = (int)lround((y2 - rep->y) * m[n].fy) - r->part[n].sy;
+            pp->from_root = fabs(m[n].fx - 1) < 0.01 && fabs(m[n].fy - 1) < 0.01;
+            if (pp->from_root) {
+                pp->sx = x1;
+                pp->sy = y1;
+                pp->sw = x2 - x1;
+                pp->sh = y2 - y1;
+            } else {
+                /* the scanout starts at the monitor's logical origin */
+                pp->sx = (int)lround((x1 - rep->x) * m[n].fx);
+                pp->sy = (int)lround((y1 - rep->y) * m[n].fy);
+                pp->sw = (int)lround((x2 - rep->x) * m[n].fx) - pp->sx;
+                pp->sh = (int)lround((y2 - rep->y) * m[n].fy) - pp->sy;
+            }
             n++;
         }
         free(rep);
@@ -719,21 +750,60 @@ static const char *setup_phys(Rec *r, const xcb_screen_t *scr)
     if (scale < 1.001)
         return _("no screen under the area is scaled");
 
-    r->scale = scale;
-    r->fw = (int)lround(r->area.w * scale) & ~1;
-    r->fh = (int)lround(r->area.h * scale) & ~1;
-    r->phys_gaps = covered < (int64_t)r->area.w * r->area.h;
+    pl->n = n;
+    pl->scale = scale;
+    pl->fw = (int)lround(area->w * scale) & ~1;
+    pl->fh = (int)lround(area->h * scale) & ~1;
+    pl->gaps = covered < (int64_t)area->w * area->h;
+    for (int i = 0; i < n; i++) {
+        PhysPart *pp = &pl->part[i];
+        pp->dx = (int)lround((m[i].x - area->x) * scale);
+        pp->dy = (int)lround((m[i].y - area->y) * scale);
+        pp->dw = MIN((int)lround((m[i].x + m[i].w - area->x) * scale), pl->fw) - pp->dx;
+        pp->dh = MIN((int)lround((m[i].y + m[i].h - area->y) * scale), pl->fh) - pp->dy;
+        pl->direct[i] = fabs(m[i].fx - scale) < 0.01 && fabs(m[i].fy - scale) < 0.01;
+    }
+    return NULL;
+}
+
+const char *ks_rec_physical_size(const KsRect *area, int *w, int *h)
+{
+    xcb_connection_t *c = ks_capture_gdk_connection();
+    PhysPlan pl;
+    KsRect a = *area;
+    a.w &= ~1;
+    a.h &= ~1;
+    const char *why = phys_plan(c, xcb_setup_roots_iterator(xcb_get_setup(c)).data->root, &a, &pl);
+    *w = why ? a.w : pl.fw;
+    *h = why ? a.h : pl.fh;
+    return why;
+}
+
+/* Sets the recording up at the physical size (phys_plan()). Returns NULL
+ * when it is, else why not (and the frame stays the area). */
+static const char *setup_phys(Rec *r, const xcb_screen_t *scr)
+{
+    PhysPlan pl;
+    const char *why = phys_plan(r->c, r->root, &r->area, &pl);
+    if (why)
+        return why;
+    int n = pl.n;
+    memcpy(r->part, pl.part, sizeof(r->part));
+    r->scale = pl.scale;
+    r->fw = pl.fw;
+    r->fh = pl.fh;
+    r->phys_gaps = pl.gaps;
     xcb_render_pictformat_t fmt;
     gboolean have_fmt = render_format(r->c, scr->root_depth, FALSE, &fmt);
     for (int i = 0; i < n; i++) {
         PhysPart *pp = &r->part[i];
-        pp->crtc = m[i].crtc;
-        pp->dx = (int)lround((m[i].x - r->area.x) * scale);
-        pp->dy = (int)lround((m[i].y - r->area.y) * scale);
-        pp->dw = MIN((int)lround((m[i].x + m[i].w - r->area.x) * scale), r->fw) - pp->dx;
-        pp->dh = MIN((int)lround((m[i].y + m[i].h - r->area.y) * scale), r->fh) - pp->dy;
-        if (fabs(m[i].fx - scale) < 0.01 && fabs(m[i].fy - scale) < 0.01)
-            continue;                   /* copied straight into the frame */
+        if (pl.direct[i])
+            continue;
+        if (pp->from_root && !r->gc_root) {
+            uint32_t v[] = { XCB_SUBWINDOW_MODE_INCLUDE_INFERIORS, 0 };
+            r->gc_root = xcb_generate_id(r->c);
+            xcb_create_gc(r->c, r->gc_root, r->root, XCB_GC_SUBWINDOW_MODE | XCB_GC_GRAPHICS_EXPOSURES, v);
+        }
         if (!have_fmt || pp->sw <= 0 || pp->sh <= 0) {
             r->nparts = i;
             free_phys(r);
@@ -750,6 +820,11 @@ static const char *setup_phys(Rec *r, const xcb_screen_t *scr)
         xcb_render_set_picture_filter(r->c, pp->tmp_pic, sizeof(bilinear) - 1, bilinear, 0, NULL);
     }
     r->nparts = n;
+    if (g_getenv("KISHOT_DEBUG"))
+        for (int i = 0; i < n; i++)
+            fprintf(stderr, "kishot: phys part %d crtc 0x%x src %dx%d+%d+%d -> %dx%d+%d+%d%s\n", i,
+                    r->part[i].crtc, r->part[i].sw, r->part[i].sh, r->part[i].sx, r->part[i].sy,
+                    r->part[i].dw, r->part[i].dh, r->part[i].dx, r->part[i].dy, pl.direct[i] ? "" : " (scaled)");
 
     /* the screen-read permission (Xnotify) is asked here, not mid-recording */
     xcb_pixmap_t probe = xcb_generate_id(r->c);
@@ -804,7 +879,10 @@ static void compose_phys(Rec *r, xcb_pixmap_t dst, xcb_render_picture_t pic, gbo
             xscale_copy(r, pp->crtc, dst, pp->sx, pp->sy, MIN(pp->sw, pp->dw), MIN(pp->sh, pp->dh),
                         pp->dx, pp->dy, 0);
         } else if (pic) {
-            xscale_copy(r, pp->crtc, pp->tmp, pp->sx, pp->sy, pp->sw, pp->sh, 0, 0, 0);
+            if (pp->from_root)
+                xcb_copy_area(r->c, r->root, pp->tmp, r->gc_root, pp->sx, pp->sy, 0, 0, pp->sw, pp->sh);
+            else
+                xscale_copy(r, pp->crtc, pp->tmp, pp->sx, pp->sy, pp->sw, pp->sh, 0, 0, 0);
             xcb_render_composite(r->c, XCB_RENDER_PICT_OP_SRC, pp->tmp_pic, XCB_NONE, pic, 0, 0, 0, 0,
                                  pp->dx, pp->dy, pp->dw, pp->dh);
         }

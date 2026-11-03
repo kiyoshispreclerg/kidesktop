@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <xcb/xcb.h>
 
-#define KISHOT_VERSION "0.2.1"
+#define KISHOT_VERSION "0.2.2"
 
 typedef enum {
     KS_AREA_FULL,       /* every monitor */
@@ -201,6 +201,9 @@ void ks_rec_stop(void);
 gboolean ks_rec_active(void);
 /* human-readable "how this recording is captured/encoded" */
 const char *ks_rec_method(void);
+/* The frame size a recording of `area` gets with rec_physical: NULL when
+ * the screens' physical size applies, else why it stays the logical size. */
+const char *ks_rec_physical_size(const KsRect *area, int *w, int *h);
 double ks_rec_elapsed(void);
 
 /* ---- audio (ks_audio.c) -------------------------------------------------- */
