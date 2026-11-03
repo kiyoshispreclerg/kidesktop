@@ -276,8 +276,8 @@ static void config_pass(FILE *f, bool instances_pass)
 
         if (output_section[0]) {
             if (strcmp(key, "scale") == 0) {
-                /* `auto` is the same as saying nothing: let the server's
-                 * own DPI property decide (TESTS/DPI-PER-OUTPUT.md). */
+                /* `auto` is the same as saying nothing: keep whatever
+                 * transform is set (kiconf, xrandr --scale). */
                 if (strcmp(val, "auto") == 0) {
                     output_rule_set(output_section, -1.0f);
                 } else {

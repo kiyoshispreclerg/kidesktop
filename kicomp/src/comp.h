@@ -702,7 +702,6 @@ typedef struct KiComp {
         xcb_atom_t density_pixmap;
         xcb_atom_t kiwm_corner_radius;     /* kiwm's frame corner radii */
 
-        xcb_atom_t randr_dpi;              /* the fork's per-output "DPI" */
         xcb_atom_t xis_confined_area;      /* X-SCALE 1.0 leftover, deleted */
         xcb_atom_t kiwm_outputs;           /* output names, in index order */
         xcb_atom_t kiwm_output_desktop;    /* one current desktop per output */
@@ -741,10 +740,10 @@ typedef struct KiComp {
      * that architectural rule is deliberately switched off. */
     bool single_drawable;
 
-    /* apply_scale: turn the fork's per-output "DPI" property, and any
-     * [output:NAME] scale in the config, into a RandR transform on that
-     * output, moving its neighbours to its new logical edge (output.c).
-     * Off, kicomp only ever follows whatever transform is set. */
+    /* apply_scale: turn an [output:NAME] scale in the config into a RandR
+     * transform on that output, moving its neighbours to its new logical
+     * edge (output.c). Off, or for an output without one, kicomp only
+     * ever follows whatever transform is set. */
     bool apply_scale;
 
     /* --skip-wm-layers: leave kiwm's own overlay windows (_KIWM_LAYER)
