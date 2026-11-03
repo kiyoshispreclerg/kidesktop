@@ -15,14 +15,12 @@
 void outputs_refresh(void);
 
 /* The apply_scale policy (comp.h): makes each output's RandR transform
- * match the scale its [output:NAME] config section or the fork's "DPI"
- * property asks for, moving the outputs after it to its new logical edge.
- * `dpi_event` is true when called for a DPI property change, which is
- * then followed even back to 96 (1x); at startup a DPI of 96 is left
- * alone, so a scale someone set by hand with xrandr survives. Returns
- * true if it changed the layout -- the RandR events that follow rebuild
- * the outputs; false if nothing needed changing. */
-bool outputs_apply_scale_policy(bool dpi_event);
+ * match the scale its [output:NAME] config section asks for, moving the
+ * outputs after it to its new logical edge. An output without one keeps
+ * whatever transform is set. Returns true if it changed the layout -- the
+ * RandR events that follow rebuild the outputs; false if nothing needed
+ * changing. */
+bool outputs_apply_scale_policy(void);
 
 void outputs_teardown(void);
 

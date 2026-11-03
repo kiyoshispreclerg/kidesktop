@@ -113,10 +113,10 @@ animation_duration = 160   # the animation unit, in ms
 renderer           = auto  # auto | xrender | glx | egl
 presenter          = auto  # auto | present | copy
 single_drawable    = 0     # 1 = legacy mode, one drawable for the screen
-apply_scale        = 1     # turn the DPI property / [output:X] scale into
-                           # a RandR transform on that output (see
-                           # "Per-output scaling" below); 0 = only follow
-                           # whatever transform is set
+apply_scale        = 1     # turn an [output:X] scale into a RandR
+                           # transform on that output (see "Per-output
+                           # scaling" below); 0 = only follow whatever
+                           # transform is set
 skip_wm_layers     = 0     # 1 = don't composite kiwm's OSD/wireframe
 capture_censor     = off   # off | black | hide | #rrggbb: offer censored
                            # capture to screen recorders (see below)
@@ -153,8 +153,8 @@ unredirect_fullscreen = 1  # stand aside when one window fills an output and
 # One section per output, by RandR name; [output:*] is the default for the
 # ones without a section of their own.
 [output:DP-1]
-scale = auto               # auto (the DPI property) | a number like 2.0,
-                           # applied as a RandR transform (apply_scale)
+scale = auto               # auto (keep the transform set) | a number like
+                           # 2.0, applied as a RandR transform (apply_scale)
 
 # ---- shadows ----
 [shadow]
@@ -1868,19 +1868,17 @@ sourced on this machine. If kicomp exits or crashes, the server drops the
 source with the connection and goes back to magnifying: the output keeps
 working.
 
-**The DPI property (apply_scale).** The XiS fork publishes a per-output
-RandR property literally called `DPI`, where **96 = 1x, 192 = 2x**
-(`TESTS/DPI-PER-OUTPUT.md`). With `apply_scale = 1` (the default) kicomp
-turns it into the transform: `xrandr --output DP-1 --set DPI 144` scales
-DP-1 to 1.5x and moves the outputs after it to its new logical edge, so the
-row stays edge to edge; setting it back to 96 undoes it. `[output:NAME]`
-`scale = 2.0` in the config does the same from the file. At startup a DPI
-of 96 is left alone, so a transform set by hand with `xrandr --scale-from`
-survives kicomp starting; only a DPI change, a DPI other than 96, or a
-configured scale moves anything. With `apply_scale = 0` kicomp never
-touches the layout and simply follows whatever transform is set. A server
-that can't do CRTC transforms (Xvfb) refuses the scale, and the layout is
-left exactly as it was.
+**Where the scale comes from.** The scale is the transform: kiconf's Telas
+tab sets it (by default following the output's DPI, 96/DPI), and so does
+`xrandr --scale`. kicomp follows it and doesn't read the fork's per-output
+`DPI` property, which is information for clients
+(`TESTS/DPI-PER-OUTPUT.md`). With `apply_scale = 1` (the default),
+`[output:NAME]` `scale = 2.0` in the config sets the transform from the
+file and moves the outputs after it to its new logical edge, so the row
+stays edge to edge; an output without one keeps whatever transform is set.
+With `apply_scale = 0` kicomp never touches the layout. A server that
+can't do CRTC transforms (Xvfb) refuses the scale, and the layout is left
+exactly as it was.
 
 **Unredirected fullscreen windows** draw into the root, which a sourced
 CRTC doesn't show: while one holds a sourced output, kicomp gives the CRTC
@@ -2224,7 +2222,7 @@ arriving. Deriving it from those is a change to `scheduler.c` alone.
   never one global surface. A window crossing two outputs is clipped into
   each output's scene separately (`window ∩ output`).
 - Per-output scaling (HiDPI) and X-DENSITY: logical vs. physical box per
-  output, from the RandR transform (applied from the DPI property),
+  output, from the RandR transform (set by kiconf or xrandr --scale),
   drawn magnified into a physical target and handed to the server as an
   X-SCALE scanout source where it can take one.
 - Region repaint: only the part of an output that actually changed is

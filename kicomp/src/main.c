@@ -33,7 +33,7 @@
 
 #define _GNU_SOURCE             /* ppoll */
 
-#define KICOMP_VERSION "0.3.77"
+#define KICOMP_VERSION "0.3.78"
 
 #include "../../shared/xis_i18n.h"
 
@@ -308,7 +308,6 @@ static void atoms_init(void)
      * unconditionally here so the event handler can compare against it;
      * output.c still asks the server with only_if_exists before reading
      * any output's value. */
-    comp.atoms.randr_dpi              = intern("DPI");
     comp.atoms.xis_confined_area      = intern("_XIS_CONFINED_AREA");
 
     comp.atoms.kiwm_outputs           = intern("_KIWM_OUTPUTS");
@@ -857,26 +856,6 @@ static void handle_event(xcb_generic_event_t *ev)
         return;
     }
 
-    if (comp.caps.randr && type == comp.randr_event + XCB_RANDR_NOTIFY) {
-        xcb_randr_notify_event_t *e = (xcb_randr_notify_event_t *)ev;
-        if (e->subCode == XCB_RANDR_NOTIFY_OUTPUT_PROPERTY &&
-            e->u.op.atom == comp.atoms.randr_dpi) {
-            /* The DPI of some output changed. Which one hardly matters:
-             * the scale policy compares every output with what it asks
-             * for and, if that changes the layout, the RandR events it
-             * causes rebuild the outputs. Otherwise rebuild them here --
-             * the DPI also decides nothing else, but it costs nothing to
-             * be sure every window is asked for the right density. */
-            comp_log("RandR: DPI changed");
-            if (!outputs_apply_scale_policy(true)) {
-                outputs_refresh();
-                renderer_background_invalidate();
-                output_damage_all();
-            }
-        }
-        return;
-    }
-
     if (comp.caps.randr && type == comp.randr_event + XCB_RANDR_SCREEN_CHANGE_NOTIFY) {
         comp_log("RandR screen change");
         outputs_refresh();
@@ -1301,14 +1280,8 @@ int main(int argc, char **argv)
     }
 
     if (comp.caps.randr)
-        /* OUTPUT_PROPERTY as well as SCREEN_CHANGE: the per-output "DPI"
-         * property is what decides an output's scale (output.c), and it
-         * can be changed at any moment with `xrandr --set DPI`. Without
-         * this the compositor would keep magnifying by yesterday's
-         * factor until something else happened to rebuild the outputs. */
         xcb_randr_select_input(comp.conn, comp.root,
-                               XCB_RANDR_NOTIFY_MASK_SCREEN_CHANGE |
-                               XCB_RANDR_NOTIFY_MASK_OUTPUT_PROPERTY);
+                               XCB_RANDR_NOTIFY_MASK_SCREEN_CHANGE);
 
     err = xcb_request_check(comp.conn,
         xcb_composite_redirect_subwindows_checked(comp.conn, comp.root,
@@ -1443,10 +1416,10 @@ int main(int argc, char **argv)
      * sharp depends on this extension being there (xscale.h). */
     density_init();
 
-    /* A DPI or config scale that asks for something the layout doesn't
-     * have yet (output.h). Its RandR events arrive later; the outputs built
-     * just below are rebuilt then. */
-    outputs_apply_scale_policy(false);
+    /* A config scale that asks for something the layout doesn't have yet
+     * (output.h). Its RandR events arrive later; the outputs built just
+     * below are rebuilt then. */
+    outputs_apply_scale_policy();
 
     /* Prints the drawable count/geometry itself, here and on every later
      * output change. */

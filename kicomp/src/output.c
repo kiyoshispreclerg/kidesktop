@@ -115,63 +115,18 @@ static double compute_output_refresh_hz(xcb_randr_output_t output_id,
     return hz;
 }
 
-/* The XLibre fork publishes a per-output RandR property literally called
- * "DPI", where 96 means 1x -- see TESTS/DPI-PER-OUTPUT.md. It is a
- * convention of this environment rather than part of any standard, so it
- * is asked for with only_if_exists: a server that doesn't have it simply
- * answers nothing and every output stays at scale 1. */
-static float read_output_dpi_scale(xcb_randr_output_t output_id)
-{
-    if (output_id == XCB_NONE)
-        return 0.0f;
-
-    xcb_intern_atom_reply_t *a = xcb_intern_atom_reply(comp.conn,
-        xcb_intern_atom(comp.conn, 1, 3, "DPI"), NULL);
-    if (!a)
-        return 0.0f;
-
-    xcb_atom_t dpi_atom = a->atom;
-    free(a);
-    if (dpi_atom == XCB_NONE)
-        return 0.0f;
-
-    xcb_randr_get_output_property_reply_t *r =
-        xcb_randr_get_output_property_reply(comp.conn,
-            xcb_randr_get_output_property(comp.conn, output_id, dpi_atom,
-                                          XCB_ATOM_ANY, 0, 1, 0, 0), NULL);
-    if (!r)
-        return 0.0f;
-
-    float scale = 0.0f;
-    if (r->format == 32 && xcb_randr_get_output_property_data_length(r) >= 4) {
-        int32_t dpi = *(int32_t *)xcb_randr_get_output_property_data(r);
-        if (dpi > 0)
-            scale = (float)dpi / 96.0f;
-    }
-    free(r);
-    return scale;
-}
-
-/* The scale something asks this output to be at (the apply_scale policy,
- * comp.h), or 0 when nothing does: the config's [output:NAME] scale when
- * set to a number, else the DPI property -- followed whatever its value on
- * a DPI change, but at startup only when it isn't 96, so that a transform
- * someone set by hand survives kicomp starting. Clamped to what sharp
- * scaling means here: a scale below 1 would be supersampling, which the
- * server's own RandR scaling already does well. */
-static float wanted_scale(const char *name, xcb_randr_output_t output_id,
-                          bool dpi_event)
+/* The scale this output's [output:NAME] config section asks for, or 0
+ * when it asks for none. The fork's per-output "DPI" property is not
+ * read: it is information for clients, and the scale is the transform
+ * someone set (kiconf, xrandr --scale) -- see TESTS/DPI-PER-OUTPUT.md.
+ * Clamped to what sharp scaling means here: a scale below 1 would be
+ * supersampling, which the server's own RandR scaling already does well. */
+static float wanted_scale(const char *name)
 {
     float scale = config_output_scale(name);   /* < 0: not configured */
 
-    if (scale < 0.0f) {
-        scale = read_output_dpi_scale(output_id);   /* 0: no DPI property */
-        if (scale <= 0.0f)
-            return 0.0f;
-        if (!dpi_event && scale > 0.999f && scale < 1.001f)
-            return 0.0f;
-    }
-
+    if (scale < 0.0f)
+        return 0.0f;
     if (scale < 1.0f)
         scale = 1.0f;
     if (scale > 4.0f)
@@ -242,7 +197,7 @@ static void set_screen_size(int w, int h)
                               (uint32_t)(h * 25.4 / 96.0 + 0.5));
 }
 
-bool outputs_apply_scale_policy(bool dpi_event)
+bool outputs_apply_scale_policy(void)
 {
     if (!comp.caps.randr || !comp.apply_scale || comp.single_drawable)
         return false;
@@ -312,13 +267,7 @@ bool outputs_apply_scale_policy(bool dpi_event)
             }
 
             float cur = crtc_current_scale(c->crtc);
-            float want = wanted_scale(name, c->outputs[0], dpi_event);
-            /* A transform that gives more desktop than the mode (xrandr
-             * --scale above 1, how kiconf applies a DPI below 96) is
-             * nothing this policy would set, so a DPI of 96 doesn't undo
-             * it either. */
-            if (want > 0.0f && want < 1.001f && cur < 0.999f)
-                want = 0.0f;
+            float want = wanted_scale(name);
             c->scale = want > 0.0f ? want : cur;
             if (want > 0.0f && (want - cur > 0.01f || cur - want > 0.01f)) {
                 c->rescale = true;
