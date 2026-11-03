@@ -150,30 +150,16 @@ override-redirect window with the same `_NET_WM_PID` as a marked window as marke
 
 The marks last as long as their windows. Only the class list persists.
 
-## `_XIS_CONFINED_AREA`: kiwm as a consumer
+## Per-output scaling
 
-Not a kiwm property -- kiwm **reads** this one. A compositor doing
-per-output HiDPI scaling publishes it on the root window: `CARDINAL[4*N]`,
-groups of `x`, `y`, `width`, `height` in root coordinates, one per output
-whose pointer it has confined (kicomp's `inputscale.c`), and deleted when
-nothing is confined.
+kiwm needs nothing of its own to handle a scaled output. A compositor (or
+`xrandr --scale-from`) scales it with an ordinary RandR CRTC transform, and
+RandR already reports the transformed, logical box. Maximize, snapping,
+placement, the switcher and `_NET_WORKAREA` all work from that box, and a
+scale change arrives as a normal RandR screen change.
 
-It names the part of each affected monitor that is really desktop.
-Everything outside it on that monitor is scanout the compositor magnifies
-the logical desktop into: there is nothing there for a window to be placed
-in, and the pointer cannot even reach it.
-
-kiwm shrinks the output to that rectangle in `outputs_refresh()`, matching
-by geometry (a rectangle inside an output is that output's) rather than by
-name or index, so no agreement with the compositor about naming is needed.
-Nothing else in kiwm knows about HiDPI, scaling or densities: maximize,
-snapping, placement, the switcher and `_NET_WORKAREA` all work from
-`wm.outputs[]` and follow from that one clamp. A `PropertyNotify` on the
-root re-reads it, so a compositor starting, stopping or changing an
-output's scale is picked up live.
-
-With no such compositor -- and on every server without X-INPUT-SCALE --
-the property is simply absent and nothing changes.
+The `_XIS_CONFINED_AREA` root property that X-INPUT-SCALE compositors
+published is no longer read.
 
 ## X-DENSITY on frames: kiwm as a client
 

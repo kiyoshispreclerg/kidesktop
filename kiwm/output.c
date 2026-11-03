@@ -49,7 +49,7 @@ int output_for_new_window(void)
     }
 }
 
-/* How far a point is from an output's scanout box, squared -- 0 when the
+/* How far a point is from an output's box, squared -- 0 when the
  * point is inside it. Squared because nothing here needs the real
  * distance, only which of two is smaller, and a square root would just
  * add a way to be wrong about it. */
@@ -57,27 +57,21 @@ static long output_distance2(const XisOutput *o, int x, int y)
 {
     long dx = 0, dy = 0;
 
-    if (x < o->scan_x)
-        dx = o->scan_x - x;
-    else if (x >= o->scan_x + o->scan_width)
-        dx = x - (o->scan_x + o->scan_width - 1);
+    if (x < o->x)
+        dx = o->x - x;
+    else if (x >= o->x + o->width)
+        dx = x - (o->x + o->width - 1);
 
-    if (y < o->scan_y)
-        dy = o->scan_y - y;
-    else if (y >= o->scan_y + o->scan_height)
-        dy = y - (o->scan_y + o->scan_height - 1);
+    if (y < o->y)
+        dy = o->y - y;
+    else if (y >= o->y + o->height)
+        dy = y - (o->y + o->height - 1);
 
     return dx * dx + dy * dy;
 }
 
-/* Which monitor a point is on -- asked of the *scanout* box, not the
- * usable one (wm.h). A confined output still owns the pixels outside its
- * usable area: a panel or a window sitting there belongs to that monitor,
- * and answering "none of them, have the primary" is how one screen's
- * scaling ends up shrinking another screen's workarea.
- *
- * And a point on no output at all gets the *nearest* one, not the primary
- * either. A monitor layout is rarely a solid rectangle -- two screens of
+/* Which monitor a point is on. A point on no output at all gets the
+ * *nearest* one, not the primary. A monitor layout is rarely a solid rectangle -- two screens of
  * different heights side by side, or any stagger at all, leaves dead space
  * that belongs to no output -- and a point in it is not a point about the
  * primary monitor. Since clients are assigned an output by the centre of
@@ -895,71 +889,8 @@ static double compute_output_refresh_hz(xcb_randr_output_t output_id)
     return hz;
 }
 
-/* `_XIS_CONFINED_AREA`, published by a compositor that is scaling an
- * output: CARDINAL[4*N], groups of x, y, width, height in root
- * coordinates, naming the part of each affected monitor that is really
- * desktop. Everything outside it on that monitor is scanout the
- * compositor magnifies the logical desktop into -- there is nothing there
- * for a window to be placed in, and the pointer can't even go there.
- *
- * So kiwm shrinks the output to it. Nothing else in kiwm has to know
- * about HiDPI, scaling or densities: maximize, snapping, placement,
- * _NET_WORKAREA and the switcher all work from wm.outputs[] and follow
- * automatically.
- *
- * Matched by geometry rather than by name or index: a rectangle inside an
- * output is that output's, which needs no agreement with the compositor
- * about what anything is called. Absent property -- the normal case, and
- * every machine without the extension -- changes nothing. */
-static void apply_confined_areas(XisOutput *outs, int count)
-{
-    if (wm.atoms.xis_confined_area == XCB_NONE)
-        return;
-
-    xcb_get_property_reply_t *r = xcb_get_property_reply(wm.conn,
-        xcb_get_property(wm.conn, 0, wm.root, wm.atoms.xis_confined_area,
-                         XCB_ATOM_CARDINAL, 0, MAX_OUTPUTS * 4), NULL);
-    if (!r)
-        return;
-
-    int n = xcb_get_property_value_length(r) / 4;
-    uint32_t *v = xcb_get_property_value(r);
-
-    for (int i = 0; i + 3 < n; i += 4) {
-        int cx = (int)v[i], cy = (int)v[i + 1];
-        int cw = (int)v[i + 2], ch = (int)v[i + 3];
-        if (cw <= 0 || ch <= 0)
-            continue;
-
-        for (int o = 0; o < count; o++) {
-            XisOutput *out = &outs[o];
-            /* The confined box lies within this output's box. */
-            if (cx < out->x || cy < out->y ||
-                cx + cw > out->x + out->width ||
-                cy + ch > out->y + out->height)
-                continue;
-
-            fprintf(stderr, "kiwm: output '%s' confined to %dx%d+%d+%d "
-                            "(scanout %dx%d)\n",
-                    out->name, cw, ch, cx, cy, out->width, out->height);
-            /* Only the usable box. The scanout box stays what the monitor
-             * really is, so everything outside the confined area still
-             * belongs to this output rather than falling through to the
-             * primary one (wm.h, output_index_for_point). */
-            out->x = cx;
-            out->y = cy;
-            out->width = cw;
-            out->height = ch;
-            break;
-        }
-    }
-
-    free(r);
-}
-
-
-/* When an output's usable area changes -- a compositor confining it for
- * HiDPI scaling, a mode set, a monitor moving in the layout -- the windows
+/* When an output's usable area changes -- a scale change, a mode set, a
+ * monitor moving in the layout -- the windows
  * that were placed inside the old one have to be brought into the new one.
  * Otherwise the ones past its new edge are simply unreachable: not
  * clipped, not clamped, just outside the part of the screen that is
@@ -1095,12 +1026,6 @@ void outputs_refresh(void)
             o->y = m->y;
             o->width = m->width;
             o->height = m->height;
-            /* Both boxes start out the same; apply_confined_areas() below
-             * is the only thing that ever makes them differ. */
-            o->scan_x = m->x;
-            o->scan_y = m->y;
-            o->scan_width = m->width;
-            o->scan_height = m->height;
             o->primary = m->primary;
             o->desktop = 0;
             o->refresh_hz = 60.0;
@@ -1132,10 +1057,6 @@ void outputs_refresh(void)
         fresh[0].desktop = wm.output_count > 0 ? wm.outputs[0].desktop : 0;
         fresh[0].refresh_hz = 60.0;
     }
-
-    /* Before the list is committed, so every consumer of wm.outputs[]
-     * sees the usable box rather than the scanout box. */
-    apply_confined_areas(fresh, n);
 
     /* Kept before the list is replaced: bringing windows into a changed
      * area needs the area they were placed in (reposition_floating). */
