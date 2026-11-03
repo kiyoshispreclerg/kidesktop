@@ -160,12 +160,14 @@ static void load_targets_locked(void)
         int n = xcb_get_property_value_length(r) / 4 / 13;
         for (int i = 0; i < n && i < KS_CAP_MAX_OUT; i++) {
             const uint32_t *t = &v[i * 13];
-            /* The slot is the output as it is scanned out (pw x ph), which is
-             * what the frames of a recording show: on a scaled output that is
-             * bigger than the logical w x h in words 3, 4. Everything here is
-             * in framebuffer pixels, so the physical size is the rectangle. */
-            cap.rect[i] = (KsRect){ (int32_t)t[1], (int32_t)t[2], (int)t[5], (int)t[6] };
-            cap.avail[i] = (t[0] & 1) != 0;
+            /* Frames are read from the root, which is logical: the output's
+             * box is words 1-4. The slot is the output as it is scanned out
+             * (pw x ph, words 5, 6), bigger than that box on an output the
+             * compositor hands to the server at physical size (X-SCALE). Such
+             * a slot doesn't fit the frame, so that output counts as
+             * unavailable and its hidden windows are blacked out here. */
+            cap.rect[i] = (KsRect){ (int32_t)t[1], (int32_t)t[2], (int)t[3], (int)t[4] };
+            cap.avail[i] = (t[0] & 1) != 0 && t[5] == t[3] && t[6] == t[4];
             cap.pw[i] = (int)t[5];
             cap.ph[i] = (int)t[6];
             cap.nslots[i] = (int)MIN(t[8], 4u);

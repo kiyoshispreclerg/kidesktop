@@ -63,11 +63,10 @@ writing or about to overwrite):
   the copy (`FillRectangle`, Render `Composite`).
 - **SHM** -- MIT-SHM `GetImage` of the root, the classic method.
 
-On an output scaled with X-INPUT-SCALE (the compositor draws a smaller logical
-desktop magnified to the physical scanout) the frame is the physical
-framebuffer, so the pointer is drawn where and as large as the hardware cursor
-shows there: position and size multiplied by physical / confine
-(`shared/xis_inputscale.c`), refreshed on `XISConfineNotify` and RandR changes.
+On an output scaled with X-SCALE (a RandR transform, with the compositor
+handing the server a physical-size picture) the root is logical, and the X
+server stitches that picture into root captures scaled down to it, so frames,
+the pointer and censored rectangles are all in logical root coordinates.
 
 With "Automatic", GPU copy is used only when the server sets the
 `PresentCapabilityXiSRootCopy` bit (0x80000000) in Present's
