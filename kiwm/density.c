@@ -75,7 +75,7 @@ static struct {
 } retired[RETIRE_MAX];
 static int n_retired;
 
-static void retire_pixmap(xcb_pixmap_t pixmap)
+void density_retire_pixmap(xcb_pixmap_t pixmap)
 {
     if (n_retired == RETIRE_MAX) {
         /* A burst bigger than any real one: the oldest has had the most
@@ -116,7 +116,7 @@ int deco_density_retired_timeout_ms(void)
 static void free_pixmap(Client *c)
 {
     if (c->deco_density_pixmap != XCB_NONE) {
-        retire_pixmap(c->deco_density_pixmap);
+        density_retire_pixmap(c->deco_density_pixmap);
         c->deco_density_pixmap = XCB_NONE;
     }
     c->deco_density_w = c->deco_density_h = 0;

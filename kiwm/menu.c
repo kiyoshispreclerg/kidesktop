@@ -38,6 +38,7 @@
 #include "client.h"
 #include "capture.h"
 #include "decoration.h"
+#include "density.h"
 #include "keybind.h"
 #include "output.h"
 #include "selection.h"
@@ -159,6 +160,11 @@ typedef struct {
     int count;
     int hover;           /* index into items, or -1 */
     int opened_by;       /* index in the *parent* frame of the row that opened this one, or -1 */
+    /* X-DENSITY (density.h): what a compositor asked this popup to be
+     * drawn at, and the pixmap it is published in. 1/1 and none until
+     * one asks. */
+    uint32_t density_num, density_den;
+    xcb_pixmap_t density_pixmap;
 } MenuFrame;
 
 static MenuFrame frames[MENU_MAX_FRAMES];
@@ -317,18 +323,13 @@ static void clamp_to_output(MenuFrame *f, int anchor_x, int anchor_y, int flip_w
 
 /* ---- painting ---- */
 
-static void paint_frame(MenuFrame *f)
+/* Everything in the frame's own coordinates: the X-DENSITY pass below
+ * calls this again with cairo_scale() applied, so the same drawing lands
+ * on a bigger pixmap -- text re-shaped, lines re-rasterized. */
+static void draw_frame(MenuFrame *f, cairo_t *cr)
 {
     double bg_r, bg_g, bg_b, bg_a, fg_r, fg_g, fg_b;
     menu_colors(&bg_r, &bg_g, &bg_b, &bg_a, &fg_r, &fg_g, &fg_b);
-
-    bool argb = wm.argb_visual != NULL;
-    xcb_pixmap_t pixmap = xcb_generate_id(wm.conn);
-    xcb_create_pixmap(wm.conn, argb ? 32 : wm.screen->root_depth, pixmap, f->win,
-                      (uint16_t)f->w, (uint16_t)f->h);
-    cairo_surface_t *surface = cairo_xcb_surface_create(wm.conn, pixmap, argb ? wm.argb_visual : wm.visual,
-                                                        f->w, f->h);
-    cairo_t *cr = cairo_create(surface);
 
     /* SOURCE: a depth-32 pixmap starts with undefined alpha (osd.c). */
     cairo_save(cr);
@@ -402,14 +403,83 @@ static void paint_frame(MenuFrame *f)
     cairo_set_line_width(cr, MENU_BORDER_W);
     cairo_rectangle(cr, MENU_BORDER_W / 2.0, MENU_BORDER_W / 2.0, f->w - MENU_BORDER_W, f->h - MENU_BORDER_W);
     cairo_stroke(cr);
+}
 
+/* Draws the frame at `density` into a scratch pixmap of w x h and copies
+ * it onto `target` in one CopyArea -- the window, or the published density
+ * pixmap, which a compositor may sample at any moment and so must never
+ * be seen half-drawn. */
+static void draw_frame_into(MenuFrame *f, xcb_drawable_t target, int w, int h, double density)
+{
+    bool argb = wm.argb_visual != NULL;
+    xcb_pixmap_t pixmap = xcb_generate_id(wm.conn);
+    xcb_create_pixmap(wm.conn, argb ? 32 : wm.screen->root_depth, pixmap, f->win,
+                      (uint16_t)w, (uint16_t)h);
+    cairo_surface_t *surface = cairo_xcb_surface_create(wm.conn, pixmap, argb ? wm.argb_visual : wm.visual,
+                                                        w, h);
+    cairo_t *cr = cairo_create(surface);
+    cairo_scale(cr, density, density);
+    draw_frame(f, cr);
     cairo_destroy(cr);
+    cairo_surface_flush(surface);
     cairo_surface_destroy(surface);
 
     /* CopyArea needs matching depths: the depth-32 GC for an ARGB frame. */
     xcb_gcontext_t gc = (argb && wm.deco_gc_argb) ? wm.deco_gc_argb : wm.deco_gc;
-    xcb_copy_area(wm.conn, pixmap, f->win, gc, 0, 0, 0, 0, (uint16_t)f->w, (uint16_t)f->h);
+    xcb_copy_area(wm.conn, pixmap, target, gc, 0, 0, 0, 0, (uint16_t)w, (uint16_t)h);
     xcb_free_pixmap(wm.conn, pixmap);
+}
+
+static void density_withdraw(MenuFrame *f)
+{
+    if (f->density_pixmap == XCB_NONE)
+        return;
+    density_retire_pixmap(f->density_pixmap);
+    f->density_pixmap = XCB_NONE;
+    xcb_delete_property(wm.conn, f->win, wm.atoms.x_density_pixmap);
+    xcb_delete_property(wm.conn, f->win, wm.atoms.x_density_scale);
+}
+
+/* The same frame again at the density a compositor asked for, published
+ * the way density.c publishes a decoration. A no-op at 1/1. A frame never
+ * changes size while it is up, so the pixmap is made once and redrawn on
+ * every hover change. */
+static void paint_density(MenuFrame *f)
+{
+    if (f->density_num == f->density_den)
+        return;
+
+    double density = (double)f->density_num / (double)f->density_den;
+    int dw = (int)(f->w * density + 0.5);
+    int dh = (int)(f->h * density + 0.5);
+    if (dw <= 0 || dh <= 0)
+        return;
+
+    bool fresh = f->density_pixmap == XCB_NONE;
+    if (fresh) {
+        f->density_pixmap = xcb_generate_id(wm.conn);
+        xcb_create_pixmap(wm.conn, wm.argb_visual ? 32 : wm.screen->root_depth, f->density_pixmap,
+                          f->win, (uint16_t)dw, (uint16_t)dh);
+    }
+    draw_frame_into(f, f->density_pixmap, dw, dh, density);
+
+    /* Contents first, announcement after; the pixmap property rewritten
+     * every time, since that PropertyNotify is the only "new contents"
+     * signal a pixmap has (density.c). */
+    if (fresh) {
+        uint32_t scale[2] = { f->density_num, f->density_den };
+        xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, f->win, wm.atoms.x_density_scale,
+                            XCB_ATOM_CARDINAL, 32, 2, scale);
+    }
+    uint32_t value = f->density_pixmap;
+    xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, f->win, wm.atoms.x_density_pixmap,
+                        XCB_ATOM_CARDINAL, 32, 1, &value);
+}
+
+static void paint_frame(MenuFrame *f)
+{
+    draw_frame_into(f, f->win, f->w, f->h, 1.0);
+    paint_density(f);
 }
 
 static void shape_frame(MenuFrame *f)
@@ -435,14 +505,16 @@ static void map_frame(MenuFrame *f)
      * through under a compositor -- see osd.c's ensure_osd_window() for
      * the value-list order and why BORDER_PIXEL is required. */
     if (wm.argb_visual) {
-        uint32_t values[] = { 0, 0, 1, XCB_EVENT_MASK_EXPOSURE, wm.argb_colormap };
+        uint32_t values[] = { 0, 0, 1, XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_PROPERTY_CHANGE,
+                              wm.argb_colormap };
         xcb_create_window(wm.conn, 32, f->win, wm.root,
                           (int16_t)f->x, (int16_t)f->y, (uint16_t)f->w, (uint16_t)f->h, 0,
                           XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.argb_visual->visual_id,
                           XCB_CW_BACK_PIXEL | XCB_CW_BORDER_PIXEL | XCB_CW_OVERRIDE_REDIRECT |
                           XCB_CW_EVENT_MASK | XCB_CW_COLORMAP, values);
     } else {
-        uint32_t values[] = { wm.screen->black_pixel, 1, XCB_EVENT_MASK_EXPOSURE };
+        uint32_t values[] = { wm.screen->black_pixel, 1,
+                              XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_PROPERTY_CHANGE };
         xcb_create_window(wm.conn, wm.screen->root_depth, f->win, wm.root,
                           (int16_t)f->x, (int16_t)f->y, (uint16_t)f->w, (uint16_t)f->h, 0,
                           XCB_WINDOW_CLASS_INPUT_OUTPUT, wm.screen->root_visual,
@@ -467,6 +539,8 @@ static void map_frame(MenuFrame *f)
 
 static void destroy_frame(MenuFrame *f)
 {
+    if (f->density_pixmap != XCB_NONE)
+        density_retire_pixmap(f->density_pixmap);
     if (f->win != XCB_NONE)
         xcb_destroy_window(wm.conn, f->win);
     memset(f, 0, sizeof(*f));
@@ -744,6 +818,45 @@ void window_menu_handle_expose(xcb_window_t window)
         xcb_flush(wm.conn);
         return;
     }
+}
+
+bool window_menu_handle_density_request(xcb_window_t window)
+{
+    MenuFrame *f = NULL;
+    for (int i = 0; i < frame_count; i++)
+        if (frames[i].win == window)
+            f = &frames[i];
+    if (!f)
+        return false;
+
+    uint32_t num = 1, den = 1;
+    xcb_get_property_reply_t *r = xcb_get_property_reply(wm.conn,
+        xcb_get_property(wm.conn, 0, f->win, wm.atoms.x_density_requested,
+                         XCB_ATOM_CARDINAL, 0, 2), NULL);
+    if (r) {
+        if (r->type == XCB_ATOM_CARDINAL && r->format == 32 &&
+            xcb_get_property_value_length(r) >= 8) {
+            uint32_t *v = xcb_get_property_value(r);
+            if (v[0] != 0 && v[1] != 0) {
+                num = v[0];
+                den = v[1];
+            }
+        }
+        free(r);
+    }
+    if (num == den)
+        num = den = 1;
+    if (num == f->density_num && den == f->density_den)
+        return true;
+
+    /* A different factor means a different pixmap size: the old one goes
+     * and paint_density() makes and announces the new one. */
+    density_withdraw(f);
+    f->density_num = num;
+    f->density_den = den;
+    paint_density(f);
+    xcb_flush(wm.conn);
+    return true;
 }
 
 bool window_menu_handle_motion(xcb_motion_notify_event_t *ev)

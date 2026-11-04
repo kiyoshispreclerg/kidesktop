@@ -35,8 +35,13 @@ void deco_density_hide(Client *c);
 /* Density no longer wanted, or the client is going away. */
 void deco_density_forget(Client *c);
 
-/* Replaced density pixmaps are freed a second late (see density.c's
- * retire_pixmap()); the main loop runs this and sleeps no longer than
+/* Frees a published density pixmap a second from now rather than at once
+ * (see density.c) -- for any pixmap kiwm published, the window menu's
+ * included. */
+void density_retire_pixmap(xcb_pixmap_t pixmap);
+
+/* Replaced density pixmaps are freed a second late (see
+ * density_retire_pixmap()); the main loop runs this and sleeps no longer than
  * the timeout (-1: nothing pending). */
 void deco_density_run_retired(void);
 int  deco_density_retired_timeout_ms(void);

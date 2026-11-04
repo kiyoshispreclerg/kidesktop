@@ -629,7 +629,7 @@ int main(int argc, char **argv)
             timeout = hold_in;
 
         /* ...and while a replaced X-DENSITY pixmap waits to be freed
-         * (density.c's retire_pixmap). */
+         * (density_retire_pixmap). */
         deco_density_run_retired();
         int retired_in = deco_density_retired_timeout_ms();
         if (retired_in >= 0 && (timeout < 0 || retired_in < timeout))

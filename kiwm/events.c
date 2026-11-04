@@ -1769,6 +1769,10 @@ static void handle_property_notify(xcb_property_notify_event_t *ev)
             deco_density_request_changed(fc);
             return;
         }
+        /* The window menu's popups are override-redirect, their own
+         * clients as far as a compositor is concerned. */
+        if (window_menu_handle_density_request(ev->window))
+            return;
     }
 
     Client *c = find_client_window(ev->window);

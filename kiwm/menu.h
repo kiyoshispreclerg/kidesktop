@@ -34,6 +34,11 @@ bool window_menu_owns_window(xcb_window_t window);
  * window, or when no menu is open. */
 void window_menu_handle_expose(xcb_window_t window);
 
+/* _X_DENSITY_REQUESTED changed on `window`: if it is one of the menu's
+ * popups, redraws it at that density for the compositor (density.h).
+ * Returns whether the window was a menu popup. */
+bool window_menu_handle_density_request(xcb_window_t window);
+
 /* The three input paths, all fed from events.c's dispatch. Each returns
  * whether it consumed the event, which is false (and does nothing) when no
  * menu is open -- the normal case. */
