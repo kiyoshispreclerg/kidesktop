@@ -69,6 +69,13 @@ typedef struct {
     Window win;
     cairo_surface_t *surface;
     cairo_t *cr;
+    /* Offscreen CPU buffer the toast is drawn into, then one atomic blit
+     * onto the window (paint_toast()) -- the panel's buf_surface/buf_cr
+     * shape, so a compositor never samples a half-drawn toast (a job's
+     * progress repaints flickered otherwise). Recreated when h changes. */
+    cairo_surface_t *buf_surface;
+    cairo_t *buf_cr;
+    int buf_h;
     /* X-DENSITY (density.c) for this toast's own window -- see
      * toast_density_paint()/g_density_toast's doc comment above for why
      * this array being memmove()'d on dismissal is safe (the pointer
@@ -485,13 +492,13 @@ static int toast_button_at(const Toast *t, int px, int py)
 }
 
 /* The actual content draw, parameterized on `cr` so it can target either
- * t->cr (the normal on-screen path, scale 1) or a density layer's own
+ * t->buf_cr (the normal on-screen path, scale 1) or a density layer's own
  * offscreen img_cr (X-DENSITY, see toast_density_paint() below) -- same
  * split as tooltip.c's draw_popup(). */
 static void draw_toast(cairo_t *cr, Toast *t)
 {
     cairo_save(cr);
-    /* Unconditional, regardless of alpha_clip this frame: t->cr/img_cr are
+    /* Unconditional, regardless of alpha_clip this frame: t->buf_cr/img_cr are
      * reused across repaints, so a corner XShape was rounding last time
      * (compositor off, say) can still hold opaque pixels a clip only
      * holds *new* painting back from -- see panel_paint_content()'s own
@@ -630,9 +637,35 @@ static void toast_density_paint(cairo_t *cr, double scale, void *ctx)
     cairo_restore(cr);
 }
 
+static void free_toast_buf(Toast *t)
+{
+    if (t->buf_cr) {
+        cairo_destroy(t->buf_cr);
+        t->buf_cr = NULL;
+    }
+    if (t->buf_surface) {
+        cairo_surface_destroy(t->buf_surface);
+        t->buf_surface = NULL;
+    }
+}
+
 static void paint_toast(Toast *t)
 {
-    draw_toast(t->cr, t);
+    if (!t->buf_cr || t->buf_h != t->h) {
+        free_toast_buf(t);
+        t->buf_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, TOAST_W, t->h);
+        t->buf_cr = cairo_create(t->buf_surface);
+        t->buf_h = t->h;
+    }
+    draw_toast(t->buf_cr, t);
+    cairo_surface_flush(t->buf_surface);
+
+    cairo_save(t->cr);
+    cairo_set_operator(t->cr, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_surface(t->cr, t->buf_surface, 0, 0);
+    cairo_paint(t->cr);
+    cairo_restore(t->cr);
+    cairo_surface_flush(t->surface);
     g_density_toast = t;
     density_layer_render(t->density, TOAST_W, t->h, TOAST_SUMMARY_SIZE);
     g_density_toast = NULL;
@@ -643,6 +676,7 @@ static void destroy_toast_window(Toast *t)
     if (t->own_icon) {
         cairo_surface_destroy(t->own_icon);
     }
+    free_toast_buf(t);
     if (t->cr) {
         cairo_destroy(t->cr);
     }

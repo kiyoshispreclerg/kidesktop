@@ -100,6 +100,13 @@ typedef struct {
     Window win;
     cairo_surface_t *surface;
     cairo_t *cr;
+    /* Offscreen CPU buffer the frame is drawn into, then one atomic blit
+     * onto the window (paint_frame()) -- the panel's buf_surface/buf_cr
+     * shape. Drawing the clear, the fill and the labels straight onto the
+     * window let a compositor sample it between X requests: every label
+     * flickered while the pointer moved over the menu. */
+    cairo_surface_t *buf_surface;
+    cairo_t *buf_cr;
     /* X-DENSITY (density.c) for this frame's own window -- see
      * menu_density_paint()'s doc comment for why baking `&frames[i]` in
      * at registration is safe here (unlike toast.c's array). */
@@ -174,6 +181,12 @@ static PanelMenu *g_menu = NULL;
 
 static void destroy_frame_resources(MenuFrame *f)
 {
+    if (f->buf_cr) {
+        cairo_destroy(f->buf_cr);
+    }
+    if (f->buf_surface) {
+        cairo_surface_destroy(f->buf_surface);
+    }
     if (f->cr) {
         cairo_destroy(f->cr);
     }
@@ -268,7 +281,7 @@ static int menu_icon_size(const PanelMenu *m);
 static int menu_icon_column_w(const PanelMenu *m);
 
 /* The actual content draw, parameterized on `cr` so it can target either
- * f->cr (the normal on-screen path, scale 1) or a density layer's own
+ * f->buf_cr (the normal on-screen path, scale 1) or a density layer's own
  * offscreen img_cr (X-DENSITY, see menu_density_paint() below) -- same
  * split as tooltip.c's draw_popup()/toast.c's draw_toast(). */
 static void draw_frame(cairo_t *cr, PanelMenu *m, MenuFrame *f)
@@ -283,7 +296,7 @@ static void draw_frame(cairo_t *cr, PanelMenu *m, MenuFrame *f)
      * further here: whatever gets drawn into the corner pixels simply
      * never shows, clipped at the X server exactly like the plain
      * rectangle always was. The alpha-clip case needs this cairo_clip()
-     * -- f->cr is reused across repaints, so the background fill below
+     * -- f->buf_cr is reused across repaints, so the background fill below
      * would otherwise paint square every time (no compositor-driven
      * repaint of the outside to cover it back up, unlike a real window
      * manager's frame). */
@@ -438,7 +451,14 @@ static void paint_frame(PanelMenu *m, MenuFrame *f)
     if (!f->win) {
         return;
     }
-    draw_frame(f->cr, m, f);
+    draw_frame(f->buf_cr, m, f);
+    cairo_surface_flush(f->buf_surface);
+
+    cairo_save(f->cr);
+    cairo_set_operator(f->cr, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_surface(f->cr, f->buf_surface, 0, 0);
+    cairo_paint(f->cr);
+    cairo_restore(f->cr);
     cairo_surface_flush(f->surface);
     XFlush(g_dpy);
     density_layer_render(f->density, f->width, f->height, m->font_size);
@@ -631,6 +651,8 @@ static int create_frame_window(PanelMenu *m, MenuFrame *f, int want_grab)
 
     f->surface = cairo_xlib_surface_create(g_dpy, f->win, p->visual, f->width, f->height);
     f->cr = cairo_create(f->surface);
+    f->buf_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, f->width, f->height);
+    f->buf_cr = cairo_create(f->buf_surface);
     f->density = density_layer_register(f->win, p->visual, p->depth, menu_density_paint, f);
 
     XMapWindow(g_dpy, f->win);
