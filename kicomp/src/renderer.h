@@ -231,6 +231,11 @@ void renderer_output_pixmap_idle(CompOutput *o, xcb_pixmap_t pixmap);
  * land before the next may be drawn. */
 bool renderer_output_has_free_buffer(const CompOutput *o);
 
+/* Whether outputs draw into a swapchain whose buffers come back one by
+ * one (output_has_free_buffer): with one, no free buffer means wait,
+ * even when no frame is in flight any more. */
+bool renderer_has_swapchain(void);
+
 /* Whether the chosen backend can draw a perspective transform. */
 bool renderer_is_projective(void);
 

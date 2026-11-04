@@ -33,10 +33,10 @@
  * single target (XRender) the frame in flight is the only buffer there
  * is, so the output stays dirty and is painted as soon as the completion
  * arrives -- vblank-driven for free. With a swapchain (EGL) the
- * completion is a measurement, not a gate: a second present aimed at the
- * same vblank replaces the first in the server's queue rather than
- * piling up behind it, so there is no backlog to fear, and waiting would
- * only hand the server's timing back to us as our own -- the XLibre
+ * completion is a measurement, not a gate: the backlog is bounded by the
+ * swapchain, since a frame is drawn only into a buffer the server gave
+ * back (an idle), and waiting would only hand the server's timing back
+ * to us as our own -- the XLibre
  * server reports a per-CRTC flip a vblank late every few seconds, and
  * every one of those was a frame of a video merged into the next.
  *
@@ -72,8 +72,9 @@ typedef struct {
     xcb_present_event_t eid;
 
     uint32_t serial;
-    bool pending;               /* a frame is in flight */
+    bool pending;               /* the last frame sent is in flight */
     double pending_since;
+    double starved_since;       /* since when no buffer was free; 0 if one is */
 
     uint64_t msc;               /* last completed frame's counter */
     uint64_t ust;               /* ...and when it was scanned out (us) */
@@ -242,26 +243,40 @@ static bool present_present(CompOutput *o, CompPresentMode mode,
 static bool present_busy(CompOutput *o)
 {
     PresentOutput *po = o->present_data;
-    if (!po || !po->pending)
+    if (!po)
         return false;
 
     /* A frame is in flight, but the next one has a buffer of its own to
-     * go into: no reason to wait. Present itself keeps the queue at one
-     * -- a second frame aimed at the same vblank replaces the first
-     * (PresentCompleteModeSkip) rather than piling up behind it -- so
-     * the latency argument for the gate (the header) does not apply, and
-     * the completion becomes what it should be: a measurement. What the
-     * gate cost was a whole frame every time the server reported a flip
-     * late, which it does. */
-    if (renderer_output_has_free_buffer(o))
+     * go into: no reason to wait, the completion is a measurement rather
+     * than a gate. What the gate cost was a whole frame every time the
+     * server reported a flip late, which it does. Frames sent meanwhile
+     * do queue up -- Present only replaces a queued frame when the new
+     * one has no update region, and ours always has one -- but no deeper
+     * than the swapchain, which is what stops it below. */
+    if (renderer_output_has_free_buffer(o)) {
+        po->starved_since = 0;
+        return false;
+    }
+
+    /* No buffer to draw into. With a single target (XRender) that only
+     * means the frame in flight. With a swapchain (EGL) it means every
+     * buffer is still the server's, the flipped one on the screen among
+     * them, whatever the completions said: drawing now would be drawing
+     * onto the monitor, half a scene at a time. Wait for an idle, which
+     * wakes the loop like a completion does. */
+    if (!po->pending && !renderer_has_swapchain())
         return false;
 
-    if (comp_now_ms() - po->pending_since > COMPLETE_TIMEOUT_MS) {
-        /* No completion is coming. Say so once and carry on unthrottled
-         * rather than leaving the output frozen. */
-        comp_log("present: no completion for %s in %.0f ms; presenting anyway",
-                 o->name, COMPLETE_TIMEOUT_MS);
+    double now = comp_now_ms();
+    if (po->starved_since == 0)
+        po->starved_since = po->pending ? po->pending_since : now;
+    if (now - po->starved_since > COMPLETE_TIMEOUT_MS) {
+        /* Nothing is coming back. Say so and carry on rather than
+         * leaving the output frozen. */
+        comp_log("present: no completion or idle for %s in %.0f ms; "
+                 "presenting anyway", o->name, COMPLETE_TIMEOUT_MS);
         po->pending = false;
+        po->starved_since = 0;
         return false;
     }
     return true;
@@ -359,7 +374,12 @@ static bool present_handle_event(xcb_generic_event_t *ev)
         if (!po || po->window != c->window)
             continue;
 
-        po->pending = false;
+        /* Only the last frame sent landing means none is in flight: an
+         * earlier one completing with later ones queued behind it does
+         * not, and taking it so let the next frame start with every
+         * buffer still the server's. */
+        if (c->serial == po->serial)
+            po->pending = false;
         po->msc = c->msc;
         po->ust = c->ust;
         po->mode = c->mode;
@@ -418,6 +438,7 @@ static const CompPresenter present_presenter = {
     .get_msc      = present_msc,
     .vblank_ms    = present_vblank_ms,
     .sync_info    = present_sync_info,
+    .reports_idle = true,
 };
 
 const CompPresenter *presenter_present(void)

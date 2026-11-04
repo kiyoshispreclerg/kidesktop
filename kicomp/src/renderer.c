@@ -126,6 +126,11 @@ bool renderer_output_has_free_buffer(const CompOutput *o)
            renderer->output_has_free_buffer(o);
 }
 
+bool renderer_has_swapchain(void)
+{
+    return renderer && renderer->output_has_free_buffer;
+}
+
 void renderer_shutdown(void)
 {
     if (renderer && renderer->shutdown)
