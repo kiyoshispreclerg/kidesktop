@@ -48,7 +48,7 @@ static GLuint program;
 static GLint u_projection, u_transform, u_opacity, u_texture, u_y_flip, u_use_uv;
 static GLint u_mask, u_use_mask;
 static GLint u_use_corners, u_corner_radii, u_corner_size;
-static GLint u_use_hole, u_hole;
+static GLint u_use_hole, u_hole, u_mask_adjust;
 static GLuint quad_vbo;
 static GLuint mesh_vbo;
 static GLuint shadow_mesh_vbo;
@@ -151,6 +151,11 @@ static const char *vertex_source =
     "uniform mat4 transform;\n"
     "uniform float y_flip;\n"
     "uniform float use_uv;\n"
+    /* Where this quad sits inside the rectangle the mask describes, as
+     * an offset and a growth of the quad's own 0..1 (so the default, all
+     * zeros, is the quad itself): what lets a client's dense layer, a
+     * quad of its own inside the frame, wear the frame's corners. */
+    "uniform vec4 mask_adjust;\n"
     "varying vec2 texcoord;\n"
     "varying vec2 maskcoord;\n"
     "void main() {\n"
@@ -163,7 +168,7 @@ static const char *vertex_source =
      * For a mesh that coordinate is the vertex's place in the grid,
      * which is its place in the window: the silhouette then bends with
      * the window instead of being cut out of the screen. */
-    "    maskcoord = uvc;\n"
+    "    maskcoord = mask_adjust.xy + uvc * (vec2(1.0) + mask_adjust.zw);\n"
     "    gl_Position = projection * transform * vec4(position, 0.0, 1.0);\n"
     "}\n";
 
@@ -554,6 +559,7 @@ static bool program_build(void)
     u_corner_size = glGetUniformLocation(program, "corner_size");
     u_use_hole = glGetUniformLocation(program, "use_hole");
     u_hole = glGetUniformLocation(program, "hole");
+    u_mask_adjust = glGetUniformLocation(program, "mask_adjust");
 
     /* One unit quad, reused for every window: the transform is what makes
      * it the right size in the right place, which is the same thing the
@@ -1627,13 +1633,9 @@ static GlWindow *dense_layer(CompWindow *w, GlWindow *g, bool decoration)
  * them into more pixels on screen -- a 2x layer under a 2x zoom lands
  * one texel per pixel, which is the entire point of it.
  *
- * Blended, never through the opaque short cut: the decoration's pixmap
- * is transparent everywhere the WM didn't paint, which is exactly the
- * hole the client's own contents show through. And without the shape
- * mask, as the XRender backend does it too: the contents layer lies
- * inside the frame, away from the corners the shape is about, and the
- * decoration layer is the WM's own painting of those corners, alpha and
- * all. */
+ * Blended unless the caller says the layer is opaque: the decoration's
+ * pixmap is transparent everywhere the WM didn't paint, which is exactly
+ * the hole the client's own contents show through. */
 /* Sets the shader's hole (fragment_source) to `hole`, in the 0..1
  * coordinates of the quad drawn over `quad`; NULL turns it off. */
 static void set_hole(const CompRect *quad, const CompRect *hole)
@@ -1678,20 +1680,32 @@ static void draw_dense(const CompOutput *o, const CompSceneNode *n,
      * (the decoration layer, when they are known -- exact at any density,
      * see rounded_box_sdf in fragment_source), the rasterized shape
      * texture (the fallback: no radii published, an irregular client
-     * shape, or a non-kiwm frame), or no masking at all (the client's
-     * dense content, which never reaches the corners). Both mask forms
-     * sample through maskcoord -- the quad's own 0..1 corners
-     * (vertex_source), same as the window's regular draw above -- which
-     * lines up with this quad exactly because `area` is that same
-     * n->geometry: GL stretches whatever texture is bound on unit 0 to
-     * fill it regardless of that texture's own size, so the dense layer's
-     * different resolution changes nothing about where the corners
-     * fall. */
+     * shape, or a non-kiwm frame), or no masking at all (a client layer
+     * that stays clear of the corners). Both mask forms
+     * sample through maskcoord, which describes the whole frame
+     * (n->geometry): for the decoration layer that is the quad's own 0..1
+     * corners (vertex_source), same as the window's regular draw above,
+     * and a client layer inside the frame gets mask_adjust to say where
+     * in the frame its quad is. GL stretches whatever texture is bound
+     * on unit 0 to fill the quad regardless of that texture's own size,
+     * so the dense layer's different resolution changes nothing about
+     * where the corners fall. */
+    const CompRect *frame = &n->geometry;
+    bool adjusted = (corners || mask) && frame->w > 0 && frame->h > 0 &&
+                    (area->x != frame->x || area->y != frame->y ||
+                     area->w != frame->w || area->h != frame->h);
+    if (adjusted)
+        glUniform4f(u_mask_adjust,
+                    (float)(area->x - frame->x) / (float)frame->w,
+                    (float)(area->y - frame->y) / (float)frame->h,
+                    (float)area->w / (float)frame->w - 1.0f,
+                    (float)area->h / (float)frame->h - 1.0f);
+
     if (corners) {
         glUniform1f(u_use_corners, 1.0f);
         glUniform4f(u_corner_radii, (float)corners->tl, (float)corners->tr,
                    (float)corners->br, (float)corners->bl);
-        glUniform2f(u_corner_size, (float)area->w, (float)area->h);
+        glUniform2f(u_corner_size, (float)frame->w, (float)frame->h);
         glUniform1f(u_use_mask, 0.0f);
     } else if (mask) {
         glActiveTexture(GL_TEXTURE1);
@@ -1719,6 +1733,37 @@ static void draw_dense(const CompOutput *o, const CompSceneNode *n,
      * *this* window. */
     if (corners)
         glUniform1f(u_use_corners, 0.0f);
+    if (adjusted)
+        glUniform4f(u_mask_adjust, 0.0f, 0.0f, 0.0f, 0.0f);
+}
+
+/* Does the client's rectangle (frame-relative) reach into any of the
+ * frame's rounded corners? Only then is its dense layer worth masking:
+ * under a titlebar it never does, and the mask would be a per-pixel cost
+ * for nothing. Without published radii, a shaped frame whose client
+ * touches two adjacent edges is taken to. */
+static bool client_reaches_corners(const CompWindow *w, const CompRect *c,
+                                   int fw, int fh)
+{
+    if (w->corner_radii_known) {
+        const int r[4] = { w->corner_tl, w->corner_tr,
+                           w->corner_br, w->corner_bl };
+        const int cx[4] = { 0, fw, fw, 0 }, cy[4] = { 0, 0, fh, fh };
+        for (int i = 0; i < 4; i++) {
+            if (r[i] <= 0)
+                continue;
+            CompRect sq = { cx[i] ? fw - r[i] : 0, cy[i] ? fh - r[i] : 0,
+                            r[i], r[i] }, hit;
+            if (rect_intersect(c, &sq, &hit))
+                return true;
+        }
+        return false;
+    }
+    if (!w->shaped)
+        return false;
+    bool left = c->x <= 0, top = c->y <= 0;
+    bool right = c->x + c->w >= fw, bottom = c->y + c->h >= fh;
+    return (left || right) && (top || bottom);
 }
 
 /* The window's silhouette as an alpha texture, in the pixmap's own
@@ -2399,9 +2444,8 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * exactly round at any density, unlike stretching the 1x shape
      * texture -- and falls back to that texture otherwise (an irregular
      * client shape, or a frame that isn't kiwm's). It skips the client's
-     * rectangle (deco_hole), which it leaves transparent. The client's dense content skips
-     * masking entirely: it only ever covers the area inside the frame,
-     * away from the corners the shape is about. */
+     * rectangle (deco_hole), which it leaves transparent. The client's
+     * layer is masked the same way only where it reaches the corners. */
     if (dense_deco) {
         set_hole(&n->geometry, deco_hole.w > 0 ? &deco_hole : NULL);
         CornerRadii radii = { w->corner_tl, w->corner_tr,
@@ -2420,8 +2464,20 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
             n->geometry.y + w->client_rect.y,
             w->client_rect.w, w->client_rect.h
         };
-        draw_dense(o, n, dense_client, &client, 0, NULL,
-                   !dense_client->argb && n->opacity >= 1.0f &&
+        /* A frame with no titlebar (an undecorated xisserve) has the
+         * client reaching right into the rounded corners, so the layer
+         * wears the frame's corners there, as the decoration's does. */
+        CompRect in_frame = { w->client_rect.x, w->client_rect.y,
+                              w->client_rect.w, w->client_rect.h };
+        bool round = client_reaches_corners(w, &in_frame, n->geometry.w,
+                                            n->geometry.h);
+        CornerRadii radii = { w->corner_tl, w->corner_tr,
+                              w->corner_br, w->corner_bl };
+        GLuint cmask = (round && !w->corner_radii_known)
+                           ? shape_mask_texture(w, g) : 0;
+        draw_dense(o, n, dense_client, &client, cmask,
+                   round && w->corner_radii_known ? &radii : NULL,
+                   !round && !dense_client->argb && n->opacity >= 1.0f &&
                    comp_transform_is_identity(&n->transform));
     }
 
