@@ -1018,6 +1018,7 @@ static void shadow_piece(CompOutput *o, xcb_render_picture_t color,
  * defined with the rest of the frame's clip handling, below. */
 static void clip_to_frame(CompOutput *o, xcb_xfixes_region_t extra,
                           int16_t ox, int16_t oy);
+static void clip_to_frame_target(CompOutput *o, xcb_xfixes_region_t extra);
 
 /* Draws `w`'s shadow into `o`'s target, under the window itself.
  *
@@ -1182,7 +1183,11 @@ static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom,
          * the window itself, and then minus whatever this frame is not
          * repainting. */
         xcb_xfixes_subtract_region(comp.conn, region, cut, region);
-        clip_to_frame(o, region, 0, 0);
+        /* Built in target pixels above, so not through clip_to_frame's
+         * logical-to-physical rebuild: scaled twice, the outline landed
+         * 1.25x further from the output's origin and only the strips
+         * where the two rings overlapped were left. */
+        clip_to_frame_target(o, region);
         xcb_xfixes_destroy_region(comp.conn, cut);
         xcb_xfixes_destroy_region(comp.conn, region);
         if (scaled_shape != XCB_NONE)
@@ -1360,6 +1365,25 @@ static void frame_clip_destroy(void)
     frame_clip_full = true;
 }
 
+/* `extra`, already in target pixels and offset by ox/oy, intersected
+ * with this frame's damage as the target's clip. */
+static void clip_to_frame_offset(CompOutput *o, xcb_xfixes_region_t extra,
+                                 int16_t ox, int16_t oy)
+{
+    if (frame_clip_full) {
+        xcb_xfixes_set_picture_clip_region(comp.conn, o->target, extra, ox, oy);
+        return;
+    }
+
+    xcb_xfixes_region_t both = xcb_generate_id(comp.conn);
+    xcb_xfixes_create_region(comp.conn, both, 0, NULL);
+    xcb_xfixes_copy_region(comp.conn, extra, both);
+    xcb_xfixes_translate_region(comp.conn, both, ox, oy);
+    xcb_xfixes_intersect_region(comp.conn, both, frame_clip, both);
+    xcb_xfixes_set_picture_clip_region(comp.conn, o->target, both, 0, 0);
+    xcb_xfixes_destroy_region(comp.conn, both);
+}
+
 /* Sets the target's clip to `extra` (a region in some other coordinate
  * system, offset by ox/oy -- a window's shape, a shadow's outline)
  * *intersected with* this frame's damage.
@@ -1404,23 +1428,22 @@ static void clip_to_frame(CompOutput *o, xcb_xfixes_region_t extra,
         ox = oy = 0;
     }
 
-    if (frame_clip_full) {
-        xcb_xfixes_set_picture_clip_region(comp.conn, o->target, extra, ox, oy);
-        if (owned != XCB_NONE)
-            xcb_xfixes_destroy_region(comp.conn, owned);
-        return;
-    }
-
-    xcb_xfixes_region_t both = xcb_generate_id(comp.conn);
-    xcb_xfixes_create_region(comp.conn, both, 0, NULL);
-    xcb_xfixes_copy_region(comp.conn, extra, both);
-    xcb_xfixes_translate_region(comp.conn, both, ox, oy);
-    xcb_xfixes_intersect_region(comp.conn, both, frame_clip, both);
-    xcb_xfixes_set_picture_clip_region(comp.conn, o->target, both, 0, 0);
-    xcb_xfixes_destroy_region(comp.conn, both);
+    clip_to_frame_offset(o, extra, ox, oy);
 
     if (owned != XCB_NONE)
         xcb_xfixes_destroy_region(comp.conn, owned);
+}
+
+/* The same, for a region that is already in the target's own pixels. */
+static void clip_to_frame_target(CompOutput *o, xcb_xfixes_region_t extra)
+{
+    if (!comp.caps.xfixes)
+        return;
+    if (extra == XCB_NONE) {
+        clip_to_frame(o, XCB_NONE, 0, 0);
+        return;
+    }
+    clip_to_frame_offset(o, extra, 0, 0);
 }
 
 static void xr_begin(CompOutput *o, const CompRegion *damage)
