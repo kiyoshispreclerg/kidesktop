@@ -372,6 +372,8 @@ static xcb_render_picture_t density_picture(CompWindow *w, bool decoration)
     }
 
     uint8_t depth = pg->depth;
+    if (!decoration)
+        w->density_depth = depth;
     free(cg);
     free(pg);
 
@@ -1624,6 +1626,22 @@ static void picture_transform_reset(xcb_render_picture_t pict)
     xcb_render_set_picture_filter(comp.conn, pict, 7, "nearest", 0, NULL);
 }
 
+/* `area` in target pixels, less `hole` (NULL for none) -- both turned
+ * into target pixels first, so the pieces tile exactly what `area` alone
+ * would have covered. A cut that runs out of room leaves the whole of
+ * `area`, which only ever draws more. */
+static void target_pieces(const CompOutput *o, const CompRect *area,
+                          const CompRect *hole, CompRegion *out)
+{
+    xcb_rectangle_t a = to_target_rect(o, area);
+    region_clear(out);
+    region_add(out, &(CompRect){ a.x, a.y, a.width, a.height });
+    if (hole) {
+        xcb_rectangle_t h = to_target_rect(o, hole);
+        region_subtract_rect(out, &(CompRect){ h.x, h.y, h.width, h.height });
+    }
+}
+
 /* One layer of X-DENSITY pixels, composited over the window that has
  * already been drawn: `area` is the logical rectangle those pixels cover
  * (the whole frame for the decoration, the client's rectangle inside it
@@ -1636,7 +1654,7 @@ static void picture_transform_reset(xcb_render_picture_t pict)
  */
 static void draw_dense(CompOutput *o, const CompSceneNode *n, CompWindow *w,
                        xcb_render_picture_t mask, const CompRect *area,
-                       float density, bool decoration)
+                       float density, bool decoration, const CompRect *hole)
 {
     xcb_render_picture_t dense = density_picture(w, decoration);
     if (!dense)
@@ -1656,14 +1674,20 @@ static void draw_dense(CompOutput *o, const CompSceneNode *n, CompWindow *w,
     comp_transform_scale(&m, density, density);
     picture_transform_set(dense, &m);
 
-    int16_t dx = (int16_t)to_target_x(o, visible.x);
-    int16_t dy = (int16_t)to_target_y(o, visible.y);
-
-    xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER,
-                         dense, mask, o->target,
-                         dx, dy, dx, dy, dx, dy,
-                         (uint16_t)to_target_len(o, visible.w),
-                         (uint16_t)to_target_len(o, visible.h));
+    /* The matrix consumes target coordinates, so each piece is its own
+     * source point too -- which is what lets the hole be cut here, in
+     * target pixels, where the pieces tile exactly. */
+    CompRegion pieces;
+    target_pieces(o, &visible, hole, &pieces);
+    for (int k = 0; k < pieces.count; k++) {
+        const CompRect *r = &pieces.rects[k];
+        xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER,
+                             dense, mask, o->target,
+                             (int16_t)r->x, (int16_t)r->y,
+                             (int16_t)r->x, (int16_t)r->y,
+                             (int16_t)r->x, (int16_t)r->y,
+                             (uint16_t)r->w, (uint16_t)r->h);
+    }
 
     picture_transform_reset(dense);
 }
@@ -1961,6 +1985,43 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
             sy = dy;
         }
 
+        /* The client's own denser contents, if it published any, looked
+         * up now (density_picture() is also what fills in client_rect):
+         * where they go, the decoration's dense pixmap is a transparent
+         * hole, and an opaque client layer hides whatever the window's own
+         * pixmap holds -- so both of those composites leave it out, a
+         * blended pass each over the largest part of the window. One
+         * pixel in from every edge: the decoration paints nothing in that
+         * ring, and the client layer covers it, so no rounding to target
+         * pixels can open a seam. */
+        float density;
+        bool dense_ok = !transformed && !from_stash && !subst;
+        bool dense_client = dense_ok && density_active(w, &density) &&
+                            density_picture(w, false);
+        CompRect client_hole = { 0, 0, 0, 0 };
+        if (dense_client && w->client_rect.w > 2 && w->client_rect.h > 2)
+            client_hole = (CompRect){ n->geometry.x + w->client_rect.x + 1,
+                                      n->geometry.y + w->client_rect.y + 1,
+                                      w->client_rect.w - 2,
+                                      w->client_rect.h - 2 };
+        /* Only an opaque layer: what a translucent one shows through has
+         * always been the window drawn at logical size. */
+        bool client_covers = client_hole.w > 0 && w->density_depth != 32;
+
+        /* The decoration's dense pixmap is just as much a hole over a
+         * client that publishes nothing dense: there, an opaque client's
+         * rectangle (window.h's opaque, kept up to date by the client's
+         * own ConfigureNotify) says where it is. */
+        CompRect deco_hole = client_hole;
+        if (dense_ok && deco_hole.w <= 0) {
+            CompRect op = window_opaque_rect(w);
+            CompRect wr = window_rect(w);
+            if (op.w > 2 && op.h > 2)
+                deco_hole = (CompRect){ n->geometry.x + op.x - wr.x + 1,
+                                        n->geometry.y + op.y - wr.y + 1,
+                                        op.w - 2, op.h - 2 };
+        }
+
         /* The part of the window known to be opaque (window.h's opaque:
          * the client inside the frame, when it has no alpha and no shape)
          * is *copied*, and only the rest -- the frame around it, whose
@@ -2006,9 +2067,25 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
              * channel, XRender reads it as opaque, and the result is
              * identical to a plain copy. For a depth-32 window this is
              * precisely the blending an uncomposited server can't do. */
-            xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER,
-                                 source, mask, o->target,
-                                 sx, sy, sx, sy, dx, dy, dw, dh);
+            if (client_covers && needs_matrix) {
+                /* Through a matrix, source points are target points, so
+                 * the window can be drawn in pieces around the hole. */
+                CompRegion pieces;
+                target_pieces(o, &n->visible_rect, &client_hole, &pieces);
+                for (int k = 0; k < pieces.count; k++) {
+                    const CompRect *r = &pieces.rects[k];
+                    xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER,
+                                         source, mask, o->target,
+                                         (int16_t)r->x, (int16_t)r->y,
+                                         (int16_t)r->x, (int16_t)r->y,
+                                         (int16_t)r->x, (int16_t)r->y,
+                                         (uint16_t)r->w, (uint16_t)r->h);
+                }
+            } else {
+                xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER,
+                                     source, mask, o->target,
+                                     sx, sy, sx, sy, dx, dy, dw, dh);
+            }
         }
 
         /* The picture outlives the frame, so the transform must not: the
@@ -2032,7 +2109,7 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
          * below assume the window is where it says it is, and a window
          * mid-animation is worth exactly as much sharpness as it has
          * milliseconds left. */
-        if (!transformed && !from_stash && !subst) {
+        if (dense_ok) {
             /* The decoration first, then the contents inside it -- the
              * same order they sit in, and the same order they were drawn
              * in at logical size. Each is a separate drawable published by
@@ -2046,7 +2123,6 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
              * with its own matrix instead (below). */
             xcb_render_picture_t dense_mask =
                 shape_masked ? window_alpha(w, n->opacity) : mask;
-            float density;
             if (deco_density_active(w, &density)) {
                 /* Unlike the client's dense content, the decoration's
                  * dense pixmap *is* the corners -- it covers the whole
@@ -2063,7 +2139,8 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
                     picture_transform_set(mask, &m);
                     deco_mask = mask;
                 }
-                draw_dense(o, n, w, deco_mask, &n->geometry, density, true);
+                draw_dense(o, n, w, deco_mask, &n->geometry, density, true,
+                           deco_hole.w > 0 ? &deco_hole : NULL);
                 if (shape_masked)
                     picture_transform_reset(mask);
             }
@@ -2071,7 +2148,7 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
              * for a newly published pixmap, and reading the rectangle
              * before it gave a 0x0 layer -- the dense pixels then only
              * showed on whatever frame next repainted the window. */
-            if (density_active(w, &density) && density_picture(w, false)) {
+            if (dense_client && density_active(w, &density)) {
                 CompRect client = {
                     n->geometry.x + w->client_rect.x,
                     n->geometry.y + w->client_rect.y,
@@ -2085,7 +2162,7 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
                     picture_transform_set(mask, &m);
                     client_mask = mask;
                 }
-                draw_dense(o, n, w, client_mask, &client, density, false);
+                draw_dense(o, n, w, client_mask, &client, density, false, NULL);
                 if (shape_masked)
                     picture_transform_reset(mask);
             }

@@ -528,6 +528,7 @@ typedef struct CompWindow {
      *                      at -- believed over what we asked for
      *   density_pixmap     the auxiliary pixmap it published
      *   density_picture    the renderer's cached Picture for it
+     *   density_depth      that pixmap's depth (32 = it has alpha)
      *   client_rect        where the client sits inside its frame, since
      *                      that pixmap holds the client's content without
      *                      the decoration around it
@@ -536,6 +537,7 @@ typedef struct CompWindow {
     uint32_t density_num, density_den;
     xcb_pixmap_t density_pixmap;
     xcb_render_picture_t density_picture;
+    uint8_t density_depth;
     CompRect client_rect;
 
     /* What of this window is *certainly* opaque, relative to its own

@@ -48,6 +48,7 @@ static GLuint program;
 static GLint u_projection, u_transform, u_opacity, u_texture, u_y_flip, u_use_uv;
 static GLint u_mask, u_use_mask;
 static GLint u_use_corners, u_corner_radii, u_corner_size;
+static GLint u_use_hole, u_hole;
 static GLuint quad_vbo;
 static GLuint mesh_vbo;
 static GLuint shadow_mesh_vbo;
@@ -182,6 +183,12 @@ static const char *fragment_source =
     "uniform float use_corners;\n"
     "uniform vec4 corner_radii;\n"
     "uniform vec2 corner_size;\n"
+    /* A rectangle of the quad (in the same 0..1 coordinates as maskcoord,
+     * x0 y0 x1 y1) this draw leaves alone: where an X-DENSITY layer is
+     * about to cover the window anyway, or is itself transparent -- see
+     * draw_node(). Discarded before anything is sampled or blended. */
+    "uniform float use_hole;\n"
+    "uniform vec4 hole;\n"
     "varying vec2 texcoord;\n"
     "varying vec2 maskcoord;\n"
     /* A rounded box's signed distance, one independent radius per corner
@@ -195,6 +202,10 @@ static const char *fragment_source =
     "    return min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - rr;\n"
     "}\n"
     "void main() {\n"
+    "    if (use_hole > 0.5 &&\n"
+    "        all(greaterThanEqual(maskcoord, hole.xy)) &&\n"
+    "        all(lessThan(maskcoord, hole.zw)))\n"
+    "        discard;\n"
     "    vec4 c = texture2D(texture0, texcoord);\n"
     /* Premultiplied, so the silhouette multiplies the whole texel --
      * colour and alpha together -- rather than the alpha alone. */
@@ -541,6 +552,8 @@ static bool program_build(void)
     u_use_corners = glGetUniformLocation(program, "use_corners");
     u_corner_radii = glGetUniformLocation(program, "corner_radii");
     u_corner_size = glGetUniformLocation(program, "corner_size");
+    u_use_hole = glGetUniformLocation(program, "use_hole");
+    u_hole = glGetUniformLocation(program, "hole");
 
     /* One unit quad, reused for every window: the transform is what makes
      * it the right size in the right place, which is the same thing the
@@ -1261,6 +1274,17 @@ static void draw_shadow(const CompOutput *o, const CompSceneNode *n,
      * doesn't have its corners where they will end up anyway. */
     CompRect cut[SHADOW_CUT_MAX];
     int cuts = -1;
+    /* A shaped window is drawn through its silhouette, one scissor
+     * box per rectangle: rounded corners are the everyday case here,
+     * since kiwm rounds every frame it draws, and without this the
+     * corners come back square with whatever the pixmap holds
+     * outside them.
+     *
+     * Only while the window is where it says it is, or is being
+     * moved: a scissor box is in screen pixels, so it can follow a
+     * translation but not a scale or a rotation. A window mid-scale
+     * is drawn whole for those frames, which is what the XRender
+     * backend does with the same reasoning. */
     float tdx = 0.0f, tdy = 0.0f;
     bool move_only = comp_transform_is_identity(&n->transform) ||
                      comp_transform_is_translation(&n->transform, &tdx, &tdy);
@@ -1610,6 +1634,22 @@ static GlWindow *dense_layer(CompWindow *w, GlWindow *g, bool decoration)
  * inside the frame, away from the corners the shape is about, and the
  * decoration layer is the WM's own painting of those corners, alpha and
  * all. */
+/* Sets the shader's hole (fragment_source) to `hole`, in the 0..1
+ * coordinates of the quad drawn over `quad`; NULL turns it off. */
+static void set_hole(const CompRect *quad, const CompRect *hole)
+{
+    if (!hole || quad->w <= 0 || quad->h <= 0) {
+        glUniform1f(u_use_hole, 0.0f);
+        return;
+    }
+    float qw = (float)quad->w, qh = (float)quad->h;
+    glUniform4f(u_hole, (float)(hole->x - quad->x) / qw,
+                (float)(hole->y - quad->y) / qh,
+                (float)(hole->x + hole->w - quad->x) / qw,
+                (float)(hole->y + hole->h - quad->y) / qh);
+    glUniform1f(u_use_hole, 1.0f);
+}
+
 /* kiwm's answer for its own frame's corner radii (_KIWM_CORNER_RADIUS),
  * when draw_dense() should round its decoration layer analytically
  * instead of through a rasterized shape texture. NULL/unused fields mean
@@ -1619,11 +1659,15 @@ typedef struct { int tl, tr, br, bl; } CornerRadii;
 
 static void draw_dense(const CompOutput *o, const CompSceneNode *n,
                        const GlWindow *d, const CompRect *area, GLuint mask,
-                       const CornerRadii *corners)
+                       const CornerRadii *corners, bool opaque)
 {
     CompRect visible;
     if (!rect_intersect(area, &n->visible_rect, &visible))
         return;
+
+    /* Bound by dense_layer() before the window's own draw, which has
+     * bound its texture since (draw_node). */
+    glBindTexture(GL_TEXTURE_2D, d->texture);
 
     float m[16];
     rect_matrix(area, &n->transform, m);
@@ -1661,8 +1705,11 @@ static void draw_dense(const CompOutput *o, const CompSceneNode *n,
         glUniform1f(u_use_corners, 0.0f);
     }
 
+    /* A layer with no alpha, over a window nothing is fading or
+     * transforming, replaces what is under it: copied, not blended, the
+     * same short cut the window's own opaque rectangle gets. */
     CompRect none = { 0, 0, 0, 0 };
-    draw_piece(o, &visible, &none);
+    draw_piece(o, &visible, opaque ? &visible : &none);
 
     /* use_corners is this function's own transient state -- nothing else
      * in the file sets it, so it must not survive past this draw the way
@@ -2153,6 +2200,62 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     bool from_stash = !flat && (n->use_stash || !w->content_ready) &&
                        g->stash_platform && g->stash_texture;
 
+    float tdx = 0.0f, tdy = 0.0f;
+    bool move_only = comp_transform_is_identity(&n->transform) ||
+                     comp_transform_is_translation(&n->transform, &tdx, &tdy);
+
+    /* The client's own denser pixels, if it published any (density.h),
+     * looked up before the window's texture is bound: binding one binds
+     * texture unit 0, and knowing now which layers will be drawn is what
+     * lets the window's own draw below leave out what they cover.
+     *
+     * Only while the window is where it says it is, or is being moved:
+     * a window mid-scale is worth exactly as much sharpness as it has
+     * milliseconds left, and a stash is the picture from before any of
+     * this. */
+    GlWindow *dense_deco = NULL, *dense_client = NULL;
+    if (!from_stash && move_only && !flat) {
+        float density;
+        if (deco_density_active(w, &density))
+            dense_deco = dense_layer(w, g, true);
+        if (density_active(w, &density))
+            dense_client = dense_layer(w, g, false);
+    }
+
+    /* Where the client's dense layer goes (also what fills in
+     * client_rect): the decoration's dense pixmap is a transparent hole
+     * there, and an opaque client layer hides whatever the window's own
+     * pixmap holds there. So both of those draws skip it -- a full pass
+     * of blending each, over the largest part of the window. One pixel in
+     * from every edge, so neither rounding nor filtering can open a seam
+     * between the layer and what is drawn around it: the decoration
+     * paints nothing in that ring, and the client layer covers it. Only
+     * while the window sits still: the hole is cut in the quad's own
+     * coordinates, but drawn through pieces of the screen. */
+    CompRect client_hole = { 0, 0, 0, 0 };
+    if (dense_client && comp_transform_is_identity(&n->transform) &&
+        w->client_rect.w > 2 && w->client_rect.h > 2 &&
+        n->geometry.w > 0 && n->geometry.h > 0)
+        client_hole = (CompRect){ n->geometry.x + w->client_rect.x + 1,
+                                  n->geometry.y + w->client_rect.y + 1,
+                                  w->client_rect.w - 2, w->client_rect.h - 2 };
+
+    /* The decoration's dense pixmap is just as much a hole over a client
+     * that publishes nothing dense, so its draw skips the client's
+     * rectangle either way: an opaque client's (window.h's opaque, kept
+     * up to date by the client's own ConfigureNotify) when there is no
+     * client layer to say where it is. */
+    CompRect deco_hole = client_hole;
+    if (dense_deco && deco_hole.w <= 0 &&
+        comp_transform_is_identity(&n->transform)) {
+        CompRect op = window_opaque_rect(w);
+        CompRect wr = window_rect(w);
+        if (op.w > 2 && op.h > 2)
+            deco_hole = (CompRect){ n->geometry.x + op.x - wr.x + 1,
+                                    n->geometry.y + op.y - wr.y + 1,
+                                    op.w - 2, op.h - 2 };
+    }
+
     if (flat) {
         bind_flat();
     } else if (from_stash) {
@@ -2188,21 +2291,6 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * mistakes look identical until you try the other driver. */
     glUniform1f(u_y_flip, (from_stash ? g->stash_y_inverted : g->y_inverted)
                               ? 0.0f : 1.0f);
-
-    /* A shaped window is drawn through its silhouette, one scissor
-     * box per rectangle: rounded corners are the everyday case here,
-     * since kiwm rounds every frame it draws, and without this the
-     * corners come back square with whatever the pixmap holds
-     * outside them.
-     *
-     * Only while the window is where it says it is, or is being
-     * moved: a scissor box is in screen pixels, so it can follow a
-     * translation but not a scale or a rotation. A window mid-scale
-     * is drawn whole for those frames, which is what the XRender
-     * backend does with the same reasoning. */
-    float tdx = 0.0f, tdy = 0.0f;
-    bool move_only = comp_transform_is_identity(&n->transform) ||
-                     comp_transform_is_translation(&n->transform, &tdx, &tdy);
 
     /* The part of the window known to be opaque (window.h's opaque: the
      * client inside the frame, when it has no alpha and no shape) is
@@ -2241,6 +2329,12 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     } else {
         glUniform1f(u_use_mask, 0.0f);
     }
+
+    /* Under an opaque client layer the window's own pixels are never
+     * seen. A translucent one keeps them underneath, as before: what it
+     * shows through has always been the window drawn at logical size. */
+    bool client_covers = client_hole.w > 0 && !dense_client->argb;
+    set_hole(&n->geometry, client_covers ? &client_hole : NULL);
 
     if (mask) {
         /* The mask cuts the silhouette, so the only clip left is the
@@ -2289,16 +2383,11 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     }
 
     /* And, over what was just drawn, the client's own denser pixels if it
-     * published any (density.h): the decoration first, then the contents
-     * inside it -- the same order they sit in, and the same order they
-     * were drawn in at logical size. Each is a separate drawable
-     * published by a separate program (the WM's frame, the app's window),
-     * and only what each one published is dense.
-     *
-     * Only while the window is where it says it is, or is being moved:
-     * a window mid-scale is worth exactly as much sharpness as it has
-     * milliseconds left, and a stash is the picture from before any of
-     * this.
+     * published any (looked up above): the decoration first, then the
+     * contents inside it -- the same order they sit in, and the same
+     * order they were drawn in at logical size. Each is a separate
+     * drawable published by a separate program (the WM's frame, the
+     * app's window), and only what each one published is dense.
      *
      * The decoration layer covers the whole frame, corners included, and
      * (unlike the client's own contents) has no rounding of its own --
@@ -2309,35 +2398,31 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * (_KIWM_CORNER_RADIUS) as an analytic mask when they are known --
      * exactly round at any density, unlike stretching the 1x shape
      * texture -- and falls back to that texture otherwise (an irregular
-     * client shape, or a frame that isn't kiwm's). The client's dense
-     * content skips masking entirely: it only ever covers the area inside
-     * the frame, away from the corners the shape is about. */
-    if (!from_stash && move_only && !flat) {
-        float density;
-        if (deco_density_active(w, &density)) {
-            GlWindow *d = dense_layer(w, g, true);
-            if (d) {
-                CornerRadii radii = { w->corner_tl, w->corner_tr,
-                                      w->corner_br, w->corner_bl };
-                if (w->corner_radii_known) {
-                    draw_dense(o, n, d, &n->geometry, 0, &radii);
-                } else {
-                    GLuint mask = w->shaped ? shape_mask_texture(w, g) : 0;
-                    draw_dense(o, n, d, &n->geometry, mask, NULL);
-                }
-            }
+     * client shape, or a frame that isn't kiwm's). It skips the client's
+     * rectangle (deco_hole), which it leaves transparent. The client's dense content skips
+     * masking entirely: it only ever covers the area inside the frame,
+     * away from the corners the shape is about. */
+    if (dense_deco) {
+        set_hole(&n->geometry, deco_hole.w > 0 ? &deco_hole : NULL);
+        CornerRadii radii = { w->corner_tl, w->corner_tr,
+                              w->corner_br, w->corner_bl };
+        if (w->corner_radii_known) {
+            draw_dense(o, n, dense_deco, &n->geometry, 0, &radii, false);
+        } else {
+            GLuint dmask = w->shaped ? shape_mask_texture(w, g) : 0;
+            draw_dense(o, n, dense_deco, &n->geometry, dmask, NULL, false);
         }
-        if (density_active(w, &density)) {
-            GlWindow *d = dense_layer(w, g, false);
-            if (d) {
-                CompRect client = {
-                    n->geometry.x + w->client_rect.x,
-                    n->geometry.y + w->client_rect.y,
-                    w->client_rect.w, w->client_rect.h
-                };
-                draw_dense(o, n, d, &client, 0, NULL);
-            }
-        }
+    }
+    set_hole(&n->geometry, NULL);
+    if (dense_client) {
+        CompRect client = {
+            n->geometry.x + w->client_rect.x,
+            n->geometry.y + w->client_rect.y,
+            w->client_rect.w, w->client_rect.h
+        };
+        draw_dense(o, n, dense_client, &client, 0, NULL,
+                   !dense_client->argb && n->opacity >= 1.0f &&
+                   comp_transform_is_identity(&n->transform));
     }
 
     repaint_rect = full_repaint;
