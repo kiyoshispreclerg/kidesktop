@@ -2003,7 +2003,11 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
                 if (shape_masked)
                     picture_transform_reset(mask);
             }
-            if (density_active(w, &density)) {
+            /* density_picture() first: it is what fills in client_rect
+             * for a newly published pixmap, and reading the rectangle
+             * before it gave a 0x0 layer -- the dense pixels then only
+             * showed on whatever frame next repainted the window. */
+            if (density_active(w, &density) && density_picture(w, false)) {
                 CompRect client = {
                     n->geometry.x + w->client_rect.x,
                     n->geometry.y + w->client_rect.y,
