@@ -56,6 +56,24 @@ void output_request_frame(CompOutput *o);
  * paint everything, never paint nothing. */
 void output_paint_region(CompOutput *o, CompRegion *out);
 
+/* A logical root rectangle as pixels of this output's target (counted
+ * from its top-left), through the lens and the scale. Two answers,
+ * because the two jobs disagree about a pixel the edge only partly
+ * covers:
+ *
+ *   output_target_inside  the pixels whose centre lies in it -- exactly
+ *                         what GL rasterizes for a quad over it, so
+ *                         neighbouring rectangles tile with no gap and no
+ *                         overlap. For whatever is drawn.
+ *   output_target_cover   every pixel it touches at all. For what has to
+ *                         be repainted and presented: a damaged rectangle
+ *                         that comes back a pixel short leaves that pixel
+ *                         holding an older buffer's contents.
+ *
+ * Both clipped to the target; empty (w or h 0) when nothing is left. */
+CompRect output_target_inside(const CompOutput *o, const CompRect *r);
+CompRect output_target_cover(const CompOutput *o, const CompRect *r);
+
 /* Clean again: called once the frame has been presented. */
 void output_painted(CompOutput *o);
 

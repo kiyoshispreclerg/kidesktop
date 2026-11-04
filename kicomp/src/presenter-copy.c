@@ -11,6 +11,7 @@
  * output is never touched.
  */
 #include "presenter.h"
+#include "output.h"
 #include "renderer.h"
 #include "region.h"
 
@@ -157,33 +158,13 @@ bool present_physical_rect(const CompOutput *o, const CompRect *logical,
     if (logical->w <= 0 || logical->h <= 0)
         return false;
 
-    if (o->scale == 1.0f) {
-        *out = *logical;
-        return true;
-    }
-
-    /* Rounded outwards: half a physical pixel of damage still has to be
-     * copied, and a rectangle that came back a pixel short would leave a
-     * seam of last frame's content along the edge of everything that
-     * moves. */
-    int x0 = o->physical.x + (int)((float)(logical->x - o->rect.x) * o->scale);
-    int y0 = o->physical.y + (int)((float)(logical->y - o->rect.y) * o->scale);
-    int x1 = o->physical.x +
-             (int)((float)(logical->x + logical->w - o->rect.x) * o->scale + 0.999f);
-    int y1 = o->physical.y +
-             (int)((float)(logical->y + logical->h - o->rect.y) * o->scale + 0.999f);
-
-    if (x0 < o->physical.x) x0 = o->physical.x;
-    if (y0 < o->physical.y) y0 = o->physical.y;
-    if (x1 > o->physical.x + o->physical.w) x1 = o->physical.x + o->physical.w;
-    if (y1 > o->physical.y + o->physical.h) y1 = o->physical.y + o->physical.h;
-
-    if (x1 <= x0 || y1 <= y0)
+    /* Rounded outwards, the same way the renderers widen what they
+     * repaint (output_target_cover): half a physical pixel of damage
+     * still has to be copied, and a copy reaching past what was repainted
+     * would put an older buffer's pixels on screen. */
+    CompRect t = output_target_cover(o, logical);
+    if (t.w <= 0 || t.h <= 0)
         return false;
-
-    out->x = x0;
-    out->y = y0;
-    out->w = x1 - x0;
-    out->h = y1 - y0;
+    *out = (CompRect){ o->physical.x + t.x, o->physical.y + t.y, t.w, t.h };
     return true;
 }

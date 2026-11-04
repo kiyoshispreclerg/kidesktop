@@ -394,11 +394,12 @@ static xcb_render_picture_t density_picture(CompWindow *w, bool decoration)
 
 /* Everything above the renderer works in the output's *logical*
  * coordinates (comp.h): the scene, the effects, the damage, the WM. The
- * target pixmap is the size of the output's *physical* scanout. These
- * three turn one into the other, and they are the only place in this file
- * that knows an output can be scaled -- at scale 1 they are a subtraction
- * and an identity, which is exactly what the code did before scaling
- * existed. */
+ * target pixmap is the size of the output's *physical* scanout. The
+ * functions below turn one into the other for what is drawn, and
+ * output_target_cover (output.h) for what is repainted; they are the only
+ * place in this file that knows an output can be scaled -- at scale 1
+ * they are a subtraction, which is exactly what the code did before
+ * scaling existed. */
 /* The output's lens as a plain magnification and origin (comp.h's view).
  * It is always a scale about a point -- that is all zoom asks for -- so
  * reading it back as one is exact rather than an approximation, and it
@@ -420,12 +421,16 @@ static float lens_of(const CompOutput *o, float *ox, float *oy)
     return k;
 }
 
+/* An edge in root coordinates as the first target pixel whose centre
+ * lies past it (output_target_inside's rule), so two rectangles sharing
+ * an edge share it in target pixels too: no column between them left
+ * undrawn, none drawn twice. */
 static int to_target_x(const CompOutput *o, int x)
 {
     float ox, oy;
     float k = lens_of(o, &ox, &oy);
     float lensed = (float)x * k + ox;
-    return (int)((lensed - (float)o->rect.x) * o->scale + 0.5f);
+    return (int)ceilf((lensed - (float)o->rect.x) * o->scale - 0.5f);
 }
 
 static int to_target_y(const CompOutput *o, int y)
@@ -433,15 +438,7 @@ static int to_target_y(const CompOutput *o, int y)
     float ox, oy;
     float k = lens_of(o, &ox, &oy);
     float lensed = (float)y * k + oy;
-    return (int)((lensed - (float)o->rect.y) * o->scale + 0.5f);
-}
-
-static int to_target_len(const CompOutput *o, int v)
-{
-    float ox, oy;
-    float k = lens_of(o, &ox, &oy);
-    int r = (int)((float)v * k * o->scale + 0.5f);
-    return r > 0 ? r : (v > 0 ? 1 : 0);
+    return (int)ceilf((lensed - (float)o->rect.y) * o->scale - 0.5f);
 }
 
 /* Target pixels back to logical root coordinates: undo the physical
@@ -465,14 +462,17 @@ static void target_to_root(const CompOutput *o, CompTransform *m)
     }
 }
 
-/* A rectangle in logical root coordinates, as target pixels. */
+/* A rectangle in logical root coordinates, as the target pixels drawn
+ * for it: both edges through to_target_x/y, never an edge plus a rounded
+ * length, which lands a pixel off the neighbour's edge half the time. */
 static xcb_rectangle_t to_target_rect(const CompOutput *o, const CompRect *r)
 {
+    int x0 = to_target_x(o, r->x), x1 = to_target_x(o, r->x + r->w);
+    int y0 = to_target_y(o, r->y), y1 = to_target_y(o, r->y + r->h);
     xcb_rectangle_t out = {
-        (int16_t)to_target_x(o, r->x),
-        (int16_t)to_target_y(o, r->y),
-        (uint16_t)to_target_len(o, r->w),
-        (uint16_t)to_target_len(o, r->h),
+        (int16_t)x0, (int16_t)y0,
+        (uint16_t)(x1 > x0 ? x1 - x0 : 0),
+        (uint16_t)(y1 > y0 ? y1 - y0 : 0),
     };
     return out;
 }
@@ -1189,11 +1189,10 @@ static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom,
 
     /* The shadow's own rectangle: the window's, offset, grown by the
      * blur on every side. */
+    xcb_rectangle_t bt = to_target_rect(o, &base);
     CompRect s = {
-        to_target_x(o, base.x) + off_x - rd,
-        to_target_y(o, base.y) + off_y - rd,
-        to_target_len(o, base.w) + rd * 2,
-        to_target_len(o, base.h) + rd * 2,
+        bt.x + off_x - rd, bt.y + off_y - rd,
+        bt.width + rd * 2, bt.height + rd * 2,
     };
 
     if (comp.caps.xfixes) {
@@ -1238,10 +1237,7 @@ static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom,
                                             (int16_t)to_target_x(o, win->x),
                                             (int16_t)to_target_y(o, win->y));
         } else {
-            CompRect hole = {
-                to_target_x(o, base.x), to_target_y(o, base.y),
-                to_target_len(o, base.w), to_target_len(o, base.h)
-            };
+            CompRect hole = { bt.x, bt.y, bt.width, bt.height };
             rounded_hole(o, win, &hole, cut);
         }
 
@@ -1359,11 +1355,16 @@ static xcb_xfixes_region_t region_to_xfixes(CompOutput *o, const CompRegion *r)
     xcb_rectangle_t rects[COMP_REGION_MAX];
     int n = 0;
 
+    /* Every pixel each rectangle touches (output_target_cover): these
+     * are areas to repaint, and the presenter copies them rounded the
+     * same way -- a clip a pixel short leaves that pixel to an older
+     * buffer. */
     for (int i = 0; i < r->count && n < COMP_REGION_MAX; i++) {
-        const CompRect *d = &r->rects[i];
-        if (d->w <= 0 || d->h <= 0)
+        CompRect t = output_target_cover(o, &r->rects[i]);
+        if (t.w <= 0 || t.h <= 0)
             continue;
-        rects[n] = to_target_rect(o, d);
+        rects[n] = (xcb_rectangle_t){ (int16_t)t.x, (int16_t)t.y,
+                                      (uint16_t)t.w, (uint16_t)t.h };
         n++;
     }
 
@@ -1944,10 +1945,9 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
          * for a node nothing is transforming on an unscaled output. */
         int16_t sx = (int16_t)(n->visible_rect.x - n->geometry.x);
         int16_t sy = (int16_t)(n->visible_rect.y - n->geometry.y);
-        int16_t dx = (int16_t)to_target_x(o, n->visible_rect.x);
-        int16_t dy = (int16_t)to_target_y(o, n->visible_rect.y);
-        uint16_t dw = (uint16_t)to_target_len(o, n->visible_rect.w);
-        uint16_t dh = (uint16_t)to_target_len(o, n->visible_rect.h);
+        xcb_rectangle_t vt = to_target_rect(o, &n->visible_rect);
+        int16_t dx = vt.x, dy = vt.y;
+        uint16_t dw = vt.width, dh = vt.height;
 
         /* A transform is needed whenever destination pixels and source
          * pixels don't step together: because an effect is transforming
@@ -2278,12 +2278,10 @@ static void draw_image(CompOutput *o, struct CompTextImage *image,
         xcb_render_set_picture_transform(comp.conn, pic, t);
     }
 
+    xcb_rectangle_t vt = to_target_rect(o, &vis);
     xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER, pic, mask,
                          o->target, sx, sy, 0, 0,
-                         (int16_t)to_target_x(o, vis.x),
-                         (int16_t)to_target_y(o, vis.y),
-                         (uint16_t)to_target_len(o, vis.w),
-                         (uint16_t)to_target_len(o, vis.h));
+                         vt.x, vt.y, vt.width, vt.height);
 
     if (o->scale != 1.0f) {
         xcb_render_transform_t id = { 65536,0,0, 0,65536,0, 0,0,65536 };

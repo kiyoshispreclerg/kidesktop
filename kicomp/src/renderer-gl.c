@@ -1087,27 +1087,13 @@ static void shape_fetch(CompWindow *w, GlWindow *g)
     free(r);
 }
 
-/* One shape rectangle as a GL scissor box. The scissor is in physical
- * pixels counted from the *bottom* of the drawable, which is neither the
- * unit the rest of this file works in nor the direction X counts in. */
-static void scissor_for(const CompOutput *o, int x, int y, int w, int h)
+/* A box of target pixels (output_target_*, counted from the top-left)
+ * as the scissor, which is counted from the *bottom* of the drawable --
+ * neither the unit the rest of this file works in nor the direction X
+ * counts in. */
+static void scissor_px(const CompOutput *o, const CompRect *b)
 {
-    float scale = o->scale > 0.0f ? o->scale : 1.0f;
-
-    /* Through the lens as well: a scissor box is where something is on
-     * screen, and under a lens that is not where it is in root
-     * coordinates -- which is exactly what clipped a magnified window's
-     * rounded corners to the place the window would have been. */
-    float ox, oy;
-    float k = lens_of(o, &ox, &oy);
-
-    float lx = (float)x * k + ox;
-    float ly = (float)y * k + oy;
-
-    int px = (int)((lx - (float)o->rect.x) * scale);
-    int py = (int)((ly - (float)o->rect.y) * scale);
-    int pw = (int)((float)w * k * scale + 0.5f);
-    int ph = (int)((float)h * k * scale + 0.5f);
+    int px = b->x, py = b->y, pw = b->w, ph = b->h;
     int target_h = o->physical.h;
 
     /* A turned scanout: the box where the CRTC scans those pixels out */
@@ -1131,8 +1117,23 @@ static void scissor_for(const CompOutput *o, int x, int y, int w, int h)
         glScissor(px, target_h - (py + ph), pw, ph);
 }
 
-/* Defined below, once the repaint rectangle exists: the same thing as
- * scissor_for(), intersected with what this frame is allowed to touch. */
+/* A repainted area (the repaint rectangle, a piece of the ground): every
+ * pixel it touches, through the lens as well -- under a lens a box is
+ * not where it is in root coordinates, which is exactly what once
+ * clipped a magnified window's rounded corners to the place the window
+ * would have been. Rounded outwards, as the presenter rounds what it
+ * copies (output_target_cover): a pixel short here is a pixel of an
+ * older buffer put on screen, along the right and bottom edges of
+ * whatever changed. */
+static void scissor_for(const CompOutput *o, int x, int y, int w, int h)
+{
+    CompRect r = { x, y, w, h };
+    CompRect b = output_target_cover(o, &r);
+    scissor_px(o, &b);
+}
+
+/* Defined below, once the repaint rectangle exists: a drawn piece,
+ * intersected with what this frame is allowed to touch. */
 static bool scissor_to(const CompOutput *o, const CompRect *r);
 
 /* The shadow box minus the window's silhouette, as scissor rectangles.
@@ -1324,13 +1325,17 @@ static void draw_shadow(const CompOutput *o, const CompSceneNode *n,
  * from the bottom of the drawable. */
 static bool scissor_to(const CompOutput *o, const CompRect *r)
 {
+    /* The piece by pixel centres, the rule GL rasterizes a quad by, so
+     * neighbouring pieces (shape rows, the opaque split) tile exactly:
+     * no pixel left out between them, none blended twice. Then cut to
+     * the repaint area, which is rounded outwards. */
+    CompRect piece = output_target_inside(o, r);
+    CompRect area = output_target_cover(o, &repaint_rect);
     CompRect hit;
-    if (!rect_intersect(r, &repaint_rect, &hit))
-        return false;
-    if (!rect_intersect(&hit, &o->rect, &hit))
+    if (!rect_intersect(&piece, &area, &hit))
         return false;
 
-    scissor_for(o, hit.x, hit.y, hit.w, hit.h);
+    scissor_px(o, &hit);
     return true;
 }
 

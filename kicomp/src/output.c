@@ -11,6 +11,8 @@
 #include "xscale.h"
 #include "density.h"
 
+#include <math.h>
+
 #include <xcb/randr.h>
 
 #include <stdio.h>
@@ -581,6 +583,48 @@ void outputs_refresh(void)
 
     /* Open capture sessions describe outputs by index into this list. */
     capture_outputs_changed();
+}
+
+/* A root coordinate as a target pixel edge, through the lens (comp.h's
+ * view: a magnification about a point) and the scale. */
+static float target_edge(const CompOutput *o, float v, bool vertical)
+{
+    float k = o->view.m[0][0];
+    if (k <= 0.0f)
+        k = 1.0f;
+    float lensed = v * k + (vertical ? o->view.m[1][3] : o->view.m[0][3]);
+    float origin = (float)(vertical ? o->rect.y : o->rect.x);
+    return (lensed - origin) * (o->scale > 0.0f ? o->scale : 1.0f);
+}
+
+static CompRect target_box(const CompOutput *o, int x0, int y0, int x1, int y1)
+{
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > o->physical.w) x1 = o->physical.w;
+    if (y1 > o->physical.h) y1 = o->physical.h;
+    if (x1 <= x0 || y1 <= y0)
+        return (CompRect){ 0, 0, 0, 0 };
+    return (CompRect){ x0, y0, x1 - x0, y1 - y0 };
+}
+
+CompRect output_target_inside(const CompOutput *o, const CompRect *r)
+{
+    /* Pixel i's centre is i + 0.5: inside [a, b) when a <= i + 0.5 < b. */
+    return target_box(o,
+        (int)ceilf(target_edge(o, (float)r->x, false) - 0.5f),
+        (int)ceilf(target_edge(o, (float)r->y, true) - 0.5f),
+        (int)ceilf(target_edge(o, (float)(r->x + r->w), false) - 0.5f),
+        (int)ceilf(target_edge(o, (float)(r->y + r->h), true) - 0.5f));
+}
+
+CompRect output_target_cover(const CompOutput *o, const CompRect *r)
+{
+    return target_box(o,
+        (int)floorf(target_edge(o, (float)r->x, false)),
+        (int)floorf(target_edge(o, (float)r->y, true)),
+        (int)ceilf(target_edge(o, (float)(r->x + r->w), false)),
+        (int)ceilf(target_edge(o, (float)(r->y + r->h), true)));
 }
 
 static void damage_rect_grown(const CompRect *r, int margin)
