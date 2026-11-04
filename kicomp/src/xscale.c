@@ -9,6 +9,7 @@
 #include "presenter.h"
 #include "region.h"
 #include "renderer.h"
+#include "renderer-gl.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -155,10 +156,23 @@ bool xscale_present_pixmap(CompOutput *o, xcb_pixmap_t pixmap,
             CompRect d;
             if (!present_physical_rect(o, &damage->rects[i], &d))
                 continue;
-            rects[n].x = (int16_t)(d.x - o->physical.x);
-            rects[n].y = (int16_t)(d.y - o->physical.y);
-            rects[n].width = (uint16_t)d.w;
-            rects[n].height = (uint16_t)d.h;
+            float x0 = (float)(d.x - o->physical.x), y0 = (float)(d.y - o->physical.y);
+            float x1 = x0 + (float)d.w, y1 = y0 + (float)d.h;
+            /* A rotated scanout: the same pixels where the CRTC
+             * scans them out */
+            if (o->scanout_rotation > GL_ROTATE_0) {
+                float ax, ay, bx, by;
+                gl_rotate_point(o->scanout_rotation, (float)o->physical.w,
+                                (float)o->physical.h, x0, y0, &ax, &ay);
+                gl_rotate_point(o->scanout_rotation, (float)o->physical.w,
+                                (float)o->physical.h, x1, y1, &bx, &by);
+                x0 = ax < bx ? ax : bx;  x1 = ax < bx ? bx : ax;
+                y0 = ay < by ? ay : by;  y1 = ay < by ? by : ay;
+            }
+            rects[n].x = (int16_t)x0;
+            rects[n].y = (int16_t)y0;
+            rects[n].width = (uint16_t)(x1 - x0);
+            rects[n].height = (uint16_t)(y1 - y0);
             n++;
         }
         if (n > 0) {
@@ -230,7 +244,8 @@ bool xscale_decode_event(const xcb_generic_event_t *ev, XScaleEvent *out)
     return false;
 }
 
-bool xscale_crtc_capable(xcb_randr_crtc_t crtc, int *width, int *height)
+bool xscale_crtc_capable(xcb_randr_crtc_t crtc, int *width, int *height,
+                         uint16_t *rotation)
 {
     if (!comp.caps.xscale || crtc == XCB_NONE)
         return false;
@@ -253,6 +268,8 @@ bool xscale_crtc_capable(xcb_randr_crtc_t crtc, int *width, int *height)
     bool capable = (reply[1] & XScaleScanoutCapable) != 0;
     *width = *(uint16_t *)(void *)(reply + 8);
     *height = *(uint16_t *)(void *)(reply + 10);
+    /* rotation at byte 20 */
+    *rotation = *(uint16_t *)(void *)(reply + 20);
     free(reply);
     return capable;
 }

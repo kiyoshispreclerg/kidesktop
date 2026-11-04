@@ -453,21 +453,41 @@ void outputs_refresh(void)
                  * the picture (xscale.h); a scaled output it can't is
                  * drawn at logical size for the server to magnify. */
                 int sw = 0, sh = 0;
+                uint16_t rot = 0;
                 bool presents = renderer && renderer->scanout_present &&
                                 comp.caps.xscale &&
                                 presenter == presenter_present();
+                o->scanout_rotation = 0;
+                o->scanout_w = o->physical.w;
+                o->scanout_h = o->physical.h;
                 if (renderer && (renderer->scanout_source || presents) &&
-                    xscale_crtc_capable(o->crtc, &sw, &sh) &&
-                    sw > o->rect.w && sh > o->rect.h) {
-                    float sx = (float)sw / (float)o->rect.w;
-                    float sy = (float)sh / (float)o->rect.h;
-                    /* one factor for both axes is all the renderers do */
-                    if (sx - sy < 0.02f && sy - sx < 0.02f) {
+                    xscale_crtc_capable(o->crtc, &sw, &sh, &rot)) {
+                    /* A rotated or reflected CRTC is fed only
+                     * by presented frames, which the GL drawing turns into
+                     * its scanout orientation; a source drawable is drawn
+                     * upright. Its upright picture is the scanout with the
+                     * quarter turn undone. */
+                    bool turned = rot && rot != XCB_RANDR_ROTATION_ROTATE_0;
+                    bool quarter = rot & (XCB_RANDR_ROTATION_ROTATE_90 |
+                                          XCB_RANDR_ROTATION_ROTATE_270);
+                    int uw = quarter ? sh : sw, uh = quarter ? sw : sh;
+                    float sx = (float)uw / (float)o->rect.w;
+                    float sy = (float)uh / (float)o->rect.h;
+                    /* Magnified (an unrotated CRTC only has a transform
+                     * worth a source when it is), or merely turned; one
+                     * factor for both axes is all the renderers do. */
+                    bool size_ok = turned ? (sx > 0.99f && sy > 0.99f)
+                                          : (uw > o->rect.w && uh > o->rect.h);
+                    if ((!turned || presents) && size_ok &&
+                        sx - sy < 0.02f && sy - sx < 0.02f) {
                         o->sourced = true;
                         o->source_presented = presents;
                         o->scale = sx;
-                        o->physical.w = sw;
-                        o->physical.h = sh;
+                        o->physical.w = uw;
+                        o->physical.h = uh;
+                        o->scanout_rotation = turned ? rot : 0;
+                        o->scanout_w = sw;
+                        o->scanout_h = sh;
                     }
                 }
 
@@ -518,8 +538,11 @@ void outputs_refresh(void)
             renderer->destroy(o);
             o->sourced = false;
             o->source_presented = false;
+            o->scanout_rotation = 0;
             o->scale = 1.0f;
             o->physical = o->rect;
+            o->scanout_w = o->rect.w;
+            o->scanout_h = o->rect.h;
             if (!renderer->init(o)) {
                 fprintf(stderr, "kicomp: no render target for output %s\n", o->name);
                 continue;

@@ -152,6 +152,12 @@ typedef struct CompOutput {
     /* Its frames go to the CRTC by X-SCALE presentation, buffer by
      * buffer, rather than through a source drawable (xscale.h). */
     bool source_presented;
+    /* X-SCALE: a presented output whose CRTC is rotated or reflected
+     * (RandR bits; 0 or 1 = upright) has its frames drawn in the CRTC's
+     * scanout orientation, scanout_w x scanout_h, while `physical` stays
+     * the upright picture everything else (damage, captures) works in. */
+    uint16_t scanout_rotation;
+    int scanout_w, scanout_h;
     xcb_pixmap_t source_pixmap;           /* XRender's finished frames */
     xcb_render_picture_t source_picture;
 
