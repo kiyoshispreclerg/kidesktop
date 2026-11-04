@@ -544,6 +544,23 @@ static bool glx_attach(GlxWindow *x, GlWindow *g, xcb_visualid_t visual,
     return true;
 }
 
+/* Mesa's software rasterizers (llvmpipe, softpipe, swrast) read a bound
+ * pixmap back with GetImage from this side, on every bind -- and crash
+ * in there when the pixmap is gone, which a client publishing a new
+ * X-DENSITY layer is free to do to the old one at any moment. A GPU
+ * driver binds the buffer the server still holds a reference to, so it
+ * never notices. Asked once, with a context current. */
+static bool software_reads_pixmaps(void)
+{
+    static int software = -1;
+    if (software < 0) {
+        const char *r = (const char *)glGetString(GL_RENDERER);
+        software = r && (strstr(r, "llvmpipe") || strstr(r, "softpipe") ||
+                         strstr(r, "swrast") || strstr(r, "Software Rasterizer"));
+    }
+    return software == 1;
+}
+
 /* A pixmap the client owns (an X-DENSITY layer): attached once, and
  * bound again every draw with the same release/bind pair a window's own
  * contents get -- the client republishes the same XID with new pixels in
@@ -580,11 +597,32 @@ static bool glx_pixmap_bind(xcb_pixmap_t pixmap, int width, int height,
         g->content = true;
     }
 
+    /* On a software rasterizer the bind reads the pixmap: make sure it
+     * still exists, with the server grabbed so its owner cannot free it
+     * between the question and the read. */
+    bool guard = software_reads_pixmaps();
+    if (guard) {
+        XGrabServer(dpy);
+        Window root;
+        int gx, gy;
+        unsigned int gw, gh, gb, gd;
+        if (!XGetGeometry(dpy, x->pixmap, &root, &gx, &gy, &gw, &gh, &gb, &gd)) {
+            XUngrabServer(dpy);
+            XFlush(dpy);
+            glx_window_unbind(g);
+            return false;
+        }
+    }
+
     glx_window_release(g, x);
     glBindTexture(GL_TEXTURE_2D, gl_window_texture(g));
     glx_error_seen = false;
     glXBindTexImageEXT(dpy, x->glx_pixmap, GLX_FRONT_LEFT_EXT, NULL);
     x->bound = true;
+    if (guard) {
+        XUngrabServer(dpy);
+        XFlush(dpy);
+    }
     if (glx_error_seen) {
         /* The client freed it under us: let the caller drop the layer
          * until it publishes the next one. */
