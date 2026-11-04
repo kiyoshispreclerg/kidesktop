@@ -55,6 +55,7 @@
  * fences are a follow-up.
  */
 #include "renderer-gl.h"
+#include "presenter.h"
 #include "dri3.h"
 #include "window.h"
 
@@ -109,7 +110,7 @@ typedef struct {
     int current;                    /* the buffer being (or last) drawn */
     uint64_t frames;                /* presents so far, for the ages */
     uint32_t format;                /* DRM fourcc of the buffers */
-    bool idle_seen;                 /* the presenter does report idle */
+    bool tracks_idle;               /* the presenter reports idle */
 } EglOutput;
 
 /* The EGL half of a window (GlWindow::platform): the image over its
@@ -539,6 +540,10 @@ static bool egl_init(CompOutput *o)
         }
     }
     eo->current = -1;
+    /* Known up front, not learnt from the first idle: before that one
+     * arrived, a flipped buffer still on the screen counted as free
+     * (free_buffer), and a frame drawn into it tore. */
+    eo->tracks_idle = presenter && presenter->reports_idle;
 
     o->render_data = eo;
     o->target = XCB_NONE;
@@ -730,7 +735,7 @@ static int free_buffer(const EglOutput *eo)
         const EglBuffer *b = &eo->buffers[i];
         if (eo->frames > 0 && b->presented_at == eo->frames)
             continue;
-        if (eo->idle_seen && b->busy)
+        if (eo->tracks_idle && b->busy)
             continue;
         if (pick < 0 || b->presented_at > eo->buffers[pick].presented_at)
             pick = i;
@@ -764,7 +769,8 @@ static void egl_begin(CompOutput *o, const CompRegion *damage)
          * should have stopped this frame before it started. Take the
          * one the server has had longest and say so -- the alternative
          * is an output that never paints again. */
-        comp_log("egl: %s: every buffer busy; reusing the oldest", o->name);
+        comp_info("egl: %s: every buffer busy; reusing the oldest, which "
+                  "may tear", o->name);
         for (int i = 0; i < SWAPCHAIN; i++)
             if (pick < 0 || eo->buffers[i].presented_at < eo->buffers[pick].presented_at)
                 pick = i;
@@ -821,7 +827,6 @@ static void egl_output_pixmap_idle(CompOutput *o, xcb_pixmap_t pixmap)
     if (!eo)
         return;
 
-    eo->idle_seen = true;
     for (int i = 0; i < SWAPCHAIN; i++)
         if (eo->buffers[i].pixmap == pixmap)
             eo->buffers[i].busy = false;

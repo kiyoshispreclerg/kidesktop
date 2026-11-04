@@ -58,6 +58,12 @@ typedef struct CompPresenter {
      * to say than its own name leaves this NULL and the caller falls
      * back to that. */
     void (*sync_info)(CompOutput *o, char *buf, size_t n);
+
+    /* Says when the server is done with each pixmap it was handed (an
+     * IdleNotify, or X-SCALE's Idle). A renderer with a swapchain must
+     * know this before the first idle arrives: until then a buffer that
+     * was flipped looks free while it is still the screen. */
+    bool reports_idle;
 } CompPresenter;
 
 /* A damaged rectangle, in logical root coordinates, as the physical
