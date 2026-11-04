@@ -1020,6 +1020,66 @@ static void clip_to_frame(CompOutput *o, xcb_xfixes_region_t extra,
                           int16_t ox, int16_t oy);
 static void clip_to_frame_target(CompOutput *o, xcb_xfixes_region_t extra);
 
+/* The window's rectangle as the region cut out of its shadow, in target
+ * pixels, with the corners rounded for a window that cuts them away in
+ * its own alpha (xispanel) and says so with _KIWM_CORNER_RADIUS -- the
+ * GL backends' rrect hole. A square hole there leaves the transparent
+ * corners with no shadow behind them. One rectangle per pixel row of a
+ * corner band, plus the middle. */
+#define ROUNDED_HOLE_MAX 512
+
+static int corner_inset(int radius, int row)
+{
+    float d = (float)radius - (float)row - 0.5f;
+    float r = (float)radius;
+    return (int)(r - sqrtf(r * r - d * d) + 0.5f);
+}
+
+static void rounded_hole(const CompOutput *o, const CompWindow *w,
+                         const CompRect *hole, xcb_xfixes_region_t cut)
+{
+    float lox, loy;
+    float k = o->scale * lens_of(o, &lox, &loy);
+    int cap = (hole->w < hole->h ? hole->w : hole->h) / 2;
+    int rd[4] = { 0 };   /* tl, tr, br, bl, in target pixels */
+    if (w->corner_radii_known && !w->shaped) {
+        const int src[4] = { w->corner_tl, w->corner_tr,
+                             w->corner_br, w->corner_bl };
+        for (int i = 0; i < 4; i++) {
+            rd[i] = (int)((float)src[i] * k + 0.5f);
+            if (rd[i] > cap)
+                rd[i] = cap;
+        }
+    }
+    int top = rd[0] > rd[1] ? rd[0] : rd[1];
+    int bottom = rd[3] > rd[2] ? rd[3] : rd[2];
+    if (top + bottom + 1 > ROUNDED_HOLE_MAX)
+        top = bottom = 0;
+
+    xcb_rectangle_t rects[ROUNDED_HOLE_MAX] = { { 0 } };
+    int n = 0;
+    for (int y = 0; y < top; y++) {
+        int l = y < rd[0] ? corner_inset(rd[0], y) : 0;
+        int r = y < rd[1] ? corner_inset(rd[1], y) : 0;
+        rects[n++] = (xcb_rectangle_t){ (int16_t)(hole->x + l),
+                                        (int16_t)(hole->y + y),
+                                        (uint16_t)(hole->w - l - r), 1 };
+    }
+    if (hole->h - top - bottom > 0)
+        rects[n++] = (xcb_rectangle_t){ (int16_t)hole->x,
+                                        (int16_t)(hole->y + top),
+                                        (uint16_t)hole->w,
+                                        (uint16_t)(hole->h - top - bottom) };
+    for (int y = 0; y < bottom; y++) {
+        int l = y < rd[3] ? corner_inset(rd[3], y) : 0;
+        int r = y < rd[2] ? corner_inset(rd[2], y) : 0;
+        rects[n++] = (xcb_rectangle_t){ (int16_t)(hole->x + l),
+                                        (int16_t)(hole->y + hole->h - 1 - y),
+                                        (uint16_t)(hole->w - l - r), 1 };
+    }
+    xcb_xfixes_create_region(comp.conn, cut, (uint32_t)n, rects);
+}
+
 /* Draws `w`'s shadow into `o`'s target, under the window itself.
  *
  * The window's own rectangle is clipped out: an opaque window would cover
@@ -1155,6 +1215,11 @@ static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom,
          * is the one already cached for clipping the window (window_shape),
          * in window coordinates, so it only has to be moved into the
          * target's. */
+        /* An unshaped window's "shape" is just its rectangle; one that
+         * rounds its corners in its own alpha is cut as a rounded one. */
+        if (!win->shaped && win->corner_radii_known)
+            shape = XCB_NONE;
+
         xcb_xfixes_region_t scaled_shape = XCB_NONE;
         if (shape && (o->scale != 1.0f || lens != 1.0f)) {
             /* Same reason as in clip_to_frame: the cached region is in
@@ -1171,12 +1236,11 @@ static void draw_shadow(CompOutput *o, CompWindow *win, const CompRect *geom,
                                             (int16_t)to_target_x(o, win->x),
                                             (int16_t)to_target_y(o, win->y));
         } else {
-            xcb_rectangle_t hole = {
-                (int16_t)to_target_x(o, base.x), (int16_t)to_target_y(o, base.y),
-                (uint16_t)to_target_len(o, base.w),
-                (uint16_t)to_target_len(o, base.h)
+            CompRect hole = {
+                to_target_x(o, base.x), to_target_y(o, base.y),
+                to_target_len(o, base.w), to_target_len(o, base.h)
             };
-            xcb_xfixes_create_region(comp.conn, cut, 1, &hole);
+            rounded_hole(o, win, &hole, cut);
         }
 
         /* (source1, source2, destination): the shadow's rectangle minus
