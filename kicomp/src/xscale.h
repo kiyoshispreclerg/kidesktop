@@ -42,10 +42,13 @@
  * (the X-INPUT-SCALE experiment, pointer confinement) may have left behind. */
 void xscale_init(void);
 
-/* Can `crtc` take a source right now, and at what size? False on a server
- * without the extension, or a CRTC without a scale-only transform its DDX
- * can be fed for. */
-bool xscale_crtc_capable(xcb_randr_crtc_t crtc, int *width, int *height);
+/* Can `crtc` take a source right now, at what size, and turned how
+ * (RandR rotation bits)? False on a server without the extension, or a
+ * CRTC without a scale-only transform its DDX can be fed for. A rotated
+ * CRTC is only offered on a 1.2 server, its size then the scanout's
+ * (rotated) one. */
+bool xscale_crtc_capable(xcb_randr_crtc_t crtc, int *width, int *height,
+                         uint16_t *rotation);
 
 /* Gets a sourced output ready (o->sourced, after renderer->init): the
  * XRender path's own source pixmap. The source itself is only handed to

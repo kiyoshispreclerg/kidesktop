@@ -396,9 +396,21 @@ static void buffer_free(EglBuffer *b)
 /* Allocates one buffer of the output's size: a GBM buffer the display
  * engine could scan out, a framebuffer to draw it through, and the
  * server's name for it. */
+/* What the buffers are: the picture as the CRTC scans it out, which is
+ * the upright `physical` one unless an X-SCALE 1.2 CRTC turns it. */
+static void scanout_size(const CompOutput *o, int *w, int *h)
+{
+    bool turned = o->scanout_rotation &&
+                  o->scanout_rotation != GL_ROTATE_0 &&
+                  o->scanout_w > 0 && o->scanout_h > 0;
+    *w = turned ? o->scanout_w : o->physical.w;
+    *h = turned ? o->scanout_h : o->physical.h;
+}
+
 static bool buffer_alloc(CompOutput *o, EglOutput *eo, EglBuffer *b)
 {
-    int w = o->physical.w, h = o->physical.h;
+    int w, h;
+    scanout_size(o, &w, &h);
     uint8_t depth = comp.screen->root_depth;
     uint8_t bpp = depth == 16 ? 16 : 32;
 
@@ -767,6 +779,10 @@ static void egl_begin(CompOutput *o, const CompRegion *damage)
         age = (unsigned)(eo->frames - b->presented_at + 1);
 
     glBindFramebuffer(GL_FRAMEBUFFER, b->fbo);
+    /* Turned into the CRTC's scanout orientation, for an X-SCALE 1.2
+     * rotated CRTC (renderer-gl.h) */
+    eo->gl.rotation = o->scanout_rotation;
+    scanout_size(o, &eo->gl.scan_w, &eo->gl.scan_h);
     gl_begin(o, &eo->gl, damage, age);
 }
 

@@ -1873,6 +1873,15 @@ CRTC by the server`, or `copied`) once the first frame lands and whenever
 it changes, and the stats effect shows `flip`/`copy` per frame. GLX and XRender keep the source of the paragraph above, and so
 does every backend on a 1.0 server.
 
+**Rotated outputs (X-SCALE 1.2).** The same holds for an output that is
+rotated or reflected (`xrandr --rotate`), scaled or not: on a 1.2 server
+the EGL backend draws its frames already turned into the CRTC's scanout
+orientation (the GL projection and scissor do the turn; damage, captures
+and effects stay upright), and the server flips them onto the CRTC instead
+of turning the root into it. A rotated output needs the same scale on both
+axes; an older server, or GLX and XRender, leave it to the server as
+before.
+
 **Everywhere else it is just correct and blurry**, never broken: a stock
 server, an XiS server without the extension, a DDX that performs the
 transform on its own buffers (amdgpu with TearFree), or the EGL backend
