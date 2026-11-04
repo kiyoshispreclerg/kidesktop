@@ -102,7 +102,7 @@
 #include <unistd.h>
 #include "../shared/xis_safefile.h"
 
-#define XISPANEL_VERSION "0.8.0"
+#define XISPANEL_VERSION "0.8.1"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 128KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -130,6 +130,13 @@ char g_icon_theme[128];  /* same -- THEME's icon_theme=, read by ewmh.c's resolv
 static int g_force_shape_corners = 0;
 
 static int g_rr_event_base;
+/* A scale/mode change arrives as a burst of RRScreenChangeNotify (CRTC
+ * transform, screen size, per output); reloading on each one destroyed and
+ * recreated the dock window several times, and the WM refitted maximized
+ * windows to the strut-less area every time. The reload runs once, after the
+ * burst has been quiet for this long (0 = none pending). */
+#define RR_RELOAD_SETTLE_MS 150
+static uint64_t g_rr_reload_due;
 static volatile sig_atomic_t g_quit = 0;
 static Panel g_panels[MAX_PANELS];
 static char g_configpath[PATH_MAX];
@@ -5152,6 +5159,13 @@ static int run_as_daemon(const char *sockpath)
             }
         }
 
+        if (g_rr_reload_due != 0) {
+            long delta = (long)(g_rr_reload_due > now ? g_rr_reload_due - now : 0);
+            if (timeout_ms < 0 || delta < timeout_ms) {
+                timeout_ms = delta;
+            }
+        }
+
         /* mpris_poll()/sni_poll()/notifd_poll() are only actually called
          * once per select() wake, on whatever cadence *this* loop wakes
          * up at -- they don't get their own timer the way widget ticks
@@ -5193,6 +5207,12 @@ static int run_as_daemon(const char *sockpath)
                 continue;
             }
             break;
+        }
+
+        if (g_rr_reload_due != 0 && now_ms() >= g_rr_reload_due && !XPending(g_dpy)) {
+            g_rr_reload_due = 0;
+            reload_all_panels();
+            XFlush(g_dpy);
         }
 
         if (r > 0 && FD_ISSET(listenfd, &rfds)) {
@@ -5240,8 +5260,7 @@ static int run_as_daemon(const char *sockpath)
                     /* catcher <-> bar crossing -- see edge_catcher_filter() */
                 } else if (g_rr_event_base >= 0 && ev.type == g_rr_event_base + RRScreenChangeNotify) {
                     XRRUpdateConfiguration(&ev);
-                    reload_all_panels();
-                    XFlush(g_dpy);
+                    g_rr_reload_due = now_ms() + RR_RELOAD_SETTLE_MS;
                 } else if (density_handle_xfixes_event(&ev)) {
                     /* the _X_DENSITY_MANAGER_S<screen> selection appeared/
                      * disappeared -- see density.c/TESTS/X-DENSITY.md */
