@@ -52,6 +52,7 @@
 
 #include <X11/keysym.h>
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -323,6 +324,28 @@ static void clamp_to_output(MenuFrame *f, int anchor_x, int anchor_y, int flip_w
 
 /* ---- painting ---- */
 
+/* The theme's rounded rectangle as a Cairo path, clamped the way
+ * build_rounded_rects() clamps the SHAPE: no radius past
+ * MAX_CORNER_RADIUS, nor past half the frame. */
+static void trace_rounded_frame(cairo_t *cr, const MenuFrame *f)
+{
+    double r[4] = { wm.radius_tl, wm.radius_tr, wm.radius_br, wm.radius_bl };
+    double cap = (f->w < f->h ? f->w : f->h) / 2.0;
+    if (cap > MAX_CORNER_RADIUS)
+        cap = MAX_CORNER_RADIUS;
+    for (int i = 0; i < 4; i++)
+        if (r[i] > cap)
+            r[i] = cap;
+
+    double w = f->w, h = f->h;
+    cairo_new_path(cr);
+    cairo_arc(cr, r[0], r[0], r[0], M_PI, 1.5 * M_PI);
+    cairo_arc(cr, w - r[1], r[1], r[1], 1.5 * M_PI, 2 * M_PI);
+    cairo_arc(cr, w - r[2], h - r[2], r[2], 0, 0.5 * M_PI);
+    cairo_arc(cr, r[3], h - r[3], r[3], 0.5 * M_PI, M_PI);
+    cairo_close_path(cr);
+}
+
 /* Everything in the frame's own coordinates: the X-DENSITY pass below
  * calls this again with cairo_scale() applied, so the same drawing lands
  * on a bigger pixmap -- text re-shaped, lines re-rasterized. */
@@ -330,6 +353,22 @@ static void draw_frame(MenuFrame *f, cairo_t *cr)
 {
     double bg_r, bg_g, bg_b, bg_a, fg_r, fg_g, fg_b;
     menu_colors(&bg_r, &bg_g, &bg_b, &bg_a, &fg_r, &fg_g, &fg_b);
+
+    /* The corners are cut by SHAPE (shape_frame()), but SHAPE only trims
+     * the window: a compositor sampling the X-DENSITY pixmap instead gets
+     * no mask with it, so an ARGB frame also leaves them transparent in
+     * its own pixels -- what xispanel's menus do. The clip stays for the
+     * rows and outline below. Uncomposited, these are the pixels SHAPE
+     * already removed. */
+    if (wm.argb_visual && (wm.radius_tl || wm.radius_tr || wm.radius_br || wm.radius_bl)) {
+        cairo_save(cr);
+        cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+        cairo_set_source_rgba(cr, 0, 0, 0, 0);
+        cairo_paint(cr);
+        cairo_restore(cr);
+        trace_rounded_frame(cr, f);
+        cairo_clip(cr);
+    }
 
     /* SOURCE: a depth-32 pixmap starts with undefined alpha (osd.c). */
     cairo_save(cr);
