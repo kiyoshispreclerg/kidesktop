@@ -2039,11 +2039,11 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
              * a separate program (the WM's frame, the app's window), and
              * only what each one published is dense.
              *
-             * With the constant-alpha mask, not the shape one: the dense
-             * pictures are sampled through matrices of their own, which
-             * the shape mask (in the frame pixmap's space) would not
-             * follow. The dense client area lies inside the frame, away
-             * from the corners the shape is about. */
+             * The dense pictures are sampled through matrices of their
+             * own, which the shape mask (in the frame pixmap's space)
+             * would not follow, so the constant-alpha mask is the
+             * default; a shaped window's layers take the shape mask
+             * with its own matrix instead (below). */
             xcb_render_picture_t dense_mask =
                 shape_masked ? window_alpha(w, n->opacity) : mask;
             float density;
@@ -2077,7 +2077,17 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
                     n->geometry.y + w->client_rect.y,
                     w->client_rect.w, w->client_rect.h
                 };
-                draw_dense(o, n, w, dense_mask, &client, density, false);
+                /* Through the shape too: a frame with no titlebar (an
+                 * undecorated xisserve) has the client's contents reaching
+                 * right into the rounded corners. */
+                xcb_render_picture_t client_mask = dense_mask;
+                if (shape_masked) {
+                    picture_transform_set(mask, &m);
+                    client_mask = mask;
+                }
+                draw_dense(o, n, w, client_mask, &client, density, false);
+                if (shape_masked)
+                    picture_transform_reset(mask);
             }
         }
 
