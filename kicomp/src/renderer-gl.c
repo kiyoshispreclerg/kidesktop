@@ -891,6 +891,43 @@ static float lens_of(const CompOutput *o, float *ox, float *oy)
     return k;
 }
 
+/* comp.h's scanout_rotation, RandR's bits: anything but ROTATE_0 alone
+ * (or nothing at all) is a turned scanout. */
+static bool rotated(uint16_t rotation)
+{
+    return rotation && rotation != GL_ROTATE_0;
+}
+
+void gl_rotate_point(uint16_t rotation, float uw, float uh,
+                     float u, float v, float *x, float *y)
+{
+    /* RandR maps the CRTC to the root by rotating, then reflecting; going
+     * back from the upright picture, the reflection comes off first. */
+    if (rotation & GL_REFLECT_X)
+        u = uw - u;
+    if (rotation & GL_REFLECT_Y)
+        v = uh - v;
+
+    switch (rotation & 0xf) {
+    case GL_ROTATE_90:  *x = v;      *y = uw - u; break;
+    case GL_ROTATE_180: *x = uw - u; *y = uh - v; break;
+    case GL_ROTATE_270: *x = uh - v; *y = u;      break;
+    default:            *x = u;      *y = v;      break;
+    }
+}
+
+/* The same mapping on the unit square, as an affine map:
+ * x = r[0] u + r[1] v + r[2], y = r[3] u + r[4] v + r[5]. */
+static void rotation_affine(uint16_t rotation, float r[6])
+{
+    float x0, y0, xu, yu, xv, yv;
+    gl_rotate_point(rotation, 1.0f, 1.0f, 0.0f, 0.0f, &x0, &y0);
+    gl_rotate_point(rotation, 1.0f, 1.0f, 1.0f, 0.0f, &xu, &yu);
+    gl_rotate_point(rotation, 1.0f, 1.0f, 0.0f, 1.0f, &xv, &yv);
+    r[0] = xu - x0; r[1] = xv - x0; r[2] = x0;
+    r[3] = yu - y0; r[4] = yv - y0; r[5] = y0;
+}
+
 static void projection_for(const CompOutput *o, float m[16])
 {
     float w = (float)o->rect.w;
@@ -910,12 +947,25 @@ static void projection_for(const CompOutput *o, float m[16])
      * flip is not wanted. */
     float dir = frame_target && frame_target->y_down ? 1.0f : -1.0f;
 
+    /* Root coordinates to the upright picture, as fractions of it
+     * (origin top-left): nu = au X + bu, nv = av Y + bv. */
+    float au = k / w, bu = (ox - (float)o->rect.x) / w;
+    float av = k / h, bv = (oy - (float)o->rect.y) / h;
+
+    /* Then into the scanout's orientation (identity when upright: a
+     * frame turned for an X-SCALE 1.2 CRTC, never a capture), and onto
+     * clip space: x = 2 nx - 1, y = -dir (1 - 2 ny). */
+    float r[6];
+    rotation_affine(frame_target ? frame_target->rotation : 0, r);
+
     memset(m, 0, sizeof(float) * 16);
-    m[0] = 2.0f * k / w;
-    m[5] = dir * 2.0f * k / h;
+    m[0] = 2.0f * r[0] * au;
+    m[4] = 2.0f * r[1] * av;
+    m[12] = 2.0f * (r[0] * bu + r[1] * bv + r[2]) - 1.0f;
+    m[1] = 2.0f * dir * r[3] * au;
+    m[5] = 2.0f * dir * r[4] * av;
+    m[13] = 2.0f * dir * (r[3] * bu + r[4] * bv + r[5]) - dir;
     m[10] = 1.0f;
-    m[12] = -1.0f + 2.0f * (ox - (float)o->rect.x) / w;
-    m[13] = -dir * (1.0f - 2.0f * (oy - (float)o->rect.y) / h);
     m[15] = 1.0f;
 }
 
@@ -1039,11 +1089,27 @@ static void scissor_for(const CompOutput *o, int x, int y, int w, int h)
     int py = (int)((ly - (float)o->rect.y) * scale);
     int pw = (int)((float)w * k * scale + 0.5f);
     int ph = (int)((float)h * k * scale + 0.5f);
+    int target_h = o->physical.h;
+
+    /* A turned scanout: the box where the CRTC scans those pixels out */
+    if (frame_target && rotated(frame_target->rotation)) {
+        float ax, ay, bx, by;
+        gl_rotate_point(frame_target->rotation, (float)o->physical.w,
+                        (float)o->physical.h, (float)px, (float)py, &ax, &ay);
+        gl_rotate_point(frame_target->rotation, (float)o->physical.w,
+                        (float)o->physical.h, (float)(px + pw), (float)(py + ph),
+                        &bx, &by);
+        px = (int)(ax < bx ? ax : bx);
+        py = (int)(ay < by ? ay : by);
+        pw = (int)(ax < bx ? bx - ax : ax - bx);
+        ph = (int)(ay < by ? by - ay : ay - by);
+        target_h = frame_target->scan_h;
+    }
 
     if (frame_target && frame_target->y_down)
         glScissor(px, py, pw, ph);
     else
-        glScissor(px, o->physical.h - (py + ph), pw, ph);
+        glScissor(px, target_h - (py + ph), pw, ph);
 }
 
 /* Defined below, once the repaint rectangle exists: the same thing as
@@ -1302,7 +1368,10 @@ void gl_begin(CompOutput *o, GlOutput *go, const CompRegion *damage,
 {
     frame_target = go;
     text_gl_upload_pending();
-    glViewport(0, 0, o->physical.w, o->physical.h);
+    if (rotated(go->rotation))
+        glViewport(0, 0, go->scan_w, go->scan_h);
+    else
+        glViewport(0, 0, o->physical.w, o->physical.h);
 
     repaint_region_for(go, damage, age);
     frame_damage_of(o, damage, &go->frame_damage);

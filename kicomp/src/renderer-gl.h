@@ -50,7 +50,29 @@ typedef struct {
      * bottom, GL's convention), and the projection and scissor boxes
      * are built for that unless the platform says otherwise here. */
     bool y_down;
+
+    /* The output's frames go out rotated (X-SCALE 1.2, comp.h's
+     * scanout_rotation): drawn upright as everywhere else, then turned
+     * into the CRTC's scanout orientation, a scan_w x scan_h target. 0
+     * (and a capture's GlOutput, zeroed) draws upright. */
+    uint16_t rotation;
+    int scan_w, scan_h;
 } GlOutput;
+
+/* RandR's rotation and reflection bits (xcb_randr_rotation_t). */
+#define GL_ROTATE_0    1
+#define GL_ROTATE_90   2
+#define GL_ROTATE_180  4
+#define GL_ROTATE_270  8
+#define GL_REFLECT_X  16
+#define GL_REFLECT_Y  32
+
+/* A point of an output's upright physical picture (`uw` x `uh`, origin
+ * top-left) where the CRTC scans it out under `rotation`: the inverse of
+ * RandR's CRTC-to-root mapping (RRTransformCompute(): reflection after
+ * rotation). Shared with the X-SCALE update regions (xscale.c). */
+void gl_rotate_point(uint16_t rotation, float uw, float uh,
+                     float u, float v, float *x, float *y);
 
 /* Per-window state: the texture the platform imports the window into,
  * and the silhouette the drawing clips it through. comp.h's
