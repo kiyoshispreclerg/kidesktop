@@ -30,6 +30,15 @@ kidesktop (${version}) unstable; urgency=medium
  -- Kiyoshi Spreclerg <kiyoshi_pip@protonmail.com>  $(date -R)
 CHANGELOG
 
+# libvte-dev (GTK2 VTE, kiterm only) does not exist on newer releases such as
+# Ubuntu 26.04: drop it from Build-Depends for this build, the suite then
+# builds without kiterm (see Makefile).
+if ! pkg-config --exists vte 2>/dev/null; then
+	cp debian/control debian/control.orig
+	trap 'mv -f debian/control.orig debian/control' EXIT
+	sed -i '/^[[:space:]]*libvte-dev,\?[[:space:]]*$/d' debian/control
+fi
+
 dpkg-buildpackage -b -us -uc
 
 mkdir -p dist
