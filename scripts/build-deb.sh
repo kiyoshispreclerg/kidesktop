@@ -34,8 +34,10 @@ CHANGELOG
 # Ubuntu 26.04: drop it from Build-Depends for this build, the suite then
 # builds without kiterm (see Makefile).
 if ! pkg-config --exists vte 2>/dev/null; then
-	cp debian/control debian/control.orig
-	trap 'mv -f debian/control.orig debian/control' EXIT
+	# Outside debian/: dpkg-source --after-build deletes *.orig there.
+	control_bak=$(mktemp)
+	cp debian/control "$control_bak"
+	trap 'cp "$control_bak" debian/control; rm -f "$control_bak"' EXIT
 	sed -i '/^[[:space:]]*libvte-dev,\?[[:space:]]*$/d' debian/control
 fi
 
