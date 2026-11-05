@@ -144,6 +144,52 @@ static gint unsorted_cb(GtkTreeModel *m, GtkTreeIter *a, GtkTreeIter *b, gpointe
     return 0;
 }
 
+/* Pixbuf drawn at half opacity, cached on the original so it dies with it. */
+static GdkPixbuf *faded(GdkPixbuf *pb)
+{
+    GdkPixbuf *f = g_object_get_data(G_OBJECT(pb), "kf-faded");
+    if (f)
+        return f;
+    f = gdk_pixbuf_get_has_alpha(pb) ? gdk_pixbuf_copy(pb) : gdk_pixbuf_add_alpha(pb, FALSE, 0, 0, 0);
+    int w = gdk_pixbuf_get_width(f), h = gdk_pixbuf_get_height(f), rs = gdk_pixbuf_get_rowstride(f);
+    guchar *px = gdk_pixbuf_get_pixels(f);
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++)
+            px[y * rs + x * 4 + 3] /= 2;
+    g_object_set_data_full(G_OBJECT(pb), "kf-faded", f, g_object_unref);
+    return f;
+}
+
+/* Icon cell: files waiting on a "cut" show the icon faded. */
+static void icon_cell_set(KfPane *p, GtkCellRenderer *r, GtkTreeModel *m, GtkTreeIter *it)
+{
+    GdkPixbuf *pb = NULL;
+    GFile *f = NULL;
+    gtk_tree_model_get(m, it, KF_COL_ICON, &pb, KF_COL_FILE, &f, -1);
+    if (pb && f && p->app->cut_uris && kf_clip_is_cut(p->app, f)) {
+        GdkPixbuf *fd = faded(pb);
+        g_object_unref(pb);
+        pb = g_object_ref(fd);
+    }
+    g_object_set(r, "pixbuf", pb, NULL);
+    if (pb)
+        g_object_unref(pb);
+    if (f)
+        g_object_unref(f);
+}
+
+static void icon_cell(GtkCellLayout *layout, GtkCellRenderer *r, GtkTreeModel *m, GtkTreeIter *it, gpointer data)
+{
+    (void)layout;
+    icon_cell_set(data, r, m, it);
+}
+
+static void icon_cell_col(GtkTreeViewColumn *col, GtkCellRenderer *r, GtkTreeModel *m, GtkTreeIter *it, gpointer data)
+{
+    (void)col;
+    icon_cell_set(data, r, m, it);
+}
+
 static gboolean visible_cb(GtkTreeModel *m, GtkTreeIter *it, gpointer data)
 {
     KfPane *p = data;
@@ -1407,7 +1453,7 @@ KfPane *kf_pane_new(KfApp *app)
     p->icon_pix_r = gtk_cell_renderer_pixbuf_new();
     g_object_set(p->icon_pix_r, "xalign", 0.5, "yalign", 0.5, NULL);
     gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(iv), p->icon_pix_r, FALSE);
-    gtk_cell_layout_add_attribute(GTK_CELL_LAYOUT(iv), p->icon_pix_r, "pixbuf", KF_COL_ICON);
+    gtk_cell_layout_set_cell_data_func(GTK_CELL_LAYOUT(iv), p->icon_pix_r, icon_cell, p, NULL);
     p->icon_text_r = gtk_cell_renderer_text_new();
     /* Centered by Pango inside the fixed wrap width; xalign 0.5 on top of that
      * would shift it by the same amount again. */
@@ -1436,7 +1482,7 @@ KfPane *kf_pane_new(KfApp *app)
     gtk_tree_view_column_set_title(ncol, _("Name"));
     p->list_pix_r = gtk_cell_renderer_pixbuf_new();
     gtk_tree_view_column_pack_start(ncol, p->list_pix_r, FALSE);
-    gtk_tree_view_column_add_attribute(ncol, p->list_pix_r, "pixbuf", KF_COL_ICON);
+    gtk_tree_view_column_set_cell_data_func(ncol, p->list_pix_r, icon_cell_col, p, NULL);
     GtkCellRenderer *tr = gtk_cell_renderer_text_new();
     g_object_set(tr, "ellipsize", PANGO_ELLIPSIZE_END, NULL);
     gtk_tree_view_column_pack_start(ncol, tr, TRUE);

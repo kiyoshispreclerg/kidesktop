@@ -8,6 +8,7 @@
 enum { T_GNOME, T_URIS, T_TEXT, T_KDECUT };
 
 typedef struct {
+    KfApp *app;
     GStrv uris;
     gboolean cut;
 } ClipData;
@@ -50,10 +51,39 @@ static void clip_get(GtkClipboard *cb, GtkSelectionData *sel, guint info, gpoint
     g_string_free(out, TRUE);
 }
 
+static void cut_redraw(KfApp *app)
+{
+    GList *tabs = kf_tabs_all(app);
+    for (GList *t = tabs; t; t = t->next)
+        for (int i = 0; i < 2; i++) {
+            KfPane *p = ((KfTab *)t->data)->panes[i];
+            if (p) {
+                gtk_widget_queue_draw(p->iconview);
+                gtk_widget_queue_draw(p->treeview);
+            }
+        }
+    g_list_free(tabs);
+}
+
+gboolean kf_clip_is_cut(KfApp *app, GFile *f)
+{
+    if (!app->cut_uris)
+        return FALSE;
+    char *uri = g_file_get_uri(f);
+    gboolean r = g_hash_table_contains(app->cut_uris, uri);
+    g_free(uri);
+    return r;
+}
+
 static void clip_clear(GtkClipboard *cb, gpointer data)
 {
     (void)cb;
     ClipData *d = data;
+    if (d->cut && d->app->cut_uris) {
+        g_hash_table_destroy(d->app->cut_uris);
+        d->app->cut_uris = NULL;
+        cut_redraw(d->app);
+    }
     g_strfreev(d->uris);
     g_free(d);
 }
@@ -63,6 +93,7 @@ void kf_clip_set(KfApp *app, GList *files, gboolean cut)
     if (!files)
         return;
     ClipData *d = g_new0(ClipData, 1);
+    d->app = app;
     d->cut = cut;
     d->uris = g_new0(char *, g_list_length(files) + 1);
     int i = 0;
@@ -75,8 +106,17 @@ void kf_clip_set(KfApp *app, GList *files, gboolean cut)
         { (gchar *)"application/x-kde-cutselection", 0, T_KDECUT },
     };
     GtkClipboard *cb = gtk_widget_get_clipboard(app->win, GDK_SELECTION_CLIPBOARD);
-    if (!gtk_clipboard_set_with_data(cb, targets, G_N_ELEMENTS(targets), clip_get, clip_clear, d))
+    if (!gtk_clipboard_set_with_data(cb, targets, G_N_ELEMENTS(targets), clip_get, clip_clear, d)) {
         clip_clear(cb, d);
+        return;
+    }
+    /* After the set: replacing an older cut clears that one's set first. */
+    if (cut) {
+        app->cut_uris = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+        for (char **u = d->uris; *u; u++)
+            g_hash_table_add(app->cut_uris, g_strdup(*u));
+        cut_redraw(app);
+    }
 }
 
 typedef struct {

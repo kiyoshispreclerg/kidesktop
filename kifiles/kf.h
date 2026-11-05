@@ -7,7 +7,7 @@
 #include <gio/gio.h>
 #include "../shared/xis_sound.h"
 
-#define KIFILES_VERSION "0.1.27"
+#define KIFILES_VERSION "0.1.28"
 
 typedef enum { KF_VIEW_ICONS, KF_VIEW_LIST } KfViewMode;
 typedef enum { KF_SORT_NAME, KF_SORT_SIZE, KF_SORT_MTIME, KF_SORT_TYPE, KF_SORT_EXT, KF_SORT_N } KfSortKey;
@@ -128,6 +128,7 @@ struct KfApp {
     GList *jobs;                /* running operations (kf_ops.c) */
     gboolean quitting;          /* window closed, waiting for the jobs to finish */
     gboolean updating_ui;       /* suppress action callbacks while syncing */
+    GHashTable *cut_uris;       /* URIs on our clipboard waiting to be moved (kf_clip.c), NULL if none */
 };
 
 /* kf_config.c */
@@ -201,6 +202,7 @@ GdkDragAction kf_dnd_default_action(KfApp *app, GFile *dest, GdkDragContext *ctx
 /* kf_clip.c */
 void kf_clip_set(KfApp *app, GList *files, gboolean cut);
 void kf_clip_paste(KfApp *app, GFile *dest_dir);
+gboolean kf_clip_is_cut(KfApp *app, GFile *f);   /* waiting to be moved: shown faded */
 
 /* kf_ops.c -- every operation reports problems itself (dialogs). */
 void kf_ops_transfer(KfApp *app, GList *srcs, GFile *dest_dir, gboolean move);   /* copy or move */
