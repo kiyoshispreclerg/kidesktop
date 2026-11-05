@@ -102,6 +102,12 @@ GdkPixbuf *xisserve_resolve_icon(const char *spec, int size);
 void xisserve_get_fg_rgba(double *r, double *g, double *b, double *a);
 void xisserve_get_bg_rgba(double *r, double *g, double *b, double *a);
 
+/* Themes a GtkCheckButton for the launcher's colors: its label follows
+ * --fg in every state (modify_fg on the button alone leaves the child
+ * label in the GTK theme's black) and the indicator box is blended from
+ * fg over bg, stronger while checked, so on/off reads at a glance. */
+void xisserve_style_check(GtkWidget *check);
+
 /* One integer setting from xisserve.conf, whose lines are all
  * "<SECTION>\t<key>\t<value>" (the same tab-delimited shape the PLUGIN
  * lines already use, and that xisback.conf uses for its own). Returns

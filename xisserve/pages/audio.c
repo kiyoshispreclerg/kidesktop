@@ -502,13 +502,11 @@ static GtkWidget *build_row(const PulseEntry *e, GPtrArray *all_entries)
     if (e->kind == PULSE_SINK || e->kind == PULSE_SOURCE) {
         GtkWidget *bottom = gtk_hbox_new(FALSE, 8);
         row->use_default = gtk_check_button_new_with_label(_("Padrão"));
-        style_fg(row->use_default);
-        style_fg(gtk_bin_get_child(GTK_BIN(row->use_default)));
+        xisserve_style_check(row->use_default);
         gtk_box_pack_start(GTK_BOX(bottom), row->use_default, FALSE, FALSE, 0);
 
         row->active = gtk_check_button_new_with_label(_("Ativo"));
-        style_fg(row->active);
-        style_fg(gtk_bin_get_child(GTK_BIN(row->active)));
+        xisserve_style_check(row->active);
         gtk_box_pack_start(GTK_BOX(bottom), row->active, FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(box), bottom, FALSE, FALSE, 0);
     }
@@ -861,12 +859,12 @@ GtkWidget *page_audio_build(void)
     gtk_notebook_append_page(GTK_NOTEBOOK(nb), build_tab(g_devs_box), gtk_label_new(_("Dispositivos")));
 
     GtkWidget *boost = gtk_check_button_new_with_label(_("Permitir volume acima de 100%"));
-    style_fg(boost);
+    xisserve_style_check(boost);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(boost), g_boost);
     g_signal_connect(boost, "toggled", G_CALLBACK(on_boost_toggled), NULL);
 
     GtkWidget *move = gtk_check_button_new_with_label(_("Mover tudo para novos dispositivos ao conectar"));
-    style_fg(move);
+    xisserve_style_check(move);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(move), state_get_int("audio_move_on_connect", 0) != 0);
     g_signal_connect(move, "toggled", G_CALLBACK(on_move_on_connect_toggled), NULL);
 

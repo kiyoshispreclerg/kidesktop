@@ -59,7 +59,7 @@
 #include "../shared/xis_direction.h"
 #include "../shared/xis_safefile.h"
 
-#define XISSERVE_VERSION "0.2.19"
+#define XISSERVE_VERSION "0.2.20"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -829,6 +829,31 @@ void xisserve_get_fg_rgba(double *r, double *g, double *b, double *a)
 void xisserve_get_bg_rgba(double *r, double *g, double *b, double *a)
 {
     hex_to_rgba(g_args.bg, r, g, b, a);
+}
+
+void xisserve_style_check(GtkWidget *check)
+{
+    double fr, fg, fb, fa, br, bg, bb, ba;
+    hex_to_rgba(g_args.fg, &fr, &fg, &fb, &fa);
+    hex_to_rgba(g_args.bg, &br, &bg, &bb, &ba);
+    GdkColor text = {0, (guint16)(fr * 65535), (guint16)(fg * 65535), (guint16)(fb * 65535)};
+    /* GTK2 draws a checked box in ACTIVE (or PRELIGHT under the pointer),
+     * so every state is set, not just NORMAL. */
+    static const struct { GtkStateType st; double mix; } box[] = {
+        {GTK_STATE_NORMAL, 0.12}, {GTK_STATE_ACTIVE, 0.45}, {GTK_STATE_PRELIGHT, 0.25}, {GTK_STATE_SELECTED, 0.45},
+    };
+    GtkWidget *label = gtk_bin_get_child(GTK_BIN(check));
+    for (size_t i = 0; i < sizeof(box) / sizeof(box[0]); i++) {
+        double m = box[i].mix;
+        GdkColor base = {0, (guint16)((fr * m + br * (1 - m)) * 65535), (guint16)((fg * m + bg * (1 - m)) * 65535),
+                         (guint16)((fb * m + bb * (1 - m)) * 65535)};
+        gtk_widget_modify_base(check, box[i].st, &base);
+        gtk_widget_modify_fg(check, box[i].st, &text);
+        gtk_widget_modify_text(check, box[i].st, &text);
+        if (label) {
+            gtk_widget_modify_fg(label, box[i].st, &text);
+        }
+    }
 }
 
 /* The only correct way to free a ResultEntry -- see xisserve.h. */

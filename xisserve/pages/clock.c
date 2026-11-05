@@ -273,6 +273,7 @@ static void rebuild_alarm_rows(void)
         XisAlarm *a = &g_clk.alarms[i];
         GtkWidget *row = gtk_hbox_new(FALSE, 6);
         GtkWidget *check = gtk_check_button_new();
+        xisserve_style_check(check);
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(check), a->enabled && (a->days || a->once_at > now || a->snooze_until > now));
         xisserve_a11y(check, _("Ativado"), NULL);
         g_signal_connect(check, "toggled", G_CALLBACK(on_alarm_toggled), GINT_TO_POINTER(a->id));

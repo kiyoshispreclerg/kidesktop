@@ -9,6 +9,7 @@
     xisserve_resolve_icon;
     xisserve_get_fg_rgba;
     xisserve_get_bg_rgba;
+    xisserve_style_check;
     xisserve_config_get_int;
     xisserve_target_window;
     xisserve_target_filter;

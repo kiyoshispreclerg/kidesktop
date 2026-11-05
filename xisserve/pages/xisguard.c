@@ -489,6 +489,7 @@ static void rebuild(void)
     g_free(status);
     add_label(enabled ? _("Prote\xc3\xa7\xc3\xa3o ativa") : _("<b>Prote\xc3\xa7\xc3\xa3o DESLIGADA</b>"), 0.9, FALSE);
     GtkWidget *perm = gtk_check_button_new_with_label(_("Modo permissivo (libera tudo, mas continua registrando)"));
+    xisserve_style_check(perm);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(perm), permissive);
     g_signal_connect(perm, "toggled", G_CALLBACK(on_permissive_toggled), NULL);
     gtk_box_pack_start(GTK_BOX(g_box), perm, FALSE, FALSE, 2);

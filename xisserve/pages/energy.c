@@ -417,8 +417,7 @@ static void add_nightlight_section(void)
     nightlight_config_load(&c);
 
     g_nightlight_chk = gtk_check_button_new_with_label(_("Automatica (horarios definidos em kiconf > Energia)"));
-    style_fg(g_nightlight_chk);
-    style_fg(gtk_bin_get_child(GTK_BIN(g_nightlight_chk)));
+    xisserve_style_check(g_nightlight_chk);
     gtk_box_pack_start(GTK_BOX(g_box), g_nightlight_chk, FALSE, FALSE, 0);
 
     g_nightlight_scale = gtk_hscale_new_with_range(NIGHTLIGHT_TEMP_MIN, NIGHTLIGHT_TEMP_MAX, 100);
