@@ -706,8 +706,7 @@ exactly the bug of geometry sliding a window that was being rolled up).
 For window managers that don't do this, kicomp still makes a round trip
 before classifying, which is the best that can be done from outside.
 
-It is also the heuristic a future kiwm⟷kicomp IPC would replace: the WM
-knows first-hand what it did.
+Beyond that, the order of events is all kicomp has to go on.
 
 ## Effects
 
@@ -890,10 +889,9 @@ teleporting.
 
 It does **not** animate drags: a move/resize with the mouse arrives as a
 stream of configures, and animating those would leave the window visibly
-behind the pointer. Without a kiwm⟷kicomp IPC to say a drag is in
-progress, the stream itself is the signal — `window.c` times the gap
-between configures and marks the sequence as interactive. That is the
-heuristic such an IPC would replace.
+behind the pointer. Nothing announces that a drag is in
+progress, so the stream itself is the signal — `window.c` times the gap
+between configures and marks the sequence as interactive.
 
 While a window is being *scaled* the shape clip steps aside: the region is
 in untransformed coordinates and XFixes can't scale one, so rounded
@@ -2280,17 +2278,19 @@ arriving. Deriving it from those is a change to `scheduler.c` alone.
   what is behind a translucent window. The cube, the magic lamp and
   wobbly are in, all three GL-only for the same reason: XRender cannot
   express what they draw (see above).
-- **MSC/UST-derived frame-clock period** — the Present presenter reports
-  MSC and UST per completed frame and the loop is throttled by them, but
-  the frame clock's period still comes from RandR's reported rate rather
-  than from measured UST intervals.
-- **The XiS FLIP presenter** — `CompPresentMode` and
-  `CompPresenter::get_msc` already exist for it; `caps.flip_per_crtc` is
-  declared `false` on purpose, so no code path can believe in it before
-  the fork actually offers it.
-- **`kiwm` ⟷ `kicomp` IPC** — not there yet. When it exists it replaces
-  only the *source* of the updates (the heuristics noted above); the
-  mirror in `window.c` stays as it is.
+
+## Not planned
+
+- **A `kiwm` ⟷ `kicomp` IPC.** The two talk through X like any other
+  window manager and compositor; the X-event classification in
+  `window.c` is the design, not a stopgap.
+- **A frame-clock period measured from UST.** The Present presenter
+  already throttles the loop by the MSC/UST of each completed frame; the
+  period itself comes from RandR's reported rate, which is enough.
+- **The XiS FLIP presenter.** It depends on the fork offering it.
+  `CompPresentMode` and `CompPresenter::get_msc` are ready for it, and
+  `caps.flip_per_crtc` stays `false` so no code path can believe in it
+  before then.
 
 ## Shape and kiwm's layers
 

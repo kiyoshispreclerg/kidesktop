@@ -23,17 +23,15 @@
  *     frame clock driving it. Durations are time, never frames, and
  *     every one of them is a multiple of a single number in kicomp.conf.
  *
- * Remaining gaps: blur, an MSC/UST-derived frame-clock period, the XiS
- * FLIP presenter, and a kiwm<->kicomp IPC to replace the X-event
- * heuristics that currently classify what happened to a window (see
- * README.md's "Known gaps"). This version learns everything from plain
- * X events, so kiwm needs no changes at all to be composited, and
- * killing kicomp returns the session to the uncomposited path.
+ * The one effect still missing is blur (see README.md's "Known gaps").
+ * This version learns everything from plain X events, so kiwm needs no
+ * changes at all to be composited, and killing kicomp returns the
+ * session to the uncomposited path.
  */
 
 #define _GNU_SOURCE             /* ppoll */
 
-#define KICOMP_VERSION "0.3.84"
+#define KICOMP_VERSION "0.4.0"
 
 #include "../../shared/xis_i18n.h"
 

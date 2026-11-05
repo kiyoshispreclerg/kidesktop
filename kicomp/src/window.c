@@ -1,10 +1,8 @@
 /* The compositor's mirror of root's children, in stacking order.
  *
  * kicomp learns everything from plain X events (SubstructureNotify on the
- * root window) -- no WM-specific protocol at all yet, which is what
- * kiwm-kicomp-projeto.md section 14 asks for in the first version. The
- * IPC of section 32 replaces only the *source* of these updates later;
- * the mirror itself stays exactly as it is here.
+ * root window) -- no WM-specific protocol at all, so any WM can be
+ * composited.
  */
 #include "window.h"
 #include "hotcorner.h"
@@ -1731,9 +1729,8 @@ void window_configure(xcb_window_t id, int x, int y, int w_, int h_, int border,
         output_damage_window_rect(w, &now);
 
         if (moved || resized) {
-            /* Is this one jump, or one step of a drag? Without the
-             * WM-to-compositor IPC of section 32 the timing is the only
-             * evidence there is -- and a single fast pair still counts as
+            /* Is this one jump, or one step of a drag? Nothing
+             * tells us, so the timing is the only evidence there is -- and a single fast pair still counts as
              * a jump, because a WM commonly reconfigures twice in a row
              * when adopting a new state. */
             double t = comp_now_ms();
