@@ -2004,9 +2004,10 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
                                       n->geometry.y + w->client_rect.y + 1,
                                       w->client_rect.w - 2,
                                       w->client_rect.h - 2 };
-        /* Only an opaque layer: what a translucent one shows through has
-         * always been the window drawn at logical size. */
-        bool client_covers = client_hole.w > 0 && w->density_depth != 32;
+        /* Translucent layers too: blended over the window's own pixels
+         * they would stack their alpha on a second, frozen copy of the
+         * same contents (renderer-gl.c's draw_node says more). */
+        bool client_covers = client_hole.w > 0;
 
         /* The decoration's dense pixmap is just as much a hole over a
          * client that publishes nothing dense: there, an opaque client's

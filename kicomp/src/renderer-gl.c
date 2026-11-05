@@ -2222,6 +2222,28 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
 }
 
+/* Where the client's own pixels sit in this node, in root coordinates.
+ * client_rect is in the window's own pixels; an effect may hand the node
+ * a geometry that is not that size (cover switch gives it the cover's
+ * rectangle, and the contents are stretched over it), so it goes through
+ * the same stretch. For a node that is the window's own size this is
+ * geometry + client_rect, as before. */
+static CompRect dense_client_area(const CompSceneNode *n, const CompWindow *w)
+{
+    CompRect c = { n->geometry.x + w->client_rect.x, n->geometry.y + w->client_rect.y,
+                   w->client_rect.w, w->client_rect.h };
+    CompRect wr = window_rect(w);
+    if (wr.w > 0 && wr.h > 0 && (n->geometry.w != wr.w || n->geometry.h != wr.h)) {
+        float fx = (float)n->geometry.w / (float)wr.w;
+        float fy = (float)n->geometry.h / (float)wr.h;
+        c.x = n->geometry.x + (int)lroundf((float)w->client_rect.x * fx);
+        c.y = n->geometry.y + (int)lroundf((float)w->client_rect.y * fy);
+        c.w = (int)lroundf((float)w->client_rect.w * fx);
+        c.h = (int)lroundf((float)w->client_rect.h * fy);
+    }
+    return c;
+}
+
 /* One node, inside repaint_rect -- which by the time this runs is one
  * piece of the node's own clip (scene.h) ∩ one damaged rectangle, so
  * every scissor box below is already inside both. */
@@ -2296,12 +2318,17 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * while the window sits still: the hole is cut in the quad's own
      * coordinates, but drawn through pieces of the screen. */
     CompRect client_hole = { 0, 0, 0, 0 };
-    if (dense_client && comp_transform_is_identity(&n->transform) &&
-        w->client_rect.w > 2 && w->client_rect.h > 2 &&
-        n->geometry.w > 0 && n->geometry.h > 0)
-        client_hole = (CompRect){ n->geometry.x + w->client_rect.x + 1,
-                                  n->geometry.y + w->client_rect.y + 1,
-                                  w->client_rect.w - 2, w->client_rect.h - 2 };
+    if (dense_client && w->client_rect.w > 2 && w->client_rect.h > 2 &&
+        n->geometry.w > 0 && n->geometry.h > 0) {
+        CompRect ca = dense_client_area(n, w);
+        /* A translucent layer gets the exact rectangle instead: the ring
+         * would show both copies stacked, a darker outline. The hole is a
+         * per-pixel test against the same edges the layer's own quad is
+         * rasterized to, so the two meet without a seam. */
+        client_hole = dense_client->argb
+                          ? ca
+                          : (CompRect){ ca.x + 1, ca.y + 1, ca.w - 2, ca.h - 2 };
+    }
 
     /* The decoration's dense pixmap is just as much a hole over a client
      * that publishes nothing dense, so its draw skips the client's
@@ -2309,14 +2336,18 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * up to date by the client's own ConfigureNotify) when there is no
      * client layer to say where it is. */
     CompRect deco_hole = client_hole;
-    if (dense_deco && deco_hole.w <= 0 &&
-        comp_transform_is_identity(&n->transform)) {
+    if (dense_deco && deco_hole.w <= 0) {
         CompRect op = window_opaque_rect(w);
         CompRect wr = window_rect(w);
-        if (op.w > 2 && op.h > 2)
-            deco_hole = (CompRect){ n->geometry.x + op.x - wr.x + 1,
-                                    n->geometry.y + op.y - wr.y + 1,
-                                    op.w - 2, op.h - 2 };
+        if (op.w > 2 && op.h > 2 && wr.w > 0 && wr.h > 0) {
+            float fx = (float)n->geometry.w / (float)wr.w;
+            float fy = (float)n->geometry.h / (float)wr.h;
+            deco_hole = (CompRect){
+                n->geometry.x + (int)lroundf((float)(op.x - wr.x) * fx) + 1,
+                n->geometry.y + (int)lroundf((float)(op.y - wr.y) * fy) + 1,
+                (int)lroundf((float)op.w * fx) - 2,
+                (int)lroundf((float)op.h * fy) - 2 };
+        }
     }
 
     if (flat) {
@@ -2393,10 +2424,13 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         glUniform1f(u_use_mask, 0.0f);
     }
 
-    /* Under an opaque client layer the window's own pixels are never
-     * seen. A translucent one keeps them underneath, as before: what it
-     * shows through has always been the window drawn at logical size. */
-    bool client_covers = client_hole.w > 0 && !dense_client->argb;
+    /* Under a client layer the window's own pixels are never wanted:
+     * an opaque layer hides them, and a translucent one (an ARGB client,
+     * kiterm) blended over them would stack its alpha on a second copy
+     * of the same contents -- the window comes out nearly opaque, and
+     * the copy underneath is the frozen 1x one besides. What should show
+     * through is whatever is behind the window. */
+    bool client_covers = client_hole.w > 0;
     set_hole(&n->geometry, client_covers ? &client_hole : NULL);
 
     if (mask) {
@@ -2477,31 +2511,13 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     }
     set_hole(&n->geometry, NULL);
     if (dense_client) {
-        CompRect client = {
-            n->geometry.x + w->client_rect.x,
-            n->geometry.y + w->client_rect.y,
-            w->client_rect.w, w->client_rect.h
-        };
-        /* An effect may hand the node a geometry that is not the window's
-         * own size (cover switch gives it the cover's rectangle, and the
-         * transform turns that in place), the contents then being
-         * stretched over it. client_rect is in the window's own pixels,
-         * so it goes through the same stretch. */
-        CompRect wr = window_rect(w);
-        if (wr.w > 0 && wr.h > 0 &&
-            (n->geometry.w != wr.w || n->geometry.h != wr.h)) {
-            float fx = (float)n->geometry.w / (float)wr.w;
-            float fy = (float)n->geometry.h / (float)wr.h;
-            client.x = n->geometry.x + (int)lroundf((float)w->client_rect.x * fx);
-            client.y = n->geometry.y + (int)lroundf((float)w->client_rect.y * fy);
-            client.w = (int)lroundf((float)w->client_rect.w * fx);
-            client.h = (int)lroundf((float)w->client_rect.h * fy);
-        }
+        CompRect client = dense_client_area(n, w);
         /* A frame with no titlebar (an undecorated xisserve) has the
          * client reaching right into the rounded corners, so the layer
          * wears the frame's corners there, as the decoration's does. */
         CompRect in_frame = { w->client_rect.x, w->client_rect.y,
                               w->client_rect.w, w->client_rect.h };
+        CompRect wr = window_rect(w);
         bool round = client_reaches_corners(w, &in_frame, wr.w > 0 ? wr.w : n->geometry.w,
                                             wr.h > 0 ? wr.h : n->geometry.h);
         CornerRadii radii = { w->corner_tl, w->corner_tr,
