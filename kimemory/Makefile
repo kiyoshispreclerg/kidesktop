@@ -10,10 +10,10 @@ all: kimemoryd kimemory
 
 # shared/xis_winident.c: window/app/document identity, shared with
 # kistoryd -- compiled directly in, same as the other shared/ sources.
-SHARED_SRC := ../shared/xis_winident.c
+SHARED_SRC := ../shared/xis_winident.c ../shared/xis_sound.c
 DAEMON_SRC := kimemoryd.c km_clip.c km_store.c km_ctl.c
 
-kimemoryd: $(DAEMON_SRC) km_clip.h km_store.h km_ctl.h km_json.h $(SHARED_SRC) ../shared/xis_winident.h
+kimemoryd: $(DAEMON_SRC) km_clip.h km_store.h km_ctl.h km_json.h $(SHARED_SRC) ../shared/xis_winident.h ../shared/xis_sound.h
 	$(CC) $(CFLAGS) -o $@ $(DAEMON_SRC) $(SHARED_SRC) $(LIBS)
 
 # The CLI only talks to kimemoryd's socket: no X libraries.

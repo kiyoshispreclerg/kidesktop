@@ -46,6 +46,9 @@ static const struct { const char *id, *label; } EVENTS[] = {
     { "file-trash",              N_("Mover arquivos para a lixeira") },
     { "complete",                N_("Operacao concluida / programa terminou no terminal") },
     { "dialog-error",            N_("Erro numa operacao de arquivos") },
+    { "clipboard-copy",          N_("Copiar para a area de transferencia") },
+    { "clipboard-cut",           N_("Recortar para a area de transferencia") },
+    { "clipboard-paste",         N_("Colar da area de transferencia") },
     { "device-removed",          N_("Dispositivo removido com seguranca") },
 };
 #define N_EVENTS ((int)(sizeof(EVENTS) / sizeof(EVENTS[0])))

@@ -1,5 +1,6 @@
 /* km_clip - see km_clip.h. */
 #include "km_clip.h"
+#include "../shared/xis_sound.h"
 #include "km_store.h"
 #include "../shared/xis_winident.h"
 
@@ -170,6 +171,19 @@ static void fetch_next(void);
 
 static void take_ownership(void);
 
+/* Files copied vs cut: the only place a cut is visible to anyone but the
+ * source is the file-manager targets (plain text has no such marker). */
+static int item_is_cut(KmItem *it)
+{
+    KmRep *r = km_item_find_rep(it, "x-special/gnome-copied-files");
+    const unsigned char *d = r ? km_rep_data(it, r) : NULL;
+    if (d && r->len >= 3 && !strncmp((const char *)d, "cut", 3))
+        return 1;
+    r = km_item_find_rep(it, "application/x-kde-cutselection");
+    d = r ? km_rep_data(it, r) : NULL;
+    return d && r->len >= 1 && d[0] == '1';
+}
+
 static void cap_finish(void)
 {
     KmItem *it = cap.item;
@@ -182,6 +196,7 @@ static void cap_finish(void)
     }
 
     const char *app = cap.src.wm_class[0] ? cap.src.wm_class : exe_base(cap.src.exe);
+    xis_sound_play(item_is_cut(it) ? "clipboard-cut" : "clipboard-copy");
     KmItem *old = km_store_find_hash(it->hash);
     if (old) {
         km_item_adopt_reps(old, it);
@@ -607,6 +622,7 @@ static void record_paste(Window requestor)
     KmItem *it = km_store_get(current_id);
     if (!it)
         return;
+    xis_sound_play("clipboard-paste");
     Window top = xis_winident_toplevel_for(dpy, requestor);
     if (top == None)
         top = xis_winident_active(dpy);

@@ -3463,6 +3463,18 @@ msgstr ""
 msgid "Dispositivo removido com seguranca"
 msgstr ""
 
+#: tabs/sounds.c
+msgid "Copiar para a area de transferencia"
+msgstr ""
+
+#: tabs/sounds.c
+msgid "Recortar para a area de transferencia"
+msgstr ""
+
+#: tabs/sounds.c
+msgid "Colar da area de transferencia"
+msgstr ""
+
 #: tabs/sounds.c:139
 msgid "Silencioso"
 msgstr ""

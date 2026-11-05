@@ -28,7 +28,10 @@
  * what pkexec shows -- appears).
  * kifiles emits folder-open, folder-back, folder-forward, folder-up,
  * file-trash, trash-empty, complete (a long copy/move finished),
- * dialog-error and device-removed (safe to unplug); kiterm emits bell and
+ * dialog-error and device-removed (safe to unplug); kimemoryd emits
+ * clipboard-copy, clipboard-cut (files cut in a file manager -- plain text
+ * cannot be told from a copy) and clipboard-paste (only for copies it
+ * serves itself) once the content actually changed hands; kiterm emits bell and
  * complete (a program finished in a tab or window nobody was watching).
  *
  * Where an event's file comes from, first match wins:
