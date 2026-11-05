@@ -2002,10 +2002,10 @@ void handle_message(const char *msg) {
     char args[1024] = {0};
     char command[64] = "?";
 
-    char *p = strstr(msg, "\"command\":\"");
+    const char *p = strstr(msg, "\"command\":\"");
     if (p) {
         p += 11;
-        char *end = strchr(p, '"');
+        const char *end = strchr(p, '"');
         if (end) {
             size_t len = (size_t)(end - p);
             if (len >= sizeof(command)) len = sizeof(command) - 1;
@@ -2050,7 +2050,7 @@ void handle_message(const char *msg) {
     p = strstr(msg, "\"exe\":\"");
     if (p) {
         p += 7;
-        char *end = strchr(p, '"');
+        const char *end = strchr(p, '"');
         if (end) {
             size_t len = (size_t)(end - p);
             if (len >= sizeof(exe)) len = sizeof(exe) - 1;
@@ -2062,7 +2062,7 @@ void handle_message(const char *msg) {
     p = strstr(msg, "\"args\":\"");
     if (p) {
         p += 8;
-        char *end = strchr(p, '"');
+        const char *end = strchr(p, '"');
         if (end) {
             size_t len = (size_t)(end - p);
             if (len >= sizeof(args)) len = sizeof(args) - 1;
