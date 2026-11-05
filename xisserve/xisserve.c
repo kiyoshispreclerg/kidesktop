@@ -30,6 +30,7 @@
 #include <X11/extensions/Xrandr.h>
 
 #include "xisserve.h"
+#include "../shared/xis_launchfx_gtk.h"
 #include "pages/pulse.h"
 
 #include "../shared/xis_spawn.h"
@@ -59,7 +60,7 @@
 #include "../shared/xis_direction.h"
 #include "../shared/xis_safefile.h"
 
-#define XISSERVE_VERSION "0.2.20"
+#define XISSERVE_VERSION "0.2.21"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -1923,11 +1924,43 @@ GPtrArray *xisserve_scan_apps(void)
 
 static void hide_launcher(void); /* defined below, alongside the pointer/keyboard grab it releases */
 
+/* Zoom+fade over the icon of the entry being launched (compositor only).
+ * The list view knows the row's cell; GTK2's icon view doesn't expose an
+ * item's rectangle, so the grid zooms from where the pointer is -- no
+ * feedback if it isn't over the grid (keyboard use). */
+static void launch_feedback(GtkTreeModel *model, GtkTreeIter *iter)
+{
+    GdkPixbuf *icon = NULL;
+    gtk_tree_model_get(model, iter, VCOL_ICON, &icon, -1);
+    if (!icon)
+        return;
+    int iw = gdk_pixbuf_get_width(icon), ih = gdk_pixbuf_get_height(icon);
+    if (g_grid_mode) {
+        int px, py;
+        GtkWidget *iv = g_iconview;
+        gtk_widget_get_pointer(iv, &px, &py);
+        if (px >= 0 && py >= 0 && px < iv->allocation.width && py < iv->allocation.height)
+            xis_launchfx_gtk_play(iv->window, px - iw / 2, py - ih / 2, iw, ih, icon, 2.0, 400);
+    } else {
+        GtkTreeView *tv = GTK_TREE_VIEW(g_treeview);
+        GtkTreePath *path = gtk_tree_model_get_path(model, iter);
+        GdkRectangle cell, vis;
+        gtk_tree_view_get_cell_area(tv, path, gtk_tree_view_get_column(tv, 0), &cell);
+        gtk_tree_view_get_visible_rect(tv, &vis);
+        if (cell.y >= 0 && cell.y + cell.height <= vis.height)   /* row scrolled into view */
+            xis_launchfx_gtk_play(gtk_tree_view_get_bin_window(tv), cell.x, cell.y, iw, cell.height, icon, 2.0, 400);
+        gtk_tree_path_free(path);
+    }
+    g_object_unref(icon);
+}
+
 static void launch_iter(GtkTreeModel *model, GtkTreeIter *iter)
 {
     ResultEntry *e = NULL;
     gtk_tree_model_get(model, iter, VCOL_ENTRY, &e, -1);
     if (e) {
+        if (!e->activate_fn && e->exec[0])
+            launch_feedback(model, iter);
         if (e->activate_fn) e->activate_fn(e);
         else if (e->exec[0]) run_detached(e->exec);
     }
