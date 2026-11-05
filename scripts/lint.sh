@@ -55,6 +55,7 @@ if have cppcheck; then
 		--suppress=arrayIndexOutOfBoundsCond --suppress=normalCheckLevelMaxBranches \
 		--suppress='unknownMacro:*/a11y.c' \
 		-DQ_SLOTS= -DQ_SIGNALS=public -DQ_OBJECT= \
+		'-DQT_VERSION_CHECK(a,b,c)=(((a)<<16)|((b)<<8)|(c))' '-DAV_VERSION_INT(a,b,c)=(((a)<<16)|((b)<<8)|(c))' \
 		--error-exitcode=1 -D__linux__ -I shared \
 		$(echo "$BUILT" | sed 's|\bkicomp\b|kicomp/src|') shared; then
 		fail cppcheck
