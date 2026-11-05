@@ -1668,9 +1668,21 @@ static void draw_dense(const CompOutput *o, const CompSceneNode *n,
                        const GlWindow *d, const CompRect *area, GLuint mask,
                        const CornerRadii *corners, bool opaque)
 {
+    /* Where this layer may draw. A node that stays put or is merely
+     * moved is cropped to what is visible of it, in its own coordinates.
+     * One an effect is scaling or turning has no such rectangle -- a
+     * scissor box lives in screen pixels -- so it is clipped by the
+     * repaint area alone, as the window's own draw is, and the quad
+     * bounds the rest. */
     CompRect visible;
-    if (!rect_intersect(area, &n->visible_rect, &visible))
-        return;
+    float mdx, mdy;
+    if (comp_transform_is_identity(&n->transform) ||
+        comp_transform_is_translation(&n->transform, &mdx, &mdy)) {
+        if (!rect_intersect(area, &n->visible_rect, &visible))
+            return;
+    } else {
+        visible = repaint_rect;
+    }
 
     /* Bound by dense_layer() before the window's own draw, which has
      * bound its texture since (draw_node). */
@@ -2259,12 +2271,13 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * texture unit 0, and knowing now which layers will be drawn is what
      * lets the window's own draw below leave out what they cover.
      *
-     * Only while the window is where it says it is, or is being moved:
-     * a window mid-scale is worth exactly as much sharpness as it has
-     * milliseconds left, and a stash is the picture from before any of
-     * this. */
+     * Also while an effect scales or turns the node (expo, the cube,
+     * cover switch...): sharpness aside, the window's own pixmap is
+     * frozen for as long as the client draws into its dense one, so a
+     * transformed window drawn from the pixmap alone shows an old frame.
+     * Not for a stash, which is the picture from before any of this. */
     GlWindow *dense_deco = NULL, *dense_client = NULL;
-    if (!from_stash && move_only && !flat) {
+    if (!from_stash && !flat) {
         float density;
         if (deco_density_active(w, &density))
             dense_deco = dense_layer(w, g, true);
@@ -2469,13 +2482,28 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
             n->geometry.y + w->client_rect.y,
             w->client_rect.w, w->client_rect.h
         };
+        /* An effect may hand the node a geometry that is not the window's
+         * own size (cover switch gives it the cover's rectangle, and the
+         * transform turns that in place), the contents then being
+         * stretched over it. client_rect is in the window's own pixels,
+         * so it goes through the same stretch. */
+        CompRect wr = window_rect(w);
+        if (wr.w > 0 && wr.h > 0 &&
+            (n->geometry.w != wr.w || n->geometry.h != wr.h)) {
+            float fx = (float)n->geometry.w / (float)wr.w;
+            float fy = (float)n->geometry.h / (float)wr.h;
+            client.x = n->geometry.x + (int)lroundf((float)w->client_rect.x * fx);
+            client.y = n->geometry.y + (int)lroundf((float)w->client_rect.y * fy);
+            client.w = (int)lroundf((float)w->client_rect.w * fx);
+            client.h = (int)lroundf((float)w->client_rect.h * fy);
+        }
         /* A frame with no titlebar (an undecorated xisserve) has the
          * client reaching right into the rounded corners, so the layer
          * wears the frame's corners there, as the decoration's does. */
         CompRect in_frame = { w->client_rect.x, w->client_rect.y,
                               w->client_rect.w, w->client_rect.h };
-        bool round = client_reaches_corners(w, &in_frame, n->geometry.w,
-                                            n->geometry.h);
+        bool round = client_reaches_corners(w, &in_frame, wr.w > 0 ? wr.w : n->geometry.w,
+                                            wr.h > 0 ? wr.h : n->geometry.h);
         CornerRadii radii = { w->corner_tl, w->corner_tr,
                               w->corner_br, w->corner_bl };
         GLuint cmask = (round && !w->corner_radii_known)
