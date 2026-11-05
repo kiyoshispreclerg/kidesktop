@@ -445,6 +445,21 @@ typedef struct {
      * either way (the server keeps compositing the window back exactly
      * as if unredirected) -- this is tidiness, not a correctness fix. */
     int self_redirected;
+
+    /* X-DENSITY: while the client has a dense pixmap published
+     * (_X_DENSITY_PIXMAP on `win`), it draws there and the window's own
+     * contents -- hence the composite pixmap above -- stay frozen on the
+     * last frame drawn before density was raised. The dense pixmap is
+     * what is actually current, so it is what the thumbnail shows. It
+     * belongs to the client: never freed here, only the cairo wrapper.
+     * A Pixmap raises no Damage, and the protocol signals new contents by
+     * rewriting the property, so thumb_handle_event() turns that
+     * PropertyNotify into a repaint and flags the cache for a re-read.
+     * dense_pix == None with dense_stale == 0 means "checked, none". */
+    Pixmap dense_pix;
+    cairo_surface_t *dense_surf;
+    int dense_w, dense_h;
+    int dense_stale;
 } ThumbWatch;
 static ThumbWatch g_watches[THUMB_MAX_WATCHES];
 static int g_n_watches = 0;
@@ -477,6 +492,102 @@ int thumb_needs_poll(void)
         }
     }
     return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* X-DENSITY: the client's dense pixmap                                 */
+/* ------------------------------------------------------------------ */
+
+static Atom density_pixmap_atom(void)
+{
+    static Atom a;
+    if (a == None) {
+        a = XInternAtom(g_dpy, "_X_DENSITY_PIXMAP", False);
+    }
+    return a;
+}
+
+/* Reads the pixmap `win` publishes, and the cairo-relevant facts about
+ * it. Returns None when there isn't one, or when it can't be used (gone,
+ * or a depth the window's visual wouldn't read correctly). Must be called
+ * with the permissive thumb_error_handler installed. */
+static Pixmap read_dense_pixmap(Window win, Visual **out_visual, int *out_w, int *out_h)
+{
+    Atom type = None;
+    int fmt = 0;
+    unsigned long n = 0, after = 0;
+    unsigned char *data = NULL;
+
+    g_thumb_had_error = 0;
+    if (XGetWindowProperty(g_dpy, win, density_pixmap_atom(), 0, 1, False, AnyPropertyType, &type, &fmt, &n,
+                           &after, &data) != Success ||
+        g_thumb_had_error || data == NULL) {
+        return None;
+    }
+    Pixmap pix = None;
+    if (fmt == 32 && n >= 1) {
+        pix = (Pixmap)((const unsigned long *)(const void *)data)[0];
+    }
+    XFree(data);
+    if (pix == None) {
+        return None;
+    }
+
+    XWindowAttributes wa;
+    Window root_ret;
+    int gx = 0, gy = 0;
+    unsigned int gw = 0, gh = 0, gborder = 0, gdepth = 0;
+    g_thumb_had_error = 0;
+    if (!XGetWindowAttributes(g_dpy, win, &wa) || g_thumb_had_error) {
+        return None;
+    }
+    if (!XGetGeometry(g_dpy, pix, &root_ret, &gx, &gy, &gw, &gh, &gborder, &gdepth) || g_thumb_had_error) {
+        return None; /* the client freed it between the read and here */
+    }
+    if (gw == 0 || gh == 0 || (int)gdepth != wa.depth) {
+        return None;
+    }
+    *out_visual = wa.visual;
+    *out_w = (int)gw;
+    *out_h = (int)gh;
+    return pix;
+}
+
+static void watch_drop_dense(ThumbWatch *w)
+{
+    if (w->dense_surf) {
+        cairo_surface_destroy(w->dense_surf);
+        w->dense_surf = NULL;
+    }
+    w->dense_pix = None; /* the client's -- no XFreePixmap */
+}
+
+/* Brings the cached dense surface up to date. The same XID and size means
+ * the same surface (the pixels changed behind it; paint_scaled() marks it
+ * dirty). Returns 1 if there is a dense surface to draw from. */
+static int watch_refresh_dense(ThumbWatch *w)
+{
+    if (w->dense_stale) {
+        w->dense_stale = 0;
+        Visual *vis = NULL;
+        int dw = 0, dh = 0;
+        Pixmap pix = read_dense_pixmap(w->win, &vis, &dw, &dh);
+        if (pix == None) {
+            watch_drop_dense(w);
+        } else if (pix != w->dense_pix || dw != w->dense_w || dh != w->dense_h) {
+            watch_drop_dense(w);
+            cairo_surface_t *surf = cairo_xlib_surface_create(g_dpy, pix, vis, dw, dh);
+            if (cairo_surface_status(surf) != CAIRO_STATUS_SUCCESS) {
+                cairo_surface_destroy(surf);
+            } else {
+                w->dense_pix = pix;
+                w->dense_surf = surf;
+                w->dense_w = dw;
+                w->dense_h = dh;
+            }
+        }
+    }
+    return w->dense_surf != NULL;
 }
 
 /* Releases just the cached composited pixmap + cairo surface, leaving the
@@ -576,6 +687,9 @@ void thumb_watch(Window win)
     w->visual = wa.visual;
     w->mapped = 1; /* resolve_composited_window() only succeeds on an IsViewable window */
     w->self_redirected = self_redirected;
+    w->dense_pix = None;
+    w->dense_surf = NULL;
+    w->dense_stale = 1; /* first paint looks */
 
     /* Invalidation signal for the cached pixmap above. Mostly redundant
      * -- ewmh_watch_init() already holds SubstructureNotifyMask on the
@@ -608,6 +722,7 @@ void thumb_unwatch_all(void)
     for (int i = 0; i < g_n_watches; i++) {
         g_thumb_had_error = 0;
         watch_drop_pixmap(&g_watches[i]);
+        watch_drop_dense(&g_watches[i]);
         XDamageDestroy(g_dpy, g_watches[i].damage); /* BadDamage if the window already closed -- ignored, same as everywhere else */
         if (g_watches[i].self_redirected) {
             g_thumb_had_error = 0;
@@ -689,6 +804,17 @@ int thumb_handle_event(const XEvent *ev)
 {
     if (g_n_watches > 0) {
         note_structure_event(ev); /* returns 0 below either way -- see its doc comment */
+        if (ev->type == PropertyNotify && ev->xproperty.atom == density_pixmap_atom()) {
+            /* New dense frame (or density raised/dropped): no Damage for
+             * a Pixmap, so this is the only signal. Not consumed -- other
+             * widgets may care about the same window. */
+            for (int i = 0; i < g_n_watches; i++) {
+                if (g_watches[i].win == ev->xproperty.window) {
+                    g_watches[i].dense_stale = 1;
+                    g_thumb_dirty = 1;
+                }
+            }
+        }
     }
     if (!damage_available() || ev->type != g_damage_event_base + XDamageNotify) {
         return 0;
@@ -1005,6 +1131,11 @@ int thumb_paint(cairo_t *cr, Window win, double x, double y, double max_w, doubl
             continue;
         }
         ThumbWatch *w = &g_watches[i];
+        if (w->mapped && watch_refresh_dense(w)) {
+            paint_scaled(cr, w->dense_surf, w->dense_w, w->dense_h, x, y, max_w, max_h);
+            XSetErrorHandler(prev);
+            return 1;
+        }
         if (!w->mapped || w->w <= 0 || w->h <= 0) {
             /* Minimized/unmapped since the tooltip opened -- there is no
              * live content to show. Same graceful "leave the reserved
@@ -1056,6 +1187,25 @@ int thumb_paint(cairo_t *cr, Window win, double x, double y, double max_w, doubl
         renew_hold(w->win);
         XSetErrorHandler(prev);
         return 1;
+    }
+
+    if (pix == None) {
+        /* Not watched, so nothing cached: ask once. A dense pixmap beats
+         * the composite one for the reason given at ThumbWatch::dense_pix. */
+        Visual *dvis = NULL;
+        int dw = 0, dh = 0;
+        Pixmap dense = read_dense_pixmap(win, &dvis, &dw, &dh);
+        if (dense != None) {
+            cairo_surface_t *dsurf = cairo_xlib_surface_create(g_dpy, dense, dvis, dw, dh);
+            if (cairo_surface_status(dsurf) == CAIRO_STATUS_SUCCESS) {
+                paint_scaled(cr, dsurf, dw, dh, x, y, max_w, max_h);
+                cairo_surface_destroy(dsurf);
+                XSetErrorHandler(prev);
+                thumb_watch(win);
+                return 1;
+            }
+            cairo_surface_destroy(dsurf);
+        }
     }
 
     if (pix == None) {
