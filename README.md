@@ -204,7 +204,7 @@ make lint   # every component with -Werror, cppcheck, .po/.desktop/script checks
 make deb    # dist/ kidesktop-core and kidesktop-base .debs for this distro
 ```
 
-GitHub Actions runs `make lint` on Ubuntu 22.04, Ubuntu 24.04, Debian 12 and Debian 13
+GitHub Actions runs `make lint` on Ubuntu 22.04, 24.04, 26.04, Debian 12 and Debian 13
 for every push and pull request (`.github/workflows/ci.yml`).
 *Release packages* (`.github/workflows/release.yml`) builds the source
 `.zip` and the `.deb` for those four distros: automatically for a stable

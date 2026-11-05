@@ -210,7 +210,7 @@ make lint   # todos os componentes com -Werror, cppcheck, verificações de .po/
 make deb    # dist/: .debs kidesktop-core e kidesktop-base para esta distro
 ```
 
-O GitHub Actions roda `make lint` no Ubuntu 22.04, Ubuntu 24.04, Debian 12 e Debian 13 a
+O GitHub Actions roda `make lint` no Ubuntu 22.04, 24.04, 26.04, Debian 12 e Debian 13 a
 cada push e pull request (`.github/workflows/ci.yml`).
 Os *pacotes de release* (`.github/workflows/release.yml`) geram o `.zip` do
 código-fonte e o `.deb` para essas quatro distros: automaticamente para uma tag
