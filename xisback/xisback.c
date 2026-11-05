@@ -1512,8 +1512,8 @@ static void create_auto_layer(const XisOutput *o)
         return;
     }
     Layer *l = &g_layers[idx];
-    snprintf(l->output, sizeof(l->output), "%s", o->id[0] ? o->id : o->name);
-    snprintf(l->place, sizeof(l->place), "%s", o->name);
+    snprintf(l->output, sizeof(l->output), "%.*s", (int)sizeof(l->output) - 1, o->id[0] ? o->id : o->name);
+    snprintf(l->place, sizeof(l->place), "%.*s", (int)sizeof(l->place) - 1, o->name);
     l->desktop = -1;
     l->mode = MODE_FILL;
     l->interval = 300;
@@ -1586,7 +1586,7 @@ static void place_layers(int forced, Layer *skip)
         int keep = 0;
         for (int j = 0; j < n_real; j++) {
             if (!whole_screen && real_to_saved[j] < 0 && !covered[j] && xis_output_matches(&real[j], l->output)) {
-                snprintf(l->place, sizeof(l->place), "%s", real[j].name);
+                snprintf(l->place, sizeof(l->place), "%.*s", (int)sizeof(l->place) - 1, real[j].name);
                 covered[j] = 1;
                 keep = 1;
                 break;
