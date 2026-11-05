@@ -522,3 +522,56 @@ void density_layer_render(DensityLayer *dl, int logical_w, int logical_h, double
                      (unsigned char *)&pixmap_val, 1);
     XFlush(g_dpy);
 }
+
+/* Partial repaint of an already-rendered layer, for content that changes
+ * in a small rectangle far more often than the rest (a live thumbnail in
+ * a tooltip). density_layer_render() redraws everything, which is what the
+ * thumbnail path exists to avoid; but skipping the layer altogether leaves
+ * the compositor sampling the last dense pixmap, so on a scaled output the
+ * thumbnail looks frozen while the plain window underneath is current.
+ *
+ * begin returns the layer's offscreen context with the scale already
+ * applied (logical coordinates, like the paint callback gets) and a clip
+ * on the logical rectangle, or NULL when there is nothing dense to update
+ * (density 1, no compositor, or never fully rendered at this size -- the
+ * caller then has nothing to do, the normal path covers it). end copies
+ * that rectangle to the pixmap and re-announces it. */
+cairo_t *density_layer_partial_begin(DensityLayer *dl, int logical_w, int logical_h, int x, int y, int w, int h)
+{
+    if (!dl || (dl->num == 1 && dl->den == 1) || dl->pixmap == None || !compositor_present()) {
+        return NULL;
+    }
+    double scale = (double)dl->num / dl->den;
+    if (dl->pixmap_w != (int)(logical_w * scale + 0.5) || dl->pixmap_h != (int)(logical_h * scale + 0.5)) {
+        return NULL;
+    }
+    cairo_save(dl->img_cr);
+    cairo_scale(dl->img_cr, scale, scale);
+    cairo_rectangle(dl->img_cr, x, y, w, h);
+    cairo_clip(dl->img_cr);
+    return dl->img_cr;
+}
+
+void density_layer_partial_end(DensityLayer *dl, int x, int y, int w, int h)
+{
+    cairo_restore(dl->img_cr);
+    double scale = (double)dl->num / dl->den;
+    int dx0 = (int)(x * scale), dy0 = (int)(y * scale);
+    int dx1 = (int)((x + w) * scale + 0.999), dy1 = (int)((y + h) * scale + 0.999);
+    cairo_surface_flush(dl->img_surface);
+
+    cairo_save(dl->cr);
+    cairo_set_operator(dl->cr, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_surface(dl->cr, dl->img_surface, 0, 0);
+    cairo_rectangle(dl->cr, dx0, dy0, dx1 - dx0, dy1 - dy0);
+    cairo_fill(dl->cr);
+    cairo_restore(dl->cr);
+    cairo_surface_flush(dl->surface);
+
+    /* Same XID rewritten: a Pixmap raises no Damage, so this is the
+     * compositor's only "new frame" signal (TESTS/X-DENSITY.md). */
+    long pixmap_val = (long)dl->pixmap;
+    XChangeProperty(g_dpy, dl->win, g_atom_density_pixmap, XA_CARDINAL, 32, PropModeReplace,
+                     (unsigned char *)&pixmap_val, 1);
+    XFlush(g_dpy);
+}

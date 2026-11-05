@@ -994,6 +994,10 @@ DensityLayer *density_layer_register(Window win, Visual *visual, int depth,
                                       void (*paint)(cairo_t *cr, double scale, void *ctx), void *ctx);
 void density_layer_unregister(DensityLayer *dl); /* NULL is a no-op */
 int density_layer_handle_property(DensityLayer *dl, const XPropertyEvent *ev); /* 1 if consumed */
+/* Partial repaint of a layer already rendered at this size -- see density.c. begin returns NULL when
+ * there is nothing dense to update; otherwise draw in logical coordinates and call end with the same rect. */
+cairo_t *density_layer_partial_begin(DensityLayer *dl, int logical_w, int logical_h, int x, int y, int w, int h);
+void density_layer_partial_end(DensityLayer *dl, int x, int y, int w, int h);
 /* `logical_w`/`logical_h` are the window's own current on-screen size (not
  * scaled); `base_font_size`, if > 0, is set as the offscreen cr's default
  * font size before `paint` runs, the same seed density_render(Panel*)

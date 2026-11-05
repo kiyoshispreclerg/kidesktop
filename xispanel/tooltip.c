@@ -632,6 +632,21 @@ static int thumb_bbox(int *out_x, int *out_y, int *out_w, int *out_h)
     return 1;
 }
 
+/* Background strip plus every thumbnail cell, into whichever context
+ * (window buffer or density layer) the caller has clipped to the cells. */
+static void draw_thumb_cells(cairo_t *cr)
+{
+    draw_popup_background(cr);
+    if (g_has_group) {
+        for (int i = 0; i < g_popup->group_shown_n; i++) {
+            thumb_paint(cr, g_group_items[i].win, g_popup->group_item_x[i], g_popup->group_item_y[i], g_thumb_w,
+                         g_thumb_h);
+        }
+    } else {
+        thumb_paint(cr, g_thumb_win, (g_popup->width - g_thumb_w) / 2.0, pad_y(), g_thumb_w, g_thumb_h);
+    }
+}
+
 /* Redraws *only* the thumbnail cells (plus the background strip behind
  * them, since a thumbnail is letterboxed inside its cell and doesn't
  * necessarily cover it), then blits just that rectangle.
@@ -653,19 +668,26 @@ static void repaint_thumbs_only(void)
     if (!g_popup || !g_panel || !thumb_bbox(&bx, &by, &bw, &bh)) {
         return;
     }
+
+    /* On a scaled output the compositor shows the density layer, not the
+     * window, so that is where the cells must be redrawn -- otherwise the
+     * thumbnail freezes while everything else looks fine. And only there:
+     * while a dense pixmap is being sampled the window's own buffer is
+     * never seen, so drawing it too would be the same work twice. It is
+     * brought up to date by paint_popup() when the density is withdrawn
+     * (density_layer_handle_property() -> paint_popup()). */
+    cairo_t *dcr = density_layer_partial_begin(g_popup->density, g_popup->width, g_popup->height, bx, by, bw, bh);
+    if (dcr) {
+        draw_thumb_cells(dcr);
+        density_layer_partial_end(g_popup->density, bx, by, bw, bh);
+        return;
+    }
+
     cairo_t *cr = g_popup->back_cr;
     cairo_save(cr);
     cairo_rectangle(cr, bx, by, bw, bh);
     cairo_clip(cr);
-    draw_popup_background(cr);
-    if (g_has_group) {
-        for (int i = 0; i < g_popup->group_shown_n; i++) {
-            thumb_paint(cr, g_group_items[i].win, g_popup->group_item_x[i], g_popup->group_item_y[i], g_thumb_w,
-                         g_thumb_h);
-        }
-    } else {
-        thumb_paint(cr, g_thumb_win, (g_popup->width - g_thumb_w) / 2.0, pad_y(), g_thumb_w, g_thumb_h);
-    }
+    draw_thumb_cells(cr);
     cairo_restore(cr);
     blit_rect_and_flush(bx, by, bw, bh);
 }
