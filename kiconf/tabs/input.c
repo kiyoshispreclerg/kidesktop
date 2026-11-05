@@ -618,21 +618,24 @@ GtkWidget *build_input_tab(void)
 
     GtkWidget *special_box = gtk_vbox_new(FALSE, 2);
     g_toggle_mods_chk = gtk_check_button_new_with_label(
-        _("ToggleModifiersOnPress -- alterna trava de modificador ao pressionar"));
+        _("Alternar a trava de modificador ao pressionar"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_toggle_mods_chk), g_toggle_mods_baseline);
+    gtk_widget_set_tooltip_text(g_toggle_mods_chk, "ToggleModifiersOnPress");
     gtk_box_pack_start(GTK_BOX(special_box), g_toggle_mods_chk, FALSE, FALSE, 0);
     g_kick_hotkeys_chk = gtk_check_button_new_with_label(
-        _("KickHotkeysOnRelease -- troca layout de teclado ao soltar o atalho"));
+        _("Ativar atalhos de varias teclas ao soltar"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_kick_hotkeys_chk), g_kick_hotkeys_baseline);
+    gtk_widget_set_tooltip_text(g_kick_hotkeys_chk, "KickHotkeysOnRelease");
     gtk_box_pack_start(GTK_BOX(special_box), g_kick_hotkeys_chk, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Opcoes especiais de teclado (XiS)"), special_box), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Opcoes especiais de teclado"), special_box), FALSE, FALSE, 0);
 
     GtkWidget *primsel_box = gtk_vbox_new(FALSE, 2);
     g_disable_primsel_chk = gtk_check_button_new_with_label(
-        _("DisablePrimarySelection -- desativa colar com o botao do meio"));
+        _("Desativar colar com o botao do meio"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_disable_primsel_chk), g_disable_primsel_baseline);
+    gtk_widget_set_tooltip_text(g_disable_primsel_chk, "DisablePrimarySelection");
     gtk_box_pack_start(GTK_BOX(primsel_box), g_disable_primsel_chk, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Selecao primaria (XiS)"), primsel_box), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Selecao primaria"), primsel_box), FALSE, FALSE, 0);
 
     GtkWidget *session_box = gtk_vbox_new(FALSE, 2);
     g_numlock_start_chk = gtk_check_button_new_with_label(_("Ativar NumLock ao iniciar a sessao"));
@@ -644,10 +647,5 @@ GtkWidget *build_input_tab(void)
     g_signal_connect(apply_btn, "clicked", G_CALLBACK(apply_entrada_cb), NULL);
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 0);
     gtk_box_pack_end(GTK_BOX(btnbox), apply_btn, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), btnbox, FALSE, FALSE, 0);
-
-    GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-    gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(scroll), outer);
-    return scroll;
+    return scrolled_with_footer(outer, btnbox);
 }

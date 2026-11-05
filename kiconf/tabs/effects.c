@@ -304,10 +304,11 @@ enum { COL_FX_NAME = 0, COL_FX_INSTANCE, COL_FX_ENABLED, COL_FX_OPTS, N_FX_COLS 
 
 static void refresh_status(void)
 {
-    gtk_label_set_text(GTK_LABEL(g_status_label),
-                        process_running("kicomp")
-                            ? _("kicomp esta em execucao.")
-                            : _("kicomp nao esta em execucao -- estas configuracoes valem para a proxima vez que ele iniciar."));
+    if (process_running("kicomp")) {
+        gtk_widget_hide(g_status_label);
+    } else {
+        gtk_widget_show_all(g_status_label);
+    }
 }
 
 static const char *const RENDERER_OPTS[] = {"auto", "xrender", "glx", "egl", NULL};
@@ -1116,8 +1117,8 @@ GtkWidget *build_effects_tab(void)
     GtkWidget *outer = gtk_vbox_new(FALSE, 8);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
 
-    g_status_label = gtk_label_new("");
-    gtk_misc_set_alignment(GTK_MISC(g_status_label), 0.0, 0.5);
+    g_status_label = warning_row(_("kicomp nao esta em execucao -- estas configuracoes valem para a proxima vez que ele iniciar."));
+    gtk_widget_set_no_show_all(g_status_label, TRUE);
     gtk_box_pack_start(GTK_BOX(outer), g_status_label, FALSE, FALSE, 0);
 
     GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);

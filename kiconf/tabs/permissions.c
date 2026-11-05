@@ -316,34 +316,6 @@ static int xisguard_list_ignored(char (*out)[192], int max)
     return n;
 }
 
-/* The KiDesktop programs xisguard always ignores (LIST_IGNORED "builtin"). */
-static void xisguard_builtin_ignored(char *out, size_t outsz)
-{
-    out[0] = '\0';
-    char path[PATH_MAX];
-    xisguard_ctl_path(path, sizeof(path));
-    char resp[JSON_BUF_LEN];
-    if (!json_line_send(path, "{\"cmd\":\"LIST_IGNORED\"}", resp, sizeof(resp)) || !json_ok(resp)) {
-        return;
-    }
-    const char *p = strstr(resp, "\"builtin\"");
-    p = p ? strchr(p, '[') : NULL;
-    size_t o = 0;
-    while (p && (p = strchr(p, '"')) && o + 1 < outsz) {
-        p++;
-        if (o) {
-            o += (size_t)snprintf(out + o, outsz - o, ", ");
-        }
-        while (*p && *p != '"' && o + 1 < outsz) {
-            out[o++] = *p++;
-        }
-        out[o] = '\0';
-        if (*p == '"') {
-            p++;
-        }
-    }
-}
-
 static int xisguard_send_ignored_cmd(const char *cmd, const char *pattern)
 {
     char path[PATH_MAX];
@@ -481,8 +453,7 @@ static void refresh_xg_sys_rules(void)
         } else if (!have_dir) {
             snprintf(status, sizeof(status), _("Nao foi possivel descobrir o diretorio de regras de sistema (timeout do X server)."));
         } else {
-            snprintf(status, sizeof(status), _("%s (e xnotify.conf) -- %d regra(s) em %d arquivo(s), na ordem em que o X server as aplica. Editar pede autorizacao (polkit) e recarrega o X server."),
-                     dir, n, g_xg_sysset.n_files);
+            snprintf(status, sizeof(status), _("%d regra(s) carregada(s) de %d arquivo(s)."), n, g_xg_sysset.n_files);
         }
         gtk_label_set_text(GTK_LABEL(g_xg_sys_rules_status_label), status);
     }
@@ -757,36 +728,31 @@ GtkWidget *build_permissions_tab(void)
     GtkWidget *outer = gtk_vbox_new(FALSE, 4);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 8);
 
-    char status_text[128];
-    if (g_xg_baseline.online) {
-        snprintf(status_text, sizeof(status_text), _("xisguard conectado."));
-    } else {
-        snprintf(status_text, sizeof(status_text),
-                  _("xisguard inacessivel (daemon parado, ou socket de controle ainda nao existe)."));
+    if (!g_xg_baseline.online) {
+        g_xg_status_label = warning_row(_("xisguard inacessivel (daemon parado, ou socket de controle ainda nao existe)."));
+        gtk_box_pack_start(GTK_BOX(outer), g_xg_status_label, FALSE, FALSE, 0);
     }
-    g_xg_status_label = gtk_label_new(status_text);
-    gtk_misc_set_alignment(GTK_MISC(g_xg_status_label), 0.0, 0.5);
-    gtk_label_set_line_wrap(GTK_LABEL(g_xg_status_label), TRUE);
-    gtk_widget_set_size_request(g_xg_status_label, 660, -1);
-    gtk_box_pack_start(GTK_BOX(outer), g_xg_status_label, FALSE, FALSE, 0);
 
     GtkWidget *status_table = gtk_table_new(6, 2, FALSE);
-    g_xg_no_pause_chk = gtk_check_button_new_with_label(_("no_pause (nao pausar decisao)"));
+    g_xg_no_pause_chk = gtk_check_button_new_with_label(_("Nao pausar programas"));
+    gtk_widget_set_tooltip_text(g_xg_no_pause_chk, "no_pause");
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_xg_no_pause_chk), g_xg_baseline.no_pause);
     gtk_table_attach(GTK_TABLE(status_table), g_xg_no_pause_chk, 0, 2, 0, 1, GTK_FILL, GTK_FILL, 4, 1);
-    g_xg_quiet_chk = gtk_check_button_new_with_label(_("quiet (sem notificacoes)"));
+    g_xg_quiet_chk = gtk_check_button_new_with_label(_("Sem notificacoes"));
+    gtk_widget_set_tooltip_text(g_xg_quiet_chk, "quiet");
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_xg_quiet_chk), g_xg_baseline.quiet);
     gtk_table_attach(GTK_TABLE(status_table), g_xg_quiet_chk, 0, 2, 1, 2, GTK_FILL, GTK_FILL, 4, 1);
-    g_xg_always_kill_chk = gtk_check_button_new_with_label(_("always_kill (sempre matar em DENY)"));
+    g_xg_always_kill_chk = gtk_check_button_new_with_label(_("Sempre encerrar o programa ao negar"));
+    gtk_widget_set_tooltip_text(g_xg_always_kill_chk, "always_kill");
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_xg_always_kill_chk), g_xg_baseline.always_kill);
     gtk_table_attach(GTK_TABLE(status_table), g_xg_always_kill_chk, 0, 2, 2, 3, GTK_FILL, GTK_FILL, 4, 1);
-    g_xg_secure_mode_chk = gtk_check_button_new_with_label(_("secure_mode"));
+    g_xg_secure_mode_chk = gtk_check_button_new_with_label(_("Modo seguro"));
     gtk_widget_set_tooltip_text(g_xg_secure_mode_chk, _("Regras de usuario desligadas; novas regras permanentes pedem senha root"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_xg_secure_mode_chk), g_xg_baseline.secure_mode);
     gtk_table_attach(GTK_TABLE(status_table), g_xg_secure_mode_chk, 0, 2, 3, 4, GTK_FILL, GTK_FILL, 4, 1);
     g_xg_log_level_spin = gtk_spin_button_new_with_range(0, 5, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_xg_log_level_spin), g_xg_baseline.log_level);
-    labeled_row(status_table, 4, _("log_level:"), g_xg_log_level_spin);
+    labeled_row(status_table, 4, _("Nivel de log:"), g_xg_log_level_spin);
     g_xg_permissive_chk = gtk_check_button_new_with_label(_("Modo permissivo (libera tudo, so registra)"));
     gtk_widget_set_tooltip_text(g_xg_permissive_chk,
         _("O XisGuard libera todas as acoes mas os programas continuam sendo registrados. "
@@ -987,22 +953,6 @@ GtkWidget *build_permissions_tab(void)
     gtk_container_add(GTK_CONTAINER(ign_scroll), g_xg_ignored_view);
     GtkWidget *ign_box = gtk_vbox_new(FALSE, 2);
     gtk_container_set_border_width(GTK_CONTAINER(ign_box), 2);
-    GtkWidget *ign_hint = gtk_label_new(_("REPORTs destes programas nao aparecem (programas sempre necessarios na "
-                                          "sessao, como gerenciadores de janela, area de transferencia e teclado)."));
-    gtk_misc_set_alignment(GTK_MISC(ign_hint), 0.0, 0.5);
-    gtk_label_set_line_wrap(GTK_LABEL(ign_hint), TRUE);
-    gtk_box_pack_start(GTK_BOX(ign_box), ign_hint, FALSE, FALSE, 0);
-    char builtin[512];
-    xisguard_builtin_ignored(builtin, sizeof(builtin));
-    if (builtin[0]) {
-        char *txt = g_strdup_printf(_("Sempre ignorados (KiDesktop): %s"), builtin);
-        GtkWidget *bl = gtk_label_new(txt);
-        g_free(txt);
-        gtk_misc_set_alignment(GTK_MISC(bl), 0.0, 0.5);
-        gtk_label_set_line_wrap(GTK_LABEL(bl), TRUE);
-        gtk_widget_set_sensitive(bl, FALSE);
-        gtk_box_pack_start(GTK_BOX(ign_box), bl, FALSE, FALSE, 0);
-    }
     gtk_box_pack_start(GTK_BOX(ign_box), ign_scroll, TRUE, TRUE, 0);
     GtkWidget *ign_row = gtk_hbox_new(FALSE, 4);
     g_xg_ignored_entry = gtk_entry_new();

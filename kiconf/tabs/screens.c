@@ -1417,7 +1417,8 @@ static gboolean screens_canvas_expose(GtkWidget *widget, GdkEventExpose *event, 
         cairo_set_line_width(cr, selected ? 2 : 1);
         cairo_stroke(cr);
 
-        cairo_move_to(cr, rx + 6, ry + 16);
+        cairo_set_font_size(cr, 13);
+        cairo_move_to(cr, rx + 6, ry + 18);
         cairo_show_text(cr, o->name);
         {
             int pw = o->width;
@@ -1430,11 +1431,11 @@ static gboolean screens_canvas_expose(GtkWidget *widget, GdkEventExpose *event, 
             }
             snprintf(lbl, sizeof(lbl), "%dx%d%s @%d%%", w, h, rate,
                      (int)lround(100.0 * w / (pw > 0 ? pw : 1)));
-            cairo_move_to(cr, rx + 6, ry + (o->primary ? 48 : 32));
+            cairo_move_to(cr, rx + 6, ry + (o->primary ? 56 : 38));
             cairo_show_text(cr, lbl);
         }
         if (o->primary) {
-            cairo_move_to(cr, rx + 6, ry + 32);
+            cairo_move_to(cr, rx + 6, ry + 38);
             cairo_show_text(cr, "(primary)");
         }
     }
@@ -2090,26 +2091,8 @@ GtkWidget *build_screens_tab(void)
     GtkWidget *outer = gtk_vbox_new(FALSE, 6);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 8);
 
-    GtkWidget *note = gtk_label_new(
-        _("Arraste as caixas pra reposicionar. Aplicar tambem grava o "
-        "layout pra ser reaplicado automaticamente no inicio da proxima "
-        "sessao."));
-    gtk_misc_set_alignment(GTK_MISC(note), 0.0, 0.5);
-    /* Unwrapped, this single line alone was wider than the 700px minimum
-     * window width -- wrap it against the tab's own content width instead
-     * of letting it force the window wider. */
-    gtk_label_set_line_wrap(GTK_LABEL(note), TRUE);
-    gtk_widget_set_size_request(note, 600, -1);
-    gtk_box_pack_start(GTK_BOX(outer), note, FALSE, FALSE, 0);
-
-    g_screens_status_label = gtk_label_new(_("-"));
+    g_screens_status_label = gtk_label_new("");
     gtk_misc_set_alignment(GTK_MISC(g_screens_status_label), 0.0, 0.5);
-    gtk_box_pack_start(GTK_BOX(outer), g_screens_status_label, FALSE, FALSE, 0);
-    {
-        char status[64];
-        snprintf(status, sizeof(status), _("%d saida(s) detectada(s)."), g_n_outputs);
-        gtk_label_set_text(GTK_LABEL(g_screens_status_label), status);
-    }
 
     g_screens_canvas = gtk_drawing_area_new();
     gtk_widget_set_size_request(g_screens_canvas, -1, 100);
@@ -2266,6 +2249,7 @@ GtkWidget *build_screens_tab(void)
     g_signal_connect(refresh_btn, "clicked", G_CALLBACK(on_screens_refresh), NULL);
     g_signal_connect(apply_btn, "clicked", G_CALLBACK(on_screens_apply), NULL);
     gtk_box_pack_start(GTK_BOX(btnbox), refresh_btn, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(btnbox), g_screens_status_label, FALSE, FALSE, 6);
     gtk_box_pack_end(GTK_BOX(btnbox), apply_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(outer), btnbox, FALSE, FALSE, 0);
 

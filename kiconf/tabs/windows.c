@@ -219,10 +219,11 @@ static GtkWidget *g_osd_cover_chk, *g_osd_other_chk;
 
 static void refresh_status(void)
 {
-    gtk_label_set_text(GTK_LABEL(g_status_label),
-                        process_running("kiwm")
-                            ? _("kiwm esta em execucao.")
-                            : _("kiwm nao esta em execucao -- estas configuracoes valem para a proxima vez que ele iniciar."));
+    if (process_running("kiwm")) {
+        gtk_widget_hide(g_status_label);
+    } else {
+        gtk_widget_show_all(g_status_label);
+    }
 }
 
 static const char *const MOD_KEY_OPTS[] = {"meta", "alt", NULL};
@@ -401,16 +402,12 @@ GtkWidget *build_windows_tab(void)
     GtkWidget *outer = gtk_vbox_new(FALSE, 8);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
 
-    g_status_label = gtk_label_new("");
-    gtk_misc_set_alignment(GTK_MISC(g_status_label), 0.0, 0.5);
+    g_status_label = warning_row(_("kiwm nao esta em execucao -- estas configuracoes valem para a proxima vez que ele iniciar."));
+    gtk_widget_set_no_show_all(g_status_label, TRUE);
     gtk_box_pack_start(GTK_BOX(outer), g_status_label, FALSE, FALSE, 0);
 
-    GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     GtkWidget *content = gtk_vbox_new(FALSE, 8);
     gtk_container_set_border_width(GTK_CONTAINER(content), 2);
-    gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(scroll), content);
-    gtk_box_pack_start(GTK_BOX(outer), scroll, TRUE, TRUE, 0);
 
     /* Decoracao */
     GtkWidget *deco_table = gtk_table_new(4, 2, FALSE);
@@ -425,14 +422,23 @@ GtkWidget *build_windows_tab(void)
     gtk_box_pack_start(GTK_BOX(content), frame_with(_("Decoracao"), deco_table), FALSE, FALSE, 0);
 
     GtkWidget *titlebar_table = gtk_table_new(1, 2, FALSE);
+    GtkWidget *titlebar_box = gtk_vbox_new(FALSE, 2);
     g_titlebar_entry = gtk_entry_new();
     gtk_entry_set_text(GTK_ENTRY(g_titlebar_entry), c.titlebar_layout);
     labeled_row(titlebar_table, 0, _("Elementos da barra de titulo:"), g_titlebar_entry);
-    gtk_box_pack_start(GTK_BOX(content), frame_with(_("Barra de titulo (lista separada por virgulas: icon,title,"
-                                                 "shade,minimize,maximize,close,keep_above,keep_all_desktops,appmenu,"
-                                                 "clipboard)"),
-                                                 titlebar_table),
-                        FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(titlebar_box), titlebar_table, FALSE, FALSE, 0);
+    GtkWidget *titlebar_hint = gtk_label_new(NULL);
+    {
+        char *m = g_markup_printf_escaped("<small>%s</small>",
+            _("Lista separada por virgulas: icon, title, shade, minimize, maximize, close, keep_above, "
+              "keep_all_desktops, appmenu, clipboard"));
+        gtk_label_set_markup(GTK_LABEL(titlebar_hint), m);
+        g_free(m);
+    }
+    gtk_label_set_line_wrap(GTK_LABEL(titlebar_hint), TRUE);
+    gtk_misc_set_alignment(GTK_MISC(titlebar_hint), 0.0, 0.5);
+    gtk_box_pack_start(GTK_BOX(titlebar_box), titlebar_hint, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(content), frame_with(_("Barra de titulo"), titlebar_box), FALSE, FALSE, 0);
 
     /* Borda e redimensionamento */
     GtkWidget *border_table = gtk_table_new(4, 2, FALSE);
@@ -574,7 +580,7 @@ GtkWidget *build_windows_tab(void)
     g_signal_connect(apply_btn, "clicked", G_CALLBACK(save_janelas_cb), NULL);
     gtk_box_pack_start(GTK_BOX(btnbox), restart_btn, FALSE, FALSE, 0);
     gtk_box_pack_end(GTK_BOX(btnbox), apply_btn, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), btnbox, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), scrolled_with_footer(content, btnbox), TRUE, TRUE, 0);
 
     refresh_status();
     return outer;

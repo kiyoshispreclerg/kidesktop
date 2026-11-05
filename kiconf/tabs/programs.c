@@ -298,7 +298,7 @@ GtkWidget *build_programs_tab(void)
     gtk_combo_box_set_active(GTK_COMBO_BOX(g_wm_combo), widx);
     labeled_row(wm_table, 0, _("Gerenciador de janelas a carregar:"), g_wm_combo);
     gtk_box_pack_start(GTK_BOX(outer),
-                        frame_with(_("Sessao (kisession.conf -- \"(automatico)\" usa o primeiro instalado)"), wm_table),
+                        frame_with(_("Sessao"), wm_table),
                         FALSE, FALSE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 0);

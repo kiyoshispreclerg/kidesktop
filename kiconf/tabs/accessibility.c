@@ -441,11 +441,8 @@ GtkWidget *build_accessibility_tab(void)
     KisessionConfig ks;
     kisession_load(&ks);
 
-    GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     GtkWidget *outer = gtk_vbox_new(FALSE, 8);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
-    gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(scroll), outer);
 
     /* Keyboard */
     GtkWidget *kt = gtk_table_new(9, 2, FALSE);
@@ -515,6 +512,5 @@ GtkWidget *build_accessibility_tab(void)
     g_signal_connect(apply, "clicked", G_CALLBACK(apply_cb), NULL);
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 0);
     gtk_box_pack_end(GTK_BOX(btnbox), apply, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), btnbox, FALSE, FALSE, 0);
-    return scroll;
+    return scrolled_with_footer(outer, btnbox);
 }

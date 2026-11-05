@@ -192,6 +192,47 @@ static void refill_assoc_row(GtkTreeIter *it, int row)
     gtk_list_store_set(g_assoc_store, it, COL_A_APP, current[0] ? app_name_by_id(current) : _("(nenhum)"), -1);
 }
 
+/* One `xdg-mime query default` per extension is ~a thousand subprocesses:
+ * far too slow to run before the tab shows. The "Abrir com" column is
+ * filled a few rows per idle tick instead, and the fill stops the moment
+ * the tab is left (its view is destroyed). */
+static guint g_fill_source;
+static GtkTreeIter g_fill_iter;
+static int g_fill_row;
+
+static gboolean fill_apps_idle(gpointer data)
+{
+    (void)data;
+    for (int n = 0; n < 4 && g_fill_row < g_n_assoc; n++, g_fill_row++) {
+        refill_assoc_row(&g_fill_iter, g_fill_row);
+        if (!gtk_tree_model_iter_next(GTK_TREE_MODEL(g_assoc_store), &g_fill_iter)) {
+            g_fill_row = g_n_assoc;
+        }
+    }
+    if (g_fill_row >= g_n_assoc) {
+        g_fill_source = 0;
+        return FALSE;
+    }
+    return TRUE;
+}
+
+static void stop_app_fill(void)
+{
+    if (g_fill_source) {
+        g_source_remove(g_fill_source);
+        g_fill_source = 0;
+    }
+}
+
+static void start_app_fill(void)
+{
+    stop_app_fill();
+    g_fill_row = 0;
+    if (g_n_assoc > 0 && gtk_tree_model_get_iter_first(GTK_TREE_MODEL(g_assoc_store), &g_fill_iter)) {
+        g_fill_source = g_idle_add(fill_apps_idle, NULL);
+    }
+}
+
 static void refill_assoc_store(void)
 {
     scan_globs();
@@ -204,8 +245,9 @@ static void refill_assoc_store(void)
         gtk_list_store_append(g_assoc_store, &it);
         gtk_list_store_set(g_assoc_store, &it, COL_A_EXT, g_assoc[i].ext, COL_A_LABEL, g_assoc[i].label, COL_A_ROW, i,
                             -1);
-        refill_assoc_row(&it, i);
+        gtk_list_store_set(g_assoc_store, &it, COL_A_APP, "...", -1);
     }
+    start_app_fill();
 }
 
 /* Case-insensitive substring search without relying on the GNU-only
@@ -335,6 +377,7 @@ GtkWidget *build_associations_tab(void)
     gtk_tree_model_filter_set_visible_func(g_assoc_filter, assoc_filter_visible, NULL, NULL);
 
     g_assoc_view = gtk_tree_view_new_with_model(filter);
+    g_signal_connect(g_assoc_view, "destroy", G_CALLBACK(stop_app_fill), NULL);
     gtk_tree_view_append_column(
         GTK_TREE_VIEW(g_assoc_view),
         gtk_tree_view_column_new_with_attributes(_("Extensao"), gtk_cell_renderer_text_new(), "text", COL_A_EXT, NULL));

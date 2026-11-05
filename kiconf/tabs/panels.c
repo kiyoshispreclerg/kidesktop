@@ -475,7 +475,7 @@ static const WidgetField THEME_OTHER_FIELDS[] = {
     WF_STR("font", "Fonte (global)", ""),
     WF_STR("font_size", "Tamanho da fonte (px)", ""),
     WF_STR("icon_theme", "Tema de icones (global)", ""),
-    WF_STR("h_color", "Cor de destaque (#RRGGBBAA)", ""),
+    WF_STR("h_color", "Cor de destaque", ""),
     WF_STR("theme", "Pasta de tema bitmap", ""),
     WF_BOOL01("force_shape_corners", "Cantos via XShape (global)", "0"),
 };
@@ -1418,7 +1418,7 @@ static void open_panel_dialog(GtkTreeIter *iter)
                 rename_panel_everywhere(cur_name ? cur_name : "", new_name_text);
                 if (g_theme_label) {
                     char label_text[NAME_LEN + 16];
-                    snprintf(label_text, sizeof(label_text), _("Outras opcoes de '%s':"), g_selected_panel);
+                    snprintf(label_text, sizeof(label_text), _("Tema de '%s':"), g_selected_panel);
                     gtk_label_set_text(GTK_LABEL(g_theme_label), label_text);
                 }
                 gtk_list_store_set(g_panels_store, iter, COL_PANEL_NAME, new_name_text, COL_PANEL_OUTPUT, output,
@@ -1810,7 +1810,7 @@ static void on_panel_selection_changed(GtkTreeSelection *sel, gpointer data)
     }
     if (g_theme_label) {
         char label_text[NAME_LEN + 16];
-        snprintf(label_text, sizeof(label_text), _("Outras opcoes de '%s':"), g_selected_panel[0] ? g_selected_panel : "?");
+        snprintf(label_text, sizeof(label_text), _("Tema de '%s':"), g_selected_panel[0] ? g_selected_panel : "?");
         gtk_label_set_text(GTK_LABEL(g_theme_label), label_text);
     }
 }
@@ -1849,12 +1849,6 @@ GtkWidget *build_panels_tab(void)
 
     GtkWidget *outer = gtk_vbox_new(FALSE, 6);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 8);
-
-    GtkWidget *note = gtk_label_new(
-        _("Editor direto de xispanel.conf (PANEL/WIDGET/THEME). Opcoes sao\n"
-        "a string key=value bruta de cada linha -- ver xispanel/PROTOCOL.md."));
-    gtk_misc_set_alignment(GTK_MISC(note), 0.0, 0.5);
-    gtk_box_pack_start(GTK_BOX(outer), note, FALSE, FALSE, 0);
 
     g_panels_store = gtk_list_store_new(N_PANEL_COLS, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
     for (int i = 0; i < n_panels; i++) {
@@ -1943,7 +1937,7 @@ GtkWidget *build_panels_tab(void)
      * every selection change; xispanel still defaults to the live system
      * theme when a panel has no THEME line at all (see PROTOCOL.md), so
      * most panels simply leave this blank. */
-    GtkWidget *theme_table = gtk_table_new(3, 2, FALSE);
+    GtkWidget *theme_table = gtk_table_new(3 + 3, 2, FALSE);
     GtkWidget *bg_label = gtk_label_new(_("Cor de fundo:"));
     gtk_misc_set_alignment(GTK_MISC(bg_label), 0.0, 0.5);
     gtk_table_attach(GTK_TABLE(theme_table), bg_label, 0, 1, 0, 1, GTK_FILL, GTK_FILL, 4, 3);
@@ -1957,29 +1951,37 @@ GtkWidget *build_panels_tab(void)
     gtk_table_attach(GTK_TABLE(theme_table), g_theme_fg_box, 1, 2, 1, 2, GTK_EXPAND | GTK_FILL, GTK_FILL, 4, 3);
 
     g_theme_spacing_spin = gtk_spin_button_new_with_range(THEME_SPACING_FIELD.min, THEME_SPACING_FIELD.max, 1);
-    labeled_row(theme_table, 2, _("Espacamento entre widgets (px):"), g_theme_spacing_spin);
+    labeled_row(theme_table, 2, _("Espacamento (px):"), g_theme_spacing_spin);
 
     /* The rest of the THEME keys, as real fields instead of a raw
      * key=value entry -- see THEME_OTHER_FIELDS. */
     ThemeRec *initial_theme = g_selected_panel[0] ? theme_find(g_selected_panel) : NULL;
     char theme_label_text[NAME_LEN + 16];
-    snprintf(theme_label_text, sizeof(theme_label_text), _("Outras opcoes de '%s':"), g_selected_panel[0] ? g_selected_panel : "?");
+    snprintf(theme_label_text, sizeof(theme_label_text), _("Tema de '%s':"), g_selected_panel[0] ? g_selected_panel : "?");
     g_theme_label = gtk_label_new(theme_label_text);
     gtk_misc_set_alignment(GTK_MISC(g_theme_label), 0.0, 0.5);
-    GtkWidget *other_table = gtk_table_new(N_THEME_OTHER, 2, FALSE);
+    /* 3 rows already used by bg/fg/spacing + the first 3 THEME keys on the
+     * left, the other 3 on the right: two narrow tables instead of one wide
+     * row, which overlapped at the minimum window width. */
+    GtkWidget *other_right = gtk_table_new(N_THEME_OTHER, 2, FALSE);
+    const int split = 3;
     for (int i = 0; i < N_THEME_OTHER; i++) {
         g_theme_other_widgets[i] = build_widget_field(&THEME_OTHER_FIELDS[i], NULL);
         gtk_widget_set_tooltip_text(g_theme_other_widgets[i], _(THEME_OTHER_TIPS[i]));
-        labeled_row(other_table, i, _(THEME_OTHER_FIELDS[i].label), g_theme_other_widgets[i]);
+        if (i < split) {
+            labeled_row(theme_table, 3 + i, _(THEME_OTHER_FIELDS[i].label), g_theme_other_widgets[i]);
+        } else {
+            labeled_row(other_right, i - split, _(THEME_OTHER_FIELDS[i].label), g_theme_other_widgets[i]);
+        }
     }
-    GtkWidget *other_box = gtk_vbox_new(FALSE, 2);
-    gtk_box_pack_start(GTK_BOX(other_box), g_theme_label, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(other_box), other_table, FALSE, FALSE, 0);
 
-    GtkWidget *theme_cols = gtk_hbox_new(FALSE, 12);
+    GtkWidget *theme_cols = gtk_hbox_new(TRUE, 12);
     gtk_box_pack_start(GTK_BOX(theme_cols), theme_table, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(theme_cols), other_box, TRUE, TRUE, 0);
-    GtkWidget *theme_frame = frame_with(_("Tema (cores/fonte do painel selecionado)"), theme_cols);
+    gtk_box_pack_start(GTK_BOX(theme_cols), other_right, TRUE, TRUE, 0);
+    GtkWidget *theme_box = gtk_vbox_new(FALSE, 2);
+    gtk_box_pack_start(GTK_BOX(theme_box), g_theme_label, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(theme_box), theme_cols, FALSE, FALSE, 0);
+    GtkWidget *theme_frame = frame_with(_("Tema (cores/fonte do painel selecionado)"), theme_box);
     sync_theme_fields_from_opts(initial_theme ? initial_theme->options : "");
 
     /* Paineis and Widgets side by side on top, getting all the height the

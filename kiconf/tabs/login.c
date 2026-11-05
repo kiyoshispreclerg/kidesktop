@@ -547,7 +547,7 @@ static void show_dm(Dm dm)
 
     char hint[400];
     char *target = write_target(dm);
-    snprintf(hint, sizeof(hint), _("Alteracoes vao para %s e valem no proximo login (o gerenciador nao e reiniciado, para nao encerrar a sessao atual)."), target);
+    snprintf(hint, sizeof(hint), _("Grava em %s."), target);
     g_free(target);
     gtk_label_set_text(GTK_LABEL(g_hint), hint);
     gtk_label_set_text(GTK_LABEL(g_status), "");
@@ -633,13 +633,6 @@ GtkWidget *build_login_tab(void)
 {
     GtkWidget *outer = gtk_vbox_new(FALSE, 8);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 8);
-
-    GtkWidget *info = gtk_label_new(_(
-        "Gerenciador de login (SDDM, LightDM ou SLiM). Ver as configuracoes nao exige senha; "
-        "gravar pede a senha de administrador."));
-    gtk_misc_set_alignment(GTK_MISC(info), 0.0, 0.5);
-    gtk_label_set_line_wrap(GTK_LABEL(info), TRUE);
-    gtk_box_pack_start(GTK_BOX(outer), info, FALSE, FALSE, 0);
 
     /* The active manager, from the Debian alternatives file, picks the
      * initial choice; every installed one can still be configured. */

@@ -328,13 +328,6 @@ GtkWidget *build_sounds_tab(void)
     GtkWidget *outer = gtk_vbox_new(FALSE, 8);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 8);
 
-    GtkWidget *info = gtk_label_new(_(
-        "Sons dos eventos do desktop. Escolher um tema muda todos de uma vez; "
-        "na lista abaixo cada evento pode ter um arquivo proprio ou ficar silencioso."));
-    gtk_misc_set_alignment(GTK_MISC(info), 0.0, 0.5);
-    gtk_label_set_line_wrap(GTK_LABEL(info), TRUE);
-    gtk_box_pack_start(GTK_BOX(outer), info, FALSE, FALSE, 0);
-
     scan_themes();
 
     GtkWidget *table = gtk_table_new(3, 2, FALSE);

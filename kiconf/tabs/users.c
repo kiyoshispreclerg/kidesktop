@@ -521,13 +521,6 @@ GtkWidget *build_users_tab(void)
     GtkWidget *outer = gtk_vbox_new(FALSE, 6);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 8);
 
-    GtkWidget *info = gtk_label_new(_(
-        "Contas de usuario do sistema. As alteracoes ficam numa fila e so sao executadas "
-        "ao clicar em Aplicar, quando a senha de administrador e pedida uma unica vez."));
-    gtk_misc_set_alignment(GTK_MISC(info), 0.0, 0.5);
-    gtk_label_set_line_wrap(GTK_LABEL(info), TRUE);
-    gtk_box_pack_start(GTK_BOX(outer), info, FALSE, FALSE, 0);
-
     g_store = gtk_list_store_new(N_COLS, G_TYPE_STRING, G_TYPE_INT, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
     g_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_store));
     kiconf_track_ignore(g_view); /* the system's accounts; g_ops_view holds what is pending */

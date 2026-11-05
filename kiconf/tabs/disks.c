@@ -303,15 +303,6 @@ GtkWidget *build_disks_tab(void)
     GtkWidget *outer = gtk_vbox_new(FALSE, 8);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
 
-    GtkWidget *note = gtk_label_new(_("Discos e dispositivos removiveis que ja estiveram conectados a este computador. "
-                                      "Os marcados sao montados automaticamente sempre que forem conectados, inclusive "
-                                      "se ja estiverem conectados ao iniciar a sessao. A montagem e feita pelo udisks, "
-                                      "no mesmo lugar que o KDE e o GNOME usam (em geral /media/USUARIO/NOME). Os discos "
-                                      "do sistema e os montados pelo /etc/fstab nao aparecem aqui."));
-    gtk_misc_set_alignment(GTK_MISC(note), 0.0, 0.5);
-    gtk_label_set_line_wrap(GTK_LABEL(note), TRUE);
-    gtk_box_pack_start(GTK_BOX(outer), note, FALSE, FALSE, 0);
-
     if (g_forgotten) {
         g_hash_table_destroy(g_forgotten); /* from this tab's previous build */
     }
@@ -322,6 +313,9 @@ GtkWidget *build_disks_tab(void)
     g_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_store));
     g_object_unref(g_store);
     a11y_name(g_view, _("Discos conhecidos"));
+    gtk_widget_set_tooltip_text(g_view,
+        _("Os marcados sao montados automaticamente sempre que forem conectados. "
+          "Discos do sistema e os montados pelo /etc/fstab nao aparecem aqui."));
 
     GtkCellRenderer *tog = gtk_cell_renderer_toggle_new();
     g_signal_connect(tog, "toggled", G_CALLBACK(toggled_cb), NULL);

@@ -675,8 +675,12 @@ GtkWidget *build_appearance_tab(void)
     Appearance a;
     load_appearance(&a);
 
-    GtkWidget *outer = gtk_vbox_new(FALSE, 8);
+    GtkWidget *outer = gtk_hbox_new(TRUE, 12);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
+    GtkWidget *left = gtk_vbox_new(FALSE, 8);
+    GtkWidget *right = gtk_vbox_new(FALSE, 8);
+    gtk_box_pack_start(GTK_BOX(outer), left, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(outer), right, TRUE, TRUE, 0);
 
     /* Cursor */
     GtkWidget *cursor_table = gtk_table_new(2, 2, FALSE);
@@ -686,7 +690,7 @@ GtkWidget *build_appearance_tab(void)
     g_cursor_size_spin = gtk_spin_button_new_with_range(8, 128, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(g_cursor_size_spin), a.cursor_size > 0 ? a.cursor_size : 24);
     labeled_row(cursor_table, 1, _("Tamanho:"), g_cursor_size_spin);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Cursor"), cursor_table), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left), frame_with(_("Cursor"), cursor_table), FALSE, FALSE, 0);
 
     /* KiDesktop's own central theme (kiwm/xispanel/xisserve) */
     GtkWidget *kidesktop_table = gtk_table_new(1, 2, FALSE);
@@ -700,7 +704,7 @@ GtkWidget *build_appearance_tab(void)
         "de usar a aparencia padrao embutida. xisserve nao usa isso -- so recebe cores via\n"
         "argumentos de quem o chama. Procurado em /usr/share/kidesktop/themes,\n"
         "~/.local/share/kidesktop/themes e na pasta themes/ do codigo-fonte."));
-    gtk_box_pack_start(GTK_BOX(outer), kidesktop_frame, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left), kidesktop_frame, FALSE, FALSE, 0);
 
     /* Toolkit themes */
     GtkWidget *themes_table = gtk_table_new(5, 2, FALSE);
@@ -742,7 +746,7 @@ GtkWidget *build_appearance_tab(void)
     GtkWidget *themes_box = gtk_vbox_new(FALSE, 4);
     gtk_box_pack_start(GTK_BOX(themes_box), themes_table, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(themes_box), kitheme_row, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Temas dos toolkits"), themes_box), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(right), frame_with(_("Temas dos toolkits"), themes_box), FALSE, FALSE, 0);
 
     /* Color scheme: opt-in, "none" leaves every theme's own colors alone.
      * Schemes are edited in the KiTheme tab. */
@@ -754,7 +758,7 @@ GtkWidget *build_appearance_tab(void)
                                   "Para criar, editar ou excluir esquemas, use a aba KiTheme."));
     a11y_name(g_color_scheme_combo, _("Esquema de cores"));
     labeled_row(colors_table, 0, _("Esquema:"), g_color_scheme_combo);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Cores"), colors_table), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left), frame_with(_("Cores"), colors_table), FALSE, FALSE, 0);
     memcpy(&g_loaded, &a, sizeof(a));
 
     /* Fonts */
@@ -763,7 +767,7 @@ GtkWidget *build_appearance_tab(void)
     labeled_row(fonts_table, 0, _("Fonte geral:"), g_font_general_btn);
     g_font_mono_btn = gtk_font_button_new_with_font(a.font_monospace);
     labeled_row(fonts_table, 1, _("Fonte monoespacada:"), g_font_mono_btn);
-    gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Fontes"), fonts_table), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(left), frame_with(_("Fontes"), fonts_table), FALSE, FALSE, 0);
 
     g_export_other_check = gtk_check_button_new_with_label(
         _("Exportar temas/cores/icones/cursor para outros desktops (GTK/Qt)"));
@@ -773,7 +777,8 @@ GtkWidget *build_appearance_tab(void)
         "Quando ligado, kiconfd tambem escreve em ~/.gtkrc-2.0, ~/.config/gtk-3.0 e "
         "gtk-4.0/settings.ini e ~/.config/qt5ct/qt6ct -- os mesmos arquivos que outros "
         "desktops (ex.: KDE Plasma) usam, entao apps GTK/Qt tambem mudam de visual la."));
-    gtk_box_pack_start(GTK_BOX(outer), g_export_other_check, FALSE, FALSE, 0);
+    gtk_label_set_line_wrap(GTK_LABEL(gtk_bin_get_child(GTK_BIN(g_export_other_check))), TRUE);
+    gtk_box_pack_start(GTK_BOX(right), g_export_other_check, FALSE, FALSE, 0);
 
     GtkWidget *import_btn = gtk_button_new_with_label(_("Importar da sessao atual"));
     g_signal_connect(import_btn, "clicked", G_CALLBACK(import_appearance_cb), NULL);
@@ -782,10 +787,5 @@ GtkWidget *build_appearance_tab(void)
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 6);
     gtk_box_pack_start(GTK_BOX(btnbox), import_btn, FALSE, FALSE, 0);
     gtk_box_pack_end(GTK_BOX(btnbox), apply_btn, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), btnbox, FALSE, FALSE, 0);
-
-    GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-    gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(scroll), outer);
-    return scroll;
+    return scrolled_with_footer(outer, btnbox);
 }

@@ -543,13 +543,6 @@ GtkWidget *build_autostart_tab(void)
     GtkWidget *as_box = gtk_vbox_new(FALSE, 4);
     gtk_box_pack_start(GTK_BOX(as_box), as_scroll, TRUE, TRUE, 0);
 
-    GtkWidget *note = gtk_label_new(
-        _("Aplicativos instalados que se registram para iniciar com a sessao (fcitx, "
-        "opensnitch, ...), mais os que voce adicionar. Valem a partir do proximo login."));
-    gtk_misc_set_alignment(GTK_MISC(note), 0.0, 0.5);
-    gtk_label_set_line_wrap(GTK_LABEL(note), TRUE);
-    gtk_box_pack_start(GTK_BOX(as_box), note, FALSE, FALSE, 0);
-
     GtkWidget *as_btnbox = gtk_hbox_new(FALSE, 6);
     GtkWidget *add_btn = gtk_button_new_with_label(_("Adicionar..."));
     GtkWidget *remove_btn = gtk_button_new_with_label(_("Remover"));

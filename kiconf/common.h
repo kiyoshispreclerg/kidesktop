@@ -87,6 +87,14 @@ GtkWidget *labeled_row(GtkWidget *table, int row, const char *label_text, GtkWid
 void a11y_name(GtkWidget *widget, const char *text);
 GtkWidget *frame_with(const char *title, GtkWidget *child);
 
+/* A tab page: `content` scrolls, `footer` (the Aplicar row; may be NULL)
+ * stays visible below it whatever the window height. */
+GtkWidget *scrolled_with_footer(GtkWidget *content, GtkWidget *footer);
+
+/* A one-line warning with an alert icon, for a tab's "this isn't
+ * available" notice (hidden by default: show it only when needed). */
+GtkWidget *warning_row(const char *text);
+
 /* Answer buttons for a gtk_message_dialog_new(..., GTK_BUTTONS_NONE, ...):
  * `which` is the GTK_BUTTONS_* set it stands in for. GTK's own stock
  * labels ("Yes", "Cancel") are translated by GTK's catalog, which isn't

@@ -2,8 +2,7 @@
  *
  * i3lock has no config file, so the options live in kilock.conf and
  * `kilock` (what the session's xss-lock and the lock hotkey run) turns
- * them into i3lock arguments. The tab only exists when i3lock and kilock
- * are installed (lock_available()). The idle time before locking is
+ * them into i3lock arguments. The tab warns when i3lock is missing. The idle time before locking is
  * the screensaver timeout of the Energia tab, not set here. */
 #include "../common.h"
 #include "../tabs.h"
@@ -145,12 +144,12 @@ GtkWidget *build_lock_tab(void)
     GtkWidget *outer = gtk_vbox_new(FALSE, 8);
     gtk_container_set_border_width(GTK_CONTAINER(outer), 12);
 
-    GtkWidget *note = gtk_label_new(_("O bloqueio de tela usa o i3lock, que so aceita opcoes de linha de comando; "
-                                      "aqui elas ficam guardadas em ~/.config/kilock.conf. O tempo parado ate "
-                                      "bloquear e o do protetor de tela, na aba Energia."));
-    gtk_misc_set_alignment(GTK_MISC(note), 0.0, 0.5);
-    gtk_label_set_line_wrap(GTK_LABEL(note), TRUE);
-    gtk_box_pack_start(GTK_BOX(outer), note, FALSE, FALSE, 0);
+    gchar *i3 = g_find_program_in_path("i3lock");
+    if (!i3) {
+        gtk_box_pack_start(GTK_BOX(outer), warning_row(_("i3lock nao esta instalado: o bloqueio de tela nao vai funcionar.")),
+                           FALSE, FALSE, 0);
+    }
+    g_free(i3);
 
     GtkWidget *look = gtk_table_new(2, 2, FALSE);
     g_color_btn = labeled_row(look, 0, _("Cor de fundo:"), make_color_button(l.color));

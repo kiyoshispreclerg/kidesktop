@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 07:51-0300\n"
+"POT-Creation-Date: 2026-11-05 00:55-0300\n"
 "PO-Revision-Date: 2026-10-01 13:53-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -12,123 +12,123 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
-#: common.c:320 common.c:326 tabs/associations.c:273 tabs/autostart.c:240
-#: tabs/effects.c:851 tabs/menu.c:430 tabs/panels.c:1172 tabs/panels.c:1369
+#: common.c:347 common.c:353 tabs/associations.c:315 tabs/autostart.c:359
+#: tabs/effects.c:852 tabs/menu.c:430 tabs/panels.c:1172 tabs/panels.c:1369
 #: tabs/users.c:407 xiskeycapture.c:284
 msgid "_OK"
 msgstr "_OK"
 
-#: common.c:323 tabs/events.c:230
+#: common.c:350 tabs/events.c:230
 msgid "_Fechar"
 msgstr "_Fechar"
 
-#: common.c:326 tabs/associations.c:273 tabs/autostart.c:240 tabs/effects.c:850
+#: common.c:353 tabs/associations.c:315 tabs/autostart.c:359 tabs/effects.c:851
 #: tabs/kitheme.c:292 tabs/menu.c:429 tabs/panels.c:1171 tabs/panels.c:1368
 #: tabs/sounds.c:219 tabs/users.c:339 tabs/users.c:407 tabs/users.c:468
 #: tabs/wallpaper.c:984 xiskeycapture.c:283
 msgid "_Cancelar"
 msgstr "_Cancelar"
 
-#: common.c:329
+#: common.c:356
 msgid "_Nao"
 msgstr "_Não"
 
-#: common.c:329
+#: common.c:356
 msgid "_Sim"
 msgstr "_Sim"
 
-#: common.c:429
+#: common.c:456
 #, c-format
 msgid "%s (nao conectado agora)"
 msgstr "%s (não conectado agora)"
 
-#: common.c:447
+#: common.c:474
 msgid "* (todas as telas)"
 msgstr "* (todas as telas)"
 
-#: common.c:464
+#: common.c:491
 #, c-format
 msgid "%s (%s)"
 msgstr "%s (%s)"
 
-#: common.c:466
+#: common.c:493
 #, c-format
 msgid "%s (sem EDID)"
 msgstr "%s (sem EDID)"
 
-#: common.c:728
+#: common.c:755
 msgid "Barramento de sessao (D-Bus) + ambiente de ativacao"
 msgstr "Barramento de sessão (D-Bus) + ambiente de ativação"
 
-#: common.c:729
+#: common.c:756
 msgid "Acessibilidade (barramento AT-SPI; vale a partir do proximo login)"
 msgstr "Acessibilidade (barramento AT-SPI; vale a partir do próximo login)"
 
-#: common.c:730
+#: common.c:757
 msgid "Permissoes XNOTIFY"
 msgstr "Permissões XNOTIFY"
 
-#: common.c:731
+#: common.c:758
 msgid "Daemon de tema/cursor/configuracoes"
 msgstr "Daemon de tema/cursor/configurações"
 
-#: common.c:732
+#: common.c:759
 msgid "Registrador do menu de aplicativos (menu global)"
 msgstr "Registrador do menu de aplicativos (menu global)"
 
-#: common.c:733
+#: common.c:760
 msgid "Papel de parede"
 msgstr "Papel de parede"
 
-#: common.c:734
+#: common.c:761
 msgid "Painel/barra de tarefas"
 msgstr "Painel/barra de tarefas"
 
-#: common.c:735
+#: common.c:762
 msgid "Atalhos globais de teclado"
 msgstr "Atalhos globais de teclado"
 
-#: common.c:736
+#: common.c:763
 msgid "Historico da area de transferencia"
 msgstr "Histórico da área de transferência"
 
-#: common.c:737
+#: common.c:764
 msgid "Historico de atividade da area de trabalho"
 msgstr "Histórico de atividade da área de trabalho"
 
-#: common.c:738
+#: common.c:765
 msgid "Montagem automatica dos discos marcados na aba Discos"
 msgstr "Montagem automática dos discos marcados na aba Discos"
 
-#: common.c:739
+#: common.c:766
 msgid "pipewire/pulseaudio (so se nada mais ja tiver iniciado um)"
 msgstr "pipewire/pulseaudio (só se nada mais já tiver iniciado um)"
 
-#: common.c:740
+#: common.c:767
 msgid "Bloqueio de tela (xss-lock + i3lock)"
 msgstr "Bloqueio de tela (xss-lock + i3lock)"
 
-#: common.c:741
+#: common.c:768
 msgid "Agente de autenticacao polkit"
 msgstr "Agente de autenticação polkit"
 
-#: common.c:742
+#: common.c:769
 msgid "Gerenciador de janelas"
 msgstr "Gerenciador de janelas"
 
-#: common.c:743
+#: common.c:770
 msgid "Compositor (opcional)"
 msgstr "Compositor (opcional)"
 
-#: common.c:744
+#: common.c:771
 msgid "Leitor de tela orca (precisa de Acessibilidade)"
 msgstr "Leitor de tela orca (precisa de Acessibilidade)"
 
-#: common.c:745
+#: common.c:772
 msgid "Entradas de inicio automatico XDG (aplicativos instalados)"
 msgstr "Entradas de início automático XDG (aplicativos instalados)"
 
-#: kiconf.c:166 tabs/lock.c:172
+#: kiconf.c:166 tabs/lock.c:171
 msgid "Aparencia"
 msgstr "Aparência"
 
@@ -152,7 +152,7 @@ msgstr "Entrada"
 msgid "Wallpaper"
 msgstr "Papel de parede"
 
-#: kiconf.c:172 tabs/panels.c:1883
+#: kiconf.c:172 tabs/panels.c:1877
 msgid "Paineis"
 msgstr "Painéis"
 
@@ -200,10 +200,10 @@ msgstr "Menu de programas"
 msgid "Iniciar automaticamente"
 msgstr "Iniciar automaticamente"
 
-#: kiconf.c:184 tabs/effects.c:410 tabs/effects.c:415 tabs/effects.c:420
-#: tabs/effects.c:425 tabs/effects.c:432 tabs/effects.c:439 tabs/effects.c:446
-#: tabs/effects.c:453 tabs/effects.c:458 tabs/effects.c:464 tabs/effects.c:472
-#: tabs/effects.c:481 tabs/effects.c:491 tabs/effects.c:497 tabs/effects.c:531
+#: kiconf.c:184 tabs/effects.c:411 tabs/effects.c:416 tabs/effects.c:421
+#: tabs/effects.c:426 tabs/effects.c:433 tabs/effects.c:440 tabs/effects.c:447
+#: tabs/effects.c:454 tabs/effects.c:459 tabs/effects.c:465 tabs/effects.c:473
+#: tabs/effects.c:482 tabs/effects.c:492 tabs/effects.c:498 tabs/effects.c:532
 #: tabs/events.c:286
 msgid "Eventos"
 msgstr "Eventos"
@@ -216,11 +216,11 @@ msgstr "Histórico"
 msgid "Sons"
 msgstr "Sons"
 
-#: kiconf.c:187 tabs/users.c:534
+#: kiconf.c:187 tabs/users.c:527
 msgid "Usuarios"
 msgstr "Usuários"
 
-#: kiconf.c:188 tabs/services.c:411
+#: kiconf.c:188 tabs/services.c:402
 msgid "Servicos"
 msgstr "Serviços"
 
@@ -240,15 +240,15 @@ msgstr "Bloqueio de tela"
 msgid "_Voltar"
 msgstr "_Voltar"
 
-#: kiconf.c:277 tabs/accessibility.c:514 tabs/appearance.c:780
-#: tabs/autostart.c:421 tabs/disks.c:364 tabs/energy.c:453 tabs/history.c:382
-#: tabs/history.c:449 tabs/input.c:643 tabs/kitheme.c:610 tabs/lock.c:196
-#: tabs/login.c:708 tabs/permissions.c:821 tabs/programs.c:305
-#: tabs/screens.c:2265 tabs/shortcuts.c:1471 tabs/system.c:819 tabs/users.c:573
+#: kiconf.c:277 tabs/accessibility.c:511 tabs/appearance.c:785
+#: tabs/autostart.c:511 tabs/autostart.c:549 tabs/disks.c:358 tabs/energy.c:452
+#: tabs/history.c:382 tabs/history.c:449 tabs/input.c:646 tabs/kitheme.c:610
+#: tabs/lock.c:195 tabs/login.c:701 tabs/permissions.c:787 tabs/programs.c:305
+#: tabs/screens.c:2248 tabs/shortcuts.c:1471 tabs/system.c:819 tabs/users.c:566
 msgid "Aplicar"
 msgstr "Aplicar"
 
-#: kiconf.c:277 tabs/events.c:323 tabs/sounds.c:386 tabs/system.c:805
+#: kiconf.c:277 tabs/events.c:323 tabs/sounds.c:379 tabs/system.c:805
 msgid "Salvar"
 msgstr "Salvar"
 
@@ -268,7 +268,7 @@ msgstr "Continuar editando"
 msgid "Sair sem aplicar"
 msgstr "Sair sem aplicar"
 
-#: kiconf.c:320 tabs/users.c:562 tabs/users.c:564
+#: kiconf.c:320 tabs/users.c:555 tabs/users.c:557
 msgid "Alteracoes pendentes"
 msgstr "Alterações pendentes"
 
@@ -319,43 +319,43 @@ msgstr "O módulo %s não exporta kiconf_tab_build()"
 msgid "O modulo %s nao criou nenhuma pagina"
 msgstr "O módulo %s não criou nenhuma página"
 
-#: tabs/accessibility.c:452
+#: tabs/accessibility.c:449
 msgid ""
 "Teclas de aderencia: Shift, Ctrl e Alt ficam pressionados ate a proxima tecla"
 msgstr ""
 "Teclas de aderência: Shift, Ctrl e Alt ficam pressionados até a próxima tecla"
 
-#: tabs/accessibility.c:455
+#: tabs/accessibility.c:452
 msgid "Desativar a aderencia ao pressionar duas teclas juntas"
 msgstr "Desativar a aderência ao pressionar duas teclas juntas"
 
-#: tabs/accessibility.c:458
+#: tabs/accessibility.c:455
 msgid "Teclas lentas: so aceitar teclas mantidas pressionadas"
 msgstr "Teclas lentas: só aceitar teclas mantidas pressionadas"
 
-#: tabs/accessibility.c:462
+#: tabs/accessibility.c:459
 msgid "Tempo para aceitar (ms):"
 msgstr "Tempo para aceitar (ms):"
 
-#: tabs/accessibility.c:463
+#: tabs/accessibility.c:460
 msgid "Teclas de repercussao: ignorar toques repetidos rapidos"
 msgstr "Teclas de repercussão: ignorar toques repetidos rápidos"
 
-#: tabs/accessibility.c:467
+#: tabs/accessibility.c:464
 msgid "Ignorar repeticoes por (ms):"
 msgstr "Ignorar repetições por (ms):"
 
-#: tabs/accessibility.c:468
+#: tabs/accessibility.c:465
 msgid "Teclas do mouse: mover o ponteiro com o teclado numerico"
 msgstr "Teclas do mouse: mover o ponteiro com o teclado numérico"
 
-#: tabs/accessibility.c:470
+#: tabs/accessibility.c:467
 msgid ""
 "Ativar pelo teclado: Shift cinco vezes (aderencia) ou mantido 8 s (lentas)"
 msgstr ""
 "Ativar pelo teclado: Shift cinco vezes (aderência) ou mantido 8 s (lentas)"
 
-#: tabs/accessibility.c:477
+#: tabs/accessibility.c:474
 msgid ""
 "Atalho que leva o foco do teclado ao painel (setas, Enter, Esc). \"none\" "
 "desativa."
@@ -363,48 +363,48 @@ msgstr ""
 "Atalho que leva o foco do teclado ao painel (setas, Enter, Esc). \"none\" "
 "desativa."
 
-#: tabs/accessibility.c:478
+#: tabs/accessibility.c:475
 msgid "Atalho para focar o painel:"
 msgstr "Atalho para focar o painel:"
 
-#: tabs/accessibility.c:485
+#: tabs/accessibility.c:482
 msgid "Teclado"
 msgstr "Teclado"
 
-#: tabs/accessibility.c:493
+#: tabs/accessibility.c:490
 msgid "Escala do texto:"
 msgstr "Escala do texto:"
 
-#: tabs/accessibility.c:496
+#: tabs/accessibility.c:493
 msgid "Tamanho do cursor (px):"
 msgstr "Tamanho do cursor (px):"
 
-#: tabs/accessibility.c:497
+#: tabs/accessibility.c:494
 msgid "Alto contraste (texto branco sobre preto, selecao amarela)"
 msgstr "Alto contraste (texto branco sobre preto, seleção amarela)"
 
-#: tabs/accessibility.c:499
+#: tabs/accessibility.c:496
 msgid "Visao"
 msgstr "Visão"
 
-#: tabs/accessibility.c:504
+#: tabs/accessibility.c:501
 msgid "Suporte a tecnologias assistivas (AT-SPI)"
 msgstr "Suporte a tecnologias assistivas (AT-SPI)"
 
-#: tabs/accessibility.c:506
+#: tabs/accessibility.c:503
 msgid "Leitor de tela (orca)"
 msgstr "Leitor de tela (orca)"
 
-#: tabs/accessibility.c:508
+#: tabs/accessibility.c:505
 msgid "Vale a partir do proximo login."
 msgstr "Vale a partir do próximo login."
 
-#: tabs/accessibility.c:512
+#: tabs/accessibility.c:509
 msgid "Tecnologias assistivas"
 msgstr "Tecnologias assistivas"
 
 #: tabs/appearance.c:211 tabs/appearance.c:232 tabs/associations.c:192
-#: tabs/screens.c:1565 tabs/screens.c:1733
+#: tabs/screens.c:1566 tabs/screens.c:1734
 msgid "(nenhum)"
 msgstr "(nenhum)"
 
@@ -412,27 +412,27 @@ msgstr "(nenhum)"
 msgid "Sem cores personalizadas"
 msgstr "Sem cores personalizadas"
 
-#: tabs/appearance.c:685
+#: tabs/appearance.c:689
 msgid "Tema de cursor:"
 msgstr "Tema de cursor:"
 
-#: tabs/appearance.c:688
+#: tabs/appearance.c:692
 msgid "Tamanho:"
 msgstr "Tamanho:"
 
-#: tabs/appearance.c:689
+#: tabs/appearance.c:693
 msgid "Cursor"
 msgstr "Cursor"
 
-#: tabs/appearance.c:695
+#: tabs/appearance.c:699
 msgid "Tema do KiDesktop:"
 msgstr "Tema do KiDesktop:"
 
-#: tabs/appearance.c:696
+#: tabs/appearance.c:700
 msgid "Tema do KiDesktop (kiwm, xispanel)"
 msgstr "Tema do KiDesktop (kiwm, xispanel)"
 
-#: tabs/appearance.c:698
+#: tabs/appearance.c:702
 msgid ""
 "kiwm e xispanel leem primeiro seu proprio tema (kiwm.conf/xispanel.conf); "
 "qualquer\n"
@@ -452,31 +452,31 @@ msgstr ""
 "argumentos de quem o chama. Procurado em /usr/share/kidesktop/themes,\n"
 "~/.local/share/kidesktop/themes e na pasta themes/ do código-fonte."
 
-#: tabs/appearance.c:709
+#: tabs/appearance.c:713
 msgid "Tema GTK2:"
 msgstr "Tema GTK2:"
 
-#: tabs/appearance.c:712
+#: tabs/appearance.c:716
 msgid "Tema GTK3:"
 msgstr "Tema GTK3:"
 
-#: tabs/appearance.c:715
+#: tabs/appearance.c:719
 msgid "Tema GTK4:"
 msgstr "Tema GTK4:"
 
-#: tabs/appearance.c:718
+#: tabs/appearance.c:722
 msgid "Tema de icones:"
 msgstr "Tema de ícones:"
 
-#: tabs/appearance.c:735
+#: tabs/appearance.c:739
 msgid "Estilo Qt (aprox.):"
 msgstr "Estilo Qt (aprox.):"
 
-#: tabs/appearance.c:736
+#: tabs/appearance.c:740
 msgid "Usar KiTheme em tudo"
 msgstr "Usar KiTheme em tudo"
 
-#: tabs/appearance.c:737
+#: tabs/appearance.c:741
 msgid ""
 "Escolhe KiTheme para GTK2, GTK3, GTK4 e Qt (depois clique em Aplicar).\n"
 "A aparencia do KiTheme se ajusta na aba KiTheme."
@@ -484,11 +484,11 @@ msgstr ""
 "Escolhe KiTheme para GTK2, GTK3, GTK4 e Qt (depois clique em Aplicar).\n"
 "A aparência do KiTheme se ajusta na aba KiTheme."
 
-#: tabs/appearance.c:745
+#: tabs/appearance.c:749
 msgid "Temas dos toolkits"
 msgstr "Temas dos toolkits"
 
-#: tabs/appearance.c:753
+#: tabs/appearance.c:757
 msgid ""
 "Recolore os temas GTK e Qt que nao sejam o KiTheme. \"Sem cores "
 "personalizadas\" deixa cada tema com as proprias cores. Para criar, editar "
@@ -498,35 +498,35 @@ msgstr ""
 "personalizadas\" deixa cada tema com as próprias cores. Para criar, editar "
 "ou excluir esquemas, use a aba KiTheme."
 
-#: tabs/appearance.c:755 tabs/kitheme.c:483
+#: tabs/appearance.c:759 tabs/kitheme.c:483
 msgid "Esquema de cores"
 msgstr "Esquema de cores"
 
-#: tabs/appearance.c:756 tabs/kitheme.c:488
+#: tabs/appearance.c:760 tabs/kitheme.c:488
 msgid "Esquema:"
 msgstr "Esquema:"
 
-#: tabs/appearance.c:757 tabs/kitheme.c:541
+#: tabs/appearance.c:761 tabs/kitheme.c:541
 msgid "Cores"
 msgstr "Cores"
 
-#: tabs/appearance.c:763
+#: tabs/appearance.c:767
 msgid "Fonte geral:"
 msgstr "Fonte geral:"
 
-#: tabs/appearance.c:765
+#: tabs/appearance.c:769
 msgid "Fonte monoespacada:"
 msgstr "Fonte monoespaçada:"
 
-#: tabs/appearance.c:766
+#: tabs/appearance.c:770
 msgid "Fontes"
 msgstr "Fontes"
 
-#: tabs/appearance.c:769
+#: tabs/appearance.c:773
 msgid "Exportar temas/cores/icones/cursor para outros desktops (GTK/Qt)"
 msgstr "Exportar temas/cores/ícones/cursor para outros desktops (GTK/Qt)"
 
-#: tabs/appearance.c:772
+#: tabs/appearance.c:776
 msgid ""
 "Quando desligado (padrao), essa aparencia so vale para a sessao KiDesktop.\n"
 "Quando ligado, kiconfd tambem escreve em ~/.gtkrc-2.0, ~/.config/gtk-3.0 e "
@@ -540,90 +540,107 @@ msgstr ""
 "outros desktops (ex.: KDE Plasma) usam, então apps GTK/Qt também mudam de "
 "visual lá."
 
-#: tabs/appearance.c:778
+#: tabs/appearance.c:783
 msgid "Importar da sessao atual"
 msgstr "Importar da sessão atual"
 
-#: tabs/associations.c:272
+#: tabs/associations.c:314
 msgid "Alterar programa padrao"
 msgstr "Alterar programa padrão"
 
-#: tabs/associations.c:279
+#: tabs/associations.c:321
 msgid "Extensao:"
 msgstr "Extensão:"
 
-#: tabs/associations.c:303
+#: tabs/associations.c:345
 msgid "Abrir com:"
 msgstr "Abrir com:"
 
-#: tabs/associations.c:324
+#: tabs/associations.c:366
 msgid "Buscar:"
 msgstr "Buscar:"
 
-#: tabs/associations.c:340
+#: tabs/associations.c:383
 msgid "Extensao"
 msgstr "Extensão"
 
-#: tabs/associations.c:342
+#: tabs/associations.c:385
 msgid "Tipo de arquivo"
 msgstr "Tipo de arquivo"
 
-#: tabs/associations.c:347
+#: tabs/associations.c:390
 msgid "Abrir com"
 msgstr "Abrir com"
 
-#: tabs/associations.c:355
+#: tabs/associations.c:398
 msgid "Alterar programa..."
 msgstr "Alterar programa..."
 
-#: tabs/autostart.c:239
+#: tabs/autostart.c:143
+msgid ""
+"O ~/.xsessionrc ja inicia um ssh-agent por conta propria; nada a fazer aqui."
+msgstr ""
+"O ~/.xsessionrc já inicia um ssh-agent por conta própria; nada a fazer "
+"aqui."
+
+#: tabs/autostart.c:144
+msgid ""
+"Vale a partir do proximo login. As chaves carregadas nao sobrevivem a um "
+"novo login."
+msgstr ""
+"Vale a partir do próximo login. As chaves carregadas não sobrevivem a um"
+" novo login."
+
+#: tabs/autostart.c:173
+msgid "Nao foi possivel gravar o ~/.xsessionrc."
+msgstr "Não foi possível gravar o ~/.xsessionrc."
+
+#: tabs/autostart.c:358
 msgid "Adicionar programa de inicio automatico"
 msgstr "Adicionar programa de início automático"
 
-#: tabs/autostart.c:245 tabs/menu.c:458 tabs/panels.c:1379
+#: tabs/autostart.c:364 tabs/menu.c:458 tabs/panels.c:1379
 msgid "Nome:"
 msgstr "Nome:"
 
-#: tabs/autostart.c:247 tabs/menu.c:460
+#: tabs/autostart.c:366 tabs/menu.c:460
 msgid "Comando:"
 msgstr "Comando:"
 
-#: tabs/autostart.c:380
+#: tabs/autostart.c:499
 msgid "Aplicar servicos (recarrega kisession na hora)"
 msgstr "Aplicar serviços (recarrega o kisession na hora)"
 
-#: tabs/autostart.c:385
+#: tabs/autostart.c:504
 msgid "Servicos do KiDesktop (kisession.conf)"
 msgstr "Serviços do KiDesktop (kisession.conf)"
 
-#: tabs/autostart.c:397 tabs/effects.c:983
+#: tabs/autostart.c:507
+msgid "Agente SSH proprio da sessao"
+msgstr "Agente SSH próprio da sessão"
+
+#: tabs/autostart.c:520
+msgid "Agente SSH (~/.xsessionrc)"
+msgstr "Agente SSH (~/.xsessionrc)"
+
+#: tabs/autostart.c:532 tabs/effects.c:984
 msgid "Ativo"
 msgstr "Ativo"
 
-#: tabs/autostart.c:399 tabs/menu.c:697
+#: tabs/autostart.c:534 tabs/menu.c:697
 msgid "Programa"
 msgstr "Programa"
 
-#: tabs/autostart.c:412
-msgid ""
-"Aplicativos instalados que se registram para iniciar com a sessao (fcitx, "
-"opensnitch, ...), mais os que voce adicionar. Valem a partir do proximo "
-"login."
-msgstr ""
-"Aplicativos instalados que se registram para iniciar com a sessão (fcitx, "
-"opensnitch, ...), mais os que você adicionar. Valem a partir do próximo "
-"login."
-
-#: tabs/autostart.c:419 tabs/users.c:549
+#: tabs/autostart.c:547 tabs/users.c:542
 msgid "Adicionar..."
 msgstr "Adicionar..."
 
-#: tabs/autostart.c:420 tabs/events.c:322 tabs/panels.c:1619
+#: tabs/autostart.c:548 tabs/events.c:322 tabs/panels.c:1619
 #: tabs/shortcuts.c:1430 tabs/system.c:804
 msgid "Remover"
 msgstr "Remover"
 
-#: tabs/autostart.c:430
+#: tabs/autostart.c:558
 msgid "Inicio automatico (XDG autostart)"
 msgstr "Início automático (XDG autostart)"
 
@@ -722,56 +739,48 @@ msgstr "Discos internos montam sem pedir senha"
 msgid "Discos internos voltam a pedir senha"
 msgstr "Discos internos voltam a pedir senha"
 
-#: tabs/disks.c:306
-msgid ""
-"Discos e dispositivos removiveis que ja estiveram conectados a este "
-"computador. Os marcados sao montados automaticamente sempre que forem "
-"conectados, inclusive se ja estiverem conectados ao iniciar a sessao. A "
-"montagem e feita pelo udisks, no mesmo lugar que o KDE e o GNOME usam (em "
-"geral /media/USUARIO/NOME). Os discos do sistema e os montados pelo /etc/"
-"fstab nao aparecem aqui."
-msgstr ""
-"Discos e dispositivos removíveis que já estiveram conectados a este "
-"computador. Os marcados são montados automaticamente sempre que forem "
-"conectados, inclusive se já estiverem conectados ao iniciar a sessão. A "
-"montagem é feita pelo udisks, no mesmo lugar que o KDE e o GNOME usam (em "
-"geral /media/USUÁRIO/NOME). Os discos do sistema e os montados pelo /etc/"
-"fstab não aparecem aqui."
-
-#: tabs/disks.c:324
+#: tabs/disks.c:315
 msgid "Discos conhecidos"
 msgstr "Discos conhecidos"
 
-#: tabs/disks.c:329
+#: tabs/disks.c:317
+msgid ""
+"Os marcados sao montados automaticamente sempre que forem conectados. Discos "
+"do sistema e os montados pelo /etc/fstab nao aparecem aqui."
+msgstr ""
+"Os marcados são montados automaticamente sempre que forem conectados. "
+"Discos do sistema e os montados pelo /etc/fstab não aparecem aqui."
+
+#: tabs/disks.c:323
 msgid "Montar"
 msgstr "Montar"
 
-#: tabs/disks.c:334
+#: tabs/disks.c:328
 msgid "Disco"
 msgstr "Disco"
 
-#: tabs/disks.c:334 tabs/events.c:299 tabs/panels.c:1721
+#: tabs/disks.c:328 tabs/events.c:299 tabs/panels.c:1721
 msgid "Nome"
 msgstr "Nome"
 
-#: tabs/disks.c:334 tabs/panels.c:1761 tabs/permissions.c:835
-#: tabs/permissions.c:899
+#: tabs/disks.c:328 tabs/panels.c:1761 tabs/permissions.c:801
+#: tabs/permissions.c:865
 msgid "Tipo"
 msgstr "Tipo"
 
-#: tabs/disks.c:335
+#: tabs/disks.c:329
 msgid "Sistema de arquivos"
 msgstr "Sistema de arquivos"
 
-#: tabs/disks.c:335
+#: tabs/disks.c:329
 msgid "Visto por ultimo"
 msgstr "Visto por último"
 
-#: tabs/disks.c:350
+#: tabs/disks.c:344
 msgid "Montar discos internos sem pedir senha de administrador"
 msgstr "Montar discos internos sem pedir senha de administrador"
 
-#: tabs/disks.c:352
+#: tabs/disks.c:346
 msgid ""
 "Instala uma regra do polkit que libera montar discos internos para usuarios "
 "administradores (grupo sudo) na sessao ativa. Pede a senha uma vez para "
@@ -781,19 +790,376 @@ msgstr ""
 "administradores (grupo sudo) na sessão ativa. Pede a senha uma vez para "
 "instalar."
 
-#: tabs/disks.c:361
+#: tabs/disks.c:355
 msgid "Esquecer"
 msgstr "Esquecer"
 
-#: tabs/disks.c:362
+#: tabs/disks.c:356
 msgid "Tira o disco selecionado da lista; ele volta se for conectado de novo."
 msgstr "Tira o disco selecionado da lista; ele volta se for conectado de novo."
 
-#: tabs/effects.c:309
-msgid "kicomp esta em execucao."
-msgstr "kicomp está em execução."
+#: tabs/effects.c:410 tabs/effects.c:415 tabs/effects.c:420 tabs/effects.c:425
+#: tabs/effects.c:432 tabs/effects.c:439 tabs/effects.c:446 tabs/effects.c:453
+#: tabs/effects.c:458 tabs/effects.c:464 tabs/effects.c:471 tabs/effects.c:481
+#: tabs/effects.c:508 tabs/effects.c:528 tabs/effects.c:531 tabs/effects.c:538
+#: tabs/effects.c:542 tabs/effects.c:557 tabs/effects.c:579
+msgid "Duracao (x base)"
+msgstr "Duração (x base)"
 
-#: tabs/effects.c:310
+#: tabs/effects.c:412 tabs/effects.c:417 tabs/effects.c:422 tabs/effects.c:427
+#: tabs/effects.c:434 tabs/effects.c:441 tabs/effects.c:448 tabs/effects.c:455
+#: tabs/effects.c:460 tabs/effects.c:474 tabs/effects.c:483 tabs/effects.c:493
+#: tabs/effects.c:499 tabs/effects.c:544
+msgid "Janelas"
+msgstr "Janelas"
+
+#: tabs/effects.c:428
+msgid "Tamanho inicial (fracao)"
+msgstr "Tamanho inicial (fração)"
+
+#: tabs/effects.c:429 tabs/effects.c:436 tabs/effects.c:535
+msgid "Origem"
+msgstr "Origem"
+
+#: tabs/effects.c:435
+msgid "Tamanho final (fracao)"
+msgstr "Tamanho final (fração)"
+
+#: tabs/effects.c:442
+msgid "Deslocamento inicial (fracao)"
+msgstr "Deslocamento inicial (fração)"
+
+#: tabs/effects.c:443 tabs/effects.c:450
+msgid "Direcao"
+msgstr "Direção"
+
+#: tabs/effects.c:449
+msgid "Deslocamento final (fracao)"
+msgstr "Deslocamento final (fração)"
+
+#: tabs/effects.c:461 tabs/effects.c:476
+msgid "Tambem esmaecer"
+msgstr "Também esmaecer"
+
+#: tabs/effects.c:466
+msgid "Resolucao da grade"
+msgstr "Resolução da grade"
+
+#: tabs/effects.c:467
+msgid "Ondulacoes"
+msgstr "Ondulações"
+
+#: tabs/effects.c:468
+msgid "Amplitude da ondulacao"
+msgstr "Amplitude da ondulação"
+
+#: tabs/effects.c:472 tabs/effects.c:484 tabs/effects.c:509 tabs/effects.c:543
+#: tabs/effects.c:558 tabs/effects.c:580
+msgid "Suavizacao"
+msgstr "Suavização"
+
+#: tabs/effects.c:475
+msgid "Distancia (fracao da tela)"
+msgstr "Distância (fração da tela)"
+
+#: tabs/effects.c:477
+msgid "Atraso de paralaxe (ms)"
+msgstr "Atraso de paralaxe (ms)"
+
+#: tabs/effects.c:478
+msgid "Ao cruzar para outra saida"
+msgstr "Ao cruzar para outra saída"
+
+#: tabs/effects.c:485
+msgid "Forca (fracao)"
+msgstr "Força (fração)"
+
+#: tabs/effects.c:486
+msgid "Folga (px)"
+msgstr "Folga (px)"
+
+#: tabs/effects.c:487
+msgid "Distancia maxima (px, 0=sem limite)"
+msgstr "Distância máxima (px, 0=sem limite)"
+
+#: tabs/effects.c:488
+msgid "Ponto do avanco (fracao)"
+msgstr "Ponto do avanço (fração)"
+
+#: tabs/effects.c:491
+msgid "Constante de tempo (x base)"
+msgstr "Constante de tempo (x base)"
+
+#: tabs/effects.c:494
+msgid "Atraso maximo (px)"
+msgstr "Atraso máximo (px)"
+
+#: tabs/effects.c:495
+msgid "Tambem suavizar redimensionamento"
+msgstr "Também suavizar redimensionamento"
+
+#: tabs/effects.c:500
+msgid "Rigidez"
+msgstr "Rigidez"
+
+#: tabs/effects.c:501
+msgid "Arrasto (inercia)"
+msgstr "Arrasto (inércia)"
+
+#: tabs/effects.c:502
+msgid "Fator de movimento"
+msgstr "Fator de movimento"
+
+#: tabs/effects.c:503
+msgid "Celulas da malha"
+msgstr "Células da malha"
+
+#: tabs/effects.c:504
+msgid "Tambem no redimensionamento"
+msgstr "Também no redimensionamento"
+
+#: tabs/effects.c:507 tabs/effects.c:518 tabs/effects.c:556
+#: tabs/shortcuts.c:1285 tabs/shortcuts.c:1403
+msgid "Atalho"
+msgstr "Atalho"
+
+#: tabs/effects.c:510 tabs/effects.c:521 tabs/effects.c:546
+msgid "Margem (px)"
+msgstr "Margem (px)"
+
+#: tabs/effects.c:511 tabs/effects.c:547
+msgid "Espacamento (px)"
+msgstr "Espaçamento (px)"
+
+#: tabs/effects.c:512 tabs/effects.c:545
+msgid "Escurecimento dos nao selecionados"
+msgstr "Escurecimento dos não selecionados"
+
+#: tabs/effects.c:513
+msgid "Arranjo"
+msgstr "Arranjo"
+
+#: tabs/effects.c:514 tabs/effects.c:589
+msgid "Cor de fundo"
+msgstr "Cor de fundo"
+
+#: tabs/effects.c:515 tabs/effects.c:553 tabs/effects.c:572 tabs/effects.c:597
+msgid "Janelas ao vivo"
+msgstr "Janelas ao vivo"
+
+#: tabs/effects.c:519
+msgid "Largura do painel (px)"
+msgstr "Largura do painel (px)"
+
+#: tabs/effects.c:520
+msgid "Canto"
+msgstr "Canto"
+
+#: tabs/effects.c:524
+msgid "Atalho (ampliar)"
+msgstr "Atalho (ampliar)"
+
+#: tabs/effects.c:525
+msgid "Atalho (reduzir)"
+msgstr "Atalho (reduzir)"
+
+#: tabs/effects.c:526
+msgid "Passo por clique"
+msgstr "Passo por clique"
+
+#: tabs/effects.c:527
+msgid "Ampliacao maxima"
+msgstr "Ampliação máxima"
+
+#: tabs/effects.c:533
+msgid "Intensidade (fracao)"
+msgstr "Intensidade (fração)"
+
+#: tabs/effects.c:534
+msgid "Pulsos"
+msgstr "Pulsos"
+
+#: tabs/effects.c:541
+msgid "Atalho(s)"
+msgstr "Atalho(s)"
+
+#: tabs/effects.c:548
+msgid "Ordem"
+msgstr "Ordem"
+
+#: tabs/effects.c:549
+msgid "Mostrar nomes"
+msgstr "Mostrar nomes"
+
+#: tabs/effects.c:550
+msgid "Incluir outras telas"
+msgstr "Incluir outras telas"
+
+#: tabs/effects.c:551
+msgid "Esconder paineis"
+msgstr "Esconder painéis"
+
+#: tabs/effects.c:552
+msgid "Atraso do filtro (ms)"
+msgstr "Atraso do filtro (ms)"
+
+#: tabs/effects.c:559
+msgid "Angulo (graus)"
+msgstr "Ângulo (graus)"
+
+#: tabs/effects.c:560 tabs/effects.c:583
+msgid "Perspectiva"
+msgstr "Perspectiva"
+
+#: tabs/effects.c:561
+msgid "Tamanho da capa frontal"
+msgstr "Tamanho da capa frontal"
+
+#: tabs/effects.c:562
+msgid "Distancia ate a primeira capa lateral"
+msgstr "Distância até a primeira capa lateral"
+
+#: tabs/effects.c:563
+msgid "Distancia entre as demais"
+msgstr "Distância entre as demais"
+
+#: tabs/effects.c:564
+msgid "Profundidade (px)"
+msgstr "Profundidade (px)"
+
+#: tabs/effects.c:565
+msgid "Capas visiveis de cada lado"
+msgstr "Capas visíveis de cada lado"
+
+#: tabs/effects.c:566 tabs/effects.c:590
+msgid "Opacidade do fundo"
+msgstr "Opacidade do fundo"
+
+#: tabs/effects.c:567
+msgid "Mostrar titulo selecionado"
+msgstr "Mostrar título selecionado"
+
+#: tabs/effects.c:568
+msgid "Posicao vertical do titulo"
+msgstr "Posição vertical do título"
+
+#: tabs/effects.c:569
+msgid "Largura maxima do titulo (px)"
+msgstr "Largura máxima do título (px)"
+
+#: tabs/effects.c:570
+msgid "Dar a volta nas pontas"
+msgstr "Dar a volta nas pontas"
+
+#: tabs/effects.c:571
+msgid "Incluir janelas de outras areas"
+msgstr "Incluir janelas de outras áreas"
+
+#: tabs/effects.c:573
+msgid "Trocar wallpaper ao alcancar outra area"
+msgstr "Trocar wallpaper ao alcançar outra área"
+
+#: tabs/effects.c:576
+msgid "Atalho (girar arrastando)"
+msgstr "Atalho (girar arrastando)"
+
+#: tabs/effects.c:577
+msgid "Atalho (face seguinte)"
+msgstr "Atalho (face seguinte)"
+
+#: tabs/effects.c:578
+msgid "Atalho (face anterior)"
+msgstr "Atalho (face anterior)"
+
+#: tabs/effects.c:581
+msgid "Afastamento do cubo"
+msgstr "Afastamento do cubo"
+
+#: tabs/effects.c:582
+msgid "Afastamento (giro por atalho)"
+msgstr "Afastamento (giro por atalho)"
+
+#: tabs/effects.c:584
+msgid "Voltas por arrasto completo"
+msgstr "Voltas por arrasto completo"
+
+#: tabs/effects.c:585
+msgid "Inclinacao maxima (graus)"
+msgstr "Inclinação máxima (graus)"
+
+#: tabs/effects.c:586
+msgid "Distancia da 1a janela a face (px)"
+msgstr "Distância da 1a janela à face (px)"
+
+#: tabs/effects.c:587
+msgid "Distancia entre as demais (px)"
+msgstr "Distância entre as demais (px)"
+
+#: tabs/effects.c:588
+msgid "Cor das tampas"
+msgstr "Cor das tampas"
+
+#: tabs/effects.c:591
+msgid "Paineis fixos na face"
+msgstr "Painéis fixos na face"
+
+#: tabs/effects.c:592
+msgid "Transparencia ao girar (mouse)"
+msgstr "Transparência ao girar (mouse)"
+
+#: tabs/effects.c:593
+msgid "Desenhar as tampas/lados"
+msgstr "Desenhar as tampas/lados"
+
+#: tabs/effects.c:594
+msgid "Skybox (imagem PNG panoramica)"
+msgstr "Skybox (imagem PNG panorâmica)"
+
+#: tabs/effects.c:595
+msgid "Opacidade do skybox"
+msgstr "Opacidade do skybox"
+
+#: tabs/effects.c:596
+msgid "Skybox: giros da imagem por volta do cubo"
+msgstr "Skybox: giros da imagem por volta do cubo"
+
+#: tabs/effects.c:742 tabs/panels.c:954 tabs/services.c:267
+msgid "?"
+msgstr "?"
+
+#: tabs/effects.c:850 tabs/effects.c:1311
+msgid "Adicionar efeito"
+msgstr "Adicionar efeito"
+
+#: tabs/effects.c:850
+msgid "Editar efeito"
+msgstr "Editar efeito"
+
+#: tabs/effects.c:861
+msgid "Efeito:"
+msgstr "Efeito:"
+
+#: tabs/effects.c:866
+msgid "Instancia (opcional):"
+msgstr "Instância (opcional):"
+
+#: tabs/effects.c:869
+msgid "Ativo:"
+msgstr "Ativo:"
+
+#: tabs/effects.c:975
+msgid "Efeito"
+msgstr "Efeito"
+
+#: tabs/effects.c:979
+msgid "Instancia"
+msgstr "Instância"
+
+#: tabs/effects.c:987 tabs/panels.c:1765
+msgid "Opcoes"
+msgstr "Opções"
+
+#: tabs/effects.c:1120
 msgid ""
 "kicomp nao esta em execucao -- estas configuracoes valem para a proxima vez "
 "que ele iniciar."
@@ -801,396 +1167,35 @@ msgstr ""
 "kicomp não está em execução -- estas configurações valem para a próxima vez "
 "que ele iniciar."
 
-#: tabs/effects.c:409 tabs/effects.c:414 tabs/effects.c:419 tabs/effects.c:424
-#: tabs/effects.c:431 tabs/effects.c:438 tabs/effects.c:445 tabs/effects.c:452
-#: tabs/effects.c:457 tabs/effects.c:463 tabs/effects.c:470 tabs/effects.c:480
-#: tabs/effects.c:507 tabs/effects.c:527 tabs/effects.c:530 tabs/effects.c:537
-#: tabs/effects.c:541 tabs/effects.c:556 tabs/effects.c:578
-msgid "Duracao (x base)"
-msgstr "Duração (x base)"
-
-#: tabs/effects.c:411 tabs/effects.c:416 tabs/effects.c:421 tabs/effects.c:426
-#: tabs/effects.c:433 tabs/effects.c:440 tabs/effects.c:447 tabs/effects.c:454
-#: tabs/effects.c:459 tabs/effects.c:473 tabs/effects.c:482 tabs/effects.c:492
-#: tabs/effects.c:498 tabs/effects.c:543
-msgid "Janelas"
-msgstr "Janelas"
-
-#: tabs/effects.c:427
-msgid "Tamanho inicial (fracao)"
-msgstr "Tamanho inicial (fração)"
-
-#: tabs/effects.c:428 tabs/effects.c:435 tabs/effects.c:534
-msgid "Origem"
-msgstr "Origem"
-
-#: tabs/effects.c:434
-msgid "Tamanho final (fracao)"
-msgstr "Tamanho final (fração)"
-
-#: tabs/effects.c:441
-msgid "Deslocamento inicial (fracao)"
-msgstr "Deslocamento inicial (fração)"
-
-#: tabs/effects.c:442 tabs/effects.c:449
-msgid "Direcao"
-msgstr "Direção"
-
-#: tabs/effects.c:448
-msgid "Deslocamento final (fracao)"
-msgstr "Deslocamento final (fração)"
-
-#: tabs/effects.c:460 tabs/effects.c:475
-msgid "Tambem esmaecer"
-msgstr "Também esmaecer"
-
-#: tabs/effects.c:465
-msgid "Resolucao da grade"
-msgstr "Resolução da grade"
-
-#: tabs/effects.c:466
-msgid "Ondulacoes"
-msgstr "Ondulações"
-
-#: tabs/effects.c:467
-msgid "Amplitude da ondulacao"
-msgstr "Amplitude da ondulação"
-
-#: tabs/effects.c:471 tabs/effects.c:483 tabs/effects.c:508 tabs/effects.c:542
-#: tabs/effects.c:557 tabs/effects.c:579
-msgid "Suavizacao"
-msgstr "Suavização"
-
-#: tabs/effects.c:474
-msgid "Distancia (fracao da tela)"
-msgstr "Distância (fração da tela)"
-
-#: tabs/effects.c:476
-msgid "Atraso de paralaxe (ms)"
-msgstr "Atraso de paralaxe (ms)"
-
-#: tabs/effects.c:477
-msgid "Ao cruzar para outra saida"
-msgstr "Ao cruzar para outra saída"
-
-#: tabs/effects.c:484
-msgid "Forca (fracao)"
-msgstr "Força (fração)"
-
-#: tabs/effects.c:485
-msgid "Folga (px)"
-msgstr "Folga (px)"
-
-#: tabs/effects.c:486
-msgid "Distancia maxima (px, 0=sem limite)"
-msgstr "Distância máxima (px, 0=sem limite)"
-
-#: tabs/effects.c:487
-msgid "Ponto do avanco (fracao)"
-msgstr "Ponto do avanço (fração)"
-
-#: tabs/effects.c:490
-msgid "Constante de tempo (x base)"
-msgstr "Constante de tempo (x base)"
-
-#: tabs/effects.c:493
-msgid "Atraso maximo (px)"
-msgstr "Atraso máximo (px)"
-
-#: tabs/effects.c:494
-msgid "Tambem suavizar redimensionamento"
-msgstr "Também suavizar redimensionamento"
-
-#: tabs/effects.c:499
-msgid "Rigidez"
-msgstr "Rigidez"
-
-#: tabs/effects.c:500
-msgid "Arrasto (inercia)"
-msgstr "Arrasto (inércia)"
-
-#: tabs/effects.c:501
-msgid "Fator de movimento"
-msgstr "Fator de movimento"
-
-#: tabs/effects.c:502
-msgid "Celulas da malha"
-msgstr "Células da malha"
-
-#: tabs/effects.c:503
-msgid "Tambem no redimensionamento"
-msgstr "Também no redimensionamento"
-
-#: tabs/effects.c:506 tabs/effects.c:517 tabs/effects.c:555
-#: tabs/shortcuts.c:1285 tabs/shortcuts.c:1403
-msgid "Atalho"
-msgstr "Atalho"
-
-#: tabs/effects.c:509 tabs/effects.c:520 tabs/effects.c:545
-msgid "Margem (px)"
-msgstr "Margem (px)"
-
-#: tabs/effects.c:510 tabs/effects.c:546
-msgid "Espacamento (px)"
-msgstr "Espaçamento (px)"
-
-#: tabs/effects.c:511 tabs/effects.c:544
-msgid "Escurecimento dos nao selecionados"
-msgstr "Escurecimento dos não selecionados"
-
-#: tabs/effects.c:512
-msgid "Arranjo"
-msgstr "Arranjo"
-
-#: tabs/effects.c:513 tabs/effects.c:588
-msgid "Cor de fundo"
-msgstr "Cor de fundo"
-
-#: tabs/effects.c:514 tabs/effects.c:552 tabs/effects.c:571 tabs/effects.c:596
-msgid "Janelas ao vivo"
-msgstr "Janelas ao vivo"
-
-#: tabs/effects.c:518
-msgid "Largura do painel (px)"
-msgstr "Largura do painel (px)"
-
-#: tabs/effects.c:519
-msgid "Canto"
-msgstr "Canto"
-
-#: tabs/effects.c:523
-msgid "Atalho (ampliar)"
-msgstr "Atalho (ampliar)"
-
-#: tabs/effects.c:524
-msgid "Atalho (reduzir)"
-msgstr "Atalho (reduzir)"
-
-#: tabs/effects.c:525
-msgid "Passo por clique"
-msgstr "Passo por clique"
-
-#: tabs/effects.c:526
-msgid "Ampliacao maxima"
-msgstr "Ampliação máxima"
-
-#: tabs/effects.c:532
-msgid "Intensidade (fracao)"
-msgstr "Intensidade (fração)"
-
-#: tabs/effects.c:533
-msgid "Pulsos"
-msgstr "Pulsos"
-
-#: tabs/effects.c:540
-msgid "Atalho(s)"
-msgstr "Atalho(s)"
-
-#: tabs/effects.c:547
-msgid "Ordem"
-msgstr "Ordem"
-
-#: tabs/effects.c:548
-msgid "Mostrar nomes"
-msgstr "Mostrar nomes"
-
-#: tabs/effects.c:549
-msgid "Incluir outras telas"
-msgstr "Incluir outras telas"
-
-#: tabs/effects.c:550
-msgid "Esconder paineis"
-msgstr "Esconder painéis"
-
-#: tabs/effects.c:551
-msgid "Atraso do filtro (ms)"
-msgstr "Atraso do filtro (ms)"
-
-#: tabs/effects.c:558
-msgid "Angulo (graus)"
-msgstr "Ângulo (graus)"
-
-#: tabs/effects.c:559 tabs/effects.c:582
-msgid "Perspectiva"
-msgstr "Perspectiva"
-
-#: tabs/effects.c:560
-msgid "Tamanho da capa frontal"
-msgstr "Tamanho da capa frontal"
-
-#: tabs/effects.c:561
-msgid "Distancia ate a primeira capa lateral"
-msgstr "Distância até a primeira capa lateral"
-
-#: tabs/effects.c:562
-msgid "Distancia entre as demais"
-msgstr "Distância entre as demais"
-
-#: tabs/effects.c:563
-msgid "Profundidade (px)"
-msgstr "Profundidade (px)"
-
-#: tabs/effects.c:564
-msgid "Capas visiveis de cada lado"
-msgstr "Capas visíveis de cada lado"
-
-#: tabs/effects.c:565 tabs/effects.c:589
-msgid "Opacidade do fundo"
-msgstr "Opacidade do fundo"
-
-#: tabs/effects.c:566
-msgid "Mostrar titulo selecionado"
-msgstr "Mostrar título selecionado"
-
-#: tabs/effects.c:567
-msgid "Posicao vertical do titulo"
-msgstr "Posição vertical do título"
-
-#: tabs/effects.c:568
-msgid "Largura maxima do titulo (px)"
-msgstr "Largura máxima do título (px)"
-
-#: tabs/effects.c:569
-msgid "Dar a volta nas pontas"
-msgstr "Dar a volta nas pontas"
-
-#: tabs/effects.c:570
-msgid "Incluir janelas de outras areas"
-msgstr "Incluir janelas de outras áreas"
-
-#: tabs/effects.c:572
-msgid "Trocar wallpaper ao alcancar outra area"
-msgstr "Trocar wallpaper ao alcançar outra área"
-
-#: tabs/effects.c:575
-msgid "Atalho (girar arrastando)"
-msgstr "Atalho (girar arrastando)"
-
-#: tabs/effects.c:576
-msgid "Atalho (face seguinte)"
-msgstr "Atalho (face seguinte)"
-
-#: tabs/effects.c:577
-msgid "Atalho (face anterior)"
-msgstr "Atalho (face anterior)"
-
-#: tabs/effects.c:580
-msgid "Afastamento do cubo"
-msgstr "Afastamento do cubo"
-
-#: tabs/effects.c:581
-msgid "Afastamento (giro por atalho)"
-msgstr "Afastamento (giro por atalho)"
-
-#: tabs/effects.c:583
-msgid "Voltas por arrasto completo"
-msgstr "Voltas por arrasto completo"
-
-#: tabs/effects.c:584
-msgid "Inclinacao maxima (graus)"
-msgstr "Inclinação máxima (graus)"
-
-#: tabs/effects.c:585
-msgid "Distancia da 1a janela a face (px)"
-msgstr "Distância da 1a janela à face (px)"
-
-#: tabs/effects.c:586
-msgid "Distancia entre as demais (px)"
-msgstr "Distância entre as demais (px)"
-
-#: tabs/effects.c:587
-msgid "Cor das tampas"
-msgstr "Cor das tampas"
-
-#: tabs/effects.c:590
-msgid "Paineis fixos na face"
-msgstr "Painéis fixos na face"
-
-#: tabs/effects.c:591
-msgid "Transparencia ao girar (mouse)"
-msgstr "Transparência ao girar (mouse)"
-
-#: tabs/effects.c:592
-msgid "Desenhar as tampas/lados"
-msgstr "Desenhar as tampas/lados"
-
-#: tabs/effects.c:593
-msgid "Skybox (imagem PNG panoramica)"
-msgstr "Skybox (imagem PNG panorâmica)"
-
-#: tabs/effects.c:594
-msgid "Opacidade do skybox"
-msgstr "Opacidade do skybox"
-
-#: tabs/effects.c:595
-msgid "Skybox: giros da imagem por volta do cubo"
-msgstr "Skybox: giros da imagem por volta do cubo"
-
-#: tabs/effects.c:741 tabs/panels.c:954 tabs/services.c:267
-msgid "?"
-msgstr "?"
-
-#: tabs/effects.c:849 tabs/effects.c:1310
-msgid "Adicionar efeito"
-msgstr "Adicionar efeito"
-
-#: tabs/effects.c:849
-msgid "Editar efeito"
-msgstr "Editar efeito"
-
-#: tabs/effects.c:860
-msgid "Efeito:"
-msgstr "Efeito:"
-
-#: tabs/effects.c:865
-msgid "Instancia (opcional):"
-msgstr "Instância (opcional):"
-
-#: tabs/effects.c:868
-msgid "Ativo:"
-msgstr "Ativo:"
-
-#: tabs/effects.c:974
-msgid "Efeito"
-msgstr "Efeito"
-
-#: tabs/effects.c:978
-msgid "Instancia"
-msgstr "Instância"
-
-#: tabs/effects.c:986 tabs/panels.c:1765
-msgid "Opcoes"
-msgstr "Opções"
-
-#: tabs/effects.c:1142
+#: tabs/effects.c:1143
 msgid "Efeitos habilitados:"
 msgstr "Efeitos habilitados:"
 
-#: tabs/effects.c:1145
+#: tabs/effects.c:1146
 msgid "Duracao animacoes (ms):"
 msgstr "Duração das animações (ms):"
 
-#: tabs/effects.c:1146
+#: tabs/effects.c:1147
 msgid "Duracao base das animacoes"
 msgstr "Duração base das animações"
 
-#: tabs/effects.c:1148
+#: tabs/effects.c:1149
 msgid "Renderizador:"
 msgstr "Renderizador:"
 
-#: tabs/effects.c:1153
+#: tabs/effects.c:1154
 msgid "Apresentador:"
 msgstr "Apresentador:"
 
-#: tabs/effects.c:1154
+#: tabs/effects.c:1155
 msgid "present/copy"
 msgstr "present/copy"
 
-#: tabs/effects.c:1157
+#: tabs/effects.c:1158
 msgid "Unico drawable"
 msgstr "Único drawable"
 
-#: tabs/effects.c:1160
+#: tabs/effects.c:1161
 msgid ""
 "Com mais de uma tela, todas sao atualizadas juntas: uma tela mais rapida "
 "fica limitada ao ritmo da mais lenta."
@@ -1198,67 +1203,67 @@ msgstr ""
 "Com mais de uma tela, todas são atualizadas juntas: uma tela mais rápida "
 "fica limitada ao ritmo da mais lenta."
 
-#: tabs/effects.c:1173
+#: tabs/effects.c:1174
 msgid "Unico drawable:"
 msgstr "Único drawable:"
 
-#: tabs/effects.c:1174
+#: tabs/effects.c:1175
 msgid "Compor tudo em um unico drawable"
 msgstr "Compor tudo em um único drawable"
 
-#: tabs/effects.c:1179
+#: tabs/effects.c:1180
 msgid "Ignorar decoracao WM:"
 msgstr "Ignorar decoração do WM:"
 
-#: tabs/effects.c:1180
+#: tabs/effects.c:1181
 msgid "Ignorar camadas de decoracao do WM"
 msgstr "Ignorar camadas de decoração do WM"
 
-#: tabs/effects.c:1183
+#: tabs/effects.c:1184
 msgid "Unredirect tela cheia:"
 msgstr "Unredirect em tela cheia:"
 
-#: tabs/effects.c:1184
+#: tabs/effects.c:1185
 msgid "Desviar (unredirect) janela em tela cheia"
 msgstr "Desviar (unredirect) janela em tela cheia"
 
-#: tabs/effects.c:1187
+#: tabs/effects.c:1188
 msgid "Reivindicar janelas (ms):"
 msgstr "Reivindicar janelas (ms):"
 
-#: tabs/effects.c:1188
+#: tabs/effects.c:1189
 msgid "Tempo para reivindicar janelas ja abertas"
 msgstr "Tempo para reivindicar janelas já abertas"
 
-#: tabs/effects.c:1191
+#: tabs/effects.c:1192
 msgid "Manter janelas ocultas:"
 msgstr "Manter janelas ocultas:"
 
-#: tabs/effects.c:1192
+#: tabs/effects.c:1193
 msgid "Manter conteudo de janelas ocultas (expo/wall)"
 msgstr "Manter conteúdo de janelas ocultas (expo/wall)"
 
-#: tabs/effects.c:1194
+#: tabs/effects.c:1195
 msgid "Janelas ao vivo:"
 msgstr "Janelas ao vivo:"
 
-#: tabs/effects.c:1195
+#: tabs/effects.c:1196
 msgid "Janelas ao vivo em efeitos (expo/wall/cube)"
 msgstr "Janelas ao vivo em efeitos (expo/wall/cube)"
 
-#: tabs/effects.c:1198
+#: tabs/effects.c:1199
 msgid "X-DENSITY:"
 msgstr "X-DENSITY:"
 
-#: tabs/effects.c:1199
+#: tabs/effects.c:1200
 msgid "Decoracao/conteudo nitidos sob zoom"
 msgstr "Decoração/conteúdo nítidos sob zoom"
 
-#: tabs/effects.c:1201
+#: tabs/effects.c:1202
 msgid "Captura censurada:"
 msgstr "Captura censurada:"
 
-#: tabs/effects.c:1203
+#: tabs/effects.c:1204
 msgid ""
 "Oferece a gravadores de tela (kishot) uma imagem em que as janelas marcadas "
 "com \"Ocultar da captura de tela\" aparecem como uma cor chapada (fill) ou "
@@ -1270,75 +1275,75 @@ msgstr ""
 "nem aparecem (hide). off = desligado: o gravador pinta retângulos pretos por "
 "conta própria."
 
-#: tabs/effects.c:1205
+#: tabs/effects.c:1206
 msgid "Cor da censura:"
 msgstr "Cor da censura:"
 
-#: tabs/effects.c:1206
+#: tabs/effects.c:1207
 msgid "Cor das janelas censuradas no modo fill"
 msgstr "Cor das janelas censuradas no modo fill"
 
-#: tabs/effects.c:1209
+#: tabs/effects.c:1210
 msgid "Gravadores simultaneos:"
 msgstr "Gravadores simultâneos:"
 
-#: tabs/effects.c:1210
+#: tabs/effects.c:1211
 msgid "Quantos gravadores a captura censurada atende ao mesmo tempo"
 msgstr "Quantos gravadores a captura censurada atende ao mesmo tempo"
 
-#: tabs/effects.c:1213
+#: tabs/effects.c:1214
 msgid "Geral"
 msgstr "Geral"
 
-#: tabs/effects.c:1223
+#: tabs/effects.c:1224
 msgid "Sombra habilitada:"
 msgstr "Sombra habilitada:"
 
-#: tabs/effects.c:1226
+#: tabs/effects.c:1227
 msgid "Tipos de janela:"
 msgstr "Tipos de janela:"
 
-#: tabs/effects.c:1227
+#: tabs/effects.c:1228
 msgid "ex.: windows,menus"
 msgstr "ex.: windows,menus"
 
-#: tabs/effects.c:1230 tabs/effects.c:1267
+#: tabs/effects.c:1231 tabs/effects.c:1268
 msgid "Raio do desfoque (px):"
 msgstr "Raio do desfoque (px):"
 
-#: tabs/effects.c:1234 tabs/effects.c:1271
+#: tabs/effects.c:1235 tabs/effects.c:1272
 msgid "Opacidade:"
 msgstr "Opacidade:"
 
-#: tabs/effects.c:1238 tabs/effects.c:1275
+#: tabs/effects.c:1239 tabs/effects.c:1276
 msgid "Deslocamento X"
 msgstr "Deslocamento X"
 
-#: tabs/effects.c:1241 tabs/effects.c:1278
+#: tabs/effects.c:1242 tabs/effects.c:1279
 msgid "Deslocamento Y"
 msgstr "Deslocamento Y"
 
-#: tabs/effects.c:1242 tabs/effects.c:1279
+#: tabs/effects.c:1243 tabs/effects.c:1280
 msgid "X:"
 msgstr "X:"
 
-#: tabs/effects.c:1244 tabs/effects.c:1281
+#: tabs/effects.c:1245 tabs/effects.c:1282
 msgid "Y:"
 msgstr "Y:"
 
-#: tabs/effects.c:1246 tabs/effects.c:1283
+#: tabs/effects.c:1247 tabs/effects.c:1284
 msgid "Deslocamento (px):"
 msgstr "Deslocamento (px):"
 
-#: tabs/effects.c:1247 tabs/effects.c:1284
+#: tabs/effects.c:1248 tabs/effects.c:1285
 msgid "Cor:"
 msgstr "Cor:"
 
-#: tabs/effects.c:1250
+#: tabs/effects.c:1251
 msgid "Sempre sem foco:"
 msgstr "Sempre sem foco:"
 
-#: tabs/effects.c:1252
+#: tabs/effects.c:1253
 msgid ""
 "Tipos que tambem recebem sombra, sempre com o estilo de janela sem foco "
 "(ex.: dock,tooltip,notification). Vazio = desligado. Paineis junto a outra "
@@ -1348,11 +1353,11 @@ msgstr ""
 "(ex.: dock,tooltip,notification). Vazio = desligado. Painéis junto a outra "
 "saída projetam sombra nela."
 
-#: tabs/effects.c:1255
+#: tabs/effects.c:1256
 msgid "Sem sombra sobre maximizada:"
 msgstr "Sem sombra sobre maximizada:"
 
-#: tabs/effects.c:1257
+#: tabs/effects.c:1258
 msgid ""
 "Janelas que perdem a sombra enquanto outra janela maximizada (nos dois "
 "eixos) ou em tela cheia estiver na mesma saida (ex.: dock ou class:xispanel; "
@@ -1362,31 +1367,31 @@ msgstr ""
 "eixos) ou em tela cheia estiver na mesma saída (ex.: dock ou class:xispanel; "
 "aceita ! para excluir). Vazio = desligado."
 
-#: tabs/effects.c:1261
+#: tabs/effects.c:1262
 msgid "Usar valores proprios para janelas sem foco"
 msgstr "Usar valores próprios para janelas sem foco"
 
-#: tabs/effects.c:1285
+#: tabs/effects.c:1286
 msgid "Janelas sem foco"
 msgstr "Janelas sem foco"
 
-#: tabs/effects.c:1291
+#: tabs/effects.c:1292
 msgid "Sombra"
 msgstr "Sombra"
 
-#: tabs/effects.c:1311
+#: tabs/effects.c:1312
 msgid "Remover efeito"
 msgstr "Remover efeito"
 
-#: tabs/effects.c:1317
+#: tabs/effects.c:1318
 msgid "Efeitos"
 msgstr "Efeitos"
 
-#: tabs/effects.c:1321
+#: tabs/effects.c:1322
 msgid "Reiniciar kicomp agora"
 msgstr "Reiniciar o kicomp agora"
 
-#: tabs/effects.c:1322
+#: tabs/effects.c:1323
 msgid "Aplicar (grava kicomp.conf)"
 msgstr "Aplicar (grava kicomp.conf)"
 
@@ -1418,117 +1423,51 @@ msgstr "Desligar direto"
 msgid "Configuracoes de energia salvas."
 msgstr "Configurações de energia salvas."
 
-#: tabs/energy.c:339
+#: tabs/energy.c:348
 msgid ""
 "xsct nao encontrado -- instale-o (https://github.com/faf0/sct) para a luz "
-"noturna automatica funcionar. O horario ainda pode ser configurado e salvo "
-"aqui."
+"noturna automatica funcionar. O horario ainda pode ser salvo aqui."
 msgstr ""
-"xsct não encontrado -- instale-o (https://github.com/faf0/sct) para a luz "
-"noturna automática funcionar. O horário ainda pode ser configurado e salvo "
-"aqui."
+"xsct não encontrado -- instale-o (https://github.com/faf0/sct) para a "
+"luz noturna automática funcionar. O horário ainda pode ser salvo aqui."
 
-#: tabs/energy.c:351
+#: tabs/energy.c:353
 msgid "Ativar luz noturna automatica"
 msgstr "Ativar luz noturna automática"
 
-#: tabs/energy.c:356
+#: tabs/energy.c:358
 msgid "Ligar as:"
 msgstr "Ligar às:"
 
-#: tabs/energy.c:360 tabs/energy.c:367
+#: tabs/energy.c:362 tabs/energy.c:369
 msgid ":"
 msgstr ":"
 
-#: tabs/energy.c:363
+#: tabs/energy.c:365
 msgid "   Desligar as:"
 msgstr "   Desligar às:"
 
-#: tabs/energy.c:370
+#: tabs/energy.c:372
 msgid "Ligar: hora"
 msgstr "Ligar: hora"
 
-#: tabs/energy.c:371
+#: tabs/energy.c:373
 msgid "Ligar: minuto"
 msgstr "Ligar: minuto"
 
-#: tabs/energy.c:372
+#: tabs/energy.c:374
 msgid "Desligar: hora"
 msgstr "Desligar: hora"
 
-#: tabs/energy.c:373
+#: tabs/energy.c:375
 msgid "Desligar: minuto"
 msgstr "Desligar: minuto"
 
-#: tabs/energy.c:380
+#: tabs/energy.c:382
 msgid "Temperatura durante o periodo (K):"
 msgstr "Temperatura durante o período (K):"
 
-#: tabs/energy.c:384
-msgid "Luz noturna (xsct)"
-msgstr "Luz noturna (xsct)"
-
-#: tabs/energy.c:396
-msgid "Ao fechar a tampa:"
-msgstr "Ao fechar a tampa:"
-
-#: tabs/energy.c:406
-msgid "Ao apertar o botao de energia:"
-msgstr "Ao apertar o botao de energia:"
-
-#: tabs/energy.c:407
-msgid "Tampa e botao de energia"
-msgstr "Tampa e botao de energia"
-
-#: tabs/energy.c:410
-msgid ""
-"\"Padrao do sistema\" nao mexe em nada (logind/acpid decidem). Qualquer "
-"outra opcao e tratada pelo kiconfd, que tambem impede o logind de agir em "
-"duplicidade. A tampa depende do UPower; o botao precisa que o servidor X "
-"entregue a tecla de energia."
-msgstr ""
-"\"Padrao do sistema\" nao mexe em nada (logind/acpid decidem). Qualquer "
-"outra opcao e tratada pelo kiconfd, que tambem impede o logind de agir em "
-"duplicidade. A tampa depende do UPower; o botao precisa que o servidor X "
-"entregue a tecla de energia."
-
-#: tabs/energy.c:418
-msgid "DPMS habilitado"
-msgstr "DPMS habilitado"
-
-#: tabs/energy.c:423
-msgid "Standby, s (0=off):"
-msgstr "Standby, s (0=desligado):"
-
-#: tabs/energy.c:426
-msgid "Suspend, s (0=off):"
-msgstr "Suspensão, s (0=desligado):"
-
-#: tabs/energy.c:429
-msgid "Off, s (0=off):"
-msgstr "Desligar, s (0=desligado):"
-
-#: tabs/energy.c:430
-msgid "DPMS"
-msgstr "DPMS"
-
-#: tabs/energy.c:435
-msgid "Timeout, s (0=off):"
-msgstr "Tempo, s (0=desligado):"
-
-#: tabs/energy.c:438
-msgid "Ciclo, s:"
-msgstr "Ciclo, s:"
-
-#: tabs/energy.c:439
-msgid "Preferir apagar a tela (blank)"
-msgstr "Preferir apagar a tela (blank)"
-
-#: tabs/energy.c:442
-msgid "Protetor de tela"
-msgstr "Protetor de tela"
-
-#: tabs/energy.c:445
+#: tabs/energy.c:388
 msgid ""
 "Fora do horario configurado, a tela volta a temperatura normal. Um horario "
 "de desligar menor que o de ligar cruza a meia-noite (ex.: ligar 20:00, "
@@ -1537,6 +1476,58 @@ msgstr ""
 "Fora do horário configurado, a tela volta à temperatura normal. Um horário "
 "de desligar menor que o de ligar cruza a meia-noite (ex.: ligar 20:00, "
 "desligar 06:00)."
+
+#: tabs/energy.c:399
+msgid "Luz noturna (xsct)"
+msgstr "Luz noturna (xsct)"
+
+#: tabs/energy.c:411
+msgid "Ao fechar a tampa:"
+msgstr "Ao fechar a tampa:"
+
+#: tabs/energy.c:421
+msgid "Ao apertar o botao de energia:"
+msgstr "Ao apertar o botao de energia:"
+
+#: tabs/energy.c:422
+msgid "Tampa e botao de energia"
+msgstr "Tampa e botao de energia"
+
+#: tabs/energy.c:425
+msgid "DPMS habilitado"
+msgstr "DPMS habilitado"
+
+#: tabs/energy.c:430
+msgid "Standby, s (0=off):"
+msgstr "Standby, s (0=desligado):"
+
+#: tabs/energy.c:433
+msgid "Suspend, s (0=off):"
+msgstr "Suspensão, s (0=desligado):"
+
+#: tabs/energy.c:436
+msgid "Off, s (0=off):"
+msgstr "Desligar, s (0=desligado):"
+
+#: tabs/energy.c:437
+msgid "DPMS"
+msgstr "DPMS"
+
+#: tabs/energy.c:442
+msgid "Timeout, s (0=off):"
+msgstr "Tempo, s (0=desligado):"
+
+#: tabs/energy.c:445
+msgid "Ciclo, s:"
+msgstr "Ciclo, s:"
+
+#: tabs/energy.c:446
+msgid "Preferir apagar a tela (blank)"
+msgstr "Preferir apagar a tela (blank)"
+
+#: tabs/energy.c:449
+msgid "Protetor de tela"
+msgstr "Protetor de tela"
 
 #: tabs/events.c:114 tabs/system.c:486
 msgid "Gravado."
@@ -1590,11 +1581,11 @@ msgstr ""
 "formato AAAA-MM-DD -- para eventos recorrentes ela é só a data da primeira "
 "ocorrência (o ano é ignorado exceto em NONE/YEARLY)."
 
-#: tabs/events.c:306 tabs/services.c:412
+#: tabs/events.c:306 tabs/services.c:403
 msgid "Descricao"
 msgstr "Descrição"
 
-#: tabs/events.c:321 tabs/permissions.c:959 tabs/permissions.c:1011
+#: tabs/events.c:321 tabs/permissions.c:925 tabs/permissions.c:961
 #: tabs/shortcuts.c:1429 tabs/system.c:803
 msgid "Adicionar"
 msgstr "Adicionar"
@@ -1694,8 +1685,7 @@ msgstr ""
 msgid "Titulo privado (regex):"
 msgstr "Título privado (regex):"
 
-#: tabs/history.c:388 tabs/history.c:455 tabs/permissions.c:915
-#: tabs/screens.c:2105
+#: tabs/history.c:388 tabs/history.c:455 tabs/permissions.c:881
 msgid "-"
 msgstr "-"
 
@@ -1852,30 +1842,30 @@ msgid "Campainha"
 msgstr "Campainha"
 
 #: tabs/input.c:621
-msgid "ToggleModifiersOnPress -- alterna trava de modificador ao pressionar"
-msgstr "ToggleModifiersOnPress -- alterna trava de modificador ao pressionar"
+msgid "Alternar a trava de modificador ao pressionar"
+msgstr "Alternar a trava de modificador ao pressionar"
 
-#: tabs/input.c:625
-msgid "KickHotkeysOnRelease -- troca layout de teclado ao soltar o atalho"
-msgstr "KickHotkeysOnRelease -- troca layout de teclado ao soltar o atalho"
+#: tabs/input.c:626
+msgid "Ativar atalhos de varias teclas ao soltar"
+msgstr "Ativar atalhos de várias teclas ao soltar"
 
-#: tabs/input.c:628
-msgid "Opcoes especiais de teclado (XiS)"
-msgstr "Opções especiais de teclado (XiS)"
+#: tabs/input.c:630
+msgid "Opcoes especiais de teclado"
+msgstr "Opções especiais de teclado"
 
-#: tabs/input.c:632
-msgid "DisablePrimarySelection -- desativa colar com o botao do meio"
-msgstr "DisablePrimarySelection -- desativa colar com o botão do meio"
-
-#: tabs/input.c:635
-msgid "Selecao primaria (XiS)"
-msgstr "Seleção primária (XiS)"
+#: tabs/input.c:634
+msgid "Desativar colar com o botao do meio"
+msgstr "Desativar colar com o botão do meio"
 
 #: tabs/input.c:638
+msgid "Selecao primaria"
+msgstr "Seleção primária"
+
+#: tabs/input.c:641
 msgid "Ativar NumLock ao iniciar a sessao"
 msgstr "Ativar NumLock ao iniciar a sessão"
 
-#: tabs/input.c:641
+#: tabs/input.c:644
 msgid "Inicio de sessao"
 msgstr "Início de sessão"
 
@@ -2039,7 +2029,7 @@ msgstr ""
 msgid "Salvar como..."
 msgstr "Salvar como..."
 
-#: tabs/kitheme.c:486 tabs/menu.c:719
+#: tabs/kitheme.c:486 tabs/menu.c:711
 msgid "Excluir"
 msgstr "Excluir"
 
@@ -2051,7 +2041,7 @@ msgstr "Cor principal (destaque):"
 msgid "Gera a selecao, o destaque, a barra de progresso e o texto das dicas."
 msgstr "Gera a seleção, o destaque, a barra de progresso e o texto das dicas."
 
-#: tabs/kitheme.c:505 tabs/lock.c:156 tabs/panels.c:1947 tabs/windows.c:417
+#: tabs/kitheme.c:505 tabs/lock.c:155 tabs/panels.c:1941 tabs/windows.c:414
 msgid "Cor de fundo:"
 msgstr "Cor de fundo:"
 
@@ -2061,7 +2051,7 @@ msgid ""
 msgstr ""
 "Gera o fundo das janelas, campos, botões e menus, e as dicas no tom oposto."
 
-#: tabs/kitheme.c:532 tabs/screens.c:2257
+#: tabs/kitheme.c:532 tabs/screens.c:2240
 msgid "Avancado"
 msgstr "Avançado"
 
@@ -2147,7 +2137,7 @@ msgstr ""
 msgid "Programas Qt e GTK2. GTK3 e GTK4 nao permitem que o tema faca isso."
 msgstr "Programas Qt e GTK2. GTK3 e GTK4 não permitem que o tema faça isso."
 
-#: tabs/kitheme.c:584 tabs/lock.c:192 tabs/windows.c:521
+#: tabs/kitheme.c:584 tabs/lock.c:191 tabs/windows.c:527
 msgid "Comportamento"
 msgstr "Comportamento"
 
@@ -2167,77 +2157,71 @@ msgstr "Prévia"
 msgid "Visualizar/ocultar preview"
 msgstr "Visualizar/ocultar preview"
 
-#: tabs/lock.c:97 tabs/lock.c:112
+#: tabs/lock.c:96 tabs/lock.c:111
 msgid "Nao foi possivel salvar kilock.conf"
 msgstr "Não foi possível salvar kilock.conf"
 
-#: tabs/lock.c:115
+#: tabs/lock.c:114
 msgid "Aplicado (vale no proximo bloqueio)"
 msgstr "Aplicado (vale no próximo bloqueio)"
 
-#: tabs/lock.c:135
+#: tabs/lock.c:134
 msgid "Nao foi possivel executar o kilock"
 msgstr "Não foi possível executar o kilock"
 
-#: tabs/lock.c:148
-msgid ""
-"O bloqueio de tela usa o i3lock, que so aceita opcoes de linha de comando; "
-"aqui elas ficam guardadas em ~/.config/kilock.conf. O tempo parado ate "
-"bloquear e o do protetor de tela, na aba Energia."
-msgstr ""
-"O bloqueio de tela usa o i3lock, que só aceita opções de linha de comando; "
-"aqui elas ficam guardadas em ~/.config/kilock.conf. O tempo parado até "
-"bloquear é o do protetor de tela, na aba Energia."
+#: tabs/lock.c:149
+msgid "i3lock nao esta instalado: o bloqueio de tela nao vai funcionar."
+msgstr "i3lock não está instalado: o bloqueio de tela não vai funcionar."
 
-#: tabs/lock.c:158
+#: tabs/lock.c:157
 msgid "Imagem de fundo"
 msgstr "Imagem de fundo"
 
-#: tabs/lock.c:165
+#: tabs/lock.c:164
 msgid "Somente PNG. Sem imagem, a tela fica com a cor de fundo."
 msgstr "Somente PNG. Sem imagem, a tela fica com a cor de fundo."
 
-#: tabs/lock.c:166
+#: tabs/lock.c:165
 msgid "Sem imagem"
 msgstr "Sem imagem"
 
-#: tabs/lock.c:171
+#: tabs/lock.c:170
 msgid "Imagem:"
 msgstr "Imagem:"
 
-#: tabs/lock.c:180
+#: tabs/lock.c:179
 msgid "Repetir a imagem lado a lado"
 msgstr "Repetir a imagem lado a lado"
 
-#: tabs/lock.c:181
+#: tabs/lock.c:180
 msgid "Mostrar o indicador de senha ao digitar"
 msgstr "Mostrar o indicador de senha ao digitar"
 
-#: tabs/lock.c:182
+#: tabs/lock.c:181
 msgid "Mostrar o numero de tentativas erradas"
 msgstr "Mostrar o número de tentativas erradas"
 
-#: tabs/lock.c:183
+#: tabs/lock.c:182
 msgid "Apitar quando a senha estiver errada"
 msgstr "Apitar quando a senha estiver errada"
 
-#: tabs/lock.c:184
+#: tabs/lock.c:183
 msgid "Ignorar senha vazia (evita espera apos apertar Enter sem querer)"
 msgstr "Ignorar senha vazia (evita espera após apertar Enter sem querer)"
 
-#: tabs/lock.c:185
+#: tabs/lock.c:184
 msgid "Manter o ponteiro do mouse visivel"
 msgstr "Manter o ponteiro do mouse visível"
 
-#: tabs/lock.c:198
+#: tabs/lock.c:197
 msgid "Testar bloqueio"
 msgstr "Testar bloqueio"
 
-#: tabs/lock.c:199
+#: tabs/lock.c:198
 msgid "Salva e bloqueia a tela agora; volte com a sua senha."
 msgstr "Salva e bloqueia a tela agora; volte com a sua senha."
 
-#: tabs/login.c:46 tabs/login.c:48 tabs/windows.c:424
+#: tabs/login.c:46 tabs/login.c:48 tabs/windows.c:421
 msgid "Tema:"
 msgstr "Tema:"
 
@@ -2247,12 +2231,8 @@ msgstr "Greeter:"
 
 #: tabs/login.c:550
 #, c-format
-msgid ""
-"Alteracoes vao para %s e valem no proximo login (o gerenciador nao e "
-"reiniciado, para nao encerrar a sessao atual)."
-msgstr ""
-"As alterações vão para %s e valem no próximo login (o gerenciador não é "
-"reiniciado, para não encerrar a sessão atual)."
+msgid "Grava em %s."
+msgstr "Grava em %s."
 
 #: tabs/login.c:581
 msgid "Valor invalido: sem caracteres de controle, '\\' ou '`'."
@@ -2283,55 +2263,47 @@ msgstr "Autorização negada ou cancelada."
 msgid "Falha ao gravar a configuracao."
 msgstr "Falha ao gravar a configuração."
 
-#: tabs/login.c:638
-msgid ""
-"Gerenciador de login (SDDM, LightDM ou SLiM). Ver as configuracoes nao exige "
-"senha; gravar pede a senha de administrador."
-msgstr ""
-"Gerenciador de login (SDDM, LightDM ou SLiM). Ver as configurações não exige "
-"senha; gravar pede a senha de administrador."
-
-#: tabs/login.c:673
+#: tabs/login.c:666
 msgid " (em uso)"
 msgstr " (em uso)"
 
-#: tabs/login.c:680
+#: tabs/login.c:673
 msgid "Gerenciador:"
 msgstr "Gerenciador:"
 
-#: tabs/login.c:682
+#: tabs/login.c:675
 msgid "Login automatico"
 msgstr "Login automático"
 
-#: tabs/login.c:687 tabs/users.c:268
+#: tabs/login.c:680 tabs/users.c:268
 msgid "Usuario:"
 msgstr "Usuário:"
 
-#: tabs/login.c:690
+#: tabs/login.c:683
 msgid "Sessao:"
 msgstr "Sessão:"
 
-#: tabs/login.c:693
+#: tabs/login.c:686
 msgid "Nao alterar"
 msgstr "Não alterar"
 
-#: tabs/login.c:694
+#: tabs/login.c:687
 msgid "Ligar"
 msgstr "Ligar"
 
-#: tabs/login.c:695
+#: tabs/login.c:688
 msgid "Desligar"
 msgstr "Desligar"
 
-#: tabs/login.c:696
+#: tabs/login.c:689
 msgid "Num Lock:"
 msgstr "Num Lock:"
 
-#: tabs/login.c:699
+#: tabs/login.c:692
 msgid "Tema / greeter:"
 msgstr "Tema / greeter:"
 
-#: tabs/login.c:719
+#: tabs/login.c:712
 msgid ""
 "Nenhum gerenciador de login suportado (SDDM, LightDM, SLiM) foi encontrado."
 msgstr ""
@@ -2442,7 +2414,7 @@ msgstr "Use NOME=valor, separadas por espaço."
 msgid "Filtrar programas"
 msgstr "Filtrar programas"
 
-#: tabs/menu.c:679 tabs/services.c:400
+#: tabs/menu.c:679 tabs/services.c:391
 msgid "Filtrar:"
 msgstr "Filtrar:"
 
@@ -2450,23 +2422,11 @@ msgstr "Filtrar:"
 msgid "Visivel"
 msgstr "Visível"
 
-#: tabs/menu.c:706
-msgid ""
-"Ocultar/editar uma entrada do sistema cria uma copia em ~/.local/share/"
-"applications -- o arquivo original nunca e alterado. \"Excluir\" so funciona "
-"em entradas ja criadas pelo usuario. As opcoes \"Somente no KiDesktop\" "
-"ficam em ~/.local/share/kidesktop."
-msgstr ""
-"Ocultar/editar uma entrada do sistema cria uma cópia em ~/.local/share/"
-"applications -- o arquivo original nunca é alterado. \"Excluir\" só funciona "
-"em entradas já criadas pelo usuário. As opções \"Somente no KiDesktop\" "
-"ficam em ~/.local/share/kidesktop."
-
-#: tabs/menu.c:715
+#: tabs/menu.c:707
 msgid "Novo..."
 msgstr "Novo..."
 
-#: tabs/menu.c:717 tabs/users.c:550
+#: tabs/menu.c:709 tabs/users.c:543
 msgid "Editar..."
 msgstr "Editar..."
 
@@ -2491,8 +2451,8 @@ msgid "Tema de icones (global)"
 msgstr "Tema de ícones (global)"
 
 #: tabs/panels.c:478
-msgid "Cor de destaque (#RRGGBBAA)"
-msgstr "Cor de destaque (#RRGGBBAA)"
+msgid "Cor de destaque"
+msgstr "Cor de destaque"
 
 #: tabs/panels.c:479
 msgid "Pasta de tema bitmap"
@@ -2871,7 +2831,7 @@ msgstr "Espaçamento entre widgets dentro (px; vazio = espaçamento do painel)"
 msgid "Mostrar no painel dono (inline)"
 msgstr "Mostrar no painel dono (inline)"
 
-#: tabs/panels.c:1170 tabs/panels.c:1929
+#: tabs/panels.c:1170 tabs/panels.c:1923
 msgid "Adicionar widget"
 msgstr "Adicionar widget"
 
@@ -2941,7 +2901,7 @@ msgstr "Reaproveitar janela da dica entre widgets"
 msgid "Espacamento extra da dica (px)"
 msgstr "Espaçamento extra da dica (px)"
 
-#: tabs/panels.c:1367 tabs/panels.c:1876
+#: tabs/panels.c:1367 tabs/panels.c:1870
 msgid "Adicionar painel"
 msgstr "Adicionar painel"
 
@@ -2953,10 +2913,10 @@ msgstr "Editar painel"
 msgid "Output:"
 msgstr "Saída:"
 
-#: tabs/panels.c:1421 tabs/panels.c:1813 tabs/panels.c:1966
+#: tabs/panels.c:1421 tabs/panels.c:1813 tabs/panels.c:1960
 #, c-format
-msgid "Outras opcoes de '%s':"
-msgstr "Outras opções de '%s':"
+msgid "Tema de '%s':"
+msgstr "Tema de '%s':"
 
 #: tabs/panels.c:1565
 #, c-format
@@ -2987,23 +2947,15 @@ msgstr "Enviar para..."
 msgid "Output"
 msgstr "Saída"
 
-#: tabs/panels.c:1854
-msgid ""
-"Editor direto de xispanel.conf (PANEL/WIDGET/THEME). Opcoes sao\n"
-"a string key=value bruta de cada linha -- ver xispanel/PROTOCOL.md."
-msgstr ""
-"Editor direto de xispanel.conf (PANEL/WIDGET/THEME). Opções são\n"
-"a string key=value bruta de cada linha -- ver xispanel/PROTOCOL.md."
-
-#: tabs/panels.c:1877
+#: tabs/panels.c:1871
 msgid "Remover painel"
 msgstr "Remover painel"
 
-#: tabs/panels.c:1930
+#: tabs/panels.c:1924
 msgid "Remover widget"
 msgstr "Remover widget"
 
-#: tabs/panels.c:1936
+#: tabs/panels.c:1930
 msgid ""
 "Ctrl+clique seleciona varios; clique direito copia ou envia os selecionados "
 "pra outro painel"
@@ -3011,23 +2963,23 @@ msgstr ""
 "Ctrl+clique seleciona vários; clique direito copia ou envia os selecionados "
 "pra outro painel"
 
-#: tabs/panels.c:1938
+#: tabs/panels.c:1932
 msgid "Widgets do painel selecionado"
 msgstr "Widgets do painel selecionado"
 
-#: tabs/panels.c:1953 tabs/windows.c:418
+#: tabs/panels.c:1947 tabs/windows.c:415
 msgid "Cor do texto:"
 msgstr "Cor do texto:"
 
-#: tabs/panels.c:1960
-msgid "Espacamento entre widgets (px):"
-msgstr "Espaçamento entre widgets (px):"
+#: tabs/panels.c:1954
+msgid "Espacamento (px):"
+msgstr "Espaçamento (px):"
 
-#: tabs/panels.c:1982
+#: tabs/panels.c:1984
 msgid "Tema (cores/fonte do painel selecionado)"
 msgstr "Tema (cores/fonte do painel selecionado)"
 
-#: tabs/panels.c:1994
+#: tabs/panels.c:1996
 msgid "Salvar e recarregar xispanel"
 msgstr "Salvar e recarregar o xispanel"
 
@@ -3099,12 +3051,12 @@ msgstr "Mudar configuração de tela"
 msgid "Criar janela overlay (transparente)"
 msgstr "Criar janela overlay (transparente)"
 
-#: tabs/permissions.c:480
+#: tabs/permissions.c:452
 #, c-format
 msgid "xisguard inacessivel."
 msgstr "xisguard inacessível."
 
-#: tabs/permissions.c:482
+#: tabs/permissions.c:454
 #, c-format
 msgid ""
 "Nao foi possivel descobrir o diretorio de regras de sistema (timeout do X "
@@ -3113,16 +3065,12 @@ msgstr ""
 "Não foi possível descobrir o diretório de regras de sistema (timeout do X "
 "server)."
 
-#: tabs/permissions.c:484
+#: tabs/permissions.c:456
 #, c-format
-msgid ""
-"%s (e xnotify.conf) -- %d regra(s) em %d arquivo(s), na ordem em que o X "
-"server as aplica. Editar pede autorizacao (polkit) e recarrega o X server."
-msgstr ""
-"%s (e xnotify.conf) -- %d regra(s) em %d arquivo(s), na ordem em que o X "
-"server as aplica. Editar pede autorização (polkit) e recarrega o X server."
+msgid "%d regra(s) carregada(s) de %d arquivo(s)."
+msgstr "%d regra(s) carregada(s) de %d arquivo(s)."
 
-#: tabs/permissions.c:539
+#: tabs/permissions.c:510
 msgid ""
 "Esta alteracao zera as autorizacoes ja concedidas: o xisguard recarrega as "
 "regras no servidor, e programas abertos que dependiam delas perdem o acesso "
@@ -3132,56 +3080,50 @@ msgstr ""
 "regras no servidor, e programas abertos que dependiam delas perdem o acesso "
 "e podem ser fechados."
 
-#: tabs/permissions.c:672
+#: tabs/permissions.c:643
 msgid "Salvo, mas o xisguard nao respondeu ao RELOAD."
 msgstr "Salvo, mas o xisguard não respondeu ao RELOAD."
 
-#: tabs/permissions.c:737
+#: tabs/permissions.c:708
 msgid "Diretorio de regras de sistema desconhecido."
 msgstr "Diretório de regras de sistema desconhecido."
 
-#: tabs/permissions.c:762
-#, c-format
-msgid "xisguard conectado."
-msgstr "xisguard conectado."
-
-#: tabs/permissions.c:765
-#, c-format
+#: tabs/permissions.c:732
 msgid ""
 "xisguard inacessivel (daemon parado, ou socket de controle ainda nao existe)."
 msgstr ""
 "xisguard inacessível (daemon parado, ou socket de controle ainda não existe)."
 
-#: tabs/permissions.c:774
-msgid "no_pause (nao pausar decisao)"
-msgstr "no_pause (não pausar decisão)"
+#: tabs/permissions.c:737
+msgid "Nao pausar programas"
+msgstr "Não pausar programas"
 
-#: tabs/permissions.c:777
-msgid "quiet (sem notificacoes)"
-msgstr "quiet (sem notificações)"
+#: tabs/permissions.c:741
+msgid "Sem notificacoes"
+msgstr "Sem notificações"
 
-#: tabs/permissions.c:780
-msgid "always_kill (sempre matar em DENY)"
-msgstr "always_kill (sempre matar em DENY)"
+#: tabs/permissions.c:745
+msgid "Sempre encerrar o programa ao negar"
+msgstr "Sempre encerrar o programa ao negar"
 
-#: tabs/permissions.c:783
-msgid "secure_mode"
-msgstr "secure_mode"
+#: tabs/permissions.c:749
+msgid "Modo seguro"
+msgstr "Modo seguro"
 
-#: tabs/permissions.c:784
+#: tabs/permissions.c:750
 msgid "Regras de usuario desligadas; novas regras permanentes pedem senha root"
 msgstr ""
 "Regras de usuário desligadas; novas regras permanentes pedem senha root"
 
-#: tabs/permissions.c:789
-msgid "log_level:"
-msgstr "log_level:"
+#: tabs/permissions.c:755
+msgid "Nivel de log:"
+msgstr "Nível de log:"
 
-#: tabs/permissions.c:790
+#: tabs/permissions.c:756
 msgid "Modo permissivo (libera tudo, so registra)"
 msgstr "Modo permissivo (libera tudo, só registra)"
 
-#: tabs/permissions.c:792
+#: tabs/permissions.c:758
 msgid ""
 "O XisGuard libera todas as acoes mas os programas continuam sendo "
 "registrados. Fica salvo e vale tambem nas proximas sessoes (padrao em "
@@ -3193,106 +3135,93 @@ msgstr ""
 "instalações novas). Programas que já ganharam acesso só o perdem ao "
 "reconectar."
 
-#: tabs/permissions.c:817
+#: tabs/permissions.c:783
 msgid "Modo de execucao"
 msgstr "Modo de execução"
 
-#: tabs/permissions.c:818
+#: tabs/permissions.c:784
 msgid "Avisos"
 msgstr "Avisos"
 
-#: tabs/permissions.c:835 tabs/permissions.c:899 tabs/permissions.c:932
+#: tabs/permissions.c:801 tabs/permissions.c:865 tabs/permissions.c:898
 #: tabs/shortcuts.c:1275 tabs/shortcuts.c:1403
 msgid "Acao"
 msgstr "Ação"
 
-#: tabs/permissions.c:835 tabs/permissions.c:871 tabs/permissions.c:899
-#: tabs/permissions.c:935
+#: tabs/permissions.c:801 tabs/permissions.c:837 tabs/permissions.c:865
+#: tabs/permissions.c:901
 msgid "Padrao"
 msgstr "Padrão"
 
-#: tabs/permissions.c:876
+#: tabs/permissions.c:842
 msgid "Adicionar regra"
 msgstr "Adicionar regra"
 
-#: tabs/permissions.c:877 tabs/permissions.c:961
+#: tabs/permissions.c:843 tabs/permissions.c:927
 msgid "Remover selecionada"
 msgstr "Remover selecionada"
 
-#: tabs/permissions.c:878
+#: tabs/permissions.c:844
 msgid "Recarregar (RELOAD)"
 msgstr "Recarregar (RELOAD)"
 
-#: tabs/permissions.c:888
+#: tabs/permissions.c:854
 msgid "Regras de usuario"
 msgstr "Regras de usuário"
 
-#: tabs/permissions.c:899 tabs/sounds.c:141
+#: tabs/permissions.c:865 tabs/sounds.c:141
 msgid "Arquivo"
 msgstr "Arquivo"
 
-#: tabs/permissions.c:899
+#: tabs/permissions.c:865
 msgid "Linha"
 msgstr "Linha"
 
-#: tabs/permissions.c:946
+#: tabs/permissions.c:912
 msgid "Prioridade"
 msgstr "Prioridade"
 
-#: tabs/permissions.c:949
+#: tabs/permissions.c:915
 msgid "Nome do arquivo"
 msgstr "Nome do arquivo"
 
-#: tabs/permissions.c:950
+#: tabs/permissions.c:916
 msgid "Nova regra em:"
 msgstr "Nova regra em:"
 
-#: tabs/permissions.c:954
+#: tabs/permissions.c:920
 msgid ".conf"
 msgstr ".conf"
 
-#: tabs/permissions.c:960
+#: tabs/permissions.c:926
 msgid "Alterar selecionada"
 msgstr "Alterar selecionada"
 
-#: tabs/permissions.c:965
+#: tabs/permissions.c:931
 msgid "Recarregar"
 msgstr "Recarregar"
 
-#: tabs/permissions.c:975
+#: tabs/permissions.c:941
 msgid "Regras de sistema"
 msgstr "Regras de sistema"
 
-#: tabs/permissions.c:982
+#: tabs/permissions.c:948
 msgid "Programa (caminho ou padrao)"
 msgstr "Programa (caminho ou padrão)"
 
-#: tabs/permissions.c:990
-msgid ""
-"REPORTs destes programas nao aparecem (programas sempre necessarios na "
-"sessao, como gerenciadores de janela, area de transferencia e teclado)."
-msgstr ""
-"REPORTs destes programas não aparecem (programas sempre necessários na "
-"sessão, como gerenciadores de janela, área de transferência e teclado)."
-
-#: tabs/permissions.c:998
-#, c-format
-msgid "Sempre ignorados (KiDesktop): %s"
-msgstr "Sempre ignorados (KiDesktop): %s"
-
-#: tabs/permissions.c:1009
+#: tabs/permissions.c:959
 msgid "Programa ignorado"
 msgstr "Programa ignorado"
 
-#: tabs/permissions.c:1012
+#: tabs/permissions.c:962
 msgid "Remover selecionado"
 msgstr "Remover selecionado"
 
-#: tabs/permissions.c:1020
+#: tabs/permissions.c:970
 msgid "Ignorados"
 msgstr "Ignorados"
 
-#: tabs/permissions.c:1022
+#: tabs/permissions.c:972
 msgid "Regras XNOTIFY"
 msgstr "Regras XNOTIFY"
 
@@ -3313,106 +3242,105 @@ msgid "Gerenciador de janelas a carregar:"
 msgstr "Gerenciador de janelas a carregar:"
 
 #: tabs/programs.c:301
-msgid "Sessao (kisession.conf -- \"(automatico)\" usa o primeiro instalado)"
-msgstr "Sessão (kisession.conf -- \"(automático)\" usa o primeiro instalado)"
+msgid "Sessao"
+msgstr "Sessão"
 
-#: tabs/screens.c:1974 tabs/screens.c:1996 tabs/screens.c:2110
+#: tabs/screens.c:1975 tabs/screens.c:1997
 #, c-format
 msgid "%d saida(s) detectada(s)."
 msgstr "%d saída(s) detectada(s)."
 
-#: tabs/screens.c:2094
-msgid ""
-"Arraste as caixas pra reposicionar. Aplicar tambem grava o layout pra ser "
-"reaplicado automaticamente no inicio da proxima sessao."
-msgstr ""
-"Arraste as caixas pra reposicionar. Aplicar também grava o layout pra ser "
-"reaplicado automaticamente no início da próxima sessão."
-
-#: tabs/screens.c:2126 tabs/wallpaper.c:1450
+#: tabs/screens.c:2109 tabs/wallpaper.c:1450
 msgid "Saida"
 msgstr "Saída"
 
-#: tabs/screens.c:2130
+#: tabs/screens.c:2113
 msgid "Clique pra configurar; duplo clique liga a saida"
 msgstr "Clique pra configurar; duplo clique liga a saída"
 
-#: tabs/screens.c:2141
+#: tabs/screens.c:2124
 msgid "Layout (arraste pra mover)"
 msgstr "Layout (arraste pra mover)"
 
-#: tabs/screens.c:2142
+#: tabs/screens.c:2125
 msgid "Desativadas"
 msgstr "Desativadas"
 
-#: tabs/screens.c:2153
+#: tabs/screens.c:2136
 msgid "Resolucao:"
 msgstr "Resolução:"
 
-#: tabs/screens.c:2156
+#: tabs/screens.c:2139
 msgid "Taxa de atualizacao:"
 msgstr "Taxa de atualização:"
 
-#: tabs/screens.c:2163
+#: tabs/screens.c:2146
 msgid "Rotacao:"
 msgstr "Rotação:"
 
-#: tabs/screens.c:2166
+#: tabs/screens.c:2149
 msgid "Espelhar (mirror):"
 msgstr "Espelhar (mirror):"
 
-#: tabs/screens.c:2167
+#: tabs/screens.c:2150
 msgid "Saida ligada"
 msgstr "Saída ligada"
 
-#: tabs/screens.c:2170
+#: tabs/screens.c:2153
 msgid "Saida primaria"
 msgstr "Saída primária"
 
-#: tabs/screens.c:2188
+#: tabs/screens.c:2171
 msgid ""
 "Densidade da tela, informada aos programas. Com \"Seguir DPI\", a escala "
 "acompanha: acima de 96 a tela fica maior (HiDPI); abaixo de 96 cabe mais "
 "area de trabalho nela."
-msgstr "Densidade da tela, informada aos programas. Com \"Seguir DPI\", a escala acompanha: acima de 96 a tela fica maior (HiDPI); abaixo de 96 cabe mais área de trabalho nela."
+msgstr ""
+"Densidade da tela, informada aos programas. Com \"Seguir DPI\", a escala "
+"acompanha: acima de 96 a tela fica maior (HiDPI); abaixo de 96 cabe mais "
+"área de trabalho nela."
 
-#: tabs/screens.c:2191
+#: tabs/screens.c:2174
 msgid "DPI:"
 msgstr "DPI:"
 
-#: tabs/screens.c:2199
+#: tabs/screens.c:2182
 msgid ""
 "--scale do xrandr: abaixo de 1 a tela fica maior; acima de 1 cabe mais area "
 "de trabalho nela."
-msgstr "--scale do xrandr: abaixo de 1 a tela fica maior; acima de 1 cabe mais área de trabalho nela."
+msgstr ""
+"--scale do xrandr: abaixo de 1 a tela fica maior; acima de 1 cabe mais área "
+"de trabalho nela."
 
-#: tabs/screens.c:2201
+#: tabs/screens.c:2184
 msgid "Seguir DPI"
 msgstr "Seguir DPI"
 
-#: tabs/screens.c:2203
+#: tabs/screens.c:2186
 msgid "A escala acompanha o DPI (96/DPI)."
 msgstr "A escala acompanha o DPI (96/DPI)."
 
-#: tabs/screens.c:2207
+#: tabs/screens.c:2190
 msgid "Escala:"
 msgstr "Escala:"
 
-#: tabs/screens.c:2219
+#: tabs/screens.c:2202
 msgid ""
 "Sem um compositor com X-DENSITY, telas ampliadas (escala abaixo de 1) ficam "
 "borradas."
-msgstr "Sem um compositor com X-DENSITY, telas ampliadas (escala abaixo de 1) ficam borradas."
+msgstr ""
+"Sem um compositor com X-DENSITY, telas ampliadas (escala abaixo de 1) ficam "
+"borradas."
 
-#: tabs/screens.c:2237
+#: tabs/screens.c:2220
 msgid "Saida selecionada"
 msgstr "Saída selecionada"
 
-#: tabs/screens.c:2258
+#: tabs/screens.c:2241
 msgid "Propriedades avancadas"
 msgstr "Propriedades avançadas"
 
-#: tabs/screens.c:2264
+#: tabs/screens.c:2247
 msgid "Detectar novamente"
 msgstr "Detectar novamente"
 
@@ -3455,52 +3383,43 @@ msgstr "%s: %s executado."
 msgid "%s: %s falhou (codigo %d)."
 msgstr "%s: %s falhou (código %d)."
 
-#: tabs/services.c:392
-#, c-format
-msgid ""
-"Servicos do sistema (%s). Ver o estado nao exige senha; iniciar, parar, "
-"reiniciar, ativar ou desativar pede a senha de administrador."
-msgstr ""
-"Serviços do sistema (%s). Ver o estado não exige senha; iniciar, parar, "
-"reiniciar, ativar ou desativar pede a senha de administrador."
-
-#: tabs/services.c:402
+#: tabs/services.c:393
 msgid "Filtrar servicos"
 msgstr "Filtrar serviços"
 
-#: tabs/services.c:412
+#: tabs/services.c:403
 msgid "Estado"
 msgstr "Estado"
 
-#: tabs/services.c:412
+#: tabs/services.c:403
 msgid "Na inicializacao"
 msgstr "Na inicialização"
 
-#: tabs/services.c:412
+#: tabs/services.c:403
 msgid "Servico"
 msgstr "Serviço"
 
-#: tabs/services.c:429
+#: tabs/services.c:420
 msgid "Iniciar"
 msgstr "Iniciar"
 
-#: tabs/services.c:430
+#: tabs/services.c:421
 msgid "Parar"
 msgstr "Parar"
 
-#: tabs/services.c:431
+#: tabs/services.c:422
 msgid "Reiniciar"
 msgstr "Reiniciar"
 
-#: tabs/services.c:432
+#: tabs/services.c:423
 msgid "Ativar na inicializacao"
 msgstr "Ativar na inicialização"
 
-#: tabs/services.c:433
+#: tabs/services.c:424
 msgid "Desativar na inicializacao"
 msgstr "Desativar na inicialização"
 
-#: tabs/services.c:440
+#: tabs/services.c:431
 msgid "_Atualizar"
 msgstr "_Atualizar"
 
@@ -3632,7 +3551,7 @@ msgstr "Sair da sessão"
 
 #: tabs/sounds.c:39
 msgid "Pedido de senha (pkexec / polkit)"
-msgstr ""
+msgstr "Pedido de senha (pkexec / polkit)"
 
 #: tabs/sounds.c:40
 msgid "Campainha do sistema"
@@ -3702,51 +3621,43 @@ msgstr "Não foi possível gravar o arquivo de sons."
 msgid "Salvo. Os programas aplicam em ate 2 segundos."
 msgstr "Salvo. Os programas aplicam em até 2 segundos."
 
-#: tabs/sounds.c:332
-msgid ""
-"Sons dos eventos do desktop. Escolher um tema muda todos de uma vez; na "
-"lista abaixo cada evento pode ter um arquivo proprio ou ficar silencioso."
-msgstr ""
-"Sons dos eventos do desktop. Escolher um tema muda todos de uma vez; na "
-"lista abaixo cada evento pode ter um arquivo próprio ou ficar silencioso."
-
-#: tabs/sounds.c:344
+#: tabs/sounds.c:337
 msgid "Ativar sons"
 msgstr "Ativar sons"
 
-#: tabs/sounds.c:351
+#: tabs/sounds.c:344
 msgid "Tema sonoro:"
 msgstr "Tema sonoro:"
 
-#: tabs/sounds.c:355
+#: tabs/sounds.c:348
 msgid "Volume:"
 msgstr "Volume:"
 
-#: tabs/sounds.c:360
+#: tabs/sounds.c:353
 msgid "Eventos sonoros"
 msgstr "Eventos sonoros"
 
-#: tabs/sounds.c:362
+#: tabs/sounds.c:355
 msgid "Evento"
 msgstr "Evento"
 
-#: tabs/sounds.c:364
+#: tabs/sounds.c:357
 msgid "Som"
 msgstr "Som"
 
-#: tabs/sounds.c:376
+#: tabs/sounds.c:369
 msgid "Testar"
 msgstr "Testar"
 
-#: tabs/sounds.c:377
+#: tabs/sounds.c:370
 msgid "Escolher arquivo..."
 msgstr "Escolher arquivo..."
 
-#: tabs/sounds.c:378
+#: tabs/sounds.c:371
 msgid "Silenciar"
 msgstr "Silenciar"
 
-#: tabs/sounds.c:379
+#: tabs/sounds.c:372
 msgid "Usar o do tema"
 msgstr "Usar o do tema"
 
@@ -4049,41 +3960,31 @@ msgstr ""
 "Falha ao aplicar (alguma operação não pôde ser executada). A fila foi "
 "mantida."
 
-#: tabs/users.c:525
-msgid ""
-"Contas de usuario do sistema. As alteracoes ficam numa fila e so sao "
-"executadas ao clicar em Aplicar, quando a senha de administrador e pedida "
-"uma unica vez."
-msgstr ""
-"Contas de usuário do sistema. As alterações ficam numa fila e só são "
-"executadas ao clicar em Aplicar, quando a senha de administrador é pedida "
-"uma única vez."
-
-#: tabs/users.c:535
+#: tabs/users.c:528
 msgid "Administrador"
 msgstr "Administrador"
 
-#: tabs/users.c:535
+#: tabs/users.c:528
 msgid "Nome completo"
 msgstr "Nome completo"
 
-#: tabs/users.c:535
+#: tabs/users.c:528
 msgid "Shell"
 msgstr "Shell"
 
-#: tabs/users.c:535
+#: tabs/users.c:528
 msgid "UID"
 msgstr "UID"
 
-#: tabs/users.c:535
+#: tabs/users.c:528
 msgid "Usuario"
 msgstr "Usuário"
 
-#: tabs/users.c:551
+#: tabs/users.c:544
 msgid "Remover..."
 msgstr "Remover..."
 
-#: tabs/users.c:572
+#: tabs/users.c:565
 msgid "Descartar fila"
 msgstr "Descartar fila"
 
@@ -4296,11 +4197,7 @@ msgstr "Salvar ações de clique"
 msgid "Acoes de clique"
 msgstr "Ações de clique"
 
-#: tabs/windows.c:224
-msgid "kiwm esta em execucao."
-msgstr "kiwm está em execução."
-
-#: tabs/windows.c:225
+#: tabs/windows.c:405
 msgid ""
 "kiwm nao esta em execucao -- estas configuracoes valem para a proxima vez "
 "que ele iniciar."
@@ -4308,111 +4205,115 @@ msgstr ""
 "kiwm não está em execução -- estas configurações valem para a próxima vez "
 "que ele iniciar."
 
-#: tabs/windows.c:421
+#: tabs/windows.c:418
 msgid "Ocultar decoracao ao maximizar:"
 msgstr "Ocultar decoração ao maximizar:"
 
-#: tabs/windows.c:425
+#: tabs/windows.c:422
 msgid "Decoracao"
 msgstr "Decoração"
 
-#: tabs/windows.c:430
+#: tabs/windows.c:428
 msgid "Elementos da barra de titulo:"
 msgstr "Elementos da barra de título:"
 
-#: tabs/windows.c:431
+#: tabs/windows.c:433
 msgid ""
-"Barra de titulo (lista separada por virgulas: icon,title,shade,minimize,"
-"maximize,close,keep_above,keep_all_desktops,appmenu,clipboard)"
+"Lista separada por virgulas: icon, title, shade, minimize, maximize, close, "
+"keep_above, keep_all_desktops, appmenu, clipboard"
 msgstr ""
-"Barra de título (lista separada por vírgulas: icon,title,shade,minimize,"
-"maximize,close,keep_above,keep_all_desktops,appmenu,clipboard)"
+"Lista separada por vírgulas: icon, title, shade, minimize, maximize, "
+"close, keep_above, keep_all_desktops, appmenu, clipboard"
 
 #: tabs/windows.c:441
+msgid "Barra de titulo"
+msgstr "Barra de título"
+
+#: tabs/windows.c:447
 msgid "Espessura da borda:"
 msgstr "Espessura da borda:"
 
-#: tabs/windows.c:442
+#: tabs/windows.c:448
 msgid "Cor da borda:"
 msgstr "Cor da borda:"
 
-#: tabs/windows.c:445
+#: tabs/windows.c:451
 msgid "Faixa de redimensionamento (px):"
 msgstr "Faixa de redimensionamento (px):"
 
-#: tabs/windows.c:448
+#: tabs/windows.c:454
 msgid "Redimensionar ao vivo:"
 msgstr "Redimensionar ao vivo:"
 
-#: tabs/windows.c:449
+#: tabs/windows.c:455
 msgid "Borda e redimensionamento"
 msgstr "Borda e redimensionamento"
 
-#: tabs/windows.c:455
+#: tabs/windows.c:461
 msgid "Distancia para encaixar na borda da tela (px):"
 msgstr "Distância para encaixar na borda da tela (px):"
 
-#: tabs/windows.c:458
+#: tabs/windows.c:464
 msgid "Linhas empilhadas ao encaixar nas laterais:"
 msgstr "Linhas empilhadas ao encaixar nas laterais:"
 
-#: tabs/windows.c:461
+#: tabs/windows.c:467
 msgid "Divisor de largura ao encaixar nas laterais (2 = metade):"
 msgstr "Divisor de largura ao encaixar nas laterais (2 = metade):"
 
-#: tabs/windows.c:463
+#: tabs/windows.c:469
 msgid "Modificador para uma segunda grade de encaixe:"
 msgstr "Modificador para uma segunda grade de encaixe:"
 
-#: tabs/windows.c:466
+#: tabs/windows.c:472
 msgid "Linhas empilhadas com o modificador segurado:"
 msgstr "Linhas empilhadas com o modificador segurado:"
 
-#: tabs/windows.c:469
+#: tabs/windows.c:475
 msgid "Divisor de largura com o modificador segurado:"
 msgstr "Divisor de largura com o modificador segurado:"
 
-#: tabs/windows.c:472
+#: tabs/windows.c:478
 msgid "Redimensionar ao vivo durante o encaixe:"
 msgstr "Redimensionar ao vivo durante o encaixe:"
 
-#: tabs/windows.c:475
+#: tabs/windows.c:481
 msgid "Espessura do contorno de pre-visualizacao (px):"
 msgstr "Espessura do contorno de pré-visualização (px):"
 
-#: tabs/windows.c:479
+#: tabs/windows.c:485
 msgid "Opacidade do contorno (com compositor):"
 msgstr "Opacidade do contorno (com compositor):"
 
-#: tabs/windows.c:482
+#: tabs/windows.c:488
 msgid "Distancia para encaixar em outra janela (px):"
 msgstr "Distância para encaixar em outra janela (px):"
 
-#: tabs/windows.c:485
+#: tabs/windows.c:491
 msgid "Redimensionar vizinhas junto:"
 msgstr "Redimensionar vizinhas junto:"
 
-#: tabs/windows.c:488
+#: tabs/windows.c:494
 msgid "Espacamento em janelas maximizadas/lado a lado (px):"
 msgstr "Espaçamento em janelas maximizadas/lado a lado (px):"
 
-#: tabs/windows.c:491
+#: tabs/windows.c:497
 msgid "Desligar o espacamento com janela maximizada:"
 msgstr "Desligar o espaçamento com janela maximizada:"
 
-#: tabs/windows.c:492
+#: tabs/windows.c:498
 msgid "Encaixe (snap)"
 msgstr "Encaixe (snap)"
 
-#: tabs/windows.c:497
+#: tabs/windows.c:503
 msgid "Modificador (mover/redimensionar):"
 msgstr "Modificador (mover/redimensionar):"
 
-#: tabs/windows.c:500
+#: tabs/windows.c:506
 msgid "Foco segue o mouse:"
 msgstr "Foco segue o mouse:"
 
-#: tabs/windows.c:503
+#: tabs/windows.c:509
 msgid ""
 "Uma janela enrolada desenrola enquanto o mouse esta sobre a barra de titulo "
 "e enrola de novo assim que o mouse sai da janela."
@@ -4420,75 +4321,75 @@ msgstr ""
 "Uma janela enrolada desenrola enquanto o mouse está sobre a barra de título "
 "e enrola de novo assim que o mouse sai da janela."
 
-#: tabs/windows.c:505
+#: tabs/windows.c:511
 msgid "Janela enrolada desenrola sob o mouse:"
 msgstr "Janela enrolada desenrola sob o mouse:"
 
-#: tabs/windows.c:508
+#: tabs/windows.c:514
 msgid "Atraso para desenrolar (ms):"
 msgstr "Atraso para desenrolar (ms):"
 
-#: tabs/windows.c:510
+#: tabs/windows.c:516
 msgid "Prevencao de roubo de foco:"
 msgstr "Prevenção de roubo de foco:"
 
-#: tabs/windows.c:512
+#: tabs/windows.c:518
 msgid "Repintar apos tela cheia:"
 msgstr "Repintar após tela cheia:"
 
-#: tabs/windows.c:515
+#: tabs/windows.c:521
 msgid "Trocar para ARGB automaticamente com compositor:"
 msgstr "Trocar para ARGB automaticamente com compositor:"
 
-#: tabs/windows.c:517
+#: tabs/windows.c:523
 msgid "Saida para novas janelas:"
 msgstr "Saída para novas janelas:"
 
-#: tabs/windows.c:520
+#: tabs/windows.c:526
 msgid "Comando do botao de menu (appmenu):"
 msgstr "Comando do botão de menu (appmenu):"
 
-#: tabs/windows.c:527
+#: tabs/windows.c:533
 msgid "Numero de areas de trabalho (por saida):"
 msgstr "Número de áreas de trabalho (por saída):"
 
-#: tabs/windows.c:530
+#: tabs/windows.c:536
 msgid "Colunas na grade (0 = automatico):"
 msgstr "Colunas na grade (0 = automático):"
 
-#: tabs/windows.c:533
+#: tabs/windows.c:539
 msgid "Linhas na grade (0 = automatico):"
 msgstr "Linhas na grade (0 = automático):"
 
-#: tabs/windows.c:534
+#: tabs/windows.c:540
 msgid "Areas de trabalho"
 msgstr "Áreas de trabalho"
 
-#: tabs/windows.c:540
+#: tabs/windows.c:546
 msgid "Mostrar sobreposicao ao segurar o atalho:"
 msgstr "Mostrar sobreposição ao segurar o atalho:"
 
-#: tabs/windows.c:543
+#: tabs/windows.c:549
 msgid "Pre-visualizar janela ao vivo:"
 msgstr "Pré-visualizar janela ao vivo:"
 
-#: tabs/windows.c:546
+#: tabs/windows.c:552
 msgid "Pre-visualizar area de trabalho ao vivo:"
 msgstr "Pré-visualizar área de trabalho ao vivo:"
 
-#: tabs/windows.c:549
+#: tabs/windows.c:555
 msgid "Abrir sempre na saida do ponteiro:"
 msgstr "Abrir sempre na saída do ponteiro:"
 
-#: tabs/windows.c:553
+#: tabs/windows.c:559
 msgid "Ordem de abertura das janelas"
 msgstr "Ordem de abertura das janelas"
 
-#: tabs/windows.c:554
+#: tabs/windows.c:560
 msgid "Usadas mais recentemente primeiro"
 msgstr "Usadas mais recentemente primeiro"
 
-#: tabs/windows.c:556
+#: tabs/windows.c:562
 msgid ""
 "Com \"usadas mais recentemente primeiro\", um unico Tab volta pra janela "
 "anterior"
@@ -4496,31 +4397,31 @@ msgstr ""
 "Com \"usadas mais recentemente primeiro\", um único Tab volta pra janela "
 "anterior"
 
-#: tabs/windows.c:558
+#: tabs/windows.c:564
 msgid "Ordem da lista de janelas:"
 msgstr "Ordem da lista de janelas:"
 
-#: tabs/windows.c:561
+#: tabs/windows.c:567
 msgid "Desenhar janelas dentro de cada area de trabalho:"
 msgstr "Desenhar janelas dentro de cada área de trabalho:"
 
-#: tabs/windows.c:564
+#: tabs/windows.c:570
 msgid "Usar efeito cover-switch do compositor, se houver:"
 msgstr "Usar efeito cover-switch do compositor, se houver:"
 
-#: tabs/windows.c:567
+#: tabs/windows.c:573
 msgid "Listar janelas de outras areas de trabalho:"
 msgstr "Listar janelas de outras áreas de trabalho:"
 
-#: tabs/windows.c:568
+#: tabs/windows.c:574
 msgid "Alternador (Alt+Tab / ModKey+Tab)"
 msgstr "Alternador (Alt+Tab / ModKey+Tab)"
 
-#: tabs/windows.c:571
+#: tabs/windows.c:577
 msgid "Reiniciar kiwm agora"
 msgstr "Reiniciar o kiwm agora"
 
-#: tabs/windows.c:572
+#: tabs/windows.c:578
 msgid "Aplicar (grava kiwm.conf)"
 msgstr "Aplicar (grava kiwm.conf)"
 
@@ -4572,6 +4473,162 @@ msgstr "Atual: %s"
 #: xiskeycapture.c:303
 msgid "Esc cancela. Uma tecla sozinha tambem vale: aperte-a e depois Enter."
 msgstr "Esc cancela. Uma tecla sozinha também vale: aperte-a e depois Enter."
+
+#~ msgid ""
+#~ "Aplicativos instalados que se registram para iniciar com a sessao (fcitx, "
+#~ "opensnitch, ...), mais os que voce adicionar. Valem a partir do proximo "
+#~ "login."
+#~ msgstr ""
+#~ "Aplicativos instalados que se registram para iniciar com a sessão (fcitx, "
+#~ "opensnitch, ...), mais os que você adicionar. Valem a partir do próximo "
+#~ "login."
+
+#~ msgid ""
+#~ "Discos e dispositivos removiveis que ja estiveram conectados a este "
+#~ "computador. Os marcados sao montados automaticamente sempre que forem "
+#~ "conectados, inclusive se ja estiverem conectados ao iniciar a sessao. A "
+#~ "montagem e feita pelo udisks, no mesmo lugar que o KDE e o GNOME usam (em "
+#~ "geral /media/USUARIO/NOME). Os discos do sistema e os montados pelo /etc/"
+#~ "fstab nao aparecem aqui."
+#~ msgstr ""
+#~ "Discos e dispositivos removíveis que já estiveram conectados a este "
+#~ "computador. Os marcados são montados automaticamente sempre que forem "
+#~ "conectados, inclusive se já estiverem conectados ao iniciar a sessão. A "
+#~ "montagem é feita pelo udisks, no mesmo lugar que o KDE e o GNOME usam (em "
+#~ "geral /media/USUÁRIO/NOME). Os discos do sistema e os montados pelo /etc/"
+#~ "fstab não aparecem aqui."
+
+#~ msgid "kicomp esta em execucao."
+#~ msgstr "kicomp está em execução."
+
+#~ msgid ""
+#~ "\"Padrao do sistema\" nao mexe em nada (logind/acpid decidem). Qualquer "
+#~ "outra opcao e tratada pelo kiconfd, que tambem impede o logind de agir em "
+#~ "duplicidade. A tampa depende do UPower; o botao precisa que o servidor X "
+#~ "entregue a tecla de energia."
+#~ msgstr ""
+#~ "\"Padrao do sistema\" nao mexe em nada (logind/acpid decidem). Qualquer "
+#~ "outra opcao e tratada pelo kiconfd, que tambem impede o logind de agir em "
+#~ "duplicidade. A tampa depende do UPower; o botao precisa que o servidor X "
+#~ "entregue a tecla de energia."
+
+#~ msgid "KickHotkeysOnRelease -- troca layout de teclado ao soltar o atalho"
+#~ msgstr "KickHotkeysOnRelease -- troca layout de teclado ao soltar o atalho"
+
+#~ msgid ""
+#~ "O bloqueio de tela usa o i3lock, que so aceita opcoes de linha de "
+#~ "comando; aqui elas ficam guardadas em ~/.config/kilock.conf. O tempo "
+#~ "parado ate bloquear e o do protetor de tela, na aba Energia."
+#~ msgstr ""
+#~ "O bloqueio de tela usa o i3lock, que só aceita opções de linha de "
+#~ "comando; aqui elas ficam guardadas em ~/.config/kilock.conf. O tempo "
+#~ "parado até bloquear é o do protetor de tela, na aba Energia."
+
+#, c-format
+#~ msgid ""
+#~ "Alteracoes vao para %s e valem no proximo login (o gerenciador nao e "
+#~ "reiniciado, para nao encerrar a sessao atual)."
+#~ msgstr ""
+#~ "As alterações vão para %s e valem no próximo login (o gerenciador não é "
+#~ "reiniciado, para não encerrar a sessão atual)."
+
+#~ msgid ""
+#~ "Gerenciador de login (SDDM, LightDM ou SLiM). Ver as configuracoes nao "
+#~ "exige senha; gravar pede a senha de administrador."
+#~ msgstr ""
+#~ "Gerenciador de login (SDDM, LightDM ou SLiM). Ver as configurações não "
+#~ "exige senha; gravar pede a senha de administrador."
+
+#~ msgid ""
+#~ "Ocultar/editar uma entrada do sistema cria uma copia em ~/.local/share/"
+#~ "applications -- o arquivo original nunca e alterado. \"Excluir\" so "
+#~ "funciona em entradas ja criadas pelo usuario. As opcoes \"Somente no "
+#~ "KiDesktop\" ficam em ~/.local/share/kidesktop."
+#~ msgstr ""
+#~ "Ocultar/editar uma entrada do sistema cria uma cópia em ~/.local/share/"
+#~ "applications -- o arquivo original nunca é alterado. \"Excluir\" só "
+#~ "funciona em entradas já criadas pelo usuário. As opções \"Somente no "
+#~ "KiDesktop\" ficam em ~/.local/share/kidesktop."
+
+#~ msgid ""
+#~ "Editor direto de xispanel.conf (PANEL/WIDGET/THEME). Opcoes sao\n"
+#~ "a string key=value bruta de cada linha -- ver xispanel/PROTOCOL.md."
+#~ msgstr ""
+#~ "Editor direto de xispanel.conf (PANEL/WIDGET/THEME). Opções são\n"
+#~ "a string key=value bruta de cada linha -- ver xispanel/PROTOCOL.md."
+
+#, c-format
+#~ msgid ""
+#~ "%s (e xnotify.conf) -- %d regra(s) em %d arquivo(s), na ordem em que o X "
+#~ "server as aplica. Editar pede autorizacao (polkit) e recarrega o X server."
+#~ msgstr ""
+#~ "%s (e xnotify.conf) -- %d regra(s) em %d arquivo(s), na ordem em que o X "
+#~ "server as aplica. Editar pede autorização (polkit) e recarrega o X server."
+
+#, c-format
+#~ msgid "xisguard conectado."
+#~ msgstr "xisguard conectado."
+
+#~ msgid "no_pause (nao pausar decisao)"
+#~ msgstr "no_pause (não pausar decisão)"
+
+#~ msgid "always_kill (sempre matar em DENY)"
+#~ msgstr "always_kill (sempre matar em DENY)"
+
+#~ msgid "secure_mode"
+#~ msgstr "secure_mode"
+
+#~ msgid "log_level:"
+#~ msgstr "log_level:"
+
+#~ msgid ""
+#~ "REPORTs destes programas nao aparecem (programas sempre necessarios na "
+#~ "sessao, como gerenciadores de janela, area de transferencia e teclado)."
+#~ msgstr ""
+#~ "REPORTs destes programas não aparecem (programas sempre necessários na "
+#~ "sessão, como gerenciadores de janela, área de transferência e teclado)."
+
+#, c-format
+#~ msgid "Sempre ignorados (KiDesktop): %s"
+#~ msgstr "Sempre ignorados (KiDesktop): %s"
+
+#~ msgid "Sessao (kisession.conf -- \"(automatico)\" usa o primeiro instalado)"
+#~ msgstr ""
+#~ "Sessão (kisession.conf -- \"(automático)\" usa o primeiro instalado)"
+
+#~ msgid ""
+#~ "Arraste as caixas pra reposicionar. Aplicar tambem grava o layout pra ser "
+#~ "reaplicado automaticamente no inicio da proxima sessao."
+#~ msgstr ""
+#~ "Arraste as caixas pra reposicionar. Aplicar também grava o layout pra ser "
+#~ "reaplicado automaticamente no início da próxima sessão."
+
+#, c-format
+#~ msgid ""
+#~ "Servicos do sistema (%s). Ver o estado nao exige senha; iniciar, parar, "
+#~ "reiniciar, ativar ou desativar pede a senha de administrador."
+#~ msgstr ""
+#~ "Serviços do sistema (%s). Ver o estado não exige senha; iniciar, parar, "
+#~ "reiniciar, ativar ou desativar pede a senha de administrador."
+
+#~ msgid ""
+#~ "Sons dos eventos do desktop. Escolher um tema muda todos de uma vez; na "
+#~ "lista abaixo cada evento pode ter um arquivo proprio ou ficar silencioso."
+#~ msgstr ""
+#~ "Sons dos eventos do desktop. Escolher um tema muda todos de uma vez; na "
+#~ "lista abaixo cada evento pode ter um arquivo próprio ou ficar silencioso."
+
+#~ msgid ""
+#~ "Contas de usuario do sistema. As alteracoes ficam numa fila e so sao "
+#~ "executadas ao clicar em Aplicar, quando a senha de administrador e pedida "
+#~ "uma unica vez."
+#~ msgstr ""
+#~ "Contas de usuário do sistema. As alterações ficam numa fila e só são "
+#~ "executadas ao clicar em Aplicar, quando a senha de administrador é pedida "
+#~ "uma única vez."
+
+#~ msgid "kiwm esta em execucao."
+#~ msgstr "kiwm está em execução."
 
 #~ msgid "Desenho responde a DPI e escala"
 #~ msgstr "Desenho responde a DPI e escala"

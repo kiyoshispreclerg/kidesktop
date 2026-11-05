@@ -335,18 +335,20 @@ GtkWidget *build_energy_tab(void)
 
     int have_xsct = have_cmd("xsct");
 
-    g_status_label = gtk_label_new(have_xsct ? "" :
-        _("xsct nao encontrado -- instale-o (https://github.com/faf0/sct) para "
-          "a luz noturna automatica funcionar. O horario ainda pode ser configurado "
-          "e salvo aqui."));
+    g_status_label = gtk_label_new("");
     gtk_misc_set_alignment(GTK_MISC(g_status_label), 0.0, 0.5);
-    gtk_label_set_line_wrap(GTK_LABEL(g_status_label), TRUE);
-    gtk_box_pack_start(GTK_BOX(outer), g_status_label, FALSE, FALSE, 0);
 
     NightlightConfig c;
     nightlight_load(&c);
 
     GtkWidget *box = gtk_vbox_new(FALSE, 6);
+
+    if (!have_xsct) {
+        gtk_box_pack_start(GTK_BOX(box),
+            warning_row(_("xsct nao encontrado -- instale-o (https://github.com/faf0/sct) para "
+                          "a luz noturna automatica funcionar. O horario ainda pode ser salvo aqui.")),
+            FALSE, FALSE, 0);
+    }
 
     g_enabled_chk = gtk_check_button_new_with_label(_("Ativar luz noturna automatica"));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_enabled_chk), c.enabled);
@@ -380,6 +382,19 @@ GtkWidget *build_energy_tab(void)
     labeled_row(temp_table, 0, _("Temperatura durante o periodo (K):"), g_temp_spin);
     gtk_box_pack_start(GTK_BOX(box), temp_table, FALSE, FALSE, 0);
 
+    GtkWidget *note = gtk_label_new(NULL);
+    {
+        char *m = g_markup_printf_escaped("<small>%s</small>",
+            _("Fora do horario configurado, a tela volta a temperatura normal. "
+              "Um horario de desligar menor que o de ligar cruza a meia-noite "
+              "(ex.: ligar 20:00, desligar 06:00)."));
+        gtk_label_set_markup(GTK_LABEL(note), m);
+        g_free(m);
+    }
+    gtk_misc_set_alignment(GTK_MISC(note), 0.0, 0.5);
+    gtk_label_set_line_wrap(GTK_LABEL(note), TRUE);
+    gtk_box_pack_start(GTK_BOX(box), note, FALSE, FALSE, 0);
+
     gtk_box_pack_start(GTK_BOX(outer),
                         frame_with(_("Luz noturna (xsct)"), box), FALSE, FALSE, 0);
 
@@ -405,14 +420,6 @@ GtkWidget *build_energy_tab(void)
     gtk_combo_box_set_active(GTK_COMBO_BOX(g_power_combo), power_sel);
     labeled_row(lid_table, 1, _("Ao apertar o botao de energia:"), g_power_combo);
     gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Tampa e botao de energia"), lid_table), FALSE, FALSE, 0);
-
-    GtkWidget *lid_note = gtk_label_new(
-        _("\"Padrao do sistema\" nao mexe em nada (logind/acpid decidem). Qualquer outra opcao "
-          "e tratada pelo kiconfd, que tambem impede o logind de agir em duplicidade. "
-          "A tampa depende do UPower; o botao precisa que o servidor X entregue a tecla de energia."));
-    gtk_misc_set_alignment(GTK_MISC(lid_note), 0.0, 0.5);
-    gtk_label_set_line_wrap(GTK_LABEL(lid_note), TRUE);
-    gtk_box_pack_start(GTK_BOX(outer), lid_note, FALSE, FALSE, 0);
 
     GtkWidget *dpms_table = gtk_table_new(4, 2, FALSE);
     g_dpms_enabled_chk = gtk_check_button_new_with_label(_("DPMS habilitado"));
@@ -441,22 +448,10 @@ GtkWidget *build_energy_tab(void)
     gtk_table_attach(GTK_TABLE(saver_table), g_prefer_blank_chk, 0, 2, 2, 3, GTK_FILL, GTK_FILL, 4, 2);
     gtk_box_pack_start(GTK_BOX(outer), frame_with(_("Protetor de tela"), saver_table), FALSE, FALSE, 0);
 
-    GtkWidget *note = gtk_label_new(
-        _("Fora do horario configurado, a tela volta a temperatura normal. "
-          "Um horario de desligar menor que o de ligar cruza a meia-noite "
-          "(ex.: ligar 20:00, desligar 06:00)."));
-    gtk_misc_set_alignment(GTK_MISC(note), 0.0, 0.5);
-    gtk_label_set_line_wrap(GTK_LABEL(note), TRUE);
-    gtk_box_pack_start(GTK_BOX(outer), note, FALSE, FALSE, 0);
-
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 0);
     GtkWidget *apply_btn = gtk_button_new_with_label(_("Aplicar"));
     g_signal_connect(apply_btn, "clicked", G_CALLBACK(apply_cb), NULL);
     gtk_box_pack_end(GTK_BOX(btnbox), apply_btn, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(outer), btnbox, FALSE, FALSE, 0);
-
-    GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-    gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(scroll), outer);
-    return scroll;
+    gtk_box_pack_start(GTK_BOX(btnbox), g_status_label, TRUE, TRUE, 0);
+    return scrolled_with_footer(outer, btnbox);
 }

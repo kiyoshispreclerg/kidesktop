@@ -125,7 +125,7 @@
 #include "tabs.h"
 #include "track.h"
 
-#define KICONF_VERSION "0.2.108"
+#define KICONF_VERSION "0.2.109"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -188,7 +188,7 @@ static LazyTab g_builtin_tabs[] = {
     {N_("Servicos"), GTK_STOCK_EXECUTE, build_services_tab, NULL, 0, "system", "services daemon", NULL, NULL},
     {N_("Login"), GTK_STOCK_DIALOG_AUTHENTICATION, build_login_tab, NULL, 0, "system", "lightdm gerenciador de login", NULL, NULL},
     {N_("Acessibilidade"), GTK_STOCK_ZOOM_IN, build_accessibility_tab, NULL, 0, "appearance", "a11y lupa magnifier leitor screen reader", NULL, NULL},
-    {N_("Bloqueio de tela"), GTK_STOCK_DIALOG_AUTHENTICATION, build_lock_tab, NULL, 0, "system", "lock i3lock bloquear tela screen locker protetor senha", NULL, lock_available},
+    {N_("Bloqueio de tela"), GTK_STOCK_DIALOG_AUTHENTICATION, build_lock_tab, NULL, 0, "system", "lock i3lock bloquear tela screen locker protetor senha", NULL, NULL},
 };
 /* Built-in tabs followed by the plugins found by plugins_scan(). */
 static LazyTab *g_tabs;

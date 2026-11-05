@@ -312,6 +312,33 @@ GtkWidget *frame_with(const char *title, GtkWidget *child)
     return frame;
 }
 
+GtkWidget *scrolled_with_footer(GtkWidget *content, GtkWidget *footer)
+{
+    GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(scroll), content);
+    GtkWidget *page = gtk_vbox_new(FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(page), scroll, TRUE, TRUE, 0);
+    if (footer) {
+        gtk_container_set_border_width(GTK_CONTAINER(footer), 8);
+        gtk_box_pack_start(GTK_BOX(page), gtk_hseparator_new(), FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(page), footer, FALSE, FALSE, 0);
+    }
+    return page;
+}
+
+GtkWidget *warning_row(const char *text)
+{
+    GtkWidget *row = gtk_hbox_new(FALSE, 6);
+    gtk_box_pack_start(GTK_BOX(row), gtk_image_new_from_stock(GTK_STOCK_DIALOG_WARNING, GTK_ICON_SIZE_BUTTON),
+                       FALSE, FALSE, 0);
+    GtkWidget *l = gtk_label_new(text);
+    gtk_label_set_line_wrap(GTK_LABEL(l), TRUE);
+    gtk_misc_set_alignment(GTK_MISC(l), 0, 0.5);
+    gtk_box_pack_start(GTK_BOX(row), l, TRUE, TRUE, 0);
+    return row;
+}
+
 void dialog_add_answers(GtkWidget *dlg, GtkButtonsType which)
 {
     GtkDialog *d = GTK_DIALOG(dlg);
