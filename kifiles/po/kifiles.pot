@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kifiles\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-27 17:17-0300\n"
+"POT-Creation-Date: 2026-11-05 00:09-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,6 +17,18 @@ msgstr ""
 "Content-Type: text/plain; charset=CHARSET\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
+
+#: ../shared/xis_appchooser.c:127
+msgid "Invalid command"
+msgstr ""
+
+#: ../shared/xis_appchooser.c:139
+msgid "Open With"
+msgstr ""
+
+#: ../shared/xis_appchooser.c:169
+msgid "Filter the list, or type a command to run instead:"
+msgstr ""
 
 #: kf_crumbs.c:54 kf_places.c:157
 msgid "Home"
@@ -72,182 +84,196 @@ msgstr ""
 msgid "Destination"
 msgstr ""
 
-#: kf_ops.c:114
+#: kf_ops.c:117
 msgid "unknown error"
 msgstr ""
 
-#: kf_ops.c:146 kf_ops.c:147
+#: kf_ops.c:177 kf_ops.c:178
 msgid "copy"
 msgstr ""
 
-#: kf_ops.c:492 kf_ops.c:653
+#: kf_ops.c:529 kf_ops.c:769
 msgid "_Pause"
 msgstr ""
 
-#: kf_ops.c:492
+#: kf_ops.c:529
 msgid "_Resume"
 msgstr ""
 
-#: kf_ops.c:542
+#: kf_ops.c:579
 #, c-format
 msgid "There may not be enough free space in \"%s\""
 msgstr ""
 
-#: kf_ops.c:543
+#: kf_ops.c:580
 #, c-format
 msgid "%s needed, %s free."
 msgstr ""
 
-#: kf_ops.c:545
+#: kf_ops.c:582
 msgid "Continue anyway"
 msgstr ""
 
-#: kf_ops.c:566
+#: kf_ops.c:603
 #, c-format
 msgid "... and %u more.\n"
 msgstr ""
 
-#: kf_ops.c:567 kf_ops.c:709
+#: kf_ops.c:604 kf_ops.c:825
 msgid "Some items could not be processed"
 msgstr ""
 
-#: kf_ops.c:576
-msgid "Copying"
+#: kf_ops.c:619 kf_props.c:285
+msgid "The administrator command failed."
 msgstr ""
 
-#: kf_ops.c:576
-msgid "Moving"
+#: kf_ops.c:626
+msgid ""
+"Administrator permission is required to delete these items. Delete them "
+"permanently as administrator?"
 msgstr ""
 
-#: kf_ops.c:577
-msgid "Deleting"
-msgstr ""
-
-#: kf_ops.c:577
-msgid "Moving to the trash"
-msgstr ""
-
-#: kf_ops.c:640
-msgid "Paused"
-msgstr ""
-
-#: kf_ops.c:748
-msgid "These items cannot be moved to the trash. Delete them permanently?"
-msgstr ""
-
-#: kf_ops.c:749 kf_ops.c:813
+#: kf_ops.c:627 kf_ops.c:868 kf_ops.c:932
 msgid "This cannot be undone."
 msgstr ""
 
-#: kf_ops.c:809
+#: kf_ops.c:646
+msgid "Could not delete"
+msgstr ""
+
+#: kf_ops.c:660 kf_ops.c:1202
+msgid "Could not create the file"
+msgstr ""
+
+#: kf_ops.c:660 kf_ops.c:1202
+msgid "Could not create the folder"
+msgstr ""
+
+#: kf_ops.c:683 kf_ops.c:1147
+msgid "Could not rename"
+msgstr ""
+
+#: kf_ops.c:692
+msgid "Copying"
+msgstr ""
+
+#: kf_ops.c:692
+msgid "Moving"
+msgstr ""
+
+#: kf_ops.c:693
+msgid "Deleting"
+msgstr ""
+
+#: kf_ops.c:693
+msgid "Moving to the trash"
+msgstr ""
+
+#: kf_ops.c:756
+msgid "Paused"
+msgstr ""
+
+#: kf_ops.c:867
+msgid "These items cannot be moved to the trash. Delete them permanently?"
+msgstr ""
+
+#: kf_ops.c:928
 #, c-format
 msgid "Delete %u item permanently?"
 msgid_plural "Delete %u items permanently?"
 msgstr[0] ""
 msgstr[1] ""
 
-#: kf_ops.c:833
+#: kf_ops.c:952
 msgid "Empty the trash?"
 msgstr ""
 
-#: kf_ops.c:835
+#: kf_ops.c:954
 msgid "All items in the trash will be deleted permanently."
 msgstr ""
 
-#: kf_ops.c:836
+#: kf_ops.c:955
 msgid "_Empty Trash"
 msgstr ""
 
-#: kf_ops.c:867
+#: kf_ops.c:986
 #, c-format
 msgid "\"%s\" already exists here."
 msgstr ""
 
-#: kf_ops.c:867
+#: kf_ops.c:986
 #, c-format
 msgid "A folder named \"%s\" already exists here."
 msgstr ""
 
-#: kf_ops.c:870
+#: kf_ops.c:989
 msgid ""
 "Merging copies the contents into the existing folder; files with the same "
 "name are replaced."
 msgstr ""
 
-#: kf_ops.c:871
+#: kf_ops.c:990
 msgid "Do you want to replace it, keep both files, or skip this one?"
 msgstr ""
 
-#: kf_ops.c:872
+#: kf_ops.c:991
 msgid "_Skip"
 msgstr ""
 
-#: kf_ops.c:873
+#: kf_ops.c:992
 msgid "Keep _Both"
 msgstr ""
 
-#: kf_ops.c:873
+#: kf_ops.c:992
 msgid "_Merge"
 msgstr ""
 
-#: kf_ops.c:873
+#: kf_ops.c:992
 msgid "_Replace"
 msgstr ""
 
-#: kf_ops.c:876
+#: kf_ops.c:995
 msgid "_Apply to all"
 msgstr ""
 
-#: kf_ops.c:910
+#: kf_ops.c:1029
 #, c-format
 msgid "\"%s\" cannot be copied into itself.\n"
 msgstr ""
 
-#: kf_ops.c:953
+#: kf_ops.c:1072
 msgid "Cannot copy a folder into itself"
 msgstr ""
 
-#: kf_ops.c:1011
+#: kf_ops.c:1130
 msgid "New name:"
 msgstr ""
 
-#: kf_ops.c:1011
+#: kf_ops.c:1130
 msgid "Rename"
 msgstr ""
 
-#: kf_ops.c:1021
-msgid "Could not rename"
-msgstr ""
-
-#: kf_ops.c:1035 kf_ops.c:1047
+#: kf_ops.c:1161 kf_ops.c:1173
 msgid "New File"
 msgstr ""
 
-#: kf_ops.c:1035 kf_ops.c:1047
+#: kf_ops.c:1161 kf_ops.c:1173
 msgid "New Folder"
 msgstr ""
 
-#: kf_ops.c:1047
+#: kf_ops.c:1173
 msgid "File name:"
 msgstr ""
 
-#: kf_ops.c:1047
+#: kf_ops.c:1173
 msgid "Folder name:"
 msgstr ""
 
-#: kf_ops.c:1067
-msgid "Could not create the file"
-msgstr ""
-
-#: kf_ops.c:1067
-msgid "Could not create the folder"
-msgstr ""
-
-#: kf_ops.c:1137
+#: kf_ops.c:1272
 msgid "original location unknown"
 msgstr ""
 
-#: kf_ops.c:1206
+#: kf_ops.c:1341
 msgid "not found in the trash"
 msgstr ""
 
@@ -333,7 +359,7 @@ msgstr ""
 msgid "_Mount"
 msgstr ""
 
-#: kf_places.c:520 kifiles.c:1292
+#: kf_places.c:520 kifiles.c:1339
 msgid "_Open"
 msgstr ""
 
@@ -349,92 +375,88 @@ msgstr ""
 msgid "Remove _Bookmark"
 msgstr ""
 
-#: kf_props.c:20
+#: kf_props.c:21
 msgid "(varied)"
 msgstr ""
 
-#: kf_props.c:170
+#: kf_props.c:171
 msgid "Group:"
 msgstr ""
 
-#: kf_props.c:170
+#: kf_props.c:171
 msgid "Owner:"
-msgstr ""
-
-#: kf_props.c:181
-#, c-format
-msgid "Owner (%s)"
 msgstr ""
 
 #: kf_props.c:182
 #, c-format
-msgid "Group (%s)"
+msgid "Owner (%s)"
 msgstr ""
 
 #: kf_props.c:183
-msgid "Everyone else"
+#, c-format
+msgid "Group (%s)"
 msgstr ""
 
 #: kf_props.c:184
-msgid "Allow running as a program / entering the folder"
+msgid "Everyone else"
 msgstr ""
 
 #: kf_props.c:185
-msgid "Allow entering the folder and listing its contents"
+msgid "Allow running as a program / entering the folder"
 msgstr ""
 
 #: kf_props.c:186
+msgid "Allow entering the folder and listing its contents"
+msgstr ""
+
+#: kf_props.c:187
 msgid "Allow running as a program"
 msgstr ""
 
-#: kf_props.c:187
+#: kf_props.c:188
 msgid "No access"
 msgstr ""
 
-#: kf_props.c:187
+#: kf_props.c:188
 msgid "Read and write"
 msgstr ""
 
-#: kf_props.c:187
+#: kf_props.c:188
 msgid "Read only"
 msgstr ""
 
-#: kf_props.c:187
+#: kf_props.c:188
 msgid "Write only"
 msgstr ""
 
-#: kf_props.c:222
+#: kf_props.c:223
 msgid "Apply to all items inside the folders"
 msgstr ""
 
-#: kf_props.c:226
+#: kf_props.c:227
 msgid ""
 "\"(varied)\" means the selected items differ. Leave it alone to keep each "
 "item's current value, or pick one to set it on all of them."
 msgstr ""
 
-#: kf_props.c:233
+#: kf_props.c:234
 msgid ""
 "You are not the owner of some of these items. The administrator password "
 "will be asked to apply changes."
 msgstr ""
 
-#: kf_props.c:283 kf_props.c:306
+#: kf_props.c:284
 msgid "Could not change the permissions"
 msgstr ""
 
-#: kf_props.c:306
-msgid "The administrator command failed."
-msgstr ""
-
-#: kf_props.c:369
+#: kf_props.c:348
 msgid ""
 "The items inside have different permissions from one another. Applying the "
 "same permissions to all of them may not be a good idea.\n"
 "\n"
 msgstr ""
 
-#: kf_props.c:372
+#: kf_props.c:351
 #, c-format
 msgid ""
 "%u item belongs to another user. Changing it needs administrator access, and "
@@ -447,7 +469,7 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: kf_props.c:381
+#: kf_props.c:360
 #, c-format
 msgid ""
 "%u folder could not be read and its contents will be skipped.\n"
@@ -458,89 +480,89 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: kf_props.c:388
+#: kf_props.c:367
 msgid ""
 "If you continue, the administrator password will be asked, and used only for "
 "the items that are not yours."
 msgstr ""
 
-#: kf_props.c:391
+#: kf_props.c:370
 msgid "Do you want to continue?"
 msgstr ""
 
-#: kf_props.c:393
+#: kf_props.c:372
 msgid "Apply to everything inside?"
 msgstr ""
 
-#: kf_props.c:396
+#: kf_props.c:375
 msgid "Continue"
 msgstr ""
 
-#: kf_props.c:441
+#: kf_props.c:420
 #, c-format
 msgid "There is no user called \"%s\"."
 msgstr ""
 
-#: kf_props.c:451
+#: kf_props.c:430
 #, c-format
 msgid "There is no group called \"%s\"."
 msgstr ""
 
-#: kf_props.c:554
+#: kf_props.c:533
 msgid "Administrator access is needed"
 msgstr ""
 
-#: kf_props.c:556
+#: kf_props.c:535
 msgid ""
 "Some of these changes need permissions you do not have. Apply them as "
 "administrator? You will be asked for the password."
 msgstr ""
 
-#: kf_props.c:558
+#: kf_props.c:537
 msgid "Apply as administrator"
 msgstr ""
 
-#: kf_props.c:680 kifiles.c:28
+#: kf_props.c:659 kifiles.c:29
 #, c-format
 msgid "%u folder"
 msgid_plural "%u folders"
 msgstr[0] ""
 msgstr[1] ""
 
-#: kf_props.c:681 kifiles.c:29
+#: kf_props.c:660 kifiles.c:30
 #, c-format
 msgid "%u file"
 msgid_plural "%u files"
 msgstr[0] ""
 msgstr[1] ""
 
-#: kf_props.c:682
+#: kf_props.c:661
 #, c-format
 msgid "Total size: %s (%s, %s)"
 msgstr ""
 
-#: kf_props.c:683
+#: kf_props.c:662
 #, c-format
 msgid "Calculating... (%s so far, %s, %s)"
 msgstr ""
 
-#: kf_props.c:720
+#: kf_props.c:699
 msgid "Calculating..."
 msgstr ""
 
-#: kf_props.c:727
+#: kf_props.c:706
 msgid "Size unavailable"
 msgstr ""
 
-#: kf_props.c:752
+#: kf_props.c:731
 msgid "Properties"
 msgstr ""
 
-#: kf_props.c:771
+#: kf_props.c:750
 msgid "General"
 msgstr ""
 
-#: kf_props.c:773
+#: kf_props.c:752
 msgid "Permissions"
 msgstr ""
 
@@ -548,11 +570,11 @@ msgstr ""
 msgid "Close tab (Ctrl+W)"
 msgstr ""
 
-#: kf_tabs.c:235 kifiles.c:1285
+#: kf_tabs.c:235 kifiles.c:1332
 msgid "New _Tab"
 msgstr ""
 
-#: kf_tabs.c:237 kifiles.c:1287
+#: kf_tabs.c:237 kifiles.c:1334
 msgid "_Detach Tab"
 msgstr ""
 
@@ -560,347 +582,351 @@ msgstr ""
 msgid "Close _Other Tabs"
 msgstr ""
 
-#: kf_tabs.c:240 kifiles.c:1286
+#: kf_tabs.c:240 kifiles.c:1333
 msgid "_Close Tab"
 msgstr ""
 
-#: kifiles.c:50
+#: kifiles.c:51
 #, c-format
 msgid "%u item selected"
 msgid_plural "%u items selected"
 msgstr[0] ""
 msgstr[1] ""
 
-#: kifiles.c:56
+#: kifiles.c:57
 msgid "Loading..."
 msgstr ""
 
-#: kifiles.c:106
+#: kifiles.c:107
 #, c-format
 msgid "%s free of %s"
 msgstr ""
 
-#: kifiles.c:269 kifiles.c:1059
+#: kifiles.c:270 kifiles.c:1073
 msgid "Could not open the file"
 msgstr ""
 
-#: kifiles.c:521
+#: kifiles.c:537
 msgid "Could not start the file search"
 msgstr ""
 
-#: kifiles.c:765
+#: kifiles.c:781
 #, c-format
 msgid "Icon size: %d px (Ctrl+Plus / Ctrl+Minus)"
 msgstr ""
 
-#: kifiles.c:834
+#: kifiles.c:850
 msgid "File manager for KiDesktop"
 msgstr ""
 
-#: kifiles.c:1140
+#: kifiles.c:1184
+msgid "_Other..."
+msgstr ""
+
+#: kifiles.c:1188
 msgid "Open _With"
 msgstr ""
 
-#: kifiles.c:1147
+#: kifiles.c:1194
 msgid "Run in _Terminal"
 msgstr ""
 
-#: kifiles.c:1218
+#: kifiles.c:1265
 #, c-format
 msgid "Name: %s\n"
 msgstr ""
 
-#: kifiles.c:1219
+#: kifiles.c:1266
 #, c-format
 msgid "Location: %s\n"
 msgstr ""
 
-#: kifiles.c:1220
+#: kifiles.c:1267
 #, c-format
 msgid "Type: %s\n"
 msgstr ""
 
-#: kifiles.c:1222
+#: kifiles.c:1269
 #, c-format
 msgid "Size: %s\n"
 msgstr ""
 
-#: kifiles.c:1227
+#: kifiles.c:1274
 #, c-format
 msgid "Modified: %s\n"
 msgstr ""
 
-#: kifiles.c:1233
+#: kifiles.c:1280
 #, c-format
 msgid "Owner: %s\n"
 msgstr ""
 
-#: kifiles.c:1280
+#: kifiles.c:1327
 msgid "_Edit"
 msgstr ""
 
-#: kifiles.c:1280
+#: kifiles.c:1327
 msgid "_File"
 msgstr ""
 
-#: kifiles.c:1281
+#: kifiles.c:1328
 msgid "_Go"
 msgstr ""
 
-#: kifiles.c:1281
+#: kifiles.c:1328
 msgid "_View"
 msgstr ""
 
-#: kifiles.c:1282
+#: kifiles.c:1329
 msgid "_Help"
 msgstr ""
 
-#: kifiles.c:1282
+#: kifiles.c:1329
 msgid "_Sort By"
 msgstr ""
 
-#: kifiles.c:1284
+#: kifiles.c:1331
 msgid "New _Window"
 msgstr ""
 
-#: kifiles.c:1287
+#: kifiles.c:1334
 msgid "Move the tab to a new window"
 msgstr ""
 
-#: kifiles.c:1288
+#: kifiles.c:1335
 msgid "_Next Tab"
 msgstr ""
 
-#: kifiles.c:1289
+#: kifiles.c:1336
 msgid "_Previous Tab"
 msgstr ""
 
-#: kifiles.c:1290
+#: kifiles.c:1337
 msgid "Create a new folder"
 msgstr ""
 
-#: kifiles.c:1290
+#: kifiles.c:1337
 msgid "New _Folder..."
 msgstr ""
 
-#: kifiles.c:1291
+#: kifiles.c:1338
 msgid "New _File..."
 msgstr ""
 
-#: kifiles.c:1293
+#: kifiles.c:1340
 msgid "Open in New _Window"
 msgstr ""
 
-#: kifiles.c:1294
+#: kifiles.c:1341
 msgid "Open in New _Tab"
 msgstr ""
 
-#: kifiles.c:1295
+#: kifiles.c:1342
 msgid "Open _Terminal Here"
 msgstr ""
 
-#: kifiles.c:1296
+#: kifiles.c:1343
 msgid "_Rename..."
 msgstr ""
 
-#: kifiles.c:1297
+#: kifiles.c:1344
 msgid "Move to _Trash"
 msgstr ""
 
-#: kifiles.c:1298
+#: kifiles.c:1345
 msgid "Delete permanently"
 msgstr ""
 
-#: kifiles.c:1298
+#: kifiles.c:1345
 msgid "_Delete"
 msgstr ""
 
-#: kifiles.c:1299
+#: kifiles.c:1346
 msgid "_Restore"
 msgstr ""
 
-#: kifiles.c:1300
+#: kifiles.c:1347
 msgid "E_mpty Trash"
 msgstr ""
 
-#: kifiles.c:1301
+#: kifiles.c:1348
 msgid "_Properties"
 msgstr ""
 
-#: kifiles.c:1308
+#: kifiles.c:1355
 msgid "Paste Into _Folder"
 msgstr ""
 
-#: kifiles.c:1309
+#: kifiles.c:1356
 msgid "Copy _Path"
 msgstr ""
 
-#: kifiles.c:1311
+#: kifiles.c:1358
 msgid "_Invert Selection"
 msgstr ""
 
-#: kifiles.c:1312
+#: kifiles.c:1359
 msgid "Filter the files by name"
 msgstr ""
 
-#: kifiles.c:1312
+#: kifiles.c:1359
 msgid "_Filter..."
 msgstr ""
 
-#: kifiles.c:1313
+#: kifiles.c:1360
 msgid "Fi_nd Files..."
 msgstr ""
 
-#: kifiles.c:1313
+#: kifiles.c:1360
 msgid "Search this folder and its subfolders"
 msgstr ""
 
-#: kifiles.c:1315 kifiles.c:1457
+#: kifiles.c:1362 kifiles.c:1504
 msgid "Icons"
 msgstr ""
 
-#: kifiles.c:1316 kifiles.c:1466
+#: kifiles.c:1363 kifiles.c:1513
 msgid "List"
 msgstr ""
 
-#: kifiles.c:1317
+#: kifiles.c:1364
 msgid "Zoom _In"
 msgstr ""
 
-#: kifiles.c:1318
+#: kifiles.c:1365
 msgid "Zoom _Out"
 msgstr ""
 
-#: kifiles.c:1319
+#: kifiles.c:1366
 msgid "_Reset Zoom"
 msgstr ""
 
-#: kifiles.c:1320
+#: kifiles.c:1367
 msgid "_Reload"
 msgstr ""
 
-#: kifiles.c:1322
+#: kifiles.c:1369
 msgid "_Back"
 msgstr ""
 
-#: kifiles.c:1323
+#: kifiles.c:1370
 msgid "_Forward"
 msgstr ""
 
-#: kifiles.c:1324
+#: kifiles.c:1371
 msgid "_Up"
 msgstr ""
 
-#: kifiles.c:1326
+#: kifiles.c:1373
 msgid "_Home"
 msgstr ""
 
-#: kifiles.c:1327
+#: kifiles.c:1374
 msgid "_Trash"
 msgstr ""
 
-#: kifiles.c:1328
+#: kifiles.c:1375
 msgid "_Location..."
 msgstr ""
 
-#: kifiles.c:1329
+#: kifiles.c:1376
 msgid "Add to _Places"
 msgstr ""
 
-#: kifiles.c:1334
+#: kifiles.c:1381
 msgid "_Descending"
 msgstr ""
 
-#: kifiles.c:1335
+#: kifiles.c:1382
 msgid "_Folders First"
 msgstr ""
 
-#: kifiles.c:1336
+#: kifiles.c:1383
 msgid "Show _Hidden Files"
 msgstr ""
 
-#: kifiles.c:1337
+#: kifiles.c:1384
 msgid "Show or hide thumbnails (hidden, they use no memory)"
 msgstr ""
 
-#: kifiles.c:1337
+#: kifiles.c:1384
 msgid "_Thumbnails"
 msgstr ""
 
-#: kifiles.c:1338
+#: kifiles.c:1385
 msgid "S_plit View"
 msgstr ""
 
-#: kifiles.c:1338
+#: kifiles.c:1385
 msgid "Show two folders side by side"
 msgstr ""
 
-#: kifiles.c:1339
+#: kifiles.c:1386
 msgid "_Places Panel"
 msgstr ""
 
-#: kifiles.c:1340
+#: kifiles.c:1387
 msgid "Highlight Item Under _Pointer"
 msgstr ""
 
-#: kifiles.c:1341
+#: kifiles.c:1388
 msgid ""
 "After a drag and drop, ask whether to move, copy or link instead of acting "
 "at once (hold Ctrl/Shift to skip the menu)"
 msgstr ""
 
-#: kifiles.c:1341
+#: kifiles.c:1388
 msgid "_Ask What to Do on Drop"
 msgstr ""
 
-#: kifiles.c:1345
+#: kifiles.c:1392
 msgid "_Icons"
 msgstr ""
 
-#: kifiles.c:1346
+#: kifiles.c:1393
 msgid "_List"
 msgstr ""
 
-#: kifiles.c:1350
+#: kifiles.c:1397
 msgid "By _Name"
 msgstr ""
 
-#: kifiles.c:1351
+#: kifiles.c:1398
 msgid "By _Size"
 msgstr ""
 
-#: kifiles.c:1352
+#: kifiles.c:1399
 msgid "By _Modified"
 msgstr ""
 
-#: kifiles.c:1353
+#: kifiles.c:1400
 msgid "By _Type"
 msgstr ""
 
-#: kifiles.c:1354
+#: kifiles.c:1401
 msgid "By _Extension"
 msgstr ""
 
-#: kifiles.c:1460
+#: kifiles.c:1507
 msgid "Icons (Ctrl+1)"
 msgstr ""
 
-#: kifiles.c:1469
+#: kifiles.c:1516
 msgid "List (Ctrl+2)"
 msgstr ""
 
-#: kifiles.c:1474
+#: kifiles.c:1521
 msgid "Sort"
 msgstr ""
 
-#: kifiles.c:1479
+#: kifiles.c:1526
 msgid "Sort by..."
 msgstr ""
 
-#: kifiles.c:1486
+#: kifiles.c:1533
 msgid "Thumbnails"
 msgstr ""
 
-#: kifiles.c:1493
+#: kifiles.c:1540
 msgid "Show or hide thumbnails"
 msgstr ""

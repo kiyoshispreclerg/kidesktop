@@ -8,6 +8,7 @@
 #include "kf.h"
 #include "../shared/xis_i18n.h"
 #include "../shared/xis_winstate.h"
+#include "../shared/xis_appchooser.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -311,17 +312,32 @@ static void run_file(KfApp *app, GFile *f, gboolean in_terminal)
     g_free(path);
 }
 
+static void open_with_chooser(KfApp *app, GList *files, const char *ctype);
+
 void kf_app_open(KfApp *app, KfPane *p, GFile *f)
 {
     gboolean is_dir = FALSE;
-    if (!kf_pane_file_info(p, f, &is_dir, NULL))
+    char *ctype = NULL;
+    if (!kf_pane_file_info(p, f, &is_dir, &ctype))
         is_dir = g_file_query_file_type(f, G_FILE_QUERY_INFO_NONE, NULL) == G_FILE_TYPE_DIRECTORY;
-    if (is_dir)
+    if (is_dir) {
         kf_pane_navigate(p, f, TRUE, NULL);
-    else if (is_launchable(f))
+    } else if (is_launchable(f)) {
         run_file(app, f, FALSE);
-    else
-        launch_uri(app, f);
+    } else {
+        GAppInfo *def = ctype ? g_app_info_get_default_for_type(ctype, FALSE) : NULL;
+        if (ctype && !def) {
+            /* Nothing registered for this type: ask instead of failing. */
+            GList *one = g_list_prepend(NULL, f);
+            open_with_chooser(app, one, ctype);
+            g_list_free(one);
+        } else {
+            launch_uri(app, f);
+        }
+        if (def)
+            g_object_unref(def);
+    }
+    g_free(ctype);
 }
 
 static void spawn_detached(const char *cwd, char **argv)
@@ -1047,19 +1063,44 @@ static void on_main_allocate(GtkWidget *w, GtkAllocation *a, gpointer d)
 
 /* ---- context menu -------------------------------------------------------------- */
 
+static void launch_with(KfApp *app, GAppInfo *ai, GList *files)
+{
+    GError *err = NULL;
+    GdkAppLaunchContext *ctx = gdk_app_launch_context_new();
+    gdk_app_launch_context_set_screen(ctx, gtk_widget_get_screen(app->win));
+    gdk_app_launch_context_set_timestamp(ctx, gtk_get_current_event_time());
+    if (!g_app_info_launch(ai, files, G_APP_LAUNCH_CONTEXT(ctx), &err)) {
+        kf_app_message(app, GTK_MESSAGE_ERROR, _("Could not open the file"), err ? err->message : NULL);
+        g_clear_error(&err);
+    }
+    g_object_unref(ctx);
+}
+
+/* The shared chooser, for "Other..." and for types nothing is registered for. */
+static void open_with_chooser(KfApp *app, GList *files, const char *ctype)
+{
+    GAppInfo *ai = xis_app_chooser_run(GTK_WINDOW(app->win), ctype);
+    if (!ai)
+        return;
+    launch_with(app, ai, files);
+    g_object_unref(ai);
+}
+
 static void on_open_with(GtkMenuItem *mi, gpointer d)
 {
     KfApp *app = d;
     GAppInfo *ai = g_object_get_data(G_OBJECT(mi), "kf-appinfo");
     GList *sel = kf_pane_selected(active(app));
-    GError *err = NULL;
-    GdkAppLaunchContext *ctx = gdk_app_launch_context_new();
-    gdk_app_launch_context_set_screen(ctx, gtk_widget_get_screen(app->win));
-    if (!g_app_info_launch(ai, sel, G_APP_LAUNCH_CONTEXT(ctx), &err)) {
-        kf_app_message(app, GTK_MESSAGE_ERROR, _("Could not open the file"), err->message);
-        g_clear_error(&err);
-    }
-    g_object_unref(ctx);
+    launch_with(app, ai, sel);
+    kf_files_free(sel);
+}
+
+static void on_open_with_other(GtkMenuItem *mi, gpointer d)
+{
+    KfApp *app = d;
+    const char *ctype = g_object_get_data(G_OBJECT(mi), "kf-ctype");
+    GList *sel = kf_pane_selected(active(app));
+    open_with_chooser(app, sel, ctype);
     kf_files_free(sel);
 }
 
@@ -1125,23 +1166,29 @@ void kf_app_popup_context(KfApp *app, KfPane *p, GdkEventButton *ev, gboolean on
             add_action_item(app, menu, "OpenNewTabSel");
             add_action_item(app, menu, "OpenNewWindowSel");
         }
-        if (ctype && !one_dir) {
-            GList *apps = g_app_info_get_all_for_type(ctype);
-            if (apps) {
-                GtkWidget *sub = gtk_menu_new();
-                for (GList *l = apps; l; l = l->next) {
-                    if (!g_app_info_should_show(l->data))
-                        continue;
-                    GtkWidget *mi = gtk_menu_item_new_with_label(g_app_info_get_display_name(l->data));
-                    g_object_set_data_full(G_OBJECT(mi), "kf-appinfo", g_object_ref(l->data), g_object_unref);
-                    g_signal_connect(mi, "activate", G_CALLBACK(on_open_with), app);
-                    gtk_menu_shell_append(GTK_MENU_SHELL(sub), mi);
-                }
-                GtkWidget *top = gtk_menu_item_new_with_mnemonic(_("Open _With"));
-                gtk_menu_item_set_submenu(GTK_MENU_ITEM(top), sub);
-                gtk_menu_shell_append(GTK_MENU_SHELL(menu), top);
-                g_list_free_full(apps, g_object_unref);
+        if (sel) {
+            GList *apps = ctype ? g_app_info_get_all_for_type(ctype) : NULL;
+            GtkWidget *sub = gtk_menu_new();
+            int n = 0;
+            for (GList *l = apps; l; l = l->next) {
+                if (!g_app_info_should_show(l->data))
+                    continue;
+                GtkWidget *mi = gtk_menu_item_new_with_label(g_app_info_get_display_name(l->data));
+                g_object_set_data_full(G_OBJECT(mi), "kf-appinfo", g_object_ref(l->data), g_object_unref);
+                g_signal_connect(mi, "activate", G_CALLBACK(on_open_with), app);
+                gtk_menu_shell_append(GTK_MENU_SHELL(sub), mi);
+                n++;
             }
+            if (n)
+                gtk_menu_shell_append(GTK_MENU_SHELL(sub), gtk_separator_menu_item_new());
+            GtkWidget *other = gtk_menu_item_new_with_mnemonic(_("_Other..."));
+            g_object_set_data_full(G_OBJECT(other), "kf-ctype", g_strdup(ctype), g_free);
+            g_signal_connect(other, "activate", G_CALLBACK(on_open_with_other), app);
+            gtk_menu_shell_append(GTK_MENU_SHELL(sub), other);
+            GtkWidget *top = gtk_menu_item_new_with_mnemonic(_("Open _With"));
+            gtk_menu_item_set_submenu(GTK_MENU_ITEM(top), sub);
+            gtk_menu_shell_append(GTK_MENU_SHELL(menu), top);
+            g_list_free_full(apps, g_object_unref);
         }
         if (sel && !sel->next && !one_dir && is_launchable(sel->data)) {
             GtkWidget *mi = gtk_menu_item_new_with_mnemonic(_("Run in _Terminal"));

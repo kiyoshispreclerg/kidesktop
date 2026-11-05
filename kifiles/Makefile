@@ -20,9 +20,9 @@ PKG_LIBS += $(LIBINTL)
 LINGUAS := $(shell test -f po/LINGUAS && grep -v '^\#' po/LINGUAS)
 MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
-SRCS := kifiles.c kf_config.c kf_icons.c kf_pane.c kf_crumbs.c kf_places.c kf_usagecell.c kf_tabs.c kf_hover.c kf_typeahead.c kf_dnd.c kf_clip.c kf_ops.c kf_jobview.c kf_thumbs.c kf_props.c ../shared/xis_sound.c ../shared/xis_winstate.c ../shared/xis_safefile.c ../shared/xis_rootexec.c
+SRCS := kifiles.c kf_config.c kf_icons.c kf_pane.c kf_crumbs.c kf_places.c kf_usagecell.c kf_tabs.c kf_hover.c kf_typeahead.c kf_dnd.c kf_clip.c kf_ops.c kf_jobview.c kf_thumbs.c kf_props.c ../shared/xis_sound.c ../shared/xis_winstate.c ../shared/xis_safefile.c ../shared/xis_rootexec.c ../shared/xis_appchooser.c
 OBJS := $(SRCS:.c=.o)
-HDRS := kf.h ../shared/xis_i18n.h ../shared/xis_winstate.h ../shared/xis_safefile.h ../shared/xis_rootexec.h
+HDRS := kf.h ../shared/xis_i18n.h ../shared/xis_winstate.h ../shared/xis_safefile.h ../shared/xis_rootexec.h ../shared/xis_appchooser.h
 
 all: kifiles
 
