@@ -15,6 +15,8 @@ set -u
 # Makefile.
 COMPONENTS="kisession kiwm kicomp xispanel xisserve xisback kitheme kiconf kiconfd xiskeys xismenu xisguard kimemory kistory kimountd"
 COMPONENTS="$COMPONENTS kiterm kifiles kifind kiview kishot kitask kipad kipaint"
+# kiterm needs the GTK2 VTE, missing on newer distros (the suite builds without it).
+pkg-config --exists vte 2>/dev/null || COMPONENTS=$(echo "$COMPONENTS" | sed 's/ kiterm / /; s/ kiterm$//')
 STRICT_CFLAGS="-Wall -Wextra -O2 -Werror"
 FAILED=""
 

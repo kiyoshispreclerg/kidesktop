@@ -17,5 +17,20 @@ SUDO=""
 [ "$(id -u)" -eq 0 ] || SUDO=sudo
 export DEBIAN_FRONTEND=noninteractive
 $SUDO apt-get update
+# libvte-dev (the GTK2 VTE, only for kiterm) is gone from newer releases such
+# as Ubuntu 26.04; the build then skips kiterm, so it is optional here.
+optional="libvte-dev"
+wanted=""
+for d in $deps; do
+	case " $optional " in
+	*" $d "*)
+		if [ -z "$(apt-cache policy "$d" 2>/dev/null | sed -n 's/^  Candidate: //p' | grep -v '(none)')" ]; then
+			echo "install-build-deps: $d not available here, skipping (optional)"
+			continue
+		fi
+		;;
+	esac
+	wanted="$wanted $d"
+done
 # shellcheck disable=SC2086 # word splitting is the point
-$SUDO apt-get install -y --no-install-recommends build-essential dpkg-dev git ca-certificates $deps "$@"
+$SUDO apt-get install -y --no-install-recommends build-essential dpkg-dev git ca-certificates $wanted "$@"
