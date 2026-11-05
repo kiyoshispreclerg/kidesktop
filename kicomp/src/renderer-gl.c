@@ -2094,6 +2094,30 @@ static void draw_shadow_mesh(const CompOutput *o, const CompSceneNode *n,
     glDisableVertexAttribArray(2);
 }
 
+/* A point of the bent sheet by its place in the window (0..1 each way):
+ * bilinear inside the grid cell it falls in, which is what the cell's two
+ * triangles approximate. What lets a rectangle inside the window -- the
+ * client's dense layer -- follow the same bend as the window around it. */
+static void mesh_point(const CompSceneMesh *m, float u, float v,
+                       float *px, float *py)
+{
+    float fu = u * (float)m->cols, fv = v * (float)m->rows;
+    int ix = (int)fu, iy = (int)fv;
+    if (ix < 0) ix = 0;
+    if (iy < 0) iy = 0;
+    if (ix > m->cols - 1) ix = m->cols - 1;
+    if (iy > m->rows - 1) iy = m->rows - 1;
+    float tx = fu - (float)ix, ty = fv - (float)iy;
+    int i00 = iy * (m->cols + 1) + ix, i10 = i00 + 1;
+    int i01 = i00 + (m->cols + 1), i11 = i01 + 1;
+    float top_x = m->x[i00] + (m->x[i10] - m->x[i00]) * tx;
+    float top_y = m->y[i00] + (m->y[i10] - m->y[i00]) * tx;
+    float bot_x = m->x[i01] + (m->x[i11] - m->x[i01]) * tx;
+    float bot_y = m->y[i01] + (m->y[i11] - m->y[i01]) * tx;
+    *px = top_x + (bot_x - top_x) * ty;
+    *py = top_y + (bot_y - top_y) * ty;
+}
+
 /* A window handed over as a deformed grid (scene.h): two triangles per
  * cell, the vertices already in root coordinates so the transform is the
  * identity and the projection alone puts them on screen, and a texture
@@ -2134,6 +2158,19 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * settles, long past the single repaint a plain resize step gets. */
     bool flat = cap_flat;
     bool from_stash = !flat && !w->content_ready && g->stash_platform && g->stash_texture;
+
+    /* The X-DENSITY layers, as draw_node() has them -- looked up before
+     * the window's texture is bound, for the same reason. Without them a
+     * wobbling window shows its own pixmap, which stays frozen while the
+     * client draws into its dense one. */
+    GlWindow *dense_deco = NULL, *dense_client = NULL;
+    if (!from_stash && !flat) {
+        float density;
+        if (deco_density_active(w, &density))
+            dense_deco = dense_layer(w, g, true);
+        if (density_active(w, &density))
+            dense_client = dense_layer(w, g, false);
+    }
 
     if (flat) {
         bind_flat();
@@ -2210,10 +2247,128 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
                           (const void *)(2 * sizeof(float)));
 
+    /* Where the client's layer goes, in the window's 0..1 -- the mesh's
+     * own texture coordinate, and so what maskcoord (and the hole) is
+     * measured in on this path. The window's own pixels there are left
+     * out, as draw_node() leaves them out (see client_covers there). */
+    CompRect wr = window_rect(w);
+    bool client_layer = dense_client && wr.w > 0 && wr.h > 0 &&
+                        w->client_rect.w > 2 && w->client_rect.h > 2;
+    float cu0 = 0.0f, cv0 = 0.0f, cu1 = 0.0f, cv1 = 0.0f;
+    float inset_u = 0.0f, inset_v = 0.0f;
+    if (client_layer) {
+        cu0 = (float)w->client_rect.x / (float)wr.w;
+        cv0 = (float)w->client_rect.y / (float)wr.h;
+        cu1 = (float)(w->client_rect.x + w->client_rect.w) / (float)wr.w;
+        cv1 = (float)(w->client_rect.y + w->client_rect.h) / (float)wr.h;
+        if (!dense_client->argb) {
+            inset_u = 1.0f / (float)wr.w;
+            inset_v = 1.0f / (float)wr.h;
+        }
+        glUniform4f(u_hole, cu0 + inset_u, cv0 + inset_v,
+                    cu1 - inset_u, cv1 - inset_v);
+        glUniform1f(u_use_hole, 1.0f);
+    }
+
     /* Every cell is inside the mesh's bounding box, so one scissor to
      * what this pass repaints is all the clipping there is. */
     scissor_for(o, repaint_rect.x, repaint_rect.y, repaint_rect.w, repaint_rect.h);
     glDrawArrays(GL_TRIANGLES, 0, v / 4);
+    glUniform1f(u_use_hole, 0.0f);
+
+    /* The decoration's layer covers the whole frame, so it is the same
+     * sheet with another texture. Transparent over the client, which it
+     * skips: the client's rectangle, or an opaque client's. */
+    if (dense_deco && wr.w > 0 && wr.h > 0) {
+        float h0u = 0.0f, h0v = 0.0f, h1u = 0.0f, h1v = 0.0f;
+        bool hole = false;
+        if (client_layer) {
+            h0u = cu0; h0v = cv0; h1u = cu1; h1v = cv1;
+            hole = true;
+        } else {
+            CompRect op = window_opaque_rect(w);
+            if (op.w > 2 && op.h > 2) {
+                h0u = (float)(op.x - wr.x) / (float)wr.w;
+                h0v = (float)(op.y - wr.y) / (float)wr.h;
+                h1u = (float)(op.x - wr.x + op.w) / (float)wr.w;
+                h1v = (float)(op.y - wr.y + op.h) / (float)wr.h;
+                hole = true;
+            }
+        }
+        if (hole) {
+            float iu = 1.0f / (float)wr.w, iv = 1.0f / (float)wr.h;
+            glUniform4f(u_hole, h0u + iu, h0v + iv, h1u - iu, h1v - iv);
+            glUniform1f(u_use_hole, 1.0f);
+        }
+        glBindTexture(GL_TEXTURE_2D, dense_deco->texture);
+        glUniform1f(u_y_flip, dense_deco->y_inverted ? 0.0f : 1.0f);
+        /* kiwm's radii when known, exact at any density (draw_dense);
+         * otherwise the shape mask already bound above. */
+        if (w->corner_radii_known) {
+            glUniform1f(u_use_mask, 0.0f);
+            glUniform1f(u_use_corners, 1.0f);
+            glUniform4f(u_corner_radii, (float)w->corner_tl, (float)w->corner_tr,
+                        (float)w->corner_br, (float)w->corner_bl);
+            glUniform2f(u_corner_size, (float)wr.w, (float)wr.h);
+        }
+        glDrawArrays(GL_TRIANGLES, 0, v / 4);
+        glUniform1f(u_use_corners, 0.0f);
+        glUniform1f(u_use_hole, 0.0f);
+        glUniform1f(u_use_mask, shape ? 1.0f : 0.0f);
+    }
+
+    /* The client's layer: a sheet of its own over just its rectangle,
+     * every vertex taken off the window's bent one (mesh_point), so it
+     * bends exactly as the window around it does. Its texture coordinate
+     * is the layer's own 0..1; mask_adjust turns that back into the
+     * window's, which is what the corners and the shape are measured
+     * in. */
+    if (client_layer) {
+        static float cverts[MESH_MAX_COLS * MESH_MAX_ROWS * 6 * 4];
+        int cv = 0;
+        for (int gy = 0; gy < rows; gy++) {
+            for (int gx = 0; gx < cols; gx++) {
+                const float us[6] = { 0, 1, 0, 1, 1, 0 };
+                const float ts[6] = { 0, 0, 1, 0, 1, 1 };
+                for (int k = 0; k < 6; k++) {
+                    float lu = ((float)gx + us[k]) / (float)cols;
+                    float lv = ((float)gy + ts[k]) / (float)rows;
+                    float px, py;
+                    mesh_point(mesh, cu0 + (cu1 - cu0) * lu,
+                               cv0 + (cv1 - cv0) * lv, &px, &py);
+                    cverts[cv++] = px;
+                    cverts[cv++] = py;
+                    cverts[cv++] = lu;
+                    cverts[cv++] = lv;
+                }
+            }
+        }
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)cv * (GLsizeiptr)sizeof(float),
+                     cverts, GL_STREAM_DRAW);
+        /* The buffer no longer holds the window's sheet. */
+        mesh_cache_mesh = NULL;
+
+        glBindTexture(GL_TEXTURE_2D, dense_client->texture);
+        glUniform1f(u_y_flip, dense_client->y_inverted ? 0.0f : 1.0f);
+        glUniform4f(u_mask_adjust, cu0, cv0, (cu1 - cu0) - 1.0f,
+                    (cv1 - cv0) - 1.0f);
+
+        CompRect in_frame = { w->client_rect.x, w->client_rect.y,
+                              w->client_rect.w, w->client_rect.h };
+        bool round = client_reaches_corners(w, &in_frame, wr.w, wr.h);
+        if (round && w->corner_radii_known) {
+            glUniform1f(u_use_mask, 0.0f);
+            glUniform1f(u_use_corners, 1.0f);
+            glUniform4f(u_corner_radii, (float)w->corner_tl, (float)w->corner_tr,
+                        (float)w->corner_br, (float)w->corner_bl);
+            glUniform2f(u_corner_size, (float)wr.w, (float)wr.h);
+        } else {
+            glUniform1f(u_use_mask, (round && shape) ? 1.0f : 0.0f);
+        }
+        glDrawArrays(GL_TRIANGLES, 0, cv / 4);
+        glUniform1f(u_use_corners, 0.0f);
+        glUniform4f(u_mask_adjust, 0.0f, 0.0f, 0.0f, 0.0f);
+    }
 
     /* Back to the plain quad for whatever node is drawn next. */
     glDisableVertexAttribArray(1);
