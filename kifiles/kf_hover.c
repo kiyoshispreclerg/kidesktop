@@ -164,6 +164,22 @@ static gboolean icon_item_at(KfPane *p, GtkWidget *w, int x, int y, GdkRectangle
     return FALSE;
 }
 
+/* Layout rectangle of the icon view's item at `path`, in bin-window coordinates. */
+gboolean kf_hover_item_rect(KfPane *p, GtkTreePath *path, GdkRectangle *r)
+{
+    if (!p->hl_valid)
+        layout(p, p->iconview);
+    gint *idx = gtk_tree_path_get_indices(path);
+    if (!idx || p->hl_cols <= 0)
+        return FALSE;
+    guint row = (guint)(idx[0] / p->hl_cols);
+    if (row >= p->hl_rows->len)
+        return FALSE;
+    GdkRectangle *rr = &g_array_index(p->hl_rows, GdkRectangle, row);
+    *r = (GdkRectangle){ p->hl_x0 + (idx[0] % p->hl_cols) * p->hl_pitch, rr->y, p->hl_item_w, rr->height };
+    return TRUE;
+}
+
 static void track(KfPane *p, GtkWidget *w, int x, int y)
 {
     if (!p->app->cfg.hover) {

@@ -7,6 +7,7 @@
  *         -> GtkIconView / GtkTreeView (only one visible at a time)
  */
 #include "kf.h"
+#include "../shared/xis_launchfx_gtk.h"
 #include "../shared/xis_i18n.h"
 #include <string.h>
 
@@ -1173,16 +1174,46 @@ static void on_selection(gpointer a, gpointer data)
         p->sel_idle = g_idle_add(sel_idle_cb, p);
 }
 
+/* Launch feedback over the icon of a file that is about to be opened. */
+static void launch_feedback(KfPane *p, GtkTreePath *path, GdkPixbuf *icon)
+{
+    GdkRectangle r;
+    GdkWindow *bin;
+    if (p->view == KF_VIEW_LIST) {
+        bin = gtk_tree_view_get_bin_window(GTK_TREE_VIEW(p->treeview));
+        GtkTreeViewColumn *col = gtk_tree_view_get_column(GTK_TREE_VIEW(p->treeview), 0);
+        gtk_tree_view_get_cell_area(GTK_TREE_VIEW(p->treeview), path, col, &r);
+        r.width = gdk_pixbuf_get_width(icon);       /* the icon sits at the start of the name cell */
+    } else {
+        GList *kids = gdk_window_get_children(gtk_widget_get_window(p->iconview));
+        bin = kids ? kids->data : NULL;
+        g_list_free(kids);
+        GdkRectangle item;
+        if (!kf_hover_item_rect(p, path, &item))
+            return;
+        /* the icon is the item's first cell, centered across it */
+        int pad = gtk_icon_view_get_item_padding(GTK_ICON_VIEW(p->iconview));
+        r = (GdkRectangle){ item.x, item.y + pad, item.width, gdk_pixbuf_get_height(icon) };
+    }
+    xis_launchfx_gtk_play(bin, r.x, r.y, r.width, r.height, icon, 2.0, 400);
+}
+
 static void open_path(KfPane *p, GtkTreePath *path)
 {
     GtkTreeIter it;
     GFile *f = NULL;
     if (gtk_tree_model_get_iter(p->sort, &it, path)) {
-        gtk_tree_model_get(p->sort, &it, KF_COL_FILE, &f, -1);
+        GdkPixbuf *icon = NULL;
+        gboolean is_dir = FALSE;
+        gtk_tree_model_get(p->sort, &it, KF_COL_FILE, &f, KF_COL_ICON, &icon, KF_COL_ISDIR, &is_dir, -1);
         if (f) {
+            if (!is_dir && icon && p->app->cfg.launch_fx)
+                launch_feedback(p, path, icon);
             kf_app_open(p->app, p, f);
             g_object_unref(f);
         }
+        if (icon)
+            g_object_unref(icon);
     }
 }
 

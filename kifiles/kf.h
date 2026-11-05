@@ -7,7 +7,7 @@
 #include <gio/gio.h>
 #include "../shared/xis_sound.h"
 
-#define KIFILES_VERSION "0.1.28"
+#define KIFILES_VERSION "0.1.29"
 
 typedef enum { KF_VIEW_ICONS, KF_VIEW_LIST } KfViewMode;
 typedef enum { KF_SORT_NAME, KF_SORT_SIZE, KF_SORT_MTIME, KF_SORT_TYPE, KF_SORT_EXT, KF_SORT_N } KfSortKey;
@@ -24,6 +24,7 @@ typedef struct {
     gboolean show_places;
     gboolean hover;             /* highlight the item under the pointer */
     gboolean drop_menu;         /* ask Move/Copy/Link/Cancel after a drop instead of acting at once */
+    gboolean launch_fx;         /* zoom+fade over the icon of a file being opened (needs a compositor) */
     int win_w, win_h, places_w;
     char **tabs;                /* saved session, NULL-terminated: per tab "URI" or "URI URI" (split view) */
     int cur_tab;                /* index into tabs of the tab that was shown */
@@ -184,6 +185,7 @@ void kf_files_free(GList *files);
 void kf_hover_setup(KfPane *p);
 void kf_hover_apply(KfPane *p);         /* after the setting changed */
 void kf_hover_clear(KfPane *p);
+gboolean kf_hover_item_rect(KfPane *p, GtkTreePath *path, GdkRectangle *r);   /* icon view item, bin-window coords */
 void kf_hover_refresh(KfPane *p);       /* the content moved under a still pointer */
 
 /* kf_typeahead.c -- typing selects the first item whose name starts with it */
