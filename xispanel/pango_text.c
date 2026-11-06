@@ -22,6 +22,7 @@
 #include "xispanel.h"
 
 #include <pango/pangocairo.h>
+#include <math.h>
 #include <string.h>
 
 static PangoFontDescription *g_desc = NULL;
@@ -107,6 +108,30 @@ static unsigned long cr_font_options_hash(cairo_t *cr)
     cairo_font_options_destroy(crfo);
     cairo_font_options_destroy(fo);
     return h;
+}
+
+/* User-space point -> nearest whole device pixel, back in user space. */
+static void snap_to_device(cairo_t *cr, double *x, double *y)
+{
+    cairo_user_to_device(cr, x, y);
+    *x = floor(*x + 0.5);
+    *y = floor(*y + 0.5);
+    cairo_device_to_user(cr, x, y);
+}
+
+/* User-space offset -> whole device pixels (a non-zero axis never rounds to 0). */
+static void snap_distance_to_device(cairo_t *cr, double *dx, double *dy)
+{
+    double *v[2] = { dx, dy };
+    cairo_user_to_device_distance(cr, dx, dy);
+    for (int i = 0; i < 2; i++) {
+        double r = floor(fabs(*v[i]) + 0.5);
+        if (r < 1.0 && *v[i] != 0.0) {
+            r = 1.0;
+        }
+        *v[i] = *v[i] < 0 ? -r : r;
+    }
+    cairo_device_to_user_distance(cr, dx, dy);
 }
 
 /* Borrowed: valid until the next call (which may evict it). */
@@ -232,12 +257,22 @@ void pango_show_text_boxed_bold(cairo_t *cr, double x, double top_y, double box_
     }
     double y = top_y + (box_h - lh) / 2.0;
 
+    /* Under a density/zoom matrix the three passes must land on the same
+     * device pixel grid: cairo snaps each glyph origin of show_layout() to
+     * whole device pixels but leaves layout_path() exact, and a fractional
+     * shadow offset (1.0 * 1.37) would quantize the shadow's glyphs
+     * differently from the fill's. So snap the origin, and make the shadow
+     * a whole number of device pixels away (at least 1 when it has any). */
+    snap_to_device(cr, &x, &y);
+
     double fr, fg, fb, fa;
     cairo_pattern_get_rgba(cairo_get_source(cr), &fr, &fg, &fb, &fa);
 
     if (p && p->text_shadow) {
+        double sx = p->text_shadow_dx, sy = p->text_shadow_dy;
+        snap_distance_to_device(cr, &sx, &sy);
         cairo_set_source_rgba(cr, p->text_shadow_r, p->text_shadow_g, p->text_shadow_b, p->text_shadow_a);
-        cairo_move_to(cr, x + p->text_shadow_dx, y + p->text_shadow_dy);
+        cairo_move_to(cr, x + sx, y + sy);
         pango_cairo_show_layout(cr, layout);
     }
 
