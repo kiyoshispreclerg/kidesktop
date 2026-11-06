@@ -219,8 +219,17 @@ void deco_density_publish(Client *c, int w, int h, bool focused)
         c->deco_density_h = dh;
     }
 
+    /* Painted into a scratch pixmap and then copied over in one CopyArea:
+     * the published pixmap is what a compositor samples, and painting it
+     * in place (clear, then each strip of text and buttons as separate
+     * requests) lets it catch a half-drawn frame -- visible as the title
+     * text blinking. The copy is a single server-side request, so the
+     * published pixmap only ever holds a finished frame. */
+    xcb_pixmap_t scratch = xcb_generate_id(wm.conn);
+    xcb_create_pixmap(wm.conn, 32, scratch, c->frame, (uint16_t)dw, (uint16_t)dh);
+
     cairo_surface_t *surface = cairo_xcb_surface_create(wm.conn,
-        c->deco_density_pixmap, wm.argb_visual, dw, dh);
+        scratch, wm.argb_visual, dw, dh);
     cairo_t *cr = cairo_create(surface);
 
     /* The scale is the whole trick: everything below draws in the frame's
@@ -231,6 +240,11 @@ void deco_density_publish(Client *c, int w, int h, bool focused)
     cairo_destroy(cr);
     cairo_surface_flush(surface);
     cairo_surface_destroy(surface);
+
+    xcb_gcontext_t gc = wm.deco_gc_argb ? wm.deco_gc_argb : wm.deco_gc;
+    xcb_copy_area(wm.conn, scratch, c->deco_density_pixmap, gc, 0, 0, 0, 0,
+                  (uint16_t)dw, (uint16_t)dh);
+    xcb_free_pixmap(wm.conn, scratch);
 
     /* Contents first, announcement after (the protocol's own ordering
      * rule): a compositor that sampled on the property change would
