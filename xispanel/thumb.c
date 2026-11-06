@@ -84,8 +84,12 @@ static volatile sig_atomic_t g_thumb_had_error;
 
 static Window resolve_composited_window(Window win, XWindowAttributes *out_wa, Pixmap *out_pix,
                                          int *out_self_redirected);
+typedef struct {
+    double x, y, w, h; /* where paint_scaled() put the image */
+} ThumbRect;
+
 static void paint_scaled(cairo_t *cr, cairo_surface_t *surf, int sw, int sh, double x, double y, double max_w,
-                          double max_h);
+                          double max_h, ThumbRect *out);
 
 static int thumb_error_handler(Display *dpy, XErrorEvent *ev)
 {
@@ -368,7 +372,7 @@ static int paint_stowed(cairo_t *cr, Window win, double x, double y, double max_
         cairo_surface_destroy(surf);
         return 0;
     }
-    paint_scaled(cr, surf, (int)gw, (int)gh, x, y, max_w, max_h);
+    paint_scaled(cr, surf, (int)gw, (int)gh, x, y, max_w, max_h, NULL);
     cairo_surface_destroy(surf);
     /* And emphatically no XFreePixmap: see the file's note above. */
     return 1;
@@ -398,6 +402,7 @@ static int damage_available(void)
  * worse -- looking like a slideshow of periodic screenshots if driven by
  * a blind timer instead of real damage events. */
 #define THUMB_MAX_WATCHES 8
+#define THUMB_MAX_HOLES 16
 typedef struct {
     Window win; /* as passed by the caller (tooltip.c) -- only used for the idempotency check below */
     Damage damage;
@@ -460,6 +465,18 @@ typedef struct {
     cairo_surface_t *dense_surf;
     int dense_w, dense_h;
     int dense_stale;
+
+    /* X-DENSITY holes (_X_DENSITY_PASSTHROUGH / _X_DENSITY_SOURCES): the
+     * rectangles, in the client's logical pixels, where the dense pixmap
+     * has nothing because a native child (a video) draws there. The
+     * thumbnail fills them from the real window's composite pixmap --
+     * live, at 1x, which is plenty at thumbnail size. hole_cw/ch is the
+     * client's logical size and hole_ox/oy its offset inside `target` (a
+     * WM frame has a titlebar and border the client does not). Re-read
+     * together with the dense pixmap, on the same dense_stale flag. */
+    int n_holes;
+    int holes[THUMB_MAX_HOLES][4];
+    int hole_cw, hole_ch, hole_ox, hole_oy;
 } ThumbWatch;
 static ThumbWatch g_watches[THUMB_MAX_WATCHES];
 static int g_n_watches = 0;
@@ -553,6 +570,89 @@ static Pixmap read_dense_pixmap(Window win, Visual **out_visual, int *out_w, int
     return pix;
 }
 
+static Atom density_atom(const char *name, Atom *cache)
+{
+    if (*cache == None) {
+        *cache = XInternAtom(g_dpy, name, False);
+    }
+    return *cache;
+}
+
+static Atom passthrough_atom(void)
+{
+    static Atom a;
+    return density_atom("_X_DENSITY_PASSTHROUGH", &a);
+}
+
+static Atom sources_atom(void)
+{
+    static Atom a;
+    return density_atom("_X_DENSITY_SOURCES", &a);
+}
+
+/* Appends the rectangles `win` publishes in `atom` (`stride` values each:
+ * 4 for passthrough, 5 for sources, whose trailing window id is of no use
+ * to a thumbnail -- the real window shows the 1x copy of it anyway). */
+static void read_hole_list(ThumbWatch *w, Atom atom, int stride)
+{
+    Atom type = None;
+    int fmt = 0;
+    unsigned long n = 0, after = 0;
+    unsigned char *data = NULL;
+
+    g_thumb_had_error = 0;
+    if (XGetWindowProperty(g_dpy, w->win, atom, 0, THUMB_MAX_HOLES * 5, False, XA_CARDINAL, &type, &fmt, &n,
+                           &after, &data) != Success ||
+        g_thumb_had_error || data == NULL) {
+        return;
+    }
+    if (fmt == 32) {
+        const long *v = (const long *)(const void *)data;
+        for (unsigned long i = 0; i + (unsigned long)stride <= n && w->n_holes < THUMB_MAX_HOLES;
+             i += (unsigned long)stride) {
+            if (v[i + 2] <= 0 || v[i + 3] <= 0) {
+                continue;
+            }
+            for (int k = 0; k < 4; k++) {
+                w->holes[w->n_holes][k] = (int)v[i + (unsigned long)k];
+            }
+            w->n_holes++;
+        }
+    }
+    XFree(data);
+}
+
+/* Re-reads the holes and the geometry they are relative to. Only called
+ * while a dense pixmap is in use, with the permissive error handler. */
+static void watch_read_holes(ThumbWatch *w)
+{
+    w->n_holes = 0;
+    read_hole_list(w, passthrough_atom(), 4);
+    read_hole_list(w, sources_atom(), 5);
+    if (w->n_holes == 0) {
+        return;
+    }
+    XWindowAttributes wa;
+    int ox = 0, oy = 0;
+    Window child;
+    g_thumb_had_error = 0;
+    if (!XGetWindowAttributes(g_dpy, w->win, &wa) || g_thumb_had_error) {
+        w->n_holes = 0;
+        return;
+    }
+    if (w->target != w->win) {
+        XTranslateCoordinates(g_dpy, w->win, w->target, 0, 0, &ox, &oy, &child);
+    }
+    if (g_thumb_had_error || wa.width <= 0 || wa.height <= 0) {
+        w->n_holes = 0;
+        return;
+    }
+    w->hole_cw = wa.width;
+    w->hole_ch = wa.height;
+    w->hole_ox = ox;
+    w->hole_oy = oy;
+}
+
 static void watch_drop_dense(ThumbWatch *w)
 {
     if (w->dense_surf) {
@@ -585,6 +685,11 @@ static int watch_refresh_dense(ThumbWatch *w)
                 w->dense_w = dw;
                 w->dense_h = dh;
             }
+        }
+        if (w->dense_surf) {
+            watch_read_holes(w);
+        } else {
+            w->n_holes = 0;
         }
     }
     return w->dense_surf != NULL;
@@ -690,6 +795,7 @@ void thumb_watch(Window win)
     w->dense_pix = None;
     w->dense_surf = NULL;
     w->dense_stale = 1; /* first paint looks */
+    w->n_holes = 0;
 
     /* Invalidation signal for the cached pixmap above. Mostly redundant
      * -- ewmh_watch_init() already holds SubstructureNotifyMask on the
@@ -786,6 +892,7 @@ static void note_structure_event(const XEvent *ev)
             continue;
         }
         watch_drop_pixmap(&g_watches[i]);
+        g_watches[i].dense_stale = 1; /* the hole offsets inside the frame may have moved */
         if (ev->type == ConfigureNotify) {
             g_watches[i].w = ev->xconfigure.width;
             g_watches[i].h = ev->xconfigure.height;
@@ -804,7 +911,9 @@ int thumb_handle_event(const XEvent *ev)
 {
     if (g_n_watches > 0) {
         note_structure_event(ev); /* returns 0 below either way -- see its doc comment */
-        if (ev->type == PropertyNotify && ev->xproperty.atom == density_pixmap_atom()) {
+        if (ev->type == PropertyNotify &&
+            (ev->xproperty.atom == density_pixmap_atom() || ev->xproperty.atom == passthrough_atom() ||
+             ev->xproperty.atom == sources_atom())) {
             /* New dense frame (or density raised/dropped): no Damage for
              * a Pixmap, so this is the only signal. Not consumed -- other
              * widgets may care about the same window. */
@@ -952,7 +1061,7 @@ static Window resolve_composited_window(Window win, XWindowAttributes *out_wa, P
  * transform rather than a full download-scale-upload of the source window
  * -- see TooltipPopup::back_pix's doc comment in tooltip.c. */
 static void paint_scaled(cairo_t *cr, cairo_surface_t *surf, int sw, int sh, double x, double y, double max_w,
-                          double max_h)
+                          double max_h, ThumbRect *out)
 {
     double scale = max_w / sw < max_h / sh ? max_w / sw : max_h / sh;
     if (scale > 1.0) {
@@ -962,6 +1071,12 @@ static void paint_scaled(cairo_t *cr, cairo_surface_t *surf, int sw, int sh, dou
     double draw_h = sh * scale;
     double dx = x + (max_w - draw_w) / 2.0;
     double dy = y + (max_h - draw_h) / 2.0;
+    if (out) {
+        out->x = dx;
+        out->y = dy;
+        out->w = draw_w;
+        out->h = draw_h;
+    }
 
     /* The composited pixmap's contents are rewritten by the X server as
      * the window redraws -- entirely behind cairo's back. Without this,
@@ -1091,6 +1206,57 @@ static void paint_excluded(cairo_t *cr, int sw, int sh, double x, double y, doub
     cairo_restore(cr);
 }
 
+/* The cached composite pixmap + cairo surface for a watch, named if an
+ * invalidating event dropped them. 0 if it can't be had right now. Run
+ * with thumb_error_handler installed. */
+static int watch_ensure_surface(ThumbWatch *w)
+{
+    if (w->pix == None) {
+        g_thumb_had_error = 0;
+        Pixmap fresh = XCompositeNameWindowPixmap(g_dpy, w->target);
+        XSync(g_dpy, False);
+        if (g_thumb_had_error || fresh == None) {
+            return 0;
+        }
+        w->pix = fresh;
+    }
+    if (!w->surf) {
+        w->surf = cairo_xlib_surface_create(g_dpy, w->pix, w->visual, w->w, w->h);
+        if (cairo_surface_status(w->surf) != CAIRO_STATUS_SUCCESS) {
+            watch_drop_pixmap(w);
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Fills the dense pixmap's holes (where a native child draws) from the
+ * real window's composite pixmap, which has the child's live pixels. `r`
+ * is where the dense image went; one hole is one XRender composite
+ * reduced to thumbnail size, no copy. */
+static void paint_holes(cairo_t *cr, ThumbWatch *w, const ThumbRect *r)
+{
+    if (w->n_holes == 0 || !watch_ensure_surface(w)) {
+        return;
+    }
+    cairo_surface_mark_dirty(w->surf);
+    cairo_save(cr);
+    cairo_translate(cr, r->x, r->y);
+    cairo_scale(cr, r->w / w->hole_cw, r->h / w->hole_ch);
+    for (int i = 0; i < w->n_holes; i++) {
+        cairo_save(cr);
+        cairo_rectangle(cr, w->holes[i][0], w->holes[i][1], w->holes[i][2], w->holes[i][3]);
+        cairo_clip(cr);
+        cairo_set_source_surface(cr, w->surf, -w->hole_ox, -w->hole_oy);
+        cairo_pattern_t *pat = cairo_get_source(cr);
+        cairo_pattern_set_extend(pat, CAIRO_EXTEND_PAD);
+        cairo_pattern_set_filter(pat, CAIRO_FILTER_BILINEAR);
+        cairo_paint(cr);
+        cairo_restore(cr);
+    }
+    cairo_restore(cr);
+}
+
 int thumb_paint(cairo_t *cr, Window win, double x, double y, double max_w, double max_h)
 {
     if (!thumb_available()) {
@@ -1132,7 +1298,9 @@ int thumb_paint(cairo_t *cr, Window win, double x, double y, double max_w, doubl
         }
         ThumbWatch *w = &g_watches[i];
         if (w->mapped && watch_refresh_dense(w)) {
-            paint_scaled(cr, w->dense_surf, w->dense_w, w->dense_h, x, y, max_w, max_h);
+            ThumbRect r;
+            paint_scaled(cr, w->dense_surf, w->dense_w, w->dense_h, x, y, max_w, max_h, &r);
+            paint_holes(cr, w, &r);
             XSetErrorHandler(prev);
             return 1;
         }
@@ -1158,32 +1326,18 @@ int thumb_paint(cairo_t *cr, Window win, double x, double y, double max_w, doubl
             XSetErrorHandler(prev);
             return painted;
         }
-        if (w->pix == None) {
-            /* First paint after an invalidating structure event (or after
-             * a failed attempt) -- name a fresh pixmap for the same
-             * target. The XSync is affordable *here* precisely because
-             * this is no longer the per-frame path. */
-            g_thumb_had_error = 0;
-            Pixmap fresh = XCompositeNameWindowPixmap(g_dpy, w->target);
-            XSync(g_dpy, False);
-            if (g_thumb_had_error || fresh == None) {
-                /* Fall through to the slow path rather than giving up:
-                 * the cached `target` can genuinely go stale if the WM
-                 * re-parents the window while the tooltip is open, and a
-                 * full re-resolve finds the new frame. If the window is
-                 * simply gone, the slow path fails too and returns 0. */
-                break;
-            }
-            w->pix = fresh;
+        /* First paint after an invalidating structure event (or after a
+         * failed attempt) names a fresh pixmap for the same target. The
+         * XSync inside is affordable *here* precisely because this is no
+         * longer the per-frame path. On failure fall through to the slow
+         * path rather than giving up: the cached `target` can genuinely
+         * go stale if the WM re-parents the window while the tooltip is
+         * open, and a full re-resolve finds the new frame. If the window
+         * is simply gone, the slow path fails too and returns 0. */
+        if (!watch_ensure_surface(w)) {
+            break;
         }
-        if (!w->surf) {
-            w->surf = cairo_xlib_surface_create(g_dpy, w->pix, w->visual, w->w, w->h);
-            if (cairo_surface_status(w->surf) != CAIRO_STATUS_SUCCESS) {
-                watch_drop_pixmap(w);
-                break; /* same re-resolve fallback as above */
-            }
-        }
-        paint_scaled(cr, w->surf, w->w, w->h, x, y, max_w, max_h);
+        paint_scaled(cr, w->surf, w->w, w->h, x, y, max_w, max_h, NULL);
         renew_hold(w->win);
         XSetErrorHandler(prev);
         return 1;
@@ -1198,7 +1352,7 @@ int thumb_paint(cairo_t *cr, Window win, double x, double y, double max_w, doubl
         if (dense != None) {
             cairo_surface_t *dsurf = cairo_xlib_surface_create(g_dpy, dense, dvis, dw, dh);
             if (cairo_surface_status(dsurf) == CAIRO_STATUS_SUCCESS) {
-                paint_scaled(cr, dsurf, dw, dh, x, y, max_w, max_h);
+                paint_scaled(cr, dsurf, dw, dh, x, y, max_w, max_h, NULL);
                 cairo_surface_destroy(dsurf);
                 XSetErrorHandler(prev);
                 thumb_watch(win);
@@ -1245,7 +1399,7 @@ int thumb_paint(cairo_t *cr, Window win, double x, double y, double max_w, doubl
         return 0;
     }
 
-    paint_scaled(cr, surf, wa.width, wa.height, x, y, max_w, max_h);
+    paint_scaled(cr, surf, wa.width, wa.height, x, y, max_w, max_h, NULL);
 
     cairo_surface_destroy(surf);
     XFreePixmap(g_dpy, pix);
