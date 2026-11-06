@@ -19,3 +19,8 @@ make run FILE=grid.kvtest    # the test plugin's grid (any file named *.kvtest)
 ```
 
 `KIVIEW_TRACE=1` prints every message between kiview and its plugin.
+
+Density (X-DENSITY): when the desktop asks for a denser picture of the window (a magnifier,
+HiDPI), the plugin renders at that many pixels and the compositor samples them sharply
+(`shared/xis_density_source.c`, taken from Kiplay's video window). `KIVIEW_DENSITY=2` forces a
+density to try it without a compositor.

@@ -5,7 +5,6 @@
  * The plugin draws into an X window of ours, a child of the area's own
  * window that GDK doesn't know about (like Kiplay's video window). It
  * selects no input, so clicks and the wheel go on to the area. */
-#include <X11/Xlib.h>
 #include <fcntl.h>
 #include <gdk/gdkkeysyms.h>
 #include <gdk/gdkx.h>
@@ -14,6 +13,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "../shared/xis_density_source.h"
 #include "../shared/xis_i18n.h"
 #include "../shared/xis_winstate.h"
 #include "kv.h"
@@ -62,11 +62,6 @@ static struct {
 static void held_clear(void);
 static void slide_arm(void);
 
-static Display *dpy(void)
-{
-    return GDK_WINDOW_XDISPLAY(kv.area->window);
-}
-
 /* ---- sending ---- */
 
 static void to_plugin(GString *m)
@@ -85,7 +80,11 @@ static void send_surface(void)
     kvp_out_i(m, "xid", (long)kv.xwin);
     kvp_out_i(m, "w", kv.aw);
     kvp_out_i(m, "h", kv.ah);
-    kvp_out_s(m, "density", "1/1");
+    long num, den;
+    xis_density_source_ratio(&num, &den);
+    char *dens = g_strdup_printf("%ld/%ld", num, den);
+    kvp_out_s(m, "density", dens);
+    g_free(dens);
     kvp_out_i(m, "seq", ++kv.seq);
     to_plugin(m);
 }
@@ -165,13 +164,8 @@ static void set_message(const char *msg)
 {
     g_free(kv.message);
     kv.message = g_strdup(msg);
-    if (kv.xwin) {
-        if (msg)
-            XUnmapWindow(dpy(), kv.xwin);
-        else
-            XMapWindow(dpy(), kv.xwin);
-        XFlush(dpy());
-    }
+    if (kv.xwin)
+        xis_density_source_set_shown(msg == NULL);
     gtk_widget_queue_draw(kv.area);
     update_labels();
 }
@@ -615,17 +609,24 @@ static gboolean on_window_state(GtkWidget *w, GdkEventWindowState *e, gpointer u
     return FALSE;
 }
 
+/* The density source resized the window (a new size or a new density):
+ * the plugin draws again at it. */
+static void on_density_changed(gpointer ud)
+{
+    (void)ud;
+    send_surface();
+}
+
 static void on_realize(GtkWidget *area, gpointer ud)
 {
     (void)ud;
-    Display *d = GDK_WINDOW_XDISPLAY(area->window);
     kv.aw = MAX(area->allocation.width, 1);
     kv.ah = MAX(area->allocation.height, 1);
-    kv.xwin = XCreateSimpleWindow(d, GDK_WINDOW_XID(area->window), 0, 0, (unsigned)kv.aw, (unsigned)kv.ah,
-                                  0, 0, 0x1e1e1e);
-    if (!kv.message)
-        XMapWindow(d, kv.xwin);
-    XFlush(d);
+    /* the plugin's window, in the density the desktop asks for;
+     * KIVIEW_DENSITY=2 forces one, to try it without a compositor */
+    kv.xwin = xis_density_source_create(area, GTK_WINDOW(kv.win), "KIVIEW_DENSITY", on_density_changed, NULL);
+    if (kv.message)
+        xis_density_source_set_shown(FALSE);
 }
 
 static void on_unrealize(GtkWidget *area, gpointer ud)
@@ -639,19 +640,22 @@ static void on_allocate(GtkWidget *area, GtkAllocation *a, gpointer ud)
 {
     (void)area;
     (void)ud;
-    if (!kv.xwin)
-        return;
+    /* the density source resizes the plugin's window after this and
+     * sends the plugin its new surface */
     kv.aw = MAX(a->width, 1);
     kv.ah = MAX(a->height, 1);
-    XMoveResizeWindow(dpy(), kv.xwin, 0, 0, (unsigned)kv.aw, (unsigned)kv.ah);
-    XFlush(dpy());
-    send_surface();
 }
 
 static gboolean on_expose(GtkWidget *area, GdkEventExpose *e, gpointer ud)
 {
     (void)e;
     (void)ud;
+    if (!kv.message) {
+        /* nothing of ours: the plugin's window covers the area, and when
+         * dense what shows here is the 1x copy of it */
+        xis_density_source_expose();
+        return TRUE;
+    }
     cairo_t *cr = gdk_cairo_create(area->window);
     GdkColor c;
     gdk_color_parse(kv.fullscreen ? BG_FULLSCREEN : BG_NORMAL, &c);

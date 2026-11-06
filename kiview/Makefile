@@ -14,15 +14,15 @@ LOCALEDIR := $(DATADIR)/locale
 PKG_CFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"' -DDATADIR='"$(DATADIR)"' -DLIBEXECDIR='"$(LIBEXECDIR)"' \
               -DGLIB_DISABLE_DEPRECATION_WARNINGS
 LIBINTL := $(shell echo 'int main(void){return 0;}' | $(CC) -x c - -o /dev/null -lintl 2>/dev/null && echo -lintl)
-PKG_LIBS += $(LIBINTL) -lX11
+PKG_LIBS += $(LIBINTL) -lX11 -lXcomposite -lXdamage -lXrender
 
 LINGUAS := $(shell test -f po/LINGUAS && grep -v '^\#' po/LINGUAS)
 MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
 SRCS := kiview.c kv_window.c kv_plugin.c kv_folder.c plugins/libkvp/kvp_msg.c \
-        ../shared/xis_winstate.c ../shared/xis_safefile.c
+        ../shared/xis_winstate.c ../shared/xis_safefile.c ../shared/xis_density_source.c
 OBJS := $(SRCS:.c=.o)
-HDRS := kv.h plugins/libkvp/kvp_msg.h ../shared/xis_i18n.h ../shared/xis_winstate.h
+HDRS := kv.h plugins/libkvp/kvp_msg.h ../shared/xis_i18n.h ../shared/xis_winstate.h ../shared/xis_density_source.h
 
 # Plugins: libkvp objects are shared by the bitmap plugins.
 LIBKVP_OBJS := plugins/libkvp/kvp_bitmap.o plugins/libkvp/kvp_view.o plugins/libkvp/kvp_msg.o
