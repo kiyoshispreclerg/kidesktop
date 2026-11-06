@@ -1679,6 +1679,34 @@ static int tasklist_get_tooltip_mpris(PanelWidget *w, int local_x, char *out_bus
     return 0;
 }
 
+/* Speaker button of the tooltip's media row: the hovered (ungrouped, running)
+ * task's process and whether its audio is muted. */
+static int tasklist_get_tooltip_audio(PanelWidget *w, int local_x, unsigned long *out_pid, int *out_state)
+{
+    TasklistPriv *tp = w->priv;
+    tasklist_layout_visible(w);
+
+    if (tasklist_in_arrow_zone(tp, w->len, local_x)) {
+        return 0;
+    }
+    for (int vi = 0; vi < tp->n_visible; vi++) {
+        if (local_x >= tp->vis_x[vi] && local_x < tp->vis_x[vi] + tp->vis_w[vi]) {
+            int d = tp->vis_idx[vi];
+            if (tp->display_count[d] > 1 || tp->tasks[tp->display_repr[d]].is_placeholder) {
+                return 0;
+            }
+            const TaskEntry *e = &tp->tasks[tp->display_repr[d]];
+            if (!e->audio) {
+                return 0;
+            }
+            *out_pid = ewmh_get_pid(e->win);
+            *out_state = e->audio;
+            return *out_pid != 0;
+        }
+    }
+    return 0;
+}
+
 /* thumb_w=/thumb_h= -- see TasklistPriv's own doc comment. Queried by
  * tooltip.c regardless of show_thumbs (a grouped hover's thumbnails go
  * through get_tooltip_group() instead, but still want this same box
@@ -3082,6 +3110,7 @@ const PanelWidgetOps tasklist_ops = {
     .on_tick = tasklist_on_tick,
     .get_tooltip = tasklist_get_tooltip,
     .get_tooltip_mpris = tasklist_get_tooltip_mpris,
+    .get_tooltip_audio = tasklist_get_tooltip_audio,
     .get_tooltip_thumb = tasklist_get_tooltip_thumb,
     .get_tooltip_thumb_size = tasklist_get_tooltip_thumb_size,
     .get_tooltip_thumb_live = tasklist_get_tooltip_thumb_live,

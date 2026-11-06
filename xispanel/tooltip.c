@@ -123,6 +123,9 @@ typedef struct {
     /* previous/play-pause/next button hit-rects, only meaningful when
      * g_has_mpris. */
     int mpris_btn_x[3], mpris_btn_y, mpris_btn_size;
+    /* The speaker (mute) button sits last in the same row; only meaningful
+     * when g_has_audio. */
+    int audio_btn_x;
     /* y where "normal" content (text/close-icon/mpris row) starts --
      * 0 unless g_has_thumb, in which case it's g_thumb_h + THUMB_MARGIN,
      * pushed down to make room for the thumbnail drawn at the top. */
@@ -180,6 +183,16 @@ static int pad_y(void)
 static int g_has_mpris = 0;
 static char g_mpris_busname[128];
 static int g_mpris_playing = 0;
+/* get_tooltip_audio(): the hovered item's process is playing audio. */
+static int g_has_audio = 0;
+static unsigned long g_audio_pid = 0;
+static int g_audio_muted = 0;
+
+/* Everything the media row shows, packed, to compare before/after a re-query. */
+static int row_sig(void)
+{
+    return g_has_mpris | g_mpris_playing << 1 | g_has_audio << 2 | g_audio_muted << 3;
+}
 
 /* Set alongside g_text whenever the current hover target implements
  * get_tooltip_thumb() and reports a window to draw a live thumbnail of
@@ -273,6 +286,7 @@ void tooltip_close(void)
     g_has_mpris = 0;
     g_mpris_busname[0] = 0;
     g_mpris_playing = 0;
+    g_has_audio = 0;
     g_has_thumb = 0;
     g_thumb_win = None;
     g_has_group = 0;
@@ -290,6 +304,15 @@ static void query_mpris(PanelWidget *w, int local_x)
     g_has_mpris = 0;
     g_mpris_busname[0] = 0;
     g_mpris_playing = 0;
+    g_has_audio = 0;
+    g_audio_muted = 0;
+    if (w->ops->get_tooltip_audio) {
+        int state = 0;
+        if (w->ops->get_tooltip_audio(w, local_x, &g_audio_pid, &state)) {
+            g_has_audio = 1;
+            g_audio_muted = state == 2;
+        }
+    }
     if (!w->ops->get_tooltip_mpris) {
         return;
     }
@@ -801,6 +824,36 @@ static void draw_popup(cairo_t *cr)
         cairo_fill(cr);
     }
 
+    if (g_has_audio) {
+        /* Speaker, with waves while audible and a cross once muted. */
+        double s = g_popup->mpris_btn_size;
+        double bx = g_popup->audio_btn_x, by = g_popup->mpris_btn_y;
+        double cy = by + s / 2.0;
+        cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.85);
+        cairo_move_to(cr, bx + s * 0.12, by + s * 0.38);
+        cairo_line_to(cr, bx + s * 0.30, by + s * 0.38);
+        cairo_line_to(cr, bx + s * 0.52, by + s * 0.18);
+        cairo_line_to(cr, bx + s * 0.52, by + s * 0.82);
+        cairo_line_to(cr, bx + s * 0.30, by + s * 0.62);
+        cairo_line_to(cr, bx + s * 0.12, by + s * 0.62);
+        cairo_close_path(cr);
+        cairo_fill(cr);
+        cairo_set_line_width(cr, 1.4);
+        cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+        if (g_audio_muted) {
+            cairo_move_to(cr, bx + s * 0.64, cy - s * 0.16);
+            cairo_line_to(cr, bx + s * 0.90, cy + s * 0.16);
+            cairo_move_to(cr, bx + s * 0.90, cy - s * 0.16);
+            cairo_line_to(cr, bx + s * 0.64, cy + s * 0.16);
+            cairo_stroke(cr);
+        } else {
+            cairo_arc(cr, bx + s * 0.50, cy, s * 0.22, -1.0472, 1.0472);
+            cairo_stroke(cr);
+            cairo_arc(cr, bx + s * 0.50, cy, s * 0.38, -1.0472, 1.0472);
+            cairo_stroke(cr);
+        }
+    }
+
     cairo_restore(cr);
 }
 
@@ -861,17 +914,19 @@ static void show_popup_single_layout(TooltipPopup *pop)
     }
     int close_y_in_body = (body_h - TOOLTIP_CLOSE_ICON) / 2;
 
-    if (g_has_mpris) {
-        int mpris_row_w = 3 * MPRIS_BTN_SIZE + 2 * MPRIS_BTN_GAP + pad_x() * 2;
-        if (mpris_row_w > pop->width) {
-            pop->width = mpris_row_w;
+    if (g_has_mpris || g_has_audio) {
+        int n_btn = (g_has_mpris ? 3 : 0) + (g_has_audio ? 1 : 0);
+        int row_w = n_btn * MPRIS_BTN_SIZE + (n_btn - 1) * MPRIS_BTN_GAP;
+        if (row_w + pad_x() * 2 > pop->width) {
+            pop->width = row_w + pad_x() * 2;
         }
         pop->mpris_btn_y = body_h;
         body_h += MPRIS_ROW_H;
-        int row_x0 = (pop->width - (3 * MPRIS_BTN_SIZE + 2 * MPRIS_BTN_GAP)) / 2;
+        int row_x0 = (pop->width - row_w) / 2;
         for (int i = 0; i < 3; i++) {
             pop->mpris_btn_x[i] = row_x0 + i * (MPRIS_BTN_SIZE + MPRIS_BTN_GAP);
         }
+        pop->audio_btn_x = row_x0 + (n_btn - 1) * (MPRIS_BTN_SIZE + MPRIS_BTN_GAP);
         pop->mpris_btn_size = MPRIS_BTN_SIZE;
     }
 
@@ -885,7 +940,7 @@ static void show_popup_single_layout(TooltipPopup *pop)
         pop->content_y0 = 0;
     }
     pop->height = pop->content_y0 + body_h;
-    if (g_has_mpris) {
+    if (g_has_mpris || g_has_audio) {
         pop->mpris_btn_y += pop->content_y0;
     }
 
@@ -1227,14 +1282,14 @@ static int refresh_text(void)
     if (!g_widget->ops->get_tooltip(g_widget, g_local_x, buf, sizeof(buf), &ax, &aw, &closable, &ctx)) {
         return 0;
     }
-    int had_mpris = g_has_mpris;
+    int had_mpris = row_sig();
     int was_playing = g_mpris_playing;
     query_mpris(g_widget, g_local_x);
     int had_thumb = g_has_thumb;
     query_thumb(g_widget, g_local_x);
     int had_group = g_has_group;
     query_group(g_widget, g_local_x);
-    int changed = strcmp(g_text, buf) != 0 || g_closable != closable || had_mpris != g_has_mpris ||
+    int changed = strcmp(g_text, buf) != 0 || g_closable != closable || had_mpris != row_sig() ||
                   was_playing != g_mpris_playing || had_thumb != g_has_thumb || had_group != g_has_group;
     snprintf(g_text, sizeof(g_text), "%s", buf);
     g_anchor_x = ax;
@@ -1297,14 +1352,14 @@ void tooltip_notice_motion(Panel *p, int axis_pos, int cross_pos)
          * refresh in case content changed under a stationary pointer). */
         g_local_x = local_x;
         g_ctx = ctx;
-        int had_mpris = g_has_mpris;
+        int had_mpris = row_sig();
         int was_playing = g_mpris_playing;
         query_mpris(hit, local_x);
         query_thumb(hit, local_x);
         int had_group = g_has_group;
         int had_group_n = g_group_n;
         query_group(hit, local_x);
-        if (strcmp(g_text, buf) != 0 || g_closable != closable || had_mpris != g_has_mpris ||
+        if (strcmp(g_text, buf) != 0 || g_closable != closable || had_mpris != row_sig() ||
             was_playing != g_mpris_playing || had_group != g_has_group || had_group_n != g_group_n) {
             snprintf(g_text, sizeof(g_text), "%s", buf);
             g_closable = closable;
@@ -1570,6 +1625,18 @@ static void handle_popup_click(int local_x, int local_y)
                 paint_popup();
                 return;
             }
+        }
+    }
+
+    if (g_has_audio && g_popup) {
+        int s = g_popup->mpris_btn_size;
+        int bx = g_popup->audio_btn_x, by = g_popup->mpris_btn_y;
+        if (local_x >= bx && local_x < bx + s && local_y >= by && local_y < by + s) {
+            /* Like the transport buttons: acts, keeps the tooltip open. The
+             * icon flips when the sink-input event has refreshed the
+             * stream table, picked up by the periodic re-query. */
+            audio_streams_toggle_mute_for_pid(g_audio_pid);
+            return;
         }
     }
 

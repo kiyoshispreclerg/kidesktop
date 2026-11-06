@@ -149,6 +149,11 @@ typedef struct {
      * Widgets that don't apply (clock, winctl) simply don't implement
      * this. */
     int (*get_tooltip_mpris)(PanelWidget *w, int local_x, char *out_busname, size_t bufsz, int *out_playing);
+    /* Optional: if the hovered item's process is playing audio, fill *out_pid
+     * and *out_state (audio_streams_state_for_pid(): 1 playing, 2 muted) and
+     * return 1 -- the tooltip adds a speaker button to its media row that
+     * calls audio_streams_toggle_mute_for_pid(). */
+    int (*get_tooltip_audio)(PanelWidget *w, int local_x, unsigned long *out_pid, int *out_state);
     /* Optional, called right after a successful get_tooltip(): if the
      * widget wants a live thumbnail of a window drawn into the tooltip
      * (tasklist does this when its own show_thumbs=yes and the hovered
