@@ -25,7 +25,8 @@ static KvpDecoded *load(GBytes *data, const char *name, const char *mime, const 
         GError *e = NULL;
         KvpDecoded *r = dec(data, t, &e);
         if (r)
-            return r;
+            // cppcheck-suppress returnDanglingLifetime
+            return r; /* false positive: r is heap-allocated, only &e was passed to dec() */
         if (!g_error_matches(e, KVP_ERROR, KVP_ERR_UNSUPPORTED)) {
             g_propagate_error(err, e);
             return NULL;
