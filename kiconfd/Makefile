@@ -1,7 +1,7 @@
 # kiconfd - session settings daemon for KiDesktop
 CC ?= gcc
 CFLAGS ?= -Wall -Wextra -O2
-LIBS := $(shell pkg-config --cflags --libs x11 xcursor xrandr)
+LIBS := $(shell pkg-config --cflags --libs x11 xcursor xrandr xi)
 
 PREFIX ?= /usr/local
 BINDIR := $(PREFIX)/bin

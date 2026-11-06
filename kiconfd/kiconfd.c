@@ -142,6 +142,7 @@
 #include <X11/Xlib.h>
 #include <X11/XKBlib.h>
 #include <X11/extensions/Xrandr.h>
+#include <X11/extensions/XInput2.h>
 
 #include "../shared/xis_fmt.h"
 #include "../shared/xis_i18n.h"
@@ -172,7 +173,7 @@
 #include <unistd.h>
 #include "../shared/xis_safefile.h"
 
-#define KICONFD_VERSION "0.2.29"
+#define KICONFD_VERSION "0.2.30"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -2644,6 +2645,28 @@ int main(int argc, char **argv)
      * wait would otherwise end). Any of the three signals still cuts the
      * wait short (EINTR), so SIGHUP still reloads/reapplies immediately. */
     int clock_fd = clock_watch_init();
+
+    /* Pointer devices that appear (or finish enabling) after the one
+     * apply_input_settings() at startup -- typically the touchpad, when
+     * the session is faster than udev -- would otherwise keep the driver
+     * defaults until the user toggled the option by hand. Re-applied a
+     * moment after the last hierarchy change; the call is idempotent. */
+    int xi_opcode = 0, xi_ev = 0, xi_err = 0;
+    long long input_due_ms = 0;
+    if (XQueryExtension(g_dpy, "XInputExtension", &xi_opcode, &xi_ev, &xi_err)) {
+        int xi_major = 2, xi_minor = 0;
+        if (XIQueryVersion(g_dpy, &xi_major, &xi_minor) == Success) {
+            unsigned char mask[XIMaskLen(XI_LASTEVENT)] = { 0 };
+            XISetMask(mask, XI_HierarchyChanged);
+            XIEventMask em = { XIAllDevices, sizeof(mask), mask };
+            XISelectEvents(g_dpy, g_root, &em, 1);
+            XFlush(g_dpy);
+        } else {
+            xi_opcode = 0;
+        }
+    } else {
+        xi_opcode = 0;
+    }
     g_clock_checked_ms = xis_clock_now_ms();
     time_t nightlight_at = 0;
     while (!g_quit) {
@@ -2661,6 +2684,15 @@ int main(int argc, char **argv)
         long long wait_ms = clock_check();
         long long nl_ms = ((long long)nightlight_at + NIGHTLIGHT_POLL_SEC - (long long)time(NULL)) * 1000;
         if (wait_ms < 0 || wait_ms > nl_ms) wait_ms = nl_ms;
+        if (input_due_ms) {
+            long long left = input_due_ms - xis_clock_now_ms();
+            if (left <= 0) {
+                input_due_ms = 0;
+                apply_input_settings();
+            } else if (wait_ms < 0 || wait_ms > left) {
+                wait_ms = left;
+            }
+        }
         if (wait_ms < 10) wait_ms = 10;
 
         fd_set rfds;
@@ -2682,6 +2714,15 @@ int main(int argc, char **argv)
             XEvent ev;
             XNextEvent(g_dpy, &ev);
             if (ev.type == KeyPress) lidpower_handle_key(&ev.xkey);
+            else if (xi_opcode && ev.type == GenericEvent && ev.xcookie.extension == xi_opcode &&
+                     XGetEventData(g_dpy, &ev.xcookie)) {
+                if (ev.xcookie.evtype == XI_HierarchyChanged) {
+                    const XIHierarchyEvent *he = ev.xcookie.data;
+                    if (he->flags & (XISlaveAdded | XIDeviceEnabled))
+                        input_due_ms = xis_clock_now_ms() + 700;
+                }
+                XFreeEventData(g_dpy, &ev.xcookie);
+            }
         }
     }
     if (clock_fd >= 0) close(clock_fd);
