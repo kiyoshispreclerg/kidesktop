@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-06 09:51-0300\n"
+"POT-Creation-Date: 2026-11-06 09:58-0300\n"
 "PO-Revision-Date: 2026-10-01 13:53-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -248,7 +248,7 @@ msgstr "_Voltar"
 #: kiconf.c:278 tabs/accessibility.c:511 tabs/appearance.c:785
 #: tabs/autostart.c:511 tabs/autostart.c:549 tabs/disks.c:358 tabs/energy.c:452
 #: tabs/history.c:382 tabs/history.c:449 tabs/input.c:646 tabs/kitheme.c:610
-#: tabs/launcher.c:195 tabs/lock.c:195 tabs/login.c:701 tabs/permissions.c:787
+#: tabs/launcher.c:197 tabs/lock.c:195 tabs/login.c:701 tabs/permissions.c:787
 #: tabs/programs.c:305 tabs/screens.c:2248 tabs/shortcuts.c:1471
 #: tabs/system.c:819 tabs/users.c:566
 msgid "Aplicar"
@@ -2171,13 +2171,12 @@ msgid ""
 "Se a primeira palavra da busca for um programa do PATH, oferece executar o "
 "comando no terminal da sessao."
 msgstr ""
-"Se a primeira palavra da busca for um programa do PATH, oferece executar"
-" o comando no terminal da sessão."
+"Se a primeira palavra da busca for um programa do PATH, oferece executar o "
+"comando no terminal da sessão."
 
 #: tabs/launcher.c:35
-#, fuzzy
 msgid "Menu da janela ativa"
-msgstr "Fundo da janela"
+msgstr "Menu da janela ativa"
 
 #: tabs/launcher.c:36
 msgid ""
@@ -2196,17 +2195,16 @@ msgid "Procura o texto na lista de arquivos recentes e abre o escolhido."
 msgstr "Procura o texto na lista de arquivos recentes e abre o escolhido."
 
 #: tabs/launcher.c:38
-#, fuzzy
 msgid "Historico de atividade"
-msgstr "kistory (atividade)"
+msgstr "Histórico de atividade"
 
 #: tabs/launcher.c:39
 msgid ""
 "Procura arquivos abertos e titulos de janelas no historico do kistory (3 "
 "letras ou mais)."
 msgstr ""
-"Procura arquivos abertos e títulos de janelas no histórico do kistory (3"
-" letras ou mais)."
+"Procura arquivos abertos e títulos de janelas no histórico do kistory (3 "
+"letras ou mais)."
 
 #: tabs/launcher.c:40
 msgid "Processos"
@@ -2217,8 +2215,8 @@ msgid ""
 "Se o texto for o nome de um processo seu, oferece finalizar, matar ou matar "
 "a arvore."
 msgstr ""
-"Se o texto for o nome de um processo seu, oferece finalizar, matar ou "
-"matar a árvore."
+"Se o texto for o nome de um processo seu, oferece finalizar, matar ou matar "
+"a árvore."
 
 #: tabs/launcher.c:42
 msgid "Calculadora"
@@ -2228,43 +2226,51 @@ msgstr "Calculadora"
 msgid "Se a busca for uma expressao aritmetica, mostra o resultado."
 msgstr "Se a busca for uma expressão aritmética, mostra o resultado."
 
-#: tabs/launcher.c:140
-#, fuzzy
+#: tabs/launcher.c:43
+msgid "Abrir com..."
+msgstr "Abrir com..."
+
+#: tabs/launcher.c:44
+msgid ""
+"Se a busca for o nome de um arquivo ou pasta, lista os programas associados "
+"a ele (como o Abrir com do kifiles)."
+msgstr ""
+"Se a busca for o nome de um arquivo ou pasta, lista os programas "
+"associados a ele (como o Abrir com do kifiles)."
+
+#: tabs/launcher.c:142
 msgid "Nao foi possivel salvar xisserve.conf"
-msgstr "Não foi possível salvar kitheme.conf"
+msgstr "Não foi possível salvar xisserve.conf"
 
-#: tabs/launcher.c:143
-#, fuzzy
+#: tabs/launcher.c:145
 msgid "Aplicado (vale na proxima abertura do lancador)"
-msgstr "Aplicado (vale no próximo bloqueio)"
+msgstr "Aplicado (vale na próxima abertura do lançador)"
 
-#: tabs/launcher.c:158
+#: tabs/launcher.c:160
 msgid ""
 "Cada plugin acrescenta resultados proprios a busca do lancador, alem dos "
 "programas."
 msgstr ""
-"Cada plugin acrescenta resultados próprios à busca do lançador, além dos"
-" programas."
+"Cada plugin acrescenta resultados próprios à busca do lançador, além dos "
+"programas."
 
-#: tabs/launcher.c:170
+#: tabs/launcher.c:172
 msgid "Plugins de busca"
 msgstr "Plugins de busca"
 
-#: tabs/launcher.c:180
-#, fuzzy
+#: tabs/launcher.c:182
 msgid "Colunas na grade:"
-msgstr "Resolução da grade"
+msgstr "Colunas na grade:"
 
-#: tabs/launcher.c:181
+#: tabs/launcher.c:183
 msgid "Quantos icones por linha na vista em grade dos resultados"
 msgstr "Quantos ícones por linha na vista em grade dos resultados"
 
-#: tabs/launcher.c:186
-#, fuzzy
-msgid "Animar icone ao lancar:"
-msgstr "Animar ícone fixado ao lançar"
-
 #: tabs/launcher.c:188
+msgid "Animar icone ao lancar:"
+msgstr "Animar ícone ao lançar:"
+
+#: tabs/launcher.c:190
 msgid ""
 "Zoom e fade sobre o icone do item lancado. Ampliacao e duracao ficam em "
 "Efeitos do compositor. Precisa de compositor."
@@ -2272,24 +2278,21 @@ msgstr ""
 "Zoom e fade sobre o ícone do item lançado. Ampliação e duração ficam em "
 "Efeitos do compositor. Precisa de compositor."
 
-#: tabs/launcher.c:191
-#, fuzzy
+#: tabs/launcher.c:193
 msgid "Resultados"
-msgstr "Estado"
+msgstr "Resultados"
 
 #: tabs/launchfx.c:75
-#, fuzzy
 msgid "Ampliacao do icone:"
-msgstr "Tema de ícones:"
+msgstr "Ampliação do ícone:"
 
 #: tabs/launchfx.c:76
 msgid "Quantas vezes o icone cresce ate o fim da animacao (2.0 = o dobro)"
 msgstr "Quantas vezes o ícone cresce até o fim da animação (2.0 = o dobro)"
 
 #: tabs/launchfx.c:80
-#, fuzzy
 msgid "Quanto dura a animacao"
-msgstr "Duração base das animações"
+msgstr "Quanto dura a animação"
 
 #: tabs/launchfx.c:83
 msgid ""
@@ -2297,9 +2300,9 @@ msgid ""
 "(painel, kifiles, xisserve); cada um liga ou desliga o seu efeito nas "
 "proprias opcoes. Precisa de compositor. Grava launchfx.conf."
 msgstr ""
-"Zoom e fade sobre o ícone de um item lançado. Vale para todos os "
-"programas (painel, kifiles, xisserve); cada um liga ou desliga o seu "
-"efeito nas próprias opções. Precisa de compositor. Grava launchfx.conf."
+"Zoom e fade sobre o ícone de um item lançado. Vale para todos os programas "
+"(painel, kifiles, xisserve); cada um liga ou desliga o seu efeito nas "
+"próprias opções. Precisa de compositor. Grava launchfx.conf."
 
 #: tabs/launchfx.c:90
 msgid "Feedback ao lancar"

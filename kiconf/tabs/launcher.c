@@ -40,6 +40,8 @@ static const SearchPluginInfo SearchPlugins[] = {
     {"process", N_("Processos"),
      N_("Se o texto for o nome de um processo seu, oferece finalizar, matar ou matar a arvore.")},
     {"calculator", N_("Calculadora"), N_("Se a busca for uma expressao aritmetica, mostra o resultado.")},
+    {"openwith", N_("Abrir com..."),
+     N_("Se a busca for o nome de um arquivo ou pasta, lista os programas associados a ele (como o Abrir com do kifiles).")},
 };
 #define N_PLUGINS ((int)(sizeof(SearchPlugins) / sizeof(SearchPlugins[0])))
 

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-06 09:51-0300\n"
+"POT-Creation-Date: 2026-11-06 09:58-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -252,7 +252,7 @@ msgstr ""
 #: kiconf.c:278 tabs/accessibility.c:511 tabs/appearance.c:785
 #: tabs/autostart.c:511 tabs/autostart.c:549 tabs/disks.c:358 tabs/energy.c:452
 #: tabs/history.c:382 tabs/history.c:449 tabs/input.c:646 tabs/kitheme.c:610
-#: tabs/launcher.c:195 tabs/lock.c:195 tabs/login.c:701 tabs/permissions.c:787
+#: tabs/launcher.c:197 tabs/lock.c:195 tabs/login.c:701 tabs/permissions.c:787
 #: tabs/programs.c:305 tabs/screens.c:2248 tabs/shortcuts.c:1471
 #: tabs/system.c:819 tabs/users.c:566
 msgid "Aplicar"
@@ -2132,43 +2132,53 @@ msgstr ""
 msgid "Se a busca for uma expressao aritmetica, mostra o resultado."
 msgstr ""
 
-#: tabs/launcher.c:140
+#: tabs/launcher.c:43
+msgid "Abrir com..."
+msgstr ""
+
+#: tabs/launcher.c:44
+msgid ""
+"Se a busca for o nome de um arquivo ou pasta, lista os programas associados "
+"a ele (como o Abrir com do kifiles)."
+msgstr ""
+
+#: tabs/launcher.c:142
 msgid "Nao foi possivel salvar xisserve.conf"
 msgstr ""
 
-#: tabs/launcher.c:143
+#: tabs/launcher.c:145
 msgid "Aplicado (vale na proxima abertura do lancador)"
 msgstr ""
 
-#: tabs/launcher.c:158
+#: tabs/launcher.c:160
 msgid ""
 "Cada plugin acrescenta resultados proprios a busca do lancador, alem dos "
 "programas."
 msgstr ""
 
-#: tabs/launcher.c:170
+#: tabs/launcher.c:172
 msgid "Plugins de busca"
 msgstr ""
 
-#: tabs/launcher.c:180
+#: tabs/launcher.c:182
 msgid "Colunas na grade:"
 msgstr ""
 
-#: tabs/launcher.c:181
+#: tabs/launcher.c:183
 msgid "Quantos icones por linha na vista em grade dos resultados"
 msgstr ""
 
-#: tabs/launcher.c:186
+#: tabs/launcher.c:188
 msgid "Animar icone ao lancar:"
 msgstr ""
 
-#: tabs/launcher.c:188
+#: tabs/launcher.c:190
 msgid ""
 "Zoom e fade sobre o icone do item lancado. Ampliacao e duracao ficam em "
 "Efeitos do compositor. Precisa de compositor."
 msgstr ""
 
-#: tabs/launcher.c:191
+#: tabs/launcher.c:193
 msgid "Resultados"
 msgstr ""
 
