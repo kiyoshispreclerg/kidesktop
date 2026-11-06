@@ -1,0 +1,7 @@
+[Plugin]
+Name=test
+Exec=kiview-test
+Protocol=1
+MimeTypes=application/x-kiview-test;
+Extensions=kvtest;
+Priority=0
