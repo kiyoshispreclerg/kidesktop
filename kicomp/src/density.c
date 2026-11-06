@@ -208,7 +208,60 @@ static bool read_cardinals(xcb_window_t win, xcb_atom_t atom,
     return ok;
 }
 
-void density_property_changed(CompWindow *w, xcb_window_t on)
+/* Watches a newly published dense pixmap with Damage (comp.h's
+ * density_damage), letting go of the one before. The destroy is checked
+ * and discarded: freeing the pixmap takes its Damage with it, so it may
+ * find nothing.
+ *
+ * The create waits for the server, once per pixmap, never per frame: the
+ * client announces a pixmap only once and Damage is all that says it drew
+ * again, so whatever it draws before the Damage exists must already be in
+ * the pixmap when the repaint that follows this samples it. */
+static void watch_pixmap(xcb_damage_damage_t *damage, bool *pending,
+                         bool *works, xcb_pixmap_t pixmap)
+{
+    if (*damage != XCB_NONE)
+        xcb_discard_reply(comp.conn,
+            xcb_damage_destroy_checked(comp.conn, *damage).sequence);
+    *damage = XCB_NONE;
+    *pending = false;
+    *works = false;
+
+    if (!comp.caps.damage || pixmap == 0)
+        return;
+
+    *damage = xcb_generate_id(comp.conn);
+    xcb_generic_error_t *err = xcb_request_check(comp.conn,
+        xcb_damage_create_checked(comp.conn, *damage, pixmap,
+                                  XCB_DAMAGE_REPORT_LEVEL_NON_EMPTY));
+    if (err) {
+        /* Freed already: the next pixmap it publishes is watched instead. */
+        free(err);
+        *damage = XCB_NONE;
+    }
+}
+
+bool density_pixmap_damaged(xcb_drawable_t drawable)
+{
+    bool ours = false;
+
+    if (drawable == XCB_NONE)
+        return false;
+    for (CompWindow *w = comp.stack; w; w = w->next) {
+        if (w->density_pixmap == drawable && w->density_damage != XCB_NONE) {
+            w->density_damage_pending = w->density_damage_works = true;
+            ours = true;
+        }
+        if (w->deco_density_pixmap == drawable &&
+            w->deco_density_damage != XCB_NONE) {
+            w->deco_density_damage_pending = w->deco_density_damage_works = true;
+            ours = true;
+        }
+    }
+    return ours;
+}
+
+void density_property_changed(CompWindow *w, xcb_window_t on, xcb_atom_t atom)
 {
     /* The frame answers for the decoration, the client for its contents.
      * A window that is its own client has only the one answer. */
@@ -220,20 +273,41 @@ void density_property_changed(CompWindow *w, xcb_window_t on)
     uint32_t scale[2] = { 1, 1 };
     uint32_t pixmap = 0;
 
-    bool has_scale = read_cardinals(on, comp.atoms.density_scale, scale, 2);
+    xcb_pixmap_t *pix = is_frame ? &w->deco_density_pixmap : &w->density_pixmap;
+    bool works = is_frame ? w->deco_density_damage_works
+                          : w->density_damage_works;
+
     bool has_pixmap = read_cardinals(on, comp.atoms.density_pixmap, &pixmap, 1);
+    if (!has_pixmap)
+        pixmap = 0;
+
+    /* The same XID rewritten: an older client saying it drew a frame
+     * (X-DENSITY.md section 4 asked for it before Damage did the job). One
+     * read, not two -- the scale only ever changes along with the pixmap,
+     * or on its own PropertyNotify. And when the pixmap's own Damage has
+     * been reporting, nothing to repaint here at all: what changed is
+     * already on its way through damage.c, piece by piece. */
+    if (atom == comp.atoms.density_pixmap && pixmap != 0 && pixmap == *pix) {
+        if (!works) {
+            /* Drawn some way Damage doesn't see (straight from the GPU,
+             * with no DamageAdd): the rewrite is the only word there is,
+             * and it covers all of it. */
+            CompRect r = window_rect(w);
+            output_damage_window_rect(w, &r);
+        }
+        return;
+    }
+
+    bool has_scale = read_cardinals(on, comp.atoms.density_scale, scale, 2);
 
     /* Believe the client, not the request: it may have rounded, or hit a
      * size limit, or refused entirely. */
     if (!has_scale || scale[1] == 0) {
         scale[0] = scale[1] = 1;
     }
-    if (!has_pixmap)
-        pixmap = 0;
 
     uint32_t *num = is_frame ? &w->deco_density_num : &w->density_num;
     uint32_t *den = is_frame ? &w->deco_density_den : &w->density_den;
-    xcb_pixmap_t *pix = is_frame ? &w->deco_density_pixmap : &w->density_pixmap;
 
     bool changed = (*num != scale[0] || *den != scale[1] || *pix != pixmap);
 
@@ -246,6 +320,12 @@ void density_property_changed(CompWindow *w, xcb_window_t on)
          * may not even exist any more. */
         *pix = pixmap;
         renderer_window_density_invalidate(w, is_frame);
+        if (is_frame)
+            watch_pixmap(&w->deco_density_damage, &w->deco_density_damage_pending,
+                         &w->deco_density_damage_works, pixmap);
+        else
+            watch_pixmap(&w->density_damage, &w->density_damage_pending,
+                         &w->density_damage_works, pixmap);
     }
 
     /* Its holes may well have been published before we were looking
@@ -260,9 +340,8 @@ void density_property_changed(CompWindow *w, xcb_window_t on)
         comp_log("window 0x%x: %s density %u/%u pixmap 0x%x", w->id,
                  is_frame ? "decoration" : "content", scale[0], scale[1], pixmap);
 
-    /* Every property change is also "the contents changed": a pixmap
-     * raises no Damage of its own, so the client rewriting the same XID is
-     * how it says it drew a new frame (TESTS/X-DENSITY.md section 4). */
+    /* A new pixmap or a new scale: all of the window is drawn differently.
+     * (The same XID rewritten, the per-frame case, returned above.) */
     CompRect r = window_rect(w);
     output_damage_rect(&r);
 }
@@ -515,6 +594,10 @@ void density_forget(CompWindow *w)
     }
 
     w->density_pixmap = w->deco_density_pixmap = 0;
+    watch_pixmap(&w->density_damage, &w->density_damage_pending,
+                 &w->density_damage_works, 0);
+    watch_pixmap(&w->deco_density_damage, &w->deco_density_damage_pending,
+                 &w->deco_density_damage_works, 0);
     renderer_window_density_invalidate(w, false);
     renderer_window_density_invalidate(w, true);
     w->density_num = w->density_den = 1;

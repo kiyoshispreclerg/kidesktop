@@ -88,6 +88,46 @@ static void collect_sources(void)
     }
 }
 
+/* What a collected region belongs to: the window's own pixels, or one of
+ * its dense pixmaps (comp.h's density_damage). */
+enum collected { COLLECT_WINDOW, COLLECT_DENSE, COLLECT_DENSE_DECO };
+
+/* A rectangle of a dense pixmap as the logical area of the root it shows:
+ * divided by the density, rounded outwards. The content pixmap starts at
+ * the client inside the frame, the decoration's at the frame. False when
+ * the layer isn't being shown, so there is nothing to repaint. */
+static bool dense_root_rect(const CompWindow *w, bool deco,
+                            const xcb_rectangle_t *in, CompRect *out)
+{
+    uint32_t num = deco ? w->deco_density_num : w->density_num;
+    uint32_t den = deco ? w->deco_density_den : w->density_den;
+
+    if (deco ? !deco_density_active(w, NULL) : !density_active(w, NULL))
+        return false;
+
+    CompRect wr = window_rect(w);
+    int ox = wr.x + (deco ? 0 : w->client_rect.x);
+    int oy = wr.y + (deco ? 0 : w->client_rect.y);
+
+    int64_t x0 = (int64_t)in->x * den / num;
+    int64_t y0 = (int64_t)in->y * den / num;
+    int64_t x1 = ((int64_t)(in->x + in->width) * den + num - 1) / num;
+    int64_t y1 = ((int64_t)(in->y + in->height) * den + num - 1) / num;
+
+    *out = (CompRect){ ox + (int)x0, oy + (int)y0,
+                       (int)(x1 - x0), (int)(y1 - y0) };
+    return true;
+}
+
+/* Takes damage without fetching it. Not optional: at NON_EMPTY the server
+ * reports nothing further until the damage has been taken. */
+static void damage_discard(xcb_damage_damage_t damage)
+{
+    xcb_discard_reply(comp.conn,
+        xcb_damage_subtract_checked(comp.conn, damage, XCB_XFIXES_REGION_NONE,
+                                    XCB_XFIXES_REGION_NONE).sequence);
+}
+
 void damage_collect(void)
 {
     if (!comp.caps.damage || !comp.caps.xfixes)
@@ -96,6 +136,7 @@ void damage_collect(void)
     collect_sources();
 
     CompWindow *windows[MAX_COLLECT];
+    enum collected kinds[MAX_COLLECT];
     xcb_xfixes_region_t regions[MAX_COLLECT];
     xcb_xfixes_fetch_region_cookie_t cookies[MAX_COLLECT];
     int n = 0;
@@ -183,9 +224,56 @@ void damage_collect(void)
                                         XCB_XFIXES_REGION_NONE, region).sequence);
 
         windows[n] = w;
+        kinds[n] = COLLECT_WINDOW;
         regions[n] = region;
         cookies[n] = xcb_xfixes_fetch_region(comp.conn, region);
         n++;
+    }
+
+    /* The dense pixmaps' own (density.h), in the same round trip and by
+     * the same rules: a client at a density draws there, not into its
+     * window, and what it drew is a few rectangles of it, not all. */
+    for (CompWindow *w = comp.stack; w; w = w->next) {
+        for (int deco = 0; deco < 2; deco++) {
+            bool *pending = deco ? &w->deco_density_damage_pending
+                                 : &w->density_damage_pending;
+            xcb_damage_damage_t damage = deco ? w->deco_density_damage
+                                              : w->density_damage;
+            if (!*pending)
+                continue;
+            *pending = false;
+            if (damage == XCB_NONE)
+                continue;
+
+            if (unwatched(w)) {
+                damage_discard(damage);
+                continue;
+            }
+            if (w->occluded || n >= MAX_COLLECT) {
+                CompRect whole = window_rect(w);
+                effects_damage_window(w, &whole);
+                if (w->occluded)
+                    capture_damage_unseen(&whole);
+                else
+                    output_damage_window_rect(w, &whole);
+                damage_discard(damage);
+                continue;
+            }
+
+            /* Checked and discarded like the windows': the client may
+             * have freed the pixmap, and its Damage with it. */
+            xcb_xfixes_region_t region = xcb_generate_id(comp.conn);
+            xcb_xfixes_create_region(comp.conn, region, 0, NULL);
+            xcb_discard_reply(comp.conn,
+                xcb_damage_subtract_checked(comp.conn, damage,
+                                            XCB_XFIXES_REGION_NONE, region).sequence);
+
+            windows[n] = w;
+            kinds[n] = deco ? COLLECT_DENSE_DECO : COLLECT_DENSE;
+            regions[n] = region;
+            cookies[n] = xcb_xfixes_fetch_region(comp.conn, region);
+            n++;
+        }
     }
 
     /* One round trip for the whole frame happens here, at the first
@@ -224,13 +312,18 @@ void damage_collect(void)
 
         for (int j = 0; j < count; j++) {
             /* Damage rectangles are relative to the window's origin --
-             * not to its pixmap's, which starts at the border. */
+             * not to its pixmap's, which starts at the border. A dense
+             * pixmap's are in its own pixels, the density times finer. */
             CompRect d = {
                 w->x + rects[j].x,
                 w->y + rects[j].y,
                 rects[j].width,
                 rects[j].height,
             };
+            if (kinds[i] != COLLECT_WINDOW &&
+                !dense_root_rect(w, kinds[i] == COLLECT_DENSE_DECO,
+                                 &rects[j], &d))
+                continue;   /* not shown: at 1/1 again, or no pixmap */
             /* A piece of a window that something opaque is drawn over:
              * repainting it would compose the same pixels again
              * (comp.h's cover). This is what a video behind a text

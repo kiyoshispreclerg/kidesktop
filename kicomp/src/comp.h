@@ -558,6 +558,23 @@ typedef struct CompWindow {
     xcb_pixmap_t density_pixmap;
     xcb_render_picture_t density_picture;
     uint8_t density_depth;
+
+    /* Damage on the dense pixmaps themselves (density.c), content and
+     * decoration: what the client drew into them, collected with the
+     * windows' own (damage.c), so a new frame repaints what changed and
+     * not the whole window.
+     *
+     *   *_damage          the Damage object on the published pixmap
+     *   *_damage_pending  it reported, nothing collected yet
+     *   *_damage_works    it has reported at least once for this pixmap:
+     *                     the client draws with requests the server sees,
+     *                     and the per-frame property rewrite older clients
+     *                     still send (X-DENSITY.md section 4) says nothing
+     *                     Damage hasn't already said
+     */
+    xcb_damage_damage_t density_damage, deco_density_damage;
+    bool density_damage_pending, deco_density_damage_pending;
+    bool density_damage_works, deco_density_damage_works;
     CompRect client_rect;
 
     /* The holes in that pixmap (density.h): where it has nothing, because

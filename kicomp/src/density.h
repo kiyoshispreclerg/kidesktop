@@ -63,10 +63,16 @@ void density_init(void);
 void density_update_window(CompWindow *w);
 void density_update_all(void);
 
-/* _X_DENSITY_SCALE or _X_DENSITY_PIXMAP changed. `on` says on which
- * window: the client (the app's contents) or the frame (the WM's
- * decoration) -- two independent answers to two independent requests. */
-void density_property_changed(CompWindow *w, xcb_window_t on);
+/* _X_DENSITY_SCALE or _X_DENSITY_PIXMAP (`atom`) changed. `on` says on
+ * which window: the client (the app's contents) or the frame (the WM's
+ * decoration) -- two independent answers to two independent requests.
+ * The same pixmap rewritten is a new frame, repainted from the pixmap's
+ * own Damage once that has reported, and whole otherwise. */
+void density_property_changed(CompWindow *w, xcb_window_t on, xcb_atom_t atom);
+
+/* A DamageNotify on `drawable`: true if it is a dense pixmap someone
+ * published, now marked for damage.c to collect. */
+bool density_pixmap_damaged(xcb_drawable_t drawable);
 
 /* _X_DENSITY_PASSTHROUGH or _X_DENSITY_SOURCES changed on the client. */
 void density_holes_changed(CompWindow *w, xcb_atom_t atom);

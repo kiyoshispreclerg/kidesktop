@@ -823,9 +823,10 @@ static void handle_event(xcb_generic_event_t *ev)
              * damaging itself five hundred times between two frames costs
              * exactly what one damaging itself once costs. */
             damage_window_reported(w);
-        } else {
-            /* Not one of ours: maybe a client's dense video window
-             * (density.h's sources), collected the same way. */
+        } else if (!density_pixmap_damaged(e->drawable)) {
+            /* Not one of ours, nor a dense pixmap: maybe a client's dense
+             * video window (density.h's sources), collected the same
+             * way. */
             density_source_damaged(e->drawable);
         }
         return;
@@ -995,7 +996,7 @@ static void handle_event(xcb_generic_event_t *ev)
             if (!w)
                 w = window_find(e->window);
             if (w)
-                density_property_changed(w, e->window);
+                density_property_changed(w, e->window, e->atom);
         } else if (e->atom == comp.atoms.density_passthrough ||
                    e->atom == comp.atoms.density_sources) {
             /* Where the dense pixmap has holes: only on the client, which
