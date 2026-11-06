@@ -244,8 +244,8 @@ void density_property_changed(CompWindow *w, xcb_window_t on)
     if (*pix != pixmap) {
         /* The picture cached for the old pixmap describes a drawable that
          * may not even exist any more. */
-        renderer_window_density_invalidate(w, is_frame);
         *pix = pixmap;
+        renderer_window_density_invalidate(w, is_frame);
     }
 
     /* Its holes may well have been published before we were looking
@@ -514,9 +514,9 @@ void density_forget(CompWindow *w)
         w->deco_density_requested = false;
     }
 
+    w->density_pixmap = w->deco_density_pixmap = 0;
     renderer_window_density_invalidate(w, false);
     renderer_window_density_invalidate(w, true);
-    w->density_pixmap = w->deco_density_pixmap = 0;
     w->density_num = w->density_den = 1;
     w->deco_density_num = w->deco_density_den = 1;
 }

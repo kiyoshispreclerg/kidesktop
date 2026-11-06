@@ -856,8 +856,15 @@ static void gl_dense_free(GlWindow **slot)
 void gl_window_density_invalidate(CompWindow *w, bool decoration)
 {
     GlWindow *g = gl_window_find(w->id);
-    if (g)
-        gl_dense_free(&g->dense[decoration ? 1 : 0]);
+    if (!g)
+        return;
+    /* Republished under another XID, not withdrawn: dense_layer() swaps
+     * the import when the new pixmap works, and until then the old layer
+     * is a better picture than the window's own frozen 1x one. */
+    if (decoration ? w->deco_density_pixmap : w->density_pixmap)
+        return;
+    gl_dense_free(&g->dense[decoration ? 1 : 0]);
+    g->dense_failed[decoration ? 1 : 0] = 0;
 }
 
 void gl_window_density_sources_invalidate(CompWindow *w)
@@ -1562,7 +1569,8 @@ static void draw_piece(const CompOutput *o, const CompRect *piece,
  * it back (density_property_changed). */
 static GlWindow *dense_layer(CompWindow *w, GlWindow *g, bool decoration)
 {
-    GlWindow **slot = &g->dense[decoration ? 1 : 0];
+    const int idx = decoration ? 1 : 0;
+    GlWindow **slot = &g->dense[idx];
     xcb_pixmap_t *pixmap = decoration ? &w->deco_density_pixmap
                                       : &w->density_pixmap;
 
@@ -1572,11 +1580,20 @@ static GlWindow *dense_layer(CompWindow *w, GlWindow *g, bool decoration)
         return NULL;
 
     GlWindow *d = *slot;
+    GlWindow *old = NULL;
 
-    /* Published under a new XID: the old import describes a drawable
-     * that may not even exist any more. */
+    /* Published under a new XID. Under a fast resize the client makes a
+     * pixmap per step and frees it a step later, so this is often too late
+     * to import the new one -- and dropping to the window's own pixmap
+     * then, the frozen 1x copy with the video's 1x copy in it, is the
+     * flash. The previous layer stays in the slot, and keeps being drawn,
+     * until the new one imports. */
     if (d && d->id != *pixmap) {
-        gl_dense_free(slot);
+        if (g->dense_failed[idx] == *pixmap) {
+            glBindTexture(GL_TEXTURE_2D, d->texture);
+            return d;
+        }
+        old = d;
         d = NULL;
     }
 
@@ -1593,8 +1610,28 @@ static GlWindow *dense_layer(CompWindow *w, GlWindow *g, bool decoration)
         if (!pg || (!decoration && !cg)) {
             free(cg);
             free(pg);
-            *pixmap = 0;
+            goto failed;
+        }
+
+        d = calloc(1, sizeof(*d));
+        if (!d) {
+            free(cg);
+            free(pg);
             return NULL;
+        }
+        d->id = *pixmap;
+        d->width = pg->width;
+        d->height = pg->height;
+        d->argb = (pg->depth == 32);
+        free(pg);
+
+        /* The depth is only read on the first import; afterwards the
+         * platform already has the pixmap and this is the per-draw bind. */
+        if (!platform->pixmap_bind(*pixmap, d->width, d->height,
+                                   d->argb ? 32 : 24, d)) {
+            free(cg);
+            gl_dense_free(&d);
+            goto failed;
         }
 
         if (cg) {
@@ -1614,24 +1651,15 @@ static GlWindow *dense_layer(CompWindow *w, GlWindow *g, bool decoration)
             w->client_rect.h = cg->height;
             g->client_rect_of = window_rect(w);
         }
-
-        d = calloc(1, sizeof(*d));
-        if (!d) {
-            free(cg);
-            free(pg);
-            return NULL;
-        }
-        d->id = *pixmap;
-        d->width = pg->width;
-        d->height = pg->height;
-        d->argb = (pg->depth == 32);
         free(cg);
-        free(pg);
+
+        if (old)
+            gl_dense_free(slot);
         *slot = d;
+        g->dense_failed[idx] = 0;
+        return d;
     }
 
-    /* The depth is only read on the first import; afterwards the
-     * platform already has the pixmap and this is the per-draw bind. */
     if (!platform->pixmap_bind(*pixmap, d->width, d->height,
                                d->argb ? 32 : 24, d)) {
         gl_dense_free(slot);
@@ -1639,6 +1667,17 @@ static GlWindow *dense_layer(CompWindow *w, GlWindow *g, bool decoration)
         return NULL;
     }
     return d;
+
+failed:
+    if (old) {
+        /* Not asked again every frame: the client republishing is what
+         * brings the next one. */
+        g->dense_failed[idx] = *pixmap;
+        glBindTexture(GL_TEXTURE_2D, old->texture);
+        return old;
+    }
+    *pixmap = 0;
+    return NULL;
 }
 
 /* The client's rectangle inside the frame, as it is to be drawn now.

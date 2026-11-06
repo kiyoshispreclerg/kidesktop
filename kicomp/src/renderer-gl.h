@@ -157,6 +157,11 @@ typedef struct GlWindow {
      * (gl_window_density_invalidate) or the window goes. */
     struct GlWindow *dense[2];
 
+    /* The last pixmap XID dense_layer() could not import (the client had
+     * freed it already), per layer, so it is not tried again every frame
+     * while the previous layer keeps being drawn. */
+    xcb_pixmap_t dense_failed[2];
+
     /* The window's size when client_rect was last read (dense_layer), which
      * is what that rectangle is relative to; 0 until then. */
     CompRect client_rect_of;
