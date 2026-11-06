@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Image Viewer
+GenericName=Image Viewer
+Comment=View images
+Exec=@BINDIR@/kiview %f
+Icon=kiview
+Terminal=false
+Categories=Graphics;Viewer;
+MimeType=@MIMETYPES@
+Keywords=image;picture;photo;viewer;slideshow;
+StartupNotify=false
