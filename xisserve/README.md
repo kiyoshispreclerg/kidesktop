@@ -23,6 +23,9 @@ and a results view that toggles between list and icon-grid ("Grade"/
 `xisserve-state.conf`, `LAUNCHER grid` in `xisserve.conf` is only the
 default before the first toggle, and `LAUNCHER grid_columns` sets the
 column count, see "Search plugins" below for the config file's shape).
+`LAUNCHER	launch_feedback	no` turns off the zoom+fade over the icon of a
+launched entry (on by default; its zoom and duration are global, in
+`launchfx.conf`).
 Favorites are listed in the user's own order: right-click one under
 "Favoritos" for "Mover para cima/baixo/...", or Alt+arrows on the
 selected one; `xisserve-favorites.conf` keeps that order.

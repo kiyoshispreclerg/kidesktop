@@ -60,7 +60,7 @@
 #include "../shared/xis_direction.h"
 #include "../shared/xis_safefile.h"
 
-#define XISSERVE_VERSION "0.2.22"
+#define XISSERVE_VERSION "0.2.23"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -1064,6 +1064,7 @@ static const SearchPlugin kSearchPlugins[] = {
 #define N_SEARCH_PLUGINS ((int)(sizeof(kSearchPlugins) / sizeof(kSearchPlugins[0])))
 
 static gboolean g_plugin_enabled[N_SEARCH_PLUGINS];
+static gboolean g_launch_feedback = TRUE; /* "LAUNCHER\tlaunch_feedback"; only an explicit "no" turns it off */
 
 /* Same flat "$XDG_CONFIG_HOME (or ~/.config)/xisserve.conf" naming
  * xisserve-favorites.conf/xisback.conf use. */
@@ -1221,6 +1222,9 @@ static void load_config(void)
         const char *val = g_hash_table_lookup(g_config, key);
         g_plugin_enabled[i] = !val || strcasecmp(val, "no") != 0;
     }
+
+    const char *lf = g_hash_table_lookup(g_config, "LAUNCHER\tlaunch_feedback");
+    g_launch_feedback = !lf || strcasecmp(lf, "no") != 0;
 
     /* Results view: "LAUNCHER\tgrid_columns" always applies (live-
      * reloadable, like everything else here); "LAUNCHER\tgrid" only sets
@@ -1959,7 +1963,7 @@ static void launch_iter(GtkTreeModel *model, GtkTreeIter *iter)
     ResultEntry *e = NULL;
     gtk_tree_model_get(model, iter, VCOL_ENTRY, &e, -1);
     if (e) {
-        if (!e->activate_fn && e->exec[0])
+        if (g_launch_feedback && !e->activate_fn && e->exec[0])
             launch_feedback(model, iter);
         if (e->activate_fn) e->activate_fn(e);
         else if (e->exec[0]) run_detached(e->exec);
