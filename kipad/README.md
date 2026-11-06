@@ -4,6 +4,10 @@ Simple tabbed text editor for KiDesktop (GTK2).
 
 - Tabs: several files at once, drag to reorder, `Ctrl+PgUp/PgDn` to switch,
   `Ctrl+W` closes (asks to save changes)
+- `Ctrl+Tab` / `Ctrl+Shift+Tab` cycle through the tabs, `F11` toggles full
+  screen
+- `Alt+Up` / `Alt+Down` move the current (or selected) lines; `Alt+Shift+Up` /
+  `Alt+Shift+Down` copy them above/below, as in VS Code
 - Font and size from *View > Font...*; the size also changes with
   `Ctrl`+mouse wheel, `Ctrl+Plus` / `Ctrl+Minus`, and `Ctrl+0` resets it
 - *View > Word wrap* wraps long lines to the window width

@@ -20,7 +20,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define KIPAD_VERSION "0.2.1"
+#define KIPAD_VERSION "0.2.2"
 #define DEFAULT_FONT "Monospace 11"
 #define MIN_FONT_PT 6
 #define MAX_FONT_PT 72
@@ -1763,11 +1763,144 @@ static GtkWidget *build_menubar(GtkAccelGroup *ag)
     return bar;
 }
 
+/* ---- line editing and window shortcuts --------------------------------- */
+
+/* The lines the selection touches (a selection ending at the start of a line
+ * does not include that line). */
+static void sel_lines(Doc *d, int *l1, int *l2)
+{
+    GtkTextIter a, b;
+    gtk_text_buffer_get_selection_bounds(d->buf, &a, &b); /* ordered; both = cursor if empty */
+    *l1 = gtk_text_iter_get_line(&a);
+    *l2 = gtk_text_iter_get_line(&b);
+    if (*l2 > *l1 && gtk_text_iter_starts_line(&b))
+        (*l2)--;
+}
+
+static char *lines_text(Doc *d, int l1, int l2)
+{
+    GtkTextIter a, b;
+    gtk_text_buffer_get_iter_at_line(d->buf, &a, l1);
+    gtk_text_buffer_get_iter_at_line(d->buf, &b, l2);
+    if (!gtk_text_iter_ends_line(&b))
+        gtk_text_iter_forward_to_line_end(&b);
+    return gtk_text_buffer_get_text(d->buf, &a, &b, TRUE);
+}
+
+static void sel_restore(Doc *d, int ins, int bound)
+{
+    GtkTextIter i, b;
+    gtk_text_buffer_get_iter_at_offset(d->buf, &i, ins);
+    gtk_text_buffer_get_iter_at_offset(d->buf, &b, bound);
+    gtk_text_buffer_select_range(d->buf, &i, &b);
+}
+
+/* Alt+Up / Alt+Down: swaps the selected lines with the neighbour above/below. */
+static void move_lines(gboolean up)
+{
+    Doc *d = doc_current();
+    if (!d)
+        return;
+    int l1, l2, last = gtk_text_buffer_get_line_count(d->buf) - 1;
+    sel_lines(d, &l1, &l2);
+    if (up ? l1 == 0 : l2 == last)
+        return;
+    int ni = up ? l1 - 1 : l2 + 1;
+    char *block = lines_text(d, l1, l2), *neigh = lines_text(d, ni, ni);
+    int shift = (int)g_utf8_strlen(neigh, -1) + 1;
+    GtkTextIter it;
+    gtk_text_buffer_get_iter_at_mark(d->buf, &it, gtk_text_buffer_get_insert(d->buf));
+    int ins = gtk_text_iter_get_offset(&it);
+    gtk_text_buffer_get_iter_at_mark(d->buf, &it, gtk_text_buffer_get_selection_bound(d->buf));
+    int bound = gtk_text_iter_get_offset(&it);
+    char *swapped = up ? g_strconcat(block, "\n", neigh, NULL) : g_strconcat(neigh, "\n", block, NULL);
+    GtkTextIter a, b;
+    gtk_text_buffer_get_iter_at_line(d->buf, &a, up ? ni : l1);
+    gtk_text_buffer_get_iter_at_line(d->buf, &b, up ? l2 : ni);
+    if (!gtk_text_iter_ends_line(&b))
+        gtk_text_iter_forward_to_line_end(&b);
+    gtk_text_buffer_begin_user_action(d->buf);
+    gtk_text_buffer_delete(d->buf, &a, &b);
+    gtk_text_buffer_insert(d->buf, &a, swapped, -1);
+    gtk_text_buffer_end_user_action(d->buf);
+    int delta = up ? -shift : shift;
+    sel_restore(d, ins + delta, bound + delta);
+    GtkTextMark *m = gtk_text_buffer_get_insert(d->buf);
+    gtk_text_view_scroll_mark_onscreen(GTK_TEXT_VIEW(d->view), m);
+    g_free(block);
+    g_free(neigh);
+    g_free(swapped);
+}
+
+/* Alt+Shift+Up / Down: copies the selected lines above/below (the selection
+ * follows the copy that goes down, like VS Code). */
+static void copy_lines(gboolean up)
+{
+    Doc *d = doc_current();
+    if (!d)
+        return;
+    int l1, l2;
+    sel_lines(d, &l1, &l2);
+    char *block = lines_text(d, l1, l2);
+    GtkTextIter it;
+    gtk_text_buffer_get_iter_at_mark(d->buf, &it, gtk_text_buffer_get_insert(d->buf));
+    int ins = gtk_text_iter_get_offset(&it);
+    gtk_text_buffer_get_iter_at_mark(d->buf, &it, gtk_text_buffer_get_selection_bound(d->buf));
+    int bound = gtk_text_iter_get_offset(&it);
+    char *text = g_strconcat("\n", block, NULL);
+    gtk_text_buffer_get_iter_at_line(d->buf, &it, l2);
+    if (!gtk_text_iter_ends_line(&it))
+        gtk_text_iter_forward_to_line_end(&it);
+    gtk_text_buffer_begin_user_action(d->buf);
+    gtk_text_buffer_insert(d->buf, &it, text, -1);
+    gtk_text_buffer_end_user_action(d->buf);
+    int delta = up ? 0 : (int)g_utf8_strlen(text, -1);
+    sel_restore(d, ins + delta, bound + delta);
+    gtk_text_view_scroll_mark_onscreen(GTK_TEXT_VIEW(d->view), gtk_text_buffer_get_insert(d->buf));
+    g_free(block);
+    g_free(text);
+}
+
+static void cycle_tab(int dir)
+{
+    int n = gtk_notebook_get_n_pages(GTK_NOTEBOOK(g_notebook));
+    if (n < 2)
+        return;
+    int cur = gtk_notebook_get_current_page(GTK_NOTEBOOK(g_notebook));
+    gtk_notebook_set_current_page(GTK_NOTEBOOK(g_notebook), (cur + dir + n) % n);
+}
+
+static void toggle_fullscreen(void)
+{
+    static gboolean full;
+    full = !full;
+    if (full)
+        gtk_window_fullscreen(GTK_WINDOW(g_win));
+    else
+        gtk_window_unfullscreen(GTK_WINDOW(g_win));
+}
+
 /* Ctrl+= is Ctrl+plus on keyboards where plus needs Shift. */
 static gboolean on_key(GtkWidget *w, GdkEventKey *ev, gpointer data)
 {
     (void)w;
     (void)data;
+    guint mods = ev->state & gtk_accelerator_get_default_mod_mask();
+    if (ev->keyval == GDK_F11 && !mods) {
+        toggle_fullscreen();
+        return TRUE;
+    }
+    if ((mods & GDK_CONTROL_MASK) && (ev->keyval == GDK_Tab || ev->keyval == GDK_ISO_Left_Tab)) {
+        cycle_tab((mods & GDK_SHIFT_MASK) || ev->keyval == GDK_ISO_Left_Tab ? -1 : 1);
+        return TRUE;
+    }
+    if ((ev->keyval == GDK_Up || ev->keyval == GDK_Down) && (mods == GDK_MOD1_MASK || mods == (GDK_MOD1_MASK | GDK_SHIFT_MASK))) {
+        if (mods & GDK_SHIFT_MASK)
+            copy_lines(ev->keyval == GDK_Up);
+        else
+            move_lines(ev->keyval == GDK_Up);
+        return TRUE;
+    }
     if ((ev->state & GDK_CONTROL_MASK) && (ev->keyval == GDK_equal || ev->keyval == GDK_KP_Add)) {
         zoom(1);
         return TRUE;
