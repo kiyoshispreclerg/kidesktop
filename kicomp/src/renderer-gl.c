@@ -1642,27 +1642,35 @@ static GlWindow *dense_layer(CompWindow *w, GlWindow *g, bool decoration)
 }
 
 /* The client's rectangle inside the frame, as it is to be drawn now.
- * client_rect was read when the dense pixmap was imported, at the size
- * the window had then, so while a resize's new pixmap is unpainted
- * (!w->content_ready) it is still the old window's. The stash around it
- * is stretched to the new size; the dense layer inside follows, or it
- * would sit at its old size in the middle of the stretched picture.
- * GlWindow::client_rect_of is the window size client_rect belongs to: a
- * layer imported after the resize already has the new one. */
+ * client_rect is read when the dense pixmap is imported -- at the size the
+ * window had then -- and the client republishes the pixmap only when it
+ * gets round to it, which under a fast resize is every few steps. Between
+ * the two the window has a new size and client_rect is still the old
+ * window's: the layer would cover the old area, and what is left of the
+ * new one shows the window's own (unpainted, black) pixmap, shrinking only
+ * when the next import comes. The frame around the client doesn't change
+ * size, so the margins are what carry over: the client takes whatever the
+ * frame has now, and the layer inside is stretched to it, as any texture
+ * whose pixel size doesn't match its geometry is.
+ * GlWindow::client_rect_of is the window size client_rect belongs to. */
 static CompRect client_rect_now(const CompWindow *w)
 {
     CompRect c = w->client_rect;
-    if (w->content_ready)
-        return c;
     const GlWindow *g = gl_window_find(w->id);
     CompRect wr = window_rect(w);
     if (!g || g->client_rect_of.w <= 0 || g->client_rect_of.h <= 0 ||
-        wr.w <= 0 || wr.h <= 0)
+        wr.w <= 0 || wr.h <= 0 ||
+        (wr.w == g->client_rect_of.w && wr.h == g->client_rect_of.h))
         return c;
-    float fx = (float)wr.w / (float)g->client_rect_of.w;
-    float fy = (float)wr.h / (float)g->client_rect_of.h;
-    return (CompRect){ (int)lroundf((float)c.x * fx), (int)lroundf((float)c.y * fy),
-                       (int)lroundf((float)c.w * fx), (int)lroundf((float)c.h * fy) };
+    int right = g->client_rect_of.w - (c.x + c.w);
+    int bottom = g->client_rect_of.h - (c.y + c.h);
+    c.w = wr.w - c.x - right;
+    c.h = wr.h - c.y - bottom;
+    if (c.w < 1)
+        c.w = 1;
+    if (c.h < 1)
+        c.h = 1;
+    return c;
 }
 
 /* One X-DENSITY layer over the window already drawn: `area` is the
