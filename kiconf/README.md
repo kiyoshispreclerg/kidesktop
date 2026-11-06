@@ -29,6 +29,7 @@ and switching tabs doesn't grow the window.
 | Programas padrao | default browser/file manager/editor/e-mail client (`xdg-mime`) |
 | Associacoes de arquivos | per-extension default application, wider than Programas Padrao |
 | Menu de programas | the `.desktop` entries `xispanel`'s launcher and `xismenu`'s global menu pull from; per-app extra env vars/args applied only inside the KiDesktop session (see `../kisession/README.md`) |
+| Lançador | the xisserve launcher's options in `xisserve.conf`: search plugins on/off, grid columns, launch feedback; only the lines it owns are edited, comments and other lines stay |
 | Iniciar automaticamente | `kisession`'s own services plus XDG autostart entries |
 | Usuarios | local accounts; changes queued and applied as root under one `pkexec` prompt |
 | Servicos | status/start/stop/enable/disable on systemd, OpenRC or sysvinit, via `pkexec` |
