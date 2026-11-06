@@ -11,12 +11,16 @@
 #include <gdk/gdkkeysyms.h>
 #include <gtk/gtk.h>
 #include <errno.h>
+#include <gio/gio.h>
+#include <gio/gunixsocketaddress.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
-#define KIPAD_VERSION "0.2.0"
+#define KIPAD_VERSION "0.2.1"
 #define DEFAULT_FONT "Monospace 11"
 #define MIN_FONT_PT 6
 #define MAX_FONT_PT 72
@@ -27,6 +31,8 @@
 static char g_font[128] = DEFAULT_FONT;
 static gboolean g_line_numbers = TRUE;
 static gboolean g_word_wrap = FALSE;
+/* Files opened while a kipad is running go to a tab of that window. */
+static gboolean g_single = TRUE;
 
 static char *conf_path(void)
 {
@@ -54,6 +60,8 @@ static void config_load(void)
                 g_line_numbers = atoi(val) != 0;
             else if (!strcmp(key, "word_wrap"))
                 g_word_wrap = atoi(val) != 0;
+            else if (!strcmp(key, "single_instance"))
+                g_single = atoi(val) != 0;
         }
         g_strfreev(lines);
         free(data);
@@ -65,8 +73,8 @@ static void config_save(void)
 {
     char *path = conf_path(), *dir = g_path_get_dirname(path);
     g_mkdir_with_parents(dir, 0755);
-    char *text = g_strdup_printf("# kipad settings, written by kipad\nfont = %s\nline_numbers = %d\nword_wrap = %d\n",
-                                 g_font, g_line_numbers, g_word_wrap);
+    char *text = g_strdup_printf("# kipad settings, written by kipad\nfont = %s\nline_numbers = %d\nword_wrap = %d\nsingle_instance = %d\n",
+                                 g_font, g_line_numbers, g_word_wrap, g_single);
     xis_write_file(path, text, strlen(text), xis_check_conf_clean);
     g_free(text);
     g_free(dir);
@@ -570,6 +578,17 @@ static void doc_free(Doc *d)
     g_free(d);
 }
 
+static void tab_menu_popup(GtkWidget *scroll, GdkEventButton *ev);
+
+static gboolean tab_button_press(GtkWidget *w, GdkEventButton *ev, GtkWidget *scroll)
+{
+    (void)w;
+    if (ev->type != GDK_BUTTON_PRESS || ev->button != 3)
+        return FALSE;
+    tab_menu_popup(scroll, ev);
+    return TRUE;
+}
+
 static void tab_close_clicked(GtkWidget *btn, GtkWidget *scroll)
 {
     (void)btn;
@@ -617,10 +636,14 @@ static Doc *doc_new(void)
     g_signal_connect(btn, "clicked", G_CALLBACK(tab_close_clicked), d->scroll);
     gtk_box_pack_start(GTK_BOX(box), d->label, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(box), btn, FALSE, FALSE, 0);
-    gtk_widget_show_all(box);
+    GtkWidget *ebox = gtk_event_box_new();
+    gtk_event_box_set_visible_window(GTK_EVENT_BOX(ebox), FALSE);
+    gtk_container_add(GTK_CONTAINER(ebox), box);
+    g_signal_connect(ebox, "button-press-event", G_CALLBACK(tab_button_press), d->scroll);
+    gtk_widget_show_all(ebox);
 
     gtk_widget_show_all(d->scroll);
-    int n = gtk_notebook_append_page(GTK_NOTEBOOK(g_notebook), d->scroll, box);
+    int n = gtk_notebook_append_page(GTK_NOTEBOOK(g_notebook), d->scroll, ebox);
     gtk_notebook_set_tab_reorderable(GTK_NOTEBOOK(g_notebook), d->scroll, TRUE);
     gtk_notebook_set_current_page(GTK_NOTEBOOK(g_notebook), n);
     gtk_widget_grab_focus(d->view);
@@ -695,6 +718,26 @@ static void message(GtkMessageType type, const char *fmt, const char *arg)
     gtk_widget_destroy(dlg);
 }
 
+/* The file's text as UTF-8, or NULL after telling the user why not. */
+static char *read_utf8_file(const char *abs, gsize *len)
+{
+    char *data = NULL;
+    GError *err = NULL;
+    if (!g_file_get_contents(abs, &data, len, &err)) {
+        message(GTK_MESSAGE_ERROR, _("Could not open the file:\n%s"), err->message);
+        g_error_free(err);
+        return NULL;
+    }
+    if (g_utf8_validate(data, (gssize)*len, NULL))
+        return data;
+    /* not UTF-8: assume the usual legacy encoding */
+    char *utf8 = g_convert(data, (gssize)*len, "UTF-8", "ISO-8859-1", NULL, len, NULL);
+    g_free(data);
+    if (!utf8)
+        message(GTK_MESSAGE_ERROR, _("Could not read the file:\n%s"), abs);
+    return utf8;
+}
+
 /* Opens `path` in a tab (an already open one is just shown). */
 static void open_path(const char *path)
 {
@@ -710,25 +753,9 @@ static void open_path(const char *path)
             return;
         }
     }
-    char *data = NULL;
     gsize len = 0;
-    GError *err = NULL;
-    if (!g_file_get_contents(abs, &data, &len, &err)) {
-        message(GTK_MESSAGE_ERROR, _("Could not open the file:\n%s"), err->message);
-        g_error_free(err);
-        g_free(abs);
-        return;
-    }
-    char *utf8 = NULL;
-    if (g_utf8_validate(data, (gssize)len, NULL)) {
-        utf8 = data;
-    } else {
-        /* not UTF-8: assume the usual legacy encoding */
-        utf8 = g_convert(data, (gssize)len, "UTF-8", "ISO-8859-1", NULL, &len, NULL);
-        g_free(data);
-    }
+    char *utf8 = read_utf8_file(abs, &len);
     if (!utf8) {
-        message(GTK_MESSAGE_ERROR, _("Could not read the file:\n%s"), abs);
         g_free(abs);
         return;
     }
@@ -878,6 +905,236 @@ static gboolean on_delete_event(GtkWidget *w, GdkEvent *ev, gpointer data)
     state_save(&s);
     state_clear(&s);
     return FALSE;
+}
+
+/* ---- tab context menu ------------------------------------------------ */
+
+/* TRUE when it is fine to lose `d`'s unsaved changes (nothing to lose, or the
+ * user agreed). */
+static gboolean confirm_lose_changes(Doc *d, const char *what)
+{
+    if (!gtk_text_buffer_get_modified(d->buf))
+        return TRUE;
+    char *name = doc_name(d);
+    GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(g_win), GTK_DIALOG_MODAL, GTK_MESSAGE_WARNING, GTK_BUTTONS_NONE,
+                                            _("\"%s\" has unsaved changes."), name);
+    gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dlg), "%s", what);
+    gtk_dialog_add_buttons(GTK_DIALOG(dlg), GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL, _("Discard changes"),
+                           GTK_RESPONSE_ACCEPT, NULL);
+    gtk_dialog_set_default_response(GTK_DIALOG(dlg), GTK_RESPONSE_CANCEL);
+    int r = gtk_dialog_run(GTK_DIALOG(dlg));
+    gtk_widget_destroy(dlg);
+    g_free(name);
+    return r == GTK_RESPONSE_ACCEPT;
+}
+
+static void tab_close_item(GtkWidget *item, GtkWidget *scroll)
+{
+    (void)item;
+    close_tab(scroll);
+}
+
+static void tab_reopen_item(GtkWidget *item, GtkWidget *scroll)
+{
+    (void)item;
+    Doc *d = doc_of(scroll);
+    if (!d->path || !confirm_lose_changes(d, _("Reopening reloads the file from disk and the changes will be lost.")))
+        return;
+    gsize len = 0;
+    char *utf8 = read_utf8_file(d->path, &len);
+    if (!utf8)
+        return;
+    doc_set_text(d, utf8, len);
+    g_free(utf8);
+    doc_update_label(d);
+    window_update_title();
+    status_update();
+}
+
+/* Opens the tab's file in a window of its own (--new-window skips the
+ * single-instance hand-over) and closes the tab here. */
+static void tab_detach_item(GtkWidget *item, GtkWidget *scroll)
+{
+    (void)item;
+    Doc *d = doc_of(scroll);
+    if (!d->path || !confirm_lose_changes(d, _("The file is reopened from disk in another window and the changes will be lost.")))
+        return;
+    char *exe = g_file_read_link("/proc/self/exe", NULL);
+    char *argv[] = { exe ? exe : (char *)"kipad", (char *)"--new-window", (char *)"--", d->path, NULL };
+    GError *err = NULL;
+    if (!g_spawn_async(NULL, argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, &err)) {
+        message(GTK_MESSAGE_ERROR, _("Could not open a new window:\n%s"), err->message);
+        g_error_free(err);
+        g_free(exe);
+        return;
+    }
+    g_free(exe);
+    gtk_text_buffer_set_modified(d->buf, FALSE); /* decided above: no second prompt */
+    close_tab(scroll);
+}
+
+static void tab_copy_path_item(GtkWidget *item, GtkWidget *scroll)
+{
+    (void)item;
+    Doc *d = doc_of(scroll);
+    if (!d->path)
+        return;
+    gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_CLIPBOARD), d->path, -1);
+    gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_PRIMARY), d->path, -1);
+}
+
+static void tab_menu_popup(GtkWidget *scroll, GdkEventButton *ev)
+{
+    Doc *d = doc_of(scroll);
+    GtkWidget *menu = gtk_menu_new();
+    struct {
+        const char *label;
+        GCallback cb;
+        gboolean needs_path;
+    } items[] = {
+        { N_("Close"), G_CALLBACK(tab_close_item), FALSE },
+        { N_("Reopen"), G_CALLBACK(tab_reopen_item), TRUE },
+        { N_("Detach"), G_CALLBACK(tab_detach_item), TRUE },
+        { N_("Copy path"), G_CALLBACK(tab_copy_path_item), TRUE },
+    };
+    for (guint i = 0; i < G_N_ELEMENTS(items); i++) {
+        GtkWidget *it = gtk_menu_item_new_with_label(_(items[i].label));
+        gtk_widget_set_sensitive(it, !items[i].needs_path || d->path != NULL);
+        g_signal_connect(it, "activate", items[i].cb, scroll);
+        gtk_menu_shell_append(GTK_MENU_SHELL(menu), it);
+    }
+    gtk_widget_show_all(menu);
+    /* the menu goes away with its selection */
+    g_signal_connect_swapped(menu, "selection-done", G_CALLBACK(gtk_widget_destroy), menu);
+    gtk_menu_popup(GTK_MENU(menu), NULL, NULL, NULL, NULL, ev->button, ev->time);
+}
+
+/* ---- single instance -------------------------------------------------- */
+
+/* The first kipad of a display listens on a Unix socket; a later one hands it
+ * its files (NUL-separated absolute paths) and exits. A leftover socket from a
+ * crash is told apart by the refused connection. */
+static GSocketService *g_service;
+static char *g_sock_path;
+
+static char *sock_path(void)
+{
+    const char *rt = g_getenv("XDG_RUNTIME_DIR"), *disp = g_getenv("DISPLAY");
+    char *name = g_strdup_printf("kipad%s.sock", disp ? disp : "");
+    for (char *p = name; *p; p++)
+        if (*p == ':' || *p == '/')
+            *p = '_';
+    char *path = g_build_filename(rt && *rt ? rt : g_get_tmp_dir(), name, NULL);
+    g_free(name);
+    return path;
+}
+
+static void open_paths_blob(const char *buf, gsize len)
+{
+    for (gsize i = 0; i < len;) {
+        gsize n = strnlen(buf + i, len - i);
+        if (n)
+            open_path(buf + i);
+        i += n + 1;
+    }
+}
+
+static gboolean on_service_incoming(GSocketService *svc, GSocketConnection *conn, GObject *src, gpointer data)
+{
+    (void)svc;
+    (void)src;
+    (void)data;
+    g_socket_set_timeout(g_socket_connection_get_socket(conn), 2);
+    GInputStream *in = g_io_stream_get_input_stream(G_IO_STREAM(conn));
+    GString *blob = g_string_new(NULL);
+    char buf[4096];
+    gssize n;
+    while (blob->len < (1 << 20) && (n = g_input_stream_read(in, buf, sizeof(buf), NULL, NULL)) > 0)
+        g_string_append_len(blob, buf, n);
+    open_paths_blob(blob->str, blob->len);
+    g_string_free(blob, TRUE);
+    gtk_window_deiconify(GTK_WINDOW(g_win));
+    gtk_window_present(GTK_WINDOW(g_win));
+    return TRUE;
+}
+
+/* TRUE when a running kipad took the files. */
+static gboolean handover_to_running(char **paths, int n)
+{
+    char *path = sock_path();
+    GSocketClient *client = g_socket_client_new();
+    g_socket_client_set_timeout(client, 2);
+    GSocketAddress *addr = g_unix_socket_address_new(path);
+    GSocketConnection *conn = g_socket_client_connect(client, G_SOCKET_CONNECTABLE(addr), NULL, NULL);
+    gboolean ok = conn != NULL;
+    if (conn) {
+        GOutputStream *out = g_io_stream_get_output_stream(G_IO_STREAM(conn));
+        char *cwd = g_get_current_dir();
+        for (int i = 0; i < n && ok; i++) {
+            char *abs = g_path_is_absolute(paths[i]) ? g_strdup(paths[i]) : g_build_filename(cwd, paths[i], NULL);
+            ok = g_output_stream_write_all(out, abs, strlen(abs) + 1, NULL, NULL, NULL);
+            g_free(abs);
+        }
+        g_free(cwd);
+        g_io_stream_close(G_IO_STREAM(conn), NULL, NULL);
+        g_object_unref(conn);
+    }
+    g_object_unref(addr);
+    g_object_unref(client);
+    g_free(path);
+    return ok;
+}
+
+static void service_start(void)
+{
+    if (g_service)
+        return;
+    char *path = sock_path();
+    for (int attempt = 0; attempt < 2; attempt++) {
+        GSocketService *svc = g_socket_service_new();
+        GSocketAddress *addr = g_unix_socket_address_new(path);
+        GError *err = NULL;
+        gboolean ok = g_socket_listener_add_address(G_SOCKET_LISTENER(svc), addr, G_SOCKET_TYPE_STREAM,
+                                                    G_SOCKET_PROTOCOL_DEFAULT, NULL, NULL, &err);
+        g_object_unref(addr);
+        if (ok) {
+            chmod(path, 0600);
+            g_signal_connect(svc, "incoming", G_CALLBACK(on_service_incoming), NULL);
+            g_socket_service_start(svc);
+            g_service = svc;
+            g_sock_path = path;
+            return;
+        }
+        g_clear_error(&err);
+        g_object_unref(svc);
+        /* Address in use: stale file from a crash (nobody answers), since the
+         * live case was handled by the hand-over before. */
+        unlink(path);
+    }
+    g_free(path);
+}
+
+static void service_stop(void)
+{
+    if (!g_service)
+        return;
+    g_socket_service_stop(g_service);
+    g_socket_listener_close(G_SOCKET_LISTENER(g_service));
+    g_object_unref(g_service);
+    g_service = NULL;
+    unlink(g_sock_path);
+    g_clear_pointer(&g_sock_path, g_free);
+}
+
+static void single_toggle_cb(GtkCheckMenuItem *item, gpointer data)
+{
+    (void)data;
+    g_single = gtk_check_menu_item_get_active(item);
+    config_save();
+    if (g_single)
+        service_start();
+    else
+        service_stop();
 }
 
 /* ---- menu actions ---------------------------------------------------- */
@@ -1491,6 +1748,10 @@ static GtkWidget *build_menubar(GtkAccelGroup *ag)
     gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(g_wrap_item), g_word_wrap);
     g_signal_connect(g_wrap_item, "toggled", G_CALLBACK(wrap_toggle_cb), NULL);
     gtk_menu_shell_append(GTK_MENU_SHELL(m), g_wrap_item);
+    GtkWidget *single_item = gtk_check_menu_item_new_with_mnemonic(_("Open files in the _same window"));
+    gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(single_item), g_single);
+    g_signal_connect(single_item, "toggled", G_CALLBACK(single_toggle_cb), NULL);
+    gtk_menu_shell_append(GTK_MENU_SHELL(m), single_item);
     separator(m);
     menu_item(m, ag, _("_Font..."), 0, 0, G_CALLBACK(font_cb));
     menu_item(m, ag, _("Zoom _in"), GDK_plus, C, G_CALLBACK(zoom_in_cb));
@@ -1531,12 +1792,30 @@ int main(int argc, char **argv)
             return 0;
         }
         if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
-            printf("kipad %s - simple tabbed text editor\n\nUsage: kipad [FILE...]\n", KIPAD_VERSION);
+            printf("kipad %s - simple tabbed text editor\n\nUsage: kipad [-n|--new-window] [FILE...]\n\n"
+                   "With \"Open files in the same window\" on (the default), FILEs open as tabs of a\n"
+                   "running kipad; --new-window always starts a window of its own.\n", KIPAD_VERSION);
             return 0;
         }
     }
     gtk_init(&argc, &argv);
     config_load();
+    gboolean new_window = FALSE;
+    char **files = g_new0(char *, argc + 1);
+    int nfiles = 0;
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--")) {
+            while (++i < argc)
+                files[nfiles++] = argv[i];
+        } else if (!strcmp(argv[i], "-n") || !strcmp(argv[i], "--new-window"))
+            new_window = TRUE;
+        else if (argv[i][0] != '-')
+            files[nfiles++] = argv[i];
+    }
+    if (g_single && !new_window && handover_to_running(files, nfiles)) {
+        g_free(files);
+        return 0;
+    }
     gtk_window_set_default_icon_name("kipad");
 
     g_win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -1566,12 +1845,10 @@ int main(int argc, char **argv)
 
     gtk_widget_show_all(g_win);
 
-    int nfiles = 0;
-    for (int i = 1; i < argc; i++)
-        if (argv[i][0] != '-') {
-            open_path(argv[i]);
-            nfiles++;
-        }
+    if (g_single && !new_window)
+        service_start();
+    for (int i = 0; i < nfiles; i++)
+        open_path(files[i]);
     if (!nfiles) {
         /* no files given: reopen the tabs the last window had */
         State s;
@@ -1591,5 +1868,7 @@ int main(int argc, char **argv)
         new_empty_tab();
     status_update();
     gtk_main();
+    service_stop();
+    g_free(files);
     return 0;
 }
