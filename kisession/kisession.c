@@ -42,8 +42,18 @@
  * as kiconfd and xiskeys -- kiconf writes the config file and signals the
  * daemon, no separate control protocol.
  *
- * SIGTERM/SIGINT shut the session down: autostart apps first, then
- * services in reverse start order, then the WM.
+ * SIGTERM/SIGINT shut the session down at once: autostart apps first,
+ * then services in reverse start order, then the WM.
+ *
+ * SIGUSR1 is the polite logout (what xisserve's "Sair" sends): every
+ * ordinary application window is asked to close (WM_DELETE_WINDOW), so
+ * an app with unsaved work can ask its user, and the session only ends
+ * once none is left. SIGUSR1 again asks the remaining ones once more,
+ * SIGUSR2 gives up the logout, and SIGTERM still forces it. A request
+ * can carry a follow-up: $XDG_RUNTIME_DIR/kisession.after holding
+ * "poweroff" or "reboot" (xisserve writes it before signalling) makes the
+ * machine do that once the session is down, so "Desligar" waits for the
+ * same unsaved-work questions as "Sair".
  */
 
 #include <X11/Xatom.h>
@@ -70,7 +80,7 @@
 #include <unistd.h>
 #include "../shared/xis_safefile.h"
 
-#define KISESSION_VERSION "0.1.21"
+#define KISESSION_VERSION "0.1.22"
 
 #define MAX_ARGS 16
 #define MAX_PIDS_PER_SVC 4
@@ -238,6 +248,10 @@ static Window g_root;
 static volatile sig_atomic_t g_quit = 0;
 static volatile sig_atomic_t g_reload = 0;
 static volatile sig_atomic_t g_child = 0;
+static volatile sig_atomic_t g_logout = 0;        /* SIGUSR1: start or repeat a polite logout */
+static volatile sig_atomic_t g_logout_cancel = 0; /* SIGUSR2: give it up */
+static int g_logging_out = 0;
+static char g_after[16]; /* "poweroff"/"reboot" to run once the session is down, or "" */
 static int g_sigpipe[2] = {-1, -1};
 
 static pid_t g_autostart_pids[MAX_AUTOSTART_PIDS];
@@ -1343,6 +1357,12 @@ static void handle_signal(int sig)
     case SIGHUP:
         g_reload = 1;
         break;
+    case SIGUSR1:
+        g_logout = 1;
+        break;
+    case SIGUSR2:
+        g_logout_cancel = 1;
+        break;
     default:
         g_quit = 1;
         break;
@@ -1369,7 +1389,226 @@ static void install_signals(void)
     sigaction(SIGTERM, &sa, NULL);
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGHUP, &sa, NULL);
+    sigaction(SIGUSR1, &sa, NULL);
+    sigaction(SIGUSR2, &sa, NULL);
     signal(SIGPIPE, SIG_IGN);
+}
+
+/* ------------------------------------------------------------------ */
+/* polite logout                                                       */
+/* ------------------------------------------------------------------ */
+
+#define MAX_LOGOUT_WINDOWS 128
+#define LOGOUT_TICK_MS 500
+
+static int window_has_atom(Window win, Atom prop, Atom want)
+{
+    Atom type;
+    int format;
+    unsigned long n, after;
+    unsigned char *data = NULL;
+    int found = 0;
+    if (XGetWindowProperty(g_dpy, win, prop, 0, 64, False, XA_ATOM, &type, &format, &n, &after, &data) == Success &&
+        data) {
+        if (format == 32) {
+            for (unsigned long i = 0; i < n; i++) {
+                if ((Atom)((long *)(void *)data)[i] == want) {
+                    found = 1;
+                }
+            }
+        }
+        XFree(data);
+    }
+    return found;
+}
+
+static int window_has_property(Window win, Atom prop)
+{
+    Atom type;
+    int format;
+    unsigned long n, after;
+    unsigned char *data = NULL;
+    int has = 0;
+    if (XGetWindowProperty(g_dpy, win, prop, 0, 1, False, AnyPropertyType, &type, &format, &n, &after, &data) ==
+            Success &&
+        type != None) {
+        has = 1;
+    }
+    if (data) {
+        XFree(data);
+    }
+    return has;
+}
+
+static int pid_is_service(pid_t pid)
+{
+    for (int i = 0; i < N_SERVICES; i++) {
+        for (int j = 0; j < g_state[i].n_pids; j++) {
+            if (g_state[i].pids[j] == pid) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+/* The ordinary application windows still open: normal-type, not a dialog
+ * of another window, not hidden from the taskbar (desktop widgets and
+ * helpers), not owned by one of our own services, and able to be asked
+ * to close. Anything else is left for the shutdown that follows. */
+static int collect_app_windows(Window *out, int max)
+{
+    if (!g_dpy) {
+        return 0;
+    }
+    Atom a_list = XInternAtom(g_dpy, "_NET_CLIENT_LIST", False);
+    Atom a_type = XInternAtom(g_dpy, "_NET_WM_WINDOW_TYPE", False);
+    Atom a_normal = XInternAtom(g_dpy, "_NET_WM_WINDOW_TYPE_NORMAL", False);
+    Atom a_state = XInternAtom(g_dpy, "_NET_WM_STATE", False);
+    Atom a_skip = XInternAtom(g_dpy, "_NET_WM_STATE_SKIP_TASKBAR", False);
+    Atom a_pid = XInternAtom(g_dpy, "_NET_WM_PID", False);
+    Atom a_protocols = XInternAtom(g_dpy, "WM_PROTOCOLS", False);
+    Atom a_delete = XInternAtom(g_dpy, "WM_DELETE_WINDOW", False);
+
+    Atom type;
+    int format;
+    unsigned long n = 0, after;
+    unsigned char *data = NULL;
+    if (XGetWindowProperty(g_dpy, g_root, a_list, 0, 4096, False, XA_WINDOW, &type, &format, &n, &after, &data) !=
+            Success ||
+        !data) {
+        return 0;
+    }
+    int count = 0;
+    for (unsigned long i = 0; i < n && count < max; i++) {
+        Window w = (Window)((long *)(void *)data)[i];
+
+        if (window_has_property(w, a_type)) {
+            if (!window_has_atom(w, a_type, a_normal)) {
+                continue;
+            }
+        } else if (window_has_property(w, XA_WM_TRANSIENT_FOR)) {
+            continue;
+        }
+        if (window_has_atom(w, a_state, a_skip) || !window_has_atom(w, a_protocols, a_delete)) {
+            continue;
+        }
+        Atom t2;
+        int f2;
+        unsigned long n2, a2;
+        unsigned char *pd = NULL;
+        if (XGetWindowProperty(g_dpy, w, a_pid, 0, 1, False, XA_CARDINAL, &t2, &f2, &n2, &a2, &pd) == Success && pd) {
+            pid_t pid = f2 == 32 && n2 >= 1 ? (pid_t)((long *)(void *)pd)[0] : 0;
+            XFree(pd);
+            if (pid > 0 && pid_is_service(pid)) {
+                continue;
+            }
+        }
+        out[count++] = w;
+    }
+    XFree(data);
+    return count;
+}
+
+static void ask_windows_to_close(const Window *wins, int n)
+{
+    Atom a_protocols = XInternAtom(g_dpy, "WM_PROTOCOLS", False);
+    Atom a_delete = XInternAtom(g_dpy, "WM_DELETE_WINDOW", False);
+    for (int i = 0; i < n; i++) {
+        XEvent ev;
+        memset(&ev, 0, sizeof(ev));
+        ev.xclient.type = ClientMessage;
+        ev.xclient.window = wins[i];
+        ev.xclient.message_type = a_protocols;
+        ev.xclient.format = 32;
+        ev.xclient.data.l[0] = (long)a_delete;
+        ev.xclient.data.l[1] = CurrentTime;
+        XSendEvent(g_dpy, wins[i], False, NoEventMask, &ev);
+    }
+    XFlush(g_dpy);
+}
+
+static void after_path(char *out, size_t outsz)
+{
+    snprintf(out, outsz, "%s/kisession.after", env_or("XDG_RUNTIME_DIR", "/tmp"));
+}
+
+/* Re-read on every request, so the latest button pressed wins. Only the
+ * two known words are accepted: the file is never a command. */
+static void read_after(void)
+{
+    char path[PATH_MAX];
+    after_path(path, sizeof(path));
+    g_after[0] = '\0';
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        return;
+    }
+    char word[16] = { 0 };
+    if (fgets(word, sizeof(word), f)) {
+        char *w = trim(word);
+        if (!strcmp(w, "poweroff") || !strcmp(w, "reboot")) {
+            snprintf(g_after, sizeof(g_after), "%s", w);
+        }
+    }
+    fclose(f);
+}
+
+static void run_after(void)
+{
+    if (!g_after[0]) {
+        return;
+    }
+    fprintf(stderr, "kisession: running 'systemctl %s'\n", g_after);
+    const char *const argv[] = {"systemctl", g_after, NULL};
+    run_and_wait(argv);
+}
+
+/* One step of the logout: on a (new) request ask every window, then end
+ * the session -- g_quit, which runs the usual shutdown -- once none is
+ * left. Run from the main loop, so services stay supervised meanwhile. */
+static void logout_tick(void)
+{
+    if (g_logout_cancel) {
+        g_logout_cancel = 0;
+        if (g_logging_out) {
+            fprintf(stderr, "kisession: logout cancelled\n");
+        }
+        g_logging_out = 0;
+        g_logout = 0;
+        g_after[0] = '\0';
+        char path[PATH_MAX];
+        after_path(path, sizeof(path));
+        unlink(path);
+        return;
+    }
+    Window wins[MAX_LOGOUT_WINDOWS];
+    if (g_logout) {
+        g_logout = 0;
+        int first = !g_logging_out;
+        g_logging_out = 1;
+        read_after();
+        int n = collect_app_windows(wins, MAX_LOGOUT_WINDOWS);
+        fprintf(stderr, "kisession: logout: asking %d window(s) to close\n", n);
+        if (n > 0) {
+            ask_windows_to_close(wins, n);
+            if (first) {
+                const char *const note[] = {"notify-send", "-i", "system-log-out", _("Encerrando a sessão"),
+                                             _("Salve ou feche os documentos abertos para concluir."), NULL};
+                char found[PATH_MAX] = { 0 };
+                if (find_in_path("notify-send", found, sizeof(found))) {
+                    spawn_const(note);
+                }
+            }
+        }
+    }
+    if (!g_logging_out) {
+        return;
+    }
+    if (collect_app_windows(wins, MAX_LOGOUT_WINDOWS) == 0) {
+        fprintf(stderr, "kisession: logout: no windows left, ending the session\n");
+        g_quit = 1;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -2003,6 +2242,9 @@ static int loop_timeout_ms(void)
     if (g_state[wm_idx].adopted && (timeout < 0 || timeout > 1000)) {
         timeout = 1000; /* an adopted WM can only be polled */
     }
+    if (g_logging_out && (timeout < 0 || timeout > LOGOUT_TICK_MS)) {
+        timeout = LOGOUT_TICK_MS;
+    }
     if (!g_autostart_done && svc_enabled("autostart") && (timeout < 0 || timeout > 500)) {
         timeout = 500; /* still waiting on base readiness */
     }
@@ -2115,6 +2357,12 @@ int main(int argc, char **argv)
         if (g_quit) {
             break;
         }
+        if (g_logout || g_logout_cancel || g_logging_out) {
+            logout_tick();
+            if (g_quit) {
+                break;
+            }
+        }
         for (int i = 0; i < N_SERVICES; i++) {
             start_service(i);
         }
@@ -2139,8 +2387,14 @@ int main(int argc, char **argv)
     shutdown_session();
     kill_own_ssh_agent();
     remove_pidfile();
+    {
+        char path[PATH_MAX];
+        after_path(path, sizeof(path));
+        unlink(path);
+    }
     if (g_dpy) {
         XCloseDisplay(g_dpy);
     }
+    run_after();
     return 0;
 }

@@ -60,7 +60,7 @@
 #include "../shared/xis_direction.h"
 #include "../shared/xis_safefile.h"
 
-#define XISSERVE_VERSION "0.2.24"
+#define XISSERVE_VERSION "0.2.25"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -2965,21 +2965,31 @@ typedef struct {
  * are hidden unless their tool is actually installed.
  *
  * "Sair" (logout) has no generic single command for a WM-agnostic session
- * like this one, so it targets kisession directly instead: SIGTERM is
- * what kisession's own shutdown_session() already listens for (see
- * kisession.c) to stop every service gracefully in reverse start order
- * and then exit, and kisession.pid (written at startup, see
+ * like this one, so it targets kisession directly instead. The signal is
+ * kisession's polite logout (see kisession.c): SIGUSR1
+ * asks every ordinary window to close, so an app can offer to save, and
+ * ends the session once none is left, stopping every service in reverse
+ * start order. kisession.pid (written at startup, see
  * write_pidfile()) is how a process with no other relationship to it
  * finds its pid. Silent no-op (both `cat` and `kill` errors redirected)
  * when kisession isn't running -- e.g. xisserve started by hand outside
  * a KiDesktop session -- rather than surfacing a confusing error for a
  * button that's always shown. */
+#define KISESSION_RT "${XDG_RUNTIME_DIR:-/tmp}"
+/* Poweroff/reboot go through kisession too (the follow-up it runs once
+ * every window agreed to close -- see kisession.c); straight to systemctl
+ * only when kisession isn't there to ask. */
+#define KISESSION_THEN(action)                                                                         \
+    "echo " action " > \"" KISESSION_RT "/kisession.after\"; "                                         \
+    "kill -USR1 \"$(cat \"" KISESSION_RT "/kisession.pid\" 2>/dev/null)\" 2>/dev/null "               \
+    "|| { rm -f \"" KISESSION_RT "/kisession.after\"; systemctl " action "; }"
 static const PowerAction kPowerActions[] = {
-    {N_("Desligar"), "systemctl", "systemctl poweroff", N_("Desligar o computador agora?")},
-    {N_("Reiniciar"), "systemctl", "systemctl reboot", N_("Reiniciar o computador agora?")},
+    {N_("Desligar"), "systemctl", KISESSION_THEN("poweroff"), N_("Desligar o computador agora?")},
+    {N_("Reiniciar"), "systemctl", KISESSION_THEN("reboot"), N_("Reiniciar o computador agora?")},
     {N_("Suspender"), "systemctl", "systemctl suspend", N_("Suspender o computador agora?")},
     {N_("Sair"), NULL,
-     "kill -TERM \"$(cat \"${XDG_RUNTIME_DIR:-/tmp}/kisession.pid\" 2>/dev/null)\" 2>/dev/null",
+     "rm -f \"" KISESSION_RT "/kisession.after\"; "
+     "kill -USR1 \"$(cat \"" KISESSION_RT "/kisession.pid\" 2>/dev/null)\" 2>/dev/null",
      N_("Encerrar a sessao atual?")},
     {N_("Trocar usuario"), "dm-tool", "dm-tool switch-to-greeter", N_("Trocar de usuario agora?")},
     {N_("Bloquear tela"), "kilock", "kilock", N_("Bloquear a tela agora?")},
