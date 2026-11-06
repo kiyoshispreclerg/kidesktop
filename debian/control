@@ -75,7 +75,8 @@ Recommends: librsvg2-2,
             xss-lock,
             i3lock,
             at-spi2-core,
-            lxpolkit | policykit-1-gnome | mate-polkit
+            lxpolkit | policykit-1-gnome | mate-polkit,
+            gtk2-king
 Suggests: orca,
           xsct
 Provides: kidesktop
