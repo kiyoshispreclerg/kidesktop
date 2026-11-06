@@ -52,6 +52,12 @@ void renderer_window_density_invalidate(CompWindow *w, bool decoration)
         renderer->window_density_invalidate(w, decoration);
 }
 
+void renderer_window_density_sources_invalidate(CompWindow *w)
+{
+    if (renderer && renderer->window_density_sources_invalidate)
+        renderer->window_density_sources_invalidate(w);
+}
+
 void renderer_window_stash(CompWindow *w, const CompRect *was)
 {
     if (renderer && renderer->window_stash)

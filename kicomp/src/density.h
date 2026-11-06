@@ -30,6 +30,22 @@
  * A pixmap generates no Damage of its own, so "the contents changed" is
  * signalled by the client rewriting _X_DENSITY_PIXMAP with the same XID.
  * Every property change here is therefore also a repaint.
+ *
+ * And two optional ones for the holes in that pixmap, where a native
+ * child (a video player's --wid) draws in its own window and the client
+ * has nothing to put:
+ *
+ *   _X_DENSITY_PASSTHROUGH  [x, y, w, h]...: show the window's own
+ *                           pixels there, magnified. The toolkit's.
+ *   _X_DENSITY_SOURCES      [x, y, w, h, window]...: show that window
+ *                           there instead -- redirected by the client
+ *                           and rendered at _X_DENSITY_SCALE, its pixel
+ *                           (0, 0) at the corner, clipped to the
+ *                           rectangle. The app's.
+ *
+ * Client-relative logical rectangles. A source's pixmap is named here and
+ * its Damage followed like a window's; the renderers draw both kinds over
+ * the dense layer, which leaves them out.
  */
 #ifndef KICOMP_DENSITY_H
 #define KICOMP_DENSITY_H
@@ -51,6 +67,33 @@ void density_update_all(void);
  * window: the client (the app's contents) or the frame (the WM's
  * decoration) -- two independent answers to two independent requests. */
 void density_property_changed(CompWindow *w, xcb_window_t on);
+
+/* _X_DENSITY_PASSTHROUGH or _X_DENSITY_SOURCES changed on the client. */
+void density_holes_changed(CompWindow *w, xcb_atom_t atom);
+
+/* Events on a window that is not one of ours, and might be a source: its
+ * Damage reported, it was resized or mapped (its pixmap is renamed), it
+ * was unmapped or destroyed (its pixmap is dropped). Each a short walk
+ * when nothing publishes sources. */
+void density_source_damaged(xcb_drawable_t drawable);
+void density_source_configured(xcb_window_t window);
+void density_source_gone(xcb_window_t window, bool destroyed);
+
+/* Where a source is shown, in root coordinates, with the window at its
+ * own place (damage.c's coordinates). False while it has no pixmap, and
+ * so is not drawn. */
+bool density_source_root_rect(const CompWindow *w, const CompDensitySource *s,
+                              CompRect *out);
+
+/* Is this passthrough area (one of w->density_through) entirely inside a
+ * source that is drawn? Then that source fills it, and the window's own
+ * pixels there are not drawn. */
+bool density_through_filled(const CompWindow *w, const CompRect *through);
+
+/* Is `r` (root coordinates, as damage.c has it) entirely where a source
+ * is shown? Then the window's own pixels changing there reach no screen:
+ * they are the client's 1x copy of its video, kept for recorders. */
+bool density_source_hides(const CompWindow *w, const CompRect *r);
 
 /* The window is going away, or its density is no longer wanted. */
 void density_forget(CompWindow *w);

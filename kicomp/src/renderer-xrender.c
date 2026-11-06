@@ -308,6 +308,17 @@ static void xr_window_density_invalidate(CompWindow *w, bool decoration)
     }
 }
 
+static void xr_window_density_sources_invalidate(CompWindow *w)
+{
+    for (int i = 0; i < w->density_source_count; i++) {
+        xcb_render_picture_t *pict = &w->density_sources[i].picture;
+        if (*pict) {
+            xcb_render_free_picture(comp.conn, *pict);
+            *pict = 0;
+        }
+    }
+}
+
 /* A Picture for the window's density pixmap, and the client's rectangle
  * inside the frame -- that pixmap holds the client's content alone, with
  * no decoration around it, so where the decoration ends has to be known
@@ -1655,7 +1666,8 @@ static void target_pieces(const CompOutput *o, const CompRect *area,
  */
 static void draw_dense(CompOutput *o, const CompSceneNode *n, CompWindow *w,
                        xcb_render_picture_t mask, const CompRect *area,
-                       float density, bool decoration, const CompRect *hole)
+                       float density, bool decoration, const CompRect *hole,
+                       const CompRect *skip, int skip_count)
 {
     xcb_render_picture_t dense = density_picture(w, decoration);
     if (!dense)
@@ -1680,6 +1692,12 @@ static void draw_dense(CompOutput *o, const CompSceneNode *n, CompWindow *w,
      * target pixels, where the pieces tile exactly. */
     CompRegion pieces;
     target_pieces(o, &visible, hole, &pieces);
+    /* Its holes (density.h), which hold nothing and are drawn over by
+     * draw_holes() -- left out rather than painted black first. */
+    for (int k = 0; k < skip_count; k++) {
+        xcb_rectangle_t h = to_target_rect(o, &skip[k]);
+        region_subtract_rect(&pieces, &(CompRect){ h.x, h.y, h.width, h.height });
+    }
     for (int k = 0; k < pieces.count; k++) {
         const CompRect *r = &pieces.rects[k];
         xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER,
@@ -1691,6 +1709,113 @@ static void draw_dense(CompOutput *o, const CompSceneNode *n, CompWindow *w,
     }
 
     picture_transform_reset(dense);
+}
+
+/* A source's pixmap (density.c named it) as a Picture, cached until it
+ * is renamed. */
+static xcb_render_picture_t source_picture(CompDensitySource *s)
+{
+    if (s->picture || !s->pixmap)
+        return s->picture;
+    xcb_render_pictformat_t fmt = format_for_depth(s->depth);
+    if (!fmt)
+        return 0;
+    s->picture = xcb_generate_id(comp.conn);
+    xcb_render_create_picture(comp.conn, s->picture, s->pixmap, fmt, 0, NULL);
+    return s->picture;
+}
+
+/* The holes in a client's dense layer (density.h), in root coordinates
+ * for the node at its own place: every passthrough area a source doesn't
+ * already fill, then every source. What the dense layer leaves out. */
+static int hole_rects(const CompSceneNode *n, const CompWindow *w, CompRect *out)
+{
+    int k = 0;
+    int ox = n->geometry.x + w->client_rect.x, oy = n->geometry.y + w->client_rect.y;
+    for (int i = 0; i < w->density_through_count; i++) {
+        const CompRect *t = &w->density_through[i];
+        if (density_through_filled(w, t))
+            continue;
+        out[k++] = (CompRect){ ox + t->x, oy + t->y, t->w, t->h };
+    }
+    for (int i = 0; i < w->density_source_count; i++) {
+        const CompDensitySource *src = &w->density_sources[i];
+        if (src->pixmap)
+            out[k++] = (CompRect){ ox + src->rect.x, oy + src->rect.y,
+                                   src->rect.w, src->rect.h };
+    }
+    return k;
+}
+
+/* `pict` through the matrix `m` (which consumes target pixels) into
+ * `area` ∩ what is visible of the client, one composite per piece. SRC
+ * when nothing of it can be translucent: no alpha, no fade. */
+static void composite_into(CompOutput *o, const CompSceneNode *n,
+                           xcb_render_picture_t pict, const CompTransform *m,
+                           xcb_render_picture_t mask, bool opaque,
+                           const CompRect *area, const CompRect *client)
+{
+    CompRect in_client, visible;
+    if (!rect_intersect(area, client, &in_client) ||
+        !rect_intersect(&in_client, &n->visible_rect, &visible))
+        return;
+
+    picture_transform_set(pict, m);
+    CompRegion pieces;
+    target_pieces(o, &visible, NULL, &pieces);
+    uint8_t op = (opaque && mask == XCB_NONE) ? XCB_RENDER_PICT_OP_SRC
+                                              : XCB_RENDER_PICT_OP_OVER;
+    for (int k = 0; k < pieces.count; k++) {
+        const CompRect *r = &pieces.rects[k];
+        xcb_render_composite(comp.conn, op, pict, mask, o->target,
+                             (int16_t)r->x, (int16_t)r->y,
+                             (int16_t)r->x, (int16_t)r->y,
+                             (int16_t)r->x, (int16_t)r->y,
+                             (uint16_t)r->w, (uint16_t)r->h);
+    }
+    picture_transform_reset(pict);
+}
+
+/* What goes in the holes draw_dense() left: the window's own pixels in a
+ * passthrough area (magnified -- the native child drew them at 1x), a
+ * source's pixels, one for one, in its own. The passthrough is drawn
+ * only if the window's draw left it out too (`base_cut_hole`, with the
+ * window's matrix `wm`); otherwise it is already there. */
+static void draw_holes(CompOutput *o, const CompSceneNode *n, CompWindow *w,
+                       xcb_render_picture_t window_pict, const CompTransform *wm,
+                       bool base_cut_hole, xcb_render_picture_t mask,
+                       const CompRect *client, float density)
+{
+    int ox = client->x, oy = client->y;
+    bool opaque = w->client_depth != 32 && n->opacity >= 1.0f;
+
+    if (base_cut_hole && wm) {
+        for (int i = 0; i < w->density_through_count; i++) {
+            const CompRect *t = &w->density_through[i];
+            if (density_through_filled(w, t))
+                continue;
+            CompRect area = { ox + t->x, oy + t->y, t->w, t->h };
+            composite_into(o, n, window_pict, wm, mask, opaque, &area, client);
+        }
+    }
+
+    for (int i = 0; i < w->density_source_count; i++) {
+        CompDensitySource *src = &w->density_sources[i];
+        xcb_render_picture_t pict = source_picture(src);
+        if (!pict)
+            continue;
+        CompRect area = { ox + src->rect.x, oy + src->rect.y,
+                          src->rect.w, src->rect.h };
+        /* target -> logical root -> the source's corner -> its pixels,
+         * which are the density's: one for one when that matches the
+         * output, as with the dense layer. */
+        CompTransform m;
+        target_to_root(o, &m);
+        comp_transform_translate(&m, (float)-area.x, (float)-area.y);
+        comp_transform_scale(&m, density, density);
+        composite_into(o, n, pict, &m, mask, src->depth != 32 && n->opacity >= 1.0f,
+                       &area, client);
+    }
 }
 
 static void draw_chrome(CompOutput *o, const CompScene *s);
@@ -2008,6 +2133,7 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
          * they would stack their alpha on a second, frozen copy of the
          * same contents (renderer-gl.c's draw_node says more). */
         bool client_covers = client_hole.w > 0;
+        bool base_cut_hole = false;   /* the draw below left it out */
 
         /* The decoration's dense pixmap is just as much a hole over a
          * client that publishes nothing dense: there, an opaque client's
@@ -2069,6 +2195,7 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
              * identical to a plain copy. For a depth-32 window this is
              * precisely the blending an uncomposited server can't do. */
             if (client_covers && needs_matrix) {
+                base_cut_hole = true;
                 /* Through a matrix, source points are target points, so
                  * the window can be drawn in pieces around the hole. */
                 CompRegion pieces;
@@ -2141,7 +2268,7 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
                     deco_mask = mask;
                 }
                 draw_dense(o, n, w, deco_mask, &n->geometry, density, true,
-                           deco_hole.w > 0 ? &deco_hole : NULL);
+                           deco_hole.w > 0 ? &deco_hole : NULL, NULL, 0);
                 if (shape_masked)
                     picture_transform_reset(mask);
             }
@@ -2163,9 +2290,15 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
                     picture_transform_set(mask, &m);
                     client_mask = mask;
                 }
-                draw_dense(o, n, w, client_mask, &client, density, false, NULL);
+                CompRect skip[2 * DENSITY_MAX_AREAS];
+                int skip_count = hole_rects(n, w, skip);
+                draw_dense(o, n, w, client_mask, &client, density, false, NULL,
+                           skip, skip_count);
                 if (shape_masked)
                     picture_transform_reset(mask);
+                if (skip_count > 0)
+                    draw_holes(o, n, w, source, needs_matrix ? &m : NULL,
+                               base_cut_hole, dense_mask, &client, density);
             }
         }
 
@@ -2404,6 +2537,7 @@ static const CompRenderer xrender_renderer = {
     .window_has_content        = xr_window_has_content,
     .window_pixmap             = xr_window_pixmap,
     .window_density_invalidate = xr_window_density_invalidate,
+    .window_density_sources_invalidate = xr_window_density_sources_invalidate,
 
     .window_stash              = xr_window_stash,
     .window_has_stash          = xr_window_has_stash,

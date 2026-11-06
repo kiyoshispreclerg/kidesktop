@@ -55,6 +55,26 @@ typedef struct CompTransform {
     float m[4][4];
 } CompTransform;
 
+/* X-DENSITY's holes in a dense pixmap (density.h, comp.h's
+ * density_through/density_sources). A handful: an app has one video in a
+ * window, not dozens, and anything past this is drawn as the hole it is.
+ *
+ * A source is a window of the client's own, redirected by it, that it
+ * renders at the density: named here, its Damage followed, imported by
+ * the renderer like any dense pixmap. */
+#define DENSITY_MAX_AREAS 4
+
+typedef struct CompDensitySource {
+    CompRect rect;                  /* client-relative, logical */
+    xcb_window_t window;
+    xcb_pixmap_t pixmap;            /* NameWindowPixmap; 0 while unusable */
+    xcb_damage_damage_t damage;
+    int width, height;              /* the pixmap's */
+    uint8_t depth;
+    bool damage_pending;
+    xcb_render_picture_t picture;   /* the XRender backend's, cached */
+} CompDensitySource;
+
 /* How many covering rectangles a window remembers, and how many opaque
  * windows a scene subtracts from the ones beneath. Small on purpose: past
  * a handful the rectangles cost more to carry than the pixels they save,
@@ -540,6 +560,22 @@ typedef struct CompWindow {
     uint8_t density_depth;
     CompRect client_rect;
 
+    /* The holes in that pixmap (density.h): where it has nothing, because
+     * a native child draws there in its own window (a video player's
+     * --wid). Client-relative logical rectangles.
+     *
+     *   density_through   _X_DENSITY_PASSTHROUGH: the window's own
+     *                     pixels show there, magnified
+     *   density_sources   _X_DENSITY_SOURCES: a redirected window drawn
+     *                     at the density shows there instead, sharp
+     *
+     * Both empty for every window that publishes neither, which is what
+     * keeps them free: nothing below looks further than the count. */
+    CompRect density_through[DENSITY_MAX_AREAS];
+    int density_through_count;
+    CompDensitySource density_sources[DENSITY_MAX_AREAS];
+    int density_source_count;
+
     /* What of this window is *certainly* opaque, relative to its own
      * origin. Empty (w == 0) when nothing is: an ARGB client, a window
      * with _NET_WM_WINDOW_OPACITY, one we have not looked at yet.
@@ -714,6 +750,8 @@ typedef struct KiComp {
         xcb_atom_t density_requested;
         xcb_atom_t density_scale;
         xcb_atom_t density_pixmap;
+        xcb_atom_t density_passthrough;
+        xcb_atom_t density_sources;
         xcb_atom_t kiwm_corner_radius;     /* kiwm's frame corner radii */
 
         xcb_atom_t xis_confined_area;      /* X-SCALE 1.0 leftover, deleted */

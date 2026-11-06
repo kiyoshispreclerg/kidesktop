@@ -85,6 +85,7 @@ typedef struct GlWindow {
     GLuint texture;         /* gl_window_texture() makes it on first use */
     int width, height;      /* what the import covers; a resize re-imports */
     bool argb;
+    bool refused;           /* a borrowed pixmap the platform turned down */
     bool content;           /* the platform has the window's pixels named */
     bool y_inverted;        /* the import's first texture row is the top one */
 
@@ -155,6 +156,11 @@ typedef struct GlWindow {
      * something; freed again when it withdraws it
      * (gl_window_density_invalidate) or the window goes. */
     struct GlWindow *dense[2];
+
+    /* And the same for the client's dense video windows (comp.h's
+     * density_sources), one per source, in the same order: imports of
+     * pixmaps density.c named, which it also frees. */
+    struct GlWindow *source[DENSITY_MAX_AREAS];
 } GlWindow;
 
 typedef struct {
@@ -218,6 +224,7 @@ GLuint gl_window_texture(GlWindow *g);
 void gl_window_invalidate(CompWindow *w);
 void gl_window_shape_invalidate(CompWindow *w);
 void gl_window_density_invalidate(CompWindow *w, bool decoration);
+void gl_window_density_sources_invalidate(CompWindow *w);
 void gl_window_free(CompWindow *w);
 bool gl_window_has_content(const CompWindow *w);
 xcb_pixmap_t gl_window_pixmap(const CompWindow *w);

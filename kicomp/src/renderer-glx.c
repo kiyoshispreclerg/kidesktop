@@ -1113,6 +1113,7 @@ static const CompRenderer glx_renderer = {
     .window_invalidate  = gl_window_invalidate,
     .window_shape_invalidate = gl_window_shape_invalidate,
     .window_density_invalidate = gl_window_density_invalidate,
+    .window_density_sources_invalidate = gl_window_density_sources_invalidate,
     .window_free        = gl_window_free,
     .window_has_content = gl_window_has_content,
     .window_pixmap      = gl_window_pixmap,

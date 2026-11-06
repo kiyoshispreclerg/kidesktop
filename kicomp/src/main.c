@@ -31,7 +31,7 @@
 
 #define _GNU_SOURCE             /* ppoll */
 
-#define KICOMP_VERSION "0.4.2"
+#define KICOMP_VERSION "0.4.3"
 
 #include "../../shared/xis_i18n.h"
 
@@ -299,6 +299,8 @@ static void atoms_init(void)
     comp.atoms.density_requested      = intern("_X_DENSITY_REQUESTED");
     comp.atoms.density_scale          = intern("_X_DENSITY_SCALE");
     comp.atoms.density_pixmap         = intern("_X_DENSITY_PIXMAP");
+    comp.atoms.density_passthrough    = intern("_X_DENSITY_PASSTHROUGH");
+    comp.atoms.density_sources        = intern("_X_DENSITY_SOURCES");
     comp.atoms.kiwm_corner_radius     = intern("_KIWM_CORNER_RADIUS");
 
     /* Not a standard atom: the XLibre fork's per-output DPI property,
@@ -821,6 +823,10 @@ static void handle_event(xcb_generic_event_t *ev)
              * damaging itself five hundred times between two frames costs
              * exactly what one damaging itself once costs. */
             damage_window_reported(w);
+        } else {
+            /* Not one of ours: maybe a client's dense video window
+             * (density.h's sources), collected the same way. */
+            density_source_damaged(e->drawable);
         }
         return;
     }
@@ -874,16 +880,19 @@ static void handle_event(xcb_generic_event_t *ev)
         xcb_destroy_notify_event_t *e = (xcb_destroy_notify_event_t *)ev;
         window_remove(e->window);
         capture_window_destroyed(e->window);
+        density_source_gone(e->window, true);
         break;
     }
     case XCB_MAP_NOTIFY: {
         xcb_map_notify_event_t *e = (xcb_map_notify_event_t *)ev;
         window_map(e->window);
+        density_source_configured(e->window);
         break;
     }
     case XCB_UNMAP_NOTIFY: {
         xcb_unmap_notify_event_t *e = (xcb_unmap_notify_event_t *)ev;
         window_unmap(e->window);
+        density_source_gone(e->window, false);
         break;
     }
     case XCB_REPARENT_NOTIFY: {
@@ -918,6 +927,9 @@ static void handle_event(xcb_generic_event_t *ev)
              * is opaque (window.h). */
             window_client_reconfigured(e->event, e->window, e->x, e->y,
                                        e->width, e->height, e->border_width);
+            /* Or a dense video window resized: its named pixmap is the
+             * old size's (density.h). */
+            density_source_configured(e->window);
         }
         break;
     }
@@ -984,6 +996,15 @@ static void handle_event(xcb_generic_event_t *ev)
                 w = window_find(e->window);
             if (w)
                 density_property_changed(w, e->window);
+        } else if (e->atom == comp.atoms.density_passthrough ||
+                   e->atom == comp.atoms.density_sources) {
+            /* Where the dense pixmap has holes: only on the client, which
+             * is what publishes the pixmap they are holes in. */
+            CompWindow *w = window_find_by_client(e->window);
+            if (!w)
+                w = window_find(e->window);
+            if (w && e->window == w->client)
+                density_holes_changed(w, e->atom);
         } else if (e->atom == comp.atoms.kiwm_corner_radius) {
             /* Lives on the frame itself, same as the SHAPE it describes. */
             CompWindow *w = window_find(e->window);

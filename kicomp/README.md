@@ -1949,6 +1949,24 @@ that size. When the density matches the output scale the second composite
 is a 1:1 copy, which is the whole point of rendering into a physical-sized
 target.
 
+**Holes for native children.** A native child window (a video player's
+`--wid`) draws in its own window, never into the dense pixmap, so the
+pixmap has nothing there. Two optional properties on the client say where:
+
+| | | |
+|---|---|---|
+| `_X_DENSITY_PASSTHROUGH` | toolkit → kicomp | `[x, y, w, h]…`: show the window's own pixels there, magnified |
+| `_X_DENSITY_SOURCES` | app → kicomp | `[x, y, w, h, window]…`: show that window there instead, one texel per dense pixel |
+
+A source is a window the app redirects itself and renders at
+`_X_DENSITY_SCALE` (kiplay's video window at the density), so the video
+comes out sharp. kicomp names its pixmap and follows its Damage and
+resizes. The dense layer leaves the holes out instead of painting black
+first, the window's damage inside a source is dropped (it is the app's 1x
+copy for recorders, which isn't on screen), and a window that publishes
+neither pays nothing beyond a count of zero. Tested on XRender and GLX in
+Xvfb with a client that publishes all of them.
+
 Verified against the protocol's own reference client
 (`TESTS/x-density-client-v2`): it detects the manager selection, gets
 `2/1`, redraws 400×300 → 800×600 into its pixmap, and the grid it draws

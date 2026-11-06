@@ -240,11 +240,20 @@ void density_property_changed(CompWindow *w, xcb_window_t on)
     *num = scale[0];
     *den = scale[1];
 
+    bool appeared = (*pix == 0 && pixmap != 0);
     if (*pix != pixmap) {
         /* The picture cached for the old pixmap describes a drawable that
          * may not even exist any more. */
         renderer_window_density_invalidate(w, is_frame);
         *pix = pixmap;
+    }
+
+    /* Its holes may well have been published before we were looking
+     * (a compositor restarted under a dense window): read once, as the
+     * pixmap appears, and followed by PropertyNotify from then on. */
+    if (appeared && !is_frame) {
+        density_holes_changed(w, comp.atoms.density_passthrough);
+        density_holes_changed(w, comp.atoms.density_sources);
     }
 
     if (changed)
@@ -258,8 +267,244 @@ void density_property_changed(CompWindow *w, xcb_window_t on)
     output_damage_rect(&r);
 }
 
+/* ---- the holes: _X_DENSITY_PASSTHROUGH, _X_DENSITY_SOURCES ---- */
+
+/* Up to `max` CARDINALs of a list property; how many there were. */
+static int read_list(xcb_window_t win, xcb_atom_t atom, uint32_t *out, int max)
+{
+    if (atom == XCB_NONE || win == XCB_NONE)
+        return 0;
+
+    xcb_get_property_reply_t *r = xcb_get_property_reply(comp.conn,
+        xcb_get_property(comp.conn, 0, win, atom, XCB_ATOM_CARDINAL, 0,
+                         (uint32_t)max), NULL);
+    if (!r)
+        return 0;
+
+    int n = 0;
+    if (r->type == XCB_ATOM_CARDINAL && r->format == 32) {
+        n = xcb_get_property_value_length(r) / 4;
+        if (n > max)
+            n = max;
+        memcpy(out, xcb_get_property_value(r), sizeof(uint32_t) * (size_t)n);
+    }
+    free(r);
+    return n;
+}
+
+/* A rectangle as the protocol carries it: CARDINALs, so a negative
+ * offset (a child scrolled partly out) arrives wrapped. */
+static CompRect list_rect(const uint32_t *v)
+{
+    return (CompRect){ (int)(int32_t)v[0], (int)(int32_t)v[1],
+                       (int)v[2], (int)v[3] };
+}
+
+/* Names the source window's contents, which only works while it is
+ * redirected (the client's job) and viewable; otherwise it simply stays
+ * without a pixmap and its rectangle shows the window's own pixels. */
+static void source_name(CompDensitySource *s)
+{
+    if (s->window == XCB_NONE || s->pixmap)
+        return;
+
+    xcb_pixmap_t p = xcb_generate_id(comp.conn);
+    xcb_void_cookie_t nc =
+        xcb_composite_name_window_pixmap_checked(comp.conn, s->window, p);
+    xcb_get_geometry_cookie_t gc = xcb_get_geometry(comp.conn, p);
+
+    xcb_generic_error_t *nerr = xcb_request_check(comp.conn, nc);
+    xcb_generic_error_t *gerr = NULL;
+    xcb_get_geometry_reply_t *g = xcb_get_geometry_reply(comp.conn, gc, &gerr);
+
+    if (!nerr && g) {
+        s->pixmap = p;
+        s->width = g->width;
+        s->height = g->height;
+        s->depth = g->depth;
+    }
+    free(nerr);
+    free(gerr);
+    free(g);
+}
+
+/* Lets go of every source's pixmap: the renderer first, since its imports
+ * read them. */
+static void sources_drop_pixmaps(CompWindow *w)
+{
+    renderer_window_density_sources_invalidate(w);
+    for (int i = 0; i < w->density_source_count; i++) {
+        CompDensitySource *s = &w->density_sources[i];
+        if (s->pixmap)
+            xcb_free_pixmap(comp.conn, s->pixmap);
+        s->pixmap = 0;
+    }
+}
+
+static void source_watch(CompDensitySource *s)
+{
+    /* StructureNotify for its resizes (a new pixmap to name) and its
+     * unmap and destruction; Damage for its frames. Checked and
+     * discarded: the client may have destroyed it already. */
+    uint32_t mask = XCB_EVENT_MASK_STRUCTURE_NOTIFY;
+    xcb_discard_reply(comp.conn,
+        xcb_change_window_attributes_checked(comp.conn, s->window,
+                                             XCB_CW_EVENT_MASK, &mask).sequence);
+    if (comp.caps.damage) {
+        s->damage = xcb_generate_id(comp.conn);
+        xcb_discard_reply(comp.conn,
+            xcb_damage_create_checked(comp.conn, s->damage, s->window,
+                                      XCB_DAMAGE_REPORT_LEVEL_NON_EMPTY).sequence);
+    }
+    source_name(s);
+}
+
+static void source_unwatch(CompDensitySource *s)
+{
+    if (s->window == XCB_NONE)
+        return;
+    uint32_t mask = 0;
+    xcb_discard_reply(comp.conn,
+        xcb_change_window_attributes_checked(comp.conn, s->window,
+                                             XCB_CW_EVENT_MASK, &mask).sequence);
+    if (s->damage)
+        xcb_discard_reply(comp.conn,
+            xcb_damage_destroy_checked(comp.conn, s->damage).sequence);
+    s->damage = 0;
+}
+
+static void sources_clear(CompWindow *w)
+{
+    sources_drop_pixmaps(w);
+    for (int i = 0; i < w->density_source_count; i++)
+        source_unwatch(&w->density_sources[i]);
+    w->density_source_count = 0;
+}
+
+void density_holes_changed(CompWindow *w, xcb_atom_t atom)
+{
+    uint32_t v[5 * DENSITY_MAX_AREAS] = { 0 };
+
+    if (atom == comp.atoms.density_passthrough) {
+        int n = read_list(w->client, atom, v, 4 * DENSITY_MAX_AREAS) / 4;
+        for (int i = 0; i < n; i++)
+            w->density_through[i] = list_rect(&v[4 * i]);
+        w->density_through_count = n;
+        comp_log("window 0x%x: %d passthrough area(s)", w->id, n);
+    } else if (atom == comp.atoms.density_sources) {
+        /* Rewritten when the layout changes, not per frame: starting the
+         * list over is a handful of requests, and always right. */
+        sources_clear(w);
+        int n = read_list(w->client, atom, v, 5 * DENSITY_MAX_AREAS) / 5;
+        for (int i = 0; i < n; i++) {
+            CompDensitySource *s = &w->density_sources[i];
+            memset(s, 0, sizeof(*s));
+            s->rect = list_rect(&v[5 * i]);
+            s->window = v[5 * i + 4];
+            source_watch(s);
+        }
+        w->density_source_count = n;
+        comp_log("window 0x%x: %d dense source(s)", w->id, n);
+    } else {
+        return;
+    }
+
+    CompRect r = window_rect(w);
+    output_damage_window_rect(w, &r);
+}
+
+/* Every source shown as `window`, across every window that has any. */
+#define FOR_EACH_SOURCE(w, s, xid)                                          \
+    for (CompWindow *w = comp.stack; w; w = w->next)                        \
+        for (int i_ = 0; i_ < w->density_source_count; i_++)                \
+            for (CompDensitySource *s = &w->density_sources[i_];            \
+                 s && s->window == (xid); s = NULL)
+
+void density_source_damaged(xcb_drawable_t drawable)
+{
+    FOR_EACH_SOURCE(w, s, drawable)
+        s->damage_pending = true;
+}
+
+void density_source_configured(xcb_window_t window)
+{
+    if (window == XCB_NONE)
+        return;
+    FOR_EACH_SOURCE(w, s, window) {
+        /* Resized: what was named is the old size's contents. All of the
+         * window's go, as the renderer drops its imports per window. */
+        sources_drop_pixmaps(w);
+        for (int i = 0; i < w->density_source_count; i++)
+            source_name(&w->density_sources[i]);
+        CompRect r = window_rect(w);
+        output_damage_window_rect(w, &r);
+    }
+}
+
+void density_source_gone(xcb_window_t window, bool destroyed)
+{
+    if (window == XCB_NONE)
+        return;
+    FOR_EACH_SOURCE(w, s, window) {
+        if (destroyed) {
+            /* Its Damage went with it. */
+            s->window = XCB_NONE;
+            s->damage = 0;
+        }
+        sources_drop_pixmaps(w);
+        for (int i = 0; i < w->density_source_count; i++)
+            source_name(&w->density_sources[i]);   /* the others */
+        CompRect r = window_rect(w);
+        output_damage_window_rect(w, &r);
+    }
+}
+
+bool density_source_root_rect(const CompWindow *w, const CompDensitySource *s,
+                              CompRect *out)
+{
+    if (!s->pixmap)
+        return false;
+    CompRect wr = window_rect(w);
+    *out = (CompRect){ wr.x + w->client_rect.x + s->rect.x,
+                       wr.y + w->client_rect.y + s->rect.y,
+                       s->rect.w, s->rect.h };
+    return true;
+}
+
+static bool contains(const CompRect *outer, const CompRect *r)
+{
+    return r->x >= outer->x && r->y >= outer->y &&
+           r->x + r->w <= outer->x + outer->w && r->y + r->h <= outer->y + outer->h;
+}
+
+bool density_through_filled(const CompWindow *w, const CompRect *through)
+{
+    for (int i = 0; i < w->density_source_count; i++) {
+        const CompDensitySource *s = &w->density_sources[i];
+        if (s->pixmap && contains(&s->rect, through))
+            return true;
+    }
+    return false;
+}
+
+bool density_source_hides(const CompWindow *w, const CompRect *r)
+{
+    if (w->density_source_count == 0 || !density_active(w, NULL))
+        return false;
+    for (int i = 0; i < w->density_source_count; i++) {
+        CompRect at;
+        if (density_source_root_rect(w, &w->density_sources[i], &at) &&
+            contains(&at, r))
+            return true;
+    }
+    return false;
+}
+
 void density_forget(CompWindow *w)
 {
+    sources_clear(w);
+    w->density_through_count = 0;
+
     if (w->density_requested && w->client != XCB_NONE) {
         xcb_delete_property(comp.conn, w->client, comp.atoms.density_requested);
         w->density_requested = false;

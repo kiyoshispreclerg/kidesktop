@@ -860,6 +860,15 @@ void gl_window_density_invalidate(CompWindow *w, bool decoration)
         gl_dense_free(&g->dense[decoration ? 1 : 0]);
 }
 
+void gl_window_density_sources_invalidate(CompWindow *w)
+{
+    GlWindow *g = gl_window_find(w->id);
+    if (!g)
+        return;
+    for (int i = 0; i < DENSITY_MAX_AREAS; i++)
+        gl_dense_free(&g->source[i]);
+}
+
 void gl_window_free(CompWindow *w)
 {
     GlWindow **pp = &windows;
@@ -879,6 +888,8 @@ void gl_window_free(CompWindow *w)
         gl_stash_free(g);
         gl_dense_free(&g->dense[0]);
         gl_dense_free(&g->dense[1]);
+        for (int i = 0; i < DENSITY_MAX_AREAS; i++)
+            gl_dense_free(&g->source[i]);
         /* The mask texture too, not just the rectangles: every shaped
          * window that was ever drawn transformed (open/close animations
          * included) had one, and it outlived the window -- w*h bytes of
@@ -1666,7 +1677,8 @@ typedef struct { int tl, tr, br, bl; } CornerRadii;
 
 static void draw_dense(const CompOutput *o, const CompSceneNode *n,
                        const GlWindow *d, const CompRect *area, GLuint mask,
-                       const CornerRadii *corners, bool opaque)
+                       const CornerRadii *corners, bool opaque,
+                       const CompRect *skip, int skip_count)
 {
     /* Where this layer may draw. A node that stays put or is merely
      * moved is cropped to what is visible of it, in its own coordinates.
@@ -1676,8 +1688,9 @@ static void draw_dense(const CompOutput *o, const CompSceneNode *n,
      * bounds the rest. */
     CompRect visible;
     float mdx, mdy;
-    if (comp_transform_is_identity(&n->transform) ||
-        comp_transform_is_translation(&n->transform, &mdx, &mdy)) {
+    bool boxed = comp_transform_is_identity(&n->transform) ||
+                 comp_transform_is_translation(&n->transform, &mdx, &mdy);
+    if (boxed) {
         if (!rect_intersect(area, &n->visible_rect, &visible))
             return;
     } else {
@@ -1740,7 +1753,21 @@ static void draw_dense(const CompOutput *o, const CompSceneNode *n,
      * transforming, replaces what is under it: copied, not blended, the
      * same short cut the window's own opaque rectangle gets. */
     CompRect none = { 0, 0, 0, 0 };
-    draw_piece(o, &visible, opaque ? &visible : &none);
+    if (skip_count > 0 && boxed) {
+        /* Its holes (density.h): nothing there but black, and
+         * draw_holes() draws over them -- so they are left out. Through
+         * a turn or a scale they are drawn and covered, a cost only
+         * while an effect runs. */
+        CompRegion pieces;
+        region_clear(&pieces);
+        region_add(&pieces, &visible);
+        for (int k = 0; k < skip_count; k++)
+            region_subtract_rect(&pieces, &skip[k]);
+        for (int k = 0; k < pieces.count; k++)
+            draw_piece(o, &pieces.rects[k], opaque ? &pieces.rects[k] : &none);
+    } else {
+        draw_piece(o, &visible, opaque ? &visible : &none);
+    }
 
     /* use_corners is this function's own transient state -- nothing else
      * in the file sets it, so it must not survive past this draw the way
@@ -2133,6 +2160,219 @@ static void mesh_point(const CompSceneMesh *m, float u, float v,
  * The shadow comes along only when the mesh asks for it (scene.h), and it
  * bends with the window rather than staying the rectangle underneath --
  * see draw_shadow_mesh. */
+/* ---- X-DENSITY holes (density.h): passthrough areas and sources ---- */
+
+/* The client's dense video windows' pixmaps (density.c named them),
+ * imported like a dense layer and bound again on every draw; NULL where
+ * there is nothing to draw. */
+static void source_layers(CompWindow *w, GlWindow *g, GlWindow *out[DENSITY_MAX_AREAS])
+{
+    if (!platform->pixmap_bind)
+        return;
+    for (int i = 0; i < w->density_source_count; i++) {
+        const CompDensitySource *s = &w->density_sources[i];
+        GlWindow **slot = &g->source[i];
+        if (*slot && (*slot)->id != s->pixmap)
+            gl_dense_free(slot);
+        if (!s->pixmap)
+            continue;
+        GlWindow *d = *slot;
+        if (!d) {
+            d = calloc(1, sizeof(*d));
+            if (!d)
+                continue;
+            d->id = s->pixmap;
+            d->width = s->width;
+            d->height = s->height;
+            d->argb = (s->depth == 32);
+            *slot = d;
+        }
+        if (d->refused)
+            continue;
+        if (!platform->pixmap_bind(s->pixmap, d->width, d->height,
+                                   d->argb ? 32 : 24, d)) {
+            /* Not asked again every frame: a rename is what retries. */
+            d->refused = true;
+            continue;
+        }
+        out[i] = d;
+    }
+}
+
+static bool rect_contains(const CompRect *outer, const CompRect *r)
+{
+    return r->x >= outer->x && r->y >= outer->y &&
+           r->x + r->w <= outer->x + outer->w && r->y + r->h <= outer->y + outer->h;
+}
+
+/* A passthrough area a drawn source already covers. */
+static bool through_filled(const CompWindow *w, GlWindow *const sources[],
+                           const CompRect *t)
+{
+    for (int i = 0; i < w->density_source_count; i++)
+        if (sources[i] && rect_contains(&w->density_sources[i].rect, t))
+            return true;
+    return false;
+}
+
+/* How much of a source's texture its rectangle shows: the rectangle at
+ * the density, out of the pixmap it has -- one texel per dense pixel, the
+ * pixmap's rounding to whole pixels cut off rather than stretched in. */
+static void source_extent(const CompRect *r, const GlWindow *d, float density,
+                          float *tu, float *tv)
+{
+    *tu = d->width > 0 ? (float)r->w * density / (float)d->width : 1.0f;
+    *tv = d->height > 0 ? (float)r->h * density / (float)d->height : 1.0f;
+    if (*tu > 1.0f)
+        *tu = 1.0f;
+    if (*tv > 1.0f)
+        *tv = 1.0f;
+}
+
+/* A client-relative rectangle placed in the client's area of this node
+ * (`client`, which carries an effect's stretch). */
+static CompRect in_client(const CompRect *client, const CompWindow *w, const CompRect *r)
+{
+    float fx = w->client_rect.w > 0 ? (float)client->w / (float)w->client_rect.w : 1.0f;
+    float fy = w->client_rect.h > 0 ? (float)client->h / (float)w->client_rect.h : 1.0f;
+    return (CompRect){ client->x + (int)lroundf((float)r->x * fx),
+                       client->y + (int)lroundf((float)r->y * fy),
+                       (int)lroundf((float)r->w * fx), (int)lroundf((float)r->h * fy) };
+}
+
+/* What the dense layer leaves out, in the node's coordinates. */
+static int hole_rects(const CompRect *client, const CompWindow *w,
+                      GlWindow *const sources[], CompRect *out)
+{
+    int k = 0;
+    for (int i = 0; i < w->density_through_count; i++)
+        if (!through_filled(w, sources, &w->density_through[i]))
+            out[k++] = in_client(client, w, &w->density_through[i]);
+    for (int i = 0; i < w->density_source_count; i++)
+        if (sources[i])
+            out[k++] = in_client(client, w, &w->density_sources[i].rect);
+    return k;
+}
+
+/* The bound texture's (u0, v0)-(u1, v1) over `area`, through the node's
+ * transform: the plain quad with texture coordinates of its own. Boxed in
+ * by scissors while the node only moves, `opaque` drawn unblended. */
+static void draw_sub_quad(const CompOutput *o, const CompSceneNode *n,
+                          const CompRect *area, float u0, float v0,
+                          float u1, float v1, const CompRect *opaque)
+{
+    const float verts[16] = {
+        0, 0, u0, v0,   1, 0, u1, v0,   0, 1, u0, v1,   1, 1, u1, v1,
+    };
+    glBindBuffer(GL_ARRAY_BUFFER, mesh_vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STREAM_DRAW);
+    mesh_cache_mesh = NULL;   /* the buffer no longer holds a mesh's sheet */
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), NULL);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                          (const void *)(2 * sizeof(float)));
+    glUniform1f(u_use_uv, 1.0f);
+
+    float m[16];
+    rect_matrix(area, &n->transform, m);
+    glUniformMatrix4fv(u_transform, 1, GL_FALSE, m);
+
+    float mdx, mdy;
+    CompRect piece, none = { 0, 0, 0, 0 };
+    if (comp_transform_is_identity(&n->transform) ||
+        comp_transform_is_translation(&n->transform, &mdx, &mdy)) {
+        if (rect_intersect(area, &n->visible_rect, &piece))
+            draw_piece(o, &piece, opaque ? opaque : &none);
+    } else {
+        draw_piece(o, &repaint_rect, &none);
+    }
+
+    glDisableVertexAttribArray(1);
+    glUniform1f(u_use_uv, 0.0f);
+    glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+}
+
+/* What goes in the holes draw_dense() left: the window's own pixels in a
+ * passthrough area (magnified -- the native child drew them at 1x, and
+ * the window's own draw left them out with the rest of the client), a
+ * source's own pixels, one for one, in its. */
+static void draw_holes(const CompOutput *o, const CompSceneNode *n, CompWindow *w,
+                       GlWindow *g, GlWindow *const sources[], const CompRect *client,
+                       float density, const CompRect *window_opaque)
+{
+    glUniform1f(u_use_mask, 0.0f);
+    glUniform1f(u_use_hole, 0.0f);
+    glUniform1f(u_use_corners, 0.0f);
+    glUniform4f(u_mask_adjust, 0.0f, 0.0f, 0.0f, 0.0f);
+
+    const CompRect *geo = &n->geometry;
+    for (int i = 0; i < w->density_through_count; i++) {
+        const CompRect *t = &w->density_through[i];
+        if (through_filled(w, sources, t) || geo->w <= 0 || geo->h <= 0)
+            continue;
+        CompRect area = in_client(client, w, t);
+        glBindTexture(GL_TEXTURE_2D, g->texture);
+        glUniform1f(u_y_flip, g->y_inverted ? 0.0f : 1.0f);
+        draw_sub_quad(o, n, &area,
+                      (float)(area.x - geo->x) / (float)geo->w,
+                      (float)(area.y - geo->y) / (float)geo->h,
+                      (float)(area.x + area.w - geo->x) / (float)geo->w,
+                      (float)(area.y + area.h - geo->y) / (float)geo->h,
+                      window_opaque);
+    }
+
+    for (int i = 0; i < w->density_source_count; i++) {
+        const GlWindow *d = sources[i];
+        if (!d)
+            continue;
+        const CompRect *r = &w->density_sources[i].rect;
+        CompRect area = in_client(client, w, r);
+        float tu, tv;
+        source_extent(r, d, density, &tu, &tv);
+        glBindTexture(GL_TEXTURE_2D, d->texture);
+        glUniform1f(u_y_flip, d->y_inverted ? 0.0f : 1.0f);
+        bool opaque = !d->argb && n->opacity >= 1.0f &&
+                      comp_transform_is_identity(&n->transform);
+        draw_sub_quad(o, n, &area, 0.0f, 0.0f, tu, tv, opaque ? &area : NULL);
+    }
+}
+
+/* The mesh's sheet over the window's (u0, v0)-(u1, v1), into mesh_vbo,
+ * bound: every vertex taken off the window's bent one (mesh_point), so
+ * it bends exactly as the window around it does, with texture
+ * coordinates (tu0, tv0)-(tu1, tv1) across it. Returns the floats
+ * written (4 per vertex). */
+static int mesh_sub_sheet(const CompSceneMesh *mesh, float u0, float v0,
+                          float u1, float v1, float tu0, float tv0,
+                          float tu1, float tv1)
+{
+    static float cverts[MESH_MAX_COLS * MESH_MAX_ROWS * 6 * 4];
+    int cols = mesh->cols, rows = mesh->rows, cv = 0;
+    for (int gy = 0; gy < rows; gy++) {
+        for (int gx = 0; gx < cols; gx++) {
+            const float us[6] = { 0, 1, 0, 1, 1, 0 };
+            const float ts[6] = { 0, 0, 1, 0, 1, 1 };
+            for (int k = 0; k < 6; k++) {
+                float lu = ((float)gx + us[k]) / (float)cols;
+                float lv = ((float)gy + ts[k]) / (float)rows;
+                float px, py;
+                mesh_point(mesh, u0 + (u1 - u0) * lu, v0 + (v1 - v0) * lv, &px, &py);
+                cverts[cv++] = px;
+                cverts[cv++] = py;
+                cverts[cv++] = tu0 + (tu1 - tu0) * lu;
+                cverts[cv++] = tv0 + (tv1 - tv0) * lv;
+            }
+        }
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, mesh_vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)cv * (GLsizeiptr)sizeof(float),
+                 cverts, GL_STREAM_DRAW);
+    /* The buffer no longer holds the window's sheet. */
+    mesh_cache_mesh = NULL;
+    return cv;
+}
+
 static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
                            GlWindow *g, const float projection[16])
 {
@@ -2164,12 +2404,16 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * wobbling window shows its own pixmap, which stays frozen while the
      * client draws into its dense one. */
     GlWindow *dense_deco = NULL, *dense_client = NULL;
+    GlWindow *sources[DENSITY_MAX_AREAS] = { 0 };
+    float client_density = 1.0f;
     if (!from_stash && !flat) {
         float density;
         if (deco_density_active(w, &density))
             dense_deco = dense_layer(w, g, true);
-        if (density_active(w, &density))
+        if (density_active(w, &client_density))
             dense_client = dense_layer(w, g, false);
+        if (dense_client)
+            source_layers(w, g, sources);
     }
 
     if (flat) {
@@ -2324,29 +2568,7 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * window's, which is what the corners and the shape are measured
      * in. */
     if (client_layer) {
-        static float cverts[MESH_MAX_COLS * MESH_MAX_ROWS * 6 * 4];
-        int cv = 0;
-        for (int gy = 0; gy < rows; gy++) {
-            for (int gx = 0; gx < cols; gx++) {
-                const float us[6] = { 0, 1, 0, 1, 1, 0 };
-                const float ts[6] = { 0, 0, 1, 0, 1, 1 };
-                for (int k = 0; k < 6; k++) {
-                    float lu = ((float)gx + us[k]) / (float)cols;
-                    float lv = ((float)gy + ts[k]) / (float)rows;
-                    float px, py;
-                    mesh_point(mesh, cu0 + (cu1 - cu0) * lu,
-                               cv0 + (cv1 - cv0) * lv, &px, &py);
-                    cverts[cv++] = px;
-                    cverts[cv++] = py;
-                    cverts[cv++] = lu;
-                    cverts[cv++] = lv;
-                }
-            }
-        }
-        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)cv * (GLsizeiptr)sizeof(float),
-                     cverts, GL_STREAM_DRAW);
-        /* The buffer no longer holds the window's sheet. */
-        mesh_cache_mesh = NULL;
+        int cv = mesh_sub_sheet(mesh, cu0, cv0, cu1, cv1, 0.0f, 0.0f, 1.0f, 1.0f);
 
         glBindTexture(GL_TEXTURE_2D, dense_client->texture);
         glUniform1f(u_y_flip, dense_client->y_inverted ? 0.0f : 1.0f);
@@ -2368,6 +2590,37 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         glDrawArrays(GL_TRIANGLES, 0, cv / 4);
         glUniform1f(u_use_corners, 0.0f);
         glUniform4f(u_mask_adjust, 0.0f, 0.0f, 0.0f, 0.0f);
+
+        /* Its holes (density.h), as sheets of their own over it: the
+         * layer has nothing there, so they are simply drawn on top. */
+        glUniform1f(u_use_mask, 0.0f);
+        float fu = (cu1 - cu0) / (float)w->client_rect.w;
+        float fv = (cv1 - cv0) / (float)w->client_rect.h;
+        for (int i = 0; i < w->density_through_count; i++) {
+            const CompRect *t = &w->density_through[i];
+            if (through_filled(w, sources, t))
+                continue;
+            float u0 = cu0 + (float)t->x * fu, v0 = cv0 + (float)t->y * fv;
+            float u1 = u0 + (float)t->w * fu, v1 = v0 + (float)t->h * fv;
+            int hv = mesh_sub_sheet(mesh, u0, v0, u1, v1, u0, v0, u1, v1);
+            glBindTexture(GL_TEXTURE_2D, g->texture);
+            glUniform1f(u_y_flip, g->y_inverted ? 0.0f : 1.0f);
+            glDrawArrays(GL_TRIANGLES, 0, hv / 4);
+        }
+        for (int i = 0; i < w->density_source_count; i++) {
+            const GlWindow *d = sources[i];
+            if (!d)
+                continue;
+            const CompRect *r = &w->density_sources[i].rect;
+            float tu, tv;
+            source_extent(r, d, client_density, &tu, &tv);
+            float u0 = cu0 + (float)r->x * fu, v0 = cv0 + (float)r->y * fv;
+            int hv = mesh_sub_sheet(mesh, u0, v0, u0 + (float)r->w * fu,
+                                    v0 + (float)r->h * fv, 0.0f, 0.0f, tu, tv);
+            glBindTexture(GL_TEXTURE_2D, d->texture);
+            glUniform1f(u_y_flip, d->y_inverted ? 0.0f : 1.0f);
+            glDrawArrays(GL_TRIANGLES, 0, hv / 4);
+        }
     }
 
     /* Back to the plain quad for whatever node is drawn next. */
@@ -2454,12 +2707,16 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * transformed window drawn from the pixmap alone shows an old frame.
      * Not for a stash, which is the picture from before any of this. */
     GlWindow *dense_deco = NULL, *dense_client = NULL;
+    GlWindow *sources[DENSITY_MAX_AREAS] = { 0 };
+    float client_density = 1.0f;
     if (!from_stash && !flat) {
         float density;
         if (deco_density_active(w, &density))
             dense_deco = dense_layer(w, g, true);
-        if (density_active(w, &density))
+        if (density_active(w, &client_density))
             dense_client = dense_layer(w, g, false);
+        if (dense_client)
+            source_layers(w, g, sources);
     }
 
     /* Where the client's dense layer goes (also what fills in
@@ -2658,10 +2915,10 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         CornerRadii radii = { w->corner_tl, w->corner_tr,
                               w->corner_br, w->corner_bl };
         if (w->corner_radii_known) {
-            draw_dense(o, n, dense_deco, &n->geometry, 0, &radii, false);
+            draw_dense(o, n, dense_deco, &n->geometry, 0, &radii, false, NULL, 0);
         } else {
             GLuint dmask = w->shaped ? shape_mask_texture(w, g) : 0;
-            draw_dense(o, n, dense_deco, &n->geometry, dmask, NULL, false);
+            draw_dense(o, n, dense_deco, &n->geometry, dmask, NULL, false, NULL, 0);
         }
     }
     set_hole(&n->geometry, NULL);
@@ -2679,10 +2936,15 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
                               w->corner_br, w->corner_bl };
         GLuint cmask = (round && !w->corner_radii_known)
                            ? shape_mask_texture(w, g) : 0;
+        CompRect skip[2 * DENSITY_MAX_AREAS];
+        int skip_count = hole_rects(&client, w, sources, skip);
         draw_dense(o, n, dense_client, &client, cmask,
                    round && w->corner_radii_known ? &radii : NULL,
                    !round && !dense_client->argb && n->opacity >= 1.0f &&
-                   comp_transform_is_identity(&n->transform));
+                   comp_transform_is_identity(&n->transform),
+                   skip, skip_count);
+        if (skip_count > 0)
+            draw_holes(o, n, w, g, sources, &client, client_density, &opaque);
     }
 
     repaint_rect = full_repaint;
@@ -3146,6 +3408,8 @@ void gl_teardown(void)
             gl_stash_free(g);
             gl_dense_free(&g->dense[0]);
             gl_dense_free(&g->dense[1]);
+            for (int i = 0; i < DENSITY_MAX_AREAS; i++)
+                gl_dense_free(&g->source[i]);
         }
         free(g->shape_rects);
         free(g);

@@ -101,6 +101,7 @@ typedef struct CompRenderer {
     void (*window_free)(CompWindow *w);
     bool (*window_has_content)(const CompWindow *w);
     void (*window_density_invalidate)(CompWindow *w, bool decoration);
+    void (*window_density_sources_invalidate)(CompWindow *w);
 
     xcb_pixmap_t (*window_pixmap)(const CompWindow *w);
 
@@ -210,6 +211,11 @@ void renderer_background_invalidate(void);
  * different XID was published, or it stopped). `decoration` picks which
  * of the two: the frame's decoration, or the client's contents. */
 void renderer_window_density_invalidate(CompWindow *w, bool decoration);
+
+/* Whatever was imported of the window's X-DENSITY sources (comp.h's
+ * density_sources) is stale: their pixmaps are about to be freed or
+ * renamed. */
+void renderer_window_density_sources_invalidate(CompWindow *w);
 
 /* The pixmap behind an output's render target, for a presenter that
  * hands the server a pixmap rather than reading a Picture (Present).

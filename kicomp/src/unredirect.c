@@ -1,5 +1,6 @@
 /* See unredirect.h -- one output handed to the window that fills it. */
 #include "unredirect.h"
+#include "density.h"
 #include "window.h"
 #include "output.h"
 #include "xscale.h"
@@ -276,6 +277,12 @@ static CompWindow *candidate_for(CompOutput *o)
      * doesn't, such as the part that draws at the display's rate being a
      * child window that covers only some of the output. */
     if (top->bypass_compositor == 2)
+        return NULL;
+
+    /* Nor one still dense (density.h) -- a lens just closed, the client
+     * not yet back at 1/1: what it shows is its dense pixmap, and its own
+     * window holds a frozen 1x frame (TESTS/X-DENSITY.md 6.1). */
+    if (density_active(top, NULL) || deco_density_active(top, NULL))
         return NULL;
 
     return top;

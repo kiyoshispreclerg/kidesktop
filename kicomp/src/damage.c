@@ -6,6 +6,7 @@
 #include "effect.h"
 #include "region.h"
 #include "renderer.h"
+#include "density.h"
 
 #include <stdlib.h>
 
@@ -51,10 +52,48 @@ void damage_window_reported(CompWindow *w)
     w->content_ready = true;
 }
 
+/* On screen only to be photographed (comp.h's held), and nothing open
+ * that photographs it: the scene leaves it out. */
+static bool unwatched(const CompWindow *w)
+{
+    return w->held && comp.show_stowed_output == COMP_NO_OUTPUT &&
+           w->retain_count <= (w->stowed ? 1 : 0);
+}
+
+/* A client's dense video windows (density.h's sources): their damage
+ * taken unfetched -- they are drawn whole into a rectangle anyway, and a
+ * video changes all of it -- and that rectangle repainted. */
+static void collect_sources(void)
+{
+    for (CompWindow *w = comp.stack; w; w = w->next) {
+        for (int i = 0; i < w->density_source_count; i++) {
+            CompDensitySource *s = &w->density_sources[i];
+            if (!s->damage_pending)
+                continue;
+            s->damage_pending = false;
+            if (s->damage)
+                xcb_discard_reply(comp.conn,
+                    xcb_damage_subtract_checked(comp.conn, s->damage,
+                                                XCB_XFIXES_REGION_NONE,
+                                                XCB_XFIXES_REGION_NONE).sequence);
+            CompRect r;
+            if (unwatched(w) || !density_source_root_rect(w, s, &r))
+                continue;
+            effects_damage_window(w, &r);
+            if (w->occluded)
+                capture_damage_unseen(&r);
+            else
+                output_damage_window_rect(w, &r);
+        }
+    }
+}
+
 void damage_collect(void)
 {
     if (!comp.caps.damage || !comp.caps.xfixes)
         return;
+
+    collect_sources();
 
     CompWindow *windows[MAX_COLLECT];
     xcb_xfixes_region_t regions[MAX_COLLECT];
@@ -76,8 +115,7 @@ void damage_collect(void)
          * another desktop costs while live_windows keeps it going, and
          * it should be nothing. Taken, not fetched, like the occluded
          * case below -- the server reports nothing more until it is. */
-        if (w->held && comp.show_stowed_output == COMP_NO_OUTPUT &&
-            w->retain_count <= (w->stowed ? 1 : 0)) {
+        if (unwatched(w)) {
             xcb_discard_reply(comp.conn,
                 xcb_damage_subtract_checked(comp.conn, w->damage,
                                             XCB_XFIXES_REGION_NONE,
@@ -208,6 +246,10 @@ void damage_collect(void)
                     region_subtract_rect(&left, &w->cover[c]);
                 unseen = region_is_empty(&left);
             }
+            /* Or where the screen shows a client's dense video window
+             * instead of this one's pixels (density.h's sources). */
+            if (!unseen)
+                unseen = density_source_hides(w, &d);
 
             /* ...unless an effect is drawing this window somewhere else,
              * where nothing is covering it: what is hidden here is not
