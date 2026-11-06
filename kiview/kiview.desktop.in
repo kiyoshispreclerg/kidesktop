@@ -1,12 +1,15 @@
 [Desktop Entry]
 Type=Application
 Name=Image Viewer
+Name[pt_BR]=Visualizador de imagens
 GenericName=Image Viewer
-Comment=View images
+GenericName[pt_BR]=Visualizador de imagens
+Comment=View images and browse the folder they are in
+Comment[pt_BR]=Veja imagens e navegue pela pasta em que estão
 Exec=@BINDIR@/kiview %f
 Icon=kiview
 Terminal=false
 Categories=Graphics;Viewer;
 MimeType=@MIMETYPES@
-Keywords=image;picture;photo;viewer;slideshow;
+Keywords=image;picture;photo;viewer;slideshow;imagem;foto;visualizador;apresentação;
 StartupNotify=false

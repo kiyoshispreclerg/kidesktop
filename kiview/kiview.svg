@@ -1,6 +1,37 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <rect x="6" y="10" width="52" height="44" rx="4" fill="#f4f4f4" stroke="#555" stroke-width="3"/>
-  <rect x="11" y="15" width="42" height="34" fill="#7ec0ee"/>
-  <circle cx="22" cy="25" r="5" fill="#fff3a0"/>
-  <path d="M11 49 L28 30 L38 41 L44 35 L53 45 L53 49 Z" fill="#4c9a4c"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <linearGradient id="frame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbfbf8"/>
+      <stop offset="1" stop-color="#d4d6d2"/>
+    </linearGradient>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3f8fe0"/>
+      <stop offset="1" stop-color="#a9dcff"/>
+    </linearGradient>
+    <linearGradient id="hill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6cc04a"/>
+      <stop offset="1" stop-color="#2f8a3a"/>
+    </linearGradient>
+    <radialGradient id="sun" cx=".4" cy=".35" r=".8">
+      <stop offset="0" stop-color="#fff6b0"/>
+      <stop offset="1" stop-color="#f4b73a"/>
+    </radialGradient>
+    <clipPath id="photo"><rect x="9" y="9.5" width="30" height="24" rx="1"/></clipPath>
+  </defs>
+  <!-- soft shadow -->
+  <rect x="5.5" y="7.5" width="37" height="34" rx="3.5" fill="#000" fill-opacity=".16"/>
+  <!-- print: white border, thin outline -->
+  <rect x="5" y="6" width="38" height="34" rx="3" fill="url(#frame)" stroke="#8d918b" stroke-width="1.1"/>
+  <g clip-path="url(#photo)">
+    <rect x="9" y="9.5" width="30" height="24" fill="url(#sky)"/>
+    <circle cx="31" cy="16" r="3.6" fill="url(#sun)"/>
+    <path d="M9 33.5V27l7-7.5 6.5 6.5 4-4 12.5 11.5v.5z" fill="#4f7f55"/>
+    <path d="M9 33.5V30c5-3.2 9.5-3.6 14.5-1.2 5 2.4 9.5 2.2 15.5-1.2v5.9z" fill="url(#hill)"/>
+  </g>
+  <rect x="9" y="9.5" width="30" height="24" rx="1" fill="none" stroke="#000" stroke-opacity=".28" stroke-width=".8"/>
+  <!-- the footer's two buttons -->
+  <g fill="#6b7078">
+    <path d="M17.5 36.2l-3 1.8 3 1.8z"/>
+    <path d="M30.5 36.2l3 1.8-3 1.8z"/>
+  </g>
 </svg>

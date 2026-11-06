@@ -561,8 +561,12 @@ static void open_file(GFile *file)
         g_object_unref(info);
     GFile *dir = is_dir ? g_object_ref(file) : g_file_get_parent(file);
     char *base = is_dir ? NULL : g_file_get_basename(file);
-    if (!dir) {
+    if (!dir || !g_file_peek_path(dir)) {
+        /* the plugins read files by descriptor: only what the system can open() */
+        if (dir)
+            g_object_unref(dir);
         g_free(base);
+        set_message(_("Only files on this computer can be opened."));
         return;
     }
     kv_folder_free(kv.folder);

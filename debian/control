@@ -38,6 +38,10 @@ Build-Depends: debhelper-compat (= 13),
                libfreetype-dev,
                libfontconfig-dev,
                libgtk2.0-dev,
+               libjpeg-dev,
+               libpng-dev,
+               libwebp-dev,
+               libgif-dev,
                zlib1g-dev,
                qtbase5-dev,
                qt6-base-dev,
@@ -130,6 +134,8 @@ Description: KiDesktop applications: terminal, file manager and more
     libraries are installed, else through the ffmpeg command
   * kitask - process list and system monitor with configurable graphs;
     reads NVIDIA GPUs through NVML when the driver provides it
+  * kiview - image viewer (JPEG, PNG, GIF, WebP, ...) with folder
+    navigation, slideshow and X-DENSITY support, built on viewer plugins
  .
- More applications (image and document viewer, text editor, paint) are
- planned for this package.
+ More applications (document viewer, text editor, paint) are planned for
+ this package.

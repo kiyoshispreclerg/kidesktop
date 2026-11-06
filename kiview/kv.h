@@ -7,7 +7,7 @@
 
 #include "plugins/libkvp/kvp_msg.h"
 
-#define KIVIEW_VERSION "0.0.3"
+#define KIVIEW_VERSION "0.1.0"
 
 /* ---- kv_plugin.c: manifests and running plugins ---- */
 
