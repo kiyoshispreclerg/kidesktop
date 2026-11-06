@@ -157,6 +157,10 @@ typedef struct GlWindow {
      * (gl_window_density_invalidate) or the window goes. */
     struct GlWindow *dense[2];
 
+    /* The window's size when client_rect was last read (dense_layer), which
+     * is what that rectangle is relative to; 0 until then. */
+    CompRect client_rect_of;
+
     /* And the same for the client's dense video windows (comp.h's
      * density_sources), one per source, in the same order: imports of
      * pixmaps density.c named, which it also frees. */

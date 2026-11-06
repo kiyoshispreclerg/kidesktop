@@ -1612,6 +1612,7 @@ static GlWindow *dense_layer(CompWindow *w, GlWindow *g, bool decoration)
             w->client_rect.y = framed ? cg->y + cg->border_width : 0;
             w->client_rect.w = cg->width;
             w->client_rect.h = cg->height;
+            g->client_rect_of = window_rect(w);
         }
 
         d = calloc(1, sizeof(*d));
@@ -1638,6 +1639,30 @@ static GlWindow *dense_layer(CompWindow *w, GlWindow *g, bool decoration)
         return NULL;
     }
     return d;
+}
+
+/* The client's rectangle inside the frame, as it is to be drawn now.
+ * client_rect was read when the dense pixmap was imported, at the size
+ * the window had then, so while a resize's new pixmap is unpainted
+ * (!w->content_ready) it is still the old window's. The stash around it
+ * is stretched to the new size; the dense layer inside follows, or it
+ * would sit at its old size in the middle of the stretched picture.
+ * GlWindow::client_rect_of is the window size client_rect belongs to: a
+ * layer imported after the resize already has the new one. */
+static CompRect client_rect_now(const CompWindow *w)
+{
+    CompRect c = w->client_rect;
+    if (w->content_ready)
+        return c;
+    const GlWindow *g = gl_window_find(w->id);
+    CompRect wr = window_rect(w);
+    if (!g || g->client_rect_of.w <= 0 || g->client_rect_of.h <= 0 ||
+        wr.w <= 0 || wr.h <= 0)
+        return c;
+    float fx = (float)wr.w / (float)g->client_rect_of.w;
+    float fy = (float)wr.h / (float)g->client_rect_of.h;
+    return (CompRect){ (int)lroundf((float)c.x * fx), (int)lroundf((float)c.y * fy),
+                       (int)lroundf((float)c.w * fx), (int)lroundf((float)c.h * fy) };
 }
 
 /* One X-DENSITY layer over the window already drawn: `area` is the
@@ -2406,7 +2431,7 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     GlWindow *dense_deco = NULL, *dense_client = NULL;
     GlWindow *sources[DENSITY_MAX_AREAS] = { 0 };
     float client_density = 1.0f;
-    if (!from_stash && !flat) {
+    if (!flat) {
         float density;
         if (deco_density_active(w, &density))
             dense_deco = dense_layer(w, g, true);
@@ -2496,15 +2521,16 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * measured in on this path. The window's own pixels there are left
      * out, as draw_node() leaves them out (see client_covers there). */
     CompRect wr = window_rect(w);
+    const CompRect cr = client_rect_now(w);
     bool client_layer = dense_client && wr.w > 0 && wr.h > 0 &&
-                        w->client_rect.w > 2 && w->client_rect.h > 2;
+                        cr.w > 2 && cr.h > 2;
     float cu0 = 0.0f, cv0 = 0.0f, cu1 = 0.0f, cv1 = 0.0f;
     float inset_u = 0.0f, inset_v = 0.0f;
     if (client_layer) {
-        cu0 = (float)w->client_rect.x / (float)wr.w;
-        cv0 = (float)w->client_rect.y / (float)wr.h;
-        cu1 = (float)(w->client_rect.x + w->client_rect.w) / (float)wr.w;
-        cv1 = (float)(w->client_rect.y + w->client_rect.h) / (float)wr.h;
+        cu0 = (float)cr.x / (float)wr.w;
+        cv0 = (float)cr.y / (float)wr.h;
+        cu1 = (float)(cr.x + cr.w) / (float)wr.w;
+        cv1 = (float)(cr.y + cr.h) / (float)wr.h;
         if (!dense_client->argb) {
             inset_u = 1.0f / (float)wr.w;
             inset_v = 1.0f / (float)wr.h;
@@ -2575,8 +2601,7 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         glUniform4f(u_mask_adjust, cu0, cv0, (cu1 - cu0) - 1.0f,
                     (cv1 - cv0) - 1.0f);
 
-        CompRect in_frame = { w->client_rect.x, w->client_rect.y,
-                              w->client_rect.w, w->client_rect.h };
+        CompRect in_frame = cr;
         bool round = client_reaches_corners(w, &in_frame, wr.w, wr.h);
         if (round && w->corner_radii_known) {
             glUniform1f(u_use_mask, 0.0f);
@@ -2594,8 +2619,8 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         /* Its holes (density.h), as sheets of their own over it: the
          * layer has nothing there, so they are simply drawn on top. */
         glUniform1f(u_use_mask, 0.0f);
-        float fu = (cu1 - cu0) / (float)w->client_rect.w;
-        float fv = (cv1 - cv0) / (float)w->client_rect.h;
+        float fu = (cu1 - cu0) / (float)cr.w;
+        float fv = (cv1 - cv0) / (float)cr.h;
         for (int i = 0; i < w->density_through_count; i++) {
             const CompRect *t = &w->density_through[i];
             if (through_filled(w, sources, t))
@@ -2638,16 +2663,16 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
  * geometry + client_rect, as before. */
 static CompRect dense_client_area(const CompSceneNode *n, const CompWindow *w)
 {
-    CompRect c = { n->geometry.x + w->client_rect.x, n->geometry.y + w->client_rect.y,
-                   w->client_rect.w, w->client_rect.h };
+    const CompRect cr = client_rect_now(w);
+    CompRect c = { n->geometry.x + cr.x, n->geometry.y + cr.y, cr.w, cr.h };
     CompRect wr = window_rect(w);
     if (wr.w > 0 && wr.h > 0 && (n->geometry.w != wr.w || n->geometry.h != wr.h)) {
         float fx = (float)n->geometry.w / (float)wr.w;
         float fy = (float)n->geometry.h / (float)wr.h;
-        c.x = n->geometry.x + (int)lroundf((float)w->client_rect.x * fx);
-        c.y = n->geometry.y + (int)lroundf((float)w->client_rect.y * fy);
-        c.w = (int)lroundf((float)w->client_rect.w * fx);
-        c.h = (int)lroundf((float)w->client_rect.h * fy);
+        c.x = n->geometry.x + (int)lroundf((float)cr.x * fx);
+        c.y = n->geometry.y + (int)lroundf((float)cr.y * fy);
+        c.w = (int)lroundf((float)cr.w * fx);
+        c.h = (int)lroundf((float)cr.h * fy);
     }
     return c;
 }
@@ -2705,11 +2730,15 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * cover switch...): sharpness aside, the window's own pixmap is
      * frozen for as long as the client draws into its dense one, so a
      * transformed window drawn from the pixmap alone shows an old frame.
-     * Not for a stash, which is the picture from before any of this. */
+     * Not for a stash an effect asked for (shade rolls up the picture from
+     * before it), but yes while a resize's new pixmap is unpainted: the
+     * dense pixmap is the client's, drawn before it publishes it, so it is
+     * never the unpainted one -- and it is what the window looked like a
+     * moment ago, where the stash is the frozen, blurry original. */
     GlWindow *dense_deco = NULL, *dense_client = NULL;
     GlWindow *sources[DENSITY_MAX_AREAS] = { 0 };
     float client_density = 1.0f;
-    if (!from_stash && !flat) {
+    if (!n->use_stash && !flat) {
         float density;
         if (deco_density_active(w, &density))
             dense_deco = dense_layer(w, g, true);
@@ -2730,7 +2759,7 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * while the window sits still: the hole is cut in the quad's own
      * coordinates, but drawn through pieces of the screen. */
     CompRect client_hole = { 0, 0, 0, 0 };
-    if (dense_client && w->client_rect.w > 2 && w->client_rect.h > 2 &&
+    if (dense_client && client_rect_now(w).w > 2 && client_rect_now(w).h > 2 &&
         n->geometry.w > 0 && n->geometry.h > 0) {
         CompRect ca = dense_client_area(n, w);
         /* A translucent layer gets the exact rectangle instead: the ring
@@ -2927,8 +2956,7 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         /* A frame with no titlebar (an undecorated xisserve) has the
          * client reaching right into the rounded corners, so the layer
          * wears the frame's corners there, as the decoration's does. */
-        CompRect in_frame = { w->client_rect.x, w->client_rect.y,
-                              w->client_rect.w, w->client_rect.h };
+        CompRect in_frame = client_rect_now(w);
         CompRect wr = window_rect(w);
         bool round = client_reaches_corners(w, &in_frame, wr.w > 0 ? wr.w : n->geometry.w,
                                             wr.h > 0 ? wr.h : n->geometry.h);
