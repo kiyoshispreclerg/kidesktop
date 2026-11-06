@@ -92,6 +92,9 @@ typedef struct {
      * ewmh_get_urgent()). Drives tasklist_paint()'s bold title + 2fps
      * hover-blink; never set on a placeholder (no real window to ask). */
     int urgent;
+    /* audio_streams_state_for_pid(): 0 silent, 1 playing, 2 playing but muted.
+     * Draws the speaker badge; never set on a placeholder. */
+    int audio;
     cairo_surface_t *icon;
     /* 1 once a .desktop-entry icon fallback lookup has been attempted for
      * this window (see tasklist_on_tick()'s icon fallback) -- carried
@@ -327,6 +330,7 @@ static unsigned long tasklist_display_sig(TasklistPriv *tp, Window active)
         SIG_MIX(e->maximized);
         SIG_MIX(e->pinned);
         SIG_MIX(e->urgent);
+        SIG_MIX(e->audio);
         SIG_MIX_INT((uintptr_t)e->icon);
     }
 #undef SIG_MIX
@@ -816,6 +820,8 @@ static int tasklist_on_tick(PanelWidget *w, uint64_t now)
     if (!ewmh_get_client_list(&list, &n)) {
         return 0;
     }
+    audio_streams_gen();
+    int audio_on = audio_streams_any();
     if (n > MAX_TASKS) {
         n = MAX_TASKS;
     }
@@ -882,6 +888,9 @@ static int tasklist_on_tick(PanelWidget *w, uint64_t now)
         e->minimized = minimized;
         e->maximized = maximized;
         e->urgent = win != active_now && ewmh_get_urgent(win);
+        if (audio_on) {
+            e->audio = audio_streams_state_for_pid(ewmh_get_pid(win));
+        }
         if (old_idx >= 0) {
             e->icon = tp->tasks[old_idx].icon; /* ownership moves to `real_windows` */
             tp->tasks[old_idx].icon = NULL;
@@ -1786,6 +1795,48 @@ static int tasklist_indicator_at_start(Panel *p)
     return p->edge == EDGE_TOP || p->edge == EDGE_LEFT;
 }
 
+/* Speaker badge on the icon's top-right corner (the other three are taken by
+ * the desktop number, the group count and nothing yet): a dark disc with a
+ * speaker, plus sound waves, or a slash when every stream is muted. Purely
+ * visual -- mute lives in the context menu. */
+static void tasklist_draw_audio_badge(cairo_t *cr, Panel *p, double right, double top, int icon_px, int muted)
+{
+    double d = icon_px * 0.5;
+    if (d < 10) {
+        d = 10;
+    }
+    double cx = right - d / 2.0 + d * 0.15, cy = top + d / 2.0 - d * 0.15;
+    cairo_set_source_rgba(cr, 0, 0, 0, 0.6);
+    cairo_arc(cr, cx, cy, d / 2.0, 0, 2 * M_PI);
+    cairo_fill(cr);
+
+    double u = d / 10.0;
+    cairo_set_source_rgba(cr, p->fg_r, p->fg_g, p->fg_b, 0.95);
+    cairo_move_to(cr, cx - 3.2 * u, cy - 1.3 * u);
+    cairo_line_to(cr, cx - 1.6 * u, cy - 1.3 * u);
+    cairo_line_to(cr, cx + 0.4 * u, cy - 3.0 * u);
+    cairo_line_to(cr, cx + 0.4 * u, cy + 3.0 * u);
+    cairo_line_to(cr, cx - 1.6 * u, cy + 1.3 * u);
+    cairo_line_to(cr, cx - 3.2 * u, cy + 1.3 * u);
+    cairo_close_path(cr);
+    cairo_fill(cr);
+
+    cairo_set_line_width(cr, u > 1.0 ? u * 0.8 : 1.0);
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+    if (muted) {
+        cairo_move_to(cr, cx + 1.6 * u, cy - 1.6 * u);
+        cairo_line_to(cr, cx + 4.2 * u, cy + 1.6 * u);
+        cairo_move_to(cr, cx + 4.2 * u, cy - 1.6 * u);
+        cairo_line_to(cr, cx + 1.6 * u, cy + 1.6 * u);
+        cairo_stroke(cr);
+    } else {
+        cairo_arc(cr, cx + 0.4 * u, cy, 2.4 * u, -M_PI / 3, M_PI / 3);
+        cairo_stroke(cr);
+        cairo_arc(cr, cx + 0.4 * u, cy, 4.0 * u, -M_PI / 3, M_PI / 3);
+        cairo_stroke(cr);
+    }
+}
+
 static void tasklist_draw_arrow(cairo_t *cr, Panel *p, int slot_x, int slot_y, int thickness, int dir)
 {
     double cx = slot_x + TASKLIST_ARROW_W / 2.0;
@@ -1936,6 +1987,9 @@ static void tasklist_paint(PanelWidget *w, cairo_t *cr)
             cairo_move_to(cr, bx2, by2);
             cairo_show_text(cr, badge);
             cairo_set_font_size(cr, panel_text_size(p));
+        }
+        if (e->audio) {
+            tasklist_draw_audio_badge(cr, p, bx + icon_x_off + icon_px, icon_y, icon_px, e->audio == 2);
         }
         if (group_count > 1) {
             /* Bottom-left of the icon -- deliberately the corner the
