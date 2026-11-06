@@ -79,6 +79,22 @@ int main(void)
     kvp_view_set_area(&v, 400, 300);
     NEAR(v.zoom, 0.1);
 
+    /* decode reductions and EXIF orientation */
+    CHECK(kvp_pick_denom(0, 800, 600, 4000, 3000, 0) == 4);  /* fit at 0.2 */
+    CHECK(kvp_pick_denom(0, 800, 600, 4000, 3000, 1) == 4);
+    CHECK(kvp_pick_denom(0, 800, 600, 100, 100, 0) == 1);
+    CHECK(kvp_pick_denom(1.0, 800, 600, 4000, 3000, 0) == 1);
+    CHECK(kvp_pick_denom(0.5, 0, 0, 4000, 3000, 0) == 2);
+    CHECK(kvp_pick_denom(0.01, 0, 0, 4000, 3000, 0) == 8);
+    bool fl;
+    int rr;
+    kvp_orientation(6, &fl, &rr);
+    CHECK(!fl && rr == 1);
+    kvp_orientation(5, &fl, &rr);
+    CHECK(fl && rr == 3);
+    kvp_orientation(99, &fl, &rr);
+    CHECK(!fl && rr == 0);
+
     /* messages */
     char *e = kvp_escape("a b=c%é");
     CHECK(strcmp(e, "a%20b%3Dc%25%C3%A9") == 0);

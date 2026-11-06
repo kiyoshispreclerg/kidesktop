@@ -24,7 +24,8 @@ typedef enum {
 
 typedef struct {
     int iw, ih; /* the document, unrotated */
-    int rot;    /* quarter turns clockwise, 0..3 */
+    int rot;    /* quarter turns clockwise, 0..3, applied after the flip */
+    bool flip;  /* mirrored left to right first (EXIF orientation) */
     int aw, ah; /* the area */
     KvpMode mode;
     double zoom;
@@ -39,6 +40,16 @@ void kvp_view_zoom_set(KvpView *v, double zoom, double ax, double ay);
 void kvp_view_zoom_by(KvpView *v, double factor, double ax, double ay);
 void kvp_view_pan(KvpView *v, double dx, double dy);
 void kvp_view_rotate(KvpView *v, int quarter_turns);
+/* The document's own orientation (EXIF), before anything the user does. */
+void kvp_view_set_orientation(KvpView *v, bool flip, int rot);
+
+/* EXIF orientation 1..8 as a flip and quarter turns. */
+void kvp_orientation(int exif, bool *flip, int *rot);
+/* How much smaller a decoder may produce the document (1, 2, 4 or 8) and
+ * still have at least one pixel for every device pixel at `min_zoom` device
+ * pixels per document pixel; 0 means fit the area (aw x ah, physical)
+ * without enlarging. */
+int kvp_pick_denom(double min_zoom, int aw, int ah, int iw, int ih, int rot);
 
 /* The document's size once rotated, in document pixels and scaled. */
 void kvp_view_rotated_size(const KvpView *v, int *w, int *h);

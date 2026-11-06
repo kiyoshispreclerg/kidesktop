@@ -142,3 +142,38 @@ bool kvp_view_scrolls_y(const KvpView *v)
     kvp_view_scaled_size(v, &sw, &sh);
     return sh > v->ah + 0.5;
 }
+
+void kvp_view_set_orientation(KvpView *v, bool flip, int rot)
+{
+    v->flip = flip;
+    v->rot = ((rot % 4) + 4) % 4;
+    apply_mode(v);
+}
+
+void kvp_orientation(int exif, bool *flip, int *rot)
+{
+    static const struct {
+        bool flip;
+        int rot;
+    } t[9] = {{false, 0}, {false, 0}, {true, 0}, {false, 2}, {true, 2},
+              {true, 3},  {false, 1}, {true, 1}, {false, 3}};
+    if (exif < 1 || exif > 8)
+        exif = 1;
+    *flip = t[exif].flip;
+    *rot = t[exif].rot;
+}
+
+int kvp_pick_denom(double min_zoom, int aw, int ah, int iw, int ih, int rot)
+{
+    double z = min_zoom;
+    if (z <= 0) {
+        int rw = rot & 1 ? ih : iw, rh = rot & 1 ? iw : ih;
+        z = 1.0;
+        if (rw > 0 && rh > 0 && aw > 0 && ah > 0)
+            z = fmin(1.0, fmin((double)aw / rw, (double)ah / rh));
+    }
+    for (int d = 8; d > 1; d /= 2)
+        if (1.0 / d >= z)
+            return d;
+    return 1;
+}
