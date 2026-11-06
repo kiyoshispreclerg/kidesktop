@@ -7,7 +7,7 @@
 
 #include "plugins/libkvp/kvp_msg.h"
 
-#define KIVIEW_VERSION "0.0.1"
+#define KIVIEW_VERSION "0.0.2"
 
 /* ---- kv_plugin.c: manifests and running plugins ---- */
 
@@ -45,6 +45,8 @@ int kv_folder_count(const KvFolder *f);
 int kv_folder_pos(const KvFolder *f); /* 0-based, -1: none */
 const char *kv_folder_current(const KvFolder *f);
 GFile *kv_folder_dir(const KvFolder *f);
+/* The name at an index, wrapping around. */
+const char *kv_folder_name(const KvFolder *f, int index);
 /* Both wrap around; return the new current name (NULL: empty folder). */
 const char *kv_folder_step(KvFolder *f, int delta);
 const char *kv_folder_goto(KvFolder *f, int index);

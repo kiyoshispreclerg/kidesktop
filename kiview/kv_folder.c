@@ -154,6 +154,12 @@ GFile *kv_folder_dir(const KvFolder *f)
     return f->dir;
 }
 
+const char *kv_folder_name(const KvFolder *f, int index)
+{
+    int n = (int)f->names->len;
+    return n ? f->names->pdata[((index % n) + n) % n] : NULL;
+}
+
 const char *kv_folder_goto(KvFolder *f, int index)
 {
     if (!f->names->len)

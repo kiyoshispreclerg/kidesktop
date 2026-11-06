@@ -335,7 +335,7 @@ Entrar também em `scripts/lint.sh` (cppcheck, `-Werror`, arrays locais com `= {
 | Versão | Conteúdo |
 |---|---|
 | **0.0.1** | Frontend com janela e rodapé, `kv_plugin` + `PROTOCOL.md`, libkvp, `kiview-test`, `kiview-image` só com gdk-pixbuf. Encaixar, 100%, zoom (Ctrl+roda), arraste, anterior/próxima, tela cheia. Sem densidade. |
-| **0.0.2** | Decodificadores próprios: JPEG com DCT, PNG, WebP (com animação), GIF com giflib; EXIF; pirâmide preguiçosa; prefetch dos vizinhos; apresentação. |
+| **0.0.2** (feito) | Decodificadores próprios: JPEG com DCT, PNG, WebP (com animação), GIF com giflib; EXIF; pirâmide preguiçosa; prefetch dos vizinhos; apresentação. |
 | **0.0.3** | `shared/xis_density_source.c` extraído do kiplay e X-DENSITY no kiview; testes com `kiview-test` e kicomp (GLX, XRender, EGL). |
 | **0.1.0** | Girar, excluir para a lixeira, editar no kipaint, arrastar e soltar, `kiview.conf`, tradução pt_BR, a11y, `.desktop` com MimeType, lint/CI/deb, medição de RAM e tempo contra eog/ristretto/gpicview. |
 | depois | SVG → OpenRaster → fontes → MuPDF (PDF/EPUB) → Markdown → OpenDocument; sandbox Landlock; ICC; AVIF/HEIF/JXL; gravar rotação; aba no kiconf. |

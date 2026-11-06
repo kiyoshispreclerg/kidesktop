@@ -21,6 +21,9 @@
 #define ZOOM_STEP 1.25
 #define SCROLL_STEP 80.0
 #define OPEN_TIMEOUT_SECONDS 10
+#define HELD_MAX 4
+#define SLIDESHOW_SECONDS 5
+#define CURSOR_HIDE_SECONDS 2
 #define BG_NORMAL "#1e1e1e"
 #define BG_FULLSCREEN "#000000"
 
@@ -41,7 +44,23 @@ static struct {
     gboolean fullscreen, dragging, started;
     double lx, ly;
     GFile *pending; /* what to open once realized */
+
+    /* the documents the plugin holds: the one shown and its neighbours */
+    struct {
+        char *name;
+        long id;
+    } held[HELD_MAX];
+
+    /* slideshow */
+    gboolean slideshow, slide_paused, slide_entered_fullscreen;
+    gboolean cur_anim, anim_looped, slide_waiting;
+    guint slide_timer, cursor_timer;
+    gboolean cursor_hidden;
+    GtkToolItem *slide_btn;
 } kv;
+
+static void held_clear(void);
+static void slide_arm(void);
 
 static Display *dpy(void)
 {
@@ -169,8 +188,116 @@ static void drop_proc(void)
     if (kv.proc)
         kv_proc_stop(kv.proc);
     kv.proc = NULL;
+    held_clear();
     cancel_open_timeout();
 }
+
+/* ---- what the plugin holds ---- */
+
+static long held_find(const char *name)
+{
+    for (int i = 0; i < HELD_MAX; i++)
+        if (kv.held[i].name && !strcmp(kv.held[i].name, name))
+            return kv.held[i].id;
+    return 0;
+}
+
+static void held_add(const char *name, long id)
+{
+    for (int i = 0; i < HELD_MAX; i++) {
+        if (!kv.held[i].name) {
+            kv.held[i].name = g_strdup(name);
+            kv.held[i].id = id;
+            return;
+        }
+    }
+}
+
+static void held_clear(void)
+{
+    for (int i = 0; i < HELD_MAX; i++) {
+        g_free(kv.held[i].name);
+        kv.held[i].name = NULL;
+        kv.held[i].id = 0;
+    }
+}
+
+static gboolean wanted_name(const char *name, const char *const *want)
+{
+    for (int i = 0; want[i]; i++)
+        if (!strcmp(name, want[i]))
+            return TRUE;
+    return FALSE;
+}
+
+/* The names the plugin should hold: the shown one and its two neighbours. */
+static void wanted_names(const char *want[4])
+{
+    int n = kv_folder_count(kv.folder), pos = kv_folder_pos(kv.folder);
+    want[0] = kv_folder_current(kv.folder);
+    want[1] = want[2] = want[3] = NULL;
+    if (!want[0] || pos < 0)
+        return;
+    if (n > 1)
+        want[1] = kv_folder_name(kv.folder, pos + 1);
+    if (n > 2)
+        want[2] = kv_folder_name(kv.folder, pos - 1);
+}
+
+static void close_unwanted(const char *const *want)
+{
+    for (int i = 0; i < HELD_MAX; i++) {
+        if (kv.held[i].name && !wanted_name(kv.held[i].name, want)) {
+            GString *m = kvp_out("close");
+            kvp_out_i(m, "id", kv.held[i].id);
+            kv_proc_send(kv.proc, m, -1);
+            g_free(kv.held[i].name);
+            kv.held[i].name = NULL;
+        }
+    }
+}
+
+/* Has the neighbours decoded ahead, and lets go of the rest. */
+static void sync_prefetch(void)
+{
+    if (!kv.proc || !kv.folder)
+        return;
+    const char *want[4];
+    wanted_names(want);
+    if (!want[0])
+        return;
+    close_unwanted(want);
+    for (int i = 1; want[i]; i++) {
+        if (held_find(want[i]))
+            continue;
+        char *path = g_build_filename(g_file_peek_path(kv_folder_dir(kv.folder)), want[i], NULL);
+        GFile *file = g_file_new_for_path(path);
+        GFileInfo *info = g_file_query_info(file, "standard::content-type", G_FILE_QUERY_INFO_NONE, NULL, NULL);
+        const char *mime = info ? g_file_info_get_content_type(info) : NULL;
+        int fd = -1;
+        /* only what this plugin shows */
+        if (kv_plugins_for(mime, want[i]) == kv_proc_manifest(kv.proc))
+            fd = open(path, O_RDONLY | O_CLOEXEC);
+        if (fd >= 0) {
+            GString *m = kvp_out("prefetch");
+            kvp_out_i(m, "id", ++kv.next_id);
+            kvp_out_s(m, "name", want[i]);
+            kvp_out_s(m, "mime", mime ? mime : "");
+            kv_proc_send(kv.proc, m, fd);
+            close(fd);
+            held_add(want[i], kv.next_id);
+        }
+        if (info)
+            g_object_unref(info);
+        g_object_unref(file);
+        g_free(path);
+    }
+}
+
+/* ---- slideshow ---- */
+
+static void slideshow_stop(void);
+static void step(int delta);
 
 /* ---- plugin messages ---- */
 
@@ -192,6 +319,7 @@ static void on_plugin(KvProc *p, const KvpMsg *m, gpointer ud)
         kv_proc_stop(p);
         if (kv.proc == p) {
             kv.proc = NULL;
+            held_clear();
             cancel_open_timeout();
             set_message(_("The viewer stopped unexpectedly. Pick another file to try again."));
         }
@@ -204,10 +332,23 @@ static void on_plugin(KvProc *p, const KvpMsg *m, gpointer ud)
         cancel_open_timeout();
         g_free(kv.format);
         kv.format = g_strdup(kvp_msg_get(m, "format"));
+        kv.cur_anim = kvp_msg_get_int(m, "anim", 0) != 0;
         set_message(NULL);
+        sync_prefetch();
+        if (kv.slideshow)
+            slide_arm();
     } else if (!strcmp(v, "failed") && kvp_msg_get_int(m, "id", 0) == kv.cur_id) {
         cancel_open_timeout();
         set_message(failure_text(kvp_msg_get(m, "reason") ? kvp_msg_get(m, "reason") : ""));
+        sync_prefetch();
+        if (kv.slideshow)
+            slide_arm();
+    } else if (!strcmp(v, "anim_loop") && kvp_msg_get_int(m, "id", 0) == kv.cur_id) {
+        kv.anim_looped = TRUE;
+        if (kv.slide_waiting) {
+            kv.slide_waiting = FALSE;
+            step(1);
+        }
     } else if (!strcmp(v, "view") && kvp_msg_get_int(m, "id", 0) == kv.cur_id) {
         kv.zoom = kvp_msg_get_double(m, "zoom", 1);
         kv.fit = kvp_msg_get_int(m, "fit", 0) != 0;
@@ -217,6 +358,7 @@ static void on_plugin(KvProc *p, const KvpMsg *m, gpointer ud)
     }
 }
 
+static gboolean open_timed_out(gpointer data);
 static gboolean open_timed_out(gpointer data)
 {
     (void)data;
@@ -236,6 +378,18 @@ static void show_current(void)
     update_labels();
     if (!name) {
         set_message(_("Nothing to show. Use Ctrl+O to open an image."));
+        return;
+    }
+    kv.cur_anim = kv.anim_looped = kv.slide_waiting = FALSE;
+    long held = kv.proc ? held_find(name) : 0;
+    if (held) {
+        /* already decoded (or being) ahead of time */
+        GString *m = kvp_out("show");
+        kvp_out_i(m, "id", held);
+        kv.cur_id = held;
+        kv_proc_send(kv.proc, m, -1);
+        cancel_open_timeout();
+        kv.open_timeout = g_timeout_add_seconds(OPEN_TIMEOUT_SECONDS, open_timed_out, NULL);
         return;
     }
     char *path = g_build_filename(g_file_peek_path(kv_folder_dir(kv.folder)), name, NULL);
@@ -261,6 +415,11 @@ static void show_current(void)
         send_surface();
         send_style();
     }
+    {
+        const char *want[4];
+        wanted_names(want);
+        close_unwanted(want);
+    }
     int fd = open(path, O_RDONLY | O_CLOEXEC);
     if (fd < 0) {
         set_message(failure_text("io"));
@@ -271,6 +430,7 @@ static void show_current(void)
     kvp_out_s(m, "name", name);
     kvp_out_s(m, "mime", mime ? mime : "");
     kv.cur_id = kv.next_id;
+    held_add(name, kv.cur_id);
     kv_proc_send(kv.proc, m, fd);
     close(fd);
     cancel_open_timeout();
@@ -296,6 +456,101 @@ static void goto_index(int index)
         return;
     kv_folder_goto(kv.folder, index);
     show_current();
+}
+
+/* ---- slideshow ---- */
+
+static void slide_arm(void);
+
+static gboolean slide_tick(gpointer ud)
+{
+    (void)ud;
+    kv.slide_timer = 0;
+    if (!kv.slideshow || kv.slide_paused)
+        return G_SOURCE_REMOVE;
+    if (!kv.folder || kv_folder_count(kv.folder) < 2) {
+        slide_arm();
+    } else if (kv.cur_anim && !kv.anim_looped) {
+        kv.slide_waiting = TRUE; /* an animation plays through once; anim_loop moves on */
+    } else {
+        step(1);
+    }
+    return G_SOURCE_REMOVE;
+}
+
+static void slide_arm(void)
+{
+    if (kv.slide_timer)
+        g_source_remove(kv.slide_timer);
+    kv.slide_timer = 0;
+    kv.slide_waiting = FALSE;
+    if (kv.slideshow && !kv.slide_paused)
+        kv.slide_timer = g_timeout_add_seconds(SLIDESHOW_SECONDS, slide_tick, NULL);
+}
+
+static void update_cursor(void);
+
+static gboolean hide_cursor(gpointer ud)
+{
+    (void)ud;
+    kv.cursor_timer = 0;
+    kv.cursor_hidden = TRUE;
+    update_cursor();
+    return G_SOURCE_REMOVE;
+}
+
+/* The pointer shows while it moves and hides after a pause. */
+static void cursor_activity(void)
+{
+    if (kv.cursor_timer)
+        g_source_remove(kv.cursor_timer);
+    kv.cursor_timer = 0;
+    if (kv.cursor_hidden) {
+        kv.cursor_hidden = FALSE;
+        update_cursor();
+    }
+    if (kv.slideshow)
+        kv.cursor_timer = g_timeout_add_seconds(CURSOR_HIDE_SECONDS, hide_cursor, NULL);
+}
+
+static void set_fullscreen(gboolean on);
+
+static void slideshow_start(void)
+{
+    if (kv.slideshow || !kv.folder || kv_folder_count(kv.folder) < 1)
+        return;
+    kv.slideshow = TRUE;
+    kv.slide_paused = FALSE;
+    kv.slide_entered_fullscreen = !kv.fullscreen;
+    if (!kv.fullscreen)
+        set_fullscreen(TRUE);
+    slide_arm();
+    cursor_activity();
+}
+
+static void slideshow_stop(void)
+{
+    if (!kv.slideshow)
+        return;
+    kv.slideshow = FALSE;
+    slide_arm(); /* disarms */
+    cursor_activity();
+    if (kv.slide_entered_fullscreen)
+        set_fullscreen(FALSE);
+}
+
+static void slideshow_toggle(void)
+{
+    if (kv.slideshow)
+        slideshow_stop();
+    else
+        slideshow_start();
+}
+
+static void slideshow_pause_toggle(void)
+{
+    kv.slide_paused = !kv.slide_paused;
+    slide_arm();
 }
 
 static void folder_changed(gpointer ud)
@@ -421,7 +676,9 @@ static gboolean on_expose(GtkWidget *area, GdkEventExpose *e, gpointer ud)
 static void update_cursor(void)
 {
     GdkCursor *c = NULL;
-    if (kv.dragging)
+    if (kv.cursor_hidden)
+        c = gdk_cursor_new(GDK_BLANK_CURSOR);
+    else if (kv.dragging)
         c = gdk_cursor_new(GDK_FLEUR);
     else if (kv.scroll_x || kv.scroll_y)
         c = gdk_cursor_new(GDK_HAND1);
@@ -499,8 +756,18 @@ static gboolean on_key(GtkWidget *w, GdkEventKey *e, gpointer ud)
     case GDK_Left: case GDK_Page_Up: case GDK_BackSpace:
         step(-1);
         return TRUE;
-    case GDK_Right: case GDK_Page_Down: case GDK_space:
+    case GDK_space:
+        if (kv.slideshow) {
+            slideshow_pause_toggle();
+            return TRUE;
+        }
         step(1);
+        return TRUE;
+    case GDK_Right: case GDK_Page_Down:
+        step(1);
+        return TRUE;
+    case GDK_F5:
+        slideshow_toggle();
         return TRUE;
     case GDK_Home:
         goto_index(0);
@@ -542,6 +809,10 @@ static gboolean on_key(GtkWidget *w, GdkEventKey *e, gpointer ud)
         set_fullscreen(!kv.fullscreen);
         return TRUE;
     case GDK_Escape:
+        if (kv.slideshow) {
+            slideshow_stop();
+            return TRUE;
+        }
         if (kv.fullscreen) {
             set_fullscreen(FALSE);
             return TRUE;
@@ -571,6 +842,7 @@ static void on_fit(GtkToolButton *b, gpointer ud) { (void)b; (void)ud; send_zoom
 static void on_actual(GtkToolButton *b, gpointer ud) { (void)b; (void)ud; send_zoom("actual", 0, -1, -1); }
 static void on_zoom_in(GtkToolButton *b, gpointer ud) { (void)b; (void)ud; zoom_centered(ZOOM_STEP); }
 static void on_zoom_out(GtkToolButton *b, gpointer ud) { (void)b; (void)ud; zoom_centered(1 / ZOOM_STEP); }
+static void on_slide(GtkToolButton *b, gpointer ud) { (void)b; (void)ud; slideshow_toggle(); }
 static void on_full(GtkToolButton *b, gpointer ud) { (void)b; (void)ud; set_fullscreen(TRUE); }
 
 static GtkToolItem *add_button(GtkWidget *bar, const char *stock, const char *tip, GCallback cb)
@@ -589,6 +861,7 @@ static GtkWidget *build_footer(void)
     gtk_toolbar_set_show_arrow(GTK_TOOLBAR(bar), FALSE);
     kv.prev = add_button(bar, GTK_STOCK_GO_BACK, _("Previous image (Left)"), G_CALLBACK(on_prev));
     kv.next = add_button(bar, GTK_STOCK_GO_FORWARD, _("Next image (Right)"), G_CALLBACK(on_next));
+    kv.slide_btn = add_button(bar, GTK_STOCK_MEDIA_PLAY, _("Start slideshow (F5)"), G_CALLBACK(on_slide));
     gtk_toolbar_insert(GTK_TOOLBAR(bar), gtk_separator_tool_item_new(), -1);
     add_button(bar, GTK_STOCK_ZOOM_FIT, _("Best fit (F)"), G_CALLBACK(on_fit));
     add_button(bar, GTK_STOCK_ZOOM_100, _("Actual size (1)"), G_CALLBACK(on_actual));
