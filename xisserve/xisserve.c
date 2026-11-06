@@ -1060,6 +1060,7 @@ static const SearchPlugin kSearchPlugins[] = {
     {"kistory", plugin_kistory_search},
     {"process", plugin_process_search},
     {"calculator", plugin_calculator_search},
+    {"openwith", plugin_openwith_search},
 };
 #define N_SEARCH_PLUGINS ((int)(sizeof(kSearchPlugins) / sizeof(kSearchPlugins[0])))
 

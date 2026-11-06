@@ -97,6 +97,10 @@ void plugin_recent_search(const char *query, GPtrArray *results);
  * (reopens its program when it's closed). */
 void plugin_kistory_search(const char *query, GPtrArray *results);
 
+/* plugins/openwith.c: when the query is the name of a file or folder,
+ * one result per program associated with it (kifiles' "Open With" list). */
+void plugin_openwith_search(const char *query, GPtrArray *results);
+
 /* Search plugin matching the query against the current user's own
  * running processes, offering terminate/kill/kill-tree results -- see
  * plugins/process.c. */

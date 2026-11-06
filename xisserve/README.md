@@ -95,6 +95,16 @@ and can append its own results, each with its own icon, subtitle
   an arithmetic expression (+ - * / ^, `sqrt(...)`, parentheses), shows
   the result as one entry; clicking/Enter copies it to the clipboard
   instead of launching anything.
+- **openwith** (`plugins/openwith.c`) -- if the whole query is the name of a
+  file or folder, lists the programs associated with it, the same as
+  kifiles' "Open With" (default program first, then the others registered
+  for its content type), and opening a result runs that program on the
+  item. The name is resolved with a few stats, not a search: the query as
+  a path (`/abs`, `~/x`, `file://`, or relative to `$HOME`), then the bare
+  name inside `$HOME` and the Desktop/Documents/Downloads/Music/Pictures/
+  Videos folders, then an exact match on a recent file's name. `OPENWITH
+  max_files` (default 3) caps how many items a name can resolve to and
+  `OPENWITH max_apps` (default 6) how many programs are listed for each.
 
 Any plugin can be disabled via `$XDG_CONFIG_HOME/xisserve.conf` (falls
 back to `~/.config/xisserve.conf`), one line per plugin to turn off:

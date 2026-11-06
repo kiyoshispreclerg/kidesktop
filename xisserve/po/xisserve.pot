@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: xisserve\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 14:34-0300\n"
+"POT-Creation-Date: 2026-11-06 09:57-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,48 +17,72 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: keyboard.c:925 session.c:111
+#: keyboard.c:838
+msgid "Buscar emoji (em inglês)..."
+msgstr ""
+
+#: keyboard.c:885
+msgid "Voltar"
+msgstr ""
+
+#: keyboard.c:905
+msgid "Buscar"
+msgstr ""
+
+#: keyboard.c:1375
+msgid "Arraste para ajustar a altura"
+msgstr ""
+
+#: keyboard.c:1390 session.c:111
 msgid "×"
 msgstr ""
 
-#: keyboard.c:928 session.c:114 xisserve.c:2085
+#: keyboard.c:1393 session.c:114 xisserve.c:2247
 msgid "Fechar"
 msgstr ""
 
-#: pages/audio.c:414
+#: keyboard.c:1399
+msgid "Alterar layout do teclado"
+msgstr ""
+
+#: keyboard.c:1400
+msgid "Alterar layout"
+msgstr ""
+
+#: pages/audio.c:421
 msgid "Anterior"
 msgstr ""
 
-#: pages/audio.c:418 pages/clock.c:416 pages/clock.c:528
+#: pages/audio.c:425 pages/clock.c:417 pages/clock.c:529
 #: pages/notifications.c:753
 msgid "Pausar"
 msgstr ""
 
-#: pages/audio.c:418
+#: pages/audio.c:425
 msgid "Reproduzir"
 msgstr ""
 
-#: pages/audio.c:420
+#: pages/audio.c:427
 msgid "Próxima"
 msgstr ""
 
-#: pages/audio.c:479
+#: pages/audio.c:486
 msgid "Mudo"
 msgstr ""
 
-#: pages/audio.c:492
+#: pages/audio.c:499
 msgid "Volume"
 msgstr ""
 
-#: pages/audio.c:497
+#: pages/audio.c:504
 msgid "Padrão"
 msgstr ""
 
-#: pages/audio.c:502
+#: pages/audio.c:508
 msgid "Ativo"
 msgstr ""
 
-#: pages/audio.c:584
+#: pages/audio.c:589
 msgid ""
 "<b>Nenhum servidor de áudio</b>\n"
 "\n"
@@ -68,7 +92,7 @@ msgid ""
 "separa o som por programa."
 msgstr ""
 
-#: pages/audio.c:588
+#: pages/audio.c:593
 msgid ""
 "<b>Nenhum servidor de áudio</b>\n"
 "\n"
@@ -76,67 +100,75 @@ msgid ""
 "tela."
 msgstr ""
 
-#: pages/audio.c:627 pages/audio.c:665 pages/network.c:644
+#: pages/audio.c:632 pages/audio.c:670 pages/network.c:644 pages/xisguard.c:513
 msgid "Mostrar mais"
 msgstr ""
 
-#: pages/audio.c:627 pages/audio.c:665 pages/network.c:644
+#: pages/audio.c:632 pages/audio.c:670 pages/network.c:644 pages/xisguard.c:513
 msgid "Mostrar menos"
 msgstr ""
 
-#: pages/audio.c:710
+#: pages/audio.c:715
 msgid "Reproduzindo"
 msgstr ""
 
-#: pages/audio.c:711
+#: pages/audio.c:716
 msgid "Gravando"
 msgstr ""
 
-#: pages/audio.c:712
+#: pages/audio.c:717
 msgid "Saída"
 msgstr ""
 
-#: pages/audio.c:713
+#: pages/audio.c:718
 msgid "Entrada"
 msgstr ""
 
-#: pages/audio.c:716
+#: pages/audio.c:721
 msgid "Nenhum aplicativo reproduzindo ou gravando."
 msgstr ""
 
-#: pages/audio.c:717
+#: pages/audio.c:722
 msgid "Nenhum dispositivo de áudio encontrado."
 msgstr ""
 
-#: pages/audio.c:819
+#: pages/audio.c:858
 msgid "Aplicativos"
 msgstr ""
 
-#: pages/audio.c:820
+#: pages/audio.c:859
 msgid "Dispositivos"
 msgstr ""
 
-#: pages/calendar.c:443
+#: pages/audio.c:861
+msgid "Permitir volume acima de 100%"
+msgstr ""
+
+#: pages/audio.c:866
+msgid "Mover tudo para novos dispositivos ao conectar"
+msgstr ""
+
+#: pages/calendar.c:374
 msgid "Nenhum feriado ou evento neste dia."
 msgstr ""
 
-#: pages/calendar.c:515
+#: pages/calendar.c:446
 msgid "Abrir eventos..."
 msgstr ""
 
-#: pages/calendar.c:534 pages/calendar.c:555 xisserve.c:92
+#: pages/calendar.c:465 pages/calendar.c:486 xisserve.c:96
 msgid "Calendário"
 msgstr ""
 
-#: pages/calendar.c:556
+#: pages/calendar.c:487
 msgid "Alarmes"
 msgstr ""
 
-#: pages/calendar.c:557
+#: pages/calendar.c:488
 msgid "Cronômetro"
 msgstr ""
 
-#: pages/calendar.c:558 ring.c:217
+#: pages/calendar.c:489 ring.c:217
 msgid "Temporizador"
 msgstr ""
 
@@ -272,7 +304,7 @@ msgstr ""
 msgid "soneca até"
 msgstr ""
 
-#: pages/clock.c:200 pages/clock.c:390
+#: pages/clock.c:200 pages/clock.c:391
 msgid "Adicionar alarme"
 msgstr ""
 
@@ -284,103 +316,104 @@ msgstr ""
 msgid "Nenhum alarme."
 msgstr ""
 
-#: pages/clock.c:277
+#: pages/clock.c:278
 msgid "Ativado"
 msgstr ""
 
-#: pages/clock.c:289
+#: pages/clock.c:290 xisserve.c:3678
 msgid "Editar"
 msgstr ""
 
-#: pages/clock.c:293 pages/clock.c:294
+#: pages/clock.c:294 pages/clock.c:295
 msgid "Excluir alarme"
 msgstr ""
 
-#: pages/clock.c:337
+#: pages/clock.c:338
 msgid "O kiconfd não está em execução: nada vai tocar."
 msgstr ""
 
-#: pages/clock.c:362
+#: pages/clock.c:363
 msgid "Hora"
 msgstr ""
 
-#: pages/clock.c:363
+#: pages/clock.c:364
 msgid "Minuto"
 msgstr ""
 
-#: pages/clock.c:369
+#: pages/clock.c:370
 msgid "Nome do alarme"
 msgstr ""
 
-#: pages/clock.c:370
+#: pages/clock.c:371
 msgid "Nome do alarme (opcional)"
 msgstr ""
 
-#: pages/clock.c:392 pages/notifications.c:702 session.c:133
+#: pages/clock.c:393 pages/notifications.c:702 pages/xisguard.c:327
+#: session.c:133
 msgid "Cancelar"
 msgstr ""
 
-#: pages/clock.c:416 pages/clock.c:528
+#: pages/clock.c:417 pages/clock.c:529
 msgid "Continuar"
 msgstr ""
 
-#: pages/clock.c:416 pages/clock.c:483 pages/clock.c:528 pages/clock.c:601
+#: pages/clock.c:417 pages/clock.c:484 pages/clock.c:529 pages/clock.c:602
 msgid "Iniciar"
 msgstr ""
 
-#: pages/clock.c:479 pages/clock.c:604
+#: pages/clock.c:480 pages/clock.c:605
 msgid "Zerar"
 msgstr ""
 
-#: pages/clock.c:481 pages/clock.c:493
+#: pages/clock.c:482 pages/clock.c:494
 msgid "Volta"
 msgstr ""
 
-#: pages/clock.c:493
+#: pages/clock.c:494
 msgid "Tempo"
 msgstr ""
 
-#: pages/clock.c:493
+#: pages/clock.c:494
 msgid "Total"
 msgstr ""
 
-#: pages/clock.c:501
+#: pages/clock.c:502
 msgid "Voltas"
 msgstr ""
 
-#: pages/clock.c:519
+#: pages/clock.c:520
 msgid "Terminado"
 msgstr ""
 
-#: pages/clock.c:592
+#: pages/clock.c:593
 msgid "Nenhum temporizador."
 msgstr ""
 
-#: pages/clock.c:608 pages/clock.c:609
+#: pages/clock.c:609 pages/clock.c:610
 msgid "Excluir temporizador"
 msgstr ""
 
-#: pages/clock.c:650
+#: pages/clock.c:651
 msgid "Horas"
 msgstr ""
 
-#: pages/clock.c:651
+#: pages/clock.c:652
 msgid "Minutos"
 msgstr ""
 
-#: pages/clock.c:652
+#: pages/clock.c:653
 msgid "Segundos"
 msgstr ""
 
-#: pages/clock.c:660
+#: pages/clock.c:661
 msgid "Nome do temporizador"
 msgstr ""
 
-#: pages/clock.c:661
+#: pages/clock.c:662
 msgid "Nome do temporizador (opcional)"
 msgstr ""
 
-#: pages/clock.c:666
+#: pages/clock.c:667
 msgid "Iniciar temporizador"
 msgstr ""
 
@@ -396,7 +429,7 @@ msgstr ""
 msgid "Completa"
 msgstr ""
 
-#: pages/energy.c:346 xisserve.c:94
+#: pages/energy.c:346 xisserve.c:98
 msgid "Energia"
 msgstr ""
 
@@ -438,11 +471,11 @@ msgstr ""
 msgid "Automatica (horarios definidos em kiconf > Energia)"
 msgstr ""
 
-#: pages/energy.c:429
+#: pages/energy.c:428
 msgid "Temperatura da luz noturna"
 msgstr ""
 
-#: pages/energy.c:464
+#: pages/energy.c:463
 msgid "upower nao encontrado -- instale-o para ver bateria/energia aqui."
 msgstr ""
 
@@ -462,7 +495,7 @@ msgstr ""
 msgid "Interface"
 msgstr ""
 
-#: pages/network.c:453 xisserve.c:97
+#: pages/network.c:453 xisserve.c:101
 msgid "Rede"
 msgstr ""
 
@@ -603,6 +636,149 @@ msgstr ""
 msgid "Remover com segurança"
 msgstr ""
 
+#: pages/xisguard.c:167
+msgid "usa memória compartilhada"
+msgstr ""
+
+#: pages/xisguard.c:168
+msgid "acessa a área de transferência"
+msgstr ""
+
+#: pages/xisguard.c:169
+msgid "acessa outras janelas"
+msgstr ""
+
+#: pages/xisguard.c:170
+msgid "captura a tela"
+msgstr ""
+
+#: pages/xisguard.c:171
+msgid "grava eventos (teclas)"
+msgstr ""
+
+#: pages/xisguard.c:172
+msgid "lê o cursor do mouse"
+msgstr ""
+
+#: pages/xisguard.c:173
+msgid "captura mouse/teclado"
+msgstr ""
+
+#: pages/xisguard.c:174
+msgid "insere teclas"
+msgstr ""
+
+#: pages/xisguard.c:175
+msgid "registra atalhos globais"
+msgstr ""
+
+#: pages/xisguard.c:176
+msgid "captura entrada sem foco"
+msgstr ""
+
+#: pages/xisguard.c:177
+msgid "lista outras janelas"
+msgstr ""
+
+#: pages/xisguard.c:178
+msgid "toma o controle de entrada"
+msgstr ""
+
+#: pages/xisguard.c:179
+msgid "move o cursor do mouse"
+msgstr ""
+
+#: pages/xisguard.c:180
+msgid "rouba o foco"
+msgstr ""
+
+#: pages/xisguard.c:181
+msgid "altera a configuração das telas"
+msgstr ""
+
+#: pages/xisguard.c:182
+msgid "cria janela sobreposta"
+msgstr ""
+
+#: pages/xisguard.c:228
+msgid "agora"
+msgstr ""
+
+#: pages/xisguard.c:230
+#, c-format
+msgid "%ld segundos atrás"
+msgstr ""
+
+#: pages/xisguard.c:232
+#, c-format
+msgid "%ld minuto atrás"
+msgstr ""
+
+#: pages/xisguard.c:232
+#, c-format
+msgid "%ld minutos atrás"
+msgstr ""
+
+#: pages/xisguard.c:234
+#, c-format
+msgid "%ld hora atrás"
+msgstr ""
+
+#: pages/xisguard.c:234
+#, c-format
+msgid "%ld horas atrás"
+msgstr ""
+
+#: pages/xisguard.c:265 pages/xisguard.c:391
+msgid "Acesso removido"
+msgstr ""
+
+#: pages/xisguard.c:324
+#, c-format
+msgid ""
+"%s não fechou. Deseja encerrá-lo à força? Dados não salvos serão perdidos."
+msgstr ""
+
+#: pages/xisguard.c:326
+msgid "Encerrar à força"
+msgstr ""
+
+#: pages/xisguard.c:381
+msgid "Fechar programa"
+msgstr ""
+
+#: pages/xisguard.c:391
+msgid "Remover acesso"
+msgstr ""
+
+#: pages/xisguard.c:420
+msgid "<small>Ignorados (ignore.conf)</small>"
+msgstr ""
+
+#: pages/xisguard.c:478
+msgid "<b>XisGuard</b>"
+msgstr ""
+
+#: pages/xisguard.c:483
+msgid "O XisGuard não está em execução."
+msgstr ""
+
+#: pages/xisguard.c:490
+msgid "<b>Proteção DESLIGADA</b>"
+msgstr ""
+
+#: pages/xisguard.c:490
+msgid "Proteção ativa"
+msgstr ""
+
+#: pages/xisguard.c:491
+msgid "Modo permissivo (libera tudo, mas continua registrando)"
+msgstr ""
+
+#: pages/xisguard.c:505
+msgid "Nenhum programa usou recursos protegidos desde que o XisGuard iniciou."
+msgstr ""
+
 #: plugins/globalmenu.c:222
 #, c-format
 msgid "Menu - %s"
@@ -637,6 +813,11 @@ msgstr ""
 
 #: plugins/kistory.c:421
 msgid "janela"
+msgstr ""
+
+#: plugins/openwith.c:207
+#, c-format
+msgid "Abrir com %s"
 msgstr ""
 
 #: plugins/process.c:68
@@ -690,28 +871,32 @@ msgstr ""
 msgid "O que voce deseja fazer?"
 msgstr ""
 
-#: xisserve.c:93
+#: xisserve.c:97
 msgid "Áudio"
 msgstr ""
 
-#: xisserve.c:95
+#: xisserve.c:99
 msgid "Notificações"
 msgstr ""
 
-#: xisserve.c:98
+#: xisserve.c:102
 msgid "Armazenamento"
 msgstr ""
 
-#: xisserve.c:99
+#: xisserve.c:103
 msgid "Área de transferência"
 msgstr ""
 
-#: xisserve.c:413
+#: xisserve.c:105
+msgid "XisGuard"
+msgstr ""
+
+#: xisserve.c:419
 #, c-format
 msgid "interface incompatível (esperado ABI %d)"
 msgstr ""
 
-#: xisserve.c:420
+#: xisserve.c:426
 #, c-format
 msgid ""
 "Não foi possível carregar esta página.\n"
@@ -719,174 +904,170 @@ msgid ""
 "%s"
 msgstr ""
 
-#: xisserve.c:852 xisserve.c:853 xisserve.c:854
+#: xisserve.c:883 xisserve.c:884 xisserve.c:885
 msgid "Áudio e Vídeo"
 msgstr ""
 
-#: xisserve.c:855
+#: xisserve.c:886
 msgid "Desenvolvimento"
 msgstr ""
 
-#: xisserve.c:856
+#: xisserve.c:887
 msgid "Educação"
 msgstr ""
 
-#: xisserve.c:857
+#: xisserve.c:888
 msgid "Jogos"
 msgstr ""
 
-#: xisserve.c:858
+#: xisserve.c:889
 msgid "Gráficos"
 msgstr ""
 
-#: xisserve.c:859
+#: xisserve.c:890
 msgid "Internet"
 msgstr ""
 
-#: xisserve.c:860
+#: xisserve.c:891
 msgid "Escritório"
 msgstr ""
 
-#: xisserve.c:861
+#: xisserve.c:892
 msgid "Ciência"
 msgstr ""
 
-#: xisserve.c:862
+#: xisserve.c:893
 msgid "Configurações"
 msgstr ""
 
-#: xisserve.c:863
+#: xisserve.c:894
 msgid "Sistema"
 msgstr ""
 
-#: xisserve.c:864
+#: xisserve.c:895
 msgid "Acessórios"
 msgstr ""
 
-#: xisserve.c:870
+#: xisserve.c:901
 msgid "Favoritos"
 msgstr ""
 
-#: xisserve.c:871
+#: xisserve.c:902
 msgid "Todos os Programas"
 msgstr ""
 
-#: xisserve.c:875
+#: xisserve.c:906
 msgid "Outros"
 msgstr ""
 
-#: xisserve.c:2057 xisserve.c:3452
+#: xisserve.c:2219 xisserve.c:3663
 msgid "Manter aberto ao clicar fora"
 msgstr ""
 
-#: xisserve.c:2086
+#: xisserve.c:2248
 msgid "Fechar o xisserve"
 msgstr ""
 
-#: xisserve.c:2416
+#: xisserve.c:2612
 msgid "Menu de programas"
 msgstr ""
 
-#: xisserve.c:2776
+#: xisserve.c:2978
 msgid "Desligar"
 msgstr ""
 
-#: xisserve.c:2776
+#: xisserve.c:2978
 msgid "Desligar o computador agora?"
 msgstr ""
 
-#: xisserve.c:2777
+#: xisserve.c:2979
 msgid "Reiniciar"
 msgstr ""
 
-#: xisserve.c:2777
+#: xisserve.c:2979
 msgid "Reiniciar o computador agora?"
 msgstr ""
 
-#: xisserve.c:2778
+#: xisserve.c:2980
 msgid "Suspender"
 msgstr ""
 
-#: xisserve.c:2778
+#: xisserve.c:2980
 msgid "Suspender o computador agora?"
 msgstr ""
 
-#: xisserve.c:2779
+#: xisserve.c:2981
 msgid "Sair"
 msgstr ""
 
-#: xisserve.c:2781
+#: xisserve.c:2983
 msgid "Encerrar a sessao atual?"
 msgstr ""
 
-#: xisserve.c:2782
+#: xisserve.c:2984
 msgid "Trocar de usuario agora?"
 msgstr ""
 
-#: xisserve.c:2782
+#: xisserve.c:2984
 msgid "Trocar usuario"
 msgstr ""
 
-#: xisserve.c:2783
+#: xisserve.c:2985
 msgid "Bloquear a tela agora?"
 msgstr ""
 
-#: xisserve.c:2783
+#: xisserve.c:2985
 msgid "Bloquear tela"
 msgstr ""
 
-#: xisserve.c:3123
+#: xisserve.c:3334
 msgid "Mover para o início"
 msgstr ""
 
-#: xisserve.c:3124
+#: xisserve.c:3335
 msgid "Mover para cima"
 msgstr ""
 
-#: xisserve.c:3125
+#: xisserve.c:3336
 msgid "Mover para baixo"
 msgstr ""
 
-#: xisserve.c:3126
+#: xisserve.c:3337
 msgid "Mover para o final"
 msgstr ""
 
-#: xisserve.c:3140
+#: xisserve.c:3351
 msgid "Adicionar aos Favoritos"
 msgstr ""
 
-#: xisserve.c:3140
+#: xisserve.c:3351
 msgid "Remover dos Favoritos"
 msgstr ""
 
-#: xisserve.c:3451
+#: xisserve.c:3662
 msgid "Fixar"
 msgstr ""
 
-#: xisserve.c:3461
+#: xisserve.c:3672
 msgid "Grade"
 msgstr ""
 
-#: xisserve.c:3462
+#: xisserve.c:3673
 msgid "Alternar entre lista e grade de icones"
 msgstr ""
 
-#: xisserve.c:3470
+#: xisserve.c:3679
+msgid "Editar o menu de programas no kiconf"
+msgstr ""
+
+#: xisserve.c:3687
 msgid "Pesquisar programas"
 msgstr ""
 
-#: xisserve.c:3486
+#: xisserve.c:3703
 msgid "Categorias"
 msgstr ""
 
-#: xisserve.c:3516 xisserve.c:3537
+#: xisserve.c:3733 xisserve.c:3754
 msgid "Programas"
-msgstr ""
-
-#: pages/audio.c
-msgid "Permitir volume acima de 100%"
-msgstr ""
-
-#: xisserve.c
-msgid "Editar o menu de programas no kiconf"
 msgstr ""
