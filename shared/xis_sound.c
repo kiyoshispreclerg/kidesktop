@@ -191,7 +191,10 @@ static void load_config(void)
         fclose(f);
     }
 
-    S.player = in_path("pw-play") ? "pw-play" : in_path("paplay") ? "paplay" : NULL;
+    /* paplay first: it speaks the Pulse protocol, served by both PulseAudio
+     * and pipewire-pulse, while pw-play blocks forever when a stray pipewire
+     * runs beside a real PulseAudio with no session manager. */
+    S.player = in_path("paplay") ? "paplay" : in_path("pw-play") ? "pw-play" : NULL;
     if (S.enabled && S.theme[0] && !strchr(S.theme, '/'))
         load_kidesktop_theme(S.theme, &S.map);
     S.loaded = true;
