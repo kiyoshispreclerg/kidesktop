@@ -1176,7 +1176,6 @@ static void tasklist_measure(PanelWidget *w, int cross_axis, int *out_len, int *
 {
     TasklistPriv *tp = w->priv;
     Panel *p = w->panel;
-    int icon_px = icon_size_for(cross_axis, tp->icon_padding);
     tasklist_build_display(w, p->output);
     int cursor = 0;
     int floor_total = 0; /* same floor tasklist_pick_compact() checks, from nat_w[] */
@@ -1197,13 +1196,11 @@ static void tasklist_measure(PanelWidget *w, int cross_axis, int *out_len, int *
         if (tp->compact || e->is_placeholder) {
             bw = cross_axis;
         } else {
-            double tw;
-            pango_text_extents_panel_bold(p->cr, tasklist_slot_title(tp, d), panel_text_size(p), 0, e->urgent, &tw, NULL,
-                                           p);
-            bw = icon_px + 8 + (int)tw + 8;
-            if (bw > TASKLIST_WIDE_MAXW) {
-                bw = TASKLIST_WIDE_MAXW;
-            }
+            /* Every wide button gets the same width, whatever its title:
+             * a title changing (a browser tab, a terminal's cwd) would
+             * otherwise resize the button and make the whole row jump.
+             * Squeezing to fit still goes through tasklist_slot_min_w(). */
+            bw = TASKLIST_WIDE_MAXW;
         }
         tp->nat_w[d] = bw;
         tp->btn_w[d] = bw;
