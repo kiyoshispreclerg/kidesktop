@@ -10,8 +10,9 @@
  * sni_fd()) so reacting to an event costs nothing between events: no
  * timer, no re-querying pactl on a schedule.
  *
- * Deliberately narrow: only `change` events on `sink` (volume/mute) and
- * `server` (the default sink/source itself switching) are handled.
+ * Deliberately narrow: `change` events on `sink` (volume/mute) and
+ * `server` (the default sink/source itself switching) are toasted, and
+ * sink-input events only refresh audio_streams.c, with no toast.
  * `new`/`remove` (hotplug) and source volume changes aren't -- this
  * covers the two things actually asked for (volume, and which device is
  * in use), not a general audio-event log.
@@ -53,6 +54,10 @@ static void on_pactl_event(const char *type, const char *facility, int index, vo
 {
     (void)index;
     (void)user_data;
+    if (!strcmp(facility, "sink-input")) {
+        audio_streams_invalidate(); /* new, change (corked/muted) and remove all alter who is playing */
+        return;
+    }
     if (strcmp(type, "change") != 0) {
         return;
     }

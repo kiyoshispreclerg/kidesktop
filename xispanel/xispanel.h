@@ -1900,6 +1900,18 @@ void xisguard_set_permissive(int on);
 /* {"cmd":cmd,"pattern":pattern}, e.g. ADD_IGNORED (fire and forget). */
 void xisguard_send_json_arg(const char *cmd, const char *pattern);
 
+/* ---- per-application audio playback state (audio_streams.c) ----
+ *
+ * Which processes have an uncorked PulseAudio sink-input, from `pactl list
+ * sink-inputs` via asyncmd.c, refreshed on sink-input events (audio_events.c)
+ * instead of a timer. audio_streams_gen() returns a counter that changes with
+ * the table (0 = no audio backend); a stream matches a window's _NET_WM_PID if
+ * that is the stream's process or an ancestor of it. */
+uint64_t audio_streams_gen(void);
+int audio_streams_state_for_pid(unsigned long pid); /* 0 silent, 1 playing, 2 playing but muted */
+int audio_streams_any(void); /* at least one sink-input exists (cheap pre-check before a per-window pid lookup) */
+void audio_streams_invalidate(void);
+
 /* ---- non-blocking external commands (asyncmd.c) ----
  *
  * The one way anything in xispanel may read a shell command's output. A
@@ -1928,6 +1940,11 @@ uint64_t asyncmd_get(const char *cmd, unsigned refresh_ms, const char **out_text
  * schedule_widget_repoll() so fresh data paints right away. It's a
  * non-blocking drain, safe to call every iteration regardless of
  * readiness. */
+/* Marks `cmd`'s cached snapshot stale (still returned meanwhile), so the next
+ * asyncmd_get() for it spawns a run whatever its refresh_ms. For commands
+ * refreshed by an event rather than a timer. */
+void asyncmd_invalidate(const char *cmd);
+
 int asyncmd_fds(fd_set *rfds, int maxfd);
 int asyncmd_poll(uint64_t now);
 

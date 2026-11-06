@@ -333,6 +333,14 @@ uint64_t asyncmd_get(const char *cmd, unsigned refresh_ms, const char **out_text
     return j->generation;
 }
 
+void asyncmd_invalidate(const char *cmd)
+{
+    AsyncJob *j = find_slot(cmd);
+    if (j) {
+        j->result_ms = 0; /* the snapshot stays readable, the next asyncmd_get() re-runs */
+    }
+}
+
 int asyncmd_fds(fd_set *rfds, int maxfd)
 {
     for (int i = 0; i < ASYNCMD_MAX_JOBS; i++) {
