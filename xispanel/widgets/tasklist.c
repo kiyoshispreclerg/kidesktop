@@ -206,9 +206,6 @@ typedef struct {
     int launch_feedback; /* 1 = a clicked launcher icon (pinned placeholder) zooms+fades via launchfx.c;
                            * 0 (default) = don't. Purely cosmetic -- never gates whether the launch itself
                            * happens. */
-    double launch_feedback_zoom; /* how large the icon grows by the end of the animation, e.g. 2.0 = 2x.
-                                   * Only read when launch_feedback is set. */
-    int launch_feedback_ms; /* how long the animation takes, ms. Only read when launch_feedback is set. */
     int group_apps; /* 1 = collapse same-app windows (matched by WM_CLASS) into one button; 0 (default) = don't. */
     int fixed_first; /* 1 (default) = pinned block always before the regular-windows block; 0 = regular block
                        * first, pinned block after -- see tasklist_on_tick()'s block-merge doc comment. */
@@ -648,14 +645,6 @@ static int tasklist_init(PanelWidget *w)
     tp->running_indicator_near =
         !(kv_get(w->config_kv, "running_indicator_side", buf, sizeof(buf)) && !strcmp(buf, "far"));
     tp->launch_feedback = kv_get(w->config_kv, "launch_feedback", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
-    tp->launch_feedback_zoom = kv_get(w->config_kv, "launch_feedback_zoom", buf, sizeof(buf)) ? atof(buf) : 2.0;
-    if (tp->launch_feedback_zoom < 1.05) {
-        tp->launch_feedback_zoom = 1.05;
-    }
-    tp->launch_feedback_ms = kv_get_int(w->config_kv, "launch_feedback_ms", 500);
-    if (tp->launch_feedback_ms < 16) {
-        tp->launch_feedback_ms = 16;
-    }
     tp->group_apps = kv_get(w->config_kv, "group", buf, sizeof(buf)) && strcmp(buf, "yes") == 0;
     tp->fixed_first = !(kv_get(w->config_kv, "fixed_first", buf, sizeof(buf)) && strcmp(buf, "no") == 0);
     tp->recent_max = kv_get_int(w->config_kv, "recent_max", 5);
@@ -2608,8 +2597,7 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
                                 icon_cx = p->x + w->thickness / 2;
                                 icon_cy = p->y + w->x + anchor_x + icon_x_off + icon_px / 2;
                             }
-                            launchfx_trigger(tp->pinned[pi].icon, icon_cx, icon_cy, icon_px,
-                                              tp->launch_feedback_zoom, tp->launch_feedback_ms);
+                            launchfx_trigger(tp->pinned[pi].icon, icon_cx, icon_cy, icon_px);
                         }
                     }
                     break;

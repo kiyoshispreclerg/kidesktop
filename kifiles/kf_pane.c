@@ -1195,7 +1195,7 @@ static void launch_feedback(KfPane *p, GtkTreePath *path, GdkPixbuf *icon)
         int pad = gtk_icon_view_get_item_padding(GTK_ICON_VIEW(p->iconview));
         r = (GdkRectangle){ item.x, item.y + pad, item.width, gdk_pixbuf_get_height(icon) };
     }
-    xis_launchfx_gtk_play(bin, r.x, r.y, r.width, r.height, icon, 2.0, 400);
+    xis_launchfx_gtk_play(bin, r.x, r.y, r.width, r.height, icon);
 }
 
 static void open_path(KfPane *p, GtkTreePath *path)

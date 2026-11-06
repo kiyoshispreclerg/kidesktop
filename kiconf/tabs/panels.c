@@ -529,8 +529,6 @@ static const WidgetField TASKLIST_FIELDS[] = {
     WF_STR("pinned", "Apps fixados no inicio (wm_class1,wm_class2,...)", ""),
     WF_BOOL("fixed_first", "Bloco de fixados antes das janelas normais", "yes"),
     WF_BOOL("launch_feedback", "Animar icone fixado ao lancar", "no"),
-    WF_STR("launch_feedback_zoom", "Ampliacao do icone ao lancar (ex: 2.0; minimo 1.05)", "2.0"),
-    WF_INT("launch_feedback_ms", "Duracao da animacao ao lancar (ms)", "500", 16, 5000),
     WF_INT("recent_max", "Itens recentes na lista do app (0 = ocultar)", "5", 0, 50),
     /* Sidecar file xispanel itself writes/maintains on every pin/unpin
      * (see tasklist_persist_pinned() in widgets/tasklist.c) -- shown here

@@ -60,7 +60,7 @@
 #include "../shared/xis_direction.h"
 #include "../shared/xis_safefile.h"
 
-#define XISSERVE_VERSION "0.2.21"
+#define XISSERVE_VERSION "0.2.22"
 
 #define WIN_WIDTH 520
 #define WIN_HEIGHT 460
@@ -1940,7 +1940,7 @@ static void launch_feedback(GtkTreeModel *model, GtkTreeIter *iter)
         GtkWidget *iv = g_iconview;
         gtk_widget_get_pointer(iv, &px, &py);
         if (px >= 0 && py >= 0 && px < iv->allocation.width && py < iv->allocation.height)
-            xis_launchfx_gtk_play(iv->window, px - iw / 2, py - ih / 2, iw, ih, icon, 2.0, 400);
+            xis_launchfx_gtk_play(iv->window, px - iw / 2, py - ih / 2, iw, ih, icon);
     } else {
         GtkTreeView *tv = GTK_TREE_VIEW(g_treeview);
         GtkTreePath *path = gtk_tree_model_get_path(model, iter);
@@ -1948,7 +1948,7 @@ static void launch_feedback(GtkTreeModel *model, GtkTreeIter *iter)
         gtk_tree_view_get_cell_area(tv, path, gtk_tree_view_get_column(tv, 0), &cell);
         gtk_tree_view_get_visible_rect(tv, &vis);
         if (cell.y >= 0 && cell.y + cell.height <= vis.height)   /* row scrolled into view */
-            xis_launchfx_gtk_play(gtk_tree_view_get_bin_window(tv), cell.x, cell.y, iw, cell.height, icon, 2.0, 400);
+            xis_launchfx_gtk_play(gtk_tree_view_get_bin_window(tv), cell.x, cell.y, iw, cell.height, icon);
         gtk_tree_path_free(path);
     }
     g_object_unref(icon);

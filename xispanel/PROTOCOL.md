@@ -447,11 +447,11 @@ Widget types implemented so far:
   ends; the order of regular windows is kept in memory only.
   `launch_feedback=yes|no` (default `no`) zooms+fades a pinned
   placeholder's icon when clicking it launches the app, so there's some
-  visual acknowledgement while the real window hasn't appeared yet;
-  `launch_feedback_zoom=<factor>` (default `2.0`, minimum `1.05`) sets how
-  large the icon grows by the end of the animation, and
-  `launch_feedback_ms=<ms>` (default `500`, minimum `16`) how long it
-  takes -- both ignored unless `launch_feedback=yes`.
+  visual acknowledgement while the real window hasn't appeared yet. The
+  animation's zoom and duration are global, not per widget: `zoom=` and
+  `duration_ms=` in `launchfx.conf` (shared/xis_launchfx_conf.h), set in
+  kiconf's compositor tab. Older `launch_feedback_zoom=`/`_ms=` keys on a
+  tasklist line are ignored.
   `recent_max=<n>` (default `5`) caps how many of an app's own
   `recently-used.xbel` entries show in its jumplist section (right-click
   menu / pinned-placeholder context menu); `0` omits the section

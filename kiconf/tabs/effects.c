@@ -1091,7 +1091,8 @@ static void save_efeitos_cb(GtkWidget *widget, gpointer data)
         fclose(in);
     }
 
-    if (xis_write_commit(out, tmp, path, xis_check_lines) == 0) {
+    int kicomp_ok = xis_write_commit(out, tmp, path, xis_check_lines) == 0;
+    if (launchfx_write() == 0 && kicomp_ok) {
         kiconf_track_applied(widget);
     }
 
@@ -1317,6 +1318,7 @@ GtkWidget *build_effects_tab(void)
     gtk_box_pack_start(GTK_BOX(fx_box), fx_btnbox, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(content), frame_with(_("Efeitos"), fx_box), TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(content), corners_build(), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(content), launchfx_build(), FALSE, FALSE, 0);
 
     GtkWidget *btnbox = gtk_hbox_new(FALSE, 6);
     GtkWidget *restart_btn = gtk_button_new_with_label(_("Reiniciar kicomp agora"));

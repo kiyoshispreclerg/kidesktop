@@ -1726,11 +1726,10 @@ int toast_has_tag(const char *tag);
  * there's no no-compositor fallback (no-ops silently if none is
  * registered). (cx, cy) is the icon's on-screen center in root
  * coordinates (not just the click point -- see the tasklist.c call site
- * for how it derives that). icon_px is the icon's normal on-panel size,
- * zoom how large it grows by the end (e.g. 2.0), duration_ms how long the
- * whole animation takes (e.g. 500). No-op if icon is NULL. Only one
- * animation plays at a time. */
-void launchfx_trigger(cairo_surface_t *icon, int cx, int cy, int icon_px, double zoom, int duration_ms);
+ * for how it derives that). icon_px is the icon's normal on-panel size.
+ * Zoom and duration are global (launchfx.conf). No-op if icon is NULL.
+ * Only one animation plays at a time. */
+void launchfx_trigger(cairo_surface_t *icon, int cx, int cy, int icon_px);
 void launchfx_tick(uint64_t now); /* advance/retire the active animation, if any */
 uint64_t launchfx_next_wake_ms(void); /* 0 = nothing active, else fold into the main loop's timeout */
 

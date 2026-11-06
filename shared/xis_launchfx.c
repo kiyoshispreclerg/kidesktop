@@ -24,6 +24,7 @@
  * "last one wins" simplicity as e.g. tooltip.c's single popup.
  */
 #include "xis_launchfx.h"
+#include "xis_launchfx_conf.h"
 
 #include <X11/Xatom.h>
 #include <X11/Xutil.h>
@@ -181,11 +182,10 @@ static void paint_frame(double t)
  * tasklist.c call site), not just wherever the pointer happened to be
  * within the button. `icon` is only read/referenced here, never modified
  * or assumed to outlive the call. `icon_px` is the icon's normal
- * on-panel size; `zoom` (e.g. 2.0) is how large it grows by the end;
- * `duration_ms` is how long the whole animation takes. Does nothing if
- * `icon` is NULL, no compositor is currently registered, or clamps
- * `zoom`/`duration_ms` if given a degenerate value. */
-void xis_launchfx_trigger(Display *dpy, int screen, cairo_surface_t *icon, int cx, int cy, int icon_px, double zoom, int duration_ms)
+ * on-panel size. How large it grows and how long it takes come from the
+ * global launchfx.conf (xis_launchfx_conf.h). Does nothing if `icon` is
+ * NULL or no compositor is currently registered. */
+void xis_launchfx_trigger(Display *dpy, int screen, cairo_surface_t *icon, int cx, int cy, int icon_px)
 {
     if (!icon || icon_px <= 0 || cairo_surface_status(icon) != CAIRO_STATUS_SUCCESS) {
         return;
@@ -208,12 +208,9 @@ void xis_launchfx_trigger(Display *dpy, int screen, cairo_surface_t *icon, int c
     if (!g_argb_visual) {
         return;
     }
-    if (zoom < 1.05) {
-        zoom = 1.05;
-    }
-    if (duration_ms < 16) {
-        duration_ms = 16;
-    }
+    double zoom;
+    int duration_ms;
+    xis_launchfx_conf_get(&zoom, &duration_ms);
 
     teardown(); /* only one animation plays at a time */
 

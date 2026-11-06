@@ -6,9 +6,9 @@
 #include "xispanel.h"
 #include "../shared/xis_launchfx.h"
 
-void launchfx_trigger(cairo_surface_t *icon, int cx, int cy, int icon_px, double zoom, int duration_ms)
+void launchfx_trigger(cairo_surface_t *icon, int cx, int cy, int icon_px)
 {
-    xis_launchfx_trigger(g_dpy, g_screen, icon, cx, cy, icon_px, zoom, duration_ms);
+    xis_launchfx_trigger(g_dpy, g_screen, icon, cx, cy, icon_px);
 }
 
 void launchfx_tick(uint64_t now) { xis_launchfx_tick(now); }

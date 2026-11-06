@@ -20,6 +20,10 @@ GtkWidget *build_effects_tab(void);
  * and asked for the text of its kicomp.conf sections on every Aplicar. */
 GtkWidget *corners_build(void);
 void corners_write(FILE *out);
+/* Launch-feedback frame inside the Efeitos tab (tabs/launchfx.c); it writes
+ * its own launchfx.conf, on the same Aplicar. */
+GtkWidget *launchfx_build(void);
+int launchfx_write(void);
 GtkWidget *build_system_tab(void);
 GtkWidget *build_energy_tab(void);
 GtkWidget *build_programs_tab(void);

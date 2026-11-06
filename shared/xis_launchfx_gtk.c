@@ -16,8 +16,7 @@ static gboolean on_tick(gpointer data)
     return FALSE;
 }
 
-void xis_launchfx_gtk_play(GdkWindow *win, int x, int y, int w, int h, GdkPixbuf *icon, double zoom,
-                           int duration_ms)
+void xis_launchfx_gtk_play(GdkWindow *win, int x, int y, int w, int h, GdkPixbuf *icon)
 {
     if (!win || !icon)
         return;
@@ -35,7 +34,7 @@ void xis_launchfx_gtk_play(GdkWindow *win, int x, int y, int w, int h, GdkPixbuf
 
     GdkScreen *scr = gdk_window_get_screen(win);
     xis_launchfx_trigger(GDK_SCREEN_XDISPLAY(scr), gdk_x11_screen_get_screen_number(scr), s, ox + x + w / 2,
-                         oy + y + h / 2, iw > ih ? iw : ih, zoom, duration_ms);
+                         oy + y + h / 2, iw > ih ? iw : ih);
     cairo_surface_destroy(s);   /* the animation keeps its own reference */
     if (xis_launchfx_next_wake_ms() && !g_timer)
         g_timer = g_timeout_add(33, on_tick, NULL);

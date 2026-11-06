@@ -9,7 +9,6 @@
  * coordinates -- where the icon is drawn right now -- e.g. a tree view's
  * bin window and gtk_tree_view_get_cell_area(). The icon is drawn at its own
  * pixel size. No-op without a compositor. */
-void xis_launchfx_gtk_play(GdkWindow *win, int x, int y, int w, int h, GdkPixbuf *icon, double zoom,
-                           int duration_ms);
+void xis_launchfx_gtk_play(GdkWindow *win, int x, int y, int w, int h, GdkPixbuf *icon);
 
 #endif
