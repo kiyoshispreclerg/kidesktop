@@ -1909,6 +1909,7 @@ void xisguard_send_json_arg(const char *cmd, const char *pattern);
  * that is the stream's process or an ancestor of it. */
 uint64_t audio_streams_gen(void);
 int audio_streams_state_for_pid(unsigned long pid); /* 0 silent, 1 playing, 2 playing but muted */
+void audio_streams_toggle_mute_for_pid(unsigned long pid); /* mute if audible, else unmute */
 int audio_streams_any(void); /* at least one sink-input exists (cheap pre-check before a per-window pid lookup) */
 void audio_streams_invalidate(void);
 

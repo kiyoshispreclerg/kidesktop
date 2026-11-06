@@ -171,3 +171,31 @@ void audio_streams_invalidate(void)
     const char *text;
     asyncmd_get(STREAMS_CMD, 3600u * 1000u, &text); /* spawns now unless a run is in flight */
 }
+
+/* Mutes every stream of `pid` (and its descendants) when any is audible,
+ * unmutes them otherwise -- what the speaker badge's state says a click
+ * should flip. The change comes back as a sink-input event and refreshes
+ * the badge, so nothing is updated here. Corked streams are included: a
+ * paused player keeps the mute when it resumes. */
+void audio_streams_toggle_mute_for_pid(unsigned long pid)
+{
+    if (!pid) {
+        return;
+    }
+    int mute = audio_streams_state_for_pid(pid) == 1;
+    char cmd[STREAMS_MAX * 48];
+    size_t len = 0;
+    cmd[0] = 0;
+    for (int i = 0; i < g_n_streams && len + 48 < sizeof(cmd); i++) {
+        for (int k = 0; g_streams[i].chain[k]; k++) {
+            if (g_streams[i].chain[k] == pid) {
+                len += (size_t)snprintf(cmd + len, sizeof(cmd) - len, "pactl set-sink-input-mute %d %d; ",
+                                        g_streams[i].index, mute);
+                break;
+            }
+        }
+    }
+    if (len) {
+        run_detached(cmd);
+    }
+}

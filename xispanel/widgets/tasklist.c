@@ -275,6 +275,10 @@ typedef struct {
     Window menu_group_win[TASKLIST_GROUP_MENU_ITEM_CAP];
     int menu_group_local_idx[TASKLIST_GROUP_MENU_ITEM_CAP];
     int menu_group_n;
+    /* Whether the plain Button3 menu now open had the mute item: the item
+     * is only there while the app plays, so the indices after it shift --
+     * see tasklist_canonical_action(). */
+    int menu_audio;
 
     /* Signature of everything tasklist_paint() draws that can change on
      * its own between ticks (the task set, the active-window highlight,
@@ -2205,6 +2209,21 @@ static int tasklist_jumplist_index_lookup(const TasklistJumplist *jl, int fixed_
     return 0;
 }
 
+/* Menu position of the mute item (only emitted while the app plays audio) and
+ * the action number tasklist_apply_action() knows it by. Positions after it
+ * shift by one in the menu; actions never do, so the jumplist numbering
+ * stays what it always was. */
+#define TASKLIST_MUTE_POS 8
+#define TASKLIST_ACTION_MUTE 1000
+
+static int tasklist_canonical_action(int menu_pos, int has_audio)
+{
+    if (!has_audio || menu_pos < TASKLIST_MUTE_POS) {
+        return menu_pos;
+    }
+    return menu_pos == TASKLIST_MUTE_POS ? TASKLIST_ACTION_MUTE : menu_pos - 1;
+}
+
 /* Number of fixed items before the jumplist section of a real window's menu. */
 #define TASKLIST_FIXED_ITEMS 8
 
@@ -2251,8 +2270,8 @@ static void tasklist_toggle_capture_excluded(Window win)
 
 /* Builds the standard real-window context-menu items (0=minimize/restore,
  * 1=maximize/restore, 2=move, 3=close, [4]=separator, 5=pin/unpin,
- * 6=open another instance, 7=hide from screen capture, 8..=jumplist actions/recent files) for `e`
- * into `items` (caller-zeroed, sized >= TASKLIST_FIXED_ITEMS + 2 + MAX_JUMPLIST_ACTIONS +
+ * 6=open another instance, 7=hide from screen capture, [8]=mute (only while `e` plays audio, see tasklist_canonical_action()), then jumplist actions/recent files) for `e`
+ * into `items` (caller-zeroed, sized >= TASKLIST_FIXED_ITEMS + 3 + MAX_JUMPLIST_ACTIONS +
  * MAX_RECENT_ITEMS). Shared by the plain per-window Button3 menu and, per
  * group member, a grouped button's Button3 submenu (see
  * tasklist_on_button()) -- tasklist_apply_action() below is the exact
@@ -2284,6 +2303,11 @@ static int tasklist_build_action_items(TasklistPriv *tp, const TaskEntry *e, Men
     items[n].enabled = 1;
     items[n].checked = tasklist_capture_excluded(e->win);
     n++;
+    if (e->audio) {
+        snprintf(items[n].label, sizeof(items[n].label), "%s", e->audio == 2 ? _("Reativar o som") : _("Silenciar"));
+        items[n].enabled = 1;
+        n++;
+    }
 
     TasklistJumplist jl;
     tasklist_resolve_jumplist(e->wm_class, tp->recent_max, &jl);
@@ -2305,7 +2329,7 @@ static void tasklist_apply_action(PanelWidget *w, Window win, int local_idx)
     TasklistPriv *tp = w->priv;
     int idx = tasklist_find(tp, win);
 
-    if (local_idx >= TASKLIST_FIXED_ITEMS) {
+    if (local_idx >= TASKLIST_FIXED_ITEMS && local_idx != TASKLIST_ACTION_MUTE) {
         /* index TASKLIST_FIXED_ITEMS.. is the jumplist section (actions, then recent files)
          * -- re-resolved from wm_class rather than kept around from when
          * the menu was built, same "re-read rather than cache" call
@@ -2359,6 +2383,9 @@ static void tasklist_apply_action(PanelWidget *w, Window win, int local_idx)
         break;
     case 7: /* Ocultar da captura de tela -- the property is the state */
         tasklist_toggle_capture_excluded(win);
+        break;
+    case TASKLIST_ACTION_MUTE:
+        audio_streams_toggle_mute_for_pid(ewmh_get_pid(win));
         break;
     case 5:
         if (idx >= 0) {
@@ -2478,7 +2505,7 @@ static void tasklist_menu_select(Panel *panel, PanelWidget *w, void *ctx, int in
     }
 
     Window win = (Window)(uintptr_t)ctx;
-    tasklist_apply_action(w, win, index);
+    tasklist_apply_action(w, win, tasklist_canonical_action(index, tp->menu_audio));
 }
 
 static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local_y, int root_x, int root_y)
@@ -2598,14 +2625,14 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
             tp->menu_group_local_idx[n] = -1;
             n++;
 
-            MenuItem sub[TASKLIST_FIXED_ITEMS + 2 + MAX_JUMPLIST_ACTIONS + MAX_RECENT_ITEMS];
+            MenuItem sub[TASKLIST_FIXED_ITEMS + 3 + MAX_JUMPLIST_ACTIONS + MAX_RECENT_ITEMS];
             memset(sub, 0, sizeof(sub));
             int sn = tasklist_build_action_items(tp, me, sub);
             for (int k = 0; k < sn && n < TASKLIST_GROUP_MENU_ITEM_CAP; k++) {
                 items[n] = sub[k];
                 depth[n] = 1;
                 tp->menu_group_win[n] = me->win;
-                tp->menu_group_local_idx[n] = sub[k].is_separator ? -1 : k;
+                tp->menu_group_local_idx[n] = sub[k].is_separator ? -1 : tasklist_canonical_action(k, me->audio != 0);
                 n++;
             }
         }
@@ -2707,9 +2734,10 @@ static int tasklist_on_button(PanelWidget *w, int button, int local_x, int local
     }
 
     if (button == Button3) {
-        MenuItem items[TASKLIST_FIXED_ITEMS + 2 + MAX_JUMPLIST_ACTIONS + MAX_RECENT_ITEMS];
+        MenuItem items[TASKLIST_FIXED_ITEMS + 3 + MAX_JUMPLIST_ACTIONS + MAX_RECENT_ITEMS];
         memset(items, 0, sizeof(items));
         int n = tasklist_build_action_items(tp, e, items);
+        tp->menu_audio = e->audio != 0;
         panel_menu_open(w->panel, w, anchor_x, anchor_w, items, n, (void *)(uintptr_t)e->win, tasklist_menu_select);
         return 1;
     }
