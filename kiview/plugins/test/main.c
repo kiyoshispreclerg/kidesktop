@@ -4,19 +4,19 @@
  * zoom anchors, panning, rotation, density and transparency by eye. Opened
  * for files named *.kvtest. */
 #include <stdio.h>
-#include <unistd.h>
 
 #include "../libkvp/kvp.h"
 
 #define W 4000
 #define H 3000
 
-static cairo_surface_t *load(int fd, const char *name, const char *mime, char **format, GError **err)
+static KvpDecoded *load(GBytes *data, const char *name, const char *mime, const KvpTarget *t, GError **err)
 {
+    (void)data;
     (void)name;
     (void)mime;
+    (void)t;
     (void)err;
-    close(fd);
     cairo_surface_t *s = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, W, H);
     cairo_t *cr = cairo_create(s);
     cairo_pattern_t *g = cairo_pattern_create_linear(0, 0, W, H);
@@ -62,8 +62,13 @@ static cairo_surface_t *load(int fd, const char *name, const char *mime, char **
     cairo_rectangle(cr, W - 600, H - 400, 600, 400);
     cairo_fill(cr);
     cairo_destroy(cr);
-    *format = g_strdup_printf("test grid %d×%d", W, H);
-    return s;
+    KvpDecoded *r = g_new0(KvpDecoded, 1);
+    r->img = s;
+    r->denom = 1;
+    r->full_w = W;
+    r->full_h = H;
+    r->format = g_strdup_printf("test grid %d×%d", W, H);
+    return r;
 }
 
 int main(void)

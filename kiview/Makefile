@@ -28,12 +28,29 @@ HDRS := kv.h plugins/libkvp/kvp_msg.h ../shared/xis_i18n.h ../shared/xis_winstat
 LIBKVP_OBJS := plugins/libkvp/kvp_bitmap.o plugins/libkvp/kvp_view.o plugins/libkvp/kvp_msg.o
 PLUGIN_CFLAGS := $(shell pkg-config --cflags glib-2.0 cairo x11 gdk-pixbuf-2.0)
 PLUGIN_LIBS := $(shell pkg-config --libs glib-2.0 cairo x11 gdk-pixbuf-2.0) -lm
-# WebP is optional: without libwebp the image plugin just doesn't read it.
-HAVE_WEBP := $(shell pkg-config --exists libwebp && echo 1)
-ifeq ($(HAVE_WEBP),1)
-PLUGIN_CFLAGS += -DHAVE_WEBP $(shell pkg-config --cflags libwebp)
-PLUGIN_LIBS += $(shell pkg-config --libs libwebp)
+# The image plugin's own decoders are optional: without one of these libraries
+# its format goes through gdk-pixbuf (WebP then isn't read at all).
+IMG_CFLAGS :=
+IMG_LIBS :=
+ifneq ($(shell pkg-config --exists libjpeg && echo 1),)
+IMG_CFLAGS += -DHAVE_JPEG $(shell pkg-config --cflags libjpeg)
+IMG_LIBS += $(shell pkg-config --libs libjpeg)
 endif
+ifneq ($(shell pkg-config --exists libpng && echo 1),)
+IMG_CFLAGS += -DHAVE_PNG $(shell pkg-config --cflags libpng)
+IMG_LIBS += $(shell pkg-config --libs libpng)
+endif
+ifneq ($(shell pkg-config --exists libwebp libwebpdemux && echo 1),)
+IMG_CFLAGS += -DHAVE_WEBP $(shell pkg-config --cflags libwebp libwebpdemux)
+IMG_LIBS += $(shell pkg-config --libs libwebp libwebpdemux)
+endif
+# giflib has no .pc file on most distributions
+ifneq ($(shell echo '\#include <gif_lib.h>' | $(CC) -E -x c - >/dev/null 2>&1 && echo 1),)
+IMG_CFLAGS += -DHAVE_GIF
+IMG_LIBS += -lgif
+endif
+IMAGE_OBJS := plugins/image/main.o plugins/image/exif.o plugins/image/dec_jpeg.o plugins/image/dec_png.o \
+              plugins/image/dec_gif.o plugins/image/dec_webp.o plugins/image/dec_pixbuf.o
 PLUGINS := kiview-image kiview-test
 
 all: kiview $(PLUGINS)
@@ -41,8 +58,11 @@ all: kiview $(PLUGINS)
 kiview: $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(PKG_LIBS) -lm
 
-kiview-image: plugins/image/main.o $(LIBKVP_OBJS)
-	$(CC) $(CFLAGS) -o $@ $^ $(PLUGIN_LIBS)
+kiview-image: $(IMAGE_OBJS) $(LIBKVP_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(PLUGIN_LIBS) $(IMG_LIBS)
+
+$(IMAGE_OBJS): plugins/image/image.h
+$(IMAGE_OBJS): PLUGIN_CFLAGS += $(IMG_CFLAGS)
 
 kiview-test: plugins/test/main.o $(LIBKVP_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(PLUGIN_LIBS)
