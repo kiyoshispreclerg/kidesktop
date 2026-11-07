@@ -50,6 +50,7 @@
 #include "window.h"
 #include "animation.h"
 #include "region.h"
+#include "output.h"
 
 #include <epoxy/gl.h>
 #include <epoxy/glx.h>
@@ -102,6 +103,13 @@ static bool have_buffer_age;
 /* GLX_OML_sync_control: the vblank counter behind the drawable, which is
  * what turns "the swap probably waited for vblank" into a number. */
 static bool have_oml_sync;
+
+/* GLX_MESA_copy_sub_buffer: a sourced output (xscale.h) puts on screen
+ * only what the server copies out of its window, which is whatever that
+ * window's Damage says -- the whole of it after a swap. Copying only what
+ * was repainted instead keeps the server's copy to the same, and leaves
+ * the back buffer holding the frame just shown. */
+static bool have_copy_sub_buffer;
 /* Per-output GLX state, hung off CompOutput::render_data: the drawable,
  * and the shared drawing's own bookkeeping embedded first. */
 typedef struct {
@@ -109,6 +117,8 @@ typedef struct {
     Window window;          /* CRTC-covering child of the overlay, or for a
                              * sourced output a top-level of its own */
     GLXWindow drawable;
+    bool sub_copy;          /* presented by glXCopySubBufferMESA */
+    bool drawn;             /* ...and the back buffer holds the last frame */
 } GlxOutput;
 
 /* The GLX half of a window (GlWindow::platform): the named pixmap and
@@ -169,6 +179,9 @@ static bool choose_configs(void)
      * counter is the server's, the entry point the client's. */
     have_oml_sync = epoxy_has_glx_extension(dpy, screen, "GLX_OML_sync_control") &&
                     client_ext && strstr(client_ext, "GLX_OML_sync_control");
+
+    have_copy_sub_buffer = epoxy_has_glx_extension(dpy, screen,
+                                                   "GLX_MESA_copy_sub_buffer");
 
     if (!have_tfp) {
         fprintf(stderr, "kicomp: glx: no GLX_EXT_texture_from_pixmap; "
@@ -461,6 +474,10 @@ static bool glx_init(CompOutput *o)
         xcb_flush(comp.conn);
     }
 
+    go->sub_copy = o->sourced && have_copy_sub_buffer;
+    if (go->sub_copy)
+        comp_info("%s: only what is repainted goes to the server "
+                  "(GLX_MESA_copy_sub_buffer)", o->name);
     o->render_data = go;
     /* No XRender target: the presenters that read one are not the ones
      * this backend comes with. */
@@ -704,7 +721,44 @@ void renderer_glx_swap(CompOutput *o)
         return;
 
     glXMakeContextCurrent(dpy, go->drawable, go->drawable, context);
-    glXSwapBuffers(dpy, go->drawable);
+    if (!go->sub_copy) {
+        glXSwapBuffers(dpy, go->drawable);
+        return;
+    }
+
+    /* What this frame repainted, in the drawable's pixels (counted from
+     * the bottom); a handful of rectangles each, or their bounds. */
+    const CompRegion *r = &go->gl.repaint;
+    CompRect all = { 0, 0, o->physical.w, o->physical.h };
+    CompRect boxes[COMP_REGION_MAX];
+    int n = 0;
+    if (region_is_full(r) || r->count == 0) {
+        boxes[n++] = all;
+    } else {
+        for (int i = 0; i < r->count; i++) {
+            CompRect b = output_target_cover(o, &r->rects[i]), hit;
+            if (rect_intersect(&b, &all, &hit))
+                boxes[n++] = hit;
+        }
+        if (n > 4) {
+            int x0 = boxes[0].x, y0 = boxes[0].y;
+            int x1 = x0 + boxes[0].w, y1 = y0 + boxes[0].h;
+            for (int i = 1; i < n; i++) {
+                const CompRect *b = &boxes[i];
+                if (b->x < x0) x0 = b->x;
+                if (b->y < y0) y0 = b->y;
+                if (b->x + b->w > x1) x1 = b->x + b->w;
+                if (b->y + b->h > y1) y1 = b->y + b->h;
+            }
+            boxes[0] = (CompRect){ x0, y0, x1 - x0, y1 - y0 };
+            n = 1;
+        }
+    }
+    for (int i = 0; i < n; i++)
+        glXCopySubBufferMESA(dpy, go->drawable, boxes[i].x,
+                             o->physical.h - (boxes[i].y + boxes[i].h),
+                             boxes[i].w, boxes[i].h);
+    go->drawn = true;
 }
 
 /* The drawable's counters right now (GLX_OML_sync_control): ust is the
@@ -741,7 +795,9 @@ static void glx_begin(CompOutput *o, const CompRegion *damage)
     /* How many swaps old the back buffer is, when the driver will say
      * (GLX_EXT_buffer_age); 0 otherwise, and the frame is drawn whole. */
     unsigned age = 0;
-    if (have_buffer_age)
+    if (go->sub_copy)
+        age = go->drawn ? 1 : 0;
+    else if (have_buffer_age)
         glXQueryDrawable(dpy, go->drawable, GLX_BACK_BUFFER_AGE_EXT, &age);
 
     gl_begin(o, &go->gl, damage, age);
