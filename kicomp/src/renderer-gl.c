@@ -44,11 +44,24 @@
 static const GlPlatform *platform;
 
 
+/* The window program, as variants of fragment_source with only the
+ * features a draw uses compiled in (FEAT_*): one shader that tests a
+ * uniform for each of them still samples the mask and works the corner
+ * distance out for every pixel on a GPU that can't skip either. `program`
+ * is the plain variant, built up front; the rest are built on first use.
+ *
+ * The u_* below are not locations but indices into a copy of the
+ * program's uniforms (wu_*), since each variant has its own: a value is
+ * set on the bound variant and kept, and a variant bound later gets them
+ * all. use_mask, use_corners and use_hole are not uniforms at all any
+ * more -- setting them is what picks the variant. */
 static GLuint program;
-static GLint u_projection, u_transform, u_opacity, u_texture, u_y_flip, u_use_uv;
-static GLint u_mask, u_use_mask;
-static GLint u_use_corners, u_corner_radii, u_corner_size;
-static GLint u_use_hole, u_hole, u_mask_adjust;
+enum {
+    u_projection, u_transform, u_opacity, u_texture, u_y_flip, u_use_uv,
+    u_mask, u_corner_radii, u_corner_size, u_hole, u_mask_adjust,
+    WU_UNIFORMS,
+    u_use_mask = WU_UNIFORMS, u_use_corners, u_use_hole,
+};
 static GLuint quad_vbo;
 static GLuint mesh_vbo;
 static GLuint shadow_mesh_vbo;
@@ -173,10 +186,8 @@ static const char *vertex_source =
     "}\n";
 
 static const char *fragment_source =
-    "#version 120\n"
     "uniform sampler2D texture0;\n"
     "uniform sampler2D mask;\n"
-    "uniform float use_mask;\n"
     "uniform float opacity;\n"
     /* The analytic alternative to `mask`: kiwm's own corner radii
      * (_KIWM_CORNER_RADIUS), tl/tr/br/bl, in the same logical pixels as
@@ -185,14 +196,12 @@ static const char *fragment_source =
      * decoration layer today -- so the round corners of a density-scaled
      * frame come out exactly as round as the screen has pixels for,
      * rather than a magnified 1x stair-step. */
-    "uniform float use_corners;\n"
     "uniform vec4 corner_radii;\n"
     "uniform vec2 corner_size;\n"
     /* A rectangle of the quad (in the same 0..1 coordinates as maskcoord,
      * x0 y0 x1 y1) this draw leaves alone: where an X-DENSITY layer is
      * about to cover the window anyway, or is itself transparent -- see
      * draw_node(). Discarded before anything is sampled or blended. */
-    "uniform float use_hole;\n"
     "uniform vec4 hole;\n"
     "varying vec2 texcoord;\n"
     "varying vec2 maskcoord;\n"
@@ -207,24 +216,27 @@ static const char *fragment_source =
     "    return min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - rr;\n"
     "}\n"
     "void main() {\n"
-    "    if (use_hole > 0.5 &&\n"
-    "        all(greaterThanEqual(maskcoord, hole.xy)) &&\n"
+    "#ifdef FEAT_HOLE\n"
+    "    if (all(greaterThanEqual(maskcoord, hole.xy)) &&\n"
     "        all(lessThan(maskcoord, hole.zw)))\n"
     "        discard;\n"
+    "#endif\n"
     "    vec4 c = texture2D(texture0, texcoord);\n"
     /* Premultiplied, so the silhouette multiplies the whole texel --
      * colour and alpha together -- rather than the alpha alone. */
-    "    c *= mix(1.0, texture2D(mask, maskcoord).a, use_mask);\n"
-    "    if (use_corners > 0.5) {\n"
-    "        vec2 local = maskcoord * corner_size;\n"
-    "        float dist = rounded_box_sdf(local - corner_size * 0.5,\n"
-    "                                     corner_size * 0.5, corner_radii);\n"
+    "#ifdef FEAT_MASK\n"
+    "    c *= texture2D(mask, maskcoord).a;\n"
+    "#endif\n"
+    "#ifdef FEAT_CORNERS\n"
+    "    vec2 local = maskcoord * corner_size;\n"
+    "    float dist = rounded_box_sdf(local - corner_size * 0.5,\n"
+    "                                 corner_size * 0.5, corner_radii);\n"
     /* fwidth(dist) is how much the distance changes over one screen
      * pixel -- in logical units that shrink as density grows -- so this
      * band is always about one screen pixel wide, at any scale. */
-    "        float aa = max(fwidth(dist), 0.0001);\n"
-    "        c *= 1.0 - smoothstep(-aa, aa, dist);\n"
-    "    }\n"
+    "    float aa = max(fwidth(dist), 0.0001);\n"
+    "    c *= 1.0 - smoothstep(-aa, aa, dist);\n"
+    "#endif\n"
     "    gl_FragColor = c * opacity;\n"
     "}\n";
 
@@ -539,27 +551,146 @@ static GLuint program_get(const char *what, const char *vsrc, const char *fsrc,
     return prog;
 }
 
+#define FEAT_MASK    1u
+#define FEAT_CORNERS 2u
+#define FEAT_HOLE    4u
+#define FEAT_ALL     8u
+
+static const char *const wu_names[WU_UNIFORMS] = {
+    "projection", "transform", "opacity", "texture0", "y_flip", "use_uv",
+    "mask", "corner_radii", "corner_size", "hole", "mask_adjust",
+};
+/* How many floats each one is; 1i for the samplers, stored as floats. */
+static const int wu_size[WU_UNIFORMS] = { 16, 16, 1, -1, 1, 1, -1, 4, 2, 4, 4 };
+
+static GLuint variants[FEAT_ALL];
+static bool variant_failed[FEAT_ALL];
+static GLint variant_loc[FEAT_ALL][WU_UNIFORMS];
+static unsigned variant_synced[FEAT_ALL];
+static float wu_value[WU_UNIFORMS][16];
+static bool wu_known[WU_UNIFORMS];
+static unsigned wu_serial = 1;      /* bumped by every change of a value */
+static unsigned wu_feat;            /* what the use_* values ask for */
+static int wu_bound = -1;           /* the variant in use, -1: another program */
+
+static GLuint variant_get(unsigned feat)
+{
+    if (variants[feat] || variant_failed[feat])
+        return variants[feat];
+
+    static const char *const attribs[] = { "position", "uv", NULL };
+    char what[16], head[128];
+    snprintf(what, sizeof(what), "window-%u", feat);
+    snprintf(head, sizeof(head), "#version 120\n%s%s%s",
+             feat & FEAT_MASK ? "#define FEAT_MASK\n" : "",
+             feat & FEAT_CORNERS ? "#define FEAT_CORNERS\n" : "",
+             feat & FEAT_HOLE ? "#define FEAT_HOLE\n" : "");
+    size_t n = strlen(head) + strlen(fragment_source) + 1;
+    char *fsrc = malloc(n);
+    if (!fsrc) {
+        variant_failed[feat] = true;
+        return 0;
+    }
+    snprintf(fsrc, n, "%s%s", head, fragment_source);
+    GLuint p = program_get(what, vertex_source, fsrc, attribs);
+    free(fsrc);
+    if (!p) {
+        variant_failed[feat] = true;
+        return 0;
+    }
+    for (int i = 0; i < WU_UNIFORMS; i++)
+        variant_loc[feat][i] = glGetUniformLocation(p, wu_names[i]);
+    variant_synced[feat] = 0;
+    variants[feat] = p;
+    return p;
+}
+
+static void wu_send(unsigned v, int i)
+{
+    GLint loc = variant_loc[v][i];
+    const float *f = wu_value[i];
+    if (loc < 0)
+        return;
+    switch (wu_size[i]) {
+    case -1: glUniform1i(loc, (GLint)f[0]); break;
+    case 1:  glUniform1f(loc, f[0]); break;
+    case 2:  glUniform2f(loc, f[0], f[1]); break;
+    case 4:  glUniform4f(loc, f[0], f[1], f[2], f[3]); break;
+    default: glUniformMatrix4fv(loc, 1, GL_FALSE, f); break;
+    }
+}
+
+/* Binds the variant the use_* values ask for, bringing its uniforms up
+ * to date; what every `glUseProgram(program)` of this file became. */
+static void window_program_use(void)
+{
+    unsigned v = wu_feat;
+    if (!variant_get(v))
+        v = FEAT_ALL - 1;           /* everything in: right for any draw */
+    if (!variant_get(v))
+        return;
+    glUseProgram(variants[v]);
+    wu_bound = (int)v;
+    if (variant_synced[v] != wu_serial) {
+        for (int i = 0; i < WU_UNIFORMS; i++)
+            if (wu_known[i])
+                wu_send(v, i);
+        variant_synced[v] = wu_serial;
+    }
+}
+
+static void other_program_use(GLuint p)
+{
+    glUseProgram(p);
+    wu_bound = -1;
+}
+
+static void wu_set(int i, const float *f, int n)
+{
+    if (i >= WU_UNIFORMS) {
+        unsigned bit = i == u_use_mask ? FEAT_MASK
+                     : i == u_use_corners ? FEAT_CORNERS : FEAT_HOLE;
+        unsigned feat = f[0] > 0.5f ? (wu_feat | bit) : (wu_feat & ~bit);
+        if (feat != wu_feat) {
+            wu_feat = feat;
+            if (wu_bound >= 0)
+                window_program_use();
+        }
+        return;
+    }
+    if (wu_known[i] && memcmp(wu_value[i], f, (size_t)n * sizeof(float)) == 0)
+        return;
+    memcpy(wu_value[i], f, (size_t)n * sizeof(float));
+    wu_known[i] = true;
+    bool in_sync = wu_bound >= 0 && variant_synced[wu_bound] == wu_serial;
+    wu_serial++;
+    if (wu_bound >= 0) {
+        wu_send((unsigned)wu_bound, i);
+        if (in_sync)
+            variant_synced[wu_bound] = wu_serial;
+    }
+}
+
+static void wu1f(int i, float a) { wu_set(i, &a, 1); }
+static void wu1i(int i, GLint a) { float f = (float)a; wu_set(i, &f, 1); }
+static void wu2f(int i, float a, float b) { const float f[2] = { a, b }; wu_set(i, f, 2); }
+static void wu4f(int i, float a, float b, float c, float d)
+{
+    const float f[4] = { a, b, c, d };
+    wu_set(i, f, 4);
+}
+static void wum4(int i, GLsizei count, GLboolean transpose, const float *m)
+{
+    (void)count;
+    (void)transpose;
+    wu_set(i, m, 16);
+}
+
 static bool program_build(void)
 {
-    static const char *const attribs[] = { "position", "uv", NULL };
-    program = program_get("window", vertex_source, fragment_source, attribs);
+    program = variant_get(0);
     if (!program)
         return false;
-
-    u_projection = glGetUniformLocation(program, "projection");
-    u_transform = glGetUniformLocation(program, "transform");
-    u_opacity = glGetUniformLocation(program, "opacity");
-    u_texture = glGetUniformLocation(program, "texture0");
-    u_y_flip = glGetUniformLocation(program, "y_flip");
-    u_mask = glGetUniformLocation(program, "mask");
-    u_use_mask = glGetUniformLocation(program, "use_mask");
-    u_use_uv = glGetUniformLocation(program, "use_uv");
-    u_use_corners = glGetUniformLocation(program, "use_corners");
-    u_corner_radii = glGetUniformLocation(program, "corner_radii");
-    u_corner_size = glGetUniformLocation(program, "corner_size");
-    u_use_hole = glGetUniformLocation(program, "use_hole");
-    u_hole = glGetUniformLocation(program, "hole");
-    u_mask_adjust = glGetUniformLocation(program, "mask_adjust");
 
     /* One unit quad, reused for every window: the transform is what makes
      * it the right size in the right place, which is the same thing the
@@ -1261,7 +1392,7 @@ static void draw_shadow(const CompOutput *o, const CompSceneNode *n,
     float m[16];
     rect_matrix(&box, &n->transform, m);
 
-    glUseProgram(shadow_program);
+    other_program_use(shadow_program);
     glUniformMatrix4fv(su_projection, 1, GL_FALSE, projection);
     glUniformMatrix4fv(su_transform, 1, GL_FALSE, m);
     glUniform4f(su_color, st.r, st.g, st.b, st.opacity * n->opacity);
@@ -1415,17 +1546,17 @@ static void copy_previous(const CompOutput *o, const GlOutput *go,
     static const float identity[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
     static const float to_clip[16] = { 2,0,0,0, 0,2,0,0, 0,0,1,0, -1,-1,0,1 };
 
-    glUseProgram(program);
-    glUniformMatrix4fv(u_projection, 1, GL_FALSE, identity);
-    glUniformMatrix4fv(u_transform, 1, GL_FALSE, to_clip);
-    glUniform1i(u_texture, 0);
-    glUniform1f(u_opacity, 1.0f);
-    glUniform1f(u_y_flip, 0.0f);
-    glUniform1f(u_use_uv, 0.0f);
-    glUniform1f(u_use_mask, 0.0f);
-    glUniform1f(u_use_hole, 0.0f);
-    glUniform1f(u_use_corners, 0.0f);
-    glUniform4f(u_mask_adjust, 0.0f, 0.0f, 0.0f, 0.0f);
+    window_program_use();
+    wum4(u_projection, 1, GL_FALSE, identity);
+    wum4(u_transform, 1, GL_FALSE, to_clip);
+    wu1i(u_texture, 0);
+    wu1f(u_opacity, 1.0f);
+    wu1f(u_y_flip, 0.0f);
+    wu1f(u_use_uv, 0.0f);
+    wu1f(u_use_mask, 0.0f);
+    wu1f(u_use_hole, 0.0f);
+    wu1f(u_use_corners, 0.0f);
+    wu4f(u_mask_adjust, 0.0f, 0.0f, 0.0f, 0.0f);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, go->previous);
     glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
@@ -1554,13 +1685,13 @@ static void draw_backdrop(CompOutput *o, const CompScene *s,
     float m[16];
     rect_matrix(&b->rect, &identity, m);
 
-    glUseProgram(program);
-    glUniform1f(u_use_mask, 0.0f);
-    glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
-    glUniform1i(u_texture, 0);
-    glUniform1f(u_y_flip, 0.0f);
-    glUniformMatrix4fv(u_transform, 1, GL_FALSE, m);
-    glUniform1f(u_opacity, b->opacity);
+    window_program_use();
+    wu1f(u_use_mask, 0.0f);
+    wum4(u_projection, 1, GL_FALSE, projection);
+    wu1i(u_texture, 0);
+    wu1f(u_y_flip, 0.0f);
+    wum4(u_transform, 1, GL_FALSE, m);
+    wu1f(u_opacity, b->opacity);
 
     scissor_for(o, repaint_rect.x, repaint_rect.y,
                 repaint_rect.w, repaint_rect.h);
@@ -1782,15 +1913,15 @@ static CompRect client_rect_now(const CompWindow *w)
 static void set_hole(const CompRect *quad, const CompRect *hole)
 {
     if (!hole || quad->w <= 0 || quad->h <= 0) {
-        glUniform1f(u_use_hole, 0.0f);
+        wu1f(u_use_hole, 0.0f);
         return;
     }
     float qw = (float)quad->w, qh = (float)quad->h;
-    glUniform4f(u_hole, (float)(hole->x - quad->x) / qw,
+    wu4f(u_hole, (float)(hole->x - quad->x) / qw,
                 (float)(hole->y - quad->y) / qh,
                 (float)(hole->x + hole->w - quad->x) / qw,
                 (float)(hole->y + hole->h - quad->y) / qh);
-    glUniform1f(u_use_hole, 1.0f);
+    wu1f(u_use_hole, 1.0f);
 }
 
 /* kiwm's answer for its own frame's corner radii (_KIWM_CORNER_RADIUS),
@@ -1828,8 +1959,8 @@ static void draw_dense(const CompOutput *o, const CompSceneNode *n,
 
     float m[16];
     rect_matrix(area, &n->transform, m);
-    glUniformMatrix4fv(u_transform, 1, GL_FALSE, m);
-    glUniform1f(u_y_flip, d->y_inverted ? 0.0f : 1.0f);
+    wum4(u_transform, 1, GL_FALSE, m);
+    wu1f(u_y_flip, d->y_inverted ? 0.0f : 1.0f);
 
     /* Three ways to come out of this: kiwm's own radii, analytically
      * (the decoration layer, when they are known -- exact at any density,
@@ -1850,28 +1981,28 @@ static void draw_dense(const CompOutput *o, const CompSceneNode *n,
                     (area->x != frame->x || area->y != frame->y ||
                      area->w != frame->w || area->h != frame->h);
     if (adjusted)
-        glUniform4f(u_mask_adjust,
+        wu4f(u_mask_adjust,
                     (float)(area->x - frame->x) / (float)frame->w,
                     (float)(area->y - frame->y) / (float)frame->h,
                     (float)area->w / (float)frame->w - 1.0f,
                     (float)area->h / (float)frame->h - 1.0f);
 
     if (corners) {
-        glUniform1f(u_use_corners, 1.0f);
-        glUniform4f(u_corner_radii, (float)corners->tl, (float)corners->tr,
+        wu1f(u_use_corners, 1.0f);
+        wu4f(u_corner_radii, (float)corners->tl, (float)corners->tr,
                    (float)corners->br, (float)corners->bl);
-        glUniform2f(u_corner_size, (float)frame->w, (float)frame->h);
-        glUniform1f(u_use_mask, 0.0f);
+        wu2f(u_corner_size, (float)frame->w, (float)frame->h);
+        wu1f(u_use_mask, 0.0f);
     } else if (mask) {
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, mask);
         glActiveTexture(GL_TEXTURE0);
-        glUniform1i(u_mask, 1);
-        glUniform1f(u_use_mask, 1.0f);
-        glUniform1f(u_use_corners, 0.0f);
+        wu1i(u_mask, 1);
+        wu1f(u_use_mask, 1.0f);
+        wu1f(u_use_corners, 0.0f);
     } else {
-        glUniform1f(u_use_mask, 0.0f);
-        glUniform1f(u_use_corners, 0.0f);
+        wu1f(u_use_mask, 0.0f);
+        wu1f(u_use_corners, 0.0f);
     }
 
     /* A layer with no alpha, over a window nothing is fading or
@@ -1901,9 +2032,9 @@ static void draw_dense(const CompOutput *o, const CompSceneNode *n,
      * solid) would sample corner_radii/corner_size as they stood for
      * *this* window. */
     if (corners)
-        glUniform1f(u_use_corners, 0.0f);
+        wu1f(u_use_corners, 0.0f);
     if (adjusted)
-        glUniform4f(u_mask_adjust, 0.0f, 0.0f, 0.0f, 0.0f);
+        wu4f(u_mask_adjust, 0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 /* Does the client's rectangle (frame-relative) reach into any of the
@@ -2203,7 +2334,7 @@ static void draw_shadow_mesh(const CompOutput *o, const CompSceneNode *n,
 
     float identity[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
 
-    glUseProgram(shadow_program);
+    other_program_use(shadow_program);
     glUniformMatrix4fv(su_projection, 1, GL_FALSE, projection);
     glUniformMatrix4fv(su_transform, 1, GL_FALSE, identity);
     glUniform4f(su_color, st.r, st.g, st.b, st.opacity * n->opacity);
@@ -2396,11 +2527,11 @@ static void draw_sub_quad(const CompOutput *o, const CompSceneNode *n,
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
                           (const void *)(2 * sizeof(float)));
-    glUniform1f(u_use_uv, 1.0f);
+    wu1f(u_use_uv, 1.0f);
 
     float m[16];
     rect_matrix(area, &n->transform, m);
-    glUniformMatrix4fv(u_transform, 1, GL_FALSE, m);
+    wum4(u_transform, 1, GL_FALSE, m);
 
     float mdx, mdy;
     CompRect piece, none = { 0, 0, 0, 0 };
@@ -2413,7 +2544,7 @@ static void draw_sub_quad(const CompOutput *o, const CompSceneNode *n,
     }
 
     glDisableVertexAttribArray(1);
-    glUniform1f(u_use_uv, 0.0f);
+    wu1f(u_use_uv, 0.0f);
     glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
 }
@@ -2426,10 +2557,10 @@ static void draw_holes(const CompOutput *o, const CompSceneNode *n, CompWindow *
                        GlWindow *g, GlWindow *const sources[], const CompRect *client,
                        float density, const CompRect *window_opaque)
 {
-    glUniform1f(u_use_mask, 0.0f);
-    glUniform1f(u_use_hole, 0.0f);
-    glUniform1f(u_use_corners, 0.0f);
-    glUniform4f(u_mask_adjust, 0.0f, 0.0f, 0.0f, 0.0f);
+    wu1f(u_use_mask, 0.0f);
+    wu1f(u_use_hole, 0.0f);
+    wu1f(u_use_corners, 0.0f);
+    wu4f(u_mask_adjust, 0.0f, 0.0f, 0.0f, 0.0f);
 
     const CompRect *geo = &n->geometry;
     for (int i = 0; i < w->density_through_count; i++) {
@@ -2438,7 +2569,7 @@ static void draw_holes(const CompOutput *o, const CompSceneNode *n, CompWindow *
             continue;
         CompRect area = in_client(client, w, t);
         glBindTexture(GL_TEXTURE_2D, g->texture);
-        glUniform1f(u_y_flip, g->y_inverted ? 0.0f : 1.0f);
+        wu1f(u_y_flip, g->y_inverted ? 0.0f : 1.0f);
         draw_sub_quad(o, n, &area,
                       (float)(area.x - geo->x) / (float)geo->w,
                       (float)(area.y - geo->y) / (float)geo->h,
@@ -2456,7 +2587,7 @@ static void draw_holes(const CompOutput *o, const CompSceneNode *n, CompWindow *
         float tu, tv;
         source_extent(r, d, density, &tu, &tv);
         glBindTexture(GL_TEXTURE_2D, d->texture);
-        glUniform1f(u_y_flip, d->y_inverted ? 0.0f : 1.0f);
+        wu1f(u_y_flip, d->y_inverted ? 0.0f : 1.0f);
         bool opaque = !d->argb && n->opacity >= 1.0f &&
                       comp_transform_is_identity(&n->transform);
         draw_sub_quad(o, n, &area, 0.0f, 0.0f, tu, tv, opaque ? &area : NULL);
@@ -2571,9 +2702,9 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     if (mesh->shadow)
         draw_shadow_mesh(o, n, w, g, projection);
 
-    glUseProgram(program);
-    glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
-    glUniform1i(u_texture, 0);
+    window_program_use();
+    wum4(u_projection, 1, GL_FALSE, projection);
+    wu1i(u_texture, 0);
 
     /* Same fallback as the plain quad path (draw_node): while a resize's
      * new pixmap sits unpainted (!w->content_ready, comp.h), draw the
@@ -2648,11 +2779,11 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     }
 
     float identity[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
-    glUniformMatrix4fv(u_transform, 1, GL_FALSE, identity);
-    glUniform1f(u_opacity, n->opacity);
-    glUniform1f(u_y_flip, (from_stash ? g->stash_y_inverted : g->y_inverted)
+    wum4(u_transform, 1, GL_FALSE, identity);
+    wu1f(u_opacity, n->opacity);
+    wu1f(u_y_flip, (from_stash ? g->stash_y_inverted : g->y_inverted)
                               ? 0.0f : 1.0f);
-    glUniform1f(u_use_uv, 1.0f);
+    wu1f(u_use_uv, 1.0f);
 
     /* The silhouette, worn as a mask: a scissor box cannot follow a bend,
      * and every frame kiwm draws has rounded corners to keep. */
@@ -2661,10 +2792,10 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, shape);
         glActiveTexture(GL_TEXTURE0);
-        glUniform1i(u_mask, 1);
-        glUniform1f(u_use_mask, 1.0f);
+        wu1i(u_mask, 1);
+        wu1f(u_use_mask, 1.0f);
     } else {
-        glUniform1f(u_use_mask, 0.0f);
+        wu1f(u_use_mask, 0.0f);
     }
 
     glBindBuffer(GL_ARRAY_BUFFER, mesh_vbo);
@@ -2695,9 +2826,9 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
             inset_u = 1.0f / (float)wr.w;
             inset_v = 1.0f / (float)wr.h;
         }
-        glUniform4f(u_hole, cu0 + inset_u, cv0 + inset_v,
+        wu4f(u_hole, cu0 + inset_u, cv0 + inset_v,
                     cu1 - inset_u, cv1 - inset_v);
-        glUniform1f(u_use_hole, 1.0f);
+        wu1f(u_use_hole, 1.0f);
     }
 
     /* The decoration's layer covers the whole frame but the client's
@@ -2732,19 +2863,19 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         int bv = mesh_sub_sheet(mesh, h0u, h0v, h1u, h1v, h0u, h0v, h1u, h1v);
         glDrawArrays(GL_TRIANGLES, 0, bv / 4);
     }
-    glUniform1f(u_use_hole, 0.0f);
+    wu1f(u_use_hole, 0.0f);
 
     if (dense_deco && wr.w > 0 && wr.h > 0) {
         glBindTexture(GL_TEXTURE_2D, dense_deco->texture);
-        glUniform1f(u_y_flip, dense_deco->y_inverted ? 0.0f : 1.0f);
+        wu1f(u_y_flip, dense_deco->y_inverted ? 0.0f : 1.0f);
         /* kiwm's radii when known, exact at any density (draw_dense);
          * otherwise the shape mask already bound above. */
         if (w->corner_radii_known) {
-            glUniform1f(u_use_mask, 0.0f);
-            glUniform1f(u_use_corners, 1.0f);
-            glUniform4f(u_corner_radii, (float)w->corner_tl, (float)w->corner_tr,
+            wu1f(u_use_mask, 0.0f);
+            wu1f(u_use_corners, 1.0f);
+            wu4f(u_corner_radii, (float)w->corner_tl, (float)w->corner_tr,
                         (float)w->corner_br, (float)w->corner_bl);
-            glUniform2f(u_corner_size, (float)wr.w, (float)wr.h);
+            wu2f(u_corner_size, (float)wr.w, (float)wr.h);
         }
         /* The hole one pixel in, so the layers meet without a seam; left
          * out of the sheet rather than discarded pixel by pixel. */
@@ -2756,8 +2887,8 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         } else {
             glDrawArrays(GL_TRIANGLES, 0, v / 4);
         }
-        glUniform1f(u_use_corners, 0.0f);
-        glUniform1f(u_use_mask, shape ? 1.0f : 0.0f);
+        wu1f(u_use_corners, 0.0f);
+        wu1f(u_use_mask, shape ? 1.0f : 0.0f);
     }
 
     /* The client's layer: a sheet of its own over just its rectangle,
@@ -2770,28 +2901,28 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         int cv = mesh_sub_sheet(mesh, cu0, cv0, cu1, cv1, 0.0f, 0.0f, 1.0f, 1.0f);
 
         glBindTexture(GL_TEXTURE_2D, dense_client->texture);
-        glUniform1f(u_y_flip, dense_client->y_inverted ? 0.0f : 1.0f);
-        glUniform4f(u_mask_adjust, cu0, cv0, (cu1 - cu0) - 1.0f,
+        wu1f(u_y_flip, dense_client->y_inverted ? 0.0f : 1.0f);
+        wu4f(u_mask_adjust, cu0, cv0, (cu1 - cu0) - 1.0f,
                     (cv1 - cv0) - 1.0f);
 
         CompRect in_frame = cr;
         bool round = client_reaches_corners(w, &in_frame, wr.w, wr.h);
         if (round && w->corner_radii_known) {
-            glUniform1f(u_use_mask, 0.0f);
-            glUniform1f(u_use_corners, 1.0f);
-            glUniform4f(u_corner_radii, (float)w->corner_tl, (float)w->corner_tr,
+            wu1f(u_use_mask, 0.0f);
+            wu1f(u_use_corners, 1.0f);
+            wu4f(u_corner_radii, (float)w->corner_tl, (float)w->corner_tr,
                         (float)w->corner_br, (float)w->corner_bl);
-            glUniform2f(u_corner_size, (float)wr.w, (float)wr.h);
+            wu2f(u_corner_size, (float)wr.w, (float)wr.h);
         } else {
-            glUniform1f(u_use_mask, (round && shape) ? 1.0f : 0.0f);
+            wu1f(u_use_mask, (round && shape) ? 1.0f : 0.0f);
         }
         glDrawArrays(GL_TRIANGLES, 0, cv / 4);
-        glUniform1f(u_use_corners, 0.0f);
-        glUniform4f(u_mask_adjust, 0.0f, 0.0f, 0.0f, 0.0f);
+        wu1f(u_use_corners, 0.0f);
+        wu4f(u_mask_adjust, 0.0f, 0.0f, 0.0f, 0.0f);
 
         /* Its holes (density.h), as sheets of their own over it: the
          * layer has nothing there, so they are simply drawn on top. */
-        glUniform1f(u_use_mask, 0.0f);
+        wu1f(u_use_mask, 0.0f);
         float fu = (cu1 - cu0) / (float)cr.w;
         float fv = (cv1 - cv0) / (float)cr.h;
         for (int i = 0; i < w->density_through_count; i++) {
@@ -2802,7 +2933,7 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
             float u1 = u0 + (float)t->w * fu, v1 = v0 + (float)t->h * fv;
             int hv = mesh_sub_sheet(mesh, u0, v0, u1, v1, u0, v0, u1, v1);
             glBindTexture(GL_TEXTURE_2D, g->texture);
-            glUniform1f(u_y_flip, g->y_inverted ? 0.0f : 1.0f);
+            wu1f(u_y_flip, g->y_inverted ? 0.0f : 1.0f);
             glDrawArrays(GL_TRIANGLES, 0, hv / 4);
         }
         for (int i = 0; i < w->density_source_count; i++) {
@@ -2816,14 +2947,14 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
             int hv = mesh_sub_sheet(mesh, u0, v0, u0 + (float)r->w * fu,
                                     v0 + (float)r->h * fv, 0.0f, 0.0f, tu, tv);
             glBindTexture(GL_TEXTURE_2D, d->texture);
-            glUniform1f(u_y_flip, d->y_inverted ? 0.0f : 1.0f);
+            wu1f(u_y_flip, d->y_inverted ? 0.0f : 1.0f);
             glDrawArrays(GL_TRIANGLES, 0, hv / 4);
         }
     }
 
     /* Back to the plain quad for whatever node is drawn next. */
     glDisableVertexAttribArray(1);
-    glUniform1f(u_use_uv, 0.0f);
+    wu1f(u_use_uv, 0.0f);
     glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
 }
@@ -2870,9 +3001,9 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     /* Under the window, and before its texture is bound: the shadow
      * program has its own idea of what is in texture unit 0. */
     draw_shadow(o, n, w, g, projection);
-    glUseProgram(program);
-    glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
-    glUniform1i(u_texture, 0);
+    window_program_use();
+    wum4(u_projection, 1, GL_FALSE, projection);
+    wu1i(u_texture, 0);
 
     /* Two reasons to draw the stashed picture instead of the live one.
      * `use_stash` is an effect's own choice: the node's geometry describes
@@ -2988,8 +3119,8 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
 
     float m[16];
     node_matrix(n, m);
-    glUniformMatrix4fv(u_transform, 1, GL_FALSE, m);
-    glUniform1f(u_opacity, n->opacity);
+    wum4(u_transform, 1, GL_FALSE, m);
+    wu1f(u_opacity, n->opacity);
     /* GLX_Y_INVERTED_EXT *true* means the pixmap's first texture row
      * is its top one, which is already what the texture coordinates
      * here assume (they run downwards, like X's own y). It is the
@@ -2997,7 +3128,7 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * to be mirrored. Getting this backwards draws every window
      * upside down, which is worth stating plainly because the two
      * mistakes look identical until you try the other driver. */
-    glUniform1f(u_y_flip, (from_stash ? g->stash_y_inverted : g->y_inverted)
+    wu1f(u_y_flip, (from_stash ? g->stash_y_inverted : g->y_inverted)
                               ? 0.0f : 1.0f);
 
     /* The part of the window known to be opaque (window.h's opaque: the
@@ -3032,10 +3163,10 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, mask);
         glActiveTexture(GL_TEXTURE0);
-        glUniform1i(u_mask, 1);
-        glUniform1f(u_use_mask, 1.0f);
+        wu1i(u_mask, 1);
+        wu1f(u_use_mask, 1.0f);
     } else {
-        glUniform1f(u_use_mask, 0.0f);
+        wu1f(u_use_mask, 0.0f);
     }
 
     /* Under a client layer the window's own pixels are never wanted:
@@ -3220,13 +3351,13 @@ static void draw_solid(const CompOutput *o, const CompSceneSolid *q,
     float m[16];
     rect_matrix(&q->rect, &q->transform, m);
 
-    glUseProgram(program);
-    glUniform1f(u_use_mask, 0.0f);
-    glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
-    glUniform1i(u_texture, 0);
-    glUniform1f(u_y_flip, 0.0f);
-    glUniformMatrix4fv(u_transform, 1, GL_FALSE, m);
-    glUniform1f(u_opacity, q->opacity);
+    window_program_use();
+    wu1f(u_use_mask, 0.0f);
+    wum4(u_projection, 1, GL_FALSE, projection);
+    wu1i(u_texture, 0);
+    wu1f(u_y_flip, 0.0f);
+    wum4(u_transform, 1, GL_FALSE, m);
+    wu1f(u_opacity, q->opacity);
 
     scissor_for(o, repaint_rect.x, repaint_rect.y,
                 repaint_rect.w, repaint_rect.h);
@@ -3318,8 +3449,8 @@ static void draw_image_quad(CompOutput *o, struct CompTextImage *image,
     float m[16];
     rect_matrix(rect, &identity, m);
 
-    glUniformMatrix4fv(u_transform, 1, GL_FALSE, m);
-    glUniform1f(u_opacity, opacity);
+    wum4(u_transform, 1, GL_FALSE, m);
+    wu1f(u_opacity, opacity);
 
     scissor_for(o, repaint_rect.x, repaint_rect.y,
                 repaint_rect.w, repaint_rect.h);
@@ -3329,13 +3460,13 @@ static void draw_image_quad(CompOutput *o, struct CompTextImage *image,
 /* Sets up the window shader for a run of image quads. */
 static void begin_image_quads(const float projection[16])
 {
-    glUseProgram(program);
-    glUniform1f(u_use_mask, 0.0f);
-    glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
-    glUniform1i(u_texture, 0);
+    window_program_use();
+    wu1f(u_use_mask, 0.0f);
+    wum4(u_projection, 1, GL_FALSE, projection);
+    wu1i(u_texture, 0);
     /* The pixels came from Cairo, which lays out a row top-first, the
      * same way the texture coordinates here run. */
-    glUniform1f(u_y_flip, 0.0f);
+    wu1f(u_y_flip, 0.0f);
 }
 
 /* The effect's skybox (scene.h), under every window. */
@@ -3379,10 +3510,10 @@ void gl_draw_scene(CompOutput *o, GlOutput *go, CompScene *s)
     float projection[16];
     projection_for(o, projection);
 
-    glUseProgram(program);
-    glUniformMatrix4fv(u_projection, 1, GL_FALSE, projection);
-    glUniform1i(u_texture, 0);
-    glUniform1f(u_use_mask, 0.0f);
+    window_program_use();
+    wum4(u_projection, 1, GL_FALSE, projection);
+    wu1i(u_texture, 0);
+    wu1f(u_use_mask, 0.0f);
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
@@ -3425,7 +3556,7 @@ void gl_draw_scene(CompOutput *o, GlOutput *go, CompScene *s)
     glDisableVertexAttribArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindTexture(GL_TEXTURE_2D, 0);
-    glUseProgram(0);
+    other_program_use(0);
     glDisable(GL_BLEND);
 }
 
@@ -3655,10 +3786,16 @@ void gl_teardown(void)
         glDeleteProgram(shadow_program);
         shadow_program = 0;
     }
-    if (program) {
-        glDeleteProgram(program);
-        program = 0;
+    for (unsigned v = 0; v < FEAT_ALL; v++) {
+        if (variants[v])
+            glDeleteProgram(variants[v]);
+        variants[v] = 0;
+        variant_failed[v] = false;
     }
+    program = 0;
+    memset(wu_known, 0, sizeof(wu_known));
+    wu_feat = 0;
+    wu_bound = -1;
     capture_buffer_free();
     if (flat_tex) {
         glDeleteTextures(1, &flat_tex);
