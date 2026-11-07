@@ -173,7 +173,7 @@
 #include <unistd.h>
 #include "../shared/xis_safefile.h"
 
-#define KICONFD_VERSION "0.2.30"
+#define KICONFD_VERSION "0.2.31"
 #define LINE_MAX_LEN 512
 #define COLOR_LEN 16
 #define NAME_LEN 128
@@ -1849,6 +1849,19 @@ static int pick_xis_prop(const char *list_props_out, const char *base, char *dst
  * apply_kbd_diff() -- called both once at startup and on every SIGHUP
  * (see reload_config()), so re-running it mid-session never re-fires a
  * `set-prop` that already took. */
+/* Remembers which pointer names already got the forced tap toggle in
+ * apply_input_settings(); returns 1 if `name` was seen before. */
+static int tap_forced(const char *name)
+{
+    static char seen[16][NAME_LEN];
+    static int n;
+    for (int i = 0; i < n; i++) {
+        if (!strcmp(seen[i], name)) return 1;
+    }
+    if (n < 16) snprintf(seen[n++], NAME_LEN, "%.127s", name);
+    return 0;
+}
+
 static void apply_input_settings(void)
 {
     InputSessionConfig c;
@@ -1927,9 +1940,20 @@ static void apply_input_settings(void)
             if (!xinput_get_prop_line(pout, props[k], val, sizeof(val))) {
                 continue;
             }
-            if ((atoi(val) != 0) != (want[k] != 0)) {
+            int cur = atoi(val) != 0;
+            if (cur != (want[k] != 0)) {
                 char *set[] = {"xinput", "set-prop", dev, (char *)props[k], want[k] ? "1" : "0", NULL};
                 run_fire(set);
+            } else if (k == 1 && want[k] && !tap_forced(ptrnames[i])) {
+                /* The property can read 1 at login while libinput's tap
+                 * is not actually on for the device (only a real 0->1
+                 * transition, e.g. kiconf's checkbox, made it work), so
+                 * the first time a pointer is seen wanting tap, toggle
+                 * it instead of trusting the read-back. */
+                char *off[] = {"xinput", "set-prop", dev, (char *)props[k], "0", NULL};
+                char *on[] = {"xinput", "set-prop", dev, (char *)props[k], "1", NULL};
+                run_fire(off);
+                run_fire(on);
             }
         }
     }
