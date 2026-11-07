@@ -2445,6 +2445,66 @@ static int mesh_sub_sheet(const CompSceneMesh *mesh, float u0, float v0,
     return cv;
 }
 
+/* Adds v to a sorted list of breaks unless it is already there. */
+static void add_break(float *b, int *n, float v)
+{
+    int i = 0;
+    while (i < *n && b[i] < v)
+        i++;
+    if (i < *n && fabsf(b[i] - v) < 1e-6f)
+        return;
+    memmove(&b[i + 1], &b[i], (size_t)(*n - i) * sizeof(float));
+    b[i] = v;
+    (*n)++;
+}
+
+/* The whole sheet but its (hu0, hv0)-(hu1, hv1), into mesh_vbo, bound:
+ * the decoration's layer without the client's rectangle it leaves
+ * transparent. Cut along the mesh's own lines plus the hole's edges, so
+ * the cells around the hole share every vertex and no seam opens where
+ * the sheet bends. Texture coordinates are the window's own 0..1.
+ * Returns the floats written (4 per vertex). */
+static int mesh_frame_sheet(const CompSceneMesh *mesh, float hu0, float hv0,
+                            float hu1, float hv1)
+{
+    static float fverts[(MESH_MAX_COLS + 3) * (MESH_MAX_ROWS + 3) * 6 * 4];
+    float us[MESH_MAX_COLS + 3], vs[MESH_MAX_ROWS + 3];
+    int nu = 0, nv = 0, fv = 0;
+    for (int i = 0; i <= mesh->cols; i++)
+        us[nu++] = (float)i / (float)mesh->cols;
+    for (int i = 0; i <= mesh->rows; i++)
+        vs[nv++] = (float)i / (float)mesh->rows;
+    add_break(us, &nu, hu0);
+    add_break(us, &nu, hu1);
+    add_break(vs, &nv, hv0);
+    add_break(vs, &nv, hv1);
+
+    for (int j = 0; j + 1 < nv; j++) {
+        for (int i = 0; i + 1 < nu; i++) {
+            float cu = (us[i] + us[i + 1]) * 0.5f;
+            float cv = (vs[j] + vs[j + 1]) * 0.5f;
+            if (cu > hu0 && cu < hu1 && cv > hv0 && cv < hv1)
+                continue;
+            const int di[6] = { 0, 1, 0, 1, 1, 0 };
+            const int dj[6] = { 0, 0, 1, 0, 1, 1 };
+            for (int k = 0; k < 6; k++) {
+                float u = us[i + di[k]], v = vs[j + dj[k]];
+                float px, py;
+                mesh_point(mesh, u, v, &px, &py);
+                fverts[fv++] = px;
+                fverts[fv++] = py;
+                fverts[fv++] = u;
+                fverts[fv++] = v;
+            }
+        }
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, mesh_vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)fv * (GLsizeiptr)sizeof(float),
+                 fverts, GL_STREAM_DRAW);
+    mesh_cache_mesh = NULL;
+    return fv;
+}
+
 static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
                            GlWindow *g, const float projection[16])
 {
@@ -2587,21 +2647,14 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         glUniform1f(u_use_hole, 1.0f);
     }
 
-    /* Every cell is inside the mesh's bounding box, so one scissor to
-     * what this pass repaints is all the clipping there is. */
-    scissor_for(o, repaint_rect.x, repaint_rect.y, repaint_rect.w, repaint_rect.h);
-    glDrawArrays(GL_TRIANGLES, 0, v / 4);
-    glUniform1f(u_use_hole, 0.0f);
-
-    /* The decoration's layer covers the whole frame, so it is the same
-     * sheet with another texture. Transparent over the client, which it
-     * skips: the client's rectangle, or an opaque client's. */
+    /* The decoration's layer covers the whole frame but the client's
+     * rectangle (or an opaque client's), which it leaves transparent. */
+    float h0u = 0.0f, h0v = 0.0f, h1u = 0.0f, h1v = 0.0f;
+    bool deco_hole = false;
     if (dense_deco && wr.w > 0 && wr.h > 0) {
-        float h0u = 0.0f, h0v = 0.0f, h1u = 0.0f, h1v = 0.0f;
-        bool hole = false;
         if (client_layer) {
             h0u = cu0; h0v = cv0; h1u = cu1; h1v = cv1;
-            hole = true;
+            deco_hole = true;
         } else {
             CompRect op = window_opaque_rect(w);
             if (op.w > 2 && op.h > 2) {
@@ -2609,14 +2662,26 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
                 h0v = (float)(op.y - wr.y) / (float)wr.h;
                 h1u = (float)(op.x - wr.x + op.w) / (float)wr.w;
                 h1v = (float)(op.y - wr.y + op.h) / (float)wr.h;
-                hole = true;
+                deco_hole = true;
             }
         }
-        if (hole) {
-            float iu = 1.0f / (float)wr.w, iv = 1.0f / (float)wr.h;
-            glUniform4f(u_hole, h0u + iu, h0v + iv, h1u - iu, h1v - iv);
-            glUniform1f(u_use_hole, 1.0f);
-        }
+    }
+
+    /* Every cell is inside the mesh's bounding box, so one scissor to
+     * what this pass repaints is all the clipping there is. Under the
+     * decoration's layer the window's own sheet only shows inside its
+     * hole, so it is drawn there alone -- or not at all, under a client
+     * layer -- rather than as a second pass over the whole window. */
+    scissor_for(o, repaint_rect.x, repaint_rect.y, repaint_rect.w, repaint_rect.h);
+    if (!deco_hole || from_stash) {
+        glDrawArrays(GL_TRIANGLES, 0, v / 4);
+    } else if (!client_layer) {
+        int bv = mesh_sub_sheet(mesh, h0u, h0v, h1u, h1v, h0u, h0v, h1u, h1v);
+        glDrawArrays(GL_TRIANGLES, 0, bv / 4);
+    }
+    glUniform1f(u_use_hole, 0.0f);
+
+    if (dense_deco && wr.w > 0 && wr.h > 0) {
         glBindTexture(GL_TEXTURE_2D, dense_deco->texture);
         glUniform1f(u_y_flip, dense_deco->y_inverted ? 0.0f : 1.0f);
         /* kiwm's radii when known, exact at any density (draw_dense);
@@ -2628,9 +2693,17 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
                         (float)w->corner_br, (float)w->corner_bl);
             glUniform2f(u_corner_size, (float)wr.w, (float)wr.h);
         }
-        glDrawArrays(GL_TRIANGLES, 0, v / 4);
+        /* The hole one pixel in, so the layers meet without a seam; left
+         * out of the sheet rather than discarded pixel by pixel. */
+        if (deco_hole) {
+            float iu = 1.0f / (float)wr.w, iv = 1.0f / (float)wr.h;
+            int dv = mesh_frame_sheet(mesh, h0u + iu, h0v + iv,
+                                      h1u - iu, h1v - iv);
+            glDrawArrays(GL_TRIANGLES, 0, dv / 4);
+        } else {
+            glDrawArrays(GL_TRIANGLES, 0, v / 4);
+        }
         glUniform1f(u_use_corners, 0.0f);
-        glUniform1f(u_use_hole, 0.0f);
         glUniform1f(u_use_mask, shape ? 1.0f : 0.0f);
     }
 
@@ -2921,7 +2994,27 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     bool client_covers = client_hole.w > 0;
     set_hole(&n->geometry, client_covers ? &client_hole : NULL);
 
-    if (mask) {
+    /* Nor is the frame's own pixmap ever seen under the decoration's
+     * dense layer, which covers all of it but the client's rectangle
+     * (deco_hole, one pixel in): there the window's draw is cut to that
+     * rectangle -- or to nothing, when a client layer covers it too --
+     * instead of a second pass over the whole window. */
+    bool draw_base = true;
+    bool deco_cut = dense_deco && !from_stash && deco_hole.w > 0 &&
+                    comp_transform_is_identity(&n->transform);
+    if (deco_cut) {
+        CompRect open = { deco_hole.x - 1, deco_hole.y - 1,
+                          deco_hole.w + 2, deco_hole.h + 2 };
+        CompRect cut;
+        if (!client_covers && rect_intersect(&repaint_rect, &open, &cut))
+            repaint_rect = cut;
+        else
+            draw_base = false;
+    }
+
+    if (!draw_base) {
+        /* all of it under the dense layers */
+    } else if (mask) {
         /* The mask cuts the silhouette, so the only clip left is the
          * part of the screen this pass is repainting. */
         draw_piece(o, &repaint_rect, &opaque);
@@ -2966,6 +3059,7 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
          * damage rectangle is the whole clip. */
         draw_piece(o, &repaint_rect, &opaque);
     }
+    repaint_rect = body;
 
     /* And, over what was just drawn, the client's own denser pixels if it
      * published any (looked up above): the decoration first, then the
@@ -2987,14 +3081,23 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * rectangle (deco_hole), which it leaves transparent. The client's
      * layer is masked the same way only where it reaches the corners. */
     if (dense_deco) {
-        set_hole(&n->geometry, deco_hole.w > 0 ? &deco_hole : NULL);
+        /* Its hole as pieces of the screen around it while the window
+         * sits still -- per-pixel discards are still a fragment each on a
+         * weak GPU -- and through the shader otherwise. */
+        bool pieces = deco_hole.w > 0 &&
+                      comp_transform_is_identity(&n->transform);
+        set_hole(&n->geometry, deco_hole.w > 0 && !pieces ? &deco_hole : NULL);
+        const CompRect *skip = pieces ? &deco_hole : NULL;
+        int skip_count = pieces ? 1 : 0;
         CornerRadii radii = { w->corner_tl, w->corner_tr,
                               w->corner_br, w->corner_bl };
         if (w->corner_radii_known) {
-            draw_dense(o, n, dense_deco, &n->geometry, 0, &radii, false, NULL, 0);
+            draw_dense(o, n, dense_deco, &n->geometry, 0, &radii, false,
+                       skip, skip_count);
         } else {
             GLuint dmask = w->shaped ? shape_mask_texture(w, g) : 0;
-            draw_dense(o, n, dense_deco, &n->geometry, dmask, NULL, false, NULL, 0);
+            draw_dense(o, n, dense_deco, &n->geometry, dmask, NULL, false,
+                       skip, skip_count);
         }
     }
     set_hole(&n->geometry, NULL);
