@@ -1374,8 +1374,9 @@ static bool scissor_to(const CompOutput *o, const CompRect *r)
  * version of this file had, because the parts nobody repainted were
  * showing a frame from two swaps ago or memory nobody had written. */
 static void repaint_region_for(GlOutput *go, const CompRegion *damage,
-                               unsigned age)
+                               unsigned age, CompRegion *copy)
 {
+    region_clear(copy);
     if (region_is_full(damage)) {
         region_set_full(&go->repaint);
         return;
@@ -1386,16 +1387,64 @@ static void repaint_region_for(GlOutput *go, const CompRegion *damage,
         return;
     }
 
+    /* With the last frame at hand (GlOutput's previous), what the older
+     * frames changed is copied from it -- one opaque pass, where drawing
+     * it means the whole scene there again -- and only this frame's
+     * damage is drawn. Copying more than that is still right: outside
+     * the damage the last frame is this one. */
     go->repaint = *damage;
     for (unsigned i = 0; i + 1 < age; i++) {
         const CompRegion *past = &go->history[i];
         if (region_is_full(past)) {
+            region_clear(copy);
             region_set_full(&go->repaint);
             return;
         }
         for (int k = 0; k < past->count; k++)
-            region_add(&go->repaint, &past->rects[k]);
+            region_add(go->previous ? copy : &go->repaint, &past->rects[k]);
     }
+    for (int k = 0; k < damage->count; k++)
+        region_subtract_rect(copy, &damage->rects[k]);
+}
+
+/* `copy` out of the last frame's texture, pixel for pixel: a quad over
+ * the whole target, through the scissor. */
+static void copy_previous(const CompOutput *o, const GlOutput *go,
+                          const CompRegion *copy)
+{
+    static const float identity[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+    static const float to_clip[16] = { 2,0,0,0, 0,2,0,0, 0,0,1,0, -1,-1,0,1 };
+
+    glUseProgram(program);
+    glUniformMatrix4fv(u_projection, 1, GL_FALSE, identity);
+    glUniformMatrix4fv(u_transform, 1, GL_FALSE, to_clip);
+    glUniform1i(u_texture, 0);
+    glUniform1f(u_opacity, 1.0f);
+    glUniform1f(u_y_flip, 0.0f);
+    glUniform1f(u_use_uv, 0.0f);
+    glUniform1f(u_use_mask, 0.0f);
+    glUniform1f(u_use_hole, 0.0f);
+    glUniform1f(u_use_corners, 0.0f);
+    glUniform4f(u_mask_adjust, 0.0f, 0.0f, 0.0f, 0.0f);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, go->previous);
+    glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+    glDisable(GL_BLEND);
+    glEnable(GL_SCISSOR_TEST);
+
+    for (int i = 0; i < copy->count; i++) {
+        CompRect r;
+        if (!rect_intersect(&copy->rects[i], &o->rect, &r))
+            continue;
+        scissor_for(o, r.x, r.y, r.w, r.h);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
+
+    glDisable(GL_SCISSOR_TEST);
+    glDisableVertexAttribArray(0);
+    glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 /* The damage as the history wants it: a rectangle list, with "everything"
@@ -1427,8 +1476,11 @@ void gl_begin(CompOutput *o, GlOutput *go, const CompRegion *damage,
     else
         glViewport(0, 0, o->physical.w, o->physical.h);
 
-    repaint_region_for(go, damage, age);
+    CompRegion copy;
+    repaint_region_for(go, damage, age, &copy);
     frame_damage_of(o, damage, &go->frame_damage);
+    if (program && copy.count > 0)
+        copy_previous(o, go, &copy);
 
     glClearColor(0.109f, 0.109f, 0.109f, 1.0f);
 

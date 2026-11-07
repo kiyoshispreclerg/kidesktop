@@ -57,6 +57,12 @@ typedef struct {
      * (and a capture's GlOutput, zeroed) draws upright. */
     uint16_t rotation;
     int scan_w, scan_h;
+
+    /* The frame shown last, as a texture of the target's own size and
+     * orientation, when the platform keeps it apart from the buffer being
+     * drawn (EGL's swapchain); 0 otherwise. What an older buffer misses
+     * of it is copied from there rather than drawn again. */
+    GLuint previous;
 } GlOutput;
 
 /* RandR's rotation and reflection bits (xcb_randr_rotation_t). */

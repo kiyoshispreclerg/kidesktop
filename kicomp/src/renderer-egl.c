@@ -474,6 +474,12 @@ static bool buffer_alloc(CompOutput *o, EglOutput *eo, EglBuffer *b)
     glGenTextures(1, &b->texture);
     glBindTexture(GL_TEXTURE_2D, b->texture);
     glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, b->image);
+    /* Also read, as the last frame (GlOutput's previous): one level, so
+     * it samples at all, and texel for pixel. */
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glBindTexture(GL_TEXTURE_2D, 0);
 
     glGenFramebuffers(1, &b->fbo);
@@ -783,6 +789,14 @@ static void egl_begin(CompOutput *o, const CompRegion *damage)
     unsigned age = 0;
     if (b->presented_at > 0)
         age = (unsigned)(eo->frames - b->presented_at + 1);
+
+    /* The buffer presented last holds the frame shown last: what this
+     * one misses of it is copied from there (repaint_region_for). */
+    eo->gl.previous = 0;
+    for (int i = 0; i < SWAPCHAIN; i++)
+        if (i != pick && eo->frames > 0 && eo->buffers[i].presented_at == eo->frames &&
+            eo->buffers[i].texture)
+            eo->gl.previous = eo->buffers[i].texture;
 
     glBindFramebuffer(GL_FRAMEBUFFER, b->fbo);
     /* Turned into the CRTC's scanout orientation, for a rotated X-SCALE
