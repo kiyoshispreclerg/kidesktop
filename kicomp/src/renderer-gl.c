@@ -1362,8 +1362,9 @@ static bool scissor_to(const CompOutput *o, const CompRect *r)
  *
  * The buffer age answers the one question that makes partial repainting
  * safe: how many presentations ago this buffer was last shown. Age 1 is
- * the frame before last; age n means the union of the last n frames'
- * damage is exactly what has changed since it was current. Age 0 means
+ * the frame just shown, which needs nothing but this frame's damage; age
+ * n is missing the last n - 1 frames' damage, and nothing else -- one
+ * frame more is a frame's worth of drawing for nothing. Age 0 means
  * the platform is not saying -- a resized drawable, a fresh one, a
  * driver that discards, no GLX_EXT_buffer_age at all -- and the honest
  * answer to that is to redraw everything.
@@ -1380,13 +1381,13 @@ static void repaint_region_for(GlOutput *go, const CompRegion *damage,
         return;
     }
 
-    if (age == 0 || (int)age > go->history_len) {
+    if (age == 0 || (int)age - 1 > go->history_len) {
         region_set_full(&go->repaint);
         return;
     }
 
     go->repaint = *damage;
-    for (unsigned i = 0; i < age && (int)i < go->history_len; i++) {
+    for (unsigned i = 0; i + 1 < age; i++) {
         const CompRegion *past = &go->history[i];
         if (region_is_full(past)) {
             region_set_full(&go->repaint);

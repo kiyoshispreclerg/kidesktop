@@ -25,7 +25,7 @@ typedef struct {
     /* What was repainted in each of the last few frames, newest first.
      * A buffer that is `age` presentations old already holds everything
      * except what has changed since -- so repainting the union of the
-     * last `age` frames' damage brings it up to date, and repainting the
+     * last `age` - 1 frames' damage brings it up to date, and repainting the
      * whole screen every frame to be safe is what this replaces. */
     CompRegion history[GL_AGE_HISTORY];
     int history_len;
