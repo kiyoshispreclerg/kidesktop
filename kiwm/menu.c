@@ -502,17 +502,16 @@ static void paint_density(MenuFrame *f)
     }
     draw_frame_into(f, f->density_pixmap, dw, dh, density);
 
-    /* Contents first, announcement after; the pixmap property rewritten
-     * every time, since that PropertyNotify is the only "new contents"
-     * signal a pixmap has (density.c). */
+    /* Contents first, announcement after; only a new pixmap is announced,
+     * later redraws reach the compositor as Damage on the pixmap. */
     if (fresh) {
         uint32_t scale[2] = { f->density_num, f->density_den };
         xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, f->win, wm.atoms.x_density_scale,
                             XCB_ATOM_CARDINAL, 32, 2, scale);
+        uint32_t value = f->density_pixmap;
+        xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, f->win, wm.atoms.x_density_pixmap,
+                            XCB_ATOM_CARDINAL, 32, 1, &value);
     }
-    uint32_t value = f->density_pixmap;
-    xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, f->win, wm.atoms.x_density_pixmap,
-                        XCB_ATOM_CARDINAL, 32, 1, &value);
 }
 
 static void paint_frame(MenuFrame *f)

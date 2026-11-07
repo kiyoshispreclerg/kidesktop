@@ -191,7 +191,7 @@ int density_handle_property(Panel *p, const XPropertyEvent *ev)
  * already match -- same "only touch what changed" shape as
  * panel_create_surface()'s own resize path. */
 static int density_ensure_pixmap(Panel *p, int pw, int ph)
-{
+{ /* returns 2 when the pixmap was (re)made, 1 when it was reused, 0 on failure */
     if (p->density_pixmap != None && p->density_pixmap_w == pw && p->density_pixmap_h == ph) {
         return 1;
     }
@@ -210,7 +210,7 @@ static int density_ensure_pixmap(Panel *p, int pw, int ph)
     cairo_set_font_size(p->density_img_cr, panel_text_size(p));
     p->density_pixmap_w = pw;
     p->density_pixmap_h = ph;
-    return 1;
+    return 2;
 }
 
 void density_render(Panel *p, int clip)
@@ -233,7 +233,8 @@ void density_render(Panel *p, int clip)
         return;
     }
     Pixmap before = p->density_pixmap;
-    if (!density_ensure_pixmap(p, pw, ph)) {
+    int made = density_ensure_pixmap(p, pw, ph);
+    if (!made) {
         return;
     }
     /* A hover change repaints just the rectangle it dirtied, scaled out to
@@ -275,17 +276,17 @@ void density_render(Panel *p, int clip)
     cairo_restore(p->density_cr);
     cairo_surface_flush(p->density_surface);
 
-    long scale_val[2] = {p->density_num, p->density_den};
-    XChangeProperty(g_dpy, p->win, g_atom_density_scale, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)scale_val,
-                     2);
-    /* Rewriting the same XID every frame is deliberate, not redundant --
-     * a Pixmap generates no Damage/Expose of its own when its content
-     * changes (it's just memory, not a live surface), so this PropertyNotify
-     * is the compositor's only signal to resample, even when the XID
-     * itself hasn't changed since last frame (spec section 4). */
-    long pixmap_val = (long)p->density_pixmap;
-    XChangeProperty(g_dpy, p->win, g_atom_density_pixmap, XA_CARDINAL, 32, PropModeReplace,
-                     (unsigned char *)&pixmap_val, 1);
+    /* Only a new pixmap is announced; later frames reach the compositor
+     * through the pixmap's own Damage, which the drawing above raises
+     * (spec section 4). */
+    if (made == 2) {
+        long scale_val[2] = {p->density_num, p->density_den};
+        XChangeProperty(g_dpy, p->win, g_atom_density_scale, XA_CARDINAL, 32, PropModeReplace,
+                         (unsigned char *)scale_val, 2);
+        long pixmap_val = (long)p->density_pixmap;
+        XChangeProperty(g_dpy, p->win, g_atom_density_pixmap, XA_CARDINAL, 32, PropModeReplace,
+                         (unsigned char *)&pixmap_val, 1);
+    }
     XFlush(g_dpy);
 }
 
@@ -462,7 +463,7 @@ int density_layer_handle_property(DensityLayer *dl, const XPropertyEvent *ev)
 }
 
 static int density_layer_ensure_pixmap(DensityLayer *dl, int pw, int ph)
-{
+{ /* returns 2 when the pixmap was (re)made, 1 when it was reused, 0 on failure */
     if (dl->pixmap != None && dl->pixmap_w == pw && dl->pixmap_h == ph) {
         return 1;
     }
@@ -477,7 +478,7 @@ static int density_layer_ensure_pixmap(DensityLayer *dl, int pw, int ph)
     dl->img_cr = cairo_create(dl->img_surface);
     dl->pixmap_w = pw;
     dl->pixmap_h = ph;
-    return 1;
+    return 2;
 }
 
 void density_layer_render(DensityLayer *dl, int logical_w, int logical_h, double base_font_size)
@@ -494,7 +495,8 @@ void density_layer_render(DensityLayer *dl, int logical_w, int logical_h, double
     if (pw < 1 || ph < 1) {
         return;
     }
-    if (!density_layer_ensure_pixmap(dl, pw, ph)) {
+    int made = density_layer_ensure_pixmap(dl, pw, ph);
+    if (!made) {
         return;
     }
 
@@ -514,12 +516,15 @@ void density_layer_render(DensityLayer *dl, int logical_w, int logical_h, double
     cairo_restore(dl->cr);
     cairo_surface_flush(dl->surface);
 
-    long scale_val[2] = {dl->num, dl->den};
-    XChangeProperty(g_dpy, dl->win, g_atom_density_scale, XA_CARDINAL, 32, PropModeReplace,
-                     (unsigned char *)scale_val, 2);
-    long pixmap_val = (long)dl->pixmap;
-    XChangeProperty(g_dpy, dl->win, g_atom_density_pixmap, XA_CARDINAL, 32, PropModeReplace,
-                     (unsigned char *)&pixmap_val, 1);
+    /* New pixmap only; later frames arrive as Damage on the pixmap. */
+    if (made == 2) {
+        long scale_val[2] = {dl->num, dl->den};
+        XChangeProperty(g_dpy, dl->win, g_atom_density_scale, XA_CARDINAL, 32, PropModeReplace,
+                         (unsigned char *)scale_val, 2);
+        long pixmap_val = (long)dl->pixmap;
+        XChangeProperty(g_dpy, dl->win, g_atom_density_pixmap, XA_CARDINAL, 32, PropModeReplace,
+                         (unsigned char *)&pixmap_val, 1);
+    }
     XFlush(g_dpy);
 }
 
@@ -568,10 +573,7 @@ void density_layer_partial_end(DensityLayer *dl, int x, int y, int w, int h)
     cairo_restore(dl->cr);
     cairo_surface_flush(dl->surface);
 
-    /* Same XID rewritten: a Pixmap raises no Damage, so this is the
-     * compositor's only "new frame" signal (TESTS/X-DENSITY.md). */
-    long pixmap_val = (long)dl->pixmap;
-    XChangeProperty(g_dpy, dl->win, g_atom_density_pixmap, XA_CARDINAL, 32, PropModeReplace,
-                     (unsigned char *)&pixmap_val, 1);
+    /* The copy above is the signal: the pixmap's Damage reports it
+     * (TESTS/X-DENSITY.md section 4). */
     XFlush(g_dpy);
 }

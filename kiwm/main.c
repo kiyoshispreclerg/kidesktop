@@ -41,7 +41,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KIWM_VERSION "0.7.2"
+#define KIWM_VERSION "0.7.3"
 
 #include "../shared/xis_i18n.h"
 

@@ -250,10 +250,10 @@ void deco_density_publish(Client *c, int w, int h, bool focused)
      * rule): a compositor that sampled on the property change would
      * otherwise catch a pixmap that is the wrong size, or still empty.
      *
-     * And the pixmap property is rewritten with the same XID every time,
-     * not only when it changed: a Pixmap raises no Damage of its own, so
-     * this PropertyNotify *is* the "there is a new frame here" signal. */
-    if (resized)
+     * Only a new pixmap is announced; later frames reach the compositor
+     * as Damage on the pixmap, which the CopyArea above raises. */
+    if (resized) {
         publish_scale(c);
-    publish_pixmap(c);
+        publish_pixmap(c);
+    }
 }
