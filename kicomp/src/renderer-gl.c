@@ -3100,6 +3100,59 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
 }
 
+/* A transformed node's quad in parts, through the node's own matrix
+ * (already in u_transform): the rectangle (u0, v0)-(u1, v1) of it, in
+ * its 0..1, with blending and the mask off, then the ring around it
+ * blended through whatever mask is set. What draw_piece() does with
+ * scissor boxes for a window sitting still, cut in the quad's own space
+ * instead so it follows any matrix. */
+static void draw_quad_split(const CompOutput *o, float u0, float v0,
+                            float u1, float v1, bool masked)
+{
+    const float r[5][4] = {
+        { u0, v0, u1, v1 },                 /* the opaque middle */
+        { 0.0f, 0.0f, 1.0f, v0 },           /* and the ring: top */
+        { 0.0f, v1, 1.0f, 1.0f },           /* bottom */
+        { 0.0f, v0, u0, v1 },               /* left */
+        { u1, v0, 1.0f, v1 },               /* right */
+    };
+    float verts[5 * 6 * 4];
+    int v = 0;
+    for (int i = 0; i < 5; i++) {
+        const float xs[6] = { r[i][0], r[i][2], r[i][0], r[i][2], r[i][2], r[i][0] };
+        const float ys[6] = { r[i][1], r[i][1], r[i][3], r[i][1], r[i][3], r[i][3] };
+        for (int k = 0; k < 6; k++) {
+            verts[v++] = xs[k];
+            verts[v++] = ys[k];
+            verts[v++] = xs[k];
+            verts[v++] = ys[k];
+        }
+    }
+
+    glBindBuffer(GL_ARRAY_BUFFER, mesh_vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STREAM_DRAW);
+    mesh_cache_mesh = NULL;   /* the buffer no longer holds a mesh's sheet */
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), NULL);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                          (const void *)(2 * sizeof(float)));
+    wu1f(u_use_uv, 1.0f);
+
+    if (scissor_to(o, &repaint_rect)) {
+        wu1f(u_use_mask, 0.0f);
+        glDisable(GL_BLEND);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glEnable(GL_BLEND);
+        wu1f(u_use_mask, masked ? 1.0f : 0.0f);
+        glDrawArrays(GL_TRIANGLES, 6, 4 * 6);
+    }
+
+    glDisableVertexAttribArray(1);
+    wu1f(u_use_uv, 0.0f);
+    glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+}
+
 /* Where the client's own pixels sit in this node, in root coordinates.
  * client_rect is in the window's own pixels; an effect may hand the node
  * a geometry that is not that size (cover switch gives it the cover's
@@ -3337,8 +3390,31 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
             draw_base = false;
     }
 
+    /* Turned or scaled, the opaque rectangle cannot be a scissor box --
+     * but it can be a part of the quad: the client between the rounded
+     * corners, one pixel in so filtering never reaches the frame's alpha,
+     * drawn unblended and unmasked (draw_quad_split). Not under a dense
+     * layer, nor while the window fades. */
+    float su0 = 0.0f, sv0 = 0.0f, su1 = 0.0f, sv1 = 0.0f;
+    bool split = false;
+    if (!move_only && !flat && !from_stash && !dense_deco && !dense_client &&
+        n->opacity >= 1.0f && (mask || !w->shaped)) {
+        CompRect wr = window_rect(w), op = window_opaque_rect(w), whole;
+        CompRect local = { op.x - wr.x + 1, op.y - wr.y + 1, op.w - 2, op.h - 2 };
+        if (wr.w > 0 && wr.h > 0 && op.w > 2 && op.h > 2 &&
+            shape_whole_rect(w, g, &local, &whole)) {
+            su0 = (float)whole.x / (float)wr.w;
+            sv0 = (float)whole.y / (float)wr.h;
+            su1 = (float)(whole.x + whole.w) / (float)wr.w;
+            sv1 = (float)(whole.y + whole.h) / (float)wr.h;
+            split = true;
+        }
+    }
+
     if (!draw_base) {
         /* all of it under the dense layers */
+    } else if (split) {
+        draw_quad_split(o, su0, sv0, su1, sv1, mask != 0);
     } else if (mask) {
         /* The mask cuts the silhouette, so the only clip left is the
          * part of the screen this pass is repainting. */
