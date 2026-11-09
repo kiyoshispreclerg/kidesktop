@@ -1461,11 +1461,49 @@ static void draw_shadow(const CompOutput *o, const CompSceneNode *n,
             if (scissor_to(o, &cut[i]))
                 glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     } else {
-        glUniform4f(su_hole, (float)(base.x - box.x), (float)(base.y - box.y),
-                    (float)base.w, (float)base.h);
+        float hx = (float)(base.x - box.x), hy = (float)(base.y - box.y);
+        glUniform4f(su_hole, hx, hy, (float)base.w, (float)base.h);
         scissor_for(o, repaint_rect.x, repaint_rect.y,
                     repaint_rect.w, repaint_rect.h);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+        /* Where the hole leaves nothing, left out of the quad rather than
+         * blended as zero: the box as a frame of four strips around it.
+         * A rounded hole is whole only inside its corners' reach. */
+        float in = 0.0f;
+        if (round_shadow) {
+            int rmax = w->corner_tl;
+            if (w->corner_tr > rmax) rmax = w->corner_tr;
+            if (w->corner_br > rmax) rmax = w->corner_br;
+            if (w->corner_bl > rmax) rmax = w->corner_bl;
+            in = (float)rmax + 1.0f;
+        }
+        float x0 = (hx + in) / (float)box.w, x1 = (hx + (float)base.w - in) / (float)box.w;
+        float y0 = (hy + in) / (float)box.h, y1 = (hy + (float)base.h - in) / (float)box.h;
+        if (x1 > x0 && y1 > y0) {
+            const float r[4][4] = {
+                { 0.0f, 0.0f, 1.0f, y0 }, { 0.0f, y1, 1.0f, 1.0f },
+                { 0.0f, y0, x0, y1 },     { x1, y0, 1.0f, y1 },
+            };
+            float verts[4 * 6 * 2];
+            int v = 0;
+            for (int i = 0; i < 4; i++) {
+                const float xs[6] = { r[i][0], r[i][2], r[i][0], r[i][2], r[i][2], r[i][0] };
+                const float ys[6] = { r[i][1], r[i][1], r[i][3], r[i][1], r[i][3], r[i][3] };
+                for (int k = 0; k < 6; k++) {
+                    verts[v++] = xs[k];
+                    verts[v++] = ys[k];
+                }
+            }
+            glBindBuffer(GL_ARRAY_BUFFER, shadow_mesh_vbo);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STREAM_DRAW);
+            shadow_cache_mesh = NULL;
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+            glDrawArrays(GL_TRIANGLES, 0, 4 * 6);
+            glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+        } else {
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        }
     }
 }
 
