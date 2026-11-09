@@ -78,14 +78,40 @@ gboolean kf_clip_is_cut(KfApp *app, GFile *f)
 static void clip_clear(GtkClipboard *cb, gpointer data)
 {
     (void)cb;
+    /* Not the end of the cut: a clipboard manager re-owning the selection also lands
+     * here. owner_changed() decides from what the clipboard holds now. */
     ClipData *d = data;
-    if (d->cut && d->app->cut_uris) {
-        g_hash_table_destroy(d->app->cut_uris);
-        d->app->cut_uris = NULL;
-        cut_redraw(d->app);
-    }
     g_strfreev(d->uris);
     g_free(d);
+}
+
+static void cut_contents(GtkClipboard *cb, GtkSelectionData *sel, gpointer data)
+{
+    (void)cb;
+    KfApp *app = data;
+    GHashTable *set = NULL;
+    const char *txt = gtk_selection_data_get_length(sel) > 0 ? (const char *)gtk_selection_data_get_data(sel) : NULL;
+    if (txt && g_str_has_prefix(txt, "cut\n")) {
+        char **lines = g_strsplit(txt, "\n", -1);
+        set = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+        for (char **l = lines + 1; *l; l++) {
+            char *u = g_strstrip(*l);
+            if (*u)
+                g_hash_table_add(set, g_strdup(u));
+        }
+        g_strfreev(lines);
+    }
+    if (app->cut_uris)
+        g_hash_table_destroy(app->cut_uris);
+    app->cut_uris = set;
+    cut_redraw(app);
+}
+
+static void owner_changed(GtkClipboard *cb, GdkEvent *ev, gpointer data)
+{
+    (void)ev;
+    gtk_clipboard_request_contents(cb, gdk_atom_intern_static_string("x-special/gnome-copied-files"),
+                                   cut_contents, data);
 }
 
 void kf_clip_set(KfApp *app, GList *files, gboolean cut)
@@ -110,8 +136,14 @@ void kf_clip_set(KfApp *app, GList *files, gboolean cut)
         clip_clear(cb, d);
         return;
     }
-    /* After the set: replacing an older cut clears that one's set first. */
+    static gboolean watching;
+    if (!watching) {
+        watching = TRUE;
+        g_signal_connect(cb, "owner-change", G_CALLBACK(owner_changed), app);
+    }
     if (cut) {
+        if (app->cut_uris)
+            g_hash_table_destroy(app->cut_uris);
         app->cut_uris = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
         for (char **u = d->uris; *u; u++)
             g_hash_table_add(app->cut_uris, g_strdup(*u));
