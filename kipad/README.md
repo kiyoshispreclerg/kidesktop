@@ -38,7 +38,10 @@ Simple tabbed text editor for KiDesktop (GTK2).
   `kipad_syntax.h`) in `$KIPAD_SYNTAX_PATH`, `~/.local/lib/kipad/syntax` or
   `$LIBDIR/kipad/syntax`. The language is picked from the file name and first
   line and shown in the status bar. Only the lines on screen are coloured.
-  *View > Syntax highlighting* turns it off and unloads every module
+  *View > Syntax highlighting* turns it off and unloads every module. kipad
+  ships `conf.so` (INI/.conf/.desktop, JSON, YAML), `sh.so` (shell),
+  `clike.so` (C, C++, JavaScript/TypeScript, Java, Go, Rust), `python.so` and
+  `markup.so` (XML/HTML, Markdown, LaTeX with its math)
 - The status bar shows the cursor's line and column
 - Open, save, save as, undo/redo (`Ctrl+Z`, `Ctrl+Shift+Z` or `Ctrl+Y`),
   cut/copy/paste, select all. Files are read as UTF-8 (ISO-8859-1 when they

@@ -42,7 +42,8 @@ enum {
 };
 
 /* start and end are byte offsets into the line, end exclusive. Spans may come
- * in any order; a later span over the same bytes wins. */
+ * in any order; where two overlap, the higher KS_ value shows (an escape
+ * inside a string needs no splitting of the string's span). */
 typedef void (*KipadSpanFn)(void *ctx, int start, int end, int style);
 
 typedef struct {
