@@ -23,9 +23,9 @@ PKG_LIBS += $(LIBINTL) -ldl
 LINGUAS := $(shell test -f po/LINGUAS && grep -v '^\#' po/LINGUAS)
 MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
-SRCS := kipad.c syntax.c ../shared/xis_safefile.c ../shared/xis_rootexec.c
+SRCS := kipad.c syntax.c ../shared/xis_winstate.c ../shared/xis_safefile.c ../shared/xis_rootexec.c
 OBJS := $(SRCS:.c=.o)
-HDRS := syntax.h kipad_syntax.h ../shared/xis_i18n.h ../shared/xis_safefile.h ../shared/xis_rootexec.h
+HDRS := syntax.h kipad_syntax.h ../shared/xis_i18n.h ../shared/xis_winstate.h ../shared/xis_safefile.h ../shared/xis_rootexec.h
 
 # Syntax highlighting modules, one .so per family (see kipad_syntax.h).
 SYNTAX_MODS := $(patsubst %.c,%.so,$(wildcard syntax/*.c))

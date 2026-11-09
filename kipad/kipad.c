@@ -7,6 +7,7 @@
 #include "../shared/xis_i18n.h"
 #include "../shared/xis_rootexec.h"
 #include "../shared/xis_safefile.h"
+#include "../shared/xis_winstate.h"
 #include "syntax.h"
 
 #include <gdk/gdkkeysyms.h>
@@ -21,7 +22,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define KIPAD_VERSION "0.3.2"
+#define KIPAD_VERSION "0.3.3"
 #define DEFAULT_FONT "Monospace 11"
 #define MIN_FONT_PT 6
 #define MAX_FONT_PT 72
@@ -2271,6 +2272,8 @@ int main(int argc, char **argv)
 
     g_win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_default_size(GTK_WINDOW(g_win), 820, 600);
+    xis_winstate_restore(GTK_WINDOW(g_win), "kipad", XIS_WINSTATE_ALL);
+    xis_winstate_track(GTK_WINDOW(g_win), "kipad", XIS_WINSTATE_ALL);
     g_signal_connect(g_win, "delete-event", G_CALLBACK(on_delete_event), NULL);
     g_signal_connect(g_win, "destroy", G_CALLBACK(gtk_main_quit), NULL);
     g_signal_connect(g_win, "key-press-event", G_CALLBACK(on_key), NULL);
