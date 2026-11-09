@@ -22,6 +22,37 @@ static GRegex *url_regex;
 static const char *const kUrlPattern =
     "(?:[a-z][a-z0-9+.-]*://|www\\.)[-A-Za-z0-9._~:/?#@!$&'()*+,;=%\\[\\]]*[-A-Za-z0-9_~/#@$&=%+]";
 
+/* VTE never sets a background on its GdkWindow, so GDK paints the default
+ * (opaque black, alpha ignored) before every expose -- and VTE defers its
+ * own paint while an update is pending, which is right after a resize:
+ * that black frame is what reaches the screen. Give the window the colour
+ * VTE itself paints (translucent when the toplevel is ARGB). */
+static void sync_backing(VteTerminal *t, const KtConfig *c, gboolean argb)
+{
+    GdkWindow *gw = gtk_widget_get_window(GTK_WIDGET(t));
+    if (!gw)
+        return;
+    if (!argb || c->opacity >= 1.0) {
+        gdk_window_set_background(gw, &c->bg);
+        return;
+    }
+    GdkPixmap *pm = gdk_pixmap_new(gw, 1, 1, -1);
+    cairo_t *cr = gdk_cairo_create(pm);
+    cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_rgba(cr, c->bg.red / 65535.0, c->bg.green / 65535.0,
+                          c->bg.blue / 65535.0, c->opacity);
+    cairo_paint(cr);
+    cairo_destroy(cr);
+    gdk_window_set_back_pixmap(gw, pm, FALSE);
+    g_object_unref(pm);
+}
+
+static void on_term_realize(GtkWidget *t, gpointer data)
+{
+    KtWindow *w = data;
+    sync_backing(VTE_TERMINAL(t), &w->cfg, w->argb);
+}
+
 void kt_tab_apply_config(KtWindow *w, VteTerminal *t)
 {
     const KtConfig *c = &w->cfg;
@@ -35,6 +66,11 @@ void kt_tab_apply_config(KtWindow *w, VteTerminal *t)
     vte_terminal_set_colors(t, &c->fg, &c->bg, c->palette, 16);
     vte_terminal_set_color_cursor(t, &c->cursor);
     vte_terminal_set_opacity(t, (guint16)(c->opacity * 65535.0));
+    sync_backing(t, c, w->argb);
+    if (!g_object_get_data(G_OBJECT(t), "kt-backing")) {
+        g_object_set_data(G_OBJECT(t), "kt-backing", GINT_TO_POINTER(1));
+        g_signal_connect(t, "realize", G_CALLBACK(on_term_realize), w);
+    }
     vte_terminal_set_scrollback_lines(t, c->scrollback);
     vte_terminal_set_cursor_shape(t, c->cursor_shape);
     vte_terminal_set_cursor_blink_mode(t, c->cursor_blink ? VTE_CURSOR_BLINK_ON : VTE_CURSOR_BLINK_OFF);
