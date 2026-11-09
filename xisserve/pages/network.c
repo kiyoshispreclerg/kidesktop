@@ -537,11 +537,13 @@ static GtkWidget *build_wifi_row(WifiNet *w)
     snprintf(label_markup, sizeof(label_markup), "%s%s%s", w->in_use ? "\xe2\x9c\x93 " : "", lock, w->ssid);
     GtkWidget *label = gtk_label_new(label_markup);
     gtk_misc_set_alignment(GTK_MISC(label), 0.0f, 0.5f);
+    style_fg(label);
     gtk_box_pack_start(GTK_BOX(hbox), label, TRUE, TRUE, 0);
 
     char sig[16];
     snprintf(sig, sizeof(sig), "%d%%", w->signal);
     GtkWidget *sig_label = gtk_label_new(sig);
+    style_fg(sig_label);
     gtk_box_pack_start(GTK_BOX(hbox), sig_label, FALSE, FALSE, 0);
 
     g_signal_connect(btn, "clicked", G_CALLBACK(on_wifi_row_clicked), w);
