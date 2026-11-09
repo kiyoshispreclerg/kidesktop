@@ -4,6 +4,7 @@
 #include "window.h"
 #include "renderer.h"
 #include "effect.h"
+#include "stowpix.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -315,6 +316,9 @@ void density_property_changed(CompWindow *w, xcb_window_t on, xcb_atom_t atom)
     *den = scale[1];
 
     bool appeared = (*pix == 0 && pixmap != 0);
+    /* The dense pixmap offered as the kept picture (stowpix.c) is the
+     * client's: when it replaces it, the offer follows. */
+    bool restow = !is_frame && w->stow_published != XCB_NONE && w->stow_published == *pix;
     if (*pix != pixmap) {
         /* The picture cached for the old pixmap describes a drawable that
          * may not even exist any more. */
@@ -334,6 +338,11 @@ void density_property_changed(CompWindow *w, xcb_window_t on, xcb_atom_t atom)
     if (appeared && !is_frame) {
         density_holes_changed(w, comp.atoms.density_passthrough);
         density_holes_changed(w, comp.atoms.density_sources);
+    }
+
+    if (restow) {
+        stowpix_drop(w);
+        stowpix_publish(w);
     }
 
     if (changed)

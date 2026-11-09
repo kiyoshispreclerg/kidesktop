@@ -1,6 +1,7 @@
 /* kicomp - publishing the kept picture of a hidden window. See stowpix.h. */
 #include "stowpix.h"
 #include "renderer.h"
+#include "density.h"
 
 void stowpix_publish(CompWindow *w)
 {
@@ -15,6 +16,17 @@ void stowpix_publish(CompWindow *w)
      * pixmap named for a window goes on holding its last contents after
      * the window is unmapped. That is the whole trick being offered. */
     xcb_pixmap_t pm = renderer_window_pixmap(w);
+
+    /* A window that is its own client and draws its contents densely
+     * (xisback's wallpaper on a scaled output) has a better picture than
+     * that one, covering the same whole window: the client's dense
+     * pixmap, which it keeps alive and redraws itself. Offered instead,
+     * that also tells the client its pixmap is in use while the window is
+     * away, so it keeps it rather than dropping it (xisback --lazy). A
+     * framed window's dense pixmap covers only the client area, so the
+     * frame's picture stays the one offered there. */
+    if (w->client == w->id && density_active(w, NULL))
+        pm = w->density_pixmap;
     if (pm == XCB_NONE)
         return;
 

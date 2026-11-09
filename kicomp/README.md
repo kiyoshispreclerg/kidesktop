@@ -1584,6 +1584,12 @@ the rules are short:
 - what you get is the window *as it was when it went away* — decoration
   included, since the pixmap is the frame's — which is what every expo
   and every task manager has always shown.
+- **its size is its own.** A window that is its own client (no frame) and
+  publishes a dense pixmap (`_X_DENSITY_PIXMAP`) gets *that* pixmap
+  offered instead: the same whole window, at the density it was drawn
+  at. It is the client's, not kicomp's — the client keeps it alive while
+  it sees its own XID offered (xisback's `--lazy` relies on this), and a
+  replacement it publishes is offered in its place.
 
 ### Keeping the windows themselves alive (`live_windows`)
 
