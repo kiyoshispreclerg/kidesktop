@@ -7,6 +7,7 @@
 #include "../shared/xis_i18n.h"
 #include "../shared/xis_rootexec.h"
 #include "../shared/xis_safefile.h"
+#include "syntax.h"
 
 #include <gdk/gdkkeysyms.h>
 #include <gtk/gtk.h>
@@ -20,7 +21,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define KIPAD_VERSION "0.2.3"
+#define KIPAD_VERSION "0.2.4"
 #define DEFAULT_FONT "Monospace 11"
 #define MIN_FONT_PT 6
 #define MAX_FONT_PT 72
@@ -35,6 +36,8 @@ static gboolean g_word_wrap = FALSE;
 static gboolean g_single = TRUE;
 /* Seconds between backups of unsaved files; 0 turns the backup off. */
 static int g_autosave_secs = 20;
+/* Off: no syntax module stays loaded. */
+static gboolean g_syntax = TRUE;
 
 static char *conf_path(void)
 {
@@ -66,6 +69,8 @@ static void config_load(void)
                 g_single = atoi(val) != 0;
             else if (!strcmp(key, "autosave_seconds"))
                 g_autosave_secs = CLAMP(atoi(val), 0, 3600);
+            else if (!strcmp(key, "syntax_highlighting"))
+                g_syntax = atoi(val) != 0;
         }
         g_strfreev(lines);
         free(data);
@@ -77,8 +82,9 @@ static void config_save(void)
 {
     char *path = conf_path(), *dir = g_path_get_dirname(path);
     g_mkdir_with_parents(dir, 0755);
-    char *text = g_strdup_printf("# kipad settings, written by kipad\nfont = %s\nline_numbers = %d\nword_wrap = %d\nsingle_instance = %d\nautosave_seconds = %d\n",
-                                 g_font, g_line_numbers, g_word_wrap, g_single, g_autosave_secs);
+    char *text = g_strdup_printf("# kipad settings, written by kipad\nfont = %s\nline_numbers = %d\nword_wrap = %d\nsingle_instance = %d\nautosave_seconds = %d\n"
+                                 "syntax_highlighting = %d\n",
+                                 g_font, g_line_numbers, g_word_wrap, g_single, g_autosave_secs, g_syntax);
     xis_write_file(path, text, strlen(text), xis_check_conf_clean);
     g_free(text);
     g_free(dir);
@@ -202,9 +208,10 @@ typedef struct {
     int digits;       /* width of the line number column, in digits */
     gboolean bk_dirty;   /* edited since the last backup was written */
     gboolean bk_exists;  /* the hidden backup file is on disk */
+    SynDoc *syn;
 } Doc;
 
-static GtkWidget *g_win, *g_notebook, *g_status, *g_pos_label;
+static GtkWidget *g_win, *g_notebook, *g_status, *g_pos_label, *g_lang_label;
 static GtkWidget *g_linenum_item, *g_wrap_item;
 static int g_untitled_count;
 
@@ -290,6 +297,9 @@ static void window_update_title(void)
 static void status_update(void)
 {
     Doc *d = doc_current();
+    const char *lang = d ? syn_doc_language(d->syn) : NULL;
+    if (strcmp(gtk_label_get_text(GTK_LABEL(g_lang_label)), lang ? lang : ""))
+        gtk_label_set_text(GTK_LABEL(g_lang_label), lang ? lang : "");
     if (!d) {
         gtk_label_set_text(GTK_LABEL(g_pos_label), "");
         return;
@@ -621,6 +631,7 @@ static void doc_free(Doc *d)
 {
     if (g_find_hl == d)
         g_find_hl = NULL;
+    syn_doc_free(d->syn);
     g_array_free(d->undo, TRUE);
     g_array_free(d->redo, TRUE);
     g_free(d->path);
@@ -660,6 +671,7 @@ static Doc *doc_new(void)
     gtk_text_view_set_left_margin(GTK_TEXT_VIEW(d->view), 4);
     gtk_text_view_set_right_margin(GTK_TEXT_VIEW(d->view), 4);
     gtk_container_add(GTK_CONTAINER(d->scroll), d->view);
+    d->syn = syn_doc_new(d->scroll, GTK_TEXT_VIEW(d->view));
     g_object_set_data_full(G_OBJECT(d->scroll), "doc", d, (GDestroyNotify)doc_free);
     apply_font_to(d);
     apply_wrap_to(d);
@@ -912,6 +924,7 @@ static void open_path(const char *path)
         gtk_text_buffer_set_modified(d->buf, TRUE);
         backup_write(d);
     }
+    syn_doc_set_file(d->syn, d->path);
     State st;
     state_load(&st);
     doc_restore_cursor(d, state_get_pos(&st, d->path));
@@ -974,6 +987,8 @@ static gboolean save_doc_as(Doc *d)
             if (old && strcmp(old, d->path))
                 backup_remove(old);
             g_free(old);
+            syn_doc_set_file(d->syn, d->path);
+            status_update();
         } else {
             g_free(d->path);
             d->path = old;
@@ -1316,6 +1331,14 @@ static void autosave_cb(void)
         autosave_restart();
     }
     gtk_widget_destroy(dlg);
+}
+
+static void syntax_toggle_cb(GtkCheckMenuItem *item, gpointer data)
+{
+    (void)data;
+    g_syntax = gtk_check_menu_item_get_active(item);
+    config_save();
+    syn_set_enabled(g_syntax);
 }
 
 static void single_toggle_cb(GtkCheckMenuItem *item, gpointer data)
@@ -1950,6 +1973,10 @@ static GtkWidget *build_menubar(GtkAccelGroup *ag)
     gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(g_wrap_item), g_word_wrap);
     g_signal_connect(g_wrap_item, "toggled", G_CALLBACK(wrap_toggle_cb), NULL);
     gtk_menu_shell_append(GTK_MENU_SHELL(m), g_wrap_item);
+    GtkWidget *syntax_item = gtk_check_menu_item_new_with_mnemonic(_("S_yntax highlighting"));
+    gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(syntax_item), g_syntax);
+    g_signal_connect(syntax_item, "toggled", G_CALLBACK(syntax_toggle_cb), NULL);
+    gtk_menu_shell_append(GTK_MENU_SHELL(m), syntax_item);
     GtkWidget *single_item = gtk_check_menu_item_new_with_mnemonic(_("Open files in the _same window"));
     gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(single_item), g_single);
     g_signal_connect(single_item, "toggled", G_CALLBACK(single_toggle_cb), NULL);
@@ -2137,6 +2164,8 @@ int main(int argc, char **argv)
     gtk_init(&argc, &argv);
     config_load();
     autosave_restart();
+    syn_set_enabled(g_syntax);
+    syn_set_changed_cb(status_update);
     gboolean new_window = FALSE;
     char **files = g_new0(char *, argc + 1);
     int nfiles = 0;
@@ -2178,6 +2207,9 @@ int main(int argc, char **argv)
     g_pos_label = gtk_label_new("");
     gtk_misc_set_padding(GTK_MISC(g_pos_label), 8, 2);
     gtk_box_pack_end(GTK_BOX(g_status), g_pos_label, FALSE, FALSE, 0);
+    g_lang_label = gtk_label_new("");
+    gtk_misc_set_padding(GTK_MISC(g_lang_label), 8, 2);
+    gtk_box_pack_end(GTK_BOX(g_status), g_lang_label, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(vbox), g_status, FALSE, FALSE, 0);
 
     gtk_widget_show_all(g_win);

@@ -12,17 +12,20 @@ DATADIR := $(PREFIX)/share
 DESKTOPDIR ?= /usr/share/applications
 ICONDIR ?= /usr/share/icons/hicolor/scalable/apps
 LOCALEDIR := $(DATADIR)/locale
-PKG_CFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"' -DGLIB_DISABLE_DEPRECATION_WARNINGS
+LIBDIR ?= $(PREFIX)/lib
+SYNTAXDIR := $(LIBDIR)/kipad/syntax
+INCLUDEDIR := $(PREFIX)/include
+PKG_CFLAGS += -DLOCALEDIR='"$(LOCALEDIR)"' -DKIPAD_SYNTAXDIR='"$(SYNTAXDIR)"' -DGLIB_DISABLE_DEPRECATION_WARNINGS
 # gettext is in glibc; only musl/BSD need a separate -lintl.
 LIBINTL := $(shell echo 'int main(void){return 0;}' | $(CC) -x c - -o /dev/null -lintl 2>/dev/null && echo -lintl)
-PKG_LIBS += $(LIBINTL)
+PKG_LIBS += $(LIBINTL) -ldl
 
 LINGUAS := $(shell test -f po/LINGUAS && grep -v '^\#' po/LINGUAS)
 MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
-SRCS := kipad.c ../shared/xis_safefile.c ../shared/xis_rootexec.c
+SRCS := kipad.c syntax.c ../shared/xis_safefile.c ../shared/xis_rootexec.c
 OBJS := $(SRCS:.c=.o)
-HDRS := ../shared/xis_i18n.h ../shared/xis_safefile.h ../shared/xis_rootexec.h
+HDRS := syntax.h kipad_syntax.h ../shared/xis_i18n.h ../shared/xis_safefile.h ../shared/xis_rootexec.h
 
 all: kipad
 
@@ -55,6 +58,7 @@ install: kipad mo
 	install -Dm644 kipad.desktop $(DESTDIR)$(DESKTOPDIR)/kipad.desktop
 	rm -f kipad.desktop
 	install -Dm644 kipad.svg $(DESTDIR)$(ICONDIR)/kipad.svg
+	install -Dm644 kipad_syntax.h $(DESTDIR)$(INCLUDEDIR)/kipad/kipad_syntax.h
 	if [ -z "$(DESTDIR)" ]; then update-desktop-database $(DESKTOPDIR) 2>/dev/null; gtk-update-icon-cache -f -t $(dir $(patsubst %/,%,$(dir $(patsubst %/,%,$(ICONDIR))))) 2>/dev/null; fi; true
 	for lang in $(LINGUAS); do \
 		install -Dm644 po/$$lang.mo $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/kipad.mo; \
@@ -62,6 +66,7 @@ install: kipad mo
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/kipad $(DESTDIR)$(DESKTOPDIR)/kipad.desktop $(DESTDIR)$(ICONDIR)/kipad.svg
+	rm -f $(DESTDIR)$(INCLUDEDIR)/kipad/kipad_syntax.h
 	for lang in $(LINGUAS); do \
 		rm -f $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/kipad.mo; \
 	done

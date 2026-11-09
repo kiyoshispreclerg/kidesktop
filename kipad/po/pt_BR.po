@@ -318,3 +318,7 @@ msgstr "Autosalvamento"
 #: kipad.c
 msgid "Back up unsaved files every (seconds, 0 = off):"
 msgstr "Fazer backup de arquivos não salvos a cada (segundos, 0 = desligado):"
+
+#: kipad.c
+msgid "S_yntax highlighting"
+msgstr "Destaque de _sintaxe"

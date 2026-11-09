@@ -34,6 +34,11 @@ Simple tabbed text editor for KiDesktop (GTK2).
   without saving or reloading deletes the backup
 - *File > Reopen file* closes the file (asking to save) and opens it again in
   the same tab
+- Syntax highlighting comes from installable modules (`NAME.so`, see
+  `kipad_syntax.h`) in `$KIPAD_SYNTAX_PATH`, `~/.local/lib/kipad/syntax` or
+  `$LIBDIR/kipad/syntax`. The language is picked from the file name and first
+  line and shown in the status bar. Only the lines on screen are coloured.
+  *View > Syntax highlighting* turns it off and unloads every module
 - The status bar shows the cursor's line and column
 - Open, save, save as, undo/redo (`Ctrl+Z`, `Ctrl+Shift+Z` or `Ctrl+Y`),
   cut/copy/paste, select all. Files are read as UTF-8 (ISO-8859-1 when they
@@ -45,7 +50,7 @@ Cursor positions (last 200 files) and the open tabs are remembered in
 last tab on purpose starts empty next time). With several windows, the last
 one closed decides the tab list.
 
-Settings (font, line numbers, word wrap, single window, autosave interval) are in `~/.config/kipad.conf`, written
+Settings (font, line numbers, word wrap, single window, autosave interval, syntax highlighting) are in `~/.config/kipad.conf`, written
 whenever they change. Command line: `kipad [FILE...]`.
 
-Not yet: replace, syntax highlighting.
+Not yet: replace.
