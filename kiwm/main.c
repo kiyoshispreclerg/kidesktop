@@ -41,7 +41,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#define KIWM_VERSION "0.7.3"
+#define KIWM_VERSION "0.7.4"
 
 #include "../shared/xis_i18n.h"
 
@@ -286,6 +286,7 @@ static void setup_wm(bool replace)
     shape_init();
     sync_init();
     clickraise_init();
+    density_manager_init();
 
     /* Reused by every draw_decoration() call (decoration.c) to blit its
      * off-screen pixmap onto the actual frame -- created once here rather

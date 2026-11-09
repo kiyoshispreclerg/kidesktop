@@ -34,6 +34,8 @@
 #include "client.h"
 #include "decoration.h"
 #include "density.h"
+#include "menu.h"
+#include <xcb/xfixes.h>
 
 #include <cairo/cairo-xcb.h>
 #include <stdio.h>
@@ -153,8 +155,81 @@ void deco_density_forget(Client *c)
     xcb_delete_property(wm.conn, c->frame, wm.atoms.x_density_scale);
 }
 
+/* Whether anyone holds _X_DENSITY_MANAGER_S<n> -- the protocol's own
+ * "someone is consuming this" signal (TESTS/X-DENSITY.md section 5.2),
+ * not whether a compositor is running: a compositor may well not speak
+ * X-DENSITY. Without an owner, requests are ignored and nothing is
+ * published; losing it (a crashed kicomp never withdraws its requests)
+ * snaps everything back to 1x. */
+static xcb_atom_t manager_atom;
+static uint8_t xfixes_event_base;
+static bool manager_present;
+
+void density_manager_init(void)
+{
+    char name[32];
+    snprintf(name, sizeof(name), "_X_DENSITY_MANAGER_S%d", wm.screen_nbr);
+    xcb_intern_atom_reply_t *a = xcb_intern_atom_reply(wm.conn,
+        xcb_intern_atom(wm.conn, 0, (uint16_t)strlen(name), name), NULL);
+    manager_atom = a ? a->atom : XCB_ATOM_NONE;
+    free(a);
+
+    const xcb_query_extension_reply_t *xf = xcb_get_extension_data(wm.conn, &xcb_xfixes_id);
+    xcb_xfixes_query_version_reply_t *fv = xf && xf->present
+        ? xcb_xfixes_query_version_reply(wm.conn, xcb_xfixes_query_version(wm.conn, 5, 0), NULL)
+        : NULL;
+    if (manager_atom == XCB_ATOM_NONE || !fv) {
+        free(fv);
+        fprintf(stderr, "kiwm: XFixes unavailable -- X-DENSITY support disabled\n");
+        manager_atom = XCB_ATOM_NONE;
+        return;
+    }
+    free(fv);
+    xfixes_event_base = xf->first_event;
+    xcb_xfixes_select_selection_input(wm.conn, wm.root, manager_atom,
+        XCB_XFIXES_SELECTION_EVENT_MASK_SET_SELECTION_OWNER |
+        XCB_XFIXES_SELECTION_EVENT_MASK_SELECTION_WINDOW_DESTROY |
+        XCB_XFIXES_SELECTION_EVENT_MASK_SELECTION_CLIENT_CLOSE);
+
+    xcb_get_selection_owner_reply_t *r = xcb_get_selection_owner_reply(wm.conn,
+        xcb_get_selection_owner(wm.conn, manager_atom), NULL);
+    manager_present = r && r->owner != XCB_NONE;
+    free(r);
+}
+
+bool density_manager_present(void)
+{
+    return manager_present;
+}
+
+bool density_manager_handle_event(xcb_generic_event_t *event)
+{
+    if (manager_atom == XCB_ATOM_NONE ||
+        (event->response_type & ~0x80) != (uint8_t)(xfixes_event_base + XCB_XFIXES_SELECTION_NOTIFY))
+        return false;
+    xcb_xfixes_selection_notify_event_t *ev = (xcb_xfixes_selection_notify_event_t *)event;
+    if (ev->selection != manager_atom)
+        return false;
+
+    bool now = ev->subtype == XCB_XFIXES_SELECTION_EVENT_SET_SELECTION_OWNER && ev->owner != XCB_NONE;
+    if (now != manager_present) {
+        manager_present = now;
+        fprintf(stderr, "kiwm: X-DENSITY manager %s\n", now ? "appeared" : "gone");
+        if (!now) {
+            deco_density_forget_all();
+            window_menu_density_forget();
+        }
+    }
+    return true;
+}
+
 void deco_density_request_changed(Client *c)
 {
+    /* Per the protocol: with nobody holding the manager selection, the
+     * request is not even read. */
+    if (!manager_present)
+        return;
+
     uint32_t num = 1, den = 1;
 
     xcb_get_property_reply_t *r = xcb_get_property_reply(wm.conn,
@@ -178,6 +253,10 @@ void deco_density_request_changed(Client *c)
     if (num == den) {
         deco_density_forget(c);
         fprintf(stderr, "kiwm: decoration density back to 1/1 for 0x%x\n", c->frame);
+        /* The frame's own decoration was left stale while the dense one
+         * was shown (deco_density_publish()). */
+        draw_decoration(c);
+        xcb_flush(wm.conn);
         return;
     }
 
@@ -191,21 +270,21 @@ void deco_density_request_changed(Client *c)
     xcb_flush(wm.conn);
 }
 
-void deco_density_publish(Client *c, int w, int h, bool focused)
+bool deco_density_publish(Client *c, int w, int h, bool focused)
 {
     if (c->deco_density_num == c->deco_density_den)
-        return;
+        return false;
     if (!wm.argb_visual) {
         /* No 32-bit visual to make a transparent pixmap with; publishing
          * an opaque one would paint over the client's own area. */
-        return;
+        return false;
     }
 
     double density = (double)c->deco_density_num / (double)c->deco_density_den;
     int dw = (int)(w * density + 0.5);
     int dh = (int)(h * density + 0.5);
     if (dw <= 0 || dh <= 0)
-        return;
+        return false;
 
     bool resized = (dw != c->deco_density_w || dh != c->deco_density_h);
     if (resized)
@@ -256,4 +335,19 @@ void deco_density_publish(Client *c, int w, int h, bool focused)
         publish_scale(c);
         publish_pixmap(c);
     }
+    /* An already announced pixmap is what the compositor shows in the
+     * frame's decoration (kicomp draws the frame's own pixels only in the
+     * client's hole under it), so the 1x paint can be skipped. */
+    return !resized && manager_present;
+}
+
+void deco_density_forget_all(void)
+{
+    for (Client *c = wm.clients; c; c = c->next) {
+        if (c->deco_density_num == c->deco_density_den && c->deco_density_pixmap == XCB_NONE)
+            continue;
+        deco_density_forget(c);
+        draw_decoration(c);
+    }
+    xcb_flush(wm.conn);
 }

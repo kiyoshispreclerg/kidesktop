@@ -11,14 +11,23 @@
 
 #include "wm.h"
 
+/* Watches _X_DENSITY_MANAGER_S<n> (XFixes): call once at startup, after
+ * the screen number is known. handle_event returns true when it consumed
+ * the event; losing the owner snaps every frame and menu back to 1x. */
+void density_manager_init(void);
+bool density_manager_handle_event(xcb_generic_event_t *event);
+bool density_manager_present(void);
+
 /* _X_DENSITY_REQUESTED changed on this client's frame. */
 void deco_density_request_changed(Client *c);
 
-/* Called at the end of every decoration repaint: renders the same
- * decoration into the density pixmap and republishes it (the republish is
- * also the "contents changed" signal -- a pixmap has no Damage of its
- * own). A no-op at density 1. */
-void deco_density_publish(Client *c, int w, int h, bool focused);
+/* Called at the start of every decoration repaint: renders the same
+ * decoration into the density pixmap (announced only when new; later
+ * frames reach the compositor as Damage on it). A no-op at density 1.
+ * Returns true when the pixmap was already announced: the compositor shows
+ * it instead of the frame's decoration, so the 1x paint can be skipped --
+ * the frame is repainted when the density goes back to 1/1. */
+bool deco_density_publish(Client *c, int w, int h, bool focused);
 
 /* The decoration is not being drawn at all right now -- maximized with
  * hide_deco_on_maximize, fullscreen, a client that asked for no chrome.
@@ -34,6 +43,10 @@ void deco_density_hide(Client *c);
 
 /* Density no longer wanted, or the client is going away. */
 void deco_density_forget(Client *c);
+
+/* The density manager went away (maybe without withdrawing its
+ * requests): forgets every frame's density and repaints it at 1x. */
+void deco_density_forget_all(void);
 
 /* Frees a published density pixmap a second from now rather than at once
  * (see density.c) -- for any pixmap kiwm published, the window menu's

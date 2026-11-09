@@ -1766,6 +1766,16 @@ void draw_decoration(Client *c)
 
     bool focused = (c == wm.focused);
     bool argb = (c->frame_depth == 32);
+
+    /* The decoration at whatever density a compositor asked for, first
+     * (density.h). A no-op -- not even a branch's worth of work -- unless
+     * one did. Still the frame-sized paint_deco(): a compositor sampling
+     * it wants one pixmap to composite over the window, not four. While
+     * the compositor shows it the frame's own decoration isn't seen, so
+     * painting that too would be the same work twice. */
+    if (deco_density_publish(c, w, h, focused))
+        return;
+
     bool dbg = wm.debug_resize && wm.drag_mode == DRAG_RESIZE;
     double t_start = dbg ? monotonic_ms() : 0;
     double t_pixmap = 0, t_paint = 0, t_flush = 0, t_copy = 0;
@@ -1918,13 +1928,6 @@ void draw_decoration(Client *c)
             }
         }
     }
-
-    /* And the same decoration again, at whatever density a compositor
-     * asked for (density.h). A no-op -- not even a branch's worth of work
-     * -- unless one did. Still the frame-sized paint_deco(): this is not
-     * the resize-hot path, and a compositor sampling it wants one pixmap
-     * to composite over the window, not four. */
-    deco_density_publish(c, w, h, focused);
 
     if (dbg) {
         double t_end = monotonic_ms();

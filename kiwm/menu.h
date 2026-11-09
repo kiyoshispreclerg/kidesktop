@@ -38,6 +38,8 @@ void window_menu_handle_expose(xcb_window_t window);
  * popups, redraws it at that density for the compositor (density.h).
  * Returns whether the window was a menu popup. */
 bool window_menu_handle_density_request(xcb_window_t window);
+/* The density manager went away: every open menu frame back to 1x. */
+void window_menu_density_forget(void);
 
 /* The three input paths, all fed from events.c's dispatch. Each returns
  * whether it consumed the event, which is false (and does nothing) when no

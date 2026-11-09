@@ -2143,6 +2143,10 @@ void handle_event(xcb_generic_event_t *event)
     if (clickraise_handle_event(event))
         return;
 
+    /* _X_DENSITY_MANAGER_S<n> changing hands (density.c). */
+    if (density_manager_handle_event(event))
+        return;
+
     /* A compositor arriving (MANAGER) or leaving (its window destroyed):
      * noted here, acted on by main.c's loop once this batch of events is
      * drained. Not consumed for DestroyNotify -- nothing else claims the

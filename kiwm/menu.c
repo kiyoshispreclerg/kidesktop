@@ -483,16 +483,16 @@ static void density_withdraw(MenuFrame *f)
  * the way density.c publishes a decoration. A no-op at 1/1. A frame never
  * changes size while it is up, so the pixmap is made once and redrawn on
  * every hover change. */
-static void paint_density(MenuFrame *f)
+static bool paint_density(MenuFrame *f)
 {
     if (f->density_num == f->density_den)
-        return;
+        return false;
 
     double density = (double)f->density_num / (double)f->density_den;
     int dw = (int)(f->w * density + 0.5);
     int dh = (int)(f->h * density + 0.5);
     if (dw <= 0 || dh <= 0)
-        return;
+        return false;
 
     bool fresh = f->density_pixmap == XCB_NONE;
     if (fresh) {
@@ -512,12 +512,16 @@ static void paint_density(MenuFrame *f)
         xcb_change_property(wm.conn, XCB_PROP_MODE_REPLACE, f->win, wm.atoms.x_density_pixmap,
                             XCB_ATOM_CARDINAL, 32, 1, &value);
     }
+    /* An announced pixmap is what the compositor shows: the window isn't
+     * seen until the density goes back to 1/1. */
+    return !fresh && density_manager_present();
 }
 
 static void paint_frame(MenuFrame *f)
 {
+    if (paint_density(f))
+        return;
     draw_frame_into(f, f->win, f->w, f->h, 1.0);
-    paint_density(f);
 }
 
 static void shape_frame(MenuFrame *f)
@@ -858,6 +862,19 @@ void window_menu_handle_expose(xcb_window_t window)
     }
 }
 
+void window_menu_density_forget(void)
+{
+    for (int i = 0; i < frame_count; i++) {
+        MenuFrame *f = &frames[i];
+        if (f->density_num == f->density_den)
+            continue;
+        density_withdraw(f);
+        f->density_num = f->density_den = 1;
+        paint_frame(f);
+    }
+    xcb_flush(wm.conn);
+}
+
 bool window_menu_handle_density_request(xcb_window_t window)
 {
     MenuFrame *f = NULL;
@@ -866,6 +883,8 @@ bool window_menu_handle_density_request(xcb_window_t window)
             f = &frames[i];
     if (!f)
         return false;
+    if (!density_manager_present())
+        return true;
 
     uint32_t num = 1, den = 1;
     xcb_get_property_reply_t *r = xcb_get_property_reply(wm.conn,
@@ -888,11 +907,12 @@ bool window_menu_handle_density_request(xcb_window_t window)
         return true;
 
     /* A different factor means a different pixmap size: the old one goes
-     * and paint_density() makes and announces the new one. */
+     * and paint_density() makes and announces the new one. The window is
+     * painted too: it was left stale while a dense pixmap was shown. */
     density_withdraw(f);
     f->density_num = num;
     f->density_den = den;
-    paint_density(f);
+    paint_frame(f);
     xcb_flush(wm.conn);
     return true;
 }
