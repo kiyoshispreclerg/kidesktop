@@ -322,3 +322,11 @@ msgstr "Fazer backup de arquivos não salvos a cada (segundos, 0 = desligado):"
 #: kipad.c
 msgid "S_yntax highlighting"
 msgstr "Destaque de _sintaxe"
+
+#: kipad.c
+msgid "Recent _files"
+msgstr "_Recentes"
+
+#: kipad.c
+msgid "(none)"
+msgstr "(nenhum)"

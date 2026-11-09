@@ -21,7 +21,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define KIPAD_VERSION "0.3.1"
+#define KIPAD_VERSION "0.3.2"
 #define DEFAULT_FONT "Monospace 11"
 #define MIN_FONT_PT 6
 #define MAX_FONT_PT 72
@@ -868,6 +868,80 @@ static int backup_ask(const char *abs, const char *bk, const char *saved, gsize 
     return r == GTK_RESPONSE_ACCEPT ? BK_BACKUP : r == GTK_RESPONSE_REJECT ? BK_SAVED : BK_CANCEL;
 }
 
+static void open_path(const char *path);
+
+/* ---- recent files (freedesktop recently-used.xbel) ------------------- */
+
+#define RECENT_MAX 10
+
+static void recent_add(const char *path)
+{
+    char *uri = g_filename_to_uri(path, NULL, NULL);
+    if (!uri)
+        return;
+    char *ct = g_content_type_guess(path, NULL, 0, NULL);
+    char *mime = ct ? g_content_type_get_mime_type(ct) : NULL;
+    GtkRecentData rd = { 0 };
+    rd.mime_type = mime ? mime : (char *)"text/plain";
+    rd.app_name = (char *)"kipad";
+    rd.app_exec = (char *)"kipad %u";
+    gtk_recent_manager_add_full(gtk_recent_manager_get_default(), uri, &rd);
+    g_free(mime);
+    g_free(ct);
+    g_free(uri);
+}
+
+static gint recent_newest_first(gconstpointer a, gconstpointer b)
+{
+    time_t ta = gtk_recent_info_get_modified((GtkRecentInfo *)a), tb = gtk_recent_info_get_modified((GtkRecentInfo *)b);
+    return (tb > ta) - (tb < ta);
+}
+
+static void recent_item_cb(GtkWidget *it, gpointer data)
+{
+    (void)data;
+    open_path(g_object_get_data(G_OBJECT(it), "kipad-path"));
+}
+
+/* Rebuilt every time the submenu opens, so other programs' changes show up. */
+static void recent_menu_fill(GtkWidget *menu, gpointer data)
+{
+    (void)data;
+    GList *kids = gtk_container_get_children(GTK_CONTAINER(menu));
+    for (GList *k = kids; k; k = k->next)
+        gtk_widget_destroy(k->data);
+    g_list_free(kids);
+
+    GList *items = gtk_recent_manager_get_items(gtk_recent_manager_get_default());
+    items = g_list_sort(items, recent_newest_first);
+    int shown = 0;
+    for (GList *l = items; l && shown < RECENT_MAX; l = l->next) {
+        GtkRecentInfo *ri = l->data;
+        if (!gtk_recent_info_has_application(ri, "kipad"))
+            continue;
+        char *path = g_filename_from_uri(gtk_recent_info_get_uri(ri), NULL, NULL);
+        if (!path || !g_file_test(path, G_FILE_TEST_IS_REGULAR)) {
+            g_free(path);
+            continue;
+        }
+        char *base = g_path_get_basename(path);
+        GtkWidget *it = gtk_menu_item_new_with_label(base);
+        gtk_widget_set_tooltip_text(it, path);
+        g_object_set_data_full(G_OBJECT(it), "kipad-path", path, g_free);
+        g_signal_connect(it, "activate", G_CALLBACK(recent_item_cb), NULL);
+        gtk_menu_shell_append(GTK_MENU_SHELL(menu), it);
+        g_free(base);
+        shown++;
+    }
+    g_list_free_full(items, (GDestroyNotify)gtk_recent_info_unref);
+    if (!shown) {
+        GtkWidget *it = gtk_menu_item_new_with_label(_("(none)"));
+        gtk_widget_set_sensitive(it, FALSE);
+        gtk_menu_shell_append(GTK_MENU_SHELL(menu), it);
+    }
+    gtk_widget_show_all(menu);
+}
+
 /* Opens `path` in a tab (an already open one is just shown). */
 static void open_path(const char *path)
 {
@@ -925,6 +999,7 @@ static void open_path(const char *path)
         backup_write(d);
     }
     syn_doc_set_file(d->syn, d->path);
+    recent_add(d->path);
     State st;
     state_load(&st);
     doc_restore_cursor(d, state_get_pos(&st, d->path));
@@ -1952,6 +2027,11 @@ static GtkWidget *build_menubar(GtkAccelGroup *ag)
     separator(m);
     menu_item(m, ag, _("_Save"), GDK_s, C, G_CALLBACK(save_cb));
     menu_item(m, ag, _("Save _as..."), GDK_s, CS, G_CALLBACK(save_as_cb));
+    GtkWidget *rit = gtk_menu_item_new_with_mnemonic(_("Recent _files"));
+    GtkWidget *rm = gtk_menu_new();
+    gtk_menu_item_set_submenu(GTK_MENU_ITEM(rit), rm);
+    g_signal_connect(rm, "show", G_CALLBACK(recent_menu_fill), NULL);
+    gtk_menu_shell_append(GTK_MENU_SHELL(m), rit);
     separator(m);
     menu_item(m, ag, _("_Reopen file"), 0, 0, G_CALLBACK(reopen_cb));
     menu_item(m, ag, _("_Close tab"), GDK_w, C, G_CALLBACK(close_cb));
