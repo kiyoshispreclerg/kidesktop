@@ -59,3 +59,15 @@ of (no compositor, or `keep_hidden_contents=0`) and decodes it again when
 the layer is shown: less memory, but more CPU per switch and a brief
 flash of the layer's `--color` until the image is ready. Off by default;
 the setting is saved in `xisback.conf`.
+
+On a scaled output (the CRTC's transform makes its logical footprint
+smaller than its mode) and with an X-DENSITY manager present
+(`_X_DENSITY_MANAGER_S<n>`, kicomp), each layer of that output is drawn
+at the output's real pixels and published as `_X_DENSITY_PIXMAP`
+(TESTS/X-DENSITY.md) instead of being the window's background; the
+window keeps just its `--color`. It is one copy at the screen's own
+resolution, sharp rather than magnified. kicomp offers that same pixmap
+as the hidden layer's kept picture (`_KICOMP_STOWED_PIXMAP`), so with
+`--lazy on` a hidden layer kicomp keeps is not unloaded either; one it
+doesn't keep is unloaded about a second and a half after it is hidden.
+`*` layers, which may span outputs of different scales, stay at 1x.

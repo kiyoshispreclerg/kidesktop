@@ -91,7 +91,7 @@
 #include <unistd.h>
 #include "../shared/xis_safefile.h"
 
-#define XISBACK_VERSION "0.5.2"
+#define XISBACK_VERSION "0.5.3"
 #define MAX_LAYERS 32
 #define LINE_MAX_LEN (PATH_MAX + 256)
 #define FADE_MS_MIN 0
@@ -154,6 +154,24 @@ typedef struct {
     Pixmap cur_pixmap;
     int x, y, width, height;
 
+    /* X-DENSITY (TESTS/X-DENSITY.md). On a scaled output the window has
+     * the output's logical size, but the screen has more pixels than that:
+     * pw x ph, the output's mode. While a density manager is present every
+     * pixmap of the layer is made at pw x ph and the one on show is
+     * published as _X_DENSITY_PIXMAP, for the compositor to show in the
+     * window's place; the window itself just holds the fallback color.
+     * dnum/dden = pw/width, 1/1 when pw x ph is the window's own size.
+     * published: the pixmap announced right now, None at 1x.
+     * render_on_map: a hidden dense layer whose image changed while the
+     * compositor kept the old one (lazy mode): redrawn when shown.
+     * unload_due: lazy mode's deferred unload of a hidden dense layer,
+     * waiting to see whether the compositor keeps it (layer_kept()). */
+    int dnum, dden;
+    int pw, ph;
+    Pixmap published;
+    int render_on_map;
+    double unload_due;
+
     /* Hidden-layer memory, see layer_try_borrow()/layer_unload():
      * borrowed -- cur_pixmap is the compositor's kept picture of this
      *   window (_KICOMP_STOWED_PIXMAP), not ours: never XFreePixmap it.
@@ -199,6 +217,12 @@ static char g_configpath[PATH_MAX];
 static int g_render_ok;
 static XRenderPictFormat *g_render_fmt;
 static Atom g_atom_stowed_pixmap;
+/* X-DENSITY: whether someone holds _X_DENSITY_MANAGER_S<screen>, the
+ * protocol's "a compositor shows dense pixmaps" (section 5.2). */
+static Atom g_atom_density_manager;
+static Atom g_atom_density_scale;
+static Atom g_atom_density_pixmap;
+static int g_density_manager;
 /* LAZY: hidden layers the compositor kept no picture of drop their image
  * too, and decode it again when shown (see layer_unload()). */
 static int g_lazy;
@@ -514,10 +538,122 @@ static int find_layer(const char *output, int desktop)
 /* Drops the layer's reference to its current image: frees it if it is
  * ours, only forgets it if it is the compositor's (borrowed). Either way
  * the window's background keeps the pixels alive until it is replaced. */
+static double mono_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
+}
+
+/* A pixmap that may have been published (_X_DENSITY_PIXMAP) is freed a
+ * moment later, not at once: the compositor reads the XID from the
+ * property and binds it on its next frame, and freeing it in the same
+ * breath as publishing its replacement lets a frame land in between and
+ * bind a drawable that no longer exists (kiwm's density.c says more).
+ * Every layer pixmap goes this way -- a 1x one just lives a second longer
+ * than it would have. */
+#define RETIRE_MS 1000.0
+#define RETIRE_MAX 64
+static struct {
+    Pixmap pixmap;
+    double due;
+} g_retired[RETIRE_MAX];
+static int g_n_retired;
+
+static void retire_pixmap(Pixmap p)
+{
+    if (p == None) {
+        return;
+    }
+    if (g_n_retired == RETIRE_MAX) {
+        XFreePixmap(g_dpy, g_retired[0].pixmap);
+        memmove(&g_retired[0], &g_retired[1], sizeof(g_retired[0]) * (RETIRE_MAX - 1));
+        g_n_retired--;
+    }
+    g_retired[g_n_retired].pixmap = p;
+    g_retired[g_n_retired].due = mono_ms() + RETIRE_MS;
+    g_n_retired++;
+}
+
+static void run_retired(void)
+{
+    double now = mono_ms();
+    int kept = 0;
+    for (int i = 0; i < g_n_retired; i++) {
+        if (g_retired[i].due <= now) {
+            XFreePixmap(g_dpy, g_retired[i].pixmap);
+        } else {
+            g_retired[kept++] = g_retired[i];
+        }
+    }
+    if (kept != g_n_retired) {
+        g_n_retired = kept;
+        XFlush(g_dpy);
+    }
+}
+
+static long retired_timeout_ms(void)
+{
+    if (g_n_retired == 0) {
+        return -1;
+    }
+    double in = g_retired[0].due - mono_ms(); /* appended in due order */
+    return in <= 0 ? 0 : (long)in + 1;
+}
+
+static int layer_dense(const Layer *l)
+{
+    return l->dnum != l->dden;
+}
+
+/* Withdraws the announced pixmap -- before it is freed, never after. */
+static void layer_unpublish(Layer *l)
+{
+    if (l->published == None) {
+        return;
+    }
+    l->published = None;
+    if (l->win != None) {
+        XDeleteProperty(g_dpy, l->win, g_atom_density_pixmap);
+        XDeleteProperty(g_dpy, l->win, g_atom_density_scale);
+    }
+}
+
+static unsigned long layer_fallback_pixel(const Layer *l);
+
+/* Puts `pm` on show: as the window's background at 1x, as the published
+ * dense pixmap otherwise (announced only when it is a different one --
+ * redraws into it reach the compositor as Damage). Contents first,
+ * announcement after: `pm` must already be drawn. */
+static void layer_show(Layer *l, Pixmap pm)
+{
+    if (!layer_dense(l)) {
+        XSetWindowBackgroundPixmap(g_dpy, l->win, pm);
+        XClearWindow(g_dpy, l->win);
+        layer_unpublish(l);
+        return;
+    }
+    if (pm == l->published) {
+        return;
+    }
+    int first = l->published == None;
+    long scale[2] = {l->dnum, l->dden};
+    XChangeProperty(g_dpy, l->win, g_atom_density_scale, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)scale, 2);
+    long value = (long)pm;
+    XChangeProperty(g_dpy, l->win, g_atom_density_pixmap, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&value, 1);
+    l->published = pm;
+    if (first) {
+        /* Never seen while the compositor shows the dense pixmap: the
+         * window keeps no image of its own. */
+        XSetWindowBackground(g_dpy, l->win, layer_fallback_pixel(l));
+        XClearWindow(g_dpy, l->win);
+    }
+}
+
 static void layer_release_pixmap(Layer *l)
 {
     if (l->cur_pixmap != None && !l->borrowed) {
-        XFreePixmap(g_dpy, l->cur_pixmap);
+        retire_pixmap(l->cur_pixmap);
     }
     l->cur_pixmap = None;
     l->borrowed = 0;
@@ -531,9 +667,12 @@ static void layer_unload(Layer *l)
     if (l->win == None || l->unloaded || l->borrowed) {
         return;
     }
+    layer_unpublish(l);
     XSetWindowBackground(g_dpy, l->win, layer_fallback_pixel(l));
     layer_release_pixmap(l);
     l->unloaded = 1;
+    l->render_on_map = 0;
+    l->unload_due = 0;
 }
 
 static int g_x_error_trapped;
@@ -553,17 +692,15 @@ static int trap_x_error(Display *dpy, XErrorEvent *ev)
  * still repaints instantly when shown again -- no decode, no flash. Only
  * a picture of the *current* image is taken (not content_stale), and
  * only one that matches the window exactly; anything else keeps ours. */
-static void layer_try_borrow(Layer *l)
+static Pixmap layer_stowed(const Layer *l)
 {
-    if (l->win == None || l->mapped || l->fading || l->content_stale || g_atom_stowed_pixmap == None) {
-        return;
-    }
     Atom type;
     int format;
     unsigned long n, after;
     unsigned char *data = NULL;
     Pixmap stowed = None;
-    if (XGetWindowProperty(g_dpy, l->win, g_atom_stowed_pixmap, 0, 1, False, XA_PIXMAP, &type, &format, &n,
+    if (l->win != None && g_atom_stowed_pixmap != None &&
+        XGetWindowProperty(g_dpy, l->win, g_atom_stowed_pixmap, 0, 1, False, XA_PIXMAP, &type, &format, &n,
                            &after, &data) == Success &&
         data && type == XA_PIXMAP && format == 32 && n == 1) {
         stowed = (Pixmap)((unsigned long *)(void *)data)[0];
@@ -571,6 +708,50 @@ static void layer_try_borrow(Layer *l)
     if (data) {
         XFree(data);
     }
+    return stowed;
+}
+
+/* A hidden dense layer has nothing to borrow -- the compositor's kept
+ * picture of a window is its 1x contents, the fallback color here. What
+ * kicomp does instead is offer the layer's own published pixmap as that
+ * picture: it is drawing from it (the expo grid, the cube), so the layer
+ * keeps it rather than unloading it, and it is still the only copy. */
+static int layer_kept(const Layer *l)
+{
+    /* A property left behind by a compositor that is gone says nothing. */
+    return g_density_manager && l->published != None && layer_stowed(l) == l->published;
+}
+
+/* Lazy mode, a dense layer just hidden: whether the compositor keeps it
+ * is only known once it has published (or not) its kept picture, a frame
+ * or so after the unmap -- unloading at once would withdraw the very
+ * pixmap it was about to keep. So the unload waits a little, and goes
+ * ahead only if nobody claimed it (run_lazy_unloads()). */
+#define DENSE_UNLOAD_GRACE_MS 1500.0
+static void layer_schedule_unload(Layer *l)
+{
+    if (l->unloaded || l->mapped || layer_kept(l)) {
+        l->unload_due = 0;
+        return;
+    }
+    l->unload_due = mono_ms() + DENSE_UNLOAD_GRACE_MS;
+}
+
+static void layer_try_borrow(Layer *l)
+{
+    if (l->win == None || l->mapped) {
+        return;
+    }
+    if (layer_dense(l)) {
+        if (layer_kept(l)) {
+            l->unload_due = 0;
+        }
+        return;
+    }
+    if (l->fading || l->content_stale || g_atom_stowed_pixmap == None) {
+        return;
+    }
+    Pixmap stowed = layer_stowed(l);
     if (stowed == None || (l->borrowed && stowed == l->cur_pixmap)) {
         return;
     }
@@ -584,7 +765,7 @@ static void layer_try_borrow(Layer *l)
     int gx, gy;
     unsigned int gw = 0, gh = 0, bw, depth = 0;
     int ok = XGetGeometry(g_dpy, stowed, &root, &gx, &gy, &gw, &gh, &bw, &depth) && !g_x_error_trapped &&
-             (int)gw == l->width && (int)gh == l->height && (int)depth == g_depth;
+             (int)gw == l->pw && (int)gh == l->ph && (int)depth == g_depth;
     if (ok) {
         XSetWindowBackgroundPixmap(g_dpy, l->win, stowed);
         XSync(g_dpy, False);
@@ -623,14 +804,11 @@ static int alloc_layer(void)
 static void destroy_layer(Layer *l)
 {
     if (l->fading) {
-        if (l->fade_frame != None) {
-            XFreePixmap(g_dpy, l->fade_frame);
-        }
-        if (l->fade_pixmap != None) {
-            XFreePixmap(g_dpy, l->fade_pixmap);
-        }
+        retire_pixmap(l->fade_frame);
+        retire_pixmap(l->fade_pixmap);
     }
     if (l->win != None) {
+        layer_unpublish(l);
         XDestroyWindow(g_dpy, l->win);
     }
     layer_release_pixmap(l);
@@ -691,7 +869,10 @@ static void run_action(const char *cmd, const char *output, int desktop, const c
 /* X11 / RandR / rendering                                             */
 /* ------------------------------------------------------------------ */
 
-static int resolve_output_geometry(const char *name, int *ox, int *oy, int *ow, int *oh)
+/* *pw x *ph: the output's mode, i.e. its real pixels -- more than the
+ * footprint *ow x *oh on a scaled output (the scale is the CRTC's
+ * transform), the same otherwise. */
+static int resolve_output_geometry(const char *name, int *ox, int *oy, int *ow, int *oh, int *pw, int *ph)
 {
     XRRScreenResources *res = XRRGetScreenResourcesCurrent(g_dpy, g_root);
     if (!res) {
@@ -707,6 +888,16 @@ static int resolve_output_geometry(const char *name, int *ox, int *oy, int *ow, 
                 *oy = ci->y;
                 *ow = (int)ci->width;
                 *oh = (int)ci->height;
+                *pw = *ow;
+                *ph = *oh;
+                for (int m = 0; m < res->nmode; m++) {
+                    if (res->modes[m].id == ci->mode) {
+                        int rotated = (ci->rotation & (RR_Rotate_90 | RR_Rotate_270)) != 0;
+                        *pw = (int)(rotated ? res->modes[m].height : res->modes[m].width);
+                        *ph = (int)(rotated ? res->modes[m].width : res->modes[m].height);
+                        break;
+                    }
+                }
                 found = 1;
                 XRRFreeCrtcInfo(ci);
             }
@@ -721,16 +912,30 @@ static int resolve_output_geometry(const char *name, int *ox, int *oy, int *ow, 
 
 /* A "*" layer spans the whole virtual screen; any other is drawn on its
  * l->place. Returns 0 when it has no screen to be drawn on. */
-static int layer_geometry(Layer *l, int *x, int *y, int *w, int *h)
+/* *pw x *ph as resolve_output_geometry(); a "*" layer spans outputs that
+ * may each have a scale of their own, so it is always drawn at 1x. */
+static int layer_geometry(Layer *l, int *x, int *y, int *w, int *h, int *pw, int *ph)
 {
     if (strcmp(l->output, "*") == 0) {
         *x = 0;
         *y = 0;
         *w = DisplayWidth(g_dpy, g_screen);
         *h = DisplayHeight(g_dpy, g_screen);
+        *pw = *w;
+        *ph = *h;
         return 1;
     }
-    return l->place[0] && resolve_output_geometry(l->place, x, y, w, h);
+    return l->place[0] && resolve_output_geometry(l->place, x, y, w, h, pw, ph);
+}
+
+static int gcd_int(int a, int b)
+{
+    while (b) {
+        int t = a % b;
+        a = b;
+        b = t;
+    }
+    return a;
 }
 
 static Window create_layer_window(Layer *l, int x, int y, int w, int h)
@@ -795,10 +1000,13 @@ static void layer_drop_window(Layer *l)
 {
     layer_finish_fade(l);
     if (l->win != None) {
-        XDestroyWindow(g_dpy, l->win);
+        XDestroyWindow(g_dpy, l->win); /* its properties go with it */
         l->win = None;
     }
+    l->published = None;
     layer_release_pixmap(l);
+    l->render_on_map = 0;
+    l->unload_due = 0;
     l->mapped = 0;
     l->content_stale = 0;
     l->unloaded = 0;
@@ -806,11 +1014,23 @@ static void layer_drop_window(Layer *l)
 
 static void layer_ensure_window(Layer *l)
 {
-    int x, y, w, h;
-    if (!layer_geometry(l, &x, &y, &w, &h)) {
+    int x, y, w, h, pw, ph;
+    if (!layer_geometry(l, &x, &y, &w, &h, &pw, &ph)) {
         layer_drop_window(l);
         return;
     }
+    /* Dense only where it is shown dense: no manager, no point. */
+    if (g_density_manager && w > 0 && h > 0 && pw > w && ph > h) {
+        int g = gcd_int(pw, w);
+        l->dnum = pw / g;
+        l->dden = w / g;
+    } else {
+        pw = w;
+        ph = h;
+        l->dnum = l->dden = 1;
+    }
+    l->pw = pw;
+    l->ph = ph;
 
     if (l->win == None) {
         l->win = create_layer_window(l, x, y, w, h);
@@ -1008,15 +1228,12 @@ static void layer_finish_fade(Layer *l)
         return;
     }
     if (l->win != None && l->fade_pixmap != None) {
-        XSetWindowBackgroundPixmap(g_dpy, l->win, l->fade_pixmap);
-        XClearWindow(g_dpy, l->win);
+        layer_show(l, l->fade_pixmap);
         if (!l->mapped) {
             l->content_stale = 1;
         }
     }
-    if (l->fade_frame != None) {
-        XFreePixmap(g_dpy, l->fade_frame);
-    }
+    retire_pixmap(l->fade_frame);
     layer_release_pixmap(l);
     l->cur_pixmap = l->fade_pixmap;
     l->unloaded = 0;
@@ -1036,14 +1253,17 @@ static void layer_draw_fade_frame(Layer *l, double alpha)
     XRenderColor c = {0, 0, 0, (unsigned short)(alpha * 0xffff)};
     Picture mask = XRenderCreateSolidFill(g_dpy, &c);
 
-    XRenderComposite(g_dpy, PictOpSrc, old_pic, None, dst_pic, 0, 0, 0, 0, 0, 0, (unsigned)l->width, (unsigned)l->height);
-    XRenderComposite(g_dpy, PictOpOver, new_pic, mask, dst_pic, 0, 0, 0, 0, 0, 0, (unsigned)l->width, (unsigned)l->height);
+    XRenderComposite(g_dpy, PictOpSrc, old_pic, None, dst_pic, 0, 0, 0, 0, 0, 0, (unsigned)l->pw, (unsigned)l->ph);
+    XRenderComposite(g_dpy, PictOpOver, new_pic, mask, dst_pic, 0, 0, 0, 0, 0, 0, (unsigned)l->pw, (unsigned)l->ph);
 
     XRenderFreePicture(g_dpy, mask);
     XRenderFreePicture(g_dpy, dst_pic);
     XRenderFreePicture(g_dpy, new_pic);
     XRenderFreePicture(g_dpy, old_pic);
-    XClearWindow(g_dpy, l->win);
+    /* Dense, the composite into the published frame is its own Damage. */
+    if (!layer_dense(l)) {
+        XClearWindow(g_dpy, l->win);
+    }
 }
 
 /* Renders the current slide into the layer's window. With use_fade and a
@@ -1063,7 +1283,11 @@ static void layer_render(Layer *l, int use_fade)
         /* Nobody can see it: whatever it would show now gets decoded when
          * it is mapped. A kept picture of it would be an older image. */
         layer_finish_fade(l);
-        if (l->borrowed) {
+        if (layer_kept(l)) {
+            /* The compositor draws the old one meanwhile (and holds no
+             * copy of its own): kept until the layer is shown again. */
+            l->render_on_map = 1;
+        } else if (l->borrowed) {
             /* The lent picture is of the old geometry (layer_unload() keeps
              * it, as it is free): left as the background, a resized hidden
              * window would show it tiled, and nothing would redraw it. */
@@ -1077,7 +1301,7 @@ static void layer_render(Layer *l, int use_fade)
         return;
     }
     const char *path = (l->n_images > 0) ? l->images[l->img_idx] : NULL;
-    Pixmap next = render_pixmap(l->width, l->height, path, l->mode, layer_fallback_pixel(l));
+    Pixmap next = render_pixmap(l->pw, l->ph, path, l->mode, layer_fallback_pixel(l));
     if (next == None) {
         return;
     }
@@ -1087,6 +1311,8 @@ static void layer_render(Layer *l, int use_fade)
     }
 
     l->unloaded = 0;
+    l->render_on_map = 0;
+    l->unload_due = 0;
     int fade = use_fade && l->fade_ms > 0 && g_render_ok && l->mapped && l->cur_pixmap != None;
     if (fade && l->borrowed) {
         /* The compositor's kept picture may be freed under us now that the
@@ -1098,8 +1324,7 @@ static void layer_render(Layer *l, int use_fade)
         l->cur_pixmap = copy;
     }
     if (!fade) {
-        XSetWindowBackgroundPixmap(g_dpy, l->win, next);
-        XClearWindow(g_dpy, l->win);
+        layer_show(l, next);
         if (!l->mapped) {
             l->content_stale = 1;
         }
@@ -1108,12 +1333,12 @@ static void layer_render(Layer *l, int use_fade)
         return;
     }
 
-    l->fade_frame = XCreatePixmap(g_dpy, g_root, (unsigned)l->width, (unsigned)l->height, (unsigned)g_depth);
+    l->fade_frame = XCreatePixmap(g_dpy, g_root, (unsigned)l->pw, (unsigned)l->ph, (unsigned)g_depth);
     l->fade_pixmap = next;
     l->fading = 1;
     clock_gettime(CLOCK_MONOTONIC, &l->fade_start);
-    XSetWindowBackgroundPixmap(g_dpy, l->win, l->fade_frame);
     layer_draw_fade_frame(l, 0.0);
+    layer_show(l, l->fade_frame);
 }
 
 static void layer_render_current(Layer *l)
@@ -1197,14 +1422,14 @@ static void refresh_all_layer_geometries(int force)
             Layer *l = &g_layers[i];
             layer_finish_fade(l);
             Window old_win = l->win;
-            int ow = l->width, oh = l->height;
+            int ow = l->pw, oh = l->ph, odn = l->dnum, odd = l->dden;
             layer_ensure_window(l);
             /* Same window, same size and an image already on it: the
              * WM/compositor taking its selection at login lands here with
              * nothing changed, and decoding every wallpaper again (big
              * PNGs, on a slow disk) only makes the background flash. */
-            if (!force && l->win != None && l->win == old_win && l->width == ow && l->height == oh &&
-                l->cur_pixmap != None && !l->unloaded) {
+            if (!force && l->win != None && l->win == old_win && l->pw == ow && l->ph == oh && l->dnum == odn &&
+                l->dden == odd && l->cur_pixmap != None && !l->unloaded) {
                 continue;
             }
             layer_render(l, 0);
@@ -1648,8 +1873,10 @@ static void set_lazy(int on)
         }
         if (on) {
             layer_finish_fade(l);
-            layer_unload(l);
-        } else if (l->unloaded) {
+            if (!layer_kept(l)) {
+                layer_unload(l);
+            }
+        } else if (l->unloaded || l->render_on_map) {
             layer_render(l, 0);
         }
     }
@@ -2036,6 +2263,18 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
         g_atom_cm_sn = XInternAtom(g_dpy, sn_name, False);
         XFixesSelectSelectionInput(g_dpy, g_root, g_atom_wm_sn, XFixesSetSelectionOwnerNotifyMask);
         XFixesSelectSelectionInput(g_dpy, g_root, g_atom_cm_sn, XFixesSetSelectionOwnerNotifyMask);
+
+        snprintf(sn_name, sizeof(sn_name), "_X_DENSITY_MANAGER_S%d", g_screen);
+        g_atom_density_manager = XInternAtom(g_dpy, sn_name, False);
+        g_atom_density_scale = XInternAtom(g_dpy, "_X_DENSITY_SCALE", False);
+        g_atom_density_pixmap = XInternAtom(g_dpy, "_X_DENSITY_PIXMAP", False);
+        XFixesSelectSelectionInput(g_dpy, g_root, g_atom_density_manager,
+                                   XFixesSetSelectionOwnerNotifyMask | XFixesSelectionWindowDestroyNotifyMask |
+                                       XFixesSelectionClientCloseNotifyMask);
+        g_density_manager = XGetSelectionOwner(g_dpy, g_atom_density_manager) != None;
+        if (g_density_manager) {
+            fprintf(stderr, "xisback: X-DENSITY manager present\n");
+        }
     }
 
     unlink(sockpath);
@@ -2137,6 +2376,33 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
             }
         }
         {
+            run_retired();
+            long t = retired_timeout_ms();
+            if (t >= 0 && (timeout_ms < 0 || t < timeout_ms)) {
+                timeout_ms = t;
+            }
+            double mnow = mono_ms();
+            for (int i = 0; i < MAX_LAYERS; i++) {
+                Layer *l = &g_layers[i];
+                if (!l->in_use || l->unload_due <= 0) {
+                    continue;
+                }
+                if (l->unload_due <= mnow) {
+                    l->unload_due = 0;
+                    if (g_lazy && !l->mapped && !layer_kept(l)) {
+                        layer_unload(l);
+                        malloc_trim(0);
+                        XFlush(g_dpy); /* select() below would sit on it */
+                    }
+                } else {
+                    long d = (long)(l->unload_due - mnow) + 1;
+                    if (timeout_ms < 0 || d < timeout_ms) {
+                        timeout_ms = d;
+                    }
+                }
+            }
+        }
+        {
             long overlap_delta = (long)(next_overlap_check - now) * 1000;
             if (overlap_delta < 0) {
                 overlap_delta = 0;
@@ -2213,7 +2479,15 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                     rr_changed();
                 } else if (g_xfixes_available && ev.type == g_xfixes_event_base + XFixesSelectionNotify) {
                     XFixesSelectionNotifyEvent *sn = (XFixesSelectionNotifyEvent *)&ev;
-                    if (sn->selection == g_atom_wm_sn || sn->selection == g_atom_cm_sn) {
+                    if (sn->selection == g_atom_density_manager) {
+                        int now_present = sn->subtype == XFixesSetSelectionOwnerNotify && sn->owner != None;
+                        if (now_present != g_density_manager) {
+                            g_density_manager = now_present;
+                            fprintf(stderr, "xisback: X-DENSITY manager %s\n", now_present ? "appeared" : "gone");
+                            /* Only the layers whose density changes are redrawn. */
+                            refresh_all_layer_geometries(0);
+                        }
+                    } else if (sn->selection == g_atom_wm_sn || sn->selection == g_atom_cm_sn) {
                         fprintf(stderr, "xisback: %s changed, re-checking layers\n",
                                 sn->selection == g_atom_wm_sn ? "window manager" : "compositor");
                         place_layers(1, NULL);
@@ -2229,7 +2503,8 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                             /* Mapping repaints from the background: what
                              * shows now is the current image again. */
                             l->content_stale = 0;
-                            if (l->unloaded) {
+                            l->unload_due = 0;
+                            if (l->unloaded || l->render_on_map) {
                                 layer_render(l, 0);
                                 malloc_trim(0);
                             }
@@ -2238,16 +2513,26 @@ static int run_as_daemon(const char *sockpath, const char *configpath, const Com
                              * unload below would free what it blends from */
                             layer_finish_fade(l);
                             if (g_lazy) {
-                                layer_unload(l);
+                                if (layer_dense(l)) {
+                                    layer_schedule_unload(l);
+                                } else {
+                                    layer_unload(l);
+                                }
                             }
                             layer_try_borrow(l); /* the picture may already be published */
                         }
                     }
                 } else if (ev.type == PropertyNotify) {
-                    if (ev.xproperty.atom == g_atom_stowed_pixmap && ev.xproperty.state == PropertyNewValue) {
+                    if (ev.xproperty.atom == g_atom_stowed_pixmap) {
                         int idx = find_layer_by_window(ev.xproperty.window);
                         if (idx >= 0 && g_layers[idx].win == ev.xproperty.window) {
-                            layer_try_borrow(&g_layers[idx]);
+                            Layer *l = &g_layers[idx];
+                            if (ev.xproperty.state == PropertyNewValue) {
+                                layer_try_borrow(l);
+                            } else if (g_lazy && layer_dense(l) && !l->mapped) {
+                                /* the compositor let go of it */
+                                layer_schedule_unload(l);
+                            }
                         }
                     }
                 } else if (ev.type == ButtonPress) {
