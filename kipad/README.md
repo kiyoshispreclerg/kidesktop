@@ -25,6 +25,15 @@ Simple tabbed text editor for KiDesktop (GTK2).
 - Right-click on a tab: *Close*, *Reopen* (reload from disk), *Detach* (reopen
   the file in another window and close the tab) and *Copy path*; Reopen and
   Detach warn that unsaved changes are lost
+- Autosave: while a file has unsaved changes (`*` in the tab and window
+  title), a hidden copy `.NAME.EXT.backup` is kept beside it, rewritten every
+  *View > Autosave...* seconds (default 20, 0 = off) and only if something
+  changed. Opening a file that has a different backup (after a crash, or when
+  the tab list reopens it) asks whether to open the saved file or the backup;
+  the backup opens as the saved file with unsaved changes. Saving, closing
+  without saving or reloading deletes the backup
+- *File > Reopen file* closes the file (asking to save) and opens it again in
+  the same tab
 - The status bar shows the cursor's line and column
 - Open, save, save as, undo/redo (`Ctrl+Z`, `Ctrl+Shift+Z` or `Ctrl+Y`),
   cut/copy/paste, select all. Files are read as UTF-8 (ISO-8859-1 when they
@@ -36,7 +45,7 @@ Cursor positions (last 200 files) and the open tabs are remembered in
 last tab on purpose starts empty next time). With several windows, the last
 one closed decides the tab list.
 
-Settings (font, line numbers, word wrap, single window) are in `~/.config/kipad.conf`, written
+Settings (font, line numbers, word wrap, single window, autosave interval) are in `~/.config/kipad.conf`, written
 whenever they change. Command line: `kipad [FILE...]`.
 
 Not yet: replace, syntax highlighting.

@@ -20,7 +20,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define KIPAD_VERSION "0.2.2"
+#define KIPAD_VERSION "0.2.3"
 #define DEFAULT_FONT "Monospace 11"
 #define MIN_FONT_PT 6
 #define MAX_FONT_PT 72
@@ -33,6 +33,8 @@ static gboolean g_line_numbers = TRUE;
 static gboolean g_word_wrap = FALSE;
 /* Files opened while a kipad is running go to a tab of that window. */
 static gboolean g_single = TRUE;
+/* Seconds between backups of unsaved files; 0 turns the backup off. */
+static int g_autosave_secs = 20;
 
 static char *conf_path(void)
 {
@@ -62,6 +64,8 @@ static void config_load(void)
                 g_word_wrap = atoi(val) != 0;
             else if (!strcmp(key, "single_instance"))
                 g_single = atoi(val) != 0;
+            else if (!strcmp(key, "autosave_seconds"))
+                g_autosave_secs = CLAMP(atoi(val), 0, 3600);
         }
         g_strfreev(lines);
         free(data);
@@ -73,8 +77,8 @@ static void config_save(void)
 {
     char *path = conf_path(), *dir = g_path_get_dirname(path);
     g_mkdir_with_parents(dir, 0755);
-    char *text = g_strdup_printf("# kipad settings, written by kipad\nfont = %s\nline_numbers = %d\nword_wrap = %d\nsingle_instance = %d\n",
-                                 g_font, g_line_numbers, g_word_wrap, g_single);
+    char *text = g_strdup_printf("# kipad settings, written by kipad\nfont = %s\nline_numbers = %d\nword_wrap = %d\nsingle_instance = %d\nautosave_seconds = %d\n",
+                                 g_font, g_line_numbers, g_word_wrap, g_single, g_autosave_secs);
     xis_write_file(path, text, strlen(text), xis_check_conf_clean);
     g_free(text);
     g_free(dir);
@@ -196,6 +200,8 @@ typedef struct {
     GArray *undo, *redo;   /* UndoOp */
     gboolean replaying;
     int digits;       /* width of the line number column, in digits */
+    gboolean bk_dirty;   /* edited since the last backup was written */
+    gboolean bk_exists;  /* the hidden backup file is on disk */
 } Doc;
 
 static GtkWidget *g_win, *g_notebook, *g_status, *g_pos_label;
@@ -218,6 +224,42 @@ static char *doc_name(const Doc *d)
     if (d->path)
         return g_path_get_basename(d->path);
     return d->untitled > 1 ? g_strdup_printf(_("Untitled %d"), d->untitled) : g_strdup(_("Untitled"));
+}
+
+/* ---- backup of unsaved changes --------------------------------------- */
+
+/* "dir/.name.ext.backup": hidden, beside the file. */
+static char *backup_path(const char *path)
+{
+    char *dir = g_path_get_dirname(path), *base = g_path_get_basename(path);
+    char *name = g_strdup_printf(".%s.backup", base);
+    char *bk = g_build_filename(dir, name, NULL);
+    g_free(name);
+    g_free(base);
+    g_free(dir);
+    return bk;
+}
+
+static void backup_remove(const char *path)
+{
+    char *bk = backup_path(path);
+    unlink(bk);
+    g_free(bk);
+}
+
+static void backup_write(Doc *d)
+{
+    d->bk_dirty = FALSE; /* a failure waits for the next edit instead of retrying */
+    if (!d->path)
+        return;
+    GtkTextIter a, b;
+    gtk_text_buffer_get_bounds(d->buf, &a, &b);
+    char *text = gtk_text_buffer_get_text(d->buf, &a, &b, TRUE);
+    char *bk = backup_path(d->path);
+    if (g_file_set_contents(bk, text, -1, NULL))
+        d->bk_exists = TRUE;
+    g_free(bk);
+    g_free(text);
 }
 
 static void doc_update_label(Doc *d)
@@ -537,6 +579,7 @@ static void wrap_toggle_cb(GtkCheckMenuItem *item, gpointer data)
 static void on_changed(GtkTextBuffer *buf, Doc *d)
 {
     (void)buf;
+    d->bk_dirty = TRUE;
     linenum_resize(d);
     gtk_widget_queue_draw(d->view);
     if (d == doc_current())
@@ -545,7 +588,13 @@ static void on_changed(GtkTextBuffer *buf, Doc *d)
 
 static void on_modified(GtkTextBuffer *buf, Doc *d)
 {
-    (void)buf;
+    if (!gtk_text_buffer_get_modified(buf)) {
+        /* saved, reloaded or discarded: nothing left to recover */
+        d->bk_dirty = FALSE;
+        d->bk_exists = FALSE;
+        if (d->path)
+            backup_remove(d->path);
+    }
     doc_update_label(d);
     if (d == doc_current())
         window_update_title();
@@ -738,6 +787,75 @@ static char *read_utf8_file(const char *abs, gsize *len)
     return utf8;
 }
 
+/* ---- autosave -------------------------------------------------------- */
+
+static void state_remember_tabs(gboolean with_positions);
+
+static gboolean autosave_tick(gpointer data)
+{
+    (void)data;
+    int n = gtk_notebook_get_n_pages(GTK_NOTEBOOK(g_notebook));
+    for (int i = 0; i < n; i++) {
+        Doc *d = doc_of(gtk_notebook_get_nth_page(GTK_NOTEBOOK(g_notebook), i));
+        if (!d->path || !d->bk_dirty || !gtk_text_buffer_get_modified(d->buf))
+            continue;
+        gboolean fresh = !d->bk_exists;
+        backup_write(d);
+        /* a crash must find this file in the tab list even if it was opened
+         * after the last clean exit */
+        if (fresh && d->bk_exists)
+            state_remember_tabs(FALSE);
+    }
+    return TRUE;
+}
+
+static guint g_autosave_src;
+
+static void autosave_restart(void)
+{
+    if (g_autosave_src)
+        g_source_remove(g_autosave_src);
+    g_autosave_src = g_autosave_secs > 0 ? g_timeout_add_seconds((guint)g_autosave_secs, autosave_tick, NULL) : 0;
+}
+
+static char *file_time(const char *path)
+{
+    struct stat st;
+    char buf[64] = { 0 };
+    if (stat(path, &st) == 0) {
+        struct tm tm;
+        localtime_r(&st.st_mtime, &tm);
+        strftime(buf, sizeof buf, "%x %X", &tm);
+    }
+    return g_strdup(buf);
+}
+
+enum { BK_CANCEL, BK_SAVED, BK_BACKUP };
+
+/* A hidden backup exists beside `abs`: which one to open? Identical copies
+ * need no question. */
+static int backup_ask(const char *abs, const char *bk, const char *saved, gsize saved_len, const char *bktext,
+                      gsize bk_len)
+{
+    if (saved_len == bk_len && !memcmp(saved, bktext, bk_len))
+        return BK_SAVED;
+    char *name = g_path_get_basename(abs), *t_saved = file_time(abs), *t_bk = file_time(bk);
+    GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(g_win), GTK_DIALOG_MODAL, GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE,
+                                            _("A backup with unsaved changes of \"%s\" was found."), name);
+    gtk_message_dialog_format_secondary_text(
+        GTK_MESSAGE_DIALOG(dlg),
+        _("Saved file: %s\nBackup: %s\n\nOpening the saved file discards the backup."), t_saved, t_bk);
+    gtk_dialog_add_buttons(GTK_DIALOG(dlg), GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL, _("Open saved file"),
+                           GTK_RESPONSE_REJECT, _("Open backup"), GTK_RESPONSE_ACCEPT, NULL);
+    gtk_dialog_set_default_response(GTK_DIALOG(dlg), GTK_RESPONSE_ACCEPT);
+    int r = gtk_dialog_run(GTK_DIALOG(dlg));
+    gtk_widget_destroy(dlg);
+    g_free(name);
+    g_free(t_saved);
+    g_free(t_bk);
+    return r == GTK_RESPONSE_ACCEPT ? BK_BACKUP : r == GTK_RESPONSE_REJECT ? BK_SAVED : BK_CANCEL;
+}
+
 /* Opens `path` in a tab (an already open one is just shown). */
 static void open_path(const char *path)
 {
@@ -759,6 +877,27 @@ static void open_path(const char *path)
         g_free(abs);
         return;
     }
+    int choice = BK_SAVED;
+    char *bk = backup_path(abs);
+    if (g_file_test(bk, G_FILE_TEST_IS_REGULAR)) {
+        gsize bklen = 0;
+        char *bktext = read_utf8_file(bk, &bklen);
+        if (bktext) {
+            choice = backup_ask(abs, bk, utf8, len, bktext, bklen);
+            if (choice == BK_BACKUP) {
+                g_free(utf8);
+                utf8 = bktext;
+                len = bklen;
+            } else
+                g_free(bktext);
+        }
+    }
+    g_free(bk);
+    if (choice == BK_CANCEL) {
+        g_free(utf8);
+        g_free(abs);
+        return;
+    }
     /* an untouched empty tab is reused instead of left behind */
     Doc *cur = doc_current();
     Doc *d = (cur && !cur->path && !gtk_text_buffer_get_modified(cur->buf) &&
@@ -766,8 +905,13 @@ static void open_path(const char *path)
                  ? cur
                  : doc_new();
     d->path = abs;
-    doc_set_text(d, utf8, len);
+    doc_set_text(d, utf8, len); /* also drops the backup file */
     g_free(utf8);
+    if (choice == BK_BACKUP) {
+        /* the unsaved text, shown as the saved file with changes */
+        gtk_text_buffer_set_modified(d->buf, TRUE);
+        backup_write(d);
+    }
     State st;
     state_load(&st);
     doc_restore_cursor(d, state_get_pos(&st, d->path));
@@ -826,9 +970,11 @@ static gboolean save_doc_as(Doc *d)
         char *old = d->path;
         d->path = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dlg));
         ok = save_doc(d);
-        if (ok)
+        if (ok) {
+            if (old && strcmp(old, d->path))
+                backup_remove(old);
             g_free(old);
-        else {
+        } else {
             g_free(d->path);
             d->path = old;
         }
@@ -863,6 +1009,8 @@ static void close_tab(GtkWidget *scroll)
     gtk_notebook_set_current_page(GTK_NOTEBOOK(g_notebook), n);
     if (!confirm_discard(d))
         return;
+    if (d->path)
+        backup_remove(d->path); /* closed on purpose: the changes are gone */
     doc_remember_cursor(d);
     gtk_notebook_remove_page(GTK_NOTEBOOK(g_notebook), n);
     if (gtk_notebook_get_n_pages(GTK_NOTEBOOK(g_notebook)) == 0) {
@@ -876,6 +1024,30 @@ static void close_tab(GtkWidget *scroll)
     }
 }
 
+/* Remembers the tab list (and, on a clean exit, every cursor) to reopen them
+ * next time. */
+static void state_remember_tabs(gboolean with_positions)
+{
+    int n = gtk_notebook_get_n_pages(GTK_NOTEBOOK(g_notebook));
+    State s;
+    state_load(&s);
+    g_ptr_array_set_size(s.tabs, 0);
+    int active = gtk_notebook_get_current_page(GTK_NOTEBOOK(g_notebook));
+    s.active = 0;
+    for (int i = 0; i < n; i++) {
+        Doc *d = doc_of(gtk_notebook_get_nth_page(GTK_NOTEBOOK(g_notebook), i));
+        if (!d->path)
+            continue;
+        if (with_positions)
+            state_set_pos(&s, d->path, doc_cursor_offset(d));
+        if (i == active)
+            s.active = (int)s.tabs->len;
+        g_ptr_array_add(s.tabs, g_strdup(d->path));
+    }
+    state_save(&s);
+    state_clear(&s);
+}
+
 static gboolean on_delete_event(GtkWidget *w, GdkEvent *ev, gpointer data)
 {
     (void)w;
@@ -887,23 +1059,12 @@ static gboolean on_delete_event(GtkWidget *w, GdkEvent *ev, gpointer data)
         if (!confirm_discard(doc_of(gtk_notebook_get_nth_page(GTK_NOTEBOOK(g_notebook), i))))
             return TRUE;
     }
-    /* remember every cursor and the tab list, to reopen them next time */
-    State s;
-    state_load(&s);
-    g_ptr_array_set_size(s.tabs, 0);
-    int active = gtk_notebook_get_current_page(GTK_NOTEBOOK(g_notebook));
-    s.active = 0;
     for (int i = 0; i < n; i++) {
         Doc *d = doc_of(gtk_notebook_get_nth_page(GTK_NOTEBOOK(g_notebook), i));
-        if (!d->path)
-            continue;
-        state_set_pos(&s, d->path, doc_cursor_offset(d));
-        if (i == active)
-            s.active = (int)s.tabs->len;
-        g_ptr_array_add(s.tabs, g_strdup(d->path));
+        if (d->path)
+            backup_remove(d->path);
     }
-    state_save(&s);
-    state_clear(&s);
+    state_remember_tabs(TRUE);
     return FALSE;
 }
 
@@ -934,21 +1095,29 @@ static void tab_close_item(GtkWidget *item, GtkWidget *scroll)
     close_tab(scroll);
 }
 
-static void tab_reopen_item(GtkWidget *item, GtkWidget *scroll)
+/* Replaces the text with the file on disk (unsaved changes and their backup
+ * are dropped). */
+static void doc_reload(Doc *d, int cursor)
 {
-    (void)item;
-    Doc *d = doc_of(scroll);
-    if (!d->path || !confirm_lose_changes(d, _("Reopening reloads the file from disk and the changes will be lost.")))
-        return;
     gsize len = 0;
     char *utf8 = read_utf8_file(d->path, &len);
     if (!utf8)
         return;
     doc_set_text(d, utf8, len);
     g_free(utf8);
+    doc_restore_cursor(d, cursor);
     doc_update_label(d);
     window_update_title();
     status_update();
+}
+
+static void tab_reopen_item(GtkWidget *item, GtkWidget *scroll)
+{
+    (void)item;
+    Doc *d = doc_of(scroll);
+    if (!d->path || !confirm_lose_changes(d, _("Reopening reloads the file from disk and the changes will be lost.")))
+        return;
+    doc_reload(d, 0);
 }
 
 /* Opens the tab's file in a window of its own (--new-window skips the
@@ -1126,6 +1295,29 @@ static void service_stop(void)
     g_clear_pointer(&g_sock_path, g_free);
 }
 
+static void autosave_cb(void)
+{
+    GtkWidget *dlg = gtk_dialog_new_with_buttons(_("Autosave"), GTK_WINDOW(g_win), GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                 GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL, GTK_STOCK_OK,
+                                                 GTK_RESPONSE_ACCEPT, NULL);
+    GtkWidget *box = gtk_hbox_new(FALSE, 8);
+    gtk_container_set_border_width(GTK_CONTAINER(box), 8);
+    GtkWidget *spin = gtk_spin_button_new_with_range(0, 3600, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(spin), g_autosave_secs);
+    gtk_entry_set_activates_default(GTK_ENTRY(spin), TRUE);
+    gtk_box_pack_start(GTK_BOX(box), gtk_label_new(_("Back up unsaved files every (seconds, 0 = off):")), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), spin, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(GTK_DIALOG(dlg)->vbox), box, FALSE, FALSE, 0);
+    gtk_dialog_set_default_response(GTK_DIALOG(dlg), GTK_RESPONSE_ACCEPT);
+    gtk_widget_show_all(box);
+    if (gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_ACCEPT) {
+        g_autosave_secs = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(spin));
+        config_save();
+        autosave_restart();
+    }
+    gtk_widget_destroy(dlg);
+}
+
 static void single_toggle_cb(GtkCheckMenuItem *item, gpointer data)
 {
     (void)data;
@@ -1180,6 +1372,15 @@ static void close_cb(void)
     Doc *d = doc_current();
     if (d)
         close_tab(d->scroll);
+}
+
+/* Close (asking to save) and open again, in the same tab. */
+static void reopen_cb(void)
+{
+    Doc *d = doc_current();
+    if (!d || !d->path || !confirm_discard(d))
+        return;
+    doc_reload(d, doc_cursor_offset(d));
 }
 
 static void quit_cb(void)
@@ -1724,6 +1925,7 @@ static GtkWidget *build_menubar(GtkAccelGroup *ag)
     menu_item(m, ag, _("_Save"), GDK_s, C, G_CALLBACK(save_cb));
     menu_item(m, ag, _("Save _as..."), GDK_s, CS, G_CALLBACK(save_as_cb));
     separator(m);
+    menu_item(m, ag, _("_Reopen file"), 0, 0, G_CALLBACK(reopen_cb));
     menu_item(m, ag, _("_Close tab"), GDK_w, C, G_CALLBACK(close_cb));
     menu_item(m, ag, _("_Quit"), GDK_q, C, G_CALLBACK(quit_cb));
 
@@ -1754,6 +1956,7 @@ static GtkWidget *build_menubar(GtkAccelGroup *ag)
     gtk_menu_shell_append(GTK_MENU_SHELL(m), single_item);
     separator(m);
     menu_item(m, ag, _("_Font..."), 0, 0, G_CALLBACK(font_cb));
+    menu_item(m, ag, _("_Autosave..."), 0, 0, G_CALLBACK(autosave_cb));
     menu_item(m, ag, _("Zoom _in"), GDK_plus, C, G_CALLBACK(zoom_in_cb));
     menu_item(m, ag, _("Zoom _out"), GDK_minus, C, G_CALLBACK(zoom_out_cb));
     menu_item(m, ag, _("_Reset zoom"), GDK_0, C, G_CALLBACK(zoom_reset_cb));
@@ -1933,6 +2136,7 @@ int main(int argc, char **argv)
     }
     gtk_init(&argc, &argv);
     config_load();
+    autosave_restart();
     gboolean new_window = FALSE;
     char **files = g_new0(char *, argc + 1);
     int nfiles = 0;

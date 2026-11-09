@@ -278,3 +278,43 @@ msgstr "A_juda"
 #: kipad.c:1762
 msgid "_About"
 msgstr "_Sobre"
+
+#: kipad.c
+msgid "A backup with unsaved changes of \"%s\" was found."
+msgstr "Foi encontrado um backup com alterações não salvas de \"%s\"."
+
+#: kipad.c
+msgid ""
+"Saved file: %s\n"
+"Backup: %s\n"
+"\n"
+"Opening the saved file discards the backup."
+msgstr ""
+"Arquivo salvo: %s\n"
+"Backup: %s\n"
+"\n"
+"Abrir o arquivo salvo descarta o backup."
+
+#: kipad.c
+msgid "Open saved file"
+msgstr "Abrir arquivo salvo"
+
+#: kipad.c
+msgid "Open backup"
+msgstr "Abrir backup"
+
+#: kipad.c
+msgid "_Reopen file"
+msgstr "_Reabrir arquivo"
+
+#: kipad.c
+msgid "_Autosave..."
+msgstr "_Autosalvamento..."
+
+#: kipad.c
+msgid "Autosave"
+msgstr "Autosalvamento"
+
+#: kipad.c
+msgid "Back up unsaved files every (seconds, 0 = off):"
+msgstr "Fazer backup de arquivos não salvos a cada (segundos, 0 = desligado):"
