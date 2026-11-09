@@ -2328,7 +2328,7 @@ static void draw_shadow_mesh(const CompOutput *o, const CompSceneNode *n,
     GLuint mask = w->shaped ? shape_mask_texture(w, g) : 0;
 
     int cols = mesh->cols, rows = mesh->rows;
-    static float verts[MESH_MAX_COLS * MESH_MAX_ROWS * 6 * 6];
+    static float verts[(MESH_MAX_COLS + 3) * (MESH_MAX_ROWS + 3) * 6 * 6];
     int v;
 
     bool cached = shadow_cache_mesh == mesh &&
@@ -2338,38 +2338,70 @@ static void draw_shadow_mesh(const CompOutput *o, const CompSceneNode *n,
         v = shadow_cache_vcount;
     } else {
         v = 0;
-        for (int gy = 0; gy < rows; gy++) {
-            for (int gx = 0; gx < cols; gx++) {
+        /* The shadow box in the window's own 0..1 -- outside it wherever
+         * the box reaches past. Also exactly the mask's own texture
+         * coordinate (shape_mask_texture is built over the same window
+         * rectangle, y down the same way). */
+        float bx0 = (float)(box.x - base.x) / (float)base.w;
+        float bx1 = (float)(box.x + box.w - base.x) / (float)base.w;
+        float by0 = (float)(box.y - base.y) / (float)base.h;
+        float by1 = (float)(box.y + box.h - base.y) / (float)base.h;
+
+        float us[MESH_MAX_COLS + 3], vs[MESH_MAX_ROWS + 3];
+        int nu = 0, nv = 0;
+        for (int i = 0; i <= cols; i++)
+            us[nu++] = bx0 + (bx1 - bx0) * (float)i / (float)cols;
+        for (int i = 0; i <= rows; i++)
+            vs[nv++] = by0 + (by1 - by0) * (float)i / (float)rows;
+
+        /* Where the shader's hole would leave nothing (cut = 1, a = 0):
+         * the window's rectangle, or the part of it a mask reads as
+         * whole. Cut along its edges and left out of the sheet, since a
+         * blended zero is still a read and a write per pixel -- for most
+         * of the box, the window's whole area. */
+        CompRect wr = window_rect(w);
+        CompRect all = { 0, 0, wr.w, wr.h }, whole;
+        float hu0 = 0.0f, hv0 = 0.0f, hu1 = 0.0f, hv1 = 0.0f;
+        /* A shaped window without its mask has the rectangular hole in
+         * the shader, and nothing here is known to be whole: no g. */
+        if (wr.w > 0 && wr.h > 0 &&
+            shape_whole_rect(w, mask ? g : NULL, &all, &whole)) {
+            /* Kept inside the box: an offset past the radius puts a
+             * window edge outside it. */
+            hu0 = fmaxf((float)whole.x / (float)wr.w, bx0);
+            hv0 = fmaxf((float)whole.y / (float)wr.h, by0);
+            hu1 = fminf((float)(whole.x + whole.w) / (float)wr.w, bx1);
+            hv1 = fminf((float)(whole.y + whole.h) / (float)wr.h, by1);
+        }
+        if (hu1 > hu0 && hv1 > hv0) {
+            add_break(us, &nu, hu0);
+            add_break(us, &nu, hu1);
+            add_break(vs, &nv, hv0);
+            add_break(vs, &nv, hv1);
+        }
+
+        for (int j = 0; j + 1 < nv; j++) {
+            for (int i = 0; i + 1 < nu; i++) {
+                float cu = (us[i] + us[i + 1]) * 0.5f;
+                float cv = (vs[j] + vs[j + 1]) * 0.5f;
+                if (cu > hu0 && cu < hu1 && cv > hv0 && cv < hv1)
+                    continue;
+
                 /* Each corner twice over: where it is in the shadow's own
                  * rectangle (for the profile) and where the window's mesh
                  * puts that place (for the screen). */
-                const float bu[4] = { (float)gx / cols, (float)(gx + 1) / cols,
-                                      (float)gx / cols, (float)(gx + 1) / cols };
-                const float bv[4] = { (float)gy / rows, (float)gy / rows,
-                                      (float)(gy + 1) / rows, (float)(gy + 1) / rows };
-                float px[4], py[4], mu[4], mv[4];
-                for (int k = 0; k < 4; k++) {
-                    /* The shadow box point, expressed in the window's own
-                     * 0..1 -- outside it wherever the box reaches past.
-                     * Also exactly the mask's own texture coordinate
-                     * (shape_mask_texture is built over the same window
-                     * rectangle, y down the same way). */
-                    mu[k] = ((float)box.x + bu[k] * (float)box.w - (float)base.x)
-                            / (float)base.w;
-                    mv[k] = ((float)box.y + bv[k] * (float)box.h - (float)base.y)
-                            / (float)base.h;
-                    mesh_sample(mesh, mu[k], mv[k], &px[k], &py[k]);
-                }
-
-                const int idx[6] = { 0, 1, 2, 1, 3, 2 };
-                for (int t = 0; t < 6; t++) {
-                    int k = idx[t];
-                    verts[v++] = px[k];
-                    verts[v++] = py[k];
-                    verts[v++] = bu[k];
-                    verts[v++] = bv[k];
-                    verts[v++] = mu[k];
-                    verts[v++] = mv[k];
+                const int di[6] = { 0, 1, 0, 1, 1, 0 };
+                const int dj[6] = { 0, 0, 1, 0, 1, 1 };
+                for (int k = 0; k < 6; k++) {
+                    float mu = us[i + di[k]], mv = vs[j + dj[k]];
+                    float px, py;
+                    mesh_sample(mesh, mu, mv, &px, &py);
+                    verts[v++] = px;
+                    verts[v++] = py;
+                    verts[v++] = (mu - bx0) / (bx1 - bx0);
+                    verts[v++] = (mv - by0) / (by1 - by0);
+                    verts[v++] = mu;
+                    verts[v++] = mv;
                 }
             }
         }
