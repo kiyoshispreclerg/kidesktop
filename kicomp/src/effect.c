@@ -480,6 +480,17 @@ void effects_update(double now)
              * posted; from the next frame the scene is simply itself
              * again. */
             comp_log("effect %s finished", e->ops->name);
+            /* A mode that drew its output alone hands back a screen still
+             * showing its own last frame, which the plain scene matches
+             * only where something is damaged. The GLX presenter swaps
+             * whole buffers and hid that; XRender (and EGL) repaint only
+             * the damage, and kept the grid's last frame -- the windows of
+             * the desktop just left, as ghosts -- until an exposé
+             * repainted everything. */
+            int owned = e->ops->owns_output ? e->ops->owns_output(e) : COMP_NO_OUTPUT;
+            for (int i = 0; owned != COMP_NO_OUTPUT && i < comp.output_count; i++)
+                if (comp.outputs[i].id == owned)
+                    output_damage_rect(&comp.outputs[i].rect);
             *pp = e->next;
             if (e->ops->destroy)
                 e->ops->destroy(e);
