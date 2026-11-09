@@ -1,14 +1,18 @@
 /* syntax.c - syntax highlighting: loads the modules (kipad_syntax.h) and
  * paints their spans as GtkTextTags.
  *
- * Only the lines on screen, plus a margin, carry tags; scrolling or editing
- * repaints that range on idle. What a line needs from the lines above it is
- * the module's int state, kept per line (4 bytes a line) and recomputed from
- * the first edited line down, so a big file never gets tags all over. */
+ * Only a region around the lines on screen carries tags (between two marks,
+ * so edits move it along). Scrolling paints just the lines coming into view
+ * and an edit repaints from the edited line until the module's state comes
+ * out as before. What a line needs from the lines above it is that int
+ * state, kept per line (4 bytes a line), so a big file never gets tags all
+ * over; states below the screen are computed in blocks of text, without
+ * painting, only when the view gets there. */
 #include "syntax.h"
 #include "kipad_syntax.h"
 
 #include <dlfcn.h>
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -17,6 +21,9 @@
 #endif
 
 #define MARGIN_LINES 60
+#define TAGGED_MAX 1000  /* lines: a tagged region growing past this starts over */
+#define STATE_CHUNK 4096 /* lines per block of text read to compute states */
+#define UNKNOWN INT_MIN  /* state of a line that edits made up */
 #define LONG_LINE 10000 /* bytes; longer lines (minified files) stay plain */
 
 struct SynDoc {
@@ -28,7 +35,9 @@ struct SynDoc {
     const KipadSyntax *lang;
     GtkTextTag *tags[KS_COUNT];
     GArray *states; /* int: state at the end of line i, valid for i < len */
-    gboolean tagged;
+    gboolean tagged; /* lines from ta's to tb's carry tags */
+    GtkTextMark *ta, *tb;
+    int dirty_from, dirty_to; /* lines to repaint after edits, -1: none */
     guint idle;
     gulong sig_insert, sig_delete, sig_scroll, sig_alloc;
 };
@@ -181,15 +190,44 @@ static void create_tags(SynDoc *sd)
     }
 }
 
+static void untag_lines(SynDoc *sd, int a, int b)
+{
+    GtkTextIter s, e;
+    gtk_text_buffer_get_iter_at_line(sd->buf, &s, a);
+    gtk_text_buffer_get_iter_at_line(sd->buf, &e, b);
+    if (!gtk_text_iter_ends_line(&e))
+        gtk_text_iter_forward_to_line_end(&e);
+    for (int i = 1; i < KS_COUNT; i++)
+        gtk_text_buffer_remove_tag(sd->buf, sd->tags[i], &s, &e);
+}
+
 static void untag(SynDoc *sd)
 {
     if (!sd->tagged)
         return;
-    GtkTextIter a, b;
-    gtk_text_buffer_get_bounds(sd->buf, &a, &b);
-    for (int i = 1; i < KS_COUNT; i++)
-        gtk_text_buffer_remove_tag(sd->buf, sd->tags[i], &a, &b);
+    GtkTextIter it;
+    gtk_text_buffer_get_iter_at_mark(sd->buf, &it, sd->ta);
+    int a = gtk_text_iter_get_line(&it);
+    gtk_text_buffer_get_iter_at_mark(sd->buf, &it, sd->tb);
+    untag_lines(sd, a, gtk_text_iter_get_line(&it));
     sd->tagged = FALSE;
+}
+
+static void set_tagged(SynDoc *sd, int a, int b)
+{
+    GtkTextIter s, e;
+    gtk_text_buffer_get_iter_at_line(sd->buf, &s, a);
+    gtk_text_buffer_get_iter_at_line(sd->buf, &e, b);
+    if (!gtk_text_iter_ends_line(&e))
+        gtk_text_iter_forward_to_line_end(&e);
+    if (!sd->ta) {
+        sd->ta = gtk_text_buffer_create_mark(sd->buf, NULL, &s, TRUE);
+        sd->tb = gtk_text_buffer_create_mark(sd->buf, NULL, &e, FALSE);
+    } else {
+        gtk_text_buffer_move_mark(sd->buf, sd->ta, &s);
+        gtk_text_buffer_move_mark(sd->buf, sd->tb, &e);
+    }
+    sd->tagged = TRUE;
 }
 
 typedef struct {
@@ -230,6 +268,14 @@ static void span_paint(void *ctx, int start, int end, int style)
     gtk_text_buffer_apply_tag(c->sd->buf, c->sd->tags[style], &a, &b);
 }
 
+static int tokenize(SynDoc *sd, const char *text, int len, int line, int state, gboolean paint)
+{
+    if (len > LONG_LINE)
+        return state;
+    SpanCtx c = { sd, text, len, line };
+    return sd->lang->line(text, len, state, paint ? span_paint : span_none, &c);
+}
+
 /* Runs the module over line `line`, painting it when `paint`; returns the
  * state at its end. */
 static int run_line(SynDoc *sd, int line, int state, gboolean paint)
@@ -240,22 +286,102 @@ static int run_line(SynDoc *sd, int line, int state, gboolean paint)
     if (!gtk_text_iter_ends_line(&b))
         gtk_text_iter_forward_to_line_end(&b);
     char *text = gtk_text_iter_get_slice(&a, &b);
-    int len = (int)strlen(text);
-    if (len <= LONG_LINE) {
-        SpanCtx c = { sd, text, len, line };
-        state = sd->lang->line(text, len, state, paint ? span_paint : span_none, &c);
-    }
+    state = tokenize(sd, text, (int)strlen(text), line, state, paint);
     g_free(text);
     return state;
+}
+
+static int state_before(const SynDoc *sd, int line)
+{
+    return line ? g_array_index(sd->states, int, line - 1) : 0;
+}
+
+static void store_state(SynDoc *sd, int line, int s)
+{
+    if (line < (int)sd->states->len)
+        g_array_index(sd->states, int, line) = s;
+    else
+        g_array_append_val(sd->states, s);
+}
+
+/* Makes the states of lines before `upto` known, reading the text in blocks
+ * (one btree walk each) and splitting it into lines as GtkTextBuffer does. */
+static void ensure_states(SynDoc *sd, int upto)
+{
+    while ((int)sd->states->len < upto) {
+        int a = (int)sd->states->len, b = MIN(upto, a + STATE_CHUNK);
+        GtkTextIter s, e;
+        gtk_text_buffer_get_iter_at_line(sd->buf, &s, a);
+        gtk_text_buffer_get_iter_at_line(sd->buf, &e, b);
+        if (gtk_text_iter_get_line(&e) < b)
+            gtk_text_buffer_get_end_iter(sd->buf, &e);
+        char *text = gtk_text_iter_get_slice(&s, &e);
+        const char *p = text;
+        int rem = (int)strlen(text), state = state_before(sd, a);
+        for (int i = a; i < b; i++) {
+            int delim, next;
+            pango_find_paragraph_boundary(p, rem, &delim, &next);
+            state = tokenize(sd, p, delim, i, state, FALSE);
+            g_array_append_val(sd->states, state);
+            p += next;
+            rem -= next;
+        }
+        g_free(text);
+    }
+}
+
+static void paint_lines(SynDoc *sd, int a, int b)
+{
+    ensure_states(sd, a);
+    for (int i = a; i <= b; i++)
+        store_state(sd, i, run_line(sd, i, state_before(sd, i), TRUE));
+}
+
+/* Repaints from the first edited line until a line past the edits ends in
+ * the state it had before; below the tagged region only states are kept, and
+ * they are dropped from where they stop matching. */
+static void repaint_dirty(SynDoc *sd, int ta, int tb, int n)
+{
+    int i = sd->dirty_from;
+    if (i > (int)sd->states->len)
+        return;
+    int state = state_before(sd, i);
+    for (; i < n; i++) {
+        gboolean paint = sd->tagged && i >= ta && i <= tb;
+        if (!paint && (!sd->tagged || i > tb)) {
+            if (i < (int)sd->states->len)
+                g_array_set_size(sd->states, (guint)i);
+            return;
+        }
+        if (paint)
+            untag_lines(sd, i, i);
+        int old = i < (int)sd->states->len ? g_array_index(sd->states, int, i) : UNKNOWN;
+        state = run_line(sd, i, state, paint);
+        store_state(sd, i, state);
+        if (i >= sd->dirty_to && state == old)
+            return;
+    }
 }
 
 static gboolean refresh_idle(gpointer data)
 {
     SynDoc *sd = data;
     sd->idle = 0;
-    untag(sd);
     if (!sd->lang)
         return FALSE;
+    int n = gtk_text_buffer_get_line_count(sd->buf), ta = 0, tb = -1;
+    if (sd->tagged) {
+        GtkTextIter it;
+        gtk_text_buffer_get_iter_at_mark(sd->buf, &it, sd->ta);
+        ta = gtk_text_iter_get_line(&it);
+        gtk_text_buffer_get_iter_at_mark(sd->buf, &it, sd->tb);
+        tb = gtk_text_iter_get_line(&it);
+    }
+    if (sd->dirty_from >= 0) {
+        repaint_dirty(sd, ta, tb, n);
+        sd->dirty_from = sd->dirty_to = -1;
+    }
+
     GdkRectangle r;
     GtkTextIter it;
     gtk_text_view_get_visible_rect(sd->view, &r);
@@ -263,20 +389,20 @@ static gboolean refresh_idle(gpointer data)
     int top = gtk_text_iter_get_line(&it);
     gtk_text_view_get_line_at_y(sd->view, &it, r.y + MAX(r.height, 1), NULL);
     int bottom = gtk_text_iter_get_line(&it);
-    int n = gtk_text_buffer_get_line_count(sd->buf);
     int from = MAX(top - MARGIN_LINES, 0), to = MIN(MAX(bottom, top + MARGIN_LINES) + MARGIN_LINES, n - 1);
-    for (int i = (int)sd->states->len; i < from; i++) {
-        int s = run_line(sd, i, i ? g_array_index(sd->states, int, i - 1) : 0, FALSE);
-        g_array_append_val(sd->states, s);
+
+    if (!sd->tagged || to < ta - 1 || from > tb + 1 || MAX(tb, to) - MIN(ta, from) > TAGGED_MAX) {
+        /* far from what is painted: start over */
+        untag(sd);
+        paint_lines(sd, from, to);
+        set_tagged(sd, from, to);
+    } else {
+        if (from < ta)
+            paint_lines(sd, from, ta - 1);
+        if (to > tb)
+            paint_lines(sd, tb + 1, to);
+        set_tagged(sd, MIN(from, ta), MAX(to, tb));
     }
-    for (int i = from; i <= to; i++) {
-        int s = run_line(sd, i, i ? g_array_index(sd->states, int, i - 1) : 0, TRUE);
-        if (i < (int)sd->states->len)
-            g_array_index(sd->states, int, i) = s;
-        else
-            g_array_append_val(sd->states, s);
-    }
-    sd->tagged = TRUE;
     return FALSE;
 }
 
@@ -287,26 +413,60 @@ static void schedule(SynDoc *sd)
         sd->idle = g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, refresh_idle, sd, NULL);
 }
 
-static void invalidate_from(SynDoc *sd, int line)
+/* An edit at `line` turned it into lines line..line+added (added < 0: it
+ * removed -added lines after it). States move along with their lines, so the
+ * repaint can tell when the old ones match again. */
+static void edited(SynDoc *sd, int line, int added)
 {
-    if (line < (int)sd->states->len)
-        g_array_set_size(sd->states, (guint)line);
+    if (!sd->lang)
+        return;
+    GArray *st = sd->states;
+    if (line < (int)st->len) {
+        if (added > 0) {
+            int unknown = UNKNOWN;
+            for (int k = 0; k < added; k++)
+                g_array_insert_val(st, (guint)line, unknown);
+        } else if (added < 0)
+            g_array_remove_range(st, (guint)line, (guint)MIN(-added, (int)st->len - line));
+    }
+    int last = line + MAX(added, 0);
+    if (sd->dirty_from < 0) {
+        sd->dirty_from = line;
+        sd->dirty_to = last;
+    } else {
+        if (sd->dirty_to >= line)
+            sd->dirty_to = MAX(sd->dirty_to + added, line);
+        sd->dirty_from = MIN(sd->dirty_from, line);
+        sd->dirty_to = MAX(sd->dirty_to, last);
+    }
     schedule(sd);
+}
+
+static int count_lines(const char *text, int len)
+{
+    int k = 0, delim, next;
+    while (len > 0) {
+        pango_find_paragraph_boundary(text, len, &delim, &next);
+        if (next == delim) /* no terminator: last piece */
+            break;
+        k++;
+        text += next;
+        len -= next;
+    }
+    return k;
 }
 
 static void on_insert(GtkTextBuffer *buf, GtkTextIter *at, char *text, int len, SynDoc *sd)
 {
     (void)buf;
-    (void)text;
-    (void)len;
-    invalidate_from(sd, gtk_text_iter_get_line(at));
+    edited(sd, gtk_text_iter_get_line(at), count_lines(text, len < 0 ? (int)strlen(text) : len));
 }
 
 static void on_delete(GtkTextBuffer *buf, GtkTextIter *start, GtkTextIter *end, SynDoc *sd)
 {
     (void)buf;
-    (void)end;
-    invalidate_from(sd, gtk_text_iter_get_line(start));
+    int a = gtk_text_iter_get_line(start);
+    edited(sd, a, -(gtk_text_iter_get_line(end) - a));
 }
 
 static void on_scroll(GtkAdjustment *adj, SynDoc *sd)
@@ -332,6 +492,7 @@ static void set_lang(SynDoc *sd, const KipadSyntax *lang)
     }
     untag(sd);
     g_array_set_size(sd->states, 0);
+    sd->dirty_from = sd->dirty_to = -1;
     sd->lang = lang;
     if (lang) {
         create_tags(sd);
@@ -365,6 +526,7 @@ SynDoc *syn_doc_new(GtkWidget *scroll, GtkTextView *view)
     sd->buf = g_object_ref(gtk_text_view_get_buffer(view));
     sd->vadj = g_object_ref(gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(scroll)));
     sd->states = g_array_new(FALSE, FALSE, sizeof(int));
+    sd->dirty_from = sd->dirty_to = -1;
     sd->sig_insert = g_signal_connect(sd->buf, "insert-text", G_CALLBACK(on_insert), sd);
     sd->sig_delete = g_signal_connect(sd->buf, "delete-range", G_CALLBACK(on_delete), sd);
     sd->sig_scroll = g_signal_connect(sd->vadj, "value-changed", G_CALLBACK(on_scroll), sd);
@@ -383,6 +545,10 @@ void syn_doc_free(SynDoc *sd)
     g_signal_handler_disconnect(sd->vadj, sd->sig_scroll);
     if (g_signal_handler_is_connected(sd->view, sd->sig_alloc))
         g_signal_handler_disconnect(sd->view, sd->sig_alloc);
+    if (sd->ta) {
+        gtk_text_buffer_delete_mark(sd->buf, sd->ta);
+        gtk_text_buffer_delete_mark(sd->buf, sd->tb);
+    }
     g_object_unref(sd->vadj);
     g_object_unref(sd->buf);
     g_object_unref(sd->view);
