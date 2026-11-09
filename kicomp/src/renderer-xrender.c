@@ -2098,7 +2098,30 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
             }
 
             comp_transform_translate(&m, (float)-n->geometry.x, (float)-n->geometry.y);
-            picture_transform_set(source, &m);
+
+            /* A window that is its own client and draws itself densely
+             * (xisback on a scaled output) keeps nothing worth seeing in
+             * its 1x pixmap -- xisback leaves only the fallback color
+             * there -- and its dense layer covers the whole window, with
+             * no decoration or holes to place. So while an effect moves
+             * or scales it (the expo grid, the cube) that layer is what
+             * is drawn, through the same matrix, which the density then
+             * carries from window pixels to the pixmap's. A framed or
+             * holed window still draws its 1x contents here (dense_ok). */
+            float wd;
+            xcb_render_picture_t whole_dense = XCB_NONE;
+            if (transformed && !from_stash && !subst && w->client == w->id &&
+                w->density_through_count == 0 && w->density_source_count == 0 &&
+                density_active(w, &wd))
+                whole_dense = density_picture(w, false);
+            if (whole_dense != XCB_NONE) {
+                source = whole_dense;
+                CompTransform md = m;
+                comp_transform_scale(&md, wd, wd);
+                picture_transform_set(source, &md);
+            } else {
+                picture_transform_set(source, &m);
+            }
             /* The mask is in the pixmap's space, so it is sampled through
              * the very same matrix -- that is the whole trick. */
             if (shape_masked)

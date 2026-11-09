@@ -31,7 +31,7 @@
 
 #define _GNU_SOURCE             /* ppoll */
 
-#define KICOMP_VERSION "0.4.14"
+#define KICOMP_VERSION "0.4.15"
 
 #include "../../shared/xis_i18n.h"
 
