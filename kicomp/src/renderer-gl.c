@@ -80,6 +80,7 @@ static GLuint shadow_mesh_vbo;
 static const CompSceneMesh *mesh_cache_mesh;
 static unsigned mesh_cache_generation;
 static int mesh_cache_vcount;
+static int mesh_cache_opaque;     /* how many of those floats are opaque cells */
 static const CompSceneMesh *shadow_cache_mesh;
 static unsigned shadow_cache_generation;
 static int shadow_cache_vcount;
@@ -2236,6 +2237,51 @@ static void mesh_sample(const CompSceneMesh *mesh, float u, float v,
     *out_y = top_y + (bot_y - top_y) * tv;
 }
 
+/* Adds v to a sorted list of breaks unless it is already there. */
+static void add_break(float *b, int *n, float v)
+{
+    int i = 0;
+    while (i < *n && b[i] < v)
+        i++;
+    if (i < *n && fabsf(b[i] - v) < 1e-6f)
+        return;
+    memmove(&b[i + 1], &b[i], (size_t)(*n - i) * sizeof(float));
+    b[i] = v;
+    (*n)++;
+}
+
+/* The part of the window (window-local pixels, inside `want`) where its
+ * silhouette is whole, so a mask sampled there would read 1 everywhere:
+ * all of `want` for an unshaped window, else its overlap with the shape
+ * rectangle that overlaps it most -- for kiwm's rounded frame, the band
+ * between the corners. One pixel in from the edges that a shape cuts, so
+ * filtering cannot reach a texel outside. False when nothing is whole. */
+static bool shape_whole_rect(const CompWindow *w, const GlWindow *g,
+                             const CompRect *want, CompRect *out)
+{
+    if (!w->shaped) {
+        *out = *want;
+        return want->w > 0 && want->h > 0;
+    }
+    if (!g || g->shape_count <= 0)
+        return false;
+
+    long best_area = 0;
+    for (int k = 0; k < g->shape_count; k++) {
+        const xcb_rectangle_t *sr = &g->shape_rects[k];
+        CompRect r = { sr->x + 1, sr->y + 1, sr->width - 2, sr->height - 2 };
+        CompRect hit;
+        if (r.w <= 0 || r.h <= 0 || !rect_intersect(&r, want, &hit))
+            continue;
+        long area = (long)hit.w * (long)hit.h;
+        if (area > best_area) {
+            best_area = area;
+            *out = hit;
+        }
+    }
+    return best_area > 0;
+}
+
 /* The shadow of a window that is not a rectangle any more.
  *
  * A shadow is a blurred rectangle and cannot be bent by its own shader --
@@ -2629,19 +2675,6 @@ static int mesh_sub_sheet(const CompSceneMesh *mesh, float u0, float v0,
     return cv;
 }
 
-/* Adds v to a sorted list of breaks unless it is already there. */
-static void add_break(float *b, int *n, float v)
-{
-    int i = 0;
-    while (i < *n && b[i] < v)
-        i++;
-    if (i < *n && fabsf(b[i] - v) < 1e-6f)
-        return;
-    memmove(&b[i + 1], &b[i], (size_t)(*n - i) * sizeof(float));
-    b[i] = v;
-    (*n)++;
-}
-
 /* The whole sheet but its (hu0, hv0)-(hu1, hv1), into mesh_vbo, bound:
  * the decoration's layer without the client's rectangle it leaves
  * transparent. Cut along the mesh's own lines plus the hole's edges, so
@@ -2740,15 +2773,39 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         return;
     }
 
-    static float verts[MESH_MAX_COLS * MESH_MAX_ROWS * 6 * 4];
-    int v;
+    /* The part of the sheet known to be opaque and whole -- the client
+     * inside the frame, between kiwm's rounded corners -- drawn with
+     * blending and the mask off, as draw_node() draws a window's opaque
+     * rectangle; only the rest is blended through the mask. In the
+     * window's 0..1, one pixel in, since the bent sheet is filtered and
+     * an edge texel would mix in the frame's alpha. Not under a dense
+     * layer, whose own passes decide what this one draws. */
+    float ou0 = 0.0f, ov0 = 0.0f, ou1 = 0.0f, ov1 = 0.0f;
+    bool split = false;
+    CompRect wr = window_rect(w);
+    if (!flat && !from_stash && !dense_deco && !dense_client &&
+        n->opacity >= 1.0f && wr.w > 0 && wr.h > 0) {
+        CompRect op = window_opaque_rect(w), whole;
+        CompRect local = { op.x - wr.x + 1, op.y - wr.y + 1, op.w - 2, op.h - 2 };
+        if (op.w > 2 && op.h > 2 && shape_whole_rect(w, g, &local, &whole)) {
+            ou0 = (float)whole.x / (float)wr.w;
+            ov0 = (float)whole.y / (float)wr.h;
+            ou1 = (float)(whole.x + whole.w) / (float)wr.w;
+            ov1 = (float)(whole.y + whole.h) / (float)wr.h;
+            split = true;
+        }
+    }
+
+    static float verts[(MESH_MAX_COLS + 3) * (MESH_MAX_ROWS + 3) * 6 * 4];
+    int v, v_opaque;
 
     bool cached = mesh_cache_mesh == mesh &&
                   mesh_cache_generation == mesh->generation;
 
     if (cached) {
         v = mesh_cache_vcount;
-    } else {
+        v_opaque = mesh_cache_opaque;
+    } else if (!split) {
         v = 0;
         for (int gy = 0; gy < rows; gy++) {
             for (int gx = 0; gx < cols; gx++) {
@@ -2773,9 +2830,55 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
                 }
             }
         }
+        v_opaque = 0;
+    } else {
+        /* Cut along the mesh's own lines plus the opaque part's edges,
+         * as mesh_frame_sheet() cuts around a hole, so both halves share
+         * every vertex and no seam opens between them. The opaque cells
+         * first, then the rest: two ranges of one buffer. */
+        float us[MESH_MAX_COLS + 3], vs[MESH_MAX_ROWS + 3];
+        int nu = 0, nv = 0;
+        for (int i = 0; i <= cols; i++)
+            us[nu++] = (float)i / (float)cols;
+        for (int i = 0; i <= rows; i++)
+            vs[nv++] = (float)i / (float)rows;
+        add_break(us, &nu, ou0);
+        add_break(us, &nu, ou1);
+        add_break(vs, &nv, ov0);
+        add_break(vs, &nv, ov1);
+
+        v = 0;
+        v_opaque = 0;
+        for (int pass = 0; pass < 2; pass++) {
+            for (int j = 0; j + 1 < nv; j++) {
+                for (int i = 0; i + 1 < nu; i++) {
+                    float cu = (us[i] + us[i + 1]) * 0.5f;
+                    float cv = (vs[j] + vs[j + 1]) * 0.5f;
+                    bool inside = cu > ou0 && cu < ou1 && cv > ov0 && cv < ov1;
+                    if (inside != (pass == 0))
+                        continue;
+                    const int di[6] = { 0, 1, 0, 1, 1, 0 };
+                    const int dj[6] = { 0, 0, 1, 0, 1, 1 };
+                    for (int k = 0; k < 6; k++) {
+                        float u = us[i + di[k]], t = vs[j + dj[k]];
+                        float px, py;
+                        mesh_point(mesh, u, t, &px, &py);
+                        verts[v++] = px;
+                        verts[v++] = py;
+                        verts[v++] = u;
+                        verts[v++] = t;
+                    }
+                }
+            }
+            if (pass == 0)
+                v_opaque = v;
+        }
+    }
+    if (!cached) {
         mesh_cache_mesh = mesh;
         mesh_cache_generation = mesh->generation;
         mesh_cache_vcount = v;
+        mesh_cache_opaque = v_opaque;
     }
 
     float identity[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
@@ -2811,7 +2914,6 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * own texture coordinate, and so what maskcoord (and the hole) is
      * measured in on this path. The window's own pixels there are left
      * out, as draw_node() leaves them out (see client_covers there). */
-    CompRect wr = window_rect(w);
     const CompRect cr = client_rect_now(w);
     bool client_layer = dense_client && wr.w > 0 && wr.h > 0 &&
                         cr.w > 2 && cr.h > 2;
@@ -2858,7 +2960,14 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
      * layer -- rather than as a second pass over the whole window. */
     scissor_for(o, repaint_rect.x, repaint_rect.y, repaint_rect.w, repaint_rect.h);
     if (!deco_hole || from_stash) {
-        glDrawArrays(GL_TRIANGLES, 0, v / 4);
+        if (v_opaque > 0) {
+            wu1f(u_use_mask, 0.0f);
+            glDisable(GL_BLEND);
+            glDrawArrays(GL_TRIANGLES, 0, v_opaque / 4);
+            glEnable(GL_BLEND);
+            wu1f(u_use_mask, shape ? 1.0f : 0.0f);
+        }
+        glDrawArrays(GL_TRIANGLES, v_opaque / 4, (v - v_opaque) / 4);
     } else if (!client_layer) {
         int bv = mesh_sub_sheet(mesh, h0u, h0v, h1u, h1v, h0u, h0v, h1u, h1v);
         glDrawArrays(GL_TRIANGLES, 0, bv / 4);
