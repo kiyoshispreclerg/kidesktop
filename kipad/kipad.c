@@ -21,7 +21,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define KIPAD_VERSION "0.3.0"
+#define KIPAD_VERSION "0.3.1"
 #define DEFAULT_FONT "Monospace 11"
 #define MIN_FONT_PT 6
 #define MAX_FONT_PT 72
@@ -1069,11 +1069,16 @@ static gboolean on_delete_event(GtkWidget *w, GdkEvent *ev, gpointer data)
     (void)ev;
     (void)data;
     int n = gtk_notebook_get_n_pages(GTK_NOTEBOOK(g_notebook));
+    /* The prompts walk through the tabs; the one open at close is what gets reopened. */
+    int shown = gtk_notebook_get_current_page(GTK_NOTEBOOK(g_notebook));
     for (int i = 0; i < n; i++) {
         gtk_notebook_set_current_page(GTK_NOTEBOOK(g_notebook), i);
-        if (!confirm_discard(doc_of(gtk_notebook_get_nth_page(GTK_NOTEBOOK(g_notebook), i))))
+        if (!confirm_discard(doc_of(gtk_notebook_get_nth_page(GTK_NOTEBOOK(g_notebook), i)))) {
+            gtk_notebook_set_current_page(GTK_NOTEBOOK(g_notebook), shown);
             return TRUE;
+        }
     }
+    gtk_notebook_set_current_page(GTK_NOTEBOOK(g_notebook), shown);
     for (int i = 0; i < n; i++) {
         Doc *d = doc_of(gtk_notebook_get_nth_page(GTK_NOTEBOOK(g_notebook), i));
         if (d->path)
@@ -2222,15 +2227,19 @@ int main(int argc, char **argv)
         /* no files given: reopen the tabs the last window had */
         State s;
         state_load(&s);
+        int active = -1, opened = 0;
         for (guint i = 0; i < s.tabs->len; i++) {
             const char *p = g_ptr_array_index(s.tabs, i);
-            if (g_file_test(p, G_FILE_TEST_IS_REGULAR))
-                open_path(p);
+            if (!g_file_test(p, G_FILE_TEST_IS_REGULAR))
+                continue;
+            open_path(p);
+            if ((int)i == s.active)
+                active = opened;
+            opened++;
         }
         int n = gtk_notebook_get_n_pages(GTK_NOTEBOOK(g_notebook));
-        /* tabs that no longer exist shift the index; clamp is good enough */
         if (n > 0)
-            gtk_notebook_set_current_page(GTK_NOTEBOOK(g_notebook), s.active < n ? s.active : n - 1);
+            gtk_notebook_set_current_page(GTK_NOTEBOOK(g_notebook), active >= 0 && active < n ? active : n - 1);
         state_clear(&s);
     }
     if (gtk_notebook_get_n_pages(GTK_NOTEBOOK(g_notebook)) == 0)
