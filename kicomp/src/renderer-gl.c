@@ -3661,6 +3661,17 @@ static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
             continue;
         }
 
+        /* Drawn at nothing, which an effect does to keep a pixmap named
+         * (the cover switch's other desktops' grounds): named, then left
+         * undrawn -- a quad at zero opacity changes no pixel, and costs a
+         * blended pass over all of it. */
+        if (n->opacity <= 0.0f) {
+            if (!cap_flat)
+                platform->window_bind(w, g);
+            cap_flat = false;
+            continue;
+        }
+
         /* Only where the node shows *and* the pass is repainting. This
          * test is where the saving actually comes from: the scissor
          * would clip it anyway, but binding a pixmap and issuing draws
