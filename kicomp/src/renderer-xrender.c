@@ -2165,7 +2165,43 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
                 op = (CompRect){ 0, 0, 0, 0 };
         }
 
-        if (op.w > 0 && op.h > 0) {
+        /* Nor is the frame's own pixmap seen under the decoration's dense
+         * layer, which covers all of it but deco_hole (renderer-gl.c's
+         * draw_node does the same): drawn there alone, or not at all under
+         * a client layer. More than a saved pass: kiwm stops refreshing
+         * the 1x decoration while the dense one is shown, so the frame's
+         * would show a stale copy through every translucent pixel of it.
+         * Through the matrix only when a client layer covers the hole --
+         * draw_holes() fills the passthrough areas from the window then. */
+        bool deco_cut = dense_ok && deco_hole.w > 0 &&
+                        deco_density_active(w, &density) && density_picture(w, true);
+        if (deco_cut) {
+            CompRect open = { deco_hole.x - 1, deco_hole.y - 1,
+                              deco_hole.w + 2, deco_hole.h + 2 };
+            CompRect cut;
+            if (client_covers && needs_matrix) {
+                base_cut_hole = true;
+            } else if (rect_intersect(&open, &n->visible_rect, &cut)) {
+                if (needs_matrix) {
+                    xcb_rectangle_t r = to_target_rect(o, &cut);
+                    xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_OVER,
+                                         source, mask, o->target,
+                                         r.x, r.y, r.x, r.y, r.x, r.y,
+                                         r.width, r.height);
+                } else {
+                    int16_t cx = (int16_t)(cut.x - n->geometry.x);
+                    int16_t cy = (int16_t)(cut.y - n->geometry.y);
+                    xcb_render_composite(comp.conn,
+                                         op.w > 0 ? XCB_RENDER_PICT_OP_SRC
+                                                  : XCB_RENDER_PICT_OP_OVER,
+                                         source, mask, o->target,
+                                         cx, cy, cx, cy,
+                                         (int16_t)to_target_x(o, cut.x),
+                                         (int16_t)to_target_y(o, cut.y),
+                                         (uint16_t)cut.w, (uint16_t)cut.h);
+                }
+            }
+        } else if (op.w > 0 && op.h > 0) {
             xcb_render_composite(comp.conn, XCB_RENDER_PICT_OP_SRC,
                                  source, XCB_NONE, o->target,
                                  (int16_t)(op.x - n->geometry.x),
