@@ -2121,6 +2121,10 @@ static void xr_draw_scene(CompOutput *o, CompScene *s, const CompRegion *damage)
          * pixels can open a seam. */
         float density;
         bool dense_ok = !transformed && !from_stash && !subst;
+        /* comp.h's client_rect_dirty: re-measured before client_rect is used
+         * below (this renderer has no client_rect_now() estimate, it reads
+         * the stored rectangle). Not tested with this renderer. */
+        (void)density_refresh_client_rect(w);
         bool dense_client = dense_ok && density_active(w, &density) &&
                             density_picture(w, false);
         CompRect client_hole = { 0, 0, 0, 0 };

@@ -547,6 +547,31 @@ void density_source_gone(xcb_window_t window, bool destroyed)
     }
 }
 
+bool density_refresh_client_rect(CompWindow *w)
+{
+    if (!w->client_rect_dirty)
+        return false;
+    /* Cleared first: whatever happens below, the next change sets it again,
+     * and a window we can't measure must not cost a round trip per frame. */
+    w->client_rect_dirty = false;
+    /* Only a framed window with sources (a video player): anything else
+     * keeps the estimate, and an unframed window is its own client, at 0,0. */
+    if (w->density_source_count == 0 || w->client == XCB_NONE || w->client == w->id)
+        return false;
+
+    xcb_get_geometry_reply_t *g = xcb_get_geometry_reply(
+        comp.conn, xcb_get_geometry(comp.conn, w->client), NULL);
+    if (!g)
+        return false;
+    /* The same measurement the renderers take on import: the client's
+     * position in its frame (the geometry is in the frame's coordinates)
+     * and its size. */
+    w->client_rect = (CompRect){ g->x + g->border_width, g->y + g->border_width,
+                                 g->width, g->height };
+    free(g);
+    return true;
+}
+
 bool density_source_root_rect(const CompWindow *w, const CompDensitySource *s,
                               CompRect *out)
 {

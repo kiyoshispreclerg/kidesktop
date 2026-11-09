@@ -31,7 +31,7 @@
 
 #define _GNU_SOURCE             /* ppoll */
 
-#define KICOMP_VERSION "0.4.12"
+#define KICOMP_VERSION "0.4.14"
 
 #include "../../shared/xis_i18n.h"
 
@@ -901,6 +901,12 @@ static void handle_event(xcb_generic_event_t *ev)
          * stops being a top-level (we drop it, its pixels now arrive as
          * part of the frame's) and the frame appears as one instead. */
         xcb_reparent_notify_event_t *e = (xcb_reparent_notify_event_t *)ev;
+        /* Selecting STRUCTURE_NOTIFY on a client (window.c) makes the server
+         * send its own reparent events too, with event == window; the root
+         * already reported this one (event == root), and handling both
+         * would add or reparent the window twice. */
+        if (e->event == e->window && window_find_by_client(e->window))
+            break;
         if (e->parent == comp.root) {
             window_add_top(e->window);   /* reparenting stacks it on top */
         } else {
@@ -926,6 +932,14 @@ static void handle_event(xcb_generic_event_t *ev)
              * Nothing about the frame changed, but where the client sits
              * in it did, and that is what decides how much of the frame
              * is opaque (window.h). */
+            /* A client's own ConfigureNotify (window.c selects it): where it
+             * sits in its frame, or how big it is, changed -- comp.h's
+             * client_rect_dirty. */
+            if (e->event == e->window) {
+                CompWindow *cw = window_find_by_client(e->window);
+                if (cw)
+                    cw->client_rect_dirty = true;
+            }
             window_client_reconfigured(e->event, e->window, e->x, e->y,
                                        e->width, e->height, e->border_width);
             /* Or a dense video window resized: its named pixmap is the

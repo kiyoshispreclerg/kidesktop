@@ -85,6 +85,17 @@ void density_source_damaged(xcb_drawable_t drawable);
 void density_source_configured(xcb_window_t window);
 void density_source_gone(xcb_window_t window, bool destroyed);
 
+/* Re-measures w->client_rect if w->client_rect_dirty (comp.h says why it
+ * can be stale). One get_geometry round trip per change, never per frame,
+ * and only for a window with dense sources: a window without them keeps the
+ * cheaper estimate of renderer-gl.c's client_rect_now(), which carries the
+ * margins over a live resize. Returns true if it was measured -- changed or
+ * not, it now belongs to the window's current size -- so a renderer that
+ * caches what client_rect was measured against (the GL one's
+ * client_rect_of) can update that too. Call before the dense layer and the
+ * sources are drawn. */
+bool density_refresh_client_rect(CompWindow *w);
+
 /* Where a source is shown, in root coordinates, with the window at its
  * own place (damage.c's coordinates). False while it has no pixmap, and
  * so is not drawn. */

@@ -2668,8 +2668,14 @@ static void source_extent(const CompRect *r, const GlWindow *d, float density,
  * (`client`, which carries an effect's stretch). */
 static CompRect in_client(const CompRect *client, const CompWindow *w, const CompRect *r)
 {
-    float fx = w->client_rect.w > 0 ? (float)client->w / (float)w->client_rect.w : 1.0f;
-    float fy = w->client_rect.h > 0 ? (float)client->h / (float)w->client_rect.h : 1.0f;
+    /* `client` was built from client_rect_now(), so the stretch is measured
+     * against that and not against the stored client_rect: with the stored
+     * one a stale rectangle (a framed 557x330 for a client now 720x450)
+     * scaled every source by 720/557, which is the enlarged video this was
+     * found through. Equal when nothing is stale or stretched. */
+    const CompRect cn = client_rect_now(w);
+    float fx = cn.w > 0 ? (float)client->w / (float)cn.w : 1.0f;
+    float fy = cn.h > 0 ? (float)client->h / (float)cn.h : 1.0f;
     return (CompRect){ client->x + (int)lroundf((float)r->x * fx),
                        client->y + (int)lroundf((float)r->y * fy),
                        (int)lroundf((float)r->w * fx), (int)lroundf((float)r->h * fy) };
@@ -2892,6 +2898,15 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         float density;
         if (deco_density_active(w, &density))
             dense_deco = dense_layer(w, g, true);
+        /* Before the layer and the sources read client_rect: it may be
+         * the framed window's still (comp.h's client_rect_dirty). The
+         * rectangle is then right for the window as it is now, which is
+         * what client_rect_of says. */
+        if (density_refresh_client_rect(w)) {
+            GlWindow *gc = gl_window_find(w->id);
+            if (gc)
+                gc->client_rect_of = window_rect(w);
+        }
         if (density_active(w, &client_density))
             dense_client = dense_layer(w, g, false);
         if (dense_client)
@@ -3341,6 +3356,15 @@ static void draw_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
         float density;
         if (deco_density_active(w, &density))
             dense_deco = dense_layer(w, g, true);
+        /* Before the layer and the sources read client_rect: it may be
+         * the framed window's still (comp.h's client_rect_dirty). The
+         * rectangle is then right for the window as it is now, which is
+         * what client_rect_of says. */
+        if (density_refresh_client_rect(w)) {
+            GlWindow *gc = gl_window_find(w->id);
+            if (gc)
+                gc->client_rect_of = window_rect(w);
+        }
         if (density_active(w, &client_density))
             dense_client = dense_layer(w, g, false);
         if (dense_client)

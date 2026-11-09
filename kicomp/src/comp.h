@@ -577,6 +577,21 @@ typedef struct CompWindow {
     bool density_damage_works, deco_density_damage_works;
     CompRect client_rect;
 
+    /* client_rect may be out of date: the frame was resized or the client
+     * was reconfigured since it was read. client_rect is only measured when
+     * a dense pixmap is imported (renderer-gl.c's dense_layer(),
+     * renderer-xrender.c's density_picture()), and nothing else refreshes
+     * it -- so when the margins around the client change without a new
+     * pixmap, e.g. kiwm taking the titlebar and borders off for fullscreen,
+     * it keeps describing the framed window (5,26 557x330 for a client now
+     * at 0,0 720x450). Where the client sits decides where a dense video
+     * source (density.h) is drawn, so that showed up as the video enlarged
+     * and shifted. Set by window_configure() and by the client's own
+     * ConfigureNotify (main.c); cleared by density_refresh_client_rect(),
+     * which asks the server, once per change and only for windows that
+     * have dense sources. */
+    bool client_rect_dirty;
+
     /* The holes in that pixmap (density.h): where it has nothing, because
      * a native child draws there in its own window (a video player's
      * --wid). Client-relative logical rectangles.

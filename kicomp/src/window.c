@@ -481,7 +481,12 @@ static xcb_window_t resolve_client(CompWindow *w)
      * changes have to be selected there -- event masks are per-client,
      * so this disturbs neither the WM nor the application. */
     if (w->client != w->id) {
-        uint32_t mask = XCB_EVENT_MASK_PROPERTY_CHANGE;
+        /* STRUCTURE_NOTIFY too: the client's own ConfigureNotify says its
+         * rectangle in the frame changed (comp.h's client_rect_dirty).
+         * Its other structure events arrive here as well, with
+         * event == window == the client; main.c tells them from the ones
+         * the root reports. */
+        uint32_t mask = XCB_EVENT_MASK_PROPERTY_CHANGE | XCB_EVENT_MASK_STRUCTURE_NOTIFY;
         xcb_change_window_attributes(comp.conn, w->client, XCB_CW_EVENT_MASK, &mask);
     }
 
@@ -676,8 +681,10 @@ void window_client_reparented(xcb_window_t frame_id, xcb_window_t client)
     w->client = client;
     read_window_group(w);
 
-    uint32_t mask = XCB_EVENT_MASK_PROPERTY_CHANGE;
+    /* STRUCTURE_NOTIFY as in resolve_client(): see there. */
+    uint32_t mask = XCB_EVENT_MASK_PROPERTY_CHANGE | XCB_EVENT_MASK_STRUCTURE_NOTIFY;
     xcb_change_window_attributes(comp.conn, client, XCB_CW_EVENT_MASK, &mask);
+    w->client_rect_dirty = true;
 
     read_window_kind(w);
     window_update_bypass(w);
@@ -1692,6 +1699,11 @@ void window_configure(xcb_window_t id, int x, int y, int w_, int h_, int border,
 
     if (resized)
         w->opaque_known = false;
+
+    /* The client's margins inside the frame may have changed with its size
+     * (fullscreen drops the decoration): comp.h's client_rect_dirty. */
+    if (resized)
+        w->client_rect_dirty = true;
 
     if (resized) {
         /* A resize gives the window a brand new backing pixmap; the one
