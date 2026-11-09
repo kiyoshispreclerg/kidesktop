@@ -451,6 +451,10 @@ static void paint_frame(PanelMenu *m, MenuFrame *f)
     if (!f->win) {
         return;
     }
+    /* Dense first: when the compositor shows it, the window isn't seen. */
+    if (density_layer_render(f->density, f->width, f->height, m->font_size)) {
+        return;
+    }
     draw_frame(f->buf_cr, m, f);
     cairo_surface_flush(f->buf_surface);
 
@@ -461,7 +465,6 @@ static void paint_frame(PanelMenu *m, MenuFrame *f)
     cairo_restore(f->cr);
     cairo_surface_flush(f->surface);
     XFlush(g_dpy);
-    density_layer_render(f->density, f->width, f->height, m->font_size);
 }
 
 /* Fills out_idx[]/out_n with the flat indices of every item whose parent

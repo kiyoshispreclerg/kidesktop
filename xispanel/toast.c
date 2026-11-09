@@ -660,6 +660,13 @@ static void paint_toast(Toast *t)
         t->buf_cr = cairo_create(t->buf_surface);
         t->buf_h = t->h;
     }
+    /* Dense first: when the compositor shows it, the window isn't seen. */
+    g_density_toast = t;
+    int dense = density_layer_render(t->density, TOAST_W, t->h, TOAST_SUMMARY_SIZE);
+    g_density_toast = NULL;
+    if (dense) {
+        return;
+    }
     draw_toast(t->buf_cr, t);
     cairo_surface_flush(t->buf_surface);
 
@@ -669,9 +676,6 @@ static void paint_toast(Toast *t)
     cairo_paint(t->cr);
     cairo_restore(t->cr);
     cairo_surface_flush(t->surface);
-    g_density_toast = t;
-    density_layer_render(t->density, TOAST_W, t->h, TOAST_SUMMARY_SIZE);
-    g_density_toast = NULL;
 }
 
 static void destroy_toast_window(Toast *t)

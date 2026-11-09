@@ -102,7 +102,7 @@
 #include <unistd.h>
 #include "../shared/xis_safefile.h"
 
-#define XISPANEL_VERSION "0.8.12"
+#define XISPANEL_VERSION "0.8.14"
 #define MAX_PANELS 8
 #define LINE_MAX_LEN 2048
 /* 128KB, not 4KB: GET_NOTIFICATIONS can hand back up to NOTIFD_MAX (50)
@@ -3022,6 +3022,19 @@ static void panel_repaint_clip(Panel *p, int clip)
         cairo_set_font_size(p->buf_cr, panel_text_size(p));
     }
 
+    /* Dense first: while the compositor shows the dense pixmap the window
+     * isn't seen, so painting it too would be the same work twice. */
+    if (density_render(p, clip)) {
+        p->density_1x_stale = 1;
+        p->dirty = 0;
+        p->hover_dirty = 0;
+        return;
+    }
+    if (p->density_1x_stale) {
+        p->density_1x_stale = 0;
+        clip = 0;
+    }
+
     int cx = p->hd_x0, cy = p->hd_y0, cw = p->hd_x1 - p->hd_x0, ch = p->hd_y1 - p->hd_y0;
     if (clip) {
         cairo_save(p->buf_cr);
@@ -3064,8 +3077,6 @@ static void panel_repaint_clip(Panel *p, int clip)
     XFlush(g_dpy);
     p->dirty = 0;
     p->hover_dirty = 0;
-
-    density_render(p, clip);
 }
 
 static void panel_repaint(Panel *p)

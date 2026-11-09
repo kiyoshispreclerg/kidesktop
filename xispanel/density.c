@@ -90,6 +90,9 @@ static void reset_one_panel_density(Panel *p, void *ctx)
         p->density_den = 1;
         XDeleteProperty(g_dpy, p->win, g_atom_density_scale);
         XDeleteProperty(g_dpy, p->win, g_atom_density_pixmap);
+        /* The 1x buffer was left stale while the dense pixmap was shown
+         * (density_render()); the Expose this raises repaints it. */
+        XClearArea(g_dpy, p->win, 0, 0, 0, 0, True);
     }
     density_panel_destroyed(p);
 }
@@ -213,10 +216,10 @@ static int density_ensure_pixmap(Panel *p, int pw, int ph)
     return 2;
 }
 
-void density_render(Panel *p, int clip)
+int density_render(Panel *p, int clip)
 {
     if (p->density_num == 1 && p->density_den == 1) {
-        return; /* the vastly common case -- nothing requested, nothing to do */
+        return 0; /* the vastly common case -- nothing requested, nothing to do */
     }
     if (!compositor_present()) {
         /* The compositor vanished between the property write and this
@@ -224,18 +227,18 @@ void density_render(Panel *p, int clip)
          * path normally, but a request could in principle land in the
          * same event-loop iteration as the disappearance) -- don't publish
          * a pixmap nobody will read. */
-        return;
+        return 0;
     }
     double scale = (double)p->density_num / p->density_den;
     int pw = (int)(p->w * scale + 0.5);
     int ph = (int)(p->h * scale + 0.5);
     if (pw < 1 || ph < 1) {
-        return;
+        return 0;
     }
     Pixmap before = p->density_pixmap;
     int made = density_ensure_pixmap(p, pw, ph);
     if (!made) {
-        return;
+        return 0;
     }
     /* A hover change repaints just the rectangle it dirtied, scaled out to
      * device pixels -- the off-screen buffer persists between frames, so
@@ -288,6 +291,11 @@ void density_render(Panel *p, int clip)
                          (unsigned char *)&pixmap_val, 1);
     }
     XFlush(g_dpy);
+    /* A reused pixmap is already announced, so the compositor shows it and
+     * never reads the window: the 1x paint can be skipped. Not on a new
+     * one -- until the compositor reads the properties it still shows the
+     * window. */
+    return made == 1;
 }
 
 void density_panel_destroyed(Panel *p)
@@ -417,6 +425,9 @@ static void density_reset_all_layers(void)
             dl->num = dl->den = 1;
             XDeleteProperty(g_dpy, dl->win, g_atom_density_scale);
             XDeleteProperty(g_dpy, dl->win, g_atom_density_pixmap);
+            /* Every owner repaints in full on Expose, which brings the 1x
+             * window up to date (density_layer_render() left it stale). */
+            XClearArea(g_dpy, dl->win, 0, 0, 0, 0, True);
         }
         density_layer_free_pixmap(dl);
     }
@@ -481,23 +492,23 @@ static int density_layer_ensure_pixmap(DensityLayer *dl, int pw, int ph)
     return 2;
 }
 
-void density_layer_render(DensityLayer *dl, int logical_w, int logical_h, double base_font_size)
+int density_layer_render(DensityLayer *dl, int logical_w, int logical_h, double base_font_size)
 {
     if (!dl || (dl->num == 1 && dl->den == 1)) {
-        return;
+        return 0;
     }
     if (!compositor_present()) {
-        return;
+        return 0;
     }
     double scale = (double)dl->num / dl->den;
     int pw = (int)(logical_w * scale + 0.5);
     int ph = (int)(logical_h * scale + 0.5);
     if (pw < 1 || ph < 1) {
-        return;
+        return 0;
     }
     int made = density_layer_ensure_pixmap(dl, pw, ph);
     if (!made) {
-        return;
+        return 0;
     }
 
     if (g_font_face) {
@@ -526,6 +537,7 @@ void density_layer_render(DensityLayer *dl, int logical_w, int logical_h, double
                          (unsigned char *)&pixmap_val, 1);
     }
     XFlush(g_dpy);
+    return made == 1; /* same as density_render(): the 1x paint can be skipped */
 }
 
 /* Partial repaint of an already-rendered layer, for content that changes

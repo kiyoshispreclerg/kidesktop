@@ -877,9 +877,12 @@ static void paint_popup(void)
     if (!g_popup || !g_panel) {
         return;
     }
+    /* Dense first: when the compositor shows it, the window isn't seen. */
+    if (density_layer_render(g_popup->density, g_popup->width, g_popup->height, tooltip_font_size())) {
+        return;
+    }
     draw_popup(g_popup->back_cr);
     blit_and_flush();
-    density_layer_render(g_popup->density, g_popup->width, g_popup->height, tooltip_font_size());
 }
 
 /* Original single-item layout (text + optional close icon/mpris row/

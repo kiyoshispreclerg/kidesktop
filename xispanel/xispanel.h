@@ -566,6 +566,7 @@ struct Panel {
      * something else, and destroyed again the moment it drops back to
      * 1/1 -- never kept around "just in case". */
     int density_num, density_den;
+    int density_1x_stale; /* the 1x buffer was skipped while dense: next 1x paint is a full one */
     int density_pixmap_w, density_pixmap_h; /* size the pixmap/surface were last (re)created at */
     Pixmap density_pixmap;
     cairo_surface_t *density_surface;
@@ -976,9 +977,12 @@ Window ewmh_resolve_active_for_output(const char *output_name, int *out_kiwm_out
 void density_init(void);                                 /* call once at startup, after ewmh_init_atoms() */
 int density_handle_xfixes_event(const XEvent *ev);        /* 1 if consumed (a manager-selection change) */
 int density_handle_property(Panel *p, const XPropertyEvent *ev); /* 1 if consumed (_X_DENSITY_REQUESTED on p->win) */
-/* call at the end of panel_repaint() -- no-op unless density != 1/1.
- * clip: only p->hd_* (the hover-dirty rectangle) changed. */
-void density_render(Panel *p, int clip);
+/* call at the start of panel_repaint() -- no-op unless density != 1/1.
+ * clip: only p->hd_* (the hover-dirty rectangle) changed. Returns 1 when
+ * the compositor shows the (already announced) dense pixmap instead of the
+ * window, so the 1x paint can be skipped; the window is repainted when the
+ * density goes back to 1/1. */
+int density_render(Panel *p, int clip);
 void density_panel_destroyed(Panel *p); /* frees the aux pixmap/surface/cr, if any -- call from panel_deactivate() */
 
 /* Same mechanism as the four functions above, packaged generically for
@@ -1008,7 +1012,10 @@ void density_layer_partial_end(DensityLayer *dl, int x, int y, int w, int h);
  * font size before `paint` runs, the same seed density_render(Panel*)
  * gives its own img_cr via panel_text_size() -- pass 0 when `paint` always
  * sets its own size before drawing any text. */
-void density_layer_render(DensityLayer *dl, int logical_w, int logical_h, double base_font_size);
+/* Call before painting the 1x window: returns 1 when the window is not seen
+ * (same as density_render()), so its paint can be skipped. Owners must
+ * repaint in full on Expose and after density_layer_handle_property(). */
+int density_layer_render(DensityLayer *dl, int logical_w, int logical_h, double base_font_size);
 
 /* ---- small drawing helpers built on top of the above (ewmh.c) ---- */
 int icon_size_for(int thickness, int padding); /* shared by tasklist/tray's icon_padding= */
