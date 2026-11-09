@@ -44,6 +44,9 @@
 static const GlPlatform *platform;
 
 
+/* What the screen is cleared to where nothing is drawn. */
+#define GROUND_GREY 0.109f
+
 /* The window program, as variants of fragment_source with only the
  * features a draw uses compiled in (FEAT_*): one shader that tests a
  * uniform for each of them still samples the mask and works the corner
@@ -58,9 +61,9 @@ static const GlPlatform *platform;
 static GLuint program;
 enum {
     u_projection, u_transform, u_opacity, u_texture, u_y_flip, u_use_uv,
-    u_mask, u_corner_radii, u_corner_size, u_hole, u_mask_adjust,
+    u_mask, u_corner_radii, u_corner_size, u_hole, u_mask_adjust, u_under,
     WU_UNIFORMS,
-    u_use_mask = WU_UNIFORMS, u_use_corners, u_use_hole,
+    u_use_mask = WU_UNIFORMS, u_use_corners, u_use_hole, u_use_under,
 };
 static GLuint quad_vbo;
 static GLuint mesh_vbo;
@@ -204,6 +207,7 @@ static const char *fragment_source =
      * about to cover the window anyway, or is itself transparent -- see
      * draw_node(). Discarded before anything is sampled or blended. */
     "uniform vec4 hole;\n"
+    "uniform vec4 under;\n"
     "varying vec2 texcoord;\n"
     "varying vec2 maskcoord;\n"
     /* A rounded box's signed distance, one independent radius per corner
@@ -238,7 +242,14 @@ static const char *fragment_source =
     "    float aa = max(fwidth(dist), 0.0001);\n"
     "    c *= 1.0 - smoothstep(-aa, aa, dist);\n"
     "#endif\n"
+    /* Over a ground of one known colour (draw_pass's under), the
+     * blend done here instead, with blending off: no read of the
+     * framebuffer for the first thing drawn over it. */
+    "#ifdef FEAT_UNDER\n"
+    "    gl_FragColor = c * opacity + under * (1.0 - c.a * opacity);\n"
+    "#else\n"
     "    gl_FragColor = c * opacity;\n"
+    "#endif\n"
     "}\n";
 
 /* A shadow is a blurred rectangle, and the blur of a rectangle is
@@ -555,14 +566,15 @@ static GLuint program_get(const char *what, const char *vsrc, const char *fsrc,
 #define FEAT_MASK    1u
 #define FEAT_CORNERS 2u
 #define FEAT_HOLE    4u
-#define FEAT_ALL     8u
+#define FEAT_UNDER   8u
+#define FEAT_ALL     16u
 
 static const char *const wu_names[WU_UNIFORMS] = {
     "projection", "transform", "opacity", "texture0", "y_flip", "use_uv",
-    "mask", "corner_radii", "corner_size", "hole", "mask_adjust",
+    "mask", "corner_radii", "corner_size", "hole", "mask_adjust", "under",
 };
 /* How many floats each one is; 1i for the samplers, stored as floats. */
-static const int wu_size[WU_UNIFORMS] = { 16, 16, 1, -1, 1, 1, -1, 4, 2, 4, 4 };
+static const int wu_size[WU_UNIFORMS] = { 16, 16, 1, -1, 1, 1, -1, 4, 2, 4, 4, 4 };
 
 static GLuint variants[FEAT_ALL];
 static bool variant_failed[FEAT_ALL];
@@ -582,10 +594,11 @@ static GLuint variant_get(unsigned feat)
     static const char *const attribs[] = { "position", "uv", NULL };
     char what[16], head[128];
     snprintf(what, sizeof(what), "window-%u", feat);
-    snprintf(head, sizeof(head), "#version 120\n%s%s%s",
+    snprintf(head, sizeof(head), "#version 120\n%s%s%s%s",
              feat & FEAT_MASK ? "#define FEAT_MASK\n" : "",
              feat & FEAT_CORNERS ? "#define FEAT_CORNERS\n" : "",
-             feat & FEAT_HOLE ? "#define FEAT_HOLE\n" : "");
+             feat & FEAT_HOLE ? "#define FEAT_HOLE\n" : "",
+             feat & FEAT_UNDER ? "#define FEAT_UNDER\n" : "");
     size_t n = strlen(head) + strlen(fragment_source) + 1;
     char *fsrc = malloc(n);
     if (!fsrc) {
@@ -650,7 +663,8 @@ static void wu_set(int i, const float *f, int n)
 {
     if (i >= WU_UNIFORMS) {
         unsigned bit = i == u_use_mask ? FEAT_MASK
-                     : i == u_use_corners ? FEAT_CORNERS : FEAT_HOLE;
+                     : i == u_use_corners ? FEAT_CORNERS
+                     : i == u_use_hole ? FEAT_HOLE : FEAT_UNDER;
         unsigned feat = f[0] > 0.5f ? (wu_feat | bit) : (wu_feat & ~bit);
         if (feat != wu_feat) {
             wu_feat = feat;
@@ -1652,7 +1666,7 @@ void gl_begin(CompOutput *o, GlOutput *go, const CompRegion *damage,
     if (program && copy.count > 0)
         copy_previous(o, go, &copy);
 
-    glClearColor(0.109f, 0.109f, 0.109f, 1.0f);
+    glClearColor(GROUND_GREY, GROUND_GREY, GROUND_GREY, 1.0f);
 
     if (region_is_full(&go->repaint) && o->covered.count == 0) {
         glDisable(GL_SCISSOR_TEST);
@@ -1681,6 +1695,33 @@ void gl_begin(CompOutput *o, GlOutput *go, const CompRegion *damage,
     glDisable(GL_SCISSOR_TEST);
 }
 
+/* What the pass has painted so far, while that is still one flat colour
+ * over all of repaint_rect: the clear, and an effect's backdrop on it.
+ * The first node drawn over it is blended in the shader against that
+ * colour (FEAT_UNDER) with blending off -- `under_on` while it is drawn,
+ * which also keeps the node's own blend toggles (blend_on) from turning
+ * blending back on halfway. */
+static bool under_known;
+static float under_rgb[3];
+static bool under_on;
+
+static void blend_on(void)
+{
+    if (!under_on)
+        glEnable(GL_BLEND);
+}
+
+static void wu1f(int i, float a);
+
+static void under_end(void)
+{
+    if (!under_on)
+        return;
+    under_on = false;
+    wu1f(u_use_under, 0.0f);
+    glEnable(GL_BLEND);
+}
+
 /* An effect's own ground, under every window (scene.h): one quad in a
  * flat colour, through the same shader everything else goes through. A
  * 1x1 texture rather than a shader of its own -- the fragment program
@@ -1696,6 +1737,28 @@ static void draw_backdrop(CompOutput *o, const CompScene *s,
     CompRect ignored;
     if (!rect_intersect(&b->rect, &repaint_rect, &ignored))
         return;
+
+    /* Over the whole pass and on the plain clear, it is just a darker
+     * clear: one flat colour with no read of what is under it, and the
+     * ground stays one colour for the first node (under_known). */
+    bool covers = b->rect.x <= repaint_rect.x && b->rect.y <= repaint_rect.y &&
+                  b->rect.x + b->rect.w >= repaint_rect.x + repaint_rect.w &&
+                  b->rect.y + b->rect.h >= repaint_rect.y + repaint_rect.h;
+    if (under_known && covers) {
+        float a = b->opacity;
+        for (int i = 0; i < 3; i++) {
+            float c = (i == 0 ? b->r : i == 1 ? b->g : b->b);
+            /* The texel the quad would sample, so the colour matches it. */
+            c = (float)(int)(c * 255.0f + 0.5f) / 255.0f;
+            under_rgb[i] = c * a + under_rgb[i] * (1.0f - a);
+        }
+        glClearColor(under_rgb[0], under_rgb[1], under_rgb[2], 1.0f);
+        scissor_for(o, repaint_rect.x, repaint_rect.y,
+                    repaint_rect.w, repaint_rect.h);
+        glClear(GL_COLOR_BUFFER_BIT);
+        return;
+    }
+    under_known = false;
 
     static GLuint tex;
     if (!tex) {
@@ -1758,7 +1821,7 @@ static void draw_piece(const CompOutput *o, const CompRect *piece,
     if (scissor_to(o, &solid)) {
         glDisable(GL_BLEND);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        glEnable(GL_BLEND);
+        blend_on();
     }
 
     CompRegion rest;
@@ -3034,7 +3097,7 @@ static void draw_mesh_node(CompOutput *o, CompSceneNode *n, CompWindow *w,
             wu1f(u_use_mask, 0.0f);
             glDisable(GL_BLEND);
             glDrawArrays(GL_TRIANGLES, 0, v_opaque / 4);
-            glEnable(GL_BLEND);
+            blend_on();
             wu1f(u_use_mask, shape ? 1.0f : 0.0f);
         }
         glDrawArrays(GL_TRIANGLES, v_opaque / 4, (v - v_opaque) / 4);
@@ -3180,7 +3243,7 @@ static void draw_quad_split(const CompOutput *o, float u0, float v0,
         wu1f(u_use_mask, 0.0f);
         glDisable(GL_BLEND);
         glDrawArrays(GL_TRIANGLES, 0, 6);
-        glEnable(GL_BLEND);
+        blend_on();
         wu1f(u_use_mask, masked ? 1.0f : 0.0f);
         glDrawArrays(GL_TRIANGLES, 6, 4 * 6);
     }
@@ -3624,7 +3687,14 @@ static void draw_sky(CompOutput *o, const CompScene *s,
 
 static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
 {
+    /* gl_begin cleared all of the repaint to one colour, unless part of
+     * it lies under an opaque window and was left for that window. */
+    under_known = o->covered.count == 0;
+    under_rgb[0] = under_rgb[1] = under_rgb[2] = GROUND_GREY;
+
     draw_backdrop(o, s, projection);
+    if (s->sky_count > 0)
+        under_known = false;
     draw_sky(o, s, projection);
 
     /* The rectangle this pass is repainting; each node narrows it to the
@@ -3641,8 +3711,10 @@ static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
         CompSceneNode *n = &s->nodes[i];
         CompWindow *w = n->win;
 
-        while (si < s->solid_count && s->solids[si].z <= (float)i)
+        while (si < s->solid_count && s->solids[si].z <= (float)i) {
+            under_known = false;
             draw_solid(o, &s->solids[si++], projection);
+        }
 
 
         if (n->visible_rect.w <= 0 || n->visible_rect.h <= 0)
@@ -3672,6 +3744,24 @@ static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
             continue;
         }
 
+        /* The first node over a ground of one colour is blended against
+         * that colour in the shader instead (FEAT_UNDER) -- as long as it
+         * covers each pixel once: no shadow under it, no bent sheet, no
+         * dense layers over it. Whatever it is, after it the ground is
+         * no longer one colour. */
+        CompShadowStyle st;
+        float dens;
+        under_on = under_known && !n->mesh && !cap_flat &&
+                   !(shadow_program && shadow_for_window(w, &st) &&
+                     st.opacity > 0.0f && st.radius > 0) &&
+                   !deco_density_active(w, &dens) && !density_active(w, &dens);
+        under_known = false;
+        if (under_on) {
+            glDisable(GL_BLEND);
+            wu4f(u_under, under_rgb[0], under_rgb[1], under_rgb[2], 1.0f);
+            wu1f(u_use_under, 1.0f);
+        }
+
         /* Only where the node shows *and* the pass is repainting. This
          * test is where the saving actually comes from: the scissor
          * would clip it anyway, but binding a pixmap and issuing draws
@@ -3681,6 +3771,7 @@ static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
         if (region_is_full(&n->clip)) {
             draw_node(o, n, w, g, projection);
             cap_flat = false;
+            under_end();
             continue;
         }
         for (int k = 0; k < n->clip.count; k++) {
@@ -3692,6 +3783,7 @@ static void draw_pass(CompOutput *o, CompScene *s, const float projection[16])
         }
         repaint_rect = damaged;
         cap_flat = false;
+        under_end();
     }
 
     while (si < s->solid_count)
