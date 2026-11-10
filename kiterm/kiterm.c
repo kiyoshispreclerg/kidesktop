@@ -126,12 +126,48 @@ static gboolean confirm(KtWindow *w, const char *text)
     return r == GTK_RESPONSE_ACCEPT;
 }
 
+/* The grid (columns x rows) is remembered in its own file, since the window
+ * size follows it. A maximized window's grid comes from the screen, so it
+ * keeps the last normal one. */
+static char *grid_path(void)
+{
+    return g_build_filename(g_get_user_config_dir(), "kidesktop", "winstate-kiterm-grid.conf", NULL);
+}
+
+static gboolean grid_load(int *cols, int *rows)
+{
+    char *path = grid_path(), *data = NULL;
+    gboolean ok = g_file_get_contents(path, &data, NULL, NULL) && sscanf(data, "%d %d", cols, rows) == 2;
+    g_free(data);
+    g_free(path);
+    if (ok) {
+        *cols = CLAMP(*cols, 20, 500);
+        *rows = CLAMP(*rows, 5, 200);
+    }
+    return ok;
+}
+
+static void grid_save(KtWindow *w, VteTerminal *t)
+{
+    if (!t || (gdk_window_get_state(gtk_widget_get_window(w->win)) & (GDK_WINDOW_STATE_MAXIMIZED | GDK_WINDOW_STATE_FULLSCREEN)))
+        return;
+    char *path = grid_path(), *dir = g_path_get_dirname(path);
+    char *text = g_strdup_printf("%ld %ld\n", vte_terminal_get_column_count(t), vte_terminal_get_row_count(t));
+    g_mkdir_with_parents(dir, 0755);
+    g_file_set_contents(path, text, -1, NULL);
+    g_free(text);
+    g_free(dir);
+    g_free(path);
+}
+
 static void remove_tab(KtWindow *w, GtkWidget *term)
 {
     GtkNotebook *nb = GTK_NOTEBOOK(w->notebook);
     int idx = gtk_notebook_page_num(nb, gtk_widget_get_parent(term));
     if (idx < 0)
         return;
+    if (gtk_notebook_get_n_pages(nb) == 1)
+        grid_save(w, VTE_TERMINAL(term));
     gtk_notebook_remove_page(nb, idx);
     if (gtk_notebook_get_n_pages(nb) == 0) {
         gtk_main_quit();
@@ -161,9 +197,12 @@ static gboolean on_delete(GtkWidget *win, GdkEvent *ev, gpointer data)
     GtkNotebook *nb = GTK_NOTEBOOK(w->notebook);
     for (int i = 0; i < gtk_notebook_get_n_pages(nb); i++) {
         if (kt_tab_busy(kt_window_nth_term(w, i))) {
-            return !confirm(w, _("Programs are still running in this window. Close it anyway?"));
+            if (!confirm(w, _("Programs are still running in this window. Close it anyway?")))
+                return TRUE;
+            break;
         }
     }
+    grid_save(w, kt_window_current(w));
     return FALSE;
 }
 
@@ -408,6 +447,7 @@ int main(int argc, char **argv)
     w->zoom = 1.0;
     kt_config_load(&w->cfg);
     char *workdir = NULL;
+    grid_load(&w->cfg.cols, &w->cfg.rows);
 
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
