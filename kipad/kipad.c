@@ -466,8 +466,20 @@ static void font_cb(void)
 
 static gboolean on_scroll(GtkWidget *w, GdkEventScroll *ev, gpointer data)
 {
-    (void)w;
     (void)data;
+    if ((ev->state & GDK_SHIFT_MASK) && !(ev->state & GDK_CONTROL_MASK)) {
+        /* shift + wheel scrolls sideways */
+        GtkAdjustment *adj = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(gtk_widget_get_parent(w)));
+        double step = gtk_adjustment_get_step_increment(adj), v = gtk_adjustment_get_value(adj);
+        if (ev->direction == GDK_SCROLL_UP || ev->direction == GDK_SCROLL_LEFT)
+            v -= step * 3;
+        else if (ev->direction == GDK_SCROLL_DOWN || ev->direction == GDK_SCROLL_RIGHT)
+            v += step * 3;
+        else
+            return FALSE;
+        gtk_adjustment_set_value(adj, CLAMP(v, gtk_adjustment_get_lower(adj), gtk_adjustment_get_upper(adj) - gtk_adjustment_get_page_size(adj)));
+        return TRUE;
+    }
     if (!(ev->state & GDK_CONTROL_MASK))
         return FALSE;
     if (ev->direction == GDK_SCROLL_UP)
