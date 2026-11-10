@@ -665,6 +665,7 @@ static Doc *doc_new(void)
     g_array_set_clear_func(d->redo, undo_op_clear);
 
     d->scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_widget_set_name(d->scroll, "kipad-view-sw");
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(d->scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(d->scroll), GTK_SHADOW_IN);
     d->view = gtk_text_view_new();
@@ -2197,6 +2198,18 @@ static void toggle_fullscreen(void)
 }
 
 /* Ctrl+= is Ctrl+plus on keyboards where plus needs Shift. */
+static void on_notebook_style(GtkWidget *w, GtkStyle *prev, gpointer d)
+{
+    (void)prev;
+    (void)d;
+    GtkStyle *theme = gtk_rc_get_style_by_paths(gtk_widget_get_settings(w), NULL, NULL, GTK_TYPE_NOTEBOOK);
+    guint hb = 2 + (theme ? theme->xthickness : 0);
+    guint cur = 0;
+    g_object_get(w, "tab-hborder", &cur, NULL);
+    if (cur != hb)
+        g_object_set(w, "tab-hborder", hb, NULL);
+}
+
 static gboolean on_key(GtkWidget *w, GdkEventKey *ev, gpointer data)
 {
     (void)w;
@@ -2285,7 +2298,18 @@ int main(int argc, char **argv)
     gtk_container_add(GTK_CONTAINER(g_win), vbox);
     gtk_box_pack_start(GTK_BOX(vbox), build_menubar(ag), FALSE, FALSE, 0);
 
+    /* No side frame on the notebook and the scroll bar outside the view's
+     * frame: the bar reaches the window's edge, so a maximized window's can
+     * be grabbed by slamming the pointer into the screen edge. The tabs get
+     * the lost padding back as tab-hborder. */
+    gtk_rc_parse_string("style \"kipad-tabs\" { xthickness = 0 }\n"
+                        "widget \"*.kipad-tabs\" style \"kipad-tabs\"\n"
+                        "style \"kipad-view-sw\" { GtkScrolledWindow::scrollbars-within-bevel = 0 }\n"
+                        "widget \"*.kipad-view-sw\" style \"kipad-view-sw\"\n");
     g_notebook = gtk_notebook_new();
+    gtk_widget_set_name(g_notebook, "kipad-tabs");
+    gtk_notebook_set_show_border(GTK_NOTEBOOK(g_notebook), FALSE);
+    g_signal_connect(g_notebook, "style-set", G_CALLBACK(on_notebook_style), NULL);
     gtk_notebook_set_scrollable(GTK_NOTEBOOK(g_notebook), TRUE);
     g_signal_connect(g_notebook, "switch-page", G_CALLBACK(page_switched), NULL);
     gtk_box_pack_start(GTK_BOX(vbox), g_notebook, TRUE, TRUE, 0);
