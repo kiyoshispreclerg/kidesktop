@@ -20,7 +20,7 @@ PKG_LIBS += $(LIBINTL)
 LINGUAS := $(shell test -f po/LINGUAS && grep -v '^\#' po/LINGUAS)
 MOFILES := $(foreach lang,$(LINGUAS),po/$(lang).mo)
 
-SRCS := kifiles.c kf_config.c kf_icons.c kf_pane.c kf_crumbs.c kf_places.c kf_usagecell.c kf_tabs.c kf_hover.c kf_typeahead.c kf_dnd.c kf_clip.c kf_ops.c kf_jobview.c kf_thumbs.c kf_props.c ../shared/xis_sound.c ../shared/xis_winstate.c ../shared/xis_safefile.c ../shared/xis_rootexec.c ../shared/xis_appchooser.c ../shared/xis_launchfx.c ../shared/xis_launchfx_conf.c ../shared/xis_launchfx_gtk.c
+SRCS := kifiles.c kf_config.c kf_icons.c kf_pane.c kf_crumbs.c kf_places.c kf_usagecell.c kf_tabs.c kf_hover.c kf_typeahead.c kf_dnd.c kf_clip.c kf_ops.c kf_jobview.c kf_thumbs.c kf_props.c kf_actions.c ../shared/xis_sound.c ../shared/xis_winstate.c ../shared/xis_safefile.c ../shared/xis_rootexec.c ../shared/xis_appchooser.c ../shared/xis_launchfx.c ../shared/xis_launchfx_conf.c ../shared/xis_launchfx_gtk.c
 OBJS := $(SRCS:.c=.o)
 HDRS := kf.h ../shared/xis_i18n.h ../shared/xis_winstate.h ../shared/xis_safefile.h ../shared/xis_rootexec.h ../shared/xis_appchooser.h
 
@@ -56,13 +56,17 @@ install: kifiles mo
 	rm -f kifiles.desktop
 	install -Dm644 kidesktop-mimeapps.list $(DESTDIR)$(DESKTOPDIR)/kidesktop-mimeapps.list
 	install -Dm644 kifiles.svg $(DESTDIR)$(ICONDIR)/kifiles.svg
+	install -d $(DESTDIR)$(DATADIR)/kifiles/actions
+	install -Dm644 SERVICEMENUS.md $(DESTDIR)$(DATADIR)/doc/kifiles/SERVICEMENUS.md
+	install -Dm644 examples/kifiles-example.desktop $(DESTDIR)$(DATADIR)/doc/kifiles/examples/kifiles-example.desktop
+	install -Dm644 examples/kifiles-example-folders.desktop $(DESTDIR)$(DATADIR)/doc/kifiles/examples/kifiles-example-folders.desktop
 	if [ -z "$(DESTDIR)" ]; then update-desktop-database $(DESKTOPDIR) 2>/dev/null; gtk-update-icon-cache -f -t $(dir $(patsubst %/,%,$(dir $(patsubst %/,%,$(ICONDIR))))) 2>/dev/null; fi; true
 	for lang in $(LINGUAS); do \
 		install -Dm644 po/$$lang.mo $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/kifiles.mo; \
 	done
 
 uninstall:
-	rm -f $(DESTDIR)$(BINDIR)/kifiles $(DESTDIR)$(DESKTOPDIR)/kifiles.desktop $(DESTDIR)$(DESKTOPDIR)/kidesktop-mimeapps.list $(DESTDIR)$(ICONDIR)/kifiles.svg
+	rm -rf $(DESTDIR)$(DATADIR)/doc/kifiles; rmdir $(DESTDIR)$(DATADIR)/kifiles/actions $(DESTDIR)$(DATADIR)/kifiles 2>/dev/null; rm -f $(DESTDIR)$(BINDIR)/kifiles $(DESTDIR)$(DESKTOPDIR)/kifiles.desktop $(DESTDIR)$(DESKTOPDIR)/kidesktop-mimeapps.list $(DESTDIR)$(ICONDIR)/kifiles.svg
 	for lang in $(LINGUAS); do \
 		rm -f $(DESTDIR)$(LOCALEDIR)/$$lang/LC_MESSAGES/kifiles.mo; \
 	done

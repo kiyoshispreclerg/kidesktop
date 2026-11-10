@@ -1,0 +1,14 @@
+# Only for folders, and only when exactly one is selected; top level of the menu.
+[Desktop Entry]
+Type=Service
+MimeType=inode/directory;
+Actions=Size;
+X-KDE-Priority=TopLevel
+X-KDE-RequiredNumberOfUrls=1
+TryExec=du
+
+[Desktop Action Size]
+Name=Show the size of this folder
+Name[pt_BR]=Mostrar o tamanho desta pasta
+Icon=folder
+Exec=sh -c 'zenity --info --text="$(du -sh "$1")" 2>/dev/null || xmessage "$(du -sh "$1")"' sh %f

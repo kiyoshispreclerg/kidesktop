@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kifiles\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-05 00:09-0300\n"
+"POT-Creation-Date: 2026-11-10 00:36-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -28,6 +28,14 @@ msgstr ""
 
 #: ../shared/xis_appchooser.c:169
 msgid "Filter the list, or type a command to run instead:"
+msgstr ""
+
+#: kf_actions.c:324 kf_actions.c:331
+msgid "Could not run the action"
+msgstr ""
+
+#: kf_actions.c:430
+msgid "Actions"
 msgstr ""
 
 #: kf_crumbs.c:54 kf_places.c:157
@@ -277,31 +285,31 @@ msgstr ""
 msgid "not found in the trash"
 msgstr ""
 
-#: kf_pane.c:354
+#: kf_pane.c:401
 msgid "This folder is empty."
 msgstr ""
 
-#: kf_pane.c:410
+#: kf_pane.c:457
 msgid "Could not mount this location."
 msgstr ""
 
-#: kf_pane.c:1436
+#: kf_pane.c:1513
 msgid "Name"
 msgstr ""
 
-#: kf_pane.c:1451
+#: kf_pane.c:1528
 msgid "Size"
 msgstr ""
 
-#: kf_pane.c:1452
+#: kf_pane.c:1529
 msgid "Modified"
 msgstr ""
 
-#: kf_pane.c:1453
+#: kf_pane.c:1530
 msgid "Type"
 msgstr ""
 
-#: kf_pane.c:1484
+#: kf_pane.c:1561
 msgid "Filter:"
 msgstr ""
 
@@ -359,7 +367,7 @@ msgstr ""
 msgid "_Mount"
 msgstr ""
 
-#: kf_places.c:520 kifiles.c:1339
+#: kf_places.c:520 kifiles.c:1341
 msgid "_Open"
 msgstr ""
 
@@ -570,11 +578,11 @@ msgstr ""
 msgid "Close tab (Ctrl+W)"
 msgstr ""
 
-#: kf_tabs.c:235 kifiles.c:1332
+#: kf_tabs.c:235 kifiles.c:1334
 msgid "New _Tab"
 msgstr ""
 
-#: kf_tabs.c:237 kifiles.c:1334
+#: kf_tabs.c:237 kifiles.c:1336
 msgid "_Detach Tab"
 msgstr ""
 
@@ -582,7 +590,7 @@ msgstr ""
 msgid "Close _Other Tabs"
 msgstr ""
 
-#: kf_tabs.c:240 kifiles.c:1333
+#: kf_tabs.c:240 kifiles.c:1335
 msgid "_Close Tab"
 msgstr ""
 
@@ -631,302 +639,302 @@ msgstr ""
 msgid "Run in _Terminal"
 msgstr ""
 
-#: kifiles.c:1265
+#: kifiles.c:1267
 #, c-format
 msgid "Name: %s\n"
 msgstr ""
 
-#: kifiles.c:1266
+#: kifiles.c:1268
 #, c-format
 msgid "Location: %s\n"
 msgstr ""
 
-#: kifiles.c:1267
+#: kifiles.c:1269
 #, c-format
 msgid "Type: %s\n"
 msgstr ""
 
-#: kifiles.c:1269
+#: kifiles.c:1271
 #, c-format
 msgid "Size: %s\n"
 msgstr ""
 
-#: kifiles.c:1274
+#: kifiles.c:1276
 #, c-format
 msgid "Modified: %s\n"
 msgstr ""
 
-#: kifiles.c:1280
+#: kifiles.c:1282
 #, c-format
 msgid "Owner: %s\n"
 msgstr ""
 
-#: kifiles.c:1327
+#: kifiles.c:1329
 msgid "_Edit"
 msgstr ""
 
-#: kifiles.c:1327
+#: kifiles.c:1329
 msgid "_File"
 msgstr ""
 
-#: kifiles.c:1328
+#: kifiles.c:1330
 msgid "_Go"
 msgstr ""
 
-#: kifiles.c:1328
+#: kifiles.c:1330
 msgid "_View"
 msgstr ""
 
-#: kifiles.c:1329
+#: kifiles.c:1331
 msgid "_Help"
 msgstr ""
 
-#: kifiles.c:1329
+#: kifiles.c:1331
 msgid "_Sort By"
 msgstr ""
 
-#: kifiles.c:1331
+#: kifiles.c:1333
 msgid "New _Window"
 msgstr ""
 
-#: kifiles.c:1334
+#: kifiles.c:1336
 msgid "Move the tab to a new window"
 msgstr ""
 
-#: kifiles.c:1335
+#: kifiles.c:1337
 msgid "_Next Tab"
 msgstr ""
 
-#: kifiles.c:1336
+#: kifiles.c:1338
 msgid "_Previous Tab"
 msgstr ""
 
-#: kifiles.c:1337
+#: kifiles.c:1339
 msgid "Create a new folder"
 msgstr ""
 
-#: kifiles.c:1337
+#: kifiles.c:1339
 msgid "New _Folder..."
 msgstr ""
 
-#: kifiles.c:1338
+#: kifiles.c:1340
 msgid "New _File..."
 msgstr ""
 
-#: kifiles.c:1340
+#: kifiles.c:1342
 msgid "Open in New _Window"
 msgstr ""
 
-#: kifiles.c:1341
+#: kifiles.c:1343
 msgid "Open in New _Tab"
 msgstr ""
 
-#: kifiles.c:1342
+#: kifiles.c:1344
 msgid "Open _Terminal Here"
 msgstr ""
 
-#: kifiles.c:1343
+#: kifiles.c:1345
 msgid "_Rename..."
 msgstr ""
 
-#: kifiles.c:1344
+#: kifiles.c:1346
 msgid "Move to _Trash"
 msgstr ""
 
-#: kifiles.c:1345
+#: kifiles.c:1347
 msgid "Delete permanently"
 msgstr ""
 
-#: kifiles.c:1345
+#: kifiles.c:1347
 msgid "_Delete"
 msgstr ""
 
-#: kifiles.c:1346
+#: kifiles.c:1348
 msgid "_Restore"
 msgstr ""
 
-#: kifiles.c:1347
+#: kifiles.c:1349
 msgid "E_mpty Trash"
 msgstr ""
 
-#: kifiles.c:1348
+#: kifiles.c:1350
 msgid "_Properties"
 msgstr ""
 
-#: kifiles.c:1355
+#: kifiles.c:1357
 msgid "Paste Into _Folder"
 msgstr ""
 
-#: kifiles.c:1356
+#: kifiles.c:1358
 msgid "Copy _Path"
 msgstr ""
 
-#: kifiles.c:1358
+#: kifiles.c:1360
 msgid "_Invert Selection"
 msgstr ""
 
-#: kifiles.c:1359
+#: kifiles.c:1361
 msgid "Filter the files by name"
 msgstr ""
 
-#: kifiles.c:1359
+#: kifiles.c:1361
 msgid "_Filter..."
 msgstr ""
 
-#: kifiles.c:1360
+#: kifiles.c:1362
 msgid "Fi_nd Files..."
 msgstr ""
 
-#: kifiles.c:1360
+#: kifiles.c:1362
 msgid "Search this folder and its subfolders"
 msgstr ""
 
-#: kifiles.c:1362 kifiles.c:1504
+#: kifiles.c:1364 kifiles.c:1506
 msgid "Icons"
 msgstr ""
 
-#: kifiles.c:1363 kifiles.c:1513
+#: kifiles.c:1365 kifiles.c:1515
 msgid "List"
 msgstr ""
 
-#: kifiles.c:1364
+#: kifiles.c:1366
 msgid "Zoom _In"
 msgstr ""
 
-#: kifiles.c:1365
+#: kifiles.c:1367
 msgid "Zoom _Out"
 msgstr ""
 
-#: kifiles.c:1366
+#: kifiles.c:1368
 msgid "_Reset Zoom"
 msgstr ""
 
-#: kifiles.c:1367
+#: kifiles.c:1369
 msgid "_Reload"
 msgstr ""
 
-#: kifiles.c:1369
+#: kifiles.c:1371
 msgid "_Back"
 msgstr ""
 
-#: kifiles.c:1370
+#: kifiles.c:1372
 msgid "_Forward"
 msgstr ""
 
-#: kifiles.c:1371
+#: kifiles.c:1373
 msgid "_Up"
 msgstr ""
 
-#: kifiles.c:1373
+#: kifiles.c:1375
 msgid "_Home"
 msgstr ""
 
-#: kifiles.c:1374
+#: kifiles.c:1376
 msgid "_Trash"
 msgstr ""
 
-#: kifiles.c:1375
+#: kifiles.c:1377
 msgid "_Location..."
 msgstr ""
 
-#: kifiles.c:1376
+#: kifiles.c:1378
 msgid "Add to _Places"
 msgstr ""
 
-#: kifiles.c:1381
+#: kifiles.c:1383
 msgid "_Descending"
 msgstr ""
 
-#: kifiles.c:1382
+#: kifiles.c:1384
 msgid "_Folders First"
 msgstr ""
 
-#: kifiles.c:1383
+#: kifiles.c:1385
 msgid "Show _Hidden Files"
 msgstr ""
 
-#: kifiles.c:1384
+#: kifiles.c:1386
 msgid "Show or hide thumbnails (hidden, they use no memory)"
 msgstr ""
 
-#: kifiles.c:1384
+#: kifiles.c:1386
 msgid "_Thumbnails"
 msgstr ""
 
-#: kifiles.c:1385
+#: kifiles.c:1387
 msgid "S_plit View"
 msgstr ""
 
-#: kifiles.c:1385
+#: kifiles.c:1387
 msgid "Show two folders side by side"
 msgstr ""
 
-#: kifiles.c:1386
+#: kifiles.c:1388
 msgid "_Places Panel"
 msgstr ""
 
-#: kifiles.c:1387
+#: kifiles.c:1389
 msgid "Highlight Item Under _Pointer"
 msgstr ""
 
-#: kifiles.c:1388
+#: kifiles.c:1390
 msgid ""
 "After a drag and drop, ask whether to move, copy or link instead of acting "
 "at once (hold Ctrl/Shift to skip the menu)"
 msgstr ""
 
-#: kifiles.c:1388
+#: kifiles.c:1390
 msgid "_Ask What to Do on Drop"
 msgstr ""
 
-#: kifiles.c:1392
+#: kifiles.c:1394
 msgid "_Icons"
 msgstr ""
 
-#: kifiles.c:1393
+#: kifiles.c:1395
 msgid "_List"
 msgstr ""
 
-#: kifiles.c:1397
+#: kifiles.c:1399
 msgid "By _Name"
 msgstr ""
 
-#: kifiles.c:1398
+#: kifiles.c:1400
 msgid "By _Size"
 msgstr ""
 
-#: kifiles.c:1399
+#: kifiles.c:1401
 msgid "By _Modified"
 msgstr ""
 
-#: kifiles.c:1400
+#: kifiles.c:1402
 msgid "By _Type"
 msgstr ""
 
-#: kifiles.c:1401
+#: kifiles.c:1403
 msgid "By _Extension"
 msgstr ""
 
-#: kifiles.c:1507
+#: kifiles.c:1509
 msgid "Icons (Ctrl+1)"
 msgstr ""
 
-#: kifiles.c:1516
+#: kifiles.c:1518
 msgid "List (Ctrl+2)"
 msgstr ""
 
-#: kifiles.c:1521
+#: kifiles.c:1523
 msgid "Sort"
 msgstr ""
 
-#: kifiles.c:1526
+#: kifiles.c:1528
 msgid "Sort by..."
 msgstr ""
 
-#: kifiles.c:1533
+#: kifiles.c:1535
 msgid "Thumbnails"
 msgstr ""
 
-#: kifiles.c:1540
+#: kifiles.c:1542
 msgid "Show or hide thumbnails"
 msgstr ""

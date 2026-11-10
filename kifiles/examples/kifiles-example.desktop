@@ -1,0 +1,21 @@
+# Test service menu for kifiles -- see SERVICEMENUS.md. Not installed into the
+# menu by default: copy it to ~/.local/share/kifiles/actions/ to try it.
+[Desktop Entry]
+Type=Service
+MimeType=all/all;
+Actions=List;Count;
+X-KDE-Submenu=Example
+X-KDE-Submenu[pt_BR]=Exemplo
+
+[Desktop Action List]
+Name=List the selection in a terminal
+Name[pt_BR]=Listar a seleção num terminal
+Icon=utilities-terminal
+Exec=kiterm -e sh -c 'printf "%s\n" "$@"; printf "\ncwd: %s\n\n[Enter]" "$PWD"; read -r _' sh %F
+
+[Desktop Action Count]
+Name=Count the selected items
+Name[pt_BR]=Contar os itens selecionados
+Icon=dialog-information
+Exec=sh -c 'zenity --info --text="$# item(s)" 2>/dev/null || xmessage "$# item(s)"' sh %F
+

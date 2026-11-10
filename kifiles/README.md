@@ -54,6 +54,13 @@ ffmpegthumbnailer, evince, librsvg...). To thumbnail a new format, install a
 `.thumbnailer` file for it. Only the rows near the visible area are requested,
 and only local files are thumbnailed.
 
+## Service menus
+
+Programs add their own entries to the right-click menu of selected items by
+installing a `.desktop` file in KDE's service-menu format (KDE's own work
+unchanged), e.g. in `~/.local/share/kifiles/actions/`. Nothing is loaded into
+kifiles; see [SERVICEMENUS.md](SERVICEMENUS.md) and [examples/](examples/).
+
 ## Settings
 
 `~/.config/kifiles.conf` (flat `key=value`, written on exit; `view` is the default view mode for every folder): `view`, `zoom`,

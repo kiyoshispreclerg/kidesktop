@@ -7,7 +7,7 @@
 #include <gio/gio.h>
 #include "../shared/xis_sound.h"
 
-#define KIFILES_VERSION "0.1.31"
+#define KIFILES_VERSION "0.1.32"
 
 typedef enum { KF_VIEW_ICONS, KF_VIEW_LIST } KfViewMode;
 typedef enum { KF_SORT_NAME, KF_SORT_SIZE, KF_SORT_MTIME, KF_SORT_TYPE, KF_SORT_EXT, KF_SORT_N } KfSortKey;
@@ -268,6 +268,11 @@ void kf_app_pane_changed(KfApp *app, KfPane *p, KfChange what);
 void kf_app_navigate(KfApp *app, GFile *dir);               /* in the active pane */
 void kf_app_open(KfApp *app, KfPane *p, GFile *f);
 void kf_app_popup_context(KfApp *app, KfPane *p, GdkEventButton *ev, gboolean on_item);
+
+/* kf_actions.c -- installable context-menu actions (SERVICEMENUS.md). Appends,
+ * after a separator, the ones that apply to `sel` (GList<GFile*>); returns how
+ * many items it added. */
+int kf_actions_add_to_menu(KfApp *app, KfPane *p, GtkWidget *menu, GList *sel);
 void kf_app_message(KfApp *app, GtkMessageType type, const char *primary, const char *secondary);
 GFile *kf_app_dir(KfApp *app);                              /* active pane's folder */
 void kf_app_zoom_step(KfApp *app, int dir);                /* +1 bigger icons, -1 smaller */

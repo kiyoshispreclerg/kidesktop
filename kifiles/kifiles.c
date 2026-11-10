@@ -1197,6 +1197,8 @@ void kf_app_popup_context(KfApp *app, KfPane *p, GdkEventButton *ev, gboolean on
         }
         if (one_dir)
             add_action_item(app, menu, "OpenTerminal");
+        if (sel && !trash)
+            kf_actions_add_to_menu(app, p, menu, sel);
         add_sep(menu);
         if (trash) {
             add_action_item(app, menu, "Restore");
