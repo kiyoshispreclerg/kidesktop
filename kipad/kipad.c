@@ -39,6 +39,9 @@ static gboolean g_single = TRUE;
 static int g_autosave_secs = 20;
 /* Off: no syntax module stays loaded. */
 static gboolean g_syntax = TRUE;
+/* The Tab key types a tab character, or this many columns of spaces. */
+static gboolean g_use_spaces = FALSE;
+static int g_tab_spaces = 4;
 
 static char *conf_path(void)
 {
@@ -70,6 +73,10 @@ static void config_load(void)
                 g_single = atoi(val) != 0;
             else if (!strcmp(key, "autosave_seconds"))
                 g_autosave_secs = CLAMP(atoi(val), 0, 3600);
+            else if (!strcmp(key, "use_spaces"))
+                g_use_spaces = atoi(val) != 0;
+            else if (!strcmp(key, "spaces_per_tab"))
+                g_tab_spaces = CLAMP(atoi(val), 1, 16);
             else if (!strcmp(key, "syntax_highlighting"))
                 g_syntax = atoi(val) != 0;
         }
@@ -84,8 +91,9 @@ static void config_save(void)
     char *path = conf_path(), *dir = g_path_get_dirname(path);
     g_mkdir_with_parents(dir, 0755);
     char *text = g_strdup_printf("# kipad settings, written by kipad\nfont = %s\nline_numbers = %d\nword_wrap = %d\nsingle_instance = %d\nautosave_seconds = %d\n"
-                                 "syntax_highlighting = %d\n",
-                                 g_font, g_line_numbers, g_word_wrap, g_single, g_autosave_secs, g_syntax);
+                                 "syntax_highlighting = %d\nuse_spaces = %d\nspaces_per_tab = %d\n",
+                                 g_font, g_line_numbers, g_word_wrap, g_single, g_autosave_secs, g_syntax, g_use_spaces,
+                                 g_tab_spaces);
     xis_write_file(path, text, strlen(text), xis_check_conf_clean);
     g_free(text);
     g_free(dir);
@@ -464,6 +472,45 @@ static void font_cb(void)
     gtk_widget_destroy(dlg);
 }
 
+/* Tab types spaces up to the next multiple of the width when the option is
+ * on; Enter starts the new line with the previous line's indentation. */
+static gboolean on_view_key(GtkWidget *w, GdkEventKey *ev, Doc *d)
+{
+    (void)w;
+    guint mods = ev->state & gtk_accelerator_get_default_mod_mask();
+    gboolean tab = ev->keyval == GDK_Tab && !mods;
+    gboolean enter = (ev->keyval == GDK_Return || ev->keyval == GDK_KP_Enter) && !(mods & ~GDK_SHIFT_MASK);
+    if ((tab && !g_use_spaces) || (!tab && !enter))
+        return FALSE;
+    GtkTextBuffer *buf = d->buf;
+    gtk_text_buffer_begin_user_action(buf);
+    gtk_text_buffer_delete_selection(buf, TRUE, TRUE);
+    GtkTextIter cur, ls;
+    gtk_text_buffer_get_iter_at_mark(buf, &cur, gtk_text_buffer_get_insert(buf));
+    ls = cur;
+    gtk_text_iter_set_line_offset(&ls, 0);
+    GString *out = g_string_new(NULL);
+    if (tab) {
+        int col = gtk_text_iter_get_line_offset(&cur);
+        g_string_append_len(out, "                ", g_tab_spaces - col % g_tab_spaces);
+    } else {
+        g_string_append_c(out, '\n');
+        GtkTextIter p = ls;
+        while (gtk_text_iter_compare(&p, &cur) < 0) {
+            gunichar c = gtk_text_iter_get_char(&p);
+            if (c != ' ' && c != '\t')
+                break;
+            g_string_append_c(out, (char)c);
+            gtk_text_iter_forward_char(&p);
+        }
+    }
+    gtk_text_buffer_insert_interactive_at_cursor(buf, out->str, (gint)out->len, gtk_text_view_get_editable(GTK_TEXT_VIEW(d->view)));
+    gtk_text_buffer_end_user_action(buf);
+    gtk_text_view_scroll_mark_onscreen(GTK_TEXT_VIEW(d->view), gtk_text_buffer_get_insert(buf));
+    g_string_free(out, TRUE);
+    return TRUE;
+}
+
 static gboolean on_scroll(GtkWidget *w, GdkEventScroll *ev, gpointer data)
 {
     (void)data;
@@ -699,6 +746,7 @@ static Doc *doc_new(void)
     g_signal_connect(d->buf, "mark-set", G_CALLBACK(on_mark_set), d);
     g_signal_connect(d->view, "expose-event", G_CALLBACK(on_expose), d);
     g_signal_connect(d->view, "scroll-event", G_CALLBACK(on_scroll), NULL);
+    g_signal_connect(d->view, "key-press-event", G_CALLBACK(on_view_key), d);
 
     /* tab label: name + close button */
     GtkWidget *box = gtk_hbox_new(FALSE, 4);
@@ -1427,6 +1475,33 @@ static void autosave_cb(void)
     gtk_widget_destroy(dlg);
 }
 
+static void tabs_cb(void)
+{
+    GtkWidget *dlg = gtk_dialog_new_with_buttons(_("Tab key"), GTK_WINDOW(g_win), GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                 GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL, GTK_STOCK_OK,
+                                                 GTK_RESPONSE_ACCEPT, NULL);
+    GtkWidget *vb = gtk_vbox_new(FALSE, 8), *hb = gtk_hbox_new(FALSE, 8);
+    gtk_container_set_border_width(GTK_CONTAINER(vb), 8);
+    GtkWidget *chk = gtk_check_button_new_with_label(_("Type spaces instead of a tab character"));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(chk), g_use_spaces);
+    GtkWidget *spin = gtk_spin_button_new_with_range(1, 16, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(spin), g_tab_spaces);
+    gtk_entry_set_activates_default(GTK_ENTRY(spin), TRUE);
+    gtk_box_pack_start(GTK_BOX(hb), gtk_label_new(_("Spaces per tab:")), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(hb), spin, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(vb), chk, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(vb), hb, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(GTK_DIALOG(dlg)->vbox), vb, FALSE, FALSE, 0);
+    gtk_dialog_set_default_response(GTK_DIALOG(dlg), GTK_RESPONSE_ACCEPT);
+    gtk_widget_show_all(vb);
+    if (gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_ACCEPT) {
+        g_use_spaces = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(chk));
+        g_tab_spaces = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(spin));
+        config_save();
+    }
+    gtk_widget_destroy(dlg);
+}
+
 static void syntax_toggle_cb(GtkCheckMenuItem *item, gpointer data)
 {
     (void)data;
@@ -2082,6 +2157,7 @@ static GtkWidget *build_menubar(GtkAccelGroup *ag)
     gtk_menu_shell_append(GTK_MENU_SHELL(m), single_item);
     separator(m);
     menu_item(m, ag, _("_Font..."), 0, 0, G_CALLBACK(font_cb));
+    menu_item(m, ag, _("_Tab key..."), 0, 0, G_CALLBACK(tabs_cb));
     menu_item(m, ag, _("_Autosave..."), 0, 0, G_CALLBACK(autosave_cb));
     menu_item(m, ag, _("Zoom _in"), GDK_plus, C, G_CALLBACK(zoom_in_cb));
     menu_item(m, ag, _("Zoom _out"), GDK_minus, C, G_CALLBACK(zoom_out_cb));
