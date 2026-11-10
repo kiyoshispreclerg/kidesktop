@@ -22,7 +22,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define KIPAD_VERSION "0.3.3"
+#define KIPAD_VERSION "0.3.4"
 #define DEFAULT_FONT "Monospace 11"
 #define MIN_FONT_PT 6
 #define MAX_FONT_PT 72
@@ -218,6 +218,7 @@ typedef struct {
     gboolean bk_dirty;   /* edited since the last backup was written */
     gboolean bk_exists;  /* the hidden backup file is on disk */
     SynDoc *syn;
+    int space_px;        /* width of a space in the view's font, for wrapped-line indentation */
 } Doc;
 
 static GtkWidget *g_win, *g_notebook, *g_status, *g_pos_label, *g_lang_label;
@@ -352,6 +353,90 @@ static void undo_push(Doc *d, gboolean insert, int offset, const char *text)
     g_array_set_size(d->redo, 0);
 }
 
+/* ---- wrapped lines keep the line's indentation ------------------------ */
+
+/* A tag with a negative indent (the line's leading whitespace, in pixels)
+ * makes a hanging indent: the first line stays put and the continuation
+ * lines sit under the text. */
+static void indent_line(Doc *d, int line)
+{
+    GtkTextIter ls, le, p;
+    gtk_text_buffer_get_iter_at_line(d->buf, &ls, line);
+    if (gtk_text_iter_get_line(&ls) != line)
+        return;
+    le = ls;
+    if (!gtk_text_iter_ends_line(&le))
+        gtk_text_iter_forward_to_line_end(&le);
+    gtk_text_iter_forward_char(&le); /* the newline belongs to the paragraph */
+    GSList *tags = gtk_text_iter_get_tags(&ls);
+    for (GSList *t = tags; t; t = t->next) {
+        char *name = NULL;
+        g_object_get(t->data, "name", &name, NULL);
+        if (name && g_str_has_prefix(name, "wi-"))
+            gtk_text_buffer_remove_tag(d->buf, t->data, &ls, &le);
+        g_free(name);
+    }
+    g_slist_free(tags);
+    if (!g_word_wrap)
+        return;
+    int cols = 0;
+    for (p = ls; !gtk_text_iter_ends_line(&p); gtk_text_iter_forward_char(&p)) {
+        gunichar c = gtk_text_iter_get_char(&p);
+        if (c == ' ')
+            cols++;
+        else if (c == '\t')
+            cols += 8 - cols % 8;
+        else
+            break;
+    }
+    if (!cols)
+        return;
+    if (!d->space_px) {
+        PangoLayout *l = gtk_widget_create_pango_layout(d->view, " ");
+        pango_layout_get_pixel_size(l, &d->space_px, NULL);
+        g_object_unref(l);
+        if (d->space_px <= 0)
+            d->space_px = 8;
+    }
+    int w = cols * d->space_px;
+    char name[32];
+    g_snprintf(name, sizeof(name), "wi-%d", w);
+    GtkTextTag *tag = gtk_text_tag_table_lookup(gtk_text_buffer_get_tag_table(d->buf), name);
+    if (!tag)
+        tag = gtk_text_buffer_create_tag(d->buf, name, "indent", -w, NULL);
+    gtk_text_buffer_apply_tag(d->buf, tag, &ls, &le);
+}
+
+static void indent_lines(Doc *d, int from, int to)
+{
+    for (int i = from; i <= to; i++)
+        indent_line(d, i);
+}
+
+static void indent_all(Doc *d)
+{
+    d->space_px = 0; /* the font may have changed */
+    indent_lines(d, 0, gtk_text_buffer_get_line_count(d->buf) - 1);
+}
+
+static void on_insert_after(GtkTextBuffer *buf, GtkTextIter *at, char *text, int len, Doc *d)
+{
+    (void)buf;
+    if (!g_word_wrap)
+        return;
+    GtkTextIter s = *at;
+    gtk_text_iter_backward_chars(&s, (gint)g_utf8_strlen(text, len));
+    indent_lines(d, gtk_text_iter_get_line(&s), gtk_text_iter_get_line(at));
+}
+
+static void on_delete_after(GtkTextBuffer *buf, GtkTextIter *start, GtkTextIter *end, Doc *d)
+{
+    (void)buf;
+    (void)end;
+    if (g_word_wrap)
+        indent_line(d, gtk_text_iter_get_line(start));
+}
+
 static void on_insert_text(GtkTextBuffer *buf, GtkTextIter *at, char *text, int len, Doc *d)
 {
     (void)buf;
@@ -433,6 +518,7 @@ static void apply_font_all(void)
     for (int i = 0; i < n; i++) {
         Doc *d = doc_of(gtk_notebook_get_nth_page(GTK_NOTEBOOK(g_notebook), i));
         apply_font_to(d);
+        indent_all(d);
         d->digits = 0; /* the digit width changed */
         linenum_resize(d);
         gtk_widget_queue_draw(d->view);
@@ -639,8 +725,11 @@ static void wrap_toggle_cb(GtkCheckMenuItem *item, gpointer data)
         return;
     g_word_wrap = on;
     int n = gtk_notebook_get_n_pages(GTK_NOTEBOOK(g_notebook));
-    for (int i = 0; i < n; i++)
-        apply_wrap_to(doc_of(gtk_notebook_get_nth_page(GTK_NOTEBOOK(g_notebook), i)));
+    for (int i = 0; i < n; i++) {
+        Doc *d = doc_of(gtk_notebook_get_nth_page(GTK_NOTEBOOK(g_notebook), i));
+        apply_wrap_to(d);
+        indent_all(d);
+    }
     config_save();
 }
 
@@ -741,6 +830,8 @@ static Doc *doc_new(void)
     gtk_text_buffer_create_tag(d->buf, "find-match", "background", "#ffd54f", "foreground", "#000000", NULL);
     g_signal_connect(d->buf, "insert-text", G_CALLBACK(on_insert_text), d);
     g_signal_connect(d->buf, "delete-range", G_CALLBACK(on_delete_range), d);
+    g_signal_connect_after(d->buf, "insert-text", G_CALLBACK(on_insert_after), d);
+    g_signal_connect_after(d->buf, "delete-range", G_CALLBACK(on_delete_after), d);
     g_signal_connect(d->buf, "changed", G_CALLBACK(on_changed), d);
     g_signal_connect(d->buf, "modified-changed", G_CALLBACK(on_modified), d);
     g_signal_connect(d->buf, "mark-set", G_CALLBACK(on_mark_set), d);
