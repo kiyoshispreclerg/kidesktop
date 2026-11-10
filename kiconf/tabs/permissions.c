@@ -19,6 +19,130 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+/* ---- Pattern columns: show the installed app behind a binary ----------
+ * A rule pattern that is exactly the executable some installed .desktop
+ * launches is shown as that app's icon + name; everything else (arguments,
+ * wildcards, unknown programs) stays as the raw string. Only the display
+ * changes: the models keep the raw pattern, which is what is edited,
+ * removed and written back. */
+typedef struct {
+    char name[NAME_LEN];
+    GdkPixbuf *icon; /* may be NULL */
+} XgAppLook;
+
+static GHashTable *g_xg_app_by_bin; /* resolved binary path -> XgAppLook* */
+
+static void xg_exec_binary(const char *exec, char *out, size_t outsz)
+{
+    out[0] = '\0';
+    char **argv = NULL;
+    int argc = 0;
+    if (!g_shell_parse_argv(exec, &argc, &argv, NULL)) {
+        return;
+    }
+    int i = 0;
+    /* "env VAR=x /bin/app": the program is what follows the prefix. */
+    while (i < argc - 1) {
+        const char *eq = strchr(argv[i], '=');
+        if (!strcmp(argv[i], "env") || (eq && !memchr(argv[i], '/', eq - argv[i]))) {
+            i++;
+        } else {
+            break;
+        }
+    }
+    if (i < argc) {
+        if (strchr(argv[i], '/')) {
+            g_strlcpy(out, argv[i], outsz);
+        } else {
+            char *full = g_find_program_in_path(argv[i]);
+            if (full) {
+                g_strlcpy(out, full, outsz);
+                g_free(full);
+            }
+        }
+    }
+    g_strfreev(argv);
+}
+
+static GdkPixbuf *xg_load_icon(const char *icon)
+{
+    if (!icon[0]) {
+        return NULL;
+    }
+    if (icon[0] == '/') {
+        return gdk_pixbuf_new_from_file_at_size(icon, 16, 16, NULL);
+    }
+    return gtk_icon_theme_load_icon(gtk_icon_theme_get_default(), icon, 16, 0, NULL);
+}
+
+static void xg_app_map_build(void)
+{
+    g_xg_app_by_bin = g_hash_table_new(g_str_hash, g_str_equal);
+    DesktopApp *apps = g_malloc(sizeof(DesktopApp) * MAX_DESKTOP_APPS);
+    int n = scan_all_apps(apps, MAX_DESKTOP_APPS);
+    for (int pass = 0; pass < 2; pass++) { /* visible apps win over NoDisplay ones */
+        for (int i = 0; i < n; i++) {
+            if (apps[i].nodisplay != pass) {
+                continue;
+            }
+            char bin[512];
+            xg_exec_binary(apps[i].exec, bin, sizeof(bin));
+            if (!bin[0] || g_hash_table_lookup(g_xg_app_by_bin, bin)) {
+                continue;
+            }
+            XgAppLook *l = g_new0(XgAppLook, 1);
+            g_strlcpy(l->name, apps[i].name, sizeof(l->name));
+            l->icon = xg_load_icon(apps[i].icon);
+            g_hash_table_insert(g_xg_app_by_bin, g_strdup(bin), l);
+        }
+    }
+    g_free(apps);
+}
+
+static void xg_pattern_cell_data(GtkTreeViewColumn *col, GtkCellRenderer *cell, GtkTreeModel *model,
+                                 GtkTreeIter *iter, gpointer data)
+{
+    (void)col;
+    char *pattern = NULL;
+    gtk_tree_model_get(model, iter, GPOINTER_TO_INT(data), &pattern, -1);
+    const XgAppLook *l = NULL;
+    if (pattern) {
+        if (!g_xg_app_by_bin) {
+            xg_app_map_build();
+        }
+        l = g_hash_table_lookup(g_xg_app_by_bin, pattern);
+    }
+    if (GTK_IS_CELL_RENDERER_PIXBUF(cell)) {
+        g_object_set(cell, "pixbuf", l ? l->icon : NULL, "visible", l && l->icon, NULL);
+    } else {
+        if (l) {
+            char *n = g_markup_escape_text(l->name, -1);
+            char *r = g_markup_escape_text(pattern, -1);
+            char *m = g_strdup_printf("%s  <span size=\"small\" foreground=\"#8a8a8a\">%s</span>", n, r);
+            g_object_set(cell, "markup", m, NULL);
+            g_free(n);
+            g_free(r);
+            g_free(m);
+        } else {
+            g_object_set(cell, "markup", NULL, "text", pattern ? pattern : "", NULL);
+        }
+    }
+    g_free(pattern);
+}
+
+static GtkTreeViewColumn *xg_pattern_column(const char *title, int model_col)
+{
+    GtkTreeViewColumn *tvcol = gtk_tree_view_column_new();
+    gtk_tree_view_column_set_title(tvcol, title);
+    GtkCellRenderer *pix = gtk_cell_renderer_pixbuf_new();
+    GtkCellRenderer *txt = gtk_cell_renderer_text_new();
+    gtk_tree_view_column_pack_start(tvcol, pix, FALSE);
+    gtk_tree_view_column_pack_start(tvcol, txt, TRUE);
+    gtk_tree_view_column_set_cell_data_func(tvcol, pix, xg_pattern_cell_data, GINT_TO_POINTER(model_col), NULL);
+    gtk_tree_view_column_set_cell_data_func(tvcol, txt, xg_pattern_cell_data, GINT_TO_POINTER(model_col), NULL);
+    return tvcol;
+}
+
 /* Permissoes tab widgets + baseline */
 static GtkWidget *g_xg_status_label;
 static GtkWidget *g_xg_no_pause_chk, *g_xg_quiet_chk, *g_xg_always_kill_chk, *g_xg_log_level_spin;
@@ -801,7 +925,9 @@ GtkWidget *build_permissions_tab(void)
     const char *xg_titles[N_XG_COLS] = {"#", _("Tipo"), _("Acao"), _("Padrao")};
     for (int col = 0; col < N_XG_COLS; col++) {
         GtkCellRenderer *renderer = gtk_cell_renderer_text_new();
-        GtkTreeViewColumn *tvcol = gtk_tree_view_column_new_with_attributes(xg_titles[col], renderer, "text", col, NULL);
+        GtkTreeViewColumn *tvcol = col == COL_XG_PATTERN
+                                       ? xg_pattern_column(xg_titles[col], col)
+                                       : gtk_tree_view_column_new_with_attributes(xg_titles[col], renderer, "text", col, NULL);
         gtk_tree_view_column_set_expand(tvcol, col != COL_XG_ORDER);
         gtk_tree_view_append_column(GTK_TREE_VIEW(g_xg_rules_view), tvcol);
     }
@@ -865,7 +991,9 @@ GtkWidget *build_permissions_tab(void)
     const char *xg_sys_titles[N_XG_SYS_COLS] = {"#", _("Tipo"), _("Acao"), _("Padrao"), _("Arquivo"), _("Linha")};
     for (int col = 0; col < N_XG_SYS_COLS; col++) {
         GtkCellRenderer *renderer = gtk_cell_renderer_text_new();
-        GtkTreeViewColumn *tvcol = gtk_tree_view_column_new_with_attributes(xg_sys_titles[col], renderer, "text", col, NULL);
+        GtkTreeViewColumn *tvcol = col == COL_XS_PATTERN
+                                       ? xg_pattern_column(xg_sys_titles[col], col)
+                                       : gtk_tree_view_column_new_with_attributes(xg_sys_titles[col], renderer, "text", col, NULL);
         gtk_tree_view_column_set_expand(tvcol, col != COL_XS_ORDER && col != COL_XS_LINE);
         gtk_tree_view_append_column(GTK_TREE_VIEW(g_xg_sys_rules_view), tvcol);
     }
@@ -945,8 +1073,7 @@ GtkWidget *build_permissions_tab(void)
     g_xg_ignored_store = gtk_list_store_new(1, G_TYPE_STRING);
     g_xg_ignored_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(g_xg_ignored_store));
     gtk_tree_view_append_column(GTK_TREE_VIEW(g_xg_ignored_view),
-                                gtk_tree_view_column_new_with_attributes(_("Programa (caminho ou padrao)"),
-                                                                         gtk_cell_renderer_text_new(), "text", 0, NULL));
+                                xg_pattern_column(_("Programa (caminho ou padrao)"), 0));
     GtkWidget *ign_scroll = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(ign_scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
     gtk_widget_set_size_request(ign_scroll, -1, 50);
