@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kiconf\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-06 09:58-0300\n"
+"POT-Creation-Date: 2026-11-10 00:37-0300\n"
 "PO-Revision-Date: 2026-10-01 13:53-0300\n"
 "Last-Translator: Automatically generated\n"
 "Language-Team: none\n"
@@ -197,15 +197,19 @@ msgid "Menu de programas"
 msgstr "Application menu"
 
 #: kiconf.c:183
+msgid "Acoes de arquivos"
+msgstr "File actions"
+
+#: kiconf.c:184
 #, fuzzy
 msgid "Lancador"
 msgstr "Advanced"
 
-#: kiconf.c:184
+#: kiconf.c:185
 msgid "Iniciar automaticamente"
 msgstr "Autostart"
 
-#: kiconf.c:185 tabs/effects.c:411 tabs/effects.c:416 tabs/effects.c:421
+#: kiconf.c:186 tabs/effects.c:411 tabs/effects.c:416 tabs/effects.c:421
 #: tabs/effects.c:426 tabs/effects.c:433 tabs/effects.c:440 tabs/effects.c:447
 #: tabs/effects.c:454 tabs/effects.c:459 tabs/effects.c:465 tabs/effects.c:473
 #: tabs/effects.c:482 tabs/effects.c:492 tabs/effects.c:498 tabs/effects.c:532
@@ -213,39 +217,39 @@ msgstr "Autostart"
 msgid "Eventos"
 msgstr "Events"
 
-#: kiconf.c:186
+#: kiconf.c:187
 msgid "Historico"
 msgstr "History"
 
-#: kiconf.c:187
+#: kiconf.c:188
 msgid "Sons"
 msgstr "Sounds"
 
-#: kiconf.c:188 tabs/users.c:527
+#: kiconf.c:189 tabs/users.c:527
 msgid "Usuarios"
 msgstr "Users"
 
-#: kiconf.c:189 tabs/services.c:402
+#: kiconf.c:190 tabs/services.c:402
 msgid "Servicos"
 msgstr "Services"
 
-#: kiconf.c:190
+#: kiconf.c:191
 msgid "Login"
 msgstr "Login"
 
-#: kiconf.c:191
+#: kiconf.c:192
 msgid "Acessibilidade"
 msgstr "Accessibility"
 
-#: kiconf.c:192
+#: kiconf.c:193
 msgid "Bloqueio de tela"
 msgstr "Screen lock"
 
-#: kiconf.c:249
+#: kiconf.c:250
 msgid "_Voltar"
 msgstr "_Back"
 
-#: kiconf.c:278 tabs/accessibility.c:511 tabs/appearance.c:785
+#: kiconf.c:279 tabs/accessibility.c:511 tabs/appearance.c:785
 #: tabs/autostart.c:511 tabs/autostart.c:549 tabs/disks.c:358 tabs/energy.c:452
 #: tabs/history.c:382 tabs/history.c:449 tabs/input.c:646 tabs/kitheme.c:610
 #: tabs/launcher.c:197 tabs/lock.c:195 tabs/login.c:701 tabs/permissions.c:787
@@ -254,11 +258,11 @@ msgstr "_Back"
 msgid "Aplicar"
 msgstr "Apply"
 
-#: kiconf.c:278 tabs/events.c:323 tabs/sounds.c:382 tabs/system.c:805
+#: kiconf.c:279 tabs/events.c:323 tabs/sounds.c:382 tabs/system.c:805
 msgid "Salvar"
 msgstr "Save"
 
-#: kiconf.c:316
+#: kiconf.c:317
 msgid ""
 "Ha alteracoes nao aplicadas nesta aba. Tem certeza que deseja sair sem "
 "aplica-las?"
@@ -266,47 +270,47 @@ msgstr ""
 "There are unapplied changes in this tab. Are you sure you want to quit "
 "without applying them?"
 
-#: kiconf.c:318
+#: kiconf.c:319
 msgid "Continuar editando"
 msgstr "Keep editing"
 
-#: kiconf.c:319
+#: kiconf.c:320
 msgid "Sair sem aplicar"
 msgstr "Leave without applying"
 
-#: kiconf.c:321 tabs/users.c:555 tabs/users.c:557
+#: kiconf.c:322 tabs/users.c:555 tabs/users.c:557
 msgid "Alteracoes pendentes"
 msgstr "Pending changes"
 
-#: kiconf.c:497
+#: kiconf.c:498
 msgid "Personalizacao"
 msgstr "Personalization"
 
-#: kiconf.c:498
+#: kiconf.c:499
 msgid "Hardware e entrada"
 msgstr "Hardware and input"
 
-#: kiconf.c:499
+#: kiconf.c:500
 msgid "Programas"
 msgstr "Programs"
 
-#: kiconf.c:500
+#: kiconf.c:501
 msgid "Sistema e seguranca"
 msgstr "System and security"
 
-#: kiconf.c:531 tabs/menu.c:143 tabs/menu.c:444
+#: kiconf.c:532 tabs/menu.c:143 tabs/menu.c:444
 msgid "Outros"
 msgstr "Other"
 
-#: kiconf.c:631
+#: kiconf.c:632
 msgid "Nenhum modulo encontrado."
 msgstr "No modules found."
 
-#: kiconf.c:687
+#: kiconf.c:688
 msgid "Filtrar modulos"
 msgstr "Filter modules"
 
-#: kiconf.c:972 kiconf.c:984
+#: kiconf.c:973 kiconf.c:985
 msgid "Inicio"
 msgstr "Home"
 
@@ -1593,6 +1597,14 @@ msgstr "Add"
 msgid "Ver feriados..."
 msgstr "Show holidays..."
 
+#: tabs/fileactions.c:16
+msgid ""
+"As acoes instaladas para o menu de contexto do gerenciador de arquivos "
+"aparecerao aqui, para ligar ou desligar cada uma."
+msgstr ""
+"The actions installed for the file manager's context menu will be listed here, "
+"so each one can be turned on or off."
+
 #: tabs/history.c:266
 msgid "kistory nao encontrado, ou kistoryd parado sem historico ainda gravado."
 msgstr "kistory not found, or kistoryd stopped with no history recorded yet."
@@ -2222,8 +2234,8 @@ msgid ""
 "Se a busca for o nome de um arquivo ou pasta, lista os programas associados "
 "a ele (como o Abrir com do kifiles)."
 msgstr ""
-"If the search is the name of a file or folder, lists the programs "
-"associated with it (like kifiles' Open With)."
+"If the search is the name of a file or folder, lists the programs associated "
+"with it (like kifiles' Open With)."
 
 #: tabs/launcher.c:142
 msgid "Nao foi possivel salvar xisserve.conf"

@@ -125,7 +125,7 @@
 #include "tabs.h"
 #include "track.h"
 
-#define KICONF_VERSION "0.2.112"
+#define KICONF_VERSION "0.2.113"
 
 /* ---- lazy tab construction ---------------------------------------------
  * Each build_X_tab() was cheap at first, but several now do real I/O the
@@ -180,6 +180,7 @@ static LazyTab g_builtin_tabs[] = {
     {N_("Programas padrao"), GTK_STOCK_EXECUTE, build_programs_tab, NULL, 0, "programs", "navegador browser default", NULL, NULL},
     {N_("Associacoes de arquivos"), GTK_STOCK_OPEN, build_associations_tab, NULL, 0, "programs", "mime tipos types", NULL, NULL},
     {N_("Menu de programas"), GTK_STOCK_DND, build_menu_tab, NULL, 0, "programs", "menu applications launcher", NULL, NULL},
+    {N_("Acoes de arquivos"), GTK_STOCK_FILE, build_fileactions_tab, NULL, 0, "programs", "menu de contexto context menu servicemenu service menus kifiles kizip compactar extrair converter acoes actions", NULL, NULL},
     {N_("Lancador"), GTK_STOCK_FIND, build_launcher_tab, NULL, 0, "programs", "xisserve busca search plugins calculadora calculator grade grid lancador launcher", NULL, NULL},
     {N_("Iniciar automaticamente"), GTK_STOCK_MEDIA_PLAY, build_autostart_tab, NULL, 0, "programs", "autostart startup sessao", NULL, NULL},
     {N_("Eventos"), GTK_STOCK_INDEX, build_events_tab, NULL, 0, "system", "notificacoes notifications", NULL, NULL},

@@ -29,6 +29,7 @@ GtkWidget *build_energy_tab(void);
 GtkWidget *build_programs_tab(void);
 GtkWidget *build_associations_tab(void);
 GtkWidget *build_menu_tab(void);
+GtkWidget *build_fileactions_tab(void);
 GtkWidget *build_launcher_tab(void);
 GtkWidget *build_autostart_tab(void);
 GtkWidget *build_events_tab(void);

@@ -46,7 +46,7 @@ LIBS := $(shell pkg-config --cflags --libs gtk+-2.0 x11 xrandr gmodule-2.0) -lm 
 SRCS := kiconf.c plugins.c widgetmods.c common.c sysinfo.c track.c tabs/appearance.c tabs/kitheme.c tabs/shortcuts.c tabs/input.c \
         tabs/permissions.c tabs/permissions_rules.c tabs/panels.c tabs/wallpaper.c \
         tabs/screens.c tabs/windows.c tabs/effects.c tabs/corners.c tabs/launchfx.c tabs/system.c \
-        tabs/programs.c tabs/associations.c tabs/menu.c tabs/launcher.c tabs/autostart.c tabs/energy.c tabs/events.c \
+        tabs/programs.c tabs/associations.c tabs/menu.c tabs/fileactions.c tabs/launcher.c tabs/autostart.c tabs/energy.c tabs/events.c \
         tabs/history.c tabs/accessibility.c tabs/sounds.c tabs/users.c tabs/services.c tabs/login.c tabs/lock.c tabs/disks.c \
         ../shared/xis_outputs.c ../shared/xis_direction.c ../shared/xis_sound.c ../shared/xis_holidays.c ../shared/xis_winstate.c ../shared/xis_safefile.c ../shared/xis_launchfx_conf.c ../shared/xis_rootexec.c \
         ../shared/xis_keyspec.c ../shared/xis_keycapture.c \
