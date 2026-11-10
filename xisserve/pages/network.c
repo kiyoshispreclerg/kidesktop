@@ -259,18 +259,55 @@ static void on_rescan_clicked(GtkWidget *btn, gpointer data)
     start_job(TRUE);
 }
 
-static void do_connect(const char *ssid, const char *password)
+static void do_connect(const char *ssid, const char *password, gboolean hidden)
 {
     char sq[256], cmd[1024];
     shell_quote(ssid, sq, sizeof(sq));
     if (password && password[0]) {
         char pq[256];
         shell_quote(password, pq, sizeof(pq));
-        snprintf(cmd, sizeof(cmd), "nmcli device wifi connect %s password %s", sq, pq);
+        snprintf(cmd, sizeof(cmd), "nmcli device wifi connect %s password %s%s", sq, pq, hidden ? " hidden yes" : "");
     } else {
-        snprintf(cmd, sizeof(cmd), "nmcli device wifi connect %s", sq);
+        snprintf(cmd, sizeof(cmd), "nmcli device wifi connect %s%s", sq, hidden ? " hidden yes" : "");
     }
     run_detached(cmd);
+}
+
+/* Runs one of our own dialogs. A pinned xisserve is keep-above, so the
+ * dialog needs to be too or it opens underneath; the transient-popup guard
+ * stops the focus loss from closing the popup. */
+static int run_dialog(GtkWidget *dlg)
+{
+    gtk_window_set_keep_above(GTK_WINDOW(dlg), TRUE);
+    gtk_window_set_position(GTK_WINDOW(dlg), GTK_WIN_POS_CENTER_ON_PARENT);
+    gtk_widget_show_all(dlg);
+    xisserve_transient_popup_begin();
+    int resp = gtk_dialog_run(GTK_DIALOG(dlg));
+    xisserve_transient_popup_end();
+    return resp;
+}
+
+static void on_hidden_clicked(GtkWidget *btn, gpointer data)
+{
+    (void)data;
+    GtkWidget *dlg = gtk_dialog_new_with_buttons(_("Rede oculta"), GTK_WINDOW(gtk_widget_get_toplevel(btn)),
+                                                  GTK_DIALOG_MODAL, GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
+                                                  GTK_STOCK_CONNECT, GTK_RESPONSE_OK, NULL);
+    GtkWidget *ssid = gtk_entry_new(), *pass = gtk_entry_new();
+    gtk_entry_set_visibility(GTK_ENTRY(pass), FALSE);
+    gtk_entry_set_activates_default(GTK_ENTRY(ssid), TRUE);
+    gtk_entry_set_activates_default(GTK_ENTRY(pass), TRUE);
+    gtk_dialog_set_default_response(GTK_DIALOG(dlg), GTK_RESPONSE_OK);
+    GtkWidget *vbox = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
+    gtk_box_pack_start(GTK_BOX(vbox), gtk_label_new(_("Nome da rede (SSID)")), FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(vbox), ssid, FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(vbox), gtk_label_new(_("Senha (vazio se a rede for aberta)")), FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(vbox), pass, FALSE, FALSE, 4);
+    if (run_dialog(dlg) == GTK_RESPONSE_OK && gtk_entry_get_text(GTK_ENTRY(ssid))[0]) {
+        do_connect(gtk_entry_get_text(GTK_ENTRY(ssid)), gtk_entry_get_text(GTK_ENTRY(pass)), TRUE);
+    }
+    gtk_widget_destroy(dlg);
+    rebuild();
 }
 
 static void on_wifi_row_clicked(GtkWidget *btn, gpointer data)
@@ -281,7 +318,7 @@ static void on_wifi_row_clicked(GtkWidget *btn, gpointer data)
         return; /* already the active network -- nothing to do on click */
     }
     if (open_net || w->known) {
-        do_connect(w->ssid, NULL);
+        do_connect(w->ssid, NULL, FALSE);
         rebuild();
         return;
     }
@@ -296,9 +333,8 @@ static void on_wifi_row_clicked(GtkWidget *btn, gpointer data)
     GtkWidget *vbox = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
     gtk_box_pack_start(GTK_BOX(vbox), label, FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(vbox), entry, FALSE, FALSE, 4);
-    gtk_widget_show_all(dlg);
-    if (gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_OK) {
-        do_connect(w->ssid, gtk_entry_get_text(GTK_ENTRY(entry)));
+    if (run_dialog(dlg) == GTK_RESPONSE_OK) {
+        do_connect(w->ssid, gtk_entry_get_text(GTK_ENTRY(entry)), FALSE);
     }
     gtk_widget_destroy(dlg);
     rebuild();
@@ -578,6 +614,9 @@ static void build_header(void)
     GtkWidget *rescan_btn = gtk_button_new_with_label(_("Atualizar"));
     g_signal_connect(rescan_btn, "clicked", G_CALLBACK(on_rescan_clicked), NULL);
     gtk_box_pack_start(GTK_BOX(top), rescan_btn, FALSE, FALSE, 0);
+    GtkWidget *hidden_btn = gtk_button_new_with_label(_("Rede oculta..."));
+    g_signal_connect(hidden_btn, "clicked", G_CALLBACK(on_hidden_clicked), NULL);
+    gtk_box_pack_start(GTK_BOX(top), hidden_btn, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(g_box), top, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(g_box), gtk_hseparator_new(), FALSE, FALSE, 2);
 }
