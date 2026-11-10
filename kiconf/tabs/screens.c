@@ -1958,16 +1958,55 @@ static char *screens_state(gpointer data)
     return g_string_free(s, FALSE);
 }
 
-static void on_screens_apply(GtkWidget *widget, gpointer data)
+#define SCREENS_CONFIRM_SECS 15
+
+typedef struct {
+    GtkWidget *dlg;
+    GtkWidget *label;
+    int left;
+} ScreensConfirm;
+
+static void screens_confirm_text(ScreensConfirm *c)
 {
-    (void)widget;
-    (void)data;
-    for (int i = 0; i < g_n_outputs; i++) {
-        apply_output_diff(&g_outputs[i], &g_outputs_baseline[i]);
-        apply_extra_prop_diffs(&g_outputs[i], &g_outputs_baseline[i]);
+    char *t = g_strdup_printf(_("Manter esta configuracao de tela? Revertendo em %d s."), c->left);
+    gtk_label_set_text(GTK_LABEL(c->label), t);
+    g_free(t);
+}
+
+static gboolean screens_confirm_tick(gpointer data)
+{
+    ScreensConfirm *c = data;
+    if (--c->left <= 0) {
+        gtk_dialog_response(GTK_DIALOG(c->dlg), GTK_RESPONSE_CANCEL);
+        return FALSE;
     }
-    screens_redetect_preserving_extras();
-    save_screens_layout();
+    screens_confirm_text(c);
+    return TRUE;
+}
+
+/* Modal "keep this mode?" box: 1 = keep, 0 = revert (button or timeout). */
+static int screens_confirm_keep(void)
+{
+    GtkWidget *top = gtk_widget_get_toplevel(g_screens_canvas);
+    GtkWidget *dlg = gtk_message_dialog_new(GTK_IS_WINDOW(top) ? GTK_WINDOW(top) : NULL, GTK_DIALOG_MODAL,
+                                            GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE, "%s", "");
+    gtk_window_set_title(GTK_WINDOW(dlg), _("Confirmar alteracao de tela"));
+    gtk_dialog_add_button(GTK_DIALOG(dlg), _("Manter"), GTK_RESPONSE_ACCEPT);
+    gtk_dialog_add_button(GTK_DIALOG(dlg), _("Reverter"), GTK_RESPONSE_CANCEL);
+    gtk_dialog_set_default_response(GTK_DIALOG(dlg), GTK_RESPONSE_CANCEL);
+    ScreensConfirm c = {dlg, GTK_MESSAGE_DIALOG(dlg)->label, SCREENS_CONFIRM_SECS};
+    screens_confirm_text(&c);
+    guint id = g_timeout_add_seconds(1, screens_confirm_tick, &c);
+    int resp = gtk_dialog_run(GTK_DIALOG(dlg));
+    if (c.left > 0) {
+        g_source_remove(id);
+    }
+    gtk_widget_destroy(dlg);
+    return resp == GTK_RESPONSE_ACCEPT;
+}
+
+static void screens_refresh_ui(void)
+{
     if (g_screens_selected >= g_n_outputs) {
         g_screens_selected = -1;
     }
@@ -1983,6 +2022,58 @@ static void on_screens_apply(GtkWidget *widget, gpointer data)
     screens_update_note();
     gtk_widget_queue_draw(g_screens_canvas);
     kiconf_track_applied(g_screens_canvas);
+}
+
+static void on_screens_apply(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    (void)data;
+    /* The screen as it is right now, to go back to if the user doesn't
+     * confirm the new one. */
+    static ScreenOutput prev[MAX_OUTPUTS];
+    int n_prev = g_n_outputs;
+    memcpy(prev, g_outputs_baseline, sizeof(prev));
+
+    for (int i = 0; i < g_n_outputs; i++) {
+        apply_output_diff(&g_outputs[i], &g_outputs_baseline[i]);
+        apply_extra_prop_diffs(&g_outputs[i], &g_outputs_baseline[i]);
+    }
+    screens_redetect_preserving_extras();
+    screens_refresh_ui();
+
+    if (!screens_confirm_keep()) {
+        /* Back to `prev`: diff each output from what is live now. */
+        for (int i = 0; i < n_prev; i++) {
+            for (int j = 0; j < g_n_outputs; j++) {
+                if (!strcmp(prev[i].name, g_outputs[j].name)) {
+                    apply_output_diff(&prev[i], &g_outputs[j]);
+                    apply_extra_prop_diffs(&prev[i], &g_outputs[j]);
+                    break;
+                }
+            }
+        }
+        screens_redetect_preserving_extras();
+        /* redetect keeps the live mirror/dpi/scale; the old ones win. */
+        for (int i = 0; i < n_prev; i++) {
+            for (int j = 0; j < g_n_outputs; j++) {
+                if (!strcmp(prev[i].name, g_outputs[j].name)) {
+                    snprintf(g_outputs[j].mirror_of, sizeof(g_outputs[j].mirror_of), "%s", prev[i].mirror_of);
+                    if (!g_outputs[j].dpi_read) {
+                        g_outputs[j].dpi = prev[i].dpi;
+                    }
+                    if (!g_outputs[j].scale_read) {
+                        g_outputs[j].scale_x = prev[i].scale_x;
+                        g_outputs[j].scale_y = prev[i].scale_y;
+                    }
+                    break;
+                }
+            }
+        }
+        memcpy(g_outputs_baseline, g_outputs, sizeof(g_outputs));
+        screens_refresh_ui();
+        return;
+    }
+    save_screens_layout();
 }
 
 static void on_screens_refresh(GtkWidget *widget, gpointer data)
